@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 
 	"github.com/containerd/containerd/platforms"
 	"github.com/google/uuid"
@@ -147,14 +146,10 @@ func convertCacheOptionEntries(ims []bk.CacheOptionsEntry) []bkgw.CacheOptionsEn
 }
 
 func (c *Client) buildfn(ctx context.Context, pctx *plancontext.Context, fn DoFunc, ch chan *bk.SolveStatus) error {
-	wg := sync.WaitGroup{}
 
+	solveStatusFilter := solver.NewSolveStatusFilter(ch)
 	// Close output channel
-	defer func() {
-		// Wait until all the events are caught
-		wg.Wait()
-		close(ch)
-	}()
+	defer solveStatusFilter.Close()
 
 	lg := log.Ctx(ctx)
 
@@ -184,34 +179,18 @@ func (c *Client) buildfn(ctx context.Context, pctx *plancontext.Context, fn DoFu
 		Interface("attrs", opts.FrontendAttrs).
 		Msg("spawning buildkit job")
 
-	// Catch output from events
-	catchOutput := func(inCh chan *bk.SolveStatus) {
-		for e := range inCh {
-			ch <- e
-		}
-		wg.Done()
-	}
-
 	// Catch build events
 	// Closed by buildkit
-	buildCh := make(chan *bk.SolveStatus)
-	wg.Add(1)
-	go catchOutput(buildCh)
+	buildCh := solveStatusFilter.Add()
 
 	resp, err := c.c.Build(ctx, opts, "", func(ctx context.Context, gw bkgw.Client) (*bkgw.Result, error) {
-		// Catch solver's events
-		// Closed by solver.Stop
-		eventsCh := make(chan *bk.SolveStatus)
-		wg.Add(1)
-		go catchOutput(eventsCh)
-
 		s := solver.New(solver.Opts{
-			Control:      c.c,
-			Gateway:      gw,
-			Events:       eventsCh,
-			Auth:         auth,
-			NoCache:      c.cfg.NoCache,
-			CacheImports: convertCacheOptionEntries(opts.CacheImports),
+			Control:           c.c,
+			Gateway:           gw,
+			SolveStatusFilter: solveStatusFilter,
+			Auth:              auth,
+			NoCache:           c.cfg.NoCache,
+			CacheImports:      convertCacheOptionEntries(opts.CacheImports),
 		})
 
 		// Close events channel

@@ -22,28 +22,26 @@ import (
 )
 
 type Solver struct {
-	opts     Opts
-	eventsWg *sync.WaitGroup
-	closeCh  chan *bk.SolveStatus
-	refs     []bkgw.Reference
-	l        sync.RWMutex
+	opts    Opts
+	closeCh chan *bk.SolveStatus
+	refs    []bkgw.Reference
+	l       sync.RWMutex
 }
 
 type Opts struct {
-	Control      *bk.Client
-	Gateway      bkgw.Client
-	Events       chan *bk.SolveStatus
-	Context      *plancontext.Context
-	Auth         *RegistryAuthProvider
-	NoCache      bool
-	CacheImports []bkgw.CacheOptionsEntry
+	Control           *bk.Client
+	Gateway           bkgw.Client
+	SolveStatusFilter *SolveStatusFilter
+	Context           *plancontext.Context
+	Auth              *RegistryAuthProvider
+	NoCache           bool
+	CacheImports      []bkgw.CacheOptionsEntry
 }
 
 func New(opts Opts) *Solver {
 	return &Solver{
-		eventsWg: &sync.WaitGroup{},
-		closeCh:  make(chan *bk.SolveStatus),
-		opts:     opts,
+		closeCh: make(chan *bk.SolveStatus),
+		opts:    opts,
 	}
 }
 
@@ -76,8 +74,6 @@ func (s *Solver) NoCache() bool {
 
 func (s *Solver) Stop() {
 	close(s.closeCh)
-	s.eventsWg.Wait()
-	close(s.opts.Events)
 }
 
 func (s *Solver) AddCredentials(target, username, secret string) {
@@ -179,18 +175,6 @@ func (s *Solver) Solve(ctx context.Context, st llb.State, platform specs.Platfor
 	return ref, nil
 }
 
-// Forward events from solver to the main events channel
-// It creates a task in the solver waiting group to be
-// sure that everything will be forward to the main channel
-func (s *Solver) forwardEvents(ch chan *bk.SolveStatus) {
-	s.eventsWg.Add(1)
-	defer s.eventsWg.Done()
-
-	for event := range ch {
-		s.opts.Events <- event
-	}
-}
-
 // Export will export `st` to `output`
 // FIXME: this is currently implemented as a hack, starting a new Build session
 // within buildkit from the Control API. Ideally the Gateway API should allow to
@@ -217,11 +201,8 @@ func (s *Solver) Export(ctx context.Context, st llb.State, img *dockerfile2llb.I
 		},
 	}
 
-	ch := make(chan *bk.SolveStatus)
-
-	// Forward this build session events to the main events channel, for logging
-	// purposes.
-	go s.forwardEvents(ch)
+	// closed by buildkit
+	ch := s.opts.SolveStatusFilter.Add()
 
 	return s.opts.Control.Build(ctx, opts, "", func(ctx context.Context, c bkgw.Client) (*bkgw.Result, error) {
 		res, err := c.Solve(ctx, bkgw.SolveRequest{
@@ -282,4 +263,52 @@ func CleanError(err error) error {
 	}
 
 	return errors.New(msg)
+}
+
+type SolveStatusFilter struct {
+	outCh            chan<- *bk.SolveStatus
+	vertexLogHandler map[digest.Digest]chan *bk.SolveStatus
+	mu               sync.Mutex
+	wg               sync.WaitGroup
+}
+
+func NewSolveStatusFilter(outCh chan<- *bk.SolveStatus) *SolveStatusFilter {
+	return &SolveStatusFilter{
+		vertexLogHandler: make(map[digest.Digest]chan *bk.SolveStatus),
+		outCh:            outCh,
+	}
+}
+
+func (f *SolveStatusFilter) Add() chan *bk.SolveStatus {
+	ch := make(chan *bk.SolveStatus)
+	f.wg.Add(1)
+	go func() {
+		for e := range ch {
+			if e != nil && len(e.Logs) > 0 {
+				dgst := e.Logs[0].Vertex
+				f.mu.Lock()
+				if handler, ok := f.vertexLogHandler[dgst]; ok && handler != ch {
+					e.Logs = nil
+				} else if !ok {
+					f.vertexLogHandler[dgst] = ch
+				}
+				f.mu.Unlock()
+			}
+			f.outCh <- e
+		}
+		f.mu.Lock()
+		for dgst, handler := range f.vertexLogHandler {
+			if handler == ch {
+				delete(f.vertexLogHandler, dgst)
+			}
+		}
+		f.mu.Unlock()
+		f.wg.Done()
+	}()
+	return ch
+}
+
+func (f *SolveStatusFilter) Close() {
+	f.wg.Wait()
+	close(f.outCh)
 }

@@ -1,74 +1,34 @@
 package main
 
 import (
-	"strings"
 	"dagger.io/dagger"
 	"dagger.io/dagger/core"
 )
 
 dagger.#Plan & {
-	client: commands: sops: {
-		name: "sops"
-		args: ["-d", "secrets_sops.yaml"]
-		stdout: dagger.#Secret
-	}
-
-	#auth: {
-		username: "daggertest"
-		secret:   actions.sopsSecrets.output.DOCKERHUB_TOKEN.contents
-	}
-
 	actions: {
-		sopsSecrets: core.#DecodeSecret & {
-			format: "yaml"
-			input:  client.commands.sops.stdout
-		}
+    baseImage: core.#Pull & {
+      source: "alpine:3.15.0"
+    }
 
-		randomString: {
-			baseImage: core.#Pull & {
-				source: "alpine:3.15.0@sha256:e7d88de73db3d3fd9b2d63aa7f447a10fd0220b7cbf39803c803f2af9ba256b3"
-			}
+    image: core.#Exec & {
+      input: baseImage.output
+      args: [
+        "sh", "-c", "echo 18 && dd if=/dev/urandom bs=32 count=1 status=none | md5sum && sleep 1",
+      ]
+    }
 
-			image: core.#Exec & {
-				input: baseImage.output
-				args: [
-					"sh", "-c", "echo -n $RANDOM > /output.txt",
-				]
-			}
-
-			outputFile: core.#ReadFile & {
-				input: image.output
-				path:  "/output.txt"
-			}
-
-			output: outputFile.contents
-		}
+    imageB: core.#Exec & {
+      input: image.output
+      args: [
+        "sh", "-c", "echo 17 && dd if=/dev/urandom bs=32 count=1 status=none | md5sum && sleep 1",
+      ]
+    }
 
 		// Push image with random content
 		push: core.#Push & {
-			dest:  "daggerio/ci-test:\(randomString.output)"
-			input: randomString.image.output
-			config: env: FOO: randomString.output
-			auth: #auth
+			dest:  "127.0.0.1:5000/testdupe:latest"
+			input: imageB.output
 		}
-
-		// Pull same image and check the content
-		pull: core.#Pull & {
-			source: "daggerio/ci-test:\(randomString.output)"
-			auth:   #auth
-		} & {
-			// check digest
-			digest: strings.Split(push.result, "@")[1]
-			// check image config
-			config: env: FOO: randomString.output
-		}
-
-		pullOutputFile: core.#ReadFile & {
-			input: pull.output
-			path:  "/output.txt"
-		}
-
-		// Check output file in the pulled image
-		pullContent: string & pullOutputFile.contents & randomString.contents
 	}
 }
