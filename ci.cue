@@ -79,7 +79,7 @@ dagger.#Plan & {
 		lint: {
 			go: golangci.#Lint & {
 				source:  _source
-				version: "1.45.2"
+				version: "1.45.1"
 			}
 
 			shell: shellcheck.#Lint & {
