@@ -60,6 +60,6 @@ jobs:
           DAGGER_LOG_LEVEL: "debug"
           DAGGER_LOG_FORMAT: "plain"
           DAGGER_CACHE_TO: "type=gha,mode=max,scope=dagger-ci-build"
-          DAGGER_CACHE_FROM: "type=gha,scope=dagger-ci-build"
+          DAGGER_CACHE_FROM: "type=gha,scope=dagger-ci"
         run: |
           dagger do build
