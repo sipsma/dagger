@@ -56,7 +56,7 @@ lint: dagger # Lint everything
 integration: core-integration universe-test doc-test # Run all integration tests
 
 .PHONY: core-integration
-core-integration: dagger-debug # Run core integration tests
+core-integration: dagger-debug init-buildkitd # Run core integration tests
 	yarn --cwd "./tests" install
 	DAGGER_BINARY="$(shell pwd)/cmd/dagger/dagger-debug" yarn --cwd "./tests" test
 
@@ -66,12 +66,12 @@ core-integration: dagger-debug # Run core integration tests
 # 	DAGGER_BINARY="$(shell pwd)/cmd/dagger/dagger-debug" yarn --cwd "./universe" test
 
 .PHONY: universe-test
-universe-test: dagger-debug # Run universe tests
+universe-test: dagger-debug init-buildkitd # Run universe tests
 	yarn --cwd "./pkg/universe.dagger.io" install
 	DAGGER_BINARY="$(shell pwd)/cmd/dagger/dagger-debug" yarn --cwd "./pkg/universe.dagger.io" test
 
 .PHONY: doc-test
-doc-test: dagger-debug # Test docs
+doc-test: dagger-debug init-buildkitd # Test docs
 	yarn --cwd "./docs/learn/tests" install
 	DAGGER_BINARY="$(shell pwd)/cmd/dagger/dagger-debug" yarn --cwd "./docs/learn/tests" test
 
@@ -91,3 +91,7 @@ web: # Run the website locally
 .PHONY: todo
 todo: # Find all TODO items
 	grep -r -A 1 "TODO:" $(CURDIR)
+
+.PHONY: init-buildkitd
+init-buildkitd: dagger-debug # Pre-initialize buildkitd inside a docker container by running a no-op action
+	$(shell pwd)/cmd/dagger/dagger-debug do nop

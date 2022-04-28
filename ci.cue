@@ -106,5 +106,11 @@ dagger.#Plan & {
 				source: _source
 			}
 		}
+
+		// nop target used to pre-initialize buildkitd inside
+		// docker before running tests
+		nop: core.#Nop & {
+      input: "nop"
+    }
 	}
 }
