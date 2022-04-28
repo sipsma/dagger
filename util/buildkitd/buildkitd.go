@@ -228,10 +228,10 @@ func waitBuildkit(ctx context.Context) error {
 	// FIXME Does output "failed to wait: signal: broken pipe"
 	defer c.Close()
 
-	// Try to connect every 100ms up to 100 times (10 seconds total)
+	// Try to connect every 1s up to 10 times (10 seconds total)
 	const (
-		retryPeriod   = 100 * time.Millisecond
-		retryAttempts = 100
+		retryPeriod   = 1000 * time.Millisecond
+		retryAttempts = 10
 	)
 
 	for retry := 0; retry < retryAttempts; retry++ {
@@ -239,6 +239,7 @@ func waitBuildkit(ctx context.Context) error {
 		if err == nil {
 			return nil
 		}
+		log.Ctx(ctx).Debug().Err(err).Msg("error connecting to buildkitd in retry loop")
 		time.Sleep(retryPeriod)
 	}
 	return errors.New("buildkit failed to respond")
