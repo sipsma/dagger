@@ -238,7 +238,9 @@ func installBuildkit(ctx context.Context) error {
 		"--privileged",
 		image+":"+vendoredVersion,
 		"--debug",
+		"--allow-insecure-entitlement", "security.insecure",
 	)
+
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		// If the daemon failed to start because it's already running,

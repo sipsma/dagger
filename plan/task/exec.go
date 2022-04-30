@@ -122,6 +122,15 @@ func (t *asyncExecTask) Run(ctx context.Context, pctx *plancontext.Context, s *s
 		req.Proc.Env = append(req.Proc.Env, fmt.Sprintf("%s=%s", env.Label(), s))
 	}
 
+	// TODO:
+	privileged, err := v.Lookup("privileged").Bool()
+	if err != nil {
+		return nil, err
+	}
+	if privileged {
+		req.Proc.SecurityMode = pb.SecurityMode_INSECURE
+	}
+
 	// platform
 	platform := pb.PlatformFromSpec(pctx.Platform.Get())
 	req.Container.Platform = &platform

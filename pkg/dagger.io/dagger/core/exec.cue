@@ -73,6 +73,9 @@ import "dagger.io/dagger"
 	// Environment variables
 	env: [key=string]: string
 
+  // TODO:
+  privileged: true | *false
+
 	_id: string | null @dagger(generated)
 }
 

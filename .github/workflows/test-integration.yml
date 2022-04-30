@@ -79,12 +79,29 @@ jobs:
           echo "DAGGER_CACHE_FROM=type=gha,scope=${{env.DAGGER_CACHE_BASE}}-main type=gha,scope=${{env.DAGGER_CACHE_BASE}}-${{github.event.number}}" >> $GITHUB_ENV
         if: ${{ github.event_name == 'pull_request' }}
 
-      - name: Test
-        run: |
-          env
-          make core-integration
+      - name: "Build Dagger"
+        uses: dagger/dagger-for-github@v2
+        with:
+          cmds: |
+            do build
 
-      - name: Print Buildkitd Logs
-        if: ${{ failure() }}
+      - name: Run Cache Test
         run: |
-          docker logs dagger-buildkitd
+          ./bin/dagger do --log-format=plain -l debug -p cachetest/cachetest.cue --cache-to="" --cache-from="" e2etest
+
+      - name: Print WithCache Buildkitd Logs
+        if: always()
+        run: |
+          cat ./logs/withCache/buildkitd.log
+
+      - name: Print WithoutCache Buildkitd Logs
+        if: always()
+        run: |
+          cat ./logs/withoutCache/buildkitd.log
+
+      - name: Upload Jaegerdata
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: upload-jaegerdata
+          path: ./jaeger

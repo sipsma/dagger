@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"syscall"
+	"time"
 
 	"github.com/moby/buildkit/frontend/gateway/client"
 	gatewayapi "github.com/moby/buildkit/frontend/gateway/pb"
@@ -72,20 +74,31 @@ func (s *Solver) StopContainer(ctx context.Context, ctrID string) (uint8, error)
 
 	// Releasing the container sends SIGKILL to the process.
 	// Support for sending other signals first is not implemented yet, but can be.
-	exitCode, err := getExitCode(c.ctr.Release(ctx))
-	if err != nil {
-		c.exitErr = fmt.Errorf("failed to release container: %w", err)
-		return 0, c.exitErr
+
+	// TODO:
+	if err := c.proc.Signal(ctx, syscall.SIGTERM); err != nil {
+		return 0, fmt.Errorf("failed to send SIGTERM to container: %w", err)
 	}
-	c.exitCode = exitCode
+
+	/*
+		exitCode, err := getExitCode(c.ctr.Release(ctx))
+		if err != nil {
+			c.exitErr = fmt.Errorf("failed to release container: %w", err)
+			return 0, c.exitErr
+		}
+		c.exitCode = exitCode
+	*/
 
 	// Wait for the process to exit. The call doesn't accept a context, so make
 	// it cancellable with a separate goroutine.
+	// TODO:
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
 	waitCh := make(chan error)
 	go func() {
 		defer close(waitCh)
-		// we don't need the exit code here, but we want to ignore errors due to it being set
-		if _, err := getExitCode(c.proc.Wait()); err != nil {
+		var err error
+		if c.exitCode, err = getExitCode(c.proc.Wait()); err != nil {
 			waitCh <- fmt.Errorf("failed to wait for container process: %w", err)
 		}
 	}()

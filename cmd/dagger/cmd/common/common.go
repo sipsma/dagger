@@ -195,5 +195,10 @@ func NewClient(ctx context.Context) *client.Client {
 		lg.Fatal().Err(err).Msg("unable to create client")
 	}
 
+	lg.Debug().
+		Str("cache-from", fmt.Sprintf("%v", cacheImports)).
+		Str("cache-to", fmt.Sprintf("%v", cacheExports)).
+		Msg("cache options")
+
 	return cl
 }
