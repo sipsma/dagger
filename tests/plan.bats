@@ -170,13 +170,13 @@ setup() {
   rm -f test.txt
 }
 
-@test "plan/client/network" {
-  cd "$TESTDIR"
-  "$DAGGER" "do" -p ./plan/client/network/valid.cue test
-
-  run "$DAGGER" "do" -p ./plan/client/network/invalid.cue test
-  assert_failure
-}
+# @test "plan/client/network" {
+#   cd "$TESTDIR"
+#   "$DAGGER" "do" -p ./plan/client/network/valid.cue test
+# 
+#   run "$DAGGER" "do" -p ./plan/client/network/invalid.cue test
+#   assert_failure
+# }
 
 @test "plan/client/env usage" {
   cd "${TESTDIR}"

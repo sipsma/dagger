@@ -5,14 +5,14 @@ setup() {
     cd "$TESTDIR" || exit
 }
 
-@test "task: #Pull" {
-    "$DAGGER" "do" -p ./tasks/pull/pull.cue pull
-    "$DAGGER" "do" -p ./tasks/pull/pull_auth.cue pull
-}
+# @test "task: #Pull" {
+#     "$DAGGER" "do" -p ./tasks/pull/pull.cue pull
+#     "$DAGGER" "do" -p ./tasks/pull/pull_auth.cue pull
+# }
 
-@test "task: #Push" {
-    "$DAGGER" "do" -p ./tasks/push/push.cue pullOutputFile
-}
+# @test "task: #Push" {
+#     "$DAGGER" "do" -p ./tasks/push/push.cue pullOutputFile
+# }
 
 @test "task: #ReadFile" {
     "$DAGGER" "do" -p ./tasks/readfile/readfile.cue readfile
@@ -35,7 +35,7 @@ setup() {
     "$DAGGER" "do" -p ./mount_fs.cue test
     TESTSECRET="hello world" "$DAGGER" "do" -p ./mount_secret.cue test
     "$DAGGER" "do" -p ./mount_tmp.cue verify
-    "$DAGGER" "do" -p ./mount_socket.cue verify
+    # "$DAGGER" "do" -p ./mount_socket.cue verify
 
     "$DAGGER" "do" -p ./user.cue test
     "$DAGGER" "do" -p ./workdir.cue verify
@@ -83,7 +83,7 @@ setup() {
     "$DAGGER" "do" -p ./image_config.cue build
     "$DAGGER" "do" -p ./labels.cue build
     "$DAGGER" "do" -p ./platform.cue build
-    "$DAGGER" "do" -p ./build_auth.cue build
+    # "$DAGGER" "do" -p ./build_auth.cue build
 }
 
 @test "task: #Scratch" {
@@ -105,7 +105,7 @@ setup() {
 @test "task: #GitPull" {
     "$DAGGER" "do" -p ./tasks/gitpull/exists.cue gitPull
     "$DAGGER" "do" -p ./tasks/gitpull/git_dir.cue verify
-    "$DAGGER" "do" -p ./tasks/gitpull/private_repo.cue testContent
+    # "$DAGGER" "do" -p ./tasks/gitpull/private_repo.cue testContent
 
     run "$DAGGER" "do" -p ./tasks/gitpull/invalid.cue invalid
     assert_failure
