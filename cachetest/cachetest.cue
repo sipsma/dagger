@@ -58,7 +58,7 @@ import (
   }
 
   client: {
-    _image: alpine.#Build & {
+    _base: alpine.#Build & {
       packages: bash: _
       packages: yarn: _
       packages: go: _
@@ -68,17 +68,34 @@ import (
       packages: "libc-dev": _
       packages: parallel: _
       packages: jq: _
+      packages: curl: _
+    }
+    _image: core.#Exec & {
+      input: _base.output.rootfs
+      args: [
+        "sh", "-e", "-c", #"""
+          arch=amd64
+          [ "$(uname -m)" == aarch64 ] && arch="arm64"
+          curl -o /usr/bin/sops -L \
+            https://github.com/mozilla/sops/releases/download/v3.7.2/sops-v3.7.2.linux.${arch} \
+            && chmod +x /usr/bin/sops
+        """#
+      ]
     }
 
     run: core.#Exec & {
-      input: _image.output.rootfs
+      input: _image.output
       args: [
-        "sh", "-c", #"""
-          yarn --cwd "./tests" install
-          DAGGER_BINARY="/src/bin/dagger" yarn --cwd "./tests" test
+        "sh", "-e", "-c", #"""
+          export HOME=/root
+          mkdir -p /root/.config/sops/age
+          cp ./tests/age_key.txt /root/.config/sops/age/keys.txt
+          yarn --cwd "./pkg/universe.dagger.io" install
+          DAGGER_BINARY="/src/bin/dagger" yarn --cwd "./pkg/universe.dagger.io" test
           sleep 5
         """#
         // ./cmd/dagger/dagger do --log-format=plain -p tests/tasks/merge/merge.cue test
+        // DAGGER_BINARY="/src/bin/dagger" yarn --cwd "./tests" test
       ]
       env: {
         "BUILDKIT_HOST": "unix:///run/buildkit/buildkitd.sock"
