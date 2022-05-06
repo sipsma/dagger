@@ -46,6 +46,7 @@ require (
 	golang.org/x/tools v0.1.10 // indirect
 	google.golang.org/grpc v1.46.0
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b
+
 )
 
 replace (
