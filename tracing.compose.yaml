@@ -3,7 +3,7 @@ version: "3.8"
 services:
   buildkitd:
     container_name: dagger-buildkitd-jaeger
-    image: moby/buildkit:latest
+    image: moby/buildkit:${DAGGER_BUILDKITD_VERSION:-latest}
     privileged: true
     environment:
       - JAEGER_TRACE=jaeger:6831
@@ -16,3 +16,15 @@ services:
       - "6831:6831/udp"
       - "14268:14268"
       - "16686:16686"
+    environment:
+      - SPAN_STORAGE_TYPE=badger
+      - BADGER_EPHEMERAL=false
+      - BADGER_DIRECTORY_VALUE=/badger/data
+      - BADGER_DIRECTORY_KEY=/badger/key
+    volumes:
+      - type: ${DAGGER_BUILDKITD_JAEGER_VOLUME_TYPE:-volume}
+        source: ${DAGGER_BUILDKITD_JAEGER_VOLUME_SOURCE:-dagger-jaeger-data}
+        target: /badger
+
+volumes:
+  dagger-jaeger-data:

@@ -44,7 +44,7 @@ jobs:
       - name: "Setup Go"
         uses: actions/setup-go@v1
         with:
-          go-version: 1.16
+          go-version: 1.18
 
       - name: "Install CUE"
         run: |
@@ -74,6 +74,17 @@ jobs:
           echo "DAGGER_CACHE_FROM=type=gha,scope=${{env.DAGGER_CACHE_BASE}}-main type=gha,scope=${{env.DAGGER_CACHE_BASE}}-${{github.event.number}}" >> $GITHUB_ENV
         if: ${{ github.event_name == 'pull_request' }}
 
+      - name: Start Buildkitd and Jaeger
+        run: |
+          export DAGGER_BUILDKITD_VERSION="$(go list -m github.com/moby/buildkit | cut -d' ' -f2)"
+          export DAGGER_BUILDKITD_JAEGER_VOLUME_TYPE="bind"
+          export DAGGER_BUILDKITD_JAEGER_VOLUME_SOURCE="${{ runner.temp }}/jaeger"
+          mkdir ${DAGGER_BUILDKITD_JAEGER_VOLUME_SOURCE}
+          docker compose -f tracing.compose.yaml up -d
+          echo BUILDKIT_HOST="docker-container://dagger-buildkitd-jaeger" >> $GITHUB_ENV
+          echo OTEL_EXPORTER_JAEGER_ENDPOINT="http://localhost:14268/api/traces" >> $GITHUB_ENV
+          echo JAEGER_TRACE=localhost:6831 >> $GITHUB_ENV
+
       - name: Test
         run: |
           export DAGGER_LOG_FORMAT=plain
@@ -81,6 +92,19 @@ jobs:
           make core-integration
 
       - name: Print Buildkitd Logs
-        if: ${{ failure() }}
+        if: always()
         run: |
-          docker logs dagger-buildkitd
+          docker logs dagger-buildkitd-jaeger
+
+      - name: Stop Buildkitd and Jaeger
+        if: always()
+        run: |
+          docker compose -f tracing.compose.yaml down
+          sudo chown -R ${USER} ${{ runner.temp }}/jaeger
+
+      - name: Upload Jaeger Data
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: jaeger_data
+          path: ${{ runner.temp }}/jaeger

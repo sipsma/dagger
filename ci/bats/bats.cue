@@ -28,7 +28,7 @@ import (
 
 		steps: [
 			docker.#Pull & {
-				source: "bats/bats:\(version)"
+				source: "jaegertracing/all-in-one:1.33.0"
 			},
 
 			// Symlink bash so we can `bash.#Run` entrypoint can work
