@@ -6,7 +6,6 @@ import (
 
 	"universe.dagger.io/alpine"
 	"universe.dagger.io/bash"
-	"universe.dagger.io/docker"
 	"universe.dagger.io/go"
 
 	"github.com/dagger/dagger/ci/golangci"

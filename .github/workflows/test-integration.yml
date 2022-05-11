@@ -108,3 +108,12 @@ jobs:
         with:
           name: jaeger_data
           path: ${{ runner.temp }}/jaeger
+
+      - name: Print Jaeger View Command
+        if: always()
+        run:
+          echo "To view Jaeger traces, run:"
+          echo dagger do -p ci/jaeger/view.cue jaegerView \
+            --with \'actions: jaegerView: runID: \"${GITHUB_RUN_ID}\"\' \
+            --with \'actions: jaegerView: repository: \"${GITHUB_REPOSITORY}\"\' \
+            --with \'actions: jaegerView: artifactName: jaeger_data\'
