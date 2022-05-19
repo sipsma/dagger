@@ -27,6 +27,8 @@ common_setup() {
 
     # cd into the directory containing the bats file
     cd "$BATS_TEST_DIRNAME" || exit 1
+
+    export DAGGER_TRACE_SPAN_NAME=$BATS_TEST_NAME
 }
 
 # dagger helper to execute the right binary
