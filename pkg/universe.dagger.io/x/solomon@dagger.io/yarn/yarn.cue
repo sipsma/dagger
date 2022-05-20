@@ -42,6 +42,7 @@ import (
 		container: mounts: install_output: {
 			contents: install.output
 			dest:     "/tmp/yarn_install_output"
+			ro:       true
 		}
 	}
 
@@ -112,6 +113,10 @@ import (
 		env: {
 			YARN_CACHE_FOLDER:  "/cache/yarn"
 			YARN_OUTPUT_FOLDER: outputDir
+			YARN_NETWORK_CONCURRENCY: "8"
+			YARN_PREFER_OFFLINE: "true"
+			YARN_NETWORK_TIMEOUT: "1000"
+			YARN_NON_INTERACTIVE: "true"
 		}
 		mounts: {
 			"Yarn cache": {

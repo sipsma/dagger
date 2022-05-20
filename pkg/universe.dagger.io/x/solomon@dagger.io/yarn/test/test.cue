@@ -4,7 +4,7 @@ import (
 	"dagger.io/dagger"
 	"dagger.io/dagger/core"
 
-	"universe.dagger.io/docker"
+	"universe.dagger.io/alpine"
 	"universe.dagger.io/git"
 )
 
@@ -51,9 +51,6 @@ import (
 			remote: "https://github.com/mdn/todo-react"
 			ref:    "4c1ad2bc5d50f96265693be50997c306081b0964"
 		}
-		install: #Install & {
-			source: pull.output
-		}
 		build: #Script & {
 			source: pull.output
 			name:   "build"
@@ -70,20 +67,13 @@ import (
 		}
 	}
 
-	// Run yarn.#Build with a custom docker image
+	// Run yarn.#Build with a custom alpine image
 	customImage: {
-		buildImage: docker.#Build & {
-			steps: [
-				docker.#Pull & {
-					source: "alpine"
-				},
-				docker.#Run & {
-					command: {
-						name: "apk"
-						args: ["add", "yarn", "bash"]
-					}
-				},
-			]
+		buildImage: alpine.#Build & {
+			packages: {
+				bash: {}
+				yarn: {}
+			}
 		}
 
 		image: build.output
