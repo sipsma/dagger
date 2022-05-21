@@ -111,25 +111,25 @@ import (
 
 		// Setup caching
 		env: {
-			YARN_CACHE_FOLDER:  "/cache/yarn"
-			YARN_OUTPUT_FOLDER: outputDir
-			YARN_NETWORK_CONCURRENCY: "8"
-			YARN_PREFER_OFFLINE: "true"
-			YARN_NETWORK_TIMEOUT: "1000"
-			YARN_NON_INTERACTIVE: "true"
+			YARN_CACHE_FOLDER:        "/cache/yarn"
+			YARN_OUTPUT_FOLDER:       outputDir
+			// YARN_NETWORK_CONCURRENCY: "8"
+			YARN_PREFER_OFFLINE:      "true"
+			// YARN_NETWORK_TIMEOUT:     "10000"
+			YARN_NON_INTERACTIVE:     "true"
 		}
 		mounts: {
 			"Yarn cache": {
 				dest:     "/cache/yarn"
 				contents: core.#CacheDir & {
-					id: "\(project)-yarn"
+					id:          "\(project)-yarn"
 				}
 			}
 			"NodeJS cache": {
 				dest:     "/src/node_modules"
 				type:     "cache"
 				contents: core.#CacheDir & {
-					id: "\(project)-nodejs"
+					id:          "\(project)-nodejs"
 				}
 			}
 		}
