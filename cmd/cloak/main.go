@@ -30,6 +30,11 @@ func init() {
 		versionCmd,
 	)
 
+	// BuildkitdCmd is only set on linux
+	if buildkitdCmd != nil {
+		rootCmd.AddCommand(buildkitdCmd)
+	}
+
 	doCmd.Flags().StringVarP(&queryFile, "file", "f", "", "query file")
 	doCmd.Flags().StringSliceVarP(&queryVarsInput, "set", "s", []string{}, "query variable")
 	doCmd.Flags().StringSliceVarP(&localDirsInput, "local-dir", "l", []string{}, "local directory to import")
