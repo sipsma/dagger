@@ -11,7 +11,6 @@ require (
 	github.com/containerd/stargz-snapshotter v0.12.0
 	github.com/coreos/go-systemd/v22 v22.3.3-0.20220203105225-a9a7ef127534
 	github.com/docker/cli v20.10.17+incompatible
-	github.com/docker/distribution v2.8.1+incompatible
 	github.com/docker/docker v20.10.17+incompatible
 	github.com/go-openapi/runtime v0.24.1
 	github.com/gofrs/flock v0.8.1
@@ -71,6 +70,7 @@ require (
 	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dimchansky/utfbom v1.1.1 // indirect
+	github.com/docker/distribution v2.8.1+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.6.4 // indirect
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-metrics v0.0.1 // indirect

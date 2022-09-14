@@ -216,9 +216,9 @@ func Run() {
 		}
 
 		logrus.SetFormatter(&logrus.TextFormatter{FullTimestamp: true})
-		if cfg.Debug {
-			logrus.SetLevel(logrus.DebugLevel)
-		}
+		// if cfg.Debug {
+		logrus.SetLevel(logrus.DebugLevel)
+		// }
 
 		if cfg.GRPC.DebugAddress != "" {
 			if err := setupDebugHandlers(cfg.GRPC.DebugAddress); err != nil {

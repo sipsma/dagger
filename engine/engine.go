@@ -114,11 +114,8 @@ func Start(ctx context.Context, startOpts *Config, fn StartCallback) error {
 		sshAuthSockID = sshAuthSockEnv
 		socketProviders[sshAuthSockID] = sshAuthHandler
 	}
-	// https://pkg.go.dev/github.com/docker/cli@v20.10.17+incompatible/cli/config?utm_source=gopls#LegacyLoadFromReader
-	config, err := config.LegacyLoadFromReader(os.Stderr)
-	if err != nil {
-		return err
-	}
+	// https: //pkg.go.dev/github.com/docker/cli@v20.10.17+incompatible/cli/config?utm_source=gopls#LoadDefaultConfigFile
+	config := config.LoadDefaultConfigFile(os.Stderr)
 	solveOpts := bkclient.SolveOpt{
 		Session: []session.Attachable{
 			secretsprovider.NewSecretProvider(secretStore),
