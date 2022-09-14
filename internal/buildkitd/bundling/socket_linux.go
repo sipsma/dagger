@@ -1,3 +1,4 @@
+// main_unix.go
 package buildkitd
 
 import (
@@ -13,7 +14,6 @@ func init() {
 	syscall.Umask(0)
 }
 
-// main_unix.go
 func listenFD(addr string, tlsConfig *tls.Config) (net.Listener, error) {
 	var (
 		err       error
