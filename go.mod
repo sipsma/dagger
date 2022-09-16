@@ -44,10 +44,10 @@ require (
 	// These PRs have more context:
 	// - TBD
 	// - https://github.com/dagger/dagger/pull/2446#issuecomment-1126377411
-	go.opentelemetry.io/otel v1.4.1
+	go.opentelemetry.io/otel v1.10.0
 	go.opentelemetry.io/otel/exporters/jaeger v1.4.1
-	go.opentelemetry.io/otel/sdk v1.4.1
-	go.opentelemetry.io/otel/trace v1.4.1
+	go.opentelemetry.io/otel/sdk v1.10.0
+	go.opentelemetry.io/otel/trace v1.10.0
 	//!!!! the version of go.opentelemetry.io/otel MUST be kept in sync with BuildKit's version !!!!
 	golang.org/x/mod v0.6.0-dev.0.20220419223038-86c51ed26bb4
 	golang.org/x/oauth2 v0.0.0-20220718184931-c8730f7fcb92
