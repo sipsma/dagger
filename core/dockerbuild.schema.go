@@ -2,7 +2,6 @@ package core
 
 import (
 	"github.com/containerd/containerd/platforms"
-	"github.com/graphql-go/graphql"
 	dockerfilebuilder "github.com/moby/buildkit/frontend/dockerfile/builder"
 	bkgw "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/solver/pb"
@@ -32,7 +31,7 @@ extend type Filesystem {
 func (s *dockerBuildSchema) Resolvers() router.Resolvers {
 	return router.Resolvers{
 		"Filesystem": router.ObjectResolver{
-			"dockerbuild": s.dockerbuild,
+			"dockerbuild": router.ToResolver(s.dockerbuild),
 		},
 	}
 }
@@ -41,28 +40,27 @@ func (s *dockerBuildSchema) Dependencies() []router.ExecutableSchema {
 	return nil
 }
 
-func (s *dockerBuildSchema) dockerbuild(p graphql.ResolveParams) (any, error) {
-	obj, err := filesystem.FromSource(p.Source)
-	if err != nil {
-		return nil, err
-	}
+type dockerbuildArgs struct {
+	Dockerfile string
+}
 
-	def, err := obj.ToDefinition()
+func (s *dockerBuildSchema) dockerbuild(ctx *router.Context, parent *filesystem.Filesystem, args dockerbuildArgs) (*filesystem.Filesystem, error) {
+	def, err := parent.ToDefinition()
 	if err != nil {
 		return nil, err
 	}
 
 	opts := map[string]string{
-		"platform": platforms.Format(s.platform),
+		"platform": platforms.Format(ctx.Platform),
 	}
-	if dockerfile, ok := p.Args["dockerfile"].(string); ok {
-		opts["filename"] = dockerfile
+	if args.Dockerfile != "" {
+		opts["filename"] = args.Dockerfile
 	}
 	inputs := map[string]*pb.Definition{
 		dockerfilebuilder.DefaultLocalNameContext:    def,
 		dockerfilebuilder.DefaultLocalNameDockerfile: def,
 	}
-	res, err := s.gw.Solve(p.Context, bkgw.SolveRequest{
+	res, err := s.gw.Solve(ctx, bkgw.SolveRequest{
 		Frontend:       "dockerfile.v0",
 		FrontendOpt:    opts,
 		FrontendInputs: inputs,
@@ -80,5 +78,5 @@ func (s *dockerBuildSchema) dockerbuild(p graphql.ResolveParams) (any, error) {
 		return nil, err
 	}
 
-	return filesystem.FromState(p.Context, st, s.platform)
+	return filesystem.FromState(ctx, st)
 }

@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/graphql-go/graphql"
 	bkclient "github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb"
 	"go.dagger.io/dagger/core/filesystem"
@@ -41,6 +40,9 @@ type Core {
 
 	"Fetch a git repository"
 	git(remote: String!, ref: String): Filesystem!
+
+	"Push a multiplatform image"
+	pushMultiplatformImage(ref: String!, filesystems: [FSID!]!): Boolean!
 }
 
 "Interactions with the user's host filesystem"
@@ -66,20 +68,21 @@ type LocalDir {
 func (r *coreSchema) Resolvers() router.Resolvers {
 	return router.Resolvers{
 		"Query": router.ObjectResolver{
-			"core": r.core,
-			"host": r.host,
+			"core": router.PassthroughResolver,
+			"host": router.PassthroughResolver,
 		},
 		"Core": router.ObjectResolver{
-			"image": r.image,
-			"git":   r.git,
+			"image":                  router.ToResolver(r.image),
+			"git":                    router.ToResolver(r.git),
+			"pushMultiplatformImage": router.ToResolver(r.pushMultiplatformImage),
 		},
 		"Host": router.ObjectResolver{
-			"workdir": r.workdir,
-			"dir":     r.dir,
+			"workdir": router.ToResolver(r.workdir),
+			"dir":     router.ToResolver(r.dir),
 		},
 		"LocalDir": router.ObjectResolver{
-			"read":  r.localDirRead,
-			"write": r.localDirWrite,
+			"read":  router.ToResolver(r.localDirRead),
+			"write": router.ToResolver(r.localDirWrite),
 		},
 	}
 }
@@ -88,76 +91,75 @@ func (r *coreSchema) Dependencies() []router.ExecutableSchema {
 	return nil
 }
 
-func (r *coreSchema) core(p graphql.ResolveParams) (any, error) {
-	return struct{}{}, nil
+type imageArgs struct {
+	Ref string
 }
 
-func (r *coreSchema) host(p graphql.ResolveParams) (any, error) {
-	return struct{}{}, nil
+func (r *coreSchema) image(ctx *router.Context, parent struct{}, args imageArgs) (*filesystem.Filesystem, error) {
+	return r.Solve(ctx, llb.Image(args.Ref))
 }
 
-func (r *coreSchema) image(p graphql.ResolveParams) (any, error) {
-	ref := p.Args["ref"].(string)
-
-	st := llb.Image(ref)
-	return r.Solve(p.Context, st)
+type gitArgs struct {
+	Remote string
+	Ref    string
 }
 
-func (r *coreSchema) git(p graphql.ResolveParams) (any, error) {
-	remote := p.Args["remote"].(string)
-	ref, _ := p.Args["ref"].(string)
-
+func (r *coreSchema) git(ctx *router.Context, parent struct{}, args gitArgs) (*filesystem.Filesystem, error) {
 	var opts []llb.GitOption
 	if r.sshAuthSockID != "" {
 		opts = append(opts, llb.MountSSHSock(r.sshAuthSockID))
 	}
-	st := llb.Git(remote, ref, opts...)
-	return r.Solve(p.Context, st)
+	st := llb.Git(args.Remote, args.Ref, opts...)
+	return r.Solve(ctx, st)
 }
 
 type localDir struct {
 	ID string `json:"id"`
 }
 
-func (r *coreSchema) workdir(p graphql.ResolveParams) (any, error) {
+func (r *coreSchema) workdir(ctx *router.Context, parent, args struct{}) (localDir, error) {
 	return localDir{r.workdirID}, nil
 }
 
-func (r *coreSchema) dir(p graphql.ResolveParams) (any, error) {
-	id := p.Args["id"].(string)
-	return localDir{id}, nil
+type dirArgs struct {
+	ID string `json:"id"`
 }
 
-func (r *coreSchema) localDirRead(p graphql.ResolveParams) (any, error) {
-	obj := p.Source.(localDir)
+func (r *coreSchema) dir(ctx *router.Context, parent struct{}, args dirArgs) (any, error) {
+	return localDir{args.ID}, nil
+}
 
+func (r *coreSchema) localDirRead(ctx *router.Context, parent localDir, args struct{}) (any, error) {
 	// copy to scratch to avoid making buildkit's snapshot of the local dir immutable,
 	// which makes it unable to reused, which in turn creates cache invalidations
 	// TODO: this should be optional, the above issue can also be avoided w/ readonly
 	// mount when possible
 	st := llb.Scratch().File(llb.Copy(llb.Local(
-		obj.ID,
+		parent.ID,
 		// TODO: better shared key hint?
-		llb.SharedKeyHint(obj.ID),
+		llb.SharedKeyHint(parent.ID),
 		// FIXME: should not be hardcoded
 		llb.ExcludePatterns([]string{"**/node_modules"}),
 	), "/", "/"))
 
-	return r.Solve(p.Context, st, llb.LocalUniqueID(obj.ID))
+	return r.Solve(ctx, st, llb.LocalUniqueID(parent.ID))
+}
+
+type localDirWriteArgs struct {
+	Contents filesystem.FSID
+	Path     string
 }
 
 // FIXME:(sipsma) have to make a new session to do a local export, need either gw support for exports or actually working session sharing to keep it all in the same session
-func (r *coreSchema) localDirWrite(p graphql.ResolveParams) (any, error) {
-	fsid := p.Args["contents"].(filesystem.FSID)
-	fs := filesystem.Filesystem{ID: fsid}
+func (r *coreSchema) localDirWrite(ctx *router.Context, parent localDir, args localDirWriteArgs) (any, error) {
+	fs := filesystem.Filesystem{ID: args.Contents}
 
 	workdir, err := filepath.Abs(r.solveOpts.LocalDirs[r.workdirID])
 	if err != nil {
 		return nil, err
 	}
 
-	path, _ := p.Args["path"].(string)
-	dest, err := filepath.Abs(filepath.Join(workdir, path))
+	dest, err := filepath.Abs(filepath.Join(workdir, args.Path))
 	if err != nil {
 		return nil, err
 	}
@@ -168,14 +170,36 @@ func (r *coreSchema) localDirWrite(p graphql.ResolveParams) (any, error) {
 		return nil, err
 	}
 	if !strings.HasPrefix(dest, workdir) {
-		return nil, fmt.Errorf("path %q is outside workdir", path)
+		return nil, fmt.Errorf("path %q is outside workdir", args.Path)
 	}
 
-	if err := r.Export(p.Context, &fs, bkclient.ExportEntry{
+	if err := r.Export(ctx, &fs, bkclient.ExportEntry{
 		Type:      bkclient.ExporterLocal,
 		OutputDir: dest,
 	}); err != nil {
 		return nil, err
+	}
+	return true, nil
+}
+
+type pushMultiplatformImageArgs struct {
+	Ref   string
+	FSIDs []filesystem.FSID
+}
+
+func (r *coreSchema) pushMultiplatformImage(ctx *router.Context, parent any, args pushMultiplatformImageArgs) (bool, error) {
+	var filesystems []*filesystem.Filesystem
+	for _, fsid := range args.FSIDs {
+		filesystems = append(filesystems, &filesystem.Filesystem{ID: fsid})
+	}
+	if err := r.ExportMultiplatformImage(ctx, filesystems, bkclient.ExportEntry{
+		Type: bkclient.ExporterImage,
+		Attrs: map[string]string{
+			"name": args.Ref,
+			"push": "true",
+		},
+	}); err != nil {
+		return false, err
 	}
 	return true, nil
 }

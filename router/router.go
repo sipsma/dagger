@@ -9,20 +9,27 @@ import (
 
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/handler"
+	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"go.dagger.io/dagger/playground"
 )
 
+const (
+	DaggerContextEnv = "DAGGER_CONTEXT"
+)
+
 type Router struct {
-	schemas map[string]ExecutableSchema
+	schemas      map[string]ExecutableSchema
+	hostPlatform specs.Platform
 
 	s *graphql.Schema
 	h *handler.Handler
 	l sync.RWMutex
 }
 
-func New() *Router {
+func New(hostPlatform specs.Platform) *Router {
 	r := &Router{
-		schemas: make(map[string]ExecutableSchema),
+		schemas:      make(map[string]ExecutableSchema),
+		hostPlatform: hostPlatform,
 	}
 
 	if err := r.Add(&rootSchema{}); err != nil {
@@ -58,9 +65,6 @@ func (r *Router) Add(schema ExecutableSchema) error {
 
 	// Atomic swap
 	r.s = s
-	r.h = handler.New(&handler.Config{
-		Schema: s,
-	})
 	return nil
 }
 
@@ -89,7 +93,7 @@ func (r *Router) Get(name string) ExecutableSchema {
 
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	r.l.RLock()
-	h := r.h
+	curSchema := r.s
 	r.l.RUnlock()
 
 	defer func() {
@@ -106,7 +110,20 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}()
 
 	mux := http.NewServeMux()
-	mux.Handle("/query", h)
+	mux.Handle("/query", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		sessionContext := SessionContext{
+			Platform:     r.hostPlatform,
+			HostPlatform: r.hostPlatform,
+		}
+		if marshalledContext := req.Header.Get(DaggerContextEnv); marshalledContext != "" {
+			if err := sessionContext.UnmarshalText([]byte(marshalledContext)); err != nil {
+				panic(err)
+			}
+		}
+		handler.New(&handler.Config{
+			Schema: curSchema,
+		}).ContextHandler(initSessionContext(req.Context(), sessionContext), w, req)
+	}))
 	mux.Handle("/", playground.Handler("Cloak Dev", "/query"))
 	mux.ServeHTTP(w, req)
 }

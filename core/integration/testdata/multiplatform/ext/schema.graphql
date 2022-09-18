@@ -1,0 +1,14 @@
+extend type Query {
+  multiplatform: Multiplatform
+}
+
+type Multiplatform {
+  arch(in: String): String!
+  emulateCompile(src: FSID!, subpath: String): CompileOutput!
+  crossCompile(src: FSID!, subpath: String): CompileOutput!
+}
+
+type CompileOutput {
+  fs: Filesystem!
+  stdout: String!
+}

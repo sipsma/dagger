@@ -1,15 +1,15 @@
 package project
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
 
 	"github.com/moby/buildkit/client/llb"
 	"go.dagger.io/dagger/core/filesystem"
+	"go.dagger.io/dagger/router"
 )
 
-func (s RemoteSchema) pythonRuntime(ctx context.Context, subpath string) (*filesystem.Filesystem, error) {
+func (s RemoteSchema) pythonRuntime(ctx *router.Context, subpath string) (*filesystem.Filesystem, error) {
 	contextState, err := s.contextFS.ToState()
 	if err != nil {
 		return nil, err
@@ -56,6 +56,5 @@ python3 main.py
 				addSSHKnownHosts,
 			).
 			File(llb.Mkfile("/entrypoint", 0755, []byte(entrypointScript))),
-		s.platform,
 	)
 }

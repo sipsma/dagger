@@ -43,11 +43,12 @@ type Config struct {
 
 type Context struct {
 	context.Context
-	Client     graphql.Client
-	LocalDirs  map[string]dagger.FSID
-	Project    *core.Project
-	Workdir    dagger.FSID
-	ConfigPath string
+	Client       graphql.Client
+	LocalDirs    map[string]dagger.FSID
+	Project      *core.Project
+	Workdir      dagger.FSID
+	ConfigPath   string
+	HostPlatform specs.Platform
 }
 
 type StartCallback func(Context) error
@@ -97,7 +98,7 @@ func Start(ctx context.Context, startOpts *Config, fn StartCallback) error {
 		startOpts.ConfigPath = "./" + cloakYamlName
 	}
 
-	router := router.New()
+	router := router.New(*platform)
 	secretStore := secret.NewStore()
 
 	socketProviders := MergedSocketProviders{
@@ -140,7 +141,6 @@ func Start(ctx context.Context, startOpts *Config, fn StartCallback) error {
 				BKClient:      c,
 				SolveOpts:     solveOpts,
 				SolveCh:       ch,
-				Platform:      *platform,
 			})
 			if err != nil {
 				return nil, err
@@ -151,7 +151,8 @@ func Start(ctx context.Context, startOpts *Config, fn StartCallback) error {
 
 			ctx = withInMemoryAPIClient(ctx, router)
 			engineCtx := Context{
-				Context: ctx,
+				Context:      ctx,
+				HostPlatform: *platform,
 			}
 
 			engineCtx.Client, err = dagger.Client(ctx)

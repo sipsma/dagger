@@ -1,7 +1,6 @@
 package project
 
 import (
-	"context"
 	"path/filepath"
 
 	"github.com/containerd/containerd/platforms"
@@ -9,16 +8,17 @@ import (
 	bkgw "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/solver/pb"
 	"go.dagger.io/dagger/core/filesystem"
+	"go.dagger.io/dagger/router"
 )
 
-func (s RemoteSchema) dockerfileRuntime(ctx context.Context, subpath string) (*filesystem.Filesystem, error) {
+func (s RemoteSchema) dockerfileRuntime(ctx *router.Context, subpath string) (*filesystem.Filesystem, error) {
 	def, err := s.contextFS.ToDefinition()
 	if err != nil {
 		return nil, err
 	}
 
 	opts := map[string]string{
-		"platform": platforms.Format(s.platform),
+		"platform": platforms.Format(ctx.Platform),
 		"filename": filepath.ToSlash(filepath.Join(filepath.Dir(s.configPath), subpath, "Dockerfile")),
 	}
 	inputs := map[string]*pb.Definition{
@@ -43,5 +43,5 @@ func (s RemoteSchema) dockerfileRuntime(ctx context.Context, subpath string) (*f
 		return nil, err
 	}
 
-	return filesystem.FromState(ctx, st, s.platform)
+	return filesystem.FromState(ctx, st)
 }

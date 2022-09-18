@@ -1,15 +1,15 @@
 package project
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
 
 	"github.com/moby/buildkit/client/llb"
 	"go.dagger.io/dagger/core/filesystem"
+	"go.dagger.io/dagger/router"
 )
 
-func (s RemoteSchema) tsRuntime(ctx context.Context, subpath string) (*filesystem.Filesystem, error) {
+func (s RemoteSchema) tsRuntime(ctx *router.Context, subpath string) (*filesystem.Filesystem, error) {
 	contextState, err := s.contextFS.ToState()
 	if err != nil {
 		return nil, err
@@ -49,6 +49,5 @@ func (s RemoteSchema) tsRuntime(ctx context.Context, subpath string) (*filesyste
 					ctrSrcPath,
 				)),
 			)),
-		s.platform,
 	)
 }

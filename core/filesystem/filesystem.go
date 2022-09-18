@@ -9,7 +9,7 @@ import (
 	"github.com/moby/buildkit/client/llb"
 	bkgw "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/solver/pb"
-	specs "github.com/opencontainers/image-spec/specs-go/v1"
+	"go.dagger.io/dagger/router"
 )
 
 const (
@@ -119,36 +119,15 @@ func FromDefinition(def *llb.Definition) *Filesystem {
 	}
 }
 
-func FromState(ctx context.Context, st llb.State, platform specs.Platform) (*Filesystem, error) {
-	def, err := st.Marshal(ctx, llb.Platform(platform))
+func FromState(ctx *router.Context, st llb.State) (*Filesystem, error) {
+	def, err := st.Marshal(ctx, llb.Platform(ctx.Platform))
 	if err != nil {
 		return nil, err
 	}
 	return FromDefinition(def), nil
 }
 
-func FromSource(source any) (*Filesystem, error) {
-	fs, ok := source.(*Filesystem)
-	if ok {
-		return fs, nil
-	}
-
-	// TODO: when returned by user actions, Filesystem is just a map[string]interface{}, need to fix, hack for now:
-
-	m, ok := source.(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("invalid source type: %T", source)
-	}
-	id, ok := m["id"].(string)
-	if !ok {
-		return nil, fmt.Errorf("invalid source id: %T %v", source, source)
-	}
-	return &Filesystem{
-		ID: FSID(id),
-	}, nil
-}
-
-func Merged(ctx context.Context, filesystems []*Filesystem, platform specs.Platform) (*Filesystem, error) {
+func Merged(ctx *router.Context, filesystems []*Filesystem) (*Filesystem, error) {
 	states := make([]llb.State, 0, len(filesystems))
 	for _, fs := range filesystems {
 		state, err := fs.ToState()
@@ -157,10 +136,10 @@ func Merged(ctx context.Context, filesystems []*Filesystem, platform specs.Platf
 		}
 		states = append(states, state)
 	}
-	return FromState(ctx, llb.Merge(states), platform)
+	return FromState(ctx, llb.Merge(states))
 }
 
-func Diffed(ctx context.Context, lower, upper *Filesystem, platform specs.Platform) (*Filesystem, error) {
+func Diffed(ctx *router.Context, lower, upper *Filesystem) (*Filesystem, error) {
 	lowerState, err := lower.ToState()
 	if err != nil {
 		return nil, err
@@ -169,5 +148,5 @@ func Diffed(ctx context.Context, lower, upper *Filesystem, platform specs.Platfo
 	if err != nil {
 		return nil, err
 	}
-	return FromState(ctx, llb.Diff(lowerState, upperState), platform)
+	return FromState(ctx, llb.Diff(lowerState, upperState))
 }

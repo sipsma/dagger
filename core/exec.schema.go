@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/graphql-go/graphql"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/pkg/errors"
 	"go.dagger.io/dagger/core/filesystem"
@@ -15,9 +14,19 @@ import (
 )
 
 type Exec struct {
-	FS       *filesystem.Filesystem
-	Metadata *filesystem.Filesystem
-	Mounts   map[string]*filesystem.Filesystem
+	FS       *filesystem.Filesystem            `json:"fs"`
+	Metadata *filesystem.Filesystem            `json:"metadata"`
+	Mounts   map[string]*filesystem.Filesystem `json:"mounts"`
+}
+
+type ExecInput struct {
+	Args        []string
+	Mounts      []MountInput
+	CacheMounts []CacheMountInput
+	Workdir     string
+	Env         []ExecEnvInput
+	SecretEnv   []ExecSecretEnvInput
+	SSHAuthSock string `json:"sshAuthSock,omitempty"`
 }
 
 type MountInput struct {
@@ -29,16 +38,6 @@ type CacheMountInput struct {
 	Name        string
 	SharingMode string // TODO:(sipsma) switch to enum
 	Path        string
-}
-
-type ExecInput struct {
-	Args        []string
-	Mounts      []MountInput
-	CacheMounts []CacheMountInput
-	Workdir     string
-	Env         []ExecEnvInput
-	SecretEnv   []ExecSecretEnvInput
-	SSHAuthSock string `json:"sshAuthSock,omitempty"`
 }
 
 type ExecEnvInput struct {
@@ -151,13 +150,13 @@ extend type Filesystem {
 func (s *execSchema) Resolvers() router.Resolvers {
 	return router.Resolvers{
 		"Filesystem": router.ObjectResolver{
-			"exec": s.exec,
+			"exec": router.ToResolver(s.exec),
 		},
 		"Exec": router.ObjectResolver{
-			"stdout":   s.stdout,
-			"stderr":   s.stderr,
-			"exitCode": s.exitCode,
-			"mount":    s.mount,
+			"stdout":   router.ToResolver(s.stdout),
+			"stderr":   router.ToResolver(s.stderr),
+			"exitCode": router.ToResolver(s.exitCode),
+			"mount":    router.ToResolver(s.mount),
 		},
 	}
 }
@@ -166,34 +165,28 @@ func (s *execSchema) Dependencies() []router.ExecutableSchema {
 	return nil
 }
 
-func (s *execSchema) exec(p graphql.ResolveParams) (any, error) {
-	obj, err := filesystem.FromSource(p.Source)
-	if err != nil {
-		return nil, err
-	}
+type execArgs struct {
+	Input ExecInput
+}
 
-	var input ExecInput
-	if err := convertArg(p.Args["input"], &input); err != nil {
-		return nil, err
-	}
-
+func (s *execSchema) exec(ctx *router.Context, parent *filesystem.Filesystem, args execArgs) (*Exec, error) {
 	// cleanup mount paths for consistency
-	for i := range input.Mounts {
-		input.Mounts[i].Path = filepath.Clean(input.Mounts[i].Path)
+	for i := range args.Input.Mounts {
+		args.Input.Mounts[i].Path = filepath.Clean(args.Input.Mounts[i].Path)
 	}
 
-	shimSt, err := shim.Build(p.Context, s.gw, s.platform)
+	shimSt, err := shim.Build(ctx, s.gw)
 	if err != nil {
 		return nil, err
 	}
 
 	runOpt := []llb.RunOption{
-		llb.Args(append([]string{shim.Path}, input.Args...)),
+		llb.Args(append([]string{shim.Path}, args.Input.Args...)),
 		llb.AddMount(shim.Path, shimSt, llb.SourcePath(shim.Path)),
-		llb.Dir(input.Workdir),
-		llb.WithCustomName(strings.Join(input.Args, " ")),
+		llb.Dir(args.Input.Workdir),
+		llb.WithCustomName(strings.Join(args.Input.Args, " ")),
 	}
-	for _, cacheMount := range input.CacheMounts {
+	for _, cacheMount := range args.Input.CacheMounts {
 		var sharingMode llb.CacheMountSharingMode
 		switch cacheMount.SharingMode {
 		case "shared":
@@ -212,25 +205,25 @@ func (s *execSchema) exec(p graphql.ResolveParams) (any, error) {
 		))
 	}
 
-	for _, env := range input.Env {
+	for _, env := range args.Input.Env {
 		runOpt = append(runOpt, llb.AddEnv(env.Name, env.Value))
 	}
-	for _, secretEnv := range input.SecretEnv {
+	for _, secretEnv := range args.Input.SecretEnv {
 		runOpt = append(runOpt, llb.AddSecret(secretEnv.Name, llb.SecretID(secretEnv.ID), llb.SecretAsEnv(true)))
 	}
 
 	// FIXME:(sipsma) this should be generalized when support for service sockets are added, not hardcoded into the schema
-	if input.SSHAuthSock != "" {
+	if args.Input.SSHAuthSock != "" {
 		runOpt = append(runOpt,
 			llb.AddSSHSocket(
 				llb.SSHID(s.sshAuthSockID),
-				llb.SSHSocketTarget(input.SSHAuthSock),
+				llb.SSHSocketTarget(args.Input.SSHAuthSock),
 			),
-			llb.AddEnv("SSH_AUTH_SOCK", input.SSHAuthSock),
+			llb.AddEnv("SSH_AUTH_SOCK", args.Input.SSHAuthSock),
 		)
 	}
 
-	st, err := obj.ToState()
+	st, err := parent.ToState()
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +232,7 @@ func (s *execSchema) exec(p graphql.ResolveParams) (any, error) {
 	// Metadata mount (used by the shim)
 	_ = execState.AddMount("/dagger", llb.Scratch())
 
-	for _, mount := range input.Mounts {
+	for _, mount := range args.Input.Mounts {
 		mountFS := &filesystem.Filesystem{
 			ID: mount.FS,
 		}
@@ -250,21 +243,21 @@ func (s *execSchema) exec(p graphql.ResolveParams) (any, error) {
 		_ = execState.AddMount(mount.Path, state)
 	}
 
-	fs, err := s.Solve(p.Context, execState.Root())
+	fs, err := s.Solve(ctx, execState.Root())
 	if err != nil {
 		// clean up shim from error messages
 		cleanErr := strings.ReplaceAll(err.Error(), shim.Path+" ", "")
 		return nil, errors.New(cleanErr)
 	}
 
-	metadataFS, err := filesystem.FromState(p.Context, execState.GetMount("/dagger"), s.platform)
+	metadataFS, err := filesystem.FromState(ctx, execState.GetMount("/dagger"))
 	if err != nil {
 		return nil, err
 	}
 
 	mounts := map[string]*filesystem.Filesystem{}
-	for _, mount := range input.Mounts {
-		mountFS, err := filesystem.FromState(p.Context, execState.GetMount(mount.Path), s.platform)
+	for _, mount := range args.Input.Mounts {
+		mountFS, err := filesystem.FromState(ctx, execState.GetMount(mount.Path))
 		if err != nil {
 			return nil, err
 		}
@@ -278,42 +271,48 @@ func (s *execSchema) exec(p graphql.ResolveParams) (any, error) {
 	}, nil
 }
 
-func (s *execSchema) stdout(p graphql.ResolveParams) (any, error) {
-	obj := p.Source.(*Exec)
-	output, err := obj.Metadata.ReadFile(p.Context, s.gw, "/stdout")
-	if err != nil {
-		return nil, err
-	}
-
-	return truncate(string(output), p.Args), nil
+type stdoutArgs struct {
+	Lines *int
 }
 
-func (s *execSchema) stderr(p graphql.ResolveParams) (any, error) {
-	obj := p.Source.(*Exec)
-	output, err := obj.Metadata.ReadFile(p.Context, s.gw, "/stderr")
+func (s *execSchema) stdout(ctx *router.Context, parent *Exec, args stdoutArgs) (string, error) {
+	output, err := parent.Metadata.ReadFile(ctx, s.gw, "/stdout")
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	return truncate(string(output), p.Args), nil
+	return truncate(string(output), args.Lines), nil
 }
 
-func (s *execSchema) exitCode(p graphql.ResolveParams) (any, error) {
-	obj := p.Source.(*Exec)
-	output, err := obj.Metadata.ReadFile(p.Context, s.gw, "/exitCode")
+type stderrArgs struct {
+	Lines *int
+}
+
+func (s *execSchema) stderr(ctx *router.Context, parent *Exec, args stderrArgs) (string, error) {
+	output, err := parent.Metadata.ReadFile(ctx, s.gw, "/stderr")
 	if err != nil {
-		return nil, err
+		return "", err
+	}
+
+	return truncate(string(output), args.Lines), nil
+}
+
+func (s *execSchema) exitCode(ctx *router.Context, parent *Exec, args struct{}) (int, error) {
+	output, err := parent.Metadata.ReadFile(ctx, s.gw, "/exitCode")
+	if err != nil {
+		return 0, err
 	}
 
 	return strconv.Atoi(string(output))
 }
 
-func (s *execSchema) mount(p graphql.ResolveParams) (any, error) {
-	obj := p.Source.(*Exec)
-	path := p.Args["path"].(string)
-	path = filepath.Clean(path)
+type mountArgs struct {
+	Path string
+}
 
-	mnt, ok := obj.Mounts[path]
+func (s *execSchema) mount(ctx *router.Context, parent *Exec, args mountArgs) (*filesystem.Filesystem, error) {
+	path := filepath.Clean(args.Path)
+	mnt, ok := parent.Mounts[path]
 	if !ok {
 		return nil, fmt.Errorf("missing mount path")
 	}
