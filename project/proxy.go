@@ -38,6 +38,7 @@ func (p *APIProxy) ForwardAgent(stream sshforward.SSH_ForwardAgentServer) error 
 	if !ok {
 		return status.Errorf(codes.Internal, "no metadata in context")
 	}
+
 	v, ok := opts[sshforward.KeySSHID]
 	if !ok || len(v) == 0 || v[0] == "" {
 		return status.Errorf(codes.Internal, "no sshid in metadata")

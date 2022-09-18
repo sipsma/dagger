@@ -3,7 +3,6 @@ package core
 import (
 	"fmt"
 
-	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
 	bkclient "github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb"
@@ -92,12 +91,12 @@ func (s *filesystemSchema) Resolvers() router.Resolvers {
 	return router.Resolvers{
 		"FSID": fsIDResolver,
 		"Core": router.ObjectResolver{
-			"filesystem": s.filesystem,
+			"filesystem": router.ToResolver(s.filesystem),
 		},
 		"Filesystem": router.ObjectResolver{
-			"file":      s.file,
-			"copy":      s.copy,
-			"pushImage": s.pushImage,
+			"file":      router.ToResolver(s.file),
+			"copy":      router.ToResolver(s.copy),
+			"pushImage": router.ToResolver(s.pushImage),
 		},
 	}
 }
@@ -106,81 +105,74 @@ func (s *filesystemSchema) Dependencies() []router.ExecutableSchema {
 	return nil
 }
 
-func (s *filesystemSchema) filesystem(p graphql.ResolveParams) (any, error) {
-	return filesystem.New(p.Args["id"].(filesystem.FSID)), nil
+type filesystemArgs struct {
+	ID filesystem.FSID
 }
 
-func (s *filesystemSchema) file(p graphql.ResolveParams) (any, error) {
-	obj, err := filesystem.FromSource(p.Source)
-	if err != nil {
-		return nil, err
-	}
-
-	path := p.Args["path"].(string)
-
-	output, err := obj.ReadFile(p.Context, s.gw, path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file: %w", err)
-	}
-
-	return truncate(string(output), p.Args), nil
+func (s *filesystemSchema) filesystem(ctx *router.Context, parent struct{}, args filesystemArgs) (*filesystem.Filesystem, error) {
+	return filesystem.New(args.ID), nil
 }
 
-func (s *filesystemSchema) copy(p graphql.ResolveParams) (any, error) {
-	obj, err := filesystem.FromSource(p.Source)
+type fileArgs struct {
+	Path  string
+	Lines *int
+}
+
+func (s *filesystemSchema) file(ctx *router.Context, parent *filesystem.Filesystem, args fileArgs) (string, error) {
+	output, err := parent.ReadFile(ctx, s.gw, args.Path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file: %w", err)
+	}
+
+	return truncate(string(output), args.Lines), nil
+}
+
+type copyArgs struct {
+	From     filesystem.FSID
+	SrcPath  string
+	DestPath string
+	Include  []string
+	Exclude  []string
+}
+
+func (s *filesystemSchema) copy(ctx *router.Context, parent *filesystem.Filesystem, args copyArgs) (*filesystem.Filesystem, error) {
+	st, err := parent.ToState()
 	if err != nil {
 		return nil, err
 	}
 
-	st, err := obj.ToState()
+	contents, err := filesystem.New(args.From).ToState()
 	if err != nil {
 		return nil, err
 	}
 
-	contents, err := filesystem.New(p.Args["from"].(filesystem.FSID)).ToState()
-	if err != nil {
-		return nil, err
-	}
-
-	src := p.Args["srcPath"].(string)
-	dest := p.Args["destPath"].(string)
-	include, _ := p.Args["include"].([]string)
-	exclude, _ := p.Args["exclude"].([]string)
-
-	st = st.File(llb.Copy(contents, src, dest, &llb.CopyInfo{
+	st = st.File(llb.Copy(contents, args.SrcPath, args.DestPath, &llb.CopyInfo{
 		CopyDirContentsOnly: true,
 		CreateDestPath:      true,
 		AllowWildcard:       true,
-		IncludePatterns:     include,
-		ExcludePatterns:     exclude,
+		IncludePatterns:     args.Include,
+		ExcludePatterns:     args.Exclude,
 	}))
-
-	fs, err := s.Solve(p.Context, st)
-	if err != nil {
-		return nil, err
-	}
-	return fs, err
+	return s.Solve(ctx, st)
 }
 
-func (s *filesystemSchema) pushImage(p graphql.ResolveParams) (any, error) {
-	obj, err := filesystem.FromSource(p.Source)
-	if err != nil {
-		return nil, err
+type pushImageArgs struct {
+	Ref string
+}
+
+func (s *filesystemSchema) pushImage(ctx *router.Context, parent *filesystem.Filesystem, args pushImageArgs) (bool, error) {
+	if args.Ref == "" {
+		return false, fmt.Errorf("ref is required for pushImage")
 	}
 
-	ref, _ := p.Args["ref"].(string)
-	if ref == "" {
-		return nil, fmt.Errorf("ref is required for pushImage")
-	}
-
-	if err := s.Export(p.Context, obj, bkclient.ExportEntry{
+	if err := s.Export(ctx, parent, bkclient.ExportEntry{
 		Type: bkclient.ExporterImage,
 		Attrs: map[string]string{
-			"name": ref,
+			"name": args.Ref,
 			"push": "true",
 		},
 	}); err != nil {
-		return nil, err
+		return false, err
 	}
 	return true, nil
 }

@@ -1,4 +1,4 @@
-FROM golang:1.18.2-alpine AS build
+FROM golang:1.19.1-alpine AS build
 WORKDIR /src
 RUN apk add --no-cache file git
 RUN go mod init go.dagger.io/dagger/shim/cmd

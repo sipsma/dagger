@@ -13,14 +13,13 @@ func convertArg(arg any, dest any) error {
 	return json.Unmarshal(marshalled, dest)
 }
 
-func truncate(s string, args map[string]any) string {
-	lines, ok := args["lines"].(int)
-	if !ok {
+func truncate(s string, lines *int) string {
+	if lines == nil {
 		return s
 	}
-	l := strings.SplitN(s, "\n", lines+1)
-	if lines > len(l) {
-		lines = len(l)
+	l := strings.SplitN(s, "\n", *lines+1)
+	if *lines > len(l) {
+		*lines = len(l)
 	}
-	return strings.Join(l[0:lines], "\n")
+	return strings.Join(l[0:*lines], "\n")
 }

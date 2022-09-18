@@ -1,0 +1,4 @@
+name: multiplatform
+extensions:
+  - path: ext
+    sdk: go

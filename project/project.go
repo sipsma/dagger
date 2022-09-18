@@ -1,7 +1,6 @@
 package project
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -10,9 +9,9 @@ import (
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
 	"github.com/graphql-go/graphql/language/parser"
+	bkclient "github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb"
 	bkgw "github.com/moby/buildkit/frontend/gateway/client"
-	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"go.dagger.io/dagger/core/filesystem"
 	"go.dagger.io/dagger/router"
 	"golang.org/x/sync/singleflight"
@@ -41,7 +40,10 @@ const (
 // being able to build it yet.
 type RemoteSchema struct {
 	gw         bkgw.Client
-	platform   specs.Platform
+	bkClient   *bkclient.Client
+	solveOpts  bkclient.SolveOpt
+	solveCh    chan *bkclient.SolveStatus
+	router     *router.Router
 	contextFS  *filesystem.Filesystem
 	configPath string
 
@@ -52,8 +54,19 @@ type RemoteSchema struct {
 	sshAuthSockID string
 }
 
-func Load(ctx context.Context, gw bkgw.Client, platform specs.Platform, contextFS *filesystem.Filesystem, configPath string, sshAuthSockID string) (*RemoteSchema, error) {
-	cfgBytes, err := contextFS.ReadFile(ctx, gw, configPath)
+type LoadParams struct {
+	GW            bkgw.Client
+	ProjectFS     *filesystem.Filesystem
+	ConfigPath    string
+	SSHAuthSockID string
+	BKClient      *bkclient.Client
+	SolveOpts     bkclient.SolveOpt
+	SolveCh       chan *bkclient.SolveStatus
+	Router        *router.Router
+}
+
+func Load(ctx *router.Context, params LoadParams) (*RemoteSchema, error) {
+	cfgBytes, err := params.ProjectFS.ReadFile(ctx, params.GW, params.ConfigPath)
 	if err != nil {
 		return nil, err
 	}
@@ -63,20 +76,23 @@ func Load(ctx context.Context, gw bkgw.Client, platform specs.Platform, contextF
 	}
 
 	s := &RemoteSchema{
-		gw:            gw,
-		platform:      platform,
-		contextFS:     contextFS,
-		configPath:    configPath,
+		gw:            params.GW,
+		bkClient:      params.BKClient,
+		solveOpts:     params.SolveOpts,
+		solveCh:       params.SolveCh,
+		router:        params.Router,
+		contextFS:     params.ProjectFS,
+		configPath:    params.ConfigPath,
 		scripts:       cfg.Scripts,
 		extensions:    cfg.Extensions,
-		sshAuthSockID: sshAuthSockID,
+		sshAuthSockID: params.SSHAuthSockID,
 	}
 
 	sourceSchemas := make([]router.LoadedSchema, len(cfg.Extensions))
 	for i, ext := range cfg.Extensions {
 		// filepath.Join and .Dir both swap file separator characters on Windows
-		sdl, err := contextFS.ReadFile(ctx, gw, filepath.ToSlash(filepath.Join(
-			filepath.Dir(configPath),
+		sdl, err := params.ProjectFS.ReadFile(ctx, params.GW, filepath.ToSlash(filepath.Join(
+			filepath.Dir(params.ConfigPath),
 			ext.Path,
 			schemaPath,
 		)))
@@ -97,22 +113,40 @@ func Load(ctx context.Context, gw bkgw.Client, platform specs.Platform, contextF
 		// TODO:(sipsma) ensure only one source is specified
 		switch {
 		case dep.Local != "":
-			depConfigPath := filepath.ToSlash(filepath.Join(filepath.Dir(configPath), dep.Local))
-			depSchema, err := Load(ctx, gw, platform, contextFS, depConfigPath, sshAuthSockID)
+			depConfigPath := filepath.ToSlash(filepath.Join(filepath.Dir(params.ConfigPath), dep.Local))
+			depSchema, err := Load(ctx, LoadParams{
+				GW:            params.GW,
+				ProjectFS:     params.ProjectFS,
+				ConfigPath:    depConfigPath,
+				SSHAuthSockID: params.SSHAuthSockID,
+				BKClient:      params.BKClient,
+				SolveOpts:     params.SolveOpts,
+				SolveCh:       params.SolveCh,
+				Router:        params.Router,
+			})
 			if err != nil {
 				return nil, err
 			}
 			s.dependencies = append(s.dependencies, depSchema)
 		case dep.Git != nil:
 			var opts []llb.GitOption
-			if sshAuthSockID != "" {
-				opts = append(opts, llb.MountSSHSock(sshAuthSockID))
+			if params.SSHAuthSockID != "" {
+				opts = append(opts, llb.MountSSHSock(params.SSHAuthSockID))
 			}
-			gitFS, err := filesystem.FromState(ctx, llb.Git(dep.Git.Remote, dep.Git.Ref, opts...), platform)
+			gitFS, err := filesystem.FromState(ctx, llb.Git(dep.Git.Remote, dep.Git.Ref, opts...))
 			if err != nil {
 				return nil, err
 			}
-			depSchema, err := Load(ctx, gw, platform, gitFS, dep.Git.Path, sshAuthSockID)
+			depSchema, err := Load(ctx, LoadParams{
+				GW:            params.GW,
+				ProjectFS:     gitFS,
+				ConfigPath:    dep.Git.Path,
+				SSHAuthSockID: params.SSHAuthSockID,
+				BKClient:      params.BKClient,
+				SolveOpts:     params.SolveOpts,
+				SolveCh:       params.SolveCh,
+				Router:        params.Router,
+			})
 			if err != nil {
 				return nil, err
 			}
@@ -135,7 +169,7 @@ func (s *RemoteSchema) Extensions() []*Extension {
 	return s.extensions
 }
 
-func (s RemoteSchema) Compile(ctx context.Context, cache map[string]*CompiledRemoteSchema, l *sync.RWMutex, sf *singleflight.Group) (*CompiledRemoteSchema, error) {
+func (s RemoteSchema) Compile(ctx *router.Context, cache map[string]*CompiledRemoteSchema, l *sync.RWMutex, sf *singleflight.Group) (*CompiledRemoteSchema, error) {
 	res, err, _ := sf.Do(s.Name(), func() (interface{}, error) {
 		// if we have already compiled a schema with this name, return it
 		// TODO:(sipsma) should check that schema is actually the same, error out if not
@@ -222,21 +256,26 @@ func (s *CompiledRemoteSchema) Dependencies() []router.ExecutableSchema {
 }
 
 func (s *CompiledRemoteSchema) resolver(runtimeFS *filesystem.Filesystem) graphql.FieldResolveFn {
-	return func(p graphql.ResolveParams) (any, error) {
-		pathArray := p.Info.Path.AsArray()
+	return router.ToResolver(func(ctx *router.Context, parent, args any) (any, error) {
+		pathArray := ctx.Path.AsArray()
 		name := fmt.Sprintf("%+v", pathArray)
 
-		resolverName := fmt.Sprintf("%s.%s", p.Info.ParentType.Name(), p.Info.FieldName)
+		resolverName := fmt.Sprintf("%s.%s", ctx.ParentType.Name(), ctx.FieldName)
 		inputMap := map[string]interface{}{
 			"resolver": resolverName,
-			"args":     p.Args,
-			"parent":   p.Source,
+			"args":     args,
+			"parent":   parent,
 		}
 		inputBytes, err := json.Marshal(inputMap)
 		if err != nil {
 			return nil, err
 		}
 		input := llb.Scratch().File(llb.Mkfile(inputFile, 0644, inputBytes))
+
+		contextBytes, err := ctx.SessionContext.MarshalText()
+		if err != nil {
+			return nil, err
+		}
 
 		fsState, err := runtimeFS.ToState()
 		if err != nil {
@@ -245,6 +284,7 @@ func (s *CompiledRemoteSchema) resolver(runtimeFS *filesystem.Filesystem) graphq
 
 		st := fsState.Run(
 			llb.Args([]string{entrypointPath}),
+			llb.AddEnv(router.DaggerContextEnv, string(contextBytes)),
 			llb.AddSSHSocket(
 				llb.SSHID(DaggerSockName),
 				llb.SSHSocketTarget(daggerSockPath),
@@ -255,7 +295,7 @@ func (s *CompiledRemoteSchema) resolver(runtimeFS *filesystem.Filesystem) graphq
 		)
 
 		// TODO: /mnt should maybe be configurable?
-		for path, fsid := range collectFSPaths(p.Args, fsMountPath, nil) {
+		for path, fsid := range collectFSPaths(args, fsMountPath, nil) {
 			fs := filesystem.New(fsid)
 			fsState, err := fs.ToState()
 			if err != nil {
@@ -270,12 +310,16 @@ func (s *CompiledRemoteSchema) resolver(runtimeFS *filesystem.Filesystem) graphq
 		// FIXME:(sipsma) got to be a better way than string matching parent type... But not easy
 		// to just use go type matching because the parent result may be a Filesystem struct or
 		// an untyped map[string]interface{}.
-		if p.Info.ParentType.Name() == "Filesystem" {
-			obj, err := filesystem.FromSource(p.Source)
+		if ctx.ParentType.Name() == "Filesystem" {
+			var parentFS filesystem.Filesystem
+			bytes, err := json.Marshal(parent)
 			if err != nil {
 				return nil, err
 			}
-			fsState, err := obj.ToState()
+			if err := json.Unmarshal(bytes, &parentFS); err != nil {
+				return nil, err
+			}
+			fsState, err := parentFS.ToState()
 			if err != nil {
 				return nil, err
 			}
@@ -284,13 +328,14 @@ func (s *CompiledRemoteSchema) resolver(runtimeFS *filesystem.Filesystem) graphq
 		}
 
 		outputMnt := st.AddMount(outputMountPath, llb.Scratch())
-		outputDef, err := outputMnt.Marshal(p.Context, llb.Platform(s.platform), llb.WithCustomName(name))
+		outputDef, err := outputMnt.Marshal(ctx, llb.Platform(ctx.HostPlatform), llb.WithCustomName(name))
 		if err != nil {
 			return nil, err
 		}
 
-		res, err := s.gw.Solve(p.Context, bkgw.SolveRequest{
+		res, err := s.gw.Solve(ctx, bkgw.SolveRequest{
 			Definition: outputDef.ToPB(),
+			Evaluate:   true,
 		})
 		if err != nil {
 			return nil, err
@@ -299,7 +344,7 @@ func (s *CompiledRemoteSchema) resolver(runtimeFS *filesystem.Filesystem) graphq
 		if err != nil {
 			return nil, err
 		}
-		outputBytes, err := ref.ReadFile(p.Context, bkgw.ReadRequest{
+		outputBytes, err := ref.ReadFile(ctx, bkgw.ReadRequest{
 			Filename: outputFile,
 		})
 		if err != nil {
@@ -310,7 +355,7 @@ func (s *CompiledRemoteSchema) resolver(runtimeFS *filesystem.Filesystem) graphq
 			return nil, fmt.Errorf("failed to unmarshal output: %w", err)
 		}
 		return output, nil
-	}
+	})
 }
 
 func collectFSPaths(arg interface{}, curPath string, fsPaths map[string]filesystem.FSID) map[string]filesystem.FSID {

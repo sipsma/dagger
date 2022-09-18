@@ -1,7 +1,6 @@
 package project
 
 import (
-	"context"
 	"embed"
 	"io/fs"
 	"path/filepath"
@@ -9,12 +8,13 @@ import (
 
 	"github.com/moby/buildkit/client/llb"
 	"go.dagger.io/dagger/core/filesystem"
+	"go.dagger.io/dagger/router"
 )
 
 //go:embed go/*
 var goGenerateSrc embed.FS
 
-func (s RemoteSchema) goGenerate(ctx context.Context, subpath, schema, coreSchema string) (*filesystem.Filesystem, error) {
+func (s RemoteSchema) goGenerate(ctx *router.Context, subpath, schema, coreSchema string) (*filesystem.Filesystem, error) {
 	projectFS, err := s.contextFS.ToState()
 	if err != nil {
 		return nil, err
@@ -89,5 +89,5 @@ func (s RemoteSchema) goGenerate(ctx context.Context, subpath, schema, coreSchem
 		withGoCaching(),
 	).GetMount(outputDir)
 
-	return filesystem.FromState(ctx, projectFS, s.platform)
+	return filesystem.FromState(ctx, projectFS)
 }

@@ -1,16 +1,16 @@
 package project
 
 import (
-	"context"
 	"fmt"
 
 	"go.dagger.io/dagger/core/filesystem"
+	"go.dagger.io/dagger/router"
 )
 
 // TODO:(sipsma) SDKs should be pluggable extensions, not hardcoded LLB here. The implementation here is a temporary bridge from the previous hardcoded Dockerfiles to the sdk-as-extension model.
 
 // return the FS with the executable extension code, ready to be invoked by cloak
-func (s RemoteSchema) Runtime(ctx context.Context, ext *Extension) (*filesystem.Filesystem, error) {
+func (s RemoteSchema) Runtime(ctx *router.Context, ext *Extension) (*filesystem.Filesystem, error) {
 	var runtimeFS *filesystem.Filesystem
 	var err error
 	switch ext.SDK {
@@ -35,7 +35,7 @@ func (s RemoteSchema) Runtime(ctx context.Context, ext *Extension) (*filesystem.
 }
 
 // return the project filesystem plus any generated code from the SDKs of the extensions and scripts in the project
-func (s RemoteSchema) Generate(ctx context.Context, coreSchema string) (*filesystem.Filesystem, error) {
+func (s RemoteSchema) Generate(ctx *router.Context, coreSchema string) (*filesystem.Filesystem, error) {
 	var generatedFSes []*filesystem.Filesystem
 	for _, ext := range s.extensions {
 		switch ext.SDK {
@@ -44,7 +44,7 @@ func (s RemoteSchema) Generate(ctx context.Context, coreSchema string) (*filesys
 			if err != nil {
 				return nil, err
 			}
-			diff, err := filesystem.Diffed(ctx, s.contextFS, generatedFS, s.platform)
+			diff, err := filesystem.Diffed(ctx, s.contextFS, generatedFS)
 			if err != nil {
 				return nil, err
 			}
@@ -60,7 +60,7 @@ func (s RemoteSchema) Generate(ctx context.Context, coreSchema string) (*filesys
 			if err != nil {
 				return nil, err
 			}
-			diff, err := filesystem.Diffed(ctx, s.contextFS, generatedFS, s.platform)
+			diff, err := filesystem.Diffed(ctx, s.contextFS, generatedFS)
 			if err != nil {
 				return nil, err
 			}
@@ -69,5 +69,5 @@ func (s RemoteSchema) Generate(ctx context.Context, coreSchema string) (*filesys
 			fmt.Printf("unsupported sdk for generation %q\n", script.SDK)
 		}
 	}
-	return filesystem.Merged(ctx, generatedFSes, s.platform)
+	return filesystem.Merged(ctx, generatedFSes)
 }
