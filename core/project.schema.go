@@ -137,7 +137,7 @@ type loadProjectArgs struct {
 }
 
 func (s *projectSchema) loadProject(ctx *router.Context, parent *filesystem.Filesystem, args loadProjectArgs) (*Project, error) {
-	schema, err := project.Load(ctx, s.gw, s.platform, parent, args.ConfigPath, s.sshAuthSockID)
+	schema, err := project.Load(ctx, s.gw, s.hostPlatform, parent, args.ConfigPath, s.sshAuthSockID)
 	if err != nil {
 		return nil, err
 	}

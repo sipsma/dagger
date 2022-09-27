@@ -174,7 +174,7 @@ func (s *execSchema) exec(ctx *router.Context, parent *filesystem.Filesystem, ar
 		args.Input.Mounts[i].Path = filepath.Clean(args.Input.Mounts[i].Path)
 	}
 
-	shimSt, err := shim.Build(ctx, s.gw, s.platform)
+	shimSt, err := shim.Build(ctx, s.gw, ctx.Session.Platform)
 	if err != nil {
 		return nil, err
 	}
@@ -242,21 +242,21 @@ func (s *execSchema) exec(ctx *router.Context, parent *filesystem.Filesystem, ar
 		_ = execState.AddMount(mount.Path, state)
 	}
 
-	fs, err := s.Solve(ctx, execState.Root())
+	fs, err := s.Solve(ctx, execState.Root(), ctx.Session.Platform)
 	if err != nil {
 		// clean up shim from error messages
 		cleanErr := strings.ReplaceAll(err.Error(), shim.Path+" ", "")
 		return nil, errors.New(cleanErr)
 	}
 
-	metadataFS, err := filesystem.FromState(ctx, execState.GetMount("/dagger"), s.platform)
+	metadataFS, err := filesystem.FromState(ctx, execState.GetMount("/dagger"), ctx.Session.Platform)
 	if err != nil {
 		return nil, err
 	}
 
 	mounts := map[string]*filesystem.Filesystem{}
 	for _, mount := range args.Input.Mounts {
-		mountFS, err := filesystem.FromState(ctx, execState.GetMount(mount.Path), s.platform)
+		mountFS, err := filesystem.FromState(ctx, execState.GetMount(mount.Path), ctx.Session.Platform)
 		if err != nil {
 			return nil, err
 		}

@@ -39,6 +39,9 @@ extend type Query {
 type Core {
 	"Fetch an OCI image"
 	image(ref: String!): Filesystem!
+
+	"Push a multiplatform image"
+	pushMultiplatformImage(ref: String!, filesystems: [FSID!]!): Boolean!
 }
 
 "Interactions with the user's host filesystem"
@@ -68,7 +71,8 @@ func (r *coreSchema) Resolvers() router.Resolvers {
 			"host":   router.PassthroughResolver,
 		},
 		"Core": router.ObjectResolver{
-			"image": router.ToResolver(r.image),
+			"image":                  router.ToResolver(r.image),
+			"pushMultiplatformImage": router.ToResolver(r.pushMultiplatformImage),
 		},
 		"Host": router.ObjectResolver{
 			"workdir": router.ToResolver(r.workdir),
@@ -99,7 +103,7 @@ func (r *coreSchema) image(ctx *router.Context, parent any, args imageArgs) (*fi
 	}
 	ref := reference.TagNameOnly(refName).String()
 	_, cfgBytes, err := r.gw.ResolveImageConfig(ctx, ref, llb.ResolveImageConfigOpt{
-		Platform:    &r.platform,
+		Platform:    &ctx.Session.Platform,
 		ResolveMode: llb.ResolveModeDefault.String(),
 	})
 	if err != nil {
@@ -109,7 +113,7 @@ func (r *coreSchema) image(ctx *router.Context, parent any, args imageArgs) (*fi
 	if err := json.Unmarshal(cfgBytes, &imgSpec); err != nil {
 		return nil, err
 	}
-	img, err := filesystem.ImageFromStateAndConfig(ctx, st, imgSpec.Config, llb.Platform(r.platform))
+	img, err := filesystem.ImageFromStateAndConfig(ctx, st, imgSpec.Config, llb.Platform(ctx.Session.Platform))
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +149,7 @@ func (r *coreSchema) localDirRead(ctx *router.Context, parent localDir, args any
 		llb.ExcludePatterns([]string{"**/node_modules"}),
 	), "/", "/"))
 
-	return r.Solve(ctx, st, llb.LocalUniqueID(parent.ID))
+	return r.Solve(ctx, st, r.hostPlatform, llb.LocalUniqueID(parent.ID))
 }
 
 // FIXME:(sipsma) have to make a new session to do a local export, need either gw support for exports or actually working session sharing to keep it all in the same session
@@ -176,9 +180,32 @@ func (r *coreSchema) localDirWrite(ctx *router.Context, parent localDir, args lo
 		return false, fmt.Errorf("path %q is outside workdir", args.Path)
 	}
 
-	if err := r.Export(ctx, &fs, bkclient.ExportEntry{
+	if err := r.Export(ctx, &fs, r.hostPlatform, bkclient.ExportEntry{
 		Type:      bkclient.ExporterLocal,
 		OutputDir: dest,
+	}); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+type pushMultiplatformImageArgs struct {
+	Ref         string
+	Filesystems []filesystem.FSID
+}
+
+func (r *coreSchema) pushMultiplatformImage(ctx *router.Context, parent any, args pushMultiplatformImageArgs) (bool, error) {
+	filesystems := make([]*filesystem.Filesystem, 0, len(args.Filesystems))
+	for _, fsid := range args.Filesystems {
+		filesystems = append(filesystems, &filesystem.Filesystem{ID: fsid})
+	}
+
+	if err := r.ExportMultiplatformImage(ctx, filesystems, bkclient.ExportEntry{
+		Type: bkclient.ExporterImage,
+		Attrs: map[string]string{
+			"name": args.Ref,
+			"push": "true",
+		},
 	}); err != nil {
 		return false, err
 	}

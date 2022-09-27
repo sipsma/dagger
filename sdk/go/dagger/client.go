@@ -5,8 +5,10 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"os"
 
 	"github.com/Khan/genqlient/graphql"
+	"go.dagger.io/dagger/router"
 )
 
 type SecretID string
@@ -30,11 +32,24 @@ type Exec struct {
 
 type clientKey struct{}
 
+type contextTransport struct {
+	base http.RoundTripper
+}
+
+func (t *contextTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if v, ok := os.LookupEnv(router.SessionContextKey); ok {
+		req = req.Clone(req.Context())
+		req.Header.Set(router.SessionContextKey, v)
+	}
+	return t.base.RoundTrip(req)
+}
+
 func Client(ctx context.Context) (graphql.Client, error) {
 	client, ok := ctx.Value(clientKey{}).(*http.Client)
 	if !ok {
 		return nil, errors.New("no dagger client in context")
 	}
+	client.Transport = &contextTransport{base: client.Transport}
 	return graphql.NewClient("http://fake.invalid/query", client), nil
 }
 

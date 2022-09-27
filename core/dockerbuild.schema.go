@@ -51,7 +51,7 @@ func (s *dockerBuildSchema) dockerbuild(ctx *router.Context, parent *filesystem.
 	}
 
 	opts := map[string]string{
-		"platform": platforms.Format(s.platform),
+		"platform": platforms.Format(ctx.Session.Platform),
 	}
 	if dockerfile := args.Dockerfile; dockerfile != "" {
 		opts["filename"] = dockerfile
@@ -78,5 +78,5 @@ func (s *dockerBuildSchema) dockerbuild(ctx *router.Context, parent *filesystem.
 		return nil, err
 	}
 
-	return filesystem.FromState(ctx, st, s.platform)
+	return filesystem.FromState(ctx, st, ctx.Session.Platform)
 }

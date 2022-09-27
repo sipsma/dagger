@@ -27,7 +27,7 @@ func (s RemoteSchema) goRuntime(ctx context.Context, subpath string) (*filesyste
 			llb.AddMount("/src", contextState),
 			withGoCaching(),
 		).Root(),
-		s.platform,
+		s.hostPlatform,
 	)
 }
 

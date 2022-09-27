@@ -49,6 +49,6 @@ func (s RemoteSchema) tsRuntime(ctx context.Context, subpath string) (*filesyste
 					ctrSrcPath,
 				)),
 			)),
-		s.platform,
+		s.hostPlatform,
 	)
 }

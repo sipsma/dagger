@@ -40,10 +40,10 @@ const (
 // extension. This allows obtaining the extension metadata without necessarily
 // being able to build it yet.
 type RemoteSchema struct {
-	gw         bkgw.Client
-	platform   specs.Platform
-	contextFS  *filesystem.Filesystem
-	configPath string
+	gw           bkgw.Client
+	hostPlatform specs.Platform
+	contextFS    *filesystem.Filesystem
+	configPath   string
 
 	router.LoadedSchema
 	dependencies  []*RemoteSchema
@@ -52,7 +52,7 @@ type RemoteSchema struct {
 	sshAuthSockID string
 }
 
-func Load(ctx context.Context, gw bkgw.Client, platform specs.Platform, contextFS *filesystem.Filesystem, configPath string, sshAuthSockID string) (*RemoteSchema, error) {
+func Load(ctx context.Context, gw bkgw.Client, hostPlatform specs.Platform, contextFS *filesystem.Filesystem, configPath string, sshAuthSockID string) (*RemoteSchema, error) {
 	cfgBytes, err := contextFS.ReadFile(ctx, gw, configPath)
 	if err != nil {
 		return nil, err
@@ -64,7 +64,7 @@ func Load(ctx context.Context, gw bkgw.Client, platform specs.Platform, contextF
 
 	s := &RemoteSchema{
 		gw:            gw,
-		platform:      platform,
+		hostPlatform:  hostPlatform,
 		contextFS:     contextFS,
 		configPath:    configPath,
 		scripts:       cfg.Scripts,
@@ -98,7 +98,7 @@ func Load(ctx context.Context, gw bkgw.Client, platform specs.Platform, contextF
 		switch {
 		case dep.Local != "":
 			depConfigPath := filepath.ToSlash(filepath.Join(filepath.Dir(configPath), dep.Local))
-			depSchema, err := Load(ctx, gw, platform, contextFS, depConfigPath, sshAuthSockID)
+			depSchema, err := Load(ctx, gw, hostPlatform, contextFS, depConfigPath, sshAuthSockID)
 			if err != nil {
 				return nil, err
 			}
@@ -108,11 +108,11 @@ func Load(ctx context.Context, gw bkgw.Client, platform specs.Platform, contextF
 			if sshAuthSockID != "" {
 				opts = append(opts, llb.MountSSHSock(sshAuthSockID))
 			}
-			gitFS, err := filesystem.FromState(ctx, llb.Git(dep.Git.Remote, dep.Git.Ref, opts...), platform)
+			gitFS, err := filesystem.FromState(ctx, llb.Git(dep.Git.Remote, dep.Git.Ref, opts...), hostPlatform)
 			if err != nil {
 				return nil, err
 			}
-			depSchema, err := Load(ctx, gw, platform, gitFS, dep.Git.Path, sshAuthSockID)
+			depSchema, err := Load(ctx, gw, hostPlatform, gitFS, dep.Git.Path, sshAuthSockID)
 			if err != nil {
 				return nil, err
 			}
@@ -238,6 +238,11 @@ func (s *CompiledRemoteSchema) resolver(runtimeFS *filesystem.Filesystem) graphq
 		}
 		input := llb.Scratch().File(llb.Mkfile(inputFile, 0644, inputBytes))
 
+		contextBytes, err := ctx.Session.MarshalText()
+		if err != nil {
+			return nil, err
+		}
+
 		fsState, err := runtimeFS.ToState()
 		if err != nil {
 			return nil, err
@@ -245,6 +250,7 @@ func (s *CompiledRemoteSchema) resolver(runtimeFS *filesystem.Filesystem) graphq
 
 		st := fsState.Run(
 			llb.Args([]string{entrypointPath}),
+			llb.AddEnv(router.SessionContextKey, string(contextBytes)),
 			llb.AddSSHSocket(
 				llb.SSHID(DaggerSockName),
 				llb.SSHSocketTarget(daggerSockPath),
@@ -288,7 +294,7 @@ func (s *CompiledRemoteSchema) resolver(runtimeFS *filesystem.Filesystem) graphq
 		}
 
 		outputMnt := st.AddMount(outputMountPath, llb.Scratch())
-		outputDef, err := outputMnt.Marshal(ctx, llb.Platform(s.platform), llb.WithCustomName(name))
+		outputDef, err := outputMnt.Marshal(ctx, llb.Platform(s.hostPlatform), llb.WithCustomName(name))
 		if err != nil {
 			return nil, err
 		}

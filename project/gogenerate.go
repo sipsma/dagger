@@ -100,5 +100,5 @@ func (s RemoteSchema) goGenerate(ctx context.Context, subpath, schema, coreSchem
 		withGoCaching(),
 	).GetMount(outputDir)
 
-	return filesystem.FromState(ctx, projectFS, s.platform)
+	return filesystem.FromState(ctx, projectFS, s.hostPlatform)
 }

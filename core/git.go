@@ -58,7 +58,7 @@ func (s *gitSchema) gitOld(ctx *router.Context, parent any, args gitOldArgs) (*f
 		opts = append(opts, llb.MountSSHSock(s.sshAuthSockID))
 	}
 	st := llb.Git(args.Remote, args.Ref, opts...)
-	return s.Solve(ctx, st)
+	return s.Solve(ctx, st, s.hostPlatform)
 }
 
 type gitRepository struct {

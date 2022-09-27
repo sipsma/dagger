@@ -134,7 +134,7 @@ func (s *filesystemSchema) copy(ctx *router.Context, parent *filesystem.Filesyst
 		ExcludePatterns:     args.Exclude,
 	}))
 
-	fs, err := s.Solve(ctx, st)
+	fs, err := s.Solve(ctx, st, ctx.Session.Platform)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +146,7 @@ type pushImageArgs struct {
 }
 
 func (s *filesystemSchema) pushImage(ctx *router.Context, parent *filesystem.Filesystem, args pushImageArgs) (bool, error) {
-	if err := s.Export(ctx, parent, bkclient.ExportEntry{
+	if err := s.Export(ctx, parent, ctx.Session.Platform, bkclient.ExportEntry{
 		Type: bkclient.ExporterImage,
 		Attrs: map[string]string{
 			"name": args.Ref,
@@ -177,7 +177,7 @@ func (s *filesystemSchema) writeFile(ctx *router.Context, parent *filesystem.Fil
 	}
 	st = st.File(llb.Mkfile(args.Path, fs.FileMode(permissions), contents))
 
-	fs, err := s.Solve(ctx, st)
+	fs, err := s.Solve(ctx, st, ctx.Session.Platform)
 	if err != nil {
 		return nil, err
 	}

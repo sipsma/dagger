@@ -18,7 +18,7 @@ func (s RemoteSchema) dockerfileRuntime(ctx context.Context, subpath string) (*f
 	}
 
 	opts := map[string]string{
-		"platform": platforms.Format(s.platform),
+		"platform": platforms.Format(s.hostPlatform),
 		"filename": filepath.ToSlash(filepath.Join(filepath.Dir(s.configPath), subpath, "Dockerfile")),
 	}
 	inputs := map[string]*pb.Definition{
@@ -43,5 +43,5 @@ func (s RemoteSchema) dockerfileRuntime(ctx context.Context, subpath string) (*f
 		return nil, err
 	}
 
-	return filesystem.FromState(ctx, st, s.platform)
+	return filesystem.FromState(ctx, st, s.hostPlatform)
 }

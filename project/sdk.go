@@ -44,7 +44,7 @@ func (s RemoteSchema) Generate(ctx context.Context, coreSchema string) (*filesys
 			if err != nil {
 				return nil, err
 			}
-			diff, err := filesystem.Diffed(ctx, s.contextFS, generatedFS, s.platform)
+			diff, err := filesystem.Diffed(ctx, s.contextFS, generatedFS, s.hostPlatform)
 			if err != nil {
 				return nil, err
 			}
@@ -60,7 +60,7 @@ func (s RemoteSchema) Generate(ctx context.Context, coreSchema string) (*filesys
 			if err != nil {
 				return nil, err
 			}
-			diff, err := filesystem.Diffed(ctx, s.contextFS, generatedFS, s.platform)
+			diff, err := filesystem.Diffed(ctx, s.contextFS, generatedFS, s.hostPlatform)
 			if err != nil {
 				return nil, err
 			}
@@ -69,5 +69,5 @@ func (s RemoteSchema) Generate(ctx context.Context, coreSchema string) (*filesys
 			fmt.Printf("unsupported sdk for generation %q\n", script.SDK)
 		}
 	}
-	return filesystem.Merged(ctx, generatedFSes, s.platform)
+	return filesystem.Merged(ctx, generatedFSes, s.hostPlatform)
 }

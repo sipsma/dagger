@@ -5,7 +5,6 @@ import (
 	"embed"
 	"io/fs"
 	"path"
-	"sync"
 
 	"github.com/containerd/containerd/platforms"
 	"github.com/moby/buildkit/client/llb"
@@ -18,35 +17,36 @@ import (
 //go:embed cmd/*
 var cmd embed.FS
 
-var (
-	state llb.State
-	lock  sync.Mutex
-)
-
 const Path = "/_shim"
 
-func init() {
+func shimSource() (llb.State, error) {
 	entries, err := fs.ReadDir(cmd, "cmd")
 	if err != nil {
-		panic(err)
+		return llb.State{}, err
 	}
 
-	state = llb.Scratch()
+	state := llb.Scratch()
 	for _, e := range entries {
 		contents, err := fs.ReadFile(cmd, path.Join("cmd", e.Name()))
 		if err != nil {
-			panic(err)
+			return llb.State{}, err
 		}
 
 		state = state.File(llb.Mkfile(e.Name(), e.Type().Perm(), contents))
 		e.Name()
 	}
+	return state, nil
 }
 
 func Build(ctx context.Context, gw bkgw.Client, p specs.Platform) (llb.State, error) {
-	lock.Lock()
-	def, err := state.Marshal(ctx, llb.Platform(p))
-	lock.Unlock()
+	// It's not incredibly efficient to call shimSource every time, but llb.State in general
+	// is not designed to handle being marshalled multiple times with different args (e.g. platform)
+	// and will fail in surprising ways.
+	shimSrc, err := shimSource()
+	if err != nil {
+		return llb.State{}, err
+	}
+	def, err := shimSrc.Marshal(ctx, llb.Platform(p))
 	if err != nil {
 		return llb.State{}, err
 	}
