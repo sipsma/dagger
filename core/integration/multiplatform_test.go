@@ -239,6 +239,9 @@ func TestMultiplatformExtension(t *testing.T) {
 				Architecture: arch,
 			}).Architecture,
 		))
+
+		// extension is hardcoded to build for darwin
+		require.Contains(t, lines, "\tbuild\tGOOS=darwin")
 		return nil
 	})
 	require.NoError(t, err)

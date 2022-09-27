@@ -103,15 +103,16 @@ func (r *multiplatform) crossCompile(ctx context.Context, src dagger.FSID, subpa
 	}{}
 	err = client.MakeRequest(ctx,
 		&graphql.Request{
-			Query: `query Build($src: FSID!, $cmd: String!, $arch: String!) {
+			Query: `query Build($src: FSID!, $cmd: String!, $plt: String!) {
 				withArchitecture(architecture: "host") {
 					core {
-						image(ref: "golang:1.19.1-alpine") {
+						image(ref: "crazymax/goxx:latest") {
 							exec(input:{
 								args: ["sh", "-c", $cmd],
 								workdir: "/src"
 								env: [
-									{name: "GOARCH", value: $arch},
+									{name: "PATH", value: "/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
+									{name: "TARGETPLATFORM", value: $plt},
 								]
 								mounts: [
 									{fs: $src, path: "/src"},
@@ -127,9 +128,9 @@ func (r *multiplatform) crossCompile(ctx context.Context, src dagger.FSID, subpa
 				}
 			}`,
 			Variables: map[string]any{
-				"src":  src,
-				"cmd":  fmt.Sprintf("uname -m && /usr/local/go/bin/go build -o /out/main %s && /usr/local/go/bin/go version -m /out/main", path.Join("/src", *subpath)),
-				"arch": arch,
+				"src": src,
+				"cmd": fmt.Sprintf("uname -m && goxx-go build -o /out/main %s && go version -m /out/main", path.Join("/src", *subpath)),
+				"plt": "darwin/" + arch,
 			},
 		},
 		&graphql.Response{Data: &buildRes},
