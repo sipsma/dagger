@@ -1,3 +1,4 @@
+import os
 from gql.transport import requests
 from gql import Client as gqlClient
 
@@ -9,6 +10,10 @@ class Client(gqlClient):
             url='http://{}:{}/query'.format(host, port),
             timeout=30,
             retries=10,
+            headers={
+                "Content-Type": "application/graphql",
+                "DAGGER_SESSION_CONTEXT": os.getenv("DAGGER_SESSION_CONTEXT", ""),
+            },
         )
         super().__init__(transport=transport,
                          fetch_schema_from_transport=True)
