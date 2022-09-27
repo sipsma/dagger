@@ -28,7 +28,12 @@ export class Client {
     }
     do(payload) {
         return __awaiter(this, void 0, void 0, function* () {
-            const response = yield this.client.post(`http://fake.invalid/query`, payload, { headers: { "Content-Type": "application/graphql" } });
+            const response = yield this.client.post(`http://fake.invalid/query`, payload, {
+                headers: {
+                    "Content-Type": "application/graphql",
+                    DAGGER_SESSION_CONTEXT: process.env.DAGGER_SESSION_CONTEXT || "",
+                },
+            });
             return response;
         });
     }
