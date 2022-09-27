@@ -41,6 +41,9 @@ type Core {
 
 	"Fetch a git repository"
 	git(remote: String!, ref: String): Filesystem!
+
+	"Push a multiplatform image"
+	pushMultiplatformImage(ref: String!, filesystems: [FSID!]!): Boolean!
 }
 
 "Interactions with the user's host filesystem"
@@ -70,8 +73,9 @@ func (r *coreSchema) Resolvers() router.Resolvers {
 			"host": r.host,
 		},
 		"Core": router.ObjectResolver{
-			"image": r.image,
-			"git":   r.git,
+			"image":                  r.image,
+			"git":                    r.git,
+			"pushMultiplatformImage": r.pushMultiplatformImage,
 		},
 		"Host": router.ObjectResolver{
 			"workdir": r.workdir,
@@ -97,13 +101,23 @@ func (r *coreSchema) host(p graphql.ResolveParams) (any, error) {
 }
 
 func (r *coreSchema) image(p graphql.ResolveParams) (any, error) {
+	plt, err := router.PlatformOf(p)
+	if err != nil {
+		return nil, err
+	}
+
 	ref := p.Args["ref"].(string)
 
 	st := llb.Image(ref)
-	return r.Solve(p.Context, st)
+	return r.Solve(p.Context, st, plt)
 }
 
 func (r *coreSchema) git(p graphql.ResolveParams) (any, error) {
+	plt, err := router.PlatformOf(p)
+	if err != nil {
+		return nil, err
+	}
+
 	remote := p.Args["remote"].(string)
 	ref, _ := p.Args["ref"].(string)
 
@@ -112,7 +126,7 @@ func (r *coreSchema) git(p graphql.ResolveParams) (any, error) {
 		opts = append(opts, llb.MountSSHSock(r.sshAuthSockID))
 	}
 	st := llb.Git(remote, ref, opts...)
-	return r.Solve(p.Context, st)
+	return r.Solve(p.Context, st, plt)
 }
 
 type localDir struct {
@@ -143,7 +157,7 @@ func (r *coreSchema) localDirRead(p graphql.ResolveParams) (any, error) {
 		llb.ExcludePatterns([]string{"**/node_modules"}),
 	), "/", "/"))
 
-	return r.Solve(p.Context, st, llb.LocalUniqueID(obj.ID))
+	return r.Solve(p.Context, st, r.hostPlatform, llb.LocalUniqueID(obj.ID))
 }
 
 // FIXME:(sipsma) have to make a new session to do a local export, need either gw support for exports or actually working session sharing to keep it all in the same session
@@ -176,6 +190,27 @@ func (r *coreSchema) localDirWrite(p graphql.ResolveParams) (any, error) {
 		OutputDir: dest,
 	}); err != nil {
 		return nil, err
+	}
+	return true, nil
+}
+
+func (r *coreSchema) pushMultiplatformImage(p graphql.ResolveParams) (any, error) {
+	ref := p.Args["ref"].(string)
+
+	rawFSIDs := p.Args["filesystems"].([]interface{})
+	filesystems := make([]*filesystem.Filesystem, 0, len(rawFSIDs))
+	for _, fsid := range rawFSIDs {
+		filesystems = append(filesystems, &filesystem.Filesystem{ID: fsid.(filesystem.FSID)})
+	}
+
+	if err := r.ExportMultiplatformImage(p.Context, filesystems, bkclient.ExportEntry{
+		Type: bkclient.ExporterImage,
+		Attrs: map[string]string{
+			"name": ref,
+			"push": "true",
+		},
+	}); err != nil {
+		return false, err
 	}
 	return true, nil
 }

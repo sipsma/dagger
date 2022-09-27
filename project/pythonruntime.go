@@ -56,6 +56,6 @@ python3 main.py
 				addSSHKnownHosts,
 			).
 			File(llb.Mkfile("/entrypoint", 0755, []byte(entrypointScript))),
-		s.platform,
+		s.hostPlatform,
 	)
 }

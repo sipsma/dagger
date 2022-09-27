@@ -133,6 +133,11 @@ func (s *filesystemSchema) file(p graphql.ResolveParams) (any, error) {
 }
 
 func (s *filesystemSchema) copy(p graphql.ResolveParams) (any, error) {
+	plt, err := router.PlatformOf(p)
+	if err != nil {
+		return nil, err
+	}
+
 	obj, err := filesystem.FromSource(p.Source)
 	if err != nil {
 		return nil, err
@@ -161,7 +166,7 @@ func (s *filesystemSchema) copy(p graphql.ResolveParams) (any, error) {
 		ExcludePatterns:     exclude,
 	}))
 
-	fs, err := s.Solve(p.Context, st)
+	fs, err := s.Solve(p.Context, st, plt)
 	if err != nil {
 		return nil, err
 	}
@@ -192,6 +197,11 @@ func (s *filesystemSchema) pushImage(p graphql.ResolveParams) (any, error) {
 }
 
 func (s *filesystemSchema) writeFile(p graphql.ResolveParams) (any, error) {
+	plt, err := router.PlatformOf(p)
+	if err != nil {
+		return nil, err
+	}
+
 	obj, err := filesystem.FromSource(p.Source)
 	if err != nil {
 		return nil, err
@@ -210,7 +220,7 @@ func (s *filesystemSchema) writeFile(p graphql.ResolveParams) (any, error) {
 	}
 	st = st.File(llb.Mkfile(path, fs.FileMode(permissions), contents))
 
-	fs, err := s.Solve(p.Context, st)
+	fs, err := s.Solve(p.Context, st, plt)
 	if err != nil {
 		return nil, err
 	}

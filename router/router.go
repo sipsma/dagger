@@ -9,23 +9,30 @@ import (
 
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/handler"
+	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"go.dagger.io/dagger/playground"
 )
 
+const (
+	SessionContextKey = "DAGGER_SESSION_CONTEXT"
+)
+
 type Router struct {
-	schemas map[string]ExecutableSchema
+	schemas      map[string]ExecutableSchema
+	hostPlatform specs.Platform
 
 	s *graphql.Schema
-	h *handler.Handler
+	h http.Handler
 	l sync.RWMutex
 }
 
-func New() *Router {
+func New(hostPlatform specs.Platform) *Router {
 	r := &Router{
-		schemas: make(map[string]ExecutableSchema),
+		schemas:      make(map[string]ExecutableSchema),
+		hostPlatform: hostPlatform,
 	}
 
-	if err := r.Add(&rootSchema{}); err != nil {
+	if err := r.Add(&rootSchema{hostPlatform}); err != nil {
 		panic(err)
 	}
 
@@ -58,8 +65,18 @@ func (r *Router) Add(schema ExecutableSchema) error {
 
 	// Atomic swap
 	r.s = s
-	r.h = handler.New(&handler.Config{
-		Schema: s,
+	r.h = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		sessionContext := SessionContext{
+			Platform: r.hostPlatform,
+		}
+		if marshalledContext := req.Header.Get(SessionContextKey); marshalledContext != "" {
+			if err := sessionContext.UnmarshalText([]byte(marshalledContext)); err != nil {
+				panic(err)
+			}
+		}
+		handler.New(&handler.Config{
+			Schema: s,
+		}).ContextHandler(initSessionContext(req.Context(), sessionContext), w, req)
 	})
 	return nil
 }

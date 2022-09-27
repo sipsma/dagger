@@ -42,6 +42,11 @@ func (s *dockerBuildSchema) Dependencies() []router.ExecutableSchema {
 }
 
 func (s *dockerBuildSchema) dockerbuild(p graphql.ResolveParams) (any, error) {
+	plt, err := router.PlatformOf(p)
+	if err != nil {
+		return nil, err
+	}
+
 	obj, err := filesystem.FromSource(p.Source)
 	if err != nil {
 		return nil, err
@@ -53,7 +58,7 @@ func (s *dockerBuildSchema) dockerbuild(p graphql.ResolveParams) (any, error) {
 	}
 
 	opts := map[string]string{
-		"platform": platforms.Format(s.platform),
+		"platform": platforms.Format(plt),
 	}
 	if dockerfile, ok := p.Args["dockerfile"].(string); ok {
 		opts["filename"] = dockerfile
@@ -80,5 +85,5 @@ func (s *dockerBuildSchema) dockerbuild(p graphql.ResolveParams) (any, error) {
 		return nil, err
 	}
 
-	return filesystem.FromState(p.Context, st, s.platform)
+	return filesystem.FromState(p.Context, st, plt)
 }

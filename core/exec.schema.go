@@ -167,6 +167,11 @@ func (s *execSchema) Dependencies() []router.ExecutableSchema {
 }
 
 func (s *execSchema) exec(p graphql.ResolveParams) (any, error) {
+	plt, err := router.PlatformOf(p)
+	if err != nil {
+		return nil, err
+	}
+
 	obj, err := filesystem.FromSource(p.Source)
 	if err != nil {
 		return nil, err
@@ -182,7 +187,7 @@ func (s *execSchema) exec(p graphql.ResolveParams) (any, error) {
 		input.Mounts[i].Path = filepath.Clean(input.Mounts[i].Path)
 	}
 
-	shimSt, err := shim.Build(p.Context, s.gw, s.platform)
+	shimSt, err := shim.Build(p.Context, s.gw, plt)
 	if err != nil {
 		return nil, err
 	}
@@ -250,21 +255,21 @@ func (s *execSchema) exec(p graphql.ResolveParams) (any, error) {
 		_ = execState.AddMount(mount.Path, state)
 	}
 
-	fs, err := s.Solve(p.Context, execState.Root())
+	fs, err := s.Solve(p.Context, execState.Root(), plt)
 	if err != nil {
 		// clean up shim from error messages
 		cleanErr := strings.ReplaceAll(err.Error(), shim.Path+" ", "")
 		return nil, errors.New(cleanErr)
 	}
 
-	metadataFS, err := filesystem.FromState(p.Context, execState.GetMount("/dagger"), s.platform)
+	metadataFS, err := filesystem.FromState(p.Context, execState.GetMount("/dagger"), plt)
 	if err != nil {
 		return nil, err
 	}
 
 	mounts := map[string]*filesystem.Filesystem{}
 	for _, mount := range input.Mounts {
-		mountFS, err := filesystem.FromState(p.Context, execState.GetMount(mount.Path), s.platform)
+		mountFS, err := filesystem.FromState(p.Context, execState.GetMount(mount.Path), plt)
 		if err != nil {
 			return nil, err
 		}

@@ -134,7 +134,7 @@ func (s *projectSchema) loadProject(p graphql.ResolveParams) (any, error) {
 	}
 
 	configPath := p.Args["configPath"].(string)
-	schema, err := project.Load(p.Context, s.gw, s.platform, obj, configPath, s.sshAuthSockID)
+	schema, err := project.Load(p.Context, s.gw, s.hostPlatform, obj, configPath, s.sshAuthSockID)
 	if err != nil {
 		return nil, err
 	}
