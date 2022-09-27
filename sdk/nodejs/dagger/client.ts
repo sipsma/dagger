@@ -29,7 +29,12 @@ export class Client {
     const response = await this.client.post(
       `http://fake.invalid/query`,
       payload,
-      { headers: { "Content-Type": "application/graphql" } }
+      {
+        headers: {
+          "Content-Type": "application/graphql",
+          DAGGER_SESSION_CONTEXT: process.env.DAGGER_SESSION_CONTEXT || "",
+        },
+      }
     );
     return response;
   }
