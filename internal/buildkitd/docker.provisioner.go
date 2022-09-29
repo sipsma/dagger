@@ -35,7 +35,7 @@ func checkDocker(ctx context.Context) error {
 			Err(err).
 			Bytes("output", output).
 			Msg("failed to run docker")
-		return err
+		return fmt.Errorf("%s%s", err, output)
 	}
 
 	return nil
@@ -89,18 +89,30 @@ func (Docker) BuildDaggerd(ctx context.Context) error {
 	fmt.Println("Building daggerd image...")
 
 	// #nosec
-	// move to build operation
+	// Workaround to avoid:
+	// failed to solve with frontend dockerfile.v0: failed to read dockerfile: Dockerfile.daggerd: no such file or directory
+	// Manually create "Dockerfile" from "Dockerfile.daggerd"
 	cmd := exec.CommandContext(ctx,
+		"cp",
+		dirPath+"/"+dockerfileName,
+		dirPath+"/"+"Dockerfile",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("cp error: %s\noutput:%s", err, output)
+	}
+
+	// #nosec
+	// move to build operation
+	cmd = exec.CommandContext(ctx,
 		"docker",
 		"build",
-		"-f",
-		dockerfileName,
 		"-t",
 		image,
 		dirPath,
 	)
 
-	output, err := cmd.CombinedOutput()
+	output, err = cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("build error: %s\noutput:%s", err, output)
 	}

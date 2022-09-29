@@ -2,7 +2,6 @@ package dagger
 
 import "embed"
 
-//go:embed Dockerfile
 //go:embed Dockerfile.daggerd
 //go:embed LICENSE
 //go:embed NOTICE
