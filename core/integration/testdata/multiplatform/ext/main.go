@@ -96,7 +96,11 @@ func (r *multiplatform) crossCompile(ctx context.Context, src dagger.FSID, subpa
 		WithArchitecture struct {
 			Core struct {
 				Image struct {
-					Exec CompileOutput
+					Exec struct {
+						Mount struct {
+							ID dagger.FSID
+						}
+					}
 				}
 			}
 		}
@@ -116,10 +120,10 @@ func (r *multiplatform) crossCompile(ctx context.Context, src dagger.FSID, subpa
 								]
 								mounts: [
 									{fs: $src, path: "/src"},
+									{fs: "scratch", path: "/out"},
 								]
 							}) {
-								stdout
-								fs {
+								mount(path: "/out") {
 									id
 								}
 							}
@@ -129,7 +133,7 @@ func (r *multiplatform) crossCompile(ctx context.Context, src dagger.FSID, subpa
 			}`,
 			Variables: map[string]any{
 				"src": src,
-				"cmd": fmt.Sprintf("uname -m && goxx-go build -o /out/main %s && go version -m /out/main", path.Join("/src", *subpath)),
+				"cmd": fmt.Sprintf("uname -m && goxx-go build -o /out/cloak %s && go version -m /out/cloak", path.Join("/src", *subpath)),
 				"plt": "darwin/" + arch,
 			},
 		},
@@ -138,5 +142,9 @@ func (r *multiplatform) crossCompile(ctx context.Context, src dagger.FSID, subpa
 	if err != nil {
 		return nil, err
 	}
-	return &buildRes.WithArchitecture.Core.Image.Exec, nil
+	return &CompileOutput{
+		Fs: &dagger.Filesystem{
+			ID: buildRes.WithArchitecture.Core.Image.Exec.Mount.ID,
+		},
+	}, nil
 }
