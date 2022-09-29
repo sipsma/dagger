@@ -12,8 +12,6 @@ import (
 	"strings"
 	"time"
 
-	_ "embed"
-
 	bkclient "github.com/moby/buildkit/client"
 	"github.com/rs/zerolog/log"
 	"go.dagger.io/dagger"

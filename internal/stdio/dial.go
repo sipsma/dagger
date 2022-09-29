@@ -11,7 +11,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func DialStdioAction() error {
+func Action() error {
 	// Fixme ? Socket address is hard coded
 	// https://github.com/moby/buildkit/blob/c172172ea17c7df80955f3f18aed7473fb0ade33/examples/buildctl-daemonless/buildctl-daemonless.sh
 	addr := "unix:///run/buildkit/buildkitd.sock"

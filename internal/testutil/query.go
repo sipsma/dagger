@@ -104,7 +104,6 @@ func ReadFile(ctx context.Context, cl graphql.Client, fsid dagger.FSID, path str
 }
 
 func SetupBuildkitd() error {
-
 	host, err := buildkitd.InitDaggerd(context.Background())
 	if err != nil {
 		return err

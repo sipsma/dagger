@@ -17,7 +17,7 @@ var dialStdioCmd = &cobra.Command{
 // Hack to connect to buildkit using stdio:
 // https://github.com/moby/buildkit/blob/f567525314aa6b37970cad1c6f43bef449b71e04/client/connhelper/dockercontainer/dockercontainer.go#L32
 func DialStdio(cmd *cobra.Command, args []string) {
-	err := stdio.DialStdioAction()
+	err := stdio.Action()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
