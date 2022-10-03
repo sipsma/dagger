@@ -66,6 +66,11 @@ func Client(ctx context.Context) (*bkclient.Client, error) {
 // Workaround the fact that debug.ReadBuildInfo doesn't work in tests:
 // https://github.com/golang/go/issues/33976
 func StartGoModDaggerd(ctx context.Context) (string, error) {
+	// Hack: if in CI, do not check for a local cloak binary
+	// As it is always reset between runs
+	if value := os.Getenv("GITHUB_ACTION"); value != "" {
+		return startDaggerdVersion(ctx, "ci")
+	}
 	// Needs to have the cloak dev binary inside PATH
 	path, err := exec.LookPath("cloak")
 	if err != nil {
