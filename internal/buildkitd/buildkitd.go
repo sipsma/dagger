@@ -23,9 +23,10 @@ import (
 )
 
 const (
-	image         = "daggerd"
-	containerName = "daggerd"
-	volumeName    = "daggerd"
+	image                = "daggerd"
+	containerName        = "daggerd"
+	volumeName           = "daggerd"
+	dockerfileBuildStage = "daggerd"
 
 	daggerdLockPath = "~/.config/dagger/.daggerd.lock"
 	// Long timeout to allow for slow image build of
@@ -34,7 +35,7 @@ const (
 )
 
 func Client(ctx context.Context) (*bkclient.Client, error) {
-	host := os.Getenv("BUILDKIT_HOST")
+	host := os.Getenv("DAGGERD_HOST")
 	if host == "" {
 		h, err := StartBuildInfoDaggerd(ctx)
 		if err != nil {

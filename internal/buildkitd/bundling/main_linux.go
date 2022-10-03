@@ -75,6 +75,9 @@ func init() {
 	stack.SetVersionInfo(version.Version, version.Revision)
 
 	seed.WithTimeAndRand()
+	// actual implementation: https://github.com/moby/moby/blob/master/pkg/reexec/reexec.go
+	// used in buildkitd to enable re-execing the buildkitd process as git plus some umask stuff
+	// https://github.com/sipsma/buildkit/blob/61307b8f2e73d681721b51856c10cb8606e5ea70/source/git/gitsource_unix.go#L23-L23
 	if reexec.Init() {
 		os.Exit(0)
 	}
@@ -216,9 +219,9 @@ func Run() {
 		}
 
 		logrus.SetFormatter(&logrus.TextFormatter{FullTimestamp: true})
-		// if cfg.Debug {
-		logrus.SetLevel(logrus.DebugLevel)
-		// }
+		if cfg.Debug {
+			logrus.SetLevel(logrus.DebugLevel)
+		}
 
 		if cfg.GRPC.DebugAddress != "" {
 			if err := setupDebugHandlers(cfg.GRPC.DebugAddress); err != nil {
