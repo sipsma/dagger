@@ -3,6 +3,7 @@ package dagger
 import "embed"
 
 //go:embed cloak.yaml
+//go:embed Dockerfile.daggerd
 //go:embed cmd
 //go:embed core
 //go:embed demos

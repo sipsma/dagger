@@ -108,6 +108,6 @@ func SetupDaggerd() error {
 	if err != nil {
 		return err
 	}
-	os.Setenv("BUILDKIT_HOST", host)
+	os.Setenv("DAGGERD_HOST", host)
 	return nil
 }

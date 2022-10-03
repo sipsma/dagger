@@ -23,10 +23,9 @@ import (
 )
 
 const (
-	image                = "daggerd"
-	containerName        = "daggerd"
-	volumeName           = "daggerd"
-	dockerfileBuildStage = "daggerd"
+	image         = "daggerd"
+	containerName = "daggerd"
+	volumeName    = "daggerd"
 
 	daggerdLockPath = "~/.config/dagger/.daggerd.lock"
 	// Long timeout to allow for slow image build of
@@ -115,7 +114,6 @@ func startDaggerdVersion(ctx context.Context, version string) (string, error) {
 }
 
 // ensure that daggerd is built, active and properly set up (e.g. connected to host)
-// TODO: check update on build version
 func checkDaggerd(ctx context.Context, version string) (string, error) {
 	// acquire a file-based lock to ensure parallel dagger clients
 	// don't interfere with checking+creating the daggerd container
