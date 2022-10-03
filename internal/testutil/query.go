@@ -103,8 +103,8 @@ func ReadFile(ctx context.Context, cl graphql.Client, fsid dagger.FSID, path str
 	return data.Core.Filesystem.File, nil
 }
 
-func SetupBuildkitd() error {
-	host, err := buildkitd.InitDaggerd(context.Background())
+func SetupDaggerd() error {
+	host, err := buildkitd.StartGoModDaggerd(context.Background())
 	if err != nil {
 		return err
 	}

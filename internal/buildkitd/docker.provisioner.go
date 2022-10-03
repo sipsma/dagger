@@ -9,9 +9,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/docker/distribution/reference"
 	bkclient "github.com/moby/buildkit/client"
 	"github.com/rs/zerolog/log"
 	"go.dagger.io/dagger"
@@ -41,6 +43,10 @@ func checkDocker(ctx context.Context) error {
 
 type Docker struct {
 	host string
+}
+
+func (d Docker) GetHost() string {
+	return d.host
 }
 
 // create a copy of an embed directory
@@ -73,7 +79,7 @@ func copyDir(src fs.FS, dst string) error {
 	})
 }
 
-func (Docker) BuildDaggerd(ctx context.Context) error {
+func (d Docker) buildDaggerd(ctx context.Context, version string) error {
 	dirPath, err := os.MkdirTemp(os.TempDir(), "daggerd")
 	if err != nil {
 		return err
@@ -106,7 +112,7 @@ func (Docker) BuildDaggerd(ctx context.Context) error {
 		"docker",
 		"build",
 		"-t",
-		image,
+		image+":"+version,
 		dirPath,
 	)
 
@@ -124,16 +130,24 @@ func (Docker) RemoveDaggerd(ctx context.Context) error {
 		"-fv",
 		containerName,
 	)
-	_, err := cmd.CombinedOutput()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return err
+		return fmt.Errorf("remove error: %s\noutput:%s", err, output)
 	}
 
 	return nil
 }
 
+func (d Docker) InstallDaggerd(ctx context.Context, version string) error {
+	if err := d.buildDaggerd(ctx, version); err != nil {
+		return err
+	}
+
+	return d.serveDaggerd(ctx, version)
+}
+
 // Pull and run the buildkit daemon with a proper configuration
-func (d Docker) ServeDaggerd(ctx context.Context) error {
+func (d Docker) serveDaggerd(ctx context.Context, version string) error {
 	// #nosec G204
 	cmd := exec.CommandContext(ctx,
 		"docker",
@@ -143,7 +157,7 @@ func (d Docker) ServeDaggerd(ctx context.Context) error {
 		"-v", volumeName+":/var/lib/buildkit",
 		"--name", containerName,
 		"--privileged",
-		image,
+		image+":"+version,
 	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -151,8 +165,9 @@ func (d Docker) ServeDaggerd(ctx context.Context) error {
 		// chances are another dagger instance started it. We can just ignore
 		// the error.
 		if !strings.Contains(string(output), "Error response from daemon: Conflict.") {
-			return err
+			return fmt.Errorf("serve error: %s\noutput:%s", err, output)
 		}
+		fmt.Printf("serve error: %s\noutput:%s", err, output)
 	}
 	return d.waitDaggerd(ctx)
 }
@@ -181,4 +196,58 @@ func (Docker) waitDaggerd(ctx context.Context) error {
 		time.Sleep(retryPeriod)
 	}
 	return errors.New("buildkit failed to respond")
+}
+
+func (d Docker) GetBuildkitInformation(ctx context.Context) (*buildkitInformation, error) {
+	formatString := "{{.Config.Image}};{{.State.Running}};{{if index .NetworkSettings.Networks \"host\"}}{{\"true\"}}{{else}}{{\"false\"}}{{end}}"
+	cmd := exec.CommandContext(ctx,
+		"docker",
+		"inspect",
+		"--format",
+		formatString,
+		containerName,
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, err
+	}
+
+	s := strings.Split(string(output), ";")
+
+	// Retrieve the tag
+	ref, err := reference.ParseNormalizedNamed(strings.TrimSpace(s[0]))
+	if err != nil {
+		return nil, err
+	}
+
+	tag, ok := ref.(reference.Tagged)
+	if !ok {
+		return nil, fmt.Errorf("failed to parse image: %s", output)
+	}
+
+	// Retrieve the state
+	isActive, err := strconv.ParseBool(strings.TrimSpace(s[1]))
+	if err != nil {
+		return nil, err
+	}
+
+	return &buildkitInformation{
+		Version:  tag.Tag(),
+		IsActive: isActive,
+	}, nil
+}
+
+// start the daggerd daemon
+func (d Docker) StartDaggerd(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx,
+		"docker",
+		"start",
+		containerName,
+	)
+	_, err := cmd.CombinedOutput()
+	if err != nil {
+		return err
+	}
+
+	return d.waitDaggerd(ctx)
 }
