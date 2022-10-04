@@ -27,7 +27,8 @@ const (
 	containerName = "daggerd"
 	volumeName    = "daggerd"
 
-	daggerdLockPath = "~/.config/dagger/.daggerd.lock"
+	daggerdLockPath    = "~/.config/dagger/.daggerd.lock"
+	shortCommitHashLen = 9
 	// Long timeout to allow for slow image build of
 	// daggerd while not blocking for infinity
 	lockTimeout = 10 * time.Minute
@@ -71,13 +72,14 @@ func StartGoModDaggerd(ctx context.Context) (string, error) {
 	if value := os.Getenv("GITHUB_ACTION"); value != "" {
 		return startDaggerdVersion(ctx, "ci")
 	}
-	// Needs to have the cloak dev binary inside PATH
+
+	// In dev mode, check the vcs git hash from the cloak binary found in PATH
 	path, err := exec.LookPath("cloak")
 	if err != nil {
 		return "", err
 	}
 
-	// Checks the version of the cloak binary from the cloak binary executing the tests
+	// Checks the version of the cloak binary found in PATH
 	out, err := exec.Command("go", "version", "-m", path).CombinedOutput()
 	if err != nil {
 		return "", err
@@ -85,9 +87,13 @@ func StartGoModDaggerd(ctx context.Context) (string, error) {
 
 	version := ""
 	for _, line := range strings.Split(string(out), "\n") {
+		// `go version -m cloak` outputs the `vcs.revision` of the cloak binary in $PATH (on host)
+		// e.g. `vcs.revision=1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b`
 		if strings.Contains(line, "vcs.revision") {
-			if len(line) > 9 {
-				version = strings.Split(line, "=")[1][:9]
+			// Keep the first 9 characters of the revision, as it is the length of the short commit hash, in git
+			// len used to tag the image on build
+			if len(line) > shortCommitHashLen {
+				version = strings.Split(line, "=")[1][:shortCommitHashLen]
 			} else {
 				return "", fmt.Errorf("unexpected go version output: %s", line)
 			}
@@ -107,7 +113,7 @@ func StartBuildInfoDaggerd(ctx context.Context) (string, error) {
 
 func startDaggerdVersion(ctx context.Context, version string) (string, error) {
 	if version == "" {
-		return "", errors.New("buildkitd version is empty")
+		return "", errors.New("daggerd version is empty")
 	}
 
 	containerName, err := checkDaggerd(ctx, version)
@@ -148,7 +154,7 @@ func checkDaggerd(ctx context.Context, version string) (string, error) {
 	}
 
 	// check status of daggerd
-	config, err := provisioner.GetBuildkitInformation(ctx)
+	host, config, err := provisioner.DaggerdState(ctx)
 	if err != nil {
 		fmt.Println("No daggerd container found, creating one...")
 
@@ -157,7 +163,7 @@ func checkDaggerd(ctx context.Context, version string) (string, error) {
 		if err := provisioner.InstallDaggerd(ctx, version); err != nil {
 			return "", err
 		}
-		return provisioner.GetHost(), nil
+		return host, nil
 	}
 
 	if config.Version != version {
@@ -177,7 +183,7 @@ func checkDaggerd(ctx context.Context, version string) (string, error) {
 			return "", err
 		}
 	}
-	return provisioner.GetHost(), nil
+	return host, nil
 }
 
 func initProvisioner(ctx context.Context) (Provisioner, error) {
@@ -210,11 +216,10 @@ type Provisioner interface {
 	RemoveDaggerd(ctx context.Context) error
 	InstallDaggerd(ctx context.Context, version string) error
 	StartDaggerd(ctx context.Context) error
-	GetBuildkitInformation(ctx context.Context) (*buildkitInformation, error)
-	GetHost() string
+	DaggerdState(ctx context.Context) (string, *daggerdInfo, error)
 }
 
-type buildkitInformation struct {
+type daggerdInfo struct {
 	Version  string
 	IsActive bool
 }

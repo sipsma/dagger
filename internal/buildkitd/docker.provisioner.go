@@ -45,10 +45,6 @@ type Docker struct {
 	host string
 }
 
-func (d Docker) GetHost() string {
-	return d.host
-}
-
 // create a copy of an embed directory
 func copyDir(src fs.FS, dst string) error {
 	return fs.WalkDir(src, ".", func(path string, d fs.DirEntry, err error) error {
@@ -105,6 +101,9 @@ func (d Docker) buildDaggerd(ctx context.Context, version string) error {
 	if err != nil {
 		return fmt.Errorf("cp error: %s\noutput:%s", err, output)
 	}
+
+	// Fix sending build context to Docker daemon
+	os.Setenv("DOCKER_BUILDKIT", "1")
 
 	// #nosec
 	// move to build operation
@@ -198,7 +197,7 @@ func (Docker) waitDaggerd(ctx context.Context) error {
 	return errors.New("buildkit failed to respond")
 }
 
-func (d Docker) GetBuildkitInformation(ctx context.Context) (*buildkitInformation, error) {
+func (d Docker) DaggerdState(ctx context.Context) (string, *daggerdInfo, error) {
 	formatString := "{{.Config.Image}};{{.State.Running}};{{if index .NetworkSettings.Networks \"host\"}}{{\"true\"}}{{else}}{{\"false\"}}{{end}}"
 	cmd := exec.CommandContext(ctx,
 		"docker",
@@ -209,7 +208,7 @@ func (d Docker) GetBuildkitInformation(ctx context.Context) (*buildkitInformatio
 	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, err
+		return d.host, nil, err
 	}
 
 	s := strings.Split(string(output), ";")
@@ -217,21 +216,21 @@ func (d Docker) GetBuildkitInformation(ctx context.Context) (*buildkitInformatio
 	// Retrieve the tag
 	ref, err := reference.ParseNormalizedNamed(strings.TrimSpace(s[0]))
 	if err != nil {
-		return nil, err
+		return d.host, nil, err
 	}
 
 	tag, ok := ref.(reference.Tagged)
 	if !ok {
-		return nil, fmt.Errorf("failed to parse image: %s", output)
+		return d.host, nil, fmt.Errorf("failed to parse image: %s", output)
 	}
 
 	// Retrieve the state
 	isActive, err := strconv.ParseBool(strings.TrimSpace(s[1]))
 	if err != nil {
-		return nil, err
+		return d.host, nil, err
 	}
 
-	return &buildkitInformation{
+	return d.host, &daggerdInfo{
 		Version:  tag.Tag(),
 		IsActive: isActive,
 	}, nil
