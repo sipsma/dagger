@@ -1,3 +1,5 @@
+//go:build integration
+
 package core
 
 import "go.dagger.io/dagger/internal/testutil"

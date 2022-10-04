@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime/debug"
 	"strings"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/mitchellh/go-homedir"
 	bkclient "github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/util/tracing/detect"
+	"go.dagger.io/dagger/internal/version"
 	"go.opentelemetry.io/otel"
 
 	_ "github.com/moby/buildkit/client/connhelper/dockercontainer" // import the docker connection driver
@@ -103,7 +103,7 @@ func StartGoModDaggerd(ctx context.Context) (string, error) {
 }
 
 func StartBuildInfoDaggerd(ctx context.Context) (string, error) {
-	vendoredVersion, err := revision()
+	vendoredVersion, err := version.Revision()
 	if err != nil {
 		return "", err
 	}
@@ -194,22 +194,6 @@ func initProvisioner(ctx context.Context) (Provisioner, error) {
 		}, nil
 	}
 	return nil, fmt.Errorf("no provisioner available")
-}
-
-// TODO: move to own package (duplicate with version.go)
-// revision returns the VCS revision being used to build or empty string
-// if none.
-func revision() (string, error) {
-	bi, ok := debug.ReadBuildInfo()
-	if !ok {
-		return "", errors.New("unable to read build info")
-	}
-	for _, s := range bi.Settings {
-		if s.Key == "vcs.revision" {
-			return s.Value[:9], nil
-		}
-	}
-	return "", nil
 }
 
 type Provisioner interface {
