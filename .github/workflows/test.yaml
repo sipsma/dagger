@@ -16,4 +16,4 @@ jobs:
           go-version: 1.19
       - uses: actions/checkout@v3
       - run: go test -race -timeout=20m -v ./...
-      - run: go test -race -timeout=20m -v -tags=integration ./core/integration
+      - run: go test -race -timeout=20m -v -tags=buildkitd ./internal/buildkitd

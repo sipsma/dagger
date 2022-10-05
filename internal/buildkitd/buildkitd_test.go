@@ -1,3 +1,5 @@
+//go:build buildkitd
+
 package buildkitd
 
 import (
