@@ -88,36 +88,26 @@ func (d Docker) buildDaggerd(ctx context.Context, version string) error {
 
 	fmt.Println("Building daggerd image...")
 
-	// #nosec
-	// Workaround to avoid:
-	// failed to solve with frontend dockerfile.v0: failed to read dockerfile: Dockerfile.daggerd: no such file or directory
-	// Manually create "Dockerfile" from "Dockerfile.daggerd"
-	cmd := exec.CommandContext(ctx,
-		"cp",
-		dirPath+"/"+dockerfileName,
-		dirPath+"/"+"Dockerfile",
-	)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("cp error: %s\noutput:%s", err, output)
-	}
-
 	// Fix sending build context to Docker daemon
 	os.Setenv("DOCKER_BUILDKIT", "1")
 
 	// #nosec
 	// move to build operation
-	cmd = exec.CommandContext(ctx,
+	cmd := exec.CommandContext(ctx,
 		"docker",
 		"build",
+		"--target", "daggerd",
 		"-t",
 		image+":"+version,
 		dirPath,
 	)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = append(os.Environ(), "DOCKER_BUILDKIT=1", "BUILDKIT_PROGRESS=plain")
 
-	output, err = cmd.CombinedOutput()
+	err = cmd.Run()
 	if err != nil {
-		return fmt.Errorf("build error: %s\noutput:%s", err, output)
+		return fmt.Errorf("build error: %v", err)
 	}
 	return nil
 }

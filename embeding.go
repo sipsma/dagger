@@ -3,11 +3,9 @@ package dagger
 import "embed"
 
 //go:embed cloak.yaml
-//go:embed Dockerfile.daggerd
+//go:embed Dockerfile
 //go:embed cmd
 //go:embed core
-//go:embed demos
-//go:embed docs
 //go:embed embeding.go
 //go:embed engine
 //go:embed go.mod
@@ -16,7 +14,7 @@ import "embed"
 //go:embed playground
 //go:embed project
 //go:embed router
-//go:embed sdk
+//go:embed sdk/go
 //go:embed secret
 //go:embed tracing
 var SourceCode embed.FS
