@@ -24,6 +24,8 @@ func DialStdio(cmd *cobra.Command, args []string) {
 	startOpts := &engine.Config{
 		Workdir:    workdir,
 		ConfigPath: configPath,
+		// TODO: don't hardcode
+		LogOutput: os.Stderr,
 	}
 
 	err := engine.Start(context.Background(), startOpts, func(ctx context.Context, r *router.Router) error {
