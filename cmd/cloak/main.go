@@ -30,6 +30,7 @@ func init() {
 		versionCmd,
 		clientGenCmd,
 		projectCmd,
+		dialStdioCmd,
 	)
 
 	doCmd.Flags().StringVarP(&queryFile, "file", "f", "", "query file")
