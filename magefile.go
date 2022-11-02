@@ -8,7 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strings"
 
 	"dagger.io/dagger"
 	"github.com/dagger/dagger/codegen/generator"
@@ -129,5 +132,157 @@ func Build(ctx context.Context) error {
 	if !ok {
 		return errors.New("HostDirectoryWrite not ok")
 	}
+	return nil
+}
+
+// TODO: dedupe
+func buildCloak(c *dagger.Client, platforms ...dagger.Platform) []*dagger.Container {
+	src := c.Host().Workdir()
+
+	// Create a directory containing only `go.{mod,sum}` files.
+	goMods := c.Directory()
+	for _, f := range []string{"go.mod", "go.sum", "sdk/go/go.mod", "sdk/go/go.sum"} {
+		goMods = goMods.WithFile(f, src.File(f))
+	}
+
+	var ctrs []*dagger.Container
+	for _, p := range platforms {
+		build := c.Container().
+			From("golang:1.19-alpine").
+			WithEnvVariable("CGO_ENABLED", "0").
+			WithEnvVariable("GOOS", runtime.GOOS).
+			WithEnvVariable("GOARCH", runtime.GOARCH).
+			WithWorkdir("/app").
+			// run `go mod download` with only go.mod files (re-run only if mod files have changed)
+			WithMountedDirectory("/app", goMods).
+			Exec(dagger.ContainerExecOpts{
+				Args: []string{"go", "mod", "download"},
+			}).
+			// run `go build` with all source
+			WithMountedDirectory("/app", src).
+			WithMountedDirectory("/output", c.Directory()).
+			Exec(dagger.ContainerExecOpts{
+				Args: []string{"go", "build", "-o", "/output/cloak", "-ldflags", "-s -w", "/app/cmd/cloak"},
+			}).
+			Directory("/output")
+
+		ctr := c.Container(dagger.ContainerOpts{Platform: p}).WithFS(build)
+		ctrs = append(ctrs, ctr)
+	}
+	return ctrs
+}
+
+func buildkitBase(c *dagger.Client, platforms ...dagger.Platform) []*dagger.Container {
+	buildkitRepo := c.Git("github.com/moby/buildkit").Branch("master").Tree()
+
+	var ctrs []*dagger.Container
+	for _, p := range platforms {
+		ctr := c.Container(dagger.ContainerOpts{Platform: p}).Build(buildkitRepo)
+		ctrs = append(ctrs, ctr)
+	}
+	return ctrs
+}
+
+func mergeByPlatform(ctx context.Context, a []*dagger.Container, b []*dagger.Container) ([]*dagger.Container, error) {
+	var ctrs []*dagger.Container
+	byPlatform := map[dagger.Platform]*dagger.Container{}
+	for _, ctr := range a {
+		p, err := ctr.Platform(ctx)
+		if err != nil {
+			return nil, err
+		}
+		byPlatform[p] = ctr
+	}
+	for _, ctr := range b {
+		p, err := ctr.Platform(ctx)
+		if err != nil {
+			return nil, err
+		}
+		var merged *dagger.Container
+		if other, ok := byPlatform[p]; ok {
+			merged = other.WithFS(other.FS().WithDirectory("/", ctr.FS()))
+		} else {
+			merged = ctr
+		}
+		ctrs = append(ctrs, merged)
+	}
+	return ctrs, nil
+}
+
+func DeployDaggerEngine(ctx context.Context) error {
+	c, err := dagger.Connect(ctx, dagger.WithLogOutput(os.Stderr))
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+
+	hostPlatform, err := c.DefaultPlatform(ctx)
+	if err != nil {
+		return err
+	}
+
+	ctrs, err := mergeByPlatform(ctx,
+		buildkitBase(c, hostPlatform),
+		buildCloak(c, hostPlatform),
+	)
+	if err != nil {
+		return err
+	}
+	// only one platform atm
+	ctr := ctrs[0]
+	ctr = ctr.WithEnvVariable("BUILDKIT_HOST", "unix:///run/buildkit/buildkitd.sock")
+
+	tmpdir, err := os.MkdirTemp("", "dagger")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpdir)
+	tmppath := filepath.Join(tmpdir, "rootfs.tar")
+
+	_, err = ctr.Export(ctx, tmppath)
+	if err != nil {
+		return err
+	}
+
+	loadCmd := exec.CommandContext(ctx, "docker", "load", "-i", tmppath)
+	output, err := loadCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("docker load failed: %w: %s", err, output)
+	}
+	_, imageID, ok := strings.Cut(string(output), "sha256:")
+	if !ok {
+		return fmt.Errorf("unexpected output from docker load: %s", output)
+	}
+	imageID = strings.TrimSpace(imageID)
+
+	if output, err := exec.CommandContext(ctx, "docker",
+		"tag",
+		imageID,
+		"localhost/dagger-engine:latest",
+	).CombinedOutput(); err != nil {
+		return fmt.Errorf("docker tag: %w: %s", err, output)
+	}
+
+	if output, err := exec.CommandContext(ctx, "docker",
+		"rm",
+		"-fv",
+		"dagger-engine",
+	).CombinedOutput(); err != nil {
+		return fmt.Errorf("docker rm: %w: %s", err, output)
+	}
+
+	if output, err := exec.CommandContext(ctx, "docker",
+		"run",
+		"-d",
+		"--restart", "always",
+		"-v", "dagger-engine:/var/lib/buildkit",
+		"--name", "dagger-engine",
+		"--privileged",
+		"localhost/dagger-engine:latest",
+		"--debug",
+	).CombinedOutput(); err != nil {
+		return fmt.Errorf("docker run: %w: %s", err, output)
+	}
+
 	return nil
 }
