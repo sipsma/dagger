@@ -33,6 +33,8 @@ func init() {
 		dialStdioCmd,
 	)
 
+	dialStdioCmd.Flags().StringVar(&engineImageRef, "image", "", "The engine image to use")
+
 	doCmd.Flags().StringVarP(&queryFile, "file", "f", "", "query file")
 	doCmd.Flags().StringSliceVarP(&queryVarsInput, "set", "s", []string{}, "query variable")
 

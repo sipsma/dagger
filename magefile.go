@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"strings"
 
 	"dagger.io/dagger"
+	"github.com/containerd/containerd/platforms"
 	"github.com/dagger/dagger/codegen/generator"
 	"github.com/google/go-cmp/cmp"
 	"github.com/magefile/mage/mg" // mg contains helpful utility functions, like Deps
@@ -135,8 +137,8 @@ func Build(ctx context.Context) error {
 	return nil
 }
 
-// TODO: dedupe
-func buildCloak(c *dagger.Client, platforms ...dagger.Platform) []*dagger.Container {
+// TODO: dedupe w/ Build above
+func buildCloak(c *dagger.Client, platform dagger.Platform) *dagger.File {
 	src := c.Host().Workdir()
 
 	// Create a directory containing only `go.{mod,sum}` files.
@@ -145,42 +147,31 @@ func buildCloak(c *dagger.Client, platforms ...dagger.Platform) []*dagger.Contai
 		goMods = goMods.WithFile(f, src.File(f))
 	}
 
-	var ctrs []*dagger.Container
-	for _, p := range platforms {
-		build := c.Container().
-			From("golang:1.19-alpine").
-			WithEnvVariable("CGO_ENABLED", "0").
-			WithEnvVariable("GOOS", runtime.GOOS).
-			WithEnvVariable("GOARCH", runtime.GOARCH).
-			WithWorkdir("/app").
-			// run `go mod download` with only go.mod files (re-run only if mod files have changed)
-			WithMountedDirectory("/app", goMods).
-			Exec(dagger.ContainerExecOpts{
-				Args: []string{"go", "mod", "download"},
-			}).
-			// run `go build` with all source
-			WithMountedDirectory("/app", src).
-			WithMountedDirectory("/output", c.Directory()).
-			Exec(dagger.ContainerExecOpts{
-				Args: []string{"go", "build", "-o", "/output/cloak", "-ldflags", "-s -w", "/app/cmd/cloak"},
-			}).
-			Directory("/output")
+	p := platforms.MustParse(string(platform))
 
-		ctr := c.Container(dagger.ContainerOpts{Platform: p}).WithFS(build)
-		ctrs = append(ctrs, ctr)
-	}
-	return ctrs
+	return c.Container().
+		From("golang:1.19-alpine").
+		WithEnvVariable("CGO_ENABLED", "0").
+		WithEnvVariable("GOOS", p.OS).
+		WithEnvVariable("GOARCH", p.Architecture).
+		WithWorkdir("/app").
+		// run `go mod download` with only go.mod files (re-run only if mod files have changed)
+		WithMountedDirectory("/app", goMods).
+		Exec(dagger.ContainerExecOpts{
+			Args: []string{"go", "mod", "download"},
+		}).
+		// run `go build` with all source
+		WithMountedDirectory("/app", src).
+		WithMountedDirectory("/output", c.Directory()).
+		Exec(dagger.ContainerExecOpts{
+			Args: []string{"go", "build", "-o", "/output/cloak", "-ldflags", "-s -w", "/app/cmd/cloak"},
+		}).
+		File("/output/cloak")
 }
 
-func buildkitBase(c *dagger.Client, platforms ...dagger.Platform) []*dagger.Container {
+func buildkitBase(c *dagger.Client, platform dagger.Platform) *dagger.Container {
 	buildkitRepo := c.Git("github.com/moby/buildkit").Branch("master").Tree()
-
-	var ctrs []*dagger.Container
-	for _, p := range platforms {
-		ctr := c.Container(dagger.ContainerOpts{Platform: p}).Build(buildkitRepo)
-		ctrs = append(ctrs, ctr)
-	}
-	return ctrs
+	return c.Container(dagger.ContainerOpts{Platform: platform}).Build(buildkitRepo)
 }
 
 func mergeByPlatform(ctx context.Context, a []*dagger.Container, b []*dagger.Container) ([]*dagger.Container, error) {
@@ -210,26 +201,49 @@ func mergeByPlatform(ctx context.Context, a []*dagger.Container, b []*dagger.Con
 }
 
 func DeployDaggerEngine(ctx context.Context) error {
+	// TODO: bootstrapping w/ moby/buildkit, should instead be updated to a stable dagger-engine once we have that
+	if output, err := exec.CommandContext(ctx, "docker",
+		"run",
+		"-d",
+		"--name", "dagger-bootstrap",
+		"--privileged",
+		"moby/buildkit:v0.10.5",
+		"--debug",
+	).CombinedOutput(); err != nil {
+		return fmt.Errorf("docker run: %w: %s", err, output)
+	}
+	defer func() {
+		if output, err := exec.Command("docker",
+			"rm",
+			"-f",
+			"dagger-bootstrap",
+		).CombinedOutput(); err != nil {
+			log.Printf("docker rm: %w: %s", err, output)
+		}
+	}()
+	os.Setenv("BUILDKIT_HOST", "docker-container://dagger-bootstrap")
+	defer os.Unsetenv("BUILDKIT_HOST")
+
 	c, err := dagger.Connect(ctx, dagger.WithLogOutput(os.Stderr))
 	if err != nil {
 		return err
 	}
 	defer c.Close()
 
-	hostPlatform, err := c.DefaultPlatform(ctx)
-	if err != nil {
-		return err
+	var platformVariants []*dagger.Container
+	// TODO: docker load doesn't support multiarch, do multiple arch once we push an image to registry
+	// TODO: for _, arch := range []string{"amd64", "arm64"} {
+	for _, arch := range []string{"arm64"} {
+		ctr := buildkitBase(c, dagger.Platform("linux/"+arch))
+		for _, targetOS := range []string{"linux", "darwin"} { // TODO: windows?
+			cloak := buildCloak(c, dagger.Platform(targetOS+"/"+arch))
+			ctr = ctr.WithFS(ctr.FS().WithFile("/usr/bin/cloak-"+targetOS, cloak))
+		}
+		platformVariants = append(platformVariants, ctr)
 	}
 
-	ctrs, err := mergeByPlatform(ctx,
-		buildkitBase(c, hostPlatform),
-		buildCloak(c, hostPlatform),
-	)
-	if err != nil {
-		return err
-	}
 	// only one platform atm
-	ctr := ctrs[0]
+	ctr := platformVariants[0]
 	ctr = ctr.WithEnvVariable("BUILDKIT_HOST", "unix:///run/buildkit/buildkitd.sock")
 
 	tmpdir, err := os.MkdirTemp("", "dagger")
@@ -261,27 +275,6 @@ func DeployDaggerEngine(ctx context.Context) error {
 		"localhost/dagger-engine:latest",
 	).CombinedOutput(); err != nil {
 		return fmt.Errorf("docker tag: %w: %s", err, output)
-	}
-
-	if output, err := exec.CommandContext(ctx, "docker",
-		"rm",
-		"-fv",
-		"dagger-engine",
-	).CombinedOutput(); err != nil {
-		return fmt.Errorf("docker rm: %w: %s", err, output)
-	}
-
-	if output, err := exec.CommandContext(ctx, "docker",
-		"run",
-		"-d",
-		"--restart", "always",
-		"-v", "dagger-engine:/var/lib/buildkit",
-		"--name", "dagger-engine",
-		"--privileged",
-		"localhost/dagger-engine:latest",
-		"--debug",
-	).CombinedOutput(); err != nil {
-		return fmt.Errorf("docker run: %w: %s", err, output)
 	}
 
 	return nil

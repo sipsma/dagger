@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -24,50 +23,24 @@ import (
 	_ "github.com/moby/buildkit/client/connhelper/podmancontainer" // import the podman connection driver
 )
 
-const (
-	mobyBuildkitImage = "moby/buildkit"
-	containerName     = "dagger-buildkitd"
-	volumeName        = "dagger-buildkitd"
+// TODO: change all the buildkit comments+vars to daggerEngine or something
 
-	buildkitdLockPath = "~/.config/dagger/.buildkitd.lock"
+const (
+	// TODO: what if different versions of clients run at the same time? Guess that's a pre-existing issue
+	containerName = "dagger-engine"
+	volumeName    = "dagger-engine"
+
+	engineLockPath = "~/.config/dagger/.engine.lock"
 	// Long timeout to allow for slow image pulls of
 	// buildkitd while not blocking for infinity
 	lockTimeout = 10 * time.Minute
 )
 
-// NB: normally we take the version of Buildkit from our go.mod, e.g. v0.10.5,
-// and use the same version for the moby/buildkit Docker tag.
-//
-// this isn't possible when we're using an unreleased version of Buildkit. in
-// this scenario a new buildkit image will eventually be built + pushed to
-// moby/buildkit:master by their own CI, but if we were to use just "master" we
-// wouldn't know when the image needs to be bumped.
-//
-// so instead we'll manually map the go.mod version to the the image that
-// corresponds to it. note that this go.mod version doesn't care what repo it's
-// from; the sha should be enough.
-//
-// you can find this digest by pulling moby/buildkit:master like so:
-//
-//		$ docker pull moby/buildkit:master
-//
-//	  # check that it matches
-//		$ docker run moby/buildkit:master --version
-//
-//	  # get the exact digest
-//		$ docker images --digests | grep moby/buildkit:master
-//
-// (unfortunately this relies on timing/chance/spying on their CI)
-//
-// alternatively you can build your own image and push it somewhere
-var modVersionToImage = map[string]string{
-	"v0.10.1-0.20221027014600-b78713cdd127": "moby/buildkit@sha256:4984ac6da1898a9a06c4c3f7da5eaabe8a09ec56f5054b0a911ab0f9df6a092c",
-}
-
-func Client(ctx context.Context) (*bkclient.Client, error) {
+func Client(ctx context.Context, imageRef string) (*bkclient.Client, error) {
+	// TODO: The fact that both DAGGER_HOST and BUILDKIT_HOST exist is confusing, clean up somehow
 	host := os.Getenv("BUILDKIT_HOST")
 	if host == "" {
-		h, err := startBuildkitd(ctx)
+		h, err := startBuildkitdVersion(ctx, imageRef)
 		if err != nil {
 			return nil, err
 		}
@@ -95,79 +68,6 @@ func Client(ctx context.Context) (*bkclient.Client, error) {
 	return c, nil
 }
 
-func startBuildkitd(ctx context.Context) (string, error) {
-	version, err := getBuildInfoVersion()
-	if err != nil {
-		return version, err
-	}
-	if version == "" {
-		version, err = getGoModVersion()
-		if err != nil {
-			return version, err
-		}
-	}
-	var ref string
-	customImage, found := modVersionToImage[version]
-	if found {
-		ref = customImage
-	} else {
-		ref = mobyBuildkitImage + ":" + version
-	}
-	return startBuildkitdVersion(ctx, ref)
-}
-
-func getBuildInfoVersion() (string, error) {
-	bi, ok := debug.ReadBuildInfo()
-	if !ok {
-		return "", errors.New("unable to read build info")
-	}
-
-	for _, d := range bi.Deps {
-		if d.Path != "github.com/moby/buildkit" {
-			continue
-		}
-
-		if d.Replace != nil {
-			return d.Replace.Version, nil
-		}
-
-		return d.Version, nil
-	}
-
-	return "", nil
-}
-
-// Workaround the fact that debug.ReadBuildInfo doesn't work in tests:
-// https://github.com/golang/go/issues/33976
-func getGoModVersion() (string, error) {
-	out, err := exec.Command("go", "list", "-m", "github.com/moby/buildkit").CombinedOutput()
-	if err != nil {
-		return "", err
-	}
-
-	trimmed := strings.TrimSpace(string(out))
-
-	// NB: normally this will be:
-	//
-	//   github.com/moby/buildkit v0.10.5
-	//
-	// if it's replaced it'll be:
-	//
-	//   github.com/moby/buildkit v0.10.5 => github.com/vito/buildkit v0.10.5
-	_, replace, replaced := strings.Cut(trimmed, " => ")
-	if replaced {
-		trimmed = strings.TrimSpace(replace)
-	}
-
-	fields := strings.Fields(trimmed)
-	if len(fields) < 2 {
-		return "", fmt.Errorf("unexpected go list output: %s", trimmed)
-	}
-
-	version := fields[1]
-	return version, nil
-}
-
 func startBuildkitdVersion(ctx context.Context, imageRef string) (string, error) {
 	if imageRef == "" {
 		return "", errors.New("buildkitd image ref is empty")
@@ -184,7 +84,7 @@ func startBuildkitdVersion(ctx context.Context, imageRef string) (string, error)
 func checkBuildkit(ctx context.Context, imageRef string) error {
 	// acquire a file-based lock to ensure parallel dagger clients
 	// don't interfere with checking+creating the buildkitd container
-	lockFilePath, err := homedir.Expand(buildkitdLockPath)
+	lockFilePath, err := homedir.Expand(engineLockPath)
 	if err != nil {
 		return fmt.Errorf("unable to expand buildkitd lock path: %w", err)
 	}
@@ -279,9 +179,11 @@ func startBuildkit(ctx context.Context) error {
 func installBuildkit(ctx context.Context, ref string) error {
 	// #nosec
 	cmd := exec.CommandContext(ctx, "docker", "pull", ref)
-	_, err := cmd.CombinedOutput()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return err
+		// TODO: instead of ignoring error, if sha is used and it exists, use that
+		// return fmt.Errorf("docker pull: %w: %s", err, output)
+		fmt.Fprintf(os.Stderr, "docker pull: %v: %s\n", err, output)
 	}
 
 	// #nosec G204
@@ -296,13 +198,13 @@ func installBuildkit(ctx context.Context, ref string) error {
 		ref,
 		"--debug",
 	)
-	output, err := cmd.CombinedOutput()
+	output, err = cmd.CombinedOutput()
 	if err != nil {
 		// If the daemon failed to start because it's already running,
 		// chances are another dagger instance started it. We can just ignore
 		// the error.
 		if !strings.Contains(string(output), "Error response from daemon: Conflict.") {
-			return err
+			return fmt.Errorf("docker run: %w: %s", err, output)
 		}
 	}
 	return waitBuildkit(ctx)
@@ -312,7 +214,7 @@ func installBuildkit(ctx context.Context, ref string) error {
 func waitBuildkit(ctx context.Context) error {
 	c, err := bkclient.New(ctx, "docker-container://"+containerName)
 	if err != nil {
-		return err
+		return fmt.Errorf("buildkit client: %w", err)
 	}
 
 	// FIXME Does output "failed to wait: signal: broken pipe"
@@ -341,9 +243,9 @@ func removeBuildkit(ctx context.Context) error {
 		"-fv",
 		containerName,
 	)
-	_, err := cmd.CombinedOutput()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return err
+		return fmt.Errorf("remove buildkit: %w: %s", err, output)
 	}
 
 	return nil
