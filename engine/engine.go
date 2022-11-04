@@ -40,9 +40,6 @@ type Config struct {
 	// WARNING: this is currently exposed directly but will be removed or
 	// replaced with something incompatible in the future.
 	RawBuildkitStatus chan *bkclient.SolveStatus
-
-	// TODO: don't love this being public
-	EngineImageRef string
 }
 
 type StartCallback func(context.Context, *router.Router) error
@@ -52,13 +49,7 @@ func Start(ctx context.Context, startOpts *Config, fn StartCallback) error {
 		startOpts = &Config{}
 	}
 
-	// TODO: either better default or don't have a default at all and require this
-	imageRef := startOpts.EngineImageRef
-	if imageRef == "" {
-		imageRef = "localhost/dagger-engine:latest"
-	}
-
-	c, err := buildkitd.Client(ctx, imageRef)
+	c, err := buildkitd.Client(ctx)
 	if err != nil {
 		return err
 	}

@@ -1,4 +1,4 @@
-package dockerexec
+package docker
 
 import (
 	"syscall"

@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
+
+	"github.com/Khan/genqlient/graphql"
 )
 
 type RegisterFunc func(*url.URL) (EngineConn, error)
@@ -13,7 +14,7 @@ type RegisterFunc func(*url.URL) (EngineConn, error)
 var helpers = map[string]RegisterFunc{}
 
 type EngineConn interface {
-	Connect(ctx context.Context, cfg *Config) (*http.Client, error)
+	Connect(ctx context.Context, cfg *Config) (graphql.Client, error)
 	Close() error
 }
 

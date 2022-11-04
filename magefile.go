@@ -235,6 +235,7 @@ func DeployDaggerEngine(ctx context.Context) error {
 	// TODO: for _, arch := range []string{"amd64", "arm64"} {
 	for _, arch := range []string{"arm64"} {
 		ctr := buildkitBase(c, dagger.Platform("linux/"+arch))
+		// TODO: also include a cloak for each arch in here too, not just OS (in case there's a client server mismatch)
 		for _, targetOS := range []string{"linux", "darwin"} { // TODO: windows?
 			cloak := buildCloak(c, dagger.Platform(targetOS+"/"+arch))
 			ctr = ctr.WithFS(ctr.FS().WithFile("/usr/bin/cloak-"+targetOS, cloak))

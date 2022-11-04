@@ -7,9 +7,9 @@ import (
 	"os"
 
 	"dagger.io/dagger/internal/engineconn"
-	_ "dagger.io/dagger/internal/engineconn/dockerexec" // TODO: rename
-	_ "dagger.io/dagger/internal/engineconn/embedded"   // embedded connection
-	_ "dagger.io/dagger/internal/engineconn/unix"       // unix connection
+	_ "dagger.io/dagger/internal/engineconn/docker"   // spawn engine in docker
+	_ "dagger.io/dagger/internal/engineconn/embedded" // embedded connection
+	_ "dagger.io/dagger/internal/engineconn/unix"     // unix connection
 	"dagger.io/dagger/internal/querybuilder"
 	"github.com/Khan/genqlient/graphql"
 	"github.com/vektah/gqlparser/v2/gqlerror"
@@ -62,6 +62,11 @@ func WithLogOutput(writer io.Writer) ClientOpt {
 	})
 }
 
+// TODO: better place
+const (
+	engineImage = "localhost/dagger-engine:latest"
+)
+
 // Connect to a Dagger Engine
 func Connect(ctx context.Context, opts ...ClientOpt) (_ *Client, rerr error) {
 	defer func() {
@@ -77,7 +82,7 @@ func Connect(ctx context.Context, opts ...ClientOpt) (_ *Client, rerr error) {
 	}
 
 	// default host
-	host := "embedded://"
+	host := "docker://" + engineImage
 	// if one is found in `DAGGER_HOST` -- use it instead
 	if h := os.Getenv("DAGGER_HOST"); h != "" {
 		host = h
@@ -93,7 +98,7 @@ func Connect(ctx context.Context, opts ...ClientOpt) (_ *Client, rerr error) {
 	if err != nil {
 		return nil, err
 	}
-	c.gql = errorWrappedClient{graphql.NewClient("http://dagger/query", client)}
+	c.gql = errorWrappedClient{client}
 	c.Query = Query{
 		q: querybuilder.Query(),
 		c: c.gql,

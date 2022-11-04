@@ -7,6 +7,7 @@ import (
 	"net/url"
 
 	"dagger.io/dagger/internal/engineconn"
+	"github.com/Khan/genqlient/graphql"
 	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/router"
 )
@@ -29,9 +30,9 @@ func New(_ *url.URL) (engineconn.EngineConn, error) {
 	}, nil
 }
 
-func (c *Embedded) Connect(ctx context.Context, cfg *engineconn.Config) (*http.Client, error) {
+func (c *Embedded) Connect(ctx context.Context, cfg *engineconn.Config) (graphql.Client, error) {
 	started := make(chan struct{})
-	var client *http.Client
+	var client graphql.Client
 
 	engineCfg := &engine.Config{
 		Workdir:      cfg.Workdir,
@@ -42,7 +43,7 @@ func (c *Embedded) Connect(ctx context.Context, cfg *engineconn.Config) (*http.C
 	go func() {
 		defer close(c.doneCh)
 		err := engine.Start(ctx, engineCfg, func(ctx context.Context, r *router.Router) error {
-			client = &http.Client{
+			client = graphql.NewClient("http://dagger/query", &http.Client{
 				Transport: &http.Transport{
 					DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
 						// TODO: not efficient, but whatever
@@ -52,7 +53,7 @@ func (c *Embedded) Connect(ctx context.Context, cfg *engineconn.Config) (*http.C
 						return clientConn, nil
 					},
 				},
-			}
+			})
 			close(started)
 			<-c.stopCh
 			return nil

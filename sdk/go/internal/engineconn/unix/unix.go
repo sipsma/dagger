@@ -8,6 +8,7 @@ import (
 	"net/url"
 
 	"dagger.io/dagger/internal/engineconn"
+	"github.com/Khan/genqlient/graphql"
 )
 
 func init() {
@@ -26,7 +27,7 @@ func New(u *url.URL) (engineconn.EngineConn, error) {
 	}, nil
 }
 
-func (c *Unix) Connect(ctx context.Context, cfg *engineconn.Config) (*http.Client, error) {
+func (c *Unix) Connect(ctx context.Context, cfg *engineconn.Config) (graphql.Client, error) {
 	if cfg.Workdir != "" {
 		return nil, errors.New("workdir not supported on unix hosts")
 	}
@@ -36,13 +37,14 @@ func (c *Unix) Connect(ctx context.Context, cfg *engineconn.Config) (*http.Clien
 	if cfg.NoExtensions {
 		return nil, errors.New("no extensions is not supported on unix hosts")
 	}
-	return &http.Client{
+
+	return graphql.NewClient("http://dagger/query", &http.Client{
 		Transport: &http.Transport{
 			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
 				return net.Dial("unix", c.path)
 			},
 		},
-	}, nil
+	}), nil
 }
 
 func (c *Unix) Close() error {
