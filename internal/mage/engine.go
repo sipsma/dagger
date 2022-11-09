@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	"dagger.io/dagger"
@@ -19,6 +20,32 @@ const (
 )
 
 func taggedEngineImageRef(tag string) (string, error) {
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO: DO NOT MERGE
+	if strings.HasPrefix(tag, "test/") {
+		tag = strings.TrimPrefix(tag, "test/")
+	}
+
 	if tag != "main" {
 		if ok := semver.IsValid(tag); !ok {
 			return "", fmt.Errorf("invalid semver tag: %s", tag)

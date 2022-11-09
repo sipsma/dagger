@@ -4,6 +4,7 @@ on:
     branches:
       - main
     tags:
+      - test/*
       - v*
       - "!sdk/go/**"
       - "!sdk/python/**"
