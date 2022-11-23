@@ -47,7 +47,9 @@ func EngineSession(cmd *cobra.Command, args []string) {
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, syscall.SIGINT, syscall.SIGTERM)
 
-	l, err := net.Listen("tcp", "localhost:0")
+	// l, err := net.Listen("tcp", "localhost:0")
+	sockPath := fmt.Sprintf("/tmp/dagger-%d.sock", os.Getpid())
+	l, err := net.Listen("unix", sockPath)
 	if err != nil {
 		panic(err)
 	}
@@ -64,7 +66,7 @@ func EngineSession(cmd *cobra.Command, args []string) {
 		l.Close()
 	}()
 
-	port := l.Addr().(*net.TCPAddr).Port
+	// port := l.Addr().(*net.TCPAddr).Port
 
 	err = engine.Start(context.Background(), startOpts, func(ctx context.Context, r *router.Router) error {
 		srv := http.Server{
@@ -74,10 +76,19 @@ func EngineSession(cmd *cobra.Command, args []string) {
 
 		// TODO: still kind of racy, client should retry connections a few times
 		go func() {
-			if _, err := os.Stdout.Write([]byte(fmt.Sprintf("%d\n", port))); err != nil {
+			if _, err := os.Stdout.Write([]byte(sockPath + "\n")); err != nil {
 				panic(err)
 			}
 		}()
+
+		/*
+			// TODO: still kind of racy, client should retry connections a few times
+			go func() {
+				if _, err := os.Stdout.Write([]byte(fmt.Sprintf("%d\n", port))); err != nil {
+					panic(err)
+				}
+			}()
+		*/
 
 		err := srv.Serve(l)
 		// if error is "use of closed network connection", it's expected

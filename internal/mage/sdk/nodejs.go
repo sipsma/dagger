@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"dagger.io/dagger"
 	"github.com/dagger/dagger/internal/mage/util"
@@ -49,15 +50,14 @@ func (t Nodejs) Test(ctx context.Context) error {
 	}
 	defer c.Close()
 
-	return util.WithDevEngine(ctx, c, func(ctx context.Context, c *dagger.Client) error {
-		_, err = nodeJsBase(c).
-			WithMountedDirectory("/root/.docker", util.HostDockerDir(c)).
-			WithExec([]string{"yarn", "test"}, dagger.ContainerWithExecOpts{
-				ExperimentalPrivilegedNesting: true,
-			}).
-			ExitCode(ctx)
-		return err
-	})
+	_, err = nodeJsBase(c).
+		WithMountedDirectory("/root/.docker", util.HostDockerDir(c)).
+		WithExec([]string{"yarn", "test"}, dagger.ContainerWithExecOpts{
+			ExperimentalPrivilegedNesting: true,
+		}).
+		ExitCode(ctx)
+	time.Sleep(2 * time.Second)
+	return err
 }
 
 // Generate re-generates the SDK API

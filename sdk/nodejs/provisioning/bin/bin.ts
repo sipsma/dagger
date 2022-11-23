@@ -57,23 +57,31 @@ export class Bin implements EngineConn {
       input: this.subProcess.stdout!,
     })
 
-    const port = await Promise.race([
-      this.readPort(stdoutReader),
+    const sock = (await Promise.race([
+      this.readSock(stdoutReader),
       new Promise((_, reject) => {
         setTimeout(() => {
-          reject(new Error("timeout reading port from engine session"))
+          reject(new Error("timeout reading sock from engine session"))
         }, 300000).unref() // long timeout to account for extensions, though that should be optimized in future
       }),
-    ])
+    ])) as string
 
-    return new Client({ host: `127.0.0.1:${port}` })
+    // TODO:
+    // TODO:
+    // TODO:
+    // TODO:
+    // TODO:
+    // TODO:
+    // TODO:
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+
+    return new Client({ host: sock })
   }
 
-  private async readPort(stdoutReader: readline.Interface): Promise<number> {
+  private async readSock(stdoutReader: readline.Interface): Promise<string> {
     for await (const line of stdoutReader) {
-      // Read line as a port number
-      const port = parseInt(line)
-      return port
+      // Read line as a sock path, trimming whitespace
+      return line.trim()
     }
     throw new Error("failed to read port from engine session")
   }
