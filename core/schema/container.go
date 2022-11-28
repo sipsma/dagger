@@ -329,12 +329,13 @@ func (s *containerSchema) withMountedDirectory(ctx *router.Context, parent *core
 }
 
 type containerPublishArgs struct {
-	Address          string
-	PlatformVariants []core.ContainerID
+	Address               string
+	PlatformVariants      []core.ContainerID
+	AllowInsecureRegistry bool
 }
 
 func (s *containerSchema) publish(ctx *router.Context, parent *core.Container, args containerPublishArgs) (string, error) {
-	return parent.Publish(ctx, args.Address, args.PlatformVariants, s.bkClient, s.solveOpts, s.solveCh)
+	return parent.Publish(ctx, args.Address, args.PlatformVariants, args.AllowInsecureRegistry, s.bkClient, s.solveOpts, s.solveCh)
 }
 
 type containerWithMountedFileArgs struct {

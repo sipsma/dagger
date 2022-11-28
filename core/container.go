@@ -898,17 +898,27 @@ func (container *Container) Publish(
 	ctx context.Context,
 	ref string,
 	platformVariants []ContainerID,
+	allowInsecureRegistry bool,
 	bkClient *bkclient.Client,
 	solveOpts bkclient.SolveOpt,
 	solveCh chan<- *bkclient.SolveStatus,
 ) (string, error) {
 	// NOTE: be careful to not overwrite any values from original solveOpts (i.e. with append).
+
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	fmt.Fprintln(os.Stderr, "FDJKALFDJSAKLFDLSJA", allowInsecureRegistry)
+
 	solveOpts.Exports = []bkclient.ExportEntry{
 		{
 			Type: bkclient.ExporterImage,
 			Attrs: map[string]string{
-				"name": ref,
-				"push": "true",
+				"name":              ref,
+				"push":              "true",
+				"registry.insecure": strconv.FormatBool(allowInsecureRegistry),
 			},
 		},
 	}

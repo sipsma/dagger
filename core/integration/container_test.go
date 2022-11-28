@@ -2223,16 +2223,18 @@ func TestContainerMultiFrom(t *testing.T) {
 func TestContainerPublish(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	c, err := dagger.Connect(ctx)
+	c, err := dagger.Connect(ctx, dagger.WithLogOutput(os.Stderr))
 	require.NoError(t, err)
 	defer c.Close()
 
 	startRegistry(ctx, c, t)
 
-	testRef := "127.0.0.1:5000/testimagepush:latest"
+	testRef := "192.168.65.3:5000/testimagepush:latest"
 	pushedRef, err := c.Container().
 		From("alpine:3.16.2").
-		Publish(ctx, testRef)
+		Publish(ctx, testRef, dagger.ContainerPublishOpts{
+			AllowInsecureRegistry: true,
+		})
 	require.NoError(t, err)
 	require.NotEqual(t, testRef, pushedRef)
 	require.Contains(t, pushedRef, "@sha256:")

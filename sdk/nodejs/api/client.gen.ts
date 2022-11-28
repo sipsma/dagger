@@ -391,13 +391,14 @@ export class Container extends BaseClient {
    */
   async publish(
     address: string,
-    platformVariants?: ContainerID[]
+    platformVariants?: ContainerID[],
+    allowInsecureRegistry?: boolean
   ): Promise<string> {
     this._queryTree = [
       ...this._queryTree,
       {
         operation: "publish",
-        args: { address, platformVariants },
+        args: { address, platformVariants, allowInsecureRegistry },
       },
     ]
 

@@ -303,6 +303,8 @@ func (r *Container) Platform(ctx context.Context) (Platform, error) {
 // ContainerPublishOpts contains options for Container.Publish
 type ContainerPublishOpts struct {
 	PlatformVariants []*Container
+
+	AllowInsecureRegistry bool
 }
 
 // Publish this container as a new image, returning a fully qualified ref
@@ -313,6 +315,13 @@ func (r *Container) Publish(ctx context.Context, address string, opts ...Contain
 	for i := len(opts) - 1; i >= 0; i-- {
 		if !querybuilder.IsZeroValue(opts[i].PlatformVariants) {
 			q = q.Arg("platformVariants", opts[i].PlatformVariants)
+			break
+		}
+	}
+	// `allowInsecureRegistry` optional argument
+	for i := len(opts) - 1; i >= 0; i-- {
+		if !querybuilder.IsZeroValue(opts[i].AllowInsecureRegistry) {
+			q = q.Arg("allowInsecureRegistry", opts[i].AllowInsecureRegistry)
 			break
 		}
 	}
