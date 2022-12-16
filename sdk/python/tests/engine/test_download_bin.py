@@ -100,6 +100,8 @@ async def temporary_cli_server(monkeypatch: pytest.MonkeyPatch):
             httpd.shutdown()
             server.cancel()
 
+    yield
+
 
 @pytest.mark.anyio
 @pytest.mark.slow

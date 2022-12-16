@@ -60,7 +60,7 @@ jobs:
           branch: bump-engine
 
   test-provision-macos:
-    name: "test sdk provision against published cli+engine / macos"
+    name: "Test SDK Provision / macos"
     # We want to test the SDKs in a CLI dependency bump PR, in which case publish
     # has to be skipped, AND after every push to main/tags, in which case publish
     # must run first. This is unfortunately quite annoying to express in yaml...
@@ -145,7 +145,7 @@ jobs:
         run: sudo dmesg
 
   test-provision-go-linux:
-    name: "test sdk provision against published cli+engine / go / linux"
+    name: "Test SDK Provision / go / linux"
     needs: [publish]
     if: |
       always() &&
@@ -184,7 +184,7 @@ jobs:
         run: sudo dmesg
 
   test-provision-python-linux:
-    name: "test sdk provision against published cli+engine / python / linux"
+    name: "Test SDK Provision / python / linux"
     needs: [publish]
     if: |
       always() &&
@@ -229,7 +229,7 @@ jobs:
         run: sudo dmesg
 
   test-provision-nodejs-linux:
-    name: "test sdk provision against published cli+engine / nodejs / linux"
+    name: "Test SDK Provision / nodejs / linux"
     needs: [publish]
     if: |
       always() &&
