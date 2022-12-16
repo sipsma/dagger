@@ -160,5 +160,7 @@ package engineconn
 const CLIVersion = %q
 `, version)
 
+	// NOTE: if you change this path, be sure to update .github/workflows/publish.yml so that
+	// provision tests run whenever this file changes.
 	return os.WriteFile("sdk/go/internal/engineconn/version.gen.go", []byte(versionFile), 0o600)
 }
