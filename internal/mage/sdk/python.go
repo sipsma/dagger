@@ -171,6 +171,8 @@ func (t Python) Bump(ctx context.Context, version string) error {
 CLI_VERSION = %q
 `, version)
 
+	// NOTE: if you change this path, be sure to update .github/workflows/provision.yml so that
+	// provision tests run whenever this file changes.
 	return os.WriteFile("sdk/python/src/dagger/_version.py", []byte(engineReference), 0o600)
 }
 

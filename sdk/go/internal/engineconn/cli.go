@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,13 +22,14 @@ import (
 
 const (
 	daggerCLIBinPrefix = "dagger-"
+	defaultCLIHost     = "dl.dagger.io"
 )
 
 var (
 	// Only modified by tests, not changeable by outside users due to being in
 	// an internal package
-	DefaultCLIHost   = "dl.dagger.io"
-	DefaultCLIScheme = "https"
+	OverrideCLIArchiveURL string
+	OverrideChecksumsURL  string
 )
 
 func FromLocalCLI(ctx context.Context, cfg *Config) (EngineConn, bool, error) {
@@ -128,7 +130,7 @@ func checksumMap(ctx context.Context) (map[string]string, error) {
 	checksums := make(map[string]string)
 
 	checksumFileContents := bytes.NewBuffer(nil)
-	checksumReq, err := http.NewRequestWithContext(ctx, http.MethodGet, defaultChecksumsURL(), nil)
+	checksumReq, err := http.NewRequestWithContext(ctx, http.MethodGet, checksumsURL(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create checksums request: %w", err)
 	}
@@ -173,7 +175,7 @@ func expectedChecksum(ctx context.Context) (string, error) {
 // Download the CLI archive and extract the CLI from it into the provided dest.
 // Returns the sha256 hash of the whole archive as read during download.
 func extractCLI(ctx context.Context, dest io.Writer) (string, error) {
-	archiveReq, err := http.NewRequestWithContext(ctx, http.MethodGet, defaultCLIArchiveURL(), nil)
+	archiveReq, err := http.NewRequestWithContext(ctx, http.MethodGet, cliArchiveURL(), nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create archive request: %w", err)
 	}
@@ -223,6 +225,13 @@ func extractCLI(ctx context.Context, dest io.Writer) (string, error) {
 }
 
 func defaultCLIArchiveName() string {
+	if OverrideCLIArchiveURL != "" {
+		url, err := url.Parse(OverrideCLIArchiveURL)
+		if err != nil {
+			panic(err)
+		}
+		return filepath.Base(url.Path)
+	}
 	// TODO:(sipsma) fix this for windows
 	return fmt.Sprintf("dagger_v%s_%s_%s.tar.gz",
 		CLIVersion,
@@ -231,19 +240,23 @@ func defaultCLIArchiveName() string {
 	)
 }
 
-func defaultCLIArchiveURL() string {
-	return fmt.Sprintf("%s://%s/dagger/releases/%s/%s",
-		DefaultCLIScheme,
-		DefaultCLIHost,
+func cliArchiveURL() string {
+	if OverrideCLIArchiveURL != "" {
+		return OverrideCLIArchiveURL
+	}
+	return fmt.Sprintf("https://%s/dagger/releases/%s/%s",
+		defaultCLIHost,
 		CLIVersion,
 		defaultCLIArchiveName(),
 	)
 }
 
-func defaultChecksumsURL() string {
-	return fmt.Sprintf("%s://%s/dagger/releases/%s/checksums.txt",
-		DefaultCLIScheme,
-		DefaultCLIHost,
+func checksumsURL() string {
+	if OverrideChecksumsURL != "" {
+		return OverrideChecksumsURL
+	}
+	return fmt.Sprintf("https://%s/dagger/releases/%s/checksums.txt",
+		defaultCLIHost,
 		CLIVersion,
 	)
 }
