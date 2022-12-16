@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"dagger.io/dagger"
 	"github.com/dagger/dagger/internal/mage/util"
@@ -25,6 +26,15 @@ func (cl Cli) Publish(ctx context.Context, version string) error {
 		return err
 	}
 	defer c.Close()
+
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	defer time.Sleep(5 * time.Second)
 
 	wd := c.Host().Directory(".")
 	container := c.Container().

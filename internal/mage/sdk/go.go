@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/dagger/dagger/internal/mage/util"
 
@@ -53,6 +54,15 @@ func (t Go) Test(ctx context.Context) error {
 		return err
 	}
 	defer c.Close()
+
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	defer time.Sleep(5 * time.Second)
 
 	output, err := util.GoBase(c).
 		WithWorkdir("sdk/go").

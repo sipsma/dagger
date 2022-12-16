@@ -229,13 +229,26 @@ func (t Engine) Dev(ctx context.Context) error {
 }
 
 func devEngineContainer(c *dagger.Client, arches []string) []*dagger.Container {
-	buildkitRepo := c.Git(buildkitRepo, dagger.GitOpts{KeepGitDir: true}).Branch(buildkitBranch).Tree()
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO: buildkitRepo := c.Git(buildkitRepo, dagger.GitOpts{KeepGitDir: true}).Branch(buildkitBranch).Tree()
 
 	platformVariants := make([]*dagger.Container, 0, len(arches))
 	for _, arch := range arches {
 		buildkitBase := c.Container(dagger.ContainerOpts{
 			Platform: dagger.Platform("linux/" + arch),
-		}).Build(buildkitRepo)
+		}).From("moby/buildkit:v0.10.6")
+		// TODO: }).Build(buildkitRepo)
 
 		// build the shim binary
 		shimBin := util.GoBase(c).

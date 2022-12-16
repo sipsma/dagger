@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"dagger.io/dagger"
 	"github.com/dagger/dagger/internal/mage/util"
@@ -43,6 +44,15 @@ func (t Nodejs) Test(ctx context.Context) error {
 		return err
 	}
 	defer c.Close()
+
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	defer time.Sleep(5 * time.Second)
 
 	_, err = nodeJsBase(c).
 		WithMountedDirectory("/root/.docker", util.HostDockerDir(c)).

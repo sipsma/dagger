@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/dagger/dagger/internal/mage/util"
 
@@ -72,6 +73,15 @@ func (t Python) Test(ctx context.Context) error {
 		return err
 	}
 	defer c.Close()
+
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	defer time.Sleep(5 * time.Second)
 
 	versions := []string{"3.10", "3.11"}
 
