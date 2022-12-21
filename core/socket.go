@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"runtime/debug"
+	"sync"
 
 	"github.com/moby/buildkit/session/sshforward"
 )
@@ -84,11 +87,60 @@ func (p *socketProxy) CheckAgent(ctx context.Context, req *sshforward.CheckAgent
 	return &sshforward.CheckAgentResponse{}, nil
 }
 
+var debugStreamID = 0
+var debugLock = sync.Mutex{}
+
 func (p *socketProxy) ForwardAgent(stream sshforward.SSH_ForwardAgentServer) error {
+	debugLock.Lock()
+	debugStreamID++
+	id := debugStreamID
+	debugLock.Unlock()
+	fmt.Fprintf(os.Stderr, "%d FORWARDAGENT\n", id)
+
 	conn, err := p.dial()
 	if err != nil {
 		return err
 	}
 
-	return sshforward.Copy(context.TODO(), conn, stream, nil)
+	conn = &debugReadWriteCloser{conn, id}
+
+	err = sshforward.Copy(context.TODO(), conn, stream, nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%d FORWARDAGENT ERROR: %s\n", id, err)
+	} else {
+		fmt.Fprintf(os.Stderr, "%d FORWARDAGENT DONE\n", id)
+	}
+	return err
+}
+
+type debugReadWriteCloser struct {
+	io.ReadWriteCloser
+	id int
+}
+
+func (d *debugReadWriteCloser) Close() error {
+	fmt.Fprintf(os.Stderr, "%d CLOSE\nSTACK: %s\n", d.id, debug.Stack())
+	// TODO:
+	// return d.ReadWriteCloser.Close()
+	return nil
+}
+
+func (d *debugReadWriteCloser) Read(p []byte) (int, error) {
+	n, err := d.ReadWriteCloser.Read(p)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%d READ ERROR: %v\n", d.id, err)
+	} else {
+		fmt.Fprintf(os.Stderr, "%d READ: %s\n", d.id, string(p[:n]))
+	}
+	return n, err
+}
+
+func (d *debugReadWriteCloser) Write(p []byte) (int, error) {
+	n, err := d.ReadWriteCloser.Write(p)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%d WRITE ERROR: %v\n", d.id, err)
+	} else {
+		fmt.Fprintf(os.Stderr, "%d WRITE: %s\n", d.id, string(p[:n]))
+	}
+	return n, err
 }
