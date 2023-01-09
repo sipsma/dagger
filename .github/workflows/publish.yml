@@ -15,7 +15,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     # only run this on push events, not in PRs
-    if: github.event_name == 'push' && github.repository == 'dagger/dagger'
+    if: github.event_name == 'push'
     steps:
       - uses: actions/checkout@v3
 
