@@ -4,6 +4,7 @@ package dagger
 import (
 	"context"
 	"io"
+	"runtime"
 
 	"dagger.io/dagger/internal/engineconn"
 	"dagger.io/dagger/internal/querybuilder"
@@ -93,8 +94,16 @@ func (c *Client) Close() error {
 	return nil
 }
 
+func (c *Client) PID() int {
+	if c.conn != nil {
+		return c.conn.PID()
+	}
+	return 0
+}
+
 // Do sends a GraphQL request to the engine
 func (c *Client) Do(ctx context.Context, req *Request, resp *Response) error {
+	runtime.GC()
 	r := graphql.Response{}
 	if resp != nil {
 		r.Data = resp.Data

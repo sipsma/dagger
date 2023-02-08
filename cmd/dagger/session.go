@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -58,13 +59,16 @@ func EngineSession(cmd *cobra.Command, args []string) error {
 
 	// shutdown if requested via signal
 	go func() {
-		<-signalCh
+		sig := <-signalCh
+		fmt.Fprintf(os.Stderr, "Received signal %s, shutting down\n", sig)
 		l.Close()
 	}()
 
 	// shutdown if our parent closes stdin
 	go func() {
-		io.Copy(io.Discard, os.Stdin)
+		pid := os.Getpid()
+		w, err := io.Copy(io.Discard, os.Stdin)
+		fmt.Fprintf(os.Stderr, "Parent process closed stdin, %d shutting down, %d, %v\n", pid, w, err)
 		l.Close()
 	}()
 

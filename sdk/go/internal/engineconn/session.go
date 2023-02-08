@@ -18,10 +18,15 @@ import (
 type cliSessionConn struct {
 	*http.Client
 	childStdin io.Closer
+	pid        int
 }
 
 func (c *cliSessionConn) Host() string {
 	return "dagger"
+}
+
+func (c *cliSessionConn) PID() int {
+	return c.pid
 }
 
 func (c *cliSessionConn) Close() error {
@@ -114,6 +119,11 @@ func startCLISession(ctx context.Context, binPath string, cfg *Config) (_ Engine
 	if proc == nil {
 		return nil, fmt.Errorf("failed to start dagger session")
 	}
+	/*
+		runtime.SetFinalizer(childStdin, func(stdin io.WriteCloser) {
+			fmt.Fprintf(os.Stdout, "CLOSING STDIN FOR PID %d\n", proc.Process.Pid)
+		})
+	*/
 	defer func() {
 		if rerr != nil {
 			stderrContents := stderrBuf.String()
@@ -152,6 +162,7 @@ func startCLISession(ctx context.Context, binPath string, cfg *Config) (_ Engine
 	return &cliSessionConn{
 		Client:     defaultHTTPClient(&params),
 		childStdin: childStdin,
+		pid:        proc.Process.Pid,
 	}, nil
 }
 
@@ -171,4 +182,14 @@ func (w *discardableWriter) Discard() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.w = io.Discard
+}
+
+type customCloser struct {
+	base io.Closer
+	pid  int
+}
+
+func (c *customCloser) Close() error {
+	fmt.Printf("CLOSING STDIN FOR PID %d\n", c.pid)
+	return c.base.Close()
 }

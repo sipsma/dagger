@@ -45,3 +45,7 @@ func (c *sessionEnvConn) Host() string {
 func (c *sessionEnvConn) Close() error {
 	return nil
 }
+
+func (c *sessionEnvConn) PID() int {
+	return 0
+}

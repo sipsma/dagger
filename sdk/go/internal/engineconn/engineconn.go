@@ -14,6 +14,7 @@ type EngineConn interface {
 	graphql.Doer
 	Host() string
 	Close() error
+	PID() int
 }
 
 type Config struct {

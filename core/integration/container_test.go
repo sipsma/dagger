@@ -2758,6 +2758,8 @@ func TestContainerExecError(t *testing.T) {
 	ctx := context.Background()
 	c, err := dagger.Connect(ctx, dagger.WithLogOutput(os.Stdout))
 	require.NoError(t, err)
+	pid := c.PID()
+	// defer c.Close()
 
 	outMsg := "THIS SHOULD GO TO STDOUT"
 	encodedOutMsg := base64.StdEncoding.EncodeToString([]byte(outMsg))
@@ -2792,7 +2794,13 @@ func TestContainerExecError(t *testing.T) {
 			ExitCode(ctx)
 		require.Error(t, err)
 
-		require.Contains(t, err.Error(), outMsg)
+		//require.Contains(t, err.Error(), outMsg)
+		if !strings.Contains(err.Error(), outMsg) {
+			fmt.Println("FAILURE!!!!!!!!!!!!", pid, err.Error())
+			select {}
+		}
 		require.Contains(t, err.Error(), errMsg)
 	})
+
+	// runtime.KeepAlive(c)
 }
