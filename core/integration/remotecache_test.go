@@ -17,34 +17,73 @@ func TestRemoteCache(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	registryContainerName := runRegistryInDocker(ctx, t)
+	t.Run("basic", func(t *testing.T) {
+		registryContainerName := runRegistryInDocker(ctx, t)
+		getClient := func() *dagger.Client {
+			return runSeparateEngine(ctx, t, map[string]string{
+				"_EXPERIMENTAL_DAGGER_CACHE_CONFIG": "type=registry,ref=127.0.0.1:5000/test-cache,mode=max",
+			}, "container:"+registryContainerName)
+		}
 
-	getClient := func() *dagger.Client {
-		return runSeparateEngine(ctx, t, map[string]string{
-			"_EXPERIMENTAL_DAGGER_CACHE_CONFIG": "type=registry,ref=127.0.0.1:5000/test-cache,mode=max",
-		}, "container:"+registryContainerName)
-	}
-	pipelineOutput := func(c *dagger.Client) string {
-		output, err := c.Container().From("alpine:3.17").WithExec([]string{
-			"sh", "-c", "head -c 128 /dev/random | sha256sum",
-		}).Stdout(ctx)
-		require.NoError(t, err)
-		return output
-	}
+		pipelineOutput := func(c *dagger.Client) string {
+			output, err := c.Container().From("alpine:3.17").WithExec([]string{
+				"sh", "-c", "head -c 128 /dev/random | sha256sum",
+			}).Stdout(ctx)
+			require.NoError(t, err)
+			return output
+		}
 
-	/*
-		1. Start a registry for storing the cache
-		2. Start two independent engines from empty cache that are configured to use the registry as remote cache backend
-		3. Run an exec w/ output from /dev/random in the first engine
-		4. Close the first engine's client, flushing the remote cache for the session
-		5. Run the same exec in the second engine, verify it imports the cache and output the same value as the first engine
-	*/
-	clientA := getClient()
-	clientB := getClient()
-	outputA := pipelineOutput(clientA)
-	require.NoError(t, clientA.Close())
-	outputB := pipelineOutput(clientB)
-	require.Equal(t, outputA, outputB)
+		/*
+			1. Start a registry for storing the cache
+			2. Start two independent engines from empty cache that are configured to use the registry as remote cache backend
+			3. Run an exec w/ output from /dev/random in the first engine
+			4. Close the first engine's client, flushing the remote cache for the session
+			5. Run the same exec in the second engine, verify it imports the cache and output the same value as the first engine
+		*/
+		clientA := getClient()
+		clientB := getClient()
+		outputA := pipelineOutput(clientA)
+		require.NoError(t, clientA.Close())
+		outputB := pipelineOutput(clientB)
+		require.Equal(t, outputA, outputB)
+	})
+
+	// TODO: this test is incomprehensible
+	t.Run("with image export too", func(t *testing.T) {
+		registryContainerName := runRegistryInDocker(ctx, t)
+		getClient := func() *dagger.Client {
+			return runSeparateEngine(ctx, t, map[string]string{
+				"_EXPERIMENTAL_DAGGER_CACHE_CONFIG": "type=registry,ref=127.0.0.1:5000/test-cache,mode=max",
+			}, "container:"+registryContainerName)
+		}
+
+		pipelineOutputs := func(c *dagger.Client) (string, string) {
+			output1, err := c.Container().From("alpine:3.17").WithExec([]string{
+				"sh", "-c", "head -c 128 /dev/random | sha256sum",
+			}).Stdout(ctx)
+			require.NoError(t, err)
+
+			otherCtr := c.Container().
+				From("alpine:3.17").
+				WithEnvVariable("TEST", "B"). // TODO: wtf
+				WithExec([]string{
+					"sh", "-c", "head -c 128 /dev/random | sha256sum",
+				})
+			output2, err := otherCtr.Stdout(ctx)
+			require.NoError(t, err)
+			_, err = otherCtr.Publish(ctx, "127.0.0.1:5000/test")
+			require.NoError(t, err)
+			return output1, output2
+		}
+
+		clientA := getClient()
+		clientB := getClient()
+		outputA1, outputA2 := pipelineOutputs(clientA)
+		require.NoError(t, clientA.Close())
+		outputB1, outputB2 := pipelineOutputs(clientB)
+		require.Equal(t, outputA1, outputB1)
+		require.Equal(t, outputA2, outputB2)
+	})
 }
 
 // TODO: dedupe this w/ the services PR

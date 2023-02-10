@@ -146,6 +146,9 @@ func (host *Host) Export(
 
 	solveOpts.Exports = []bkclient.ExportEntry{export}
 
+	// don't do cache exports here, we'll do them in the main session
+	solveOpts.CacheExports = nil
+
 	_, err := bkClient.Build(ctx, solveOpts, "", buildFn, ch)
 	return err
 }

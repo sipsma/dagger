@@ -407,7 +407,7 @@ type containerPublishArgs struct {
 }
 
 func (s *containerSchema) publish(ctx *router.Context, parent *core.Container, args containerPublishArgs) (string, error) {
-	return parent.Publish(ctx, args.Address, args.PlatformVariants, s.bkClient, s.solveOpts, s.solveCh)
+	return parent.Publish(ctx, args.Address, args.PlatformVariants, s.bkClient, s.solveOpts, s.solveCh, s.gw)
 }
 
 type containerWithMountedFileArgs struct {
@@ -566,7 +566,7 @@ type containerExportArgs struct {
 }
 
 func (s *containerSchema) export(ctx *router.Context, parent *core.Container, args containerExportArgs) (bool, error) {
-	if err := parent.Export(ctx, s.host, args.Path, args.PlatformVariants, s.bkClient, s.solveOpts, s.solveCh); err != nil {
+	if err := parent.Export(ctx, s.host, args.Path, args.PlatformVariants, s.bkClient, s.solveOpts, s.solveCh, s.gw); err != nil {
 		return false, err
 	}
 

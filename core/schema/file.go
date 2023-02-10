@@ -80,7 +80,7 @@ type fileExportArgs struct {
 }
 
 func (s *fileSchema) export(ctx *router.Context, parent *core.File, args fileExportArgs) (bool, error) {
-	err := parent.Export(ctx, s.host, args.Path, s.bkClient, s.solveOpts, s.solveCh)
+	err := parent.Export(ctx, s.host, args.Path, s.bkClient, s.solveOpts, s.solveCh, s.gw)
 	if err != nil {
 		return false, err
 	}

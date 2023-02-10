@@ -484,6 +484,7 @@ func (dir *Directory) Export(
 	bkClient *bkclient.Client,
 	solveOpts bkclient.SolveOpt,
 	solveCh chan<- *bkclient.SolveStatus,
+	mainGW bkgw.Client,
 ) error {
 	dest, err := host.NormalizeDest(dest)
 	if err != nil {
@@ -522,9 +523,21 @@ func (dir *Directory) Export(
 			defPB = srcPayload.LLB
 		}
 
+		// TODO: this is extremely ugly
+		// do a lazy solve so our gateway client picks up these refs during cache export
+		_, err = mainGW.Solve(ctx, bkgw.SolveRequest{
+			Definition: defPB,
+		})
+		if err != nil {
+			return nil, err
+		}
+
 		return gw.Solve(ctx, bkgw.SolveRequest{
 			Evaluate:   true,
 			Definition: defPB,
+			CacheImports: []bkgw.CacheOptionsEntry{{
+				Type: "dagger",
+			}},
 		})
 	})
 }

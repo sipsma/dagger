@@ -1104,6 +1104,7 @@ func (container *Container) Publish(
 	bkClient *bkclient.Client,
 	solveOpts bkclient.SolveOpt,
 	solveCh chan<- *bkclient.SolveStatus,
+	mainGW bkgw.Client,
 ) (string, error) {
 	// NOTE: be careful to not overwrite any values from original solveOpts (i.e. with append).
 	solveOpts.Exports = []bkclient.ExportEntry{
@@ -1116,11 +1117,14 @@ func (container *Container) Publish(
 		},
 	}
 
+	// don't do cache exports here, we'll do them in the main session
+	solveOpts.CacheExports = nil
+
 	ch, wg := mirrorCh(solveCh)
 	defer wg.Wait()
 
 	res, err := bkClient.Build(ctx, solveOpts, "", func(ctx context.Context, gw bkgw.Client) (*bkgw.Result, error) {
-		return container.export(ctx, gw, platformVariants)
+		return container.export(ctx, gw, mainGW, platformVariants)
 	}, ch)
 	if err != nil {
 		return "", err
@@ -1165,6 +1169,7 @@ func (container *Container) Export(
 	bkClient *bkclient.Client,
 	solveOpts bkclient.SolveOpt,
 	solveCh chan<- *bkclient.SolveStatus,
+	mainGW bkgw.Client,
 ) error {
 	dest, err := host.NormalizeDest(dest)
 	if err != nil {
@@ -1178,19 +1183,23 @@ func (container *Container) Export(
 
 	defer out.Close()
 
+	// don't do cache exports here, we'll do them in the main session
+	solveOpts.CacheExports = nil
+
 	return host.Export(ctx, bkclient.ExportEntry{
 		Type: bkclient.ExporterOCI,
 		Output: func(map[string]string) (io.WriteCloser, error) {
 			return out, nil
 		},
 	}, dest, bkClient, solveOpts, solveCh, func(ctx context.Context, gw bkgw.Client) (*bkgw.Result, error) {
-		return container.export(ctx, gw, platformVariants)
+		return container.export(ctx, gw, mainGW, platformVariants)
 	})
 }
 
 func (container *Container) export(
 	ctx context.Context,
 	gw bkgw.Client,
+	mainGW bkgw.Client, // TODO:
 	platformVariants []ContainerID,
 ) (*bkgw.Result, error) {
 	var payloads []*containerIDPayload
@@ -1234,6 +1243,18 @@ func (container *Container) export(
 		res, err := gw.Solve(ctx, bkgw.SolveRequest{
 			Evaluate:   true,
 			Definition: stDef.ToPB(),
+			CacheImports: []bkgw.CacheOptionsEntry{{
+				Type: "dagger",
+			}},
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		// TODO: this is extremely ugly
+		// do a lazy solve so our gateway client picks up these refs during cache export
+		_, err = mainGW.Solve(ctx, bkgw.SolveRequest{
+			Definition: stDef.ToPB(),
 		})
 		if err != nil {
 			return nil, err
@@ -1273,6 +1294,9 @@ func (container *Container) export(
 		r, err := gw.Solve(ctx, bkgw.SolveRequest{
 			Evaluate:   true,
 			Definition: stDef.ToPB(),
+			CacheImports: []bkgw.CacheOptionsEntry{{
+				Type: "dagger",
+			}},
 		})
 		if err != nil {
 			return nil, err
