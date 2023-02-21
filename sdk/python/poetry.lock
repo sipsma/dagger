@@ -1220,14 +1220,14 @@ test = ["pytest"]
 
 [[package]]
 name = "strawberry-graphql"
-version = "0.156.1"
+version = "0.158.2"
 description = "A library for creating GraphQL APIs"
 category = "main"
 optional = true
 python-versions = ">=3.7,<4.0"
 files = [
-    {file = "strawberry_graphql-0.156.1-py3-none-any.whl", hash = "sha256:7e0728c197a7647ed4476991b0855fa812ddc2bdebe31853b55ad478c41f38d3"},
-    {file = "strawberry_graphql-0.156.1.tar.gz", hash = "sha256:b4ade7577ea8f2e7d4ab48e4e3b1981288442f415af9515e8a29890e0bd5b2dd"},
+    {file = "strawberry_graphql-0.158.2-py3-none-any.whl", hash = "sha256:5a71243e2035b72f95e28731029cda9cc5f1a6d0594be81c055700d4355aafc0"},
+    {file = "strawberry_graphql-0.158.2.tar.gz", hash = "sha256:5b655ab1c4c2af770c72d4169d07f966639e9124b42194ae486c42c73bd2c44a"},
 ]
 
 [package.dependencies]
