@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 
 	"github.com/moby/buildkit/session/sshforward"
+	"google.golang.org/grpc/metadata"
 )
 
 type Socket struct {
@@ -85,10 +87,36 @@ func (p *socketProxy) CheckAgent(ctx context.Context, req *sshforward.CheckAgent
 }
 
 func (p *socketProxy) ForwardAgent(stream sshforward.SSH_ForwardAgentServer) error {
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	var id string
+	opts, _ := metadata.FromIncomingContext(stream.Context()) // if no metadata continue with empty object
+	if v, ok := opts[sshforward.KeySSHID]; ok && len(v) > 0 && v[0] != "" {
+		id = v[0]
+	}
+	fmt.Fprintf(os.Stderr, "starting copy of socket connection for %s\n", id)
+
 	conn, err := p.dial()
 	if err != nil {
 		return err
 	}
 
-	return sshforward.Copy(context.TODO(), conn, stream, nil)
+	ctx, cancel := context.WithCancel(stream.Context())
+	return sshforward.Copy(ctx, conn, stream, func() error {
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		fmt.Fprintf(os.Stderr, "closing socket connection for %s\n", id)
+
+		cancel()
+		return nil
+	})
 }
