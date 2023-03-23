@@ -26,7 +26,7 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/iancoleman/strcase v0.2.0
 	// https://github.com/moby/buildkit/commit/deba8768c675b8da650bf14281c2b7d03de7d63b
-	github.com/moby/buildkit v0.11.0-rc3.0.20230322213239-deba8768c675
+	github.com/moby/buildkit v0.11.4
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.0-rc2.0.20221005185240-3a7f492d3f1b
 	github.com/opencontainers/runtime-spec v1.1.0-rc.1
@@ -96,6 +96,7 @@ require (
 	github.com/cloudflare/circl v1.1.0 // indirect
 	github.com/containerd/go-cni v1.1.9 // indirect
 	github.com/containerd/go-runc v1.0.0 // indirect
+	github.com/containerd/typeurl v1.0.3-0.20220422153119-7f6e6d160d67 // indirect
 	github.com/containerd/typeurl/v2 v2.1.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect
 	github.com/cyphar/filepath-securejoin v0.2.3 // indirect
