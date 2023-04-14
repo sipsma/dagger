@@ -14,6 +14,7 @@ import (
 	"github.com/dagger/dagger/internal/mage/sdk"
 	"github.com/dagger/dagger/internal/mage/util"
 	"github.com/magefile/mage/mg" // mg contains helpful utility functions, like Deps
+	"github.com/moby/buildkit/identity"
 	"golang.org/x/mod/semver"
 )
 
@@ -169,28 +170,31 @@ func (t Engine) test(ctx context.Context, race bool) error {
 			`registry."privateregistry:5000"`: "http = true",
 		},
 	}
-	devEngine := util.DevEngineContainer(c.Pipeline("dev-engine"), []string{runtime.GOARCH}, util.DefaultDevEngineOpts, opts)[0]
+	// TODO: devEngine := util.DevEngineContainer(c.Pipeline("dev-engine"), []string{runtime.GOARCH}, util.DefaultDevEngineOpts, opts)[0]
+	devEngine := util.DevEngineContainer(c.Pipeline("dev-engine"), []string{"amd64"}, util.DefaultDevEngineOpts, opts)[0]
 
 	reg := registry(c)
 
-	_, err = devEngine.Export(ctx, "/tmp/engine.tar")
-	if err != nil {
-		return err
-	}
+	/*
+		_, err = devEngine.Export(ctx, "/tmp/engine.tar")
+		if err != nil {
+			return err
+		}
 
-	image := c.Host().Directory("/tmp", dagger.HostDirectoryOpts{
-		Include: []string{"engine.tar"},
-	}).File("/engine.tar")
+		image := c.Host().Directory("/tmp", dagger.HostDirectoryOpts{
+			Include: []string{"engine.tar"},
+		}).File("/engine.tar")
 
-	_, err = c.Container().From("gcr.io/go-containerregistry/crane:latest").
-		WithServiceBinding("registry", reg).
-		WithFile("/tmp/engine.tar", image).
-		WithExec([]string{"push", "--insecure", "/tmp/engine.tar", "registry:5000/engine:dev"}).
-		ExitCode(ctx)
+		_, err = c.Container().From("gcr.io/go-containerregistry/crane:latest").
+			WithServiceBinding("registry", reg).
+			WithFile("/tmp/engine.tar", image).
+			WithExec([]string{"push", "--insecure", "/tmp/engine.tar", "registry:5000/engine:dev"}).
+			ExitCode(ctx)
 
-	if err != nil {
-		return err
-	}
+		if err != nil {
+			return err
+		}
+	*/
 
 	// imageList, err := c.Container().From("gcr.io/go-containerregistry/crane:latest").
 	// 	WithServiceBinding("registry", reg).
@@ -207,10 +211,14 @@ func (t Engine) test(ctx context.Context, race bool) error {
 		// TODO: in some ways it's nice to have cache here, in others it may actually result in our tests being less reproducible.
 		// Can consider rm -rfing this dir every engine start if we decide we want a clean slate every time.
 		// It's important it's a cache mount though because otherwise overlay won't be available
-		WithMountedCache("/var/lib/dagger", c.CacheVolume("dagger-dev-engine-state")).
-		WithExec(nil, dagger.ContainerWithExecOpts{
-			InsecureRootCapabilities:      true,
-			ExperimentalPrivilegedNesting: true,
+		WithMountedCache("/var/lib/dagger", c.CacheVolume("dagger-dev-engine-state-"+identity.NewID()))
+
+	if v, ok := os.LookupEnv("_EXPERIMENTAL_DAGGER_CACHESERVICE_URL"); ok {
+		devEngine = devEngine.WithEnvVariable("_EXPERIMENTAL_DAGGER_CACHESERVICE_URL", v)
+	}
+	devEngine = devEngine.
+		WithExec([]string{"--network-name", "dagger1", "--network-cidr", "10.88.1.0/24"}, dagger.ContainerWithExecOpts{
+			InsecureRootCapabilities: true,
 		})
 
 	endpoint, err := devEngine.Endpoint(ctx, dagger.ContainerEndpointOpts{Port: 1234, Scheme: "tcp"})
@@ -219,8 +227,8 @@ func (t Engine) test(ctx context.Context, race bool) error {
 	}
 
 	cgoEnabledEnv := "0"
-	// args := []string{"go", "test", "-p", "16", "-v", "-count=1", "-timeout=15m"}
-	args := []string{"go", "test", "./core/integration/", "-run", "TestRemoteCache", "-count=1", "-v"}
+	args := []string{"go", "test", "-p", "16", "-v", "-count=1", "-timeout=15m", "./core/integration/"}
+	// args := []string{"go", "test", "./core/integration/", "-run", "TestRemoteCache", "-count=1", "-v"}
 
 	if race {
 		args = append(args, "-race", "-timeout=1h")
@@ -234,7 +242,6 @@ func (t Engine) test(ctx context.Context, race bool) error {
 		WithWorkdir("/app").
 		WithServiceBinding("dagger-engine", devEngine).
 		WithEnvVariable("CGO_ENABLED", cgoEnabledEnv).
-		WithEnvVariable("_EXPERIMENTAL_DAGGER_CACHE_CONFIG", os.Getenv("_EXPERIMENTAL_DAGGER_CACHE_CONFIG")).
 		WithMountedFile(cliBinPath, util.DaggerBinary(c)).
 		WithEnvVariable("_EXPERIMENTAL_DAGGER_CLI_BIN", cliBinPath).
 		WithEnvVariable("_EXPERIMENTAL_DAGGER_RUNNER_HOST", endpoint).
