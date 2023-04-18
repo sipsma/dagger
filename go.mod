@@ -204,7 +204,7 @@ require (
 	github.com/Microsoft/hcsshim v0.10.0-rc.7 // indirect
 	github.com/adrg/xdg v0.4.0
 	github.com/agext/levenshtein v1.2.3 // indirect
-	github.com/cenkalti/backoff/v4 v4.2.0
+	github.com/cenkalti/backoff/v4 v4.2.1
 	github.com/containerd/cgroups v1.1.0 // indirect
 	github.com/containerd/console v1.0.3 // indirect
 	github.com/containerd/continuity v0.3.0 // indirect
