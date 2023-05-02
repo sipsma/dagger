@@ -208,6 +208,7 @@ func devEngineContainer(c *dagger.Client, arch string, opts ...DevEngineOpts) *d
 		WithFile("/usr/local/bin/buildctl", buildctlBin(c, arch)).
 		WithFile("/usr/local/bin/"+shimBinName, shimBin(c, arch)).
 		WithFile("/usr/local/bin/"+engineBinName, engineBin(c, arch)).
+		WithFile("/usr/local/bin/delve", delveBin(c, arch)).
 		WithDirectory("/usr/local/bin", qemuBins(c, arch)).
 		WithDirectory("/opt/cni/bin", cniPlugins(c, arch)).
 		WithDirectory(EngineDefaultStateDir, c.Directory()).
@@ -308,10 +309,24 @@ func engineBin(c *dagger.Client, arch string) *dagger.File {
 		WithExec([]string{
 			"go", "build",
 			"-o", "./bin/" + engineBinName,
-			"-ldflags", "-s -w",
+			// "-ldflags", "-s -w",
+			// TODO:
+			"-gcflags", "all=-N -l",
 			"/app/cmd/engine",
 		}).
 		File("./bin/" + engineBinName)
+}
+
+func delveBin(c *dagger.Client, arch string) *dagger.File {
+	return goBase(c).
+		WithEnvVariable("GOOS", "linux").
+		WithEnvVariable("GOARCH", arch).
+		WithExec([]string{
+			"go", "build",
+			"-o", "./bin/delve",
+			"github.com/go-delve/delve/cmd/dlv",
+		}).
+		File("./bin/delve")
 }
 
 func qemuBins(c *dagger.Client, arch string) *dagger.Directory {

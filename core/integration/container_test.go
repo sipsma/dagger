@@ -22,6 +22,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	"github.com/moby/buildkit/identity"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
 )
 
 func TestContainerScratch(t *testing.T) {
@@ -3565,4 +3566,35 @@ func TestContainerParallelMutation(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, res.Container.A.EnvVariable, "BAR")
 	require.Empty(t, res.Container.B, "BAR")
+}
+
+func TestDebug(t *testing.T) {
+	c, ctx := connect(t)
+	defer c.Close()
+
+	var eg errgroup.Group
+	for i := 0; i < 5; i++ {
+		i := i
+		eg.Go(func() error {
+			for j := 0; j < 5; j++ {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				default:
+					_, err := c.Container().From("alpine:3.17").
+						WithEnvVariable("ID", fmt.Sprintf("%d", i)).
+						// the yes command produces output at an insane rate
+						WithExec([]string{"timeout", "-s", "KILL", "20", "yes"}).
+						ExitCode(ctx)
+					if err != nil {
+						t.Logf("error: %v", err)
+					}
+				}
+			}
+			return nil
+		})
+	}
+	eg.Wait()
+	t.Logf("waiting")
+	select {}
 }

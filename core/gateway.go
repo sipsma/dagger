@@ -128,7 +128,7 @@ func wrapSolveError(inputErr *error, gw bkgw.Client) {
 	var se *errdefs.SolveError
 	if errors.As(returnErr, &se) {
 		// Ensure we don't get blocked trying to return an error by enforcing a timeout
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
 		op := se.Op
