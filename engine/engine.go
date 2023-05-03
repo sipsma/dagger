@@ -86,6 +86,10 @@ func Start(ctx context.Context, startOpts *Config, fn StartCallback) error {
 	if err != nil {
 		return err
 	}
+	// TODO: clean up this kludge
+	if strings.HasPrefix(startOpts.Workdir, "git://") {
+		startOpts.Workdir = "."
+	}
 
 	// Load default labels asynchronously in the background.
 	go pipeline.LoadRootLabels(startOpts.Workdir, c.EngineName)
@@ -444,6 +448,10 @@ func NormalizePaths(workdir, configPath string) (string, string, error) {
 	if workdir == "" {
 		workdir = os.Getenv("DAGGER_WORKDIR")
 	}
+	if configPath == "" {
+		configPath = os.Getenv("DAGGER_CONFIG")
+	}
+
 	if workdir == "" {
 		var err error
 		workdir, err = os.Getwd()
@@ -456,9 +464,6 @@ func NormalizePaths(workdir, configPath string) (string, string, error) {
 		return "", "", err
 	}
 
-	if configPath == "" {
-		configPath = os.Getenv("DAGGER_CONFIG")
-	}
 	if configPath == "" {
 		configPath = filepath.Join(workdir, daggerJSONName)
 	}

@@ -11,7 +11,13 @@ func main() {
 	dagger.Serve(
 		Build,
 		Test,
+		Default,
 	)
+}
+
+// TODO:
+func Default(ctx context.Context) (string, error) {
+	return "da default", nil
 }
 
 // Build the go binary from the given go repo, branch, and subpath. Silly right now due to lack of host export, but proves concept
