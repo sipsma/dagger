@@ -1150,19 +1150,19 @@ test = ["pytest"]
 
 [[package]]
 name = "strawberry-graphql"
-version = "0.184.1"
+version = "0.186.0"
 description = "A library for creating GraphQL APIs"
 optional = true
 python-versions = ">=3.7,<4.0"
 files = [
-    {file = "strawberry_graphql-0.184.1-py3-none-any.whl", hash = "sha256:a0232fad8a65ef45ebba915da347d4cb04fb457f0ff9af5c5fd9502851f30330"},
-    {file = "strawberry_graphql-0.184.1.tar.gz", hash = "sha256:d7bddabe48a177dc1b35ee808bb2496b5c2b403a492cd1ee945db94468d5d6c1"},
+    {file = "strawberry_graphql-0.186.0-py3-none-any.whl", hash = "sha256:6a788de7f6168cff0577d380070ddc0e79515505c112cf9e9c3396df7374c6c3"},
+    {file = "strawberry_graphql-0.186.0.tar.gz", hash = "sha256:5dddc9deba323a4fe54ecad85e0a6c8cc249cbca3b5d17c34b9c8a55534f9f05"},
 ]
 
 [package.dependencies]
 graphql-core = ">=3.2.0,<3.3.0"
 python-dateutil = ">=2.7.0,<3.0.0"
-typing_extensions = ">=4.0.0,<5.0.0"
+typing_extensions = ">=4.1.0"
 
 [package.extras]
 aiohttp = ["aiohttp (>=3.7.4.post0,<4.0.0)"]
