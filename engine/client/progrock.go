@@ -3,9 +3,11 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 
+	"github.com/dagger/dagger/core"
 	bkclient "github.com/moby/buildkit/client"
 	"github.com/vito/progrock"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -38,6 +40,15 @@ func (w progrockFileWriter) Close() error {
 	return w.f.Close()
 }
 
+func RecordBuildkitStatus(rec *progrock.Recorder, solveCh <-chan *bkclient.SolveStatus) error {
+	for ev := range solveCh {
+		if err := rec.Record(bk2progrock(ev)); err != nil {
+			return fmt.Errorf("record: %w", err)
+		}
+	}
+	return nil
+}
+
 func bk2progrock(event *bkclient.SolveStatus) *progrock.StatusUpdate {
 	var status progrock.StatusUpdate
 	for _, v := range event.Vertexes {
@@ -46,9 +57,13 @@ func bk2progrock(event *bkclient.SolveStatus) *progrock.StatusUpdate {
 			Name:   v.Name,
 			Cached: v.Cached,
 		}
-		if strings.HasPrefix(v.Name, "[internal] ") {
+		if strings.HasPrefix(v.Name, core.InternalPrefix) {
 			vtx.Internal = true
-			vtx.Name = strings.TrimPrefix(v.Name, "[internal] ")
+			vtx.Name = strings.TrimPrefix(v.Name, core.InternalPrefix)
+		}
+		if strings.HasPrefix(v.Name, core.FocusPrefix) {
+			vtx.Focused = true
+			vtx.Name = strings.TrimPrefix(v.Name, core.FocusPrefix)
 		}
 		for _, input := range v.Inputs {
 			vtx.Inputs = append(vtx.Inputs, input.String())

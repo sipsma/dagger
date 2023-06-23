@@ -6,6 +6,9 @@ import (
 	"github.com/vito/progrock"
 )
 
+const FocusPrefix = "[focus] "
+const InternalPrefix = "[internal] "
+
 func RecordVertexes(recorder *progrock.Recorder, def *pb.Definition) {
 	dgsts := []digest.Digest{}
 	for dgst, meta := range def.Metadata {

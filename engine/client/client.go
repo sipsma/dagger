@@ -185,12 +185,7 @@ func Connect(ctx context.Context, params SessionParams) (_ *Session, rerr error)
 
 	solveCh := make(chan *bkclient.SolveStatus)
 	s.eg.Go(func() error {
-		for ev := range solveCh {
-			if err := recorder.Record(bk2progrock(ev)); err != nil {
-				return fmt.Errorf("record: %w", err)
-			}
-		}
-		return nil
+		return RecordBuildkitStatus(recorder, solveCh)
 	})
 
 	// run the client s
