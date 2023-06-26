@@ -77,6 +77,10 @@ type Container struct {
 	// Services to start before running the container.
 	Services    ServiceBindings `json:"services,omitempty"`
 	HostAliases []HostAlias     `json:"host_aliases,omitempty"`
+
+	// Focused indicates whether subsequent operations will be
+	// focused, i.e. shown more prominently in the UI.
+	Focused bool `json:"focused"`
 }
 
 func NewContainer(id ContainerID, pipeline pipeline.Path, platform specs.Platform) (*Container, error) {
@@ -1047,7 +1051,7 @@ func (container *Container) WithExec(ctx context.Context, bk *buildkit.Client, p
 	}
 
 	var namef string
-	if opts.Focus {
+	if container.Focused {
 		namef = FocusPrefix + "exec %s"
 	} else {
 		namef = "exec %s"
@@ -1872,10 +1876,6 @@ func (container *Container) ownership(ctx context.Context, bk *buildkit.Client, 
 type ContainerExecOpts struct {
 	// Command to run instead of the container's default command
 	Args []string
-
-	// Focus indicates that the command is the primary focus of the pipeline
-	// being run.
-	Focus bool
 
 	// If the container has an entrypoint, ignore it for this exec rather than
 	// calling it with args.
