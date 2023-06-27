@@ -5,7 +5,30 @@ import (
 )
 
 func main() {
-	dagger.ServeCommands(CI)
+	dagger.Serve(
+		CommandA,
+		CommandB,
+		MyContainer,
+	)
+
+	//
+	//
+	//
+	//
+	//
+
+	dagger.Serve(dagger.Environment{
+		Commands: []dagger.Command{
+			CommandA,
+			CommandB,
+		},
+		Shells: []dagger.Shell{
+			ContainerA,
+		},
+		Aritfacts: []dagger.Artifact{
+			ContainerA,
+		},
+	})
 }
 
 // Dagger CI targets
