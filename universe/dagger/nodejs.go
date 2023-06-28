@@ -8,14 +8,15 @@ import (
 )
 
 type NodejsTargets struct {
-	RepoSrcDir *dagger.Directory
-	SDKSrcDir  *dagger.Directory
-	Base       *dagger.Container
+	Targets
 }
 
-// Dagger Nodejs SDK targets
-func (s SDKTargets) Nodejs(ctx dagger.Context) (NodejsTargets, error) {
-	sdkSrcDir := s.SrcDir.Directory("sdk/nodejs")
+func (t NodejsTargets) sdkSrcDir(ctx dagger.Context) *dagger.Directory {
+	return t.srcDir(ctx).Directory("sdk/nodejs")
+}
+
+func (t NodejsTargets) baseImage(ctx dagger.Context) *dagger.Container {
+	sdkSrcDir := t.sdkSrcDir(ctx)
 
 	base := ctx.Client().Container().
 		// ⚠️  Keep this in sync with the engine version defined in package.json
@@ -30,21 +31,15 @@ func (s SDKTargets) Nodejs(ctx dagger.Context) (NodejsTargets, error) {
 	).
 		WithExec([]string{"yarn", "install"})
 
-	src := deps.WithRootfs(
+	return deps.WithRootfs(
 		deps.
 			Rootfs().
 			WithDirectory("/workdir", sdkSrcDir),
 	)
-
-	return NodejsTargets{
-		RepoSrcDir: s.SrcDir,
-		SDKSrcDir:  sdkSrcDir,
-		Base:       src,
-	}, nil
 }
 
 // Lint the Nodejs SDK
-func (n NodejsTargets) Lint(ctx dagger.Context) (string, error) {
+func (t NodejsTargets) NodejsLint(ctx dagger.Context) (string, error) {
 	// TODO: pipeline should be automatically set
 	c := ctx.Client().Pipeline("sdk").Pipeline("nodejs").Pipeline("lint")
 
@@ -53,7 +48,7 @@ func (n NodejsTargets) Lint(ctx dagger.Context) (string, error) {
 	var yarnLintOut string
 	eg.Go(func() error {
 		var err error
-		yarnLintOut, err = n.Base.
+		yarnLintOut, err = t.baseImage(ctx).
 			WithExec([]string{"yarn", "lint"}).
 			Stdout(gctx)
 		return err
@@ -62,9 +57,9 @@ func (n NodejsTargets) Lint(ctx dagger.Context) (string, error) {
 	var docLintOut string
 	eg.Go(func() error {
 		snippets := c.Directory().
-			WithDirectory("/", n.RepoSrcDir.Directory("docs/current/sdk/nodejs/snippets"))
+			WithDirectory("/", t.srcDir(ctx).Directory("docs/current/sdk/nodejs/snippets"))
 		var err error
-		docLintOut, err = n.Base.
+		docLintOut, err = t.baseImage(ctx).
 			WithMountedDirectory("/snippets", snippets).
 			WithWorkdir("/snippets").
 			WithExec([]string{"yarn", "install"}).

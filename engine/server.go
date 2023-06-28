@@ -122,7 +122,7 @@ func (f *Frontend) Solve(
 	defer sess.removeClient(sid)
 
 	// TODO: if no more clients connected, delete ServerSession from map
-	return sess.Run(ctx)
+	return sess.Run(ctx, sid)
 }
 
 type ServerSession struct {
@@ -138,20 +138,32 @@ type ServerSession struct {
 	connectedClients map[string]session.Caller
 }
 
-func (s *ServerSession) Run(ctx context.Context) (*frontend.Result, error) {
+func (s *ServerSession) Run(ctx context.Context, sessionID string) (*frontend.Result, error) {
 	s.startOnce.Do(func() {
 		s.eg.Go(func() error {
-			// TODO: forward progrock back to client in addition to logrus debugs
+			clientCaller, ok := s.connectedClients[sessionID]
+			if !ok {
+				return fmt.Errorf("no client with id %s", sessionID)
+			}
+			clientConn := clientCaller.Conn()
+			progClient := progrock.NewProgressServiceClient(clientConn)
+			progUpdates, err := progClient.WriteUpdates(ctx)
+			if err != nil {
+				return err
+			}
+			progWriter := progrock.MultiWriter{
+				&progrock.RPCWriter{Conn: clientConn, Updates: progUpdates},
+				progrockLogrusWriter{},
+			}
+
 			// TODO: correct progrock labels
 			go pipeline.LoadRootLabels("/", "da-engine")
 			// recorder := progrock.NewRecorder(progrockLogrusWriter{}, progrock.WithLabels(labels...))
-			recorder := progrock.NewRecorder(progrockLogrusWriter{})
+			recorder := progrock.NewRecorder(progWriter)
 			ctx = progrock.RecorderToContext(ctx, recorder)
-
 			defer func() {
 				// mark all groups completed
 				recorder.Complete()
-
 				// close the recorder so the UI exits
 				recorder.Close()
 			}()
@@ -159,7 +171,7 @@ func (s *ServerSession) Run(ctx context.Context) (*frontend.Result, error) {
 			// TODO: session token
 			rtr := router.New("", recorder)
 
-			coreAPI, err := schema.New(schema.InitializeArgs{
+			coreAPIs := schema.New(schema.InitializeArgs{
 				Router: rtr,
 				Gateway: core.NewGatewayClient(
 					s.llbBridge,
@@ -175,13 +187,9 @@ func (s *ServerSession) Run(ctx context.Context) (*frontend.Result, error) {
 				Auth:     registryAuth,
 				Secrets:  secretStore,
 				OCIStore: ociStore,
-				// ProgrockSocket: progSock,
 				*/
 			})
-			if err != nil {
-				return err
-			}
-			if err := rtr.Add(coreAPI); err != nil {
+			if err := rtr.Add(coreAPIs...); err != nil {
 				return err
 			}
 

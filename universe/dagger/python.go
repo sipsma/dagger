@@ -8,35 +8,34 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+const (
+	pythonPath    = "/root/.local/bin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	venv          = "/opt/venv"
+	pythonAppDir  = "sdk/python"
+	pythonVersion = "3.11"
+)
+
 type PythonTargets struct {
-	// configuration for targets
-	RepoSrcDir *dagger.Directory
-	SDKSrcDir  *dagger.Directory
-	Base       *dagger.Container
+	Targets
 }
 
-// Dagger Python SDK targets
-func (s SDKTargets) Python(ctx dagger.Context) (PythonTargets, error) {
-	const (
-		path          = "/root/.local/bin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-		venv          = "/opt/venv"
-		appDir        = "sdk/python"
-		pythonVersion = "3.11"
-	)
-	sdkSrcDir := s.SrcDir.Directory(appDir)
+func (t PythonTargets) sdkSrcDir(ctx dagger.Context) *dagger.Directory {
+	return t.srcDir(ctx).Directory(pythonAppDir)
+}
 
+func (t PythonTargets) baseImage(ctx dagger.Context) *dagger.Container {
 	// We mirror the same dir structure from the repo because of the
 	// relative paths in ruff (for docs linting).
-	mountPath := fmt.Sprintf("/%s", appDir)
+	mountPath := fmt.Sprintf("/%s", pythonAppDir)
 
 	base := ctx.Client().Container().
 		From(fmt.Sprintf("python:%s-alpine", pythonVersion)).
-		WithEnvVariable("PATH", path).
+		WithEnvVariable("PATH", pythonPath).
 		WithExec([]string{"apk", "add", "-U", "--no-cache", "gcc", "musl-dev", "libffi-dev"}).
 		WithExec([]string{"pip", "install", "--user", "poetry==1.3.1", "poetry-dynamic-versioning"}).
 		WithExec([]string{"python", "-m", "venv", venv}).
 		WithEnvVariable("VIRTUAL_ENV", venv).
-		WithEnvVariable("PATH", fmt.Sprintf("%s/bin:%s", venv, path)).
+		WithEnvVariable("PATH", fmt.Sprintf("%s/bin:%s", venv, pythonPath)).
 		WithEnvVariable("POETRY_VIRTUALENVS_CREATE", "false").
 		WithWorkdir(mountPath)
 
@@ -44,7 +43,7 @@ func (s SDKTargets) Python(ctx dagger.Context) (PythonTargets, error) {
 	// 	when able: https://github.com/python-poetry/poetry/issues/1301
 	reqFile := fmt.Sprintf("%s/requirements.txt", mountPath)
 	requirements := base.
-		WithMountedDirectory(mountPath, sdkSrcDir).
+		WithMountedDirectory(mountPath, t.sdkSrcDir(ctx)).
 		WithExec([]string{
 			"poetry", "export",
 			"--with", "test,lint,dev",
@@ -57,19 +56,13 @@ func (s SDKTargets) Python(ctx dagger.Context) (PythonTargets, error) {
 		WithRootfs(base.Rootfs().WithFile(reqFile, requirements)).
 		WithExec([]string{"pip", "install", "-r", "requirements.txt"})
 
-	deps = deps.
-		WithRootfs(base.Rootfs().WithDirectory(mountPath, sdkSrcDir)).
+	return deps.
+		WithRootfs(base.Rootfs().WithDirectory(mountPath, t.sdkSrcDir(ctx))).
 		WithExec([]string{"poetry", "install", "--without", "docs"})
-
-	return PythonTargets{
-		SDKSrcDir:  sdkSrcDir,
-		RepoSrcDir: s.SrcDir,
-		Base:       deps,
-	}, nil
 }
 
 // Lint the Dagger Python SDK
-func (p PythonTargets) Lint(ctx dagger.Context, foo string) (string, error) {
+func (t PythonTargets) PythonLint(ctx dagger.Context) (string, error) {
 	// TODO: would be cool to write this in python... need support for mixed
 	// languages in single project (or project nesting type thing)
 
@@ -81,7 +74,7 @@ func (p PythonTargets) Lint(ctx dagger.Context, foo string) (string, error) {
 	var poeLintOut string
 	eg.Go(func() error {
 		var err error
-		poeLintOut, err = p.Base.
+		poeLintOut, err = t.baseImage(ctx).
 			WithExec([]string{"poe", "lint"}).
 			Stdout(gctx)
 		return err
@@ -91,9 +84,9 @@ func (p PythonTargets) Lint(ctx dagger.Context, foo string) (string, error) {
 	eg.Go(func() error {
 		path := "docs/current/sdk/python/snippets"
 		snippets := c.Directory().
-			WithDirectory("/", p.RepoSrcDir.Directory(path))
+			WithDirectory("/", t.srcDir(ctx).Directory(path))
 		var err error
-		poeLintDocsOut, err = p.Base.
+		poeLintDocsOut, err = t.baseImage(ctx).
 			WithMountedDirectory(fmt.Sprintf("/%s", path), snippets).
 			WithExec([]string{"poe", "lint-docs"}).
 			Stdout(gctx)

@@ -22,6 +22,7 @@ import (
 	"github.com/dagger/dagger/internal/engine"
 	"github.com/dagger/dagger/router"
 	"github.com/dagger/dagger/secret"
+	"github.com/dagger/dagger/telemetry"
 	"github.com/docker/cli/cli/config"
 	bkclient "github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/connhelper"
@@ -38,6 +39,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type ClientSession struct {
@@ -69,6 +71,15 @@ func (s *ClientSession) Connect(ctx context.Context) (rerr error) {
 	if s.RunnerHost == "" {
 		return fmt.Errorf("must specify runner host")
 	}
+
+	internalCtx, internalCancel := context.WithCancel(context.Background())
+	defer func() {
+		if rerr != nil {
+			internalCancel()
+		}
+	}()
+	s.internalCancel = internalCancel
+	s.eg, internalCtx = errgroup.WithContext(internalCtx)
 
 	remote, err := url.Parse(s.RunnerHost)
 	if err != nil {
@@ -119,7 +130,59 @@ func (s *ClientSession) Connect(ctx context.Context) (rerr error) {
 		"oci:" + core.OCIStoreName: ociStore,
 	}))
 
-	// TODO: depending on how exports are implemented, may need some extra attachables
+	// TODO: more export attachables
+
+	// progress
+	progMultiW := progrock.MultiWriter{}
+	if s.ProgrockWriter != nil {
+		progMultiW = append(progMultiW, s.ProgrockWriter)
+	}
+	if s.JournalFile != "" {
+		fw, err := newProgrockFileWriter(s.JournalFile)
+		if err != nil {
+			return err
+		}
+
+		progMultiW = append(progMultiW, fw)
+	}
+
+	tel := telemetry.New()
+	var cloudURL string
+	if tel.Enabled() {
+		cloudURL = tel.URL()
+		progMultiW = append(progMultiW, telemetry.NewWriter(tel))
+	}
+	if s.CloudURLCallback != nil && cloudURL != "" {
+		s.CloudURLCallback(cloudURL)
+	}
+	if s.EngineNameCallback != nil && internalEngineClient.EngineName != "" {
+		s.EngineNameCallback(internalEngineClient.EngineName)
+	}
+
+	// forward updates from the session server too
+	bkSession.Allow(progRockAttachable{progMultiW})
+	recorder := progrock.NewRecorder(progMultiW)
+	defer func() {
+		// mark all groups completed
+		recorder.Complete()
+		// close the recorder so the UI exits
+		recorder.Close()
+	}()
+
+	solveCh := make(chan *bkclient.SolveStatus)
+	s.eg.Go(func() error {
+		for ev := range solveCh {
+			if err := recorder.Record(bk2progrock(ev)); err != nil {
+				return fmt.Errorf("record: %w", err)
+			}
+		}
+		return nil
+	})
+
+	// run the client session
+	s.eg.Go(func() error {
+		return bkSession.Run(internalCtx, grpchijack.Dialer(s.bkClient.ControlClient()))
+	})
 
 	var allowedEntitlements []entitlements.Entitlement
 	if internalEngineClient.PrivilegedExecEnabled {
@@ -134,20 +197,6 @@ func (s *ClientSession) Connect(ctx context.Context) (rerr error) {
 		return fmt.Errorf("frontend opts: %w", err)
 	}
 
-	internalCtx, internalCancel := context.WithCancel(context.Background())
-	defer func() {
-		if rerr != nil {
-			internalCancel()
-		}
-	}()
-	s.internalCancel = internalCancel
-	s.eg, internalCtx = errgroup.WithContext(internalCtx)
-
-	// run the client session
-	s.eg.Go(func() error {
-		return bkSession.Run(internalCtx, grpchijack.Dialer(s.bkClient.ControlClient()))
-	})
-
 	// start the session server frontend if it's not already running
 	s.eg.Go(func() error {
 		_, err := s.bkClient.Solve(internalCtx, nil, bkclient.SolveOpt{
@@ -160,7 +209,7 @@ func (s *ClientSession) Connect(ctx context.Context) (rerr error) {
 			// TODO:
 			// CacheExports:
 			// CacheImports:
-		}, nil) // TODO: progress
+		}, solveCh)
 		return err
 	})
 
@@ -368,4 +417,34 @@ func (AnyDirTarget) DiffCopy(stream filesync.FileSend_DiffCopyServer) error {
 			}
 		}(),
 	})
+}
+
+type progRockAttachable struct {
+	writer progrock.Writer
+}
+
+func (a progRockAttachable) Register(srv *grpc.Server) {
+	progrock.RegisterProgressServiceServer(srv, &RPCReceiver{w: a.writer})
+}
+
+// TODO: if this is used, upstream to progrock, just need a public Writer field
+type RPCReceiver struct {
+	w progrock.Writer
+
+	progrock.UnimplementedProgressServiceServer
+}
+
+func (recv *RPCReceiver) WriteUpdates(srv progrock.ProgressService_WriteUpdatesServer) error {
+	for {
+		update, err := srv.Recv()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return srv.SendAndClose(&emptypb.Empty{})
+			}
+			return err
+		}
+		if err := recv.w.WriteStatus(update); err != nil {
+			return err
+		}
+	}
 }

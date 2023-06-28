@@ -129,14 +129,14 @@ var doCmd = &cobra.Command{
 }
 
 // nolint:gocyclo
-func addCmd(ctx context.Context, cmdStack []*cobra.Command, projCmd dagger.ProjectCommand, c *dagger.Client, r *engine.ClientSession) ([]*cobra.Command, error) {
+func addCmd(ctx context.Context, cmdStack []*cobra.Command, projCmd dagger.EnvironmentCommand, c *dagger.Client, r *engine.ClientSession) ([]*cobra.Command, error) {
 	// TODO: this shouldn't be needed, there is a bug in our codegen for lists of objects. It should
 	// internally be doing this so it's not needed explicitly
 	projCmdID, err := projCmd.ID(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cmd id: %w", err)
 	}
-	projCmd = *c.ProjectCommand(dagger.ProjectCommandOpts{ID: projCmdID})
+	projCmd = *c.EnvironmentCommand(dagger.EnvironmentCommandOpts{ID: projCmdID})
 
 	projCmdName, err := projCmd.Name(ctx)
 	if err != nil {
@@ -157,10 +157,13 @@ func addCmd(ctx context.Context, cmdStack []*cobra.Command, projCmd dagger.Proje
 		return nil, fmt.Errorf("failed to get cmd flags: %w", err)
 	}
 
+	/* TODO:
 	projSubcommands, err := projCmd.Subcommands(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cmd subcommands: %w", err)
 	}
+	*/
+	var projSubcommands []dagger.EnvironmentCommand
 	isLeafCmd := len(projSubcommands) == 0
 
 	var parentCmd *cobra.Command
@@ -185,6 +188,13 @@ func addCmd(ctx context.Context, cmdStack []*cobra.Command, projCmd dagger.Proje
 			varDefinitions := ast.VariableDefinitionList{}
 			topSelection := &ast.Field{}
 			curSelection := topSelection
+
+			/* TODO:
+			curSelection.Name = "extensions"
+			newSelection := &ast.Field{}
+			curSelection.SelectionSet = ast.SelectionSet{newSelection}
+			curSelection = newSelection
+			*/
 			for i, cmd := range cmdStack {
 				cmdName := getSubcommandName(cmd)
 				curSelection.Name = strcase.ToLowerCamel(cmdName)

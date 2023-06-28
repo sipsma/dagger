@@ -43,21 +43,23 @@ func New(sessionToken string, recorder *progrock.Recorder) *Router {
 	return r
 }
 
-func (r *Router) Add(schema ExecutableSchema) error {
+func (r *Router) Add(schemas ...ExecutableSchema) error {
 	r.l.Lock()
 	defer r.l.Unlock()
 
 	// Copy the current schemas and append new schemas
-	r.add(schema)
-	newSchemas := []ExecutableSchema{}
-	for _, s := range r.schemas {
-		newSchemas = append(newSchemas, s)
+	for _, schema := range schemas {
+		r.add(schema)
 	}
-	sort.Slice(newSchemas, func(i, j int) bool {
-		return newSchemas[i].Name() < newSchemas[j].Name()
+	allSchemas := []ExecutableSchema{}
+	for _, s := range r.schemas {
+		allSchemas = append(allSchemas, s)
+	}
+	sort.Slice(allSchemas, func(i, j int) bool {
+		return allSchemas[i].Name() < allSchemas[j].Name()
 	})
 
-	merged, err := MergeExecutableSchemas("", newSchemas...)
+	merged, err := MergeExecutableSchemas("", allSchemas...)
 	if err != nil {
 		return err
 	}

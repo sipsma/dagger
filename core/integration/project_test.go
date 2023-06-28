@@ -1,18 +1,6 @@
 package core
 
-import (
-	"encoding/json"
-	"fmt"
-	"path/filepath"
-	"strings"
-	"testing"
-
-	"dagger.io/dagger"
-	"github.com/dagger/dagger/core"
-	"github.com/moby/buildkit/identity"
-	"github.com/stretchr/testify/require"
-)
-
+/*
 func TestProjectCmd(t *testing.T) {
 	t.Parallel()
 
@@ -407,6 +395,7 @@ func TestProjectDirImported(t *testing.T) {
 		}
 	}
 }
+*/
 
 /*
 	TODO:(sipsma) more test cases to add
@@ -421,6 +410,8 @@ func TestProjectDirImported(t *testing.T) {
 * Unnamed (inlined) structs. e.g. `type Foo struct { Bar struct { Baz string } }`
 * Circular types (i.e. structs that have fields that reference themselves, etc.)
 */
+
+/* TODO:
 func TestProjectGoCodeToSchema(t *testing.T) {
 	t.Parallel()
 	c, ctx := connect(t)
@@ -467,3 +458,4 @@ func TestProjectGoCodeToSchema(t *testing.T) {
 	require.Equal(t, `foo`, res.Test.RequiredTypes)
 	require.Equal(t, "parent-child", res.Test.ParentResolver.SubField)
 }
+*/

@@ -57,7 +57,7 @@ var projectCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to get project: %w", err)
 		}
-		var cfg *core.ProjectConfig
+		var cfg *core.EnvironmentConfig
 		switch {
 		case proj.local != nil:
 			cfg, err = proj.local.config()
@@ -109,12 +109,12 @@ var projectInitCmd = &cobra.Command{
 		if _, err := os.Stat(proj.local.path); err == nil {
 			return fmt.Errorf("project init config path already exists: %s", proj.local.path)
 		}
-		switch core.ProjectSDK(sdk) {
-		case core.ProjectSDKGo, core.ProjectSDKPython:
+		switch core.EnvironmentSDK(sdk) {
+		case core.EnvironmentSDKGo, core.EnvironmentSDKPython:
 		default:
 			return fmt.Errorf("unsupported project SDK: %s", sdk)
 		}
-		cfg := &core.ProjectConfig{
+		cfg := &core.EnvironmentConfig{
 			Name: projectName,
 			SDK:  sdk,
 			Root: projectRoot,
@@ -198,7 +198,7 @@ type projectFlagConfig struct {
 	git   *gitProject
 }
 
-func (p projectFlagConfig) load(ctx context.Context, c *dagger.Client) (*dagger.Project, error) {
+func (p projectFlagConfig) load(ctx context.Context, c *dagger.Client) (*dagger.Environment, error) {
 	switch {
 	case p.local != nil:
 		return p.local.load(c)
@@ -213,19 +213,19 @@ type localProject struct {
 	path string
 }
 
-func (p localProject) config() (*core.ProjectConfig, error) {
+func (p localProject) config() (*core.EnvironmentConfig, error) {
 	configBytes, err := os.ReadFile(p.path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read local config file: %w", err)
 	}
-	var cfg core.ProjectConfig
+	var cfg core.EnvironmentConfig
 	if err := json.Unmarshal(configBytes, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse local config file: %w", err)
 	}
 	return &cfg, nil
 }
 
-func (p localProject) load(c *dagger.Client) (*dagger.Project, error) {
+func (p localProject) load(c *dagger.Client) (*dagger.Environment, error) {
 	rootDir, err := p.rootDir()
 	if err != nil {
 		return nil, err
@@ -237,7 +237,7 @@ func (p localProject) load(c *dagger.Client) (*dagger.Project, error) {
 	if strings.HasPrefix(subdirRelPath, "..") {
 		return nil, fmt.Errorf("project config path %q is not under project root %q", p.path, rootDir)
 	}
-	return c.Project().Load(c.Host().Directory(rootDir), subdirRelPath), nil
+	return c.Environment().Load(c.Host().Directory(rootDir), subdirRelPath), nil
 }
 
 func (p localProject) rootDir() (string, error) {
@@ -254,19 +254,19 @@ type gitProject struct {
 	ref     string
 }
 
-func (p gitProject) config(ctx context.Context, c *dagger.Client) (*core.ProjectConfig, error) {
+func (p gitProject) config(ctx context.Context, c *dagger.Client) (*core.EnvironmentConfig, error) {
 	configStr, err := c.Git(p.repo).Branch(p.ref).Tree().File(p.subpath).Contents(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read git config file: %w", err)
 	}
-	var cfg core.ProjectConfig
+	var cfg core.EnvironmentConfig
 	if err := json.Unmarshal([]byte(configStr), &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse git config file: %w", err)
 	}
 	return &cfg, nil
 }
 
-func (p gitProject) load(ctx context.Context, c *dagger.Client) (*dagger.Project, error) {
+func (p gitProject) load(ctx context.Context, c *dagger.Client) (*dagger.Environment, error) {
 	cfg, err := p.config(ctx, c)
 	if err != nil {
 		return nil, err
@@ -279,5 +279,5 @@ func (p gitProject) load(ctx context.Context, c *dagger.Client) (*dagger.Project
 	if strings.HasPrefix(subdirRelPath, "..") {
 		return nil, fmt.Errorf("project config path %q is not under project root %q", p.subpath, rootPath)
 	}
-	return c.Project().Load(c.Git(p.repo).Branch(p.ref).Tree().Directory(rootPath), subdirRelPath), nil
+	return c.Environment().Load(c.Git(p.repo).Branch(p.ref).Tree().Directory(rootPath), subdirRelPath), nil
 }

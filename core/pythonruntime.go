@@ -8,7 +8,7 @@ import (
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-func (p *Project) pythonRuntime(ctx context.Context, gw *GatewayClient, progSock *Socket, pipeline pipeline.Path, sessionID string) (*Container, error) {
+func (p *Environment) pythonRuntime(ctx context.Context, gw *GatewayClient, progSock *Socket, pipeline pipeline.Path, sessionID string) (*Container, error) {
 	ctr, err := NewContainer("", pipeline, p.Platform)
 	if err != nil {
 		return nil, err

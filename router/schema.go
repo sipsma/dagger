@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"reflect"
 	"runtime/debug"
 	"strings"
@@ -190,11 +191,18 @@ func ToResolver[P any, A any, R any](f func(*Context, P, A) (R, error)) graphql.
 			ClientSessionID: sessionID,
 		}
 
+		// TODO:
+		fmt.Fprintf(os.Stderr, "Resolving %+v\nArgs: %s\n",
+			p.Info.Path.AsArray(),
+			argBytes,
+		)
 		res, err := f(&ctx, parent, args)
 		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n\n", err)
 			vtx.Done(err)
 			return nil, err
 		}
+		fmt.Fprintf(os.Stderr, "Result: %+v\n\n", res)
 
 		if edible, ok := any(res).(Digestible); ok {
 			dg, err := edible.Digest()

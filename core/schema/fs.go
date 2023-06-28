@@ -1,6 +1,8 @@
 package schema
 
-import _ "embed"
+import (
+	_ "embed"
+)
 
 //go:embed query.graphqls
 var Query string
@@ -35,5 +37,5 @@ var Platform string
 //go:embed socket.graphqls
 var Socket string
 
-//go:embed project.graphqls
-var Project string
+//go:embed environment.graphqls
+var Environment string

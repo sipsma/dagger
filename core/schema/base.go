@@ -22,7 +22,7 @@ type InitializeArgs struct {
 	SessionManager *session.Manager
 }
 
-func New(params InitializeArgs) (router.ExecutableSchema, error) {
+func New(params InitializeArgs) []router.ExecutableSchema {
 	base := &baseSchema{
 		router:         params.Router,
 		gw:             params.Gateway,
@@ -33,7 +33,7 @@ func New(params InitializeArgs) (router.ExecutableSchema, error) {
 		sessionManager: params.SessionManager,
 	}
 	host := core.NewHost()
-	return router.MergeExecutableSchemas("core",
+	return []router.ExecutableSchema{
 		&querySchema{base},
 		&directorySchema{base, host},
 		&fileSchema{base, host},
@@ -42,11 +42,11 @@ func New(params InitializeArgs) (router.ExecutableSchema, error) {
 		&cacheSchema{base},
 		&secretSchema{base},
 		&hostSchema{base, host},
-		&projectSchema{base},
+		&environmentSchema{base},
 		&httpSchema{base},
 		&platformSchema{base},
 		&socketSchema{base, host},
-	)
+	}
 }
 
 type baseSchema struct {
