@@ -48,6 +48,7 @@ DAGGER_SESSION_PORT and DAGGER_SESSION_TOKEN will be convieniently injected auto
 }
 
 var waitDelay time.Duration
+var runFocus bool
 
 func init() {
 	// don't require -- to disambiguate subcommand flags
@@ -59,6 +60,8 @@ func init() {
 		10*time.Second,
 		"max duration to wait between SIGTERM and SIGKILL on interrupt",
 	)
+
+	runCmd.Flags().BoolVar(&runFocus, "focus", false, "Only show output for focused commands.")
 }
 
 func Run(cmd *cobra.Command, args []string) {
@@ -86,6 +89,7 @@ func run(ctx context.Context, args []string) error {
 
 	sessionToken := u.String()
 
+	focus = runFocus
 	return withEngineAndTUI(ctx, client.SessionParams{
 		SecretToken: sessionToken,
 	}, func(ctx context.Context, sess *client.Session) error {

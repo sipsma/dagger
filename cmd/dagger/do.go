@@ -22,6 +22,7 @@ import (
 
 var (
 	outputPath string
+	doFocus    bool
 )
 
 const (
@@ -30,7 +31,7 @@ const (
 
 func init() {
 	doCmd.PersistentFlags().StringVarP(&outputPath, "output", "o", "", "If the command returns a file or directory, it will be written to this path. If --output is not specified, the file or directory will be written to the environment's root directory when using a environment loaded from a local dir.")
-	doCmd.PersistentFlags().BoolVar(&focus, "focus", true, "Only show output for focused commands.")
+	doCmd.PersistentFlags().BoolVar(&doFocus, "focus", true, "Only show output for focused commands.")
 }
 
 // environment flags (--environment) for do command are setup in env.go
@@ -50,6 +51,7 @@ var doCmd = &cobra.Command{
 		}
 		dynamicCmdArgs := flags.Args()
 
+		focus = doFocus
 		return withEngineAndTUI(cmd.Context(), client.SessionParams{}, func(ctx context.Context, sess *client.Session) error {
 			rec := progrock.RecorderFromContext(ctx)
 			vtx := rec.Vertex("do", strings.Join(os.Args, " "))
