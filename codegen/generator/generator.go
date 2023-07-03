@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/dagger/dagger/codegen/introspection"
-	"github.com/dagger/dagger/router"
+	"github.com/dagger/dagger/engine"
 )
 
 var ErrUnknownSDKLang = errors.New("unknown sdk language")
@@ -40,9 +40,9 @@ func SetSchemaParents(schema *introspection.Schema) {
 }
 
 // Introspect get the Dagger Schema with the router r.
-func Introspect(ctx context.Context, r *router.Router) (*introspection.Schema, error) {
+func Introspect(ctx context.Context, r engine.GraphQLClient) (*introspection.Schema, error) {
 	var response introspection.Response
-	_, err := r.Do(ctx, introspection.Query, "", nil, &response)
+	err := r.Do(ctx, introspection.Query, "", nil, &response)
 	if err != nil {
 		return nil, fmt.Errorf("error querying the API: %w", err)
 	}
@@ -50,7 +50,7 @@ func Introspect(ctx context.Context, r *router.Router) (*introspection.Schema, e
 }
 
 // IntrospectAndGenerate generate the Dagger API with the router r.
-func IntrospectAndGenerate(ctx context.Context, r *router.Router, generator Generator) ([]byte, error) {
+func IntrospectAndGenerate(ctx context.Context, r engine.GraphQLClient, generator Generator) ([]byte, error) {
 	schema, err := Introspect(ctx, r)
 	if err != nil {
 		return nil, err

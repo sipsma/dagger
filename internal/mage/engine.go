@@ -316,6 +316,36 @@ func (t Engine) Dev(ctx context.Context) error {
 		"-e", "_EXPERIMENTAL_DAGGER_CLOUD_TOKEN",
 		"-e", "_EXPERIMENTAL_DAGGER_CLOUD_URL",
 		"-v", volumeName + ":" + util.EngineDefaultStateDir,
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		"-v", "/home/sipsma/.docker:/root/.docker",
 		"--name", util.EngineContainerName,
 		"--privileged",
 	}

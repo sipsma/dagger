@@ -17,8 +17,7 @@ import (
 	nodegenerator "github.com/dagger/dagger/codegen/generator/nodejs"
 	"github.com/dagger/dagger/codegen/introspection"
 	"github.com/dagger/dagger/engine"
-	internalengine "github.com/dagger/dagger/internal/engine"
-	"github.com/dagger/dagger/router"
+	"github.com/dagger/dagger/engine/client"
 	"github.com/dagger/dagger/tracing"
 )
 
@@ -41,57 +40,67 @@ func init() {
 func ClientGen(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
-	engineConf := engine.Config{
-		Workdir:    workdir,
-		RunnerHost: internalengine.RunnerHost(),
-	}
-	return engine.Start(ctx, engineConf, func(ctx context.Context, r *router.Router) error {
-		lang, err := getLang(cmd)
-		if err != nil {
-			return err
+	// TODO: update for workdir not being a thing anymore
+	/*
+		engineConf := engine.Config{
+			Workdir:    workdir,
+			RunnerHost: internalengine.RunnerHost(),
 		}
+	*/
 
-		pkg, err := getPackage(cmd)
-		if err != nil {
-			return err
-		}
-
-		schema, err := generator.Introspect(ctx, r)
-		if err != nil {
-			return err
-		}
-
-		generated, err := generate(ctx, schema, generator.Config{
-			Package: pkg,
-			Lang:    generator.SDKLang(lang),
-		})
-		if err != nil {
-			return err
-		}
-
-		output, err := cmd.Flags().GetString("output")
-		if err != nil {
-			return err
-		}
-
-		if output == "" || output == "-" {
-			fmt.Fprint(os.Stdout, string(generated))
-		} else {
-			if err := os.MkdirAll(filepath.Dir(output), 0o700); err != nil {
-				return err
-			}
-			if err := os.WriteFile(output, generated, 0o600); err != nil {
-				return err
-			}
-
-			gitAttributes := fmt.Sprintf("/%s linguist-generated=true", filepath.Base(output))
-			if err := os.WriteFile(path.Join(filepath.Dir(output), ".gitattributes"), []byte(gitAttributes), 0o600); err != nil {
-				return err
-			}
-		}
-
-		return nil
+	sess, err := client.Connect(ctx, client.SessionParams{
+		RunnerHost: engine.RunnerHost(),
 	})
+	if err != nil {
+		return err
+	}
+	defer sess.Close()
+
+	lang, err := getLang(cmd)
+	if err != nil {
+		return err
+	}
+
+	pkg, err := getPackage(cmd)
+	if err != nil {
+		return err
+	}
+
+	schema, err := generator.Introspect(ctx, sess)
+	if err != nil {
+		return err
+	}
+
+	generated, err := generate(ctx, schema, generator.Config{
+		Package: pkg,
+		Lang:    generator.SDKLang(lang),
+	})
+	if err != nil {
+		return err
+	}
+
+	output, err := cmd.Flags().GetString("output")
+	if err != nil {
+		return err
+	}
+
+	if output == "" || output == "-" {
+		fmt.Fprint(os.Stdout, string(generated))
+	} else {
+		if err := os.MkdirAll(filepath.Dir(output), 0o700); err != nil {
+			return err
+		}
+		if err := os.WriteFile(output, generated, 0o600); err != nil {
+			return err
+		}
+
+		gitAttributes := fmt.Sprintf("/%s linguist-generated=true", filepath.Base(output))
+		if err := os.WriteFile(path.Join(filepath.Dir(output), ".gitattributes"), []byte(gitAttributes), 0o600); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func getLang(cmd *cobra.Command) (string, error) {
