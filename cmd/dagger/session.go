@@ -15,8 +15,8 @@ import (
 	"github.com/dagger/dagger/core/pipeline"
 	"github.com/dagger/dagger/engine"
 	internalengine "github.com/dagger/dagger/internal/engine"
-	"github.com/dagger/dagger/router"
 	"github.com/google/uuid"
+	"github.com/moby/buildkit/identity"
 	"github.com/spf13/cobra"
 	"github.com/vito/progrock/console"
 )
@@ -41,6 +41,8 @@ type connectParams struct {
 }
 
 func EngineSession(cmd *cobra.Command, args []string) error {
+	ctx := context.Background()
+
 	sessionToken, err := uuid.NewRandom()
 	if err != nil {
 		return err
@@ -51,15 +53,6 @@ func EngineSession(cmd *cobra.Command, args []string) error {
 	workdir, err = engine.NormalizeWorkdir(workdir)
 	if err != nil {
 		return err
-	}
-
-	startOpts := engine.Config{
-		Workdir:        workdir,
-		RunnerHost:     internalengine.RunnerHost(),
-		ProgrockWriter: console.NewWriter(os.Stderr),
-		SessionToken:   sessionToken.String(),
-		JournalFile:    os.Getenv("_EXPERIMENTAL_DAGGER_JOURNAL"),
-		UserAgent:      labels.AppendCILabel().AppendAnonymousGitLabels(workdir).String(),
 	}
 
 	signalCh := make(chan os.Signal, 1)
@@ -84,31 +77,46 @@ func EngineSession(cmd *cobra.Command, args []string) error {
 
 	port := l.Addr().(*net.TCPAddr).Port
 
-	return engine.Start(context.Background(), startOpts, func(ctx context.Context, r *router.Router) error {
-		srv := http.Server{
-			Handler:           r,
-			ReadHeaderTimeout: 30 * time.Second,
-		}
+	sess := &engine.ClientSession{
+		// TODO: update for workdir not being a thing anymore
+		// Workdir:        workdir,
+		ServerSessionID: identity.NewID(),
+		SecretToken:     sessionToken.String(),
+		RunnerHost:      internalengine.RunnerHost(),
+		UserAgent:       labels.AppendCILabel().AppendAnonymousGitLabels(workdir).String(),
+		ProgrockWriter:  console.NewWriter(os.Stderr),
+		JournalFile:     os.Getenv("_EXPERIMENTAL_DAGGER_JOURNAL"),
+	}
 
-		paramBytes, err := json.Marshal(connectParams{
-			Port:         port,
-			SessionToken: sessionToken.String(),
-		})
-		if err != nil {
-			return err
-		}
-		paramBytes = append(paramBytes, '\n')
-		go func() {
-			if _, err := os.Stdout.Write(paramBytes); err != nil {
-				panic(err)
-			}
-		}()
+	err = sess.Connect(ctx)
+	if err != nil {
+		return err
+	}
+	defer sess.Close()
 
-		err = srv.Serve(l)
-		// if error is "use of closed network connection", it's expected
-		if err != nil && !errors.Is(err, net.ErrClosed) {
-			return err
-		}
-		return nil
+	srv := http.Server{
+		Handler:           sess,
+		ReadHeaderTimeout: 30 * time.Second,
+	}
+
+	paramBytes, err := json.Marshal(connectParams{
+		Port:         port,
+		SessionToken: sessionToken.String(),
 	})
+	if err != nil {
+		return err
+	}
+	paramBytes = append(paramBytes, '\n')
+	go func() {
+		if _, err := os.Stdout.Write(paramBytes); err != nil {
+			panic(err)
+		}
+	}()
+
+	err = srv.Serve(l)
+	// if error is "use of closed network connection", it's expected
+	if err != nil && !errors.Is(err, net.ErrClosed) {
+		return err
+	}
+	return nil
 }

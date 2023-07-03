@@ -8,7 +8,6 @@ import (
 	"github.com/dagger/dagger/codegen/introspection"
 	"github.com/dagger/dagger/engine"
 	internalengine "github.com/dagger/dagger/internal/engine"
-	"github.com/dagger/dagger/router"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,7 +19,7 @@ func init() {
 	engineConf := engine.Config{
 		RunnerHost: internalengine.RunnerHost(),
 	}
-	err := engine.Start(ctx, engineConf, func(ctx context.Context, r *router.Router) error {
+	err := engine.Start(ctx, engineConf, func(ctx context.Context, r engine.GraphQLClient) error {
 		var err error
 		currentSchema, err = generator.Introspect(ctx, r)
 		if err != nil {

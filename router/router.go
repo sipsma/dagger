@@ -7,13 +7,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
-	"strings"
 	"sync"
 
 	"github.com/dagger/dagger/internal/engine"
 	"github.com/dagger/dagger/router/internal/handler"
 	"github.com/dagger/graphql"
 	"github.com/dagger/graphql/gqlerrors"
+	"github.com/moby/buildkit/util/bklog"
 	"github.com/vito/progrock"
 )
 
@@ -41,41 +41,6 @@ func New(sessionToken string, recorder *progrock.Recorder) *Router {
 	}
 
 	return r
-}
-
-// Do executes a query directly in the server
-func (r *Router) Do(ctx context.Context, query string, opName string, variables map[string]any, data any) (*graphql.Result, error) {
-	r.l.RLock()
-	schema := *r.s
-	r.l.RUnlock()
-
-	params := graphql.Params{
-		Context:        ctx,
-		Schema:         schema,
-		RequestString:  query,
-		VariableValues: variables,
-		OperationName:  opName,
-	}
-	result := graphql.Do(params)
-	if result.HasErrors() {
-		messages := []string{}
-		for _, e := range result.Errors {
-			messages = append(messages, e.Message)
-		}
-		return nil, errors.New(strings.Join(messages, "\n"))
-	}
-
-	if data != nil {
-		marshalled, err := json.Marshal(result.Data)
-		if err != nil {
-			return nil, err
-		}
-		if err := json.Unmarshal(marshalled, data); err != nil {
-			return nil, err
-		}
-	}
-
-	return result, nil
 }
 
 func (r *Router) Add(schema ExecutableSchema) error {
@@ -166,6 +131,8 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	defer func() {
 		if v := recover(); v != nil {
+			bklog.G(context.TODO()).Errorf("Router ServerHTTP: %+v", v)
+
 			msg := "Internal Server Error"
 			code := http.StatusInternalServerError
 			switch v := v.(type) {
@@ -192,13 +159,38 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}()
 
 	req = req.WithContext(progrock.RecorderToContext(req.Context(), r.recorder))
+	req = req.WithContext(ContextWithSessionID(req.Context(), req.Header.Get(SessionIDHeader)))
 
 	mux := http.NewServeMux()
-	mux.Handle("/query", h)
+	// TODO:
+	// mux.Handle("/query", h)
+	mux.Handle("/query", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		for k, v := range rec.Header() {
+			w.Header()[k] = v
+		}
+		w.WriteHeader(rec.Code)
+		w.Write(rec.Body.Bytes())
+		bklog.G(req.Context()).Debugf("Router: %s %s %d %s", req.Method, req.URL.Path, rec.Code, rec.Body.String())
+	}))
 	mux.ServeHTTP(w, req)
 }
 
-func EngineConn(r *Router) DirectConn {
+const SessionIDHeader = "X-Dagger-Session-ID"
+
+type contextSessionIDKey struct{}
+
+func ContextWithSessionID(ctx context.Context, sessionID string) context.Context {
+	return context.WithValue(ctx, contextSessionIDKey{}, sessionID)
+}
+
+func SessionIDFromContext(ctx context.Context) string {
+	sessionID, _ := ctx.Value(contextSessionIDKey{}).(string)
+	return sessionID
+}
+
+func EngineConn(r http.Handler) DirectConn {
 	return func(req *http.Request) (*http.Response, error) {
 		resp := httptest.NewRecorder()
 		r.ServeHTTP(resp, req)

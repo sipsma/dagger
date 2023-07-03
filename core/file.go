@@ -4,15 +4,12 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"path"
-	"path/filepath"
 	"time"
 
 	"github.com/dagger/dagger/core/pipeline"
 	"github.com/dagger/dagger/core/reffs"
 	"github.com/dagger/dagger/router"
-	bkclient "github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb"
 	bkgw "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/solver/pb"
@@ -114,15 +111,15 @@ func (file *File) State() (llb.State, error) {
 }
 
 // Contents handles file content retrieval
-func (file *File) Contents(ctx context.Context, gw bkgw.Client) ([]byte, error) {
-	return WithServices(ctx, gw, file.Services, func() ([]byte, error) {
-		ref, err := gwRef(ctx, gw, file.LLB)
+func (file *File) Contents(ctx context.Context, gw *GatewayClient, sessionID string) ([]byte, error) {
+	return WithServices(ctx, gw, file.Services, sessionID, func() ([]byte, error) {
+		ref, err := gwRef(ctx, gw, file.LLB, sessionID)
 		if err != nil {
 			return nil, err
 		}
 
 		// Stat the file and preallocate file contents buffer:
-		st, err := file.Stat(ctx, gw)
+		st, err := file.Stat(ctx, gw, sessionID)
 		if err != nil {
 			return nil, err
 		}
@@ -169,9 +166,9 @@ func (file *File) Secret(ctx context.Context) (*Secret, error) {
 	return NewSecretFromFile(id), nil
 }
 
-func (file *File) Stat(ctx context.Context, gw bkgw.Client) (*fstypes.Stat, error) {
-	return WithServices(ctx, gw, file.Services, func() (*fstypes.Stat, error) {
-		ref, err := gwRef(ctx, gw, file.LLB)
+func (file *File) Stat(ctx context.Context, gw *GatewayClient, sessionID string) (*fstypes.Stat, error) {
+	return WithServices(ctx, gw, file.Services, sessionID, func() (*fstypes.Stat, error) {
+		ref, err := gwRef(ctx, gw, file.LLB, sessionID)
 		if err != nil {
 			return nil, err
 		}
@@ -204,9 +201,9 @@ func (file *File) WithTimestamps(ctx context.Context, unix int) (*File, error) {
 	return file, nil
 }
 
-func (file *File) Open(ctx context.Context, host *Host, gw bkgw.Client) (io.ReadCloser, error) {
-	return WithServices(ctx, gw, file.Services, func() (io.ReadCloser, error) {
-		fs, err := reffs.OpenDef(ctx, gw, file.LLB)
+func (file *File) Open(ctx context.Context, host *Host, gw *GatewayClient, sessionID string) (io.ReadCloser, error) {
+	return WithServices(ctx, gw, file.Services, sessionID, func() (io.ReadCloser, error) {
+		fs, err := reffs.OpenDef[*ref](ctx, gw, file.LLB, sessionID)
 		if err != nil {
 			return nil, err
 		}
@@ -220,57 +217,57 @@ func (file *File) Export(
 	host *Host,
 	dest string,
 	allowParentDirPath bool,
-	bkClient *bkclient.Client,
-	solveOpts bkclient.SolveOpt,
-	solveCh chan<- *bkclient.SolveStatus,
 ) error {
-	dest, err := host.NormalizeDest(dest)
-	if err != nil {
-		return err
-	}
-
-	if stat, err := os.Stat(dest); err == nil {
-		if stat.IsDir() {
-			if !allowParentDirPath {
-				return fmt.Errorf("destination %q is a directory; must be a file path unless allowParentDirPath is set true", dest)
-			}
-			dest = filepath.Join(dest, filepath.Base(file.File))
+	panic("reimplment file export")
+	/*
+		dest, err := host.NormalizeDest(dest)
+		if err != nil {
+			return err
 		}
-	}
 
-	destFilename := filepath.Base(dest)
-	destDir := filepath.Dir(dest)
-
-	return host.Export(ctx, bkclient.ExportEntry{
-		Type:      bkclient.ExporterLocal,
-		OutputDir: destDir,
-	}, bkClient, solveOpts, solveCh, func(ctx context.Context, gw bkgw.Client) (*bkgw.Result, error) {
-		return WithServices(ctx, gw, file.Services, func() (*bkgw.Result, error) {
-			src, err := file.State()
-			if err != nil {
-				return nil, err
+		if stat, err := os.Stat(dest); err == nil {
+			if stat.IsDir() {
+				if !allowParentDirPath {
+					return fmt.Errorf("destination %q is a directory; must be a file path unless allowParentDirPath is set true", dest)
+				}
+				dest = filepath.Join(dest, filepath.Base(file.File))
 			}
+		}
 
-			src = llb.Scratch().File(llb.Copy(src, file.File, destFilename))
+		destFilename := filepath.Base(dest)
+		destDir := filepath.Dir(dest)
 
-			def, err := src.Marshal(ctx, llb.Platform(file.Platform))
-			if err != nil {
-				return nil, err
-			}
+		return host.Export(ctx, bkclient.ExportEntry{
+			Type:      bkclient.ExporterLocal,
+			OutputDir: destDir,
+		}, bkClient, solveOpts, solveCh, func(ctx context.Context, gw *GatewayClient) (*Result, error) {
+			return WithServices(ctx, gw, file.Services, func() (*Result, error) {
+				src, err := file.State()
+				if err != nil {
+					return nil, err
+				}
 
-			return gw.Solve(ctx, bkgw.SolveRequest{
-				Evaluate:   true,
-				Definition: def.ToPB(),
+				src = llb.Scratch().File(llb.Copy(src, file.File, destFilename))
+
+				def, err := src.Marshal(ctx, llb.Platform(file.Platform))
+				if err != nil {
+					return nil, err
+				}
+
+				return gw.Solve(ctx, bkgw.SolveRequest{
+					Evaluate:   true,
+					Definition: def.ToPB(),
+				})
 			})
 		})
-	})
+	*/
 }
 
 // gwRef returns the buildkit reference from the solved def.
-func gwRef(ctx context.Context, gw bkgw.Client, def *pb.Definition) (bkgw.Reference, error) {
+func gwRef(ctx context.Context, gw *GatewayClient, def *pb.Definition, sessionID string) (bkgw.Reference, error) {
 	res, err := gw.Solve(ctx, bkgw.SolveRequest{
 		Definition: def,
-	})
+	}, sessionID)
 	if err != nil {
 		return nil, err
 	}

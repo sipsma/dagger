@@ -2,24 +2,32 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"io"
-	"math"
+	"path"
+	"strconv"
 	"strings"
 	"sync"
-	"time"
 
-	"github.com/armon/circbuf"
 	"github.com/containerd/containerd/platforms"
+	cacheutil "github.com/moby/buildkit/cache/util"
 	"github.com/moby/buildkit/client/llb"
+	"github.com/moby/buildkit/frontend"
 	bkgw "github.com/moby/buildkit/frontend/gateway/client"
-	bkpb "github.com/moby/buildkit/frontend/gateway/pb"
-	"github.com/moby/buildkit/solver/errdefs"
+	"github.com/moby/buildkit/frontend/gateway/container"
+	"github.com/moby/buildkit/identity"
+	"github.com/moby/buildkit/session"
+	"github.com/moby/buildkit/snapshot"
+	"github.com/moby/buildkit/solver"
+	solvererror "github.com/moby/buildkit/solver/errdefs"
+	llberror "github.com/moby/buildkit/solver/llbsolver/errdefs"
 	"github.com/moby/buildkit/solver/pb"
+	solverresult "github.com/moby/buildkit/solver/result"
+	"github.com/moby/buildkit/worker"
 	"github.com/opencontainers/go-digest"
-	"github.com/pkg/errors"
 	fstypes "github.com/tonistiigi/fsutil/types"
 	"github.com/vito/progrock"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -37,12 +45,10 @@ const (
 	// MaxFileContentsSize sets the limit of the maximum file size
 	// that can be retrieved using File.Contents, currently set to 128MB:
 	MaxFileContentsSize = 128 << 20
-
-	// A magic env var that's interpreted by the shim, telling it to just output
-	// the stdout/stderr contents rather than actually execute anything.
-	DebugFailedExecEnv = "_DAGGER_SHIM_DEBUG_FAILED_EXEC"
 )
 
+// TODO: rename this to something else now? Gateway is confusing name, not accurate anymore too
+// TODO: also, this really belongs in the engine package if possible
 // GatewayClient wraps the standard buildkit gateway client with a few extensions:
 //
 // * Errors include the output of execs when they fail.
@@ -50,55 +56,141 @@ const (
 // * Cache imports can be configured across all Solves.
 // * All Solved results can be retrieved for cache exports.
 type GatewayClient struct {
-	bkgw.Client
+	llbBridge        frontend.FrontendLLBBridge
+	worker           worker.Worker
+	sessionManager   *session.Manager
 	refs             map[*ref]struct{}
 	cacheConfigType  string
 	cacheConfigAttrs map[string]string
 	mu               sync.Mutex
 }
 
-func NewGatewayClient(baseClient bkgw.Client, cacheConfigType string, cacheConfigAttrs map[string]string) *GatewayClient {
+func NewGatewayClient(
+	baseClient frontend.FrontendLLBBridge,
+	worker worker.Worker,
+	sessionManager *session.Manager,
+	cacheConfigType string,
+	cacheConfigAttrs map[string]string,
+) *GatewayClient {
 	return &GatewayClient{
 		// Wrap the client with recordingGateway just so we can separate concerns a
 		// tiny bit.
-		Client: recordingGateway{baseClient},
-
+		llbBridge:        recordingGateway{baseClient},
+		worker:           worker,
+		sessionManager:   sessionManager,
 		cacheConfigType:  cacheConfigType,
 		cacheConfigAttrs: cacheConfigAttrs,
 		refs:             make(map[*ref]struct{}),
 	}
 }
 
-func (g *GatewayClient) Solve(ctx context.Context, req bkgw.SolveRequest) (_ *bkgw.Result, rerr error) {
-	defer wrapSolveError(&rerr, g.Client)
+type Result = solverresult.Result[*ref]
+
+func (g *GatewayClient) Solve(ctx context.Context, req frontend.SolveRequest, sessionID string) (_ *Result, rerr error) {
 	if g.cacheConfigType != "" {
 		req.CacheImports = []bkgw.CacheOptionsEntry{{
 			Type:  g.cacheConfigType,
 			Attrs: g.cacheConfigAttrs,
 		}}
 	}
-	res, err := g.Client.Solve(ctx, req)
+	llbRes, err := g.llbBridge.Solve(ctx, req, sessionID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to solve: %w", err)
+		return nil, wrapError(ctx, err, sessionID)
 	}
+	res, err := solverresult.ConvertResult(llbRes, func(rp solver.ResultProxy) (*ref, error) {
+		return newRef(rp, g, sessionID), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if res.Ref != nil {
-		r := &ref{Reference: res.Ref, gw: g}
-		g.refs[r] = struct{}{}
-		res.Ref = r
+		g.refs[res.Ref] = struct{}{}
 	}
-	for k, r := range res.Refs {
-		r := &ref{Reference: r, gw: g}
-		g.refs[r] = struct{}{}
-		res.Refs[k] = r
+	for _, rf := range res.Refs {
+		g.refs[rf] = struct{}{}
 	}
 	return res, nil
 }
 
+func (g *GatewayClient) ResolveImageConfig(ctx context.Context, ref string, opt llb.ResolveImageConfigOpt) (digest.Digest, []byte, error) {
+	return g.llbBridge.ResolveImageConfig(ctx, ref, opt)
+}
+
+func (g *GatewayClient) NewContainer(ctx context.Context, req bkgw.NewContainerRequest, sessionID string) (bkgw.Container, error) {
+	ctrReq := container.NewContainerRequest{
+		ContainerID: identity.NewID(), // TODO: give a meaningful name?
+		NetMode:     req.NetMode,
+		Hostname:    req.Hostname,
+		Mounts:      make([]container.Mount, len(req.Mounts)),
+	}
+
+	extraHosts, err := container.ParseExtraHosts(req.ExtraHosts)
+	if err != nil {
+		return nil, err
+	}
+	ctrReq.ExtraHosts = extraHosts
+
+	// get the input mounts in parallel in case they need to be evaluated, which can be expensive
+	eg, ctx := errgroup.WithContext(ctx)
+	for i, m := range req.Mounts {
+		i, m := i, m
+		eg.Go(func() error {
+			ref, ok := m.Ref.(*ref)
+			if !ok {
+				return fmt.Errorf("unexpected ref type: %T", m.Ref)
+			}
+			var workerRef *worker.WorkerRef
+			if ref != nil {
+				res, err := ref.resultProxy.Result(ctx)
+				if err != nil {
+					return err
+				}
+				var ok bool
+				workerRef, ok = res.Sys().(*worker.WorkerRef)
+				if !ok {
+					return fmt.Errorf("invalid res: %T", res.Sys())
+				}
+			}
+			ctrReq.Mounts[i] = container.Mount{
+				WorkerRef: workerRef,
+				Mount: &pb.Mount{
+					Dest:      m.Dest,
+					Selector:  m.Selector,
+					Readonly:  m.Readonly,
+					MountType: m.MountType,
+					CacheOpt:  m.CacheOpt,
+					SecretOpt: m.SecretOpt,
+					SSHOpt:    m.SSHOpt,
+				},
+			}
+			return nil
+		})
+	}
+	err = eg.Wait()
+	if err != nil {
+		return nil, err
+	}
+
+	ctr, err := container.NewContainer(
+		ctx,
+		g.worker,
+		g.sessionManager,
+		session.NewGroup(sessionID),
+		ctrReq,
+	)
+	if err != nil {
+		return nil, err
+	}
+	// TODO: cleanup containers at end of session, if that doesn't happen automatically already
+	return ctr, nil
+}
+
 // CombinedResult returns a buildkit result with all the refs solved by this client so far.
 // This is useful for constructing a result for remote caching.
-func (g *GatewayClient) CombinedResult(ctx context.Context) (*bkgw.Result, error) {
+func (g *GatewayClient) CombinedResult(ctx context.Context, sessionID string) (*Result, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
@@ -114,168 +206,203 @@ func (g *GatewayClient) CombinedResult(ctx context.Context) (*bkgw.Result, error
 	if err != nil {
 		return nil, err
 	}
-	mergedRes, err := g.Client.Solve(ctx, bkgw.SolveRequest{
+	return g.Solve(ctx, bkgw.SolveRequest{
 		Definition: llbdef.ToPB(),
-	})
-	if err != nil {
-		return nil, err
+	}, sessionID)
+}
+
+func newRef(res solver.ResultProxy, gw *GatewayClient, sessionID string) *ref {
+	return &ref{
+		resultProxy: res,
+		gw:          gw,
+		sessionID:   sessionID,
 	}
-	return mergedRes, nil
 }
 
 type ref struct {
-	bkgw.Reference
-	gw *GatewayClient
+	resultProxy solver.ResultProxy
+	gw          *GatewayClient
+	sessionID   string
 }
 
-func (r *ref) ReadFile(ctx context.Context, req bkgw.ReadRequest) (_ []byte, rerr error) {
-	defer wrapSolveError(&rerr, r.gw.Client)
-	return r.Reference.ReadFile(ctx, req)
+func (r *ref) ToState() (llb.State, error) {
+	return defToState(r.resultProxy.Definition())
 }
 
-func (r *ref) StatFile(ctx context.Context, req bkgw.StatRequest) (_ *fstypes.Stat, rerr error) {
-	defer wrapSolveError(&rerr, r.gw.Client)
-	return r.Reference.StatFile(ctx, req)
-}
-
-func (r *ref) ReadDir(ctx context.Context, req bkgw.ReadDirRequest) (_ []*fstypes.Stat, rerr error) {
-	defer wrapSolveError(&rerr, r.gw.Client)
-	return r.Reference.ReadDir(ctx, req)
-}
-
-func wrapSolveError(inputErr *error, gw bkgw.Client) {
-	if inputErr == nil || *inputErr == nil {
-		return
+func (r *ref) Evaluate(ctx context.Context) error {
+	_, err := r.Result(ctx)
+	if err != nil {
+		return err
 	}
-	returnErr := *inputErr
-
-	var se *errdefs.SolveError
-	if errors.As(returnErr, &se) {
-		// Ensure we don't get blocked trying to return an error by enforcing a timeout
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		op := se.Op
-		if op == nil || op.Op == nil {
-			return
-		}
-		execOp, ok := se.Op.Op.(*pb.Op_Exec)
-		if !ok {
-			return
-		}
-
-		// This was an exec error, we can retrieve the output still
-		// by starting a container w/ the mounts from the failed exec
-		// and having our shim output the file contents where the stdout
-		// and stderr were stored.
-		var mounts []bkgw.Mount
-		for i, mnt := range execOp.Exec.Mounts {
-			mnt := mnt
-			// don't include cache or tmpfs mounts, they shouldn't contain
-			// stdout/stderr and we especially don't want to include locked
-			// cache mounts as they contend for the cache mount with execs
-			// that actually need it.
-			if mnt.CacheOpt != nil || mnt.TmpfsOpt != nil {
-				continue
-			}
-			mounts = append(mounts, bkgw.Mount{
-				Selector:  mnt.Selector,
-				Dest:      mnt.Dest,
-				ResultID:  se.MountIDs[i],
-				Readonly:  mnt.Readonly,
-				MountType: mnt.MountType,
-				CacheOpt:  mnt.CacheOpt,
-				SecretOpt: mnt.SecretOpt,
-				SSHOpt:    mnt.SSHOpt,
-			})
-		}
-		ctr, err := gw.NewContainer(ctx, bkgw.NewContainerRequest{
-			Mounts:      mounts,
-			NetMode:     execOp.Exec.Network,
-			ExtraHosts:  execOp.Exec.Meta.ExtraHosts,
-			Platform:    op.Platform,
-			Constraints: op.Constraints,
-		})
-		if err != nil {
-			return
-		}
-		defer func() {
-			// Use the background context to release so that it still
-			// runs even if there was a timeout or other cancellation.
-			// Run in separate go routine on the offchance this unexpectedly
-			// blocks a long time (e.g. due to grpc issues).
-			go ctr.Release(context.Background())
-		}()
-
-		maxTruncMsg := fmt.Sprintf(TruncationMessage, int64(math.MaxInt64))
-		maxOutputBytes := int64(MaxExecErrorOutputBytes + len(maxTruncMsg))
-
-		// Use a circular buffer to only save the last N bytes of output, which lets
-		// us prevent enormous error messages while retaining the output most likely
-		// to be of interest.
-		// NOTE: this is technically redundant with the output truncation done by
-		// the shim itself now, but still useful as a fallback in case something
-		// goes haywire there or if the session is talking to an older engine.
-		ctrOut, err := circbuf.NewBuffer(maxOutputBytes)
-		if err != nil {
-			return
-		}
-		ctrErr, err := circbuf.NewBuffer(maxOutputBytes)
-		if err != nil {
-			return
-		}
-		proc, err := ctr.Start(ctx, bkgw.StartRequest{
-			Args: execOp.Exec.Meta.Args,
-			// the magic env var is interpreted by the shim, telling it to just output
-			// the stdout/stderr contents rather than actually execute anything.
-			Env:    append(execOp.Exec.Meta.Env, DebugFailedExecEnv+"=1"),
-			User:   execOp.Exec.Meta.User,
-			Cwd:    execOp.Exec.Meta.Cwd,
-			Stdout: &nopCloser{ctrOut},
-			Stderr: &nopCloser{ctrErr},
-		})
-		if err != nil {
-			return
-		}
-
-		err = proc.Wait()
-
-		exitCode := -1 // -1 indicates failure to get exit code
-		if err != nil {
-			var exitErr *bkpb.ExitError
-			if errors.As(err, &exitErr) {
-				exitCode = int(exitErr.ExitCode)
-			} else {
-				// This can happen for example if debugging the failed exec
-				// takes longer than the timeout in this context, but since
-				// we know the exec op failed, try to return what we have
-				// at this point with the ExecError. The exit code will be -1
-				// and stdout/stderr output may not be complete.
-				returnErr = fmt.Errorf("[%w]: %w", err, returnErr)
-			}
-		}
-
-		returnErr = &ExecError{
-			original: returnErr,
-			Cmd:      execOp.Exec.Meta.Args,
-			ExitCode: exitCode,
-			Stdout:   strings.TrimSpace(ctrOut.String()),
-			Stderr:   strings.TrimSpace(ctrErr.String()),
-		}
-	}
-	*inputErr = returnErr
-}
-
-type nopCloser struct {
-	io.Writer
-}
-
-func (n nopCloser) Close() error {
 	return nil
 }
 
+func (r *ref) ReadFile(ctx context.Context, req bkgw.ReadRequest) ([]byte, error) {
+	mnt, err := r.getMountable(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cacheReq := cacheutil.ReadRequest{
+		Filename: req.Filename,
+	}
+	if r := req.Range; r != nil {
+		cacheReq.Range = &cacheutil.FileRange{
+			Offset: r.Offset,
+			Length: r.Length,
+		}
+	}
+	return cacheutil.ReadFile(ctx, mnt, cacheReq)
+}
+
+func (r *ref) ReadDir(ctx context.Context, req bkgw.ReadDirRequest) ([]*fstypes.Stat, error) {
+	mnt, err := r.getMountable(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cacheReq := cacheutil.ReadDirRequest{
+		Path:           req.Path,
+		IncludePattern: req.IncludePattern,
+	}
+	return cacheutil.ReadDir(ctx, mnt, cacheReq)
+}
+
+func (r *ref) StatFile(ctx context.Context, req bkgw.StatRequest) (*fstypes.Stat, error) {
+	mnt, err := r.getMountable(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return cacheutil.StatFile(ctx, mnt, req.Path)
+}
+
+func (r *ref) getMountable(ctx context.Context) (snapshot.Mountable, error) {
+	res, err := r.Result(ctx)
+	if err != nil {
+		return nil, err
+	}
+	workerRef, ok := res.Sys().(*worker.WorkerRef)
+	if !ok {
+		return nil, fmt.Errorf("invalid ref: %T", res.Sys())
+	}
+	return workerRef.ImmutableRef.Mount(ctx, true, session.NewGroup(r.sessionID))
+}
+
+func (r *ref) Result(ctx context.Context) (solver.CachedResult, error) {
+	res, err := r.resultProxy.Result(ctx)
+	if err != nil {
+		return nil, wrapError(ctx, err, r.sessionID)
+	}
+	return res, nil
+}
+
+func wrapError(ctx context.Context, baseErr error, sessionID string) error {
+	var fileErr *llberror.FileActionError
+	if errors.As(baseErr, &fileErr) {
+		return solvererror.WithSolveError(baseErr, fileErr.ToSubject(), nil, nil)
+	}
+
+	var slowCacheErr *solver.SlowCacheError
+	if errors.As(baseErr, &slowCacheErr) {
+		// TODO: include input IDs? Or does that not matter for us?
+		return solvererror.WithSolveError(baseErr, slowCacheErr.ToSubject(), nil, nil)
+	}
+
+	var execErr *llberror.ExecError
+	if !errors.As(baseErr, &execErr) {
+		return baseErr
+	}
+
+	var opErr *solvererror.OpError
+	if !errors.As(baseErr, &opErr) {
+		return baseErr
+	}
+	op := opErr.Op
+	if op == nil || op.Op == nil {
+		return baseErr
+	}
+	execOp, ok := op.Op.(*pb.Op_Exec)
+	if !ok {
+		return baseErr
+	}
+
+	// This was an exec error, we will retrieve the exec's output and include
+	// it in the error message
+
+	// get the mnt corresponding to the metadata where stdout/stderr are stored
+	// TODO: support redirected stdout/stderr again too, maybe just have shim write to both?
+	var metaMountResult solver.Result
+	for i, mnt := range execOp.Exec.Mounts {
+		if mnt.Dest == metaMountDestPath {
+			metaMountResult = execErr.Mounts[i]
+			break
+		}
+	}
+	if metaMountResult == nil {
+		return baseErr
+	}
+
+	workerRef, ok := metaMountResult.Sys().(*worker.WorkerRef)
+	if !ok {
+		return errors.Join(baseErr, fmt.Errorf("invalid ref type: %T", metaMountResult.Sys()))
+	}
+	mntable, err := workerRef.ImmutableRef.Mount(ctx, true, session.NewGroup(sessionID))
+	if err != nil {
+		return errors.Join(err, baseErr)
+	}
+
+	stdoutBytes, err := getExecMetaFile(ctx, mntable, "stdout")
+	if err != nil {
+		return errors.Join(err, baseErr)
+	}
+	stderrBytes, err := getExecMetaFile(ctx, mntable, "stderr")
+	if err != nil {
+		return errors.Join(err, baseErr)
+	}
+
+	exitCodeBytes, err := getExecMetaFile(ctx, mntable, "exitCode")
+	if err != nil {
+		return errors.Join(err, baseErr)
+	}
+	exitCode := -1
+	if len(exitCodeBytes) > 0 {
+		exitCode, err = strconv.Atoi(string(exitCodeBytes))
+		if err != nil {
+			return errors.Join(err, baseErr)
+		}
+	}
+
+	return &ExecError{
+		original: baseErr,
+		Cmd:      execOp.Exec.Meta.Args,
+		ExitCode: exitCode,
+		Stdout:   strings.TrimSpace(string(stdoutBytes)),
+		Stderr:   strings.TrimSpace(string(stderrBytes)),
+	}
+}
+
+func getExecMetaFile(ctx context.Context, mntable snapshot.Mountable, fileName string) ([]byte, error) {
+	filePath := path.Join(metaMountDestPath, fileName)
+	stat, err := cacheutil.StatFile(ctx, mntable, filePath)
+	if err != nil {
+		// TODO: would be better to verify this is a "not exists" error, return err if not
+		return nil, nil
+	}
+
+	req := cacheutil.ReadRequest{
+		Filename: filePath,
+		Range: &cacheutil.FileRange{
+			Length: int(stat.Size_),
+		},
+	}
+	if req.Range.Length > MaxExecErrorOutputBytes {
+		// TODO: re-add truncation message
+		req.Range.Offset = int(stat.Size_) - MaxExecErrorOutputBytes
+		req.Range.Length = MaxExecErrorOutputBytes
+	}
+	return cacheutil.ReadFile(ctx, mntable, req)
+}
+
 type recordingGateway struct {
-	bkgw.Client
+	llbBridge frontend.FrontendLLBBridge
 }
 
 // ResolveImageConfig records the image config resolution vertex as a member of
@@ -295,19 +422,19 @@ func (g recordingGateway) ResolveImageConfig(ctx context.Context, ref string, op
 
 	rec.Join(digest.FromString(id))
 
-	return g.Client.ResolveImageConfig(ctx, ref, opt)
+	return g.llbBridge.ResolveImageConfig(ctx, ref, opt)
 }
 
 // Solve records the vertexes of the definition and frontend inputs as members
 // of the current progress group, and calls the inner Solve.
-func (g recordingGateway) Solve(ctx context.Context, opts bkgw.SolveRequest) (*bkgw.Result, error) {
+func (g recordingGateway) Solve(ctx context.Context, req frontend.SolveRequest, sessionID string) (*frontend.Result, error) {
 	rec := progrock.RecorderFromContext(ctx)
 
-	if opts.Definition != nil {
-		recordVertexes(rec, opts.Definition)
+	if req.Definition != nil {
+		recordVertexes(rec, req.Definition)
 	}
 
-	for _, input := range opts.FrontendInputs {
+	for _, input := range req.FrontendInputs {
 		if input == nil {
 			// TODO(vito): we currently pass a nil def to Dockerfile inputs, should
 			// probably change that to llb.Scratch
@@ -317,7 +444,11 @@ func (g recordingGateway) Solve(ctx context.Context, opts bkgw.SolveRequest) (*b
 		recordVertexes(rec, input)
 	}
 
-	return g.Client.Solve(ctx, opts)
+	return g.llbBridge.Solve(ctx, req, sessionID)
+}
+
+func (g recordingGateway) Warn(ctx context.Context, dgst digest.Digest, msg string, opts frontend.WarnOpts) error {
+	return g.llbBridge.Warn(ctx, dgst, msg, opts)
 }
 
 func recordVertexes(recorder *progrock.Recorder, def *pb.Definition) {

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/dagger/dagger/engine"
-	"github.com/dagger/dagger/router"
+	"github.com/moby/buildkit/identity"
 	"github.com/spf13/cobra"
 	"github.com/vito/progrock"
 )
@@ -35,7 +35,9 @@ func init() {
 
 func Listen(cmd *cobra.Command, args []string) {
 	ctx := context.Background()
-	if err := withEngineAndTUI(ctx, engine.Config{}, func(ctx context.Context, r *router.Router) error {
+	if err := withEngineAndTUI(ctx, &engine.ClientSession{
+		ServerSessionID: identity.NewID(),
+	}, func(ctx context.Context, sess *engine.ClientSession) error {
 		rec := progrock.RecorderFromContext(ctx)
 
 		var stderr io.Writer
@@ -53,7 +55,7 @@ func Listen(cmd *cobra.Command, args []string) {
 		defer sessionL.Close()
 
 		srv := &http.Server{
-			Handler: r,
+			Handler: sess,
 			// Gosec G112: prevent slowloris attacks
 			ReadHeaderTimeout: 10 * time.Second,
 		}

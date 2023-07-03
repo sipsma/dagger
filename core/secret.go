@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-
-	bkgw "github.com/moby/buildkit/frontend/gateway/client"
 )
 
 // Secret is a content-addressed secret.
@@ -66,13 +64,13 @@ func (secret *Secret) IsOldFormat() bool {
 	return secret.FromFile != "" || secret.FromHostEnv != ""
 }
 
-func (secret *Secret) LegacyPlaintext(ctx context.Context, gw bkgw.Client) ([]byte, error) {
+func (secret *Secret) LegacyPlaintext(ctx context.Context, gw *GatewayClient, sessionID string) ([]byte, error) {
 	if secret.FromFile != "" {
 		file, err := secret.FromFile.ToFile()
 		if err != nil {
 			return nil, err
 		}
-		return file.Contents(ctx, gw)
+		return file.Contents(ctx, gw, sessionID)
 	}
 
 	if secret.FromHostEnv != "" {

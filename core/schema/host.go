@@ -29,7 +29,6 @@ func (s *hostSchema) Resolvers() router.Resolvers {
 			"host": router.PassthroughResolver,
 		},
 		"Host": router.ObjectResolver{
-			"workdir":     router.ToResolver(s.workdir),
 			"directory":   router.ToResolver(s.directory),
 			"file":        router.ToResolver(s.file),
 			"envVariable": router.ToResolver(s.envVariable),
@@ -48,10 +47,6 @@ func (s *hostSchema) Dependencies() []router.ExecutableSchema {
 
 type hostWorkdirArgs struct {
 	core.CopyFilter
-}
-
-func (s *hostSchema) workdir(ctx *router.Context, parent *core.Query, args hostWorkdirArgs) (*core.Directory, error) {
-	return s.host.Directory(ctx, s.gw, ".", parent.PipelinePath(), "host.workdir", s.platform, args.CopyFilter)
 }
 
 type hostVariableArgs struct {
@@ -79,7 +74,7 @@ type hostDirectoryArgs struct {
 }
 
 func (s *hostSchema) directory(ctx *router.Context, parent *core.Query, args hostDirectoryArgs) (*core.Directory, error) {
-	return s.host.Directory(ctx, s.gw, args.Path, parent.PipelinePath(), "host.directory", s.platform, args.CopyFilter)
+	return s.host.Directory(ctx, s.gw, args.Path, parent.PipelinePath(), "host.directory", s.platform, args.CopyFilter, ctx.ClientSessionID)
 }
 
 type hostSocketArgs struct {
@@ -95,5 +90,5 @@ type hostFileArgs struct {
 }
 
 func (s *hostSchema) file(ctx *router.Context, parent *core.Query, args hostFileArgs) (*core.File, error) {
-	return s.host.File(ctx, s.gw, args.Path, parent.PipelinePath(), s.platform)
+	return s.host.File(ctx, s.gw, args.Path, parent.PipelinePath(), s.platform, ctx.ClientSessionID)
 }

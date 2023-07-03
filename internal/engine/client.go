@@ -10,10 +10,11 @@ import (
 	bkclient "github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/util/tracing/detect"
 	"go.opentelemetry.io/otel"
-
-	_ "github.com/moby/buildkit/client/connhelper/dockercontainer" // import the docker connection driver
-	_ "github.com/moby/buildkit/client/connhelper/kubepod"         // import the kubernetes connection driver
-	_ "github.com/moby/buildkit/client/connhelper/podmancontainer" // import the podman connection driver
+	// TODO: re-enable once upstream supports --addr
+	// _ "github.com/moby/buildkit/client/connhelper/dockercontainer"
+	// _ "github.com/moby/buildkit/client/connhelper/kubepod"
+	// _ "github.com/moby/buildkit/client/connhelper/podmancontainer"
+	// _ "github.com/moby/buildkit/client/connhelper/ssh"
 )
 
 const (

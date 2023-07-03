@@ -9,7 +9,6 @@ import (
 	"github.com/dagger/dagger/core/pipeline"
 	"github.com/dagger/dagger/router"
 	"github.com/dagger/graphql"
-	bkgw "github.com/moby/buildkit/frontend/gateway/client"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/vektah/gqlparser/v2"
 	"github.com/vektah/gqlparser/v2/ast"
@@ -107,7 +106,7 @@ func (p *Project) Clone() *Project {
 	return &cp
 }
 
-func (p *Project) Load(ctx context.Context, gw bkgw.Client, r *router.Router, progSock *Socket, pipeline pipeline.Path, source *Directory, configPath string) (*Project, error) {
+func (p *Project) Load(ctx context.Context, gw *GatewayClient, r *router.Router, progSock *Socket, pipeline pipeline.Path, source *Directory, configPath string, sessionID string) (*Project, error) {
 	p = p.Clone()
 	p.Directory = source
 
@@ -118,7 +117,7 @@ func (p *Project) Load(ctx context.Context, gw bkgw.Client, r *router.Router, pr
 	if err != nil {
 		return nil, fmt.Errorf("failed to load project config at path %q: %w", configPath, err)
 	}
-	cfgBytes, err := configFile.Contents(ctx, gw)
+	cfgBytes, err := configFile.Contents(ctx, gw, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read project config at path %q: %w", configPath, err)
 	}
@@ -126,12 +125,12 @@ func (p *Project) Load(ctx context.Context, gw bkgw.Client, r *router.Router, pr
 		return nil, fmt.Errorf("failed to unmarshal project config: %w", err)
 	}
 
-	p.Schema, err = p.getSchema(ctx, gw, progSock, pipeline, r)
+	p.Schema, err = p.getSchema(ctx, gw, progSock, pipeline, r, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get schema: %w", err)
 	}
 
-	resolvers, err := p.getResolvers(ctx, gw, r, progSock, pipeline)
+	resolvers, err := p.getResolvers(ctx, gw, r, progSock, pipeline, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get resolvers: %w", err)
 	}
@@ -220,12 +219,12 @@ func (p *Project) schemaToCommand(field *ast.FieldDefinition, schemaTypes map[st
 	return &cmd, nil
 }
 
-func (p *Project) getSchema(ctx context.Context, gw bkgw.Client, progSock *Socket, pipeline pipeline.Path, r *router.Router) (string, error) {
-	ctr, err := p.runtime(ctx, gw, progSock, pipeline)
+func (p *Project) getSchema(ctx context.Context, gw *GatewayClient, progSock *Socket, pipeline pipeline.Path, r *router.Router, sessionID string) (string, error) {
+	ctr, err := p.runtime(ctx, gw, progSock, pipeline, sessionID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get runtime container for schema: %w", err)
 	}
-	ctr, err = ctr.WithMountedDirectory(ctx, gw, outputMountPath, NewScratchDirectory(pipeline, p.Platform), "")
+	ctr, err = ctr.WithMountedDirectory(ctx, gw, outputMountPath, NewScratchDirectory(pipeline, p.Platform), "", sessionID)
 	if err != nil {
 		return "", fmt.Errorf("failed to mount output directory: %w", err)
 	}
@@ -235,11 +234,11 @@ func (p *Project) getSchema(ctx context.Context, gw bkgw.Client, progSock *Socke
 	if err != nil {
 		return "", fmt.Errorf("failed to exec schema command: %w", err)
 	}
-	schemaFile, err := ctr.File(ctx, gw, path.Join(outputMountPath, schemaPath))
+	schemaFile, err := ctr.File(ctx, gw, path.Join(outputMountPath, schemaPath), sessionID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get schema file: %w", err)
 	}
-	newSchema, err := schemaFile.Contents(ctx, gw)
+	newSchema, err := schemaFile.Contents(ctx, gw, sessionID)
 	if err != nil {
 		return "", fmt.Errorf("failed to read schema file: %w", err)
 	}
@@ -256,18 +255,18 @@ func (p *Project) getSchema(ctx context.Context, gw bkgw.Client, progSock *Socke
 	return string(newSchema), nil
 }
 
-func (p *Project) runtime(ctx context.Context, gw bkgw.Client, progSock *Socket, pipeline pipeline.Path) (*Container, error) {
+func (p *Project) runtime(ctx context.Context, gw *GatewayClient, progSock *Socket, pipeline pipeline.Path, sessionID string) (*Container, error) {
 	switch ProjectSDK(p.Config.SDK) {
 	case ProjectSDKGo:
-		return p.goRuntime(ctx, gw, progSock, pipeline)
+		return p.goRuntime(ctx, gw, progSock, pipeline, sessionID)
 	case ProjectSDKPython:
-		return p.pythonRuntime(ctx, gw, progSock, pipeline)
+		return p.pythonRuntime(ctx, gw, progSock, pipeline, sessionID)
 	default:
 		return nil, fmt.Errorf("unknown sdk %q", p.Config.SDK)
 	}
 }
 
-func (p *Project) getResolvers(ctx context.Context, gw bkgw.Client, r *router.Router, progSock *Socket, pipeline pipeline.Path) (router.Resolvers, error) {
+func (p *Project) getResolvers(ctx context.Context, gw *GatewayClient, r *router.Router, progSock *Socket, pipeline pipeline.Path, sessionID string) (router.Resolvers, error) {
 	resolvers := make(router.Resolvers)
 	if p.Config.SDK == "" {
 		return nil, fmt.Errorf("sdk not set")
@@ -284,7 +283,7 @@ func (p *Project) getResolvers(ctx context.Context, gw bkgw.Client, r *router.Ro
 		objResolver := router.ObjectResolver{}
 		resolvers[def.Name] = objResolver
 		for _, field := range def.Fields {
-			objResolver[field.Name], err = p.getResolver(ctx, gw, r, progSock, pipeline, field.Type)
+			objResolver[field.Name], err = p.getResolver(ctx, gw, r, progSock, pipeline, field.Type, sessionID)
 			if err != nil {
 				return nil, err
 			}
@@ -293,8 +292,8 @@ func (p *Project) getResolvers(ctx context.Context, gw bkgw.Client, r *router.Ro
 	return resolvers, nil
 }
 
-func (p *Project) getResolver(ctx context.Context, gw bkgw.Client, r *router.Router, progSock *Socket, pipeline pipeline.Path, outputType *ast.Type) (graphql.FieldResolveFn, error) {
-	ctr, err := p.runtime(ctx, gw, progSock, pipeline)
+func (p *Project) getResolver(ctx context.Context, gw *GatewayClient, r *router.Router, progSock *Socket, pipeline pipeline.Path, outputType *ast.Type, sessionID string) (graphql.FieldResolveFn, error) {
+	ctr, err := p.runtime(ctx, gw, progSock, pipeline, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get runtime container for resolver: %w", err)
 	}
@@ -311,12 +310,12 @@ func (p *Project) getResolver(ctx context.Context, gw bkgw.Client, r *router.Rou
 		if err != nil {
 			return nil, err
 		}
-		ctr, err = ctr.WithNewFile(ctx, gw, path.Join(inputMountPath, inputFile), inputBytes, 0644, "")
+		ctr, err = ctr.WithNewFile(ctx, gw, path.Join(inputMountPath, inputFile), inputBytes, 0644, "", sessionID)
 		if err != nil {
 			return "", fmt.Errorf("failed to mount resolver input file: %w", err)
 		}
 
-		ctr, err = ctr.WithMountedDirectory(ctx, gw, outputMountPath, NewScratchDirectory(nil, p.Platform), "")
+		ctr, err = ctr.WithMountedDirectory(ctx, gw, outputMountPath, NewScratchDirectory(nil, p.Platform), "", sessionID)
 		if err != nil {
 			return "", fmt.Errorf("failed to mount resolver output directory: %w", err)
 		}
@@ -328,11 +327,11 @@ func (p *Project) getResolver(ctx context.Context, gw bkgw.Client, r *router.Rou
 			return "", fmt.Errorf("failed to exec resolver: %w", err)
 		}
 
-		outputFile, err := ctr.File(ctx, gw, path.Join(outputMountPath, outputFile))
+		outputFile, err := ctr.File(ctx, gw, path.Join(outputMountPath, outputFile), sessionID)
 		if err != nil {
 			return "", fmt.Errorf("failed to get resolver output file: %w", err)
 		}
-		outputBytes, err := outputFile.Contents(ctx, gw)
+		outputBytes, err := outputFile.Contents(ctx, gw, sessionID)
 		if err != nil {
 			return "", fmt.Errorf("failed to read resolver output file: %w", err)
 		}

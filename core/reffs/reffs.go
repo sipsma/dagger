@@ -10,6 +10,8 @@ import (
 	"github.com/moby/buildkit/client/llb"
 	bkgw "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/solver/pb"
+	"github.com/moby/buildkit/solver/result"
+	"github.com/opencontainers/go-digest"
 	fstypes "github.com/tonistiigi/fsutil/types"
 )
 
@@ -18,24 +20,34 @@ type FS struct {
 	ref bkgw.Reference
 }
 
+type ComparableReference interface {
+	comparable
+	bkgw.Reference
+}
+
+type GatewayClient[T ComparableReference] interface {
+	Solve(ctx context.Context, req bkgw.SolveRequest, sessionID string) (*result.Result[T], error)
+	ResolveImageConfig(ctx context.Context, ref string, opt llb.ResolveImageConfigOpt) (digest.Digest, []byte, error)
+}
+
 func ReferenceFS(ctx context.Context, ref bkgw.Reference) fs.FS {
 	return &FS{ctx: ctx, ref: ref}
 }
 
-func OpenState(ctx context.Context, gw bkgw.Client, st llb.State, opts ...llb.ConstraintsOpt) (fs.FS, error) {
+func OpenState[T ComparableReference](ctx context.Context, gw GatewayClient[T], st llb.State, sessionID string, opts ...llb.ConstraintsOpt) (fs.FS, error) {
 	def, err := st.Marshal(ctx, opts...)
 	if err != nil {
 		return nil, err
 	}
 
-	return OpenDef(ctx, gw, def.ToPB())
+	return OpenDef(ctx, gw, def.ToPB(), sessionID)
 }
 
-func OpenDef(ctx context.Context, gw bkgw.Client, def *pb.Definition) (fs.FS, error) {
+func OpenDef[T ComparableReference](ctx context.Context, gw GatewayClient[T], def *pb.Definition, sessionID string) (fs.FS, error) {
 	res, err := gw.Solve(ctx, bkgw.SolveRequest{
 		Definition: def,
 		Evaluate:   true,
-	})
+	}, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +57,8 @@ func OpenDef(ctx context.Context, gw bkgw.Client, def *pb.Definition) (fs.FS, er
 		return nil, err
 	}
 
-	if ref == nil {
+	var zero T
+	if ref == zero {
 		return nil, fmt.Errorf("no ref returned")
 	}
 

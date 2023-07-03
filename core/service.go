@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"syscall"
 	"time"
@@ -77,7 +78,7 @@ func (p NetworkProtocol) Network() string {
 
 // WithServices runs the given function with the given services started,
 // detaching from each of them after the function completes.
-func WithServices[T any](ctx context.Context, gw bkgw.Client, svcs ServiceBindings, fn func() (T, error)) (T, error) {
+func WithServices[T any](ctx context.Context, gw *GatewayClient, svcs ServiceBindings, sessionID string, fn func() (T, error)) (T, error) {
 	var zero T
 
 	// NB: don't use errgroup.WithCancel; we don't want to cancel on Wait
@@ -97,7 +98,7 @@ func WithServices[T any](ctx context.Context, gw bkgw.Client, svcs ServiceBindin
 
 		aliases := aliases
 		eg.Go(func() error {
-			svc, err := svc.Start(ctx, gw)
+			svc, err := svc.Start(ctx, gw, sessionID)
 			if err != nil {
 				return fmt.Errorf("start %s (%s): %w", host, aliases, err)
 			}
@@ -129,12 +130,12 @@ func WithServices[T any](ctx context.Context, gw bkgw.Client, svcs ServiceBindin
 }
 
 type portHealthChecker struct {
-	gw    bkgw.Client
+	gw    *GatewayClient
 	host  string
 	ports []ContainerPort
 }
 
-func newHealth(gw bkgw.Client, host string, ports []ContainerPort) *portHealthChecker {
+func newHealth(gw *GatewayClient, host string, ports []ContainerPort) *portHealthChecker {
 	return &portHealthChecker{
 		gw:    gw,
 		host:  host,
@@ -146,7 +147,7 @@ type marshalable interface {
 	Marshal(ctx context.Context, co ...llb.ConstraintsOpt) (*llb.Definition, error)
 }
 
-func result(ctx context.Context, gw bkgw.Client, st marshalable) (*bkgw.Result, error) {
+func result(ctx context.Context, gw *GatewayClient, st marshalable, sessionID string) (*Result, error) {
 	def, err := st.Marshal(ctx)
 	if err != nil {
 		return nil, err
@@ -154,10 +155,10 @@ func result(ctx context.Context, gw bkgw.Client, st marshalable) (*bkgw.Result, 
 
 	return gw.Solve(ctx, bkgw.SolveRequest{
 		Definition: def.ToPB(),
-	})
+	}, sessionID)
 }
 
-func (d *portHealthChecker) Check(ctx context.Context) (err error) {
+func (d *portHealthChecker) Check(ctx context.Context, sessionID string) (err error) {
 	rec := progrock.RecorderFromContext(ctx)
 
 	args := []string{"check", d.host}
@@ -175,7 +176,7 @@ func (d *portHealthChecker) Check(ctx context.Context) (err error) {
 		vtx.Done(err)
 	}()
 
-	scratchRes, err := result(ctx, d.gw, llb.Scratch())
+	scratchRes, err := result(ctx, d.gw, llb.Scratch(), sessionID)
 	if err != nil {
 		return err
 	}
@@ -188,7 +189,7 @@ func (d *portHealthChecker) Check(ctx context.Context) (err error) {
 				Ref:       scratchRes.Ref,
 			},
 		},
-	})
+	}, sessionID)
 	if err != nil {
 		return err
 	}
@@ -231,4 +232,12 @@ func (d *portHealthChecker) Check(ctx context.Context) (err error) {
 
 		return ctx.Err()
 	}
+}
+
+type nopCloser struct {
+	io.Writer
+}
+
+func (nopCloser) Close() error {
+	return nil
 }

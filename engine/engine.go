@@ -1,44 +1,31 @@
 package engine
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"net"
-	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
-	"time"
-
-	"github.com/adrg/xdg"
-	"github.com/containerd/containerd/content"
-	"github.com/containerd/containerd/content/local"
-	"github.com/containerd/containerd/platforms"
-	"github.com/dagger/dagger/auth"
-	"github.com/dagger/dagger/core"
-	"github.com/dagger/dagger/core/pipeline"
-	"github.com/dagger/dagger/core/schema"
-	"github.com/dagger/dagger/internal/engine"
-	"github.com/dagger/dagger/router"
-	"github.com/dagger/dagger/secret"
-	"github.com/dagger/dagger/telemetry"
-	"github.com/docker/cli/cli/config"
-	bkclient "github.com/moby/buildkit/client"
-	bkgw "github.com/moby/buildkit/frontend/gateway/client"
-	"github.com/moby/buildkit/session"
-	"github.com/moby/buildkit/session/filesync"
-	"github.com/moby/buildkit/session/secrets/secretsprovider"
-	"github.com/moby/buildkit/util/entitlements"
-	specs "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/pkg/errors"
-	"github.com/tonistiigi/fsutil"
-	fstypes "github.com/tonistiigi/fsutil/types"
-	"github.com/vito/progrock"
-	"golang.org/x/sync/errgroup"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+func NormalizeWorkdir(workdir string) (string, error) {
+	if workdir == "" {
+		workdir = os.Getenv("DAGGER_WORKDIR")
+	}
+
+	if workdir == "" {
+		var err error
+		workdir, err = os.Getwd()
+		if err != nil {
+			return "", err
+		}
+	}
+	workdir, err := filepath.Abs(workdir)
+	if err != nil {
+		return "", err
+	}
+
+	return workdir, nil
+}
+
+/* TODO: alot of bits and pieces here still need to be reincorporated
 const (
 	cacheConfigEnvName = "_EXPERIMENTAL_DAGGER_CACHE_CONFIG"
 )
@@ -54,8 +41,6 @@ type Config struct {
 	EngineNameCallback func(string)
 	CloudURLCallback   func(string)
 }
-
-type StartCallback func(context.Context, *router.Router) error
 
 // nolint: gocyclo
 func Start(ctx context.Context, startOpts Config, fn StartCallback) error {
@@ -283,26 +268,6 @@ func Start(ctx context.Context, startOpts Config, fn StartCallback) error {
 	return nil
 }
 
-func NormalizeWorkdir(workdir string) (string, error) {
-	if workdir == "" {
-		workdir = os.Getenv("DAGGER_WORKDIR")
-	}
-
-	if workdir == "" {
-		var err error
-		workdir, err = os.Getwd()
-		if err != nil {
-			return "", err
-		}
-	}
-	workdir, err := filepath.Abs(workdir)
-	if err != nil {
-		return "", err
-	}
-
-	return workdir, nil
-}
-
 func detectPlatform(ctx context.Context, c *bkclient.Client) (*specs.Platform, error) {
 	w, err := c.ListWorkers(ctx)
 	if err != nil {
@@ -315,19 +280,6 @@ func detectPlatform(ctx context.Context, c *bkclient.Client) (*specs.Platform, e
 	}
 	defaultPlatform := platforms.DefaultSpec()
 	return &defaultPlatform, nil
-}
-
-type AnyDirSource struct{}
-
-func (AnyDirSource) LookupDir(name string) (filesync.SyncedDir, bool) {
-	return filesync.SyncedDir{
-		Dir: name,
-		Map: func(p string, st *fstypes.Stat) fsutil.MapResult {
-			st.Uid = 0
-			st.Gid = 0
-			return fsutil.MapResultKeep
-		},
-	}, true
 }
 
 func cacheConfigFromEnv() (string, map[string]string, error) {
@@ -462,3 +414,4 @@ func (w progrockFileWriter) WriteStatus(ev *progrock.StatusUpdate) error {
 func (w progrockFileWriter) Close() error {
 	return w.f.Close()
 }
+*/

@@ -14,7 +14,6 @@ import (
 	"github.com/dagger/dagger/core/reffs"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/frontend/dockerfile/shell"
-	bkgw "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/solver/pb"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/opencontainers/runc/libcontainer/user"
@@ -100,7 +99,7 @@ func mirrorCh[T any](dest chan<- T) (chan T, *sync.WaitGroup) {
 	return mirrorCh, wg
 }
 
-func resolveUIDGID(ctx context.Context, fsSt llb.State, gw bkgw.Client, platform specs.Platform, owner string) (*Ownership, error) {
+func resolveUIDGID(ctx context.Context, fsSt llb.State, gw *GatewayClient, platform specs.Platform, owner string, sessionID string) (*Ownership, error) {
 	uidOrName, gidOrName, hasGroup := strings.Cut(owner, ":")
 
 	var uid, gid int
@@ -120,7 +119,7 @@ func resolveUIDGID(ctx context.Context, fsSt llb.State, gw bkgw.Client, platform
 
 	var fs fs.FS
 	if uname != "" || gname != "" {
-		fs, err = reffs.OpenState(ctx, gw, fsSt, llb.Platform(platform))
+		fs, err = reffs.OpenState[*ref](ctx, gw, fsSt, sessionID, llb.Platform(platform))
 		if err != nil {
 			return nil, fmt.Errorf("open fs state for name->id: %w", err)
 		}

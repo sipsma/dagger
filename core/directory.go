@@ -12,7 +12,6 @@ import (
 
 	"github.com/dagger/dagger/core/pipeline"
 	"github.com/dagger/dagger/router"
-	bkclient "github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb"
 	bkgw "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/solver/pb"
@@ -169,13 +168,13 @@ func (dir *Directory) WithPipeline(ctx context.Context, name, description string
 	return dir, nil
 }
 
-func (dir *Directory) Stat(ctx context.Context, gw bkgw.Client, src string) (*fstypes.Stat, error) {
+func (dir *Directory) Stat(ctx context.Context, gw *GatewayClient, src string, sessionID string) (*fstypes.Stat, error) {
 	src = path.Join(dir.Dir, src)
 
-	return WithServices(ctx, gw, dir.Services, func() (*fstypes.Stat, error) {
+	return WithServices(ctx, gw, dir.Services, sessionID, func() (*fstypes.Stat, error) {
 		res, err := gw.Solve(ctx, bkgw.SolveRequest{
 			Definition: dir.LLB,
-		})
+		}, sessionID)
 		if err != nil {
 			return nil, err
 		}
@@ -203,13 +202,13 @@ func (dir *Directory) Stat(ctx context.Context, gw bkgw.Client, src string) (*fs
 	})
 }
 
-func (dir *Directory) Entries(ctx context.Context, gw bkgw.Client, src string) ([]string, error) {
+func (dir *Directory) Entries(ctx context.Context, gw *GatewayClient, src string, sessionID string) ([]string, error) {
 	src = path.Join(dir.Dir, src)
 
-	return WithServices(ctx, gw, dir.Services, func() ([]string, error) {
+	return WithServices(ctx, gw, dir.Services, sessionID, func() ([]string, error) {
 		res, err := gw.Solve(ctx, bkgw.SolveRequest{
 			Definition: dir.LLB,
-		})
+		}, sessionID)
 		if err != nil {
 			return nil, err
 		}
@@ -538,47 +537,47 @@ func (dir *Directory) Export(
 	ctx context.Context,
 	host *Host,
 	dest string,
-	bkClient *bkclient.Client,
-	solveOpts bkclient.SolveOpt,
-	solveCh chan<- *bkclient.SolveStatus,
 ) error {
-	dest, err := host.NormalizeDest(dest)
-	if err != nil {
-		return err
-	}
+	panic("reimplement directory.Export")
+	/*
+		dest, err := host.NormalizeDest(dest)
+		if err != nil {
+			return err
+		}
 
-	return host.Export(ctx, bkclient.ExportEntry{
-		Type:      bkclient.ExporterLocal,
-		OutputDir: dest,
-	}, bkClient, solveOpts, solveCh, func(ctx context.Context, gw bkgw.Client) (*bkgw.Result, error) {
-		return WithServices(ctx, gw, dir.Services, func() (*bkgw.Result, error) {
-			src, err := dir.State()
-			if err != nil {
-				return nil, err
-			}
-
-			var defPB *pb.Definition
-			if dir.Dir != "" {
-				src = llb.Scratch().File(llb.Copy(src, dir.Dir, ".", &llb.CopyInfo{
-					CopyDirContentsOnly: true,
-				}))
-
-				def, err := src.Marshal(ctx, llb.Platform(dir.Platform))
+		return host.Export(ctx, bkclient.ExportEntry{
+			Type:      bkclient.ExporterLocal,
+			OutputDir: dest,
+		}, bkClient, solveOpts, solveCh, func(ctx context.Context, gw *GatewayClient) (*bkgw.Result, error) {
+			return WithServices(ctx, gw, dir.Services, func() (*bkgw.Result, error) {
+				src, err := dir.State()
 				if err != nil {
 					return nil, err
 				}
 
-				defPB = def.ToPB()
-			} else {
-				defPB = dir.LLB
-			}
+				var defPB *pb.Definition
+				if dir.Dir != "" {
+					src = llb.Scratch().File(llb.Copy(src, dir.Dir, ".", &llb.CopyInfo{
+						CopyDirContentsOnly: true,
+					}))
 
-			return gw.Solve(ctx, bkgw.SolveRequest{
-				Evaluate:   true,
-				Definition: defPB,
+					def, err := src.Marshal(ctx, llb.Platform(dir.Platform))
+					if err != nil {
+						return nil, err
+					}
+
+					defPB = def.ToPB()
+				} else {
+					defPB = dir.LLB
+				}
+
+				return gw.Solve(ctx, bkgw.SolveRequest{
+					Evaluate:   true,
+					Definition: defPB,
+				})
 			})
 		})
-	})
+	*/
 }
 
 // Root removes any relative path from the directory.

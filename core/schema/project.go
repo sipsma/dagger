@@ -73,8 +73,9 @@ func (s *projectSchema) load(ctx *router.Context, parent *core.Project, args loa
 	if err != nil {
 		return nil, err
 	}
-	progSock := &core.Socket{HostPath: s.progSock}
-	return parent.Load(ctx, s.gw, s.router, progSock, source.Pipeline, source, args.ConfigPath)
+	// TODO: progSock := &core.Socket{HostPath: s.progSock}
+	// return parent.Load(ctx, s.gw, s.router, progSock, source.Pipeline, source, args.ConfigPath, ctx.ClientSessionID)
+	return parent.Load(ctx, s.gw, s.router, nil, source.Pipeline, source, args.ConfigPath, ctx.ClientSessionID)
 }
 
 func (s *projectSchema) commands(ctx *router.Context, parent *core.Project, args any) ([]core.ProjectCommand, error) {

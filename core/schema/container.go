@@ -127,7 +127,7 @@ func (s *containerSchema) container(ctx *router.Context, parent *core.Query, arg
 }
 
 func (s *containerSchema) sync(ctx *router.Context, parent *core.Container, _ any) (core.ContainerID, error) {
-	err := parent.Evaluate(ctx.Context, s.gw)
+	err := parent.Evaluate(ctx.Context, s.gw, ctx.ClientSessionID)
 	if err != nil {
 		return "", err
 	}
@@ -159,7 +159,7 @@ func (s *containerSchema) build(ctx *router.Context, parent *core.Container, arg
 	if err != nil {
 		return nil, err
 	}
-	return parent.Build(ctx, s.gw, dir, args.Dockerfile, args.BuildArgs, args.Target, args.Secrets)
+	return parent.Build(ctx, s.gw, dir, args.Dockerfile, args.BuildArgs, args.Target, args.Secrets, ctx.ClientSessionID)
 }
 
 type containerWithRootFSArgs struct {
@@ -193,8 +193,9 @@ type containerExecArgs struct {
 }
 
 func (s *containerSchema) withExec(ctx *router.Context, parent *core.Container, args containerExecArgs) (*core.Container, error) {
-	progSock := &core.Socket{HostPath: s.progSock}
-	return parent.WithExec(ctx, s.gw, progSock, s.baseSchema.platform, args.ContainerExecOpts)
+	// TODO: progSock := &core.Socket{HostPath: s.progSock}
+	// return parent.WithExec(ctx, s.gw, progSock, s.baseSchema.platform, args.ContainerExecOpts)
+	return parent.WithExec(ctx, s.gw, nil, s.baseSchema.platform, args.ContainerExecOpts)
 }
 
 func (s *containerSchema) withDefaultExec(ctx *router.Context, parent *core.Container) (*core.Container, error) {
@@ -205,18 +206,21 @@ func (s *containerSchema) withDefaultExec(ctx *router.Context, parent *core.Cont
 }
 
 func (s *containerSchema) exitCode(ctx *router.Context, parent *core.Container, args any) (int, error) {
-	progSock := &core.Socket{HostPath: s.progSock}
-	return parent.ExitCode(ctx, s.gw, progSock)
+	// TODO: progSock := &core.Socket{HostPath: s.progSock}
+	// TODO: return parent.ExitCode(ctx, s.gw, progSock, ctx.ClientSessionID)
+	return parent.ExitCode(ctx, s.gw, nil, ctx.ClientSessionID)
 }
 
 func (s *containerSchema) stdout(ctx *router.Context, parent *core.Container, args any) (string, error) {
-	progSock := &core.Socket{HostPath: s.progSock}
-	return parent.MetaFileContents(ctx, s.gw, progSock, "stdout")
+	// TODO: progSock := &core.Socket{HostPath: s.progSock}
+	// return parent.MetaFileContents(ctx, s.gw, progSock, "stdout", ctx.ClientSessionID)
+	return parent.MetaFileContents(ctx, s.gw, nil, "stdout", ctx.ClientSessionID)
 }
 
 func (s *containerSchema) stderr(ctx *router.Context, parent *core.Container, args any) (string, error) {
-	progSock := &core.Socket{HostPath: s.progSock}
-	return parent.MetaFileContents(ctx, s.gw, progSock, "stderr")
+	// TODO: progSock := &core.Socket{HostPath: s.progSock}
+	// return parent.MetaFileContents(ctx, s.gw, progSock, "stderr", ctx.ClientSessionID)
+	return parent.MetaFileContents(ctx, s.gw, nil, "stderr", ctx.ClientSessionID)
 }
 
 type containerWithEntrypointArgs struct {
@@ -436,7 +440,7 @@ func (s *containerSchema) withMountedDirectory(ctx *router.Context, parent *core
 	if err != nil {
 		return nil, err
 	}
-	return parent.WithMountedDirectory(ctx, s.gw, args.Path, dir, args.Owner)
+	return parent.WithMountedDirectory(ctx, s.gw, args.Path, dir, args.Owner, ctx.ClientSessionID)
 }
 
 type containerPublishArgs struct {
@@ -446,7 +450,7 @@ type containerPublishArgs struct {
 }
 
 func (s *containerSchema) publish(ctx *router.Context, parent *core.Container, args containerPublishArgs) (string, error) {
-	return parent.Publish(ctx, args.Address, args.PlatformVariants, args.ForcedCompression, s.bkClient, s.solveOpts, s.solveCh)
+	return parent.Publish(ctx, args.Address, args.PlatformVariants, args.ForcedCompression)
 }
 
 type containerWithMountedFileArgs struct {
@@ -460,7 +464,7 @@ func (s *containerSchema) withMountedFile(ctx *router.Context, parent *core.Cont
 	if err != nil {
 		return nil, err
 	}
-	return parent.WithMountedFile(ctx, s.gw, args.Path, file, args.Owner)
+	return parent.WithMountedFile(ctx, s.gw, args.Path, file, args.Owner, ctx.ClientSessionID)
 }
 
 type containerWithMountedCacheArgs struct {
@@ -486,7 +490,7 @@ func (s *containerSchema) withMountedCache(ctx *router.Context, parent *core.Con
 		return nil, err
 	}
 
-	return parent.WithMountedCache(ctx, s.gw, args.Path, cache, dir, args.Concurrency, args.Owner)
+	return parent.WithMountedCache(ctx, s.gw, args.Path, cache, dir, args.Concurrency, args.Owner, ctx.ClientSessionID)
 }
 
 type containerWithMountedTempArgs struct {
@@ -540,7 +544,7 @@ type containerDirectoryArgs struct {
 }
 
 func (s *containerSchema) directory(ctx *router.Context, parent *core.Container, args containerDirectoryArgs) (*core.Directory, error) {
-	return parent.Directory(ctx, s.gw, args.Path)
+	return parent.Directory(ctx, s.gw, args.Path, ctx.ClientSessionID)
 }
 
 type containerFileArgs struct {
@@ -548,7 +552,7 @@ type containerFileArgs struct {
 }
 
 func (s *containerSchema) file(ctx *router.Context, parent *core.Container, args containerFileArgs) (*core.File, error) {
-	return parent.File(ctx, s.gw, args.Path)
+	return parent.File(ctx, s.gw, args.Path, ctx.ClientSessionID)
 }
 
 func absPath(workDir string, containerPath string) string {
@@ -587,7 +591,7 @@ func (s *containerSchema) withMountedSecret(ctx *router.Context, parent *core.Co
 	if err != nil {
 		return nil, err
 	}
-	return parent.WithMountedSecret(ctx, s.gw, args.Path, secret, args.Owner)
+	return parent.WithMountedSecret(ctx, s.gw, args.Path, secret, args.Owner, ctx.ClientSessionID)
 }
 
 type containerWithDirectoryArgs struct {
@@ -600,7 +604,7 @@ func (s *containerSchema) withDirectory(ctx *router.Context, parent *core.Contai
 	if err != nil {
 		return nil, err
 	}
-	return parent.WithDirectory(ctx, s.gw, args.Path, dir, args.CopyFilter, args.Owner)
+	return parent.WithDirectory(ctx, s.gw, args.Path, dir, args.CopyFilter, args.Owner, ctx.ClientSessionID)
 }
 
 type containerWithFileArgs struct {
@@ -613,7 +617,7 @@ func (s *containerSchema) withFile(ctx *router.Context, parent *core.Container, 
 	if err != nil {
 		return nil, err
 	}
-	return parent.WithFile(ctx, s.gw, args.Path, file, args.Permissions, args.Owner)
+	return parent.WithFile(ctx, s.gw, args.Path, file, args.Permissions, args.Owner, ctx.ClientSessionID)
 }
 
 type containerWithNewFileArgs struct {
@@ -622,7 +626,7 @@ type containerWithNewFileArgs struct {
 }
 
 func (s *containerSchema) withNewFile(ctx *router.Context, parent *core.Container, args containerWithNewFileArgs) (*core.Container, error) {
-	return parent.WithNewFile(ctx, s.gw, args.Path, []byte(args.Contents), args.Permissions, args.Owner)
+	return parent.WithNewFile(ctx, s.gw, args.Path, []byte(args.Contents), args.Permissions, args.Owner, ctx.ClientSessionID)
 }
 
 type containerWithUnixSocketArgs struct {
@@ -636,7 +640,7 @@ func (s *containerSchema) withUnixSocket(ctx *router.Context, parent *core.Conta
 	if err != nil {
 		return nil, err
 	}
-	return parent.WithUnixSocket(ctx, s.gw, args.Path, socket, args.Owner)
+	return parent.WithUnixSocket(ctx, s.gw, args.Path, socket, args.Owner, ctx.ClientSessionID)
 }
 
 type containerWithoutUnixSocketArgs struct {
@@ -658,7 +662,7 @@ type containerExportArgs struct {
 }
 
 func (s *containerSchema) export(ctx *router.Context, parent *core.Container, args containerExportArgs) (bool, error) {
-	if err := parent.Export(ctx, s.host, args.Path, args.PlatformVariants, args.ForcedCompression, s.bkClient, s.solveOpts, s.solveCh); err != nil {
+	if err := parent.Export(ctx, s.host, args.Path, args.PlatformVariants, args.ForcedCompression); err != nil {
 		return false, err
 	}
 
@@ -710,10 +714,6 @@ func (s *containerSchema) imageRef(ctx *router.Context, parent *core.Container, 
 }
 
 func (s *containerSchema) hostname(ctx *router.Context, parent *core.Container, args any) (string, error) {
-	if !s.servicesEnabled {
-		return "", ErrServicesDisabled
-	}
-
 	parent, err := s.withDefaultExec(ctx, parent)
 	if err != nil {
 		return "", err
@@ -728,10 +728,6 @@ type containerEndpointArgs struct {
 }
 
 func (s *containerSchema) endpoint(ctx *router.Context, parent *core.Container, args containerEndpointArgs) (string, error) {
-	if !s.servicesEnabled {
-		return "", ErrServicesDisabled
-	}
-
 	parent, err := s.withDefaultExec(ctx, parent)
 	if err != nil {
 		return "", err
@@ -746,10 +742,6 @@ type containerWithServiceDependencyArgs struct {
 }
 
 func (s *containerSchema) withServiceBinding(ctx *router.Context, parent *core.Container, args containerWithServiceDependencyArgs) (*core.Container, error) {
-	if !s.servicesEnabled {
-		return nil, ErrServicesDisabled
-	}
-
 	svc, err := args.Service.ToContainer()
 	if err != nil {
 		return nil, err
@@ -770,10 +762,6 @@ type containerWithExposedPortArgs struct {
 }
 
 func (s *containerSchema) withExposedPort(ctx *router.Context, parent *core.Container, args containerWithExposedPortArgs) (*core.Container, error) {
-	if !s.servicesEnabled {
-		return nil, ErrServicesDisabled
-	}
-
 	return parent.WithExposedPort(core.ContainerPort{
 		Protocol:    args.Protocol,
 		Port:        args.Port,
@@ -787,10 +775,6 @@ type containerWithoutExposedPortArgs struct {
 }
 
 func (s *containerSchema) withoutExposedPort(ctx *router.Context, parent *core.Container, args containerWithoutExposedPortArgs) (*core.Container, error) {
-	if !s.servicesEnabled {
-		return nil, ErrServicesDisabled
-	}
-
 	return parent.WithoutExposedPort(args.Port, args.Protocol)
 }
 
@@ -803,10 +787,6 @@ type ExposedPort struct {
 }
 
 func (s *containerSchema) exposedPorts(ctx *router.Context, parent *core.Container, args any) ([]ExposedPort, error) {
-	if !s.servicesEnabled {
-		return nil, ErrServicesDisabled
-	}
-
 	// get descriptions from `Container.Ports` (not in the OCI spec)
 	ports := make(map[string]ExposedPort, len(parent.Ports))
 	for _, p := range parent.Ports {

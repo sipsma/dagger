@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	"github.com/dagger/dagger/core"
-	bkgw "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/session/secrets"
 )
 
@@ -22,14 +21,16 @@ func NewStore() *Store {
 var _ secrets.SecretStore = &Store{}
 
 type Store struct {
-	gw bkgw.Client
+	gw        *core.GatewayClient
+	sessionID string
 
 	mu      sync.Mutex
 	secrets map[string]string
 }
 
-func (store *Store) SetGateway(gw bkgw.Client) {
+func (store *Store) SetGatewayAndSession(gw *core.GatewayClient, sessionID string) {
 	store.gw = gw
+	store.sessionID = sessionID
 }
 
 // AddSecret adds the secret identified by user defined name with its plaintext
@@ -63,7 +64,7 @@ func (store *Store) GetSecret(ctx context.Context, idOrName string) ([]byte, err
 	if secret, err := core.SecretID(idOrName).ToSecret(); err == nil {
 		if secret.IsOldFormat() {
 			// use the legacy SecretID format
-			return secret.LegacyPlaintext(ctx, store.gw)
+			return secret.LegacyPlaintext(ctx, store.gw, store.sessionID)
 		}
 
 		name = secret.Name

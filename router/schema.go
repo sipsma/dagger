@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"runtime/debug"
 	"strings"
 
 	"github.com/dagger/dagger/core/pipeline"
@@ -115,6 +116,9 @@ type Context struct {
 	// Vertex is a recorder for sending logs to the request's vertex in the
 	// progress stream.
 	Vertex *progrock.VertexRecorder
+
+	// TODO: doc
+	ClientSessionID string
 }
 
 // Pipelineable is any object which can return a pipeline.Path.
@@ -137,7 +141,17 @@ type Digestible interface {
 // into a graphql resolver graphql.FieldResolveFn.
 func ToResolver[P any, A any, R any](f func(*Context, P, A) (R, error)) graphql.FieldResolveFn {
 	return func(p graphql.ResolveParams) (any, error) {
+		defer func() {
+			if err := recover(); err != nil {
+				panic(string(debug.Stack()))
+			}
+		}()
+
 		recorder := progrock.RecorderFromContext(p.Context)
+		sessionID := SessionIDFromContext(p.Context)
+		if sessionID == "" {
+			return nil, fmt.Errorf("session ID not found in context")
+		}
 
 		var args A
 		argBytes, err := json.Marshal(p.Args)
@@ -170,9 +184,10 @@ func ToResolver[P any, A any, R any](f func(*Context, P, A) (R, error)) graphql.
 		}
 
 		ctx := Context{
-			Context:       p.Context,
-			ResolveParams: p,
-			Vertex:        vtx,
+			Context:         p.Context,
+			ResolveParams:   p,
+			Vertex:          vtx,
+			ClientSessionID: sessionID,
 		}
 
 		res, err := f(&ctx, parent, args)

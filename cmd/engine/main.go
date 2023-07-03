@@ -21,8 +21,9 @@ import (
 	"github.com/containerd/containerd/remotes/docker"
 	"github.com/containerd/containerd/sys"
 	sddaemon "github.com/coreos/go-systemd/v22/daemon"
+	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/cache"
-	"github.com/dagger/dagger/internal/engine"
+	internalengine "github.com/dagger/dagger/internal/engine"
 	"github.com/dagger/dagger/network"
 	"github.com/docker/docker/pkg/reexec"
 	"github.com/gofrs/flock"
@@ -732,9 +733,15 @@ func newController(ctx context.Context, c *cli.Context, cfg *config.Config) (*co
 	if err != nil {
 		return nil, nil, err
 	}
+	w, err := wc.GetDefault()
+	if err != nil {
+		return nil, nil, err
+	}
+
 	frontends := map[string]frontend.Frontend{}
 	frontends["dockerfile.v0"] = forwarder.NewGatewayForwarder(wc, dockerfile.Build)
 	frontends["gateway.v0"] = gateway.NewGatewayFrontend(wc)
+	frontends[engine.DaggerFrontendName] = engine.NewFrontend(w)
 
 	cacheStorage, err := bboltcachestorage.NewStore(filepath.Join(cfg.Root, "cache.db"))
 	if err != nil {
@@ -742,11 +749,6 @@ func newController(ctx context.Context, c *cli.Context, cfg *config.Config) (*co
 	}
 
 	historyDB, err := bbolt.Open(filepath.Join(cfg.Root, "history.db"), 0o600, nil)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	w, err := wc.GetDefault()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -764,7 +766,7 @@ func newController(ctx context.Context, c *cli.Context, cfg *config.Config) (*co
 		MountManager: mounts.NewMountManager("dagger-cache", w.CacheManager(), sessionManager),
 		ServiceURL:   cacheServiceURL,
 		Token:        cacheServiceToken,
-		EngineID:     w.Labels()[engine.EngineNameLabel],
+		EngineID:     w.Labels()[internalengine.EngineNameLabel],
 	})
 	if err != nil {
 		return nil, nil, err

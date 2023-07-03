@@ -13,8 +13,8 @@ import (
 
 	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/internal/tui"
-	"github.com/dagger/dagger/router"
 	"github.com/google/uuid"
+	"github.com/moby/buildkit/identity"
 	"github.com/spf13/cobra"
 	"github.com/vito/progrock"
 )
@@ -87,9 +87,10 @@ func run(ctx context.Context, args []string) error {
 
 	sessionToken := u.String()
 
-	return withEngineAndTUI(ctx, engine.Config{
-		SessionToken: sessionToken,
-	}, func(ctx context.Context, api *router.Router) error {
+	return withEngineAndTUI(ctx, &engine.ClientSession{
+		ServerSessionID: identity.NewID(),
+		SecretToken:     sessionToken,
+	}, func(ctx context.Context, sess *engine.ClientSession) error {
 		sessionL, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			return fmt.Errorf("session listen: %w", err)
@@ -110,7 +111,7 @@ func run(ctx context.Context, args []string) error {
 		// shell because Ctrl+C sends to the process group.)
 		ensureChildProcessesAreKilled(subCmd)
 
-		go http.Serve(sessionL, api) // nolint:gosec
+		go http.Serve(sessionL, sess) // nolint:gosec
 
 		var cmdErr error
 		if !silent {
