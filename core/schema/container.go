@@ -96,8 +96,8 @@ func (s *containerSchema) Resolvers() Resolvers {
 			"hostname":             ToResolver(s.hostname),
 			"endpoint":             ToResolver(s.endpoint),
 			"withServiceBinding":   ToResolver(s.withServiceBinding),
-			"focus":                ToResolver(s.focus),
-			"unfocus":              ToResolver(s.unfocus),
+			"withFocus":            ToResolver(s.withFocus),
+			"withoutFocus":         ToResolver(s.withoutFocus),
 		},
 	}
 }
@@ -818,13 +818,13 @@ func (s *containerSchema) exposedPorts(ctx *core.Context, parent *core.Container
 	return exposedPorts, nil
 }
 
-func (s *containerSchema) focus(ctx *core.Context, parent *core.Container, args any) (*core.Container, error) {
+func (s *containerSchema) withFocus(ctx *core.Context, parent *core.Container, args any) (*core.Container, error) {
 	child := parent.Clone()
 	child.Focused = true
 	return child, nil
 }
 
-func (s *containerSchema) unfocus(ctx *core.Context, parent *core.Container, args any) (*core.Container, error) {
+func (s *containerSchema) withoutFocus(ctx *core.Context, parent *core.Container, args any) (*core.Container, error) {
 	child := parent.Clone()
 	child.Focused = false
 	return child, nil

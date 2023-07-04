@@ -999,23 +999,6 @@ export class Container extends BaseClient {
   }
 
   /**
-   * Indicate that subsequent commands should be featured more
-   * prominently in the UI.
-   */
-  focus(): Container {
-    return new Container({
-      queryTree: [
-        ...this._queryTree,
-        {
-          operation: "focus",
-        },
-      ],
-      host: this.clientHost,
-      sessionToken: this.sessionToken,
-    })
-  }
-
-  /**
    * Initializes this container from a pulled base image.
    * @param address Image's address from its registry.
    *
@@ -1322,25 +1305,6 @@ export class Container extends BaseClient {
   }
 
   /**
-   * Indicate that subsequent commands should not be featured
-   * more prominently in the UI.
-   *
-   * This is the initial state of all containers.
-   */
-  unfocus(): Container {
-    return new Container({
-      queryTree: [
-        ...this._queryTree,
-        {
-          operation: "unfocus",
-        },
-      ],
-      host: this.clientHost,
-      sessionToken: this.sessionToken,
-    })
-  }
-
-  /**
    * Retrieves the user to be set for all commands.
    */
   async user(): Promise<string> {
@@ -1551,6 +1515,23 @@ export class Container extends BaseClient {
         {
           operation: "withFile",
           args: { path, source, ...opts },
+        },
+      ],
+      host: this.clientHost,
+      sessionToken: this.sessionToken,
+    })
+  }
+
+  /**
+   * Indicate that subsequent commands should be featured more
+   * prominently in the UI.
+   */
+  withFocus(): Container {
+    return new Container({
+      queryTree: [
+        ...this._queryTree,
+        {
+          operation: "withFocus",
         },
       ],
       host: this.clientHost,
@@ -1928,6 +1909,25 @@ export class Container extends BaseClient {
         {
           operation: "withoutExposedPort",
           args: { port, ...opts },
+        },
+      ],
+      host: this.clientHost,
+      sessionToken: this.sessionToken,
+    })
+  }
+
+  /**
+   * Indicate that subsequent commands should not be featured
+   * more prominently in the UI.
+   *
+   * This is the initial state of all containers.
+   */
+  withoutFocus(): Container {
+    return new Container({
+      queryTree: [
+        ...this._queryTree,
+        {
+          operation: "withoutFocus",
         },
       ],
       host: this.clientHost,
