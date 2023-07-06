@@ -6,25 +6,31 @@ import (
 	"github.com/dagger/dagger/core"
 	"github.com/dagger/dagger/router"
 	"github.com/dagger/dagger/secret"
+	"github.com/moby/buildkit/session"
+	"github.com/moby/buildkit/worker"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 type InitializeArgs struct {
-	Router   *router.Router
-	Gateway  *core.GatewayClient
-	OCIStore content.Store
-	Platform specs.Platform
-	Auth     *auth.RegistryAuthProvider
-	Secrets  *secret.Store
+	Router         *router.Router
+	Gateway        *core.GatewayClient
+	OCIStore       content.Store
+	Platform       specs.Platform
+	Auth           *auth.RegistryAuthProvider
+	Secrets        *secret.Store
+	Worker         worker.Worker
+	SessionManager *session.Manager
 }
 
 func New(params InitializeArgs) (router.ExecutableSchema, error) {
 	base := &baseSchema{
-		router:   params.Router,
-		gw:       params.Gateway,
-		platform: params.Platform,
-		auth:     params.Auth,
-		secrets:  params.Secrets,
+		router:         params.Router,
+		gw:             params.Gateway,
+		platform:       params.Platform,
+		auth:           params.Auth,
+		secrets:        params.Secrets,
+		worker:         params.Worker,
+		sessionManager: params.SessionManager,
 	}
 	host := core.NewHost()
 	return router.MergeExecutableSchemas("core",
@@ -44,9 +50,11 @@ func New(params InitializeArgs) (router.ExecutableSchema, error) {
 }
 
 type baseSchema struct {
-	router   *router.Router
-	gw       *core.GatewayClient
-	platform specs.Platform
-	auth     *auth.RegistryAuthProvider
-	secrets  *secret.Store
+	router         *router.Router
+	gw             *core.GatewayClient
+	platform       specs.Platform
+	auth           *auth.RegistryAuthProvider
+	secrets        *secret.Store
+	worker         worker.Worker
+	sessionManager *session.Manager
 }

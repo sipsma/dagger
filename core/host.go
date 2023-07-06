@@ -14,7 +14,17 @@ import (
 )
 
 type Host struct {
+	// TODO:
+	// Which sessionID this host refers to
+	// SessionID string `json:"sessionID"`
 }
+
+// TODO:
+/*
+func NewHost(sessionID string) *Host {
+	return &Host{SessionID: sessionID}
+}
+*/
 
 func NewHost() *Host {
 	return &Host{}
@@ -121,11 +131,7 @@ func (host *Host) Socket(ctx context.Context, sockPath string) (*Socket, error) 
 
 func (host *Host) Export(
 	ctx context.Context,
-	export bkclient.ExportEntry,
-	bkClient *bkclient.Client,
-	solveOpts bkclient.SolveOpt,
-	solveCh chan<- *bkclient.SolveStatus,
-	buildFn bkgw.BuildFunc,
+	exportCfg bkclient.ExportEntry,
 ) error {
 	panic("reimplement host export")
 	/*

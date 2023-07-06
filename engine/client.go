@@ -36,6 +36,8 @@ import (
 	fstypes "github.com/tonistiigi/fsutil/types"
 	"github.com/vito/progrock"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
 
 type ClientSession struct {
@@ -90,6 +92,7 @@ func (s *ClientSession) Connect(ctx context.Context) (rerr error) {
 	// filesync
 	if !s.DisableHostRW {
 		bkSession.Allow(filesync.NewFSSyncProvider(AnyDirSource{}))
+		bkSession.Allow(AnyDirTarget{})
 	}
 
 	// secrets
@@ -329,4 +332,40 @@ func (AnyDirSource) LookupDir(name string) (filesync.SyncedDir, bool) {
 			return fsutil.MapResultKeep
 		},
 	}, true
+}
+
+type AnyDirTarget struct{}
+
+func (t AnyDirTarget) Register(server *grpc.Server) {
+	filesync.RegisterFileSendServer(server, t)
+}
+
+func (AnyDirTarget) DiffCopy(stream filesync.FileSend_DiffCopyServer) error {
+	opts, _ := metadata.FromIncomingContext(stream.Context()) // if no metadata continue with empty object
+
+	// TODO: use const, import from other package
+	destVal, ok := opts["x-dagger-local-export-dest"]
+	if !ok {
+		return fmt.Errorf("missing x-dagger-local-export-dest")
+	}
+	if len(destVal) != 1 {
+		return fmt.Errorf("expected exactly one x-dagger-local-export-dest")
+	}
+	dest := destVal[0]
+
+	if err := os.MkdirAll(dest, 0700); err != nil {
+		return fmt.Errorf("failed to create synctarget dest dir %s: %w", dest, err)
+	}
+	return fsutil.Receive(stream.Context(), stream, dest, fsutil.ReceiveOpt{
+		Merge: true,
+		Filter: func() func(string, *fstypes.Stat) bool {
+			uid := os.Getuid()
+			gid := os.Getgid()
+			return func(p string, st *fstypes.Stat) bool {
+				st.Uid = uint32(uid)
+				st.Gid = uint32(gid)
+				return true
+			}
+		}(),
+	})
 }

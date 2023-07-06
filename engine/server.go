@@ -168,7 +168,9 @@ func (s *ServerSession) Run(ctx context.Context) (*frontend.Result, error) {
 					s.CacheConfigType,
 					s.CacheConfigAttrs,
 				),
-				Platform: s.worker.Platforms(true)[0],
+				Platform:       s.worker.Platforms(true)[0],
+				Worker:         s.worker,
+				SessionManager: s.sessionManager,
 				/* TODO: re-add
 				Auth:     registryAuth,
 				Secrets:  secretStore,

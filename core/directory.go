@@ -12,13 +12,19 @@ import (
 
 	"github.com/dagger/dagger/core/pipeline"
 	"github.com/dagger/dagger/router"
+	bkcache "github.com/moby/buildkit/cache"
+	bkclient "github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb"
 	bkgw "github.com/moby/buildkit/frontend/gateway/client"
+	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/solver/pb"
+	solverresult "github.com/moby/buildkit/solver/result"
+	"github.com/moby/buildkit/worker"
 	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	fstypes "github.com/tonistiigi/fsutil/types"
+	"google.golang.org/grpc/metadata"
 )
 
 // Directory is a content-addressed directory.
@@ -537,8 +543,73 @@ func (dir *Directory) Export(
 	ctx context.Context,
 	host *Host,
 	dest string,
+	sessionID string, // TODO: use sessionID in host?
+	gw *GatewayClient,
+	w worker.Worker,
+	sm *session.Manager,
 ) error {
-	panic("reimplement directory.Export")
+	exp, err := w.Exporter(bkclient.ExporterLocal, sm)
+	if err != nil {
+		return fmt.Errorf("failed to create exporter: %s", err)
+	}
+	expInstance, err := exp.Resolve(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to resolve exporter: %s", err)
+	}
+
+	src, err := dir.State()
+	if err != nil {
+		return err
+	}
+	var defPB *pb.Definition
+	if dir.Dir != "" {
+		src = llb.Scratch().File(llb.Copy(src, dir.Dir, ".", &llb.CopyInfo{
+			CopyDirContentsOnly: true,
+		}))
+
+		def, err := src.Marshal(ctx, llb.Platform(dir.Platform))
+		if err != nil {
+			return err
+		}
+
+		defPB = def.ToPB()
+	} else {
+		defPB = dir.LLB
+	}
+
+	res, err := gw.Solve(ctx, bkgw.SolveRequest{
+		Evaluate:   true,
+		Definition: defPB,
+	}, sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to solve: %s", err)
+	}
+	// TODO: make a helper for this
+	cacheRes, err := solverresult.ConvertResult(res, func(rf *ref) (bkcache.ImmutableRef, error) {
+		cachedRes, err := rf.Result(ctx)
+		if err != nil {
+			return nil, err
+		}
+		workerRef, ok := cachedRes.Sys().(*worker.WorkerRef)
+		if !ok {
+			return nil, fmt.Errorf("invalid ref: %T", cachedRes.Sys())
+		}
+		return workerRef.ImmutableRef, nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to convert result: %s", err)
+	}
+
+	// TODO: make opt a const
+	ctx = metadata.NewOutgoingContext(ctx, map[string][]string{
+		"x-dagger-local-export-dest": {dest},
+	})
+	_, _, err = expInstance.Export(ctx, cacheRes, sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to export: %s", err)
+	}
+	return nil
+
 	/*
 		dest, err := host.NormalizeDest(dest)
 		if err != nil {

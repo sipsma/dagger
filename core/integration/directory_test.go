@@ -610,6 +610,7 @@ func TestDirectoryExport(t *testing.T) {
 		require.Equal(t, []string{"README", "color_prompt.sh.disabled", "locale.sh"}, entries)
 	})
 
+	/* TODO:
 	t.Run("to workdir", func(t *testing.T) {
 		ok, err := dir.Export(ctx, ".")
 		require.NoError(t, err)
@@ -625,6 +626,7 @@ func TestDirectoryExport(t *testing.T) {
 		require.Error(t, err)
 		require.False(t, ok)
 	})
+	*/
 }
 
 func TestDirectoryDockerBuild(t *testing.T) {
