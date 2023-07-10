@@ -3,7 +3,6 @@ package schema
 import (
 	"encoding/json"
 	"fmt"
-	"runtime/debug"
 
 	"github.com/dagger/dagger/core"
 	"github.com/dagger/dagger/core/pipeline"
@@ -65,12 +64,6 @@ func (ScalarResolver) _resolver() {}
 // into a graphql resolver graphql.FieldResolveFn.
 func ToResolver[P any, A any, R any](f func(*core.Context, P, A) (R, error)) graphql.FieldResolveFn {
 	return func(p graphql.ResolveParams) (any, error) {
-		defer func() {
-			if err := recover(); err != nil {
-				panic(string(debug.Stack()))
-			}
-		}()
-
 		recorder := progrock.RecorderFromContext(p.Context)
 
 		var args A

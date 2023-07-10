@@ -8,6 +8,7 @@ import (
 
 	"github.com/moby/buildkit/session/filesync"
 	"github.com/moby/buildkit/util/bklog"
+	"github.com/tonistiigi/fsutil"
 	filesynctypes "github.com/tonistiigi/fsutil/types"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
@@ -35,6 +36,21 @@ func (p *fileSyncServerProxy) DiffCopy(stream filesync.FileSync_DiffCopyServer) 
 	if opts == nil {
 		return fmt.Errorf("expected import local dir opts")
 	}
+
+	// handle corner case where we are importing from the engine server by directly
+	// calling import rather than proxying
+	if opts.sessionID == p.sm.ID() {
+		baseProvider := filesync.NewFSSyncProvider(AnyDirSource{})
+		provider, ok := baseProvider.(filesync.FileSyncServer)
+		if !ok {
+			return fmt.Errorf("unexpected provider type: %T", baseProvider)
+		}
+		return provider.DiffCopy(&fileSyncDiffCopyServerWithContext{
+			FileSync_DiffCopyServer: stream,
+			ctx:                     ctx,
+		})
+	}
+
 	diffCopyClient, err := filesync.NewFileSyncClient(opts.session.Conn()).DiffCopy(ctx)
 	if err != nil {
 		return err
@@ -56,7 +72,7 @@ func (p *fileSyncServerProxy) DiffCopy(stream filesync.FileSync_DiffCopyServer) 
 			}
 		}()
 		for {
-			pkt, err := withContext(ctx, func() (*filesynctypes.Packet, error) {
+			pkt, err := withContextCancellation(ctx, func() (*filesynctypes.Packet, error) {
 				var pkt filesynctypes.Packet
 				err := stream.RecvMsg(&pkt)
 				return &pkt, err
@@ -81,7 +97,7 @@ func (p *fileSyncServerProxy) DiffCopy(stream filesync.FileSync_DiffCopyServer) 
 			cancel()
 		}()
 		for {
-			pkt, err := withContext(ctx, func() (*filesynctypes.Packet, error) {
+			pkt, err := withContextCancellation(ctx, func() (*filesynctypes.Packet, error) {
 				var pkt filesynctypes.Packet
 				err := diffCopyClient.RecvMsg(&pkt)
 				return &pkt, err
@@ -124,7 +140,7 @@ func (p *fileSyncServerProxy) TarStream(stream filesync.FileSync_TarStreamServer
 			}
 		}()
 		for {
-			pkt, err := withContext(ctx, func() (*filesynctypes.Packet, error) {
+			pkt, err := withContextCancellation(ctx, func() (*filesynctypes.Packet, error) {
 				var pkt filesynctypes.Packet
 				err := stream.RecvMsg(&pkt)
 				return &pkt, err
@@ -147,7 +163,7 @@ func (p *fileSyncServerProxy) TarStream(stream filesync.FileSync_TarStreamServer
 			}
 		}()
 		for {
-			pkt, err := withContext(ctx, func() (*filesynctypes.Packet, error) {
+			pkt, err := withContextCancellation(ctx, func() (*filesynctypes.Packet, error) {
 				var pkt filesynctypes.Packet
 				err := tarStreamClient.RecvMsg(&pkt)
 				return &pkt, err
@@ -180,13 +196,6 @@ func (p *fileSendServerProxy) DiffCopy(stream filesync.FileSend_DiffCopyServer) 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// TODO:
-	// TODO:
-	// TODO:
-	// TODO:
-	bklog.G(ctx).Debugf("DIFFCOPY START")
-	defer bklog.G(ctx).Debugf("DIFFCOPY DONE: %v", rerr)
-
 	opts := baseData.exportLocalDirData
 	if opts == nil {
 		return fmt.Errorf("expected export local dir opts")
@@ -207,7 +216,7 @@ func (p *fileSendServerProxy) DiffCopy(stream filesync.FileSend_DiffCopyServer) 
 			}
 		}()
 		for {
-			pkt, err := withContext(ctx, func() (*filesynctypes.Packet, error) {
+			pkt, err := withContextCancellation(ctx, func() (*filesynctypes.Packet, error) {
 				var pkt filesynctypes.Packet
 				err := stream.RecvMsg(&pkt)
 				return &pkt, err
@@ -215,11 +224,6 @@ func (p *fileSendServerProxy) DiffCopy(stream filesync.FileSend_DiffCopyServer) 
 			if err != nil {
 				return err
 			}
-			// TODO:
-			// TODO:
-			// TODO:
-			// TODO:
-			bklog.G(ctx).Debugf("DIFFCOPY STREAM RECV: %+v", pkt)
 			if err := diffCopyClient.SendMsg(pkt); err != nil {
 				return err
 			}
@@ -235,7 +239,7 @@ func (p *fileSendServerProxy) DiffCopy(stream filesync.FileSend_DiffCopyServer) 
 			}
 		}()
 		for {
-			pkt, err := withContext(ctx, func() (*filesynctypes.Packet, error) {
+			pkt, err := withContextCancellation(ctx, func() (*filesynctypes.Packet, error) {
 				var pkt filesynctypes.Packet
 				err := diffCopyClient.RecvMsg(&pkt)
 				return &pkt, err
@@ -243,11 +247,6 @@ func (p *fileSendServerProxy) DiffCopy(stream filesync.FileSend_DiffCopyServer) 
 			if err != nil {
 				return err
 			}
-			// TODO:
-			// TODO:
-			// TODO:
-			// TODO:
-			bklog.G(ctx).Debugf("DIFFCOPY CLIENT RECV: %+v", pkt)
 			if err := stream.SendMsg(pkt); err != nil {
 				return err
 			}
@@ -256,10 +255,24 @@ func (p *fileSendServerProxy) DiffCopy(stream filesync.FileSend_DiffCopyServer) 
 	return eg.Wait()
 }
 
-// withContext adapts a blocking function to a context-aware function. It's
+// for direct (un-proxied) local dir imports
+type AnyDirSource struct{}
+
+func (AnyDirSource) LookupDir(name string) (filesync.SyncedDir, bool) {
+	return filesync.SyncedDir{
+		Dir: name,
+		Map: func(p string, st *filesynctypes.Stat) fsutil.MapResult {
+			st.Uid = 0
+			st.Gid = 0
+			return fsutil.MapResultKeep
+		},
+	}, true
+}
+
+// withContextCancellation adapts a blocking function to a context-aware function. It's
 // up to the caller to ensure that the blocking function f will unblock at
 // some time, otherwise there can be a goroutine leak.
-func withContext[T any](ctx context.Context, f func() (T, error)) (T, error) {
+func withContextCancellation[T any](ctx context.Context, f func() (T, error)) (T, error) {
 	type result struct {
 		v   T
 		err error
@@ -276,4 +289,13 @@ func withContext[T any](ctx context.Context, f func() (T, error)) (T, error) {
 	case r := <-ch:
 		return r.v, r.err
 	}
+}
+
+type fileSyncDiffCopyServerWithContext struct {
+	filesync.FileSync_DiffCopyServer
+	ctx context.Context
+}
+
+func (s *fileSyncDiffCopyServerWithContext) Context() context.Context {
+	return s.ctx
 }

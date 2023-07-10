@@ -82,8 +82,8 @@ func Connect(ctx context.Context, params SessionParams) (_ *Session, rerr error)
 	}
 
 	// TODO: this is only needed temporarily to work around issue w/
-	// `dagger do` and `dagger project` not picking up env set by nesting
-	// (which impacts project tests). Remove ASAP
+	// `dagger do` and `dagger environment` not picking up env set by nesting
+	// (which impacts environment tests). Remove ASAP
 	if v, ok := os.LookupEnv("_DAGGER_SERVER_ID"); ok {
 		s.ServerID = v
 	}
@@ -132,7 +132,7 @@ func Connect(ctx context.Context, params SessionParams) (_ *Session, rerr error)
 
 	// filesync
 	if !s.DisableHostRW {
-		bkSession.Allow(filesync.NewFSSyncProvider(AnyDirSource{}))
+		bkSession.Allow(filesync.NewFSSyncProvider(session.AnyDirSource{}))
 		bkSession.Allow(AnyDirTarget{})
 	}
 
@@ -308,29 +308,31 @@ func (s *Session) FrontendOpts() server.FrontendOpts {
 }
 
 func (s *Session) DialContext(ctx context.Context, _, _ string) (net.Conn, error) {
+	host := s.RunnerHost
 	if s.DaggerHost != "" {
-		fmt.Fprintf(os.Stderr, "IM DIALIN %s\n", s.DaggerHost)
-		u, err := url.Parse(s.DaggerHost)
-		if err != nil {
-			return nil, fmt.Errorf("parse runner host: %w", err)
-		}
-		switch u.Scheme {
-		case "unix":
-			deadline, ok := ctx.Deadline()
-			if !ok {
-				deadline = time.Now().Add(10 * time.Second)
-			}
-			return net.DialTimeout("unix", u.Path, time.Until(deadline))
-		default:
-			return nil, fmt.Errorf("%s not supported yet for dialing engine server", u.Scheme)
-		}
+		host = s.DaggerHost
 	}
-	fmt.Fprintf(os.Stderr, "OH NO IM DIALIN %s\n", s.RunnerHost)
 
-	u, err := url.Parse(s.RunnerHost)
+	u, err := url.Parse(host)
 	if err != nil {
 		return nil, fmt.Errorf("parse runner host: %w", err)
 	}
+	switch u.Scheme {
+	case "tcp":
+		deadline, ok := ctx.Deadline()
+		if !ok {
+			deadline = time.Now().Add(10 * time.Second)
+		}
+		return net.DialTimeout("tcp", u.Host, time.Until(deadline))
+	case "unix":
+		deadline, ok := ctx.Deadline()
+		if !ok {
+			deadline = time.Now().Add(10 * time.Second)
+		}
+		return net.DialTimeout("unix", u.Path, time.Until(deadline))
+	default:
+	}
+
 	queryStrs := u.Query()
 	queryStrs.Add("addr", s.FrontendOpts().ServerAddr())
 	u.RawQuery = queryStrs.Encode()
@@ -339,9 +341,8 @@ func (s *Session) DialContext(ctx context.Context, _, _ string) (net.Conn, error
 		return nil, fmt.Errorf("get connection helper: %w", err)
 	}
 	if connHelper == nil {
-		return nil, fmt.Errorf("no connection helper for %s", u.String())
+		return nil, fmt.Errorf("unsupported scheme in %s", u.String())
 	}
-
 	return connHelper.ContextDialer(ctx, "")
 }
 
@@ -401,20 +402,22 @@ func (s *Session) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, err := s.httpClient.Do(newReq)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+		w.WriteHeader(http.StatusBadGateway)
 		w.Write([]byte("http do: " + err.Error()))
 		return
 	}
 	defer resp.Body.Close()
+	_, err = io.Copy(w, resp.Body)
+	if err != nil {
+		w.WriteHeader(http.StatusBadGateway)
+		w.Write([]byte("io copy: " + err.Error()))
+		return
+	}
 	for k, v := range resp.Header {
 		w.Header()[k] = v
 	}
-	w.WriteHeader(resp.StatusCode)
-	_, err = io.Copy(w, resp.Body)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("io copy: " + err.Error()))
-		return
+	if resp.StatusCode != http.StatusOK {
+		w.WriteHeader(resp.StatusCode)
 	}
 }
 
@@ -438,20 +441,6 @@ func (c DoerWithHeaders) Do(req *http.Request) (*http.Response, error) {
 		req.Header[k] = v
 	}
 	return c.inner.Do(req)
-}
-
-// Local dir imports
-type AnyDirSource struct{}
-
-func (AnyDirSource) LookupDir(name string) (filesync.SyncedDir, bool) {
-	return filesync.SyncedDir{
-		Dir: name,
-		Map: func(p string, st *fstypes.Stat) fsutil.MapResult {
-			st.Uid = 0
-			st.Gid = 0
-			return fsutil.MapResultKeep
-		},
-	}, true
 }
 
 // Local dir exports
