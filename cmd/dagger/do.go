@@ -29,10 +29,10 @@ const (
 )
 
 func init() {
-	doCmd.PersistentFlags().StringVarP(&outputPath, "output", "o", "", "If the command returns a file or directory, it will be written to this path. If --output is not specified, the file or directory will be written to the project's root directory when using a project loaded from a local dir.")
+	doCmd.PersistentFlags().StringVarP(&outputPath, "output", "o", "", "If the command returns a file or directory, it will be written to this path. If --output is not specified, the file or directory will be written to the environment's root directory when using a environment loaded from a local dir.")
 }
 
-// project flags (--project) for do command are setup in project.go
+// environment flags (--environment) for do command are setup in env.go
 
 var doCmd = &cobra.Command{
 	Use:                "do",
@@ -50,14 +50,6 @@ var doCmd = &cobra.Command{
 		dynamicCmdArgs := flags.Args()
 
 		return withEngineAndTUI(cmd.Context(), client.SessionParams{}, func(ctx context.Context, sess *client.Session) error {
-			// TODO:
-			// TODO:
-			// TODO:
-			// TODO:
-			// TODO:
-			fmt.Fprintf(os.Stderr, "TODO: RUNNIN DO COMMAND\n")
-			defer fmt.Fprintf(os.Stderr, "TODO: DONE RUNNING DO COMMAND\n")
-
 			rec := progrock.RecorderFromContext(ctx)
 			vtx := rec.Vertex("do", strings.Join(os.Args, " "))
 			if !silent {
@@ -66,7 +58,7 @@ var doCmd = &cobra.Command{
 			}
 			defer func() { vtx.Done(err) }()
 
-			cmd.Println("Loading+installing project...")
+			cmd.Println("Loading+installing environment...")
 
 			opts := []dagger.ClientOpt{
 				dagger.WithConn(EngineConn(sess)),
@@ -77,29 +69,29 @@ var doCmd = &cobra.Command{
 			}
 			defer c.Close()
 
-			proj, err := getProjectFlagConfig()
+			env, err := getEnvironmentFlagConfig()
 			if err != nil {
-				return fmt.Errorf("failed to get project config: %w", err)
+				return fmt.Errorf("failed to get environment config: %w", err)
 			}
-			if proj.local != nil && outputPath == "" {
-				// default to outputting to the project root dir
-				rootDir, err := proj.local.rootDir()
+			if env.local != nil && outputPath == "" {
+				// default to outputting to the environment root dir
+				rootDir, err := env.local.rootDir()
 				if err != nil {
-					return fmt.Errorf("failed to get project root dir: %w", err)
+					return fmt.Errorf("failed to get environment root dir: %w", err)
 				}
 				outputPath = rootDir
 			}
 
-			loadedProj, err := proj.load(ctx, c)
+			loadedProj, err := env.load(ctx, c)
 			if err != nil {
-				return fmt.Errorf("failed to load project: %w", err)
+				return fmt.Errorf("failed to load environment: %w", err)
 			}
-			projCmds, err := loadedProj.Commands(ctx)
+			envCmds, err := loadedProj.Commands(ctx)
 			if err != nil {
-				return fmt.Errorf("failed to get project commands: %w", err)
+				return fmt.Errorf("failed to get environment commands: %w", err)
 			}
-			for _, projCmd := range projCmds {
-				subCmds, err := addCmd(ctx, nil, projCmd, c, sess)
+			for _, envCmd := range envCmds {
+				subCmds, err := addCmd(ctx, nil, envCmd, c, sess)
 				if err != nil {
 					return fmt.Errorf("failed to add cmd: %w", err)
 				}
@@ -121,14 +113,15 @@ var doCmd = &cobra.Command{
 
 			if subCmd.Name() == cmd.Name() {
 				cmd.Println(subCmd.UsageString())
+				// TODO:
+				fmt.Fprintln(os.Stderr, subCmd.UsageString())
 				return fmt.Errorf("entrypoint not found or not set")
 			}
 			cmd.Printf("Running command %q...\n", subCmd.Name())
 			err = subCmd.Execute()
 			if err != nil {
-				cmd.PrintErrln("Error:", err.Error())
 				// TODO:
-				fmt.Fprintf(os.Stderr, "TODO: ERROR: %s\n", err.Error())
+				fmt.Fprintln(os.Stderr, "Error:", err.Error())
 				return fmt.Errorf("failed to execute subcmd: %w", err)
 			}
 			return nil
@@ -137,45 +130,49 @@ var doCmd = &cobra.Command{
 }
 
 // nolint:gocyclo
-func addCmd(ctx context.Context, cmdStack []*cobra.Command, projCmd dagger.ProjectCommand, c *dagger.Client, r *client.Session) ([]*cobra.Command, error) {
+func addCmd(ctx context.Context, cmdStack []*cobra.Command, envCmd dagger.EnvironmentCommand, c *dagger.Client, r *client.Session) ([]*cobra.Command, error) {
 	// TODO: this shouldn't be needed, there is a bug in our codegen for lists of objects. It should
 	// internally be doing this so it's not needed explicitly
-	projCmdID, err := projCmd.ID(ctx)
+	envCmdID, err := envCmd.ID(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cmd id: %w", err)
 	}
-	projCmd = *c.ProjectCommand(dagger.ProjectCommandOpts{ID: projCmdID})
+	envCmd = *c.EnvironmentCommand(dagger.EnvironmentCommandOpts{ID: envCmdID})
 
-	projCmdName, err := projCmd.Name(ctx)
+	envCmdName, err := envCmd.Name(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cmd name: %w", err)
 	}
-	description, err := projCmd.Description(ctx)
+	description, err := envCmd.Description(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cmd description: %w", err)
 	}
 
-	projResultType, err := projCmd.ResultType(ctx)
+	envResultType, err := envCmd.ResultType(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cmd result type: %w", err)
 	}
 
-	projFlags, err := projCmd.Flags(ctx)
+	envFlags, err := envCmd.Flags(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cmd flags: %w", err)
 	}
 
-	projSubcommands, err := projCmd.Subcommands(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get cmd subcommands: %w", err)
-	}
-	isLeafCmd := len(projSubcommands) == 0
+	// TODO:
+	/*
+		envSubcommands, err := envCmd.Subcommands(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get cmd subcommands: %w", err)
+		}
+	*/
+	var envSubcommands []dagger.EnvironmentCommand
+	isLeafCmd := len(envSubcommands) == 0
 
 	var parentCmd *cobra.Command
 	if len(cmdStack) > 0 {
 		parentCmd = cmdStack[len(cmdStack)-1]
 	}
-	cmdName := getCommandName(parentCmd, projCmdName)
+	cmdName := getCommandName(parentCmd, envCmdName)
 
 	// make a copy of cmdStack
 	cmdStack = append([]*cobra.Command{}, cmdStack...)
@@ -221,14 +218,14 @@ func addCmd(ctx context.Context, cmdStack []*cobra.Command, projCmd dagger.Proje
 					curSelection.SelectionSet = ast.SelectionSet{newSelection}
 					curSelection = newSelection
 				} else {
-					if outputPath == "" && returnTypeCanUseOutputFlag(projResultType) {
-						return fmt.Errorf("output path not set, --output must be explicitly provided for git:// projects that return files or directories")
+					if outputPath == "" && returnTypeCanUseOutputFlag(envResultType) {
+						return fmt.Errorf("output path not set, --output must be explicitly provided for git:// environments that return files or directories")
 					}
 					outputPath, err = filepath.Abs(outputPath)
 					if err != nil {
 						return fmt.Errorf("failed to get absolute path of output path: %w", err)
 					}
-					switch projResultType {
+					switch envResultType {
 					case "File":
 						curSelection.SelectionSet = ast.SelectionSet{&ast.Field{
 							Name: "export",
@@ -285,15 +282,11 @@ func addCmd(ctx context.Context, cmdStack []*cobra.Command, projCmd dagger.Proje
 			})
 			queryBytes := b.Bytes()
 
-			// TODO:
-			fmt.Fprintf(os.Stderr, "QUERY!\n%s\n", queryBytes)
-
 			resMap := map[string]any{}
 			err := r.Do(cmd.Context(), string(queryBytes), opName, queryVars, &resMap)
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(os.Stderr, "QUERY RES!\n%+v\n", resMap)
 			var res string
 			resSelection := resMap
 			for i, cmd := range cmdStack {
@@ -320,7 +313,7 @@ func addCmd(ctx context.Context, cmdStack []*cobra.Command, projCmd dagger.Proje
 	if parentCmd != nil {
 		subcmd.Flags().AddFlagSet(parentCmd.Flags())
 	}
-	for _, flag := range projFlags {
+	for _, flag := range envFlags {
 		flagName, err := flag.Name(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get flag name: %w", err)
@@ -333,7 +326,7 @@ func addCmd(ctx context.Context, cmdStack []*cobra.Command, projCmd dagger.Proje
 		commandAnnotations(subcmd.Annotations).addCommandSpecificFlag(flagName)
 	}
 	returnCmds := []*cobra.Command{subcmd}
-	for _, subProjCmd := range projSubcommands {
+	for _, subProjCmd := range envSubcommands {
 		subCmds, err := addCmd(ctx, cmdStack, subProjCmd, c, r)
 		if err != nil {
 			return nil, err

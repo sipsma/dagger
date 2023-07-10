@@ -253,6 +253,14 @@ func (c *Client) LocalExport(
 	return c.sessionManager.LocalExport(ctx, cacheRes, destPath)
 }
 
+func (c *Client) EngineServerDirectoryLoadCtx(ctx context.Context) (context.Context, error) {
+	serverID, _, err := session.SessionMetadataFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return session.ContextWithSessionMetadata(ctx, serverID, c.sessionManager.ID()), nil
+}
+
 func newRef(res solver.ResultProxy, c *Client) *ref {
 	return &ref{
 		resultProxy: res,

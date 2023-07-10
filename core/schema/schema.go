@@ -14,6 +14,8 @@ import (
 	"github.com/dagger/graphql"
 	tools "github.com/dagger/graphql-go-tools"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/vektah/gqlparser/v2"
+	"github.com/vektah/gqlparser/v2/ast"
 )
 
 type InitializeArgs struct {
@@ -44,7 +46,7 @@ func New(params InitializeArgs) (*MergedSchemas, error) {
 		&cacheSchema{merged},
 		&secretSchema{merged},
 		&hostSchema{merged, host},
-		&projectSchema{merged},
+		&environmentSchema{merged},
 		&httpSchema{merged},
 		&platformSchema{merged},
 		&socketSchema{merged, host},
@@ -182,50 +184,48 @@ func (s *staticSchema) Dependencies() []ExecutableSchema {
 }
 
 func mergeExecutableSchemas(name string, schemas ...ExecutableSchema) (ExecutableSchema, error) {
-	staticSchemas := make([]StaticSchemaParams, len(schemas))
-	for i, s := range schemas {
-		staticSchemas[i] = StaticSchemaParams{
-			Name:         s.Name(),
-			Schema:       s.Schema(),
-			Resolvers:    s.Resolvers(),
-			Dependencies: s.Dependencies(),
-		}
+	mergedSchema := StaticSchemaParams{
+		Name:      name,
+		Resolvers: Resolvers{},
 	}
-	merged := mergeSchemas(name, staticSchemas...)
-
-	merged.Resolvers = Resolvers{}
-	for _, s := range schemas {
-		for name, resolver := range s.Resolvers() {
+	for _, schema := range schemas {
+		mergedSchema.Schema += schema.Schema() + "\n"
+		for name, resolver := range schema.Resolvers() {
 			switch resolver := resolver.(type) {
 			case FieldResolvers:
-				if existing, ok := merged.Resolvers[name]; ok {
-					existing, ok := existing.(FieldResolvers)
-					if !ok {
-						return nil, fmt.Errorf("conflict on type %q: %w", name, ErrMergeTypeConflict)
-					}
-					for fieldName, fn := range existing.Fields() {
-						if _, ok := resolver.Fields()[fieldName]; ok {
-							return nil, fmt.Errorf("conflict on type %q: %q: %w", name, fieldName, ErrMergeFieldConflict)
-						}
-						resolver.SetField(fieldName, fn)
-					}
+				existing, alreadyExisted := mergedSchema.Resolvers[name]
+				if !alreadyExisted {
+					existing = resolver
 				}
-				merged.Resolvers[name] = resolver
+				existingObject, ok := existing.(FieldResolvers)
+				if !ok {
+					return nil, fmt.Errorf("unexpected resolver type %T", existing)
+				}
+				for fieldName, fieldResolveFn := range resolver.Fields() {
+					if alreadyExisted {
+						// check for field conflicts if we are merging more fields into the existing object
+						if _, ok := existingObject.Fields()[fieldName]; ok {
+							return nil, fmt.Errorf("conflict on type %q field %q: %w", name, fieldName, ErrMergeFieldConflict)
+						}
+					}
+					existingObject.SetField(fieldName, fieldResolveFn)
+				}
+				mergedSchema.Resolvers[name] = existingObject
 			case ScalarResolver:
-				if existing, ok := merged.Resolvers[name]; ok {
+				if existing, ok := mergedSchema.Resolvers[name]; ok {
 					if _, ok := existing.(ScalarResolver); !ok {
 						return nil, fmt.Errorf("conflict on type %q: %w", name, ErrMergeTypeConflict)
 					}
 					return nil, fmt.Errorf("conflict on type %q: %w", name, ErrMergeScalarConflict)
 				}
-				merged.Resolvers[name] = resolver
+				mergedSchema.Resolvers[name] = resolver
 			default:
-				panic(resolver)
+				return nil, fmt.Errorf("unexpected resolver type %T", resolver)
 			}
 		}
 	}
 
-	return StaticSchema(merged), nil
+	return StaticSchema(mergedSchema), nil
 }
 
 func mergeSchemas(name string, schemas ...StaticSchemaParams) StaticSchemaParams {
@@ -241,6 +241,12 @@ func mergeSchemas(name string, schemas ...StaticSchemaParams) StaticSchemaParams
 }
 
 func compile(s ExecutableSchema) (*graphql.Schema, error) {
+	// gqlparser has actual validation and errors, unlike the graphql-go library
+	_, err := gqlparser.LoadSchema(&ast.Source{Input: s.Schema()})
+	if err != nil {
+		return nil, fmt.Errorf("schema validation failed: %w\n%s", err, s.Schema())
+	}
+
 	typeResolvers := tools.ResolverMap{}
 	for name, resolver := range s.Resolvers() {
 		switch resolver := resolver.(type) {

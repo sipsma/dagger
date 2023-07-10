@@ -71,7 +71,7 @@ func (s SDKTargets) Python(ctx dagger.Context) (PythonTargets, error) {
 // Lint the Dagger Python SDK
 func (p PythonTargets) Lint(ctx dagger.Context, foo string) (string, error) {
 	// TODO: would be cool to write this in python... need support for mixed
-	// languages in single project (or project nesting type thing)
+	// languages in single environment (or environment nesting type thing)
 
 	// TODO: pipeline should be automatically set
 	c := ctx.Client().Pipeline("sdk").Pipeline("python").Pipeline("lint")

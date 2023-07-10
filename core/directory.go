@@ -15,7 +15,6 @@ import (
 	"github.com/moby/buildkit/client/llb"
 	bkgw "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/solver/pb"
-	"github.com/moby/buildkit/util/bklog"
 	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
@@ -442,7 +441,8 @@ func mergeStates(input mergeStateInput) llb.State {
 		copyInfo.ChownOpt == nil &&
 		len(copyInfo.ExcludePatterns) == 0 &&
 		len(copyInfo.IncludePatterns) == 0 &&
-		input.DestDir == input.SrcDir &&
+		input.DestDir == "/" &&
+		input.SrcDir == "/" &&
 		// TODO:(sipsma) we could support direct merge-op with individual files if we can verify
 		// there are no other files in the dir, but doing so by just calling ReadDir would result
 		// in unlazying the inputs, which defeats some of the performance benefits of merge-op.
@@ -576,13 +576,6 @@ func (dir *Directory) Export(
 	host *Host,
 	destPath string,
 ) (rerr error) {
-	// TODO:
-	// TODO:
-	// TODO:
-	// TODO:
-	bklog.G(ctx).Debugf("DIRECTORY EXPORT START")
-	defer bklog.G(ctx).Debugf("DIRECTORY EXPORT END: %v", rerr)
-
 	// TODO: wrap in services
 
 	var defPB *pb.Definition

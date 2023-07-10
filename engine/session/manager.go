@@ -185,13 +185,6 @@ func (sm *Manager) LocalLLBName(ctx context.Context, path string) (string, error
 }
 
 func (sm *Manager) LocalExport(ctx context.Context, res *exporter.Source, destPath string) (rerr error) {
-	// TODO:
-	// TODO:
-	// TODO:
-	// TODO:
-	bklog.G(ctx).Debugf("LOCAL EXPORT START")
-	defer bklog.G(ctx).Debugf("LOCAL EXPORT END: %v", rerr)
-
 	exporter, err := sm.worker.Exporter(bkclient.ExporterLocal, sm.bkSessionManager)
 	if err != nil {
 		return err
@@ -242,8 +235,9 @@ type sessionData struct {
 }
 
 type importLocalDirData struct {
-	session session.Caller
-	path    string
+	session   session.Caller
+	sessionID string
+	path      string
 }
 
 type exportLocalDirData struct {
@@ -256,14 +250,6 @@ func (sm *Manager) Get(stream grpc.ServerStream) (context.Context, *sessionData,
 	if !ok {
 		return nil, nil, fmt.Errorf("missing metadata")
 	}
-
-	// TODO:
-	// TODO:
-	// TODO:
-	// TODO:
-	fmt.Fprintf(os.Stderr, "SESSIONMANAGER GET - INCOMING MD!!!: %+v\n", md)
-	outgoingMD, _ := metadata.FromOutgoingContext(stream.Context())
-	fmt.Fprintf(os.Stderr, "SESSIONMANAGER GET - OUTGOING MD!!!: %+v\n", outgoingMD)
 
 	getVal := func(key string) (string, error) {
 		vals, ok := md[key]
@@ -302,11 +288,11 @@ func (sm *Manager) Get(stream grpc.ServerStream) (context.Context, *sessionData,
 	if localDirImportDirName != "" {
 		jsonBytes, err := base64.URLEncoding.DecodeString(localDirImportDirName)
 		if err != nil {
-			return nil, nil, fmt.Errorf("invalid import local dir name: %q", localDirImportDirNameMetaKey)
+			return nil, nil, fmt.Errorf("failed to base64 decode import local dir name %q: %w", localDirImportDirName, err)
 		}
 		var opts localImportOpts
 		if err := json.Unmarshal(jsonBytes, &opts); err != nil {
-			return nil, nil, fmt.Errorf("invalid import local dir name: %q", localDirImportDirNameMetaKey)
+			return nil, nil, fmt.Errorf("failed to unmarshal import local dir opts %s: %w", localDirImportDirName, err)
 		}
 		sessData.serverID = opts.ServerID
 		sess, err := sm.bkSessionManager.Get(stream.Context(), opts.OwnerSessionID, false)
@@ -314,8 +300,9 @@ func (sm *Manager) Get(stream grpc.ServerStream) (context.Context, *sessionData,
 			return nil, nil, err
 		}
 		sessData.importLocalDirData = &importLocalDirData{
-			session: sess,
-			path:    opts.Path,
+			session:   sess,
+			sessionID: opts.OwnerSessionID,
+			path:      opts.Path,
 		}
 		// TODO: validation that requester has access
 		md[localDirImportDirNameMetaKey] = []string{sessData.importLocalDirData.path}
