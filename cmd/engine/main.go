@@ -21,10 +21,6 @@ import (
 	"github.com/containerd/containerd/remotes/docker"
 	"github.com/containerd/containerd/sys"
 	sddaemon "github.com/coreos/go-systemd/v22/daemon"
-	"github.com/dagger/dagger/engine"
-	"github.com/dagger/dagger/engine/cache"
-	"github.com/dagger/dagger/engine/server"
-	"github.com/dagger/dagger/network"
 	"github.com/docker/docker/pkg/reexec"
 	"github.com/gofrs/flock"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
@@ -74,6 +70,11 @@ import (
 	tracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
+
+	"github.com/dagger/dagger/engine"
+	"github.com/dagger/dagger/engine/cache"
+	"github.com/dagger/dagger/engine/server"
+	"github.com/dagger/dagger/network"
 )
 
 const (

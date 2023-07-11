@@ -17,6 +17,7 @@ import (
 
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/images"
+	"github.com/containerd/containerd/pkg/transfer/archive"
 	"github.com/containerd/containerd/platforms"
 	"github.com/dagger/dagger/core/pipeline"
 	"github.com/dagger/dagger/engine/buildkit"
@@ -35,6 +36,8 @@ import (
 )
 
 var ErrContainerNoExec = errors.New("no command has been executed")
+
+const OCIStoreName = "dagger-oci"
 
 // Container is a content-addressed container.
 type Container struct {
@@ -1533,77 +1536,74 @@ func (container *Container) importUncached(
 	tag string,
 	store content.Store,
 ) (*Container, error) {
-	panic("reimplement container import")
-	/*
-		file, err := source.ToFile()
-		if err != nil {
-			return nil, err
-		}
+	file, err := source.ToFile()
+	if err != nil {
+		return nil, err
+	}
 
-		src, err := file.Open(ctx, host, bk)
-		if err != nil {
-			return nil, err
-		}
+	src, err := file.Open(ctx, host, bk)
+	if err != nil {
+		return nil, err
+	}
 
-		defer src.Close()
+	defer src.Close()
 
-		container = container.Clone()
+	container = container.Clone()
 
-		stream := archive.NewImageImportStream(src, "")
+	stream := archive.NewImageImportStream(src, "")
 
-		desc, err := stream.Import(ctx, store)
-		if err != nil {
-			return nil, fmt.Errorf("image archive import: %w", err)
-		}
+	desc, err := stream.Import(ctx, store)
+	if err != nil {
+		return nil, fmt.Errorf("image archive import: %w", err)
+	}
 
-		manifestDesc, err := resolveIndex(ctx, store, desc, container.Platform, tag)
-		if err != nil {
-			return nil, fmt.Errorf("image archive resolve index: %w", err)
-		}
+	manifestDesc, err := resolveIndex(ctx, store, desc, container.Platform, tag)
+	if err != nil {
+		return nil, fmt.Errorf("image archive resolve index: %w", err)
+	}
 
-		// NB: the repository portion of this ref doesn't actually matter, but it's
-		// pleasant to see something recognizable.
-		dummyRepo := "dagger/import"
+	// NB: the repository portion of this ref doesn't actually matter, but it's
+	// pleasant to see something recognizable.
+	dummyRepo := "dagger/import"
 
-		st := llb.OCILayout(
-			fmt.Sprintf("%s@%s", dummyRepo, manifestDesc.Digest),
-			llb.OCIStore("", engine.OCIStoreName),
-			llb.Platform(container.Platform),
-		)
+	st := llb.OCILayout(
+		fmt.Sprintf("%s@%s", dummyRepo, manifestDesc.Digest),
+		llb.OCIStore("", OCIStoreName),
+		llb.Platform(container.Platform),
+	)
 
-		execDef, err := st.Marshal(ctx, llb.Platform(container.Platform))
-		if err != nil {
-			return nil, fmt.Errorf("marshal root: %w", err)
-		}
+	execDef, err := st.Marshal(ctx, llb.Platform(container.Platform))
+	if err != nil {
+		return nil, fmt.Errorf("marshal root: %w", err)
+	}
 
-		container.FS = execDef.ToPB()
+	container.FS = execDef.ToPB()
 
-		manifestBlob, err := content.ReadBlob(ctx, store, *manifestDesc)
-		if err != nil {
-			return nil, fmt.Errorf("image archive read manifest blob: %w", err)
-		}
+	manifestBlob, err := content.ReadBlob(ctx, store, *manifestDesc)
+	if err != nil {
+		return nil, fmt.Errorf("image archive read manifest blob: %w", err)
+	}
 
-		var man specs.Manifest
-		err = json.Unmarshal(manifestBlob, &man)
-		if err != nil {
-			return nil, fmt.Errorf("image archive unmarshal manifest: %w", err)
-		}
+	var man specs.Manifest
+	err = json.Unmarshal(manifestBlob, &man)
+	if err != nil {
+		return nil, fmt.Errorf("image archive unmarshal manifest: %w", err)
+	}
 
-		configBlob, err := content.ReadBlob(ctx, store, man.Config)
-		if err != nil {
-			return nil, fmt.Errorf("image archive read image config blob %s: %w", man.Config.Digest, err)
-		}
+	configBlob, err := content.ReadBlob(ctx, store, man.Config)
+	if err != nil {
+		return nil, fmt.Errorf("image archive read image config blob %s: %w", man.Config.Digest, err)
+	}
 
-		var imgSpec specs.Image
-		err = json.Unmarshal(configBlob, &imgSpec)
-		if err != nil {
-			return nil, fmt.Errorf("load image config: %w", err)
-		}
+	var imgSpec specs.Image
+	err = json.Unmarshal(configBlob, &imgSpec)
+	if err != nil {
+		return nil, fmt.Errorf("load image config: %w", err)
+	}
 
-		container.Config = imgSpec.Config
+	container.Config = imgSpec.Config
 
-		return container, nil
-	*/
+	return container, nil
 }
 
 func (container *Container) HostnameOrErr() (string, error) {

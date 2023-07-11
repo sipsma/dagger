@@ -10,13 +10,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/Khan/genqlient/graphql"
-	"github.com/adrg/xdg"
-	"github.com/containerd/containerd/content"
-	"github.com/containerd/containerd/content/local"
 	"github.com/dagger/dagger/auth"
 	"github.com/dagger/dagger/core"
 	"github.com/dagger/dagger/engine/server"
@@ -28,7 +24,6 @@ import (
 	"github.com/moby/buildkit/client/connhelper"
 	"github.com/moby/buildkit/identity"
 	bksession "github.com/moby/buildkit/session"
-	sessioncontent "github.com/moby/buildkit/session/content"
 	"github.com/moby/buildkit/session/filesync"
 	"github.com/moby/buildkit/session/grpchijack"
 	"github.com/moby/buildkit/session/secrets/secretsprovider"
@@ -149,17 +144,6 @@ func Connect(ctx context.Context, params SessionParams) (_ *Session, rerr error)
 
 	// registry auth
 	bkSession.Allow(auth.NewRegistryAuthProvider(config.LoadDefaultConfigFile(os.Stderr)))
-
-	// oci stores
-	ociStoreDir := filepath.Join(xdg.CacheHome, "dagger", "oci")
-	ociStore, err := local.NewStore(ociStoreDir)
-	if err != nil {
-		return nil, fmt.Errorf("new local oci store: %w", err)
-	}
-	bkSession.Allow(sessioncontent.NewAttachable(map[string]content.Store{
-		// the "oci:" prefix is actually interpreted by buildkit, not just for show
-		"oci:" + OCIStoreName: ociStore,
-	}))
 
 	// TODO: more export attachables
 
