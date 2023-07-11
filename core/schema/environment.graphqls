@@ -56,12 +56,6 @@ type EnvironmentCommand {
   "A unique identifier for this command."
   id: EnvironmentCommandID!
 
-  "TODO"
-  runtime: ContainerID!
-
-  "TODO"
-  withRuntime(runtime: ContainerID!): EnvironmentCommand!
-
   "The name of the command."
   name: String!
 
