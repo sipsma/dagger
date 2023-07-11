@@ -86,7 +86,7 @@ func NewClient(
 	}
 }
 
-func (c *Client) Solve(ctx context.Context, req frontend.SolveRequest) (_ *Result, rerr error) {
+func (c *Client) Solve(ctx context.Context, req bkgw.SolveRequest) (_ *Result, rerr error) {
 	ctx = withOutgoingContext(ctx)
 	if c.cacheConfigType != "" {
 		req.CacheImports = []bkgw.CacheOptionsEntry{{
