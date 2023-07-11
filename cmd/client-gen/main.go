@@ -16,8 +16,6 @@ import (
 	gogenerator "github.com/dagger/dagger/codegen/generator/go"
 	nodegenerator "github.com/dagger/dagger/codegen/generator/nodejs"
 	"github.com/dagger/dagger/codegen/introspection"
-	"github.com/dagger/dagger/engine"
-	"github.com/dagger/dagger/engine/client"
 	"github.com/dagger/dagger/tracing"
 )
 
@@ -40,21 +38,11 @@ func init() {
 func ClientGen(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
-	// TODO: update for workdir not being a thing anymore
-	/*
-		engineConf := engine.Config{
-			Workdir:    workdir,
-			RunnerHost: internalengine.RunnerHost(),
+	if workdir != "" {
+		if err := os.Chdir(workdir); err != nil {
+			return err
 		}
-	*/
-
-	sess, err := client.Connect(ctx, client.SessionParams{
-		RunnerHost: engine.RunnerHost(),
-	})
-	if err != nil {
-		return err
 	}
-	defer sess.Close()
 
 	lang, err := getLang(cmd)
 	if err != nil {
@@ -66,12 +54,12 @@ func ClientGen(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	schema, err := generator.Introspect(ctx, sess)
+	introspectionSchema, err := generator.Introspect(ctx)
 	if err != nil {
 		return err
 	}
 
-	generated, err := generate(ctx, schema, generator.Config{
+	generated, err := generate(ctx, introspectionSchema, generator.Config{
 		Package: pkg,
 		Lang:    generator.SDKLang(lang),
 	})
@@ -152,8 +140,8 @@ func getPackage(cmd *cobra.Command) (string, error) {
 	return strings.ToLower(filepath.Base(directory)), nil
 }
 
-func generate(ctx context.Context, schema *introspection.Schema, cfg generator.Config) ([]byte, error) {
-	generator.SetSchemaParents(schema)
+func generate(ctx context.Context, introspectionSchema *introspection.Schema, cfg generator.Config) ([]byte, error) {
+	generator.SetSchemaParents(introspectionSchema)
 
 	var gen generator.Generator
 	switch cfg.Lang {
@@ -172,7 +160,7 @@ func generate(ctx context.Context, schema *introspection.Schema, cfg generator.C
 		return []byte{}, fmt.Errorf("use target SDK language: %s: %w", sdks, generator.ErrUnknownSDKLang)
 	}
 
-	return gen.Generate(ctx, schema)
+	return gen.Generate(ctx, introspectionSchema)
 }
 
 func main() {
