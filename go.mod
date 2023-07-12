@@ -64,6 +64,7 @@ require (
 	github.com/google/go-github/v50 v50.2.0
 	github.com/icholy/replace v0.6.0
 	github.com/jackpal/gateway v1.0.7
+	github.com/juju/ansiterm v1.0.0
 	github.com/mackerelio/go-osstat v0.2.4
 	github.com/mattn/go-isatty v0.0.18
 	github.com/muesli/termenv v0.15.1
@@ -163,6 +164,7 @@ require (
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
+	github.com/lunixbochs/vtclean v1.0.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
 	github.com/mattn/go-runewidth v0.0.14 // indirect
