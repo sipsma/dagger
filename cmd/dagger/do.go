@@ -52,43 +52,30 @@ var doCmd = &cobra.Command{
 		dynamicCmdArgs := flags.Args()
 
 		focus = doFocus
-		return withEngineAndTUI(cmd.Context(), client.SessionParams{}, func(ctx context.Context, sess *client.Session) error {
+		return withEngineAndTUI(cmd.Context(), client.SessionParams{}, func(ctx context.Context, sess *client.Session) (rerr error) {
 			rec := progrock.RecorderFromContext(ctx)
-			vtx := rec.Vertex("do", strings.Join(os.Args, " "))
+			vtx := rec.Vertex("cmd-loader", strings.Join(os.Args, " "))
 			if !silent {
 				cmd.SetOut(vtx.Stdout())
 				cmd.SetErr(vtx.Stderr())
 			}
-			defer func() { vtx.Done(err) }()
+			defer func() { vtx.Done(rerr) }()
 
-			cmd.Println("Loading+installing environment...")
-
-			opts := []dagger.ClientOpt{
-				dagger.WithConn(EngineConn(sess)),
-			}
-			c, err := dagger.Connect(ctx, opts...)
+			connect := vtx.Task("connecting to Dagger")
+			c, err := dagger.Connect(ctx, dagger.WithConn(EngineConn(sess)))
+			connect.Done(err)
 			if err != nil {
 				return fmt.Errorf("failed to connect to dagger: %w", err)
 			}
 			defer c.Close()
 
-			env, err := getEnvironmentFlagConfig()
+			load := vtx.Task("loading environment")
+			loadedProj, err := loadEnv(ctx, c)
+			load.Done(err)
 			if err != nil {
-				return fmt.Errorf("failed to get environment config: %w", err)
-			}
-			if env.local != nil && outputPath == "" {
-				// default to outputting to the environment root dir
-				rootDir, err := env.local.rootDir()
-				if err != nil {
-					return fmt.Errorf("failed to get environment root dir: %w", err)
-				}
-				outputPath = rootDir
+				return err
 			}
 
-			loadedProj, err := env.load(ctx, c)
-			if err != nil {
-				return fmt.Errorf("failed to load environment: %w", err)
-			}
 			envCmds, err := loadedProj.Commands(ctx)
 			if err != nil {
 				return fmt.Errorf("failed to get environment commands: %w", err)
@@ -116,8 +103,6 @@ var doCmd = &cobra.Command{
 
 			if subCmd.Name() == cmd.Name() {
 				cmd.Println(subCmd.UsageString())
-				// TODO:
-				fmt.Fprintln(os.Stderr, subCmd.UsageString())
 				return fmt.Errorf("entrypoint not found or not set")
 			}
 			cmd.Printf("Running command %q...\n", subCmd.Name())
