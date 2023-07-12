@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/containerd/containerd/content"
 	"github.com/dagger/dagger/core/pipeline"
 	"github.com/dagger/dagger/core/schema"
 	"github.com/dagger/dagger/engine"
@@ -35,6 +36,7 @@ type Server struct {
 	llbBridge      frontend.FrontendLLBBridge
 	worker         worker.Worker
 	sessionManager *session.Manager
+	ociStore       content.Store
 	bkClient       *buildkit.Client
 
 	startOnce sync.Once
@@ -101,7 +103,7 @@ func (s *Server) Run(ctx context.Context) (*frontend.Result, error) {
 				BuildkitClient: s.bkClient,
 				Platform:       s.worker.Platforms(true)[0],
 				ProgSockPath:   progSockPath,
-				OCIStore:       s.worker.ContentStore(),
+				OCIStore:       s.ociStore,
 				/* TODO:
 				Auth     *auth.RegistryAuthProvider
 				Secrets  *session.SecretStore

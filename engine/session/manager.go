@@ -85,7 +85,7 @@ type Manager struct {
 
 const OCIStoreName = "dagger-oci"
 
-func NewManager(ctx context.Context, w worker.Worker, bkSessionManager *session.Manager) (*Manager, error) {
+func NewManager(ctx context.Context, w worker.Worker, bkSessionManager *session.Manager, ociStore content.Store) (*Manager, error) {
 	sm := &Manager{
 		bkSessionManager: bkSessionManager,
 		worker:           w,
@@ -100,7 +100,7 @@ func NewManager(ctx context.Context, w worker.Worker, bkSessionManager *session.
 	sm.baseSession.Allow(&fileSyncServerProxy{sm})
 	sm.baseSession.Allow(sessioncontent.NewAttachable(map[string]content.Store{
 		// the "oci:" prefix is actually interpreted by buildkit, not just for show
-		"oci:" + OCIStoreName: w.ContentStore(),
+		"oci:" + OCIStoreName: ociStore,
 	}))
 	// TODO: this should proxy out to the right session, this is just to unblock dockerhub rate limits for now
 	sm.baseSession.Allow(auth.NewRegistryAuthProvider(config.LoadDefaultConfigFile(os.Stderr)))

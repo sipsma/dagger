@@ -5,8 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sync"
 
+	"github.com/adrg/xdg"
+	"github.com/containerd/containerd/content"
+	"github.com/containerd/containerd/content/local"
 	"github.com/dagger/dagger/engine/session"
 	"github.com/moby/buildkit/frontend"
 	bksession "github.com/moby/buildkit/session"
@@ -20,13 +24,19 @@ const (
 )
 
 func NewFrontend(ctx context.Context, w worker.Worker, bkSessionManager *bksession.Manager) (*Frontend, error) {
-	sessionManager, err := session.NewManager(ctx, w, bkSessionManager)
+	ociStoreDir := filepath.Join(xdg.CacheHome, "dagger", "oci")
+	ociStore, err := local.NewStore(ociStoreDir)
+	if err != nil {
+		return nil, fmt.Errorf("new local oci store: %w", err)
+	}
+	sessionManager, err := session.NewManager(ctx, w, bkSessionManager, ociStore)
 	if err != nil {
 		return nil, err
 	}
 	return &Frontend{
 		worker:         w,
 		sessionManager: sessionManager,
+		ociStore:       ociStore,
 		servers:        map[string]*Server{},
 	}, nil
 }
@@ -34,6 +44,7 @@ func NewFrontend(ctx context.Context, w worker.Worker, bkSessionManager *bksessi
 type Frontend struct {
 	worker         worker.Worker
 	sessionManager *session.Manager
+	ociStore       content.Store
 
 	// server id -> server
 	servers  map[string]*Server
@@ -66,6 +77,7 @@ func (f *Frontend) Solve(
 			llbBridge:        llbBridge,
 			worker:           f.worker,
 			sessionManager:   f.sessionManager,
+			ociStore:         f.ociStore,
 			connectedClients: map[string]bksession.Caller{},
 		}
 		f.servers[frontendOpts.ServerID] = srv
