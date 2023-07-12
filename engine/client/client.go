@@ -61,6 +61,9 @@ type SessionParams struct {
 
 type Session struct {
 	SessionParams
+
+	Recorder *progrock.Recorder
+
 	eg             *errgroup.Group
 	internalCancel context.CancelFunc
 
@@ -176,12 +179,7 @@ func Connect(ctx context.Context, params SessionParams) (_ *Session, rerr error)
 
 	bkSession.Allow(progRockAttachable{progMultiW})
 	recorder := progrock.NewRecorder(progMultiW)
-	defer func() {
-		// mark all groups completed
-		recorder.Complete()
-		// close the recorder so the UI exits
-		recorder.Close()
-	}()
+	s.Recorder = recorder
 
 	solveCh := make(chan *bkclient.SolveStatus)
 	s.eg.Go(func() error {
@@ -401,6 +399,11 @@ func (s *Session) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Session) Close() error {
+	// mark all groups completed
+	// close the recorder so the UI exits
+	s.Recorder.Complete()
+	s.Recorder.Close()
+
 	if s.internalCancel != nil {
 		s.internalCancel()
 		s.bkSession.Close()

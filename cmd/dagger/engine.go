@@ -96,6 +96,9 @@ func withEngineAndTUI(
 		return err
 	}
 	defer sess.Close()
+
+	ctx = progrock.RecorderToContext(ctx, sess.Recorder)
+
 	return fn(ctx, sess)
 }
 
@@ -142,6 +145,8 @@ func interactiveTUI(
 		return errors.Join(tuiErr, err)
 	}
 	defer sess.Close()
+
+	ctx = progrock.RecorderToContext(ctx, sess.Recorder)
 
 	err = fn(ctx, sess)
 	tuiErr := <-tuiDone
@@ -191,6 +196,9 @@ func inlineTUI(
 		return err
 	}
 	defer sess.Close()
+
+	ctx = progrock.RecorderToContext(ctx, sess.Recorder)
+
 	return fn(ctx, sess)
 }
 
