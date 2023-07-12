@@ -307,6 +307,12 @@ func (t Engine) Dev(ctx context.Context) error {
 		return fmt.Errorf("docker rm: %w: %s", err, output)
 	}
 
+	homedir, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	dockerCredDir := filepath.Join(homedir, ".docker")
+
 	runArgs := []string{
 		"run",
 		"-d",
@@ -345,7 +351,7 @@ func (t Engine) Dev(ctx context.Context) error {
 		// TODO:
 		// TODO:
 		// TODO:
-		"-v", "/home/sipsma/.docker:/root/.docker",
+		"-v", dockerCredDir + ":/root/.docker",
 		"--name", util.EngineContainerName,
 		"--privileged",
 	}
