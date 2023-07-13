@@ -125,16 +125,52 @@ func ListChecks(ctx context.Context, sess *client.Session, c *dagger.Client, loa
 		fmt.Fprintf(tw, "%s\t%s\n", termenv.String("check name").Bold(), termenv.String("description").Bold())
 	}
 
-	for _, check := range envChecks {
+	var printCheck func(*dagger.EnvironmentCheck) error
+	printCheck = func(check *dagger.EnvironmentCheck) error {
+
 		name, err := check.Name(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to get check name: %w", err)
 		}
+
 		descr, err := check.Description(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to get check description: %w", err)
 		}
 		fmt.Fprintf(tw, "%s\t%s\n", name, descr)
+		subChecks, err := check.Subchecks(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get check subchecks: %w", err)
+		}
+
+		for _, subCheck := range subChecks {
+			// TODO: this shouldn't be needed, there is a bug in our codegen for lists of objects. It should
+			// internally be doing this so it's not needed explicitly
+			subCheckID, err := subCheck.ID(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to get check id: %w", err)
+			}
+			subCheck = *c.EnvironmentCheck(dagger.EnvironmentCheckOpts{ID: subCheckID})
+			err = printCheck(&subCheck)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	for _, check := range envChecks {
+		// TODO: this shouldn't be needed, there is a bug in our codegen for lists of objects. It should
+		// internally be doing this so it's not needed explicitly
+		checkID, err := check.ID(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get check id: %w", err)
+		}
+		check = *c.EnvironmentCheck(dagger.EnvironmentCheckOpts{ID: checkID})
+		err = printCheck(&check)
+		if err != nil {
+			return err
+		}
 	}
 
 	return tw.Flush()

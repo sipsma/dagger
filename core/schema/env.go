@@ -18,6 +18,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/vektah/gqlparser/v2/parser"
+	"golang.org/x/sync/errgroup"
 )
 
 type environmentSchema struct {
@@ -71,6 +72,8 @@ func (s *environmentSchema) Resolvers() Resolvers {
 		},
 		"EnvironmentCheck": ObjectResolver{
 			"id":              ToResolver(s.checkID),
+			"subchecks":       ToResolver(s.subchecks),
+			"withSubcheck":    ToResolver(s.withSubcheck),
 			"withName":        ToResolver(s.withCheckName),
 			"withDescription": ToResolver(s.withCheckDescription),
 			"withFlag":        ToResolver(s.withCheckFlag),
@@ -458,6 +461,31 @@ func (s *environmentSchema) checkID(ctx *core.Context, parent *core.EnvironmentC
 	return parent.ID()
 }
 
+func (s *environmentSchema) subchecks(ctx *core.Context, parent *core.EnvironmentCheck, args any) ([]*core.EnvironmentCheck, error) {
+	var subchecks []*core.EnvironmentCheck
+	for _, subcheckID := range parent.Subchecks {
+		subcheck, err := core.NewEnvironmentCheck(subcheckID)
+		if err != nil {
+			return nil, err
+		}
+		subchecks = append(subchecks, subcheck)
+	}
+	return subchecks, nil
+}
+
+type withSubcheckArgs struct {
+	ID core.EnvironmentCheckID
+}
+
+func (s *environmentSchema) withSubcheck(ctx *core.Context, parent *core.EnvironmentCheck, args withSubcheckArgs) (*core.EnvironmentCheck, error) {
+	subcheck, err := core.NewEnvironmentCheck(args.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return parent.WithSubcheck(subcheck)
+}
+
 type withCheckNameArgs struct {
 	Name string
 }
@@ -495,7 +523,7 @@ func (s *environmentSchema) setCheckStringFlag(ctx *core.Context, parent *core.E
 	return parent.SetStringFlag(args.Name, args.Value)
 }
 
-func (s *environmentSchema) checkResult(ctx *core.Context, check *core.EnvironmentCheck, _ any) (*core.EnvironmentCheckResult, error) {
+func (s *environmentSchema) checkResult(ctx *core.Context, check *core.EnvironmentCheck, _ any) ([]*core.EnvironmentCheckResult, error) {
 	// TODO: codegen clients currently request every field when list of objects are returned, so we need to avoid doing expensive work
 	// here, right? Or if not then simplify this
 	// Or maybe graphql-go lets you return structs with methods that match the field names?
@@ -503,7 +531,7 @@ func (s *environmentSchema) checkResult(ctx *core.Context, check *core.Environme
 	if err != nil {
 		return nil, err
 	}
-	return &core.EnvironmentCheckResult{ParentCheck: checkID}, nil
+	return []*core.EnvironmentCheckResult{{ParentCheck: checkID}}, nil
 }
 
 func (s *environmentSchema) checkResultSuccess(ctx *core.Context, checkRes *core.EnvironmentCheckResult, _ any) (bool, error) {
@@ -532,6 +560,27 @@ func (s *environmentSchema) checkResultOutput(ctx *core.Context, checkRes *core.
 
 // private helper, not in schema
 func (s *environmentSchema) runCheck(ctx *core.Context, check *core.EnvironmentCheck) (*core.EnvironmentCheckResult, error) {
+	if len(check.Subchecks) > 0 {
+		// run them in parallel instead
+		var eg errgroup.Group
+		var results []*core.EnvironmentCheckResult
+		for i, subcheckID := range check.Subchecks {
+			i := i
+			subcheck, err := core.NewEnvironmentCheck(subcheckID)
+			if err != nil {
+				return nil, err
+			}
+			eg.Go(func() error {
+				res, err := s.runCheck(ctx, subcheck)
+				if err != nil {
+					return err
+				}
+				results[i] = res
+				return nil
+			})
+		}
+	}
+
 	// TODO: just for now, should namespace asap
 	parentObj := s.MergedSchemas.Schema().QueryType()
 	parentVal := map[string]any{}
