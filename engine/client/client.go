@@ -14,6 +14,7 @@ import (
 
 	"github.com/Khan/genqlient/graphql"
 	"github.com/dagger/dagger/auth"
+	"github.com/dagger/dagger/engine/server"
 	"github.com/dagger/dagger/telemetry"
 	"github.com/docker/cli/cli/config"
 	controlapi "github.com/moby/buildkit/api/services/control"
@@ -42,6 +43,7 @@ const DaggerFrontendName = "dagger.v0"
 const SessionIDHeader = "X-Dagger-Session-ID"
 const LocalDirExportDestPathMetaKey = "dagger-local-dir-export-dest-path"
 const DaggerFrontendSessionIDLabel = "dagger-frontend-session-id"
+const daggerFrontendOptsKey = "dagger_frontend_opts"
 
 type SessionParams struct {
 	// The id of the frontend server to connect to, or if blank a new one
@@ -206,13 +208,10 @@ func Connect(ctx context.Context, params SessionParams) (_ *Session, rerr error)
 		allowedEntitlements = append(allowedEntitlements, entitlements.EntitlementSecurityInsecure)
 	}
 
-	/* TODO:
 	frontendOptMap, err := s.FrontendOpts().ToSolveOpts()
 	if err != nil {
 		return nil, fmt.Errorf("frontend opts: %w", err)
 	}
-	*/
-	frontendOptMap := s.FrontendOpts()
 
 	// start the session server frontend if it's not already running
 	solveRef := identity.NewID()
@@ -286,20 +285,11 @@ func Connect(ctx context.Context, params SessionParams) (_ *Session, rerr error)
 	panic("unreachable")
 }
 
-/* TODO: hack to avoid import of server that leads to darwin build failures
 func (s *Session) FrontendOpts() server.FrontendOpts {
 	return server.FrontendOpts{
 		ServerID:        s.ServerID,
 		ClientSessionID: s.bkSession.ID(),
 		// TODO: cache configs
-	}
-}
-*/
-
-func (s *Session) FrontendOpts() map[string]string {
-	return map[string]string{
-		"server_id":         s.ServerID,
-		"client_session_id": s.bkSession.ID(),
 	}
 }
 
@@ -547,4 +537,47 @@ func (m MergedSocketProvider) ForwardAgent(stream sshforward.SSH_ForwardAgentSer
 		return err
 	}
 	return status.Errorf(codes.NotFound, "no ssh handler for id %s", id)
+}
+
+type FrontendOpts struct {
+	ServerID         string            `json:"server_id,omitempty"`
+	ClientSessionID  string            `json:"client_session_id,omitempty"`
+	CacheConfigType  string            `json:"cache_config_type,omitempty"`
+	CacheConfigAttrs map[string]string `json:"cache_config_attrs,omitempty"`
+}
+
+func (f FrontendOpts) ServerAddr() string {
+	return fmt.Sprintf("unix://%s", f.ServerSockPath())
+}
+
+func (f FrontendOpts) ServerSockPath() string {
+	return fmt.Sprintf("/run/dagger/server-%s.sock", f.ServerID)
+}
+
+func (f *FrontendOpts) FromSolveOpts(opts map[string]string) error {
+	strVal, ok := opts[daggerFrontendOptsKey]
+	if !ok {
+		return nil
+	}
+	err := json.Unmarshal([]byte(strVal), f)
+	if err != nil {
+		return err
+	}
+	if f.ServerID == "" {
+		return errors.New("missing server id from frontend opts")
+	}
+	return nil
+}
+
+func (f FrontendOpts) ToSolveOpts() (map[string]string, error) {
+	if f.ServerID == "" {
+		return nil, errors.New("missing server id from frontend opts")
+	}
+	b, err := json.Marshal(f)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{
+		daggerFrontendOptsKey: string(b),
+	}, nil
 }
