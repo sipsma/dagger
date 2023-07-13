@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"dagger.io/dagger"
-	"github.com/dagger/dagger/core"
 	"github.com/dagger/dagger/engine/client"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -56,7 +55,7 @@ var environmentCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to get environment: %w", err)
 		}
-		var cfg *core.EnvironmentConfig
+		var cfg *EnvironmentConfig
 		switch {
 		case env.local != nil:
 			cfg, err = env.local.config()
@@ -106,14 +105,14 @@ var environmentInitCmd = &cobra.Command{
 		if _, err := os.Stat(env.local.path); err == nil {
 			return fmt.Errorf("environment init config path already exists: %s", env.local.path)
 		}
-		switch core.EnvironmentSDK(sdk) {
-		case core.EnvironmentSDKGo, core.EnvironmentSDKPython:
+		switch EnvironmentSDK(sdk) {
+		case EnvironmentSDKGo, EnvironmentSDKPython:
 		default:
 			return fmt.Errorf("unsupported environment SDK: %s", sdk)
 		}
-		cfg := &core.EnvironmentConfig{
+		cfg := &EnvironmentConfig{
 			Name: environmentName,
-			SDK:  core.EnvironmentSDK(sdk),
+			SDK:  EnvironmentSDK(sdk),
 			Root: environmentRoot,
 		}
 		cfgBytes, err := json.MarshalIndent(cfg, "", "  ")
@@ -210,12 +209,12 @@ type localEnvironment struct {
 	path string
 }
 
-func (p localEnvironment) config() (*core.EnvironmentConfig, error) {
+func (p localEnvironment) config() (*EnvironmentConfig, error) {
 	configBytes, err := os.ReadFile(p.path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read local config file: %w", err)
 	}
-	var cfg core.EnvironmentConfig
+	var cfg EnvironmentConfig
 	if err := json.Unmarshal(configBytes, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse local config file: %w", err)
 	}
@@ -251,12 +250,12 @@ type gitEnvironment struct {
 	ref     string
 }
 
-func (p gitEnvironment) config(ctx context.Context, c *dagger.Client) (*core.EnvironmentConfig, error) {
+func (p gitEnvironment) config(ctx context.Context, c *dagger.Client) (*EnvironmentConfig, error) {
 	configStr, err := c.Git(p.repo).Branch(p.ref).Tree().File(p.subpath).Contents(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read git config file: %w", err)
 	}
-	var cfg core.EnvironmentConfig
+	var cfg EnvironmentConfig
 	if err := json.Unmarshal([]byte(configStr), &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse git config file: %w", err)
 	}
@@ -278,3 +277,16 @@ func (p gitEnvironment) load(ctx context.Context, c *dagger.Client) (*dagger.Env
 	}
 	return c.Environment().Load(c.Git(p.repo).Branch(p.ref).Tree().Directory(rootPath), subdirRelPath), nil
 }
+
+// TODO: dumb hack to get rid of import of core package, which has many levels deep dep on containerd/overlayutils that doesn't build for darwin
+
+type EnvironmentConfig struct {
+	Root string         `json:"root"`
+	Name string         `json:"name"`
+	SDK  EnvironmentSDK `json:"sdk,omitempty"`
+}
+
+type EnvironmentSDK string
+
+const EnvironmentSDKGo EnvironmentSDK = "go"
+const EnvironmentSDKPython EnvironmentSDK = "python"

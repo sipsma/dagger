@@ -14,9 +14,6 @@ import (
 
 	"github.com/Khan/genqlient/graphql"
 	"github.com/dagger/dagger/auth"
-	"github.com/dagger/dagger/core"
-	"github.com/dagger/dagger/engine/server"
-	"github.com/dagger/dagger/engine/session"
 	"github.com/dagger/dagger/telemetry"
 	"github.com/docker/cli/cli/config"
 	controlapi "github.com/moby/buildkit/api/services/control"
@@ -26,17 +23,25 @@ import (
 	bksession "github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/session/filesync"
 	"github.com/moby/buildkit/session/grpchijack"
-	"github.com/moby/buildkit/session/secrets/secretsprovider"
+	"github.com/moby/buildkit/session/sshforward"
 	"github.com/moby/buildkit/util/entitlements"
 	"github.com/tonistiigi/fsutil"
 	fstypes "github.com/tonistiigi/fsutil/types"
 	"github.com/vito/progrock"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 const OCIStoreName = "dagger-oci"
+
+// TODO: dumb hack to avoid importing server, fix
+const DaggerFrontendName = "dagger.v0"
+const SessionIDHeader = "X-Dagger-Session-ID"
+const LocalDirExportDestPathMetaKey = "dagger-local-dir-export-dest-path"
+const DaggerFrontendSessionIDLabel = "dagger-frontend-session-id"
 
 type SessionParams struct {
 	// The id of the frontend server to connect to, or if blank a new one
@@ -130,17 +135,19 @@ func Connect(ctx context.Context, params SessionParams) (_ *Session, rerr error)
 
 	// filesync
 	if !s.DisableHostRW {
-		bkSession.Allow(filesync.NewFSSyncProvider(session.AnyDirSource{}))
+		bkSession.Allow(filesync.NewFSSyncProvider(AnyDirSource{}))
 		bkSession.Allow(AnyDirTarget{})
 	}
 
 	// secrets
+	/* TODO: importing core currently causes darwin builds to fail, need to deal with when re-adding secrets
 	secretStore := core.NewSecretStore()
 	bkSession.Allow(secretsprovider.NewSecretProvider(secretStore))
 	// TODO: secretStore.SetGateway(...)
+	*/
 
 	// sockets
-	bkSession.Allow(session.MergedSocketProvider{
+	bkSession.Allow(MergedSocketProvider{
 		// TODO: enforce this in the session stream proxy
 		// EnableHostNetworkAccess: !s.DisableHostRW,
 	})
@@ -199,10 +206,13 @@ func Connect(ctx context.Context, params SessionParams) (_ *Session, rerr error)
 		allowedEntitlements = append(allowedEntitlements, entitlements.EntitlementSecurityInsecure)
 	}
 
+	/* TODO:
 	frontendOptMap, err := s.FrontendOpts().ToSolveOpts()
 	if err != nil {
 		return nil, fmt.Errorf("frontend opts: %w", err)
 	}
+	*/
+	frontendOptMap := s.FrontendOpts()
 
 	// start the session server frontend if it's not already running
 	solveRef := identity.NewID()
@@ -210,7 +220,7 @@ func Connect(ctx context.Context, params SessionParams) (_ *Session, rerr error)
 		_, err := s.bkClient.ControlClient().Solve(internalCtx, &controlapi.SolveRequest{
 			Ref:           solveRef,
 			Session:       s.bkClient.DaggerFrontendSessionID,
-			Frontend:      server.DaggerFrontendName,
+			Frontend:      DaggerFrontendName,
 			FrontendAttrs: frontendOptMap,
 			Entitlements:  allowedEntitlements,
 			Internal:      true, // disables history recording, which we don't need
@@ -250,7 +260,7 @@ func Connect(ctx context.Context, params SessionParams) (_ *Session, rerr error)
 			},
 		},
 		headers: http.Header{
-			server.SessionIDHeader: []string{bkSession.ID()},
+			SessionIDHeader: []string{bkSession.ID()},
 		},
 	}
 
@@ -276,11 +286,20 @@ func Connect(ctx context.Context, params SessionParams) (_ *Session, rerr error)
 	panic("unreachable")
 }
 
+/* TODO: hack to avoid import of server that leads to darwin build failures
 func (s *Session) FrontendOpts() server.FrontendOpts {
 	return server.FrontendOpts{
 		ServerID:        s.ServerID,
 		ClientSessionID: s.bkSession.ID(),
 		// TODO: cache configs
+	}
+}
+*/
+
+func (s *Session) FrontendOpts() map[string]string {
+	return map[string]string{
+		"server_id":         s.ServerID,
+		"client_session_id": s.bkSession.ID(),
 	}
 }
 
@@ -311,7 +330,8 @@ func (s *Session) DialContext(ctx context.Context, _, _ string) (net.Conn, error
 	}
 
 	queryStrs := u.Query()
-	queryStrs.Add("addr", s.FrontendOpts().ServerAddr())
+	// TODO: queryStrs.Add("addr", s.FrontendOpts().ServerAddr())
+	queryStrs.Add("addr", fmt.Sprintf("unix:///run/dagger/server-%s.sock", s.ServerID))
 	u.RawQuery = queryStrs.Encode()
 	connHelper, err := connhelper.GetConnectionHelper(u.String())
 	if err != nil {
@@ -438,12 +458,12 @@ func (AnyDirTarget) DiffCopy(stream filesync.FileSend_DiffCopyServer) (rerr erro
 		return fmt.Errorf("diff copy missing metadata")
 	}
 
-	destVal, ok := opts[session.LocalDirExportDestPathMetaKey]
+	destVal, ok := opts[LocalDirExportDestPathMetaKey]
 	if !ok {
-		return fmt.Errorf("missing " + session.LocalDirExportDestPathMetaKey)
+		return fmt.Errorf("missing " + LocalDirExportDestPathMetaKey)
 	}
 	if len(destVal) != 1 {
-		return fmt.Errorf("expected exactly one "+session.LocalDirExportDestPathMetaKey+" value, got %d", len(destVal))
+		return fmt.Errorf("expected exactly one "+LocalDirExportDestPathMetaKey+" value, got %d", len(destVal))
 	}
 	dest := destVal[0]
 
@@ -470,4 +490,61 @@ type progRockAttachable struct {
 
 func (a progRockAttachable) Register(srv *grpc.Server) {
 	progrock.RegisterProgressServiceServer(srv, progrock.NewRPCReceiver(a.writer))
+}
+
+// TODO: duplicate w/ session package to avoid import, fix
+// for direct (un-proxied) local dir imports
+type AnyDirSource struct{}
+
+func (AnyDirSource) LookupDir(name string) (filesync.SyncedDir, bool) {
+	return filesync.SyncedDir{
+		Dir: name,
+		Map: func(p string, st *fstypes.Stat) fsutil.MapResult {
+			st.Uid = 0
+			st.Gid = 0
+			return fsutil.MapResultKeep
+		},
+	}, true
+}
+
+type MergedSocketProvider struct {
+	providers []sshforward.SSHServer
+	// TODO: enforce this in the session stream proxy
+	// EnableHostNetworkAccess bool
+}
+
+func (m MergedSocketProvider) Register(server *grpc.Server) {
+	sshforward.RegisterSSHServer(server, m)
+}
+
+func (m MergedSocketProvider) CheckAgent(ctx context.Context, req *sshforward.CheckAgentRequest) (*sshforward.CheckAgentResponse, error) {
+	id := sshforward.DefaultID
+	if req.ID != "" {
+		id = req.ID
+	}
+	for _, h := range m.providers {
+		resp, err := h.CheckAgent(ctx, req)
+		if status.Code(err) == codes.NotFound {
+			continue
+		}
+		return resp, err
+	}
+	return nil, status.Errorf(codes.NotFound, "no ssh handler for id %s", id)
+}
+
+func (m MergedSocketProvider) ForwardAgent(stream sshforward.SSH_ForwardAgentServer) error {
+	id := sshforward.DefaultID
+	opts, _ := metadata.FromIncomingContext(stream.Context()) // if no metadata continue with empty object
+	if v, ok := opts[sshforward.KeySSHID]; ok && len(v) > 0 && v[0] != "" {
+		id = v[0]
+	}
+
+	for _, h := range m.providers {
+		err := h.ForwardAgent(stream)
+		if status.Code(err) == codes.NotFound {
+			continue
+		}
+		return err
+	}
+	return status.Errorf(codes.NotFound, "no ssh handler for id %s", id)
 }

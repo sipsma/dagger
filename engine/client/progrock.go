@@ -7,11 +7,15 @@ import (
 	"os"
 	"strings"
 
-	"github.com/dagger/dagger/core"
 	bkclient "github.com/moby/buildkit/client"
 	"github.com/vito/progrock"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+// TODO: dumb hack to get rid of import of core package, which has many levels deep dep on containerd/overlayutils that doesn't build for darwin
+// Fix duplication of this in core
+const FocusPrefix = "[focus] "
+const InternalPrefix = "[internal] "
 
 type progrockFileWriter struct {
 	f   *os.File
@@ -57,13 +61,13 @@ func bk2progrock(event *bkclient.SolveStatus) *progrock.StatusUpdate {
 			Name:   v.Name,
 			Cached: v.Cached,
 		}
-		if strings.HasPrefix(v.Name, core.InternalPrefix) {
+		if strings.HasPrefix(v.Name, InternalPrefix) {
 			vtx.Internal = true
-			vtx.Name = strings.TrimPrefix(v.Name, core.InternalPrefix)
+			vtx.Name = strings.TrimPrefix(v.Name, InternalPrefix)
 		}
-		if strings.HasPrefix(v.Name, core.FocusPrefix) {
+		if strings.HasPrefix(v.Name, FocusPrefix) {
 			vtx.Focused = true
-			vtx.Name = strings.TrimPrefix(v.Name, core.FocusPrefix)
+			vtx.Name = strings.TrimPrefix(v.Name, FocusPrefix)
 		}
 		for _, input := range v.Inputs {
 			vtx.Inputs = append(vtx.Inputs, input.String())
