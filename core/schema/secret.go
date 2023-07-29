@@ -62,13 +62,8 @@ type setSecretArgs struct {
 	Plaintext SecretPlaintext
 }
 
-<<<<<<< HEAD
-func (s *secretSchema) setSecret(ctx *router.Context, parent any, args setSecretArgs) (*core.Secret, error) {
-	secretID, err := s.secrets.AddSecret(ctx, args.Name, []byte(args.Plaintext))
-=======
 func (s *secretSchema) setSecret(ctx *core.Context, parent any, args setSecretArgs) (*core.Secret, error) {
-	secretID, err := s.secrets.AddSecret(ctx, args.Name, string(args.Plaintext))
->>>>>>> 26ff4433 (WIP session frontend, basics + local import/export working.)
+	secretID, err := s.secrets.AddSecret(ctx, args.Name, []byte(args.Plaintext))
 	if err != nil {
 		return nil, err
 	}
@@ -76,16 +71,7 @@ func (s *secretSchema) setSecret(ctx *core.Context, parent any, args setSecretAr
 	return secretID.ToSecret()
 }
 
-<<<<<<< HEAD
-func (s *secretSchema) plaintext(ctx *router.Context, parent *core.Secret, args any) (string, error) {
-=======
 func (s *secretSchema) plaintext(ctx *core.Context, parent *core.Secret, args any) (string, error) {
-	if parent.IsOldFormat() {
-		bytes, err := parent.LegacyPlaintext(ctx, s.bk)
-		return string(bytes), err
-	}
-
->>>>>>> 26ff4433 (WIP session frontend, basics + local import/export working.)
 	id, err := parent.ID()
 	if err != nil {
 		return "", err
