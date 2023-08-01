@@ -1159,6 +1159,23 @@ export class Container extends BaseClient {
   }
 
   /**
+   * TODO
+   */
+  async shellEndpoint(): Promise<string> {
+    const response: Awaited<string> = await computeQuery(
+      [
+        ...this._queryTree,
+        {
+          operation: "shellEndpoint",
+        },
+      ],
+      this.client
+    )
+
+    return response
+  }
+
+  /**
    * The error stream of the last executed command.
    *
    * Will execute default command if none is set, or error if there's no default.
