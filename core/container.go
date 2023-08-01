@@ -345,19 +345,34 @@ func (container *Container) From(ctx context.Context, bk *buildkit.Client, addr 
 
 const defaultDockerfileName = "Dockerfile"
 
-var buildCache = newCacheMap[uint64, *Container]()
-
 func (container *Container) Build(
 	ctx context.Context,
-	bk *buildkit.Client,
 	context *Directory,
 	dockerfile string,
 	buildArgs []BuildArg,
 	target string,
 	secrets []SecretID,
+	bk *buildkit.Client,
+	buildCache *CacheMap[uint64, *Container],
 ) (*Container, error) {
+	clientMetadata, err := engine.ClientMetadataFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	return buildCache.GetOrInitialize(
-		cacheKey(container, context, dockerfile, buildArgs, target, secrets),
+		cacheKey(
+			container,
+			context,
+			dockerfile,
+			buildArgs,
+			target,
+			secrets,
+			// scope cache per-client to avoid sharing caches across builds that are
+			// structurally similar but use different client-specific inputs (i.e.
+			// local dir with same path but different content)
+			clientMetadata.ClientID,
+		),
 		func() (*Container, error) {
 			return container.buildUncached(ctx, bk, context, dockerfile, buildArgs, target, secrets)
 		},
@@ -1566,18 +1581,22 @@ func (container *Container) Export(
 	return err
 }
 
-var importCache = newCacheMap[uint64, *specs.Descriptor]()
-
 func (container *Container) Import(
 	ctx context.Context,
-	bk *buildkit.Client,
-	host *Host,
 	source FileID,
 	tag string,
+	bk *buildkit.Client,
+	host *Host,
+	importCache *CacheMap[uint64, *specs.Descriptor],
 	store content.Store,
 	lm *leaseutil.Manager,
 ) (*Container, error) {
 	file, err := source.ToFile()
+	if err != nil {
+		return nil, err
+	}
+
+	clientMetadata, err := engine.ClientMetadataFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1610,7 +1629,15 @@ func (container *Container) Import(
 	}
 
 	// TODO: seems ineffecient to recompute for each platform, but do need to get platform-specific manifest stil..
-	key := cacheKey(file, tag, container.Platform)
+	key := cacheKey(
+		file,
+		tag,
+		container.Platform,
+		// scope cache per-client to avoid sharing caches across builds that are
+		// structurally similar but use different client-specific inputs (i.e.
+		// local dir with same path but different content)
+		clientMetadata.ClientID,
+	)
 
 	manifestDesc, err := importCache.GetOrInitialize(key, loadManifest)
 	if err != nil {
