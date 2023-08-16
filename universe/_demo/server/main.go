@@ -1,30 +1,29 @@
 package main
 
 import (
+	"context"
 	"fmt"
-
-	"dagger.io/dagger"
 )
 
 func main() {
-	dagger.DefaultClient().Environment().
-		WithCheck_(UnitTest).
-		WithArtifact_(ServerImage).
-		WithArtifact_(Binary).
-		WithCommand_(Publish).
+	dag.Environment().
+		WithCheck(UnitTest).
+		WithArtifact(ServerImage).
+		WithArtifact(Binary).
+		WithCommand(Publish).
 		Serve()
 }
 
-func buildBase(ctx dagger.Context) *dagger.Container {
-	return dagger.DefaultClient().Apko().Wolfi([]string{"go-1.20"})
+func buildBase(ctx context.Context) *Container {
+	return dag.Apko().Wolfi([]string{"go-1.20"})
 }
 
 // Unit tests for the server.
-func UnitTest(ctx dagger.Context) *dagger.EnvironmentCheck {
-	return dagger.DefaultClient().Go().Test(
+func UnitTest(ctx context.Context) *EnvironmentCheck {
+	return dag.Go().Test(
 		buildBase(ctx),
-		dagger.DefaultClient().Host().Directory("."),
-		dagger.GoTestOpts{
+		dag.Host().Directory("."),
+		GoTestOpts{
 			Packages: []string{"./universe/_demo/server/cmd/server"},
 			Verbose:  true,
 		},
@@ -32,11 +31,11 @@ func UnitTest(ctx dagger.Context) *dagger.EnvironmentCheck {
 }
 
 // The server's binary as a file.
-func Binary(ctx dagger.Context) *dagger.File {
-	return dagger.DefaultClient().Go().Build(
+func Binary(ctx context.Context) *File {
+	return dag.Go().Build(
 		buildBase(ctx),
-		dagger.DefaultClient().Host().Directory("."),
-		dagger.GoBuildOpts{
+		dag.Host().Directory("."),
+		GoBuildOpts{
 			Static:   true,
 			Packages: []string{"./universe/_demo/server/cmd/server"},
 		},
@@ -44,17 +43,17 @@ func Binary(ctx dagger.Context) *dagger.File {
 }
 
 // The server container image.
-func ServerImage(ctx dagger.Context) *dagger.Container {
-	return dagger.DefaultClient().Apko().Wolfi(nil).
+func ServerImage(ctx context.Context) *Container {
+	return dag.Apko().Wolfi(nil).
 		WithMountedFile("/usr/bin/server", Binary(ctx)).
 		WithExposedPort(8081).
-		WithDefaultArgs(dagger.ContainerWithDefaultArgsOpts{
+		WithDefaultArgs(ContainerWithDefaultArgsOpts{
 			Args: []string{"/usr/bin/server"},
 		})
 }
 
 // Publish the server container image.
-func Publish(ctx dagger.Context, version string) (string, error) {
+func Publish(ctx context.Context, version string) (string, error) {
 	if version == "fail" {
 		return "OH NO! Publishing failed!", fmt.Errorf("publish failed")
 	}
