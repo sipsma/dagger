@@ -126,7 +126,12 @@ type blobSourceInstance struct {
 }
 
 func (bs *blobSourceInstance) CacheKey(context.Context, session.Group, int) (string, string, solver.CacheOpts, bool, error) {
-	return "session:" + bs.id.Digest.String(), bs.id.Digest.String(), nil, true, nil
+	dgst := digest.FromString(strings.Join([]string{
+		bs.id.Digest.String(),
+		"blobsourcetype", // include so we don't get inadvertent collisions with other sources that happen to have digest based off same layer sha
+	}, ","))
+
+	return "session:" + dgst.String(), dgst.String(), nil, true, nil
 }
 
 func (bs *blobSourceInstance) Snapshot(ctx context.Context, _ session.Group) (cache.ImmutableRef, error) {
