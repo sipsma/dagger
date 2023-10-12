@@ -120,6 +120,12 @@ func (c *Client) LocalImport(
 	}
 	ref := workerRef.ImmutableRef
 
+	// TODO: doc if it stays
+	err = ref.Extract(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract ref: %s", err)
+	}
+
 	remotes, err := ref.GetRemotes(ctx, true, cacheconfig.RefConfig{
 		Compression: compression.Config{
 			// TODO: double check whether using Zstd is best idea. It's the fastest, but
@@ -154,7 +160,7 @@ func (c *Client) LocalImport(
 		Evaluate:   true,
 	})
 	if err != nil {
-		return nil, wrapError(ctx, err, c.ID())
+		return nil, fmt.Errorf("failed to solve blobsource: %w", wrapError(ctx, err, c.ID()))
 	}
 
 	return blobPB, nil
