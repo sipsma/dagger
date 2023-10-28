@@ -73,6 +73,7 @@ require (
 	github.com/koron-go/prefixw v1.0.0
 	github.com/mackerelio/go-osstat v0.2.4
 	github.com/mattn/go-isatty v0.0.19
+	github.com/mitchellh/go-spdx v0.1.0
 	github.com/moby/sys/mount v0.3.3
 	github.com/muesli/termenv v0.15.2
 	github.com/nxadm/tail v1.4.8
@@ -180,7 +181,6 @@ require (
 	github.com/mattn/go-runewidth v0.0.14 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
 	github.com/mazznoer/csscolorparser v0.1.3 // indirect
-	github.com/mitchellh/go-spdx v0.1.0 // indirect
 	github.com/mitchellh/hashstructure/v2 v2.0.2 // indirect
 	github.com/moby/sys/mountinfo v0.6.2 // indirect
 	github.com/moby/sys/sequential v0.5.0 // indirect
@@ -263,7 +263,7 @@ require (
 	github.com/secure-systems-lab/go-securesystemslib v0.4.0 // indirect
 	github.com/shibumi/go-pathspec v1.3.0 // indirect
 	github.com/spf13/pflag v1.0.5
-	github.com/tidwall/gjson v1.15.0
+	github.com/tidwall/gjson v1.17.0
 	github.com/tonistiigi/units v0.0.0-20180711220420-6950e57a87ea
 	github.com/vbatts/tar-split v0.11.3 // indirect
 	github.com/vektah/gqlparser/v2 v2.5.6
