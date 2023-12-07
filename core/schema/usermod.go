@@ -360,10 +360,6 @@ func newModObject(ctx context.Context, mod *UserMod, typeDef *core.TypeDef) (*Us
 	return obj, nil
 }
 
-func (obj *UserModObject) TypeDef() *core.TypeDef {
-	return obj.typeDef
-}
-
 func (obj *UserModObject) ConvertFromSDKResult(ctx context.Context, value any) (any, error) {
 	if value == nil {
 		return nil, nil
@@ -371,7 +367,7 @@ func (obj *UserModObject) ConvertFromSDKResult(ctx context.Context, value any) (
 
 	switch value := value.(type) {
 	case string:
-		decodedMap, err := resourceid.DecodeModuleID(value, obj.typeDef.AsObject.Name)
+		decodedMap, _, _, err := resourceid.DecodeModuleID(value, obj.typeDef.AsObject.Name)
 		if err != nil {
 			return nil, fmt.Errorf("failed to decode module id: %w", err)
 		}
@@ -410,7 +406,8 @@ func (obj *UserModObject) ConvertToSDKInput(ctx context.Context, value any) (any
 	// calls to their own API).
 	switch value := value.(type) {
 	case string:
-		return resourceid.DecodeModuleID(value, obj.typeDef.AsObject.Name)
+		decoded, _, _, err := resourceid.DecodeModuleID(value, obj.typeDef.AsObject.Name)
+		return decoded, err
 	case map[string]any:
 		for k, v := range value {
 			normalizedName := gqlFieldName(k)
@@ -607,7 +604,7 @@ func (obj *UserModObject) Schema(ctx context.Context) (*ast.SchemaDocument, Reso
 		Type:        ast.NonNullNamedType(objName+"ID", nil),
 	})
 	newObjResolver["id"] = func(p graphql.ResolveParams) (any, error) {
-		return resourceid.EncodeModule(objName, p.Source)
+		return resourceid.EncodeModule(obj.mod.DagDigest(), objName, p.Source)
 	}
 
 	for _, field := range fields {
