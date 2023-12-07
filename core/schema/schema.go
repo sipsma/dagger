@@ -90,16 +90,12 @@ func New(ctx context.Context, params InitializeArgs) (*APIServer, error) {
 		&socketSchema{api, api.host},
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to merge core schema: %w", err)
 	}
-	coreIntrospectionJSON, err := schemaIntrospectionJSON(ctx, *coreSchema.Compiled)
+	api.core = &CoreMod{compiledSchema: coreSchema}
+	api.defaultDeps, err = newModDeps([]Mod{api.core})
 	if err != nil {
-		return nil, err
-	}
-	api.core = &CoreMod{compiledSchema: coreSchema, introspectionJSON: coreIntrospectionJSON}
-	api.defaultDeps, err = newModDeps(api, []Mod{api.core})
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create default deps: %w", err)
 	}
 
 	// the main client caller starts out with the core API loaded
@@ -280,7 +276,7 @@ func (s *APIServer) AddModFromMetadata(
 			return nil, err
 		}
 
-		dag, err := newModDeps(s, deps)
+		dag, err := newModDeps(deps)
 		if err != nil {
 			return nil, err
 		}
@@ -346,7 +342,7 @@ func (s *APIServer) ServeModuleToMainClient(ctx context.Context, modMeta *core.M
 	}
 	deps := append([]Mod{}, callCtx.deps.mods...)
 	deps = append(deps, mod)
-	callCtx.deps, err = newModDeps(s, deps)
+	callCtx.deps, err = newModDeps(deps)
 	if err != nil {
 		return err
 	}

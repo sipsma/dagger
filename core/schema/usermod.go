@@ -133,7 +133,7 @@ func (m *UserMod) Objects(ctx context.Context) (loadedObjects []*UserModObject, 
 func (m *UserMod) ModTypeFor(ctx context.Context, typeDef *core.TypeDef, checkDirectDeps bool) (ModType, bool, error) {
 	switch typeDef.Kind {
 	case core.TypeDefKindString, core.TypeDefKindInteger, core.TypeDefKindBoolean, core.TypeDefKindVoid:
-		return &PrimitiveType{}, true, nil
+		return &PrimitiveType{kind: typeDef.Kind}, true, nil
 
 	case core.TypeDefKindList:
 		underlyingType, ok, err := m.ModTypeFor(ctx, typeDef.AsList.ElementTypeDef, checkDirectDeps)
@@ -196,7 +196,7 @@ func (m *UserMod) Schema(ctx context.Context) ([]SchemaResolvers, error) {
 		return nil, err
 	}
 
-	schemas := make([]SchemaResolvers, 0, len(objs))
+	schemaResolvers := make([]SchemaResolvers, 0, len(objs))
 	for _, obj := range objs {
 		objSchemaDoc, objResolvers, err := obj.Schema(ctx)
 		if err != nil {
@@ -211,13 +211,34 @@ func (m *UserMod) Schema(ctx context.Context) ([]SchemaResolvers, error) {
 			Schema:    typeSchemaStr,
 			Resolvers: objResolvers,
 		})
-		schemas = append(schemas, schema)
+		schemaResolvers = append(schemaResolvers, schema)
 	}
 
-	return schemas, nil
+	return schemaResolvers, nil
 }
 
-func (m *UserMod) SchemaIntrospectionJSON(ctx context.Context) (string, error) {
+// TODO: use this in UserModFunction.Call
+func (m *UserMod) DependencySchema(ctx context.Context, includeSelf bool) (*CompiledSchema, error) {
+	var deps *ModDeps
+	if includeSelf {
+		depMods := append([]Mod{m}, m.deps.mods...)
+		var err error
+		deps, err = newModDeps(depMods)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get deps: %w", err)
+		}
+	} else {
+		deps = m.deps
+	}
+
+	compiledSchema, err := deps.Schema(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get compiled schema for dependencies of %s: %w", m.Name(), err)
+	}
+	return compiledSchema, nil
+}
+
+func (m *UserMod) DependencySchemaIntrospectionJSON(ctx context.Context) (string, error) {
 	return m.deps.SchemaIntrospectionJSON(ctx)
 }
 
@@ -414,6 +435,19 @@ func (obj *UserModObject) ConvertToSDKInput(ctx context.Context, value any) (any
 
 func (obj *UserModObject) SourceMod() Mod {
 	return obj.mod
+}
+
+func (obj *UserModObject) GraphqlRuntimeType(ctx context.Context) (graphql.Type, error) {
+	schema, err := obj.mod.DependencySchema(ctx, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get dependency schema: %w", err)
+	}
+
+	gqlType := schema.Compiled.Type(obj.typeDef.AsObject.Name)
+	if gqlType == nil {
+		return nil, fmt.Errorf("failed to get type %q from schema", obj.typeDef.AsObject.Name)
+	}
+	return gqlType, nil
 }
 
 func (obj *UserModObject) Fields(ctx context.Context) ([]*UserModField, error) {

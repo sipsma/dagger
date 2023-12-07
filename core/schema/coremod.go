@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/dagger/dagger/core"
+	"github.com/dagger/graphql"
 	"github.com/opencontainers/go-digest"
 )
 
@@ -12,8 +13,7 @@ import (
 // but can be treated as one in terms of dependencies. It has no dependencies itself and is currently an
 // implicit dependency of every user module.
 type CoreMod struct {
-	compiledSchema    *CompiledSchema
-	introspectionJSON string
+	compiledSchema *CompiledSchema
 }
 
 var _ Mod = (*CoreMod)(nil)
@@ -32,17 +32,13 @@ func (m *CoreMod) Dependencies() []Mod {
 }
 
 func (m *CoreMod) Schema(_ context.Context) ([]SchemaResolvers, error) {
-	return []SchemaResolvers{m.compiledSchema.SchemaResolvers}, nil
-}
-
-func (m *CoreMod) SchemaIntrospectionJSON(_ context.Context) (string, error) {
-	return m.introspectionJSON, nil
+	return []SchemaResolvers{m.compiledSchema}, nil
 }
 
 func (m *CoreMod) ModTypeFor(ctx context.Context, typeDef *core.TypeDef, checkDirectDeps bool) (ModType, bool, error) {
 	switch typeDef.Kind {
 	case core.TypeDefKindString, core.TypeDefKindInteger, core.TypeDefKindBoolean, core.TypeDefKindVoid:
-		return &PrimitiveType{}, true, nil
+		return &PrimitiveType{kind: typeDef.Kind}, true, nil
 
 	case core.TypeDefKindList:
 		underlyingType, ok, err := m.ModTypeFor(ctx, typeDef.AsList.ElementTypeDef, checkDirectDeps)
@@ -64,7 +60,11 @@ func (m *CoreMod) ModTypeFor(ctx context.Context, typeDef *core.TypeDef, checkDi
 		if !ok {
 			return nil, false, nil
 		}
-		return &CoreModObject{coreMod: m, resolver: idableResolver}, true, nil
+		return &CoreModObject{
+			coreMod:  m,
+			resolver: idableResolver,
+			name:     typeName,
+		}, true, nil
 
 	default:
 		return nil, false, fmt.Errorf("unexpected type def kind %s", typeDef.Kind)
@@ -75,6 +75,8 @@ func (m *CoreMod) ModTypeFor(ctx context.Context, typeDef *core.TypeDef, checkDi
 type CoreModObject struct {
 	coreMod  *CoreMod
 	resolver IDableObjectResolver
+	// TODO: kludgy?
+	name string
 }
 
 var _ ModType = (*CoreModObject)(nil)
@@ -96,4 +98,12 @@ func (obj *CoreModObject) ConvertToSDKInput(ctx context.Context, value any) (any
 
 func (obj *CoreModObject) SourceMod() Mod {
 	return obj.coreMod
+}
+
+func (obj *CoreModObject) GraphqlRuntimeType(ctx context.Context) (graphql.Type, error) {
+	gqlType := obj.coreMod.compiledSchema.Compiled.Type(obj.name)
+	if gqlType == nil {
+		return nil, fmt.Errorf("no type named %s", obj.name)
+	}
+	return gqlType, nil
 }

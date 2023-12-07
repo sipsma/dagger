@@ -290,7 +290,7 @@ func (fn *UserModFunction) Call(ctx context.Context, opts *CallOpts) (any, error
 		// by default, serve both deps and the module's own API to itself
 		depMods := append([]Mod{fn.mod}, fn.mod.deps.mods...)
 		var err error
-		deps, err = newModDeps(fn.api, depMods)
+		deps, err = newModDeps(depMods)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get deps: %w", err)
 		}
