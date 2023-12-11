@@ -93,7 +93,7 @@ type moduleSDK struct {
 }
 
 func (s *APIServer) newModuleSDK(ctx context.Context, sdkModMeta *core.Module) (*moduleSDK, error) {
-	sdkMod, err := s.AddModFromMetadata(ctx, sdkModMeta, nil)
+	sdkMod, err := s.GetOrAddModFromMetadata(ctx, sdkModMeta, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to add sdk module to dag: %w", err)
 	}

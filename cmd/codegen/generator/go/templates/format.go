@@ -1,6 +1,10 @@
 package templates
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/dagger/dagger/cmd/codegen/introspection"
+)
 
 // FormatTypeFunc is an implementation of generator.FormatTypeFuncs interface
 // to format GraphQL type into Golang.
@@ -31,9 +35,15 @@ func (f *FormatTypeFunc) FormatKindScalarBoolean(representation string) string {
 	return representation
 }
 
-func (f *FormatTypeFunc) FormatKindScalarDefault(representation string, refName string, input bool) string {
+func (f *FormatTypeFunc) FormatKindScalarDefault(schema *introspection.Schema, representation string, refName string, input bool) string {
 	if obj, rest, ok := strings.Cut(refName, "ID"); input && ok && rest == "" {
-		representation += "*" + obj
+		objType := schema.Types.Get(obj)
+		switch objType.Kind {
+		case introspection.TypeKindObject:
+			representation += "*" + obj
+		case introspection.TypeKindInterface:
+			representation += obj
+		}
 	} else {
 		representation += refName
 	}
@@ -42,6 +52,11 @@ func (f *FormatTypeFunc) FormatKindScalarDefault(representation string, refName 
 }
 
 func (f *FormatTypeFunc) FormatKindObject(representation string, refName string, input bool) string {
+	representation += formatName(refName)
+	return representation
+}
+
+func (f *FormatTypeFunc) FormatKindInterface(representation string, refName string, input bool) string {
 	representation += formatName(refName)
 	return representation
 }

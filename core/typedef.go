@@ -99,10 +99,11 @@ func (arg *FunctionArg) ID() (FunctionArgID, error) {
 }
 
 type TypeDef struct {
-	Kind     TypeDefKind    `json:"kind"`
-	Optional bool           `json:"optional"`
-	AsList   *ListTypeDef   `json:"asList"`
-	AsObject *ObjectTypeDef `json:"asObject"`
+	Kind        TypeDefKind       `json:"kind"`
+	Optional    bool              `json:"optional"`
+	AsList      *ListTypeDef      `json:"asList"`
+	AsObject    *ObjectTypeDef    `json:"asObject"`
+	AsInterface *InterfaceTypeDef `json:"asInterface"`
 }
 
 func (typeDef *TypeDef) ID() (TypeDefID, error) {
@@ -130,6 +131,9 @@ func (typeDef TypeDef) Clone() *TypeDef {
 	if typeDef.AsObject != nil {
 		cp.AsObject = typeDef.AsObject.Clone()
 	}
+	if typeDef.AsInterface != nil {
+		cp.AsInterface = typeDef.AsInterface.Clone()
+	}
 	return &cp
 }
 
@@ -153,6 +157,12 @@ func (typeDef *TypeDef) WithObject(name, desc string) *TypeDef {
 	return typeDef
 }
 
+func (typeDef *TypeDef) WithInterface(name, desc string) *TypeDef {
+	typeDef = typeDef.WithKind(TypeDefKindInterface)
+	typeDef.AsInterface = NewInterfaceTypeDef(name, desc)
+	return typeDef
+}
+
 func (typeDef *TypeDef) WithOptional(optional bool) *TypeDef {
 	typeDef = typeDef.Clone()
 	typeDef.Optional = optional
@@ -173,15 +183,21 @@ func (typeDef *TypeDef) WithObjectField(name string, fieldType *TypeDef, desc st
 	return typeDef, nil
 }
 
-func (typeDef *TypeDef) WithObjectFunction(fn *Function) (*TypeDef, error) {
-	if typeDef.AsObject == nil {
-		return nil, fmt.Errorf("cannot add function to non-object type: %s", typeDef.Kind)
-	}
+func (typeDef *TypeDef) WithFunction(fn *Function) (*TypeDef, error) {
 	typeDef = typeDef.Clone()
 	fn = fn.Clone()
-	fn.ParentOriginalName = typeDef.AsObject.OriginalName
-	typeDef.AsObject.Functions = append(typeDef.AsObject.Functions, fn)
-	return typeDef, nil
+	switch typeDef.Kind {
+	case TypeDefKindObject:
+		fn.ParentOriginalName = typeDef.AsObject.OriginalName
+		typeDef.AsObject.Functions = append(typeDef.AsObject.Functions, fn)
+		return typeDef, nil
+	case TypeDefKindInterface:
+		fn.ParentOriginalName = typeDef.AsInterface.OriginalName
+		typeDef.AsInterface.Functions = append(typeDef.AsInterface.Functions, fn)
+		return typeDef, nil
+	default:
+		return nil, fmt.Errorf("cannot add function to type: %s", typeDef.Kind)
+	}
 }
 
 func (typeDef *TypeDef) WithObjectConstructor(fn *Function) (*TypeDef, error) {
@@ -277,6 +293,38 @@ func (typeDef FieldTypeDef) Clone() *FieldTypeDef {
 	return &cp
 }
 
+type InterfaceTypeDef struct {
+	// Name is the standardized name of the interface (CamelCase), as used for the interface in the graphql schema
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
+	Functions   []*Function `json:"functions"`
+
+	// Below are not in public API
+
+	// The original name of the interface as provided by the SDK that defined it, used
+	// when invoking the SDK so it doesn't need to think as hard about case conversions
+	OriginalName string `json:"originalName,omitempty"`
+}
+
+func NewInterfaceTypeDef(name, description string) *InterfaceTypeDef {
+	return &InterfaceTypeDef{
+		Name:         strcase.ToCamel(name),
+		OriginalName: name,
+		Description:  description,
+	}
+}
+
+func (typeDef InterfaceTypeDef) Clone() *InterfaceTypeDef {
+	cp := typeDef
+
+	cp.Functions = make([]*Function, len(typeDef.Functions))
+	for i, fn := range typeDef.Functions {
+		cp.Functions[i] = fn.Clone()
+	}
+
+	return &cp
+}
+
 type ListTypeDef struct {
 	ElementTypeDef *TypeDef `json:"elementTypeDef"`
 }
@@ -296,12 +344,13 @@ func (k TypeDefKind) String() string {
 }
 
 const (
-	TypeDefKindString  TypeDefKind = "StringKind"
-	TypeDefKindInteger TypeDefKind = "IntegerKind"
-	TypeDefKindBoolean TypeDefKind = "BooleanKind"
-	TypeDefKindList    TypeDefKind = "ListKind"
-	TypeDefKindObject  TypeDefKind = "ObjectKind"
-	TypeDefKindVoid    TypeDefKind = "VoidKind"
+	TypeDefKindString    TypeDefKind = "StringKind"
+	TypeDefKindInteger   TypeDefKind = "IntegerKind"
+	TypeDefKindBoolean   TypeDefKind = "BooleanKind"
+	TypeDefKindList      TypeDefKind = "ListKind"
+	TypeDefKindObject    TypeDefKind = "ObjectKind"
+	TypeDefKindInterface TypeDefKind = "InterfaceKind"
+	TypeDefKindVoid      TypeDefKind = "VoidKind"
 )
 
 type FunctionCall struct {

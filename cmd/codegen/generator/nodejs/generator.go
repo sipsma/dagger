@@ -41,7 +41,7 @@ func (g *NodeGenerator) Generate(_ context.Context, schema *introspection.Schema
 		})
 	}
 
-	tmpl := templates.New()
+	tmpl := templates.New(schema)
 	var b bytes.Buffer
 	err := tmpl.ExecuteTemplate(&b, "api", schema.Types)
 	if err != nil {

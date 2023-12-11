@@ -12,9 +12,9 @@ import (
 	"github.com/dagger/dagger/cmd/codegen/introspection"
 )
 
-var (
-	commonFunc = generator.NewCommonFunctions(&FormatTypeFunc{})
-	funcMap    = template.FuncMap{
+func NodejsTemplateFuncs(schema *introspection.Schema) template.FuncMap {
+	commonFunc := generator.NewCommonFunctions(&FormatTypeFunc{}, schema)
+	return template.FuncMap{
 		"CommentToLines":      commentToLines,
 		"FormatDeprecation":   formatDeprecation,
 		"FormatReturnType":    commonFunc.FormatReturnType,
@@ -45,7 +45,7 @@ var (
 		"ToSingleType":        toSingleType,
 		"GetEnumValues":       getEnumValues,
 	}
-)
+}
 
 // pascalCase change a type name into pascalCase
 func pascalCase(name string) string {

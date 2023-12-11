@@ -136,6 +136,17 @@ func (r TypeRef) IsObject() bool {
 	return false
 }
 
+func (r TypeRef) IsInterface() bool {
+	ref := r
+	if r.Kind == TypeKindNonNull {
+		ref = *ref.OfType
+	}
+	if ref.Kind == TypeKindInterface {
+		return true
+	}
+	return false
+}
+
 func (r TypeRef) IsList() bool {
 	ref := r
 	if r.Kind == TypeKindNonNull {

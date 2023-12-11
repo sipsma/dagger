@@ -13,10 +13,11 @@ type Visitor struct {
 type VisitFunc func(*Type) error
 
 type VisitHandlers struct {
-	Scalar VisitFunc
-	Object VisitFunc
-	Input  VisitFunc
-	Enum   VisitFunc
+	Scalar    VisitFunc
+	Object    VisitFunc
+	Interface VisitFunc
+	Input     VisitFunc
+	Enum      VisitFunc
 }
 
 func (v *Visitor) Run() error {
@@ -44,6 +45,10 @@ func (v *Visitor) Run() error {
 		{
 			Kind:    TypeKindObject,
 			Handler: v.handlers.Object,
+		},
+		{
+			Kind:    TypeKindInterface,
+			Handler: v.handlers.Interface,
 		},
 		{
 			Kind:    TypeKindEnum,

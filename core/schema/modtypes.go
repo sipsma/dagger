@@ -22,12 +22,14 @@ type ModType interface {
 	// SourceMod is the module in which this type was originally defined
 	SourceMod() Mod
 
-	// TODO: doc
+	// GraphqlRuntimeType returns the graphql server's representation of this type (needed for
+	// interface support)
 	GraphqlRuntimeType(context.Context) (graphql.Type, error)
 }
 
 // PrimitiveType are the basic types like string, int, bool, void, etc.
 type PrimitiveType struct {
+	api  *APIServer
 	kind core.TypeDefKind
 }
 
@@ -52,13 +54,11 @@ func (t *PrimitiveType) GraphqlRuntimeType(ctx context.Context) (graphql.Type, e
 	case core.TypeDefKindBoolean:
 		return graphql.Boolean, nil
 	case core.TypeDefKindVoid:
-		// TODO: probably slightly better to get the original one defined as part of core
-		return graphql.NewScalar(graphql.ScalarConfig{
-			Name:         "Void",
-			Serialize:    voidScalarResolver.Serialize,
-			ParseValue:   voidScalarResolver.ParseValue,
-			ParseLiteral: voidScalarResolver.ParseLiteral,
-		}), nil
+		runtimeType := t.api.core.compiledSchema.Compiled.Type("Void")
+		if runtimeType == nil {
+			return nil, fmt.Errorf("failed to find Void type")
+		}
+		return runtimeType, nil
 	default:
 		return nil, fmt.Errorf("unexpected primitive type %s", t.kind)
 	}

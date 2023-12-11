@@ -63,6 +63,7 @@ func New(ctx context.Context, params InitializeArgs) (*APIServer, error) {
 		importCache: core.NewCacheMap[uint64, *specs.Descriptor](),
 
 		loadModCache:      core.NewCacheMap[digest.Digest, *UserMod](),
+		modByDagDigest:    map[digest.Digest]Mod{},
 		clientCallContext: map[digest.Digest]*clientCallContext{},
 	}
 
@@ -92,7 +93,7 @@ func New(ctx context.Context, params InitializeArgs) (*APIServer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to merge core schema: %w", err)
 	}
-	api.core = &CoreMod{compiledSchema: coreSchema}
+	api.core = &CoreMod{api: api, compiledSchema: coreSchema}
 	api.defaultDeps, err = newModDeps([]Mod{api.core})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create default deps: %w", err)
@@ -131,6 +132,10 @@ type APIServer struct {
 
 	// cache used to de-dupe loading modules from metadata
 	loadModCache *core.CacheMap[digest.Digest, *UserMod]
+
+	// map of mod dag digest -> mod
+	modByDagDigest   map[digest.Digest]Mod
+	modByDagDigestMu sync.RWMutex
 
 	// The metadata of client calls.
 	// For the special case of the main client caller, the key is just empty string.
@@ -243,7 +248,7 @@ func (s *APIServer) MuxEndpoint(ctx context.Context, path string, handler http.H
 	return nil
 }
 
-func (s *APIServer) AddModFromMetadata(
+func (s *APIServer) GetOrAddModFromMetadata(
 	ctx context.Context,
 	modMeta *core.Module,
 	pipeline pipeline.Path,
@@ -284,6 +289,10 @@ func (s *APIServer) AddModFromMetadata(
 		if err != nil {
 			return nil, err
 		}
+
+		s.modByDagDigestMu.Lock()
+		defer s.modByDagDigestMu.Unlock()
+		s.modByDagDigest[mod.DagDigest()] = mod
 		return mod, nil
 	})
 	if err != nil {
@@ -309,15 +318,17 @@ func (s *APIServer) AddModFromRef(
 	if err != nil {
 		return nil, err
 	}
-	return s.AddModFromMetadata(ctx, modMeta, pipeline)
+	return s.GetOrAddModFromMetadata(ctx, modMeta, pipeline)
 }
 
-func (s *APIServer) GetModFromMetadata(ctx context.Context, modMeta *core.Module) (*UserMod, error) {
-	dgst, err := modMeta.BaseDigest()
-	if err != nil {
-		return nil, err
+func (s *APIServer) GetModFromDagDigest(ctx context.Context, dagDgst digest.Digest) (Mod, error) {
+	s.modByDagDigestMu.RLock()
+	defer s.modByDagDigestMu.RUnlock()
+	mod, ok := s.modByDagDigest[dagDgst]
+	if !ok {
+		return nil, fmt.Errorf("module %s not found", dagDgst)
 	}
-	return s.loadModCache.Get(ctx, dgst)
+	return mod, nil
 }
 
 func (s *APIServer) ServeModuleToMainClient(ctx context.Context, modMeta *core.Module) error {
@@ -329,7 +340,7 @@ func (s *APIServer) ServeModuleToMainClient(ctx context.Context, modMeta *core.M
 		return fmt.Errorf("cannot serve module to client %s", clientMetadata.ClientID)
 	}
 
-	mod, err := s.GetModFromMetadata(ctx, modMeta)
+	mod, err := s.GetOrAddModFromMetadata(ctx, modMeta, nil)
 	if err != nil {
 		return err
 	}
@@ -445,6 +456,11 @@ func mergeSchemaResolvers(newSchemas ...SchemaResolvers) (*CompiledSchema, error
 		mergedSchema.Schema += newSchema.Schema() + "\n"
 		for typeName, newResolver := range newSchema.Resolvers() {
 			switch newResolver := newResolver.(type) {
+			case *InterfaceResolver:
+				if _, ok := mergedSchema.Resolvers[typeName]; ok {
+					return nil, fmt.Errorf("conflict on interface type %q: %w", typeName, ErrMergeTypeConflict)
+				}
+				mergedSchema.Resolvers[typeName] = newResolver
 			case FieldResolvers:
 				existingResolver, typeResolverAlreadyExisted := mergedSchema.Resolvers[typeName]
 				if !typeResolverAlreadyExisted {
@@ -510,6 +526,12 @@ func compile(s SchemaResolvers) (*graphql.Schema, error) {
 	typeResolvers := tools.ResolverMap{}
 	for name, resolver := range s.Resolvers() {
 		switch resolver := resolver.(type) {
+		case *InterfaceResolver:
+			iface := &tools.InterfaceResolver{
+				ResolveType: resolver.ResolveType,
+				Fields:      tools.FieldResolveMap{},
+			}
+			typeResolvers[name] = iface
 		case FieldResolvers:
 			obj := &tools.ObjectResolver{
 				Fields: tools.FieldResolveMap{},
@@ -666,6 +688,17 @@ func typeDefToASTType(typeDef *core.TypeDef, isInput bool) (*ast.Type, error) {
 			return &ast.Type{NamedType: objName + "ID", NonNull: !typeDef.Optional}, nil
 		}
 		return &ast.Type{NamedType: objName, NonNull: !typeDef.Optional}, nil
+	case core.TypeDefKindInterface:
+		if typeDef.AsInterface == nil {
+			return nil, fmt.Errorf("expected interface type def, got nil")
+		}
+		ifaceTypeDef := typeDef.AsInterface
+		ifaceName := gqlObjectName(ifaceTypeDef.Name)
+		if isInput {
+			// idable types use their ID scalar as the input value
+			return &ast.Type{NamedType: ifaceName + "ID", NonNull: !typeDef.Optional}, nil
+		}
+		return &ast.Type{NamedType: ifaceName, NonNull: !typeDef.Optional}, nil
 	default:
 		return nil, fmt.Errorf("unsupported type kind %q", typeDef.Kind)
 	}
@@ -760,6 +793,7 @@ func astDefaultValue(typeDef *core.TypeDef, val any) (*ast.Value, error) {
 		}
 		return astVal, nil
 	default:
+		// TODO: handle interface default value
 		return nil, fmt.Errorf("unsupported type kind %q", typeDef.Kind)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/dagger/dagger/cmd/codegen/generator"
+	"github.com/dagger/dagger/cmd/codegen/introspection"
 )
 
 // FormatTypeFunc is an implementation of generator.FormatTypeFuncs interface
@@ -35,7 +36,7 @@ func (f *FormatTypeFunc) FormatKindScalarBoolean(representation string) string {
 	return representation
 }
 
-func (f *FormatTypeFunc) FormatKindScalarDefault(representation string, refName string, input bool) string {
+func (f *FormatTypeFunc) FormatKindScalarDefault(_ *introspection.Schema, representation string, refName string, input bool) string {
 	if obj, rest, ok := strings.Cut(refName, "ID"); input && ok && rest == "" {
 		// map e.g. FooID to Foo
 		representation += formatName(obj)
@@ -47,6 +48,16 @@ func (f *FormatTypeFunc) FormatKindScalarDefault(representation string, refName 
 }
 
 func (f *FormatTypeFunc) FormatKindObject(representation string, refName string, input bool) string {
+	name := refName
+	if name == generator.QueryStructName {
+		name = generator.QueryStructClientName
+	}
+
+	representation += formatName(name)
+	return representation
+}
+
+func (f *FormatTypeFunc) FormatKindInterface(representation string, refName string, input bool) string {
 	name := refName
 	if name == generator.QueryStructName {
 		name = generator.QueryStructClientName

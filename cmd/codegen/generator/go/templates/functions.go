@@ -25,7 +25,7 @@ func GoTemplateFuncs(
 	fset *token.FileSet,
 ) template.FuncMap {
 	return goTemplateFuncs{
-		CommonFunctions: generator.NewCommonFunctions(&FormatTypeFunc{}),
+		CommonFunctions: generator.NewCommonFunctions(&FormatTypeFunc{}, schema),
 		ctx:             ctx,
 		module:          module,
 		modulePkg:       pkg,
@@ -60,18 +60,21 @@ func (funcs goTemplateFuncs) FuncMap() template.FuncMap {
 		"ObjectName":       funcs.ObjectName,
 
 		// go specific
-		"Comment":                 funcs.comment,
-		"FormatDeprecation":       funcs.formatDeprecation,
-		"FormatName":              formatName,
-		"FormatEnum":              funcs.formatEnum,
-		"SortEnumFields":          funcs.sortEnumFields,
-		"FieldOptionsStructName":  funcs.fieldOptionsStructName,
-		"FieldFunction":           funcs.fieldFunction,
-		"IsEnum":                  funcs.isEnum,
-		"IsPointer":               funcs.isPointer,
-		"FormatArrayField":        funcs.formatArrayField,
-		"FormatArrayToSingleType": funcs.formatArrayToSingleType,
-		"ModuleMainSrc":           funcs.moduleMainSrc,
+		"Comment":                  funcs.comment,
+		"FormatDeprecation":        funcs.formatDeprecation,
+		"FormatName":               formatName,
+		"FormatIfaceImplName":      formatIfaceImplName,
+		"FormatEnum":               funcs.formatEnum,
+		"SortEnumFields":           funcs.sortEnumFields,
+		"FieldOptionsStructName":   funcs.fieldOptionsStructName,
+		"FieldFunction":            funcs.fieldFunction,
+		"InterfaceFunction":        funcs.ifaceFunction,
+		"IsEnum":                   funcs.isEnum,
+		"IsPointer":                funcs.isPointer,
+		"FormatArrayField":         funcs.formatArrayField,
+		"FormatArrayToSingleType":  funcs.formatArrayToSingleType,
+		"ModuleMainSrc":            funcs.moduleMainSrc,
+		"FormatConcreteOutputType": funcs.formatConcreteOutputType,
 	}
 }
 
@@ -134,6 +137,10 @@ func formatName(s string) string {
 	return lintName(s)
 }
 
+func formatIfaceImplName(s string) string {
+	return strcase.ToLowerCamel(s) + "Impl"
+}
+
 // formatEnum formats a GraphQL Enum value into a Go equivalent
 // Example: `fooId` -> `FooID`
 func (funcs goTemplateFuncs) formatEnum(s string) string {
@@ -178,18 +185,10 @@ func (funcs goTemplateFuncs) fieldOptionsStructName(f introspection.Field) strin
 // fieldFunction converts a field into a function signature
 // Example: `contents: String!` -> `func (r *File) Contents(ctx context.Context) (string, error)`
 func (funcs goTemplateFuncs) fieldFunction(f introspection.Field) (string, error) {
-	// don't create methods on query for the env itself,
-	// e.g. don't create `func (r *DAG) Go() *Go` in the Go env's codegen
-	// TODO(vito): still needed? we codegen against the module's schema view,
-	// which shouldn't include the module itself, only its dependencies. or is
-	// this because of universe?
-	// if moduleName := funcs.moduleName; moduleName != "" {
-	// 	if f.ParentObject.Name == generator.QueryStructName && f.Name == moduleName {
-	// 		return ""
-	// 	}
-	// }
-
 	structName := formatName(f.ParentObject.Name)
+	if f.ParentObject.Kind == introspection.TypeKindInterface {
+		structName = formatIfaceImplName(structName)
+	}
 	signature := fmt.Sprintf(`func (r *%s) %s`,
 		structName, formatName(f.Name))
 
@@ -208,13 +207,13 @@ func (funcs goTemplateFuncs) fieldFunction(f introspection.Field) (string, error
 		if f.ParentObject.Name == generator.QueryStructName && arg.Name == "id" {
 			outType, err := funcs.FormatOutputType(arg.TypeRef)
 			if err != nil {
-				return "", err
+				return "", fmt.Errorf("formatting output type: %w", err)
 			}
 			args = append(args, fmt.Sprintf("%s %s", arg.Name, outType))
 		} else {
 			inType, err := funcs.FormatInputType(arg.TypeRef)
 			if err != nil {
-				return "", err
+				return "", fmt.Errorf("formatting input type: %w", err)
 			}
 			args = append(args, fmt.Sprintf("%s %s", arg.Name, inType))
 		}
@@ -231,14 +230,89 @@ func (funcs goTemplateFuncs) fieldFunction(f introspection.Field) (string, error
 
 	retType, err := funcs.FormatReturnType(f)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("formatting return type: %w", err)
 	}
-	if f.TypeRef.IsScalar() || f.TypeRef.IsList() {
+	switch {
+	case f.TypeRef.IsScalar(), f.TypeRef.IsList():
 		retType = fmt.Sprintf("(%s, error)", retType)
-	} else {
+	case f.TypeRef.IsInterface():
+	default:
 		retType = "*" + retType
 	}
 	signature += " " + retType
 
 	return signature, nil
+}
+
+// TODO: doc
+// TODO: dedupe w/ fieldFunction
+func (funcs goTemplateFuncs) ifaceFunction(f introspection.Field) (string, error) {
+	// skip ID field on interface definition
+	if f.Name == "id" {
+		return "", nil
+	}
+
+	signature := formatName(f.Name)
+
+	// Generate arguments
+	args := []string{}
+	if f.TypeRef.IsScalar() || f.TypeRef.IsList() {
+		args = append(args, "ctx context.Context")
+	}
+	for _, arg := range f.Args {
+		if arg.TypeRef.IsOptional() {
+			continue
+		}
+
+		// FIXME: For top-level queries (e.g. File, Directory) if the field is named `id` then keep it as a
+		// scalar (DirectoryID) rather than an object (*Directory).
+		if f.ParentObject.Name == generator.QueryStructName && arg.Name == "id" {
+			outType, err := funcs.FormatOutputType(arg.TypeRef)
+			if err != nil {
+				return "", fmt.Errorf("formatting output type: %w", err)
+			}
+			args = append(args, fmt.Sprintf("%s %s", arg.Name, outType))
+		} else {
+			inType, err := funcs.FormatInputType(arg.TypeRef)
+			if err != nil {
+				return "", fmt.Errorf("formatting input type: %w", err)
+			}
+			args = append(args, fmt.Sprintf("%s %s", arg.Name, inType))
+		}
+	}
+
+	// Options (e.g. DirectoryContentsOptions -> <Object><Field>Options)
+	if f.Args.HasOptionals() {
+		args = append(
+			args,
+			fmt.Sprintf("opts ...%s", funcs.fieldOptionsStructName(f)),
+		)
+	}
+	signature += "(" + strings.Join(args, ", ") + ")"
+
+	retType, err := funcs.FormatReturnType(f)
+	if err != nil {
+		return "", fmt.Errorf("formatting return type: %w", err)
+	}
+	switch {
+	case f.TypeRef.IsScalar(), f.TypeRef.IsList():
+		retType = fmt.Sprintf("(%s, error)", retType)
+	case f.TypeRef.IsInterface():
+	default:
+		retType = "*" + retType
+	}
+	signature += " " + retType
+
+	return signature, nil
+}
+
+func (funcs goTemplateFuncs) formatConcreteOutputType(r *introspection.TypeRef) (string, error) {
+	name, err := funcs.FormatOutputType(r)
+	if err != nil {
+		return "", fmt.Errorf("formatting output type: %w", err)
+	}
+	if funcs.InnerType(r).IsInterface() {
+		name = formatIfaceImplName(name)
+	}
+	return name, nil
 }

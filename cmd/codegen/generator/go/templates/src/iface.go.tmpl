@@ -1,6 +1,11 @@
-{{- if ne .Name "Query" }}
+type {{ .Name | FormatName }} interface {
+{{ range $field := .Fields }}
+{{ $field | InterfaceFunction }}
+{{- end }}
+}
+
 {{ .Description | Comment }}
-type {{ .Name | FormatName }} struct {
+type {{ .Name | FormatIfaceImplName }} struct {
 	q *querybuilder.Selection
 	c graphql.Client
 
@@ -10,7 +15,6 @@ type {{ .Name | FormatName }} struct {
         {{- end }}
 	{{- end }}
 }
-{{- end }}
 
 
 {{- if .Type | IsSelfChainable }}
@@ -119,11 +123,7 @@ type {{ $field | FieldOptionsStructName }} struct {
               val.q = querybuilder.Query().Select("load{{$eleType | ObjectName}}FromID").Arg("id", fields[i].Id)
               val.c = r.c
             {{- end }}
-            {{ if $eleType.IsInterface }}
-            out = append(out, &val)
-            {{ else }} 
             out = append(out, val)
-            {{ end }}
         }
 
         return out
@@ -158,17 +158,17 @@ type {{ $field | FieldOptionsStructName }} struct {
 
 {{ if eq $field.Name "id" }}
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
-func (r *{{ $.Name | FormatName }}) XXX_GraphQLType() string {
+func (r *{{ $.Name | FormatIfaceImplName }}) XXX_GraphQLType() string {
 	return "{{ $.Name }}"
 }
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
-func (r *{{ $.Name | FormatName }}) XXX_GraphQLIDType() string {
+func (r *{{ $.Name | FormatIfaceImplName }}) XXX_GraphQLIDType() string {
 	return "{{ $field.TypeRef | FormatOutputType }}"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
-func (r *{{ $.Name | FormatName }}) XXX_GraphQLID(ctx context.Context) (string, error) {
+func (r *{{ $.Name | FormatIfaceImplName }}) XXX_GraphQLID(ctx context.Context) (string, error) {
     id, err := r.ID(ctx)
     if err != nil {
         return "", err
@@ -176,7 +176,7 @@ func (r *{{ $.Name | FormatName }}) XXX_GraphQLID(ctx context.Context) (string, 
 	return string(id), nil
 }
 
-func (r *{{ $.Name | FormatName }}) MarshalJSON() ([]byte, error) {
+func (r *{{ $.Name | FormatIfaceImplName }}) MarshalJSON() ([]byte, error) {
   id, err := r.ID(context.Background())
   if err != nil {
     return nil, err
@@ -185,13 +185,13 @@ func (r *{{ $.Name | FormatName }}) MarshalJSON() ([]byte, error) {
 }
 
 {{- if $.IsModuleCode }}
-func (r *{{ $.Name | FormatName }}) UnmarshalJSON(bs []byte) error {
+func (r *{{ $.Name | FormatIfaceImplName }}) UnmarshalJSON(bs []byte) error {
   var id string
   err := json.Unmarshal(bs, &id)
   if err != nil {
     return err
   }
-  *r = *dag.Load{{ $.Name | FormatName }}FromID({{$.Name | FormatName}}ID(id))
+  *r = *dag.Load{{ $.Name | FormatName }}FromID({{$.Name | FormatName}}ID(id)).(*{{ $.Name | FormatIfaceImplName }})
   return nil
 }
 {{- end }}

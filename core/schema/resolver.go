@@ -107,6 +107,12 @@ func (r idableObjectResolver[T, I]) Clone() FieldResolvers {
 	}
 }
 
+type InterfaceResolver struct {
+	ResolveType graphql.ResolveTypeFn
+}
+
+func (*InterfaceResolver) _resolver() {}
+
 type ScalarResolver struct {
 	Serialize    graphql.SerializeFn
 	ParseValue   graphql.ParseValueFn

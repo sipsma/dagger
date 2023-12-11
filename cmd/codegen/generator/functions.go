@@ -20,8 +20,9 @@ type FormatTypeFuncs interface {
 	FormatKindScalarInt(representation string) string
 	FormatKindScalarFloat(representation string) string
 	FormatKindScalarBoolean(representation string) string
-	FormatKindScalarDefault(representation string, refName string, input bool) string
+	FormatKindScalarDefault(schema *introspection.Schema, representation string, refName string, input bool) string
 	FormatKindObject(representation string, refName string, input bool) string
+	FormatKindInterface(representation string, refName string, input bool) string
 	FormatKindInputObject(representation string, refName string, input bool) string
 	FormatKindEnum(representation string, refName string) string
 }
@@ -29,17 +30,21 @@ type FormatTypeFuncs interface {
 // CommonFunctions formatting function with global shared template functions.
 type CommonFunctions struct {
 	formatTypeFuncs FormatTypeFuncs
+	schema          *introspection.Schema
 }
 
-func NewCommonFunctions(formatTypeFuncs FormatTypeFuncs) *CommonFunctions {
-	return &CommonFunctions{formatTypeFuncs: formatTypeFuncs}
+func NewCommonFunctions(formatTypeFuncs FormatTypeFuncs, schema *introspection.Schema) *CommonFunctions {
+	return &CommonFunctions{formatTypeFuncs: formatTypeFuncs, schema: schema}
 }
 
 // IsSelfChainable returns true if an object type has any fields that return that same type.
 func (c *CommonFunctions) IsSelfChainable(t introspection.Type) bool {
 	for _, f := range t.Fields {
 		// Only consider fields that return a non-null object.
-		if !f.TypeRef.IsObject() || f.TypeRef.Kind != introspection.TypeKindNonNull {
+		if !f.TypeRef.IsObject() && !f.TypeRef.IsInterface() {
+			continue
+		}
+		if f.TypeRef.Kind != introspection.TypeKindNonNull {
 			continue
 		}
 		if f.TypeRef.OfType.Name == t.Name {
@@ -64,7 +69,7 @@ func (c *CommonFunctions) ObjectName(t *introspection.TypeRef) (string, error) {
 	switch t.Kind {
 	case introspection.TypeKindNonNull:
 		return c.ObjectName(t.OfType)
-	case introspection.TypeKindObject:
+	case introspection.TypeKindObject, introspection.TypeKindInterface:
 		return t.Name, nil
 	default:
 		return "", fmt.Errorf("unexpected type kind %s", t.Kind)
@@ -76,7 +81,7 @@ func (c *CommonFunctions) IsIDableObject(t *introspection.TypeRef) (bool, error)
 	switch t.Kind {
 	case introspection.TypeKindNonNull:
 		return c.IsIDableObject(t.OfType)
-	case introspection.TypeKindObject:
+	case introspection.TypeKindObject, introspection.TypeKindInterface:
 		schemaType := schema.Types.Get(t.Name)
 		if schemaType == nil {
 			return false, fmt.Errorf("schema type %s is nil", t.Name)
@@ -109,7 +114,7 @@ func (c *CommonFunctions) ToUpperCase(s string) string {
 }
 
 func (c *CommonFunctions) IsListOfObject(t *introspection.TypeRef) bool {
-	return t.OfType.OfType.IsObject()
+	return t.OfType.OfType.IsObject() || t.OfType.OfType.IsInterface()
 }
 
 func (c *CommonFunctions) GetArrayField(f *introspection.Field) ([]*introspection.Field, error) {
@@ -207,10 +212,12 @@ func (c *CommonFunctions) formatType(r *introspection.TypeRef, input bool) (repr
 			case introspection.ScalarBoolean:
 				return c.formatTypeFuncs.FormatKindScalarBoolean(representation), nil
 			default:
-				return c.formatTypeFuncs.FormatKindScalarDefault(representation, ref.Name, input), nil
+				return c.formatTypeFuncs.FormatKindScalarDefault(c.schema, representation, ref.Name, input), nil
 			}
 		case introspection.TypeKindObject:
 			return c.formatTypeFuncs.FormatKindObject(representation, ref.Name, input), nil
+		case introspection.TypeKindInterface:
+			return c.formatTypeFuncs.FormatKindInterface(representation, ref.Name, input), nil
 		case introspection.TypeKindInputObject:
 			return c.formatTypeFuncs.FormatKindInputObject(representation, ref.Name, input), nil
 		case introspection.TypeKindEnum:

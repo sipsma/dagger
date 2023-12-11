@@ -22,6 +22,10 @@ var (
 	objectSource string
 	object       *template.Template
 
+	//go:embed src/iface.go.tmpl
+	ifaceSource string
+	iface       *template.Template
+
 	//go:embed src/enum.go.tmpl
 	enumSource string
 	enum       *template.Template
@@ -73,6 +77,17 @@ func Object(funcs template.FuncMap) *template.Template {
 		}
 	}
 	return object
+}
+
+func Iface(funcs template.FuncMap) *template.Template {
+	if iface == nil {
+		var err error
+		iface, err = template.New("iface").Funcs(funcs).Parse(ifaceSource)
+		if err != nil {
+			panic(err)
+		}
+	}
+	return iface
 }
 
 func Enum(funcs template.FuncMap) *template.Template {

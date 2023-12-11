@@ -22,8 +22,8 @@ type ParsedType interface {
 // parseGoTypeReference parses a Go type and returns a TypeSpec for the type *reference* only.
 // So if the type is a struct or interface, the returned TypeSpec will not have all the fields,
 // only the type name and kind.
-// This is so that that the typedef can be referenced as the type of a an arg, return value or
-// field without needing to duplicate the full type definition every time it occurs.
+// This is so that the typedef can be referenced as the type of an arg, return value or field
+// without needing to duplicate the full type definition every time it occurs.
 func (ps *parseState) parseGoTypeReference(typ types.Type, named *types.Named) (ParsedType, error) {
 	switch t := typ.(type) {
 	case *types.Named:
@@ -66,6 +66,19 @@ func (ps *parseState) parseGoTypeReference(typ types.Type, named *types.Named) (
 			return nil, fmt.Errorf("struct types must be named")
 		}
 		return &parsedObjectTypeReference{
+			name:   typeName,
+			goType: named,
+		}, nil
+
+	case *types.Interface:
+		if named == nil {
+			return nil, fmt.Errorf("interface types must be named")
+		}
+		typeName := named.Obj().Name()
+		if typeName == "" {
+			return nil, fmt.Errorf("interface types must be named")
+		}
+		return &parsedIfaceTypeReference{
 			name:   typeName,
 			goType: named,
 		}, nil
@@ -151,6 +164,30 @@ func (spec *parsedObjectTypeReference) GoType() types.Type {
 }
 
 func (spec *parsedObjectTypeReference) GoSubTypes() []types.Type {
+	// because this is a *reference* to a named type, we return the goType itself as a subtype too
+	return []types.Type{spec.goType}
+}
+
+// parsedIfaceTypeReference is a parsed object type that is referred to just by name rather
+// than with the full type definition
+type parsedIfaceTypeReference struct {
+	name   string
+	goType types.Type
+}
+
+var _ ParsedType = &parsedIfaceTypeReference{}
+
+func (spec *parsedIfaceTypeReference) TypeDefCode() (*Statement, error) {
+	return Qual("dag", "TypeDef").Call().Dot("WithInterface").Call(
+		Lit(spec.name),
+	), nil
+}
+
+func (spec *parsedIfaceTypeReference) GoType() types.Type {
+	return spec.goType
+}
+
+func (spec *parsedIfaceTypeReference) GoSubTypes() []types.Type {
 	// because this is a *reference* to a named type, we return the goType itself as a subtype too
 	return []types.Type{spec.goType}
 }

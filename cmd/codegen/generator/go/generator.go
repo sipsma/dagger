@@ -255,6 +255,20 @@ func generateCode(
 			render = append(render, out.String())
 			return nil
 		},
+		Interface: func(t *introspection.Type) error {
+			var out bytes.Buffer
+			if err := templates.Iface(funcs).Execute(&out, struct {
+				*introspection.Type
+				IsModuleCode bool
+			}{
+				Type:         t,
+				IsModuleCode: cfg.ModuleConfig != nil,
+			}); err != nil {
+				return err
+			}
+			render = append(render, out.String())
+			return nil
+		},
 		Enum: func(t *introspection.Type) error {
 			var out bytes.Buffer
 			if err := templates.Enum(funcs).Execute(&out, t); err != nil {

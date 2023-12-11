@@ -13,6 +13,7 @@ import (
 // but can be treated as one in terms of dependencies. It has no dependencies itself and is currently an
 // implicit dependency of every user module.
 type CoreMod struct {
+	api            *APIServer
 	compiledSchema *CompiledSchema
 }
 
@@ -38,7 +39,7 @@ func (m *CoreMod) Schema(_ context.Context) ([]SchemaResolvers, error) {
 func (m *CoreMod) ModTypeFor(ctx context.Context, typeDef *core.TypeDef, checkDirectDeps bool) (ModType, bool, error) {
 	switch typeDef.Kind {
 	case core.TypeDefKindString, core.TypeDefKindInteger, core.TypeDefKindBoolean, core.TypeDefKindVoid:
-		return &PrimitiveType{kind: typeDef.Kind}, true, nil
+		return &PrimitiveType{api: m.api, kind: typeDef.Kind}, true, nil
 
 	case core.TypeDefKindList:
 		underlyingType, ok, err := m.ModTypeFor(ctx, typeDef.AsList.ElementTypeDef, checkDirectDeps)
@@ -65,6 +66,10 @@ func (m *CoreMod) ModTypeFor(ctx context.Context, typeDef *core.TypeDef, checkDi
 			resolver: idableResolver,
 			name:     typeName,
 		}, true, nil
+
+	case core.TypeDefKindInterface:
+		// core does not yet defined any interfaces
+		return nil, false, nil
 
 	default:
 		return nil, false, fmt.Errorf("unexpected type def kind %s", typeDef.Kind)

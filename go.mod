@@ -6,6 +6,23 @@ replace dagger.io/dagger => ./sdk/go
 
 replace github.com/dagger/dagger/internal/mage => ./internal/mage
 
+// TODO: remove before merge
+// TODO: remove before merge
+// TODO: remove before merge
+// TODO: remove before merge
+// TODO: remove before merge
+// TODO: remove before merge
+// TODO: remove before merge
+// TODO: remove before merge
+// TODO: remove before merge
+// TODO: remove before merge
+// TODO: remove before merge
+// TODO: remove before merge
+// TODO: remove before merge
+// TODO: remove before merge
+// PR: https://github.com/dagger/graphql/pull/5
+replace github.com/dagger/graphql => github.com/sipsma/graphql v0.0.0-20231212014841-0da639309954
+
 require (
 	dagger.io/dagger v0.9.4
 	github.com/99designs/gqlgen v0.17.34 // indirect
