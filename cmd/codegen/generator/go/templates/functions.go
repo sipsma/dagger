@@ -20,7 +20,7 @@ import (
 func GoTemplateFuncs(
 	ctx context.Context,
 	schema *introspection.Schema,
-	module *modules.Config,
+	module *modules.ModuleConfig,
 	pkg *packages.Package,
 	fset *token.FileSet,
 	pass int,
@@ -39,7 +39,7 @@ func GoTemplateFuncs(
 type goTemplateFuncs struct {
 	*generator.CommonFunctions
 	ctx        context.Context
-	module     *modules.Config
+	module     *modules.ModuleConfig
 	modulePkg  *packages.Package
 	moduleFset *token.FileSet
 	schema     *introspection.Schema

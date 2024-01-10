@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"strings"
 
 	"github.com/dagger/dagger/core"
 	"github.com/dagger/dagger/core/modules"
@@ -101,7 +100,7 @@ func (s *moduleSchema) Install() {
 				`Note: this can only be called once per session. In the future, it could return a stream or service to remove the side effect.`),
 	}.Install(s.dag)
 
-	dagql.Fields[*modules.Config]{}.Install(s.dag)
+	dagql.Fields[*modules.ModuleConfig]{}.Install(s.dag)
 
 	dagql.Fields[*core.Function]{
 		dagql.Func("withDescription", s.functionWithDescription).
@@ -276,7 +275,7 @@ type moduleConfigArgs struct {
 	Subpath         string `default:""`
 }
 
-func (s *moduleSchema) moduleConfig(ctx context.Context, query *core.Query, args moduleConfigArgs) (*modules.Config, error) {
+func (s *moduleSchema) moduleConfig(ctx context.Context, query *core.Query, args moduleConfigArgs) (*modules.ModuleConfig, error) {
 	srcDir, err := args.SourceDirectory.Load(ctx, s.dag)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode source directory: %w", err)
@@ -320,59 +319,42 @@ func (s *moduleSchema) moduleWithSource(ctx context.Context, self *core.Module, 
 	Directory core.DirectoryID
 	Subpath   string `default:""`
 }) (_ *core.Module, rerr error) {
-	sourceDir, err := args.Directory.Load(ctx, s.dag)
+	configDir, err := args.Directory.Load(ctx, s.dag)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to decode source directory: %w", err)
 	}
 
-	configPath, cfg, err := core.LoadModuleConfig(ctx, sourceDir.Self, args.Subpath)
+	args.Subpath = filepath.Join("/", args.Subpath)
+	cfgPath, modCfg, err := core.LoadModuleConfig(ctx, configDir.Self, args.Subpath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to load module config: %w", err)
+	}
+	cfgDirPath := filepath.Dir(cfgPath)
+
+	modSourceRelPath, err := filepath.Rel(cfgDirPath, args.Subpath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get module source path relative to config: %w", err)
 	}
 
-	// Reposition the root of the sourceDir in case it's pointing to a subdir of current sourceDir
-	if filepath.Clean(cfg.Root) != "." {
-		rootPath := filepath.Join(filepath.Dir(configPath), cfg.Root)
-		if rootPath != filepath.Dir(configPath) {
-			configPathAbs, err := filepath.Abs(configPath)
-			if err != nil {
-				return nil, fmt.Errorf("failed to get config absolute path: %w", err)
-			}
-			rootPathAbs, err := filepath.Abs(rootPath)
-			if err != nil {
-				return nil, fmt.Errorf("failed to get root absolute path: %w", err)
-			}
-			configPath, err = filepath.Rel(rootPathAbs, configPathAbs)
-			if err != nil {
-				return nil, fmt.Errorf("failed to get config relative to root: %w", err)
-			}
-			if strings.HasPrefix(configPath, "../") {
-				// this likely shouldn't happen, a client shouldn't submit a
-				// module config that escapes the module root
-				return nil, fmt.Errorf("module subpath is not under module root")
-			}
-			if rootPath != "." {
-				err = s.dag.Select(ctx, sourceDir, &sourceDir, dagql.Selector{
-					Field: "directory",
-					Args: []dagql.NamedInput{
-						{Name: "path", Value: dagql.String(rootPath)},
-					},
-				})
-				if err != nil {
-					return nil, fmt.Errorf("failed to get root directory: %w", err)
-				}
-			}
+	// Reposition the root of the dir in case it's pointing to a subdir
+	if cfgDirPath != "." && cfgDirPath != "/" {
+		err = s.dag.Select(ctx, configDir, &configDir, dagql.Selector{
+			Field: "directory",
+			Args: []dagql.NamedInput{
+				{Name: "path", Value: dagql.String(cfgDirPath)},
+			},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to get config directory: %w", err)
 		}
 	}
 
-	sourceDirSubpath := filepath.Dir(configPath)
-
 	var eg errgroup.Group
-	deps := make([]dagql.Instance[*core.Module], len(cfg.Dependencies))
-	for i, depRef := range cfg.Dependencies {
+	deps := make([]dagql.Instance[*core.Module], len(modCfg.Dependencies))
+	for i, depRef := range modCfg.Dependencies {
 		i, depRef := i, depRef
 		eg.Go(func() error {
-			dep, err := core.LoadRef(ctx, s.dag, sourceDir, sourceDirSubpath, depRef)
+			dep, err := core.LoadRef(ctx, s.dag, configDir, depRef)
 			if err != nil {
 				return err
 			}
@@ -382,33 +364,33 @@ func (s *moduleSchema) moduleWithSource(ctx context.Context, self *core.Module, 
 	}
 	if err := eg.Wait(); err != nil {
 		if errors.Is(err, dagql.ErrCacheMapRecursiveCall) {
-			err = fmt.Errorf("module %s has a circular dependency: %w", cfg.Name, err)
+			err = fmt.Errorf("module %s has a circular dependency: %w", modCfg.Name, err)
 		}
 		return nil, err
 	}
 
 	self = self.Clone()
-	self.NameField = cfg.Name
-	self.DependencyConfig = cfg.Dependencies
-	self.SDKConfig = cfg.SDK
-	self.SourceDirectory = sourceDir
-	self.SourceDirectorySubpath = sourceDirSubpath
+	self.NameField = modCfg.Name
+	self.DependencyConfig = modCfg.Dependencies
+	self.SDKConfig = modCfg.SDK
+	self.SourceDirectory = configDir
+	self.SourceDirectorySubpath = modSourceRelPath
 	self.DependenciesField = deps
 
 	self.Deps = core.NewModDeps(self.Query, self.Dependencies()).
 		Append(self.Query.DefaultDeps.Mods...)
 
-	sdk, err := s.sdkForModule(ctx, self.Query, cfg.SDK, sourceDir, sourceDirSubpath)
+	sdk, err := s.sdkForModule(ctx, self.Query, modCfg.SDK, configDir)
 	if err != nil {
 		return nil, err
 	}
 
-	self.GeneratedCode, err = sdk.Codegen(ctx, self, sourceDir, sourceDirSubpath)
+	self.GeneratedCode, err = sdk.Codegen(ctx, self, configDir, modSourceRelPath)
 	if err != nil {
 		return nil, err
 	}
 
-	self.Runtime, err = sdk.Runtime(ctx, self, sourceDir, sourceDirSubpath)
+	self.Runtime, err = sdk.Runtime(ctx, self, configDir, modSourceRelPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get module runtime: %w", err)
 	}

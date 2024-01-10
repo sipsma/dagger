@@ -149,14 +149,16 @@ func (g *GoGenerator) bootstrapMod(ctx context.Context, mfs *memfs.FS) (*Package
 
 		info.PackageImport = currentMod.Module.Mod.Path
 	} else {
-		if g.Config.ModuleConfig != nil {
-			outDir, err := filepath.Abs(outDir)
+		if g.Config.ModuleRef != nil {
+			cfgPath, err := g.Config.ModuleRef.ConfigPath(ctx, nil)
 			if err != nil {
-				return nil, false, fmt.Errorf("get absolute path: %w", err)
+				return nil, false, fmt.Errorf("failed to get module config path: %w", err)
 			}
-			rootDir, subdirRelPath, err := g.Config.ModuleConfig.RootAndSubpath(outDir)
+			rootDir := filepath.Dir(cfgPath)
+
+			modSrcRelPath, err := g.Config.ModuleRef.ModuleSourceRelPath(ctx, nil)
 			if err != nil {
-				return nil, false, fmt.Errorf("failed to get module root: %w", err)
+				return nil, false, fmt.Errorf("failed to get module source path: %w", err)
 			}
 
 			// when a module is configured, look for a go.mod in its root dir instead
@@ -168,7 +170,7 @@ func (g *GoGenerator) bootstrapMod(ctx context.Context, mfs *memfs.FS) (*Package
 				return &PackageInfo{
 					// leave package name blank
 					// TODO: maybe we don't even need to return it?
-					PackageImport: path.Join(pkg.Module.Path, subdirRelPath),
+					PackageImport: path.Join(pkg.Module.Path, modSrcRelPath),
 				}, false, nil
 			}
 

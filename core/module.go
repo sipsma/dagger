@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/dagger/dagger/core/modules"
@@ -606,91 +605,126 @@ func (mod *Module) WithInterface(ctx context.Context, def *TypeDef) (*Module, er
 	return mod, nil
 }
 
-// Load the module config as parsed from the given File
-func LoadModuleConfigFromFile(
-	ctx context.Context,
-	configFile *File,
-) (*modules.Config, error) {
-	configBytes, err := configFile.Contents(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
-	}
-	var cfg modules.Config
-	if err := json.Unmarshal(configBytes, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
-	}
-	return &cfg, nil
-}
-
-// Load the module config from the module from the given diretory at the given path
+// Load the module config from the module from the given directory at the given path
 func LoadModuleConfig(
 	ctx context.Context,
-	sourceDir *Directory,
-	configPath string,
-) (string, *modules.Config, error) {
-	configPath = modules.NormalizeConfigPath(configPath)
-	configFile, err := sourceDir.File(ctx, configPath)
+	dir *Directory,
+	modSourcePath string,
+) (string, *modules.ModuleConfig, error) {
+	modSourcePath = filepath.Join("/", modSourcePath)
+
+	cfgPath, cfgBytes, err := findDirModuleConfig(ctx, dir, modSourcePath)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to get config file from path %q: %w", configPath, err)
+		return "", nil, fmt.Errorf("failed to find module config: %w", err)
 	}
-	cfg, err := LoadModuleConfigFromFile(ctx, configFile)
+	cfgDir := filepath.Dir(cfgPath)
+
+	var cfg modules.Config
+	if err := json.Unmarshal(cfgBytes, &cfg); err != nil {
+		return "", nil, fmt.Errorf("failed to parse module config: %w", err)
+	}
+
+	modSourceRelPath, err := filepath.Rel(cfgDir, modSourcePath)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to load config: %w", err)
+		return "", nil, fmt.Errorf("failed to get module source path relative to config: %w", err)
 	}
-	return configPath, cfg, nil
+
+	modCfg, err := cfg.ModuleConfigByPath(modSourceRelPath)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to get module config: %w", err)
+	}
+
+	return cfgPath, modCfg, nil
 }
 
+func findDirModuleConfig(
+	ctx context.Context,
+	dir *Directory,
+	curSubdir string,
+) (string, []byte, error) {
+	curSubdir = filepath.Clean(curSubdir)
+	if curSubdir == "." {
+		curSubdir = "/"
+	}
+	if !filepath.IsAbs(curSubdir) {
+		return "", nil, fmt.Errorf("relative path %q is not supported", curSubdir)
+	}
+
+	configPath := filepath.Join(curSubdir, modules.Filename)
+	configFile, err := dir.File(ctx, configPath)
+	if err == nil {
+		configBytes, err := configFile.Contents(ctx)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to read module config file: %w", err)
+		}
+		return configPath, configBytes, nil
+	}
+
+	if curSubdir == "/" {
+		// we reached the module root; time to give up
+		return "", nil, fmt.Errorf("failed to find module config: %w", err)
+	}
+
+	return findDirModuleConfig(ctx, dir, filepath.Dir(curSubdir))
+}
+
+// Load the module from the given ref.
+// parentSrcDir is used to resolve local module refs if needed (i.e. this is a local dep of another module)
 func LoadRef(
 	ctx context.Context,
 	srv *dagql.Server,
-	sourceDir dagql.Instance[*Directory],
-	subPath string,
+	parentSrcDir dagql.Instance[*Directory], // nil if not being loaded as a dep of another mod
 	ref string,
 ) (dagql.Instance[*Module], error) {
-	var dep dagql.Instance[*Module]
-	modRef, err := modules.ResolveStableRef(ref)
-	if err != nil {
-		return dep, fmt.Errorf("failed to parse dependency url %q: %w", ref, err)
+	var mod dagql.Instance[*Module]
+	if modules.IsLocalRef(ref) {
+		ref = filepath.Join("/", ref)
 	}
+
+	// lie and say there's no parent ref, we will handle it ourselves since we only have a parent dir here
+	modRef, err := modules.ResolveStableRef(ctx, nil, nil, ref)
+	if err != nil {
+		return mod, fmt.Errorf("failed to parse dependency url %q: %w", ref, err)
+	}
+
 	switch {
-	case modRef.Local:
-		depPath := filepath.Join(subPath, modRef.Path)
-		if strings.HasPrefix(depPath+"/", "../") {
-			return dep, fmt.Errorf("local module path %q is not under root", modRef.Path)
-		}
-		err := srv.Select(ctx, sourceDir, &dep, dagql.Selector{
+	case modRef.Local != nil:
+		err := srv.Select(ctx, parentSrcDir, &mod, dagql.Selector{
 			Field: "asModule",
 			Args: []dagql.NamedInput{
-				{Name: "sourceSubpath", Value: dagql.String(depPath)},
+				{Name: "sourceSubpath", Value: dagql.String(modRef.Local.ModuleSourcePath)},
 			},
 		})
 		if err != nil {
-			return dep, fmt.Errorf("load %q: %w", ref, err)
+			return mod, fmt.Errorf("load %q: %w", ref, err)
 		}
+
 	case modRef.Git != nil:
-		err := srv.Select(ctx, srv.Root(), &dep, dagql.Selector{
+		err := srv.Select(ctx, srv.Root(), &mod, dagql.Selector{
 			Field: "git",
 			Args: []dagql.NamedInput{
-				{Name: "url", Value: dagql.String(modRef.Git.CloneURL)},
+				{Name: "url", Value: dagql.String(modRef.Git.CloneURL())},
 			},
 		}, dagql.Selector{
 			Field: "commit",
 			Args: []dagql.NamedInput{
-				{Name: "id", Value: dagql.String(modRef.Version)},
+				{Name: "id", Value: dagql.String(modRef.Git.Version)},
 			},
 		}, dagql.Selector{
 			Field: "tree",
 		}, dagql.Selector{
 			Field: "asModule",
 			Args: []dagql.NamedInput{
-				{Name: "sourceSubpath", Value: dagql.String(modRef.SubPath)},
+				{Name: "sourceSubpath", Value: dagql.String(modRef.Git.ModuleSourcePath)},
 			},
 		})
 		if err != nil {
-			return dep, fmt.Errorf("load %q: %w", ref, err)
+			return mod, fmt.Errorf("load %q: %w", ref, err)
 		}
+
 	default:
-		return dep, fmt.Errorf("unsupported module ref %q", ref)
+		return mod, fmt.Errorf("unsupported module ref %q", ref)
 	}
-	return dep, nil
+
+	return mod, nil
 }

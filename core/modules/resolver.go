@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,178 +24,243 @@ var (
 // Ref contains all of the information we're able to learn about a provided
 // module ref.
 type Ref struct {
-	Path    string // Path is the provided path for the module.
-	Version string // Version is the provided version for the module, if any.
+	// The following are mutually exclusive depending on the type of ref.
+	Local *LocalRef
+	Git   *GitRef
+}
 
-	Local bool    // Local indicates that the module's Path is just a local path.
-	Git   *GitRef // Git is the resolved Git information.
-
-	SubPath string // Subdir is the subdirectory within the fetched source.
+type LocalRef struct {
+	// ModuleSourcePath is the path to the module's source code directory (which may or may not.
+	// be the same directory containing dagger.json).
+	//
+	// It is always an absolute path.
+	//
+	// For a local ref specified as a dependency in a dagger.json config from a parent git ref,
+	// it is the absolute path of the source directory in the parent git repo.
+	//
+	// Otherwise, it is the path specified by the caller on their local filesystem.
+	ModuleSourcePath string
 }
 
 type GitRef struct {
-	HTMLURL  string // HTMLURL is the URL a user can use to browse the repo.
-	CloneURL string // CloneURL is the URL to clone.
-	Commit   string // Commit is the commit to check out.
+	// ModuleSourcePath is the path to the module's source code directory within the git repo.
+	// It is always an absolute path.
+	ModuleSourcePath string
+
+	// URLParent is the prefix of the URL to the git repo (i.e. "github.com/someOrg/someRepo").
+	URLParent string
+
+	// Version is the provided version for the module.
+	Version string
+
+	// Commit is the commit to check out.
+	Commit string
+}
+
+func (gitRef *GitRef) String() string {
+	return fmt.Sprintf("%s/%s@%s", gitRef.URLParent, gitRef.ModuleSourcePath, gitRef.Version)
+}
+
+func (gitRef *GitRef) CloneURL() string {
+	return "https://" + gitRef.URLParent
+}
+
+func (gitRef *GitRef) HTMLURL() string {
+	return "https://" + gitRef.URLParent + "/tree" + gitRef.Version + "/" + gitRef.ModuleSourcePath
 }
 
 func (ref *Ref) String() string {
-	if ref.Local {
-		p, err := ref.LocalSourcePath()
-		if err != nil {
-			// should be impossible given the ref.Local guard
-			panic(err)
-		}
-		return p
+	switch {
+	case ref.Local != nil:
+		return ref.Local.ModuleSourcePath
+	case ref.Git != nil:
+		return ref.Git.String()
+	default:
+		panic("invalid module ref")
 	}
-
-	// don't include subpath, this is a git ref and Path already has any subpath included
-	// when set by ResolveMovingRef (which is confusing, needs a refactor)
-	if ref.Version == "" {
-		return ref.Path
-	}
-	return fmt.Sprintf("%s@%s", ref.Path, ref.Version)
 }
 
 func (ref *Ref) Symbolic() string {
-	var root string
 	switch {
-	case ref.Local:
-		root = ref.Path
+	case ref.Local != nil:
+		return ref.Local.ModuleSourcePath
 	case ref.Git != nil:
-		root = ref.Git.CloneURL
+		return filepath.Join(ref.Git.CloneURL(), ref.Git.ModuleSourcePath)
 	default:
 		panic("invalid module ref")
 	}
-	return filepath.Join(root, ref.SubPath)
 }
 
-func (ref *Ref) LocalSourcePath() (string, error) {
-	if ref.Local {
-		// TODO(vito): This may be worth a rethink, but the idea is for local
-		// modules to be represented as a 'subpath' of their outer module, that way
-		// they can do things like refer to sibling modules at ../foo. But this
-		// hasn't been proved out. Anyway, at this layer we need to preserve the
-		// subpath because this gets printed to `dagger.json`, and without this the
-		// module will depend on itself, leading to an infinite loop.
-		return filepath.Join(ref.Path, ref.SubPath), nil
-	}
-	return "", fmt.Errorf("cannot get local source path for non-local module")
-}
-
-func (ref *Ref) Config(ctx context.Context, c *dagger.Client) (*Config, error) {
+// ConfigPath is the path to the dagger.json config file for the module source code this
+// ref points to.
+func (ref *Ref) ConfigPath(ctx context.Context, c *dagger.Client) (string, error) {
 	switch {
-	case ref.Local:
-		configBytes, err := os.ReadFile(filepath.Join(ref.Path, Filename))
+	case ref.Local != nil:
+		configPath, err := findLocalModuleConfigPath(ref.Local.ModuleSourcePath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read local config file: %w", err)
+			return "", fmt.Errorf("failed to find config file from local ref path %s: %w", ref.Local.ModuleSourcePath, err)
+		}
+		return configPath, nil
+
+	case ref.Git != nil:
+		configPath, err := findLocalModuleConfigPath(ref.Local.ModuleSourcePath)
+		if err != nil {
+			return "", fmt.Errorf("failed to find config file from git ref path %s: %w", ref.Git.ModuleSourcePath, err)
+		}
+		return configPath, nil
+
+	default:
+		return "", fmt.Errorf("invalid module ref")
+	}
+}
+
+// ModuleSourceRelPath returns the path of the module source code relative to the dagger.json config file.
+func (ref *Ref) ModuleSourceRelPath(ctx context.Context, c *dagger.Client) (string, error) {
+	cfgPath, err := ref.ConfigPath(ctx, c)
+	if err != nil {
+		return "", fmt.Errorf("failed to get module config: %w", err)
+	}
+	cfgDir := filepath.Dir(cfgPath)
+
+	var moduleSourcePath string
+	switch {
+	case ref.Local != nil:
+		moduleSourcePath = ref.Local.ModuleSourcePath
+	case ref.Git != nil:
+		moduleSourcePath = ref.Git.ModuleSourcePath
+	default:
+		return "", fmt.Errorf("invalid module ref")
+	}
+
+	sourceRelPath, err := filepath.Rel(cfgDir, moduleSourcePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to get module source path: %w", err)
+	}
+	return sourceRelPath, nil
+}
+
+// Config returns the dagger.json config that contains configuration for this module (possibly amongst other modules).
+// It also returns the path that config file was found (which may not always be the same as the source of the module
+// itself).
+func (ref *Ref) Config(ctx context.Context, c *dagger.Client) (*Config, string, error) {
+	switch {
+	case ref.Local != nil:
+		configPath, err := ref.ConfigPath(ctx, c)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to find local config file from ref %q: %w", ref, err)
+		}
+
+		configBytes, err := os.ReadFile(configPath)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to read local config file: %w", err)
 		}
 		var cfg Config
 		if err := json.Unmarshal(configBytes, &cfg); err != nil {
-			return nil, fmt.Errorf("failed to parse local config file: %w", err)
+			return nil, "", fmt.Errorf("failed to parse local config file: %w", err)
 		}
-		return &cfg, nil
+
+		return &cfg, configPath, nil
 
 	case ref.Git != nil:
 		if c == nil {
-			return nil, fmt.Errorf("cannot load git module config with nil dagger client")
+			return nil, "", fmt.Errorf("cannot load git module config with nil dagger client")
 		}
-		repoDir := c.Git(ref.Git.CloneURL).Commit(ref.Version).Tree()
-		var configPath string
-		if ref.SubPath != "" {
-			configPath = filepath.Join(ref.SubPath, Filename)
-		} else {
-			configPath = Filename
-		}
-		configStr, err := repoDir.File(configPath).Contents(ctx)
+
+		repoDir := c.Git(ref.Git.CloneURL()).Commit(ref.Git.Version).Tree()
+		configPath, configStr, err := findDirModuleConfigPath(ctx, repoDir, ref.Git.ModuleSourcePath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read git config file: %w", err)
+			return nil, "", fmt.Errorf("failed to find git config file from ref %q: %w", ref, err)
 		}
+
 		var cfg Config
 		if err := json.Unmarshal([]byte(configStr), &cfg); err != nil {
-			return nil, fmt.Errorf("failed to parse git config file: %w", err)
+			return nil, "", fmt.Errorf("failed to parse git config file: %w", err)
 		}
-		return &cfg, nil
+
+		return &cfg, configPath, nil
 
 	default:
-		panic("invalid module ref")
+		return nil, "", fmt.Errorf("invalid module ref")
 	}
 }
 
+// ModuleConfig returns the configuration for this specific module and the path of the
+// source dir relative to its dagger.json config.
+func (ref *Ref) ModuleConfig(ctx context.Context, c *dagger.Client) (*ModuleConfig, string, error) {
+	cfg, _, err := ref.Config(ctx, c)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to get config: %w", err)
+	}
+	sourceRelPath, err := ref.ModuleSourceRelPath(ctx, c)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to get module source rel path: %w", err)
+	}
+	modCfg, err := cfg.ModuleConfigByPath(sourceRelPath)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to get module config: %w", err)
+	}
+	return modCfg, sourceRelPath, nil
+}
+
 func (ref *Ref) AsModule(ctx context.Context, c *dagger.Client) (*dagger.Module, error) {
-	src, subPath, err := ref.source(ctx, c)
+	src, modSrcRelPath, err := ref.source(ctx, c)
 	if err != nil {
 		return nil, err
 	}
 
 	return src.AsModule(dagger.DirectoryAsModuleOpts{
-		SourceSubpath: subPath,
+		SourceSubpath: modSrcRelPath,
 	}), nil
 }
 
 func (ref *Ref) AsUninitializedModule(ctx context.Context, c *dagger.Client) (*dagger.Module, error) {
-	src, subPath, err := ref.source(ctx, c)
+	src, modSrcRelPath, err := ref.source(ctx, c)
 	if err != nil {
 		return nil, err
 	}
 
 	return c.Module().
 		WithSource(src, dagger.ModuleWithSourceOpts{
-			Subpath: subPath,
+			Subpath: modSrcRelPath,
 		}), nil
 }
 
 func (ref *Ref) source(ctx context.Context, c *dagger.Client) (*dagger.Directory, string, error) {
-	cfg, err := ref.Config(ctx, c)
+	cfgPath, err := ref.ConfigPath(ctx, c)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to get config: %w", err)
+	}
+	cfgDir := filepath.Dir(cfgPath)
+
+	modCfg, modSrcRelPath, err := ref.ModuleConfig(ctx, c)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to get module config: %w", err)
 	}
 
 	switch {
-	case ref.Local:
-		localSrc, err := ref.LocalSourcePath()
-		if err != nil {
-			// should be impossible given the ref.Local guard
-			panic(err)
-		}
-		localSrc, err = filepath.Abs(localSrc)
-		if err != nil {
-			panic(err)
-		}
-
-		modRootDir, subdirRelPath, err := cfg.RootAndSubpath(localSrc)
-		if err != nil {
-			return nil, "", fmt.Errorf("failed to get module root: %w", err)
-		}
-
-		return c.Host().
-				Directory(modRootDir, dagger.HostDirectoryOpts{
-					Include: cfg.Include,
-					Exclude: cfg.Exclude,
-				}),
-			subdirRelPath, nil
+	case ref.Local != nil:
+		return c.Host().Directory(cfgDir, dagger.HostDirectoryOpts{
+			Include: modCfg.Include,
+			Exclude: modCfg.Exclude,
+		}), modSrcRelPath, nil
 
 	case ref.Git != nil:
-		rootPath, relSubPath, err := cfg.RootAndSubpath(ref.SubPath)
-		if err != nil {
-			return nil, "", fmt.Errorf("failed to get module root: %w", err)
-		}
+		return c.Git(ref.Git.CloneURL()).Commit(ref.Git.Version).Tree().Directory(cfgDir), modSrcRelPath, nil
 
-		return c.Git(ref.Git.CloneURL).Commit(ref.Version).Tree().
-				Directory(rootPath),
-			relSubPath, nil
 	default:
 		return nil, "", fmt.Errorf("invalid module (local=%t, git=%t)", ref.Local, ref.Git != nil)
 	}
 }
 
-// TODO dedup with ResolveMovingRef
-func ResolveStableRef(modQuery string) (*Ref, error) {
-	modPath, modVersion, hasVersion := strings.Cut(modQuery, "@")
+func IsLocalRef(modQuery string) bool {
+	modPath, _, hasVersion := strings.Cut(modQuery, "@")
+	isGitHub := strings.HasPrefix(modPath, "github.com/")
+	return !hasVersion && !isGitHub
+}
 
-	ref := &Ref{
-		Path: modPath,
-	}
+// TODO dedup with ResolveMovingRef
+func ResolveStableRef(ctx context.Context, dag *dagger.Client, parentRef *Ref, modQuery string) (*Ref, error) {
+	modPath, modVersion, hasVersion := strings.Cut(modQuery, "@")
 
 	// TODO: figure out how to support arbitrary repos in a predictable way.
 	// Maybe piggyback on whatever Go supports? (the whole <meta go-import>
@@ -211,14 +277,17 @@ func ResolveStableRef(modQuery string) (*Ref, error) {
 		// NB(vito): HTTP URLs should be supported by taking a sha256 digest as the
 		// version. so it should be safe to assume no version = local path. as a
 		// rule, if it's local we don't need to version it; if it's remote, we do.
-		ref.Local = true
-		return ref, nil
+		return resolveLocalRef(ctx, dag, parentRef, modPath)
 	}
 
-	ref.Git = &GitRef{} // assume git for now, HTTP can come later
+	ref := &Ref{Git: &GitRef{}} // assume git for now, HTTP can come later
 
 	if !isGitHub {
 		return nil, fmt.Errorf("for now, only github.com/ paths are supported: %s", modPath)
+	}
+
+	if !hasVersion {
+		return nil, fmt.Errorf("no version provided for %s", modPath)
 	}
 
 	segments := strings.SplitN(modPath, "/", 4)
@@ -226,31 +295,21 @@ func ResolveStableRef(modQuery string) (*Ref, error) {
 		return nil, fmt.Errorf("invalid github.com path: %s", modPath)
 	}
 
-	ref.Git.CloneURL = "https://" + segments[0] + "/" + segments[1] + "/" + segments[2]
-
-	if !hasVersion {
-		return nil, fmt.Errorf("no version provided for %s", modPath)
-	}
-
-	ref.Version = modVersion    // assume commit
-	ref.Git.Commit = modVersion // assume commit
+	ref.Git.URLParent = segments[0] + "/" + segments[1] + "/" + segments[2]
+	ref.Git.Version = modVersion // assume commit
+	ref.Git.Commit = modVersion  // assume commit
 
 	if len(segments) == 4 {
-		ref.SubPath = segments[3]
-		ref.Git.HTMLURL = "https://" + segments[0] + "/" + segments[1] + "/" + segments[2] + "/tree/" + ref.Version + "/" + ref.SubPath
+		ref.Git.ModuleSourcePath = segments[3]
 	} else {
-		ref.Git.HTMLURL = "https://" + segments[0] + "/" + segments[1] + "/" + segments[2]
+		ref.Git.ModuleSourcePath = "/"
 	}
 
 	return ref, nil
 }
 
-func ResolveMovingRef(ctx context.Context, dag *dagger.Client, modQuery string) (*Ref, error) {
+func ResolveMovingRef(ctx context.Context, dag *dagger.Client, parentRef *Ref, modQuery string) (*Ref, error) {
 	modPath, modVersion, hasVersion := strings.Cut(modQuery, "@")
-
-	ref := &Ref{
-		Path: modPath,
-	}
 
 	// TODO: figure out how to support arbitrary repos in a predictable way.
 	// Maybe piggyback on whatever Go supports? (the whole <meta go-import>
@@ -263,11 +322,10 @@ func ResolveMovingRef(ctx context.Context, dag *dagger.Client, modQuery string) 
 		// NB(vito): HTTP URLs should be supported by taking a sha256 digest as the
 		// version. so it should be safe to assume no version = local path. as a
 		// rule, if it's local we don't need to version it; if it's remote, we do.
-		ref.Local = true
-		return ref, nil
+		return resolveLocalRef(ctx, dag, parentRef, modPath)
 	}
 
-	ref.Git = &GitRef{} // assume git for now, HTTP can come later
+	ref := &Ref{Git: &GitRef{}} // assume git for now, HTTP can come later
 
 	if !isGitHub {
 		return nil, fmt.Errorf("for now, only github.com/ paths are supported: %q", modQuery)
@@ -278,57 +336,139 @@ func ResolveMovingRef(ctx context.Context, dag *dagger.Client, modQuery string) 
 		return nil, fmt.Errorf("invalid github.com path: %s", modPath)
 	}
 
-	ref.Git.CloneURL = "https://" + segments[0] + "/" + segments[1] + "/" + segments[2]
+	ref.Git.URLParent = segments[0] + "/" + segments[1] + "/" + segments[2]
 
 	if !hasVersion {
 		var err error
-		modVersion, err = defaultBranch(ctx, dag, ref.Git.CloneURL)
+		modVersion, err = defaultBranch(ctx, dag, ref.Git.CloneURL())
 		if err != nil {
 			return nil, fmt.Errorf("determine default branch: %w", err)
 		}
 	}
 
-	gitCommit, err := dag.Git(ref.Git.CloneURL, dagger.GitOpts{KeepGitDir: true}).Commit(modVersion).Commit(ctx)
+	gitCommit, err := dag.Git(ref.Git.CloneURL(), dagger.GitOpts{KeepGitDir: true}).Commit(modVersion).Commit(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("resolve git ref: %w", err)
 	}
 
-	ref.Version = gitCommit    // TODO preserve semver here
-	ref.Git.Commit = gitCommit // but tell the truth here
+	ref.Git.Version = gitCommit // TODO preserve semver here
+	ref.Git.Commit = gitCommit  // but tell the truth here
 
 	if len(segments) == 4 {
-		ref.SubPath = segments[3]
-		ref.Git.HTMLURL = "https://" + segments[0] + "/" + segments[1] + "/" + segments[2] + "/tree/" + ref.Version + "/" + ref.SubPath
+		ref.Git.ModuleSourcePath = segments[3]
 	} else {
-		ref.Git.HTMLURL = "https://" + segments[0] + "/" + segments[1] + "/" + segments[2]
+		ref.Git.ModuleSourcePath = "/"
 	}
 
 	return ref, nil
 }
 
-func ResolveModuleDependency(ctx context.Context, dag *dagger.Client, parent *Ref, urlStr string) (*Ref, error) {
-	mod, err := ResolveMovingRef(ctx, dag, urlStr)
+func resolveLocalRef(ctx context.Context, dag *dagger.Client, parentRef *Ref, localModPath string) (*Ref, error) {
+	switch {
+	case parentRef == nil:
+		localModPath, err := filepath.Abs(localModPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get absolute path: %w", err)
+		}
+		return &Ref{Local: &LocalRef{ModuleSourcePath: localModPath}}, nil
+
+	case parentRef.Local != nil:
+		cfgPath, err := parentRef.ConfigPath(ctx, dag)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get config path for local parent ref: %w", err)
+		}
+		cfgDir := filepath.Dir(cfgPath)
+
+		if filepath.IsAbs(localModPath) {
+			// verify localModPath is a subdir of the parent ref's config dir
+			if !strings.HasPrefix(localModPath, cfgDir) {
+				return nil, fmt.Errorf("local module path %q is not a subdirectory of local parent ref %q", localModPath, parentRef)
+			}
+			return &Ref{Local: &LocalRef{ModuleSourcePath: localModPath}}, nil
+		}
+
+		// it's a path relative to the parent ref's config dir
+		return &Ref{Local: &LocalRef{ModuleSourcePath: filepath.Join(cfgDir, localModPath)}}, nil
+
+	case parentRef.Git != nil:
+		cfgPath, err := parentRef.ConfigPath(ctx, dag)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get config path for local parent ref: %w", err)
+		}
+		cfgDir := filepath.Dir(cfgPath)
+
+		if filepath.IsAbs(localModPath) {
+			// verify localModPath is a subdir of the parent ref's config dir
+			if !strings.HasPrefix(localModPath, cfgDir) {
+				return nil, fmt.Errorf("local module path %q is not a subdirectory of git parent ref %q", localModPath, parentRef)
+			}
+			parentCopy := *parentRef
+			parentCopy.Git.ModuleSourcePath = localModPath
+			return &parentCopy, nil
+		}
+
+		parentCopy := *parentRef
+		parentCopy.Git.ModuleSourcePath = filepath.Join(cfgDir, localModPath)
+		return &parentCopy, nil
+
+	default:
+		return nil, fmt.Errorf("invalid parent ref: %s", parentRef)
+	}
+}
+
+// findLocalModuleConfigPath does a "find-up" on the provided dir, returning the
+// first dagger.json found in the given dir or one of its parents.
+func findLocalModuleConfigPath(dir string) (string, error) {
+	dir, err := filepath.Abs(dir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve module: %w", err)
+		return "", fmt.Errorf("failed to get absolute path: %w", err)
 	}
 
-	if !mod.Local {
-		return mod, nil
+	configPath := filepath.Join(dir, Filename)
+	if _, err := os.Stat(configPath); err == nil {
+		return configPath, nil
 	}
 
-	// make local modules relative to the parent module
-	cp := *parent
-
-	if cp.Local {
-		cp.SubPath = filepath.Join(cp.SubPath, mod.Path)
-	} else {
-		// the parent is a git module, in which case both Path and SubPath include the full
-		// path to the module, so we need to set both (this is confusing and needs a larger refactor)
-		cp.SubPath = filepath.Join(cp.SubPath, mod.Path)
-		cp.Path = filepath.Join(cp.Path, mod.Path)
+	var atRoot bool
+	if dir == "/" {
+		atRoot = true
+	} else if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+		atRoot = true
 	}
 
-	return &cp, nil
+	if atRoot {
+		// we reached the module root; time to give up
+		return "", errors.New("not found")
+	}
+
+	return findLocalModuleConfigPath(filepath.Dir(dir))
+}
+
+func findDirModuleConfigPath(
+	ctx context.Context,
+	dir *dagger.Directory,
+	curSubdir string,
+) (string, string, error) {
+	curSubdir = filepath.Clean(curSubdir)
+	if curSubdir == "." {
+		curSubdir = "/"
+	}
+	if !filepath.IsAbs(curSubdir) {
+		return "", "", fmt.Errorf("relative path %q is not supported", curSubdir)
+	}
+
+	configPath := filepath.Join(curSubdir, Filename)
+	configStr, err := dir.File(configPath).Contents(ctx)
+	if err == nil {
+		return configPath, configStr, nil
+	}
+
+	if curSubdir == "/" {
+		// we reached the module root; time to give up
+		return "", "", errors.New("not found")
+	}
+
+	return findDirModuleConfigPath(ctx, dir, filepath.Dir(curSubdir))
 }
 
 func defaultBranch(ctx context.Context, dag *dagger.Client, repo string) (string, error) {

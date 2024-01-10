@@ -14,26 +14,100 @@ import (
 // Filename is the name of the module config file.
 const Filename = "dagger.json"
 
-// Config is the module config loaded from dagger.json.
+// Config is the dagger.json configuration of modules.
 type Config struct {
-	Name         string   `json:"name" field:"true" doc:"The name of the module."`
-	Root         string   `json:"root,omitempty" field:"true" doc:"The root directory of the module's project, which may be above the module source code."`
-	SDK          string   `json:"sdk" field:"true" doc:"Either the name of a built-in SDK ('go', 'python', etc.) OR a module reference pointing to the SDK's module implementation."`
-	Include      []string `json:"include,omitempty" field:"true" doc:"Include only these file globs when loading the module root."`
-	Exclude      []string `json:"exclude,omitempty" field:"true" doc:"Exclude these file globs when loading the module root."`
-	Dependencies []string `json:"dependencies,omitempty" field:"true" doc:"Modules that this module depends on."`
+	// TODO: doc
+	Modules []*ModuleConfig `json:"modules,omitempty"`
 }
 
-func NewConfig(name, sdkNameOrRef, rootPath string) *Config {
-	cfg := &Config{
-		Name: name,
-		Root: rootPath,
-		SDK:  sdkNameOrRef,
+// Use adds the given module references to the module's dependencies.
+func (cfg *Config) Use(
+	ctx context.Context,
+	dag *dagger.Client,
+	// the ref of the module in this config to add dependencies to
+	dependerModRef *Ref,
+	// the refs of the modules to add as dependencies
+	depRefs ...string,
+) error {
+	cfgPath, err := dependerModRef.ConfigPath(ctx, dag)
+	if err != nil {
+		return fmt.Errorf("failed to get module config path for depender ref %q: %w", dependerModRef, err)
 	}
-	return cfg
+	cfgDir := filepath.Dir(cfgPath)
+
+	_, modSrcRelPath, err := dependerModRef.ModuleConfig(ctx, dag)
+	if err != nil {
+		return fmt.Errorf("failed to get module config: %w", err)
+	}
+
+	for _, modCfg := range cfg.Modules {
+		if modCfg.Source != modSrcRelPath {
+			continue
+		}
+
+		var deps []string
+		deps = append(deps, modCfg.Dependencies...)
+		deps = append(deps, depRefs...)
+		depSet := make(map[string]*Ref)
+		for _, dep := range deps {
+			depRef, err := ResolveMovingRef(ctx, dag, dependerModRef, dep)
+			if err != nil {
+				return fmt.Errorf("failed to get dep ref: %w", err)
+			}
+			depSet[depRef.Symbolic()] = depRef
+		}
+
+		modCfg.Dependencies = nil
+		for _, dep := range depSet {
+			switch {
+			case dep.Local != nil:
+				depRelPath, err := filepath.Rel(cfgDir, dep.Local.ModuleSourcePath)
+				if err != nil {
+					return fmt.Errorf("failed to get module path relative to config: %w", err)
+				}
+
+				modCfg.Dependencies = append(modCfg.Dependencies, depRelPath)
+			case dep.Git != nil:
+				modCfg.Dependencies = append(modCfg.Dependencies, dep.String())
+			default:
+				return fmt.Errorf("invalid module dependency %q", dep)
+			}
+		}
+		sort.Strings(modCfg.Dependencies)
+
+		return nil
+	}
+
+	return fmt.Errorf("no module config for path %q from ref %q", modSrcRelPath, dependerModRef)
 }
 
-func (cfg *Config) Type() *ast.Type {
+func (cfg *Config) ModuleConfigByPath(sourcePath string) (*ModuleConfig, error) {
+	sourcePath = strings.TrimPrefix(sourcePath, "./")
+	for _, modCfg := range cfg.Modules {
+		if modCfg.Source == sourcePath {
+			return modCfg, nil
+		}
+	}
+	return nil, fmt.Errorf("no module config for path %q", sourcePath)
+}
+
+type ModuleConfig struct {
+	Name string `json:"name" field:"true" doc:"The name of the module."`
+
+	Source string `json:"source" field:"true" doc:"The directory containing the module's source code, relative to dagger.json"`
+
+	SDK string `json:"sdk" field:"true" doc:"Either the name of a built-in SDK ('go', 'python', etc.) OR a module reference pointing to the SDK's module implementation."`
+
+	Include []string `json:"include,omitempty" field:"true" doc:"Include only these file globs when loading the module root."`
+
+	Exclude []string `json:"exclude,omitempty" field:"true" doc:"Exclude these file globs when loading the module root."`
+
+	Dependencies []string `json:"dependencies,omitempty" field:"true" doc:"Modules that this module depends on."`
+
+	Root string `json:"root,omitempty"`
+}
+
+func (modCfg *ModuleConfig) Type() *ast.Type {
 	return &ast.Type{
 		NamedType: "ModuleConfig",
 		NonNull:   true,
@@ -41,43 +115,7 @@ func (cfg *Config) Type() *ast.Type {
 }
 
 func (cfg *Config) TypeDescription() string {
-	return "Static configuration for a module (e.g. parsed contents of dagger.json)"
-}
-
-func (cfg *Config) RootAndSubpath(modSourceDir string) (string, string, error) {
-	modRootDir := filepath.Join(modSourceDir, cfg.Root)
-	subPath, err := filepath.Rel(modRootDir, modSourceDir)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to get module subpath: %w", err)
-	}
-	if strings.HasPrefix(subPath+"/", "../") {
-		return "", "", fmt.Errorf("module subpath %q is not under module root %q", modSourceDir, modRootDir)
-	}
-
-	return modRootDir, subPath, nil
-}
-
-// Use adds the given module references to the module's dependencies.
-func (cfg *Config) Use(ctx context.Context, dag *dagger.Client, ref *Ref, refs ...string) error {
-	var deps []string
-	deps = append(deps, cfg.Dependencies...)
-	deps = append(deps, refs...)
-	depSet := make(map[string]*Ref)
-	for _, dep := range deps {
-		depMod, err := ResolveModuleDependency(ctx, dag, ref, dep)
-		if err != nil {
-			return fmt.Errorf("failed to get module: %w", err)
-		}
-		depSet[depMod.Symbolic()] = depMod
-	}
-
-	cfg.Dependencies = nil
-	for _, dep := range depSet {
-		cfg.Dependencies = append(cfg.Dependencies, dep.String())
-	}
-	sort.Strings(cfg.Dependencies)
-
-	return nil
+	return "Static configuration for a module as parsed from its entry in a dagger.json config"
 }
 
 // NormalizeConfigPath appends /dagger.json to the given path if it is not

@@ -33,7 +33,7 @@ type Config struct {
 
 	// Generate code for a Dagger module.
 	ModuleRef    *modules.Ref
-	ModuleConfig *modules.Config
+	ModuleConfig *modules.ModuleConfig
 
 	// Optional pre-computed introspection json string
 	IntrospectionJSON string

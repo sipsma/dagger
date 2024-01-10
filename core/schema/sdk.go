@@ -10,7 +10,6 @@ import (
 	"github.com/vito/progrock"
 
 	"github.com/dagger/dagger/core"
-	"github.com/dagger/dagger/core/modules"
 	"github.com/dagger/dagger/internal/distconsts"
 )
 
@@ -20,7 +19,6 @@ func (s *moduleSchema) sdkForModule(
 	root *core.Query,
 	sdk string,
 	sourceDir dagql.Instance[*core.Directory],
-	subPath string,
 ) (core.SDK, error) {
 	builtinSDK, err := s.builtinSDK(ctx, root, sdk)
 	if err == nil {
@@ -33,11 +31,10 @@ func (s *moduleSchema) sdkForModule(
 		ctx,
 		s.dag,
 		sourceDir,
-		subPath,
 		sdk,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load sdk module %s: %w", sdk, err)
+		return nil, fmt.Errorf("failed to load non-builtin sdk module %s: %w", sdk, err)
 	}
 
 	return s.newModuleSDK(ctx, root, sdkMod)
@@ -153,41 +150,16 @@ func (sdk *moduleSDK) Runtime(ctx context.Context, mod *core.Module, sourceDir d
 func (s *moduleSchema) loadBuiltinSDK(ctx context.Context, root *core.Query, name string, engineContainerModulePath string) (*moduleSDK, error) {
 	ctx, recorder := progrock.WithGroup(ctx, fmt.Sprintf("load builtin module sdk %s", name))
 
-	cfgPath := modules.NormalizeConfigPath(engineContainerModulePath)
-	cfgPBDef, _, err := root.Buildkit.EngineContainerLocalImport(
-		ctx,
-		recorder,
-		root.Platform.Spec(),
-		filepath.Dir(cfgPath),
-		nil,
-		[]string{filepath.Base(cfgPath)},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to import module sdk config file %s from engine container filesystem: %w", name, err)
-	}
-
-	cfgFile := core.NewFile(root, cfgPBDef, filepath.Base(cfgPath), root.Platform, nil)
-	modCfg, err := core.LoadModuleConfigFromFile(ctx, cfgFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load module sdk config file %s: %w", name, err)
-	}
-
-	modRootPath := filepath.Join(filepath.Dir(cfgPath), modCfg.Root)
 	_, desc, err := root.Buildkit.EngineContainerLocalImport(
 		ctx,
 		recorder,
 		root.Platform.Spec(),
-		modRootPath,
-		modCfg.Exclude,
-		modCfg.Include,
+		engineContainerModulePath,
+		nil,
+		nil,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to import module sdk %s from engine container filesystem: %w", name, err)
-	}
-
-	cfgRelPath, err := filepath.Rel(modRootPath, cfgPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get relative path of module sdk config file %s: %w", name, err)
+		return nil, fmt.Errorf("failed to import module sdk config file %s from engine container filesystem: %w", name, err)
 	}
 
 	sdkDir, err := core.LoadBlob(ctx, s.dag, desc)
@@ -195,18 +167,9 @@ func (s *moduleSchema) loadBuiltinSDK(ctx context.Context, root *core.Query, nam
 		return nil, fmt.Errorf("failed to load module sdk %s: %w", name, err)
 	}
 
-	var sdkMod dagql.Instance[*core.Module]
-	err = s.dag.Select(ctx, sdkDir, &sdkMod, dagql.Selector{
-		Field: "asModule",
-		Args: []dagql.NamedInput{
-			{
-				Name:  "sourceSubpath",
-				Value: dagql.String(filepath.Dir(cfgRelPath)),
-			},
-		},
-	})
+	sdkMod, err := core.LoadRef(ctx, s.dag, sdkDir, ".")
 	if err != nil {
-		return nil, fmt.Errorf("failed to load embedded sdk module %q: %w", name, err)
+		return nil, fmt.Errorf("failed to load module sdk %s: %w", name, err)
 	}
 
 	return s.newModuleSDK(ctx, root, sdkMod)
