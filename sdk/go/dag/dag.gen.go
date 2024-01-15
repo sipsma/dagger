@@ -291,9 +291,9 @@ func Module() *dagger.Module {
 }
 
 // Load the static configuration for a module from the given source directory and optional subpath.
-func ModuleConfig(sourceDirectory *dagger.Directory, opts ...dagger.ModuleConfigOpts) *dagger.ModuleConfig {
+func ModuleConfig(directory *dagger.Directory, sourceDirectoryPath string) *dagger.ModuleConfig {
 	client := initClient()
-	return client.ModuleConfig(sourceDirectory, opts...)
+	return client.ModuleConfig(directory, sourceDirectoryPath)
 }
 
 // Creates a named sub-pipeline.

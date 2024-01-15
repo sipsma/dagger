@@ -109,6 +109,7 @@ type LocalImportOpts struct {
 	ExcludePatterns    []string `json:"exclude_patterns"`
 	FollowPaths        []string `json:"follow_paths"`
 	ReadSingleFileOnly bool     `json:"read_single_file_only"`
+	StatSinglePathOnly bool     `json:"stat_single_path_only"`
 	MaxFileSize        int64    `json:"max_file_size"`
 }
 

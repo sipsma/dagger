@@ -18,7 +18,7 @@ func (s *moduleSchema) sdkForModule(
 	ctx context.Context,
 	root *core.Query,
 	sdk string,
-	sourceDir dagql.Instance[*core.Directory],
+	configDir dagql.Instance[*core.Directory],
 ) (core.SDK, error) {
 	builtinSDK, err := s.builtinSDK(ctx, root, sdk)
 	if err == nil {
@@ -30,7 +30,7 @@ func (s *moduleSchema) sdkForModule(
 	sdkMod, err := core.LoadRef(
 		ctx,
 		s.dag,
-		sourceDir,
+		configDir,
 		sdk,
 	)
 	if err != nil {

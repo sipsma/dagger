@@ -195,9 +195,9 @@ func (ref *Ref) ModuleConfig(ctx context.Context, c *dagger.Client) (*ModuleConf
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to get module source rel path: %w", err)
 	}
-	modCfg, err := cfg.ModuleConfigByPath(sourceRelPath)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to get module config: %w", err)
+	modCfg, ok := cfg.ModuleConfigByPath(sourceRelPath)
+	if !ok {
+		return nil, "", fmt.Errorf("failed to find module config for %q", sourceRelPath)
 	}
 	return modCfg, sourceRelPath, nil
 }
@@ -248,7 +248,7 @@ func (ref *Ref) source(ctx context.Context, c *dagger.Client) (*dagger.Directory
 		return c.Git(ref.Git.CloneURL()).Commit(ref.Git.Version).Tree().Directory(cfgDir), modSrcRelPath, nil
 
 	default:
-		return nil, "", fmt.Errorf("invalid module (local=%t, git=%t)", ref.Local, ref.Git != nil)
+		return nil, "", fmt.Errorf("invalid module (local=%t, git=%t)", ref.Local != nil, ref.Git != nil)
 	}
 }
 

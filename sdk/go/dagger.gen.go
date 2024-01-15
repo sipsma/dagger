@@ -3843,15 +3843,23 @@ func (r *Module) WithSource(directory *Directory, opts ...ModuleWithSourceOpts) 
 	}
 }
 
-// Static configuration for a module (e.g. parsed contents of dagger.json)
+// Static configuration for a module as parsed from its entry in a dagger.json config
 type ModuleConfig struct {
 	q *querybuilder.Selection
 	c graphql.Client
 
-	id   *ModuleConfigID
-	name *string
-	root *string
-	sdk  *string
+	id     *ModuleConfigID
+	name   *string
+	sdk    *string
+	source *string
+}
+type WithModuleConfigFunc func(r *ModuleConfig) *ModuleConfig
+
+// With calls the provided function with current ModuleConfig.
+//
+// This is useful for reusability and readability by not breaking the calling chain.
+func (r *ModuleConfig) With(f WithModuleConfigFunc) *ModuleConfig {
+	return f(r)
 }
 
 func (r *ModuleConfig) Dependencies(ctx context.Context) ([]string, error) {
@@ -3861,6 +3869,16 @@ func (r *ModuleConfig) Dependencies(ctx context.Context) ([]string, error) {
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx, r.c)
+}
+
+// The directory this module config was loaded from plus any configuration changes and generated module source code
+func (r *ModuleConfig) Directory() *Directory {
+	q := r.q.Select("directory")
+
+	return &Directory{
+		q: q,
+		c: r.c,
+	}
 }
 
 func (r *ModuleConfig) Exclude(ctx context.Context) ([]string, error) {
@@ -3933,18 +3951,6 @@ func (r *ModuleConfig) Name(ctx context.Context) (string, error) {
 	return response, q.Execute(ctx, r.c)
 }
 
-func (r *ModuleConfig) Root(ctx context.Context) (string, error) {
-	if r.root != nil {
-		return *r.root, nil
-	}
-	q := r.q.Select("root")
-
-	var response string
-
-	q = q.Bind(&response)
-	return response, q.Execute(ctx, r.c)
-}
-
 func (r *ModuleConfig) SDK(ctx context.Context) (string, error) {
 	if r.sdk != nil {
 		return *r.sdk, nil
@@ -3955,6 +3961,40 @@ func (r *ModuleConfig) SDK(ctx context.Context) (string, error) {
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx, r.c)
+}
+
+func (r *ModuleConfig) Source(ctx context.Context) (string, error) {
+	if r.source != nil {
+		return *r.source, nil
+	}
+	q := r.q.Select("source")
+
+	var response string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx, r.c)
+}
+
+// Set the name of the module in the configuration.
+func (r *ModuleConfig) WithName(name string) *ModuleConfig {
+	q := r.q.Select("withName")
+	q = q.Arg("name", name)
+
+	return &ModuleConfig{
+		q: q,
+		c: r.c,
+	}
+}
+
+// Set the SDK of the module in the configuration.
+func (r *ModuleConfig) WithSDK(sdk string) *ModuleConfig {
+	q := r.q.Select("withSDK")
+	q = q.Arg("sdk", sdk)
+
+	return &ModuleConfig{
+		q: q,
+		c: r.c,
+	}
 }
 
 // A definition of a custom object defined in a Module.
@@ -4762,22 +4802,12 @@ func (r *Client) Module() *Module {
 	}
 }
 
-// ModuleConfigOpts contains options for Client.ModuleConfig
-type ModuleConfigOpts struct {
-	Subpath string
-}
-
 // Load the static configuration for a module from the given source directory and optional subpath.
-func (r *Client) ModuleConfig(sourceDirectory *Directory, opts ...ModuleConfigOpts) *ModuleConfig {
-	assertNotNil("sourceDirectory", sourceDirectory)
+func (r *Client) ModuleConfig(directory *Directory, sourceDirectoryPath string) *ModuleConfig {
+	assertNotNil("directory", directory)
 	q := r.q.Select("moduleConfig")
-	for i := len(opts) - 1; i >= 0; i-- {
-		// `subpath` optional argument
-		if !querybuilder.IsZeroValue(opts[i].Subpath) {
-			q = q.Arg("subpath", opts[i].Subpath)
-		}
-	}
-	q = q.Arg("sourceDirectory", sourceDirectory)
+	q = q.Arg("directory", directory)
+	q = q.Arg("sourceDirectoryPath", sourceDirectoryPath)
 
 	return &ModuleConfig{
 		q: q,

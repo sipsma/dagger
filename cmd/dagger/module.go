@@ -118,55 +118,84 @@ var moduleInitCmd = &cobra.Command{
 			if err != nil {
 				return fmt.Errorf("failed to get module: %w", err)
 			}
-
 			if ref.Local == nil {
 				return fmt.Errorf("module init is only supported for local modules")
 			}
 
-			if _, _, err := ref.ModuleConfig(ctx, dag); err == nil {
-				return fmt.Errorf("module already exists at: %s", ref.Local.ModuleSourcePath)
-			}
-
-			cfg, cfgPath, err := ref.Config(ctx, dag)
+			// TODO: support explicit setting of config dir, with default to "."
+			loadDirPath, err := os.Getwd()
 			if err != nil {
-				// dagger.json doesn't exist at all yet, assume we should init a new one in the current dir
-				cfg = &modules.Config{}
-				cfgPath = modules.NormalizeConfigPath(".")
+				return fmt.Errorf("failed to get current working directory: %w", err)
 			}
-			cfgDir := filepath.Dir(cfgPath)
-			cfgDir, err = filepath.Abs(cfgDir)
+			modSrcRelPath, err := filepath.Rel(loadDirPath, ref.Local.ModuleSourcePath)
 			if err != nil {
-				return fmt.Errorf("failed to get absolute module config dir: %w", err)
+				return fmt.Errorf("failed to get module source path: %w", err)
 			}
-
-			modSrcAbsPath, err := filepath.Abs(ref.Local.ModuleSourcePath)
-			if err != nil {
-				return fmt.Errorf("failed to get absolute module source path: %w", err)
-			}
-			modSrcRelPath, err := filepath.Rel(cfgDir, modSrcAbsPath)
-			if err != nil {
-				return fmt.Errorf("failed to get module source rel path: %w", err)
-			}
-
-			cfg.Modules = append(cfg.Modules, &modules.ModuleConfig{
-				Name:   moduleName,
-				Source: modSrcRelPath,
-				SDK:    sdk,
-			})
-
-			if err := findOrCreateLicense(ctx, cfgDir); err != nil {
-				return err
-			}
-
-			modSrcFullPath := filepath.Join(cfgDir, modSrcRelPath)
-			if err = updateModuleConfig(ctx, dag, cfgPath, modSrcFullPath, ref, cfg); err != nil {
-				return fmt.Errorf("failed to update module config: %w", err)
-			}
-			return nil
+			_, err = dag.ModuleConfig(dag.Host().Directory(loadDirPath), modSrcRelPath).
+				WithName(moduleName).
+				WithSDK(sdk).
+				Directory().
+				Export(ctx, ".")
+			return err
 		})
 	},
 }
 
+var moduleInstallCmd = &cobra.Command{
+	Use:     "install",
+	Aliases: []string{"use"},
+	Short:   "Add a new dependency to a dagger module",
+	Hidden:  false,
+	RunE: func(cmd *cobra.Command, extraArgs []string) (rerr error) {
+		ctx := cmd.Context()
+		return withEngineAndTUI(ctx, client.Params{}, func(ctx context.Context, engineClient *client.Client) (err error) {
+			dag := engineClient.Dagger()
+			ref, _, err := getModuleRef(ctx, dag)
+			if err != nil {
+				return fmt.Errorf("failed to get module: %w", err)
+			}
+
+			if ref.Local == nil {
+				return fmt.Errorf("module install is only supported for local modules")
+			}
+
+			cfgPath, err := ref.ConfigPath(ctx, dag)
+			if err != nil {
+				return fmt.Errorf("failed to get module config: %w", err)
+			}
+			cfgDirPath := filepath.Dir(cfgPath)
+
+			modSrcRelPath, err := ref.ModuleSourceRelPath(ctx, dag)
+			if err != nil {
+				return fmt.Errorf("failed to get module source path: %w", err)
+			}
+
+			var depRefs []string
+			for _, depRef := range extraArgs {
+				if modules.IsLocalRef(depRef) {
+					var err error
+					depRef, err = filepath.Abs(depRef)
+					if err != nil {
+						return fmt.Errorf("failed to get absolute module path: %w", err)
+					}
+					depRef, err = filepath.Rel(cfgDirPath, depRef)
+					if err != nil {
+						return fmt.Errorf("failed to get module path relative to config: %w", err)
+					}
+				}
+				depRefs = append(depRefs, depRef)
+			}
+
+			_, err = dag.ModuleConfig(dag.Host().Directory(cfgDirPath), modSrcRelPath).
+				WithDependencies(depRefs).
+				Directory().
+				Export(ctx, ".")
+			return err
+		})
+	},
+}
+
+/* TODO: rm
 var moduleInstallCmd = &cobra.Command{
 	Use:     "install",
 	Aliases: []string{"use"},
@@ -221,6 +250,7 @@ var moduleInstallCmd = &cobra.Command{
 		})
 	},
 }
+*/
 
 var moduleSyncCmd = &cobra.Command{
 	Use:    "sync",

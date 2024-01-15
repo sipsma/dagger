@@ -2,9 +2,11 @@ package schema
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/dagger/dagger/core"
 	"github.com/dagger/dagger/core/modules"
@@ -29,8 +31,11 @@ func (s *moduleSchema) Install() {
 		dagql.Func("generatedCode", s.generatedCode).
 			Doc(`Create a code generation result, given a directory containing the generated code.`),
 
-		dagql.Func("moduleConfig", s.moduleConfig).
-			Doc(`Load the static configuration for a module from the given source directory and optional subpath.`),
+		// TODO:
+		// TODO:
+		// TODO: doc
+		dagql.Func("moduleRef", s.moduleRef).
+			Doc(`TODO`),
 
 		dagql.Func("function", s.function).
 			Doc(`Creates a function.`).
@@ -71,19 +76,34 @@ func (s *moduleSchema) Install() {
 			ArgDoc("value", `JSON serialization of the return value.`),
 	}.Install(s.dag)
 
+	dagql.Fields[*core.ModuleRef]{
+		// TODO: arg doc
+		// TODO: doc
+		dagql.NodeFunc("loadModule", s.moduleRefLoadModule).
+			Doc(`TODO`),
+	}.Install(s.dag)
+
+	dagql.Fields[*core.ModuleDependency]{}.Install(s.dag)
+
+	dagql.Fields[*core.ModuleConfig]{
+		dagql.Func("withName", s.moduleConfigWithName).
+			Doc(`Set the name of the module in the configuration.`).
+			ArgDoc("name", `The name of the module.`),
+
+		dagql.Func("withSDK", s.moduleConfigWithSDK).
+			Doc(`Set the SDK of the module in the configuration.`).
+			ArgDoc("sdk", `The ref of the SDK.`),
+
+		dagql.NodeFunc("directory", s.moduleConfigDirectory).
+			Doc(`The directory this module config was loaded from plus any configuration changes and generated module source code`),
+	}.Install(s.dag)
+
 	dagql.Fields[*core.Module]{
-		dagql.Func("withSource", s.moduleWithSource).
+		dagql.NodeFunc("withSource", s.moduleWithSource).
 			Doc(`Retrieves the module with basic configuration loaded, ready for initialization.`).
-			ArgDoc("directory", `The directory containing the module's source code.`).
-			ArgDoc("subpath",
-				`An optional subpath of the directory which contains the module's
-				source code.`,
-				`This is needed when the module code is in a subdirectory but requires
-				parent directories to be loaded in order to execute. For example, the
-				module source code may need a go.mod, project.toml, package.json, etc.
-				file from a parent directory.`,
-				`If not set, the module source code is loaded from the root of the
-				directory.`),
+			ArgDoc("directory", `The directory containing the module's configuration and source code (possibly as subdirs).`).
+			ArgDoc("sourceSubpath",
+				`The subpath of the directory which contains the module's source code.`),
 
 		dagql.NodeFunc("initialize", s.moduleInitialize).
 			Doc(`Retrieves the module with the objects loaded via its SDK.`),
@@ -99,8 +119,6 @@ func (s *moduleSchema) Install() {
 			Doc(`Serve a module's API in the current session.`,
 				`Note: this can only be called once per session. In the future, it could return a stream or service to remove the side effect.`),
 	}.Install(s.dag)
-
-	dagql.Fields[*modules.ModuleConfig]{}.Install(s.dag)
 
 	dagql.Fields[*core.Function]{
 		dagql.Func("withDescription", s.functionWithDescription).
@@ -270,21 +288,6 @@ func (s *moduleSchema) module(ctx context.Context, query *core.Query, _ struct{}
 	return query.NewModule(), nil
 }
 
-type moduleConfigArgs struct {
-	SourceDirectory core.DirectoryID
-	Subpath         string `default:""`
-}
-
-func (s *moduleSchema) moduleConfig(ctx context.Context, query *core.Query, args moduleConfigArgs) (*modules.ModuleConfig, error) {
-	srcDir, err := args.SourceDirectory.Load(ctx, s.dag)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode source directory: %w", err)
-	}
-
-	_, cfg, err := core.LoadModuleConfig(ctx, srcDir.Self, args.Subpath)
-	return cfg, err
-}
-
 func (s *moduleSchema) function(ctx context.Context, _ *core.Query, args struct {
 	Name       string
 	ReturnType core.TypeDefID
@@ -315,19 +318,98 @@ func (s *moduleSchema) functionWithArg(ctx context.Context, fn *core.Function, a
 	return fn.WithArg(args.Name, argType.Self, args.Description, args.DefaultValue), nil
 }
 
-func (s *moduleSchema) moduleWithSource(ctx context.Context, self *core.Module, args struct {
-	Directory core.DirectoryID
-	Subpath   string `default:""`
-}) (_ *core.Module, rerr error) {
+type moduleWithSourceArgs struct {
+	Directory           core.DirectoryID
+	SourceDirectoryPath string
+}
+
+func (s *moduleSchema) moduleWithSource(
+	ctx context.Context,
+	self dagql.Instance[*core.Module],
+	args moduleWithSourceArgs,
+) (mod dagql.Instance[*core.Module], rerr error) {
+	configDir, err := args.Directory.Load(ctx, s.dag)
+	if err != nil {
+		return mod, fmt.Errorf("failed to decode source directory: %w", err)
+	}
+
+	// make the path absolute in case it was provided as a relative path, which is
+	// ok because we treat it as relative to the root of the provided dir
+	args.SourceDirectoryPath = filepath.Join("/", args.SourceDirectoryPath)
+
+	cfgPath, cfg, ok, err := findDirModuleConfig(ctx, configDir.Self, args.SourceDirectoryPath)
+	if err != nil {
+		return mod, fmt.Errorf("error while finding module config: %w", err)
+	}
+	if !ok {
+		// No dagger.json found, need to initialize a new one. Default to the root.
+		cfgPath = filepath.Join("/", modules.Filename)
+		cfg = &core.ModulesConfig{}
+	}
+
+	cfgDirPath := filepath.Dir(cfgPath)
+
+	// Reposition the root of the dir in case it's pointing to a subdir
+	if cfgDirPath != "/" {
+		err = s.dag.Select(ctx, configDir, &configDir, dagql.Selector{
+			Field: "directory",
+			Args: []dagql.NamedInput{
+				{Name: "path", Value: dagql.String(cfgDirPath)},
+			},
+		})
+		if err != nil {
+			return mod, fmt.Errorf("failed to reroot config directory: %w", err)
+		}
+
+		srcDirRelPath, err := filepath.Rel(cfgDirPath, args.SourceDirectoryPath)
+		if err != nil {
+			return mod, fmt.Errorf("failed to get module source path relative to config: %w", err)
+		}
+		args.SourceDirectoryPath = filepath.Join("/", srcDirRelPath)
+		cfgDirPath = "/"
+		cfgPath = filepath.Join(cfgDirPath, modules.Filename)
+	}
+
+	modCfg, ok, err := cfg.ModuleConfigByPath(args.SourceDirectoryPath)
+	if err != nil {
+		return mod, fmt.Errorf("failed to get module config by path: %w", err)
+	}
+	if !ok {
+		// no config for this module found, need to initialize a new one
+		modSourceRelPath, err := filepath.Rel(cfgDirPath, args.SourceDirectoryPath)
+		if err != nil {
+			return mod, fmt.Errorf("failed to get module source path relative to config: %w", err)
+		}
+		modCfg = &core.ModuleConfig{
+			Source: modSourceRelPath,
+		}
+	}
+
+	mod = self
+	mod.Self = mod.Self.Clone()
+	mod.Self.NameField = modCfg.Name
+	mod.Self.SDKConfig = modCfg.SDK
+	mod.Self.DependencyConfig = modCfg.Dependencies
+
+	//
+	//
+	//
+	//
+	//
+	//
+
 	configDir, err := args.Directory.Load(ctx, s.dag)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode source directory: %w", err)
 	}
 
 	args.Subpath = filepath.Join("/", args.Subpath)
-	cfgPath, modCfg, err := core.LoadModuleConfig(ctx, configDir.Self, args.Subpath)
+	cfgPath, modCfg, ok, err := core.LoadModuleConfig(ctx, configDir, args.Subpath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load module config: %w", err)
+	}
+	if !ok {
+		return nil, fmt.Errorf("no module config found at %q", cfgPath)
 	}
 	cfgDirPath := filepath.Dir(cfgPath)
 
@@ -349,17 +431,20 @@ func (s *moduleSchema) moduleWithSource(ctx context.Context, self *core.Module, 
 		}
 	}
 
+	// TODO: in theory could just select directly using nth now probably?
 	var eg errgroup.Group
 	deps := make([]dagql.Instance[*core.Module], len(modCfg.Dependencies))
 	for i, depRef := range modCfg.Dependencies {
 		i, depRef := i, depRef
 		eg.Go(func() error {
-			dep, err := core.LoadRef(ctx, s.dag, configDir, depRef)
-			if err != nil {
-				return err
-			}
-			deps[i] = dep
-			return nil
+			return s.dag.Select(ctx, depRef, &deps[i],
+				dagql.Selector{
+					Field: "loadModule",
+					Args: []dagql.NamedInput{
+						{Name: "configDir", Value: dagql.NewID[*core.Directory](self.ConfigDirectory.ID())},
+					},
+				},
+			)
 		})
 	}
 	if err := eg.Wait(); err != nil {
@@ -373,7 +458,7 @@ func (s *moduleSchema) moduleWithSource(ctx context.Context, self *core.Module, 
 	self.NameField = modCfg.Name
 	self.DependencyConfig = modCfg.Dependencies
 	self.SDKConfig = modCfg.SDK
-	self.SourceDirectory = configDir
+	self.ConfigDirectory = configDir
 	self.SourceDirectorySubpath = modSourceRelPath
 	self.DependenciesField = deps
 
@@ -470,4 +555,486 @@ func (s *moduleSchema) moduleWithInterface(ctx context.Context, modMeta *core.Mo
 		return nil, err
 	}
 	return modMeta.WithInterface(ctx, def.Self)
+}
+
+type moduleRefArgs struct {
+	Ref string
+}
+
+func (s *moduleSchema) moduleRef(ctx context.Context, query *core.Query, args moduleRefArgs) (*core.ModuleRef, error) {
+	// TODO: add "stable" bool arg
+
+	modPath, modVersion, hasVersion := strings.Cut(args.Ref, "@")
+
+	isGitHub := strings.HasPrefix(modPath, "github.com/")
+
+	if !hasVersion && !isGitHub {
+		// assume local path
+		// NB(vito): HTTP URLs should be supported by taking a sha256 digest as the
+		// version. so it should be safe to assume no version = local path. as a
+		// rule, if it's local we don't need to version it; if it's remote, we do.
+
+		callerWorkdirStat, err := query.Buildkit.StatCallerHostPath(ctx, ".")
+		if err != nil {
+			return nil, fmt.Errorf("failed to stat caller workdir: %w", err)
+		}
+		callerWorkdirPath := callerWorkdirStat.Path
+
+		if filepath.IsAbs(modPath) {
+			modPath, err = filepath.Rel(callerWorkdirPath, modPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to make module path relative to caller workdir: %w", err)
+			}
+		}
+		if strings.HasPrefix(modPath, "../") {
+			return nil, fmt.Errorf("module path %q is outside of caller workdir %q", modPath, callerWorkdirPath)
+		}
+
+		return &core.ModuleRef{
+			Kind:             core.ModuleRefKindLocal,
+			ModuleSourcePath: filepath.Join("/", modPath),
+		}, nil
+	}
+
+	// assume git ref
+	ref := &core.ModuleRef{
+		Kind: core.ModuleRefKindGit,
+	}
+
+	if !isGitHub {
+		return nil, fmt.Errorf("for now, only github.com/ paths are supported: %q", args.Ref)
+	}
+
+	segments := strings.SplitN(modPath, "/", 4)
+	if len(segments) < 3 {
+		return nil, fmt.Errorf("invalid github.com path: %s", modPath)
+	}
+
+	ref.URLParent = segments[0] + "/" + segments[1] + "/" + segments[2]
+
+	cloneURL, err := ref.GitCloneURL()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get git clone url: %w", err)
+	}
+
+	if !hasVersion {
+		var err error
+		modVersion, err = defaultBranch(ctx, cloneURL)
+		if err != nil {
+			return nil, fmt.Errorf("determine default branch: %w", err)
+		}
+	}
+
+	var gitCommitInst dagql.Instance[dagql.String]
+	err = s.dag.Select(ctx, s.dag.Root(), &gitCommitInst,
+		dagql.Selector{
+			Field: "git",
+			Args: []dagql.NamedInput{
+				{Name: "url", Value: dagql.String(cloneURL)},
+			},
+		},
+		dagql.Selector{
+			Field: "commit",
+			Args: []dagql.NamedInput{
+				{Name: "id", Value: dagql.String(modVersion)},
+			},
+		},
+		dagql.Selector{
+			Field: "commit",
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve git ref to commit: %w", err)
+	}
+	gitCommit := string(gitCommitInst.Self)
+
+	ref.Version = gitCommit // TODO preserve semver here
+	ref.Commit = gitCommit  // but tell the truth here
+
+	if len(segments) == 4 {
+		ref.ModuleSourcePath = segments[3]
+	} else {
+		ref.ModuleSourcePath = "/"
+	}
+
+	var gitDir dagql.Instance[*core.Directory]
+	err = s.dag.Select(ctx, s.dag.Root(), &gitDir,
+		dagql.Selector{
+			Field: "git",
+			Args: []dagql.NamedInput{
+				{Name: "url", Value: dagql.String(cloneURL)},
+			},
+		},
+		dagql.Selector{
+			Field: "commit",
+			Args: []dagql.NamedInput{
+				{Name: "id", Value: dagql.String(modVersion)},
+			},
+		},
+		dagql.Selector{
+			Field: "tree",
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load git dir: %w", err)
+	}
+
+	cfgPath, _, ok, err := findDirModuleConfig(ctx, gitDir.Self, ref.ModuleSourcePath)
+	if err != nil {
+		return nil, fmt.Errorf("error while finding module config: %w", err)
+	}
+	if !ok {
+		// No dagger.json yet, for now error out because this is a git dir.
+		// In theory this could be allowed if use cases for initializing modules
+		// starting from existing "undaggerized" git repos come up.
+		return nil, fmt.Errorf("no module config found at %q", cfgPath)
+	}
+	ref.ModuleConfigDirPath = filepath.Dir(cfgPath)
+
+	return ref, nil
+}
+
+/* TODO: rm
+type moduleRefLoadModuleArgs struct {
+	ConfigDir dagql.Optional[core.DirectoryID]
+}
+*/
+
+func (s *moduleSchema) moduleRefLoadModule(
+	ctx context.Context,
+	ref dagql.Instance[*core.ModuleRef],
+	args struct{},
+) (mod dagql.Instance[*core.Module], rerr error) {
+	var dirID dagql.ID[*core.Directory]
+	switch ref.Self.Kind {
+	case core.ModuleRefKindLocal:
+		if !args.ConfigDir.Valid {
+			return mod, fmt.Errorf("must provide config directory for local module")
+		}
+		dirID = args.ConfigDir.Value
+
+	case core.ModuleRefKindGit:
+		cloneURL, err := ref.Self.GitCloneURL()
+		if err != nil {
+			return mod, fmt.Errorf("failed to get git clone url: %w", err)
+		}
+
+		var gitDir dagql.Instance[*core.Directory]
+		err = s.dag.Select(ctx, s.dag.Root(), &gitDir,
+			dagql.Selector{
+				Field: "git",
+				Args: []dagql.NamedInput{
+					{Name: "url", Value: dagql.String(cloneURL)},
+				},
+			},
+			dagql.Selector{
+				Field: "commit",
+				Args: []dagql.NamedInput{
+					{Name: "id", Value: dagql.String(ref.Self.Version)},
+				},
+			},
+			dagql.Selector{
+				Field: "tree",
+			},
+		)
+		if err != nil {
+			return mod, fmt.Errorf("failed to load git dir: %w", err)
+		}
+
+		dirID = dagql.NewID[*core.Directory](gitDir.ID())
+
+	default:
+		return mod, fmt.Errorf("invalid module ref kind: %s", ref.Self.Kind)
+	}
+
+	rerr = s.dag.Select(ctx, s.dag.Root(), &mod,
+		dagql.Selector{
+			Field: "module",
+		},
+		dagql.Selector{
+			Field: "withSource",
+			Args: []dagql.NamedInput{
+				{Name: "directory", Value: dirID},
+				{Name: "subpath", Value: dagql.String(ref.Self.ModuleSourcePath)},
+			},
+		},
+	)
+	if rerr != nil {
+		return mod, fmt.Errorf("failed to load local module ref: %w", rerr)
+	}
+	return mod, nil
+}
+
+/* TODO: rm
+type moduleRefLoadConfigArgs struct {
+	ConfigDir dagql.Optional[core.DirectoryID]
+}
+
+func (s *moduleSchema) moduleRefLoadConfig(
+	ctx context.Context,
+	ref dagql.Instance[*core.ModuleRef],
+	args moduleRefLoadConfigArgs,
+) (modCfg dagql.Instance[*core.ModuleConfig], rerr error) {
+	var configDir dagql.Instance[*core.Directory]
+	switch ref.Self.Kind {
+	case core.ModuleRefKindLocal:
+		if !args.ConfigDir.Valid {
+			return modCfg, fmt.Errorf("must provide config directory for local module")
+		}
+		configDir, rerr = args.ConfigDir.Value.Load(ctx, s.dag)
+		if rerr != nil {
+			return modCfg, fmt.Errorf("failed to decode config directory: %w", rerr)
+		}
+
+	case core.ModuleRefKindGit:
+		cloneURL, err := ref.Self.GitCloneURL()
+		if err != nil {
+			return modCfg, fmt.Errorf("failed to get git clone url: %w", err)
+		}
+
+		err = s.dag.Select(ctx, s.dag.Root(), &configDir,
+			dagql.Selector{
+				Field: "git",
+				Args: []dagql.NamedInput{
+					{Name: "url", Value: dagql.String(cloneURL)},
+				},
+			},
+			dagql.Selector{
+				Field: "commit",
+				Args: []dagql.NamedInput{
+					{Name: "id", Value: dagql.String(ref.Self.Version)},
+				},
+			},
+			dagql.Selector{
+				Field: "tree",
+			},
+		)
+		if err != nil {
+			return modCfg, fmt.Errorf("failed to load git module ref: %w", err)
+		}
+
+	default:
+		return modCfg, fmt.Errorf("invalid module ref kind: %s", ref.Self.Kind)
+	}
+
+	return modCfg, nil
+
+	//
+	//
+	//
+	//
+	//
+	//
+
+	dir, err := args.Directory.Load(ctx, s.dag)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode source directory: %w", err)
+	}
+
+	// make the path absolute in case it was provided as a relative path, which is
+	// ok because we treat it as relative to the root of the provided dir
+	args.SourceDirectoryPath = filepath.Join("/", args.SourceDirectoryPath)
+
+	cfgPath, cfg, ok, err := core.LoadModuleConfig(ctx, dir, args.SourceDirectoryPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load module config: %w", err)
+	}
+	if ok {
+		return cfg, nil
+	}
+
+	// need to initialize a new empty config for the module
+
+	var cfgDirPath string
+	if cfgPath != "" {
+		cfgDirPath = filepath.Dir(cfgPath)
+	} else {
+		// there wasn't even a dagger.json found, much less configuration for module
+		// at SourceDirectoryPath. Default it to the root of the directory.
+		cfgDirPath = "/"
+	}
+
+	modSourceRelPath, err := filepath.Rel(cfgDirPath, args.SourceDirectoryPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get module source path relative to config: %w", err)
+	}
+
+	return &core.ModuleConfig{
+		ModuleConfig: &modules.ModuleConfig{
+			Source: modSourceRelPath,
+		},
+		Query:            query,
+		LoadedDirectory:  dir,
+		ConfigDirPath:    cfgDirPath,
+		ModSourceDirPath: args.SourceDirectoryPath,
+	}, nil
+}
+*/
+
+func (s *moduleSchema) moduleConfigWithName(ctx context.Context, modCfg *core.ModuleConfig, args struct {
+	Name string
+}) (_ *core.ModuleConfig, rerr error) {
+	modCfg = modCfg.Clone()
+	if modCfg.ModuleConfig == nil {
+		modCfg.ModuleConfig = &modules.ModuleConfig{}
+	}
+	modCfg.Name = args.Name
+	return modCfg, nil
+}
+
+func (s *moduleSchema) moduleConfigWithSDK(ctx context.Context, modCfg *core.ModuleConfig, args struct {
+	SDK string
+}) (_ *core.ModuleConfig, rerr error) {
+	modCfg = modCfg.Clone()
+	if modCfg.ModuleConfig == nil {
+		modCfg.ModuleConfig = &modules.ModuleConfig{}
+	}
+	modCfg.SDK = args.SDK
+	return modCfg, nil
+}
+
+func (s *moduleSchema) moduleConfigWithDependency(ctx context.Context, modCfg dagql.Instance[*core.ModuleConfig], args struct {
+	DependencyRefs []string
+}) (inst dagql.Instance[*core.ModuleConfig], rerr error) {
+	modCfg.Self = modCfg.Self.Clone()
+	if modCfg.Self.ModuleConfig == nil {
+		modCfg.Self.ModuleConfig = &modules.ModuleConfig{}
+	}
+
+	var allDepRefsStrs []string
+	allDepRefsStrs = append(allDepRefsStrs, modCfg.Self.Dependencies...)
+	allDepRefsStrs = append(allDepRefsStrs, args.DependencyRefs...)
+	depRefStrSet := make(map[string]*modules.Ref)
+	for _, depRefStr := range allDepRefsStrs {
+	}
+
+	return modCfg, nil
+}
+
+func (s *moduleSchema) moduleConfigDirectory(ctx context.Context, modCfg dagql.Instance[*core.ModuleConfig], args struct{}) (inst dagql.Instance[*core.Directory], rerr error) {
+	if modCfg.Self.Name == "" {
+		return inst, fmt.Errorf("module name must be set")
+	}
+	if modCfg.Self.SDK == "" {
+		return inst, fmt.Errorf("module sdk must be set")
+	}
+
+	// write the module config file, in case there were any updates
+	cfgPath := modules.NormalizeConfigPath(modCfg.Self.ConfigDirPath)
+
+	var cfg modules.Config
+	cfgFile, err := modCfg.Self.LoadedDirectory.Self.File(ctx, cfgPath)
+	// err is nil if the file exists already, in which case we should update it
+	if err == nil {
+		cfgBytes, err := cfgFile.Contents(ctx)
+		if err != nil {
+			return inst, fmt.Errorf("failed to get module config file contents: %w", err)
+		}
+		if err := json.Unmarshal(cfgBytes, &cfg); err != nil {
+			return inst, fmt.Errorf("failed to decode module config: %w", err)
+		}
+	}
+
+	var found bool
+	for i, maybeModCfg := range cfg.Modules {
+		if maybeModCfg.Source == modCfg.Self.Source {
+			cfg.Modules[i] = modCfg.Self.ModuleConfig
+			found = true
+			break
+		}
+	}
+	if !found {
+		cfg.Modules = append(cfg.Modules, modCfg.Self.ModuleConfig)
+	}
+
+	updatedCfgBytes, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return inst, fmt.Errorf("failed to encode module config: %w", err)
+	}
+
+	// TODO: retain prev permissions + owner (or check what happens by default for owner, may be correct already)
+	err = s.dag.Select(ctx, modCfg.Self.LoadedDirectory, &inst, dagql.Selector{
+		Field: "withNewFile",
+		Args: []dagql.NamedInput{
+			{Name: "path", Value: dagql.String(cfgPath)},
+			{Name: "contents", Value: dagql.String(string(updatedCfgBytes) + "\n")},
+		},
+	})
+	if err != nil {
+		return inst, fmt.Errorf("failed to write module config file: %w", err)
+	}
+
+	// write module generated code
+	var genCodeSrcDir dagql.Instance[*core.Directory]
+	err = s.dag.Select(ctx, s.dag.Root(), &genCodeSrcDir,
+		dagql.Selector{
+			Field: "module",
+		},
+		dagql.Selector{
+			Field: "withSource",
+			Args: []dagql.NamedInput{
+				{Name: "directory", Value: dagql.NewID[*core.Directory](inst.ID())},
+				{Name: "subpath", Value: dagql.String(modCfg.Self.ModSourceDirPath)},
+			},
+		},
+		dagql.Selector{
+			Field: "generatedCode",
+		},
+		dagql.Selector{
+			Field: "code",
+		},
+	)
+	if err != nil {
+		return inst, fmt.Errorf("failed to get module: %w", err)
+	}
+
+	err = s.dag.Select(ctx, inst, &inst,
+		dagql.Selector{
+			Field: "withDirectory",
+			Args: []dagql.NamedInput{
+				{Name: "directory", Value: dagql.NewID[*core.Directory](genCodeSrcDir.ID())},
+				{Name: "path", Value: dagql.String(modCfg.Self.ModSourceDirPath)},
+			},
+		},
+	)
+	if err != nil {
+		return inst, fmt.Errorf("failed to get module: %w", err)
+	}
+
+	return inst, nil
+}
+
+func findDirModuleConfig(
+	ctx context.Context,
+	dir *core.Directory,
+	curSubdir string,
+) (string, *core.ModulesConfig, bool, error) {
+	curSubdir = filepath.Clean(curSubdir)
+	if curSubdir == "." {
+		curSubdir = "/"
+	}
+	if !filepath.IsAbs(curSubdir) {
+		return "", nil, false, fmt.Errorf("relative path %q is not supported", curSubdir)
+	}
+
+	configPath := filepath.Join(curSubdir, modules.Filename)
+	configFile, err := dir.File(ctx, configPath)
+	if err == nil {
+		configBytes, err := configFile.Contents(ctx)
+		if err != nil {
+			return "", nil, false, fmt.Errorf("failed to read module config file: %w", err)
+		}
+		var cfg core.ModulesConfig
+		if err := json.Unmarshal(configBytes, &cfg); err != nil {
+			return "", nil, false, fmt.Errorf("failed to decode module config: %w", err)
+		}
+		return configPath, &cfg, true, nil
+	}
+
+	if curSubdir == "/" {
+		// we reached the module root; time to give up
+		return "", nil, false, nil
+	}
+
+	return findDirModuleConfig(ctx, dir, filepath.Dir(curSubdir))
 }

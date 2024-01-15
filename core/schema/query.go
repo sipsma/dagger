@@ -30,6 +30,7 @@ func (s *querySchema) Install() {
 	core.NetworkProtocols.Install(s.srv)
 	core.ImageLayerCompressions.Install(s.srv)
 	core.ImageMediaTypesEnum.Install(s.srv)
+	core.ModuleRefKindEnum.Install(s.srv)
 	core.CacheSharingModes.Install(s.srv)
 	core.TypeDefKinds.Install(s.srv)
 

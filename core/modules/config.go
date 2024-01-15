@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"dagger.io/dagger"
-	"github.com/vektah/gqlparser/v2/ast"
 )
 
 // Filename is the name of the module config file.
@@ -81,14 +80,14 @@ func (cfg *Config) Use(
 	return fmt.Errorf("no module config for path %q from ref %q", modSrcRelPath, dependerModRef)
 }
 
-func (cfg *Config) ModuleConfigByPath(sourcePath string) (*ModuleConfig, error) {
+func (cfg *Config) ModuleConfigByPath(sourcePath string) (*ModuleConfig, bool) {
 	sourcePath = strings.TrimPrefix(sourcePath, "./")
 	for _, modCfg := range cfg.Modules {
 		if modCfg.Source == sourcePath {
-			return modCfg, nil
+			return modCfg, true
 		}
 	}
-	return nil, fmt.Errorf("no module config for path %q", sourcePath)
+	return nil, false
 }
 
 type ModuleConfig struct {
@@ -107,15 +106,19 @@ type ModuleConfig struct {
 	Root string `json:"root,omitempty"`
 }
 
-func (modCfg *ModuleConfig) Type() *ast.Type {
-	return &ast.Type{
-		NamedType: "ModuleConfig",
-		NonNull:   true,
-	}
-}
+func (modCfg ModuleConfig) Clone() *ModuleConfig {
+	cp := modCfg
 
-func (cfg *Config) TypeDescription() string {
-	return "Static configuration for a module as parsed from its entry in a dagger.json config"
+	cp.Include = make([]string, len(modCfg.Include))
+	copy(cp.Include, modCfg.Include)
+
+	cp.Exclude = make([]string, len(modCfg.Exclude))
+	copy(cp.Exclude, modCfg.Exclude)
+
+	cp.Dependencies = make([]string, len(modCfg.Dependencies))
+	copy(cp.Dependencies, modCfg.Dependencies)
+
+	return &cp
 }
 
 // NormalizeConfigPath appends /dagger.json to the given path if it is not
