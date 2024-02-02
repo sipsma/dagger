@@ -24,18 +24,27 @@ func TestModuleSourceConfigs(t *testing.T) {
 			With(daggerExec("mod", "init", "--name=dep", "--sdk=go")).
 			WithWorkdir("/work").
 			With(daggerExec("mod", "init", "--name=test", "--sdk=go")).
+			WithNewFile("/work/main.go", dagger.ContainerWithNewFileOpts{
+				Contents: `package main
+			type Test struct {}
+
+			func (m *Test) Fn() string { return "wowzas" }
+			`,
+			}).
 			WithNewFile("/work/dagger.json", dagger.ContainerWithNewFileOpts{
-				Contents: `{"name": "test", "sdk": "go", "include": ["*"], "exclude": ["bar"], "dependencies": ["foo"]}`,
+				Contents: `{"name": "test", "sdk": "go", "include": ["foo"], "exclude": ["blah"], "dependencies": ["foo"]}`,
 			})
 
+		baseWithNewConfig := baseWithOldConfig.With(daggerExec("mod", "sync"))
+
 		// verify sync updates config to new format
-		confContents, err := baseWithOldConfig.With(daggerExec("mod", "sync")).File("dagger.json").Contents(ctx)
+		confContents, err := baseWithNewConfig.File("dagger.json").Contents(ctx)
 		require.NoError(t, err)
 		expectedConf := modules.ModuleConfig{
 			Name:    "test",
 			SDK:     "go",
-			Include: []string{"*"},
-			Exclude: []string{"bar"},
+			Include: []string{"foo"},
+			Exclude: []string{"blah"},
 			Dependencies: []*modules.ModuleConfigDependency{{
 				Name:   "dep",
 				Source: "foo",
@@ -48,10 +57,15 @@ func TestModuleSourceConfigs(t *testing.T) {
 		require.NoError(t, err)
 		require.JSONEq(t, strings.TrimSpace(string(expectedConfBytes)), confContents)
 
-		// verify call works seamlessly even without explicit sync yet
-		out, err := baseWithOldConfig.With(daggerCall("container-echo", "--string-arg", "hey", "stdout")).Stdout(ctx)
+		// verify sync didn't overwrite main.go
+		out, err := baseWithNewConfig.With(daggerCall("fn")).Stdout(ctx)
 		require.NoError(t, err)
-		require.Equal(t, "hey", strings.TrimSpace(out))
+		require.Equal(t, "wowzas", strings.TrimSpace(out))
+
+		// verify call works seamlessly even without explicit sync yet
+		out, err = baseWithOldConfig.With(daggerCall("fn")).Stdout(ctx)
+		require.NoError(t, err)
+		require.Equal(t, "wowzas", strings.TrimSpace(out))
 	})
 
 	t.Run("old config with root fails", func(t *testing.T) {
@@ -556,4 +570,158 @@ func TestModuleDaggerInit(t *testing.T) {
 		require.Error(t, err)
 		require.ErrorContains(t, err, `if any flags in the group [sdk name] are set they must all be set; missing [name]`)
 	})
+}
+
+func TestModuleIncludeExclude(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		sdk                    string
+		mainSource             string
+		customSDKSource        string
+		customSDKUnderlyingSDK string
+	}{
+		{
+			sdk: "go",
+			mainSource: `package main
+type Test struct {}
+
+func (m *Test) Fn() *Directory {
+	return dag.CurrentModule().Source()
+}
+			`,
+		},
+		{
+			sdk: "python",
+			mainSource: `import dagger
+from dagger import dag, function, object_type
+
+@object_type
+class Test:
+    @function
+    def fn(self) -> dagger.Directory:
+        return dag.current_module().source()
+`,
+		},
+		{
+			sdk: "typescript",
+			mainSource: `
+import { dag, Directory, object, func } from "@dagger.io/dagger"
+
+@object
+class Test {
+  @func
+  fn(): Directory {
+    return dag.currentModule().source()
+  }
+}`,
+		},
+		{
+			sdk: "coolsdk",
+			mainSource: `package main
+type Test struct {}
+
+func (m *Test) Fn() *Directory {
+	return dag.CurrentModule().Source()
+}
+`,
+			customSDKUnderlyingSDK: "go",
+			customSDKSource: `package main
+
+type Coolsdk struct {}
+
+func (m *Coolsdk) ModuleRuntime(modSource *ModuleSource, introspectionJson string) *Container {
+	return modSource.AsModule().WithSDK("go").Initialize().Runtime().WithEnvVariable("COOL", "true")
+}
+
+func (m *Coolsdk) Codegen(modSource *ModuleSource, introspectionJson string) *GeneratedCode {
+	existingConfig := modSource.Directory("/").File("dagger.json")
+	return dag.GeneratedCode(modSource.
+		AsModule().
+		WithSDK("go").
+		GeneratedSourceRootDirectory().
+		WithFile("dagger.json", existingConfig),
+	)
+}
+
+func (m *Coolsdk) RequiredPaths() []string {
+	return []string{"main.go"}
+}
+`,
+		},
+	} {
+		tc := tc
+		t.Run(tc.sdk, func(t *testing.T) {
+			t.Parallel()
+			c, ctx := connect(t)
+
+			ctr := c.Container().From(golangImage).
+				WithMountedFile(testCLIBinPath, daggerCliFile(t, c)).
+				WithWorkdir("/work")
+
+			// special case custom sdk
+			if tc.customSDKSource != "" {
+				ctr = ctr.
+					WithWorkdir("/work/" + tc.sdk).
+					With(daggerExec("mod", "init", "--name="+tc.sdk, "--sdk="+tc.customSDKUnderlyingSDK)).
+					With(sdkSource(tc.customSDKUnderlyingSDK, tc.customSDKSource)).
+					WithWorkdir("/work")
+			}
+
+			ctr = ctr.With(daggerExec("mod", "init", "--name=test", "--sdk="+tc.sdk))
+
+			if tc.customSDKSource != "" {
+				ctr = ctr.With(sdkSource(tc.customSDKUnderlyingSDK, tc.mainSource))
+			} else {
+				ctr = ctr.With(sdkSource(tc.sdk, tc.mainSource))
+			}
+
+			// TODO: use cli to configure include/exclude once supported
+			ctr = ctr.
+				With(configFile(".", &modules.ModuleConfig{
+					Name:    "test",
+					SDK:     tc.sdk,
+					RootFor: []*modules.ModuleConfigRootFor{{Source: "."}},
+					Include: []string{"subdir/keepdir"},
+					Exclude: []string{"subdir/keepdir/rmdir"},
+				})).
+				WithDirectory("subdir/keepdir/rmdir", c.Directory())
+
+			// call should work even though dagger.json and main source files weren't
+			// explicitly included
+			out, err := ctr.
+				With(daggerCall("fn", "directory", "--path", "subdir", "entries")).
+				Stdout(ctx)
+			require.NoError(t, err)
+			require.Equal(t, "keepdir", strings.TrimSpace(out))
+
+			out, err = ctr.
+				With(daggerCall("fn", "directory", "--path", "subdir/keepdir", "entries")).
+				Stdout(ctx)
+			require.NoError(t, err)
+			require.Equal(t, "", strings.TrimSpace(out))
+
+			// call should also work from other directories
+			out, err = ctr.
+				WithWorkdir("/mnt").
+				With(daggerCallAt("/work", "fn", "directory", "--path", "subdir", "entries")).
+				Stdout(ctx)
+			require.NoError(t, err)
+			require.Equal(t, "keepdir", strings.TrimSpace(out))
+
+			// call should still work after sync
+			ctr = ctr.With(daggerExec("mod", "sync"))
+
+			out, err = ctr.
+				With(daggerCall("fn", "directory", "--path", "subdir", "entries")).
+				Stdout(ctx)
+			require.NoError(t, err)
+			require.Equal(t, "keepdir", strings.TrimSpace(out))
+			out, err = ctr.
+				With(daggerCall("fn", "directory", "--path", "subdir/keepdir", "entries")).
+				Stdout(ctx)
+			require.NoError(t, err)
+			require.Equal(t, "", strings.TrimSpace(out))
+		})
+	}
 }
