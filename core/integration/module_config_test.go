@@ -49,9 +49,6 @@ func TestModuleSourceConfigs(t *testing.T) {
 				Name:   "dep",
 				Source: "foo",
 			}},
-			RootFor: []*modules.ModuleConfigRootFor{{
-				Source: ".",
-			}},
 		}
 		expectedConfBytes, err := json.Marshal(expectedConf)
 		require.NoError(t, err)
@@ -335,9 +332,6 @@ func TestModuleSourceConfigs(t *testing.T) {
 					Dependencies: []*modules.ModuleConfigDependency{{
 						Name:   "escape",
 						Source: "..",
-					}},
-					RootFor: []*modules.ModuleConfigRootFor{{
-						Source: ".",
 					}},
 				}))
 
@@ -681,7 +675,6 @@ func (m *Coolsdk) RequiredPaths() []string {
 				With(configFile(".", &modules.ModuleConfig{
 					Name:    "test",
 					SDK:     tc.sdk,
-					RootFor: []*modules.ModuleConfigRootFor{{Source: "."}},
 					Include: []string{"subdir/keepdir"},
 					Exclude: []string{"subdir/keepdir/rmdir"},
 				})).

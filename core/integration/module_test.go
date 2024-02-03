@@ -152,7 +152,7 @@ func TestModuleGoInit(t *testing.T) {
 
 		c, ctx := connect(t)
 
-		generated := c.Container().From(golangImage).
+		generated := goGitBase(t, c).
 			WithMountedFile(testCLIBinPath, daggerCliFile(t, c)).
 			WithWorkdir("/work").
 			WithExec([]string{"go", "mod", "init", "example.com/test"}).
@@ -160,14 +160,15 @@ func TestModuleGoInit(t *testing.T) {
 				Contents: "package foo\n",
 			}).
 			With(daggerExec("mod", "init", "-m=./child", "--name=child", "--sdk=go")).
-			WithWorkdir("/work/child").
+			// TODO: this is not actually needed in the test right? doesn't hurt to include, but separately
+			//WithWorkdir("/work/child").
 			// explicitly sync to see whether it makes a go.mod
-			With(daggerExec("mod", "sync")).
+			//With(daggerExec("mod", "sync")).
 			Directory("/work")
 
 		parentEntries, err := generated.Entries(ctx)
 		require.NoError(t, err)
-		require.Equal(t, []string{"child", "dagger.json", "foo.go", "go.mod", "go.sum"}, parentEntries)
+		require.Equal(t, []string{".git", "child", "foo.go", "go.mod", "go.sum"}, parentEntries)
 
 		childEntries, err := generated.Directory("child").Entries(ctx)
 		require.NoError(t, err)
@@ -185,9 +186,10 @@ func TestModuleGoInit(t *testing.T) {
 
 		c, ctx := connect(t)
 
-		generated := c.Container().From(golangImage).
+		generated := goGitBase(t, c).
 			WithMountedFile(testCLIBinPath, daggerCliFile(t, c)).
 			WithWorkdir("/work").
+			WithExec([]string{"git", "init"}).
 			WithExec([]string{"go", "mod", "init", "example.com/test"}).
 			WithNewFile("/work/foo.go", dagger.ContainerWithNewFileOpts{
 				Contents: "package foo\n",
@@ -204,7 +206,7 @@ func TestModuleGoInit(t *testing.T) {
 		parentEntries, err := generated.Entries(ctx)
 		require.NoError(t, err)
 		// no go.sum
-		require.Equal(t, []string{"child", "dagger.json", "foo.go", "go.mod"}, parentEntries)
+		require.Equal(t, []string{".git", "child", "foo.go", "go.mod"}, parentEntries)
 
 		childEntries, err := generated.Directory("child").Entries(ctx)
 		require.NoError(t, err)
@@ -4202,7 +4204,7 @@ func TestModuleLotsOfDeps(t *testing.T) {
 
 	c, ctx := connect(t)
 
-	modGen := c.Container().From(golangImage).
+	modGen := goGitBase(t, c).
 		WithMountedFile(testCLIBinPath, daggerCliFile(t, c)).
 		WithWorkdir("/work")
 
@@ -4267,9 +4269,6 @@ func TestModuleLotsOfDeps(t *testing.T) {
 				SDK:          "go",
 				Dependencies: depCfgs,
 			}))
-			rootCfg.RootFor = append(rootCfg.RootFor, &modules.ModuleConfigRootFor{
-				Source: name,
-			})
 		}
 		return newModNames
 	}
@@ -4318,7 +4317,7 @@ func TestModuleLoops(t *testing.T) {
 
 	c, ctx := connect(t)
 
-	_, err := c.Container().From(golangImage).
+	_, err := goGitBase(t, c).
 		WithMountedFile(testCLIBinPath, daggerCliFile(t, c)).
 		With(daggerExec("mod", "init", "-m=depA", "--name=depA", "--sdk=go")).
 		With(daggerExec("mod", "init", "-m=depB", "--name=depB", "--sdk=go")).
