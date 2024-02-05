@@ -2674,7 +2674,7 @@ func TestModuleConflictingSameNameDeps(t *testing.T) {
 
 	c, ctx := connect(t)
 
-	ctr := c.Container().From(golangImage).
+	ctr := goGitBase(t, c).
 		WithMountedFile(testCLIBinPath, daggerCliFile(t, c)).
 		WithWorkdir("/work/dstr").
 		With(daggerExec("mod", "init", "--name=d", "--sdk=go")).
@@ -3240,7 +3240,7 @@ func TestModuleUseLocal(t *testing.T) {
 			t.Parallel()
 			c, ctx := connect(t)
 
-			modGen := c.Container().From(golangImage).
+			modGen := goGitBase(t, c).
 				WithMountedFile(testCLIBinPath, daggerCliFile(t, c)).
 				WithWorkdir("/work/dep").
 				With(daggerExec("mod", "init", "--name=dep", "--sdk=go")).
@@ -3302,7 +3302,7 @@ func TestModuleCodegenOnDepChange(t *testing.T) {
 			t.Parallel()
 			c, ctx := connect(t)
 
-			modGen := c.Container().From(golangImage).
+			modGen := goGitBase(t, c).
 				WithMountedFile(testCLIBinPath, daggerCliFile(t, c)).
 				WithWorkdir("/work/dep").
 				With(daggerExec("mod", "init", "--name=dep", "--sdk=go")).
@@ -3370,7 +3370,7 @@ func TestModuleSyncDeps(t *testing.T) {
 			t.Parallel()
 			c, ctx := connect(t)
 
-			modGen := c.Container().From(golangImage).
+			modGen := goGitBase(t, c).
 				WithMountedFile(testCLIBinPath, daggerCliFile(t, c)).
 				WithWorkdir("/work/dep").
 				With(daggerExec("mod", "init", "--name=dep", "--sdk=go")).
@@ -3471,7 +3471,7 @@ class Use {
 			t.Parallel()
 			c, ctx := connect(t)
 
-			modGen := c.Container().From(golangImage).
+			modGen := goGitBase(t, c).
 				WithMountedFile(testCLIBinPath, daggerCliFile(t, c)).
 				WithWorkdir("/work/foo").
 				WithNewFile("/work/foo/main.go", dagger.ContainerWithNewFileOpts{
