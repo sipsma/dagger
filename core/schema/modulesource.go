@@ -15,7 +15,6 @@ import (
 	"github.com/dagger/dagger/core/modules"
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/engine/buildkit"
-	"github.com/opencontainers/go-digest"
 	"github.com/vito/progrock"
 	"golang.org/x/sync/errgroup"
 )
@@ -438,12 +437,7 @@ func (s *moduleSchema) moduleSourceDirectory(
 		Path string
 	},
 ) (dir dagql.Instance[*core.Directory], err error) {
-	if !filepath.IsLocal(args.Path) {
-		return dir, fmt.Errorf("path %q is not local", args.Path)
-	}
-
-	fullSubpath := filepath.Join(src.Self.RootSubpath, args.Path)
-
+	fullSubpath := filepath.Join("/", src.Self.RootSubpath, args.Path)
 	err = s.dag.Select(ctx, src, &dir,
 		dagql.Selector{
 			Field: "contextDirectory",
@@ -753,69 +747,7 @@ func (s *moduleSchema) moduleSourceWithGeneratedContext(
 		}
 	}
 
-	// Check for loops by walking the DAG of deps, seeing if we ever encounter this mod.
-	// Modules are identified here by their *Source's ID*, which is relatively stable and
-	// unique to the module.
-	// Note that this is ultimately best effort, subtle differences in IDs that don't actually
-	// impact the final module will still result in us considering the two modules different.
-	// E.g. if you initialize a module from a source directory that had a no-op file change
-	// made to it, the ID used here will still change.
-	// TODO: is this covered in LocalModuleSource.ResolveFromCaller now?
-	selfDgst, err := src.ID().Digest()
-	if err != nil {
-		return inst, fmt.Errorf("failed to get digest of module source: %w", err)
-	}
-	memo := make(map[digest.Digest]struct{}) // set of id digests
-	var visit func(*core.Module) error
-	visit = func(inst *core.Module) error {
-		instDgst, err := inst.Source.ID().Digest()
-		if err != nil {
-			return fmt.Errorf("failed to get digest of module source: %w", err)
-		}
-		if instDgst == selfDgst {
-			return fmt.Errorf("module %s has a circular dependency", modCfg.Name)
-		}
-
-		if _, ok := memo[instDgst]; ok {
-			return nil
-		}
-		memo[instDgst] = struct{}{}
-
-		for _, dep := range inst.DependenciesField {
-			if err := visit(dep.Self); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	for _, dep := range depMods {
-		if err := visit(dep); err != nil {
-			return inst, err
-		}
-	}
-
-	updatedModCfgBytes, err := json.MarshalIndent(modCfg, "", "  ")
-	if err != nil {
-		return inst, fmt.Errorf("failed to encode module config: %w", err)
-	}
-	updatedModCfgBytes = append(updatedModCfgBytes, '\n')
-
 	rootSubpath := src.Self.RootSubpath
-	modCfgPath := filepath.Join(rootSubpath, modules.Filename)
-
-	err = s.dag.Select(ctx, generatedContext, &generatedContext,
-		dagql.Selector{
-			Field: "withNewFile",
-			Args: []dagql.NamedInput{
-				{Name: "path", Value: dagql.String(modCfgPath)},
-				{Name: "contents", Value: dagql.String(updatedModCfgBytes)},
-				{Name: "permissions", Value: dagql.Int(0644)},
-			},
-		},
-	)
-	if err != nil {
-		return inst, fmt.Errorf("failed to update module context directory config file: %w", err)
-	}
 
 	if modCfg.Name != "" && modCfg.SDK != "" {
 		sdk, err := s.sdkForModule(ctx, src.Self.Query, modCfg.SDK, src)
@@ -941,6 +873,28 @@ func (s *moduleSchema) moduleSourceWithGeneratedContext(
 		}
 	}
 
+	// update dagger.json last so SDKs can't intentionally or unintentionally
+	// modify it during codegen in ways that would be hard to deal with
+	modCfgPath := filepath.Join(rootSubpath, modules.Filename)
+	updatedModCfgBytes, err := json.MarshalIndent(modCfg, "", "  ")
+	if err != nil {
+		return inst, fmt.Errorf("failed to encode module config: %w", err)
+	}
+	updatedModCfgBytes = append(updatedModCfgBytes, '\n')
+	err = s.dag.Select(ctx, generatedContext, &generatedContext,
+		dagql.Selector{
+			Field: "withNewFile",
+			Args: []dagql.NamedInput{
+				{Name: "path", Value: dagql.String(modCfgPath)},
+				{Name: "contents", Value: dagql.String(updatedModCfgBytes)},
+				{Name: "permissions", Value: dagql.Int(0644)},
+			},
+		},
+	)
+	if err != nil {
+		return inst, fmt.Errorf("failed to update module context directory config file: %w", err)
+	}
+
 	err = s.dag.Select(ctx, src, &inst,
 		dagql.Selector{
 			Field: "withContext",
@@ -1011,96 +965,20 @@ func (s *moduleSchema) moduleSourceResolveFromCaller(
 		return inst, fmt.Errorf("failed to get source root relative path: %s", err)
 	}
 
+	// TODO:
+	// TODO:
+	// TODO:
+	slog.Debug("moduleLocalSourceResolveFromCaller",
+		"contextAbsPath", contextAbsPath,
+		"sourceRootAbsPath", sourceRootAbsPath,
+		"sourceRootRelPath", sourceRootRelPath,
+		"callerRootPath", fmt.Sprintf("%q", src.RootSubpath),
+		"contextFound", contextFound,
+	)
+
 	collectedDeps := dagql.NewCacheMap[string, *callerLocalDep]()
-	if err := s.collectCallerLocalDeps(ctx, src.Query, sourceRootAbsPath, collectedDeps); err != nil {
+	if err := s.collectCallerLocalDeps(ctx, src.Query, contextAbsPath, sourceRootAbsPath, true, src, collectedDeps); err != nil {
 		return inst, fmt.Errorf("failed to collect local module source deps: %w", err)
-	}
-
-	if len(src.WithDependencies) > 0 {
-		for _, dep := range src.WithDependencies {
-			if dep.Self.Source.Self.Kind != core.ModuleSourceKindLocal {
-				continue
-			}
-			depRelPath := dep.Self.Source.Self.RootSubpath
-			depAbsPath := filepath.Join(sourceRootAbsPath, depRelPath)
-			if err := s.collectCallerLocalDeps(ctx, src.Query, depAbsPath, collectedDeps); err != nil {
-				return inst, fmt.Errorf("failed to collect local module source dep: %w", err)
-			}
-		}
-	}
-	// TODO: this is highly dupey w/ collectCallerLocalDeps code
-	if src.WithSDK != "" {
-		topLevel, err := collectedDeps.Get(ctx, sourceRootAbsPath)
-		if err != nil {
-			return inst, fmt.Errorf("failed to get collected top-level local dep: %w", err)
-		}
-
-		topLevel.sdkKey = src.WithSDK
-		topLevel.sdk, err = s.builtinSDK(ctx, src.Query, src.WithSDK)
-		switch {
-		case err == nil:
-		case errors.Is(err, errUnknownBuiltinSDK):
-			parsed := parseRefString(src.WithSDK)
-			switch parsed.kind {
-			case core.ModuleSourceKindLocal:
-				// SDK is a local custom one, it needs to be included
-				sdkPath := filepath.Join(sourceRootAbsPath, parsed.modPath)
-				err = s.collectCallerLocalDeps(ctx, src.Query, sdkPath, collectedDeps)
-				if err != nil {
-					return inst, fmt.Errorf("failed to collect local sdk: %w", err)
-				}
-
-				// TODO: this is inefficient, leads to extra local loads, but only for case
-				// of local custom SDK.
-				callerCwdStat, err := src.Query.Buildkit.StatCallerHostPath(ctx, ".", true)
-				if err != nil {
-					return inst, fmt.Errorf("failed to stat caller cwd: %w", err)
-				}
-				callerCwd := callerCwdStat.Path
-				sdkCallerRelPath, err := filepath.Rel(callerCwd, sdkPath)
-				if err != nil {
-					return inst, fmt.Errorf("failed to get relative path of local sdk: %s", err)
-				}
-				var sdkMod dagql.Instance[*core.Module]
-				err = s.dag.Select(ctx, s.dag.Root(), &sdkMod,
-					dagql.Selector{
-						Field: "moduleSource",
-						Args: []dagql.NamedInput{
-							{Name: "refString", Value: dagql.String(sdkCallerRelPath)},
-						},
-					},
-					dagql.Selector{
-						Field: "asLocalSource",
-					},
-					dagql.Selector{
-						Field: "resolveFromCaller",
-					},
-					dagql.Selector{
-						Field: "asModule",
-					},
-					dagql.Selector{
-						Field: "initialize",
-					},
-				)
-				if err != nil {
-					return inst, fmt.Errorf("failed to load local sdk module source: %w", err)
-				}
-				topLevel.sdk, err = s.newModuleSDK(ctx, src.Query, sdkMod, dagql.Instance[*core.Directory]{})
-				if err != nil {
-					return inst, fmt.Errorf("failed to get local sdk: %w", err)
-				}
-				topLevel.sdkKey = sdkPath
-
-			case core.ModuleSourceKindGit:
-				// TODO: this codepath is completely untested atm
-				topLevel.sdk, err = s.sdkForModule(ctx, src.Query, src.WithSDK, dagql.Instance[*core.ModuleSource]{})
-				if err != nil {
-					return inst, fmt.Errorf("failed to get git module sdk: %w", err)
-				}
-			}
-		default:
-			return inst, fmt.Errorf("failed to load sdk: %w", err)
-		}
 	}
 
 	includeSet := map[string]struct{}{}
@@ -1111,14 +989,13 @@ func (s *moduleSchema) moduleSourceResolveFromCaller(
 	sdkSet := map[string]core.SDK{}
 	sourceRootPaths := collectedDeps.Keys()
 	for _, rootPath := range sourceRootPaths {
-		// TODO:
-		// TODO:
-		// TODO:
-		// TODO:
-		// TODO:
-		// TODO:
-		// TODO:
-		// do all path escape checks here
+		rootRelPath, err := filepath.Rel(contextAbsPath, rootPath)
+		if err != nil {
+			return inst, fmt.Errorf("failed to get source root relative path: %s", err)
+		}
+		if !filepath.IsLocal(rootRelPath) {
+			return inst, fmt.Errorf("local module dep source path %q escapes context %q", rootRelPath, contextAbsPath)
+		}
 
 		localDep, err := collectedDeps.Get(ctx, rootPath)
 		if err != nil {
@@ -1131,7 +1008,8 @@ func (s *moduleSchema) moduleSourceResolveFromCaller(
 				sdkSet[localDep.sdkKey] = localDep.sdk
 			}
 			if localDep.modCfg == nil {
-				// uninitialized top-level module source, include that path (otherwise we'll load everything)
+				// uninitialized top-level module source, include it's source root dir (otherwise
+				// we could load everything if no other includes end up being specified)
 				includeSet[sourceRootRelPath] = struct{}{}
 				continue
 			}
@@ -1152,6 +1030,9 @@ func (s *moduleSchema) moduleSourceResolveFromCaller(
 			if err != nil {
 				return inst, fmt.Errorf("failed to get relative path of config include: %s", err)
 			}
+			if !filepath.IsLocal(relPath) {
+				return inst, fmt.Errorf("local module dep source include path %q escapes context %q", relPath, contextAbsPath)
+			}
 			includeSet[relPath] = struct{}{}
 		}
 		for _, path := range localDep.modCfg.Exclude {
@@ -1159,6 +1040,9 @@ func (s *moduleSchema) moduleSourceResolveFromCaller(
 			relPath, err := filepath.Rel(contextAbsPath, absPath)
 			if err != nil {
 				return inst, fmt.Errorf("failed to get relative path of config exclude: %s", err)
+			}
+			if !filepath.IsLocal(relPath) {
+				return inst, fmt.Errorf("local module dep source exclude path %q escapes context %q", relPath, contextAbsPath)
 			}
 			excludeSet[relPath] = struct{}{}
 		}
@@ -1181,7 +1065,7 @@ func (s *moduleSchema) moduleSourceResolveFromCaller(
 			return inst, fmt.Errorf("failed to get relative path: %s", err)
 		}
 		if !filepath.IsLocal(sourceRelSubpath) {
-			return inst, fmt.Errorf("module source path %q escapes context %q", sourceRelSubpath, contextAbsPath)
+			return inst, fmt.Errorf("local module source path %q escapes context %q", sourceRelSubpath, contextAbsPath)
 		}
 		includeSet[sourceRelSubpath+"/**/*"] = struct{}{}
 	}
@@ -1309,26 +1193,58 @@ type callerLocalDep struct {
 func (s *moduleSchema) collectCallerLocalDeps(
 	ctx context.Context,
 	query *core.Query,
+	contextAbsPath string,
 	sourceRootAbsPath string,
+	topLevel bool, // TODO: doc
+	src *core.ModuleSource,
 	// cache of sourceRootAbsPath -> *callerLocalDep
 	collectedDeps dagql.CacheMap[string, *callerLocalDep],
 ) error {
 	_, err := collectedDeps.GetOrInitialize(ctx, sourceRootAbsPath, func(ctx context.Context) (*callerLocalDep, error) {
+		sourceRootRelPath, err := filepath.Rel(contextAbsPath, sourceRootAbsPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get source root relative path: %s", err)
+		}
+		if !filepath.IsLocal(sourceRootRelPath) {
+			return nil, fmt.Errorf("local module dep source path %q escapes context %q", sourceRootRelPath, contextAbsPath)
+		}
+
+		var modCfg modules.ModuleConfig
 		configPath := filepath.Join(sourceRootAbsPath, modules.Filename)
 		configBytes, err := query.Buildkit.ReadCallerHostFile(ctx, configPath)
 		switch {
 		case err == nil:
+			if err := json.Unmarshal(configBytes, &modCfg); err != nil {
+				return nil, fmt.Errorf("error unmarshaling config at %s: %s", configPath, err)
+			}
+
 		case strings.Contains(err.Error(), "no such file or directory"):
-			// this is only allowed for the top-level module (which may be in the process of being newly initialized)
-			// that is checked later though; sentinel via nil modCfg
-			return &callerLocalDep{sourceRootAbsPath: sourceRootAbsPath}, nil
+			// This is only allowed for the top-level module (which may be in the process of being newly initialized).
+			// sentinel via nil modCfg unless there's WithSDK/WithDependencies/etc. to be applied
+			if !topLevel {
+				return nil, fmt.Errorf("missing config file %s", configPath)
+			}
+			if src.WithSDK == "" && len(src.WithDependencies) == 0 {
+				return &callerLocalDep{sourceRootAbsPath: sourceRootAbsPath}, nil
+			}
+
 		default:
 			return nil, fmt.Errorf("error reading config %s: %s", configPath, err)
 		}
 
-		var modCfg modules.ModuleConfig
-		if err := json.Unmarshal(configBytes, &modCfg); err != nil {
-			return nil, fmt.Errorf("error unmarshaling config at %s: %s", configPath, err)
+		if topLevel {
+			modCfg.Name = src.WithName
+			modCfg.SDK = src.WithSDK
+			for _, dep := range src.WithDependencies {
+				refString, err := dep.Self.Source.Self.RefString()
+				if err != nil {
+					return nil, fmt.Errorf("failed to get ref string for dependency: %w", err)
+				}
+				modCfg.Dependencies = append(modCfg.Dependencies, &modules.ModuleConfigDependency{
+					Name:   dep.Self.Name,
+					Source: refString,
+				})
+			}
 		}
 
 		localDep := &callerLocalDep{
@@ -1341,9 +1257,8 @@ func (s *moduleSchema) collectCallerLocalDeps(
 			if parsed.kind != core.ModuleSourceKindLocal {
 				continue
 			}
-			depRelPath := parsed.modPath
-			depAbsPath := filepath.Join(sourceRootAbsPath, depRelPath)
-			err := s.collectCallerLocalDeps(ctx, query, depAbsPath, collectedDeps)
+			depAbsPath := filepath.Join(sourceRootAbsPath, parsed.modPath)
+			err = s.collectCallerLocalDeps(ctx, query, contextAbsPath, depAbsPath, false, src, collectedDeps)
 			if err != nil {
 				return nil, fmt.Errorf("failed to collect local module source dep: %w", err)
 			}
@@ -1364,7 +1279,7 @@ func (s *moduleSchema) collectCallerLocalDeps(
 			case core.ModuleSourceKindLocal:
 				// SDK is a local custom one, it needs to be included
 				sdkPath := filepath.Join(sourceRootAbsPath, parsed.modPath)
-				err = s.collectCallerLocalDeps(ctx, query, sdkPath, collectedDeps)
+				err = s.collectCallerLocalDeps(ctx, query, contextAbsPath, sdkPath, false, src, collectedDeps)
 				if err != nil {
 					return nil, fmt.Errorf("failed to collect local sdk: %w", err)
 				}
@@ -1387,9 +1302,6 @@ func (s *moduleSchema) collectCallerLocalDeps(
 						Args: []dagql.NamedInput{
 							{Name: "refString", Value: dagql.String(sdkCallerRelPath)},
 						},
-					},
-					dagql.Selector{
-						Field: "asLocalSource",
 					},
 					dagql.Selector{
 						Field: "resolveFromCaller",
@@ -1423,6 +1335,9 @@ func (s *moduleSchema) collectCallerLocalDeps(
 
 		return localDep, nil
 	})
+	if errors.Is(err, dagql.ErrCacheMapRecursiveCall) {
+		return fmt.Errorf("local module at %q has a circular dependency", sourceRootAbsPath)
+	}
 	return err
 }
 
@@ -1447,4 +1362,12 @@ func callerHostFindUpContext(
 		return "", false, nil
 	}
 	return callerHostFindUpContext(ctx, bk, filepath.Dir(curDirPath))
+}
+
+func pathEscapes(parentAbsPath, childAbsPath string) bool {
+	relPath, err := filepath.Rel(parentAbsPath, childAbsPath)
+	if err != nil {
+		return true
+	}
+	return !filepath.IsLocal(relPath)
 }

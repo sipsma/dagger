@@ -226,6 +226,7 @@ var moduleInstallCmd = &cobra.Command{
 				if err != nil {
 					return fmt.Errorf("failed to get dep relative path: %w", err)
 				}
+
 				depSrc = dag.ModuleSource(depRelPath)
 			}
 			dep := dag.ModuleDependency(depSrc, dagger.ModuleDependencyOpts{

@@ -65,29 +65,12 @@ func TestModuleSourceConfigs(t *testing.T) {
 		require.Equal(t, "wowzas", strings.TrimSpace(out))
 	})
 
-	t.Run("old config with root fails", func(t *testing.T) {
-		t.Parallel()
-		c, ctx := connect(t)
-
-		out, err := c.Container().From(golangImage).
-			WithMountedFile(testCLIBinPath, daggerCliFile(t, c)).
-			WithWorkdir("/work").
-			With(daggerExec("mod", "init", "--name=test", "--sdk=go")).
-			WithNewFile("/work/dagger.json", dagger.ContainerWithNewFileOpts{
-				Contents: `{"name": "test", "sdk": "go", "root": ".."}`,
-			}).
-			With(daggerCall("container-echo", "--string-arg", "hey")).
-			Stdout(ctx)
-		require.Error(t, err)
-		require.Contains(t, `Cannot load module config with legacy "root" setting`, out)
-	})
-
 	t.Run("dep has separate config", func(t *testing.T) {
 		// Verify that if a local dep has its own dagger.json, that's used to load it correctly.
 		t.Parallel()
 		c, ctx := connect(t)
 
-		base := c.Container().From(golangImage).
+		base := goGitBase(t, c).
 			WithMountedFile(testCLIBinPath, daggerCliFile(t, c)).
 			WithWorkdir("/work/subdir/dep").
 			With(daggerExec("mod", "init", "--name=dep", "--sdk=go")).
@@ -157,7 +140,7 @@ func TestModuleSourceConfigs(t *testing.T) {
 		t.Parallel()
 		c, ctx := connect(t)
 
-		base := c.Container().From(golangImage).
+		base := goGitBase(t, c).
 			WithMountedFile(testCLIBinPath, daggerCliFile(t, c)).
 			WithWorkdir("/work").
 			With(daggerExec("mod", "init", "-m=subdir/dep", "--name=dep", "--sdk=go")).
@@ -236,9 +219,9 @@ func TestModuleSourceConfigs(t *testing.T) {
 		t.Parallel()
 		c, ctx := connect(t)
 
-		base := c.Container().From(golangImage).
+		base := goGitBase(t, c).
 			WithMountedFile(testCLIBinPath, daggerCliFile(t, c)).
-			WithWorkdir("/work/dep").
+			WithWorkdir("/play/dep").
 			With(daggerExec("mod", "init", "--name=dep", "--sdk=go")).
 			WithWorkdir("/work/test").
 			With(daggerExec("mod", "init", "--name=test", "--sdk=go"))
@@ -247,27 +230,27 @@ func TestModuleSourceConfigs(t *testing.T) {
 			t.Parallel()
 			_, err := base.
 				WithWorkdir("/work/test").
-				With(daggerExec("mod", "install", "../dep")).
+				With(daggerExec("mod", "install", "../../play/dep")).
 				Sync(ctx)
-			require.ErrorContains(t, err, `module dep source path "../dep" escapes root "/"`)
+			require.ErrorContains(t, err, `local module dep source path "../play/dep" escapes context "/work"`)
 		})
 
 		t.Run("from dep dir", func(t *testing.T) {
 			t.Parallel()
 			_, err := base.
-				WithWorkdir("/work/dep").
-				With(daggerExec("mod", "install", "-m=../test", ".")).
+				WithWorkdir("/play/dep").
+				With(daggerExec("mod", "install", "-m=../../work/test", ".")).
 				Sync(ctx)
-			require.ErrorContains(t, err, `module dep source path "../dep" escapes root "/"`)
+			require.ErrorContains(t, err, `module dep source path "../play/dep" escapes context "/work"`)
 		})
 
 		t.Run("from root", func(t *testing.T) {
 			t.Parallel()
 			_, err := base.
 				WithWorkdir("/").
-				With(daggerExec("mod", "install", "-m=work/test", "work/dep")).
+				With(daggerExec("mod", "install", "-m=work/test", "play/dep")).
 				Sync(ctx)
-			require.ErrorContains(t, err, `module dep source path "../dep" escapes root "/"`)
+			require.ErrorContains(t, err, `module dep source path "../play/dep" escapes context "/work"`)
 		})
 	})
 
@@ -276,7 +259,7 @@ func TestModuleSourceConfigs(t *testing.T) {
 		t.Parallel()
 		c, ctx := connect(t)
 
-		base := c.Container().From(golangImage).
+		base := goGitBase(t, c).
 			WithMountedFile(testCLIBinPath, daggerCliFile(t, c)).
 			WithWorkdir("/work/dep").
 			With(daggerExec("mod", "init", "--name=dep", "--sdk=go")).
@@ -336,13 +319,13 @@ func TestModuleSourceConfigs(t *testing.T) {
 				}))
 
 			_, err := base.With(daggerCall("container-echo", "--string-arg", "plz fail")).Sync(ctx)
-			require.ErrorContains(t, err, `module dep source path ".." escapes root "/"`)
+			require.ErrorContains(t, err, `local module dep source path ".." escapes context "/work"`)
 
 			_, err = base.With(daggerExec("mod", "sync")).Sync(ctx)
-			require.ErrorContains(t, err, `module dep source path ".." escapes root "/"`)
+			require.ErrorContains(t, err, `local module dep source path ".." escapes context "/work"`)
 
 			_, err = base.With(daggerExec("mod", "install", "./dep")).Sync(ctx)
-			require.ErrorContains(t, err, `module dep source path ".." escapes root "/"`)
+			require.ErrorContains(t, err, `local module dep source path ".." escapes context "/work"`)
 		})
 	})
 }

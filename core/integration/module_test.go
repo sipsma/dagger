@@ -4326,7 +4326,7 @@ func TestModuleLoops(t *testing.T) {
 		With(daggerExec("mod", "install", "-m=depB", "./depA")).
 		With(daggerExec("mod", "install", "-m=depA", "./depC")).
 		Sync(ctx)
-	require.ErrorContains(t, err, "module depA has a circular dependency")
+	require.ErrorContains(t, err, `local module at "/work/depA" has a circular dependency`)
 }
 
 //go:embed testdata/modules/go/id/arg/main.go
@@ -4723,21 +4723,22 @@ func TestModuleCustomSDK(t *testing.T) {
 type CoolSdk struct {}
 
 func (m *CoolSdk) ModuleRuntime(modSource *ModuleSource, introspectionJson string) *Container {
-	return modSource.AsModule().WithSDK("go").Initialize().Runtime().WithEnvVariable("COOL", "true")
+	return modSource.WithSDK("go").AsModule().Initialize().Runtime().WithEnvVariable("COOL", "true")
 }
 
 func (m *CoolSdk) Codegen(modSource *ModuleSource, introspectionJson string) *GeneratedCode {
-	existingConfig := modSource.Directory("/").File("dagger.json")
-	return dag.GeneratedCode(modSource.
-		AsModule().
-		WithSDK("go").
-		GeneratedSourceRootDirectory().
-		WithFile("dagger.json", existingConfig),
-	)
+	return dag.GeneratedCode(modSource.WithSDK("go").ContextDirectory())
 }
 
 func (m *CoolSdk) RequiredPaths() []string {
-	return []string{"main.go"}
+	return []string{
+		"**/go.mod",
+		"**/go.sum",
+		"**/go.work",
+		"**/go.work.sum",
+		"**/vendor/",
+		"**/*.go",
+	}
 }
 `,
 		}).
