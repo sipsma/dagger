@@ -19,9 +19,7 @@ on:
 
 jobs:
   publish:
-    if: ${{ github.repository == 'dagger/dagger' && github.event_name == 'push' }}
-    # Use our own Dagger runner when running in the dagger/dagger repo (including PRs)
-    runs-on: dagger-runner-16c-64g
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v4
@@ -31,15 +29,41 @@ jobs:
       - name: "Publish Engine & CLI"
         run: |
           if [ $GITHUB_REF_NAME == 'main' ]; then
+            # TODO:
+            # TODO:
+            # TODO:
+            # TODO:
+            # TODO:
+            # TODO:
+            ./hack/dev
+            export _EXPERIMENTAL_DAGGER_CLI_BIN="$PWD/bin/dagger"
+            echo "_EXPERIMENTAL_DAGGER_CLI_BIN=${_EXPERIMENTAL_DAGGER_CLI_BIN}" >> "$GITHUB_ENV"
+            export _EXPERIMENTAL_DAGGER_RUNNER_HOST=docker-container://dagger-engine.dev
+            echo "_EXPERIMENTAL_DAGGER_RUNNER_HOST=${_EXPERIMENTAL_DAGGER_RUNNER_HOST}" >> "$GITHUB_ENV"
+            chmod +x $_EXPERIMENTAL_DAGGER_CLI_BIN
+
             # this is a push to the main branch, publish to the commit we're at
             ./hack/make dagger:publish ${{ github.sha }}
           else
+            # TODO:
+            # TODO:
+            # TODO:
+            # TODO:
+            # TODO:
+            # TODO:
+            ./hack/dev
+            export _EXPERIMENTAL_DAGGER_CLI_BIN="$PWD/bin/dagger"
+            echo "_EXPERIMENTAL_DAGGER_CLI_BIN=${_EXPERIMENTAL_DAGGER_CLI_BIN}" >> "$GITHUB_ENV"
+            export _EXPERIMENTAL_DAGGER_RUNNER_HOST=docker-container://dagger-engine.dev
+            echo "_EXPERIMENTAL_DAGGER_RUNNER_HOST=${_EXPERIMENTAL_DAGGER_RUNNER_HOST}" >> "$GITHUB_ENV"
+            chmod +x $_EXPERIMENTAL_DAGGER_CLI_BIN
+
             # this is a tag push, publish to that tag
             ./hack/make dagger:publish ${{ github.ref_name }}
           fi
         env:
-          GH_ORG_NAME: ${{ vars.GH_ORG_NAME }}
-          GITHUB_TOKEN: ${{ secrets.RELEASE_DAGGER_CI_TOKEN }}
+          GH_ORG_NAME: "sipsma"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DAGGER_ENGINE_IMAGE: ${{ secrets.RELEASE_DAGGER_ENGINE_IMAGE }}
           AWS_ACCESS_KEY_ID: ${{ secrets.RELEASE_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.RELEASE_AWS_SECRET_ACCESS_KEY }}
@@ -49,8 +73,7 @@ jobs:
           GORELEASER_KEY: ${{ secrets.GORELEASER_PRO_LICENSE_KEY }}
           DAGGER_ENGINE_IMAGE_REGISTRY: ghcr.io
           DAGGER_ENGINE_IMAGE_USERNAME: ${{ github.actor }}
-          DAGGER_ENGINE_IMAGE_PASSWORD: ${{ secrets.RELEASE_DAGGER_CI_TOKEN }}
-          _EXPERIMENTAL_DAGGER_RUNNER_HOST: "unix:///var/run/buildkit/buildkitd.sock"
+          DAGGER_ENGINE_IMAGE_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
       - name: "Bump SDK Engine Dependencies"
         uses: peter-evans/create-pull-request@v3
         if: github.ref_name != 'main'
@@ -69,11 +92,9 @@ jobs:
           draft: true
 
   scan-engine:
-    runs-on: ubuntu-latest
     name: "Scan Engine Image for Vulnerabilities"
+    runs-on: ubuntu-latest
     needs: [publish]
-    # only run this on push events, not in PRs (since we only publish images during pushes)
-    if: github.event_name == 'push' && github.repository == 'dagger/dagger'
     steps:
       - uses: aquasecurity/trivy-action@0.11.2
         with:
@@ -91,7 +112,6 @@ jobs:
     needs: [publish]
     if: |
       always() &&
-      github.repository == 'dagger/dagger' &&
       (needs.publish.result == 'success' || needs.publish.result == 'skipped')
     runs-on: macos-latest
     steps:
@@ -171,7 +191,6 @@ jobs:
     needs: [publish]
     if: |
       always() &&
-      github.repository == 'dagger/dagger' &&
       (needs.publish.result == 'success' || needs.publish.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
@@ -215,7 +234,6 @@ jobs:
     needs: [publish]
     if: |
       always() &&
-      github.repository == 'dagger/dagger' &&
       (needs.publish.result == 'success' || needs.publish.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
@@ -262,7 +280,6 @@ jobs:
     needs: [publish]
     if: |
       always() &&
-      github.repository == 'dagger/dagger' &&
       (needs.publish.result == 'success' || needs.publish.result == 'skipped')
     runs-on: ubuntu-latest
     steps:

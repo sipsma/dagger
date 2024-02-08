@@ -52,6 +52,35 @@ func (cl Cli) Publish(ctx context.Context, version string) error {
 	if err != nil {
 		return err
 	}
+
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	for _, x := range []string{
+		"GH_ORG_NAME",
+		"GITHUB_TOKEN",
+		"GORELEASER_KEY",
+		"AWS_ACCESS_KEY_ID",
+		"AWS_SECRET_ACCESS_KEY",
+		"AWS_REGION",
+		"AWS_BUCKET",
+		"ARTEFACTS_FQDN",
+	} {
+		v, ok := os.LookupEnv(x)
+		if !ok {
+			panic("missing env " + x)
+		}
+		if len(v) == 0 {
+			panic("empty string " + x)
+		}
+	}
+
+	if v := versionInfo.EngineVersion(); len(v) == 0 {
+		panic("empty string " + "versionInfo.EngineVersion()")
+	}
+
 	wd := c.Host().Directory(".")
 	_, err = ctr.
 		WithWorkdir("/app").
