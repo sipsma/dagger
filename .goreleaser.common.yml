@@ -14,12 +14,10 @@ builds:
       - -X github.com/dagger/dagger/engine.Version={{.Env.ENGINE_VERSION}}
     goos:
       - linux
-      - windows
       - darwin
     goarch:
       - amd64
       - arm64
-      - arm
     goarm:
       - "7"
 
