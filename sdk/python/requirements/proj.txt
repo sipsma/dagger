@@ -44,7 +44,7 @@ mdurl==0.1.2
     # via markdown-it-py
 multidict==6.0.4
     # via yarl
-platformdirs==4.1.0
+platformdirs==4.2.0
     # via -r requirements.in
 pygments==2.17.2
     # via rich
