@@ -39,6 +39,8 @@ func GetCustomFlagValue(name string) DaggerValue {
 		return &portForwardValue{}
 	case CacheVolume:
 		return &cacheVolumeValue{}
+	case Socket:
+		return &socketValue{}
 	}
 	return nil
 }
@@ -60,6 +62,8 @@ func GetCustomFlagValueSlice(name string) DaggerValue {
 		return &sliceValue[*portForwardValue]{}
 	case CacheVolume:
 		return &sliceValue[*cacheVolumeValue]{}
+	case Socket:
+		return &sliceValue[*socketValue]{}
 	}
 	return nil
 }
@@ -494,6 +498,50 @@ func (v *cacheVolumeValue) Get(_ context.Context, dag *dagger.Client) (any, erro
 		return nil, fmt.Errorf("cacheVolume name cannot be empty")
 	}
 	return dag.CacheVolume(v.name), nil
+}
+
+const (
+	unixSocketKind = "unix"
+)
+
+// socketValue is a pflag.Value that builds a dagger.Socket from a
+// local socket.
+type socketValue struct {
+	socketKind string
+	value      string
+}
+
+func (v *socketValue) Type() string {
+	return Socket
+}
+
+func (v *socketValue) Set(s string) error {
+	switch {
+	case s == "":
+		return fmt.Errorf("socket value cannot be empty")
+	case strings.HasPrefix(s, "unix://"):
+		v.socketKind = unixSocketKind
+		v.value = strings.TrimPrefix(s, "unix://")
+	default:
+		return fmt.Errorf(`unsupported socket value (must begin with "unix://"): %s`, s)
+	}
+
+	return nil
+}
+
+func (v *socketValue) String() string {
+	return fmt.Sprintf("%s://%s", v.socketKind, v.value)
+}
+
+func (v *socketValue) Get(_ context.Context, dag *dagger.Client) (any, error) {
+	switch {
+	case v.String() == "":
+		return nil, fmt.Errorf("socket value cannot be empty")
+	case v.socketKind == unixSocketKind:
+		return dag.Host().UnixSocket(v.value), nil
+	default:
+		return nil, fmt.Errorf(`unsupported socket value (must begin with "unix://"): %s`, v.String())
+	}
 }
 
 // AddFlag adds a flag appropriate for the argument type. Should return a
