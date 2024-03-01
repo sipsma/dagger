@@ -32,6 +32,8 @@ type PrimitiveType struct {
 	Def *TypeDef
 }
 
+var _ ModType = (*PrimitiveType)(nil)
+
 func (t *PrimitiveType) ConvertFromSDKResult(ctx context.Context, value any) (dagql.Typed, error) {
 	// NB: we lean on the fact that all primitive types are also dagql.Inputs
 	return t.Def.ToInput().Decoder().DecodeInput(value)
@@ -53,6 +55,8 @@ type ListType struct {
 	Elem       *TypeDef
 	Underlying ModType
 }
+
+var _ ModType = (*ListType)(nil)
 
 func (t *ListType) ConvertFromSDKResult(ctx context.Context, value any) (dagql.Typed, error) {
 	arr := dagql.DynamicArrayOutput{
@@ -117,6 +121,8 @@ type NullableType struct {
 	InnerDef *TypeDef
 	Inner    ModType
 }
+
+var _ ModType = (*NullableType)(nil)
 
 func (t *NullableType) ConvertFromSDKResult(ctx context.Context, value any) (dagql.Typed, error) {
 	nullable := dagql.DynamicNullable{

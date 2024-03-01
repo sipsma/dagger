@@ -59,6 +59,9 @@ message ID {
   // The actual usage of this ID is opaque to the protocol. In Dagger this is
   // the module ID providing the implementation of the field.
   Module module = 8;
+
+  // TODO: doc
+  string precomputedDigest = 9;
 }
 
 // Module represents a self-contained logical module that can be dynamically

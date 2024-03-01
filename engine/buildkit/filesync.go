@@ -98,15 +98,19 @@ func (c *Client) EngineContainerLocalImport(
 	if err != nil {
 		return nil, specs.Descriptor{}, fmt.Errorf("failed to get hostname for engine local import: %s", err)
 	}
+	clientMetadata, err := engine.ClientMetadataFromContext(ctx)
+	if err != nil {
+		return nil, specs.Descriptor{}, fmt.Errorf("failed to get requester session ID: %s", err)
+	}
 	ctx = engine.ContextWithClientMetadata(ctx, &engine.ClientMetadata{
-		ClientID:       c.ID(),
+		ClientID:       clientMetadata.ClientID,
 		ClientHostname: hostname,
 	})
 	return c.LocalImport(ctx, recorder, platform, srcPath, excludePatterns, includePatterns)
 }
 
 func (c *Client) ReadCallerHostFile(ctx context.Context, path string) ([]byte, error) {
-	ctx, cancel, err := c.withClientCloseCancel(ctx)
+	ctx, cancel, err := c.withSolveContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +145,7 @@ func (c *Client) ReadCallerHostFile(ctx context.Context, path string) ([]byte, e
 }
 
 func (c *Client) StatCallerHostPath(ctx context.Context, path string, returnAbsPath bool) (*fsutiltypes.Stat, error) {
-	ctx, cancel, err := c.withClientCloseCancel(ctx)
+	ctx, cancel, err := c.withSolveContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -190,18 +194,24 @@ func (c *Client) LocalDirExport(
 		lg.Debug("finished exporting local dir")
 	}()
 
-	ctx, cancel, err := c.withClientCloseCancel(ctx)
+	ctx, cancel, err := c.withSolveContext(ctx)
 	if err != nil {
 		return err
 	}
 	defer cancel()
+
+	job, err := c.newJob(ctx)
+	if err != nil {
+		return err
+	}
+	defer job.Close()
 
 	destPath = path.Clean(destPath)
 	if destPath == ".." || strings.HasPrefix(destPath, "../") {
 		return fmt.Errorf("path %q escapes workdir; use an absolute path instead", destPath)
 	}
 
-	res, err := c.Solve(ctx, bkgw.SolveRequest{Definition: def})
+	res, err := c.solveWithJob(ctx, bkgw.SolveRequest{Definition: def}, job)
 	if err != nil {
 		return fmt.Errorf("failed to solve for local export: %s", err)
 	}
@@ -260,18 +270,24 @@ func (c *Client) LocalFileExport(
 		lg.Debug("finished exporting local file")
 	}()
 
-	ctx, cancel, err := c.withClientCloseCancel(ctx)
+	ctx, cancel, err := c.withSolveContext(ctx)
 	if err != nil {
 		return err
 	}
 	defer cancel()
+
+	job, err := c.newJob(ctx)
+	if err != nil {
+		return err
+	}
+	defer job.Close()
 
 	destPath = path.Clean(destPath)
 	if destPath == ".." || strings.HasPrefix(destPath, "../") {
 		return fmt.Errorf("path %q escapes workdir; use an absolute path instead", destPath)
 	}
 
-	res, err := c.Solve(ctx, bkgw.SolveRequest{Definition: def, Evaluate: true})
+	res, err := c.solveWithJob(ctx, bkgw.SolveRequest{Definition: def, Evaluate: true}, job)
 	if err != nil {
 		return fmt.Errorf("failed to solve for local export: %s", err)
 	}

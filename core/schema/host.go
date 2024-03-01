@@ -137,9 +137,19 @@ func (s *hostSchema) Install() {
 			Doc(`Accesses a file on the host.`).
 			ArgDoc("path", `Location of the file to retrieve (e.g., "README.md").`),
 
-		dagql.Func("unixSocket", s.socket).
+		dagql.NodeFunc("unixSocket", s.socket).
+			Impure(`TODO`).
 			Doc(`Accesses a Unix socket on the host.`).
 			ArgDoc("path", `Location of the Unix socket (e.g., "/var/run/docker.sock").`),
+
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO: no, but what's better?
+		dagql.Func("internalUnixSocket", s.internalSocket).
+			Doc(`TODO`),
 
 		dagql.Func("tunnel", s.tunnel).
 			Doc(`Creates a tunnel that forwards traffic from the host to a service.`).
@@ -201,16 +211,39 @@ type hostSocketArgs struct {
 	Path string
 }
 
-func (s *hostSchema) socket(ctx context.Context, host *core.Host, args hostSocketArgs) (*core.Socket, error) {
+func (s *hostSchema) socket(
+	ctx context.Context,
+	host dagql.Instance[*core.Host],
+	args hostSocketArgs,
+) (inst dagql.Instance[*core.Socket], err error) {
 	clientMetadata, err := engine.ClientMetadataFromContext(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get client metadata: %w", err)
+		return inst, fmt.Errorf("failed to get client metadata: %w", err)
 	}
-	if clientMetadata.ClientID != host.Query.Buildkit.MainClientCallerID {
-		return nil, fmt.Errorf("only the main client can access the host's unix sockets")
-	}
+	// TODO: no, need a stable ID (hostname probably won't cut it either)
+	callerID := clientMetadata.ClientID
 
-	return host.Socket(args.Path), nil
+	err = s.srv.Select(ctx, host, &inst,
+		dagql.Selector{
+			Field: "internalUnixSocket",
+			Args: []dagql.NamedInput{
+				{Name: "path", Value: dagql.NewString(args.Path)},
+				{Name: "callerID", Value: dagql.NewString(callerID)},
+			},
+		},
+	)
+	return inst, err
+}
+
+func (s *hostSchema) internalSocket(
+	ctx context.Context,
+	host *core.Host,
+	args struct {
+		hostSocketArgs
+		CallerID string
+	},
+) (*core.Socket, error) {
+	return host.Socket(args.Path, args.CallerID), nil
 }
 
 type hostFileArgs struct {

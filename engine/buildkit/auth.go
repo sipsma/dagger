@@ -1,14 +1,6 @@
 package buildkit
 
-import (
-	"context"
-
-	bkauth "github.com/moby/buildkit/session/auth"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-)
-
+/* TODO: fix
 type authProxy struct {
 	c *Client
 }
@@ -62,3 +54,4 @@ func (p *authProxy) VerifyTokenAuthority(ctx context.Context, req *bkauth.Verify
 	}
 	return bkauth.NewAuthClient(p.c.MainClientCaller.Conn()).VerifyTokenAuthority(ctx, req)
 }
+*/

@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/url"
 
+	"github.com/dagger/dagger/engine/buildkit"
 	"github.com/moby/buildkit/session/sshforward"
 	"github.com/vektah/gqlparser/v2/ast"
 )
@@ -13,11 +14,14 @@ import (
 type Socket struct {
 	// Unix
 	HostPath string `json:"host_path,omitempty"`
+	CallerID string `json:"caller_id,omitempty"`
 
 	// IP
 	HostProtocol string `json:"host_protocol,omitempty"`
 	HostAddr     string `json:"host_addr,omitempty"`
 }
+
+var _ buildkit.SessionResource = (*Socket)(nil)
 
 func (*Socket) Type() *ast.Type {
 	return &ast.Type{
@@ -30,7 +34,7 @@ func (*Socket) TypeDescription() string {
 	return "A Unix or TCP/IP socket that can be mounted into a container."
 }
 
-func NewHostUnixSocket(absPath string) *Socket {
+func NewHostUnixSocket(absPath, callerID string) *Socket {
 	return &Socket{
 		HostPath: absPath,
 	}
@@ -49,6 +53,8 @@ func (socket *Socket) SSHID() string {
 	case socket.HostPath != "":
 		u.Scheme = "unix"
 		u.Path = socket.HostPath
+		// TODO: no
+		u = u.JoinPath(socket.CallerID)
 	default:
 		u.Scheme = socket.HostProtocol
 		u.Host = socket.HostAddr
@@ -81,6 +87,14 @@ func (socket *Socket) Addr() string {
 	default:
 		return socket.HostAddr
 	}
+}
+
+func (socket *Socket) AttachToSession(ctx context.Context, bk *buildkit.Client, sess *buildkit.Session) error {
+	clientID, err := bk.ClientIDForSocket(socket.SSHID())
+	if err != nil {
+		return err
+	}
+	return sess.Sockets.Attach(socket.SSHID(), clientID)
 }
 
 type socketProxy struct {

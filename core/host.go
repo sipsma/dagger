@@ -149,6 +149,6 @@ func (host *Host) SetSecretFile(ctx context.Context, srv *dagql.Server, secretNa
 	return
 }
 
-func (host *Host) Socket(sockPath string) *Socket {
-	return NewHostUnixSocket(sockPath)
+func (host *Host) Socket(sockPath, callerID string) *Socket {
+	return NewHostUnixSocket(sockPath, callerID)
 }

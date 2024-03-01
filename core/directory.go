@@ -160,9 +160,13 @@ func (dir *Directory) WithPipeline(ctx context.Context, name, description string
 	return dir, nil
 }
 
-func (dir *Directory) Evaluate(ctx context.Context) (*buildkit.Result, error) {
+func (dir *Directory) Evaluate(ctx context.Context) error {
+	return dir.EvaluateResult(ctx, nil)
+}
+
+func (dir *Directory) EvaluateResult(ctx context.Context, fn func(context.Context, *buildkit.Result) error) error {
 	if dir.LLB == nil {
-		return nil, nil
+		return nil
 	}
 
 	svcs := dir.Query.Services
@@ -170,14 +174,14 @@ func (dir *Directory) Evaluate(ctx context.Context) (*buildkit.Result, error) {
 
 	detach, _, err := svcs.StartBindings(ctx, dir.Services)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer detach()
 
-	return bk.Solve(ctx, bkgw.SolveRequest{
+	return bk.SolveWithCallback(ctx, bkgw.SolveRequest{
 		Evaluate:   true,
 		Definition: dir.LLB,
-	})
+	}, fn)
 }
 
 func (dir *Directory) Stat(ctx context.Context, bk *buildkit.Client, svcs *Services, src string) (*fstypes.Stat, error) {
@@ -189,33 +193,34 @@ func (dir *Directory) Stat(ctx context.Context, bk *buildkit.Client, svcs *Servi
 	}
 	defer detach()
 
-	res, err := bk.Solve(ctx, bkgw.SolveRequest{
+	var stat *fstypes.Stat
+	err = bk.SolveWithCallback(ctx, bkgw.SolveRequest{
 		Definition: dir.LLB,
-	})
-	if err != nil {
-		return nil, err
-	}
+	}, func(ctx context.Context, res *buildkit.Result) error {
+		ref, err := res.SingleRef()
+		if err != nil {
+			return err
+		}
+		// empty directory, i.e. llb.Scratch()
+		if ref == nil {
+			if clean := path.Clean(src); clean == "." || clean == "/" {
+				// fake out a reasonable response
+				stat = &fstypes.Stat{
+					Path: src,
+					Mode: uint32(fs.ModeDir),
+				}
+				return nil
+			}
 
-	ref, err := res.SingleRef()
-	if err != nil {
-		return nil, err
-	}
-	// empty directory, i.e. llb.Scratch()
-	if ref == nil {
-		if clean := path.Clean(src); clean == "." || clean == "/" {
-			// fake out a reasonable response
-			return &fstypes.Stat{
-				Path: src,
-				Mode: uint32(fs.ModeDir),
-			}, nil
+			return fmt.Errorf("%s: no such file or directory", src)
 		}
 
-		return nil, fmt.Errorf("%s: no such file or directory", src)
-	}
-
-	return ref.StatFile(ctx, bkgw.StatRequest{
-		Path: src,
+		stat, err = ref.StatFile(ctx, bkgw.StatRequest{
+			Path: src,
+		})
+		return err
 	})
+	return stat, err
 }
 
 func (dir *Directory) Entries(ctx context.Context, src string) ([]string, error) {
@@ -230,38 +235,36 @@ func (dir *Directory) Entries(ctx context.Context, src string) ([]string, error)
 	}
 	defer detach()
 
-	res, err := bk.Solve(ctx, bkgw.SolveRequest{
+	var paths []string
+	err = bk.SolveWithCallback(ctx, bkgw.SolveRequest{
 		Definition: dir.LLB,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	ref, err := res.SingleRef()
-	if err != nil {
-		return nil, err
-	}
-	// empty directory, i.e. llb.Scratch()
-	if ref == nil {
-		if clean := path.Clean(src); clean == "." || clean == "/" {
-			return []string{}, nil
+	}, func(ctx context.Context, res *buildkit.Result) error {
+		ref, err := res.SingleRef()
+		if err != nil {
+			return err
 		}
-		return nil, fmt.Errorf("%s: no such file or directory", src)
-	}
+		// empty directory, i.e. llb.Scratch()
+		if ref == nil {
+			if clean := path.Clean(src); clean == "." || clean == "/" {
+				return nil
+			}
+			return fmt.Errorf("%s: no such file or directory", src)
+		}
 
-	entries, err := ref.ReadDir(ctx, bkgw.ReadDirRequest{
-		Path: src,
+		entries, err := ref.ReadDir(ctx, bkgw.ReadDirRequest{
+			Path: src,
+		})
+		if err != nil {
+			return err
+		}
+
+		for _, entry := range entries {
+			paths = append(paths, entry.GetPath())
+		}
+
+		return nil
 	})
-	if err != nil {
-		return nil, err
-	}
-
-	paths := []string{}
-	for _, entry := range entries {
-		paths = append(paths, entry.GetPath())
-	}
-
-	return paths, nil
+	return paths, err
 }
 
 // Glob returns a list of files that matches the given pattern.
@@ -282,66 +285,64 @@ func (dir *Directory) Glob(ctx context.Context, src string, pattern string) ([]s
 	}
 	defer detach()
 
-	res, err := bk.Solve(ctx, bkgw.SolveRequest{
+	var paths []string
+	err = bk.SolveWithCallback(ctx, bkgw.SolveRequest{
 		Definition: dir.LLB,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	ref, err := res.SingleRef()
-	if err != nil {
-		return nil, err
-	}
-	// empty directory, i.e. llb.Scratch()
-	if ref == nil {
-		if clean := path.Clean(src); clean == "." || clean == "/" {
-			return []string{}, nil
-		}
-		return nil, fmt.Errorf("%s: no such file or directory", src)
-	}
-
-	entries, err := ref.ReadDir(ctx, bkgw.ReadDirRequest{
-		Path:           src,
-		IncludePattern: pattern,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	paths := []string{}
-	for _, entry := range entries {
-		entryPath := entry.GetPath()
-
-		if src != "." {
-			// We remove `/` because src is `/` by default, but it obfuscates
-			// the output.
-			entryPath = strings.TrimPrefix(filepath.Join(src, entryPath), "/")
-		}
-
-		// We use the same pattern matching function as Buildkit to handle
-		// recursive strategy.
-		match, err := patternmatcher.MatchesOrParentMatches(entryPath, []string{pattern})
+	}, func(ctx context.Context, res *buildkit.Result) error {
+		ref, err := res.SingleRef()
 		if err != nil {
-			return nil, err
+			return err
+		}
+		// empty directory, i.e. llb.Scratch()
+		if ref == nil {
+			if clean := path.Clean(src); clean == "." || clean == "/" {
+				return nil
+			}
+			return fmt.Errorf("%s: no such file or directory", src)
 		}
 
-		if match {
-			paths = append(paths, entryPath)
+		entries, err := ref.ReadDir(ctx, bkgw.ReadDirRequest{
+			Path:           src,
+			IncludePattern: pattern,
+		})
+		if err != nil {
+			return err
 		}
 
-		// Handle recursive option
-		if entry.IsDir() {
-			subEntries, err := dir.Glob(ctx, entryPath, pattern)
-			if err != nil {
-				return nil, err
+		for _, entry := range entries {
+			entryPath := entry.GetPath()
+
+			if src != "." {
+				// We remove `/` because src is `/` by default, but it obfuscates
+				// the output.
+				entryPath = strings.TrimPrefix(filepath.Join(src, entryPath), "/")
 			}
 
-			paths = append(paths, subEntries...)
-		}
-	}
+			// We use the same pattern matching function as Buildkit to handle
+			// recursive strategy.
+			match, err := patternmatcher.MatchesOrParentMatches(entryPath, []string{pattern})
+			if err != nil {
+				return err
+			}
 
-	return paths, nil
+			if match {
+				paths = append(paths, entryPath)
+			}
+
+			// Handle recursive option
+			if entry.IsDir() {
+				subEntries, err := dir.Glob(ctx, entryPath, pattern)
+				if err != nil {
+					return err
+				}
+
+				paths = append(paths, subEntries...)
+			}
+		}
+
+		return nil
+	})
+	return paths, err
 }
 
 func (dir *Directory) WithNewFile(ctx context.Context, dest string, content []byte, permissions fs.FileMode, ownership *Ownership) (*Directory, error) {

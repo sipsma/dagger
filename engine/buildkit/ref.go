@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"path"
 	"strconv"
 	"strings"
@@ -53,16 +55,18 @@ const (
 
 type Result = solverresult.Result[*ref]
 
-func newRef(res bksolver.ResultProxy, c *Client) *ref {
+func newRef(res bksolver.ResultProxy, c *Client, job *Job) *ref {
 	return &ref{
 		resultProxy: res,
 		c:           c,
+		job:         job,
 	}
 }
 
 type ref struct {
 	resultProxy bksolver.ResultProxy
 	c           *Client
+	job         *Job
 }
 
 func (r *ref) ToState() (llb.State, error) {
@@ -92,7 +96,12 @@ func (r *ref) Evaluate(ctx context.Context) error {
 }
 
 func (r *ref) ReadFile(ctx context.Context, req bkgw.ReadRequest) ([]byte, error) {
-	ctx = withOutgoingContext(ctx)
+	ctx, cancel, err := r.c.withSolveContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+
 	mnt, err := r.getMountable(ctx)
 	if err != nil {
 		return nil, err
@@ -110,7 +119,12 @@ func (r *ref) ReadFile(ctx context.Context, req bkgw.ReadRequest) ([]byte, error
 }
 
 func (r *ref) ReadDir(ctx context.Context, req bkgw.ReadDirRequest) ([]*fstypes.Stat, error) {
-	ctx = withOutgoingContext(ctx)
+	ctx, cancel, err := r.c.withSolveContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+
 	mnt, err := r.getMountable(ctx)
 	if err != nil {
 		return nil, err
@@ -123,7 +137,12 @@ func (r *ref) ReadDir(ctx context.Context, req bkgw.ReadDirRequest) ([]*fstypes.
 }
 
 func (r *ref) StatFile(ctx context.Context, req bkgw.StatRequest) (*fstypes.Stat, error) {
-	ctx = withOutgoingContext(ctx)
+	ctx, cancel, err := r.c.withSolveContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+
 	mnt, err := r.getMountable(ctx)
 	if err != nil {
 		return nil, err
@@ -131,8 +150,39 @@ func (r *ref) StatFile(ctx context.Context, req bkgw.StatRequest) (*fstypes.Stat
 	return cacheutil.StatFile(ctx, mnt, req.Path)
 }
 
+func (r *ref) WithMount(ctx context.Context, fn func(context.Context, fs.FS) error) error {
+	ctx, cancel, err := r.c.withSolveContext(ctx)
+	if err != nil {
+		return err
+	}
+	defer cancel()
+
+	mnt, err := r.getMountable(ctx)
+	if err != nil {
+		return err
+	}
+
+	mnter := snapshot.LocalMounter(mnt)
+	mntPath, err := mnter.Mount()
+	if err != nil {
+		return err
+	}
+	if err := fn(ctx, os.DirFS(mntPath)); err != nil {
+		return errors.Join(err, mnter.Unmount())
+	}
+	if err := mnter.Unmount(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (r *ref) AddDependencyBlobs(ctx context.Context, blobs map[digest.Digest]*ocispecs.Descriptor) error {
-	ctx = withOutgoingContext(ctx)
+	ctx, cancel, err := r.c.withSolveContext(ctx)
+	if err != nil {
+		return err
+	}
+	defer cancel()
 
 	cacheRef, err := r.CacheRef(ctx)
 	if err != nil {
@@ -183,17 +233,22 @@ func (r *ref) getMountable(ctx context.Context) (snapshot.Mountable, error) {
 	if workerRef == nil || workerRef.ImmutableRef == nil {
 		return nil, nil
 	}
-	return workerRef.ImmutableRef.Mount(ctx, true, bksession.NewGroup(r.c.ID()))
+	return workerRef.ImmutableRef.Mount(ctx, true, bksession.NewGroup(r.job.sess.ID()))
 }
 
 func (r *ref) Result(ctx context.Context) (bksolver.CachedResult, error) {
 	if r == nil {
 		return nil, nil
 	}
-	ctx = withOutgoingContext(ctx)
+	ctx, cancel, err := r.c.withSolveContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+
 	res, err := r.resultProxy.Result(ctx)
 	if err != nil {
-		return nil, wrapError(ctx, err, r.c.ID())
+		return nil, r.c.wrapError(ctx, err, r.job.sess.ID())
 	}
 	return res, nil
 }
@@ -239,7 +294,7 @@ func ConvertToWorkerCacheResult(ctx context.Context, res *solverresult.Result[*r
 	})
 }
 
-func wrapError(ctx context.Context, baseErr error, sessionID string) error {
+func (c *Client) wrapError(ctx context.Context, baseErr error, sessionID string) error {
 	var slowCacheErr *bksolver.SlowCacheError
 	if errors.As(baseErr, &slowCacheErr) {
 		if slowCacheErr.Result != nil {
@@ -303,16 +358,16 @@ func wrapError(ctx context.Context, baseErr error, sessionID string) error {
 		return errors.Join(err, baseErr)
 	}
 
-	stdoutBytes, err := getExecMetaFile(ctx, mntable, "stdout")
+	stdoutBytes, err := c.getExecMetaFile(ctx, mntable, "stdout")
 	if err != nil {
 		return errors.Join(err, baseErr)
 	}
-	stderrBytes, err := getExecMetaFile(ctx, mntable, "stderr")
+	stderrBytes, err := c.getExecMetaFile(ctx, mntable, "stderr")
 	if err != nil {
 		return errors.Join(err, baseErr)
 	}
 
-	exitCodeBytes, err := getExecMetaFile(ctx, mntable, "exitCode")
+	exitCodeBytes, err := c.getExecMetaFile(ctx, mntable, "exitCode")
 	if err != nil {
 		return errors.Join(err, baseErr)
 	}
@@ -333,8 +388,13 @@ func wrapError(ctx context.Context, baseErr error, sessionID string) error {
 	}
 }
 
-func getExecMetaFile(ctx context.Context, mntable snapshot.Mountable, fileName string) ([]byte, error) {
-	ctx = withOutgoingContext(ctx)
+func (c *Client) getExecMetaFile(ctx context.Context, mntable snapshot.Mountable, fileName string) ([]byte, error) {
+	ctx, cancel, err := c.withSolveContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+
 	filePath := path.Join(MetaSourcePath, fileName)
 	stat, err := cacheutil.StatFile(ctx, mntable, filePath)
 	if err != nil {

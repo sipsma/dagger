@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dagger/dagger/core/reffs"
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/engine/buildkit"
 	"github.com/moby/buildkit/client/llb"
@@ -110,32 +109,49 @@ func resolveUIDGID(ctx context.Context, fsSt llb.State, bk *buildkit.Client, pla
 		if err != nil {
 			gname = gidOrName
 		}
-	}
-
-	var fs fs.FS
-	if uname != "" || gname != "" {
-		fs, err = reffs.OpenState(ctx, bk, fsSt, llb.Platform(platform.Spec()))
-		if err != nil {
-			return nil, fmt.Errorf("open fs state for name->id: %w", err)
-		}
-	}
-
-	if uname != "" {
-		uid, err = findUID(fs, uname)
-		if err != nil {
-			return nil, fmt.Errorf("find uid: %w", err)
-		}
-	}
-
-	if gname != "" {
-		gid, err = findGID(fs, gname)
-		if err != nil {
-			return nil, fmt.Errorf("find gid: %w", err)
-		}
-	}
-
-	if !hasGroup {
+	} else {
 		gid = uid
+	}
+
+	if uname == "" && gname == "" {
+		return &Ownership{uid, gid}, nil
+	}
+
+	def, err := fsSt.Marshal(ctx, llb.Platform(platform.Spec()))
+	if err != nil {
+		return nil, fmt.Errorf("marshal fs state: %w", err)
+	}
+
+	err = bk.SolveWithCallback(ctx, bkgw.SolveRequest{
+		Definition: def.ToPB(),
+	}, func(ctx context.Context, res *buildkit.Result) error {
+		ref, err := res.SingleRef()
+		if err != nil {
+			return fmt.Errorf("get single ref: %w", err)
+		}
+		if ref == nil {
+			return fmt.Errorf("cannot result user/group name from empty filesystem")
+		}
+		return ref.WithMount(ctx, func(ctx context.Context, fs fs.FS) error {
+			if uname != "" {
+				uid, err = findUID(fs, uname)
+				if err != nil {
+					return fmt.Errorf("find uid: %w", err)
+				}
+			}
+
+			if gname != "" {
+				gid, err = findGID(fs, gname)
+				if err != nil {
+					return fmt.Errorf("find gid: %w", err)
+				}
+			}
+
+			return nil
+		})
+	})
+	if err != nil {
+		return nil, fmt.Errorf("solve fs state: %w", err)
 	}
 
 	return &Ownership{uid, gid}, nil
@@ -316,18 +332,19 @@ func resolveProvenance(ctx context.Context, bk *buildkit.Client, st llb.State) (
 	if err != nil {
 		return nil, err
 	}
-	res, err := bk.Solve(ctx, bkgw.SolveRequest{
-		Evaluate:   true,
+
+	var prov *provenance.Capture
+	err = bk.SolveWithCallback(ctx, bkgw.SolveRequest{
 		Definition: def.ToPB(),
+		Evaluate:   true,
+	}, func(ctx context.Context, res *buildkit.Result) error {
+		prov = res.Ref.Provenance()
+		if prov == nil {
+			return errors.New("no provenance was resolved")
+		}
+		return nil
 	})
-	if err != nil {
-		return nil, err
-	}
-	p := res.Ref.Provenance()
-	if p == nil {
-		return nil, errors.Errorf("no provenance was resolved")
-	}
-	return p, nil
+	return prov, err
 }
 
 func ptr[T any](v T) *T {

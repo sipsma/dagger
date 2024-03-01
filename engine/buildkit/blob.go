@@ -22,10 +22,22 @@ func (c *Client) DefToBlob(
 	ctx context.Context,
 	pbDef *bksolverpb.Definition,
 ) (_ *bksolverpb.Definition, desc specs.Descriptor, _ error) {
-	res, err := c.Solve(ctx, bkgw.SolveRequest{
+	ctx, cancel, err := c.withSolveContext(ctx)
+	if err != nil {
+		return nil, desc, err
+	}
+	defer cancel()
+
+	job, err := c.newJob(ctx)
+	if err != nil {
+		return nil, desc, err
+	}
+	defer job.Close()
+
+	res, err := c.solveWithJob(ctx, bkgw.SolveRequest{
 		Definition: pbDef,
 		Evaluate:   true,
-	})
+	}, job)
 	if err != nil {
 		return nil, desc, err
 	}
@@ -35,7 +47,7 @@ func (c *Client) DefToBlob(
 	}
 	cachedRes, err := resultProxy.Result(ctx)
 	if err != nil {
-		return nil, desc, wrapError(ctx, err, c.ID())
+		return nil, desc, c.wrapError(ctx, err, job.sess.ID())
 	}
 	workerRef, ok := cachedRes.Sys().(*bkworker.WorkerRef)
 	if !ok {
@@ -83,12 +95,12 @@ func (c *Client) DefToBlob(
 
 	// do a sync solve right now so we can release the cache ref for the first solve
 	// without giving up the lease on the blob
-	_, err = c.Solve(ctx, bkgw.SolveRequest{
+	_, err = c.solveWithJob(ctx, bkgw.SolveRequest{
 		Definition: blobPB,
 		Evaluate:   true,
-	})
+	}, job)
 	if err != nil {
-		return nil, desc, fmt.Errorf("failed to solve blobsource: %w", wrapError(ctx, err, c.ID()))
+		return nil, desc, fmt.Errorf("failed to solve blobsource: %w", c.wrapError(ctx, err, job.sess.ID()))
 	}
 
 	return blobPB, desc, nil

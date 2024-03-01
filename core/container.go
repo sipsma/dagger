@@ -393,49 +393,51 @@ func (container *Container) Build(
 		return GetLocalSecretAccessor(ctx, container.Query, name)
 	})
 
-	res, err := bk.Solve(solveCtx, bkgw.SolveRequest{
+	err = bk.SolveWithCallback(solveCtx, bkgw.SolveRequest{
 		Frontend:       "dockerfile.v0",
 		FrontendOpt:    opts,
 		FrontendInputs: inputs,
+	}, func(ctx context.Context, res *buildkit.Result) error {
+		bkref, err := res.SingleRef()
+		if err != nil {
+			return err
+		}
+
+		var st llb.State
+		if bkref == nil {
+			st = llb.Scratch()
+		} else {
+			st, err = bkref.ToState()
+			if err != nil {
+				return err
+			}
+		}
+
+		def, err := st.Marshal(ctx, llb.Platform(platform.Spec()))
+		if err != nil {
+			return err
+		}
+
+		// associate vertexes to the 'docker build' sub-pipeline
+		buildkit.RecordVertexes(subRecorder, def.ToPB())
+
+		container.FS = def.ToPB()
+		container.FS.Source = nil
+
+		cfgBytes, found := res.Metadata[exptypes.ExporterImageConfigKey]
+		if found {
+			var imgSpec specs.Image
+			if err := json.Unmarshal(cfgBytes, &imgSpec); err != nil {
+				return err
+			}
+
+			container.Config = mergeImageConfig(container.Config, imgSpec.Config)
+		}
+
+		return nil
 	})
 	if err != nil {
 		return nil, err
-	}
-
-	bkref, err := res.SingleRef()
-	if err != nil {
-		return nil, err
-	}
-
-	var st llb.State
-	if bkref == nil {
-		st = llb.Scratch()
-	} else {
-		st, err = bkref.ToState()
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	def, err := st.Marshal(ctx, llb.Platform(platform.Spec()))
-	if err != nil {
-		return nil, err
-	}
-
-	// associate vertexes to the 'docker build' sub-pipeline
-	buildkit.RecordVertexes(subRecorder, def.ToPB())
-
-	container.FS = def.ToPB()
-	container.FS.Source = nil
-
-	cfgBytes, found := res.Metadata[exptypes.ExporterImageConfigKey]
-	if found {
-		var imgSpec specs.Image
-		if err := json.Unmarshal(cfgBytes, &imgSpec); err != nil {
-			return nil, err
-		}
-
-		container.Config = mergeImageConfig(container.Config, imgSpec.Config)
 	}
 
 	return container, nil
@@ -887,38 +889,51 @@ func (container *Container) chown(
 			return nil, "", err
 		}
 
-		ref, err := bkRef(ctx, container.Query.Buildkit, def.ToPB())
-		if err != nil {
-			return nil, "", err
-		}
+		err = container.Query.Buildkit.SolveWithCallback(ctx, bkgw.SolveRequest{
+			Definition: def.ToPB(),
+		}, func(ctx context.Context, res *buildkit.Result) error {
+			ref, err := res.SingleRef()
+			if err != nil {
+				return err
+			}
+			if ref == nil {
+				// empty file, i.e. llb.Scratch()
+				return fmt.Errorf("empty reference")
+			}
 
-		stat, err := ref.StatFile(ctx, bkgw.StatRequest{
-			Path: srcPath,
+			stat, err := ref.StatFile(ctx, bkgw.StatRequest{
+				Path: srcPath,
+			})
+			if err != nil {
+				return err
+			}
+
+			if stat.IsDir() {
+				chowned := "/chown"
+
+				// NB(vito): need to create intermediate directory with correct ownership
+				// to handle the directory case, otherwise the mount will be owned by
+				// root
+				srcSt = llb.Scratch().File(
+					llb.Mkdir(chowned, os.FileMode(stat.Mode), ownership.Opt()).
+						Copy(srcSt, srcPath, chowned, &llb.CopyInfo{
+							CopyDirContentsOnly: true,
+						}, ownership.Opt()),
+				)
+
+				srcPath = chowned
+			} else {
+				srcSt = llb.Scratch().File(
+					llb.Copy(srcSt, srcPath, ".", ownership.Opt()),
+				)
+
+				srcPath = filepath.Base(srcPath)
+			}
+
+			return nil
 		})
 		if err != nil {
 			return nil, "", err
-		}
-
-		if stat.IsDir() {
-			chowned := "/chown"
-
-			// NB(vito): need to create intermediate directory with correct ownership
-			// to handle the directory case, otherwise the mount will be owned by
-			// root
-			srcSt = llb.Scratch().File(
-				llb.Mkdir(chowned, os.FileMode(stat.Mode), ownership.Opt()).
-					Copy(srcSt, srcPath, chowned, &llb.CopyInfo{
-						CopyDirContentsOnly: true,
-					}, ownership.Opt()),
-			)
-
-			srcPath = chowned
-		} else {
-			srcSt = llb.Scratch().File(
-				llb.Copy(srcSt, srcPath, ".", ownership.Opt()),
-			)
-
-			srcPath = filepath.Base(srcPath)
 		}
 	}
 
@@ -1230,27 +1245,27 @@ func (container *Container) WithExec(ctx context.Context, opts ContainerExecOpts
 	return container, nil
 }
 
-func (container Container) Evaluate(ctx context.Context) (*buildkit.Result, error) {
+func (container Container) Evaluate(ctx context.Context) error {
 	if container.FS == nil {
-		return nil, nil
+		return nil
 	}
 
 	root := container.Query
 
 	detach, _, err := root.Services.StartBindings(ctx, container.Services)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer detach()
 
 	st, err := container.FSState()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	def, err := st.Marshal(ctx, llb.Platform(container.Platform.Spec()))
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	return root.Buildkit.Solve(ctx, bkgw.SolveRequest{
@@ -1522,34 +1537,51 @@ func (container *Container) Import(
 
 	container = container.Clone()
 
-	var release func(context.Context) error
-	loadManifest := func(ctx context.Context) (*specs.Descriptor, error) {
-		src, err := source.Open(ctx)
-		if err != nil {
-			return nil, err
-		}
-
-		defer src.Close()
-
-		// override outer ctx with release ctx and set release
-		ctx, release, err = leaseutil.WithLease(ctx, lm, leaseutil.MakeTemporary)
-		if err != nil {
-			return nil, err
-		}
-
-		stream := archive.NewImageImportStream(src, "")
-
-		desc, err := stream.Import(ctx, store)
-		if err != nil {
-			return nil, fmt.Errorf("image archive import: %w", err)
-		}
-
-		return resolveIndex(ctx, store, desc, container.Platform.Spec(), tag)
-	}
-
-	manifestDesc, err := loadManifest(ctx)
+	detach, _, err := source.Query.Services.StartBindings(ctx, source.Services)
 	if err != nil {
-		return nil, fmt.Errorf("recover: %w", err)
+		return nil, err
+	}
+	defer detach()
+
+	var manifestDesc *specs.Descriptor
+	var release func(context.Context) error
+	err = bk.SolveWithCallback(ctx, bkgw.SolveRequest{
+		Definition: source.LLB,
+	}, func(ctx context.Context, res *buildkit.Result) error {
+		ref, err := res.SingleRef()
+		if err != nil {
+			return err
+		}
+		if ref == nil {
+			return fmt.Errorf("empty file cannot be imported as container")
+		}
+
+		return ref.WithMount(ctx, func(ctx context.Context, mnt fs.FS) error {
+			srcFile, err := mnt.Open(source.File)
+			if err != nil {
+				return err
+			}
+			defer srcFile.Close()
+
+			// override outer ctx with release ctx and set release
+			ctx, release, err = leaseutil.WithLease(ctx, lm, leaseutil.MakeTemporary)
+			if err != nil {
+				return err
+			}
+
+			stream := archive.NewImageImportStream(srcFile, "")
+
+			desc, err := stream.Import(ctx, store)
+			if err != nil {
+				return fmt.Errorf("image archive import: %w", err)
+			}
+
+			manifestDesc, err = resolveIndex(ctx, store, desc, container.Platform.Spec(), tag)
+			return err
+		})
+	})
+	if err != nil {
+		return nil, fmt.Errorf("solve: %w", err)
 	}
 
 	// NB: the repository portion of this ref doesn't actually matter, but it's
@@ -1571,7 +1603,7 @@ func (container *Container) Import(
 
 	if release != nil {
 		// eagerly evaluate the OCI reference so Buildkit sets up a long-term lease
-		_, err = bk.Solve(ctx, bkgw.SolveRequest{
+		err = bk.Solve(ctx, bkgw.SolveRequest{
 			Definition: container.FS,
 			Evaluate:   true,
 		})

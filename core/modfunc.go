@@ -242,7 +242,7 @@ func (fn *ModuleFunction) Call(ctx context.Context, caller *idproto.ID, opts *Ca
 		return nil, fmt.Errorf("failed to register function call: %w", err)
 	}
 
-	_, err = ctr.Evaluate(ctx)
+	err = ctr.Evaluate(ctx)
 	if err != nil {
 		if fn.metadata.OriginalName == "" {
 			return nil, fmt.Errorf("call constructor: %w", err)
@@ -256,43 +256,44 @@ func (fn *ModuleFunction) Call(ctx context.Context, caller *idproto.ID, opts *Ca
 		return nil, fmt.Errorf("failed to get function output directory: %w", err)
 	}
 
-	result, err := ctrOutputDir.Evaluate(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to evaluate function: %w", err)
-	}
-	if result == nil {
-		return nil, fmt.Errorf("function returned nil result")
-	}
+	var returnValueTyped dagql.Typed
+	err = ctrOutputDir.EvaluateResult(ctx, func(ctx context.Context, result *buildkit.Result) error {
+		if result == nil {
+			return fmt.Errorf("function returned nil result")
+		}
 
-	// TODO: if any error happens below, we should really prune the cache of the result, otherwise
-	// we can end up in a state where we have a cached result with a dependency blob that we don't
-	// guarantee the continued existence of...
+		// TODO: if any error happens below, we should really prune the cache of the result, otherwise
+		// we can end up in a state where we have a cached result with a dependency blob that we don't
+		// guarantee the continued existence of...
 
-	// Read the output of the function
-	outputBytes, err := result.Ref.ReadFile(ctx, bkgw.ReadRequest{
-		Filename: modMetaOutputPath,
+		// Read the output of the function
+		outputBytes, err := result.Ref.ReadFile(ctx, bkgw.ReadRequest{
+			Filename: modMetaOutputPath,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to read function output file: %w", err)
+		}
+
+		var returnValue any
+		dec := json.NewDecoder(strings.NewReader(string(outputBytes)))
+		dec.UseNumber()
+		if err := dec.Decode(&returnValue); err != nil {
+			return fmt.Errorf("failed to unmarshal result: %s", err)
+		}
+
+		returnValueTyped, err := fn.returnType.ConvertFromSDKResult(ctx, returnValue)
+		if err != nil {
+			return fmt.Errorf("failed to convert return value: %w", err)
+		}
+
+		if err := fn.linkDependencyBlobs(ctx, result, returnValueTyped); err != nil {
+			return fmt.Errorf("failed to link dependency blobs: %w", err)
+		}
+
+		return nil
 	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to read function output file: %w", err)
-	}
+	return returnValueTyped, err
 
-	var returnValue any
-	dec := json.NewDecoder(strings.NewReader(string(outputBytes)))
-	dec.UseNumber()
-	if err := dec.Decode(&returnValue); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal result: %s", err)
-	}
-
-	returnValueTyped, err := fn.returnType.ConvertFromSDKResult(ctx, returnValue)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert return value: %w", err)
-	}
-
-	if err := fn.linkDependencyBlobs(ctx, result, returnValueTyped); err != nil {
-		return nil, fmt.Errorf("failed to link dependency blobs: %w", err)
-	}
-
-	return returnValueTyped, nil
 }
 
 func (fn *ModuleFunction) ReturnType() (ModType, error) {

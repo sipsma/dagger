@@ -30,13 +30,19 @@ func (c *Client) PublishContainerImage(
 	inputByPlatform map[string]ContainerExport,
 	opts map[string]string, // TODO: make this an actual type, this leaks too much untyped buildkit api
 ) (map[string]string, error) {
-	ctx, cancel, err := c.withClientCloseCancel(ctx)
+	ctx, cancel, err := c.withSolveContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer cancel()
 
-	combinedResult, err := c.getContainerResult(ctx, inputByPlatform)
+	job, err := c.newJob(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer job.Close()
+
+	combinedResult, err := c.getContainerResult(ctx, job, inputByPlatform)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +57,7 @@ func (c *Client) PublishContainerImage(
 		return nil, fmt.Errorf("failed to resolve exporter: %s", err)
 	}
 
-	resp, descRef, err := expInstance.Export(ctx, combinedResult, nil, c.ID())
+	resp, descRef, err := expInstance.Export(ctx, combinedResult, nil, job.sess.ID())
 	if err != nil {
 		return nil, fmt.Errorf("failed to export: %s", err)
 	}
@@ -67,18 +73,24 @@ func (c *Client) ExportContainerImage(
 	destPath string,
 	opts map[string]string, // TODO: make this an actual type, this leaks too much untyped buildkit api
 ) (map[string]string, error) {
-	ctx, cancel, err := c.withClientCloseCancel(ctx)
+	ctx, cancel, err := c.withSolveContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer cancel()
+
+	job, err := c.newJob(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer job.Close()
 
 	destPath = path.Clean(destPath)
 	if destPath == ".." || strings.HasPrefix(destPath, "../") {
 		return nil, fmt.Errorf("path %q escapes workdir; use an absolute path instead", destPath)
 	}
 
-	combinedResult, err := c.getContainerResult(ctx, inputByPlatform)
+	combinedResult, err := c.getContainerResult(ctx, job, inputByPlatform)
 	if err != nil {
 		return nil, err
 	}
@@ -125,13 +137,19 @@ func (c *Client) ContainerImageToTarball(
 	inputByPlatform map[string]ContainerExport,
 	opts map[string]string,
 ) (*bksolverpb.Definition, error) {
-	ctx, cancel, err := c.withClientCloseCancel(ctx)
+	ctx, cancel, err := c.withSolveContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer cancel()
 
-	combinedResult, err := c.getContainerResult(ctx, inputByPlatform)
+	job, err := c.newJob(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer job.Close()
+
+	combinedResult, err := c.getContainerResult(ctx, job, inputByPlatform)
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +181,7 @@ func (c *Client) ContainerImageToTarball(
 		IsFileStream: true,
 	}.AppendToOutgoingContext(ctx)
 
-	_, descRef, err := expInstance.Export(ctx, combinedResult, nil, c.ID())
+	_, descRef, err := expInstance.Export(ctx, combinedResult, nil, job.sess.ID())
 	if err != nil {
 		return nil, fmt.Errorf("failed to export: %s", err)
 	}
@@ -181,6 +199,7 @@ func (c *Client) ContainerImageToTarball(
 
 func (c *Client) getContainerResult(
 	ctx context.Context,
+	job *Job,
 	inputByPlatform map[string]ContainerExport,
 ) (*solverresult.Result[bkcache.ImmutableRef], error) {
 	combinedResult := &solverresult.Result[bkcache.ImmutableRef]{}
@@ -189,10 +208,10 @@ func (c *Client) getContainerResult(
 	}
 	// TODO: probably faster to do this in parallel for each platform
 	for platformString, input := range inputByPlatform {
-		res, err := c.Solve(ctx, bkgw.SolveRequest{
+		res, err := c.solveWithJob(ctx, bkgw.SolveRequest{
 			Definition: input.Definition,
 			Evaluate:   true,
-		})
+		}, job)
 		if err != nil {
 			return nil, fmt.Errorf("failed to solve for container publish: %s", err)
 		}

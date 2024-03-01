@@ -4,10 +4,14 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
+	"hash"
+	"strconv"
 	sync "sync"
 
+	"github.com/moby/locker"
 	"github.com/opencontainers/go-digest"
 	"github.com/vektah/gqlparser/v2/ast"
+	"github.com/zeebo/xxh3"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -208,27 +212,133 @@ var digestCache *sync.Map
 //
 // This is not thread-safe and should be called before any IDs are created, or
 // at least digested.
+// TODO: safe to rm now?
 func EnableDigestCache() {
 	digestCache = new(sync.Map)
 }
 
+// TODO: global vars are wrong, but it feels so right
+var idDigestMu = locker.New()
+
 // Digest returns the digest of the encoded ID. It does NOT canonicalize the ID
 // first.
+// TODO:
+// TODO:
+// TODO:
+// TODO:
+// TODO:
+// TODO:
+// TODO:
+// TODO:
+// TODO:
+// TODO:
+// TODO:
+// This is technically different than the previous digest, which included all
+// proto fields... Either add the rest of the fields or make this a separate
+// method and restore the old one
 func (id *ID) Digest() (digest.Digest, error) {
-	if digestCache != nil {
-		if d, ok := digestCache.Load(id); ok {
-			return d.(digest.Digest), nil
+	if id == nil {
+		return "", nil
+	}
+
+	lockid := fmt.Sprintf("%v", id)
+	idDigestMu.Lock(lockid)
+	defer idDigestMu.Unlock(lockid)
+	if id.PrecomputedDigest != "" {
+		return digest.Digest(id.PrecomputedDigest), nil
+	}
+
+	h := xxh3.New()
+	baseDgst, err := id.Base.Digest()
+	if err != nil {
+		return "", fmt.Errorf("failed to digest base ID: %w", err)
+	}
+	if _, err := h.Write([]byte(baseDgst)); err != nil {
+		return "", fmt.Errorf("failed to write base ID digest: %w", err)
+	}
+	if _, err := h.Write([]byte(id.Field)); err != nil {
+		return "", fmt.Errorf("failed to write field: %w", err)
+	}
+	if id.Nth != 0 {
+		if _, err := h.Write([]byte(strconv.Itoa(int(id.Nth)))); err != nil {
+			return "", fmt.Errorf("failed to write nth: %w", err)
 		}
 	}
-	bytes, err := proto.Marshal(id)
-	if err != nil {
-		return "", err
+	for _, arg := range id.Args {
+		if _, err := h.Write([]byte(arg.Name)); err != nil {
+			return "", fmt.Errorf("failed to write arg name: %w", err)
+		}
+		if err := arg.Value.digestInto(h); err != nil {
+			return "", fmt.Errorf("failed to digest arg value: %w", err)
+		}
 	}
-	d := digest.FromBytes(bytes)
-	if digestCache != nil {
-		digestCache.Store(id, d)
-	}
+
+	id.PrecomputedDigest = fmt.Sprintf("xxh3:%x", h.Sum(nil))
+	d := digest.Digest(id.PrecomputedDigest)
 	return d, nil
+}
+
+func (lit *Literal) digestInto(h hash.Hash) error {
+	switch x := lit.Value.(type) {
+	case *Literal_Id:
+		dgst, err := x.Id.Digest()
+		if err != nil {
+			return fmt.Errorf("failed to digest ID: %w", err)
+		}
+		if _, err := h.Write([]byte(dgst.String())); err != nil {
+			return fmt.Errorf("failed to write ID digest: %w", err)
+		}
+	case *Literal_Null:
+		if _, err := h.Write([]byte(strconv.FormatBool(x.Null))); err != nil {
+			return fmt.Errorf("failed to write null: %w", err)
+		}
+	case *Literal_Bool:
+		if _, err := h.Write([]byte(strconv.FormatBool(x.Bool))); err != nil {
+			return fmt.Errorf("failed to write bool: %w", err)
+		}
+	case *Literal_Enum:
+		if _, err := h.Write([]byte(x.Enum)); err != nil {
+			return fmt.Errorf("failed to write enum: %w", err)
+		}
+	case *Literal_Int:
+		if _, err := h.Write([]byte(strconv.FormatInt(x.Int, 10))); err != nil {
+			return fmt.Errorf("failed to write int: %w", err)
+		}
+	case *Literal_Float:
+		if _, err := h.Write([]byte(strconv.FormatFloat(x.Float, 'g', -1, 64))); err != nil {
+			return fmt.Errorf("failed to write float: %w", err)
+		}
+	case *Literal_String_:
+		if _, err := h.Write([]byte(x.String_)); err != nil {
+			return fmt.Errorf("failed to write string: %w", err)
+		}
+	case *Literal_List:
+		for _, v := range x.List.Values {
+			if err := v.digestInto(h); err != nil {
+				return fmt.Errorf("failed to digest list value: %w", err)
+			}
+		}
+	case *Literal_Object:
+		for _, v := range x.Object.Values {
+			if _, err := h.Write([]byte(v.Name)); err != nil {
+				return fmt.Errorf("failed to write object name: %w", err)
+			}
+			if err := v.Value.digestInto(h); err != nil {
+				return fmt.Errorf("failed to digest object value: %w", err)
+			}
+		}
+	default:
+		// better to be slightly inefficient than to error out from a missing case
+		bytes, err := proto.Marshal(lit)
+		if err != nil {
+			return fmt.Errorf("failed to marshal literal: %w", err)
+		}
+		if _, err := h.Write(bytes); err != nil {
+			return fmt.Errorf("failed to write literal: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func (id *ID) Clone() *ID {
@@ -249,6 +359,19 @@ func (id *ID) Decode(str string) error {
 		return fmt.Errorf("cannot decode ID from %q: %w", str, err)
 	}
 	return proto.Unmarshal(bytes, id)
+}
+
+func (id *ID) TypeName() string {
+	var typeName string
+	elem := id.Type.Elem
+	for typeName == "" {
+		if elem == nil {
+			break
+		}
+		typeName = elem.NamedType
+		elem = elem.Elem
+	}
+	return typeName
 }
 
 // Canonical returns the argument with any contained IDs canonicalized.

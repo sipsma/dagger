@@ -91,10 +91,7 @@ func NewDaggerServer(
 		})
 	}
 	srv.recorder = progrock.NewRecorder(progWriter, progrock.WithLabels(progrockLabels...))
-
-	// NOTE: context.Background is used because if the provided context is canceled, buildkit can
-	// leave internal progress contexts open and leak goroutines.
-	bkClient.WriteStatusesTo(context.Background(), srv.recorder)
+	bkClient.Recorder = srv.recorder
 
 	apiSchema, err := schema.New(ctx, schema.InitializeArgs{
 		BuildkitClient: srv.bkClient,

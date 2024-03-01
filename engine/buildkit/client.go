@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/dagger/dagger/auth"
+	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/session"
 	bkcache "github.com/moby/buildkit/cache"
-	bkcacheconfig "github.com/moby/buildkit/cache/config"
 	"github.com/moby/buildkit/cache/remotecache"
 	bkclient "github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb"
@@ -54,14 +54,8 @@ type Opts struct {
 	PrivilegedExecEnabled bool
 	UpstreamCacheImports  []bkgw.CacheOptionsEntry
 	ProgSockPath          string
-	// MainClientCaller is the caller who initialized the server associated with this
-	// client. It is special in that when it shuts down, the client will be closed and
-	// that registry auth and sockets are currently only ever sourced from this caller,
-	// not any nested clients (may change in future).
-	MainClientCaller   bksession.Caller
-	MainClientCallerID string
-	DNSConfig          *oci.DNSConfig
-	Frontends          map[string]bkfrontend.Frontend
+	DNSConfig             *oci.DNSConfig
+	Frontends             map[string]bkfrontend.Frontend
 }
 
 type ResolveCacheExporterFunc func(ctx context.Context, g bksession.Group) (remotecache.Exporter, error)
@@ -69,11 +63,7 @@ type ResolveCacheExporterFunc func(ctx context.Context, g bksession.Group) (remo
 // Client is dagger's internal interface to buildkit APIs
 type Client struct {
 	Opts
-	session     *bksession.Session
-	job         *bksolver.Job
-	llbBridge   bkfrontend.FrontendLLBBridge
-	llbExec     executor.Executor
-	bk2progrock BK2Progrock
+	Recorder *progrock.Recorder
 
 	clientMu              sync.RWMutex
 	clientIDToSecretToken map[string]string
@@ -91,9 +81,12 @@ type Client struct {
 
 	execMetadata   map[digest.Digest]ContainerExecUncachedMetadata
 	execMetadataMu sync.Mutex
+
+	socketNameToClientID map[string]string
+	socketMu             sync.RWMutex
 }
 
-func NewClient(ctx context.Context, opts Opts) (*Client, error) {
+func NewClient(opts Opts) (*Client, error) {
 	closeCtx, cancel := context.WithCancel(context.Background())
 	client := &Client{
 		Opts:                  opts,
@@ -105,37 +98,7 @@ func NewClient(ctx context.Context, opts Opts) (*Client, error) {
 		execMetadata:          make(map[digest.Digest]ContainerExecUncachedMetadata),
 	}
 
-	session, err := client.newSession(ctx)
-	if err != nil {
-		return nil, err
-	}
-	client.session = session
-
-	job, err := client.GenericSolver.NewJob(client.ID())
-	if err != nil {
-		return nil, err
-	}
-	client.job = job
-	client.job.SessionID = client.ID()
-
-	entitlementSet := entitlements.Set{}
-	if opts.PrivilegedExecEnabled {
-		entitlementSet[entitlements.EntitlementSecurityInsecure] = struct{}{}
-	}
-	client.job.SetValue(entitlementsJobKey, entitlementSet)
-
-	// TODO: upstream Bridge should return an executor
-	br := client.LLBSolver.Bridge(client.job).(interface {
-		bkfrontend.FrontendLLBBridge
-		executor.Executor
-	})
-	gw := &recordingGateway{llbBridge: br}
-	client.llbBridge = gw
-	client.llbExec = br
-	client.bk2progrock = gw
-
 	client.dialer = &net.Dialer{}
-
 	if opts.DNSConfig != nil {
 		client.dialer.Resolver = &net.Resolver{
 			PreferGo: true,
@@ -163,10 +126,6 @@ func NewClient(ctx context.Context, opts Opts) (*Client, error) {
 	return client, nil
 }
 
-func (c *Client) ID() string {
-	return c.session.ID()
-}
-
 func (c *Client) Close() error {
 	c.closeMu.Lock()
 	defer c.closeMu.Unlock()
@@ -178,8 +137,7 @@ func (c *Client) Close() error {
 	}
 	c.cancel()
 
-	c.job.Discard()
-	c.job.CloseProgress()
+	// TODO: track current jobs and force close them?
 
 	c.refsMu.Lock()
 	for rf := range c.refs {
@@ -213,32 +171,86 @@ func (c *Client) Close() error {
 	return nil
 }
 
-func (c *Client) withClientCloseCancel(ctx context.Context) (context.Context, context.CancelFunc, error) {
-	c.closeMu.RLock()
-	defer c.closeMu.RUnlock()
-	select {
-	case <-c.closeCtx.Done():
-		return nil, nil, errors.New("client closed")
-	default:
-	}
-	ctx, cancel := context.WithCancel(ctx)
-	go func() {
-		select {
-		case <-c.closeCtx.Done():
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
-	return ctx, cancel, nil
+type Job struct {
+	bkJob     *bksolver.Job
+	llbExec   executor.Executor
+	llbBridge *recordingGateway
+	sess      *Session
 }
 
-func (c *Client) Solve(ctx context.Context, req bkgw.SolveRequest) (_ *Result, rerr error) {
-	ctx, cancel, err := c.withClientCloseCancel(ctx)
+func (c *Client) newJob(ctx context.Context) (*Job, error) {
+	job := &Job{}
+
+	var err error
+	job.sess, err = c.newSession(ctx, dagql.CurrentServer(ctx))
 	if err != nil {
 		return nil, err
 	}
+
+	job.bkJob, err = c.GenericSolver.NewJob(job.sess.ID())
+	if err != nil {
+		return nil, err
+	}
+	job.bkJob.SessionID = job.sess.ID()
+
+	entitlementSet := entitlements.Set{}
+	if c.PrivilegedExecEnabled {
+		entitlementSet[entitlements.EntitlementSecurityInsecure] = struct{}{}
+	}
+	job.bkJob.SetValue(entitlementsJobKey, entitlementSet)
+
+	// TODO: upstream Bridge should return an executor
+	bridgeExector := c.LLBSolver.Bridge(job.bkJob).(interface {
+		bkfrontend.FrontendLLBBridge
+		executor.Executor
+	})
+	job.llbBridge = &recordingGateway{llbBridge: bridgeExector}
+
+	return job, nil
+}
+
+func (j *Job) Close() {
+	j.bkJob.CloseProgress()
+	j.bkJob.Discard()
+	j.sess.Close()
+}
+
+func (c *Client) Solve(ctx context.Context, req bkgw.SolveRequest) error {
+	return c.SolveWithCallback(ctx, req, nil)
+}
+
+func (c *Client) SolveWithCallback(ctx context.Context, req bkgw.SolveRequest, fn func(ctx context.Context, res *Result) error) error {
+	ctx, cancel, err := c.withSolveContext(ctx)
+	if err != nil {
+		return err
+	}
 	defer cancel()
-	ctx = withOutgoingContext(ctx)
+
+	job, err := c.newJob(ctx)
+	if err != nil {
+		return err
+	}
+	defer job.Close()
+
+	res, err := c.solveWithJob(ctx, req, job)
+	if err != nil {
+		return err
+	}
+
+	if fn == nil {
+		return nil
+	}
+	return fn(ctx, res)
+}
+
+func (c *Client) solveWithJob(
+	ctx context.Context,
+	req bkgw.SolveRequest,
+	job *Job,
+) (*Result, error) {
+	// NOTE: context.Background is used because if the provided context is canceled, buildkit can
+	// leave internal progress contexts open and leak goroutines.
+	c.WriteStatusesTo(context.Background(), job.bkJob, job.llbBridge)
 
 	// include upstream cache imports, if any
 	req.CacheImports = c.UpstreamCacheImports
@@ -300,9 +312,16 @@ func (c *Client) Solve(ctx context.Context, req bkgw.SolveRequest) (_ *Result, r
 		}
 		req.Definition = newDef
 
-		llbRes, err = c.llbBridge.Solve(ctx, req, c.ID())
+		llbRes, err = job.llbBridge.Solve(ctx, bkgw.SolveRequest{
+			Evaluate:       req.Evaluate,
+			Definition:     req.Definition,
+			Frontend:       req.Frontend,
+			FrontendOpt:    req.FrontendOpt,
+			FrontendInputs: req.FrontendInputs,
+			CacheImports:   req.CacheImports,
+		}, job.sess.ID())
 		if err != nil {
-			return nil, wrapError(ctx, err, c.ID())
+			return nil, c.wrapError(ctx, err, job.sess.ID())
 		}
 	case req.Frontend != "":
 		// HACK: don't force evaluation like this, we can write custom frontend
@@ -317,15 +336,15 @@ func (c *Client) Solve(ctx context.Context, req bkgw.SolveRequest) (_ *Result, r
 		}
 
 		gw := &filteringGateway{
-			FrontendLLBBridge: c.llbBridge,
+			FrontendLLBBridge: job.llbBridge,
 			secretTranslator:  ctx.Value("secret-translator").(func(string) (string, error)),
 		}
-		llbRes, err = f.Solve(ctx, gw, c.llbExec, req.FrontendOpt, req.FrontendInputs, c.ID(), c.SessionManager)
+		llbRes, err := f.Solve(ctx, gw, job.llbExec, req.FrontendOpt, req.FrontendInputs, job.sess.ID(), c.SessionManager)
 		if err != nil {
 			return nil, err
 		}
 		if req.Evaluate {
-			err = llbRes.EachRef(func(ref bksolver.ResultProxy) error {
+			err := llbRes.EachRef(func(ref bksolver.ResultProxy) error {
 				_, err := ref.Result(ctx)
 				return err
 			})
@@ -337,44 +356,61 @@ func (c *Client) Solve(ctx context.Context, req bkgw.SolveRequest) (_ *Result, r
 		llbRes = &bkfrontend.Result{}
 	}
 
-	res, err := solverresult.ConvertResult(llbRes, func(rp bksolver.ResultProxy) (*ref, error) {
-		return newRef(rp, c), nil
-	})
-	if err != nil {
-		llbRes.EachRef(func(rp bksolver.ResultProxy) error {
-			return rp.Release(context.Background())
+	var res *Result
+	if llbRes != nil {
+		var err error
+		res, err = solverresult.ConvertResult(llbRes, func(rp bksolver.ResultProxy) (*ref, error) {
+			return newRef(rp, c, job), nil
 		})
-		return nil, err
+		if err != nil {
+			llbRes.EachRef(func(rp bksolver.ResultProxy) error {
+				return rp.Release(context.Background())
+			})
+			return nil, err
+		}
+
+		c.refsMu.Lock()
+		defer c.refsMu.Unlock()
+		if res.Ref != nil {
+			c.refs[res.Ref] = struct{}{}
+		}
+		for _, rf := range res.Refs {
+			c.refs[rf] = struct{}{}
+		}
 	}
 
-	c.refsMu.Lock()
-	defer c.refsMu.Unlock()
-	if res.Ref != nil {
-		c.refs[res.Ref] = struct{}{}
-	}
-	for _, rf := range res.Refs {
-		c.refs[rf] = struct{}{}
-	}
 	return res, nil
 }
 
 func (c *Client) ResolveImageConfig(ctx context.Context, ref string, opt llb.ResolveImageConfigOpt) (string, digest.Digest, []byte, error) {
-	ctx, cancel, err := c.withClientCloseCancel(ctx)
+	ctx, cancel, err := c.withSolveContext(ctx)
 	if err != nil {
 		return "", "", nil, err
 	}
 	defer cancel()
-	ctx = withOutgoingContext(ctx)
-	return c.llbBridge.ResolveImageConfig(ctx, ref, opt)
+
+	job, err := c.newJob(ctx)
+	if err != nil {
+		return "", "", nil, err
+	}
+	defer job.Close()
+
+	return job.llbBridge.ResolveImageConfig(ctx, ref, opt)
 }
 
 func (c *Client) NewContainer(ctx context.Context, req bkgw.NewContainerRequest) (bkgw.Container, error) {
-	ctx, cancel, err := c.withClientCloseCancel(ctx)
+	ctx, cancel, err := c.withSolveContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer cancel()
-	ctx = withOutgoingContext(ctx)
+
+	job, err := c.newJob(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer job.Close()
+
 	ctrReq := bkcontainer.NewContainerRequest{
 		ContainerID: identity.NewID(),
 		NetMode:     req.NetMode,
@@ -434,9 +470,9 @@ func (c *Client) NewContainer(ctx context.Context, req bkgw.NewContainerRequest)
 	ctr, err := bkcontainer.NewContainer(
 		context.Background(),
 		c.Worker.CacheManager(),
-		c.llbExec,
+		job.llbExec,
 		c.SessionManager,
-		bksession.NewGroup(c.ID()),
+		bksession.NewGroup(job.sess.ID()),
 		ctrReq,
 	)
 	if err != nil {
@@ -455,10 +491,10 @@ func (c *Client) NewContainer(ctx context.Context, req bkgw.NewContainerRequest)
 	return ctr, nil
 }
 
-func (c *Client) WriteStatusesTo(ctx context.Context, recorder *progrock.Recorder) {
+func (c *Client) WriteStatusesTo(ctx context.Context, job *bksolver.Job, bk2progrock BK2Progrock) {
 	statusCh := make(chan *bkclient.SolveStatus, 8)
 	go func() {
-		err := c.job.Status(ctx, statusCh)
+		err := job.Status(ctx, statusCh)
 		if err != nil {
 			bklog.G(ctx).WithError(err).Error("failed to write status updates")
 		}
@@ -474,7 +510,7 @@ func (c *Client) WriteStatusesTo(ctx context.Context, recorder *progrock.Recorde
 			if !ok {
 				return
 			}
-			err := recorder.Record(c.bk2progrock.ConvertStatus(status))
+			err := c.Recorder.Record(bk2progrock.ConvertStatus(status))
 			if err != nil {
 				bklog.G(ctx).WithError(err).Error("failed to record status update")
 				return
@@ -517,6 +553,8 @@ func (c *Client) VerifyClient(clientID, secretToken string) error {
 // CombinedResult returns a buildkit result with all the refs solved by this client so far.
 // This is useful for constructing a result for upstream remote caching.
 func (c *Client) CombinedResult(ctx context.Context) (*Result, error) {
+	panic("fixme")
+	/* TODO: fix
 	c.refsMu.Lock()
 	mergeInputs := make([]llb.State, 0, len(c.refs))
 	for r := range c.refs {
@@ -535,9 +573,12 @@ func (c *Client) CombinedResult(ctx context.Context) (*Result, error) {
 	return c.Solve(ctx, bkgw.SolveRequest{
 		Definition: llbdef.ToPB(),
 	})
+	*/
 }
 
 func (c *Client) UpstreamCacheExport(ctx context.Context, cacheExportFuncs []ResolveCacheExporterFunc) error {
+	panic("fixme")
+	/* TODO: fix
 	ctx, cancel, err := c.withClientCloseCancel(ctx)
 	if err != nil {
 		return err
@@ -610,6 +651,7 @@ func (c *Client) UpstreamCacheExport(ctx context.Context, cacheExportFuncs []Res
 	bklog.G(ctx).Debugf("waiting for cache export")
 	defer bklog.G(ctx).Debugf("waited for cache export")
 	return eg.Wait()
+	*/
 }
 
 func withDescHandlerCacheOpts(ctx context.Context, ref bkcache.ImmutableRef) context.Context {
@@ -630,10 +672,11 @@ func (c *Client) ListenHostToContainer(
 	ctx context.Context,
 	hostListenAddr, proto, upstream string,
 ) (*session.ListenResponse, func() error, error) {
-	ctx, cancel, err := c.withClientCloseCancel(ctx)
+	ctx, cancel, err := c.withSolveContext(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
+	defer cancel()
 
 	clientMetadata, err := engine.ClientMetadataFromContext(ctx)
 	if err != nil {
@@ -758,12 +801,29 @@ func (c *Client) ListenHostToContainer(
 	}, nil
 }
 
-func withOutgoingContext(ctx context.Context) context.Context {
+func (c *Client) withSolveContext(ctx context.Context) (context.Context, context.CancelFunc, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
-	return ctx
+
+	c.closeMu.RLock()
+	defer c.closeMu.RUnlock()
+	select {
+	case <-c.closeCtx.Done():
+		return nil, nil, errors.New("client closed")
+	default:
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	go func() {
+		select {
+		case <-c.closeCtx.Done():
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
+	return ctx, cancel, nil
 }
 
 // Metadata passed to an exec that doesn't count towards the cache key.
