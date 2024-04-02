@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"context"
 	_ "embed"
 	"encoding/base64"
 	"encoding/json"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/containerd/containerd/platforms"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -4112,3 +4114,549 @@ func TestContainerWithMountedSecretMode(t *testing.T) {
 	require.Contains(t, perms, "0666/-rw-rw-rw-")
 	require.NoError(t, err)
 }
+
+func TestTODO(t *testing.T) {
+	var err error
+	c, ctx := connect(t)
+	id := identity.NewID()
+	imgID1 := "1" + identity.NewID()
+	imgID2 := "2" + identity.NewID()
+	imgID3 := "3" + identity.NewID()
+	// imgID4 := "4" + identity.NewID()
+	// imgID5 := "5" + identity.NewID()
+	// imgID6 := "6" + identity.NewID()
+	// imgID7 := "7" + identity.NewID()
+	// imgID8 := "8" + identity.NewID()
+	// imgID9 := "9" + identity.NewID()
+
+	for _, imgID := range []string{
+		imgID1,
+		imgID2,
+		imgID3,
+		// imgID4,
+		// imgID5,
+		// imgID6,
+		// imgID7,
+		// imgID8,
+		// imgID9,
+	} {
+		_, err := c.Container().From(alpineImage).
+			WithNewFile("id", dagger.ContainerWithNewFileOpts{Contents: id}).
+			Publish(ctx, "localhost:5000/"+imgID)
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, c.Close())
+
+	c1, ctx1 := connect(t)
+	c2, ctx2 := connect(t)
+	c3, ctx3 := connect(t)
+	// c4, ctx4 := connect(t)
+
+	getCtr := func(c *dagger.Client, imgID string) *dagger.Container {
+		return c.Container().From("localhost:5000/" + imgID)
+	}
+
+	t.Log("starting c1")
+	_, err = getCtr(c1, imgID1).
+		WithExec([]string{"echo", id}).
+		WithNewFile("/id", dagger.ContainerWithNewFileOpts{Contents: id}).
+		Sync(ctx1)
+	require.NoError(t, err)
+	// require.Error(t, err)
+
+	require.NoError(t, c1.Close())
+
+	t.Log("starting c2")
+	/*
+		_, err = c2.Container().From("localhost:5000/"+imgID2).Publish(ctx2, "localhost:5000/"+imgID1)
+		require.NoError(t, err)
+	*/
+	_, err = getCtr(c2, imgID2).
+		WithExec([]string{"echo", id}).
+		WithNewFile("/id", dagger.ContainerWithNewFileOpts{Contents: id}).
+		WithExec([]string{"echo", "2"}).
+		Sync(ctx2)
+	require.NoError(t, err)
+	// require.Error(t, err)
+
+	t.Log("starting c3")
+	ctx3a, cancel := context.WithTimeout(ctx3, 30*time.Millisecond)
+	defer cancel()
+	_, err = getCtr(c3, imgID3).
+		WithExec([]string{"echo", id}).
+		WithNewFile("/id", dagger.ContainerWithNewFileOpts{Contents: id}).
+		WithExec([]string{"echo", "3"}).
+		Sync(ctx3a)
+	// require.NoError(t, err)
+	require.Error(t, err)
+
+	require.NoError(t, c2.Close())
+
+	/*
+		err = exec.Command("docker", "kill", "-s", "SIGHUP", "dagger-engine.dev").Run()
+		require.NoError(t, err)
+		time.Sleep(2 * time.Second)
+	*/
+
+	_, err = getCtr(c3, imgID3).
+		WithExec([]string{"echo", id}).
+		WithNewFile("/id", dagger.ContainerWithNewFileOpts{Contents: id}).
+		WithNewFile("/id2", dagger.ContainerWithNewFileOpts{Contents: id}).
+		Sync(ctx3)
+	require.NoError(t, err)
+	/*
+		require.NoError(t, c1.Close())
+		time.Sleep(500 * time.Millisecond)
+
+		t.Log("starting c2b")
+		_, err = getCtr(c2, imgID3).
+			/*
+				WithDirectory("/mnt", getCtr(c2, imgID2).
+					WithExec([]string{"sleep", "1"}).
+					WithExec([]string{"sleep", "9"}).
+					WithNewFile("/id", dagger.ContainerWithNewFileOpts{Contents: id}).
+					WithExec([]string{"echo", id}).
+					Rootfs(),
+				).
+				WithExec([]string{"echo", id}).
+			// * /
+			WithExec([]string{"echo", "1", id}).
+			Sync(ctx2)
+		require.NoError(t, err)
+
+		t.Log("starting c3")
+		_, err = getCtr(c3, imgID3).
+			WithExec([]string{"echo", "1", id}).
+			Sync(ctx3)
+		require.NoError(t, err)
+	*/
+
+	// _ = c1
+	// _ = ctx1
+	// _ = c2
+	// _ = ctx2
+	// _ = c3
+	// _ = ctx3
+	// _ = c4
+	// _ = ctx4
+}
+
+/*
+func TestTODO(t *testing.T) {
+	var err error
+	c, ctx := connect(t)
+	id := identity.NewID()
+	imgID1 := "1" + identity.NewID()
+	imgID2 := "2" + identity.NewID()
+	// imgID3 := "3" + identity.NewID()
+	// imgID4 := "4" + identity.NewID()
+	// imgID5 := "5" + identity.NewID()
+	// imgID6 := "6" + identity.NewID()
+	// imgID7 := "7" + identity.NewID()
+	// imgID8 := "8" + identity.NewID()
+	// imgID9 := "9" + identity.NewID()
+
+	for _, imgID := range []string{
+		imgID1,
+		imgID2,
+		// imgID3,
+		// imgID4,
+		// imgID5,
+		// imgID6,
+		// imgID7,
+		// imgID8,
+		// imgID9,
+	} {
+		_, err := c.Container().From(alpineImage).
+			WithNewFile("id", dagger.ContainerWithNewFileOpts{Contents: id}).
+			Publish(ctx, "localhost:5000/"+imgID)
+		require.NoError(t, err)
+	}
+
+	getBigAssFile := func(c *dagger.Client, imgID string) *dagger.File {
+		f, err := c.Container().From("localhost:5000/" + imgID).
+			WithExec([]string{"sh", "-c", `dd if=/dev/zero of=/bigassfile bs=1M count=30240 && echo ` + id + ` >> /bigassfile`}).
+			File("/bigassfile").
+			Sync(ctx)
+		require.NoError(t, err)
+		return f
+	}
+
+	_ = getBigAssFile(c, imgID1)
+	require.NoError(t, c.Close())
+
+	c1, ctx1 := connect(t)
+	c2, ctx2 := connect(t)
+	// c3, ctx3 := connect(t)
+	// c4, ctx4 := connect(t)
+
+	getCtr := func(c *dagger.Client, imgID string) *dagger.Container {
+		return c.Container().From("localhost:5000/" + imgID)
+	}
+
+	t.Log("starting c1")
+	// ctx1, cancel := context.WithTimeout(ctx1, 1*time.Second)
+	// defer cancel()
+	_, err = getCtr(c1, imgID1).
+		WithFile("/bigassfile", getBigAssFile(c1, imgID1)).
+		WithExec([]string{"echo", "1", id}).
+		Sync(ctx1)
+	// require.Error(t, err)
+	require.NoError(t, err)
+
+	t.Log("starting c2a")
+	ctx2a, cancel := context.WithTimeout(ctx2, 4*time.Second)
+	defer cancel()
+	_, err = getCtr(c2, imgID2).
+		WithFile("/bigassfile", getBigAssFile(c2, imgID2)).
+		WithExec([]string{"sleep", "10"}).
+		Sync(ctx2a)
+	require.Error(t, err)
+
+	require.NoError(t, c1.Close())
+
+	time.Sleep(500 * time.Millisecond)
+	t.Log("starting c2b")
+	_, err = getCtr(c2, imgID2).
+		WithFile("/bigassfile", getBigAssFile(c2, imgID2)).
+		Sync(ctx2)
+		// Publish(ctx2, "localhost:5000/"+imgID2)
+	require.NoError(t, err)
+
+	_ = c1
+	_ = ctx1
+	_ = c2
+	_ = ctx2
+	// _ = c3
+	// _ = ctx3
+	// _ = c4
+	// _ = ctx4
+}
+*/
+
+/*
+func TestTODO(t *testing.T) {
+	var err error
+	c, ctx := connect(t)
+	id := identity.NewID()
+	imgID1 := "1" + identity.NewID()
+	imgID2 := "2" + identity.NewID()
+	imgID3 := "3" + identity.NewID()
+	imgID4 := "4" + identity.NewID()
+	imgID5 := "5" + identity.NewID()
+
+	for _, imgID := range []string{
+		imgID1,
+		imgID2,
+		imgID3,
+		imgID4,
+		imgID5,
+	} {
+		_, err := c.Container().From(alpineImage).
+			WithEnvVariable("ID", id).
+			Publish(ctx, "localhost:5000/"+imgID)
+		require.NoError(t, err)
+	}
+	require.NoError(t, c.Close())
+
+	c1, ctx1 := connect(t)
+	c2, ctx2 := connect(t)
+	c3, ctx3 := connect(t)
+	c4, ctx4 := connect(t)
+
+	getCtr := func(c *dagger.Client, imgID string) *dagger.Container {
+		return c.Container().
+			From("localhost:5000/"+imgID).
+			WithEnvVariable("SLEEP", "10")
+	}
+
+	go func() {
+		_, err := getCtr(c1, imgID1).
+			WithExec([]string{"sh", "-c", `sleep $SLEEP`}).
+			WithExec([]string{"echo", id}).
+			Sync(ctx1)
+		require.NoError(t, err)
+		require.NoError(t, c1.Close())
+	}()
+
+	time.Sleep(5 * time.Second)
+	_, err = getCtr(c2, imgID2).
+		WithExec([]string{"sh", "-c", `sleep $SLEEP`}).
+		WithExec([]string{"echo", id}).
+		Sync(ctx2)
+	require.NoError(t, err)
+
+	time.Sleep(5 * time.Second)
+	go func() {
+		err = exec.Command("docker", "kill", "-s", "SIGHUP", "dagger-engine.dev").Run()
+		require.NoError(t, err)
+		time.Sleep(40 * time.Millisecond)
+		require.NoError(t, c2.Close())
+	}()
+	time.Sleep(70 * time.Millisecond)
+	_, err = getCtr(c3, imgID2).
+		WithExec([]string{"sh", "-c", `sleep $SLEEP`}).
+		WithExec([]string{"echo", id}).
+		WithExec([]string{"sh", "-c", `echo yo`}).
+		WithExec([]string{"sh", "-c", `echo yo`}).
+		WithExec([]string{"sh", "-c", `echo yo`}).
+		WithExec([]string{"sh", "-c", `echo yo`}).
+		WithExec([]string{"sh", "-c", `echo yo`}).
+		WithExec([]string{"sh", "-c", `echo yo`}).
+		WithExec([]string{"sh", "-c", `echo yo`}).
+		WithExec([]string{"sh", "-c", `echo yo`}).
+		WithExec([]string{"sh", "-c", `echo yo`}).
+		WithExec([]string{"sh", "-c", `echo yo`}).
+		WithExec([]string{"sh", "-c", `echo yo`}).
+		Sync(ctx3)
+		// Publish(ctx2, "localhost:5000/"+imgID2)
+	require.NoError(t, err)
+
+	_ = c1
+	_ = ctx1
+	_ = c2
+	_ = ctx2
+	_ = c3
+	_ = ctx3
+	_ = c4
+	_ = ctx4
+}
+*/
+
+/*
+func TestTODO(t *testing.T) {
+	var err error
+	c, ctx := connect(t)
+	id := identity.NewID()
+	imgID1 := identity.NewID()
+	imgID2 := identity.NewID()
+	imgID3 := identity.NewID()
+	imgID4 := identity.NewID()
+	imgID5 := identity.NewID()
+
+	for _, imgID := range []string{
+		imgID1,
+		imgID2,
+		imgID3,
+		imgID4,
+		imgID5,
+	} {
+		_, err := c.Container().From(alpineImage).
+			WithEnvVariable("ID", id).
+			Publish(ctx, "localhost:5000/"+imgID)
+		require.NoError(t, err)
+	}
+
+	c1, ctx1 := connect(t)
+	c2, ctx2 := connect(t)
+	c3, ctx3 := connect(t)
+	c4, ctx4 := connect(t)
+
+	getCtr := func(c *dagger.Client, imgID string, pass bool) *dagger.Container {
+		return c.Container().From("localhost:5000/"+imgID).
+			WithEnvVariable("SLEEP", "10")
+		// WithEnvVariable("SLEEP", "10").
+		// WithSecretVariable("PASS", c.SetSecret("PASS", fmt.Sprintf("%t", pass))).
+		// WithExec([]string{"sh", "-c", `$PASS`})
+	}
+
+	_, err = getCtr(c, imgID1, true).
+		WithExec([]string{"echo", id}).
+		Sync(ctx)
+	// require.Error(t, err)
+	require.NoError(t, err)
+	require.NoError(t, c.Close())
+
+	go func() {
+		_, err := getCtr(c1, imgID3, true).
+			WithExec([]string{"sh", "-c", `sleep $SLEEP`}).
+			WithExec([]string{"echo", id}).
+			Sync(ctx1)
+		// require.Error(t, err)
+		require.NoError(t, err)
+		require.NoError(t, c1.Close())
+	}()
+
+	go func() {
+		time.Sleep(7 * time.Second)
+		_, err := getCtr(c2, imgID2, true).
+			// _, err := getCtr(c2, imgID1, true).
+			// WithExec([]string{"sh", "-c", `sleep 10`}).
+			WithExec([]string{"sh", "-c", `sleep $SLEEP`}).
+			WithExec([]string{"echo", id}).
+			WithExec([]string{"sh", "-c", `sleep $SLEEP`}).
+			Sync(ctx2)
+		// require.Error(t, err)
+		require.NoError(t, err)
+	}()
+
+	time.Sleep(12 * time.Second)
+	_, err = getCtr(c3, imgID4, true).
+		// _, err := getCtr(c3, imgID3).
+		// _, err := getCtr(c3, imgID2, true).
+		// _, err := getCtr(c3, imgID1, true).
+		// WithExec([]string{"sh", "-c", `sleep 10`}).
+		// WithExec([]string{"sh", "-c", `sleep $SLEEP`}).
+		WithExec([]string{"echo", "2", id}).
+		// WithExec([]string{"echo", "SECOND " + id}).
+		Sync(ctx3)
+		// Sync(ctx2)
+	require.NoError(t, err)
+
+	_, err = getCtr(c4, imgID5, true).
+		// _, err := getCtr(c3, imgID3).
+		// _, err := getCtr(c3, imgID2, true).
+		// _, err := getCtr(c3, imgID1, true).
+		// WithExec([]string{"sh", "-c", `sleep 10`}).
+		// WithExec([]string{"sh", "-c", `sleep $SLEEP`}).
+		WithExec([]string{"echo", "3", id}).
+		// WithExec([]string{"echo", "SECOND " + id}).
+		Sync(ctx4)
+		// Sync(ctx2)
+	require.NoError(t, err)
+
+	_, err = getCtr(c4, imgID5, true).
+		// _, err := getCtr(c3, imgID3).
+		// _, err := getCtr(c3, imgID2, true).
+		// _, err := getCtr(c3, imgID1, true).
+		// WithExec([]string{"sh", "-c", `sleep 10`}).
+		// WithExec([]string{"sh", "-c", `sleep $SLEEP`}).
+		WithExec([]string{"echo", "3", id}).
+		// WithExec([]string{"echo", "SECOND " + id}).
+		Stdout(ctx4)
+		// Sync(ctx2)
+	require.NoError(t, err)
+
+	_ = c1
+	_ = ctx1
+	_ = c2
+	_ = ctx2
+	_ = c3
+	_ = ctx3
+	_ = c4
+	_ = ctx4
+}
+*/
+
+/*
+func TestTODO(t *testing.T) {
+	c, ctx := connect(t)
+	id := identity.NewID()
+	imgID1 := identity.NewID()
+	imgID2 := identity.NewID()
+	imgID3 := identity.NewID()
+
+	for _, imgID := range []string{imgID1, imgID2, imgID3} {
+		_, err := c.Container().From(alpineImage).
+			WithEnvVariable("ID", id).
+			Publish(ctx, "localhost:5000/"+imgID)
+		require.NoError(t, err)
+	}
+	require.NoError(t, c.Close())
+
+	c1, ctx1 := connect(t)
+	c2, ctx2 := connect(t)
+	// c3, ctx3 := connect(t)
+
+	getCtr := func(c *dagger.Client, imgID string, pass bool) *dagger.Container {
+		return c.Container().From("localhost:5000/"+imgID).
+			WithEnvVariable("SLEEP", "10").
+			WithSecretVariable("PASS", c.SetSecret("PASS", fmt.Sprintf("%t", pass))).
+			WithExec([]string{"sh", "-c", `sleep $SLEEP`}).
+			WithExec([]string{"sh", "-c", `$PASS`})
+	}
+
+	go func() {
+		_, err := getCtr(c1, imgID1, false).Sync(ctx1)
+		require.Error(t, err)
+		require.NoError(t, c1.Close())
+	}()
+
+	go func() {
+		time.Sleep(7 * time.Second)
+		_, err := getCtr(c2, imgID2, true).
+			// _, err := getCtr(c2, imgID1, true).
+			// WithExec([]string{"sh", "-c", `sleep 10`}).
+			Sync(ctx2)
+		require.Error(t, err)
+		// require.NoError(t, err)
+		// require.NoError(t, c2.Close())
+	}()
+
+	time.Sleep(12 * time.Second)
+	_, err := getCtr(c2, imgID2, true).
+		// _, err := getCtr(c3, imgID3).
+		// _, err := getCtr(c3, imgID2, true).
+		// _, err := getCtr(c3, imgID1, true).
+		// WithExec([]string{"sh", "-c", `sleep 10`}).
+		WithExec([]string{"echo", id}).
+		// Sync(ctx3)
+		Sync(ctx2)
+	require.NoError(t, err)
+}
+*/
+
+/*
+func TestTODO(t *testing.T) {
+	getRegistryRef := func(id string) string {
+		return fmt.Sprintf("localhost:5000/%s", id)
+	}
+
+	outerCtx, outerCancel := context.WithCancel(context.Background())
+	defer outerCancel()
+
+	const jobCount = 50
+	sem := make(chan struct{}, jobCount)
+	for {
+		select {
+		case <-outerCtx.Done():
+			close(sem)
+			for range sem {
+			}
+			t.Log("done")
+			t.Fail()
+			return
+		case sem <- struct{}{}:
+		}
+
+		go func() {
+			defer func() {
+				select {
+				case <-sem:
+				default:
+				}
+			}()
+
+			// sleep for a random amount of time between 0 and 10 seconds
+			randInt := rand.Intn(10)
+			time.Sleep(time.Duration(time.Duration(randInt) * time.Second))
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var logs safeBuffer
+			c, err := dagger.Connect(ctx, dagger.WithLogOutput(&logs))
+			require.NoError(t, err)
+
+			id := identity.NewID()
+			_, err = c.Container().From(alpineImage).
+				WithSecretVariable("INT", c.SetSecret("int", strconv.Itoa(randInt))).
+				WithExec([]string{"sh", "-c", `if test "1" == "$INT"; then exit 1; else exit 0; fi`}).
+				WithNewFile(id, dagger.ContainerWithNewFileOpts{Contents: id}).
+				Publish(ctx, getRegistryRef(id))
+			if randInt == 1 && err == nil {
+				c.Close()
+				t.Log("WTF")
+				t.Log(logs.String())
+				outerCancel()
+				return
+			}
+			if err != nil {
+				c.Close()
+				t.Log(logs.String())
+				outerCancel()
+			}
+		}()
+	}
+}
+*/

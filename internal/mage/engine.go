@@ -346,6 +346,12 @@ func (t Engine) Dev(ctx context.Context) error {
 		"-p", "6060:6060",
 		"--name", util.EngineContainerName,
 		"--privileged",
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		"--net=host",
 	}...)
 
 	runArgs = append(runArgs, imageName, "--debug", "--debugaddr=0.0.0.0:6060")

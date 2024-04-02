@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"os/signal"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -34,6 +36,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace"
 	tracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -117,6 +120,72 @@ func NewBuildkitController(opts BuildkitControllerOpts) (*BuildkitController, er
 	e.throttledGC = throttle.After(time.Minute, e.gc)
 	defer func() {
 		time.AfterFunc(time.Second, e.throttledGC)
+	}()
+
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	fmter := logrus.StandardLogger().Formatter
+	fmter.(*logrus.TextFormatter).TimestampFormat = "2006-01-02T15:04:05.000000000Z07:00"
+	logrus.SetFormatter(fmter)
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, unix.SIGHUP)
+	go func() {
+		for range sigCh {
+			func() {
+				bklog.G(context.Background()).Info("received SIGHUP, starting GC")
+				eg, ctx := errgroup.WithContext(context.TODO())
+
+				e.serverMu.RLock()
+				cancelLeases := len(e.servers) == 0
+				e.serverMu.RUnlock()
+				if cancelLeases {
+					imageutil.CancelCacheLeases()
+				}
+
+				didPrune := false
+				defer func() {
+					if didPrune {
+						if e, ok := e.cacheManager.(interface {
+							ReleaseUnreferenced(context.Context) error
+						}); ok {
+							if err := e.ReleaseUnreferenced(ctx); err != nil {
+								bklog.G(ctx).Errorf("failed to release cache metadata: %+v", err)
+							}
+						}
+					}
+				}()
+
+				ch := make(chan bkclient.UsageInfo, 32)
+
+				eg.Go(func() error {
+					defer close(ch)
+					return e.worker.Prune(ctx, ch, bkclient.PruneInfo{
+						All: true,
+					})
+				})
+
+				eg.Go(func() error {
+					defer func() {
+						// drain channel on error
+						for range ch {
+						}
+					}()
+					for range ch {
+						didPrune = true
+					}
+					return nil
+				})
+
+				if err := eg.Wait(); err != nil {
+					bklog.G(ctx).Errorf("failed to prune: %+v", err)
+				}
+			}()
+		}
 	}()
 
 	return e, nil
