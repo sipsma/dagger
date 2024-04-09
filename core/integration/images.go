@@ -2,6 +2,8 @@ package core
 
 const (
 	alpineImage = "alpine:3.18.2"
+	debianImage = "debian:bookworm"
+	rhelImage   = "registry.access.redhat.com/ubi9/ubi"
 	golangImage = "golang:1.21.7-alpine"
 
 	// TODO: use these
