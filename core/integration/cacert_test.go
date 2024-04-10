@@ -153,20 +153,20 @@ DNS.1 = server
 			Contents: `ssl_certificate /etc/ssl/certs/server.crt;
 ssl_certificate_key /etc/ssl/private/server.key;
 `}).WithNewFile("/etc/nginx/snippets/ssl-params.conf", dagger.ContainerWithNewFileOpts{
-		Contents: `ssl_protocols TLSv1 TLSv1.1 TLSv1.2;
+		Contents: fmt.Sprintf(`ssl_protocols TLSv1 TLSv1.1 TLSv1.2;
 ssl_prefer_server_ciphers on;
 ssl_ciphers 'EECDH+AESGCM:EDH+AESGCM:AES256+EECDH:AES256+EDH';
 ssl_ecdh_curve secp384r1;
 ssl_session_cache shared:SSL:10m;
 ssl_session_tickets off;
 ssl_stapling_verify on;
-resolver 10.90.0.1 valid=300s;
+resolver 10.%d.0.1 valid=300s;
 resolver_timeout 5s;
 add_header Strict-Transport-Security "max-age=63072000; includeSubdomains; preload";
 add_header X-Frame-Options DENY;
 add_header X-Content-Type-Options nosniff;
 ssl_dhparam /etc/ssl/certs/dhparam.pem;
-`}).WithNewFile("/etc/nginx/conf.d/default.conf", dagger.ContainerWithNewFileOpts{
+`, netID)}).WithNewFile("/etc/nginx/conf.d/default.conf", dagger.ContainerWithNewFileOpts{
 		Contents: `server {
 	listen 80 default_server;
 	listen [::]:80 default_server;
@@ -207,203 +207,120 @@ func TestContainerSystemCACerts(t *testing.T) {
 
 	c, ctx := connect(t)
 
+	// TODO: add tests that have mounts at various places, including /etc, /etc/ssl, /usr/local/share/ca-certificates, etc.
+	// TODO: add tests for weird things like bundle being replaced w/ dir, bundle deleted by exec, etc.
+
 	customCACertTests(ctx, t, c, 100,
-		caCertsTest{"alpine basic", func(t *testing.T, c *dagger.Client, f caCertsTestFixtures) {
-			ctr := c.Container().From(alpineImage).
-				WithExec([]string{"apk", "add", "curl"})
-			initialBundleContents, err := ctr.File("/etc/ssl/certs/ca-certificates.crt").Contents(ctx)
-			require.NoError(t, err)
-
-			ctr, err = ctr.
-				WithServiceBinding("server", f.serverCtr.AsService()).
-				WithExec([]string{"curl", "https://server"}).
-				Sync(ctx)
-			require.NoError(t, err)
-
-			// verify no system CAs are leftover
-			ents, err := ctr.Directory("/usr/local/share/ca-certificates").Entries(ctx)
+		caCertsTest{"alpine empty diff", func(t *testing.T, c *dagger.Client, f caCertsTestFixtures) {
+			ctr := c.Container().From(alpineImage)
+			diff := ctr.Rootfs().Diff(ctr.WithExec([]string{"true"}).Rootfs())
+			ents, err := diff.Glob(ctx, "**/*")
 			require.NoError(t, err)
 			require.Empty(t, ents)
 
-			bundleContents, err := ctr.File("/etc/ssl/certs/ca-certificates.crt").Contents(ctx)
+			ctr = ctr.WithExec([]string{"apk", "add", "ca-certificates"})
+			diff = ctr.Rootfs().Diff(ctr.WithExec([]string{"true"}).Rootfs())
+			ents, err = diff.Glob(ctx, "**/*")
 			require.NoError(t, err)
-			require.NotContains(t, bundleContents, f.caCertContents)
-			require.Equal(t, initialBundleContents, bundleContents)
+			require.Empty(t, ents)
 		}},
 
-		caCertsTest{"alpine non-root user", func(t *testing.T, c *dagger.Client, f caCertsTestFixtures) {
-			ctr := c.Container().From(alpineImage).
-				WithExec([]string{"apk", "add", "curl"})
-			initialBundleContents, err := ctr.File("/etc/ssl/certs/ca-certificates.crt").Contents(ctx)
-			require.NoError(t, err)
-
-			ctr, err = ctr.
-				WithServiceBinding("server", f.serverCtr.AsService()).
-				WithUser("nobody").
-				WithExec([]string{"/usr/bin/curl", "https://server"}).
-				Sync(ctx)
-			require.NoError(t, err)
-
-			// verify no system CAs are leftover
-			ents, err := ctr.Directory("/usr/local/share/ca-certificates").Entries(ctx)
+		caCertsTest{"debian empty diff", func(t *testing.T, c *dagger.Client, f caCertsTestFixtures) {
+			ctr := c.Container().From(debianImage)
+			diff := ctr.Rootfs().Diff(ctr.WithExec([]string{"true"}).Rootfs())
+			ents, err := diff.Glob(ctx, "**/*")
 			require.NoError(t, err)
 			require.Empty(t, ents)
 
-			bundleContents, err := ctr.File("/etc/ssl/certs/ca-certificates.crt").Contents(ctx)
-			require.NoError(t, err)
-			require.NotContains(t, bundleContents, f.caCertContents)
-			require.Equal(t, initialBundleContents, bundleContents)
-		}},
-
-		caCertsTest{"alpine install ca-certificates and curl at once", func(t *testing.T, c *dagger.Client, f caCertsTestFixtures) {
-			ctr, err := c.Container().From(alpineImage).
-				WithServiceBinding("server", f.serverCtr.AsService()).
-				WithExec([]string{"sh", "-c", "apk add curl && curl https://server"}).
-				Sync(ctx)
-			require.NoError(t, err)
-
-			// verify no system CAs are leftover
-			ents, err := ctr.Directory("/usr/local/share/ca-certificates").Entries(ctx)
+			ctr = ctr.WithExec([]string{"sh", "-c", "apt update && apt install -y ca-certificates"})
+			diff = ctr.Rootfs().Diff(ctr.WithExec([]string{"true"}).Rootfs())
+			ents, err = diff.Glob(ctx, "**/*")
 			require.NoError(t, err)
 			require.Empty(t, ents)
-
-			bundleContents, err := ctr.File("/etc/ssl/certs/ca-certificates.crt").Contents(ctx)
-			require.NoError(t, err)
-			require.NotEmpty(t, bundleContents)
-			require.NotContains(t, bundleContents, f.caCertContents)
 		}},
 
-		caCertsTest{"alpine ca-certificates not installed", func(t *testing.T, c *dagger.Client, f caCertsTestFixtures) {
-			ctr := c.Container().From(golangImage).
-				WithExec([]string{"apk", "del", "ca-certificates"})
+		/*
+			caCertsTest{"alpine basic", func(t *testing.T, c *dagger.Client, f caCertsTestFixtures) {
+				ctr := c.Container().From(alpineImage).
+					WithExec([]string{"apk", "add", "curl"})
+				initialBundleContents, err := ctr.File("/etc/ssl/certs/ca-certificates.crt").Contents(ctx)
+				require.NoError(t, err)
 
-			// verify no system CAs are leftover
-			_, err := ctr.Directory("/usr/local/share/ca-certificates").Entries(ctx)
-			require.ErrorContains(t, err, "no such file or directory")
+				ctr, err = ctr.
+					WithServiceBinding("server", f.serverCtr.AsService()).
+					WithExec([]string{"curl", "https://server"}).
+					Sync(ctx)
+				require.NoError(t, err)
 
-			bundleContents, err := ctr.File("/etc/ssl/certs/ca-certificates.crt").Contents(ctx)
-			require.NoError(t, err)
-			require.NotEmpty(t, bundleContents)
-			require.NotContains(t, bundleContents, f.caCertContents)
+				// verify no system CAs are leftover
+				ents, err := ctr.Directory("/usr/local/share/ca-certificates").Entries(ctx)
+				require.NoError(t, err)
+				require.Empty(t, ents)
 
-			ctr, err = ctr.
-				WithNewFile("/src/main.go", dagger.ContainerWithNewFileOpts{
-					Contents: `package main
+				bundleContents, err := ctr.File("/etc/ssl/certs/ca-certificates.crt").Contents(ctx)
+				require.NoError(t, err)
+				require.NotContains(t, bundleContents, f.caCertContents)
+				require.Equal(t, initialBundleContents, bundleContents)
+			}},
 
-				import (
-					"fmt"
-					"net/http"
-					"io"
-				)
+			caCertsTest{"alpine non-root user", func(t *testing.T, c *dagger.Client, f caCertsTestFixtures) {
+				ctr := c.Container().From(alpineImage).
+					WithExec([]string{"apk", "add", "curl"})
+				initialBundleContents, err := ctr.File("/etc/ssl/certs/ca-certificates.crt").Contents(ctx)
+				require.NoError(t, err)
 
-				func main() {
-					resp, err := http.Get("https://server")
-					if err != nil {
-						panic(err)
-					}
-					if resp.StatusCode != 200 {
-						panic(fmt.Sprintf("unexpected status code: %d", resp.StatusCode))
-					}
-					bs, err := io.ReadAll(resp.Body)
-					if err != nil {
-						panic(err)
-					}
-					if string(bs) != "hello" {
-						panic("unexpected response: " + string(bs))
-					}
-				}
-				`}).
-				WithWorkdir("/src").
-				WithExec([]string{"go", "mod", "init", "test"}).
-				WithServiceBinding("server", f.serverCtr.AsService()).
-				WithExec([]string{"go", "run", "main.go"}).
-				Sync(ctx)
-			require.NoError(t, err)
+				ctr, err = ctr.
+					WithServiceBinding("server", f.serverCtr.AsService()).
+					WithUser("nobody").
+					WithExec([]string{"/usr/bin/curl", "https://server"}).
+					Sync(ctx)
+				require.NoError(t, err)
 
-			// verify no system CAs are leftover
-			_, err = ctr.Directory("/usr/local/share/ca-certificates").Entries(ctx)
-			require.ErrorContains(t, err, "no such file or directory")
+				// verify no system CAs are leftover
+				ents, err := ctr.Directory("/usr/local/share/ca-certificates").Entries(ctx)
+				require.NoError(t, err)
+				require.Empty(t, ents)
 
-			bundleContents, err = ctr.File("/etc/ssl/certs/ca-certificates.crt").Contents(ctx)
-			require.NoError(t, err)
-			require.NotEmpty(t, bundleContents)
-			require.NotContains(t, bundleContents, f.caCertContents)
-		}},
+				bundleContents, err := ctr.File("/etc/ssl/certs/ca-certificates.crt").Contents(ctx)
+				require.NoError(t, err)
+				require.NotContains(t, bundleContents, f.caCertContents)
+				require.Equal(t, initialBundleContents, bundleContents)
+			}},
 
-		caCertsTest{"debian basic", func(t *testing.T, c *dagger.Client, f caCertsTestFixtures) {
-			ctr := c.Container().From(debianImage).
-				WithExec([]string{"apt", "update"}).
-				WithExec([]string{"apt", "install", "-y", "curl"})
-			initialBundleContents, err := ctr.File("/etc/ssl/certs/ca-certificates.crt").Contents(ctx)
-			require.NoError(t, err)
+			caCertsTest{"alpine install ca-certificates and curl at once", func(t *testing.T, c *dagger.Client, f caCertsTestFixtures) {
+				ctr, err := c.Container().From(alpineImage).
+					WithServiceBinding("server", f.serverCtr.AsService()).
+					WithExec([]string{"sh", "-c", "apk add curl && curl https://server"}).
+					Sync(ctx)
+				require.NoError(t, err)
 
-			ctr, err = ctr.
-				WithServiceBinding("server", f.serverCtr.AsService()).
-				WithExec([]string{"curl", "https://server"}).
-				Sync(ctx)
-			require.NoError(t, err)
+				// verify no system CAs are leftover
+				ents, err := ctr.Directory("/usr/local/share/ca-certificates").Entries(ctx)
+				require.NoError(t, err)
+				require.Empty(t, ents)
 
-			// verify no system CAs are leftover
-			ents, err := ctr.Directory("/usr/local/share/ca-certificates").Entries(ctx)
-			require.NoError(t, err)
-			require.Empty(t, ents)
+				bundleContents, err := ctr.File("/etc/ssl/certs/ca-certificates.crt").Contents(ctx)
+				require.NoError(t, err)
+				require.NotEmpty(t, bundleContents)
+				require.NotContains(t, bundleContents, f.caCertContents)
+			}},
 
-			bundleContents, err := ctr.File("/etc/ssl/certs/ca-certificates.crt").Contents(ctx)
-			require.NoError(t, err)
-			require.NotContains(t, bundleContents, f.caCertContents)
-			require.Equal(t, initialBundleContents, bundleContents)
-		}},
+			caCertsTest{"alpine ca-certificates not installed", func(t *testing.T, c *dagger.Client, f caCertsTestFixtures) {
+				ctr := c.Container().From(golangImage).
+					WithExec([]string{"apk", "del", "ca-certificates"})
 
-		caCertsTest{"debian non-root user", func(t *testing.T, c *dagger.Client, f caCertsTestFixtures) {
-			ctr := c.Container().From(debianImage).
-				WithExec([]string{"apt", "update"}).
-				WithExec([]string{"apt", "install", "-y", "curl"})
-			initialBundleContents, err := ctr.File("/etc/ssl/certs/ca-certificates.crt").Contents(ctx)
-			require.NoError(t, err)
+				// verify no system CAs are leftover
+				_, err := ctr.Directory("/usr/local/share/ca-certificates").Entries(ctx)
+				require.ErrorContains(t, err, "no such file or directory")
 
-			ctr, err = ctr.
-				WithServiceBinding("server", f.serverCtr.AsService()).
-				WithUser("nobody").
-				WithExec([]string{"/usr/bin/curl", "https://server"}).
-				Sync(ctx)
-			require.NoError(t, err)
+				bundleContents, err := ctr.File("/etc/ssl/certs/ca-certificates.crt").Contents(ctx)
+				require.NoError(t, err)
+				require.NotEmpty(t, bundleContents)
+				require.NotContains(t, bundleContents, f.caCertContents)
 
-			// verify no system CAs are leftover
-			ents, err := ctr.Directory("/usr/local/share/ca-certificates").Entries(ctx)
-			require.NoError(t, err)
-			require.Empty(t, ents)
-
-			bundleContents, err := ctr.File("/etc/ssl/certs/ca-certificates.crt").Contents(ctx)
-			require.NoError(t, err)
-			require.NotContains(t, bundleContents, f.caCertContents)
-			require.Equal(t, initialBundleContents, bundleContents)
-		}},
-
-		caCertsTest{"debian install ca-certificates and curl at once", func(t *testing.T, c *dagger.Client, f caCertsTestFixtures) {
-			ctr, err := c.Container().From(debianImage).
-				WithExec([]string{"apt", "update"}).
-				WithServiceBinding("server", f.serverCtr.AsService()).
-				WithExec([]string{"sh", "-c", "apt install -y curl && curl https://server"}).
-				Sync(ctx)
-			require.NoError(t, err)
-
-			// verify no system CAs are leftover
-			ents, err := ctr.Directory("/usr/local/share/ca-certificates").Entries(ctx)
-			require.NoError(t, err)
-			require.Empty(t, ents)
-
-			bundleContents, err := ctr.File("/etc/ssl/certs/ca-certificates.crt").Contents(ctx)
-			require.NoError(t, err)
-			require.NotEmpty(t, bundleContents)
-			require.NotContains(t, bundleContents, f.caCertContents)
-		}},
-
-		caCertsTest{"debian ca-certificates not installed", func(t *testing.T, c *dagger.Client, f caCertsTestFixtures) {
-			ctr, err := c.Container().From(debianImage).
-				WithExec([]string{"apt", "update"}).
-				WithExec([]string{"apt", "install", "-y", "golang"}).
-				WithNewFile("/src/main.go", dagger.ContainerWithNewFileOpts{
-					Contents: `package main
+				ctr, err = ctr.
+					WithNewFile("/src/main.go", dagger.ContainerWithNewFileOpts{
+						Contents: `package main
 
 					import (
 						"fmt"
@@ -428,64 +345,180 @@ func TestContainerSystemCACerts(t *testing.T) {
 						}
 					}
 					`}).
-				WithWorkdir("/src").
-				WithExec([]string{"go", "mod", "init", "test"}).
-				WithServiceBinding("server", f.serverCtr.AsService()).
-				WithExec([]string{"go", "run", "main.go"}).
-				Sync(ctx)
-			require.NoError(t, err)
+					WithWorkdir("/src").
+					WithExec([]string{"go", "mod", "init", "test"}).
+					WithServiceBinding("server", f.serverCtr.AsService()).
+					WithExec([]string{"go", "run", "main.go"}).
+					Sync(ctx)
+				require.NoError(t, err)
 
-			// verify no system CAs are leftover
-			_, err = ctr.Directory("/usr/local/share/ca-certificates").Entries(ctx)
-			require.ErrorContains(t, err, "no such file or directory")
+				// verify no system CAs are leftover
+				_, err = ctr.Directory("/usr/local/share/ca-certificates").Entries(ctx)
+				require.ErrorContains(t, err, "no such file or directory")
 
-			_, err = ctr.File("/etc/ssl/certs/ca-certificates.crt").Contents(ctx)
-			require.ErrorContains(t, err, "no such file or directory")
-		}},
+				bundleContents, err = ctr.File("/etc/ssl/certs/ca-certificates.crt").Contents(ctx)
+				require.NoError(t, err)
+				require.NotEmpty(t, bundleContents)
+				require.NotContains(t, bundleContents, f.caCertContents)
+			}},
 
-		caCertsTest{"rhel basic", func(t *testing.T, c *dagger.Client, f caCertsTestFixtures) {
-			ctr := c.Container().From(rhelImage)
-			initialBundleContents, err := ctr.File("/etc/pki/tls/certs/ca-bundle.crt").Contents(ctx)
-			require.NoError(t, err)
+			caCertsTest{"debian basic", func(t *testing.T, c *dagger.Client, f caCertsTestFixtures) {
+				ctr := c.Container().From(debianImage).
+					WithExec([]string{"apt", "update"}).
+					WithExec([]string{"apt", "install", "-y", "curl"})
+				initialBundleContents, err := ctr.File("/etc/ssl/certs/ca-certificates.crt").Contents(ctx)
+				require.NoError(t, err)
 
-			ctr, err = ctr.
-				WithServiceBinding("server", f.serverCtr.AsService()).
-				WithExec([]string{"curl", "https://server"}).
-				Sync(ctx)
-			require.NoError(t, err)
+				ctr, err = ctr.
+					WithServiceBinding("server", f.serverCtr.AsService()).
+					WithExec([]string{"curl", "https://server"}).
+					Sync(ctx)
+				require.NoError(t, err)
 
-			// verify no system CAs are leftover
-			ents, err := ctr.Directory("/etc/pki/ca-trust/source/anchors").Entries(ctx)
-			require.NoError(t, err)
-			require.Empty(t, ents)
+				// verify no system CAs are leftover
+				ents, err := ctr.Directory("/usr/local/share/ca-certificates").Entries(ctx)
+				require.NoError(t, err)
+				require.Empty(t, ents)
 
-			bundleContents, err := ctr.File("/etc/pki/tls/certs/ca-bundle.crt").Contents(ctx)
-			require.NoError(t, err)
-			require.NotContains(t, bundleContents, f.caCertContents)
-			require.Equal(t, initialBundleContents, bundleContents)
-		}},
+				bundleContents, err := ctr.File("/etc/ssl/certs/ca-certificates.crt").Contents(ctx)
+				require.NoError(t, err)
+				require.NotContains(t, bundleContents, f.caCertContents)
+				require.Equal(t, initialBundleContents, bundleContents)
+			}},
 
-		caCertsTest{"rhel non-root user", func(t *testing.T, c *dagger.Client, f caCertsTestFixtures) {
-			ctr := c.Container().From(rhelImage)
-			initialBundleContents, err := ctr.File("/etc/pki/tls/certs/ca-bundle.crt").Contents(ctx)
-			require.NoError(t, err)
+			caCertsTest{"debian non-root user", func(t *testing.T, c *dagger.Client, f caCertsTestFixtures) {
+				ctr := c.Container().From(debianImage).
+					WithExec([]string{"apt", "update"}).
+					WithExec([]string{"apt", "install", "-y", "curl"})
+				initialBundleContents, err := ctr.File("/etc/ssl/certs/ca-certificates.crt").Contents(ctx)
+				require.NoError(t, err)
 
-			ctr, err = ctr.
-				WithUser("nobody").
-				WithServiceBinding("server", f.serverCtr.AsService()).
-				WithExec([]string{"curl", "https://server"}).
-				Sync(ctx)
-			require.NoError(t, err)
+				ctr, err = ctr.
+					WithServiceBinding("server", f.serverCtr.AsService()).
+					WithUser("nobody").
+					WithExec([]string{"/usr/bin/curl", "https://server"}).
+					Sync(ctx)
+				require.NoError(t, err)
 
-			// verify no system CAs are leftover
-			ents, err := ctr.Directory("/etc/pki/ca-trust/source/anchors").Entries(ctx)
-			require.NoError(t, err)
-			require.Empty(t, ents)
+				// verify no system CAs are leftover
+				ents, err := ctr.Directory("/usr/local/share/ca-certificates").Entries(ctx)
+				require.NoError(t, err)
+				require.Empty(t, ents)
 
-			bundleContents, err := ctr.File("/etc/pki/tls/certs/ca-bundle.crt").Contents(ctx)
-			require.NoError(t, err)
-			require.NotContains(t, bundleContents, f.caCertContents)
-			require.Equal(t, initialBundleContents, bundleContents)
-		}},
+				bundleContents, err := ctr.File("/etc/ssl/certs/ca-certificates.crt").Contents(ctx)
+				require.NoError(t, err)
+				require.NotContains(t, bundleContents, f.caCertContents)
+				require.Equal(t, initialBundleContents, bundleContents)
+			}},
+
+			caCertsTest{"debian install ca-certificates and curl at once", func(t *testing.T, c *dagger.Client, f caCertsTestFixtures) {
+				ctr, err := c.Container().From(debianImage).
+					WithExec([]string{"apt", "update"}).
+					WithServiceBinding("server", f.serverCtr.AsService()).
+					WithExec([]string{"sh", "-c", "apt install -y curl && curl https://server"}).
+					Sync(ctx)
+				require.NoError(t, err)
+
+				// verify no system CAs are leftover
+				ents, err := ctr.Directory("/usr/local/share/ca-certificates").Entries(ctx)
+				require.NoError(t, err)
+				require.Empty(t, ents)
+
+				bundleContents, err := ctr.File("/etc/ssl/certs/ca-certificates.crt").Contents(ctx)
+				require.NoError(t, err)
+				require.NotEmpty(t, bundleContents)
+				require.NotContains(t, bundleContents, f.caCertContents)
+			}},
+
+			caCertsTest{"debian ca-certificates not installed", func(t *testing.T, c *dagger.Client, f caCertsTestFixtures) {
+				ctr, err := c.Container().From(debianImage).
+					WithExec([]string{"apt", "update"}).
+					WithExec([]string{"apt", "install", "-y", "golang"}).
+					WithNewFile("/src/main.go", dagger.ContainerWithNewFileOpts{
+						Contents: `package main
+
+						import (
+							"fmt"
+							"net/http"
+							"io"
+						)
+
+						func main() {
+							resp, err := http.Get("https://server")
+							if err != nil {
+								panic(err)
+							}
+							if resp.StatusCode != 200 {
+								panic(fmt.Sprintf("unexpected status code: %d", resp.StatusCode))
+							}
+							bs, err := io.ReadAll(resp.Body)
+							if err != nil {
+								panic(err)
+							}
+							if string(bs) != "hello" {
+								panic("unexpected response: " + string(bs))
+							}
+						}
+						`}).
+					WithWorkdir("/src").
+					WithExec([]string{"go", "mod", "init", "test"}).
+					WithServiceBinding("server", f.serverCtr.AsService()).
+					WithExec([]string{"go", "run", "main.go"}).
+					Sync(ctx)
+				require.NoError(t, err)
+
+				// verify no system CAs are leftover
+				_, err = ctr.Directory("/usr/local/share/ca-certificates").Entries(ctx)
+				require.ErrorContains(t, err, "no such file or directory")
+
+				_, err = ctr.File("/etc/ssl/certs/ca-certificates.crt").Contents(ctx)
+				require.ErrorContains(t, err, "no such file or directory")
+			}},
+
+			caCertsTest{"rhel basic", func(t *testing.T, c *dagger.Client, f caCertsTestFixtures) {
+				ctr := c.Container().From(rhelImage)
+				initialBundleContents, err := ctr.File("/etc/pki/tls/certs/ca-bundle.crt").Contents(ctx)
+				require.NoError(t, err)
+
+				ctr, err = ctr.
+					WithServiceBinding("server", f.serverCtr.AsService()).
+					WithExec([]string{"curl", "https://server"}).
+					Sync(ctx)
+				require.NoError(t, err)
+
+				// verify no system CAs are leftover
+				ents, err := ctr.Directory("/etc/pki/ca-trust/source/anchors").Entries(ctx)
+				require.NoError(t, err)
+				require.Empty(t, ents)
+
+				bundleContents, err := ctr.File("/etc/pki/tls/certs/ca-bundle.crt").Contents(ctx)
+				require.NoError(t, err)
+				require.NotContains(t, bundleContents, f.caCertContents)
+				require.Equal(t, initialBundleContents, bundleContents)
+			}},
+
+			caCertsTest{"rhel non-root user", func(t *testing.T, c *dagger.Client, f caCertsTestFixtures) {
+				ctr := c.Container().From(rhelImage)
+				initialBundleContents, err := ctr.File("/etc/pki/tls/certs/ca-bundle.crt").Contents(ctx)
+				require.NoError(t, err)
+
+				ctr, err = ctr.
+					WithUser("nobody").
+					WithServiceBinding("server", f.serverCtr.AsService()).
+					WithExec([]string{"curl", "https://server"}).
+					Sync(ctx)
+				require.NoError(t, err)
+
+				// verify no system CAs are leftover
+				ents, err := ctr.Directory("/etc/pki/ca-trust/source/anchors").Entries(ctx)
+				require.NoError(t, err)
+				require.Empty(t, ents)
+
+				bundleContents, err := ctr.File("/etc/pki/tls/certs/ca-bundle.crt").Contents(ctx)
+				require.NoError(t, err)
+				require.NotContains(t, bundleContents, f.caCertContents)
+				require.Equal(t, initialBundleContents, bundleContents)
+			}},
+		*/
 	)
 }

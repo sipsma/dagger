@@ -129,8 +129,14 @@ type commonInstaller struct {
 
 	// all below are set internally
 	bundleExisted          bool
+	originalBundleMtime    int64
+	updatedBundleMtime     int64
+	createdBundleParentDir string
+
 	customCACertDirExisted bool
-	updateCommandExisted   bool
+	createdCACertDirParent string
+
+	updateCommandExisted bool
 
 	existingCerts  map[string]string
 	installedCerts map[string]string
@@ -177,6 +183,10 @@ func (d *commonInstaller) Install(ctx context.Context) (rerr error) {
 		if err != nil {
 			return fmt.Errorf("failed to read existing bundle: %w", err)
 		}
+		d.originalBundleMtime, err = d.ctrFS.MtimeOf(d.bundlePath)
+		if err != nil {
+			return fmt.Errorf("failed to get mtime of bundle: %w", err)
+		}
 	}
 
 	if d.customCACertDirExisted {
@@ -185,13 +195,12 @@ func (d *commonInstaller) Install(ctx context.Context) (rerr error) {
 			return fmt.Errorf("failed to read existing custom CA dir: %w", err)
 		}
 	} else {
-		// TODO: track what parent dirs we create so we can clean up fully
-		// TODO: double check perms here
-		if err := d.ctrFS.MkdirAll(d.customCACertDir, 0755); err != nil {
+		d.createdCACertDirParent, err = d.ctrFS.MkdirAll(d.customCACertDir, 0755)
+		if err != nil {
 			return err
 		}
 		cleanups.append(func() error {
-			return d.ctrFS.Remove(d.customCACertDir)
+			return d.ctrFS.RemoveAll(d.createdCACertDirParent)
 		})
 	}
 
@@ -238,26 +247,33 @@ func (d *commonInstaller) Install(ctx context.Context) (rerr error) {
 		if err := d.ctrFS.Exec(ctx, d.updateCmd...); err != nil {
 			return fmt.Errorf("failed to run %v for install: %w", d.updateCmd, err)
 		}
+		d.updatedBundleMtime, err = d.ctrFS.MtimeOf(d.bundlePath)
+		if err != nil {
+			return fmt.Errorf("failed to get mtime of updated bundle: %w", err)
+		}
 		return nil
 	}
 
 	if !d.bundleExisted {
-		// TODO: track what parent dirs we create so we can clean up fully
-		// TODO: double check perms here
-		if err := d.ctrFS.MkdirAll(filepath.Dir(d.bundlePath), 0755); err != nil {
+		d.createdBundleParentDir, err = d.ctrFS.MkdirAll(filepath.Dir(d.bundlePath), 0755)
+		if err != nil {
 			return err
 		}
-		cleanups.append(func() error {
-			return d.ctrFS.Remove(d.bundlePath)
-		})
+		if d.createdBundleParentDir != "" {
+			cleanups.append(func() error {
+				return d.ctrFS.RemoveAll(d.createdBundleParentDir)
+			})
+		}
 	} else {
 		origBundleContents, err := d.ctrFS.ReadFile(d.bundlePath)
 		if err != nil {
 			return err
 		}
 		cleanups.append(func() error {
-			// TODO: preserve mtime
-			return d.ctrFS.WriteFile(d.bundlePath, origBundleContents, 0644)
+			if err := d.ctrFS.WriteFile(d.bundlePath, origBundleContents, 0644); err != nil {
+				return err
+			}
+			return d.ctrFS.SetMtime(d.bundlePath, d.originalBundleMtime)
 		})
 	}
 
@@ -276,6 +292,10 @@ func (d *commonInstaller) Install(ctx context.Context) (rerr error) {
 			return err
 		}
 		// cleanup handled above with origBundleContents
+	}
+	d.updatedBundleMtime, err = d.ctrFS.MtimeOf(d.bundlePath)
+	if err != nil {
+		return fmt.Errorf("failed to get mtime of updated bundle: %w", err)
 	}
 	return nil
 }
@@ -303,6 +323,11 @@ func (d *commonInstaller) Uninstall(ctx context.Context) error {
 		return fmt.Errorf("failed to lookup %s: %w", d.updateCmd[0], lookupErr)
 	}
 
+	curBundleMtime, err := d.ctrFS.MtimeOf(d.bundlePath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to get mtime of updated bundle: %w", err)
+	}
+
 	// update the bundle using the command if available, otherwise manually remove the certs
 	if updateCommandExists {
 		if err := d.ctrFS.Exec(ctx, d.updateCmd...); err != nil {
@@ -310,6 +335,13 @@ func (d *commonInstaller) Uninstall(ctx context.Context) error {
 		}
 	} else if err := d.ctrFS.RemoveCertsFromCABundle(d.bundlePath, d.installedCerts); err != nil {
 		return err
+	}
+
+	// if the mtime of the bundle is the same as last we changed it, restore it to its original mtime
+	if curBundleMtime == d.updatedBundleMtime {
+		if err := d.ctrFS.SetMtime(d.bundlePath, d.originalBundleMtime); err != nil {
+			return err
+		}
 	}
 
 	if !d.bundleExisted {
@@ -321,6 +353,11 @@ func (d *commonInstaller) Uninstall(ctx context.Context) error {
 		if stat != nil && stat.Size() == 0 {
 			if err := d.ctrFS.Remove(d.bundlePath); err != nil {
 				return err
+			}
+			if d.createdBundleParentDir != "" {
+				if err := d.ctrFS.RemoveAll(d.createdBundleParentDir); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -337,7 +374,11 @@ func (d *commonInstaller) Uninstall(ctx context.Context) error {
 			return err
 		}
 		if isEmpty {
-			if err := d.ctrFS.Remove(d.customCACertDir); err != nil && !os.IsNotExist(err) {
+			rmDir := d.customCACertDir
+			if d.createdCACertDirParent != "" {
+				rmDir = d.createdCACertDirParent
+			}
+			if err := d.ctrFS.RemoveAll(rmDir); err != nil && !os.IsNotExist(err) {
 				return err
 			}
 		}

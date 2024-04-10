@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/opencontainers/runtime-spec/specs-go"
 )
@@ -147,12 +148,72 @@ func (ctrFS *containerFS) Remove(path string) error {
 	return os.Remove(hostPath)
 }
 
-func (ctrFS *containerFS) MkdirAll(path string, perm fs.FileMode) error {
+func (ctrFS *containerFS) RemoveAll(path string) error {
 	hostPath, err := ctrFS.hostPath(path)
 	if err != nil {
 		return err
 	}
-	return os.MkdirAll(hostPath, perm)
+	return os.RemoveAll(hostPath)
+}
+
+// MkdirAll is like os.MkdirAll but returns the uppermost container parent dir that was created
+func (ctrFS *containerFS) MkdirAll(path string, perm fs.FileMode) (string, error) {
+	hostPath, mnt, err := ctrFS.hostPathAndMount(path)
+	if err != nil {
+		return "", err
+	}
+
+	// check if the whole path already exists and is a dir
+	stat, err := os.Lstat(hostPath)
+	if err == nil {
+		if !stat.IsDir() {
+			return "", fmt.Errorf("not a directory: %s", hostPath)
+		}
+		return "", nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+
+	curPath := hostPath
+	for i := 0; i < 255; i++ {
+		parentDir := filepath.Dir(curPath)
+		// if the parent dir exists, os.MkdirAll this one and we're done
+		_, err := os.Lstat(parentDir)
+		if err == nil {
+			if err := os.MkdirAll(curPath, perm); err != nil {
+				return "", err
+			}
+			relPath, err := filepath.Rel(mnt.Source, curPath)
+			if err != nil {
+				return "", err
+			}
+			return relPath, nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		curPath = parentDir
+	}
+	return "", errors.New("too many parent dirs")
+}
+
+func (ctrFS *containerFS) MtimeOf(path string) (int64, error) {
+	hostPath, err := ctrFS.hostPath(path)
+	if err != nil {
+		return 0, err
+	}
+	fi, err := os.Lstat(hostPath)
+	if err != nil {
+		return 0, err
+	}
+	return fi.ModTime().UnixNano(), nil
+}
+
+func (ctrFS *containerFS) SetMtime(path string, t int64) error {
+	hostPath, err := ctrFS.hostPath(path)
+	if err != nil {
+		return err
+	}
+	return os.Chtimes(hostPath, time.Time{}, time.Unix(0, t))
 }
 
 func (ctrFS *containerFS) LookPath(cmd string) (string, error) {
@@ -370,28 +431,33 @@ func (ctrFS *containerFS) DirIsEmpty(path string) (bool, error) {
 func (ctrFS *containerFS) mountPointPath(containerPath string) (string, error) {
 	// resolveBase is true because runc will follow a symlink if it's the dest of
 	// a mount
-	containerPath, _, err := ctrFS.resolvePath(containerPath, true, 0)
+	containerPath, _, _, err := ctrFS.resolvePath(containerPath, true, 0)
 	return containerPath, err
 }
 
 func (ctrFS *containerFS) hostPath(containerPath string) (string, error) {
+	hostPath, _, err := ctrFS.hostPathAndMount(containerPath)
+	return hostPath, err
+}
+
+func (ctrFS *containerFS) hostPathAndMount(containerPath string) (string, *mount, error) {
 	// resolveBase is false since we want to support e.g. Lstat on a symlink path
 	// (while still resolving symlinks in the parent dirs)
-	_, hostPath, err := ctrFS.resolvePath(containerPath, false, 0)
+	_, hostPath, mnt, err := ctrFS.resolvePath(containerPath, false, 0)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if hostPath == "" {
-		// happens when the mount containerPath is under is a special mount (tmpfs, proc, etc.)
-		return "", fmt.Errorf("cannot resolve path %q", containerPath)
+		// happens when the containerPath is under is a special mount (tmpfs, proc, etc.)
+		return "", nil, fmt.Errorf("cannot resolve path %q", containerPath)
 	}
-	return hostPath, nil
+	return hostPath, mnt, nil
 }
 
 /*
 resolvePath returns the container path (i.e. the path inside the container after mounts
-are setup) and the host path (i.e. the path on the host under mount Sources) for a given
-path in the container after resolving any symlinks.
+are setup), the host path (i.e. the path on the host under mount Sources) for a given
+path in the container after resolving any symlinks and the mount that the path is under.
 
 This is extra tricky due to the fact that symlinks may be present in any part of the path,
 including parent "dirs" AND that those symlinks may themselves point to paths that have
@@ -407,13 +473,14 @@ the memo after any modifications are made (or mounts added, etc.)
 func (ctrFS *containerFS) resolvePath(path string, resolveBase bool, linkCount int) (
 	containerPath string,
 	hostPath string,
+	resolvedMount *mount,
 	rerr error,
 ) {
 	if linkCount > 255 {
-		return "", "", errors.New("too many links")
+		return "", "", nil, errors.New("too many links")
 	}
 	if !filepath.IsAbs(path) {
-		return "", "", fmt.Errorf("path %q is not absolute", path)
+		return "", "", nil, fmt.Errorf("path %q is not absolute", path)
 	}
 
 	/*
@@ -437,14 +504,13 @@ func (ctrFS *containerFS) resolvePath(path string, resolveBase bool, linkCount i
 		// Figure out the mount point that must contain curPath. Iterate in reverse order
 		// so we prefer e.g. /foo/bar over /foo if there are mounts at both paths. If no
 		// explicit mount is found, this results in defaulting to being under the rootfs
-		var resolvedMount *mount
 		var relPath string
 		for j := len(ctrFS.mounts) - 1; j >= 0; j-- {
 			resolvedMount = &ctrFS.mounts[j]
 			var err error
 			relPath, err = filepath.Rel(resolvedMount.ResolvedDest, curPath)
 			if err != nil {
-				return "", "", err
+				return "", "", nil, err
 			}
 			if filepath.IsLocal(relPath) {
 				break
@@ -453,7 +519,7 @@ func (ctrFS *containerFS) resolvePath(path string, resolveBase bool, linkCount i
 
 		if ok := isSpecialMountType(resolvedMount.Type); ok {
 			// can't resolve any paths under special mounts
-			return filepath.Join(curPath, rest), "", nil
+			return filepath.Join(curPath, rest), "", resolvedMount, nil
 		}
 
 		srcPath = filepath.Join(resolvedMount.Source, relPath)
@@ -466,14 +532,14 @@ func (ctrFS *containerFS) resolvePath(path string, resolveBase bool, linkCount i
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				// cannot be any symlinks to resolve anymore
-				return filepath.Join(curPath, rest), filepath.Join(srcPath, rest), nil
+				return filepath.Join(curPath, rest), filepath.Join(srcPath, rest), resolvedMount, nil
 			}
-			return "", "", err
+			return "", "", nil, err
 		}
 		if stat.Mode().Type() == fs.ModeSymlink {
 			target, err := os.Readlink(srcPath)
 			if err != nil {
-				return "", "", err
+				return "", "", nil, err
 			}
 			// TODO: this could be optimized slightly by checking if the target is still under the current mount,
 			// in which case we don't need to start over entirely.
@@ -483,7 +549,7 @@ func (ctrFS *containerFS) resolvePath(path string, resolveBase bool, linkCount i
 			return ctrFS.resolvePath(filepath.Join(filepath.Dir(curPath), target, rest), resolveBase, linkCount+1)
 		}
 	}
-	return filepath.Clean(curPath), filepath.Clean(srcPath), nil
+	return filepath.Clean(curPath), filepath.Clean(srcPath), resolvedMount, nil
 }
 
 func ReadHostCustomCADir(path string) (
