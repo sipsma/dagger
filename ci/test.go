@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/moby/buildkit/identity"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/dagger/dagger/ci/util"
 	"github.com/dagger/dagger/engine/distconsts"
@@ -71,6 +72,13 @@ func (t *Test) test(
 		"-parallel=16",
 		"-count=1",
 		"-timeout=30m",
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		"-run=TestModule",
 	}
 
 	if race {
@@ -78,9 +86,11 @@ func (t *Test) test(
 		cgoEnabledEnv = "1"
 	}
 
+	/* TODO:
 	if testRegex != "" {
 		args = append(args, "-run", testRegex)
 	}
+	*/
 
 	args = append(args, pkg)
 
@@ -89,12 +99,19 @@ func (t *Test) test(
 		return err
 	}
 
-	_, err = cmd.
-		WithEnvVariable("CGO_ENABLED", cgoEnabledEnv).
-		WithExec(args).
-		WithExec([]string{"gotestsum", "tool", "slowest", "--jsonfile=./tests.log", "--threshold=1s"}).
-		Sync(ctx)
-	return err
+	var eg errgroup.Group
+	for i := 0; i < 10; i++ {
+		eg.Go(func() error {
+			_, err := cmd.
+				WithEnvVariable("CGO_ENABLED", cgoEnabledEnv).
+				WithExec([]string{"sh", "-c", "echo // " + identity.NewID() + " >> /app/core/integration/suite_test.go"}).
+				WithExec(args).
+				WithExec([]string{"gotestsum", "tool", "slowest", "--jsonfile=./tests.log", "--threshold=1s"}).
+				Sync(ctx)
+			return err
+		})
+	}
+	return eg.Wait()
 }
 
 func (t *Test) testCmd(ctx context.Context) (*Container, error) {
