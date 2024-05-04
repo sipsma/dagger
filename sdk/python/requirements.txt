@@ -64,7 +64,7 @@ idna==3.7
     #   yarl
 imagesize==1.4.1
     # via sphinx
-importlib-metadata==7.0.0
+importlib-metadata==7.1.0
     # via opentelemetry-api
 iniconfig==2.0.0
     # via pytest
