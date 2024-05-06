@@ -1,7 +1,7 @@
-package buildkit
+package newserver
 
 /*
-The original implementation of this is derived from:
+The original implementation of the Executor part of this is derived from:
 https://github.com/moby/buildkit/blob/08180a774253a8199ebdb629d21cd9f378a14419/executor/runcexecutor/executor.go
 */
 
@@ -28,18 +28,24 @@ import (
 	runc "github.com/containerd/go-runc"
 	"github.com/dagger/dagger/engine/buildkit/cacerts"
 	"github.com/docker/docker/pkg/idtools"
+	bkclient "github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb"
-	"github.com/moby/buildkit/executor"
+	"github.com/moby/buildkit/client/llb/sourceresolver"
+	bkexecutor "github.com/moby/buildkit/executor"
 	"github.com/moby/buildkit/executor/oci"
 	resourcestypes "github.com/moby/buildkit/executor/resources/types"
+	"github.com/moby/buildkit/frontend"
 	gatewayapi "github.com/moby/buildkit/frontend/gateway/pb"
 	randid "github.com/moby/buildkit/identity"
+	bksession "github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/solver"
+	"github.com/moby/buildkit/solver/llbsolver/ops"
 	"github.com/moby/buildkit/solver/pb"
 	"github.com/moby/buildkit/util/bklog"
 	"github.com/moby/buildkit/util/entitlements"
 	"github.com/moby/buildkit/util/network"
 	"github.com/moby/buildkit/util/stack"
+	"github.com/moby/buildkit/worker/base"
 	"github.com/moby/sys/signal"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"go.opentelemetry.io/otel/attribute"
@@ -47,20 +53,90 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func (w *Worker) Run(
+type worker struct {
+	*Server
+	*base.Worker
+	client *daggerClient
+	vtx    solver.Vertex
+}
+
+func (srv *Server) newWorkerForClient(clientState *daggerClient) *worker {
+	return &worker{
+		Server: srv,
+		Worker: srv.baseWorker,
+		client: clientState,
+	}
+}
+
+func (w *worker) withVertex(vtx solver.Vertex) *worker {
+	return &worker{
+		Server: w.Server,
+		Worker: w.Worker,
+		client: w.client,
+		vtx:    vtx,
+	}
+}
+
+func (w *worker) Executor() bkexecutor.Executor {
+	return w
+}
+
+func (w *worker) ResolveOp(vtx solver.Vertex, s frontend.FrontendLLBBridge, sm *bksession.Manager) (solver.Op, error) {
+	w = w.withVertex(vtx)
+
+	// if this is an ExecOp, pass in ourself as executor
+	if baseOp, ok := vtx.Sys().(*pb.Op); ok {
+		if execOp, ok := baseOp.Op.(*pb.Op_Exec); ok {
+			return ops.NewExecOp(
+				vtx,
+				execOp,
+				baseOp.Platform,
+				w.CacheMgr,
+				w.ParallelismSem,
+				sm,
+				w, // executor
+				w,
+			)
+		}
+	}
+
+	// otherwise, just use the default base.Worker's ResolveOp
+	return w.Worker.ResolveOp(vtx, s, sm)
+}
+
+func (w *worker) Close() error {
+	// no-op, don't want to close the base.Worker since it's shared across the whole process
+	return nil
+}
+
+func (w *worker) ResolveSourceMetadata(
+	ctx context.Context,
+	op *pb.SourceOp,
+	opt sourceresolver.Opt,
+	sm *bksession.Manager,
+	g bksession.Group,
+) (*sourceresolver.MetaResponse, error) {
+	return w.Worker.ResolveSourceMetadata(ctx, op, opt, sm, g)
+}
+
+func (w *worker) DiskUsage(ctx context.Context, opt bkclient.DiskUsageInfo) ([]*bkclient.UsageInfo, error) {
+	return w.Worker.DiskUsage(ctx, opt)
+}
+
+func (w *worker) Prune(ctx context.Context, ch chan bkclient.UsageInfo, opt ...bkclient.PruneInfo) error {
+	return w.Worker.Prune(ctx, ch, opt...)
+}
+
+func (w *worker) Run(
 	ctx context.Context,
 	id string,
-	root executor.Mount,
-	mounts []executor.Mount,
-	process executor.ProcessInfo,
+	root bkexecutor.Mount,
+	mounts []bkexecutor.Mount,
+	process bkexecutor.ProcessInfo,
 	started chan<- struct{},
 ) (_ resourcestypes.Recorder, rerr error) {
 	if err := w.validateEntitlements(process.Meta); err != nil {
 		return nil, err
-	}
-
-	if w.serverID == "" {
-		return nil, errors.New("serverID is not set in executor")
 	}
 
 	w.addExtraEnvs(&process)
@@ -100,16 +176,11 @@ func (w *Worker) Run(
 		id = randid.NewID()
 	}
 
-	identity := idtools.Identity{}
-	if w.idmap != nil {
-		identity = w.idmap.RootPair()
-	}
-
 	rootFSPath, err := os.MkdirTemp("", "rootfs")
 	if err != nil {
 		return nil, err
 	}
-	if err := idtools.MkdirAllAndChown(rootFSPath, 0o700, identity); err != nil {
+	if err := idtools.MkdirAllAndChown(rootFSPath, 0o700, idtools.Identity{}); err != nil {
 		return nil, err
 	}
 	if err := mount.All(rootMount, rootFSPath); err != nil {
@@ -117,7 +188,7 @@ func (w *Worker) Run(
 	}
 	defer mount.Unmount(rootFSPath, 0)
 
-	defer executor.MountStubsCleaner(ctx, rootFSPath, mounts, process.Meta.RemoveMountStubsRecursive)()
+	defer bkexecutor.MountStubsCleaner(ctx, rootFSPath, mounts, process.Meta.RemoveMountStubsRecursive)()
 
 	setupCACerts := true
 	return nil, w.run(
@@ -133,8 +204,10 @@ func (w *Worker) Run(
 	)
 }
 
-func (w *Worker) addExtraEnvs(proc *executor.ProcessInfo) error {
-	proc.Meta.Env = append(proc.Meta.Env, fmt.Sprintf("_DAGGER_SERVER_ID=%s", w.serverID))
+func (w *worker) addExtraEnvs(proc *bkexecutor.ProcessInfo) error {
+	if w.client != nil {
+		proc.Meta.Env = append(proc.Meta.Env, fmt.Sprintf("_DAGGER_SERVER_ID=%s", w.client.sessionID))
+	}
 
 	execMD, err := executionMetadataFromVtx(w.vtx)
 	if err != nil {
@@ -232,26 +305,26 @@ func (md ExecutionMetadata) AsConstraintsOpt() (llb.ConstraintsOpt, error) {
 	}), nil
 }
 
-func (w *Worker) run(
+func (w *worker) run(
 	ctx context.Context,
 	id string,
-	root executor.Mount,
-	mounts []executor.Mount,
+	root bkexecutor.Mount,
+	mounts []bkexecutor.Mount,
 	rootFSPath string,
-	process executor.ProcessInfo,
+	process bkexecutor.ProcessInfo,
 	namespace network.Namespace,
 	started chan<- struct{},
 	installCACerts bool,
 ) (rerr error) {
 	startedOnce := sync.Once{}
 	done := make(chan error, 1)
-	w.mu.Lock()
+	w.executorMu.Lock()
 	w.running[id] = done
-	w.mu.Unlock()
+	w.executorMu.Unlock()
 	defer func() {
-		w.mu.Lock()
+		w.executorMu.Lock()
 		delete(w.running, id)
-		w.mu.Unlock()
+		w.executorMu.Unlock()
 		done <- rerr
 		close(done)
 		if started != nil {
@@ -261,7 +334,7 @@ func (w *Worker) run(
 		}
 	}()
 
-	bundle := filepath.Join(w.executorRoot, id)
+	bundle := filepath.Join(w.executorRootDir, id)
 	if err := os.Mkdir(bundle, 0o711); err != nil {
 		return err
 	}
@@ -272,12 +345,12 @@ func (w *Worker) run(
 		return err
 	}
 
-	resolvConf, err := oci.GetResolvConf(ctx, w.executorRoot, w.idmap, w.dns, process.Meta.NetMode)
+	resolvConf, err := oci.GetResolvConf(ctx, w.executorRootDir, nil, w.dns, process.Meta.NetMode)
 	if err != nil {
 		return err
 	}
 
-	hostsFile, clean, err := oci.GetHostsFile(ctx, w.executorRoot, process.Meta.ExtraHosts, w.idmap, process.Meta.Hostname)
+	hostsFile, clean, err := oci.GetHostsFile(ctx, w.executorRootDir, process.Meta.ExtraHosts, nil, process.Meta.Hostname)
 	if err != nil {
 		return err
 	}
@@ -302,12 +375,6 @@ func (w *Worker) run(
 		UID: int(uid),
 		GID: int(gid),
 	}
-	if w.idmap != nil {
-		identity, err = w.idmap.ToHost(identity)
-		if err != nil {
-			return err
-		}
-	}
 
 	spec, cleanup, err := oci.GenerateSpec(
 		ctx,
@@ -319,7 +386,7 @@ func (w *Worker) run(
 		namespace,
 		w.cgroupParent,
 		w.processMode,
-		w.idmap,
+		nil, // nil idmap
 		w.apparmorProfile,
 		w.selinux,
 		w.tracingSocket,
@@ -364,7 +431,7 @@ func (w *Worker) run(
 			meta.Cwd = "/"
 			meta.Tty = false
 			output := new(bytes.Buffer)
-			process := executor.ProcessInfo{
+			process := bkexecutor.ProcessInfo{
 				Stdout: nopCloser{output},
 				Stderr: nopCloser{output},
 				Meta:   meta,
@@ -437,25 +504,21 @@ func (w *Worker) run(
 	return w.runc.Delete(context.TODO(), id, &runc.DeleteOpts{})
 }
 
-func (w *Worker) Exec(ctx context.Context, id string, process executor.ProcessInfo) (err error) {
+func (w *worker) Exec(ctx context.Context, id string, process bkexecutor.ProcessInfo) (err error) {
 	if err := w.validateEntitlements(process.Meta); err != nil {
 		return err
 	}
 
-	if w.serverID == "" {
-		return errors.New("serverID is not set in executor")
-	}
-
-	process.Meta.Env = append(process.Meta.Env, fmt.Sprintf("_DAGGER_SERVER_ID=%s", w.serverID))
+	w.addExtraEnvs(&process)
 
 	// first verify the container is running, if we get an error assume the container
 	// is in the process of being created and check again every 100ms or until
 	// context is canceled.
 	var state *runc.Container
 	for {
-		w.mu.Lock()
+		w.executorMu.Lock()
 		done, ok := w.running[id]
-		w.mu.Unlock()
+		w.executorMu.Unlock()
 		if !ok {
 			return fmt.Errorf("container %s not found", id)
 		}
@@ -514,7 +577,7 @@ func (w *Worker) Exec(ctx context.Context, id string, process executor.ProcessIn
 	return exitError(ctx, err)
 }
 
-func (w *Worker) exec(ctx context.Context, id string, specsProcess *specs.Process, process executor.ProcessInfo, started func()) error {
+func (w *worker) exec(ctx context.Context, id string, specsProcess *specs.Process, process bkexecutor.ProcessInfo, started func()) error {
 	killer, err := newExecProcKiller(w.runc, id)
 	if err != nil {
 		return fmt.Errorf("failed to initialize process killer: %w", err)
@@ -530,7 +593,7 @@ func (w *Worker) exec(ctx context.Context, id string, specsProcess *specs.Proces
 	})
 }
 
-func (w *Worker) validateEntitlements(meta executor.Meta) error {
+func (w *worker) validateEntitlements(meta bkexecutor.Meta) error {
 	return w.entitlements.Check(entitlements.Values{
 		NetworkHost:      meta.NetMode == pb.NetMode_HOST,
 		SecurityInsecure: meta.SecurityMode == pb.SecurityMode_INSECURE,
@@ -853,7 +916,7 @@ func handleSignals(ctx context.Context, runcProcess *procHandle, signals <-chan 
 
 type runcCall func(ctx context.Context, started chan<- int, io runc.IO, pidfile string) error
 
-func (w *Worker) callWithIO(ctx context.Context, process executor.ProcessInfo, started func(), killer procKiller, call runcCall) error {
+func (w *worker) callWithIO(ctx context.Context, process bkexecutor.ProcessInfo, started func(), killer procKiller, call runcCall) error {
 	runcProcess, ctx := runcProcessHandle(ctx, killer)
 	defer runcProcess.Release()
 

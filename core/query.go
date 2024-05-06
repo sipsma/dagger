@@ -5,11 +5,17 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 
 	"github.com/containerd/containerd/content"
+	bkcache "github.com/moby/buildkit/cache"
+	"github.com/moby/buildkit/client/llb"
+	"github.com/moby/buildkit/client/llb/sourceresolver"
+	bkgw "github.com/moby/buildkit/frontend/gateway/client"
+	bksolver "github.com/moby/buildkit/solver"
 	"github.com/moby/buildkit/util/leaseutil"
 	"github.com/opencontainers/go-digest"
+	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
+	fstypes "github.com/tonistiigi/fsutil/types"
 	"github.com/vektah/gqlparser/v2/ast"
 
 	"github.com/dagger/dagger/auth"
@@ -17,67 +23,58 @@ import (
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/dagql/call"
 	"github.com/dagger/dagger/engine"
-	"github.com/dagger/dagger/engine/buildkit"
+	dagsession "github.com/dagger/dagger/engine/session"
 	"github.com/dagger/dagger/engine/slog"
 )
 
 // Query forms the root of the DAG and houses all necessary state and
 // dependencies for evaluating queries.
 type Query struct {
-	QueryOpts
-	Buildkit *buildkit.Client
-
+	Server
 	// The current pipeline.
 	Pipeline pipeline.Path
 }
 
 var ErrNoCurrentModule = fmt.Errorf("no current module")
 
-// Settings for Query that are shared across all instances for a given DaggerServer
-type QueryOpts struct {
-	Services *Services
+// TODO: doc
+// TODO: doc
+// TODO: doc
+type Server interface {
+	MainClientCallerID(ctx context.Context) string
 
-	Secrets *SecretStore
+	RegisterCaller(ctx context.Context, call *FunctionCall) (string, error)
+	MuxEndpoint(ctx context.Context, path string, handler http.Handler) error
 
-	Auth *auth.RegistryAuthProvider
+	Services(ctx context.Context) *Services
+	Secrets(ctx context.Context) *SecretStore
+	AuthProvider(ctx context.Context) *auth.RegistryAuthProvider
+	OCIStore(ctx context.Context) content.Store
+	LeaseManager(ctx context.Context) *leaseutil.Manager
+	Platform(ctx context.Context) Platform
 
-	OCIStore     content.Store
-	LeaseManager *leaseutil.Manager
-
-	// The default platform.
-	Platform Platform
-
-	// The default deps of every user module (currently just core)
-	DefaultDeps *ModDeps
-
-	// The DagQL query cache.
-	Cache dagql.Cache
-
-	BuildkitOpts *buildkit.Opts
-
-	// The metadata of client calls.
-	// For the special case of the main client caller, the key is just empty string.
-	// This is never explicitly deleted from; instead it will just be garbage collected
-	// when this server for the session shuts down
-	ClientCallContext  map[string]*ClientCallContext
-	ClientCallMu       *sync.RWMutex
-	MainClientCallerID string
-
-	// the http endpoints being served (as a map since APIs like shellEndpoint can add more)
-	Endpoints  map[string]http.Handler
-	EndpointMu *sync.RWMutex
+	Solve(ctx context.Context, req bkgw.SolveRequest) (_ Result, rerr error)
+	ResolveImageConfig(ctx context.Context, ref string, opt sourceresolver.Opt) (string, digest.Digest, []byte, error)
+	NewContainer(ctx context.Context, req bkgw.NewContainerRequest) (bkgw.Container, error)
+	ListenHostToContainer(
+		ctx context.Context,
+		hostListenAddr, proto, upstream string,
+	) (*dagsession.ListenResponse, func() error, error)
 }
 
-func NewRoot(ctx context.Context, opts QueryOpts) (*Query, error) {
-	bk, err := buildkit.NewClient(ctx, opts.BuildkitOpts)
-	if err != nil {
-		return nil, fmt.Errorf("buildkit client: %w", err)
-	}
+type Result interface {
+	ToState() (llb.State, error)
+	Evaluate(ctx context.Context) error
+	ReadFile(ctx context.Context, req bkgw.ReadRequest) ([]byte, error)
+	ReadDir(ctx context.Context, req bkgw.ReadDirRequest) ([]*fstypes.Stat, error)
+	StatFile(ctx context.Context, req bkgw.StatRequest) (*fstypes.Stat, error)
+	AddDependencyBlobs(ctx context.Context, blobs map[digest.Digest]*ocispecs.Descriptor) error
+	Result(ctx context.Context) (bksolver.CachedResult, error)
+	CacheRef(ctx context.Context) (bkcache.ImmutableRef, error)
+}
 
-	return &Query{
-		QueryOpts: opts,
-		Buildkit:  bk,
-	}, nil
+func NewRoot(ctx context.Context, srv Server) *Query {
+	return &Query{Server: srv}
 }
 
 func (*Query) Type() *ast.Type {

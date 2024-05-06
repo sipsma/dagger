@@ -25,6 +25,9 @@ const (
 	localImportOptsMetaKey = "x-dagger-local-import-opts"
 	localExportOptsMetaKey = "x-dagger-local-export-opts"
 
+	// session header (set by buildkit, can't change)
+	buildkitSessionIDHeader = "x-docker-expose-session-uuid"
+
 	// local dir import (set by buildkit, can't change)
 	localDirImportDirNameMetaKey         = "dir-name"
 	localDirImportIncludePatternsMetaKey = "include-patterns"
@@ -42,6 +45,9 @@ type ClientMetadata struct {
 	// other request w/ that client ID must also include the same token.
 	ClientSecretToken string `json:"client_secret_token"`
 
+	// TODO:
+	// TODO:
+	// TODO: RENAME TO DaggerSessionID
 	// ServerID is the id of the server that a client and any of its nested
 	// module clients connect to
 	ServerID string `json:"server_id"`
@@ -50,6 +56,9 @@ type ClientMetadata struct {
 	// server if it hasn't already been initialized and register the session's
 	// attachables with it either way. If false, then the session conn will be
 	// forwarded to the server
+	// TODO: RENAME TO CONNECT SESSION ATTACHABLES OR SIMILAR
+	// TODO: RENAME TO CONNECT SESSION ATTACHABLES OR SIMILAR
+	// TODO: RENAME TO CONNECT SESSION ATTACHABLES OR SIMILAR
 	RegisterClient bool `json:"register_client"`
 
 	// ClientHostname is the hostname of the client that made the request. It's
@@ -73,17 +82,21 @@ type ClientMetadata struct {
 
 	// Disable analytics
 	DoNotTrack bool
+
+	// TODO: DOC
+	// TODO: DOC
+	// TODO: DOC
+	ExtraMD metadata.MD `json:"-"`
 }
 
 func (m ClientMetadata) ToGRPCMD() metadata.MD {
-	return encodeMeta(clientMetadataMetaKey, m)
-}
-
-func (m ClientMetadata) AppendToMD(md metadata.MD) metadata.MD {
-	for k, v := range m.ToGRPCMD() {
-		md[k] = append(md[k], v...)
+	md := encodeMeta(clientMetadataMetaKey, m)
+	for k, v := range m.ExtraMD {
+		md[k] = v
 	}
-	return md
+
+	md[buildkitSessionIDHeader] = []string{m.BuildkitSessionID()}
+	return encodeOpts(md)
 }
 
 // The ID to use for this client's buildkit session. It's a combination of both
@@ -104,10 +117,19 @@ func ClientMetadataFromContext(ctx context.Context) (*ClientMetadata, error) {
 	if !ok {
 		return nil, fmt.Errorf("failed to get metadata from context")
 	}
+
 	clientMetadata := &ClientMetadata{}
 	if err := decodeMeta(md, clientMetadataMetaKey, clientMetadata); err != nil {
 		return nil, err
 	}
+
+	for k, v := range md {
+		if k == clientMetadataMetaKey {
+			continue
+		}
+		clientMetadata.ExtraMD[k] = v
+	}
+
 	return clientMetadata, nil
 }
 

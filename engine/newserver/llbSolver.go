@@ -1,324 +1,55 @@
-package buildkit
+package newserver
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"sync"
-	"time"
 
-	"github.com/koron-go/prefixw"
 	bkcache "github.com/moby/buildkit/cache"
 	bkcacheconfig "github.com/moby/buildkit/cache/config"
 	"github.com/moby/buildkit/cache/remotecache"
-	bkclient "github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/client/llb/sourceresolver"
-	"github.com/moby/buildkit/executor/oci"
 	bkfrontend "github.com/moby/buildkit/frontend"
 	bkgw "github.com/moby/buildkit/frontend/gateway/client"
 	bkcontainer "github.com/moby/buildkit/frontend/gateway/container"
 	"github.com/moby/buildkit/identity"
 	bksession "github.com/moby/buildkit/session"
-	bksecrets "github.com/moby/buildkit/session/secrets"
 	bksolver "github.com/moby/buildkit/solver"
-	"github.com/moby/buildkit/solver/llbsolver"
 	bksolverpb "github.com/moby/buildkit/solver/pb"
 	solverresult "github.com/moby/buildkit/solver/result"
 	"github.com/moby/buildkit/util/bklog"
-	"github.com/moby/buildkit/util/entitlements"
-	"github.com/moby/buildkit/util/progress/progressui"
 	bkworker "github.com/moby/buildkit/worker"
 	"github.com/opencontainers/go-digest"
-	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/metadata"
 
-	"github.com/dagger/dagger/auth"
-	"github.com/dagger/dagger/engine/session"
+	dagsession "github.com/dagger/dagger/engine/session"
 )
-
-const (
-	FocusPrefix    = "[focus] "
-	InternalPrefix = "[internal] "
-
-	DaggerWorkerJobKey = "dagger.worker"
-
-	// from buildkit, cannot change
-	entitlementsJobKey = "llb.entitlements"
-)
-
-// Opts for a Client that are shared across all instances for a given DaggerServer
-type Opts struct {
-	ServerID string
-
-	BaseWorker     *Worker
-	SessionManager *bksession.Manager
-	GenericSolver  *bksolver.Solver
-	CacheManager   bksolver.CacheManager
-
-	PrivilegedExecEnabled bool
-	Entitlements          []string
-
-	SecretStore  bksecrets.SecretStore
-	AuthProvider *auth.RegistryAuthProvider
-
-	UpstreamCacheImporters map[string]remotecache.ResolveCacheImporterFunc
-	UpstreamCacheImports   []bkgw.CacheOptionsEntry
-
-	// MainClientCaller is the caller who initialized the server associated with this
-	// client. It is special in that when it shuts down, the client will be closed and
-	// that registry auth and sockets are currently only ever sourced from this caller,
-	// not any nested clients (may change in future).
-	MainClientCaller bksession.Caller
-	DNSConfig        *oci.DNSConfig
-	Frontends        map[string]bkfrontend.Frontend
-	BuildkitLogSink  io.Writer
-	sharedClientState
-}
-
-// these maps are shared across all clients for a given DaggerServer and are
-// mutated by each client
-type sharedClientState struct {
-	refsMu sync.Mutex
-	refs   map[*ref]struct{}
-}
 
 type ResolveCacheExporterFunc func(ctx context.Context, g bksession.Group) (remotecache.Exporter, error)
 
-// Client is dagger's internal interface to buildkit APIs
-type Client struct {
-	*Opts
-
-	spanCtx trace.SpanContext
-
-	session   *bksession.Session
-	job       *bksolver.Job
-	llbSolver *llbsolver.Solver
-	llbBridge bkfrontend.FrontendLLBBridge
-	worker    *Worker
-
-	containers   map[bkgw.Container]struct{}
-	containersMu sync.Mutex
-
-	dialer *net.Dialer
-
-	closeCtx context.Context
-	cancel   context.CancelFunc
-	closeMu  sync.RWMutex
-}
-
-func NewClient(ctx context.Context, opts *Opts) (*Client, error) {
-	// override the outer cancel, we will manage cancellation ourselves here
-	ctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	client := &Client{
-		Opts:       opts,
-		spanCtx:    trace.SpanContextFromContext(ctx),
-		containers: make(map[bkgw.Container]struct{}),
-		closeCtx:   ctx,
-		cancel:     cancel,
-	}
-
-	client.worker = opts.BaseWorker.WithServerID(opts.ServerID)
-	wc, err := client.worker.AsWorkerController()
+func (srv *Server) Solve(ctx context.Context, req bkgw.SolveRequest) (_ *Result, rerr error) {
+	client, err := srv.clientFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	client.llbSolver, err = llbsolver.New(llbsolver.Opt{
-		WorkerController: wc,
-		Frontends:        opts.Frontends,
-		CacheManager:     opts.CacheManager,
-		SessionManager:   opts.SessionManager,
-		CacheResolvers:   opts.UpstreamCacheImporters,
-		Entitlements:     opts.Entitlements,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create solver: %w", err)
-	}
-
-	// initialize ref caches if needed
-	client.refsMu.Lock()
-	if client.refs == nil {
-		client.refs = make(map[*ref]struct{})
-	}
-	client.refsMu.Unlock()
-
-	session, err := client.newSession()
-	if err != nil {
-		return nil, err
-	}
-	client.session = session
-
-	job, err := client.GenericSolver.NewJob(client.ID())
-	if err != nil {
-		return nil, err
-	}
-	client.job = job
-	client.job.SessionID = client.ID()
-	// add the worker to the job so the op resolver (currently configured
-	// in buildkitcontroller.go) can access and use it for resolving ops
-	client.job.SetValue(DaggerWorkerJobKey, client.worker)
-
-	entitlementSet := entitlements.Set{}
-	if opts.PrivilegedExecEnabled {
-		entitlementSet[entitlements.EntitlementSecurityInsecure] = struct{}{}
-	}
-	client.job.SetValue(entitlementsJobKey, entitlementSet)
-
-	// NOTE: we don't go through the LLBSolver's Executor interface here since
-	// we need to use our custom one directly later. But our executor has the
-	// entitlement validation logic in it, so no harm done.
-	br := client.llbSolver.Bridge(client.job)
-	client.llbBridge = br
-
-	client.dialer = &net.Dialer{}
-
-	if opts.DNSConfig != nil {
-		client.dialer.Resolver = &net.Resolver{
-			PreferGo: true,
-			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-				if len(opts.DNSConfig.Nameservers) == 0 {
-					return nil, errors.New("no nameservers configured")
-				}
-
-				var errs []error
-				for _, ns := range opts.DNSConfig.Nameservers {
-					conn, err := client.dialer.DialContext(ctx, network, net.JoinHostPort(ns, "53"))
-					if err != nil {
-						errs = append(errs, err)
-						continue
-					}
-
-					return conn, nil
-				}
-
-				return nil, errors.Join(errs...)
-			},
-		}
-	}
-
-	bkLogsW := opts.BuildkitLogSink
-	if bkLogsW == nil {
-		bkLogsW = io.Discard
-	}
-	go client.WriteStatusesTo(ctx, bkLogsW)
-
-	return client, nil
-}
-
-func (c *Client) WriteStatusesTo(ctx context.Context, dest io.Writer) {
-	prefix := fmt.Sprintf("[buildkit] [trace=%s] [client=%s] ", c.spanCtx.TraceID(), c.ID())
-	dest = prefixw.New(dest, prefix)
-	statusCh := make(chan *bkclient.SolveStatus, 8)
-	pw, err := progressui.NewDisplay(dest, progressui.PlainMode)
-	if err != nil {
-		bklog.G(ctx).WithError(err).Error("failed to initialize progress writer")
-		return
-	}
-	go pw.UpdateFrom(ctx, statusCh)
-	err = c.job.Status(ctx, statusCh)
-	if err != nil && !errors.Is(err, context.Canceled) {
-		bklog.G(ctx).WithError(err).Error("failed to write status updates")
-	}
-}
-
-func (c *Client) ID() string {
-	return c.session.ID()
-}
-
-func (c *Client) Close() error {
-	c.closeMu.Lock()
-	defer c.closeMu.Unlock()
-	select {
-	case <-c.closeCtx.Done():
-		// already closed
-		return nil
-	default:
-	}
-	c.cancel()
-
-	c.job.Discard()
-	c.job.CloseProgress()
-
-	c.refsMu.Lock()
-	for rf := range c.refs {
-		if rf != nil {
-			rf.resultProxy.Release(context.Background())
-		}
-	}
-	c.refs = nil
-	c.refsMu.Unlock()
-
-	c.containersMu.Lock()
-	var containerReleaseGroup errgroup.Group
-	for ctr := range c.containers {
-		if ctr := ctr; ctr != nil {
-			containerReleaseGroup.Go(func() error {
-				// in theory this shouldn't block very long and just kill the container,
-				// but add a safeguard just in case
-				releaseCtx, cancelRelease := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancelRelease()
-				return ctr.Release(releaseCtx)
-			})
-		}
-	}
-	err := containerReleaseGroup.Wait()
-	if err != nil {
-		bklog.G(context.Background()).WithError(err).Error("failed to release containers")
-	}
-	c.containers = nil
-	c.containersMu.Unlock()
-
-	if c.llbSolver != nil {
-		if err := c.llbSolver.Close(); err != nil {
-			bklog.G(context.Background()).WithError(err).Error("failed to close solver")
-		}
-		c.llbSolver = nil
-	}
-
-	return nil
-}
-
-func (c *Client) withClientCloseCancel(ctx context.Context) (context.Context, context.CancelFunc, error) {
-	c.closeMu.RLock()
-	defer c.closeMu.RUnlock()
-	select {
-	case <-c.closeCtx.Done():
-		return nil, nil, errors.New("client closed")
-	default:
-	}
-	ctx, cancel := context.WithCancel(ctx)
-	go func() {
-		select {
-		case <-c.closeCtx.Done():
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
-	return ctx, cancel, nil
-}
-
-func (c *Client) Solve(ctx context.Context, req bkgw.SolveRequest) (_ *Result, rerr error) {
-	ctx, cancel, err := c.withClientCloseCancel(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer cancel()
 	ctx = withOutgoingContext(ctx)
 
-	// include upstream cache imports, if any
-	req.CacheImports = c.UpstreamCacheImports
+	sess := client.daggerSession
+	bkSessionID := client.buildkitSession.ID()
 
-	// include exec metadata that isn't included in the cache key
+	// include upstream cache imports, if any
+	req.CacheImports = sess.cacheImporterCfgs
+
 	var llbRes *bkfrontend.Result
 	switch {
 	case req.Definition != nil && req.Definition.Def != nil:
-		llbRes, err = c.llbBridge.Solve(ctx, req, c.ID())
+		llbRes, err = client.llbBridge.Solve(ctx, req, bkSessionID)
 		if err != nil {
-			return nil, wrapError(ctx, err, c.ID())
+			return nil, wrapError(ctx, err, bkSessionID)
 		}
 	case req.Frontend != "":
 		// HACK: don't force evaluation like this, we can write custom frontend
@@ -327,22 +58,22 @@ func (c *Client) Solve(ctx context.Context, req bkgw.SolveRequest) (_ *Result, r
 		// This current implementation may be limited when it comes to
 		// implement provenance/etc.
 
-		f, ok := c.Frontends[req.Frontend]
+		f, ok := srv.frontends[req.Frontend]
 		if !ok {
 			return nil, fmt.Errorf("invalid frontend: %s", req.Frontend)
 		}
 
-		gw := newFilterGateway(c.llbBridge, req)
+		gw := newFilterGateway(client.llbBridge, req)
 		gw.secretTranslator = ctx.Value("secret-translator").(func(string) (string, error))
 
 		llbRes, err = f.Solve(
 			ctx,
 			gw,
-			c.worker, // also implements Executor
+			client.worker, // also implements Executor
 			req.FrontendOpt,
 			req.FrontendInputs,
-			c.ID(),
-			c.SessionManager,
+			bkSessionID,
+			srv.bkSessionManager,
 		)
 		if err != nil {
 			return nil, err
@@ -361,7 +92,7 @@ func (c *Client) Solve(ctx context.Context, req bkgw.SolveRequest) (_ *Result, r
 	}
 
 	res, err := solverresult.ConvertResult(llbRes, func(rp bksolver.ResultProxy) (*ref, error) {
-		return newRef(rp, c), nil
+		return newRef(rp, client), nil
 	})
 	if err != nil {
 		llbRes.EachRef(func(rp bksolver.ResultProxy) error {
@@ -370,47 +101,45 @@ func (c *Client) Solve(ctx context.Context, req bkgw.SolveRequest) (_ *Result, r
 		return nil, err
 	}
 
-	c.refsMu.Lock()
-	defer c.refsMu.Unlock()
+	sess.refsMu.Lock()
+	defer sess.refsMu.Unlock()
 	if res.Ref != nil {
-		c.refs[res.Ref] = struct{}{}
+		sess.refs[res.Ref] = struct{}{}
 	}
 	for _, rf := range res.Refs {
-		c.refs[rf] = struct{}{}
+		sess.refs[rf] = struct{}{}
 	}
 	return res, nil
 }
 
-func (c *Client) ResolveImageConfig(ctx context.Context, ref string, opt sourceresolver.Opt) (string, digest.Digest, []byte, error) {
-	ctx, cancel, err := c.withClientCloseCancel(ctx)
+func (srv *Server) ResolveImageConfig(ctx context.Context, ref string, opt sourceresolver.Opt) (string, digest.Digest, []byte, error) {
+	client, err := srv.clientFromContext(ctx)
 	if err != nil {
 		return "", "", nil, err
 	}
-	defer cancel()
 	ctx = withOutgoingContext(ctx)
 
-	imr := sourceresolver.NewImageMetaResolver(c.llbBridge)
+	imr := sourceresolver.NewImageMetaResolver(client.llbBridge)
 	return imr.ResolveImageConfig(ctx, ref, opt)
 }
 
-func (c *Client) ResolveSourceMetadata(ctx context.Context, op *bksolverpb.SourceOp, opt sourceresolver.Opt) (*sourceresolver.MetaResponse, error) {
-	ctx, cancel, err := c.withClientCloseCancel(ctx)
+func (srv *Server) ResolveSourceMetadata(ctx context.Context, op *bksolverpb.SourceOp, opt sourceresolver.Opt) (*sourceresolver.MetaResponse, error) {
+	client, err := srv.clientFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer cancel()
 	ctx = withOutgoingContext(ctx)
 
-	return c.llbBridge.ResolveSourceMetadata(ctx, op, opt)
+	return client.llbBridge.ResolveSourceMetadata(ctx, op, opt)
 }
 
-func (c *Client) NewContainer(ctx context.Context, req bkgw.NewContainerRequest) (bkgw.Container, error) {
-	ctx, cancel, err := c.withClientCloseCancel(ctx)
+func (srv *Server) NewContainer(ctx context.Context, req bkgw.NewContainerRequest) (bkgw.Container, error) {
+	client, err := srv.clientFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer cancel()
 	ctx = withOutgoingContext(ctx)
+
 	ctrReq := bkcontainer.NewContainerRequest{
 		ContainerID: identity.NewID(),
 		NetMode:     req.NetMode,
@@ -466,67 +195,75 @@ func (c *Client) NewContainer(ctx context.Context, req bkgw.NewContainerRequest)
 		return nil, fmt.Errorf("wait: %w", err)
 	}
 
-	// using context.Background so it continues running until exit or when c.Close() is called
+	// using context.Background so it continues running until exit or when the session ends
 	ctr, err := bkcontainer.NewContainer(
 		context.Background(),
-		c.worker.CacheManager(),
-		c.worker, // also implements Executor
-		c.SessionManager,
-		bksession.NewGroup(c.ID()),
+		srv.workerCache,
+		client.worker, // also implements Executor
+		srv.bkSessionManager,
+		bksession.NewGroup(client.buildkitSession.ID()),
 		ctrReq,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	c.containersMu.Lock()
-	defer c.containersMu.Unlock()
-	if c.containers == nil {
+	client.containersMu.Lock()
+	defer client.containersMu.Unlock()
+	if client.containers == nil {
 		if err := ctr.Release(context.Background()); err != nil {
 			return nil, fmt.Errorf("release after close: %w", err)
 		}
 		return nil, errors.New("client closed")
 	}
-	c.containers[ctr] = struct{}{}
+	client.containers[ctr] = struct{}{}
 	return ctr, nil
 }
 
-// CombinedResult returns a buildkit result with all the refs solved by this client so far.
+// CombinedResult returns a buildkit result with all the refs solved by the session so far.
 // This is useful for constructing a result for upstream remote caching.
-func (c *Client) CombinedResult(ctx context.Context) (*Result, error) {
-	c.refsMu.Lock()
-	mergeInputs := make([]llb.State, 0, len(c.refs))
-	for r := range c.refs {
+func (srv *Server) CombinedResult(ctx context.Context) (*Result, error) {
+	client, err := srv.clientFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ctx = withOutgoingContext(ctx)
+
+	sess := client.daggerSession
+
+	sess.refsMu.Lock()
+	mergeInputs := make([]llb.State, 0, len(sess.refs))
+	for r := range sess.refs {
 		state, err := r.ToState()
 		if err != nil {
-			c.refsMu.Unlock()
+			sess.refsMu.Unlock()
 			return nil, err
 		}
 		mergeInputs = append(mergeInputs, state)
 	}
-	c.refsMu.Unlock()
+	sess.refsMu.Unlock()
 	llbdef, err := llb.Merge(mergeInputs, llb.WithCustomName("combined session result")).Marshal(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return c.Solve(ctx, bkgw.SolveRequest{
+	return srv.Solve(ctx, bkgw.SolveRequest{
 		Definition: llbdef.ToPB(),
 	})
 }
 
-func (c *Client) UpstreamCacheExport(ctx context.Context, cacheExportFuncs []ResolveCacheExporterFunc) error {
-	ctx, cancel, err := c.withClientCloseCancel(ctx)
+func (srv *Server) UpstreamCacheExport(ctx context.Context, cacheExportFuncs []ResolveCacheExporterFunc) error {
+	client, err := srv.clientFromContext(ctx)
 	if err != nil {
 		return err
 	}
-	defer cancel()
+	ctx = withOutgoingContext(ctx)
 
 	if len(cacheExportFuncs) == 0 {
 		return nil
 	}
 	bklog.G(ctx).Debugf("exporting %d caches", len(cacheExportFuncs))
 
-	combinedResult, err := c.CombinedResult(ctx)
+	combinedResult, err := srv.CombinedResult(ctx)
 	if err != nil {
 		return err
 	}
@@ -542,7 +279,7 @@ func (c *Client) UpstreamCacheExport(ctx context.Context, cacheExportFuncs []Res
 		return fmt.Errorf("failed to convert result: %w", err)
 	}
 
-	sessionGroup := bksession.NewGroup(c.ID())
+	sessionGroup := bksession.NewGroup(client.buildkitSession.ID())
 	eg, ctx := errgroup.WithContext(ctx)
 	// TODO: send progrock statuses for cache export progress
 	for _, exporterFunc := range cacheExportFuncs {
@@ -589,30 +326,21 @@ func (c *Client) UpstreamCacheExport(ctx context.Context, cacheExportFuncs []Res
 	return eg.Wait()
 }
 
-func withDescHandlerCacheOpts(ctx context.Context, ref bkcache.ImmutableRef) context.Context {
-	return bksolver.WithCacheOptGetter(ctx, func(_ bool, keys ...interface{}) map[interface{}]interface{} {
-		vals := make(map[interface{}]interface{})
-		for _, k := range keys {
-			if key, ok := k.(bkcache.DescHandlerKey); ok {
-				if handler := ref.DescHandler(digest.Digest(key)); handler != nil {
-					vals[k] = handler
-				}
-			}
-		}
-		return vals
-	})
-}
-
-func (c *Client) ListenHostToContainer(
+// TODO: this should be in a diff file
+// TODO: this should be in a diff file
+// TODO: this should be in a diff file
+func (srv *Server) ListenHostToContainer(
 	ctx context.Context,
 	hostListenAddr, proto, upstream string,
-) (*session.ListenResponse, func() error, error) {
-	ctx, cancel, err := c.withClientCloseCancel(ctx)
+) (*dagsession.ListenResponse, func() error, error) {
+	client, err := srv.clientFromContext(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
+	ctx = withOutgoingContext(ctx)
+	ctx, cancel := context.WithCancel(ctx)
 
-	clientCaller, err := c.GetSessionCaller(ctx, false)
+	clientCaller, err := srv.bkSessionManager.Get(ctx, client.buildkitSession.ID(), true)
 	if err != nil {
 		cancel()
 		return nil, nil, fmt.Errorf("failed to get requester session: %w", err)
@@ -620,7 +348,7 @@ func (c *Client) ListenHostToContainer(
 
 	conn := clientCaller.Conn()
 
-	tunnelClient := session.NewTunnelListenerClient(conn)
+	tunnelClient := dagsession.NewTunnelListenerClient(conn)
 
 	listener, err := tunnelClient.Listen(ctx)
 	if err != nil {
@@ -628,7 +356,7 @@ func (c *Client) ListenHostToContainer(
 		return nil, nil, fmt.Errorf("failed to listen: %w", err)
 	}
 
-	err = listener.Send(&session.ListenRequest{
+	err = listener.Send(&dagsession.ListenRequest{
 		Addr:     hostListenAddr,
 		Protocol: proto,
 	})
@@ -668,7 +396,7 @@ func (c *Client) ListenHostToContainer(
 			connsL.Unlock()
 
 			if !found {
-				conn, err := c.dialer.Dial(proto, upstream)
+				conn, err := client.dialer.Dial(proto, upstream)
 				if err != nil {
 					bklog.G(ctx).Warnf("failed to dial %s %s: %s", proto, upstream, err)
 					return
@@ -690,7 +418,7 @@ func (c *Client) ListenHostToContainer(
 						}
 
 						sendL.Lock()
-						err = listener.Send(&session.ListenRequest{
+						err = listener.Send(&dagsession.ListenRequest{
 							ConnId: connID,
 							Data:   data[:n],
 						})
@@ -727,6 +455,20 @@ func (c *Client) ListenHostToContainer(
 		}
 		return err
 	}, nil
+}
+
+func withDescHandlerCacheOpts(ctx context.Context, ref bkcache.ImmutableRef) context.Context {
+	return bksolver.WithCacheOptGetter(ctx, func(_ bool, keys ...interface{}) map[interface{}]interface{} {
+		vals := make(map[interface{}]interface{})
+		for _, k := range keys {
+			if key, ok := k.(bkcache.DescHandlerKey); ok {
+				if handler := ref.DescHandler(digest.Digest(key)); handler != nil {
+					vals[k] = handler
+				}
+			}
+		}
+		return vals
+	})
 }
 
 func withOutgoingContext(ctx context.Context) context.Context {

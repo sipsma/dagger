@@ -340,8 +340,7 @@ func (c *Client) startSession(ctx context.Context) (rerr error) {
 	// host=>container networking
 	bkSession.Allow(session.NewTunnelListenerAttachable(ctx))
 
-	// connect to the server, registering our session attachables and starting the server if not
-	// already started
+	// register our session attachables with the server
 	c.eg.Go(func() error {
 		return bkSession.Run(c.internalCtx, func(ctx context.Context, proto string, meta map[string][]string) (net.Conn, error) {
 			return grpchijack.Dialer(c.bkClient.ControlClient())(ctx, proto, engine.ClientMetadata{
@@ -355,7 +354,8 @@ func (c *Client) startSession(ctx context.Context) (rerr error) {
 				Labels:                    c.labels,
 				CloudToken:                os.Getenv("DAGGER_CLOUD_TOKEN"),
 				DoNotTrack:                analytics.DoNotTrack(),
-			}.AppendToMD(meta))
+				ExtraMD:                   meta,
+			}.ToGRPCMD())
 		})
 	})
 
