@@ -1,4 +1,4 @@
-package reffs
+package core
 
 import (
 	"context"
@@ -11,8 +11,6 @@ import (
 	bkgw "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/solver/pb"
 	fstypes "github.com/tonistiigi/fsutil/types"
-
-	"github.com/dagger/dagger/engine/buildkit"
 )
 
 type FS struct {
@@ -20,29 +18,20 @@ type FS struct {
 	ref bkgw.Reference
 }
 
-func ReferenceFS(ctx context.Context, ref bkgw.Reference) fs.FS {
-	return &FS{ctx: ctx, ref: ref}
-}
-
-func OpenState(ctx context.Context, bk *buildkit.Client, st llb.State, opts ...llb.ConstraintsOpt) (fs.FS, error) {
+func OpenState(ctx context.Context, engine Engine, st llb.State, opts ...llb.ConstraintsOpt) (fs.FS, error) {
 	def, err := st.Marshal(ctx, opts...)
 	if err != nil {
 		return nil, err
 	}
 
-	return OpenDef(ctx, bk, def.ToPB())
+	return OpenDef(ctx, engine, def.ToPB())
 }
 
-func OpenDef(ctx context.Context, bk *buildkit.Client, def *pb.Definition) (fs.FS, error) {
-	res, err := bk.Solve(ctx, bkgw.SolveRequest{
+func OpenDef(ctx context.Context, engine Engine, def *pb.Definition) (fs.FS, error) {
+	ref, err := engine.Solve(ctx, bkgw.SolveRequest{
 		Definition: def,
 		Evaluate:   true,
 	})
-	if err != nil {
-		return nil, err
-	}
-
-	ref, err := res.SingleRef()
 	if err != nil {
 		return nil, err
 	}
@@ -60,10 +49,10 @@ func (fs *FS) Open(name string) (fs.File, error) {
 		return nil, err
 	}
 
-	return &File{ctx: fs.ctx, ref: fs.ref, stat: stat, name: name}, nil
+	return &RefFile{ctx: fs.ctx, ref: fs.ref, stat: stat, name: name}, nil
 }
 
-type File struct {
+type RefFile struct {
 	ctx    context.Context
 	ref    bkgw.Reference
 	name   string
@@ -71,11 +60,11 @@ type File struct {
 	offset int64
 }
 
-func (f *File) Stat() (fs.FileInfo, error) {
+func (f *RefFile) Stat() (fs.FileInfo, error) {
 	return &refFileInfo{stat: f.stat}, nil
 }
 
-func (f *File) Read(p []byte) (int, error) {
+func (f *RefFile) Read(p []byte) (int, error) {
 	if f.offset >= f.stat.Size_ {
 		return 0, io.EOF
 	}
@@ -95,7 +84,7 @@ func (f *File) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-func (f *File) Close() error {
+func (f *RefFile) Close() error {
 	return nil
 }
 

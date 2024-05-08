@@ -16,7 +16,6 @@ import (
 	"github.com/dagger/dagger/core"
 	"github.com/dagger/dagger/core/modules"
 	"github.com/dagger/dagger/dagql"
-	"github.com/dagger/dagger/engine/buildkit"
 )
 
 type moduleSourceArgs struct {
@@ -608,13 +607,13 @@ func (s *moduleSchema) resolveContextPathFromCaller(
 		return "", "", fmt.Errorf("failed to get source root subpath: %w", err)
 	}
 
-	sourceRootStat, err := src.Query.Buildkit.StatCallerHostPath(ctx, rootSubpath, true)
+	sourceRootStat, err := src.Query.StatCallerHostPath(ctx, rootSubpath, true)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to stat source root: %w", err)
 	}
 	sourceRootAbsPath = sourceRootStat.Path
 
-	contextAbsPath, contextFound, err := callerHostFindUpContext(ctx, src.Query.Buildkit, sourceRootAbsPath)
+	contextAbsPath, contextFound, err := callerHostFindUpContext(ctx, src.Query.Engine, sourceRootAbsPath)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to find up root: %w", err)
 	}
@@ -764,9 +763,9 @@ func (s *moduleSchema) moduleSourceResolveFromCaller(
 		excludes = append(excludes, exclude)
 	}
 
-	_, desc, err := src.Query.Buildkit.LocalImport(
+	_, desc, err := src.Query.LocalImport(
 		ctx,
-		src.Query.Platform.Spec(),
+		src.Query.Platform(ctx).Spec(),
 		contextAbsPath,
 		excludes,
 		includes,
@@ -919,7 +918,7 @@ func (s *moduleSchema) collectCallerLocalDeps(
 
 		var modCfg modules.ModuleConfig
 		configPath := filepath.Join(sourceRootAbsPath, modules.Filename)
-		configBytes, err := query.Buildkit.ReadCallerHostFile(ctx, configPath)
+		configBytes, err := query.ReadCallerHostFile(ctx, configPath)
 		switch {
 		case err == nil:
 			if err := json.Unmarshal(configBytes, &modCfg); err != nil {
@@ -1001,7 +1000,7 @@ func (s *moduleSchema) collectCallerLocalDeps(
 
 				// TODO: this is inefficient, leads to extra local loads, but only for case
 				// of local custom SDK.
-				callerCwdStat, err := query.Buildkit.StatCallerHostPath(ctx, ".", true)
+				callerCwdStat, err := query.StatCallerHostPath(ctx, ".", true)
 				if err != nil {
 					return nil, fmt.Errorf("failed to stat caller cwd: %w", err)
 				}
@@ -1058,10 +1057,10 @@ func (s *moduleSchema) collectCallerLocalDeps(
 // context path is the parent dir containing .git
 func callerHostFindUpContext(
 	ctx context.Context,
-	bk *buildkit.Client,
+	engine core.Engine,
 	curDirPath string,
 ) (string, bool, error) {
-	_, err := bk.StatCallerHostPath(ctx, filepath.Join(curDirPath, ".git"), false)
+	_, err := engine.StatCallerHostPath(ctx, filepath.Join(curDirPath, ".git"), false)
 	if err == nil {
 		return curDirPath, true, nil
 	}
@@ -1075,7 +1074,7 @@ func callerHostFindUpContext(
 	if curDirPath == nextDirPath {
 		return "", false, nil
 	}
-	return callerHostFindUpContext(ctx, bk, nextDirPath)
+	return callerHostFindUpContext(ctx, engine, nextDirPath)
 }
 
 func (s *moduleSchema) moduleSourceResolveDirectoryFromCaller(
@@ -1087,7 +1086,7 @@ func (s *moduleSchema) moduleSourceResolveDirectoryFromCaller(
 	},
 ) (inst dagql.Instance[*core.Directory], err error) {
 	path := args.Path
-	stat, err := src.Query.Buildkit.StatCallerHostPath(ctx, path, true)
+	stat, err := src.Query.StatCallerHostPath(ctx, path, true)
 	if err != nil {
 		return inst, fmt.Errorf("failed to stat caller path: %w", err)
 	}
@@ -1109,8 +1108,8 @@ func (s *moduleSchema) moduleSourceResolveDirectoryFromCaller(
 		}
 	}
 
-	_, desc, err := src.Query.Buildkit.LocalImport(
-		ctx, src.Query.Platform.Spec(),
+	_, desc, err := src.Query.LocalImport(
+		ctx, src.Query.Platform(ctx).Spec(),
 		path,
 		excludes,
 		includes,

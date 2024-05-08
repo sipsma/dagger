@@ -1,4 +1,4 @@
-package newserver
+package llbdefinition
 
 import (
 	"fmt"
@@ -12,6 +12,8 @@ import (
 
 	"github.com/dagger/dagger/engine/sources/blob"
 )
+
+// TODO: move this to own package, needed directly by both core and server
 
 func DefToDAG(def *pb.Definition) (*OpDAG, error) {
 	digestToOp := map[digest.Digest]*pb.Op{}

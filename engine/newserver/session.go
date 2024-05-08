@@ -364,6 +364,12 @@ func (srv *Server) initializeDaggerClient(
 		}
 	}()
 
+	// TODO: need different behavior for main client caller and others
+	// TODO: need different behavior for main client caller and others
+	// TODO: need different behavior for main client caller and others
+
+	root := core.NewRoot(srv)
+
 	// TODO:
 	// TODO:
 	// TODO:

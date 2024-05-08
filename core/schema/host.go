@@ -16,7 +16,6 @@ import (
 	"github.com/dagger/dagger/core"
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/engine"
-	"github.com/dagger/dagger/engine/buildkit"
 	"github.com/dagger/dagger/engine/distconsts"
 	"github.com/dagger/dagger/engine/sources/blob"
 )
@@ -60,7 +59,7 @@ func (s *hostSchema) Install() {
 			if err != nil {
 				return nil, fmt.Errorf("failed to marshal blob source: %w", err)
 			}
-			return core.NewDirectory(parent, blobDef.ToPB(), "/", parent.Platform, nil), nil
+			return core.NewDirectory(parent, blobDef.ToPB(), "/", parent.Platform(ctx), nil), nil
 		}).Doc("Retrieves a content-addressed blob."),
 
 		dagql.Func("builtinContainer", func(ctx context.Context, parent *core.Query, args struct {
@@ -68,16 +67,16 @@ func (s *hostSchema) Install() {
 		}) (*core.Container, error) {
 			st := llb.OCILayout(
 				fmt.Sprintf("dagger/import@%s", args.Digest),
-				llb.OCIStore("", buildkit.BuiltinContentOCIStoreName),
-				llb.Platform(parent.Platform.Spec()),
+				llb.OCIStore("", parent.BuiltinContentOCIStoreName(ctx)),
+				llb.Platform(parent.Platform(ctx).Spec()),
 			)
 
-			execDef, err := st.Marshal(ctx, llb.Platform(parent.Platform.Spec()))
+			execDef, err := st.Marshal(ctx, llb.Platform(parent.Platform(ctx).Spec()))
 			if err != nil {
 				return nil, fmt.Errorf("marshal root: %w", err)
 			}
 
-			container, err := core.NewContainer(parent, parent.Platform)
+			container, err := core.NewContainer(parent, parent.Platform(ctx))
 			if err != nil {
 				return nil, fmt.Errorf("new container: %w", err)
 			}
@@ -212,7 +211,7 @@ func (s *hostSchema) socket(ctx context.Context, host *core.Host, args hostSocke
 	if err != nil {
 		return nil, fmt.Errorf("failed to get client metadata: %w", err)
 	}
-	if clientMetadata.ClientID != host.Query.MainClientCallerID {
+	if clientMetadata.ClientID != host.Query.MainClientCallerID(ctx) {
 		return nil, fmt.Errorf("only the main client can access the host's unix sockets")
 	}
 

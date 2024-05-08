@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/containerd/containerd/leases"
+	"github.com/dagger/dagger/core"
 	bkcache "github.com/moby/buildkit/cache"
 	cacheutil "github.com/moby/buildkit/cache/util"
 	"github.com/moby/buildkit/client/llb"
@@ -34,35 +35,28 @@ const (
 
 	// TruncationMessage is the message that will be prepended to truncated output.
 	TruncationMessage = "[omitting %d bytes]..."
-
-	// MaxFileContentsChunkSize sets the maximum chunk size for ReadFile calls
-	// Equals around 95% of the max message size (4MB) in
-	// order to keep space for any Protocol Buffers overhead:
-	MaxFileContentsChunkSize = 3984588
-
-	// MaxFileContentsSize sets the limit of the maximum file size
-	// that can be retrieved using File.Contents, currently set to 128MB:
-	MaxFileContentsSize = 128 << 20
-
-	// MetaMountDestPath is the special path that the shim writes metadata to.
-	MetaMountDestPath = "/.dagger_meta_mount"
-
-	// MetaSourcePath is a world-writable directory created and mounted to /dagger.
-	MetaSourcePath = "meta"
 )
 
-type Result = solverresult.Result[*ref]
+type result = solverresult.Result[*ref]
 
-func newRef(res bksolver.ResultProxy, c *Client) *ref {
+func (srv *Server) newRef(res bksolver.ResultProxy, md map[string][]byte) *ref {
 	return &ref{
 		resultProxy: res,
-		c:           c,
+		srv:         srv,
+		md:          md,
 	}
 }
 
 type ref struct {
 	resultProxy bksolver.ResultProxy
-	c           *Client
+	srv         *Server
+	md          map[string][]byte
+}
+
+var _ core.Result = (*ref)(nil)
+
+func (r *ref) Metadata() map[string][]byte {
+	return r.md
 }
 
 func (r *ref) ToState() (llb.State, error) {
@@ -152,7 +146,7 @@ func (r *ref) AddDependencyBlobs(ctx context.Context, blobs map[digest.Digest]*o
 	// https://github.com/moby/buildkit/blob/c3c65787b5e2c2c9fcab1d0b9bd1884a37384c90/cache/manager.go#L231
 	leaseID := cacheRef.ID()
 
-	lm := r.c.worker.LeaseManager()
+	lm := r.srv.leaseManager
 	for blobDigest := range blobs {
 		err := lm.AddResource(ctx, leases.Lease{ID: leaseID}, leases.Resource{
 			ID:   blobDigest.String(),
@@ -169,6 +163,11 @@ func (r *ref) getMountable(ctx context.Context) (snapshot.Mountable, error) {
 	if r == nil {
 		return nil, nil
 	}
+	client, err := r.srv.clientFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	res, err := r.Result(ctx)
 	if err != nil {
 		return nil, err
@@ -183,17 +182,22 @@ func (r *ref) getMountable(ctx context.Context) (snapshot.Mountable, error) {
 	if workerRef == nil || workerRef.ImmutableRef == nil {
 		return nil, nil
 	}
-	return workerRef.ImmutableRef.Mount(ctx, true, bksession.NewGroup(r.c.ID()))
+	return workerRef.ImmutableRef.Mount(ctx, true, bksession.NewGroup(client.buildkitSession.ID()))
 }
 
 func (r *ref) Result(ctx context.Context) (bksolver.CachedResult, error) {
 	if r == nil {
 		return nil, nil
 	}
+	client, err := r.srv.clientFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	ctx = withOutgoingContext(ctx)
 	res, err := r.resultProxy.Result(ctx)
 	if err != nil {
-		return nil, wrapError(ctx, err, r.c.ID())
+		return nil, wrapError(ctx, err, client.buildkitSession.ID())
 	}
 	return res, nil
 }
@@ -285,7 +289,7 @@ func wrapError(ctx context.Context, baseErr error, sessionID string) error {
 	// get the mnt corresponding to the metadata where stdout/stderr are stored
 	var metaMountResult bksolver.Result
 	for i, mnt := range execOp.Exec.Mounts {
-		if mnt.Dest == MetaMountDestPath {
+		if mnt.Dest == core.MetaMountDestPath {
 			metaMountResult = execErr.Mounts[i]
 			break
 		}
@@ -335,7 +339,7 @@ func wrapError(ctx context.Context, baseErr error, sessionID string) error {
 
 func getExecMetaFile(ctx context.Context, mntable snapshot.Mountable, fileName string) ([]byte, error) {
 	ctx = withOutgoingContext(ctx)
-	filePath := path.Join(MetaSourcePath, fileName)
+	filePath := path.Join(core.MetaSourcePath, fileName)
 	stat, err := cacheutil.StatFile(ctx, mntable, filePath)
 	if err != nil {
 		// TODO: would be better to verify this is a "not exists" error, return err if not

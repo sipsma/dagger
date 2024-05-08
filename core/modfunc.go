@@ -16,7 +16,7 @@ import (
 	"github.com/dagger/dagger/analytics"
 	"github.com/dagger/dagger/core/pipeline"
 	"github.com/dagger/dagger/dagql"
-	"github.com/dagger/dagger/engine/buildkit"
+	"github.com/dagger/dagger/engine/newserver/llbdefinition"
 )
 
 type ModuleFunction struct {
@@ -191,7 +191,7 @@ func (fn *ModuleFunction) Call(ctx context.Context, opts *CallOpts) (t dagql.Typ
 
 	ctr := fn.runtime
 
-	metaDir := NewScratchDirectory(mod.Query, mod.Query.Platform)
+	metaDir := NewScratchDirectory(mod.Query, mod.Query.Platform(ctx))
 	ctr, err = ctr.WithMountedDirectory(ctx, modMetaDirPath, metaDir, "", false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to mount mod metadata directory: %w", err)
@@ -251,7 +251,7 @@ func (fn *ModuleFunction) Call(ctx context.Context, opts *CallOpts) (t dagql.Typ
 	// guarantee the continued existence of...
 
 	// Read the output of the function
-	outputBytes, err := result.Ref.ReadFile(ctx, bkgw.ReadRequest{
+	outputBytes, err := result.ReadFile(ctx, bkgw.ReadRequest{
 		Filename: modMetaOutputPath,
 	})
 	if err != nil {
@@ -321,7 +321,7 @@ func moduleAnalyticsProps(mod *Module, prefix string, props map[string]string) {
 // content pointed to by the blob:// source without pruning the function call
 // cache entry. That would result callers being able to evaluate the result of
 // a function call but hitting an error about missing content.
-func (fn *ModuleFunction) linkDependencyBlobs(ctx context.Context, cacheResult *buildkit.Result, value dagql.Typed) error {
+func (fn *ModuleFunction) linkDependencyBlobs(ctx context.Context, cacheResult Result, value dagql.Typed) error {
 	if value == nil {
 		return nil
 	}
@@ -331,7 +331,7 @@ func (fn *ModuleFunction) linkDependencyBlobs(ctx context.Context, cacheResult *
 	}
 	dependencyBlobs := map[digest.Digest]*ocispecs.Descriptor{}
 	for _, pbDef := range pbDefs {
-		dag, err := buildkit.DefToDAG(pbDef)
+		dag, err := llbdefinition.DefToDAG(pbDef)
 		if err != nil {
 			return fmt.Errorf("failed to convert pb definition to dag: %w", err)
 		}
@@ -343,7 +343,7 @@ func (fn *ModuleFunction) linkDependencyBlobs(ctx context.Context, cacheResult *
 			dependencyBlobs[k] = v
 		}
 	}
-	if err := cacheResult.Ref.AddDependencyBlobs(ctx, dependencyBlobs); err != nil {
+	if err := cacheResult.AddDependencyBlobs(ctx, dependencyBlobs); err != nil {
 		return fmt.Errorf("failed to add dependency blob: %w", err)
 	}
 	return nil

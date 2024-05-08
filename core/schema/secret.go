@@ -70,7 +70,7 @@ func (s *secretSchema) setSecret(ctx context.Context, parent *core.Query, args s
 	if err != nil {
 		return i, err
 	}
-	if err := parent.Secrets.AddSecret(ctx, accessor, []byte(args.Plaintext)); err != nil {
+	if err := parent.Secrets(ctx).AddSecret(ctx, accessor, []byte(args.Plaintext)); err != nil {
 		return i, err
 	}
 
@@ -100,7 +100,7 @@ func (s *secretSchema) name(ctx context.Context, secret *core.Secret, args struc
 }
 
 func (s *secretSchema) plaintext(ctx context.Context, secret *core.Secret, args struct{}) (dagql.String, error) {
-	bytes, err := secret.Query.Secrets.GetSecret(ctx, secret.Accessor)
+	bytes, err := secret.Query.Secrets(ctx).GetSecret(ctx, secret.Accessor)
 	if err != nil {
 		if errors.Is(err, secrets.ErrNotFound) {
 			return "", errors.Wrapf(secrets.ErrNotFound, "secret %s", secret.Name)

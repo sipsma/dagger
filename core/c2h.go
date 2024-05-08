@@ -11,12 +11,11 @@ import (
 	bkgw "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/solver/pb"
 
-	"github.com/dagger/dagger/engine/buildkit"
 	"github.com/dagger/dagger/telemetry"
 )
 
 type c2hTunnel struct {
-	bk                 *buildkit.Client
+	engine             Engine
 	upstreamHost       string
 	tunnelServiceHost  string
 	tunnelServicePorts []PortForward
@@ -29,7 +28,7 @@ func (d *c2hTunnel) Tunnel(ctx context.Context) (rerr error) {
 		return err
 	}
 
-	scratchRes, err := d.bk.Solve(ctx, bkgw.SolveRequest{
+	scratchRes, err := d.engine.Solve(ctx, bkgw.SolveRequest{
 		Definition: scratchDef.ToPB(),
 	})
 	if err != nil {
@@ -40,7 +39,7 @@ func (d *c2hTunnel) Tunnel(ctx context.Context) (rerr error) {
 		{
 			Dest:      "/",
 			MountType: pb.MountType_BIND,
-			Ref:       scratchRes.Ref,
+			Ref:       scratchRes,
 		},
 	}
 
@@ -82,7 +81,7 @@ func (d *c2hTunnel) Tunnel(ctx context.Context) (rerr error) {
 	defer telemetry.End(span, func() error { return rerr })
 	ctx, stdout, stderr := telemetry.WithStdioToOtel(ctx, InstrumentationLibrary)
 
-	container, err := d.bk.NewContainer(ctx, bkgw.NewContainerRequest{
+	container, err := d.engine.NewContainer(ctx, bkgw.NewContainerRequest{
 		Hostname: d.tunnelServiceHost,
 		Mounts:   mounts,
 	})

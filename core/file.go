@@ -15,9 +15,18 @@ import (
 	"github.com/vektah/gqlparser/v2/ast"
 
 	"github.com/dagger/dagger/core/pipeline"
-	"github.com/dagger/dagger/core/reffs"
-	"github.com/dagger/dagger/engine/buildkit"
 	"github.com/dagger/dagger/telemetry"
+)
+
+const (
+	// MaxFileContentsChunkSize sets the maximum chunk size for ReadFile calls
+	// Equals around 95% of the max message size (4MB) in
+	// order to keep space for any Protocol Buffers overhead:
+	MaxFileContentsChunkSize = 3984588
+
+	// MaxFileContentsSize sets the limit of the maximum file size
+	// that can be retrieved using File.Contents, currently set to 128MB:
+	MaxFileContentsSize = 128 << 20
 )
 
 // File is a content-addressed file.
@@ -117,9 +126,8 @@ func (file *File) State() (llb.State, error) {
 	return defToState(file.LLB)
 }
 
-func (file *File) Evaluate(ctx context.Context) (*buildkit.Result, error) {
-	svcs := file.Query.Services
-	bk := file.Query.Buildkit
+func (file *File) Evaluate(ctx context.Context) (Result, error) {
+	svcs := file.Query.Services(ctx)
 
 	detach, _, err := svcs.StartBindings(ctx, file.Services)
 	if err != nil {
@@ -127,7 +135,7 @@ func (file *File) Evaluate(ctx context.Context) (*buildkit.Result, error) {
 	}
 	defer detach()
 
-	return bk.Solve(ctx, bkgw.SolveRequest{
+	return file.Query.Solve(ctx, bkgw.SolveRequest{
 		Evaluate:   true,
 		Definition: file.LLB,
 	})
@@ -135,8 +143,7 @@ func (file *File) Evaluate(ctx context.Context) (*buildkit.Result, error) {
 
 // Contents handles file content retrieval
 func (file *File) Contents(ctx context.Context) ([]byte, error) {
-	svcs := file.Query.Services
-	bk := file.Query.Buildkit
+	svcs := file.Query.Services(ctx)
 
 	detach, _, err := svcs.StartBindings(ctx, file.Services)
 	if err != nil {
@@ -144,7 +151,7 @@ func (file *File) Contents(ctx context.Context) ([]byte, error) {
 	}
 	defer detach()
 
-	ref, err := bkRef(ctx, bk, file.LLB)
+	ref, err := bkRef(ctx, file.Query.Engine, file.LLB)
 	if err != nil {
 		return nil, err
 	}
@@ -157,9 +164,9 @@ func (file *File) Contents(ctx context.Context) ([]byte, error) {
 
 	// Error on files that exceed MaxFileContentsSize:
 	fileSize := int(st.GetSize_())
-	if fileSize > buildkit.MaxFileContentsSize {
+	if fileSize > MaxFileContentsSize {
 		// TODO: move to proper error structure
-		return nil, fmt.Errorf("file size %d exceeds limit %d", fileSize, buildkit.MaxFileContentsSize)
+		return nil, fmt.Errorf("file size %d exceeds limit %d", fileSize, MaxFileContentsSize)
 	}
 
 	// Allocate buffer with the given file size:
@@ -173,7 +180,7 @@ func (file *File) Contents(ctx context.Context) ([]byte, error) {
 			Filename: file.File,
 			Range: &bkgw.FileRange{
 				Offset: offset,
-				Length: buildkit.MaxFileContentsChunkSize,
+				Length: MaxFileContentsChunkSize,
 			},
 		})
 		if err != nil {
@@ -188,8 +195,7 @@ func (file *File) Contents(ctx context.Context) ([]byte, error) {
 }
 
 func (file *File) Stat(ctx context.Context) (*fstypes.Stat, error) {
-	svcs := file.Query.Services
-	bk := file.Query.Buildkit
+	svcs := file.Query.Services(ctx)
 
 	detach, _, err := svcs.StartBindings(ctx, file.Services)
 	if err != nil {
@@ -197,7 +203,7 @@ func (file *File) Stat(ctx context.Context) (*fstypes.Stat, error) {
 	}
 	defer detach()
 
-	ref, err := bkRef(ctx, bk, file.LLB)
+	ref, err := bkRef(ctx, file.Query.Engine, file.LLB)
 	if err != nil {
 		return nil, err
 	}
@@ -230,8 +236,7 @@ func (file *File) WithTimestamps(ctx context.Context, unix int) (*File, error) {
 }
 
 func (file *File) Open(ctx context.Context) (io.ReadCloser, error) {
-	bk := file.Query.Buildkit
-	svcs := file.Query.Services
+	svcs := file.Query.Services(ctx)
 
 	detach, _, err := svcs.StartBindings(ctx, file.Services)
 	if err != nil {
@@ -239,7 +244,7 @@ func (file *File) Open(ctx context.Context) (io.ReadCloser, error) {
 	}
 	defer detach()
 
-	fs, err := reffs.OpenDef(ctx, bk, file.LLB)
+	fs, err := OpenDef(ctx, file.Query.Engine, file.LLB)
 	if err != nil {
 		return nil, err
 	}
@@ -248,8 +253,7 @@ func (file *File) Open(ctx context.Context) (io.ReadCloser, error) {
 }
 
 func (file *File) Export(ctx context.Context, dest string, allowParentDirPath bool) (rerr error) {
-	svcs := file.Query.Services
-	bk := file.Query.Buildkit
+	svcs := file.Query.Services(ctx)
 
 	src, err := file.State()
 	if err != nil {
@@ -269,19 +273,14 @@ func (file *File) Export(ctx context.Context, dest string, allowParentDirPath bo
 	}
 	defer detach()
 
-	return bk.LocalFileExport(ctx, def.ToPB(), dest, file.File, allowParentDirPath)
+	return file.Query.LocalFileExport(ctx, def.ToPB(), dest, file.File, allowParentDirPath)
 }
 
 // bkRef returns the buildkit reference from the solved def.
-func bkRef(ctx context.Context, bk *buildkit.Client, def *pb.Definition) (bkgw.Reference, error) {
-	res, err := bk.Solve(ctx, bkgw.SolveRequest{
+func bkRef(ctx context.Context, engine Engine, def *pb.Definition) (bkgw.Reference, error) {
+	ref, err := engine.Solve(ctx, bkgw.SolveRequest{
 		Definition: def,
 	})
-	if err != nil {
-		return nil, err
-	}
-
-	ref, err := res.SingleRef()
 	if err != nil {
 		return nil, err
 	}

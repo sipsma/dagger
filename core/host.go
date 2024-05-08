@@ -71,9 +71,9 @@ func (host *Host) Directory(
 	// TODO: enforcement that requester session is granted access to source session at this path
 
 	// Create a sub-pipeline to group llb.Local instructions
-	_, desc, err := host.Query.Buildkit.LocalImport(
+	_, desc, err := host.Query.LocalImport(
 		ctx,
-		host.Query.Platform.Spec(),
+		host.Query.Platform(ctx).Spec(),
 		dirPath,
 		filter.Exclude,
 		filter.Include,
@@ -121,12 +121,12 @@ func (host *Host) SetSecretFile(ctx context.Context, srv *dagql.Server, secretNa
 		return i, err
 	}
 
-	secretFileContent, err := host.Query.Buildkit.ReadCallerHostFile(ctx, path)
+	secretFileContent, err := host.Query.ReadCallerHostFile(ctx, path)
 	if err != nil {
 		return i, fmt.Errorf("read secret file: %w", err)
 	}
 
-	if err := host.Query.Secrets.AddSecret(ctx, accessor, secretFileContent); err != nil {
+	if err := host.Query.Secrets(ctx).AddSecret(ctx, accessor, secretFileContent); err != nil {
 		return i, err
 	}
 	err = srv.Select(ctx, srv.Root(), &i, dagql.Selector{

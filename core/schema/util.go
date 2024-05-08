@@ -7,9 +7,9 @@ import (
 
 	"github.com/iancoleman/strcase"
 
+	"github.com/dagger/dagger/core"
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/dagql/introspection"
-	"github.com/dagger/dagger/engine/buildkit"
 )
 
 type SchemaResolvers interface {
@@ -18,7 +18,7 @@ type SchemaResolvers interface {
 
 type Evaluatable interface {
 	dagql.Typed
-	Evaluate(context.Context) (*buildkit.Result, error)
+	Evaluate(context.Context) (core.Result, error)
 }
 
 func Syncer[T Evaluatable]() dagql.Field[T] {

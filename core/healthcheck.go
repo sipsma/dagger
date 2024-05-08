@@ -10,21 +10,20 @@ import (
 	bkgw "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/solver/pb"
 
-	"github.com/dagger/dagger/engine/buildkit"
 	"github.com/dagger/dagger/telemetry"
 )
 
 type portHealthChecker struct {
-	bk    *buildkit.Client
-	host  string
-	ports []Port
+	engine Engine
+	host   string
+	ports  []Port
 }
 
-func newHealth(bk *buildkit.Client, host string, ports []Port) *portHealthChecker {
+func newHealth(engine Engine, host string, ports []Port) *portHealthChecker {
 	return &portHealthChecker{
-		bk:    bk,
-		host:  host,
-		ports: ports,
+		engine: engine,
+		host:   host,
+		ports:  ports,
 	}
 }
 
@@ -51,19 +50,19 @@ func (d *portHealthChecker) Check(ctx context.Context) (rerr error) {
 		return err
 	}
 
-	scratchRes, err := d.bk.Solve(ctx, bkgw.SolveRequest{
+	scratchRes, err := d.engine.Solve(ctx, bkgw.SolveRequest{
 		Definition: scratchDef.ToPB(),
 	})
 	if err != nil {
 		return err
 	}
 
-	container, err := d.bk.NewContainer(ctx, bkgw.NewContainerRequest{
+	container, err := d.engine.NewContainer(ctx, bkgw.NewContainerRequest{
 		Mounts: []bkgw.Mount{
 			{
 				Dest:      "/",
 				MountType: pb.MountType_BIND,
-				Ref:       scratchRes.Ref,
+				Ref:       scratchRes,
 			},
 		},
 	})

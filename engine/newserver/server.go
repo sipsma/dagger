@@ -87,13 +87,6 @@ import (
 const (
 	daggerCacheServiceURL = "https://api.dagger.cloud/magicache"
 
-	// TODO: these make no sense here
-	// TODO: these make no sense here
-	// TODO: these make no sense here
-	// TODO: these make no sense here
-	FocusPrefix    = "[focus] "
-	InternalPrefix = "[internal] "
-
 	workerJobKey = "dagger.worker"
 
 	// from buildkit, cannot change

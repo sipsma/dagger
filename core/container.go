@@ -35,7 +35,17 @@ import (
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/dagql/call"
 	"github.com/dagger/dagger/engine"
-	"github.com/dagger/dagger/engine/buildkit"
+)
+
+const (
+	// MetaMountDestPath is the special path that the shim writes metadata to.
+	MetaMountDestPath = "/.dagger_meta_mount"
+
+	// MetaSourcePath is a world-writable directory created and mounted to /dagger.
+	MetaSourcePath = "meta"
+
+	FocusPrefix    = "[focus] "
+	InternalPrefix = "[internal] "
 )
 
 type DefaultTerminalCmdOpts struct {
@@ -283,8 +293,6 @@ func (mnts ContainerMounts) With(newMnt ContainerMount) ContainerMounts {
 }
 
 func (container *Container) From(ctx context.Context, addr string) (*Container, error) {
-	bk := container.Query.Buildkit
-
 	container = container.Clone()
 
 	platform := container.Platform
@@ -296,7 +304,7 @@ func (container *Container) From(ctx context.Context, addr string) (*Container, 
 
 	ref := reference.TagNameOnly(refName).String()
 
-	_, digest, cfgBytes, err := bk.ResolveImageConfig(ctx, ref, sourceresolver.Opt{
+	_, digest, cfgBytes, err := container.Query.ResolveImageConfig(ctx, ref, sourceresolver.Opt{
 		Platform: ptr(platform.Spec()),
 		ImageOpt: &sourceresolver.ResolveImageOpt{
 			ResolveMode: llb.ResolveModeDefault.String(),
@@ -359,8 +367,7 @@ func (container *Container) Build(
 	// set image ref to empty string
 	container.ImageRef = ""
 
-	svcs := container.Query.Services
-	bk := container.Query.Buildkit
+	svcs := container.Query.Services(ctx)
 
 	detach, _, err := svcs.StartBindings(ctx, container.Services)
 	if err != nil {
@@ -400,16 +407,11 @@ func (container *Container) Build(
 		return GetLocalSecretAccessor(ctx, container.Query, name)
 	})
 
-	res, err := bk.Solve(solveCtx, bkgw.SolveRequest{
+	bkref, err := container.Query.Solve(solveCtx, bkgw.SolveRequest{
 		Frontend:       "dockerfile.v0",
 		FrontendOpt:    opts,
 		FrontendInputs: inputs,
 	})
-	if err != nil {
-		return nil, err
-	}
-
-	bkref, err := res.SingleRef()
 	if err != nil {
 		return nil, err
 	}
@@ -432,7 +434,7 @@ func (container *Container) Build(
 	container.FS = def.ToPB()
 	container.FS.Source = nil
 
-	cfgBytes, found := res.Metadata[exptypes.ExporterImageConfigKey]
+	cfgBytes, found := bkref.Metadata()[exptypes.ExporterImageConfigKey]
 	if found {
 		var imgSpec specs.Image
 		if err := json.Unmarshal(cfgBytes, &imgSpec); err != nil {
@@ -759,12 +761,11 @@ func (container *Container) Directory(ctx context.Context, dirPath string) (*Dir
 		return nil, err
 	}
 
-	svcs := container.Query.Services
-	bk := container.Query.Buildkit
+	svcs := container.Query.Services(ctx)
 
 	// check that the directory actually exists so the user gets an error earlier
 	// rather than when the dir is used
-	info, err := dir.Stat(ctx, bk, svcs, ".")
+	info, err := dir.Stat(ctx, svcs, ".")
 	if err != nil {
 		return nil, err
 	}
@@ -914,7 +915,7 @@ func (container *Container) chown(
 			return nil, "", err
 		}
 
-		ref, err := bkRef(ctx, container.Query.Buildkit, def.ToPB())
+		ref, err := bkRef(ctx, container.Query.Engine, def.ToPB())
 		if err != nil {
 			return nil, "", err
 		}
@@ -1007,6 +1008,22 @@ func (container *Container) WithGPU(ctx context.Context, gpuOpts ContainerGPUOpt
 	return container, nil
 }
 
+type ExecutionMetadata struct {
+	SystemEnvNames []string
+}
+
+const ExecutionMetadataKey = "dagger.executionMetadata"
+
+func (md ExecutionMetadata) AsConstraintsOpt() (llb.ConstraintsOpt, error) {
+	bs, err := json.Marshal(md)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal execution metadata: %w", err)
+	}
+	return llb.WithDescription(map[string]string{
+		ExecutionMetadataKey: string(bs),
+	}), nil
+}
+
 func (container *Container) WithExec(ctx context.Context, opts ContainerExecOpts) (*Container, error) { //nolint:gocyclo
 	container = container.Clone()
 
@@ -1014,7 +1031,7 @@ func (container *Container) WithExec(ctx context.Context, opts ContainerExecOpts
 	mounts := container.Mounts
 	platform := container.Platform
 	if platform.OS == "" {
-		platform = container.Query.Platform
+		platform = container.Query.Platform(ctx)
 	}
 
 	args, err := container.command(opts)
@@ -1024,7 +1041,7 @@ func (container *Container) WithExec(ctx context.Context, opts ContainerExecOpts
 
 	var namef string
 	if container.Focused {
-		namef = buildkit.FocusPrefix + "exec %s"
+		namef = FocusPrefix + "exec %s"
 	} else {
 		namef = "exec %s"
 	}
@@ -1058,7 +1075,7 @@ func (container *Container) WithExec(ctx context.Context, opts ContainerExecOpts
 
 	// create /dagger mount point for the shim to write to
 	runOpts = append(runOpts,
-		llb.AddMount(buildkit.MetaMountDestPath, metaSt, llb.SourcePath(metaSourcePath)))
+		llb.AddMount(MetaMountDestPath, metaSt, llb.SourcePath(metaSourcePath)))
 
 	if opts.RedirectStdout != "" {
 		runOpts = append(runOpts, llb.AddEnv("_DAGGER_REDIRECT_STDOUT", opts.RedirectStdout))
@@ -1219,7 +1236,7 @@ func (container *Container) WithExec(ctx context.Context, opts ContainerExecOpts
 
 	execSt := fsSt.Run(runOpts...)
 
-	execMD := buildkit.ExecutionMetadata{
+	execMD := ExecutionMetadata{
 		SystemEnvNames: container.SystemEnvNames,
 	}
 	execMDOpt, err := execMD.AsConstraintsOpt()
@@ -1237,7 +1254,7 @@ func (container *Container) WithExec(ctx context.Context, opts ContainerExecOpts
 
 	container.FS = execDef.ToPB()
 
-	metaDef, err := execSt.GetMount(buildkit.MetaMountDestPath).Marshal(ctx, marshalOpts...)
+	metaDef, err := execSt.GetMount(MetaMountDestPath).Marshal(ctx, marshalOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("get meta mount: %w", err)
 	}
@@ -1268,14 +1285,14 @@ func (container *Container) WithExec(ctx context.Context, opts ContainerExecOpts
 	return container, nil
 }
 
-func (container Container) Evaluate(ctx context.Context) (*buildkit.Result, error) {
+func (container Container) Evaluate(ctx context.Context) (Result, error) {
 	if container.FS == nil {
 		return nil, nil
 	}
 
 	root := container.Query
 
-	detach, _, err := root.Services.StartBindings(ctx, container.Services)
+	detach, _, err := root.Services(ctx).StartBindings(ctx, container.Services)
 	if err != nil {
 		return nil, err
 	}
@@ -1291,7 +1308,7 @@ func (container Container) Evaluate(ctx context.Context) (*buildkit.Result, erro
 		return nil, err
 	}
 
-	return root.Buildkit.Solve(ctx, bkgw.SolveRequest{
+	return root.Solve(ctx, bkgw.SolveRequest{
 		Evaluate:   true,
 		Definition: def.ToPB(),
 	})
@@ -1309,7 +1326,7 @@ func (container *Container) MetaFileContents(ctx context.Context, filePath strin
 	file := NewFile(
 		container.Query,
 		container.Meta,
-		path.Join(buildkit.MetaSourcePath, filePath),
+		path.Join(MetaSourcePath, filePath),
 		container.Platform,
 		container.Services,
 	)
@@ -1337,7 +1354,7 @@ func (container *Container) Publish(
 		mediaTypes = OCIMediaTypes
 	}
 
-	inputByPlatform := map[string]buildkit.ContainerExport{}
+	inputByPlatform := map[string]ContainerExport{}
 	services := ServiceBindings{}
 	for _, variant := range append([]*Container{container}, platformVariants...) {
 		if variant.FS == nil {
@@ -1356,7 +1373,7 @@ func (container *Container) Publish(
 		if _, ok := inputByPlatform[platformString]; ok {
 			return "", fmt.Errorf("duplicate platform %q", platformString)
 		}
-		inputByPlatform[platformString] = buildkit.ContainerExport{
+		inputByPlatform[platformString] = ContainerExport{
 			Definition: def.ToPB(),
 			Config:     variant.Config,
 		}
@@ -1377,8 +1394,7 @@ func (container *Container) Publish(
 		opts[string(exptypes.OptKeyForceCompression)] = strconv.FormatBool(true)
 	}
 
-	svcs := container.Query.Services
-	bk := container.Query.Buildkit
+	svcs := container.Query.Services(ctx)
 
 	detach, _, err := svcs.StartBindings(ctx, services)
 	if err != nil {
@@ -1386,7 +1402,7 @@ func (container *Container) Publish(
 	}
 	defer detach()
 
-	resp, err := bk.PublishContainerImage(ctx, inputByPlatform, opts)
+	resp, err := container.Query.PublishContainerImage(ctx, inputByPlatform, opts)
 	if err != nil {
 		return "", err
 	}
@@ -1421,8 +1437,7 @@ func (container *Container) Export(
 	forcedCompression ImageLayerCompression,
 	mediaTypes ImageMediaTypes,
 ) error {
-	svcs := container.Query.Services
-	bk := container.Query.Buildkit
+	svcs := container.Query.Services(ctx)
 
 	if mediaTypes == "" {
 		// Modern registry implementations support oci types and docker daemons
@@ -1432,7 +1447,7 @@ func (container *Container) Export(
 		mediaTypes = OCIMediaTypes
 	}
 
-	inputByPlatform := map[string]buildkit.ContainerExport{}
+	inputByPlatform := map[string]ContainerExport{}
 	services := ServiceBindings{}
 	for _, variant := range append([]*Container{container}, platformVariants...) {
 		if variant.FS == nil {
@@ -1452,7 +1467,7 @@ func (container *Container) Export(
 		if _, ok := inputByPlatform[platformString]; ok {
 			return fmt.Errorf("duplicate platform %q", platformString)
 		}
-		inputByPlatform[platformString] = buildkit.ContainerExport{
+		inputByPlatform[platformString] = ContainerExport{
 			Definition: def.ToPB(),
 			Config:     variant.Config,
 		}
@@ -1478,7 +1493,7 @@ func (container *Container) Export(
 	}
 	defer detach()
 
-	_, err = bk.ExportContainerImage(ctx, inputByPlatform, dest, opts)
+	_, err = container.Query.ExportContainerImage(ctx, inputByPlatform, dest, opts)
 	return err
 }
 
@@ -1488,15 +1503,14 @@ func (container *Container) AsTarball(
 	forcedCompression ImageLayerCompression,
 	mediaTypes ImageMediaTypes,
 ) (*File, error) {
-	bk := container.Query.Buildkit
-	svcs := container.Query.Services
-	engineHostPlatform := container.Query.Platform
+	svcs := container.Query.Services(ctx)
+	engineHostPlatform := container.Query.Platform(ctx)
 
 	if mediaTypes == "" {
 		mediaTypes = OCIMediaTypes
 	}
 
-	inputByPlatform := map[string]buildkit.ContainerExport{}
+	inputByPlatform := map[string]ContainerExport{}
 	services := ServiceBindings{}
 	for _, variant := range append([]*Container{container}, platformVariants...) {
 		if variant.FS == nil {
@@ -1516,7 +1530,7 @@ func (container *Container) AsTarball(
 		if _, ok := inputByPlatform[platformString]; ok {
 			return nil, fmt.Errorf("duplicate platform %q", platformString)
 		}
-		inputByPlatform[platformString] = buildkit.ContainerExport{
+		inputByPlatform[platformString] = ContainerExport{
 			Definition: def.ToPB(),
 			Config:     variant.Config,
 		}
@@ -1542,7 +1556,7 @@ func (container *Container) AsTarball(
 	defer detach()
 
 	fileName := identity.NewID() + ".tar"
-	pbDef, err := bk.ContainerImageToTarball(ctx, engineHostPlatform.Spec(), fileName, inputByPlatform, opts)
+	pbDef, err := container.Query.ContainerImageToTarball(ctx, engineHostPlatform.Spec(), fileName, inputByPlatform, opts)
 	if err != nil {
 		return nil, fmt.Errorf("container image to tarball file conversion failed: %w", err)
 	}
@@ -1554,9 +1568,8 @@ func (container *Container) Import(
 	source *File,
 	tag string,
 ) (*Container, error) {
-	bk := container.Query.Buildkit
-	store := container.Query.OCIStore
-	lm := container.Query.LeaseManager
+	store := container.Query.OCIStore(ctx)
+	lm := container.Query.LeaseManager(ctx)
 
 	container = container.Clone()
 
@@ -1596,7 +1609,7 @@ func (container *Container) Import(
 
 	st := llb.OCILayout(
 		fmt.Sprintf("%s@%s", dummyRepo, manifestDesc.Digest),
-		llb.OCIStore("", buildkit.OCIStoreName),
+		llb.OCIStore("", container.Query.OCIStoreName(ctx)),
 		llb.Platform(container.Platform.Spec()),
 	)
 
@@ -1609,7 +1622,7 @@ func (container *Container) Import(
 
 	if release != nil {
 		// eagerly evaluate the OCI reference so Buildkit sets up a long-term lease
-		_, err = bk.Solve(ctx, bkgw.SolveRequest{
+		_, err = container.Query.Solve(ctx, bkgw.SolveRequest{
 			Definition: container.FS,
 			Evaluate:   true,
 		})
@@ -1752,7 +1765,7 @@ func (container *Container) ownership(ctx context.Context, owner string) (*Owner
 		return nil, err
 	}
 
-	return resolveUIDGID(ctx, fsSt, container.Query.Buildkit, container.Platform, owner)
+	return resolveUIDGID(ctx, fsSt, container.Query.Engine, container.Platform, owner)
 }
 
 func (container *Container) command(opts ContainerExecOpts) ([]string, error) {
@@ -1780,16 +1793,16 @@ func metaMount(stdin string) (llb.State, string) {
 	// directory first and then make it the base of the /dagger mount point.
 	//
 	// TODO(vito): have the shim exec as the other user instead?
-	meta := llb.Mkdir(buildkit.MetaSourcePath, 0o777)
+	meta := llb.Mkdir(MetaSourcePath, 0o777)
 	if stdin != "" {
-		meta = meta.Mkfile(path.Join(buildkit.MetaSourcePath, "stdin"), 0o666, []byte(stdin))
+		meta = meta.Mkfile(path.Join(MetaSourcePath, "stdin"), 0o666, []byte(stdin))
 	}
 
 	return llb.Scratch().File(
 			meta,
-			llb.WithCustomName(buildkit.InternalPrefix+"creating dagger metadata"),
+			llb.WithCustomName(InternalPrefix+"creating dagger metadata"),
 		),
-		buildkit.MetaSourcePath
+		MetaSourcePath
 }
 
 type ContainerExecOpts struct {

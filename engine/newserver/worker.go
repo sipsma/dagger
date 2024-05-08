@@ -29,7 +29,6 @@ import (
 	"github.com/dagger/dagger/engine/buildkit/cacerts"
 	"github.com/docker/docker/pkg/idtools"
 	bkclient "github.com/moby/buildkit/client"
-	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/client/llb/sourceresolver"
 	bkexecutor "github.com/moby/buildkit/executor"
 	"github.com/moby/buildkit/executor/oci"
@@ -51,6 +50,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/errgroup"
+
+	"github.com/dagger/dagger/core"
 )
 
 type worker struct {
@@ -272,20 +273,14 @@ func (w *worker) addExtraEnvs(proc *bkexecutor.ProcessInfo) error {
 	return nil
 }
 
-type ExecutionMetadata struct {
-	SystemEnvNames []string
-}
-
-const executionMetadataKey = "dagger.executionMetadata"
-
-func executionMetadataFromVtx(vtx solver.Vertex) (ExecutionMetadata, error) {
-	md := ExecutionMetadata{}
+func executionMetadataFromVtx(vtx solver.Vertex) (core.ExecutionMetadata, error) {
+	md := core.ExecutionMetadata{}
 
 	if vtx == nil {
 		return md, nil
 	}
 
-	bs, ok := vtx.Options().Description[executionMetadataKey]
+	bs, ok := vtx.Options().Description[core.ExecutionMetadataKey]
 	if !ok {
 		return md, nil
 	}
@@ -293,16 +288,6 @@ func executionMetadataFromVtx(vtx solver.Vertex) (ExecutionMetadata, error) {
 		return md, fmt.Errorf("failed to unmarshal execution metadata: %w", err)
 	}
 	return md, nil
-}
-
-func (md ExecutionMetadata) AsConstraintsOpt() (llb.ConstraintsOpt, error) {
-	bs, err := json.Marshal(md)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal execution metadata: %w", err)
-	}
-	return llb.WithDescription(map[string]string{
-		executionMetadataKey: string(bs),
-	}), nil
 }
 
 func (w *worker) run(

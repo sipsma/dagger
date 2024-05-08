@@ -929,7 +929,7 @@ func (fnCall *FunctionCall) ReturnValue(ctx context.Context, val JSON) error {
 	// filesystem. This ensures that the result is cached as part of the module
 	// function's Exec while also keeping SDKs as agnostic as possible to the
 	// format + location of that result.
-	return fnCall.Query.Buildkit.IOReaderExport(
+	return fnCall.Query.IOReaderExport(
 		ctx,
 		bytes.NewReader(val),
 		filepath.Join(modMetaDirPath, modMetaOutputPath),

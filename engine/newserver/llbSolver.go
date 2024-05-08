@@ -26,12 +26,22 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/metadata"
 
+	"github.com/dagger/dagger/core"
+	"github.com/dagger/dagger/engine/newserver/llbdefinition"
 	dagsession "github.com/dagger/dagger/engine/session"
 )
 
 type ResolveCacheExporterFunc func(ctx context.Context, g bksession.Group) (remotecache.Exporter, error)
 
-func (srv *Server) Solve(ctx context.Context, req bkgw.SolveRequest) (_ *Result, rerr error) {
+func (srv *Server) Solve(ctx context.Context, req bkgw.SolveRequest) (core.Result, error) {
+	res, err := srv.solve(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return res.SingleRef()
+}
+
+func (srv *Server) solve(ctx context.Context, req bkgw.SolveRequest) (_ *result, rerr error) {
 	client, err := srv.clientFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -92,7 +102,7 @@ func (srv *Server) Solve(ctx context.Context, req bkgw.SolveRequest) (_ *Result,
 	}
 
 	res, err := solverresult.ConvertResult(llbRes, func(rp bksolver.ResultProxy) (*ref, error) {
-		return newRef(rp, client), nil
+		return srv.newRef(rp, llbRes.Metadata), nil
 	})
 	if err != nil {
 		llbRes.EachRef(func(rp bksolver.ResultProxy) error {
@@ -220,9 +230,9 @@ func (srv *Server) NewContainer(ctx context.Context, req bkgw.NewContainerReques
 	return ctr, nil
 }
 
-// CombinedResult returns a buildkit result with all the refs solved by the session so far.
+// combinedResult returns a buildkit result with all the refs solved by the session so far.
 // This is useful for constructing a result for upstream remote caching.
-func (srv *Server) CombinedResult(ctx context.Context) (*Result, error) {
+func (srv *Server) combinedResult(ctx context.Context) (*result, error) {
 	client, err := srv.clientFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -246,7 +256,7 @@ func (srv *Server) CombinedResult(ctx context.Context) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	return srv.Solve(ctx, bkgw.SolveRequest{
+	return srv.solve(ctx, bkgw.SolveRequest{
 		Definition: llbdef.ToPB(),
 	})
 }
@@ -263,7 +273,7 @@ func (srv *Server) UpstreamCacheExport(ctx context.Context, cacheExportFuncs []R
 	}
 	bklog.G(ctx).Debugf("exporting %d caches", len(cacheExportFuncs))
 
-	combinedResult, err := srv.CombinedResult(ctx)
+	combinedResult, err := srv.combinedResult(ctx)
 	if err != nil {
 		return err
 	}
@@ -510,13 +520,13 @@ func newFilterGateway(bridge bkfrontend.FrontendLLBBridge, req bkgw.SolveRequest
 
 func (gw *filteringGateway) Solve(ctx context.Context, req bkfrontend.SolveRequest, sid string) (*bkfrontend.Result, error) {
 	if req.Definition != nil && req.Definition.Def != nil {
-		dag, err := DefToDAG(req.Definition)
+		dag, err := llbdefinition.DefToDAG(req.Definition)
 		if err != nil {
 			return nil, err
 		}
-		if err := dag.Walk(func(dag *OpDAG) error {
+		if err := dag.Walk(func(dag *llbdefinition.OpDAG) error {
 			if _, ok := gw.skipInputs[*dag.OpDigest]; ok {
-				return SkipInputs
+				return llbdefinition.SkipInputs
 			}
 
 			execOp, ok := dag.AsExec()

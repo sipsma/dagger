@@ -19,7 +19,7 @@ import (
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/dagql/call"
 	"github.com/dagger/dagger/engine"
-	"github.com/dagger/dagger/engine/buildkit"
+	"github.com/dagger/dagger/engine/newserver/llbdefinition"
 	"github.com/dagger/dagger/network"
 	"github.com/dagger/dagger/telemetry"
 )
@@ -84,7 +84,7 @@ func (svc *Service) PipelinePath() pipeline.Path {
 func (svc *Service) Hostname(ctx context.Context, id *call.ID) (string, error) {
 	switch {
 	case svc.TunnelUpstream != nil: // host=>container (127.0.0.1)
-		upstream, err := svc.Query.Services.Get(ctx, id)
+		upstream, err := svc.Query.Services(ctx).Get(ctx, id)
 		if err != nil {
 			return "", err
 		}
@@ -101,7 +101,7 @@ func (svc *Service) Hostname(ctx context.Context, id *call.ID) (string, error) {
 func (svc *Service) Ports(ctx context.Context, id *call.ID) ([]Port, error) {
 	switch {
 	case svc.TunnelUpstream != nil, svc.HostUpstream != "":
-		running, err := svc.Query.Services.Get(ctx, id)
+		running, err := svc.Query.Services(ctx).Get(ctx, id)
 		if err != nil {
 			return nil, err
 		}
@@ -132,7 +132,7 @@ func (svc *Service) Endpoint(ctx context.Context, id *call.ID, port int, scheme 
 			port = svc.Container.Ports[0].Port
 		}
 	case svc.TunnelUpstream != nil:
-		tunnel, err := svc.Query.Services.Get(ctx, id)
+		tunnel, err := svc.Query.Services(ctx).Get(ctx, id)
 		if err != nil {
 			return "", err
 		}
@@ -172,12 +172,12 @@ func (svc *Service) Endpoint(ctx context.Context, id *call.ID, port int, scheme 
 }
 
 func (svc *Service) StartAndTrack(ctx context.Context, id *call.ID) error {
-	_, err := svc.Query.Services.Start(ctx, id, svc)
+	_, err := svc.Query.Services(ctx).Start(ctx, id, svc)
 	return err
 }
 
 func (svc *Service) Stop(ctx context.Context, id *call.ID, kill bool) error {
-	return svc.Query.Services.Stop(ctx, id, kill)
+	return svc.Query.Services(ctx).Stop(ctx, id, kill)
 }
 
 func (svc *Service) Start(
@@ -223,7 +223,7 @@ func (svc *Service) startContainer(
 
 	ctr := svc.Container
 
-	dag, err := buildkit.DefToDAG(ctr.FS)
+	dag, err := llbdefinition.DefToDAG(ctr.FS)
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +241,7 @@ func (svc *Service) startContainer(
 		return nil, fmt.Errorf("service container must be result of withExec (expected exec op, got %T)", dag.GetOp())
 	}
 
-	detachDeps, _, err := svc.Query.Services.StartBindings(ctx, ctr.Services)
+	detachDeps, _, err := svc.Query.Services(ctx).StartBindings(ctx, ctr.Services)
 	if err != nil {
 		return nil, fmt.Errorf("start dependent services: %w", err)
 	}
@@ -264,9 +264,7 @@ func (svc *Service) startContainer(
 
 	fullHost := host + "." + network.ClientDomain(clientMetadata.ServerID)
 
-	bk := svc.Query.Buildkit
-
-	health := newHealth(bk, fullHost, ctr.Ports)
+	health := newHealth(svc.Query.Engine, fullHost, ctr.Ports)
 
 	pbPlatform := pb.PlatformFromSpec(ctr.Platform.Spec())
 
@@ -292,20 +290,18 @@ func (svc *Service) startContainer(
 				return nil, fmt.Errorf("marshal mount %s: %w", m.Dest, err)
 			}
 
-			res, err := bk.Solve(ctx, bkgw.SolveRequest{
+			mount.Ref, err = svc.Query.Solve(ctx, bkgw.SolveRequest{
 				Definition: def,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("solve mount %s: %w", m.Dest, err)
 			}
-
-			mount.Ref = res.Ref
 		}
 
 		mounts[i] = mount
 	}
 
-	gc, err := bk.NewContainer(ctx, bkgw.NewContainerRequest{
+	gc, err := svc.Query.Engine.NewContainer(ctx, bkgw.NewContainerRequest{
 		Mounts:   mounts,
 		Hostname: fullHost,
 		Platform: &pbPlatform,
@@ -473,8 +469,7 @@ func (svc *Service) startTunnel(ctx context.Context, id *call.ID) (running *Runn
 	}
 	svcCtx = engine.ContextWithClientMetadata(svcCtx, clientMetadata)
 
-	svcs := svc.Query.Services
-	bk := svc.Query.Buildkit
+	svcs := svc.Query.Services(ctx)
 
 	upstream, err := svcs.Start(svcCtx, svc.TunnelUpstream.ID(), svc.TunnelUpstream.Self)
 	if err != nil {
@@ -495,7 +490,7 @@ func (svc *Service) startTunnel(ctx context.Context, id *call.ID) (running *Runn
 		} else {
 			frontend = 0 // allow OS to choose
 		}
-		res, closeListener, err := bk.ListenHostToContainer(
+		res, closeListener, err := svc.Query.ListenHostToContainer(
 			svcCtx,
 			fmt.Sprintf("%s:%d", bindHost, frontend),
 			forward.Protocol.Network(),
@@ -563,10 +558,8 @@ func (svc *Service) startReverseTunnel(ctx context.Context, id *call.ID) (runnin
 
 	fullHost := host + "." + network.ClientDomain(clientMetadata.ServerID)
 
-	bk := svc.Query.Buildkit
-
 	tunnel := &c2hTunnel{
-		bk:                 bk,
+		engine:             svc.Query.Engine,
 		upstreamHost:       svc.HostUpstream,
 		tunnelServiceHost:  fullHost,
 		tunnelServicePorts: svc.HostPorts,
@@ -583,7 +576,7 @@ func (svc *Service) startReverseTunnel(ctx context.Context, id *call.ID) (runnin
 		})
 	}
 
-	check := newHealth(bk, fullHost, checkPorts)
+	check := newHealth(svc.Query.Engine, fullHost, checkPorts)
 
 	// NB: decouple from the incoming ctx cancel and add our own
 	svcCtx, stop := context.WithCancel(context.WithoutCancel(ctx))

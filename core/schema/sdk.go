@@ -117,7 +117,7 @@ func (s *moduleSchema) newModuleSDK(
 	if err := sdkModMeta.Self.Install(ctx, dag); err != nil {
 		return nil, fmt.Errorf("failed to install sdk module %s: %w", sdkModMeta.Self.Name(), err)
 	}
-	for _, defaultDep := range sdkModMeta.Self.Query.DefaultDeps.Mods {
+	for _, defaultDep := range sdkModMeta.Self.Query.DefaultDeps(ctx).Mods {
 		if err := defaultDep.Install(ctx, dag); err != nil {
 			return nil, fmt.Errorf("failed to install default dep %s for sdk module %s: %w", defaultDep.Name(), sdkModMeta.Self.Name(), err)
 		}

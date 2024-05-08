@@ -3,34 +3,35 @@ package core
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
-	"strings"
+	"os"
 
 	"github.com/containerd/containerd/content"
 	bkcache "github.com/moby/buildkit/cache"
-	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/client/llb/sourceresolver"
 	bkgw "github.com/moby/buildkit/frontend/gateway/client"
 	bksolver "github.com/moby/buildkit/solver"
+	"github.com/moby/buildkit/solver/llbsolver/provenance"
+	bksolverpb "github.com/moby/buildkit/solver/pb"
 	"github.com/moby/buildkit/util/leaseutil"
 	"github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
-	fstypes "github.com/tonistiigi/fsutil/types"
+	specs "github.com/opencontainers/image-spec/specs-go/v1"
+	fsutiltypes "github.com/tonistiigi/fsutil/types"
 	"github.com/vektah/gqlparser/v2/ast"
 
 	"github.com/dagger/dagger/auth"
 	"github.com/dagger/dagger/core/pipeline"
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/dagql/call"
-	"github.com/dagger/dagger/engine"
 	dagsession "github.com/dagger/dagger/engine/session"
-	"github.com/dagger/dagger/engine/slog"
 )
 
 // Query forms the root of the DAG and houses all necessary state and
 // dependencies for evaluating queries.
 type Query struct {
-	Server
+	Engine
 	// The current pipeline.
 	Pipeline pipeline.Path
 }
@@ -40,22 +41,87 @@ var ErrNoCurrentModule = fmt.Errorf("no current module")
 // TODO: doc
 // TODO: doc
 // TODO: doc
-type Server interface {
+// TODO: maybe this could actually go in the engine package? that's importable by everything
+// TODO: maybe this could actually go in the engine package? that's importable by everything
+// TODO: maybe this could actually go in the engine package? that's importable by everything
+type Engine interface {
 	MainClientCallerID(ctx context.Context) string
 
 	RegisterCaller(ctx context.Context, call *FunctionCall) (string, error)
 	MuxEndpoint(ctx context.Context, path string, handler http.Handler) error
+	ServeModule(ctx context.Context, mod *Module) error
+	CurrentModule(ctx context.Context) (*Module, error)
+	CurrentFunctionCall(ctx context.Context) (*FunctionCall, error)
+	CurrentServedDeps(ctx context.Context) (*ModDeps, error)
+	DefaultDeps(ctx context.Context) *ModDeps
 
 	Services(ctx context.Context) *Services
 	Secrets(ctx context.Context) *SecretStore
 	AuthProvider(ctx context.Context) *auth.RegistryAuthProvider
 	OCIStore(ctx context.Context) content.Store
+	OCIStoreName(ctx context.Context) string
+	BuiltinContentOCIStoreName(ctx context.Context) string
 	LeaseManager(ctx context.Context) *leaseutil.Manager
 	Platform(ctx context.Context) Platform
 
-	Solve(ctx context.Context, req bkgw.SolveRequest) (_ Result, rerr error)
+	Solve(ctx context.Context, req bkgw.SolveRequest) (Result, error)
 	ResolveImageConfig(ctx context.Context, ref string, opt sourceresolver.Opt) (string, digest.Digest, []byte, error)
 	NewContainer(ctx context.Context, req bkgw.NewContainerRequest) (bkgw.Container, error)
+
+	PublishContainerImage(
+		ctx context.Context,
+		inputByPlatform map[string]ContainerExport,
+		opts map[string]string,
+	) (map[string]string, error)
+	ExportContainerImage(
+		ctx context.Context,
+		inputByPlatform map[string]ContainerExport,
+		destPath string,
+		opts map[string]string,
+	) (map[string]string, error)
+	ContainerImageToTarball(
+		ctx context.Context,
+		engineHostPlatform specs.Platform,
+		fileName string,
+		inputByPlatform map[string]ContainerExport,
+		opts map[string]string,
+	) (*bksolverpb.Definition, error)
+
+	LocalImport(
+		ctx context.Context,
+		platform specs.Platform,
+		srcPath string,
+		excludePatterns []string,
+		includePatterns []string,
+	) (*bksolverpb.Definition, specs.Descriptor, error)
+	LocalDirExport(
+		ctx context.Context,
+		def *bksolverpb.Definition,
+		destPath string,
+		merge bool,
+	) error
+	LocalFileExport(
+		ctx context.Context,
+		def *bksolverpb.Definition,
+		destPath string,
+		filePath string,
+		allowParentDirPath bool,
+	) error
+	IOReaderExport(ctx context.Context, r io.Reader, destPath string, destMode os.FileMode) error
+	StatCallerHostPath(ctx context.Context, path string, returnAbsPath bool) (*fsutiltypes.Stat, error)
+	ReadCallerHostFile(ctx context.Context, path string) ([]byte, error)
+	EngineContainerLocalImport(
+		ctx context.Context,
+		platform specs.Platform,
+		srcPath string,
+		excludePatterns []string,
+		includePatterns []string,
+	) (*bksolverpb.Definition, specs.Descriptor, error)
+	DefToBlob(
+		ctx context.Context,
+		pbDef *bksolverpb.Definition,
+	) (*bksolverpb.Definition, specs.Descriptor, error)
+
 	ListenHostToContainer(
 		ctx context.Context,
 		hostListenAddr, proto, upstream string,
@@ -63,18 +129,21 @@ type Server interface {
 }
 
 type Result interface {
-	ToState() (llb.State, error)
-	Evaluate(ctx context.Context) error
-	ReadFile(ctx context.Context, req bkgw.ReadRequest) ([]byte, error)
-	ReadDir(ctx context.Context, req bkgw.ReadDirRequest) ([]*fstypes.Stat, error)
-	StatFile(ctx context.Context, req bkgw.StatRequest) (*fstypes.Stat, error)
+	bkgw.Reference
 	AddDependencyBlobs(ctx context.Context, blobs map[digest.Digest]*ocispecs.Descriptor) error
 	Result(ctx context.Context) (bksolver.CachedResult, error)
 	CacheRef(ctx context.Context) (bkcache.ImmutableRef, error)
+	Metadata() map[string][]byte
+	Provenance() *provenance.Capture
 }
 
-func NewRoot(ctx context.Context, srv Server) *Query {
-	return &Query{Server: srv}
+type ContainerExport struct {
+	Definition *bksolverpb.Definition
+	Config     specs.ImageConfig
+}
+
+func NewRoot(e Engine) *Query {
+	return &Query{Engine: e}
 }
 
 func (*Query) Type() *ast.Type {
@@ -92,24 +161,91 @@ func (q Query) Clone() *Query {
 	return &q
 }
 
-func (q *Query) MuxEndpoint(ctx context.Context, path string, handler http.Handler) error {
-	q.EndpointMu.Lock()
-	defer q.EndpointMu.Unlock()
-	q.Endpoints[path] = handler
-	return nil
+func (q *Query) WithPipeline(name, desc string) *Query {
+	q = q.Clone()
+	q.Pipeline = q.Pipeline.Add(pipeline.Pipeline{
+		Name:        name,
+		Description: desc,
+	})
+	return q
 }
 
-type ClientCallContext struct {
-	Root *Query
-
-	// the DAG of modules being served to this client
-	Deps *ModDeps
-
-	// If the client is itself from a function call in a user module, these are set with the
-	// metadata of that ongoing function call
-	FnCall *FunctionCall
+func (q *Query) NewContainer(platform Platform) *Container {
+	return &Container{
+		Query:    q,
+		Platform: platform,
+	}
 }
 
+func (q *Query) NewSecret(name string, accessor string) *Secret {
+	return &Secret{
+		Query:    q,
+		Name:     name,
+		Accessor: accessor,
+	}
+}
+
+func (q *Query) NewHost() *Host {
+	return &Host{
+		Query: q,
+	}
+}
+
+func (q *Query) NewModule() *Module {
+	return &Module{
+		Query: q,
+	}
+}
+
+func (q *Query) NewContainerService(ctr *Container) *Service {
+	return &Service{
+		Query:     q,
+		Container: ctr,
+	}
+}
+
+func (q *Query) NewTunnelService(upstream dagql.Instance[*Service], ports []PortForward) *Service {
+	return &Service{
+		Query:          q,
+		TunnelUpstream: &upstream,
+		TunnelPorts:    ports,
+	}
+}
+
+func (q *Query) NewHostService(upstream string, ports []PortForward, sessionID string) *Service {
+	return &Service{
+		Query:         q,
+		HostUpstream:  upstream,
+		HostPorts:     ports,
+		HostSessionID: sessionID,
+	}
+}
+
+// IDDeps loads the module dependencies of a given ID.
+//
+// The returned ModDeps extends the inner DefaultDeps with all modules found in
+// the ID, loaded by using the DefaultDeps schema.
+func (q *Query) IDDeps(ctx context.Context, id *call.ID) (*ModDeps, error) {
+	defaultDeps, err := q.DefaultDeps(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("default deps: %w", err)
+	}
+	bootstrap, err := defaultDeps.Schema(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("bootstrap schema: %w", err)
+	}
+	deps := defaultDeps
+	for _, modID := range id.Modules() {
+		mod, err := dagql.NewID[*Module](modID.ID()).Load(ctx, bootstrap)
+		if err != nil {
+			return nil, fmt.Errorf("load source mod: %w", err)
+		}
+		deps = deps.Append(mod.Self)
+	}
+	return deps, nil
+}
+
+/* TODO: rm
 func (q *Query) ServeModule(ctx context.Context, mod *Module) error {
 	clientMetadata, err := engine.ClientMetadataFromContext(ctx)
 	if err != nil {
@@ -238,83 +374,4 @@ func (q *Query) CurrentServedDeps(ctx context.Context) (*ModDeps, error) {
 	}
 	return callCtx.Deps, nil
 }
-
-func (q *Query) WithPipeline(name, desc string) *Query {
-	q = q.Clone()
-	q.Pipeline = q.Pipeline.Add(pipeline.Pipeline{
-		Name:        name,
-		Description: desc,
-	})
-	return q
-}
-
-func (q *Query) NewContainer(platform Platform) *Container {
-	return &Container{
-		Query:    q,
-		Platform: platform,
-	}
-}
-
-func (q *Query) NewSecret(name string, accessor string) *Secret {
-	return &Secret{
-		Query:    q,
-		Name:     name,
-		Accessor: accessor,
-	}
-}
-
-func (q *Query) NewHost() *Host {
-	return &Host{
-		Query: q,
-	}
-}
-
-func (q *Query) NewModule() *Module {
-	return &Module{
-		Query: q,
-	}
-}
-
-func (q *Query) NewContainerService(ctr *Container) *Service {
-	return &Service{
-		Query:     q,
-		Container: ctr,
-	}
-}
-
-func (q *Query) NewTunnelService(upstream dagql.Instance[*Service], ports []PortForward) *Service {
-	return &Service{
-		Query:          q,
-		TunnelUpstream: &upstream,
-		TunnelPorts:    ports,
-	}
-}
-
-func (q *Query) NewHostService(upstream string, ports []PortForward, sessionID string) *Service {
-	return &Service{
-		Query:         q,
-		HostUpstream:  upstream,
-		HostPorts:     ports,
-		HostSessionID: sessionID,
-	}
-}
-
-// IDDeps loads the module dependencies of a given ID.
-//
-// The returned ModDeps extends the inner DefaultDeps with all modules found in
-// the ID, loaded by using the DefaultDeps schema.
-func (q *Query) IDDeps(ctx context.Context, id *call.ID) (*ModDeps, error) {
-	bootstrap, err := q.DefaultDeps.Schema(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("bootstrap schema: %w", err)
-	}
-	deps := q.DefaultDeps
-	for _, modID := range id.Modules() {
-		mod, err := dagql.NewID[*Module](modID.ID()).Load(ctx, bootstrap)
-		if err != nil {
-			return nil, fmt.Errorf("load source mod: %w", err)
-		}
-		deps = deps.Append(mod.Self)
-	}
-	return deps, nil
-}
+*/

@@ -771,7 +771,7 @@ func (s *moduleSchema) updateDeps(
 		return fmt.Errorf("failed to initialize dependency modules: %w", err)
 	}
 
-	mod.Deps = core.NewModDeps(src.Self.Query, src.Self.Query.DefaultDeps.Mods)
+	mod.Deps = core.NewModDeps(src.Self.Query, src.Self.Query.DefaultDeps(ctx).Mods)
 	for _, dep := range mod.DependenciesField {
 		mod.Deps = mod.Deps.Append(dep.Self)
 	}

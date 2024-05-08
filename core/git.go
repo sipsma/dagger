@@ -66,12 +66,11 @@ func (ref *GitRef) Tree(ctx context.Context) (*Directory, error) {
 }
 
 func (ref *GitRef) Commit(ctx context.Context) (string, error) {
-	bk := ref.Query.Buildkit
 	st, err := ref.getState(ctx)
 	if err != nil {
 		return "", err
 	}
-	p, err := resolveProvenance(ctx, bk, st)
+	p, err := resolveProvenance(ctx, ref.Query.Engine, st)
 	if err != nil {
 		return "", err
 	}
