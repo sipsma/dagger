@@ -1008,22 +1008,6 @@ func (container *Container) WithGPU(ctx context.Context, gpuOpts ContainerGPUOpt
 	return container, nil
 }
 
-type ExecutionMetadata struct {
-	SystemEnvNames []string
-}
-
-const ExecutionMetadataKey = "dagger.executionMetadata"
-
-func (md ExecutionMetadata) AsConstraintsOpt() (llb.ConstraintsOpt, error) {
-	bs, err := json.Marshal(md)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal execution metadata: %w", err)
-	}
-	return llb.WithDescription(map[string]string{
-		ExecutionMetadataKey: string(bs),
-	}), nil
-}
-
 func (container *Container) WithExec(ctx context.Context, opts ContainerExecOpts) (*Container, error) { //nolint:gocyclo
 	container = container.Clone()
 
@@ -1051,8 +1035,21 @@ func (container *Container) WithExec(ctx context.Context, opts ContainerExecOpts
 		llb.WithCustomNamef(namef, strings.Join(args, " ")),
 	}
 
+	clientMetadata, err := engine.ClientMetadataFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// TODO:don't forget to set OTEL envs from here again too
+	// TODO:don't forget to set OTEL envs from here again too
+	// TODO:don't forget to set OTEL envs from here again too
+	execClientMetadata := engine.ClientMetadata{
+		ServerID:       clientMetadata.ServerID,
+		SystemEnvNames: container.SystemEnvNames,
+	}
+
 	// this allows executed containers to communicate back to this API
 	if opts.ExperimentalPrivilegedNesting {
+		execClientMetadata.NestedClient = true
 		callerOpts := opts.NestedExecFunctionCall
 		if callerOpts == nil {
 			// default to caching the nested exec
@@ -1060,15 +1057,35 @@ func (container *Container) WithExec(ctx context.Context, opts ContainerExecOpts
 				Cache: true,
 			}
 		}
-		clientID, err := container.Query.RegisterCaller(ctx, callerOpts)
-		if err != nil {
-			return nil, fmt.Errorf("register caller: %w", err)
+
+		if callerOpts.Module != nil {
+			// TODO: consider memoizing .ToProto()
+			// TODO: consider memoizing .ToProto()
+			// TODO: consider memoizing .ToProto()
+			execClientMetadata.ModSourceID, err = callerOpts.Module.Source.ID().ToProto()
+			if err != nil {
+				return nil, err
+			}
 		}
-		runOpts = append(runOpts,
-			llb.AddEnv("_DAGGER_NESTED_CLIENT_ID", clientID),
-			// include the engine version so that these execs get invalidated if the engine/API change
-			llb.AddEnv("_DAGGER_ENGINE_VERSION", engine.Version),
-		)
+
+		// include the engine version so that these execs get invalidated if the engine/API change
+		// TODO: UNSET THIS IN EXECUTOR
+		// TODO: UNSET THIS IN EXECUTOR
+		// TODO: UNSET THIS IN EXECUTOR
+		runOpts = append(runOpts, llb.AddEnv("_DAGGER_ENGINE_VERSION", engine.Version))
+
+		// include a digest of the current call so that we scope the cache of the ExecOp to this call
+		// TODO: UNSET THIS IN EXECUTOR
+		// TODO: UNSET THIS IN EXECUTOR
+		// TODO: UNSET THIS IN EXECUTOR
+		runOpts = append(runOpts, llb.AddEnv("_DAGGER_CALL_DIGEST", string(dagql.CurrentID(ctx).Digest())))
+
+		if !callerOpts.Cache {
+			// TODO: UNSET THIS IN EXECUTOR
+			// TODO: UNSET THIS IN EXECUTOR
+			// TODO: UNSET THIS IN EXECUTOR
+			runOpts = append(runOpts, llb.AddEnv("_DAGGER_SERVER_ID", clientMetadata.ServerID))
+		}
 	}
 
 	metaSt, metaSourcePath := metaMount(opts.Stdin)
@@ -1236,16 +1253,13 @@ func (container *Container) WithExec(ctx context.Context, opts ContainerExecOpts
 
 	execSt := fsSt.Run(runOpts...)
 
-	execMD := ExecutionMetadata{
-		SystemEnvNames: container.SystemEnvNames,
-	}
-	execMDOpt, err := execMD.AsConstraintsOpt()
+	clientMDOpt, err := execClientMetadata.AsConstraintsOpt()
 	if err != nil {
-		return nil, fmt.Errorf("execution metadata: %w", err)
+		return nil, fmt.Errorf("execution client metadata: %w", err)
 	}
 	marshalOpts := []llb.ConstraintsOpt{
 		llb.Platform(platform.Spec()),
-		execMDOpt,
+		clientMDOpt,
 	}
 	execDef, err := execSt.Root().Marshal(ctx, marshalOpts...)
 	if err != nil {

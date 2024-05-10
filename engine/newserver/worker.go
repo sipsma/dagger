@@ -12,9 +12,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,6 +28,7 @@ import (
 	containerdoci "github.com/containerd/containerd/oci"
 	"github.com/containerd/continuity/fs"
 	runc "github.com/containerd/go-runc"
+	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/buildkit/cacerts"
 	"github.com/docker/docker/pkg/idtools"
 	bkclient "github.com/moby/buildkit/client"
@@ -47,47 +50,38 @@ import (
 	"github.com/moby/buildkit/worker/base"
 	"github.com/moby/sys/signal"
 	"github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/vishvananda/netns"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/errgroup"
-
-	"github.com/dagger/dagger/core"
 )
 
 type worker struct {
 	*Server
 	*base.Worker
-	client *daggerClient
-	vtx    solver.Vertex
-}
-
-func (srv *Server) newWorkerForClient(clientState *daggerClient) *worker {
-	return &worker{
-		Server: srv,
-		Worker: srv.baseWorker,
-		client: clientState,
-	}
-}
-
-func (w *worker) withVertex(vtx solver.Vertex) *worker {
-	return &worker{
-		Server: w.Server,
-		Worker: w.Worker,
-		client: w.client,
-		vtx:    vtx,
-	}
+	clientMD *engine.ClientMetadata
 }
 
 func (w *worker) Executor() bkexecutor.Executor {
 	return w
 }
 
-func (w *worker) ResolveOp(vtx solver.Vertex, s frontend.FrontendLLBBridge, sm *bksession.Manager) (solver.Op, error) {
-	w = w.withVertex(vtx)
-
+func (w *worker) ResolveOp(vtx solver.Vertex, b frontend.FrontendLLBBridge, sm *bksession.Manager) (solver.Op, error) {
 	// if this is an ExecOp, pass in ourself as executor
 	if baseOp, ok := vtx.Sys().(*pb.Op); ok {
 		if execOp, ok := baseOp.Op.(*pb.Op_Exec); ok {
+			clientMD, ok, err := engine.ClientMetadataFromVtx(vtx)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get client metadata in resolve op: %w", err)
+			}
+			if ok {
+				w = &worker{
+					Server:   w.Server,
+					Worker:   w.Worker,
+					clientMD: clientMD,
+				}
+			}
+
 			return ops.NewExecOp(
 				vtx,
 				execOp,
@@ -102,7 +96,7 @@ func (w *worker) ResolveOp(vtx solver.Vertex, s frontend.FrontendLLBBridge, sm *
 	}
 
 	// otherwise, just use the default base.Worker's ResolveOp
-	return w.Worker.ResolveOp(vtx, s, sm)
+	return w.Worker.ResolveOp(vtx, b, sm)
 }
 
 func (w *worker) Close() error {
@@ -150,15 +144,33 @@ func (w *worker) Run(
 	if !ok {
 		return nil, fmt.Errorf("unknown network mode %s", process.Meta.NetMode)
 	}
-	namespace, err := provider.New(ctx, process.Meta.Hostname)
+	netNS, err := provider.New(ctx, process.Meta.Hostname)
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
-		if err := namespace.Close(); err != nil {
+		if err := netNS.Close(); err != nil {
 			bklog.G(ctx).Errorf("failed to close network namespace: %v", err)
 		}
 	}()
+
+	if w.clientMD != nil && w.clientMD.NestedClient {
+		listenAddr, cleanup, err := w.serveNestedClient(ctx, netNS)
+		if err != nil {
+			return nil, err
+		}
+		defer func() {
+			if err := cleanup(); err != nil {
+				bklog.G(ctx).Errorf("failed to cleanup nested client: %v", err)
+			}
+		}()
+
+		// TODO: SET ENV WITH LISTEN ADDR
+		// TODO: SET ENV WITH LISTEN ADDR
+		// TODO: SET ENV WITH LISTEN ADDR
+		// TODO: SET ENV WITH LISTEN ADDR
+		// TODO: SET ENV WITH LISTEN ADDR
+	}
 
 	mountable, err := root.Src.Mount(ctx, false)
 	if err != nil {
@@ -199,20 +211,143 @@ func (w *worker) Run(
 		mounts,
 		rootFSPath,
 		process,
-		namespace,
+		netNS,
 		started,
 		setupCACerts,
 	)
 }
 
-func (w *worker) addExtraEnvs(proc *bkexecutor.ProcessInfo) error {
-	if w.client != nil {
-		proc.Meta.Env = append(proc.Meta.Env, fmt.Sprintf("_DAGGER_SERVER_ID=%s", w.client.sessionID))
+func (w *worker) serveNestedClient(ctx context.Context, netNS network.Namespace) (string, func() error, error) {
+	ctx, cancel := context.WithCancelCause(ctx)
+
+	var spec specs.Spec
+	if err := netNS.Set(&spec); err != nil {
+		return "", nil, err
+	}
+	var netNSPath string
+	for _, ns := range spec.Linux.Namespaces {
+		if ns.Type == specs.NetworkNamespace {
+			netNSPath = ns.Path
+			break
+		}
+	}
+	if netNSPath == "" {
+		return "", nil, errors.New("network namespace not found in spec")
 	}
 
-	execMD, err := executionMetadataFromVtx(w.vtx)
+	// TODO: failureCleanups?
+	// TODO: failureCleanups?
+	// TODO: failureCleanups?
+
+	listener, err := listenerForNetNSPath(netNSPath, "127.0.0.1:0")
 	if err != nil {
-		return err
+		return "", nil, fmt.Errorf("failed to listen in network namespace: %w", err)
+	}
+	tcpAddr, ok := listener.Addr().(*net.TCPAddr)
+	if !ok {
+		return "", nil, errors.New("listener address is not a TCP address")
+	}
+	port := tcpAddr.Port
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				if !errors.Is(err, net.ErrClosed) {
+					bklog.G(ctx).Errorf("failed to accept connection: %v", err)
+					cancel(fmt.Errorf("failed to accept connection: %w", err))
+				}
+				return
+			}
+
+			go func() {
+				ctx := engine.ContextWithClientMetadata(ctx, w.clientMD)
+				err := w.httpSrv.ServeConn(ctx, newNetworkClientConn(ctx, conn))
+				switch {
+				case err == nil:
+					return
+				case errors.Is(err, io.EOF), errors.Is(err, io.ErrClosedPipe), errors.Is(err, net.ErrClosed):
+					return
+				default:
+					bklog.G(ctx).Errorf("failed to serve connection: %v", err)
+					cancel(fmt.Errorf("failed to serve connection: %w", err))
+				}
+			}()
+		}
+	}()
+
+	return fmt.Sprintf("127.0.0.1:%d", port), func() error {
+		var errs error
+		errs = errors.Join(errs, listener.Close())
+		select {
+		case <-ctx.Done():
+			errs = errors.Join(errs, ctx.Err(), context.Cause(ctx))
+		default:
+			cancel(nil)
+		}
+		return errs
+	}, nil
+}
+
+// TODO: probably put in diff file
+// TODO: probably put in diff file
+// TODO: probably put in diff file
+func listenerForNetNSPath(netNSPath string, addr string) (listener net.Listener, rerr error) {
+	defer func() {
+		if rerr != nil && listener != nil {
+			listener.Close()
+		}
+	}()
+
+	var eg errgroup.Group
+	eg.Go(func() error {
+		runtime.LockOSThread()
+
+		nsHandle, err := netns.GetFromPath(netNSPath)
+		if err != nil {
+			runtime.UnlockOSThread()
+			return fmt.Errorf("failed to get network namespace handle: %w", err)
+		}
+		defer nsHandle.Close()
+
+		origNS, err := netns.Get()
+		if err != nil {
+			runtime.UnlockOSThread()
+			return fmt.Errorf("failed to get original network namespace: %w", err)
+		}
+		defer origNS.Close()
+
+		// below here, if any error happens we don't unlock the OS thread since
+		// the current thread could be in an unexpected network namespace
+		if err := netns.Set(nsHandle); err != nil {
+			return fmt.Errorf("failed to set network namespace: %w", err)
+		}
+
+		listener, err = net.Listen("tcp", addr)
+		if err != nil {
+			return fmt.Errorf("failed to listen: %w", err)
+		}
+
+		if err := netns.Set(origNS); err != nil {
+			return fmt.Errorf("failed to set original network namespace: %w", err)
+		}
+
+		// we successfully returned to our original network namespace, can unlock the thread
+		runtime.UnlockOSThread()
+		return nil
+	})
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+
+	return listener, nil
+}
+
+func (w *worker) addExtraEnvs(proc *bkexecutor.ProcessInfo) error {
+	if w.clientMD != nil {
+		// TODO:
+		// TODO:
+		// TODO: remove unneeded envs
 	}
 
 	origEnvMap := make(map[string]string)
@@ -258,36 +393,21 @@ func (w *worker) addExtraEnvs(proc *bkexecutor.ProcessInfo) error {
 		}
 	}
 
-	const systemEnvPrefix = "_DAGGER_ENGINE_SYSTEMENV_"
-	for _, systemEnvName := range execMD.SystemEnvNames {
-		if _, ok := origEnvMap[systemEnvName]; ok {
-			// don't overwrite explicit user-provided values
-			continue
-		}
-		systemVal, ok := os.LookupEnv(systemEnvPrefix + systemEnvName)
-		if ok {
-			proc.Meta.Env = append(proc.Meta.Env, systemEnvName+"="+systemVal)
+	if w.clientMD != nil {
+		const systemEnvPrefix = "_DAGGER_ENGINE_SYSTEMENV_"
+		for _, systemEnvName := range w.clientMD.SystemEnvNames {
+			if _, ok := origEnvMap[systemEnvName]; ok {
+				// don't overwrite explicit user-provided values
+				continue
+			}
+			systemVal, ok := os.LookupEnv(systemEnvPrefix + systemEnvName)
+			if ok {
+				proc.Meta.Env = append(proc.Meta.Env, systemEnvName+"="+systemVal)
+			}
 		}
 	}
 
 	return nil
-}
-
-func executionMetadataFromVtx(vtx solver.Vertex) (core.ExecutionMetadata, error) {
-	md := core.ExecutionMetadata{}
-
-	if vtx == nil {
-		return md, nil
-	}
-
-	bs, ok := vtx.Options().Description[core.ExecutionMetadataKey]
-	if !ok {
-		return md, nil
-	}
-	if err := json.Unmarshal([]byte(bs), &md); err != nil {
-		return md, fmt.Errorf("failed to unmarshal execution metadata: %w", err)
-	}
-	return md, nil
 }
 
 func (w *worker) run(

@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/Khan/genqlient/graphql"
-	"github.com/containerd/containerd/defaults"
 	"github.com/moby/buildkit/util/bklog"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 )
@@ -44,14 +43,14 @@ func newHTTPServer(ctx context.Context, handler httpHandlerWithError) *httpServe
 		Server: &http.Server{
 			ReadHeaderTimeout: 30 * time.Second,
 			ConnContext: func(baseCtx context.Context, netConn net.Conn) context.Context {
-				conn, ok := netConn.(*clientConn)
+				conn, ok := netConn.(clientConn)
 				if !ok {
 					return baseCtx
 				}
-				return conn.origCtx
+				return conn.OriginalContext()
 			},
 			ConnState: func(netConn net.Conn, state http.ConnState) {
-				conn, ok := netConn.(*clientConn)
+				conn, ok := netConn.(clientConn)
 				if !ok {
 					return
 				}
@@ -123,9 +122,7 @@ func newHTTPServer(ctx context.Context, handler httpHandlerWithError) *httpServe
 
 // ServeConn accepts a net.Conn and serves it with the http.Handler, blocking until
 // the request is done or the context is canceled.
-func (srv *httpServer) ServeConn(ctx context.Context, netConn net.Conn) error {
-	conn := newClientConn(ctx, netConn, defaults.DefaultMaxSendMsgSize*95/100)
-
+func (srv *httpServer) ServeConn(ctx context.Context, conn clientConn) error {
 	select {
 	case srv.listener.incomingConns <- conn:
 	case <-ctx.Done():
@@ -133,7 +130,7 @@ func (srv *httpServer) ServeConn(ctx context.Context, netConn net.Conn) error {
 	}
 
 	select {
-	case <-conn.closed:
+	case <-conn.Closed():
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -167,12 +164,50 @@ func (l *chanListener) Addr() net.Addr {
 	return nil
 }
 
+type clientConn interface {
+	net.Conn
+	Closed() <-chan struct{}
+	OriginalContext() context.Context
+}
+
+type networkClientConn struct {
+	net.Conn
+	origCtx   context.Context
+	closed    chan struct{}
+	closeOnce sync.Once
+}
+
+var _ clientConn = &networkClientConn{}
+
+func newNetworkClientConn(ctx context.Context, conn net.Conn) *networkClientConn {
+	return &networkClientConn{
+		Conn:    conn,
+		origCtx: ctx,
+		closed:  make(chan struct{}),
+	}
+}
+
+func (conn *networkClientConn) Closed() <-chan struct{} {
+	return conn.closed
+}
+
+func (conn *networkClientConn) OriginalContext() context.Context {
+	return conn.origCtx
+}
+
+func (conn *networkClientConn) Close() error {
+	conn.closeOnce.Do(func() {
+		close(conn.closed)
+	})
+	return conn.Conn.Close()
+}
+
 // wraps the underlying conn returned by buildkit's grpchijack.Hijack with:
 // * actually implemented deadline methods (since some libraries rely on those working)
 // * chunked writes to avoid grpc max message sizes
 // * a Close that just signals callers it's done rather than actually closing anything yet
 // * tracking of "origCtx" so we can pass through the grpc stream context to http handlers
-type clientConn struct {
+type grpcClientConn struct {
 	inner   net.Conn
 	origCtx context.Context
 
@@ -191,10 +226,10 @@ type clientConn struct {
 	closeOnce sync.Once
 }
 
-var _ net.Conn = &clientConn{}
+var _ clientConn = &grpcClientConn{}
 
-func newClientConn(ctx context.Context, inner net.Conn, maxMsgSize int) *clientConn {
-	conn := &clientConn{
+func newGRPCClientConn(ctx context.Context, inner net.Conn, maxMsgSize int) *grpcClientConn {
+	conn := &grpcClientConn{
 		inner:      inner,
 		origCtx:    ctx,
 		readBuf:    new(bytes.Buffer),
@@ -225,16 +260,24 @@ func newClientConn(ctx context.Context, inner net.Conn, maxMsgSize int) *clientC
 	return conn
 }
 
+func (conn *grpcClientConn) Closed() <-chan struct{} {
+	return conn.closed
+}
+
+func (conn *grpcClientConn) OriginalContext() context.Context {
+	return conn.origCtx
+}
+
 // We don't want to actually close it, we just want the Controller.Session method to return.
 // So we just signal that close has been called.
-func (conn *clientConn) Close() error {
+func (conn *grpcClientConn) Close() error {
 	conn.closeOnce.Do(func() {
 		close(conn.closed)
 	})
 	return nil
 }
 
-func (conn *clientConn) Read(b []byte) (n int, err error) {
+func (conn *grpcClientConn) Read(b []byte) (n int, err error) {
 	conn.readCond.L.Lock()
 
 	if conn.readEOF {
@@ -302,7 +345,7 @@ func (conn *clientConn) Read(b []byte) (n int, err error) {
 	}
 }
 
-func (conn *clientConn) Write(b []byte) (n int, err error) {
+func (conn *grpcClientConn) Write(b []byte) (n int, err error) {
 	conn.writersL.Lock()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -364,22 +407,22 @@ func (conn *clientConn) Write(b []byte) (n int, err error) {
 	}
 }
 
-func (conn *clientConn) LocalAddr() net.Addr {
+func (conn *grpcClientConn) LocalAddr() net.Addr {
 	return conn.inner.LocalAddr()
 }
 
-func (conn *clientConn) RemoteAddr() net.Addr {
+func (conn *grpcClientConn) RemoteAddr() net.Addr {
 	return conn.inner.RemoteAddr()
 }
 
-func (conn *clientConn) SetDeadline(t time.Time) error {
+func (conn *grpcClientConn) SetDeadline(t time.Time) error {
 	return errors.Join(
 		conn.SetReadDeadline(t),
 		conn.SetWriteDeadline(t),
 	)
 }
 
-func (conn *clientConn) SetReadDeadline(t time.Time) error {
+func (conn *grpcClientConn) SetReadDeadline(t time.Time) error {
 	conn.readCond.L.Lock()
 	conn.readDeadline = t
 	readers := conn.readers
@@ -401,7 +444,7 @@ func (conn *clientConn) SetReadDeadline(t time.Time) error {
 	return nil
 }
 
-func (conn *clientConn) SetWriteDeadline(t time.Time) error {
+func (conn *grpcClientConn) SetWriteDeadline(t time.Time) error {
 	conn.writersL.Lock()
 	conn.writeDeadline = t
 	writers := conn.writers

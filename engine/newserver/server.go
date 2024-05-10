@@ -15,6 +15,7 @@ import (
 
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/content/local"
+	"github.com/containerd/containerd/defaults"
 	"github.com/containerd/containerd/diff/apply"
 	"github.com/containerd/containerd/diff/walking"
 	ctdmetadata "github.com/containerd/containerd/metadata"
@@ -511,27 +512,7 @@ func NewServer(ctx context.Context, opts *NewServerOpts) (*Server, error) {
 
 	srv.solver = solver.NewSolver(solver.SolverOpt{
 		ResolveOpFunc: func(vtx solver.Vertex, builder solver.Builder) (solver.Op, error) {
-			/* TODO: update
-			var w *buildkit.Worker
-			if err := builder.EachValue(context.Background(), buildkit.DaggerWorkerJobKey,
-				func(v interface{}) error {
-					if w == nil {
-						w, _ = v.(*buildkit.Worker)
-					}
-					return nil
-				},
-			); err != nil {
-				return nil, fmt.Errorf("failed to get worker from job keys: %w", err)
-			}
-			if w == nil {
-				return nil, fmt.Errorf("worker not found in job keys")
-			}
-
-			// passing nil bridge since it's only needed for BuildOp, which is never used and
-			// never should be used (it's a legacy API)
-			return w.ResolveOp(vtx, nil, opts.SessionManager)
-			*/
-			panic("not implemented")
+			return srv.worker.ResolveOp(vtx, nil, srv.bkSessionManager)
 		},
 		DefaultCache: srv.solverCache,
 	})
@@ -577,9 +558,10 @@ func (srv *Server) Session(stream controlapi.Control_SessionServer) (rerr error)
 	defer bklog.G(ctx).Trace("done serving client conn")
 
 	conn, _, _ := grpchijack.Hijack(stream)
+	clientConn := newGRPCClientConn(ctx, conn, defaults.DefaultMaxSendMsgSize*95/100)
 
 	// this ends up calling Server.ServeHTTP in session.go, in case you are following along at home
-	err := srv.httpSrv.ServeConn(ctx, conn)
+	err := srv.httpSrv.ServeConn(ctx, clientConn)
 	switch {
 	case err == nil, errors.Is(err, io.ErrClosedPipe), errors.Is(err, context.Canceled):
 		return nil

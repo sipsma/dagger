@@ -17,6 +17,7 @@ import (
 	bkclient "github.com/moby/buildkit/client"
 	bkfrontend "github.com/moby/buildkit/frontend"
 	bkgw "github.com/moby/buildkit/frontend/gateway/client"
+	"github.com/moby/buildkit/identity"
 	bksession "github.com/moby/buildkit/session"
 	bksolver "github.com/moby/buildkit/solver"
 	"github.com/moby/buildkit/solver/llbsolver"
@@ -29,6 +30,8 @@ import (
 	"github.com/dagger/dagger/analytics"
 	"github.com/dagger/dagger/auth"
 	"github.com/dagger/dagger/core"
+	"github.com/dagger/dagger/core/schema"
+	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/buildkit"
 	"github.com/dagger/dagger/engine/cache"
@@ -63,6 +66,8 @@ type daggerSession struct {
 
 	refs   map[*ref]struct{}
 	refsMu sync.RWMutex
+
+	dagqlCache dagql.Cache
 }
 
 type daggerSessionState string
@@ -131,6 +136,7 @@ func (srv *Server) initializeDaggerSession(
 	sess.secretStore = core.NewSecretStore()
 	sess.authProvider = auth.NewRegistryAuthProvider()
 	sess.refs = map[*ref]struct{}{}
+	sess.dagqlCache = dagql.NewCache()
 
 	if traceID := trace.SpanContextFromContext(ctx).TraceID(); traceID.IsValid() {
 		sess.traceID = traceID
@@ -259,15 +265,28 @@ func (srv *Server) removeDaggerSession(ctx context.Context, sess *daggerSession)
 	return errs
 }
 
+func (srv *Server) daggerSessionFromContext(ctx context.Context) (*daggerSession, error) {
+	clientMetadata, err := engine.ClientMetadataFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get client metadata for session call: %w", err)
+	}
+
+	srv.daggerSessionsMu.RLock()
+	defer srv.daggerSessionsMu.RUnlock()
+	sess, ok := srv.daggerSessions[clientMetadata.ServerID]
+	if !ok {
+		return nil, fmt.Errorf("session %q not found", clientMetadata.ServerID)
+	}
+
+	return sess, nil
+}
+
 // requires that client.stateMu is held
 func (srv *Server) initializeDaggerClient(
 	ctx context.Context,
-	clientMetadata *engine.ClientMetadata,
 	client *daggerClient,
 	failureCleanups *cleanups,
 ) error {
-	client.clientID = clientMetadata.ClientID
-	client.secretToken = clientMetadata.ClientSecretToken
 	client.worker = srv.newWorkerForClient(client)
 	client.containers = map[bkgw.Container]struct{}{}
 
@@ -368,35 +387,76 @@ func (srv *Server) initializeDaggerClient(
 	// TODO: need different behavior for main client caller and others
 	// TODO: need different behavior for main client caller and others
 
-	root := core.NewRoot(srv)
+	client.dagqlRoot = core.NewRoot(srv)
+	dag := dagql.NewServer(client.dagqlRoot)
+	dag.Cache = client.daggerSession.dagqlCache
+	dag.Around(telemetry.AroundFunc)
 
-	// TODO:
-	// TODO:
-	// TODO:
-	// TODO:
-	/*
-		dag := dagql.NewServer(root)
-
-		// stash away the cache so we can share it between other servers
-		root.Cache = dag.Cache
-
-		dag.Around(telemetry.AroundFunc)
-
-		coreMod := &schema.CoreMod{Dag: dag}
-		root.DefaultDeps = core.NewModDeps(root, []core.Mod{coreMod})
-		if err := coreMod.Install(ctx, dag); err != nil {
-			return nil, err
-		}
-
-		// the main client caller starts out with the core API loaded
-		sess.clientCallContext[sess.mainClientCallerID] = &core.ClientCallContext{
-			Deps: root.DefaultDeps,
-			Root: root,
-		}
-	*/
+	coreMod := &schema.CoreMod{Dag: dag}
+	client.deps = core.NewModDeps(client.dagqlRoot, []core.Mod{coreMod})
+	if err := coreMod.Install(ctx, dag); err != nil {
+		return err
+	}
 
 	client.state = clientStateInitialized
 	return nil
+}
+
+func (srv *Server) RegisterClient(ctx context.Context, call *core.FunctionCall) (string, error) {
+	if call == nil {
+		call = &core.FunctionCall{}
+	}
+
+	sess, err := srv.daggerSessionFromContext(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	client := &daggerClient{
+		daggerSession: sess,
+		clientID:      identity.NewID(),
+		// TODO:
+		// TODO:
+		// TODO: need to pass token through executor now
+		// TODO: also consider renaming this, "secret" makes it sound more sensitive than it is
+		secretToken: identity.NewID(),
+	}
+
+	slog.ExtraDebug("registering nested caller",
+		"client_id", client.clientID,
+		"op", dagql.CurrentID(ctx).Display(),
+	)
+
+	/*
+		if call.Module == nil {
+			callCtx.Deps = q.DefaultDeps
+		} else {
+			callCtx.Deps = call.Module.Deps
+			// By default, serve both deps and the module's own API to itself. But if SkipSelfSchema is set,
+			// only serve the APIs of the deps of this module. This is currently only needed for the special
+			// case of the function used to get the definition of the module itself (which can't obviously
+			// be served the API its returning the definition of).
+			if !call.SkipSelfSchema {
+				callCtx.Deps = callCtx.Deps.Append(call.Module)
+			}
+		}
+
+		q.ClientCallMu.Lock()
+		defer q.ClientCallMu.Unlock()
+		_, ok := q.ClientCallContext[clientID]
+		if ok {
+			return clientID, nil
+		}
+
+		var err error
+		callCtx.Root, err = NewRoot(ctx, q.QueryOpts)
+		if err != nil {
+			return "", err
+		}
+
+		q.ClientCallContext[clientID] = callCtx
+		return clientID, nil
+	*/
 }
 
 func (srv *Server) clientFromContext(ctx context.Context) (*daggerClient, error) {
@@ -443,14 +503,6 @@ func (srv *Server) getOrInitClient(
 		return nil, nil, nil, fmt.Errorf("client secret token is required")
 	}
 
-	// cleanup to do if this method fails
-	failureCleanups := &cleanups{}
-	defer func() {
-		if rerr != nil {
-			rerr = errors.Join(rerr, failureCleanups.run())
-		}
-	}()
-
 	if !clientMetadata.RegisterClient {
 		// If this isn't a call to hook up buildkit session attachables, wait for that
 		// to happen before continuing. This is important because we only clean up the
@@ -479,6 +531,14 @@ func (srv *Server) getOrInitClient(
 			}
 		}()
 	}
+
+	// cleanup to do if this method fails
+	failureCleanups := &cleanups{}
+	defer func() {
+		if rerr != nil {
+			rerr = errors.Join(rerr, failureCleanups.run())
+		}
+	}()
 
 	srv.daggerSessionsMu.Lock()
 	sess, sessionExists := srv.daggerSessions[sessionID]
@@ -511,7 +571,11 @@ func (srv *Server) getOrInitClient(
 	sess.clientMu.Lock()
 	client, clientExists := sess.clients[clientID]
 	if !clientExists {
-		client = &daggerClient{daggerSession: sess}
+		client = &daggerClient{
+			daggerSession: sess,
+			clientID:      clientID,
+			secretToken:   token,
+		}
 		sess.clients[clientID] = client
 
 		failureCleanups.add(func() error {
@@ -543,14 +607,6 @@ func (srv *Server) getOrInitClient(
 		if !clientMetadata.RegisterClient {
 			return nil
 		}
-
-		// unregister the client token
-		// TODO: this code can be removed when tokens are pre-registered
-		// TODO: this code can be removed when tokens are pre-registered
-		// TODO: this code can be removed when tokens are pre-registered
-		client.stateMu.Lock()
-		client.secretToken = ""
-		client.stateMu.Unlock()
 
 		// if the main client caller disconnects, cleanup the whole session too
 		if clientID != sess.mainClientCallerID {
@@ -625,15 +681,18 @@ func (srv *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) (rerr error
 	ctx = propagation.TraceContext{}.Extract(ctx, propagation.HeaderCarrier(r.Header))
 	r = r.WithContext(ctx)
 
-	// if this is set, we just need to serve the buildkit session attachables and then return
-	if clientMetadata.RegisterClient {
+	mux := http.NewServeMux()
+
+	mux.Handle("/sessionAttachables", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		hijacker, ok := w.(http.Hijacker)
 		if !ok {
-			return errors.New("handler does not support hijack")
+			// TODO: use httpErr once possible
+			http.Error(w, "hijack not supported", http.StatusInternalServerError)
+			return
 		}
 		conn, _, err := hijacker.Hijack()
 		if err != nil {
-			return fmt.Errorf("hijack connection: %w", err)
+			panic(err)
 		}
 
 		bklog.G(ctx).Trace("session manager handling conn")
@@ -641,30 +700,29 @@ func (srv *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) (rerr error
 		bklog.G(ctx).WithError(err).Trace("session manager handle conn done")
 		slog.Trace("session manager handle conn done", "err", err, "ctxErr", ctx.Err())
 		if err != nil {
-			return fmt.Errorf("handleConn: %w", err)
+			panic(err)
+		}
+	}))
+
+	mux.Handle("/query", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		schema, err := client.deps.Schema(ctx)
+		if err != nil {
+			// TODO: make it so you can do this
+			// return httpErr(http.StatusBadRequest, err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
 		}
 
-		return nil
-	}
-
-	// we are serving our http/graphql API, set all that up
-
-	schema, err := client.deps.Schema(ctx)
-	if err != nil {
-		return httpErr(http.StatusBadRequest, err)
-	}
-
-	gqlSrv := handler.NewDefaultServer(schema)
-	// NB: break glass when needed:
-	// gqlSrv.AroundResponses(func(ctx context.Context, next graphql.ResponseHandler) *graphql.Response {
-	// 	res := next(ctx)
-	// 	pl, err := json.Marshal(res)
-	// 	slog.Debug("graphql response", "response", string(pl), "error", err)
-	// 	return res
-	// })
-	mux := http.NewServeMux()
-
-	mux.Handle("/query", gqlSrv)
+		gqlSrv := handler.NewDefaultServer(schema)
+		// NB: break glass when needed:
+		// gqlSrv.AroundResponses(func(ctx context.Context, next graphql.ResponseHandler) *graphql.Response {
+		// 	res := next(ctx)
+		// 	pl, err := json.Marshal(res)
+		// 	slog.Debug("graphql response", "response", string(pl), "error", err)
+		// 	return res
+		// })
+		gqlSrv.ServeHTTP(w, req)
+	}))
 
 	mux.Handle("/shutdown", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		ctx := req.Context()

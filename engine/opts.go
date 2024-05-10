@@ -13,8 +13,11 @@ import (
 	"unicode"
 
 	controlapi "github.com/moby/buildkit/api/services/control"
+	"github.com/moby/buildkit/client/llb"
+	"github.com/moby/buildkit/solver"
 	"google.golang.org/grpc/metadata"
 
+	"github.com/dagger/dagger/dagql/call/callpbv1"
 	"github.com/dagger/dagger/telemetry"
 )
 
@@ -52,15 +55,6 @@ type ClientMetadata struct {
 	// module clients connect to
 	ServerID string `json:"server_id"`
 
-	// If RegisterClient is true, then a call to Session will initialize the
-	// server if it hasn't already been initialized and register the session's
-	// attachables with it either way. If false, then the session conn will be
-	// forwarded to the server
-	// TODO: RENAME TO CONNECT SESSION ATTACHABLES OR SIMILAR
-	// TODO: RENAME TO CONNECT SESSION ATTACHABLES OR SIMILAR
-	// TODO: RENAME TO CONNECT SESSION ATTACHABLES OR SIMILAR
-	RegisterClient bool `json:"register_client"`
-
 	// ClientHostname is the hostname of the client that made the request. It's
 	// used opportunistically as a best-effort, semi-stable identifier for the
 	// client across multiple sessions, which can be useful for debugging and for
@@ -72,21 +66,24 @@ type ClientMetadata struct {
 	Labels telemetry.Labels `json:"labels"`
 
 	// Import configuration for Buildkit's remote cache
-	UpstreamCacheImportConfig []*controlapi.CacheOptionsEntry
+	UpstreamCacheImportConfig []*controlapi.CacheOptionsEntry `json:"upstream_cache_import_config"`
 
 	// Export configuration for Buildkit's remote cache
-	UpstreamCacheExportConfig []*controlapi.CacheOptionsEntry
+	UpstreamCacheExportConfig []*controlapi.CacheOptionsEntry `json:"upstream_cache_export_config"`
 
 	// Dagger Cloud Token
-	CloudToken string
+	CloudToken string `json:"cloud_token"`
 
 	// Disable analytics
-	DoNotTrack bool
+	DoNotTrack bool `json:"do_not_track"`
 
 	// TODO: DOC
 	// TODO: DOC
 	// TODO: DOC
-	ExtraMD metadata.MD `json:"-"`
+	ExtraMD        metadata.MD   `json:"-"`
+	SystemEnvNames []string      `json:"system_env_names"`
+	NestedClient   bool          `json:"nested_client"`
+	ModSourceID    *callpbv1.DAG `json:"mod_source_id"`
 }
 
 func (m ClientMetadata) ToGRPCMD() metadata.MD {
@@ -97,6 +94,16 @@ func (m ClientMetadata) ToGRPCMD() metadata.MD {
 
 	md[buildkitSessionIDHeader] = []string{m.BuildkitSessionID()}
 	return encodeOpts(md)
+}
+
+func (m ClientMetadata) AsConstraintsOpt() (llb.ConstraintsOpt, error) {
+	bs, err := json.Marshal(m)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal client metadata: %w", err)
+	}
+	return llb.WithDescription(map[string]string{
+		clientMetadataMetaKey: string(bs),
+	}), nil
 }
 
 // The ID to use for this client's buildkit session. It's a combination of both
@@ -131,6 +138,23 @@ func ClientMetadataFromContext(ctx context.Context) (*ClientMetadata, error) {
 	}
 
 	return clientMetadata, nil
+}
+
+func ClientMetadataFromVtx(vtx solver.Vertex) (*ClientMetadata, bool, error) {
+	if vtx == nil {
+		return nil, false, nil
+	}
+
+	bs, ok := vtx.Options().Description[clientMetadataMetaKey]
+	if !ok {
+		return nil, false, nil
+	}
+
+	var md ClientMetadata
+	if err := json.Unmarshal([]byte(bs), &md); err != nil {
+		return nil, false, fmt.Errorf("failed to unmarshal execution metadata: %w", err)
+	}
+	return &md, true, nil
 }
 
 type LocalImportOpts struct {
