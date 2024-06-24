@@ -447,6 +447,7 @@ func (e *BuildkitController) gc() {
 
 	eg.Go(func() error {
 		defer close(ch)
+		fmt.Printf("GCPOLICY: %+v\n", e.Worker.GCPolicy())
 		if policy := e.Worker.GCPolicy(); len(policy) > 0 {
 			return e.Worker.Prune(ctx, ch, policy...)
 		}
