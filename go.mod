@@ -24,8 +24,8 @@ require (
 	github.com/dave/jennifer v1.7.0
 	github.com/denisbrodbeck/machineid v1.0.1
 	github.com/distribution/reference v0.6.0
-	github.com/docker/cli v27.0.2+incompatible
-	github.com/docker/docker v27.0.2+incompatible
+	github.com/docker/cli v27.0.3+incompatible
+	github.com/docker/docker v27.0.3+incompatible
 	github.com/dschmidt/go-layerfs v0.2.0
 	github.com/go-git/go-git/v5 v5.12.0
 	github.com/gofrs/flock v0.11.0
@@ -60,7 +60,7 @@ require (
 	github.com/prometheus/procfs v0.15.1
 	github.com/psanford/memfs v0.0.0-20230130182539-4dbf7e3e865e
 	github.com/rs/cors v1.11.0
-	github.com/samber/slog-logrus/v2 v2.3.0
+	github.com/samber/slog-logrus/v2 v2.4.0
 	github.com/shurcooL/graphql v0.0.0-20220606043923-3cf50f8a0a29
 	github.com/sirupsen/logrus v1.9.3
 	github.com/sourcegraph/conc v0.3.0
@@ -96,7 +96,7 @@ require (
 	golang.org/x/term v0.21.0
 	golang.org/x/text v0.16.0
 	golang.org/x/tools v0.22.0
-	google.golang.org/grpc v1.64.0
+	google.golang.org/grpc v1.65.0
 	google.golang.org/protobuf v1.34.2
 	gopkg.in/yaml.v3 v3.0.1
 	gotest.tools/v3 v3.5.1
@@ -222,8 +222,8 @@ require (
 	github.com/prometheus/common v0.53.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
-	github.com/samber/lo v1.38.1 // indirect
-	github.com/samber/slog-common v0.16.0 // indirect
+	github.com/samber/lo v1.44.0 // indirect
+	github.com/samber/slog-common v0.17.0 // indirect
 	github.com/secure-systems-lab/go-securesystemslib v0.4.0 // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/shibumi/go-pathspec v1.3.0 // indirect
@@ -252,8 +252,8 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
 	google.golang.org/genproto v0.0.0-20240227224415-6ceb2ff114de // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20240521202816-d264139d666e // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20240521202816-d264139d666e // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20240528184218-531527333157 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20240528184218-531527333157 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
 
