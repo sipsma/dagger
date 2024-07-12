@@ -107,7 +107,7 @@ func (gtc *GoToolchain) Lint(
 	// +optional
 	all bool,
 ) error {
-	_, err := gtc.Go.Lint(ctx, GoLintOpts{
+	_, err := gtc.Go.Lint(ctx, dagger.GoLintOpts{
 		Pkgs: packages,
 		All:  all,
 	})

@@ -27,13 +27,13 @@ require (
 	google.golang.org/grpc v1.64.0
 )
 
-require go.opentelemetry.io/proto/otlp v1.3.1
-
 require (
-	github.com/Masterminds/semver/v3 v3.2.1 // indirect
-	helm.sh/helm/v3 v3.15.2 // indirect
-	sigs.k8s.io/yaml v1.4.0 // indirect
+	go.opentelemetry.io/proto/otlp v1.3.1
+	helm.sh/helm/v3 v3.15.2
+	sigs.k8s.io/yaml v1.4.0
 )
+
+require github.com/Masterminds/semver/v3 v3.2.1 // indirect
 
 require (
 	github.com/Microsoft/hcsshim v0.11.5 // indirect

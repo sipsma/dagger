@@ -90,7 +90,7 @@ func (p *Go) Lint(
 			defer span.End()
 			_, err := dag.
 				Golangci().
-				Lint(p.Source, GolangciLintOpts{Path: pkg}).
+				Lint(p.Source, dagger.GolangciLintOpts{Path: pkg}).
 				Assert(ctx)
 			return err
 		})
