@@ -1,3 +1,3 @@
 # Images defined here for Dependabot.
-FROM python:3.11-slim@sha256:aad3c9cb248194ddd1b98860c2bf41ea7239c384ed51829cf38dcb3569deb7f1 AS base
-FROM ghcr.io/astral-sh/uv:0.2.24@sha256:dc00577b620015781b9394d87bdfa477aec19ced5b44fc0d855ef9cff8a8858a AS uv
+FROM python:3.12-slim@sha256:f11725aba18c19664a408902103365eaf8013823ffc56270f921d1dc78a198cb AS base
+FROM ghcr.io/astral-sh/uv:0.2.26@sha256:d888769133ee26ef3388aae7cc367e5a081513f4dabba3e947f9f50755991a2a AS uv
