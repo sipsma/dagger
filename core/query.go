@@ -8,6 +8,7 @@ import (
 
 	"github.com/containerd/containerd/content"
 	"github.com/moby/buildkit/util/leaseutil"
+	"github.com/opencontainers/go-digest"
 	"github.com/vektah/gqlparser/v2/ast"
 
 	"github.com/dagger/dagger/auth"
@@ -93,6 +94,12 @@ type Server interface {
 	// A map of unique IDs for the result of a given cache entry set query, allowing further queries on the result
 	// to operate on a stable result rather than the live state.
 	EngineCacheEntrySetMap(context.Context) (*sync.Map, error)
+
+	GetModuleSourceCaller(ctx context.Context, modSrcDgst digest.Digest) (string, error)
+
+	AddModuleSourceCaller(ctx context.Context, modSrcDgst digest.Digest) error
+
+	StableIDForClient(ctx context.Context, clientID string) (string, error)
 }
 
 func NewRoot(srv Server) *Query {

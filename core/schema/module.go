@@ -749,7 +749,12 @@ func (s *moduleSchema) moduleWithSource(ctx context.Context, mod *core.Module, a
 	}
 
 	mod = mod.Clone()
+
 	mod.Source = src
+	if err := mod.Query.AddModuleSourceCaller(ctx, mod.Source.ID().Digest()); err != nil {
+		return nil, fmt.Errorf("failed to add module source caller: %w", err)
+	}
+
 	mod.NameField, err = src.Self.ModuleName(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get module name: %w", err)

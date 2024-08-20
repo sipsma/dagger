@@ -639,6 +639,7 @@ func (s *moduleSchema) moduleSourceResolveDependency(
 		if err != nil {
 			return inst, fmt.Errorf("failed to load local dep: %w", err)
 		}
+
 		return newDepSrc, nil
 
 	default:

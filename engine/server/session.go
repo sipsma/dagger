@@ -91,6 +91,9 @@ type daggerSession struct {
 	cacheEntrySetMap *sync.Map
 
 	interactive bool
+
+	// TODO: doc
+	moduleSourceClientIDs map[digest.Digest]string
 }
 
 type daggerSessionState string
@@ -106,6 +109,7 @@ type daggerClient struct {
 	clientID      string
 	clientVersion string
 	secretToken   string
+	stableID      string
 
 	// closed after the shutdown endpoint is called
 	shutdownCh        chan struct{}
@@ -227,6 +231,7 @@ func (srv *Server) initializeDaggerSession(
 	sess.cacheEntrySetMap = &sync.Map{}
 	sess.telemetryPubSub = srv.telemetryPubSub
 	sess.interactive = clientMetadata.Interactive
+	sess.moduleSourceClientIDs = map[digest.Digest]string{}
 
 	sess.analytics = analytics.New(analytics.Config{
 		DoNotTrack: clientMetadata.DoNotTrack || analytics.DoNotTrack(),
@@ -735,6 +740,7 @@ func (srv *Server) getOrInitClient(
 			clientID:      clientID,
 			clientVersion: opts.ClientVersion,
 			secretToken:   token,
+			stableID:      opts.ClientStableID,
 			shutdownCh:    make(chan struct{}),
 		}
 		sess.clients[clientID] = client
@@ -1279,6 +1285,46 @@ func (srv *Server) Services(ctx context.Context) (*core.Services, error) {
 		return nil, err
 	}
 	return client.daggerSession.services, nil
+}
+
+// TODO: doc
+func (srv *Server) GetModuleSourceCaller(ctx context.Context, modSrcDgst digest.Digest) (string, error) {
+	client, err := srv.clientFromContext(ctx)
+	if err != nil {
+		return "", err
+	}
+	client.daggerSession.clientMu.RLock()
+	defer client.daggerSession.clientMu.RUnlock()
+	callerClientID, ok := client.daggerSession.moduleSourceClientIDs[modSrcDgst]
+	if !ok {
+		return "", fmt.Errorf("module source not registered in session")
+	}
+	return callerClientID, nil
+}
+
+// TODO: doc
+func (srv *Server) AddModuleSourceCaller(ctx context.Context, modSrcDgst digest.Digest) error {
+	client, err := srv.clientFromContext(ctx)
+	if err != nil {
+		return err
+	}
+	client.daggerSession.clientMu.Lock()
+	defer client.daggerSession.clientMu.Unlock()
+	client.daggerSession.moduleSourceClientIDs[modSrcDgst] = client.clientID
+	return nil
+}
+
+// TODO: doc
+func (srv *Server) StableIDForClient(ctx context.Context, clientID string) (string, error) {
+	thisClient, err := srv.clientFromContext(ctx)
+	if err != nil {
+		return "", err
+	}
+	client, ok := srv.clientFromIDs(thisClient.daggerSession.sessionID, clientID)
+	if !ok {
+		return "", fmt.Errorf("client %q not found", clientID)
+	}
+	return client.stableID, nil
 }
 
 // The default platform for the engine as a whole

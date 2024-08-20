@@ -442,7 +442,7 @@ func (fn *ModuleFunction) loadContextualArg(ctx context.Context, dag *dagql.Serv
 	case "Directory":
 		slog.Debug("moduleFunction.loadContextualArg: loading contextual directory", "fn", arg.Name, "dir", arg.DefaultPath)
 
-		dir, err := fn.mod.Source.Self.LoadContext(ctx, dag, arg.DefaultPath, arg.Ignore)
+		dir, err := fn.mod.Source.Self.LoadContext(ctx, dag, arg.DefaultPath, arg.Ignore, fn.mod.Source.ID().Digest())
 		if err != nil {
 			return nil, fmt.Errorf("failed to load contextual directory %q: %w", arg.DefaultPath, err)
 		}
@@ -461,7 +461,7 @@ func (fn *ModuleFunction) loadContextualArg(ctx context.Context, dag *dagql.Serv
 		filePath := filepath.Base(arg.DefaultPath)
 
 		// Load the directory containing the file.
-		dir, err := fn.mod.Source.Self.LoadContext(ctx, dag, dirPath, nil)
+		dir, err := fn.mod.Source.Self.LoadContext(ctx, dag, dirPath, nil, fn.mod.Source.ID().Digest())
 		if err != nil {
 			return nil, fmt.Errorf("failed to load contextual directory %q: %w", dirPath, err)
 		}

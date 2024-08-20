@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/moby/buildkit/solver/pb"
+	"github.com/opencontainers/go-digest"
 	"github.com/vektah/gqlparser/v2/ast"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -18,6 +19,7 @@ import (
 	"github.com/dagger/dagger/core/modules"
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/dagql/call"
+	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/buildkit"
 	"github.com/dagger/dagger/engine/slog"
 )
@@ -291,7 +293,7 @@ func (src *ModuleSource) AutomaticGitignore(ctx context.Context) (*bool, error) 
 //
 // If the module is git, it will load the directory from the git repository
 // using its context directory.
-func (src *ModuleSource) LoadContext(ctx context.Context, dag *dagql.Server, path string, ignore []string) (inst dagql.Instance[*Directory], err error) {
+func (src *ModuleSource) LoadContext(ctx context.Context, dag *dagql.Server, path string, ignore []string, selfDgst digest.Digest) (inst dagql.Instance[*Directory], err error) {
 	excludes := []string{}
 	includes := []string{}
 
@@ -305,14 +307,33 @@ func (src *ModuleSource) LoadContext(ctx context.Context, dag *dagql.Server, pat
 
 	switch src.Kind {
 	case ModuleSourceKindLocal:
-		bk, err := src.Query.Buildkit(ctx)
+		thisClientMetadata, err := engine.ClientMetadataFromContext(ctx)
+		if err != nil {
+			return inst, fmt.Errorf("failed to get client metadata: %w", err)
+		}
+		modSrcClientID, err := src.Query.GetModuleSourceCaller(ctx, selfDgst)
+		if err != nil {
+			return inst, fmt.Errorf("failed to get module source caller: %w", err)
+		}
+		stableID, err := src.Query.StableIDForClient(ctx, modSrcClientID)
+		if err != nil {
+			return inst, fmt.Errorf("failed to get stable ID for client: %w", err)
+		}
+
+		clientCtx := engine.ContextWithClientMetadata(ctx, &engine.ClientMetadata{
+			SessionID:      thisClientMetadata.SessionID,
+			ClientID:       modSrcClientID,
+			ClientStableID: stableID,
+		})
+
+		bk, err := src.Query.Buildkit(clientCtx)
 		if err != nil {
 			return inst, fmt.Errorf("failed to get buildkit api: %w", err)
 		}
 
 		// Retrieve the absolute path to the context directory (.git or dagger.json)
 		// and the module root directory (dagger.json)
-		ctxPath, modPath, err := src.ResolveContextPathFromModule(ctx)
+		ctxPath, modPath, err := src.ResolveContextPathFromModule(clientCtx)
 		if err != nil {
 			return inst, fmt.Errorf("failed to resolve context path: %w", err)
 		}
@@ -338,12 +359,12 @@ func (src *ModuleSource) LoadContext(ctx context.Context, dag *dagql.Server, pat
 			return inst, fmt.Errorf("path %q is outside of context directory %q, path should be relative to the context directory", path, ctxPath)
 		}
 
-		_, desc, err := bk.LocalImport(ctx, src.Query.Platform().Spec(), path, excludes, includes)
+		_, desc, err := bk.LocalImport(clientCtx, src.Query.Platform().Spec(), path, excludes, includes)
 		if err != nil {
 			return inst, fmt.Errorf("failed to import local module src: %w", err)
 		}
 
-		inst, err = LoadBlob(ctx, dag, desc)
+		inst, err = LoadBlob(clientCtx, dag, desc)
 		if err != nil {
 			return inst, fmt.Errorf("failed to load local module src: %w", err)
 		}
