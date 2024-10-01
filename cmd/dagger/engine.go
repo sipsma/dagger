@@ -21,7 +21,7 @@ func withEngine(
 	params client.Params,
 	fn runClientCallback,
 ) error {
-	return Frontend.Run(ctx, opts, func(ctx context.Context) (rerr error) {
+	err := Frontend.Run(ctx, opts, func(ctx context.Context) (rerr error) {
 		// Init tracing as early as possible and shutdown after the command
 		// completes, ensuring progress is fully flushed to the frontend.
 		ctx, cleanupTelemetry := initEngineTelemetry(ctx)
@@ -60,8 +60,16 @@ func withEngine(
 		}
 		defer sess.Close()
 
-		return fn(ctx, sess)
+		err = fn(ctx, sess)
+
+		return err
 	})
+
+	os.RemoveAll("/home/sipsma/dag.dot")
+	dotFile, _ := os.OpenFile("/home/sipsma/dag.dot", os.O_CREATE|os.O_WRONLY, 0644)
+	Frontend.WriteDot(dotFile)
+
+	return err
 }
 
 func initEngineTelemetry(ctx context.Context) (context.Context, func(error)) {

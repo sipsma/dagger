@@ -3,6 +3,7 @@ package idtui
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"strings"
@@ -121,6 +122,10 @@ func NewPlain() Frontend {
 		done:   make(chan struct{}),
 		ticker: time.NewTicker(50 * time.Millisecond),
 	}
+}
+
+func (fe *frontendPlain) WriteDot(out io.Writer) {
+	fe.db.WriteDot(out)
 }
 
 func (fe *frontendPlain) ConnectedToEngine(ctx context.Context, name string, version string, clientID string) {

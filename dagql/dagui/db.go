@@ -1,8 +1,10 @@
 package dagui
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"sort"
 	"time"
 
@@ -35,6 +37,8 @@ type DB struct {
 
 	Effects    map[string]*Span
 	EffectSite map[string]*Span
+
+	MetricsByCallDigest map[string]map[string][]metricdata.DataPoint[int64]
 }
 
 func NewDB() *DB {
@@ -47,14 +51,396 @@ func NewDB() *DB {
 		Children:      make(map[trace.SpanID]map[trace.SpanID]struct{}),
 		ChildrenOrder: make(map[trace.SpanID][]trace.SpanID),
 
-		Calls:      make(map[string]*callpbv1.Call),
-		OutputOf:   make(map[string]map[string]struct{}),
-		Outputs:    make(map[string]map[string]struct{}),
-		Intervals:  make(map[string]map[time.Time]*Span),
-		Effects:    make(map[string]*Span),
-		EffectSite: make(map[string]*Span),
+		Calls:               make(map[string]*callpbv1.Call),
+		OutputOf:            make(map[string]map[string]struct{}),
+		Outputs:             make(map[string]map[string]struct{}),
+		Intervals:           make(map[string]map[time.Time]*Span),
+		Effects:             make(map[string]*Span),
+		EffectSite:          make(map[string]*Span),
+		MetricsByCallDigest: make(map[string]map[string][]metricdata.DataPoint[int64]),
 	}
 }
+
+const (
+	dumpInternal = false
+	// dumpInternal = true
+
+	focusCall = "test"
+	// focusCall = "daggerDev"
+	// focusCall = ""
+)
+
+func (db *DB) WriteDot(out io.Writer) {
+	fmt.Fprintln(out, "digraph {")
+	defer fmt.Fprintln(out, "}")
+
+	dag := db.getDotDag()
+	for vtxDgst, vtx := range dag.vtxByCallDgst {
+		buf := new(bytes.Buffer)
+		fmt.Fprintf(buf, "%s", vtx.call.Field)
+		for ai, arg := range vtx.call.Args {
+			if ai == 0 {
+				fmt.Fprintf(buf, "(")
+			} else {
+				fmt.Fprintf(buf, ", ")
+			}
+			fmt.Fprintf(buf, "%s: %s", arg.Name, displayLit(arg.Value))
+			if ai == len(vtx.call.Args)-1 {
+				fmt.Fprintf(buf, ")")
+			}
+		}
+		if vtx.call.Nth != 0 {
+			fmt.Fprintf(buf, "#%d", vtx.call.Nth)
+		}
+		label := buf.String()
+
+		duration := vtx.span.ActiveDuration(time.Now())
+		label += fmt.Sprintf("\n%s", duration)
+
+		thicc := false
+		if s := duration.Seconds(); s > 1.0 {
+			thicc = true
+		}
+
+		if metricsByName := db.MetricsByCallDigest[vtxDgst]; metricsByName != nil {
+			if dataPoints := metricsByName[telemetry.IOStatDiskReadBytes]; len(dataPoints) > 0 {
+				lastPoint := dataPoints[len(dataPoints)-1]
+
+				if lastPoint.Value > 10000000 {
+					thicc = true
+				}
+
+				label += fmt.Sprintf("\nDisk Read Bytes: %d", lastPoint.Value)
+			}
+			if dataPoints := metricsByName[telemetry.IOStatDiskWriteBytes]; len(dataPoints) > 0 {
+				lastPoint := dataPoints[len(dataPoints)-1]
+
+				if lastPoint.Value > 10000000 {
+					thicc = true
+				}
+
+				label += fmt.Sprintf("\nDisk Write Bytes: %d", lastPoint.Value)
+			}
+		}
+
+		border := 1.0
+		color := "black"
+		if thicc {
+			border = 10.0
+			color = "red"
+		}
+		fmt.Fprintf(out, "  %q [label=%q shape=ellipse penwidth=%f color=%s];\n", vtxDgst, label, border, color)
+	}
+
+	for _, parent := range dag.vtxByCallDgst {
+		for child, edge := range parent.children {
+			switch edge.kind {
+			case edgeKindReceiver:
+				fmt.Fprintf(out, "  %q -> %q [color=black];\n", parent.call.Digest, child.call.Digest)
+			case edgeKindArg:
+				if child == nil || child.call == nil {
+					panic(fmt.Sprintf("wat: %s %s", parent.call.Field, edge.argName))
+				}
+
+				fmt.Fprintf(out, "  %q -> %q [color=blue label=%q];\n",
+					parent.call.Digest,
+					child.call.Digest,
+					edge.argName,
+				)
+			case edgeKindSpan:
+				fmt.Fprintf(out, "  %q -> %q [color=green];\n", parent.call.Digest, child.call.Digest)
+			}
+		}
+	}
+}
+
+func findParentSpanWithCall(span *Span) *Span {
+	if span.ParentSpan == nil {
+		return nil
+	}
+	if span.ParentSpan.Call != nil {
+		return span.ParentSpan
+	}
+	return findParentSpanWithCall(span.ParentSpan)
+}
+
+func displayLit(lit *callpbv1.Literal) string {
+	switch val := lit.GetValue().(type) {
+	case *callpbv1.Literal_Bool:
+		return fmt.Sprintf("%v", val.Bool)
+	case *callpbv1.Literal_Int:
+		return fmt.Sprintf("%d", val.Int)
+	case *callpbv1.Literal_Float:
+		return fmt.Sprintf("%f", val.Float)
+	case *callpbv1.Literal_String_:
+		if len(val.String_) > 256 {
+			return "ETOOBIG"
+		}
+		return fmt.Sprintf("%q", val.String_)
+	case *callpbv1.Literal_CallDigest:
+		return "<input>"
+	case *callpbv1.Literal_Enum:
+		return val.Enum
+	case *callpbv1.Literal_Null:
+		return "null"
+	case *callpbv1.Literal_List:
+		s := "["
+		for i, item := range val.List.GetValues() {
+			if i > 0 {
+				s += ", "
+			}
+			s += displayLit(item)
+		}
+		s += "]"
+		return s
+	case *callpbv1.Literal_Object:
+		s := "{"
+		for i, item := range val.Object.GetValues() {
+			if i > 0 {
+				s += ", "
+			}
+			s += fmt.Sprintf("%s: %s", item.GetName(), displayLit(item.GetValue()))
+		}
+		s += "}"
+		return s
+	default:
+		panic(fmt.Sprintf("unknown literal type %T", val))
+	}
+}
+
+type dotDag struct {
+	vtxByCallDgst map[string]*dotVtx
+	// vtxBySpanID   map[trace.SpanID]*dotVtx
+
+	// child vtx -> set of parent vtxs
+	parents map[*dotVtx]map[*dotVtx]struct{}
+}
+
+type dotVtx struct {
+	call *callpbv1.Call
+	span *Span
+
+	children map[*dotVtx]*dotEdge
+}
+
+type dotEdge struct {
+	parent *dotVtx
+	child  *dotVtx
+	kind   edgeKind
+
+	// only for kind arg
+	argName string
+}
+
+type edgeKind int
+
+func (db *DB) getDotDag() *dotDag {
+	dag := &dotDag{
+		vtxByCallDgst: make(map[string]*dotVtx),
+		// vtxBySpanID:   make(map[trace.SpanID]*dotVtx),
+
+		parents: make(map[*dotVtx]map[*dotVtx]struct{}),
+	}
+
+	for _, span := range db.Spans {
+		call := span.Call
+		if call == nil {
+			continue
+		}
+		if call.Field == "id" {
+			continue
+		}
+		callDgst := call.Digest
+
+		vtx, ok := dag.vtxByCallDgst[callDgst]
+		switch {
+		case !ok:
+			vtx = &dotVtx{
+				call:     call,
+				span:     span,
+				children: make(map[*dotVtx]*dotEdge),
+			}
+			dag.vtxByCallDgst[callDgst] = vtx
+		case vtx.call == nil:
+			vtx.call = call
+			vtx.span = span
+		default:
+			continue
+		}
+
+		if call.ReceiverDigest != "" {
+			receiverVtx, ok := dag.vtxByCallDgst[call.ReceiverDigest]
+			if !ok {
+				receiverVtx = &dotVtx{
+					children: make(map[*dotVtx]*dotEdge),
+				}
+				dag.vtxByCallDgst[call.ReceiverDigest] = receiverVtx
+			}
+
+			edge, ok := receiverVtx.children[vtx]
+			if !ok {
+				edge = &dotEdge{
+					parent: receiverVtx,
+					child:  vtx,
+				}
+				receiverVtx.children[vtx] = edge
+			}
+			if edge.kind == edgeKindUnset {
+				edge.kind = edgeKindReceiver
+			}
+
+			parents, ok := dag.parents[vtx]
+			if !ok {
+				parents = make(map[*dotVtx]struct{})
+				dag.parents[vtx] = parents
+			}
+			parents[receiverVtx] = struct{}{}
+		} else if parentSpan := findParentSpanWithCall(span); parentSpan != nil {
+			// no receiver, see if we can connect to a parent span (i.e. one module calling to another or to core, etc.)
+			parentSpanVtx, ok := dag.vtxByCallDgst[parentSpan.Call.Digest]
+			if !ok {
+				parentSpanVtx = &dotVtx{
+					children: make(map[*dotVtx]*dotEdge),
+				}
+				dag.vtxByCallDgst[parentSpan.Call.Digest] = parentSpanVtx
+			}
+
+			edge, ok := parentSpanVtx.children[vtx]
+			if !ok {
+				edge = &dotEdge{
+					parent: parentSpanVtx,
+					child:  vtx,
+				}
+				parentSpanVtx.children[vtx] = edge
+			}
+			if edge.kind == edgeKindUnset {
+				edge.kind = edgeKindSpan
+			}
+
+			parents, ok := dag.parents[vtx]
+			if !ok {
+				parents = make(map[*dotVtx]struct{})
+				dag.parents[vtx] = parents
+			}
+			parents[parentSpanVtx] = struct{}{}
+		}
+
+		for _, arg := range call.Args {
+			argCallDgstLit, ok := arg.Value.Value.(*callpbv1.Literal_CallDigest)
+			if !ok || argCallDgstLit == nil {
+				continue
+			}
+			argCallDgst := argCallDgstLit.CallDigest
+
+			argVtx, ok := dag.vtxByCallDgst[argCallDgst]
+			if !ok {
+				argVtx = &dotVtx{
+					children: make(map[*dotVtx]*dotEdge),
+				}
+				dag.vtxByCallDgst[argCallDgst] = argVtx
+			}
+
+			edge, ok := argVtx.children[vtx]
+			if !ok {
+				edge = &dotEdge{
+					parent: argVtx,
+					child:  vtx,
+				}
+				argVtx.children[vtx] = edge
+			}
+			edge.argName = arg.Name
+			edge.kind = edgeKindArg
+
+			parents, ok := dag.parents[vtx]
+			if !ok {
+				parents = make(map[*dotVtx]struct{})
+				dag.parents[vtx] = parents
+			}
+			parents[argVtx] = struct{}{}
+		}
+	}
+
+	// focus on a specific call if asked
+	var focused map[*dotVtx]struct{}
+	if focusCall != "" {
+		var focusedVtx *dotVtx
+		for _, vtx := range dag.vtxByCallDgst {
+			if vtx.call == nil {
+				continue
+			}
+			if vtx.call.Field == focusCall {
+				focusedVtx = vtx
+				break
+			}
+		}
+		if focusedVtx == nil {
+			panic(fmt.Sprintf("focus call %q not found", focusCall))
+		}
+		focused = make(map[*dotVtx]struct{})
+		dag.findFocused(focusedVtx, focused)
+	}
+
+	// trim things
+	for vtxDgst, vtx := range dag.vtxByCallDgst {
+		if !dag.shouldTrim(vtx, focused) {
+			continue
+		}
+
+		// unknown, trim it
+		delete(dag.vtxByCallDgst, vtxDgst)
+		parents, ok := dag.parents[vtx]
+		if ok {
+			for parent := range parents {
+				delete(parent.children, vtx)
+			}
+		}
+	}
+
+	return dag
+}
+
+func (dag *dotDag) findFocused(
+	curVtx *dotVtx,
+	visited map[*dotVtx]struct{},
+) {
+	if _, ok := visited[curVtx]; ok {
+		return
+	}
+	visited[curVtx] = struct{}{}
+
+	for childVtx := range curVtx.children {
+		dag.findFocused(childVtx, visited)
+	}
+}
+
+func (dag *dotDag) shouldTrim(vtx *dotVtx, focused map[*dotVtx]struct{}) bool {
+	if vtx.call == nil {
+		return true
+	}
+	if !dumpInternal && vtx.span.Internal {
+		return true
+	}
+	if vtx.call.Field == "id" {
+		return true
+	}
+	if vtx.call.Field == "loadFunctionCallArgValueFromID" {
+		return true
+	}
+	if focused != nil {
+		_, ok := focused[vtx]
+		if !ok {
+			return true
+		}
+	}
+	return false
+}
+
+const (
+	edgeKindUnset edgeKind = iota
+	edgeKindReceiver
+	edgeKindArg
+	edgeKindSpan
+)
 
 func (db *DB) AllTraces() []*Trace {
 	traces := make([]*Trace, 0, len(db.Traces))
@@ -158,6 +544,14 @@ func (db DBMetricExporter) Export(ctx context.Context, resourceMetrics *metricda
 			}
 
 			for _, point := range metricData.DataPoints {
+				callDgst, ok := point.Attributes.Value(telemetry.DagDigestAttr)
+				if ok {
+					if db.MetricsByCallDigest[callDgst.AsString()] == nil {
+						db.MetricsByCallDigest[callDgst.AsString()] = make(map[string][]metricdata.DataPoint[int64])
+					}
+					db.MetricsByCallDigest[callDgst.AsString()][metric.Name] = append(db.MetricsByCallDigest[callDgst.AsString()][metric.Name], point)
+				}
+
 				spanIDStr, ok := point.Attributes.Value(telemetry.MetricsSpanID)
 				if !ok {
 					continue

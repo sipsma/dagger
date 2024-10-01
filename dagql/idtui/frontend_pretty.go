@@ -96,6 +96,10 @@ func New() Frontend {
 	}
 }
 
+func (fe *frontendPretty) WriteDot(out io.Writer) {
+	fe.db.WriteDot(out)
+}
+
 func (fe *frontendPretty) ConnectedToEngine(ctx context.Context, name string, version string, clientID string) {
 	// noisy, so suppress this for now
 }
