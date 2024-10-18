@@ -300,10 +300,20 @@ func (container *Container) From(ctx context.Context, addr string) (*Container, 
 
 	ref := reference.TagNameOnly(refName).String()
 
+	// If the address has a digest, there's no need to check the network right away. Instead
+	// we can check the local cache first for the image and only hit the network if it's not
+	// found.
+	// This isn't true for image addrs that only have a tag since those are mutable and thus
+	// should always be checked over the network.
+	resolveMode := llb.ResolveModeDefault
+	if strings.Contains(addr, "@") {
+		resolveMode = llb.ResolveModePreferLocal
+	}
+
 	_, digest, cfgBytes, err := bk.ResolveImageConfig(ctx, ref, sourceresolver.Opt{
 		Platform: ptr(platform.Spec()),
 		ImageOpt: &sourceresolver.ResolveImageOpt{
-			ResolveMode: llb.ResolveModeDefault.String(),
+			ResolveMode: resolveMode.String(),
 		},
 	})
 	if err != nil {
@@ -323,6 +333,7 @@ func (container *Container) From(ctx context.Context, addr string) (*Container, 
 	fsSt := llb.Image(
 		digested.String(),
 		llb.WithCustomNamef("pull %s", ref),
+		resolveMode,
 	)
 
 	def, err := fsSt.Marshal(ctx, llb.Platform(platform.Spec()))
