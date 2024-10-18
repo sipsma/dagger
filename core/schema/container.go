@@ -11,6 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/distribution/reference"
+	"github.com/moby/buildkit/client/llb"
+	"github.com/moby/buildkit/client/llb/sourceresolver"
 	"github.com/moby/buildkit/frontend/dockerfile/shell"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/vektah/gqlparser/v2/ast"
@@ -50,7 +53,12 @@ func (s *containerSchema) Install() {
 			ArgDoc("description", "Description of the sub-pipeline.").
 			ArgDoc("labels", "Labels to apply to the sub-pipeline."),
 
-		dagql.Func("from", s.from).
+		dagql.NodeFunc("from", s.from).
+			Doc(`Initializes this container from a pulled base image.`).
+			ArgDoc("address",
+				`Image's address from its registry.`,
+				`Formatted as [host]/[user]/[repo]:[tag] (e.g., "docker.io/dagger/dagger:main").`),
+		dagql.Func("__internalFrom", s.internalFrom).
 			Doc(`Initializes this container from a pulled base image.`).
 			ArgDoc("address",
 				`Image's address from its registry.`,
@@ -715,7 +723,54 @@ type containerFromArgs struct {
 	Address string
 }
 
-func (s *containerSchema) from(ctx context.Context, parent *core.Container, args containerFromArgs) (*core.Container, error) {
+func (s *containerSchema) from(ctx context.Context, parent dagql.Instance[*core.Container], args containerFromArgs) (inst dagql.Instance[*core.Container], _ error) {
+	bk, err := parent.Self.Query.Buildkit(ctx)
+	if err != nil {
+		return inst, fmt.Errorf("failed to get buildkit client: %w", err)
+	}
+	platform := parent.Self.Platform
+
+	refName, err := reference.ParseNormalizedNamed(args.Address)
+	if err != nil {
+		return inst, err
+	}
+	// add a default :latest if no tag or digest, otherwise this is a no-op
+	refName = reference.TagNameOnly(refName)
+
+	_, isCanonical := refName.(reference.Canonical)
+	if !isCanonical {
+		// doesn't have a digest, resolve that now
+		_, digest, _, err := bk.ResolveImageConfig(ctx, refName.String(), sourceresolver.Opt{
+			Platform: ptr(platform.Spec()),
+			ImageOpt: &sourceresolver.ResolveImageOpt{
+				ResolveMode: llb.ResolveModeDefault.String(),
+			},
+		})
+		if err != nil {
+			return inst, fmt.Errorf("failed to resolve image %s: %w", refName.String(), err)
+		}
+		refName, err = reference.WithDigest(refName, digest)
+		if err != nil {
+			return inst, fmt.Errorf("failed to set digest on image %s: %w", refName.String(), err)
+		}
+	}
+
+	err = s.srv.Select(ctx, parent, &inst,
+		dagql.Selector{
+			Field: "__internalFrom",
+			Args: []dagql.NamedInput{
+				{Name: "address", Value: dagql.String(refName.String())},
+			},
+		},
+	)
+	if err != nil {
+		return inst, err
+	}
+
+	return inst, nil
+}
+
+func (s *containerSchema) internalFrom(ctx context.Context, parent *core.Container, args containerFromArgs) (*core.Container, error) {
 	return parent.From(ctx, args.Address)
 }
 

@@ -284,12 +284,12 @@ func (mnts ContainerMounts) With(newMnt ContainerMount) ContainerMounts {
 }
 
 func (container *Container) From(ctx context.Context, addr string) (*Container, error) {
+	container = container.Clone()
+
 	bk, err := container.Query.Buildkit(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get buildkit client: %w", err)
 	}
-
-	container = container.Clone()
 
 	platform := container.Platform
 
@@ -297,32 +297,22 @@ func (container *Container) From(ctx context.Context, addr string) (*Container, 
 	if err != nil {
 		return nil, err
 	}
-
-	ref := reference.TagNameOnly(refName).String()
-
-	// If the address has a digest, there's no need to check the network right away. Instead
-	// we can check the local cache first for the image and only hit the network if it's not
-	// found.
-	// This isn't true for image addrs that only have a tag since those are mutable and thus
-	// should always be checked over the network.
-	resolveMode := llb.ResolveModeDefault
-	if strings.Contains(addr, "@") {
-		resolveMode = llb.ResolveModePreferLocal
+	_, isCanonical := refName.(reference.Canonical)
+	if !isCanonical {
+		return nil, fmt.Errorf("image reference must be canonical: %s", addr)
 	}
 
-	_, digest, cfgBytes, err := bk.ResolveImageConfig(ctx, ref, sourceresolver.Opt{
+	refStr := refName.String()
+
+	resolveMode := llb.ResolveModePreferLocal
+	_, _, cfgBytes, err := bk.ResolveImageConfig(ctx, refStr, sourceresolver.Opt{
 		Platform: ptr(platform.Spec()),
 		ImageOpt: &sourceresolver.ResolveImageOpt{
 			ResolveMode: resolveMode.String(),
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve image %s: %w", ref, err)
-	}
-
-	digested, err := reference.WithDigest(refName, digest)
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to resolve image %s: %w", refStr, err)
 	}
 
 	var imgSpec specs.Image
@@ -331,8 +321,8 @@ func (container *Container) From(ctx context.Context, addr string) (*Container, 
 	}
 
 	fsSt := llb.Image(
-		digested.String(),
-		llb.WithCustomNamef("pull %s", ref),
+		refStr,
+		llb.WithCustomNamef("pull %s", refStr),
 		resolveMode,
 	)
 
@@ -344,7 +334,7 @@ func (container *Container) From(ctx context.Context, addr string) (*Container, 
 	container.FS = def.ToPB()
 
 	container.Config = mergeImageConfig(container.Config, imgSpec.Config)
-	container.ImageRef = digested.String()
+	container.ImageRef = refStr
 	container.Platform = Platform(platforms.Normalize(imgSpec.Platform))
 
 	return container, nil
