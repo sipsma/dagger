@@ -76,6 +76,8 @@ func ClientGen(cmd *cobra.Command, args []string) error {
 		OutputDir: outputDir,
 
 		Merge: mergePtr,
+
+		Dag: dag,
 	}
 
 	if moduleName != "" {
@@ -102,7 +104,7 @@ func ClientGen(cmd *cobra.Command, args []string) error {
 		cfg.IntrospectionJSON = string(introspectionJSON)
 	}
 
-	return Generate(ctx, cfg, dag)
+	return Generate(ctx, cfg)
 }
 
 func Introspect(cmd *cobra.Command, args []string) error {

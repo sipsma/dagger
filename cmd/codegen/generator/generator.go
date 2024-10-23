@@ -40,6 +40,9 @@ type Config struct {
 
 	// Merge indicates whether to merge the module deps with the existing project.
 	Merge *bool
+
+	// TODO:?
+	Dag *dagger.Client
 }
 
 type Generator interface {

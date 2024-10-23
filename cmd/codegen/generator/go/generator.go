@@ -130,7 +130,7 @@ func (g *GoGenerator) Generate(ctx context.Context, schema *introspection.Schema
 		return genSt, nil
 	}
 
-	pkg, fset, err := loadPackage(ctx, filepath.Join(g.Config.OutputDir, outDir))
+	pkg, fset, err := loadPackage(ctx, filepath.Join(g.Config.OutputDir, outDir), g.Config.Dag)
 	if err != nil {
 		return nil, fmt.Errorf("load package %q: %w", outDir, err)
 	}
@@ -153,7 +153,7 @@ type PackageInfo struct {
 func (g *GoGenerator) bootstrapMod(ctx context.Context, mfs *memfs.FS) (*PackageInfo, bool, error) {
 	// don't mess around go.mod if we're not building modules
 	if g.Config.ModuleName == "" {
-		if pkg, _, err := loadPackage(ctx, g.Config.OutputDir); err == nil {
+		if pkg, _, err := loadPackage(ctx, g.Config.OutputDir, nil); err == nil {
 			return &PackageInfo{
 				PackageName:   pkg.Name,
 				PackageImport: pkg.Module.Path,
@@ -350,9 +350,21 @@ func renderFile(
 	return formatted, nil
 }
 
-func loadPackage(ctx context.Context, dir string) (*packages.Package, *token.FileSet, error) {
+func loadPackage(ctx context.Context, dir string, c *dagger.Client) (*packages.Package, *token.FileSet, error) {
 	ctx, span := trace.Tracer().Start(ctx, "loadPackage")
 	defer span.End()
+
+	// TODO:??
+	// TODO:??
+	// TODO:??
+	if c != nil {
+		pkgDag, err := NewGoPackageDag(ctx, dir)
+		if err != nil {
+			fmt.Printf("failed to load package dag: %v\n", err)
+		} else if err := pkgDag.CacheBuilds(ctx, c); err != nil {
+			fmt.Printf("failed to cache builds: %v\n", err)
+		}
+	}
 
 	fset := token.NewFileSet()
 	pkgs, err := packages.Load(&packages.Config{

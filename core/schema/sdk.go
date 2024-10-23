@@ -739,6 +739,22 @@ func (sdk *goSDK) base(ctx context.Context) (dagql.Instance[*core.Container], er
 				},
 			},
 		},
+		// TODO:
+		// TODO:
+		// TODO:
+		dagql.Selector{
+			Field: "withEnvVariable",
+			Args: []dagql.NamedInput{
+				{
+					Name:  "name",
+					Value: dagql.String(distconsts.GoSDKManifestDigestEnvName),
+				},
+				{
+					Name:  "value",
+					Value: dagql.String(os.Getenv(distconsts.GoSDKManifestDigestEnvName)),
+				},
+			},
+		},
 	); err != nil {
 		return inst, fmt.Errorf("failed to get container from go module sdk tarball: %w", err)
 	}
