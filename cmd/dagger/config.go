@@ -38,9 +38,9 @@ dagger config -m github.com/dagger/hello-dagger
 	),
 	Args:    cobra.NoArgs,
 	GroupID: moduleGroup.ID,
-	RunE: configSubcmdRun(func(ctx context.Context, cmd *cobra.Command, _ []string, modConf *configuredModule) (err error) {
+	RunE: configSubcmdRun(func(ctx context.Context, cmd *cobra.Command, _ []string, src *dagger.ModuleSource) (err error) {
 		if configJSONOutput {
-			cfgContents, err := modConf.Source.Directory(".").File(modules.Filename).Contents(ctx)
+			cfgContents, err := src.Directory(".").File(modules.Filename).Contents(ctx)
 			if err != nil {
 				return fmt.Errorf("failed to read module config: %w", err)
 			}
@@ -48,15 +48,21 @@ dagger config -m github.com/dagger/hello-dagger
 			return nil
 		}
 
-		mod := modConf.Source.AsModule()
-
-		name, err := mod.Name(ctx)
+		name, err := src.ModuleName(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to get module name: %w", err)
 		}
-		sdk, err := mod.SDK(ctx)
+		sdk, err := src.SDK(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to get module SDK: %w", err)
+		}
+		kind, err := src.Kind(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get module kind: %w", err)
+		}
+		srcRootPath, err := src.SourceRootSubpath(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get module source root path: %w", err)
 		}
 
 		tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 3, ' ', tabwriter.DiscardEmptyColumns)
@@ -69,13 +75,20 @@ dagger config -m github.com/dagger/hello-dagger
 			sdk,
 		)
 		fmt.Fprintf(tw, "%s\t%s\n",
-			"Root Directory:",
-			modConf.LocalContextPath,
-		)
-		fmt.Fprintf(tw, "%s\t%s\n",
 			"Source Directory:",
-			modConf.LocalRootSourcePath,
+			srcRootPath,
 		)
+
+		if kind == dagger.ModuleSourceKindLocalSource {
+			contextPath, err := src.AsLocalSource().ContextDirectoryPath(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to get module context path: %w", err)
+			}
+			fmt.Fprintf(tw, "%s\t%s\n",
+				"Root Directory:",
+				contextPath,
+			)
+		}
 
 		return tw.Flush()
 	}).RunE,
@@ -96,7 +109,7 @@ dagger config views
 dagger config views -n my-view
 `),
 	GetPositionalArgs: cobra.NoArgs,
-	GetCmd: func(ctx context.Context, cmd *cobra.Command, _ []string, modConf *configuredModule) error {
+	GetCmd: func(ctx context.Context, cmd *cobra.Command, _ []string, src *dagger.ModuleSource) error {
 		name, err := cmd.Flags().GetString("name")
 		if err != nil {
 			return fmt.Errorf("failed to get view name: %w", err)
@@ -104,7 +117,7 @@ dagger config views -n my-view
 
 		if name == "" {
 			// print'em all
-			views, err := modConf.Source.Views(ctx)
+			views, err := src.Views(ctx)
 			if err != nil {
 				return fmt.Errorf("failed to get views: %w", err)
 			}
@@ -139,7 +152,7 @@ dagger config views -n my-view
 			return nil
 		}
 
-		patterns, err := modConf.Source.View(name).Patterns(ctx)
+		patterns, err := src.View(name).Patterns(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to get view patterns: %w", err)
 		}
@@ -159,7 +172,7 @@ dagger config views -n my-view
 
 	SetExample:        `dagger config views set -n my-view '**/*.txt' ./some/path`,
 	SetPositionalArgs: cobra.MinimumNArgs(1),
-	SetCmd: func(ctx context.Context, cmd *cobra.Command, args []string, modConf *configuredModule) error {
+	SetCmd: func(ctx context.Context, cmd *cobra.Command, args []string, src *dagger.ModuleSource) error {
 		name, err := cmd.Flags().GetString("name")
 		if err != nil {
 			return fmt.Errorf("failed to get view name: %w", err)
@@ -169,15 +182,20 @@ dagger config views -n my-view
 			return fmt.Errorf("--name (-n) is required")
 		}
 
-		updatedMod := modConf.Source.WithView(name, args).AsModule()
-		updatedView, err := updatedMod.Source().View(name).Patterns(ctx)
+		updatedSrc := src.WithView(name, args)
+		updatedView, err := updatedSrc.View(name).Patterns(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to get view: %w", err)
 		}
 
-		_, err = updatedMod.
+		contextPath, err := updatedSrc.AsLocalSource().ContextDirectoryPath(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get module context path: %w", err)
+		}
+
+		_, err = updatedSrc.
 			GeneratedContextDiff().
-			Export(ctx, modConf.LocalContextPath)
+			Export(ctx, contextPath)
 		if err != nil {
 			return fmt.Errorf("failed to update view paths: %w", err)
 		}
@@ -198,7 +216,7 @@ dagger config views -n my-view
 
 	AddExample:        `dagger config views add -n my-view ./some/path ./some/other/path`,
 	AddPositionalArgs: cobra.MinimumNArgs(1),
-	AddCmd: func(ctx context.Context, cmd *cobra.Command, args []string, modConf *configuredModule) error {
+	AddCmd: func(ctx context.Context, cmd *cobra.Command, args []string, src *dagger.ModuleSource) error {
 		name, err := cmd.Flags().GetString("name")
 		if err != nil {
 			return fmt.Errorf("failed to get view name: %w", err)
@@ -208,21 +226,26 @@ dagger config views -n my-view
 			return fmt.Errorf("--name (-n) is required")
 		}
 
-		viewPatterns, err := modConf.Source.View(name).Patterns(ctx)
+		viewPatterns, err := src.View(name).Patterns(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to get current include paths: %w", err)
 		}
 		viewPatterns = append(viewPatterns, args...)
 
-		updatedMod := modConf.Source.WithView(name, viewPatterns).AsModule()
-		updatedView, err := updatedMod.Source().View(name).Patterns(ctx)
+		updatedSrc := src.WithView(name, viewPatterns)
+		updatedView, err := updatedSrc.View(name).Patterns(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to get updated view paths: %w", err)
 		}
 
-		_, err = updatedMod.
+		contextPath, err := updatedSrc.AsLocalSource().ContextDirectoryPath(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get module context path: %w", err)
+		}
+
+		_, err = updatedSrc.
 			GeneratedContextDiff().
-			Export(ctx, modConf.LocalContextPath)
+			Export(ctx, contextPath)
 		if err != nil {
 			return fmt.Errorf("failed to update view paths: %w", err)
 		}
@@ -245,7 +268,7 @@ dagger config views -n my-view
 dagger config views remove -n my-view
 dagger config views remove -n my-view ./some/path '**/*.txt'
 `),
-	RemoveCmd: func(ctx context.Context, cmd *cobra.Command, args []string, modConf *configuredModule) error {
+	RemoveCmd: func(ctx context.Context, cmd *cobra.Command, args []string, src *dagger.ModuleSource) error {
 		name, err := cmd.Flags().GetString("name")
 		if err != nil {
 			return fmt.Errorf("failed to get view name: %w", err)
@@ -257,7 +280,7 @@ dagger config views remove -n my-view ./some/path '**/*.txt'
 
 		var updatedPatterns []string
 		if len(args) > 0 {
-			curPatterns, err := modConf.Source.View(name).Patterns(ctx)
+			curPatterns, err := src.View(name).Patterns(ctx)
 			if err != nil {
 				return fmt.Errorf("failed to get current view paths: %w", err)
 			}
@@ -276,10 +299,15 @@ dagger config views remove -n my-view ./some/path '**/*.txt'
 			}
 		}
 
-		updatedMod := modConf.Source.WithView(name, updatedPatterns).AsModule()
-		_, err = updatedMod.
+		contextPath, err := src.AsLocalSource().ContextDirectoryPath(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get module context path: %w", err)
+		}
+
+		updatedSrc := src.WithView(name, updatedPatterns)
+		_, err = updatedSrc.
 			GeneratedContextDiff().
-			Export(ctx, modConf.LocalContextPath)
+			Export(ctx, contextPath)
 		if err != nil {
 			return fmt.Errorf("failed to update view: %w", err)
 		}
@@ -418,7 +446,7 @@ func (c configSubcmd) Command() *cobra.Command {
 	return cmd
 }
 
-type configSubcmdRun func(ctx context.Context, cmd *cobra.Command, args []string, modConf *configuredModule) error
+type configSubcmdRun func(ctx context.Context, cmd *cobra.Command, args []string, src *dagger.ModuleSource) error
 
 type cobraRunE func(cmd *cobra.Command, args []string) error
 
@@ -435,12 +463,9 @@ func (run configSubcmdRun) runE(localOnly bool) cobraRunE {
 		ctx := cmd.Context()
 
 		return withEngine(ctx, client.Params{}, func(ctx context.Context, engineClient *client.Client) (err error) {
-			modConf, err := getDefaultModuleConfiguration(ctx, engineClient.Dagger(), true, true)
-			if err != nil {
-				return fmt.Errorf("failed to load module: %w", err)
-			}
+			src := engineClient.Dagger().ModuleSource(getModuleSourceRef())
 			if localOnly {
-				kind, err := modConf.Source.Kind(ctx)
+				kind, err := src.Kind(ctx)
 				if err != nil {
 					return fmt.Errorf("failed to get module kind: %w", err)
 				}
@@ -448,11 +473,15 @@ func (run configSubcmdRun) runE(localOnly bool) cobraRunE {
 					return fmt.Errorf("command only valid for local modules")
 				}
 			}
-			if !modConf.FullyInitialized() {
+			isInitialized, err := src.ConfigExists(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to check if module is initialized: %w", err)
+			}
+			if !isInitialized {
 				return fmt.Errorf("module must be fully initialized")
 			}
 
-			return run(ctx, cmd, args, modConf)
+			return run(ctx, cmd, args, src)
 		})
 	}
 }

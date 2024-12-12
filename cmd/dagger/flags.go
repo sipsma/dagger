@@ -754,11 +754,7 @@ func (v *moduleValue) Get(ctx context.Context, dag *dagger.Client, _ *dagger.Mod
 	if v.ref == "" {
 		return nil, fmt.Errorf("module ref cannot be empty")
 	}
-	modConf, err := getModuleConfigurationForSourceRef(ctx, dag, v.ref, true, true)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get module configuration: %w", err)
-	}
-	return modConf.Source.AsModule(), nil
+	return dag.ModuleSource(v.ref).AsModule(), nil
 }
 
 type moduleSourceValue struct {
@@ -785,11 +781,7 @@ func (v *moduleSourceValue) Get(ctx context.Context, dag *dagger.Client, _ *dagg
 	if v.ref == "" {
 		return nil, fmt.Errorf("module source ref cannot be empty")
 	}
-	modConf, err := getModuleConfigurationForSourceRef(ctx, dag, v.ref, true, true)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get module configuration: %w", err)
-	}
-	return modConf.Source, nil
+	return dag.ModuleSource(v.ref), nil
 }
 
 type platformValue struct {

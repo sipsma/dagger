@@ -5351,9 +5351,10 @@ func (r *ListTypeDef) MarshalJSON() ([]byte, error) {
 type LocalModuleSource struct {
 	query *querybuilder.Selection
 
-	id          *LocalModuleSourceID
-	relHostPath *string
-	rootSubpath *string
+	contextDirectoryPath *string
+	id                   *LocalModuleSourceID
+	relHostPath          *string
+	rootSubpath          *string
 }
 
 func (r *LocalModuleSource) WithGraphQLQuery(q *querybuilder.Selection) *LocalModuleSource {
@@ -5369,6 +5370,19 @@ func (r *LocalModuleSource) ContextDirectory() *Directory {
 	return &Directory{
 		query: q,
 	}
+}
+
+// The absolute path to the context directory containing the module source on the caller's host.
+func (r *LocalModuleSource) ContextDirectoryPath(ctx context.Context) (string, error) {
+	if r.contextDirectoryPath != nil {
+		return *r.contextDirectoryPath, nil
+	}
+	q := r.query.Select("contextDirectoryPath")
+
+	var response string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
 }
 
 // A unique identifier for this LocalModuleSource.
@@ -5574,15 +5588,6 @@ func (r *Module) Enums(ctx context.Context) ([]TypeDef, error) {
 	return convert(response), nil
 }
 
-// The generated files and directories made on top of the module source's context directory.
-func (r *Module) GeneratedContextDiff() *Directory {
-	q := r.query.Select("generatedContextDiff")
-
-	return &Directory{
-		query: q,
-	}
-}
-
 // The module source's context plus any configuration and source files created by codegen.
 func (r *Module) GeneratedContextDirectory() *Directory {
 	q := r.query.Select("generatedContextDirectory")
@@ -5630,15 +5635,6 @@ func (r *Module) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	return json.Marshal(id)
-}
-
-// Retrieves the module with the objects loaded via its SDK.
-func (r *Module) Initialize() *Module {
-	q := r.query.Select("initialize")
-
-	return &Module{
-		query: q,
-	}
 }
 
 // Interfaces served by this module.
@@ -5806,29 +5802,6 @@ func (r *Module) WithObject(object *TypeDef) *Module {
 	}
 }
 
-// ModuleWithSourceOpts contains options for Module.WithSource
-type ModuleWithSourceOpts struct {
-	// The engine version to upgrade to.
-	EngineVersion string
-}
-
-// Retrieves the module with basic configuration loaded if present.
-func (r *Module) WithSource(source *ModuleSource, opts ...ModuleWithSourceOpts) *Module {
-	assertNotNil("source", source)
-	q := r.query.Select("withSource")
-	for i := len(opts) - 1; i >= 0; i-- {
-		// `engineVersion` optional argument
-		if !querybuilder.IsZeroValue(opts[i].EngineVersion) {
-			q = q.Arg("engineVersion", opts[i].EngineVersion)
-		}
-	}
-	q = q.Arg("source", source)
-
-	return &Module{
-		query: q,
-	}
-}
-
 // The configuration of dependency of a module.
 type ModuleDependency struct {
 	query *querybuilder.Selection
@@ -5909,16 +5882,16 @@ func (r *ModuleDependency) Source() *ModuleSource {
 type ModuleSource struct {
 	query *querybuilder.Selection
 
-	asString                     *string
-	configExists                 *bool
-	digest                       *string
-	id                           *ModuleSourceID
-	kind                         *ModuleSourceKind
-	moduleName                   *string
-	moduleOriginalName           *string
-	resolveContextPathFromCaller *string
-	sourceRootSubpath            *string
-	sourceSubpath                *string
+	asString           *string
+	configExists       *bool
+	digest             *string
+	id                 *ModuleSourceID
+	kind               *ModuleSourceKind
+	moduleName         *string
+	moduleOriginalName *string
+	sdk                *string
+	sourceRootSubpath  *string
+	sourceSubpath      *string
 }
 type WithModuleSourceFunc func(r *ModuleSource) *ModuleSource
 
@@ -6065,6 +6038,15 @@ func (r *ModuleSource) Directory(path string) *Directory {
 	}
 }
 
+// The generated files and directories made on top of the module source's context directory.
+func (r *ModuleSource) GeneratedContextDiff() *Directory {
+	q := r.query.Select("generatedContextDiff")
+
+	return &Directory{
+		query: q,
+	}
+}
+
 // A unique identifier for this ModuleSource.
 func (r *ModuleSource) ID(ctx context.Context) (ModuleSourceID, error) {
 	if r.id != nil {
@@ -6144,30 +6126,6 @@ func (r *ModuleSource) ModuleOriginalName(ctx context.Context) (string, error) {
 	return response, q.Execute(ctx)
 }
 
-// The path to the module source's context directory on the caller's filesystem. Only valid for local sources.
-func (r *ModuleSource) ResolveContextPathFromCaller(ctx context.Context) (string, error) {
-	if r.resolveContextPathFromCaller != nil {
-		return *r.resolveContextPathFromCaller, nil
-	}
-	q := r.query.Select("resolveContextPathFromCaller")
-
-	var response string
-
-	q = q.Bind(&response)
-	return response, q.Execute(ctx)
-}
-
-// Resolve the provided module source arg as a dependency relative to this module source.
-func (r *ModuleSource) ResolveDependency(dep *ModuleSource) *ModuleSource {
-	assertNotNil("dep", dep)
-	q := r.query.Select("resolveDependency")
-	q = q.Arg("dep", dep)
-
-	return &ModuleSource{
-		query: q,
-	}
-}
-
 // ModuleSourceResolveDirectoryFromCallerOpts contains options for ModuleSource.ResolveDirectoryFromCaller
 type ModuleSourceResolveDirectoryFromCallerOpts struct {
 	// If set, the name of the view to apply to the path.
@@ -6196,13 +6154,17 @@ func (r *ModuleSource) ResolveDirectoryFromCaller(path string, opts ...ModuleSou
 	}
 }
 
-// Load the source from its path on the caller's filesystem, including only needed+configured files and directories. Only valid for local sources.
-func (r *ModuleSource) ResolveFromCaller() *ModuleSource {
-	q := r.query.Select("resolveFromCaller")
-
-	return &ModuleSource{
-		query: q,
+// The module's configured SDK.
+func (r *ModuleSource) SDK(ctx context.Context) (string, error) {
+	if r.sdk != nil {
+		return *r.sdk, nil
 	}
+	q := r.query.Select("sdk")
+
+	var response string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
 }
 
 // The path relative to context of the root of the module source, which contains dagger.json. It also contains the module implementation source code, but that may or may not being a subdir of this root.
@@ -6274,21 +6236,20 @@ func (r *ModuleSource) Views(ctx context.Context) ([]ModuleSourceView, error) {
 	return convert(response), nil
 }
 
-// Update the module source with a new context directory. Only valid for local sources.
-func (r *ModuleSource) WithContextDirectory(dir *Directory) *ModuleSource {
-	assertNotNil("dir", dir)
-	q := r.query.Select("withContextDirectory")
-	q = q.Arg("dir", dir)
+// Append the provided dependencies to the module source's dependency list.
+func (r *ModuleSource) WithDependencies(dependencies []*ModuleDependency) *ModuleSource {
+	q := r.query.Select("withDependencies")
+	q = q.Arg("dependencies", dependencies)
 
 	return &ModuleSource{
 		query: q,
 	}
 }
 
-// Append the provided dependencies to the module source's dependency list.
-func (r *ModuleSource) WithDependencies(dependencies []*ModuleDependency) *ModuleSource {
-	q := r.query.Select("withDependencies")
-	q = q.Arg("dependencies", dependencies)
+// Sets the version of the engine this module targets
+func (r *ModuleSource) WithEngineVersion(version string) *ModuleSource {
+	q := r.query.Select("withEngineVersion")
+	q = q.Arg("version", version)
 
 	return &ModuleSource{
 		query: q,

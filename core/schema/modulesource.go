@@ -3,14 +3,10 @@ package schema
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"path/filepath"
-	"sort"
 	"strings"
 
-	"dagger.io/dagger/telemetry"
-	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -18,13 +14,184 @@ import (
 	"github.com/dagger/dagger/core/modules"
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/engine/buildkit"
-	"github.com/dagger/dagger/engine/client"
-	"github.com/dagger/dagger/engine/slog"
-	"github.com/dagger/dagger/engine/vcs"
-	"github.com/go-git/go-git/v5/plumbing/transport"
-	"github.com/tonistiigi/fsutil/types"
 )
 
+func (s *moduleSchema) moduleSource(
+	ctx context.Context,
+	query *core.Query,
+	args struct{},
+) (*core.ModuleSource, error) {
+	return core.NewModuleSource(query), nil
+}
+
+func (s *moduleSchema) moduleSourceFromLocal(
+	ctx context.Context,
+	parent dagql.Instance[*core.ModuleSource],
+	args struct {
+		Path string
+	},
+) (inst dagql.Instance[*core.LocalModuleSource], rerr error) {
+	bk, err := parent.Self.Query.Buildkit(ctx)
+	if err != nil {
+		return inst, fmt.Errorf("failed to get buildkit client: %w", err)
+	}
+	return s.newLocalModuleSource(ctx, bk, args.Path, true)
+}
+
+func (s *moduleSchema) newLocalModuleSource(
+	ctx context.Context,
+	bk *buildkit.Client,
+	// localPath is the path the user provided to load the module, it may be relative or absolute and
+	// may point to either the directory containing dagger.json or any subdirectory in the
+	// filetree under the directory containing dagger.json
+	localPath string,
+	// whether to run findUp logic that checks if the localPath is a named module in the *default* dagger.json
+	doNamedDepFindUp bool,
+) (inst dagql.Instance[*core.LocalModuleSource], err error) {
+	if doNamedDepFindUp {
+		// need to check if localPath is a named module from the *default* dagger.json found-up from the cwd
+		defaultFindUpSourceRootDir, defaultFindUpExists, err := callerHostFindUp(ctx, bk, ".", modules.Filename)
+		if err != nil {
+			return inst, fmt.Errorf("failed to find up root: %w", err)
+		}
+		if defaultFindUpExists {
+			configPath := filepath.Join(defaultFindUpSourceRootDir, modules.Filename)
+			contents, err := bk.ReadCallerHostFile(ctx, configPath)
+			if err != nil {
+				return inst, fmt.Errorf("failed to read module config file: %w", err)
+			}
+			var modCfg modules.ModuleConfig
+			if err := json.Unmarshal(contents, &modCfg); err != nil {
+				return inst, fmt.Errorf("failed to decode module config: %w", err)
+			}
+
+			namedDep, ok := modCfg.DependencyByName(localPath)
+			if ok {
+				parsed := parseRefString(ctx, bk, namedDep.Source)
+				depModPath := parsed.modPath
+				switch parsed.kind {
+				case core.ModuleSourceKindGit:
+					// TODO:
+					// TODO:
+					// TODO:
+					// TODO:
+					panic("implement me")
+
+				case core.ModuleSourceKindLocal:
+					depModPath = filepath.Join(defaultFindUpSourceRootDir, depModPath)
+					return s.newLocalModuleSource(ctx, bk, depModPath, false)
+
+				default:
+					return inst, fmt.Errorf("unsupported module source kind from findUp dependency: %v", parsed.kind)
+				}
+			}
+		}
+	}
+
+	const dotGit = ".git" // the context dir is the git repo root
+	foundPaths, err := callerHostFindUpAll(ctx, bk, localPath, map[string]struct{}{
+		modules.Filename: {},
+		dotGit:           {},
+	})
+	if err != nil {
+		return inst, fmt.Errorf("failed to find up source root and context: %w", err)
+	}
+
+	contextDirPath, contextDirExists := foundPaths[dotGit]
+	sourceRootPath, sourceRootExists := foundPaths[modules.Filename]
+	if !contextDirExists && sourceRootExists {
+		// if there's no .git found, default the context dir to the source root
+		contextDirPath = sourceRootPath
+		contextDirExists = true
+	}
+
+	if contextDirExists {
+	}
+}
+
+// TODO: put on buildkit client?
+// TODO: put on buildkit client?
+// TODO: put on buildkit client?
+func callerHostFindUp(
+	ctx context.Context,
+	bk *buildkit.Client,
+	curDirPath string,
+	soughtName string,
+) (string, bool, error) {
+	found, err := callerHostFindUpAll(ctx, bk, curDirPath, map[string]struct{}{soughtName: {}})
+	if err != nil {
+		return "", false, err
+	}
+	p, ok := found[soughtName]
+	return p, ok, nil
+}
+
+// TODO: put on buildkit client?
+// TODO: put on buildkit client?
+// TODO: put on buildkit client?
+func callerHostFindUpAll(
+	ctx context.Context,
+	bk *buildkit.Client,
+	curDirPath string,
+	soughtNames map[string]struct{},
+) (map[string]string, error) {
+	found := make(map[string]string, len(soughtNames))
+	for {
+		for soughtName := range soughtNames {
+			stat, err := bk.StatCallerHostPath(ctx, filepath.Join(curDirPath, soughtName), true)
+			if err == nil {
+				delete(soughtNames, soughtName)
+				// NOTE: important that we use stat.Path here rather than curDirPath since the stat also
+				// does some normalization of paths when the client is using case-insensitive filesystems
+				found[soughtName] = filepath.Dir(stat.Path)
+				continue
+			}
+			// TODO: remove the strings.Contains check here (which aren't cross-platform),
+			// since we now set NotFound (since v0.11.2)
+			if status.Code(err) != codes.NotFound && !strings.Contains(err.Error(), "no such file or directory") {
+				return nil, fmt.Errorf("failed to lstat %s: %w", soughtName, err)
+			}
+		}
+
+		if len(soughtNames) == 0 {
+			// found everything
+			break
+		}
+
+		nextDirPath := filepath.Dir(curDirPath)
+		if curDirPath == nextDirPath {
+			// hit root, nowhere else to look
+			break
+		}
+		curDirPath = nextDirPath
+	}
+
+	return found, nil
+}
+
+func (s *moduleSchema) gitModuleSource(
+	ctx context.Context,
+	query dagql.Instance[*core.Query],
+	args struct {
+		RefString string
+		RefPin    string `default:""`
+		Stable    bool   `default:"false"`
+	},
+) (inst dagql.Instance[*core.GitModuleSource], rerr error) {
+	bk, err := query.Self.Buildkit(ctx)
+	if err != nil {
+		return inst, fmt.Errorf("failed to get buildkit client: %w", err)
+	}
+}
+
+//
+//
+//
+//
+//
+//
+
+/*
 type moduleSourceArgs struct {
 	// avoiding name "ref" due to that being a reserved word in some SDKs (e.g. Rust)
 	RefString string
@@ -37,19 +204,31 @@ type moduleSourceArgs struct {
 	RelHostPath string `default:""`
 }
 
-func (s *moduleSchema) moduleSource(ctx context.Context, query *core.Query, args moduleSourceArgs) (*core.ModuleSource, error) {
-	bk, err := query.Buildkit(ctx)
+func (s *moduleSchema) moduleSource(
+	ctx context.Context,
+	query dagql.Instance[*core.Query],
+	args moduleSourceArgs,
+) (inst dagql.Instance[*core.ModuleSource], rerr error) {
+	bk, err := query.Self.Buildkit(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get buildkit client: %w", err)
+		return inst, fmt.Errorf("failed to get buildkit client: %w", err)
 	}
 	parsed := parseRefString(ctx, bk, args.RefString)
 
 	src := &core.ModuleSource{
-		Query: query,
+		Query: query.Self,
 		Kind:  parsed.kind,
 	}
 
 	switch src.Kind {
+	case core.ModuleSourceKindDirectory:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+
 	case core.ModuleSourceKindLocal:
 		if filepath.IsAbs(parsed.modPath) {
 			cwdStat, err := bk.StatCallerHostPath(ctx, ".", true)
@@ -73,7 +252,6 @@ func (s *moduleSchema) moduleSource(ctx context.Context, query *core.Query, args
 	case core.ModuleSourceKindGit:
 		src.AsGitSource = dagql.NonNull(&core.GitModuleSource{})
 
-		src.AsGitSource.Value.Root = parsed.repoRoot.Root
 		src.AsGitSource.Value.HTMLRepoURL = parsed.repoRoot.Repo
 
 		// Determine usernames for source reference and actual cloning
@@ -681,6 +859,14 @@ func (s *moduleSchema) moduleSourceWithoutDependencies(
 	return src, nil
 }
 
+func (s *moduleSchema) moduleSourceSDK(
+	ctx context.Context,
+	src *core.ModuleSource,
+	args struct{},
+) (string, error) {
+	panic("implement me")
+}
+
 func (s *moduleSchema) moduleSourceWithSDK(
 	ctx context.Context,
 	src *core.ModuleSource,
@@ -706,6 +892,16 @@ func (s *moduleSchema) moduleSourceWithInit(
 		Merge: args.Merge,
 	}
 	return src, nil
+}
+
+func (s *moduleSchema) moduleSourceWithEngineVersion(
+	ctx context.Context,
+	src *core.ModuleSource,
+	args struct {
+		Version string
+	},
+) (*core.ModuleSource, error) {
+	panic("implement me")
 }
 
 func (s *moduleSchema) moduleSourceResolveDependency(
@@ -906,7 +1102,7 @@ func (s *moduleSchema) moduleSourceResolveFromCaller(
 
 	var includeSet core.SliceSet[string] = []string{}
 	// always exclude .git dirs, we don't need them and they tend to invalidate cache a lot
-	var excludeSet core.SliceSet[string] = []string{"**/.git"}
+	var excludeSet core.SliceSet[string] = []string{"**"+"/.git"}
 
 	sdkSet := map[string]core.SDK{}
 	sourceRootPaths := collectedDeps.Keys()
@@ -994,7 +1190,7 @@ func (s *moduleSchema) moduleSourceResolveFromCaller(
 		if !filepath.IsLocal(sourceRelSubpath) {
 			return inst, fmt.Errorf("local module source path %q escapes context %q", sourceRelSubpath, contextAbsPath)
 		}
-		includeSet.Append(sourceRelSubpath + "/**/*")
+		includeSet.Append(sourceRelSubpath + "/**"+"/*")
 	}
 
 	for _, sdk := range sdkSet {
@@ -1510,3 +1706,4 @@ func (s *moduleSchema) moduleSourceViewPatterns(
 ) ([]string, error) {
 	return view.Patterns, nil
 }
+*/

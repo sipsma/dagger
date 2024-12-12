@@ -124,6 +124,11 @@ func (mod *Module) IDModule() *call.Module {
 	if err != nil {
 		panic(err)
 	}
+	// TODO: not convinced ref/pin are actually used, may be safe to delete
+	// TODO: not convinced ref/pin are actually used, may be safe to delete
+	// TODO: not convinced ref/pin are actually used, may be safe to delete
+	// TODO: not convinced ref/pin are actually used, may be safe to delete
+	// TODO: not convinced ref/pin are actually used, may be safe to delete
 	return call.NewModule(mod.InstanceID, mod.Name(), ref, pin)
 }
 

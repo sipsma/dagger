@@ -333,18 +333,18 @@ func maybeInitializeModule(ctx context.Context, dag *dagger.Client, srcRef strin
 		srcRef = moduleURLDefault
 	}
 
-	modConf, err := getModuleConfigurationForSourceRef(resolveCtx, dag, srcRef, true, true)
+	src := dag.ModuleSource(srcRef)
+	isInitialized, err := src.ConfigExists(resolveCtx)
 	if err != nil && (modRefSet || !optional) {
 		return nil, fmt.Errorf("failed to get configured module: %w", err)
 	}
 	resolveSpan.End()
-
-	if modConf == nil || !modConf.FullyInitialized() {
+	if err == nil || !isInitialized {
 		return initializeCore(ctx, dag)
 	}
 
-	def.Source = modConf.Source
-	mod := modConf.Source.AsModule().Initialize()
+	def.Source = src
+	mod := def.Source.AsModule()
 
 	serveCtx, serveSpan := Tracer().Start(ctx, "serving module", telemetry.Encapsulate())
 	err = mod.Serve(serveCtx)
