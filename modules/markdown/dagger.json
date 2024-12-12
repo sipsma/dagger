@@ -1,12 +1,13 @@
 {
   "name": "markdown",
+  "engineVersion": "v0.14.0",
   "sdk": "go",
   "dependencies": [
     {
       "name": "wolfi",
-      "source": "../wolfi"
+      "source": "../wolfi",
+      "pin": ""
     }
   ],
-  "source": ".",
-  "engineVersion": "v0.12.4"
+  "source": "."
 }
