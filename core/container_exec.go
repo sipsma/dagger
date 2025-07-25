@@ -221,7 +221,13 @@ func (container *Container) secretEnvs() (secretEnvs []*pb.SecretEnv) {
 	return secretEnvs
 }
 
-func (container *Container) WithExec(ctx context.Context, opts ContainerExecOpts, parent *buildkit.ExecutionMetadata) (_ *Container, rerr error) { //nolint:gocyclo
+//nolint:gocyclo
+func (container *Container) WithExec(
+	ctx context.Context,
+	opts ContainerExecOpts,
+	execMD *buildkit.ExecutionMetadata,
+	parent dagql.ObjectResult[*Container],
+) (_ *Container, rerr error) {
 	container = container.Clone()
 
 	query, err := CurrentQuery(ctx)
@@ -236,7 +242,7 @@ func (container *Container) WithExec(ctx context.Context, opts ContainerExecOpts
 
 	secretEnvs := container.secretEnvs()
 
-	execMD, err := container.execMeta(ctx, opts, parent)
+	execMD, err = container.execMeta(ctx, opts, execMD)
 	if err != nil {
 		return nil, err
 	}
@@ -311,18 +317,118 @@ func (container *Container) WithExec(ctx context.Context, opts ContainerExecOpts
 
 			for i, res := range results {
 				iref := res.Sys().(*worker.WorkerRef).ImmutableRef
+				// TODO: ugly
 				switch i {
 				case 0:
-					container.FSResult = iref
+					curSrv, err := query.Server.Server(ctx)
+					if err != nil {
+						rerr = fmt.Errorf("failed to get current server: %w", err)
+						continue
+					}
+					curID := dagql.CurrentID(ctx)
+					view := dagql.View(curID.View())
+					objType, ok := curSrv.ObjectType("Container")
+					if !ok {
+						rerr = fmt.Errorf("object type Container not found in server")
+						continue
+					}
+					fieldSpec, ok := objType.FieldSpec("rootfs", view)
+					if !ok {
+						rerr = fmt.Errorf("field spec for rootfs not found in object type Container")
+						continue
+					}
+					astType := fieldSpec.Type.Type()
+					rootfsID := curID.Append(astType, "rootfs", string(view), fieldSpec.Module, 0, "")
+					rootfsDir := &Directory{
+						Result: iref,
+					}
+					if container.FS.Self() != nil {
+						rootfsDir.Dir = container.FS.Self().Dir
+						rootfsDir.Platform = container.FS.Self().Platform
+						rootfsDir.Services = container.FS.Self().Services
+					} else {
+						rootfsDir.Dir = "/"
+					}
+					container.FS, err = dagql.NewObjectResultForID(rootfsDir, curSrv, rootfsID)
+					if err != nil {
+						rerr = fmt.Errorf("failed to create object result for rootfs: %w", err)
+						continue
+					}
+
 				case 1:
 					container.MetaResult = iref
+
 				default:
 					mountIdx := i - 2
 					if mountIdx >= len(container.Mounts) {
 						// something is disastourously wrong, panic!
 						panic(fmt.Sprintf("index %d escapes number of mounts %d", mountIdx, len(container.Mounts)))
 					}
-					container.Mounts[mountIdx].Result = iref
+					ctrMnt := container.Mounts[mountIdx]
+
+					curID := dagql.CurrentID(ctx)
+					view := dagql.View(curID.View())
+
+					curSrv, err := query.Server.Server(ctx)
+					if err != nil {
+						rerr = fmt.Errorf("failed to get current server: %w", err)
+						continue
+					}
+
+					switch {
+					case ctrMnt.Source.Self() != nil:
+						fieldSpec, ok := parent.ObjectType().FieldSpec("directory", view)
+						if !ok {
+							err = fmt.Errorf("field spec for directory not found in object type Container")
+							rerr = err
+							continue
+						}
+						astType := fieldSpec.Type.Type()
+						dirIDPathArg := call.NewArgument("path", call.NewLiteralString(ctrMnt.Target), false)
+						dirID := curID.Append(astType, "directory", string(view), fieldSpec.Module, 0, "", dirIDPathArg)
+						dir := &Directory{
+							Result:   iref,
+							Dir:      ctrMnt.Source.Self().Dir,
+							Platform: ctrMnt.Source.Self().Platform,
+							Services: ctrMnt.Source.Self().Services,
+						}
+
+						ctrMnt.Source, err = dagql.NewObjectResultForID(dir, curSrv, dirID)
+						if err != nil {
+							rerr = fmt.Errorf("failed to create object result for directory: %w", err)
+							continue
+						}
+
+						container.Mounts[mountIdx] = ctrMnt
+
+					case ctrMnt.FileSource.Self() != nil:
+						fieldSpec, ok := parent.ObjectType().FieldSpec("file", view)
+						if !ok {
+							err = fmt.Errorf("field spec for file not found in object type Container")
+							rerr = err
+							continue
+						}
+						astType := fieldSpec.Type.Type()
+						fileIDPathArg := call.NewArgument("path", call.NewLiteralString(ctrMnt.Target), false)
+						fileID := curID.Append(astType, "file", string(view), fieldSpec.Module, 0, "", fileIDPathArg)
+						file := &File{
+							Result:   iref,
+							File:     ctrMnt.FileSource.Self().File,
+							Platform: ctrMnt.FileSource.Self().Platform,
+							Services: ctrMnt.FileSource.Self().Services,
+						}
+
+						ctrMnt.FileSource, err = dagql.NewObjectResultForID(file, curSrv, fileID)
+						if err != nil {
+							rerr = fmt.Errorf("failed to create object result for file: %w", err)
+							continue
+						}
+
+						container.Mounts[mountIdx] = ctrMnt
+
+					default:
+						container.Mounts[mountIdx] = ctrMnt
+					}
 				}
 			}
 
@@ -351,6 +457,15 @@ func (container *Container) WithExec(ctx context.Context, opts ContainerExecOpts
 	}()
 	if err != nil {
 		return nil, err
+	}
+
+	// TODO: seems to be a longstanding bug in buildkit that selector on root mount doesn't work?
+	for _, mnt := range mounts.Mounts {
+		if mnt.Dest != "/" {
+			continue
+		}
+		p.Root.Selector = mnt.Selector
+		break
 	}
 
 	emu, err := getEmulator(ctx, specs.Platform(container.Platform))
@@ -408,18 +523,110 @@ func (container *Container) WithExec(ctx context.Context, opts ContainerExecOpts
 		}
 
 		// put the ref to the right mount point
+		// TODO: ugly
 		switch ref.MountIndex {
 		case 0:
-			container.FSResult = iref
+			curSrv, err := query.Server.Server(ctx)
+			if err != nil {
+				return nil, err
+			}
+			curID := dagql.CurrentID(ctx)
+			view := dagql.View(curID.View())
+			objType, ok := curSrv.ObjectType("Container")
+			if !ok {
+				return nil, fmt.Errorf("object type Container not found in server")
+			}
+			fieldSpec, ok := objType.FieldSpec("rootfs", view)
+			if !ok {
+				err = fmt.Errorf("field spec for rootfs not found in object type Container")
+				return nil, err
+			}
+			astType := fieldSpec.Type.Type()
+			rootfsID := curID.Append(astType, "rootfs", string(view), fieldSpec.Module, 0, "")
+			rootfsDir := &Directory{
+				Result: iref,
+			}
+			if container.FS.Self() != nil {
+				rootfsDir.Dir = container.FS.Self().Dir
+				rootfsDir.Platform = container.FS.Self().Platform
+				rootfsDir.Services = container.FS.Self().Services
+			} else {
+				rootfsDir.Dir = "/"
+			}
+			container.FS, err = dagql.NewObjectResultForID(rootfsDir, curSrv, rootfsID)
+			if err != nil {
+				return nil, err
+			}
+
 		case 1:
 			container.MetaResult = iref
+
 		default:
 			mountIdx := ref.MountIndex - 2
 			if mountIdx >= len(container.Mounts) {
 				// something is disastourously wrong, panic!
 				panic(fmt.Sprintf("index %d escapes number of mounts %d", mountIdx, len(container.Mounts)))
 			}
-			container.Mounts[mountIdx].Result = iref
+			ctrMnt := container.Mounts[mountIdx]
+
+			curID := dagql.CurrentID(ctx)
+			view := dagql.View(curID.View())
+
+			curSrv, err := query.Server.Server(ctx)
+			if err != nil {
+				return nil, err
+			}
+
+			switch {
+			case ctrMnt.Source.Self() != nil:
+				fieldSpec, ok := parent.ObjectType().FieldSpec("directory", view)
+				if !ok {
+					return nil, err
+				}
+				astType := fieldSpec.Type.Type()
+				dirIDPathArg := call.NewArgument("path", call.NewLiteralString(ctrMnt.Target), false)
+				dirID := curID.Append(astType, "directory", string(view), fieldSpec.Module, 0, "", dirIDPathArg)
+				dir := &Directory{
+					Result:   iref,
+					Dir:      ctrMnt.Source.Self().Dir,
+					Platform: ctrMnt.Source.Self().Platform,
+					Services: ctrMnt.Source.Self().Services,
+				}
+
+				ctrMnt.Source, err = dagql.NewObjectResultForID(dir, curSrv, dirID)
+				if err != nil {
+					return nil, err
+				}
+
+				container.Mounts[mountIdx] = ctrMnt
+
+			case ctrMnt.FileSource.Self() != nil:
+				fieldSpec, ok := parent.ObjectType().FieldSpec("file", view)
+				if !ok {
+					err = fmt.Errorf("field spec for file not found in object type Container")
+					return nil, err
+				}
+				astType := fieldSpec.Type.Type()
+				fileIDPathArg := call.NewArgument("path", call.NewLiteralString(ctrMnt.Target), false)
+				fileID := curID.Append(astType, "file", string(view), fieldSpec.Module, 0, "", fileIDPathArg)
+				file := &File{
+					Result:   iref,
+					File:     ctrMnt.FileSource.Self().File,
+					Platform: ctrMnt.FileSource.Self().Platform,
+					Services: ctrMnt.FileSource.Self().Services,
+				}
+
+				ctrMnt.FileSource, err = dagql.NewObjectResultForID(file, curSrv, fileID)
+				if err != nil {
+					return nil, err
+				}
+
+				container.Mounts[mountIdx] = ctrMnt
+
+			default:
+				// TODO: right? we should never hit this?
+				return nil, fmt.Errorf("unhandled mount source type for mount %d", mountIdx)
+			}
 		}
 
 		// prevent the result from being released by the defer
