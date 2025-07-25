@@ -13,6 +13,7 @@ import (
 	"github.com/dagger/dagger/dagql/call"
 	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/buildkit"
+	"github.com/dagger/dagger/engine/slog"
 	bkcache "github.com/moby/buildkit/cache"
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb"
@@ -312,6 +313,7 @@ func NewContainerDagOp(
 	argDigest digest.Digest,
 	ctr *Container,
 	extraInputs []llb.State,
+	parent dagql.ObjectResult[*Container], // TODO: cleanup
 ) (*Container, error) {
 	mounts, inputs, _, outputCount, err := getAllContainerMounts(ctr)
 	if err != nil {
@@ -565,55 +567,82 @@ func (op ContainerDagOp) Exec(ctx context.Context, g bksession.Group, inputs []s
 // Input maps to an index in the returned states.
 func getAllContainerMounts(container *Container) (mounts []*pb.Mount, states []llb.State, refs []bkcache.ImmutableRef, outputCount int, _ error) {
 	outputIdx := 0
-	inputIdxs := map[digest.Digest]pb.InputIndex{}
+	inputIdxs := map[string]pb.InputIndex{}
 
 	// addMount converts a ContainerMount and creates a corresponding buildkit
 	// mount, creating an input if required
-	addMount := func(mnt ContainerMount) error {
-		st, err := defToState(mnt.Source)
+	// TODO: addMount := func(mnt ContainerMount) error {
+	addMount := func(
+		llb *pb.Definition,
+		res bkcache.ImmutableRef,
+		target string,
+		sourcePath string,
+		readonly bool,
+		cacheVolID string,
+		cacheSharingMode CacheSharingMode,
+		tmpfs bool,
+		size int64,
+	) error {
+		mount := &pb.Mount{
+			Dest:         target,
+			Selector:     sourcePath,
+			Output:       pb.OutputIndex(outputIdx),
+			ContentCache: pb.MountContentCache_DEFAULT,
+		}
+
+		st, err := defToState(llb)
 		if err != nil {
 			return err
 		}
 
-		mount := &pb.Mount{
-			Dest:         mnt.Target,
-			Selector:     mnt.SourcePath,
-			Output:       pb.OutputIndex(outputIdx),
-			ContentCache: pb.MountContentCache_DEFAULT,
-		}
-		if st.Output() == nil {
-			mount.Input = pb.Empty
-		} else {
-			dag, err := buildkit.DefToDAG(mnt.Source)
+		switch {
+		case res != nil:
+			// track and cache this input index, since duplicates are unnecessary
+			// also buildkit's FileOp (which is underlying our DagOp) will
+			// remove them if we don't, which results in significant confusion
+			indexKey := res.ID()
+			if idx, ok := inputIdxs[indexKey]; ok {
+				// we already track this input, reuse the index
+				mount.Input = idx
+			} else {
+				mount.Input = pb.InputIndex(len(states))
+				inputIdxs[indexKey] = mount.Input
+				states = append(states, st)
+				refs = append(refs, res)
+			}
+
+		case st.Output() != nil:
+			dag, err := buildkit.DefToDAG(llb)
 			if err != nil {
 				return err
 			}
-
-			if idx, ok := inputIdxs[*dag.OpDigest]; ok {
+			indexKey := dag.OpDigest.String()
+			if idx, ok := inputIdxs[indexKey]; ok {
+				// we already track this input, reuse the index
 				mount.Input = idx
 			} else {
-				// track and cache this input index, since duplicates are unnecessary
-				// also buildkit's FileOp (which is underlying our DagOp) will
-				// remove them if we don't, which results in significant confusion
 				mount.Input = pb.InputIndex(len(states))
-				inputIdxs[*dag.OpDigest] = mount.Input
+				inputIdxs[indexKey] = mount.Input
 				states = append(states, st)
-				refs = append(refs, mnt.Result)
+				refs = append(refs, res)
 			}
+
+		default:
+			mount.Input = pb.Empty
 		}
 
-		if mnt.Readonly {
+		if readonly {
 			mount.Output = pb.SkipOutput
 			mount.Readonly = true
 		}
 
-		if mnt.CacheVolumeID != "" {
+		if cacheVolID != "" {
 			mount.Output = pb.SkipOutput
 			mount.MountType = pb.MountType_CACHE
 			mount.CacheOpt = &pb.CacheOpt{
-				ID: mnt.CacheVolumeID,
+				ID: cacheVolID,
 			}
-			switch mnt.CacheSharingMode {
+			switch cacheSharingMode {
 			case CacheSharingModeShared:
 				mount.CacheOpt.Sharing = pb.CacheSharingOpt_SHARED
 			case CacheSharingModePrivate:
@@ -623,11 +652,11 @@ func getAllContainerMounts(container *Container) (mounts []*pb.Mount, states []l
 			}
 		}
 
-		if mnt.Tmpfs {
+		if tmpfs {
 			mount.Output = pb.SkipOutput
 			mount.MountType = pb.MountType_TMPFS
 			mount.TmpfsOpt = &pb.TmpfsOpt{
-				Size_: int64(mnt.Size),
+				Size_: size,
 			}
 		}
 
@@ -640,14 +669,80 @@ func getAllContainerMounts(container *Container) (mounts []*pb.Mount, states []l
 	}
 
 	// handle our normal mounts
-	if err := addMount(ContainerMount{Source: container.FS, Result: container.FSResult, Target: "/"}); err != nil {
+	// TODO: if err := addMount(ContainerMount{Source: container.FS, Target: "/"}); err != nil {
+	var rootfsLLB *pb.Definition
+	var rootfsResult bkcache.ImmutableRef
+	var rootfsSourcePath string
+	if container.FS.Self() != nil {
+		rootfsLLB = container.FS.Self().LLB
+		rootfsResult = container.FS.Self().Result
+		rootfsSourcePath = container.FS.Self().Dir
+	}
+
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	slog.Debug("ROOTFS SOURCE", "source", rootfsSourcePath)
+
+	if err := addMount(
+		rootfsLLB,
+		rootfsResult,
+		"/",
+		rootfsSourcePath,
+		false,
+		"",
+		"",
+		false,
+		0,
+	); err != nil {
 		return nil, nil, nil, 0, err
 	}
-	if err := addMount(ContainerMount{Source: container.Meta, Result: container.MetaResult, Target: buildkit.MetaMountDestPath}); err != nil {
+
+	// TODO: if err := addMount(ContainerMount{Source: container.Meta, Target: buildkit.MetaMountDestPath}); err != nil {
+	metaLLB := container.Meta
+	metaResult := container.MetaResult
+	if err := addMount(
+		metaLLB,
+		metaResult,
+		buildkit.MetaMountDestPath,
+		"",
+		false,
+		"",
+		"",
+		false,
+		0,
+	); err != nil {
 		return nil, nil, nil, 0, err
 	}
 	for _, mount := range container.Mounts {
-		if err := addMount(mount); err != nil {
+		var llb *pb.Definition
+		var res bkcache.ImmutableRef
+		var sourcePath string
+		switch {
+		case mount.Source.Self() != nil:
+			sourcePath = mount.Source.Self().Dir
+			llb = mount.Source.Self().LLB
+			res = mount.Source.Self().Result
+		case mount.FileSource.Self() != nil:
+			sourcePath = mount.FileSource.Self().File
+			llb = mount.FileSource.Self().LLB
+			res = mount.FileSource.Self().Result
+		default:
+			sourcePath = mount.SourcePath // TODO:
+			llb = mount.LLBSource
+		}
+		if err := addMount(
+			llb,
+			res,
+			mount.Target,
+			sourcePath,
+			mount.Readonly,
+			mount.CacheVolumeID,
+			mount.CacheSharingMode,
+			mount.Tmpfs,
+			int64(mount.Size),
+		); err != nil {
 			return nil, nil, nil, 0, err
 		}
 	}
@@ -705,7 +800,18 @@ func getAllContainerMounts(container *Container) (mounts []*pb.Mount, states []l
 
 // setAllContainerMounts is the reverse of getAllContainerMounts, and rewrites
 // the container mounts to the given states.
-func (op *ContainerDagOp) setAllContainerMounts(ctx context.Context, container *Container, outputs []llb.State) error {
+func (op *ContainerDagOp) setAllContainerMounts(
+	ctx context.Context,
+	container *Container,
+	outputs []llb.State,
+) error {
+	curSrv, err := CurrentDagqlServer(ctx)
+	if err != nil {
+		return err
+	}
+	curID := dagql.CurrentID(ctx)
+	view := dagql.View(curID.View())
+
 	for mountIdx, mount := range op.Mounts {
 		if mount.Output == pb.SkipOutput {
 			continue
@@ -716,13 +822,95 @@ func (op *ContainerDagOp) setAllContainerMounts(ctx context.Context, container *
 			return err
 		}
 
+		// TODO: ugly
 		switch mountIdx {
 		case 0:
-			container.FS = def.ToPB()
+			objType, ok := curSrv.ObjectType("Container")
+			if !ok {
+				return fmt.Errorf("failed to get Container object type for parent container")
+			}
+			fieldSpec, ok := objType.FieldSpec("rootfs", view)
+			if !ok {
+				return fmt.Errorf("failed to get rootfs field spec for Container object type")
+			}
+			astType := fieldSpec.Type.Type()
+			rootfsID := curID.Append(astType, "rootfs", string(view), fieldSpec.Module, 0, "")
+			rootfsDir := &Directory{
+				LLB: def.ToPB(),
+			}
+			if container.FS.Self() != nil {
+				rootfsDir.Dir = container.FS.Self().Dir
+				rootfsDir.Platform = container.FS.Self().Platform
+				rootfsDir.Services = container.FS.Self().Services
+			}
+			container.FS, err = dagql.NewObjectResultForID(rootfsDir, curSrv, rootfsID)
+			if err != nil {
+				return err
+			}
+
 		case 1:
 			container.Meta = def.ToPB()
+
 		default:
-			container.Mounts[mountIdx-2].Source = def.ToPB()
+			ctrMnt := container.Mounts[mountIdx-2]
+
+			switch {
+			case ctrMnt.Source.Self() != nil:
+				objType, ok := curSrv.ObjectType("Container")
+				if !ok {
+					return fmt.Errorf("failed to get Container object type for parent container")
+				}
+				fieldSpec, ok := objType.FieldSpec("directory", view)
+				if !ok {
+					return fmt.Errorf("failed to get directory field spec for Container object type")
+				}
+				astType := fieldSpec.Type.Type()
+				dirIDPathArg := call.NewArgument("path", call.NewLiteralString(ctrMnt.Target), false)
+				dirID := curID.Append(astType, "directory", string(view), fieldSpec.Module, 0, "", dirIDPathArg)
+				dir := &Directory{
+					LLB:      def.ToPB(),
+					Dir:      ctrMnt.Source.Self().Dir,
+					Platform: ctrMnt.Source.Self().Platform,
+					Services: ctrMnt.Source.Self().Services,
+				}
+
+				ctrMnt.Source, err = dagql.NewObjectResultForID(dir, curSrv, dirID)
+				if err != nil {
+					return err
+				}
+
+				container.Mounts[mountIdx-2] = ctrMnt
+
+			case ctrMnt.FileSource.Self() != nil:
+				objType, ok := curSrv.ObjectType("Container")
+				if !ok {
+					return fmt.Errorf("failed to get Container object type for parent container")
+				}
+				fieldSpec, ok := objType.FieldSpec("file", view)
+				if !ok {
+					return fmt.Errorf("failed to get file field spec for Container object type")
+				}
+				astType := fieldSpec.Type.Type()
+				fileIDPathArg := call.NewArgument("path", call.NewLiteralString(ctrMnt.Target), false)
+				fileID := curID.Append(astType, "file", string(view), fieldSpec.Module, 0, "", fileIDPathArg)
+				file := &File{
+					LLB:      def.ToPB(),
+					File:     ctrMnt.FileSource.Self().File,
+					Platform: ctrMnt.FileSource.Self().Platform,
+					Services: ctrMnt.FileSource.Self().Services,
+				}
+
+				ctrMnt.FileSource, err = dagql.NewObjectResultForID(file, curSrv, fileID)
+				if err != nil {
+					return err
+				}
+
+				container.Mounts[mountIdx-2] = ctrMnt
+
+			default:
+				// TODO: right? we should never hit this?
+				return fmt.Errorf("unhandled mount source type for mount %d", mountIdx)
+			}
 		}
 	}
 
@@ -764,12 +952,17 @@ func extractContainerBkOutputs(ctx context.Context, container *Container, bk *bu
 		var err error
 		switch mountIdx {
 		case 0:
-			ref, err = getResult(container.FS, container.FSResult)
+			ref, err = getResult(container.FS.Self().LLB, container.FS.Self().Result)
 		case 1:
 			ref, err = getResult(container.Meta, container.MetaResult)
 		default:
 			mnt := container.Mounts[mountIdx-2]
-			ref, err = getResult(mnt.Source, mnt.Result)
+			switch {
+			case mnt.Source.Self() != nil:
+				ref, err = getResult(mnt.Source.Self().LLB, mnt.Source.Self().Result)
+			case mnt.FileSource.Self() != nil:
+				ref, err = getResult(mnt.FileSource.Self().LLB, mnt.FileSource.Self().Result)
+			}
 		}
 		if err != nil {
 			return nil, err
