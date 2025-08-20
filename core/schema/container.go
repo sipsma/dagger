@@ -335,8 +335,7 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 					`environment variables defined in the container (e.g. "/$VAR/foo").`),
 			),
 
-		// TODO: DagOp not needed anymore, same other places
-		dagql.NodeFunc("withFile", DagOpContainerWrapper(srv, s.withFile)).
+		dagql.NodeFunc("withFile", s.withFile).
 			Doc(`Return a container snapshot with a file added`).
 			Args(
 				dagql.Arg("path").Doc(`Path of the new file. Example: "/path/to/new-file.txt"`),
@@ -349,8 +348,7 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 					`environment variables defined in the container (e.g. "/$VAR/foo.txt").`),
 			),
 
-		// TODO: DagOp not needed anymore, same other places
-		dagql.NodeFunc("withoutFile", DagOpContainerWrapper(srv, s.withoutFile)).
+		dagql.NodeFunc("withoutFile", s.withoutFile).
 			Doc(`Retrieves this container with the file at the given path removed.`).
 			Args(
 				dagql.Arg("path").Doc(`Location of the file to remove (e.g., "/file.txt").`),
@@ -358,7 +356,7 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 					`environment variables defined in the container (e.g. "/$VAR/foo.txt").`),
 			),
 
-		dagql.NodeFunc("withoutFiles", DagOpContainerWrapper(srv, s.withoutFiles)).
+		dagql.NodeFunc("withoutFiles", s.withoutFiles).
 			Doc(`Return a new container spanshot with specified files removed`).
 			Args(
 				dagql.Arg("paths").Doc(`Paths of the files to remove. Example: ["foo.txt, "/root/.ssh/config"`),
@@ -366,7 +364,7 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 					`environment variables defined in the container (e.g. "/$VAR/foo.txt").`),
 			),
 
-		dagql.NodeFunc("withFiles", DagOpContainerWrapper(srv, s.withFiles)).
+		dagql.NodeFunc("withFiles", s.withFiles).
 			Doc(`Retrieves this container plus the contents of the given files copied to the given path.`).
 			Args(
 				dagql.Arg("path").Doc(`Location where copied files should be placed (e.g., "/src").`),
@@ -379,7 +377,7 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 					`environment variables defined in the container (e.g. "/$VAR/foo.txt").`),
 			),
 
-		dagql.NodeFunc("withNewFile", DagOpContainerWrapper(srv, s.withNewFile)).
+		dagql.NodeFunc("withNewFile", s.withNewFile).
 			View(AllVersion).
 			Doc(`Return a new container snapshot, with a file added to its filesystem with text content`).
 			Args(
@@ -394,7 +392,7 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 					`Replace "${VAR}" or "$VAR" in the value of path according to the current `+
 						`environment variables defined in the container (e.g. "/$VAR/foo.txt").`),
 			),
-		dagql.NodeFunc("withNewFile", DagOpContainerWrapper(srv, s.withNewFileLegacy)).
+		dagql.NodeFunc("withNewFile", s.withNewFileLegacy).
 			View(BeforeVersion("v0.12.0")).
 			Doc(`Retrieves this container plus a new file written at the given path.`).
 			Args(
@@ -420,7 +418,7 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 					`environment variables defined in the container (e.g. "/$VAR/foo").`),
 			),
 
-		dagql.NodeFunc("withoutDirectory", DagOpContainerWrapper(srv, s.withoutDirectory)).
+		dagql.NodeFunc("withoutDirectory", s.withoutDirectory).
 			Doc(`Return a new container snapshot, with a directory removed from its filesystem`).
 			Args(
 				dagql.Arg("path").Doc(`Location of the directory to remove (e.g., ".github/").`),
@@ -500,7 +498,7 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 			Doc(`The exit code of the last executed command`,
 				`Returns an error if no command was executed`),
 
-		dagql.NodeFunc("withSymlink", DagOpContainerWrapper(srv, s.withSymlink)).
+		dagql.NodeFunc("withSymlink", s.withSymlink).
 			Doc(`Return a snapshot with a symlink`).
 			Args(
 				dagql.Arg("target").Doc(`Location of the file or directory to link to (e.g., "/existing/file").`),
@@ -1098,8 +1096,6 @@ type containerWithSymlinkArgs struct {
 	Target   string
 	LinkName string
 	Expand   bool `default:"false"`
-
-	ContainerDagOpInternalArgs
 }
 
 func (s *containerSchema) withSymlink(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithSymlinkArgs) (inst dagql.ObjectResult[*core.Container], _ error) {
@@ -1805,9 +1801,6 @@ type containerWithFileArgs struct {
 	WithFileArgs
 	Owner  string `default:""`
 	Expand bool   `default:"false"`
-
-	// TODO: rm
-	FSDagOpInternalArgs
 }
 
 func (s *containerSchema) withFile(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithFileArgs) (inst dagql.ObjectResult[*core.Container], err error) {
@@ -1843,8 +1836,6 @@ type containerWithFilesArgs struct {
 	WithFilesArgs
 	Owner  string `default:""`
 	Expand bool   `default:"false"`
-
-	FSDagOpInternalArgs
 }
 
 func (s *containerSchema) withFiles(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithFilesArgs) (inst dagql.ObjectResult[*core.Container], err error) {
@@ -1882,8 +1873,6 @@ func (s *containerSchema) withFiles(ctx context.Context, parent dagql.ObjectResu
 type containerWithoutDirectoryArgs struct {
 	Path   string
 	Expand bool `default:"false"`
-
-	FSDagOpInternalArgs
 }
 
 func (s *containerSchema) withoutDirectory(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithoutDirectoryArgs) (inst dagql.ObjectResult[*core.Container], err error) {
@@ -1907,8 +1896,6 @@ func (s *containerSchema) withoutDirectory(ctx context.Context, parent dagql.Obj
 type containerWithoutFileArgs struct {
 	Path   string
 	Expand bool `default:"false"`
-
-	FSDagOpInternalArgs
 }
 
 func (s *containerSchema) withoutFile(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithoutFileArgs) (inst dagql.ObjectResult[*core.Container], err error) {
@@ -1932,8 +1919,6 @@ func (s *containerSchema) withoutFile(ctx context.Context, parent dagql.ObjectRe
 type containerWithoutFilesArgs struct {
 	Paths  []string
 	Expand bool `default:"false"`
-
-	FSDagOpInternalArgs
 }
 
 func (s *containerSchema) withoutFiles(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithoutFilesArgs) (inst dagql.ObjectResult[*core.Container], err error) {
@@ -1963,8 +1948,6 @@ type containerWithNewFileArgs struct {
 	Permissions int    `default:"0644"`
 	Owner       string `default:""`
 	Expand      bool   `default:"false"`
-
-	FSDagOpInternalArgs
 }
 
 func (s *containerSchema) withNewFile(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithNewFileArgs) (inst dagql.ObjectResult[*core.Container], err error) {
@@ -1991,8 +1974,6 @@ type containerWithNewFileArgsLegacy struct {
 	Contents    string `default:""`
 	Permissions int    `default:"0644"`
 	Owner       string `default:""`
-
-	FSDagOpInternalArgs
 }
 
 func (s *containerSchema) withNewFileLegacy(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithNewFileArgsLegacy) (inst dagql.ObjectResult[*core.Container], err error) {

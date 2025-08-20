@@ -13,7 +13,6 @@ import (
 	"github.com/dagger/dagger/dagql/call"
 	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/buildkit"
-	"github.com/dagger/dagger/engine/slog"
 	bkcache "github.com/moby/buildkit/cache"
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb"
@@ -571,7 +570,6 @@ func getAllContainerMounts(container *Container) (mounts []*pb.Mount, states []l
 
 	// addMount converts a ContainerMount and creates a corresponding buildkit
 	// mount, creating an input if required
-	// TODO: addMount := func(mnt ContainerMount) error {
 	addMount := func(
 		llb *pb.Definition,
 		res bkcache.ImmutableRef,
@@ -669,7 +667,6 @@ func getAllContainerMounts(container *Container) (mounts []*pb.Mount, states []l
 	}
 
 	// handle our normal mounts
-	// TODO: if err := addMount(ContainerMount{Source: container.FS, Target: "/"}); err != nil {
 	var rootfsLLB *pb.Definition
 	var rootfsResult bkcache.ImmutableRef
 	var rootfsSourcePath string
@@ -678,12 +675,6 @@ func getAllContainerMounts(container *Container) (mounts []*pb.Mount, states []l
 		rootfsResult = container.FS.Self().Result
 		rootfsSourcePath = container.FS.Self().Dir
 	}
-
-	// TODO:
-	// TODO:
-	// TODO:
-	// TODO:
-	slog.Debug("ROOTFS SOURCE", "source", rootfsSourcePath)
 
 	if err := addMount(
 		rootfsLLB,
@@ -699,7 +690,6 @@ func getAllContainerMounts(container *Container) (mounts []*pb.Mount, states []l
 		return nil, nil, nil, 0, err
 	}
 
-	// TODO: if err := addMount(ContainerMount{Source: container.Meta, Target: buildkit.MetaMountDestPath}); err != nil {
 	metaLLB := container.Meta
 	metaResult := container.MetaResult
 	if err := addMount(
