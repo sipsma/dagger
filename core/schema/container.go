@@ -2145,7 +2145,7 @@ func (s *containerSchema) asTarball(
 
 	variants := append([]*core.Container{parent.Self()}, platformVariants...)
 	for _, variant := range variants {
-		if variant.FS.Self() == nil {
+		if variant.FS == nil {
 			continue
 		}
 		st, err := variant.FSState()
