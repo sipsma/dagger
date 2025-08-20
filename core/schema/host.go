@@ -121,10 +121,11 @@ func (s *hostSchema) Install(srv *dagql.Server) {
 			astType := fieldSpec.Type.Type()
 			rootfsID := curID.Append(astType, "rootfs", string(view), fieldSpec.Module, 0, "")
 			rootfsDir := core.NewDirectory(ctrDef.ToPB(), "/", container.Platform, container.Services)
-			container.FS, err = dagql.NewObjectResultForID(rootfsDir, curSrv, rootfsID)
+			updatedRootfs, err := dagql.NewObjectResultForID(rootfsDir, curSrv, rootfsID)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create rootfs object result: %w", err)
 			}
+			container.FS = &updatedRootfs
 
 			goSDKContentStore, err := local.NewStore(distconsts.EngineContainerBuiltinContentDir)
 			if err != nil {
