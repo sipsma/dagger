@@ -40,7 +40,6 @@ import (
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/dagql/call"
 	"github.com/dagger/dagger/engine/buildkit"
-	"github.com/dagger/dagger/engine/slog"
 )
 
 var ErrMountNotExist = errors.New("mount does not exist")
@@ -835,20 +834,6 @@ func (container *Container) WithFile(
 		return nil, fmt.Errorf("failed to locate path %s: %w", destPath, err)
 	}
 
-	// TODO:
-	// TODO:
-	// TODO:
-	// TODO:
-	// TODO:
-	// TODO:
-	slog.Debug("WithFile",
-		"destPath", destPath,
-		"mnt", fmt.Sprintf("%+v", mnt),
-		"mntSubpath", mntSubpath,
-		"container.FS.Self() == nil", container.FS.Self() == nil,
-		// "args", args,
-	)
-
 	// if the path being overwritten is an exact mount point, then we need to unmount
 	// it and then overwrite the source that exists below it (including unmounting any mounts below it)
 	if mnt != nil && (mntSubpath == "/" || mntSubpath == "" || mntSubpath == ".") {
@@ -878,12 +863,10 @@ func (container *Container) WithFile(
 
 	switch {
 	case mnt == nil: // rootfs
-		selectors := []dagql.Selector{
-			{
-				Field: "withFile",
-				Args:  args,
-			},
-		}
+		selectors := []dagql.Selector{{
+			Field: "withFile",
+			Args:  args,
+		}}
 		queryParent := dagql.AnyObjectResult(container.FS)
 		if container.FS.Self() == nil {
 			// need to start from a scratch directory
