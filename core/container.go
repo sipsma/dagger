@@ -852,7 +852,7 @@ func (container *Container) WithDirectory(
 		if err != nil {
 			return nil, err
 		}
-		return container.replaceMount(ctx, mnt.Target, newDir, "", false)
+		return container.replaceMount(ctx, mnt.Target, newDir, false)
 
 	case mnt.FileSource != nil: // file mount
 		// should be handled by the check for exact mount point above
@@ -935,7 +935,7 @@ func (container *Container) WithFile(
 		if err != nil {
 			return nil, err
 		}
-		return container.replaceMount(ctx, mnt.Target, newDir, "", false)
+		return container.replaceMount(ctx, mnt.Target, newDir, false)
 
 	case mnt.FileSource != nil: // file mount
 		// should be handled by the check for exact mount point above
@@ -1010,7 +1010,7 @@ func (container *Container) withoutPath(
 		if err != nil {
 			return nil, err
 		}
-		return container.replaceMount(ctx, mnt.Target, newDir, "", false)
+		return container.replaceMount(ctx, mnt.Target, newDir, false)
 
 	case mnt.FileSource != nil: // file mount
 		// This should be handled by the check above for whether the path being removed is an exact mount point
@@ -1130,7 +1130,7 @@ func (container *Container) WithSymlink(ctx context.Context, srv *dagql.Server, 
 		if err != nil {
 			return nil, err
 		}
-		return container.replaceMount(ctx, mnt.Target, newDir, "", false)
+		return container.replaceMount(ctx, mnt.Target, newDir, false)
 
 	case mnt.FileSource != nil: // file mount
 		// should be handled by the check for exact mount point above
@@ -1528,24 +1528,15 @@ func locatePath(
 	return nil, containerPath, nil
 }
 
-// TODO: rename replaceDirMount
 func (container *Container) replaceMount(
 	ctx context.Context,
 	target string,
 	dir dagql.ObjectResult[*Directory],
-	owner string, // TODO: remove if all callers set to ""
 	readonly bool,
 ) (*Container, error) {
 	target = absPath(container.Config.WorkingDir, target)
 
 	var err error
-	if owner != "" {
-		dir, err = container.chownDir(ctx, dir, owner)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	container.Mounts, err = container.Mounts.Replace(ContainerMount{
 		DirectorySource: &dir,
 		Target:          target,
