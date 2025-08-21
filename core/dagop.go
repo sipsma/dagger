@@ -879,7 +879,13 @@ func extractContainerBkOutputs(ctx context.Context, container *Container, bk *bu
 		case 0:
 			ref, err = getResult(container.FS.Self().LLB, container.FS.Self().Result)
 		case 1:
-			ref, err = getResult(container.Meta.LLB, container.Meta.Result)
+			var llb *pb.Definition
+			var res bkcache.ImmutableRef
+			if container.Meta != nil {
+				llb = container.Meta.LLB
+				res = container.Meta.Result
+			}
+			ref, err = getResult(llb, res)
 		default:
 			mnt := container.Mounts[mountIdx-2]
 			switch {
