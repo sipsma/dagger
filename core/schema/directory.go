@@ -763,7 +763,6 @@ func (s *directorySchema) dockerBuild(ctx context.Context, parent dagql.ObjectRe
 		secrets,
 		secretStore,
 		args.NoInit,
-		dagql.ObjectResult[*core.Container]{}, // TODO: this probably works, but dumb,
 	)
 }
 

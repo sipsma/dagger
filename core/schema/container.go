@@ -798,7 +798,7 @@ func (s *containerSchema) from(ctx context.Context, parent dagql.ObjectResult[*c
 	refName = reference.TagNameOnly(refName)
 
 	if refName, isCanonical := refName.(reference.Canonical); isCanonical {
-		ctr, err := parent.Self().FromCanonicalRef(ctx, refName, nil, parent)
+		ctr, err := parent.Self().FromCanonicalRef(ctx, refName, nil)
 		if err != nil {
 			return inst, err
 		}
@@ -889,7 +889,6 @@ func (s *containerSchema) build(ctx context.Context, parent dagql.ObjectResult[*
 		secrets,
 		secretStore,
 		args.NoInit,
-		parent,
 	)
 }
 
@@ -971,7 +970,7 @@ func (s *containerSchema) withExec(ctx context.Context, parent dagql.ObjectResul
 
 	if !args.IsDagOp {
 		ctr.Meta = nil
-		ctr, err := DagOpContainer(ctx, srv, ctr, args, s.withExec, parent)
+		ctr, err := DagOpContainer(ctx, srv, ctr, args, s.withExec)
 		if err != nil {
 			return inst, err
 		}
@@ -2403,7 +2402,6 @@ func (s *containerSchema) import_(ctx context.Context, parent dagql.ObjectResult
 		ctx,
 		source.Self(),
 		args.Tag,
-		parent,
 	)
 }
 

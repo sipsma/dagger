@@ -328,14 +328,16 @@ func (container *Container) WithExec(
 					} else {
 						rootfsDir.Dir = "/"
 					}
-					container.FS, err = updatedRootFS(ctx, rootfsDir)
+					container.FS, err = UpdatedRootFS(ctx, rootfsDir)
 					if err != nil {
 						rerr = errors.Join(rerr, fmt.Errorf("failed to update rootfs: %w", err))
 						continue
 					}
 
 				case 1:
-					container.MetaResult = iref
+					container.Meta = &Directory{
+						Result: iref,
+					}
 
 				default:
 					mountIdx := i - 2
@@ -490,13 +492,16 @@ func (container *Container) WithExec(
 			} else {
 				rootfsDir.Dir = "/"
 			}
-			container.FS, err = updatedRootFS(ctx, rootfsDir)
+			updatedRootFS, err := UpdatedRootFS(ctx, rootfsDir)
 			if err != nil {
 				return nil, fmt.Errorf("failed to update rootfs: %w", err)
 			}
+			container.FS = updatedRootFS
 
 		case 1:
-			container.MetaResult = iref
+			container.Meta = &Directory{
+				Result: iref,
+			}
 
 		default:
 			mountIdx := ref.MountIndex - 2
@@ -599,7 +604,7 @@ func (container *Container) metaFileContents(ctx context.Context, filePath strin
 		return "", ErrNoCommand
 	}
 	file := NewFile(
-		container.Meta,
+		container.Meta.LLB,
 		filePath,
 		container.Platform,
 		container.Services,

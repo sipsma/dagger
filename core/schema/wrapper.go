@@ -195,7 +195,7 @@ func DagOpContainerWrapper[A DagOpInternalArgsIface](
 		if args.InDagOp() {
 			return fn(ctx, self, args)
 		}
-		ctr, err := DagOpContainer(ctx, srv, self.Self(), args, fn, self)
+		ctr, err := DagOpContainer(ctx, srv, self.Self(), args, fn)
 		if err != nil {
 			return inst, err
 		}
@@ -209,7 +209,6 @@ func DagOpContainer[A any](
 	ctr *core.Container,
 	args A,
 	fn dagql.NodeFuncHandler[*core.Container, A, dagql.ObjectResult[*core.Container]],
-	parent dagql.ObjectResult[*core.Container], // TODO: cleanup
 ) (*core.Container, error) {
 	argDigest, err := core.DigestOf(args)
 	if err != nil {
@@ -220,7 +219,7 @@ func DagOpContainer[A any](
 	if err != nil {
 		return nil, err
 	}
-	return core.NewContainerDagOp(ctx, currentIDForContainerDagOp(ctx), argDigest, ctr, deps, parent)
+	return core.NewContainerDagOp(ctx, currentIDForContainerDagOp(ctx), argDigest, ctr, deps)
 }
 
 const (

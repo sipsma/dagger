@@ -312,7 +312,6 @@ func NewContainerDagOp(
 	argDigest digest.Digest,
 	ctr *Container,
 	extraInputs []llb.State,
-	parent dagql.ObjectResult[*Container], // TODO: cleanup
 ) (*Container, error) {
 	mounts, inputs, _, outputCount, err := getAllContainerMounts(ctx, ctr)
 	if err != nil {
@@ -681,19 +680,22 @@ func getAllContainerMounts(ctx context.Context, container *Container) (
 	if err != nil {
 		return nil, nil, nil, 0, fmt.Errorf("failed to get current dagql server: %w", err)
 	}
-	metaDir, err := dagql.NewObjectResultForCurrentID(ctx, srv, &Directory{
-		LLB:      container.Meta,
-		Result:   container.MetaResult,
+	metaDir := &Directory{
 		Dir:      "/",
 		Platform: container.Platform,
 		Services: container.Services,
-	})
+	}
+	if container.Meta != nil {
+		metaDir.LLB = container.Meta.LLB
+		metaDir.Result = container.Meta.Result
+	}
+	metaDirRes, err := dagql.NewObjectResultForCurrentID(ctx, srv, metaDir)
 	if err != nil {
 		return nil, nil, nil, 0, fmt.Errorf("failed to create meta directory: %w", err)
 	}
 	if err := addMount(ContainerMount{
 		Target:          buildkit.MetaMountDestPath,
-		DirectorySource: &metaDir,
+		DirectorySource: &metaDirRes,
 	}); err != nil {
 		return nil, nil, nil, 0, err
 	}
@@ -783,13 +785,15 @@ func (op *ContainerDagOp) setAllContainerMounts(
 				rootfsDir.Platform = container.FS.Self().Platform
 				rootfsDir.Services = container.FS.Self().Services
 			}
-			container.FS, err = updatedRootFS(ctx, rootfsDir)
+			container.FS, err = UpdatedRootFS(ctx, rootfsDir)
 			if err != nil {
 				return fmt.Errorf("failed to update rootfs: %w", err)
 			}
 
 		case 1:
-			container.Meta = def.ToPB()
+			container.Meta = &Directory{
+				LLB: def.ToPB(),
+			}
 
 		default:
 			ctrMnt := container.Mounts[mountIdx-2]
@@ -875,7 +879,7 @@ func extractContainerBkOutputs(ctx context.Context, container *Container, bk *bu
 		case 0:
 			ref, err = getResult(container.FS.Self().LLB, container.FS.Self().Result)
 		case 1:
-			ref, err = getResult(container.Meta, container.MetaResult)
+			ref, err = getResult(container.Meta.LLB, container.Meta.Result)
 		default:
 			mnt := container.Mounts[mountIdx-2]
 			switch {

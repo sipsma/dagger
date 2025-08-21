@@ -84,7 +84,6 @@ func (s *hostSchema) Install(srv *dagql.Server) {
 			defer layerRefs.Release(context.WithoutCancel(ctx))
 			var eg errgroup.Group
 			for _, layerRef := range layerRefs {
-				layerRef := layerRef
 				eg.Go(func() error {
 					// FileList is the secret method that actually forces an unlazy of blobs in the cases
 					// we want here...
@@ -103,29 +102,11 @@ func (s *hostSchema) Install(srv *dagql.Server) {
 				return nil, fmt.Errorf("new container: %w", err)
 			}
 
-			// TODO: ? ugly
-			curSrv, err := core.CurrentDagqlServer(ctx)
-			if err != nil {
-				return nil, fmt.Errorf("failed to get server: %w", err)
-			}
-			curID := dagql.CurrentID(ctx)
-			view := dagql.View(curID.View())
-			objType, ok := curSrv.ObjectType("Container")
-			if !ok {
-				return nil, fmt.Errorf("failed to get Container object type for parent container")
-			}
-			fieldSpec, ok := objType.FieldSpec("rootfs", view)
-			if !ok {
-				return nil, fmt.Errorf("failed to get rootfs field spec for parent container")
-			}
-			astType := fieldSpec.Type.Type()
-			rootfsID := curID.Append(astType, "rootfs", string(view), fieldSpec.Module, 0, "")
 			rootfsDir := core.NewDirectory(ctrDef.ToPB(), "/", container.Platform, container.Services)
-			updatedRootfs, err := dagql.NewObjectResultForID(rootfsDir, curSrv, rootfsID)
+			container.FS, err = core.UpdatedRootFS(ctx, rootfsDir)
 			if err != nil {
-				return nil, fmt.Errorf("failed to create rootfs object result: %w", err)
+				return nil, fmt.Errorf("failed to update rootfs: %w", err)
 			}
-			container.FS = &updatedRootfs
 
 			goSDKContentStore, err := local.NewStore(distconsts.EngineContainerBuiltinContentDir)
 			if err != nil {
