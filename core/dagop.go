@@ -763,13 +763,6 @@ func (op *ContainerDagOp) setAllContainerMounts(
 	container *Container,
 	outputs []llb.State,
 ) error {
-	curSrv, err := CurrentDagqlServer(ctx)
-	if err != nil {
-		return err
-	}
-	curID := dagql.CurrentID(ctx)
-	view := dagql.View(curID.View())
-
 	for mountIdx, mount := range op.Mounts {
 		if mount.Output == pb.SkipOutput {
 			continue
@@ -780,19 +773,8 @@ func (op *ContainerDagOp) setAllContainerMounts(
 			return err
 		}
 
-		// TODO: ugly
 		switch mountIdx {
 		case 0:
-			objType, ok := curSrv.ObjectType("Container")
-			if !ok {
-				return fmt.Errorf("failed to get Container object type for parent container")
-			}
-			fieldSpec, ok := objType.FieldSpec("rootfs", view)
-			if !ok {
-				return fmt.Errorf("failed to get rootfs field spec for Container object type")
-			}
-			astType := fieldSpec.Type.Type()
-			rootfsID := curID.Append(astType, "rootfs", string(view), fieldSpec.Module, 0, "")
 			rootfsDir := &Directory{
 				LLB: def.ToPB(),
 			}
@@ -801,11 +783,10 @@ func (op *ContainerDagOp) setAllContainerMounts(
 				rootfsDir.Platform = container.FS.Self().Platform
 				rootfsDir.Services = container.FS.Self().Services
 			}
-			updatedRootfs, err := dagql.NewObjectResultForID(rootfsDir, curSrv, rootfsID)
+			container.FS, err = updatedRootFS(ctx, rootfsDir)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to update rootfs: %w", err)
 			}
-			container.FS = &updatedRootfs
 
 		case 1:
 			container.Meta = def.ToPB()
@@ -814,54 +795,30 @@ func (op *ContainerDagOp) setAllContainerMounts(
 			ctrMnt := container.Mounts[mountIdx-2]
 			err := handleMountValue(ctrMnt,
 				func(dirMnt *dagql.ObjectResult[*Directory]) error {
-					objType, ok := curSrv.ObjectType("Container")
-					if !ok {
-						return fmt.Errorf("failed to get Container object type for parent container")
-					}
-					fieldSpec, ok := objType.FieldSpec("directory", view)
-					if !ok {
-						return fmt.Errorf("failed to get directory field spec for Container object type")
-					}
-					astType := fieldSpec.Type.Type()
-					dirIDPathArg := call.NewArgument("path", call.NewLiteralString(ctrMnt.Target), false)
-					dirID := curID.Append(astType, "directory", string(view), fieldSpec.Module, 0, "", dirIDPathArg)
 					dir := &Directory{
 						LLB:      def.ToPB(),
 						Dir:      ctrMnt.DirectorySource.Self().Dir,
 						Platform: ctrMnt.DirectorySource.Self().Platform,
 						Services: ctrMnt.DirectorySource.Self().Services,
 					}
-					updatedDir, err := dagql.NewObjectResultForID(dir, curSrv, dirID)
+					ctrMnt.DirectorySource, err = updatedDirMount(ctx, dir, ctrMnt.Target)
 					if err != nil {
-						return err
+						return fmt.Errorf("failed to update directory mount: %w", err)
 					}
-					ctrMnt.DirectorySource = &updatedDir
 					container.Mounts[mountIdx-2] = ctrMnt
 					return nil
 				},
 				func(fileMnt *dagql.ObjectResult[*File]) error {
-					objType, ok := curSrv.ObjectType("Container")
-					if !ok {
-						return fmt.Errorf("failed to get Container object type for parent container")
-					}
-					fieldSpec, ok := objType.FieldSpec("file", view)
-					if !ok {
-						return fmt.Errorf("failed to get file field spec for Container object type")
-					}
-					astType := fieldSpec.Type.Type()
-					fileIDPathArg := call.NewArgument("path", call.NewLiteralString(ctrMnt.Target), false)
-					fileID := curID.Append(astType, "file", string(view), fieldSpec.Module, 0, "", fileIDPathArg)
 					file := &File{
 						LLB:      def.ToPB(),
 						File:     ctrMnt.FileSource.Self().File,
 						Platform: ctrMnt.FileSource.Self().Platform,
 						Services: ctrMnt.FileSource.Self().Services,
 					}
-					updatedFile, err := dagql.NewObjectResultForID(file, curSrv, fileID)
+					ctrMnt.FileSource, err = updatedFileMount(ctx, file, ctrMnt.Target)
 					if err != nil {
-						return err
+						return fmt.Errorf("failed to update file mount: %w", err)
 					}
-					ctrMnt.FileSource = &updatedFile
 					container.Mounts[mountIdx-2] = ctrMnt
 					return nil
 				},

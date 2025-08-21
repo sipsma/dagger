@@ -570,37 +570,14 @@ func (container *Container) FromCanonicalRef(
 		return nil, err
 	}
 
-	// TODO: ?
-	// TODO: ?
-	// TODO: ? ugly
-	curSrv, err := query.Server.Server(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get server: %w", err)
-	}
-	curID := dagql.CurrentID(ctx)
-	view := dagql.View(curID.View())
-	objType, ok := curSrv.ObjectType("Container")
-	if !ok {
-		return nil, fmt.Errorf("failed to get Container object type for parent container")
-	}
-	fieldSpec, ok := objType.FieldSpec("rootfs", view)
-	if !ok {
-		return nil, fmt.Errorf("failed to get rootfs field spec for parent container")
-	}
-	astType := fieldSpec.Type.Type()
-	rootfsID := curID.Append(astType, "rootfs", string(view), fieldSpec.Module, 0, "")
-
 	container.Config = mergeImageConfig(container.Config, imgSpec.Config)
 	container.ImageRef = refStr
 	container.Platform = Platform(platforms.Normalize(imgSpec.Platform))
-
 	rootfsDir := NewDirectory(def.ToPB(), "/", container.Platform, container.Services)
-	updatedRootfs, err := dagql.NewObjectResultForID(rootfsDir, curSrv, rootfsID)
+	container.FS, err = updatedRootFS(ctx, rootfsDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create rootfs object result: %w", err)
+		return nil, fmt.Errorf("failed to create rootfs directory: %w", err)
 	}
-	container.FS = &updatedRootfs
-
 	return container, nil
 }
 
@@ -761,31 +738,11 @@ func (container *Container) Build(
 		newDef.Source = nil
 	}
 
-	// TODO: ?
-	// TODO: ?
-	// TODO: ? ugly
-	curSrv, err := query.Server.Server(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get server: %w", err)
-	}
-	curID := dagql.CurrentID(ctx)
-	view := dagql.View(curID.View())
-	objType, ok := curSrv.ObjectType("Container")
-	if !ok {
-		return nil, fmt.Errorf("failed to get Container object type")
-	}
-	fieldSpec, ok := objType.FieldSpec("rootfs", view)
-	if !ok {
-		return nil, fmt.Errorf("failed to get rootfs field spec for parent container")
-	}
-	astType := fieldSpec.Type.Type()
-	rootfsID := curID.Append(astType, "rootfs", string(view), fieldSpec.Module, 0, "")
 	rootfsDir := NewDirectory(newDef, "/", container.Platform, container.Services)
-	updatedRootfs, err := dagql.NewObjectResultForID(rootfsDir, curSrv, rootfsID)
+	container.FS, err = updatedRootFS(ctx, rootfsDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create rootfs object result: %w", err)
+		return nil, fmt.Errorf("failed to create rootfs directory: %w", err)
 	}
-	container.FS = &updatedRootfs
 
 	cfgBytes, found := res.Metadata[exptypes.ExporterImageConfigKey]
 	if found {
@@ -1148,12 +1105,10 @@ func (container *Container) WithSymlink(ctx context.Context, srv *dagql.Server, 
 
 	switch {
 	case mnt == nil: // rootfs
-		selectors := []dagql.Selector{
-			dagql.Selector{
-				Field: "withSymlink",
-				Args:  args,
-			},
-		}
+		selectors := []dagql.Selector{{
+			Field: "withSymlink",
+			Args:  args,
+		}}
 		queryParent := dagql.AnyObjectResult(container.FS)
 		if container.FS == nil {
 			// need to start from a scratch directory
@@ -2183,27 +2138,11 @@ func (container *Container) Import(
 		return nil, fmt.Errorf("marshal root: %w", err)
 	}
 
-	// TODO: ?
-	// TODO: ?
-	// TODO: ? ugly
-	curID := dagql.CurrentID(ctx)
-	view := dagql.View(curID.View())
-	fieldSpec, ok := parent.ObjectType().FieldSpec("rootfs", view)
-	if !ok {
-		return nil, fmt.Errorf("failed to get rootfs field spec for parent container")
-	}
-	astType := fieldSpec.Type.Type()
-	rootfsID := curID.Append(astType, "rootfs", string(view), fieldSpec.Module, 0, "")
 	rootfsDir := NewDirectory(execDef.ToPB(), "/", container.Platform, container.Services)
-	curSrv, err := query.Server.Server(ctx)
+	container.FS, err = updatedRootFS(ctx, rootfsDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get server: %w", err)
+		return nil, fmt.Errorf("updated rootfs: %w", err)
 	}
-	updatedRootfs, err := dagql.NewObjectResultForID(rootfsDir, curSrv, rootfsID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create rootfs object result: %w", err)
-	}
-	container.FS = &updatedRootfs
 
 	if release != nil {
 		// eagerly evaluate the OCI reference so Buildkit sets up a long-term lease
@@ -2642,4 +2581,108 @@ func (*TerminalLegacy) TypeDescription() string {
 
 func (*TerminalLegacy) Evaluate(ctx context.Context) (*buildkit.Result, error) {
 	return nil, nil
+}
+
+// updatedRootFS returns an updated rootfs for a given directory after an exec/import/etc.
+// The returned ObjectResult uses the ID of the current operation.
+func updatedRootFS(
+	ctx context.Context,
+	dir *Directory,
+) (*dagql.ObjectResult[*Directory], error) {
+	query, err := CurrentQuery(ctx)
+	if err != nil {
+		return nil, err
+	}
+	curSrv, err := query.Server.Server(ctx)
+	if err != nil {
+		return nil, err
+	}
+	curID := dagql.CurrentID(ctx)
+	view := dagql.View(curID.View())
+	objType, ok := curSrv.ObjectType("Container")
+	if !ok {
+		return nil, fmt.Errorf("object type Container not found in server")
+	}
+	fieldSpec, ok := objType.FieldSpec("rootfs", view)
+	if !ok {
+		return nil, fmt.Errorf("field spec for rootfs not found in object type Container")
+	}
+	astType := fieldSpec.Type.Type()
+	rootfsID := curID.Append(astType, "rootfs", string(view), fieldSpec.Module, 0, "")
+
+	updatedRootfs, err := dagql.NewObjectResultForID(dir, curSrv, rootfsID)
+	if err != nil {
+		return nil, err
+	}
+	return &updatedRootfs, nil
+}
+
+// updatedDirMount returns an updated mount for a given directory after an exec/import/etc.
+// The returned ObjectResult uses the ID of the current operation.
+func updatedDirMount(
+	ctx context.Context,
+	dir *Directory,
+	mntTarget string,
+) (*dagql.ObjectResult[*Directory], error) {
+	query, err := CurrentQuery(ctx)
+	if err != nil {
+		return nil, err
+	}
+	curSrv, err := query.Server.Server(ctx)
+	if err != nil {
+		return nil, err
+	}
+	curID := dagql.CurrentID(ctx)
+	view := dagql.View(curID.View())
+	objType, ok := curSrv.ObjectType("Container")
+	if !ok {
+		return nil, fmt.Errorf("object type Container not found in server")
+	}
+	fieldSpec, ok := objType.FieldSpec("directory", view)
+	if !ok {
+		return nil, fmt.Errorf("field spec for directory not found in object type Container")
+	}
+	astType := fieldSpec.Type.Type()
+	dirIDPathArg := call.NewArgument("path", call.NewLiteralString(mntTarget), false)
+	dirID := curID.Append(astType, "directory", string(view), fieldSpec.Module, 0, "", dirIDPathArg)
+	updatedDirMnt, err := dagql.NewObjectResultForID(dir, curSrv, dirID)
+	if err != nil {
+		return nil, err
+	}
+	return &updatedDirMnt, nil
+}
+
+// updatedFileMount returns an updated mount for a given file after an exec/import/etc.
+// The returned ObjectResult uses the ID of the current operation.
+func updatedFileMount(
+	ctx context.Context,
+	file *File,
+	mntTarget string,
+) (*dagql.ObjectResult[*File], error) {
+	query, err := CurrentQuery(ctx)
+	if err != nil {
+		return nil, err
+	}
+	curSrv, err := query.Server.Server(ctx)
+	if err != nil {
+		return nil, err
+	}
+	curID := dagql.CurrentID(ctx)
+	view := dagql.View(curID.View())
+	objType, ok := curSrv.ObjectType("Container")
+	if !ok {
+		return nil, fmt.Errorf("object type Container not found in server")
+	}
+	fieldSpec, ok := objType.FieldSpec("file", view)
+	if !ok {
+		return nil, fmt.Errorf("field spec for file not found in object type Container")
+	}
+	astType := fieldSpec.Type.Type()
+	fileIDPathArg := call.NewArgument("path", call.NewLiteralString(mntTarget), false)
+	fileID := curID.Append(astType, "file", string(view), fieldSpec.Module, 0, "", fileIDPathArg)
+	updatedFileMnt, err := dagql.NewObjectResultForID(file, curSrv, fileID)
+	if err != nil {
+		return nil, err
+	}
+	return &updatedFileMnt, nil
 }
