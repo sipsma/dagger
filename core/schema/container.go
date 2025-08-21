@@ -1001,7 +1001,7 @@ func (s *containerSchema) withExec(ctx context.Context, parent dagql.ObjectResul
 		md = args.ExecMD.Self
 	}
 
-	ctr, err = parent.Self().WithExec(ctx, args.ContainerExecOpts, md, parent)
+	ctr, err = parent.Self().WithExec(ctx, args.ContainerExecOpts, md)
 	if err != nil {
 		return inst, err
 	}

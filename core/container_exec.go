@@ -226,7 +226,6 @@ func (container *Container) WithExec(
 	ctx context.Context,
 	opts ContainerExecOpts,
 	execMD *buildkit.ExecutionMetadata,
-	parent dagql.ObjectResult[*Container],
 ) (_ *Container, rerr error) {
 	container = container.Clone()
 
@@ -308,7 +307,7 @@ func (container *Container) WithExec(
 				} else {
 					ref, cerr := active.Ref.Commit(ctx)
 					if cerr != nil {
-						rerr = fmt.Errorf("error committing %s: %w: %w", active.Ref.ID(), cerr, err)
+						rerr = errors.Join(rerr, fmt.Errorf("error committing %s: %w: %w", active.Ref.ID(), cerr, err))
 						continue
 					}
 					execMounts[active.MountIndex] = worker.NewWorkerRefResult(ref, opt.Worker)
@@ -317,28 +316,8 @@ func (container *Container) WithExec(
 
 			for i, res := range results {
 				iref := res.Sys().(*worker.WorkerRef).ImmutableRef
-				// TODO: ugly
 				switch i {
 				case 0:
-					curSrv, err := query.Server.Server(ctx)
-					if err != nil {
-						rerr = fmt.Errorf("failed to get current server: %w", err)
-						continue
-					}
-					curID := dagql.CurrentID(ctx)
-					view := dagql.View(curID.View())
-					objType, ok := curSrv.ObjectType("Container")
-					if !ok {
-						rerr = fmt.Errorf("object type Container not found in server")
-						continue
-					}
-					fieldSpec, ok := objType.FieldSpec("rootfs", view)
-					if !ok {
-						rerr = fmt.Errorf("field spec for rootfs not found in object type Container")
-						continue
-					}
-					astType := fieldSpec.Type.Type()
-					rootfsID := curID.Append(astType, "rootfs", string(view), fieldSpec.Module, 0, "")
 					rootfsDir := &Directory{
 						Result: iref,
 					}
@@ -349,12 +328,11 @@ func (container *Container) WithExec(
 					} else {
 						rootfsDir.Dir = "/"
 					}
-					updatedRootfs, err := dagql.NewObjectResultForID(rootfsDir, curSrv, rootfsID)
+					container.FS, err = updatedRootFS(ctx, rootfsDir)
 					if err != nil {
-						rerr = fmt.Errorf("failed to create object result for rootfs: %w", err)
+						rerr = errors.Join(rerr, fmt.Errorf("failed to update rootfs: %w", err))
 						continue
 					}
-					container.FS = &updatedRootfs
 
 				case 1:
 					container.MetaResult = iref
@@ -367,57 +345,32 @@ func (container *Container) WithExec(
 					}
 					ctrMnt := container.Mounts[mountIdx]
 
-					curID := dagql.CurrentID(ctx)
-					view := dagql.View(curID.View())
-
-					curSrv, err := query.Server.Server(ctx)
-					if err != nil {
-						rerr = fmt.Errorf("failed to get current server: %w", err)
-						continue
-					}
-
 					err = handleMountValue(ctrMnt,
 						func(dirMnt *dagql.ObjectResult[*Directory]) error {
-							fieldSpec, ok := parent.ObjectType().FieldSpec("directory", view)
-							if !ok {
-								return fmt.Errorf("field spec for directory not found in object type Container")
-							}
-							astType := fieldSpec.Type.Type()
-							dirIDPathArg := call.NewArgument("path", call.NewLiteralString(ctrMnt.Target), false)
-							dirID := curID.Append(astType, "directory", string(view), fieldSpec.Module, 0, "", dirIDPathArg)
 							dir := &Directory{
 								Result:   iref,
 								Dir:      dirMnt.Self().Dir,
 								Platform: dirMnt.Self().Platform,
 								Services: dirMnt.Self().Services,
 							}
-							updatedDirMnt, err := dagql.NewObjectResultForID(dir, curSrv, dirID)
+							ctrMnt.DirectorySource, err = updatedDirMount(ctx, dir, ctrMnt.Target)
 							if err != nil {
-								return fmt.Errorf("failed to create object result for directory: %w", err)
+								return fmt.Errorf("failed to update directory mount: %w", err)
 							}
-							ctrMnt.DirectorySource = &updatedDirMnt
 							container.Mounts[mountIdx] = ctrMnt
 							return nil
 						},
 						func(fileMnt *dagql.ObjectResult[*File]) error {
-							fieldSpec, ok := parent.ObjectType().FieldSpec("file", view)
-							if !ok {
-								return fmt.Errorf("field spec for file not found in object type Container")
-							}
-							astType := fieldSpec.Type.Type()
-							fileIDPathArg := call.NewArgument("path", call.NewLiteralString(ctrMnt.Target), false)
-							fileID := curID.Append(astType, "file", string(view), fieldSpec.Module, 0, "", fileIDPathArg)
 							file := &File{
 								Result:   iref,
 								File:     fileMnt.Self().File,
 								Platform: fileMnt.Self().Platform,
 								Services: fileMnt.Self().Services,
 							}
-							updatedFileMnt, err := dagql.NewObjectResultForID(file, curSrv, fileID)
+							ctrMnt.FileSource, err = updatedFileMount(ctx, file, ctrMnt.Target)
 							if err != nil {
-								return fmt.Errorf("failed to create object result for file: %w", err)
+								return fmt.Errorf("failed to update file mount: %w", err)
 							}
-							ctrMnt.FileSource = &updatedFileMnt
 							container.Mounts[mountIdx] = ctrMnt
 							return nil
 						},
@@ -525,26 +478,8 @@ func (container *Container) WithExec(
 		}
 
 		// put the ref to the right mount point
-		// TODO: ugly
 		switch ref.MountIndex {
 		case 0:
-			curSrv, err := query.Server.Server(ctx)
-			if err != nil {
-				return nil, err
-			}
-			curID := dagql.CurrentID(ctx)
-			view := dagql.View(curID.View())
-			objType, ok := curSrv.ObjectType("Container")
-			if !ok {
-				return nil, fmt.Errorf("object type Container not found in server")
-			}
-			fieldSpec, ok := objType.FieldSpec("rootfs", view)
-			if !ok {
-				err = fmt.Errorf("field spec for rootfs not found in object type Container")
-				return nil, err
-			}
-			astType := fieldSpec.Type.Type()
-			rootfsID := curID.Append(astType, "rootfs", string(view), fieldSpec.Module, 0, "")
 			rootfsDir := &Directory{
 				Result: iref,
 			}
@@ -555,11 +490,10 @@ func (container *Container) WithExec(
 			} else {
 				rootfsDir.Dir = "/"
 			}
-			updatedRootfs, err := dagql.NewObjectResultForID(rootfsDir, curSrv, rootfsID)
+			container.FS, err = updatedRootFS(ctx, rootfsDir)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("failed to update rootfs: %w", err)
 			}
-			container.FS = &updatedRootfs
 
 		case 1:
 			container.MetaResult = iref
@@ -572,56 +506,32 @@ func (container *Container) WithExec(
 			}
 			ctrMnt := container.Mounts[mountIdx]
 
-			curID := dagql.CurrentID(ctx)
-			view := dagql.View(curID.View())
-
-			curSrv, err := query.Server.Server(ctx)
-			if err != nil {
-				return nil, err
-			}
-
 			err = handleMountValue(ctrMnt,
 				func(dirMnt *dagql.ObjectResult[*Directory]) error {
-					fieldSpec, ok := parent.ObjectType().FieldSpec("directory", view)
-					if !ok {
-						return fmt.Errorf("field spec for directory not found in object type Container")
-					}
-					astType := fieldSpec.Type.Type()
-					dirIDPathArg := call.NewArgument("path", call.NewLiteralString(ctrMnt.Target), false)
-					dirID := curID.Append(astType, "directory", string(view), fieldSpec.Module, 0, "", dirIDPathArg)
 					dir := &Directory{
 						Result:   iref,
 						Dir:      dirMnt.Self().Dir,
 						Platform: dirMnt.Self().Platform,
 						Services: dirMnt.Self().Services,
 					}
-					updatedDirMnt, err := dagql.NewObjectResultForID(dir, curSrv, dirID)
+					ctrMnt.DirectorySource, err = updatedDirMount(ctx, dir, ctrMnt.Target)
 					if err != nil {
-						return err
+						return fmt.Errorf("failed to update directory mount: %w", err)
 					}
-					ctrMnt.DirectorySource = &updatedDirMnt
 					container.Mounts[mountIdx] = ctrMnt
 					return nil
 				},
 				func(fileMnt *dagql.ObjectResult[*File]) error {
-					fieldSpec, ok := parent.ObjectType().FieldSpec("file", view)
-					if !ok {
-						return fmt.Errorf("field spec for file not found in object type Container")
-					}
-					astType := fieldSpec.Type.Type()
-					fileIDPathArg := call.NewArgument("path", call.NewLiteralString(ctrMnt.Target), false)
-					fileID := curID.Append(astType, "file", string(view), fieldSpec.Module, 0, "", fileIDPathArg)
 					file := &File{
 						Result:   iref,
 						File:     fileMnt.Self().File,
 						Platform: fileMnt.Self().Platform,
 						Services: fileMnt.Self().Services,
 					}
-					updatedFileMnt, err := dagql.NewObjectResultForID(file, curSrv, fileID)
+					ctrMnt.FileSource, err = updatedFileMount(ctx, file, ctrMnt.Target)
 					if err != nil {
-						return err
+						return fmt.Errorf("failed to update file mount: %w", err)
 					}
-					ctrMnt.FileSource = &updatedFileMnt
 					container.Mounts[mountIdx] = ctrMnt
 					return nil
 				},
