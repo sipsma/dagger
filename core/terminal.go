@@ -172,7 +172,7 @@ func (dir *Directory) Terminal(
 	svcID *call.ID,
 	ctr *Container,
 	args *TerminalArgs,
-	parent dagql.ObjectResult[*Directory], // TODO: cleanup
+	parent dagql.ObjectResult[*Directory],
 ) error {
 	var err error
 
@@ -186,7 +186,7 @@ func (dir *Directory) Terminal(
 		if err != nil {
 			return fmt.Errorf("failed to select terminal container: %w", err)
 		}
-		ctr, err = ctrInst.Self().FromRefString(ctx, defaultTerminalImage, ctrInst)
+		ctr, err = ctrInst.Self().FromRefString(ctx, defaultTerminalImage)
 		if err != nil {
 			return fmt.Errorf("failed to create terminal container: %w", err)
 		}

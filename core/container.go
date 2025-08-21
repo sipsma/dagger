@@ -21,7 +21,6 @@ import (
 	"github.com/containerd/containerd/pkg/transfer/archive"
 	"github.com/containerd/platforms"
 	"github.com/distribution/reference"
-	bkcache "github.com/moby/buildkit/cache"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/client/llb/sourceresolver"
 	"github.com/moby/buildkit/exporter/containerimage/exptypes"
@@ -74,9 +73,7 @@ type Container struct {
 	Mounts ContainerMounts
 
 	// Meta is the /dagger filesystem. It will be null if nothing has run yet.
-	// TODO: convert to dagql.ObjectResult[*Directory]
-	Meta       *pb.Definition
-	MetaResult bkcache.ImmutableRef // only valid when returned by dagop
+	Meta *Directory
 
 	// The platform of the container's rootfs.
 	Platform Platform
@@ -200,7 +197,6 @@ func (container *Container) WithoutInputs() *Container {
 
 	container.FS = nil
 	container.Meta = nil
-	container.MetaResult = nil
 
 	for i, mount := range container.Mounts {
 		mount.DirectorySource = nil
@@ -228,10 +224,13 @@ func (container *Container) OnRelease(ctx context.Context) error {
 			}
 		}
 	}
-	if container.MetaResult != nil {
-		err := container.MetaResult.Release(ctx)
-		if err != nil {
-			return err
+	if meta := container.Meta; meta != nil {
+		metaRes := meta.Result
+		if metaRes != nil {
+			err := metaRes.Release(ctx)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	for _, mount := range container.Mounts {
@@ -304,7 +303,7 @@ func (container *Container) MetaState() (*llb.State, error) {
 		return nil, nil
 	}
 
-	metaSt, err := defToState(container.Meta)
+	metaSt, err := defToState(container.Meta.LLB)
 	if err != nil {
 		return nil, err
 	}
@@ -475,7 +474,7 @@ func (mnts ContainerMounts) Replace(newMnt ContainerMount) (ContainerMounts, err
 	return mntsCp, nil
 }
 
-func (container *Container) FromRefString(ctx context.Context, addr string, parent dagql.ObjectResult[*Container]) (*Container, error) {
+func (container *Container) FromRefString(ctx context.Context, addr string) (*Container, error) {
 	query, err := CurrentQuery(ctx)
 	if err != nil {
 		return nil, err
@@ -495,7 +494,7 @@ func (container *Container) FromRefString(ctx context.Context, addr string, pare
 	refName = reference.TagNameOnly(refName)
 
 	if refName, isCanonical := refName.(reference.Canonical); isCanonical {
-		return container.FromCanonicalRef(ctx, refName, nil, parent)
+		return container.FromCanonicalRef(ctx, refName, nil)
 	}
 
 	_, digest, cfgBytes, err := bk.ResolveImageConfig(ctx, refName.String(), sourceresolver.Opt{
@@ -512,7 +511,7 @@ func (container *Container) FromRefString(ctx context.Context, addr string, pare
 		return nil, fmt.Errorf("failed to set digest on image %s: %w", refName.String(), err)
 	}
 
-	return container.FromCanonicalRef(ctx, canonRefName, cfgBytes, parent)
+	return container.FromCanonicalRef(ctx, canonRefName, cfgBytes)
 }
 
 func (container *Container) FromCanonicalRef(
@@ -520,7 +519,6 @@ func (container *Container) FromCanonicalRef(
 	refName reference.Canonical,
 	// cfgBytes is optional, will be retrieved if not provided
 	cfgBytes []byte,
-	parent dagql.ObjectResult[*Container],
 ) (*Container, error) {
 	container = container.Clone()
 
@@ -574,7 +572,7 @@ func (container *Container) FromCanonicalRef(
 	container.ImageRef = refStr
 	container.Platform = Platform(platforms.Normalize(imgSpec.Platform))
 	rootfsDir := NewDirectory(def.ToPB(), "/", container.Platform, container.Services)
-	container.FS, err = updatedRootFS(ctx, rootfsDir)
+	container.FS, err = UpdatedRootFS(ctx, rootfsDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rootfs directory: %w", err)
 	}
@@ -594,7 +592,6 @@ func (container *Container) Build(
 	secrets []dagql.ObjectResult[*Secret],
 	secretStore *SecretStore,
 	noInit bool,
-	parent dagql.ObjectResult[*Container],
 ) (*Container, error) {
 	container = container.Clone()
 
@@ -739,7 +736,7 @@ func (container *Container) Build(
 	}
 
 	rootfsDir := NewDirectory(newDef, "/", container.Platform, container.Services)
-	container.FS, err = updatedRootFS(ctx, rootfsDir)
+	container.FS, err = UpdatedRootFS(ctx, rootfsDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rootfs directory: %w", err)
 	}
@@ -2077,7 +2074,6 @@ func (container *Container) Import(
 	ctx context.Context,
 	source *File,
 	tag string,
-	parent dagql.ObjectResult[*Container],
 ) (*Container, error) {
 	query, err := CurrentQuery(ctx)
 	if err != nil {
@@ -2139,7 +2135,7 @@ func (container *Container) Import(
 	}
 
 	rootfsDir := NewDirectory(execDef.ToPB(), "/", container.Platform, container.Services)
-	container.FS, err = updatedRootFS(ctx, rootfsDir)
+	container.FS, err = UpdatedRootFS(ctx, rootfsDir)
 	if err != nil {
 		return nil, fmt.Errorf("updated rootfs: %w", err)
 	}
@@ -2583,9 +2579,9 @@ func (*TerminalLegacy) Evaluate(ctx context.Context) (*buildkit.Result, error) {
 	return nil, nil
 }
 
-// updatedRootFS returns an updated rootfs for a given directory after an exec/import/etc.
+// UpdatedRootFS returns an updated rootfs for a given directory after an exec/import/etc.
 // The returned ObjectResult uses the ID of the current operation.
-func updatedRootFS(
+func UpdatedRootFS(
 	ctx context.Context,
 	dir *Directory,
 ) (*dagql.ObjectResult[*Directory], error) {
@@ -2609,7 +2605,6 @@ func updatedRootFS(
 	}
 	astType := fieldSpec.Type.Type()
 	rootfsID := curID.Append(astType, "rootfs", string(view), fieldSpec.Module, 0, "")
-
 	updatedRootfs, err := dagql.NewObjectResultForID(dir, curSrv, rootfsID)
 	if err != nil {
 		return nil, err
