@@ -215,6 +215,7 @@ func (container *Container) OnRelease(ctx context.Context) error {
 	if container == nil {
 		return nil
 	}
+	// TODO: this might be problematic if directories overlap, could release same result multiple times
 	if rootfs := container.FS; rootfs != nil {
 		rootfsRes := rootfs.Self().Result
 		if rootfsRes != nil {
@@ -234,21 +235,25 @@ func (container *Container) OnRelease(ctx context.Context) error {
 		}
 	}
 	for _, mount := range container.Mounts {
-		if src := mount.DirectorySource.Self(); src != nil {
-			res := src.Result
-			if res != nil {
-				err := res.Release(ctx)
-				if err != nil {
-					return err
+		if src := mount.DirectorySource; src != nil {
+			if src := mount.DirectorySource.Self(); src != nil {
+				res := src.Result
+				if res != nil {
+					err := res.Release(ctx)
+					if err != nil {
+						return err
+					}
 				}
 			}
 		}
-		if src := mount.FileSource.Self(); src != nil {
-			res := src.Result
-			if res != nil {
-				err := res.Release(ctx)
-				if err != nil {
-					return err
+		if src := mount.FileSource; src != nil {
+			if src := mount.FileSource.Self(); src != nil {
+				res := src.Result
+				if res != nil {
+					err := res.Release(ctx)
+					if err != nil {
+						return err
+					}
 				}
 			}
 		}
