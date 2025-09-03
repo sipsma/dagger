@@ -8356,10 +8356,10 @@ posthog-docusaurus@^2.0.4:
   resolved "https://registry.yarnpkg.com/posthog-docusaurus/-/posthog-docusaurus-2.0.4.tgz#26fdd4071b081385b5f2a6a3dfd41bdaf4c8c221"
   integrity sha512-xnEVCBovSuvQvYXGny03CDTc0yZCl7O3Mz21sJpXmE1Gvs21gM33WzWaA9Cm6WvWGYZtQy8t8/g8OjCkmTWlXA==
 
-posthog-js@^1.261.0:
-  version "1.261.0"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.261.0.tgz#1e9618b7810db81f6eed94ec251724639d92f95e"
-  integrity sha512-jyiXqyrCU+VlpbNNVRA6OQYAVut0XZMYNELCZH+XvTd981VqbE4jXn4XCBreo7XCL2gdPgDVxUVOuzNvEuKcmw==
+posthog-js@^1.261.2:
+  version "1.261.2"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.261.2.tgz#80888eca9c8033c34e1dc43615d4a9a495c929c0"
+  integrity sha512-DIBv5lGFzV7lNYlosorPmchFP9hkivyEZ2x6UuUFK4m0vD1LZ2Fg0QR2eh3zegrDQBbuzJTrSGd9mhJULzUPVA==
   dependencies:
     "@posthog/core" "1.0.2"
     core-js "^3.38.1"
