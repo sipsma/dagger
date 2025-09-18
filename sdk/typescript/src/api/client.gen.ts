@@ -6844,11 +6844,28 @@ export class Function_ extends BaseClient {
   }
 
   /**
+   * TODO GREAT DOC STRING
+   * @param expireSeconds TODO GREAT DOC STRING
+   */
+  withCacheTTL = (expireSeconds: number): Function_ => {
+    const ctx = this._ctx.select("withCacheTTL", { expireSeconds })
+    return new Function_(ctx)
+  }
+
+  /**
    * Returns the function with the given doc string.
    * @param description The doc string to set.
    */
   withDescription = (description: string): Function_ => {
     const ctx = this._ctx.select("withDescription", { description })
+    return new Function_(ctx)
+  }
+
+  /**
+   * TODO GREAT DOC STRING
+   */
+  withNoCache = (): Function_ => {
+    const ctx = this._ctx.select("withNoCache")
     return new Function_(ctx)
   }
 

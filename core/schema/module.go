@@ -148,6 +148,17 @@ func (s *moduleSchema) Install(dag *dagql.Server) {
 				dagql.Arg("ignore").Doc(`Patterns to ignore when loading the contextual argument value.`),
 				dagql.Arg("sourceMap").Doc(`The source map for the argument definition.`),
 			),
+
+		// TODO: doc
+
+		dagql.Func("withNoCache", s.functionWithNoCache).
+			Doc(`TODO GREAT DOC STRING`),
+
+		dagql.Func("withCacheTTL", s.functionWithCacheTTL).
+			Doc(`TODO GREAT DOC STRING`).
+			Args(
+				dagql.Arg("expireSeconds").Doc(`TODO GREAT DOC STRING`),
+			),
 	}.Install(dag)
 
 	dagql.Fields[*core.FunctionArg]{}.Install(dag)
@@ -446,6 +457,22 @@ func (s *moduleSchema) function(ctx context.Context, _ *core.Query, args struct 
 		return nil, fmt.Errorf("failed to decode return type: %w", err)
 	}
 	return core.NewFunction(args.Name, returnType.Self()), nil
+}
+
+// TODO: should NoCache and ExpireSeconds be an error if both set? probably
+
+func (s *moduleSchema) functionWithNoCache(ctx context.Context, parent *core.Function, args struct{}) (*core.Function, error) {
+	parent = parent.Clone()
+	parent.NoCache = true
+	return parent, nil
+}
+
+func (s *moduleSchema) functionWithCacheTTL(ctx context.Context, parent *core.Function, args struct {
+	ExpireSeconds int64
+}) (*core.Function, error) {
+	parent = parent.Clone()
+	parent.ExpireSeconds = dagql.NonNull(dagql.Int(args.ExpireSeconds))
+	return parent, nil
 }
 
 func (s *moduleSchema) sourceMap(ctx context.Context, _ *core.Query, args struct {

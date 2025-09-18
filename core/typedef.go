@@ -26,6 +26,10 @@ type Function struct {
 
 	SourceMap dagql.Nullable[*SourceMap] `field:"true" doc:"The location of this function declaration."`
 
+	// TODO: put this in the public API?
+	NoCache       bool
+	ExpireSeconds dagql.Nullable[dagql.Int]
+
 	// Below are not in public API
 
 	// OriginalName of the parent object

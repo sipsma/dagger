@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"dagger.io/dagger/telemetry"
 	bkgw "github.com/dagger/dagger/internal/buildkit/frontend/gateway/client"
@@ -93,9 +95,12 @@ type CallOpts struct {
 	Inputs         []CallInput
 	ParentTyped    dagql.AnyResult
 	ParentFields   map[string]any
-	Cache          bool
 	SkipSelfSchema bool
 	Server         *dagql.Server
+
+	// TODO: docs
+	NoCache       bool
+	ExpireSeconds int64
 
 	// If true, don't mix in the digest for the current dagql call into the cache key for
 	// the exec-op underlying the function call.
@@ -293,14 +298,19 @@ func (fn *ModuleFunction) Call(ctx context.Context, opts *CallOpts) (t dagql.Any
 	}
 
 	var cacheMixins []string
-	/*
-		if !opts.Cache {
-			// Scope the exec cache key to the current session ID. It will be
-			// cached in the context of the session but invalidated across
-			// different sessions.
-			cacheMixins = append(cacheMixins, clientMetadata.SessionID)
-		}
-	*/
+
+	if opts.NoCache {
+		// Scope the exec cache key to the current session ID. It will be
+		// cached in the context of the session but invalidated across
+		// different sessions.
+		cacheMixins = append(cacheMixins, clientMetadata.SessionID)
+	}
+	if opts.ExpireSeconds > 0 {
+		// TODO: janky, just splices All Of Time in opts.ExpireSeconds intervals and caches within those intervals.
+		// It should instead be a TTL on when the operation actually runs (or finishes?)
+		cacheMixins = append(cacheMixins, strconv.Itoa(int(time.Now().Unix()/opts.ExpireSeconds)))
+	}
+
 	if !opts.SkipCallDigestCacheKey {
 		// If true, scope the exec cache key to the current dagql call digest. This is needed currently
 		// for module function calls specifically so that their cache key is based on their arguments and

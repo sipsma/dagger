@@ -8095,6 +8095,20 @@ impl Function {
             graphql_client: self.graphql_client.clone(),
         }
     }
+    /// TODO GREAT DOC STRING
+    ///
+    /// # Arguments
+    ///
+    /// * `expire_seconds` - TODO GREAT DOC STRING
+    pub fn with_cache_ttl(&self, expire_seconds: isize) -> Function {
+        let mut query = self.selection.select("withCacheTTL");
+        query = query.arg("expireSeconds", expire_seconds);
+        Function {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
     /// Returns the function with the given doc string.
     ///
     /// # Arguments
@@ -8103,6 +8117,15 @@ impl Function {
     pub fn with_description(&self, description: impl Into<String>) -> Function {
         let mut query = self.selection.select("withDescription");
         query = query.arg("description", description.into());
+        Function {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// TODO GREAT DOC STRING
+    pub fn with_no_cache(&self) -> Function {
+        let query = self.selection.select("withNoCache");
         Function {
             proc: self.proc.clone(),
             selection: query,

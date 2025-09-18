@@ -129,6 +129,22 @@ defmodule Dagger.Function do
   end
 
   @doc """
+  TODO GREAT DOC STRING
+  """
+  @spec with_cache_ttl(t(), integer()) :: Dagger.Function.t()
+  def with_cache_ttl(%__MODULE__{} = function, expire_seconds) do
+    query_builder =
+      function.query_builder
+      |> QB.select("withCacheTTL")
+      |> QB.put_arg("expireSeconds", expire_seconds)
+
+    %Dagger.Function{
+      query_builder: query_builder,
+      client: function.client
+    }
+  end
+
+  @doc """
   Returns the function with the given doc string.
   """
   @spec with_description(t(), String.t()) :: Dagger.Function.t()
@@ -137,6 +153,20 @@ defmodule Dagger.Function do
       function.query_builder
       |> QB.select("withDescription")
       |> QB.put_arg("description", description)
+
+    %Dagger.Function{
+      query_builder: query_builder,
+      client: function.client
+    }
+  end
+
+  @doc """
+  TODO GREAT DOC STRING
+  """
+  @spec with_no_cache(t()) :: Dagger.Function.t()
+  def with_no_cache(%__MODULE__{} = function) do
+    query_builder =
+      function.query_builder |> QB.select("withNoCache")
 
     %Dagger.Function{
       query_builder: query_builder,

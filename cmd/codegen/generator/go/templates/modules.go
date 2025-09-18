@@ -1201,6 +1201,7 @@ func parsePragmaComment(comment string) (data map[string]any, rest string) {
 		end := v[1]
 		if v[4] != -1 {
 			dec := json.NewDecoder(strings.NewReader(comment[v[5]:]))
+			dec.UseNumber()
 			if err := dec.Decode(&value); err == nil {
 				// attempt to parse as json (this can span multiple-lines)
 				end = v[5] + int(dec.InputOffset())

@@ -6383,10 +6383,29 @@ func (r *Function) WithArg(name string, typeDef *TypeDef, opts ...FunctionWithAr
 	}
 }
 
+// TODO GREAT DOC STRING
+func (r *Function) WithCacheTTL(expireSeconds int) *Function {
+	q := r.query.Select("withCacheTTL")
+	q = q.Arg("expireSeconds", expireSeconds)
+
+	return &Function{
+		query: q,
+	}
+}
+
 // Returns the function with the given doc string.
 func (r *Function) WithDescription(description string) *Function {
 	q := r.query.Select("withDescription")
 	q = q.Arg("description", description)
+
+	return &Function{
+		query: q,
+	}
+}
+
+// TODO GREAT DOC STRING
+func (r *Function) WithNoCache() *Function {
+	q := r.query.Select("withNoCache")
 
 	return &Function{
 		query: q,

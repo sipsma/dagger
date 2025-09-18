@@ -28,7 +28,25 @@ func (ps *parseState) parseGoFunc(parentType *types.Named, fn *types.Func) (*fun
 	if err != nil {
 		return nil, fmt.Errorf("failed to find decl for method %s: %w", fn.Name(), err)
 	}
-	spec.doc = funcDecl.Doc.Text()
+
+	docPragmas, docComment := parsePragmaComment(funcDecl.Doc.Text())
+	spec.doc = docComment
+
+	if _, ok := docPragmas["nocache"]; ok {
+		spec.noCache = true
+	}
+	if v, ok := docPragmas["ttl"]; ok {
+		ttlStr, ok := v.(json.Number)
+		if !ok {
+			return nil, fmt.Errorf("ttl pragma %q, must be a valid integer", v)
+		}
+		ttl, err := ttlStr.Int64()
+		if err != nil {
+			return nil, fmt.Errorf("ttl pragma %q, must be a valid integer: %w", v, err)
+		}
+		spec.ttlSeconds = int(ttl)
+	}
+
 	spec.sourceMap = ps.sourceMap(funcDecl)
 
 	sig, ok := fn.Type().(*types.Signature)
@@ -85,6 +103,9 @@ type funcTypeSpec struct {
 	doc       string
 	sourceMap *sourceMap
 
+	noCache    bool
+	ttlSeconds int
+
 	argSpecs []paramSpec
 
 	returnSpec   ParsedType // nil if void return
@@ -112,6 +133,14 @@ func (spec *funcTypeSpec) TypeDefCode() (*Statement, error) {
 	if spec.doc != "" {
 		fnTypeDefCode = dotLine(fnTypeDefCode, "WithDescription").Call(Lit(strings.TrimSpace(spec.doc)))
 	}
+
+	if spec.noCache {
+		fnTypeDefCode = dotLine(fnTypeDefCode, "WithNoCache").Call()
+	}
+	if spec.ttlSeconds > 0 {
+		fnTypeDefCode = dotLine(fnTypeDefCode, "WithCacheTTL").Call(Lit(spec.ttlSeconds))
+	}
+
 	if spec.sourceMap != nil {
 		fnTypeDefCode = dotLine(fnTypeDefCode, "WithSourceMap").Call(spec.sourceMap.TypeDefCode())
 	}

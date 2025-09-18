@@ -6689,6 +6689,20 @@ class Function(Type):
         _ctx = self._select("withArg", _args)
         return Function(_ctx)
 
+    def with_cache_ttl(self, expire_seconds: int) -> Self:
+        """TODO GREAT DOC STRING
+
+        Parameters
+        ----------
+        expire_seconds:
+            TODO GREAT DOC STRING
+        """
+        _args = [
+            Arg("expireSeconds", expire_seconds),
+        ]
+        _ctx = self._select("withCacheTTL", _args)
+        return Function(_ctx)
+
     def with_description(self, description: str) -> Self:
         """Returns the function with the given doc string.
 
@@ -6701,6 +6715,12 @@ class Function(Type):
             Arg("description", description),
         ]
         _ctx = self._select("withDescription", _args)
+        return Function(_ctx)
+
+    def with_no_cache(self) -> Self:
+        """TODO GREAT DOC STRING"""
+        _args: list[Arg] = []
+        _ctx = self._select("withNoCache", _args)
         return Function(_ctx)
 
     def with_source_map(self, source_map: "SourceMap") -> Self:

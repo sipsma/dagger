@@ -387,11 +387,11 @@ func (obj *ModuleObject) installConstructor(ctx context.Context, dag *dagql.Serv
 					Value: v,
 				})
 			}
+			// TODO: update constructor w/ cache config
 			return fn.Call(ctx, &CallOpts{
 				Inputs:       callInput,
 				ParentTyped:  nil,
 				ParentFields: nil,
-				Cache:        dagql.IsInternal(ctx),
 				Server:       dag,
 			})
 		},
@@ -481,14 +481,13 @@ func objFun(ctx context.Context, mod *Module, objDef *ObjectTypeDef, fun *Functi
 		Spec: &spec,
 		Func: func(ctx context.Context, obj dagql.ObjectResult[*ModuleObject], args map[string]dagql.Input, view call.View) (dagql.AnyResult, error) {
 			opts := &CallOpts{
-				ParentTyped:  obj,
-				ParentFields: obj.Self().Fields,
-				// TODO: there may be a more elegant way to do this, but the desired
-				// effect is to cache SDK module calls, which we used to do pre-DagQL.
-				// We should figure out how user modules can opt in to caching, too.
-				Cache:          dagql.IsInternal(ctx),
+				ParentTyped:    obj,
+				ParentFields:   obj.Self().Fields,
 				SkipSelfSchema: false,
 				Server:         dag,
+
+				NoCache:       fun.NoCache,
+				ExpireSeconds: fun.ExpireSeconds.Value.Int64(),
 			}
 			for name, val := range args {
 				opts.Inputs = append(opts.Inputs, CallInput{

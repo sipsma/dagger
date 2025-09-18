@@ -103,12 +103,31 @@ class Function_ extends Client\AbstractObject implements Client\IdAble
     }
 
     /**
+     * TODO GREAT DOC STRING
+     */
+    public function withCacheTTL(int $expireSeconds): Function_
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withCacheTTL');
+        $innerQueryBuilder->setArgument('expireSeconds', $expireSeconds);
+        return new \Dagger\Function_($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
      * Returns the function with the given doc string.
      */
     public function withDescription(string $description): Function_
     {
         $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withDescription');
         $innerQueryBuilder->setArgument('description', $description);
+        return new \Dagger\Function_($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * TODO GREAT DOC STRING
+     */
+    public function withNoCache(): Function_
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withNoCache');
         return new \Dagger\Function_($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
     }
 

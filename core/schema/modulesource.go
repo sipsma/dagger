@@ -2278,7 +2278,6 @@ func (s *moduleSourceSchema) runModuleDefInSDK(ctx context.Context, src, srcInst
 			return fmt.Errorf("failed to create module definition function for module %q: %w", modName, err)
 		}
 		result, err := getModDefFn.Call(ctx, &core.CallOpts{
-			Cache:          true,
 			SkipSelfSchema: true,
 			Server:         dag,
 			// Don't include the digest for the current call (which is a bunch of module source stuff, including
