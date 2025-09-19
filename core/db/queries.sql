@@ -1,5 +1,5 @@
 -- name: SelectCall :one
-SELECT * FROM calls WHERE dagql_cache_key = ?;
+SELECT * FROM calls WHERE dagql_cache_key = ? AND ttl_unix_time > ?;
 
 -- name: InsertCall :exec
 INSERT INTO calls (

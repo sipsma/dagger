@@ -26,7 +26,7 @@ type InsertCallParams struct {
 }
 
 func (q *Queries) InsertCall(ctx context.Context, arg InsertCallParams) error {
-	_, err := q.db.ExecContext(ctx, insertCall, arg.DagqlCacheKey, arg.BuildkitCacheKey, arg.TtlUnixTime)
+	_, err := q.exec(ctx, q.insertCallStmt, insertCall, arg.DagqlCacheKey, arg.BuildkitCacheKey, arg.TtlUnixTime)
 	return err
 }
 
@@ -35,16 +35,21 @@ DELETE FROM calls WHERE dagql_cache_key = ?
 `
 
 func (q *Queries) RemoveCall(ctx context.Context, dagqlCacheKey string) error {
-	_, err := q.db.ExecContext(ctx, removeCall, dagqlCacheKey)
+	_, err := q.exec(ctx, q.removeCallStmt, removeCall, dagqlCacheKey)
 	return err
 }
 
 const selectCall = `-- name: SelectCall :one
-SELECT dagql_cache_key, buildkit_cache_key, ttl_unix_time FROM calls WHERE dagql_cache_key = ?
+SELECT dagql_cache_key, buildkit_cache_key, ttl_unix_time FROM calls WHERE dagql_cache_key = ? AND ttl_unix_time > ?
 `
 
-func (q *Queries) SelectCall(ctx context.Context, dagqlCacheKey string) (Call, error) {
-	row := q.db.QueryRowContext(ctx, selectCall, dagqlCacheKey)
+type SelectCallParams struct {
+	DagqlCacheKey string
+	TtlUnixTime   int64
+}
+
+func (q *Queries) SelectCall(ctx context.Context, arg SelectCallParams) (Call, error) {
+	row := q.queryRow(ctx, q.selectCallStmt, selectCall, arg.DagqlCacheKey, arg.TtlUnixTime)
 	var i Call
 	err := row.Scan(&i.DagqlCacheKey, &i.BuildkitCacheKey, &i.TtlUnixTime)
 	return i, err

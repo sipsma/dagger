@@ -2,14 +2,10 @@ package core
 
 import (
 	"context"
-	"crypto/rand"
-	"database/sql"
 	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -18,7 +14,6 @@ import (
 	"time"
 
 	"dagger.io/dagger/telemetry"
-	"github.com/dagger/dagger/core/db"
 	bkgw "github.com/dagger/dagger/internal/buildkit/frontend/gateway/client"
 	"github.com/dagger/dagger/internal/buildkit/identity"
 	bksession "github.com/dagger/dagger/internal/buildkit/session"
@@ -42,62 +37,50 @@ import (
 	"github.com/dagger/dagger/engine/slog"
 )
 
+/*
 // TODO: setup properly in engine/server
-var callDB *db.Queries
-
-type callCacheLock struct {
-	sync.Mutex
-}
-
-var callCacheLocks sync.Map
-
-func acquireCallCacheLock(cacheKey string) *callCacheLock {
-	lockAny, _ := callCacheLocks.LoadOrStore(cacheKey, &callCacheLock{})
-	lock := lockAny.(*callCacheLock)
-	lock.Lock()
-	return lock
-}
-
-func releaseCallCacheLock(cacheKey string, lock *callCacheLock) {
-	lock.Unlock()
-	callCacheLocks.Delete(cacheKey)
-}
-
-//go:embed db/schema.sql
-var DBSchema string
+var callDB *CallDB
 
 func init() {
 	const dbPath = "/var/lib/dagger/calldb.sqlite"
-	if err := os.RemoveAll(dbPath); err != nil {
-		panic(fmt.Errorf("remove old calldb: %v", err))
+	var err error
+	callDB, err = InitCallDB(context.Background(), dbPath)
+	if err != nil {
+		panic(fmt.Errorf("init calldb: %v", err))
+	}
+}
+*/
+
+// TODO:
+var callTTLs sync.Map
+
+func getOrInitCallExpiration(callKey string, ttl int64) int64 {
+	now := time.Now().Unix()
+	newExpiration := now + ttl
+
+	// load current expiration, if hasn't past or wasn't set, return it
+	v, _ := callTTLs.LoadOrStore(callKey, newExpiration)
+	existingExpiration := v.(int64)
+	if existingExpiration > now {
+		return existingExpiration
 	}
 
-	connURL := &url.URL{
-		Scheme: "file",
-		Host:   "",
-		Path:   dbPath,
-		RawQuery: url.Values{
-			"_pragma": []string{
-				"foreign_keys=ON",    // we don't use em yet, but makes sense anyway
-				"journal_mode=WAL",   // readers don't block writers and vice versa
-				"synchronous=OFF",    // we don't care about durability and don't want to be surprised by syncs
-				"busy_timeout=10000", // wait up to 10s when there are concurrent writers
-			},
-			"_txlock": []string{"immediate"}, // use BEGIN IMMEDIATE for transactions
-		}.Encode(),
+	// it expired, try to swap in new expiration time
+	swapped := callTTLs.CompareAndSwap(callKey, existingExpiration, newExpiration)
+	if swapped {
+		// swapped in successfully, return new expiration time
+		return newExpiration
 	}
-	sqlDB, err := sql.Open("sqlite", connURL.String())
-	if err != nil {
-		panic(fmt.Errorf("open calldb: %v", err))
-	}
-	if err := sqlDB.Ping(); err != nil {
-		sqlDB.Close()
-		panic(fmt.Errorf("ping calldb: %v", err))
-	}
-	if _, err := sqlDB.Exec(DBSchema); err != nil {
-		panic(fmt.Errorf("migrate calldb: %v", err))
-	}
-	callDB = db.New(sqlDB)
+
+	// We lost a race to reset the expiration time, return whatever is there now (it
+	// should be close enough to what we wanted). Do a LoadOrStore in case someone
+	// did a delete though.
+	v, _ = callTTLs.LoadOrStore(callKey, newExpiration)
+	return v.(int64)
+}
+
+func releaseCallExpiration(callKey string, expectedExpiration int64) {
+	callTTLs.CompareAndDelete(callKey, expectedExpiration)
 }
 
 type ModuleFunction struct {
@@ -168,6 +151,8 @@ type CallOpts struct {
 	NoCache       bool
 	ExpireSeconds int64
 
+	OverrideCallDigestCacheKey string
+	// TODO: rewrite below for above field ^
 	// If true, don't mix in the digest for the current dagql call into the cache key for
 	// the exec-op underlying the function call.
 	//
@@ -176,7 +161,6 @@ type CallOpts struct {
 	// some corner cases we may calling a function internally within a separate dagql
 	// call and don't want the current call digest mixed in, e.g. during the special
 	// function call that retrieves the module typedefs.
-	SkipCallDigestCacheKey bool
 }
 
 type CallInput struct {
@@ -349,6 +333,11 @@ func (fn *ModuleFunction) Call(ctx context.Context, opts *CallOpts) (t dagql.Any
 	// Calls without function name are internal and excluded.
 	fn.recordCall(ctx)
 
+	callInputs, err := fn.setCallInputs(ctx, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to set call inputs: %w", err)
+	}
+
 	clientMetadata, err := engine.ClientMetadataFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -363,75 +352,31 @@ func (fn *ModuleFunction) Call(ctx context.Context, opts *CallOpts) (t dagql.Any
 		AllowedLLMModules: clientMetadata.AllowedLLMModules,
 	}
 
-	callInputs, err := fn.setCallInputs(ctx, opts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to set call inputs: %w", err)
-	}
-
-	var (
-		dagqlCacheKey    string
-		buildkitCacheKey string
-		cacheLock        *callCacheLock
-		insertCacheEntry bool
-	)
-
-	if !opts.NoCache && callDB != nil {
-		dagqlCacheKey = dagql.CurrentID(ctx).Digest().String()
-		cacheLock = acquireCallCacheLock(dagqlCacheKey)
-		cacheRow, cacheErr := callDB.SelectCall(ctx, dagqlCacheKey)
-		switch {
-		case cacheErr == nil:
-			buildkitCacheKey = cacheRow.BuildkitCacheKey
-			releaseCallCacheLock(dagqlCacheKey, cacheLock)
-			cacheLock = nil
-			bklog.G(ctx).Debug("module call upper cache hit")
-		case errors.Is(cacheErr, sql.ErrNoRows):
-			buildkitCacheKey = rand.Text()
-			insertCacheEntry = true
-		default:
-			releaseCallCacheLock(dagqlCacheKey, cacheLock)
-			cacheLock = nil
-			bklog.G(ctx).WithError(cacheErr).Warn("module call upper cache lookup failed")
-		}
-	}
-
-	if insertCacheEntry && cacheLock != nil {
-		defer func() {
-			if rerr == nil {
-				if err := callDB.InsertCall(ctx, db.InsertCallParams{
-					DagqlCacheKey:    dagqlCacheKey,
-					BuildkitCacheKey: buildkitCacheKey,
-					TtlUnixTime:      0,
-				}); err != nil {
-					bklog.G(ctx).WithError(err).Warn("module call upper cache insert failed")
-				}
-			}
-			releaseCallCacheLock(dagqlCacheKey, cacheLock)
-		}()
-	}
-
 	var cacheMixins []string
 
+	callKey := dagql.CurrentID(ctx).Digest().String()
+	if opts.OverrideCallDigestCacheKey != "" {
+		callKey = opts.OverrideCallDigestCacheKey
+	}
+	cacheMixins = append(cacheMixins, callKey)
+
+	var buildkitCacheKey string
 	if opts.NoCache {
-		// Scope the exec cache key to the current session ID. It will be
+		// Scope the exec cache key to the current session ID. It will still be
 		// cached in the context of the session but invalidated across
 		// different sessions.
-		cacheMixins = append(cacheMixins, clientMetadata.SessionID)
+		buildkitCacheKey = clientMetadata.SessionID
+	} else {
+		ttl := opts.ExpireSeconds
+		if ttl == 0 {
+			// TODO: default 1w for now, needs more thought
+			ttl = 7 * 24 * 60 * 60
+		}
+		expiration := getOrInitCallExpiration(callKey, ttl)
+		buildkitCacheKey = strconv.Itoa(int(expiration))
 	}
-	if opts.ExpireSeconds > 0 {
-		// TODO: janky, just splices All Of Time in opts.ExpireSeconds intervals and caches within those intervals.
-		// It should instead be a TTL on when the operation actually runs (or finishes?)
-		cacheMixins = append(cacheMixins, strconv.Itoa(int(time.Now().Unix()/opts.ExpireSeconds)))
-	}
-	if !opts.SkipCallDigestCacheKey {
-		// If true, scope the exec cache key to the current dagql call digest. This is needed currently
-		// for module function calls specifically so that their cache key is based on their arguments and
-		// receiver object.
-		cacheMixins = append(cacheMixins, dagql.CurrentID(ctx).Digest().String())
-	}
-	if buildkitCacheKey != "" {
-		cacheMixins = append(cacheMixins, buildkitCacheKey)
-	}
+	cacheMixins = append(cacheMixins, buildkitCacheKey)
+
 	execMD.CacheMixin = dagql.HashFrom(cacheMixins...)
 
 	bklog.G(ctx).Debug("function call")

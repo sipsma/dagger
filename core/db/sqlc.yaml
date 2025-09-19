@@ -7,3 +7,5 @@ sql:
       go:
         package: "db"
         out: "."
+        output_db_file_name: "db.gen.go"
+        emit_prepared_queries: true
