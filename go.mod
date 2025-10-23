@@ -91,11 +91,11 @@ require (
 	github.com/jedevc/go-libsecret v0.0.0-20250327192457-f925a032ae4f
 	github.com/joho/godotenv v1.5.1
 	github.com/juju/ansiterm v1.0.0
-	github.com/klauspost/compress v1.18.0
+	github.com/klauspost/compress v1.18.1
 	github.com/koron-go/prefixw v1.0.2
 	github.com/lmittmann/tint v1.1.2
 	github.com/mackerelio/go-osstat v0.2.6
-	github.com/mark3labs/mcp-go v0.41.1
+	github.com/mark3labs/mcp-go v0.42.0
 	github.com/mattn/go-isatty v0.0.20
 	github.com/mitchellh/go-spdx v0.1.0
 	github.com/mitchellh/hashstructure/v2 v2.0.2
@@ -109,7 +109,7 @@ require (
 	github.com/moby/sys/signal v0.7.1
 	github.com/moby/sys/user v0.4.0
 	github.com/moby/sys/userns v0.1.0
-	github.com/modelcontextprotocol/go-sdk v0.5.0
+	github.com/modelcontextprotocol/go-sdk v1.0.0
 	github.com/morikuni/aec v1.0.0
 	github.com/muesli/reflow v0.3.0
 	github.com/muesli/termenv v0.16.0
@@ -269,7 +269,7 @@ require (
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
-	github.com/google/jsonschema-go v0.2.3 // indirect
+	github.com/google/jsonschema-go v0.3.0 // indirect
 	github.com/google/pprof v0.0.0-20250820193118-f64d9cf942d6 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.6 // indirect
