@@ -2349,10 +2349,10 @@
   resolved "https://registry.yarnpkg.com/@polka/url/-/url-1.0.0-next.29.tgz#5a40109a1ab5f84d6fd8fc928b19f367cbe7e7b1"
   integrity sha512-wwQAWhWSuHaag8c4q/KN/vCoeOJYshAIvMQwD4GpSb3OiZklFfvAgmj0VCBBImRpuF/aFgIRzllXlVX93Jevww==
 
-"@posthog/core@1.3.1":
-  version "1.3.1"
-  resolved "https://registry.yarnpkg.com/@posthog/core/-/core-1.3.1.tgz#d7331fa13c8ef407d97060c98f6733e86007f4cd"
-  integrity sha512-sGKVHituJ8L/bJxVV4KamMFp+IBWAZyCiYunFawJZ4cc59PCtLnKFIMEV6kn7A4eZQcQ6EKV5Via4sF3Z7qMLQ==
+"@posthog/core@1.4.0":
+  version "1.4.0"
+  resolved "https://registry.yarnpkg.com/@posthog/core/-/core-1.4.0.tgz#102e810f97a0796ac388c497eaefc6edb29ec3d3"
+  integrity sha512-jmW8/I//YOHAfjzokqas+Qtc2T57Ux8d2uIJu7FLcMGxywckHsl6od59CD18jtUzKToQdjQhV6Y3429qj+KeNw==
 
 "@shikijs/engine-oniguruma@^3.12.0":
   version "3.12.1"
@@ -8499,12 +8499,12 @@ posthog-docusaurus@^2.0.5:
   resolved "https://registry.yarnpkg.com/posthog-docusaurus/-/posthog-docusaurus-2.0.5.tgz#5ce7ea9659a3845cba094712743194eaf84aa527"
   integrity sha512-Ray65LYEJrMMqDtsBUBXunEVP/g4wtATvq/xz9rchUoLy/9mSkkFgUko/8DVtGxgiP3vivpFMgfb9HpCuDrBHg==
 
-posthog-js@^1.280.1:
-  version "1.280.1"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.280.1.tgz#7590007164cf39a2ae6b2b837a8fc0dc139ed3c3"
-  integrity sha512-ZfXaExn42aZBQg88pBzGo71sy4hmei3ubBPb7DBbsfYC3ipZ6F6xmNr3ScNdOyF8cBTZbG24SlIvntp83jTlUA==
+posthog-js@^1.281.0:
+  version "1.281.0"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.281.0.tgz#0c2b4e3abee2e3c242129d1f8013c05d66bb3059"
+  integrity sha512-t3sAlgVozpU1W1ppiF5zLG6eBRPUs0hmtxN8R1V7P0qZFmnECshAAk2cBxCsxEanadT3iUpS8Z7crBytATqWQQ==
   dependencies:
-    "@posthog/core" "1.3.1"
+    "@posthog/core" "1.4.0"
     core-js "^3.38.1"
     fflate "^0.4.8"
     preact "^10.19.3"
