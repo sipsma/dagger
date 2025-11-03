@@ -299,8 +299,8 @@
         <jakarta.json.bind-api.version>3.0.1</jakarta.json.bind-api.version>
         <javapoet.version>0.7.0</javapoet.version>
         <javaparser.version>3.27.1</javaparser.version>
-        <json-path.version>2.9.0</json-path.version>
-        <junit.version>6.0.0</junit.version>
+        <json-path.version>2.10.0</json-path.version>
+        <junit.version>6.0.1</junit.version>
         <maven-assembly-plugin.version>3.7.1</maven-assembly-plugin.version>
         <maven-compiler-plugin.version>3.13.0</maven-compiler-plugin.version>
         <maven-failsafe-plugin.version>3.5.2</maven-failsafe-plugin.version>
@@ -316,7 +316,7 @@
         <slf4j-api.version>2.0.17</slf4j-api.version>
         <slf4j-simple.version>2.0.17</slf4j-simple.version>
         <smallrye-graphql.version>2.16.0</smallrye-graphql.version>
-        <vertx-web-client.version>4.5.22</vertx-web-client.version>
+        <vertx-web-client.version>5.0.5</vertx-web-client.version>
         <system-stubs-jupiter.version>2.1.8</system-stubs-jupiter.version>
         <xdg-java.version>0.1.1</xdg-java.version>
         <yasson.version>3.0.4</yasson.version>
