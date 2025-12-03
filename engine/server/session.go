@@ -196,15 +196,15 @@ func (client *daggerClient) FlushTelemetry(ctx context.Context) error {
 	slog := slog.With("client", client.clientID)
 	var errs error
 	if client.tracerProvider != nil {
-		slog.ExtraDebug("force flushing client traces")
+		slog.Trace("force flushing client traces")
 		errs = errors.Join(errs, client.tracerProvider.ForceFlush(ctx))
 	}
 	if client.loggerProvider != nil {
-		slog.ExtraDebug("force flushing client logs")
+		slog.Trace("force flushing client logs")
 		errs = errors.Join(errs, client.loggerProvider.ForceFlush(ctx))
 	}
 	if client.meterProvider != nil {
-		slog.ExtraDebug("force flushing client metrics")
+		slog.Trace("force flushing client metrics")
 		errs = errors.Join(errs, client.meterProvider.ForceFlush(ctx))
 	}
 	return errs
@@ -214,15 +214,15 @@ func (client *daggerClient) ShutdownTelemetry(ctx context.Context) error {
 	slog := slog.With("client", client.clientID)
 	var errs error
 	if client.tracerProvider != nil {
-		slog.ExtraDebug("force flushing client traces")
+		slog.Trace("force flushing client traces")
 		errs = errors.Join(errs, client.tracerProvider.Shutdown(ctx))
 	}
 	if client.loggerProvider != nil {
-		slog.ExtraDebug("force flushing client logs")
+		slog.Trace("force flushing client logs")
 		errs = errors.Join(errs, client.loggerProvider.Shutdown(ctx))
 	}
 	if client.meterProvider != nil {
-		slog.ExtraDebug("force flushing client metrics")
+		slog.Trace("force flushing client metrics")
 		errs = errors.Join(errs, client.meterProvider.Shutdown(ctx))
 	}
 	return errs
@@ -1254,7 +1254,7 @@ func (srv *Server) serveShutdown(w http.ResponseWriter, r *http.Request, client 
 
 	// Flush telemetry across the entire session so that any child clients will
 	// save telemetry into their parent's DB, including to this client.
-	slog.ExtraDebug("flushing session telemetry")
+	slog.Trace("flushing session telemetry")
 	if err := sess.FlushTelemetry(ctx); err != nil {
 		slog.Error("failed to flush telemetry", "error", err)
 	}

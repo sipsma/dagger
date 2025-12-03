@@ -399,7 +399,7 @@ type bindMount struct {
 	readonly bool
 }
 
-func (b *bindMount) Mount() ([]mount.Mount, func() error, error) {
+func (b *bindMount) Mount(dbg ...string) ([]mount.Mount, func() error, error) {
 	return []mount.Mount{{
 		Type:    "bind",
 		Source:  b.dir,

@@ -6,6 +6,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -110,7 +111,7 @@ func (cr *cacheRecord) ref(triggerLastUsed bool, descHandlers DescHandlers, pg p
 		progress:        pg,
 	}
 	cr.refs[ref] = struct{}{}
-	bklog.G(context.TODO()).WithFields(ref.traceLogFields()).Trace("acquired cache ref")
+	bklog.G(context.TODO()).WithFields(ref.traceLogFields()).Debug("acquired cache ref")
 	return ref
 }
 
@@ -122,7 +123,7 @@ func (cr *cacheRecord) mref(triggerLastUsed bool, descHandlers DescHandlers) *mu
 		descHandlers:    descHandlers,
 	}
 	cr.refs[ref] = struct{}{}
-	bklog.G(context.TODO()).WithFields(ref.traceLogFields()).Trace("acquired cache ref")
+	bklog.G(context.TODO()).WithFields(ref.traceLogFields()).Debug("acquired cache ref")
 	return ref
 }
 
@@ -1408,7 +1409,7 @@ func (sr *immutableRef) release(ctx context.Context) (rerr error) {
 		if rerr != nil {
 			l = l.WithError(rerr)
 		}
-		l.Trace("released cache ref")
+		l.Debug("released cache ref")
 	}()
 
 	delete(sr.refs, sr)
@@ -1436,15 +1437,23 @@ func (sr *immutableRef) release(ctx context.Context) (rerr error) {
 func (sr *immutableRef) Finalize(ctx context.Context) error {
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
-	return sr.finalize(ctx)
+	l := bklog.G(ctx).WithFields(sr.traceLogFields())
+	return sr.finalize(ctx, l)
 }
 
 // caller must hold cacheRecord.mu
-func (cr *cacheRecord) finalize(ctx context.Context) error {
+func (cr *cacheRecord) finalize(ctx context.Context, l *logrus.Entry) (rerr error) {
 	mutable := cr.equalMutable
 	if mutable == nil {
 		return nil
 	}
+
+	defer func() {
+		if rerr != nil {
+			l = l.WithError(rerr)
+		}
+		l.Debug("finalize cache ref")
+	}()
 
 	_, err := cr.cm.LeaseManager.Create(ctx, func(l *leases.Lease) error {
 		l.ID = cr.ID()
@@ -1491,7 +1500,14 @@ func (sr *mutableRef) shouldUpdateLastUsed() bool {
 	return sr.triggerLastUsed
 }
 
-func (sr *mutableRef) commit() (_ *immutableRef, rerr error) {
+func (sr *mutableRef) commit(ctx context.Context) (_ *immutableRef, rerr error) {
+	defer func() {
+		l := bklog.G(ctx).WithFields(sr.traceLogFields())
+		if rerr != nil {
+			l = l.WithError(rerr)
+		}
+		l.Debug("commit cache ref")
+	}()
 	if !sr.mutable || len(sr.refs) == 0 {
 		return nil, errors.Wrapf(errInvalid, "invalid mutable ref %p", sr)
 	}
@@ -1563,7 +1579,16 @@ func (sr *mutableRef) Mount(ctx context.Context, readonly bool, s session.Group)
 
 	// Make the mounts sharable. We don't do this for immutableRef mounts because
 	// it requires the raw []mount.Mount for computing diff on overlayfs.
-	mnt = sr.cm.mountPool.setSharable(mnt)
+	refStr := fmt.Sprintf("mutable=%s", sr.ID())
+	if sr.equalImmutable != nil {
+		refStr += fmt.Sprintf(" immutable=%s", sr.equalImmutable.ID())
+	}
+	// TODO:
+	// TODO:
+	// TODO: ?
+	// if sr.GetRecordType() == client.UsageRecordTypeCacheMount {
+	mnt = sr.cm.mountPool.setSharable(mnt, refStr)
+	// }
 	sr.mountCache = mnt
 	if readonly {
 		mnt = setReadonly(mnt)
@@ -1571,14 +1596,14 @@ func (sr *mutableRef) Mount(ctx context.Context, readonly bool, s session.Group)
 	return mnt, nil
 }
 
-func (sr *mutableRef) Commit(ctx context.Context) (ImmutableRef, error) {
+func (sr *mutableRef) Commit(ctx context.Context) (_ ImmutableRef, rerr error) {
 	sr.cm.mu.Lock()
 	defer sr.cm.mu.Unlock()
 
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
 
-	return sr.commit()
+	return sr.commit(ctx)
 }
 
 func (sr *mutableRef) Release(ctx context.Context) error {
@@ -1597,7 +1622,7 @@ func (sr *mutableRef) release(ctx context.Context) (rerr error) {
 		if rerr != nil {
 			l = l.WithError(rerr)
 		}
-		l.Trace("released cache ref")
+		l.Debug("released cache ref")
 	}()
 	delete(sr.refs, sr)
 
@@ -1631,7 +1656,7 @@ type readOnlyMounter struct {
 	snapshot.Mountable
 }
 
-func (m *readOnlyMounter) Mount() ([]mount.Mount, func() error, error) {
+func (m *readOnlyMounter) Mount(dbg ...string) ([]mount.Mount, func() error, error) {
 	mounts, release, err := m.Mountable.Mount()
 	if err != nil {
 		return nil, nil, err
@@ -1707,8 +1732,8 @@ type sharableMountPool struct {
 	tmpdirRoot string
 }
 
-func (p sharableMountPool) setSharable(mounts snapshot.Mountable) snapshot.Mountable {
-	return &sharableMountable{Mountable: mounts, mountPoolRoot: p.tmpdirRoot}
+func (p sharableMountPool) setSharable(mounts snapshot.Mountable, refID string) snapshot.Mountable {
+	return &sharableMountable{Mountable: mounts, mountPoolRoot: p.tmpdirRoot, refID: refID}
 }
 
 // sharableMountable allows sharing underlying (possibly writable) mounts among callers.
@@ -1729,17 +1754,26 @@ type sharableMountable struct {
 	curMounts     []mount.Mount
 	curMountPoint string
 	curRelease    func() error
+
+	refID   string
+	lMounts []mount.Mount
 }
 
-func (sm *sharableMountable) Mount() (_ []mount.Mount, _ func() error, retErr error) {
+func (sm *sharableMountable) Mount(dbg ...string) (_ []mount.Mount, _ func() error, retErr error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
+
+	defer func() {
+		fmt.Printf("\nSHARE MOUNT refID=%s mounts=%+v mntPnt=%s count=%d\n%+v\n%s\n\n", sm.refID, sm.lMounts, sm.curMountPoint, sm.count, dbg, string(debug.Stack()))
+	}()
 
 	if sm.curMounts == nil {
 		mounts, release, err := sm.Mountable.Mount()
 		if err != nil {
 			return nil, nil, err
 		}
+		sm.lMounts = mounts
+
 		defer func() {
 			if retErr != nil {
 				release()
@@ -1800,6 +1834,11 @@ func (sm *sharableMountable) Mount() (_ []mount.Mount, _ func() error, retErr er
 	return mounts, func() error {
 		sm.mu.Lock()
 		defer sm.mu.Unlock()
+
+		mntPnt := sm.curMountPoint
+		defer func() {
+			fmt.Printf("\nSHARE MOUNT RELEASE refID=%s mounts=%+v mntPnt=%s count=%d\n%s\n\n", sm.refID, sm.lMounts, mntPnt, sm.count, string(debug.Stack()))
+		}()
 
 		sm.count--
 		if sm.count < 0 {

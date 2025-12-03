@@ -323,7 +323,7 @@ func MountRefCloser(ctx context.Context, ref bkcache.Ref, g bksession.Group, opt
 	if err != nil {
 		return "", nil, err
 	}
-	lm := snapshot.LocalMounter(mount)
+	lm := snapshot.LocalMounter(mount, snapshot.WithDebug(dagql.CurrentID(ctx).Display()))
 	dir, err := lm.Mount()
 	if err != nil {
 		return "", nil, err
@@ -524,6 +524,12 @@ func mountObj[T fileOrDirectory](ctx context.Context, obj T, optFns ...mountObjO
 			if !abort {
 				snap, err := newRef.Commit(ctx)
 				if err != nil {
+					return nil, err
+				}
+				if err := snap.Finalize(ctx); err != nil {
+					return nil, err
+				}
+				if err := snap.SetCachePolicyRetain(); err != nil {
 					return nil, err
 				}
 				obj.setResult(snap)

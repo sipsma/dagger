@@ -107,6 +107,9 @@ func (build *Builder) Engine(ctx context.Context) (*dagger.Container, error) {
 
 	pkgs := []string{
 		"ca-certificates",
+		"mount", "umount",
+		"posix-libc-utils",
+		"procps", "coreutils",
 		// for git
 		"git", "openssh-client",
 		// for decompression
@@ -144,6 +147,7 @@ func (build *Builder) Engine(ctx context.Context) (*dagger.Container, error) {
 		{path: "/opt/cni/bin/dnsname", file: build.dnsnameBinary()},
 		{path: consts.RuncPath, file: build.runcBin()},
 		{path: consts.DaggerInitPath, file: build.daggerInit()},
+		{path: "/usr/bin/bpftrace", file: build.bpftraceBin()},
 	}
 	for _, bin := range build.qemuBins(ctx) {
 		name, err := bin.Name(ctx)
@@ -220,6 +224,84 @@ func (build *Builder) Go(version bool, race bool) *dagger.Go {
 		Values: values,
 		Race:   race,
 	})
+}
+
+func (build *Builder) bpftraceBin() *dagger.File {
+	src := dag.Git("https://github.com/bpftrace/bpftrace.git").Tag("v0.24.1").Tree()
+
+	return dag.Alpine(dagger.AlpineOpts{
+		Packages: []string{
+			"asciidoctor",
+			"argp-standalone",
+			"bash",
+			"bcc-dev",
+			"bcc-static",
+			"binutils-dev",
+			"bison",
+			"blazesym-dev",
+			"blazesym-static",
+			"bpftool",
+			"bzip2-static",
+			"build-base",
+			"cereal",
+			"clang18-dev",
+			"clang18-extra-tools",
+			"clang18-static",
+			"cmake",
+			"elfutils-dev",
+			"flex-dev",
+			"git",
+			"libbpf-dev",
+			"libelf-static",
+			"libc6-compat",
+			"linux-headers",
+			"llvm18-dev",
+			"llvm18-gtest",
+			"llvm18-static",
+			"musl-dev",
+			"musl-obstack-dev",
+			"openssl-dev",
+			"pahole",
+			"procps",
+			"python3",
+			"wget",
+			"xxd",
+			"xz-static",
+			"zlib-dev",
+			"zlib-static",
+			"zstd-dev",
+			"zstd-static",
+		},
+		Arch:   build.platformSpec.Architecture,
+		Branch: "3.22",
+	}).Container().
+		WithMountedFile("/pcap.tar.xz", dag.HTTP("https://www.tcpdump.org/release/libpcap-1.10.5.tar.xz")).
+		WithWorkdir("/stupid-pcap").
+		WithExec([]string{"sh", "-c", `tar -xf /pcap.tar.xz --strip-components=1`}).
+		WithExec([]string{"sh", "-c", `CFLAGS="-fPIC" ./configure --prefix=/usr/local --enable-static`}).
+		WithExec([]string{"sh", "-c", `make -j ` + fmt.Sprintf("%d", runtime.NumCPU())}).
+		WithExec([]string{"sh", "-c", `make install`}).
+		WithMountedDirectory("/src", src).
+		WithWorkdir("/src").
+		WithExec([]string{"sh", "-c", `sed -i 's/libzstd_shared/libzstd_static/g' /usr/lib/llvm18/lib/cmake/llvm/LLVMExports.cmake`}).
+		WithExec([]string{"sh", "-c", `ln -s 'clang18' /usr/lib/cmake/clang`}).
+		WithWorkdir("/src/build").
+		WithExec([]string{"cmake",
+			"-DCMAKE_BUILD_TYPE=Release",
+			"-DBUILD_TESTING=OFF",
+			"-DSTATIC_LINKING=ON",
+			"-DCMAKE_C_FLAGS=-fPIC",
+			"-DCMAKE_CXX_FLAGS=-fPIC",
+			"-DLIBPCAP_INCLUDE_DIRS=/usr/local/include",
+			"-DLIBPCAP_LIBRARIES=/usr/local/lib/libpcap.a",
+			"-DCMAKE_EXE_LINKER_FLAGS=-static",
+			"..",
+		}).
+		WithExec([]string{"make",
+			"VERBOSE=1",
+			"-j", fmt.Sprintf("%d", runtime.NumCPU()),
+		}).
+		File("src/bpftrace")
 }
 
 func (build *Builder) runcBin() *dagger.File {

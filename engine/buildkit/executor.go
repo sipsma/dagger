@@ -24,6 +24,7 @@ import (
 	runc "github.com/containerd/go-runc"
 	"github.com/dagger/dagger/dagql/call"
 	"github.com/dagger/dagger/engine/server/resource"
+	"github.com/dagger/dagger/engine/slog"
 	"github.com/dagger/dagger/internal/buildkit/client/llb"
 	"github.com/dagger/dagger/internal/buildkit/executor"
 	"github.com/dagger/dagger/internal/buildkit/executor/oci"
@@ -381,7 +382,13 @@ func (w *Worker) exec(ctx context.Context, id string, specsProcess *specs.Proces
 	}
 	defer killer.Cleanup()
 
-	return w.callWithIO(ctx, &process, started, killer, func(ctx context.Context, started chan<- int, io runc.IO, pidfile string) error {
+	l := slog.With("execID", id)
+	l.Info("START EXEC")
+	defer func() {
+		l.Info("EXEC STOPPED")
+	}()
+
+	return w.callWithIO(ctx, l, &process, started, killer, func(ctx context.Context, started chan<- int, io runc.IO, pidfile string) error {
 		return w.runc.Exec(ctx, id, *specsProcess, &runc.ExecOpts{
 			Started: started,
 			IO:      io,
@@ -673,7 +680,7 @@ func (p *procHandle) WaitForReady(ctx context.Context) error {
 // WaitForStart will record the runc pid reported by go-runc via the channel.
 // We wait for up to 10s for the runc pid to be reported.  If the started
 // callback is non-nil it will be called after receiving the pid.
-func (p *procHandle) WaitForStart(ctx context.Context, startedCh <-chan int, started func()) error {
+func (p *procHandle) WaitForStart(ctx context.Context, l *slog.Logger, startedCh <-chan int, started func()) error {
 	ctx, cancel := context.WithCancelCause(ctx)
 	ctx, _ = context.WithTimeoutCause(ctx, 10*time.Second, context.DeadlineExceeded)
 	defer cancel(context.Canceled)
@@ -683,6 +690,9 @@ func (p *procHandle) WaitForStart(ctx context.Context, startedCh <-chan int, sta
 	case runcPid, ok := <-startedCh:
 		if !ok {
 			return errors.New("go-runc failed to send pid")
+		}
+		if l != nil {
+			l.Info("RUNC PID", "pid", runcPid)
 		}
 		if started != nil {
 			started()
@@ -732,7 +742,7 @@ func handleSignals(ctx context.Context, runcProcess *procHandle, signals <-chan 
 
 type runcCall func(ctx context.Context, started chan<- int, io runc.IO, pidfile string) error
 
-func (w *Worker) callWithIO(ctx context.Context, process *executor.ProcessInfo, started func(), killer procKiller, call runcCall) error {
+func (w *Worker) callWithIO(ctx context.Context, l *slog.Logger, process *executor.ProcessInfo, started func(), killer procKiller, call runcCall) error {
 	runcProcess, ctx := runcProcessHandle(ctx, killer)
 	defer runcProcess.Release()
 
@@ -746,7 +756,7 @@ func (w *Worker) callWithIO(ctx context.Context, process *executor.ProcessInfo, 
 
 	startedCh := make(chan int, 1)
 	eg.Go(func() error {
-		return runcProcess.WaitForStart(ctx, startedCh, started)
+		return runcProcess.WaitForStart(ctx, l, startedCh, started)
 	})
 
 	eg.Go(func() error {

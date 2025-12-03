@@ -257,6 +257,7 @@ func sub(m mount.Mount, subPath string) (mount.Mount, func() error, error) {
 		if err != nil {
 			return mount.Mount{}, nil, err
 		}
+
 		// similar to runc.WithProcfd
 		fh, err := os.OpenFile(src, unix.O_PATH|unix.O_CLOEXEC, 0)
 		if err != nil {

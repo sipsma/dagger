@@ -31,7 +31,7 @@ type Meta struct {
 }
 
 type MountableRef interface {
-	Mount() ([]mount.Mount, func() error, error)
+	Mount(dbg ...string) ([]mount.Mount, func() error, error)
 	IdentityMapping() *idtools.IdentityMapping
 }
 

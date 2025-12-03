@@ -394,6 +394,12 @@ func (op RawDagOp) Exec(ctx context.Context, g bksession.Group, inputs []solver.
 	if err != nil {
 		return nil, err
 	}
+	if err := snap.Finalize(ctx); err != nil {
+		return nil, err
+	}
+	if err := snap.SetCachePolicyRetain(); err != nil {
+		return nil, err
+	}
 	ref = nil
 
 	return []solver.Result{worker.NewWorkerRefResult(snap, opt.Worker)}, nil

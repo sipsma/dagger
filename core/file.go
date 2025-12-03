@@ -421,6 +421,13 @@ func (file *File) WithReplaced(ctx context.Context, searchStr, replacementStr st
 	if err != nil {
 		return nil, err
 	}
+	if err := snap.Finalize(ctx); err != nil {
+		return nil, err
+	}
+	if err := snap.SetCachePolicyRetain(); err != nil {
+		return nil, err
+	}
+
 	file = file.Clone()
 	file.LLB = nil
 	file.Result = snap

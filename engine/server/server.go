@@ -9,10 +9,10 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/containerd/containerd/v2/core/content"
@@ -95,6 +95,7 @@ type Server struct {
 	//
 
 	rootDir           string
+	tmpDir            string
 	solverCacheDBPath string
 
 	workerRootDir         string
@@ -246,6 +247,23 @@ func NewServer(ctx context.Context, opts *NewServerOpts) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// TODO: doc....
+	/*
+			srv.tmpDir = filepath.Join(srv.rootDir, "tmp") // TODO: put the mkdir'ing in the same place as the others
+			if err := os.MkdirAll(srv.tmpDir, 0700); err != nil {
+				return nil, fmt.Errorf("failed to create tmp dir: %w", err)
+			}
+			os.Setenv("TMPDIR", srv.tmpDir)
+			// TODO: this *might* only work if rootDir is already a mount, worth a test and fix if so
+			if err := unix.Mount("", srv.rootDir, "", unix.MS_SHARED, ""); err != nil {
+				return nil, fmt.Errorf("failed to remount root dir as shared: %w", err)
+			}
+		if err := unix.Mount("", "/", "", unix.MS_SHARED|unix.MS_REC, ""); err != nil {
+			return nil, fmt.Errorf("failed to remount root dir as shared: %w", err)
+		}
+	*/
+
 	srv.solverCacheDBPath = filepath.Join(srv.rootDir, "cache.db")
 
 	srv.workerRootDir = filepath.Join(srv.rootDir, "worker")
@@ -392,11 +410,19 @@ func NewServer(ctx context.Context, opts *NewServerOpts) (*Server, error) {
 	//
 
 	srv.runc = &runc.Runc{
-		Command:      distconsts.RuncPath,
-		Log:          filepath.Join(srv.executorRootDir, "runc-log.json"),
-		LogFormat:    runc.JSON,
-		Setpgid:      true,
-		PdeathSignal: syscall.SIGKILL,
+		Command:   distconsts.RuncPath,
+		Log:       filepath.Join(srv.executorRootDir, "runc-log.json"),
+		LogFormat: runc.JSON,
+		Setpgid:   true,
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO: ideally would keep this on, but may need to have our own runc wrapper then..
+		// TODO: OTOH, is this actually needed at all while the engine is containerized?
+		// PdeathSignal: syscall.SIGKILL,
 	}
 
 	var npResolvedMode string
@@ -497,6 +523,25 @@ func NewServer(ctx context.Context, opts *NewServerOpts) (*Server, error) {
 	// if the operation is called.
 	srv.workerSourceManager.Register(local.NewSource())
 
+	hostMntNS, err := os.OpenFile("/proc/self/ns/mnt", os.O_RDONLY, 0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open host mount namespace: %w", err)
+	}
+	var cleanMntNS *os.File
+	var eg errgroup.Group
+	eg.Go(func() error {
+		runtime.LockOSThread()
+		if err := unix.Unshare(unix.CLONE_NEWNS); err != nil {
+			return fmt.Errorf("failed to create clean mount namespace: %w", err)
+		}
+		var err error
+		cleanMntNS, err = os.OpenFile("/proc/thread-self/ns/mnt", os.O_RDONLY, 0)
+		return err
+	})
+	if err := eg.Wait(); err != nil {
+		return nil, fmt.Errorf("failed to create clean mount namespace: %w", err)
+	}
+
 	srv.worker = buildkit.NewWorker(&buildkit.NewWorkerOpts{
 		WorkerRoot:       srv.workerRootDir,
 		ExecutorRoot:     srv.executorRootDir,
@@ -517,6 +562,9 @@ func NewServer(ctx context.Context, opts *NewServerOpts) (*Server, error) {
 		NetworkProviders:    srv.networkProviders,
 		ParallelismSem:      srv.parallelismSem,
 		WorkerCache:         srv.workerCache,
+
+		HostMntNS:  hostMntNS,
+		CleanMntNS: cleanMntNS,
 	})
 
 	//

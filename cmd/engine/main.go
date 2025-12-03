@@ -239,6 +239,228 @@ func addFlags(app *cli.App) {
 	}
 }
 
+const traceScript = `
+/* Process creation - track tgid and mntns */
+tracepoint:sched:sched_process_fork {
+    printf("[%lu] FORK parent_tgid=%d child_tgid=%d comm=%s\n", 
+        elapsed, (uint64)curtask->tgid, args->child_pid, comm);
+}
+
+/* Process exec - capture what is actually being run */
+tracepoint:syscalls:sys_enter_execve {
+    $tgid = (uint64)curtask->tgid;
+    @exec_cmd[$tgid] = str(args->filename);
+    @exec_arg1[$tgid] = str(args->argv[1]);
+    @exec_arg2[$tgid] = str(args->argv[2]);
+    @exec_arg5[$tgid] = str(args->argv[5]);
+    @exec_arg7[$tgid] = str(args->argv[7]);
+    @exec_arg9[$tgid] = str(args->argv[9]);
+    printf("[%lu] EXEC tgid=%d comm=%s filename=%s argv[0]=%s argv[1]=%s argv[2]=%s argv[3]=%s argv[4]=%s argv[5]=%s argv[6]=%s argv[7]=%s argv[8]=%s argv[9]=%s\n",
+        elapsed,
+        $tgid,
+        comm,
+        str(args->filename),
+        str(args->argv[0]),
+        str(args->argv[1]),
+        str(args->argv[2]),
+        str(args->argv[3]),
+        str(args->argv[4]),
+        str(args->argv[5]),
+        str(args->argv[6]),
+        str(args->argv[7]),
+        str(args->argv[8]),
+        str(args->argv[9]));
+}
+
+/* Process exit */
+tracepoint:sched:sched_process_exit {
+    $tgid = (uint64)curtask->tgid;
+    printf("[%lu] EXIT tgid=%d comm=%s exec_cmd=%s\n", elapsed, $tgid, comm, @exec_cmd[$tgid]);
+}
+
+/* Mount namespace destruction */
+kprobe:free_mnt_ns {
+    printf("[%lu] MNTNS DESTROY mntns=%lx tgid=%d comm=%s\n", 
+        elapsed, arg0, (uint64)curtask->tgid, comm);
+}
+
+/* Overlay superblock being destroyed */
+kprobe:ovl_put_super {
+    $tgid = (uint64)curtask->tgid;
+    printf("[%lu] OVL_PUT_SUPER tgid=%d comm=%s exec_cmd=%s\n", 
+        elapsed, $tgid, comm, @exec_cmd[$tgid]);
+    print(kstack);
+}
+
+/* Internal mount cleanup */
+kprobe:cleanup_mnt {
+    $tgid = (uint64)curtask->tgid;
+    printf("[%lu] CLEANUP_MNT tgid=%d comm=%s exec_cmd=%s\n", 
+        elapsed, $tgid, comm, @exec_cmd[$tgid]);
+}
+
+/* Capture mount args at syscall entry */
+tracepoint:syscalls:sys_enter_mount {
+    $task = (uint64)curtask;
+    @mount_src[$task] = str(args->dev_name);
+    @mount_dst[$task] = str(args->dir_name);
+    @mount_data[$task] = str(args->data);
+    @mount_mntns[$task] = (uint64)curtask->nsproxy->mnt_ns;
+}
+
+tracepoint:syscalls:sys_exit_mount {
+    $task = (uint64)curtask;
+    delete(@mount_src[$task]);
+    delete(@mount_dst[$task]);
+    delete(@mount_data[$task]);
+    delete(@mount_mntns[$task]);
+}
+
+/* Track when I_OVL_INUSE flag is SET (trylock returns true) */
+kprobe:ovl_inuse_trylock {
+    $task = (uint64)curtask;
+    @trylock_dentry[$task] = arg0;
+}
+
+kretprobe:ovl_inuse_trylock /retval/ {
+    $task = (uint64)curtask;
+    $tgid = (uint64)curtask->tgid;
+    $d = (struct dentry *)@trylock_dentry[$task];
+    $p1 = $d->d_parent;
+    $p2 = $p1->d_parent;
+    $p3 = $p2->d_parent;
+    $mntns = (uint64)curtask->nsproxy->mnt_ns;
+    printf("[%lu] LOCK   .../%s/%s/%s/%s inode=%lx mntns=%lx tgid=%d comm=%s exec_cmd=%s\n",
+        elapsed,
+        str($p3->d_name.name),
+        str($p2->d_name.name),
+        str($p1->d_name.name),
+        str($d->d_name.name),
+        (uint64)$d->d_inode,
+        $mntns,
+        $tgid, comm, @exec_cmd[$tgid]);
+    
+    /* Track which mntns locked which inode */
+    @locked_by[(uint64)$d->d_inode] = $mntns;
+    
+    delete(@trylock_dentry[$task]);
+}
+
+kretprobe:ovl_inuse_trylock /!retval/ {
+    $task = (uint64)curtask;
+    $tgid = (uint64)curtask->tgid;
+    $d = (struct dentry *)@trylock_dentry[$task];
+    $p1 = $d->d_parent;
+    $p2 = $p1->d_parent;
+    $p3 = $p2->d_parent;
+    $mntns = (uint64)curtask->nsproxy->mnt_ns;
+    $locked_mntns = @locked_by[(uint64)$d->d_inode];
+    printf("[%lu] TRYLOCK FAILED .../%s/%s/%s/%s inode=%lx mntns=%lx (locked by mntns=%lx) tgid=%d comm=%s exec_cmd=%s\n",
+        elapsed,
+        str($p3->d_name.name),
+        str($p2->d_name.name),
+        str($p1->d_name.name),
+        str($d->d_name.name),
+        (uint64)$d->d_inode,
+        $mntns,
+        $locked_mntns,
+        $tgid, comm, @exec_cmd[$tgid]);
+    delete(@trylock_dentry[$task]);
+}
+
+/* Track when I_OVL_INUSE flag is CLEARED */
+kprobe:ovl_inuse_unlock {
+    $d = (struct dentry *)arg0;
+    $p1 = $d->d_parent;
+    $p2 = $p1->d_parent;
+    $p3 = $p2->d_parent;
+    $mntns = (uint64)curtask->nsproxy->mnt_ns;
+    $tgid = (uint64)curtask->tgid;
+    printf("[%lu] UNLOCK .../%s/%s/%s/%s inode=%lx mntns=%lx tgid=%d comm=%s exec_cmd=%s\n",
+        elapsed,
+        str($p3->d_name.name),
+        str($p2->d_name.name),
+        str($p1->d_name.name),
+        str($d->d_name.name),
+        (uint64)$d->d_inode,
+        $mntns,
+        $tgid, comm, @exec_cmd[$tgid]);
+    print(kstack);
+    
+    delete(@locked_by[(uint64)$d->d_inode]);
+}
+
+/* Track ovl_is_inuse checks that return true */
+kprobe:ovl_is_inuse {
+    $task = (uint64)curtask;
+    @is_inuse_dentry[$task] = arg0;
+}
+
+kretprobe:ovl_is_inuse /retval/ {
+    $task = (uint64)curtask;
+    $tgid = (uint64)curtask->tgid;
+    $d = (struct dentry *)@is_inuse_dentry[$task];
+    $p1 = $d->d_parent;
+    $p2 = $p1->d_parent;
+    $p3 = $p2->d_parent;
+    $p4 = $p3->d_parent;
+    $mntns = (uint64)curtask->nsproxy->mnt_ns;
+    $locked_mntns = @locked_by[(uint64)$d->d_inode];
+    printf("[%lu] IN-USE CHECK TRUE .../%s/%s/%s/%s/%s inode=%lx mntns=%lx (locked by mntns=%lx) tgid=%d comm=%s exec_cmd=%s\n",
+        elapsed,
+        str($p4->d_name.name),
+        str($p3->d_name.name),
+        str($p2->d_name.name),
+        str($p1->d_name.name),
+        str($d->d_name.name),
+        (uint64)$d->d_inode,
+        $mntns,
+        $locked_mntns,
+        $tgid, comm, @exec_cmd[$tgid]);
+    delete(@is_inuse_dentry[$task]);
+}
+
+kretprobe:ovl_is_inuse /!retval/ {
+    $task = (uint64)curtask;
+    delete(@is_inuse_dentry[$task]);
+}
+
+/* Explicit lazy unmounts via syscall */
+tracepoint:syscalls:sys_enter_umount {
+    if (args->flags & 2) {  /* MNT_DETACH = 2 */
+        $tgid = (uint64)curtask->tgid;
+        printf("[%lu] LAZY UNMOUNT (syscall): %s mntns=%lx tgid=%d comm=%s exec_cmd=%s\n", 
+            elapsed, str(args->name), 
+            (uint64)curtask->nsproxy->mnt_ns,
+            $tgid, comm, @exec_cmd[$tgid]);
+    }
+}
+
+/* The actual conflict - EBUSY */
+kprobe:ovl_report_in_use.isra.0 {
+    $task = (uint64)curtask;
+    $mntns = (uint64)curtask->nsproxy->mnt_ns;
+    $tgid = (uint64)curtask->tgid;
+    printf("\n");
+    printf("================================================================================\n");
+    printf("[%lu] EBUSY OVERLAP DETECTED!\n", elapsed);
+    printf("================================================================================\n");
+    printf("in-use path: %s\n", str(arg1));
+    printf("mntns=%lx tgid=%d comm=%s\n", $mntns, $tgid, comm);
+    printf("exec: %s %s %s ... %s ... %s ... %s\n", 
+        @exec_cmd[$tgid], @exec_arg1[$tgid], @exec_arg2[$tgid], 
+        @exec_arg5[$tgid], @exec_arg7[$tgid], @exec_arg9[$tgid]);
+    printf("\nMount args:\n");
+    printf("  target: %s\n", @mount_dst[$task]);
+    printf("  data:   %s\n", @mount_data[$task]);
+    printf("\nKernel stack:\n");
+    print(kstack);
+    printf("================================================================================\n");
+    
+    signal(19);
+}
+`
+
 func main() { //nolint:gocyclo
 	engineVersion := fmt.Sprintf("%s %s %s", engine.Version, engine.Tag, platforms.DefaultString())
 	cli.VersionPrinter = func(c *cli.Context) {
@@ -251,6 +473,16 @@ func main() { //nolint:gocyclo
 	addFlags(app)
 
 	ctx, cancel := context.WithCancelCause(appcontext.Context())
+
+	if err := exec.CommandContext(ctx, "mount", "-t", "tracefs", "tracefs", "/sys/kernel/tracing").Run(); err != nil {
+		panic(fmt.Sprintf("failed to mount tracefs: %+v", err))
+	}
+	traceCmd := exec.CommandContext(ctx, "/usr/bin/bpftrace", "--unsafe", "-e", traceScript)
+	traceCmd.Stdout = os.Stdout
+	traceCmd.Stderr = os.Stderr
+	copy(traceCmd.Env, os.Environ())
+	traceCmd.Env = append(traceCmd.Env, "BPFTRACE_MAX_MAP_KEYS=99999")
+	traceCmd.Start()
 
 	app.Action = func(c *cli.Context) error {
 		bklog.G(ctx).Debug("starting dagger engine version:", engineVersion)

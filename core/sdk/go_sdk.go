@@ -14,6 +14,7 @@ import (
 	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/buildkit"
 	"github.com/dagger/dagger/engine/distconsts"
+	"github.com/dagger/dagger/engine/slog"
 	"github.com/dagger/dagger/internal/buildkit/identity"
 	"github.com/mitchellh/mapstructure"
 )
@@ -261,6 +262,12 @@ func (sdk *goSDK) ModuleTypes(
 	if err != nil {
 		return inst, err
 	}
+
+	clientMD, err := engine.ClientMetadataFromContext(ctx)
+	if err != nil {
+		return inst, fmt.Errorf("failed to get client metadata from context: %w", err)
+	}
+	slog.Info("MODULE TYPES", "execID", execMD.ExecID, "clientID", clientMD.ClientID)
 
 	var modDefsID string
 	err = dag.Select(ctx, ctr, &modDefsID,

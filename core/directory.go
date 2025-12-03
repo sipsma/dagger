@@ -531,6 +531,12 @@ func (dir *Directory) WithPatch(ctx context.Context, patch string) (*Directory, 
 	if err != nil {
 		return nil, err
 	}
+	if err := snap.Finalize(ctx); err != nil {
+		return nil, err
+	}
+	if err := snap.SetCachePolicyRetain(); err != nil {
+		return nil, err
+	}
 	dir.Result = snap
 	return dir, nil
 }
@@ -873,6 +879,12 @@ func (dir *Directory) WithDirectory(
 		if err != nil {
 			return nil, fmt.Errorf("failed to commit copied directory: %w", err)
 		}
+		if err := dirRef.Finalize(ctx); err != nil {
+			return nil, fmt.Errorf("failed to finalize copied directory: %w", err)
+		}
+		if err := dirRef.SetCachePolicyRetain(); err != nil {
+			return nil, fmt.Errorf("failed to set cache policy on copied directory: %w", err)
+		}
 
 		dir.Result = dirRef
 		return dir, nil
@@ -1068,6 +1080,12 @@ func (dir *Directory) WithFile(
 	if err != nil {
 		return nil, err
 	}
+	if err := snap.Finalize(ctx); err != nil {
+		return nil, err
+	}
+	if err := snap.SetCachePolicyRetain(); err != nil {
+		return nil, err
+	}
 	dir.Result = snap
 	return dir, nil
 }
@@ -1246,6 +1264,12 @@ func (dir *Directory) Diff(ctx context.Context, other *Directory) (*Directory, e
 	dirRef, err := newRef.Commit(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to commit diff directory: %w", err)
+	}
+	if err := dirRef.Finalize(ctx); err != nil {
+		return nil, fmt.Errorf("failed to finalize diff directory: %w", err)
+	}
+	if err := dirRef.SetCachePolicyRetain(); err != nil {
+		return nil, fmt.Errorf("failed to set cache policy on diff directory: %w", err)
 	}
 
 	dir.Result = dirRef

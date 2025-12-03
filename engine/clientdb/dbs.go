@@ -70,7 +70,7 @@ func (dbs *DBs) Open(ctx context.Context, clientID string) (_ *DB, rerr error) {
 	}()
 
 	if db.inner == nil {
-		lg.Debug("opening client DB", "clientID", clientID)
+		lg.Trace("opening client DB", "clientID", clientID)
 
 		dbPath := db.dbs.path(db.clientID)
 		if err := os.MkdirAll(filepath.Dir(dbPath), 0700); err != nil {
@@ -111,7 +111,7 @@ func (dbs *DBs) Open(ctx context.Context, clientID string) (_ *DB, rerr error) {
 			}
 		}
 	} else {
-		lg.ExtraDebug("reusing open client DB", "clientID", clientID)
+		lg.Trace("reusing open client DB", "clientID", clientID)
 	}
 
 	if db.Queries == nil {
@@ -131,10 +131,10 @@ func (dbs *DBs) close(db *DB, lg *slog.Logger) (rerr error) {
 	lg = lg.With("releasedRefCount", db.refCount)
 
 	if db.refCount > 0 {
-		lg.ExtraDebug("not closing client DB; still has references")
+		lg.Trace("not closing client DB; still has references")
 		return nil
 	}
-	lg.Debug("closing client DB; no more references")
+	lg.Trace("closing client DB; no more references")
 
 	if db.Queries != nil {
 		if cerr := db.Queries.Close(); cerr != nil {
@@ -199,7 +199,7 @@ func (dbs *DBs) GC(keep map[string]bool) error {
 		removed = append(removed, ent.Name())
 	}
 	if len(removed) > 0 {
-		slog.ExtraDebug("removed client DBs", "clients", removed)
+		slog.Trace("removed client DBs", "clients", removed)
 	}
 	return errs
 }

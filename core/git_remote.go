@@ -581,6 +581,13 @@ func (ref *RemoteGitRef) Tree(ctx context.Context, srv *dagql.Server, discardGit
 	if err != nil {
 		return nil, err
 	}
+	if err := snap.Finalize(ctx); err != nil {
+		return nil, fmt.Errorf("failed to finalize: %w", err)
+	}
+	if err := snap.SetCachePolicyRetain(); err != nil {
+		return nil, fmt.Errorf("failed to set cache policy: %w", err)
+	}
+
 	checkoutRef = nil
 	defer func() {
 		if rerr != nil {

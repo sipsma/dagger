@@ -2272,6 +2272,13 @@ func (s *containerSchema) asTarball(
 	if err != nil {
 		return inst, err
 	}
+	if err := snap.Finalize(ctx); err != nil {
+		return inst, err
+	}
+	if err := snap.SetCachePolicyRetain(); err != nil {
+		return inst, err
+	}
+
 	bkref = nil
 	f.Result = snap
 	fileInst, err := dagql.NewObjectResultForCurrentID(ctx, srv, f)

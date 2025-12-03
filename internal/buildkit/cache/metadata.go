@@ -78,6 +78,8 @@ type RefMetadata interface {
 	SetExternal(string, []byte) error
 
 	ClearValueAndIndex(string, string) error
+
+	GetSnapshotID() string
 }
 
 func (cm *cacheManager) Search(ctx context.Context, idx string, prefixOnly bool) ([]RefMetadata, error) {
@@ -249,6 +251,10 @@ func (md *cacheMetadata) getMediaType() string {
 
 func (md *cacheMetadata) queueMediaType(str string) error {
 	return md.queueValue(keyMediaType, str, "")
+}
+
+func (md *cacheMetadata) GetSnapshotID() string {
+	return md.getSnapshotID()
 }
 
 func (md *cacheMetadata) getSnapshotID() string {

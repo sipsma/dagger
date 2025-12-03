@@ -84,7 +84,7 @@ func (ps *PubSub) TracesHandler(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	spans := telemetry.SpansFromPB(req.ResourceSpans)
-	slog.Debug("exporting spans to clients", "spans", len(spans), "clients", len(client.parents)+1)
+	slog.Trace("exporting spans to clients", "spans", len(spans), "clients", len(client.parents)+1)
 
 	eg := new(errgroup.Group)
 	for _, c := range append([]*daggerClient{client}, client.parents...) {
@@ -128,7 +128,7 @@ func (ps *PubSub) LogsHandler(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Debug("exporting logs to clients", "clients", len(client.parents)+1)
+	slog.Trace("exporting logs to clients", "clients", len(client.parents)+1)
 
 	eg := new(errgroup.Group)
 	for _, c := range append([]*daggerClient{client}, client.parents...) {
@@ -172,7 +172,7 @@ func (ps *PubSub) MetricsHandler(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Debug("exporting metrics to clients", "clients", len(client.parents)+1)
+	slog.Trace("exporting metrics to clients", "clients", len(client.parents)+1)
 
 	eg := new(errgroup.Group)
 	for _, c := range append([]*daggerClient{client}, client.parents...) {
@@ -319,7 +319,7 @@ func (ps *PubSub) Spans(client *daggerClient) sdktrace.SpanExporter {
 }
 
 func (ps clientSpans) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnlySpan) error {
-	slog.ExtraDebug("pubsub exporting spans", "client", ps.client.clientID, "count", len(spans))
+	slog.Trace("pubsub exporting spans", "client", ps.client.clientID, "count", len(spans))
 
 	var inserts []*clientdb.InsertSpanParams
 	for _, span := range spans {
@@ -448,7 +448,7 @@ func (ps clientLogs) OnEmit(ctx context.Context, rec *sdklog.Record) error {
 var _ sdklog.Exporter = clientLogs{}
 
 func (ps clientLogs) Export(ctx context.Context, logs []sdklog.Record) error {
-	slog.ExtraDebug("pubsub exporting logs", "client", ps.client.clientID, "count", len(logs))
+	slog.Trace("pubsub exporting logs", "client", ps.client.clientID, "count", len(logs))
 
 	var inserts []*clientdb.InsertLogParams
 	for _, rec := range logs {
@@ -554,7 +554,7 @@ func (ps clientMetrics) Export(ctx context.Context, metrics *metricdata.Resource
 		return nil
 	}
 
-	slog.ExtraDebug("pubsub exporting metrics", "client", ps.client.clientID, "count", len(metrics.ScopeMetrics))
+	slog.Trace("pubsub exporting metrics", "client", ps.client.clientID, "count", len(metrics.ScopeMetrics))
 
 	pbMetrics, err := telemetry.ResourceMetricsToPB(metrics)
 	if err != nil {
@@ -646,11 +646,11 @@ func (ps *PubSub) sseHandler(w http.ResponseWriter, r *http.Request, client *dag
 				// NB: logging here is a bit too crazy
 			case <-client.shutdownCh:
 				// Client is shutting down; next time we receive no data, we'll exit.
-				slog.ExtraDebug("shutting down")
+				slog.Trace("shutting down")
 				terminating = true
 			case <-r.Context().Done():
 				// Client went away, no point hanging around.
-				slog.ExtraDebug("client went away")
+				slog.Trace("client went away")
 				return nil
 			}
 			continue

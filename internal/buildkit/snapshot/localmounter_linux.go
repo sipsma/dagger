@@ -1,9 +1,10 @@
 package snapshot
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
+	"runtime/debug"
 
 	"github.com/containerd/containerd/v2/core/mount"
 	rootlessmountopts "github.com/dagger/dagger/internal/buildkit/util/rootless/mountopts"
@@ -16,7 +17,7 @@ func (lm *localMounter) Mount() (string, error) {
 	defer lm.mu.Unlock()
 
 	if lm.mounts == nil && lm.mountable != nil {
-		mounts, release, err := lm.mountable.Mount()
+		mounts, release, err := lm.mountable.Mount(lm.dbg)
 		if err != nil {
 			return "", err
 		}
@@ -59,17 +60,28 @@ func (lm *localMounter) Mount() (string, error) {
 	if err != nil {
 		return "", errors.Wrap(err, "failed to create temp dir")
 	}
-
+	lm.tmpDir = dest
 	if isFile {
 		dest = filepath.Join(dest, "file")
 		if err := os.WriteFile(dest, []byte{}, 0644); err != nil {
-			os.RemoveAll(dest)
+			os.RemoveAll(lm.tmpDir)
 			return "", errors.Wrap(err, "failed to create temp file")
 		}
 	}
 
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	if len(lm.mounts) > 0 {
+		fmt.Printf("\nBUILDKIT-MOUNT: %s\n%+v\n%d\n%s\n\n", dest, lm.mounts[0], len(lm.mounts), string(debug.Stack()))
+	} else {
+		fmt.Printf("WTF BUILDKIT-MOUNT: %s\n%s\n", dest, string(debug.Stack()))
+	}
+
 	if err := mount.All(lm.mounts, dest); err != nil {
-		os.RemoveAll(dest)
+		os.RemoveAll(lm.tmpDir)
 		return "", errors.Wrapf(err, "failed to mount %s: %+v", dest, lm.mounts)
 	}
 	lm.target = dest
@@ -80,11 +92,27 @@ func (lm *localMounter) Unmount() error {
 	lm.mu.Lock()
 	defer lm.mu.Unlock()
 
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	fmt.Printf("BUILDKIT-UNMOUNT: %s\n", lm.target)
+
 	if lm.target != "" {
-		if err := mount.Unmount(lm.target, syscall.MNT_DETACH); err != nil {
+		// TODO:??
+		// TODO:??
+		// TODO:??
+		// if err := mount.Unmount(lm.target, syscall.MNT_DETACH); err != nil {
+		if err := mount.Unmount(lm.target, 0); err != nil {
 			return err
 		}
-		os.RemoveAll(lm.target)
+		// TODO:
+		// TODO:
+		// TODO:
+		if err := os.RemoveAll(lm.tmpDir); err != nil {
+			panic(fmt.Sprintf("failed to remove temp dir %s: %v", lm.target, err))
+		}
 		lm.target = ""
 	}
 

@@ -36,7 +36,8 @@ func New(
 	// "sdk/**/examples",
 	// "!cmd",
 	// "!modules/wolfi",
-	// "!modules/alpine"
+	// "!modules/alpine",
+	// "!ctd/**/*"
 	// ]
 	source *dagger.Directory,
 	// A configurable part of the IP subnet managed by the engine

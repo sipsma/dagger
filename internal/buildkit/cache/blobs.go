@@ -305,7 +305,8 @@ func (sr *immutableRef) setBlob(ctx context.Context, desc ocispecs.Descriptor) (
 		return nil
 	}
 
-	if err := sr.finalize(ctx); err != nil {
+	l := bklog.G(ctx).WithFields(sr.traceLogFields())
+	if err := sr.finalize(ctx, l); err != nil {
 		return err
 	}
 

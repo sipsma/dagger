@@ -15,7 +15,7 @@ type staticMountable struct {
 	idmap  *idtools.IdentityMapping
 }
 
-func (cm *staticMountable) Mount() ([]mount.Mount, func() error, error) {
+func (cm *staticMountable) Mount(dbg ...string) ([]mount.Mount, func() error, error) {
 	// return a copy to prevent changes to mount.Mounts in the slice from affecting cm
 	mounts := make([]mount.Mount, len(cm.mounts))
 	copy(mounts, cm.mounts)

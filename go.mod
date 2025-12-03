@@ -9,6 +9,12 @@ require (
 
 replace (
 	dagger.io/dagger => ./sdk/go
+
+	// TODO::
+	// TODO::
+	// TODO::
+	// TODO::
+	github.com/containerd/containerd/v2 => ./ctd
 	github.com/dagger/dagger/engine/distconsts => ./engine/distconsts
 )
 

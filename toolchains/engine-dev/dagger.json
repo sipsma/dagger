@@ -37,6 +37,10 @@
       "source": "../../modules/wolfi"
     },
     {
+      "name": "alpine",
+      "source": "../../modules/alpine"
+    },
+    {
       "name": "notify",
       "source": "notify"
     }

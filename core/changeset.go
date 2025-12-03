@@ -327,6 +327,12 @@ func (ch *Changeset) AsPatch(ctx context.Context) (*File, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := snap.Finalize(ctx); err != nil {
+		return nil, err
+	}
+	if err := snap.SetCachePolicyRetain(); err != nil {
+		return nil, err
+	}
 	return &File{
 		Result:   snap,
 		File:     ChangesetPatchFilename,

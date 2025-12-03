@@ -47,7 +47,7 @@ type staticEmulatorMount struct {
 	idmap *idtools.IdentityMapping
 }
 
-func (m *staticEmulatorMount) Mount() ([]mount.Mount, func() error, error) {
+func (m *staticEmulatorMount) Mount(dbg ...string) ([]mount.Mount, func() error, error) {
 	tmpdir, err := os.MkdirTemp("", "buildkit-qemu-emulator")
 	if err != nil {
 		return nil, nil, err

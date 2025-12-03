@@ -13,6 +13,12 @@ type Mounter interface {
 
 type LocalMounterOpt func(*localMounter)
 
+func WithDebug(dbg string) LocalMounterOpt {
+	return func(lm *localMounter) {
+		lm.dbg = dbg
+	}
+}
+
 // LocalMounter is a helper for mounting mountfactory to temporary path. In
 // addition it can mount binds without privileges
 func LocalMounter(mountable Mountable, opts ...LocalMounterOpt) Mounter {
@@ -40,6 +46,9 @@ type localMounter struct {
 	target       string
 	release      func() error
 	forceRemount bool
+	tmpDir       string
+
+	dbg string
 }
 
 func ForceRemount() LocalMounterOpt {

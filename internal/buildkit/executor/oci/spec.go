@@ -2,6 +2,7 @@ package oci
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -156,7 +157,9 @@ func GenerateSpec(ctx context.Context, meta executor.Meta, mounts []executor.Mou
 	releaseAll := func() {
 		sm.cleanup()
 		for _, f := range releasers {
-			f()
+			if f != nil {
+				f()
+			}
 		}
 		if s.Process.SelinuxLabel != "" {
 			selinux.ReleaseLabel(s.Process.SelinuxLabel)
@@ -172,7 +175,7 @@ func GenerateSpec(ctx context.Context, meta executor.Meta, mounts []executor.Mou
 			releaseAll()
 			return nil, nil, errors.Wrapf(err, "failed to mount %s", m.Dest)
 		}
-		mounts, release, err := mountable.Mount()
+		mounts, release, err := mountable.Mount(fmt.Sprintf("%s %+v", id, meta))
 		if err != nil {
 			releaseAll()
 			return nil, nil, errors.WithStack(err)

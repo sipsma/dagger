@@ -199,7 +199,7 @@ type sshMountInstance struct {
 	idmap *idtools.IdentityMapping
 }
 
-func (sm *sshMountInstance) Mount() ([]mount.Mount, func() error, error) {
+func (sm *sshMountInstance) Mount(dbg ...string) ([]mount.Mount, func() error, error) {
 	ctx, cancel := context.WithCancelCause(context.TODO())
 
 	uid := int(sm.sm.mount.SSHOpt.Uid)
@@ -292,7 +292,7 @@ type secretMountInstance struct {
 	idmap *idtools.IdentityMapping
 }
 
-func (sm *secretMountInstance) Mount() ([]mount.Mount, func() error, error) {
+func (sm *secretMountInstance) Mount(dbg ...string) ([]mount.Mount, func() error, error) {
 	dir, err := os.MkdirTemp("", "buildkit-secrets")
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "failed to create temp dir")
@@ -416,7 +416,7 @@ type tmpfsMount struct {
 	opt      *pb.TmpfsOpt
 }
 
-func (m *tmpfsMount) Mount() ([]mount.Mount, func() error, error) {
+func (m *tmpfsMount) Mount(dbg ...string) ([]mount.Mount, func() error, error) {
 	opt := []string{"nosuid"}
 	if m.readonly {
 		opt = append(opt, "ro")

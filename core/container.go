@@ -20,6 +20,7 @@ import (
 	"github.com/containerd/containerd/v2/core/images"
 	"github.com/containerd/containerd/v2/core/transfer/archive"
 	"github.com/containerd/platforms"
+	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/internal/buildkit/client/llb"
 	"github.com/dagger/dagger/internal/buildkit/client/llb/sourceresolver"
 	"github.com/dagger/dagger/internal/buildkit/exporter/containerimage/exptypes"
@@ -39,6 +40,7 @@ import (
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/dagql/call"
 	"github.com/dagger/dagger/engine/buildkit"
+	"github.com/dagger/dagger/engine/slog"
 )
 
 var ErrMountNotExist = errors.New("mount does not exist")
@@ -1497,6 +1499,15 @@ func (container *Container) Directory(ctx context.Context, dirPath string) (*Dir
 }
 
 func (container *Container) File(ctx context.Context, filePath string) (*File, error) {
+	clientMD, err := engine.ClientMetadataFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get client metadata from context: %w", err)
+	}
+	slog.Info("CONTAINER FILE", "clientID", clientMD.ClientID)
+	defer func() {
+		slog.Info("CONTAINER FILE DONE", "clientID", clientMD.ClientID)
+	}()
+
 	mnt, subpath, err := locatePath(container, filePath)
 	if err != nil {
 		return nil, err

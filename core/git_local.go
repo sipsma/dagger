@@ -204,6 +204,12 @@ func (repo *LocalGitRepository) Cleaned(ctx context.Context) (inst dagql.ObjectR
 	if err != nil {
 		return inst, err
 	}
+	if err := snap.Finalize(ctx); err != nil {
+		return inst, fmt.Errorf("failed to finalize: %w", err)
+	}
+	if err := snap.SetCachePolicyRetain(); err != nil {
+		return inst, fmt.Errorf("failed to set cache policy: %w", err)
+	}
 	bkref = nil
 	dir.Result = snap
 
@@ -297,6 +303,13 @@ func (ref *LocalGitRef) Tree(ctx context.Context, srv *dagql.Server, discardGitD
 	if err != nil {
 		return nil, err
 	}
+	if err := snap.Finalize(ctx); err != nil {
+		return nil, fmt.Errorf("failed to finalize: %w", err)
+	}
+	if err := snap.SetCachePolicyRetain(); err != nil {
+		return nil, fmt.Errorf("failed to set cache policy: %w", err)
+	}
+
 	bkref = nil
 	dir.Result = snap
 	return dir, nil

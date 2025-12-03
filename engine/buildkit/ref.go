@@ -10,6 +10,8 @@ import (
 
 	"github.com/containerd/containerd/v2/core/leases"
 	"github.com/containerd/continuity/fs"
+	"github.com/dagger/dagger/engine"
+	"github.com/dagger/dagger/engine/slog"
 	bkcache "github.com/dagger/dagger/internal/buildkit/cache"
 	"github.com/dagger/dagger/internal/buildkit/cache/contenthash"
 	cacheutil "github.com/dagger/dagger/internal/buildkit/cache/util"
@@ -163,6 +165,15 @@ func (r *ref) Mount(ctx context.Context, f func(path string) error) error {
 }
 
 func (r *ref) StatFile(ctx context.Context, req bkgw.StatRequest) (*fstypes.Stat, error) {
+	clientMD, err := engine.ClientMetadataFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get client metadata from context: %w", err)
+	}
+	slog.Info("STAT FILE", "clientID", clientMD.ClientID, "path", req.Path)
+	defer func() {
+		slog.Info("STAT FILE DONE", "clientID", clientMD.ClientID, "path", req.Path)
+	}()
+
 	ctx = withOutgoingContext(ctx)
 	mnt, err := r.getMountable(ctx)
 	if err != nil {
@@ -223,6 +234,17 @@ func (r *ref) getMountable(ctx context.Context) (snapshot.Mountable, error) {
 	if workerRef == nil || workerRef.ImmutableRef == nil {
 		return nil, nil
 	}
+
+	clientMD, err := engine.ClientMetadataFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get client metadata from context: %w", err)
+	}
+	slog.Info("GET MOUNTABLE",
+		"clientID", clientMD.ClientID,
+		"refID", workerRef.ImmutableRef.ID(),
+		"snapshotID", workerRef.ImmutableRef.GetSnapshotID(),
+	)
+
 	return workerRef.ImmutableRef.Mount(ctx, true, bksession.NewGroup(r.c.ID()))
 }
 

@@ -247,6 +247,11 @@ func (container *Container) WithExec(
 		return nil, err
 	}
 
+	slog.Info("CONTAINER EXEC START", "execID", execMD.ExecID)
+	defer func() {
+		slog.Info("CONTAINER EXEC END", "execID", execMD.ExecID, "error", rerr)
+	}()
+
 	mounts, ok := CurrentMountData(ctx)
 	if !ok {
 		return nil, fmt.Errorf("no dagop here")
@@ -309,6 +314,14 @@ func (container *Container) WithExec(
 					ref, cerr := active.Ref.Commit(ctx)
 					if cerr != nil {
 						rerr = errors.Join(rerr, fmt.Errorf("error committing %s: %w: %w", active.Ref.ID(), cerr, err))
+						continue
+					}
+					if err := ref.Finalize(ctx); err != nil {
+						rerr = errors.Join(rerr, fmt.Errorf("failed to finalize: %w", err))
+						continue
+					}
+					if err := ref.SetCachePolicyRetain(); err != nil {
+						rerr = errors.Join(rerr, fmt.Errorf("failed to set retain cache policy: %w", err))
 						continue
 					}
 					execMounts[active.MountIndex] = worker.NewWorkerRefResult(ref, opt.Worker)
@@ -475,6 +488,12 @@ func (container *Container) WithExec(
 			iref, err = mutable.Commit(ctx)
 			if err != nil {
 				return nil, fmt.Errorf("error committing %s: %w", mutable.ID(), err)
+			}
+			if err := iref.Finalize(ctx); err != nil {
+				return nil, fmt.Errorf("failed to finalize: %w", err)
+			}
+			if err := iref.SetCachePolicyRetain(); err != nil {
+				return nil, fmt.Errorf("failed to set cache policy: %w", err)
 			}
 		} else {
 			iref = ref.Ref.(bkcache.ImmutableRef)
