@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -42,6 +43,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
+	"golang.org/x/sys/unix"
 
 	"dagger.io/dagger/telemetry"
 	"github.com/dagger/dagger/engine"
@@ -98,6 +100,7 @@ type execState struct {
 	spec             *specs.Spec
 	networkNamespace bknetwork.Namespace
 	rootfsPath       string
+	nonRootMounts    []mount.Mount
 	uid              uint32
 	gid              uint32
 	sgids            []uint32
@@ -427,7 +430,6 @@ func (w *Worker) setupRootfs(ctx context.Context, state *execState) error {
 		return mount.Unmount(state.rootfsPath, 0)
 	})
 
-	var nonRootMounts []mount.Mount
 	var filteredMounts []specs.Mount
 	var metaMount *specs.Mount
 	for _, mnt := range state.spec.Mounts {
@@ -448,7 +450,7 @@ func (w *Worker) setupRootfs(ctx context.Context, state *execState) error {
 			// bind, overlay, etc. mounts will be done to the rootfs now rather than by runc.
 			// This is to support read/write ops on them from the executor, such as filesync
 			// for nested execs, stdout/err redirection, CA configuration, etc.
-			nonRootMounts = append(nonRootMounts, mount.Mount{
+			state.nonRootMounts = append(state.nonRootMounts, mount.Mount{
 				Type:    mnt.Type,
 				Source:  mnt.Source,
 				Target:  mnt.Destination,
@@ -492,7 +494,7 @@ func (w *Worker) setupRootfs(ctx context.Context, state *execState) error {
 		state.procInfo.Meta.RemoveMountStubsRecursive,
 	)))
 
-	for _, mnt := range nonRootMounts {
+	for _, mnt := range state.nonRootMounts {
 		dstPath, err := fs.RootPath(state.spec.Root.Path, mnt.Target)
 		if err != nil {
 			return fmt.Errorf("mount %s points to invalid target: %w", mnt.Target, err)
@@ -1221,7 +1223,99 @@ func (w *Worker) runContainer(ctx context.Context, state *execState) (rerr error
 	killer := newRunProcKiller(w.runc, state.id)
 
 	runcCall := func(ctx context.Context, started chan<- int, io runc.IO, pidfile string) error {
-		_, err := w.runc.Run(ctx, state.id, bundle, &runc.CreateOpts{
+		rootfsFD, err := unix.OpenTree(unix.AT_FDCWD, state.rootfsPath, unix.OPEN_TREE_CLONE|unix.OPEN_TREE_CLOEXEC|unix.AT_RECURSIVE)
+		if err != nil {
+			return fmt.Errorf("open rootfs path %s: %w", state.rootfsPath, err)
+		}
+		rootfsFile := os.NewFile(uintptr(rootfsFD), "rootfs")
+		defer rootfsFile.Close()
+
+		// TODO: cleanup the netns api so we don't need this tmpspec bs
+		var nsPath string
+		if state.networkNamespace != nil {
+			var tmpSpec specs.Spec
+			if err := state.networkNamespace.Set(&tmpSpec); err != nil {
+				return fmt.Errorf("set network namespace: %w", err)
+			}
+			for _, ns := range tmpSpec.Linux.Namespaces {
+				if ns.Type == specs.NetworkNamespace {
+					nsPath = ns.Path
+					break
+				}
+			}
+		}
+		var nsPathFile *os.File
+		if nsPath != "" {
+			nsPathFD, err := unix.OpenTree(unix.AT_FDCWD, nsPath, unix.OPEN_TREE_CLONE|unix.OPEN_TREE_CLOEXEC)
+			if err != nil {
+				return fmt.Errorf("open network namespace path %s: %w", nsPath, err)
+			}
+			nsPathFile = os.NewFile(uintptr(nsPathFD), "netns")
+			defer nsPathFile.Close()
+		}
+
+		runtime.LockOSThread()
+
+		// TODO: weird looking, doc. First is to avoid permissions errs, second is to avoid more leaking from the clean mnt ns
+		if err := unix.Unshare(unix.CLONE_NEWNS); err != nil {
+			return fmt.Errorf("unshare new mount namespace: %w", err)
+		}
+		if err := unix.Setns(int(w.cleanMntNS.Fd()), unix.CLONE_NEWNS); err != nil {
+			return fmt.Errorf("setns clean mount namespace: %w", err)
+		}
+		if err := unix.Unshare(unix.CLONE_NEWNS); err != nil {
+			return fmt.Errorf("unshare new mount namespace: %w", err)
+		}
+
+		defer func() {
+			err := unix.Setns(int(w.hostMntNS.Fd()), unix.CLONE_NEWNS)
+			if err != nil {
+				slog.Error("failed to setns host mount namespace after container run", "err", err)
+			} else {
+				runtime.UnlockOSThread()
+			}
+		}()
+
+		if err := unix.MoveMount(int(rootfsFile.Fd()), "", unix.AT_FDCWD, state.rootfsPath, unix.MOVE_MOUNT_F_EMPTY_PATH); err != nil {
+			return fmt.Errorf("move mount rootfs %s: %w", state.rootfsPath, err)
+		}
+
+		defer func() {
+			// TODO: check whether this unmounting is really needed or if the kernel (async?) cleanup is fast enough
+			for i := len(state.nonRootMounts) - 1; i >= 0; i-- {
+				mnt := state.nonRootMounts[i]
+				slog.Info("NS UNMOUNT ROOTFS SUBMOUNT",
+					"execID", state.id,
+					"mount", fmt.Sprintf("%+v", mnt),
+				)
+
+				dstPath, err := fs.RootPath(state.rootfsPath, mnt.Target)
+				if err != nil {
+					slog.Error("failed to get mount target path", "err", err)
+					continue
+				}
+
+				if err := mount.Unmount(dstPath, 0); err != nil {
+					slog.Error("failed to unmount rootfs submount in ns", "err", err)
+				}
+			}
+			if err := unix.Unmount(state.rootfsPath, 0); err != nil {
+				slog.Error("failed to unmount rootfs in ns", "err", err)
+			}
+		}()
+
+		if nsPathFile != nil {
+			if err := unix.MoveMount(int(nsPathFile.Fd()), "", unix.AT_FDCWD, nsPath, unix.MOVE_MOUNT_F_EMPTY_PATH); err != nil {
+				return fmt.Errorf("move mount network namespace %s: %w", nsPath, err)
+			}
+			defer func() {
+				if err := unix.Unmount(nsPath, 0); err != nil {
+					slog.Error("failed to unmount network namespace in ns", "err", err)
+				}
+			}()
+		}
+
+		_, err = w.runc.Run(ctx, state.id, bundle, &runc.CreateOpts{
 			Started:   started,
 			IO:        io,
 			ExtraArgs: []string{"--keep"},
