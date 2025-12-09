@@ -55,10 +55,6 @@
       "source": "../python-sdk-dev"
     },
     {
-      "name": "elixir-sdk-dev",
-      "source": "../elixir-sdk-dev"
-    },
-    {
       "name": "rust-sdk-dev",
       "source": "../rust-sdk-dev"
     },
