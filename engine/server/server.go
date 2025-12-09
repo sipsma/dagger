@@ -503,6 +503,12 @@ func NewServer(ctx context.Context, opts *NewServerOpts) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open host mount namespace: %w", err)
 	}
+	hostMntNSName, err := os.Readlink("/proc/self/ns/mnt")
+	if err != nil {
+		return nil, fmt.Errorf("failed to readlink host mount namespace: %w", err)
+	}
+	slog.Debug("HOST MNTNS", "name", hostMntNSName)
+
 	var cleanMntNS *os.File
 	var eg errgroup.Group
 	eg.Go(func() error {
@@ -512,7 +518,15 @@ func NewServer(ctx context.Context, opts *NewServerOpts) (*Server, error) {
 		}
 		var err error
 		cleanMntNS, err = os.OpenFile("/proc/thread-self/ns/mnt", os.O_RDONLY, 0)
-		return err
+		if err != nil {
+			return err
+		}
+		cleanMntNSName, err := os.Readlink("/proc/thread-self/ns/mnt")
+		if err != nil {
+			return fmt.Errorf("failed to readlink clean mount namespace: %w", err)
+		}
+		slog.Debug("CLEAN MNTNS", "name", cleanMntNSName)
+		return nil
 	})
 	if err := eg.Wait(); err != nil {
 		return nil, fmt.Errorf("failed to create clean mount namespace: %w", err)

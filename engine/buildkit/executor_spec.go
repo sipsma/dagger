@@ -1223,6 +1223,7 @@ func (w *Worker) runContainer(ctx context.Context, state *execState) (rerr error
 	killer := newRunProcKiller(w.runc, state.id)
 
 	runcCall := func(ctx context.Context, started chan<- int, io runc.IO, pidfile string) error {
+		// TODO: is there any obscure possibility of leaking this FD to child processes for a brief moment? Need to check guts of go
 		rootfsFD, err := unix.OpenTree(unix.AT_FDCWD, state.rootfsPath, unix.OPEN_TREE_CLONE|unix.OPEN_TREE_CLOEXEC|unix.AT_RECURSIVE)
 		if err != nil {
 			return fmt.Errorf("open rootfs path %s: %w", state.rootfsPath, err)
@@ -1257,8 +1258,8 @@ func (w *Worker) runContainer(ctx context.Context, state *execState) (rerr error
 		runtime.LockOSThread()
 
 		// TODO: weird looking, doc. First is to avoid permissions errs, second is to avoid more leaking from the clean mnt ns
-		if err := unix.Unshare(unix.CLONE_NEWNS); err != nil {
-			return fmt.Errorf("unshare new mount namespace: %w", err)
+		if err := unix.Unshare(unix.CLONE_FS); err != nil {
+			return fmt.Errorf("unshare fs attrs: %w", err)
 		}
 		if err := unix.Setns(int(w.cleanMntNS.Fd()), unix.CLONE_NEWNS); err != nil {
 			return fmt.Errorf("setns clean mount namespace: %w", err)
@@ -1266,6 +1267,16 @@ func (w *Worker) runContainer(ctx context.Context, state *execState) (rerr error
 		if err := unix.Unshare(unix.CLONE_NEWNS); err != nil {
 			return fmt.Errorf("unshare new mount namespace: %w", err)
 		}
+
+		mntNSName, err := os.Readlink("/proc/thread-self/ns/mnt")
+		if err != nil {
+			return fmt.Errorf("readlink self mnt ns: %w", err)
+		}
+		slog.Info("EXEC MNTNS",
+			"name", mntNSName,
+			"execID", state.id,
+			"meta", state.procInfo.Meta,
+		)
 
 		defer func() {
 			err := unix.Setns(int(w.hostMntNS.Fd()), unix.CLONE_NEWNS)
@@ -1279,6 +1290,7 @@ func (w *Worker) runContainer(ctx context.Context, state *execState) (rerr error
 		if err := unix.MoveMount(int(rootfsFile.Fd()), "", unix.AT_FDCWD, state.rootfsPath, unix.MOVE_MOUNT_F_EMPTY_PATH); err != nil {
 			return fmt.Errorf("move mount rootfs %s: %w", state.rootfsPath, err)
 		}
+		rootfsFile.Close()
 
 		defer func() {
 			// TODO: check whether this unmounting is really needed or if the kernel (async?) cleanup is fast enough
@@ -1308,6 +1320,7 @@ func (w *Worker) runContainer(ctx context.Context, state *execState) (rerr error
 			if err := unix.MoveMount(int(nsPathFile.Fd()), "", unix.AT_FDCWD, nsPath, unix.MOVE_MOUNT_F_EMPTY_PATH); err != nil {
 				return fmt.Errorf("move mount network namespace %s: %w", nsPath, err)
 			}
+			nsPathFile.Close()
 			defer func() {
 				if err := unix.Unmount(nsPath, 0); err != nil {
 					slog.Error("failed to unmount network namespace in ns", "err", err)

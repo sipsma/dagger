@@ -240,63 +240,29 @@ func addFlags(app *cli.App) {
 }
 
 const traceScript = `
-/* Process creation - track tgid and mntns */
-tracepoint:sched:sched_process_fork {
-    printf("[%lu] FORK parent_tgid=%d child_tgid=%d comm=%s\n", 
-        elapsed, (uint64)curtask->tgid, args->child_pid, comm);
-}
-
-/* Process exec - capture what is actually being run */
-tracepoint:syscalls:sys_enter_execve {
-    $tgid = (uint64)curtask->tgid;
-    @exec_cmd[$tgid] = str(args->filename);
-    @exec_arg1[$tgid] = str(args->argv[1]);
-    @exec_arg2[$tgid] = str(args->argv[2]);
-    @exec_arg5[$tgid] = str(args->argv[5]);
-    @exec_arg7[$tgid] = str(args->argv[7]);
-    @exec_arg9[$tgid] = str(args->argv[9]);
-    printf("[%lu] EXEC tgid=%d comm=%s filename=%s argv[0]=%s argv[1]=%s argv[2]=%s argv[3]=%s argv[4]=%s argv[5]=%s argv[6]=%s argv[7]=%s argv[8]=%s argv[9]=%s\n",
-        elapsed,
-        $tgid,
-        comm,
-        str(args->filename),
-        str(args->argv[0]),
-        str(args->argv[1]),
-        str(args->argv[2]),
-        str(args->argv[3]),
-        str(args->argv[4]),
-        str(args->argv[5]),
-        str(args->argv[6]),
-        str(args->argv[7]),
-        str(args->argv[8]),
-        str(args->argv[9]));
-}
-
-/* Process exit */
-tracepoint:sched:sched_process_exit {
-    $tgid = (uint64)curtask->tgid;
-    printf("[%lu] EXIT tgid=%d comm=%s exec_cmd=%s\n", elapsed, $tgid, comm, @exec_cmd[$tgid]);
-}
-
 /* Mount namespace destruction */
 kprobe:free_mnt_ns {
-    printf("[%lu] MNTNS DESTROY mntns=%lx tgid=%d comm=%s\n", 
-        elapsed, arg0, (uint64)curtask->tgid, comm);
+    $mntns_ptr = (struct mnt_namespace *)arg0;
+    $mntns = $mntns_ptr->ns.inum;
+    printf("[%lu] MNTNS DESTROY mntns=%u tgid=%d comm=%s\n", 
+        elapsed, $mntns, (uint64)curtask->tgid, comm);
 }
 
 /* Overlay superblock being destroyed */
 kprobe:ovl_put_super {
     $tgid = (uint64)curtask->tgid;
-    printf("[%lu] OVL_PUT_SUPER tgid=%d comm=%s exec_cmd=%s\n", 
-        elapsed, $tgid, comm, @exec_cmd[$tgid]);
+    $mntns = curtask->nsproxy->mnt_ns->ns.inum;
+    printf("[%lu] OVL_PUT_SUPER mntns=%u tgid=%d comm=%s\n", 
+        elapsed, $mntns, $tgid, comm);
     print(kstack);
 }
 
 /* Internal mount cleanup */
 kprobe:cleanup_mnt {
     $tgid = (uint64)curtask->tgid;
-    printf("[%lu] CLEANUP_MNT tgid=%d comm=%s exec_cmd=%s\n", 
-        elapsed, $tgid, comm, @exec_cmd[$tgid]);
+    $mntns = curtask->nsproxy->mnt_ns->ns.inum;
+    printf("[%lu] CLEANUP_MNT mntns=%u tgid=%d comm=%s\n", 
+        elapsed, $mntns, $tgid, comm);
 }
 
 /* Capture mount args at syscall entry */
@@ -305,7 +271,7 @@ tracepoint:syscalls:sys_enter_mount {
     @mount_src[$task] = str(args->dev_name);
     @mount_dst[$task] = str(args->dir_name);
     @mount_data[$task] = str(args->data);
-    @mount_mntns[$task] = (uint64)curtask->nsproxy->mnt_ns;
+    @mount_mntns[$task] = curtask->nsproxy->mnt_ns->ns.inum;
 }
 
 tracepoint:syscalls:sys_exit_mount {
@@ -329,8 +295,8 @@ kretprobe:ovl_inuse_trylock /retval/ {
     $p1 = $d->d_parent;
     $p2 = $p1->d_parent;
     $p3 = $p2->d_parent;
-    $mntns = (uint64)curtask->nsproxy->mnt_ns;
-    printf("[%lu] LOCK   .../%s/%s/%s/%s inode=%lx mntns=%lx tgid=%d comm=%s exec_cmd=%s\n",
+    $mntns = curtask->nsproxy->mnt_ns->ns.inum;
+    printf("[%lu] LOCK   .../%s/%s/%s/%s inode=%lx mntns=%u tgid=%d comm=%s\n",
         elapsed,
         str($p3->d_name.name),
         str($p2->d_name.name),
@@ -338,7 +304,7 @@ kretprobe:ovl_inuse_trylock /retval/ {
         str($d->d_name.name),
         (uint64)$d->d_inode,
         $mntns,
-        $tgid, comm, @exec_cmd[$tgid]);
+        $tgid, comm);
     
     /* Track which mntns locked which inode */
     @locked_by[(uint64)$d->d_inode] = $mntns;
@@ -353,9 +319,9 @@ kretprobe:ovl_inuse_trylock /!retval/ {
     $p1 = $d->d_parent;
     $p2 = $p1->d_parent;
     $p3 = $p2->d_parent;
-    $mntns = (uint64)curtask->nsproxy->mnt_ns;
+    $mntns = curtask->nsproxy->mnt_ns->ns.inum;
     $locked_mntns = @locked_by[(uint64)$d->d_inode];
-    printf("[%lu] TRYLOCK FAILED .../%s/%s/%s/%s inode=%lx mntns=%lx (locked by mntns=%lx) tgid=%d comm=%s exec_cmd=%s\n",
+    printf("[%lu] TRYLOCK FAILED .../%s/%s/%s/%s inode=%lx mntns=%u (locked by mntns=%u) tgid=%d comm=%s\n",
         elapsed,
         str($p3->d_name.name),
         str($p2->d_name.name),
@@ -364,7 +330,7 @@ kretprobe:ovl_inuse_trylock /!retval/ {
         (uint64)$d->d_inode,
         $mntns,
         $locked_mntns,
-        $tgid, comm, @exec_cmd[$tgid]);
+        $tgid, comm);
     delete(@trylock_dentry[$task]);
 }
 
@@ -374,9 +340,9 @@ kprobe:ovl_inuse_unlock {
     $p1 = $d->d_parent;
     $p2 = $p1->d_parent;
     $p3 = $p2->d_parent;
-    $mntns = (uint64)curtask->nsproxy->mnt_ns;
+    $mntns = curtask->nsproxy->mnt_ns->ns.inum;
     $tgid = (uint64)curtask->tgid;
-    printf("[%lu] UNLOCK .../%s/%s/%s/%s inode=%lx mntns=%lx tgid=%d comm=%s exec_cmd=%s\n",
+    printf("[%lu] UNLOCK .../%s/%s/%s/%s inode=%lx mntns=%u tgid=%d comm=%s\n",
         elapsed,
         str($p3->d_name.name),
         str($p2->d_name.name),
@@ -384,7 +350,7 @@ kprobe:ovl_inuse_unlock {
         str($d->d_name.name),
         (uint64)$d->d_inode,
         $mntns,
-        $tgid, comm, @exec_cmd[$tgid]);
+        $tgid, comm);
     print(kstack);
     
     delete(@locked_by[(uint64)$d->d_inode]);
@@ -404,9 +370,9 @@ kretprobe:ovl_is_inuse /retval/ {
     $p2 = $p1->d_parent;
     $p3 = $p2->d_parent;
     $p4 = $p3->d_parent;
-    $mntns = (uint64)curtask->nsproxy->mnt_ns;
+    $mntns = curtask->nsproxy->mnt_ns->ns.inum;
     $locked_mntns = @locked_by[(uint64)$d->d_inode];
-    printf("[%lu] IN-USE CHECK TRUE .../%s/%s/%s/%s/%s inode=%lx mntns=%lx (locked by mntns=%lx) tgid=%d comm=%s exec_cmd=%s\n",
+    printf("[%lu] IN-USE CHECK TRUE .../%s/%s/%s/%s/%s inode=%lx mntns=%u (locked by mntns=%u) tgid=%d comm=%s\n",
         elapsed,
         str($p4->d_name.name),
         str($p3->d_name.name),
@@ -416,7 +382,7 @@ kretprobe:ovl_is_inuse /retval/ {
         (uint64)$d->d_inode,
         $mntns,
         $locked_mntns,
-        $tgid, comm, @exec_cmd[$tgid]);
+        $tgid, comm);
     delete(@is_inuse_dentry[$task]);
 }
 
@@ -429,27 +395,25 @@ kretprobe:ovl_is_inuse /!retval/ {
 tracepoint:syscalls:sys_enter_umount {
     if (args->flags & 2) {  /* MNT_DETACH = 2 */
         $tgid = (uint64)curtask->tgid;
-        printf("[%lu] LAZY UNMOUNT (syscall): %s mntns=%lx tgid=%d comm=%s exec_cmd=%s\n", 
+        $mntns = curtask->nsproxy->mnt_ns->ns.inum;
+        printf("[%lu] LAZY UNMOUNT (syscall): %s mntns=%u tgid=%d comm=%s\n", 
             elapsed, str(args->name), 
-            (uint64)curtask->nsproxy->mnt_ns,
-            $tgid, comm, @exec_cmd[$tgid]);
+            $mntns,
+            $tgid, comm);
     }
 }
 
 /* The actual conflict - EBUSY */
 kprobe:ovl_report_in_use.isra.0 {
     $task = (uint64)curtask;
-    $mntns = (uint64)curtask->nsproxy->mnt_ns;
+    $mntns = curtask->nsproxy->mnt_ns->ns.inum;
     $tgid = (uint64)curtask->tgid;
     printf("\n");
     printf("================================================================================\n");
     printf("[%lu] EBUSY OVERLAP DETECTED!\n", elapsed);
     printf("================================================================================\n");
     printf("in-use path: %s\n", str(arg1));
-    printf("mntns=%lx tgid=%d comm=%s\n", $mntns, $tgid, comm);
-    printf("exec: %s %s %s ... %s ... %s ... %s\n", 
-        @exec_cmd[$tgid], @exec_arg1[$tgid], @exec_arg2[$tgid], 
-        @exec_arg5[$tgid], @exec_arg7[$tgid], @exec_arg9[$tgid]);
+    printf("mntns=%u tgid=%d comm=%s\n", $mntns, $tgid, comm);
     printf("\nMount args:\n");
     printf("  target: %s\n", @mount_dst[$task]);
     printf("  data:   %s\n", @mount_data[$task]);
