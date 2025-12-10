@@ -43,6 +43,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
 
 	"dagger.io/dagger/telemetry"
@@ -1223,7 +1224,23 @@ func (w *Worker) runContainer(ctx context.Context, state *execState) (rerr error
 	killer := newRunProcKiller(w.runc, state.id)
 
 	runcCall := func(ctx context.Context, started chan<- int, io runc.IO, pidfile string) error {
-		// TODO: is there any obscure possibility of leaking this FD to child processes for a brief moment? Need to check guts of go
+		/*
+			We need to avoid the following type of race condition, which can result in invalid overlapping overlay mounts:
+			1. Engine creates random (unrelated to this exec) overlay mount like upperdir=B,lowerdir=A
+			2. We hit this code and start runc, which gets to the point where it has unshared its mount namespace but
+			   not yet pivot_root'd. In this state, since mount namespaces are forks of their parent, the overlay mount
+				 from (1) is visible in the runc processes mount namespace.
+			3. Engine unmounts the overlay from (1), but that does NOT unmount it from the runc process's mount namespace
+			4. Engine creates a new overlay mount like upperdir=C,lowerdir=B:C (i.e. upperdir from (1) is now lowerdir).
+				 This mount is invalid and technically hitting "undefined behavior" since B is still an upperdir in mounts
+				 that exist on the system.
+
+			We avoid this by starting the runc process in a clean mount namespace that was created during engine init before
+			any mounts existed, guaranteeing none are leaked into it. We setns to that clean mount namespace and then unshare
+			again to guarantee the namespace for the runc process is fully isolated. OpenTree+MoveMount are then used to
+			bind the mounts actually needed by the container into that isolated namespace so that runc can see them.
+		*/
+
 		rootfsFD, err := unix.OpenTree(unix.AT_FDCWD, state.rootfsPath, unix.OPEN_TREE_CLONE|unix.OPEN_TREE_CLOEXEC|unix.AT_RECURSIVE)
 		if err != nil {
 			return fmt.Errorf("open rootfs path %s: %w", state.rootfsPath, err)
@@ -1231,17 +1248,19 @@ func (w *Worker) runContainer(ctx context.Context, state *execState) (rerr error
 		rootfsFile := os.NewFile(uintptr(rootfsFD), "rootfs")
 		defer rootfsFile.Close()
 
-		// TODO: cleanup the netns api so we don't need this tmpspec bs
+		// CNI network namespaces are actually bind mounts of the namespace file, so we gotta move this into the mount ns for runc too
 		var nsPath string
 		if state.networkNamespace != nil {
 			var tmpSpec specs.Spec
 			if err := state.networkNamespace.Set(&tmpSpec); err != nil {
 				return fmt.Errorf("set network namespace: %w", err)
 			}
-			for _, ns := range tmpSpec.Linux.Namespaces {
-				if ns.Type == specs.NetworkNamespace {
-					nsPath = ns.Path
-					break
+			if tmpSpec.Linux != nil {
+				for _, ns := range tmpSpec.Linux.Namespaces {
+					if ns.Type == specs.NetworkNamespace {
+						nsPath = ns.Path
+						break
+					}
 				}
 			}
 		}
@@ -1255,85 +1274,54 @@ func (w *Worker) runContainer(ctx context.Context, state *execState) (rerr error
 			defer nsPathFile.Close()
 		}
 
-		runtime.LockOSThread()
+		var eg errgroup.Group
+		eg.Go(func() error {
+			runtime.LockOSThread()
 
-		// TODO: weird looking, doc. First is to avoid permissions errs, second is to avoid more leaking from the clean mnt ns
-		if err := unix.Unshare(unix.CLONE_FS); err != nil {
-			return fmt.Errorf("unshare fs attrs: %w", err)
-		}
-		if err := unix.Setns(int(w.cleanMntNS.Fd()), unix.CLONE_NEWNS); err != nil {
-			return fmt.Errorf("setns clean mount namespace: %w", err)
-		}
-		if err := unix.Unshare(unix.CLONE_NEWNS); err != nil {
-			return fmt.Errorf("unshare new mount namespace: %w", err)
-		}
-
-		mntNSName, err := os.Readlink("/proc/thread-self/ns/mnt")
-		if err != nil {
-			return fmt.Errorf("readlink self mnt ns: %w", err)
-		}
-		slog.Info("EXEC MNTNS",
-			"name", mntNSName,
-			"execID", state.id,
-			"meta", state.procInfo.Meta,
-		)
-
-		defer func() {
-			err := unix.Setns(int(w.hostMntNS.Fd()), unix.CLONE_NEWNS)
-			if err != nil {
-				slog.Error("failed to setns host mount namespace after container run", "err", err)
-			} else {
-				runtime.UnlockOSThread()
+			// gotta CLONE_FS first to avoid EINVAL when setns'ing to another mount namespace
+			if err := unix.Unshare(unix.CLONE_FS); err != nil {
+				return fmt.Errorf("unshare fs attrs: %w", err)
 			}
-		}()
-
-		if err := unix.MoveMount(int(rootfsFile.Fd()), "", unix.AT_FDCWD, state.rootfsPath, unix.MOVE_MOUNT_F_EMPTY_PATH); err != nil {
-			return fmt.Errorf("move mount rootfs %s: %w", state.rootfsPath, err)
-		}
-		rootfsFile.Close()
-
-		defer func() {
-			// TODO: check whether this unmounting is really needed or if the kernel (async?) cleanup is fast enough
-			for i := len(state.nonRootMounts) - 1; i >= 0; i-- {
-				mnt := state.nonRootMounts[i]
-				slog.Info("NS UNMOUNT ROOTFS SUBMOUNT",
-					"execID", state.id,
-					"mount", fmt.Sprintf("%+v", mnt),
-				)
-
-				dstPath, err := fs.RootPath(state.rootfsPath, mnt.Target)
-				if err != nil {
-					slog.Error("failed to get mount target path", "err", err)
-					continue
-				}
-
-				if err := mount.Unmount(dstPath, 0); err != nil {
-					slog.Error("failed to unmount rootfs submount in ns", "err", err)
-				}
+			// switch to the clean mount namespace free of leaks from other unrelated engine mounts
+			if err := unix.Setns(int(w.cleanMntNS.Fd()), unix.CLONE_NEWNS); err != nil {
+				return fmt.Errorf("setns clean mount namespace: %w", err)
 			}
-			if err := unix.Unmount(state.rootfsPath, 0); err != nil {
-				slog.Error("failed to unmount rootfs in ns", "err", err)
+			// do a final unshare, forking from the clean mount namespace to get a final fully isolated mount namespace for runc
+			if err := unix.Unshare(unix.CLONE_NEWNS); err != nil {
+				return fmt.Errorf("unshare new mount namespace: %w", err)
 			}
-		}()
 
-		if nsPathFile != nil {
-			if err := unix.MoveMount(int(nsPathFile.Fd()), "", unix.AT_FDCWD, nsPath, unix.MOVE_MOUNT_F_EMPTY_PATH); err != nil {
-				return fmt.Errorf("move mount network namespace %s: %w", nsPath, err)
-			}
-			nsPathFile.Close()
 			defer func() {
-				if err := unix.Unmount(nsPath, 0); err != nil {
-					slog.Error("failed to unmount network namespace in ns", "err", err)
+				// best effort try to setns back to the host mount namespace so the go runtime can re-use this thread rather than
+				// burning it off
+				err := unix.Setns(int(w.hostMntNS.Fd()), unix.CLONE_NEWNS)
+				if err != nil {
+					slog.Error("failed to setns host mount namespace after container run", "err", err)
+				} else {
+					runtime.UnlockOSThread()
 				}
 			}()
-		}
 
-		_, err = w.runc.Run(ctx, state.id, bundle, &runc.CreateOpts{
-			Started:   started,
-			IO:        io,
-			ExtraArgs: []string{"--keep"},
+			if err := unix.MoveMount(int(rootfsFile.Fd()), "", unix.AT_FDCWD, state.rootfsPath, unix.MOVE_MOUNT_F_EMPTY_PATH); err != nil {
+				return fmt.Errorf("move mount rootfs %s: %w", state.rootfsPath, err)
+			}
+			rootfsFile.Close()
+
+			if nsPathFile != nil {
+				if err := unix.MoveMount(int(nsPathFile.Fd()), "", unix.AT_FDCWD, nsPath, unix.MOVE_MOUNT_F_EMPTY_PATH); err != nil {
+					return fmt.Errorf("move mount network namespace %s: %w", nsPath, err)
+				}
+				nsPathFile.Close()
+			}
+
+			_, err = w.runc.Run(ctx, state.id, bundle, &runc.CreateOpts{
+				Started:   started,
+				IO:        io,
+				ExtraArgs: []string{"--keep"},
+			})
+			return err
 		})
-		return err
+		return eg.Wait()
 	}
 
 	return exitError(ctx, state.exitCodePath, w.callWithIO(ctx, state.procInfo, startedCallback, killer, runcCall), state.procInfo.Meta.ValidExitCodes)

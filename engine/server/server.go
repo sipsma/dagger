@@ -162,6 +162,7 @@ type Server struct {
 	enabledPlatforms []ocispecs.Platform
 	defaultPlatform  ocispecs.Platform
 	registryHosts    docker.RegistryHosts
+	cleanMntNS       *os.File
 
 	//
 	// telemetry config+state
@@ -509,7 +510,6 @@ func NewServer(ctx context.Context, opts *NewServerOpts) (*Server, error) {
 	}
 	slog.Debug("HOST MNTNS", "name", hostMntNSName)
 
-	var cleanMntNS *os.File
 	var eg errgroup.Group
 	eg.Go(func() error {
 		runtime.LockOSThread()
@@ -517,7 +517,7 @@ func NewServer(ctx context.Context, opts *NewServerOpts) (*Server, error) {
 			return fmt.Errorf("failed to create clean mount namespace: %w", err)
 		}
 		var err error
-		cleanMntNS, err = os.OpenFile("/proc/thread-self/ns/mnt", os.O_RDONLY, 0)
+		srv.cleanMntNS, err = os.OpenFile("/proc/thread-self/ns/mnt", os.O_RDONLY, 0)
 		if err != nil {
 			return err
 		}
@@ -554,7 +554,7 @@ func NewServer(ctx context.Context, opts *NewServerOpts) (*Server, error) {
 		WorkerCache:         srv.workerCache,
 
 		HostMntNS:  hostMntNS,
-		CleanMntNS: cleanMntNS,
+		CleanMntNS: srv.cleanMntNS,
 	})
 
 	//
