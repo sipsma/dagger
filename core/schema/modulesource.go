@@ -1144,6 +1144,9 @@ func (s *moduleSourceSchema) loadModuleSourceContext(
 		if err != nil {
 			return err
 		}
+		if contentDgst := src.ContextDirectory.ID().ContentDigest(); contentDgst != "" {
+			src.ContextDirectory = src.ContextDirectory.WithObjectDigest(contentDgst).WithContentDigest(contentDgst)
+		}
 
 	case core.ModuleSourceKindGit:
 		fullIncludePaths = append(fullIncludePaths, src.RebasedIncludePaths...)

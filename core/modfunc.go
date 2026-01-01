@@ -585,16 +585,25 @@ func (fn *ModuleFunction) CacheConfigForCall(
 		}
 
 		for _, arg := range ctxArgVals {
-			dgstInputs = append(dgstInputs, arg.name, arg.val.ID().Digest().String())
+			argDigest := arg.val.ID().Digest()
+			if contentDigest := arg.val.ID().ContentDigest(); contentDigest != "" {
+				argDigest = contentDigest
+			}
+			dgstInputs = append(dgstInputs, arg.name, argDigest.String())
 		}
 		for _, arg := range userDefaultVals {
 			if arg != nil {
-				dgstInputs = append(dgstInputs, arg.name, arg.val.ID().Digest().String())
+				argDigest := arg.val.ID().Digest()
+				if contentDigest := arg.val.ID().ContentDigest(); contentDigest != "" {
+					argDigest = contentDigest
+				}
+				dgstInputs = append(dgstInputs, arg.name, argDigest.String())
 			}
 		}
 	}
 
-	if cachePolicy := fn.metadata.derivedCachePolicy(fn.mod); cachePolicy == FunctionCachePolicyPerSession {
+	cachePolicy := fn.metadata.derivedCachePolicy(fn.mod)
+	if cachePolicy == FunctionCachePolicyPerSession {
 		clientMetadata, err := engine.ClientMetadataFromContext(ctx)
 		if err != nil {
 			return nil, err

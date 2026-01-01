@@ -508,6 +508,13 @@ func (mod *Module) CacheConfigForCall(
 		call.WithModule(nil),
 		call.WithCustomDigest(""),
 	)
+	if recv := id.Receiver(); recv != nil && recv.Module() != nil {
+		recvNoMod := recv.With(
+			call.WithModule(nil),
+			call.WithCustomDigest(""),
+		)
+		curIDNoMod = curIDNoMod.With(call.WithReceiver(recvNoMod))
+	}
 
 	resp := &dagql.GetCacheConfigResponse{
 		CacheKey: req.CacheKey,

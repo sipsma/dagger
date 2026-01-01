@@ -145,10 +145,7 @@ func (s *hostSchema) Install(srv *dagql.Server) {
 
 	dagql.Fields[*core.Host]{
 		dagql.NodeFuncWithCacheKey("directory",
-			DagOpDirectoryWrapper(
-				srv, s.directory,
-				WithHashContentDir[*core.Host, hostDirectoryArgs](),
-			), dagql.CacheAsRequested).
+			s.directoryWithContentDigest, dagql.CacheAsRequested).
 			Doc(`Accesses a directory on the host.`).
 			Args(
 				dagql.Arg("path").Doc(`Location of the directory to access (e.g., ".").`),
@@ -229,6 +226,42 @@ type hostDirectoryArgs struct {
 	GitIgnoreRoot string `internal:"true" default:""`
 	Gitignore     bool   `default:"false"`
 	DagOpInternalArgs
+}
+
+func (s *hostSchema) directoryWithContentDigest(ctx context.Context, host dagql.ObjectResult[*core.Host], args hostDirectoryArgs) (inst dagql.ObjectResult[*core.Directory], err error) {
+	if args.InDagOp() {
+		return s.directory(ctx, host, args)
+	}
+
+	srv, err := core.CurrentDagqlServer(ctx)
+	if err != nil {
+		return inst, fmt.Errorf("failed to get current dagql server: %w", err)
+	}
+
+	dir, err := DagOpDirectory(ctx, srv, host.Self(), args, "", s.directory)
+	if err != nil {
+		return inst, err
+	}
+
+	inst, err = dagql.NewObjectResultForCurrentID(ctx, srv, dir)
+	if err != nil {
+		return inst, err
+	}
+
+	query, err := core.CurrentQuery(ctx)
+	if err != nil {
+		return inst, fmt.Errorf("failed to get current query: %w", err)
+	}
+	bk, err := query.Buildkit(ctx)
+	if err != nil {
+		return inst, fmt.Errorf("failed to get buildkit client: %w", err)
+	}
+	dgst, err := core.GetContentHashFromDirectory(ctx, bk, inst)
+	if err != nil {
+		return inst, fmt.Errorf("failed to get content hash: %w", err)
+	}
+
+	return inst.WithContentDigest(dgst), nil
 }
 
 func (s *hostSchema) directory(ctx context.Context, host dagql.ObjectResult[*core.Host], args hostDirectoryArgs) (inst dagql.ObjectResult[*core.Directory], err error) {
@@ -423,7 +456,38 @@ func (s *hostSchema) file(ctx context.Context, host dagql.ObjectResult[*core.Hos
 	}); err != nil {
 		return i, err
 	}
-	return i, nil
+
+	query, err := core.CurrentQuery(ctx)
+	if err != nil {
+		return i, err
+	}
+	bk, err := query.Buildkit(ctx)
+	if err != nil {
+		return i, fmt.Errorf("failed to get buildkit client: %w", err)
+	}
+
+	fileInst, err := dagql.NewObjectResultForID(i.Self(), srv, i.ID())
+	if err != nil {
+		return i, fmt.Errorf("failed to create file instance: %w", err)
+	}
+	dgst, err := core.GetContentHashFromFile(ctx, bk, fileInst)
+	if err != nil {
+		return i, fmt.Errorf("failed to get content hash: %w", err)
+	}
+
+	inst, err := dagql.NewResultForID(i.Self(), dagql.CurrentID(ctx))
+	if err != nil {
+		return i, err
+	}
+	inst = inst.ResultWithPostCall(i.GetPostCall())
+	if resAny := inst.WithSafeToPersistCache(i.IsSafeToPersistCache()); resAny != nil {
+		if resTyped, ok := resAny.(dagql.Result[*core.File]); ok {
+			inst = resTyped
+		}
+	}
+	inst = inst.WithContentDigest(dgst)
+
+	return inst, nil
 }
 
 type hostFindUpArgs struct {

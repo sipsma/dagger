@@ -245,7 +245,6 @@ func (sdk *goSDK) ModuleTypes(
 	modName := src.Self().ModuleOriginalName
 	contextDir := src.Self().ContextDirectory
 	srcSubpath := src.Self().SourceSubpath
-
 	ctr, err = sdk.base(ctx)
 	if err != nil {
 		return inst, err
@@ -508,7 +507,21 @@ func (sdk *goSDK) baseWithCodegen(
 	); err != nil {
 		return ctr, fmt.Errorf("failed to remove dagger.gen.go from source directory: %w", err)
 	}
-
+	if contextDir.ID().ContentDigest() != "" {
+		bk, err := sdk.root.Buildkit(ctx)
+		if err != nil {
+			return ctr, fmt.Errorf("failed to get buildkit client: %w", err)
+		}
+		updatedContextDirObj, err := dagql.NewObjectResultForID(updatedContextDir.Self(), dag, updatedContextDir.ID())
+		if err != nil {
+			return ctr, fmt.Errorf("failed to create updated context directory instance: %w", err)
+		}
+		dgst, err := core.GetContentHashFromDirectory(ctx, bk, updatedContextDirObj)
+		if err != nil {
+			return ctr, fmt.Errorf("failed to get updated context directory content hash: %w", err)
+		}
+		updatedContextDir = updatedContextDir.WithContentDigest(dgst)
+	}
 	codegenArgs := dagql.ArrayInput[dagql.String]{
 		"generate-module",
 		"--output", dagql.String(goSDKUserModContextDirPath),

@@ -485,12 +485,25 @@ const moduleSourceHashMix = "moduleSource"
 // CalcDigest calculates a content-hash of the module source. It is used during codegen; two module
 // sources with the same digest will share cache for codegen-related calls.
 func (src *ModuleSource) CalcDigest(ctx context.Context) digest.Digest {
+	contextDirDigest := src.ContextDirectory.ID().ContentDigest()
+	if contextDirDigest == "" {
+		if query, err := CurrentQuery(ctx); err == nil {
+			if bk, err := query.Buildkit(ctx); err == nil {
+				if dgst, err := GetContentHashFromDirectory(ctx, bk, src.ContextDirectory); err == nil {
+					contextDirDigest = dgst
+				}
+			}
+		}
+		if contextDirDigest == "" {
+			contextDirDigest = src.ContextDirectory.ID().Digest()
+		}
+	}
 	inputs := []string{
 		moduleSourceHashMix,
 		src.ModuleOriginalName,
 		src.SourceRootSubpath,
 		src.SourceSubpath,
-		src.ContextDirectory.ID().Digest().String(),
+		contextDirDigest.String(),
 	}
 
 	if src.SDK != nil && src.SDK.Debug {

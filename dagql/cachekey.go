@@ -41,6 +41,9 @@ func CachePerClientObject[A any](
 		CacheKey: req.CacheKey,
 	}
 	resp.CacheKey.CallKey = hashutil.HashStrings(resp.CacheKey.CallKey, clientMD.ClientID).String()
+	if resp.CacheKey.ContentKey != "" {
+		resp.CacheKey.ContentKey = hashutil.HashStrings(resp.CacheKey.ContentKey, clientMD.ClientID).String()
+	}
 	return resp, nil
 }
 
@@ -74,6 +77,9 @@ func CachePerSessionObject[A any](
 		CacheKey: req.CacheKey,
 	}
 	resp.CacheKey.CallKey = hashutil.HashStrings(resp.CacheKey.CallKey, clientMD.SessionID).String()
+	if resp.CacheKey.ContentKey != "" {
+		resp.CacheKey.ContentKey = hashutil.HashStrings(resp.CacheKey.ContentKey, clientMD.SessionID).String()
+	}
 	return resp, nil
 }
 
@@ -115,6 +121,7 @@ func CachePerCall[P Typed, A any](
 	randID := identity.NewID()
 	resp := &GetCacheConfigResponse{CacheKey: req.CacheKey}
 	resp.CacheKey.CallKey = randID
+	resp.CacheKey.ContentKey = ""
 	return resp, nil
 }
 
@@ -135,6 +142,12 @@ func CachePerSchema[P Typed, A any](srv *Server) func(context.Context, ObjectRes
 			resp.CacheKey.CallKey,
 			srv.SchemaDigest().String(),
 		).String()
+		if resp.CacheKey.ContentKey != "" {
+			resp.CacheKey.ContentKey = hashutil.HashStrings(
+				resp.CacheKey.ContentKey,
+				srv.SchemaDigest().String(),
+			).String()
+		}
 		return resp, nil
 	}
 }
@@ -165,6 +178,13 @@ func CachePerClientSchema[P Typed, A any](srv *Server) func(context.Context, Obj
 			srv.SchemaDigest().String(),
 			clientMD.ClientID,
 		).String()
+		if resp.CacheKey.ContentKey != "" {
+			resp.CacheKey.ContentKey = hashutil.HashStrings(
+				resp.CacheKey.ContentKey,
+				srv.SchemaDigest().String(),
+				clientMD.ClientID,
+			).String()
+		}
 		return resp, nil
 	}
 }

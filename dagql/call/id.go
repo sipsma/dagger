@@ -54,6 +54,10 @@ type ID struct {
 	args     []*Argument
 	module   *Module
 	typ      *Type
+
+	// preserveDigest controls whether apply should keep the original call digest
+	// when only metadata (like content digest) changes.
+	preserveDigest bool
 }
 
 type View string
@@ -132,6 +136,14 @@ func (id *ID) Digest() digest.Digest {
 		return ""
 	}
 	return digest.Digest(id.pb.Digest)
+}
+
+// TODO:
+func (id *ID) ContentDigest() digest.Digest {
+	if id == nil {
+		return ""
+	}
+	return digest.Digest(id.pb.ContentDigest)
 }
 
 // Inputs returns the ID digests referenced by this ID, starting with the
@@ -251,6 +263,7 @@ type IDOpt func(*ID)
 
 func WithModule(mod *Module) IDOpt {
 	return func(id *ID) {
+		id.preserveDigest = false
 		if mod != nil {
 			id.module = mod
 			id.pb.Module = mod.pb
@@ -263,6 +276,7 @@ func WithModule(mod *Module) IDOpt {
 
 func WithType(typ *ast.Type) IDOpt {
 	return func(id *ID) {
+		id.preserveDigest = false
 		id.typ = NewType(typ)
 		id.pb.Type = id.typ.pb
 	}
@@ -270,18 +284,21 @@ func WithType(typ *ast.Type) IDOpt {
 
 func WithNth(n int) IDOpt {
 	return func(id *ID) {
+		id.preserveDigest = false
 		id.pb.Nth = int64(n)
 	}
 }
 
 func WithView(view View) IDOpt {
 	return func(id *ID) {
+		id.preserveDigest = false
 		id.pb.View = view.String()
 	}
 }
 
 func WithCustomDigest(dig digest.Digest) IDOpt {
 	return func(id *ID) {
+		id.preserveDigest = false
 		if dig != "" {
 			id.pb.Digest = dig.String()
 			id.pb.IsCustomDigest = true
@@ -292,8 +309,19 @@ func WithCustomDigest(dig digest.Digest) IDOpt {
 	}
 }
 
+func WithContentDigest(dig digest.Digest) IDOpt {
+	return func(id *ID) {
+		if dig != "" {
+			id.pb.ContentDigest = dig.String()
+		} else {
+			id.pb.ContentDigest = ""
+		}
+	}
+}
+
 func WithArgs(args ...*Argument) IDOpt {
 	return func(id *ID) {
+		id.preserveDigest = false
 		id.args = args
 		id.pb.Args = make([]*callpbv1.Argument, 0, len(args))
 		for _, arg := range args {
@@ -307,6 +335,7 @@ func WithArgs(args ...*Argument) IDOpt {
 
 func WithReceiver(recv *ID) IDOpt {
 	return func(id *ID) {
+		id.preserveDigest = false
 		id.receiver = recv
 		if recv != nil {
 			id.pb.ReceiverDigest = recv.pb.Digest
@@ -446,16 +475,28 @@ func (id *ID) shallowClone() *ID {
 		Digest:         cp.pb.Digest,
 		View:           cp.pb.View,
 		IsCustomDigest: cp.pb.IsCustomDigest,
+		ContentDigest:  cp.pb.ContentDigest,
 	}
 	return &cp
 }
 
 func (id *ID) apply(opts ...IDOpt) *ID {
+	origDigest := id.pb.Digest
+	origIsCustom := id.pb.IsCustomDigest
 	// clear any existing digest; must be re-applied each time
 	id.pb.Digest = ""
 	id.pb.IsCustomDigest = false
+	// clear any existing content digest; must be re-applied each time
+	id.pb.ContentDigest = ""
+	// default to preserving the original digest unless a digest-affecting opt is applied
+	id.preserveDigest = true
 	for _, opt := range opts {
 		opt(id)
+	}
+	if id.preserveDigest && origDigest != "" {
+		id.pb.Digest = origDigest
+		id.pb.IsCustomDigest = origIsCustom
+		return id
 	}
 	if !id.HasCustomDigest() {
 		var err error
@@ -649,6 +690,9 @@ func appendLiteralBytes(lit *callpbv1.Literal, h *hashutil.Hasher) (*hashutil.Ha
 		const prefix = '0'
 		h = h.WithByte(prefix).
 			WithString(v.CallDigest)
+		if cd := lit.GetCallContentDigest(); cd != "" {
+			h = h.WithDelim().WithString(cd)
+		}
 	case *callpbv1.Literal_Null:
 		const prefix = '1'
 		h = h.WithByte(prefix)

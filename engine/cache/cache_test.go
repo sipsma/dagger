@@ -75,6 +75,33 @@ func TestCacheErrors(t *testing.T) {
 	assert.Equal(t, 1, res.Result())
 }
 
+func TestCacheContentKey(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	c, err := NewCache[string, int](ctx, "")
+	assert.NilError(t, err)
+
+	initCount := 0
+	_, err = c.GetOrInitializeWithCallbacks(ctx, CacheKey[string]{CallKey: "call-1"}, func(_ context.Context) (*ValueWithCallbacks[int], error) {
+		initCount++
+		return &ValueWithCallbacks[int]{
+			Value:      42,
+			ContentKey: "content-1",
+		}, nil
+	})
+	assert.NilError(t, err)
+
+	res, err := c.GetOrInitialize(ctx, CacheKey[string]{CallKey: "call-2", ContentKey: "content-1"}, func(_ context.Context) (int, error) {
+		initCount++
+		return 7, nil
+	})
+	assert.NilError(t, err)
+	assert.Equal(t, 42, res.Result())
+	assert.Assert(t, res.HitCache())
+	assert.Assert(t, res.HitContentCache())
+	assert.Equal(t, 1, initCount)
+}
+
 func TestCacheRecursiveCall(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()

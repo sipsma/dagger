@@ -89,7 +89,10 @@ func (c *SessionCache) GetOrInitialize(
 		if err != nil {
 			return nil, err
 		}
-		return &CacheValWithCallbacks{Value: val}, nil
+		return &CacheValWithCallbacks{
+			Value:      val,
+			ContentKey: contentKeyForValue(val),
+		}, nil
 	}, opts...)
 }
 
@@ -189,7 +192,13 @@ func (c *SessionCache) GetOrInitializeWithCallbacks(
 	// won't be found by future lookups using the original key.
 	if forcedDoNotCache {
 		key.DoNotCache = false
-		cachedRes, cacheErr := c.cache.GetOrInitializeValue(ctx, key, res.Result())
+		cachedRes, cacheErr := c.cache.GetOrInitializeWithCallbacks(ctx, key, func(ctx context.Context) (*CacheValWithCallbacks, error) {
+			val := res.Result()
+			return &CacheValWithCallbacks{
+				Value:      val,
+				ContentKey: contentKeyForValue(val),
+			}, nil
+		})
 		if cacheErr == nil {
 			res = cachedRes
 		}

@@ -74,7 +74,11 @@ message Call {
 
   // Whether the digest was set to a custom value, as opposed to the default
   // "recipe-based" digest
+  // TODO: reassess if this is really needed anymore now that contentDigest exists
   bool isCustomDigest = 11;
+
+  // TODO: doc
+  string contentDigest = 12;
 }
 
 // Module represents a self-contained logical module that can be dynamically
@@ -111,6 +115,9 @@ message Literal {
     List list = 8;
     Object object = 9;
   }
+  // Optional content digest for callDigest literals, used to make call digests
+  // sensitive to content-based changes in referenced IDs.
+  string callContentDigest = 10;
 }
 
 // A list of values.

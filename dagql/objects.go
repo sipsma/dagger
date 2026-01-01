@@ -408,6 +408,15 @@ func (r Result[T]) WithDigest(customDigest digest.Digest) Result[T] {
 	}
 }
 
+// WithContentDigest returns an updated instance with the given content digest set.
+// This does not alter the default call-chain digest.
+func (r Result[T]) WithContentDigest(contentDigest digest.Digest) Result[T] {
+	return Result[T]{
+		constructor: r.constructor.With(call.WithContentDigest(contentDigest)),
+		self:        r.self,
+	}
+}
+
 // String returns the instance in Class@sha256:... format.
 func (r Result[T]) String() string {
 	return fmt.Sprintf("%s@%s", r.self.Type().Name(), r.constructor.Digest())
@@ -453,6 +462,16 @@ func (r ObjectResult[T]) WithObjectDigest(customDigest digest.Digest) ObjectResu
 	return ObjectResult[T]{
 		Result: Result[T]{
 			constructor: r.constructor.WithDigest(customDigest),
+			self:        r.self,
+		},
+		class: r.class,
+	}
+}
+
+func (r ObjectResult[T]) WithContentDigest(contentDigest digest.Digest) ObjectResult[T] {
+	return ObjectResult[T]{
+		Result: Result[T]{
+			constructor: r.constructor.With(call.WithContentDigest(contentDigest)),
 			self:        r.self,
 		},
 		class: r.class,
@@ -599,6 +618,7 @@ func (r ObjectResult[T]) preselect(ctx context.Context, s *Server, sel Selector)
 			newID = newID.WithDigest(digest.Digest(cacheKey.CallKey))
 		}
 
+		cacheKey.ContentKey = cacheCfgResp.CacheKey.ContentKey
 		cacheKey.TTL = cacheCfgResp.CacheKey.TTL
 		cacheKey.DoNotCache = cacheCfgResp.CacheKey.DoNotCache
 	}
@@ -613,6 +633,7 @@ func (r ObjectResult[T]) preselect(ctx context.Context, s *Server, sel Selector)
 func newCacheKey(ctx context.Context, id *call.ID, fieldSpec *FieldSpec) CacheKey {
 	cacheKey := CacheKey{
 		CallKey:    string(id.Digest()),
+		ContentKey: string(id.ContentDigest()),
 		TTL:        fieldSpec.TTL,
 		DoNotCache: fieldSpec.DoNotCache != "",
 	}
@@ -630,6 +651,48 @@ func newCacheKey(ctx context.Context, id *call.ID, fieldSpec *FieldSpec) CacheKe
 	}
 
 	return cacheKey
+}
+
+func cacheIDForValue(val AnyResult) (*call.ID, bool) {
+	if val == nil {
+		return nil, false
+	}
+	idable, ok := val.(IDable)
+	if !ok || idable == nil {
+		return nil, false
+	}
+	valID := idable.ID()
+	if valID == nil || valID.Type() == nil {
+		return nil, false
+	}
+	// Ensure we're caching the actual object value, not the ID scalar itself.
+	if valID.Type().ToAST().Name() != val.Type().Name() {
+		return nil, false
+	}
+	return valID, true
+}
+
+func contentKeyForValue(val AnyResult) CacheKeyType {
+	valID, ok := cacheIDForValue(val)
+	if !ok {
+		return ""
+	}
+	if dgst := valID.ContentDigest(); dgst != "" {
+		return CacheKeyType(dgst.String())
+	}
+	return ""
+}
+
+func resultWithID(val AnyResult, id *call.ID) AnyResult {
+	if val == nil || id == nil {
+		return val
+	}
+	return Result[Typed]{
+		constructor:        id,
+		self:               val.Unwrap(),
+		postCall:           val.GetPostCall(),
+		safeToPersistCache: val.IsSafeToPersistCache(),
+	}
 }
 
 // Call calls the field on the instance specified by the ID.
@@ -729,11 +792,17 @@ func (r ObjectResult[T]) call(
 			}
 		}
 
+		contentKey := valWithCallbacks.ContentKey
+		if contentKey == "" {
+			contentKey = contentKeyForValue(val)
+		}
+
 		return &CacheValWithCallbacks{
 			Value:              val,
 			PostCall:           valWithCallbacks.PostCall,
 			OnRelease:          valWithCallbacks.OnRelease,
 			SafeToPersistCache: valWithCallbacks.SafeToPersistCache,
+			ContentKey:         contentKey,
 		}, nil
 	}, opts...)
 
@@ -745,26 +814,24 @@ func (r ObjectResult[T]) call(
 	}
 	val := res.Result()
 
+	if val != nil && res.HitContentCache() {
+		if valID, ok := cacheIDForValue(val); ok {
+			if newID.ContentDigest() == "" && valID.ContentDigest() != "" {
+				newID = newID.With(call.WithContentDigest(valID.ContentDigest()))
+			}
+			val = resultWithID(val, newID)
+		}
+	}
+
 	// If the returned val is IDable and has a different digest than the original, then
 	// add that different digest as a cache key for this val.
 	// This enables APIs to return new object instances with overridden purity and/or digests, e.g. returning
 	// values that have a pure content-based cache key different from the call-chain ID digest.
-	if idable, ok := val.(IDable); ok && idable != nil && !cacheKey.DoNotCache {
-		valID := idable.ID()
-		if valID == nil {
-			return nil, fmt.Errorf("impossible: nil ID returned for value: %+v (%T)", val, val)
-		}
-
+	if valID, ok := cacheIDForValue(val); ok && !cacheKey.DoNotCache {
 		// only need to add a new cache key if the returned val has a different custom digest than the original
 		digestChanged := valID.Digest() != newID.Digest()
 
-		// Corner case: the `id` field on an object returns an IDable value (IDs are themselves both values and IDable).
-		// However, if we cached `val` in this case, we would be caching <id digest> -> <id value>, which isn't what we
-		// want. Instead, we only want to cache <id digest> -> <actual object value>.
-		// To avoid this, we check that the returned IDable type is the actual object type.
-		matchesType := valID.Type().ToAST().Name() == val.Type().Name()
-
-		if digestChanged && matchesType {
+		if digestChanged {
 			newID = valID
 			_, err := s.Cache.GetOrInitializeValue(ctx, cache.CacheKey[CacheKeyType]{
 				CallKey: string(valID.Digest()),

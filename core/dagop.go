@@ -247,6 +247,9 @@ func (op FSDagOp) Exec(ctx context.Context, g bksession.Group, inputs []solver.R
 	ref := workerRef.ImmutableRef
 	if ref != nil {
 		idDgst := obj.ID().Digest().String()
+		if contentDgst := obj.ID().ContentDigest(); contentDgst != "" {
+			idDgst = contentDgst.String()
+		}
 		if err := ref.SetString(keyDaggerDigest, idDgst, daggerDigestIdx+idDgst); err != nil {
 			return nil, fmt.Errorf("failed to set dagger digest on ref: %w", err)
 		}
@@ -628,13 +631,21 @@ func getAllContainerMounts(ctx context.Context, container *Container) (
 				mount.Selector = dirMnt.Self().Dir
 				llb = dirMnt.Self().LLB
 				res = dirMnt.Self().Result
-				dgst = dirMnt.ID().Digest()
+				if contentDgst := dirMnt.ID().ContentDigest(); contentDgst != "" {
+					dgst = contentDgst
+				} else {
+					dgst = dirMnt.ID().Digest()
+				}
 			},
 			func(fileMnt *dagql.ObjectResult[*File]) {
 				mount.Selector = fileMnt.Self().File
 				llb = fileMnt.Self().LLB
 				res = fileMnt.Self().Result
-				dgst = fileMnt.ID().Digest()
+				if contentDgst := fileMnt.ID().ContentDigest(); contentDgst != "" {
+					dgst = contentDgst
+				} else {
+					dgst = fileMnt.ID().Digest()
+				}
 			},
 			func(cache *CacheMountSource) {
 				mount.Selector = cache.BasePath

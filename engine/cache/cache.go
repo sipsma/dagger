@@ -53,6 +53,7 @@ type Result[K KeyType, V any] interface {
 	Release(context.Context) error
 	PostCall(context.Context) error
 	HitCache() bool
+	HitContentCache() bool
 }
 
 type KeyType = interface {
@@ -63,6 +64,10 @@ type CacheKey[K KeyType] struct {
 	// CallKey is identifies the the call. If a call has already been completed with this
 	// CallKey and it is not expired, its cached result will be returned.
 	CallKey K
+
+	// ContentKey is an optional secondary cache key used to look up completed results
+	// based on content digests, when CallKey is not found.
+	ContentKey K
 
 	// ConcurrencyKey is used to determine whether *in-progress* calls should be deduplicated.
 	// If a call with a given (ResultKey, ConcurrencyKey) pair is already in progress, and
@@ -98,6 +103,9 @@ type ValueWithCallbacks[V any] struct {
 	// If true, indicates that it is safe to persist this value in the cache db (i.e. does not have
 	// any in-memory only data).
 	SafeToPersistCache bool
+
+	// Optional content digest key to store alongside the call key for lookup.
+	ContentKey string
 }
 
 type ctxStorageKey struct{}
@@ -181,6 +189,9 @@ type cache[K KeyType, V any] struct {
 	// calls that have completed successfully and are cached, keyed by the storage key
 	completedCalls map[string]*result[K, V]
 
+	// completed calls keyed by content digest
+	contentCalls map[string]*result[K, V]
+
 	// db for persistence; currently only used for metadata supporting ttl-based expiration
 	db *cachedb.Queries
 }
@@ -201,6 +212,7 @@ type result[K KeyType, V any] struct {
 	val                V
 	err                error
 	safeToPersistCache bool
+	contentKey         string
 
 	persistToDB func(context.Context) error
 	postCall    PostCallFunc
@@ -219,11 +231,16 @@ type result[K KeyType, V any] struct {
 type perCallResult[K KeyType, V any] struct {
 	*result[K, V]
 
-	hitCache bool
+	hitCache        bool
+	hitContentCache bool
 }
 
 func (r *perCallResult[K, V]) HitCache() bool {
 	return r.hitCache
+}
+
+func (r *perCallResult[K, V]) HitContentCache() bool {
+	return r.hitContentCache
 }
 
 var _ Result[string, string] = &perCallResult[string, string]{}
@@ -308,6 +325,7 @@ func (c *cache[K, V]) GetOrInitializeWithCallbacks(
 	}
 
 	callKey := string(key.CallKey)
+	contentKey := string(key.ContentKey)
 	callConcKeys := callConcurrencyKeys{
 		callKey:        callKey,
 		concurrencyKey: string(key.ConcurrencyKey),
@@ -397,6 +415,9 @@ func (c *cache[K, V]) GetOrInitializeWithCallbacks(
 	if c.completedCalls == nil {
 		c.completedCalls = make(map[string]*result[K, V])
 	}
+	if c.contentCalls == nil {
+		c.contentCalls = make(map[string]*result[K, V])
+	}
 
 	if res, ok := c.completedCalls[storageKey]; ok {
 		res.refCount++
@@ -405,6 +426,17 @@ func (c *cache[K, V]) GetOrInitializeWithCallbacks(
 			result:   res,
 			hitCache: true,
 		}, nil
+	}
+	if contentKey != "" {
+		if res, ok := c.contentCalls[contentKey]; ok {
+			res.refCount++
+			c.mu.Unlock()
+			return &perCallResult[K, V]{
+				result:          res,
+				hitCache:        true,
+				hitContentCache: true,
+			}, nil
+		}
 	}
 
 	var zeroKey K
@@ -446,6 +478,7 @@ func (c *cache[K, V]) GetOrInitializeWithCallbacks(
 			res.postCall = valWithCallbacks.PostCall
 			res.onRelease = valWithCallbacks.OnRelease
 			res.safeToPersistCache = valWithCallbacks.SafeToPersistCache
+			res.contentKey = valWithCallbacks.ContentKey
 		}
 	}()
 
@@ -497,6 +530,9 @@ func (c *cache[K, V]) wait(ctx context.Context, res *result[K, V], isFirstCaller
 		} else {
 			c.completedCalls[res.storageKey] = res
 		}
+		if res.contentKey != "" {
+			c.contentCalls[res.contentKey] = res
+		}
 
 		res.refCount++
 		c.mu.Unlock()
@@ -545,6 +581,11 @@ func (res *result[K, V]) Release(ctx context.Context) error {
 		// no refs left and no one waiting on it, delete from cache
 		delete(res.cache.ongoingCalls, res.callConcurrencyKeys)
 		delete(res.cache.completedCalls, res.storageKey)
+		if res.contentKey != "" {
+			if existing, ok := res.cache.contentCalls[res.contentKey]; ok && existing == res {
+				delete(res.cache.contentCalls, res.contentKey)
+			}
+		}
 		onRelease = res.onRelease
 	}
 	res.cache.mu.Unlock()
