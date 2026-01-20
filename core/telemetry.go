@@ -64,6 +64,11 @@ func AroundFunc(
 	slog.InfoContext(ctx, "start call",
 		"field", spanName,
 		"digest", id.Digest().String(),
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		"id", id.Display(),
 	)
 
 	callAttr, err := id.Call().Encode()

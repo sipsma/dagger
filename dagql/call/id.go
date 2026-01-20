@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -185,9 +186,22 @@ func (id *ID) Modules() []*Module {
 }
 
 func (id *ID) Path() string {
+	return id.path(0)
+}
+
+// TODO:
+// TODO:
+// TODO:
+// TODO:
+func (id *ID) path(d int) string {
+	if d > 256 {
+		return "<...>"
+	}
+	d++
+
 	buf := new(strings.Builder)
 	if id.receiver != nil {
-		fmt.Fprintf(buf, "%s.", id.receiver.Path())
+		fmt.Fprintf(buf, "%s.", id.receiver.path(d))
 	}
 	fmt.Fprint(buf, id.DisplaySelf())
 	return buf.String()
@@ -331,7 +345,16 @@ func (id *ID) Append(ret *ast.Type, field string, opts ...IDOpt) *ID {
 		receiver: id,
 		typ:      typ,
 	}
-	return newID.apply(opts...)
+	r := newID.apply(opts...)
+	if r.Digest() == id.Digest() {
+		// TODO:
+		// TODO:
+		// TODO:
+		fmt.Printf("\nWARNING: Append produced same digest for ID %s field %s\n", id.Display(), field)
+		debug.PrintStack()
+		fmt.Println()
+	}
+	return r
 }
 
 // WithDigest returns a new ID that's the same as before except with the

@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"strings"
 
 	bkcontenthash "github.com/dagger/dagger/internal/buildkit/cache/contenthash"
@@ -62,6 +63,12 @@ func GetContentHashFromDirectory(
 	}
 	dgst, err := GetContentHashFromDef(ctx, bk, def.ToPB(), dirPath)
 	if err != nil {
+		// TODO:
+		fmt.Println()
+		fmt.Printf("OHNO ID: %s, dgst:%s\n", dirInst.ID().Display(), dirInst.ID().Digest())
+		debug.PrintStack()
+		fmt.Println()
+
 		return "", fmt.Errorf("failed to get content hash: %w", err)
 	}
 
@@ -87,6 +94,8 @@ func GetContentHashFromFile(
 	}
 	dgst, err := GetContentHashFromDef(ctx, bk, def.ToPB(), fileInst.Self().File)
 	if err != nil {
+		// TODO:
+		debug.PrintStack()
 		return "", fmt.Errorf("failed to get content hash: %w", err)
 	}
 

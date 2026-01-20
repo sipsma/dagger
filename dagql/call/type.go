@@ -19,6 +19,9 @@ func (t *Type) NamedType() string {
 }
 
 func (t *Type) ToAST() *ast.Type {
+	if t == nil || t.pb == nil {
+		return nil
+	}
 	return t.pb.ToAST()
 }
 

@@ -355,7 +355,7 @@ func (sdk *goSDK) ModuleTypes(
 		},
 	)
 	if err != nil {
-		return inst, fmt.Errorf("failed to get type defs json during module sdk codegen: %w", err)
+		return inst, fmt.Errorf("failed to get type defs json during module go sdk codegen: %w", err)
 	}
 
 	var modID core.ModuleID

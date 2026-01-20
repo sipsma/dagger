@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"reflect"
+	"runtime/debug"
 	"slices"
 	"sort"
 	"strings"
@@ -296,7 +297,7 @@ func (class Class[T]) Call(
 ) (*CacheValWithCallbacks, error) {
 	field, ok := class.Field(fieldName, view)
 	if !ok {
-		return nil, fmt.Errorf("Call: %s has no such field: %q", class.inner.Type().Name(), fieldName)
+		return nil, fmt.Errorf("Class.Call: %s has no such field: %q", class.inner.Type().Name(), fieldName)
 	}
 
 	val, err := field.Func(ctx, node, args, view)
@@ -421,6 +422,14 @@ func (r Result[T]) MarshalJSON() ([]byte, error) {
 	return json.Marshal(r.ID())
 }
 
+func (r Result[T]) WithID(id *call.ID) AnyResult {
+	return Result[T]{
+		constructor: id,
+		self:        r.self,
+		postCall:    r.postCall,
+	}
+}
+
 type ObjectResult[T Typed] struct {
 	Result[T]
 	class Class[T]
@@ -454,6 +463,18 @@ func (r ObjectResult[T]) WithObjectDigest(customDigest digest.Digest) ObjectResu
 		Result: Result[T]{
 			constructor: r.constructor.WithDigest(customDigest),
 			self:        r.self,
+			postCall:    r.postCall,
+		},
+		class: r.class,
+	}
+}
+
+func (r ObjectResult[T]) WithID(id *call.ID) AnyResult {
+	return ObjectResult[T]{
+		Result: Result[T]{
+			constructor: id,
+			self:        r.self,
+			postCall:    r.postCall,
 		},
 		class: r.class,
 	}
@@ -636,9 +657,24 @@ func newCacheKey(ctx context.Context, id *call.ID, fieldSpec *FieldSpec) CacheKe
 func (r ObjectResult[T]) Call(ctx context.Context, s *Server, newID *call.ID) (AnyResult, error) {
 	fieldName := newID.Field()
 	view := newID.View()
-	field, ok := r.class.Field(fieldName, view)
+
+	// TODO: ?
+	// TODO: ?
+	// TODO: ?
+	genCls, ok := s.ObjectType(r.class.TypeName())
 	if !ok {
-		return nil, fmt.Errorf("Call: %s has no such field: %q", r.class.TypeName(), fieldName)
+		return nil, fmt.Errorf("ObjectResult.Call: no such object type: %q", r.class.TypeName())
+	}
+	cls, ok := genCls.(Class[T])
+	if !ok {
+		return nil, fmt.Errorf("ObjectResult.Call: object type %q is not of expected class type", r.class.TypeName())
+	}
+	field, ok := cls.Field(fieldName, view)
+	if !ok {
+		// TODO:
+		// TODO:
+		// return nil, fmt.Errorf("ObjectResult.Call: %s has no such field: %q", cls.TypeName(), fieldName)
+		return nil, fmt.Errorf("ObjectResult.Call: %s has no such field: %q\n%s\n", cls.TypeName(), fieldName, string(debug.Stack()))
 	}
 
 	inputArgs, err := ExtractIDArgs(field.Spec.Args, newID)
@@ -745,6 +781,19 @@ func (r ObjectResult[T]) call(
 	}
 	val := res.Result()
 
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO: testing idea
+	/*
+		if (newID.Receiver() != nil && newID.Receiver().Field() == "host" && newID.Field() == "directory") ||
+			(newID.Receiver() != nil && newID.Receiver().Field() == "address" && newID.Field() == "file") ||
+			(newID.Receiver() != nil && newID.Receiver().Field() == "address" && newID.Field() == "directory") {
+			fmt.Printf("HOSTDIR CHANGE:\n%s\n->\n%s\n", newID.Display(), val.ID().Display())
+			val = val.WithID(newID.WithDigest(val.ID().Digest()))
+		}
+	*/
+
 	// If the returned val is IDable and has a different digest than the original, then
 	// add that different digest as a cache key for this val.
 	// This enables APIs to return new object instances with overridden purity and/or digests, e.g. returning
@@ -765,12 +814,25 @@ func (r ObjectResult[T]) call(
 		matchesType := valID.Type().ToAST().Name() == val.Type().Name()
 
 		if digestChanged && matchesType {
-			newID = valID
+			// TODO:
+			// TODO:
+			// TODO:
+			// TODO:
+			// fmt.Printf("OTHER CHANGE:\n%s\n->\n%s\n", newID.Display(), val.ID().Display())
 			_, err := s.Cache.GetOrInitializeValue(ctx, cache.CacheKey[CacheKeyType]{
 				CallKey: string(valID.Digest()),
 			}, val)
 			if err != nil {
 				return nil, err
+			}
+
+			// TODO:
+			// TODO:
+			// TODO: weird af
+			if newID.Receiver() != nil && newID.Receiver().Digest() == valID.Digest() {
+				val = val.WithID(newID.Receiver())
+			} else {
+				val = val.WithID(newID.WithDigest(valID.Digest()))
 			}
 		}
 	}

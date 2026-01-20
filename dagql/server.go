@@ -648,6 +648,10 @@ func (s *Server) Load(ctx context.Context, id *call.ID) (AnyObjectResult, error)
 }
 
 func (s *Server) LoadType(ctx context.Context, id *call.ID) (AnyResult, error) {
+	// TODO:
+	// fmt.Printf("LoadType1: %s\n", id.DisplaySelf())
+	fmt.Printf("\nLoadType2: %s\n%s\n\n", id.Digest(), id.Display())
+
 	var base AnyResult
 	var err error
 	if id.Receiver() != nil {
