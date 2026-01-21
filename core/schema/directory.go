@@ -633,7 +633,7 @@ func (s *directorySchema) file(ctx context.Context, parent dagql.ObjectResult[*c
 		string(dgst),
 	)
 
-	return fileResult.WithObjectDigest(dgst), nil
+	return fileResult.WithContentDigest(dgst), nil
 }
 
 type WithNewFileArgs struct {

@@ -321,12 +321,16 @@ func (class Class[T]) Call(
 		onRelease = onReleaser.OnRelease
 	}
 
-	return &CacheValWithCallbacks{
+	retVal := &CacheValWithCallbacks{
 		Value:              val,
 		PostCall:           postCall,
 		OnRelease:          onRelease,
 		SafeToPersistCache: safeToPersistCache,
-	}, nil
+	}
+	if val != nil && val.ID() != nil {
+		retVal.ContentDigestKey = string(val.ID().ContentDigest())
+	}
+	return retVal, nil
 }
 
 type Result[T Typed] struct {
@@ -408,6 +412,15 @@ func (r Result[T]) WithDigest(customDigest digest.Digest) Result[T] {
 	}
 }
 
+func (r Result[T]) WithContentDigest(customDigest digest.Digest) Result[T] {
+	return Result[T]{
+		constructor:        r.constructor.With(call.WithContentDigest(customDigest)),
+		self:               r.self,
+		postCall:           r.postCall,
+		safeToPersistCache: r.safeToPersistCache,
+	}
+}
+
 // String returns the instance in Class@sha256:... format.
 func (r Result[T]) String() string {
 	return fmt.Sprintf("%s@%s", r.self.Type().Name(), r.constructor.Digest())
@@ -419,6 +432,15 @@ func (r Result[T]) GetPostCall() cache.PostCallFunc {
 
 func (r Result[T]) MarshalJSON() ([]byte, error) {
 	return json.Marshal(r.ID())
+}
+
+func (r Result[T]) WithID(id *call.ID) AnyResult {
+	return Result[T]{
+		constructor:        id,
+		self:               r.self,
+		postCall:           r.postCall,
+		safeToPersistCache: r.safeToPersistCache,
+	}
 }
 
 type ObjectResult[T Typed] struct {
@@ -452,8 +474,34 @@ func (r ObjectResult[T]) ObjectType() ObjectType {
 func (r ObjectResult[T]) WithObjectDigest(customDigest digest.Digest) ObjectResult[T] {
 	return ObjectResult[T]{
 		Result: Result[T]{
-			constructor: r.constructor.WithDigest(customDigest),
-			self:        r.self,
+			constructor:        r.constructor.WithDigest(customDigest),
+			self:               r.self,
+			postCall:           r.postCall,
+			safeToPersistCache: r.safeToPersistCache,
+		},
+		class: r.class,
+	}
+}
+
+func (r ObjectResult[T]) WithContentDigest(customDigest digest.Digest) ObjectResult[T] {
+	return ObjectResult[T]{
+		Result: Result[T]{
+			constructor:        r.constructor.With(call.WithContentDigest(customDigest)),
+			self:               r.self,
+			postCall:           r.postCall,
+			safeToPersistCache: r.safeToPersistCache,
+		},
+		class: r.class,
+	}
+}
+
+func (r ObjectResult[T]) WithID(id *call.ID) AnyResult {
+	return ObjectResult[T]{
+		Result: Result[T]{
+			constructor:        id,
+			self:               r.self,
+			postCall:           r.postCall,
+			safeToPersistCache: r.safeToPersistCache,
 		},
 		class: r.class,
 	}
@@ -612,9 +660,10 @@ func (r ObjectResult[T]) preselect(ctx context.Context, s *Server, sel Selector)
 
 func newCacheKey(ctx context.Context, id *call.ID, fieldSpec *FieldSpec) CacheKey {
 	cacheKey := CacheKey{
-		CallKey:    string(id.Digest()),
-		TTL:        fieldSpec.TTL,
-		DoNotCache: fieldSpec.DoNotCache != "",
+		CallKey:          string(id.Digest()),
+		TTL:              fieldSpec.TTL,
+		DoNotCache:       fieldSpec.DoNotCache != "",
+		ContentDigestKey: string(id.ContentDigest()),
 	}
 
 	// dedupe concurrent calls only if the ID digest is the same and if the two calls are from the same client
@@ -734,6 +783,7 @@ func (r ObjectResult[T]) call(
 			PostCall:           valWithCallbacks.PostCall,
 			OnRelease:          valWithCallbacks.OnRelease,
 			SafeToPersistCache: valWithCallbacks.SafeToPersistCache,
+			ContentDigestKey:   string(val.ID().ContentDigest()),
 		}, nil
 	}, opts...)
 
@@ -749,8 +799,13 @@ func (r ObjectResult[T]) call(
 	// add that different digest as a cache key for this val.
 	// This enables APIs to return new object instances with overridden purity and/or digests, e.g. returning
 	// values that have a pure content-based cache key different from the call-chain ID digest.
-	if idable, ok := val.(IDable); ok && idable != nil && !cacheKey.DoNotCache {
-		valID := idable.ID()
+	if val != nil && !cacheKey.DoNotCache {
+		// TODO: explain
+		if res.HitContentDigestCache() {
+			val = val.WithID(newID)
+		}
+
+		valID := val.ID()
 		if valID == nil {
 			return nil, fmt.Errorf("impossible: nil ID returned for value: %+v (%T)", val, val)
 		}
@@ -765,7 +820,6 @@ func (r ObjectResult[T]) call(
 		matchesType := valID.Type().ToAST().Name() == val.Type().Name()
 
 		if digestChanged && matchesType {
-			newID = valID
 			_, err := s.Cache.GetOrInitializeValue(ctx, cache.CacheKey[CacheKeyType]{
 				CallKey: string(valID.Digest()),
 			}, val)

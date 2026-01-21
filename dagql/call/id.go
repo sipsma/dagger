@@ -134,6 +134,13 @@ func (id *ID) Digest() digest.Digest {
 	return digest.Digest(id.pb.Digest)
 }
 
+func (id *ID) ContentDigest() digest.Digest {
+	if id == nil {
+		return ""
+	}
+	return digest.Digest(id.pb.ContentDigest)
+}
+
 // Inputs returns the ID digests referenced by this ID, starting with the
 // receiver, if any.
 func (id *ID) Inputs() ([]digest.Digest, error) {
@@ -292,6 +299,16 @@ func WithCustomDigest(dig digest.Digest) IDOpt {
 	}
 }
 
+func WithContentDigest(dig digest.Digest) IDOpt {
+	return func(id *ID) {
+		if dig != "" {
+			id.pb.ContentDigest = dig.String()
+		} else {
+			id.pb.ContentDigest = ""
+		}
+	}
+}
+
 func WithArgs(args ...*Argument) IDOpt {
 	return func(id *ID) {
 		id.args = args
@@ -446,6 +463,7 @@ func (id *ID) shallowClone() *ID {
 		Digest:         cp.pb.Digest,
 		View:           cp.pb.View,
 		IsCustomDigest: cp.pb.IsCustomDigest,
+		ContentDigest:  cp.pb.ContentDigest,
 	}
 	return &cp
 }
@@ -563,6 +581,7 @@ func (id *ID) decode(
 
 // presumes that id.pb.Digest are NOT set already,
 // otherwise those values will be incorrectly included in the digest
+// TODO: ADD NOTE THAT IT ALSO IGNORES CONTENTDIGEST FIELD, which is correct, right?
 func (id *ID) calcDigest() (string, error) {
 	if id == nil {
 		return "", nil

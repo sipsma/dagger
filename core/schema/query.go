@@ -155,7 +155,7 @@ func (s *querySchema) schemaJSONFile(
 		return inst, err
 	}
 
-	return fileInst.WithDigest(dgst), nil
+	return fileInst.WithContentDigest(dgst), nil
 }
 
 func dagqlToCodegenType(dagqlType *introspection.Type) *codegenintrospection.Type {
