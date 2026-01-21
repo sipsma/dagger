@@ -488,6 +488,9 @@ func (file *File) Stat(ctx context.Context) (*Stat, error) {
 			return err
 		}
 		fileInfo, err = osStatFunc(resolvedPath)
+		if err != nil {
+			err = fmt.Errorf("File.(l)stat: %w", err)
+		}
 		return TrimErrPathPrefix(err, root)
 	})
 	if err != nil {

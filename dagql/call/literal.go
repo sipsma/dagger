@@ -77,6 +77,9 @@ func (lit *LiteralID) Value() *ID {
 }
 
 func (lit *LiteralID) Inputs() ([]digest.Digest, error) {
+	if dgst := lit.id.ContentDigest(); dgst != "" {
+		return []digest.Digest{dgst}, nil
+	}
 	return []digest.Digest{lit.id.Digest()}, nil
 }
 
@@ -104,7 +107,15 @@ func (lit *LiteralID) ToAST() *ast.Value {
 }
 
 func (lit *LiteralID) pb() *callpbv1.Literal {
-	return &callpbv1.Literal{Value: &callpbv1.Literal_CallDigest{CallDigest: lit.id.pb.Digest}}
+	dgst := lit.id.pb.Digest
+	if cDgst := lit.id.pb.ContentDigest; cDgst != "" {
+		dgst = cDgst
+	}
+	return &callpbv1.Literal{
+		Value: &callpbv1.Literal_CallDigest{
+			CallDigest: dgst,
+		},
+	}
 }
 
 func (lit *LiteralID) gatherCalls(callsByDigest map[string]*callpbv1.Call) {

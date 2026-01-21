@@ -173,7 +173,21 @@ func DagOpDirectoryWrapper[T dagql.Typed, A DagOpInternalArgsIface](
 			return inst, fmt.Errorf("failed to get buildkit client: %w", err)
 		}
 
-		return core.MakeDirectoryContentHashed(ctx, bk, dirResult)
+		inst, err = core.MakeDirectoryContentHashed(ctx, bk, dirResult)
+		if err != nil {
+			return inst, err
+		}
+
+		// TODO:
+		// TODO:
+		// TODO:
+		curID := dagql.CurrentID(ctx)
+		fmt.Printf("DAGOP DIR\nCURID: %s %q %s\nDIRRESULT: %s %q %s\nINST: %s %q %s\n",
+			curID.Digest(), curID.ContentDigest(), curID.Display(),
+			dirResult.ID().Digest(), dirResult.ID().ContentDigest(), dirResult.ID().Display(),
+			inst.ID().Digest(), inst.ID().ContentDigest(), inst.ID().Display(),
+		)
+		return inst, nil
 	}
 }
 

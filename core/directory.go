@@ -970,7 +970,7 @@ func copyFile(srcPath, dstPath string, tryHardlink bool) (err error) {
 
 	srcStat, err := os.Stat(srcPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("copy file: %w", err)
 	}
 	srcPerm := srcStat.Mode().Perm()
 	src, err := os.Open(srcPath)
@@ -1012,7 +1012,7 @@ func isDir(path string) (bool, error) {
 		if errors.Is(err, os.ErrNotExist) {
 			return false, nil
 		}
-		return false, err
+		return false, fmt.Errorf("isDir: %w", err)
 	}
 	return fi.Mode().IsDir(), nil
 }
@@ -1594,6 +1594,18 @@ func (dir *Directory) Stat(ctx context.Context, srv *dagql.Server, targetPath st
 			return err
 		}
 		fileInfo, err = osStatFunc(resolvedPath)
+		if err != nil {
+			// TODO:
+			// TODO:
+			// TODO:
+			// TODO:
+			ls, lserr := lsTree(root)
+			if lserr != nil {
+				panic(lserr)
+			}
+			// err = fmt.Errorf("Dir.(l)stat %s: %w\n%s\nls: %s\n", targetPath, err, string(debug.Stack()), ls)
+			err = fmt.Errorf("Dir.(l)stat %s: %w\nls: %s\n", targetPath, err, ls)
+		}
 		return TrimErrPathPrefix(err, root)
 	})
 	if err != nil {
@@ -1619,6 +1631,34 @@ func (dir *Directory) Stat(ctx context.Context, srv *dagql.Server, targetPath st
 	}
 
 	return stat, nil
+}
+
+// lsTree does the equivalent of the `tree` command, but with go stdlib, returning a string representation of the files+dirs
+func lsTree(rootPath string) (string, error) {
+	var builder strings.Builder
+	err := filepath.WalkDir(rootPath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		relPath, err := filepath.Rel(rootPath, path)
+		if err != nil {
+			return err
+		}
+		if relPath == "." {
+			return nil
+		}
+		builder.WriteString(relPath)
+		if d.IsDir() {
+			builder.WriteString("/\n")
+		} else {
+			builder.WriteString("\n")
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return builder.String(), nil
 }
 
 func (dir *Directory) Export(ctx context.Context, destPath string, merge bool) (rerr error) {

@@ -16,7 +16,6 @@ import (
 	"github.com/dagger/dagger/internal/buildkit/client/llb"
 	"github.com/dagger/dagger/util/hashutil"
 	"github.com/moby/patternmatcher/ignorefile"
-	"github.com/opencontainers/go-digest"
 )
 
 type directorySchema struct{}
@@ -367,6 +366,12 @@ func (s *directorySchema) subdirectory(
 	}
 	dir, err := parent.Self().Directory(ctx, args.Path)
 	if err != nil {
+		// TODO:
+		// TODO:
+		// TODO:
+		// TODO:
+		// return res, err
+		err = fmt.Errorf("SHIT:\n%s\n%s\n%q\n%w", parent.ID().Display(), parent.ID().Digest(), parent.ID().ContentDigest(), err)
 		return res, err
 	}
 	return dagql.NewObjectResultForCurrentID(ctx, srv, dir)
@@ -1334,7 +1339,7 @@ func maintainContentHashing[A any](
 		// *unless* it's been manually rewritten using hashutil.HashStrings (e.g. in
 		// the case of GitRef.tree - that case is manually rewritten to avoid
 		// accidental collisions later)
-		if parent.ID().HasCustomDigest() && parent.ID().Digest().Algorithm() == digest.SHA256 {
+		if parent.ID().ContentDigest() != "" {
 			query, err := core.CurrentQuery(ctx)
 			if err != nil {
 				return res, err

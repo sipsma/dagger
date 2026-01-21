@@ -105,6 +105,9 @@ type ValueWithCallbacks[V any] struct {
 
 	// TODO: doc
 	ContentDigestKey string
+
+	// TODO: doc
+	AdditionalCallKey string
 }
 
 type ctxStorageKey struct{}
@@ -211,8 +214,12 @@ type result[K KeyType, V any] struct {
 	val                V
 	err                error
 	safeToPersistCache bool
+
 	// TODO: doc
-	contentDigestKey K
+	contentDigestKey    K
+	cachedByContent     bool
+	additionalCallKey   K
+	cachedAdditionalKey bool
 
 	persistToDB func(context.Context) error
 	postCall    PostCallFunc
@@ -483,6 +490,7 @@ func (c *cache[K, V]) GetOrInitializeWithCallbacks(
 			res.onRelease = valWithCallbacks.OnRelease
 			res.safeToPersistCache = valWithCallbacks.SafeToPersistCache
 			res.contentDigestKey = K(valWithCallbacks.ContentDigestKey)
+			res.additionalCallKey = K(valWithCallbacks.AdditionalCallKey)
 		}
 	}()
 
@@ -535,9 +543,19 @@ func (c *cache[K, V]) wait(ctx context.Context, res *result[K, V], isFirstCaller
 			c.completedCalls[res.storageKey] = res
 		}
 
-		if _, ok := c.completedCallsByContent[string(res.contentDigestKey)]; !ok {
-			// save by content digest key as well
-			c.completedCallsByContent[string(res.contentDigestKey)] = res
+		if res.additionalCallKey != "" && res.additionalCallKey != K(res.storageKey) {
+			if _, ok := c.completedCalls[string(res.additionalCallKey)]; !ok {
+				c.completedCalls[string(res.additionalCallKey)] = res
+				res.cachedAdditionalKey = true
+			}
+		}
+
+		if res.contentDigestKey != "" {
+			if _, ok := c.completedCallsByContent[string(res.contentDigestKey)]; !ok {
+				// save by content digest key as well
+				c.completedCallsByContent[string(res.contentDigestKey)] = res
+				res.cachedByContent = true
+			}
 		}
 
 		res.refCount++
@@ -560,9 +578,6 @@ func (c *cache[K, V]) wait(ctx context.Context, res *result[K, V], isFirstCaller
 		// error happened and no refs left, delete it now
 		delete(c.ongoingCalls, res.callConcurrencyKeys)
 		delete(c.completedCalls, res.storageKey)
-		if res.contentDigestKey != "" {
-			delete(c.completedCallsByContent, string(res.contentDigestKey))
-		}
 	}
 
 	c.mu.Unlock()
@@ -590,7 +605,10 @@ func (res *result[K, V]) Release(ctx context.Context) error {
 		// no refs left and no one waiting on it, delete from cache
 		delete(res.cache.ongoingCalls, res.callConcurrencyKeys)
 		delete(res.cache.completedCalls, res.storageKey)
-		if res.contentDigestKey != "" {
+		if res.cachedAdditionalKey {
+			delete(res.cache.completedCalls, string(res.additionalCallKey))
+		}
+		if res.cachedByContent {
 			delete(res.cache.completedCalls, res.storageKey)
 		}
 		onRelease = res.onRelease

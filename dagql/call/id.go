@@ -327,6 +327,9 @@ func WithReceiver(recv *ID) IDOpt {
 		id.receiver = recv
 		if recv != nil {
 			id.pb.ReceiverDigest = recv.pb.Digest
+			if recv.pb.ContentDigest != "" {
+				id.pb.ReceiverDigest = recv.pb.ContentDigest
+			}
 		} else {
 			id.pb.ReceiverDigest = ""
 		}
@@ -347,6 +350,9 @@ func (id *ID) Append(ret *ast.Type, field string, opts ...IDOpt) *ID {
 		},
 		receiver: id,
 		typ:      typ,
+	}
+	if id.ContentDigest() != "" {
+		newID.pb.ReceiverDigest = id.ContentDigest().String()
 	}
 	return newID.apply(opts...)
 }
@@ -469,19 +475,30 @@ func (id *ID) shallowClone() *ID {
 }
 
 func (id *ID) apply(opts ...IDOpt) *ID {
+	origDgst := id.pb.Digest
+	origIsCustomDigest := id.pb.IsCustomDigest
+
 	// clear any existing digest; must be re-applied each time
 	id.pb.Digest = ""
 	id.pb.IsCustomDigest = false
 	for _, opt := range opts {
 		opt(id)
 	}
+
 	if !id.HasCustomDigest() {
-		var err error
-		id.pb.Digest, err = id.calcDigest()
-		if err != nil {
-			// something has to be deeply wrong if we can't
-			// marshal proto and hash the bytes
-			panic(err)
+		if origIsCustomDigest {
+			// retain the original custom digest
+			id.pb.Digest = origDgst
+			id.pb.IsCustomDigest = true
+		} else {
+			// recompute automatic digest
+			var err error
+			id.pb.Digest, err = id.calcDigest()
+			if err != nil {
+				// something has to be deeply wrong if we can't
+				// marshal proto and hash the bytes
+				panic(err)
+			}
 		}
 	}
 	return id
@@ -496,6 +513,13 @@ func (id *ID) gatherCalls(callsByDigest map[string]*callpbv1.Call) {
 		return
 	}
 	callsByDigest[id.pb.Digest] = id.pb
+	if id.pb.ContentDigest != "" {
+		// TODO: is this duping proto space?
+		// TODO: is this duping proto space?
+		// TODO: is this duping proto space?
+		// TODO: is this duping proto space?
+		callsByDigest[id.pb.ContentDigest] = id.pb
+	}
 
 	id.receiver.gatherCalls(callsByDigest)
 	id.module.gatherCalls(callsByDigest)
@@ -544,9 +568,9 @@ func (id *ID) decode(
 	if !ok {
 		return fmt.Errorf("call digest %q not found", dgst)
 	}
-	if dgst != pb.Digest {
+	if dgst != pb.Digest && dgst != pb.ContentDigest {
 		// should never happen, just out of caution
-		return fmt.Errorf("call digest mismatch %q != %q", dgst, pb.Digest)
+		return fmt.Errorf("call digest mismatch %q != %q and %q != %q", dgst, pb.Digest, dgst, pb.ContentDigest)
 	}
 	id.pb = pb
 

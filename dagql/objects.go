@@ -329,6 +329,7 @@ func (class Class[T]) Call(
 	}
 	if val != nil && val.ID() != nil {
 		retVal.ContentDigestKey = string(val.ID().ContentDigest())
+		retVal.AdditionalCallKey = string(val.ID().Digest())
 	}
 	return retVal, nil
 }
@@ -784,6 +785,7 @@ func (r ObjectResult[T]) call(
 			OnRelease:          valWithCallbacks.OnRelease,
 			SafeToPersistCache: valWithCallbacks.SafeToPersistCache,
 			ContentDigestKey:   string(val.ID().ContentDigest()),
+			AdditionalCallKey:  string(val.ID().Digest()),
 		}, nil
 	}, opts...)
 
@@ -794,39 +796,9 @@ func (r ObjectResult[T]) call(
 		return nil, fmt.Errorf("post-call error: %w", err)
 	}
 	val := res.Result()
-
-	// If the returned val is IDable and has a different digest than the original, then
-	// add that different digest as a cache key for this val.
-	// This enables APIs to return new object instances with overridden purity and/or digests, e.g. returning
-	// values that have a pure content-based cache key different from the call-chain ID digest.
-	if val != nil && !cacheKey.DoNotCache {
-		// TODO: explain
-		if res.HitContentDigestCache() {
-			val = val.WithID(newID)
-		}
-
-		valID := val.ID()
-		if valID == nil {
-			return nil, fmt.Errorf("impossible: nil ID returned for value: %+v (%T)", val, val)
-		}
-
-		// only need to add a new cache key if the returned val has a different custom digest than the original
-		digestChanged := valID.Digest() != newID.Digest()
-
-		// Corner case: the `id` field on an object returns an IDable value (IDs are themselves both values and IDable).
-		// However, if we cached `val` in this case, we would be caching <id digest> -> <id value>, which isn't what we
-		// want. Instead, we only want to cache <id digest> -> <actual object value>.
-		// To avoid this, we check that the returned IDable type is the actual object type.
-		matchesType := valID.Type().ToAST().Name() == val.Type().Name()
-
-		if digestChanged && matchesType {
-			_, err := s.Cache.GetOrInitializeValue(ctx, cache.CacheKey[CacheKeyType]{
-				CallKey: string(valID.Digest()),
-			}, val)
-			if err != nil {
-				return nil, err
-			}
-		}
+	// TODO: explain
+	if res.HitContentDigestCache() {
+		val = val.WithID(newID)
 	}
 
 	return val, nil
