@@ -584,11 +584,11 @@ func (fn *ModuleFunction) CacheConfigForCall(
 		}
 
 		for _, arg := range ctxArgVals {
-			dgstInputs = append(dgstInputs, arg.name, arg.val.ID().Digest().String())
+			dgstInputs = append(dgstInputs, arg.name, arg.val.ID().ContentDigest().String())
 		}
 		for _, arg := range userDefaultVals {
 			if arg != nil {
-				dgstInputs = append(dgstInputs, arg.name, arg.val.ID().Digest().String())
+				dgstInputs = append(dgstInputs, arg.name, arg.val.ID().ContentDigest().String())
 			}
 		}
 	}
@@ -664,6 +664,17 @@ func (fn *ModuleFunction) Call(ctx context.Context, opts *CallOpts) (t dagql.Any
 	} else {
 		cacheMixins = append(cacheMixins, cache.CurrentStorageKey(ctx))
 	}
+
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	fmt.Printf("MODFUNC:\ncallID: %s %q %s\ncacheMixins: %+v\ncurStorageKey: %q\nOpts: %+v\n",
+		callID.Digest(), callID.ContentDigest(), callID.Display(),
+		cacheMixins,
+		cache.CurrentStorageKey(ctx),
+		opts,
+	)
 
 	execMD.CacheMixin = hashutil.HashStrings(cacheMixins...)
 
