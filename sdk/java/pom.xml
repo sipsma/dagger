@@ -287,7 +287,7 @@
         <daggerengine.version>0.19.10</daggerengine.version>
         <daggerengine.schema></daggerengine.schema>
 
-        <assertj-core.version>3.27.6</assertj-core.version>
+        <assertj-core.version>3.27.7</assertj-core.version>
         <auto-service.version>1.1.1</auto-service.version>
         <commons-compress.version>1.28.0</commons-compress.version>
         <commons-lang.version>3.20.0</commons-lang.version>
@@ -316,7 +316,7 @@
         <slf4j-api.version>2.0.17</slf4j-api.version>
         <slf4j-simple.version>2.0.17</slf4j-simple.version>
         <smallrye-graphql.version>2.17.0</smallrye-graphql.version>
-        <vertx-web-client.version>4.5.24</vertx-web-client.version>
+        <vertx-web-client.version>5.0.7</vertx-web-client.version>
         <system-stubs-jupiter.version>2.1.8</system-stubs-jupiter.version>
         <xdg-java.version>0.1.1</xdg-java.version>
         <yasson.version>3.0.4</yasson.version>
