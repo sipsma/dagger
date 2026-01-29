@@ -38,15 +38,10 @@ func DagOp[T dagql.Typed, A any, R dagql.Typed](
 	args A,
 	fn dagql.NodeFuncHandler[T, A, R],
 ) (inst R, err error) {
-	deps, err := extractLLBDependencies(ctx, self.Self())
+	deps, err := core.InputsOf(ctx, args)
 	if err != nil {
 		return inst, err
 	}
-	argDeps, err := core.InputsOf(ctx, args)
-	if err != nil {
-		return inst, err
-	}
-	deps = append(deps, argDeps...)
 
 	filename := "output.json"
 	curIDForRawDagOp, err := currentIDForRawDagOp(ctx, filename)
@@ -574,29 +569,4 @@ func DagOpChangesetWrapper[T dagql.Typed, A DagOpInternalArgsIface](
 		}
 		return cs, nil
 	}
-}
-
-func extractLLBDependencies(ctx context.Context, val any) ([]llb.State, error) {
-	hasPBs, ok := dagql.UnwrapAs[core.HasPBDefinitions](val)
-	if !ok {
-		return nil, nil
-	}
-
-	depsDefs, err := hasPBs.PBDefinitions(ctx)
-	if err != nil {
-		return nil, err
-	}
-	deps := make([]llb.State, 0, len(depsDefs))
-	for _, def := range depsDefs {
-		if def == nil || def.Def == nil {
-			deps = append(deps, llb.Scratch())
-			continue
-		}
-		op, err := llb.NewDefinitionOp(def)
-		if err != nil {
-			return nil, err
-		}
-		deps = append(deps, llb.NewState(op))
-	}
-	return deps, nil
 }
