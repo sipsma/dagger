@@ -70,7 +70,11 @@ func NewDirectoryDagOp(
 	if err != nil {
 		return nil, fmt.Errorf("failed to get current query: %w", err)
 	}
-	return NewDirectorySt(ctx, st, dagop.Path, query.Platform(), nil)
+	dir, err := NewDirectorySt(ctx, st, dagop.Path, query.Platform(), nil)
+	if err != nil {
+		return nil, err
+	}
+	return dir, nil
 }
 
 // NewFileDagOp takes a target ID for a File, and returns a File for it,
@@ -192,6 +196,20 @@ func (op FSDagOp) Exec(ctx context.Context, g bksession.Group, inputs []solver.R
 		return nil, fmt.Errorf("server root was %T", opt.Server.Root())
 	}
 	ctx = ContextWithQuery(ctx, query)
+
+	/*
+		lp, err := query.CurrentLoggerProvider(ctx)
+		if err != nil {
+			return nil, err
+		}
+		ctx = telemetry.WithLoggerProvider(ctx, lp)
+		mp, err := query.CurrentMeterProvider(ctx)
+		if err != nil {
+			return nil, err
+		}
+		ctx = telemetry.WithMeterProvider(ctx, mp)
+	*/
+
 	obj, err := opt.Server.LoadType(ctx, op.ID)
 	if err != nil {
 		return nil, err
@@ -338,6 +356,20 @@ func (op RawDagOp) Exec(ctx context.Context, g bksession.Group, inputs []solver.
 	if !ok {
 		return nil, fmt.Errorf("server root was %T", opt.Server.Root())
 	}
+
+	/*
+		lp, err := query.CurrentLoggerProvider(ctx)
+		if err != nil {
+			return nil, err
+		}
+		ctx = telemetry.WithLoggerProvider(ctx, lp)
+		mp, err := query.CurrentMeterProvider(ctx)
+		if err != nil {
+			return nil, err
+		}
+		ctx = telemetry.WithMeterProvider(ctx, mp)
+	*/
+
 	result, err := opt.Server.LoadType(ContextWithQuery(ctx, query), op.ID)
 	if err != nil {
 		return nil, err
@@ -566,6 +598,20 @@ func (op ContainerDagOp) Exec(ctx context.Context, g bksession.Group, inputs []s
 	if !ok {
 		return nil, fmt.Errorf("server root was %T", opt.Server.Root())
 	}
+
+	/*
+		lp, err := query.CurrentLoggerProvider(loadCtx)
+		if err != nil {
+			return nil, err
+		}
+		loadCtx = telemetry.WithLoggerProvider(loadCtx, lp)
+		mp, err := query.CurrentMeterProvider(loadCtx)
+		if err != nil {
+			return nil, err
+		}
+		loadCtx = telemetry.WithMeterProvider(loadCtx, mp)
+	*/
+
 	loadCtx = ContextWithQuery(loadCtx, query)
 
 	mountData := op.ContainerMountData
@@ -989,7 +1035,7 @@ func extractContainerBkOutputs(ctx context.Context, container *Container, bk *bu
 }
 
 func newDagOpLLB(ctx context.Context, dagOp buildkit.CustomOp, id *call.ID, inputs []llb.State) (llb.State, error) {
-	return buildkit.NewCustomLLB(ctx, dagOp, inputs,
+	return buildkit.NewCustomLLB(ctx, id, dagOp, inputs,
 		llb.WithCustomNamef("%s %s", dagOp.Name(), id.Name()),
 		buildkit.WithTracePropagation(ctx),
 		buildkit.WithPassthrough(),

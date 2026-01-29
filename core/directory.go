@@ -47,6 +47,8 @@ type Directory struct {
 
 	// Services necessary to provision the directory.
 	Services ServiceBindings
+
+	EffectDgst string
 }
 
 func (*Directory) Type() *ast.Type {
@@ -69,6 +71,10 @@ func (dir *Directory) setResult(ref bkcache.ImmutableRef) {
 
 func (dir *Directory) IsRootDir() bool {
 	return dir.Dir == "" || dir.Dir == "/"
+}
+
+func (dir Directory) EffectDigest() string {
+	return dir.EffectDgst
 }
 
 var _ HasPBDefinitions = (*Directory)(nil)
@@ -103,6 +109,13 @@ func NewDirectory(def *pb.Definition, dir string, platform Platform, services Se
 
 func NewScratchDirectory(ctx context.Context, platform Platform) (*Directory, error) {
 	return NewDirectorySt(ctx, llb.Scratch(), "/", platform, nil)
+}
+
+func NewScratchDirectoryDagOp(ctx context.Context, platform Platform) (*Directory, error) {
+	return &Directory{
+		Dir:      "/",
+		Platform: platform,
+	}, nil
 }
 
 func NewDirectorySt(ctx context.Context, st llb.State, dir string, platform Platform, services ServiceBindings) (*Directory, error) {

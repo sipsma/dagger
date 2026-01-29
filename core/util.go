@@ -63,6 +63,10 @@ type Evaluatable interface {
 	Evaluate(context.Context) (*buildkit.Result, error)
 }
 
+type EffectfulResult interface {
+	EffectDigest() string
+}
+
 type HasPBDefinitions interface {
 	// PBDefinitions returns all the buildkit definitions that are part of a core type
 	PBDefinitions(context.Context) ([]*pb.Definition, error)
@@ -510,9 +514,13 @@ func mountObj[T fileOrDirectory](ctx context.Context, obj T, optFns ...mountObjO
 		optFn(&opt)
 	}
 
-	parentRef, err := getRefOrEvaluate(ctx, obj)
-	if err != nil {
-		return "", nil, err
+	var parentRef bkcache.ImmutableRef
+	if obj != nil {
+		var err error
+		parentRef, err = getRefOrEvaluate(ctx, obj)
+		if err != nil {
+			return "", nil, err
+		}
 	}
 
 	bkSessionGroup, ok := buildkit.CurrentBuildkitSessionGroup(ctx)

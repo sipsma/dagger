@@ -106,6 +106,8 @@ type Container struct {
 
 	// DefaultArgs have been explicitly set by the user
 	DefaultArgs bool
+
+	EffectDgst string
 }
 
 func (*Container) Type() *ast.Type {
@@ -117,6 +119,10 @@ func (*Container) Type() *ast.Type {
 
 func (*Container) TypeDescription() string {
 	return "An OCI-compatible container, also known as a Docker container."
+}
+
+func (ctr Container) EffectDigest() string {
+	return ctr.EffectDgst
 }
 
 var _ HasPBDefinitions = (*Container)(nil)

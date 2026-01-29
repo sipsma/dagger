@@ -48,6 +48,13 @@ func DagOp[T dagql.Typed, A any, R dagql.Typed](
 	if err != nil {
 		return inst, err
 	}
+
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO: should we figure out how to set an effect digest here?
+
 	return core.NewRawDagOp[R](ctx, srv, &core.RawDagOp{
 		ID:       curIDForRawDagOp, // FIXME: using this in the cache key means we effectively disable buildkit content caching
 		Filename: filename,
@@ -124,11 +131,22 @@ func DagOpFile[T dagql.Typed, A any](
 		}, "\x00"),
 	)
 
-	return core.NewFileDagOp(ctx, srv, &core.FSDagOp{
+	// TODO:
+	// TODO:
+	// TODO:
+	// TODO:
+	fmt.Printf("ID: %s\nCACHEKEY: %s\n", curIDForFSDagOp.Display(), cacheKey.String())
+
+	f, err := core.NewFileDagOp(ctx, srv, &core.FSDagOp{
 		ID:       curIDForFSDagOp,
 		Path:     filename,
 		CacheKey: cacheKey,
 	}, deps)
+	if err != nil {
+		return nil, err
+	}
+	f.EffectDgst = curIDForFSDagOp.Digest().String()
+	return f, nil
 }
 
 // DagOpDirectoryWrapper caches a directory field as a buildkit operation,
@@ -347,11 +365,16 @@ func DagOpDirectory[T dagql.Typed, A any](
 		return nil, err
 	}
 
-	return core.NewDirectoryDagOp(ctx, srv, &core.FSDagOp{
+	dir, err := core.NewDirectoryDagOp(ctx, srv, &core.FSDagOp{
 		ID:       curIDForFSDagOp,
 		Path:     filename,
 		CacheKey: cacheKey,
 	}, deps, selfDigest, argDigest)
+	if err != nil {
+		return nil, err
+	}
+	dir.EffectDgst = curIDForFSDagOp.Digest().String()
+	return dir, nil
 }
 
 func DagOpContainerWrapper[A DagOpInternalArgsIface](
@@ -395,7 +418,12 @@ func DagOpContainer[A any](
 	if err != nil {
 		return nil, err
 	}
-	return core.NewContainerDagOp(ctx, curIDForContainerDagOp, argDigest, deps, ctr)
+	ctrRes, err := core.NewContainerDagOp(ctx, curIDForContainerDagOp, argDigest, deps, ctr)
+	if err != nil {
+		return nil, err
+	}
+	ctrRes.EffectDgst = curIDForContainerDagOp.Digest().String()
+	return ctrRes, nil
 }
 
 const (

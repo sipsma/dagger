@@ -43,6 +43,8 @@ type File struct {
 
 	// Services necessary to provision the file.
 	Services ServiceBindings
+
+	EffectDgst string
 }
 
 func (*File) Type() *ast.Type {
@@ -61,6 +63,10 @@ func (file *File) getResult() bkcache.ImmutableRef {
 }
 func (file *File) setResult(ref bkcache.ImmutableRef) {
 	file.Result = ref
+}
+
+func (file File) EffectDigest() string {
+	return file.EffectDgst
 }
 
 var _ HasPBDefinitions = (*File)(nil)
@@ -118,6 +124,29 @@ func NewFileWithContents(
 		return nil, err
 	}
 	dir, err = dir.WithNewFile(ctx, name, content, permissions, ownership)
+	if err != nil {
+		return nil, err
+	}
+	return dir.File(ctx, name)
+}
+
+func NewFileWithContentsDagOp(
+	ctx context.Context,
+	name string,
+	content []byte,
+	permissions fs.FileMode,
+	ownership *Ownership,
+	platform Platform,
+) (*File, error) {
+	if dir, _ := filepath.Split(name); dir != "" {
+		return nil, fmt.Errorf("file name %q must not contain a directory", name)
+	}
+
+	dir, err := NewScratchDirectoryDagOp(ctx, platform)
+	if err != nil {
+		return nil, err
+	}
+	dir, err = dir.WithNewFileDagOp(ctx, name, content, permissions, ownership)
 	if err != nil {
 		return nil, err
 	}

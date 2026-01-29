@@ -408,8 +408,10 @@ func (r Result[T]) IsSafeToPersistCache() bool {
 // that won't be caputured by the default, call-chain derived digest.
 func (r Result[T]) WithDigest(customDigest digest.Digest) Result[T] {
 	return Result[T]{
-		constructor: r.constructor.WithDigest(customDigest),
-		self:        r.self,
+		constructor:        r.constructor.WithDigest(customDigest),
+		self:               r.self,
+		postCall:           r.postCall,
+		safeToPersistCache: r.safeToPersistCache,
 	}
 }
 

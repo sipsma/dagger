@@ -14,6 +14,8 @@ import (
 	"github.com/dagger/dagger/internal/buildkit/util/leaseutil"
 	"github.com/moby/locker"
 	"github.com/vektah/gqlparser/v2/ast"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
 	"github.com/dagger/dagger/auth"
 	"github.com/dagger/dagger/dagql"
@@ -162,6 +164,9 @@ type Server interface {
 	// otherwise those unshared mnt namespaces may inherit mounts from engine operations
 	// and leak them.
 	CleanMountNS() *os.File
+
+	CurrentLoggerProvider(ctx context.Context) (*sdklog.LoggerProvider, error)
+	CurrentMeterProvider(ctx context.Context) (*sdkmetric.MeterProvider, error)
 }
 
 type queryKey struct{}

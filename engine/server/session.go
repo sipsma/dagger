@@ -1578,6 +1578,22 @@ func (srv *Server) ClientTelemetry(ctx context.Context, sessID, clientID string)
 	return client.TelemetryDB(ctx)
 }
 
+func (srv *Server) CurrentLoggerProvider(ctx context.Context) (*sdklog.LoggerProvider, error) {
+	client, err := srv.clientFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return client.loggerProvider, nil
+}
+
+func (srv *Server) CurrentMeterProvider(ctx context.Context) (*sdkmetric.MeterProvider, error) {
+	client, err := srv.clientFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return client.meterProvider, nil
+}
+
 // Return a client connected to a cloud engine. If bool return is false, the local engine should be used. Session attachables for the returned client will be proxied back to the calling client.
 func (srv *Server) CloudEngineClient(
 	ctx context.Context,

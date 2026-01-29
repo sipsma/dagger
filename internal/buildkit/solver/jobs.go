@@ -785,7 +785,26 @@ func (s *sharedOp) LoadCache(ctx context.Context, rec *CacheRecord) (Result, err
 		ctx = trace.ContextWithSpan(ctx, s.st.mspan)
 	}
 	// no cache hit. start evaluating the node
-	span, ctx := tracing.StartSpan(ctx, "load cache: "+s.st.vtx.Name(), trace.WithAttributes(attribute.String("vertex", s.st.vtx.Digest().String())))
+	attrs := []attribute.KeyValue{
+		attribute.String("vertex", s.st.vtx.Digest().String()),
+	}
+	completedEffects := []string{}
+	walkAncestors(ctx, s.st, func(st *state) bool {
+		desc := st.vtx.Options().Description
+		if desc == nil {
+			return false
+		}
+		effectID := desc["effectID"]
+		if effectID == "" {
+			return false
+		}
+		completedEffects = append(completedEffects, effectID)
+		return false
+	})
+	if len(completedEffects) > 0 {
+		attrs = append(attrs, attribute.StringSlice("completedEffects", completedEffects))
+	}
+	span, ctx := tracing.StartSpan(ctx, "load cache: "+s.st.vtx.Name(), trace.WithAttributes(attrs...))
 	notifyCompleted := notifyStarted(ctx, &s.st.clientVertex, true)
 	res, err := s.Cache().Load(withAncestorCacheOpts(ctx, s.st), rec)
 	tracing.FinishWithError(span, err)
@@ -895,6 +914,7 @@ func (s *sharedOp) CacheMap(ctx context.Context, index int) (resp *cacheMapResp,
 			ctx = trace.ContextWithSpan(ctx, s.st.mspan)
 		}
 		ctx = withAncestorCacheOpts(ctx, s.st)
+
 		if len(s.st.vtx.Inputs()) == 0 {
 			// no cache hit. start evaluating the node
 			span, ctx := tracing.StartSpan(ctx, "cache request: "+s.st.vtx.Name(), trace.WithAttributes(attribute.String("vertex", s.st.vtx.Digest().String())))
@@ -904,6 +924,7 @@ func (s *sharedOp) CacheMap(ctx context.Context, index int) (resp *cacheMapResp,
 				notifyCompleted(retErr, false)
 			}()
 		}
+
 		res, done, err := op.CacheMap(ctx, s.st.SessionGroup(), len(s.cacheRes))
 		complete := true
 		if err != nil {
@@ -976,7 +997,10 @@ func (s *sharedOp) Exec(ctx context.Context, inputs []Result) (outputs []Result,
 		ctx = withAncestorCacheOpts(ctx, s.st)
 
 		// no cache hit. start evaluating the node
-		span, ctx := tracing.StartSpan(ctx, s.st.vtx.Name(), trace.WithAttributes(attribute.String("vertex", s.st.vtx.Digest().String())))
+		attrs := []attribute.KeyValue{
+			attribute.String("vertex", s.st.vtx.Digest().String()),
+		}
+		span, ctx := tracing.StartSpan(ctx, s.st.vtx.Name(), trace.WithAttributes(attrs...))
 		notifyCompleted := notifyStarted(ctx, &s.st.clientVertex, false)
 		defer func() {
 			tracing.FinishWithError(span, retErr)

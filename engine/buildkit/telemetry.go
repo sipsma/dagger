@@ -2,6 +2,7 @@ package buildkit
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -130,12 +131,15 @@ var _ sdktrace.SpanProcessor = (*SpanProcessor)(nil)
 func (sp *SpanProcessor) OnStart(ctx context.Context, span sdktrace.ReadWriteSpan) {
 	var isBuildkit bool
 	var vertex digest.Digest
+	var completedEffects []string
 	for _, attr := range span.Attributes() {
 		switch attr.Key {
 		case "buildkit":
 			isBuildkit = attr.Value.AsBool()
 		case "vertex":
 			vertex = digest.Digest(attr.Value.AsString())
+		case "completedEffects":
+			completedEffects = attr.Value.AsStringSlice()
 		}
 	}
 	if !isBuildkit {
@@ -143,7 +147,7 @@ func (sp *SpanProcessor) OnStart(ctx context.Context, span sdktrace.ReadWriteSpa
 	}
 
 	if vertex != "" {
-		sp.setupVertex(span, vertex)
+		sp.setupVertex(span, vertex, completedEffects)
 	} else {
 		// encapsulate all other spans produced by buildkit
 		//
@@ -157,7 +161,7 @@ func (sp *SpanProcessor) OnStart(ctx context.Context, span sdktrace.ReadWriteSpa
 	}
 }
 
-func (sp *SpanProcessor) setupVertex(span sdktrace.ReadWriteSpan, vertex digest.Digest) {
+func (sp *SpanProcessor) setupVertex(span sdktrace.ReadWriteSpan, vertex digest.Digest, completedEffects []string) {
 	llbOp, causeCtx, ok := sp.Client.LookupOp(vertex)
 	if !ok {
 		slog.Warn("op not found for vertex", "vertex", vertex)
@@ -194,33 +198,37 @@ func (sp *SpanProcessor) setupVertex(span sdktrace.ReadWriteSpan, vertex digest.
 		span.SetAttributes(attribute.Bool(telemetry.CachedAttr, true))
 	}
 
-	span.SetAttributes(DAGAttributes(llbOp)...)
+	span.SetAttributes(DAGAttributes(llbOp, completedEffects)...)
+
+	// TODO:
+	fmt.Printf("SPANATTRS: %+v\n", span.Attributes())
 }
 
 func (*SpanProcessor) OnEnd(sdktrace.ReadOnlySpan)      {}
 func (*SpanProcessor) ForceFlush(context.Context) error { return nil }
 func (*SpanProcessor) Shutdown(context.Context) error   { return nil }
 
-func DAGAttributes(op *OpDAG) []attribute.KeyValue {
+func DAGAttributes(op *OpDAG, completedEffects []string) []attribute.KeyValue {
 	attrs := []attribute.KeyValue{
 		// TODO: consolidate? or do we need them to be distinct?
 		// track the "DAG digest" in the same way that we track Dagger digests
-		attribute.String(telemetry.DagDigestAttr, op.OpDigest.String()),
+		attribute.String(telemetry.DagDigestAttr, op.EffectID()),
 		// track the Buildkit effect-specific equivalent
-		attribute.String(telemetry.EffectIDAttr, op.OpDigest.String()),
+		attribute.String(telemetry.EffectIDAttr, op.EffectID()),
 	}
 	// track the inputs of the op
 	// NOTE: this points to DagDigestAttr
 	if len(op.Inputs) > 0 {
 		inputs := make([]string, len(op.Inputs))
 		for i, input := range op.Inputs {
-			inputs[i] = input.OpDigest.String()
+			inputs[i] = input.EffectID()
 		}
 		attrs = append(attrs, attribute.StringSlice(telemetry.DagInputsAttr, inputs))
 	}
 	// emit the deep dependencies of the op so the frontend can know that
 	// they're completed without needing a span for each
-	deps := opDeps(op, nil)
+	deps := opDeps(op)
+	deps = append(deps, completedEffects...)
 	if len(deps) > 0 {
 		attrs = append(attrs,
 			attribute.StringSlice(
@@ -232,20 +240,13 @@ func DAGAttributes(op *OpDAG) []attribute.KeyValue {
 	return attrs
 }
 
-func opDeps(dag *OpDAG, seen map[digest.Digest]bool) []string {
+func opDeps(dag *OpDAG) []string {
 	var doneEffects []string
 	_ = dag.Walk(func(op *OpDAG) error {
 		if op == dag {
 			return nil
 		}
-		if seen != nil {
-			if seen[*op.OpDigest] {
-				return nil
-			} else {
-				seen[*op.OpDigest] = true
-			}
-		}
-		doneEffects = append(doneEffects, op.OpDigest.String())
+		doneEffects = append(doneEffects, op.EffectID())
 		return nil
 	})
 	return doneEffects
