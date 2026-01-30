@@ -118,6 +118,33 @@ func AroundFunc(
 		recordStatus(ctx, res, span, cached, id)
 		logResult(ctx, res, self, id)
 		collectEffects(res, span, self, err)
+		if id != nil && res != nil {
+			callDgst := id.Digest().String()
+			hasCall := false
+			for _, eid := range res.EffectIDs() {
+				if eid == callDgst {
+					hasCall = true
+					break
+				}
+			}
+			if hasCall {
+				span.SetAttributes(attribute.String(telemetry.EffectIDAttr, callDgst))
+				effectIDs := res.EffectIDs()
+				filtered := effectIDs
+				if _, ok := dagql.UnwrapAs[dagql.AnyObjectResult](res); ok {
+					if self != nil {
+						filtered = filterEffectIDs(filtered, self.EffectIDs())
+					}
+					if provider, ok := res.(interface{ ArgEffectIDs() []string }); ok {
+						if argIDs := provider.ArgEffectIDs(); len(argIDs) > 0 {
+							filtered = filterEffectIDs(filtered, argIDs)
+						}
+					}
+				}
+				filtered = filterEffectIDs(filtered, []string{callDgst})
+				span.SetAttributes(attribute.StringSlice(telemetry.EffectIDsAttr, filtered))
+			}
+		}
 	}
 }
 
@@ -307,33 +334,22 @@ func collectEffects(res dagql.AnyResult, span trace.Span, self dagql.AnyObjectRe
 	}
 	effectIDs = deduped
 
-	isObject := false
-	if _, ok := dagql.UnwrapAs[dagql.AnyObjectResult](res); ok {
-		isObject = true
+	var argIDs []string
+	if provider, ok := res.(interface{ ArgEffectIDs() []string }); ok {
+		argIDs = provider.ArgEffectIDs()
 	}
 
-	if isObject {
-		var argIDs []string
-		if provider, ok := res.(interface{ ArgEffectIDs() []string }); ok {
-			argIDs = provider.ArgEffectIDs()
-		}
-
-		filtered := effectIDs
-		if self != nil {
-			filtered = filterEffectIDs(filtered, self.EffectIDs())
-		}
-		if len(argIDs) > 0 {
-			filtered = filterEffectIDs(filtered, argIDs)
-		}
-		if len(filtered) > 0 {
-			span.SetAttributes(attribute.StringSlice(telemetry.EffectIDsAttr, filtered))
-		}
-	} else {
-		span.SetAttributes(attribute.StringSlice(telemetry.EffectIDsAttr, effectIDs))
+	filtered := effectIDs
+	if self != nil {
+		filtered = filterEffectIDs(filtered, self.EffectIDs())
 	}
-	if err == nil || *err == nil {
-		if !isObject && len(effectIDs) > 0 {
-			span.SetAttributes(attribute.StringSlice(telemetry.EffectsCompletedAttr, effectIDs))
+	if len(argIDs) > 0 {
+		filtered = filterEffectIDs(filtered, argIDs)
+	}
+	if len(filtered) > 0 {
+		span.SetAttributes(attribute.StringSlice(telemetry.EffectIDsAttr, filtered))
+		if err == nil || *err == nil {
+			span.SetAttributes(attribute.StringSlice(telemetry.EffectsCompletedAttr, filtered))
 		}
 	}
 }

@@ -754,6 +754,7 @@ func (container *Container) Build(
 	}
 
 	// FIXME: this is a terrible way to pass this around
+	capture := &buildkit.EffectIDCapture{}
 	solveCtx := buildkit.WithSecretTranslator(ctx, func(name string, optional bool) (string, error) {
 		llbID, ok := secretNameToLLBID[name]
 		if !ok {
@@ -765,6 +766,12 @@ func (container *Container) Build(
 		}
 		return llbID, nil
 	})
+	solveCtx = buildkit.WithEffectIDCapture(solveCtx, capture)
+	callEffectID := ""
+	if curID := dagql.CurrentID(ctx); curID != nil {
+		callEffectID = curID.Digest().String()
+		solveCtx = buildkit.WithEffectIDOverride(solveCtx, callEffectID)
+	}
 
 	res, err := bk.Solve(solveCtx, bkgw.SolveRequest{
 		Frontend:       "dockerfile.v0",
@@ -799,7 +806,11 @@ func (container *Container) Build(
 	if err != nil {
 		return nil, err
 	}
-	if dag != nil {
+	if callEffectID != "" {
+		container.EffectDgst = callEffectID
+	} else if capture.ID != "" {
+		container.EffectDgst = capture.ID
+	} else if dag != nil {
 		container.EffectDgst = dag.EffectID()
 	}
 	if err := dag.Walk(func(dag *buildkit.OpDAG) error {

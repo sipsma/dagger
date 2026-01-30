@@ -432,6 +432,15 @@ func (obj *CoreModObject) ConvertFromSDKResult(ctx context.Context, value any) (
 	if err != nil {
 		return nil, fmt.Errorf("CoreModObject.load %s: %w", idp.DisplaySelf(), err)
 	}
+	if len(val.EffectIDs()) == 0 {
+		if eff, ok := dagql.UnwrapAs[interface{ EffectDigest() string }](val); ok {
+			if dgst := eff.EffectDigest(); dgst != "" {
+				if with, ok := val.WithEffectIDs([]string{dgst}).(dagql.AnyObjectResult); ok {
+					val = with
+				}
+			}
+		}
+	}
 	return val, nil
 }
 

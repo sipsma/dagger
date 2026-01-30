@@ -718,7 +718,16 @@ func (db *DB) integrateSpan(span *Span) { //nolint: gocyclo
 			db.EffectSpans[span.EffectID] = NewSpanSet()
 		}
 		db.EffectSpans[span.EffectID].Add(span)
-		if span.IsFailed() {
+		failed := span.IsFailed()
+		if !failed {
+			for _, id := range span.EffectIDs {
+				if db.FailedEffects[id] {
+					failed = true
+					break
+				}
+			}
+		}
+		if failed {
 			db.FailedEffects[span.EffectID] = true
 		}
 		causes := db.CauseSpans[span.EffectID]

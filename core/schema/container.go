@@ -91,7 +91,7 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 				),
 			),
 
-		dagql.Func("rootfs", s.rootfs).
+		dagql.NodeFunc("rootfs", s.rootfs).
 			Doc(`Return a snapshot of the container's root filesystem. The snapshot can be modified then written back using withRootfs. Use that method for filesystem modifications.`),
 		dagql.Func("withRootfs", s.withRootfs).
 			Doc(`Change the container's root filesystem. The previous root filesystem will be lost.`).
@@ -671,7 +671,7 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 		dagql.Func("imageRef", s.imageRef).
 			Doc(`The unique image reference which can only be retrieved immediately after the 'Container.From' call.`),
 
-		dagql.Func("withExposedPort", s.withExposedPort).
+		dagql.NodeFunc("withExposedPort", s.withExposedPort).
 			Doc(`Expose a network port. Like EXPOSE in Dockerfile (but with healthcheck support)`,
 				`Exposed ports serve two purposes:`,
 				`- For health checks and introspection, when running services`,
@@ -694,7 +694,7 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 			Doc(`Retrieves the list of exposed ports.`,
 				`This includes ports already exposed by the image, even if not explicitly added with dagger.`),
 
-		dagql.Func("withServiceBinding", s.withServiceBinding).
+		dagql.NodeFunc("withServiceBinding", s.withServiceBinding).
 			Doc(`Establish a runtime dependency from a container to a network service.`,
 				`The service will be started automatically when needed and detached
 				when it is no longer needed, executing the default command if none is
@@ -1006,8 +1006,18 @@ func (s *containerSchema) pipeline(ctx context.Context, parent *core.Container, 
 	return parent, nil
 }
 
-func (s *containerSchema) rootfs(ctx context.Context, parent *core.Container, args struct{}) (*core.Directory, error) {
-	return parent.RootFS(ctx)
+func (s *containerSchema) rootfs(ctx context.Context, parent dagql.ObjectResult[*core.Container], args struct{}) (inst dagql.ObjectResult[*core.Directory], err error) {
+	srv, err := core.CurrentDagqlServer(ctx)
+	if err != nil {
+		return inst, fmt.Errorf("failed to get server: %w", err)
+	}
+
+	dir, err := parent.Self().RootFS(ctx)
+	if err != nil {
+		return inst, err
+	}
+
+	return dagql.NewObjectResultForCurrentID(ctx, srv, dir)
 }
 
 type containerExecArgs struct {
@@ -2515,18 +2525,23 @@ type containerWithServiceBindingArgs struct {
 	Service core.ServiceID
 }
 
-func (s *containerSchema) withServiceBinding(ctx context.Context, parent *core.Container, args containerWithServiceBindingArgs) (*core.Container, error) {
+func (s *containerSchema) withServiceBinding(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithServiceBindingArgs) (inst dagql.ObjectResult[*core.Container], err error) {
 	srv, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get server: %w", err)
+		return inst, fmt.Errorf("failed to get server: %w", err)
 	}
 
 	svc, err := args.Service.Load(ctx, srv)
 	if err != nil {
-		return nil, err
+		return inst, err
 	}
 
-	return parent.WithServiceBinding(ctx, svc, args.Alias)
+	ctr, err := parent.Self().WithServiceBinding(ctx, svc, args.Alias)
+	if err != nil {
+		return inst, err
+	}
+
+	return dagql.NewObjectResultForCurrentID(ctx, srv, ctr)
 }
 
 type containerWithExposedPortArgs struct {
@@ -2536,13 +2551,23 @@ type containerWithExposedPortArgs struct {
 	ExperimentalSkipHealthcheck bool `default:"false"`
 }
 
-func (s *containerSchema) withExposedPort(ctx context.Context, parent *core.Container, args containerWithExposedPortArgs) (*core.Container, error) {
-	return parent.WithExposedPort(core.Port{
+func (s *containerSchema) withExposedPort(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithExposedPortArgs) (inst dagql.ObjectResult[*core.Container], err error) {
+	srv, err := core.CurrentDagqlServer(ctx)
+	if err != nil {
+		return inst, fmt.Errorf("failed to get server: %w", err)
+	}
+
+	ctr, err := parent.Self().WithExposedPort(core.Port{
 		Protocol:                    args.Protocol,
 		Port:                        args.Port,
 		Description:                 args.Description,
 		ExperimentalSkipHealthcheck: args.ExperimentalSkipHealthcheck,
 	})
+	if err != nil {
+		return inst, err
+	}
+
+	return dagql.NewObjectResultForCurrentID(ctx, srv, ctr)
 }
 
 type containerWithoutExposedPortArgs struct {

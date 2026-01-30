@@ -114,6 +114,23 @@ type EffectIDsForCallProvider interface {
 	EffectIDsForCall(context.Context) ([]string, error)
 }
 
+// EffectIDsForCallScope indicates whether effect IDs belong to the call itself
+// or are inherited from arguments.
+type EffectIDsForCallScope int
+
+const (
+	// EffectIDsFromArgs indicates effect IDs are derived from call arguments.
+	EffectIDsFromArgs EffectIDsForCallScope = iota
+	// EffectIDsFromCall indicates effect IDs are produced by the call itself.
+	EffectIDsFromCall
+)
+
+// EffectIDsForCallScopeProvider can mark call-sourced effect IDs so they don't
+// get treated as argument dependencies.
+type EffectIDsForCallScopeProvider interface {
+	EffectIDsForCallScope() EffectIDsForCallScope
+}
+
 // AnyObjectResult is an AnyResult that wraps a selectable value (i.e. a graph object)
 type AnyObjectResult interface {
 	AnyResult

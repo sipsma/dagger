@@ -479,6 +479,10 @@ func (d RawDagOpInternalArgs) EffectIDsForCall(ctx context.Context) ([]string, e
 	return []string{id.Digest().String()}, nil
 }
 
+func (d RawDagOpInternalArgs) EffectIDsForCallScope() dagql.EffectIDsForCallScope {
+	return dagql.EffectIDsFromCall
+}
+
 func currentIDForRawDagOp(
 	ctx context.Context,
 	filename string,

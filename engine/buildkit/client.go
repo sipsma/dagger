@@ -156,31 +156,13 @@ func (c *Client) Solve(ctx context.Context, req bkgw.SolveRequest) (_ *Result, r
 	defer cancel(errors.New("solve done"))
 	ctx = withOutgoingContext(ctx)
 
-	recordOp := func(def *bksolverpb.Definition) error {
-		dag, err := DefToDAG(def)
-		if err != nil {
-			return err
-		}
-		spanCtx := trace.SpanContextFromContext(ctx)
-		rootClient := c.getRootClient()
-		rootClient.opsmu.Lock()
-		_ = dag.Walk(func(od *OpDAG) error {
-			rootClient.ops[*od.OpDigest] = opCtx{
-				od:  od,
-				ctx: spanCtx,
-			}
-			return nil
-		})
-		rootClient.opsmu.Unlock()
-		return nil
-	}
 	if req.Definition != nil {
-		if err := recordOp(req.Definition); err != nil {
+		if err := c.recordOp(ctx, req.Definition); err != nil {
 			return nil, fmt.Errorf("record def ops: %w", err)
 		}
 	}
 	for name, def := range req.FrontendInputs {
-		if err := recordOp(def); err != nil {
+		if err := c.recordOp(ctx, def); err != nil {
 			return nil, fmt.Errorf("record frontend input %s ops: %w", name, err)
 		}
 	}
@@ -217,6 +199,36 @@ func (c *Client) Solve(ctx context.Context, req bkgw.SolveRequest) (_ *Result, r
 		c.Refs[rf] = struct{}{}
 	}
 	return res, nil
+}
+
+func (c *Client) recordOp(ctx context.Context, def *bksolverpb.Definition) error {
+	dag, err := DefToDAG(def)
+	if err != nil {
+		return err
+	}
+	if dag != nil {
+		if override := effectIDOverrideFromContext(ctx); override != "" {
+			if dag.Metadata == nil {
+				dag.Metadata = &bksolverpb.OpMetadata{}
+			}
+			if dag.Metadata.Description == nil {
+				dag.Metadata.Description = map[string]string{}
+			}
+			dag.Metadata.Description["effectID"] = override
+		}
+	}
+	spanCtx := trace.SpanContextFromContext(ctx)
+	rootClient := c.getRootClient()
+	rootClient.opsmu.Lock()
+	_ = dag.Walk(func(od *OpDAG) error {
+		rootClient.ops[*od.OpDigest] = opCtx{
+			od:  od,
+			ctx: spanCtx,
+		}
+		return nil
+	})
+	rootClient.opsmu.Unlock()
+	return nil
 }
 
 func (c *Client) LookupOp(vertex digest.Digest) (*OpDAG, trace.SpanContext, bool) {
@@ -1001,12 +1013,25 @@ func newFilterGateway(client *Client, req bkgw.SolveRequest) *filteringGateway {
 func (gw *filteringGateway) Solve(ctx context.Context, req bkfrontend.SolveRequest, sid string) (*bkfrontend.Result, error) {
 	switch {
 	case req.Definition != nil && req.Definition.Def != nil:
-		if gw.secretTranslator != nil {
-			dag, err := DefToDAG(req.Definition)
+		var dag *OpDAG
+		var err error
+		if gw.secretTranslator != nil || effectIDCaptureFromContext(ctx) != nil {
+			dag, err = DefToDAG(req.Definition)
 			if err != nil {
 				return nil, err
 			}
+		}
 
+		if capture := effectIDCaptureFromContext(ctx); capture != nil && dag != nil {
+			if opCount := len(req.Definition.Def); opCount >= capture.MaxOps {
+				if effectID := dag.EffectID(); effectID != "" {
+					capture.ID = effectID
+					capture.MaxOps = opCount
+				}
+			}
+		}
+
+		if gw.secretTranslator != nil && dag != nil {
 			if err := dag.Walk(func(dag *OpDAG) error {
 				if _, ok := gw.skipInputs[*dag.OpDigest]; ok {
 					return SkipInputs
@@ -1043,6 +1068,10 @@ func (gw *filteringGateway) Solve(ctx context.Context, req bkfrontend.SolveReque
 				return nil, err
 			}
 			req.Definition = newDef
+		}
+
+		if err := gw.client.recordOp(ctx, req.Definition); err != nil {
+			return nil, fmt.Errorf("record frontend def ops: %w", err)
 		}
 
 		res, err := gw.FrontendLLBBridge.Solve(ctx, req, sid)
@@ -1107,6 +1136,45 @@ func SecretTranslatorFromContext(ctx context.Context) SecretTranslator {
 		return nil
 	}
 	return v.(SecretTranslator)
+}
+
+type effectIDCaptureKey struct{}
+type effectIDOverrideKey struct{}
+
+// EffectIDCapture tracks the root op effect ID from a frontend-generated definition.
+// The MaxOps heuristic prefers the largest definition seen during the solve.
+type EffectIDCapture struct {
+	ID     string
+	MaxOps int
+}
+
+// WithEffectIDCapture records the root op effect ID from a frontend-generated definition.
+func WithEffectIDCapture(ctx context.Context, dst *EffectIDCapture) context.Context {
+	return context.WithValue(ctx, effectIDCaptureKey{}, dst)
+}
+
+func effectIDCaptureFromContext(ctx context.Context) *EffectIDCapture {
+	v := ctx.Value(effectIDCaptureKey{})
+	if v == nil {
+		return nil
+	}
+	return v.(*EffectIDCapture)
+}
+
+// WithEffectIDOverride forces the root op effect ID in a frontend-generated definition.
+func WithEffectIDOverride(ctx context.Context, effectID string) context.Context {
+	if effectID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, effectIDOverrideKey{}, effectID)
+}
+
+func effectIDOverrideFromContext(ctx context.Context) string {
+	v := ctx.Value(effectIDOverrideKey{})
+	if v == nil {
+		return ""
+	}
+	return v.(string)
 }
 
 func ToEntitlementStrings(ents entitlements.Set) []string {

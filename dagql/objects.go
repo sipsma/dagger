@@ -570,8 +570,18 @@ func (r ObjectResult[T]) WithEffectIDs(effectIDs []string) AnyResult {
 	return r
 }
 
+func (r ObjectResult[T]) WithArgEffectIDs(effectIDs []string) AnyResult {
+	r.argEffectIDs = slices.Clone(effectIDs)
+	return r
+}
+
 func (r ObjectResult[T]) ObjectResultWithEffectIDs(effectIDs []string) ObjectResult[T] {
 	r.effectIDs = slices.Clone(effectIDs)
+	return r
+}
+
+func (r ObjectResult[T]) ObjectResultWithArgEffectIDs(effectIDs []string) ObjectResult[T] {
+	r.argEffectIDs = slices.Clone(effectIDs)
 	return r
 }
 
@@ -612,7 +622,7 @@ func inheritEffectIDs[T any](ctx context.Context, res AnyResult, self AnyResult,
 	if res == nil {
 		return res, nil
 	}
-	argIDs, err := effectIDsFromArgs(ctx, args)
+	argIDs, callIDs, err := effectIDsFromArgs(ctx, args)
 	if err != nil {
 		return nil, err
 	}
@@ -644,7 +654,7 @@ func inheritEffectIDs[T any](ctx context.Context, res AnyResult, self AnyResult,
 			}
 		}
 	}
-	res = mergeEffectIDs(res, selfIDs, argIDs, resIDs)
+	res = mergeEffectIDs(res, selfIDs, argIDs, callIDs, resIDs)
 	if setter, ok := res.(interface{ WithArgEffectIDs([]string) AnyResult }); ok {
 		res = setter.WithArgEffectIDs(argIDs)
 	}
@@ -691,8 +701,130 @@ func isDagqlObjectValue(ctx context.Context, v reflect.Value) bool {
 	return ok
 }
 
-func effectIDsFromArgs[T any](ctx context.Context, args T) ([]string, error) {
-	return collectEffectIDsFromValue(ctx, reflect.ValueOf(args), map[uintptr]struct{}{}, true)
+func effectIDsFromArgs[T any](ctx context.Context, args T) ([]string, []string, error) {
+	return collectEffectIDsFromValueWithScope(ctx, reflect.ValueOf(args), map[uintptr]struct{}{}, true)
+}
+
+func collectEffectIDsFromValueWithScope(ctx context.Context, v reflect.Value, seen map[uintptr]struct{}, allowProvider bool) ([]string, []string, error) {
+	if !v.IsValid() {
+		return nil, nil, nil
+	}
+	var argIDs []string
+	var callIDs []string
+	if v.CanInterface() {
+		if res, ok := v.Interface().(AnyResult); ok {
+			return res.EffectIDs(), nil, nil
+		}
+		if allowProvider {
+			if provider, ok := v.Interface().(EffectIDsForCallProvider); ok {
+				providerIDs, err := provider.EffectIDsForCall(ctx)
+				if err != nil {
+					return nil, nil, err
+				}
+				scope := EffectIDsFromArgs
+				if scoped, ok := v.Interface().(EffectIDsForCallScopeProvider); ok {
+					scope = scoped.EffectIDsForCallScope()
+				}
+				if v.Kind() != reflect.Struct {
+					if scope == EffectIDsFromCall {
+						return nil, providerIDs, nil
+					}
+					return providerIDs, nil, nil
+				}
+				if scope == EffectIDsFromCall {
+					callIDs = append(callIDs, providerIDs...)
+				} else {
+					argIDs = append(argIDs, providerIDs...)
+				}
+			}
+		}
+		if eff, ok := v.Interface().(interface{ EffectDigest() string }); ok {
+			if dgst := eff.EffectDigest(); dgst != "" {
+				argIDs = append(argIDs, dgst)
+			}
+		}
+	}
+	if allowProvider && v.CanAddr() && v.Addr().CanInterface() {
+		if provider, ok := v.Addr().Interface().(EffectIDsForCallProvider); ok {
+			providerIDs, err := provider.EffectIDsForCall(ctx)
+			if err != nil {
+				return nil, nil, err
+			}
+			scope := EffectIDsFromArgs
+			if scoped, ok := v.Addr().Interface().(EffectIDsForCallScopeProvider); ok {
+				scope = scoped.EffectIDsForCallScope()
+			}
+			if v.Kind() != reflect.Struct {
+				if scope == EffectIDsFromCall {
+					return nil, providerIDs, nil
+				}
+				return providerIDs, nil, nil
+			}
+			if scope == EffectIDsFromCall {
+				callIDs = append(callIDs, providerIDs...)
+			} else {
+				argIDs = append(argIDs, providerIDs...)
+			}
+		}
+	}
+
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Interface:
+		if v.IsNil() {
+			return argIDs, callIDs, nil
+		}
+		if v.Kind() == reflect.Ptr {
+			ptr := v.Pointer()
+			if ptr != 0 {
+				if _, ok := seen[ptr]; ok {
+					return argIDs, callIDs, nil
+				}
+				seen[ptr] = struct{}{}
+			}
+		}
+		childArgIDs, childCallIDs, err := collectEffectIDsFromValueWithScope(ctx, v.Elem(), seen, allowProvider)
+		if err != nil {
+			return nil, nil, err
+		}
+		argIDs = append(argIDs, childArgIDs...)
+		callIDs = append(callIDs, childCallIDs...)
+		return argIDs, callIDs, nil
+	case reflect.Struct:
+		if isDagqlObjectValue(ctx, v) {
+			return argIDs, callIDs, nil
+		}
+		for i := 0; i < v.NumField(); i++ {
+			childArgIDs, childCallIDs, err := collectEffectIDsFromValueWithScope(ctx, v.Field(i), seen, allowProvider)
+			if err != nil {
+				return nil, nil, err
+			}
+			argIDs = append(argIDs, childArgIDs...)
+			callIDs = append(callIDs, childCallIDs...)
+		}
+		return argIDs, callIDs, nil
+	case reflect.Slice, reflect.Array:
+		for i := 0; i < v.Len(); i++ {
+			childArgIDs, childCallIDs, err := collectEffectIDsFromValueWithScope(ctx, v.Index(i), seen, allowProvider)
+			if err != nil {
+				return nil, nil, err
+			}
+			argIDs = append(argIDs, childArgIDs...)
+			callIDs = append(callIDs, childCallIDs...)
+		}
+		return argIDs, callIDs, nil
+	case reflect.Map:
+		for _, key := range v.MapKeys() {
+			childArgIDs, childCallIDs, err := collectEffectIDsFromValueWithScope(ctx, v.MapIndex(key), seen, allowProvider)
+			if err != nil {
+				return nil, nil, err
+			}
+			argIDs = append(argIDs, childArgIDs...)
+			callIDs = append(callIDs, childCallIDs...)
+		}
+		return argIDs, callIDs, nil
+	default:
+		return argIDs, callIDs, nil
+	}
 }
 
 func collectEffectIDsFromValue(ctx context.Context, v reflect.Value, seen map[uintptr]struct{}, allowProvider bool) ([]string, error) {
