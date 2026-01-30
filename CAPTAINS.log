@@ -1,0 +1,70 @@
+$cache-expert We're removing the buildkit solver. Finally.
+
+This is an initial step that reduces one use of LLB and replaces it with IDs. We are getting rid of the PBDefinitions usage. This impacts telemetry mainly. Due to something called effects, which are lazy buildkit operations triggered on demand by dagql operations. Cause and effect get linked together in terms of spans and send span attributes that reference each other.
+
+I have a wip commit, latest on this branch. It's largely working but still has an issue with the case where the target of a solve is a scalar/list (i.e. not dir/container) and there are nested operations that buildkit just never sends spans for because the target was cached and thus nested dep never sending any spans (and similar situations).
+
+Part of the problem is probably that I never updated RawDagOp to actually be able to set this. Another might be that core/telemety.go is not recursively marking each dep as an effect (see diff of HEAD^ for what it used to look like).
+
+We're gonna fix all that though. We're gonna change the .EffectID interface method to be on the dagql.AnyResult interface and we're gonna make it be EffectIDs() []string so it can return multiple.
+
+That way it can be set for all 3 kinds of DagOps. You just gotta add a effectIDs field to Result[T] and an .WithEffectIDs method on both Result[T] and ObjectResult[T]. and pass the effect ID (which is the digest of the call.ID for the dagop) along. Append any from parent/args automatically in the various NodeFunc funcs. Yeah, I know it's O(n^2) space, but we already have that problem so this won't make it much worse. We'll fix that later, one step at a time :-)
+
+You also gotta add them in the dagop wrapper code.
+
+To test, run `dagger --progress plain call engine-dev test --parallel=12 --run='TestTelemetry/TestGolden'. Redirect output to a file so you don't get overwhemled by context. Failures will typically be in diff format and show expected vs actual telemetry output.
+
+READ YOUR SKILL DOCS IN FULL. THEY ARE NOT COMPLETE THOUGH EITHER YOU WILL NEED TO REVIEW ALL THE DAGOP CODE.
+
+You will be keeping all your notes in a file titled CAPTAINS.log. THE FIRST ENTRY MUST BE THIS PROMPT IN ITS ENTIRETY.
+
+After that you shall write periodic updates whenever something like the following happens:
+1. interesting
+2. success fixing a mistake
+3. a new problem
+4. new details that help solve a problem
+5. debugging stragies being followed
+6. motivational quotes
+7. learnings about the mechanics of complicated code
+
+But do not be limited to the above. Please write anything you think future you may find useful.
+
+AFTER EACH COMPACTION YOU MUST REVIEW CAPTAINS.log
+
+You have all night to do this. You're in a perfect flow state, jamming to some funky DnB. Time of your life. Solving everything.
+
+---
+Read cache-expert skill docs + core references (ids, dagql-api-server, cache-storage, debugging). Ready to dive into dagop/telemetry plumbing.
+
+---
+Noted core change: effect IDs must live on dagql.Result/AnyResult. RawDagOp is tricky because it returns scalars; likely need args/interface hook or wrapper to supply effect IDs to NodeFunc. Also core/telemetry collectEffects currently only compares EffectDigest; will need to switch to AnyResult.EffectIDs and probably drop self-filter.
+
+---
+Implemented effectIDs on dagql.Result/ObjectResult and added NodeFunc inheritance (self + args provider). RawDagOpInternalArgs now provides effect ID via currentIDForRawDagOp("output.json"). FS/Container dagop wrappers now attach effectIDs to ObjectResult from EffectDgst. Telemetry collectEffects now uses AnyResult.EffectIDs.
+
+---
+If a test fails ONLY due to a WithEnvVariable call that *used* to be NOT cached but now IS, that's fine honestly! That's probably more logical. So update the golden test files in dagql/idtui/ to account for that, if this changes.
+
+---
+Ran go test -update in dagql/idtui, which modified many golden files due to local run; reverted all golden changes to comply with requirement (only update WithEnvVariable-related expectations when certain).
+
+---
+Current issue: TestTelemetry/TestGolden diffs go well beyond WithEnvVariable caching. The big red flags are in nested-calls, pending, use-exec-service, fail-log/encapsulate, etc. Many steps flip from ✔ to $/○ and CACHED status toggles; pending test also shifts a later withExec from pending ○ to ERROR. That suggests effect/causal linkage is off after switching from LLB defs -> EffectIDs on AnyResult.
+
+Research so far:
+- In dagui, cached/pending state is derived from EffectIDs + EffectSpans + CompletedEffects. If a span has EffectIDs but no effect spans or CompletedEffects, it can show pending (○). If CompletedEffects are set, it may show cached ($) even without effect spans.
+- Buildkit spans set EffectIDAttr + EffectsCompletedAttr from OpDAG.EffectID (desc["effectID"] if present; else op digest). So EffectIDs on dagql spans must match that exact ID.
+- We now set EffectIDs by carrying IDs on AnyResult and via RawDagOpInternalArgs.EffectIDsForCall (using currentIDForRawDagOp digest), and for File/Directory/Container dagops by appending EffectDgst (currentIDFor*DagOp digest) to the ObjectResult.
+- However, withNewFile/withDirectory/withServiceBinding/withExposedPort are not dagops; their spans still show CACHED or not depending on how EffectIDs are (not) attached and how CompletedEffects/EffectSpans are populated. I suspect some EffectIDs are set but never see effect spans or completed effects, leading to pending/incorrect cached classification.
+
+Next steps I’m considering:
+- Inspect how effectID is injected into LLB descriptions (CustomOpWrapper.AsConstraintsOpt uses dagOpID.Digest()), and ensure EffectIDs set on AnyResult align with that. RawDagOp effect IDs are likely correct, but non-dagop operations may now be incorrectly marked as effects (or inherit effect IDs from args/self even when they shouldn’t), causing pending/cached flips.
+- Re-check inheritEffectIDs/collectEffectIDsFromValue: it pulls EffectIDs from self and any AnyResult inside args via reflection. This could over-attribute effect IDs to higher-level ops, changing UI cached/pending status broadly.
+- Narrow by comparing per-test diffs: nested-calls shows cached flags disappearing/turning to pending; pending test shows final withExec becoming ERROR instead of pending ○. Need to trace which spans now claim effect IDs but have no effect spans/completed effects.
+
+Debugging strategy:
+- Use targeted golden failures (e.g., use-no-exec-service log already shows only WithEnvVariable line change). For other failures, scan logs around the diff hunks to see which operations flipped to CACHED/○ and whether EffectIDsAttr was set for those spans.
+- Track down where EffectIDs are assigned for those particular ops (arg/self inheritance vs dagop wrappers).
+
+---
+Milestone: prepping first commit of current work (effectIDs on AnyResult + telemetry tweaks). NOTE TO SELF: there will be TWO commits total (commit now + later fixes). Also just adjusted core/telemetry.collectEffects to filter out effect IDs already present on self to avoid pending/cached misclassification.

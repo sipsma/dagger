@@ -43,23 +43,21 @@ func DagOp[T dagql.Typed, A any, R dagql.Typed](
 		return inst, err
 	}
 
-	filename := "output.json"
+	filename := rawDagOpFilename
 	curIDForRawDagOp, err := currentIDForRawDagOp(ctx, filename)
 	if err != nil {
 		return inst, err
 	}
 
-	// TODO:
-	// TODO:
-	// TODO:
-	// TODO:
-	// TODO: should we figure out how to set an effect digest here?
+	// Effect IDs for raw dagops are attached via RawDagOpInternalArgs.EffectIDsForCall.
 
 	return core.NewRawDagOp[R](ctx, srv, &core.RawDagOp{
 		ID:       curIDForRawDagOp, // FIXME: using this in the cache key means we effectively disable buildkit content caching
 		Filename: filename,
 	}, deps)
 }
+
+const rawDagOpFilename = "output.json"
 
 type PathFunc[T dagql.Typed, A any] func(ctx context.Context, val T, args A) (string, error)
 
@@ -79,7 +77,14 @@ func DagOpFileWrapper[T dagql.Typed, A DagOpInternalArgsIface](
 		if err != nil {
 			return inst, err
 		}
-		return dagql.NewObjectResultForCurrentID(ctx, srv, file)
+		inst, err = dagql.NewObjectResultForCurrentID(ctx, srv, file)
+		if err != nil {
+			return inst, err
+		}
+		if file.EffectDgst != "" {
+			inst = inst.ObjectResultWithEffectIDs(append(inst.EffectIDs(), file.EffectDgst))
+		}
+		return inst, nil
 	}
 }
 
@@ -169,6 +174,9 @@ func DagOpDirectoryWrapper[T dagql.Typed, A DagOpInternalArgsIface](
 		dirResult, err := dagql.NewObjectResultForCurrentID(ctx, srv, dir)
 		if err != nil {
 			return inst, err
+		}
+		if dir.EffectDgst != "" {
+			dirResult = dirResult.ObjectResultWithEffectIDs(append(dirResult.EffectIDs(), dir.EffectDgst))
 		}
 
 		o := getOpts(opts...)
@@ -394,7 +402,14 @@ func DagOpContainerWrapper[A DagOpInternalArgsIface](
 		if !o.keepImageRef {
 			ctr.ImageRef = ""
 		}
-		return dagql.NewObjectResultForCurrentID(ctx, srv, ctr)
+		inst, err = dagql.NewObjectResultForCurrentID(ctx, srv, ctr)
+		if err != nil {
+			return inst, err
+		}
+		if ctr.EffectDgst != "" {
+			inst = inst.ObjectResultWithEffectIDs(append(inst.EffectIDs(), ctr.EffectDgst))
+		}
+		return inst, nil
 	}
 }
 
@@ -451,6 +466,17 @@ type RawDagOpInternalArgs struct {
 	DagOpInternalArgs
 
 	DagOpFilename string `internal:"true" default:"" name:"dagOpFilename"`
+}
+
+func (d RawDagOpInternalArgs) EffectIDsForCall(ctx context.Context) ([]string, error) {
+	if d.InDagOp() {
+		return nil, nil
+	}
+	id, err := currentIDForRawDagOp(ctx, rawDagOpFilename)
+	if err != nil {
+		return nil, err
+	}
+	return []string{id.Digest().String()}, nil
 }
 
 func currentIDForRawDagOp(

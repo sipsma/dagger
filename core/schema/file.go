@@ -208,7 +208,7 @@ type fileExportArgs struct {
 	Path               string
 	AllowParentDirPath bool `default:"false"`
 
-	FSDagOpInternalArgs
+	RawDagOpInternalArgs
 }
 
 func (s *fileSchema) search(ctx context.Context, parent dagql.ObjectResult[*core.File], args searchArgs) (dagql.Array[*core.SearchResult], error) {

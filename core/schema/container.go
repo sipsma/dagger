@@ -877,7 +877,14 @@ func (s *containerSchema) from(ctx context.Context, parent dagql.ObjectResult[*c
 			ctr.FS.Self().Dir = "/"
 		}
 
-		return dagql.NewObjectResultForCurrentID(ctx, srv, ctr)
+		inst, err = dagql.NewObjectResultForCurrentID(ctx, srv, ctr)
+		if err != nil {
+			return inst, err
+		}
+		if ctr.EffectDgst != "" {
+			inst = inst.ObjectResultWithEffectIDs(append(inst.EffectIDs(), ctr.EffectDgst))
+		}
+		return inst, nil
 	}
 
 	if args.InDagOp() {
@@ -1063,7 +1070,14 @@ func (s *containerSchema) withExec(ctx context.Context, parent dagql.ObjectResul
 		}
 
 		ctr.ImageRef = ""
-		return dagql.NewObjectResultForCurrentID(ctx, srv, ctr)
+		inst, err = dagql.NewObjectResultForCurrentID(ctx, srv, ctr)
+		if err != nil {
+			return inst, err
+		}
+		if ctr.EffectDgst != "" {
+			inst = inst.ObjectResultWithEffectIDs(append(inst.EffectIDs(), ctr.EffectDgst))
+		}
+		return inst, nil
 	}
 
 	if args.SkipEntrypoint != nil {
@@ -1600,7 +1614,7 @@ type containerPublishArgs struct {
 	ForcedCompression dagql.Optional[core.ImageLayerCompression]
 	MediaTypes        core.ImageMediaTypes `default:"OCI"`
 
-	FSDagOpInternalArgs
+	RawDagOpInternalArgs
 }
 
 func (s *containerSchema) publish(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerPublishArgs) (dagql.String, error) {
@@ -2155,7 +2169,7 @@ type containerExportArgs struct {
 	MediaTypes        core.ImageMediaTypes `default:"OCI"`
 	Expand            bool                 `default:"false"`
 
-	FSDagOpInternalArgs
+	RawDagOpInternalArgs
 }
 
 func (s *containerSchema) export(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerExportArgs) (dagql.String, error) {
@@ -2259,7 +2273,7 @@ type containerExportImageArgs struct {
 	ForcedCompression dagql.Optional[core.ImageLayerCompression]
 	MediaTypes        core.ImageMediaTypes `default:"OCI"`
 
-	FSDagOpInternalArgs
+	RawDagOpInternalArgs
 }
 
 func (s *containerSchema) exportImage(

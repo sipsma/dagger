@@ -280,6 +280,7 @@ func (class Class[T]) New(val AnyResult) (AnyObjectResult, error) {
 		Result: Result[T]{
 			constructor: val.ID(),
 			self:        self,
+			effectIDs:   val.EffectIDs(),
 		},
 		class: class,
 	}, nil
@@ -339,6 +340,7 @@ type Result[T Typed] struct {
 	self               T
 	postCall           cache.PostCallFunc
 	safeToPersistCache bool
+	effectIDs          []string
 }
 
 var _ AnyResult = Result[Typed]{}
@@ -370,7 +372,11 @@ func (r Result[T]) DerefValue() (AnyResult, bool) {
 	if !ok {
 		return r, true
 	}
-	return derefableSelf.DerefToResult(r.constructor, r.postCall)
+	res, ok := derefableSelf.DerefToResult(r.constructor, r.postCall)
+	if !ok {
+		return nil, false
+	}
+	return mergeEffectIDs(res, r.effectIDs), true
 }
 
 func (r Result[T]) NthValue(nth int) (AnyResult, error) {
@@ -378,7 +384,15 @@ func (r Result[T]) NthValue(nth int) (AnyResult, error) {
 	if !ok {
 		return nil, fmt.Errorf("cannot get %dth value from %T", nth, r.self)
 	}
-	return enumerableSelf.NthValue(nth, r.constructor)
+	res, err := enumerableSelf.NthValue(nth, r.constructor)
+	if err != nil {
+		return nil, err
+	}
+	return mergeEffectIDs(res, r.effectIDs), nil
+}
+
+func (r Result[T]) EffectIDs() []string {
+	return r.effectIDs
 }
 
 func (r Result[T]) WithPostCall(fn cache.PostCallFunc) AnyResult {
@@ -388,6 +402,16 @@ func (r Result[T]) WithPostCall(fn cache.PostCallFunc) AnyResult {
 
 func (r Result[T]) ResultWithPostCall(fn cache.PostCallFunc) Result[T] {
 	r.postCall = fn
+	return r
+}
+
+func (r Result[T]) WithEffectIDs(effectIDs []string) AnyResult {
+	r.effectIDs = slices.Clone(effectIDs)
+	return r
+}
+
+func (r Result[T]) ResultWithEffectIDs(effectIDs []string) Result[T] {
+	r.effectIDs = slices.Clone(effectIDs)
 	return r
 }
 
@@ -412,6 +436,7 @@ func (r Result[T]) WithDigest(customDigest digest.Digest) Result[T] {
 		self:               r.self,
 		postCall:           r.postCall,
 		safeToPersistCache: r.safeToPersistCache,
+		effectIDs:          r.effectIDs,
 	}
 }
 
@@ -421,6 +446,7 @@ func (r Result[T]) WithContentDigest(customDigest digest.Digest) Result[T] {
 		self:               r.self,
 		postCall:           r.postCall,
 		safeToPersistCache: r.safeToPersistCache,
+		effectIDs:          r.effectIDs,
 	}
 }
 
@@ -443,6 +469,7 @@ func (r Result[T]) WithID(id *call.ID) AnyResult {
 		self:               r.self,
 		postCall:           r.postCall,
 		safeToPersistCache: r.safeToPersistCache,
+		effectIDs:          r.effectIDs,
 	}
 }
 
@@ -462,7 +489,11 @@ func (r ObjectResult[T]) DerefValue() (AnyResult, bool) {
 	if !ok {
 		return r, true
 	}
-	return derefableSelf.DerefToResult(r.constructor, r.postCall)
+	res, ok := derefableSelf.DerefToResult(r.constructor, r.postCall)
+	if !ok {
+		return nil, false
+	}
+	return mergeEffectIDs(res, r.effectIDs), true
 }
 
 func (r ObjectResult[T]) SetField(field reflect.Value) error {
@@ -481,6 +512,7 @@ func (r ObjectResult[T]) WithObjectDigest(customDigest digest.Digest) ObjectResu
 			self:               r.self,
 			postCall:           r.postCall,
 			safeToPersistCache: r.safeToPersistCache,
+			effectIDs:          r.effectIDs,
 		},
 		class: r.class,
 	}
@@ -493,6 +525,7 @@ func (r ObjectResult[T]) WithContentDigest(customDigest digest.Digest) ObjectRes
 			self:               r.self,
 			postCall:           r.postCall,
 			safeToPersistCache: r.safeToPersistCache,
+			effectIDs:          r.effectIDs,
 		},
 		class: r.class,
 	}
@@ -505,6 +538,7 @@ func (r ObjectResult[T]) WithID(id *call.ID) AnyResult {
 			self:               r.self,
 			postCall:           r.postCall,
 			safeToPersistCache: r.safeToPersistCache,
+			effectIDs:          r.effectIDs,
 		},
 		class: r.class,
 	}
@@ -513,6 +547,116 @@ func (r ObjectResult[T]) WithID(id *call.ID) AnyResult {
 func (r ObjectResult[T]) ObjectResultWithPostCall(fn cache.PostCallFunc) ObjectResult[T] {
 	r.postCall = fn
 	return r
+}
+
+func (r ObjectResult[T]) WithEffectIDs(effectIDs []string) AnyResult {
+	r.effectIDs = slices.Clone(effectIDs)
+	return r
+}
+
+func (r ObjectResult[T]) ObjectResultWithEffectIDs(effectIDs []string) ObjectResult[T] {
+	r.effectIDs = slices.Clone(effectIDs)
+	return r
+}
+
+func mergeEffectIDs(res AnyResult, extras ...[]string) AnyResult {
+	if res == nil {
+		return res
+	}
+	extraLen := 0
+	for _, extra := range extras {
+		extraLen += len(extra)
+	}
+	if extraLen == 0 {
+		return res
+	}
+	ids := append([]string(nil), res.EffectIDs()...)
+	for _, extra := range extras {
+		ids = append(ids, extra...)
+	}
+	return res.WithEffectIDs(ids)
+}
+
+func inheritEffectIDs[T any](ctx context.Context, res AnyResult, self AnyResult, args T) (AnyResult, error) {
+	if res == nil {
+		return res, nil
+	}
+	argIDs, err := effectIDsFromArgs(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	var selfIDs []string
+	if self != nil {
+		selfIDs = self.EffectIDs()
+	}
+	return mergeEffectIDs(res, selfIDs, argIDs), nil
+}
+
+func effectIDsFromArgs[T any](ctx context.Context, args T) ([]string, error) {
+	var ids []string
+	if provider, ok := any(args).(EffectIDsForCallProvider); ok {
+		argIDs, err := provider.EffectIDsForCall(ctx)
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, argIDs...)
+	} else if provider, ok := any(&args).(EffectIDsForCallProvider); ok {
+		argIDs, err := provider.EffectIDsForCall(ctx)
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, argIDs...)
+	}
+	ids = append(ids, collectEffectIDsFromValue(reflect.ValueOf(args), map[uintptr]struct{}{})...)
+	return ids, nil
+}
+
+func collectEffectIDsFromValue(v reflect.Value, seen map[uintptr]struct{}) []string {
+	if !v.IsValid() {
+		return nil
+	}
+	if v.CanInterface() {
+		if res, ok := v.Interface().(AnyResult); ok {
+			return res.EffectIDs()
+		}
+	}
+
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Interface:
+		if v.IsNil() {
+			return nil
+		}
+		if v.Kind() == reflect.Ptr {
+			ptr := v.Pointer()
+			if ptr != 0 {
+				if _, ok := seen[ptr]; ok {
+					return nil
+				}
+				seen[ptr] = struct{}{}
+			}
+		}
+		return collectEffectIDsFromValue(v.Elem(), seen)
+	case reflect.Struct:
+		var ids []string
+		for i := 0; i < v.NumField(); i++ {
+			ids = append(ids, collectEffectIDsFromValue(v.Field(i), seen)...)
+		}
+		return ids
+	case reflect.Slice, reflect.Array:
+		var ids []string
+		for i := 0; i < v.Len(); i++ {
+			ids = append(ids, collectEffectIDsFromValue(v.Index(i), seen)...)
+		}
+		return ids
+	case reflect.Map:
+		var ids []string
+		for _, key := range v.MapKeys() {
+			ids = append(ids, collectEffectIDsFromValue(v.MapIndex(key), seen)...)
+		}
+		return ids
+	default:
+		return nil
+	}
 }
 
 func NoopDone(res AnyResult, cached bool, rerr *error) {}
@@ -932,16 +1076,25 @@ func NodeFuncWithCacheKey[T Typed, A any, R any](
 				return nil, err
 			}
 
-			if res, ok := any(ret).(AnyResult); ok {
-				return res, nil
+			var res AnyResult
+			if anyRes, ok := any(ret).(AnyResult); ok {
+				res = anyRes
+			} else {
+				resTyped, err := builtinOrTyped(ret)
+				if err != nil {
+					return nil, fmt.Errorf("expected %T to be a Typed value, got %T: %w", ret, ret, err)
+				}
+				res, err = NewResultForCurrentID(ctx, resTyped)
+				if err != nil {
+					return nil, err
+				}
 			}
 
-			res, err := builtinOrTyped(ret)
+			res, err = inheritEffectIDs(ctx, res, self, args)
 			if err != nil {
-				return nil, fmt.Errorf("expected %T to be a Typed value, got %T: %w", ret, ret, err)
+				return nil, err
 			}
-
-			return NewResultForCurrentID(ctx, res)
+			return res, nil
 		},
 	}
 

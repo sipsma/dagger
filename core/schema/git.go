@@ -922,6 +922,9 @@ func (s *gitSchema) tree(ctx context.Context, parent dagql.ObjectResult[*core.Gi
 	if err != nil {
 		return inst, err
 	}
+	if dir.EffectDgst != "" {
+		inst = inst.ObjectResultWithEffectIDs(append(inst.EffectIDs(), dir.EffectDgst))
+	}
 
 	query, err := core.CurrentQuery(ctx)
 	if err != nil {

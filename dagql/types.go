@@ -89,8 +89,14 @@ type AnyResult interface {
 	// is an Enumerable. If the wrapped value is not Enumerable, it returns an error.
 	NthValue(int) (AnyResult, error)
 
+	// EffectIDs returns the effect IDs associated with the result.
+	EffectIDs() []string
+
 	// WithPostCall returns a new AnyResult with the given post-call function attached to it.
 	WithPostCall(fn cache.PostCallFunc) AnyResult
+
+	// WithEffectIDs returns a new AnyResult with the given effect IDs attached to it.
+	WithEffectIDs(effectIDs []string) AnyResult
 
 	// IsSafeToPersistCache returns whether it's safe to persist this result in the cache.
 	IsSafeToPersistCache() bool
@@ -100,6 +106,12 @@ type AnyResult interface {
 
 	// Set the ID associated with the result while keeping the underlying wrapped result the same.
 	WithID(id *call.ID) AnyResult
+}
+
+// EffectIDsForCallProvider can provide effect IDs derived from call context.
+// This is primarily used by dagop wrappers to associate effect IDs with results.
+type EffectIDsForCallProvider interface {
+	EffectIDsForCall(context.Context) ([]string, error)
 }
 
 // AnyObjectResult is an AnyResult that wraps a selectable value (i.e. a graph object)

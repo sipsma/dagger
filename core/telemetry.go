@@ -285,14 +285,31 @@ func logResult(ctx context.Context, res dagql.AnyResult, self dagql.AnyObjectRes
 // Effects will become complete as spans appear from Buildkit with a
 // corresponding effect ID.
 func collectEffects(res dagql.AnyResult, span trace.Span, self dagql.AnyObjectResult) {
-	var seenEffectDgst string
-	if self, ok := dagql.UnwrapAs[EffectfulResult](self); ok {
-		seenEffectDgst = self.EffectDigest()
+	if res == nil {
+		return
 	}
-
-	if res, ok := dagql.UnwrapAs[EffectfulResult](res); ok {
-		if effectDgst := res.EffectDigest(); effectDgst != "" && effectDgst != seenEffectDgst {
-			span.SetAttributes(attribute.StringSlice(telemetry.EffectIDsAttr, []string{effectDgst}))
+	if effectIDs := res.EffectIDs(); len(effectIDs) > 0 {
+		var seen map[string]struct{}
+		if self != nil {
+			if selfIDs := self.EffectIDs(); len(selfIDs) > 0 {
+				seen = make(map[string]struct{}, len(selfIDs))
+				for _, id := range selfIDs {
+					seen[id] = struct{}{}
+				}
+			}
+		}
+		var filtered []string
+		for _, id := range effectIDs {
+			if seen != nil {
+				if _, ok := seen[id]; ok {
+					continue
+				}
+				seen[id] = struct{}{}
+			}
+			filtered = append(filtered, id)
+		}
+		if len(filtered) > 0 {
+			span.SetAttributes(attribute.StringSlice(telemetry.EffectIDsAttr, filtered))
 		}
 	}
 }

@@ -167,5 +167,12 @@ func (s *httpSchema) http(ctx context.Context, parent dagql.ObjectResult[*core.Q
 		return inst, err
 	}
 
-	return dagql.NewObjectResultForID(file, srv, newID)
+	inst, err = dagql.NewObjectResultForID(file, srv, newID)
+	if err != nil {
+		return inst, err
+	}
+	if file.EffectDgst != "" {
+		inst = inst.ObjectResultWithEffectIDs(append(inst.EffectIDs(), file.EffectDgst))
+	}
+	return inst, nil
 }
