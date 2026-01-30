@@ -117,7 +117,42 @@ func AroundFunc(
 		defer telemetry.EndWithCause(span, err)
 		recordStatus(ctx, res, span, cached, id)
 		logResult(ctx, res, self, id)
-		collectEffects(res, span, self, err)
+		if res != nil {
+			switch spanName {
+			case "Dep.getFiles",
+				"Query.file",
+				"Container.withEnvVariable",
+				"Container.withServiceBinding":
+				var argIDs []string
+				if provider, ok := res.(interface{ ArgEffectIDs() []string }); ok {
+					argIDs = provider.ArgEffectIDs()
+				}
+				var selfIDs []string
+				if self != nil {
+					selfIDs = self.EffectIDs()
+				}
+				slog.InfoContext(ctx, "EFFECTDBG",
+					"span", spanName,
+					"effectIDs", res.EffectIDs(),
+					"argIDs", argIDs,
+					"selfIDs", selfIDs,
+					"resType", fmt.Sprintf("%T", res.Unwrap()),
+				)
+				if spanName == "Dep.getFiles" {
+					if arr, ok := res.Unwrap().(dagql.DynamicResultArrayOutput); ok {
+						for i, val := range arr.Values {
+							slog.InfoContext(ctx, "EFFECTDBG",
+								"span", spanName,
+								"idx", i,
+								"valType", fmt.Sprintf("%T", val),
+								"valEffectIDs", val.EffectIDs(),
+							)
+						}
+					}
+				}
+			}
+		}
+		collectEffects(res, span, self, err, id)
 		if id != nil && res != nil {
 			callDgst := id.Digest().String()
 			hasCall := false
@@ -315,7 +350,7 @@ func logResult(ctx context.Context, res dagql.AnyResult, self dagql.AnyObjectRes
 //
 // Effects will become complete as spans appear from Buildkit with a
 // corresponding effect ID.
-func collectEffects(res dagql.AnyResult, span trace.Span, self dagql.AnyObjectResult, err *error) {
+func collectEffects(res dagql.AnyResult, span trace.Span, self dagql.AnyObjectResult, err *error, id *call.ID) {
 	if res == nil {
 		return
 	}
@@ -334,6 +369,11 @@ func collectEffects(res dagql.AnyResult, span trace.Span, self dagql.AnyObjectRe
 	}
 	effectIDs = deduped
 
+	isObject := false
+	if _, ok := dagql.UnwrapAs[dagql.AnyObjectResult](res); ok {
+		isObject = true
+	}
+
 	var argIDs []string
 	if provider, ok := res.(interface{ ArgEffectIDs() []string }); ok {
 		argIDs = provider.ArgEffectIDs()
@@ -343,13 +383,22 @@ func collectEffects(res dagql.AnyResult, span trace.Span, self dagql.AnyObjectRe
 	if self != nil {
 		filtered = filterEffectIDs(filtered, self.EffectIDs())
 	}
+	callOnly := filtered
 	if len(argIDs) > 0 {
-		filtered = filterEffectIDs(filtered, argIDs)
+		callOnly = filterEffectIDs(callOnly, argIDs)
 	}
-	if len(filtered) > 0 {
-		span.SetAttributes(attribute.StringSlice(telemetry.EffectIDsAttr, filtered))
-		if err == nil || *err == nil {
-			span.SetAttributes(attribute.StringSlice(telemetry.EffectsCompletedAttr, filtered))
+
+	useIDs := callOnly
+	if len(useIDs) == 0 {
+		useIDs = filtered
+	}
+	if len(useIDs) == 0 && id != nil && id.Field() == "withEnvVariable" {
+		useIDs = effectIDs
+	}
+	if len(useIDs) > 0 {
+		span.SetAttributes(attribute.StringSlice(telemetry.EffectIDsAttr, useIDs))
+		if !isObject && (err == nil || *err == nil) {
+			span.SetAttributes(attribute.StringSlice(telemetry.EffectsCompletedAttr, useIDs))
 		}
 	}
 }

@@ -638,27 +638,63 @@ func inheritEffectIDs[T any](ctx context.Context, res AnyResult, self AnyResult,
 					resIDs = append(resIDs, dgst)
 				}
 			}
+			if arr, ok := unwrapped.(DynamicResultArrayOutput); ok {
+				for _, val := range arr.Values {
+					if val == nil {
+						continue
+					}
+					resIDs = append(resIDs, val.EffectIDs()...)
+				}
+			} else {
 
-			shouldScan := true
-			if srv := CurrentDagqlServer(ctx); srv != nil {
-				if _, ok := srv.ObjectType(unwrapped.Type().Name()); ok && !isCollectionValue(unwrapped) {
-					shouldScan = false
+				shouldScan := true
+				if srv := CurrentDagqlServer(ctx); srv != nil {
+					if _, ok := srv.ObjectType(unwrapped.Type().Name()); ok && !isCollectionValue(unwrapped) {
+						shouldScan = false
+					}
 				}
-			}
-			if shouldScan {
-				ids, err := collectEffectIDsFromValue(ctx, reflect.ValueOf(unwrapped), map[uintptr]struct{}{}, true)
-				if err != nil {
-					return nil, err
+				if shouldScan {
+					ids, err := collectEffectIDsFromValue(ctx, reflect.ValueOf(unwrapped), map[uintptr]struct{}{}, true)
+					if err != nil {
+						return nil, err
+					}
+					resIDs = append(resIDs, ids...)
 				}
-				resIDs = append(resIDs, ids...)
 			}
 		}
+	}
+	if id := CurrentID(ctx); id != nil && id.Field() == "getFiles" {
+		isObj := false
+		if _, ok := res.(AnyObjectResult); ok {
+			isObj = true
+		}
+		var objectTypeHit bool
+		if srv := CurrentDagqlServer(ctx); srv != nil && res != nil {
+			objectTypeName := reflect.TypeOf(res.Unwrap()).Name()
+			if objectTypeName != "" {
+				if _, ok := srv.ObjectType(objectTypeName); ok {
+					objectTypeHit = true
+				}
+			}
+		}
+		slog.InfoContext(ctx, "EFFECTDBG2",
+			"field", id.Field(),
+			"isObject", isObj,
+			"objectTypeHit", objectTypeHit,
+			"resType", fmt.Sprintf("%T", res.Unwrap()),
+			"resIDs", resIDs,
+		)
 	}
 	res = mergeEffectIDs(res, selfIDs, argIDs, callIDs, resIDs)
 	if setter, ok := res.(interface{ WithArgEffectIDs([]string) AnyResult }); ok {
 		res = setter.WithArgEffectIDs(argIDs)
 	}
 	return res, nil
+}
+
+// InheritEffectIDs applies effect ID inheritance for results produced outside of NodeFunc.
+func InheritEffectIDs(ctx context.Context, res AnyResult, self AnyResult, args any) (AnyResult, error) {
+	return inheritEffectIDs(ctx, res, self, args)
 }
 
 func isCollectionValue(val any) bool {

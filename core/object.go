@@ -521,7 +521,15 @@ func objFun(ctx context.Context, mod *Module, objDef *ObjectTypeDef, fun *Functi
 			sort.Slice(opts.Inputs, func(i, j int) bool {
 				return opts.Inputs[i].Name < opts.Inputs[j].Name
 			})
-			return modFun.Call(ctx, opts)
+			res, err := modFun.Call(ctx, opts)
+			if err != nil {
+				return nil, err
+			}
+			res, err = dagql.InheritEffectIDs(ctx, res, obj, args)
+			if err != nil {
+				return nil, err
+			}
+			return res, nil
 		},
 	}, nil
 }

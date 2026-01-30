@@ -928,6 +928,11 @@ func (i ID[T]) EffectIDsForCall(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, nil
 	}
+	if typed := res.Unwrap(); typed != nil {
+		if typed.Type().NamedType == "Service" {
+			return nil, nil
+		}
+	}
 	return res.EffectIDs(), nil
 }
 
