@@ -799,6 +799,9 @@ func (container *Container) Build(
 	if err != nil {
 		return nil, err
 	}
+	if dag != nil {
+		container.EffectDgst = dag.EffectID()
+	}
 	if err := dag.Walk(func(dag *buildkit.OpDAG) error {
 		// forcibly inject our trace context into each op, since st.Marshal
 		// isn't strong enough to do so

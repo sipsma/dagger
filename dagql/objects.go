@@ -563,16 +563,31 @@ func mergeEffectIDs(res AnyResult, extras ...[]string) AnyResult {
 	if res == nil {
 		return res
 	}
-	extraLen := 0
+	base := res.EffectIDs()
+	totalLen := len(base)
 	for _, extra := range extras {
-		extraLen += len(extra)
+		totalLen += len(extra)
 	}
-	if extraLen == 0 {
+	if totalLen == 0 {
 		return res
 	}
-	ids := append([]string(nil), res.EffectIDs()...)
+	seen := make(map[string]struct{}, totalLen)
+	ids := make([]string, 0, totalLen)
+	for _, id := range base {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
 	for _, extra := range extras {
-		ids = append(ids, extra...)
+		for _, id := range extra {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
 	}
 	return res.WithEffectIDs(ids)
 }
@@ -589,7 +604,19 @@ func inheritEffectIDs[T any](ctx context.Context, res AnyResult, self AnyResult,
 	if self != nil {
 		selfIDs = self.EffectIDs()
 	}
-	return mergeEffectIDs(res, selfIDs, argIDs), nil
+	var resIDs []string
+	if _, ok := res.(AnyObjectResult); !ok {
+		if unwrapped := res.Unwrap(); unwrapped != nil {
+			if srv := CurrentDagqlServer(ctx); srv != nil {
+				if _, ok := srv.ObjectType(unwrapped.Type().Name()); !ok {
+					resIDs = collectEffectIDsFromValue(reflect.ValueOf(unwrapped), map[uintptr]struct{}{})
+				}
+			} else {
+				resIDs = collectEffectIDsFromValue(reflect.ValueOf(unwrapped), map[uintptr]struct{}{})
+			}
+		}
+	}
+	return mergeEffectIDs(res, selfIDs, argIDs, resIDs), nil
 }
 
 func effectIDsFromArgs[T any](ctx context.Context, args T) ([]string, error) {

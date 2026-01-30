@@ -24,6 +24,8 @@ import (
 	"github.com/moby/locker"
 	"github.com/stretchr/testify/require"
 	"github.com/vektah/gqlparser/v2/ast"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
 type mockServer struct {
@@ -121,6 +123,12 @@ func (ms *mockServer) CloudEngineClient(context.Context, string, string, []strin
 }
 
 func (ms *mockServer) CleanMountNS() *os.File { return nil }
+func (ms *mockServer) CurrentLoggerProvider(context.Context) (*sdklog.LoggerProvider, error) {
+	return nil, nil
+}
+func (ms *mockServer) CurrentMeterProvider(context.Context) (*sdkmetric.MeterProvider, error) {
+	return nil, nil
+}
 
 func TestParseCallerCalleeRefs(t *testing.T) {
 	mID := call.New().Append(&ast.Type{}, "callee1")

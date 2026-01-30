@@ -68,3 +68,37 @@ Debugging strategy:
 
 ---
 Milestone: prepping first commit of current work (effectIDs on AnyResult + telemetry tweaks). NOTE TO SELF: there will be TWO commits total (commit now + later fixes). Also just adjusted core/telemetry.collectEffects to filter out effect IDs already present on self to avoid pending/cached misclassification.
+
+---
+Committed current work: 5baa5ce9f (Attach effect IDs to dagql results). This is commit 1 of 2 (per request). Will make another commit once tests/goldens are fixed.
+
+---
+New issue spotted while rerunning pending telemetry test: build failed because core/telemetry_test.go mockServer does not implement Server (missing CurrentLoggerProvider). Likely from recent Server interface change. Fix: add CurrentLoggerProvider + CurrentMeterProvider stubs returning nil in mockServer and import sdklog/sdkmetric.
+
+Current thinking: prior run failure wasn't a telemetry diff at all; compile error prevented tests from running. Need to re-run targeted TestTelemetry/TestGolden after fixing mockServer to actually see telemetry diffs with the new collectEffects filter.
+
+---
+Just a quick FYI: Directory.entries changing from uncache to cached is also totally fine. Can hand update the golden examples as needed for that one too.
+
+---
+Don't forget that you can println debug from the engine code to see what digests and such are set to what values wherever you want. The logs will show up in the command output, so just make them greppable with a prefix or similar. This can be very useful for figuring out why something may or may not be happening!!
+
+---
+Current issue: telemetry goldens still failing after EffectIDs plumbing. Biggest suspicion is dockerBuild (container build) lacks EffectDgst, so the dockerBuildFail call isn't linked to buildkit spans (root op digest). Plan: set container.EffectDgst in Container.Build using the root op digest from the dockerfile frontend definition (probably digest.FromBytes(newDef.Def[len-1]) or dag.EffectID()), so dagql spans can link to buildkit effect spans. Also re-run TestTelemetry/TestGolden to see if cached/pending diffs remain; only update goldens for WithEnvVariable + Directory.entries caching as approved.
+
+---
+Implemented dockerfile build effect ID: set container.EffectDgst = dag.EffectID() in Container.Build after DefToDAG so dockerBuild spans can link to buildkit effects (root op digest from frontend definition). Next: re-run TestTelemetry/TestGolden to see if dockerBuildFail error linking is fixed.
+
+---
+New issue: TestTelemetry/TestGolden/hello-world hung until go test timeout (30m). Suspect collectEffectIDsFromValue on *object* results is too expensive / may recurse into large object graphs. Adjusted inheritEffectIDs to only scan res.Unwrap() for non-object results (still handles list/scalar), skipping AnyObjectResult to avoid heavy traversal. Plan: rerun telemetry tests after this change.
+
+---
+Suspected hang source: EffectIDs exploding due to repeated merging from self+args (duplicates). Added deduping in mergeEffectIDs to keep effect ID lists from ballooning; should still be O(n^2) on unique deps but avoids exponential growth. Rerun telemetry tests next to see if hello-world still times out.
+
+---
+Hypothesis refinement: hang is during ModuleSource.ConfigExists in CLI, likely because Query.moduleSource returns dagql.Result[*ModuleSource] (not ObjectResult), so inheritEffectIDs was scanning the entire ModuleSource struct via reflection. Added check using CurrentDagqlServer/ObjectType to skip res.Unwrap scanning when the unwrapped type is an object (even if wrapped in Result), so we don't traverse object graphs like ModuleSource/Directory/Container. This should reduce overhead and avoid the 5m+ stall in engine-dev tests.
+
+---
+Current issue + thoughts (Jan 30): pending/nested-calls goldens still off. The last withExec in pending is showing ERROR because its span is inheriting effect IDs from the failing withExec (self) and then gets marked failed by that effect. Plan: update collectEffects to *exclude* effect IDs already on self so spans only link to new effects, but still mark EffectsCompleted for scalar/list results.
+
+Nested-calls is showing ○ pending for file/withFile/withDirectory; likely because effect IDs from ID args (FileID/DirectoryID/ContainerID) are not propagated. WithFile args use core.FileID, which is a dagql.ID that doesn't implement AnyResult, so inheritEffectIDs misses it. That means entries() never marks the file effect IDs completed. Plan: teach effectIDsFromArgs to pull effect IDs from dagql.ID inputs (probably via EffectIDsForCall on ID using CurrentDagqlServer.Load), or otherwise manually merge from loaded args in specific functions. Need to avoid recursion/overhead.
