@@ -341,6 +341,7 @@ type Result[T Typed] struct {
 	postCall           cache.PostCallFunc
 	safeToPersistCache bool
 	effectIDs          []string
+	argEffectIDs       []string
 }
 
 var _ AnyResult = Result[Typed]{}
@@ -395,6 +396,10 @@ func (r Result[T]) EffectIDs() []string {
 	return r.effectIDs
 }
 
+func (r Result[T]) ArgEffectIDs() []string {
+	return r.argEffectIDs
+}
+
 func (r Result[T]) WithPostCall(fn cache.PostCallFunc) AnyResult {
 	r.postCall = fn
 	return r
@@ -407,6 +412,11 @@ func (r Result[T]) ResultWithPostCall(fn cache.PostCallFunc) Result[T] {
 
 func (r Result[T]) WithEffectIDs(effectIDs []string) AnyResult {
 	r.effectIDs = slices.Clone(effectIDs)
+	return r
+}
+
+func (r Result[T]) WithArgEffectIDs(effectIDs []string) AnyResult {
+	r.argEffectIDs = slices.Clone(effectIDs)
 	return r
 }
 
@@ -437,6 +447,7 @@ func (r Result[T]) WithDigest(customDigest digest.Digest) Result[T] {
 		postCall:           r.postCall,
 		safeToPersistCache: r.safeToPersistCache,
 		effectIDs:          r.effectIDs,
+		argEffectIDs:       r.argEffectIDs,
 	}
 }
 
@@ -447,6 +458,7 @@ func (r Result[T]) WithContentDigest(customDigest digest.Digest) Result[T] {
 		postCall:           r.postCall,
 		safeToPersistCache: r.safeToPersistCache,
 		effectIDs:          r.effectIDs,
+		argEffectIDs:       r.argEffectIDs,
 	}
 }
 
@@ -470,6 +482,7 @@ func (r Result[T]) WithID(id *call.ID) AnyResult {
 		postCall:           r.postCall,
 		safeToPersistCache: r.safeToPersistCache,
 		effectIDs:          r.effectIDs,
+		argEffectIDs:       r.argEffectIDs,
 	}
 }
 
@@ -513,6 +526,7 @@ func (r ObjectResult[T]) WithObjectDigest(customDigest digest.Digest) ObjectResu
 			postCall:           r.postCall,
 			safeToPersistCache: r.safeToPersistCache,
 			effectIDs:          r.effectIDs,
+			argEffectIDs:       r.argEffectIDs,
 		},
 		class: r.class,
 	}
@@ -526,6 +540,7 @@ func (r ObjectResult[T]) WithContentDigest(customDigest digest.Digest) ObjectRes
 			postCall:           r.postCall,
 			safeToPersistCache: r.safeToPersistCache,
 			effectIDs:          r.effectIDs,
+			argEffectIDs:       r.argEffectIDs,
 		},
 		class: r.class,
 	}
@@ -539,6 +554,7 @@ func (r ObjectResult[T]) WithID(id *call.ID) AnyResult {
 			postCall:           r.postCall,
 			safeToPersistCache: r.safeToPersistCache,
 			effectIDs:          r.effectIDs,
+			argEffectIDs:       r.argEffectIDs,
 		},
 		class: r.class,
 	}
@@ -607,82 +623,169 @@ func inheritEffectIDs[T any](ctx context.Context, res AnyResult, self AnyResult,
 	var resIDs []string
 	if _, ok := res.(AnyObjectResult); !ok {
 		if unwrapped := res.Unwrap(); unwrapped != nil {
-			if srv := CurrentDagqlServer(ctx); srv != nil {
-				if _, ok := srv.ObjectType(unwrapped.Type().Name()); !ok {
-					resIDs = collectEffectIDsFromValue(reflect.ValueOf(unwrapped), map[uintptr]struct{}{})
+			if eff, ok := unwrapped.(interface{ EffectDigest() string }); ok {
+				if dgst := eff.EffectDigest(); dgst != "" {
+					resIDs = append(resIDs, dgst)
 				}
-			} else {
-				resIDs = collectEffectIDsFromValue(reflect.ValueOf(unwrapped), map[uintptr]struct{}{})
+			}
+
+			shouldScan := true
+			if srv := CurrentDagqlServer(ctx); srv != nil {
+				if _, ok := srv.ObjectType(unwrapped.Type().Name()); ok && !isCollectionValue(unwrapped) {
+					shouldScan = false
+				}
+			}
+			if shouldScan {
+				ids, err := collectEffectIDsFromValue(ctx, reflect.ValueOf(unwrapped), map[uintptr]struct{}{}, true)
+				if err != nil {
+					return nil, err
+				}
+				resIDs = append(resIDs, ids...)
 			}
 		}
 	}
-	return mergeEffectIDs(res, selfIDs, argIDs, resIDs), nil
+	res = mergeEffectIDs(res, selfIDs, argIDs, resIDs)
+	if setter, ok := res.(interface{ WithArgEffectIDs([]string) AnyResult }); ok {
+		res = setter.WithArgEffectIDs(argIDs)
+	}
+	return res, nil
+}
+
+func isCollectionValue(val any) bool {
+	v := reflect.ValueOf(val)
+	if !v.IsValid() {
+		return false
+	}
+	if v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return false
+		}
+		v = v.Elem()
+	}
+	switch v.Kind() {
+	case reflect.Slice, reflect.Array, reflect.Map:
+		return true
+	default:
+		return false
+	}
+}
+
+func isDagqlObjectValue(ctx context.Context, v reflect.Value) bool {
+	if !v.IsValid() {
+		return false
+	}
+	if v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return false
+		}
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return false
+	}
+	srv := CurrentDagqlServer(ctx)
+	if srv == nil {
+		return false
+	}
+	_, ok := srv.ObjectType(v.Type().Name())
+	return ok
 }
 
 func effectIDsFromArgs[T any](ctx context.Context, args T) ([]string, error) {
-	var ids []string
-	if provider, ok := any(args).(EffectIDsForCallProvider); ok {
-		argIDs, err := provider.EffectIDsForCall(ctx)
-		if err != nil {
-			return nil, err
-		}
-		ids = append(ids, argIDs...)
-	} else if provider, ok := any(&args).(EffectIDsForCallProvider); ok {
-		argIDs, err := provider.EffectIDsForCall(ctx)
-		if err != nil {
-			return nil, err
-		}
-		ids = append(ids, argIDs...)
-	}
-	ids = append(ids, collectEffectIDsFromValue(reflect.ValueOf(args), map[uintptr]struct{}{})...)
-	return ids, nil
+	return collectEffectIDsFromValue(ctx, reflect.ValueOf(args), map[uintptr]struct{}{}, true)
 }
 
-func collectEffectIDsFromValue(v reflect.Value, seen map[uintptr]struct{}) []string {
+func collectEffectIDsFromValue(ctx context.Context, v reflect.Value, seen map[uintptr]struct{}, allowProvider bool) ([]string, error) {
 	if !v.IsValid() {
-		return nil
+		return nil, nil
 	}
+	var ids []string
 	if v.CanInterface() {
 		if res, ok := v.Interface().(AnyResult); ok {
-			return res.EffectIDs()
+			return res.EffectIDs(), nil
+		}
+		if allowProvider {
+			if provider, ok := v.Interface().(EffectIDsForCallProvider); ok {
+				providerIDs, err := provider.EffectIDsForCall(ctx)
+				if err != nil {
+					return nil, err
+				}
+				if v.Kind() != reflect.Struct {
+					return providerIDs, nil
+				}
+				ids = append(ids, providerIDs...)
+			}
+		}
+		if eff, ok := v.Interface().(interface{ EffectDigest() string }); ok {
+			if dgst := eff.EffectDigest(); dgst != "" {
+				ids = append(ids, dgst)
+			}
+		}
+	}
+	if allowProvider && v.CanAddr() && v.Addr().CanInterface() {
+		if provider, ok := v.Addr().Interface().(EffectIDsForCallProvider); ok {
+			providerIDs, err := provider.EffectIDsForCall(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if v.Kind() != reflect.Struct {
+				return providerIDs, nil
+			}
+			ids = append(ids, providerIDs...)
 		}
 	}
 
 	switch v.Kind() {
 	case reflect.Ptr, reflect.Interface:
 		if v.IsNil() {
-			return nil
+			return ids, nil
 		}
 		if v.Kind() == reflect.Ptr {
 			ptr := v.Pointer()
 			if ptr != 0 {
 				if _, ok := seen[ptr]; ok {
-					return nil
+					return ids, nil
 				}
 				seen[ptr] = struct{}{}
 			}
 		}
-		return collectEffectIDsFromValue(v.Elem(), seen)
+		childIDs, err := collectEffectIDsFromValue(ctx, v.Elem(), seen, allowProvider)
+		if err != nil {
+			return nil, err
+		}
+		return append(ids, childIDs...), nil
 	case reflect.Struct:
-		var ids []string
+		if isDagqlObjectValue(ctx, v) {
+			return ids, nil
+		}
 		for i := 0; i < v.NumField(); i++ {
-			ids = append(ids, collectEffectIDsFromValue(v.Field(i), seen)...)
+			childIDs, err := collectEffectIDsFromValue(ctx, v.Field(i), seen, allowProvider)
+			if err != nil {
+				return nil, err
+			}
+			ids = append(ids, childIDs...)
 		}
-		return ids
+		return ids, nil
 	case reflect.Slice, reflect.Array:
-		var ids []string
 		for i := 0; i < v.Len(); i++ {
-			ids = append(ids, collectEffectIDsFromValue(v.Index(i), seen)...)
+			childIDs, err := collectEffectIDsFromValue(ctx, v.Index(i), seen, allowProvider)
+			if err != nil {
+				return nil, err
+			}
+			ids = append(ids, childIDs...)
 		}
-		return ids
+		return ids, nil
 	case reflect.Map:
-		var ids []string
 		for _, key := range v.MapKeys() {
-			ids = append(ids, collectEffectIDsFromValue(v.MapIndex(key), seen)...)
+			childIDs, err := collectEffectIDsFromValue(ctx, v.MapIndex(key), seen, allowProvider)
+			if err != nil {
+				return nil, err
+			}
+			ids = append(ids, childIDs...)
 		}
-		return ids
+		return ids, nil
 	default:
-		return nil
+		return ids, nil
 	}
 }
 

@@ -230,7 +230,11 @@ func normalizeRef(ref string) string {
 // recordStatus records the status of a call on a span.
 func recordStatus(ctx context.Context, res dagql.AnyResult, span trace.Span, cached bool, id *call.ID) {
 	if cached {
-		span.SetAttributes(attribute.Bool(telemetry.CachedAttr, true))
+		if _, ok := dagql.UnwrapAs[dagql.AnyObjectResult](res); !ok {
+			// object results rely on effect IDs rather than the dagql cache hit flag
+			// to avoid marking structural graph ops as cached
+			span.SetAttributes(attribute.Bool(telemetry.CachedAttr, true))
+		}
 	}
 
 	if ctx.Err() != nil {
@@ -288,25 +292,68 @@ func collectEffects(res dagql.AnyResult, span trace.Span, self dagql.AnyObjectRe
 	if res == nil {
 		return
 	}
-	if effectIDs := res.EffectIDs(); len(effectIDs) > 0 {
-		seen := make(map[string]struct{}, len(effectIDs))
-		var filtered []string
-		for _, id := range effectIDs {
-			if _, ok := seen[id]; ok {
-				continue
-			}
-			seen[id] = struct{}{}
-			filtered = append(filtered, id)
+	effectIDs := res.EffectIDs()
+	if len(effectIDs) == 0 {
+		return
+	}
+	seen := make(map[string]struct{}, len(effectIDs))
+	deduped := make([]string, 0, len(effectIDs))
+	for _, id := range effectIDs {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		deduped = append(deduped, id)
+	}
+	effectIDs = deduped
+
+	isObject := false
+	if _, ok := dagql.UnwrapAs[dagql.AnyObjectResult](res); ok {
+		isObject = true
+	}
+
+	if isObject {
+		var argIDs []string
+		if provider, ok := res.(interface{ ArgEffectIDs() []string }); ok {
+			argIDs = provider.ArgEffectIDs()
+		}
+
+		filtered := effectIDs
+		if self != nil {
+			filtered = filterEffectIDs(filtered, self.EffectIDs())
+		}
+		if len(argIDs) > 0 {
+			filtered = filterEffectIDs(filtered, argIDs)
 		}
 		if len(filtered) > 0 {
 			span.SetAttributes(attribute.StringSlice(telemetry.EffectIDsAttr, filtered))
-			if err == nil || *err == nil {
-				if _, ok := dagql.UnwrapAs[dagql.AnyObjectResult](res); !ok {
-					span.SetAttributes(attribute.StringSlice(telemetry.EffectsCompletedAttr, filtered))
-				}
-			}
+		}
+	} else {
+		span.SetAttributes(attribute.StringSlice(telemetry.EffectIDsAttr, effectIDs))
+	}
+	if err == nil || *err == nil {
+		if !isObject && len(effectIDs) > 0 {
+			span.SetAttributes(attribute.StringSlice(telemetry.EffectsCompletedAttr, effectIDs))
 		}
 	}
+}
+
+func filterEffectIDs(ids []string, exclude []string) []string {
+	if len(ids) == 0 || len(exclude) == 0 {
+		return ids
+	}
+	seen := make(map[string]struct{}, len(exclude))
+	for _, id := range exclude {
+		seen[id] = struct{}{}
+	}
+	var filtered []string
+	for _, id := range ids {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		filtered = append(filtered, id)
+	}
+	return filtered
 }
 
 // isIntrospection detects whether an ID is an introspection query.

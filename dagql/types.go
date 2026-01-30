@@ -897,6 +897,23 @@ func (i ID[T]) Load(ctx context.Context, server *Server) (res ObjectResult[T], _
 	return obj, nil
 }
 
+// EffectIDsForCall returns effect IDs for the object referenced by this ID.
+// Best-effort: if loading fails, no effect IDs are returned.
+func (i ID[T]) EffectIDsForCall(ctx context.Context) ([]string, error) {
+	if i.id == nil {
+		return nil, nil
+	}
+	srv := CurrentDagqlServer(ctx)
+	if srv == nil {
+		return nil, nil
+	}
+	res, err := i.Load(ctx, srv)
+	if err != nil {
+		return nil, nil
+	}
+	return res.EffectIDs(), nil
+}
+
 // Enumerable is a value that has a length and allows indexing.
 type Enumerable interface {
 	// Element returns the element of the Enumerable.
