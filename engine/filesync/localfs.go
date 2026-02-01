@@ -31,8 +31,8 @@ import (
 	"golang.org/x/sys/unix"
 
 	"dagger.io/dagger/telemetry"
-	"github.com/dagger/dagger/engine/cache"
 	"github.com/dagger/dagger/engine/contenthash"
+	"github.com/dagger/dagger/engine/filesync/cache"
 )
 
 const (

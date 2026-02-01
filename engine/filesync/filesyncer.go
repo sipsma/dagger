@@ -22,8 +22,8 @@ import (
 
 	"dagger.io/dagger/telemetry"
 	"github.com/dagger/dagger/engine"
-	"github.com/dagger/dagger/engine/cache"
 	"github.com/dagger/dagger/engine/client/pathutil"
+	"github.com/dagger/dagger/engine/filesync/cache"
 )
 
 type FileSyncer struct {
