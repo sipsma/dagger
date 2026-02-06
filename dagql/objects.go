@@ -2,7 +2,6 @@ package dagql
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"reflect"
@@ -17,7 +16,6 @@ import (
 
 	"github.com/dagger/dagger/dagql/call"
 	"github.com/dagger/dagger/engine"
-	"github.com/dagger/dagger/engine/cache"
 	"github.com/dagger/dagger/engine/slog"
 )
 
@@ -285,236 +283,6 @@ func (class Class[T]) New(val AnyResult) (AnyObjectResult, error) {
 	}, nil
 }
 
-// Call calls a field on the class against an instance.
-func (class Class[T]) Call(
-	ctx context.Context,
-	srv *Server,
-	node ObjectResult[T],
-	fieldName string,
-	view call.View,
-	args map[string]Input,
-) (*CacheValWithCallbacks, error) {
-	field, ok := class.Field(fieldName, view)
-	if !ok {
-		return nil, fmt.Errorf("Call: %s has no such field: %q", class.inner.Type().Name(), fieldName)
-	}
-
-	val, err := field.Func(ctx, node, args, view)
-	if err != nil {
-		return nil, err
-	}
-
-	// field implementations can optionally return a wrapped Typed val that has
-	// a callback that should always run after the field is called and additional
-	// caching metadata
-	var postCall cache.PostCallFunc
-	var safeToPersistCache bool
-	if val != nil {
-		postCall = val.GetPostCall()
-		safeToPersistCache = val.IsSafeToPersistCache()
-	}
-
-	// they can also return types that need to run a callback when they are
-	// removed from the cache (to clean up or release any state)
-	var onRelease cache.OnReleaseFunc
-	if onReleaser, ok := UnwrapAs[OnReleaser](val); ok {
-		onRelease = onReleaser.OnRelease
-	}
-
-	retVal := &CacheValWithCallbacks{
-		Value:              val,
-		PostCall:           postCall,
-		OnRelease:          onRelease,
-		SafeToPersistCache: safeToPersistCache,
-	}
-	if val != nil && val.ID() != nil {
-		retVal.ContentDigestKey = string(val.ID().ContentDigest())
-		retVal.ResultCallKey = string(val.ID().Digest())
-	}
-	return retVal, nil
-}
-
-type Result[T Typed] struct {
-	constructor        *call.ID
-	self               T
-	postCall           cache.PostCallFunc
-	safeToPersistCache bool
-}
-
-var _ AnyResult = Result[Typed]{}
-
-func (o Result[T]) Type() *ast.Type {
-	return o.self.Type()
-}
-
-// ID returns the ID of the instance.
-func (r Result[T]) ID() *call.ID {
-	return r.constructor
-}
-
-func (r Result[T]) Self() T {
-	return r.self
-}
-
-func (r Result[T]) SetField(field reflect.Value) error {
-	return assign(field, r.self)
-}
-
-// Unwrap returns the inner value of the instance.
-func (r Result[T]) Unwrap() Typed {
-	return r.self
-}
-
-func (r Result[T]) DerefValue() (AnyResult, bool) {
-	derefableSelf, ok := any(r.self).(DerefableResult)
-	if !ok {
-		return r, true
-	}
-	return derefableSelf.DerefToResult(r.constructor, r.postCall)
-}
-
-func (r Result[T]) NthValue(nth int) (AnyResult, error) {
-	enumerableSelf, ok := any(r.self).(Enumerable)
-	if !ok {
-		return nil, fmt.Errorf("cannot get %dth value from %T", nth, r.self)
-	}
-	return enumerableSelf.NthValue(nth, r.constructor)
-}
-
-func (r Result[T]) WithPostCall(fn cache.PostCallFunc) AnyResult {
-	r.postCall = fn
-	return r
-}
-
-func (r Result[T]) ResultWithPostCall(fn cache.PostCallFunc) Result[T] {
-	r.postCall = fn
-	return r
-}
-
-func (r Result[T]) WithSafeToPersistCache(safe bool) AnyResult {
-	r.safeToPersistCache = safe
-	return r
-}
-
-func (r Result[T]) IsSafeToPersistCache() bool {
-	return r.safeToPersistCache
-}
-
-// WithDigest returns an updated instance with the given metadata set.
-// customDigest overrides the default digest of the instance to the provided value.
-// NOTE: customDigest must be used with care as any instances with the same digest
-// will be considered equivalent and can thus replace each other in the cache.
-// Generally, customDigest should be used when there's a content-based digest available
-// that won't be caputured by the default, call-chain derived digest.
-func (r Result[T]) WithDigest(customDigest digest.Digest) Result[T] {
-	return Result[T]{
-		constructor:        r.constructor.WithDigest(customDigest),
-		self:               r.self,
-		postCall:           r.postCall,
-		safeToPersistCache: r.safeToPersistCache,
-	}
-}
-
-func (r Result[T]) WithContentDigest(customDigest digest.Digest) Result[T] {
-	return Result[T]{
-		constructor:        r.constructor.With(call.WithContentDigest(customDigest)),
-		self:               r.self,
-		postCall:           r.postCall,
-		safeToPersistCache: r.safeToPersistCache,
-	}
-}
-
-// String returns the instance in Class@sha256:... format.
-func (r Result[T]) String() string {
-	return fmt.Sprintf("%s@%s", r.self.Type().Name(), r.constructor.Digest())
-}
-
-func (r Result[T]) GetPostCall() cache.PostCallFunc {
-	return r.postCall
-}
-
-func (r Result[T]) MarshalJSON() ([]byte, error) {
-	return json.Marshal(r.ID())
-}
-
-func (r Result[T]) WithID(id *call.ID) AnyResult {
-	return Result[T]{
-		constructor:        id,
-		self:               r.self,
-		postCall:           r.postCall,
-		safeToPersistCache: r.safeToPersistCache,
-	}
-}
-
-type ObjectResult[T Typed] struct {
-	Result[T]
-	class Class[T]
-}
-
-var _ AnyObjectResult = ObjectResult[Typed]{}
-
-func (r ObjectResult[T]) MarshalJSON() ([]byte, error) {
-	return r.Result.MarshalJSON()
-}
-
-func (r ObjectResult[T]) DerefValue() (AnyResult, bool) {
-	derefableSelf, ok := any(r.self).(DerefableResult)
-	if !ok {
-		return r, true
-	}
-	return derefableSelf.DerefToResult(r.constructor, r.postCall)
-}
-
-func (r ObjectResult[T]) SetField(field reflect.Value) error {
-	return assign(field, r.Result)
-}
-
-// ObjectType returns the ObjectType of the instance.
-func (r ObjectResult[T]) ObjectType() ObjectType {
-	return r.class
-}
-
-func (r ObjectResult[T]) WithObjectDigest(customDigest digest.Digest) ObjectResult[T] {
-	return ObjectResult[T]{
-		Result: Result[T]{
-			constructor:        r.constructor.WithDigest(customDigest),
-			self:               r.self,
-			postCall:           r.postCall,
-			safeToPersistCache: r.safeToPersistCache,
-		},
-		class: r.class,
-	}
-}
-
-func (r ObjectResult[T]) WithContentDigest(customDigest digest.Digest) ObjectResult[T] {
-	return ObjectResult[T]{
-		Result: Result[T]{
-			constructor:        r.constructor.With(call.WithContentDigest(customDigest)),
-			self:               r.self,
-			postCall:           r.postCall,
-			safeToPersistCache: r.safeToPersistCache,
-		},
-		class: r.class,
-	}
-}
-
-func (r ObjectResult[T]) WithID(id *call.ID) AnyResult {
-	return ObjectResult[T]{
-		Result: Result[T]{
-			constructor:        id,
-			self:               r.self,
-			postCall:           r.postCall,
-			safeToPersistCache: r.safeToPersistCache,
-		},
-		class: r.class,
-	}
-}
-
-func (r ObjectResult[T]) ObjectResultWithPostCall(fn cache.PostCallFunc) ObjectResult[T] {
-	r.postCall = fn
-	return r
-}
-
 func NoopDone(res AnyResult, cached bool, rerr *error) {}
 
 // Select calls the field on the instance specified by the selector
@@ -759,18 +527,23 @@ func (r ObjectResult[T]) call(
 		}))
 	}
 
-	res, err := s.Cache.GetOrInitializeWithCallbacks(ctx, cacheKey, func(ctx context.Context) (*CacheValWithCallbacks, error) {
-		valWithCallbacks, err := r.class.Call(ctx, s, r, newID.Field(), newID.View(), inputArgs)
+	res, err := s.Cache.GetOrInitialize(ctx, cacheKey, func(ctx context.Context) (AnyResult, error) {
+		fieldName := newID.Field()
+		view := newID.View()
+		field, ok := r.class.Field(fieldName, view)
+		if !ok {
+			return nil, fmt.Errorf("Call: %s has no such field: %q", r.class.inner.Type().Name(), fieldName)
+		}
+
+		val, err := field.Func(ctx, r, inputArgs, view)
 		if err != nil {
 			return nil, err
 		}
-		val := valWithCallbacks.Value
-
 		if val == nil {
 			return nil, nil
 		}
 
-		val, ok := val.DerefValue()
+		val, ok = val.DerefValue()
 		if !ok {
 			return nil, nil
 		}
@@ -786,32 +559,24 @@ func (r ObjectResult[T]) call(
 			}
 		}
 
-		return &CacheValWithCallbacks{
-			Value:              val,
-			PostCall:           valWithCallbacks.PostCall,
-			OnRelease:          valWithCallbacks.OnRelease,
-			SafeToPersistCache: valWithCallbacks.SafeToPersistCache,
-			ContentDigestKey:   string(val.ID().ContentDigest()),
-			ResultCallKey:      string(val.ID().Digest()),
-		}, nil
+		return val, nil
 	}, opts...)
-
 	if err != nil {
 		return nil, err
 	}
+
 	if err := res.PostCall(ctx); err != nil {
 		return nil, fmt.Errorf("post-call error: %w", err)
 	}
-	val := res.Result()
 	// if the cache hit was only due to a matching content digest, rather than recipe,
 	// keep using the same ID as the input. This ensures that the client keeps seeing
 	// the recipe they expected rather than a different random one that happened to
 	// have the same content, which still allowing the underlying result be re-used.
 	if res.HitContentDigestCache() {
-		val = val.WithID(newID)
+		res = res.WithID(newID)
 	}
 
-	return val, nil
+	return res, nil
 }
 
 type ViewFilter interface {

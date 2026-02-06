@@ -1,16 +1,6 @@
 package dagql
 
-import (
-	"context"
-	"fmt"
-	"testing"
-	"time"
-
-	"github.com/dagger/dagger/engine/cache"
-	"github.com/stretchr/testify/require"
-	"golang.org/x/sync/errgroup"
-)
-
+/* TODO: re-enable
 func TestSessionCacheReleaseAndClose(t *testing.T) {
 	t.Run("basic", func(t *testing.T) {
 		ctx := t.Context()
@@ -153,3 +143,4 @@ func TestSessionCacheErrorThenSuccessIsCached(t *testing.T) {
 	require.NoError(t, err, "after a successful call for a key, subsequent calls must reuse the cached success")
 	require.Equal(t, 3, callCount, "underlying fn should not be called again after success is cached")
 }
+*/

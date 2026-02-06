@@ -1,45 +1,36 @@
-package cache
+package dagql
 
 import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
+	"reflect"
 	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
 
+	"github.com/dagger/dagger/dagql/call"
+	cachedb "github.com/dagger/dagger/dagql/db"
 	"github.com/dagger/dagger/engine"
-	cachedb "github.com/dagger/dagger/engine/cache/db"
 	"github.com/dagger/dagger/engine/slog"
 	"github.com/dagger/dagger/util/hashutil"
+	"github.com/opencontainers/go-digest"
+	"github.com/vektah/gqlparser/v2/ast"
 )
 
-type Cache[K KeyType, V any] interface {
-	// Using the given key, either return an already cached value for that key or initialize
-	// an entry in the cache with the given value for that key.
-	GetOrInitializeValue(context.Context, CacheKey[K], V) (Result[K, V], error)
-
+type Cache interface {
 	// Using the given key, either return an already cached value for that key or initialize a
 	// new value using the given function. If the function returns an error, the error is returned.
 	GetOrInitialize(
 		context.Context,
-		CacheKey[K],
-		func(context.Context) (V, error),
-	) (Result[K, V], error)
-
-	// Using the given key, either return an already cached value for that key or initialize a
-	// new value using the given function. If the function returns an error, the error is returned.
-	// The function returns a ValueWithCallbacks struct that contains the value and optionally
-	// any additional callbacks for various parts of the cache lifecycle.
-	GetOrInitializeWithCallbacks(
-		context.Context,
-		CacheKey[K],
-		func(context.Context) (*ValueWithCallbacks[V], error),
-	) (Result[K, V], error)
+		CacheKey,
+		func(context.Context) (AnyResult, error),
+	) (AnyResult, error)
 
 	// Returns the number of entries in the cache.
 	Size() int
@@ -48,22 +39,14 @@ type Cache[K KeyType, V any] interface {
 	GCLoop(context.Context)
 }
 
-type Result[K KeyType, V any] interface {
-	Result() V
-	Release(context.Context) error
-	PostCall(context.Context) error
-	HitCache() bool
-	HitContentDigestCache() bool
+func ValueFunc(v AnyResult) func(context.Context) (AnyResult, error) {
+	return func(context.Context) (AnyResult, error) {
+		return v, nil
+	}
 }
 
-type KeyType = interface {
-	~string
-}
-
-type CacheKey[K KeyType] struct {
-	// CallKey is identifies the the call. If a call has already been completed with this
-	// CallKey and it is not expired, its cached result will be returned.
-	CallKey K
+type CacheKey struct {
+	ID *call.ID
 
 	// ConcurrencyKey is used to determine whether *in-progress* calls should be deduplicated.
 	// If a call with a given (ResultKey, ConcurrencyKey) pair is already in progress, and
@@ -73,44 +56,13 @@ type CacheKey[K KeyType] struct {
 	// If two calls have the same ResultKey but different ConcurrencyKeys, they will not be deduped.
 	//
 	// If ConcurrencyKey is the zero value for K, no deduplication of in-progress calls will be done.
-	ConcurrencyKey K
+	ConcurrencyKey string
 
 	// TTL is the time-to-live for the cached result of this call, in seconds.
 	TTL int64
 
 	// DoNotCache indicates that this call should not be cached at all, simply ran.
 	DoNotCache bool
-
-	// An optional separate key representing the content digest of the result. The CallKey is preferred
-	// for cache hits, but the content digest key is checked as a secondary fallback if it is set.
-	ContentDigestKey K
-}
-
-type PostCallFunc = func(context.Context) error
-
-type OnReleaseFunc = func(context.Context) error
-
-type ValueWithCallbacks[V any] struct {
-	// The actual value to cache
-	Value V
-
-	// If set, a function that should be called whenever the value is returned from the cache (whether newly initialized or not)
-	PostCall PostCallFunc
-
-	// If set, this function will be called when a result is removed from the cache
-	OnRelease OnReleaseFunc
-
-	// If true, indicates that it is safe to persist this value in the cache db (i.e. does not have
-	// any in-memory only data).
-	SafeToPersistCache bool
-
-	// An optional separate key representing the content digest of the result.
-	ContentDigestKey string
-
-	// An optional separate call key for the result. This may be set for instance when a call returns a result from
-	// a separate call, in which case ResultCallKey would be the call key of that separate call.
-	// e.g. address("/foo").directory may return a result with ResultCallKey for the call host.directory("/foo")
-	ResultCallKey string
 }
 
 type ctxStorageKey struct{}
@@ -133,8 +85,8 @@ func ctxWithStorageKey(ctx context.Context, key string) context.Context {
 
 var ErrCacheRecursiveCall = fmt.Errorf("recursive call detected")
 
-func NewCache[K KeyType, V any](ctx context.Context, dbPath string) (Cache[K, V], error) {
-	c := &cache[K, V]{}
+func NewCache(ctx context.Context, dbPath string) (Cache, error) {
+	c := &cache{}
 
 	if dbPath == "" {
 		return c, nil
@@ -184,18 +136,18 @@ func NewCache[K KeyType, V any](ctx context.Context, dbPath string) (Cache[K, V]
 	return c, nil
 }
 
-type cache[K KeyType, V any] struct {
+type cache struct {
 	mu sync.Mutex
 
 	// calls that are in progress, keyed by a combination of the call key and the concurrency key
 	// two calls with the same call+concurrency key will be "single-flighted" (only one will actually run)
-	ongoingCalls map[callConcurrencyKeys]*result[K, V]
+	ongoingCalls map[callConcurrencyKeys]*result
 
 	// calls that have completed successfully and are cached, keyed by the storage key
-	completedCalls map[string]*resultList[K, V]
+	completedCalls map[string]*resultList[string, AnyResult]
 
 	// calls that have completed successfully and are cached, keyed by content digest key
-	completedCallsByContent map[string]*resultList[K, V]
+	completedCallsByContent map[string]*resultList[string, AnyResult]
 
 	// db for persistence; currently only used for metadata supporting ttl-based expiration
 	db *cachedb.Queries
@@ -206,22 +158,26 @@ type callConcurrencyKeys struct {
 	concurrencyKey string
 }
 
-var _ Cache[string, string] = &cache[string, string]{}
+var _ Cache = &cache{}
 
-type result[K KeyType, V any] struct {
-	cache *cache[K, V]
+type PostCallFunc = func(context.Context) error
+
+type OnReleaseFunc = func(context.Context) error
+
+type result struct {
+	cache *cache
 
 	storageKey          string              // key to cache.completedCalls
 	callConcurrencyKeys callConcurrencyKeys // key to cache.ongoingCalls
 
-	val                V
+	val                AnyResult
 	err                error
 	safeToPersistCache bool
 
 	// optional content digest key set on the result
-	contentDigestKey K
+	contentDigestKey string
 	// optional result call key set on the result (see ValueWithCallbacks.ResultCallKey)
-	resultCallKey K
+	resultCallKey string
 
 	persistToDB func(context.Context) error
 	postCall    PostCallFunc
@@ -234,34 +190,199 @@ type result[K KeyType, V any] struct {
 	refCount int
 }
 
-// perCallResult wraps result with metadata that is specific to a single call,
-// as opposed to the shared metadata for all instances of a result. e.g. whether
-// the result was returned from cache or new.
-type perCallResult[K KeyType, V any] struct {
-	*result[K, V]
+type Result[T Typed] struct {
+	constructor        *call.ID
+	self               T
+	postCall           PostCallFunc
+	safeToPersistCache bool
 
-	// whether there was a cache hit for this call
-	hitCache bool
-	// whether there was a content digest cache hit specifically for this call
+	hitCache              bool
 	hitContentDigestCache bool
 }
 
-func (r *perCallResult[K, V]) HitCache() bool {
-	return r.hitCache
+var _ AnyResult = Result[Typed]{}
+
+func (o Result[T]) Type() *ast.Type {
+	return o.self.Type()
 }
 
-func (r *perCallResult[K, V]) HitContentDigestCache() bool {
-	return r.hitContentDigestCache
+// ID returns the ID of the instance.
+func (r Result[T]) ID() *call.ID {
+	return r.constructor
 }
 
-var _ Result[string, string] = &perCallResult[string, string]{}
-
-type cacheContextKey[K KeyType, V any] struct {
-	key   K
-	cache *cache[K, V]
+func (r Result[T]) Self() T {
+	return r.self
 }
 
-func (c *cache[K, V]) GCLoop(ctx context.Context) {
+func (r Result[T]) SetField(field reflect.Value) error {
+	return assign(field, r.self)
+}
+
+// Unwrap returns the inner value of the instance.
+func (r Result[T]) Unwrap() Typed {
+	return r.self
+}
+
+func (r Result[T]) DerefValue() (AnyResult, bool) {
+	derefableSelf, ok := any(r.self).(DerefableResult)
+	if !ok {
+		return r, true
+	}
+	return derefableSelf.DerefToResult(r.constructor, r.postCall)
+}
+
+func (r Result[T]) NthValue(nth int) (AnyResult, error) {
+	enumerableSelf, ok := any(r.self).(Enumerable)
+	if !ok {
+		return nil, fmt.Errorf("cannot get %dth value from %T", nth, r.self)
+	}
+	return enumerableSelf.NthValue(nth, r.constructor)
+}
+
+func (r Result[T]) WithPostCall(fn PostCallFunc) AnyResult {
+	r.postCall = fn
+	return r
+}
+
+func (r Result[T]) ResultWithPostCall(fn PostCallFunc) Result[T] {
+	r.postCall = fn
+	return r
+}
+
+func (r Result[T]) WithSafeToPersistCache(safe bool) AnyResult {
+	r.safeToPersistCache = safe
+	return r
+}
+
+func (r Result[T]) IsSafeToPersistCache() bool {
+	return r.safeToPersistCache
+}
+
+// WithDigest returns an updated instance with the given metadata set.
+// customDigest overrides the default digest of the instance to the provided value.
+// NOTE: customDigest must be used with care as any instances with the same digest
+// will be considered equivalent and can thus replace each other in the cache.
+// Generally, customDigest should be used when there's a content-based digest available
+// that won't be caputured by the default, call-chain derived digest.
+func (r Result[T]) WithDigest(customDigest digest.Digest) Result[T] {
+	return Result[T]{
+		constructor:        r.constructor.WithDigest(customDigest),
+		self:               r.self,
+		postCall:           r.postCall,
+		safeToPersistCache: r.safeToPersistCache,
+	}
+}
+
+func (r Result[T]) WithContentDigest(customDigest digest.Digest) Result[T] {
+	return Result[T]{
+		constructor:        r.constructor.With(call.WithContentDigest(customDigest)),
+		self:               r.self,
+		postCall:           r.postCall,
+		safeToPersistCache: r.safeToPersistCache,
+	}
+}
+
+// String returns the instance in Class@sha256:... format.
+func (r Result[T]) String() string {
+	return fmt.Sprintf("%s@%s", r.self.Type().Name(), r.constructor.Digest())
+}
+
+func (r Result[T]) PostCall(ctx context.Context) error {
+	if r.postCall != nil {
+		return r.postCall(ctx)
+	}
+	return nil
+}
+
+func (r Result[T]) MarshalJSON() ([]byte, error) {
+	return json.Marshal(r.ID())
+}
+
+func (r Result[T]) WithID(id *call.ID) AnyResult {
+	return Result[T]{
+		constructor:        id,
+		self:               r.self,
+		postCall:           r.postCall,
+		safeToPersistCache: r.safeToPersistCache,
+	}
+}
+
+type ObjectResult[T Typed] struct {
+	Result[T]
+	class Class[T]
+}
+
+var _ AnyObjectResult = ObjectResult[Typed]{}
+
+func (r ObjectResult[T]) MarshalJSON() ([]byte, error) {
+	return r.Result.MarshalJSON()
+}
+
+func (r ObjectResult[T]) DerefValue() (AnyResult, bool) {
+	derefableSelf, ok := any(r.self).(DerefableResult)
+	if !ok {
+		return r, true
+	}
+	return derefableSelf.DerefToResult(r.constructor, r.postCall)
+}
+
+func (r ObjectResult[T]) SetField(field reflect.Value) error {
+	return assign(field, r.Result)
+}
+
+// ObjectType returns the ObjectType of the instance.
+func (r ObjectResult[T]) ObjectType() ObjectType {
+	return r.class
+}
+
+func (r ObjectResult[T]) WithObjectDigest(customDigest digest.Digest) ObjectResult[T] {
+	return ObjectResult[T]{
+		Result: Result[T]{
+			constructor:        r.constructor.WithDigest(customDigest),
+			self:               r.self,
+			postCall:           r.postCall,
+			safeToPersistCache: r.safeToPersistCache,
+		},
+		class: r.class,
+	}
+}
+
+func (r ObjectResult[T]) WithContentDigest(customDigest digest.Digest) ObjectResult[T] {
+	return ObjectResult[T]{
+		Result: Result[T]{
+			constructor:        r.constructor.With(call.WithContentDigest(customDigest)),
+			self:               r.self,
+			postCall:           r.postCall,
+			safeToPersistCache: r.safeToPersistCache,
+		},
+		class: r.class,
+	}
+}
+
+func (r ObjectResult[T]) WithID(id *call.ID) AnyResult {
+	return ObjectResult[T]{
+		Result: Result[T]{
+			constructor:        id,
+			self:               r.self,
+			postCall:           r.postCall,
+			safeToPersistCache: r.safeToPersistCache,
+		},
+		class: r.class,
+	}
+}
+
+func (r ObjectResult[T]) ObjectResultWithPostCall(fn PostCallFunc) ObjectResult[T] {
+	r.postCall = fn
+	return r
+}
+
+type cacheContextKey struct {
+	key   string
+	cache *cache
+}
+
+func (c *cache) GCLoop(ctx context.Context) {
 	ticker := time.NewTicker(10 * time.Minute)
 	for {
 		select {
@@ -279,7 +400,7 @@ func (c *cache[K, V]) GCLoop(ctx context.Context) {
 	}
 }
 
-func (c *cache[K, V]) Size() int {
+func (c *cache) Size() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -293,35 +414,11 @@ func (c *cache[K, V]) Size() int {
 	return total
 }
 
-func (c *cache[K, V]) GetOrInitializeValue(
+func (c *cache) GetOrInitialize(
 	ctx context.Context,
-	key CacheKey[K],
-	val V,
-) (Result[K, V], error) {
-	return c.GetOrInitialize(ctx, key, func(_ context.Context) (V, error) {
-		return val, nil
-	})
-}
-
-func (c *cache[K, V]) GetOrInitialize(
-	ctx context.Context,
-	key CacheKey[K],
-	fn func(context.Context) (V, error),
-) (Result[K, V], error) {
-	return c.GetOrInitializeWithCallbacks(ctx, key, func(ctx context.Context) (*ValueWithCallbacks[V], error) {
-		val, err := fn(ctx)
-		if err != nil {
-			return nil, err
-		}
-		return &ValueWithCallbacks[V]{Value: val}, nil
-	})
-}
-
-func (c *cache[K, V]) GetOrInitializeWithCallbacks(
-	ctx context.Context,
-	key CacheKey[K],
-	fn func(context.Context) (*ValueWithCallbacks[V], error),
-) (Result[K, V], error) {
+	key CacheKey,
+	fn func(context.Context) (AnyResult, error),
+) (AnyResult, error) {
 	if key.DoNotCache {
 		// don't cache, don't dedupe calls, just call it
 
@@ -518,7 +615,7 @@ func (c *cache[K, V]) GetOrInitializeWithCallbacks(
 	return perCallRes, nil
 }
 
-func (c *cache[K, V]) wait(ctx context.Context, res *result[K, V], isFirstCaller bool) (*perCallResult[K, V], error) {
+func (c *cache) wait(ctx context.Context, res *result, isFirstCaller bool) (*perCallResult[K, V], error) {
 	var hitCache bool
 	var err error
 
@@ -612,7 +709,7 @@ func (c *cache[K, V]) wait(ctx context.Context, res *result[K, V], isFirstCaller
 	return nil, err
 }
 
-func (res *result[K, V]) Result() V {
+func (res *result) Result() V {
 	if res == nil {
 		var zero V
 		return zero
@@ -620,7 +717,7 @@ func (res *result[K, V]) Result() V {
 	return res.val
 }
 
-func (res *result[K, V]) Release(ctx context.Context) error {
+func (res *result) Release(ctx context.Context) error {
 	if res == nil || res.cache == nil {
 		// wasn't cached, nothing to do
 		return nil
@@ -666,7 +763,7 @@ func (res *result[K, V]) Release(ctx context.Context) error {
 	return nil
 }
 
-func (res *result[K, V]) PostCall(ctx context.Context) error {
+func (res *result) PostCall(ctx context.Context) error {
 	if res.postCall == nil {
 		return nil
 	}

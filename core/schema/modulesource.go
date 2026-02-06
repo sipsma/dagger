@@ -2918,11 +2918,8 @@ func (s *moduleSourceSchema) runModuleDefInSDK(ctx context.Context, src, srcInst
 			if err != nil {
 				return fmt.Errorf("failed to call module %q to get functions: %w", modName, err)
 			}
-			postCall := result.GetPostCall()
-			if postCall != nil {
-				if err := postCall(ctx); err != nil {
-					return fmt.Errorf("failed to run post-call for module %q: %w", modName, err)
-				}
+			if err := result.PostCall(ctx); err != nil {
+				return fmt.Errorf("failed to run post-call for module %q: %w", modName, err)
 			}
 
 			resultInst, ok := result.(dagql.Result[*core.Module])

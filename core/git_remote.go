@@ -33,7 +33,6 @@ import (
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/buildkit"
-	enginecache "github.com/dagger/dagger/engine/cache"
 	"github.com/dagger/dagger/engine/slog"
 	"github.com/dagger/dagger/network"
 	"github.com/dagger/dagger/util/hashutil"
@@ -82,7 +81,7 @@ func (repo *RemoteGitRepository) Remote(ctx context.Context) (result *gitutil.Re
 		return repo.runLsRemote(ctx)
 	}
 
-	cacheRes, err := srv.Cache.GetOrInitialize(ctx, enginecache.CacheKey[string]{
+	cacheRes, err := srv.Cache.GetOrInitialize(ctx, dagql.CacheKey{
 		CallKey:        cacheKey,
 		ConcurrencyKey: cacheKey,
 	}, func(ctx context.Context) (dagql.AnyResult, error) {
@@ -109,10 +108,9 @@ func (repo *RemoteGitRepository) Remote(ctx context.Context) (result *gitutil.Re
 
 	slog.Info("loaded git remote metadata", "cache_hit", cacheRes.HitCache(), "cache_key", cacheKey)
 
-	val := cacheRes.Result()
-	strRes, ok := dagql.UnwrapAs[dagql.Result[dagql.String]](val)
+	strRes, ok := dagql.UnwrapAs[dagql.Result[dagql.String]](cacheRes)
 	if !ok {
-		return nil, fmt.Errorf("unexpected cache value type %T", val)
+		return nil, fmt.Errorf("unexpected cache value type %T", cacheRes)
 	}
 
 	var remote gitutil.Remote
