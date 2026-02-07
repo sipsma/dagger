@@ -51,6 +51,16 @@ var CachePerCallInput = ImplicitInput{
 	},
 }
 
+// CachePerSchemaInput scopes a call ID to the server schema digest.
+func CachePerSchemaInput(srv *Server) ImplicitInput {
+	return ImplicitInput{
+		Name: "cachePerSchema",
+		Resolver: func(context.Context) (Input, error) {
+			return NewString(srv.SchemaDigest().String()), nil
+		},
+	}
+}
+
 // CachePerClient is a CacheKeyFunc that scopes the cache key to the client by mixing in the client ID to the original digest of the operation.
 // It should be used when the operation should be run for each client, but not more than once for a given client.
 // Canonical examples include loading client filesystem data or referencing client-side sockets/ports.

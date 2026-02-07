@@ -2685,6 +2685,77 @@ func TestImplicitInputCachePerCall(t *testing.T) {
 	assert.Equal(t, third, 3)
 }
 
+func TestImplicitInputCachePerSchema(t *testing.T) {
+	srv := dagql.NewServer(Query{}, newCache(t))
+
+	var calls atomic.Int64
+	dagql.Fields[Query]{
+		dagql.NodeFunc("perSchemaCounter", func(ctx context.Context, _ dagql.ObjectResult[Query], _ struct{}) (int, error) {
+			return int(calls.Add(1)), nil
+		}).WithInput(dagql.CachePerSchemaInput(srv)),
+	}.Install(srv)
+
+	call := func() int {
+		var res int
+		err := srv.Select(context.Background(), srv.Root(), &res, dagql.Selector{
+			Field: "perSchemaCounter",
+		})
+		require.NoError(t, err)
+		return res
+	}
+
+	assert.Equal(t, call(), 1)
+	assert.Equal(t, call(), 1)
+
+	// Change schema; the implicit schema input should invalidate cache identity.
+	dagql.Fields[Query]{
+		dagql.NodeFunc("schemaBump", func(context.Context, dagql.ObjectResult[Query], struct{}) (int, error) {
+			return 0, nil
+		}),
+	}.Install(srv)
+
+	assert.Equal(t, call(), 2)
+	assert.Equal(t, call(), 2)
+}
+
+func TestImplicitInputCachePerClientSchema(t *testing.T) {
+	srv := dagql.NewServer(Query{}, newCache(t))
+
+	var calls atomic.Int64
+	dagql.Fields[Query]{
+		dagql.NodeFunc("perClientSchemaCounter", func(ctx context.Context, _ dagql.ObjectResult[Query], _ struct{}) (int, error) {
+			return int(calls.Add(1)), nil
+		}).WithInput(dagql.CachePerClientInput, dagql.CachePerSchemaInput(srv)),
+	}.Install(srv)
+
+	callForClient := func(clientID string) int {
+		ctx := engine.ContextWithClientMetadata(context.Background(), &engine.ClientMetadata{
+			ClientID: clientID,
+		})
+		var res int
+		err := srv.Select(ctx, srv.Root(), &res, dagql.Selector{
+			Field: "perClientSchemaCounter",
+		})
+		require.NoError(t, err)
+		return res
+	}
+
+	assert.Equal(t, callForClient("client-a"), 1)
+	assert.Equal(t, callForClient("client-a"), 1)
+	assert.Equal(t, callForClient("client-b"), 2)
+	assert.Equal(t, callForClient("client-b"), 2)
+
+	// Change schema; same client should now see a new cache identity.
+	dagql.Fields[Query]{
+		dagql.NodeFunc("schemaBump", func(context.Context, dagql.ObjectResult[Query], struct{}) (int, error) {
+			return 0, nil
+		}),
+	}.Install(srv)
+
+	assert.Equal(t, callForClient("client-a"), 3)
+	assert.Equal(t, callForClient("client-a"), 3)
+}
+
 func TestServerSelect(t *testing.T) {
 	// Create a new server with a simple object hierarchy for testing
 	srv := dagql.NewServer(Query{}, newCache(t))

@@ -16,8 +16,8 @@ var _ SchemaResolvers = &environmentSchema{}
 
 func (s environmentSchema) Install(srv *dagql.Server) {
 	dagql.Fields[*core.Query]{
-		dagql.FuncWithCacheKey("env", s.environment,
-			dagql.CachePerClientSchema[*core.Query, environmentArgs](srv)).
+		dagql.Func("env", s.environment).
+			WithInput(dagql.CachePerClientInput, dagql.CachePerSchemaInput(srv)).
 			Doc(`Initializes a new environment`).
 			Experimental("Environments are not yet stabilized").
 			Args(
