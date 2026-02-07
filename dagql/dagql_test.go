@@ -2629,6 +2629,62 @@ func TestImplicitInputCachePerClient(t *testing.T) {
 	assert.Equal(t, callForClient("client-b"), 2)
 }
 
+func TestImplicitInputCachePerSession(t *testing.T) {
+	srv := dagql.NewServer(Query{}, newCache(t))
+
+	var calls atomic.Int64
+	dagql.Fields[Query]{
+		dagql.NodeFunc("perSessionCounter", func(ctx context.Context, _ dagql.ObjectResult[Query], _ struct{}) (int, error) {
+			return int(calls.Add(1)), nil
+		}).WithInput(dagql.CachePerSessionInput),
+	}.Install(srv)
+
+	callForSession := func(sessionID string) int {
+		ctx := engine.ContextWithClientMetadata(context.Background(), &engine.ClientMetadata{
+			ClientID:  "same-client",
+			SessionID: sessionID,
+		})
+		var res int
+		err := srv.Select(ctx, srv.Root(), &res, dagql.Selector{
+			Field: "perSessionCounter",
+		})
+		require.NoError(t, err)
+		return res
+	}
+
+	assert.Equal(t, callForSession("session-a"), 1)
+	assert.Equal(t, callForSession("session-a"), 1)
+	assert.Equal(t, callForSession("session-b"), 2)
+	assert.Equal(t, callForSession("session-b"), 2)
+}
+
+func TestImplicitInputCachePerCall(t *testing.T) {
+	srv := dagql.NewServer(Query{}, newCache(t))
+
+	var calls atomic.Int64
+	dagql.Fields[Query]{
+		dagql.NodeFunc("perCallCounter", func(ctx context.Context, _ dagql.ObjectResult[Query], _ struct{}) (int, error) {
+			return int(calls.Add(1)), nil
+		}).WithInput(dagql.CachePerCallInput),
+	}.Install(srv)
+
+	ctx := engine.ContextWithClientMetadata(context.Background(), &engine.ClientMetadata{
+		ClientID: "client-a",
+	})
+
+	var first int
+	require.NoError(t, srv.Select(ctx, srv.Root(), &first, dagql.Selector{Field: "perCallCounter"}))
+	assert.Equal(t, first, 1)
+
+	var second int
+	require.NoError(t, srv.Select(ctx, srv.Root(), &second, dagql.Selector{Field: "perCallCounter"}))
+	assert.Equal(t, second, 2)
+
+	var third int
+	require.NoError(t, srv.Select(ctx, srv.Root(), &third, dagql.Selector{Field: "perCallCounter"}))
+	assert.Equal(t, third, 3)
+}
+
 func TestServerSelect(t *testing.T) {
 	// Create a new server with a simple object hierarchy for testing
 	srv := dagql.NewServer(Query{}, newCache(t))

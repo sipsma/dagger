@@ -46,7 +46,8 @@ func (s *moduleSchema) Install(dag *dagql.Server) {
 		dagql.FuncWithCacheKey("currentModule", s.currentModule, dagql.CachePerClient).
 			Doc(`The module currently being served in the session, if any.`),
 
-		dagql.FuncWithCacheKey("currentTypeDefs", s.currentTypeDefs, dagql.CachePerCall).
+		dagql.Func("currentTypeDefs", s.currentTypeDefs).
+			WithInput(dagql.CachePerCallInput).
 			Doc(`The TypeDef representations of the objects currently being served in the session.`),
 
 		dagql.FuncWithCacheKey("currentFunctionCall", s.currentFunctionCall, dagql.CachePerClient).

@@ -26,6 +26,31 @@ var CachePerClientInput = ImplicitInput{
 	},
 }
 
+// CachePerSessionInput scopes a call ID per session by mixing in the session
+// ID as an implicit call input.
+var CachePerSessionInput = ImplicitInput{
+	Name: "cachePerSession",
+	Resolver: func(ctx context.Context) (Input, error) {
+		clientMD, err := engine.ClientMetadataFromContext(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get client metadata: %w", err)
+		}
+		if clientMD.SessionID == "" {
+			return nil, fmt.Errorf("session ID not found in context")
+		}
+		return NewString(clientMD.SessionID), nil
+	},
+}
+
+// CachePerCallInput scopes a call ID per invocation by mixing in a random value
+// as an implicit call input.
+var CachePerCallInput = ImplicitInput{
+	Name: "cachePerCall",
+	Resolver: func(context.Context) (Input, error) {
+		return NewString(identity.NewID()), nil
+	},
+}
+
 // CachePerClient is a CacheKeyFunc that scopes the cache key to the client by mixing in the client ID to the original digest of the operation.
 // It should be used when the operation should be run for each client, but not more than once for a given client.
 // Canonical examples include loading client filesystem data or referencing client-side sockets/ports.
