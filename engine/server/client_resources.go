@@ -43,7 +43,7 @@ func (srv *Server) addClientResourcesFromID(ctx context.Context, destClient *dag
 
 	var filteredSocketIDs []dagql.ID[*core.Socket]
 	for _, socketID := range socketIDs {
-		if ok := destClient.socketStore.HasSocket(socketID.ID().Digest()); !ok {
+		if ok := destClient.socketStore.HasSocket(core.SocketIDDigest(socketID.ID())); !ok {
 			filteredSocketIDs = append(filteredSocketIDs, socketID)
 		}
 	}

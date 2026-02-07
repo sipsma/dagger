@@ -374,7 +374,7 @@ func (s *hostSchema) socket(ctx context.Context, host dagql.ObjectResult[*core.H
 	if err != nil {
 		return inst, fmt.Errorf("failed to create instance: %w", err)
 	}
-	inst = inst.WithDigest(dgst)
+	inst = inst.WithContentDigest(dgst)
 	if err := socketStore.AddUnixSocket(sock, clientMetadata.ClientID, args.Path); err != nil {
 		return inst, fmt.Errorf("failed to add unix socket to store: %w", err)
 	}

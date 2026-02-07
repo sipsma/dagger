@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/dagger/dagger/dagql/call"
 	"github.com/dagger/dagger/engine"
 	bksession "github.com/dagger/dagger/internal/buildkit/session"
 	"github.com/dagger/dagger/internal/buildkit/session/sshforward"
@@ -46,6 +47,16 @@ func (socket *Socket) LLBID() string {
 		return ""
 	}
 	return socket.IDDigest.String()
+}
+
+func SocketIDDigest(id *call.ID) digest.Digest {
+	if id == nil {
+		return ""
+	}
+	if contentDigest := id.ContentDigest(); contentDigest != "" {
+		return contentDigest
+	}
+	return id.Digest()
 }
 
 func GetHostIPSocketAccessor(ctx context.Context, query *Query, upstreamHost string, port PortForward) (string, error) {

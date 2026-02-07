@@ -22,6 +22,7 @@ func ResourceTransferPostCall(
 	ids ...*resource.ID,
 ) (func(context.Context) error, error) {
 	secretsByDgst := map[digest.Digest]dagql.ID[*Secret]{}
+	socketsByDgst := map[digest.Digest]dagql.ID[*Socket]{}
 	for _, id := range ids {
 		walked, err := dagql.WalkID(&id.ID, false)
 		if err != nil {
@@ -31,8 +32,12 @@ func ResourceTransferPostCall(
 		for _, secretID := range secretIDs {
 			secretsByDgst[SecretIDDigest(secretID.ID())] = secretID
 		}
+		socketIDs := dagql.WalkedIDs[*Socket](walked)
+		for _, socketID := range socketIDs {
+			socketsByDgst[SocketIDDigest(socketID.ID())] = socketID
+		}
 	}
-	if len(secretsByDgst) == 0 {
+	if len(secretsByDgst) == 0 && len(socketsByDgst) == 0 {
 		return nil, nil
 	}
 
@@ -43,6 +48,14 @@ func ResourceTransferPostCall(
 	// just in case order matters for caching somehow someday
 	slices.SortFunc(secretIDs, func(a, b dagql.ID[*Secret]) int {
 		return strings.Compare(SecretIDDigest(a.ID()).String(), SecretIDDigest(b.ID()).String())
+	})
+	var socketIDs []dagql.ID[*Socket]
+	for _, socketID := range socketsByDgst {
+		socketIDs = append(socketIDs, socketID)
+	}
+	// just in case order matters for caching somehow someday
+	slices.SortFunc(socketIDs, func(a, b dagql.ID[*Socket]) int {
+		return strings.Compare(SocketIDDigest(a.ID()).String(), SocketIDDigest(b.ID()).String())
 	})
 
 	// ensure that when we load secrets, we are doing so from the source client
@@ -62,6 +75,12 @@ func ResourceTransferPostCall(
 		// like ModuleRuntime. In this case, the only secrets involved are any related to pulling the module
 		// source (like a git auth token). These secrets are already known by the caller and the secret transfer
 		// is thus not needed.
+		return nil, nil //nolint:nilerr
+	}
+	srcSocketStore, err := query.Sockets(srcClientCtx)
+	if err != nil {
+		// see rationale above for secrets lookup; socket transfer can be skipped for
+		// this same source-client-missing case.
 		return nil, nil //nolint:nilerr
 	}
 	srcDag, err := query.Server.Server(srcClientCtx)
@@ -105,7 +124,21 @@ func ResourceTransferPostCall(
 		namedSecrets = append(namedSecrets, secretWithPlaintext{inst: secret, plaintext: plaintext})
 	}
 
-	if len(namedSecrets) == 0 {
+	var sockets []dagql.ObjectResult[*Socket]
+	if len(socketIDs) > 0 {
+		socketResults, err := dagql.LoadIDResults(srcClientCtx, srcDag, socketIDs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load socket instances: %w", err)
+		}
+		for _, socket := range socketResults {
+			if socket.Self() == nil {
+				continue
+			}
+			sockets = append(sockets, socket)
+		}
+	}
+
+	if len(namedSecrets) == 0 && len(sockets) == 0 {
 		return nil, nil
 	}
 
@@ -125,42 +158,80 @@ func ResourceTransferPostCall(
 			return nil
 		}
 
-		destClientSecretStore, err := query.Secrets(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to get destination client secret store: %w", err)
-		}
 		destDag, err := query.Server.Server(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to get destination client dagql server: %w", err)
 		}
-		for _, secret := range namedSecrets {
-			if err := destClientSecretStore.AddSecret(secret.inst); err != nil {
-				return fmt.Errorf("failed to add secret: %w", err)
-			}
-			// Ensure this secret is in the cache. This is necessary for now because of a corner case like:
-			// 1. Client A does a new function call, returns some type that references a SetSecret
-			// 2. Client B does the same function call, gets a cache hit
-			// 3. Client A disconnects *before Client B has reached this PostCall*
-			// 4. Client B tries to access the secret, but it's not in the cache
-			// The longer term fix for this type of issue is to have more dagql awareness of edges between
-			// cache results such that a function call return value result inherently results in any referenced
-			// secrets also staying in cache.
-			secretDigest := SecretDigest(secret.inst)
-			cacheKey := cache.CacheKey[dagql.CacheKeyType]{
-				CallKey: string(secretDigest),
-			}
-			_, err = destDag.Cache.GetOrInitializeWithCallbacks(ctx, cacheKey,
-				func(ctx context.Context) (*dagql.CacheValWithCallbacks, error) {
-					return &dagql.CacheValWithCallbacks{
-						Value:            secret.inst,
-						PostCall:         postCall,
-						ContentDigestKey: string(secretDigest),
-						ResultCallKey:    string(secret.inst.ID().Digest()),
-					}, nil
-				},
-			)
+		if len(namedSecrets) > 0 {
+			destClientSecretStore, err := query.Secrets(ctx)
 			if err != nil {
-				return fmt.Errorf("failed to cache secret: %w", err)
+				return fmt.Errorf("failed to get destination client secret store: %w", err)
+			}
+			for _, secret := range namedSecrets {
+				if err := destClientSecretStore.AddSecret(secret.inst); err != nil {
+					return fmt.Errorf("failed to add secret: %w", err)
+				}
+				// Ensure this secret is in the cache. This is necessary for now because of a corner case like:
+				// 1. Client A does a new function call, returns some type that references a SetSecret
+				// 2. Client B does the same function call, gets a cache hit
+				// 3. Client A disconnects *before Client B has reached this PostCall*
+				// 4. Client B tries to access the secret, but it's not in the cache
+				// The longer term fix for this type of issue is to have more dagql awareness of edges between
+				// cache results such that a function call return value result inherently results in any referenced
+				// secrets also staying in cache.
+				secretDigest := SecretDigest(secret.inst)
+				cacheKey := cache.CacheKey[dagql.CacheKeyType]{
+					CallKey: string(secretDigest),
+				}
+				_, err = destDag.Cache.GetOrInitializeWithCallbacks(ctx, cacheKey,
+					func(ctx context.Context) (*dagql.CacheValWithCallbacks, error) {
+						return &dagql.CacheValWithCallbacks{
+							Value:            secret.inst,
+							PostCall:         postCall,
+							ContentDigestKey: string(secretDigest),
+							ResultCallKey:    string(secret.inst.ID().Digest()),
+						}, nil
+					},
+				)
+				if err != nil {
+					return fmt.Errorf("failed to cache secret: %w", err)
+				}
+			}
+		}
+		if len(sockets) > 0 {
+			destClientSocketStore, err := query.Sockets(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to get destination client socket store: %w", err)
+			}
+			for _, socket := range sockets {
+				if err := destClientSocketStore.AddSocketFromOtherStore(socket.Self(), srcSocketStore); err != nil {
+					slog.Warn("failed to add socket from other store",
+						"socket", socket.Self().IDDigest,
+						"err", err,
+						"sourceClientID", sourceClientID,
+					)
+					continue
+				}
+				socketDigest := socket.Self().IDDigest
+				if socketDigest == "" {
+					socketDigest = SocketIDDigest(socket.ID())
+				}
+				cacheKey := cache.CacheKey[dagql.CacheKeyType]{
+					CallKey: string(socketDigest),
+				}
+				_, err = destDag.Cache.GetOrInitializeWithCallbacks(ctx, cacheKey,
+					func(ctx context.Context) (*dagql.CacheValWithCallbacks, error) {
+						return &dagql.CacheValWithCallbacks{
+							Value:            socket,
+							PostCall:         postCall,
+							ContentDigestKey: string(socketDigest),
+							ResultCallKey:    string(socket.ID().Digest()),
+						}, nil
+					},
+				)
+				if err != nil {
+					return fmt.Errorf("failed to cache socket: %w", err)
+				}
 			}
 		}
 
