@@ -144,11 +144,12 @@ func (s *hostSchema) Install(srv *dagql.Server) {
 	}.Install(srv)
 
 	dagql.Fields[*core.Host]{
-		dagql.NodeFuncWithCacheKey("directory",
+		dagql.NodeFunc("directory",
 			DagOpDirectoryWrapper(
 				srv, s.directory,
 				WithHashContentDir[*core.Host, hostDirectoryArgs](),
-			), dagql.CacheAsRequested).
+			)).
+			WithInput(dagql.CacheAsRequestedInput("noCache")).
 			Doc(`Accesses a directory on the host.`).
 			Args(
 				dagql.Arg("path").Doc(`Location of the directory to access (e.g., ".").`),
@@ -158,14 +159,16 @@ func (s *hostSchema) Install(srv *dagql.Server) {
 				dagql.Arg("gitignore").Doc(`Apply .gitignore filter rules inside the directory`),
 			),
 
-		dagql.NodeFuncWithCacheKey("file", s.file, dagql.CacheAsRequested).
+		dagql.NodeFunc("file", s.file).
+			WithInput(dagql.CacheAsRequestedInput("noCache")).
 			Doc(`Accesses a file on the host.`).
 			Args(
 				dagql.Arg("path").Doc(`Location of the file to retrieve (e.g., "README.md").`),
 				dagql.Arg("noCache").Doc(`If true, the file will always be reloaded from the host.`),
 			),
 
-		dagql.NodeFuncWithCacheKey("findUp", s.findUp, dagql.CacheAsRequested).
+		dagql.NodeFunc("findUp", s.findUp).
+			WithInput(dagql.CacheAsRequestedInput("noCache")).
 			Doc(`Search for a file or directory by walking up the tree from system workdir. Return its relative path. If no match, return null`).
 			Args(
 				dagql.Arg("name").Doc(`name of the file or directory to search for`),

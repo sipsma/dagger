@@ -550,15 +550,15 @@ func (r ObjectResult[T]) sortArgsToSchema(fieldSpec *FieldSpec, view call.View, 
 	})
 }
 
-func (r ObjectResult[T]) implicitInputArgs(ctx context.Context, fieldSpec *FieldSpec) ([]*call.Argument, error) {
+func (r ObjectResult[T]) implicitInputArgs(ctx context.Context, fieldSpec *FieldSpec, inputArgs map[string]Input) ([]*call.Argument, error) {
 	if len(fieldSpec.ImplicitInputs) == 0 {
 		return nil, nil
 	}
 
 	inputIdxByName := make(map[string]int, len(fieldSpec.ImplicitInputs))
-	inputArgs := make([]*call.Argument, 0, len(fieldSpec.ImplicitInputs))
+	implicitArgs := make([]*call.Argument, 0, len(fieldSpec.ImplicitInputs))
 	for _, implicitInput := range fieldSpec.ImplicitInputs {
-		inputVal, err := implicitInput.Resolver(ctx)
+		inputVal, err := implicitInput.Resolver(ctx, inputArgs)
 		if err != nil {
 			return nil, fmt.Errorf("resolve implicit input %q: %w", implicitInput.Name, err)
 		}
@@ -567,16 +567,16 @@ func (r ObjectResult[T]) implicitInputArgs(ctx context.Context, fieldSpec *Field
 		}
 		newInput := call.NewArgument(implicitInput.Name, inputVal.ToLiteral(), false)
 		if idx, ok := inputIdxByName[implicitInput.Name]; ok {
-			inputArgs[idx] = newInput
+			implicitArgs[idx] = newInput
 			continue
 		}
-		inputIdxByName[implicitInput.Name] = len(inputArgs)
-		inputArgs = append(inputArgs, newInput)
+		inputIdxByName[implicitInput.Name] = len(implicitArgs)
+		implicitArgs = append(implicitArgs, newInput)
 	}
-	sort.Slice(inputArgs, func(i, j int) bool {
-		return inputArgs[i].Name() < inputArgs[j].Name()
+	sort.Slice(implicitArgs, func(i, j int) bool {
+		return implicitArgs[i].Name() < implicitArgs[j].Name()
 	})
-	return inputArgs, nil
+	return implicitArgs, nil
 }
 
 func (r ObjectResult[T]) preselect(ctx context.Context, s *Server, sel Selector) (*preselectResult, error) {
@@ -629,7 +629,7 @@ func (r ObjectResult[T]) preselect(ctx context.Context, s *Server, sel Selector)
 		astType = astType.Elem
 	}
 
-	implicitInputArgs, err := r.implicitInputArgs(ctx, field.Spec)
+	implicitInputArgs, err := r.implicitInputArgs(ctx, field.Spec, inputArgs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve implicit inputs for %s.%s: %w", r.self.Type().Name(), sel.Field, err)
 	}
@@ -675,6 +675,10 @@ func (r ObjectResult[T]) preselect(ctx context.Context, s *Server, sel Selector)
 				}
 			}
 			r.sortArgsToSchema(field.Spec, view, idArgs)
+			implicitInputArgs, err = r.implicitInputArgs(ctx, field.Spec, inputArgs)
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve implicit inputs for %s.%s after cache arg updates: %w", r.self.Type().Name(), sel.Field, err)
+			}
 			newID = r.constructor.Append(
 				astType,
 				sel.Field,
@@ -1404,7 +1408,7 @@ type GetCacheConfigResponse struct {
 	UpdatedArgs map[string]Input
 }
 
-type ImplicitInputResolver func(context.Context) (Input, error)
+type ImplicitInputResolver func(context.Context, map[string]Input) (Input, error)
 
 type ImplicitInput struct {
 	Name     string

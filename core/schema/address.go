@@ -28,9 +28,11 @@ func (s *addressSchema) Install(srv *dagql.Server) {
 			Doc(`The address value`),
 		dagql.NodeFuncWithCacheKey("container", s.container, dagql.CachePerCall).
 			Doc(`Load a container from the address.`),
-		dagql.NodeFuncWithCacheKey("directory", s.directory, dagql.CacheAsRequested).
+		dagql.NodeFunc("directory", s.directory).
+			WithInput(dagql.CacheAsRequestedInput("noCache")).
 			Doc(`Load a directory from the address.`),
-		dagql.NodeFuncWithCacheKey("file", s.file, dagql.CacheAsRequested).
+		dagql.NodeFunc("file", s.file).
+			WithInput(dagql.CacheAsRequestedInput("noCache")).
 			Doc(`Load a file from the address.`),
 		dagql.NodeFuncWithCacheKey("gitRef", s.gitRef, dagql.CachePerClient).
 			Doc(`Load a git ref (branch, tag or commit) from the address.`),

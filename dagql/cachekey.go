@@ -14,7 +14,7 @@ import (
 // an implicit call input.
 var CachePerClientInput = ImplicitInput{
 	Name: "cachePerClient",
-	Resolver: func(ctx context.Context) (Input, error) {
+	Resolver: func(ctx context.Context, _ map[string]Input) (Input, error) {
 		clientMD, err := engine.ClientMetadataFromContext(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get client metadata: %w", err)
@@ -30,7 +30,7 @@ var CachePerClientInput = ImplicitInput{
 // ID as an implicit call input.
 var CachePerSessionInput = ImplicitInput{
 	Name: "cachePerSession",
-	Resolver: func(ctx context.Context) (Input, error) {
+	Resolver: func(ctx context.Context, _ map[string]Input) (Input, error) {
 		clientMD, err := engine.ClientMetadataFromContext(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get client metadata: %w", err)
@@ -46,7 +46,7 @@ var CachePerSessionInput = ImplicitInput{
 // as an implicit call input.
 var CachePerCallInput = ImplicitInput{
 	Name: "cachePerCall",
-	Resolver: func(context.Context) (Input, error) {
+	Resolver: func(context.Context, map[string]Input) (Input, error) {
 		return NewString(identity.NewID()), nil
 	},
 }
@@ -55,9 +55,45 @@ var CachePerCallInput = ImplicitInput{
 func CachePerSchemaInput(srv *Server) ImplicitInput {
 	return ImplicitInput{
 		Name: "cachePerSchema",
-		Resolver: func(context.Context) (Input, error) {
+		Resolver: func(context.Context, map[string]Input) (Input, error) {
 			return NewString(srv.SchemaDigest().String()), nil
 		},
+	}
+}
+
+// CacheAsRequestedInput scopes a call ID according to a boolean argument:
+// false => CachePerClientInput, true => CachePerCallInput.
+func CacheAsRequestedInput(argName string) ImplicitInput {
+	return ImplicitInput{
+		Name: "cacheAsRequested:" + argName,
+		Resolver: func(ctx context.Context, args map[string]Input) (Input, error) {
+			noCache, err := inputBoolArg(args, argName)
+			if err != nil {
+				return nil, err
+			}
+			if noCache {
+				return CachePerCallInput.Resolver(ctx, args)
+			}
+			return CachePerClientInput.Resolver(ctx, args)
+		},
+	}
+}
+
+func inputBoolArg(args map[string]Input, argName string) (bool, error) {
+	raw, ok := args[argName]
+	if !ok || raw == nil {
+		return false, nil
+	}
+	switch val := raw.(type) {
+	case Boolean:
+		return val.Bool(), nil
+	case Optional[Boolean]:
+		if !val.Valid {
+			return false, nil
+		}
+		return val.Value.Bool(), nil
+	default:
+		return false, fmt.Errorf("cacheAsRequested input %q must be Boolean, got %T", argName, raw)
 	}
 }
 
