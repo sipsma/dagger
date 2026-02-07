@@ -3,10 +3,10 @@ package schema
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/dagger/dagger/core"
 	"github.com/dagger/dagger/dagql"
-	"github.com/dagger/dagger/util/hashutil"
 )
 
 type cacheSchema struct{}
@@ -19,7 +19,8 @@ func (s *cacheSchema) Name() string {
 
 func (s *cacheSchema) Install(srv *dagql.Server) {
 	dagql.Fields[*core.Query]{
-		dagql.NodeFuncWithCacheKey("cacheVolume", s.cacheVolume, s.cacheVolumeCacheKey).
+		dagql.NodeFunc("cacheVolume", s.cacheVolume).
+			WithInput(cacheVolumeNamespaceInput).
 			Doc("Constructs a cache volume for a given cache key.").
 			Args(
 				dagql.Arg("key").Doc(`A string identifier to target this cache volume (e.g., "modules-cache").`),
@@ -38,27 +39,56 @@ type cacheArgs struct {
 	Namespace string `internal:"true" default:""`
 }
 
-func (s *cacheSchema) cacheVolumeCacheKey(
-	ctx context.Context,
-	parent dagql.ObjectResult[*core.Query],
-	args cacheArgs,
-	req dagql.GetCacheConfigRequest,
-) (*dagql.GetCacheConfigResponse, error) {
-	resp := &dagql.GetCacheConfigResponse{CacheKey: req.CacheKey}
-	if args.Namespace != "" {
-		return resp, nil
-	}
-
-	m, err := parent.Self().CurrentModule(ctx)
-	if err != nil && !errors.Is(err, core.ErrNoCurrentModule) {
-		return nil, err
-	}
-	namespaceKey := namespaceFromModule(m)
-	resp.CacheKey.CallKey = hashutil.HashStrings(resp.CacheKey.CallKey, namespaceKey).String()
-	return resp, nil
+var cacheVolumeNamespaceInput = dagql.ImplicitInput{
+	Name: "cacheNamespace",
+	Resolver: func(ctx context.Context, args map[string]dagql.Input) (dagql.Input, error) {
+		namespaceArg, err := cacheNamespaceArg(args)
+		if err != nil {
+			return nil, err
+		}
+		namespace, err := cacheNamespace(ctx, namespaceArg)
+		if err != nil {
+			return nil, err
+		}
+		return dagql.NewString(namespace), nil
+	},
 }
 
-func (s *cacheSchema) cacheVolume(ctx context.Context, parent dagql.ObjectResult[*core.Query], args cacheArgs) (dagql.Result[*core.CacheVolume], error) {
+func cacheNamespaceArg(args map[string]dagql.Input) (string, error) {
+	raw, ok := args["namespace"]
+	if !ok || raw == nil {
+		return "", nil
+	}
+
+	switch val := raw.(type) {
+	case dagql.String:
+		return val.String(), nil
+	case dagql.Optional[dagql.String]:
+		if !val.Valid {
+			return "", nil
+		}
+		return val.Value.String(), nil
+	default:
+		return "", fmt.Errorf("cache namespace input must be String, got %T", raw)
+	}
+}
+
+func cacheNamespace(ctx context.Context, namespaceArg string) (string, error) {
+	if namespaceArg != "" {
+		return namespaceArg, nil
+	}
+	query, err := core.CurrentQuery(ctx)
+	if err != nil {
+		return "", err
+	}
+	m, err := query.CurrentModule(ctx)
+	if err != nil && !errors.Is(err, core.ErrNoCurrentModule) {
+		return "", err
+	}
+	return namespaceFromModule(m), nil
+}
+
+func (s *cacheSchema) cacheVolume(ctx context.Context, _ dagql.ObjectResult[*core.Query], args cacheArgs) (dagql.Result[*core.CacheVolume], error) {
 	var inst dagql.Result[*core.CacheVolume]
 
 	srv, err := core.CurrentDagqlServer(ctx)
@@ -66,15 +96,15 @@ func (s *cacheSchema) cacheVolume(ctx context.Context, parent dagql.ObjectResult
 		return inst, err
 	}
 
-	if args.Namespace != "" {
-		return dagql.NewResultForCurrentID(ctx, core.NewCache(args.Namespace+":"+args.Key))
-	}
-
-	m, err := parent.Self().CurrentModule(ctx)
-	if err != nil && !errors.Is(err, core.ErrNoCurrentModule) {
+	namespace, err := cacheNamespace(ctx, args.Namespace)
+	if err != nil {
 		return inst, err
 	}
-	namespaceKey := namespaceFromModule(m)
+
+	if args.Namespace != "" {
+		return dagql.NewResultForCurrentID(ctx, core.NewCache(namespace+":"+args.Key))
+	}
+
 	err = srv.Select(ctx, srv.Root(), &inst, dagql.Selector{
 		Field: "cacheVolume",
 		Args: []dagql.NamedInput{
@@ -84,7 +114,7 @@ func (s *cacheSchema) cacheVolume(ctx context.Context, parent dagql.ObjectResult
 			},
 			{
 				Name:  "namespace",
-				Value: dagql.NewString(namespaceKey),
+				Value: dagql.NewString(namespace),
 			},
 		},
 	})
