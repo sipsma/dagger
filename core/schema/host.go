@@ -177,6 +177,13 @@ func (s *hostSchema) Install(srv *dagql.Server) {
 				dagql.Arg("path").Doc(`Location of the Unix socket (e.g., "/var/run/docker.sock").`),
 			),
 
+		dagql.NodeFuncWithCacheKey("sshAuthSocket", s.sshAuthSocket, dagql.CachePerCall).
+			Doc(`Accesses the SSH auth socket on the host and returns a socket scoped to SSH identities and optional URL targets.`).
+			Args(
+				dagql.Arg("source").Doc(`Optional source socket to scope. If not set, uses the caller's SSH_AUTH_SOCK.`),
+				dagql.Arg("urls").Doc(`Optional URL targets to scope auth identity to.`),
+			),
+
 		dagql.Func("__internalSocket", s.internalSocket).
 			Doc(`(Internal-only) Accesses a socket on the host (unix or ip) with the given internal client resource name.`),
 
@@ -354,15 +361,6 @@ func (s *hostSchema) socket(ctx context.Context, host dagql.ObjectResult[*core.H
 		return inst, err
 	}
 
-	socketStore, err := query.Sockets(ctx)
-	if err != nil {
-		return inst, fmt.Errorf("failed to get socket store: %w", err)
-	}
-	clientMetadata, err := engine.ClientMetadataFromContext(ctx)
-	if err != nil {
-		return inst, fmt.Errorf("failed to get client metadata: %w", err)
-	}
-
 	accessor, err := core.GetClientResourceAccessor(ctx, query, args.Path)
 	if err != nil {
 		return inst, fmt.Errorf("failed to get client resource name: %w", err)
@@ -374,12 +372,150 @@ func (s *hostSchema) socket(ctx context.Context, host dagql.ObjectResult[*core.H
 	if err != nil {
 		return inst, fmt.Errorf("failed to create instance: %w", err)
 	}
-	inst = inst.WithDigest(dgst)
-	if err := socketStore.AddUnixSocket(sock, clientMetadata.ClientID, args.Path); err != nil {
-		return inst, fmt.Errorf("failed to add unix socket to store: %w", err)
+	inst = inst.WithContentDigest(dgst)
+
+	upsertSocket := func(ctx context.Context) error {
+		callerClientMetadata, err := engine.ClientMetadataFromContext(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get client metadata: %w", err)
+		}
+		callerSocketStore, err := query.Sockets(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get socket store: %w", err)
+		}
+		nonModuleParentClientMetadata, err := query.NonModuleParentClientMetadata(ctx)
+		if err == nil && nonModuleParentClientMetadata.ClientID != callerClientMetadata.ClientID {
+			// In nested module contexts, preserve any pre-imported socket mapping (e.g. an explicitly
+			// passed socket argument) instead of clobbering it with the nested client's session.
+			if callerSocketStore.HasSocket(sock.IDDigest) {
+				return nil
+			}
+		}
+		if err := callerSocketStore.AddUnixSocket(sock, callerClientMetadata.ClientID, args.Path); err != nil {
+			return fmt.Errorf("failed to add unix socket to store: %w", err)
+		}
+		return nil
+	}
+	if err := upsertSocket(ctx); err != nil {
+		return inst, err
 	}
 
-	return inst, nil
+	return inst.ResultWithPostCall(upsertSocket), nil
+}
+
+type hostSSHAuthSocketArgs struct {
+	Source dagql.Optional[core.SocketID]                  `name:"source"`
+	URLs   dagql.Optional[dagql.ArrayInput[dagql.String]] `name:"urls"`
+}
+
+func (s *hostSchema) sshAuthSocket(ctx context.Context, host dagql.ObjectResult[*core.Host], args hostSSHAuthSocketArgs) (inst dagql.Result[*core.Socket], err error) {
+	srv, err := core.CurrentDagqlServer(ctx)
+	if err != nil {
+		return inst, err
+	}
+	query, err := core.CurrentQuery(ctx)
+	if err != nil {
+		return inst, err
+	}
+	socketStore, err := query.Sockets(ctx)
+	if err != nil {
+		return inst, fmt.Errorf("failed to get socket store: %w", err)
+	}
+
+	clientMetadata, err := engine.ClientMetadataFromContext(ctx)
+	if err != nil {
+		return inst, fmt.Errorf("failed to get client metadata: %w", err)
+	}
+
+	var rawURLs []string
+	if args.URLs.Valid {
+		for _, url := range args.URLs.Value {
+			rawURLs = append(rawURLs, url.String())
+		}
+	}
+	canonicalURLs := core.CanonicalSSHAuthSocketURLs(rawURLs)
+
+	var (
+		sourceSocket *core.Socket
+		sourcePath   string
+		sourceClient string
+	)
+	if args.Source.Valid {
+		sourceInst, err := args.Source.Value.Load(ctx, srv)
+		if err != nil {
+			return inst, fmt.Errorf("failed to load source socket: %w", err)
+		}
+		sourceSocket = sourceInst.Self()
+		if sourceSocket == nil {
+			return inst, errors.New("source socket is nil")
+		}
+		if !socketStore.HasSocket(sourceSocket.IDDigest) {
+			return inst, fmt.Errorf("source socket %s not found in socket store", sourceSocket.IDDigest)
+		}
+	} else {
+		if clientMetadata.SSHAuthSocketPath == "" {
+			return inst, errors.New("SSH_AUTH_SOCK is not set")
+		}
+		sourceClient = clientMetadata.ClientID
+		sourcePath = clientMetadata.SSHAuthSocketPath
+		accessor, err := core.GetClientResourceAccessor(ctx, query, sourcePath)
+		if err != nil {
+			return inst, fmt.Errorf("failed to get client resource accessor: %w", err)
+		}
+		sourceSocket = &core.Socket{
+			IDDigest: hashutil.HashStrings(accessor),
+		}
+		if err := socketStore.AddUnixSocket(sourceSocket, clientMetadata.ClientID, sourcePath); err != nil {
+			return inst, fmt.Errorf("failed to register source SSH auth socket: %w", err)
+		}
+	}
+
+	scopedDigest, err := core.ScopedSSHAuthSocketDigestFromStore(ctx, query, socketStore, sourceSocket.IDDigest, canonicalURLs)
+	if err != nil {
+		scopedDigest = core.FallbackScopedSSHAuthSocketDigest(query.SecretSalt(), sourceSocket.IDDigest, canonicalURLs)
+		slog.Warn("failed to scope SSH auth socket from agent identities; falling back",
+			"err", err,
+			"sourceSocket", sourceSocket.IDDigest,
+			"urls", canonicalURLs,
+		)
+	}
+
+	scopedSocket := &core.Socket{IDDigest: scopedDigest}
+	inst, err = dagql.NewResultForCurrentID(ctx, scopedSocket)
+	if err != nil {
+		return inst, fmt.Errorf("failed to create instance: %w", err)
+	}
+	inst = inst.WithContentDigest(scopedDigest)
+
+	upsertScopedSocket := func(ctx context.Context) error {
+		callerSocketStore, err := query.Sockets(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get caller socket store: %w", err)
+		}
+
+		if args.Source.Valid {
+			if err := callerSocketStore.AddSocketAlias(scopedSocket, sourceSocket.IDDigest); err != nil {
+				return fmt.Errorf("failed to alias scoped SSH auth socket: %w", err)
+			}
+			return nil
+		}
+
+		if sourceClient == "" {
+			return errors.New("source SSH auth socket client is not set")
+		}
+		if sourcePath == "" {
+			return errors.New("source SSH_AUTH_SOCK path is not set")
+		}
+		if err := callerSocketStore.AddUnixSocket(scopedSocket, sourceClient, sourcePath); err != nil {
+			return fmt.Errorf("failed to register scoped SSH auth socket: %w", err)
+		}
+		return nil
+	}
+	if err := upsertScopedSocket(ctx); err != nil {
+		return inst, err
+	}
+
+	return inst.ResultWithPostCall(upsertScopedSocket), nil
 }
 
 type hostFileArgs struct {
@@ -728,9 +864,15 @@ type hostInternalSocketArgs struct {
 	Accessor string
 }
 
-func (s *hostSchema) internalSocket(ctx context.Context, host *core.Host, args hostInternalSocketArgs) (*core.Socket, error) {
+func (s *hostSchema) internalSocket(ctx context.Context, host *core.Host, args hostInternalSocketArgs) (inst dagql.Result[*core.Socket], err error) {
 	if args.Accessor == "" {
-		return nil, errors.New("socket accessor must be provided")
+		return inst, errors.New("socket accessor must be provided")
 	}
-	return &core.Socket{IDDigest: dagql.CurrentID(ctx).Digest()}, nil
+	dgst := hashutil.HashStrings(args.Accessor)
+	sock := &core.Socket{IDDigest: dgst}
+	inst, err = dagql.NewResultForCurrentID(ctx, sock)
+	if err != nil {
+		return inst, fmt.Errorf("failed to create instance: %w", err)
+	}
+	return inst.WithContentDigest(dgst), nil
 }
