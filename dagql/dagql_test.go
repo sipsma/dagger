@@ -2608,7 +2608,7 @@ func TestImplicitInputCachePerClient(t *testing.T) {
 	dagql.Fields[Query]{
 		dagql.NodeFunc("perClientCounter", func(ctx context.Context, _ dagql.ObjectResult[Query], _ struct{}) (int, error) {
 			return int(calls.Add(1)), nil
-		}).WithInput(dagql.CachePerClientInput),
+		}).WithInput(dagql.CachePerClient),
 	}.Install(srv)
 
 	callForClient := func(clientID string) int {
@@ -2636,7 +2636,7 @@ func TestImplicitInputCachePerSession(t *testing.T) {
 	dagql.Fields[Query]{
 		dagql.NodeFunc("perSessionCounter", func(ctx context.Context, _ dagql.ObjectResult[Query], _ struct{}) (int, error) {
 			return int(calls.Add(1)), nil
-		}).WithInput(dagql.CachePerSessionInput),
+		}).WithInput(dagql.CachePerSession),
 	}.Install(srv)
 
 	callForSession := func(sessionID string) int {
@@ -2665,7 +2665,7 @@ func TestImplicitInputCachePerCall(t *testing.T) {
 	dagql.Fields[Query]{
 		dagql.NodeFunc("perCallCounter", func(ctx context.Context, _ dagql.ObjectResult[Query], _ struct{}) (int, error) {
 			return int(calls.Add(1)), nil
-		}).WithInput(dagql.CachePerCallInput),
+		}).WithInput(dagql.CachePerCall),
 	}.Install(srv)
 
 	ctx := engine.ContextWithClientMetadata(context.Background(), &engine.ClientMetadata{
@@ -2692,7 +2692,7 @@ func TestImplicitInputCachePerSchema(t *testing.T) {
 	dagql.Fields[Query]{
 		dagql.NodeFunc("perSchemaCounter", func(ctx context.Context, _ dagql.ObjectResult[Query], _ struct{}) (int, error) {
 			return int(calls.Add(1)), nil
-		}).WithInput(dagql.CachePerSchemaInput(srv)),
+		}).WithInput(dagql.CachePerSchema(srv)),
 	}.Install(srv)
 
 	call := func() int {
@@ -2725,7 +2725,7 @@ func TestImplicitInputCachePerClientSchema(t *testing.T) {
 	dagql.Fields[Query]{
 		dagql.NodeFunc("perClientSchemaCounter", func(ctx context.Context, _ dagql.ObjectResult[Query], _ struct{}) (int, error) {
 			return int(calls.Add(1)), nil
-		}).WithInput(dagql.CachePerClientInput, dagql.CachePerSchemaInput(srv)),
+		}).WithInput(dagql.CachePerClient, dagql.CachePerSchema(srv)),
 	}.Install(srv)
 
 	callForClient := func(clientID string) int {
@@ -2765,7 +2765,7 @@ func TestImplicitInputCacheAsRequested(t *testing.T) {
 			NoCache bool `default:"false"`
 		}) (int, error) {
 			return int(calls.Add(1)), nil
-		}).WithInput(dagql.CacheAsRequestedInput("noCache")),
+		}).WithInput(dagql.CacheAsRequested("noCache")),
 	}.Install(srv)
 
 	call := func(clientID string, noCache bool) int {
