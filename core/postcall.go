@@ -29,7 +29,7 @@ func ResourceTransferPostCall(
 		}
 		secretIDs := dagql.WalkedIDs[*Secret](walked)
 		for _, secretID := range secretIDs {
-			secretsByDgst[secretID.ID().Digest()] = secretID
+			secretsByDgst[SecretIDDigest(secretID.ID())] = secretID
 		}
 	}
 	if len(secretsByDgst) == 0 {
@@ -42,7 +42,7 @@ func ResourceTransferPostCall(
 	}
 	// just in case order matters for caching somehow someday
 	slices.SortFunc(secretIDs, func(a, b dagql.ID[*Secret]) int {
-		return strings.Compare(a.ID().Digest().String(), b.ID().Digest().String())
+		return strings.Compare(SecretIDDigest(a.ID()).String(), SecretIDDigest(b.ID()).String())
 	})
 
 	// ensure that when we load secrets, we are doing so from the source client
@@ -84,7 +84,8 @@ func ResourceTransferPostCall(
 		if !isNamed {
 			continue
 		}
-		plaintext, err := srcSecretStore.GetSecretPlaintext(ctx, secret.ID().Digest())
+		secretDigest := SecretDigest(secret)
+		plaintext, err := srcSecretStore.GetSecretPlaintext(ctx, secretDigest)
 		if err != nil {
 			// It's possible to hit secrets not found in the store when there's a cross-session cache hit
 			// on content-hashed values (like git tree directories). The value returned from cache may be
@@ -95,7 +96,7 @@ func ResourceTransferPostCall(
 			// Log this for now though in case it ever arises in unexpected cases. If that happens, the error
 			// will just be deferred and can be traced back to this log.
 			slog.Warn("failed to get secret plaintext",
-				"secret", secret.ID().Digest(),
+				"secret", secretDigest,
 				"err", err,
 				"sourceClientID", sourceClientID,
 			)
@@ -144,14 +145,17 @@ func ResourceTransferPostCall(
 			// The longer term fix for this type of issue is to have more dagql awareness of edges between
 			// cache results such that a function call return value result inherently results in any referenced
 			// secrets also staying in cache.
+			secretDigest := SecretDigest(secret.inst)
 			cacheKey := cache.CacheKey[dagql.CacheKeyType]{
-				CallKey: string(secret.inst.ID().Digest()),
+				CallKey: string(secretDigest),
 			}
 			_, err = destDag.Cache.GetOrInitializeWithCallbacks(ctx, cacheKey,
 				func(ctx context.Context) (*dagql.CacheValWithCallbacks, error) {
 					return &dagql.CacheValWithCallbacks{
-						Value:    secret.inst,
-						PostCall: postCall,
+						Value:            secret.inst,
+						PostCall:         postCall,
+						ContentDigestKey: string(secretDigest),
+						ResultCallKey:    string(secret.inst.ID().Digest()),
 					}, nil
 				},
 			)

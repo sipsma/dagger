@@ -35,7 +35,7 @@ func (srv *Server) addClientResourcesFromID(ctx context.Context, destClient *dag
 	// ones we already knew about (i.e. they were passed in as arguments).
 	var filteredSecretIDs []dagql.ID[*core.Secret]
 	for _, secretID := range secretIDs {
-		if ok := destClient.secretStore.HasSecret(secretID.ID().Digest()); !ok {
+		if ok := destClient.secretStore.HasSecret(core.SecretIDDigest(secretID.ID())); !ok {
 			filteredSecretIDs = append(filteredSecretIDs, secretID)
 		}
 	}
