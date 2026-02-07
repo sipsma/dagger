@@ -66,7 +66,8 @@ var _ SchemaResolvers = &moduleSourceSchema{}
 
 func (s *moduleSourceSchema) Install(dag *dagql.Server) {
 	dagql.Fields[*core.Query]{
-		dagql.NodeFuncWithCacheKey("moduleSource", s.moduleSource, dagql.CachePerClient).
+		dagql.NodeFunc("moduleSource", s.moduleSource).
+			WithInput(dagql.CachePerClientInput).
 			Doc(`Create a new module source instance from a source ref string`).
 			Args(
 				dagql.Arg("refString").Doc(`The string ref representation of the module source`),

@@ -31,6 +31,7 @@ import (
 	"github.com/dagger/dagger/dagql/internal/pipes"
 	"github.com/dagger/dagger/dagql/internal/points"
 	"github.com/dagger/dagger/dagql/introspection"
+	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/cache"
 	"github.com/dagger/dagger/engine/slog"
 )
@@ -2598,6 +2599,34 @@ func TestCustomDigest(t *testing.T) {
 		assert.Equal(t, s1, res.ReturnTheArg.Val)
 		assert.Equal(t, s1ID, res.ReturnTheArg.ID)
 	}
+}
+
+func TestImplicitInputCachePerClient(t *testing.T) {
+	srv := dagql.NewServer(Query{}, newCache(t))
+
+	var calls atomic.Int64
+	dagql.Fields[Query]{
+		dagql.NodeFunc("perClientCounter", func(ctx context.Context, _ dagql.ObjectResult[Query], _ struct{}) (int, error) {
+			return int(calls.Add(1)), nil
+		}).WithInput(dagql.CachePerClientInput),
+	}.Install(srv)
+
+	callForClient := func(clientID string) int {
+		ctx := engine.ContextWithClientMetadata(context.Background(), &engine.ClientMetadata{
+			ClientID: clientID,
+		})
+		var res int
+		err := srv.Select(ctx, srv.Root(), &res, dagql.Selector{
+			Field: "perClientCounter",
+		})
+		require.NoError(t, err)
+		return res
+	}
+
+	assert.Equal(t, callForClient("client-a"), 1)
+	assert.Equal(t, callForClient("client-a"), 1)
+	assert.Equal(t, callForClient("client-b"), 2)
+	assert.Equal(t, callForClient("client-b"), 2)
 }
 
 func TestServerSelect(t *testing.T) {

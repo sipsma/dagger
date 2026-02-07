@@ -10,6 +10,22 @@ import (
 	"github.com/dagger/dagger/engine"
 )
 
+// CachePerClientInput scopes a call ID per client by mixing in the client ID as
+// an implicit call input.
+var CachePerClientInput = ImplicitInput{
+	Name: "cachePerClient",
+	Resolver: func(ctx context.Context) (Input, error) {
+		clientMD, err := engine.ClientMetadataFromContext(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get client metadata: %w", err)
+		}
+		if clientMD.ClientID == "" {
+			return nil, fmt.Errorf("client ID not found in context")
+		}
+		return NewString(clientMD.ClientID), nil
+	},
+}
+
 // CachePerClient is a CacheKeyFunc that scopes the cache key to the client by mixing in the client ID to the original digest of the operation.
 // It should be used when the operation should be run for each client, but not more than once for a given client.
 // Canonical examples include loading client filesystem data or referencing client-side sockets/ports.
