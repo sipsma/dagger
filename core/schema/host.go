@@ -354,15 +354,6 @@ func (s *hostSchema) socket(ctx context.Context, host dagql.ObjectResult[*core.H
 		return inst, err
 	}
 
-	socketStore, err := query.Sockets(ctx)
-	if err != nil {
-		return inst, fmt.Errorf("failed to get socket store: %w", err)
-	}
-	clientMetadata, err := engine.ClientMetadataFromContext(ctx)
-	if err != nil {
-		return inst, fmt.Errorf("failed to get client metadata: %w", err)
-	}
-
 	accessor, err := core.GetClientResourceAccessor(ctx, query, args.Path)
 	if err != nil {
 		return inst, fmt.Errorf("failed to get client resource name: %w", err)
@@ -375,11 +366,26 @@ func (s *hostSchema) socket(ctx context.Context, host dagql.ObjectResult[*core.H
 		return inst, fmt.Errorf("failed to create instance: %w", err)
 	}
 	inst = inst.WithContentDigest(dgst)
-	if err := socketStore.AddUnixSocket(sock, clientMetadata.ClientID, args.Path); err != nil {
-		return inst, fmt.Errorf("failed to add unix socket to store: %w", err)
+
+	upsertSocket := func(ctx context.Context) error {
+		callerClientMetadata, err := engine.ClientMetadataFromContext(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get client metadata: %w", err)
+		}
+		callerSocketStore, err := query.Sockets(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get socket store: %w", err)
+		}
+		if err := callerSocketStore.AddUnixSocket(sock, callerClientMetadata.ClientID, args.Path); err != nil {
+			return fmt.Errorf("failed to add unix socket to store: %w", err)
+		}
+		return nil
+	}
+	if err := upsertSocket(ctx); err != nil {
+		return inst, err
 	}
 
-	return inst, nil
+	return inst.ResultWithPostCall(upsertSocket), nil
 }
 
 type hostFileArgs struct {
@@ -728,9 +734,15 @@ type hostInternalSocketArgs struct {
 	Accessor string
 }
 
-func (s *hostSchema) internalSocket(ctx context.Context, host *core.Host, args hostInternalSocketArgs) (*core.Socket, error) {
+func (s *hostSchema) internalSocket(ctx context.Context, host *core.Host, args hostInternalSocketArgs) (inst dagql.Result[*core.Socket], err error) {
 	if args.Accessor == "" {
-		return nil, errors.New("socket accessor must be provided")
+		return inst, errors.New("socket accessor must be provided")
 	}
-	return &core.Socket{IDDigest: dagql.CurrentID(ctx).Digest()}, nil
+	dgst := hashutil.HashStrings(args.Accessor)
+	sock := &core.Socket{IDDigest: dgst}
+	inst, err = dagql.NewResultForCurrentID(ctx, sock)
+	if err != nil {
+		return inst, fmt.Errorf("failed to create instance: %w", err)
+	}
+	return inst.WithContentDigest(dgst), nil
 }

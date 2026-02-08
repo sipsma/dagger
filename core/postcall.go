@@ -20,13 +20,13 @@ func ResourceTransferPostCall(
 	query *Query,
 	sourceClientID string,
 	ids ...*resource.ID,
-) (func(context.Context) error, error) {
+) (func(context.Context) error, bool, error) {
 	secretsByDgst := map[digest.Digest]dagql.ID[*Secret]{}
 	socketsByDgst := map[digest.Digest]dagql.ID[*Socket]{}
 	for _, id := range ids {
 		walked, err := dagql.WalkID(&id.ID, false)
 		if err != nil {
-			return nil, fmt.Errorf("failed to walk ID: %w", err)
+			return nil, false, fmt.Errorf("failed to walk ID: %w", err)
 		}
 		secretIDs := dagql.WalkedIDs[*Secret](walked)
 		for _, secretID := range secretIDs {
@@ -38,7 +38,7 @@ func ResourceTransferPostCall(
 		}
 	}
 	if len(secretsByDgst) == 0 && len(socketsByDgst) == 0 {
-		return nil, nil
+		return nil, false, nil
 	}
 
 	var secretIDs []dagql.ID[*Secret]
@@ -61,7 +61,7 @@ func ResourceTransferPostCall(
 	// ensure that when we load secrets, we are doing so from the source client
 	clientMetadata, err := engine.ClientMetadataFromContext(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get source client metadata: %w", err)
+		return nil, false, fmt.Errorf("failed to get source client metadata: %w", err)
 	}
 	srcClientCtx := engine.ContextWithClientMetadata(ctx, &engine.ClientMetadata{
 		ClientID:  sourceClientID,
@@ -75,22 +75,22 @@ func ResourceTransferPostCall(
 		// like ModuleRuntime. In this case, the only secrets involved are any related to pulling the module
 		// source (like a git auth token). These secrets are already known by the caller and the secret transfer
 		// is thus not needed.
-		return nil, nil //nolint:nilerr
+		return nil, false, nil //nolint:nilerr
 	}
 	srcSocketStore, err := query.Sockets(srcClientCtx)
 	if err != nil {
 		// see rationale above for secrets lookup; socket transfer can be skipped for
 		// this same source-client-missing case.
-		return nil, nil //nolint:nilerr
+		return nil, false, nil //nolint:nilerr
 	}
 	srcDag, err := query.Server.Server(srcClientCtx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get source client dagql server: %w", err)
+		return nil, false, fmt.Errorf("failed to get source client dagql server: %w", err)
 	}
 
 	secrets, err := dagql.LoadIDResults(srcClientCtx, srcDag, secretIDs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load secret instances: %w", err)
+		return nil, false, fmt.Errorf("failed to load secret instances: %w", err)
 	}
 
 	type secretWithPlaintext struct {
@@ -128,7 +128,7 @@ func ResourceTransferPostCall(
 	if len(socketIDs) > 0 {
 		socketResults, err := dagql.LoadIDResults(srcClientCtx, srcDag, socketIDs)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load socket instances: %w", err)
+			return nil, false, fmt.Errorf("failed to load socket instances: %w", err)
 		}
 		for _, socket := range socketResults {
 			if socket.Self() == nil {
@@ -138,8 +138,9 @@ func ResourceTransferPostCall(
 		}
 	}
 
+	hasNamedSecrets := len(namedSecrets) > 0
 	if len(namedSecrets) == 0 && len(sockets) == 0 {
-		return nil, nil
+		return nil, false, nil
 	}
 
 	callerClientMemo := sync.Map{}
@@ -204,33 +205,28 @@ func ResourceTransferPostCall(
 				return fmt.Errorf("failed to get destination client socket store: %w", err)
 			}
 			for _, socket := range sockets {
-				if err := destClientSocketStore.AddSocketFromOtherStore(socket.Self(), srcSocketStore); err != nil {
-					slog.Warn("failed to add socket from other store",
-						"socket", socket.Self().IDDigest,
-						"err", err,
-						"sourceClientID", sourceClientID,
-					)
-					continue
-				}
 				socketDigest := socket.Self().IDDigest
 				if socketDigest == "" {
 					socketDigest = SocketIDDigest(socket.ID())
 				}
-				cacheKey := cache.CacheKey[dagql.CacheKeyType]{
-					CallKey: string(socketDigest),
+				if socketDigest == "" {
+					slog.Warn("skipping socket transfer with empty digest",
+						"sourceClientID", sourceClientID,
+					)
+					continue
 				}
-				_, err = destDag.Cache.GetOrInitializeWithCallbacks(ctx, cacheKey,
-					func(ctx context.Context) (*dagql.CacheValWithCallbacks, error) {
-						return &dagql.CacheValWithCallbacks{
-							Value:            socket,
-							PostCall:         postCall,
-							ContentDigestKey: string(socketDigest),
-							ResultCallKey:    string(socket.ID().Digest()),
-						}, nil
-					},
-				)
-				if err != nil {
-					return fmt.Errorf("failed to cache socket: %w", err)
+				if destClientSocketStore.HasSocket(socketDigest) {
+					// Keep destination-local mapping when present; avoid replacing a
+					// potentially fresher local socket with one imported from another client.
+					continue
+				}
+				if err := destClientSocketStore.AddSocketFromOtherStore(socket.Self(), srcSocketStore); err != nil {
+					slog.Warn("failed to add socket from other store",
+						"socket", socketDigest,
+						"err", err,
+						"sourceClientID", sourceClientID,
+					)
+					continue
 				}
 			}
 		}
@@ -238,5 +234,5 @@ func ResourceTransferPostCall(
 		return nil
 	}
 
-	return postCall, nil
+	return postCall, hasNamedSecrets, nil
 }

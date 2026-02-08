@@ -105,6 +105,23 @@ type storedSocket struct {
 
 var _ sshforward.SSHServer = &SocketStore{}
 
+func cloneSocket(sock *Socket) *Socket {
+	if sock == nil {
+		return nil
+	}
+	cp := *sock
+	return &cp
+}
+
+func cloneStoredSocket(sock *storedSocket) *storedSocket {
+	if sock == nil {
+		return nil
+	}
+	cp := *sock
+	cp.Socket = cloneSocket(sock.Socket)
+	return &cp
+}
+
 func (store *SocketStore) AddUnixSocket(sock *Socket, buildkitSessionID, hostPath string) error {
 	if sock == nil {
 		return errors.New("socket must not be nil")
@@ -116,7 +133,7 @@ func (store *SocketStore) AddUnixSocket(sock *Socket, buildkitSessionID, hostPat
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	store.sockets[sock.IDDigest] = &storedSocket{
-		Socket:            sock,
+		Socket:            cloneSocket(sock),
 		BuildkitSessionID: buildkitSessionID,
 		HostPath:          hostPath,
 	}
@@ -134,7 +151,7 @@ func (store *SocketStore) AddIPSocket(sock *Socket, buildkitSessionID, upstreamH
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	store.sockets[sock.IDDigest] = &storedSocket{
-		Socket:            sock,
+		Socket:            cloneSocket(sock),
 		BuildkitSessionID: buildkitSessionID,
 		HostEndpoint:      upstreamHost,
 		PortForward:       port,
@@ -143,6 +160,13 @@ func (store *SocketStore) AddIPSocket(sock *Socket, buildkitSessionID, upstreamH
 }
 
 func (store *SocketStore) AddSocketFromOtherStore(socket *Socket, otherStore *SocketStore) error {
+	if socket == nil {
+		return errors.New("socket must not be nil")
+	}
+	if socket.IDDigest == "" {
+		return errors.New("socket must have an ID digest")
+	}
+
 	otherStore.mu.RLock()
 	socketVals, ok := otherStore.sockets[socket.IDDigest]
 	otherStore.mu.RUnlock()
@@ -152,7 +176,12 @@ func (store *SocketStore) AddSocketFromOtherStore(socket *Socket, otherStore *So
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	store.sockets[socket.IDDigest] = socketVals
+	if _, ok := store.sockets[socket.IDDigest]; ok {
+		// Keep the destination's existing mapping; callers can always explicitly
+		// re-register a local socket via AddUnixSocket/AddIPSocket.
+		return nil
+	}
+	store.sockets[socket.IDDigest] = cloneStoredSocket(socketVals)
 	return nil
 }
 

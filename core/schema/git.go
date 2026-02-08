@@ -602,7 +602,7 @@ func (s *gitSchema) git(ctx context.Context, parent dagql.ObjectResult[*core.Que
 	}
 	inst = inst.WithContentDigest(hashutil.HashStrings(dgstInputs...))
 	if len(resourceIDs) > 0 {
-		postCall, err := core.ResourceTransferPostCall(ctx, parent.Self(), clientMetadata.ClientID, resourceIDs...)
+		postCall, _, err := core.ResourceTransferPostCall(ctx, parent.Self(), clientMetadata.ClientID, resourceIDs...)
 		if err != nil {
 			return inst, fmt.Errorf("failed to create post call: %w", err)
 		}
