@@ -62,7 +62,8 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 				dagql.Arg("labels").Doc("Labels to apply to the sub-pipeline."),
 			),
 
-		dagql.NodeFuncWithCacheKey("from", s.from, s.fromCacheKey).
+		dagql.NodeFunc("from", s.from).
+			WithInput(containerFromAddressScopeInput).
 			Doc(`Download a container image, and apply it to the container state. All previous state will be lost.`).
 			Args(
 				dagql.Arg("address").Doc(
@@ -807,30 +808,37 @@ type containerFromArgs struct {
 	ContainerDagOpInternalArgs
 }
 
-func (s *containerSchema) fromCacheKey(
-	ctx context.Context,
-	parent dagql.ObjectResult[*core.Container],
-	args containerFromArgs,
-	req dagql.GetCacheConfigRequest,
-) (*dagql.GetCacheConfigResponse, error) {
-	refName, err := reference.ParseNormalizedNamed(args.Address)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse image address %s: %w", args.Address, err)
+var containerFromAddressScopeInput = dagql.ImplicitInput{
+	Name: "fromAddressScope",
+	Resolver: func(ctx context.Context, args map[string]dagql.Input) (dagql.Input, error) {
+		address, err := containerFromAddressArg(args)
+		if err != nil {
+			return nil, err
+		}
+		refName, err := reference.ParseNormalizedNamed(address)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse image address %s: %w", address, err)
+		}
+		// add a default :latest if no tag or digest, otherwise this is a no-op
+		refName = reference.TagNameOnly(refName)
+		if _, isCanonical := refName.(reference.Canonical); isCanonical {
+			return dagql.NewString(""), nil
+		}
+		return dagql.CachePerSession.Resolver(ctx, args)
+	},
+}
+
+func containerFromAddressArg(args map[string]dagql.Input) (string, error) {
+	raw, ok := args["address"]
+	if !ok || raw == nil {
+		return "", fmt.Errorf("missing address arg")
 	}
 
-	var imageRef string
-	if refName, isCanonical := refName.(reference.Canonical); isCanonical {
-		imageRef = "digest:" + string(refName.Digest())
-	} else {
-		imageRef = args.Address
+	val, ok := raw.(dagql.String)
+	if !ok {
+		return "", fmt.Errorf("container.from address input must be String, got %T", raw)
 	}
-
-	resp := &dagql.GetCacheConfigResponse{CacheKey: req.CacheKey}
-	resp.CacheKey.CallKey = hashutil.HashStrings(
-		parent.ID().Digest().String(),
-		imageRef,
-	).String()
-	return resp, nil
+	return val.String(), nil
 }
 
 func (s *containerSchema) from(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerFromArgs) (inst dagql.ObjectResult[*core.Container], _ error) {
