@@ -1941,25 +1941,23 @@ func (ModuleSuite) TestCrossSessionGitSockets(ctx context.Context, t *testctx.T)
 
 	agentSockPath1, cleanup1 := setupPrivateRepoSSHAgent(t)
 	c1 := connect(ctx, t, dagger.WithEnvironmentVariable("SSH_AUTH_SOCK", agentSockPath1))
-	dir1ID, err := c1.Git(url).Commit(ref).ID(ctx)
+	ref1ID, err := c1.Git(url).Commit(ref).ID(ctx)
 	require.NoError(t, err)
 	var id1 call.ID
-	err = id1.Decode(string(dir1ID))
+	err = id1.Decode(string(ref1ID))
 	require.NoError(t, err)
 
 	agentSockPath2, _ := setupPrivateRepoSSHAgent(t)
 	c2 := connect(ctx, t, dagger.WithEnvironmentVariable("SSH_AUTH_SOCK", agentSockPath2))
-	dir2ID, err := c2.Git(url).Commit(ref).ID(ctx)
+	ref2ID, err := c2.Git(url).Commit(ref).ID(ctx)
 	require.NoError(t, err)
 	var id2 call.ID
-	err = id2.Decode(string(dir2ID))
+	err = id2.Decode(string(ref2ID))
 	require.NoError(t, err)
-
-	// require.NotEqual(t, id1.Display(), id2.Display())
 
 	cleanup1()
 	require.NoError(t, c1.Close())
 
-	_, err = c2.LoadGitRefFromID(dir2ID).Tree().Sync(ctx)
+	_, err = c2.LoadGitRefFromID(ref2ID).Tree().Sync(ctx)
 	require.NoError(t, err)
 }

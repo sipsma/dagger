@@ -176,8 +176,9 @@ type gitArgs struct {
 	HTTPAuthHeader   dagql.Optional[core.SecretID] `name:"httpAuthHeader"`
 
 	// internal args that can override the HEAD ref+commit
-	Commit string `default:"" internal:"true"`
-	Ref    string `default:"" internal:"true"`
+	Commit              string `default:"" internal:"true"`
+	Ref                 string `default:"" internal:"true"`
+	SSHAuthSocketScoped bool   `name:"sshAuthSocketScoped" default:"false" internal:"true"`
 }
 
 //nolint:gocyclo
@@ -269,6 +270,14 @@ func (s *gitSchema) git(ctx context.Context, parent dagql.ObjectResult[*core.Que
 				})
 			}
 		}
+		if args.SSHAuthSocketScoped {
+			for i := range try {
+				try[i] = append(try[i], dagql.NamedInput{
+					Name:  "sshAuthSocketScoped",
+					Value: dagql.NewBoolean(true),
+				})
+			}
+		}
 
 		for _, selectArgs := range try {
 			var repo dagql.ObjectResult[*core.GitRepository]
@@ -329,28 +338,104 @@ func (s *gitSchema) git(ctx context.Context, parent dagql.ObjectResult[*core.Que
 		}
 
 		if args.SSHAuthSocket.Valid {
-			sshAuthSock, err = args.SSHAuthSocket.Value.Load(ctx, srv)
-			if err != nil {
+			if args.SSHAuthSocketScoped {
+				sshAuthSock, err = args.SSHAuthSocket.Value.Load(ctx, srv)
+				if err != nil {
+					return inst, err
+				}
+			} else {
+				var scopedSock dagql.ObjectResult[*core.Socket]
+				if err := srv.Select(ctx, srv.Root(), &scopedSock,
+					dagql.Selector{
+						Field: "host",
+					},
+					dagql.Selector{
+						Field: "sshAuthSocket",
+						Args: []dagql.NamedInput{
+							{
+								Name:  "source",
+								Value: dagql.Opt(dagql.NewID[*core.Socket](args.SSHAuthSocket.Value.ID())),
+							},
+							{
+								Name:  "urls",
+								Value: dagql.Opt(dagql.ArrayInput[dagql.String]{dagql.NewString(remote.String())}),
+							},
+						},
+					},
+				); err != nil {
+					return inst, fmt.Errorf("failed to scope SSH auth socket: %w", err)
+				}
+
+				// reinvoke this API with the scoped socket as an explicit arg so it shows up in the DAG
+				selectArgs := []dagql.NamedInput{
+					{
+						Name:  "url",
+						Value: dagql.NewString(remote.String()),
+					},
+					{
+						Name:  "sshAuthSocket",
+						Value: dagql.Opt(dagql.NewID[*core.Socket](scopedSock.ID())),
+					},
+					{
+						Name:  "sshAuthSocketScoped",
+						Value: dagql.NewBoolean(true),
+					},
+				}
+				if args.Commit != "" {
+					selectArgs = append(selectArgs, dagql.NamedInput{
+						Name:  "commit",
+						Value: dagql.NewString(args.Commit),
+					})
+				}
+				if args.Ref != "" {
+					selectArgs = append(selectArgs, dagql.NamedInput{
+						Name:  "ref",
+						Value: dagql.NewString(args.Ref),
+					})
+				}
+				if args.KeepGitDir.Valid {
+					selectArgs = append(selectArgs, dagql.NamedInput{
+						Name:  "keepGitDir",
+						Value: dagql.Opt(args.KeepGitDir.Value),
+					})
+				}
+				if args.ExperimentalServiceHost.Valid {
+					selectArgs = append(selectArgs, dagql.NamedInput{
+						Name:  "experimentalServiceHost",
+						Value: dagql.Opt(dagql.NewID[*core.Service](args.ExperimentalServiceHost.Value.ID())),
+					})
+				}
+				if args.SSHKnownHosts != "" {
+					selectArgs = append(selectArgs, dagql.NamedInput{
+						Name:  "sshKnownHosts",
+						Value: dagql.NewString(args.SSHKnownHosts),
+					})
+				}
+				err = srv.Select(ctx, parent, &inst, dagql.Selector{
+					Field: "git",
+					Args:  selectArgs,
+					View:  dagql.CurrentID(ctx).View(),
+				})
 				return inst, err
 			}
 		} else if clientMetadata.SSHAuthSocketPath != "" {
-			// For SSH refs, try to load client's SSH socket if no explicit socket was provided
-			var sockInst dagql.ObjectResult[*core.Socket]
-			if err := srv.Select(ctx, srv.Root(), &sockInst,
+			// For SSH refs, scope the caller's default SSH auth socket and reinvoke so it appears in the DAG.
+			var scopedSock dagql.ObjectResult[*core.Socket]
+			if err := srv.Select(ctx, srv.Root(), &scopedSock,
 				dagql.Selector{
 					Field: "host",
 				},
 				dagql.Selector{
-					Field: "unixSocket",
+					Field: "sshAuthSocket",
 					Args: []dagql.NamedInput{
 						{
-							Name:  "path",
-							Value: dagql.NewString(clientMetadata.SSHAuthSocketPath),
+							Name:  "urls",
+							Value: dagql.Opt(dagql.ArrayInput[dagql.String]{dagql.NewString(remote.String())}),
 						},
 					},
 				},
 			); err != nil {
-				return inst, fmt.Errorf("failed to select unix socket: %w", err)
+				return inst, fmt.Errorf("failed to select SSH auth socket: %w", err)
 			}
 
 			// reinvoke this API with the socket as an explicit arg so it shows up in the DAG
@@ -361,7 +446,11 @@ func (s *gitSchema) git(ctx context.Context, parent dagql.ObjectResult[*core.Que
 				},
 				{
 					Name:  "sshAuthSocket",
-					Value: dagql.Opt(dagql.NewID[*core.Socket](sockInst.ID())),
+					Value: dagql.Opt(dagql.NewID[*core.Socket](scopedSock.ID())),
+				},
+				{
+					Name:  "sshAuthSocketScoped",
+					Value: dagql.NewBoolean(true),
 				},
 			}
 			if args.Commit != "" {
@@ -589,7 +678,7 @@ func (s *gitSchema) git(ctx context.Context, parent dagql.ObjectResult[*core.Que
 
 	var resourceIDs []*resource.ID
 	if sshAuthSock.Self() != nil {
-		dgstInputs = append(dgstInputs, "sshAuthSock", strconv.FormatBool(sshAuthSock.Self() != nil))
+		dgstInputs = append(dgstInputs, "sshAuthSock", sshAuthSock.Self().IDDigest.String())
 		resourceIDs = append(resourceIDs, &resource.ID{ID: *sshAuthSock.ID()})
 	}
 	if httpAuthToken.Self() != nil {
@@ -673,7 +762,7 @@ func (s *gitSchema) ref(ctx context.Context, parent dagql.ObjectResult[*core.Git
 	}
 	if remoteRepo, ok := repo.Backend.(*core.RemoteGitRepository); ok {
 		if remoteRepo.SSHAuthSocket.Self() != nil {
-			dgstInputs = append(dgstInputs, "sshAuthSock", strconv.FormatBool(remoteRepo.SSHAuthSocket.Self() != nil))
+			dgstInputs = append(dgstInputs, "sshAuthSock", remoteRepo.SSHAuthSocket.Self().IDDigest.String())
 		}
 		if remoteRepo.AuthToken.Self() != nil {
 			dgstInputs = append(dgstInputs, "authToken", strconv.FormatBool(remoteRepo.AuthToken.Self() != nil))

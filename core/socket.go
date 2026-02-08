@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 
 	"github.com/dagger/dagger/dagql/call"
@@ -18,6 +21,8 @@ import (
 	"github.com/dagger/dagger/util/grpcutil"
 	"github.com/opencontainers/go-digest"
 	"github.com/vektah/gqlparser/v2/ast"
+	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -183,6 +188,80 @@ func (store *SocketStore) AddSocketFromOtherStore(socket *Socket, otherStore *So
 	}
 	store.sockets[socket.IDDigest] = cloneStoredSocket(socketVals)
 	return nil
+}
+
+func (store *SocketStore) AddSocketAlias(alias *Socket, sourceIDDigest digest.Digest) error {
+	if alias == nil {
+		return errors.New("socket alias must not be nil")
+	}
+	if alias.IDDigest == "" {
+		return errors.New("socket alias must have an ID digest")
+	}
+	if sourceIDDigest == "" {
+		return errors.New("source socket digest must not be empty")
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if _, ok := store.sockets[alias.IDDigest]; ok {
+		return nil
+	}
+
+	source, ok := store.sockets[sourceIDDigest]
+	if !ok {
+		return fmt.Errorf("source socket %s not found", sourceIDDigest)
+	}
+
+	aliased := cloneStoredSocket(source)
+	aliased.Socket = cloneSocket(alias)
+	store.sockets[alias.IDDigest] = aliased
+	return nil
+}
+
+func (store *SocketStore) AgentFingerprints(ctx context.Context, idDgst digest.Digest) ([]string, error) {
+	sockPath, cleanup, err := store.MountSocket(ctx, idDgst)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to mounted SSH socket: %w", err)
+	}
+	defer conn.Close()
+
+	keys, err := agent.NewClient(conn).List()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list SSH agent identities: %w", err)
+	}
+
+	seen := map[string]struct{}{}
+	fingerprints := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if key == nil {
+			continue
+		}
+		pub, err := ssh.ParsePublicKey(key.Blob)
+		if err != nil {
+			sum := sha256.Sum256(key.Blob)
+			fp := "sha256:" + hex.EncodeToString(sum[:])
+			if _, ok := seen[fp]; ok {
+				continue
+			}
+			seen[fp] = struct{}{}
+			fingerprints = append(fingerprints, fp)
+			continue
+		}
+		fp := ssh.FingerprintSHA256(pub)
+		if _, ok := seen[fp]; ok {
+			continue
+		}
+		seen[fp] = struct{}{}
+		fingerprints = append(fingerprints, fp)
+	}
+	slices.Sort(fingerprints)
+	return fingerprints, nil
 }
 
 func (store *SocketStore) HasSocket(idDgst digest.Digest) bool {

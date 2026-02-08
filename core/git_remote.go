@@ -153,7 +153,7 @@ func (repo *RemoteGitRepository) remoteCacheScope() []string {
 		scope = append(scope, "username:"+repo.AuthUsername)
 	}
 	if sshSock := repo.SSHAuthSocket; sshSock.Self() != nil {
-		scope = append(scope, "ssh-sock:"+sshSock.Self().IDDigest.String())
+		scope = append(scope, "ssh-auth-scope:"+sshSock.Self().IDDigest.String())
 	}
 	return scope
 }
