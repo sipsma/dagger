@@ -808,6 +808,11 @@ type containerFromArgs struct {
 	ContainerDagOpInternalArgs
 }
 
+func containerFromContentDigest(refName reference.Canonical, platform core.Platform) digest.Digest {
+	// Scope by platform so multi-platform variants don't collapse to one cache entry.
+	return hashutil.HashStrings("container.from", refName.Digest().String(), platform.Format())
+}
+
 var containerFromAddressScopeInput = dagql.ImplicitInput{
 	Name: "fromAddressScope",
 	Resolver: func(ctx context.Context, args map[string]dagql.Input) (dagql.Input, error) {
@@ -869,7 +874,11 @@ func (s *containerSchema) from(ctx context.Context, parent dagql.ObjectResult[*c
 			if err != nil {
 				return inst, err
 			}
-			return dagql.NewObjectResultForCurrentID(ctx, srv, ctr)
+			inst, err := dagql.NewObjectResultForCurrentID(ctx, srv, ctr)
+			if err != nil {
+				return inst, err
+			}
+			return inst.WithContentDigest(containerFromContentDigest(refName, platform)), nil
 		}
 
 		ctr, effectID, err := DagOpContainer(ctx, srv, parent.Self(), args, s.from)
@@ -896,6 +905,7 @@ func (s *containerSchema) from(ctx context.Context, parent dagql.ObjectResult[*c
 		if err != nil {
 			return inst, err
 		}
+		inst = inst.WithContentDigest(containerFromContentDigest(refName, platform))
 		return inst, nil
 	}
 
@@ -1127,14 +1137,20 @@ func (s *containerSchema) withExecCacheKey(
 	args containerExecArgs,
 	req dagql.GetCacheConfigRequest,
 ) (*dagql.GetCacheConfigResponse, error) {
+	_ = ctx
 	argDigest, err := args.Digest()
 	if err != nil {
 		return nil, err
 	}
 
+	parentDigest := parent.ID().Digest().String()
+	if parentContentDigest := parent.ID().ContentDigest(); parentContentDigest != "" {
+		parentDigest = parentContentDigest.String()
+	}
+
 	resp := &dagql.GetCacheConfigResponse{CacheKey: req.CacheKey}
 	resp.CacheKey.CallKey = hashutil.HashStrings(
-		parent.ID().Digest().String(),
+		parentDigest,
 		string(argDigest),
 	).String()
 	return resp, nil
