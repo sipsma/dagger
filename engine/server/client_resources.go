@@ -7,6 +7,7 @@ import (
 
 	"github.com/dagger/dagger/core"
 	"github.com/dagger/dagger/dagql"
+	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/server/resource"
 	"github.com/dagger/dagger/engine/slog"
 )
@@ -64,13 +65,17 @@ func (srv *Server) addClientResourcesFromID(ctx context.Context, destClient *dag
 		return err // if nil, that's fine, nothing more to do here
 	}
 
-	srcDag, err := srcClient.deps.Schema(ctx)
+	// Load IDs in the source client's metadata context so any cache-miss re-evaluation
+	// (e.g. host.unixSocket post-call side effects) targets the correct source client.
+	srcClientCtx := engine.ContextWithClientMetadata(ctx, srcClient.clientMetadata)
+
+	srcDag, err := srcClient.deps.Schema(srcClientCtx)
 	if err != nil {
 		return fmt.Errorf("failed to get source schema: %w", err)
 	}
 
 	if len(secretIDs) > 0 {
-		secrets, err := dagql.LoadIDResults(ctx, srcDag, secretIDs)
+		secrets, err := dagql.LoadIDResults(srcClientCtx, srcDag, secretIDs)
 		if err != nil && !id.Optional {
 			return fmt.Errorf("failed to load secrets: %w", err)
 		}
@@ -88,7 +93,7 @@ func (srv *Server) addClientResourcesFromID(ctx context.Context, destClient *dag
 	}
 
 	if len(socketIDs) > 0 {
-		sockets, err := dagql.LoadIDs(ctx, srcDag, socketIDs)
+		sockets, err := dagql.LoadIDs(srcClientCtx, srcDag, socketIDs)
 		if err != nil && !id.Optional {
 			return fmt.Errorf("failed to load sockets: %w", err)
 		}

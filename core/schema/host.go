@@ -361,17 +361,7 @@ func (s *hostSchema) socket(ctx context.Context, host dagql.ObjectResult[*core.H
 		return inst, err
 	}
 
-	resourceClientMetadata, err := query.NonModuleParentClientMetadata(ctx)
-	if err != nil {
-		// fallback for contexts that are not attached to a client lineage
-		resourceClientMetadata, err = engine.ClientMetadataFromContext(ctx)
-		if err != nil {
-			return inst, fmt.Errorf("failed to get client metadata: %w", err)
-		}
-	}
-	accessorCtx := engine.ContextWithClientMetadata(ctx, resourceClientMetadata)
-
-	accessor, err := core.GetClientResourceAccessor(accessorCtx, query, args.Path)
+	accessor, err := core.GetClientResourceAccessor(ctx, query, args.Path)
 	if err != nil {
 		return inst, fmt.Errorf("failed to get client resource name: %w", err)
 	}
@@ -385,11 +375,23 @@ func (s *hostSchema) socket(ctx context.Context, host dagql.ObjectResult[*core.H
 	inst = inst.WithContentDigest(dgst)
 
 	upsertSocket := func(ctx context.Context) error {
+		callerClientMetadata, err := engine.ClientMetadataFromContext(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get client metadata: %w", err)
+		}
 		callerSocketStore, err := query.Sockets(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to get socket store: %w", err)
 		}
-		if err := callerSocketStore.AddUnixSocket(sock, resourceClientMetadata.ClientID, args.Path); err != nil {
+		nonModuleParentClientMetadata, err := query.NonModuleParentClientMetadata(ctx)
+		if err == nil && nonModuleParentClientMetadata.ClientID != callerClientMetadata.ClientID {
+			// In nested module contexts, preserve any pre-imported socket mapping (e.g. an explicitly
+			// passed socket argument) instead of clobbering it with the nested client's session.
+			if callerSocketStore.HasSocket(sock.IDDigest) {
+				return nil
+			}
+		}
+		if err := callerSocketStore.AddUnixSocket(sock, callerClientMetadata.ClientID, args.Path); err != nil {
 			return fmt.Errorf("failed to add unix socket to store: %w", err)
 		}
 		return nil
