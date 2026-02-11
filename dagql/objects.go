@@ -550,6 +550,35 @@ func (r ObjectResult[T]) sortArgsToSchema(fieldSpec *FieldSpec, view call.View, 
 	})
 }
 
+func (r ObjectResult[T]) implicitInputArgs(ctx context.Context, fieldSpec *FieldSpec, inputArgs map[string]Input) ([]*call.Argument, error) {
+	if len(fieldSpec.ImplicitInputs) == 0 {
+		return nil, nil
+	}
+
+	inputIdxByName := make(map[string]int, len(fieldSpec.ImplicitInputs))
+	implicitArgs := make([]*call.Argument, 0, len(fieldSpec.ImplicitInputs))
+	for _, implicitInput := range fieldSpec.ImplicitInputs {
+		inputVal, err := implicitInput.Resolver(ctx, inputArgs)
+		if err != nil {
+			return nil, fmt.Errorf("resolve implicit input %q: %w", implicitInput.Name, err)
+		}
+		if inputVal == nil {
+			return nil, fmt.Errorf("implicit input %q resolved to nil", implicitInput.Name)
+		}
+		newInput := call.NewArgument(implicitInput.Name, inputVal.ToLiteral(), false)
+		if idx, ok := inputIdxByName[implicitInput.Name]; ok {
+			implicitArgs[idx] = newInput
+			continue
+		}
+		inputIdxByName[implicitInput.Name] = len(implicitArgs)
+		implicitArgs = append(implicitArgs, newInput)
+	}
+	sort.Slice(implicitArgs, func(i, j int) bool {
+		return implicitArgs[i].Name() < implicitArgs[j].Name()
+	})
+	return implicitArgs, nil
+}
+
 func (r ObjectResult[T]) preselect(ctx context.Context, s *Server, sel Selector) (*preselectResult, error) {
 	view := sel.View
 	field, ok := r.class.Field(sel.Field, view)
@@ -600,6 +629,11 @@ func (r ObjectResult[T]) preselect(ctx context.Context, s *Server, sel Selector)
 		astType = astType.Elem
 	}
 
+	implicitInputArgs, err := r.implicitInputArgs(ctx, field.Spec, inputArgs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve implicit inputs for %s.%s: %w", r.self.Type().Name(), sel.Field, err)
+	}
+
 	newID := r.constructor.Append(
 		astType,
 		sel.Field,
@@ -607,6 +641,7 @@ func (r ObjectResult[T]) preselect(ctx context.Context, s *Server, sel Selector)
 		call.WithModule(field.Spec.Module),
 		call.WithNth(sel.Nth),
 		call.WithArgs(idArgs...),
+		call.WithImplicitInputs(implicitInputArgs...),
 	)
 
 	cacheKey := newCacheKey(ctx, newID, field.Spec)
@@ -640,6 +675,10 @@ func (r ObjectResult[T]) preselect(ctx context.Context, s *Server, sel Selector)
 				}
 			}
 			r.sortArgsToSchema(field.Spec, view, idArgs)
+			implicitInputArgs, err = r.implicitInputArgs(ctx, field.Spec, inputArgs)
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve implicit inputs for %s.%s after cache arg updates: %w", r.self.Type().Name(), sel.Field, err)
+			}
 			newID = r.constructor.Append(
 				astType,
 				sel.Field,
@@ -647,6 +686,7 @@ func (r ObjectResult[T]) preselect(ctx context.Context, s *Server, sel Selector)
 				call.WithModule(field.Spec.Module),
 				call.WithNth(sel.Nth),
 				call.WithArgs(idArgs...),
+				call.WithImplicitInputs(implicitInputArgs...),
 			)
 		}
 
@@ -1002,6 +1042,10 @@ type FieldSpec struct {
 	// If set, this GetCacheConfig will be called before ID evaluation to make
 	// any dynamic adjustments to the cache key or args
 	GetCacheConfig GenericGetCacheConfigFunc
+
+	// Inputs that are computed by the engine and included in ID digests, but are
+	// not explicit GraphQL field arguments.
+	ImplicitInputs []ImplicitInput
 
 	// extend is used during installation to copy the spec of a previous field
 	// with the same name
@@ -1364,6 +1408,13 @@ type GetCacheConfigResponse struct {
 	UpdatedArgs map[string]Input
 }
 
+type ImplicitInputResolver func(context.Context, map[string]Input) (Input, error)
+
+type ImplicitInput struct {
+	Name     string
+	Resolver ImplicitInputResolver
+}
+
 // Field defines a field of an Object type.
 type Field[T Typed] struct {
 	Spec *FieldSpec
@@ -1436,6 +1487,22 @@ func (field Field[T]) Args(args ...Argument) Field[T] {
 	}
 
 	field.Spec.Args = InputSpecs{newArgs}
+	return field
+}
+
+func (field Field[T]) WithInput(inputs ...ImplicitInput) Field[T] {
+	if field.Spec.extend {
+		panic("cannot call on extended field")
+	}
+	for _, input := range inputs {
+		if input.Name == "" {
+			panic("implicit input name cannot be empty")
+		}
+		if input.Resolver == nil {
+			panic(fmt.Sprintf("implicit input %q resolver cannot be nil", input.Name))
+		}
+		field.Spec.ImplicitInputs = append(field.Spec.ImplicitInputs, input)
+	}
 	return field
 }
 

@@ -62,7 +62,8 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 				dagql.Arg("labels").Doc("Labels to apply to the sub-pipeline."),
 			),
 
-		dagql.NodeFuncWithCacheKey("from", s.from, s.fromCacheKey).
+		dagql.NodeFunc("from", s.from).
+			WithInput(containerFromAddressScopeInput).
 			Doc(`Download a container image, and apply it to the container state. All previous state will be lost.`).
 			Args(
 				dagql.Arg("address").Doc(
@@ -544,7 +545,8 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 				dagql.Arg("name").Doc(`The name of the annotation.`),
 			),
 
-		dagql.NodeFuncWithCacheKey("publish", DagOpWrapper(srv, s.publish), dagql.CachePerCall).
+		dagql.NodeFunc("publish", DagOpWrapper(srv, s.publish)).
+			WithInput(dagql.CachePerCall).
 			DoNotCache("side effect on an external system (OCI registry)").
 			Doc(`Package the container state as an OCI image, and publish it to a registry`,
 				`Returns the fully qualified address of the published image, with digest`).
@@ -573,7 +575,8 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 		dagql.Func("platform", s.platform).
 			Doc(`The platform this container executes and publishes as.`),
 
-		dagql.NodeFuncWithCacheKey("export", DagOpWrapper(srv, s.export), dagql.CachePerCall).
+		dagql.NodeFunc("export", DagOpWrapper(srv, s.export)).
+			WithInput(dagql.CachePerCall).
 			View(AllVersion).
 			DoNotCache("Writes to the local host.").
 			Doc(`Writes the container as an OCI tarball to the destination file path on the host.`,
@@ -601,7 +604,8 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 					`Replace "${VAR}" or "$VAR" in the value of path according to the current `+
 						`environment variables defined in the container (e.g. "/$VAR/foo").`),
 			),
-		dagql.NodeFuncWithCacheKey("export", DagOpWrapper(srv, s.exportLegacy), dagql.CachePerCall).
+		dagql.NodeFunc("export", DagOpWrapper(srv, s.exportLegacy)).
+			WithInput(dagql.CachePerCall).
 			View(BeforeVersion("v0.12.0")).
 			Extend(),
 
@@ -804,30 +808,42 @@ type containerFromArgs struct {
 	ContainerDagOpInternalArgs
 }
 
-func (s *containerSchema) fromCacheKey(
-	ctx context.Context,
-	parent dagql.ObjectResult[*core.Container],
-	args containerFromArgs,
-	req dagql.GetCacheConfigRequest,
-) (*dagql.GetCacheConfigResponse, error) {
-	refName, err := reference.ParseNormalizedNamed(args.Address)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse image address %s: %w", args.Address, err)
+func containerFromContentDigest(refName reference.Canonical, platform core.Platform) digest.Digest {
+	// Scope by platform so multi-platform variants don't collapse to one cache entry.
+	return hashutil.HashStrings("container.from", refName.Digest().String(), platform.Format())
+}
+
+var containerFromAddressScopeInput = dagql.ImplicitInput{
+	Name: "fromAddressScope",
+	Resolver: func(ctx context.Context, args map[string]dagql.Input) (dagql.Input, error) {
+		address, err := containerFromAddressArg(args)
+		if err != nil {
+			return nil, err
+		}
+		refName, err := reference.ParseNormalizedNamed(address)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse image address %s: %w", address, err)
+		}
+		// add a default :latest if no tag or digest, otherwise this is a no-op
+		refName = reference.TagNameOnly(refName)
+		if _, isCanonical := refName.(reference.Canonical); isCanonical {
+			return dagql.NewString(""), nil
+		}
+		return dagql.CachePerSession.Resolver(ctx, args)
+	},
+}
+
+func containerFromAddressArg(args map[string]dagql.Input) (string, error) {
+	raw, ok := args["address"]
+	if !ok || raw == nil {
+		return "", fmt.Errorf("missing address arg")
 	}
 
-	var imageRef string
-	if refName, isCanonical := refName.(reference.Canonical); isCanonical {
-		imageRef = "digest:" + string(refName.Digest())
-	} else {
-		imageRef = args.Address
+	val, ok := raw.(dagql.String)
+	if !ok {
+		return "", fmt.Errorf("container.from address input must be String, got %T", raw)
 	}
-
-	resp := &dagql.GetCacheConfigResponse{CacheKey: req.CacheKey}
-	resp.CacheKey.CallKey = hashutil.HashStrings(
-		parent.ID().Digest().String(),
-		imageRef,
-	).String()
-	return resp, nil
+	return val.String(), nil
 }
 
 func (s *containerSchema) from(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerFromArgs) (inst dagql.ObjectResult[*core.Container], _ error) {
@@ -858,7 +874,11 @@ func (s *containerSchema) from(ctx context.Context, parent dagql.ObjectResult[*c
 			if err != nil {
 				return inst, err
 			}
-			return dagql.NewObjectResultForCurrentID(ctx, srv, ctr)
+			inst, err := dagql.NewObjectResultForCurrentID(ctx, srv, ctr)
+			if err != nil {
+				return inst, err
+			}
+			return inst.WithContentDigest(containerFromContentDigest(refName, platform)), nil
 		}
 
 		ctr, effectID, err := DagOpContainer(ctx, srv, parent.Self(), args, s.from)
@@ -885,6 +905,7 @@ func (s *containerSchema) from(ctx context.Context, parent dagql.ObjectResult[*c
 		if err != nil {
 			return inst, err
 		}
+		inst = inst.WithContentDigest(containerFromContentDigest(refName, platform))
 		return inst, nil
 	}
 
@@ -1116,14 +1137,20 @@ func (s *containerSchema) withExecCacheKey(
 	args containerExecArgs,
 	req dagql.GetCacheConfigRequest,
 ) (*dagql.GetCacheConfigResponse, error) {
+	_ = ctx
 	argDigest, err := args.Digest()
 	if err != nil {
 		return nil, err
 	}
 
+	parentDigest := parent.ID().Digest().String()
+	if parentContentDigest := parent.ID().ContentDigest(); parentContentDigest != "" {
+		parentDigest = parentContentDigest.String()
+	}
+
 	resp := &dagql.GetCacheConfigResponse{CacheKey: req.CacheKey}
 	resp.CacheKey.CallKey = hashutil.HashStrings(
-		parent.ID().Digest().String(),
+		parentDigest,
 		string(argDigest),
 	).String()
 	return resp, nil
