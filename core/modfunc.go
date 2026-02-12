@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -662,6 +663,11 @@ func (fn *ModuleFunction) CacheConfigForCall(
 	}
 
 	cacheCfgResp.CacheKey.ID = cacheCfgResp.CacheKey.ID.WithDigest(hashutil.HashStrings(dgstInputs...))
+
+	if cacheCfgResp.CacheKey.ID.Field() == "ls" {
+		slog.Warn("!!! DA EVEN MORE FINAL CACHE KEY INPUTS", "inputs", dgstInputs)
+		slog.Warn("!!! DA EVEN MORE FINAL CACHE KEY", "digest", cacheCfgResp.CacheKey.ID.Digest())
+	}
 	return cacheCfgResp, nil
 }
 
@@ -929,12 +935,65 @@ func (fn *ModuleFunction) Call(ctx context.Context, opts *CallOpts) (t dagql.Any
 		}
 
 		returnValue = returnValue.WithPostCall(resourceTransferPostCall)
+
+		// If this function accepts Workspace args, set a content digest on the
+		// result derived from the content digests of the IDs it returned. This
+		// ensures downstream calls that reference this result get a different
+		// cache key when the underlying content changes (e.g. a Directory synced
+		// from a changed host workspace). Content digests propagate through the
+		// DAG via ID references.
+		if fn.hasWorkspaceArgs() {
+			returnValue = fn.withContentDigestFromReturnedIDs(returnValue, returnedIDs)
+		}
 	}
 	if returnValue != nil {
 		returnValue = returnValue.WithSafeToPersistCache(safeToPersistCache)
 	}
 
 	return returnValue, nil
+}
+
+// hasWorkspaceArgs returns true if any of the function's arguments are of type Workspace.
+func (fn *ModuleFunction) hasWorkspaceArgs() bool {
+	for _, arg := range fn.metadata.Args {
+		if arg.IsWorkspace() {
+			return true
+		}
+	}
+	return false
+}
+
+// withContentDigestFromReturnedIDs computes a content digest for the result
+// based on the content digests of the core IDs it contains (e.g. Directory,
+// File, Container). This leverages the content digests already computed by
+// the dagql pipeline (e.g. MakeDirectoryContentHashed) rather than relying
+// on serialized JSON output.
+func (fn *ModuleFunction) withContentDigestFromReturnedIDs(returnValue dagql.AnyResult, returnedIDs map[digest.Digest]*resource.ID) dagql.AnyResult {
+	slog.Warn("!!! withContentDigestFromReturnedIDs", "value", returnValue, "returnedIDs", returnedIDs)
+
+	if len(returnedIDs) == 0 {
+		return returnValue
+	}
+
+	// Collect content digests from the returned IDs, preferring content digest
+	// over recipe digest (same as how ID digest computation works).
+	dgstInputs := make([]string, 0, len(returnedIDs))
+	for _, rid := range returnedIDs {
+		dgst := rid.ContentDigest()
+		if dgst == "" {
+			dgst = rid.Digest()
+		}
+		dgstInputs = append(dgstInputs, dgst.String())
+	}
+	sort.Strings(dgstInputs) // deterministic order since map iteration is random
+
+	slog.Warn("!!! withContentDigestFromReturnedIDs mixing", "dgstInputs", dgstInputs)
+
+	contentDigest := hashutil.HashStrings(dgstInputs...)
+
+	slog.Warn("!!! withContentDigestFromReturnedIDs mixing", "contentDigest", contentDigest)
+
+	return returnValue.WithContentDigestAny(contentDigest)
 }
 
 func extractError(ctx context.Context, client *buildkit.Client, baseErr error) (dagql.ID[*Error], bool, error) {

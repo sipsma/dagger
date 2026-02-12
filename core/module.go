@@ -423,9 +423,12 @@ func (mod *Module) CacheConfigForCall(
 	// the module ID digest (which has a per-client cache key in order to deal with
 	// local dir and git repo loading)
 	id := dagql.CurrentID(ctx)
+	debug := id.Field() == "ls"
+	parent := id.Receiver()
 	curIDNoMod := id.With(
 		call.WithModule(nil),
 		call.WithCustomDigest(""),
+		// call.WithReceiver(nil),
 	)
 
 	resp := &dagql.GetCacheConfigResponse{
@@ -434,11 +437,32 @@ func (mod *Module) CacheConfigForCall(
 	if resp.CacheKey.ID == nil {
 		resp.CacheKey.ID = curIDNoMod
 	}
+	var parentDig digest.Digest
+	if parent != nil {
+		if d := parent.ContentDigest(); d != "" {
+			if debug {
+				slog.Warn("!!! parent has content digest", "d", d)
+			}
+			parentDig = d
+		} else {
+			parentDig = parent.Digest()
+			if debug {
+				slog.Warn("!!! parent has normal digest", "d", parentDig)
+			}
+		}
+	}
+	if debug {
+		slog.Warn("!!! computing cache key", "h1", parentDig, "h2", curIDNoMod.Digest(), "h3", mod.Source.Value.Self().Digest, "h4", mod.NameField)
+	}
 	resp.CacheKey.ID = resp.CacheKey.ID.WithDigest(hashutil.HashStrings(
+		// parentDig.String(),
 		curIDNoMod.Digest().String(),
 		mod.Source.Value.Self().Digest,
 		mod.NameField, // the module source content digest only includes the original name
 	))
+	if debug {
+		slog.Warn("!!! DA FINAL CACHE KEY", "key", resp.CacheKey.ID.Digest())
+	}
 	return resp, nil
 }
 
