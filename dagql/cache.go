@@ -429,7 +429,7 @@ func (r Result[T]) DerefValue() (AnyResult, bool) {
 	if r.shared != nil {
 		postCall = r.shared.postCall
 	}
-	return derefableSelf.DerefToResult(r.ID(), postCall)
+	return derefableSelf.DerefToResult(r.ID(), postCall, r.IsSafeToPersistCache())
 }
 
 func (r Result[T]) NthValue(nth int) (AnyResult, error) {
@@ -586,7 +586,7 @@ func (r ObjectResult[T]) DerefValue() (AnyResult, bool) {
 	if r.shared != nil {
 		postCall = r.shared.postCall
 	}
-	return derefableSelf.DerefToResult(r.ID(), postCall)
+	return derefableSelf.DerefToResult(r.ID(), postCall, r.IsSafeToPersistCache())
 }
 
 func (r ObjectResult[T]) SetField(field reflect.Value) error {
