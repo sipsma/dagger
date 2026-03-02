@@ -75,13 +75,17 @@ func (d *ModDeps) Schema(ctx context.Context) (*dagql.Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return schema, nil
+	dagqlCache, err := d.root.Cache(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cache: %w", err)
+	}
+	return schema.WithCache(dagqlCache), nil
 }
 
 // The introspection json for combined schema exposed by each mod in this set of dependencies, as a file.
 // It is meant for consumption from modules, which have some APIs hidden from their codegen.
 func (d *ModDeps) SchemaIntrospectionJSONFile(ctx context.Context, hiddenTypes []string) (inst dagql.Result[*File], _ error) {
-	dag, err := d.lazilyLoadSchema(ctx)
+	dag, err := d.Schema(ctx)
 	if err != nil {
 		return inst, err
 	}
@@ -127,6 +131,11 @@ func (d *ModDeps) lazilyLoadSchema(ctx context.Context) (
 ) {
 	d.loadSchemaLock.Lock()
 	defer d.loadSchemaLock.Unlock()
+
+	dagqlCache, err := d.root.Cache(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cache: %w", err)
+	}
 	if d.lazilyLoadedSchema != nil {
 		return d.lazilyLoadedSchema, nil
 	}
@@ -138,10 +147,6 @@ func (d *ModDeps) lazilyLoadSchema(ctx context.Context) (
 		d.loadSchemaErr = rerr
 	}()
 
-	dagqlCache, err := d.root.Cache(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get cache: %w", err)
-	}
 	dag := dagql.NewServer(d.root, dagqlCache)
 	for _, mod := range d.Mods {
 		if version, ok := mod.View(); ok {
