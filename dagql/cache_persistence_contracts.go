@@ -29,6 +29,9 @@ func (res *sharedResult) persistResultKey() (cachePersistResultKey, error) {
 	if res == nil {
 		return "", fmt.Errorf("derive persist result key: nil shared result")
 	}
+	if res.persistedResultKey != "" {
+		return res.persistedResultKey, nil
+	}
 	return derivePersistResultKey(res.originalRequestID)
 }
 

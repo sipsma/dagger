@@ -157,6 +157,7 @@ func NewCache(ctx context.Context, dbPath string) (Cache, error) {
 		return nil, fmt.Errorf("read clean_shutdown metadata: %w", err)
 	}
 	if found && cleanShutdownVal != "1" {
+		slog.Warn("dagql persistence store marked unclean; wiping and cold-starting", "cleanShutdown", cleanShutdownVal)
 		if closeErr := closeCacheDBs(db, c.pdb); closeErr != nil {
 			return nil, errors.Join(fmt.Errorf("close db before wipe"), closeErr)
 		}
@@ -164,6 +165,21 @@ func NewCache(ctx context.Context, dbPath string) (Cache, error) {
 			return nil, fmt.Errorf("wipe unclean persistence db: %w", err)
 		}
 
+		db, persistDB, err = prepareCacheDBs(ctx, dbPath)
+		if err != nil {
+			return nil, err
+		}
+		c.sqlDB = db
+		c.pdb = persistDB
+	}
+	if err := c.importPersistedState(ctx); err != nil {
+		slog.Warn("dagql persistence import failed; wiping and cold-starting", "err", err)
+		if closeErr := closeCacheDBs(db, c.pdb); closeErr != nil {
+			return nil, errors.Join(fmt.Errorf("close db before import-wipe"), closeErr)
+		}
+		if err := wipeSQLiteFiles(dbPath); err != nil {
+			return nil, fmt.Errorf("wipe persistence db after import failure: %w", err)
+		}
 		db, persistDB, err = prepareCacheDBs(ctx, dbPath)
 		if err != nil {
 			return nil, err
@@ -356,6 +372,12 @@ type sharedResult struct {
 
 	// id is the stable cache-local identity for this materialized result.
 	id sharedResultID
+	// persistedResultKey is populated for imported persisted rows where
+	// originalRequestID cannot be reconstructed losslessly.
+	persistedResultKey cachePersistResultKey
+	// idDigest is the durable request digest string used for persisted ID-based
+	// relationships even when originalRequestID is unavailable.
+	idDigest string
 	// originalRequestID is the first request ID that materialized this shared
 	// result in the in-memory cache. Disk persistence derives durable result_key
 	// from this field to avoid process-local numeric IDs.
@@ -382,6 +404,9 @@ type sharedResult struct {
 	// while this result has active refs. They are released when this result's
 	// refcount drains to zero.
 	heldAdditionalOutputs []AnyResult
+	// persistedSnapshotLinks are imported snapshot-link associations used before
+	// typed self payload is decoded/rehydrated.
+	persistedSnapshotLinks []PersistedSnapshotRefLink
 
 	// Output digests learned from the materialized result ID.
 	outputDigest       digest.Digest
@@ -390,6 +415,9 @@ type sharedResult struct {
 	// expiresAtUnix is the in-memory TTL deadline for cache-hit eligibility.
 	// 0 means "never expires".
 	expiresAtUnix int64
+	// persistedEnvelope is populated for imported rows and decoded lazily on
+	// first cache-hit use in a server-aware context.
+	persistedEnvelope *PersistedResultEnvelope
 
 	// Prune-accounting metadata. Size is unknown until explicitly measured.
 	createdAtUnixNano  int64
@@ -546,20 +574,25 @@ func (r Result[T]) NthValue(nth int) (AnyResult, error) {
 func (r Result[T]) withDetachedPayload() Result[T] {
 	if r.shared != nil {
 		r.shared = &sharedResult{
-			self:               r.shared.self,
-			objType:            r.shared.objType,
-			hasValue:           r.shared.hasValue,
-			postCall:           r.shared.postCall,
-			safeToPersistCache: r.shared.safeToPersistCache,
-			outputDigest:       r.shared.outputDigest,
-			outputExtraDigests: slices.Clone(r.shared.outputExtraDigests),
-			outputEffectIDs:    slices.Clone(r.shared.outputEffectIDs),
-			createdAtUnixNano:  r.shared.createdAtUnixNano,
-			lastUsedAtUnixNano: r.shared.lastUsedAtUnixNano,
-			sizeEstimateBytes:  r.shared.sizeEstimateBytes,
-			usageIdentity:      r.shared.usageIdentity,
-			description:        r.shared.description,
-			recordType:         r.shared.recordType,
+			persistedResultKey:     r.shared.persistedResultKey,
+			idDigest:               r.shared.idDigest,
+			originalRequestID:      r.shared.originalRequestID,
+			self:                   r.shared.self,
+			objType:                r.shared.objType,
+			hasValue:               r.shared.hasValue,
+			postCall:               r.shared.postCall,
+			safeToPersistCache:     r.shared.safeToPersistCache,
+			persistedEnvelope:      r.shared.persistedEnvelope,
+			persistedSnapshotLinks: slices.Clone(r.shared.persistedSnapshotLinks),
+			outputDigest:           r.shared.outputDigest,
+			outputExtraDigests:     slices.Clone(r.shared.outputExtraDigests),
+			outputEffectIDs:        slices.Clone(r.shared.outputEffectIDs),
+			createdAtUnixNano:      r.shared.createdAtUnixNano,
+			lastUsedAtUnixNano:     r.shared.lastUsedAtUnixNano,
+			sizeEstimateBytes:      r.shared.sizeEstimateBytes,
+			usageIdentity:          r.shared.usageIdentity,
+			description:            r.shared.description,
+			recordType:             r.shared.recordType,
 		}
 	} else {
 		r.shared = &sharedResult{}
@@ -1103,7 +1136,7 @@ func (c *cache) GetOrInitCall(
 		return nil, err
 	}
 	if hit {
-		return hitRes, nil
+		return c.ensurePersistedHitValueLoaded(ctx, hitRes)
 	}
 
 	c.callsMu.Lock()
@@ -1287,6 +1320,9 @@ func (c *cache) initCompletedResult(ctx context.Context, oc *ongoingCall, reques
 	}
 	if oc.res.originalRequestID == nil {
 		oc.res.originalRequestID = requestIDForIndex
+	}
+	if oc.res.idDigest == "" && requestIDForIndex != nil {
+		oc.res.idDigest = requestIDForIndex.Digest().String()
 	}
 	touchSharedResultLastUsed(oc.res, now.UnixNano())
 	if oc.res.recordType == "" {

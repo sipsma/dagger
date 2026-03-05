@@ -271,3 +271,197 @@ func (q *Queries) TombstoneResultSnapshotRef(ctx context.Context, resultKey, ref
 	_, err := q.exec(ctx, nil, tombstoneResultSnapshotRef, deletedAtUnixNano, resultKey, refKey, role, slot)
 	return err
 }
+
+const listLiveResults = `
+SELECT
+	result_key, id_digest, output_digest, output_extra_digests_json, output_effect_ids_json,
+	self_type, self_version, self_payload, dep_of_persisted_result, safe_to_persist_cache,
+	unsafe_marker, persist_reason, created_at_unix_nano, expires_at_unix, record_type, description,
+	deleted, deleted_at_unix_nano
+FROM results
+WHERE deleted = 0
+`
+
+func (q *Queries) ListLiveResults(ctx context.Context) ([]Result, error) {
+	rows, err := q.db.QueryContext(ctx, listLiveResults)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Result
+	for rows.Next() {
+		var row Result
+		if err := rows.Scan(
+			&row.ResultKey, &row.IDDigest, &row.OutputDigest, &row.OutputExtraDigests, &row.OutputEffectIDs,
+			&row.SelfType, &row.SelfVersion, &row.SelfPayload, &row.DepOfPersistedResult, &row.SafeToPersistCache,
+			&row.UnsafeMarker, &row.PersistReason, &row.CreatedAtUnixNano, &row.ExpiresAtUnix, &row.RecordType, &row.Description,
+			&row.Deleted, &row.DeletedAtUnixNano,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+const listLiveTerms = `
+SELECT term_digest, self_digest, input_digests_json, created_at_unix_nano, deleted, deleted_at_unix_nano
+FROM terms
+WHERE deleted = 0
+`
+
+func (q *Queries) ListLiveTerms(ctx context.Context) ([]Term, error) {
+	rows, err := q.db.QueryContext(ctx, listLiveTerms)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Term
+	for rows.Next() {
+		var row Term
+		if err := rows.Scan(
+			&row.TermDigest, &row.SelfDigest, &row.InputDigestsJSON, &row.CreatedAtUnixNano, &row.Deleted, &row.DeletedAtUnixNano,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+const listLiveTermResults = `
+SELECT term_digest, result_key, deleted, deleted_at_unix_nano
+FROM term_results
+WHERE deleted = 0
+`
+
+func (q *Queries) ListLiveTermResults(ctx context.Context) ([]TermResult, error) {
+	rows, err := q.db.QueryContext(ctx, listLiveTermResults)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []TermResult
+	for rows.Next() {
+		var row TermResult
+		if err := rows.Scan(
+			&row.TermDigest, &row.ResultKey, &row.Deleted, &row.DeletedAtUnixNano,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+const listLiveDeps = `
+SELECT parent_result_key, dep_result_key, deleted, deleted_at_unix_nano
+FROM deps
+WHERE deleted = 0
+`
+
+func (q *Queries) ListLiveDeps(ctx context.Context) ([]Dep, error) {
+	rows, err := q.db.QueryContext(ctx, listLiveDeps)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Dep
+	for rows.Next() {
+		var row Dep
+		if err := rows.Scan(
+			&row.ParentResultKey, &row.DepResultKey, &row.Deleted, &row.DeletedAtUnixNano,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+const listLiveEqFacts = `
+SELECT owner_result_key, lhs_digest, rhs_digest, created_at_unix_nano, deleted, deleted_at_unix_nano
+FROM eq_facts
+WHERE deleted = 0
+`
+
+func (q *Queries) ListLiveEqFacts(ctx context.Context) ([]EqFact, error) {
+	rows, err := q.db.QueryContext(ctx, listLiveEqFacts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []EqFact
+	for rows.Next() {
+		var row EqFact
+		if err := rows.Scan(
+			&row.OwnerResultKey, &row.LHSDigest, &row.RHSDigest, &row.CreatedAtUnixNano, &row.Deleted, &row.DeletedAtUnixNano,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+const listLiveSnapshotRefs = `
+SELECT
+	ref_key, kind, snapshot_id, snapshotter_name, lease_id, content_blob_digest,
+	chain_id, blob_chain_id, diff_id, media_type, blob_size, urls_json,
+	record_type, description, created_at_unix_nano, size_bytes, deleted, deleted_at_unix_nano
+FROM snapshot_refs
+WHERE deleted = 0
+`
+
+func (q *Queries) ListLiveSnapshotRefs(ctx context.Context) ([]SnapshotRef, error) {
+	rows, err := q.db.QueryContext(ctx, listLiveSnapshotRefs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []SnapshotRef
+	for rows.Next() {
+		var row SnapshotRef
+		if err := rows.Scan(
+			&row.RefKey, &row.Kind, &row.SnapshotID, &row.SnapshotterName, &row.LeaseID, &row.ContentBlobDigest,
+			&row.ChainID, &row.BlobChainID, &row.DiffID, &row.MediaType, &row.BlobSize, &row.URLsJSON,
+			&row.RecordType, &row.Description, &row.CreatedAtUnixNano, &row.SizeBytes, &row.Deleted, &row.DeletedAtUnixNano,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+const listLiveResultSnapshotRefs = `
+SELECT result_key, ref_key, role, slot, deleted, deleted_at_unix_nano
+FROM result_snapshot_refs
+WHERE deleted = 0
+`
+
+func (q *Queries) ListLiveResultSnapshotRefs(ctx context.Context) ([]ResultSnapshotRef, error) {
+	rows, err := q.db.QueryContext(ctx, listLiveResultSnapshotRefs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []ResultSnapshotRef
+	for rows.Next() {
+		var row ResultSnapshotRef
+		if err := rows.Scan(
+			&row.ResultKey, &row.RefKey, &row.Role, &row.Slot, &row.Deleted, &row.DeletedAtUnixNano,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}

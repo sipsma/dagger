@@ -136,22 +136,25 @@ func decodePersistedResultEnvelope(ctx context.Context, env PersistedResultEnvel
 			return nil, err
 		}
 		srv := CurrentDagqlServer(ctx)
-		if srv == nil {
-			return nil, fmt.Errorf("decode scalar_json envelope: missing current dagql server in context")
-		}
-		scalarType, ok := srv.ScalarType(env.TypeName)
-		if !ok {
-			return nil, fmt.Errorf("decode scalar_json envelope: unknown scalar type %q", env.TypeName)
-		}
 		var raw any
 		if err := json.Unmarshal(env.ScalarJSON, &raw); err != nil {
 			return nil, fmt.Errorf("decode scalar_json envelope payload: %w", err)
 		}
-		input, err := scalarType.DecodeInput(raw)
-		if err != nil {
-			return nil, fmt.Errorf("decode scalar_json envelope input: %w", err)
+		if srv != nil {
+			scalarType, ok := srv.ScalarType(env.TypeName)
+			if ok {
+				input, err := scalarType.DecodeInput(raw)
+				if err != nil {
+					return nil, fmt.Errorf("decode scalar_json envelope input: %w", err)
+				}
+				return NewResultForID(input, id)
+			}
 		}
-		return NewResultForID(input, id)
+		builtin, err := decodeBuiltinPersistedScalar(env.TypeName, raw)
+		if err != nil {
+			return nil, fmt.Errorf("decode scalar_json envelope builtin input: %w", err)
+		}
+		return NewResultForID(builtin, id)
 	case persistedResultKindList:
 		id, err := decodeEnvelopeID(env)
 		if err != nil {
@@ -192,6 +195,53 @@ func decodePersistedResultEnvelope(ctx context.Context, env PersistedResultEnvel
 		}, id)
 	default:
 		return nil, fmt.Errorf("decode persisted result envelope: unsupported kind %q", env.Kind)
+	}
+}
+
+func decodeBuiltinPersistedScalar(typeName string, raw any) (Typed, error) {
+	switch typeName {
+	case "String":
+		input, err := String("").DecodeInput(raw)
+		if err != nil {
+			return nil, err
+		}
+		typed, ok := input.(Typed)
+		if !ok {
+			return nil, fmt.Errorf("builtin scalar String did not decode to Typed: %T", input)
+		}
+		return typed, nil
+	case "Int":
+		input, err := Int(0).DecodeInput(raw)
+		if err != nil {
+			return nil, err
+		}
+		typed, ok := input.(Typed)
+		if !ok {
+			return nil, fmt.Errorf("builtin scalar Int did not decode to Typed: %T", input)
+		}
+		return typed, nil
+	case "Float":
+		input, err := Float(0).DecodeInput(raw)
+		if err != nil {
+			return nil, err
+		}
+		typed, ok := input.(Typed)
+		if !ok {
+			return nil, fmt.Errorf("builtin scalar Float did not decode to Typed: %T", input)
+		}
+		return typed, nil
+	case "Boolean":
+		input, err := Boolean(false).DecodeInput(raw)
+		if err != nil {
+			return nil, err
+		}
+		typed, ok := input.(Typed)
+		if !ok {
+			return nil, fmt.Errorf("builtin scalar Boolean did not decode to Typed: %T", input)
+		}
+		return typed, nil
+	default:
+		return nil, fmt.Errorf("unknown scalar type %q and no dagql server in context", typeName)
 	}
 }
 

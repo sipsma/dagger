@@ -173,8 +173,10 @@ func (c *cache) enqueuePersistBatch(batch cachePersistBatch) {
 		return
 	}
 	c.persistQueue = append(c.persistQueue, batch)
+	queueDepth := len(c.persistQueue)
 	notify := c.persistNotify
 	c.persistMu.Unlock()
+	slog.Debug("dagql persistence enqueue", "queueDepth", queueDepth)
 
 	select {
 	case notify <- struct{}{}:
@@ -240,6 +242,7 @@ func (c *cache) applyPersistBatch(ctx context.Context, batch cachePersistBatch) 
 	if batch.RootSafeToPersistSet && !batch.RootSafeToPersist {
 		return nil
 	}
+	start := time.Now()
 
 	tx, err := c.sqlDB.BeginTx(ctx, nil)
 	if err != nil {
@@ -338,6 +341,24 @@ func (c *cache) applyPersistBatch(ctx context.Context, batch cachePersistBatch) 
 		return fmt.Errorf("commit persistence transaction: %w", err)
 	}
 	commit = true
+	slog.Debug("dagql persistence batch applied",
+		"duration", time.Since(start),
+		"rootResultKey", batch.RootResultKey,
+		"snapshotRefUpserts", len(batch.SnapshotRefUpserts),
+		"snapshotRefTombstones", len(batch.SnapshotRefTombstones),
+		"resultUpserts", len(batch.ResultUpserts),
+		"resultTombstones", len(batch.ResultTombstones),
+		"resultSnapshotRefUpserts", len(batch.ResultSnapshotRefUpserts),
+		"resultSnapshotRefTombstones", len(batch.ResultSnapshotRefTombs),
+		"eqFactUpserts", len(batch.EqFactUpserts),
+		"eqFactTombstones", len(batch.EqFactTombstones),
+		"termUpserts", len(batch.TermUpserts),
+		"termTombstones", len(batch.TermTombstones),
+		"termResultUpserts", len(batch.TermResultUpserts),
+		"termResultTombstones", len(batch.TermResultTombstones),
+		"depUpserts", len(batch.DepUpserts),
+		"depTombstones", len(batch.DepTombstones),
+	)
 	return nil
 }
 
@@ -431,7 +452,7 @@ func (c *cache) buildPersistUpsertBatchForRootLocked(root *sharedResult) (cacheP
 
 		batch.ResultUpserts = append(batch.ResultUpserts, persistdb.Result{
 			ResultKey:            string(resKey),
-			IDDigest:             res.originalRequestID.Digest().String(),
+			IDDigest:             c.resultIDDigestLocked(res),
 			OutputDigest:         res.outputDigest.String(),
 			OutputExtraDigests:   string(extraJSON),
 			OutputEffectIDs:      string(effectsJSON),
@@ -450,7 +471,7 @@ func (c *cache) buildPersistUpsertBatchForRootLocked(root *sharedResult) (cacheP
 			DeletedAtUnixNano:    0,
 		})
 
-		for _, link := range persistedSnapshotLinksFromTyped(res.self) {
+		for _, link := range c.persistedSnapshotLinksForResultLocked(res) {
 			if link.RefKey == "" {
 				continue
 			}
@@ -561,7 +582,7 @@ func (c *cache) buildPersistUpsertBatchForRootLocked(root *sharedResult) (cacheP
 			})
 		}
 
-		ownerDigest := res.originalRequestID.Digest().String()
+		ownerDigest := c.resultIDDigestLocked(res)
 		if ownerDigest == "" {
 			continue
 		}
@@ -594,10 +615,6 @@ func (c *cache) buildPersistTombstoneBatchForRootLocked(root *sharedResult) (cac
 	if err != nil {
 		return cachePersistBatch{}, fmt.Errorf("derive root persist key: %w", err)
 	}
-	if root.originalRequestID == nil {
-		return cachePersistBatch{}, nil
-	}
-
 	batch := cachePersistBatch{
 		RootResultKey:        rootKey,
 		RootSafeToPersist:    root.safeToPersistCache,
@@ -605,7 +622,7 @@ func (c *cache) buildPersistTombstoneBatchForRootLocked(root *sharedResult) (cac
 		ResultTombstones:     []cachePersistResultKey{rootKey},
 	}
 
-	ownerDigest := root.originalRequestID.Digest().String()
+	ownerDigest := c.resultIDDigestLocked(root)
 	if ownerDigest != "" {
 		ownerClassID := c.findEqClassLocked(c.egraphDigestToClass[ownerDigest])
 		classDigests, _ := c.persistEqClassDigestsLocked()
@@ -668,7 +685,7 @@ func (c *cache) buildPersistTombstoneBatchForRootLocked(root *sharedResult) (cac
 		})
 	}
 
-	for _, link := range persistedSnapshotLinksFromTyped(root.self) {
+	for _, link := range c.persistedSnapshotLinksForResultLocked(root) {
 		if link.RefKey == "" {
 			continue
 		}
@@ -699,11 +716,8 @@ func (c *cache) persistClosureDigestsLocked(resultIDs []sharedResultID) persistC
 			continue
 		}
 		out.byResultID[resultID] = struct{}{}
-		if res.originalRequestID != nil {
-			d := res.originalRequestID.Digest().String()
-			if d != "" {
-				out.byDigest[d] = struct{}{}
-			}
+		if d := c.resultIDDigestLocked(res); d != "" {
+			out.byDigest[d] = struct{}{}
 		}
 		if d := res.outputDigest.String(); d != "" {
 			out.byDigest[d] = struct{}{}
@@ -718,6 +732,9 @@ func (c *cache) persistClosureDigestsLocked(resultIDs []sharedResultID) persistC
 }
 
 func (c *cache) persistResultEnvelopeLocked(res *sharedResult) (PersistedResultEnvelope, error) {
+	if res != nil && res.persistedEnvelope != nil {
+		return *res.persistedEnvelope, nil
+	}
 	if res == nil || !res.hasValue {
 		return PersistedResultEnvelope{
 			Version: 1,
@@ -725,7 +742,7 @@ func (c *cache) persistResultEnvelopeLocked(res *sharedResult) (PersistedResultE
 		}, nil
 	}
 	if res.originalRequestID == nil {
-		return PersistedResultEnvelope{}, fmt.Errorf("result has nil original request ID")
+		return PersistedResultEnvelope{}, fmt.Errorf("result has nil original request ID and no persisted envelope")
 	}
 	typedRes := Result[Typed]{
 		shared: res,
@@ -740,6 +757,38 @@ func (c *cache) persistResultEnvelopeLocked(res *sharedResult) (PersistedResultE
 		anyRes = objRes
 	}
 	return DefaultPersistedSelfCodec.EncodeResult(context.Background(), anyRes)
+}
+
+func (c *cache) resultIDDigestLocked(res *sharedResult) string {
+	if res == nil {
+		return ""
+	}
+	if res.idDigest != "" {
+		return res.idDigest
+	}
+	if res.originalRequestID != nil {
+		return res.originalRequestID.Digest().String()
+	}
+	if res.persistedResultKey != "" {
+		return string(res.persistedResultKey)
+	}
+	return ""
+}
+
+func (c *cache) persistedSnapshotLinksForResultLocked(res *sharedResult) []PersistedSnapshotRefLink {
+	if res == nil {
+		return nil
+	}
+	typedLinks := persistedSnapshotLinksFromTyped(res.self)
+	if len(typedLinks) > 0 {
+		return typedLinks
+	}
+	if len(res.persistedSnapshotLinks) == 0 {
+		return nil
+	}
+	links := make([]PersistedSnapshotRefLink, len(res.persistedSnapshotLinks))
+	copy(links, res.persistedSnapshotLinks)
+	return links
 }
 
 func (c *cache) persistClosureResultIDsLocked(rootResultID sharedResultID) []sharedResultID {
