@@ -135,6 +135,18 @@ func (dir *Directory) CacheUsageIdentity() (string, bool) {
 	return dir.Snapshot.ID(), true
 }
 
+func (dir *Directory) PersistedSnapshotRefLinks() []dagql.PersistedSnapshotRefLink {
+	if dir == nil || dir.Snapshot == nil {
+		return nil
+	}
+	return []dagql.PersistedSnapshotRefLink{
+		{
+			RefKey: dir.Snapshot.ID(),
+			Role:   "snapshot",
+		},
+	}
+}
+
 func (dir *Directory) getParentSnapshot(ctx context.Context) (bkcache.ImmutableRef, error) {
 	if dir.Parent.Self() != nil {
 		return dir.Parent.Self().getSnapshot(ctx)

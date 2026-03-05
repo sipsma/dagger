@@ -1167,31 +1167,31 @@
 
 ### Phase 2: Persistable self serialization + snapshot-ref linkage
 
-* [ ] Introduce one shared persistence interface for persistable `self` payloads.
-  * [ ] Interface emits opaque payload envelope fields:
-    * [ ] `self_type`
-    * [ ] `self_version`
-    * [ ] `self_payload`
-  * [ ] Interface also emits generic snapshot-ref links:
-    * [ ] one or more `result_snapshot_refs` rows with `(ref_key, role, slot)`.
+* [x] Introduce one shared persistence interface for persistable `self` payloads.
+  * [x] Interface emits opaque payload envelope fields:
+    * [x] `self_type`
+    * [x] `self_version`
+    * [x] `self_payload`
+  * [x] Interface also emits generic snapshot-ref links:
+    * [x] one or more `result_snapshot_refs` rows with `(ref_key, role, slot)`.
 * [ ] Implement serializers/deserializers for currently persistable core object types.
-  * [ ] Directory
-  * [ ] File
-  * [ ] Container
-  * [ ] CacheVolume
-* [ ] Expand persistence surface to full SDK-return model (not only a small set of core object types).
-  * [ ] Audit `ConvertFromSDKResult` pathways and lock supported durable shapes:
-    * [ ] scalars
-    * [ ] core object IDs
-    * [ ] user module object IDs
-    * [ ] lists
-    * [ ] nested combinations of the above
-  * [ ] Define how non-object/scalar SDK values map into persisted result payload rows so function result persistence is complete.
-  * [ ] Add explicit validation/failure behavior for unsupported SDK result shapes (fail clearly; no silent partial persistence).
+  * [x] Directory (object-ID envelope + snapshot-link provider hook)
+  * [x] File (object-ID envelope + snapshot-link provider hook)
+  * [ ] Container (pending explicit snapshot-link provider decision; likely no direct links, deps-only)
+  * [x] CacheVolume (object-ID envelope + snapshot-link provider hook)
+* [x] Expand persistence surface to full SDK-return model (not only a small set of core object types).
+  * [x] Audit `ConvertFromSDKResult` pathways and lock supported durable shapes:
+    * [x] scalars
+    * [x] core object IDs
+    * [x] user module object IDs
+    * [x] lists
+    * [x] nested combinations of the above
+  * [x] Define how non-object/scalar SDK values map into persisted result payload rows so function result persistence is complete.
+  * [x] Add explicit validation/failure behavior for unsupported SDK result shapes (fail clearly; no silent partial persistence).
 * [ ] Snapshot-ref metadata integration:
   * [ ] emit `snapshot_refs` rows for all linked refs referenced by persisted results.
   * [ ] include required mutable/immutable metadata fields from current ref model.
-  * [ ] do not persist internal parent/equal-ref compatibility graphs.
+  * [x] do not persist internal parent/equal-ref compatibility graphs.
 
 ### Phase 3: Emitter + queue + worker plumbing
 

@@ -121,6 +121,18 @@ func (file *File) CacheUsageIdentity() (string, bool) {
 	return file.Snapshot.ID(), true
 }
 
+func (file *File) PersistedSnapshotRefLinks() []dagql.PersistedSnapshotRefLink {
+	if file == nil || file.Snapshot == nil {
+		return nil
+	}
+	return []dagql.PersistedSnapshotRefLink{
+		{
+			RefKey: file.Snapshot.ID(),
+			Role:   "snapshot",
+		},
+	}
+}
+
 func (file *File) getParentSnapshot(ctx context.Context) (bkcache.ImmutableRef, error) {
 	if file.Parent.Self() == nil {
 		return nil, nil

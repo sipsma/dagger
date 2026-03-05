@@ -106,6 +106,20 @@ func (cache *CacheVolume) CacheUsageIdentity() (string, bool) {
 	return snapshot.ID(), true
 }
 
+func (cache *CacheVolume) PersistedSnapshotRefLinks() []dagql.PersistedSnapshotRefLink {
+	snapshot := cache.getSnapshot()
+	if snapshot == nil {
+		return nil
+	}
+	return []dagql.PersistedSnapshotRefLink{
+		{
+			RefKey: snapshot.ID(),
+			Role:   "snapshot",
+			Slot:   cache.getSnapshotSelector(),
+		},
+	}
+}
+
 func (cache *CacheVolume) CacheUsageMayChange() bool {
 	return true
 }
