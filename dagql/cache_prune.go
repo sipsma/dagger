@@ -167,6 +167,9 @@ func (c *cache) pruneResultLocked(resultID sharedResultID) OnReleaseFunc {
 	if res == nil {
 		return nil
 	}
+	if res.depOfPersistedResult {
+		c.emitPersistTombstonesForRootLocked(res)
+	}
 	c.removeResultFromEgraphLocked(res)
 	for _, remaining := range c.resultsByID {
 		if remaining == nil || len(remaining.deps) == 0 {

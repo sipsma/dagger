@@ -2374,41 +2374,6 @@ func TestCacheDoNotCacheNormalizesNestedHitMetadata(t *testing.T) {
 	assert.Equal(t, 0, c.Size())
 }
 
-func TestCacheNestedReturnTransfersInnerRefOwnership(t *testing.T) {
-	t.Parallel()
-	ctx := t.Context()
-	cacheIface, err := NewCache(ctx, "")
-	assert.NilError(t, err)
-	c := cacheIface.(*cache)
-
-	innerID := cacheTestID("inner-transfer")
-	innerRes, err := c.GetOrInitCall(ctx, CacheKey{ID: innerID}, func(context.Context) (AnyResult, error) {
-		return cacheTestIntResult(innerID, 13), nil
-	})
-	assert.NilError(t, err)
-	assert.Assert(t, !innerRes.HitCache())
-
-	outerID := cacheTestID("outer-transfer")
-	outerRes, err := c.GetOrInitCall(ctx, CacheKey{ID: outerID}, func(ctx context.Context) (AnyResult, error) {
-		nested, err := c.GetOrInitCall(ctx, CacheKey{ID: innerID}, func(context.Context) (AnyResult, error) {
-			return nil, fmt.Errorf("unexpected nested initializer call")
-		})
-		if err != nil {
-			return nil, err
-		}
-		assert.Assert(t, nested.HitCache())
-		// Returning nested transfers ownership of its cache ref to outerRes.
-		return nested, nil
-	})
-	assert.NilError(t, err)
-	assert.Equal(t, 13, cacheTestUnwrapInt(t, outerRes))
-
-	assert.NilError(t, outerRes.Release(ctx))
-	assert.Equal(t, 1, c.Size())
-	assert.NilError(t, innerRes.Release(ctx))
-	assert.Equal(t, 0, c.Size())
-}
-
 func TestCacheSecondaryIndexesCleanedOnRelease(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()

@@ -184,6 +184,7 @@ func NewCache(ctx context.Context, dbPath string) (Cache, error) {
 		}
 		return nil, fmt.Errorf("mark clean_shutdown=0 at startup: %w", err)
 	}
+	c.startPersistenceWorker()
 
 	return c, nil
 }
@@ -302,6 +303,15 @@ type cache struct {
 	sqlDB *sql.DB
 	// persistent normalized cache store (disk persistence/import).
 	pdb *persistdb.Queries
+
+	persistMu            sync.Mutex
+	persistQueue         []cachePersistBatch
+	persistNotify        chan struct{}
+	persistFlushRequests chan chan error
+	persistStop          chan struct{}
+	persistDone          chan struct{}
+	persistClosed        bool
+	persistErr           error
 
 	closeOnce sync.Once
 	closeErr  error
@@ -703,6 +713,15 @@ type cacheContextKey struct {
 
 func (c *cache) Close(context.Context) error {
 	c.closeOnce.Do(func() {
+		if err := c.flushAndStopPersistenceWorker(context.Background()); err != nil {
+			c.closeErr = errors.Join(c.closeErr, err)
+		}
+		if c.closeErr != nil {
+			c.closeErr = errors.Join(c.closeErr, closeCacheDBs(c.sqlDB, c.pdb))
+			c.sqlDB = nil
+			c.pdb = nil
+			return
+		}
 		if c.pdb != nil {
 			if err := c.pdb.UpsertMeta(context.Background(), persistdb.MetaKeyCleanShutdown, "1"); err != nil {
 				slog.Warn("failed to mark clean shutdown in persistence metadata", "err", err)
@@ -1336,6 +1355,11 @@ func (c *cache) initCompletedResult(ctx context.Context, oc *ongoingCall, reques
 
 	if err := c.attachAdditionalOutputResults(ctx, oc.res, oc.val); err != nil {
 		return err
+	}
+	if oc.isPersistable {
+		c.egraphMu.Lock()
+		c.emitPersistUpsertForRootLocked(oc.res)
+		c.egraphMu.Unlock()
 	}
 
 	return nil

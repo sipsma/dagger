@@ -544,7 +544,9 @@ func (c *cache) lookupCacheForID(
 		// releases do not drop it or its dependency chain. This avoids surprising
 		// misses for persistable callsites, but should be revisited when real
 		// persistence policy is finalized.
-		c.markResultAsDepOfPersistedLocked(res)
+		if c.markResultAsDepOfPersistedLocked(res) {
+			c.emitPersistUpsertForRootLocked(res)
+		}
 	}
 	atomic.AddInt64(&res.refCount, 1)
 
@@ -835,17 +837,21 @@ func (c *cache) indexResultDependenciesLocked(res *sharedResult, inputEqIDs []eq
 	}
 }
 
-func (c *cache) markResultAsDepOfPersistedLocked(root *sharedResult) {
+func (c *cache) markResultAsDepOfPersistedLocked(root *sharedResult) bool {
 	if root == nil {
-		return
+		return false
 	}
+	changed := false
 	// Persisted-closure invariant: once a result is marked as dependency-of-
 	// persisted, every transitive dependency reachable via res.deps must also be
 	// marked. This keeps in-memory retention/prune semantics coherent with the
 	// durable closure we export for disk persistence.
 	if root.id == 0 {
+		if !root.depOfPersistedResult {
+			changed = true
+		}
 		root.depOfPersistedResult = true
-		return
+		return changed
 	}
 	stack := []sharedResultID{root.id}
 	seen := make(map[sharedResultID]struct{})
@@ -861,11 +867,15 @@ func (c *cache) markResultAsDepOfPersistedLocked(root *sharedResult) {
 			continue
 		}
 		seen[curID] = struct{}{}
+		if !cur.depOfPersistedResult {
+			changed = true
+		}
 		cur.depOfPersistedResult = true
 		for depID := range cur.deps {
 			stack = append(stack, depID)
 		}
 	}
+	return changed
 }
 
 func (c *cache) removeResultFromEgraphLocked(res *sharedResult) {

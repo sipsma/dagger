@@ -1195,41 +1195,43 @@
 
 ### Phase 3: Emitter + queue + worker plumbing
 
-* [ ] Add `PersistenceEmitter` in dagql cache mutation paths.
-  * [ ] Trigger on persisted-root creation/update and persisted-root deletion/prune.
-  * [ ] Trigger when result closure changes (deps/term associations/eq facts/snapshot links).
-* [ ] Build closure export for a persisted root:
-  * [ ] collect root result + all transitive dependency results needed for materialization.
-  * [ ] collect terms associated with collected results.
-  * [ ] collect `term_results` links for those terms/results.
-  * [ ] collect dependency edges (`deps`) among collected results.
-  * [ ] collect owner-scoped `eq_facts` rows required to rebuild equivalence for collected closure.
-  * [ ] collect `snapshot_refs` + `result_snapshot_refs` for all collected results.
-* [ ] Add unbounded in-process queue + worker goroutine.
-  * [ ] queue item shape carries normalized table rows (state-upsert payload), not raw low-level mutation internals.
-  * [ ] worker-side filtering for `safeToPersistCache` policy in first cut.
-* [ ] Add worker batching:
-  * [ ] size-based batch threshold.
-  * [ ] time-based flush threshold.
-  * [ ] explicit synchronous flush API for shutdown.
+* [x] Add `PersistenceEmitter` in dagql cache mutation paths.
+  * [x] Trigger on persisted-root creation/update and persisted-root deletion/prune.
+  * [x] Trigger when result closure changes (deps/term associations/eq facts/snapshot links).
+* [x] Build closure export for a persisted root:
+  * [x] collect root result + all transitive dependency results needed for materialization.
+  * [x] collect terms associated with collected results.
+  * [x] collect `term_results` links for those terms/results.
+  * [x] collect dependency edges (`deps`) among collected results.
+  * [x] collect owner-scoped `eq_facts` rows required to rebuild equivalence for collected closure.
+  * [x] collect `snapshot_refs` + `result_snapshot_refs` for all collected results.
+  * [ ] follow-up: replace placeholder snapshot-ref metadata rows with full ref metadata extraction.
+* [x] Add unbounded in-process queue + worker goroutine.
+  * [x] queue item shape carries normalized table rows (state-upsert payload), not raw low-level mutation internals.
+  * [x] worker-side filtering for `safeToPersistCache` policy in first cut.
+* [x] Add worker batching:
+  * [x] size-based batch threshold.
+  * [x] time-based flush threshold.
+  * [x] explicit synchronous flush API for shutdown.
 
 ### Phase 4: Worker apply logic (upsert/tombstone state writes)
 
-* [ ] Implement transactional apply per batch:
-  * [ ] write `snapshot_refs` first.
-  * [ ] write `results`.
-  * [ ] write `result_snapshot_refs`.
-  * [ ] write `eq_facts`.
-  * [ ] write `terms`.
-  * [ ] write `term_results`.
-  * [ ] write `deps`.
-* [ ] Implement tombstone propagation for prune/delete:
-  * [ ] result tombstones.
-  * [ ] owner-scoped `eq_facts` tombstones.
-  * [ ] relation-row tombstones (`deps`, `term_results`, `result_snapshot_refs`) where appropriate.
-* [ ] Keep store semantics idempotent:
-  * [ ] repeated upsert/tombstone events must converge to same durable state.
-  * [ ] no dependency on event arrival uniqueness.
+* [x] Implement transactional apply per batch:
+  * [x] write `snapshot_refs` first.
+  * [x] write `results`.
+  * [x] write `result_snapshot_refs`.
+  * [x] write `eq_facts`.
+  * [x] write `terms`.
+  * [x] write `term_results`.
+  * [x] write `deps`.
+* [x] Implement tombstone propagation for prune/delete:
+  * [x] result tombstones.
+  * [x] owner-scoped `eq_facts` tombstones.
+  * [x] relation-row tombstones (`deps`, `term_results`, `result_snapshot_refs`) where appropriate.
+  * [ ] follow-up: consider snapshot_ref tombstone coverage once cross-result ref sharing policy is finalized.
+* [x] Keep store semantics idempotent:
+  * [x] repeated upsert/tombstone events must converge to same durable state.
+  * [x] no dependency on event arrival uniqueness.
 
 ### Phase 5: Startup import and in-memory reconstruction
 

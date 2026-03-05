@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/dagger/dagger/dagql/call"
+	persistdb "github.com/dagger/dagger/dagql/persistdb"
 )
 
 // cachePersistResultKey is the durable identity for a persisted sharedResult.
@@ -97,6 +98,21 @@ func (row cachePersistEqFactRow) validate() error {
 //   - Tombstones must only be emitted for rows known to have been previously
 //     persisted.
 type cachePersistBatch struct {
-	EqFactUpserts    []cachePersistEqFactRow
-	EqFactTombstones []cachePersistEqFactRow
+	RootResultKey            cachePersistResultKey
+	RootSafeToPersist        bool
+	RootSafeToPersistSet     bool
+	SnapshotRefUpserts       []persistdb.SnapshotRef
+	SnapshotRefTombstones    []cachePersistSnapshotRefKey
+	ResultUpserts            []persistdb.Result
+	ResultTombstones         []cachePersistResultKey
+	ResultSnapshotRefUpserts []persistdb.ResultSnapshotRef
+	ResultSnapshotRefTombs   []persistdb.ResultSnapshotRef
+	EqFactUpserts            []cachePersistEqFactRow
+	EqFactTombstones         []cachePersistEqFactRow
+	TermUpserts              []persistdb.Term
+	TermTombstones           []string
+	TermResultUpserts        []persistdb.TermResult
+	TermResultTombstones     []persistdb.TermResult
+	DepUpserts               []persistdb.Dep
+	DepTombstones            []persistdb.Dep
 }
