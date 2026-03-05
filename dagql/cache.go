@@ -133,6 +133,8 @@ type CachePruneReport struct {
 	ReclaimedBytes int64
 }
 
+const cachePersistenceSchemaVersion = "2"
+
 var ErrCacheRecursiveCall = fmt.Errorf("recursive call detected")
 var errPersistedHitNotDecodable = errors.New("persisted hit payload not decodable in current context")
 
@@ -149,6 +151,30 @@ func NewCache(ctx context.Context, dbPath string) (Cache, error) {
 	}
 	c.sqlDB = db
 	c.pdb = persistDB
+
+	schemaVersionVal, found, err := c.pdb.SelectMetaValue(ctx, persistdb.MetaKeySchemaVersion)
+	if err != nil {
+		if closeErr := closeCacheDBs(db, c.pdb); closeErr != nil {
+			return nil, errors.Join(fmt.Errorf("read schema_version metadata: %w", err), closeErr)
+		}
+		return nil, fmt.Errorf("read schema_version metadata: %w", err)
+	}
+	if found && schemaVersionVal != cachePersistenceSchemaVersion {
+		slog.Warn("dagql persistence store schema version mismatch; wiping and cold-starting", "expected", cachePersistenceSchemaVersion, "actual", schemaVersionVal)
+		if closeErr := closeCacheDBs(db, c.pdb); closeErr != nil {
+			return nil, errors.Join(fmt.Errorf("close db before schema-version wipe"), closeErr)
+		}
+		if err := wipeSQLiteFiles(dbPath); err != nil {
+			return nil, fmt.Errorf("wipe schema-mismatched persistence db: %w", err)
+		}
+
+		db, persistDB, err = prepareCacheDBs(ctx, dbPath)
+		if err != nil {
+			return nil, err
+		}
+		c.sqlDB = db
+		c.pdb = persistDB
+	}
 
 	cleanShutdownVal, found, err := c.pdb.SelectMetaValue(ctx, persistdb.MetaKeyCleanShutdown)
 	if err != nil {
@@ -189,7 +215,7 @@ func NewCache(ctx context.Context, dbPath string) (Cache, error) {
 		c.pdb = persistDB
 	}
 
-	if err := c.pdb.UpsertMeta(ctx, persistdb.MetaKeySchemaVersion, "1"); err != nil {
+	if err := c.pdb.UpsertMeta(ctx, persistdb.MetaKeySchemaVersion, cachePersistenceSchemaVersion); err != nil {
 		if closeErr := closeCacheDBs(db, c.pdb); closeErr != nil {
 			return nil, errors.Join(fmt.Errorf("set persistence schema version: %w", err), closeErr)
 		}
@@ -308,6 +334,7 @@ type cache struct {
 	egraphResultsByTermID map[egraphTermID]map[sharedResultID]struct{}
 	egraphTermIDsByResult map[sharedResultID]map[egraphTermID]struct{}
 	resultsByID           map[sharedResultID]*sharedResult
+	resultsByPersistKey   map[cachePersistResultKey]sharedResultID
 
 	nextEgraphClassID  eqClassID
 	nextEgraphTermID   egraphTermID
@@ -337,6 +364,14 @@ type cache struct {
 type callConcurrencyKeys struct {
 	callKey        string
 	concurrencyKey string
+}
+
+type persistSyncable interface {
+	Sync(context.Context) error
+}
+
+type persistPreparatory interface {
+	PreparePersistedObject(context.Context) error
 }
 
 var _ Cache = &cache{}
@@ -453,8 +488,9 @@ type ongoingCall struct {
 func newDetachedResult[T Typed](resultID *call.ID, self T) Result[T] {
 	return Result[T]{
 		shared: &sharedResult{
-			self:     self,
-			hasValue: true,
+			self:               self,
+			hasValue:           true,
+			safeToPersistCache: true,
 		},
 		id: resultID,
 	}
@@ -1400,11 +1436,42 @@ func (c *cache) initCompletedResult(ctx context.Context, oc *ongoingCall, reques
 		return err
 	}
 	if oc.isPersistable {
+		if err := syncPersistedValue(ctx, oc.val); err != nil {
+			return fmt.Errorf("sync persistable result before export: %w", err)
+		}
 		c.egraphMu.Lock()
 		c.emitPersistUpsertForRootLocked(oc.res)
 		c.egraphMu.Unlock()
 	}
 
+	return nil
+}
+
+func syncPersistedValue(ctx context.Context, val AnyResult) error {
+	if val == nil {
+		return nil
+	}
+	if preparatory, ok := UnwrapAs[persistPreparatory](val); ok {
+		if err := preparatory.PreparePersistedObject(ctx); err != nil {
+			return err
+		}
+	} else if syncable, ok := UnwrapAs[persistSyncable](val); ok {
+		if err := syncable.Sync(ctx); err != nil {
+			return err
+		}
+	}
+	withOutputs, ok := UnwrapAs[HasAdditionalOutputResults](val)
+	if !ok {
+		return nil
+	}
+	for _, output := range withOutputs.AdditionalOutputResults() {
+		if output == nil {
+			continue
+		}
+		if err := syncPersistedValue(ctx, output); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

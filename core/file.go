@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -28,6 +29,7 @@ import (
 
 	"dagger.io/dagger/telemetry"
 	"github.com/dagger/dagger/dagql"
+	"github.com/dagger/dagger/dagql/call"
 	"github.com/dagger/dagger/engine/buildkit"
 )
 
@@ -86,6 +88,22 @@ func (file *File) Sync(ctx context.Context) error {
 	return file.Evaluate(ctx)
 }
 
+func (file *File) PreparePersistedObject(ctx context.Context) error {
+	if file == nil {
+		return nil
+	}
+	if err := file.Sync(ctx); err != nil {
+		return err
+	}
+	if file.Snapshot != nil {
+		if err := file.Snapshot.Extract(ctx, nil); err != nil {
+			return err
+		}
+		return retainImmutableRefChain(ctx, file.Snapshot)
+	}
+	return nil
+}
+
 func (file *File) getSnapshot(ctx context.Context) (bkcache.ImmutableRef, error) {
 	if err := file.Evaluate(ctx); err != nil {
 		return nil, err
@@ -127,10 +145,81 @@ func (file *File) PersistedSnapshotRefLinks() []dagql.PersistedSnapshotRefLink {
 	}
 	return []dagql.PersistedSnapshotRefLink{
 		{
-			RefKey: file.Snapshot.ID(),
+			RefKey: file.Snapshot.SnapshotID(),
 			Role:   "snapshot",
 		},
 	}
+}
+
+type persistedFilePayload struct {
+	File     string   `json:"file,omitempty"`
+	Platform Platform `json:"platform"`
+	ParentID string   `json:"parentID,omitempty"`
+}
+
+func (file *File) EncodePersistedObject(ctx context.Context) (json.RawMessage, error) {
+	_ = ctx
+	if file == nil {
+		return nil, fmt.Errorf("encode persisted file: nil file")
+	}
+	parentID := ""
+	if file.Parent.ID() != nil {
+		encoded, err := encodePersistedCallID(file.Parent.ID())
+		if err != nil {
+			return nil, fmt.Errorf("encode persisted file parent ID: %w", err)
+		}
+		parentID = encoded
+	}
+	payload, err := json.Marshal(persistedFilePayload{
+		File:     file.File,
+		Platform: file.Platform,
+		ParentID: parentID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal persisted file payload: %w", err)
+	}
+	return payload, nil
+}
+
+func (*File) DecodePersistedObject(ctx context.Context, id *call.ID, payload json.RawMessage, resolver dagql.PersistedObjectResolver) (dagql.Typed, error) {
+	var persisted persistedFilePayload
+	if err := json.Unmarshal(payload, &persisted); err != nil {
+		return nil, fmt.Errorf("decode persisted file payload: %w", err)
+	}
+
+	file := &File{
+		File:      persisted.File,
+		Platform:  persisted.Platform,
+		LazyState: NewLazyState(),
+	}
+	links, err := resolver.PersistedSnapshotLinks(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	var hasSnapshot bool
+	for _, link := range links {
+		if link.Role == "snapshot" {
+			hasSnapshot = true
+			break
+		}
+	}
+	if hasSnapshot {
+		snapshot, _, err := loadPersistedImmutableSnapshot(ctx, resolver, id, "snapshot")
+		if err != nil {
+			return nil, err
+		}
+		file.setSnapshot(snapshot)
+		return file, nil
+	}
+	if persisted.ParentID != "" {
+		parentRes, err := loadPersistedObjectResult[*Directory](ctx, resolver, persisted.ParentID, "file parent")
+		if err != nil {
+			return nil, err
+		}
+		file.Parent = parentRes
+		return file, nil
+	}
+	return nil, fmt.Errorf("decode persisted file payload: missing snapshot link and parent ID for %s", id.Digest())
 }
 
 func (file *File) getParentSnapshot(ctx context.Context) (bkcache.ImmutableRef, error) {

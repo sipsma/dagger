@@ -100,6 +100,22 @@ func (dir *Directory) Sync(ctx context.Context) error {
 	return dir.Evaluate(ctx)
 }
 
+func (dir *Directory) PreparePersistedObject(ctx context.Context) error {
+	if dir == nil {
+		return nil
+	}
+	if err := dir.Sync(ctx); err != nil {
+		return err
+	}
+	if dir.Snapshot != nil {
+		if err := dir.Snapshot.Extract(ctx, nil); err != nil {
+			return err
+		}
+		return retainImmutableRefChain(ctx, dir.Snapshot)
+	}
+	return nil
+}
+
 func (dir *Directory) getSnapshot(ctx context.Context) (bkcache.ImmutableRef, error) {
 	if err := dir.Evaluate(ctx); err != nil {
 		return nil, err
@@ -141,10 +157,81 @@ func (dir *Directory) PersistedSnapshotRefLinks() []dagql.PersistedSnapshotRefLi
 	}
 	return []dagql.PersistedSnapshotRefLink{
 		{
-			RefKey: dir.Snapshot.ID(),
+			RefKey: dir.Snapshot.SnapshotID(),
 			Role:   "snapshot",
 		},
 	}
+}
+
+type persistedDirectoryPayload struct {
+	Dir      string   `json:"dir,omitempty"`
+	Platform Platform `json:"platform"`
+	ParentID string   `json:"parentID,omitempty"`
+}
+
+func (dir *Directory) EncodePersistedObject(ctx context.Context) (json.RawMessage, error) {
+	_ = ctx
+	if dir == nil {
+		return nil, fmt.Errorf("encode persisted directory: nil directory")
+	}
+	parentID := ""
+	if dir.Parent.ID() != nil {
+		encoded, err := encodePersistedCallID(dir.Parent.ID())
+		if err != nil {
+			return nil, fmt.Errorf("encode persisted directory parent ID: %w", err)
+		}
+		parentID = encoded
+	}
+	payload, err := json.Marshal(persistedDirectoryPayload{
+		Dir:      dir.Dir,
+		Platform: dir.Platform,
+		ParentID: parentID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal persisted directory payload: %w", err)
+	}
+	return payload, nil
+}
+
+func (*Directory) DecodePersistedObject(ctx context.Context, id *call.ID, payload json.RawMessage, resolver dagql.PersistedObjectResolver) (dagql.Typed, error) {
+	var persisted persistedDirectoryPayload
+	if err := json.Unmarshal(payload, &persisted); err != nil {
+		return nil, fmt.Errorf("decode persisted directory payload: %w", err)
+	}
+
+	dir := &Directory{
+		Dir:       persisted.Dir,
+		Platform:  persisted.Platform,
+		LazyState: NewLazyState(),
+	}
+	links, err := resolver.PersistedSnapshotLinks(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	var hasSnapshot bool
+	for _, link := range links {
+		if link.Role == "snapshot" {
+			hasSnapshot = true
+			break
+		}
+	}
+	if hasSnapshot {
+		snapshot, _, err := loadPersistedImmutableSnapshot(ctx, resolver, id, "snapshot")
+		if err != nil {
+			return nil, err
+		}
+		dir.setSnapshot(snapshot)
+		return dir, nil
+	}
+	if persisted.ParentID != "" {
+		parentRes, err := loadPersistedObjectResult[*Directory](ctx, resolver, persisted.ParentID, "directory parent")
+		if err != nil {
+			return nil, err
+		}
+		dir.Parent = parentRes
+		return dir, nil
+	}
+	return nil, fmt.Errorf("decode persisted directory payload: missing snapshot link and parent ID for %s", id.Digest())
 }
 
 func (dir *Directory) getParentSnapshot(ctx context.Context) (bkcache.ImmutableRef, error) {

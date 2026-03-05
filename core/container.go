@@ -196,6 +196,42 @@ func (container *Container) Sync(ctx context.Context) error {
 	return nil
 }
 
+func (container *Container) PreparePersistedObject(ctx context.Context) error {
+	if container == nil {
+		return nil
+	}
+	if err := container.Sync(ctx); err != nil {
+		return err
+	}
+	if container.FS != nil && container.FS.Self() != nil {
+		if err := container.FS.Self().PreparePersistedObject(ctx); err != nil {
+			return err
+		}
+	}
+	if container.Meta != nil {
+		if err := container.Meta.PreparePersistedObject(ctx); err != nil {
+			return err
+		}
+	}
+	for _, mnt := range container.Mounts {
+		switch {
+		case mnt.DirectorySource != nil && mnt.DirectorySource.Self() != nil:
+			if err := mnt.DirectorySource.Self().PreparePersistedObject(ctx); err != nil {
+				return err
+			}
+		case mnt.FileSource != nil && mnt.FileSource.Self() != nil:
+			if err := mnt.FileSource.Self().PreparePersistedObject(ctx); err != nil {
+				return err
+			}
+		case mnt.CacheSource != nil:
+			if err := mnt.CacheSource.Volume.Self().PreparePersistedObject(ctx); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (container *Container) AdditionalOutputResults() []dagql.AnyResult {
 	if container == nil {
 		return nil
@@ -210,18 +246,192 @@ func (container *Container) AdditionalOutputResults() []dagql.AnyResult {
 	}
 
 	for _, mnt := range container.Mounts {
-		if mnt.Readonly {
-			continue
-		}
 		switch {
 		case mnt.DirectorySource != nil:
 			outputs = append(outputs, *mnt.DirectorySource)
 		case mnt.FileSource != nil:
 			outputs = append(outputs, *mnt.FileSource)
+		case mnt.CacheSource != nil:
+			outputs = append(outputs, mnt.CacheSource.Volume)
 		}
 	}
 
 	return outputs
+}
+
+func (container *Container) EncodePersistedObject(ctx context.Context) (json.RawMessage, error) {
+	_ = ctx
+	if container == nil {
+		return nil, fmt.Errorf("encode persisted container: nil container")
+	}
+	if len(container.Services) > 0 {
+		return nil, fmt.Errorf("encode persisted container: services are not yet supported")
+	}
+	if len(container.Secrets) > 0 {
+		return nil, fmt.Errorf("encode persisted container: secrets are not yet supported")
+	}
+	if len(container.Sockets) > 0 {
+		return nil, fmt.Errorf("encode persisted container: sockets are not yet supported")
+	}
+
+	payload := persistedContainerPayload{
+		Config:             container.Config,
+		EnabledGPUs:        slices.Clone(container.EnabledGPUs),
+		Mounts:             make([]persistedContainerMountPayload, 0, len(container.Mounts)),
+		Platform:           container.Platform,
+		Annotations:        slices.Clone(container.Annotations),
+		ImageRef:           container.ImageRef,
+		Ports:              slices.Clone(container.Ports),
+		DefaultTerminalCmd: container.DefaultTerminalCmd,
+		SystemEnvNames:     slices.Clone(container.SystemEnvNames),
+		DefaultArgs:        container.DefaultArgs,
+	}
+	if container.FS != nil && container.FS.ID() != nil {
+		encoded, err := encodePersistedCallID(container.FS.ID())
+		if err != nil {
+			return nil, fmt.Errorf("encode persisted container rootfs ID: %w", err)
+		}
+		payload.FSID = encoded
+	}
+	if container.MetaResult != nil && container.MetaResult.ID() != nil {
+		encoded, err := encodePersistedCallID(container.MetaResult.ID())
+		if err != nil {
+			return nil, fmt.Errorf("encode persisted container meta ID: %w", err)
+		}
+		payload.MetaID = encoded
+	}
+	if container.OpID != nil {
+		encoded, err := encodePersistedCallID(container.OpID)
+		if err != nil {
+			return nil, fmt.Errorf("encode persisted container op ID: %w", err)
+		}
+		payload.OpID = encoded
+	}
+
+	for _, mnt := range container.Mounts {
+		encoded := persistedContainerMountPayload{
+			Target:   mnt.Target,
+			Readonly: mnt.Readonly,
+		}
+		switch {
+		case mnt.DirectorySource != nil && mnt.DirectorySource.ID() != nil:
+			id, err := encodePersistedCallID(mnt.DirectorySource.ID())
+			if err != nil {
+				return nil, fmt.Errorf("encode persisted directory mount %q: %w", mnt.Target, err)
+			}
+			encoded.DirectorySourceID = id
+		case mnt.FileSource != nil && mnt.FileSource.ID() != nil:
+			id, err := encodePersistedCallID(mnt.FileSource.ID())
+			if err != nil {
+				return nil, fmt.Errorf("encode persisted file mount %q: %w", mnt.Target, err)
+			}
+			encoded.FileSourceID = id
+		case mnt.CacheSource != nil:
+			id, err := encodePersistedCallID(mnt.CacheSource.Volume.ID())
+			if err != nil {
+				return nil, fmt.Errorf("encode persisted cache mount %q: %w", mnt.Target, err)
+			}
+			encoded.CacheSourceID = id
+		case mnt.TmpfsSource != nil:
+			encoded.TmpfsSize = mnt.TmpfsSource.Size
+		default:
+			return nil, fmt.Errorf("encode persisted container mount %q: unsupported mount source", mnt.Target)
+		}
+		payload.Mounts = append(payload.Mounts, encoded)
+	}
+
+	enc, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal persisted container payload: %w", err)
+	}
+	return enc, nil
+}
+
+func (*Container) DecodePersistedObject(ctx context.Context, id *call.ID, payload json.RawMessage, resolver dagql.PersistedObjectResolver) (dagql.Typed, error) {
+	var persisted persistedContainerPayload
+	if err := json.Unmarshal(payload, &persisted); err != nil {
+		return nil, fmt.Errorf("decode persisted container payload: %w", err)
+	}
+
+	var rootfs *dagql.ObjectResult[*Directory]
+	if persisted.FSID != "" {
+		rootfsRes, err := loadPersistedObjectResult[*Directory](ctx, resolver, persisted.FSID, "container rootfs")
+		if err != nil {
+			return nil, err
+		}
+		rootfs = &rootfsRes
+	}
+
+	var metaResult *dagql.ObjectResult[*Directory]
+	var meta *Directory
+	if persisted.MetaID != "" {
+		metaRes, err := loadPersistedObjectResult[*Directory](ctx, resolver, persisted.MetaID, "container meta")
+		if err != nil {
+			return nil, err
+		}
+		metaResult = &metaRes
+		meta = metaRes.Self()
+	}
+
+	mounts := make(ContainerMounts, 0, len(persisted.Mounts))
+	for _, persistedMount := range persisted.Mounts {
+		mnt := ContainerMount{
+			Target:   persistedMount.Target,
+			Readonly: persistedMount.Readonly,
+		}
+		switch {
+		case persistedMount.DirectorySourceID != "":
+			dirRes, err := loadPersistedObjectResult[*Directory](ctx, resolver, persistedMount.DirectorySourceID, "container mount directory")
+			if err != nil {
+				return nil, err
+			}
+			mnt.DirectorySource = &dirRes
+		case persistedMount.FileSourceID != "":
+			fileRes, err := loadPersistedObjectResult[*File](ctx, resolver, persistedMount.FileSourceID, "container mount file")
+			if err != nil {
+				return nil, err
+			}
+			mnt.FileSource = &fileRes
+		case persistedMount.CacheSourceID != "":
+			cacheRes, err := loadPersistedObjectResult[*CacheVolume](ctx, resolver, persistedMount.CacheSourceID, "container mount cache")
+			if err != nil {
+				return nil, err
+			}
+			mnt.CacheSource = &CacheMountSource{Volume: cacheRes}
+		case persistedMount.TmpfsSize != 0:
+			mnt.TmpfsSource = &TmpfsMountSource{Size: persistedMount.TmpfsSize}
+		}
+		mounts = append(mounts, mnt)
+	}
+
+	var opID *call.ID
+	if persisted.OpID != "" {
+		decodedOpID, err := decodePersistedCallID(persisted.OpID)
+		if err != nil {
+			return nil, fmt.Errorf("decode persisted container op ID: %w", err)
+		}
+		opID = decodedOpID
+	} else {
+		opID = id
+	}
+
+	return &Container{
+		FS:                 rootfs,
+		Config:             persisted.Config,
+		EnabledGPUs:        slices.Clone(persisted.EnabledGPUs),
+		Mounts:             mounts,
+		Meta:               meta,
+		MetaResult:         metaResult,
+		Platform:           persisted.Platform,
+		Annotations:        slices.Clone(persisted.Annotations),
+		ImageRef:           persisted.ImageRef,
+		Ports:              slices.Clone(persisted.Ports),
+		DefaultTerminalCmd: persisted.DefaultTerminalCmd,
+		SystemEnvNames:     slices.Clone(persisted.SystemEnvNames),
+		DefaultArgs:        persisted.DefaultArgs,
+		LazyState:          NewLazyState(),
+		OpID:               opID,
+	}, nil
 }
 
 func (container *Container) OnRelease(ctx context.Context) error {
@@ -336,6 +546,31 @@ type TmpfsMountSource struct {
 }
 
 type ContainerMounts []ContainerMount
+
+type persistedContainerMountPayload struct {
+	Target            string `json:"target"`
+	Readonly          bool   `json:"readonly,omitempty"`
+	DirectorySourceID string `json:"directorySourceID,omitempty"`
+	FileSourceID      string `json:"fileSourceID,omitempty"`
+	CacheSourceID     string `json:"cacheSourceID,omitempty"`
+	TmpfsSize         int    `json:"tmpfsSize,omitempty"`
+}
+
+type persistedContainerPayload struct {
+	FSID               string                              `json:"fsID,omitempty"`
+	MetaID             string                              `json:"metaID,omitempty"`
+	Config             dockerspec.DockerOCIImageConfig     `json:"config"`
+	EnabledGPUs        []string                            `json:"enabledGPUs,omitempty"`
+	Mounts             []persistedContainerMountPayload    `json:"mounts,omitempty"`
+	Platform           Platform                            `json:"platform"`
+	Annotations        []containerutil.ContainerAnnotation `json:"annotations,omitempty"`
+	ImageRef           string                              `json:"imageRef,omitempty"`
+	Ports              []Port                              `json:"ports,omitempty"`
+	DefaultTerminalCmd DefaultTerminalCmdOpts              `json:"defaultTerminalCmd"`
+	SystemEnvNames     []string                            `json:"systemEnvNames,omitempty"`
+	DefaultArgs        bool                                `json:"defaultArgs,omitempty"`
+	OpID               string                              `json:"opID,omitempty"`
+}
 
 func (mnts ContainerMounts) With(newMnt ContainerMount) ContainerMounts {
 	mntsCp := make(ContainerMounts, 0, len(mnts))

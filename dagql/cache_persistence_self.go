@@ -11,7 +11,7 @@ import (
 
 const (
 	persistedResultKindNull   = "null"
-	persistedResultKindObject = "object_id"
+	persistedResultKindObject = "object_self"
 	persistedResultKindScalar = "scalar_json"
 	persistedResultKindList   = "list"
 )
@@ -27,9 +27,44 @@ type PersistedResultEnvelope struct {
 	Kind         string                    `json:"kind"`
 	TypeName     string                    `json:"typeName,omitempty"`
 	ID           string                    `json:"id,omitempty"`
+	ObjectJSON   json.RawMessage           `json:"objectJSON,omitempty"`
 	ScalarJSON   json.RawMessage           `json:"scalarJSON,omitempty"`
 	ElemTypeName string                    `json:"elemTypeName,omitempty"`
 	Items        []PersistedResultEnvelope `json:"items,omitempty"`
+}
+
+// PersistedObject is implemented by object self payloads that can be encoded
+// directly for import-time cache persistence.
+type PersistedObject interface {
+	Typed
+	EncodePersistedObject(context.Context) (json.RawMessage, error)
+}
+
+// PersistedObjectDecoder is implemented by zero-value object types that know
+// how to reconstruct a persisted object self payload without replaying the
+// original dagql call chain.
+type PersistedObjectDecoder interface {
+	Typed
+	DecodePersistedObject(context.Context, *call.ID, json.RawMessage, PersistedObjectResolver) (Typed, error)
+}
+
+// PersistedObjectResolver resolves already-imported persisted results by ID for
+// object self decode.
+type PersistedObjectResolver interface {
+	LoadPersistedResult(context.Context, *call.ID) (AnyResult, error)
+	LoadPersistedObject(context.Context, *call.ID) (AnyObjectResult, error)
+	PersistedSnapshotLinks(context.Context, *call.ID) ([]PersistedSnapshotRefLink, error)
+}
+
+type persistedObjectResolverKey struct{}
+
+func ContextWithPersistedObjectResolver(ctx context.Context, resolver PersistedObjectResolver) context.Context {
+	return context.WithValue(ctx, persistedObjectResolverKey{}, resolver)
+}
+
+func currentPersistedObjectResolver(ctx context.Context) PersistedObjectResolver {
+	resolver, _ := ctx.Value(persistedObjectResolverKey{}).(PersistedObjectResolver)
+	return resolver
 }
 
 // PersistedSelfCodec is the shared interface used to encode/decode result self
@@ -44,18 +79,17 @@ type defaultPersistedSelfCodec struct{}
 var DefaultPersistedSelfCodec PersistedSelfCodec = defaultPersistedSelfCodec{}
 
 func (defaultPersistedSelfCodec) EncodeResult(ctx context.Context, res AnyResult) (PersistedResultEnvelope, error) {
-	_ = ctx
-	return encodePersistedResultEnvelope(res)
+	return encodePersistedResultEnvelope(ctx, res)
 }
 
 func (defaultPersistedSelfCodec) DecodeResult(ctx context.Context, env PersistedResultEnvelope) (AnyResult, error) {
 	return decodePersistedResultEnvelope(ctx, env)
 }
 
-func encodePersistedResultEnvelope(res AnyResult) (PersistedResultEnvelope, error) {
+func encodePersistedResultEnvelope(ctx context.Context, res AnyResult) (PersistedResultEnvelope, error) {
 	if res == nil {
 		return PersistedResultEnvelope{
-			Version: 1,
+			Version: 2,
 			Kind:    persistedResultKindNull,
 		}, nil
 	}
@@ -67,12 +101,36 @@ func encodePersistedResultEnvelope(res AnyResult) (PersistedResultEnvelope, erro
 		return PersistedResultEnvelope{}, fmt.Errorf("encode persisted result envelope ID: %w", err)
 	}
 
-	if _, ok := res.(AnyObjectResult); ok {
+	if srv := CurrentDagqlServer(ctx); srv != nil && res.Type() != nil {
+		if _, ok := srv.ObjectType(res.Type().Name()); ok {
+			encoder, ok := res.Unwrap().(PersistedObject)
+			if !ok {
+				return PersistedResultEnvelope{}, fmt.Errorf("encode persisted object payload: type %q does not implement persisted object encoding", res.Type().Name())
+			}
+			objectJSON, err := encoder.EncodePersistedObject(ctx)
+			if err != nil {
+				return PersistedResultEnvelope{}, fmt.Errorf("encode persisted object payload: %w", err)
+			}
+			return PersistedResultEnvelope{
+				Version:    2,
+				Kind:       persistedResultKindObject,
+				TypeName:   res.Type().Name(),
+				ID:         encID,
+				ObjectJSON: objectJSON,
+			}, nil
+		}
+	}
+	if encoder, ok := res.Unwrap().(PersistedObject); ok {
+		objectJSON, err := encoder.EncodePersistedObject(ctx)
+		if err != nil {
+			return PersistedResultEnvelope{}, fmt.Errorf("encode persisted object payload: %w", err)
+		}
 		return PersistedResultEnvelope{
-			Version:  1,
-			Kind:     persistedResultKindObject,
-			TypeName: res.Type().Name(),
-			ID:       encID,
+			Version:    2,
+			Kind:       persistedResultKindObject,
+			TypeName:   res.Type().Name(),
+			ID:         encID,
+			ObjectJSON: objectJSON,
 		}, nil
 	}
 
@@ -83,14 +141,14 @@ func encodePersistedResultEnvelope(res AnyResult) (PersistedResultEnvelope, erro
 			if err != nil {
 				return PersistedResultEnvelope{}, fmt.Errorf("encode persisted list item %d: %w", i, err)
 			}
-			itemEnv, err := encodePersistedResultEnvelope(item)
+			itemEnv, err := encodePersistedResultEnvelope(ctx, item)
 			if err != nil {
 				return PersistedResultEnvelope{}, fmt.Errorf("encode persisted list item %d envelope: %w", i, err)
 			}
 			itemEnvs = append(itemEnvs, itemEnv)
 		}
 		return PersistedResultEnvelope{
-			Version:      1,
+			Version:      2,
 			Kind:         persistedResultKindList,
 			TypeName:     res.Type().Name(),
 			ID:           encID,
@@ -104,7 +162,7 @@ func encodePersistedResultEnvelope(res AnyResult) (PersistedResultEnvelope, erro
 		return PersistedResultEnvelope{}, fmt.Errorf("encode scalar_json payload: %w", err)
 	}
 	return PersistedResultEnvelope{
-		Version:    1,
+		Version:    2,
 		Kind:       persistedResultKindScalar,
 		TypeName:   res.Type().Name(),
 		ID:         encID,
@@ -125,11 +183,27 @@ func decodePersistedResultEnvelope(ctx context.Context, env PersistedResultEnvel
 		if srv == nil {
 			return nil, fmt.Errorf("decode object_id envelope: missing current dagql server in context")
 		}
-		val, err := srv.Load(ctx, id)
+		objType, ok := srv.ObjectType(env.TypeName)
+		if !ok {
+			return nil, fmt.Errorf("decode object_id envelope: unknown object type %q", env.TypeName)
+		}
+		decoder, ok := objType.Typed().(PersistedObjectDecoder)
+		if !ok {
+			return nil, fmt.Errorf("decode object_id envelope: object type %q does not implement persisted decode", env.TypeName)
+		}
+		valSelf, err := decoder.DecodePersistedObject(ctx, id, env.ObjectJSON, currentPersistedObjectResolver(ctx))
 		if err != nil {
 			return nil, fmt.Errorf("decode object_id envelope load: %w", err)
 		}
-		return val, nil
+		valRes, err := NewResultForID(valSelf, id)
+		if err != nil {
+			return nil, fmt.Errorf("decode object_id envelope result: %w", err)
+		}
+		objRes, err := objType.New(valRes)
+		if err != nil {
+			return nil, fmt.Errorf("decode object_id envelope instantiate: %w", err)
+		}
+		return objRes, nil
 	case persistedResultKindScalar:
 		id, err := decodeEnvelopeID(env)
 		if err != nil {

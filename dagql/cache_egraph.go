@@ -119,6 +119,9 @@ func (c *cache) initEgraphLocked() {
 	if c.resultsByID == nil {
 		c.resultsByID = make(map[sharedResultID]*sharedResult)
 	}
+	if c.resultsByPersistKey == nil {
+		c.resultsByPersistKey = make(map[cachePersistResultKey]sharedResultID)
+	}
 	if c.nextEgraphClassID == 0 {
 		c.nextEgraphClassID = 1
 	}
@@ -618,10 +621,15 @@ func persistedEnvelopeDecodableInContext(ctx context.Context, env *PersistedResu
 	case persistedResultKindNull:
 		return true
 	case persistedResultKindObject:
-		// Object envelopes currently decode via server.Load(ID), which can recurse
-		// into the same unresolved imported result. Treat unresolved object
-		// envelopes as misses for now.
-		return false
+		if srv == nil {
+			return false
+		}
+		objType, ok := srv.ObjectType(env.TypeName)
+		if !ok {
+			return false
+		}
+		_, ok = objType.Typed().(PersistedObjectDecoder)
+		return ok
 	case persistedResultKindScalar:
 		if isBuiltinPersistedScalarType(env.TypeName) {
 			return true
@@ -750,6 +758,13 @@ func (c *cache) indexWaitResultInEgraphLocked(
 		c.nextSharedResultID++
 	}
 	c.resultsByID[res.id] = res
+	if res.persistedResultKey != "" {
+		c.resultsByPersistKey[res.persistedResultKey] = res.id
+	} else if res.originalRequestID != nil {
+		if resKey, err := derivePersistResultKey(res.originalRequestID); err == nil {
+			c.resultsByPersistKey[resKey] = res.id
+		}
+	}
 	c.indexResultOutputDigestsLocked(res)
 
 	termsToIndex := []struct {
@@ -972,6 +987,13 @@ func (c *cache) removeResultFromEgraphLocked(res *sharedResult) {
 	}
 	delete(c.egraphTermIDsByResult, res.id)
 	delete(c.resultsByID, res.id)
+	if res.persistedResultKey != "" {
+		delete(c.resultsByPersistKey, res.persistedResultKey)
+	} else if res.originalRequestID != nil {
+		if resKey, err := derivePersistResultKey(res.originalRequestID); err == nil {
+			delete(c.resultsByPersistKey, resKey)
+		}
+	}
 	c.maybeResetEgraphLocked()
 }
 
@@ -990,6 +1012,7 @@ func (c *cache) maybeResetEgraphLocked() {
 	c.egraphResultsByTermID = nil
 	c.egraphTermIDsByResult = nil
 	c.resultsByID = nil
+	c.resultsByPersistKey = nil
 	c.nextEgraphClassID = 0
 	c.nextEgraphTermID = 0
 	c.nextSharedResultID = 0

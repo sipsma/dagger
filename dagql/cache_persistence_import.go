@@ -151,13 +151,15 @@ func (c *cache) importPersistedState(ctx context.Context) error {
 		if env.Kind == persistedResultKindNull {
 			res.hasValue = true
 			res.persistedEnvelope = nil
-		} else if decoded, err := DefaultPersistedSelfCodec.DecodeResult(context.Background(), env); err == nil && decoded != nil {
-			res.self = decoded.Unwrap()
-			res.hasValue = true
-			if objRes, ok := decoded.(AnyObjectResult); ok {
-				res.objType = objRes.ObjectType()
+		} else if env.Kind != persistedResultKindObject {
+			if decoded, err := DefaultPersistedSelfCodec.DecodeResult(context.Background(), env); err == nil && decoded != nil {
+				res.self = decoded.Unwrap()
+				res.hasValue = true
+				if objRes, ok := decoded.(AnyObjectResult); ok {
+					res.objType = objRes.ObjectType()
+				}
+				res.persistedEnvelope = nil
 			}
-			res.persistedEnvelope = nil
 		}
 		if res.usageIdentity == "" {
 			if usageIdentity, ok := cacheUsageIdentity(res); ok {
@@ -165,6 +167,9 @@ func (c *cache) importPersistedState(ctx context.Context) error {
 			}
 		}
 		c.resultsByID[resID] = res
+		if res.persistedResultKey != "" {
+			c.resultsByPersistKey[res.persistedResultKey] = resID
+		}
 		resultIDByKey[row.ResultKey] = resID
 		c.indexResultOutputDigestsLocked(res)
 	}
@@ -366,6 +371,7 @@ func (c *cache) ensurePersistedHitValueLoaded(ctx context.Context, hit AnyResult
 		return hit, nil
 	}
 
+	ctx = ContextWithPersistedObjectResolver(ctx, c.persistedObjectResolver())
 	decoded, err := DefaultPersistedSelfCodec.DecodeResult(ctx, *env)
 	if err != nil {
 		if CurrentDagqlServer(ctx) == nil || strings.Contains(err.Error(), "unknown scalar type") {

@@ -113,11 +113,60 @@ func (cache *CacheVolume) PersistedSnapshotRefLinks() []dagql.PersistedSnapshotR
 	}
 	return []dagql.PersistedSnapshotRefLink{
 		{
-			RefKey: snapshot.ID(),
+			RefKey: snapshot.SnapshotID(),
 			Role:   "snapshot",
 			Slot:   cache.getSnapshotSelector(),
 		},
 	}
+}
+
+type persistedCacheVolumePayload struct {
+	Key       string           `json:"key"`
+	Namespace string           `json:"namespace,omitempty"`
+	Sharing   CacheSharingMode `json:"sharing,omitempty"`
+	Owner     string           `json:"owner,omitempty"`
+}
+
+func (cache *CacheVolume) EncodePersistedObject(ctx context.Context) (json.RawMessage, error) {
+	_ = ctx
+	if cache == nil {
+		return nil, fmt.Errorf("encode persisted cache volume: nil cache volume")
+	}
+	payload, err := json.Marshal(persistedCacheVolumePayload{
+		Key:       cache.Key,
+		Namespace: cache.Namespace,
+		Sharing:   cache.Sharing,
+		Owner:     cache.Owner,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal persisted cache volume payload: %w", err)
+	}
+	return payload, nil
+}
+
+func (*CacheVolume) DecodePersistedObject(ctx context.Context, id *call.ID, payload json.RawMessage, resolver dagql.PersistedObjectResolver) (dagql.Typed, error) {
+	var persisted persistedCacheVolumePayload
+	if err := json.Unmarshal(payload, &persisted); err != nil {
+		return nil, fmt.Errorf("decode persisted cache volume payload: %w", err)
+	}
+
+	snapshot, link, err := loadPersistedMutableSnapshot(ctx, resolver, id, "snapshot")
+	if err != nil {
+		return nil, err
+	}
+
+	cache := NewCache(
+		persisted.Key,
+		persisted.Namespace,
+		dagql.Optional[DirectoryID]{},
+		persisted.Sharing,
+		persisted.Owner,
+	)
+	cache.snapshot = snapshot
+	if link.Slot != "" {
+		cache.selector = link.Slot
+	}
+	return cache, nil
 }
 
 func (cache *CacheVolume) CacheUsageMayChange() bool {
@@ -130,6 +179,24 @@ func (cache *CacheVolume) invalidateSnapshotSize(ctx context.Context) error {
 		return nil
 	}
 	return snapshot.InvalidateSize(ctx)
+}
+
+func (cache *CacheVolume) Sync(ctx context.Context) error {
+	return cache.InitializeSnapshot(ctx)
+}
+
+func (cache *CacheVolume) PreparePersistedObject(ctx context.Context) error {
+	if cache == nil {
+		return nil
+	}
+	if err := cache.Sync(ctx); err != nil {
+		return err
+	}
+	snapshot := cache.getSnapshot()
+	if snapshot != nil {
+		return snapshot.SetCachePolicyRetain()
+	}
+	return nil
 }
 
 func (cache *CacheVolume) InitializeSnapshot(ctx context.Context) error {

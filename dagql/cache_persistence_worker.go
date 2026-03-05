@@ -471,7 +471,8 @@ func (c *cache) buildPersistUpsertBatchForRootLocked(root *sharedResult) (cacheP
 			DeletedAtUnixNano:    0,
 		})
 
-		for _, link := range c.persistedSnapshotLinksForResultLocked(res) {
+		links := c.persistedSnapshotLinksForResultLocked(res)
+		for _, link := range links {
 			if link.RefKey == "" {
 				continue
 			}

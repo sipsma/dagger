@@ -2,8 +2,10 @@ package dagql
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
+	"github.com/dagger/dagger/dagql/call"
 	"github.com/vektah/gqlparser/v2/ast"
 	"gotest.tools/v3/assert"
 	is "gotest.tools/v3/assert/cmp"
@@ -22,11 +24,31 @@ type persistCodecObj struct {
 	Name string
 }
 
+type persistedPersistCodecObj struct {
+	Name string `json:"name"`
+}
+
 func (*persistCodecObj) Type() *ast.Type {
 	return &ast.Type{
 		NamedType: "PersistCodecObj",
 		NonNull:   true,
 	}
+}
+
+func (obj *persistCodecObj) EncodePersistedObject(ctx context.Context) (json.RawMessage, error) {
+	_ = ctx
+	return json.Marshal(persistedPersistCodecObj{Name: obj.Name})
+}
+
+func (*persistCodecObj) DecodePersistedObject(ctx context.Context, id *call.ID, payload json.RawMessage, resolver PersistedObjectResolver) (Typed, error) {
+	_ = ctx
+	_ = id
+	_ = resolver
+	var persisted persistedPersistCodecObj
+	if err := json.Unmarshal(payload, &persisted); err != nil {
+		return nil, err
+	}
+	return &persistCodecObj{Name: persisted.Name}, nil
 }
 
 func setupPersistCodecTest(t *testing.T) context.Context {
@@ -81,6 +103,7 @@ func TestPersistedSelfCodecObjectIDRoundTrip(t *testing.T) {
 	env, err := DefaultPersistedSelfCodec.EncodeResult(ctx, original)
 	assert.NilError(t, err)
 	assert.Check(t, is.Equal(env.Kind, persistedResultKindObject))
+	assert.Check(t, is.Equal(string(env.ObjectJSON), `{"name":"x"}`))
 
 	decoded, err := DefaultPersistedSelfCodec.DecodeResult(ctx, env)
 	assert.NilError(t, err)
