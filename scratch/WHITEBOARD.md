@@ -750,3 +750,536 @@
   * (not required for first pass, but may help explain accounting to users)
 * [ ] Consider measuring all snapshot sizes (including non-prunable) to support accurate engine total disk-usage visibility.
   * Verify first whether this is actually needed and desired as a product/system goal before implementing.
+
+# Disk Persistence
+
+## Design
+
+### Core model
+
+* In-memory dagql cache remains the single source of truth for all cache logic.
+* Persistence is asynchronous and event-driven; cache mutations never synchronously write to disk.
+* Persistence is represented as export/import of a portable DAG/e-graph shape (not engine-process-local numeric IDs).
+* Persisted state is rebuilt into in-memory structures on engine startup before serving requests.
+
+### Runtime architecture
+
+* `PersistenceEmitter` (inside dagql cache mutation paths):
+  * observes cache mutations that affect persistable state.
+  * emits normalized persistence events after in-memory mutation is committed.
+* `PersistenceQueue`:
+  * unbounded queue of persistence events (first cut).
+  * no drop policy in first cut.
+  * feeds a separate persistence worker goroutine.
+* `PersistenceWorker` (initially a goroutine, future remote service candidate):
+  * drains queue.
+  * first cut: no explicit coalescing/compaction optimization.
+  * writes durable records to persistent storage.
+* `PersistenceStore`:
+  * direct insert/upsert/delete/read primitives for persisted cache records.
+  * no append-only event log in first cut.
+  * initial backend target: SQLite (WAL mode).
+  * storage engine can change later without changing in-memory cache behavior.
+
+### Decisions from review
+
+* Graceful shutdown semantics are strict:
+  * on SIGTERM/SIGINT (or any graceful shutdown), queue must be fully drained and worker writes fully synced before process exit.
+* Ungraceful shutdown handling:
+  * startup detects ungraceful previous shutdown.
+  * if detected, persistence store is treated as untrusted and deleted/reset; rebuild from empty state.
+* Startup import behavior:
+  * only full rebuild is supported; no partial/degraded import mode.
+* Tombstones:
+  * prune/removal paths emit tombstones to persistence store.
+* Last-used persistence:
+  * do not persist last-used at all in first cut.
+* Optional sequence number:
+  * allowed if low overhead, not required for correctness in first cut.
+* `safeToPersistCache` handling (first cut):
+  * enqueue broadly from emitter.
+  * apply filtering in worker before durable writes.
+  * keep this boundary intentionally open; we may later persist some currently non-persisted categories for import/reconstruction reasons.
+* Graceful shutdown wait policy:
+  * wait indefinitely for queue drain + worker sync completion.
+* Queue/write optimization:
+  * skip coalescing/compaction optimizations for now; rely on direct SQLite upsert/delete behavior.
+* Ungraceful-shutdown marker choice (tentative implementation direction):
+  * store marker in SQLite metadata table (single source of truth, no extra sidecar file).
+* Startup import robustness (tentative implementation direction):
+  * load via one consistent SQLite read transaction/snapshot and rebuild in-memory from that.
+* Persisted scope:
+  * persist roots produced by persistable fields.
+  * also persist all direct/transitive dependencies required to materialize those roots.
+  * function-call result persistence must include anything referenced by the function-call result.
+* `sharedResult` persistence must include `self` payload/state (not just graph metadata).
+* Persistable type requirement:
+  * each persistable type (directory/file/cachevolume/container/function-returnable objects, etc.) must implement serialize/deserialize support.
+  * serialization must include enough snapshot metadata to restore mutable/immutable refs on demand (snapshotter/content-store/lease integration shape).
+* E-graph rebuild strategy:
+  * prefer replay-based rebuild from durable associations + union operations.
+  * avoid depending on engine-local numeric IDs as durable keys.
+* Tombstones:
+  * emit tombstones only for keys known to have been previously persisted.
+* Unsafe dependency policy:
+  * if a persisted closure includes unsafe deps, persist anyway for now and emit warnings.
+* Import failure policy:
+  * if import is malformed/corrupt, wipe persistence store and continue startup from empty state.
+* `self` persistence interface:
+  * use one shared interface for all persistable `self` payloads.
+* `self` payload storage format:
+  * use opaque payload bytes + type discriminator in first cut.
+* Worker write strategy:
+  * allow batched writes with sane size/time defaults (tunable), while preserving graceful-shutdown full-drain guarantee.
+* `unsafe` marker:
+  * store explicit unsafe marker on durable rows (persist anyway + warn policy).
+* Explicit terms:
+  * persist first-class `terms` rows (do not derive-only).
+* Ungraceful marker implementation:
+  * strict/simple SQLite metadata row toggle.
+* Schema direction:
+  * use normalized schema (`results`, `terms`, `term_results`, `deps`, `eq_facts`, `snapshot_refs`, `meta`).
+* `self` payload envelope:
+  * use `{type, version, payload_bytes}` style envelope for opaque payload persistence.
+* Persist reason:
+  * tag persisted rows with reason (`root`, `dep_of_root`, `function_ref`) for debugging.
+* Startup import ordering:
+  * phase order locked as:
+    1) `snapshot_refs`
+    2) `results` (including `self` payload decode)
+    3) replay `eq_facts`
+    4) `terms`
+    5) `term_results`
+    6) `deps`
+* `eq_facts` ownership model:
+  * each `eq_facts` row is "owned" by one persisted result (`owner_result_key`), meaning that result asserted/required this union fact.
+  * the same canonical digest pair may appear under multiple owners; this is intentional for lifecycle isolation.
+  * when pruning/deleting a persisted result, tombstone all `eq_facts` rows owned by that result.
+  * during import, union from all live `eq_facts`; if one owner is deleted but another still owns the same pair, equivalence remains.
+  * this prevents leaks (facts with no surviving owner) while preserving shared equivalence facts still referenced by other persisted roots.
+
+### Proposed durable snapshot/ref metadata (v1, for review)
+
+* Goal: minimal durable fields to restore object `self` payloads that reference mutable/immutable snapshots on demand.
+* Proposed durable fields per snapshot-ref record:
+  * `ref_key` (stable durable key, not process-local pointer/id)
+  * `snapshot_id` (snapshotter key/id used to mount or lookup snapshot)
+  * `kind` (`immutable` or `mutable`)
+  * `snapshotter_name` (for mount/lookup path correctness)
+  * `lease_id` (primary lease tracking key for ref lifecycle restore)
+  * `content_blob_digest` (if blob-backed/addressable)
+  * `chain_id` (if available; for blob/addressable and import/linking paths)
+  * `blob_chain_id` (if available; for addressable chain lookup)
+  * `diff_id` (if available)
+  * `media_type` (if blob-backed and needed by export/import flows)
+  * `blob_size` (optional but useful for export/validation)
+  * `urls_json` (optional source URLs for blob-backed refs)
+  * `record_type` (for usage/debug parity)
+  * `description`
+  * `created_at_unix_nano`
+  * `size_bytes` (cached size hint; can be recomputed)
+  * `deleted` (bool/tombstone state as needed)
+* Notes:
+  * parent/merge/diff parent graphs are not a durable requirement for first cut if object-level persisted deps already reconstruct materialization closure.
+  * equal-mutable/equal-immutable compatibility metadata should not be persisted.
+
+### Event and record shape (first sketch)
+
+* Persistence events should be idempotent and replay-safe.
+* Suggested logical event categories:
+  * upsert result record (identity + metadata + payload linkage)
+  * upsert term association (term <-> result links)
+  * upsert dependency edge (result -> dependency result)
+  * union/merge equivalence classes
+  * touch/update usage metadata (created/expires/safe-to-persist/unsafe marker)
+  * delete/tombstone when prune removes persisted state
+* Records should use stable recipe-based identities:
+  * call IDs/digests
+  * term digests and input eq class references
+  * output digest/extra digest mappings
+  * dependency edges for transitive retention reconstruction
+* For first cut, this event model is transport-only between cache and worker.
+  * durable representation in SQLite is direct upsert/delete tables, not event-log replay files.
+
+### Startup import flow
+
+* On engine startup:
+  * read persisted records from `PersistenceStore`.
+  * replay/import records to rebuild in-memory dagql cache/e-graph state.
+  * restore persisted result flags and dependency graph needed for prune/retention behavior.
+* Import should be deterministic and idempotent:
+  * replaying the same records multiple times must produce equivalent in-memory state.
+* Engine should not start serving until import has completed.
+* If ungraceful-shutdown marker is detected, clear persistence store first, then boot with empty cache.
+
+### Consistency and failure semantics
+
+* Cache mutation happens first; persistence is eventual.
+* Crash window exists between in-memory mutation and durable write unless queue is drained.
+* First-cut accepted behavior:
+  * persisted state can lag in-memory state during runtime.
+  * ungraceful crash invalidates trust in persisted cache; startup wipes and restarts persistence from empty.
+* Worker writes must be retryable; transient store failures should not corrupt in-memory cache.
+
+### Integration boundaries
+
+* Persistability gates:
+  * only persist results/edges allowed by persistable field policy.
+  * integrate with `safeToPersistCache` before full rollout.
+* Prune interaction:
+  * prune decisions still run on in-memory state.
+  * prune must emit delete/tombstone persistence updates for persisted records it removes.
+* Additional output results:
+  * attachment/dependency edges must be persisted so startup import rebuilds identical dependency closure.
+
+### Non-goals for first implementation
+
+* No synchronous write-through in resolver hot paths.
+* No remote persistence service yet (goroutine-only worker is enough initially).
+* No read-through fallback from store during request execution; startup import is the restore mechanism.
+* No page-out/paging policy work in this phase; focus is durable reconstruction of persisted cache graph.
+
+### Open questions (next decisions)
+
+* Optional sequence number:
+  * include global monotonic `seq` column on persistence writes now, or defer entirely?
+* Tombstone row keys:
+  * finalize exact row-key strategy once table schema is defined (same durable identity basis used by upsert/delete).
+* Durability sync point:
+  * on graceful shutdown, do we require explicit WAL checkpoint + sync after drain, or rely on committed transactions only?
+  * current direction: rely on committed transactions only (no forced checkpoint requirement).
+* Sequence number usage:
+  * if we add `seq`, is it debug-only ordering metadata or does import/replay logic depend on it?
+
+### Concrete SQLite schema proposal (v1 draft for review)
+
+* `meta`:
+  * `key TEXT PRIMARY KEY`
+  * `value TEXT NOT NULL`
+  * required keys:
+    * `schema_version`
+    * `clean_shutdown` (`"0"`/`"1"`)
+* `results`:
+  * `result_key TEXT PRIMARY KEY` (stable durable key for shared result)
+  * `id_digest TEXT NOT NULL`
+  * `output_digest TEXT`
+  * `output_extra_digests_json TEXT NOT NULL DEFAULT '[]'`
+  * `output_effect_ids_json TEXT NOT NULL DEFAULT '[]'`
+  * `self_type TEXT NOT NULL`
+  * `self_version INTEGER NOT NULL`
+  * `self_payload BLOB NOT NULL`
+  * `dep_of_persisted_result INTEGER NOT NULL DEFAULT 0`
+  * `safe_to_persist_cache INTEGER NOT NULL DEFAULT 1`
+  * `unsafe_marker INTEGER NOT NULL DEFAULT 0`
+  * `persist_reason TEXT NOT NULL` (`root`/`dep_of_root`/`function_ref`)
+  * `created_at_unix_nano INTEGER NOT NULL`
+  * `expires_at_unix INTEGER NOT NULL DEFAULT 0`
+  * `record_type TEXT NOT NULL DEFAULT ''`
+  * `description TEXT NOT NULL DEFAULT ''`
+  * `deleted INTEGER NOT NULL DEFAULT 0`
+  * `deleted_at_unix_nano INTEGER NOT NULL DEFAULT 0`
+  * indexes:
+    * `idx_results_output_digest(output_digest)`
+    * `idx_results_deleted(deleted)`
+* `terms`:
+  * `term_digest TEXT PRIMARY KEY`
+  * `self_digest TEXT NOT NULL`
+  * `input_digests_json TEXT NOT NULL` (stable digest list, no engine-local IDs)
+  * `created_at_unix_nano INTEGER NOT NULL`
+  * `deleted INTEGER NOT NULL DEFAULT 0`
+  * `deleted_at_unix_nano INTEGER NOT NULL DEFAULT 0`
+* `term_results`:
+  * `term_digest TEXT NOT NULL`
+  * `result_key TEXT NOT NULL`
+  * `deleted INTEGER NOT NULL DEFAULT 0`
+  * `deleted_at_unix_nano INTEGER NOT NULL DEFAULT 0`
+  * `PRIMARY KEY(term_digest, result_key)`
+  * foreign keys:
+    * `term_digest -> terms.term_digest`
+    * `result_key -> results.result_key`
+* `deps`:
+  * `parent_result_key TEXT NOT NULL`
+  * `dep_result_key TEXT NOT NULL`
+  * `deleted INTEGER NOT NULL DEFAULT 0`
+  * `deleted_at_unix_nano INTEGER NOT NULL DEFAULT 0`
+  * `PRIMARY KEY(parent_result_key, dep_result_key)`
+  * foreign keys:
+    * `parent_result_key -> results.result_key`
+    * `dep_result_key -> results.result_key`
+* `eq_facts`:
+  * `owner_result_key TEXT NOT NULL` (result that "owns" this equivalence fact for tombstone cleanup)
+  * `lhs_digest TEXT NOT NULL`
+  * `rhs_digest TEXT NOT NULL`
+  * `created_at_unix_nano INTEGER NOT NULL`
+  * `deleted INTEGER NOT NULL DEFAULT 0`
+  * `deleted_at_unix_nano INTEGER NOT NULL DEFAULT 0`
+  * `PRIMARY KEY(owner_result_key, lhs_digest, rhs_digest)`
+  * foreign keys:
+    * `owner_result_key -> results.result_key`
+  * invariant:
+    * store canonical digest pair ordering (`lhs_digest <= rhs_digest`) for deterministic dedupe.
+* `snapshot_refs`:
+  * `ref_key TEXT PRIMARY KEY` (global unique)
+  * `kind TEXT NOT NULL` (`immutable`/`mutable`)
+  * `snapshot_id TEXT NOT NULL`
+  * `snapshotter_name TEXT NOT NULL`
+  * `lease_id TEXT NOT NULL`
+  * `content_blob_digest TEXT NOT NULL DEFAULT ''`
+  * `chain_id TEXT NOT NULL DEFAULT ''`
+  * `blob_chain_id TEXT NOT NULL DEFAULT ''`
+  * `diff_id TEXT NOT NULL DEFAULT ''`
+  * `media_type TEXT NOT NULL DEFAULT ''`
+  * `blob_size INTEGER NOT NULL DEFAULT 0`
+  * `urls_json TEXT NOT NULL DEFAULT '[]'`
+  * `record_type TEXT NOT NULL DEFAULT ''`
+  * `description TEXT NOT NULL DEFAULT ''`
+  * `created_at_unix_nano INTEGER NOT NULL`
+  * `size_bytes INTEGER NOT NULL DEFAULT 0`
+  * `deleted INTEGER NOT NULL DEFAULT 0`
+  * `deleted_at_unix_nano INTEGER NOT NULL DEFAULT 0`
+* `result_snapshot_refs` (generic non-opaque linkage for shared result -> snapshot refs):
+  * `result_key TEXT NOT NULL`
+  * `ref_key TEXT NOT NULL`
+  * `role TEXT NOT NULL` (type-agnostic linkage role name)
+  * `slot TEXT NOT NULL DEFAULT ''` (path/name/index as needed)
+  * `deleted INTEGER NOT NULL DEFAULT 0`
+  * `deleted_at_unix_nano INTEGER NOT NULL DEFAULT 0`
+  * `PRIMARY KEY(result_key, ref_key, role, slot)`
+  * foreign keys:
+    * `result_key -> results.result_key`
+    * `ref_key -> snapshot_refs.ref_key`
+
+### Concrete import mapping (v1)
+
+* Import transaction reads from SQLite snapshot.
+* Rebuild order:
+  * load `snapshot_refs` into ref-lookup map.
+  * load `results`, decode `self_payload`, attach `result_snapshot_refs` links.
+  * replay all live `eq_facts` rows (`union(lhs_digest, rhs_digest)`).
+  * load `terms`.
+  * load `term_results`.
+  * load `deps`.
+* Rows with `deleted=1` are skipped as live state and only used for idempotent replay semantics.
+
+### Detailed behavior specs (locked for implementation)
+
+#### 1) `eq_facts` extraction and durability rules
+
+* Purpose:
+  * `eq_facts` is the durable summary of output-equivalence merges needed to reconstruct e-graph union state on startup.
+* Source of truth during runtime:
+  * runtime e-graph (`egraphDigestToClass` + union-find parents/ranks) remains authoritative while engine is live.
+  * `eq_facts` is export state derived from runtime cache state, not a parallel runtime authority.
+* Fact shape:
+  * each row is `(owner_result_key, lhs_digest, rhs_digest)` with canonical digest ordering (`lhs <= rhs`).
+  * a row means: "for this owner result closure, these two digests must be unioned at import."
+* What must be included when exporting a persisted root closure:
+  * digest equalities induced by request identity and output identity for closure results:
+    * request recipe digest
+    * request extra digests
+    * output digest
+    * output extra digests
+  * this mirrors the runtime merge set currently formed by `indexWaitResultInEgraphLocked`.
+* Owner semantics:
+  * owner is lifecycle ownership only (not canonicality).
+  * same `(lhs,rhs)` may appear for multiple owners; this is expected.
+  * pruning/deleting one owner tombstones only that owner's rows.
+  * import unions from all live rows; equivalence survives as long as at least one owner still asserts it.
+* Determinism:
+  * extraction sorts digest pairs and emits stable row ordering before enqueueing.
+
+#### 2) Persisted root + transitive closure rules
+
+* Persisted root trigger:
+  * a completed call whose field is persistable (or a persistable lookup hit that upgrades an existing shared result) marks its shared result as persisted-root-relevant.
+* Closure rule (required):
+  * durable export for each persisted root must include all direct/transitive dependencies required to materialize that root.
+  * this includes dependencies attached via:
+    * term input dependency linkage (`indexResultDependenciesLocked` behavior)
+    * explicit additional output attachment edges (`HasAdditionalOutputResults`).
+* Function-result closure rule (required):
+  * if function result references objects/results, those referenced results must be included in closure export.
+* Unsafe policy:
+  * unsafe rows are still exported in first cut (with marker + warning), not dropped.
+* Tombstone scope:
+  * emit tombstones only for rows that previously existed durably for that owner/result.
+* Practical consequence for host-directory scenario:
+  * client-specific host load call itself is expected miss on new client.
+  * after host load executes and attaches output digest facts + unions, downstream container ops can hit via reconstructed/persisted equivalence state.
+
+#### 3) Startup reconstruction obligations (what must be rebuilt exactly)
+
+* Import must rebuild not just object payloads, but all lookup/index structures needed for cache hits.
+* Required in-memory reconstruction outputs:
+  * `resultsByID`
+  * `egraphTerms` and `egraphTermsByDigest`
+  * `egraphResultsByTermID` and `egraphTermIDsByResult`
+  * `egraphResultsByOutputDigest`
+  * union-find equivalence state (`egraphDigestToClass`, `egraphParents`, `egraphRanks`) from `eq_facts`
+  * dependency graph (`sharedResult.deps`) for persisted-retention and prune-liveness semantics
+* Strict consistency checks at import:
+  * every `term_results` row references existing live term + result
+  * every `deps` row references existing live result endpoints
+  * every `result_snapshot_refs` row references existing live result + snapshot ref
+  * malformed `self_payload` decode is import-fatal
+* Failure policy:
+  * any structural inconsistency or decode failure => wipe persistence store and continue cold-start.
+* Why this matters:
+  * if any of the above indexes are not rebuilt, runtime may boot with payloads present but miss cache lookups due to missing e-graph/search structures.
+
+## Implementation
+
+### Phase 0: Lock contracts, keys, and ownership semantics
+
+* [ ] Finalize persistence key derivation and invariants.
+  * [ ] `result_key`: stable digest derived from `sharedResult.originalRequestID`.
+  * [ ] `term_digest`: existing canonical term digest (`selfDigest + canonicalized input eq IDs`).
+  * [ ] `eq_facts`: canonical pair ordering (`lhs <= rhs`) and owner-scoped lifecycle via `owner_result_key`.
+  * [ ] `ref_key`: global unique durable snapshot-ref key.
+* [ ] Finalize hard invariants to enforce in code:
+  * [ ] Persisted graph closure rule: persisted root implies persisted transitive deps.
+  * [ ] Function-result closure rule: any result referenced by function outputs must also be persisted.
+  * [ ] Tombstone rule: only rows previously persisted can be tombstoned.
+  * [ ] Import-failure rule: malformed/inconsistent import state triggers wipe-and-continue.
+* [ ] Add implementation notes in code comments near the emitter/worker boundary:
+  * [ ] Worker applies summarized state updates (upsert/tombstone), not event-log replay semantics.
+  * [ ] `eq_facts` ownership semantics and duplicate pair across owners are intentional.
+
+### Phase 1: SQLite store bootstrap and lifecycle metadata
+
+* [ ] Add persistence store package and schema migration wiring (SQLite WAL).
+* [ ] Implement metadata lifecycle:
+  * [ ] On process startup-before-serving: set `clean_shutdown=0`.
+  * [ ] On graceful shutdown completion (after full queue drain + worker sync): set `clean_shutdown=1`.
+  * [ ] On startup, if `clean_shutdown != 1` (or unreadable/corrupt): wipe DB and reinitialize schema.
+* [ ] Implement direct upsert/tombstone primitives for all normalized tables:
+  * [ ] `results`, `terms`, `term_results`, `deps`, `eq_facts`, `snapshot_refs`, `result_snapshot_refs`, `meta`.
+* [ ] Keep write path dumb and idempotent:
+  * [ ] no coalescing optimization in first pass.
+  * [ ] rely on batched upserts/deletes with ON CONFLICT update semantics.
+
+### Phase 2: Persistable self serialization + snapshot-ref linkage
+
+* [ ] Introduce one shared persistence interface for persistable `self` payloads.
+  * [ ] Interface emits opaque payload envelope fields:
+    * [ ] `self_type`
+    * [ ] `self_version`
+    * [ ] `self_payload`
+  * [ ] Interface also emits generic snapshot-ref links:
+    * [ ] one or more `result_snapshot_refs` rows with `(ref_key, role, slot)`.
+* [ ] Implement serializers/deserializers for currently persistable core object types.
+  * [ ] Directory
+  * [ ] File
+  * [ ] Container
+  * [ ] CacheVolume
+  * [ ] Any additional persistable object that can appear as function return value.
+* [ ] Snapshot-ref metadata integration:
+  * [ ] emit `snapshot_refs` rows for all linked refs referenced by persisted results.
+  * [ ] include required mutable/immutable metadata fields from current ref model.
+  * [ ] do not persist internal parent/equal-ref compatibility graphs.
+
+### Phase 3: Emitter + queue + worker plumbing
+
+* [ ] Add `PersistenceEmitter` in dagql cache mutation paths.
+  * [ ] Trigger on persisted-root creation/update and persisted-root deletion/prune.
+  * [ ] Trigger when result closure changes (deps/term associations/eq facts/snapshot links).
+* [ ] Build closure export for a persisted root:
+  * [ ] collect root result + all transitive dependency results needed for materialization.
+  * [ ] collect terms associated with collected results.
+  * [ ] collect `term_results` links for those terms/results.
+  * [ ] collect dependency edges (`deps`) among collected results.
+  * [ ] collect owner-scoped `eq_facts` rows required to rebuild equivalence for collected closure.
+  * [ ] collect `snapshot_refs` + `result_snapshot_refs` for all collected results.
+* [ ] Add unbounded in-process queue + worker goroutine.
+  * [ ] queue item shape carries normalized table rows (state-upsert payload), not raw low-level mutation internals.
+  * [ ] worker-side filtering for `safeToPersistCache` policy in first cut.
+* [ ] Add worker batching:
+  * [ ] size-based batch threshold.
+  * [ ] time-based flush threshold.
+  * [ ] explicit synchronous flush API for shutdown.
+
+### Phase 4: Worker apply logic (upsert/tombstone state writes)
+
+* [ ] Implement transactional apply per batch:
+  * [ ] write `snapshot_refs` first.
+  * [ ] write `results`.
+  * [ ] write `result_snapshot_refs`.
+  * [ ] write `eq_facts`.
+  * [ ] write `terms`.
+  * [ ] write `term_results`.
+  * [ ] write `deps`.
+* [ ] Implement tombstone propagation for prune/delete:
+  * [ ] result tombstones.
+  * [ ] owner-scoped `eq_facts` tombstones.
+  * [ ] relation-row tombstones (`deps`, `term_results`, `result_snapshot_refs`) where appropriate.
+* [ ] Keep store semantics idempotent:
+  * [ ] repeated upsert/tombstone events must converge to same durable state.
+  * [ ] no dependency on event arrival uniqueness.
+
+### Phase 5: Startup import and in-memory reconstruction
+
+* [ ] Add startup import gate before server starts serving requests.
+* [ ] Implement import order (locked):
+  * [ ] load `snapshot_refs` map.
+  * [ ] load + decode `results` and rehydrate sharedResult records.
+  * [ ] attach `result_snapshot_refs` links.
+  * [ ] replay live `eq_facts` unions.
+  * [ ] load `terms`.
+  * [ ] load `term_results`.
+  * [ ] load `deps`.
+* [ ] Rebuild all required in-memory indexes:
+  * [ ] term digest indexes.
+  * [ ] result<->term association maps.
+  * [ ] output-digest reverse index.
+  * [ ] dependency graph used for dep-of-persisted retention and prune liveness.
+* [ ] Validate imported state:
+  * [ ] missing FK targets / malformed payload / digest inconsistencies => fail import path and wipe store.
+
+### Phase 6: Graceful shutdown and failure handling
+
+* [ ] Integrate shutdown flow:
+  * [ ] stop new queue ingestion.
+  * [ ] drain queue fully.
+  * [ ] force worker flush and wait indefinitely for completion.
+  * [ ] set `clean_shutdown=1` only after successful flush+commit.
+* [ ] Crash semantics:
+  * [ ] if process exits ungracefully, next startup sees `clean_shutdown!=1`, wipes persistence DB, cold starts.
+* [ ] Observability:
+  * [ ] queue depth.
+  * [ ] worker batch size / apply latency.
+  * [ ] import duration and row counts per table.
+  * [ ] wipe-on-unclean-start counter.
+
+### Phase 7: Validation matrix and rollout sequence
+
+* [ ] Unit tests for store + worker behavior:
+  * [ ] idempotent upsert/tombstone.
+  * [ ] owner-scoped `eq_facts` tombstone semantics.
+  * [ ] clean-shutdown toggle behavior.
+* [ ] Dagql cache persistence tests:
+  * [ ] persisted root survives session close and process restart.
+  * [ ] persisted function result restores all referenced outputs/deps.
+  * [ ] prune emits tombstones and import no longer restores pruned entries.
+* [ ] Startup robustness tests:
+  * [ ] unclean shutdown marker causes wipe.
+  * [ ] malformed/corrupt durable rows cause wipe-and-continue.
+* [ ] Integration tests (targeted):
+  * [ ] local cache behavior across restart.
+  * [ ] function cache control behavior across restart.
+  * [ ] cache volume + container/file/directory closure restoration across restart.
+
+### Execution order (first implementation pass)
+
+* [ ] Execute in this strict order:
+  * [ ] Phase 0
+  * [ ] Phase 1
+  * [ ] Phase 2
+  * [ ] Phase 3
+  * [ ] Phase 4
+  * [ ] Phase 5
+  * [ ] Phase 6
+  * [ ] Phase 7
+* [ ] Commit at the end of each phase with detailed message including:
+  * [ ] problem addressed
+  * [ ] chosen design and tradeoffs
+  * [ ] implementation details and constraints
