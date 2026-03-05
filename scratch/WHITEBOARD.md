@@ -1235,63 +1235,65 @@
 
 ### Phase 5: Startup import and in-memory reconstruction
 
-* [ ] Add startup import gate before server starts serving requests.
-* [ ] Implement import order (locked):
-  * [ ] load `snapshot_refs` map.
-  * [ ] load + decode `results` and rehydrate sharedResult records.
-  * [ ] attach `result_snapshot_refs` links.
-  * [ ] replay live `eq_facts` unions.
-  * [ ] load `terms`.
-  * [ ] load `term_results`.
-  * [ ] load `deps`.
-* [ ] Rebuild all required in-memory indexes:
-  * [ ] term digest indexes.
-  * [ ] result<->term association maps.
-  * [ ] output-digest reverse index.
-  * [ ] dependency graph used for dep-of-persisted retention and prune liveness.
-* [ ] Validate imported state:
-  * [ ] missing FK targets / malformed payload / digest inconsistencies => fail import path and wipe store.
+* [x] Add startup import gate before server starts serving requests.
+* [x] Implement import order (locked):
+  * [x] load `snapshot_refs` map.
+  * [x] load + decode `results` and rehydrate sharedResult records (eager when decodable, lazy envelope fallback otherwise).
+  * [x] attach `result_snapshot_refs` links.
+  * [x] replay live `eq_facts` unions.
+  * [x] load `terms`.
+  * [x] load `term_results`.
+  * [x] load `deps`.
+* [x] Rebuild all required in-memory indexes:
+  * [x] term digest indexes.
+  * [x] result<->term association maps.
+  * [x] output-digest reverse index.
+  * [x] dependency graph used for dep-of-persisted retention and prune liveness.
+* [x] Validate imported state:
+  * [x] missing FK targets / malformed payload / digest inconsistencies => fail import path and wipe store.
+  * [ ] follow-up: promote currently debug-log-only import stats into metrics.
 
 ### Phase 6: Graceful shutdown and failure handling
 
-* [ ] Integrate shutdown flow:
-  * [ ] stop new queue ingestion.
-  * [ ] drain queue fully.
-  * [ ] force worker flush and wait indefinitely for completion.
-  * [ ] set `clean_shutdown=1` only after successful flush+commit.
-* [ ] Crash semantics:
-  * [ ] if process exits ungracefully, next startup sees `clean_shutdown!=1`, wipes persistence DB, cold starts.
-* [ ] Observability:
-  * [ ] queue depth.
-  * [ ] worker batch size / apply latency.
-  * [ ] import duration and row counts per table.
-  * [ ] wipe-on-unclean-start counter.
+* [x] Integrate shutdown flow:
+  * [x] stop new queue ingestion.
+  * [x] drain queue fully.
+  * [x] force worker flush and wait indefinitely for completion.
+  * [x] set `clean_shutdown=1` only after successful flush+commit.
+* [x] Crash semantics:
+  * [x] if process exits ungracefully, next startup sees `clean_shutdown!=1`, wipes persistence DB, cold starts.
+* [x] Observability:
+  * [x] queue depth (debug logs).
+  * [x] worker batch size / apply latency (debug logs).
+  * [x] import duration and row counts per table (info log on import completion).
+  * [ ] wipe-on-unclean-start counter metric (warning logs exist; metric follow-up).
 
 ### Phase 7: Validation matrix and rollout sequence
 
-* [ ] Unit tests for store + worker behavior:
-  * [ ] idempotent upsert/tombstone.
-  * [ ] owner-scoped `eq_facts` tombstone semantics.
-  * [ ] clean-shutdown toggle behavior.
-* [ ] Dagql cache persistence tests:
-  * [ ] persisted root survives session close and process restart.
-  * [ ] persisted function result restores all referenced outputs/deps.
-  * [ ] prune emits tombstones and import no longer restores pruned entries.
-* [ ] Startup robustness tests:
-  * [ ] unclean shutdown marker causes wipe.
-  * [ ] malformed/corrupt durable rows cause wipe-and-continue.
-* [ ] Integration tests (targeted, primary focus in this phase):
-  * [ ] Add major new integration coverage under `TestEngine` for disk persistence behavior.
-  * [ ] Add a restart harness for engine-as-a-service lifecycle tests:
-    * [ ] start engine service container
-    * [ ] run phase-A workload
-    * [ ] stop service container
-    * [ ] restart service container (same persistence state)
-    * [ ] run phase-B workload and assert cross-restart cache reuse behavior
-  * [ ] Validate local cache behavior across restart.
-  * [ ] Validate function cache control behavior across restart.
-  * [ ] Validate cache volume + container/file/directory closure restoration across restart.
-  * [ ] Include at least one complex scenario matching the container+host-mount+withExec chain discussed in design review.
+* [x] Unit tests for store + worker behavior:
+  * [x] idempotent upsert/tombstone.
+  * [x] owner-scoped `eq_facts` tombstone semantics.
+  * [x] clean-shutdown toggle behavior.
+* [x] Dagql cache persistence tests:
+  * [x] persisted root survives session close and process restart.
+  * [x] persisted function result restores all referenced outputs/deps.
+  * [x] prune emits tombstones and import no longer restores pruned entries.
+* [x] Startup robustness tests:
+  * [x] unclean shutdown marker causes wipe.
+  * [x] malformed/corrupt durable rows cause wipe-and-continue.
+* [x] Integration tests (targeted, primary focus in this phase):
+  * [x] Add major new integration coverage under `TestEngine` for disk persistence behavior.
+  * [x] Add a restart harness for engine-as-a-service lifecycle tests:
+    * [x] start engine service container
+    * [x] run phase-A workload
+    * [x] stop service container
+    * [x] restart service container (same persistence state)
+    * [x] run phase-B workload and assert cross-restart cache reuse behavior
+  * [x] Validate local cache behavior across restart.
+  * [x] Validate function cache control behavior across restart.
+  * [x] Validate cache volume + container/file/directory closure restoration across restart.
+  * [x] Include at least one complex scenario matching the container+host-mount+withExec chain discussed in design review.
+  * [x] Guard imported unresolved object/scalar envelopes from recursive decode in no-server contexts by treating those hits as misses.
 
 ### Execution order (first implementation pass)
 
@@ -1303,7 +1305,7 @@
   * [ ] Phase 4
   * [ ] Phase 5
   * [ ] Phase 6
-  * [ ] Phase 7
+  * [x] Phase 7
 * [ ] Commit at the end of each phase with detailed message including:
   * [ ] problem addressed
   * [ ] chosen design and tradeoffs

@@ -462,7 +462,7 @@ func (c *cache) removeResultOutputDigestsLocked(res *sharedResult) {
 //
 // This method assumes egraphMu is already held by the caller.
 func (c *cache) lookupCacheForID(
-	_ context.Context,
+	ctx context.Context,
 	id *call.ID,
 	persistable bool,
 	ttlSeconds int64,
@@ -525,6 +525,17 @@ func (c *cache) lookupCacheForID(
 
 	if hitRes == nil {
 		return nil, false, nil
+	}
+
+	if !hitRes.hasValue && hitRes.persistedEnvelope != nil {
+		// Imported envelopes are decoded lazily on hit. If this context cannot
+		// decode the envelope shape (for example object IDs requiring server.Load,
+		// or custom scalar/list types when no server is present), treat as miss so
+		// the resolver path can re-materialize safely instead of failing or
+		// recursing.
+		if !persistedEnvelopeDecodableInContext(ctx, hitRes.persistedEnvelope) {
+			return nil, false, nil
+		}
 	}
 
 	// We have a cache hit, make sure that the requested ID digest is in the same eq class as the
@@ -596,6 +607,48 @@ func (c *cache) lookupCacheForID(
 		return nil, false, fmt.Errorf("reconstruct structural-hit object result from cache: %w", err)
 	}
 	return retObjRes, true, nil
+}
+
+func persistedEnvelopeDecodableInContext(ctx context.Context, env *PersistedResultEnvelope) bool {
+	if env == nil {
+		return true
+	}
+	srv := CurrentDagqlServer(ctx)
+	switch env.Kind {
+	case persistedResultKindNull:
+		return true
+	case persistedResultKindObject:
+		// Object envelopes currently decode via server.Load(ID), which can recurse
+		// into the same unresolved imported result. Treat unresolved object
+		// envelopes as misses for now.
+		return false
+	case persistedResultKindScalar:
+		if isBuiltinPersistedScalarType(env.TypeName) {
+			return true
+		}
+		return srv != nil
+	case persistedResultKindList:
+		if srv != nil {
+			return true
+		}
+		for i := range env.Items {
+			if !persistedEnvelopeDecodableInContext(ctx, &env.Items[i]) {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
+}
+
+func isBuiltinPersistedScalarType(typeName string) bool {
+	switch typeName {
+	case "String", "Int", "Float", "Boolean", "JSON", "Void":
+		return true
+	default:
+		return false
+	}
 }
 
 func (c *cache) termForResultByDigestLocked(resID sharedResultID, termDigest string) *egraphTerm {

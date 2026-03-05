@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/dagger/dagger/dagql/call"
@@ -367,6 +368,9 @@ func (c *cache) ensurePersistedHitValueLoaded(ctx context.Context, hit AnyResult
 
 	decoded, err := DefaultPersistedSelfCodec.DecodeResult(ctx, *env)
 	if err != nil {
+		if CurrentDagqlServer(ctx) == nil || strings.Contains(err.Error(), "unknown scalar type") {
+			return nil, errPersistedHitNotDecodable
+		}
 		return nil, fmt.Errorf("decode persisted hit payload: %w", err)
 	}
 

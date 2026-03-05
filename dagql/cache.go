@@ -134,6 +134,7 @@ type CachePruneReport struct {
 }
 
 var ErrCacheRecursiveCall = fmt.Errorf("recursive call detected")
+var errPersistedHitNotDecodable = errors.New("persisted hit payload not decodable in current context")
 
 func NewCache(ctx context.Context, dbPath string) (Cache, error) {
 	c := &cache{}
@@ -1136,7 +1137,13 @@ func (c *cache) GetOrInitCall(
 		return nil, err
 	}
 	if hit {
-		return c.ensurePersistedHitValueLoaded(ctx, hitRes)
+		loadedHit, loadErr := c.ensurePersistedHitValueLoaded(ctx, hitRes)
+		if loadErr == nil {
+			return loadedHit, nil
+		}
+		if !errors.Is(loadErr, errPersistedHitNotDecodable) {
+			return nil, loadErr
+		}
 	}
 
 	c.callsMu.Lock()
