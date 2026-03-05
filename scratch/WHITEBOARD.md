@@ -1131,23 +1131,29 @@
 
 ### Phase 0: Lock contracts, keys, and ownership semantics
 
-* [ ] Finalize persistence key derivation and invariants.
-  * [ ] `result_key`: stable digest derived from `sharedResult.originalRequestID`.
-  * [ ] `term_digest`: existing canonical term digest (`selfDigest + canonicalized input eq IDs`).
-  * [ ] `eq_facts`: canonical pair ordering (`lhs <= rhs`) and owner-scoped lifecycle via `owner_result_key`.
-  * [ ] `ref_key`: global unique durable snapshot-ref key.
-* [ ] Finalize hard invariants to enforce in code:
-  * [ ] Persisted graph closure rule: persisted root implies persisted transitive deps.
-  * [ ] Function-result closure rule: any result referenced by function outputs must also be persisted.
-  * [ ] Tombstone rule: only rows previously persisted can be tombstoned.
-  * [ ] Import-failure rule: malformed/inconsistent import state triggers wipe-and-continue.
-* [ ] Add implementation notes in code comments near the emitter/worker boundary:
-  * [ ] Worker applies summarized state updates (upsert/tombstone), not event-log replay semantics.
-  * [ ] `eq_facts` ownership semantics and duplicate pair across owners are intentional.
+* [x] Finalize persistence key derivation and invariants.
+  * [x] `result_key`: stable digest derived from `sharedResult.originalRequestID`.
+  * [x] `term_digest`: existing canonical term digest (`selfDigest + canonicalized input eq IDs`).
+  * [x] `eq_facts`: canonical pair ordering (`lhs <= rhs`) and owner-scoped lifecycle via `owner_result_key`.
+  * [x] `ref_key`: global unique durable snapshot-ref key.
+* [x] Finalize hard invariants to enforce in code.
+  * [x] Persisted graph closure rule: persisted root implies persisted transitive deps.
+  * [x] Function-result closure rule: any result referenced by function outputs must also be persisted.
+  * [x] Tombstone rule: only rows previously persisted can be tombstoned.
+  * [x] Import-failure rule: malformed/inconsistent import state triggers wipe-and-continue.
+* [x] Add implementation notes in code comments near the emitter/worker boundary.
+  * [x] Worker applies summarized state updates (upsert/tombstone), not event-log replay semantics.
+  * [x] `eq_facts` ownership semantics and duplicate pair across owners are intentional.
 
 ### Phase 1: SQLite store bootstrap and lifecycle metadata
 
 * [ ] Add persistence store package and schema migration wiring (SQLite WAL).
+  * [ ] Follow existing `dagql/db` pattern for schema + prepared query interface shape (sqlc-style generated query wrapper usage pattern).
+  * [ ] Mirror cache bootstrap pattern already used in `dagql.NewCache`:
+    * [ ] open DB with `modernc.org/sqlite`
+    * [ ] apply schema
+    * [ ] prepare query interface
+    * [ ] wire failure handling/close paths consistently.
 * [ ] Implement metadata lifecycle:
   * [ ] On process startup-before-serving: set `clean_shutdown=0`.
   * [ ] On graceful shutdown completion (after full queue drain + worker sync): set `clean_shutdown=1`.
@@ -1172,7 +1178,15 @@
   * [ ] File
   * [ ] Container
   * [ ] CacheVolume
-  * [ ] Any additional persistable object that can appear as function return value.
+* [ ] Expand persistence surface to full SDK-return model (not only a small set of core object types).
+  * [ ] Audit `ConvertFromSDKResult` pathways and lock supported durable shapes:
+    * [ ] scalars
+    * [ ] core object IDs
+    * [ ] user module object IDs
+    * [ ] lists
+    * [ ] nested combinations of the above
+  * [ ] Define how non-object/scalar SDK values map into persisted result payload rows so function result persistence is complete.
+  * [ ] Add explicit validation/failure behavior for unsupported SDK result shapes (fail clearly; no silent partial persistence).
 * [ ] Snapshot-ref metadata integration:
   * [ ] emit `snapshot_refs` rows for all linked refs referenced by persisted results.
   * [ ] include required mutable/immutable metadata fields from current ref model.
@@ -1263,10 +1277,18 @@
 * [ ] Startup robustness tests:
   * [ ] unclean shutdown marker causes wipe.
   * [ ] malformed/corrupt durable rows cause wipe-and-continue.
-* [ ] Integration tests (targeted):
-  * [ ] local cache behavior across restart.
-  * [ ] function cache control behavior across restart.
-  * [ ] cache volume + container/file/directory closure restoration across restart.
+* [ ] Integration tests (targeted, primary focus in this phase):
+  * [ ] Add major new integration coverage under `TestEngine` for disk persistence behavior.
+  * [ ] Add a restart harness for engine-as-a-service lifecycle tests:
+    * [ ] start engine service container
+    * [ ] run phase-A workload
+    * [ ] stop service container
+    * [ ] restart service container (same persistence state)
+    * [ ] run phase-B workload and assert cross-restart cache reuse behavior
+  * [ ] Validate local cache behavior across restart.
+  * [ ] Validate function cache control behavior across restart.
+  * [ ] Validate cache volume + container/file/directory closure restoration across restart.
+  * [ ] Include at least one complex scenario matching the container+host-mount+withExec chain discussed in design review.
 
 ### Execution order (first implementation pass)
 

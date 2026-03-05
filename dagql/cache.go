@@ -262,6 +262,12 @@ type sharedResult struct {
 
 	// id is the stable cache-local identity for this materialized result.
 	id sharedResultID
+	// originalRequestID is the first request ID that materialized this shared
+	// result in the in-memory cache. Disk persistence derives durable result_key
+	// from this field to avoid process-local numeric IDs.
+	//
+	// This field is write-once for a shared result lifetime.
+	originalRequestID *call.ID
 
 	// Immutable payload shared by all per-call Result values.
 	self    Typed
@@ -1185,6 +1191,9 @@ func (c *cache) initCompletedResult(ctx context.Context, oc *ongoingCall, reques
 	if oc.res.createdAtUnixNano == 0 {
 		oc.res.createdAtUnixNano = now.UnixNano()
 	}
+	if oc.res.originalRequestID == nil {
+		oc.res.originalRequestID = requestIDForIndex
+	}
 	touchSharedResultLastUsed(oc.res, now.UnixNano())
 	if oc.res.recordType == "" {
 		oc.res.recordType = requestIDForIndex.Name()
@@ -1338,6 +1347,9 @@ func (c *cache) attachAdditionalOutputResults(ctx context.Context, parent *share
 		if outputID == parentRes.id {
 			continue
 		}
+		// Function-result closure invariant: explicitly attached output results
+		// are real dependencies of the parent result and must participate in
+		// transitive persisted-closure retention/export.
 		parentRes.deps[outputID] = struct{}{}
 		if parentRes.depOfPersistedResult {
 			if outputRes := c.resultsByID[outputID]; outputRes != nil {

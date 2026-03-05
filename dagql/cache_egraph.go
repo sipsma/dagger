@@ -839,6 +839,10 @@ func (c *cache) markResultAsDepOfPersistedLocked(root *sharedResult) {
 	if root == nil {
 		return
 	}
+	// Persisted-closure invariant: once a result is marked as dependency-of-
+	// persisted, every transitive dependency reachable via res.deps must also be
+	// marked. This keeps in-memory retention/prune semantics coherent with the
+	// durable closure we export for disk persistence.
 	if root.id == 0 {
 		root.depOfPersistedResult = true
 		return
