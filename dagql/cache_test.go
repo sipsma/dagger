@@ -2560,69 +2560,6 @@ func TestCacheTTLWithDBUsesStorageAndCallIndexes(t *testing.T) {
 	assert.Equal(t, 0, c.Size())
 }
 
-func TestCacheTTLNonPersistableEquivalentIDsCanCrossRecipeLookup(t *testing.T) {
-	t.Parallel()
-	baseCtx := t.Context()
-	dbPath := filepath.Join(t.TempDir(), "cache.db")
-
-	cacheIface, err := NewCache(baseCtx, dbPath)
-	assert.NilError(t, err)
-	c := cacheIface.(*cache)
-
-	sharedOutputEq := digest.FromString("ttl-nonpersist-session-scoped")
-	keyA := cacheTestID("ttl-nonpersist-a").With(call.WithExtraDigest(call.ExtraDigest{Digest: sharedOutputEq}))
-	keyB := cacheTestID("ttl-nonpersist-b").With(call.WithExtraDigest(call.ExtraDigest{Digest: sharedOutputEq}))
-
-	ctxSessionA := engine.ContextWithClientMetadata(baseCtx, &engine.ClientMetadata{
-		ClientID:  "cache-test-client-a",
-		SessionID: "cache-test-session-a",
-	})
-	ctxSessionB := engine.ContextWithClientMetadata(baseCtx, &engine.ClientMetadata{
-		ClientID:  "cache-test-client-b",
-		SessionID: "cache-test-session-b",
-	})
-
-	resA, err := c.GetOrInitCall(ctxSessionA, CacheKey{
-		ID:  keyA,
-		TTL: 60,
-	}, func(context.Context) (AnyResult, error) {
-		return newDetachedResult(keyA, NewInt(11)).WithSafeToPersistCache(false), nil
-	})
-	assert.NilError(t, err)
-	assert.Assert(t, !resA.HitCache())
-	assert.Equal(t, 11, cacheTestUnwrapInt(t, resA))
-
-	sameSessionInits := 0
-	resSameSession, err := c.GetOrInitCall(ctxSessionA, CacheKey{
-		ID:  keyB,
-		TTL: 60,
-	}, func(context.Context) (AnyResult, error) {
-		sameSessionInits++
-		return newDetachedResult(keyB, NewInt(22)).WithSafeToPersistCache(false), nil
-	})
-	assert.NilError(t, err)
-	assert.Equal(t, 1, sameSessionInits)
-	assert.Assert(t, !resSameSession.HitCache())
-	assert.Equal(t, 22, cacheTestUnwrapInt(t, resSameSession))
-
-	crossSessionInits := 0
-	resCrossSession, err := c.GetOrInitCall(ctxSessionB, CacheKey{
-		ID:  keyB,
-		TTL: 60,
-	}, func(context.Context) (AnyResult, error) {
-		crossSessionInits++
-		return newDetachedResult(keyB, NewInt(33)).WithSafeToPersistCache(false), nil
-	})
-	assert.NilError(t, err)
-	assert.Equal(t, 0, crossSessionInits)
-	assert.Assert(t, resCrossSession.HitCache())
-	assert.Equal(t, 22, cacheTestUnwrapInt(t, resCrossSession))
-
-	assert.NilError(t, resA.Release(ctxSessionA))
-	assert.NilError(t, resSameSession.Release(ctxSessionA))
-	assert.NilError(t, resCrossSession.Release(ctxSessionB))
-}
-
 func TestCachePersistableRetainedAcrossSessionClose(t *testing.T) {
 	t.Parallel()
 	baseCtx := t.Context()

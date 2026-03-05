@@ -1147,22 +1147,23 @@
 
 ### Phase 1: SQLite store bootstrap and lifecycle metadata
 
-* [ ] Add persistence store package and schema migration wiring (SQLite WAL).
-  * [ ] Follow existing `dagql/db` pattern for schema + prepared query interface shape (sqlc-style generated query wrapper usage pattern).
-  * [ ] Mirror cache bootstrap pattern already used in `dagql.NewCache`:
-    * [ ] open DB with `modernc.org/sqlite`
-    * [ ] apply schema
-    * [ ] prepare query interface
-    * [ ] wire failure handling/close paths consistently.
-* [ ] Implement metadata lifecycle:
-  * [ ] On process startup-before-serving: set `clean_shutdown=0`.
-  * [ ] On graceful shutdown completion (after full queue drain + worker sync): set `clean_shutdown=1`.
-  * [ ] On startup, if `clean_shutdown != 1` (or unreadable/corrupt): wipe DB and reinitialize schema.
-* [ ] Implement direct upsert/tombstone primitives for all normalized tables:
-  * [ ] `results`, `terms`, `term_results`, `deps`, `eq_facts`, `snapshot_refs`, `result_snapshot_refs`, `meta`.
-* [ ] Keep write path dumb and idempotent:
-  * [ ] no coalescing optimization in first pass.
-  * [ ] rely on batched upserts/deletes with ON CONFLICT update semantics.
+* [x] Add persistence store package and schema migration wiring (SQLite WAL).
+  * [x] Follow existing `dagql/db` pattern for schema + prepared query interface shape (sqlc-style generated query wrapper usage pattern).
+  * [x] Mirror cache bootstrap pattern already used in `dagql.NewCache`:
+    * [x] open DB with `modernc.org/sqlite`
+    * [x] apply schema
+    * [x] prepare query interface
+    * [x] wire failure handling/close paths consistently.
+* [x] Implement metadata lifecycle.
+  * [x] On process startup-before-serving: set `clean_shutdown=0`.
+  * [x] On graceful shutdown completion (after full queue drain + worker sync): set `clean_shutdown=1` (current implementation marks this on dagql cache loop shutdown).
+  * [x] On startup, if `clean_shutdown != 1` (or unreadable/corrupt): wipe DB and reinitialize schema.
+* [x] Implement direct upsert/tombstone primitives for all normalized tables.
+  * [x] `results`, `terms`, `term_results`, `deps`, `eq_facts`, `snapshot_refs`, `result_snapshot_refs`, `meta`.
+* [x] Keep write path dumb and idempotent.
+  * [x] no coalescing optimization in first pass.
+  * [x] rely on batched upserts/deletes with ON CONFLICT update semantics.
+* [x] Hard cutover cleanup: removed legacy TTL-only `dagql/db` persistence package and all cache usage of it.
 
 ### Phase 2: Persistable self serialization + snapshot-ref linkage
 

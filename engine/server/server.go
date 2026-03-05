@@ -509,7 +509,6 @@ func NewServer(ctx context.Context, opts *NewServerOpts) (*Server, error) {
 			return nil, fmt.Errorf("failed to create dagql cache after removing existing db: %w", err)
 		}
 	}
-	go srv.baseDagqlCache.GCLoop(ctx)
 
 	// garbage collect client DBs
 	go srv.gcClientDBs()
@@ -670,6 +669,9 @@ func (srv *Server) Close() error {
 		s.stateMu.Lock()
 		err = errors.Join(err, srv.removeDaggerSession(context.Background(), s))
 		s.stateMu.Unlock()
+	}
+	if srv.baseDagqlCache != nil {
+		err = errors.Join(err, srv.baseDagqlCache.Close(context.Background()))
 	}
 	return err
 }

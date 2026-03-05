@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/url"
+	"os"
 	"reflect"
 	"slices"
 	"sync"
@@ -16,7 +18,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/dagger/dagger/dagql/call"
-	cachedb "github.com/dagger/dagger/dagql/db"
+	persistdb "github.com/dagger/dagger/dagql/persistdb"
 	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/slog"
 	"github.com/opencontainers/go-digest"
@@ -58,8 +60,8 @@ type Cache interface {
 	// Applies ordered prune policies and returns the set of pruned entries.
 	Prune(context.Context, []CachePrunePolicy) (CachePruneReport, error)
 
-	// Run a blocking loop that periodically garbage collects expired entries from the cache db.
-	GCLoop(context.Context)
+	// Close flushes and closes cache-owned persistence resources.
+	Close(context.Context) error
 }
 
 func ValueFunc(v AnyResult) func(context.Context) (AnyResult, error) {
@@ -140,6 +142,53 @@ func NewCache(ctx context.Context, dbPath string) (Cache, error) {
 		return c, nil
 	}
 
+	db, persistDB, err := prepareCacheDBs(ctx, dbPath)
+	if err != nil {
+		return nil, err
+	}
+	c.sqlDB = db
+	c.pdb = persistDB
+
+	cleanShutdownVal, found, err := c.pdb.SelectMetaValue(ctx, persistdb.MetaKeyCleanShutdown)
+	if err != nil {
+		if closeErr := closeCacheDBs(db, c.pdb); closeErr != nil {
+			return nil, errors.Join(fmt.Errorf("read clean_shutdown metadata: %w", err), closeErr)
+		}
+		return nil, fmt.Errorf("read clean_shutdown metadata: %w", err)
+	}
+	if found && cleanShutdownVal != "1" {
+		if closeErr := closeCacheDBs(db, c.pdb); closeErr != nil {
+			return nil, errors.Join(fmt.Errorf("close db before wipe"), closeErr)
+		}
+		if err := wipeSQLiteFiles(dbPath); err != nil {
+			return nil, fmt.Errorf("wipe unclean persistence db: %w", err)
+		}
+
+		db, persistDB, err = prepareCacheDBs(ctx, dbPath)
+		if err != nil {
+			return nil, err
+		}
+		c.sqlDB = db
+		c.pdb = persistDB
+	}
+
+	if err := c.pdb.UpsertMeta(ctx, persistdb.MetaKeySchemaVersion, "1"); err != nil {
+		if closeErr := closeCacheDBs(db, c.pdb); closeErr != nil {
+			return nil, errors.Join(fmt.Errorf("set persistence schema version: %w", err), closeErr)
+		}
+		return nil, fmt.Errorf("set persistence schema version: %w", err)
+	}
+	if err := c.pdb.UpsertMeta(ctx, persistdb.MetaKeyCleanShutdown, "0"); err != nil {
+		if closeErr := closeCacheDBs(db, c.pdb); closeErr != nil {
+			return nil, errors.Join(fmt.Errorf("mark clean_shutdown=0 at startup: %w", err), closeErr)
+		}
+		return nil, fmt.Errorf("mark clean_shutdown=0 at startup: %w", err)
+	}
+
+	return c, nil
+}
+
+func prepareCacheDBs(ctx context.Context, dbPath string) (*sql.DB, *persistdb.Queries, error) {
 	connURL := &url.URL{
 		Scheme: "file",
 		Path:   dbPath,
@@ -165,23 +214,54 @@ func NewCache(ctx context.Context, dbPath string) (Cache, error) {
 	}
 	db, err := sql.Open("sqlite", connURL.String())
 	if err != nil {
-		return nil, fmt.Errorf("open %s: %w", connURL, err)
+		return nil, nil, fmt.Errorf("open %s: %w", connURL, err)
 	}
 	if err := db.Ping(); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("ping %s: %w", connURL, err)
+		return nil, nil, fmt.Errorf("ping %s: %w", connURL, err)
 	}
-	if _, err := db.Exec(cachedb.Schema); err != nil {
-		return nil, fmt.Errorf("migrate: %w", err)
+	if _, err := db.Exec(persistdb.Schema); err != nil {
+		db.Close()
+		return nil, nil, fmt.Errorf("migrate persistence schema: %w", err)
 	}
-
-	c.db, err = cachedb.Prepare(ctx, db)
+	persistDB, err := persistdb.Prepare(ctx, db)
 	if err != nil {
 		db.Close()
-		return nil, fmt.Errorf("prepare queries: %w", err)
+		return nil, nil, fmt.Errorf("prepare persistence queries: %w", err)
 	}
 
-	return c, nil
+	return db, persistDB, nil
+}
+
+func closeCacheDBs(db *sql.DB, persistDB *persistdb.Queries) error {
+	var err error
+	if persistDB != nil {
+		err = errors.Join(err, persistDB.Close())
+	}
+	if db != nil {
+		err = errors.Join(err, db.Close())
+	}
+	return err
+}
+
+func wipeSQLiteFiles(dbPath string) error {
+	removeIfExists := func(path string) error {
+		err := os.Remove(path)
+		if err == nil || errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if err := removeIfExists(dbPath); err != nil {
+		return err
+	}
+	if err := removeIfExists(dbPath + "-wal"); err != nil {
+		return err
+	}
+	if err := removeIfExists(dbPath + "-shm"); err != nil {
+		return err
+	}
+	return nil
 }
 
 type cache struct {
@@ -219,8 +299,12 @@ type cache struct {
 	ongoingArbitraryCalls   map[string]*sharedArbitraryResult
 	completedArbitraryCalls map[string]*sharedArbitraryResult
 
-	// db for persistence; currently only used for metadata supporting ttl-based expiration
-	db *cachedb.Queries
+	sqlDB *sql.DB
+	// persistent normalized cache store (disk persistence/import).
+	pdb *persistdb.Queries
+
+	closeOnce sync.Once
+	closeErr  error
 }
 
 type callConcurrencyKeys struct {
@@ -617,27 +701,18 @@ type cacheContextKey struct {
 	cache *cache
 }
 
-func (c *cache) GCLoop(ctx context.Context) {
-	if c.db == nil {
-		<-ctx.Done()
-		return
-	}
-	ticker := time.NewTicker(10 * time.Minute)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
+func (c *cache) Close(context.Context) error {
+	c.closeOnce.Do(func() {
+		if c.pdb != nil {
+			if err := c.pdb.UpsertMeta(context.Background(), persistdb.MetaKeyCleanShutdown, "1"); err != nil {
+				slog.Warn("failed to mark clean shutdown in persistence metadata", "err", err)
+			}
 		}
-
-		now := time.Now().Unix()
-		if err := c.db.GCExpiredCalls(ctx, cachedb.GCExpiredCallsParams{
-			Now: now,
-		}); err != nil {
-			slog.Warn("failed to GC expired function calls", "err", err)
-		}
-	}
+		c.closeErr = closeCacheDBs(c.sqlDB, c.pdb)
+		c.sqlDB = nil
+		c.pdb = nil
+	})
+	return c.closeErr
 }
 
 func (c *cache) Size() int {
