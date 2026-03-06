@@ -13,6 +13,7 @@ import (
 	"github.com/dagger/dagger/internal/buildkit/identity"
 	"github.com/dagger/dagger/internal/buildkit/util/bklog"
 	"github.com/dagger/dagger/util/gitutil"
+	"github.com/dagger/dagger/util/hashutil"
 	"github.com/opencontainers/go-digest"
 	"golang.org/x/sync/errgroup"
 
@@ -1035,6 +1036,12 @@ func (fn *ModuleFunction) loadContextualArg(
 		if err != nil {
 			return nil, fmt.Errorf("load contextual directory %q: %w", arg.DefaultPath, err)
 		}
+		if dir.ID().ContentDigest() == "" {
+			dir, err = MakeDirectoryContentHashed(ctx, dir)
+			if err != nil {
+				return nil, fmt.Errorf("content-hash contextual directory %q: %w", arg.DefaultPath, err)
+			}
+		}
 		return dagql.NewID[*Directory](dir.ID()), nil
 
 	case "File":
@@ -1055,6 +1062,17 @@ func (fn *ModuleFunction) loadContextualArg(
 		)
 		if err != nil {
 			return nil, fmt.Errorf("load contextual file %q: %w", arg.DefaultPath, err)
+		}
+		if f.ID().ContentDigest() == "" {
+			dgst, err := GetContentHashFromFile(ctx, f)
+			if err != nil {
+				return nil, fmt.Errorf("content-hash contextual file %q: %w", arg.DefaultPath, err)
+			}
+			dgst = hashutil.HashStrings(
+				filepath.Clean(arg.DefaultPath),
+				string(dgst),
+			)
+			f = f.WithContentDigest(dgst)
 		}
 		return dagql.NewID[*File](f.ID()), nil
 

@@ -596,6 +596,12 @@ func (src *ModuleSource) LoadContextDir(
 	if err != nil {
 		return inst, err
 	}
+	if inst.ID() != nil && inst.ID().ContentDigest() == "" {
+		inst, err = MakeDirectoryContentHashed(ctx, inst)
+		if err != nil {
+			return inst, fmt.Errorf("failed to content-hash contextual directory: %w", err)
+		}
+	}
 
 	query, err := CurrentQuery(ctx)
 	if err != nil {

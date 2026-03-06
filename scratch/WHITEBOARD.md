@@ -1314,10 +1314,17 @@ Manual symptoms reported for this workflow:
 * After graceful-ish restart (`docker stop --signal SIGTERM dagger-engine.dev`, then `docker start dagger-engine.dev`), the workflow can lose all cache on boot with import failure of the form:
   * `level=WARN msg="dagql persistence import failed; wiping and cold-starting" err="import term_result: missing result \"xxh3:...\""`
 * Once that happens, there are obviously no cache hits on the next run.
+* Modified-source rebuild variant:
+  * same workflow as above, but after warm cache is established, make a no-op source edit (for example a comment change in `./core/schema/git.go`) and rebuild
+  * one observed failure mode was a late export/tarball error:
+    * `Container.asTarball(forcedCompression: Zstd): File! ERROR`
+    * `container image to tarball file conversion failed: failed to export: lease "sha256:001e3e5fa34066ae93b36cb6486cf9c25d67699c6ab2bc24528feb0e09ce7303": not found`
+  * the most recent retry did not reproduce that exact export error; instead it hung later in module/toolchain execution after successful `Container.asTarball` calls
 
 Current priority order:
 1. Cache must survive engine restart for the `engine-dev container with-exec --args true stdout` workflow.
-2. Re-runs of the workflow should have consistent immediate cache-hit behavior, especially for module-load / SDK calls and engine build calls.
+2. After restart, the engine-build path itself should be as warm as expected.
+3. Warm rebuilds after a no-op source edit must not fail late in `asTarball` / export with missing leases.
 
 Important debugging constraint:
 * Progress output is only a heuristic.
@@ -1345,6 +1352,8 @@ Important debugging constraint:
   * [ ] cache hit/miss decisions for the relevant call IDs
   * [ ] persistence import of terms/results/term_results for the affected digests
   * [ ] module-load caching path and engine-dev build call identities
+  * [ ] `Container.asTarball` / exporter lease usage for warm rebuilds after source edits
+  * [ ] module/toolchain exec lifecycle (`ModuleFunction.Call` / `Container.WithExec` / `runContainer`) for the current changelog hang
 * [ ] Add integration coverage once the manual failure signatures are understood well enough to encode deterministically.
 
 #### Progress log
@@ -1413,6 +1422,75 @@ Important debugging constraint:
     * no mutable-snapshot `locked` errors
   * [ ] Follow-up to revisit later:
     * post-restart `load module` and `DaggerDev.engineDev` still do real work instead of showing as cached, even though the command now succeeds end-to-end
+* [x] New manual regression identified in the modified-source rebuild workflow:
+  * [x] After a no-op source edit and warm rebuild, the workflow can fail late in `Container.asTarball(forcedCompression: Zstd)` with:
+    * `failed to export: lease "sha256:001e3e5fa34066ae93b36cb6486cf9c25d67699c6ab2bc24528feb0e09ce7303": not found`
+  * [x] Initial code read points at exporter/lease handling rather than the earlier dagql import/tombstone issues:
+    * `core/container.go` `AsTarball`
+    * `engine/buildkit/exporter/oci/export.go`
+    * snapshot/content lease interactions around the stable base snapshot/content chain
+  * [x] Retried the modified-source rebuild flow from a clean state and did **not** reproduce the exact `lease ... not found` exporter failure.
+  * [x] On that retry, `Container.asTarball` completed successfully for the relevant digests, and the run later hung instead.
+  * [x] `SIGQUIT` dump from that retry shows the strongest blocking chain is:
+    * `moduleSourceSchema.loadDependencyModules`
+    * `dagql.cache.wait`
+    * `ModuleFunction.Call`
+    * `Container.WithExec`
+    * `buildkit.Worker.runContainer`
+    * `go-runc monitor Wait`
+  * [x] Current high-confidence read for the modified-source workflow:
+    * the earlier exporter lease-not-found issue is at least intermittent and did not reproduce on the latest retry
+    * the current concrete blocker is a later hang in the `changelog` toolchain exec path
+    * the wait chain is process/runtime lifecycle (`runContainer` / `Runc.Run` / monitor `Wait`), not an e-graph or dagql mutex deadlock
+  * [x] Subsequent exact repro of the original modified-source workflow now succeeds on the current tree:
+    * run #1 succeeded
+    * run #2 was strongly warm (`daggerDev`, `DaggerDev.engineDev`, `EngineDev.container`, and `Container.withExec` all cached)
+    * post-restart run succeeded (still not fully warm in `load module` / `DaggerDev.engineDev`)
+    * modified-source run after the temporary `core/schema/git.go` comment change also succeeded
+    * did **not** reproduce:
+      * `failed to export: lease "sha256:001e3e5fa34066ae93b36cb6486cf9c25d67699c6ab2bc24528feb0e09ce7303": not found`
+      * `import term_result: missing result`
+      * `missing persisted result key`
+      * mutable-snapshot `locked` errors
+  * [x] Current best read:
+    * the original modified-source `asTarball` lease failure is fixed on the current tree
+    * the remaining cache-quality gap is still that post-restart `load module` / `DaggerDev.engineDev` do work instead of being fully warm
+* [x] Restart cache-quality follow-up on the remaining `load module` / `DaggerDev.engineDev` gap:
+  * [x] Added targeted `phase8-cache` tracing in `dagql/cache.go` for the relevant fields.
+  * [x] Exact cache-trace repro confirms the post-restart misses are not lookup failures on previously seen digests.
+  * [x] Both `moduleRuntime` and `engineDev` are requested under brand-new digests after restart:
+    * `moduleRuntime`: 16 unique post-restart miss digests, none seen earlier in the same log
+    * `engineDev`: 1 post-restart miss digest, also not seen earlier
+  * [x] Current high-confidence read:
+    * this remaining gap is an identity/input-drift problem across reboot, not a persisted-hit decode/import miss on a stable request digest
+    * next empirical step is to log the derived self/input digests plus receiver/module/arg ID digests for those calls and identify which input changes first across restart
+* [x] Follow-up trace with receiver/module/arg digest breakdown isolates two distinct remaining causes:
+  * [x] `moduleRuntime` is still a real post-restart cache-key miss:
+    * all post-restart `moduleRuntime` lines are `lookup-miss`
+    * `selfDigest` and `moduleContentDigest` stay stable
+    * the moving inputs are the `receiverDigest` (`Query.dangSdk`) and `modSource` arg recipe digest
+    * `modSource` currently shows no direct `content:` digest in the traced arg payload
+  * [x] `DaggerDev.engineDev` is **not** a key miss anymore:
+    * post-restart it reaches `lookup-hit`
+    * then degrades to `hit-fallback-miss` with `persisted hit payload not decodable in current context`
+    * this isolates `engineDev` as an imported object decode problem, separate from the `moduleRuntime` cache-key drift
+  * [x] `Query.dangSdk` receiver digests correspond to persisted module-object constructor calls, which strongly suggests dynamic module objects still need proper content addressing / persistence decode support rather than more build-level debugging
+* [x] User manual validation on the latest tree supersedes the older automated traces for restart behavior:
+  * [x] `load module` is now looking cached as expected after engine restart in the user's latest manual run
+  * [x] The remaining practical gap is narrower: the engine build itself is still not quite as cached as expected after restart
+  * [ ] Next debugging focus should therefore shift from broad module-load restart misses to the specific post-restart engine-build path that is still colder than expected
+* [x] Follow-up engine-build-focused traces after the user report:
+  * [x] `daggerDev` and `DaggerDev.engineDev` are now hot in the automated restart repros
+  * [x] `EngineDev.container` is still not fully warm after restart
+  * [x] Hardening steps already in place that should be kept:
+    * dynamic `ModuleObject` results now carry content digests and decode from persistence
+    * SDK-scoped `ModuleSource` results now carry stable content digests
+    * contextual directory/file args now get explicit content digests
+    * container-derived directory/file outputs now get explicit content digests
+  * [x] Latest automated read:
+    * the remaining post-restart cold path is no longer just `load module`
+    * `EngineDev.container` still does real work even when upstream module/constructor steps are cached
+    * some final assembly `withDirectory` sources are now properly content-addressed, but the remaining misses are more mixed than before and now include upstream object/file/module edges again
 
 ### Execution order (first implementation pass)
 

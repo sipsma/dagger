@@ -138,6 +138,128 @@ const cachePersistenceSchemaVersion = "2"
 var ErrCacheRecursiveCall = fmt.Errorf("recursive call detected")
 var errPersistedHitNotDecodable = errors.New("persisted hit payload not decodable in current context")
 
+func shouldLogPhase8Cache(id *call.ID) bool {
+	if id == nil {
+		return false
+	}
+	switch id.Field() {
+	case "engineDev",
+		"container",
+		"withExec",
+		"asTarball",
+		"dangSdk",
+		"daggerDev",
+		"_contextDirectory",
+		"_sourceContentScoped",
+		"contextDirectory",
+		"asModule",
+		"moduleRuntime",
+		"withMountedDirectory",
+		"withMountedFile",
+		"withDirectory",
+		"file",
+		"__schemaJSONFile":
+		return true
+	default:
+		return false
+	}
+}
+
+func phase8CacheExtraDigests(id *call.ID) []string {
+	if id == nil {
+		return nil
+	}
+	extras := id.ExtraDigests()
+	if len(extras) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(extras))
+	for _, extra := range extras {
+		out = append(out, fmt.Sprintf("%s=%s", extra.Label, extra.Digest))
+	}
+	return out
+}
+
+func phase8CacheArgumentInputs(args []*call.Argument) []string {
+	if len(args) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(args))
+	for _, arg := range args {
+		if arg == nil || arg.IsSensitive() {
+			continue
+		}
+		switch lit := arg.Value().(type) {
+		case *call.LiteralID:
+			id := lit.Value()
+			out = append(out, fmt.Sprintf(
+				"%s=recipe:%s content:%s preferred:%s",
+				arg.Name(),
+				id.Digest(),
+				id.ContentDigest(),
+				id.ContentPreferredDigest(),
+			))
+			continue
+		}
+		inputs, err := arg.Value().Inputs()
+		if err != nil {
+			out = append(out, fmt.Sprintf("%s=<err:%v>", arg.Name(), err))
+			continue
+		}
+		if len(inputs) == 0 {
+			continue
+		}
+		inputStrs := make([]string, 0, len(inputs))
+		for _, input := range inputs {
+			inputStrs = append(inputStrs, input.String())
+		}
+		out = append(out, fmt.Sprintf("%s=%v", arg.Name(), inputStrs))
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func phase8CacheTraceAttrs(id *call.ID) []any {
+	if id == nil {
+		return nil
+	}
+
+	attrs := []any{
+		"receiverDigest", "",
+		"receiverContentDigest", "",
+		"moduleDigest", "",
+		"moduleContentDigest", "",
+		"contentDigest", id.ContentDigest(),
+		"contentPreferredDigest", id.ContentPreferredDigest(),
+		"extraDigests", phase8CacheExtraDigests(id),
+		"argInputs", phase8CacheArgumentInputs(id.Args()),
+		"implicitInputs", phase8CacheArgumentInputs(id.ImplicitInputs()),
+	}
+	if recv := id.Receiver(); recv != nil {
+		attrs[1] = recv.Digest()
+		attrs[3] = recv.ContentDigest()
+	}
+	if mod := id.Module(); mod != nil && mod.ID() != nil {
+		attrs[5] = mod.ID().Digest()
+		attrs[7] = mod.ID().ContentDigest()
+	}
+
+	selfDigest, inputDigests, err := id.SelfDigestAndInputs()
+	if err != nil {
+		return append(attrs, "selfDigestErr", err)
+	}
+	inputStrs := make([]string, 0, len(inputDigests))
+	for _, input := range inputDigests {
+		inputStrs = append(inputStrs, input.String())
+	}
+	return append(attrs,
+		"selfDigest", selfDigest,
+		"inputDigests", inputStrs,
+	)
+}
+
 func NewCache(ctx context.Context, dbPath string) (Cache, error) {
 	c := &cache{}
 
@@ -1172,13 +1294,43 @@ func (c *cache) GetOrInitCall(
 	if err != nil {
 		return nil, err
 	}
+	if shouldLogPhase8Cache(key.ID) {
+		attrs := []any{
+			"event", func() string {
+				if hit {
+					return "lookup-hit"
+				}
+				return "lookup-miss"
+			}(),
+			"field", key.ID.Field(),
+			"digest", key.ID.Digest(),
+			"persistable", key.IsPersistable,
+		}
+		attrs = append(attrs, phase8CacheTraceAttrs(key.ID)...)
+		slog.Info("phase8-cache", attrs...)
+	}
 	if hit {
 		loadedHit, loadErr := c.ensurePersistedHitValueLoaded(ctx, hitRes)
 		if loadErr == nil {
+			if shouldLogPhase8Cache(key.ID) {
+				slog.Info("phase8-cache",
+					"event", "return-hit",
+					"field", key.ID.Field(),
+					"digest", key.ID.Digest(),
+				)
+			}
 			return loadedHit, nil
 		}
 		if !errors.Is(loadErr, errPersistedHitNotDecodable) {
 			return nil, loadErr
+		}
+		if shouldLogPhase8Cache(key.ID) {
+			slog.Info("phase8-cache",
+				"event", "hit-fallback-miss",
+				"field", key.ID.Field(),
+				"digest", key.ID.Digest(),
+				"reason", loadErr.Error(),
+			)
 		}
 	}
 
@@ -1303,14 +1455,46 @@ func (c *cache) wait(
 	}
 
 	if !retRes.shared.hasValue {
+		if shouldLogPhase8Cache(requestID) {
+			slog.Info("phase8-cache",
+				"event", "return-wait-hit",
+				"field", requestID.Field(),
+				"digest", requestID.Digest(),
+				"object", false,
+			)
+		}
 		return retRes, nil
 	}
 	if retRes.shared.objType == nil {
+		if shouldLogPhase8Cache(requestID) {
+			slog.Info("phase8-cache",
+				"event", "return-wait-hit",
+				"field", requestID.Field(),
+				"digest", requestID.Digest(),
+				"object", false,
+			)
+		}
 		return retRes, nil
 	}
 	retObjRes, constructErr := retRes.shared.objType.New(retRes)
 	if constructErr != nil {
+		if shouldLogPhase8Cache(requestID) {
+			slog.Info("phase8-cache",
+				"event", "wait-object-wrap-fallback",
+				"field", requestID.Field(),
+				"digest", requestID.Digest(),
+				"err", constructErr,
+			)
+		}
 		return retRes, nil
+	}
+	if shouldLogPhase8Cache(requestID) {
+		slog.Info("phase8-cache",
+			"event", "return-wait-hit",
+			"field", requestID.Field(),
+			"digest", requestID.Digest(),
+			"object", true,
+		)
 	}
 	return retObjRes, nil
 }
@@ -1446,6 +1630,26 @@ func (c *cache) initCompletedResult(ctx context.Context, oc *ongoingCall, reques
 		c.egraphMu.Lock()
 		c.emitPersistUpsertForRootLocked(oc.res)
 		c.egraphMu.Unlock()
+	}
+	if shouldLogPhase8Cache(requestIDForIndex) {
+		attrs := []any{
+			"event", "store",
+			"field", requestIDForIndex.Field(),
+			"digest", requestIDForIndex.Digest(),
+			"recordType", oc.res.recordType,
+			"persistable", oc.isPersistable,
+			"safeToPersist", oc.res.safeToPersistCache,
+			"resultDigest", "",
+			"resultContentDigest", "",
+			"resultExtraDigests", []string(nil),
+		}
+		if resultID != nil {
+			attrs[13] = resultID.Digest()
+			attrs[15] = resultID.ContentDigest()
+			attrs[17] = phase8CacheExtraDigests(resultID)
+		}
+		attrs = append(attrs, phase8CacheTraceAttrs(requestIDForIndex)...)
+		slog.Info("phase8-cache", attrs...)
 	}
 
 	return nil

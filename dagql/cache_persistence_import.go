@@ -383,6 +383,21 @@ func (c *cache) ensurePersistedHitValueLoaded(ctx context.Context, hit AnyResult
 	ctx = ContextWithPersistedObjectResolver(ctx, c.persistedObjectResolver())
 	decoded, err := DefaultPersistedSelfCodec.DecodeResult(ctx, *env)
 	if err != nil {
+		if env.Kind == persistedResultKindObject && env.TypeName == "Module" {
+			if srv := CurrentDagqlServer(ctx); srv != nil {
+				if objType, ok := srv.ObjectType(env.TypeName); ok {
+					ret := Result[Typed]{
+						shared:   res,
+						id:       hit.ID(),
+						hitCache: hit.HitCache(),
+					}
+					obj, wrapErr := objType.New(ret)
+					if wrapErr == nil {
+						return obj, nil
+					}
+				}
+			}
+		}
 		if CurrentDagqlServer(ctx) == nil || strings.Contains(err.Error(), "unknown scalar type") {
 			return nil, errPersistedHitNotDecodable
 		}

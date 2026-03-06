@@ -34,6 +34,7 @@ import (
 	"github.com/dagger/dagger/internal/buildkit/solver/pb"
 	"github.com/dagger/dagger/internal/buildkit/util/leaseutil"
 	"github.com/dagger/dagger/util/containerutil"
+	"github.com/dagger/dagger/util/hashutil"
 	"github.com/dagger/dagger/util/llbtodagger"
 	"github.com/distribution/reference"
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
@@ -272,9 +273,6 @@ func (container *Container) EncodePersistedObject(ctx context.Context) (json.Raw
 	}
 	if len(container.Secrets) > 0 {
 		return nil, fmt.Errorf("encode persisted container: secrets are not yet supported")
-	}
-	if len(container.Sockets) > 0 {
-		return nil, fmt.Errorf("encode persisted container: sockets are not yet supported")
 	}
 
 	payload := persistedContainerPayload{
@@ -1642,6 +1640,12 @@ func (container *Container) Directory(ctx context.Context, dirPath string) (dagq
 
 	switch {
 	case err == nil:
+		if dir.ID().ContentDigest() == "" {
+			dir, err = MakeDirectoryContentHashed(ctx, dir)
+			if err != nil {
+				return dir, fmt.Errorf("content-hash directory %s from container: %w", dirPath, err)
+			}
+		}
 		return dir, nil
 	case errors.As(err, &notADirectoryError{}):
 		// fix the error message to use dirPath rather than subpath
@@ -1696,6 +1700,17 @@ func (container *Container) File(ctx context.Context, filePath string) (dagql.Ob
 
 	switch {
 	case err == nil:
+		if f.ID().ContentDigest() == "" {
+			dgst, hashErr := GetContentHashFromFile(ctx, f)
+			if hashErr != nil {
+				return f, fmt.Errorf("content-hash file %s from container: %w", filePath, hashErr)
+			}
+			dgst = hashutil.HashStrings(
+				path.Clean(filePath),
+				string(dgst),
+			)
+			f = f.WithContentDigest(dgst)
+		}
 		return f, nil
 	case errors.As(err, &notAFileError{}):
 		// fix the error message to use filePath rather than subpath

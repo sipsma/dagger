@@ -623,6 +623,21 @@ func (cm *snapshotManager) rehydrateSnapshotMetadataLocked(ctx context.Context, 
 		}
 		return errors.Wrapf(err, "stat snapshot %s", snapshotID)
 	}
+	if _, err := cm.LeaseManager.Create(ctx, func(l *leases.Lease) error {
+		l.ID = snapshotID
+		l.Labels = map[string]string{
+			"containerd.io/gc.flat": time.Now().UTC().Format(time.RFC3339Nano),
+		}
+		return nil
+	}); err != nil && !cerrdefs.IsAlreadyExists(err) {
+		return errors.Wrapf(err, "create lease for rehydrated snapshot %s", snapshotID)
+	}
+	if err := cm.LeaseManager.AddResource(ctx, leases.Lease{ID: snapshotID}, leases.Resource{
+		ID:   snapshotID,
+		Type: "snapshots/" + cm.Snapshotter.Name(),
+	}); err != nil && !cerrdefs.IsAlreadyExists(err) {
+		return errors.Wrapf(err, "attach rehydrated snapshot %s to lease", snapshotID)
+	}
 
 	md := cm.ensureMetadata(snapshotID)
 	if err := md.queueSnapshotID(snapshotID); err != nil {

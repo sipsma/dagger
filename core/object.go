@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
@@ -44,14 +45,35 @@ func (t *ModuleObjectType) ConvertFromSDKResult(ctx context.Context, value any) 
 
 	switch value := value.(type) {
 	case map[string]any:
-		return dagql.NewResultForCurrentID(ctx, &ModuleObject{
-			Module:  t.mod,
-			TypeDef: t.typeDef,
-			Fields:  value,
-		})
+		return newModuleObjectResultForCurrentID(ctx, t.mod, t.typeDef, value)
 	default:
 		return nil, fmt.Errorf("unexpected result value type %T for object %q", value, t.typeDef.Name)
 	}
+}
+
+func newModuleObjectResultForCurrentID(
+	ctx context.Context,
+	mod *Module,
+	typeDef *ObjectTypeDef,
+	fields map[string]any,
+) (dagql.AnyResult, error) {
+	obj := &ModuleObject{
+		Module:  mod,
+		TypeDef: typeDef,
+		Fields:  fields,
+	}
+	res, err := dagql.NewResultForCurrentID(ctx, obj)
+	if err != nil {
+		return nil, err
+	}
+	content := NewCollectedContent()
+	if err := (&ModuleObjectType{
+		typeDef: typeDef,
+		mod:     mod,
+	}).CollectContent(ctx, res, content); err != nil {
+		return nil, fmt.Errorf("collect module object content: %w", err)
+	}
+	return res.WithContentDigestAny(content.Digest()), nil
 }
 
 func (t *ModuleObjectType) ConvertToSDKInput(ctx context.Context, value dagql.Typed) (any, error) {
@@ -226,6 +248,35 @@ type ModuleObject struct {
 	Fields  map[string]any
 }
 
+func (obj *ModuleObject) EncodePersistedObject(context.Context) (json.RawMessage, error) {
+	if obj == nil || len(obj.Fields) == 0 {
+		return json.Marshal(map[string]any{})
+	}
+	return json.Marshal(obj.Fields)
+}
+
+func (obj *ModuleObject) DecodePersistedObject(
+	_ context.Context,
+	_ *call.ID,
+	jsonBytes json.RawMessage,
+	_ dagql.PersistedObjectResolver,
+) (dagql.Typed, error) {
+	if obj == nil || obj.Module == nil || obj.TypeDef == nil {
+		return nil, fmt.Errorf("decode persisted module object: missing module/type definition")
+	}
+	fields := map[string]any{}
+	if len(jsonBytes) > 0 {
+		if err := json.Unmarshal(jsonBytes, &fields); err != nil {
+			return nil, fmt.Errorf("decode persisted module object fields: %w", err)
+		}
+	}
+	return &ModuleObject{
+		Module:  obj.Module,
+		TypeDef: obj.TypeDef,
+		Fields:  fields,
+	}, nil
+}
+
 func (obj *ModuleObject) Type() *ast.Type {
 	return &ast.Type{
 		NamedType: obj.TypeDef.Name,
@@ -312,11 +363,7 @@ func (obj *ModuleObject) installConstructor(ctx context.Context, dag *dagql.Serv
 		dag.Root().ObjectType().Extend(
 			spec,
 			func(ctx context.Context, self dagql.AnyResult, _ map[string]dagql.Input) (dagql.AnyResult, error) {
-				return dagql.NewResultForCurrentID(ctx, &ModuleObject{
-					Module:  mod,
-					TypeDef: objDef,
-					Fields:  map[string]any{},
-				})
+				return newModuleObjectResultForCurrentID(ctx, mod, objDef, map[string]any{})
 			},
 		)
 		return nil
