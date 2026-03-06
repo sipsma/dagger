@@ -6,13 +6,11 @@ import (
 	"strings"
 
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
-	"github.com/opencontainers/go-digest"
 	"github.com/vektah/gqlparser/v2/ast"
 
 	"github.com/dagger/dagger/dagql/call"
 	"github.com/dagger/dagger/engine/buildkit"
 	"github.com/dagger/dagger/internal/buildkit/solver/pb"
-	srctypes "github.com/dagger/dagger/internal/buildkit/source/types"
 )
 
 // DefinitionToIDOptions controls optional conversion behavior for specific
@@ -118,9 +116,9 @@ func (c *converter) convertOp(dag *buildkit.OpDAG) (*call.ID, error) {
 
 	switch {
 	case isBlob(dag):
-		err = unsupported(opDigest(dag), "source(blob)", "blob:// source is explicitly unsupported")
+		err = fmt.Errorf("blob:// source is explicitly unsupported")
 	case dag.GetBuild() != nil:
-		err = unsupported(opDigest(dag), "build", "BuildOp is explicitly unsupported")
+		err = fmt.Errorf("BuildOp is explicitly unsupported")
 	case hasExec(dag):
 		id, err = c.convertExec(mustExec(dag))
 	case hasFile(dag):
@@ -140,9 +138,9 @@ func (c *converter) convertOp(dag *buildkit.OpDAG) (*call.ID, error) {
 	case hasOCI(dag):
 		id, err = c.convertOCISource(mustOCI(dag))
 	case dag.GetSource() != nil:
-		err = unsupported(opDigest(dag), "source", "unsupported source scheme")
+		err = fmt.Errorf("unsupported source scheme")
 	default:
-		err = unsupported(opDigest(dag), "unknown", "unsupported op type")
+		err = fmt.Errorf("unsupported op type")
 	}
 
 	if err != nil {
@@ -150,13 +148,6 @@ func (c *converter) convertOp(dag *buildkit.OpDAG) (*call.ID, error) {
 	}
 	c.memo[dag] = id
 	return id, nil
-}
-
-func opDigest(dag *buildkit.OpDAG) digest.Digest {
-	if dag == nil || dag.OpDigest == nil {
-		return ""
-	}
-	return *dag.OpDigest
 }
 
 func appendCall(base *call.ID, ret *ast.Type, field string, args ...*call.Argument) *call.ID {
@@ -190,7 +181,7 @@ func ensureContainerResult(id *call.ID) (*call.ID, error) {
 	}
 }
 
-func asDirectoryID(opDigest digest.Digest, opType string, id *call.ID) (*call.ID, error) {
+func asDirectoryID(id *call.ID) (*call.ID, error) {
 	if id == nil {
 		return scratchDirectoryID(), nil
 	}
@@ -201,7 +192,7 @@ func asDirectoryID(opDigest digest.Digest, opType string, id *call.ID) (*call.ID
 	case containerType().NamedType:
 		return appendCall(id, directoryType(), "rootfs"), nil
 	default:
-		return nil, unsupported(opDigest, opType, fmt.Sprintf("input type %q is not Directory/Container", id.Type().NamedType()))
+		return nil, fmt.Errorf("input type %q is not Directory/Container", id.Type().NamedType())
 	}
 }
 
@@ -381,10 +372,6 @@ func isBlob(dag *buildkit.OpDAG) bool {
 	return ok
 }
 
-func nilBlob() *buildkit.BlobOp {
-	return nil
-}
-
 func nonNullType(name string) *ast.Type { return &ast.Type{NamedType: name, NonNull: true} }
 func containerType() *ast.Type          { return nonNullType("Container") }
 func directoryType() *ast.Type          { return nonNullType("Directory") }
@@ -434,20 +421,4 @@ func sourceIdentifierWithoutScheme(identifier, scheme string) (string, error) {
 		return "", fmt.Errorf("llbtodagger: empty source identifier for scheme %q", scheme)
 	}
 	return value, nil
-}
-
-func isSupportedSourceScheme(identifier string) bool {
-	for _, scheme := range []string{
-		srctypes.DockerImageScheme,
-		srctypes.GitScheme,
-		srctypes.LocalScheme,
-		srctypes.HTTPScheme,
-		srctypes.HTTPSScheme,
-		srctypes.OCIScheme,
-	} {
-		if strings.HasPrefix(identifier, scheme+"://") {
-			return true
-		}
-	}
-	return false
 }

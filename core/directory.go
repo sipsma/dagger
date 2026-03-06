@@ -31,11 +31,11 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sys/unix"
 
-	"dagger.io/dagger/telemetry"
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/dagql/call"
 	"github.com/dagger/dagger/engine/buildkit"
 	"github.com/dagger/dagger/engine/slog"
+	telemetry "github.com/dagger/otel-go"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/chrootarchive"
 	"github.com/docker/docker/pkg/idtools"
@@ -1229,13 +1229,13 @@ func unpackArchiveFile(srcPath string, destPath string, ownership *Ownership, id
 	}
 	defer file.Close()
 
-	opts := &archive.TarOptions{
+	opts := &archive.TarOptions{ //nolint:staticcheck
 		BestEffortXattrs: true,
 	}
 	if idmap != nil {
 		opts.IDMap = *idmap
 	}
-	if err := chrootarchive.Untar(file, destPath, opts); err != nil {
+	if err := chrootarchive.Untar(file, destPath, opts); err != nil { //nolint:staticcheck
 		return false, err
 	}
 	return true, nil
@@ -1256,7 +1256,7 @@ func isArchivePath(path string) bool {
 	}
 	defer file.Close()
 
-	rdr, err := archive.DecompressStream(file)
+	rdr, err := archive.DecompressStream(file) //nolint:staticcheck
 	if err != nil {
 		return false
 	}
@@ -1329,6 +1329,7 @@ func ensureCopyDestParentExists(ctx context.Context, baseRef bkcache.ImmutableRe
 	})
 }
 
+//nolint:gocyclo
 func (dir *Directory) WithFile(
 	ctx context.Context,
 	srv *dagql.Server,
