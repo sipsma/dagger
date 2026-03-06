@@ -74,6 +74,7 @@ func (c *converter) convertExec(exec *buildkit.ExecOp) (*call.ID, error) {
 		}
 	}
 	if ctrID == nil {
+		panic("I dont think this can happen")
 		ctrID, err = queryContainerID(exec.Platform)
 		if err != nil {
 			return nil, err
