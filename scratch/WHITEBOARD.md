@@ -1295,6 +1295,125 @@
   * [x] Include at least one complex scenario matching the container+host-mount+withExec chain discussed in design review.
   * [x] Guard imported unresolved object/scalar envelopes from recursive decode in no-server contexts by treating those hits as misses.
 
+### Phase 8: Manual workflow debugging for engine-dev / module-load cache behavior
+
+#### Problem statement
+
+The remaining priority is the manual `engine-dev container with-exec --args true stdout` workflow, not just the focused restart tests we added.
+
+Manual symptoms reported for this workflow:
+* Fresh dev engine in Docker with empty cache:
+  * `docker rm -fv dagger-engine.dev; docker volume rm dagger-engine.dev; ./hack/dev`
+* First build through the dev engine:
+  * `./hack/with-dev dagger --progress=plain call engine-dev container with-exec --args true stdout`
+  * expected cold build
+* Immediate reruns are inconsistent:
+  * sometimes the `load module` / SDK calls are cached, sometimes not
+  * sometimes the engine build calls are cached, sometimes not
+  * more reruns often improve cache-hit behavior, but not deterministically
+* After graceful-ish restart (`docker stop --signal SIGTERM dagger-engine.dev`, then `docker start dagger-engine.dev`), the workflow can lose all cache on boot with import failure of the form:
+  * `level=WARN msg="dagql persistence import failed; wiping and cold-starting" err="import term_result: missing result \"xxh3:...\""`
+* Once that happens, there are obviously no cache hits on the next run.
+
+Current priority order:
+1. Cache must survive engine restart for the `engine-dev container with-exec --args true stdout` workflow.
+2. Re-runs of the workflow should have consistent immediate cache-hit behavior, especially for module-load / SDK calls and engine build calls.
+
+Important debugging constraint:
+* Progress output is only a heuristic.
+* For now, the engine's own cache logic and its logs are the source of truth.
+* `docker logs dagger-engine.dev` should be treated as the primary evidence stream for this phase.
+
+#### Plan / checklist
+
+* [x] Reproduce the manual `./hack/dev` + `./hack/with-dev dagger ... engine-dev ...` workflow exactly on current HEAD and capture:
+  * [x] first run
+  * [x] second immediate rerun
+  * [x] third rerun for convergence behavior
+  * [x] post-SIGTERM restart run (captured far enough to confirm import wipe + colder behavior)
+* [x] Capture and summarize engine logs from `docker logs dagger-engine.dev` around each run boundary.
+* [~] Diagnose any remaining import failure of the form `import term_result: missing result "xxh3:..."`.
+  * [x] Reproduced on current HEAD in manual restart workflow.
+  * [x] Observed the same digest in the pre-restart persistence worker tombstone batch and the post-restart import failure.
+  * [x] Determined that background dagql prune is selecting persisted closure members and emitting tombstones for them.
+  * [x] Confirmed the prune shield fixes the manual restart wipe in the `engine-dev container with-exec --args true stdout` workflow.
+* [~] Diagnose inconsistent rerun cache behavior for:
+  * [x] module-load / SDK calls: in the latest clean manual run, run #2 dropped from `load module: . DONE [2m16s]` to `load module: . DONE [3.9s]`.
+  * [x] engine build calls: in the latest clean manual run, run #2 had `EngineDev.container CACHED [0.0s]`.
+  * [x] The latest clean manual run did not show the earlier “needs a third run to converge” behavior.
+* [ ] If progress output is too ambiguous in future manual regressions, add targeted engine log augmentation focused on:
+  * [ ] cache hit/miss decisions for the relevant call IDs
+  * [ ] persistence import of terms/results/term_results for the affected digests
+  * [ ] module-load caching path and engine-dev build call identities
+* [ ] Add integration coverage once the manual failure signatures are understood well enough to encode deterministically.
+
+#### Progress log
+
+* [x] Added targeted restart coverage under `TestEngine/TestDiskPersistenceAcrossRestart` for:
+  * [x] local cache survives restart
+  * [x] function cache control survives restart
+  * [x] container withExec output on host mount survives restart
+  * [x] cache volume survives restart
+* [x] Diagnosed and fixed persisted object import recursion by hard-cutting object persistence over from `object_id -> dagql Load` to real object self payloads.
+* [x] Diagnosed and fixed restart failures caused by persisting snapshot-manager metadata IDs instead of stable snapshotter IDs.
+* [x] Diagnosed and fixed restart failures caused by persisting lazy directory/file refs before their snapshots were materialized.
+* [x] Diagnosed and fixed restart failures caused by persisted container payloads referencing mounted source objects that were not included in the persisted closure.
+* [x] Verified current focused coverage passes:
+  * [x] `go test ./dagql -run 'TestPersistedSelfCodec|TestCachePersistenceImport|TestCachePersistenceWorker|TestCachePersistenceCleanShutdownToggleOnClose|TestCachePersistenceWorkerEqFactTombstoneScopedByOwner|TestCachePersistenceWorkerIdempotentUpsertAndTombstone' -count=1`
+  * [x] `dagger --progress=plain call engine-dev test --pkg ./core/integration --run='TestEngine/TestDiskPersistenceAcrossRestart'`
+  * [x] `dagger --progress=plain call engine-dev test --pkg ./core/integration --run='TestModule/TestFunctionCacheControl'`
+* [x] Re-ran the manual workflow after the persistence fix:
+  * [x] Cold run: `EngineDev.container DONE [2m56s]`; target tail `Container.withExec DONE [0.7s]`.
+  * [x] Second run: `load module: . DONE [37.1s]`; `EngineDev.container DONE [21.0s]`; target tail `Container.withExec DONE [0.5s]`.
+  * [x] Third run: `load module: . DONE [13.9s]`; `EngineDev.container CACHED [0.0s]`; target tail `Container.withExec CACHED [0.0s]`.
+  * [x] Post-SIGTERM restart: engine logs show `dagql persistence import failed; wiping and cold-starting` with `import term_result: missing result "xxh3:f4ccac0d8d902d05"`.
+  * [x] Same digest also appears immediately before restart in a persistence worker tombstone batch:
+    * `rootResultKey=xxh3:f4ccac0d8d902d05 resultTombstones=1 termResultTombstones=1 depTombstones=2`
+  * [x] Same window also shows background `dagql prune selected candidate` activity immediately before those tombstone batches.
+  * [x] Current diagnosis for Problem 1:
+    * automatic dagql prune is selecting `depOfPersistedResult` entries and tombstoning them individually
+    * restart import can then see surviving durable relations (`term_results`) that still point at a result digest that was tombstoned by prune
+  * [x] Added a first shield in code: automatic dagql prune now skips `depOfPersistedResult` entries instead of pruning and tombstoning them.
+  * [x] Post-restart run therefore regressed to a much colder path:
+    * `load module: . DONE [1m24s]`
+  * [x] Current high-confidence read:
+    * same-process reruns do converge, but not immediately
+    * restart still wipes/cold-starts for this manual workflow because import sees a `term_result` row referencing a missing/tombstoned result digest
+* [x] Re-ran the full manual workflow on the current post-fix state:
+  * [x] Clean run #1 succeeded:
+    * `load module: . DONE [2m16s]`
+    * `EngineDev.container DONE [2m53s]`
+    * target tail `Container.withExec DONE [0.7s]`
+  * [x] Clean run #2 was strongly warm:
+    * `load module: . DONE [3.9s]`
+    * `EngineDev.container CACHED [0.0s]`
+    * target tail `Container.withExec CACHED [0.0s]`
+  * [x] The old restart wipe signature is no longer present:
+    * did not observe `dagql persistence import failed; wiping and cold-starting`
+    * did not observe `import term_result: missing result`
+  * [x] Follow-up regressions after the prune shield were identified and fixed:
+    * `FunctionCallArgValue` object-wrap failures from eager `cache.wait` reconstruction of typed object results
+    * mounted `ModuleSource.contextDirectory` child object decode falling over on `missing persisted result key`
+    * eager mutable `CacheVolume` snapshot reopen hitting `... is locked: locked`
+  * [x] Current exact continuation workflow from the same running `dagger-engine.dev` succeeds:
+    * run #2:
+      * `daggerDev CACHED [0.0s]`
+      * `DaggerDev.engineDev CACHED [0.0s]`
+      * `EngineDev.container CACHED [0.0s]`
+      * `Container.withExec CACHED [0.0s]`
+    * post-restart run:
+      * `load module: . DONE [11.1s]`
+      * `DaggerDev.engineDev DONE [5.1s]`
+      * `EngineDev.container CACHED [0.0s]`
+      * `Container.withExec CACHED [0.0s]`
+  * [x] In the latest post-restart logs, none of the old blocker signatures appear:
+    * no `dagql persistence import failed; wiping and cold-starting`
+    * no `import term_result: missing result`
+    * no `missing persisted result key`
+    * no mutable-snapshot `locked` errors
+  * [ ] Follow-up to revisit later:
+    * post-restart `load module` and `DaggerDev.engineDev` still do real work instead of showing as cached, even though the command now succeeds end-to-end
+
 ### Execution order (first implementation pass)
 
 * [ ] Execute in this strict order:

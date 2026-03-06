@@ -31,22 +31,31 @@ func loadPersistedObjectResult[T dagql.Typed](ctx context.Context, resolver dagq
 	if rawID == "" {
 		return dagql.ObjectResult[T]{}, nil
 	}
-	if resolver == nil {
-		return dagql.ObjectResult[T]{}, fmt.Errorf("load persisted %s: nil resolver", label)
-	}
 	id, err := decodePersistedCallID(rawID)
 	if err != nil {
 		return dagql.ObjectResult[T]{}, fmt.Errorf("load persisted %s ID: %w", label, err)
 	}
-	obj, err := resolver.LoadPersistedObject(ctx, id)
+
+	if resolver != nil {
+		obj, err := resolver.LoadPersistedObject(ctx, id)
+		if err == nil {
+			typed, ok := obj.(dagql.ObjectResult[T])
+			if !ok {
+				return dagql.ObjectResult[T]{}, fmt.Errorf("load persisted %s: unexpected object result %T", label, obj)
+			}
+			return typed, nil
+		}
+	}
+
+	srv, err := CurrentDagqlServer(ctx)
 	if err != nil {
 		return dagql.ObjectResult[T]{}, fmt.Errorf("load persisted %s object: %w", label, err)
 	}
-	typed, ok := obj.(dagql.ObjectResult[T])
-	if !ok {
-		return dagql.ObjectResult[T]{}, fmt.Errorf("load persisted %s: unexpected object result %T", label, obj)
+	loaded, err := dagql.NewID[T](id).Load(ctx, srv)
+	if err != nil {
+		return dagql.ObjectResult[T]{}, fmt.Errorf("load persisted %s object: %w", label, err)
 	}
-	return typed, nil
+	return loaded, nil
 }
 
 func loadPersistedSnapshotLink(ctx context.Context, resolver dagql.PersistedObjectResolver, id *call.ID, role string) (dagql.PersistedSnapshotRefLink, error) {

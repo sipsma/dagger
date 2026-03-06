@@ -72,6 +72,12 @@ func (c *cache) Prune(ctx context.Context, policies []CachePrunePolicy) (CachePr
 					"entryID", entry.ID,
 					"reason", "actively-used")
 				continue
+			case res.depOfPersistedResult:
+				slog.Debug("dagql prune skip candidate",
+					"policyIndex", policyIdx,
+					"entryID", entry.ID,
+					"reason", "persistence-retained")
+				continue
 			case resultInActiveClosure(activeClosure, resultID):
 				slog.Debug("dagql prune skip candidate",
 					"policyIndex", policyIdx,

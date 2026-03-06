@@ -110,6 +110,14 @@ func (c *cache) importPersistedState(ctx context.Context) error {
 		if env.Kind == "" {
 			return fmt.Errorf("import result %q: empty self payload kind", row.ResultKey)
 		}
+		var originalRequestID *call.ID
+		if env.Kind != persistedResultKindNull {
+			decodedID, err := decodeEnvelopeID(env)
+			if err != nil {
+				return fmt.Errorf("import result %q envelope ID: %w", row.ResultKey, err)
+			}
+			originalRequestID = decodedID
+		}
 
 		var outputExtra []call.ExtraDigest
 		if row.OutputExtraDigests != "" {
@@ -131,6 +139,7 @@ func (c *cache) importPersistedState(ctx context.Context) error {
 			id:                   resID,
 			persistedResultKey:   cachePersistResultKey(row.ResultKey),
 			idDigest:             row.IDDigest,
+			originalRequestID:    originalRequestID,
 			safeToPersistCache:   row.SafeToPersistCache,
 			depOfPersistedResult: row.DepOfPersistedResult,
 			outputDigest:         normalizeImportedDigest(row.OutputDigest),

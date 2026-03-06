@@ -43,8 +43,20 @@ func (r cachePersistedObjectResolver) LoadPersistedObject(ctx context.Context, i
 		return nil, err
 	}
 	obj, ok := res.(AnyObjectResult)
+	if ok {
+		return obj, nil
+	}
+	srv := CurrentDagqlServer(ctx)
+	if srv == nil || res.Type() == nil || res.Type().Elem != nil {
+		return nil, fmt.Errorf("load persisted object %q: result is %T", id.Digest(), res)
+	}
+	objType, ok := srv.ObjectType(res.Type().Name())
 	if !ok {
 		return nil, fmt.Errorf("load persisted object %q: result is %T", id.Digest(), res)
+	}
+	obj, err = objType.New(res)
+	if err != nil {
+		return nil, fmt.Errorf("load persisted object %q: wrap result as object: %w", id.Digest(), err)
 	}
 	return obj, nil
 }

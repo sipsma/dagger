@@ -200,6 +200,13 @@ func (container *Container) PreparePersistedObject(ctx context.Context) error {
 	if container == nil {
 		return nil
 	}
+	for _, mnt := range container.Mounts {
+		if mnt.CacheSource != nil {
+			if err := mnt.CacheSource.Volume.Self().PreparePersistedObject(ctx); err != nil {
+				return err
+			}
+		}
+	}
 	if err := container.Sync(ctx); err != nil {
 		return err
 	}
@@ -221,10 +228,6 @@ func (container *Container) PreparePersistedObject(ctx context.Context) error {
 			}
 		case mnt.FileSource != nil && mnt.FileSource.Self() != nil:
 			if err := mnt.FileSource.Self().PreparePersistedObject(ctx); err != nil {
-				return err
-			}
-		case mnt.CacheSource != nil:
-			if err := mnt.CacheSource.Volume.Self().PreparePersistedObject(ctx); err != nil {
 				return err
 			}
 		}
@@ -1395,7 +1398,9 @@ func (container *Container) WithMountedCache(
 		return nil, errors.New("cache volume is nil")
 	}
 	if cacheSelf.getSnapshot() == nil {
-		return nil, errors.New("cache volume snapshot is nil")
+		if err := cacheSelf.InitializeSnapshot(ctx); err != nil {
+			return nil, fmt.Errorf("initialize cache volume snapshot: %w", err)
+		}
 	}
 
 	mount := ContainerMount{

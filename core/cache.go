@@ -150,11 +150,6 @@ func (*CacheVolume) DecodePersistedObject(ctx context.Context, id *call.ID, payl
 		return nil, fmt.Errorf("decode persisted cache volume payload: %w", err)
 	}
 
-	snapshot, link, err := loadPersistedMutableSnapshot(ctx, resolver, id, "snapshot")
-	if err != nil {
-		return nil, err
-	}
-
 	cache := NewCache(
 		persisted.Key,
 		persisted.Namespace,
@@ -162,9 +157,10 @@ func (*CacheVolume) DecodePersistedObject(ctx context.Context, id *call.ID, payl
 		persisted.Sharing,
 		persisted.Owner,
 	)
-	cache.snapshot = snapshot
-	if link.Slot != "" {
-		cache.selector = link.Slot
+	if resolver != nil && id != nil {
+		if link, err := loadPersistedSnapshotLink(ctx, resolver, id, "snapshot"); err == nil && link.Slot != "" {
+			cache.selector = link.Slot
+		}
 	}
 	return cache, nil
 }

@@ -535,6 +535,11 @@ func prepareMounts(
 			if cacheSrc.Volume.Self() == nil {
 				return materialized, fmt.Errorf("mount %d has nil cache volume source", i)
 			}
+			if cacheSrc.Volume.Self().getSnapshot() == nil {
+				if err := cacheSrc.Volume.Self().InitializeSnapshot(ctx); err != nil {
+					return materialized, fmt.Errorf("initialize cache volume snapshot for mount %d: %w", i, err)
+				}
+			}
 			cacheSnapshot := cacheSrc.Volume.Self().getSnapshot()
 			if cacheSnapshot == nil {
 				return materialized, fmt.Errorf("mount %d has nil cache volume snapshot", i)
@@ -1302,6 +1307,11 @@ func (container *Container) WithExec(
 				cacheSrc := ctrMount.CacheSource
 				if cacheSrc.Volume.Self() == nil {
 					return failPrepare(fmt.Errorf("mount %d has nil cache volume source", i))
+				}
+				if cacheSrc.Volume.Self().getSnapshot() == nil {
+					if err := cacheSrc.Volume.Self().InitializeSnapshot(ctx); err != nil {
+						return failPrepare(fmt.Errorf("initialize cache volume snapshot for mount %d: %w", i, err))
+					}
 				}
 				cacheSnapshot := cacheSrc.Volume.Self().getSnapshot()
 				if cacheSnapshot == nil {

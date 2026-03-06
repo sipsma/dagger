@@ -1310,7 +1310,7 @@ func (c *cache) wait(
 	}
 	retObjRes, constructErr := retRes.shared.objType.New(retRes)
 	if constructErr != nil {
-		return nil, fmt.Errorf("reconstruct object result from cache wait: %w", constructErr)
+		return retRes, nil
 	}
 	return retObjRes, nil
 }
@@ -1345,6 +1345,10 @@ func (c *cache) initCompletedResult(ctx context.Context, oc *ongoingCall, reques
 			}
 			if obj, ok := oc.val.(AnyObjectResult); ok {
 				oc.res.objType = obj.ObjectType()
+			} else if srv := CurrentDagqlServer(ctx); srv != nil && oc.val.Type() != nil && oc.val.Type().Elem == nil {
+				if objType, ok := srv.ObjectType(oc.val.Type().Name()); ok {
+					oc.res.objType = objType
+				}
 			}
 		}
 	}
