@@ -6,7 +6,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
 
 // The `GoSdkID` scalar type represents an identifier for an object of type GoSdk.

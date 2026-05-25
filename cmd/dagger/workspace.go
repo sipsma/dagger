@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -206,14 +207,17 @@ func uninstallWorkspaceModule(ctx context.Context, out io.Writer, dag *dagger.Cl
 	return err
 }
 
-//nolint:unparam
 func workspaceRootFromAddress(address, cwd string) (string, error) {
-	if cwd == "" || cwd == "." {
+	cwdRel, err := workspaceCwdRel(cwd)
+	if err != nil {
+		return "", err
+	}
+	if cwdRel == "." {
 		return fileURLPathOrAddress(address), nil
 	}
 
 	if parsed, err := url.Parse(address); err == nil && parsed.Scheme == "file" {
-		root := strings.TrimSuffix(filepath.Clean(parsed.Path), string(filepath.Separator)+filepath.Clean(cwd))
+		root := strings.TrimSuffix(filepath.Clean(parsed.Path), string(filepath.Separator)+cwdRel)
 		return root, nil
 	}
 
@@ -223,8 +227,20 @@ func workspaceRootFromAddress(address, cwd string) (string, error) {
 		base = address[:idx]
 		version = address[idx:]
 	}
-	root := strings.TrimSuffix(filepath.ToSlash(base), "/"+filepath.ToSlash(filepath.Clean(cwd)))
+	root := strings.TrimSuffix(filepath.ToSlash(base), "/"+filepath.ToSlash(cwdRel))
 	return root + version, nil
+}
+
+func workspaceCwdRel(cwd string) (string, error) {
+	clean := path.Clean(filepath.ToSlash(cwd))
+	if clean == "." || clean == "/" {
+		return ".", nil
+	}
+	clean = strings.TrimPrefix(clean, "/")
+	if clean == ".." || strings.HasPrefix(clean, "../") {
+		return "", fmt.Errorf("workspace cwd %q escapes workspace root", cwd)
+	}
+	return filepath.FromSlash(clean), nil
 }
 
 func fileURLPathOrAddress(address string) string {

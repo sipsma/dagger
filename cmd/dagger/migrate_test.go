@@ -21,12 +21,20 @@ func TestWorkspaceRootFromCwd(t *testing.T) {
 
 	t.Run("root cwd", func(t *testing.T) {
 		root := t.TempDir()
-		got, err := workspaceRootFromCwd(root, ".")
+		got, err := workspaceRootFromCwd(root, "/")
 		require.NoError(t, err)
 		require.Equal(t, root, got)
 	})
 
 	t.Run("nested cwd", func(t *testing.T) {
+		root := t.TempDir()
+		wd := filepath.Join(root, "services", "api")
+		got, err := workspaceRootFromCwd(wd, "/"+filepath.ToSlash(filepath.Join("services", "api")))
+		require.NoError(t, err)
+		require.Equal(t, root, got)
+	})
+
+	t.Run("legacy relative cwd", func(t *testing.T) {
 		root := t.TempDir()
 		wd := filepath.Join(root, "services", "api")
 		got, err := workspaceRootFromCwd(wd, filepath.ToSlash(filepath.Join("services", "api")))

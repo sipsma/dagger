@@ -489,4 +489,19 @@ class Client extends Client\AbstractClient implements Client\IdAble, Node
         }
         return new \Dagger\Client($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
     }
+
+    /**
+     * Creates a synthetic workspace from a root directory and current working directory.
+     */
+    public function workspace(?Directory $root = null, ?string $cwd = '/'): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('workspace');
+        if (null !== $root) {
+            $innerQueryBuilder->setArgument('root', $root);
+        }
+        if (null !== $cwd) {
+            $innerQueryBuilder->setArgument('cwd', $cwd);
+        }
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
 }

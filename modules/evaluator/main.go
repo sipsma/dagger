@@ -43,7 +43,7 @@ type Evaluator struct {
 	EvaluatorModel string
 
 	// +private
-	Evals []*dagger.EvalWorkspaceEval
+	Evals []dagger.EvalWorkspaceEval
 }
 
 const MinSuccessRate = 0.8
@@ -137,22 +137,11 @@ func (m *Evaluator) WithDocsFile(
 
 // WithEval adds a single evaluation to the evaluator.
 func (m *Evaluator) WithEval(
-	ctx context.Context,
+	_ context.Context,
 	// The evaluation to add to the list of evals to run.
 	eval Eval,
 ) (*Evaluator, error) {
-	id, err := eval.(interface {
-		ID(context.Context) (EvalID, error)
-	}).ID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	// FIXME: it would be nice to not have to do this workaround. it's hard
-	// because we want to accept Eval, but then the type has no AsWorkspaceEval().
-	//
-	// fortunately the IDs are the same nonetheless, so we can just convert it
-	// with the available plumbing
-	m.Evals = append(m.Evals, dag.LoadEvalWorkspaceEvalFromID(dagger.EvalWorkspaceEvalID(id)))
+	m.Evals = append(m.Evals, eval)
 	return m, nil
 }
 

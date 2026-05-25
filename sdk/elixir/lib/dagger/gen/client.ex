@@ -625,6 +625,33 @@ defmodule Dagger.Client do
 
     Client.execute(client.client, query_builder)
   end
+
+  @doc """
+  Creates a synthetic workspace from a root directory and current working directory.
+
+  > #### Experimental {: .warning}
+  >
+  > "Synthetic workspaces currently support filesystem APIs only."
+  """
+  @spec workspace(t(), [
+          {:root, Dagger.Directory.t() | nil},
+          {:cwd, String.t() | nil}
+        ]) :: Dagger.Workspace.t()
+  def workspace(%__MODULE__{} = client, optional_args \\ []) do
+    query_builder =
+      client.query_builder
+      |> QB.select("workspace")
+      |> QB.maybe_put_arg(
+        "root",
+        if(optional_args[:root], do: Dagger.ID.id!(optional_args[:root]), else: nil)
+      )
+      |> QB.maybe_put_arg("cwd", optional_args[:cwd])
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: client.client
+    }
+  end
 end
 
 defimpl Jason.Encoder, for: Dagger.Client do

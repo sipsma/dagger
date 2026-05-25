@@ -6,7 +6,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
 
 // The `ReleaseID` scalar type represents an identifier for an object of type Release.
@@ -598,7 +598,7 @@ func (r *ReleaseReport) Errors(ctx context.Context) ([]Error, error) { // releas
 	q = q.Select("id")
 
 	type errors struct {
-		Id ErrorID
+		Id ID
 	}
 
 	convert := func(fields []errors) []Error {
@@ -606,7 +606,7 @@ func (r *ReleaseReport) Errors(ctx context.Context) ([]Error, error) { // releas
 
 		for i := range fields {
 			val := Error{id: &fields[i].Id}
-			val.query = q.Root().Select("loadErrorFromID").Arg("id", fields[i].Id)
+			val.query = selectNode(q.Root(), fields[i].Id, "Error")
 			out = append(out, val)
 		}
 
@@ -762,7 +762,7 @@ func (r *ReleaseReportArtifact) Errors(ctx context.Context) ([]Error, error) { /
 	q = q.Select("id")
 
 	type errors struct {
-		Id ErrorID
+		Id ID
 	}
 
 	convert := func(fields []errors) []Error {
@@ -770,7 +770,7 @@ func (r *ReleaseReportArtifact) Errors(ctx context.Context) ([]Error, error) { /
 
 		for i := range fields {
 			val := Error{id: &fields[i].Id}
-			val.query = q.Root().Select("loadErrorFromID").Arg("id", fields[i].Id)
+			val.query = selectNode(q.Root(), fields[i].Id, "Error")
 			out = append(out, val)
 		}
 

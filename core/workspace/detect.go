@@ -22,7 +22,7 @@ type Workspace struct {
 	// Root is the workspace boundary: the detected git root.
 	Root string
 
-	// Cwd is the detection start location relative to Root. "." means Root.
+	// Cwd is the detection start location stored as a clean path relative to Root.
 	Cwd string
 
 	// ConfigFile is the selected native config.toml path relative to Root.

@@ -10,7 +10,7 @@
       ->withStringInput('assignment', $assignment, 'the assignment to complete')
       ->withWorkspaceInput(
         'workspace',
-        dag()->workspace($source),
+        dag()->workspace(root: $source),
         'the workspace with tools to edit and test code'
       )
       ->withWorkspaceOutput('completed', 'the workspace with the completed assignment');

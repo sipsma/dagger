@@ -94,7 +94,7 @@
         
 
             <div class="description">
-            <p><p>A Dagger workspace detected from the current working directory.</p></p>                    </div>
+            <p><p>A Dagger workspace detected from the current working directory or constructed from a Directory.</p></p>                    </div>
             
         
     
@@ -148,7 +148,7 @@
                 <div class="col-md-8">
                     <a href="#method_address">address</a>()
         
-                                            <p><p>Canonical Dagger address of the workspace location.</p></p>                </div>
+                                            <p><p>Canonical Dagger address of the workspace location, or an opaque identity for synthetic workspaces.</p></p>                </div>
                 <div class="col-md-2"></div>
             </div>
                     <div class="row">
@@ -208,7 +208,9 @@
                 <div class="col-md-8">
                     <a href="#method_cwd">cwd</a>()
         
-                                            <p><p>Current location within the workspace root. Relative paths in workspace APIs resolve from here.</p></p>                </div>
+                                            <p><p>Current location within the workspace root.</p>
+<p>The workspace root is returned as &quot;/&quot;.</p>
+<p>Relative paths in workspace APIs resolve from here.</p></p>                </div>
                 <div class="col-md-2"></div>
             </div>
                     <div class="row">
@@ -488,7 +490,7 @@
             
 
         <div class="method-description">
-                            <p><p>Canonical Dagger address of the workspace location.</p></p>                        
+                            <p><p>Canonical Dagger address of the workspace location, or an opaque identity for synthetic workspaces.</p></p>
         </div>
         <div class="tags">
             
@@ -727,8 +729,9 @@
             
 
         <div class="method-description">
-                            <p><p>Current location within the workspace root. Relative paths in workspace APIs resolve from here.</p></p>                        
-        </div>
+                            <p><p>Current location within the workspace root.</p>
+<p>The workspace root is returned as &quot;/&quot;.</p>
+<p>Relative paths in workspace APIs resolve from here.</p></p>        </div>
         <div class="tags">
             
                             <h4>Return Value</h4>

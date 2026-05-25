@@ -34,6 +34,13 @@ func (s *workspaceSchema) Install(srv *dagql.Server) {
 		PassthroughTelemetry()
 
 	dagql.Fields[*core.Query]{
+		dagql.NodeFunc("workspace", s.workspace).
+			Doc("Creates a synthetic workspace from a root directory and current working directory.").
+			Args(
+				dagql.Arg("root").Doc("Directory to use as the workspace root. Defaults to an empty directory."),
+				dagql.Arg("cwd").Doc("Current working directory inside the workspace root. Defaults to the workspace root."),
+			).
+			Experimental("Synthetic workspaces currently support filesystem APIs only."),
 		currentWorkspaceField,
 	}.Install(srv)
 
@@ -138,6 +145,10 @@ func (s *workspaceSchema) Install(srv *dagql.Server) {
 			Args(
 				dagql.Arg("module").Doc("Optional module alias to inspect."),
 			),
+		dagql.Func("cwd", s.cwd).
+			Doc("Current location within the workspace root.",
+				`The workspace root is returned as "/".`,
+				"Relative paths in workspace APIs resolve from here."),
 		dagql.Func("checks", s.checks).
 			Doc("Return all checks from modules loaded in the workspace.").
 			Args(
@@ -178,12 +189,63 @@ func (s *workspaceSchema) Install(srv *dagql.Server) {
 	dagql.Fields[*core.WorkspaceMigrationStep]{}.Install(srv)
 }
 
+type workspaceArgs struct {
+	Root dagql.Optional[dagql.ID[*core.Directory]]
+	Cwd  string `default:"/"`
+}
+
+func (s *workspaceSchema) workspace(
+	ctx context.Context,
+	_ dagql.ObjectResult[*core.Query],
+	args workspaceArgs,
+) (dagql.ObjectResult[*core.Workspace], error) {
+	srv, err := core.CurrentDagqlServer(ctx)
+	if err != nil {
+		return dagql.ObjectResult[*core.Workspace]{}, err
+	}
+
+	var root dagql.ObjectResult[*core.Directory]
+	if args.Root.Valid {
+		root, err = args.Root.Value.Load(ctx, srv)
+		if err != nil {
+			return dagql.ObjectResult[*core.Workspace]{}, err
+		}
+	} else if err := srv.Select(ctx, srv.Root(), &root, dagql.Selector{Field: "directory"}); err != nil {
+		return dagql.ObjectResult[*core.Workspace]{}, err
+	}
+
+	cwd, err := resolveWorkspacePath(args.Cwd, ".")
+	if err != nil {
+		return dagql.ObjectResult[*core.Workspace]{}, err
+	}
+
+	rootDigest, err := root.ContentPreferredDigest(ctx)
+	if err != nil {
+		return dagql.ObjectResult[*core.Workspace]{}, err
+	}
+	ws := &core.Workspace{
+		Cwd:     cwd,
+		Address: "directory://" + rootDigest.String(),
+	}
+	ws.SetRootfs(root)
+	return dagql.NewObjectResultForCurrentCall(ctx, srv, ws)
+}
+
 func (s *workspaceSchema) currentWorkspace(
 	ctx context.Context,
 	parent *core.Query,
 	_ struct{},
 ) (*core.Workspace, error) {
 	return parent.Server.CurrentWorkspace(ctx)
+}
+
+func (s *workspaceSchema) cwd(
+	ctx context.Context,
+	parent *core.Workspace,
+	_ struct{},
+) (dagql.String, error) {
+	_ = ctx
+	return dagql.NewString(workspaceAPIPath(parent.Cwd)), nil
 }
 
 type workspaceDirectoryArgs struct {
@@ -252,7 +314,13 @@ func (s *workspaceSchema) resolveRootfs(
 		return inst, nil
 	}
 
-	ctxDir := ws.Rootfs()
+	if gitignore && isSyntheticWorkspace(ws) {
+		return inst, fmt.Errorf("workspace directory %q: gitignore filtering is only supported for local workspaces", resolvedPath)
+	}
+	ctxDir, err := workspaceRootfs(ws)
+	if err != nil {
+		return inst, fmt.Errorf("workspace directory %q: %w", resolvedPath, err)
+	}
 	if resolvedPath != "." && resolvedPath != "" {
 		err = srv.Select(ctx, ctxDir, &ctxDir,
 			dagql.Selector{
@@ -281,6 +349,32 @@ func (s *workspaceSchema) resolveRootfs(
 	}
 
 	return ctxDir, nil
+}
+
+func workspaceRootfs(ws *core.Workspace) (dagql.ObjectResult[*core.Directory], error) {
+	if ws == nil {
+		return dagql.ObjectResult[*core.Directory]{}, fmt.Errorf("workspace is nil")
+	}
+	rootfs := ws.Rootfs()
+	if rootfs.Self() == nil {
+		return rootfs, fmt.Errorf("workspace has no root filesystem")
+	}
+	return rootfs, nil
+}
+
+func isSyntheticWorkspace(ws *core.Workspace) bool {
+	return ws != nil &&
+		ws.ClientID == "" &&
+		ws.HostPath() == "" &&
+		ws.Rootfs().Self() != nil &&
+		strings.HasPrefix(ws.Address, "directory://")
+}
+
+func unsupportedSyntheticWorkspaceFeature(ws *core.Workspace, feature string) error {
+	if isSyntheticWorkspace(ws) {
+		return fmt.Errorf("workspace feature %q is not supported for synthetic/rootfs-backed workspaces", feature)
+	}
+	return nil
 }
 
 func workspaceFilterWithDirectoryArgs(dirID *call.ID, filter core.CopyFilter) []dagql.NamedInput {
@@ -468,20 +562,6 @@ func (s *workspaceSchema) findUp(
 	none := dagql.Null[dagql.String]()
 	ws := parent.Self()
 
-	ctx, err := s.withWorkspaceClientContext(ctx, ws)
-	if err != nil {
-		return none, err
-	}
-
-	query, err := core.CurrentQuery(ctx)
-	if err != nil {
-		return none, err
-	}
-	bk, err := query.Engine(ctx)
-	if err != nil {
-		return none, fmt.Errorf("buildkit: %w", err)
-	}
-
 	resolvedFrom, err := resolveWorkspacePath(args.From, ws.Cwd)
 	if err != nil {
 		return none, err
@@ -496,13 +576,29 @@ func (s *workspaceSchema) findUp(
 		return candidate, nil
 	}
 	if ws.HostPath() != "" {
+		ctx, err = s.withWorkspaceClientContext(ctx, ws)
+		if err != nil {
+			return none, err
+		}
+		query, err := core.CurrentQuery(ctx)
+		if err != nil {
+			return none, err
+		}
+		bk, err := query.Engine(ctx)
+		if err != nil {
+			return none, fmt.Errorf("buildkit: %w", err)
+		}
 		statFS = core.NewCallerStatFS(bk)
 		boundaryRoot := ws.HostPath()
 		pathForStat = func(candidate string) (string, error) {
 			return pathutil.SandboxedRelativePath(candidate, boundaryRoot)
 		}
 	} else {
-		statFS = &core.DirectoryStatFS{Dir: ws.Rootfs()}
+		rootfs, err := workspaceRootfs(ws)
+		if err != nil {
+			return none, err
+		}
+		statFS = &core.DirectoryStatFS{Dir: rootfs}
 	}
 
 	// Walk up from the resolved start path, stopping at the workspace boundary.
@@ -544,6 +640,10 @@ func (s *workspaceSchema) checks(
 		NoGenerate dagql.Optional[dagql.Boolean]
 	},
 ) (*core.CheckGroup, error) {
+	if isSyntheticWorkspace(parent) {
+		return &core.CheckGroup{}, nil
+	}
+
 	include := workspaceIncludePatterns(args.Include)
 
 	ctx, err := s.withWorkspaceClientContext(ctx, parent)
@@ -639,6 +739,10 @@ func (s *workspaceSchema) generators(
 		Include dagql.Optional[dagql.ArrayInput[dagql.String]]
 	},
 ) (*core.GeneratorGroup, error) {
+	if isSyntheticWorkspace(parent) {
+		return &core.GeneratorGroup{}, nil
+	}
+
 	include := workspaceIncludePatterns(args.Include)
 
 	ctx, err := s.withWorkspaceClientContext(ctx, parent)
@@ -753,6 +857,10 @@ func (s *workspaceSchema) services(
 		Include dagql.Optional[dagql.ArrayInput[dagql.String]]
 	},
 ) (*core.UpGroup, error) {
+	if isSyntheticWorkspace(parent) {
+		return &core.UpGroup{}, nil
+	}
+
 	include := workspaceIncludePatterns(args.Include)
 
 	ctx, err := s.withWorkspaceClientContext(ctx, parent)
@@ -945,6 +1053,9 @@ func workspaceConfigWithCompatFallback(
 	ctx context.Context,
 	ws *core.Workspace,
 ) (*workspace.Config, error) {
+	if err := unsupportedSyntheticWorkspaceFeature(ws, "config"); err != nil {
+		return nil, err
+	}
 	if ws.ConfigFile != "" {
 		cfg, err := readWorkspaceConfig(ctx, ws)
 		if err != nil {

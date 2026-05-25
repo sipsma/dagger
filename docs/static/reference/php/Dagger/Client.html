@@ -548,7 +548,7 @@
                                             <p><p>Get the current Dagger Engine version.</p></p>                </div>
                 <div class="col-md-2"></div>
             </div>
-                    <div class="row">
+            <div class="row">
                 <div class="col-md-2 type">
                     <a href="../Dagger/Client.html"><abbr title="Dagger\Client">Client</abbr></a>
                 </div>
@@ -556,6 +556,16 @@
                     <a href="#method_with">with</a>(<abbr title="Dagger\Dagger\Directory">Directory</abbr>|null $sdkSourceDir = null)
         
                                             <p><p>Configure the php-sdk constructor arguments.</p></p>                </div>
+                <div class="col-md-2"></div>
+            </div>
+                    <div class="row">
+                <div class="col-md-2 type">
+                    <a href="../Dagger/Workspace.html"><abbr title="Dagger\Workspace">Workspace</abbr></a>
+                </div>
+                <div class="col-md-8">
+                    <a href="#method_workspace">workspace</a>(<abbr title="Dagger\Directory|null">Directory|null</abbr> $root = null, string|null $cwd = &#039;/&#039;)
+
+                                            <p><p>Creates a synthetic workspace from a root directory and current working directory.</p></p>                </div>
                 <div class="col-md-2"></div>
             </div>
             </div>
@@ -2342,6 +2352,53 @@
             
             
             
+                    </div>
+    </div>
+
+            </div>
+                    <div class="method-item">
+                    <h3 id="method_workspace">
+        <div class="location">at line 496</div>
+        <code>                    <a href="../Dagger/Workspace.html"><abbr title="Dagger\Workspace">Workspace</abbr></a>
+    <strong>workspace</strong>(<abbr title="Dagger\Directory|null">Directory|null</abbr> $root = null, string|null $cwd = &#039;/&#039;)
+        </code>
+    </h3>
+    <div class="details">
+
+
+
+        <div class="method-description">
+                            <p><p>Creates a synthetic workspace from a root directory and current working directory.</p></p>
+        </div>
+        <div class="tags">
+                            <h4>Parameters</h4>
+
+                    <table class="table table-condensed">
+                    <tr>
+                <td><abbr title="Dagger\Directory|null">Directory|null</abbr></td>
+                <td>$root</td>
+                <td><p>Directory to use as the workspace root. Defaults to an empty directory.</p></td>
+            </tr>
+                    <tr>
+                <td>string|null</td>
+                <td>$cwd</td>
+                <td><p>Current working directory inside the workspace root. Defaults to the workspace root.</p></td>
+            </tr>
+            </table>
+
+
+                            <h4>Return Value</h4>
+
+                    <table class="table table-condensed">
+        <tr>
+            <td><a href="../Dagger/Workspace.html"><abbr title="Dagger\Workspace">Workspace</abbr></a></td>
+            <td></td>
+        </tr>
+    </table>
+
+
+
+
                     </div>
     </div>
 

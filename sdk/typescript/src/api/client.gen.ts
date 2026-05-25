@@ -2188,6 +2188,18 @@ export type ClientSecretOpts = {
   cacheKey?: string
 }
 
+export type ClientWorkspaceOpts = {
+  /**
+   * Directory to use as the workspace root. Defaults to an empty directory.
+   */
+  root?: Directory
+
+  /**
+   * Current working directory inside the workspace root. Defaults to the workspace root.
+   */
+  cwd?: string
+}
+
 /**
  * Expected return type of an execution
  */
@@ -12747,6 +12759,17 @@ export class Client extends BaseClient {
 
     return response
   }
+
+  /**
+   * Creates a synthetic workspace from a root directory and current working directory.
+   * @param opts.root Directory to use as the workspace root. Defaults to an empty directory.
+   * @param opts.cwd Current working directory inside the workspace root. Defaults to the workspace root.
+   * @experimental
+   */
+  workspace = (opts?: ClientWorkspaceOpts): Workspace => {
+    const ctx = this._ctx.select("workspace", { ...opts })
+    return new Workspace(ctx)
+  }
 }
 
 /**
@@ -14191,7 +14214,7 @@ export class UpGroup extends BaseClient {
 }
 
 /**
- * A Dagger workspace detected from the current working directory.
+ * A Dagger workspace detected from the current working directory or constructed from a Directory.
  */
 export class Workspace extends BaseClient {
   private readonly _id?: ID = undefined
@@ -14263,7 +14286,7 @@ export class Workspace extends BaseClient {
   }
 
   /**
-   * Canonical Dagger address of the workspace location.
+   * Canonical Dagger address of the workspace location, or an opaque identity for synthetic workspaces.
    */
   address = async (): Promise<string> => {
     if (this._address) {
@@ -14362,7 +14385,11 @@ export class Workspace extends BaseClient {
   }
 
   /**
-   * Current location within the workspace root. Relative paths in workspace APIs resolve from here.
+   * Current location within the workspace root.
+   *
+   * The workspace root is returned as "/".
+   *
+   * Relative paths in workspace APIs resolve from here.
    */
   cwd = async (): Promise<string> => {
     if (this._cwd) {

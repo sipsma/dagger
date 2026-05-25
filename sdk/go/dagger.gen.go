@@ -13220,6 +13220,37 @@ func (r *Query) Version(ctx context.Context) (string, error) {
 	return response, q.Execute(ctx)
 }
 
+// WorkspaceOpts contains options for Query.Workspace
+type WorkspaceOpts struct {
+	// Directory to use as the workspace root. Defaults to an empty directory.
+	Root *Directory
+	// Current working directory inside the workspace root. Defaults to the workspace root.
+	//
+	// Default: "/"
+	Cwd string
+}
+
+// Creates a synthetic workspace from a root directory and current working directory.
+//
+// Experimental: Synthetic workspaces currently support filesystem APIs only.
+func (r *Query) Workspace(opts ...WorkspaceOpts) *Workspace {
+	q := r.query.Select("workspace")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `root` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Root) {
+			q = q.Arg("root", opts[i].Root)
+		}
+		// `cwd` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Cwd) {
+			q = q.Arg("cwd", opts[i].Cwd)
+		}
+	}
+
+	return &Workspace{
+		query: q,
+	}
+}
+
 // AsNode returns this Query as a Node.
 // This is a local type conversion — no GraphQL call.
 func (r *Query) AsNode() Node {
@@ -15182,7 +15213,7 @@ func (r *UpGroup) AsNode() Node {
 	}
 }
 
-// A Dagger workspace detected from the current working directory.
+// A Dagger workspace detected from the current working directory or constructed from a Directory.
 type Workspace struct {
 	query *querybuilder.Selection
 
@@ -15208,7 +15239,7 @@ func (r *Workspace) WithGraphQLQuery(q *querybuilder.Selection) *Workspace {
 	}
 }
 
-// Canonical Dagger address of the workspace location.
+// Canonical Dagger address of the workspace location, or an opaque identity for synthetic workspaces.
 func (r *Workspace) Address(ctx context.Context) (string, error) {
 	if r.address != nil {
 		return *r.address, nil
@@ -15332,7 +15363,11 @@ func (r *Workspace) ConfigWrite(ctx context.Context, key string, value string, o
 	return response, q.Execute(ctx)
 }
 
-// Current location within the workspace root. Relative paths in workspace APIs resolve from here.
+// Current location within the workspace root.
+//
+// The workspace root is returned as "/".
+//
+// Relative paths in workspace APIs resolve from here.
 func (r *Workspace) Cwd(ctx context.Context) (string, error) {
 	if r.cwd != nil {
 		return *r.cwd, nil

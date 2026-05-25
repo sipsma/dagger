@@ -12952,6 +12952,15 @@ pub struct QuerySecretOpts<'a> {
     #[builder(setter(into, strip_option), default)]
     pub cache_key: Option<&'a str>,
 }
+#[derive(Builder, Debug, PartialEq)]
+pub struct QueryWorkspaceOpts<'a> {
+    /// Current working directory inside the workspace root. Defaults to the workspace root.
+    #[builder(setter(into, strip_option), default)]
+    pub cwd: Option<&'a str>,
+    /// Directory to use as the workspace root. Defaults to an empty directory.
+    #[builder(setter(into, strip_option), default)]
+    pub root: Option<Id>,
+}
 impl IntoID<Id> for Query {
     fn into_id(
         self,
@@ -13657,6 +13666,34 @@ impl Query {
     pub async fn version(&self) -> Result<String, DaggerError> {
         let query = self.selection.select("version");
         query.execute(self.graphql_client.clone()).await
+    }
+    /// Creates a synthetic workspace from a root directory and current working directory.
+    pub fn workspace(&self) -> Workspace {
+        let query = self.selection.select("workspace");
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Creates a synthetic workspace from a root directory and current working directory.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn workspace_opts<'a>(&self, opts: QueryWorkspaceOpts<'a>) -> Workspace {
+        let mut query = self.selection.select("workspace");
+        if let Some(root) = opts.root {
+            query = query.arg("root", root);
+        }
+        if let Some(cwd) = opts.cwd {
+            query = query.arg("cwd", cwd);
+        }
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
     }
 }
 impl Node for Query {
@@ -15496,7 +15533,11 @@ impl Workspace {
         }
         query.execute(self.graphql_client.clone()).await
     }
-    /// Current location within the workspace root. Relative paths in workspace APIs resolve from here.
+    /// Current location within the workspace root.
+    ///
+    /// The workspace root is returned as "/".
+    ///
+    /// Relative paths in workspace APIs resolve from here.
     pub async fn cwd(&self) -> Result<String, DaggerError> {
         let query = self.selection.select("cwd");
         query.execute(self.graphql_client.clone()).await

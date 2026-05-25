@@ -13303,6 +13303,35 @@ class Query(Root):
         _ctx = self._select("version", _args)
         return await _ctx.execute(str)
 
+    def workspace(
+        self,
+        *,
+        root: Directory | None = None,
+        cwd: str | None = "/",
+    ) -> "Workspace":
+        """Creates a synthetic workspace from a root directory and current
+        working directory.
+
+        .. caution::
+            Experimental: Synthetic workspaces currently support filesystem
+            APIs only.
+
+        Parameters
+        ----------
+        root:
+            Directory to use as the workspace root. Defaults to an empty
+            directory.
+        cwd:
+            Current working directory inside the workspace root. Defaults to
+            the workspace root.
+        """
+        _args = [
+            Arg("root", root, None),
+            Arg("cwd", cwd, "/"),
+        ]
+        _ctx = self._select("workspace", _args)
+        return Workspace(_ctx)
+
 
 @typecheck
 class RemoteGitMirror(Type):
@@ -14930,10 +14959,12 @@ class UpGroup(Type):
 
 @typecheck
 class Workspace(Type):
-    """A Dagger workspace detected from the current working directory."""
+    """A Dagger workspace detected from the current working directory or
+    constructed from a Directory."""
 
     async def address(self) -> str:
-        """Canonical Dagger address of the workspace location.
+        """Canonical Dagger address of the workspace location, or an opaque
+        identity for synthetic workspaces.
 
         Returns
         -------
@@ -15096,8 +15127,11 @@ class Workspace(Type):
         return await _ctx.execute(str)
 
     async def cwd(self) -> str:
-        """Current location within the workspace root. Relative paths in
-        workspace APIs resolve from here.
+        """Current location within the workspace root.
+
+        The workspace root is returned as "/".
+
+        Relative paths in workspace APIs resolve from here.
 
         Returns
         -------

@@ -261,3 +261,11 @@ func Version(ctx context.Context) (string, error) {
 	client := initClient()
 	return client.Version(ctx)
 }
+
+// Creates a synthetic workspace from a root directory and current working directory.
+//
+// Experimental: Synthetic workspaces currently support filesystem APIs only.
+func Workspace(opts ...dagger.WorkspaceOpts) *dagger.Workspace {
+	client := initClient()
+	return client.Workspace(opts...)
+}

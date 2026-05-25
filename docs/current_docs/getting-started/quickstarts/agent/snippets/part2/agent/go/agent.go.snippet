@@ -11,7 +11,7 @@ func (m *HelloDagger) Develop(
                 WithStringInput("assignment", assignment, "the assignment to complete").
                 WithWorkspaceInput(
                         "workspace",
-                        dag.Workspace(source),
+                        dag.Workspace(dagger.WorkspaceOpts{Root: source}),
                         "the workspace with tools to edit and test code").
                 WithWorkspaceOutput(
                         "completed",

@@ -112,12 +112,12 @@ func workspaceRootFromCwd(wd, workspaceCwd string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("working directory: %w", err)
 	}
-	workspaceCwd = filepath.Clean(filepath.FromSlash(workspaceCwd))
-	if workspaceCwd == "" || workspaceCwd == "." {
-		return root, nil
+	workspaceCwd, err = workspaceCwdRel(workspaceCwd)
+	if err != nil {
+		return "", err
 	}
-	if filepath.IsAbs(workspaceCwd) || workspaceCwd == ".." || strings.HasPrefix(workspaceCwd, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("workspace cwd %q escapes workspace root", workspaceCwd)
+	if workspaceCwd == "." {
+		return root, nil
 	}
 	for _, part := range strings.Split(workspaceCwd, string(filepath.Separator)) {
 		if part == "" || part == "." {

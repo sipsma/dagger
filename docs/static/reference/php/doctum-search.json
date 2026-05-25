@@ -1620,7 +1620,7 @@
 			"t": "C",
 			"n": "Dagger\\Workspace",
 			"p": "Dagger/Workspace.html",
-			"d": "<p>A Dagger workspace detected from the current working directory.</p>",
+			"d": "<p>A Dagger workspace detected from the current working directory or constructed from a Directory.</p>",
 			"f": {
 				"n": "Dagger",
 				"p": "Dagger.html"
@@ -2521,6 +2521,12 @@
 			"n": "Dagger\\Client::with",
 			"p": "Dagger/Client.html#method_with",
 			"d": "<p>Configure the php-sdk constructor arguments.</p>"
+		},
+		{
+			"t": "M",
+			"n": "Dagger\\Client::workspace",
+			"p": "Dagger/Client.html#method_workspace",
+			"d": "<p>Creates a synthetic workspace from a root directory and current working directory.</p>"
 		},
 		{
 			"t": "M",
@@ -6420,7 +6426,7 @@
 			"t": "M",
 			"n": "Dagger\\Workspace::address",
 			"p": "Dagger/Workspace.html#method_address",
-			"d": "<p>Canonical Dagger address of the workspace location.</p>"
+			"d": "<p>Canonical Dagger address of the workspace location, or an opaque identity for synthetic workspaces.</p>"
 		},
 		{
 			"t": "M",
@@ -6456,7 +6462,7 @@
 			"t": "M",
 			"n": "Dagger\\Workspace::cwd",
 			"p": "Dagger/Workspace.html#method_cwd",
-			"d": "<p>Current location within the workspace root. Relative paths in workspace APIs resolve from here.</p>"
+			"d": "<p>Current location within the workspace root.</p><p>The workspace root is returned as &quot;/&quot;.</p><p>Relative paths in workspace APIs resolve from here.</p>"
 		},
 		{
 			"t": "M",

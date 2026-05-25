@@ -13,7 +13,7 @@ async def develop(
         )
         .with_workspace_input(
             "workspace",
-            dag.workspace(source),
+            dag.workspace(root=source),
             "the workspace with tools to edit and test code",
         )
         .with_workspace_output(
