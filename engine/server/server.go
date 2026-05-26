@@ -516,7 +516,10 @@ func (srv *Server) initLocalCacheStateOnce(ctx context.Context, cfg config.Confi
 	srv.workerGCPolicies = cloneDagqlCachePrunePolicies(workerGCPolicies)
 	srv.workerDefaultGCPolicy = getDefaultDagqlGCPolicy(cfg, ociCfg.GCConfig, srv.rootDir)
 
-	dagqlCacheDBPath := filepath.Join(srv.rootDir, "dagql-cache.db")
+	dagqlCacheDBPath := cfg.Cache.PersistencePath
+	if dagqlCacheDBPath == "" {
+		dagqlCacheDBPath = filepath.Join(srv.rootDir, "dagql-cache.db")
+	}
 	snapshotGC := func(ctx context.Context) error {
 		stats, err := srv.containerdMetaDB.GarbageCollect(ctx)
 		if err != nil {
@@ -525,7 +528,13 @@ func (srv *Server) initLocalCacheStateOnce(ctx context.Context, cfg config.Confi
 		slog.Debug("containerd garbage collect after dagql prune", "stats", stats)
 		return nil
 	}
-	srv.engineCache, err = dagql.NewCache(ctx, dagqlCacheDBPath, srv.workerCache, snapshotGC)
+	srv.engineCache, err = dagql.NewCacheWithOptions(ctx, dagql.CacheOptions{
+		DBPath:          dagqlCacheDBPath,
+		ImportDirs:      cfg.Cache.ImportDirs,
+		ExportDir:       cfg.Cache.ExportDir,
+		SnapshotManager: srv.workerCache,
+		SnapshotGC:      snapshotGC,
+	})
 	if err != nil {
 		return localCacheStateResetDagqlOpenFailed, fmt.Errorf("failed to create dagql cache: %w", err)
 	}

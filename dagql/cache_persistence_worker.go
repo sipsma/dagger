@@ -2,6 +2,7 @@ package dagql
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -123,6 +124,12 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 		}
 
 		payload := res.loadPayloadState()
+		originSourceID := ""
+		var originResultID int64
+		if payload.persistedEnvelope != nil {
+			originSourceID = res.importSourceID
+			originResultID = int64(res.sourceResultID)
+		}
 		snapshot.results = append(snapshot.results, persistResultSnapshot{
 			resultID:              resultID,
 			frame:                 res.loadResultCall().clone(),
@@ -137,6 +144,8 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 				ExpiresAtUnix:      res.expiresAtUnix,
 				CreatedAtUnixNano:  payload.createdAtUnixNano,
 				LastUsedAtUnixNano: payload.lastUsedAtUnixNano,
+				OriginSourceID:     originSourceID,
+				OriginResultID:     originResultID,
 				RecordType:         res.recordType,
 				Description:        res.description,
 			},
@@ -268,12 +277,20 @@ func (c *Cache) applyPersistStateSnapshot(ctx context.Context, snapshot persistS
 	if c.sqlDB == nil || c.pdb == nil {
 		return nil
 	}
+	return applyPersistStateSnapshot(ctx, c.sqlDB, c.pdb, snapshot)
+}
 
-	tx, err := c.sqlDB.BeginTx(ctx, nil)
+//nolint:gocyclo // intrinsically long state machine; refactoring would hurt clarity
+func applyPersistStateSnapshot(ctx context.Context, sqlDB *sql.DB, pdb *persistdb.Queries, snapshot persistStateSnapshot) error {
+	if sqlDB == nil || pdb == nil {
+		return nil
+	}
+
+	tx, err := sqlDB.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin persistence mirror tx: %w", err)
 	}
-	q := c.pdb.WithTx(tx)
+	q := pdb.WithTx(tx)
 	if err := q.ClearMirrorState(ctx); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("clear mirror state: %w", err)
@@ -374,6 +391,10 @@ func resultSnapshotLinkRows(resultID sharedResultID, links []PersistedSnapshotRe
 			return -1
 		case a.Role > b.Role:
 			return 1
+		case a.SourceID < b.SourceID:
+			return -1
+		case a.SourceID > b.SourceID:
+			return 1
 		default:
 			return 0
 		}
@@ -384,6 +405,7 @@ func resultSnapshotLinkRows(resultID sharedResultID, links []PersistedSnapshotRe
 			ResultID: int64(resultID),
 			RefKey:   link.RefKey,
 			Role:     link.Role,
+			SourceID: link.SourceID,
 		})
 	}
 	return rows

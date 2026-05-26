@@ -73,6 +73,17 @@ func decodePersistedCallID(raw string) (*call.ID, error) {
 	return &id, nil
 }
 
+func resolvePersistedPayloadResultID(ctx context.Context, cache dagql.PersistedObjectCache, resultID uint64, label string) (uint64, error) {
+	if resultID == 0 {
+		return 0, nil
+	}
+	localID, ok := cache.ResolvePersistedResultID(ctx, "", resultID)
+	if !ok {
+		return 0, fmt.Errorf("resolve persisted %s result %d: missing imported result mapping", label, resultID)
+	}
+	return localID, nil
+}
+
 func loadPersistedResultByResultID(ctx context.Context, dag *dagql.Server, resultID uint64, label string) (dagql.AnyResult, error) {
 	if resultID == 0 {
 		return nil, nil
@@ -83,6 +94,10 @@ func loadPersistedResultByResultID(ctx context.Context, dag *dagql.Server, resul
 	cache, err := dagql.EngineCache(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("load persisted %s cache: %w", label, err)
+	}
+	resultID, err = resolvePersistedPayloadResultID(ctx, cache, resultID, label)
+	if err != nil {
+		return nil, err
 	}
 	res, err := cache.LoadResultByResultID(ctx, "", dag, resultID)
 	if err != nil {
@@ -101,6 +116,10 @@ func loadPersistedObjectResultByResultID[T dagql.Typed](ctx context.Context, dag
 	cache, err := dagql.EngineCache(ctx)
 	if err != nil {
 		return dagql.ObjectResult[T]{}, fmt.Errorf("load persisted %s cache: %w", label, err)
+	}
+	resultID, err = resolvePersistedPayloadResultID(ctx, cache, resultID, label)
+	if err != nil {
+		return dagql.ObjectResult[T]{}, err
 	}
 	obj, err := cache.LoadPersistedObjectByResultID(ctx, dag, resultID)
 	if err != nil {
@@ -158,6 +177,9 @@ func loadPersistedImmutableSnapshotByResultID(ctx context.Context, dag *dagql.Se
 	link, err := loadPersistedSnapshotLinkByResultID(ctx, dag, resultID, label, role)
 	if err != nil {
 		return nil, err
+	}
+	if link.IsExternal() {
+		return nil, fmt.Errorf("load persisted immutable snapshot %q: external source %q is not local", link.RefKey, link.SourceID)
 	}
 	query, err := persistedDecodeQuery(dag)
 	if err != nil {

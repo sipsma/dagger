@@ -259,3 +259,152 @@ func TestCachePersistenceCleanShutdownToggleOnClose(t *testing.T) {
 	assert.Check(t, found)
 	assert.Check(t, cmp.Equal(val, "1"))
 }
+
+func TestCachePersistenceWorkerPreservesUnresolvedImportedEnvelopeOriginAndExternalLinks(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	cacheIface, err := NewCache(ctx, dbPath, nil, nil)
+	assert.NilError(t, err)
+	c := cacheIface
+	defer func() {
+		assert.NilError(t, c.Close(context.Background()))
+	}()
+
+	key := cacheTestIntCall("persist-worker-imported-origin")
+	res, err := c.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{
+		ResultCall:    key,
+		IsPersistable: true,
+	}, func(context.Context) (AnyResult, error) {
+		return cacheTestIntResult(key, 42), nil
+	})
+	assert.NilError(t, err)
+	shared := res.cacheSharedResult()
+	assert.Assert(t, shared != nil)
+
+	shared.payloadMu.Lock()
+	shared.self = nil
+	shared.hasValue = false
+	shared.persistedEnvelope = &PersistedResultEnvelope{
+		Version:  2,
+		Kind:     persistedResultKindScalar,
+		TypeName: "Int",
+		ResultID: uint64(shared.id),
+	}
+	shared.snapshotOwnerLinks = []PersistedSnapshotRefLink{{
+		RefKey:   "snapshot-a",
+		Role:     "snapshot",
+		SourceID: "bundle-a",
+	}}
+	shared.importSourceID = "bundle-a"
+	shared.sourceResultID = 123
+	shared.payloadMu.Unlock()
+
+	cacheTestReleaseSession(t, cacheIface, ctx)
+	assert.NilError(t, c.persistCurrentState(ctx))
+
+	rows, err := c.pdb.ListMirrorResults(ctx)
+	assert.NilError(t, err)
+	assert.Equal(t, 1, len(rows))
+	assert.Equal(t, "bundle-a", rows[0].OriginSourceID)
+	assert.Equal(t, int64(123), rows[0].OriginResultID)
+
+	linkRows, err := c.pdb.ListMirrorResultSnapshotLinks(ctx)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, linkRows, []persistdb.MirrorResultSnapshotLink{{
+		ResultID: int64(shared.id),
+		RefKey:   "snapshot-a",
+		Role:     "snapshot",
+		SourceID: "bundle-a",
+	}})
+}
+
+func TestCachePersistenceWorkerClearsOriginForDecodedResult(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	cacheIface, err := NewCache(ctx, dbPath, nil, nil)
+	assert.NilError(t, err)
+	c := cacheIface
+	defer func() {
+		assert.NilError(t, c.Close(context.Background()))
+	}()
+
+	key := cacheTestIntCall("persist-worker-decoded-origin")
+	res, err := c.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{
+		ResultCall:    key,
+		IsPersistable: true,
+	}, func(context.Context) (AnyResult, error) {
+		return cacheTestIntResult(key, 42), nil
+	})
+	assert.NilError(t, err)
+	shared := res.cacheSharedResult()
+	assert.Assert(t, shared != nil)
+	shared.importSourceID = "bundle-a"
+	shared.sourceResultID = 123
+
+	cacheTestReleaseSession(t, cacheIface, ctx)
+	assert.NilError(t, c.persistCurrentState(ctx))
+
+	rows, err := c.pdb.ListMirrorResults(ctx)
+	assert.NilError(t, err)
+	assert.Equal(t, 1, len(rows))
+	assert.Equal(t, "", rows[0].OriginSourceID)
+	assert.Equal(t, int64(0), rows[0].OriginResultID)
+}
+
+func TestCacheCloseDoesNotFailWhenBundleExportFails(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	root := t.TempDir()
+	cacheIface, err := NewCacheWithOptions(ctx, CacheOptions{
+		DBPath:    filepath.Join(root, "cache.db"),
+		ExportDir: filepath.Join(root, "export"),
+	})
+	assert.NilError(t, err)
+	c := cacheIface
+
+	key := cacheTestIntCall("persist-worker-export-failure")
+	res, err := c.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{
+		ResultCall:    key,
+		IsPersistable: true,
+	}, func(context.Context) (AnyResult, error) {
+		return cacheTestIntResult(key, 42), nil
+	})
+	assert.NilError(t, err)
+	shared := res.cacheSharedResult()
+	assert.Assert(t, shared != nil)
+	shared.payloadMu.Lock()
+	shared.self = nil
+	shared.hasValue = false
+	shared.persistedEnvelope = &PersistedResultEnvelope{
+		Version:  2,
+		Kind:     persistedResultKindScalar,
+		TypeName: "Int",
+		ResultID: uint64(shared.id),
+	}
+	shared.snapshotOwnerLinks = []PersistedSnapshotRefLink{{
+		RefKey:   "snapshot-a",
+		Role:     "snapshot",
+		SourceID: "missing-source",
+	}}
+	shared.importSourceID = "missing-source"
+	shared.sourceResultID = 123
+	shared.payloadMu.Unlock()
+
+	cacheTestReleaseSession(t, cacheIface, ctx)
+	assert.NilError(t, c.Close(context.Background()))
+
+	db, q, err := prepareCacheDBs(ctx, filepath.Join(root, "cache.db"))
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, closeCacheDBs(db, q))
+	}()
+	val, found, err := q.SelectMetaValue(ctx, persistdb.MetaKeyCleanShutdown)
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Equal(t, "1", val)
+}

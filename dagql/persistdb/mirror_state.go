@@ -10,6 +10,8 @@ type MirrorResult struct {
 	ExpiresAtUnix      int64
 	CreatedAtUnixNano  int64
 	LastUsedAtUnixNano int64
+	OriginSourceID     string
+	OriginResultID     int64
 	RecordType         string
 	Description        string
 }
@@ -59,6 +61,7 @@ type MirrorResultSnapshotLink struct {
 	ResultID int64
 	RefKey   string
 	Role     string
+	SourceID string
 }
 
 type MirrorSnapshotContentLink struct {
@@ -117,15 +120,16 @@ const insertMirrorResult = `
 INSERT INTO results (
 	id, call_frame_json, self_payload, output_effect_ids_json,
 	expires_at_unix, created_at_unix_nano,
-	last_used_at_unix_nano, record_type, description
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	last_used_at_unix_nano, origin_source_id, origin_result_id,
+	record_type, description
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 func (q *Queries) InsertMirrorResult(ctx context.Context, arg MirrorResult) error {
 	_, err := q.exec(ctx, nil, insertMirrorResult,
 		arg.ID, arg.CallFrameJSON, arg.SelfPayload, arg.OutputEffectIDs,
 		arg.ExpiresAtUnix, arg.CreatedAtUnixNano, arg.LastUsedAtUnixNano,
-		arg.RecordType, arg.Description,
+		arg.OriginSourceID, arg.OriginResultID, arg.RecordType, arg.Description,
 	)
 	return err
 }
@@ -192,11 +196,11 @@ func (q *Queries) InsertMirrorPersistedEdge(ctx context.Context, arg MirrorPersi
 }
 
 const insertMirrorResultSnapshotLink = `
-INSERT INTO result_snapshot_links (result_id, ref_key, role) VALUES (?, ?, ?)
+INSERT INTO result_snapshot_links (result_id, ref_key, role, source_id) VALUES (?, ?, ?, ?)
 `
 
 func (q *Queries) InsertMirrorResultSnapshotLink(ctx context.Context, arg MirrorResultSnapshotLink) error {
-	_, err := q.exec(ctx, nil, insertMirrorResultSnapshotLink, arg.ResultID, arg.RefKey, arg.Role)
+	_, err := q.exec(ctx, nil, insertMirrorResultSnapshotLink, arg.ResultID, arg.RefKey, arg.Role, arg.SourceID)
 	return err
 }
 
@@ -231,7 +235,8 @@ const listMirrorResults = `
 SELECT
 	id, call_frame_json, self_payload, output_effect_ids_json,
 	expires_at_unix, created_at_unix_nano,
-	last_used_at_unix_nano, record_type, description
+	last_used_at_unix_nano, origin_source_id, origin_result_id,
+	record_type, description
 FROM results
 `
 
@@ -253,6 +258,8 @@ func (q *Queries) ListMirrorResults(ctx context.Context) ([]MirrorResult, error)
 			&row.ExpiresAtUnix,
 			&row.CreatedAtUnixNano,
 			&row.LastUsedAtUnixNano,
+			&row.OriginSourceID,
+			&row.OriginResultID,
 			&row.RecordType,
 			&row.Description,
 		); err != nil {
@@ -398,7 +405,7 @@ func (q *Queries) ListMirrorResultDeps(ctx context.Context) ([]MirrorResultDep, 
 	return out, rows.Err()
 }
 
-const listMirrorResultSnapshotLinks = `SELECT result_id, ref_key, role FROM result_snapshot_links`
+const listMirrorResultSnapshotLinks = `SELECT result_id, ref_key, role, source_id FROM result_snapshot_links`
 
 func (q *Queries) ListMirrorResultSnapshotLinks(ctx context.Context) ([]MirrorResultSnapshotLink, error) {
 	rows, err := q.db.QueryContext(ctx, listMirrorResultSnapshotLinks)
@@ -409,7 +416,7 @@ func (q *Queries) ListMirrorResultSnapshotLinks(ctx context.Context) ([]MirrorRe
 	var out []MirrorResultSnapshotLink
 	for rows.Next() {
 		var row MirrorResultSnapshotLink
-		if err := rows.Scan(&row.ResultID, &row.RefKey, &row.Role); err != nil {
+		if err := rows.Scan(&row.ResultID, &row.RefKey, &row.Role, &row.SourceID); err != nil {
 			return nil, err
 		}
 		out = append(out, row)

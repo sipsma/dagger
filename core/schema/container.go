@@ -1016,6 +1016,7 @@ func (s *containerSchema) from(ctx context.Context, parent dagql.ObjectResult[*c
 		ctr := &core.Container{
 			FS:                 new(core.LazyAccessor[*core.Directory, *core.Container]),
 			MetaSnapshot:       clonedMeta,
+			ExternalSnapshots:  core.CloneContainerExternalSnapshots(parent.Self().ExternalSnapshots),
 			Config:             core.CloneContainerImageConfig(parent.Self().Config),
 			EnabledGPUs:        slices.Clone(parent.Self().EnabledGPUs),
 			Mounts:             clonedMounts,
@@ -1259,6 +1260,7 @@ func (s *containerSchema) withRootfs(ctx context.Context, parent dagql.ObjectRes
 	ctr := &core.Container{
 		FS:                 new(core.LazyAccessor[*core.Directory, *core.Container]),
 		MetaSnapshot:       clonedMeta,
+		ExternalSnapshots:  core.CloneContainerExternalSnapshots(parent.Self().ExternalSnapshots),
 		Config:             core.CloneContainerImageConfig(parent.Self().Config),
 		EnabledGPUs:        slices.Clone(parent.Self().EnabledGPUs),
 		Mounts:             clonedMounts,
@@ -1512,6 +1514,7 @@ func (s *containerSchema) withSymlink(ctx context.Context, parent dagql.ObjectRe
 	ctr := &core.Container{
 		FS:                 clonedFS,
 		MetaSnapshot:       clonedMeta,
+		ExternalSnapshots:  core.CloneContainerExternalSnapshots(parent.Self().ExternalSnapshots),
 		Config:             core.CloneContainerImageConfig(parent.Self().Config),
 		EnabledGPUs:        slices.Clone(parent.Self().EnabledGPUs),
 		Mounts:             clonedMounts,
@@ -2231,6 +2234,7 @@ func (s *containerSchema) withMountedDirectory(ctx context.Context, parent dagql
 	ctr := &core.Container{
 		FS:                 clonedFS,
 		MetaSnapshot:       clonedMeta,
+		ExternalSnapshots:  core.CloneContainerExternalSnapshots(parent.Self().ExternalSnapshots),
 		Config:             core.CloneContainerImageConfig(parent.Self().Config),
 		EnabledGPUs:        slices.Clone(parent.Self().EnabledGPUs),
 		Mounts:             clonedMounts,
@@ -3003,6 +3007,7 @@ func cloneContainerForSchemaChild(ctx context.Context, parent dagql.ObjectResult
 	ctr := &core.Container{
 		FS:                 clonedFS,
 		MetaSnapshot:       clonedMeta,
+		ExternalSnapshots:  core.CloneContainerExternalSnapshots(parent.Self().ExternalSnapshots),
 		Config:             core.CloneContainerImageConfig(parent.Self().Config),
 		EnabledGPUs:        slices.Clone(parent.Self().EnabledGPUs),
 		Mounts:             clonedMounts,

@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS results (
     expires_at_unix INTEGER NOT NULL DEFAULT 0,
     created_at_unix_nano INTEGER NOT NULL,
     last_used_at_unix_nano INTEGER NOT NULL,
+    origin_source_id TEXT NOT NULL DEFAULT '',
+    origin_result_id INTEGER NOT NULL DEFAULT 0,
     record_type TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL DEFAULT ''
 ) STRICT;
@@ -73,7 +75,8 @@ CREATE TABLE IF NOT EXISTS result_snapshot_links (
     result_id INTEGER NOT NULL,
     ref_key TEXT NOT NULL,
     role TEXT NOT NULL,
-    PRIMARY KEY(result_id, ref_key, role),
+    source_id TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY(result_id, ref_key, role, source_id),
     FOREIGN KEY(result_id) REFERENCES results(id) ON DELETE CASCADE
 ) STRICT, WITHOUT ROWID;
 

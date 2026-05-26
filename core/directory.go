@@ -257,6 +257,20 @@ func (dir *Directory) EncodePersistedObject(ctx context.Context, cache dagql.Per
 			}, nil
 		}
 	}
+	if external, ok := dir.Lazy.(ExternalSnapshotLazy); ok {
+		link := external.ExternalSnapshotLink()
+		if link.IsExternal() {
+			payload.Form = persistedDirectoryFormSnapshot
+			payloadJSON, err := json.Marshal(payload)
+			if err != nil {
+				return dagql.PersistedObjectEncoding{}, fmt.Errorf("marshal persisted directory payload: %w", err)
+			}
+			return dagql.PersistedObjectEncoding{
+				JSON:          payloadJSON,
+				SnapshotLinks: []dagql.PersistedSnapshotRefLink{link},
+			}, nil
+		}
+	}
 	if dir.Lazy != nil {
 		payload.Form = persistedDirectoryFormLazy
 		lazyKind, lazyJSON, err := encodePersistedDirectoryLazy(ctx, cache, dir.Lazy)
@@ -302,6 +316,17 @@ func decodePersistedDirectoryWithSnapshotRole(ctx context.Context, dag *dagql.Se
 	}
 	switch persisted.Form {
 	case persistedDirectoryFormSnapshot:
+		link, err := loadPersistedSnapshotLinkByResultID(ctx, dag, resultID, "directory", snapshotRole)
+		if err != nil {
+			return nil, err
+		}
+		if link.IsExternal() {
+			dir.Lazy = &RemoteDirectorySnapshotLazy{
+				LazyState: NewLazyState(),
+				Link:      link,
+			}
+			return dir, nil
+		}
 		snapshot, err := loadPersistedImmutableSnapshotByResultID(ctx, dag, resultID, "directory", snapshotRole)
 		if err != nil {
 			return nil, err

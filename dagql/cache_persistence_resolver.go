@@ -43,6 +43,58 @@ func (c *Cache) PersistedResultID(res AnyResult) (uint64, error) {
 	return uint64(shared.id), nil
 }
 
+func (c *Cache) ResolvePersistedResultID(ctx context.Context, sourceID string, sourceResultID uint64) (uint64, bool) {
+	if sourceID == "" {
+		if origin, ok := persistedDecodeOriginFromContext(ctx); ok {
+			sourceID = origin.sourceID
+		}
+	}
+	if sourceID == "" {
+		return sourceResultID, true
+	}
+	if c == nil {
+		return 0, false
+	}
+	c.egraphMu.RLock()
+	sourceMap := c.resultIDMap[sourceID]
+	localID, ok := sourceMap[sourceResultID]
+	c.egraphMu.RUnlock()
+	return localID, ok
+}
+
+func (c *Cache) persistedDecodeOriginByResultID(resultID uint64) (persistedDecodeOrigin, bool) {
+	if c == nil || resultID == 0 {
+		return persistedDecodeOrigin{}, false
+	}
+	c.egraphMu.RLock()
+	res := c.resultsByID[sharedResultID(resultID)]
+	var origin persistedDecodeOrigin
+	if res != nil {
+		origin = persistedDecodeOrigin{
+			sourceID:       res.importSourceID,
+			sourceResultID: res.sourceResultID,
+		}
+	}
+	c.egraphMu.RUnlock()
+	if origin.sourceID == "" {
+		return persistedDecodeOrigin{}, false
+	}
+	return origin, true
+}
+
+func (c *Cache) SnapshotLinkByRole(ctx context.Context, resultID uint64, role string) (PersistedSnapshotRefLink, bool, error) {
+	links, err := c.PersistedSnapshotLinksByResultID(ctx, resultID)
+	if err != nil {
+		return PersistedSnapshotRefLink{}, false, err
+	}
+	for _, link := range links {
+		if link.Role == role {
+			return link, true, nil
+		}
+	}
+	return PersistedSnapshotRefLink{}, false, nil
+}
+
 func (c *Cache) sharedResultByResultID(ctx context.Context, sessionID string, resultID sharedResultID, mode sharedResultLookupMode) (*sharedResult, bool, int, error) {
 	if c == nil {
 		return nil, false, 0, fmt.Errorf("resolve result %d: nil cache", resultID)

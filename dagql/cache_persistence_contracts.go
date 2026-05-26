@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	persistdb "github.com/dagger/dagger/dagql/persistdb"
+	bkcache "github.com/dagger/dagger/engine/snapshots"
 )
 
 type cachePersistInputProvenanceKind string
@@ -53,4 +54,13 @@ type persistStateSnapshot struct {
 	snapshotContentLinks  []persistdb.MirrorSnapshotContentLink
 	importedLayerByBlob   []persistdb.MirrorImportedLayerBlobIndex
 	importedLayerByDiff   []persistdb.MirrorImportedLayerDiffIndex
+}
+
+// PersistedCacheSource describes one imported cache bundle source. Snapshot
+// hydration is implemented by the bundle layer; dagql keeps the source identity
+// so imported metadata can preserve source-local references until materialized.
+type PersistedCacheSource struct {
+	ID     string
+	Dir    string
+	Bundle *bkcache.CacheBundle
 }

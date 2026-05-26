@@ -33,6 +33,21 @@ type Config struct {
 	// Registries configures custom registry mirrors, root CAs, and
 	// insecure/HTTP access.
 	Registries map[string]RegistryConfig `json:"registries,omitempty"`
+
+	// Cache configures engine cache persistence, import, and export.
+	Cache CacheConfig `json:"cache,omitempty"`
+}
+
+type CacheConfig struct {
+	// PersistencePath is the path to the engine's local DagQL cache database.
+	// If unset, the engine stores it under the configured root directory.
+	PersistencePath string `json:"persistencePath,omitempty"`
+
+	// ImportDirs are cache bundle directories imported during engine startup.
+	ImportDirs []string `json:"importDirs,omitempty"`
+
+	// ExportDir is the cache bundle directory written during engine shutdown.
+	ExportDir string `json:"exportDir,omitempty"`
 }
 
 type LogLevel string
