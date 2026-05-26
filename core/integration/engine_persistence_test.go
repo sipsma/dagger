@@ -16,6 +16,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"dagger.io/dagger"
+	engineconfig "github.com/dagger/dagger/engine/config"
 )
 
 func (CachePersistenceSuite) TestDiskPersistenceAcrossRestart(ctx context.Context, t *testctx.T) {
@@ -34,6 +35,15 @@ func (CachePersistenceSuite) TestDiskPersistenceAcrossRestart(ctx context.Contex
 				"0",
 			),
 		)
+	}
+
+	engineConfigWithRemoteCache := func(importDirs []string, exportDir string) func(context.Context, *testctx.T, engineconfig.Config) engineconfig.Config {
+		return func(ctx context.Context, t *testctx.T, cfg engineconfig.Config) engineconfig.Config {
+			t.Helper()
+			cfg.Cache.ImportDirs = append([]string(nil), importDirs...)
+			cfg.Cache.ExportDir = exportDir
+			return cfg
+		}
 	}
 
 	startEngineWithClientOpts := func(
@@ -125,6 +135,93 @@ func (CachePersistenceSuite) TestDiskPersistenceAcrossRestart(ctx context.Contex
 		entryCount, err := engineClientB.Engine().LocalCache().EntrySet().EntryCount(ctx)
 		require.NoError(t, err)
 		require.Greater(t, entryCount, 0)
+	})
+
+	t.Run("remote cache imports independent exported bundles", func(ctx context.Context, t *testctx.T) {
+		c := connect(ctx, t)
+		stateKeyA := "phase7-remote-cache-export-a-" + identity.NewID()
+		stateKeyB := "phase7-remote-cache-export-b-" + identity.NewID()
+		stateKeyC := "phase7-remote-cache-import-c-" + identity.NewID()
+		const exportDir = "/var/lib/dagger/cache-export"
+		importDirs := []string{
+			"/imports/a/cache-export",
+			"/imports/b/cache-export",
+		}
+
+		remoteCacheWorkload := func(client *dagger.Client, label string) *dagger.Container {
+			script := fmt.Sprintf(`
+set -eu
+token="$(dd if=/dev/urandom bs=32 count=1 status=none | sha256sum | cut -d' ' -f1)"
+mkdir -p /out
+printf "%s:%%s\n" "$token"
+printf "%s-file:%%s\n" "$token" > /out/value.txt
+`, label, label)
+			return client.Container().
+				From(alpineImage).
+				WithExec([]string{"sh", "-ec", script})
+		}
+
+		readWorkload := func(ctx context.Context, t *testctx.T, ctr *dagger.Container) (string, string) {
+			t.Helper()
+			stdout, err := ctr.Stdout(ctx)
+			require.NoError(t, err)
+			file, err := ctr.File("/out/value.txt").Contents(ctx)
+			require.NoError(t, err)
+			return strings.TrimSpace(stdout), strings.TrimSpace(file)
+		}
+
+		upstreamSvcA, engineSvcA, engineClientA := startEngine(c, ctx, t, stateKeyA,
+			engineWithPersistenceTestGC(ctx, t),
+			engineWithConfig(ctx, t, engineConfigWithRemoteCache(nil, exportDir)),
+		)
+		t.Cleanup(func() { stopEngine(ctx, t, upstreamSvcA, engineSvcA, engineClientA) })
+		outA, fileA := readWorkload(ctx, t, remoteCacheWorkload(engineClientA, "remote-cache-a"))
+		stopEngine(ctx, t, upstreamSvcA, engineSvcA, engineClientA)
+		upstreamSvcA = nil
+		engineSvcA = nil
+		engineClientA = nil
+
+		upstreamSvcB, engineSvcB, engineClientB := startEngine(c, ctx, t, stateKeyB,
+			engineWithPersistenceTestGC(ctx, t),
+			engineWithConfig(ctx, t, engineConfigWithRemoteCache(nil, exportDir)),
+		)
+		t.Cleanup(func() { stopEngine(ctx, t, upstreamSvcB, engineSvcB, engineClientB) })
+		outB, fileB := readWorkload(ctx, t, remoteCacheWorkload(engineClientB, "remote-cache-b"))
+		stopEngine(ctx, t, upstreamSvcB, engineSvcB, engineClientB)
+		upstreamSvcB = nil
+		engineSvcB = nil
+		engineClientB = nil
+
+		mountImports := func(ctr *dagger.Container) *dagger.Container {
+			return ctr.
+				WithMountedCache("/imports/a", c.CacheVolume(stateKeyA)).
+				WithMountedCache("/imports/b", c.CacheVolume(stateKeyB))
+		}
+		upstreamSvcC, engineSvcC, engineClientC := startEngine(c, ctx, t, stateKeyC,
+			mountImports,
+			engineWithPersistenceTestGC(ctx, t),
+			engineWithConfig(ctx, t, engineConfigWithRemoteCache(importDirs, "")),
+		)
+		t.Cleanup(func() { stopEngine(ctx, t, upstreamSvcC, engineSvcC, engineClientC) })
+
+		outAHit, fileAHit := readWorkload(ctx, t, remoteCacheWorkload(engineClientC, "remote-cache-a"))
+		require.Equal(t, outA, outAHit)
+		require.Equal(t, fileA, fileAHit)
+
+		outBHit, fileBHit := readWorkload(ctx, t, remoteCacheWorkload(engineClientC, "remote-cache-b"))
+		require.Equal(t, outB, outBHit)
+		require.Equal(t, fileB, fileBHit)
+
+		divergedFile, err := remoteCacheWorkload(engineClientC, "remote-cache-a").
+			WithExec([]string{"sh", "-ec", "printf diverged > /out/diverged.txt"}).
+			File("/out/value.txt").
+			Contents(ctx)
+		require.NoError(t, err)
+		require.Equal(t, fileA, strings.TrimSpace(divergedFile))
+
+		invalidatedOut, err := remoteCacheWorkload(engineClientC, "remote-cache-a-invalidated").Stdout(ctx)
+		require.NoError(t, err)
+		require.NotEqual(t, outA, strings.TrimSpace(invalidatedOut))
 	})
 
 	t.Run("lazy imported snapshot links count toward local cache usage and max-used prune", func(ctx context.Context, t *testctx.T) {

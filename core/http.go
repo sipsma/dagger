@@ -34,8 +34,9 @@ type HTTPState struct {
 	LastModified  string
 	ContentDigest digest.Digest
 
-	snapshot   bkcache.ImmutableRef
-	snapshotID string
+	snapshot         bkcache.ImmutableRef
+	snapshotID       string
+	externalSnapshot dagql.PersistedSnapshotRefLink
 }
 
 type persistedHTTPStatePayload struct {
@@ -121,6 +122,9 @@ func (state *HTTPState) CacheUsageIdentities() []string {
 		return []string{state.snapshot.SnapshotID()}
 	}
 	if state.snapshotID == "" {
+		if state.externalSnapshot.IsExternal() {
+			return []string{state.externalSnapshot.RefKey}
+		}
 		return nil
 	}
 	return []string{state.snapshotID}
@@ -133,11 +137,12 @@ func (state *HTTPState) CacheUsageSize(ctx context.Context, identity string) (in
 	state.mu.Lock()
 	snapshot := state.snapshot
 	snapshotID := state.snapshotID
+	externalSnapshot := state.externalSnapshot
 	state.mu.Unlock()
 	if snapshot != nil && snapshot.SnapshotID() != identity {
 		return 0, false, nil
 	}
-	if snapshot == nil && (snapshotID == "" || snapshotID != identity) {
+	if snapshot == nil && (snapshotID == "" || snapshotID != identity) && (!externalSnapshot.IsExternal() || externalSnapshot.RefKey != identity) {
 		return 0, false, nil
 	}
 	if snapshot != nil {
@@ -176,8 +181,10 @@ func (state *HTTPState) EncodePersistedObject(ctx context.Context, cache dagql.P
 	}
 	state.mu.Lock()
 	snapshotID := state.snapshotID
+	externalSnapshot := state.externalSnapshot
 	if snapshotID == "" && state.snapshot != nil {
 		snapshotID = state.snapshot.SnapshotID()
+		externalSnapshot = dagql.PersistedSnapshotRefLink{}
 	}
 	state.mu.Unlock()
 	var links []dagql.PersistedSnapshotRefLink
@@ -186,6 +193,8 @@ func (state *HTTPState) EncodePersistedObject(ctx context.Context, cache dagql.P
 			RefKey: snapshotID,
 			Role:   "snapshot",
 		}}
+	} else if externalSnapshot.IsExternal() {
+		links = []dagql.PersistedSnapshotRefLink{externalSnapshot}
 	}
 	payload, err := json.Marshal(persistedHTTPStatePayload{
 		URL:           state.URL,
@@ -228,7 +237,11 @@ func (*HTTPState) DecodePersistedObject(ctx context.Context, dag *dagql.Server, 
 			if link.Role != "snapshot" {
 				continue
 			}
-			state.snapshotID = link.RefKey
+			if link.IsExternal() {
+				state.externalSnapshot = link
+			} else {
+				state.snapshotID = link.RefKey
+			}
 			break
 		}
 	}
@@ -256,6 +269,19 @@ func (state *HTTPState) Resolve(
 			return nil, fmt.Errorf("reopen http state snapshot %q: %w", state.snapshotID, err)
 		}
 		state.snapshot = snapshot
+	}
+	if state.snapshot == nil && state.externalSnapshot.IsExternal() {
+		cache, err := dagql.EngineCache(ctx)
+		if err != nil {
+			return nil, err
+		}
+		snapshot, err := cache.HydrateSnapshot(ctx, state.externalSnapshot)
+		if err != nil {
+			return nil, fmt.Errorf("hydrate http state snapshot %q from %q: %w", state.externalSnapshot.RefKey, state.externalSnapshot.SourceID, err)
+		}
+		state.snapshot = snapshot
+		state.snapshotID = snapshot.SnapshotID()
+		state.externalSnapshot = dagql.PersistedSnapshotRefLink{}
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, state.URL, nil)

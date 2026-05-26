@@ -243,6 +243,20 @@ func (file *File) EncodePersistedObject(ctx context.Context, cache dagql.Persist
 			}, nil
 		}
 	}
+	if external, ok := file.Lazy.(ExternalSnapshotLazy); ok {
+		link := external.ExternalSnapshotLink()
+		if link.IsExternal() {
+			payload.Form = persistedFileFormSnapshot
+			payloadJSON, err := json.Marshal(payload)
+			if err != nil {
+				return dagql.PersistedObjectEncoding{}, fmt.Errorf("marshal persisted file payload: %w", err)
+			}
+			return dagql.PersistedObjectEncoding{
+				JSON:          payloadJSON,
+				SnapshotLinks: []dagql.PersistedSnapshotRefLink{link},
+			}, nil
+		}
+	}
 	if file.Lazy != nil {
 		payload.Form = persistedFileFormLazy
 		lazyKind, lazyJSON, err := encodePersistedFileLazy(ctx, cache, file.Lazy)
@@ -282,6 +296,17 @@ func decodePersistedFileWithSnapshotRole(ctx context.Context, dag *dagql.Server,
 	}
 	switch persisted.Form {
 	case persistedFileFormSnapshot:
+		link, err := loadPersistedSnapshotLinkByResultID(ctx, dag, resultID, "file", snapshotRole)
+		if err != nil {
+			return nil, err
+		}
+		if link.IsExternal() {
+			file.Lazy = &RemoteFileSnapshotLazy{
+				LazyState: NewLazyState(),
+				Link:      link,
+			}
+			return file, nil
+		}
 		snapshot, err := loadPersistedImmutableSnapshotByResultID(ctx, dag, resultID, "file", snapshotRole)
 		if err != nil {
 			return nil, err

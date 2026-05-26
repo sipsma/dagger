@@ -44,6 +44,37 @@ func TestDebugCacheSnapshotIncludesResultMetadata(t *testing.T) {
 	assert.DeepEqual(t, index.SharedResultIDs, []uint64{uint64(shared.id)})
 }
 
+func TestDebugCacheSnapshotIncludesSnapshotLinkSource(t *testing.T) {
+	base, err := NewCache(t.Context(), "", nil, nil)
+	assert.NilError(t, err)
+	c := base
+
+	attached, err := c.AttachResult(t.Context(), "test-session", noopTypeResolver{}, cacheTestDetachedResult(cacheTestIntCall("debugCacheSnapshotSource"), NewInt(123)))
+	assert.NilError(t, err)
+	shared := attached.cacheSharedResult()
+	assert.Assert(t, shared != nil)
+	shared.payloadMu.Lock()
+	shared.snapshotOwnerLinks = []PersistedSnapshotRefLink{
+		{RefKey: "local-snapshot", Role: "rootfs"},
+		{RefKey: "remote-snapshot", Role: "meta", SourceID: "bundle-a"},
+	}
+	shared.payloadMu.Unlock()
+
+	var out bytes.Buffer
+	err = c.WriteDebugCacheSnapshot(&out)
+	assert.NilError(t, err)
+
+	var snapshot CacheDebugSnapshot
+	err = json.Unmarshal(out.Bytes(), &snapshot)
+	assert.NilError(t, err)
+	assert.Assert(t, is.Len(snapshot.Results, 1))
+	links := snapshot.Results[0].SnapshotLinks
+	assert.Assert(t, is.Len(links, 2))
+	assert.Equal(t, "local", links[0].Source)
+	assert.Equal(t, "bundle-a", links[1].Source)
+	assert.Equal(t, "bundle-a", links[1].SourceID)
+}
+
 func TestDebugCacheSnapshotIncludesCompletedArbitraryCalls(t *testing.T) {
 	base, err := NewCache(t.Context(), "", nil, nil)
 	assert.NilError(t, err)

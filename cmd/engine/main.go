@@ -172,6 +172,18 @@ func addFlags(app *cli.App) {
 			Usage: "path to state directory",
 			Value: defaultConf.Root,
 		},
+		cli.StringFlag{
+			Name:  "cache-db",
+			Usage: "path to DagQL cache persistence database",
+		},
+		cli.StringSliceFlag{
+			Name:  "cache-import-dir",
+			Usage: "cache bundle directory to import at startup",
+		},
+		cli.StringFlag{
+			Name:  "cache-export-dir",
+			Usage: "cache bundle directory to export at shutdown",
+		},
 		cli.StringSliceFlag{
 			Name:  "addr",
 			Usage: "listening address (socket or tcp)",
@@ -349,6 +361,15 @@ func main() { //nolint:gocyclo
 		cfg, err := config.LoadDefault()
 		if err != nil {
 			return err
+		}
+		if cacheDBPath := c.GlobalString("cache-db"); cacheDBPath != "" {
+			cfg.Cache.PersistencePath = cacheDBPath
+		}
+		if cacheImportDirs := c.GlobalStringSlice("cache-import-dir"); len(cacheImportDirs) > 0 {
+			cfg.Cache.ImportDirs = append([]string(nil), cacheImportDirs...)
+		}
+		if cacheExportDir := c.GlobalString("cache-export-dir"); cacheExportDir != "" {
+			cfg.Cache.ExportDir = cacheExportDir
 		}
 
 		bklog.G(ctx).Debug("setting up engine networking")

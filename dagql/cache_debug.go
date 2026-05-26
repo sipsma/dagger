@@ -54,19 +54,26 @@ type CacheDebugSnapshot struct {
 }
 
 type EGraphDebugResult struct {
-	SharedResultID           uint64                     `json:"shared_result_id"`
-	OutputEqClassIDs         []uint64                   `json:"output_eq_class_ids,omitempty"`
-	RecordType               string                     `json:"record_type,omitempty"`
-	Description              string                     `json:"description,omitempty"`
-	TypeName                 string                     `json:"type_name,omitempty"`
-	IncomingOwnershipCount   int64                      `json:"incoming_ownership_count"`
-	HasValue                 bool                       `json:"has_value"`
-	PayloadState             string                     `json:"payload_state"`
-	HasPersistedEdge         bool                       `json:"has_persisted_edge"`
-	PersistedEdgeUnpruneable bool                       `json:"persisted_edge_unpruneable"`
-	ExplicitDeps             []uint64                   `json:"explicit_dep_ids,omitempty"`
-	HeldDependencyResults    int                        `json:"held_dependency_results_count"`
-	SnapshotLinks            []PersistedSnapshotRefLink `json:"snapshot_links,omitempty"`
+	SharedResultID           uint64                   `json:"shared_result_id"`
+	OutputEqClassIDs         []uint64                 `json:"output_eq_class_ids,omitempty"`
+	RecordType               string                   `json:"record_type,omitempty"`
+	Description              string                   `json:"description,omitempty"`
+	TypeName                 string                   `json:"type_name,omitempty"`
+	IncomingOwnershipCount   int64                    `json:"incoming_ownership_count"`
+	HasValue                 bool                     `json:"has_value"`
+	PayloadState             string                   `json:"payload_state"`
+	HasPersistedEdge         bool                     `json:"has_persisted_edge"`
+	PersistedEdgeUnpruneable bool                     `json:"persisted_edge_unpruneable"`
+	ExplicitDeps             []uint64                 `json:"explicit_dep_ids,omitempty"`
+	HeldDependencyResults    int                      `json:"held_dependency_results_count"`
+	SnapshotLinks            []CacheDebugSnapshotLink `json:"snapshot_links,omitempty"`
+}
+
+type CacheDebugSnapshotLink struct {
+	RefKey   string
+	Role     string
+	SourceID string
+	Source   string
 }
 
 type CacheDebugResult struct {
@@ -86,6 +93,45 @@ type CacheDebugResult struct {
 	CacheUsageSizeByIdentity              map[string]int64 `json:"cache_usage_size_by_identity,omitempty"`
 	PersistedEnvelopeKind                 string           `json:"persisted_envelope_kind,omitempty"`
 	PersistedEnvelopeTypeName             string           `json:"persisted_envelope_type_name,omitempty"`
+}
+
+func debugSnapshotLinks(links []PersistedSnapshotRefLink) []CacheDebugSnapshotLink {
+	if len(links) == 0 {
+		return nil
+	}
+	links = slices.Clone(links)
+	slices.SortFunc(links, func(a, b PersistedSnapshotRefLink) int {
+		switch {
+		case a.RefKey < b.RefKey:
+			return -1
+		case a.RefKey > b.RefKey:
+			return 1
+		case a.Role < b.Role:
+			return -1
+		case a.Role > b.Role:
+			return 1
+		case a.SourceID < b.SourceID:
+			return -1
+		case a.SourceID > b.SourceID:
+			return 1
+		default:
+			return 0
+		}
+	})
+	out := make([]CacheDebugSnapshotLink, 0, len(links))
+	for _, link := range links {
+		source := "local"
+		if link.SourceID != "" {
+			source = link.SourceID
+		}
+		out = append(out, CacheDebugSnapshotLink{
+			RefKey:   link.RefKey,
+			Role:     link.Role,
+			SourceID: link.SourceID,
+			Source:   source,
+		})
+	}
+	return out
 }
 
 type CacheDebugResultDigestIndex struct {
@@ -936,21 +982,7 @@ func (c *Cache) DebugEGraphSnapshot() *EGraphDebugSnapshot {
 			outputEqIDs = append(outputEqIDs, uint64(outputEqID))
 		}
 		slices.Sort(outputEqIDs)
-		links := res.loadSnapshotOwnerLinks()
-		slices.SortFunc(links, func(a, b PersistedSnapshotRefLink) int {
-			switch {
-			case a.RefKey < b.RefKey:
-				return -1
-			case a.RefKey > b.RefKey:
-				return 1
-			case a.Role < b.Role:
-				return -1
-			case a.Role > b.Role:
-				return 1
-			default:
-				return 0
-			}
-		})
+		links := debugSnapshotLinks(res.loadSnapshotOwnerLinks())
 		state := res.loadPayloadState()
 		typeName := sharedResultObjectTypeName(res, state)
 		if typeName == "" && state.self != nil && state.self.Type() != nil {
@@ -1194,21 +1226,7 @@ func (c *Cache) WriteDebugCacheSnapshot(w io.Writer) error {
 			}
 			slices.Sort(outputEqIDs)
 
-			links := res.loadSnapshotOwnerLinks()
-			slices.SortFunc(links, func(a, b PersistedSnapshotRefLink) int {
-				switch {
-				case a.RefKey < b.RefKey:
-					return -1
-				case a.RefKey > b.RefKey:
-					return 1
-				case a.Role < b.Role:
-					return -1
-				case a.Role > b.Role:
-					return 1
-				default:
-					return 0
-				}
-			})
+			links := debugSnapshotLinks(res.loadSnapshotOwnerLinks())
 			state := res.loadPayloadState()
 			typeName := sharedResultObjectTypeName(res, state)
 			if typeName == "" && state.self != nil && state.self.Type() != nil {

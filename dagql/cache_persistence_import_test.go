@@ -14,6 +14,7 @@ import (
 
 	persistdb "github.com/dagger/dagger/dagql/persistdb"
 	"github.com/dagger/dagger/engine"
+	bkcache "github.com/dagger/dagger/engine/snapshots"
 	"github.com/opencontainers/go-digest"
 	"github.com/vektah/gqlparser/v2/ast"
 	"gotest.tools/v3/assert"
@@ -134,6 +135,132 @@ func newPersistConcurrentDecodeTestServer() *Server {
 		}).IsPersistable(),
 	}.Install(srv)
 	return srv
+}
+
+func TestCacheResolvePersistedResultIDUsesDecodeOrigin(t *testing.T) {
+	t.Parallel()
+
+	c := &Cache{
+		resultIDMap: map[string]map[uint64]uint64{
+			"bundle-a": {
+				123: 456,
+			},
+		},
+	}
+
+	ctx := contextWithPersistedDecodeOrigin(context.Background(), persistedDecodeOrigin{
+		sourceID:       "bundle-a",
+		sourceResultID: 999,
+	})
+
+	localID, ok := c.ResolvePersistedResultID(ctx, "", 123)
+	assert.Assert(t, ok)
+	assert.Equal(t, uint64(456), localID)
+
+	localID, ok = c.ResolvePersistedResultID(context.Background(), "", 123)
+	assert.Assert(t, ok)
+	assert.Equal(t, uint64(123), localID)
+}
+
+func TestCacheBundleImportMergesIndependentExportsAndSkipsInvalidBundle(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	root := t.TempDir()
+	bundleADir := filepath.Join(root, "bundle-a")
+	bundleBDir := filepath.Join(root, "bundle-b")
+	keyA := cacheTestIntCall("persist-bundle-import-a")
+	keyB := cacheTestIntCall("persist-bundle-import-b")
+
+	cacheA, err := NewCacheWithOptions(ctx, CacheOptions{
+		DBPath:    filepath.Join(root, "engine-a.db"),
+		ExportDir: bundleADir,
+	})
+	assert.NilError(t, err)
+	_, err = cacheA.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{
+		ResultCall:    keyA,
+		IsPersistable: true,
+	}, func(context.Context) (AnyResult, error) {
+		return cacheTestIntResult(keyA, 101), nil
+	})
+	assert.NilError(t, err)
+	cacheTestReleaseSession(t, cacheA, ctx)
+	assert.NilError(t, cacheA.Close(context.Background()))
+
+	cacheB, err := NewCacheWithOptions(ctx, CacheOptions{
+		DBPath:    filepath.Join(root, "engine-b.db"),
+		ExportDir: bundleBDir,
+	})
+	assert.NilError(t, err)
+	_, err = cacheB.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{
+		ResultCall:    keyB,
+		IsPersistable: true,
+	}, func(context.Context) (AnyResult, error) {
+		return cacheTestIntResult(keyB, 202), nil
+	})
+	assert.NilError(t, err)
+	cacheTestReleaseSession(t, cacheB, ctx)
+	assert.NilError(t, cacheB.Close(context.Background()))
+
+	sourceAResultID := singleBundleResultID(t, ctx, bundleADir)
+	sourceBResultID := singleBundleResultID(t, ctx, bundleBDir)
+	bundleA, err := bkcache.OpenCacheBundle(bundleADir)
+	assert.NilError(t, err)
+	bundleB, err := bkcache.OpenCacheBundle(bundleBDir)
+	assert.NilError(t, err)
+
+	cacheC, err := NewCacheWithOptions(ctx, CacheOptions{
+		DBPath: filepath.Join(root, "engine-c.db"),
+		ImportDirs: []string{
+			filepath.Join(root, "missing-bundle"),
+			bundleADir,
+			bundleBDir,
+		},
+	})
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, cacheC.Close(context.Background()))
+	}()
+
+	localA, ok := cacheC.resultIDMap[bundleA.ID][sourceAResultID]
+	assert.Assert(t, ok)
+	localB, ok := cacheC.resultIDMap[bundleB.ID][sourceBResultID]
+	assert.Assert(t, ok)
+	assert.Assert(t, localA != localB)
+
+	resA, err := cacheC.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{
+		ResultCall:    keyA,
+		IsPersistable: true,
+	}, func(context.Context) (AnyResult, error) {
+		return nil, errors.New("unexpected initializer for bundle A hit")
+	})
+	assert.NilError(t, err)
+	assert.Assert(t, resA.HitCache())
+	assert.Equal(t, 101, cacheTestUnwrapInt(t, resA))
+
+	resB, err := cacheC.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{
+		ResultCall:    keyB,
+		IsPersistable: true,
+	}, func(context.Context) (AnyResult, error) {
+		return nil, errors.New("unexpected initializer for bundle B hit")
+	})
+	assert.NilError(t, err)
+	assert.Assert(t, resB.HitCache())
+	assert.Equal(t, 202, cacheTestUnwrapInt(t, resB))
+	cacheTestReleaseSession(t, cacheC, ctx)
+}
+
+func singleBundleResultID(t *testing.T, ctx context.Context, bundleDir string) uint64 {
+	t.Helper()
+	db, q, err := openCacheDBReadOnly(ctx, filepath.Join(bundleDir, bkcache.CacheBundleDBName))
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, closeCacheDBs(db, q))
+	}()
+	rows, err := q.ListMirrorResults(ctx)
+	assert.NilError(t, err)
+	assert.Equal(t, 1, len(rows))
+	return uint64(rows[0].ID)
 }
 
 func newPersistCodecImportTestResult(ctx context.Context, srv *Server) (ObjectResult[*persistCodecObj], error) {

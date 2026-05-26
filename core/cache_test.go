@@ -550,6 +550,47 @@ func TestCacheVolumeDecodeDistinctPersistedResultsSharingSnapshot(t *testing.T) 
 	require.False(t, managerB.mutableSnapshotOpen[snapshotID])
 }
 
+func TestMutableBackedObjectsPreserveExternalSnapshotLinksOnEncode(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	external := dagql.PersistedSnapshotRefLink{
+		RefKey:   "snapshot-a",
+		Role:     "snapshot",
+		SourceID: "bundle-a",
+	}
+
+	cacheVolume := NewCache("cache-key", "ns", dagql.Optional[DirectoryID]{}, CacheSharingModeLocked, "")
+	cacheVolume.externalSnapshot = external
+	cacheEncoding, err := cacheVolume.EncodePersistedObject(ctx, nil)
+	require.NoError(t, err)
+	require.Equal(t, []dagql.PersistedSnapshotRefLink{external}, cacheEncoding.SnapshotLinks)
+
+	httpState := &HTTPState{URL: "https://example.com/data", externalSnapshot: external}
+	httpEncoding, err := httpState.EncodePersistedObject(ctx, nil)
+	require.NoError(t, err)
+	require.Equal(t, []dagql.PersistedSnapshotRefLink{external}, httpEncoding.SnapshotLinks)
+
+	gitExternal := dagql.PersistedSnapshotRefLink{
+		RefKey:   "git-snapshot-a",
+		Role:     "bare_repo",
+		SourceID: "bundle-a",
+	}
+	gitMirror := NewRemoteGitMirror("https://example.com/repo.git")
+	gitMirror.externalSnapshot = gitExternal
+	gitEncoding, err := gitMirror.EncodePersistedObject(ctx, nil)
+	require.NoError(t, err)
+	require.Equal(t, []dagql.PersistedSnapshotRefLink{gitExternal}, gitEncoding.SnapshotLinks)
+
+	filesyncMirror := &ClientFilesyncMirror{
+		StableClientID:   "client-a",
+		externalSnapshot: external,
+	}
+	filesyncEncoding, err := filesyncMirror.EncodePersistedObject(ctx, nil)
+	require.NoError(t, err)
+	require.Equal(t, []dagql.PersistedSnapshotRefLink{external}, filesyncEncoding.SnapshotLinks)
+}
+
 var _ bkcache.ImmutableRef = (*cacheVolumeTestImmutableRef)(nil)
 var _ bkcache.MutableRef = (*cacheVolumeTestMutableRef)(nil)
 var _ bkcache.SnapshotManager = (*cacheVolumeTestSnapshotManager)(nil)

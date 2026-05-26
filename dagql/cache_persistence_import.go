@@ -129,6 +129,9 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 		}
 
 		var maxResultID sharedResultID
+		if c.resultIDMap == nil {
+			c.resultIDMap = make(map[string]map[uint64]uint64)
+		}
 		for _, row := range resultRows {
 			resultID := sharedResultID(row.ID)
 			if resultID == 0 {
@@ -171,6 +174,14 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 				description:           row.Description,
 				recordType:            row.RecordType,
 				persistedEnvelope:     &env,
+				importSourceID:        row.OriginSourceID,
+				sourceResultID:        uint64(row.OriginResultID),
+			}
+			if row.OriginSourceID != "" && row.OriginResultID != 0 {
+				if c.resultIDMap[row.OriginSourceID] == nil {
+					c.resultIDMap[row.OriginSourceID] = make(map[uint64]uint64)
+				}
+				c.resultIDMap[row.OriginSourceID][uint64(row.OriginResultID)] = uint64(resultID)
 			}
 			res.storeResultCall(frame)
 			c.traceResultCallFrameUpdated(ctx, res, "import_persisted_result", nil, frame)
@@ -350,8 +361,9 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			}
 			res.payloadMu.Lock()
 			res.snapshotOwnerLinks = append(res.snapshotOwnerLinks, PersistedSnapshotRefLink{
-				RefKey: row.RefKey,
-				Role:   row.Role,
+				RefKey:   row.RefKey,
+				Role:     row.Role,
+				SourceID: row.SourceID,
 			})
 			res.payloadMu.Unlock()
 			c.traceImportResultSnapshotLinkLoaded(ctx, importRunID, resultID, row.RefKey, row.Role)
@@ -491,6 +503,9 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			links := desiredSnapshotLinksForResult(res)
 			seen := make(map[snapshotOwnerKey]struct{}, len(links))
 			for _, link := range links {
+				if link.SourceID != "" {
+					continue
+				}
 				key := snapshotOwnerKey{Role: link.Role}
 				if _, alreadySeen := seen[key]; alreadySeen {
 					continue

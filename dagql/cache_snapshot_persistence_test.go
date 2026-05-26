@@ -285,6 +285,64 @@ func TestCachePersistenceImportHydratesSnapshotMetadataAndSyncsOwnerLeases(t *te
 	assert.Assert(t, keepFound)
 }
 
+func TestCachePersistenceImportDoesNotLeaseExternalSnapshotLinks(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	cacheA, err := NewCache(ctx, dbPath, &fakeSnapshotManager{}, nil)
+	assert.NilError(t, err)
+	cA := cacheA
+
+	key := &ResultCall{
+		Kind:  ResultCallKindField,
+		Type:  NewResultCallType((&persistSnapshotValue{}).Type()),
+		Field: "persist-external-snapshot-owner",
+	}
+
+	resA, err := cA.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{
+		ResultCall:    key,
+		IsPersistable: true,
+	}, func(context.Context) (AnyResult, error) {
+		return cacheTestPlainResult(&persistSnapshotValue{
+			Name:       "x",
+			SnapshotID: "snapshot-a",
+		}), nil
+	})
+	assert.NilError(t, err)
+	resultID := resA.cacheSharedResult().id
+
+	cacheTestReleaseSession(t, cA, ctx)
+	assert.NilError(t, cA.persistCurrentState(ctx))
+	_, err = cA.sqlDB.ExecContext(ctx, `UPDATE result_snapshot_links SET source_id = ? WHERE result_id = ?`, "bundle-a", resultID)
+	assert.NilError(t, err)
+	assert.NilError(t, cA.pdb.UpsertMeta(ctx, persistdb.MetaKeyCleanShutdown, "1"))
+	assert.NilError(t, closeCacheDBs(cA.sqlDB, cA.pdb))
+	cA.sqlDB = nil
+	cA.pdb = nil
+
+	snapshotManagerB := &fakeSnapshotManager{}
+	cacheB, err := NewCache(ctx, dbPath, snapshotManagerB, nil)
+	assert.NilError(t, err)
+	cB := cacheB
+	defer func() {
+		assert.NilError(t, cB.Close(context.Background()))
+	}()
+
+	assert.Equal(t, 0, len(snapshotManagerB.attachCalls))
+	assert.Assert(t, snapshotManagerB.deleteStaleCallSeen)
+	_, keepFound := snapshotManagerB.deleteStaleKeep[resultSnapshotLeaseID(resultID, "snapshot")]
+	assert.Assert(t, !keepFound)
+
+	links, err := cB.PersistedSnapshotLinksByResultID(ctx, uint64(resultID))
+	assert.NilError(t, err)
+	assert.DeepEqual(t, links, []PersistedSnapshotRefLink{{
+		RefKey:   "snapshot-a",
+		Role:     "snapshot",
+		SourceID: "bundle-a",
+	}})
+}
+
 func importedSnapshotLinkUsageTestCache(t *testing.T, ctx context.Context, snapshotID string, sizeBytes int64) (*Cache, *fakeSnapshotManager) {
 	t.Helper()
 

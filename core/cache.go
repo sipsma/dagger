@@ -23,11 +23,12 @@ type CacheVolume struct {
 	Sharing   CacheSharingMode
 	Owner     string
 
-	mu              sync.Mutex
-	snapshot        bkcache.MutableRef
-	snapshotID      string
-	selector        string
-	releaseSnapshot func(context.Context) error
+	mu               sync.Mutex
+	snapshot         bkcache.MutableRef
+	snapshotID       string
+	externalSnapshot dagql.PersistedSnapshotRefLink
+	selector         string
+	releaseSnapshot  func(context.Context) error
 }
 
 func (*CacheVolume) Type() *ast.Type {
@@ -95,6 +96,7 @@ func (cache *CacheVolume) CacheUsageSize(ctx context.Context, identity string) (
 	cache.mu.Lock()
 	snapshot := cache.snapshot
 	snapshotID := cache.snapshotID
+	externalSnapshot := cache.externalSnapshot
 	cache.mu.Unlock()
 	if snapshot != nil {
 		if snapshot.SnapshotID() != identity {
@@ -107,6 +109,9 @@ func (cache *CacheVolume) CacheUsageSize(ctx context.Context, identity string) (
 		return size, true, nil
 	}
 	if snapshotID == "" || snapshotID != identity {
+		if externalSnapshot.IsExternal() && externalSnapshot.RefKey == identity {
+			return 0, false, nil
+		}
 		return 0, false, nil
 	}
 	query, err := CurrentQuery(ctx)
@@ -127,6 +132,9 @@ func (cache *CacheVolume) CacheUsageIdentities() []string {
 		return []string{cache.snapshot.SnapshotID()}
 	}
 	if cache.snapshotID == "" {
+		if cache.externalSnapshot.IsExternal() {
+			return []string{cache.externalSnapshot.RefKey}
+		}
 		return nil
 	}
 	return []string{cache.snapshotID}
@@ -137,10 +145,15 @@ func (cache *CacheVolume) PersistedSnapshotRefLinks() []dagql.PersistedSnapshotR
 	defer cache.mu.Unlock()
 
 	snapshotID := cache.snapshotID
+	externalSnapshot := cache.externalSnapshot
 	if cache.snapshot != nil {
 		snapshotID = cache.snapshot.SnapshotID()
+		externalSnapshot = dagql.PersistedSnapshotRefLink{}
 	}
 	if snapshotID == "" {
+		if externalSnapshot.IsExternal() {
+			return []dagql.PersistedSnapshotRefLink{externalSnapshot}
+		}
 		return nil
 	}
 	return []dagql.PersistedSnapshotRefLink{
@@ -302,15 +315,19 @@ func (cache *CacheVolume) EncodePersistedObject(ctx context.Context, persistedCa
 		selector = "/"
 	}
 	snapshotID := cache.snapshotID
+	externalSnapshot := cache.externalSnapshot
 	var snapshotLinks []dagql.PersistedSnapshotRefLink
 	if cache.snapshot != nil {
 		snapshotID = cache.snapshot.SnapshotID()
+		externalSnapshot = dagql.PersistedSnapshotRefLink{}
 	}
 	if snapshotID != "" {
 		snapshotLinks = []dagql.PersistedSnapshotRefLink{{
 			RefKey: snapshotID,
 			Role:   "snapshot",
 		}}
+	} else if externalSnapshot.IsExternal() {
+		snapshotLinks = []dagql.PersistedSnapshotRefLink{externalSnapshot}
 	}
 	cache.mu.Unlock()
 	payload, err := json.Marshal(persistedCacheVolumePayload{
@@ -370,7 +387,11 @@ func (*CacheVolume) DecodePersistedObject(ctx context.Context, dag *dagql.Server
 		if link.Role != "snapshot" {
 			continue
 		}
-		cache.snapshotID = link.RefKey
+		if link.IsExternal() {
+			cache.externalSnapshot = link
+		} else {
+			cache.snapshotID = link.RefKey
+		}
 		break
 	}
 	return cache, nil
@@ -422,6 +443,42 @@ func (cache *CacheVolume) InitializeSnapshot(ctx context.Context) error {
 			return err
 		}
 		cache.snapshot = ref
+		cache.releaseSnapshot = releaseSnapshot
+		if cache.selector == "" {
+			cache.selector = "/"
+		}
+		return nil
+	}
+	if cache.externalSnapshot.IsExternal() {
+		dagCache, err := dagql.EngineCache(ctx)
+		if err != nil {
+			return err
+		}
+		base, err := dagCache.HydrateSnapshot(ctx, cache.externalSnapshot)
+		if err != nil {
+			return fmt.Errorf("hydrate persisted cache volume snapshot %q from %q: %w", cache.externalSnapshot.RefKey, cache.externalSnapshot.SourceID, err)
+		}
+		defer func() {
+			_ = base.Release(context.WithoutCancel(ctx))
+		}()
+		newRef, err := query.SnapshotManager().New(
+			ctx,
+			base,
+			nil,
+			bkcache.WithRecordType(bkclient.UsageRecordTypeCacheMount),
+			bkcache.WithDescription(fmt.Sprintf("cache volume %q", cache.Key)),
+		)
+		if err != nil {
+			return fmt.Errorf("initialize cache volume from persisted snapshot %q: %w", cache.externalSnapshot.RefKey, err)
+		}
+		releaseSnapshot, err := query.cacheVolumes().register(ctx, newRef)
+		if err != nil {
+			_ = newRef.Release(context.WithoutCancel(ctx))
+			return err
+		}
+		cache.snapshot = newRef
+		cache.snapshotID = newRef.SnapshotID()
+		cache.externalSnapshot = dagql.PersistedSnapshotRefLink{}
 		cache.releaseSnapshot = releaseSnapshot
 		if cache.selector == "" {
 			cache.selector = "/"

@@ -1523,6 +1523,9 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 		}
 		if inputRootFS != nil {
 			if rootfs, ok := inputRootFS.Peek(); ok && rootfs != nil {
+				if err := ensureDirectorySnapshot(ctx, rootfs); err != nil {
+					return failPrepare(fmt.Errorf("hydrate parent rootfs: %w", err))
+				}
 				if selector, ok := rootfs.Dir.Peek(); ok && selector != "" {
 					rootState.Selector = selector
 				}
@@ -1560,6 +1563,9 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 				if !ok || dir == nil {
 					return failPrepare(fmt.Errorf("mount %d has nil directory source", i))
 				}
+				if err := ensureDirectorySnapshot(ctx, dir); err != nil {
+					return failPrepare(fmt.Errorf("hydrate directory mount %d: %w", i, err))
+				}
 				if selector, ok := dir.Dir.Peek(); ok {
 					mountState.Selector = selector
 				}
@@ -1573,6 +1579,9 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 				file, ok := ctrMount.FileSource.Peek()
 				if !ok || file == nil {
 					return failPrepare(fmt.Errorf("mount %d has nil file source", i))
+				}
+				if err := ensureFileSnapshot(ctx, file); err != nil {
+					return failPrepare(fmt.Errorf("hydrate file mount %d: %w", i, err))
 				}
 				if selector, ok := file.File.Peek(); ok {
 					mountState.Selector = selector
@@ -2218,6 +2227,9 @@ func (container *Container) ExitCode(ctx context.Context) (int, error) {
 
 func (container *Container) metaFileContents(ctx context.Context, filePath string) (string, error) {
 	if err := container.Evaluate(ctx); err != nil {
+		return "", err
+	}
+	if err := container.ensureMetaSnapshot(ctx); err != nil {
 		return "", err
 	}
 

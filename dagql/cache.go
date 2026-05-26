@@ -85,7 +85,7 @@ type persistedEdge struct {
 	unpruneable       bool
 }
 
-const cachePersistenceSchemaVersion = "16"
+const cachePersistenceSchemaVersion = "17"
 
 var ErrCacheRecursiveCall = fmt.Errorf("recursive call detected")
 var ErrPersistStateNotReady = errors.New("persist state not ready")
@@ -99,19 +99,40 @@ const (
 	CachePersistenceResetImportFailure   CachePersistenceResetReason = "import_failure"
 )
 
+type CacheOptions struct {
+	DBPath          string
+	ImportDirs      []string
+	ExportDir       string
+	SnapshotManager bkcache.SnapshotManager
+	SnapshotGC      func(context.Context) error
+}
+
 func NewCache(
 	ctx context.Context,
 	dbPath string,
 	snapshotManager bkcache.SnapshotManager,
 	snapshotGC func(context.Context) error,
 ) (*Cache, error) {
+	return NewCacheWithOptions(ctx, CacheOptions{
+		DBPath:          dbPath,
+		SnapshotManager: snapshotManager,
+		SnapshotGC:      snapshotGC,
+	})
+}
+
+func NewCacheWithOptions(ctx context.Context, opts CacheOptions) (*Cache, error) {
 	c := &Cache{
 		traceBootID:     newTraceBootID(),
-		snapshotManager: snapshotManager,
-		snapshotGC:      snapshotGC,
+		snapshotManager: opts.SnapshotManager,
+		snapshotGC:      opts.SnapshotGC,
+		importSources:   make(map[string]*PersistedCacheSource, len(opts.ImportDirs)),
+		resultIDMap:     make(map[string]map[uint64]uint64, len(opts.ImportDirs)),
+		exportDir:       opts.ExportDir,
 	}
 
+	dbPath := opts.DBPath
 	if dbPath == "" {
+		c.importCacheBundles(ctx, opts.ImportDirs)
 		return c, nil
 	}
 
@@ -190,6 +211,7 @@ func NewCache(
 		c.sqlDB = db
 		c.pdb = persistDB
 	}
+	c.importCacheBundles(ctx, opts.ImportDirs)
 
 	if err := c.pdb.UpsertMeta(ctx, persistdb.MetaKeySchemaVersion, cachePersistenceSchemaVersion); err != nil {
 		if closeErr := closeCacheDBs(db, c.pdb); closeErr != nil {
@@ -984,12 +1006,14 @@ func (c *Cache) syncResultSnapshotLeases(ctx context.Context, res *sharedResult)
 	}
 	for _, link := range links {
 		key := snapshotOwnerKey{Role: link.Role}
-		if prev, found := newByKey[key]; found && prev.RefKey != link.RefKey {
+		if prev, found := newByKey[key]; found && (prev.RefKey != link.RefKey || prev.SourceID != link.SourceID) {
 			return fmt.Errorf(
-				"sync result %d snapshot owner leases: conflicting desired links for %q: %q vs %q",
+				"sync result %d snapshot owner leases: conflicting desired links for %q: %q/%q vs %q/%q",
 				res.id,
 				key.Role,
+				prev.SourceID,
 				prev.RefKey,
+				link.SourceID,
 				link.RefKey,
 			)
 		}
@@ -998,7 +1022,7 @@ func (c *Cache) syncResultSnapshotLeases(ctx context.Context, res *sharedResult)
 
 	for key, oldLink := range oldByKey {
 		newLink, ok := newByKey[key]
-		if !ok || newLink.RefKey != oldLink.RefKey {
+		if oldLink.SourceID == "" && (!ok || newLink.RefKey != oldLink.RefKey || newLink.SourceID != oldLink.SourceID) {
 			if err := c.snapshotManager.RemoveLease(
 				ctx,
 				resultSnapshotLeaseID(res.id, key.Role),
@@ -1010,7 +1034,10 @@ func (c *Cache) syncResultSnapshotLeases(ctx context.Context, res *sharedResult)
 
 	for key, newLink := range newByKey {
 		oldLink, ok := oldByKey[key]
-		if !ok || oldLink.RefKey != newLink.RefKey {
+		if newLink.SourceID != "" {
+			continue
+		}
+		if !ok || oldLink.RefKey != newLink.RefKey || oldLink.SourceID != newLink.SourceID {
 			if err := c.snapshotManager.AttachLease(
 				ctx,
 				resultSnapshotLeaseID(res.id, key.Role),
@@ -1059,6 +1086,9 @@ func (c *Cache) desiredImportedOwnerLeaseIDs() map[string]struct{} {
 	for _, res := range results {
 		links := desiredSnapshotLinksForResult(res)
 		for _, link := range links {
+			if link.SourceID != "" {
+				continue
+			}
 			desired[resultSnapshotLeaseID(res.id, link.Role)] = struct{}{}
 		}
 	}
@@ -1257,6 +1287,12 @@ type Cache struct {
 	sqlDB *sql.DB
 	// persistent normalized cache store (disk persistence/import).
 	pdb *persistdb.Queries
+	// imported cache bundle sources keyed by stable import source ID.
+	importSources map[string]*PersistedCacheSource
+	// source result ID -> local result ID remapping for each imported bundle.
+	resultIDMap map[string]map[uint64]uint64
+	// optional cache bundle directory written during Close.
+	exportDir string
 
 	traceBootID     string
 	traceSeq        uint64
@@ -1396,6 +1432,11 @@ type sharedResult struct {
 	// persistedEnvelope is populated for imported rows and decoded lazily on
 	// first cache-hit use in a server-aware context.
 	persistedEnvelope *PersistedResultEnvelope
+	// importSourceID/sourceResultID preserve the source-local identity for
+	// imported rows whose persisted object payloads still contain source-local
+	// result references.
+	importSourceID string
+	sourceResultID uint64
 
 	// Prune-accounting metadata. Sizes are unknown until explicitly measured.
 	createdAtUnixNano        int64
@@ -2908,6 +2949,11 @@ func (c *Cache) Close(ctx context.Context) error {
 		if err := c.persistCurrentState(ctx); err != nil {
 			slog.Error("failed to persist dagql cache during close", "err", err)
 			c.closeErr = errors.Join(c.closeErr, err)
+		}
+		if c.closeErr == nil && c.exportDir != "" {
+			if err := c.exportCurrentState(ctx); err != nil {
+				slog.Error("failed to export dagql cache bundle during close", "exportDir", c.exportDir, "err", err)
+			}
 		}
 		if c.closeErr != nil {
 			if closeErr := closeCacheDBs(c.sqlDB, c.pdb); closeErr != nil {

@@ -24,7 +24,9 @@ type ClientFilesyncMirror struct {
 
 	mu sync.Mutex
 
-	snapshot bkcache.MutableRef
+	snapshot         bkcache.MutableRef
+	snapshotID       string
+	externalSnapshot dagql.PersistedSnapshotRefLink
 
 	mounter bkcache.Mounter
 	mntPath string
@@ -54,13 +56,35 @@ func (m *ClientFilesyncMirror) PersistedSnapshotRefLinks() []dagql.PersistedSnap
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.snapshot == nil {
-		return nil
+	if m.snapshot != nil {
+		return []dagql.PersistedSnapshotRefLink{{
+			RefKey: m.snapshot.SnapshotID(),
+			Role:   "snapshot",
+		}}
 	}
-	return []dagql.PersistedSnapshotRefLink{{
-		RefKey: m.snapshot.SnapshotID(),
-		Role:   "snapshot",
-	}}
+	if m.snapshotID != "" {
+		return []dagql.PersistedSnapshotRefLink{{
+			RefKey: m.snapshotID,
+			Role:   "snapshot",
+		}}
+	}
+	if m.externalSnapshot.IsExternal() {
+		return []dagql.PersistedSnapshotRefLink{m.externalSnapshot}
+	}
+	return nil
+}
+
+func (m *ClientFilesyncMirror) cacheUsageSnapshotIDLocked() (string, bool) {
+	if m.snapshot != nil {
+		return m.snapshot.SnapshotID(), true
+	}
+	if m.snapshotID != "" {
+		return m.snapshotID, true
+	}
+	if m.externalSnapshot.IsExternal() {
+		return m.externalSnapshot.RefKey, false
+	}
+	return "", false
 }
 
 func (m *ClientFilesyncMirror) CacheUsageMayChange() bool {
@@ -72,11 +96,12 @@ func (m *ClientFilesyncMirror) CacheUsageIdentities() []string {
 		return nil
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.snapshot == nil {
+	snapshotID, _ := m.cacheUsageSnapshotIDLocked()
+	m.mu.Unlock()
+	if snapshotID == "" {
 		return nil
 	}
-	return []string{m.snapshot.SnapshotID()}
+	return []string{snapshotID}
 }
 
 func (m *ClientFilesyncMirror) CacheUsageSize(ctx context.Context, identity string) (int64, bool, error) {
@@ -85,11 +110,26 @@ func (m *ClientFilesyncMirror) CacheUsageSize(ctx context.Context, identity stri
 	}
 	m.mu.Lock()
 	snapshot := m.snapshot
+	snapshotID, local := m.cacheUsageSnapshotIDLocked()
 	m.mu.Unlock()
-	if snapshot == nil || snapshot.SnapshotID() != identity {
+	if snapshotID == "" || snapshotID != identity {
 		return 0, false, nil
 	}
-	size, err := snapshot.Size(ctx)
+	if snapshot != nil {
+		size, err := snapshot.Size(ctx)
+		if err != nil {
+			return 0, false, err
+		}
+		return size, true, nil
+	}
+	if !local {
+		return 0, false, nil
+	}
+	query, err := CurrentQuery(ctx)
+	if err != nil {
+		return 0, false, err
+	}
+	size, err := query.SnapshotManager().SnapshotSize(ctx, snapshotID)
 	if err != nil {
 		return 0, false, err
 	}
@@ -112,11 +152,19 @@ func (m *ClientFilesyncMirror) EncodePersistedObject(ctx context.Context, cache 
 	}
 	m.mu.Lock()
 	var links []dagql.PersistedSnapshotRefLink
-	if m.snapshot != nil {
+	switch {
+	case m.snapshot != nil:
 		links = []dagql.PersistedSnapshotRefLink{{
 			RefKey: m.snapshot.SnapshotID(),
 			Role:   "snapshot",
 		}}
+	case m.snapshotID != "":
+		links = []dagql.PersistedSnapshotRefLink{{
+			RefKey: m.snapshotID,
+			Role:   "snapshot",
+		}}
+	case m.externalSnapshot.IsExternal():
+		links = []dagql.PersistedSnapshotRefLink{m.externalSnapshot}
 	}
 	m.mu.Unlock()
 	payload, err := json.Marshal(persistedClientFilesyncMirrorPayload{
@@ -149,15 +197,11 @@ func (*ClientFilesyncMirror) DecodePersistedObject(ctx context.Context, dag *dag
 	if err != nil {
 		return nil, err
 	}
-	query, err := persistedDecodeQuery(dag)
-	if err != nil {
-		return nil, err
+	if link.IsExternal() {
+		mirror.externalSnapshot = link
+	} else {
+		mirror.snapshotID = link.RefKey
 	}
-	ref, err := query.SnapshotManager().GetMutableBySnapshotID(ctx, link.RefKey, bkcache.NoUpdateLastUsed)
-	if err != nil {
-		return nil, fmt.Errorf("reopen persisted client filesync mirror snapshot %q: %w", link.RefKey, err)
-	}
-	mirror.snapshot = ref
 	return mirror, nil
 }
 
@@ -180,6 +224,46 @@ func (m *ClientFilesyncMirror) EnsureCreated(ctx context.Context, query *Query) 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.snapshot != nil {
+		return nil
+	}
+	if m.snapshotID != "" {
+		ref, err := query.SnapshotManager().GetMutableBySnapshotID(ctx, m.snapshotID, bkcache.NoUpdateLastUsed)
+		if err != nil {
+			return fmt.Errorf("reopen persisted client filesync mirror snapshot %q: %w", m.snapshotID, err)
+		}
+		m.snapshot = ref
+		return nil
+	}
+	if m.externalSnapshot.IsExternal() {
+		cache, err := dagql.EngineCache(ctx)
+		if err != nil {
+			return err
+		}
+		base, err := cache.HydrateSnapshot(ctx, m.externalSnapshot)
+		if err != nil {
+			return fmt.Errorf("hydrate client filesync mirror snapshot %q from %q: %w", m.externalSnapshot.RefKey, m.externalSnapshot.SourceID, err)
+		}
+		defer func() {
+			_ = base.Release(context.WithoutCancel(ctx))
+		}()
+		ref, err := query.SnapshotManager().New(
+			ctx,
+			base,
+			nil,
+			bkcache.WithRecordType(bkclient.UsageRecordTypeLocalSource),
+			bkcache.WithDescription(func() string {
+				if m.StableClientID != "" {
+					return fmt.Sprintf("client filesync mirror for %s%s", m.Drive, m.StableClientID)
+				}
+				return fmt.Sprintf("ephemeral client filesync mirror for %s%s", m.Drive, m.EphemeralID)
+			}()),
+		)
+		if err != nil {
+			return fmt.Errorf("initialize client filesync mirror from persisted snapshot %q: %w", m.externalSnapshot.RefKey, err)
+		}
+		m.snapshot = ref
+		m.snapshotID = ref.SnapshotID()
+		m.externalSnapshot = dagql.PersistedSnapshotRefLink{}
 		return nil
 	}
 	ref, err := query.SnapshotManager().New(

@@ -75,6 +75,11 @@ type Container struct {
 	// stderr, combined output, and exit code files. It will be nil if nothing
 	// has run yet.
 	MetaSnapshot *LazyAccessor[bkcache.ImmutableRef, *Container]
+	// ExternalSnapshots stores imported snapshot links that have not been
+	// hydrated into the local snapshotter yet. Rootfs and mount snapshots are
+	// usually represented by nested Directory/File remote lazies; meta is stored
+	// here because it does not have a nested object wrapper.
+	ExternalSnapshots map[string]dagql.PersistedSnapshotRefLink
 
 	// The platform of the container's rootfs.
 	Platform Platform
@@ -796,7 +801,26 @@ func cloneDetachedDirectoryForContainerResult(ctx context.Context, src *Director
 		return nil, nil
 	}
 	if src.Lazy != nil {
-		return nil, fmt.Errorf("clone detached directory for container result: directory must be materialized, got lazy %T", src.Lazy)
+		external, ok := src.Lazy.(ExternalSnapshotLazy)
+		if !ok {
+			return nil, fmt.Errorf("clone detached directory for container result: directory must be materialized, got lazy %T", src.Lazy)
+		}
+		cp := &Directory{
+			Platform: src.Platform,
+			Services: slices.Clone(src.Services),
+			Dir:      new(LazyAccessor[string, *Directory]),
+			Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+			Lazy: &RemoteDirectorySnapshotLazy{
+				LazyState: NewLazyState(),
+				Link:      external.ExternalSnapshotLink(),
+			},
+		}
+		if src.Dir != nil {
+			if dirPath, ok := src.Dir.Peek(); ok {
+				cp.Dir.setValue(dirPath)
+			}
+		}
+		return cp, nil
 	}
 
 	cp := &Directory{
@@ -832,7 +856,26 @@ func cloneDetachedFileForContainerResult(ctx context.Context, src *File) (*File,
 		return nil, nil
 	}
 	if src.Lazy != nil {
-		return nil, fmt.Errorf("clone detached file for container result: file must be materialized, got lazy %T", src.Lazy)
+		external, ok := src.Lazy.(ExternalSnapshotLazy)
+		if !ok {
+			return nil, fmt.Errorf("clone detached file for container result: file must be materialized, got lazy %T", src.Lazy)
+		}
+		cp := &File{
+			Platform: src.Platform,
+			Services: slices.Clone(src.Services),
+			File:     new(LazyAccessor[string, *File]),
+			Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *File]),
+			Lazy: &RemoteFileSnapshotLazy{
+				LazyState: NewLazyState(),
+				Link:      external.ExternalSnapshotLink(),
+			},
+		}
+		if src.File != nil {
+			if filePath, ok := src.File.Peek(); ok {
+				cp.File.setValue(filePath)
+			}
+		}
+		return cp, nil
 	}
 
 	cp := &File{
@@ -882,6 +925,13 @@ func CloneContainerMetaSnapshot(ctx context.Context, src *LazyAccessor[bkcache.I
 	}
 	cp.setValue(reopened)
 	return cp, nil
+}
+
+func CloneContainerExternalSnapshots(src map[string]dagql.PersistedSnapshotRefLink) map[string]dagql.PersistedSnapshotRefLink {
+	if len(src) == 0 {
+		return nil
+	}
+	return maps.Clone(src)
 }
 
 func CloneContainerDirectoryAccessor(ctx context.Context, src *LazyAccessor[*Directory, *Container]) (*LazyAccessor[*Directory, *Container], error) {
@@ -983,6 +1033,7 @@ func materializeContainerStateFromParent(ctx context.Context, dst *Container, pa
 	dst.FS = clonedFS
 	dst.Mounts = clonedMounts
 	dst.MetaSnapshot = clonedMeta
+	dst.ExternalSnapshots = CloneContainerExternalSnapshots(parent.Self().ExternalSnapshots)
 	dst.Platform = parent.Self().Platform
 	dst.Annotations = slices.Clone(parent.Self().Annotations)
 	dst.Secrets = slices.Clone(parent.Self().Secrets)
@@ -1135,7 +1186,11 @@ func (container *Container) PersistedSnapshotRefLinks() []dagql.PersistedSnapsho
 				RefKey: snapshot.SnapshotID(),
 				Role:   "meta",
 			})
+		} else if link, ok := container.ExternalSnapshots["meta"]; ok {
+			links = append(links, link)
 		}
+	} else if link, ok := container.ExternalSnapshots["meta"]; ok {
+		links = append(links, link)
 	}
 	if container.FS != nil {
 		if dir, ok := container.FS.Peek(); ok && dir != nil {
@@ -1144,6 +1199,10 @@ func (container *Container) PersistedSnapshotRefLinks() []dagql.PersistedSnapsho
 					RefKey: snapshot.SnapshotID(),
 					Role:   "fs",
 				})
+			} else if external, ok := dir.Lazy.(ExternalSnapshotLazy); ok {
+				link := external.ExternalSnapshotLink()
+				link.Role = "fs"
+				links = append(links, link)
 			}
 		}
 	}
@@ -1155,6 +1214,10 @@ func (container *Container) PersistedSnapshotRefLinks() []dagql.PersistedSnapsho
 						RefKey: snapshot.SnapshotID(),
 						Role:   fmt.Sprintf("mount_dir:%d", i),
 					})
+				} else if external, ok := dir.Lazy.(ExternalSnapshotLazy); ok {
+					link := external.ExternalSnapshotLink()
+					link.Role = fmt.Sprintf("mount_dir:%d", i)
+					links = append(links, link)
 				}
 			}
 		}
@@ -1165,6 +1228,10 @@ func (container *Container) PersistedSnapshotRefLinks() []dagql.PersistedSnapsho
 						RefKey: snapshot.SnapshotID(),
 						Role:   fmt.Sprintf("mount_file:%d", i),
 					})
+				} else if external, ok := file.Lazy.(ExternalSnapshotLazy); ok {
+					link := external.ExternalSnapshotLink()
+					link.Role = fmt.Sprintf("mount_file:%d", i)
+					links = append(links, link)
 				}
 			}
 		}
@@ -1311,12 +1378,13 @@ func remapContainerSnapshotLinks(links []dagql.PersistedSnapshotRefLink, role st
 	}
 	remapped := make([]dagql.PersistedSnapshotRefLink, 0, len(links))
 	for _, link := range links {
-		if link.Role != "snapshot" {
+		if link.Role != "snapshot" && link.SourceID == "" {
 			continue
 		}
 		remapped = append(remapped, dagql.PersistedSnapshotRefLink{
-			RefKey: link.RefKey,
-			Role:   role,
+			RefKey:   link.RefKey,
+			Role:     role,
+			SourceID: link.SourceID,
 		})
 	}
 	return remapped
@@ -1454,7 +1522,11 @@ func (container *Container) EncodePersistedObject(ctx context.Context, cache dag
 				RefKey: snapshot.SnapshotID(),
 				Role:   "meta",
 			})
+		} else if link, ok := container.ExternalSnapshots["meta"]; ok {
+			snapshotLinks = append(snapshotLinks, link)
 		}
+	} else if link, ok := container.ExternalSnapshots["meta"]; ok {
+		snapshotLinks = append(snapshotLinks, link)
 	}
 	if container.FS != nil {
 		fsValue, ok := container.FS.Peek()
@@ -1645,6 +1717,7 @@ func (*Container) DecodePersistedObject(ctx context.Context, dag *dagql.Server, 
 	}
 
 	metaAccessor := new(LazyAccessor[bkcache.ImmutableRef, *Container])
+	externalSnapshots := map[string]dagql.PersistedSnapshotRefLink(nil)
 	links, err := loadPersistedSnapshotLinksByResultID(ctx, dag, resultID, "container")
 	if err != nil {
 		return nil, err
@@ -1652,6 +1725,12 @@ func (*Container) DecodePersistedObject(ctx context.Context, dag *dagql.Server, 
 	for _, link := range links {
 		if link.Role != "meta" {
 			continue
+		}
+		if link.IsExternal() {
+			externalSnapshots = map[string]dagql.PersistedSnapshotRefLink{
+				"meta": link,
+			}
+			break
 		}
 		metaSnapshot, err := loadPersistedImmutableSnapshotByResultID(ctx, dag, resultID, "container", "meta")
 		if err != nil {
@@ -1667,6 +1746,7 @@ func (*Container) DecodePersistedObject(ctx context.Context, dag *dagql.Server, 
 		EnabledGPUs:        slices.Clone(persisted.EnabledGPUs),
 		Mounts:             mounts,
 		MetaSnapshot:       metaAccessor,
+		ExternalSnapshots:  externalSnapshots,
 		Platform:           persisted.Platform,
 		Annotations:        slices.Clone(persisted.Annotations),
 		Secrets:            secrets,
@@ -2963,6 +3043,9 @@ func (lazy *ContainerRootFSLazy) Evaluate(ctx context.Context, dir *Directory) e
 				if err != nil {
 					return err
 				}
+				if err := ensureDirectorySnapshot(ctx, detached); err != nil {
+					return err
+				}
 				dir.Platform = detached.Platform
 				dir.Services = slices.Clone(detached.Services)
 				if dirPath, ok := detached.Dir.Peek(); ok {
@@ -3104,11 +3187,14 @@ func (lazy *ContainerDirectoryLazy) Evaluate(ctx context.Context, dir *Directory
 			if !ok || mountedDir == nil {
 				return fmt.Errorf("container directory lazy: missing mounted directory source for %s", mnt.Target)
 			}
+			detached, err := cloneDetachedDirectoryForContainerResult(ctx, mountedDir)
+			if err != nil {
+				return err
+			}
+			if err := ensureDirectorySnapshot(ctx, detached); err != nil {
+				return err
+			}
 			if subpath == "" || subpath == "." {
-				detached, err := cloneDetachedDirectoryForContainerResult(ctx, mountedDir)
-				if err != nil {
-					return err
-				}
 				dir.Platform = detached.Platform
 				dir.Services = slices.Clone(detached.Services)
 				if dirPath, ok := detached.Dir.Peek(); ok {
@@ -3120,11 +3206,11 @@ func (lazy *ContainerDirectoryLazy) Evaluate(ctx context.Context, dir *Directory
 				dir.Lazy = nil
 				return nil
 			}
-			mountedDirPath, ok := mountedDir.Dir.Peek()
+			mountedDirPath, ok := detached.Dir.Peek()
 			if !ok {
 				return fmt.Errorf("container directory lazy: missing mounted directory path for %s", mnt.Target)
 			}
-			mountedSnapshot, ok := mountedDir.Snapshot.Peek()
+			mountedSnapshot, ok := detached.Snapshot.Peek()
 			if !ok || mountedSnapshot == nil {
 				return fmt.Errorf("container directory lazy: missing mounted directory snapshot for %s", mnt.Target)
 			}
@@ -3153,8 +3239,8 @@ func (lazy *ContainerDirectoryLazy) Evaluate(ctx context.Context, dir *Directory
 			if err != nil {
 				return err
 			}
-			dir.Platform = mountedDir.Platform
-			dir.Services = slices.Clone(mountedDir.Services)
+			dir.Platform = detached.Platform
+			dir.Services = slices.Clone(detached.Services)
 			dir.Dir.setValue(finalDir)
 			dir.Snapshot.setValue(reopened)
 			dir.Lazy = nil
@@ -3175,6 +3261,9 @@ func (lazy *ContainerDirectoryLazy) Evaluate(ctx context.Context, dir *Directory
 		}
 		detached, err := cloneDetachedDirectoryForContainerResult(ctx, src)
 		if err != nil {
+			return err
+		}
+		if err := ensureDirectorySnapshot(ctx, detached); err != nil {
 			return err
 		}
 		dir.Platform = detached.Platform
@@ -3256,11 +3345,18 @@ func (lazy *ContainerFileLazy) Evaluate(ctx context.Context, file *File) error {
 			if !ok || mountedDir == nil {
 				return fmt.Errorf("container file lazy: missing mounted directory source for %s", mnt.Target)
 			}
-			mountedDirPath, ok := mountedDir.Dir.Peek()
+			detached, err := cloneDetachedDirectoryForContainerResult(ctx, mountedDir)
+			if err != nil {
+				return err
+			}
+			if err := ensureDirectorySnapshot(ctx, detached); err != nil {
+				return err
+			}
+			mountedDirPath, ok := detached.Dir.Peek()
 			if !ok {
 				return fmt.Errorf("container file lazy: missing mounted directory path for %s", mnt.Target)
 			}
-			mountedSnapshot, ok := mountedDir.Snapshot.Peek()
+			mountedSnapshot, ok := detached.Snapshot.Peek()
 			if !ok || mountedSnapshot == nil {
 				return fmt.Errorf("container file lazy: missing mounted directory snapshot for %s", mnt.Target)
 			}
@@ -3289,8 +3385,8 @@ func (lazy *ContainerFileLazy) Evaluate(ctx context.Context, file *File) error {
 			if err != nil {
 				return err
 			}
-			file.Platform = mountedDir.Platform
-			file.Services = slices.Clone(mountedDir.Services)
+			file.Platform = detached.Platform
+			file.Services = slices.Clone(detached.Services)
 			file.File.setValue(finalFile)
 			file.Snapshot.setValue(reopened)
 			file.Lazy = nil
@@ -3305,6 +3401,9 @@ func (lazy *ContainerFileLazy) Evaluate(ctx context.Context, file *File) error {
 			}
 			detached, err := cloneDetachedFileForContainerResult(ctx, mountedFile)
 			if err != nil {
+				return err
+			}
+			if err := ensureFileSnapshot(ctx, detached); err != nil {
 				return err
 			}
 			file.Platform = detached.Platform
@@ -3331,6 +3430,9 @@ func (lazy *ContainerFileLazy) Evaluate(ctx context.Context, file *File) error {
 		}
 		detached, err := cloneDetachedFileForContainerResult(ctx, src)
 		if err != nil {
+			return err
+		}
+		if err := ensureFileSnapshot(ctx, detached); err != nil {
 			return err
 		}
 		file.Platform = detached.Platform
@@ -5087,6 +5189,76 @@ func (container *Container) ensureRootFS(ctx context.Context) error {
 	rootfs.Dir.setValue(scratchDir)
 	rootfs.Snapshot.setValue(scratchSnapshot)
 	container.FS.setValue(rootfs)
+	return nil
+}
+
+func (container *Container) ensureMetaSnapshot(ctx context.Context) error {
+	if container == nil {
+		return nil
+	}
+	if container.MetaSnapshot == nil {
+		container.MetaSnapshot = new(LazyAccessor[bkcache.ImmutableRef, *Container])
+	}
+	if snapshot, ok := container.MetaSnapshot.Peek(); ok && snapshot != nil {
+		return nil
+	}
+	link, ok := container.ExternalSnapshots["meta"]
+	if !ok {
+		return nil
+	}
+	cache, err := dagql.EngineCache(ctx)
+	if err != nil {
+		return err
+	}
+	ref, err := cache.HydrateSnapshot(ctx, link)
+	if err != nil {
+		return err
+	}
+	container.MetaSnapshot.setValue(ref)
+	delete(container.ExternalSnapshots, "meta")
+	if len(container.ExternalSnapshots) == 0 {
+		container.ExternalSnapshots = nil
+	}
+	return nil
+}
+
+func ensureDirectorySnapshot(ctx context.Context, dir *Directory) error {
+	if dir == nil || dir.Snapshot == nil {
+		return nil
+	}
+	if snapshot, ok := dir.Snapshot.Peek(); ok && snapshot != nil {
+		return nil
+	}
+	lazy, ok := dir.Lazy.(*RemoteDirectorySnapshotLazy)
+	if !ok {
+		return nil
+	}
+	if err := lazy.Evaluate(ctx, dir); err != nil {
+		return err
+	}
+	if dir.Lazy == lazy {
+		dir.Lazy = nil
+	}
+	return nil
+}
+
+func ensureFileSnapshot(ctx context.Context, file *File) error {
+	if file == nil || file.Snapshot == nil {
+		return nil
+	}
+	if snapshot, ok := file.Snapshot.Peek(); ok && snapshot != nil {
+		return nil
+	}
+	lazy, ok := file.Lazy.(*RemoteFileSnapshotLazy)
+	if !ok {
+		return nil
+	}
+	if err := lazy.Evaluate(ctx, file); err != nil {
+		return err
+	}
+	if file.Lazy == lazy {
+		file.Lazy = nil
+	}
 	return nil
 }
 

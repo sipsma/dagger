@@ -36,6 +36,27 @@ type PersistedResultEnvelope struct {
 
 type PersistedObjectCache interface {
 	PersistedResultID(AnyResult) (uint64, error)
+	ResolvePersistedResultID(context.Context, string, uint64) (uint64, bool)
+	SnapshotLinkByRole(context.Context, uint64, string) (PersistedSnapshotRefLink, bool, error)
+}
+
+type persistedDecodeOriginContextKey struct{}
+
+type persistedDecodeOrigin struct {
+	sourceID       string
+	sourceResultID uint64
+}
+
+func contextWithPersistedDecodeOrigin(ctx context.Context, origin persistedDecodeOrigin) context.Context {
+	if origin.sourceID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, persistedDecodeOriginContextKey{}, origin)
+}
+
+func persistedDecodeOriginFromContext(ctx context.Context) (persistedDecodeOrigin, bool) {
+	origin, ok := ctx.Value(persistedDecodeOriginContextKey{}).(persistedDecodeOrigin)
+	return origin, ok
 }
 
 type PersistedObjectEncoding struct {
@@ -239,6 +260,11 @@ func decodePersistedResultEnvelope(ctx context.Context, dag *Server, resultID ui
 			return nil, fmt.Errorf("decode object_id envelope: object type %q does not implement persisted decode", env.TypeName)
 		}
 		decodeCtx := ContextWithCall(ctx, call)
+		if cache, err := EngineCache(ctx); err == nil {
+			if origin, ok := cache.persistedDecodeOriginByResultID(resultID); ok {
+				decodeCtx = contextWithPersistedDecodeOrigin(decodeCtx, origin)
+			}
+		}
 		valSelf, err := decoder.DecodePersistedObject(decodeCtx, dag, resultID, call, env.ObjectJSON)
 		if err != nil {
 			return nil, fmt.Errorf("decode object_id envelope load: %w", err)
@@ -377,8 +403,17 @@ func decodeBuiltinPersistedScalar(typeName string, raw any) (Typed, error) {
 // PersistedSnapshotRefLink is a generic non-opaque link from a persisted result
 // self payload to one durable snapshot ref key.
 type PersistedSnapshotRefLink struct {
-	RefKey string
-	Role   string
+	RefKey   string
+	Role     string
+	SourceID string
+}
+
+func (link PersistedSnapshotRefLink) IsLocal() bool {
+	return link.SourceID == ""
+}
+
+func (link PersistedSnapshotRefLink) IsExternal() bool {
+	return link.SourceID != ""
 }
 
 // PersistedSnapshotRefLinkProvider is the shared interface used by persistable
