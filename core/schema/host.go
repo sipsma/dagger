@@ -22,6 +22,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/dagger/dagger/core"
+	"github.com/dagger/dagger/core/workspace"
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/filesync"
@@ -170,6 +171,11 @@ func (s *hostSchema) directory(ctx context.Context, host dagql.ObjectResult[*cor
 		return inst, fmt.Errorf("failed to get engine client: %w", err)
 	}
 
+	clientMetadata, err := engine.ClientMetadataFromContext(ctx)
+	if err != nil {
+		return inst, fmt.Errorf("failed to get client metadata: %w", err)
+	}
+
 	copyPath := path.Clean(args.Path)
 	initialAbsCopyPath, err := bk.AbsPath(ctx, copyPath)
 	if err != nil {
@@ -254,6 +260,14 @@ func (s *hostSchema) directory(ctx context.Context, host dagql.ObjectResult[*cor
 		excludePatterns = append(excludePatterns, exclude)
 	}
 
+	ws, err := query.CurrentWorkspace(ctx)
+	if err != nil && !errors.Is(err, core.ErrNoCurrentWorkspace) {
+		return inst, fmt.Errorf("failed to get current workspace: %w", err)
+	}
+	if lockExclude, ok := workspaceLockExcludePattern(ws, clientMetadata.ClientID, absRootCopyPath, initialAbsCopyPath); ok {
+		excludePatterns = append(excludePatterns, lockExclude)
+	}
+
 	followPaths := make([]string, 0, len(args.FollowPaths))
 	for _, followPath := range args.FollowPaths {
 		if !filepath.IsLocal(followPath) {
@@ -273,10 +287,6 @@ func (s *hostSchema) directory(ctx context.Context, host dagql.ObjectResult[*cor
 		snapshotOpts.CacheBuster = rand.Text()
 	}
 
-	clientMetadata, err := engine.ClientMetadataFromContext(ctx)
-	if err != nil {
-		return inst, fmt.Errorf("failed to get client metadata: %w", err)
-	}
 	callerConn, _, err := query.SpecificClientAttachableConn(ctx, clientMetadata.ClientID, core.SpecificClientAttachableConnOpts{})
 	if err != nil {
 		return inst, fmt.Errorf("failed to get caller attachable conn: %w", err)
@@ -336,6 +346,26 @@ func (s *hostSchema) directory(ctx context.Context, host dagql.ObjectResult[*cor
 	}
 
 	return inst, nil
+}
+
+func workspaceLockExcludePattern(ws *core.Workspace, clientID, snapshotRoot, snapshotPath string) (string, bool) {
+	if ws == nil || ws.HostPath() == "" || ws.ClientID == "" || ws.ClientID != clientID {
+		return "", false
+	}
+
+	workspacePath := filepath.Clean(filepath.Join(ws.HostPath(), ws.Path))
+	relWorkspaceFromSnapshot, err := filepath.Rel(filepath.Clean(snapshotPath), workspacePath)
+	if err != nil || !filepath.IsLocal(relWorkspaceFromSnapshot) {
+		return "", false
+	}
+
+	lockPath := filepath.Join(workspacePath, workspace.LockDirName, workspace.LockFileName)
+	relLockFromRoot, err := filepath.Rel(filepath.Clean(snapshotRoot), lockPath)
+	if err != nil || !filepath.IsLocal(relLockFromRoot) {
+		return "", false
+	}
+
+	return relLockFromRoot, true
 }
 
 type hostSocketArgs struct {
