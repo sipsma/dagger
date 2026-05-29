@@ -118,6 +118,30 @@ func TestWorkspaceActivityRowsIncludePRMetadata(t *testing.T) {
 	require.Equal(t, "🟢: 1", activityRows[0].Checks)
 }
 
+func TestWorkspaceActivityRowsUseCommitMessageDescription(t *testing.T) {
+	started := time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC)
+	rows := cloudCheckRows("dagger", []cloudapi.CheckCommit{{
+		Repo:          "https://github.com/acme/mono",
+		CommitSHA:     "abcdef123456",
+		CommitMessage: "Update workspace docs\n\nSigned-off-by: Ava",
+		Timestamp:     started,
+		Refs: []cloudapi.CheckCommitRef{{
+			Typename: "CheckCommitBranchRef",
+			Name:     "main",
+		}},
+		Checks: []cloudapi.Check{{
+			Name:      "lint",
+			Status:    "success",
+			StartedAt: &started,
+			ModuleRef: "github.com/acme/mono",
+		}},
+	}})
+
+	activityRows := workspaceActivityRows(rows)
+	require.Len(t, activityRows, 1)
+	require.Equal(t, "Update workspace docs", activityRows[0].Description)
+}
+
 func TestCloudCheckWorkspaceAddress(t *testing.T) {
 	row := cloudCheckRow{Dimensions: map[string]string{
 		"workspace":  "github.com/acme/mono/services/api",

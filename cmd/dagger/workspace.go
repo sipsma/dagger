@@ -719,7 +719,7 @@ func workspaceActivityRows(rows []cloudCheckRow) []workspaceActivityRow {
 			UpdatedAt:   latestCloudRowTime(group),
 			Address:     address,
 			URL:         firstNonEmptyCloudDimension(group, "url"),
-			Description: firstNonEmptyCloudDimension(group, "description"),
+			Description: workspaceActivityDescription(group),
 			Checks:      cloudChecksEmojiSummary(group),
 		})
 	}
@@ -742,6 +742,27 @@ func firstNonEmptyCloudDimension(rows []cloudCheckRow, dim string) string {
 	for _, row := range rows {
 		if value := row.Dimensions[dim]; value != "" {
 			return value
+		}
+	}
+	return ""
+}
+
+func workspaceActivityDescription(rows []cloudCheckRow) string {
+	if description := firstNonEmptyCloudDimension(rows, "description"); description != "" {
+		return description
+	}
+	for _, row := range rows {
+		if summary := firstCommitMessageLine(row.Commit.CommitMessage); summary != "" {
+			return summary
+		}
+	}
+	return ""
+}
+
+func firstCommitMessageLine(message string) string {
+	for _, line := range strings.Split(message, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			return line
 		}
 	}
 	return ""
