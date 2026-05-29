@@ -12,18 +12,30 @@ import (
 func (s *workspaceSchema) envList(
 	ctx context.Context,
 	parent *core.Workspace,
-	_ struct{},
+	args struct {
+		All bool `default:"false"`
+	},
 ) (dagql.Array[dagql.String], error) {
-	if parent.ConfigFile == "" {
-		return nil, fmt.Errorf("no config.toml found in workspace")
+	var cfg *workspace.Config
+	if parent.ConfigFile != "" {
+		var err error
+		cfg, err = readWorkspaceConfig(ctx, parent)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	cfg, err := readWorkspaceConfig(ctx, parent)
+	userCfg, _, _, err := readUserConfig(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	names := workspace.EnvNames(cfg)
+	var names []string
+	if args.All {
+		names = workspace.EnvNamesAll(cfg, userCfg)
+	} else {
+		names = workspace.EnvNamesForWorkspace(cfg, userCfg, parent.EnvConfigKey)
+	}
 	out := make(dagql.Array[dagql.String], len(names))
 	for i, name := range names {
 		out[i] = dagql.String(name)
@@ -32,8 +44,9 @@ func (s *workspaceSchema) envList(
 }
 
 type workspaceEnvMutationArgs struct {
-	Name string
-	Here bool `default:"false"`
+	Name   string
+	Here   bool `default:"false"`
+	Global bool `default:"false"`
 }
 
 func (s *workspaceSchema) envCreate(
@@ -44,6 +57,23 @@ func (s *workspaceSchema) envCreate(
 	if args.Name == "" {
 		return "", fmt.Errorf("environment name is required")
 	}
+	if args.Global || (parent.ConfigFile == "" && parent.LocalConfigReadOnly()) {
+		userCfg, existingData, _, err := readUserConfig(ctx)
+		if err != nil {
+			return "", err
+		}
+		if userCfg == nil {
+			userCfg = &workspace.UserConfig{}
+		}
+		if workspace.EnsureUserEnv(userCfg, args.Name, "") {
+			_ = existingData
+			if err := writeUserConfigBytes(ctx, workspace.SerializeUserConfig(userCfg)); err != nil {
+				return "", err
+			}
+		}
+		return dagql.String(args.Name), nil
+	}
+
 	cfg, _, err := loadWorkspaceConfigForMutation(ctx, parent, workspaceConfigInitIfMissing, args.Here)
 	if err != nil {
 		return "", err
@@ -66,6 +96,20 @@ func (s *workspaceSchema) envRemove(
 	if args.Name == "" {
 		return "", fmt.Errorf("environment name is required")
 	}
+	if args.Global {
+		userCfg, _, _, err := readUserConfig(ctx)
+		if err != nil {
+			return "", err
+		}
+		if err := workspace.RemoveUserEnv(userCfg, args.Name); err != nil {
+			return "", err
+		}
+		if err := writeUserConfigBytes(ctx, workspace.SerializeUserConfig(userCfg)); err != nil {
+			return "", err
+		}
+		return dagql.String(args.Name), nil
+	}
+
 	cfg, _, err := loadWorkspaceConfigForMutation(ctx, parent, workspaceConfigMustExist, args.Here)
 	if err != nil {
 		return "", err

@@ -27,3 +27,7 @@ Local module source values are stored relative to .dagger/config.toml.`,
 	GroupID: workspaceGroup.ID,
 	RunE:    runWorkspaceConfig,
 }
+
+func init() {
+	configCmd.Flags().BoolVarP(&workspaceConfigGlobal, "global", "g", false, "Write to user-level Dagger config")
+}
