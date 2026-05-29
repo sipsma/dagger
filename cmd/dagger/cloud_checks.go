@@ -1123,7 +1123,7 @@ func cloudChecksEmojiSummary(rows []cloudCheckRow) string {
 		if resultCount.count == 0 {
 			continue
 		}
-		parts = append(parts, fmt.Sprintf("%s: %d", cloudResultEmoji(resultCount.result), resultCount.count))
+		parts = append(parts, fmt.Sprintf("%s%d", cloudResultEmoji(resultCount.result), resultCount.count))
 	}
 	if len(parts) == 0 {
 		return "-"

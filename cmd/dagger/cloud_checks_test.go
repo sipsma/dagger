@@ -88,7 +88,7 @@ func TestCloudChecksEmojiSummary(t *testing.T) {
 		{Dimensions: map[string]string{"check": "docs"}, Result: "pending"},
 		{Dimensions: map[string]string{"check": "deploy"}, Result: "pending"},
 	}
-	require.Equal(t, "🟡: 2 🔴: 1 🟢: 1", cloudChecksEmojiSummary(rows))
+	require.Equal(t, "🟡2 🔴1 🟢1", cloudChecksEmojiSummary(rows))
 }
 
 func TestWorkspaceActivityRowsIncludePRMetadata(t *testing.T) {
@@ -115,7 +115,7 @@ func TestWorkspaceActivityRowsIncludePRMetadata(t *testing.T) {
 	require.Len(t, activityRows, 1)
 	require.Equal(t, "https://github.com/acme/mono/pull/42", activityRows[0].URL)
 	require.Equal(t, "Add workspace activity", activityRows[0].Description)
-	require.Equal(t, "🟢: 1", activityRows[0].Checks)
+	require.Equal(t, "🟢1", activityRows[0].Checks)
 }
 
 func TestWorkspaceActivityRowsUseCommitMessageDescription(t *testing.T) {
