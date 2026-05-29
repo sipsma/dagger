@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/dagger/dagger/engine/client"
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/require"
 )
@@ -290,6 +291,31 @@ func TestWorkspaceRemoteVersionKind(t *testing.T) {
 	require.Equal(t, "pr", workspaceRemoteVersionKind("pull/42/head"))
 	require.Equal(t, "sha", workspaceRemoteVersionKind("abcdef1"))
 	require.Equal(t, "ref", workspaceRemoteVersionKind("feature/name"))
+}
+
+func TestRenderWorkspaceRemoteRowsIncludesAutocheck(t *testing.T) {
+	var out bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+
+	renderWorkspaceRemoteRows(cmd, []*workspaceRemoteRow{{
+		Kind:      "branch",
+		Address:   "github.com/acme/mono@main",
+		Autocheck: "on",
+		Checks:    "🟢1",
+	}})
+
+	require.Contains(t, out.String(), "AUTOCHECK")
+	require.Contains(t, out.String(), "on")
+	require.Contains(t, out.String(), "🟢1")
+}
+
+func TestValidateWorkspaceAutocheckArgs(t *testing.T) {
+	require.NoError(t, validateWorkspaceAutocheckArgs(nil, nil))
+	require.NoError(t, validateWorkspaceAutocheckArgs(nil, []string{"on"}))
+	require.NoError(t, validateWorkspaceAutocheckArgs(nil, []string{"off"}))
+	require.ErrorContains(t, validateWorkspaceAutocheckArgs(nil, []string{"yes"}), "on or off")
+	require.ErrorContains(t, validateWorkspaceAutocheckArgs(nil, []string{"on", "off"}), "expected 0 or 1 arguments")
 }
 
 func TestSelectedRemoteWorkspaceAddressInfersLocalGitWorkspace(t *testing.T) {

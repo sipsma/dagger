@@ -21,6 +21,8 @@ import (
 	workspacepkg "github.com/dagger/dagger/core/workspace"
 	"github.com/dagger/dagger/dagql/idtui"
 	"github.com/dagger/dagger/engine/client"
+	cloudapi "github.com/dagger/dagger/internal/cloud"
+	cloudauth "github.com/dagger/dagger/internal/cloud/auth"
 	"github.com/dagger/dagger/util/gitutil"
 )
 
@@ -135,6 +137,13 @@ var workspaceRemoteCmd = &cobra.Command{
 	RunE:  WorkspaceRemote,
 }
 
+var workspaceAutocheckCmd = &cobra.Command{
+	Use:   "autocheck [on|off]",
+	Short: "Get or set autocheck for the selected workspace remote",
+	Args:  validateWorkspaceAutocheckArgs,
+	RunE:  WorkspaceAutocheck,
+}
+
 var workspaceActivityCmd = &cobra.Command{
 	Use:   "activity",
 	Short: "List recent Cloud activity for the selected workspace",
@@ -149,6 +158,7 @@ func init() {
 	workspaceCmd.AddCommand(workspaceConfigFileCmd)
 	workspaceCmd.AddCommand(workspaceCwdCmd)
 	workspaceCmd.AddCommand(workspaceInitCmd)
+	workspaceCmd.AddCommand(workspaceAutocheckCmd)
 	workspaceCmd.AddCommand(workspaceRemoteCmd)
 	workspaceCmd.AddCommand(workspaceRemotesCmd)
 	workspaceCmd.AddCommand(workspaceRootCmd)
@@ -281,6 +291,52 @@ func WorkspaceRemote(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 	_, err = fmt.Fprintln(cmd.OutOrStdout(), address)
+	return err
+}
+
+func validateWorkspaceAutocheckArgs(_ *cobra.Command, args []string) error {
+	if len(args) > 1 {
+		return fmt.Errorf("expected 0 or 1 arguments, got %d", len(args))
+	}
+	if len(args) == 1 {
+		switch args[0] {
+		case "on", "off":
+		default:
+			return fmt.Errorf("expected autocheck state to be on or off, got %q", args[0])
+		}
+	}
+	return nil
+}
+
+func WorkspaceAutocheck(cmd *cobra.Command, args []string) error {
+	remote, _, err := selectedRemoteWorkspaceAddress(cmd.Context(), "workspace autocheck")
+	if err != nil {
+		return err
+	}
+	if len(args) == 1 {
+		enabled := args[0] == "on"
+		state, err := setWorkspaceAutocheckState(cmd.Context(), remote, enabled)
+		if errors.Is(err, errCloudNotAuthenticated) {
+			return fmt.Errorf("not authenticated; run 'dagger login' to update workspace autocheck")
+		}
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintln(cmd.OutOrStdout(), workspaceAutocheckStateString(state))
+		return err
+	}
+
+	state, ok, err := loadWorkspaceAutocheckState(cmd.Context(), remote)
+	if errors.Is(err, errCloudNotAuthenticated) {
+		return fmt.Errorf("not authenticated; run 'dagger login' to view workspace autocheck")
+	}
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("workspace autocheck state not found for %s", remote.CloneRef)
+	}
+	_, err = fmt.Fprintln(cmd.OutOrStdout(), workspaceAutocheckStateString(state))
 	return err
 }
 
@@ -579,9 +635,10 @@ func cleanWorkspaceRemoteSubdir(subdir string) string {
 }
 
 type workspaceRemoteRow struct {
-	Kind    string
-	Address string
-	Checks  string
+	Kind      string
+	Address   string
+	Autocheck string
+	Checks    string
 }
 
 func loadWorkspaceRemoteRows(ctx context.Context, dag *dagger.Client, remote workspaceRemoteAddress) ([]*workspaceRemoteRow, error) {
@@ -610,9 +667,10 @@ func loadWorkspaceRemoteRows(ctx context.Context, dag *dagger.Client, remote wor
 		}
 		seen[address] = struct{}{}
 		rows = append(rows, &workspaceRemoteRow{
-			Kind:    kind,
-			Address: address,
-			Checks:  "-",
+			Kind:      kind,
+			Address:   address,
+			Autocheck: "-",
+			Checks:    "-",
 		})
 	}
 
@@ -662,6 +720,13 @@ func annotateWorkspaceRemoteRows(ctx context.Context, rows []*workspaceRemoteRow
 	if err != nil || !ok {
 		return err
 	}
+	if state, ok, err := loadWorkspaceAutocheckState(ctx, remote); err != nil {
+		return err
+	} else if ok {
+		for _, row := range rows {
+			row.Autocheck = workspaceAutocheckStateString(state)
+		}
+	}
 	res, err := cloudCLI.loadCloudCheckRowsAcrossUserOrgs(ctx, cloudCheckSelectorFlags{
 		GitHubRepo: []string{remote.CloneRef},
 		Workspace:  []string{remote.BaseAddress},
@@ -681,11 +746,123 @@ func annotateWorkspaceRemoteRows(ctx context.Context, rows []*workspaceRemoteRow
 
 func renderWorkspaceRemoteRows(cmd *cobra.Command, rows []*workspaceRemoteRow) {
 	tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "KIND\tADDRESS\tCHECKS")
+	fmt.Fprintln(tw, "KIND\tADDRESS\tAUTOCHECK\tCHECKS")
 	for _, row := range rows {
-		fmt.Fprintf(tw, "%s\t%s\t%s\n", row.Kind, row.Address, row.Checks)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", row.Kind, row.Address, row.Autocheck, row.Checks)
 	}
 	_ = tw.Flush()
+}
+
+type workspaceAutocheckState struct {
+	OrgName  string
+	OrgID    string
+	Repo     string
+	Enabled  bool
+	IsPublic bool
+}
+
+func loadWorkspaceAutocheckState(ctx context.Context, remote workspaceRemoteAddress) (workspaceAutocheckState, bool, error) {
+	client, orgs, err := workspaceAutocheckClientOrgs(ctx, false)
+	if err != nil {
+		return workspaceAutocheckState{}, false, err
+	}
+	return findWorkspaceAutocheckState(ctx, client, orgs, remote.CloneRef)
+}
+
+func setWorkspaceAutocheckState(ctx context.Context, remote workspaceRemoteAddress, enabled bool) (workspaceAutocheckState, error) {
+	client, orgs, err := workspaceAutocheckClientOrgs(ctx, true)
+	if err != nil {
+		return workspaceAutocheckState{}, err
+	}
+	current, ok, err := findWorkspaceAutocheckState(ctx, client, orgs, remote.CloneRef)
+	if err != nil {
+		return workspaceAutocheckState{}, err
+	}
+	if !ok {
+		org, ok := preferredWorkspaceAutocheckOrg(orgs, remote.CloneRef)
+		if !ok {
+			return workspaceAutocheckState{}, fmt.Errorf("no Cloud org available for %s", remote.CloneRef)
+		}
+		current = workspaceAutocheckState{
+			OrgName:  org.Name,
+			OrgID:    org.ID,
+			Repo:     remote.CloneRef,
+			IsPublic: true,
+		}
+	}
+	if current.Enabled == enabled {
+		return current, nil
+	}
+	if enabled {
+		if _, err := client.UpdateOrgRepoSetting(ctx, current.OrgID, current.Repo, current.IsPublic); err != nil {
+			return workspaceAutocheckState{}, fmt.Errorf("turn workspace autocheck on: %w", err)
+		}
+		current.Enabled = true
+		return current, nil
+	}
+	if _, err := client.DeleteOrgRepoSetting(ctx, current.OrgID, current.Repo); err != nil {
+		return workspaceAutocheckState{}, fmt.Errorf("turn workspace autocheck off: %w", err)
+	}
+	current.Enabled = false
+	return current, nil
+}
+
+func workspaceAutocheckClientOrgs(ctx context.Context, login bool) (*cloudapi.Client, []cloudauth.Org, error) {
+	client, _, err := cloudCLI.cloudClientWithLogin(ctx, login)
+	if err != nil {
+		return nil, nil, err
+	}
+	user, err := client.User(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	return client, user.Orgs, nil
+}
+
+func findWorkspaceAutocheckState(ctx context.Context, client *cloudapi.Client, orgs []cloudauth.Org, repo string) (workspaceAutocheckState, bool, error) {
+	ordered, _ := orderCloudOrgsForRepos(orgs, []string{repo})
+	for _, org := range ordered {
+		settings, err := client.OrgRepoSettings(ctx, org.Name)
+		if err != nil {
+			return workspaceAutocheckState{}, false, fmt.Errorf("fetch Cloud repo settings for org %q: %w", org.Name, err)
+		}
+		for _, setting := range settings {
+			if normalizeGitHubRepo(setting.Repo) == normalizeGitHubRepo(repo) {
+				return workspaceAutocheckState{
+					OrgName:  org.Name,
+					OrgID:    org.ID,
+					Repo:     setting.Repo,
+					Enabled:  true,
+					IsPublic: setting.IsPublic,
+				}, true, nil
+			}
+		}
+	}
+	if org, ok := preferredWorkspaceAutocheckOrg(orgs, repo); ok {
+		return workspaceAutocheckState{
+			OrgName:  org.Name,
+			OrgID:    org.ID,
+			Repo:     repo,
+			Enabled:  false,
+			IsPublic: true,
+		}, true, nil
+	}
+	return workspaceAutocheckState{}, false, nil
+}
+
+func preferredWorkspaceAutocheckOrg(orgs []cloudauth.Org, repo string) (cloudauth.Org, bool) {
+	ordered, preferred := orderCloudOrgsForRepos(orgs, []string{repo})
+	if preferred > 0 {
+		return ordered[0], true
+	}
+	if len(ordered) > 0 {
+		return ordered[0], true
+	}
+	return cloudauth.Org{}, false
+}
+
+func workspaceAutocheckStateString(state workspaceAutocheckState) string {
+	return onOff(state.Enabled)
 }
 
 type workspaceActivityRow struct {
