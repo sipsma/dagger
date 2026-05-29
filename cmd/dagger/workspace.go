@@ -690,7 +690,6 @@ func renderWorkspaceRemoteRows(cmd *cobra.Command, rows []*workspaceRemoteRow) {
 
 type workspaceActivityRow struct {
 	UpdatedAt   time.Time
-	Kind        string
 	Address     string
 	URL         string
 	Description string
@@ -715,10 +714,9 @@ func workspaceActivityRows(rows []cloudCheckRow) []workspaceActivityRow {
 	out := make([]workspaceActivityRow, 0, len(order))
 	for _, key := range order {
 		group := groups[key]
-		kind, address := cloudCheckWorkspaceAddress(group[0])
+		_, address := cloudCheckWorkspaceAddress(group[0])
 		out = append(out, workspaceActivityRow{
 			UpdatedAt:   latestCloudRowTime(group),
-			Kind:        kind,
 			Address:     address,
 			URL:         firstNonEmptyCloudDimension(group, "url"),
 			Description: firstNonEmptyCloudDimension(group, "description"),
@@ -733,9 +731,9 @@ func workspaceActivityRows(rows []cloudCheckRow) []workspaceActivityRow {
 
 func renderWorkspaceActivityRows(cmd *cobra.Command, rows []workspaceActivityRow) {
 	tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "TIME\tKIND\tADDRESS\tURL\tDESCRIPTION\tCHECKS")
+	fmt.Fprintln(tw, "TIME\tADDRESS\tURL\tDESCRIPTION\tCHECKS")
 	for _, row := range rows {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", relativeTime(row.UpdatedAt), row.Kind, row.Address, row.URL, row.Description, row.Checks)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", relativeTime(row.UpdatedAt), row.Address, row.URL, row.Description, row.Checks)
 	}
 	_ = tw.Flush()
 }
