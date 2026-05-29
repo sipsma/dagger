@@ -766,10 +766,13 @@ func groupCloudListRows(rows []cloudCheckRow, columns []string) []groupedCloudLi
 }
 
 func replayCloudChecks(cmd *cobra.Command, client *cloudapi.Client, orgID string, commit cloudapi.CheckCommit, checks []cloudapi.Check) error {
-	return Frontend.Run(cmd.Context(), opts, func(ctx context.Context) (cleanups.CleanupF, error) {
-		spanExp := Frontend.SpanExporter()
+	replayFrontend := idtui.NewReporter(cmd.ErrOrStderr())
+	replayOpts := opts
+	replayOpts.NoExit = false
+	return replayFrontend.Run(cmd.Context(), replayOpts, func(ctx context.Context) (cleanups.CleanupF, error) {
+		spanExp := replayFrontend.SpanExporter()
 		defer spanExp.Shutdown(ctx)
-		logExp := Frontend.LogExporter()
+		logExp := replayFrontend.LogExporter()
 		defer logExp.Shutdown(ctx)
 
 		traceID, err := randomHexID(16)
@@ -794,11 +797,8 @@ func replayCloudChecks(cmd *cobra.Command, client *cloudapi.Client, orgID string
 		eg.SetLimit(16)
 		for _, check := range checks {
 			check := check
-			if check.TraceID == "" {
-				continue
-			}
 			eg.Go(func() error {
-				if bulkReplay {
+				if bulkReplay || check.TraceID == "" {
 					checkSpanID, err := randomHexID(8)
 					if err != nil {
 						return err
@@ -836,11 +836,12 @@ func replayCloudChecks(cmd *cobra.Command, client *cloudapi.Client, orgID string
 					statusCode = "STATUS_CODE_ERROR"
 				}
 				checkSpan := cloudapi.SpanData{
-					ID:        checkSpanID,
-					TraceID:   traceID,
-					Name:      check.Name,
-					Timestamp: start,
-					EndTime:   &end,
+					ID:         checkSpanID,
+					TraceID:    traceID,
+					Name:       check.Name,
+					Timestamp:  start,
+					EndTime:    &end,
+					Attributes: cloudCheckSpanAttributes(check),
 					Status: cloudapi.SpanStatus{
 						Code:    statusCode,
 						Message: check.Status,
@@ -908,7 +909,7 @@ func replayCloudChecks(cmd *cobra.Command, client *cloudapi.Client, orgID string
 		if err := spanExp.ExportSpans(ctx, spans); err != nil {
 			return nil, err
 		}
-		Frontend.SetPrimary(dagui.SpanID{SpanID: spans[0].SpanContext().SpanID()})
+		replayFrontend.SetPrimary(dagui.SpanID{SpanID: spans[0].SpanContext().SpanID()})
 
 		if len(checks) <= 3 {
 			eg, ctx := errgroup.WithContext(ctx)
@@ -965,12 +966,21 @@ func syntheticCloudCheckSpan(traceID, spanID string, check cloudapi.Check, fallb
 		Attributes: map[string]any{
 			"dagger.io/replay.summary": true,
 			"dagger.io/original.trace": check.TraceID,
+			telemetry.CheckNameAttr:    check.Name,
+			telemetry.CheckPassedAttr:  cloudResultForStatus(check.Status) == "green",
 		},
 		Status: cloudapi.SpanStatus{
 			Code:    statusCode,
 			Message: check.Status,
 		},
 	}, start, end
+}
+
+func cloudCheckSpanAttributes(check cloudapi.Check) map[string]any {
+	return map[string]any{
+		telemetry.CheckNameAttr:   check.Name,
+		telemetry.CheckPassedAttr: cloudResultForStatus(check.Status) == "green",
+	}
 }
 
 func cloudSpanBounds(spans []cloudapi.SpanData) (time.Time, time.Time) {

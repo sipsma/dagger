@@ -5,6 +5,7 @@ import (
 	"time"
 
 	cloudapi "github.com/dagger/dagger/internal/cloud"
+	telemetry "github.com/dagger/otel-go"
 	"github.com/stretchr/testify/require"
 )
 
@@ -140,6 +141,25 @@ func TestWorkspaceActivityRowsUseCommitMessageDescription(t *testing.T) {
 	activityRows := workspaceActivityRows(rows)
 	require.Len(t, activityRows, 1)
 	require.Equal(t, "Update workspace docs", activityRows[0].Description)
+}
+
+func TestSyntheticCloudCheckSpanMarksCheckStatus(t *testing.T) {
+	started := time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC)
+	span, _, _ := syntheticCloudCheckSpan("trace", "span", cloudapi.Check{
+		Name:      "lint",
+		Status:    "success",
+		StartedAt: &started,
+	}, started)
+	require.Equal(t, "lint", span.Attributes[telemetry.CheckNameAttr])
+	require.Equal(t, true, span.Attributes[telemetry.CheckPassedAttr])
+
+	span, _, _ = syntheticCloudCheckSpan("trace", "span", cloudapi.Check{
+		Name:      "unit",
+		Status:    "failure",
+		StartedAt: &started,
+	}, started)
+	require.Equal(t, "unit", span.Attributes[telemetry.CheckNameAttr])
+	require.Equal(t, false, span.Attributes[telemetry.CheckPassedAttr])
 }
 
 func TestCloudCheckWorkspaceAddress(t *testing.T) {
