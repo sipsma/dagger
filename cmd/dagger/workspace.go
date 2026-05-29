@@ -287,7 +287,7 @@ func WorkspaceActivity(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	res, _, err := cloudCLI.loadCloudCheckRowsForWorkspace(cmd.Context(), address, nil, false)
+	res, _, err := cloudCLI.loadCloudCheckRowsForWorkspaceAcrossUserOrgs(cmd.Context(), address, nil, false)
 	if errors.Is(err, errCloudNotAuthenticated) {
 		return fmt.Errorf("not authenticated; run 'dagger login' to view workspace activity")
 	}
@@ -617,10 +617,10 @@ func annotateWorkspaceRemoteRows(ctx context.Context, rows []*workspaceRemoteRow
 	if err != nil || !ok {
 		return err
 	}
-	res, err := cloudCLI.loadCloudCheckRowsNoLogin(ctx, cloudCheckSelectorFlags{
+	res, err := cloudCLI.loadCloudCheckRowsAcrossUserOrgs(ctx, cloudCheckSelectorFlags{
 		GitHubRepo: []string{remote.CloneRef},
 		Workspace:  []string{remote.BaseAddress},
-	})
+	}, false)
 	if err != nil {
 		return err
 	}

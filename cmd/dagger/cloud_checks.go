@@ -19,6 +19,7 @@ import (
 	"github.com/dagger/dagger/dagql/idtui"
 	"github.com/dagger/dagger/engine/slog"
 	cloudapi "github.com/dagger/dagger/internal/cloud"
+	cloudauth "github.com/dagger/dagger/internal/cloud/auth"
 	"github.com/dagger/dagger/util/cleanups"
 	telemetry "github.com/dagger/otel-go"
 )
@@ -172,6 +173,107 @@ func (cli *CloudCLI) loadCloudCheckRowsWithLogin(ctx context.Context, selectors 
 	}, nil
 }
 
+func (cli *CloudCLI) loadCloudCheckRowsAcrossUserOrgs(ctx context.Context, selectors cloudCheckSelectorFlags, login bool) (*cloudCheckQueryResult, error) {
+	client, _, err := cli.cloudClientWithLogin(ctx, login)
+	if err != nil {
+		return nil, err
+	}
+	user, err := client.User(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	orgs, preferred := orderCloudOrgsForRepos(user.Orgs, selectors.GitHubRepo)
+	for _, org := range orgs[:preferred] {
+		rows, err := loadCloudCheckRowsForOrg(ctx, client, org.Name, selectors)
+		if err != nil {
+			return nil, err
+		}
+		if len(rows) > 0 {
+			return &cloudCheckQueryResult{
+				Client: client,
+				Rows:   rows,
+			}, nil
+		}
+	}
+
+	var (
+		mu   sync.Mutex
+		rows []cloudCheckRow
+	)
+	eg, egctx := errgroup.WithContext(ctx)
+	eg.SetLimit(8)
+	for _, org := range orgs[preferred:] {
+		org := org
+		eg.Go(func() error {
+			orgRows, err := loadCloudCheckRowsForOrg(egctx, client, org.Name, selectors)
+			if err != nil {
+				return err
+			}
+			mu.Lock()
+			rows = append(rows, orgRows...)
+			mu.Unlock()
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+	return &cloudCheckQueryResult{
+		Client: client,
+		Rows:   rows,
+	}, nil
+}
+
+func loadCloudCheckRowsForOrg(ctx context.Context, client *cloudapi.Client, orgName string, selectors cloudCheckSelectorFlags) ([]cloudCheckRow, error) {
+	commits, err := client.OrgChecks(ctx, orgName, selectors.GitHubRepo, cloudCheckFetchLimit)
+	if err != nil {
+		return nil, fmt.Errorf("fetch Cloud checks for org %q: %w", orgName, err)
+	}
+	return filterCloudCheckRows(cloudCheckRows(orgName, commits), selectors), nil
+}
+
+func orderCloudOrgsForRepos(orgs []cloudauth.Org, repos []string) ([]cloudauth.Org, int) {
+	if len(orgs) == 0 || len(repos) == 0 {
+		return orgs, 0
+	}
+	owners := map[string]struct{}{}
+	for _, repo := range repos {
+		owner := cloudRepoOwner(repo)
+		if owner != "" {
+			owners[strings.ToLower(owner)] = struct{}{}
+		}
+	}
+	if len(owners) == 0 {
+		return orgs, 0
+	}
+	ordered := make([]cloudauth.Org, 0, len(orgs))
+	for _, org := range orgs {
+		if _, ok := owners[strings.ToLower(org.Name)]; ok {
+			ordered = append(ordered, org)
+		}
+	}
+	preferred := len(ordered)
+	for _, org := range orgs {
+		if _, ok := owners[strings.ToLower(org.Name)]; !ok {
+			ordered = append(ordered, org)
+		}
+	}
+	return ordered, preferred
+}
+
+func cloudRepoOwner(repo string) string {
+	repo = strings.TrimPrefix(strings.TrimPrefix(repo, "https://"), "http://")
+	parts := strings.Split(repo, "/")
+	if len(parts) >= 3 && parts[0] == "github.com" {
+		return parts[1]
+	}
+	if len(parts) >= 2 && !strings.Contains(parts[0], ".") {
+		return parts[0]
+	}
+	return ""
+}
+
 func (cli *CloudCLI) loadCloudCheckRowsForWorkspace(ctx context.Context, address string, checks []string, login bool) (*cloudCheckQueryResult, cloudCheckSelectorFlags, error) {
 	remote, ok, err := parseWorkspaceRemoteAddress(ctx, address)
 	if err != nil {
@@ -187,6 +289,37 @@ func (cli *CloudCLI) loadCloudCheckRowsForWorkspace(ctx context.Context, address
 		Check:      checks,
 	}
 	res, err := cli.loadCloudCheckRowsWithLogin(ctx, cloudCheckSelectorFlags{
+		GitHubRepo: []string{remote.CloneRef},
+	}, login)
+	if err != nil {
+		return nil, cloudCheckSelectorFlags{}, err
+	}
+	rows, selectors, err := cloudRowsForWorkspaceAddress(ctx, res.Rows, address, checks)
+	if err != nil {
+		return nil, cloudCheckSelectorFlags{}, err
+	}
+	res.Rows = rows
+	if !selectors.hasCloudSelector() {
+		selectors = baseSelectors
+	}
+	return res, selectors, nil
+}
+
+func (cli *CloudCLI) loadCloudCheckRowsForWorkspaceAcrossUserOrgs(ctx context.Context, address string, checks []string, login bool) (*cloudCheckQueryResult, cloudCheckSelectorFlags, error) {
+	remote, ok, err := parseWorkspaceRemoteAddress(ctx, address)
+	if err != nil {
+		return nil, cloudCheckSelectorFlags{}, err
+	}
+	if !ok {
+		return nil, cloudCheckSelectorFlags{}, fmt.Errorf("workspace %q is not remote", address)
+	}
+
+	baseSelectors := cloudCheckSelectorFlags{
+		GitHubRepo: []string{remote.CloneRef},
+		Workspace:  []string{remote.BaseAddress},
+		Check:      checks,
+	}
+	res, err := cli.loadCloudCheckRowsAcrossUserOrgs(ctx, cloudCheckSelectorFlags{
 		GitHubRepo: []string{remote.CloneRef},
 	}, login)
 	if err != nil {
