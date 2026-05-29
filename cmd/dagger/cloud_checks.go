@@ -468,6 +468,8 @@ func cloudCheckRefDimensions(commit cloudapi.CheckCommit) []map[string]string {
 			if ref.Number != 0 {
 				dims["github-pr"] = strconv.Itoa(ref.Number)
 			}
+			dims["url"] = ref.URL
+			dims["description"] = ref.Title
 		case "CheckCommitBranchRef":
 			dims["git-branch"] = ref.Name
 		case "CheckCommitTagRef":
@@ -1064,6 +1066,71 @@ func cloudChecksSummary(rows []cloudCheckRow) string {
 		}
 	}
 	return fmt.Sprintf("%s %d/%d", result, passed, len(byCheck))
+}
+
+func cloudChecksEmojiSummary(rows []cloudCheckRow) string {
+	if len(rows) == 0 {
+		return "-"
+	}
+	counts := map[string]int{}
+	for _, checkResult := range cloudCheckResultsByName(rows) {
+		counts[checkResult]++
+	}
+	if len(counts) == 0 {
+		return "-"
+	}
+	type resultCount struct {
+		result string
+		count  int
+	}
+	resultCounts := []resultCount{
+		{result: "red", count: counts["red"]},
+		{result: "pending", count: counts["pending"]},
+		{result: "green", count: counts["green"]},
+	}
+	sort.SliceStable(resultCounts, func(i, j int) bool {
+		return resultCounts[i].count > resultCounts[j].count
+	})
+
+	parts := make([]string, 0, len(resultCounts))
+	for _, resultCount := range resultCounts {
+		if resultCount.count == 0 {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s: %d", cloudResultEmoji(resultCount.result), resultCount.count))
+	}
+	if len(parts) == 0 {
+		return "-"
+	}
+	return strings.Join(parts, " ")
+}
+
+func cloudCheckResultsByName(rows []cloudCheckRow) map[string]string {
+	byCheck := map[string]string{}
+	for _, row := range rows {
+		name := row.Dimensions["check"]
+		if name == "" {
+			name = row.Check.Name
+		}
+		if name == "" {
+			continue
+		}
+		byCheck[name] = stricterCloudResult(byCheck[name], row.Result)
+	}
+	return byCheck
+}
+
+func cloudResultEmoji(result string) string {
+	switch result {
+	case "red":
+		return "🔴"
+	case "pending":
+		return "🟡"
+	case "green":
+		return "🟢"
+	default:
+		return "⚪"
+	}
 }
 
 func cloudCheckWorkspaceAddress(row cloudCheckRow) (string, string) {

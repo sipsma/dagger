@@ -142,6 +142,8 @@ var workspaceActivityCmd = &cobra.Command{
 	RunE:  WorkspaceActivity,
 }
 
+var workspaceActivityAll bool
+
 func init() {
 	workspaceCmd.AddCommand(workspaceConfigCmd)
 	workspaceCmd.AddCommand(workspaceConfigFileCmd)
@@ -154,6 +156,7 @@ func init() {
 
 	addWorkspaceHereFlag(workspaceConfigCmd)
 	addWorkspaceHereFlag(workspaceInitCmd)
+	workspaceActivityCmd.Flags().BoolVarP(&workspaceActivityAll, "all", "a", false, "Show activity from all remotes in the current workspace")
 
 	setWorkspaceFlagPolicy(workspaceInitCmd, workspaceFlagPolicyLocalOnly)
 }
@@ -303,11 +306,14 @@ func WorkspaceRemotes(cmd *cobra.Command, _ []string) error {
 }
 
 func WorkspaceActivity(cmd *cobra.Command, _ []string) error {
-	_, address, err := selectedRemoteWorkspaceAddress(cmd.Context(), "workspace activity")
+	remote, address, err := selectedRemoteWorkspaceAddress(cmd.Context(), "workspace activity")
 	if err != nil {
 		return err
 	}
-	res, _, err := cloudCLI.loadCloudCheckRowsForWorkspaceAcrossUserOrgs(cmd.Context(), address, nil, false)
+	if workspaceActivityAll {
+		address = remote.BaseAddress
+	}
+	res, _, err := cloudCLI.loadCloudCheckRowsForWorkspaceAcrossUserOrgs(cmd.Context(), address, nil, true)
 	if errors.Is(err, errCloudNotAuthenticated) {
 		return fmt.Errorf("not authenticated; run 'dagger login' to view workspace activity")
 	}
@@ -683,10 +689,12 @@ func renderWorkspaceRemoteRows(cmd *cobra.Command, rows []*workspaceRemoteRow) {
 }
 
 type workspaceActivityRow struct {
-	UpdatedAt time.Time
-	Kind      string
-	Address   string
-	Checks    string
+	UpdatedAt   time.Time
+	Kind        string
+	Address     string
+	URL         string
+	Description string
+	Checks      string
 }
 
 func workspaceActivityRows(rows []cloudCheckRow) []workspaceActivityRow {
@@ -709,10 +717,12 @@ func workspaceActivityRows(rows []cloudCheckRow) []workspaceActivityRow {
 		group := groups[key]
 		kind, address := cloudCheckWorkspaceAddress(group[0])
 		out = append(out, workspaceActivityRow{
-			UpdatedAt: latestCloudRowTime(group),
-			Kind:      kind,
-			Address:   address,
-			Checks:    cloudChecksSummary(group),
+			UpdatedAt:   latestCloudRowTime(group),
+			Kind:        kind,
+			Address:     address,
+			URL:         firstNonEmptyCloudDimension(group, "url"),
+			Description: firstNonEmptyCloudDimension(group, "description"),
+			Checks:      cloudChecksEmojiSummary(group),
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -723,9 +733,18 @@ func workspaceActivityRows(rows []cloudCheckRow) []workspaceActivityRow {
 
 func renderWorkspaceActivityRows(cmd *cobra.Command, rows []workspaceActivityRow) {
 	tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "TIME\tKIND\tADDRESS\tCHECKS")
+	fmt.Fprintln(tw, "TIME\tKIND\tADDRESS\tURL\tDESCRIPTION\tCHECKS")
 	for _, row := range rows {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", relativeTime(row.UpdatedAt), row.Kind, row.Address, row.Checks)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", relativeTime(row.UpdatedAt), row.Kind, row.Address, row.URL, row.Description, row.Checks)
 	}
 	_ = tw.Flush()
+}
+
+func firstNonEmptyCloudDimension(rows []cloudCheckRow, dim string) string {
+	for _, row := range rows {
+		if value := row.Dimensions[dim]; value != "" {
+			return value
+		}
+	}
+	return ""
 }
