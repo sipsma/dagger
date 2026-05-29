@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -766,7 +767,7 @@ func groupCloudListRows(rows []cloudCheckRow, columns []string) []groupedCloudLi
 }
 
 func replayCloudChecks(cmd *cobra.Command, client *cloudapi.Client, orgID string, commit cloudapi.CheckCommit, checks []cloudapi.Check) error {
-	replayFrontend := idtui.NewReporter(cmd.ErrOrStderr())
+	replayFrontend := newCloudCheckReplayFrontend(cmd.ErrOrStderr())
 	replayOpts := opts
 	replayOpts.NoExit = false
 	return replayFrontend.Run(cmd.Context(), replayOpts, func(ctx context.Context) (cleanups.CleanupF, error) {
@@ -934,6 +935,21 @@ func replayCloudChecks(cmd *cobra.Command, client *cloudapi.Client, orgID string
 
 		return func() error { return nil }, nil
 	})
+}
+
+func newCloudCheckReplayFrontend(w io.Writer) idtui.Frontend {
+	switch progress {
+	case "plain":
+		return idtui.NewPlain(w)
+	case "dots":
+		return idtui.NewDots(w)
+	case "logs":
+		return idtui.NewLogs(w)
+	case "report", "tty":
+		return idtui.NewReporter(w)
+	default:
+		return idtui.NewReporter(w)
+	}
 }
 
 func syntheticCloudCheckSpan(traceID, spanID string, check cloudapi.Check, fallback time.Time) (cloudapi.SpanData, time.Time, time.Time) {

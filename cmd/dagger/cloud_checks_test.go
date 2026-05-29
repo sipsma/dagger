@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"io"
 	"testing"
 	"time"
 
@@ -160,6 +162,28 @@ func TestSyntheticCloudCheckSpanMarksCheckStatus(t *testing.T) {
 	}, started)
 	require.Equal(t, "unit", span.Attributes[telemetry.CheckNameAttr])
 	require.Equal(t, false, span.Attributes[telemetry.CheckPassedAttr])
+}
+
+func TestCloudCheckReplayFrontendFollowsProgressMode(t *testing.T) {
+	originalProgress := progress
+	t.Cleanup(func() {
+		progress = originalProgress
+	})
+
+	progress = "plain"
+	require.Contains(t, fmt.Sprintf("%T", newCloudCheckReplayFrontend(io.Discard)), "frontendPlain")
+
+	progress = "dots"
+	require.Contains(t, fmt.Sprintf("%T", newCloudCheckReplayFrontend(io.Discard)), "frontendDots")
+
+	progress = "logs"
+	require.Contains(t, fmt.Sprintf("%T", newCloudCheckReplayFrontend(io.Discard)), "frontendLogs")
+
+	progress = "tty"
+	require.Contains(t, fmt.Sprintf("%T", newCloudCheckReplayFrontend(io.Discard)), "frontendPretty")
+
+	progress = "report"
+	require.Contains(t, fmt.Sprintf("%T", newCloudCheckReplayFrontend(io.Discard)), "frontendPretty")
 }
 
 func TestCloudCheckWorkspaceAddress(t *testing.T) {
