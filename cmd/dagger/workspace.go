@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -15,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dagger/dagger/core"
+	"github.com/dagger/dagger/dagql/idtui"
 	"github.com/dagger/dagger/engine/client"
 	"github.com/dagger/dagger/util/gitutil"
 )
@@ -257,26 +259,20 @@ func fileURLPathOrAddress(address string) string {
 }
 
 func WorkspaceRemotes(cmd *cobra.Command, _ []string) error {
-	return withEngine(cmd.Context(), client.Params{LoadWorkspaceModules: true}, func(ctx context.Context, engineClient *client.Client) error {
+	remote, _, err := selectedRemoteWorkspaceAddress(cmd.Context(), "workspace remotes")
+	if err != nil {
+		return err
+	}
+	return withEngineSilent(cmd.Context(), client.Params{}, func(ctx context.Context, engineClient *client.Client) error {
 		dag := engineClient.Dagger()
-		address, err := dag.CurrentWorkspace().Address(ctx)
-		if err != nil {
-			return err
-		}
-		remote, ok, err := parseWorkspaceRemoteAddress(ctx, address)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return fmt.Errorf("workspace remotes only supports remote workspaces for now; selected workspace is %s", address)
-		}
-
 		rows, err := loadWorkspaceRemoteRows(ctx, dag, remote)
 		if err != nil {
 			return err
 		}
 		if err := annotateWorkspaceRemoteRows(ctx, rows); err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "Cloud check annotation failed: %v\n", err)
+			if !errors.Is(err, errCloudNotAuthenticated) {
+				fmt.Fprintf(cmd.ErrOrStderr(), "Cloud check annotation failed: %v\n", err)
+			}
 		}
 		renderWorkspaceRemoteRows(cmd, rows)
 		return nil
@@ -284,27 +280,51 @@ func WorkspaceRemotes(cmd *cobra.Command, _ []string) error {
 }
 
 func WorkspaceActivity(cmd *cobra.Command, _ []string) error {
-	return withEngine(cmd.Context(), client.Params{LoadWorkspaceModules: true}, func(ctx context.Context, engineClient *client.Client) error {
-		address, err := engineClient.Dagger().CurrentWorkspace().Address(ctx)
-		if err != nil {
-			return err
-		}
-		if !workspaceAddressLooksRemote(address) {
-			return fmt.Errorf("workspace activity only supports remote workspaces for now; selected workspace is %s", address)
-		}
-
-		res, _, err := cloudCLI.loadCloudCheckRowsForWorkspace(ctx, address, nil, false)
-		if err != nil {
-			return err
-		}
-		rows := workspaceActivityRows(res.Rows)
-		if len(rows) == 0 {
-			fmt.Fprintf(cmd.OutOrStdout(), "No Cloud activity found for %s.\n", address)
-			return nil
-		}
-		renderWorkspaceActivityRows(cmd, rows)
+	_, address, err := selectedRemoteWorkspaceAddress(cmd.Context(), "workspace activity")
+	if err != nil {
+		return err
+	}
+	res, _, err := cloudCLI.loadCloudCheckRowsForWorkspace(cmd.Context(), address, nil, false)
+	if errors.Is(err, errCloudNotAuthenticated) {
+		return fmt.Errorf("not authenticated; run 'dagger login' to view workspace activity")
+	}
+	if err != nil {
+		return err
+	}
+	rows := workspaceActivityRows(res.Rows)
+	if len(rows) == 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "No Cloud activity found for %s.\n", address)
 		return nil
-	})
+	}
+	renderWorkspaceActivityRows(cmd, rows)
+	return nil
+}
+
+func selectedRemoteWorkspaceAddress(ctx context.Context, command string) (workspaceRemoteAddress, string, error) {
+	address := strings.TrimSpace(workspaceRef)
+	if address == "" {
+		return workspaceRemoteAddress{}, "", fmt.Errorf("%s requires a remote workspace selected with -W for now", command)
+	}
+	remote, ok, err := parseWorkspaceRemoteAddress(ctx, address)
+	if err != nil {
+		return workspaceRemoteAddress{}, "", err
+	}
+	if !ok {
+		return workspaceRemoteAddress{}, "", fmt.Errorf("%s only supports remote workspaces for now; selected workspace is %s", command, address)
+	}
+	return remote, address, nil
+}
+
+func withEngineSilent(ctx context.Context, params client.Params, fn runClientCallback) error {
+	oldFrontend := Frontend
+	oldOpts := opts
+	Frontend = idtui.NewPlain(io.Discard)
+	opts.Silent = true
+	defer func() {
+		Frontend = oldFrontend
+		opts = oldOpts
+	}()
+	return withEngine(ctx, params, fn)
 }
 
 type workspaceRemoteAddress struct {

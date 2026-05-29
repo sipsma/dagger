@@ -290,3 +290,26 @@ func TestWorkspaceRemoteVersionKind(t *testing.T) {
 	require.Equal(t, "sha", workspaceRemoteVersionKind("abcdef1"))
 	require.Equal(t, "ref", workspaceRemoteVersionKind("feature/name"))
 }
+
+func TestSelectedRemoteWorkspaceAddressRequiresExplicitRemoteWorkspace(t *testing.T) {
+	oldWorkspaceRef := workspaceRef
+	t.Cleanup(func() {
+		workspaceRef = oldWorkspaceRef
+	})
+
+	workspaceRef = ""
+	_, _, err := selectedRemoteWorkspaceAddress(t.Context(), "workspace activity")
+	require.ErrorContains(t, err, "requires a remote workspace selected with -W")
+
+	workspaceRef = "."
+	_, _, err = selectedRemoteWorkspaceAddress(t.Context(), "workspace activity")
+	require.ErrorContains(t, err, "only supports remote workspaces")
+
+	workspaceRef = "github.com/acme/mono/services/api@main"
+	remote, address, err := selectedRemoteWorkspaceAddress(t.Context(), "workspace activity")
+	require.NoError(t, err)
+	require.Equal(t, "github.com/acme/mono/services/api@main", address)
+	require.Equal(t, "github.com/acme/mono", remote.CloneRef)
+	require.Equal(t, "services/api", remote.Path)
+	require.Equal(t, "main", remote.Version)
+}

@@ -412,11 +412,14 @@ func GetCloudAuth(ctx context.Context) (*Cloud, error) {
 			auth = &Cloud{Token: &oauth2.Token{AccessToken: dct, TokenType: "Basic"}}
 		}
 	} else if at, err := Token(ctx); err == nil {
-		org, err := CurrentOrg()
-		if err != nil {
-			return nil, err
+		auth = &Cloud{Token: at}
+		org, orgErr := CurrentOrg()
+		switch {
+		case orgErr == nil:
+			auth.Org = org
+		case !os.IsNotExist(orgErr):
+			return nil, orgErr
 		}
-		auth = &Cloud{Token: at, Org: org}
 	}
 	return auth, nil
 }

@@ -2,9 +2,14 @@ package auth
 
 import (
 	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
 )
 
@@ -83,4 +88,31 @@ func TestWriteDeviceAuthPrompt(t *testing.T) {
 			assert.Equal(t, tc.want, buf.String())
 		})
 	}
+}
+
+func TestGetCloudAuthAllowsMissingOrgFile(t *testing.T) {
+	dir := t.TempDir()
+	oldCredentialsFile := credentialsFile
+	oldOrgFile := orgFile
+	credentialsFile = filepath.Join(dir, "credentials.json")
+	orgFile = filepath.Join(dir, "org")
+	t.Cleanup(func() {
+		credentialsFile = oldCredentialsFile
+		orgFile = oldOrgFile
+	})
+
+	token := &oauth2.Token{
+		AccessToken: "token",
+		TokenType:   "Bearer",
+		Expiry:      time.Now().Add(time.Hour),
+	}
+	data, err := json.Marshal(token)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(credentialsFile, data, 0o600))
+
+	cloud, err := GetCloudAuth(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, cloud)
+	require.NotNil(t, cloud.Token)
+	require.Nil(t, cloud.Org)
 }
