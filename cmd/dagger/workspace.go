@@ -128,6 +128,13 @@ var workspaceRemotesCmd = &cobra.Command{
 	RunE:  WorkspaceRemotes,
 }
 
+var workspaceRemoteCmd = &cobra.Command{
+	Use:   "remote",
+	Short: "Print the selectable remote address for the current workspace",
+	Args:  cobra.NoArgs,
+	RunE:  WorkspaceRemote,
+}
+
 var workspaceActivityCmd = &cobra.Command{
 	Use:   "activity",
 	Short: "List recent Cloud activity for the selected workspace",
@@ -140,6 +147,7 @@ func init() {
 	workspaceCmd.AddCommand(workspaceConfigFileCmd)
 	workspaceCmd.AddCommand(workspaceCwdCmd)
 	workspaceCmd.AddCommand(workspaceInitCmd)
+	workspaceCmd.AddCommand(workspaceRemoteCmd)
 	workspaceCmd.AddCommand(workspaceRemotesCmd)
 	workspaceCmd.AddCommand(workspaceRootCmd)
 	workspaceCmd.AddCommand(workspaceActivityCmd)
@@ -261,6 +269,18 @@ func fileURLPathOrAddress(address string) string {
 	return parsed.Path
 }
 
+func WorkspaceRemote(cmd *cobra.Command, _ []string) error {
+	address, ok, err := currentWorkspaceRemoteAddress(cmd.Context())
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	_, err = fmt.Fprintln(cmd.OutOrStdout(), address)
+	return err
+}
+
 func WorkspaceRemotes(cmd *cobra.Command, _ []string) error {
 	remote, _, err := selectedRemoteWorkspaceAddress(cmd.Context(), "workspace remotes")
 	if err != nil {
@@ -301,6 +321,25 @@ func WorkspaceActivity(cmd *cobra.Command, _ []string) error {
 	}
 	renderWorkspaceActivityRows(cmd, rows)
 	return nil
+}
+
+func currentWorkspaceRemoteAddress(ctx context.Context) (string, bool, error) {
+	address := strings.TrimSpace(workspaceRef)
+	if address != "" {
+		_, ok, err := parseWorkspaceRemoteAddress(ctx, address)
+		if err != nil {
+			return "", false, err
+		}
+		if ok {
+			return address, true, nil
+		}
+	}
+
+	_, inferred, err := inferLocalWorkspaceRemoteAddress(ctx, address)
+	if err != nil {
+		return "", false, nil
+	}
+	return inferred, true, nil
 }
 
 func selectedRemoteWorkspaceAddress(ctx context.Context, command string) (workspaceRemoteAddress, string, error) {

@@ -324,6 +324,26 @@ func TestSelectedRemoteWorkspaceAddressInfersLocalGitWorkspace(t *testing.T) {
 	require.Equal(t, "services/api", remote.Path)
 }
 
+func TestCurrentWorkspaceRemoteAddress(t *testing.T) {
+	oldWorkspaceRef := workspaceRef
+	t.Cleanup(func() {
+		workspaceRef = oldWorkspaceRef
+	})
+
+	workspaceRef = "github.com/acme/mono/services/api@main"
+	address, ok, err := currentWorkspaceRemoteAddress(t.Context())
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "github.com/acme/mono/services/api@main", address)
+
+	t.Chdir(t.TempDir())
+	workspaceRef = ""
+	address, ok, err = currentWorkspaceRemoteAddress(t.Context())
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.Empty(t, address)
+}
+
 func TestSelectedRemoteWorkspaceAddressRequiresRemoteOrGitWorkspace(t *testing.T) {
 	oldWorkspaceRef := workspaceRef
 	t.Cleanup(func() {
