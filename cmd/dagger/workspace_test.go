@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -291,19 +292,60 @@ func TestWorkspaceRemoteVersionKind(t *testing.T) {
 	require.Equal(t, "ref", workspaceRemoteVersionKind("feature/name"))
 }
 
-func TestSelectedRemoteWorkspaceAddressRequiresExplicitRemoteWorkspace(t *testing.T) {
+func TestSelectedRemoteWorkspaceAddressInfersLocalGitWorkspace(t *testing.T) {
 	oldWorkspaceRef := workspaceRef
 	t.Cleanup(func() {
 		workspaceRef = oldWorkspaceRef
 	})
 
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	runGit(t, repo, "remote", "add", "origin", "git@github.com:acme/mono.git")
+	runGit(t, repo, "checkout", "-b", "feature/work")
+
+	workspaceDir := filepath.Join(repo, "services", "api")
+	require.NoError(t, os.MkdirAll(filepath.Join(workspaceDir, ".dagger"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(workspaceDir, ".dagger", "config.toml"), []byte("# workspace\n"), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(workspaceDir, "subdir"), 0o755))
+
+	workspaceRef = ""
+	t.Chdir(filepath.Join(workspaceDir, "subdir"))
+	remote, address, err := selectedRemoteWorkspaceAddress(t.Context(), "workspace activity")
+	require.NoError(t, err)
+	require.Equal(t, "github.com/acme/mono/services/api@feature/work", address)
+	require.Equal(t, "github.com/acme/mono", remote.CloneRef)
+	require.Equal(t, "services/api", remote.Path)
+	require.Equal(t, "feature/work", remote.Version)
+
+	workspaceRef = "."
+	remote, address, err = selectedRemoteWorkspaceAddress(t.Context(), "workspace activity")
+	require.NoError(t, err)
+	require.Equal(t, "github.com/acme/mono/services/api@feature/work", address)
+	require.Equal(t, "services/api", remote.Path)
+}
+
+func TestSelectedRemoteWorkspaceAddressRequiresRemoteOrGitWorkspace(t *testing.T) {
+	oldWorkspaceRef := workspaceRef
+	t.Cleanup(func() {
+		workspaceRef = oldWorkspaceRef
+	})
+
+	t.Chdir(t.TempDir())
+
 	workspaceRef = ""
 	_, _, err := selectedRemoteWorkspaceAddress(t.Context(), "workspace activity")
-	require.ErrorContains(t, err, "requires a remote workspace selected with -W")
+	require.ErrorContains(t, err, "requires a remote workspace selected with -W or a local workspace with git origin")
 
 	workspaceRef = "."
 	_, _, err = selectedRemoteWorkspaceAddress(t.Context(), "workspace activity")
-	require.ErrorContains(t, err, "only supports remote workspaces")
+	require.ErrorContains(t, err, "only supports remote workspaces or local git workspaces")
+}
+
+func TestSelectedRemoteWorkspaceAddressUsesExplicitRemoteWorkspace(t *testing.T) {
+	oldWorkspaceRef := workspaceRef
+	t.Cleanup(func() {
+		workspaceRef = oldWorkspaceRef
+	})
 
 	workspaceRef = "github.com/acme/mono/services/api@main"
 	remote, address, err := selectedRemoteWorkspaceAddress(t.Context(), "workspace activity")
@@ -312,4 +354,18 @@ func TestSelectedRemoteWorkspaceAddressRequiresExplicitRemoteWorkspace(t *testin
 	require.Equal(t, "github.com/acme/mono", remote.CloneRef)
 	require.Equal(t, "services/api", remote.Path)
 	require.Equal(t, "main", remote.Version)
+}
+
+func TestNormalizeWorkspaceGitOrigin(t *testing.T) {
+	require.Equal(t, "github.com/acme/mono", normalizeWorkspaceGitOrigin("git@github.com:acme/mono.git"))
+	require.Equal(t, "github.com/acme/mono", normalizeWorkspaceGitOrigin("https://github.com/acme/mono.git"))
+	require.Equal(t, "ssh://git@example.com/acme/mono", normalizeWorkspaceGitOrigin("ssh://git@example.com/acme/mono.git"))
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	require.NoErrorf(t, err, "git %s: %s", strings.Join(args, " "), out)
 }

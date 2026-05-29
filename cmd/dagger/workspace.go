@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -16,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dagger/dagger/core"
+	workspacepkg "github.com/dagger/dagger/core/workspace"
 	"github.com/dagger/dagger/dagql/idtui"
 	"github.com/dagger/dagger/engine/client"
 	"github.com/dagger/dagger/util/gitutil"
@@ -302,17 +305,147 @@ func WorkspaceActivity(cmd *cobra.Command, _ []string) error {
 
 func selectedRemoteWorkspaceAddress(ctx context.Context, command string) (workspaceRemoteAddress, string, error) {
 	address := strings.TrimSpace(workspaceRef)
-	if address == "" {
-		return workspaceRemoteAddress{}, "", fmt.Errorf("%s requires a remote workspace selected with -W for now", command)
+	if address != "" {
+		remote, ok, err := parseWorkspaceRemoteAddress(ctx, address)
+		if err != nil {
+			return workspaceRemoteAddress{}, "", err
+		}
+		if ok {
+			return remote, address, nil
+		}
 	}
-	remote, ok, err := parseWorkspaceRemoteAddress(ctx, address)
+
+	remote, inferred, err := inferLocalWorkspaceRemoteAddress(ctx, address)
+	if err != nil {
+		if address == "" {
+			return workspaceRemoteAddress{}, "", fmt.Errorf("%s requires a remote workspace selected with -W or a local workspace with git origin: %w", command, err)
+		}
+		return workspaceRemoteAddress{}, "", fmt.Errorf("%s only supports remote workspaces or local git workspaces; selected workspace is %s: %w", command, address, err)
+	}
+	return remote, inferred, nil
+}
+
+func inferLocalWorkspaceRemoteAddress(ctx context.Context, address string) (workspaceRemoteAddress, string, error) {
+	localPath := address
+	if localPath == "" {
+		localPath = "."
+	}
+	if parsed, err := url.Parse(localPath); err == nil && parsed.Scheme == "file" {
+		localPath = parsed.Path
+	}
+	absPath, err := filepath.Abs(localPath)
+	if err != nil {
+		return workspaceRemoteAddress{}, "", fmt.Errorf("resolve local workspace path: %w", err)
+	}
+	if stat, err := os.Stat(absPath); err == nil && !stat.IsDir() {
+		absPath = filepath.Dir(absPath)
+	}
+
+	repoRoot, err := gitOutput(ctx, absPath, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return workspaceRemoteAddress{}, "", fmt.Errorf("find git root: %w", err)
+	}
+	origin, err := gitOutput(ctx, repoRoot, "config", "--get", "remote.origin.url")
+	if err != nil {
+		return workspaceRemoteAddress{}, "", fmt.Errorf("find git origin: %w", err)
+	}
+	version, err := currentGitRef(ctx, repoRoot)
+	if err != nil {
+		return workspaceRemoteAddress{}, "", err
+	}
+
+	detected, err := workspacepkg.DetectInRoot(ctx, localPathExists, absPath, repoRoot)
+	if err != nil {
+		return workspaceRemoteAddress{}, "", err
+	}
+	workspaceDir := repoRoot
+	if detected.ConfigFile != "" {
+		workspaceDir = filepath.Join(repoRoot, filepath.Dir(filepath.Dir(detected.ConfigFile)))
+	}
+	workspacePath, err := filepath.Rel(repoRoot, workspaceDir)
+	if err != nil {
+		return workspaceRemoteAddress{}, "", fmt.Errorf("resolve workspace subdir: %w", err)
+	}
+	workspacePath = cleanWorkspaceRemoteSubdir(filepath.ToSlash(workspacePath))
+
+	cloneRef := normalizeWorkspaceGitOrigin(origin)
+	inferred := core.GitRefString(cloneRef, workspacePath, version)
+	remote, ok, err := parseWorkspaceRemoteAddress(ctx, inferred)
 	if err != nil {
 		return workspaceRemoteAddress{}, "", err
 	}
 	if !ok {
-		return workspaceRemoteAddress{}, "", fmt.Errorf("%s only supports remote workspaces for now; selected workspace is %s", command, address)
+		return workspaceRemoteAddress{}, "", fmt.Errorf("inferred git origin %q is not a remote workspace address", origin)
 	}
-	return remote, address, nil
+	return remote, inferred, nil
+}
+
+// This is intentionally narrower than the workspace-git API: it only projects
+// a local checkout into a copy/pasteable remote workspace address, without
+// starting the engine or modeling full Git state.
+func currentGitRef(ctx context.Context, repoRoot string) (string, error) {
+	ref, err := gitOutput(ctx, repoRoot, "symbolic-ref", "--quiet", "--short", "HEAD")
+	if err == nil && ref != "" {
+		return ref, nil
+	}
+	sha, err := gitOutput(ctx, repoRoot, "rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("find git ref: %w", err)
+	}
+	return sha, nil
+}
+
+func localPathExists(_ context.Context, path string) (string, bool, error) {
+	info, err := os.Stat(path)
+	if err == nil {
+		parent := filepath.Dir(path)
+		if info.IsDir() {
+			parent = filepath.Dir(filepath.Clean(path))
+		}
+		return parent, true, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return filepath.Dir(path), false, nil
+	}
+	return "", false, err
+}
+
+func gitOutput(ctx context.Context, dir string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			msg := strings.TrimSpace(string(exitErr.Stderr))
+			if msg != "" {
+				return "", fmt.Errorf("%s", msg)
+			}
+		}
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func normalizeWorkspaceGitOrigin(origin string) string {
+	origin = strings.TrimSpace(origin)
+	gitURL, err := gitutil.ParseURL(origin)
+	if err != nil {
+		return strings.TrimSuffix(origin, ".git")
+	}
+
+	path := strings.TrimPrefix(gitURL.Path, "/")
+	path = strings.TrimSuffix(path, ".git")
+	if gitURL.Host == "github.com" {
+		return "github.com/" + path
+	}
+
+	if parsed, err := url.Parse(origin); err == nil && parsed.Host != "" {
+		parsed.Path = "/" + path
+		parsed.RawQuery = ""
+		parsed.Fragment = ""
+		return parsed.String()
+	}
+	return strings.TrimSuffix(origin, ".git")
 }
 
 func withEngineSilent(ctx context.Context, params client.Params, fn runClientCallback) error {
