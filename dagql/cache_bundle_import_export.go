@@ -93,9 +93,10 @@ func (c *Cache) importCacheBundles(ctx context.Context, importDirs []string) {
 			continue
 		}
 		source := &PersistedCacheSource{
-			ID:     bundle.ID,
-			Dir:    dir,
-			Bundle: bundle,
+			ID:             bundle.ID,
+			Dir:            dir,
+			MetadataDBPath: bundle.MetadataDBPath(),
+			Snapshots:      bundle,
 		}
 		if err := c.importCacheBundle(ctx, source); err != nil {
 			slog.Warn("skipping cache import bundle after metadata import failure", "dir", dir, "source", bundle.ID, "err", err)
@@ -106,10 +107,10 @@ func (c *Cache) importCacheBundles(ctx context.Context, importDirs []string) {
 }
 
 func (c *Cache) importCacheBundle(ctx context.Context, source *PersistedCacheSource) error {
-	if source == nil || source.Bundle == nil {
+	if source == nil || source.MetadataDBPath == "" {
 		return errors.New("import cache bundle: nil source")
 	}
-	db, q, err := openCacheDBReadOnly(ctx, source.Bundle.MetadataDBPath())
+	db, q, err := openCacheDBReadOnly(ctx, source.MetadataDBPath)
 	if err != nil {
 		return err
 	}
@@ -132,8 +133,78 @@ func (c *Cache) importCacheBundle(ctx context.Context, source *PersistedCacheSou
 	return c.importCacheBundleRows(ctx, source, rows)
 }
 
+func (c *Cache) ImportCacheMetadata(ctx context.Context, source *PersistedCacheSource, preserveSnapshotSourceIDs bool) error {
+	if source == nil {
+		return errors.New("import cache metadata: nil source")
+	}
+	if source.ID == "" {
+		return errors.New("import cache metadata: empty source ID")
+	}
+	if source.MetadataDBPath == "" {
+		return errors.New("import cache metadata: empty metadata DB path")
+	}
+	if err := c.RegisterCacheSource(source); err != nil {
+		return err
+	}
+	return c.importCacheBundleWithOptions(ctx, source, importCacheBundleOptions{
+		preserveSnapshotSourceIDs: preserveSnapshotSourceIDs,
+	})
+}
+
+func (c *Cache) RegisterCacheSource(source *PersistedCacheSource) error {
+	if c == nil {
+		return errors.New("register cache source: nil cache")
+	}
+	if source == nil {
+		return errors.New("register cache source: nil source")
+	}
+	if source.ID == "" {
+		return errors.New("register cache source: empty source ID")
+	}
+	c.egraphMu.Lock()
+	defer c.egraphMu.Unlock()
+	if c.importSources == nil {
+		c.importSources = make(map[string]*PersistedCacheSource)
+	}
+	c.importSources[source.ID] = source
+	return nil
+}
+
+func (c *Cache) importCacheBundleWithOptions(ctx context.Context, source *PersistedCacheSource, opts importCacheBundleOptions) error {
+	db, q, err := openCacheDBReadOnly(ctx, source.MetadataDBPath)
+	if err != nil {
+		return err
+	}
+	defer closeCacheDBs(db, q)
+
+	schemaVersion, found, err := q.SelectMetaValue(ctx, persistdb.MetaKeySchemaVersion)
+	if err != nil {
+		return fmt.Errorf("read bundle schema_version metadata: %w", err)
+	}
+	if !found {
+		return errors.New("bundle metadata missing schema_version")
+	}
+	if schemaVersion != cachePersistenceSchemaVersion {
+		return fmt.Errorf("unsupported bundle schema_version %q", schemaVersion)
+	}
+	rows, err := loadPersistedStateRows(ctx, q)
+	if err != nil {
+		return err
+	}
+	return c.importCacheBundleRowsWithOptions(ctx, source, rows, opts)
+}
+
+type importCacheBundleOptions struct {
+	preserveSnapshotSourceIDs bool
+}
+
 //nolint:gocyclo // importing the normalized persistence graph is intentionally explicit
 func (c *Cache) importCacheBundleRows(ctx context.Context, source *PersistedCacheSource, rows persistedStateRows) error {
+	return c.importCacheBundleRowsWithOptions(ctx, source, rows, importCacheBundleOptions{})
+}
+
+//nolint:gocyclo // importing the normalized persistence graph is intentionally explicit
+func (c *Cache) importCacheBundleRowsWithOptions(ctx context.Context, source *PersistedCacheSource, rows persistedStateRows, opts importCacheBundleOptions) error {
 	if rows.empty() {
 		return nil
 	}
@@ -418,11 +489,18 @@ func (c *Cache) importCacheBundleRows(ctx context.Context, source *PersistedCach
 			if res == nil {
 				return fmt.Errorf("import bundle result_snapshot_link: missing local result %d", resultID)
 			}
+			sourceID := source.ID
+			if opts.preserveSnapshotSourceIDs {
+				sourceID = row.SourceID
+				if sourceID == "" {
+					sourceID = source.ID
+				}
+			}
 			res.payloadMu.Lock()
 			res.snapshotOwnerLinks = append(res.snapshotOwnerLinks, PersistedSnapshotRefLink{
 				RefKey:   row.RefKey,
 				Role:     row.Role,
-				SourceID: source.ID,
+				SourceID: sourceID,
 			})
 			res.payloadMu.Unlock()
 			c.traceImportResultSnapshotLinkLoaded(ctx, importRunID, sharedResultID(resultID), row.RefKey, row.Role)
@@ -514,14 +592,21 @@ func (c *Cache) exportCurrentState(ctx context.Context) error {
 	if c.exportDir == "" {
 		return nil
 	}
+	return c.WriteCacheBundle(ctx, c.exportDir)
+}
+
+func (c *Cache) WriteCacheBundle(ctx context.Context, dir string) error {
+	if dir == "" {
+		return errors.New("write cache bundle: empty dir")
+	}
 	snapshot, err := c.snapshotPersistState(ctx)
 	if err != nil {
 		return err
 	}
-	if err := os.RemoveAll(c.exportDir); err != nil {
+	if err := os.RemoveAll(dir); err != nil {
 		return fmt.Errorf("remove existing cache export dir: %w", err)
 	}
-	writer, err := bkcache.CreateCacheBundle(c.exportDir)
+	writer, err := bkcache.CreateCacheBundle(dir)
 	if err != nil {
 		return err
 	}
@@ -529,6 +614,17 @@ func (c *Cache) exportCurrentState(ctx context.Context) error {
 		return err
 	}
 	return writeCacheBundleDB(ctx, writer.MetadataDBPath(), snapshot)
+}
+
+func (c *Cache) WriteCacheMetadataDB(ctx context.Context, dbPath string) error {
+	if dbPath == "" {
+		return errors.New("write cache metadata db: empty path")
+	}
+	snapshot, err := c.snapshotPersistState(ctx)
+	if err != nil {
+		return err
+	}
+	return writeCacheBundleDB(ctx, dbPath, snapshot)
 }
 
 func (c *Cache) populateCacheBundleSnapshots(ctx context.Context, writer *bkcache.CacheBundleWriter, snapshot *persistStateSnapshot) error {
@@ -578,10 +674,10 @@ func (c *Cache) addCacheBundleSnapshot(ctx context.Context, writer *bkcache.Cach
 	c.egraphMu.RLock()
 	source := c.importSources[sourceID]
 	c.egraphMu.RUnlock()
-	if source == nil || source.Bundle == nil {
+	if source == nil || source.Snapshots == nil {
 		return fmt.Errorf("export external snapshot %q: unknown cache import source %q", refKey, sourceID)
 	}
-	_, err := writer.AddSnapshotFromBundle(ctx, source.Bundle, refKey)
+	_, err := source.Snapshots.AddSnapshotToBundle(ctx, writer, refKey)
 	return err
 }
 

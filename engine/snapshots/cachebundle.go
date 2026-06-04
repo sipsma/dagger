@@ -82,11 +82,33 @@ func (b *CacheBundle) MetadataDBPath() string {
 	return filepath.Join(b.Dir, CacheBundleDBName)
 }
 
+func (b *CacheBundle) Snapshots() []BundleSnapshot {
+	if b == nil || len(b.snapshot) == 0 {
+		return nil
+	}
+	snapshots := make([]BundleSnapshot, 0, len(b.snapshot))
+	for _, snapshot := range b.snapshot {
+		snapshots = append(snapshots, snapshot)
+	}
+	return snapshots
+}
+
 func (w *CacheBundleWriter) MetadataDBPath() string {
 	if w == nil {
 		return ""
 	}
 	return filepath.Join(w.Dir, CacheBundleDBName)
+}
+
+func (w *CacheBundleWriter) Snapshots() []BundleSnapshot {
+	if w == nil || len(w.snapshots) == 0 {
+		return nil
+	}
+	snapshots := make([]BundleSnapshot, 0, len(w.snapshots))
+	for _, snapshot := range w.snapshots {
+		snapshots = append(snapshots, snapshot)
+	}
+	return snapshots
 }
 
 func CreateCacheBundle(dir string) (*CacheBundleWriter, error) {
@@ -195,6 +217,13 @@ func (b *CacheBundle) HydrateSnapshot(ctx context.Context, refKey string, sm Sna
 		ImageRef:   "dagger-cache-bundle:" + b.ID + "/" + refKey,
 		RecordType: client.UsageRecordTypeRegular,
 	})
+}
+
+func (b *CacheBundle) AddSnapshotToBundle(ctx context.Context, writer *CacheBundleWriter, refKey string) (BundleSnapshot, error) {
+	if writer == nil {
+		return BundleSnapshot{}, errors.New("add cache bundle snapshot: nil writer")
+	}
+	return writer.AddSnapshotFromBundle(ctx, b, refKey)
 }
 
 func (w *CacheBundleWriter) copyBlob(ctx context.Context, provider content.Provider, desc ocispecs.Descriptor) error {
@@ -393,4 +422,8 @@ func cacheBundleBlobPath(dir string, dgst digest.Digest) (string, error) {
 		return "", fmt.Errorf("invalid digest encoding %q", encoded)
 	}
 	return filepath.Join(dir, "blobs", "sha256", encoded), nil
+}
+
+func CacheBundleBlobPath(dir string, dgst digest.Digest) (string, error) {
+	return cacheBundleBlobPath(dir, dgst)
 }

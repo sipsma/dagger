@@ -101,11 +101,13 @@ const (
 )
 
 type CacheOptions struct {
-	DBPath          string
-	ImportDirs      []string
-	ExportDir       string
-	SnapshotManager bkcache.SnapshotManager
-	SnapshotGC      func(context.Context) error
+	DBPath              string
+	ImportDirs          []string
+	ExportDir           string
+	CachemoneyImportURL string
+	CachemoneyExportURL string
+	SnapshotManager     bkcache.SnapshotManager
+	SnapshotGC          func(context.Context) error
 }
 
 func NewCache(
@@ -123,17 +125,19 @@ func NewCache(
 
 func NewCacheWithOptions(ctx context.Context, opts CacheOptions) (*Cache, error) {
 	c := &Cache{
-		traceBootID:     newTraceBootID(),
-		snapshotManager: opts.SnapshotManager,
-		snapshotGC:      opts.SnapshotGC,
-		importSources:   make(map[string]*PersistedCacheSource, len(opts.ImportDirs)),
-		resultIDMap:     make(map[string]map[uint64]uint64, len(opts.ImportDirs)),
-		exportDir:       opts.ExportDir,
+		traceBootID:         newTraceBootID(),
+		snapshotManager:     opts.SnapshotManager,
+		snapshotGC:          opts.SnapshotGC,
+		importSources:       make(map[string]*PersistedCacheSource, len(opts.ImportDirs)),
+		resultIDMap:         make(map[string]map[uint64]uint64, len(opts.ImportDirs)),
+		exportDir:           opts.ExportDir,
+		cachemoneyExportURL: opts.CachemoneyExportURL,
 	}
 
 	dbPath := opts.DBPath
 	if dbPath == "" {
 		c.importCacheBundles(ctx, opts.ImportDirs)
+		c.importCachemoney(ctx, opts.CachemoneyImportURL)
 		return c, nil
 	}
 
@@ -213,6 +217,7 @@ func NewCacheWithOptions(ctx context.Context, opts CacheOptions) (*Cache, error)
 		c.pdb = persistDB
 	}
 	c.importCacheBundles(ctx, opts.ImportDirs)
+	c.importCachemoney(ctx, opts.CachemoneyImportURL)
 
 	if err := c.pdb.UpsertMeta(ctx, persistdb.MetaKeySchemaVersion, cachePersistenceSchemaVersion); err != nil {
 		if closeErr := closeCacheDBs(db, c.pdb); closeErr != nil {
@@ -1321,7 +1326,8 @@ type Cache struct {
 	// source result ID -> local result ID remapping for each imported bundle.
 	resultIDMap map[string]map[uint64]uint64
 	// optional cache bundle directory written during Close.
-	exportDir string
+	exportDir           string
+	cachemoneyExportURL string
 
 	traceBootID     string
 	traceSeq        uint64
@@ -3080,6 +3086,11 @@ func (c *Cache) Close(ctx context.Context) error {
 		if c.closeErr == nil && c.exportDir != "" {
 			if err := c.exportCurrentState(ctx); err != nil {
 				slog.Error("failed to export dagql cache bundle during close", "exportDir", c.exportDir, "err", err)
+			}
+		}
+		if c.closeErr == nil && c.cachemoneyExportURL != "" {
+			if err := c.exportCachemoney(ctx, c.cachemoneyExportURL); err != nil {
+				slog.Error("failed to export dagql cachemoney during close", "url", c.cachemoneyExportURL, "err", err)
 			}
 		}
 		if c.closeErr != nil {

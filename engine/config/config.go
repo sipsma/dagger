@@ -48,6 +48,14 @@ type CacheConfig struct {
 
 	// ExportDir is the cache bundle directory written during engine shutdown.
 	ExportDir string `json:"exportDir,omitempty"`
+
+	// CachemoneyImportURL is a cachemoney service endpoint used to import
+	// remote cache metadata during engine startup.
+	CachemoneyImportURL string `json:"cachemoneyImportURL,omitempty"`
+
+	// CachemoneyExportURL is a cachemoney service endpoint used to export
+	// cache metadata and referenced blobs during engine shutdown.
+	CachemoneyExportURL string `json:"cachemoneyExportURL,omitempty"`
 }
 
 type LogLevel string

@@ -529,11 +529,13 @@ func (srv *Server) initLocalCacheStateOnce(ctx context.Context, cfg config.Confi
 		return nil
 	}
 	srv.engineCache, err = dagql.NewCacheWithOptions(ctx, dagql.CacheOptions{
-		DBPath:          dagqlCacheDBPath,
-		ImportDirs:      cfg.Cache.ImportDirs,
-		ExportDir:       cfg.Cache.ExportDir,
-		SnapshotManager: srv.workerCache,
-		SnapshotGC:      snapshotGC,
+		DBPath:              dagqlCacheDBPath,
+		ImportDirs:          cfg.Cache.ImportDirs,
+		ExportDir:           cfg.Cache.ExportDir,
+		CachemoneyImportURL: cfg.Cache.CachemoneyImportURL,
+		CachemoneyExportURL: cfg.Cache.CachemoneyExportURL,
+		SnapshotManager:     srv.workerCache,
+		SnapshotGC:          snapshotGC,
 	})
 	if err != nil {
 		return localCacheStateResetDagqlOpenFailed, fmt.Errorf("failed to create dagql cache: %w", err)

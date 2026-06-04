@@ -27,8 +27,8 @@ func (c *Cache) HydrateSnapshot(ctx context.Context, link PersistedSnapshotRefLi
 	if source == nil {
 		return nil, fmt.Errorf("hydrate external snapshot %q: unknown cache import source %q", link.RefKey, link.SourceID)
 	}
-	if source.Bundle == nil {
-		return nil, fmt.Errorf("hydrate external snapshot %q from source %q: nil cache bundle", link.RefKey, link.SourceID)
+	if source.Snapshots == nil {
+		return nil, fmt.Errorf("hydrate external snapshot %q from source %q: nil snapshot source", link.RefKey, link.SourceID)
 	}
-	return source.Bundle.HydrateSnapshot(ctx, link.RefKey, c.snapshotManager)
+	return source.Snapshots.HydrateSnapshot(ctx, link.RefKey, c.snapshotManager)
 }

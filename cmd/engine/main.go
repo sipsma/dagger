@@ -182,6 +182,14 @@ func addFlags(app *cli.App) {
 			Name:  "cache-export-dir",
 			Usage: "cache bundle directory to export at shutdown",
 		},
+		cli.StringFlag{
+			Name:  "cachemoney-import-url",
+			Usage: "cachemoney service URL to import remote cache metadata at startup",
+		},
+		cli.StringFlag{
+			Name:  "cachemoney-export-url",
+			Usage: "cachemoney service URL to export remote cache metadata and blobs at shutdown",
+		},
 		cli.StringSliceFlag{
 			Name:  "addr",
 			Usage: "listening address (socket or tcp)",
@@ -368,6 +376,12 @@ func main() { //nolint:gocyclo
 		}
 		if cacheExportDir := c.GlobalString("cache-export-dir"); cacheExportDir != "" {
 			cfg.Cache.ExportDir = cacheExportDir
+		}
+		if cachemoneyImportURL := c.GlobalString("cachemoney-import-url"); cachemoneyImportURL != "" {
+			cfg.Cache.CachemoneyImportURL = cachemoneyImportURL
+		}
+		if cachemoneyExportURL := c.GlobalString("cachemoney-export-url"); cachemoneyExportURL != "" {
+			cfg.Cache.CachemoneyExportURL = cachemoneyExportURL
 		}
 
 		bklog.G(ctx).Debug("setting up engine networking")
@@ -560,7 +574,6 @@ func main() { //nolint:gocyclo
 		if err := serveAPI(bkcfg.GRPC, httpServer, errCh); err != nil {
 			return err
 		}
-		go sendCachemoneyStartupProbe(ctx)
 
 		select {
 		case serverErr := <-errCh:

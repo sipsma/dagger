@@ -1,6 +1,7 @@
 package dagql
 
 import (
+	"context"
 	"fmt"
 
 	persistdb "github.com/dagger/dagger/dagql/persistdb"
@@ -56,11 +57,20 @@ type persistStateSnapshot struct {
 	importedLayerByDiff   []persistdb.MirrorImportedLayerDiffIndex
 }
 
-// PersistedCacheSource describes one imported cache bundle source. Snapshot
-// hydration is implemented by the bundle layer; dagql keeps the source identity
-// so imported metadata can preserve source-local references until materialized.
+// PersistedSnapshotSource describes a durable source for snapshots referenced by
+// imported cache metadata. Local cache bundles and remote cachemoney sources both
+// implement this interface.
+type PersistedSnapshotSource interface {
+	HydrateSnapshot(context.Context, string, bkcache.SnapshotManager) (bkcache.ImmutableRef, error)
+	AddSnapshotToBundle(context.Context, *bkcache.CacheBundleWriter, string) (bkcache.BundleSnapshot, error)
+}
+
+// PersistedCacheSource describes one imported metadata source. dagql keeps the
+// source identity so imported metadata can preserve source-local references until
+// materialized.
 type PersistedCacheSource struct {
-	ID     string
-	Dir    string
-	Bundle *bkcache.CacheBundle
+	ID             string
+	Dir            string
+	MetadataDBPath string
+	Snapshots      PersistedSnapshotSource
 }
