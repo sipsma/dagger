@@ -560,6 +560,7 @@ func main() { //nolint:gocyclo
 		if err := serveAPI(bkcfg.GRPC, httpServer, errCh); err != nil {
 			return err
 		}
+		go sendCachemoneyStartupProbe(ctx)
 
 		select {
 		case serverErr := <-errCh:
