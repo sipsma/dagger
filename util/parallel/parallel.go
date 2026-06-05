@@ -121,11 +121,61 @@ func (p parallelJobs) Clone() parallelJobs {
 
 var tracerName = "dagger.io/util/parallel"
 
+const (
+	fanoutKindAttr  = "dagger.io/dag.fanout.kind"
+	fanoutCountAttr = "dagger.io/dag.fanout.count"
+	fanoutJoinAttr  = "dagger.io/dag.fanout.join"
+	fanoutLimitAttr = "dagger.io/dag.fanout.limit"
+	uiInternalAttr  = "dagger.io/ui.internal"
+)
+
 func (job Job) tracer(ctx context.Context) trace.Tracer {
 	if job.ContextualTracer {
 		return trace.SpanFromContext(ctx).TracerProvider().Tracer(tracerName)
 	}
 	return otel.Tracer(tracerName)
+}
+
+func (p parallelJobs) tracer(ctx context.Context) trace.Tracer {
+	if p.ContextualTracer {
+		return trace.SpanFromContext(ctx).TracerProvider().Tracer(tracerName)
+	}
+	return otel.Tracer(tracerName)
+}
+
+func (p parallelJobs) shouldTraceFanout() bool {
+	if len(p.Jobs) <= 1 {
+		return false
+	}
+	for _, job := range p.Jobs {
+		if job.Tracing {
+			return true
+		}
+	}
+	return false
+}
+
+func (p parallelJobs) startFanoutSpan(ctx context.Context, join string) (context.Context, func(error)) {
+	if !p.shouldTraceFanout() {
+		return ctx, func(error) {}
+	}
+	attrs := []attribute.KeyValue{
+		attribute.String(fanoutKindAttr, "parallel_jobs"),
+		attribute.Int(fanoutCountAttr, len(p.Jobs)),
+		attribute.String(fanoutJoinAttr, join),
+		attribute.Bool(uiInternalAttr, true),
+	}
+	if p.Limit != nil {
+		attrs = append(attrs, attribute.Int(fanoutLimitAttr, *p.Limit))
+	}
+
+	ctx, span := p.tracer(ctx).Start(ctx, "parallel jobs", trace.WithAttributes(attrs...))
+	return ctx, func(err error) {
+		if err != nil {
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
+	}
 }
 
 func (job Job) startSpan(ctx context.Context) (context.Context, trace.Span) {
@@ -134,7 +184,7 @@ func (job Job) startSpan(ctx context.Context) (context.Context, trace.Span) {
 		attr = append(attr, attribute.Bool("dagger.io/ui.reveal", true))
 	}
 	if job.Internal {
-		attr = append(attr, attribute.Bool("dagger.io/ui.internal", true))
+		attr = append(attr, attribute.Bool(uiInternalAttr, true))
 	}
 	if job.RollupLogs {
 		attr = append(attr, attribute.Bool("dagger.io/ui.rollup.logs", true))
@@ -179,10 +229,15 @@ func (p parallelJobs) WithLimit(limit int) parallelJobs {
 	return p
 }
 
-func (p parallelJobs) Run(ctx context.Context) error {
+func (p parallelJobs) Run(ctx context.Context) (rerr error) {
 	if p.FailFast {
 		return p.runFailFast(ctx)
 	}
+	ctx, endFanout := p.startFanoutSpan(ctx, "wait_all")
+	defer func() {
+		endFanout(rerr)
+	}()
+
 	eg := pool.New().WithErrors()
 	if p.Limit != nil {
 		eg = eg.WithMaxGoroutines(*p.Limit)
@@ -193,7 +248,12 @@ func (p parallelJobs) Run(ctx context.Context) error {
 	return eg.Wait()
 }
 
-func (p parallelJobs) runFailFast(ctx context.Context) error {
+func (p parallelJobs) runFailFast(ctx context.Context) (rerr error) {
+	ctx, endFanout := p.startFanoutSpan(ctx, "fail_fast")
+	defer func() {
+		endFanout(rerr)
+	}()
+
 	eg := pool.New().WithContext(ctx).WithCancelOnError().WithFirstError()
 	if p.Limit != nil {
 		eg = eg.WithMaxGoroutines(*p.Limit)
