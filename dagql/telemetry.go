@@ -31,6 +31,11 @@ const (
 	DagSingleflightFieldAttr          = "dagger.io/dag.singleflight.field"
 	DagSingleflightConcurrencyKeyAttr = "dagger.io/dag.singleflight.concurrency_key"
 	DagSingleflightWaitersAttr        = "dagger.io/dag.singleflight.waiters"
+
+	DagLazyPhaseAttr  = "dagger.io/dag.lazy.phase"
+	DagLazyDigestAttr = "dagger.io/dag.lazy.digest"
+	DagLazyFieldAttr  = "dagger.io/dag.lazy.field"
+	DagLazyTypeAttr   = "dagger.io/dag.lazy.type"
 )
 
 type ActiveCallTelemetry struct {

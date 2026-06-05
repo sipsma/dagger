@@ -474,6 +474,8 @@ func TestEvaluateLazyUsesOriginalSpanForLogsAndNestedSpans(t *testing.T) {
 	})
 	assert.NilError(t, err)
 	assert.Assert(t, HasPendingLazyEvaluation(res))
+	lazyDigest, err := reqCall.RecipeDigest(ctx)
+	assert.NilError(t, err)
 
 	triggerCtx, triggerSpan := tracerProvider.Tracer("dagger.io/test").Start(ctx, "trigger")
 	assert.NilError(t, c.Evaluate(triggerCtx, res))
@@ -507,6 +509,10 @@ func TestEvaluateLazyUsesOriginalSpanForLogsAndNestedSpans(t *testing.T) {
 			assert.Equal(t, span.Parent().SpanID(), triggerSpan.SpanContext().SpanID())
 			assert.Equal(t, len(span.Links()), 1)
 			assert.Equal(t, span.Links()[0].SpanContext.SpanID(), originalSpanID)
+			assert.Equal(t, cacheTestSpanStringAttr(t, span, DagLazyPhaseAttr), "resume")
+			assert.Equal(t, cacheTestSpanStringAttr(t, span, DagLazyDigestAttr), lazyDigest.String())
+			assert.Equal(t, cacheTestSpanStringAttr(t, span, DagLazyFieldAttr), "lazyResume")
+			assert.Equal(t, cacheTestSpanStringAttr(t, span, DagLazyTypeAttr), "CacheTestObject")
 		}
 	}
 	assert.Assert(t, sawChild, "expected nested lazy child span to be recorded")

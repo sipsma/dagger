@@ -3084,6 +3084,7 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) (rerr error) {
 					spanName,
 					trace.WithLinks(links...),
 					telemetry.Passthrough(),
+					trace.WithAttributes(lazyResumeSpanAttrs(c, resultCall)...),
 				)
 				callbackCtx = trace.ContextWithSpan(resumeCtx, resumedCallbackSpan{
 					Span: resumeSpan,
@@ -3138,6 +3139,25 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) (rerr error) {
 	}()
 
 	return c.waitForLazyEvaluation(stackCtx, shared, waitCh)
+}
+
+func lazyResumeSpanAttrs(c *Cache, frame *ResultCall) []attribute.KeyValue {
+	attrs := []attribute.KeyValue{
+		attribute.String(DagLazyPhaseAttr, "resume"),
+	}
+	if frame == nil {
+		return attrs
+	}
+	if field := materializeInputField(frame); field != "" {
+		attrs = append(attrs, attribute.String(DagLazyFieldAttr, field))
+	}
+	if frame.Type != nil && frame.Type.NamedType != "" {
+		attrs = append(attrs, attribute.String(DagLazyTypeAttr, frame.Type.NamedType))
+	}
+	if dig, err := frame.deriveRecipeDigest(c); err == nil && dig != "" {
+		attrs = append(attrs, attribute.String(DagLazyDigestAttr, dig.String()))
+	}
+	return attrs
 }
 
 func (c *Cache) Close(ctx context.Context) error {
