@@ -4,7 +4,9 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/containerd/containerd/v2/core/content"
 	"github.com/dagger/dagger/auth"
@@ -49,6 +51,7 @@ type mockServer struct {
 	env            dagql.ObjectResult[*Env]
 	clientMetadata *engine.ClientMetadata
 	attachables    map[string]*grpc.ClientConn
+	locker         *locker.Locker
 }
 
 func (ms *mockServer) ServeHTTPToNestedClient(http.ResponseWriter, *http.Request, *engine.ClientMetadata, string, bool, dagql.AnyObjectResult, dagql.Typed, dagql.AnyObjectResult) {
@@ -178,7 +181,7 @@ func (ms *mockServer) PruneEngineLocalCacheEntries(context.Context, EngineCacheP
 }
 func (ms *mockServer) EngineLocalCachePolicy() *dagql.CachePrunePolicy { return nil }
 func (ms *mockServer) SnapshotManager() bkcache.SnapshotManager        { return nil }
-func (ms *mockServer) Locker() *locker.Locker                          { return nil }
+func (ms *mockServer) Locker() *locker.Locker                          { return ms.locker }
 func (ms *mockServer) SecretSalt() []byte                              { return nil }
 func (ms *mockServer) FlushSessionTelemetry(context.Context) error     { return nil }
 func (ms *mockServer) ClientTelemetry(ctc context.Context, sessID, clientID string) (*clientdb.DB, error) {
@@ -428,6 +431,153 @@ func TestIDLoadTelemetrySpan(t *testing.T) {
 	require.Equal(t, requireSpanStringAttr(t, sourceSpan, telemetry.DagDigestAttr), requireSpanStringAttr(t, loadSpan, dagql.DagInputDigestAttr))
 }
 
+func TestLockMountedCachesRecordsResourceTelemetry(t *testing.T) {
+	engineLocker := locker.New()
+	query := &Query{Server: &mockServer{locker: engineLocker}}
+	srv := newCoreDagqlServerForTest(t, query)
+	srv.InstallObject(dagql.NewClass(srv, dagql.ClassOpts[*CacheVolume]{}))
+
+	lockedCache := NewCache("locked-cache", "ns", dagql.Null[dagql.ObjectResult[*Directory]](), CacheSharingModeLocked, "")
+	privateCache := NewCache("private-cache", "ns", dagql.Null[dagql.ObjectResult[*Directory]](), CacheSharingModePrivate, "")
+	sharedCache := NewCache("shared-cache", "ns", dagql.Null[dagql.ObjectResult[*Directory]](), CacheSharingModeShared, "")
+
+	blockedKey, err := lockedCache.lockKey()
+	require.NoError(t, err)
+	engineLocker.Lock(blockedKey)
+
+	mounts := []ContainerMount{
+		{
+			Readonly:    true,
+			CacheSource: &CacheMountSource{Volume: cacheVolumeTelemetryResult(t, srv, "readonlyLockedCache", lockedCache)},
+		},
+		{
+			CacheSource: &CacheMountSource{Volume: cacheVolumeTelemetryResult(t, srv, "lockedCache", lockedCache)},
+		},
+		{
+			CacheSource: &CacheMountSource{Volume: cacheVolumeTelemetryResult(t, srv, "duplicateLockedCache", lockedCache)},
+		},
+		{
+			CacheSource: &CacheMountSource{Volume: cacheVolumeTelemetryResult(t, srv, "privateCache", privateCache)},
+		},
+		{
+			CacheSource: &CacheMountSource{Volume: cacheVolumeTelemetryResult(t, srv, "sharedCache", sharedCache)},
+		},
+	}
+
+	spanRecorder := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spanRecorder))
+	defer func() {
+		require.NoError(t, tracerProvider.Shutdown(t.Context()))
+	}()
+
+	ctx := ContextWithQuery(context.Background(), query)
+	ctx, rootSpan := tracerProvider.Tracer("dagger.io/test").Start(ctx, "root")
+
+	releaseCh := make(chan func(), 1)
+	errCh := make(chan error, 1)
+	go func() {
+		release, err := lockMountedCaches(ctx, mounts)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		releaseCh <- release
+	}()
+
+	select {
+	case release := <-releaseCh:
+		release()
+		require.Fail(t, "lockMountedCaches acquired a cache lock that should have been blocked")
+	case err := <-errCh:
+		require.NoError(t, err)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	require.NoError(t, engineLocker.Unlock(blockedKey))
+
+	var release func()
+	select {
+	case release = <-releaseCh:
+	case err := <-errCh:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		require.Fail(t, "timed out waiting for lockMountedCaches")
+	}
+	release()
+	rootSpan.End()
+
+	spans := spanRecorder.Ended()
+	waitSpan := requireSpanNamed(t, spans, "wait cache volume locks")
+	holdSpan := requireSpanNamed(t, spans, "hold cache volume locks")
+
+	require.Equal(t, rootSpan.SpanContext().SpanID(), waitSpan.Parent().SpanID())
+	require.Equal(t, rootSpan.SpanContext().SpanID(), holdSpan.Parent().SpanID())
+
+	require.Equal(t, "cache_volume_lock", requireSpanStringAttr(t, waitSpan, dagResourceKindAttr))
+	require.Equal(t, "acquire", requireSpanStringAttr(t, waitSpan, dagResourcePhaseAttr))
+	require.Equal(t, int64(2), requireSpanIntAttr(t, waitSpan, dagResourceCountAttr))
+	require.Equal(t, true, requireSpanBoolAttr(t, waitSpan, dagResourceExclusiveAttr))
+	require.Equal(t, true, requireSpanBoolAttr(t, waitSpan, telemetry.UIInternalAttr))
+
+	keyHashes := requireSpanStringSliceAttr(t, waitSpan, dagResourceLockKeyHashesAttr)
+	require.Len(t, keyHashes, 2)
+	require.NotContains(t, strings.Join(keyHashes, " "), "locked-cache")
+	require.NotContains(t, strings.Join(keyHashes, " "), "private-cache")
+	require.Equal(t, []string{"LOCKED", "PRIVATE"}, requireSpanStringSliceAttr(t, waitSpan, dagResourceLockSharingModesAttr))
+
+	require.Equal(t, "cache_volume_lock", requireSpanStringAttr(t, holdSpan, dagResourceKindAttr))
+	require.Equal(t, "hold", requireSpanStringAttr(t, holdSpan, dagResourcePhaseAttr))
+	require.Equal(t, int64(2), requireSpanIntAttr(t, holdSpan, dagResourceCountAttr))
+	require.Equal(t, keyHashes, requireSpanStringSliceAttr(t, holdSpan, dagResourceLockKeyHashesAttr))
+	require.Equal(t, []string{"LOCKED", "PRIVATE"}, requireSpanStringSliceAttr(t, holdSpan, dagResourceLockSharingModesAttr))
+}
+
+func TestLockMountedCachesSkipsResourceTelemetryWithoutLockedCaches(t *testing.T) {
+	engineLocker := locker.New()
+	query := &Query{Server: &mockServer{locker: engineLocker}}
+	srv := newCoreDagqlServerForTest(t, query)
+	srv.InstallObject(dagql.NewClass(srv, dagql.ClassOpts[*CacheVolume]{}))
+
+	lockedCache := NewCache("locked-cache", "ns", dagql.Null[dagql.ObjectResult[*Directory]](), CacheSharingModeLocked, "")
+	sharedCache := NewCache("shared-cache", "ns", dagql.Null[dagql.ObjectResult[*Directory]](), CacheSharingModeShared, "")
+	mounts := []ContainerMount{
+		{
+			Readonly:    true,
+			CacheSource: &CacheMountSource{Volume: cacheVolumeTelemetryResult(t, srv, "readonlyLockedCache", lockedCache)},
+		},
+		{
+			CacheSource: &CacheMountSource{Volume: cacheVolumeTelemetryResult(t, srv, "sharedCache", sharedCache)},
+		},
+	}
+
+	spanRecorder := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spanRecorder))
+	defer func() {
+		require.NoError(t, tracerProvider.Shutdown(t.Context()))
+	}()
+
+	ctx := ContextWithQuery(context.Background(), query)
+	ctx, rootSpan := tracerProvider.Tracer("dagger.io/test").Start(ctx, "root")
+	release, err := lockMountedCaches(ctx, mounts)
+	require.NoError(t, err)
+	release()
+	rootSpan.End()
+
+	require.Empty(t, spansNamed(spanRecorder.Ended(), "wait cache volume locks"))
+	require.Empty(t, spansNamed(spanRecorder.Ended(), "hold cache volume locks"))
+}
+
+func cacheVolumeTelemetryResult(t *testing.T, srv *dagql.Server, op string, cache *CacheVolume) dagql.ObjectResult[*CacheVolume] {
+	t.Helper()
+	res, err := dagql.NewObjectResultForCall(cache, srv, &dagql.ResultCall{
+		Kind:        dagql.ResultCallKindSynthetic,
+		SyntheticOp: op,
+		Type:        dagql.NewResultCallType((&CacheVolume{}).Type()),
+	})
+	require.NoError(t, err)
+	return res
+}
+
 func spansNamed(spans []sdktrace.ReadOnlySpan, name string) []sdktrace.ReadOnlySpan {
 	var matched []sdktrace.ReadOnlySpan
 	for _, span := range spans {
@@ -459,6 +609,12 @@ func requireSpanBoolAttr(t *testing.T, span sdktrace.ReadOnlySpan, key string) b
 	t.Helper()
 	val := requireSpanAttr(t, span, key)
 	return val.AsBool()
+}
+
+func requireSpanIntAttr(t *testing.T, span sdktrace.ReadOnlySpan, key string) int64 {
+	t.Helper()
+	val := requireSpanAttr(t, span, key)
+	return val.AsInt64()
 }
 
 func requireSpanStringSliceAttr(t *testing.T, span sdktrace.ReadOnlySpan, key string) []string {

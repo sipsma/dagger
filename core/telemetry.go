@@ -25,6 +25,13 @@ const (
 	dagInputTargetDigestAttr  = "dagger.io/dag.input.target.digest"
 	dagInputChangedArgsAttr   = "dagger.io/dag.input.changed.args"
 	dagInputChangedPolicyAttr = "dagger.io/dag.input.changed.policy"
+
+	dagResourceKindAttr             = "dagger.io/dag.resource.kind"
+	dagResourcePhaseAttr            = "dagger.io/dag.resource.phase"
+	dagResourceCountAttr            = "dagger.io/dag.resource.count"
+	dagResourceLockKeyHashesAttr    = "dagger.io/dag.resource.lock.key_hashes"
+	dagResourceLockSharingModesAttr = "dagger.io/dag.resource.lock.sharing_modes"
+	dagResourceExclusiveAttr        = "dagger.io/dag.resource.exclusive"
 )
 
 func AroundFunc(

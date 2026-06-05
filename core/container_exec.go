@@ -26,9 +26,13 @@ import (
 	"github.com/dagger/dagger/internal/buildkit/identity"
 	"github.com/dagger/dagger/internal/buildkit/solver/pb"
 	utilsystem "github.com/dagger/dagger/internal/buildkit/util/system"
+	"github.com/dagger/dagger/util/hashutil"
+	"github.com/moby/locker"
 	"github.com/moby/sys/userns"
 	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/dagql/call"
@@ -37,7 +41,6 @@ import (
 	"github.com/dagger/dagger/engine/slog"
 	"github.com/dagger/dagger/network"
 	telemetry "github.com/dagger/otel-go"
-	"go.opentelemetry.io/otel/trace"
 )
 
 var ErrNoCommand = errors.New("no command has been set")
@@ -565,7 +568,7 @@ func lockMountedCaches(ctx context.Context, mounts []ContainerMount) (func(), er
 		return nil, fmt.Errorf("missing engine locker")
 	}
 
-	lockSet := make(map[string]struct{})
+	lockSet := make(map[string]CacheSharingMode)
 	for i, ctrMount := range mounts {
 		if ctrMount.Readonly || ctrMount.CacheSource == nil || ctrMount.CacheSource.Volume.Self() == nil {
 			continue
@@ -578,30 +581,93 @@ func lockMountedCaches(ctx context.Context, mounts []ContainerMount) (func(), er
 		if err != nil {
 			return nil, fmt.Errorf("cache lock key for mount %d: %w", i, err)
 		}
-		lockSet[lockKey] = struct{}{}
+		lockSet[lockKey] = cacheSelf.Sharing
 	}
 	if len(lockSet) == 0 {
 		return func() {}, nil
 	}
 
-	lockKeys := make([]string, 0, len(lockSet))
-	for lockKey := range lockSet {
-		lockKeys = append(lockKeys, lockKey)
+	lockInfos := make([]cacheVolumeLockInfo, 0, len(lockSet))
+	for lockKey, sharing := range lockSet {
+		lockInfos = append(lockInfos, cacheVolumeLockInfo{
+			key:     lockKey,
+			sharing: sharing,
+		})
 	}
-	sort.Strings(lockKeys)
-	for _, lockKey := range lockKeys {
-		locker.Lock(lockKey)
-	}
-	return func() {
-		for i := len(lockKeys) - 1; i >= 0; i-- {
-			locker.Unlock(lockKeys[i])
-		}
-	}, nil
+	return lockCacheVolumeResources(ctx, locker, lockInfos), nil
 }
 
 func cacheSharingModeLocksWrites(mode CacheSharingMode) bool {
 	// Stop-gap: PRIVATE is implemented with the same serialized writes as LOCKED.
 	return mode == CacheSharingModeLocked || mode == CacheSharingModePrivate
+}
+
+type cacheVolumeLockInfo struct {
+	key     string
+	sharing CacheSharingMode
+}
+
+func lockCacheVolumeResources(ctx context.Context, locker *locker.Locker, locks []cacheVolumeLockInfo) func() {
+	if len(locks) == 0 {
+		return func() {}
+	}
+
+	slices.SortFunc(locks, func(a, b cacheVolumeLockInfo) int {
+		return cmp.Compare(a.key, b.key)
+	})
+
+	recordTelemetry := trace.SpanFromContext(ctx).IsRecording()
+	var holdSpan trace.Span
+	if recordTelemetry {
+		_, waitSpan := Tracer(ctx).Start(
+			ctx,
+			"wait cache volume locks",
+			telemetry.Internal(),
+			trace.WithAttributes(cacheVolumeResourceAttrs("acquire", locks)...),
+		)
+		for _, lock := range locks {
+			locker.Lock(lock.key)
+		}
+		waitSpan.End()
+
+		_, holdSpan = Tracer(ctx).Start(
+			ctx,
+			"hold cache volume locks",
+			telemetry.Internal(),
+			trace.WithAttributes(cacheVolumeResourceAttrs("hold", locks)...),
+		)
+	} else {
+		for _, lock := range locks {
+			locker.Lock(lock.key)
+		}
+	}
+
+	return func() {
+		for i := len(locks) - 1; i >= 0; i-- {
+			locker.Unlock(locks[i].key)
+		}
+		if holdSpan != nil {
+			holdSpan.End()
+		}
+	}
+}
+
+func cacheVolumeResourceAttrs(phase string, locks []cacheVolumeLockInfo) []attribute.KeyValue {
+	keyHashes := make([]string, 0, len(locks))
+	sharingModes := make([]string, 0, len(locks))
+	for _, lock := range locks {
+		keyHashes = append(keyHashes, hashutil.HashStrings("cache_volume_lock", lock.key).String())
+		sharingModes = append(sharingModes, string(lock.sharing))
+	}
+
+	return []attribute.KeyValue{
+		attribute.String(dagResourceKindAttr, "cache_volume_lock"),
+		attribute.String(dagResourcePhaseAttr, phase),
+		attribute.Int(dagResourceCountAttr, len(locks)),
+		attribute.StringSlice(dagResourceLockKeyHashesAttr, keyHashes),
+		attribute.StringSlice(dagResourceLockSharingModesAttr, sharingModes),
+		attribute.Bool(dagResourceExclusiveAttr, true),
+	}
 }
 
 func (plan *materializedExecPlan) releaseActives(ctx context.Context) error {
