@@ -16,6 +16,7 @@ var _ SchemaResolvers = &engineSchema{}
 func (s *engineSchema) Install(srv *dagql.Server) {
 	dagql.Fields[*core.Query]{
 		dagql.Func("engine", s.engine).
+			DoNotCache("Engine state is operational and tied to the current runtime.").
 			Doc("The Dagger engine container configuration and state"),
 	}.Install(srv)
 

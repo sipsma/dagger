@@ -90,6 +90,13 @@ func (c *Cache) importCachemoneyErr(ctx context.Context, importURL string) error
 	}, true)
 }
 
+func (c *Cache) ExportCachemoney(ctx context.Context) error {
+	if c.cachemoneyExportURL == "" {
+		return errors.New("cachemoney export URL is not configured")
+	}
+	return c.exportCachemoney(ctx, c.cachemoneyExportURL)
+}
+
 func (c *Cache) exportCachemoney(ctx context.Context, exportURL string) error {
 	tempDir, err := os.MkdirTemp("", "dagger-cachemoney-export-*")
 	if err != nil {

@@ -80,6 +80,22 @@ func setupDebugHandlers(addr string, eng *server.Server) error {
 			logrus.WithError(err).Warn("failed streaming dagql cache debug snapshot")
 		}
 	}))
+	m.Handle("/debug/dagql/cache/export", http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if eng == nil {
+			http.Error(rw, "engine server not available", http.StatusServiceUnavailable)
+			return
+		}
+		if err := eng.ExportEngineLocalCache(req.Context()); err != nil {
+			logrus.WithError(err).Warn("failed exporting dagql cache")
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		rw.WriteHeader(http.StatusNoContent)
+	}))
 
 	// setting debugaddr is opt-in. permission is defined by listener address
 	trace.AuthRequest = func(_ *http.Request) (bool, bool) {

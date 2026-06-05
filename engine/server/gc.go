@@ -55,6 +55,16 @@ func (srv *Server) PruneEngineLocalCacheEntries(ctx context.Context, opts core.E
 	return engineCacheEntrySetFromUsage(report.Entries), nil
 }
 
+func (srv *Server) ExportEngineLocalCache(ctx context.Context) error {
+	srv.gcmu.Lock()
+	defer srv.gcmu.Unlock()
+
+	if srv.engineCache == nil {
+		return fmt.Errorf("engine cache is not initialized")
+	}
+	return srv.engineCache.ExportCachemoney(ctx)
+}
+
 func trimmedPruneOpts(opts core.EngineCachePruneOptions) (maxUsedSpace, reservedSpace, minFreeSpace, targetSpace string) {
 	return strings.TrimSpace(opts.MaxUsedSpace),
 		strings.TrimSpace(opts.ReservedSpace),

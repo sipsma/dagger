@@ -3089,7 +3089,7 @@ func (c *Cache) Close(ctx context.Context) error {
 			}
 		}
 		if c.closeErr == nil && c.cachemoneyExportURL != "" {
-			if err := c.exportCachemoney(ctx, c.cachemoneyExportURL); err != nil {
+			if err := c.ExportCachemoney(ctx); err != nil {
 				slog.Error("failed to export dagql cachemoney during close", "url", c.cachemoneyExportURL, "err", err)
 			}
 		}
