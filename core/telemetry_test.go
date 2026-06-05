@@ -329,6 +329,115 @@ func TestDynamicInputTelemetrySpan(t *testing.T) {
 	require.NotEqual(t, dynamicSpan.SpanContext().SpanID(), callSpan.Parent().SpanID())
 }
 
+type idLoadTelemetryRoot struct{}
+
+func (idLoadTelemetryRoot) Type() *ast.Type {
+	return &ast.Type{
+		NamedType: "Query",
+		NonNull:   true,
+	}
+}
+
+type idLoadTelemetrySource struct {
+	Name dagql.String `field:"true"`
+}
+
+func (*idLoadTelemetrySource) Type() *ast.Type {
+	return &ast.Type{
+		NamedType: "IDLoadTelemetrySource",
+		NonNull:   true,
+	}
+}
+
+func TestIDLoadTelemetrySpan(t *testing.T) {
+	cache, err := dagql.NewCache(t.Context(), "", nil, nil)
+	require.NoError(t, err)
+
+	srv, err := dagql.NewServer(t.Context(), idLoadTelemetryRoot{})
+	require.NoError(t, err)
+	srv.Around(AroundFunc)
+
+	dagql.Fields[*idLoadTelemetrySource]{}.Install(srv)
+	dagql.Fields[idLoadTelemetryRoot]{
+		dagql.Func("sourceForIDLoadTelemetry", func(context.Context, idLoadTelemetryRoot, struct{}) (*idLoadTelemetrySource, error) {
+			return &idLoadTelemetrySource{Name: dagql.String("source")}, nil
+		}),
+		dagql.Func("useIDLoadTelemetrySource", func(ctx context.Context, _ idLoadTelemetryRoot, args struct {
+			Source dagql.ID[*idLoadTelemetrySource]
+		}) (dagql.String, error) {
+			source, err := args.Source.Load(ctx, srv)
+			if err != nil {
+				return "", err
+			}
+			return source.Self().Name, nil
+		}),
+	}.Install(srv)
+
+	spanRecorder := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spanRecorder))
+	defer func() {
+		require.NoError(t, tracerProvider.Shutdown(t.Context()))
+	}()
+
+	ctx := engine.ContextWithClientMetadata(context.Background(), &engine.ClientMetadata{
+		ClientID:  "dagql-test-client",
+		SessionID: "dagql-test-session",
+	})
+	ctx = dagql.ContextWithCache(ctx, cache)
+	ctx, rootSpan := tracerProvider.Tracer("dagger.io/test").Start(ctx, "root")
+
+	var source dagql.ObjectResult[*idLoadTelemetrySource]
+	err = srv.Select(ctx, srv.Root(), &source, dagql.Selector{
+		Field: "sourceForIDLoadTelemetry",
+	})
+	require.NoError(t, err)
+	sourceID, err := source.ID()
+	require.NoError(t, err)
+
+	// A direct load under a non-call span should not emit resolver-internal
+	// input telemetry.
+	_, err = dagql.NewID[*idLoadTelemetrySource](sourceID).Load(ctx, srv)
+	require.NoError(t, err)
+
+	var loadedName dagql.String
+	err = srv.Select(ctx, srv.Root(), &loadedName, dagql.Selector{
+		Field: "useIDLoadTelemetrySource",
+		Args: []dagql.NamedInput{{
+			Name:  "source",
+			Value: dagql.NewID[*idLoadTelemetrySource](sourceID),
+		}},
+	})
+	rootSpan.End()
+	require.NoError(t, err)
+	require.Equal(t, dagql.String("source"), loadedName)
+
+	spans := spanRecorder.Ended()
+	loadSpans := spansNamed(spans, "load input ID")
+	require.Len(t, loadSpans, 1)
+	loadSpan := loadSpans[0]
+	sourceSpan := requireSpanNamed(t, spans, "Query.sourceForIDLoadTelemetry")
+	useSpan := requireSpanNamed(t, spans, "Query.useIDLoadTelemetrySource")
+
+	require.Equal(t, useSpan.SpanContext().SpanID(), loadSpan.Parent().SpanID())
+	require.Equal(t, "id_load", requireSpanStringAttr(t, loadSpan, dagql.DagInputPhaseAttr))
+	require.Equal(t, "handle", requireSpanStringAttr(t, loadSpan, dagql.DagInputIDModeAttr))
+	require.Equal(t, "IDLoadTelemetrySource", requireSpanStringAttr(t, loadSpan, dagql.DagInputIDTypeAttr))
+	require.Equal(t, "useIDLoadTelemetrySource", requireSpanStringAttr(t, loadSpan, dagql.DagInputTargetFieldAttr))
+	require.Equal(t, true, requireSpanBoolAttr(t, loadSpan, telemetry.UIInternalAttr))
+	require.Equal(t, requireSpanStringAttr(t, useSpan, telemetry.DagDigestAttr), requireSpanStringAttr(t, loadSpan, dagql.DagInputTargetDigestAttr))
+	require.Equal(t, requireSpanStringAttr(t, sourceSpan, telemetry.DagDigestAttr), requireSpanStringAttr(t, loadSpan, dagql.DagInputDigestAttr))
+}
+
+func spansNamed(spans []sdktrace.ReadOnlySpan, name string) []sdktrace.ReadOnlySpan {
+	var matched []sdktrace.ReadOnlySpan
+	for _, span := range spans {
+		if span.Name() == name {
+			matched = append(matched, span)
+		}
+	}
+	return matched
+}
+
 func requireSpanNamed(t *testing.T, spans []sdktrace.ReadOnlySpan, name string) sdktrace.ReadOnlySpan {
 	t.Helper()
 	for _, span := range spans {

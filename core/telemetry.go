@@ -141,6 +141,10 @@ func AroundFunc(
 	recordDynamicInputTelemetry(ctx, req, callDigest.String())
 
 	ctx, span := Tracer(ctx).Start(ctx, spanName, trace.WithAttributes(attrs...))
+	ctx = dagql.WithActiveCallTelemetry(ctx, dagql.ActiveCallTelemetry{
+		TargetDigest: callDigest.String(),
+		TargetField:  req.Field,
+	})
 
 	return ctx, func(res dagql.AnyResult, cached bool, err *error) {
 		slog.InfoContext(ctx, "end call",

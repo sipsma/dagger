@@ -513,6 +513,259 @@ func TestEvaluateLazyUsesOriginalSpanForLogsAndNestedSpans(t *testing.T) {
 	assert.Assert(t, sawResume, "expected hidden resume span to be recorded")
 }
 
+func TestEvaluateLazyMaterializeInputTelemetrySpan(t *testing.T) {
+	ctx := cacheTestContext(t.Context())
+	cacheIface, err := NewCache(ctx, "", nil, nil)
+	assert.NilError(t, err)
+	ctx = ContextWithCache(ctx, cacheIface)
+	c := cacheIface
+	srv := cacheTestServer(t)
+
+	spanExporter := &cacheTestSpanExporter{}
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(spanExporter))
+	defer tracerProvider.Shutdown(t.Context())
+
+	originalCtx, originalSpan := tracerProvider.Tracer("dagger.io/test").Start(ctx, "original")
+	reqCall := &ResultCall{
+		Type: NewResultCallType(&ast.Type{
+			NamedType: "CacheTestObject",
+			NonNull:   true,
+		}),
+		Field: "lazyMaterializeTelemetry",
+	}
+	var lazyRan bool
+	res, err := c.GetOrInitCall(originalCtx, "test-session", srv, &CallRequest{ResultCall: reqCall}, func(context.Context) (AnyResult, error) {
+		return cacheTestObjectResultWithValue(t, srv, reqCall, &cacheTestObject{
+			Value: 1,
+			lazyEval: func(context.Context) error {
+				lazyRan = true
+				return nil
+			},
+		}), nil
+	})
+	assert.NilError(t, err)
+	assert.Assert(t, HasPendingLazyEvaluation(res))
+	inputDigest, err := reqCall.RecipeDigest(ctx)
+	assert.NilError(t, err)
+
+	triggerCtx, triggerSpan := tracerProvider.Tracer("dagger.io/test").Start(ctx, "trigger")
+	triggerCtx = WithActiveCallTelemetry(triggerCtx, ActiveCallTelemetry{
+		TargetDigest: "target-digest",
+		TargetField:  "targetField",
+	})
+	assert.NilError(t, c.Evaluate(triggerCtx, res))
+	triggerSpan.End()
+	originalSpan.End()
+
+	assert.Assert(t, lazyRan, "expected lazy evaluation to run")
+	assert.NilError(t, tracerProvider.ForceFlush(t.Context()))
+
+	spans := cacheTestEndedSpans(spanExporter)
+	materializeSpans := cacheTestSpansNamed(spans, "materialize input")
+	assert.Equal(t, len(materializeSpans), 1)
+	materializeSpan := materializeSpans[0]
+
+	assert.Equal(t, materializeSpan.Parent().SpanID(), triggerSpan.SpanContext().SpanID())
+	assert.Equal(t, cacheTestSpanStringAttr(t, materializeSpan, DagInputPhaseAttr), "materialize")
+	assert.Equal(t, cacheTestSpanStringAttr(t, materializeSpan, DagInputTargetDigestAttr), "target-digest")
+	assert.Equal(t, cacheTestSpanStringAttr(t, materializeSpan, DagInputTargetFieldAttr), "targetField")
+	assert.Equal(t, cacheTestSpanStringAttr(t, materializeSpan, DagInputDigestAttr), inputDigest.String())
+	assert.Equal(t, cacheTestSpanStringAttr(t, materializeSpan, DagInputFieldAttr), "lazyMaterializeTelemetry")
+	assert.Equal(t, cacheTestSpanStringAttr(t, materializeSpan, DagInputTypeAttr), "CacheTestObject")
+	assert.Equal(t, cacheTestSpanStringAttr(t, materializeSpan, DagInputMaterializeStateAttr), "started")
+	assert.Equal(t, cacheTestSpanBoolAttr(t, materializeSpan, telemetry.UIInternalAttr), true)
+}
+
+func TestEvaluateLazyMaterializeInputTelemetrySkipsWithoutActiveCall(t *testing.T) {
+	ctx := cacheTestContext(t.Context())
+	cacheIface, err := NewCache(ctx, "", nil, nil)
+	assert.NilError(t, err)
+	ctx = ContextWithCache(ctx, cacheIface)
+	c := cacheIface
+	srv := cacheTestServer(t)
+
+	spanExporter := &cacheTestSpanExporter{}
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(spanExporter))
+	defer tracerProvider.Shutdown(t.Context())
+
+	originalCtx, originalSpan := tracerProvider.Tracer("dagger.io/test").Start(ctx, "original")
+	reqCall := &ResultCall{
+		Type: NewResultCallType(&ast.Type{
+			NamedType: "CacheTestObject",
+			NonNull:   true,
+		}),
+		Field: "lazyMaterializeNoMarker",
+	}
+	res, err := c.GetOrInitCall(originalCtx, "test-session", srv, &CallRequest{ResultCall: reqCall}, func(context.Context) (AnyResult, error) {
+		return cacheTestObjectResultWithValue(t, srv, reqCall, &cacheTestObject{
+			Value:    1,
+			lazyEval: func(context.Context) error { return nil },
+		}), nil
+	})
+	assert.NilError(t, err)
+	assert.Assert(t, HasPendingLazyEvaluation(res))
+
+	triggerCtx, triggerSpan := tracerProvider.Tracer("dagger.io/test").Start(ctx, "trigger")
+	assert.NilError(t, c.Evaluate(triggerCtx, res))
+	triggerSpan.End()
+	assert.Assert(t, !HasPendingLazyEvaluation(res))
+
+	activeCtx, activeSpan := tracerProvider.Tracer("dagger.io/test").Start(ctx, "active after complete")
+	activeCtx = WithActiveCallTelemetry(activeCtx, ActiveCallTelemetry{
+		TargetDigest: "target-digest",
+		TargetField:  "targetField",
+	})
+	assert.NilError(t, c.Evaluate(activeCtx, res))
+	activeSpan.End()
+	originalSpan.End()
+
+	assert.NilError(t, tracerProvider.ForceFlush(t.Context()))
+
+	spans := cacheTestEndedSpans(spanExporter)
+	assert.Equal(t, len(cacheTestSpansNamed(spans, "materialize input")), 0)
+}
+
+func TestEvaluateLazyMaterializeInputTelemetryMarksJoinedWaiter(t *testing.T) {
+	ctx := cacheTestContext(t.Context())
+	cacheIface, err := NewCache(ctx, "", nil, nil)
+	assert.NilError(t, err)
+	ctx = ContextWithCache(ctx, cacheIface)
+	c := cacheIface
+	srv := cacheTestServer(t)
+
+	spanExporter := &cacheTestSpanExporter{}
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(spanExporter))
+	defer tracerProvider.Shutdown(t.Context())
+
+	originalCtx, originalSpan := tracerProvider.Tracer("dagger.io/test").Start(ctx, "original")
+	reqCall := &ResultCall{
+		Type: NewResultCallType(&ast.Type{
+			NamedType: "CacheTestObject",
+			NonNull:   true,
+		}),
+		Field: "lazyMaterializeJoinedWaiter",
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	res, err := c.GetOrInitCall(originalCtx, "test-session", srv, &CallRequest{ResultCall: reqCall}, func(context.Context) (AnyResult, error) {
+		return cacheTestObjectResultWithValue(t, srv, reqCall, &cacheTestObject{
+			Value: 1,
+			lazyEval: func(context.Context) error {
+				close(started)
+				<-release
+				return nil
+			},
+		}), nil
+	})
+	assert.NilError(t, err)
+	assert.Assert(t, HasPendingLazyEvaluation(res))
+
+	firstCtx, firstSpan := tracerProvider.Tracer("dagger.io/test").Start(ctx, "first trigger")
+	firstCtx = WithActiveCallTelemetry(firstCtx, ActiveCallTelemetry{
+		TargetDigest: "first-target",
+		TargetField:  "firstTarget",
+	})
+	firstErr := make(chan error, 1)
+	go func() {
+		firstErr <- c.Evaluate(firstCtx, res)
+		firstSpan.End()
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for first lazy evaluation to start")
+	}
+
+	secondCtx, secondSpan := tracerProvider.Tracer("dagger.io/test").Start(ctx, "second trigger")
+	secondCtx = WithActiveCallTelemetry(secondCtx, ActiveCallTelemetry{
+		TargetDigest: "second-target",
+		TargetField:  "secondTarget",
+	})
+	secondErr := make(chan error, 1)
+	go func() {
+		secondErr <- c.Evaluate(secondCtx, res)
+		secondSpan.End()
+	}()
+
+	cacheTestWaitForLazyWaiters(t, res, 2)
+	close(release)
+
+	assert.NilError(t, <-firstErr)
+	assert.NilError(t, <-secondErr)
+	originalSpan.End()
+
+	assert.NilError(t, tracerProvider.ForceFlush(t.Context()))
+
+	spans := cacheTestEndedSpans(spanExporter)
+	materializeSpans := cacheTestSpansNamed(spans, "materialize input")
+	assert.Equal(t, len(materializeSpans), 2)
+	states := map[string]bool{}
+	for _, span := range materializeSpans {
+		states[cacheTestSpanStringAttr(t, span, DagInputMaterializeStateAttr)] = true
+	}
+	assert.Assert(t, states["started"], "expected first materialization waiter to be marked started")
+	assert.Assert(t, states["joined_in_flight"], "expected second materialization waiter to be marked joined")
+}
+
+func cacheTestEndedSpans(exporter *cacheTestSpanExporter) []sdktrace.ReadOnlySpan {
+	exporter.mu.Lock()
+	defer exporter.mu.Unlock()
+	return append([]sdktrace.ReadOnlySpan(nil), exporter.spans...)
+}
+
+func cacheTestSpansNamed(spans []sdktrace.ReadOnlySpan, name string) []sdktrace.ReadOnlySpan {
+	var matched []sdktrace.ReadOnlySpan
+	for _, span := range spans {
+		if span.Name() == name {
+			matched = append(matched, span)
+		}
+	}
+	return matched
+}
+
+func cacheTestSpanStringAttr(t *testing.T, span sdktrace.ReadOnlySpan, key string) string {
+	t.Helper()
+	for _, attr := range span.Attributes() {
+		if string(attr.Key) == key {
+			return attr.Value.AsString()
+		}
+	}
+	t.Fatalf("span %q missing attr %q", span.Name(), key)
+	return ""
+}
+
+func cacheTestSpanBoolAttr(t *testing.T, span sdktrace.ReadOnlySpan, key string) bool {
+	t.Helper()
+	for _, attr := range span.Attributes() {
+		if string(attr.Key) == key {
+			return attr.Value.AsBool()
+		}
+	}
+	t.Fatalf("span %q missing attr %q", span.Name(), key)
+	return false
+}
+
+func cacheTestWaitForLazyWaiters(t *testing.T, res AnyResult, waiters int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		shared := res.cacheSharedResult()
+		if shared == nil {
+			t.Fatal("result missing shared state")
+		}
+		shared.lazyMu.Lock()
+		gotWaiters := shared.lazyEvalWaiters
+		waitCh := shared.lazyEvalWaitCh
+		shared.lazyMu.Unlock()
+		if waitCh != nil && gotWaiters >= waiters {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for lazy evaluation waiters >= %d", waiters)
+}
+
 func (*cacheTestObject) Type() *ast.Type {
 	return &ast.Type{
 		NamedType: "CacheTestObject",

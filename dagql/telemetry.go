@@ -11,6 +11,36 @@ type TelemetrySeenKeyStore interface {
 }
 
 type seenKeysCtxKey struct{}
+type activeCallTelemetryCtxKey struct{}
+
+const (
+	DagInputPhaseAttr            = "dagger.io/dag.input.phase"
+	DagInputTargetFieldAttr      = "dagger.io/dag.input.target.field"
+	DagInputTargetDigestAttr     = "dagger.io/dag.input.target.digest"
+	DagInputFieldAttr            = "dagger.io/dag.input.field"
+	DagInputTypeAttr             = "dagger.io/dag.input.type"
+	DagInputIDModeAttr           = "dagger.io/dag.input.id.mode"
+	DagInputIDTypeAttr           = "dagger.io/dag.input.id.type"
+	DagInputDigestAttr           = "dagger.io/dag.input.digest"
+	DagInputMaterializeStateAttr = "dagger.io/dag.input.materialization.state"
+)
+
+type ActiveCallTelemetry struct {
+	TargetDigest string
+	TargetField  string
+}
+
+func WithActiveCallTelemetry(ctx context.Context, tel ActiveCallTelemetry) context.Context {
+	return context.WithValue(ctx, activeCallTelemetryCtxKey{}, tel)
+}
+
+func CurrentActiveCallTelemetry(ctx context.Context) (ActiveCallTelemetry, bool) {
+	tel, ok := ctx.Value(activeCallTelemetryCtxKey{}).(ActiveCallTelemetry)
+	if !ok || tel.TargetDigest == "" {
+		return ActiveCallTelemetry{}, false
+	}
+	return tel, true
+}
 
 // WithRepeatedTelemetry resets the state of seen cache keys so that we emit
 // telemetry for spans that we've already seen within the session.

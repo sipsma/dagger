@@ -2817,6 +2817,90 @@ func (c *Cache) waitForLazyEvaluation(ctx context.Context, shared *sharedResult,
 	return waitErr
 }
 
+type materializeInputTelemetry struct {
+	span        trace.Span
+	inputDigest string
+	inputField  string
+}
+
+func (c *Cache) startMaterializeInputSpan(ctx context.Context, shared *sharedResult) (context.Context, materializeInputTelemetry) {
+	activeCall, ok := CurrentActiveCallTelemetry(ctx)
+	if !ok || !trace.SpanFromContext(ctx).IsRecording() {
+		return ctx, materializeInputTelemetry{}
+	}
+
+	attrs := []attribute.KeyValue{
+		attribute.String(DagInputPhaseAttr, "materialize"),
+		attribute.String(DagInputTargetFieldAttr, activeCall.TargetField),
+		attribute.String(DagInputTargetDigestAttr, activeCall.TargetDigest),
+	}
+
+	var inputDigest string
+	var inputField string
+	if frame := shared.loadResultCall(); frame != nil {
+		inputField = materializeInputField(frame)
+		if inputField != "" {
+			attrs = append(attrs, attribute.String(DagInputFieldAttr, inputField))
+		}
+		if frame.Type != nil && frame.Type.NamedType != "" {
+			attrs = append(attrs, attribute.String(DagInputTypeAttr, frame.Type.NamedType))
+		}
+		if dig, err := frame.RecipeDigest(ctx); err == nil && dig != "" {
+			inputDigest = dig.String()
+			attrs = append(attrs, attribute.String(DagInputDigestAttr, inputDigest))
+		}
+	}
+
+	ctx, span := Tracer(ctx).Start(
+		ctx,
+		"materialize input",
+		telemetry.Internal(),
+		trace.WithAttributes(attrs...),
+	)
+	return ctx, materializeInputTelemetry{
+		span:        span,
+		inputDigest: inputDigest,
+		inputField:  inputField,
+	}
+}
+
+func materializeInputField(frame *ResultCall) string {
+	if frame == nil {
+		return ""
+	}
+	if field, err := resultCallIdentityField(frame); err == nil {
+		return field
+	}
+	if frame.Field != "" {
+		return frame.Field
+	}
+	return frame.SyntheticOp
+}
+
+func (tel materializeInputTelemetry) ContextWithInputTarget(ctx context.Context) context.Context {
+	if tel.inputDigest == "" {
+		return ctx
+	}
+	return WithActiveCallTelemetry(ctx, ActiveCallTelemetry{
+		TargetDigest: tel.inputDigest,
+		TargetField:  tel.inputField,
+	})
+}
+
+func (tel materializeInputTelemetry) SetState(state string) {
+	if tel.span == nil || state == "" {
+		return
+	}
+	tel.span.SetAttributes(attribute.String(DagInputMaterializeStateAttr, state))
+}
+
+func (tel materializeInputTelemetry) End(rerr *error) {
+	if tel.span == nil {
+		return
+	}
+	telemetry.EndWithCause(tel.span, rerr)
+}
+
 // evaluateLivenessDeps forces all of resultID's parent.deps before its own
 // lazy callback fires. This keeps chained downstream calls pending instead
 // of firing redundant resume spans when an upstream prerequisite fails:
@@ -2868,7 +2952,7 @@ func (c *Cache) Evaluate(ctx context.Context, results ...AnyResult) error {
 	return eg.Wait()
 }
 
-func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
+func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) (rerr error) {
 	if c == nil {
 		return errors.New("evaluate: nil cache")
 	}
@@ -2887,11 +2971,6 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 		}
 	}
 
-	stackCtx := context.WithValue(ctx, lazyEvalStackCtxKey{}, &lazyEvalStackNode{
-		id:     shared.id,
-		parent: stack,
-	})
-
 	// Fast path: if evaluation is already complete or there is nothing to do,
 	// skip preflight entirely.
 	shared.lazyMu.Lock()
@@ -2900,6 +2979,15 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 		return nil
 	}
 	shared.lazyMu.Unlock()
+
+	ctx, materialize := c.startMaterializeInputSpan(ctx, shared)
+	defer materialize.End(&rerr)
+
+	stackCtx := context.WithValue(ctx, lazyEvalStackCtxKey{}, &lazyEvalStackNode{
+		id:     shared.id,
+		parent: stack,
+	})
+	stackCtx = materialize.ContextWithInputTarget(stackCtx)
 
 	// Preflight liveness deps before claiming the lazy state. Each parent.deps
 	// edge is a prerequisite: if it fails, our lazy callback shouldn't fire
@@ -2932,6 +3020,7 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 		waitCh := shared.lazyEvalWaitCh
 		shared.lazyEvalWaiters++
 		shared.lazyMu.Unlock()
+		materialize.SetState("joined_in_flight")
 		return c.waitForLazyEvaluation(stackCtx, shared, waitCh)
 	}
 
@@ -2947,6 +3036,7 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 	shared.lazyEvalWaiters = 1
 	shared.lazyEvalErr = nil
 	shared.lazyMu.Unlock()
+	materialize.SetState("started")
 
 	go func() {
 		callbackCtx := evalCtx

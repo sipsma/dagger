@@ -23,11 +23,14 @@ import (
 	validatorcore "github.com/vektah/gqlparser/v2/validator/core"
 	"github.com/vektah/gqlparser/v2/validator/rules"
 	"github.com/zeebo/xxh3"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/dagger/dagger/dagql/call"
 	"github.com/dagger/dagger/util/hashutil"
 	"github.com/dagger/dagger/util/sortutil"
+	telemetry "github.com/dagger/otel-go"
 )
 
 // Server represents a GraphQL server whose schema is dynamically modified at
@@ -1250,7 +1253,7 @@ func (s *Server) loadNthValue(
 	return res, nil
 }
 
-func (s *Server) LoadType(ctx context.Context, id *call.ID) (_ AnyResult, rerr error) {
+func (s *Server) LoadType(ctx context.Context, id *call.ID) (res AnyResult, rerr error) {
 	ctx = srvToContext(ctx, s)
 	if id == nil {
 		return nil, fmt.Errorf("load type: nil ID")
@@ -1261,6 +1264,10 @@ func (s *Server) LoadType(ctx context.Context, id *call.ID) (_ AnyResult, rerr e
 	if c := s.canonical; c != nil {
 		return c.LoadType(ctx, id)
 	}
+	ctx, finishInputLoadSpan := startInputIDLoadSpan(ctx, id)
+	defer func() {
+		finishInputLoadSpan(ctx, id, res, &rerr)
+	}()
 
 	leaseCtx, release, err := withOperationLease(ctx)
 	if err != nil {
@@ -1316,6 +1323,74 @@ func (s *Server) LoadType(ctx context.Context, id *call.ID) (_ AnyResult, rerr e
 		loads:     make(map[string]*recipeLoadFuture),
 	}
 	return state.load(id)
+}
+
+func startInputIDLoadSpan(ctx context.Context, id *call.ID) (context.Context, func(context.Context, *call.ID, AnyResult, *error)) {
+	activeCall, ok := CurrentActiveCallTelemetry(ctx)
+	if !ok {
+		return ctx, func(context.Context, *call.ID, AnyResult, *error) {}
+	}
+	attrs := []attribute.KeyValue{
+		attribute.String(DagInputPhaseAttr, "id_load"),
+		attribute.String(DagInputTargetFieldAttr, activeCall.TargetField),
+		attribute.String(DagInputTargetDigestAttr, activeCall.TargetDigest),
+		attribute.String(DagInputIDModeAttr, inputIDLoadMode(id)),
+	}
+	if typ := inputIDTypeName(id); typ != "" {
+		attrs = append(attrs, attribute.String(DagInputIDTypeAttr, typ))
+	}
+
+	ctx, span := Tracer(ctx).Start(
+		ctx,
+		"load input ID",
+		telemetry.Internal(),
+		trace.WithAttributes(attrs...),
+	)
+	return ctx, func(ctx context.Context, id *call.ID, res AnyResult, rerr *error) {
+		if inputDigest := inputIDLoadDigest(ctx, id, res); inputDigest != "" {
+			span.SetAttributes(attribute.String(DagInputDigestAttr, inputDigest))
+		}
+		telemetry.EndWithCause(span, rerr)
+	}
+}
+
+func inputIDLoadMode(id *call.ID) string {
+	if id != nil && id.IsHandle() {
+		return "handle"
+	}
+	return "recipe"
+}
+
+func inputIDTypeName(id *call.ID) string {
+	if id == nil || id.Type() == nil {
+		return ""
+	}
+	return id.Type().NamedType()
+}
+
+func inputIDLoadDigest(ctx context.Context, id *call.ID, res AnyResult) string {
+	if id == nil {
+		return ""
+	}
+	if !id.IsHandle() {
+		return id.Digest().String()
+	}
+	if res == nil {
+		return ""
+	}
+	shared := res.cacheSharedResult()
+	if shared == nil {
+		return ""
+	}
+	frame := shared.loadResultCall()
+	if frame == nil {
+		return ""
+	}
+	dig, err := frame.RecipeDigest(ctx)
+	if err != nil {
+		return ""
+	}
+	return dig.String()
 }
 
 type recipeLoadFuture struct {
