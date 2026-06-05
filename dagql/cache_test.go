@@ -855,6 +855,17 @@ func cacheTestSpanBoolAttr(t *testing.T, span sdktrace.ReadOnlySpan, key string)
 	return false
 }
 
+func cacheTestSpanIntAttr(t *testing.T, span sdktrace.ReadOnlySpan, key string) int64 {
+	t.Helper()
+	for _, attr := range span.Attributes() {
+		if string(attr.Key) == key {
+			return attr.Value.AsInt64()
+		}
+	}
+	t.Fatalf("span %q missing attr %q", span.Name(), key)
+	return 0
+}
+
 func cacheTestWaitForLazyWaiters(t *testing.T, res AnyResult, waiters int) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -1553,6 +1564,126 @@ func TestCacheConcurrent(t *testing.T) {
 	assert.Assert(t, is.Len(initialized, 1))
 	assert.Assert(t, initialized[0])
 	assert.Equal(t, 1, cacheIface.Size())
+}
+
+func TestGetOrInitCallSingleflightTelemetry(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	cacheIface, err := NewCache(ctx, "", nil, nil)
+	assert.NilError(t, err)
+	c := cacheIface
+
+	spanExporter := &cacheTestSpanExporter{}
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(spanExporter))
+	defer tracerProvider.Shutdown(t.Context())
+
+	ctx, rootSpan := tracerProvider.Tracer("dagger.io/test").Start(ctx, "root")
+
+	reqCall := cacheTestIntCall("singleflightTelemetry")
+	const concurrencyKey = "singleflight-telemetry"
+	callConcKeys := callConcurrencyKeys{
+		callKey:        cacheTestCallDigest(reqCall).String(),
+		concurrencyKey: concurrencyKey,
+	}
+
+	firstCallEntered := make(chan struct{})
+	unblockFirstCall := make(chan struct{})
+	firstErr := make(chan error, 1)
+	go func() {
+		_, err := c.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{
+			ResultCall:     reqCall,
+			ConcurrencyKey: concurrencyKey,
+		}, func(context.Context) (AnyResult, error) {
+			close(firstCallEntered)
+			<-unblockFirstCall
+			return cacheTestIntResult(reqCall, 1), nil
+		})
+		firstErr <- err
+	}()
+
+	select {
+	case <-firstCallEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for first caller to enter init callback")
+	}
+
+	secondErr := make(chan error, 1)
+	go func() {
+		_, err := c.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{
+			ResultCall:     reqCall,
+			ConcurrencyKey: concurrencyKey,
+		}, func(context.Context) (AnyResult, error) {
+			return cacheTestIntResult(reqCall, 2), nil
+		})
+		secondErr <- err
+	}()
+
+	waiterJoined := false
+	waiterDeadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(waiterDeadline) {
+		c.callsMu.Lock()
+		oc := c.ongoingCalls[callConcKeys]
+		waiters := 0
+		if oc != nil {
+			waiters = oc.waiters
+		}
+		c.callsMu.Unlock()
+		if waiters == 2 {
+			waiterJoined = true
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	assert.Assert(t, waiterJoined, "expected second waiter to join shared call")
+
+	close(unblockFirstCall)
+	assert.NilError(t, <-firstErr)
+	assert.NilError(t, <-secondErr)
+	rootSpan.End()
+
+	assert.NilError(t, tracerProvider.ForceFlush(t.Context()))
+
+	spans := cacheTestEndedSpans(spanExporter)
+	waitSpans := cacheTestSpansNamed(spans, "wait shared call")
+	assert.Equal(t, len(waitSpans), 1)
+	waitSpan := waitSpans[0]
+	assert.Equal(t, cacheTestSpanStringAttr(t, waitSpan, DagSingleflightKindAttr), "call")
+	assert.Equal(t, cacheTestSpanStringAttr(t, waitSpan, DagSingleflightPhaseAttr), "wait")
+	assert.Equal(t, cacheTestSpanStringAttr(t, waitSpan, DagSingleflightDigestAttr), cacheTestCallDigest(reqCall).String())
+	assert.Equal(t, cacheTestSpanStringAttr(t, waitSpan, DagSingleflightFieldAttr), "singleflightTelemetry")
+	assert.Equal(t, cacheTestSpanStringAttr(t, waitSpan, DagSingleflightConcurrencyKeyAttr), concurrencyKey)
+	assert.Equal(t, cacheTestSpanIntAttr(t, waitSpan, DagSingleflightWaitersAttr), int64(2))
+	assert.Equal(t, cacheTestSpanBoolAttr(t, waitSpan, telemetry.UIInternalAttr), true)
+}
+
+func TestGetOrInitCallSingleflightTelemetrySkipsUncontended(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	cacheIface, err := NewCache(ctx, "", nil, nil)
+	assert.NilError(t, err)
+
+	spanExporter := &cacheTestSpanExporter{}
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(spanExporter))
+	defer tracerProvider.Shutdown(t.Context())
+
+	ctx, rootSpan := tracerProvider.Tracer("dagger.io/test").Start(ctx, "root")
+
+	reqCall := cacheTestIntCall("singleflightTelemetryUncontended")
+	_, err = cacheIface.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{
+		ResultCall:     reqCall,
+		ConcurrencyKey: "singleflight-telemetry-uncontended",
+	}, func(context.Context) (AnyResult, error) {
+		return cacheTestIntResult(reqCall, 1), nil
+	})
+	assert.NilError(t, err)
+	rootSpan.End()
+
+	assert.NilError(t, tracerProvider.ForceFlush(t.Context()))
+
+	spans := cacheTestEndedSpans(spanExporter)
+	assert.Equal(t, len(cacheTestSpansNamed(spans, "wait shared call")), 0)
 }
 
 func TestCacheEvaluate(t *testing.T) {

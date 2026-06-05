@@ -3702,8 +3702,9 @@ func (c *Cache) getOrInitCall(
 			}
 			// already an ongoing call
 			oc.waiters++
+			waiterCount := oc.waiters
 			c.callsMu.Unlock()
-			return c.wait(ctx, sessionID, resolver, oc, req)
+			return c.waitForSharedCall(ctx, sessionID, resolver, oc, req, callDigest.String(), waiterCount)
 		}
 	}
 
@@ -3885,6 +3886,60 @@ func (c *Cache) lookupCacheForDigests(
 		c.traceSessionResultTracked(ctx, sessionID, loadedHit, true, trackedCount)
 	}
 	return loadedHit, true, nil
+}
+
+func (c *Cache) waitForSharedCall(
+	ctx context.Context,
+	sessionID string,
+	resolver TypeResolver,
+	oc *ongoingCall,
+	req *CallRequest,
+	callDigest string,
+	waiterCount int,
+) (res AnyResult, rerr error) {
+	ctx, tel := startSharedCallWaitSpan(ctx, req, callDigest, waiterCount)
+	defer tel.End(&rerr)
+	return c.wait(ctx, sessionID, resolver, oc, req)
+}
+
+type sharedCallWaitTelemetry struct {
+	span trace.Span
+}
+
+func startSharedCallWaitSpan(ctx context.Context, req *CallRequest, callDigest string, waiterCount int) (context.Context, sharedCallWaitTelemetry) {
+	if !trace.SpanFromContext(ctx).IsRecording() {
+		return ctx, sharedCallWaitTelemetry{}
+	}
+
+	attrs := []attribute.KeyValue{
+		attribute.String(DagSingleflightKindAttr, "call"),
+		attribute.String(DagSingleflightPhaseAttr, "wait"),
+		attribute.String(DagSingleflightDigestAttr, callDigest),
+		attribute.Int(DagSingleflightWaitersAttr, waiterCount),
+	}
+	if req != nil {
+		if req.Field != "" {
+			attrs = append(attrs, attribute.String(DagSingleflightFieldAttr, req.Field))
+		}
+		if req.ConcurrencyKey != "" {
+			attrs = append(attrs, attribute.String(DagSingleflightConcurrencyKeyAttr, req.ConcurrencyKey))
+		}
+	}
+
+	ctx, span := Tracer(ctx).Start(
+		ctx,
+		"wait shared call",
+		telemetry.Internal(),
+		trace.WithAttributes(attrs...),
+	)
+	return ctx, sharedCallWaitTelemetry{span: span}
+}
+
+func (tel sharedCallWaitTelemetry) End(rerr *error) {
+	if tel.span == nil {
+		return
+	}
+	telemetry.EndWithCause(tel.span, rerr)
 }
 
 func (c *Cache) wait(

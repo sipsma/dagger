@@ -24,6 +24,13 @@ const (
 	DagInputDigestAttr             = "dagger.io/dag.input.digest"
 	DagInputMaterializeStateAttr   = "dagger.io/dag.input.materialization.state"
 	DagInputMaterializeTriggerAttr = "dagger.io/dag.input.materialization.trigger"
+
+	DagSingleflightKindAttr           = "dagger.io/dag.singleflight.kind"
+	DagSingleflightPhaseAttr          = "dagger.io/dag.singleflight.phase"
+	DagSingleflightDigestAttr         = "dagger.io/dag.singleflight.digest"
+	DagSingleflightFieldAttr          = "dagger.io/dag.singleflight.field"
+	DagSingleflightConcurrencyKeyAttr = "dagger.io/dag.singleflight.concurrency_key"
+	DagSingleflightWaitersAttr        = "dagger.io/dag.singleflight.waiters"
 )
 
 type ActiveCallTelemetry struct {
