@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/iancoleman/strcase"
 	"github.com/vektah/gqlparser/v2/ast"
@@ -581,6 +582,8 @@ func (r ObjectResult[T]) preselect(ctx context.Context, sel Selector) (ObjectRes
 		req.ConcurrencyKey = clientMD.SessionID
 	}
 	if field.Spec.GetDynamicInput != nil {
+		beforeDynamicInput := req.Clone()
+		dynamicInputStart := time.Now()
 		if err := field.Spec.GetDynamicInput(ctx, r, inputArgs, view, req); err != nil {
 			typ := r.Type()
 			if typ == nil {
@@ -602,12 +605,72 @@ func (r ObjectResult[T]) preselect(ctx context.Context, sel Selector) (ObjectRes
 			return r, nil, fmt.Errorf("failed to resolve identity inputs for %s.%s: %w", typ.Name(), sel.Field, err)
 		}
 		req.ImplicitInputs = implicitInputs
+		req.DynamicInputTelemetry = &DynamicInputTelemetry{
+			Start:         dynamicInputStart,
+			End:           time.Now(),
+			ChangedArgs:   dynamicInputChangedArgs(beforeDynamicInput, req),
+			ChangedPolicy: dynamicInputChangedPolicy(beforeDynamicInput, req),
+		}
 	}
 
 	return r, &preselectResult{
 		inputArgs: inputArgs,
 		request:   req,
 	}, nil
+}
+
+func dynamicInputChangedArgs(before, after *CallRequest) []string {
+	beforeArgs := callRequestArgsByName(before)
+	afterArgs := callRequestArgsByName(after)
+	names := make(map[string]struct{}, len(beforeArgs)+len(afterArgs))
+	for name := range beforeArgs {
+		names[name] = struct{}{}
+	}
+	for name := range afterArgs {
+		names[name] = struct{}{}
+	}
+	changed := make([]string, 0, len(names))
+	for name := range names {
+		if !reflect.DeepEqual(beforeArgs[name], afterArgs[name]) {
+			changed = append(changed, name)
+		}
+	}
+	sort.Strings(changed)
+	return changed
+}
+
+func callRequestArgsByName(req *CallRequest) map[string]*ResultCallArg {
+	if req == nil || req.ResultCall == nil {
+		return nil
+	}
+	args := make(map[string]*ResultCallArg, len(req.Args))
+	for _, arg := range req.Args {
+		if arg == nil {
+			continue
+		}
+		args[arg.Name] = arg
+	}
+	return args
+}
+
+func dynamicInputChangedPolicy(before, after *CallRequest) []string {
+	var changed []string
+	if before == nil || after == nil {
+		return changed
+	}
+	if before.ConcurrencyKey != after.ConcurrencyKey {
+		changed = append(changed, "concurrency_key")
+	}
+	if before.TTL != after.TTL {
+		changed = append(changed, "ttl")
+	}
+	if before.DoNotCache != after.DoNotCache {
+		changed = append(changed, "do_not_cache")
+	}
+	if before.IsPersistable != after.IsPersistable {
+		changed = append(changed, "is_persistable")
+	}
+	return changed
 }
 
 func (r ObjectResult[T]) call(

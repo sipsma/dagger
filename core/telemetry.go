@@ -19,6 +19,14 @@ import (
 
 var _ dagql.AroundFunc = AroundFunc
 
+const (
+	dagInputPhaseAttr         = "dagger.io/dag.input.phase"
+	dagInputTargetFieldAttr   = "dagger.io/dag.input.target.field"
+	dagInputTargetDigestAttr  = "dagger.io/dag.input.target.digest"
+	dagInputChangedArgsAttr   = "dagger.io/dag.input.changed.args"
+	dagInputChangedPolicyAttr = "dagger.io/dag.input.changed.policy"
+)
+
 func AroundFunc(
 	ctx context.Context,
 	req *dagql.CallRequest,
@@ -130,6 +138,8 @@ func AroundFunc(
 		attrs = append(attrs, attribute.Bool(telemetry.UIInternalAttr, true))
 	}
 
+	recordDynamicInputTelemetry(ctx, req, callDigest.String())
+
 	ctx, span := Tracer(ctx).Start(ctx, spanName, trace.WithAttributes(attrs...))
 
 	return ctx, func(res dagql.AnyResult, cached bool, err *error) {
@@ -143,6 +153,37 @@ func AroundFunc(
 		recordPending(res, span)
 		logResult(ctx, res, req.ResultCall)
 	}
+}
+
+func recordDynamicInputTelemetry(ctx context.Context, req *dagql.CallRequest, callDigest string) {
+	if req == nil || req.DynamicInputTelemetry == nil {
+		return
+	}
+	record := req.DynamicInputTelemetry
+	if record.Start.IsZero() || record.End.IsZero() {
+		return
+	}
+
+	attrs := []attribute.KeyValue{
+		attribute.String(dagInputPhaseAttr, "dynamic"),
+		attribute.String(dagInputTargetFieldAttr, req.Field),
+		attribute.String(dagInputTargetDigestAttr, callDigest),
+	}
+	if len(record.ChangedArgs) > 0 {
+		attrs = append(attrs, attribute.StringSlice(dagInputChangedArgsAttr, record.ChangedArgs))
+	}
+	if len(record.ChangedPolicy) > 0 {
+		attrs = append(attrs, attribute.StringSlice(dagInputChangedPolicyAttr, record.ChangedPolicy))
+	}
+
+	_, span := Tracer(ctx).Start(
+		ctx,
+		"resolve dynamic inputs",
+		telemetry.Internal(),
+		trace.WithTimestamp(record.Start),
+		trace.WithAttributes(attrs...),
+	)
+	span.End(trace.WithTimestamp(record.End))
 }
 
 type moduleCallRef struct {

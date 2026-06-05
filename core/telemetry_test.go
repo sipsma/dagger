@@ -23,6 +23,8 @@ import (
 	"github.com/vektah/gqlparser/v2/ast"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/grpc"
@@ -255,6 +257,116 @@ func TestAroundFuncSkipsIntrospectionDescendantsViaContext(t *testing.T) {
 	}
 	childCtx, _ := AroundFunc(rootCtx, childReq)
 	require.True(t, dagql.IsSkipped(childCtx))
+}
+
+type dynamicInputTelemetryRoot struct{}
+
+func (dynamicInputTelemetryRoot) Type() *ast.Type {
+	return &ast.Type{
+		NamedType: "Query",
+		NonNull:   true,
+	}
+}
+
+func TestDynamicInputTelemetrySpan(t *testing.T) {
+	cache, err := dagql.NewCache(t.Context(), "", nil, nil)
+	require.NoError(t, err)
+
+	srv, err := dagql.NewServer(t.Context(), dynamicInputTelemetryRoot{})
+	require.NoError(t, err)
+	srv.Around(AroundFunc)
+
+	dagql.Fields[dynamicInputTelemetryRoot]{
+		dagql.NodeFuncWithDynamicInputs(
+			"rewrittenDynamicTelemetry",
+			func(_ context.Context, _ dagql.ObjectResult[dynamicInputTelemetryRoot], args struct{ Val int }) (dagql.Int, error) {
+				return dagql.Int(args.Val), nil
+			},
+			func(ctx context.Context, _ dagql.ObjectResult[dynamicInputTelemetryRoot], _ struct{ Val int }, req *dagql.CallRequest) error {
+				return req.SetArgInput(ctx, "val", dagql.Int(7), false)
+			},
+		),
+	}.Install(srv)
+
+	spanRecorder := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spanRecorder))
+	defer func() {
+		require.NoError(t, tracerProvider.Shutdown(t.Context()))
+	}()
+
+	ctx := engine.ContextWithClientMetadata(context.Background(), &engine.ClientMetadata{
+		ClientID:  "dagql-test-client",
+		SessionID: "dagql-test-session",
+	})
+	ctx = dagql.ContextWithCache(ctx, cache)
+	ctx, rootSpan := tracerProvider.Tracer("dagger.io/test").Start(ctx, "root")
+
+	var result dagql.Int
+	err = srv.Select(ctx, srv.Root(), &result, dagql.Selector{
+		Field: "rewrittenDynamicTelemetry",
+		Args: []dagql.NamedInput{{
+			Name:  "val",
+			Value: dagql.Int(1),
+		}},
+	})
+	rootSpan.End()
+	require.NoError(t, err)
+	require.Equal(t, dagql.Int(7), result)
+
+	spans := spanRecorder.Ended()
+	dynamicSpan := requireSpanNamed(t, spans, "resolve dynamic inputs")
+	callSpan := requireSpanNamed(t, spans, "Query.rewrittenDynamicTelemetry")
+
+	require.Equal(t, "dynamic", requireSpanStringAttr(t, dynamicSpan, dagInputPhaseAttr))
+	require.Equal(t, "rewrittenDynamicTelemetry", requireSpanStringAttr(t, dynamicSpan, dagInputTargetFieldAttr))
+	require.Equal(t, true, requireSpanBoolAttr(t, dynamicSpan, telemetry.UIInternalAttr))
+	require.Equal(t, []string{"val"}, requireSpanStringSliceAttr(t, dynamicSpan, dagInputChangedArgsAttr))
+
+	targetDigest := requireSpanStringAttr(t, dynamicSpan, dagInputTargetDigestAttr)
+	require.NotEmpty(t, targetDigest)
+	require.Equal(t, requireSpanStringAttr(t, callSpan, telemetry.DagDigestAttr), targetDigest)
+
+	require.NotEqual(t, dynamicSpan.SpanContext().SpanID(), callSpan.Parent().SpanID())
+}
+
+func requireSpanNamed(t *testing.T, spans []sdktrace.ReadOnlySpan, name string) sdktrace.ReadOnlySpan {
+	t.Helper()
+	for _, span := range spans {
+		if span.Name() == name {
+			return span
+		}
+	}
+	require.Failf(t, "span not found", "missing span %q", name)
+	return nil
+}
+
+func requireSpanStringAttr(t *testing.T, span sdktrace.ReadOnlySpan, key string) string {
+	t.Helper()
+	val := requireSpanAttr(t, span, key)
+	return val.AsString()
+}
+
+func requireSpanBoolAttr(t *testing.T, span sdktrace.ReadOnlySpan, key string) bool {
+	t.Helper()
+	val := requireSpanAttr(t, span, key)
+	return val.AsBool()
+}
+
+func requireSpanStringSliceAttr(t *testing.T, span sdktrace.ReadOnlySpan, key string) []string {
+	t.Helper()
+	val := requireSpanAttr(t, span, key)
+	return val.AsStringSlice()
+}
+
+func requireSpanAttr(t *testing.T, span sdktrace.ReadOnlySpan, key string) attribute.Value {
+	t.Helper()
+	for _, attr := range span.Attributes() {
+		if string(attr.Key) == key {
+			return attr.Value
+		}
+	}
+	require.Failf(t, "span attribute not found", "missing attr %q on span %q", key, span.Name())
+	return attribute.Value{}
 }
 
 func TestIsIntrospectionPreservesClassification(t *testing.T) {

@@ -1,6 +1,10 @@
 package dagql
 
-import "context"
+import (
+	"context"
+	"slices"
+	"time"
+)
 
 // CallRequest is the mutable planning-time wrapper around the semantic
 // ResultCall shape, plus request-only cache policy that does not belong in
@@ -12,6 +16,15 @@ type CallRequest struct {
 	TTL            int64
 	DoNotCache     bool
 	IsPersistable  bool
+
+	DynamicInputTelemetry *DynamicInputTelemetry
+}
+
+type DynamicInputTelemetry struct {
+	Start         time.Time
+	End           time.Time
+	ChangedArgs   []string
+	ChangedPolicy []string
 }
 
 func (req *CallRequest) Clone() *CallRequest {
@@ -23,11 +36,24 @@ func (req *CallRequest) Clone() *CallRequest {
 		frame = &ResultCall{}
 	}
 	return &CallRequest{
-		ResultCall:     frame,
-		ConcurrencyKey: req.ConcurrencyKey,
-		TTL:            req.TTL,
-		DoNotCache:     req.DoNotCache,
-		IsPersistable:  req.IsPersistable,
+		ResultCall:            frame,
+		ConcurrencyKey:        req.ConcurrencyKey,
+		TTL:                   req.TTL,
+		DoNotCache:            req.DoNotCache,
+		IsPersistable:         req.IsPersistable,
+		DynamicInputTelemetry: req.DynamicInputTelemetry.clone(),
+	}
+}
+
+func (tel *DynamicInputTelemetry) clone() *DynamicInputTelemetry {
+	if tel == nil {
+		return nil
+	}
+	return &DynamicInputTelemetry{
+		Start:         tel.Start,
+		End:           tel.End,
+		ChangedArgs:   slices.Clone(tel.ChangedArgs),
+		ChangedPolicy: slices.Clone(tel.ChangedPolicy),
 	}
 }
 
