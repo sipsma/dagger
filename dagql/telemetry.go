@@ -14,15 +14,16 @@ type seenKeysCtxKey struct{}
 type activeCallTelemetryCtxKey struct{}
 
 const (
-	DagInputPhaseAttr            = "dagger.io/dag.input.phase"
-	DagInputTargetFieldAttr      = "dagger.io/dag.input.target.field"
-	DagInputTargetDigestAttr     = "dagger.io/dag.input.target.digest"
-	DagInputFieldAttr            = "dagger.io/dag.input.field"
-	DagInputTypeAttr             = "dagger.io/dag.input.type"
-	DagInputIDModeAttr           = "dagger.io/dag.input.id.mode"
-	DagInputIDTypeAttr           = "dagger.io/dag.input.id.type"
-	DagInputDigestAttr           = "dagger.io/dag.input.digest"
-	DagInputMaterializeStateAttr = "dagger.io/dag.input.materialization.state"
+	DagInputPhaseAttr              = "dagger.io/dag.input.phase"
+	DagInputTargetFieldAttr        = "dagger.io/dag.input.target.field"
+	DagInputTargetDigestAttr       = "dagger.io/dag.input.target.digest"
+	DagInputFieldAttr              = "dagger.io/dag.input.field"
+	DagInputTypeAttr               = "dagger.io/dag.input.type"
+	DagInputIDModeAttr             = "dagger.io/dag.input.id.mode"
+	DagInputIDTypeAttr             = "dagger.io/dag.input.id.type"
+	DagInputDigestAttr             = "dagger.io/dag.input.digest"
+	DagInputMaterializeStateAttr   = "dagger.io/dag.input.materialization.state"
+	DagInputMaterializeTriggerAttr = "dagger.io/dag.input.materialization.trigger"
 )
 
 type ActiveCallTelemetry struct {

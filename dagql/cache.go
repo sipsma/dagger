@@ -2735,6 +2735,25 @@ type lazyEvalStackNode struct {
 	parent *lazyEvalStackNode
 }
 
+type materializeInputTriggerCtxKey struct{}
+
+const (
+	materializeInputTriggerDirect            = "direct"
+	materializeInputTriggerLivenessPreflight = "liveness_preflight"
+)
+
+func contextWithMaterializeInputTrigger(ctx context.Context, trigger string) context.Context {
+	return context.WithValue(ctx, materializeInputTriggerCtxKey{}, trigger)
+}
+
+func currentMaterializeInputTrigger(ctx context.Context) string {
+	trigger, _ := ctx.Value(materializeInputTriggerCtxKey{}).(string)
+	if trigger == "" {
+		return materializeInputTriggerDirect
+	}
+	return trigger
+}
+
 func lazyEvalFuncOfResult(val AnyResult) LazyEvalFunc {
 	if val == nil {
 		return nil
@@ -2824,6 +2843,10 @@ type materializeInputTelemetry struct {
 }
 
 func (c *Cache) startMaterializeInputSpan(ctx context.Context, shared *sharedResult) (context.Context, materializeInputTelemetry) {
+	trigger := currentMaterializeInputTrigger(ctx)
+	if trigger != materializeInputTriggerDirect {
+		ctx = contextWithMaterializeInputTrigger(ctx, materializeInputTriggerDirect)
+	}
 	activeCall, ok := CurrentActiveCallTelemetry(ctx)
 	if !ok || !trace.SpanFromContext(ctx).IsRecording() {
 		return ctx, materializeInputTelemetry{}
@@ -2833,6 +2856,7 @@ func (c *Cache) startMaterializeInputSpan(ctx context.Context, shared *sharedRes
 		attribute.String(DagInputPhaseAttr, "materialize"),
 		attribute.String(DagInputTargetFieldAttr, activeCall.TargetField),
 		attribute.String(DagInputTargetDigestAttr, activeCall.TargetDigest),
+		attribute.String(DagInputMaterializeTriggerAttr, trigger),
 	}
 
 	var inputDigest string
@@ -2926,8 +2950,9 @@ func (c *Cache) evaluateLivenessDeps(ctx context.Context, resultID sharedResultI
 		deps = append(deps, Result[Typed]{shared: dep})
 	}
 	c.egraphMu.RUnlock()
+	depCtx := contextWithMaterializeInputTrigger(ctx, materializeInputTriggerLivenessPreflight)
 	for _, dep := range deps {
-		if err := c.evaluateOne(ctx, dep); err != nil {
+		if err := c.evaluateOne(depCtx, dep); err != nil {
 			return err
 		}
 	}

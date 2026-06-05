@@ -572,6 +572,7 @@ func TestEvaluateLazyMaterializeInputTelemetrySpan(t *testing.T) {
 	assert.Equal(t, cacheTestSpanStringAttr(t, materializeSpan, DagInputDigestAttr), inputDigest.String())
 	assert.Equal(t, cacheTestSpanStringAttr(t, materializeSpan, DagInputFieldAttr), "lazyMaterializeTelemetry")
 	assert.Equal(t, cacheTestSpanStringAttr(t, materializeSpan, DagInputTypeAttr), "CacheTestObject")
+	assert.Equal(t, cacheTestSpanStringAttr(t, materializeSpan, DagInputMaterializeTriggerAttr), materializeInputTriggerDirect)
 	assert.Equal(t, cacheTestSpanStringAttr(t, materializeSpan, DagInputMaterializeStateAttr), "started")
 	assert.Equal(t, cacheTestSpanBoolAttr(t, materializeSpan, telemetry.UIInternalAttr), true)
 }
@@ -706,6 +707,114 @@ func TestEvaluateLazyMaterializeInputTelemetryMarksJoinedWaiter(t *testing.T) {
 	}
 	assert.Assert(t, states["started"], "expected first materialization waiter to be marked started")
 	assert.Assert(t, states["joined_in_flight"], "expected second materialization waiter to be marked joined")
+}
+
+func TestEvaluateLazyMaterializeInputTelemetryMarksLivenessPreflight(t *testing.T) {
+	ctx := cacheTestContext(t.Context())
+	cacheIface, err := NewCache(ctx, "", nil, nil)
+	assert.NilError(t, err)
+	ctx = ContextWithCache(ctx, cacheIface)
+	c := cacheIface
+	srv := cacheTestServer(t)
+
+	spanExporter := &cacheTestSpanExporter{}
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(spanExporter))
+	defer tracerProvider.Shutdown(t.Context())
+
+	originalCtx, originalSpan := tracerProvider.Tracer("dagger.io/test").Start(ctx, "original")
+
+	newLazyResult := func(field string, lazy LazyEvalFunc, deps ...AnyResult) (AnyResult, string) {
+		t.Helper()
+		reqCall := &ResultCall{
+			Type: NewResultCallType(&ast.Type{
+				NamedType: "CacheTestObject",
+				NonNull:   true,
+			}),
+			Field: field,
+		}
+		res, err := c.GetOrInitCall(originalCtx, "test-session", srv, &CallRequest{ResultCall: reqCall}, func(context.Context) (AnyResult, error) {
+			return cacheTestObjectResultWithValue(t, srv, reqCall, &cacheTestObject{
+				Value:             1,
+				lazyEval:          lazy,
+				dependencyResults: deps,
+			}), nil
+		})
+		assert.NilError(t, err)
+		dig, err := reqCall.RecipeDigest(ctx)
+		assert.NilError(t, err)
+		return res, dig.String()
+	}
+
+	var grandchildRan bool
+	grandchild, grandchildDigest := newLazyResult("lazyLivenessGrandchild", func(context.Context) error {
+		grandchildRan = true
+		return nil
+	})
+
+	var childRan bool
+	child, childDigest := newLazyResult("lazyLivenessChild", func(ctx context.Context) error {
+		childRan = true
+		cache, err := EngineCache(ctx)
+		if err != nil {
+			return err
+		}
+		return cache.Evaluate(ctx, grandchild)
+	})
+
+	var parentRan bool
+	parent, parentDigest := newLazyResult("lazyLivenessParent", func(context.Context) error {
+		parentRan = true
+		return nil
+	}, child)
+
+	triggerCtx, triggerSpan := tracerProvider.Tracer("dagger.io/test").Start(ctx, "trigger")
+	triggerCtx = WithActiveCallTelemetry(triggerCtx, ActiveCallTelemetry{
+		TargetDigest: "resolver-digest",
+		TargetField:  "resolverField",
+	})
+	assert.NilError(t, c.Evaluate(triggerCtx, parent))
+	triggerSpan.End()
+	originalSpan.End()
+
+	assert.Assert(t, grandchildRan, "expected grandchild lazy evaluation to run")
+	assert.Assert(t, childRan, "expected child lazy evaluation to run")
+	assert.Assert(t, parentRan, "expected parent lazy evaluation to run")
+	assert.NilError(t, tracerProvider.ForceFlush(t.Context()))
+
+	spans := cacheTestEndedSpans(spanExporter)
+	materializeSpans := cacheTestSpansNamed(spans, "materialize input")
+	assert.Equal(t, len(materializeSpans), 3)
+
+	materializeSpanByInputField := func(field string) sdktrace.ReadOnlySpan {
+		t.Helper()
+		for _, span := range materializeSpans {
+			for _, attr := range span.Attributes() {
+				if string(attr.Key) == DagInputFieldAttr && attr.Value.AsString() == field {
+					return span
+				}
+			}
+		}
+		t.Fatalf("missing materialize input span for input field %q", field)
+		return nil
+	}
+
+	parentSpan := materializeSpanByInputField("lazyLivenessParent")
+	assert.Equal(t, cacheTestSpanStringAttr(t, parentSpan, DagInputMaterializeTriggerAttr), materializeInputTriggerDirect)
+	assert.Equal(t, cacheTestSpanStringAttr(t, parentSpan, DagInputTargetDigestAttr), "resolver-digest")
+	assert.Equal(t, cacheTestSpanStringAttr(t, parentSpan, DagInputTargetFieldAttr), "resolverField")
+	assert.Equal(t, cacheTestSpanStringAttr(t, parentSpan, DagInputDigestAttr), parentDigest)
+
+	childSpan := materializeSpanByInputField("lazyLivenessChild")
+	assert.Equal(t, cacheTestSpanStringAttr(t, childSpan, DagInputMaterializeTriggerAttr), materializeInputTriggerLivenessPreflight)
+	assert.Equal(t, cacheTestSpanStringAttr(t, childSpan, DagInputTargetDigestAttr), parentDigest)
+	assert.Equal(t, cacheTestSpanStringAttr(t, childSpan, DagInputTargetFieldAttr), "lazyLivenessParent")
+	assert.Equal(t, cacheTestSpanStringAttr(t, childSpan, DagInputDigestAttr), childDigest)
+
+	grandchildSpan := materializeSpanByInputField("lazyLivenessGrandchild")
+	assert.Equal(t, cacheTestSpanStringAttr(t, grandchildSpan, DagInputMaterializeTriggerAttr), materializeInputTriggerDirect)
+	assert.Equal(t, cacheTestSpanStringAttr(t, grandchildSpan, DagInputTargetDigestAttr), childDigest)
+	assert.Equal(t, cacheTestSpanStringAttr(t, grandchildSpan, DagInputTargetFieldAttr), "lazyLivenessChild")
+	assert.Equal(t, cacheTestSpanStringAttr(t, grandchildSpan, DagInputDigestAttr), grandchildDigest)
 }
 
 func cacheTestEndedSpans(exporter *cacheTestSpanExporter) []sdktrace.ReadOnlySpan {
