@@ -17,12 +17,13 @@ type SnapshotRole string
 type BeginExportManifest struct {
 	Version   int             `json:"version"`
 	Snapshots []SnapshotOffer `json:"snapshots,omitempty"`
+	Chains    []SnapshotChain `json:"chains,omitempty"`
 }
 
 type SnapshotOffer struct {
-	ResultID uint64        `json:"resultID"`
-	Role     SnapshotRole  `json:"role"`
-	Chain    SnapshotChain `json:"chain"`
+	ResultID uint64       `json:"resultID"`
+	Role     SnapshotRole `json:"role"`
+	ChainID  string       `json:"chainID"`
 }
 
 type SnapshotChain struct {
