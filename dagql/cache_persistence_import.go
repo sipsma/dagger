@@ -560,21 +560,11 @@ func (c *Cache) ensurePersistedHitValueLoaded(ctx context.Context, resolver Type
 	if res == nil {
 		return hit, nil
 	}
-	res.attachDepsMu.Lock()
-	attachDepsWaitCh := res.attachDepsWaitCh
-	res.attachDepsMu.Unlock()
-	if attachDepsWaitCh != nil {
-		select {
-		case <-attachDepsWaitCh:
-		case <-ctx.Done():
-			return nil, context.Cause(ctx)
+	if err, abandoned := res.publishGate.waitIfBegun(ctx); err != nil {
+		if abandoned {
+			return nil, err
 		}
-		res.attachDepsMu.Lock()
-		attachDepsErr := res.attachDepsErr
-		res.attachDepsMu.Unlock()
-		if attachDepsErr != nil {
-			return nil, fmt.Errorf("wait for dependency attachment: %w", attachDepsErr)
-		}
+		return nil, fmt.Errorf("wait for dependency attachment: %w", err)
 	}
 
 	for {
@@ -595,38 +585,19 @@ func (c *Cache) ensurePersistedHitValueLoaded(ctx context.Context, resolver Type
 			return objRes, nil
 		}
 
-		res.persistDecodeMu.Lock()
-		if res.persistDecodeWaitCh != nil {
-			waitCh := res.persistDecodeWaitCh
-			res.persistDecodeMu.Unlock()
-
-			select {
-			case <-waitCh:
-			case <-ctx.Done():
-				return nil, context.Cause(ctx)
-			}
-
-			res.persistDecodeMu.Lock()
-			decodeErr := res.persistDecodeErr
-			res.persistDecodeMu.Unlock()
+		decodeRun, decodeJoin, _ := res.decode.beginOrJoin(stageResetOnFinish, false, false, nil)
+		if decodeJoin != nil {
+			decodeErr, _ := decodeJoin.wait(ctx)
 			if decodeErr != nil {
 				return nil, decodeErr
 			}
 			continue
 		}
 
-		res.persistDecodeWaitCh = make(chan struct{})
-		res.persistDecodeErr = nil
-		res.persistDecodeMu.Unlock()
-
-		finishPersistDecode := func(err error) {
-			res.persistDecodeMu.Lock()
-			res.persistDecodeErr = err
-			waitCh := res.persistDecodeWaitCh
-			res.persistDecodeWaitCh = nil
-			res.persistDecodeMu.Unlock()
-			close(waitCh)
-		}
+		// This caller is the decode runner; the work runs inline below under
+		// the caller's own context, and every exit path reports the outcome
+		// through finishPersistDecode exactly once.
+		finishPersistDecode := decodeRun.finish
 
 		call := res.loadResultCall()
 		if call == nil {

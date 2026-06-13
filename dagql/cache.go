@@ -667,15 +667,9 @@ func HasPendingLazyEvaluation(res AnyResult) bool {
 		return false
 	}
 
-	shared.lazyMu.Lock()
-	defer shared.lazyMu.Unlock()
-	if shared.lazyEvalComplete {
-		return false
-	}
-	if shared.lazyEval != nil {
-		return true
-	}
-	return lazyEvalFuncOfResult(res) != nil
+	return shared.eval.pending(func() LazyEvalFunc {
+		return lazyEvalFuncOfResult(res)
+	})
 }
 
 func (c *Cache) trackSessionArbitrary(sessionID string, res ArbitraryCachedResult) {
@@ -1495,21 +1489,19 @@ type sharedResult struct {
 	// session edges, persisted edges, and result dependency edges.
 	incomingOwnershipCount int64
 
-	attachDepsMu     sync.Mutex
-	attachDepsWaitCh chan struct{}
-	attachDepsErr    error
-
-	persistDecodeMu     sync.Mutex
-	persistDecodeWaitCh chan struct{}
-	persistDecodeErr    error
-
-	lazyMu           sync.Mutex
-	lazyEval         LazyEvalFunc
-	lazyEvalComplete bool
-	lazyEvalWaitCh   chan struct{}
-	lazyEvalCancel   context.CancelCauseFunc
-	lazyEvalWaiters  int
-	lazyEvalErr      error
+	// Materialization lifecycle coordination. All three share the waiter
+	// protocol in cache_result_lifecycle.go and differ only in reset/
+	// completion policy:
+	//
+	//   publishGate — producer-driven barrier over dependency attachment;
+	//                 opened during publication, sticky outcome.
+	//   decode      — demand-driven singleflight for persisted envelope
+	//                 decode; completion is observable in payload state.
+	//   eval        — demand-driven singleflight for deferred (lazy) work;
+	//                 sticky completion on success.
+	publishGate resultStage
+	decode      resultStage
+	eval        evalState
 }
 
 type sharedResultPayloadState struct {
@@ -2759,16 +2751,7 @@ func (c *Cache) registerLazyEvaluation(shared *sharedResult, val AnyResult) {
 	if shared == nil || val == nil {
 		return
 	}
-	lazyEval := lazyEvalFuncOfResult(val)
-	if lazyEval == nil {
-		return
-	}
-
-	shared.lazyMu.Lock()
-	if shared.lazyEval == nil && !shared.lazyEvalComplete {
-		shared.lazyEval = lazyEval
-	}
-	shared.lazyMu.Unlock()
+	shared.eval.register(lazyEvalFuncOfResult(val))
 }
 
 func lazyEvalStackFromContext(ctx context.Context) *lazyEvalStackNode {
@@ -2799,35 +2782,15 @@ func (s resumedCallbackSpan) TracerProvider() trace.TracerProvider {
 	return s.tp
 }
 
-func (c *Cache) waitForLazyEvaluation(ctx context.Context, shared *sharedResult, waitCh chan struct{}) error {
-	var waitErr error
-	select {
-	case <-waitCh:
-		shared.lazyMu.Lock()
-		waitErr = shared.lazyEvalErr
-		shared.lazyEvalWaiters--
-		if shared.lazyEvalWaiters == 0 && shared.lazyEvalWaitCh == waitCh {
-			shared.lazyEvalWaitCh = nil
-			shared.lazyEvalCancel = nil
-			shared.lazyEvalErr = nil
-		}
-		shared.lazyMu.Unlock()
-		// Tag the failure with the result it belongs to so that an enclosing
-		// lazy callback's resume span can tell "a prerequisite failed" apart
-		// from "my own deferred work failed". See blockedOnPrerequisite.
-		if waitErr != nil {
-			waitErr = &prerequisiteEvalError{err: waitErr, resultID: shared.id}
-		}
-	case <-ctx.Done():
-		waitErr = context.Cause(ctx)
-		shared.lazyMu.Lock()
-		shared.lazyEvalWaiters--
-		lastWaiter := shared.lazyEvalWaiters == 0
-		cancel := shared.lazyEvalCancel
-		shared.lazyMu.Unlock()
-		if lastWaiter && cancel != nil {
-			cancel(waitErr)
-		}
+// waitForEvalRun waits on a joined eval-stage run and applies the eval
+// stage's error tagging: a failure delivered by the run (as opposed to the
+// caller abandoning the wait) is wrapped so that an enclosing lazy callback's
+// resume span can tell "a prerequisite failed" apart from "my own deferred
+// work failed". See blockedOnPrerequisite.
+func waitForEvalRun(ctx context.Context, shared *sharedResult, join *stageJoin) error {
+	waitErr, abandoned := join.wait(ctx)
+	if waitErr != nil && !abandoned {
+		waitErr = &prerequisiteEvalError{err: waitErr, resultID: shared.id}
 	}
 	return waitErr
 }
@@ -2897,51 +2860,40 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 		parent: stack,
 	})
 
-	// Fast path: if evaluation is already complete or there is nothing to do,
-	// skip preflight entirely.
-	shared.lazyMu.Lock()
-	if shared.lazyEvalComplete || lazyEvalFuncOfResult(res) == nil {
-		shared.lazyMu.Unlock()
+	var (
+		lazyEval LazyEvalFunc
+		evalCtx  context.Context
+	)
+	run, join, done := shared.eval.stage.beginOrJoin(
+		stageResetOnDrain,
+		true, // sticky completion on success
+		true, // the beginner waits on its own run below
+		func() (context.CancelCauseFunc, bool) {
+			// Only the became-runner path derives the callback: no run is in
+			// flight here, so no concurrently executing callback can be
+			// mutating the wrapper state this read inspects. A nil callback
+			// means there is no deferred work; promote to complete.
+			lazyEval = lazyEvalFuncOfResult(res)
+			if lazyEval == nil {
+				return nil, false
+			}
+			shared.eval.registered = lazyEval
+			var cancel context.CancelCauseFunc
+			evalCtx, cancel = context.WithCancelCause(context.WithoutCancel(stackCtx))
+			return cancel, true
+		},
+	)
+	if done {
 		return nil
 	}
-	shared.lazyMu.Unlock()
-
-	shared.lazyMu.Lock()
-	currentLazyEval := lazyEvalFuncOfResult(res)
-	if currentLazyEval == nil {
-		shared.lazyEval = nil
-		shared.lazyEvalComplete = true
-		shared.lazyMu.Unlock()
-		return nil
-	}
-	if shared.lazyEvalComplete {
-		shared.lazyMu.Unlock()
-		return nil
-	}
-	shared.lazyEval = currentLazyEval
-	if shared.lazyEval == nil {
-		shared.lazyMu.Unlock()
-		return nil
-	}
-	if shared.lazyEvalWaitCh != nil {
-		waitCh := shared.lazyEvalWaitCh
-		shared.lazyEvalWaiters++
-		shared.lazyMu.Unlock()
-		return c.waitForLazyEvaluation(stackCtx, shared, waitCh)
+	if join != nil {
+		return waitForEvalRun(stackCtx, shared, join)
 	}
 
-	waitCh := make(chan struct{})
-	evalCtx, cancel := context.WithCancelCause(context.WithoutCancel(stackCtx))
-	lazyEval := shared.lazyEval
 	resultCall := shared.loadResultCall()
 	if resultCall != nil {
 		evalCtx = ContextWithCall(evalCtx, resultCall)
 	}
-	shared.lazyEvalWaitCh = waitCh
-	shared.lazyEvalCancel = cancel
-	shared.lazyEvalWaiters = 1
-	shared.lazyEvalErr = nil
-	shared.lazyMu.Unlock()
 
 	go func() {
 		callbackCtx := evalCtx
@@ -3012,24 +2964,10 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 		}
 		runEval()
 
-		shared.lazyMu.Lock()
-		shared.lazyEvalErr = err
-		if err == nil {
-			shared.lazyEvalComplete = true
-			shared.lazyEval = nil
-		}
-		clearState := shared.lazyEvalWaiters == 0 && shared.lazyEvalWaitCh == waitCh
-		if clearState {
-			shared.lazyEvalWaitCh = nil
-			shared.lazyEvalCancel = nil
-			shared.lazyEvalErr = nil
-		}
-		shared.lazyMu.Unlock()
-
-		close(waitCh)
+		shared.eval.finishRun(run, err)
 	}()
 
-	return c.waitForLazyEvaluation(stackCtx, shared, waitCh)
+	return waitForEvalRun(stackCtx, shared, &stageJoin{run: run})
 }
 
 func (c *Cache) Close(ctx context.Context) error {
@@ -3847,8 +3785,13 @@ func (c *Cache) wait(
 		delete(c.ongoingCalls, oc.callConcurrencyKeys)
 		c.callsMu.Unlock()
 	})
-	// TODO there's a race condition here: thread one enters the .Do() above but hasn't finished calling initCompletedResult(....), the second thread will skip over the Do(),
-	// then check the err below before it's actually written to
+	// Reading initCompletedResultErr (and oc.res / oc.handoffHoldActive)
+	// without further synchronization is safe: sync.Once.Do blocks every
+	// concurrent caller until the first invocation of f returns, and the Go
+	// memory model guarantees "the completion of a single call of f() from
+	// once.Do(f) is synchronized before the return of any call of once.Do(f)"
+	// (https://go.dev/ref/mem#once). All writes inside the Do above therefore
+	// happen-before every waiter's reads below.
 	if oc.initCompletedResultErr != nil {
 		c.callsMu.Lock()
 		oc.waiters--
@@ -3928,16 +3871,14 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 	if req == nil || req.ResultCall == nil {
 		return fmt.Errorf("call request is nil")
 	}
+	// publishRun is the publish-gate run opened for freshly published results
+	// just before they become visible in the e-graph. Readers block on it in
+	// ensurePersistedHitValueLoaded until dependency attachment settles.
+	var publishRun *stageRun
 	finishAttachDeps := func(err error) {
-		if resWasCacheBacked || oc.res == nil {
-			return
+		if publishRun != nil {
+			publishRun.finish(err)
 		}
-		oc.res.attachDepsMu.Lock()
-		if oc.res.attachDepsWaitCh != nil {
-			oc.res.attachDepsErr = err
-			close(oc.res.attachDepsWaitCh)
-		}
-		oc.res.attachDepsMu.Unlock()
 	}
 
 	// Materialize shared result for this completed call.
@@ -4235,10 +4176,7 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 		oc.handoffHoldActive = true
 	}
 	if !resWasCacheBacked {
-		oc.res.attachDepsMu.Lock()
-		oc.res.attachDepsWaitCh = make(chan struct{})
-		oc.res.attachDepsErr = nil
-		oc.res.attachDepsMu.Unlock()
+		publishRun = oc.res.publishGate.beginProducer()
 	}
 	c.egraphMu.Unlock()
 
