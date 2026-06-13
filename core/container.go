@@ -1478,17 +1478,19 @@ func (container *Container) EncodePersistedObject(ctx context.Context, cache dag
 		VolatileEnv:        slices.Clone(container.VolatileEnv),
 		DefaultArgs:        container.DefaultArgs,
 	}
-	if lazyPending(container.Lazy) {
-		// Only a still-pending Lazy switches the persisted form: a completed
-		// Lazy is the already-ran recipe retained on a materialized
-		// container, and the container must persist (and decode) in its
-		// ready form, not as deferred work to re-execute.
+	if container.Lazy != nil {
 		lazyJSON, err := container.Lazy.EncodePersisted(ctx, cache)
 		if err != nil {
 			return dagql.PersistedObjectEncoding{}, err
 		}
-		payload.Form = persistedContainerFormLazy
 		payload.LazyJSON = lazyJSON
+		if lazyPending(container.Lazy) {
+			// Only a still-pending Lazy switches the persisted form: a completed
+			// Lazy is the already-ran recipe retained on a materialized
+			// container, and the container must persist (and decode) in its
+			// ready form, not as deferred work to re-execute.
+			payload.Form = persistedContainerFormLazy
+		}
 	}
 	if container.MetaSnapshot != nil {
 		if snapshot, ok := container.MetaSnapshot.Peek(); ok && snapshot != nil {

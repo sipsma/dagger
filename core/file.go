@@ -222,6 +222,14 @@ func (file *File) EncodePersistedObject(ctx context.Context, cache dagql.Persist
 		Platform: file.Platform,
 		Services: services,
 	}
+	if file.Lazy != nil {
+		lazyKind, lazyJSON, err := encodePersistedFileLazy(ctx, cache, file.Lazy)
+		if err != nil {
+			return dagql.PersistedObjectEncoding{}, err
+		}
+		payload.LazyKind = lazyKind
+		payload.LazyJSON = lazyJSON
+	}
 	if file.Snapshot != nil {
 		if snapshot, ok := file.Snapshot.Peek(); ok && snapshot != nil {
 			payload.Form = persistedFileFormSnapshot
@@ -238,14 +246,8 @@ func (file *File) EncodePersistedObject(ctx context.Context, cache dagql.Persist
 			}, nil
 		}
 	}
-	if lazyPending(file.Lazy) {
+	if file.Lazy != nil {
 		payload.Form = persistedFileFormLazy
-		lazyKind, lazyJSON, err := encodePersistedFileLazy(ctx, cache, file.Lazy)
-		if err != nil {
-			return dagql.PersistedObjectEncoding{}, err
-		}
-		payload.LazyKind = lazyKind
-		payload.LazyJSON = lazyJSON
 		payloadJSON, err := json.Marshal(payload)
 		if err != nil {
 			return dagql.PersistedObjectEncoding{}, fmt.Errorf("marshal persisted file payload: %w", err)
@@ -279,7 +281,15 @@ func decodePersistedFileWithSnapshotRole(ctx context.Context, dag *dagql.Server,
 	case persistedFileFormSnapshot:
 		snapshot, err := loadPersistedImmutableSnapshotByResultID(ctx, dag, resultID, "file", snapshotRole)
 		if err != nil {
-			return nil, err
+			if persisted.LazyKind == "" {
+				return nil, err
+			}
+			lazy, lazyErr := decodePersistedFileLazy(ctx, dag, persisted.LazyKind, persisted.LazyJSON)
+			if lazyErr != nil {
+				return nil, errors.Join(err, lazyErr)
+			}
+			file.Lazy = lazy
+			return file, nil
 		}
 		file.Snapshot.setValue(snapshot)
 		return file, nil

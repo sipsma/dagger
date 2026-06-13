@@ -237,6 +237,14 @@ func (dir *Directory) EncodePersistedObject(ctx context.Context, cache dagql.Per
 		Platform: dir.Platform,
 		Services: services,
 	}
+	if dir.Lazy != nil {
+		lazyKind, lazyJSON, err := encodePersistedDirectoryLazy(ctx, cache, dir.Lazy)
+		if err != nil {
+			return dagql.PersistedObjectEncoding{}, err
+		}
+		payload.LazyKind = lazyKind
+		payload.LazyJSON = lazyJSON
+	}
 	if dir.Snapshot != nil {
 		if snapshot, ok := dir.Snapshot.Peek(); ok && snapshot != nil {
 			payload.Form = persistedDirectoryFormSnapshot
@@ -253,14 +261,8 @@ func (dir *Directory) EncodePersistedObject(ctx context.Context, cache dagql.Per
 			}, nil
 		}
 	}
-	if lazyPending(dir.Lazy) {
+	if dir.Lazy != nil {
 		payload.Form = persistedDirectoryFormLazy
-		lazyKind, lazyJSON, err := encodePersistedDirectoryLazy(ctx, cache, dir.Lazy)
-		if err != nil {
-			return dagql.PersistedObjectEncoding{}, err
-		}
-		payload.LazyKind = lazyKind
-		payload.LazyJSON = lazyJSON
 		payloadJSON, err := json.Marshal(payload)
 		if err != nil {
 			return dagql.PersistedObjectEncoding{}, fmt.Errorf("marshal persisted directory payload: %w", err)
@@ -300,7 +302,15 @@ func decodePersistedDirectoryWithSnapshotRole(ctx context.Context, dag *dagql.Se
 	case persistedDirectoryFormSnapshot:
 		snapshot, err := loadPersistedImmutableSnapshotByResultID(ctx, dag, resultID, "directory", snapshotRole)
 		if err != nil {
-			return nil, err
+			if persisted.LazyKind == "" {
+				return nil, err
+			}
+			lazy, lazyErr := decodePersistedDirectoryLazy(ctx, dag, persisted.LazyKind, persisted.LazyJSON)
+			if lazyErr != nil {
+				return nil, errors.Join(err, lazyErr)
+			}
+			dir.Lazy = lazy
+			return dir, nil
 		}
 		dir.Snapshot.setValue(snapshot)
 		return dir, nil
