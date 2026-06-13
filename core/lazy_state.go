@@ -15,6 +15,20 @@ type Lazy[T dagql.Typed] interface {
 	Evaluate(context.Context, T) error
 	AttachDependencies(context.Context, func(dagql.AnyResult) (dagql.AnyResult, error)) ([]dagql.AnyResult, error)
 	EncodePersisted(context.Context, dagql.PersistedObjectCache) (json.RawMessage, error)
+	// Completed reports whether this lazy operation already ran to success.
+	// A completed Lazy is retained on its owner as the operation's recipe
+	// rather than cleared, so persistence can serialize how the value was
+	// produced; owners must consult lazyPending, not Lazy != nil, to decide
+	// whether deferred work remains.
+	Completed() bool
+}
+
+// lazyPending reports whether l represents deferred work that has not yet
+// run to success. This — not a nil check — is the "does this object still
+// have deferred work?" signal, since completed lazies are retained as
+// recipes.
+func lazyPending[T dagql.Typed](l Lazy[T]) bool {
+	return l != nil && !l.Completed()
 }
 
 type LazyState struct {
@@ -28,16 +42,32 @@ func NewLazyState() LazyState {
 	}
 }
 
-func (lazy *LazyState) Evaluate(ctx context.Context, typeName string, run func(context.Context) error) (rerr error) {
-	if lazy.LazyInitComplete {
-		return nil
-	}
-	if run == nil {
-		lazy.LazyInitComplete = true
-		return nil
-	}
-
+// Completed reports whether the lazy operation ran to success. Implementers
+// embedding LazyState satisfy Lazy's Completed requirement through this
+// method.
+func (lazy *LazyState) Completed() bool {
 	if lazy.LazyMu == nil {
+		// A zero-value LazyState has no mutex and Evaluate can never have
+		// run (it requires LazyMu), so the unlocked read is safe.
+		return lazy.LazyInitComplete
+	}
+	lazy.LazyMu.Lock()
+	defer lazy.LazyMu.Unlock()
+	return lazy.LazyInitComplete
+}
+
+func (lazy *LazyState) Evaluate(ctx context.Context, typeName string, run func(context.Context) error) (rerr error) {
+	if lazy.LazyMu == nil {
+		// Completion state is read and written under LazyMu everywhere a
+		// mutex exists; tolerate its absence only for the degenerate cases
+		// that cannot involve concurrent evaluation.
+		if lazy.LazyInitComplete {
+			return nil
+		}
+		if run == nil {
+			lazy.LazyInitComplete = true
+			return nil
+		}
 		return fmt.Errorf("invalid %s: missing LazyMu", typeName)
 	}
 
@@ -45,6 +75,10 @@ func (lazy *LazyState) Evaluate(ctx context.Context, typeName string, run func(c
 	defer lazy.LazyMu.Unlock()
 
 	if lazy.LazyInitComplete {
+		return nil
+	}
+	if run == nil {
+		lazy.LazyInitComplete = true
 		return nil
 	}
 

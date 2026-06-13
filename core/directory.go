@@ -105,7 +105,10 @@ func (dir *Directory) AttachDependencyResultsKinds(
 	if err != nil {
 		return nil, err
 	}
-	if dir.Lazy == nil {
+	if !lazyPending(dir.Lazy) {
+		// A completed Lazy's inputs were only needed to materialize the
+		// value; the materialized directory stands alone, so no lazy dep
+		// edges are recorded (matching the behavior when Lazy was cleared).
 		return serviceDeps, nil
 	}
 	lazyDeps, err := dir.Lazy.AttachDependencies(ctx, attach)
@@ -124,21 +127,14 @@ func (dir *Directory) AttachDependencyResultsKinds(
 }
 
 func (dir *Directory) LazyEvalFunc() dagql.LazyEvalFunc {
-	if dir == nil || dir.Lazy == nil {
+	if dir == nil || !lazyPending(dir.Lazy) {
 		return nil
 	}
 	return func(ctx context.Context) error {
 		// Successful lazy evaluation materializes the directory into a plain
-		// value. Clearing Lazy keeps Lazy != nil as a truthful signal that the
-		// directory still has deferred work.
-		lazy := dir.Lazy
-		if err := lazy.Evaluate(ctx, dir); err != nil {
-			return err
-		}
-		if dir.Lazy == lazy {
-			dir.Lazy = nil
-		}
-		return nil
+		// value. The Lazy is retained as the operation's recipe; completion
+		// is tracked on the Lazy itself and read through lazyPending.
+		return dir.Lazy.Evaluate(ctx, dir)
 	}
 }
 
@@ -257,7 +253,7 @@ func (dir *Directory) EncodePersistedObject(ctx context.Context, cache dagql.Per
 			}, nil
 		}
 	}
-	if dir.Lazy != nil {
+	if lazyPending(dir.Lazy) {
 		payload.Form = persistedDirectoryFormLazy
 		lazyKind, lazyJSON, err := encodePersistedDirectoryLazy(ctx, cache, dir.Lazy)
 		if err != nil {
@@ -2060,7 +2056,7 @@ func materializedDirectorySnapshotAndPath(dir *Directory) (bkcache.ImmutableRef,
 	if dir == nil {
 		return nil, "", fmt.Errorf("materialized directory: nil directory")
 	}
-	if dir.Lazy != nil {
+	if lazyPending(dir.Lazy) {
 		return nil, "", fmt.Errorf("materialized directory: still lazy %T", dir.Lazy)
 	}
 	dirRef, ok := dir.Snapshot.Peek()

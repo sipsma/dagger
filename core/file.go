@@ -98,7 +98,9 @@ func (file *File) AttachDependencyResultsKinds(
 	if err != nil {
 		return nil, err
 	}
-	if file.Lazy == nil {
+	if !lazyPending(file.Lazy) {
+		// See Directory.AttachDependencyResultsKinds: completed lazies
+		// record no dep edges.
 		return serviceDeps, nil
 	}
 	lazyDeps, err := file.Lazy.AttachDependencies(ctx, attach)
@@ -115,21 +117,14 @@ func (file *File) AttachDependencyResultsKinds(
 }
 
 func (file *File) LazyEvalFunc() dagql.LazyEvalFunc {
-	if file == nil || file.Lazy == nil {
+	if file == nil || !lazyPending(file.Lazy) {
 		return nil
 	}
 	return func(ctx context.Context) error {
-		// Successful lazy evaluation materializes the file into a plain value.
-		// Clearing Lazy keeps Lazy != nil as a truthful signal that the file
-		// still has deferred work.
-		lazy := file.Lazy
-		if err := lazy.Evaluate(ctx, file); err != nil {
-			return err
-		}
-		if file.Lazy == lazy {
-			file.Lazy = nil
-		}
-		return nil
+		// Successful lazy evaluation materializes the file into a plain
+		// value. The Lazy is retained as the operation's recipe; completion
+		// is tracked on the Lazy itself and read through lazyPending.
+		return file.Lazy.Evaluate(ctx, file)
 	}
 }
 
@@ -243,7 +238,7 @@ func (file *File) EncodePersistedObject(ctx context.Context, cache dagql.Persist
 			}, nil
 		}
 	}
-	if file.Lazy != nil {
+	if lazyPending(file.Lazy) {
 		payload.Form = persistedFileFormLazy
 		lazyKind, lazyJSON, err := encodePersistedFileLazy(ctx, cache, file.Lazy)
 		if err != nil {

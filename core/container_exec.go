@@ -126,6 +126,13 @@ func (lazy *ContainerExecLazy) Evaluate(ctx context.Context, ctr *Container) err
 	return lazy.State.Evaluate(ctx, ctr)
 }
 
+func (lazy *ContainerExecLazy) Completed() bool {
+	if lazy == nil || lazy.State == nil {
+		return false
+	}
+	return lazy.State.Completed()
+}
+
 func (lazy *ContainerExecLazy) AttachDependencies(ctx context.Context, attach func(dagql.AnyResult) (dagql.AnyResult, error)) ([]dagql.AnyResult, error) {
 	if lazy == nil || lazy.State == nil {
 		return nil, nil
@@ -188,7 +195,6 @@ func (lazy *ContainerVolatileExecCacheHitLazy) Evaluate(ctx context.Context, con
 			return err
 		}
 		container.VolatileEnv = slices.Clone(lazy.VolatileEnv)
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2158,7 +2164,6 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 			return err
 		}
 
-		container.Lazy = nil
 		return nil
 	})
 }

@@ -836,7 +836,7 @@ func cloneDetachedDirectoryForContainerResult(ctx context.Context, src *Director
 	if src == nil {
 		return nil, nil
 	}
-	if src.Lazy != nil {
+	if lazyPending(src.Lazy) {
 		return nil, fmt.Errorf("clone detached directory for container result: directory must be materialized, got lazy %T", src.Lazy)
 	}
 
@@ -872,7 +872,7 @@ func cloneDetachedFileForContainerResult(ctx context.Context, src *File) (*File,
 	if src == nil {
 		return nil, nil
 	}
-	if src.Lazy != nil {
+	if lazyPending(src.Lazy) {
 		return nil, fmt.Errorf("clone detached file for container result: file must be materialized, got lazy %T", src.Lazy)
 	}
 
@@ -1047,7 +1047,7 @@ func (container *Container) LazyEvalFunc() dagql.LazyEvalFunc {
 	if container == nil {
 		return nil
 	}
-	if container.Lazy == nil {
+	if !lazyPending(container.Lazy) {
 		return nil
 	}
 	return func(ctx context.Context) error {
@@ -1149,7 +1149,10 @@ func (container *Container) AttachDependencyResultsKinds(
 	}
 	owned = append(owned, serviceDeps...)
 
-	if lazy != nil {
+	// A completed Lazy's inputs were only needed to materialize the value;
+	// the materialized container stands alone, so no lazy dep edges are
+	// recorded (matching the behavior when Lazy was cleared on success).
+	if lazyPending(lazy) {
 		deps, err := lazy.AttachDependencies(ctx, attach)
 		if err != nil {
 			return nil, err
@@ -1475,7 +1478,11 @@ func (container *Container) EncodePersistedObject(ctx context.Context, cache dag
 		VolatileEnv:        slices.Clone(container.VolatileEnv),
 		DefaultArgs:        container.DefaultArgs,
 	}
-	if container.Lazy != nil {
+	if lazyPending(container.Lazy) {
+		// Only a still-pending Lazy switches the persisted form: a completed
+		// Lazy is the already-ran recipe retained on a materialized
+		// container, and the container must persist (and decode) in its
+		// ready form, not as deferred work to re-execute.
 		lazyJSON, err := container.Lazy.EncodePersisted(ctx, cache)
 		if err != nil {
 			return dagql.PersistedObjectEncoding{}, err
@@ -1976,7 +1983,6 @@ func (lazy *ContainerWithEntrypointLazy) Evaluate(ctx context.Context, container
 		if !lazy.KeepDefaultArgs {
 			container.DefaultArgs = false
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2020,7 +2026,6 @@ func (lazy *ContainerWithoutEntrypointLazy) Evaluate(ctx context.Context, contai
 		if !lazy.KeepDefaultArgs {
 			container.DefaultArgs = false
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2062,7 +2067,6 @@ func (lazy *ContainerWithDefaultArgsLazy) Evaluate(ctx context.Context, containe
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2100,7 +2104,6 @@ func (lazy *ContainerWithoutDefaultArgsLazy) Evaluate(ctx context.Context, conta
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2136,7 +2139,6 @@ func (lazy *ContainerWithUserLazy) Evaluate(ctx context.Context, container *Cont
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2173,7 +2175,6 @@ func (lazy *ContainerWithoutUserLazy) Evaluate(ctx context.Context, container *C
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2213,7 +2214,6 @@ func (lazy *ContainerWithWorkdirLazy) Evaluate(ctx context.Context, container *C
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2251,7 +2251,6 @@ func (lazy *ContainerWithoutWorkdirLazy) Evaluate(ctx context.Context, container
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2291,7 +2290,6 @@ func (lazy *ContainerWithEnvVariableLazy) Evaluate(ctx context.Context, containe
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2343,7 +2341,6 @@ func (lazy *ContainerWithEnvFileVariablesLazy) Evaluate(ctx context.Context, con
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2383,7 +2380,6 @@ func (lazy *ContainerWithSystemEnvVariableLazy) Evaluate(ctx context.Context, co
 			return err
 		}
 		container.SystemEnvNames = append(container.SystemEnvNames, lazy.Name)
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2414,7 +2410,6 @@ func (lazy *ContainerWithVolatileVariableLazy) Evaluate(ctx context.Context, con
 			return err
 		}
 		container.WithVolatileVariable(lazy.Name, lazy.Value)
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2458,7 +2453,6 @@ func (lazy *ContainerWithoutEnvVariableLazy) Evaluate(ctx context.Context, conta
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2469,7 +2463,6 @@ func (lazy *ContainerWithoutVolatileVariableLazy) Evaluate(ctx context.Context, 
 			return err
 		}
 		container.WithoutVolatileVariable(lazy.Name)
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2529,7 +2522,6 @@ func (lazy *ContainerWithLabelLazy) Evaluate(ctx context.Context, container *Con
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2567,7 +2559,6 @@ func (lazy *ContainerWithoutLabelLazy) Evaluate(ctx context.Context, container *
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2626,7 +2617,6 @@ func (lazy *ContainerWithImageConfigMetadataLazy) Evaluate(ctx context.Context, 
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2671,7 +2661,6 @@ func (lazy *ContainerWithHealthcheckLazy) Evaluate(ctx context.Context, containe
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2708,7 +2697,6 @@ func (lazy *ContainerWithoutHealthcheckLazy) Evaluate(ctx context.Context, conta
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2740,7 +2728,6 @@ func (lazy *ContainerSetGPUsLazy) Evaluate(ctx context.Context, container *Conta
 		if _, err := container.WithGPU(ctx, ContainerGPUOpts{Devices: slices.Clone(lazy.Devices)}); err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2773,7 +2760,6 @@ func (lazy *ContainerWithAnnotationLazy) Evaluate(ctx context.Context, container
 		if _, err := container.WithAnnotation(ctx, lazy.Name, lazy.Value); err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2807,7 +2793,6 @@ func (lazy *ContainerWithoutAnnotationLazy) Evaluate(ctx context.Context, contai
 		if _, err := container.WithoutAnnotation(ctx, lazy.Name); err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2840,7 +2825,6 @@ func (lazy *ContainerWithSecretVariableLazy) Evaluate(ctx context.Context, conta
 		if _, err := container.WithSecretVariable(ctx, lazy.Name, lazy.Secret); err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2883,7 +2867,6 @@ func (lazy *ContainerWithoutSecretVariableLazy) Evaluate(ctx context.Context, co
 		if _, err := container.WithoutSecretVariable(ctx, lazy.Name); err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2916,7 +2899,6 @@ func (lazy *ContainerWithServiceBindingLazy) Evaluate(ctx context.Context, conta
 		if _, err := container.WithServiceBinding(ctx, lazy.Service, lazy.Alias); err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2959,7 +2941,6 @@ func (lazy *ContainerWithExposedPortLazy) Evaluate(ctx context.Context, containe
 		if _, err := container.WithExposedPort(lazy.Port); err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -2992,7 +2973,6 @@ func (lazy *ContainerWithoutExposedPortLazy) Evaluate(ctx context.Context, conta
 		if _, err := container.WithoutExposedPort(lazy.Port, lazy.Protocol); err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -3024,7 +3004,6 @@ func (lazy *ContainerWithDefaultTerminalCmdLazy) Evaluate(ctx context.Context, c
 			return err
 		}
 		container.DefaultTerminalCmd = lazy.Opts
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -3078,7 +3057,6 @@ func (lazy *ContainerRootFSLazy) Evaluate(ctx context.Context, dir *Directory) e
 				if snapshot, ok := detached.Snapshot.Peek(); ok && snapshot != nil {
 					dir.Snapshot.setValue(snapshot)
 				}
-				dir.Lazy = nil
 				return nil
 			}
 		}
@@ -3089,7 +3067,6 @@ func (lazy *ContainerRootFSLazy) Evaluate(ctx context.Context, dir *Directory) e
 		}
 		dir.Dir.setValue(scratchDir)
 		dir.Snapshot.setValue(scratchSnapshot)
-		dir.Lazy = nil
 		return nil
 	})
 }
@@ -3127,7 +3104,6 @@ func (lazy *ContainerWithRootFSLazy) Evaluate(ctx context.Context, container *Co
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -3224,7 +3200,6 @@ func (lazy *ContainerDirectoryLazy) Evaluate(ctx context.Context, dir *Directory
 				if snapshot, ok := detached.Snapshot.Peek(); ok && snapshot != nil {
 					dir.Snapshot.setValue(snapshot)
 				}
-				dir.Lazy = nil
 				return nil
 			}
 			mountedDirPath, ok := mountedDir.Dir.Peek()
@@ -3264,7 +3239,6 @@ func (lazy *ContainerDirectoryLazy) Evaluate(ctx context.Context, dir *Directory
 			dir.Services = slices.Clone(mountedDir.Services)
 			dir.Dir.setValue(finalDir)
 			dir.Snapshot.setValue(reopened)
-			dir.Lazy = nil
 			return nil
 		case mnt.FileSource != nil:
 			return notADirectoryError{fmt.Errorf("path %s is a file, not a directory", lazy.Path)}
@@ -3292,7 +3266,6 @@ func (lazy *ContainerDirectoryLazy) Evaluate(ctx context.Context, dir *Directory
 		if snapshot, ok := detached.Snapshot.Peek(); ok && snapshot != nil {
 			dir.Snapshot.setValue(snapshot)
 		}
-		dir.Lazy = nil
 		return nil
 	})
 }
@@ -3400,7 +3373,6 @@ func (lazy *ContainerFileLazy) Evaluate(ctx context.Context, file *File) error {
 			file.Services = slices.Clone(mountedDir.Services)
 			file.File.setValue(finalFile)
 			file.Snapshot.setValue(reopened)
-			file.Lazy = nil
 			return nil
 		case mnt.FileSource != nil:
 			mountedFile, ok := mnt.FileSource.Peek()
@@ -3422,7 +3394,6 @@ func (lazy *ContainerFileLazy) Evaluate(ctx context.Context, file *File) error {
 			if snapshot, ok := detached.Snapshot.Peek(); ok && snapshot != nil {
 				file.Snapshot.setValue(snapshot)
 			}
-			file.Lazy = nil
 			return nil
 		default:
 			return fmt.Errorf("container file lazy: invalid path %s in container mounts", lazy.Path)
@@ -3448,7 +3419,6 @@ func (lazy *ContainerFileLazy) Evaluate(ctx context.Context, file *File) error {
 		if snapshot, ok := detached.Snapshot.Peek(); ok && snapshot != nil {
 			file.Snapshot.setValue(snapshot)
 		}
-		file.Lazy = nil
 		return nil
 	})
 }
@@ -3488,7 +3458,6 @@ func (lazy *ContainerWithDirectoryLazy) Evaluate(ctx context.Context, container 
 		if _, err := container.WithDirectory(ctx, lazy.Parent, lazy.Path, lazy.Source, lazy.Filter, lazy.Owner); err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -3541,7 +3510,6 @@ func (lazy *ContainerWithFileLazy) Evaluate(ctx context.Context, container *Cont
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -3594,7 +3562,6 @@ func (lazy *ContainerWithMountedDirectoryLazy) Evaluate(ctx context.Context, con
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -3647,7 +3614,6 @@ func (lazy *ContainerWithMountedFileLazy) Evaluate(ctx context.Context, containe
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -3700,7 +3666,6 @@ func (lazy *ContainerWithMountedPathDockerfileCompatLazy) Evaluate(ctx context.C
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -3746,7 +3711,6 @@ func (lazy *ContainerWithMountedCacheLazy) Evaluate(ctx context.Context, contain
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -3790,7 +3754,6 @@ func (lazy *ContainerWithMountedTempLazy) Evaluate(ctx context.Context, containe
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -3825,7 +3788,6 @@ func (lazy *ContainerWithMountedSecretLazy) Evaluate(ctx context.Context, contai
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -3871,7 +3833,6 @@ func (lazy *ContainerWithoutMountLazy) Evaluate(ctx context.Context, container *
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -3905,7 +3866,6 @@ func (lazy *ContainerWithoutPathLazy) Evaluate(ctx context.Context, container *C
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -3939,7 +3899,6 @@ func (lazy *ContainerWithSymlinkLazy) Evaluate(ctx context.Context, container *C
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -3974,7 +3933,6 @@ func (lazy *ContainerWithUnixSocketLazy) Evaluate(ctx context.Context, container
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -4019,7 +3977,6 @@ func (lazy *ContainerWithoutUnixSocketLazy) Evaluate(ctx context.Context, contai
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -4065,7 +4022,6 @@ func (lazy *ContainerImportLazy) Evaluate(ctx context.Context, container *Contai
 		if err != nil {
 			return err
 		}
-		container.Lazy = nil
 		return nil
 	})
 }
