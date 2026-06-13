@@ -114,6 +114,26 @@ func TestSecretPlaintextFallsBackToAvailableSessionResourceBinding(t *testing.T)
 	assert.DeepEqual(t, plaintext, []byte("live-secret"))
 }
 
+func TestSecretNameUsesExecutionPrincipalForSessionResource(t *testing.T) {
+	ctx, cache := newSessionResourceFallbackTestContext(t, nil)
+
+	handle := dagql.SessionResourceHandle("test-secret-principal-handle")
+	assert.NilError(t, cache.BindSessionResource(ctx, "test-session", "dead-client", handle, &Secret{
+		NameVal: "ambient",
+	}))
+	assert.NilError(t, cache.BindSessionResource(ctx, "principal-session", "principal-client", handle, &Secret{
+		NameVal: "principal",
+	}))
+
+	ctx = dagql.ContextWithExecutionPrincipal(ctx, dagql.ExecutionPrincipal{
+		SessionID: "principal-session",
+		ClientID:  "principal-client",
+	})
+	name, err := (&Secret{Handle: handle}).Name(ctx)
+	assert.NilError(t, err)
+	assert.Equal(t, name, "principal")
+}
+
 func TestSocketForwardAgentClientFallsBackToAvailableSessionResourceBinding(t *testing.T) {
 	sshSrv := &testSSHServer{}
 	conn := newTestAttachableConn(t, func(server *grpc.Server) {

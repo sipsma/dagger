@@ -99,18 +99,15 @@ func ResolveSessionSocket(ctx context.Context, socket *Socket) (*Socket, error) 
 		return socket, nil
 	}
 
-	clientMetadata, err := engine.ClientMetadataFromContext(ctx)
+	principal, err := currentExecutionPrincipal(ctx, fmt.Sprintf("resolve session socket %q", socket.Handle))
 	if err != nil {
-		return nil, fmt.Errorf("resolve session socket %q: current client metadata: %w", socket.Handle, err)
-	}
-	if clientMetadata.SessionID == "" {
-		return nil, fmt.Errorf("resolve session socket %q: empty session ID", socket.Handle)
+		return nil, err
 	}
 	cache, err := dagql.EngineCache(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("resolve session socket %q: current dagql cache: %w", socket.Handle, err)
 	}
-	resolvedAny, err := cache.ResolveSessionResource(ctx, clientMetadata.SessionID, clientMetadata.ClientID, socket.Handle)
+	resolvedAny, err := cache.ResolveSessionResource(ctx, principal.SessionID, principal.ClientID, socket.Handle)
 	if err != nil {
 		return nil, err
 	}
@@ -154,12 +151,9 @@ func (socket *Socket) ForwardAgentClient(ctx context.Context) (sshforward.SSH_Fo
 		return socket.forwardAgentClient(ctx)
 	}
 
-	clientMetadata, err := engine.ClientMetadataFromContext(ctx)
+	principal, err := currentExecutionPrincipal(ctx, fmt.Sprintf("resolve session socket %q", socket.Handle))
 	if err != nil {
-		return nil, fmt.Errorf("resolve session socket %q: current client metadata: %w", socket.Handle, err)
-	}
-	if clientMetadata.SessionID == "" {
-		return nil, fmt.Errorf("resolve session socket %q: empty session ID", socket.Handle)
+		return nil, err
 	}
 	cache, err := dagql.EngineCache(ctx)
 	if err != nil {
@@ -168,7 +162,7 @@ func (socket *Socket) ForwardAgentClient(ctx context.Context) (sshforward.SSH_Fo
 	// Session-wide in-flight dedupe can make this call run under a client whose
 	// attachables disconnect before other waiters finish. Try each same-session
 	// binding so another live client can still provide the socket.
-	candidates, err := cache.ResolveSessionResourceCandidates(ctx, clientMetadata.SessionID, clientMetadata.ClientID, socket.Handle)
+	candidates, err := cache.ResolveSessionResourceCandidates(ctx, principal.SessionID, principal.ClientID, socket.Handle)
 	if err != nil {
 		return nil, err
 	}

@@ -1426,6 +1426,41 @@ func TestCacheEvaluate(t *testing.T) {
 		return ctx, cacheIface, srv
 	}
 
+	t.Run("lazy eval context carries forcing principal", func(t *testing.T) {
+		t.Parallel()
+		ctx, c, srv := newEvalEnv(t)
+
+		forcingPrincipal := ExecutionPrincipal{
+			SessionID: "forcing-session",
+			ClientID:  "forcing-client",
+		}
+		forcingCtx := ContextWithExecutionPrincipal(ctx, forcingPrincipal)
+
+		frame := &ResultCall{
+			Kind:  ResultCallKindField,
+			Type:  NewResultCallType((&cacheTestObject{}).Type()),
+			Field: "lazy-principal",
+		}
+		seenPrincipal := make(chan ExecutionPrincipal, 1)
+		resAny, err := c.GetOrInitCall(ctx, cacheTestSessionID(t, ctx), srv, &CallRequest{ResultCall: frame}, func(context.Context) (AnyResult, error) {
+			return cacheTestObjectResultWithValue(t, srv, frame, &cacheTestObject{
+				Value: 1,
+				lazyEval: func(ctx context.Context) error {
+					principal, err := ExecutionPrincipalFromContext(ctx)
+					if err != nil {
+						return err
+					}
+					seenPrincipal <- principal
+					return nil
+				},
+			}), nil
+		})
+		assert.NilError(t, err)
+
+		assert.NilError(t, c.Evaluate(forcingCtx, resAny))
+		assert.DeepEqual(t, <-seenPrincipal, forcingPrincipal)
+	})
+
 	t.Run("singleflight", func(t *testing.T) {
 		t.Parallel()
 		ctx, c, srv := newEvalEnv(t)

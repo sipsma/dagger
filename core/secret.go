@@ -8,7 +8,6 @@ import (
 	"fmt"
 
 	"github.com/dagger/dagger/dagql"
-	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/internal/buildkit/session/secrets"
 	"github.com/dagger/dagger/util/hashutil"
 	"github.com/opencontainers/go-digest"
@@ -83,18 +82,15 @@ func resolveSessionSecret(ctx context.Context, secret *Secret) (*Secret, error) 
 		return secret, nil
 	}
 
-	clientMetadata, err := engine.ClientMetadataFromContext(ctx)
+	principal, err := currentExecutionPrincipal(ctx, fmt.Sprintf("resolve session secret %q", secret.Handle))
 	if err != nil {
-		return nil, fmt.Errorf("resolve session secret %q: current client metadata: %w", secret.Handle, err)
-	}
-	if clientMetadata.SessionID == "" {
-		return nil, fmt.Errorf("resolve session secret %q: empty session ID", secret.Handle)
+		return nil, err
 	}
 	cache, err := dagql.EngineCache(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("resolve session secret %q: current dagql cache: %w", secret.Handle, err)
 	}
-	resolvedAny, err := cache.ResolveSessionResource(ctx, clientMetadata.SessionID, clientMetadata.ClientID, secret.Handle)
+	resolvedAny, err := cache.ResolveSessionResource(ctx, principal.SessionID, principal.ClientID, secret.Handle)
 	if err != nil {
 		return nil, err
 	}
@@ -138,12 +134,9 @@ func (secret *Secret) Plaintext(ctx context.Context) ([]byte, error) {
 		return secret.plaintext(ctx)
 	}
 
-	clientMetadata, err := engine.ClientMetadataFromContext(ctx)
+	principal, err := currentExecutionPrincipal(ctx, fmt.Sprintf("resolve session secret %q", secret.Handle))
 	if err != nil {
-		return nil, fmt.Errorf("resolve session secret %q: current client metadata: %w", secret.Handle, err)
-	}
-	if clientMetadata.SessionID == "" {
-		return nil, fmt.Errorf("resolve session secret %q: empty session ID", secret.Handle)
+		return nil, err
 	}
 	cache, err := dagql.EngineCache(ctx)
 	if err != nil {
@@ -152,7 +145,7 @@ func (secret *Secret) Plaintext(ctx context.Context) ([]byte, error) {
 	// Session-wide in-flight dedupe can make this call run under a client whose
 	// attachables disconnect before other waiters finish. Try each same-session
 	// binding so another live client can still provide the secret.
-	candidates, err := cache.ResolveSessionResourceCandidates(ctx, clientMetadata.SessionID, clientMetadata.ClientID, secret.Handle)
+	candidates, err := cache.ResolveSessionResourceCandidates(ctx, principal.SessionID, principal.ClientID, secret.Handle)
 	if err != nil {
 		return nil, err
 	}

@@ -2859,6 +2859,7 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 		id:     shared.id,
 		parent: stack,
 	})
+	principal, principalErr := ExecutionPrincipalFromContext(ctx)
 
 	var (
 		lazyEval LazyEvalFunc
@@ -2880,6 +2881,9 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 			shared.eval.registered = lazyEval
 			var cancel context.CancelCauseFunc
 			evalCtx, cancel = context.WithCancelCause(context.WithoutCancel(stackCtx))
+			if principalErr == nil {
+				evalCtx = ContextWithExecutionPrincipal(evalCtx, principal)
+			}
 			return cancel, true
 		},
 	)
@@ -2898,8 +2902,8 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 	go func() {
 		callbackCtx := evalCtx
 		var resumeSpan trace.Span
-		if clientMD, err := engine.ClientMetadataFromContext(evalCtx); err == nil && clientMD.SessionID != "" {
-			if originalSpanCtx, ok := c.sessionLazySpanContext(clientMD.SessionID, shared.id); ok {
+		if principal, err := ExecutionPrincipalFromContext(evalCtx); err == nil {
+			if originalSpanCtx, ok := c.sessionLazySpanContext(principal.SessionID, shared.id); ok {
 				spanName := "resume lazy evaluation"
 				if resultCall != nil && resultCall.Field != "" {
 					spanName = "resume " + resultCall.Field
@@ -2908,7 +2912,7 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 				// API spans that installed/own this result in the session.
 				// dagui interprets cause-purpose links as "this resume is the
 				// cause of those installs failing" and propagates failure.
-				installCtxs := c.sessionResultInstallSpanContexts(clientMD.SessionID, shared.id)
+				installCtxs := c.sessionResultInstallSpanContexts(principal.SessionID, shared.id)
 				links := lazyResumeLinks(originalSpanCtx, installCtxs)
 				var resumeCtx context.Context
 				resumeCtx, resumeSpan = Tracer(evalCtx).Start(

@@ -240,7 +240,7 @@ func (container *Container) execMeta(
 	if err != nil {
 		return nil, err
 	}
-	clientMetadata, err := engine.ClientMetadataFromContext(ctx)
+	principal, err := currentExecutionPrincipal(ctx, "compute exec metadata")
 	if err != nil {
 		return nil, err
 	}
@@ -288,7 +288,7 @@ func (container *Container) execMeta(
 
 	if callerModDigest != "" {
 		// allow the exec to reach services scoped to the module that installed it
-		execMD.ExtraSearchDomains = append(execMD.ExtraSearchDomains, network.ModuleDomain(callerModDigest, clientMetadata.SessionID))
+		execMD.ExtraSearchDomains = append(execMD.ExtraSearchDomains, network.ModuleDomain(callerModDigest, principal.SessionID))
 	}
 
 	// if GPU parameters are set for this container pass them over:
@@ -1225,9 +1225,9 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 		if err != nil {
 			return fmt.Errorf("get current query: %w", err)
 		}
-		clientMetadata, err := engine.ClientMetadataFromContext(ctx)
+		principal, err := currentExecutionPrincipal(ctx, "run container exec")
 		if err != nil {
-			return fmt.Errorf("get current client metadata: %w", err)
+			return err
 		}
 		releaseLockedCaches, err := lockMountedCaches(ctx, inputMounts)
 		if err != nil {
@@ -1235,7 +1235,7 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 		}
 		defer releaseLockedCaches()
 
-		volatileEnvsFromSession := dagCache.ResolveVolatileVars(ctx, clientMetadata.SessionID)
+		volatileEnvsFromSession := dagCache.ResolveVolatileVars(ctx, principal.SessionID)
 		var volatileEnvs []string
 		for _, k := range container.VolatileEnv {
 			k = strings.SplitN(k, "=", 2)[0]
@@ -2068,10 +2068,14 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 
 		var nestedClientMetadata *engine.ClientMetadata
 		if opts.ExperimentalPrivilegedNesting {
+			clientMetadata, err := engine.ClientMetadataFromContext(ctx)
+			if err != nil {
+				return fmt.Errorf("get current client metadata for privileged nesting: %w", err)
+			}
 			nestedClientMetadata = &engine.ClientMetadata{
 				ClientID:              identity.NewID(),
 				ClientVersion:         engine.Version,
-				SessionID:             clientMetadata.SessionID,
+				SessionID:             principal.SessionID,
 				AllowedLLMModules:     slices.Clone(clientMetadata.AllowedLLMModules),
 				LockMode:              clientMetadata.LockMode,
 				UseRecipeIDsByDefault: execMD != nil && execMD.UseRecipeIDsByDefault,
@@ -2105,8 +2109,8 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 				nil,
 				causeCtx,
 				execMD,
-				clientMetadata.SessionID,
-				clientMetadata.ClientID,
+				principal.SessionID,
+				principal.ClientID,
 				nestedClientMetadata,
 				state.ModuleContext,
 				state.FunctionCall,
