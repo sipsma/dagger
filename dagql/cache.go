@@ -87,7 +87,7 @@ type persistedEdge struct {
 	unpruneable       bool
 }
 
-const cachePersistenceSchemaVersion = "17"
+const cachePersistenceSchemaVersion = "18"
 
 var ErrCacheRecursiveCall = fmt.Errorf("recursive call detected")
 var ErrPersistStateNotReady = errors.New("persist state not ready")

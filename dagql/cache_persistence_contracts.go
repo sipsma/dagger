@@ -40,6 +40,7 @@ type persistResultSnapshot struct {
 	row                   persistdb.MirrorResult
 	resultDeps            []persistdb.MirrorResultDep
 	resultSnapshotLinks   []persistdb.MirrorResultSnapshotLink
+	resultSnapshotChains  []persistdb.MirrorResultSnapshotChain
 }
 
 type persistStateSnapshot struct {
@@ -50,6 +51,7 @@ type persistStateSnapshot struct {
 	termInputs            []persistdb.MirrorTermInput
 	resultOutputEqClasses []persistdb.MirrorResultOutputEqClass
 	results               []persistResultSnapshot
+	snapshotChainLayers   []persistdb.MirrorSnapshotChainLayer
 	snapshotContentLinks  []persistdb.MirrorSnapshotContentLink
 	importedLayerByBlob   []persistdb.MirrorImportedLayerBlobIndex
 	importedLayerByDiff   []persistdb.MirrorImportedLayerDiffIndex

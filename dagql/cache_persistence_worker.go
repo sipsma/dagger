@@ -334,6 +334,18 @@ func (c *Cache) applyPersistStateSnapshot(ctx context.Context, snapshot persistS
 				return fmt.Errorf("insert result_snapshot_link (%d,%s,%s): %w", row.ResultID, row.RefKey, row.Role, err)
 			}
 		}
+		for _, row := range result.resultSnapshotChains {
+			if err := q.InsertMirrorResultSnapshotChain(ctx, row); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("insert result_snapshot_chain (%d,%s,%s): %w", row.ResultID, row.Role, row.ChainID, err)
+			}
+		}
+	}
+	for _, row := range snapshot.snapshotChainLayers {
+		if err := q.InsertMirrorSnapshotChainLayer(ctx, row); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("insert snapshot_chain_layer (%s,%d): %w", row.ChainID, row.Position, err)
+		}
 	}
 	for _, row := range snapshot.snapshotContentLinks {
 		if err := q.InsertMirrorSnapshotContentLink(ctx, row); err != nil {

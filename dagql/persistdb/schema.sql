@@ -12,7 +12,9 @@ CREATE TABLE IF NOT EXISTS results (
     created_at_unix_nano INTEGER NOT NULL,
     last_used_at_unix_nano INTEGER NOT NULL,
     record_type TEXT NOT NULL DEFAULT '',
-    description TEXT NOT NULL DEFAULT ''
+    description TEXT NOT NULL DEFAULT '',
+    origin_source_id TEXT NOT NULL DEFAULT '',
+    origin_result_id INTEGER NOT NULL DEFAULT 0
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS eq_classes (
@@ -75,6 +77,25 @@ CREATE TABLE IF NOT EXISTS result_snapshot_links (
     role TEXT NOT NULL,
     PRIMARY KEY(result_id, ref_key, role),
     FOREIGN KEY(result_id) REFERENCES results(id) ON DELETE CASCADE
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS result_snapshot_chains (
+    result_id INTEGER NOT NULL,
+    role TEXT NOT NULL,
+    chain_id TEXT NOT NULL,
+    PRIMARY KEY(result_id, role),
+    FOREIGN KEY(result_id) REFERENCES results(id) ON DELETE CASCADE
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS snapshot_chain_layers (
+    chain_id TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    diff_id TEXT NOT NULL,
+    blob_digest TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    media_type TEXT NOT NULL,
+    descriptor_json TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY(chain_id, position)
 ) STRICT, WITHOUT ROWID;
 
 CREATE TABLE IF NOT EXISTS snapshot_content_links (

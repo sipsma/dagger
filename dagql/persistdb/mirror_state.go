@@ -12,6 +12,8 @@ type MirrorResult struct {
 	LastUsedAtUnixNano int64
 	RecordType         string
 	Description        string
+	OriginSourceID     string
+	OriginResultID     int64
 }
 
 type MirrorEqClass struct {
@@ -61,6 +63,22 @@ type MirrorResultSnapshotLink struct {
 	Role     string
 }
 
+type MirrorResultSnapshotChain struct {
+	ResultID int64
+	Role     string
+	ChainID  string
+}
+
+type MirrorSnapshotChainLayer struct {
+	ChainID        string
+	Position       int64
+	DiffID         string
+	BlobDigest     string
+	Size           int64
+	MediaType      string
+	DescriptorJSON string
+}
+
 type MirrorSnapshotContentLink struct {
 	SnapshotID string
 	Digest     string
@@ -81,6 +99,8 @@ type MirrorImportedLayerDiffIndex struct {
 const clearMirrorImportedLayerDiffIndex = `DELETE FROM imported_layer_diff_index`
 const clearMirrorImportedLayerBlobIndex = `DELETE FROM imported_layer_blob_index`
 const clearMirrorSnapshotContentLinks = `DELETE FROM snapshot_content_links`
+const clearMirrorSnapshotChainLayers = `DELETE FROM snapshot_chain_layers`
+const clearMirrorResultSnapshotChains = `DELETE FROM result_snapshot_chains`
 const clearMirrorResultSnapshotLinks = `DELETE FROM result_snapshot_links`
 const clearMirrorPersistedEdges = `DELETE FROM persisted_edges`
 const clearMirrorResultDeps = `DELETE FROM result_deps`
@@ -96,6 +116,8 @@ func (q *Queries) ClearMirrorState(ctx context.Context) error {
 		clearMirrorImportedLayerDiffIndex,
 		clearMirrorImportedLayerBlobIndex,
 		clearMirrorSnapshotContentLinks,
+		clearMirrorSnapshotChainLayers,
+		clearMirrorResultSnapshotChains,
 		clearMirrorResultSnapshotLinks,
 		clearMirrorPersistedEdges,
 		clearMirrorResultDeps,
@@ -117,15 +139,15 @@ const insertMirrorResult = `
 INSERT INTO results (
 	id, call_frame_json, self_payload, output_effect_ids_json,
 	expires_at_unix, created_at_unix_nano,
-	last_used_at_unix_nano, record_type, description
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	last_used_at_unix_nano, record_type, description, origin_source_id, origin_result_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 func (q *Queries) InsertMirrorResult(ctx context.Context, arg MirrorResult) error {
 	_, err := q.exec(ctx, nil, insertMirrorResult,
 		arg.ID, arg.CallFrameJSON, arg.SelfPayload, arg.OutputEffectIDs,
 		arg.ExpiresAtUnix, arg.CreatedAtUnixNano, arg.LastUsedAtUnixNano,
-		arg.RecordType, arg.Description,
+		arg.RecordType, arg.Description, arg.OriginSourceID, arg.OriginResultID,
 	)
 	return err
 }
@@ -200,6 +222,29 @@ func (q *Queries) InsertMirrorResultSnapshotLink(ctx context.Context, arg Mirror
 	return err
 }
 
+const insertMirrorResultSnapshotChain = `
+INSERT INTO result_snapshot_chains (result_id, role, chain_id) VALUES (?, ?, ?)
+`
+
+func (q *Queries) InsertMirrorResultSnapshotChain(ctx context.Context, arg MirrorResultSnapshotChain) error {
+	_, err := q.exec(ctx, nil, insertMirrorResultSnapshotChain, arg.ResultID, arg.Role, arg.ChainID)
+	return err
+}
+
+const insertMirrorSnapshotChainLayer = `
+INSERT INTO snapshot_chain_layers (
+	chain_id, position, diff_id, blob_digest, size, media_type, descriptor_json
+) VALUES (?, ?, ?, ?, ?, ?, ?)
+`
+
+func (q *Queries) InsertMirrorSnapshotChainLayer(ctx context.Context, arg MirrorSnapshotChainLayer) error {
+	_, err := q.exec(ctx, nil, insertMirrorSnapshotChainLayer,
+		arg.ChainID, arg.Position, arg.DiffID, arg.BlobDigest,
+		arg.Size, arg.MediaType, arg.DescriptorJSON,
+	)
+	return err
+}
+
 const insertMirrorSnapshotContentLink = `
 INSERT INTO snapshot_content_links (snapshot_id, digest) VALUES (?, ?)
 `
@@ -231,7 +276,7 @@ const listMirrorResults = `
 SELECT
 	id, call_frame_json, self_payload, output_effect_ids_json,
 	expires_at_unix, created_at_unix_nano,
-	last_used_at_unix_nano, record_type, description
+	last_used_at_unix_nano, record_type, description, origin_source_id, origin_result_id
 FROM results
 `
 
@@ -255,6 +300,8 @@ func (q *Queries) ListMirrorResults(ctx context.Context) ([]MirrorResult, error)
 			&row.LastUsedAtUnixNano,
 			&row.RecordType,
 			&row.Description,
+			&row.OriginSourceID,
+			&row.OriginResultID,
 		); err != nil {
 			return nil, err
 		}
@@ -410,6 +457,55 @@ func (q *Queries) ListMirrorResultSnapshotLinks(ctx context.Context) ([]MirrorRe
 	for rows.Next() {
 		var row MirrorResultSnapshotLink
 		if err := rows.Scan(&row.ResultID, &row.RefKey, &row.Role); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+const listMirrorResultSnapshotChains = `SELECT result_id, role, chain_id FROM result_snapshot_chains`
+
+func (q *Queries) ListMirrorResultSnapshotChains(ctx context.Context) ([]MirrorResultSnapshotChain, error) {
+	rows, err := q.db.QueryContext(ctx, listMirrorResultSnapshotChains)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []MirrorResultSnapshotChain
+	for rows.Next() {
+		var row MirrorResultSnapshotChain
+		if err := rows.Scan(&row.ResultID, &row.Role, &row.ChainID); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+const listMirrorSnapshotChainLayers = `
+SELECT chain_id, position, diff_id, blob_digest, size, media_type, descriptor_json
+FROM snapshot_chain_layers
+`
+
+func (q *Queries) ListMirrorSnapshotChainLayers(ctx context.Context) ([]MirrorSnapshotChainLayer, error) {
+	rows, err := q.db.QueryContext(ctx, listMirrorSnapshotChainLayers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []MirrorSnapshotChainLayer
+	for rows.Next() {
+		var row MirrorSnapshotChainLayer
+		if err := rows.Scan(
+			&row.ChainID,
+			&row.Position,
+			&row.DiffID,
+			&row.BlobDigest,
+			&row.Size,
+			&row.MediaType,
+			&row.DescriptorJSON,
+		); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
