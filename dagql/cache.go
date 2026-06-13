@@ -1476,7 +1476,9 @@ type sharedResult struct {
 	originSourceID       string
 	originResultID       uint64
 	remoteCacheImported  bool
+	remoteCacheViable    bool
 	remoteCacheEligible  bool
+	remoteCacheReason    string
 
 	// expiresAtUnix is the in-memory TTL deadline for cache-hit eligibility.
 	// 0 means "never expires".

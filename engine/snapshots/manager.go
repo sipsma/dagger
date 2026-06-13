@@ -232,6 +232,16 @@ func (cm *snapshotManager) SnapshotRecordMetadata(ctx context.Context, snapshotI
 	}, true, nil
 }
 
+func (cm *snapshotManager) ContentInfo(ctx context.Context, dgst digest.Digest) (content.Info, error) {
+	if cm == nil || cm.ContentStore == nil {
+		return content.Info{}, errNotFound
+	}
+	if dgst == "" {
+		return content.Info{}, errors.New("content info: empty digest")
+	}
+	return cm.ContentStore.Info(ctx, dgst)
+}
+
 // get requires manager lock to be taken
 func (cm *snapshotManager) get(ctx context.Context, id string, opts ...RefOption) (*immutableRef, error) {
 	rec, err := cm.getRecord(ctx, id, opts...)

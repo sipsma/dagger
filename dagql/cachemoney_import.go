@@ -140,6 +140,7 @@ func (c *Cache) importCachemoneyMetadataRows(ctx context.Context, source Cachemo
 		return nil
 	}
 	importRunID := c.nextImportRunID()
+	blobAvailability := c.cachemoneyBlobAvailability(ctx, source, rows.snapshotChainLayerRows)
 
 	sourceResultToLocal := make(map[uint64]uint64, len(rows.resultRows))
 	sourceEqToLocal := make(map[int64]eqClassID, len(rows.eqClassRows))
@@ -248,7 +249,9 @@ func (c *Cache) importCachemoneyMetadataRows(ctx context.Context, source Cachemo
 				originSourceID:        originSourceID,
 				originResultID:        originResultID,
 				remoteCacheImported:   true,
+				remoteCacheViable:     false,
 				remoteCacheEligible:   false,
+				remoteCacheReason:     remoteCacheReasonPendingViability,
 			}
 			res.storeResultCall(frame)
 			c.traceResultCallFrameUpdated(ctx, res, "import_cachemoney_metadata_result", nil, frame)
@@ -464,6 +467,8 @@ func (c *Cache) importCachemoneyMetadataRows(ctx context.Context, source Cachemo
 			}
 		}
 
+		c.stampCachemoneyImportViabilityLocked(ctx, importRunID, importedResultIDs, blobAvailability)
+
 		return nil
 	}()
 	c.egraphMu.Unlock()
@@ -580,22 +585,11 @@ func remapPersistedJSONValueResultIDs(val any, resultIDMap map[uint64]uint64, pa
 				childPath = path + "." + key
 			}
 			if persistedJSONKeyLooksLikeResultID(key) {
-				num, ok := child.(json.Number)
-				if !ok {
-					return fmt.Errorf("%s: result ID field is %T, not number", childPath, child)
-				}
-				id, err := parsePersistedJSONResultID(num)
+				remapped, err := remapPersistedJSONResultIDField(child, resultIDMap, childPath)
 				if err != nil {
-					return fmt.Errorf("%s: %w", childPath, err)
+					return err
 				}
-				if id == 0 {
-					continue
-				}
-				localID, ok := resultIDMap[id]
-				if !ok {
-					return fmt.Errorf("%s: missing result ID mapping for %d", childPath, id)
-				}
-				v[key] = json.Number(fmt.Sprintf("%d", localID))
+				v[key] = remapped
 				continue
 			}
 			if err := remapPersistedJSONValueResultIDs(child, resultIDMap, childPath); err != nil {
@@ -615,7 +609,49 @@ func remapPersistedJSONValueResultIDs(val any, resultIDMap map[uint64]uint64, pa
 
 func persistedJSONKeyLooksLikeResultID(key string) bool {
 	lower := strings.ToLower(key)
-	return lower == "resultid" || strings.HasSuffix(lower, "resultid")
+	return lower == "resultid" ||
+		strings.HasSuffix(lower, "resultid") ||
+		lower == "resultids" ||
+		strings.HasSuffix(lower, "resultids")
+}
+
+func remapPersistedJSONResultIDField(child any, resultIDMap map[uint64]uint64, path string) (any, error) {
+	switch v := child.(type) {
+	case json.Number:
+		return remapPersistedJSONResultIDNumber(v, resultIDMap, path)
+	case []any:
+		remapped := make([]any, len(v))
+		for i, item := range v {
+			itemPath := fmt.Sprintf("%s[%d]", path, i)
+			num, ok := item.(json.Number)
+			if !ok {
+				return nil, fmt.Errorf("%s: result ID array element is %T, not number", itemPath, item)
+			}
+			remappedItem, err := remapPersistedJSONResultIDNumber(num, resultIDMap, itemPath)
+			if err != nil {
+				return nil, err
+			}
+			remapped[i] = remappedItem
+		}
+		return remapped, nil
+	default:
+		return nil, fmt.Errorf("%s: result ID field is %T, not number or number array", path, child)
+	}
+}
+
+func remapPersistedJSONResultIDNumber(num json.Number, resultIDMap map[uint64]uint64, path string) (json.Number, error) {
+	id, err := parsePersistedJSONResultID(num)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", path, err)
+	}
+	if id == 0 {
+		return num, nil
+	}
+	localID, ok := resultIDMap[id]
+	if !ok {
+		return "", fmt.Errorf("%s: missing result ID mapping for %d", path, id)
+	}
+	return json.Number(fmt.Sprintf("%d", localID)), nil
 }
 
 func parsePersistedJSONResultID(num json.Number) (uint64, error) {

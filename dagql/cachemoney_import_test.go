@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/containerd/containerd/v2/pkg/labels"
+	"github.com/dagger/dagger/dagql/cachemoneyproto"
 	bkcache "github.com/dagger/dagger/engine/snapshots"
 	"github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
@@ -20,7 +21,8 @@ func TestRemapPersistedObjectJSONResultIDs(t *testing.T) {
 		"parentResultID": 1,
 		"nested": {
 			"childResultID": 2,
-			"items": [{"serviceResultID": 0}, {"socketResultID": 3}]
+			"items": [{"serviceResultID": 0}, {"socketResultID": 3}],
+			"argResultIDs": [4, 5]
 		},
 		"notAResult": 4
 	}`)
@@ -28,6 +30,8 @@ func TestRemapPersistedObjectJSONResultIDs(t *testing.T) {
 		1: 101,
 		2: 102,
 		3: 103,
+		4: 104,
+		5: 105,
 	})
 	assert.NilError(t, err)
 
@@ -39,6 +43,7 @@ func TestRemapPersistedObjectJSONResultIDs(t *testing.T) {
 	items := nested["items"].([]any)
 	assert.Equal(t, items[0].(map[string]any)["serviceResultID"].(float64), float64(0))
 	assert.Equal(t, items[1].(map[string]any)["socketResultID"].(float64), float64(103))
+	assert.DeepEqual(t, nested["argResultIDs"], []any{float64(104), float64(105)})
 	assert.Equal(t, got["notAResult"].(float64), float64(4))
 }
 
@@ -113,7 +118,9 @@ func TestImportCachemoneyMetadataImportsSnapshotChainsWithoutRefLinks(t *testing
 	imported := cachemoneyImportedResultByOrigin(destCache, "source-a", uint64(sourceResultID))
 	assert.Assert(t, imported != nil)
 	assert.Assert(t, imported.remoteCacheImported)
+	assert.Assert(t, !imported.remoteCacheViable)
 	assert.Assert(t, !imported.remoteCacheEligible)
+	assert.Equal(t, imported.remoteCacheReason, remoteCacheReasonMissingBlobNoFallback)
 	assert.DeepEqual(t, imported.loadSnapshotOwnerLinks(), []PersistedSnapshotRefLink(nil))
 	chains := imported.loadRemoteSnapshotChains()
 	assert.Equal(t, len(chains), 1)
@@ -123,7 +130,90 @@ func TestImportCachemoneyMetadataImportsSnapshotChainsWithoutRefLinks(t *testing
 	assert.Equal(t, chains[0].Layers[0].BlobDigest, blobDigest.String())
 }
 
-func TestImportCachemoneyMetadataRemapsRefsAndDisablesHits(t *testing.T) {
+func TestImportCachemoneyMetadataSnapshotBlobIndexStampsViableButAwaitsSlotPlans(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	diffID := digest.FromString("diff")
+	blobDigest := digest.FromString("blob")
+	exportRef := &fakeCachemoneyExportRef{
+		snapshotID: "source-snapshot",
+		chain: &bkcache.ExportChain{
+			Layers: []bkcache.ExportLayer{{
+				Descriptor: ocispecs.Descriptor{
+					MediaType: ocispecs.MediaTypeImageLayerZstd,
+					Digest:    blobDigest,
+					Size:      123,
+					Annotations: map[string]string{
+						labels.LabelUncompressed: diffID.String(),
+					},
+				},
+			}},
+		},
+	}
+	sourceManager := &fakeSnapshotManager{
+		refsBySnapshotID: map[string]bkcache.ImmutableRef{
+			"source-snapshot": exportRef,
+		},
+	}
+	sourceDBPath := filepath.Join(t.TempDir(), "source.db")
+	sourceCache, err := NewCache(ctx, sourceDBPath, sourceManager, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, sourceCache.Close(context.Background()))
+	}()
+
+	key := &ResultCall{
+		Kind:  ResultCallKindField,
+		Type:  NewResultCallType((&persistSnapshotValue{}).Type()),
+		Field: "cachemoney-source-snapshot-with-blob-index",
+	}
+	sourceRes, err := sourceCache.GetOrInitCall(ctx, "source-session", noopTypeResolver{}, &CallRequest{
+		ResultCall:    key,
+		IsPersistable: true,
+	}, func(context.Context) (AnyResult, error) {
+		return cacheTestPlainResult(&persistSnapshotValue{
+			Name:       "x",
+			SnapshotID: "source-snapshot",
+		}), nil
+	})
+	assert.NilError(t, err)
+	sourceResultID := sourceRes.cacheSharedResult().id
+
+	exportPath := filepath.Join(t.TempDir(), "metadata.db")
+	prepared, err := sourceCache.PrepareCachemoneyExport(ctx, exportPath)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, prepared.Release(context.Background()))
+	}()
+
+	destDBPath := filepath.Join(t.TempDir(), "dest.db")
+	destCache, err := NewCache(ctx, destDBPath, &fakeSnapshotManager{}, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, destCache.Close(context.Background()))
+	}()
+	assert.NilError(t, destCache.ImportCachemoneyMetadata(ctx, CachemoneyImportSource{
+		ID:             "source-with-blob-index",
+		MetadataDBPath: exportPath,
+		BlobIndex: map[string]cachemoneyproto.BlobLocation{
+			blobDigest.String(): {
+				URL:       "https://cache.example/blobs/" + blobDigest.Encoded(),
+				Size:      123,
+				MediaType: ocispecs.MediaTypeImageLayerZstd,
+			},
+		},
+	}))
+
+	imported := cachemoneyImportedResultByOrigin(destCache, "source-with-blob-index", uint64(sourceResultID))
+	assert.Assert(t, imported != nil)
+	assert.Assert(t, imported.remoteCacheImported)
+	assert.Assert(t, imported.remoteCacheViable)
+	assert.Assert(t, !imported.remoteCacheEligible)
+	assert.Equal(t, imported.remoteCacheReason, remoteCacheReasonAwaitingSlotPlans+":"+remoteCacheReasonRemoteSnapshotBlobs)
+}
+
+func TestImportCachemoneyMetadataRemapsRefsAndEnablesDirectPayloadLookup(t *testing.T) {
 	t.Parallel()
 
 	ctx := cacheTestContext(t.Context())
@@ -190,7 +280,8 @@ func TestImportCachemoneyMetadataRemapsRefsAndDisablesHits(t *testing.T) {
 	assert.Assert(t, importedChild != nil)
 	assert.Assert(t, importedParent != nil)
 	assert.Assert(t, importedParent.remoteCacheImported)
-	assert.Assert(t, !importedParent.remoteCacheEligible)
+	assert.Assert(t, importedParent.remoteCacheViable)
+	assert.Assert(t, importedParent.remoteCacheEligible)
 
 	remappedParentFrame := importedParent.loadResultCall()
 	assert.Assert(t, remappedParentFrame != nil)
@@ -198,17 +289,37 @@ func TestImportCachemoneyMetadataRemapsRefsAndDisablesHits(t *testing.T) {
 	assert.Equal(t, remappedParentFrame.Receiver.ResultID, uint64(importedChild.id))
 	assert.Assert(t, remappedParentFrame.Receiver.ResultID != uint64(sourceChildID))
 
-	resolverCalled := false
 	requestFrame := remappedParentFrame.clone()
-	got, err := destCache.GetOrInitCall(ctx, "dest-session", noopTypeResolver{}, &CallRequest{
-		ResultCall: requestFrame,
-	}, func(context.Context) (AnyResult, error) {
-		resolverCalled = true
-		return cacheTestIntResult(requestFrame, 33), nil
-	})
+	resultID, err := destCache.resultIDForCall(requestFrame)
 	assert.NilError(t, err)
-	assert.Assert(t, resolverCalled)
-	assert.Equal(t, got.Unwrap().(Int), NewInt(33))
+	assert.Equal(t, resultID, importedParent.id)
+}
+
+func TestRemoteCacheEligibilitySkipsNonViableCandidate(t *testing.T) {
+	t.Parallel()
+
+	candidates := newSharedResultSet()
+	nonViable := &sharedResult{
+		id:                       1,
+		remoteCacheImported:      true,
+		remoteCacheViable:        false,
+		remoteCacheEligible:      false,
+		remoteCacheReason:        remoteCacheReasonMissingBlobNoFallback,
+		requiredSessionResources: nil,
+	}
+	viable := &sharedResult{
+		id:                  2,
+		remoteCacheImported: true,
+		remoteCacheViable:   true,
+		remoteCacheEligible: true,
+		remoteCacheReason:   remoteCacheReasonDirectPayload,
+	}
+	candidates.Insert(nonViable)
+	candidates.Insert(viable)
+
+	got := (&Cache{}).selectLookupCandidateForSessionLocked("session", candidates)
+	assert.Assert(t, got != nil)
+	assert.Equal(t, got.id, viable.id)
 }
 
 func cachemoneyImportedResultByOrigin(c *Cache, sourceID string, originResultID uint64) *sharedResult {

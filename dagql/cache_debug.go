@@ -86,6 +86,12 @@ type CacheDebugResult struct {
 	CacheUsageSizeByIdentity              map[string]int64 `json:"cache_usage_size_by_identity,omitempty"`
 	PersistedEnvelopeKind                 string           `json:"persisted_envelope_kind,omitempty"`
 	PersistedEnvelopeTypeName             string           `json:"persisted_envelope_type_name,omitempty"`
+	OriginSourceID                        string           `json:"origin_source_id,omitempty"`
+	OriginResultID                        uint64           `json:"origin_result_id,omitempty"`
+	RemoteCacheImported                   bool             `json:"remote_cache_imported,omitempty"`
+	RemoteCacheViable                     bool             `json:"remote_cache_viable,omitempty"`
+	RemoteCacheEligible                   bool             `json:"remote_cache_eligible,omitempty"`
+	RemoteCacheReason                     string           `json:"remote_cache_reason,omitempty"`
 }
 
 type CacheDebugResultDigestIndex struct {
@@ -729,6 +735,21 @@ func (c *Cache) traceImportResultDepLoaded(ctx context.Context, importRunID stri
 	})
 }
 
+func (c *Cache) traceCachemoneyImportViability(ctx context.Context, importRunID string, res *sharedResult, viability cachemoneyRemoteViability) {
+	c.traceLazy(ctx, "cachemoney_import_viability", func() []any {
+		return []any{
+			"phase", "import",
+			"import_run_id", importRunID,
+			"shared_result_id", res.id,
+			"origin_source_id", res.originSourceID,
+			"origin_result_id", res.originResultID,
+			"viable", viability.viable,
+			"eligible", viability.eligible,
+			"reason", viability.reason,
+		}
+	})
+}
+
 func (c *Cache) traceResultCallFrameUpdated(ctx context.Context, res *sharedResult, reason string, oldFrame, newFrame *ResultCall) {
 	c.traceLazy(ctx, "result_call_frame_updated", func() []any {
 		oldField, oldKind, oldType := debugResultCallSummary(oldFrame)
@@ -1306,6 +1327,12 @@ func (c *Cache) WriteDebugCacheSnapshot(w io.Writer) error {
 				}(),
 				PersistedEnvelopeKind:     persistedEnvelopeKind,
 				PersistedEnvelopeTypeName: persistedEnvelopeTypeName,
+				OriginSourceID:            res.originSourceID,
+				OriginResultID:            res.originResultID,
+				RemoteCacheImported:       res.remoteCacheImported,
+				RemoteCacheViable:         res.remoteCacheViable,
+				RemoteCacheEligible:       res.remoteCacheEligible,
+				RemoteCacheReason:         res.remoteCacheReason,
 			}); err != nil {
 				return err
 			}
