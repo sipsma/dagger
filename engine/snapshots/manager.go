@@ -256,6 +256,28 @@ func (cm *snapshotManager) WriteContentBlob(ctx context.Context, desc ocispecs.D
 	return nil
 }
 
+func (cm *snapshotManager) ReadContentBlob(ctx context.Context, desc ocispecs.Descriptor) (io.ReadCloser, error) {
+	if cm == nil || cm.ContentStore == nil {
+		return nil, errNotFound
+	}
+	if desc.Digest == "" {
+		return nil, errors.New("read content blob: empty digest")
+	}
+	ra, err := cm.ContentStore.ReaderAt(ctx, desc)
+	if err != nil {
+		return nil, err
+	}
+	return readCloser{
+		Reader: content.NewReader(ra),
+		Closer: ra,
+	}, nil
+}
+
+type readCloser struct {
+	io.Reader
+	io.Closer
+}
+
 // get requires manager lock to be taken
 func (cm *snapshotManager) get(ctx context.Context, id string, opts ...RefOption) (*immutableRef, error) {
 	rec, err := cm.getRecord(ctx, id, opts...)

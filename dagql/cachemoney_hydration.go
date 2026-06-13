@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/containerd/containerd/v2/core/images"
 	"github.com/containerd/containerd/v2/pkg/labels"
@@ -60,12 +61,15 @@ func (c *Cache) MaterializeRemoteSnapshot(ctx context.Context, req RemoteSnapsho
 		return c.hydrateRemoteSnapshot(ctx, originSourceID, req)
 	})
 	if err != nil {
+		reason := cachemoneyHydrationFailureReason(err)
+		c.recordCachemoneyHydrationFailure(reason)
 		slog.WarnContext(ctx, "remote cache snapshot hydration failed",
 			"result", req.ResultID,
 			"role", req.Role,
 			"source", originSourceID,
 			"chain", req.Chain.ChainID,
 			"shared", shared,
+			"reason", reason,
 			"err", err,
 		)
 		return nil, false, err
@@ -74,7 +78,28 @@ func (c *Cache) MaterializeRemoteSnapshot(ctx context.Context, req RemoteSnapsho
 	if err != nil {
 		return nil, false, fmt.Errorf("remote snapshot materialize result %d role %q: reopen hydrated snapshot %q: %w", req.ResultID, req.Role, snapshotID, err)
 	}
+	c.recordCachemoneyMaterialization(req.Role, CachemoneyMaterializationHydrated)
 	return ref, true, nil
+}
+
+func (c *Cache) RecordRemoteSnapshotMaterializationFallback(ctx context.Context, req RemoteSnapshotMaterializationRequest, materializerErr error, valueSet bool) {
+	if c == nil {
+		return
+	}
+	reason := cachemoneyHydrationFailureReason(materializerErr)
+	if valueSet {
+		c.recordCachemoneyMaterialization(req.Role, CachemoneyMaterializationRecomputedRemoteMiss)
+		c.recordCachemoneyRecompute(reason)
+		return
+	}
+	c.recordCachemoneyMaterialization(req.Role, CachemoneyMaterializationFailed)
+	slog.WarnContext(ctx, "remote cache snapshot materialization fallback failed",
+		"result", req.ResultID,
+		"role", req.Role,
+		"chain", req.Chain.ChainID,
+		"reason", reason,
+		"err", materializerErr,
+	)
 }
 
 func (c *Cache) hydrateRemoteSnapshot(ctx context.Context, sourceID string, req RemoteSnapshotMaterializationRequest) (_ string, rerr error) {
@@ -119,6 +144,7 @@ func (c *Cache) ensureRemoteSnapshotBlobs(ctx context.Context, sourceID string, 
 			return err
 		}
 		if present {
+			c.recordCachemoneyBlobSkippedAlreadyPresent()
 			continue
 		}
 		if writer == nil {
@@ -133,29 +159,35 @@ func (c *Cache) ensureRemoteSnapshotBlobs(ctx context.Context, sourceID string, 
 		}
 
 		eg.Go(func() error {
-			return cachemoneyFetchBlob(egCtx, writer, desc, location)
+			bytesDownloaded, err := cachemoneyFetchBlob(egCtx, writer, desc, location)
+			if err != nil {
+				return err
+			}
+			c.recordCachemoneyBlobDownloaded(uint64(bytesDownloaded))
+			return nil
 		})
 	}
 	return eg.Wait()
 }
 
-func cachemoneyFetchBlob(ctx context.Context, writer cachemoneyContentBlobWriter, desc ocispecs.Descriptor, location cachemoneyproto.BlobLocation) error {
+func cachemoneyFetchBlob(ctx context.Context, writer cachemoneyContentBlobWriter, desc ocispecs.Descriptor, location cachemoneyproto.BlobLocation) (int64, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, location.URL, nil)
 	if err != nil {
-		return fmt.Errorf("remote snapshot blob %s: build request: %w", desc.Digest, err)
+		return 0, fmt.Errorf("remote snapshot blob %s: build request: %w", desc.Digest, err)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("remote snapshot blob %s: fetch: %w", desc.Digest, err)
+		return 0, fmt.Errorf("remote snapshot blob %s: fetch: %w", desc.Digest, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("remote snapshot blob %s: fetch status %s", desc.Digest, resp.Status)
+		return 0, fmt.Errorf("remote snapshot blob %s: fetch status %s", desc.Digest, resp.Status)
 	}
-	if err := writer.WriteContentBlob(ctx, desc, resp.Body); err != nil {
-		return fmt.Errorf("remote snapshot blob %s: write content: %w", desc.Digest, err)
+	countingBody := &countingReader{Reader: resp.Body}
+	if err := writer.WriteContentBlob(ctx, desc, countingBody); err != nil {
+		return countingBody.n, fmt.Errorf("remote snapshot blob %s: write content: %w", desc.Digest, err)
 	}
-	return nil
+	return countingBody.n, nil
 }
 
 func (c *Cache) cachemoneyContentPresent(ctx context.Context, dgst digest.Digest) (bool, error) {
@@ -348,4 +380,45 @@ func cachemoneyCloneBlobIndex(blobIndex map[string]cachemoneyproto.BlobLocation)
 		out[dgst] = location
 	}
 	return out
+}
+
+type countingReader struct {
+	io.Reader
+	n int64
+}
+
+func (r *countingReader) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	r.n += int64(n)
+	return n, err
+}
+
+func cachemoneyHydrationFailureReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "validate remote snapshot chain"),
+		strings.Contains(msg, "chain ID mismatch"),
+		strings.Contains(msg, "unsupported media type"),
+		strings.Contains(msg, "descriptor JSON"),
+		strings.Contains(msg, "descriptor digest"),
+		strings.Contains(msg, "descriptor size"),
+		strings.Contains(msg, "descriptor media type"),
+		strings.Contains(msg, "descriptor diff ID"):
+		return CachemoneyRecomputeReasonInvalidDescriptor
+	case strings.Contains(msg, "missing blob index location"):
+		return CachemoneyRecomputeReasonIndexMiss
+	case strings.Contains(msg, "fetch"),
+		strings.Contains(msg, "write content"),
+		strings.Contains(msg, "content info"):
+		return CachemoneyRecomputeReasonFetchFailed
+	case strings.Contains(msg, "import remote snapshot chain"),
+		strings.Contains(msg, "reopen hydrated snapshot"),
+		strings.Contains(msg, "attach hydrated remote snapshot lease"):
+		return CachemoneyRecomputeReasonImportFailed
+	default:
+		return CachemoneyRecomputeReasonUnknown
+	}
 }

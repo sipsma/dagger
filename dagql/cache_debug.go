@@ -41,6 +41,7 @@ type CacheDebugSnapshot struct {
 	BootID                  string                        `json:"boot_id"`
 	CapturedAtSeq           uint64                        `json:"captured_at_seq"`
 	CapturedAtTime          string                        `json:"captured_at_time"`
+	Cachemoney              CachemoneyDebugStats          `json:"cachemoney,omitempty"`
 	SessionResults          []CacheDebugSessionResults    `json:"session_results,omitempty"`
 	Results                 []CacheDebugResult            `json:"results"`
 	ResultDigestIndexes     []CacheDebugResultDigestIndex `json:"result_digest_indexes"`
@@ -736,6 +737,7 @@ func (c *Cache) traceImportResultDepLoaded(ctx context.Context, importRunID stri
 }
 
 func (c *Cache) traceCachemoneyImportViability(ctx context.Context, importRunID string, res *sharedResult, viability cachemoneyRemoteViability) {
+	c.recordCachemoneyViability(viability.reason, viability.viable, viability.eligible)
 	c.traceLazy(ctx, "cachemoney_import_viability", func() []any {
 		return []any{
 			"phase", "import",
@@ -1086,6 +1088,7 @@ func (c *Cache) DebugEGraphSnapshot() *EGraphDebugSnapshot {
 //nolint:gocyclo // intrinsically long state machine; refactoring would hurt clarity
 func (c *Cache) WriteDebugCacheSnapshot(w io.Writer) error {
 	sessionResults := c.debugSessionResultsSnapshot()
+	cachemoneyStats := c.DebugCachemoneyStats()
 	c.callsMu.Lock()
 	c.egraphMu.RLock()
 	defer c.egraphMu.RUnlock()
@@ -1165,6 +1168,12 @@ func (c *Cache) WriteDebugCacheSnapshot(w io.Writer) error {
 		return err
 	}
 	if err := writeValue(time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		return err
+	}
+	if err := writeField("cachemoney"); err != nil {
+		return err
+	}
+	if err := writeValue(cachemoneyStats); err != nil {
 		return err
 	}
 	if err := writeArrayField("session_results", func(writeElem func(any) error) error {

@@ -80,6 +80,58 @@ func setupDebugHandlers(addr string, eng *server.Server) error {
 			logrus.WithError(err).Warn("failed streaming dagql cache debug snapshot")
 		}
 	}))
+	m.Handle("/debug/dagql/cache/export", http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if eng == nil {
+			http.Error(rw, "engine server not available", http.StatusServiceUnavailable)
+			return
+		}
+		url := req.URL.Query().Get("url")
+		if url == "" {
+			http.Error(rw, "missing url query parameter", http.StatusBadRequest)
+			return
+		}
+		result, err := eng.DebugCachemoneyExport(req.Context(), url)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		rw.Header().Set("Content-Type", "application/json")
+		enc := json.NewEncoder(rw)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(result); err != nil {
+			logrus.WithError(err).Warn("failed writing cachemoney export debug response")
+		}
+	}))
+	m.Handle("/debug/dagql/cache/import", http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if eng == nil {
+			http.Error(rw, "engine server not available", http.StatusServiceUnavailable)
+			return
+		}
+		url := req.URL.Query().Get("url")
+		if url == "" {
+			http.Error(rw, "missing url query parameter", http.StatusBadRequest)
+			return
+		}
+		result, err := eng.DebugCachemoneyImport(req.Context(), url)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		rw.Header().Set("Content-Type", "application/json")
+		enc := json.NewEncoder(rw)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(result); err != nil {
+			logrus.WithError(err).Warn("failed writing cachemoney import debug response")
+		}
+	}))
 
 	// setting debugaddr is opt-in. permission is defined by listener address
 	trace.AuthRequest = func(_ *http.Request) (bool, bool) {

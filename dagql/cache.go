@@ -1335,6 +1335,7 @@ type Cache struct {
 	cachemoneyMu                sync.RWMutex
 	cachemoneyBlobIndexBySource map[string]map[string]cachemoneyproto.BlobLocation
 	cachemoneyHydrationGroup    singleflight.Group[string, string]
+	cachemoneyStats             CachemoneyDebugStats
 
 	snapshotManager bkcache.SnapshotManager
 	snapshotGC      func(context.Context) error

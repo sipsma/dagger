@@ -1,6 +1,7 @@
 package dagql
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -208,6 +209,18 @@ func (m *fakeSnapshotManager) WriteContentBlob(ctx context.Context, desc ocispec
 	m.contentByDigest[desc.Digest] = append([]byte(nil), contentBytes...)
 	m.writeContentCalls = append(m.writeContentCalls, desc.Digest)
 	return nil
+}
+
+func (m *fakeSnapshotManager) ReadContentBlob(ctx context.Context, desc ocispecs.Descriptor) (io.ReadCloser, error) {
+	_ = ctx
+	m.hydrationMu.Lock()
+	defer m.hydrationMu.Unlock()
+
+	contentBytes, ok := m.contentByDigest[desc.Digest]
+	if !ok {
+		return nil, cerrdefs.ErrNotFound
+	}
+	return io.NopCloser(bytes.NewReader(contentBytes)), nil
 }
 
 func (m *fakeSnapshotManager) AttachLease(ctx context.Context, leaseID, snapshotID string) error {

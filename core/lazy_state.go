@@ -116,6 +116,10 @@ type LazyAccessorMaterializer[V any, T dagql.Typed] interface {
 	Materialize(context.Context, dagql.Result[T]) (V, bool, error)
 }
 
+type LazyAccessorFallbackObserver[T dagql.Typed] interface {
+	ObserveMaterializationFallback(context.Context, dagql.Result[T], error, bool)
+}
+
 // WARN: res MUST be the dagql result wrapper for the same owner object as this
 // accessor. The accessor cannot validate that today due to the current
 // Directory/File/Container vs dagql.Result split, so callers must pass the
@@ -149,12 +153,22 @@ func (a *LazyAccessor[V, T]) GetOrEval(ctx context.Context, res dagql.Result[T])
 	}
 	err = c.Evaluate(ctx, res)
 	if err != nil {
+		if materializerErr != nil {
+			if observer, ok := materializer.(LazyAccessorFallbackObserver[T]); ok {
+				observer.ObserveMaterializationFallback(ctx, res, materializerErr, false)
+			}
+		}
 		return zero, errors.Join(materializerErr, err)
 	}
 
 	// evaluate should have set our value now, so we can return it
 	a.mu.RLock()
 	defer a.mu.RUnlock()
+	if materializerErr != nil {
+		if observer, ok := materializer.(LazyAccessorFallbackObserver[T]); ok {
+			observer.ObserveMaterializationFallback(ctx, res, materializerErr, a.isSet)
+		}
+	}
 	if !a.isSet {
 		if materializerErr != nil {
 			return zero, materializerErr

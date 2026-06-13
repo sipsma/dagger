@@ -880,6 +880,20 @@ func (srv *Server) WriteDagqlCacheDebugSnapshot(w io.Writer) error {
 	return srv.engineCache.WriteDebugCacheSnapshot(w)
 }
 
+func (srv *Server) DebugCachemoneyExport(ctx context.Context, url string) (*dagql.CachemoneyDebugExportResult, error) {
+	if srv.engineCache == nil {
+		return nil, fmt.Errorf("dagql cache not available")
+	}
+	return srv.engineCache.DebugCachemoneyExport(ctx, url)
+}
+
+func (srv *Server) DebugCachemoneyImport(ctx context.Context, url string) (*dagql.CachemoneyDebugImportResult, error) {
+	if srv.engineCache == nil {
+		return nil, fmt.Errorf("dagql cache not available")
+	}
+	return srv.engineCache.DebugCachemoneyImport(ctx, url)
+}
+
 // ConnectedClients returns the number of currently connected clients
 func (srv *Server) ConnectedClients() int {
 	srv.daggerSessionsMu.RLock()

@@ -34,6 +34,19 @@ func (p *remoteSnapshotAccessorPlan[T]) Materialize(ctx context.Context, owner d
 	})
 }
 
+func (p *remoteSnapshotAccessorPlan[T]) ObserveMaterializationFallback(ctx context.Context, owner dagql.Result[T], materializerErr error, valueSet bool) {
+	cache, err := dagql.EngineCache(ctx)
+	if err != nil {
+		return
+	}
+	cache.RecordRemoteSnapshotMaterializationFallback(ctx, dagql.RemoteSnapshotMaterializationRequest{
+		ResultID: p.resultID,
+		Role:     p.role,
+		Chain:    clonePersistedSnapshotChain(p.chain),
+		Owner:    owner,
+	}, materializerErr, valueSet)
+}
+
 func clonePersistedSnapshotChain(chain dagql.PersistedSnapshotChain) dagql.PersistedSnapshotChain {
 	chain.Layers = append([]dagql.PersistedSnapshotChainLayer(nil), chain.Layers...)
 	return chain
