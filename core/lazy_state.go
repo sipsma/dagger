@@ -120,6 +120,8 @@ type LazyAccessorFallbackObserver[T dagql.Typed] interface {
 	ObserveMaterializationFallback(context.Context, dagql.Result[T], error, bool)
 }
 
+var ErrLazyAccessorValueNotSet = errors.New("lazy accessor value not set after evaluation")
+
 // WARN: res MUST be the dagql result wrapper for the same owner object as this
 // accessor. The accessor cannot validate that today due to the current
 // Directory/File/Container vs dagql.Result split, so callers must pass the
@@ -173,7 +175,7 @@ func (a *LazyAccessor[V, T]) GetOrEval(ctx context.Context, res dagql.Result[T])
 		if materializerErr != nil {
 			return zero, materializerErr
 		}
-		return zero, fmt.Errorf("lazy accessor value not set after evaluation")
+		return zero, ErrLazyAccessorValueNotSet
 	}
 	return a.value, nil
 }

@@ -2,7 +2,9 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -161,18 +163,441 @@ func TestCachemoneyDecodeContainerInstallsIndependentRemoteSnapshotPlans(t *test
 	_, ok := loadedContainer.MetaSnapshot.Peek()
 	require.False(t, ok)
 
-	loadedRootFS, ok := loadedContainer.FS.Peek()
-	require.True(t, ok)
-	require.True(t, loadedRootFS.Snapshot.hasMaterializer())
-	_, ok = loadedRootFS.Snapshot.Peek()
+	require.True(t, loadedContainer.FS.hasMaterializer())
+	_, ok = loadedContainer.FS.Peek()
 	require.False(t, ok)
 
 	require.Len(t, loadedContainer.Mounts, 1)
-	loadedMount, ok := loadedContainer.Mounts[0].DirectorySource.Peek()
-	require.True(t, ok)
-	require.True(t, loadedMount.Snapshot.hasMaterializer())
-	_, ok = loadedMount.Snapshot.Peek()
+	require.True(t, loadedContainer.Mounts[0].DirectorySource.hasMaterializer())
+	_, ok = loadedContainer.Mounts[0].DirectorySource.Peek()
 	require.False(t, ok)
+}
+
+func TestContainerMetaFileContentsForResultUsesAccessorPlan(t *testing.T) {
+	t.Parallel()
+
+	metaDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(metaDir, "stdout"), []byte("remote stdout"), 0o600))
+	metaRef := &cacheVolumeTestImmutableRef{
+		id:         "meta-ref",
+		snapshotID: "meta-snapshot",
+		mountDir:   metaDir,
+	}
+	manager := &cacheVolumeTestSnapshotManager{
+		immutableBySnapshotID: map[string]bkcache.ImmutableRef{
+			"meta-snapshot": metaRef,
+		},
+	}
+	srv, query := cachemoneyRemotePlanTestServer(t, manager)
+	ctx := ContextWithQuery(context.Background(), query)
+
+	container := NewContainer(Platform{OS: "linux", Architecture: "amd64"})
+	container.MetaSnapshot.setMaterializer(&lazyAccessorTestMaterializer[bkcache.ImmutableRef, *Container]{
+		value: metaRef,
+		ok:    true,
+	})
+	self, err := dagql.NewObjectResultForCall(container, srv, cachemoneyRemotePlanTestCall("meta-file", (&Container{}).Type()))
+	require.NoError(t, err)
+
+	got, err := container.StdoutForResult(ctx, self)
+	require.NoError(t, err)
+	require.Equal(t, "remote stdout", got)
+	require.Equal(t, []string{"meta-snapshot"}, manager.getBySnapshotIDCalls)
+}
+
+func TestMaterializeContainerStateFromParentUsesSlotAccessors(t *testing.T) {
+	t.Parallel()
+
+	manager := &cacheVolumeTestSnapshotManager{
+		immutableBySnapshotID: map[string]bkcache.ImmutableRef{
+			"fs-snapshot":    &cacheVolumeTestImmutableRef{id: "fs-ref", snapshotID: "fs-snapshot"},
+			"meta-snapshot":  &cacheVolumeTestImmutableRef{id: "meta-ref", snapshotID: "meta-snapshot"},
+			"mount-snapshot": &cacheVolumeTestImmutableRef{id: "mount-ref", snapshotID: "mount-snapshot"},
+		},
+	}
+	srv, query := cachemoneyRemotePlanTestServer(t, manager)
+	ctx := ContextWithQuery(context.Background(), query)
+
+	rootFS := &Directory{
+		Platform: Platform{OS: "linux", Architecture: "amd64"},
+		Dir:      new(LazyAccessor[string, *Directory]),
+		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+	}
+	rootFS.Dir.setValue("/")
+	rootFS.Snapshot.setValue(manager.immutableBySnapshotID["fs-snapshot"])
+	mountDir := &Directory{
+		Platform: Platform{OS: "linux", Architecture: "amd64"},
+		Dir:      new(LazyAccessor[string, *Directory]),
+		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+	}
+	mountDir.Dir.setValue("/src")
+	mountDir.Snapshot.setValue(manager.immutableBySnapshotID["mount-snapshot"])
+
+	parent := NewContainer(Platform{OS: "linux", Architecture: "amd64"})
+	parent.FS.setMaterializer(&lazyAccessorTestMaterializer[*Directory, *Container]{
+		value: rootFS,
+		ok:    true,
+	})
+	parent.MetaSnapshot.setMaterializer(&lazyAccessorTestMaterializer[bkcache.ImmutableRef, *Container]{
+		value: manager.immutableBySnapshotID["meta-snapshot"],
+		ok:    true,
+	})
+	parent.Mounts = ContainerMounts{{
+		Target:          "/mnt",
+		DirectorySource: new(LazyAccessor[*Directory, *Container]),
+	}}
+	parent.Mounts[0].DirectorySource.setMaterializer(&lazyAccessorTestMaterializer[*Directory, *Container]{
+		value: mountDir,
+		ok:    true,
+	})
+	parentRes, err := dagql.NewObjectResultForCall(parent, srv, cachemoneyRemotePlanTestCall("parent", (&Container{}).Type()))
+	require.NoError(t, err)
+
+	dst := NewContainer(Platform{OS: "linux", Architecture: "amd64"})
+	require.NoError(t, materializeContainerStateFromParent(ctx, dst, parentRes))
+
+	clonedRoot, ok := dst.FS.Peek()
+	require.True(t, ok)
+	clonedRootSnapshot, ok := clonedRoot.Snapshot.Peek()
+	require.True(t, ok)
+	require.Equal(t, "fs-snapshot", clonedRootSnapshot.SnapshotID())
+	clonedMeta, ok := dst.MetaSnapshot.Peek()
+	require.True(t, ok)
+	require.Equal(t, "meta-snapshot", clonedMeta.SnapshotID())
+	require.Len(t, dst.Mounts, 1)
+	clonedMount, ok := dst.Mounts[0].DirectorySource.Peek()
+	require.True(t, ok)
+	clonedMountSnapshot, ok := clonedMount.Snapshot.Peek()
+	require.True(t, ok)
+	require.Equal(t, "mount-snapshot", clonedMountSnapshot.SnapshotID())
+	require.ElementsMatch(t, []string{"fs-snapshot", "meta-snapshot", "mount-snapshot"}, manager.getBySnapshotIDCalls)
+}
+
+func TestMaterializeContainerStateFromParentEvaluatesUnplannedPendingRootFS(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	manager := &cacheVolumeTestSnapshotManager{
+		immutableBySnapshotID: map[string]bkcache.ImmutableRef{
+			"fs-snapshot": &cacheVolumeTestImmutableRef{id: "fs-ref", snapshotID: "fs-snapshot"},
+		},
+	}
+	cache, err := dagql.NewCache(ctx, filepath.Join(t.TempDir(), "cache.db"), manager, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, cache.Close(context.Background()))
+	})
+	srv, query := cachemoneyRemotePlanTestServer(t, manager)
+	ctx = ContextWithQuery(dagql.ContextWithCache(ctx, cache), query)
+
+	rootFS := &Directory{
+		Platform: Platform{OS: "linux", Architecture: "amd64"},
+		Dir:      new(LazyAccessor[string, *Directory]),
+		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+	}
+	rootFS.Dir.setValue("/")
+	rootFS.Snapshot.setValue(manager.immutableBySnapshotID["fs-snapshot"])
+
+	lazy := &containerSetRootFSTestLazy{
+		LazyState: NewLazyState(),
+		rootFS:    rootFS,
+	}
+	parent := NewContainer(Platform{OS: "linux", Architecture: "amd64"})
+	parent.Lazy = lazy
+	call := cachemoneyRemotePlanTestCall("pending-parent", (&Container{}).Type())
+	anyParent, err := cache.GetOrInitCall(ctx, "session", srv, &dagql.CallRequest{
+		ResultCall:    call,
+		IsPersistable: true,
+	}, func(context.Context) (dagql.AnyResult, error) {
+		return dagql.NewObjectResultForCall(parent, srv, call)
+	})
+	require.NoError(t, err)
+	parentRes := anyParent.(dagql.ObjectResult[*Container])
+
+	dst := NewContainer(Platform{OS: "linux", Architecture: "amd64"})
+	require.NoError(t, materializeContainerStateFromParent(ctx, dst, parentRes))
+	require.Equal(t, 1, lazy.calls)
+
+	clonedRoot, ok := dst.FS.Peek()
+	require.True(t, ok)
+	clonedRootSnapshot, ok := clonedRoot.Snapshot.Peek()
+	require.True(t, ok)
+	require.Equal(t, "fs-snapshot", clonedRootSnapshot.SnapshotID())
+	require.Equal(t, []string{"fs-snapshot"}, manager.getBySnapshotIDCalls)
+}
+
+func TestMaterializeContainerStateFromParentEvaluatesUnplannedPendingMountSource(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	manager := &cacheVolumeTestSnapshotManager{
+		immutableBySnapshotID: map[string]bkcache.ImmutableRef{
+			"fs-snapshot":    &cacheVolumeTestImmutableRef{id: "fs-ref", snapshotID: "fs-snapshot"},
+			"mount-snapshot": &cacheVolumeTestImmutableRef{id: "mount-ref", snapshotID: "mount-snapshot"},
+		},
+	}
+	cache, err := dagql.NewCache(ctx, filepath.Join(t.TempDir(), "cache.db"), manager, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, cache.Close(context.Background()))
+	})
+	srv, query := cachemoneyRemotePlanTestServer(t, manager)
+	ctx = ContextWithQuery(dagql.ContextWithCache(ctx, cache), query)
+
+	rootFS := &Directory{
+		Platform: Platform{OS: "linux", Architecture: "amd64"},
+		Dir:      new(LazyAccessor[string, *Directory]),
+		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+	}
+	rootFS.Dir.setValue("/")
+	rootFS.Snapshot.setValue(manager.immutableBySnapshotID["fs-snapshot"])
+	mountDir := &Directory{
+		Platform: Platform{OS: "linux", Architecture: "amd64"},
+		Dir:      new(LazyAccessor[string, *Directory]),
+		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+	}
+	mountDir.Dir.setValue("/")
+	mountDir.Snapshot.setValue(manager.immutableBySnapshotID["mount-snapshot"])
+
+	lazy := &containerSetMountSourceTestLazy{
+		LazyState: NewLazyState(),
+		mountDir:  mountDir,
+	}
+	parent := NewContainer(Platform{OS: "linux", Architecture: "amd64"})
+	parent.FS.setValue(rootFS)
+	parent.Mounts = ContainerMounts{{
+		Target:          "/mnt",
+		DirectorySource: new(LazyAccessor[*Directory, *Container]),
+	}}
+	parent.Lazy = lazy
+	call := cachemoneyRemotePlanTestCall("pending-mount-parent", (&Container{}).Type())
+	anyParent, err := cache.GetOrInitCall(ctx, "session", srv, &dagql.CallRequest{
+		ResultCall:    call,
+		IsPersistable: true,
+	}, func(context.Context) (dagql.AnyResult, error) {
+		return dagql.NewObjectResultForCall(parent, srv, call)
+	})
+	require.NoError(t, err)
+	parentRes := anyParent.(dagql.ObjectResult[*Container])
+
+	dst := NewContainer(Platform{OS: "linux", Architecture: "amd64"})
+	require.NoError(t, materializeContainerStateFromParent(ctx, dst, parentRes))
+	require.Equal(t, 1, lazy.calls)
+
+	require.Len(t, dst.Mounts, 1)
+	clonedMount, ok := dst.Mounts[0].DirectorySource.Peek()
+	require.True(t, ok)
+	clonedMountSnapshot, ok := clonedMount.Snapshot.Peek()
+	require.True(t, ok)
+	require.Equal(t, "mount-snapshot", clonedMountSnapshot.SnapshotID())
+	require.ElementsMatch(t, []string{"fs-snapshot", "mount-snapshot"}, manager.getBySnapshotIDCalls)
+}
+
+func TestContainerRootFSLazyUsesAccessorPlan(t *testing.T) {
+	t.Parallel()
+
+	manager := &cacheVolumeTestSnapshotManager{
+		immutableBySnapshotID: map[string]bkcache.ImmutableRef{
+			"fs-snapshot": &cacheVolumeTestImmutableRef{id: "fs-ref", snapshotID: "fs-snapshot"},
+		},
+	}
+	srv, query := cachemoneyRemotePlanTestServer(t, manager)
+	ctx := ContextWithQuery(context.Background(), query)
+
+	rootFS := &Directory{
+		Platform: Platform{OS: "linux", Architecture: "amd64"},
+		Dir:      new(LazyAccessor[string, *Directory]),
+		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+	}
+	rootFS.Dir.setValue("/")
+	rootFS.Snapshot.setValue(manager.immutableBySnapshotID["fs-snapshot"])
+
+	parent := NewContainer(Platform{OS: "linux", Architecture: "amd64"})
+	parent.FS.setMaterializer(&lazyAccessorTestMaterializer[*Directory, *Container]{
+		value: rootFS,
+		ok:    true,
+	})
+	parentRes, err := dagql.NewObjectResultForCall(parent, srv, cachemoneyRemotePlanTestCall("parent-rootfs", (&Container{}).Type()))
+	require.NoError(t, err)
+
+	dir := &Directory{
+		Dir:      new(LazyAccessor[string, *Directory]),
+		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+	}
+	lazy := &ContainerRootFSLazy{
+		LazyState: NewLazyState(),
+		Parent:    parentRes,
+	}
+	require.NoError(t, lazy.Evaluate(ctx, dir))
+
+	snapshot, ok := dir.Snapshot.Peek()
+	require.True(t, ok)
+	require.Equal(t, "fs-snapshot", snapshot.SnapshotID())
+	require.Equal(t, []string{"fs-snapshot"}, manager.getBySnapshotIDCalls)
+}
+
+func TestContainerRootFSLazyEvaluatesUnplannedPendingRootFS(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	manager := &cacheVolumeTestSnapshotManager{
+		immutableBySnapshotID: map[string]bkcache.ImmutableRef{
+			"fs-snapshot": &cacheVolumeTestImmutableRef{id: "fs-ref", snapshotID: "fs-snapshot"},
+		},
+	}
+	cache, err := dagql.NewCache(ctx, filepath.Join(t.TempDir(), "cache.db"), manager, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, cache.Close(context.Background()))
+	})
+	srv, query := cachemoneyRemotePlanTestServer(t, manager)
+	ctx = ContextWithQuery(dagql.ContextWithCache(ctx, cache), query)
+
+	rootFS := &Directory{
+		Platform: Platform{OS: "linux", Architecture: "amd64"},
+		Dir:      new(LazyAccessor[string, *Directory]),
+		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+	}
+	rootFS.Dir.setValue("/")
+	rootFS.Snapshot.setValue(manager.immutableBySnapshotID["fs-snapshot"])
+
+	lazy := &containerSetRootFSTestLazy{
+		LazyState: NewLazyState(),
+		rootFS:    rootFS,
+	}
+	parent := NewContainer(Platform{OS: "linux", Architecture: "amd64"})
+	parent.Lazy = lazy
+	call := cachemoneyRemotePlanTestCall("pending-rootfs-parent", (&Container{}).Type())
+	anyParent, err := cache.GetOrInitCall(ctx, "session", srv, &dagql.CallRequest{
+		ResultCall:    call,
+		IsPersistable: true,
+	}, func(context.Context) (dagql.AnyResult, error) {
+		return dagql.NewObjectResultForCall(parent, srv, call)
+	})
+	require.NoError(t, err)
+	parentRes := anyParent.(dagql.ObjectResult[*Container])
+
+	dir := &Directory{
+		Dir:      new(LazyAccessor[string, *Directory]),
+		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+	}
+	rootLazy := &ContainerRootFSLazy{
+		LazyState: NewLazyState(),
+		Parent:    parentRes,
+	}
+	require.NoError(t, rootLazy.Evaluate(ctx, dir))
+	require.Equal(t, 1, lazy.calls)
+
+	snapshot, ok := dir.Snapshot.Peek()
+	require.True(t, ok)
+	require.Equal(t, "fs-snapshot", snapshot.SnapshotID())
+	require.Equal(t, []string{"fs-snapshot"}, manager.getBySnapshotIDCalls)
+}
+
+func TestContainerDirectoryLazyUsesMountedSourceAccessorPlan(t *testing.T) {
+	t.Parallel()
+
+	mountRoot := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(mountRoot, "subdir"), 0o700))
+	mountRef := &cacheVolumeTestImmutableRef{
+		id:         "mount-ref",
+		snapshotID: "mount-snapshot",
+		mountDir:   mountRoot,
+	}
+	manager := &cacheVolumeTestSnapshotManager{
+		immutableBySnapshotID: map[string]bkcache.ImmutableRef{
+			"mount-snapshot": mountRef,
+		},
+	}
+	srv, query := cachemoneyRemotePlanTestServer(t, manager)
+	ctx := ContextWithQuery(context.Background(), query)
+
+	sourceDir := &Directory{
+		Platform: Platform{OS: "linux", Architecture: "amd64"},
+		Dir:      new(LazyAccessor[string, *Directory]),
+		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+	}
+	sourceDir.Dir.setValue("/")
+	sourceDir.Snapshot.setValue(mountRef)
+	parent := NewContainer(Platform{OS: "linux", Architecture: "amd64"})
+	parent.Mounts = ContainerMounts{{
+		Target:          "/mnt",
+		DirectorySource: new(LazyAccessor[*Directory, *Container]),
+	}}
+	parent.Mounts[0].DirectorySource.setMaterializer(&lazyAccessorTestMaterializer[*Directory, *Container]{
+		value: sourceDir,
+		ok:    true,
+	})
+	parentRes, err := dagql.NewObjectResultForCall(parent, srv, cachemoneyRemotePlanTestCall("parent-mount", (&Container{}).Type()))
+	require.NoError(t, err)
+
+	dir := &Directory{
+		Dir:      new(LazyAccessor[string, *Directory]),
+		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+	}
+	lazy := &ContainerDirectoryLazy{
+		LazyState: NewLazyState(),
+		Parent:    parentRes,
+		Path:      "/mnt/subdir",
+	}
+	require.NoError(t, lazy.Evaluate(ctx, dir))
+
+	dirPath, ok := dir.Dir.Peek()
+	require.True(t, ok)
+	require.Equal(t, "/subdir", dirPath)
+	snapshot, ok := dir.Snapshot.Peek()
+	require.True(t, ok)
+	require.Equal(t, "mount-snapshot", snapshot.SnapshotID())
+	require.Equal(t, []string{"mount-snapshot", "mount-snapshot"}, manager.getBySnapshotIDCalls)
+}
+
+type containerSetRootFSTestLazy struct {
+	LazyState
+	rootFS *Directory
+	calls  int
+}
+
+func (lazy *containerSetRootFSTestLazy) Evaluate(ctx context.Context, container *Container) error {
+	return lazy.LazyState.Evaluate(ctx, "Container.testSetRootFS", func(context.Context) error {
+		lazy.calls++
+		container.FS = new(LazyAccessor[*Directory, *Container])
+		container.FS.setValue(lazy.rootFS)
+		return nil
+	})
+}
+
+func (lazy *containerSetRootFSTestLazy) AttachDependencies(context.Context, func(dagql.AnyResult) (dagql.AnyResult, error)) ([]dagql.AnyResult, error) {
+	return nil, nil
+}
+
+func (lazy *containerSetRootFSTestLazy) EncodePersisted(context.Context, dagql.PersistedObjectCache) (json.RawMessage, error) {
+	return nil, nil
+}
+
+type containerSetMountSourceTestLazy struct {
+	LazyState
+	mountDir *Directory
+	calls    int
+}
+
+func (lazy *containerSetMountSourceTestLazy) Evaluate(ctx context.Context, container *Container) error {
+	return lazy.LazyState.Evaluate(ctx, "Container.testSetMountSource", func(context.Context) error {
+		lazy.calls++
+		container.Mounts = ContainerMounts{{
+			Target:          "/mnt",
+			DirectorySource: new(LazyAccessor[*Directory, *Container]),
+		}}
+		container.Mounts[0].DirectorySource.setValue(lazy.mountDir)
+		return nil
+	})
+}
+
+func (lazy *containerSetMountSourceTestLazy) AttachDependencies(context.Context, func(dagql.AnyResult) (dagql.AnyResult, error)) ([]dagql.AnyResult, error) {
+	return nil, nil
+}
+
+func (lazy *containerSetMountSourceTestLazy) EncodePersisted(context.Context, dagql.PersistedObjectCache) (json.RawMessage, error) {
+	return nil, nil
 }
 
 func cachemoneyRemotePlanTestServer(t *testing.T, manager bkcache.SnapshotManager) (*dagql.Server, *Query) {

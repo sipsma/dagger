@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	ctrdmount "github.com/containerd/containerd/v2/core/mount"
 	"github.com/containerd/containerd/v2/core/snapshots"
 	"github.com/stretchr/testify/require"
 
@@ -188,11 +189,15 @@ type cacheVolumeTestImmutableRef struct {
 	id          string
 	snapshotID  string
 	size        int64
+	mountDir    string
 	release     func(context.Context) error
 	exportChain *bkcache.ExportChain
 }
 
 func (r *cacheVolumeTestImmutableRef) Mount(context.Context, bool) (bkcache.MountableRef, error) {
+	if r.mountDir != "" {
+		return cacheVolumeTestMountableRef{dir: r.mountDir}, nil
+	}
 	panic("unexpected Mount call")
 }
 
@@ -304,6 +309,20 @@ func (*cacheVolumeTestImmutableRef) SetExternal(string, []byte) error {
 
 func (*cacheVolumeTestImmutableRef) ClearValueAndIndex(string, string) error {
 	return nil
+}
+
+type cacheVolumeTestMountableRef struct {
+	dir string
+}
+
+func (r cacheVolumeTestMountableRef) Mount() ([]ctrdmount.Mount, func() error, error) {
+	return []ctrdmount.Mount{{
+			Type:    "bind",
+			Source:  r.dir,
+			Options: []string{"rbind"},
+		}}, func() error {
+			return nil
+		}, nil
 }
 
 type cacheVolumeTestMutableRef struct {

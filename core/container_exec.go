@@ -1204,9 +1204,15 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 		if err != nil {
 			return err
 		}
-		if err := dagCache.Evaluate(ctx, state.Parent); err != nil {
-			return err
+		outputRootFS := container.FS
+		if outputRootFS == nil {
+			outputRootFS = new(LazyAccessor[*Directory, *Container])
 		}
+		outputMetaSnapshot := container.MetaSnapshot
+		if outputMetaSnapshot == nil {
+			outputMetaSnapshot = new(LazyAccessor[bkcache.ImmutableRef, *Container])
+		}
+		outputMounts := slices.Clone(container.Mounts)
 		if err := materializeContainerStateFromParent(ctx, container, state.Parent); err != nil {
 			return err
 		}
@@ -1323,17 +1329,23 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 			}
 			output.Dir.setValue(dirPath)
 			output.Snapshot.setValue(ref)
+			outputRootFS.setValue(output)
 			if container.FS == nil {
 				container.FS = new(LazyAccessor[*Directory, *Container])
 			}
-			container.FS.setValue(output)
+			if container.FS != outputRootFS {
+				container.FS.setValue(output)
+			}
 			return nil
 		}
 		metaOutputBinding := func(ref bkcache.ImmutableRef) error {
+			outputMetaSnapshot.setValue(ref)
 			if container.MetaSnapshot == nil {
 				container.MetaSnapshot = new(LazyAccessor[bkcache.ImmutableRef, *Container])
 			}
-			container.MetaSnapshot.setValue(ref)
+			if container.MetaSnapshot != outputMetaSnapshot {
+				container.MetaSnapshot.setValue(ref)
+			}
 			return nil
 		}
 		mountOutputBindings := make([]func(bkcache.ImmutableRef) error, len(container.Mounts))
@@ -1360,10 +1372,15 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 					}
 					output.Dir.setValue(dirPath)
 					output.Snapshot.setValue(ref)
+					if idx < len(outputMounts) && outputMounts[idx].DirectorySource != nil {
+						outputMounts[idx].DirectorySource.setValue(output)
+					}
 					if container.Mounts[idx].DirectorySource == nil {
 						container.Mounts[idx].DirectorySource = new(LazyAccessor[*Directory, *Container])
 					}
-					container.Mounts[idx].DirectorySource.setValue(output)
+					if idx >= len(outputMounts) || container.Mounts[idx].DirectorySource != outputMounts[idx].DirectorySource {
+						container.Mounts[idx].DirectorySource.setValue(output)
+					}
 					return nil
 				}
 			case ctrMount.FileSource != nil:
@@ -1384,10 +1401,15 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 					}
 					output.File.setValue(filePath)
 					output.Snapshot.setValue(ref)
+					if idx < len(outputMounts) && outputMounts[idx].FileSource != nil {
+						outputMounts[idx].FileSource.setValue(output)
+					}
 					if container.Mounts[idx].FileSource == nil {
 						container.Mounts[idx].FileSource = new(LazyAccessor[*File, *Container])
 					}
-					container.Mounts[idx].FileSource.setValue(output)
+					if idx >= len(outputMounts) || container.Mounts[idx].FileSource != outputMounts[idx].FileSource {
+						container.Mounts[idx].FileSource.setValue(output)
+					}
 					return nil
 				}
 			}
@@ -2244,16 +2266,43 @@ func (container *Container) Stdout(ctx context.Context) (string, error) {
 	return container.metaFileContents(ctx, engineutil.MetaMountStdoutPath)
 }
 
+func (container *Container) StdoutForResult(ctx context.Context, self dagql.ObjectResult[*Container]) (string, error) {
+	return container.metaFileContentsForResult(ctx, self, engineutil.MetaMountStdoutPath)
+}
+
 func (container *Container) Stderr(ctx context.Context) (string, error) {
 	return container.metaFileContents(ctx, engineutil.MetaMountStderrPath)
+}
+
+func (container *Container) StderrForResult(ctx context.Context, self dagql.ObjectResult[*Container]) (string, error) {
+	return container.metaFileContentsForResult(ctx, self, engineutil.MetaMountStderrPath)
 }
 
 func (container *Container) CombinedOutput(ctx context.Context) (string, error) {
 	return container.metaFileContents(ctx, engineutil.MetaMountCombinedOutputPath)
 }
 
+func (container *Container) CombinedOutputForResult(ctx context.Context, self dagql.ObjectResult[*Container]) (string, error) {
+	return container.metaFileContentsForResult(ctx, self, engineutil.MetaMountCombinedOutputPath)
+}
+
 func (container *Container) ExitCode(ctx context.Context) (int, error) {
 	contents, err := container.metaFileContents(ctx, engineutil.MetaMountExitCodePath)
+	if err != nil {
+		return 0, err
+	}
+	contents = strings.TrimSpace(contents)
+
+	code, err := strconv.ParseInt(contents, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("could not parse exit code %q: %w", contents, err)
+	}
+
+	return int(code), nil
+}
+
+func (container *Container) ExitCodeForResult(ctx context.Context, self dagql.ObjectResult[*Container]) (int, error) {
+	contents, err := container.metaFileContentsForResult(ctx, self, engineutil.MetaMountExitCodePath)
 	if err != nil {
 		return 0, err
 	}
@@ -2279,7 +2328,31 @@ func (container *Container) metaFileContents(ctx context.Context, filePath strin
 	if !ok || metaSnapshot == nil {
 		return "", ErrNoCommand
 	}
+	return container.readMetaFileContents(ctx, metaSnapshot, filePath)
+}
 
+func (container *Container) metaFileContentsForResult(ctx context.Context, self dagql.ObjectResult[*Container], filePath string) (string, error) {
+	if container.MetaSnapshot == nil {
+		return "", ErrNoCommand
+	}
+	metaSnapshot, ok := container.MetaSnapshot.Peek()
+	if !ok || metaSnapshot == nil {
+		if !container.MetaSnapshot.hasMaterializer() && !containerResultMayEvaluateUnplannedAccessors(ctx, self) {
+			return "", ErrNoCommand
+		}
+		var err error
+		metaSnapshot, err = container.MetaSnapshot.GetOrEval(ctx, self.Result)
+		if err != nil {
+			return "", err
+		}
+		if metaSnapshot == nil {
+			return "", ErrNoCommand
+		}
+	}
+	return container.readMetaFileContents(ctx, metaSnapshot, filePath)
+}
+
+func (container *Container) readMetaFileContents(ctx context.Context, metaSnapshot bkcache.ImmutableRef, filePath string) (string, error) {
 	query, err := CurrentQuery(ctx)
 	if err != nil {
 		return "", err

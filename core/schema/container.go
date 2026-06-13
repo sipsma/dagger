@@ -1483,14 +1483,7 @@ func (s *containerSchema) withExec(ctx context.Context, parent dagql.ObjectResul
 }
 
 func (s *containerSchema) stdout(ctx context.Context, parent dagql.ObjectResult[*core.Container], _ struct{}) (string, error) {
-	cache, err := dagql.EngineCache(ctx)
-	if err != nil {
-		return "", err
-	}
-	if err := cache.Evaluate(ctx, parent); err != nil {
-		return "", err
-	}
-	return parent.Self().Stdout(ctx)
+	return parent.Self().StdoutForResult(ctx, parent)
 }
 
 //nolint:dupl
@@ -1500,7 +1493,7 @@ func (s *containerSchema) stdoutLegacy(ctx context.Context, parent dagql.ObjectR
 		return "", fmt.Errorf("failed to get server: %w", err)
 	}
 
-	out, err := parent.Self().Stdout(ctx)
+	out, err := parent.Self().StdoutForResult(ctx, parent)
 	if errors.Is(err, core.ErrNoCommand) {
 		var ctr dagql.ObjectResult[*core.Container]
 		if err := srv.Select(ctx, parent, &ctr, dagql.Selector{
@@ -1518,20 +1511,13 @@ func (s *containerSchema) stdoutLegacy(ctx context.Context, parent dagql.ObjectR
 		}); err != nil {
 			return "", err
 		}
-		return ctr.Self().Stdout(ctx)
+		return ctr.Self().StdoutForResult(ctx, ctr)
 	}
 	return out, err
 }
 
 func (s *containerSchema) stderr(ctx context.Context, parent dagql.ObjectResult[*core.Container], _ struct{}) (string, error) {
-	cache, err := dagql.EngineCache(ctx)
-	if err != nil {
-		return "", err
-	}
-	if err := cache.Evaluate(ctx, parent); err != nil {
-		return "", err
-	}
-	return parent.Self().Stderr(ctx)
+	return parent.Self().StderrForResult(ctx, parent)
 }
 
 //nolint:dupl
@@ -1541,7 +1527,7 @@ func (s *containerSchema) stderrLegacy(ctx context.Context, parent dagql.ObjectR
 		return "", fmt.Errorf("failed to get server: %w", err)
 	}
 
-	out, err := parent.Self().Stderr(ctx)
+	out, err := parent.Self().StderrForResult(ctx, parent)
 	if errors.Is(err, core.ErrNoCommand) {
 		var ctr dagql.ObjectResult[*core.Container]
 		if err := srv.Select(ctx, parent, &ctr, dagql.Selector{
@@ -1559,31 +1545,17 @@ func (s *containerSchema) stderrLegacy(ctx context.Context, parent dagql.ObjectR
 		}); err != nil {
 			return "", err
 		}
-		return ctr.Self().Stderr(ctx)
+		return ctr.Self().StderrForResult(ctx, ctr)
 	}
 	return out, err
 }
 
 func (s *containerSchema) combinedOutput(ctx context.Context, parent dagql.ObjectResult[*core.Container], _ struct{}) (string, error) {
-	cache, err := dagql.EngineCache(ctx)
-	if err != nil {
-		return "", err
-	}
-	if err := cache.Evaluate(ctx, parent); err != nil {
-		return "", err
-	}
-	return parent.Self().CombinedOutput(ctx)
+	return parent.Self().CombinedOutputForResult(ctx, parent)
 }
 
 func (s *containerSchema) exitCode(ctx context.Context, parent dagql.ObjectResult[*core.Container], _ struct{}) (int, error) {
-	cache, err := dagql.EngineCache(ctx)
-	if err != nil {
-		return 0, err
-	}
-	if err := cache.Evaluate(ctx, parent); err != nil {
-		return 0, err
-	}
-	return parent.Self().ExitCode(ctx)
+	return parent.Self().ExitCodeForResult(ctx, parent)
 }
 
 type containerWithSymlinkArgs struct {
@@ -2327,46 +2299,22 @@ func (s *containerSchema) withMountedDirectory(ctx context.Context, parent dagql
 		return nil, err
 	}
 
-	clonedFS, err := core.CloneContainerDirectoryAccessor(ctx, parent.Self().FS)
+	ctr, _, err := cloneContainerForSchemaChild(ctx, parent)
 	if err != nil {
 		return nil, err
 	}
-	clonedMounts, err := core.CloneContainerMounts(ctx, parent.Self().Mounts)
-	if err != nil {
-		return nil, err
-	}
-	clonedMeta, err := core.CloneContainerMetaSnapshot(ctx, parent.Self().MetaSnapshot)
-	if err != nil {
-		return nil, err
-	}
-	ctr := &core.Container{
-		FS:                 clonedFS,
-		MetaSnapshot:       clonedMeta,
-		Config:             core.CloneContainerImageConfig(parent.Self().Config),
-		EnabledGPUs:        slices.Clone(parent.Self().EnabledGPUs),
-		Mounts:             clonedMounts,
-		Platform:           parent.Self().Platform,
-		Annotations:        slices.Clone(parent.Self().Annotations),
-		Secrets:            slices.Clone(parent.Self().Secrets),
-		Sockets:            slices.Clone(parent.Self().Sockets),
-		ImageRef:           "",
-		Ports:              slices.Clone(parent.Self().Ports),
-		Services:           slices.Clone(parent.Self().Services),
-		DefaultTerminalCmd: parent.Self().DefaultTerminalCmd,
-		SystemEnvNames:     slices.Clone(parent.Self().SystemEnvNames),
-		VolatileEnv:        slices.Clone(parent.Self().VolatileEnv),
-		DefaultArgs:        parent.Self().DefaultArgs,
-		Lazy: &core.ContainerWithMountedDirectoryLazy{
-			LazyState: core.NewLazyState(),
-			Parent:    parent,
-			Target:    absPath(parent.Self().Config.WorkingDir, path),
-			Source:    dir,
-			Owner:     args.Owner,
-			Readonly:  args.ReadOnly,
-		},
+	target := absPath(parent.Self().Config.WorkingDir, path)
+	ctr.ImageRef = ""
+	ctr.Lazy = &core.ContainerWithMountedDirectoryLazy{
+		LazyState: core.NewLazyState(),
+		Parent:    parent,
+		Target:    target,
+		Source:    dir,
+		Owner:     args.Owner,
+		Readonly:  args.ReadOnly,
 	}
 	ctr.Mounts = ctr.Mounts.With(core.ContainerMount{
-		Target:          absPath(parent.Self().Config.WorkingDir, path),
+		Target:          target,
 		Readonly:        args.ReadOnly,
 		DirectorySource: new(core.LazyAccessor[*core.Directory, *core.Container]),
 	})
@@ -3119,7 +3067,7 @@ func ownerNeedsLookup(owner string) bool {
 }
 
 func cloneContainerForSchemaChild(ctx context.Context, parent dagql.ObjectResult[*core.Container]) (*core.Container, bool, error) {
-	parentPendingLazy := dagql.HasPendingLazyEvaluation(parent)
+	parentPendingLazy := core.ContainerResultHasPendingLazy(parent)
 
 	clonedFS, err := core.CloneContainerDirectoryAccessor(ctx, parent.Self().FS)
 	if err != nil {

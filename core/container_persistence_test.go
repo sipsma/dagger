@@ -64,6 +64,29 @@ func TestContainerEncodePersistedObjectPendingLazyUsesLazyForm(t *testing.T) {
 	require.NotEmpty(t, payload.LazyJSON)
 }
 
+func TestContainerUnresolvedSnapshotSlotsTreatMetaAsExecOnly(t *testing.T) {
+	t.Parallel()
+
+	ctr := NewContainer(Platform{OS: "linux", Architecture: "amd64"})
+	rootFS := &Directory{
+		Dir:      new(LazyAccessor[string, *Directory]),
+		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+	}
+	rootFS.Dir.setValue("/")
+	rootFS.Snapshot.setValue(&cacheVolumeTestImmutableRef{snapshotID: "rootfs"})
+	ctr.FS.setValue(rootFS)
+
+	require.False(t, containerHasUnresolvedSnapshotSlot(ctr, &dagql.ResultCall{Field: "withEnvVariable"}))
+	require.True(t, containerHasUnresolvedSnapshotSlot(ctr, &dagql.ResultCall{Field: "withExec"}))
+}
+
+func TestContainerUnresolvedSnapshotSlotsIncludeRootFS(t *testing.T) {
+	t.Parallel()
+
+	ctr := NewContainer(Platform{OS: "linux", Architecture: "amd64"})
+	require.True(t, containerHasUnresolvedSnapshotSlot(ctr, &dagql.ResultCall{Field: "withEnvVariable"}))
+}
+
 func TestDirectoryEncodePersistedObjectSnapshotAlsoIncludesRecipe(t *testing.T) {
 	t.Parallel()
 

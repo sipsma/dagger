@@ -925,6 +925,41 @@ func CloneContainerMetaSnapshot(ctx context.Context, src *LazyAccessor[bkcache.I
 	return cp, nil
 }
 
+func CloneContainerMetaSnapshotForResult(ctx context.Context, src *LazyAccessor[bkcache.ImmutableRef, *Container], owner dagql.ObjectResult[*Container]) (*LazyAccessor[bkcache.ImmutableRef, *Container], error) {
+	if src == nil {
+		return nil, nil
+	}
+	cp := new(LazyAccessor[bkcache.ImmutableRef, *Container])
+	snapshot, ok := src.Peek()
+	if !ok || snapshot == nil {
+		if !src.hasMaterializer() {
+			return cp, nil
+		}
+		var err error
+		snapshot, err = src.GetOrEval(ctx, owner.Result)
+		if err != nil {
+			if stderrors.Is(err, ErrLazyAccessorValueNotSet) {
+				return cp, nil
+			}
+			return nil, err
+		}
+		if snapshot == nil {
+			return cp, nil
+		}
+	}
+
+	query, err := CurrentQuery(ctx)
+	if err != nil {
+		return nil, err
+	}
+	reopened, err := query.SnapshotManager().GetBySnapshotID(ctx, snapshot.SnapshotID(), bkcache.NoUpdateLastUsed)
+	if err != nil {
+		return nil, err
+	}
+	cp.setValue(reopened)
+	return cp, nil
+}
+
 func CloneContainerDirectoryAccessor(ctx context.Context, src *LazyAccessor[*Directory, *Container]) (*LazyAccessor[*Directory, *Container], error) {
 	if src == nil {
 		return nil, nil
@@ -942,6 +977,40 @@ func CloneContainerDirectoryAccessor(ctx context.Context, src *LazyAccessor[*Dir
 	return cp, nil
 }
 
+func CloneContainerDirectoryAccessorForResult(ctx context.Context, src *LazyAccessor[*Directory, *Container], owner dagql.ObjectResult[*Container]) (*LazyAccessor[*Directory, *Container], error) {
+	return cloneContainerDirectoryAccessorForResult(ctx, src, owner)
+}
+
+func cloneContainerDirectoryAccessorForResult(ctx context.Context, src *LazyAccessor[*Directory, *Container], owner dagql.ObjectResult[*Container]) (*LazyAccessor[*Directory, *Container], error) {
+	if src == nil {
+		return nil, nil
+	}
+	cp := new(LazyAccessor[*Directory, *Container])
+	dir, ok := src.Peek()
+	if !ok || dir == nil {
+		if !src.hasMaterializer() && !containerResultMayEvaluateUnplannedAccessors(ctx, owner) {
+			return cp, nil
+		}
+		var err error
+		dir, err = src.GetOrEval(ctx, owner.Result)
+		if err != nil {
+			if stderrors.Is(err, ErrLazyAccessorValueNotSet) {
+				return cp, nil
+			}
+			return nil, err
+		}
+		if dir == nil {
+			return cp, nil
+		}
+	}
+	detached, err := cloneDetachedDirectoryForContainerResult(ctx, dir)
+	if err != nil {
+		return nil, err
+	}
+	cp.setValue(detached)
+	return cp, nil
+}
+
 func CloneContainerFileAccessor(ctx context.Context, src *LazyAccessor[*File, *Container]) (*LazyAccessor[*File, *Container], error) {
 	if src == nil {
 		return nil, nil
@@ -950,6 +1019,36 @@ func CloneContainerFileAccessor(ctx context.Context, src *LazyAccessor[*File, *C
 	file, ok := src.Peek()
 	if !ok || file == nil {
 		return cp, nil
+	}
+	detached, err := cloneDetachedFileForContainerResult(ctx, file)
+	if err != nil {
+		return nil, err
+	}
+	cp.setValue(detached)
+	return cp, nil
+}
+
+func CloneContainerFileAccessorForResult(ctx context.Context, src *LazyAccessor[*File, *Container], owner dagql.ObjectResult[*Container]) (*LazyAccessor[*File, *Container], error) {
+	if src == nil {
+		return nil, nil
+	}
+	cp := new(LazyAccessor[*File, *Container])
+	file, ok := src.Peek()
+	if !ok || file == nil {
+		if !src.hasMaterializer() && !containerResultMayEvaluateUnplannedAccessors(ctx, owner) {
+			return cp, nil
+		}
+		var err error
+		file, err = src.GetOrEval(ctx, owner.Result)
+		if err != nil {
+			if stderrors.Is(err, ErrLazyAccessorValueNotSet) {
+				return cp, nil
+			}
+			return nil, err
+		}
+		if file == nil {
+			return cp, nil
+		}
 	}
 	detached, err := cloneDetachedFileForContainerResult(ctx, file)
 	if err != nil {
@@ -979,6 +1078,26 @@ func CloneContainerMounts(ctx context.Context, mounts ContainerMounts) (Containe
 	return cp, nil
 }
 
+func CloneContainerMountsForResult(ctx context.Context, mounts ContainerMounts, owner dagql.ObjectResult[*Container]) (ContainerMounts, error) {
+	if mounts == nil {
+		return nil, nil
+	}
+	cp := make(ContainerMounts, len(mounts))
+	for i, mnt := range mounts {
+		cp[i] = mnt
+		var err error
+		cp[i].DirectorySource, err = CloneContainerDirectoryAccessorForResult(ctx, mnt.DirectorySource, owner)
+		if err != nil {
+			return nil, err
+		}
+		cp[i].FileSource, err = CloneContainerFileAccessorForResult(ctx, mnt.FileSource, owner)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return cp, nil
+}
+
 func CloneContainerImageConfig(cfg dockerspec.DockerOCIImageConfig) dockerspec.DockerOCIImageConfig {
 	cp := cfg
 	cp.ExposedPorts = maps.Clone(cp.ExposedPorts)
@@ -997,44 +1116,101 @@ func CloneContainerImageConfig(cfg dockerspec.DockerOCIImageConfig) dockerspec.D
 	return cp
 }
 
-func materializeContainerStateFromParent(ctx context.Context, dst *Container, parent dagql.ObjectResult[*Container]) error {
+func containerAccessorHasValueOrMaterializer[V any](accessor *LazyAccessor[V, *Container]) bool {
+	if accessor == nil {
+		return false
+	}
+	if _, ok := accessor.Peek(); ok {
+		return true
+	}
+	return accessor.hasMaterializer()
+}
+
+func containerMountSourcesHaveValuesOrMaterializers(mounts ContainerMounts) bool {
+	for _, mnt := range mounts {
+		if mnt.DirectorySource != nil && !containerAccessorHasValueOrMaterializer(mnt.DirectorySource) {
+			return false
+		}
+		if mnt.FileSource != nil && !containerAccessorHasValueOrMaterializer(mnt.FileSource) {
+			return false
+		}
+	}
+	return true
+}
+
+func containerResultCanEvaluate(ctx context.Context, res dagql.ObjectResult[*Container]) bool {
 	cache, err := dagql.EngineCache(ctx)
+	if err != nil || cache == nil {
+		return false
+	}
+	_, err = res.ID()
+	return err == nil
+}
+
+func containerResultHasPendingSelfLazy(res dagql.ObjectResult[*Container]) bool {
+	self := res.Self()
+	return self != nil && lazyPending(self.Lazy)
+}
+
+func ContainerResultHasPendingLazy(res dagql.ObjectResult[*Container]) bool {
+	return dagql.HasPendingLazyEvaluation(res) || containerResultHasPendingSelfLazy(res)
+}
+
+func containerResultMayEvaluateUnplannedAccessors(ctx context.Context, res dagql.ObjectResult[*Container]) bool {
+	return containerResultCanEvaluate(ctx, res)
+}
+
+func materializeContainerStateFromParent(ctx context.Context, dst *Container, parent dagql.ObjectResult[*Container]) error {
+	parentSelf := parent.Self()
+	if parentSelf == nil {
+		return fmt.Errorf("materialize container state from parent: nil parent container")
+	}
+	if containerResultMayEvaluateUnplannedAccessors(ctx, parent) &&
+		(ContainerResultHasPendingLazy(parent) ||
+			!containerAccessorHasValueOrMaterializer(parentSelf.FS) ||
+			!containerMountSourcesHaveValuesOrMaterializers(parentSelf.Mounts)) {
+		cache, err := dagql.EngineCache(ctx)
+		if err != nil {
+			return err
+		}
+		if err := cache.Evaluate(ctx, parent); err != nil {
+			return err
+		}
+		parentSelf = parent.Self()
+		if parentSelf == nil {
+			return fmt.Errorf("materialize container state from evaluated parent: nil parent container")
+		}
+	}
+
+	clonedFS, err := cloneContainerDirectoryAccessorForResult(ctx, parentSelf.FS, parent)
 	if err != nil {
 		return err
 	}
-	if err := cache.Evaluate(ctx, parent); err != nil {
+	clonedMounts, err := CloneContainerMountsForResult(ctx, parentSelf.Mounts, parent)
+	if err != nil {
+		return err
+	}
+	clonedMeta, err := CloneContainerMetaSnapshotForResult(ctx, parentSelf.MetaSnapshot, parent)
+	if err != nil {
 		return err
 	}
 
-	clonedFS, err := CloneContainerDirectoryAccessor(ctx, parent.Self().FS)
-	if err != nil {
-		return err
-	}
-	clonedMounts, err := CloneContainerMounts(ctx, parent.Self().Mounts)
-	if err != nil {
-		return err
-	}
-	clonedMeta, err := CloneContainerMetaSnapshot(ctx, parent.Self().MetaSnapshot)
-	if err != nil {
-		return err
-	}
-
-	dst.Config = CloneContainerImageConfig(parent.Self().Config)
-	dst.EnabledGPUs = slices.Clone(parent.Self().EnabledGPUs)
+	dst.Config = CloneContainerImageConfig(parentSelf.Config)
+	dst.EnabledGPUs = slices.Clone(parentSelf.EnabledGPUs)
 	dst.FS = clonedFS
 	dst.Mounts = clonedMounts
 	dst.MetaSnapshot = clonedMeta
-	dst.Platform = parent.Self().Platform
-	dst.Annotations = slices.Clone(parent.Self().Annotations)
-	dst.Secrets = slices.Clone(parent.Self().Secrets)
-	dst.VolatileEnv = slices.Clone(parent.Self().VolatileEnv)
-	dst.Sockets = slices.Clone(parent.Self().Sockets)
-	dst.ImageRef = parent.Self().ImageRef
-	dst.Ports = slices.Clone(parent.Self().Ports)
-	dst.Services = slices.Clone(parent.Self().Services)
-	dst.DefaultTerminalCmd = parent.Self().DefaultTerminalCmd
-	dst.SystemEnvNames = slices.Clone(parent.Self().SystemEnvNames)
-	dst.DefaultArgs = parent.Self().DefaultArgs
+	dst.Platform = parentSelf.Platform
+	dst.Annotations = slices.Clone(parentSelf.Annotations)
+	dst.Secrets = slices.Clone(parentSelf.Secrets)
+	dst.VolatileEnv = slices.Clone(parentSelf.VolatileEnv)
+	dst.Sockets = slices.Clone(parentSelf.Sockets)
+	dst.ImageRef = parentSelf.ImageRef
+	dst.Ports = slices.Clone(parentSelf.Ports)
+	dst.Services = slices.Clone(parentSelf.Services)
+	dst.DefaultTerminalCmd = parentSelf.DefaultTerminalCmd
+	dst.SystemEnvNames = slices.Clone(parentSelf.SystemEnvNames)
+	dst.DefaultArgs = parentSelf.DefaultArgs
 	return nil
 }
 
@@ -1451,6 +1627,97 @@ func decodePersistedContainerFileValue(ctx context.Context, dag *dagql.Server, r
 	}
 }
 
+func configureContainerDirectorySlotAccessor(ctx context.Context, dag *dagql.Server, resultID uint64, role string, accessor *LazyAccessor[*Directory, *Container], dir *Directory) error {
+	if accessor == nil || dir == nil {
+		return nil
+	}
+	if snapshot, ok := dir.Snapshot.Peek(); ok && snapshot != nil {
+		accessor.setValue(dir)
+		return nil
+	}
+	chain, hasRemoteChain, err := loadPersistedRemoteSnapshotChainByResultID(ctx, dag, resultID, "container", role)
+	if err != nil {
+		return err
+	}
+	if hasRemoteChain {
+		accessor.setMaterializer(newRemoteContainerDirectoryAccessorPlan(resultID, role, dir, chain))
+		return nil
+	}
+	accessor.setValue(dir)
+	return nil
+}
+
+func configureContainerFileSlotAccessor(ctx context.Context, dag *dagql.Server, resultID uint64, role string, accessor *LazyAccessor[*File, *Container], file *File) error {
+	if accessor == nil || file == nil {
+		return nil
+	}
+	if snapshot, ok := file.Snapshot.Peek(); ok && snapshot != nil {
+		accessor.setValue(file)
+		return nil
+	}
+	chain, hasRemoteChain, err := loadPersistedRemoteSnapshotChainByResultID(ctx, dag, resultID, "container", role)
+	if err != nil {
+		return err
+	}
+	if hasRemoteChain {
+		accessor.setMaterializer(newRemoteContainerFileAccessorPlan(resultID, role, file, chain))
+		return nil
+	}
+	accessor.setValue(file)
+	return nil
+}
+
+func containerRefAccessorNeedsFallback(accessor *LazyAccessor[bkcache.ImmutableRef, *Container]) bool {
+	if accessor == nil {
+		return false
+	}
+	if snapshot, ok := accessor.Peek(); ok {
+		return snapshot == nil
+	}
+	return !accessor.hasMaterializer()
+}
+
+func containerDirectoryAccessorNeedsFallback(accessor *LazyAccessor[*Directory, *Container]) bool {
+	if accessor == nil {
+		return false
+	}
+	if dir, ok := accessor.Peek(); ok {
+		return dir == nil
+	}
+	return !accessor.hasMaterializer()
+}
+
+func containerFileAccessorNeedsFallback(accessor *LazyAccessor[*File, *Container]) bool {
+	if accessor == nil {
+		return false
+	}
+	if file, ok := accessor.Peek(); ok {
+		return file == nil
+	}
+	return !accessor.hasMaterializer()
+}
+
+func containerHasUnresolvedSnapshotSlot(container *Container, call *dagql.ResultCall) bool {
+	if container == nil {
+		return false
+	}
+	if call != nil && call.Field == "withExec" && containerRefAccessorNeedsFallback(container.MetaSnapshot) {
+		return true
+	}
+	if containerDirectoryAccessorNeedsFallback(container.FS) {
+		return true
+	}
+	for _, mnt := range container.Mounts {
+		if containerDirectoryAccessorNeedsFallback(mnt.DirectorySource) {
+			return true
+		}
+		if containerFileAccessorNeedsFallback(mnt.FileSource) {
+			return true
+		}
+	}
+	return false
+}
+
 func (container *Container) EncodePersistedObject(ctx context.Context, cache dagql.PersistedObjectCache) (dagql.PersistedObjectEncoding, error) {
 	if container == nil {
 		return dagql.PersistedObjectEncoding{}, fmt.Errorf("encode persisted container: nil container")
@@ -1606,7 +1873,9 @@ func (*Container) DecodePersistedObject(ctx context.Context, dag *dagql.Server, 
 		}
 		decodedRootFS = rootfs
 		if rootfs.Dir != nil {
-			fs.setValue(rootfs.Dir)
+			if err := configureContainerDirectorySlotAccessor(ctx, dag, resultID, "fs", fs, rootfs.Dir); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -1622,25 +1891,31 @@ func (*Container) DecodePersistedObject(ctx context.Context, dag *dagql.Server, 
 		case persistedContainerMountKindDirectory:
 			mnt.DirectorySource = new(LazyAccessor[*Directory, *Container])
 			if len(persistedMount.Value) > 0 {
-				dirVal, err := decodePersistedContainerDirectoryValue(ctx, dag, resultID, fmt.Sprintf("mount_dir:%d", len(mounts)), persistedMount.Value)
+				role := fmt.Sprintf("mount_dir:%d", len(mounts))
+				dirVal, err := decodePersistedContainerDirectoryValue(ctx, dag, resultID, role, persistedMount.Value)
 				if err != nil {
 					return nil, err
 				}
 				decodedMount.Kind = dirVal.Kind
 				if dirVal.Dir != nil {
-					mnt.DirectorySource.setValue(dirVal.Dir)
+					if err := configureContainerDirectorySlotAccessor(ctx, dag, resultID, role, mnt.DirectorySource, dirVal.Dir); err != nil {
+						return nil, err
+					}
 				}
 			}
 		case persistedContainerMountKindFile:
 			mnt.FileSource = new(LazyAccessor[*File, *Container])
 			if len(persistedMount.Value) > 0 {
-				fileVal, err := decodePersistedContainerFileValue(ctx, dag, resultID, fmt.Sprintf("mount_file:%d", len(mounts)), persistedMount.Value)
+				role := fmt.Sprintf("mount_file:%d", len(mounts))
+				fileVal, err := decodePersistedContainerFileValue(ctx, dag, resultID, role, persistedMount.Value)
 				if err != nil {
 					return nil, err
 				}
 				decodedMount.Kind = fileVal.Kind
 				if fileVal.File != nil {
-					mnt.FileSource.setValue(fileVal.File)
+					if err := configureContainerFileSlotAccessor(ctx, dag, resultID, role, mnt.FileSource, fileVal.File); err != nil {
+						return nil, err
+					}
 				}
 			}
 		case persistedContainerMountKindCache:
@@ -1735,6 +2010,23 @@ func (*Container) DecodePersistedObject(ctx context.Context, dag *dagql.Server, 
 		DefaultArgs:        persisted.DefaultArgs,
 	}
 	if persisted.Form != persistedContainerFormLazy {
+		if len(persisted.LazyJSON) > 0 && containerHasUnresolvedSnapshotSlot(container, call) {
+			if call == nil {
+				return nil, fmt.Errorf("decode persisted container payload: missing call for retained lazy form")
+			}
+			originSourceID, err := loadPersistedOriginSourceIDByResultID(ctx, resultID, "container")
+			if err != nil {
+				return nil, err
+			}
+			if err := decodePersistedContainerLazy(ctx, dag, call, container, persisted.LazyJSON, decodedRootFS, decodedMounts); err != nil {
+				if originSourceID != "" {
+					return nil, err
+				}
+				// Local ready-form recipes can outlive dependency rows that are
+				// not part of the materialized snapshot closure. Keep the shell
+				// loadable; remote imports still require a valid fallback recipe.
+			}
+		}
 		return container, nil
 	}
 	if call == nil {
@@ -1934,6 +2226,81 @@ func targetParentDirectoryForContainerPath(ctx context.Context, parent dagql.Obj
 	default:
 		return dagql.ObjectResult[*Directory]{}, fmt.Errorf("path %s does not resolve to a directory target parent", targetPath)
 	}
+}
+
+func directoryAccessorForContainerPath(container *Container, targetPath string) (*LazyAccessor[*Directory, *Container], error) {
+	mnt, _, err := locatePath(container, targetPath)
+	if err != nil {
+		return nil, err
+	}
+	if mnt == nil {
+		if container.FS == nil {
+			container.FS = new(LazyAccessor[*Directory, *Container])
+		}
+		return container.FS, nil
+	}
+	if mnt.DirectorySource != nil {
+		return mnt.DirectorySource, nil
+	}
+	return nil, fmt.Errorf("path %s does not resolve to a directory accessor", targetPath)
+}
+
+func (container *Container) hydrateDirectoryAccessorFromParentPath(ctx context.Context, parent dagql.ObjectResult[*Container], targetPath string) error {
+	accessor, err := directoryAccessorForContainerPath(container, targetPath)
+	if err != nil {
+		return err
+	}
+	if _, ok := accessor.Peek(); ok {
+		return nil
+	}
+	if !containerResultCanEvaluate(ctx, parent) {
+		return nil
+	}
+
+	targetParent, err := targetParentDirectoryForContainerPath(ctx, parent, container, targetPath)
+	if err != nil {
+		return err
+	}
+	cache, err := dagql.EngineCache(ctx)
+	if err != nil {
+		return err
+	}
+	if err := cache.Evaluate(ctx, targetParent); err != nil {
+		return err
+	}
+	targetDir := targetParent.Self()
+	if targetDir == nil {
+		return fmt.Errorf("hydrate directory accessor for %s: nil target parent directory", targetPath)
+	}
+	detached, err := cloneDetachedDirectoryForContainerResult(ctx, targetDir)
+	if err != nil {
+		return err
+	}
+	if detached == nil {
+		return fmt.Errorf("hydrate directory accessor for %s: nil detached directory", targetPath)
+	}
+	accessor.setValue(detached)
+	return nil
+}
+
+func (container *Container) materializeDirectoryAccessorForPath(ctx context.Context, parent dagql.ObjectResult[*Container], targetPath string, allowScratchRoot bool) error {
+	accessor, err := directoryAccessorForContainerPath(container, targetPath)
+	if err != nil {
+		return err
+	}
+	if _, ok := accessor.Peek(); ok {
+		return nil
+	}
+	if err := container.hydrateDirectoryAccessorFromParentPath(ctx, parent, targetPath); err != nil {
+		return err
+	}
+	if _, ok := accessor.Peek(); ok {
+		return nil
+	}
+	if allowScratchRoot && accessor == container.FS && !accessor.hasMaterializer() {
+		return container.ensureRootFS(ctx)
+	}
+	return nil
 }
 
 func ExpandContainerInput(container *Container, input string, expand bool) (string, error) {
@@ -3043,21 +3410,37 @@ func (lazy *ContainerWithDefaultTerminalCmdLazy) EncodePersisted(ctx context.Con
 
 func (lazy *ContainerRootFSLazy) Evaluate(ctx context.Context, dir *Directory) error {
 	return lazy.LazyState.Evaluate(ctx, "Container.rootfs", func(ctx context.Context) error {
-		cache, err := dagql.EngineCache(ctx)
-		if err != nil {
-			return err
-		}
-		if err := cache.Evaluate(ctx, lazy.Parent); err != nil {
-			return err
-		}
-
 		parent := lazy.Parent.Self()
 		if parent == nil {
 			return fmt.Errorf("container rootfs lazy: nil parent container")
 		}
+		if containerResultMayEvaluateUnplannedAccessors(ctx, lazy.Parent) && !containerAccessorHasValueOrMaterializer(parent.FS) {
+			cache, err := dagql.EngineCache(ctx)
+			if err != nil {
+				return err
+			}
+			if err := cache.Evaluate(ctx, lazy.Parent); err != nil {
+				return err
+			}
+			parent = lazy.Parent.Self()
+			if parent == nil {
+				return fmt.Errorf("container rootfs lazy: nil evaluated parent container")
+			}
+		}
 
 		if parent.FS != nil {
-			if src, ok := parent.FS.Peek(); ok && src != nil {
+			src, ok := parent.FS.Peek()
+			if (!ok || src == nil) && (parent.FS.hasMaterializer() || containerResultMayEvaluateUnplannedAccessors(ctx, lazy.Parent)) {
+				var err error
+				src, err = parent.FS.GetOrEval(ctx, lazy.Parent.Result)
+				if err != nil {
+					if !stderrors.Is(err, ErrLazyAccessorValueNotSet) {
+						return err
+					}
+					src = nil
+				}
+			}
+			if src != nil {
 				detached, err := cloneDetachedDirectoryForContainerResult(ctx, src)
 				if err != nil {
 					return err
@@ -3153,14 +3536,6 @@ func (lazy *ContainerWithRootFSLazy) EncodePersisted(ctx context.Context, cache 
 //nolint:gocyclo // intrinsically long state machine; refactoring would hurt clarity
 func (lazy *ContainerDirectoryLazy) Evaluate(ctx context.Context, dir *Directory) error {
 	return lazy.LazyState.Evaluate(ctx, "Container.directory", func(ctx context.Context) error {
-		cache, err := dagql.EngineCache(ctx)
-		if err != nil {
-			return err
-		}
-		if err := cache.Evaluate(ctx, lazy.Parent); err != nil {
-			return err
-		}
-
 		parent := lazy.Parent.Self()
 		if parent == nil {
 			return fmt.Errorf("container directory lazy: nil parent container")
@@ -3196,7 +3571,11 @@ func (lazy *ContainerDirectoryLazy) Evaluate(ctx context.Context, dir *Directory
 				}
 			}
 		case mnt.DirectorySource != nil:
-			mountedDir, ok := mnt.DirectorySource.Peek()
+			mountedDirAccessor, err := CloneContainerDirectoryAccessorForResult(ctx, mnt.DirectorySource, lazy.Parent)
+			if err != nil {
+				return err
+			}
+			mountedDir, ok := mountedDirAccessor.Peek()
 			if !ok || mountedDir == nil {
 				return fmt.Errorf("container directory lazy: missing mounted directory source for %s", mnt.Target)
 			}
@@ -3259,6 +3638,10 @@ func (lazy *ContainerDirectoryLazy) Evaluate(ctx context.Context, dir *Directory
 			return fmt.Errorf("container directory lazy: invalid path %s in container mounts", lazy.Path)
 		}
 
+		cache, err := dagql.EngineCache(ctx)
+		if err != nil {
+			return err
+		}
 		if err := cache.Evaluate(ctx, resolved); err != nil {
 			return err
 		}
@@ -3306,14 +3689,6 @@ func (lazy *ContainerDirectoryLazy) EncodePersisted(ctx context.Context, cache d
 //nolint:gocyclo // intrinsically long state machine; refactoring would hurt clarity
 func (lazy *ContainerFileLazy) Evaluate(ctx context.Context, file *File) error {
 	return lazy.LazyState.Evaluate(ctx, "Container.file", func(ctx context.Context) error {
-		cache, err := dagql.EngineCache(ctx)
-		if err != nil {
-			return err
-		}
-		if err := cache.Evaluate(ctx, lazy.Parent); err != nil {
-			return err
-		}
-
 		parent := lazy.Parent.Self()
 		if parent == nil {
 			return fmt.Errorf("container file lazy: nil parent container")
@@ -3345,7 +3720,11 @@ func (lazy *ContainerFileLazy) Evaluate(ctx context.Context, file *File) error {
 				return err
 			}
 		case mnt.DirectorySource != nil:
-			mountedDir, ok := mnt.DirectorySource.Peek()
+			mountedDirAccessor, err := CloneContainerDirectoryAccessorForResult(ctx, mnt.DirectorySource, lazy.Parent)
+			if err != nil {
+				return err
+			}
+			mountedDir, ok := mountedDirAccessor.Peek()
 			if !ok || mountedDir == nil {
 				return fmt.Errorf("container file lazy: missing mounted directory source for %s", mnt.Target)
 			}
@@ -3388,7 +3767,11 @@ func (lazy *ContainerFileLazy) Evaluate(ctx context.Context, file *File) error {
 			file.Snapshot.setValue(reopened)
 			return nil
 		case mnt.FileSource != nil:
-			mountedFile, ok := mnt.FileSource.Peek()
+			mountedFileAccessor, err := CloneContainerFileAccessorForResult(ctx, mnt.FileSource, lazy.Parent)
+			if err != nil {
+				return err
+			}
+			mountedFile, ok := mountedFileAccessor.Peek()
 			if !ok || mountedFile == nil {
 				return fmt.Errorf("container file lazy: missing mounted file source for %s", mnt.Target)
 			}
@@ -3412,6 +3795,10 @@ func (lazy *ContainerFileLazy) Evaluate(ctx context.Context, file *File) error {
 			return fmt.Errorf("container file lazy: invalid path %s in container mounts", lazy.Path)
 		}
 
+		cache, err := dagql.EngineCache(ctx)
+		if err != nil {
+			return err
+		}
 		if err := cache.Evaluate(ctx, resolved); err != nil {
 			return err
 		}
@@ -5249,21 +5636,15 @@ func (container *Container) WithDirectory(
 		resolvedOwner = strconv.Itoa(ownership.UID) + ":" + strconv.Itoa(ownership.GID)
 	}
 
-	if mnt == nil {
-		if err := container.ensureRootFS(ctx); err != nil {
-			return nil, err
-		}
-	}
-
-	targetParent, err := targetParentDirectoryForContainerPath(ctx, parent, container, subdir)
-	if err != nil {
+	if err := container.materializeDirectoryAccessorForPath(ctx, parent, subdir, mnt == nil); err != nil {
 		return nil, err
 	}
+
 	dir, err := bareDirectoryForContainerPath(container, subdir)
 	if err != nil {
 		return nil, err
 	}
-	if err := dir.WithDirectory(ctx, targetParent, mntSubpath, src, filter, resolvedOwner, nil); err != nil {
+	if err := dir.withDirectoryFromSelf(ctx, mntSubpath, src, filter, resolvedOwner, nil); err != nil {
 		return nil, err
 	}
 	container.ImageRef = ""
@@ -5303,25 +5684,8 @@ func (container *Container) WithFile(
 		resolvedOwner = strconv.Itoa(ownership.UID) + ":" + strconv.Itoa(ownership.GID)
 	}
 
-	if mnt == nil {
-		if container.FS == nil {
-			container.FS = new(LazyAccessor[*Directory, *Container])
-		}
-		if _, ok := container.FS.Peek(); !ok {
-			scratchDir, scratchSnapshot, err := loadCanonicalScratchDirectory(ctx)
-			if err != nil {
-				return nil, err
-			}
-			rootfs := &Directory{
-				Platform: container.Platform,
-				Services: slices.Clone(container.Services),
-				Dir:      new(LazyAccessor[string, *Directory]),
-				Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
-			}
-			rootfs.Dir.setValue(scratchDir)
-			rootfs.Snapshot.setValue(scratchSnapshot)
-			container.FS.setValue(rootfs)
-		}
+	if err := container.materializeDirectoryAccessorForPath(ctx, parent, destPath, mnt == nil); err != nil {
+		return nil, err
 	}
 
 	targetParent, err := targetParentDirectoryForContainerPath(ctx, parent, container, destPath)

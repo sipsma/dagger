@@ -1996,17 +1996,53 @@ func (dir *Directory) WithDirectory(
 		return fmt.Errorf("directory withDirectory source: nil directory")
 	}
 
+	return dir.withDirectoryFromMaterialized(ctx, baseDir, srcDirObj, src.Result, destDir, filter, owner, permissions)
+}
+
+func (dir *Directory) withDirectoryFromSelf(
+	ctx context.Context,
+	destDir string,
+	src dagql.ObjectResult[*Directory],
+	filter CopyFilter,
+	owner string,
+	permissions *int,
+) error {
+	dagqlCache, err := dagql.EngineCache(ctx)
+	if err != nil {
+		return err
+	}
+	if err := dagqlCache.Evaluate(ctx, src); err != nil {
+		return err
+	}
+
+	srcDirObj := src.Self()
+	if srcDirObj == nil {
+		return fmt.Errorf("directory withDirectory source: nil directory")
+	}
+	return dir.withDirectoryFromMaterialized(ctx, dir, srcDirObj, src.Result, destDir, filter, owner, permissions)
+}
+
+func (dir *Directory) withDirectoryFromMaterialized(
+	ctx context.Context,
+	baseDir *Directory,
+	srcDirObj *Directory,
+	srcResult dagql.Result[*Directory],
+	destDir string,
+	filter CopyFilter,
+	owner string,
+	permissions *int,
+) error {
 	parentRef, ourDir, err := materializedDirectorySnapshotAndPath(baseDir)
 	if err != nil {
 		return err
 	}
 	dir.Dir.setValue(ourDir)
 
-	srcRef, err := srcDirObj.Snapshot.GetOrEval(ctx, src.Result)
+	srcRef, err := srcDirObj.Snapshot.GetOrEval(ctx, srcResult)
 	if err != nil {
 		return fmt.Errorf("failed to get source directory ref: %w", err)
 	}
-	srcDir, err := srcDirObj.Dir.GetOrEval(ctx, src.Result)
+	srcDir, err := srcDirObj.Dir.GetOrEval(ctx, srcResult)
 	if err != nil {
 		return fmt.Errorf("failed to get source directory path: %w", err)
 	}
