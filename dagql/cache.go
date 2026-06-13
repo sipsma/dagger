@@ -23,6 +23,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	_ "modernc.org/sqlite"
 
+	"github.com/dagger/dagger/dagql/cachemoneyproto"
 	"github.com/dagger/dagger/dagql/call"
 	persistdb "github.com/dagger/dagger/dagql/persistdb"
 	"github.com/dagger/dagger/engine"
@@ -31,6 +32,7 @@ import (
 	"github.com/dagger/dagger/engine/telemetryattrs"
 	"github.com/opencontainers/go-digest"
 	"github.com/vektah/gqlparser/v2/ast"
+	"resenje.org/singleflight"
 )
 
 func ValueFunc(v AnyResult) func(context.Context) (AnyResult, error) {
@@ -1329,6 +1331,10 @@ type Cache struct {
 	traceBootID     string
 	traceSeq        uint64
 	traceImportRuns uint64
+
+	cachemoneyMu                sync.RWMutex
+	cachemoneyBlobIndexBySource map[string]map[string]cachemoneyproto.BlobLocation
+	cachemoneyHydrationGroup    singleflight.Group[string, string]
 
 	snapshotManager bkcache.SnapshotManager
 	snapshotGC      func(context.Context) error

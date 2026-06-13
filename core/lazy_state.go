@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -131,12 +132,12 @@ func (a *LazyAccessor[V, T]) GetOrEval(ctx context.Context, res dagql.Result[T])
 	materializer := a.materializer
 	a.mu.RUnlock()
 
+	var materializerErr error
 	if materializer != nil {
 		value, ok, err := materializer.Materialize(ctx, res)
 		if err != nil {
-			return zero, err
-		}
-		if ok {
+			materializerErr = err
+		} else if ok {
 			a.setValue(value)
 			return value, nil
 		}
@@ -144,17 +145,20 @@ func (a *LazyAccessor[V, T]) GetOrEval(ctx context.Context, res dagql.Result[T])
 
 	c, err := dagql.EngineCache(ctx)
 	if err != nil {
-		return zero, err
+		return zero, errors.Join(materializerErr, err)
 	}
 	err = c.Evaluate(ctx, res)
 	if err != nil {
-		return zero, err
+		return zero, errors.Join(materializerErr, err)
 	}
 
 	// evaluate should have set our value now, so we can return it
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	if !a.isSet {
+		if materializerErr != nil {
+			return zero, materializerErr
+		}
 		return zero, fmt.Errorf("lazy accessor value not set after evaluation")
 	}
 	return a.value, nil

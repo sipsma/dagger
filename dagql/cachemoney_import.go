@@ -131,7 +131,11 @@ func (c *Cache) ImportCachemoneyMetadata(ctx context.Context, source CachemoneyI
 	if err != nil {
 		return err
 	}
-	return c.importCachemoneyMetadataRows(ctx, source, rows)
+	if err := c.importCachemoneyMetadataRows(ctx, source, rows); err != nil {
+		return err
+	}
+	c.storeCachemoneyBlobIndex(source.ID, source.BlobIndex)
+	return nil
 }
 
 //nolint:gocyclo // importing the normalized persistence graph is intentionally explicit

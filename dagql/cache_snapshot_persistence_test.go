@@ -4,15 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"path/filepath"
+	"sync"
 	"testing"
 
+	"github.com/containerd/containerd/v2/core/content"
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/vektah/gqlparser/v2/ast"
 	"gotest.tools/v3/assert"
 
 	persistdb "github.com/dagger/dagger/dagql/persistdb"
 	bkcache "github.com/dagger/dagger/engine/snapshots"
 	"github.com/docker/docker/pkg/idtools"
+	"github.com/opencontainers/go-digest"
+	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 type persistSnapshotValue struct {
@@ -65,6 +71,15 @@ type fakeSnapshotManager struct {
 	removeCalls         []string
 	deleteStaleKeep     map[string]struct{}
 	deleteStaleCallSeen bool
+
+	hydrationMu       sync.Mutex
+	contentByDigest   map[digest.Digest][]byte
+	contentInfoCalls  []digest.Digest
+	writeContentCalls []digest.Digest
+	importImageCalls  []*bkcache.ImportedImage
+	importImageOpts   []bkcache.ImportImageOpts
+	importImageResult bkcache.ImmutableRef
+	importImageFunc   func(context.Context, *bkcache.ImportedImage, bkcache.ImportImageOpts) (bkcache.ImmutableRef, error)
 }
 
 func (*fakeSnapshotManager) Search(context.Context, string, bool) ([]bkcache.RefMetadata, error) {
@@ -125,7 +140,19 @@ func (*fakeSnapshotManager) GetMutableBySnapshotID(context.Context, string, ...b
 	panic("unexpected GetMutableBySnapshotID call")
 }
 
-func (*fakeSnapshotManager) ImportImage(context.Context, *bkcache.ImportedImage, bkcache.ImportImageOpts) (bkcache.ImmutableRef, error) {
+func (m *fakeSnapshotManager) ImportImage(ctx context.Context, img *bkcache.ImportedImage, opts bkcache.ImportImageOpts) (bkcache.ImmutableRef, error) {
+	m.hydrationMu.Lock()
+	m.importImageCalls = append(m.importImageCalls, img)
+	m.importImageOpts = append(m.importImageOpts, opts)
+	importImageFunc := m.importImageFunc
+	importImageResult := m.importImageResult
+	m.hydrationMu.Unlock()
+	if importImageFunc != nil {
+		return importImageFunc(ctx, img, opts)
+	}
+	if importImageResult != nil {
+		return importImageResult, nil
+	}
 	panic("unexpected ImportImage call")
 }
 
@@ -139,6 +166,48 @@ func (*fakeSnapshotManager) Merge(context.Context, []bkcache.ImmutableRef, ...bk
 
 func (*fakeSnapshotManager) IdentityMapping() *idtools.IdentityMapping {
 	panic("unexpected IdentityMapping call")
+}
+
+func (m *fakeSnapshotManager) ContentInfo(ctx context.Context, dgst digest.Digest) (content.Info, error) {
+	_ = ctx
+	m.hydrationMu.Lock()
+	defer m.hydrationMu.Unlock()
+
+	m.contentInfoCalls = append(m.contentInfoCalls, dgst)
+	if len(m.contentByDigest) == 0 {
+		return content.Info{}, cerrdefs.ErrNotFound
+	}
+	contentBytes, ok := m.contentByDigest[dgst]
+	if !ok {
+		return content.Info{}, cerrdefs.ErrNotFound
+	}
+	return content.Info{
+		Digest: dgst,
+		Size:   int64(len(contentBytes)),
+	}, nil
+}
+
+func (m *fakeSnapshotManager) WriteContentBlob(ctx context.Context, desc ocispecs.Descriptor, r io.Reader) error {
+	_ = ctx
+	contentBytes, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	if desc.Size != 0 && int64(len(contentBytes)) != desc.Size {
+		return fmt.Errorf("write content blob %s: size %d != %d", desc.Digest, len(contentBytes), desc.Size)
+	}
+	if got := digest.FromBytes(contentBytes); got != desc.Digest {
+		return fmt.Errorf("write content blob %s: got digest %s", desc.Digest, got)
+	}
+
+	m.hydrationMu.Lock()
+	defer m.hydrationMu.Unlock()
+	if m.contentByDigest == nil {
+		m.contentByDigest = map[digest.Digest][]byte{}
+	}
+	m.contentByDigest[desc.Digest] = append([]byte(nil), contentBytes...)
+	m.writeContentCalls = append(m.writeContentCalls, desc.Digest)
+	return nil
 }
 
 func (m *fakeSnapshotManager) AttachLease(ctx context.Context, leaseID, snapshotID string) error {

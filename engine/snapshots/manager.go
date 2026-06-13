@@ -2,6 +2,7 @@ package snapshots
 
 import (
 	"context"
+	"io"
 	"sync"
 	"time"
 
@@ -240,6 +241,19 @@ func (cm *snapshotManager) ContentInfo(ctx context.Context, dgst digest.Digest) 
 		return content.Info{}, errors.New("content info: empty digest")
 	}
 	return cm.ContentStore.Info(ctx, dgst)
+}
+
+func (cm *snapshotManager) WriteContentBlob(ctx context.Context, desc ocispecs.Descriptor, r io.Reader) error {
+	if cm == nil || cm.ContentStore == nil {
+		return errNotFound
+	}
+	if desc.Digest == "" {
+		return errors.New("write content blob: empty digest")
+	}
+	if err := content.WriteBlob(ctx, cm.ContentStore, desc.Digest.String(), r, desc); err != nil && !cerrdefs.IsAlreadyExists(err) {
+		return err
+	}
+	return nil
 }
 
 // get requires manager lock to be taken

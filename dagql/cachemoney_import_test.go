@@ -135,7 +135,7 @@ func TestImportCachemoneyMetadataImportsSnapshotChainsWithoutRefLinks(t *testing
 	assert.DeepEqual(t, resolvedChain, chains[0])
 }
 
-func TestImportCachemoneyMetadataSnapshotBlobIndexStampsViableButAwaitsSlotPlans(t *testing.T) {
+func TestImportCachemoneyMetadataSnapshotBlobIndexStampsHydrationEligible(t *testing.T) {
 	t.Parallel()
 
 	ctx := cacheTestContext(t.Context())
@@ -214,8 +214,8 @@ func TestImportCachemoneyMetadataSnapshotBlobIndexStampsViableButAwaitsSlotPlans
 	assert.Assert(t, imported != nil)
 	assert.Assert(t, imported.remoteCacheImported)
 	assert.Assert(t, imported.remoteCacheViable)
-	assert.Assert(t, !imported.remoteCacheEligible)
-	assert.Equal(t, imported.remoteCacheReason, remoteCacheReasonAwaitingSlotPlans+":"+remoteCacheReasonRemoteSnapshotBlobs)
+	assert.Assert(t, imported.remoteCacheEligible)
+	assert.Equal(t, imported.remoteCacheReason, remoteCacheReasonRemoteSnapshotBlobs)
 }
 
 func TestImportCachemoneyMetadataRemapsRefsAndEnablesDirectPayloadLookup(t *testing.T) {
