@@ -643,12 +643,19 @@ func (c *Cache) sessionSatisfiesResourceRequirementsLocked(sessionID string, res
 	return available.Subset(res.requiredSessionResources)
 }
 
+func resultEligibleForLookup(res *sharedResult) bool {
+	if res == nil {
+		return false
+	}
+	return !res.remoteCacheImported || res.remoteCacheEligible
+}
+
 func (c *Cache) selectLookupCandidateForSessionLocked(sessionID string, candidates *set.TreeSet[*sharedResult]) *sharedResult {
 	if candidates == nil {
 		return nil
 	}
 	for res := range candidates.Items() {
-		if c.sessionSatisfiesResourceRequirementsLocked(sessionID, res) {
+		if resultEligibleForLookup(res) && c.sessionSatisfiesResourceRequirementsLocked(sessionID, res) {
 			return res
 		}
 	}
@@ -1097,7 +1104,7 @@ func (c *Cache) resultIDForCall(frame *ResultCall) (sharedResultID, error) {
 		return 0, fmt.Errorf("resolve result ID for call: no attached result for %s", requestDigest)
 	}
 	for hitRes := range match.candidates.Items() {
-		if hitRes != nil && hitRes.id != 0 {
+		if hitRes != nil && hitRes.id != 0 && resultEligibleForLookup(hitRes) {
 			return hitRes.id, nil
 		}
 	}

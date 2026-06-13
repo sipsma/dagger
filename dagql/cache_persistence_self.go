@@ -381,6 +381,22 @@ type PersistedSnapshotRefLink struct {
 	Role   string
 }
 
+// PersistedSnapshotChain is a content-addressed remote snapshot head for one
+// persisted result slot.
+type PersistedSnapshotChain struct {
+	Role    string
+	ChainID string
+	Layers  []PersistedSnapshotChainLayer
+}
+
+type PersistedSnapshotChainLayer struct {
+	DiffID         string
+	BlobDigest     string
+	Size           int64
+	MediaType      string
+	DescriptorJSON json.RawMessage
+}
+
 // PersistedSnapshotRefLinkProvider is the shared interface used by persistable
 // self payloads to expose snapshot ref links for `result_snapshot_links`.
 type PersistedSnapshotRefLinkProvider interface {

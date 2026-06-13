@@ -132,6 +132,7 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 			sessionResourceHandle: res.sessionResourceHandle,
 			persistedEnvelope:     payload.persistedEnvelope,
 			snapshotOwnerLinks:    payload.snapshotOwnerLinks,
+			snapshotRemoteChains:  res.loadRemoteSnapshotChains(),
 			row: persistdb.MirrorResult{
 				ID:                 int64(resultID),
 				ExpiresAtUnix:      res.expiresAtUnix,
@@ -139,6 +140,8 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 				LastUsedAtUnixNano: payload.lastUsedAtUnixNano,
 				RecordType:         res.recordType,
 				Description:        res.description,
+				OriginSourceID:     res.originSourceID,
+				OriginResultID:     int64(res.originResultID),
 			},
 			resultDeps: resultDeps,
 		})
@@ -259,6 +262,9 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 		}
 		resultSnapshot.row.SelfPayload = payload
 		resultSnapshot.resultSnapshotLinks = resultSnapshotLinkRows(resultSnapshot.resultID, encoding.SnapshotLinks)
+		chainRows, layerRows := resultSnapshotChainRows(resultSnapshot.resultID, resultSnapshot.snapshotRemoteChains)
+		resultSnapshot.resultSnapshotChains = append(resultSnapshot.resultSnapshotChains, chainRows...)
+		snapshot.snapshotChainLayers = append(snapshot.snapshotChainLayers, layerRows...)
 	}
 	return snapshot, nil
 }
@@ -399,6 +405,60 @@ func resultSnapshotLinkRows(resultID sharedResultID, links []PersistedSnapshotRe
 		})
 	}
 	return rows
+}
+
+func resultSnapshotChainRows(resultID sharedResultID, chains []PersistedSnapshotChain) ([]persistdb.MirrorResultSnapshotChain, []persistdb.MirrorSnapshotChainLayer) {
+	if len(chains) == 0 {
+		return nil, nil
+	}
+	chains = clonePersistedSnapshotChains(chains)
+	slices.SortFunc(chains, func(a, b PersistedSnapshotChain) int {
+		switch {
+		case a.Role < b.Role:
+			return -1
+		case a.Role > b.Role:
+			return 1
+		case a.ChainID < b.ChainID:
+			return -1
+		case a.ChainID > b.ChainID:
+			return 1
+		default:
+			return 0
+		}
+	})
+
+	chainRows := make([]persistdb.MirrorResultSnapshotChain, 0, len(chains))
+	layerRowsByKey := map[string]persistdb.MirrorSnapshotChainLayer{}
+	for _, chain := range chains {
+		chainRows = append(chainRows, persistdb.MirrorResultSnapshotChain{
+			ResultID: int64(resultID),
+			Role:     chain.Role,
+			ChainID:  chain.ChainID,
+		})
+		for pos, layer := range chain.Layers {
+			key := fmt.Sprintf("%s\x00%d", chain.ChainID, pos)
+			layerRowsByKey[key] = persistdb.MirrorSnapshotChainLayer{
+				ChainID:        chain.ChainID,
+				Position:       int64(pos),
+				DiffID:         layer.DiffID,
+				BlobDigest:     layer.BlobDigest,
+				Size:           layer.Size,
+				MediaType:      layer.MediaType,
+				DescriptorJSON: string(layer.DescriptorJSON),
+			}
+		}
+	}
+
+	layerKeys := make([]string, 0, len(layerRowsByKey))
+	for key := range layerRowsByKey {
+		layerKeys = append(layerKeys, key)
+	}
+	slices.Sort(layerKeys)
+	layerRows := make([]persistdb.MirrorSnapshotChainLayer, 0, len(layerKeys))
+	for _, key := range layerKeys {
+		layerRows = append(layerRows, layerRowsByKey[key])
+	}
+	return chainRows, layerRows
 }
 
 func (c *Cache) persistResultEnvelope(ctx context.Context, snapshot *persistResultSnapshot) (PersistedResultEncoding, error) {

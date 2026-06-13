@@ -308,5 +308,8 @@ func writeCachemoneyMetadataDB(ctx context.Context, dbPath string, snapshot pers
 	if err := q.UpsertMeta(ctx, persistdb.MetaKeyCleanShutdown, "1"); err != nil {
 		return fmt.Errorf("write cachemoney metadata DB clean shutdown marker: %w", err)
 	}
+	if _, err := db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+		return fmt.Errorf("checkpoint cachemoney metadata DB: %w", err)
+	}
 	return nil
 }

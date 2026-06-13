@@ -1469,6 +1469,14 @@ type sharedResult struct {
 	// derives links from the same object encode pass that produced the payload.
 	// They are not child-result deps.
 	snapshotOwnerLinks []PersistedSnapshotRefLink
+	// remoteSnapshotChains are content-addressed remote snapshot heads imported
+	// from cachemoney metadata. They never carry local owner leases; accessors
+	// consume them later to build per-slot materialization plans.
+	remoteSnapshotChains []PersistedSnapshotChain
+	originSourceID       string
+	originResultID       uint64
+	remoteCacheImported  bool
+	remoteCacheEligible  bool
 
 	// expiresAtUnix is the in-memory TTL deadline for cache-hit eligibility.
 	// 0 means "never expires".
@@ -1585,6 +1593,28 @@ func (res *sharedResult) storeSnapshotOwnerLinks(links []PersistedSnapshotRefLin
 	res.payloadMu.Lock()
 	res.snapshotOwnerLinks = slices.Clone(links)
 	res.payloadMu.Unlock()
+}
+
+func clonePersistedSnapshotChains(chains []PersistedSnapshotChain) []PersistedSnapshotChain {
+	if len(chains) == 0 {
+		return nil
+	}
+	out := make([]PersistedSnapshotChain, len(chains))
+	for i, chain := range chains {
+		out[i] = chain
+		out[i].Layers = slices.Clone(chain.Layers)
+	}
+	return out
+}
+
+func (res *sharedResult) loadRemoteSnapshotChains() []PersistedSnapshotChain {
+	if res == nil {
+		return nil
+	}
+	res.payloadMu.RLock()
+	chains := clonePersistedSnapshotChains(res.remoteSnapshotChains)
+	res.payloadMu.RUnlock()
+	return chains
 }
 
 // resultIsObject classifies whether val should be treated as an object result
