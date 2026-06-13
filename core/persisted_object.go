@@ -169,3 +169,21 @@ func loadPersistedImmutableSnapshotByResultID(ctx context.Context, dag *dagql.Se
 	}
 	return ref, nil
 }
+
+func loadPersistedRemoteSnapshotChainByResultID(ctx context.Context, dag *dagql.Server, resultID uint64, label, role string) (dagql.PersistedSnapshotChain, bool, error) {
+	if resultID == 0 {
+		return dagql.PersistedSnapshotChain{}, false, fmt.Errorf("load persisted %s remote snapshot chain: zero result ID", label)
+	}
+	if _, err := persistedDecodeQuery(dag); err != nil {
+		return dagql.PersistedSnapshotChain{}, false, fmt.Errorf("load persisted %s remote snapshot chain query: %w", label, err)
+	}
+	cache, err := dagql.EngineCache(ctx)
+	if err != nil {
+		return dagql.PersistedSnapshotChain{}, false, fmt.Errorf("load persisted %s remote snapshot chain cache: %w", label, err)
+	}
+	chain, ok, err := cache.PersistedRemoteSnapshotChainByResultID(ctx, resultID, role)
+	if err != nil {
+		return dagql.PersistedSnapshotChain{}, false, fmt.Errorf("load persisted %s remote snapshot chain: %w", label, err)
+	}
+	return chain, ok, nil
+}

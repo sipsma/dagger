@@ -260,6 +260,14 @@ func (dir *Directory) EncodePersistedObject(ctx context.Context, cache dagql.Per
 				}},
 			}, nil
 		}
+		if dir.Snapshot.hasMaterializer() {
+			payload.Form = persistedDirectoryFormSnapshot
+			payloadJSON, err := json.Marshal(payload)
+			if err != nil {
+				return dagql.PersistedObjectEncoding{}, fmt.Errorf("marshal persisted directory payload: %w", err)
+			}
+			return encodePersistedObjectRawJSON(payloadJSON), nil
+		}
 	}
 	if dir.Lazy != nil {
 		payload.Form = persistedDirectoryFormLazy
@@ -302,12 +310,22 @@ func decodePersistedDirectoryWithSnapshotRole(ctx context.Context, dag *dagql.Se
 	case persistedDirectoryFormSnapshot:
 		snapshot, err := loadPersistedImmutableSnapshotByResultID(ctx, dag, resultID, "directory", snapshotRole)
 		if err != nil {
+			chain, hasRemoteChain, chainErr := loadPersistedRemoteSnapshotChainByResultID(ctx, dag, resultID, "directory", snapshotRole)
+			if chainErr == nil && hasRemoteChain {
+				dir.Snapshot.setMaterializer(newRemoteSnapshotAccessorPlan[*Directory](resultID, snapshotRole, chain))
+			}
 			if persisted.LazyKind == "" {
+				if chainErr != nil {
+					return nil, errors.Join(err, chainErr)
+				}
+				if hasRemoteChain {
+					return dir, nil
+				}
 				return nil, err
 			}
 			lazy, lazyErr := decodePersistedDirectoryLazy(ctx, dag, persisted.LazyKind, persisted.LazyJSON)
 			if lazyErr != nil {
-				return nil, errors.Join(err, lazyErr)
+				return nil, errors.Join(err, chainErr, lazyErr)
 			}
 			dir.Lazy = lazy
 			return dir, nil

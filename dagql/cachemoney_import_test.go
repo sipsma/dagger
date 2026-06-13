@@ -128,6 +128,11 @@ func TestImportCachemoneyMetadataImportsSnapshotChainsWithoutRefLinks(t *testing
 	assert.Equal(t, len(chains[0].Layers), 1)
 	assert.Equal(t, chains[0].Layers[0].DiffID, diffID.String())
 	assert.Equal(t, chains[0].Layers[0].BlobDigest, blobDigest.String())
+
+	resolvedChain, ok, err := destCache.PersistedRemoteSnapshotChainByResultID(ctx, uint64(imported.id), "snapshot")
+	assert.NilError(t, err)
+	assert.Assert(t, ok)
+	assert.DeepEqual(t, resolvedChain, chains[0])
 }
 
 func TestImportCachemoneyMetadataSnapshotBlobIndexStampsViableButAwaitsSlotPlans(t *testing.T) {
@@ -320,6 +325,36 @@ func TestRemoteCacheEligibilitySkipsNonViableCandidate(t *testing.T) {
 	got := (&Cache{}).selectLookupCandidateForSessionLocked("session", candidates)
 	assert.Assert(t, got != nil)
 	assert.Equal(t, got.id, viable.id)
+}
+
+func TestRemoteCacheEligibilityEnablesRetainedRecipeSnapshotAfterSlotPlans(t *testing.T) {
+	t.Parallel()
+
+	c := &Cache{
+		resultsByID: map[sharedResultID]*sharedResult{
+			1: {
+				id:                  1,
+				remoteCacheImported: true,
+				persistedEnvelope: &PersistedResultEnvelope{
+					Kind:       persistedResultKindObject,
+					ObjectJSON: json.RawMessage(`{"form":"snapshot","lazyKind":"directory.withNewFile","lazyJSON":{"parentResultID":0}}`),
+				},
+				remoteSnapshotChains: []PersistedSnapshotChain{{
+					Role:    "snapshot",
+					ChainID: "chain-a",
+					Layers: []PersistedSnapshotChainLayer{{
+						DiffID:     digest.FromString("diff-a").String(),
+						BlobDigest: digest.FromString("blob-a").String(),
+					}},
+				}},
+			},
+		},
+	}
+
+	viability := c.cachemoneyResultViabilityLocked(1, nil, map[sharedResultID]cachemoneyRemoteViability{}, map[sharedResultID]struct{}{})
+	assert.Assert(t, viability.viable)
+	assert.Assert(t, viability.eligible)
+	assert.Equal(t, viability.reason, remoteCacheReasonRetainedRecipeFallback)
 }
 
 func cachemoneyImportedResultByOrigin(c *Cache, sourceID string, originResultID uint64) *sharedResult {

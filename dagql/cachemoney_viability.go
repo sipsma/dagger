@@ -175,20 +175,21 @@ func (c *Cache) cachemoneyResultViabilityLocked(
 
 	var viability cachemoneyRemoteViability
 	switch {
+	case hasRemoteChains && hasRetainedRecipe:
+		viability = cachemoneyRemoteViability{
+			viable:   true,
+			eligible: true,
+			reason:   remoteCacheReasonRetainedRecipeFallback,
+		}
 	case hasRemoteChains && cachemoneySnapshotChainsAvailable(chains, blobAvailability):
 		// B5 will turn this viable plan into accessor-level slot plans. Until
-		// then, returning the object as a hit would decode a shell with no local
-		// snapshot ref and no remote accessor plan.
+		// B6 turns those slot plans into actual snapshot hydration, returning
+		// a snapshot-only object as a hit would produce a shell that cannot
+		// materialize.
 		viability = cachemoneyRemoteViability{
 			viable:   true,
 			eligible: false,
 			reason:   remoteCacheReasonAwaitingSlotPlans + ":" + remoteCacheReasonRemoteSnapshotBlobs,
-		}
-	case hasRemoteChains && hasRetainedRecipe:
-		viability = cachemoneyRemoteViability{
-			viable:   true,
-			eligible: false,
-			reason:   remoteCacheReasonAwaitingSlotPlans + ":" + remoteCacheReasonRetainedRecipeFallback,
 		}
 	case hasRemoteChains:
 		viability = cachemoneyRemoteViability{

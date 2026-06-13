@@ -245,6 +245,14 @@ func (file *File) EncodePersistedObject(ctx context.Context, cache dagql.Persist
 				}},
 			}, nil
 		}
+		if file.Snapshot.hasMaterializer() {
+			payload.Form = persistedFileFormSnapshot
+			payloadJSON, err := json.Marshal(payload)
+			if err != nil {
+				return dagql.PersistedObjectEncoding{}, fmt.Errorf("marshal persisted file payload: %w", err)
+			}
+			return encodePersistedObjectRawJSON(payloadJSON), nil
+		}
 	}
 	if file.Lazy != nil {
 		payload.Form = persistedFileFormLazy
@@ -281,12 +289,22 @@ func decodePersistedFileWithSnapshotRole(ctx context.Context, dag *dagql.Server,
 	case persistedFileFormSnapshot:
 		snapshot, err := loadPersistedImmutableSnapshotByResultID(ctx, dag, resultID, "file", snapshotRole)
 		if err != nil {
+			chain, hasRemoteChain, chainErr := loadPersistedRemoteSnapshotChainByResultID(ctx, dag, resultID, "file", snapshotRole)
+			if chainErr == nil && hasRemoteChain {
+				file.Snapshot.setMaterializer(newRemoteSnapshotAccessorPlan[*File](resultID, snapshotRole, chain))
+			}
 			if persisted.LazyKind == "" {
+				if chainErr != nil {
+					return nil, errors.Join(err, chainErr)
+				}
+				if hasRemoteChain {
+					return file, nil
+				}
 				return nil, err
 			}
 			lazy, lazyErr := decodePersistedFileLazy(ctx, dag, persisted.LazyKind, persisted.LazyJSON)
 			if lazyErr != nil {
-				return nil, errors.Join(err, lazyErr)
+				return nil, errors.Join(err, chainErr, lazyErr)
 			}
 			file.Lazy = lazy
 			return file, nil

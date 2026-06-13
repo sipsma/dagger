@@ -26,6 +26,19 @@ func (c *Cache) PersistedSnapshotLinksByResultID(ctx context.Context, resultID u
 	return res.loadSnapshotOwnerLinks(), nil
 }
 
+func (c *Cache) PersistedRemoteSnapshotChainByResultID(ctx context.Context, resultID uint64, role string) (PersistedSnapshotChain, bool, error) {
+	res, _, _, err := c.sharedResultByResultID(ctx, "", sharedResultID(resultID), sharedResultLookupExact)
+	if err != nil {
+		return PersistedSnapshotChain{}, false, err
+	}
+	for _, chain := range res.loadRemoteSnapshotChains() {
+		if chain.Role == role {
+			return chain, true, nil
+		}
+	}
+	return PersistedSnapshotChain{}, false, nil
+}
+
 func (c *Cache) PersistedResultID(res AnyResult) (uint64, error) {
 	if res == nil {
 		return 0, fmt.Errorf("persisted result ID: nil result")

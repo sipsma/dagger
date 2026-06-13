@@ -1693,6 +1693,7 @@ func (*Container) DecodePersistedObject(ctx context.Context, dag *dagql.Server, 
 	if err != nil {
 		return nil, err
 	}
+	metaSnapshotSet := false
 	for _, link := range links {
 		if link.Role != "meta" {
 			continue
@@ -1702,7 +1703,17 @@ func (*Container) DecodePersistedObject(ctx context.Context, dag *dagql.Server, 
 			return nil, err
 		}
 		metaAccessor.setValue(metaSnapshot)
+		metaSnapshotSet = true
 		break
+	}
+	if !metaSnapshotSet {
+		chain, hasRemoteChain, err := loadPersistedRemoteSnapshotChainByResultID(ctx, dag, resultID, "container", "meta")
+		if err != nil {
+			return nil, err
+		}
+		if hasRemoteChain {
+			metaAccessor.setMaterializer(newRemoteSnapshotAccessorPlan[*Container](resultID, "meta", chain))
+		}
 	}
 
 	container := &Container{

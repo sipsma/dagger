@@ -185,10 +185,11 @@ func (*cacheVolumeTestSnapshotManager) Close() error {
 }
 
 type cacheVolumeTestImmutableRef struct {
-	id         string
-	snapshotID string
-	size       int64
-	release    func(context.Context) error
+	id          string
+	snapshotID  string
+	size        int64
+	release     func(context.Context) error
+	exportChain *bkcache.ExportChain
 }
 
 func (r *cacheVolumeTestImmutableRef) Mount(context.Context, bool) (bkcache.MountableRef, error) {
@@ -218,8 +219,11 @@ func (*cacheVolumeTestImmutableRef) Clone() bkcache.ImmutableRef {
 	panic("unexpected Clone call")
 }
 
-func (*cacheVolumeTestImmutableRef) ExportChain(context.Context, bkconfig.RefConfig) (*bkcache.ExportChain, error) {
-	panic("unexpected ExportChain call")
+func (r *cacheVolumeTestImmutableRef) ExportChain(context.Context, bkconfig.RefConfig) (*bkcache.ExportChain, error) {
+	if r.exportChain == nil {
+		panic("unexpected ExportChain call")
+	}
+	return r.exportChain, nil
 }
 
 func (*cacheVolumeTestImmutableRef) Finalize(context.Context) error {
