@@ -351,10 +351,64 @@ func TestRemoteCacheEligibilityEnablesRetainedRecipeSnapshotAfterSlotPlans(t *te
 		},
 	}
 
-	viability := c.cachemoneyResultViabilityLocked(1, nil, map[sharedResultID]cachemoneyRemoteViability{}, map[sharedResultID]struct{}{})
+	facts, err := cachemoneyImportFactsForEnvelope(c.resultsByID[1].persistedEnvelope)
+	assert.NilError(t, err)
+	viability := c.cachemoneyResultViabilityLocked(
+		1,
+		nil,
+		map[sharedResultID]cachemoneyResultImportFacts{1: facts},
+		map[sharedResultID]cachemoneyRemoteViability{},
+		map[sharedResultID]struct{}{},
+	)
 	assert.Assert(t, viability.viable)
 	assert.Assert(t, viability.eligible)
 	assert.Equal(t, viability.reason, remoteCacheReasonRetainedRecipeFallback)
+}
+
+func TestRemoteCacheViabilityIgnoresNestedRetainedRecipeForOwnerFallback(t *testing.T) {
+	t.Parallel()
+
+	env := &PersistedResultEnvelope{
+		Kind: persistedResultKindObject,
+		ObjectJSON: json.RawMessage(`{
+			"form": "ready",
+			"fs": {
+				"form": "snapshot",
+				"lazyKind": "directory.withNewFile",
+				"lazyJSON": {"parentResultID": 0}
+			}
+		}`),
+	}
+	facts, err := cachemoneyImportFactsForEnvelope(env)
+	assert.NilError(t, err)
+	c := &Cache{
+		resultsByID: map[sharedResultID]*sharedResult{
+			1: {
+				id:                  1,
+				remoteCacheImported: true,
+				persistedEnvelope:   env,
+				remoteSnapshotChains: []PersistedSnapshotChain{{
+					Role:    "fs",
+					ChainID: "chain-a",
+					Layers: []PersistedSnapshotChainLayer{{
+						DiffID:     digest.FromString("diff-a").String(),
+						BlobDigest: digest.FromString("blob-a").String(),
+					}},
+				}},
+			},
+		},
+	}
+
+	viability := c.cachemoneyResultViabilityLocked(
+		1,
+		nil,
+		map[sharedResultID]cachemoneyResultImportFacts{1: facts},
+		map[sharedResultID]cachemoneyRemoteViability{},
+		map[sharedResultID]struct{}{},
+	)
+	assert.Assert(t, !viability.viable)
+	assert.Assert(t, !viability.eligible)
+	assert.Equal(t, viability.reason, remoteCacheReasonMissingBlobNoFallback)
 }
 
 func cachemoneyImportedResultByOrigin(c *Cache, sourceID string, originResultID uint64) *sharedResult {

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/containerd/containerd/v2/core/content"
 	"github.com/dagger/dagger/dagql/cachemoneyproto"
@@ -33,6 +32,12 @@ type cachemoneyRemoteViability struct {
 	viable   bool
 	eligible bool
 	reason   string
+}
+
+type cachemoneyResultImportFacts struct {
+	hasRetainedRecipe bool
+	expectsSnapshot   bool
+	depResultIDs      []sharedResultID
 }
 
 type cachemoneyContentInfoProvider interface {
@@ -98,14 +103,20 @@ func (c *Cache) cachemoneyBlobLocallyPresent(ctx context.Context, blobDigest str
 	return err == nil
 }
 
-func (c *Cache) stampCachemoneyImportViabilityLocked(ctx context.Context, importRunID string, importedResultIDs []sharedResultID, blobAvailability map[string]bool) {
+func (c *Cache) stampCachemoneyImportViabilityLocked(
+	ctx context.Context,
+	importRunID string,
+	importedResultIDs []sharedResultID,
+	blobAvailability map[string]bool,
+	factsByResultID map[sharedResultID]cachemoneyResultImportFacts,
+) {
 	importedResultIDs = slices.Clone(importedResultIDs)
 	slices.Sort(importedResultIDs)
 
 	memo := make(map[sharedResultID]cachemoneyRemoteViability, len(importedResultIDs))
 	visiting := make(map[sharedResultID]struct{})
 	for _, resultID := range importedResultIDs {
-		viability := c.cachemoneyResultViabilityLocked(resultID, blobAvailability, memo, visiting)
+		viability := c.cachemoneyResultViabilityLocked(resultID, blobAvailability, factsByResultID, memo, visiting)
 		res := c.resultsByID[resultID]
 		if res == nil {
 			continue
@@ -120,6 +131,7 @@ func (c *Cache) stampCachemoneyImportViabilityLocked(ctx context.Context, import
 func (c *Cache) cachemoneyResultViabilityLocked(
 	resultID sharedResultID,
 	blobAvailability map[string]bool,
+	factsByResultID map[sharedResultID]cachemoneyResultImportFacts,
 	memo map[sharedResultID]cachemoneyRemoteViability,
 	visiting map[sharedResultID]struct{},
 ) cachemoneyRemoteViability {
@@ -145,17 +157,24 @@ func (c *Cache) cachemoneyResultViabilityLocked(
 		}
 	}
 
+	facts, ok := factsByResultID[resultID]
+	if !ok {
+		viability := cachemoneyRemoteViability{reason: remoteCacheReasonInvalidPayloadRefs}
+		memo[resultID] = viability
+		return viability
+	}
+
 	visiting[resultID] = struct{}{}
 	defer delete(visiting, resultID)
 
-	deps, err := c.cachemoneyResultDependencyIDsLocked(res)
+	deps, err := c.cachemoneyResultDependencyIDsLocked(res, facts)
 	if err != nil {
 		viability := cachemoneyRemoteViability{reason: remoteCacheReasonInvalidPayloadRefs}
 		memo[resultID] = viability
 		return viability
 	}
 	for _, depID := range deps {
-		depViability := c.cachemoneyResultViabilityLocked(depID, blobAvailability, memo, visiting)
+		depViability := c.cachemoneyResultViabilityLocked(depID, blobAvailability, factsByResultID, memo, visiting)
 		if !depViability.viable {
 			viability := cachemoneyRemoteViability{
 				reason: remoteCacheReasonDependencyNonViable + ":" + depViability.reason,
@@ -168,10 +187,8 @@ func (c *Cache) cachemoneyResultViabilityLocked(
 	state := res.loadPayloadState()
 	chains := res.loadRemoteSnapshotChains()
 	hasRemoteChains := len(chains) > 0
-	hasRetainedRecipe := cachemoneyEnvelopeHasRetainedLazy(state.persistedEnvelope)
-	expectsSnapshot := hasRemoteChains ||
-		len(state.snapshotOwnerLinks) > 0 ||
-		cachemoneyEnvelopeExpectsSnapshot(state.persistedEnvelope)
+	hasRetainedRecipe := facts.hasRetainedRecipe
+	expectsSnapshot := hasRemoteChains || len(state.snapshotOwnerLinks) > 0 || facts.expectsSnapshot
 
 	var viability cachemoneyRemoteViability
 	switch {
@@ -213,7 +230,7 @@ func (c *Cache) cachemoneyResultViabilityLocked(
 	return viability
 }
 
-func (c *Cache) cachemoneyResultDependencyIDsLocked(res *sharedResult) ([]sharedResultID, error) {
+func (c *Cache) cachemoneyResultDependencyIDsLocked(res *sharedResult, facts cachemoneyResultImportFacts) ([]sharedResultID, error) {
 	seen := make(map[sharedResultID]struct{})
 	add := func(id sharedResultID) {
 		if id == 0 {
@@ -225,6 +242,9 @@ func (c *Cache) cachemoneyResultDependencyIDsLocked(res *sharedResult) ([]shared
 	for depID := range res.deps {
 		add(depID)
 	}
+	for _, depID := range facts.depResultIDs {
+		add(depID)
+	}
 	if frame := res.loadResultCall(); frame != nil {
 		if err := c.cachemoneyWalkResultCallRefsLocked(frame, func(ref *ResultCallRef) error {
 			if ref != nil && ref.ResultID != 0 {
@@ -233,15 +253,6 @@ func (c *Cache) cachemoneyResultDependencyIDsLocked(res *sharedResult) ([]shared
 			return nil
 		}); err != nil {
 			return nil, err
-		}
-	}
-	if state := res.loadPayloadState(); state.persistedEnvelope != nil {
-		ids, err := cachemoneyPersistedEnvelopeResultIDs(state.persistedEnvelope)
-		if err != nil {
-			return nil, err
-		}
-		for _, id := range ids {
-			add(sharedResultID(id))
 		}
 	}
 
@@ -372,40 +383,6 @@ func cachemoneySnapshotChainsAvailable(chains []PersistedSnapshotChain, blobAvai
 	return true
 }
 
-func cachemoneyEnvelopeHasRetainedLazy(env *PersistedResultEnvelope) bool {
-	if env == nil {
-		return false
-	}
-	if cachemoneyJSONHasKey(env.ObjectJSON, "lazyKind", cachemoneyNonEmptyString) ||
-		cachemoneyJSONHasKey(env.ObjectJSON, "lazyJSON", cachemoneyNonEmptyValue) {
-		return true
-	}
-	for i := range env.Items {
-		if cachemoneyEnvelopeHasRetainedLazy(&env.Items[i]) {
-			return true
-		}
-	}
-	return false
-}
-
-func cachemoneyEnvelopeExpectsSnapshot(env *PersistedResultEnvelope) bool {
-	if env == nil {
-		return false
-	}
-	if cachemoneyJSONHasKey(env.ObjectJSON, "form", func(v any) bool {
-		s, ok := v.(string)
-		return ok && s == "snapshot"
-	}) {
-		return true
-	}
-	for i := range env.Items {
-		if cachemoneyEnvelopeExpectsSnapshot(&env.Items[i]) {
-			return true
-		}
-	}
-	return false
-}
-
 func cachemoneyNonEmptyString(v any) bool {
 	s, ok := v.(string)
 	return ok && s != ""
@@ -426,7 +403,30 @@ func cachemoneyNonEmptyValue(v any) bool {
 	}
 }
 
-func cachemoneyJSONHasKey(raw json.RawMessage, target string, pred func(any) bool) bool {
+func cachemoneyImportFactsForEnvelope(env *PersistedResultEnvelope) (cachemoneyResultImportFacts, error) {
+	var facts cachemoneyResultImportFacts
+	if env == nil {
+		return facts, nil
+	}
+	facts.hasRetainedRecipe =
+		cachemoneyJSONTopLevelHasKey(env.ObjectJSON, "lazyKind", cachemoneyNonEmptyString) ||
+			cachemoneyJSONTopLevelHasKey(env.ObjectJSON, "lazyJSON", cachemoneyNonEmptyValue)
+	facts.expectsSnapshot = cachemoneyJSONTopLevelHasKey(env.ObjectJSON, "form", func(v any) bool {
+		s, ok := v.(string)
+		return ok && s == "snapshot"
+	})
+	depResultIDs, err := cachemoneyPersistedEnvelopeResultIDs(env)
+	if err != nil {
+		return cachemoneyResultImportFacts{}, err
+	}
+	facts.depResultIDs = make([]sharedResultID, 0, len(depResultIDs))
+	for _, depResultID := range depResultIDs {
+		facts.depResultIDs = append(facts.depResultIDs, sharedResultID(depResultID))
+	}
+	return facts, nil
+}
+
+func cachemoneyJSONTopLevelHasKey(raw json.RawMessage, target string, pred func(any) bool) bool {
 	if len(raw) == 0 {
 		return false
 	}
@@ -436,28 +436,12 @@ func cachemoneyJSONHasKey(raw json.RawMessage, target string, pred func(any) boo
 	if err := dec.Decode(&val); err != nil {
 		return false
 	}
-	return cachemoneyJSONValueHasKey(val, target, pred)
-}
-
-func cachemoneyJSONValueHasKey(val any, target string, pred func(any) bool) bool {
-	switch v := val.(type) {
-	case map[string]any:
-		for key, child := range v {
-			if strings.EqualFold(key, target) && pred(child) {
-				return true
-			}
-			if cachemoneyJSONValueHasKey(child, target, pred) {
-				return true
-			}
-		}
-	case []any:
-		for _, child := range v {
-			if cachemoneyJSONValueHasKey(child, target, pred) {
-				return true
-			}
-		}
+	fields, ok := val.(map[string]any)
+	if !ok {
+		return false
 	}
-	return false
+	child, ok := fields[target]
+	return ok && pred(child)
 }
 
 func cachemoneyPersistedEnvelopeResultIDs(env *PersistedResultEnvelope) ([]uint64, error) {

@@ -36,6 +36,13 @@ type cachemoneyPersistedStateRows struct {
 	snapshotChainLayerRows  []persistdb.MirrorSnapshotChainLayer
 }
 
+type cachemoneyPreparedImportedResult struct {
+	row      persistdb.MirrorResult
+	resultID sharedResultID
+	env      *PersistedResultEnvelope
+	frame    *ResultCall
+}
+
 func (rows cachemoneyPersistedStateRows) empty() bool {
 	return len(rows.resultRows) == 0 && len(rows.eqClassRows) == 0 && len(rows.termRows) == 0
 }
@@ -155,14 +162,14 @@ func (c *Cache) importCachemoneyMetadataRows(ctx context.Context, source Cachemo
 		return err
 	}
 
-	c.egraphMu.Lock()
-	importErr := func() error {
-		c.initEgraphLocked()
+	resultRows := slices.Clone(rows.resultRows)
+	slices.SortFunc(resultRows, func(a, b persistdb.MirrorResult) int {
+		return cmpInt64(a.ID, b.ID)
+	})
 
-		resultRows := slices.Clone(rows.resultRows)
-		slices.SortFunc(resultRows, func(a, b persistdb.MirrorResult) int {
-			return cmpInt64(a.ID, b.ID)
-		})
+	c.egraphMu.Lock()
+	reservationErr := func() error {
+		c.initEgraphLocked()
 		for _, row := range resultRows {
 			if row.ID == 0 {
 				return errors.New("import cachemoney metadata result: zero ID")
@@ -172,6 +179,58 @@ func (c *Cache) importCachemoneyMetadataRows(ctx context.Context, source Cachemo
 			sourceResultToLocal[uint64(row.ID)] = uint64(localID)
 			importedResultIDs = append(importedResultIDs, localID)
 		}
+		return nil
+	}()
+	c.egraphMu.Unlock()
+	if reservationErr != nil {
+		return reservationErr
+	}
+
+	preparedResults := make([]cachemoneyPreparedImportedResult, 0, len(resultRows))
+	factsByResultID := make(map[sharedResultID]cachemoneyResultImportFacts, len(resultRows))
+	for _, row := range resultRows {
+		resultID := sharedResultID(sourceResultToLocal[uint64(row.ID)])
+		env := PersistedResultEnvelope{
+			Version: 1,
+			Kind:    persistedResultKindNull,
+		}
+		if len(row.SelfPayload) > 0 {
+			if err := json.Unmarshal(row.SelfPayload, &env); err != nil {
+				return fmt.Errorf("import cachemoney metadata result %d self payload: %w", row.ID, err)
+			}
+		}
+		if env.Kind == "" {
+			return fmt.Errorf("import cachemoney metadata result %d: empty self payload kind", row.ID)
+		}
+		if err := remapPersistedResultEnvelope(&env, sourceResultToLocal); err != nil {
+			return fmt.Errorf("import cachemoney metadata result %d self payload refs: %w", row.ID, err)
+		}
+		if row.CallFrameJSON == "" {
+			return fmt.Errorf("import cachemoney metadata result %d: empty call_frame_json", row.ID)
+		}
+		frame := &ResultCall{}
+		if err := json.Unmarshal([]byte(row.CallFrameJSON), frame); err != nil {
+			return fmt.Errorf("import cachemoney metadata result %d call_frame_json: %w", row.ID, err)
+		}
+		if err := remapResultCallRefs(frame, sourceResultToLocal); err != nil {
+			return fmt.Errorf("import cachemoney metadata result %d call_frame_json refs: %w", row.ID, err)
+		}
+		facts, err := cachemoneyImportFactsForEnvelope(&env)
+		if err != nil {
+			return fmt.Errorf("import cachemoney metadata result %d viability facts: %w", row.ID, err)
+		}
+		factsByResultID[resultID] = facts
+		preparedResults = append(preparedResults, cachemoneyPreparedImportedResult{
+			row:      row,
+			resultID: resultID,
+			env:      &env,
+			frame:    frame,
+		})
+	}
+
+	c.egraphMu.Lock()
+	importErr := func() error {
+		c.initEgraphLocked()
 
 		digestsByEq := make(map[int64][]persistdb.MirrorEqClassDigest)
 		for _, row := range rows.eqClassDigestRows {
@@ -205,34 +264,9 @@ func (c *Cache) importCachemoneyMetadataRows(ctx context.Context, source Cachemo
 			sourceEqToLocal[row.ID] = c.findEqClassLocked(localEqID)
 		}
 
-		for _, row := range resultRows {
-			resultID := sharedResultID(sourceResultToLocal[uint64(row.ID)])
-			env := PersistedResultEnvelope{
-				Version: 1,
-				Kind:    persistedResultKindNull,
-			}
-			if len(row.SelfPayload) > 0 {
-				if err := json.Unmarshal(row.SelfPayload, &env); err != nil {
-					return fmt.Errorf("import cachemoney metadata result %d self payload: %w", row.ID, err)
-				}
-			}
-			if env.Kind == "" {
-				return fmt.Errorf("import cachemoney metadata result %d: empty self payload kind", row.ID)
-			}
-			if err := remapPersistedResultEnvelope(&env, sourceResultToLocal); err != nil {
-				return fmt.Errorf("import cachemoney metadata result %d self payload refs: %w", row.ID, err)
-			}
-			if row.CallFrameJSON == "" {
-				return fmt.Errorf("import cachemoney metadata result %d: empty call_frame_json", row.ID)
-			}
-			frame := &ResultCall{}
-			if err := json.Unmarshal([]byte(row.CallFrameJSON), frame); err != nil {
-				return fmt.Errorf("import cachemoney metadata result %d call_frame_json: %w", row.ID, err)
-			}
-			if err := remapResultCallRefs(frame, sourceResultToLocal); err != nil {
-				return fmt.Errorf("import cachemoney metadata result %d call_frame_json refs: %w", row.ID, err)
-			}
-
+		for _, prepared := range preparedResults {
+			row := prepared.row
+			env := prepared.env
 			originSourceID := row.OriginSourceID
 			originResultID := uint64(row.OriginResultID)
 			if originSourceID == "" || originResultID == 0 {
@@ -241,7 +275,7 @@ func (c *Cache) importCachemoneyMetadataRows(ctx context.Context, source Cachemo
 			}
 
 			res := &sharedResult{
-				id:                    resultID,
+				id:                    prepared.resultID,
 				isObject:              env.Kind == persistedResultKindObject,
 				sessionResourceHandle: env.SessionResourceHandle,
 				expiresAtUnix:         row.ExpiresAtUnix,
@@ -249,7 +283,7 @@ func (c *Cache) importCachemoneyMetadataRows(ctx context.Context, source Cachemo
 				lastUsedAtUnixNano:    row.LastUsedAtUnixNano,
 				description:           row.Description,
 				recordType:            row.RecordType,
-				persistedEnvelope:     &env,
+				persistedEnvelope:     env,
 				originSourceID:        originSourceID,
 				originResultID:        originResultID,
 				remoteCacheImported:   true,
@@ -257,15 +291,15 @@ func (c *Cache) importCachemoneyMetadataRows(ctx context.Context, source Cachemo
 				remoteCacheEligible:   false,
 				remoteCacheReason:     remoteCacheReasonPendingViability,
 			}
-			res.storeResultCall(frame)
-			c.traceResultCallFrameUpdated(ctx, res, "import_cachemoney_metadata_result", nil, frame)
+			res.storeResultCall(prepared.frame)
+			c.traceResultCallFrameUpdated(ctx, res, "import_cachemoney_metadata_result", nil, prepared.frame)
 			if env.Kind == persistedResultKindNull {
 				res.hasValue = true
 				res.persistedEnvelope = nil
-				c.tracePersistedPayloadImportedEager(ctx, importRunID, resultID, source.ID, "nil")
+				c.tracePersistedPayloadImportedEager(ctx, importRunID, prepared.resultID, source.ID, "nil")
 			}
-			c.resultsByID[resultID] = res
-			c.traceImportResultLoaded(ctx, importRunID, resultID, row.CallFrameJSON)
+			c.resultsByID[prepared.resultID] = res
+			c.traceImportResultLoaded(ctx, importRunID, prepared.resultID, row.CallFrameJSON)
 		}
 
 		inputsByTermID := make(map[int64][]persistdb.MirrorTermInput, len(rows.termInputRows))
@@ -471,7 +505,7 @@ func (c *Cache) importCachemoneyMetadataRows(ctx context.Context, source Cachemo
 			}
 		}
 
-		c.stampCachemoneyImportViabilityLocked(ctx, importRunID, importedResultIDs, blobAvailability)
+		c.stampCachemoneyImportViabilityLocked(ctx, importRunID, importedResultIDs, blobAvailability, factsByResultID)
 
 		return nil
 	}()
