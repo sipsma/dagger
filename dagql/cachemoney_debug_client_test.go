@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -278,6 +279,25 @@ func TestDebugCachemoneyExportCompletesAfterPartialBlobUploadFailure(t *testing.
 	assert.Equal(t, stats.BlobsUploaded, uint64(1))
 	assert.Equal(t, stats.BlobsUploadFailed, uint64(1))
 	assert.Equal(t, stats.ExportsCompleted, uint64(1))
+}
+
+func TestCachemoneyCheckHTTPStatusStripsSignedQuery(t *testing.T) {
+	t.Parallel()
+
+	req, err := http.NewRequest(http.MethodPut, "http://minio:9000/cachemoney-d0/blobs/sha256/abc?X-Amz-Signature=secret", nil)
+	assert.NilError(t, err)
+	resp := &http.Response{
+		StatusCode: http.StatusForbidden,
+		Status:     "403 Forbidden",
+		Body:       io.NopCloser(strings.NewReader("SignatureDoesNotMatch")),
+		Request:    req,
+	}
+
+	err = cachemoneyCheckHTTPStatus(resp)
+	assert.ErrorContains(t, err, "PUT http://minio:9000/cachemoney-d0/blobs/sha256/abc returned 403 Forbidden")
+	assert.ErrorContains(t, err, "SignatureDoesNotMatch")
+	assert.Assert(t, !strings.Contains(err.Error(), "X-Amz-Signature"))
+	assert.Assert(t, !strings.Contains(err.Error(), "secret"))
 }
 
 func TestDebugCachemoneyImportFetchesMultipartAndImportsMetadata(t *testing.T) {

@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -105,6 +107,9 @@ func (c *Cache) DebugCachemoneyExport(ctx context.Context, beginURL string) (_ *
 		if err != nil {
 			result.BlobsFailed++
 			c.recordCachemoneyBlobUploadFailed()
+			slog.WarnContext(ctx, "remote cache blob upload failed",
+				"digest", blobDigest,
+				"err", err)
 			continue
 		}
 		c.recordCachemoneyBlobUpload(alreadyExists)
@@ -304,7 +309,7 @@ func cachemoneyUploadBlob(ctx context.Context, reader cachemoneyContentBlobReade
 	}
 	uploadHTTPResp, err := http.DefaultClient.Do(uploadReq)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("upload blob %s via %s %s failed: %s", desc.Digest, method, cachemoneySafeURL(uploadReq.URL), cachemoneySafeURLError(err))
 	}
 	defer uploadHTTPResp.Body.Close()
 	if err := cachemoneyCheckHTTPStatus(uploadHTTPResp); err != nil {
@@ -458,7 +463,33 @@ func cachemoneyCheckHTTPStatus(resp *http.Response) error {
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
 	if len(body) == 0 {
-		return fmt.Errorf("%s %s returned %s", resp.Request.Method, resp.Request.URL, resp.Status)
+		return fmt.Errorf("%s %s returned %s", resp.Request.Method, cachemoneySafeURL(resp.Request.URL), resp.Status)
 	}
-	return fmt.Errorf("%s %s returned %s: %s", resp.Request.Method, resp.Request.URL, resp.Status, strings.TrimSpace(string(body)))
+	return fmt.Errorf("%s %s returned %s: %s", resp.Request.Method, cachemoneySafeURL(resp.Request.URL), resp.Status, strings.TrimSpace(string(body)))
+}
+
+func cachemoneySafeURLError(err error) string {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return fmt.Sprintf("%s %s: %v", urlErr.Op, cachemoneySafeURLString(urlErr.URL), urlErr.Err)
+	}
+	return err.Error()
+}
+
+func cachemoneySafeURLString(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	return cachemoneySafeURL(u)
+}
+
+func cachemoneySafeURL(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	safe := *u
+	safe.RawQuery = ""
+	safe.Fragment = ""
+	return safe.String()
 }
