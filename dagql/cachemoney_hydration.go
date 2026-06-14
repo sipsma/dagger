@@ -69,11 +69,7 @@ func (c *Cache) MaterializeRemoteSnapshot(ctx context.Context, req RemoteSnapsho
 	if err != nil {
 		return nil, false, err
 	}
-	if originSourceID == "" {
-		return nil, false, fmt.Errorf("remote snapshot materialize result %d role %q: missing origin source", req.ResultID, req.Role)
-	}
-
-	key := originSourceID + "\x00" + req.Chain.ChainID
+	key := req.Chain.ChainID
 	snapshotID, shared, err := c.cachemoneyHydrationGroup.Do(ctx, key, func(ctx context.Context) (string, error) {
 		return c.hydrateRemoteSnapshot(ctx, originSourceID, req)
 	})
@@ -124,14 +120,15 @@ func (c *Cache) hydrateRemoteSnapshot(ctx context.Context, sourceID string, req 
 	if err != nil {
 		return "", fmt.Errorf("validate remote snapshot chain: %w", err)
 	}
-	if err := c.ensureRemoteSnapshotBlobs(ctx, sourceID, descs); err != nil {
+	if err := c.ensureRemoteSnapshotBlobs(ctx, descs); err != nil {
 		return "", err
 	}
+	imageRef := cachemoneyRemoteSnapshotImageRef(sourceID, req.Chain.ChainID)
 	ref, err := c.snapshotManager.ImportImage(ctx, &bkcache.ImportedImage{
-		Ref:    fmt.Sprintf("cachemoney/%s/%s", sourceID, req.Chain.ChainID),
+		Ref:    imageRef,
 		Layers: descs,
 	}, bkcache.ImportImageOpts{
-		ImageRef:   fmt.Sprintf("cachemoney/%s/%s", sourceID, req.Chain.ChainID),
+		ImageRef:   imageRef,
 		RecordType: client.UsageRecordTypeRegular,
 	})
 	if err != nil {
@@ -148,8 +145,15 @@ func (c *Cache) hydrateRemoteSnapshot(ctx context.Context, sourceID string, req 
 	return ref.SnapshotID(), nil
 }
 
-func (c *Cache) ensureRemoteSnapshotBlobs(ctx context.Context, sourceID string, descs []ocispecs.Descriptor) error {
-	blobIndex := c.cachemoneyBlobIndex(sourceID)
+func cachemoneyRemoteSnapshotImageRef(sourceID, chainID string) string {
+	if sourceID == "" {
+		return fmt.Sprintf("cachemoney/%s", chainID)
+	}
+	return fmt.Sprintf("cachemoney/%s/%s", sourceID, chainID)
+}
+
+func (c *Cache) ensureRemoteSnapshotBlobs(ctx context.Context, descs []ocispecs.Descriptor) error {
+	blobIndex := c.cachemoneyBlobIndex()
 	writer, _ := c.snapshotManager.(cachemoneyContentBlobWriter)
 
 	eg, egCtx := errgroup.WithContext(ctx)
@@ -350,27 +354,29 @@ func (c *Cache) attachHydratedRemoteSnapshot(ctx context.Context, resultID uint6
 	return nil
 }
 
-func (c *Cache) storeCachemoneyBlobIndex(sourceID string, blobIndex map[string]cachemoneyproto.BlobLocation) {
-	if c == nil || sourceID == "" {
+func (c *Cache) mergeCachemoneyBlobIndex(blobIndex map[string]cachemoneyproto.BlobLocation) {
+	if c == nil || len(blobIndex) == 0 {
 		return
 	}
 	c.cachemoneyMu.Lock()
 	defer c.cachemoneyMu.Unlock()
 
-	if c.cachemoneyBlobIndexBySource == nil {
-		c.cachemoneyBlobIndexBySource = map[string]map[string]cachemoneyproto.BlobLocation{}
+	if c.cachemoneyBlobLocations == nil {
+		c.cachemoneyBlobLocations = map[string]cachemoneyproto.BlobLocation{}
 	}
-	c.cachemoneyBlobIndexBySource[sourceID] = cachemoneyCloneBlobIndex(blobIndex)
+	for dgst, location := range blobIndex {
+		c.cachemoneyBlobLocations[dgst] = location
+	}
 }
 
-func (c *Cache) cachemoneyBlobIndex(sourceID string) map[string]cachemoneyproto.BlobLocation {
-	if c == nil || sourceID == "" {
+func (c *Cache) cachemoneyBlobIndex() map[string]cachemoneyproto.BlobLocation {
+	if c == nil {
 		return nil
 	}
 	c.cachemoneyMu.RLock()
 	defer c.cachemoneyMu.RUnlock()
 
-	return cachemoneyCloneBlobIndex(c.cachemoneyBlobIndexBySource[sourceID])
+	return cachemoneyCloneBlobIndex(c.cachemoneyBlobLocations)
 }
 
 func cachemoneyCloneBlobIndex(blobIndex map[string]cachemoneyproto.BlobLocation) map[string]cachemoneyproto.BlobLocation {

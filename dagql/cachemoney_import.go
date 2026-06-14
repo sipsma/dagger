@@ -141,7 +141,7 @@ func (c *Cache) ImportCachemoneyMetadata(ctx context.Context, source CachemoneyI
 	if err := c.importCachemoneyMetadataRows(ctx, source, rows); err != nil {
 		return err
 	}
-	c.storeCachemoneyBlobIndex(source.ID, source.BlobIndex)
+	c.mergeCachemoneyBlobIndex(source.BlobIndex)
 	return nil
 }
 

@@ -1332,10 +1332,10 @@ type Cache struct {
 	traceSeq        uint64
 	traceImportRuns uint64
 
-	cachemoneyMu                sync.RWMutex
-	cachemoneyBlobIndexBySource map[string]map[string]cachemoneyproto.BlobLocation
-	cachemoneyHydrationGroup    singleflight.Group[string, string]
-	cachemoneyStats             CachemoneyDebugStats
+	cachemoneyMu             sync.RWMutex
+	cachemoneyBlobLocations  map[string]cachemoneyproto.BlobLocation
+	cachemoneyHydrationGroup singleflight.Group[string, string]
+	cachemoneyStats          CachemoneyDebugStats
 
 	snapshotManager bkcache.SnapshotManager
 	snapshotGC      func(context.Context) error

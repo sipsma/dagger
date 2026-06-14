@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -90,7 +91,7 @@ func TestMaterializeRemoteSnapshotFetchesMissingBlob(t *testing.T) {
 		},
 	}
 	c := cachemoneyHydrationTestCache(manager, "source-a")
-	c.storeCachemoneyBlobIndex("source-a", map[string]cachemoneyproto.BlobLocation{
+	c.mergeCachemoneyBlobIndex(map[string]cachemoneyproto.BlobLocation{
 		blobDigest.String(): {
 			URL:       server.URL,
 			Size:      int64(len(blobBytes)),
@@ -108,6 +109,132 @@ func TestMaterializeRemoteSnapshotFetchesMissingBlob(t *testing.T) {
 	assert.Equal(t, ref.SnapshotID(), "hydrated-fetch")
 	assert.DeepEqual(t, manager.writeContentCalls, []digest.Digest{blobDigest})
 	assert.Equal(t, len(manager.importImageCalls), 1)
+}
+
+func TestMaterializeRemoteSnapshotUsesGlobalBlobIndexForMergedOrigin(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	diffID := digest.FromString("diff-merged-origin")
+	blobBytes := []byte("blob-merged-origin")
+	blobDigest := digest.FromBytes(blobBytes)
+	sourceRef := &fakeCachemoneyExportRef{
+		snapshotID: "source-snapshot",
+		chain: &bkcache.ExportChain{
+			Layers: []bkcache.ExportLayer{{
+				Descriptor: ocispecs.Descriptor{
+					MediaType: ocispecs.MediaTypeImageLayerZstd,
+					Digest:    blobDigest,
+					Size:      int64(len(blobBytes)),
+					Annotations: map[string]string{
+						labels.LabelUncompressed: diffID.String(),
+					},
+				},
+			}},
+		},
+	}
+	sourceCache, err := NewCache(ctx, filepath.Join(t.TempDir(), "source.db"), &fakeSnapshotManager{
+		refsBySnapshotID: map[string]bkcache.ImmutableRef{
+			"source-snapshot": sourceRef,
+		},
+	}, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, sourceCache.Close(context.Background()))
+	}()
+
+	key := &ResultCall{
+		Kind:  ResultCallKindField,
+		Type:  NewResultCallType((&persistSnapshotValue{}).Type()),
+		Field: "cachemoney-merged-origin-source",
+	}
+	sourceRes, err := sourceCache.GetOrInitCall(ctx, "source-session", noopTypeResolver{}, &CallRequest{
+		ResultCall:    key,
+		IsPersistable: true,
+	}, func(context.Context) (AnyResult, error) {
+		return cacheTestPlainResult(&persistSnapshotValue{
+			Name:       "x",
+			SnapshotID: "source-snapshot",
+		}), nil
+	})
+	assert.NilError(t, err)
+	sourceResultID := sourceRes.cacheSharedResult().id
+
+	exportPath := filepath.Join(t.TempDir(), "metadata.db")
+	prepared, err := sourceCache.PrepareCachemoneyExport(ctx, exportPath)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, prepared.Release(context.Background()))
+	}()
+
+	mergeCache, err := NewCache(ctx, "", nil, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, mergeCache.Close(context.Background()))
+	}()
+	assert.NilError(t, mergeCache.ImportCachemoneyMetadata(ctx, CachemoneyImportSource{
+		ID:             "origin-a",
+		MetadataDBPath: exportPath,
+	}))
+
+	mergedPath := filepath.Join(t.TempDir(), "merged.db")
+	assert.NilError(t, mergeCache.WriteCachemoneyMetadataDB(ctx, mergedPath))
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, r.Method, http.MethodGet)
+		_, _ = w.Write(blobBytes)
+	}))
+	t.Cleanup(server.Close)
+
+	hydratedRef := &fakeCachemoneyExportRef{snapshotID: "hydrated-merged-origin"}
+	manager := &fakeSnapshotManager{
+		importImageResult: hydratedRef,
+		refsBySnapshotID: map[string]bkcache.ImmutableRef{
+			"hydrated-merged-origin": hydratedRef,
+		},
+	}
+	destCache, err := NewCache(ctx, filepath.Join(t.TempDir(), "dest.db"), manager, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, destCache.Close(context.Background()))
+	}()
+	assert.NilError(t, destCache.ImportCachemoneyMetadata(ctx, CachemoneyImportSource{
+		ID:             "backend-merged",
+		MetadataDBPath: mergedPath,
+		BlobIndex: map[string]cachemoneyproto.BlobLocation{
+			blobDigest.String(): {
+				URL:       server.URL,
+				Size:      int64(len(blobBytes)),
+				MediaType: ocispecs.MediaTypeImageLayerZstd,
+			},
+		},
+	}))
+
+	imported := cachemoneyImportedResultByOrigin(destCache, "origin-a", uint64(sourceResultID))
+	assert.Assert(t, imported != nil)
+	assert.Assert(t, imported.remoteCacheImported)
+	assert.Assert(t, imported.remoteCacheViable)
+	assert.Assert(t, imported.remoteCacheEligible)
+	assert.Equal(t, imported.remoteCacheReason, remoteCacheReasonRemoteSnapshotBlobs)
+
+	chains := imported.loadRemoteSnapshotChains()
+	assert.Equal(t, len(chains), 1)
+	ref, ok, err := destCache.MaterializeRemoteSnapshot(ctx, RemoteSnapshotMaterializationRequest{
+		ResultID: uint64(imported.id),
+		Role:     "snapshot",
+		Chain:    chains[0],
+	})
+	assert.NilError(t, err)
+	assert.Assert(t, ok)
+	assert.Equal(t, ref.SnapshotID(), "hydrated-merged-origin")
+	assert.DeepEqual(t, manager.writeContentCalls, []digest.Digest{blobDigest})
+	assert.Equal(t, len(manager.importImageCalls), 1)
+	assert.Equal(t, manager.importImageCalls[0].Ref, "cachemoney/origin-a/"+chains[0].ChainID)
+	assert.DeepEqual(t, imported.loadSnapshotOwnerLinks(), []PersistedSnapshotRefLink{{
+		RefKey: "hydrated-merged-origin",
+		Role:   "snapshot",
+	}})
+	assert.DeepEqual(t, imported.loadRemoteSnapshotChains(), []PersistedSnapshotChain(nil))
 }
 
 func TestMaterializeRemoteSnapshotRejectsInvalidDescriptor(t *testing.T) {
