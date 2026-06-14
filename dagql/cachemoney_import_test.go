@@ -365,6 +365,46 @@ func TestRemoteCacheEligibilityEnablesRetainedRecipeSnapshotAfterSlotPlans(t *te
 	assert.Equal(t, viability.reason, remoteCacheReasonRetainedRecipeFallback)
 }
 
+func TestRemoteCacheEligibilityPrefersBlobBackedSnapshotOverRetainedRecipe(t *testing.T) {
+	t.Parallel()
+
+	blobDigest := digest.FromString("blob-a").String()
+	env := &PersistedResultEnvelope{
+		Kind:       persistedResultKindObject,
+		ObjectJSON: json.RawMessage(`{"form":"snapshot","lazyKind":"directory.withNewFile","lazyJSON":{"parentResultID":0}}`),
+	}
+	c := &Cache{
+		resultsByID: map[sharedResultID]*sharedResult{
+			1: {
+				id:                  1,
+				remoteCacheImported: true,
+				persistedEnvelope:   env,
+				remoteSnapshotChains: []PersistedSnapshotChain{{
+					Role:    "snapshot",
+					ChainID: "chain-a",
+					Layers: []PersistedSnapshotChainLayer{{
+						DiffID:     digest.FromString("diff-a").String(),
+						BlobDigest: blobDigest,
+					}},
+				}},
+			},
+		},
+	}
+
+	facts, err := cachemoneyImportFactsForEnvelope(env)
+	assert.NilError(t, err)
+	viability := c.cachemoneyResultViabilityLocked(
+		1,
+		map[string]bool{blobDigest: true},
+		map[sharedResultID]cachemoneyResultImportFacts{1: facts},
+		map[sharedResultID]cachemoneyRemoteViability{},
+		map[sharedResultID]struct{}{},
+	)
+	assert.Assert(t, viability.viable)
+	assert.Assert(t, viability.eligible)
+	assert.Equal(t, viability.reason, remoteCacheReasonRemoteSnapshotBlobs)
+}
+
 func TestRemoteCacheViabilityIgnoresNestedRetainedRecipeForOwnerFallback(t *testing.T) {
 	t.Parallel()
 

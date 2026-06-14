@@ -1719,6 +1719,17 @@ func containerHasUnresolvedSnapshotSlot(container *Container, call *dagql.Result
 	return false
 }
 
+func containerShouldDecodeRetainedLazy(ctx context.Context, resultID uint64, container *Container, call *dagql.ResultCall) (bool, error) {
+	if containerHasUnresolvedSnapshotSlot(container, call) {
+		return true, nil
+	}
+	cache, err := dagql.EngineCache(ctx)
+	if err != nil {
+		return false, nil
+	}
+	return cache.CachemoneyResultUsesRetainedRecipeFallback(ctx, resultID)
+}
+
 func (container *Container) EncodePersistedObject(ctx context.Context, cache dagql.PersistedObjectCache) (dagql.PersistedObjectEncoding, error) {
 	if container == nil {
 		return dagql.PersistedObjectEncoding{}, fmt.Errorf("encode persisted container: nil container")
@@ -2015,7 +2026,11 @@ func (*Container) DecodePersistedObject(ctx context.Context, dag *dagql.Server, 
 		DefaultArgs:        persisted.DefaultArgs,
 	}
 	if persisted.Form != persistedContainerFormLazy {
-		if len(persisted.LazyJSON) > 0 && containerHasUnresolvedSnapshotSlot(container, call) {
+		decodeRetainedLazy, err := containerShouldDecodeRetainedLazy(ctx, resultID, container, call)
+		if err != nil {
+			return nil, err
+		}
+		if len(persisted.LazyJSON) > 0 && decodeRetainedLazy {
 			if call == nil {
 				return nil, fmt.Errorf("decode persisted container payload: missing call for retained lazy form")
 			}

@@ -570,6 +570,67 @@ func TestCachePersistenceSnapshotChainRowsRoundTrip(t *testing.T) {
 	}})
 }
 
+func TestCachePersistenceSnapshotChainLayerRowsDeduplicate(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	cacheIface, err := NewCache(ctx, dbPath, &fakeSnapshotManager{}, nil)
+	assert.NilError(t, err)
+	c := cacheIface
+	defer func() {
+		assert.NilError(t, c.Close(context.Background()))
+	}()
+
+	layer := persistdb.MirrorSnapshotChainLayer{
+		ChainID:        "sha256:chain",
+		Position:       0,
+		DiffID:         "sha256:diff",
+		BlobDigest:     "sha256:blob",
+		Size:           123,
+		MediaType:      "application/vnd.oci.image.layer.v1.tar+zstd",
+		DescriptorJSON: `{"mediaType":"application/vnd.oci.image.layer.v1.tar+zstd"}`,
+	}
+	snapshot := persistStateSnapshot{
+		snapshotChainLayers: []persistdb.MirrorSnapshotChainLayer{layer, layer},
+	}
+	assert.NilError(t, c.applyPersistStateSnapshot(ctx, snapshot))
+
+	layerRows, err := c.pdb.ListMirrorSnapshotChainLayers(ctx)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, layerRows, []persistdb.MirrorSnapshotChainLayer{layer})
+}
+
+func TestCachePersistenceSnapshotChainLayerRowsRejectConflict(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	cacheIface, err := NewCache(ctx, dbPath, &fakeSnapshotManager{}, nil)
+	assert.NilError(t, err)
+	c := cacheIface
+	defer func() {
+		assert.NilError(t, c.Close(context.Background()))
+	}()
+
+	layer := persistdb.MirrorSnapshotChainLayer{
+		ChainID:        "sha256:chain",
+		Position:       0,
+		DiffID:         "sha256:diff",
+		BlobDigest:     "sha256:blob",
+		Size:           123,
+		MediaType:      "application/vnd.oci.image.layer.v1.tar+zstd",
+		DescriptorJSON: `{"mediaType":"application/vnd.oci.image.layer.v1.tar+zstd"}`,
+	}
+	conflict := layer
+	conflict.BlobDigest = "sha256:other-blob"
+	snapshot := persistStateSnapshot{
+		snapshotChainLayers: []persistdb.MirrorSnapshotChainLayer{layer, conflict},
+	}
+	err = c.applyPersistStateSnapshot(ctx, snapshot)
+	assert.ErrorContains(t, err, "conflicting snapshot_chain_layer (sha256:chain,0)")
+}
+
 var _ bkcache.SnapshotManager = (*fakeSnapshotManager)(nil)
 var _ PersistedObject = (*persistSnapshotValue)(nil)
 var _ PersistedSnapshotRefLinkProvider = (*persistSnapshotValue)(nil)

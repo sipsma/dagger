@@ -173,6 +173,70 @@ func TestCachemoneyDecodeContainerInstallsIndependentRemoteSnapshotPlans(t *test
 	require.False(t, ok)
 }
 
+func TestCachemoneyDecodeContainerRetainedRecipeFallbackKeepsLazy(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	sourceManager := &cacheVolumeTestSnapshotManager{
+		immutableBySnapshotID: map[string]bkcache.ImmutableRef{
+			"fs-snapshot": cachemoneyRemotePlanTestRef("fs-snapshot", "fs-diff", "fs-blob"),
+		},
+	}
+	sourceCache, err := dagql.NewCache(ctx, filepath.Join(t.TempDir(), "source.db"), sourceManager, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, sourceCache.Close(context.Background()))
+	})
+	sourceSrv, sourceQuery := cachemoneyRemotePlanTestServer(t, sourceManager)
+	sourceCtx := ContextWithQuery(dagql.ContextWithCache(ctx, sourceCache), sourceQuery)
+
+	parentCall := cachemoneyRemotePlanTestCall("retained-recipe-parent", (&Container{}).Type())
+	parent := NewContainer(Platform{OS: "linux", Architecture: "amd64"})
+	parentAny, err := sourceCache.GetOrInitCall(sourceCtx, "source-session", sourceSrv, &dagql.CallRequest{
+		ResultCall:    parentCall,
+		IsPersistable: true,
+	}, func(context.Context) (dagql.AnyResult, error) {
+		return dagql.NewObjectResultForCall(parent, sourceSrv, parentCall)
+	})
+	require.NoError(t, err)
+	parentRes := parentAny.(dagql.ObjectResult[*Container])
+
+	rootFS := &Directory{
+		Platform: Platform{OS: "linux", Architecture: "amd64"},
+		Dir:      new(LazyAccessor[string, *Directory]),
+		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+	}
+	rootFS.Dir.setValue("/")
+	rootFS.Snapshot.setValue(sourceManager.immutableBySnapshotID["fs-snapshot"])
+
+	completedState := NewLazyState()
+	completedState.LazyInitComplete = true
+	childCall := cachemoneyRemotePlanTestCall("withDefaultArgs", (&Container{}).Type())
+	child := NewContainer(Platform{OS: "linux", Architecture: "amd64"})
+	child.FS.setValue(rootFS)
+	child.Lazy = &ContainerWithDefaultArgsLazy{
+		LazyState: completedState,
+		Parent:    parentRes,
+		Args:      []string{"sh"},
+	}
+	_, err = sourceCache.GetOrInitCall(sourceCtx, "source-session", sourceSrv, &dagql.CallRequest{
+		ResultCall:    childCall,
+		IsPersistable: true,
+	}, func(context.Context) (dagql.AnyResult, error) {
+		return dagql.NewObjectResultForCall(child, sourceSrv, childCall)
+	})
+	require.NoError(t, err)
+
+	destCache, destSrv, destCtx := cachemoneyRemotePlanTestImport(t, ctx, sourceCache)
+	resultID := cachemoneyRemotePlanTestResultID(t, destCtx, destCache, "fs")
+	loaded, err := destCache.LoadResultByResultID(destCtx, "", destSrv, resultID)
+	require.NoError(t, err)
+	loadedContainer := loaded.(dagql.ObjectResult[*Container]).Self()
+	require.True(t, loadedContainer.FS.hasMaterializer())
+	require.NotNil(t, loadedContainer.Lazy)
+	require.True(t, lazyPending(loadedContainer.Lazy))
+}
+
 func TestContainerMetaFileContentsForResultUsesAccessorPlan(t *testing.T) {
 	t.Parallel()
 

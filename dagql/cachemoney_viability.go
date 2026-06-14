@@ -128,6 +128,17 @@ func (c *Cache) stampCachemoneyImportViabilityLocked(
 	}
 }
 
+func (c *Cache) CachemoneyResultUsesRetainedRecipeFallback(ctx context.Context, resultID uint64) (bool, error) {
+	if c == nil || resultID == 0 {
+		return false, nil
+	}
+	res, _, _, err := c.sharedResultByResultID(ctx, "", sharedResultID(resultID), sharedResultLookupExact)
+	if err != nil {
+		return false, err
+	}
+	return res.remoteCacheImported && res.remoteCacheReason == remoteCacheReasonRetainedRecipeFallback, nil
+}
+
 func (c *Cache) cachemoneyResultViabilityLocked(
 	resultID sharedResultID,
 	blobAvailability map[string]bool,
@@ -192,17 +203,17 @@ func (c *Cache) cachemoneyResultViabilityLocked(
 
 	var viability cachemoneyRemoteViability
 	switch {
-	case hasRemoteChains && hasRetainedRecipe:
-		viability = cachemoneyRemoteViability{
-			viable:   true,
-			eligible: true,
-			reason:   remoteCacheReasonRetainedRecipeFallback,
-		}
 	case hasRemoteChains && cachemoneySnapshotChainsAvailable(chains, blobAvailability):
 		viability = cachemoneyRemoteViability{
 			viable:   true,
 			eligible: true,
 			reason:   remoteCacheReasonRemoteSnapshotBlobs,
+		}
+	case hasRemoteChains && hasRetainedRecipe:
+		viability = cachemoneyRemoteViability{
+			viable:   true,
+			eligible: true,
+			reason:   remoteCacheReasonRetainedRecipeFallback,
 		}
 	case hasRemoteChains:
 		viability = cachemoneyRemoteViability{

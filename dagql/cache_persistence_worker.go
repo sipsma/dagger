@@ -347,7 +347,12 @@ func (c *Cache) applyPersistStateSnapshot(ctx context.Context, snapshot persistS
 			}
 		}
 	}
-	for _, row := range snapshot.snapshotChainLayers {
+	snapshotChainLayers, err := normalizeSnapshotChainLayerRows(snapshot.snapshotChainLayers)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	for _, row := range snapshotChainLayers {
 		if err := q.InsertMirrorSnapshotChainLayer(ctx, row); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("insert snapshot_chain_layer (%s,%d): %w", row.ChainID, row.Position, err)
@@ -459,6 +464,57 @@ func resultSnapshotChainRows(resultID sharedResultID, chains []PersistedSnapshot
 		layerRows = append(layerRows, layerRowsByKey[key])
 	}
 	return chainRows, layerRows
+}
+
+type snapshotChainLayerKey struct {
+	chainID  string
+	position int64
+}
+
+func normalizeSnapshotChainLayerRows(rows []persistdb.MirrorSnapshotChainLayer) ([]persistdb.MirrorSnapshotChainLayer, error) {
+	if len(rows) < 2 {
+		return rows, nil
+	}
+	rowsByKey := make(map[snapshotChainLayerKey]persistdb.MirrorSnapshotChainLayer, len(rows))
+	for _, row := range rows {
+		key := snapshotChainLayerKey{
+			chainID:  row.ChainID,
+			position: row.Position,
+		}
+		existing, ok := rowsByKey[key]
+		if ok {
+			if existing != row {
+				return nil, fmt.Errorf("conflicting snapshot_chain_layer (%s,%d)", row.ChainID, row.Position)
+			}
+			continue
+		}
+		rowsByKey[key] = row
+	}
+
+	keys := make([]snapshotChainLayerKey, 0, len(rowsByKey))
+	for key := range rowsByKey {
+		keys = append(keys, key)
+	}
+	slices.SortFunc(keys, func(a, b snapshotChainLayerKey) int {
+		switch {
+		case a.chainID < b.chainID:
+			return -1
+		case a.chainID > b.chainID:
+			return 1
+		case a.position < b.position:
+			return -1
+		case a.position > b.position:
+			return 1
+		default:
+			return 0
+		}
+	})
+
+	normalized := make([]persistdb.MirrorSnapshotChainLayer, 0, len(keys))
+	for _, key := range keys {
+		normalized = append(normalized, rowsByKey[key])
+	}
+	return normalized, nil
 }
 
 func (c *Cache) persistResultEnvelope(ctx context.Context, snapshot *persistResultSnapshot) (PersistedResultEncoding, error) {
