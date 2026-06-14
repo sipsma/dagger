@@ -21,6 +21,18 @@ import (
 	"gotest.tools/v3/assert"
 )
 
+func TestCachemoneyBlobHTTPClientHasTransportTimeouts(t *testing.T) {
+	t.Parallel()
+
+	assert.Assert(t, cachemoneyBlobHTTPClient != http.DefaultClient)
+	assert.Equal(t, cachemoneyBlobHTTPClient.Timeout, cachemoneyBlobHTTPTimeout)
+	transport, ok := cachemoneyBlobHTTPClient.Transport.(*http.Transport)
+	assert.Assert(t, ok)
+	assert.Equal(t, transport.ResponseHeaderTimeout, cachemoneyBlobHTTPResponseHeaderTimeout)
+	assert.Assert(t, transport.TLSHandshakeTimeout > 0)
+	assert.Assert(t, transport.ExpectContinueTimeout > 0)
+}
+
 func TestMaterializeRemoteSnapshotSkipsLocalBlobsAndImportsChain(t *testing.T) {
 	t.Parallel()
 

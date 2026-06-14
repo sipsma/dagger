@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/containerd/containerd/v2/core/images"
 	"github.com/containerd/containerd/v2/pkg/labels"
@@ -22,6 +23,22 @@ import (
 )
 
 const cachemoneyHydrationFetchParallelism = 4
+
+const (
+	cachemoneyBlobHTTPTimeout               = 30 * time.Minute
+	cachemoneyBlobHTTPResponseHeaderTimeout = 30 * time.Second
+)
+
+var cachemoneyBlobHTTPClient = &http.Client{
+	Timeout:   cachemoneyBlobHTTPTimeout,
+	Transport: cachemoneyBlobHTTPTransport(),
+}
+
+func cachemoneyBlobHTTPTransport() *http.Transport {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = cachemoneyBlobHTTPResponseHeaderTimeout
+	return transport
+}
 
 type RemoteSnapshotMaterializationRequest struct {
 	ResultID uint64
@@ -175,7 +192,7 @@ func cachemoneyFetchBlob(ctx context.Context, writer cachemoneyContentBlobWriter
 	if err != nil {
 		return 0, fmt.Errorf("remote snapshot blob %s: build request: %w", desc.Digest, err)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := cachemoneyBlobHTTPClient.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("remote snapshot blob %s: fetch: %w", desc.Digest, err)
 	}
