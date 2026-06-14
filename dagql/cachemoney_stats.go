@@ -13,6 +13,7 @@ type CachemoneyDebugStats struct {
 	BlobsOffered                    uint64                              `json:"blobs_offered,omitempty"`
 	BlobsUploadRequested            uint64                              `json:"blobs_upload_requested,omitempty"`
 	BlobsUploaded                   uint64                              `json:"blobs_uploaded,omitempty"`
+	BlobsUploadFailed               uint64                              `json:"blobs_upload_failed,omitempty"`
 	BlobsUploadSkippedAlreadyExists uint64                              `json:"blobs_upload_skipped_already_exists,omitempty"`
 	ExportsStarted                  uint64                              `json:"exports_started,omitempty"`
 	ExportsCompleted                uint64                              `json:"exports_completed,omitempty"`
@@ -162,6 +163,15 @@ func (c *Cache) recordCachemoneyBlobUpload(alreadyExists bool) {
 	} else {
 		c.cachemoneyStats.BlobsUploaded++
 	}
+}
+
+func (c *Cache) recordCachemoneyBlobUploadFailed() {
+	if c == nil {
+		return
+	}
+	c.cachemoneyMu.Lock()
+	defer c.cachemoneyMu.Unlock()
+	c.cachemoneyStats.BlobsUploadFailed++
 }
 
 func (c *Cache) recordCachemoneyExportCompleted() {

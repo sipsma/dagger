@@ -153,6 +153,133 @@ func TestDebugCachemoneyExportPostsMultipartUploadsRequestedBlobsAndCompletes(t 
 	assert.Equal(t, stats.BlobsUploaded, uint64(1))
 }
 
+func TestDebugCachemoneyExportCompletesAfterPartialBlobUploadFailure(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	blobABytes := []byte("debug-export-blob-a")
+	blobADigest := digest.FromBytes(blobABytes)
+	diffA := digest.FromString("debug-export-diff-a")
+	blobBBytes := []byte("debug-export-blob-b")
+	blobBDigest := digest.FromBytes(blobBBytes)
+	diffB := digest.FromString("debug-export-diff-b")
+	chainID := ociidentity.ChainID([]digest.Digest{diffA, diffB}).String()
+	exportRef := &fakeCachemoneyExportRef{
+		snapshotID: "snapshot-debug-export-partial",
+		chain: &bkcache.ExportChain{
+			Layers: []bkcache.ExportLayer{{
+				Descriptor: ocispecs.Descriptor{
+					MediaType: ocispecs.MediaTypeImageLayerZstd,
+					Digest:    blobADigest,
+					Size:      int64(len(blobABytes)),
+					Annotations: map[string]string{
+						labels.LabelUncompressed: diffA.String(),
+					},
+				},
+			}, {
+				Descriptor: ocispecs.Descriptor{
+					MediaType: ocispecs.MediaTypeImageLayerZstd,
+					Digest:    blobBDigest,
+					Size:      int64(len(blobBBytes)),
+					Annotations: map[string]string{
+						labels.LabelUncompressed: diffB.String(),
+					},
+				},
+			}},
+		},
+	}
+	manager := &fakeSnapshotManager{
+		refsBySnapshotID: map[string]bkcache.ImmutableRef{
+			"snapshot-debug-export-partial": exportRef,
+		},
+		contentByDigest: map[digest.Digest][]byte{
+			blobADigest: blobABytes,
+			blobBDigest: blobBBytes,
+		},
+	}
+	c, resultID := cachemoneyDebugTestCache(t, ctx, manager, "cachemoney-debug-export-partial", "snapshot-debug-export-partial")
+	defer func() {
+		assert.NilError(t, c.Close(context.Background()))
+	}()
+
+	var completed cachemoneyproto.CompleteExportRequest
+	var uploadedBlobA []byte
+	var backend *httptest.Server
+	backend = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/begin":
+			var manifest cachemoneyproto.BeginExportManifest
+			mr, err := r.MultipartReader()
+			assert.NilError(t, err)
+			for {
+				part, err := mr.NextPart()
+				if err == io.EOF {
+					break
+				}
+				assert.NilError(t, err)
+				if part.FormName() == cachemoneyproto.MultipartManifestField {
+					assert.NilError(t, json.NewDecoder(part).Decode(&manifest))
+				}
+			}
+			assert.DeepEqual(t, manifest.Snapshots, []cachemoneyproto.SnapshotOffer{{
+				ResultID: resultID,
+				Role:     "snapshot",
+				ChainID:  chainID,
+			}})
+			assert.NilError(t, json.NewEncoder(w).Encode(cachemoneyproto.BeginExportResponse{
+				Version:        cachemoneyproto.Version,
+				ExportID:       "debug-export-partial",
+				RequestedBlobs: []string{blobADigest.String(), blobBDigest.String()},
+				UploadURL:      backend.URL + "/upload",
+				CompleteURL:    backend.URL + "/complete",
+			}))
+		case "/upload":
+			var req cachemoneyproto.BlobUploadRequest
+			assert.NilError(t, json.NewDecoder(r.Body).Decode(&req))
+			uploadURL := backend.URL + "/blob-a"
+			if req.BlobDigest == blobBDigest.String() {
+				uploadURL = backend.URL + "/blob-b"
+			}
+			assert.NilError(t, json.NewEncoder(w).Encode(cachemoneyproto.BlobUploadResponse{
+				Method: http.MethodPut,
+				URL:    uploadURL,
+			}))
+		case "/blob-a":
+			body, err := io.ReadAll(r.Body)
+			assert.NilError(t, err)
+			uploadedBlobA = append([]byte(nil), body...)
+			w.WriteHeader(http.StatusNoContent)
+		case "/blob-b":
+			http.Error(w, "simulated upload failure", http.StatusInternalServerError)
+		case "/complete":
+			assert.NilError(t, json.NewDecoder(r.Body).Decode(&completed))
+			assert.NilError(t, json.NewEncoder(w).Encode(cachemoneyproto.CompleteExportResponse{
+				Version:  cachemoneyproto.Version,
+				ExportID: "debug-export-partial",
+			}))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(backend.Close)
+
+	result, err := c.DebugCachemoneyExport(ctx, backend.URL+"/begin")
+	assert.NilError(t, err)
+	assert.Equal(t, result.ExportID, "debug-export-partial")
+	assert.Equal(t, result.BlobsRequested, 2)
+	assert.Equal(t, result.BlobsUploaded, 1)
+	assert.Equal(t, result.BlobsFailed, 1)
+	assert.Assert(t, result.Completed)
+	assert.DeepEqual(t, uploadedBlobA, blobABytes)
+	assert.DeepEqual(t, completed.Blobs, []string{blobADigest.String()})
+
+	stats := c.DebugCachemoneyStats()
+	assert.Equal(t, stats.BlobsUploadRequested, uint64(2))
+	assert.Equal(t, stats.BlobsUploaded, uint64(1))
+	assert.Equal(t, stats.BlobsUploadFailed, uint64(1))
+	assert.Equal(t, stats.ExportsCompleted, uint64(1))
+}
+
 func TestDebugCachemoneyImportFetchesMultipartAndImportsMetadata(t *testing.T) {
 	t.Parallel()
 

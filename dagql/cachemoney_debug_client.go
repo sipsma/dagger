@@ -25,6 +25,7 @@ type CachemoneyDebugExportResult struct {
 	BlobsOffered    int    `json:"blobs_offered"`
 	BlobsRequested  int    `json:"blobs_requested"`
 	BlobsUploaded   int    `json:"blobs_uploaded"`
+	BlobsFailed     int    `json:"blobs_failed"`
 	BlobsSkipped    int    `json:"blobs_skipped"`
 	Completed       bool   `json:"completed"`
 	MetadataDBBytes int64  `json:"metadata_db_bytes,omitempty"`
@@ -102,7 +103,9 @@ func (c *Cache) DebugCachemoneyExport(ctx context.Context, beginURL string) (_ *
 		}
 		alreadyExists, err := cachemoneyUploadBlob(ctx, reader, beginResp.UploadURL, desc)
 		if err != nil {
-			return nil, err
+			result.BlobsFailed++
+			c.recordCachemoneyBlobUploadFailed()
+			continue
 		}
 		c.recordCachemoneyBlobUpload(alreadyExists)
 		if alreadyExists {
