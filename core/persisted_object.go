@@ -187,18 +187,3 @@ func loadPersistedRemoteSnapshotChainByResultID(ctx context.Context, dag *dagql.
 	}
 	return chain, ok, nil
 }
-
-func loadPersistedOriginSourceIDByResultID(ctx context.Context, resultID uint64, label string) (string, error) {
-	if resultID == 0 {
-		return "", fmt.Errorf("load persisted %s origin source: zero result ID", label)
-	}
-	cache, err := dagql.EngineCache(ctx)
-	if err != nil {
-		return "", fmt.Errorf("load persisted %s origin source cache: %w", label, err)
-	}
-	sourceID, err := cache.PersistedOriginSourceIDByResultID(ctx, resultID)
-	if err != nil {
-		return "", fmt.Errorf("load persisted %s origin source: %w", label, err)
-	}
-	return sourceID, nil
-}

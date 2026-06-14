@@ -39,14 +39,6 @@ func (c *Cache) PersistedRemoteSnapshotChainByResultID(ctx context.Context, resu
 	return PersistedSnapshotChain{}, false, nil
 }
 
-func (c *Cache) PersistedOriginSourceIDByResultID(ctx context.Context, resultID uint64) (string, error) {
-	res, _, _, err := c.sharedResultByResultID(ctx, "", sharedResultID(resultID), sharedResultLookupExact)
-	if err != nil {
-		return "", err
-	}
-	return res.originSourceID, nil
-}
-
 func (c *Cache) PersistedResultID(res AnyResult) (uint64, error) {
 	if res == nil {
 		return 0, fmt.Errorf("persisted result ID: nil result")

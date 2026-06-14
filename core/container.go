@@ -2014,17 +2014,8 @@ func (*Container) DecodePersistedObject(ctx context.Context, dag *dagql.Server, 
 			if call == nil {
 				return nil, fmt.Errorf("decode persisted container payload: missing call for retained lazy form")
 			}
-			originSourceID, err := loadPersistedOriginSourceIDByResultID(ctx, resultID, "container")
-			if err != nil {
-				return nil, err
-			}
 			if err := decodePersistedContainerLazy(ctx, dag, call, container, persisted.LazyJSON, decodedRootFS, decodedMounts); err != nil {
-				if originSourceID != "" {
-					return nil, err
-				}
-				// Local ready-form recipes can outlive dependency rows that are
-				// not part of the materialized snapshot closure. Keep the shell
-				// loadable; remote imports still require a valid fallback recipe.
+				return nil, err
 			}
 		}
 		return container, nil
