@@ -26,6 +26,12 @@ type PreparedCachemoneyExport struct {
 	Release        func(context.Context) error
 }
 
+// WriteCachemoneyMetadataDB writes the cache's current metadata graph to dbPath
+// without attaching export leases or constructing a local snapshot manifest.
+// It is intended for metadata-only merge caches, such as the cachemoney backend.
+// A real engine exporting local snapshots must use PrepareCachemoneyExport so
+// local snapshot refs are leased while their content-addressed chains are being
+// offered and uploaded.
 func (c *Cache) WriteCachemoneyMetadataDB(ctx context.Context, dbPath string) error {
 	if dbPath == "" {
 		return errors.New("write cachemoney metadata DB: empty path")
