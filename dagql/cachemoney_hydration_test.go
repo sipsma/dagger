@@ -3,6 +3,7 @@ package dagql
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -317,6 +318,103 @@ func TestMaterializeRemoteSnapshotDedupesConcurrentChainHydration(t *testing.T) 
 	assert.NilError(t, eg.Wait())
 	assert.Equal(t, importCalls.Load(), int32(1))
 	assert.Equal(t, len(manager.importImageCalls), 1)
+}
+
+func TestMaterializeRemoteSnapshotAttachesEachSharedChainCaller(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	chain, blobDigest, blobBytes := cachemoneyHydrationTestChain(t, "shared-attach")
+	hydratedRef := &fakeCachemoneyExportRef{snapshotID: "hydrated-shared-attach"}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	callGate := make(chan struct{})
+	ready := make(chan struct{}, 2)
+	var importCalls atomic.Int32
+	manager := &fakeSnapshotManager{
+		contentByDigest: map[digest.Digest][]byte{
+			blobDigest: blobBytes,
+		},
+		refsBySnapshotID: map[string]bkcache.ImmutableRef{
+			"hydrated-shared-attach": hydratedRef,
+		},
+		importImageFunc: func(context.Context, *bkcache.ImportedImage, bkcache.ImportImageOpts) (bkcache.ImmutableRef, error) {
+			if importCalls.Add(1) == 1 {
+				close(started)
+			}
+			<-release
+			return hydratedRef, nil
+		},
+	}
+	c := &Cache{
+		snapshotManager: manager,
+		resultsByID: map[sharedResultID]*sharedResult{
+			1: {
+				id:                   1,
+				originSourceID:       "source-a",
+				remoteCacheImported:  true,
+				remoteSnapshotChains: []PersistedSnapshotChain{chain},
+			},
+			2: {
+				id:                   2,
+				originSourceID:       "source-b",
+				remoteCacheImported:  true,
+				remoteSnapshotChains: []PersistedSnapshotChain{chain},
+			},
+		},
+	}
+
+	eg, egCtx := errgroup.WithContext(ctx)
+	for _, resultID := range []uint64{1, 2} {
+		resultID := resultID
+		eg.Go(func() error {
+			ready <- struct{}{}
+			<-callGate
+			ref, ok, err := c.MaterializeRemoteSnapshot(egCtx, RemoteSnapshotMaterializationRequest{
+				ResultID: resultID,
+				Role:     "snapshot",
+				Chain:    chain,
+			})
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return fmt.Errorf("result %d: expected hydration hit", resultID)
+			}
+			if ref.SnapshotID() != "hydrated-shared-attach" {
+				return fmt.Errorf("result %d: unexpected snapshot %s", resultID, ref.SnapshotID())
+			}
+			return nil
+		})
+	}
+	<-ready
+	<-ready
+	close(callGate)
+	<-started
+	time.Sleep(20 * time.Millisecond)
+	close(release)
+	assert.NilError(t, eg.Wait())
+
+	assert.Equal(t, importCalls.Load(), int32(1))
+	assert.Equal(t, len(manager.importImageCalls), 1)
+	attachedLeases := map[string]bool{}
+	for _, call := range manager.attachCalls {
+		if call.SnapshotID == "hydrated-shared-attach" {
+			attachedLeases[call.LeaseID] = true
+		}
+	}
+	assert.Assert(t, attachedLeases["dagql/result/1/snapshot"])
+	assert.Assert(t, attachedLeases["dagql/result/2/snapshot"])
+	assert.DeepEqual(t, c.resultsByID[1].loadSnapshotOwnerLinks(), []PersistedSnapshotRefLink{{
+		RefKey: "hydrated-shared-attach",
+		Role:   "snapshot",
+	}})
+	assert.DeepEqual(t, c.resultsByID[2].loadSnapshotOwnerLinks(), []PersistedSnapshotRefLink{{
+		RefKey: "hydrated-shared-attach",
+		Role:   "snapshot",
+	}})
+	assert.DeepEqual(t, c.resultsByID[1].loadRemoteSnapshotChains(), []PersistedSnapshotChain(nil))
+	assert.DeepEqual(t, c.resultsByID[2].loadRemoteSnapshotChains(), []PersistedSnapshotChain(nil))
 }
 
 func TestSnapshotOwnerLinkRoleUpdatesPreserveConcurrentRolesAndClearRemoteChains(t *testing.T) {

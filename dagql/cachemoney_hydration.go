@@ -91,6 +91,23 @@ func (c *Cache) MaterializeRemoteSnapshot(ctx context.Context, req RemoteSnapsho
 	if err != nil {
 		return nil, false, fmt.Errorf("remote snapshot materialize result %d role %q: reopen hydrated snapshot %q: %w", req.ResultID, req.Role, snapshotID, err)
 	}
+	if shared {
+		if err := c.attachHydratedRemoteSnapshot(ctx, req.ResultID, req.Role, ref); err != nil {
+			reason := cachemoneyHydrationFailureReason(err)
+			c.recordCachemoneyHydrationFailure(reason)
+			slog.WarnContext(ctx, "remote cache snapshot hydration failed",
+				"result", req.ResultID,
+				"role", req.Role,
+				"source", originSourceID,
+				"chain", req.Chain.ChainID,
+				"shared", shared,
+				"reason", reason,
+				"err", err,
+			)
+			_ = ref.Release(context.WithoutCancel(ctx))
+			return nil, false, err
+		}
+	}
 	c.recordCachemoneyMaterialization(req.Role, CachemoneyMaterializationHydrated)
 	return ref, true, nil
 }

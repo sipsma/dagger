@@ -225,6 +225,9 @@ func (m *fakeSnapshotManager) ReadContentBlob(ctx context.Context, desc ocispecs
 
 func (m *fakeSnapshotManager) AttachLease(ctx context.Context, leaseID, snapshotID string) error {
 	_ = ctx
+	m.hydrationMu.Lock()
+	defer m.hydrationMu.Unlock()
+
 	m.attachCalls = append(m.attachCalls, struct{ LeaseID, SnapshotID string }{
 		LeaseID:    leaseID,
 		SnapshotID: snapshotID,
