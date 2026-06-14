@@ -137,7 +137,7 @@ func (c *Cache) buildCachemoneyExportManifest(ctx context.Context, snapshot *per
 		if result == nil {
 			return manifest, fmt.Errorf("cachemoney export snapshot owner missing result %d", owner.resultID)
 		}
-		result.resultSnapshotChains = append(result.resultSnapshotChains, persistdb.MirrorResultSnapshotChain{
+		result.resultSnapshotChains = replaceCachemoneyResultSnapshotChain(result.resultSnapshotChains, persistdb.MirrorResultSnapshotChain{
 			ResultID: int64(owner.resultID),
 			Role:     owner.role,
 			ChainID:  protoChain.ChainID,
@@ -153,7 +153,7 @@ func (c *Cache) buildCachemoneyExportManifest(ctx context.Context, snapshot *per
 		chain := chainsByID[chainID]
 		manifest.Chains = append(manifest.Chains, chain)
 		for pos, layer := range chain.Layers {
-			snapshot.snapshotChainLayers = append(snapshot.snapshotChainLayers, persistdb.MirrorSnapshotChainLayer{
+			snapshot.snapshotChainLayers = replaceCachemoneySnapshotChainLayer(snapshot.snapshotChainLayers, persistdb.MirrorSnapshotChainLayer{
 				ChainID:        chain.ChainID,
 				Position:       int64(pos),
 				DiffID:         layer.DiffID,
@@ -166,6 +166,26 @@ func (c *Cache) buildCachemoneyExportManifest(ctx context.Context, snapshot *per
 	}
 
 	return manifest, nil
+}
+
+func replaceCachemoneyResultSnapshotChain(rows []persistdb.MirrorResultSnapshotChain, row persistdb.MirrorResultSnapshotChain) []persistdb.MirrorResultSnapshotChain {
+	for i := range rows {
+		if rows[i].ResultID == row.ResultID && rows[i].Role == row.Role {
+			rows[i] = row
+			return rows
+		}
+	}
+	return append(rows, row)
+}
+
+func replaceCachemoneySnapshotChainLayer(rows []persistdb.MirrorSnapshotChainLayer, row persistdb.MirrorSnapshotChainLayer) []persistdb.MirrorSnapshotChainLayer {
+	for i := range rows {
+		if rows[i].ChainID == row.ChainID && rows[i].Position == row.Position {
+			rows[i] = row
+			return rows
+		}
+	}
+	return append(rows, row)
 }
 
 func cachemoneyExportSnapshotOwners(snapshot *persistStateSnapshot) []cachemoneyExportSnapshotOwner {

@@ -1601,7 +1601,59 @@ func (res *sharedResult) storeSnapshotOwnerLinks(links []PersistedSnapshotRefLin
 	}
 	res.payloadMu.Lock()
 	res.snapshotOwnerLinks = slices.Clone(links)
+	res.clearRemoteSnapshotChainsForSnapshotLinksLocked(links)
 	res.payloadMu.Unlock()
+}
+
+func (res *sharedResult) setSnapshotOwnerLinkForRole(role, refKey string) {
+	if res == nil {
+		return
+	}
+	res.payloadMu.Lock()
+	defer res.payloadMu.Unlock()
+
+	replaced := false
+	for i := range res.snapshotOwnerLinks {
+		if res.snapshotOwnerLinks[i].Role == role {
+			res.snapshotOwnerLinks[i].RefKey = refKey
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		res.snapshotOwnerLinks = append(res.snapshotOwnerLinks, PersistedSnapshotRefLink{
+			RefKey: refKey,
+			Role:   role,
+		})
+	}
+	res.clearRemoteSnapshotChainsForRolesLocked(map[string]struct{}{role: {}})
+}
+
+func (res *sharedResult) clearRemoteSnapshotChainsForSnapshotLinksLocked(links []PersistedSnapshotRefLink) {
+	if len(links) == 0 || len(res.remoteSnapshotChains) == 0 {
+		return
+	}
+	roles := make(map[string]struct{}, len(links))
+	for _, link := range links {
+		if link.Role != "" {
+			roles[link.Role] = struct{}{}
+		}
+	}
+	res.clearRemoteSnapshotChainsForRolesLocked(roles)
+}
+
+func (res *sharedResult) clearRemoteSnapshotChainsForRolesLocked(roles map[string]struct{}) {
+	if len(roles) == 0 || len(res.remoteSnapshotChains) == 0 {
+		return
+	}
+	kept := res.remoteSnapshotChains[:0]
+	for _, chain := range res.remoteSnapshotChains {
+		if _, clear := roles[chain.Role]; clear {
+			continue
+		}
+		kept = append(kept, chain)
+	}
+	res.remoteSnapshotChains = kept
 }
 
 func clonePersistedSnapshotChains(chains []PersistedSnapshotChain) []PersistedSnapshotChain {

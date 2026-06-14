@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sort"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -176,6 +178,60 @@ func TestMaterializeRemoteSnapshotDedupesConcurrentChainHydration(t *testing.T) 
 	assert.NilError(t, eg.Wait())
 	assert.Equal(t, importCalls.Load(), int32(1))
 	assert.Equal(t, len(manager.importImageCalls), 1)
+}
+
+func TestSnapshotOwnerLinkRoleUpdatesPreserveConcurrentRolesAndClearRemoteChains(t *testing.T) {
+	t.Parallel()
+
+	res := &sharedResult{
+		id: 1,
+		remoteSnapshotChains: []PersistedSnapshotChain{{
+			Role:    "fs",
+			ChainID: "fs-remote",
+		}, {
+			Role:    "meta",
+			ChainID: "meta-remote",
+		}, {
+			Role:    "mount_dir:0",
+			ChainID: "mount-remote",
+		}},
+	}
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for _, update := range []PersistedSnapshotRefLink{{
+		RefKey: "fs-local",
+		Role:   "fs",
+	}, {
+		RefKey: "meta-local",
+		Role:   "meta",
+	}} {
+		update := update
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			res.setSnapshotOwnerLinkForRole(update.Role, update.RefKey)
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	links := res.loadSnapshotOwnerLinks()
+	sort.Slice(links, func(i, j int) bool {
+		return links[i].Role < links[j].Role
+	})
+	assert.DeepEqual(t, links, []PersistedSnapshotRefLink{{
+		RefKey: "fs-local",
+		Role:   "fs",
+	}, {
+		RefKey: "meta-local",
+		Role:   "meta",
+	}})
+	assert.DeepEqual(t, res.loadRemoteSnapshotChains(), []PersistedSnapshotChain{{
+		Role:    "mount_dir:0",
+		ChainID: "mount-remote",
+	}})
 }
 
 func cachemoneyHydrationTestCache(manager *fakeSnapshotManager, sourceID string) *Cache {

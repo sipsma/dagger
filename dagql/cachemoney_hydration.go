@@ -329,22 +329,7 @@ func (c *Cache) attachHydratedRemoteSnapshot(ctx context.Context, resultID uint6
 		}
 	}
 
-	links := res.loadSnapshotOwnerLinks()
-	replaced := false
-	for i := range links {
-		if links[i].Role == role {
-			links[i].RefKey = ref.SnapshotID()
-			replaced = true
-			break
-		}
-	}
-	if !replaced {
-		links = append(links, PersistedSnapshotRefLink{
-			RefKey: ref.SnapshotID(),
-			Role:   role,
-		})
-	}
-	res.storeSnapshotOwnerLinks(links)
+	res.setSnapshotOwnerLinkForRole(role, ref.SnapshotID())
 	return nil
 }
 

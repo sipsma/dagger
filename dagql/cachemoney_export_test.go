@@ -174,6 +174,93 @@ func TestPrepareCachemoneyExportWritesContentAddressedManifestAndMetadata(t *tes
 	}})
 }
 
+func TestPrepareCachemoneyExportPrefersLocalChainOverStaleImportedChain(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	diffLocal := digest.FromString("diff-local")
+	blobLocal := digest.FromString("blob-local")
+	localChainID := ociidentity.ChainID([]digest.Digest{diffLocal}).String()
+	diffStale := digest.FromString("diff-stale")
+	blobStale := digest.FromString("blob-stale")
+	staleChainID := ociidentity.ChainID([]digest.Digest{diffStale}).String()
+
+	exportRef := &fakeCachemoneyExportRef{
+		snapshotID: "snapshot-local",
+		chain: &bkcache.ExportChain{
+			Layers: []bkcache.ExportLayer{{
+				Descriptor: ocispecs.Descriptor{
+					MediaType: ocispecs.MediaTypeImageLayerZstd,
+					Digest:    blobLocal,
+					Size:      10,
+					Annotations: map[string]string{
+						labels.LabelUncompressed: diffLocal.String(),
+					},
+				},
+			}},
+		},
+	}
+	snapshotManager := &fakeSnapshotManager{
+		refsBySnapshotID: map[string]bkcache.ImmutableRef{
+			"snapshot-local": exportRef,
+		},
+	}
+
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	c, err := NewCache(ctx, dbPath, snapshotManager, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, c.Close(context.Background()))
+	}()
+
+	res, err := c.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{
+		ResultCall: &ResultCall{
+			Kind:  ResultCallKindField,
+			Type:  NewResultCallType((&persistSnapshotValue{}).Type()),
+			Field: "cachemoney-export-stale-chain",
+		},
+		IsPersistable: true,
+	}, func(context.Context) (AnyResult, error) {
+		return cacheTestPlainResult(&persistSnapshotValue{
+			Name:       "x",
+			SnapshotID: "snapshot-local",
+		}), nil
+	})
+	assert.NilError(t, err)
+	shared := res.cacheSharedResult()
+	shared.payloadMu.Lock()
+	shared.remoteSnapshotChains = []PersistedSnapshotChain{{
+		Role:    "snapshot",
+		ChainID: staleChainID,
+		Layers: []PersistedSnapshotChainLayer{{
+			DiffID:     diffStale.String(),
+			BlobDigest: blobStale.String(),
+			Size:       20,
+			MediaType:  ocispecs.MediaTypeImageLayerZstd,
+		}},
+	}}
+	shared.payloadMu.Unlock()
+
+	metadataDBPath := filepath.Join(t.TempDir(), cachemoneyproto.MetadataDBName)
+	export, err := c.PrepareCachemoneyExport(ctx, metadataDBPath)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, export.Release(context.Background()))
+	}()
+
+	db, q, err := prepareCacheDBs(ctx, metadataDBPath)
+	assert.NilError(t, err)
+	defer closeCacheDBs(db, q) //nolint:errcheck
+
+	chainRows, err := q.ListMirrorResultSnapshotChains(ctx)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, chainRows, []persistdb.MirrorResultSnapshotChain{{
+		ResultID: int64(shared.id),
+		Role:     "snapshot",
+		ChainID:  localChainID,
+	}})
+}
+
 func TestCachemoneyProtoChainFromExportChainRequiresDiffID(t *testing.T) {
 	t.Parallel()
 
