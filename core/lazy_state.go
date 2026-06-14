@@ -106,10 +106,11 @@ func (lazy *LazyState) Evaluate(ctx context.Context, typeName string, run func(c
 }
 
 type LazyAccessor[V any, T dagql.Typed] struct {
-	value        V // should not be gotten/set directly except for actual evaluation implementations!
-	isSet        bool
-	materializer LazyAccessorMaterializer[V, T]
-	mu           sync.RWMutex
+	value         V // should not be gotten/set directly except for actual evaluation implementations!
+	isSet         bool
+	materializer  LazyAccessorMaterializer[V, T]
+	mu            sync.RWMutex
+	materializeMu sync.Mutex
 }
 
 type LazyAccessorMaterializer[V any, T dagql.Typed] interface {
@@ -140,13 +141,27 @@ func (a *LazyAccessor[V, T]) GetOrEval(ctx context.Context, res dagql.Result[T])
 
 	var materializerErr error
 	if materializer != nil {
-		value, ok, err := materializer.Materialize(ctx, res)
-		if err != nil {
-			materializerErr = err
-		} else if ok {
-			a.setValue(value)
+		a.materializeMu.Lock()
+		a.mu.RLock()
+		if a.isSet {
+			value := a.value
+			a.mu.RUnlock()
+			a.materializeMu.Unlock()
 			return value, nil
 		}
+		materializer = a.materializer
+		a.mu.RUnlock()
+		if materializer != nil {
+			value, ok, err := materializer.Materialize(ctx, res)
+			if err != nil {
+				materializerErr = err
+			} else if ok {
+				a.setValue(value)
+				a.materializeMu.Unlock()
+				return value, nil
+			}
+		}
+		a.materializeMu.Unlock()
 	}
 
 	c, err := dagql.EngineCache(ctx)
