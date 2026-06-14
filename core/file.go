@@ -28,6 +28,7 @@ import (
 
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/engine/engineutil"
+	"github.com/dagger/dagger/engine/slog"
 	telemetry "github.com/dagger/otel-go"
 )
 
@@ -222,16 +223,24 @@ func (file *File) EncodePersistedObject(ctx context.Context, cache dagql.Persist
 		Platform: file.Platform,
 		Services: services,
 	}
+	var lazyErr error
 	if file.Lazy != nil {
 		lazyKind, lazyJSON, err := encodePersistedFileLazy(ctx, cache, file.Lazy)
 		if err != nil {
-			return dagql.PersistedObjectEncoding{}, err
+			lazyErr = err
+		} else {
+			payload.LazyKind = lazyKind
+			payload.LazyJSON = lazyJSON
 		}
-		payload.LazyKind = lazyKind
-		payload.LazyJSON = lazyJSON
+	}
+	if lazyErr != nil && lazyPending(file.Lazy) {
+		return dagql.PersistedObjectEncoding{}, lazyErr
 	}
 	if file.Snapshot != nil {
 		if snapshot, ok := file.Snapshot.Peek(); ok && snapshot != nil {
+			if lazyErr != nil {
+				slog.WarnContext(ctx, "skip persisted file retained lazy recipe", "err", lazyErr)
+			}
 			payload.Form = persistedFileFormSnapshot
 			payloadJSON, err := json.Marshal(payload)
 			if err != nil {
@@ -246,6 +255,9 @@ func (file *File) EncodePersistedObject(ctx context.Context, cache dagql.Persist
 			}, nil
 		}
 		if file.Snapshot.hasMaterializer() {
+			if lazyErr != nil {
+				slog.WarnContext(ctx, "skip persisted file retained lazy recipe", "err", lazyErr)
+			}
 			payload.Form = persistedFileFormSnapshot
 			payloadJSON, err := json.Marshal(payload)
 			if err != nil {
@@ -255,6 +267,9 @@ func (file *File) EncodePersistedObject(ctx context.Context, cache dagql.Persist
 		}
 	}
 	if file.Lazy != nil {
+		if lazyErr != nil {
+			return dagql.PersistedObjectEncoding{}, lazyErr
+		}
 		payload.Form = persistedFileFormLazy
 		payloadJSON, err := json.Marshal(payload)
 		if err != nil {

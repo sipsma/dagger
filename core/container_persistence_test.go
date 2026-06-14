@@ -3,12 +3,45 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/dagger/dagger/dagql"
 	bkcache "github.com/dagger/dagger/engine/snapshots"
 	"github.com/stretchr/testify/require"
 )
+
+type unencodableDirectoryLazy struct {
+	LazyState
+}
+
+func (lazy *unencodableDirectoryLazy) Evaluate(context.Context, *Directory) error {
+	return nil
+}
+
+func (lazy *unencodableDirectoryLazy) AttachDependencies(context.Context, func(dagql.AnyResult) (dagql.AnyResult, error)) ([]dagql.AnyResult, error) {
+	return nil, nil
+}
+
+func (lazy *unencodableDirectoryLazy) EncodePersisted(context.Context, dagql.PersistedObjectCache) (json.RawMessage, error) {
+	return nil, errors.New("unencodable directory lazy")
+}
+
+type unencodableFileLazy struct {
+	LazyState
+}
+
+func (lazy *unencodableFileLazy) Evaluate(context.Context, *File) error {
+	return nil
+}
+
+func (lazy *unencodableFileLazy) AttachDependencies(context.Context, func(dagql.AnyResult) (dagql.AnyResult, error)) ([]dagql.AnyResult, error) {
+	return nil, nil
+}
+
+func (lazy *unencodableFileLazy) EncodePersisted(context.Context, dagql.PersistedObjectCache) (json.RawMessage, error) {
+	return nil, errors.New("unencodable file lazy")
+}
 
 func TestContainerEncodePersistedObjectRetainedCompletedLazyUsesReadyForm(t *testing.T) {
 	t.Parallel()
@@ -36,6 +69,53 @@ func TestContainerEncodePersistedObjectRetainedCompletedLazyUsesReadyForm(t *tes
 	require.NoError(t, json.Unmarshal(enc.JSON, &payload))
 	require.Equal(t, persistedContainerFormReady, payload.Form)
 	require.NotEmpty(t, payload.LazyJSON)
+}
+
+func TestContainerEncodePersistedObjectCompletedUnencodableLazyFallsBackToReadyForm(t *testing.T) {
+	t.Parallel()
+
+	srv := newCoreDagqlServerForTest(t, &Query{})
+	srv.InstallObject(dagql.NewClass(srv, dagql.ClassOpts[*Container]{}))
+	parent := containerPersistenceTestResult(t, srv, "container-parent", NewContainer(Platform{
+		OS:           "linux",
+		Architecture: "amd64",
+	}))
+
+	completedState := NewLazyState()
+	completedState.LazyInitComplete = true
+	rootFS := &Directory{
+		Dir:      new(LazyAccessor[string, *Directory]),
+		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+	}
+	rootFS.Dir.setValue("/")
+	rootFS.Snapshot.setValue(&cacheVolumeTestImmutableRef{snapshotID: "rootfs-snapshot"})
+	meta := new(LazyAccessor[bkcache.ImmutableRef, *Container])
+	meta.setValue(&cacheVolumeTestImmutableRef{snapshotID: "meta-snapshot"})
+	ctr := NewContainer(Platform{OS: "linux", Architecture: "amd64"})
+	ctr.FS.setValue(rootFS)
+	ctr.MetaSnapshot = meta
+	ctr.Lazy = &ContainerExecLazy{
+		State: &ContainerExecState{
+			LazyState:    completedState,
+			Parent:       parent,
+			FunctionCall: &FunctionCall{Name: "fn"},
+		},
+	}
+
+	enc, err := ctr.EncodePersistedObject(context.Background(), &cacheVolumeTestPersistedObjectCache{resultID: 17})
+	require.NoError(t, err)
+
+	var payload persistedContainerPayload
+	require.NoError(t, json.Unmarshal(enc.JSON, &payload))
+	require.Equal(t, persistedContainerFormReady, payload.Form)
+	require.Empty(t, payload.LazyJSON)
+	require.ElementsMatch(t, []dagql.PersistedSnapshotRefLink{{
+		RefKey: "meta-snapshot",
+		Role:   "meta",
+	}, {
+		RefKey: "rootfs-snapshot",
+		Role:   "fs",
+	}}, enc.SnapshotLinks)
 }
 
 func TestContainerEncodePersistedObjectPendingLazyUsesLazyForm(t *testing.T) {
@@ -125,6 +205,33 @@ func TestDirectoryEncodePersistedObjectSnapshotAlsoIncludesRecipe(t *testing.T) 
 	}}, enc.SnapshotLinks)
 }
 
+func TestDirectoryEncodePersistedObjectSnapshotOmitsUnencodableRetainedRecipe(t *testing.T) {
+	t.Parallel()
+
+	completedState := NewLazyState()
+	completedState.LazyInitComplete = true
+	snapshot := new(LazyAccessor[bkcache.ImmutableRef, *Directory])
+	snapshot.setValue(&cacheVolumeTestImmutableRef{snapshotID: "dir-snapshot"})
+	dir := &Directory{
+		Platform: Platform{OS: "linux", Architecture: "amd64"},
+		Snapshot: snapshot,
+		Lazy:     &unencodableDirectoryLazy{LazyState: completedState},
+	}
+
+	enc, err := dir.EncodePersistedObject(context.Background(), &cacheVolumeTestPersistedObjectCache{resultID: 17})
+	require.NoError(t, err)
+
+	var payload persistedDirectoryPayload
+	require.NoError(t, json.Unmarshal(enc.JSON, &payload))
+	require.Equal(t, persistedDirectoryFormSnapshot, payload.Form)
+	require.Empty(t, payload.LazyKind)
+	require.Empty(t, payload.LazyJSON)
+	require.Equal(t, []dagql.PersistedSnapshotRefLink{{
+		RefKey: "dir-snapshot",
+		Role:   "snapshot",
+	}}, enc.SnapshotLinks)
+}
+
 func TestFileEncodePersistedObjectSnapshotAlsoIncludesRecipe(t *testing.T) {
 	t.Parallel()
 
@@ -156,6 +263,33 @@ func TestFileEncodePersistedObjectSnapshotAlsoIncludesRecipe(t *testing.T) {
 	require.Equal(t, persistedFileFormSnapshot, payload.Form)
 	require.Equal(t, persistedFileLazyKindWithName, payload.LazyKind)
 	require.NotEmpty(t, payload.LazyJSON)
+	require.Equal(t, []dagql.PersistedSnapshotRefLink{{
+		RefKey: "file-snapshot",
+		Role:   "snapshot",
+	}}, enc.SnapshotLinks)
+}
+
+func TestFileEncodePersistedObjectSnapshotOmitsUnencodableRetainedRecipe(t *testing.T) {
+	t.Parallel()
+
+	completedState := NewLazyState()
+	completedState.LazyInitComplete = true
+	snapshot := new(LazyAccessor[bkcache.ImmutableRef, *File])
+	snapshot.setValue(&cacheVolumeTestImmutableRef{snapshotID: "file-snapshot"})
+	file := &File{
+		Platform: Platform{OS: "linux", Architecture: "amd64"},
+		Snapshot: snapshot,
+		Lazy:     &unencodableFileLazy{LazyState: completedState},
+	}
+
+	enc, err := file.EncodePersistedObject(context.Background(), &cacheVolumeTestPersistedObjectCache{resultID: 17})
+	require.NoError(t, err)
+
+	var payload persistedFilePayload
+	require.NoError(t, json.Unmarshal(enc.JSON, &payload))
+	require.Equal(t, persistedFileFormSnapshot, payload.Form)
+	require.Empty(t, payload.LazyKind)
+	require.Empty(t, payload.LazyJSON)
 	require.Equal(t, []dagql.PersistedSnapshotRefLink{{
 		RefKey: "file-snapshot",
 		Role:   "snapshot",

@@ -237,16 +237,24 @@ func (dir *Directory) EncodePersistedObject(ctx context.Context, cache dagql.Per
 		Platform: dir.Platform,
 		Services: services,
 	}
+	var lazyErr error
 	if dir.Lazy != nil {
 		lazyKind, lazyJSON, err := encodePersistedDirectoryLazy(ctx, cache, dir.Lazy)
 		if err != nil {
-			return dagql.PersistedObjectEncoding{}, err
+			lazyErr = err
+		} else {
+			payload.LazyKind = lazyKind
+			payload.LazyJSON = lazyJSON
 		}
-		payload.LazyKind = lazyKind
-		payload.LazyJSON = lazyJSON
+	}
+	if lazyErr != nil && lazyPending(dir.Lazy) {
+		return dagql.PersistedObjectEncoding{}, lazyErr
 	}
 	if dir.Snapshot != nil {
 		if snapshot, ok := dir.Snapshot.Peek(); ok && snapshot != nil {
+			if lazyErr != nil {
+				slog.WarnContext(ctx, "skip persisted directory retained lazy recipe", "err", lazyErr)
+			}
 			payload.Form = persistedDirectoryFormSnapshot
 			payloadJSON, err := json.Marshal(payload)
 			if err != nil {
@@ -261,6 +269,9 @@ func (dir *Directory) EncodePersistedObject(ctx context.Context, cache dagql.Per
 			}, nil
 		}
 		if dir.Snapshot.hasMaterializer() {
+			if lazyErr != nil {
+				slog.WarnContext(ctx, "skip persisted directory retained lazy recipe", "err", lazyErr)
+			}
 			payload.Form = persistedDirectoryFormSnapshot
 			payloadJSON, err := json.Marshal(payload)
 			if err != nil {
@@ -270,6 +281,9 @@ func (dir *Directory) EncodePersistedObject(ctx context.Context, cache dagql.Per
 		}
 	}
 	if dir.Lazy != nil {
+		if lazyErr != nil {
+			return dagql.PersistedObjectEncoding{}, lazyErr
+		}
 		payload.Form = persistedDirectoryFormLazy
 		payloadJSON, err := json.Marshal(payload)
 		if err != nil {

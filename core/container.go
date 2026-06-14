@@ -44,6 +44,7 @@ import (
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/dagql/call"
 	"github.com/dagger/dagger/engine/engineutil"
+	"github.com/dagger/dagger/engine/slog"
 )
 
 var ErrMountNotExist = errors.New("mount does not exist")
@@ -1748,15 +1749,19 @@ func (container *Container) EncodePersistedObject(ctx context.Context, cache dag
 	if container.Lazy != nil {
 		lazyJSON, err := container.Lazy.EncodePersisted(ctx, cache)
 		if err != nil {
-			return dagql.PersistedObjectEncoding{}, err
-		}
-		payload.LazyJSON = lazyJSON
-		if lazyPending(container.Lazy) {
-			// Only a still-pending Lazy switches the persisted form: a completed
-			// Lazy is the already-ran recipe retained on a materialized
-			// container, and the container must persist (and decode) in its
-			// ready form, not as deferred work to re-execute.
-			payload.Form = persistedContainerFormLazy
+			if lazyPending(container.Lazy) {
+				return dagql.PersistedObjectEncoding{}, err
+			}
+			slog.WarnContext(ctx, "skip persisted container retained lazy recipe", "err", err)
+		} else {
+			payload.LazyJSON = lazyJSON
+			if lazyPending(container.Lazy) {
+				// Only a still-pending Lazy switches the persisted form: a completed
+				// Lazy is the already-ran recipe retained on a materialized
+				// container, and the container must persist (and decode) in its
+				// ready form, not as deferred work to re-execute.
+				payload.Form = persistedContainerFormLazy
+			}
 		}
 	}
 	if container.MetaSnapshot != nil {
