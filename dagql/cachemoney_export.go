@@ -26,6 +26,17 @@ type PreparedCachemoneyExport struct {
 	Release        func(context.Context) error
 }
 
+func (c *Cache) WriteCachemoneyMetadataDB(ctx context.Context, dbPath string) error {
+	if dbPath == "" {
+		return errors.New("write cachemoney metadata DB: empty path")
+	}
+	snapshot, err := c.snapshotPersistState(ctx)
+	if err != nil {
+		return err
+	}
+	return writeCachemoneyMetadataDB(ctx, dbPath, snapshot)
+}
+
 func (c *Cache) PrepareCachemoneyExport(ctx context.Context, metadataDBPath string) (*PreparedCachemoneyExport, error) {
 	if metadataDBPath == "" {
 		return nil, errors.New("prepare cachemoney export: empty metadata DB path")

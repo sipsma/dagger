@@ -8,6 +8,7 @@ import (
 
 	"github.com/containerd/containerd/v2/pkg/labels"
 	"github.com/dagger/dagger/dagql/cachemoneyproto"
+	persistdb "github.com/dagger/dagger/dagql/persistdb"
 	bkcache "github.com/dagger/dagger/engine/snapshots"
 	"github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
@@ -133,6 +134,126 @@ func TestImportCachemoneyMetadataImportsSnapshotChainsWithoutRefLinks(t *testing
 	assert.NilError(t, err)
 	assert.Assert(t, ok)
 	assert.DeepEqual(t, resolvedChain, chains[0])
+}
+
+func TestWriteCachemoneyMetadataDBWritesImportedMergeCache(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	diffID := digest.FromString("diff")
+	blobDigest := digest.FromString("blob")
+	exportRef := &fakeCachemoneyExportRef{
+		snapshotID: "source-snapshot",
+		chain: &bkcache.ExportChain{
+			Layers: []bkcache.ExportLayer{{
+				Descriptor: ocispecs.Descriptor{
+					MediaType: ocispecs.MediaTypeImageLayerZstd,
+					Digest:    blobDigest,
+					Size:      123,
+					Annotations: map[string]string{
+						labels.LabelUncompressed: diffID.String(),
+					},
+				},
+			}},
+		},
+	}
+	sourceManager := &fakeSnapshotManager{
+		refsBySnapshotID: map[string]bkcache.ImmutableRef{
+			"source-snapshot": exportRef,
+		},
+	}
+	sourceDBPath := filepath.Join(t.TempDir(), "source.db")
+	sourceCache, err := NewCache(ctx, sourceDBPath, sourceManager, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, sourceCache.Close(context.Background()))
+	}()
+
+	key := &ResultCall{
+		Kind:  ResultCallKindField,
+		Type:  NewResultCallType((&persistSnapshotValue{}).Type()),
+		Field: "cachemoney-source-snapshot-for-merge-cache",
+	}
+	sourceRes, err := sourceCache.GetOrInitCall(ctx, "source-session", noopTypeResolver{}, &CallRequest{
+		ResultCall:    key,
+		IsPersistable: true,
+	}, func(context.Context) (AnyResult, error) {
+		return cacheTestPlainResult(&persistSnapshotValue{
+			Name:       "x",
+			SnapshotID: "source-snapshot",
+		}), nil
+	})
+	assert.NilError(t, err)
+	sourceResultID := sourceRes.cacheSharedResult().id
+
+	exportPath := filepath.Join(t.TempDir(), "metadata.db")
+	prepared, err := sourceCache.PrepareCachemoneyExport(ctx, exportPath)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, prepared.Release(context.Background()))
+	}()
+	assert.Equal(t, len(prepared.Manifest.Snapshots), 1)
+	chainID := prepared.Manifest.Snapshots[0].ChainID
+	assert.Equal(t, len(prepared.Manifest.Chains), 1)
+	assert.Equal(t, len(prepared.Manifest.Chains[0].Layers), 1)
+	layer := prepared.Manifest.Chains[0].Layers[0]
+
+	mergeCache, err := NewCache(ctx, "", nil, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, mergeCache.Close(context.Background()))
+	}()
+	assert.NilError(t, mergeCache.ImportCachemoneyMetadata(ctx, CachemoneyImportSource{
+		ID:             "source-a",
+		MetadataDBPath: exportPath,
+	}))
+	imported := cachemoneyImportedResultByOrigin(mergeCache, "source-a", uint64(sourceResultID))
+	assert.Assert(t, imported != nil)
+
+	mergedPath := filepath.Join(t.TempDir(), "merged.db")
+	assert.NilError(t, mergeCache.WriteCachemoneyMetadataDB(ctx, mergedPath))
+
+	db, q, err := openCacheDBReadOnly(ctx, mergedPath)
+	assert.NilError(t, err)
+	defer closeCacheDBs(db, q) //nolint:errcheck
+
+	results, err := q.ListMirrorResults(ctx)
+	assert.NilError(t, err)
+	var foundImported bool
+	for _, row := range results {
+		if row.ID != int64(imported.id) {
+			continue
+		}
+		foundImported = true
+		assert.Equal(t, row.OriginSourceID, "source-a")
+		assert.Equal(t, row.OriginResultID, int64(sourceResultID))
+	}
+	assert.Assert(t, foundImported)
+
+	chainRows, err := q.ListMirrorResultSnapshotChains(ctx)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, chainRows, []persistdb.MirrorResultSnapshotChain{{
+		ResultID: int64(imported.id),
+		Role:     "snapshot",
+		ChainID:  chainID,
+	}})
+
+	layerRows, err := q.ListMirrorSnapshotChainLayers(ctx)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, layerRows, []persistdb.MirrorSnapshotChainLayer{{
+		ChainID:        chainID,
+		Position:       0,
+		DiffID:         diffID.String(),
+		BlobDigest:     blobDigest.String(),
+		Size:           123,
+		MediaType:      ocispecs.MediaTypeImageLayerZstd,
+		DescriptorJSON: string(layer.DescriptorJSON),
+	}})
+
+	cleanShutdown, found, err := q.SelectMetaValue(ctx, persistdb.MetaKeyCleanShutdown)
+	assert.NilError(t, err)
+	assert.Assert(t, found)
+	assert.Equal(t, cleanShutdown, "1")
 }
 
 func TestImportCachemoneyMetadataSnapshotBlobIndexStampsHydrationEligible(t *testing.T) {
