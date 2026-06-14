@@ -79,6 +79,7 @@ type SnapshotManager interface {
 type SnapshotRecordMetadata struct {
 	RecordType  client.UsageRecordType
 	Description string
+	Mutable     bool
 }
 
 type snapshotManager struct {
@@ -230,6 +231,7 @@ func (cm *snapshotManager) SnapshotRecordMetadata(ctx context.Context, snapshotI
 	return SnapshotRecordMetadata{
 		RecordType:  md.GetRecordType(),
 		Description: md.GetDescription(),
+		Mutable:     !md.getCommitted(),
 	}, true, nil
 }
 

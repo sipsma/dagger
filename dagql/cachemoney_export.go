@@ -55,12 +55,15 @@ func (c *Cache) PrepareCachemoneyExport(ctx context.Context, metadataDBPath stri
 			lastErr = err
 			continue
 		}
-		return export, err
+		if err != nil {
+			return nil, c.annotateCachemoneyExportError(ctx, err)
+		}
+		return export, nil
 	}
 	if lastErr != nil {
-		return nil, lastErr
+		return nil, c.annotateCachemoneyExportError(ctx, lastErr)
 	}
-	return nil, ErrCachemoneyExportSnapshotStale
+	return nil, c.annotateCachemoneyExportError(ctx, ErrCachemoneyExportSnapshotStale)
 }
 
 func (c *Cache) prepareCachemoneyExport(ctx context.Context, metadataDBPath string) (*PreparedCachemoneyExport, error) {

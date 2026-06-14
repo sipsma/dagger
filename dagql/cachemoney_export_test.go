@@ -3,6 +3,7 @@ package dagql
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/containerd/containerd/v2/pkg/labels"
@@ -13,6 +14,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	ociidentity "github.com/opencontainers/image-spec/identity"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/vektah/gqlparser/v2/ast"
 	"gotest.tools/v3/assert"
 )
 
@@ -49,6 +51,106 @@ func (r *fakeCachemoneyExportRef) ExportChain(ctx context.Context, cfg bkconfig.
 	_ = ctx
 	r.exportConfig = cfg
 	return r.chain, nil
+}
+
+type cachemoneyDiagUnpersistableA struct{}
+
+func (*cachemoneyDiagUnpersistableA) Type() *ast.Type {
+	return &ast.Type{
+		NamedType: "CachemoneyDiagUnpersistableA",
+		NonNull:   true,
+	}
+}
+
+type cachemoneyDiagUnpersistableB struct{}
+
+func (*cachemoneyDiagUnpersistableB) Type() *ast.Type {
+	return &ast.Type{
+		NamedType: "CachemoneyDiagUnpersistableB",
+		NonNull:   true,
+	}
+}
+
+func TestPrepareCachemoneyExportAggregatesDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	snapshotManager := &fakeSnapshotManager{
+		snapshotMetadata: map[string]bkcache.SnapshotRecordMetadata{
+			"mutable-snapshot": {Mutable: true},
+		},
+	}
+
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	c, err := NewCache(ctx, dbPath, snapshotManager, nil)
+	assert.NilError(t, err)
+	defer func() {
+		// This test intentionally leaves unpersistable objects in cache so the
+		// export path can report every class in one diagnostic.
+		_ = c.Close(context.Background())
+	}()
+
+	srv := newDagqlServerForTest(t, cacheTestQuery{})
+	srv.InstallObject(NewClass(srv, ClassOpts[*cachemoneyDiagUnpersistableA]{}))
+	srv.InstallObject(NewClass(srv, ClassOpts[*cachemoneyDiagUnpersistableB]{}))
+	srv.InstallObject(NewClass(srv, ClassOpts[*persistSnapshotValue]{}))
+
+	frameA := &ResultCall{
+		Kind:  ResultCallKindField,
+		Type:  NewResultCallType((&cachemoneyDiagUnpersistableA{}).Type()),
+		Field: "diag-a",
+	}
+	_, err = c.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{
+		ResultCall:    frameA,
+		IsPersistable: true,
+	}, func(context.Context) (AnyResult, error) {
+		return cacheTestDetachedObjectResult(frameA, srv, &cachemoneyDiagUnpersistableA{}), nil
+	})
+	assert.NilError(t, err)
+
+	frameB := &ResultCall{
+		Kind:  ResultCallKindField,
+		Type:  NewResultCallType((&cachemoneyDiagUnpersistableB{}).Type()),
+		Field: "diag-b",
+	}
+	_, err = c.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{
+		ResultCall:    frameB,
+		IsPersistable: true,
+	}, func(context.Context) (AnyResult, error) {
+		return cacheTestDetachedObjectResult(frameB, srv, &cachemoneyDiagUnpersistableB{}), nil
+	})
+	assert.NilError(t, err)
+
+	frameMutableLink := &ResultCall{
+		Kind:  ResultCallKindField,
+		Type:  NewResultCallType((&persistSnapshotValue{}).Type()),
+		Field: "diag-mutable-link",
+	}
+	_, err = c.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{
+		ResultCall:    frameMutableLink,
+		IsPersistable: true,
+	}, func(context.Context) (AnyResult, error) {
+		return cacheTestDetachedObjectResult(frameMutableLink, srv, &persistSnapshotValue{
+			Name:       "mutable",
+			SnapshotID: "mutable-snapshot",
+		}), nil
+	})
+	assert.NilError(t, err)
+
+	_, err = c.PrepareCachemoneyExport(ctx, filepath.Join(t.TempDir(), cachemoneyproto.MetadataDBName))
+	assert.Assert(t, err != nil)
+	msg := err.Error()
+	for _, want := range []string{
+		"cachemoney export diagnostics",
+		"unpersistable object payloads (2)",
+		`type="CachemoneyDiagUnpersistableA"`,
+		`type="CachemoneyDiagUnpersistableB"`,
+		"mutable snapshot links (1)",
+		`role="snapshot"`,
+		`ref="mutable-snapshot"`,
+	} {
+		assert.Assert(t, strings.Contains(msg, want), "expected %q in %s", want, msg)
+	}
 }
 
 func TestPrepareCachemoneyExportWritesContentAddressedManifestAndMetadata(t *testing.T) {
