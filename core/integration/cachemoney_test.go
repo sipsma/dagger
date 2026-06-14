@@ -3,9 +3,12 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,6 +21,95 @@ import (
 )
 
 const cachemoneyDebugHTTPTimeout = 2 * time.Minute
+
+func (CachePersistenceSuite) TestCachemoneyD0RealBackendRoundTrip(ctx context.Context, t *testctx.T) {
+	if os.Getenv("CACHEMONEY_D0") != "1" {
+		t.Skip("set CACHEMONEY_D0=1 to run the cross-repo D0 cachemoney validation")
+	}
+	backendSource := cachemoneyD0BackendSourceConfig(t)
+
+	c := connect(ctx, t, dagger.WithLogOutput(testutil.NewTWriter(t)))
+	minio := startCachemoneyD0MinIO(ctx, t, c)
+	backendLeaf := startCachemoneyD0Backend(ctx, t, c, minio, backendSource, "")
+	backendAll := startCachemoneyD0Backend(ctx, t, c, minio, backendSource, "all")
+	backendMetadataOnly := startCachemoneyD0Backend(ctx, t, c, minio, backendSource, "metadata-only")
+
+	const cacheBust = "cachemoney-d0-stable-input"
+	source := startCachemoneyDebugEngine(ctx, t, c, backendLeaf, "cachemoney-d0-source-state-"+identity.NewID(),
+		cachemoneyDebugServiceBinding{Hostname: "cachemoney-backend-all", Service: backendAll},
+		cachemoneyDebugServiceBinding{Hostname: "cachemoney-backend-meta", Service: backendMetadataOnly},
+		cachemoneyDebugServiceBinding{Hostname: "minio", Service: minio},
+	)
+	sourceCtr := cachemoneyRandomExecContainer(source.client, cacheBust)
+	_, err := sourceCtr.Sync(ctx)
+	require.NoError(t, err)
+
+	exportLeaf := cachemoneyDebugExportToURL(ctx, t, source.debugURL, "http://cachemoney-backend:8080/cachemoney/v1/exports")
+	require.True(t, exportLeaf.Completed)
+	require.NotEmpty(t, exportLeaf.ExportID)
+	require.Greater(t, exportLeaf.Snapshots, 0)
+	require.Greater(t, exportLeaf.BlobsOffered, 0)
+	require.Greater(t, exportLeaf.BlobsRequested, 0)
+	require.Greater(t, exportLeaf.BlobsUploaded, 0, "%+v", exportLeaf)
+	require.Zero(t, exportLeaf.BlobsFailed, "%+v", exportLeaf)
+	leafState := cachemoneyD0FetchBackendDebugState(ctx, t, c, backendLeaf)
+	require.Equal(t, 1, leafState.Summary.SourceCount)
+	require.Greater(t, leafState.Summary.BlobCount, 0)
+	require.Zero(t, leafState.Summary.PendingExportCount)
+
+	exportWithBlobs := cachemoneyDebugExportToURL(ctx, t, source.debugURL, "http://cachemoney-backend-all:8080/cachemoney/v1/exports")
+	require.True(t, exportWithBlobs.Completed)
+	require.NotEmpty(t, exportWithBlobs.ExportID)
+	require.Greater(t, exportWithBlobs.Snapshots, 0)
+	require.Greater(t, exportWithBlobs.BlobsOffered, 0)
+	require.Greater(t, exportWithBlobs.BlobsRequested, 0)
+	require.Greater(t, exportWithBlobs.BlobsUploaded, 0, "%+v", exportWithBlobs)
+	require.Zero(t, exportWithBlobs.BlobsFailed, "%+v", exportWithBlobs)
+	allState := cachemoneyD0FetchBackendDebugState(ctx, t, c, backendAll)
+	require.Equal(t, 1, allState.Summary.SourceCount)
+	require.Greater(t, allState.Summary.BlobCount, 0)
+	require.Zero(t, allState.Summary.PendingExportCount)
+
+	exportMetadataOnly := cachemoneyDebugExportToURL(ctx, t, source.debugURL, "http://cachemoney-backend-meta:8080/cachemoney/v1/exports")
+	require.True(t, exportMetadataOnly.Completed)
+	require.NotEmpty(t, exportMetadataOnly.ExportID)
+	require.Greater(t, exportMetadataOnly.Snapshots, 0)
+	require.Greater(t, exportMetadataOnly.BlobsOffered, 0)
+	require.Zero(t, exportMetadataOnly.BlobsFailed, "%+v", exportMetadataOnly)
+	metadataOnlyState := cachemoneyD0FetchBackendDebugState(ctx, t, c, backendMetadataOnly)
+	require.Equal(t, 1, metadataOnlyState.Summary.SourceCount)
+	require.Zero(t, metadataOnlyState.Summary.PendingExportCount)
+
+	sourceContents, err := sourceCtr.File("/work/random.txt").Contents(ctx)
+	require.NoError(t, err)
+	sourceRandom := strings.TrimSpace(sourceContents)
+	require.NotEmpty(t, sourceRandom)
+	source.stop(ctx, t)
+
+	hydrate := startCachemoneyDebugEngine(ctx, t, c, backendLeaf, "cachemoney-d0-hydrate-state-"+identity.NewID(),
+		cachemoneyDebugServiceBinding{Hostname: "minio", Service: minio},
+	)
+	importHydrate := cachemoneyDebugImportFromURL(ctx, t, hydrate.debugURL, "http://cachemoney-backend:8080/cachemoney/v1/import")
+	require.True(t, importHydrate.Imported)
+	require.Greater(t, importHydrate.BlobLocations, 0)
+	hydratedRandom := cachemoneyRandomExecFileContents(ctx, t, hydrate.client, cacheBust)
+	require.Equal(t, sourceRandom, hydratedRandom, "default-policy blob-backed D0 cache hit should hydrate the source snapshot")
+	hydrateStats := cachemoneyDebugStats(ctx, t, hydrate.debugURL)
+	require.Greater(t, cachemoneyMaterializationOutcomeTotal(hydrateStats, "hydrated"), uint64(0))
+	hydrate.stop(ctx, t)
+
+	recompute := startCachemoneyDebugEngine(ctx, t, c, backendMetadataOnly, "cachemoney-d0-recompute-state-"+identity.NewID(),
+		cachemoneyDebugServiceBinding{Hostname: "minio", Service: minio},
+	)
+	importRecompute := cachemoneyDebugImportFromURL(ctx, t, recompute.debugURL, "http://cachemoney-backend:8080/cachemoney/v1/import")
+	require.True(t, importRecompute.Imported)
+	recomputedRandom := cachemoneyRandomExecFileContents(ctx, t, recompute.client, cacheBust)
+	require.NotEqual(t, sourceRandom, recomputedRandom, "metadata-only D0 cache hit should recompute when content blobs are missing")
+	recomputeStats := cachemoneyDebugStats(ctx, t, recompute.debugURL)
+	require.Greater(t, cachemoneyMaterializationOutcomeTotal(recomputeStats, "recomputed_remote_miss"), uint64(0))
+	require.Greater(t, recomputeStats.Cachemoney.RecomputeReasons["index_miss"], uint64(0))
+	recompute.stop(ctx, t)
+}
 
 func (CachePersistenceSuite) TestCachemoneyExportImportWarmHit(ctx context.Context, t *testctx.T) {
 	c := connect(ctx, t)
@@ -84,7 +176,12 @@ type cachemoneyDebugEngine struct {
 	debugURL     string
 }
 
-func startCachemoneyDebugEngine(ctx context.Context, t *testctx.T, c *dagger.Client, backend *dagger.Service, stateKey string) *cachemoneyDebugEngine {
+type cachemoneyDebugServiceBinding struct {
+	Hostname string
+	Service  *dagger.Service
+}
+
+func startCachemoneyDebugEngine(ctx context.Context, t *testctx.T, c *dagger.Client, backend *dagger.Service, stateKey string, extraBindings ...cachemoneyDebugServiceBinding) *cachemoneyDebugEngine {
 	t.Helper()
 
 	engineWithPersistenceTestGC := engineWithConfig(
@@ -109,8 +206,12 @@ func startCachemoneyDebugEngine(ctx context.Context, t *testctx.T, c *dagger.Cli
 		engineWithPersistenceTestGC,
 		engineWithDebugAddr,
 		func(ctr *dagger.Container) *dagger.Container {
+			ctr = ctr.
+				WithServiceBinding("cachemoney-backend", backend)
+			for _, binding := range extraBindings {
+				ctr = ctr.WithServiceBinding(binding.Hostname, binding.Service)
+			}
 			return ctr.
-				WithServiceBinding("cachemoney-backend", backend).
 				WithExposedPort(9090, dagger.ContainerWithExposedPortOpts{
 					Protocol: dagger.NetworkProtocolTcp,
 				})
@@ -197,6 +298,205 @@ func startCachemoneyBackend(ctx context.Context, t *testctx.T, c *dagger.Client)
 	return backend
 }
 
+func startCachemoneyD0MinIO(ctx context.Context, t *testctx.T, c *dagger.Client) *dagger.Service {
+	t.Helper()
+
+	accessKey := cachemoneyD0Env("CACHEMONEY_D0_MINIO_ACCESS_KEY", "minioadmin")
+	secretKey := cachemoneyD0Env("CACHEMONEY_D0_MINIO_SECRET_KEY", "minioadmin")
+	minioImage := cachemoneyD0Env("CACHEMONEY_D0_MINIO_IMAGE", "minio/minio:latest")
+	mcImage := cachemoneyD0Env("CACHEMONEY_D0_MC_IMAGE", "minio/mc:latest")
+	bucket := cachemoneyD0Env("CACHEMONEY_D0_S3_BUCKET", "cachemoney-d0")
+
+	minio, err := c.Container().
+		From(minioImage).
+		WithEnvVariable("MINIO_ROOT_USER", accessKey).
+		WithEnvVariable("MINIO_ROOT_PASSWORD", secretKey).
+		WithExposedPort(9000, dagger.ContainerWithExposedPortOpts{Protocol: dagger.NetworkProtocolTcp}).
+		WithDefaultArgs([]string{"minio", "server", "/data", "--address", ":9000"}).
+		AsService().
+		Start(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := minio.Stop(ctx, dagger.ServiceStopOpts{Kill: true})
+		require.NoError(t, err)
+	})
+
+	initScript := fmt.Sprintf(`set -eu
+for i in $(seq 1 60); do
+  if mc alias set local http://minio:9000 %[1]q %[2]q >/dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
+mc alias set local http://minio:9000 %[1]q %[2]q
+mc mb --ignore-existing local/%[3]q
+mc ls local/%[3]q >/dev/null
+`, accessKey, secretKey, bucket)
+	_, err = c.Container().
+		From(mcImage).
+		WithEntrypoint([]string{}).
+		WithEnvVariable("CACHEMONEY_D0_BUCKET_INIT", identity.NewID()).
+		WithServiceBinding("minio", minio).
+		WithExec([]string{"sh", "-ec", initScript}).
+		Sync(ctx)
+	require.NoError(t, err)
+	return minio
+}
+
+type cachemoneyD0BackendSource struct {
+	engineRoot  string
+	backendRoot string
+}
+
+func cachemoneyD0BackendSourceConfig(t *testctx.T) cachemoneyD0BackendSource {
+	t.Helper()
+
+	engineRoot := cachemoneyD0EngineRoot(t)
+	backendRoot, ok := os.LookupEnv("CACHEMONEY_D0_BACKEND_SRC")
+	if !ok || strings.TrimSpace(backendRoot) == "" {
+		t.Skip("set CACHEMONEY_D0_BACKEND_SRC to a dagger.io checkout with the cachemoney dev server")
+	}
+	backendRoot, err := filepath.Abs(backendRoot)
+	require.NoError(t, err)
+	info, err := os.Stat(backendRoot)
+	require.NoError(t, err, "CACHEMONEY_D0_BACKEND_SRC must point to a dagger.io checkout")
+	require.True(t, info.IsDir(), "CACHEMONEY_D0_BACKEND_SRC must point to a dagger.io checkout directory")
+	require.FileExists(t, filepath.Join(backendRoot, "api", "cmd", "cachemoney-dev-server", "main.go"))
+
+	goWorkPath := filepath.Join(backendRoot, "go.work")
+	goWork, err := os.ReadFile(goWorkPath)
+	require.NoError(t, err, "D0 requires the dagger.io go.work that points at the local v2 engine checkout")
+	require.Contains(t, string(goWork), engineRoot, "dagger.io go.work must point at the engine checkout running this test")
+
+	return cachemoneyD0BackendSource{
+		engineRoot:  engineRoot,
+		backendRoot: backendRoot,
+	}
+}
+
+func cachemoneyD0EngineRoot(t *testctx.T) string {
+	t.Helper()
+
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+	wd, err = filepath.Abs(wd)
+	require.NoError(t, err)
+	for dir := wd; ; dir = filepath.Dir(dir) {
+		mod, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+		if err == nil && strings.Contains(string(mod), "module github.com/dagger/dagger") {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		require.NotEqual(t, dir, parent, "could not find github.com/dagger/dagger module root from %s", wd)
+	}
+}
+
+func cachemoneyD0SourceExcludes() []string {
+	return []string{
+		".git",
+		".git/**",
+		"bin",
+		"bin/**",
+		"node_modules",
+		"node_modules/**",
+		"**/node_modules",
+		"**/node_modules/**",
+		".next",
+		".next/**",
+		"out",
+		"out/**",
+		"venv",
+		"venv/**",
+		".terraform",
+		".terraform/**",
+		"**/.terraform",
+		"**/.terraform/**",
+	}
+}
+
+func startCachemoneyD0Backend(ctx context.Context, t *testctx.T, c *dagger.Client, minio *dagger.Service, source cachemoneyD0BackendSource, uploadPolicy string) *dagger.Service {
+	t.Helper()
+
+	bucket := cachemoneyD0Env("CACHEMONEY_D0_S3_BUCKET", "cachemoney-d0")
+	accessKey := cachemoneyD0Env("CACHEMONEY_D0_MINIO_ACCESS_KEY", "minioadmin")
+	secretKey := cachemoneyD0Env("CACHEMONEY_D0_MINIO_SECRET_KEY", "minioadmin")
+	backendBuildImage := cachemoneyD0Env("CACHEMONEY_D0_BACKEND_BUILD_IMAGE", "golang:1.26.1-bookworm")
+	sourceOpts := dagger.HostDirectoryOpts{Exclude: cachemoneyD0SourceExcludes()}
+
+	backendCtr := c.Container().
+		From(backendBuildImage).
+		WithMountedDirectory(source.backendRoot, c.Host().Directory(source.backendRoot, sourceOpts)).
+		WithMountedDirectory(source.engineRoot, c.Host().Directory(source.engineRoot, sourceOpts)).
+		WithMountedCache("/go/pkg/mod", c.CacheVolume("cachemoney-d0-backend-go-mod")).
+		WithMountedCache("/root/.cache/go-build", c.CacheVolume("cachemoney-d0-backend-go-build")).
+		WithWorkdir(filepath.Join(source.backendRoot, "api")).
+		WithEnvVariable("GOTOOLCHAIN", "local").
+		WithExec([]string{"go", "build", "-tags", "cachemoney", "-o", "/usr/local/bin/cachemoney-dev-server", "./cmd/cachemoney-dev-server"}).
+		WithServiceBinding("minio", minio).
+		WithEnvVariable("AWS_ACCESS_KEY_ID", accessKey).
+		WithEnvVariable("AWS_SECRET_ACCESS_KEY", secretKey).
+		WithEnvVariable("AWS_REGION", "us-east-1").
+		WithEnvVariable("API_CACHEMONEY_STORAGE_BACKEND", "s3").
+		WithEnvVariable("API_CACHEMONEY_S3_BUCKET", bucket).
+		WithEnvVariable("API_CACHEMONEY_S3_REGION", "us-east-1").
+		WithEnvVariable("API_CACHEMONEY_S3_ENDPOINT", "http://minio:9000").
+		WithEnvVariable("API_CACHEMONEY_S3_USE_PATH_STYLE", "true").
+		WithExposedPort(8080, dagger.ContainerWithExposedPortOpts{Protocol: dagger.NetworkProtocolTcp}).
+		WithDefaultArgs([]string{"/usr/local/bin/cachemoney-dev-server", "-addr", ":8080"})
+	if uploadPolicy != "" {
+		backendCtr = backendCtr.WithEnvVariable("API_CACHEMONEY_UPLOAD_POLICY", uploadPolicy)
+	}
+
+	backend, err := backendCtr.
+		AsService().
+		Start(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := backend.Stop(ctx, dagger.ServiceStopOpts{Kill: true})
+		require.NoError(t, err)
+	})
+
+	_, err = c.Container().
+		From(alpineImage).
+		WithExec([]string{"apk", "add", "--no-cache", "curl"}).
+		WithServiceBinding("cachemoney-backend", backend).
+		WithExec([]string{"curl", "-fsS", "http://cachemoney-backend:8080/health"}).
+		Sync(ctx)
+	require.NoError(t, err)
+	return backend
+}
+
+type cachemoneyD0BackendDebugState struct {
+	Summary struct {
+		BlobCount          int `json:"blobCount"`
+		SourceCount        int `json:"sourceCount"`
+		PendingExportCount int `json:"pendingExportCount"`
+	} `json:"summary"`
+}
+
+func cachemoneyD0FetchBackendDebugState(ctx context.Context, t *testctx.T, c *dagger.Client, backend *dagger.Service) cachemoneyD0BackendDebugState {
+	t.Helper()
+
+	body, err := c.Container().
+		From(alpineImage).
+		WithExec([]string{"apk", "add", "--no-cache", "curl"}).
+		WithServiceBinding("cachemoney-backend", backend).
+		WithExec([]string{"sh", "-ec", "curl -fsS http://cachemoney-backend:8080/cachemoney/debug/state >/tmp/cachemoney-debug-state.json"}).
+		File("/tmp/cachemoney-debug-state.json").
+		Contents(ctx)
+	require.NoError(t, err)
+	var state cachemoneyD0BackendDebugState
+	require.NoError(t, json.Unmarshal([]byte(body), &state))
+	return state
+}
+
+func cachemoneyD0Env(name, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return fallback
+}
+
 func cachemoneyRandomExecContainer(c *dagger.Client, cacheBust string) *dagger.Container {
 	return c.Container().
 		From(alpineImage).
@@ -226,6 +526,8 @@ type cachemoneyDebugExportHTTPResult struct {
 	BlobsOffered   int    `json:"blobs_offered"`
 	BlobsRequested int    `json:"blobs_requested"`
 	BlobsUploaded  int    `json:"blobs_uploaded"`
+	BlobsFailed    int    `json:"blobs_failed"`
+	BlobsSkipped   int    `json:"blobs_skipped"`
 	Completed      bool   `json:"completed"`
 }
 
@@ -245,6 +547,11 @@ type cachemoneyDebugCacheSnapshot struct {
 func cachemoneyDebugExport(ctx context.Context, t *testctx.T, debugURL, mode string) cachemoneyDebugExportHTTPResult {
 	t.Helper()
 	beginURL := "http://cachemoney-backend:8080/begin?mode=" + url.QueryEscape(mode)
+	return cachemoneyDebugExportToURL(ctx, t, debugURL, beginURL)
+}
+
+func cachemoneyDebugExportToURL(ctx context.Context, t *testctx.T, debugURL, beginURL string) cachemoneyDebugExportHTTPResult {
+	t.Helper()
 	var result cachemoneyDebugExportHTTPResult
 	cachemoneyDebugPostJSON(ctx, t, debugURL+"/debug/dagql/cache/export?url="+url.QueryEscape(beginURL), &result)
 	return result
@@ -253,6 +560,11 @@ func cachemoneyDebugExport(ctx context.Context, t *testctx.T, debugURL, mode str
 func cachemoneyDebugImport(ctx context.Context, t *testctx.T, debugURL, exportID string) cachemoneyDebugImportHTTPResult {
 	t.Helper()
 	importURL := "http://cachemoney-backend:8080/import/" + url.PathEscape(exportID)
+	return cachemoneyDebugImportFromURL(ctx, t, debugURL, importURL)
+}
+
+func cachemoneyDebugImportFromURL(ctx context.Context, t *testctx.T, debugURL, importURL string) cachemoneyDebugImportHTTPResult {
+	t.Helper()
 	var result cachemoneyDebugImportHTTPResult
 	cachemoneyDebugPostJSON(ctx, t, debugURL+"/debug/dagql/cache/import?url="+url.QueryEscape(importURL), &result)
 	return result
