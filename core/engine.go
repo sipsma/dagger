@@ -17,6 +17,8 @@ func (*Engine) Type() *ast.Type {
 	}
 }
 
+func (*Engine) NonPersistedObject() {}
+
 func (*Engine) TypeDescription() string {
 	return "The Dagger engine configuration and state"
 }

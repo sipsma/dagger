@@ -89,9 +89,20 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 		resultIDs = append(resultIDs, resultID)
 	}
 	slices.Sort(resultIDs)
+
+	omittedResultTypes := make(map[sharedResultID]string)
+	for _, resultID := range resultIDs {
+		if typeName, ok := persistSnapshotNonPersistedObjectType(c.resultsByID[resultID]); ok {
+			omittedResultTypes[resultID] = typeName
+		}
+	}
+
 	for _, resultID := range resultIDs {
 		res := c.resultsByID[resultID]
 		if res == nil {
+			continue
+		}
+		if _, omitted := omittedResultTypes[resultID]; omitted {
 			continue
 		}
 
@@ -102,6 +113,10 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 		slices.Sort(depIDs)
 		resultDeps := make([]persistdb.MirrorResultDep, 0, len(depIDs))
 		for _, depID := range depIDs {
+			if typeName, omitted := omittedResultTypes[depID]; omitted {
+				c.egraphMu.RUnlock()
+				return persistStateSnapshot{}, fmt.Errorf("persist result %d: dependency references non-persisted result %d (%s)", resultID, depID, typeName)
+			}
 			resultDeps = append(resultDeps, persistdb.MirrorResultDep{
 				ParentResultID: int64(resultID),
 				DepResultID:    int64(depID),
@@ -123,9 +138,18 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 		}
 
 		payload := res.loadPayloadState()
+		frame := res.loadResultCall()
+		if err := c.validatePersistSnapshotResultCallRefsLocked(resultID, frame, omittedResultTypes); err != nil {
+			c.egraphMu.RUnlock()
+			return persistStateSnapshot{}, err
+		}
+		var frameSnapshot *ResultCall
+		if frame != nil {
+			frameSnapshot = frame.clone()
+		}
 		snapshot.results = append(snapshot.results, persistResultSnapshot{
 			resultID:              resultID,
-			frame:                 res.loadResultCall().clone(),
+			frame:                 frameSnapshot,
 			self:                  payload.self,
 			isObject:              payload.isObject,
 			hasValue:              payload.hasValue,
@@ -153,6 +177,10 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 	}
 	slices.Sort(persistedResultIDs)
 	for _, resultID := range persistedResultIDs {
+		if typeName, omitted := omittedResultTypes[resultID]; omitted {
+			c.egraphMu.RUnlock()
+			return persistStateSnapshot{}, fmt.Errorf("persisted edge references non-persisted result %d (%s)", resultID, typeName)
+		}
 		edge := c.persistedEdgesByResult[resultID]
 		snapshot.persistedEdges = append(snapshot.persistedEdges, persistdb.MirrorPersistedEdge{
 			ResultID:          int64(resultID),
@@ -249,6 +277,10 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 			return persistStateSnapshot{}, fmt.Errorf("persist result %d envelope: %w", resultSnapshot.resultID, err)
 		}
 
+		if err := validatePersistSnapshotEnvelopeRefs(&encoding.Envelope, omittedResultTypes); err != nil {
+			return persistStateSnapshot{}, fmt.Errorf("persist result %d payload refs: %w", resultSnapshot.resultID, err)
+		}
+
 		payload, err := json.Marshal(encoding.Envelope)
 		if err != nil {
 			return persistStateSnapshot{}, fmt.Errorf("persist result %d payload JSON: %w", resultSnapshot.resultID, err)
@@ -267,6 +299,61 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 		snapshot.snapshotChainLayers = append(snapshot.snapshotChainLayers, layerRows...)
 	}
 	return snapshot, nil
+}
+
+func persistSnapshotNonPersistedObjectType(res *sharedResult) (string, bool) {
+	if res == nil {
+		return "", false
+	}
+	payload := res.loadPayloadState()
+	if !payload.hasValue || !payload.isObject || payload.self == nil {
+		return "", false
+	}
+	nonPersisted, ok := payload.self.(NonPersistedObject)
+	if !ok {
+		return "", false
+	}
+	typeName := "<unknown>"
+	if typ := nonPersisted.Type(); typ != nil && typ.Name() != "" {
+		typeName = typ.Name()
+	}
+	return typeName, true
+}
+
+func (c *Cache) validatePersistSnapshotResultCallRefsLocked(resultID sharedResultID, frame *ResultCall, omittedResultTypes map[sharedResultID]string) error {
+	if len(omittedResultTypes) == 0 {
+		return nil
+	}
+	if err := c.cachemoneyWalkResultCallRefsLocked(frame, func(ref *ResultCallRef) error {
+		if ref == nil || ref.ResultID == 0 {
+			return nil
+		}
+		refID := sharedResultID(ref.ResultID)
+		if typeName, omitted := omittedResultTypes[refID]; omitted {
+			return fmt.Errorf("references non-persisted result %d (%s)", refID, typeName)
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("persist result %d call frame refs: %w", resultID, err)
+	}
+	return nil
+}
+
+func validatePersistSnapshotEnvelopeRefs(env *PersistedResultEnvelope, omittedResultTypes map[sharedResultID]string) error {
+	if len(omittedResultTypes) == 0 {
+		return nil
+	}
+	resultIDs, err := cachemoneyPersistedEnvelopeResultIDs(env)
+	if err != nil {
+		return err
+	}
+	for _, id := range resultIDs {
+		refID := sharedResultID(id)
+		if typeName, omitted := omittedResultTypes[refID]; omitted {
+			return fmt.Errorf("references non-persisted result %d (%s)", refID, typeName)
+		}
+	}
+	return nil
 }
 
 //nolint:gocyclo // intrinsically long state machine; refactoring would hurt clarity

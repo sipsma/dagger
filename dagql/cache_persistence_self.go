@@ -50,6 +50,13 @@ type PersistedObject interface {
 	EncodePersistedObject(context.Context, PersistedObjectCache) (PersistedObjectEncoding, error)
 }
 
+// NonPersistedObject marks engine-local object self payloads that are valid
+// cache results but must never be serialized into the persistence mirror.
+type NonPersistedObject interface {
+	Typed
+	NonPersistedObject()
+}
+
 // PersistedObjectDecoder is implemented by zero-value object types that know
 // how to reconstruct a persisted object self payload without replaying the
 // original dagql call chain.

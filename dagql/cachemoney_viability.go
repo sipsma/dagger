@@ -318,6 +318,11 @@ func (c *Cache) cachemoneyWalkResultCallRefsLocked(rootCall *ResultCall, visit f
 		if ref == nil {
 			return nil
 		}
+		if visit != nil {
+			if err := visit(ref); err != nil {
+				return err
+			}
+		}
 		frame := ref.Call
 		if frame == nil {
 			if ref.ResultID == 0 {
@@ -334,11 +339,6 @@ func (c *Cache) cachemoneyWalkResultCallRefsLocked(rootCall *ResultCall, visit f
 			frame = res.loadResultCall()
 			if frame == nil {
 				return fmt.Errorf("missing result call frame for result %d", ref.ResultID)
-			}
-		}
-		if visit != nil {
-			if err := visit(ref); err != nil {
-				return err
 			}
 		}
 		return walkCall(frame)
