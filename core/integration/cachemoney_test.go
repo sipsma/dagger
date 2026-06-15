@@ -69,6 +69,7 @@ func (CachePersistenceSuite) TestCachemoneyD0RealBackendRoundTrip(ctx context.Co
 	require.Equal(t, 1, leafState.Summary.SourceCount)
 	require.Greater(t, leafState.Summary.BlobCount, 0)
 	require.Zero(t, leafState.Summary.PendingExportCount)
+	cachemoneyD0RequireEmptySnapshotSentinel(t, leafState)
 
 	exportWithBlobs := cachemoneyDebugExportToURL(ctx, t, source.debugURL, "http://cachemoney-backend-all:8080/cachemoney/v1/exports")
 	require.True(t, exportWithBlobs.Completed)
@@ -82,6 +83,7 @@ func (CachePersistenceSuite) TestCachemoneyD0RealBackendRoundTrip(ctx context.Co
 	require.Equal(t, 1, allState.Summary.SourceCount)
 	require.Greater(t, allState.Summary.BlobCount, 0)
 	require.Zero(t, allState.Summary.PendingExportCount)
+	cachemoneyD0RequireEmptySnapshotSentinel(t, allState)
 
 	exportMetadataOnly := cachemoneyDebugExportToURL(ctx, t, source.debugURL, "http://cachemoney-backend-meta:8080/cachemoney/v1/exports")
 	require.True(t, exportMetadataOnly.Completed)
@@ -92,6 +94,7 @@ func (CachePersistenceSuite) TestCachemoneyD0RealBackendRoundTrip(ctx context.Co
 	metadataOnlyState := cachemoneyD0FetchBackendDebugState(ctx, t, c, backendMetadataOnly)
 	require.Equal(t, 1, metadataOnlyState.Summary.SourceCount)
 	require.Zero(t, metadataOnlyState.Summary.PendingExportCount)
+	cachemoneyD0RequireEmptySnapshotSentinel(t, metadataOnlyState)
 
 	sourceOutput := cachemoneyD0ReadWorkload(ctx, t, sourceWorkload)
 	source.stop(ctx, t)
@@ -498,6 +501,10 @@ type cachemoneyD0BackendDebugState struct {
 		SourceCount        int `json:"sourceCount"`
 		PendingExportCount int `json:"pendingExportCount"`
 	} `json:"summary"`
+	Snapshots []struct {
+		ChainID    string `json:"chainId"`
+		LayerCount int    `json:"layerCount"`
+	} `json:"snapshots"`
 }
 
 func cachemoneyD0FetchBackendDebugState(ctx context.Context, t *testctx.T, c *dagger.Client, backend *dagger.Service) cachemoneyD0BackendDebugState {
@@ -514,6 +521,19 @@ func cachemoneyD0FetchBackendDebugState(ctx context.Context, t *testctx.T, c *da
 	var state cachemoneyD0BackendDebugState
 	require.NoError(t, json.Unmarshal([]byte(body), &state))
 	return state
+}
+
+func cachemoneyD0RequireEmptySnapshotSentinel(t *testctx.T, state cachemoneyD0BackendDebugState) {
+	t.Helper()
+
+	for _, snapshot := range state.Snapshots {
+		if snapshot.ChainID != "cachemoney-empty-snapshot-chain-v1" {
+			continue
+		}
+		require.Zero(t, snapshot.LayerCount, "empty snapshot sentinel must not carry layers")
+		return
+	}
+	require.Failf(t, "missing empty snapshot sentinel", "state did not include cachemoney-empty-snapshot-chain-v1: %+v", state.Snapshots)
 }
 
 func cachemoneyD0Env(name, fallback string) string {
@@ -535,6 +555,7 @@ type cachemoneyD0WorkloadOutput struct {
 	Filesync    string
 	SourceCache string
 	Git         string
+	EmptyDir    string
 }
 
 func cachemoneyD0RunWorkload(ctx context.Context, t *testctx.T, c *dagger.Client, workload cachemoneyD0Workload) cachemoneyD0WorkloadOutput {
@@ -547,6 +568,7 @@ type cachemoneyD0WorkloadContainers struct {
 	Filesync    *dagger.Container
 	SourceCache *dagger.Container
 	Git         *dagger.Container
+	EmptyDir    *dagger.Directory
 }
 
 func cachemoneyD0WorkloadContainersFor(c *dagger.Client, workload cachemoneyD0Workload) cachemoneyD0WorkloadContainers {
@@ -555,6 +577,7 @@ func cachemoneyD0WorkloadContainersFor(c *dagger.Client, workload cachemoneyD0Wo
 		Filesync:    cachemoneyFilesyncExecContainer(c, workload.HostDir, workload.CacheBust),
 		SourceCache: cachemoneySourceCacheExecContainer(c, workload.HostDir, workload.CacheVolumeKey, workload.CacheBust),
 		Git:         cachemoneyGitExecContainer(c, workload.GitRepoURL, workload.CacheBust),
+		EmptyDir:    c.Directory(),
 	}
 }
 
@@ -569,6 +592,7 @@ func cachemoneyD0PrimeWorkload(ctx context.Context, t *testctx.T, containers cac
 		_, err := ctr.Sync(ctx)
 		require.NoError(t, err)
 	}
+	_ = cachemoneyD0DirectoryID(ctx, t, containers.EmptyDir)
 }
 
 func cachemoneyD0ReadWorkload(ctx context.Context, t *testctx.T, containers cachemoneyD0WorkloadContainers) cachemoneyD0WorkloadOutput {
@@ -578,6 +602,7 @@ func cachemoneyD0ReadWorkload(ctx context.Context, t *testctx.T, containers cach
 		Filesync:    cachemoneyD0ContainerFileContents(ctx, t, containers.Filesync, "/work/filesync-random.txt"),
 		SourceCache: cachemoneyD0ContainerFileContents(ctx, t, containers.SourceCache, "/work/cache-random.txt"),
 		Git:         cachemoneyD0ContainerFileContents(ctx, t, containers.Git, "/work/git-random.txt"),
+		EmptyDir:    cachemoneyD0EmptyDirectoryMarker(ctx, t, containers.EmptyDir),
 	}
 }
 
@@ -651,6 +676,22 @@ func cachemoneyD0ContainerFileContents(ctx context.Context, t *testctx.T, ctr *d
 	random := strings.TrimSpace(contents)
 	require.NotEmpty(t, random)
 	return random
+}
+
+func cachemoneyD0DirectoryID(ctx context.Context, t *testctx.T, dir *dagger.Directory) string {
+	t.Helper()
+	id, err := dir.ID(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, id)
+	return string(id)
+}
+
+func cachemoneyD0EmptyDirectoryMarker(ctx context.Context, t *testctx.T, dir *dagger.Directory) string {
+	t.Helper()
+	entries, err := dir.Entries(ctx)
+	require.NoError(t, err)
+	require.Empty(t, entries)
+	return "empty"
 }
 
 type cachemoneyDebugExportHTTPResult struct {
