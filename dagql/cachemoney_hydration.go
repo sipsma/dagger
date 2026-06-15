@@ -392,6 +392,24 @@ func (c *Cache) mergeCachemoneyBlobIndex(blobIndex map[string]cachemoneyproto.Bl
 	}
 }
 
+func (c *Cache) mergeCachemoneyAvailableBlobs(blobs map[string]struct{}) {
+	if c == nil || len(blobs) == 0 {
+		return
+	}
+	c.cachemoneyMu.Lock()
+	defer c.cachemoneyMu.Unlock()
+
+	if c.cachemoneyAvailableBlobs == nil {
+		c.cachemoneyAvailableBlobs = map[string]struct{}{}
+	}
+	for dgst := range blobs {
+		if dgst == "" {
+			continue
+		}
+		c.cachemoneyAvailableBlobs[dgst] = struct{}{}
+	}
+}
+
 func (c *Cache) cachemoneyBlobIndex() map[string]cachemoneyproto.BlobLocation {
 	if c == nil {
 		return nil
@@ -400,6 +418,35 @@ func (c *Cache) cachemoneyBlobIndex() map[string]cachemoneyproto.BlobLocation {
 	defer c.cachemoneyMu.RUnlock()
 
 	return cachemoneyCloneBlobIndex(c.cachemoneyBlobLocations)
+}
+
+func (c *Cache) cachemoneyAvailableBlobDigests() map[string]struct{} {
+	if c == nil {
+		return nil
+	}
+	c.cachemoneyMu.RLock()
+	defer c.cachemoneyMu.RUnlock()
+
+	if len(c.cachemoneyAvailableBlobs) == 0 && len(c.cachemoneyBlobLocations) == 0 {
+		return nil
+	}
+	out := make(map[string]struct{}, len(c.cachemoneyAvailableBlobs)+len(c.cachemoneyBlobLocations))
+	for dgst := range c.cachemoneyAvailableBlobs {
+		if dgst == "" {
+			continue
+		}
+		out[dgst] = struct{}{}
+	}
+	for dgst, location := range c.cachemoneyBlobLocations {
+		if dgst == "" || location.URL == "" {
+			continue
+		}
+		out[dgst] = struct{}{}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func cachemoneyCloneBlobIndex(blobIndex map[string]cachemoneyproto.BlobLocation) map[string]cachemoneyproto.BlobLocation {

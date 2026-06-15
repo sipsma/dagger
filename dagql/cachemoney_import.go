@@ -21,6 +21,12 @@ type CachemoneyImportSource struct {
 	ID             string
 	MetadataDBPath string
 	BlobIndex      map[string]cachemoneyproto.BlobLocation
+
+	// AvailableBlobs marks compressed layer blobs known to exist for
+	// metadata-only merge caches. Unlike BlobIndex, it does not imply this
+	// cache can download the blob; it is only used to choose among equivalent
+	// compressed descriptors for the same uncompressed snapshot chain layer.
+	AvailableBlobs map[string]struct{}
 }
 
 type cachemoneyPersistedStateRows struct {
@@ -142,6 +148,7 @@ func (c *Cache) ImportCachemoneyMetadata(ctx context.Context, source CachemoneyI
 		return err
 	}
 	c.mergeCachemoneyBlobIndex(source.BlobIndex)
+	c.mergeCachemoneyAvailableBlobs(source.AvailableBlobs)
 	return nil
 }
 

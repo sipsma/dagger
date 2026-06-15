@@ -626,12 +626,86 @@ func TestCachePersistenceSnapshotChainLayerRowsRejectConflict(t *testing.T) {
 		DescriptorJSON: `{"mediaType":"application/vnd.oci.image.layer.v1.tar+zstd"}`,
 	}
 	conflict := layer
-	conflict.BlobDigest = "sha256:other-blob"
+	conflict.DiffID = "sha256:other-diff"
 	snapshot := persistStateSnapshot{
 		snapshotChainLayers: []persistdb.MirrorSnapshotChainLayer{layer, conflict},
 	}
 	err = c.applyPersistStateSnapshot(ctx, snapshot)
 	assert.ErrorContains(t, err, "conflicting snapshot_chain_layer (sha256:chain,0)")
+	assert.ErrorContains(t, err, `existing diff_id="sha256:diff"`)
+	assert.ErrorContains(t, err, `incoming diff_id="sha256:other-diff"`)
+}
+
+func TestCachePersistenceSnapshotChainLayerRowsCanonicalizeDescriptorVariants(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	cacheIface, err := NewCache(ctx, dbPath, &fakeSnapshotManager{}, nil)
+	assert.NilError(t, err)
+	c := cacheIface
+	defer func() {
+		assert.NilError(t, c.Close(context.Background()))
+	}()
+
+	layer := persistdb.MirrorSnapshotChainLayer{
+		ChainID:        "sha256:chain",
+		Position:       0,
+		DiffID:         "sha256:diff",
+		BlobDigest:     "sha256:zzzz",
+		Size:           123,
+		MediaType:      "application/vnd.oci.image.layer.v1.tar+zstd",
+		DescriptorJSON: `{"digest":"sha256:zzzz"}`,
+	}
+	availableVariant := layer
+	availableVariant.BlobDigest = "sha256:aaaa"
+	availableVariant.Size = 456
+	availableVariant.DescriptorJSON = `{"digest":"sha256:aaaa"}`
+	snapshot := persistStateSnapshot{
+		snapshotChainLayers: []persistdb.MirrorSnapshotChainLayer{layer, availableVariant},
+		cachemoneyBlobs: map[string]struct{}{
+			availableVariant.BlobDigest: struct{}{},
+		},
+	}
+	assert.NilError(t, c.applyPersistStateSnapshot(ctx, snapshot))
+
+	layerRows, err := c.pdb.ListMirrorSnapshotChainLayers(ctx)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, layerRows, []persistdb.MirrorSnapshotChainLayer{availableVariant})
+}
+
+func TestCachePersistenceSnapshotChainLayerRowsCanonicalizeDescriptorVariantsWithoutAvailability(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	cacheIface, err := NewCache(ctx, dbPath, &fakeSnapshotManager{}, nil)
+	assert.NilError(t, err)
+	c := cacheIface
+	defer func() {
+		assert.NilError(t, c.Close(context.Background()))
+	}()
+
+	layer := persistdb.MirrorSnapshotChainLayer{
+		ChainID:        "sha256:chain",
+		Position:       0,
+		DiffID:         "sha256:diff",
+		BlobDigest:     "sha256:zzzz",
+		Size:           123,
+		MediaType:      "application/vnd.oci.image.layer.v1.tar+zstd",
+		DescriptorJSON: `{"digest":"sha256:zzzz"}`,
+	}
+	deterministicVariant := layer
+	deterministicVariant.BlobDigest = "sha256:aaaa"
+	deterministicVariant.DescriptorJSON = `{"digest":"sha256:aaaa"}`
+	snapshot := persistStateSnapshot{
+		snapshotChainLayers: []persistdb.MirrorSnapshotChainLayer{layer, deterministicVariant},
+	}
+	assert.NilError(t, c.applyPersistStateSnapshot(ctx, snapshot))
+
+	layerRows, err := c.pdb.ListMirrorSnapshotChainLayers(ctx)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, layerRows, []persistdb.MirrorSnapshotChainLayer{deterministicVariant})
 }
 
 var _ bkcache.SnapshotManager = (*fakeSnapshotManager)(nil)

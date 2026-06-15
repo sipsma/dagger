@@ -1334,6 +1334,7 @@ type Cache struct {
 
 	cachemoneyMu             sync.RWMutex
 	cachemoneyBlobLocations  map[string]cachemoneyproto.BlobLocation
+	cachemoneyAvailableBlobs map[string]struct{}
 	cachemoneyHydrationGroup singleflight.Group[string, string]
 	cachemoneyStats          CachemoneyDebugStats
 

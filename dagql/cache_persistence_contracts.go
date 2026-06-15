@@ -56,4 +56,5 @@ type persistStateSnapshot struct {
 	snapshotContentLinks  []persistdb.MirrorSnapshotContentLink
 	importedLayerByBlob   []persistdb.MirrorImportedLayerBlobIndex
 	importedLayerByDiff   []persistdb.MirrorImportedLayerDiffIndex
+	cachemoneyBlobs       map[string]struct{}
 }

@@ -25,7 +25,9 @@ func (c *Cache) persistCurrentState(ctx context.Context) error {
 
 //nolint:gocyclo // intrinsically long state machine; refactoring would hurt clarity
 func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot, error) {
-	var snapshot persistStateSnapshot
+	snapshot := persistStateSnapshot{
+		cachemoneyBlobs: c.cachemoneyAvailableBlobDigests(),
+	}
 
 	c.egraphMu.RLock()
 
@@ -434,7 +436,7 @@ func (c *Cache) applyPersistStateSnapshot(ctx context.Context, snapshot persistS
 			}
 		}
 	}
-	snapshotChainLayers, err := normalizeSnapshotChainLayerRows(snapshot.snapshotChainLayers)
+	snapshotChainLayers, err := normalizeSnapshotChainLayerRows(snapshot.snapshotChainLayers, snapshot.cachemoneyBlobs)
 	if err != nil {
 		_ = tx.Rollback()
 		return err
@@ -558,7 +560,7 @@ type snapshotChainLayerKey struct {
 	position int64
 }
 
-func normalizeSnapshotChainLayerRows(rows []persistdb.MirrorSnapshotChainLayer) ([]persistdb.MirrorSnapshotChainLayer, error) {
+func normalizeSnapshotChainLayerRows(rows []persistdb.MirrorSnapshotChainLayer, availableBlobs map[string]struct{}) ([]persistdb.MirrorSnapshotChainLayer, error) {
 	if len(rows) < 2 {
 		return rows, nil
 	}
@@ -570,9 +572,18 @@ func normalizeSnapshotChainLayerRows(rows []persistdb.MirrorSnapshotChainLayer) 
 		}
 		existing, ok := rowsByKey[key]
 		if ok {
-			if existing != row {
-				return nil, fmt.Errorf("conflicting snapshot_chain_layer (%s,%d)", row.ChainID, row.Position)
+			if existing.DiffID != row.DiffID {
+				return nil, fmt.Errorf(
+					"conflicting snapshot_chain_layer (%s,%d): existing diff_id=%q blob_digest=%q; incoming diff_id=%q blob_digest=%q",
+					row.ChainID,
+					row.Position,
+					existing.DiffID,
+					existing.BlobDigest,
+					row.DiffID,
+					row.BlobDigest,
+				)
 			}
+			rowsByKey[key] = preferSnapshotChainLayerRow(existing, row, availableBlobs)
 			continue
 		}
 		rowsByKey[key] = row
@@ -602,6 +613,52 @@ func normalizeSnapshotChainLayerRows(rows []persistdb.MirrorSnapshotChainLayer) 
 		normalized = append(normalized, rowsByKey[key])
 	}
 	return normalized, nil
+}
+
+func preferSnapshotChainLayerRow(a, b persistdb.MirrorSnapshotChainLayer, availableBlobs map[string]struct{}) persistdb.MirrorSnapshotChainLayer {
+	aAvailable := snapshotChainLayerBlobAvailable(a, availableBlobs)
+	bAvailable := snapshotChainLayerBlobAvailable(b, availableBlobs)
+	switch {
+	case aAvailable && !bAvailable:
+		return a
+	case bAvailable && !aAvailable:
+		return b
+	case compareSnapshotChainLayerRows(b, a) < 0:
+		return b
+	default:
+		return a
+	}
+}
+
+func snapshotChainLayerBlobAvailable(row persistdb.MirrorSnapshotChainLayer, availableBlobs map[string]struct{}) bool {
+	if len(availableBlobs) == 0 || row.BlobDigest == "" {
+		return false
+	}
+	_, ok := availableBlobs[row.BlobDigest]
+	return ok
+}
+
+func compareSnapshotChainLayerRows(a, b persistdb.MirrorSnapshotChainLayer) int {
+	switch {
+	case a.BlobDigest < b.BlobDigest:
+		return -1
+	case a.BlobDigest > b.BlobDigest:
+		return 1
+	case a.Size < b.Size:
+		return -1
+	case a.Size > b.Size:
+		return 1
+	case a.MediaType < b.MediaType:
+		return -1
+	case a.MediaType > b.MediaType:
+		return 1
+	case a.DescriptorJSON < b.DescriptorJSON:
+		return -1
+	case a.DescriptorJSON > b.DescriptorJSON:
+		return 1
+	default:
+		return 0
+	}
 }
 
 func (c *Cache) persistResultEnvelope(ctx context.Context, snapshot *persistResultSnapshot) (PersistedResultEncoding, error) {

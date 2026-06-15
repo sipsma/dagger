@@ -48,6 +48,76 @@ func TestRemapPersistedObjectJSONResultIDs(t *testing.T) {
 	assert.Equal(t, got["notAResult"].(float64), float64(4))
 }
 
+type cachemoneyTestSnapshotExport struct {
+	metadataPath string
+	resultID     sharedResultID
+	chainID      string
+	layer        cachemoneyproto.SnapshotLayer
+}
+
+func newCachemoneyTestSnapshotExport(t *testing.T, ctx context.Context, field, snapshotID string, diffID, blobDigest digest.Digest, size int64) cachemoneyTestSnapshotExport {
+	t.Helper()
+
+	exportRef := &fakeCachemoneyExportRef{
+		snapshotID: snapshotID,
+		chain: &bkcache.ExportChain{
+			Layers: []bkcache.ExportLayer{{
+				Descriptor: ocispecs.Descriptor{
+					MediaType: ocispecs.MediaTypeImageLayerZstd,
+					Digest:    blobDigest,
+					Size:      size,
+					Annotations: map[string]string{
+						labels.LabelUncompressed: diffID.String(),
+					},
+				},
+			}},
+		},
+	}
+	sourceManager := &fakeSnapshotManager{
+		refsBySnapshotID: map[string]bkcache.ImmutableRef{
+			snapshotID: exportRef,
+		},
+	}
+	sourceDBPath := filepath.Join(t.TempDir(), "source.db")
+	sourceCache, err := NewCache(ctx, sourceDBPath, sourceManager, nil)
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		assert.NilError(t, sourceCache.Close(context.Background()))
+	})
+
+	sourceRes, err := sourceCache.GetOrInitCall(ctx, "source-session", noopTypeResolver{}, &CallRequest{
+		ResultCall: &ResultCall{
+			Kind:  ResultCallKindField,
+			Type:  NewResultCallType((&persistSnapshotValue{}).Type()),
+			Field: field,
+		},
+		IsPersistable: true,
+	}, func(context.Context) (AnyResult, error) {
+		return cacheTestPlainResult(&persistSnapshotValue{
+			Name:       "x",
+			SnapshotID: snapshotID,
+		}), nil
+	})
+	assert.NilError(t, err)
+
+	exportPath := filepath.Join(t.TempDir(), "metadata.db")
+	prepared, err := sourceCache.PrepareCachemoneyExport(ctx, exportPath)
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		assert.NilError(t, prepared.Release(context.Background()))
+	})
+	assert.Equal(t, len(prepared.Manifest.Snapshots), 1)
+	assert.Equal(t, len(prepared.Manifest.Chains), 1)
+	assert.Equal(t, len(prepared.Manifest.Chains[0].Layers), 1)
+
+	return cachemoneyTestSnapshotExport{
+		metadataPath: exportPath,
+		resultID:     sourceRes.cacheSharedResult().id,
+		chainID:      prepared.Manifest.Snapshots[0].ChainID,
+		layer:        prepared.Manifest.Chains[0].Layers[0],
+	}
+}
+
 func TestImportCachemoneyMetadataImportsSnapshotChainsWithoutRefLinks(t *testing.T) {
 	t.Parallel()
 
@@ -254,6 +324,121 @@ func TestWriteCachemoneyMetadataDBWritesImportedMergeCache(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Assert(t, found)
 	assert.Equal(t, cleanShutdown, "1")
+}
+
+func TestWriteCachemoneyMetadataDBCanonicalizesImportedDescriptorVariants(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	diffID := digest.FromString("shared-diff")
+	blobA := digest.FromString("compressed-blob-a")
+	blobB := digest.FromString("compressed-blob-b")
+	sourceA := newCachemoneyTestSnapshotExport(t, ctx, "cachemoney-variant-a", "source-snapshot-a", diffID, blobA, 123)
+	sourceB := newCachemoneyTestSnapshotExport(t, ctx, "cachemoney-variant-b", "source-snapshot-b", diffID, blobB, 456)
+	assert.Equal(t, sourceA.chainID, sourceB.chainID)
+	assert.Equal(t, sourceA.layer.DiffID, sourceB.layer.DiffID)
+	assert.Assert(t, sourceA.layer.BlobDigest != sourceB.layer.BlobDigest)
+
+	mergeCache, err := NewCache(ctx, "", nil, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, mergeCache.Close(context.Background()))
+	}()
+	assert.NilError(t, mergeCache.ImportCachemoneyMetadata(ctx, CachemoneyImportSource{
+		ID:             "source-a",
+		MetadataDBPath: sourceA.metadataPath,
+	}))
+	assert.NilError(t, mergeCache.ImportCachemoneyMetadata(ctx, CachemoneyImportSource{
+		ID:             "source-b",
+		MetadataDBPath: sourceB.metadataPath,
+		AvailableBlobs: map[string]struct{}{
+			sourceB.layer.BlobDigest: struct{}{},
+		},
+	}))
+
+	mergedPath := filepath.Join(t.TempDir(), "merged.db")
+	assert.NilError(t, mergeCache.WriteCachemoneyMetadataDB(ctx, mergedPath))
+
+	db, q, err := openCacheDBReadOnly(ctx, mergedPath)
+	assert.NilError(t, err)
+	layerRows, err := q.ListMirrorSnapshotChainLayers(ctx)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, layerRows, []persistdb.MirrorSnapshotChainLayer{{
+		ChainID:        sourceB.chainID,
+		Position:       0,
+		DiffID:         sourceB.layer.DiffID,
+		BlobDigest:     sourceB.layer.BlobDigest,
+		Size:           sourceB.layer.Size,
+		MediaType:      sourceB.layer.MediaType,
+		DescriptorJSON: string(sourceB.layer.DescriptorJSON),
+	}})
+	assert.NilError(t, closeCacheDBs(db, q))
+
+	destCache, err := NewCache(ctx, "", nil, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, destCache.Close(context.Background()))
+	}()
+	assert.NilError(t, destCache.ImportCachemoneyMetadata(ctx, CachemoneyImportSource{
+		ID:             "merged",
+		MetadataDBPath: mergedPath,
+		BlobIndex: map[string]cachemoneyproto.BlobLocation{
+			sourceB.layer.BlobDigest: {
+				URL:       "https://cache.example/blobs/" + blobB.Encoded(),
+				Size:      sourceB.layer.Size,
+				MediaType: sourceB.layer.MediaType,
+			},
+		},
+	}))
+	imported := cachemoneyImportedResultByOrigin(destCache, "source-b", uint64(sourceB.resultID))
+	assert.Assert(t, imported != nil)
+	assert.Assert(t, imported.remoteCacheViable)
+	assert.Assert(t, imported.remoteCacheEligible)
+	assert.Equal(t, imported.remoteCacheReason, remoteCacheReasonRemoteSnapshotBlobs)
+}
+
+func TestWriteCachemoneyMetadataDBKeepsDescriptorVariantNonViableWhenNoBlobAvailable(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	diffID := digest.FromString("shared-diff")
+	blobA := digest.FromString("compressed-blob-a")
+	blobB := digest.FromString("compressed-blob-b")
+	sourceA := newCachemoneyTestSnapshotExport(t, ctx, "cachemoney-unavailable-a", "unavailable-snapshot-a", diffID, blobA, 123)
+	sourceB := newCachemoneyTestSnapshotExport(t, ctx, "cachemoney-unavailable-b", "unavailable-snapshot-b", diffID, blobB, 456)
+	assert.Equal(t, sourceA.chainID, sourceB.chainID)
+
+	mergeCache, err := NewCache(ctx, "", nil, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, mergeCache.Close(context.Background()))
+	}()
+	assert.NilError(t, mergeCache.ImportCachemoneyMetadata(ctx, CachemoneyImportSource{
+		ID:             "source-a",
+		MetadataDBPath: sourceA.metadataPath,
+	}))
+	assert.NilError(t, mergeCache.ImportCachemoneyMetadata(ctx, CachemoneyImportSource{
+		ID:             "source-b",
+		MetadataDBPath: sourceB.metadataPath,
+	}))
+
+	mergedPath := filepath.Join(t.TempDir(), "merged.db")
+	assert.NilError(t, mergeCache.WriteCachemoneyMetadataDB(ctx, mergedPath))
+
+	destCache, err := NewCache(ctx, "", nil, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, destCache.Close(context.Background()))
+	}()
+	assert.NilError(t, destCache.ImportCachemoneyMetadata(ctx, CachemoneyImportSource{
+		ID:             "merged",
+		MetadataDBPath: mergedPath,
+	}))
+	imported := cachemoneyImportedResultByOrigin(destCache, "source-a", uint64(sourceA.resultID))
+	assert.Assert(t, imported != nil)
+	assert.Assert(t, !imported.remoteCacheViable)
+	assert.Assert(t, !imported.remoteCacheEligible)
+	assert.Equal(t, imported.remoteCacheReason, remoteCacheReasonMissingBlobNoFallback)
 }
 
 func TestImportCachemoneyMetadataSnapshotBlobIndexStampsHydrationEligible(t *testing.T) {
