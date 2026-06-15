@@ -237,6 +237,72 @@ func TestCachemoneyDecodeContainerRetainedRecipeFallbackKeepsLazy(t *testing.T) 
 	require.True(t, lazyPending(loadedContainer.Lazy))
 }
 
+func TestDirectoryWithDirectoryMaterializesRemoteBaseSnapshotAccessor(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	manager := &cacheVolumeTestSnapshotManager{}
+	cache, err := dagql.NewCache(ctx, filepath.Join(t.TempDir(), "cache.db"), manager, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, cache.Close(context.Background()))
+	})
+	srv, query := cachemoneyRemotePlanTestServer(t, manager)
+	ctx = ContextWithQuery(dagql.ContextWithCache(ctx, cache), query)
+
+	parentRef := &cacheVolumeTestImmutableRef{id: "parent-ref", snapshotID: "parent-snapshot"}
+	parentMaterializer := &lazyAccessorTestMaterializer[bkcache.ImmutableRef, *Directory]{
+		value: parentRef,
+		ok:    true,
+	}
+	parent := &Directory{
+		Platform: Platform{OS: "linux", Architecture: "amd64"},
+		Dir:      new(LazyAccessor[string, *Directory]),
+		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+	}
+	parent.Dir.setValue("/")
+	parent.Snapshot.setMaterializer(parentMaterializer)
+	parentCall := cachemoneyRemotePlanTestCall("remote-base-parent", (&Directory{}).Type())
+	parentAny, err := cache.GetOrInitCall(ctx, "session", srv, &dagql.CallRequest{
+		ResultCall:    parentCall,
+		IsPersistable: true,
+	}, func(context.Context) (dagql.AnyResult, error) {
+		return dagql.NewObjectResultForCall(parent, srv, parentCall)
+	})
+	require.NoError(t, err)
+	parentRes := parentAny.(dagql.ObjectResult[*Directory])
+
+	sourceRef := &cacheVolumeTestImmutableRef{id: "source-ref", snapshotID: "source-snapshot"}
+	source := &Directory{
+		Platform: Platform{OS: "linux", Architecture: "amd64"},
+		Dir:      new(LazyAccessor[string, *Directory]),
+		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+	}
+	source.Dir.setValue("/")
+	source.Snapshot.setValue(sourceRef)
+	sourceCall := cachemoneyRemotePlanTestCall("remote-base-source", (&Directory{}).Type())
+	sourceAny, err := cache.GetOrInitCall(ctx, "session", srv, &dagql.CallRequest{
+		ResultCall:    sourceCall,
+		IsPersistable: true,
+	}, func(context.Context) (dagql.AnyResult, error) {
+		return dagql.NewObjectResultForCall(source, srv, sourceCall)
+	})
+	require.NoError(t, err)
+	sourceRes := sourceAny.(dagql.ObjectResult[*Directory])
+
+	err = (&Directory{
+		Platform: Platform{OS: "linux", Architecture: "amd64"},
+		Dir:      new(LazyAccessor[string, *Directory]),
+		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+	}).WithDirectory(ctx, parentRes, "/copied", sourceRes, CopyFilter{}, "", nil)
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "materialized directory: missing snapshot")
+	require.Contains(t, err.Error(), "snapshotmanager.New failed")
+	require.Equal(t, 1, parentMaterializer.calls)
+	require.Len(t, manager.newCalls, 1)
+	require.Equal(t, "parent-snapshot", manager.newCalls[0].SnapshotID())
+}
+
 func TestContainerMetaFileContentsForResultUsesAccessorPlan(t *testing.T) {
 	t.Parallel()
 

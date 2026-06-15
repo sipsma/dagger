@@ -2005,6 +2005,12 @@ func (dir *Directory) WithDirectory(
 	if baseDir == nil {
 		return fmt.Errorf("directory withDirectory base: nil directory")
 	}
+	if _, err := baseDir.Snapshot.GetOrEval(ctx, parent.Result); err != nil {
+		return fmt.Errorf("failed to get base directory ref: %w", err)
+	}
+	if _, err := baseDir.Dir.GetOrEval(ctx, parent.Result); err != nil {
+		return fmt.Errorf("failed to get base directory path: %w", err)
+	}
 	srcDirObj := src.Self()
 	if srcDirObj == nil {
 		return fmt.Errorf("directory withDirectory source: nil directory")
