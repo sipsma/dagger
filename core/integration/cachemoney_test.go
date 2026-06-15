@@ -34,15 +34,28 @@ func (CachePersistenceSuite) TestCachemoneyD0RealBackendRoundTrip(ctx context.Co
 	backendAll := startCachemoneyD0Backend(ctx, t, c, minio, backendSource, "all")
 	backendMetadataOnly := startCachemoneyD0Backend(ctx, t, c, minio, backendSource, "metadata-only")
 
-	const cacheBust = "cachemoney-d0-stable-input"
+	hostDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(hostDir, "input.txt"), []byte("cachemoney d0 filesync input\n"), 0o644))
+
+	gitSvc, gitRepoURL := gitService(ctx, t, c, c.Directory().WithNewFile("README.md", "cachemoney d0 git input\n"))
+	parsedGitRepoURL, err := url.Parse(gitRepoURL)
+	require.NoError(t, err)
+	gitBinding := cachemoneyDebugServiceBinding{Hostname: parsedGitRepoURL.Hostname(), Service: gitSvc}
+
+	workload := cachemoneyD0Workload{
+		CacheBust:      "cachemoney-d0-stable-input",
+		HostDir:        hostDir,
+		CacheVolumeKey: "cachemoney-d0-source-cache-" + identity.NewID(),
+		GitRepoURL:     gitRepoURL,
+	}
 	source := startCachemoneyDebugEngine(ctx, t, c, backendLeaf, "cachemoney-d0-source-state-"+identity.NewID(),
 		cachemoneyDebugServiceBinding{Hostname: "cachemoney-backend-all", Service: backendAll},
 		cachemoneyDebugServiceBinding{Hostname: "cachemoney-backend-meta", Service: backendMetadataOnly},
 		cachemoneyDebugServiceBinding{Hostname: "minio", Service: minio},
+		gitBinding,
 	)
-	sourceCtr := cachemoneyRandomExecContainer(source.client, cacheBust)
-	_, err := sourceCtr.Sync(ctx)
-	require.NoError(t, err)
+	sourceWorkload := cachemoneyD0WorkloadContainersFor(source.client, workload)
+	cachemoneyD0PrimeWorkload(ctx, t, sourceWorkload)
 
 	exportLeaf := cachemoneyDebugExportToURL(ctx, t, source.debugURL, "http://cachemoney-backend:8080/cachemoney/v1/exports")
 	require.True(t, exportLeaf.Completed)
@@ -80,31 +93,44 @@ func (CachePersistenceSuite) TestCachemoneyD0RealBackendRoundTrip(ctx context.Co
 	require.Equal(t, 1, metadataOnlyState.Summary.SourceCount)
 	require.Zero(t, metadataOnlyState.Summary.PendingExportCount)
 
-	sourceContents, err := sourceCtr.File("/work/random.txt").Contents(ctx)
-	require.NoError(t, err)
-	sourceRandom := strings.TrimSpace(sourceContents)
-	require.NotEmpty(t, sourceRandom)
+	sourceOutput := cachemoneyD0ReadWorkload(ctx, t, sourceWorkload)
 	source.stop(ctx, t)
+
+	hydrateAll := startCachemoneyDebugEngine(ctx, t, c, backendAll, "cachemoney-d0-hydrate-all-state-"+identity.NewID(),
+		cachemoneyDebugServiceBinding{Hostname: "minio", Service: minio},
+		gitBinding,
+	)
+	importHydrateAll := cachemoneyDebugImportFromURL(ctx, t, hydrateAll.debugURL, "http://cachemoney-backend:8080/cachemoney/v1/import")
+	require.True(t, importHydrateAll.Imported)
+	require.Greater(t, importHydrateAll.BlobLocations, 0)
+	hydratedAllOutput := cachemoneyD0RunWorkload(ctx, t, hydrateAll.client, workload)
+	require.Equal(t, sourceOutput, hydratedAllOutput, "all-policy D0 cache hit should hydrate every mutable-source dependent workload")
+	hydrateAllStats := cachemoneyDebugStats(ctx, t, hydrateAll.debugURL)
+	require.Greater(t, cachemoneyMaterializationOutcomeTotal(hydrateAllStats, "hydrated"), uint64(0))
+	require.Zero(t, hydrateAllStats.Cachemoney.RecomputeReasons["index_miss"], "%+v", hydrateAllStats.Cachemoney.RecomputeReasons)
+	hydrateAll.stop(ctx, t)
 
 	hydrate := startCachemoneyDebugEngine(ctx, t, c, backendLeaf, "cachemoney-d0-hydrate-state-"+identity.NewID(),
 		cachemoneyDebugServiceBinding{Hostname: "minio", Service: minio},
+		gitBinding,
 	)
 	importHydrate := cachemoneyDebugImportFromURL(ctx, t, hydrate.debugURL, "http://cachemoney-backend:8080/cachemoney/v1/import")
 	require.True(t, importHydrate.Imported)
 	require.Greater(t, importHydrate.BlobLocations, 0)
-	hydratedRandom := cachemoneyRandomExecFileContents(ctx, t, hydrate.client, cacheBust)
-	require.Equal(t, sourceRandom, hydratedRandom, "default-policy blob-backed D0 cache hit should hydrate the source snapshot")
+	hydratedOutput := cachemoneyD0RunWorkload(ctx, t, hydrate.client, workload)
+	require.Equal(t, sourceOutput.Random, hydratedOutput.Random, "default-policy blob-backed D0 cache hit should hydrate the source snapshot")
 	hydrateStats := cachemoneyDebugStats(ctx, t, hydrate.debugURL)
 	require.Greater(t, cachemoneyMaterializationOutcomeTotal(hydrateStats, "hydrated"), uint64(0))
 	hydrate.stop(ctx, t)
 
 	recompute := startCachemoneyDebugEngine(ctx, t, c, backendMetadataOnly, "cachemoney-d0-recompute-state-"+identity.NewID(),
 		cachemoneyDebugServiceBinding{Hostname: "minio", Service: minio},
+		gitBinding,
 	)
 	importRecompute := cachemoneyDebugImportFromURL(ctx, t, recompute.debugURL, "http://cachemoney-backend:8080/cachemoney/v1/import")
 	require.True(t, importRecompute.Imported)
-	recomputedRandom := cachemoneyRandomExecFileContents(ctx, t, recompute.client, cacheBust)
-	require.NotEqual(t, sourceRandom, recomputedRandom, "metadata-only D0 cache hit should recompute when content blobs are missing")
+	recomputedOutput := cachemoneyD0RunWorkload(ctx, t, recompute.client, workload)
+	require.NotEqual(t, sourceOutput.Random, recomputedOutput.Random, "metadata-only D0 cache hit should recompute when content blobs are missing")
 	recomputeStats := cachemoneyDebugStats(ctx, t, recompute.debugURL)
 	require.Greater(t, cachemoneyMaterializationOutcomeTotal(recomputeStats, "recomputed_remote_miss"), uint64(0))
 	require.Greater(t, recomputeStats.Cachemoney.RecomputeReasons["index_miss"], uint64(0))
@@ -497,6 +523,64 @@ func cachemoneyD0Env(name, fallback string) string {
 	return fallback
 }
 
+type cachemoneyD0Workload struct {
+	CacheBust      string
+	HostDir        string
+	CacheVolumeKey string
+	GitRepoURL     string
+}
+
+type cachemoneyD0WorkloadOutput struct {
+	Random      string
+	Filesync    string
+	SourceCache string
+	Git         string
+}
+
+func cachemoneyD0RunWorkload(ctx context.Context, t *testctx.T, c *dagger.Client, workload cachemoneyD0Workload) cachemoneyD0WorkloadOutput {
+	t.Helper()
+	return cachemoneyD0ReadWorkload(ctx, t, cachemoneyD0WorkloadContainersFor(c, workload))
+}
+
+type cachemoneyD0WorkloadContainers struct {
+	Random      *dagger.Container
+	Filesync    *dagger.Container
+	SourceCache *dagger.Container
+	Git         *dagger.Container
+}
+
+func cachemoneyD0WorkloadContainersFor(c *dagger.Client, workload cachemoneyD0Workload) cachemoneyD0WorkloadContainers {
+	return cachemoneyD0WorkloadContainers{
+		Random:      cachemoneyRandomExecContainer(c, workload.CacheBust),
+		Filesync:    cachemoneyFilesyncExecContainer(c, workload.HostDir, workload.CacheBust),
+		SourceCache: cachemoneySourceCacheExecContainer(c, workload.HostDir, workload.CacheVolumeKey, workload.CacheBust),
+		Git:         cachemoneyGitExecContainer(c, workload.GitRepoURL, workload.CacheBust),
+	}
+}
+
+func cachemoneyD0PrimeWorkload(ctx context.Context, t *testctx.T, containers cachemoneyD0WorkloadContainers) {
+	t.Helper()
+	for _, ctr := range []*dagger.Container{
+		containers.Random,
+		containers.Filesync,
+		containers.SourceCache,
+		containers.Git,
+	} {
+		_, err := ctr.Sync(ctx)
+		require.NoError(t, err)
+	}
+}
+
+func cachemoneyD0ReadWorkload(ctx context.Context, t *testctx.T, containers cachemoneyD0WorkloadContainers) cachemoneyD0WorkloadOutput {
+	t.Helper()
+	return cachemoneyD0WorkloadOutput{
+		Random:      cachemoneyD0ContainerFileContents(ctx, t, containers.Random, "/work/random.txt"),
+		Filesync:    cachemoneyD0ContainerFileContents(ctx, t, containers.Filesync, "/work/filesync-random.txt"),
+		SourceCache: cachemoneyD0ContainerFileContents(ctx, t, containers.SourceCache, "/work/cache-random.txt"),
+		Git:         cachemoneyD0ContainerFileContents(ctx, t, containers.Git, "/work/git-random.txt"),
+	}
+}
+
 func cachemoneyRandomExecContainer(c *dagger.Client, cacheBust string) *dagger.Container {
 	return c.Container().
 		From(alpineImage).
@@ -511,9 +595,58 @@ head -c 32 /dev/urandom | sha256sum | cut -d' ' -f1 > /work/random.txt`,
 
 func cachemoneyRandomExecFileContents(ctx context.Context, t *testctx.T, c *dagger.Client, cacheBust string) string {
 	t.Helper()
-	contents, err := cachemoneyRandomExecContainer(c, cacheBust).
-		File("/work/random.txt").
-		Contents(ctx)
+	return cachemoneyD0ContainerFileContents(ctx, t, cachemoneyRandomExecContainer(c, cacheBust), "/work/random.txt")
+}
+
+func cachemoneyFilesyncExecContainer(c *dagger.Client, hostDir, cacheBust string) *dagger.Container {
+	return c.Container().
+		From(alpineImage).
+		WithMountedDirectory("/input", c.Host().Directory(hostDir)).
+		WithEnvVariable("CACHE_BUST", cacheBust).
+		WithExec([]string{
+			"sh",
+			"-ec",
+			`set -eu
+mkdir -p /work
+cat /input/input.txt > /work/input.txt
+head -c 32 /dev/urandom | sha256sum | cut -d' ' -f1 > /work/filesync-random.txt`,
+		})
+}
+
+func cachemoneySourceCacheExecContainer(c *dagger.Client, hostDir, cacheVolumeKey, cacheBust string) *dagger.Container {
+	source := c.Host().Directory(hostDir)
+	return c.Container().
+		From(alpineImage).
+		WithMountedCache("/cache", c.CacheVolume(cacheVolumeKey, dagger.CacheVolumeOpts{Source: source})).
+		WithEnvVariable("CACHE_BUST", cacheBust).
+		WithExec([]string{
+			"sh",
+			"-ec",
+			`set -eu
+mkdir -p /work
+cat /cache/input.txt > /work/cache-input.txt
+head -c 32 /dev/urandom | sha256sum | cut -d' ' -f1 > /work/cache-random.txt`,
+		})
+}
+
+func cachemoneyGitExecContainer(c *dagger.Client, repoURL, cacheBust string) *dagger.Container {
+	return c.Container().
+		From(alpineImage).
+		WithMountedDirectory("/repo", c.Git(repoURL).Branch("main").Tree()).
+		WithEnvVariable("CACHE_BUST", cacheBust).
+		WithExec([]string{
+			"sh",
+			"-ec",
+			`set -eu
+mkdir -p /work
+cat /repo/README.md > /work/git-readme.txt
+head -c 32 /dev/urandom | sha256sum | cut -d' ' -f1 > /work/git-random.txt`,
+		})
+}
+
+func cachemoneyD0ContainerFileContents(ctx context.Context, t *testctx.T, ctr *dagger.Container, path string) string {
+	t.Helper()
+	contents, err := ctr.File(path).Contents(ctx)
 	require.NoError(t, err)
 	random := strings.TrimSpace(contents)
 	require.NotEmpty(t, random)
