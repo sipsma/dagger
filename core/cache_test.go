@@ -462,6 +462,53 @@ func TestCacheVolumeEncodePersistsSourceResultID(t *testing.T) {
 	require.Same(t, source.Self(), seenSource.Self())
 }
 
+func TestCacheVolumeEncodeKeepsSnapshotLinkForLocalPersistence(t *testing.T) {
+	t.Parallel()
+
+	cache := NewCache("cache-key", "ns", dagql.Null[dagql.ObjectResult[*Directory]](), CacheSharingModeShared, "")
+	cache.snapshot = &cacheVolumeTestMutableRef{
+		cacheVolumeTestImmutableRef: cacheVolumeTestImmutableRef{
+			id:         "mutable-1",
+			snapshotID: "snapshot-123",
+		},
+	}
+
+	encoding, err := cache.EncodePersistedObject(context.Background(), nil)
+	require.NoError(t, err)
+	require.Equal(t, []dagql.PersistedSnapshotRefLink{{
+		RefKey: "snapshot-123",
+		Role:   "snapshot",
+	}}, encoding.SnapshotLinks)
+}
+
+func TestCacheVolumeEncodeOmitsSnapshotLinkForCachemoneyExport(t *testing.T) {
+	t.Parallel()
+
+	cache := NewCache("cache-key", "ns", dagql.Null[dagql.ObjectResult[*Directory]](), CacheSharingModeLocked, "1000:1000")
+	cache.snapshot = &cacheVolumeTestMutableRef{
+		cacheVolumeTestImmutableRef: cacheVolumeTestImmutableRef{
+			id:         "mutable-1",
+			snapshotID: "snapshot-123",
+		},
+	}
+	cache.selector = "/work"
+
+	encoding, err := cache.EncodePersistedObject(dagql.ContextWithCachemoneyExport(context.Background()), nil)
+	require.NoError(t, err)
+	require.Empty(t, encoding.SnapshotLinks)
+
+	decoded, err := new(CacheVolume).DecodePersistedObject(context.Background(), nil, 0, nil, encoding.JSON)
+	require.NoError(t, err)
+	decodedCache := decoded.(*CacheVolume)
+	require.Equal(t, "cache-key", decodedCache.Key)
+	require.Equal(t, "ns", decodedCache.Namespace)
+	require.Equal(t, CacheSharingModeLocked, decodedCache.Sharing)
+	require.Equal(t, "1000:1000", decodedCache.Owner)
+	require.Equal(t, "/work", decodedCache.selector)
+	require.Empty(t, decodedCache.snapshotID)
+	require.Nil(t, decodedCache.snapshot)
+}
+
 func TestCacheVolumeAttachDependencyResultsAttachesSource(t *testing.T) {
 	t.Parallel()
 

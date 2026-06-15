@@ -526,6 +526,72 @@ func TestRemoteCacheEligibilityPrefersBlobBackedSnapshotOverRetainedRecipe(t *te
 	assert.Equal(t, viability.reason, remoteCacheReasonRemoteSnapshotBlobs)
 }
 
+func TestRemoteCacheEligibilityIgnoresCallFrameRefsForSnapshotOnlyImport(t *testing.T) {
+	t.Parallel()
+
+	childBlobDigest := digest.FromString("child-blob").String()
+	parentBlobDigest := digest.FromString("parent-blob").String()
+	snapshotEnv := &PersistedResultEnvelope{
+		Kind:       persistedResultKindObject,
+		ObjectJSON: json.RawMessage(`{"form":"snapshot"}`),
+	}
+	c := &Cache{
+		resultsByID: map[sharedResultID]*sharedResult{
+			1: {
+				id:                  1,
+				remoteCacheImported: true,
+				persistedEnvelope:   snapshotEnv,
+				remoteSnapshotChains: []PersistedSnapshotChain{{
+					Role:    "snapshot",
+					ChainID: "child-chain",
+					Layers: []PersistedSnapshotChainLayer{{
+						DiffID:     digest.FromString("child-diff").String(),
+						BlobDigest: childBlobDigest,
+					}},
+				}},
+			},
+			2: {
+				id:                  2,
+				remoteCacheImported: true,
+				persistedEnvelope:   snapshotEnv,
+				remoteSnapshotChains: []PersistedSnapshotChain{{
+					Role:    "snapshot",
+					ChainID: "parent-chain",
+					Layers: []PersistedSnapshotChainLayer{{
+						DiffID:     digest.FromString("parent-diff").String(),
+						BlobDigest: parentBlobDigest,
+					}},
+				}},
+			},
+		},
+	}
+	c.resultsByID[1].storeResultCall(&ResultCall{
+		Kind:     ResultCallKindField,
+		Type:     NewResultCallType((&persistSnapshotValue{}).Type()),
+		Field:    "snapshot-only-provenance",
+		Receiver: &ResultCallRef{ResultID: 2},
+	})
+
+	facts, err := cachemoneyImportFactsForEnvelope(snapshotEnv)
+	assert.NilError(t, err)
+	viability := c.cachemoneyResultViabilityLocked(
+		1,
+		map[string]bool{
+			childBlobDigest:  true,
+			parentBlobDigest: false,
+		},
+		map[sharedResultID]cachemoneyResultImportFacts{
+			1: facts,
+			2: facts,
+		},
+		map[sharedResultID]cachemoneyRemoteViability{},
+		map[sharedResultID]struct{}{},
+	)
+	assert.Assert(t, viability.viable)
+	assert.Assert(t, viability.eligible)
+	assert.Equal(t, viability.reason, remoteCacheReasonRemoteSnapshotBlobs)
+}
+
 func TestRemoteCacheViabilityIgnoresNestedRetainedRecipeForOwnerFallback(t *testing.T) {
 	t.Parallel()
 

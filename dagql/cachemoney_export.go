@@ -36,7 +36,7 @@ func (c *Cache) WriteCachemoneyMetadataDB(ctx context.Context, dbPath string) er
 	if dbPath == "" {
 		return errors.New("write cachemoney metadata DB: empty path")
 	}
-	snapshot, err := c.snapshotPersistState(ctx)
+	snapshot, err := c.snapshotPersistState(ContextWithCachemoneyExport(ctx))
 	if err != nil {
 		return err
 	}
@@ -67,7 +67,7 @@ func (c *Cache) PrepareCachemoneyExport(ctx context.Context, metadataDBPath stri
 }
 
 func (c *Cache) prepareCachemoneyExport(ctx context.Context, metadataDBPath string) (*PreparedCachemoneyExport, error) {
-	snapshot, err := c.snapshotPersistState(ctx)
+	snapshot, err := c.snapshotPersistState(ContextWithCachemoneyExport(ctx))
 	if err != nil {
 		return nil, err
 	}

@@ -305,7 +305,6 @@ type persistedCacheVolumePayload struct {
 }
 
 func (cache *CacheVolume) EncodePersistedObject(ctx context.Context, persistedCache dagql.PersistedObjectCache) (dagql.PersistedObjectEncoding, error) {
-	_ = ctx
 	if cache == nil {
 		return dagql.PersistedObjectEncoding{}, fmt.Errorf("encode persisted cache volume: nil cache volume")
 	}
@@ -327,7 +326,7 @@ func (cache *CacheVolume) EncodePersistedObject(ctx context.Context, persistedCa
 	if cache.snapshot != nil {
 		snapshotID = cache.snapshot.SnapshotID()
 	}
-	if snapshotID != "" {
+	if snapshotID != "" && !dagql.CachemoneyExportFromContext(ctx) {
 		snapshotLinks = []dagql.PersistedSnapshotRefLink{{
 			RefKey: snapshotID,
 			Role:   "snapshot",

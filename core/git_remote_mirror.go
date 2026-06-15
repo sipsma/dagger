@@ -106,14 +106,13 @@ type persistedRemoteGitMirrorPayload struct {
 }
 
 func (mirror *RemoteGitMirror) EncodePersistedObject(ctx context.Context, cache dagql.PersistedObjectCache) (dagql.PersistedObjectEncoding, error) {
-	_ = ctx
 	_ = cache
 	if mirror == nil {
 		return dagql.PersistedObjectEncoding{}, fmt.Errorf("encode persisted remote git mirror: nil mirror")
 	}
 	mirror.mu.Lock()
 	var links []dagql.PersistedSnapshotRefLink
-	if mirror.snapshot != nil {
+	if mirror.snapshot != nil && !dagql.CachemoneyExportFromContext(ctx) {
 		links = []dagql.PersistedSnapshotRefLink{{
 			RefKey: mirror.snapshot.SnapshotID(),
 			Role:   "bare_repo",
@@ -141,9 +140,12 @@ func (*RemoteGitMirror) DecodePersistedObject(ctx context.Context, dag *dagql.Se
 	if resultID == 0 {
 		return mirror, nil
 	}
-	link, err := loadPersistedSnapshotLinkByResultID(ctx, dag, resultID, "remote git mirror", "bare_repo")
+	link, found, err := loadOptionalPersistedSnapshotLinkByResultID(ctx, dag, resultID, "remote git mirror", "bare_repo")
 	if err != nil {
 		return nil, err
+	}
+	if !found {
+		return mirror, nil
 	}
 	query, err := persistedDecodeQuery(dag)
 	if err != nil {

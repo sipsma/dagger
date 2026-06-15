@@ -136,6 +136,22 @@ func loadPersistedSnapshotLinkByResultID(ctx context.Context, dag *dagql.Server,
 	return dagql.PersistedSnapshotRefLink{}, fmt.Errorf("missing persisted %s snapshot link role %q for result %d", label, role, resultID)
 }
 
+func loadOptionalPersistedSnapshotLinkByResultID(ctx context.Context, dag *dagql.Server, resultID uint64, label, role string) (dagql.PersistedSnapshotRefLink, bool, error) {
+	if resultID == 0 {
+		return dagql.PersistedSnapshotRefLink{}, false, nil
+	}
+	links, err := loadPersistedSnapshotLinksByResultID(ctx, dag, resultID, label)
+	if err != nil {
+		return dagql.PersistedSnapshotRefLink{}, false, err
+	}
+	for _, link := range links {
+		if link.Role == role {
+			return link, true, nil
+		}
+	}
+	return dagql.PersistedSnapshotRefLink{}, false, nil
+}
+
 func loadPersistedSnapshotLinksByResultID(ctx context.Context, dag *dagql.Server, resultID uint64, label string) ([]dagql.PersistedSnapshotRefLink, error) {
 	if resultID == 0 {
 		return nil, fmt.Errorf("load persisted %s snapshot links: zero result ID", label)

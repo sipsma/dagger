@@ -43,6 +43,17 @@ type PersistedObjectEncoding struct {
 	SnapshotLinks []PersistedSnapshotRefLink
 }
 
+type cachemoneyExportContextKey struct{}
+
+func ContextWithCachemoneyExport(ctx context.Context) context.Context {
+	return context.WithValue(ctx, cachemoneyExportContextKey{}, true)
+}
+
+func CachemoneyExportFromContext(ctx context.Context) bool {
+	export, _ := ctx.Value(cachemoneyExportContextKey{}).(bool)
+	return export
+}
+
 // PersistedObject is implemented by object self payloads that can be encoded
 // directly for import-time cache persistence.
 type PersistedObject interface {

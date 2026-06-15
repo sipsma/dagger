@@ -256,7 +256,8 @@ func (c *Cache) cachemoneyResultDependencyIDsLocked(res *sharedResult, facts cac
 	for _, depID := range facts.depResultIDs {
 		add(depID)
 	}
-	if frame := res.loadResultCall(); frame != nil {
+	if facts.hasRetainedRecipe || (!facts.expectsSnapshot && len(res.loadRemoteSnapshotChains()) == 0) {
+		frame := res.loadResultCall()
 		if err := c.cachemoneyWalkResultCallRefsLocked(frame, func(ref *ResultCallRef) error {
 			if ref != nil && ref.ResultID != 0 {
 				add(sharedResultID(ref.ResultID))

@@ -217,7 +217,7 @@ func (c *Cache) cachemoneyExportDiagnostics(ctx context.Context) cachemoneyExpor
 			})
 			continue
 		}
-		encodeCtx := context.WithoutCancel(ctx)
+		encodeCtx := ContextWithCachemoneyExport(context.WithoutCancel(ctx))
 		if frame := result.res.loadResultCall(); frame != nil {
 			encodeCtx = ContextWithCall(encodeCtx, frame)
 		}

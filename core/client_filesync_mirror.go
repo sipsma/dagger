@@ -102,7 +102,6 @@ type persistedClientFilesyncMirrorPayload struct {
 }
 
 func (m *ClientFilesyncMirror) EncodePersistedObject(ctx context.Context, cache dagql.PersistedObjectCache) (dagql.PersistedObjectEncoding, error) {
-	_ = ctx
 	_ = cache
 	if m == nil {
 		return dagql.PersistedObjectEncoding{}, fmt.Errorf("encode persisted client filesync mirror: nil mirror")
@@ -112,7 +111,7 @@ func (m *ClientFilesyncMirror) EncodePersistedObject(ctx context.Context, cache 
 	}
 	m.mu.Lock()
 	var links []dagql.PersistedSnapshotRefLink
-	if m.snapshot != nil {
+	if m.snapshot != nil && !dagql.CachemoneyExportFromContext(ctx) {
 		links = []dagql.PersistedSnapshotRefLink{{
 			RefKey: m.snapshot.SnapshotID(),
 			Role:   "snapshot",
@@ -145,9 +144,12 @@ func (*ClientFilesyncMirror) DecodePersistedObject(ctx context.Context, dag *dag
 		return mirror, nil
 	}
 
-	link, err := loadPersistedSnapshotLinkByResultID(ctx, dag, resultID, "client filesync mirror", "snapshot")
+	link, found, err := loadOptionalPersistedSnapshotLinkByResultID(ctx, dag, resultID, "client filesync mirror", "snapshot")
 	if err != nil {
 		return nil, err
+	}
+	if !found {
+		return mirror, nil
 	}
 	query, err := persistedDecodeQuery(dag)
 	if err != nil {
