@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"expvar"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/pprof"
@@ -24,10 +25,35 @@ import (
 	"golang.org/x/net/trace"
 	"golang.org/x/sys/unix"
 
+	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/engine/server"
 )
 
-func setupDebugHandlers(addr string, eng *server.Server) error {
+type debugServer interface {
+	DagqlDebugSnapshot() *dagql.EGraphDebugSnapshot
+	WriteDagqlCacheDebugSnapshot(io.Writer) error
+	DebugCachemoneyStats() (dagql.CachemoneyDebugStats, error)
+	DebugCachemoneyExport(context.Context, string) (*dagql.CachemoneyDebugExportResult, error)
+	DebugCachemoneyImport(context.Context, string) (*dagql.CachemoneyDebugImportResult, error)
+}
+
+func setupDebugHandlers(addr string, eng debugServer) error {
+	m := newDebugMux(eng)
+	// setting debugaddr is opt-in. permission is defined by listener address
+	trace.AuthRequest = func(_ *http.Request) (bool, bool) {
+		return true, true
+	}
+
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	logrus.Debugf("debug handlers listening at %s", addr)
+	go http.Serve(l, m)
+	return nil
+}
+
+func newDebugMux(eng debugServer) *http.ServeMux {
 	m := http.NewServeMux()
 	m.Handle("/debug/vars", expvar.Handler())
 	m.Handle("/debug/pprof/", http.HandlerFunc(pprof.Index))
@@ -78,6 +104,27 @@ func setupDebugHandlers(addr string, eng *server.Server) error {
 		rw.Header().Set("Content-Type", "application/json")
 		if err := eng.WriteDagqlCacheDebugSnapshot(rw); err != nil {
 			logrus.WithError(err).Warn("failed streaming dagql cache debug snapshot")
+		}
+	}))
+	m.Handle("/debug/dagql/cache/stats", http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodGet {
+			http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if eng == nil {
+			http.Error(rw, "engine server not available", http.StatusServiceUnavailable)
+			return
+		}
+		stats, err := eng.DebugCachemoneyStats()
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		rw.Header().Set("Content-Type", "application/json")
+		enc := json.NewEncoder(rw)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(stats); err != nil {
+			logrus.WithError(err).Warn("failed writing cachemoney stats debug response")
 		}
 	}))
 	m.Handle("/debug/dagql/cache/export", http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
@@ -132,19 +179,7 @@ func setupDebugHandlers(addr string, eng *server.Server) error {
 			logrus.WithError(err).Warn("failed writing cachemoney import debug response")
 		}
 	}))
-
-	// setting debugaddr is opt-in. permission is defined by listener address
-	trace.AuthRequest = func(_ *http.Request) (bool, bool) {
-		return true, true
-	}
-
-	l, err := net.Listen("tcp", addr)
-	if err != nil {
-		return err
-	}
-	logrus.Debugf("debug handlers listening at %s", addr)
-	go http.Serve(l, m)
-	return nil
+	return m
 }
 
 // logTraceMetrics logs information useful for debugging but too expensive for the

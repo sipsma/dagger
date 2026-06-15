@@ -880,6 +880,13 @@ func (srv *Server) WriteDagqlCacheDebugSnapshot(w io.Writer) error {
 	return srv.engineCache.WriteDebugCacheSnapshot(w)
 }
 
+func (srv *Server) DebugCachemoneyStats() (dagql.CachemoneyDebugStats, error) {
+	if srv.engineCache == nil {
+		return dagql.CachemoneyDebugStats{}, fmt.Errorf("dagql cache not available")
+	}
+	return srv.engineCache.DebugCachemoneyStats(), nil
+}
+
 func (srv *Server) DebugCachemoneyExport(ctx context.Context, url string) (*dagql.CachemoneyDebugExportResult, error) {
 	if srv.engineCache == nil {
 		return nil, fmt.Errorf("dagql cache not available")

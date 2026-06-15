@@ -71,3 +71,35 @@ func TestDebugCacheSnapshotIncludesCompletedArbitraryCalls(t *testing.T) {
 	assert.Equal(t, call.ValueType, "string")
 	assert.Equal(t, call.OwnerSessionCount, 1)
 }
+
+func TestDebugCachemoneyStatsReturnsClone(t *testing.T) {
+	base, err := NewCache(t.Context(), "", nil, nil)
+	assert.NilError(t, err)
+	c := base
+
+	c.recordCachemoneyMaterialization("rootfs", CachemoneyMaterializationHydrated)
+	c.recordCachemoneyRecompute(CachemoneyRecomputeReasonIndexMiss)
+	c.recordCachemoneyHydrationFailure(CachemoneyRecomputeReasonFetchFailed)
+	c.recordCachemoneyBlobDownloaded(42)
+	c.recordCachemoneyBlobUpload(true)
+	c.recordCachemoneyViability("remote_snapshot_blobs_available", true, true)
+
+	stats := c.DebugCachemoneyStats()
+	stats.MaterializationOutcomesByRole["rootfs"][CachemoneyMaterializationHydrated] = 99
+	stats.RecomputeReasons[CachemoneyRecomputeReasonIndexMiss] = 99
+	stats.HydrationFailures[CachemoneyRecomputeReasonFetchFailed] = 99
+	stats.ViabilityCensusByReason["remote_snapshot_blobs_available"] = CachemoneyViabilityCount{}
+
+	again := c.DebugCachemoneyStats()
+	assert.Equal(t, again.MaterializationOutcomesByRole["rootfs"][CachemoneyMaterializationHydrated], uint64(1))
+	assert.Equal(t, again.RecomputeReasons[CachemoneyRecomputeReasonIndexMiss], uint64(1))
+	assert.Equal(t, again.HydrationFailures[CachemoneyRecomputeReasonFetchFailed], uint64(1))
+	assert.Equal(t, again.BytesDownloaded, uint64(42))
+	assert.Equal(t, again.BlobsDownloaded, uint64(1))
+	assert.Equal(t, again.BlobsUploadSkippedAlreadyExists, uint64(1))
+	assert.DeepEqual(t, again.ViabilityCensusByReason["remote_snapshot_blobs_available"], CachemoneyViabilityCount{
+		Total:    1,
+		Viable:   1,
+		Eligible: 1,
+	})
+}
