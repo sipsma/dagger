@@ -366,6 +366,77 @@ func TestPrepareCachemoneyExportPrefersLocalChainOverStaleImportedChain(t *testi
 	}})
 }
 
+func TestPrepareCachemoneyExportUsesEmptySnapshotChainSentinel(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	exportRef := &fakeCachemoneyExportRef{
+		snapshotID: "snapshot-empty",
+		chain:      &bkcache.ExportChain{},
+	}
+	snapshotManager := &fakeSnapshotManager{
+		refsBySnapshotID: map[string]bkcache.ImmutableRef{
+			"snapshot-empty": exportRef,
+		},
+	}
+
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	c, err := NewCache(ctx, dbPath, snapshotManager, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, c.Close(context.Background()))
+	}()
+
+	res, err := c.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{
+		ResultCall: &ResultCall{
+			Kind:  ResultCallKindField,
+			Type:  NewResultCallType((&persistSnapshotValue{}).Type()),
+			Field: "cachemoney-export-empty-chain",
+		},
+		IsPersistable: true,
+	}, func(context.Context) (AnyResult, error) {
+		return cacheTestPlainResult(&persistSnapshotValue{
+			Name:       "x",
+			SnapshotID: "snapshot-empty",
+		}), nil
+	})
+	assert.NilError(t, err)
+	shared := res.cacheSharedResult()
+
+	metadataDBPath := filepath.Join(t.TempDir(), cachemoneyproto.MetadataDBName)
+	export, err := c.PrepareCachemoneyExport(ctx, metadataDBPath)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, export.Release(context.Background()))
+	}()
+
+	assert.DeepEqual(t, export.Manifest.Snapshots, []cachemoneyproto.SnapshotOffer{{
+		ResultID: uint64(shared.id),
+		Role:     "snapshot",
+		ChainID:  cachemoneyEmptySnapshotChainID,
+	}})
+	assert.DeepEqual(t, export.Manifest.Chains, []cachemoneyproto.SnapshotChain{{
+		ChainID: cachemoneyEmptySnapshotChainID,
+	}})
+	assert.Equal(t, exportRef.releaseCalls, 1)
+
+	db, q, err := prepareCacheDBs(ctx, metadataDBPath)
+	assert.NilError(t, err)
+	defer closeCacheDBs(db, q) //nolint:errcheck
+
+	chainRows, err := q.ListMirrorResultSnapshotChains(ctx)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, chainRows, []persistdb.MirrorResultSnapshotChain{{
+		ResultID: int64(shared.id),
+		Role:     "snapshot",
+		ChainID:  cachemoneyEmptySnapshotChainID,
+	}})
+
+	layerRows, err := q.ListMirrorSnapshotChainLayers(ctx)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, layerRows, []persistdb.MirrorSnapshotChainLayer(nil))
+}
+
 func TestCachemoneyProtoChainFromExportChainRequiresDiffID(t *testing.T) {
 	t.Parallel()
 

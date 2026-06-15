@@ -251,7 +251,13 @@ func cachemoneyDescriptorsFromPersistedChain(chain PersistedSnapshotChain) ([]oc
 		return nil, fmt.Errorf("missing chain ID")
 	}
 	if len(chain.Layers) == 0 {
+		if chain.ChainID == cachemoneyEmptySnapshotChainID {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("chain %s has no layers", chain.ChainID)
+	}
+	if chain.ChainID == cachemoneyEmptySnapshotChainID {
+		return nil, fmt.Errorf("empty snapshot chain %s unexpectedly has %d layer(s)", chain.ChainID, len(chain.Layers))
 	}
 	diffIDs := make([]digest.Digest, 0, len(chain.Layers))
 	descs := make([]ocispecs.Descriptor, 0, len(chain.Layers))

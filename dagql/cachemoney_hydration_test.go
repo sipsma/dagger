@@ -73,6 +73,40 @@ func TestMaterializeRemoteSnapshotSkipsLocalBlobsAndImportsChain(t *testing.T) {
 	}})
 }
 
+func TestMaterializeRemoteSnapshotImportsEmptyChain(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	hydratedRef := &fakeCachemoneyExportRef{snapshotID: "hydrated-empty"}
+	manager := &fakeSnapshotManager{
+		importImageResult: hydratedRef,
+		refsBySnapshotID: map[string]bkcache.ImmutableRef{
+			"hydrated-empty": hydratedRef,
+		},
+	}
+	c := cachemoneyHydrationTestCache(manager, "source-a")
+
+	ref, ok, err := c.MaterializeRemoteSnapshot(ctx, RemoteSnapshotMaterializationRequest{
+		ResultID: 1,
+		Role:     "snapshot",
+		Chain: PersistedSnapshotChain{
+			Role:    "snapshot",
+			ChainID: cachemoneyEmptySnapshotChainID,
+		},
+	})
+	assert.NilError(t, err)
+	assert.Assert(t, ok)
+	assert.Equal(t, ref.SnapshotID(), "hydrated-empty")
+	assert.Equal(t, len(manager.importImageCalls), 1)
+	assert.Equal(t, manager.importImageCalls[0].Ref, "cachemoney/source-a/"+cachemoneyEmptySnapshotChainID)
+	assert.DeepEqual(t, manager.importImageCalls[0].Layers, []ocispecs.Descriptor(nil))
+	assert.DeepEqual(t, manager.writeContentCalls, []digest.Digest(nil))
+	assert.DeepEqual(t, c.resultsByID[1].loadSnapshotOwnerLinks(), []PersistedSnapshotRefLink{{
+		RefKey: "hydrated-empty",
+		Role:   "snapshot",
+	}})
+}
+
 func TestMaterializeRemoteSnapshotFetchesMissingBlob(t *testing.T) {
 	t.Parallel()
 

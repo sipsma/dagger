@@ -20,6 +20,12 @@ import (
 
 var ErrCachemoneyExportSnapshotStale = errors.New("cachemoney export snapshot stale")
 
+// cachemoneyEmptySnapshotChainID is a cachemoney-local sentinel for snapshots
+// whose content-addressed export chain has no layers. OCI ChainID has no
+// non-empty identity for an empty diffID list, so this intentionally does not
+// use digest syntax and cannot collide with a real OCI chain ID.
+const cachemoneyEmptySnapshotChainID = "cachemoney-empty-snapshot-chain-v1"
+
 type PreparedCachemoneyExport struct {
 	MetadataDBPath string
 	Manifest       cachemoneyproto.BeginExportManifest
@@ -133,6 +139,11 @@ func (c *Cache) buildCachemoneyExportManifest(ctx context.Context, snapshot *per
 		if err != nil {
 			return manifest, fmt.Errorf("cachemoney export snapshot %q for result %d role %q: %w", owner.refKey, owner.resultID, owner.role, err)
 		}
+		result := resultsByID[owner.resultID]
+		if result == nil {
+			return manifest, fmt.Errorf("cachemoney export snapshot owner missing result %d", owner.resultID)
+		}
+
 		chain, exportErr := ref.ExportChain(ctx, cachemoneyExportRefConfig())
 		releaseErr := ref.Release(context.WithoutCancel(ctx))
 		if exportErr != nil {
@@ -153,10 +164,6 @@ func (c *Cache) buildCachemoneyExportManifest(ctx context.Context, snapshot *per
 			ChainID:  protoChain.ChainID,
 		})
 
-		result := resultsByID[owner.resultID]
-		if result == nil {
-			return manifest, fmt.Errorf("cachemoney export snapshot owner missing result %d", owner.resultID)
-		}
 		result.resultSnapshotChains = replaceCachemoneyResultSnapshotChain(result.resultSnapshotChains, persistdb.MirrorResultSnapshotChain{
 			ResultID: int64(owner.resultID),
 			Role:     owner.role,
@@ -254,7 +261,9 @@ func cachemoneyExportSnapshotOwners(snapshot *persistStateSnapshot) []cachemoney
 
 func cachemoneyProtoChainFromExportChain(chain *bkcache.ExportChain) (cachemoneyproto.SnapshotChain, error) {
 	if chain == nil || len(chain.Layers) == 0 {
-		return cachemoneyproto.SnapshotChain{}, nil
+		return cachemoneyproto.SnapshotChain{
+			ChainID: cachemoneyEmptySnapshotChainID,
+		}, nil
 	}
 
 	diffIDs := make([]digest.Digest, 0, len(chain.Layers))
