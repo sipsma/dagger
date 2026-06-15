@@ -442,6 +442,218 @@ func TestDirectoryWithDirectoryMaterializesRemoteBaseSnapshotAccessor(t *testing
 	require.Equal(t, "parent-snapshot", manager.newCalls[0].SnapshotID())
 }
 
+func TestContainerWithMountedFileMaterializesRemoteSourceSnapshotAccessor(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	sourceRef := &cacheVolumeTestImmutableRef{id: "file-ref", snapshotID: "file-snapshot"}
+	manager := &cacheVolumeTestSnapshotManager{
+		immutableBySnapshotID: map[string]bkcache.ImmutableRef{
+			"file-snapshot": sourceRef,
+		},
+	}
+	cache, err := dagql.NewCache(ctx, filepath.Join(t.TempDir(), "cache.db"), manager, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, cache.Close(context.Background()))
+	})
+	srv, query := cachemoneyRemotePlanTestServer(t, manager)
+	ctx = ContextWithQuery(dagql.ContextWithCache(ctx, cache), query)
+
+	sourceMaterializer := &lazyAccessorTestMaterializer[bkcache.ImmutableRef, *File]{
+		value: sourceRef,
+		ok:    true,
+	}
+	source := &File{
+		Platform: Platform{OS: "linux", Architecture: "amd64"},
+		File:     new(LazyAccessor[string, *File]),
+		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *File]),
+	}
+	source.File.setValue("/tool.bin")
+	source.Snapshot.setMaterializer(sourceMaterializer)
+	sourceCall := cachemoneyRemotePlanTestCall("remote-mounted-file-source", (&File{}).Type())
+	sourceAny, err := cache.GetOrInitCall(ctx, "session", srv, &dagql.CallRequest{
+		ResultCall:    sourceCall,
+		IsPersistable: true,
+	}, func(context.Context) (dagql.AnyResult, error) {
+		return dagql.NewObjectResultForCall(source, srv, sourceCall)
+	})
+	require.NoError(t, err)
+	sourceRes := sourceAny.(dagql.ObjectResult[*File])
+
+	parent := NewContainer(Platform{OS: "linux", Architecture: "amd64"})
+	parentCall := cachemoneyRemotePlanTestCall("remote-mounted-file-parent", (&Container{}).Type())
+	parentAny, err := cache.GetOrInitCall(ctx, "session", srv, &dagql.CallRequest{
+		ResultCall:    parentCall,
+		IsPersistable: true,
+	}, func(context.Context) (dagql.AnyResult, error) {
+		return dagql.NewObjectResultForCall(parent, srv, parentCall)
+	})
+	require.NoError(t, err)
+	parentRes := parentAny.(dagql.ObjectResult[*Container])
+
+	container := NewContainer(Platform{OS: "linux", Architecture: "amd64"})
+	_, err = container.WithMountedFile(ctx, parentRes, "/mounted/tool.bin", sourceRes, "", false)
+	require.NoError(t, err)
+
+	require.Equal(t, 1, sourceMaterializer.calls)
+	require.Len(t, container.Mounts, 1)
+	mounted, ok := container.Mounts[0].FileSource.Peek()
+	require.True(t, ok)
+	require.NotNil(t, mounted)
+	filePath, ok := mounted.File.Peek()
+	require.True(t, ok)
+	require.Equal(t, "/tool.bin", filePath)
+	snapshot, ok := mounted.Snapshot.Peek()
+	require.True(t, ok)
+	require.NotNil(t, snapshot)
+	require.Equal(t, "file-snapshot", snapshot.SnapshotID())
+	require.Equal(t, []string{"file-snapshot"}, manager.getBySnapshotIDCalls)
+}
+
+func TestContainerWithMountedDirectoryMaterializesRemoteSourceSnapshotAccessor(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	sourceRef := &cacheVolumeTestImmutableRef{id: "dir-ref", snapshotID: "dir-snapshot"}
+	manager := &cacheVolumeTestSnapshotManager{
+		immutableBySnapshotID: map[string]bkcache.ImmutableRef{
+			"dir-snapshot": sourceRef,
+		},
+	}
+	cache, err := dagql.NewCache(ctx, filepath.Join(t.TempDir(), "cache.db"), manager, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, cache.Close(context.Background()))
+	})
+	srv, query := cachemoneyRemotePlanTestServer(t, manager)
+	ctx = ContextWithQuery(dagql.ContextWithCache(ctx, cache), query)
+
+	sourceMaterializer := &lazyAccessorTestMaterializer[bkcache.ImmutableRef, *Directory]{
+		value: sourceRef,
+		ok:    true,
+	}
+	source := &Directory{
+		Platform: Platform{OS: "linux", Architecture: "amd64"},
+		Dir:      new(LazyAccessor[string, *Directory]),
+		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+	}
+	source.Dir.setValue("/")
+	source.Snapshot.setMaterializer(sourceMaterializer)
+	sourceCall := cachemoneyRemotePlanTestCall("remote-mounted-directory-source", (&Directory{}).Type())
+	sourceAny, err := cache.GetOrInitCall(ctx, "session", srv, &dagql.CallRequest{
+		ResultCall:    sourceCall,
+		IsPersistable: true,
+	}, func(context.Context) (dagql.AnyResult, error) {
+		return dagql.NewObjectResultForCall(source, srv, sourceCall)
+	})
+	require.NoError(t, err)
+	sourceRes := sourceAny.(dagql.ObjectResult[*Directory])
+
+	parent := NewContainer(Platform{OS: "linux", Architecture: "amd64"})
+	parentCall := cachemoneyRemotePlanTestCall("remote-mounted-directory-parent", (&Container{}).Type())
+	parentAny, err := cache.GetOrInitCall(ctx, "session", srv, &dagql.CallRequest{
+		ResultCall:    parentCall,
+		IsPersistable: true,
+	}, func(context.Context) (dagql.AnyResult, error) {
+		return dagql.NewObjectResultForCall(parent, srv, parentCall)
+	})
+	require.NoError(t, err)
+	parentRes := parentAny.(dagql.ObjectResult[*Container])
+
+	container := NewContainer(Platform{OS: "linux", Architecture: "amd64"})
+	_, err = container.WithMountedDirectory(ctx, parentRes, "/mounted", sourceRes, "", false)
+	require.NoError(t, err)
+
+	require.Equal(t, 1, sourceMaterializer.calls)
+	require.Len(t, container.Mounts, 1)
+	mounted, ok := container.Mounts[0].DirectorySource.Peek()
+	require.True(t, ok)
+	require.NotNil(t, mounted)
+	dirPath, ok := mounted.Dir.Peek()
+	require.True(t, ok)
+	require.Equal(t, "/", dirPath)
+	snapshot, ok := mounted.Snapshot.Peek()
+	require.True(t, ok)
+	require.NotNil(t, snapshot)
+	require.Equal(t, "dir-snapshot", snapshot.SnapshotID())
+	require.Equal(t, []string{"dir-snapshot"}, manager.getBySnapshotIDCalls)
+}
+
+func TestCloneContainerMountsPreservesFileSourceMaterializer(t *testing.T) {
+	t.Parallel()
+
+	srv, _ := cachemoneyRemotePlanTestServer(t, &cacheVolumeTestSnapshotManager{})
+	mountFile := &File{
+		Platform: Platform{OS: "linux", Architecture: "amd64"},
+		File:     new(LazyAccessor[string, *File]),
+		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *File]),
+	}
+	mountFile.File.setValue("/schema.json")
+	sourceMaterializer := &lazyAccessorTestMaterializer[*File, *Container]{
+		value: mountFile,
+		ok:    true,
+	}
+	mounts := ContainerMounts{{
+		Target:     "/schema.json",
+		FileSource: new(LazyAccessor[*File, *Container]),
+	}}
+	mounts[0].FileSource.setMaterializer(sourceMaterializer)
+
+	cloned, err := CloneContainerMounts(context.Background(), mounts)
+	require.NoError(t, err)
+	require.Len(t, cloned, 1)
+	require.NotNil(t, cloned[0].FileSource)
+	_, ok := cloned[0].FileSource.Peek()
+	require.False(t, ok)
+	require.True(t, cloned[0].FileSource.hasMaterializer())
+
+	res, err := dagql.NewObjectResultForCall(NewContainer(Platform{OS: "linux", Architecture: "amd64"}), srv, cachemoneyRemotePlanTestCall("materializer-owner", (&Container{}).Type()))
+	require.NoError(t, err)
+	materialized, err := cloned[0].FileSource.GetOrEval(context.Background(), res.Result)
+	require.NoError(t, err)
+	require.Same(t, mountFile, materialized)
+	require.Equal(t, 1, sourceMaterializer.calls)
+}
+
+func TestMaterializeContainerStateFromParentResolvesClonedFileMountMaterializer(t *testing.T) {
+	t.Parallel()
+
+	srv, _ := cachemoneyRemotePlanTestServer(t, &cacheVolumeTestSnapshotManager{})
+	mountFile := &File{
+		Platform: Platform{OS: "linux", Architecture: "amd64"},
+		File:     new(LazyAccessor[string, *File]),
+		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *File]),
+	}
+	mountFile.File.setValue("/schema.json")
+	sourceMaterializer := &lazyAccessorTestMaterializer[*File, *Container]{
+		value: mountFile,
+		ok:    true,
+	}
+	mounts := ContainerMounts{{
+		Target:     "/schema.json",
+		FileSource: new(LazyAccessor[*File, *Container]),
+	}}
+	mounts[0].FileSource.setMaterializer(sourceMaterializer)
+
+	cloned, err := CloneContainerMounts(context.Background(), mounts)
+	require.NoError(t, err)
+	parent := NewContainer(Platform{OS: "linux", Architecture: "amd64"})
+	parent.Mounts = cloned
+	parentRes, err := dagql.NewObjectResultForCall(parent, srv, cachemoneyRemotePlanTestCall("materializer-parent", (&Container{}).Type()))
+	require.NoError(t, err)
+
+	dst := NewContainer(Platform{OS: "linux", Architecture: "amd64"})
+	require.NoError(t, materializeContainerStateFromParent(context.Background(), dst, parentRes))
+	require.Len(t, dst.Mounts, 1)
+	materialized, ok := dst.Mounts[0].FileSource.Peek()
+	require.True(t, ok)
+	filePath, ok := materialized.File.Peek()
+	require.True(t, ok)
+	require.Equal(t, "/schema.json", filePath)
+	require.Equal(t, 1, sourceMaterializer.calls)
+}
+
 func TestContainerMetaFileContentsForResultUsesAccessorPlan(t *testing.T) {
 	t.Parallel()
 
@@ -662,6 +874,73 @@ func TestMaterializeContainerStateFromParentEvaluatesUnplannedPendingMountSource
 	require.ElementsMatch(t, []string{"fs-snapshot", "mount-snapshot"}, manager.getBySnapshotIDCalls)
 }
 
+func TestMaterializeContainerStateFromParentEvaluatesUnplannedPendingFileMountSource(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	manager := &cacheVolumeTestSnapshotManager{
+		immutableBySnapshotID: map[string]bkcache.ImmutableRef{
+			"fs-snapshot":   &cacheVolumeTestImmutableRef{id: "fs-ref", snapshotID: "fs-snapshot"},
+			"file-snapshot": &cacheVolumeTestImmutableRef{id: "file-ref", snapshotID: "file-snapshot"},
+		},
+	}
+	cache, err := dagql.NewCache(ctx, filepath.Join(t.TempDir(), "cache.db"), manager, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, cache.Close(context.Background()))
+	})
+	srv, query := cachemoneyRemotePlanTestServer(t, manager)
+	ctx = ContextWithQuery(dagql.ContextWithCache(ctx, cache), query)
+
+	rootFS := &Directory{
+		Platform: Platform{OS: "linux", Architecture: "amd64"},
+		Dir:      new(LazyAccessor[string, *Directory]),
+		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+	}
+	rootFS.Dir.setValue("/")
+	rootFS.Snapshot.setValue(manager.immutableBySnapshotID["fs-snapshot"])
+	mountFile := &File{
+		Platform: Platform{OS: "linux", Architecture: "amd64"},
+		File:     new(LazyAccessor[string, *File]),
+		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *File]),
+	}
+	mountFile.File.setValue("/schema.json")
+	mountFile.Snapshot.setValue(manager.immutableBySnapshotID["file-snapshot"])
+
+	lazy := &containerSetFileMountSourceTestLazy{
+		LazyState: NewLazyState(),
+		mountFile: mountFile,
+	}
+	parent := NewContainer(Platform{OS: "linux", Architecture: "amd64"})
+	parent.FS.setValue(rootFS)
+	parent.Mounts = ContainerMounts{{
+		Target:     "/schema.json",
+		FileSource: new(LazyAccessor[*File, *Container]),
+	}}
+	parent.Lazy = lazy
+	call := cachemoneyRemotePlanTestCall("pending-file-mount-parent", (&Container{}).Type())
+	anyParent, err := cache.GetOrInitCall(ctx, "session", srv, &dagql.CallRequest{
+		ResultCall:    call,
+		IsPersistable: true,
+	}, func(context.Context) (dagql.AnyResult, error) {
+		return dagql.NewObjectResultForCall(parent, srv, call)
+	})
+	require.NoError(t, err)
+	parentRes := anyParent.(dagql.ObjectResult[*Container])
+
+	dst := NewContainer(Platform{OS: "linux", Architecture: "amd64"})
+	require.NoError(t, materializeContainerStateFromParent(ctx, dst, parentRes))
+	require.Equal(t, 1, lazy.calls)
+
+	require.Len(t, dst.Mounts, 1)
+	clonedMount, ok := dst.Mounts[0].FileSource.Peek()
+	require.True(t, ok)
+	clonedMountSnapshot, ok := clonedMount.Snapshot.Peek()
+	require.True(t, ok)
+	require.Equal(t, "file-snapshot", clonedMountSnapshot.SnapshotID())
+	require.ElementsMatch(t, []string{"fs-snapshot", "file-snapshot"}, manager.getBySnapshotIDCalls)
+}
+
 func TestContainerRootFSLazyUsesAccessorPlan(t *testing.T) {
 	t.Parallel()
 
@@ -866,6 +1145,32 @@ func (lazy *containerSetMountSourceTestLazy) AttachDependencies(context.Context,
 }
 
 func (lazy *containerSetMountSourceTestLazy) EncodePersisted(context.Context, dagql.PersistedObjectCache) (json.RawMessage, error) {
+	return nil, nil
+}
+
+type containerSetFileMountSourceTestLazy struct {
+	LazyState
+	mountFile *File
+	calls     int
+}
+
+func (lazy *containerSetFileMountSourceTestLazy) Evaluate(ctx context.Context, container *Container) error {
+	return lazy.LazyState.Evaluate(ctx, "Container.testSetFileMountSource", func(context.Context) error {
+		lazy.calls++
+		container.Mounts = ContainerMounts{{
+			Target:     "/schema.json",
+			FileSource: new(LazyAccessor[*File, *Container]),
+		}}
+		container.Mounts[0].FileSource.setValue(lazy.mountFile)
+		return nil
+	})
+}
+
+func (lazy *containerSetFileMountSourceTestLazy) AttachDependencies(context.Context, func(dagql.AnyResult) (dagql.AnyResult, error)) ([]dagql.AnyResult, error) {
+	return nil, nil
+}
+
+func (lazy *containerSetFileMountSourceTestLazy) EncodePersisted(context.Context, dagql.PersistedObjectCache) (json.RawMessage, error) {
 	return nil, nil
 }
 

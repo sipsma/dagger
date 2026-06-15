@@ -868,6 +868,28 @@ func cloneDetachedDirectoryForContainerResult(ctx context.Context, src *Director
 	return cp, nil
 }
 
+func cloneDetachedDirectoryResultForContainerResult(ctx context.Context, src dagql.ObjectResult[*Directory]) (*Directory, error) {
+	dir := src.Self()
+	if dir == nil {
+		return nil, nil
+	}
+	if dir.Dir != nil {
+		if _, ok := dir.Dir.Peek(); !ok {
+			if _, err := dir.Dir.GetOrEval(ctx, src.Result); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if dir.Snapshot != nil {
+		if snapshot, ok := dir.Snapshot.Peek(); !ok || snapshot == nil {
+			if _, err := dir.Snapshot.GetOrEval(ctx, src.Result); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return cloneDetachedDirectoryForContainerResult(ctx, dir)
+}
+
 //nolint:dupl // symmetric with cloneDetachedDirectoryForContainerResult; sharing obscures type specifics
 func cloneDetachedFileForContainerResult(ctx context.Context, src *File) (*File, error) {
 	if src == nil {
@@ -902,6 +924,28 @@ func cloneDetachedFileForContainerResult(ctx context.Context, src *File) (*File,
 	}
 	cp.Snapshot.setValue(reopened)
 	return cp, nil
+}
+
+func cloneDetachedFileResultForContainerResult(ctx context.Context, src dagql.ObjectResult[*File]) (*File, error) {
+	file := src.Self()
+	if file == nil {
+		return nil, nil
+	}
+	if file.File != nil {
+		if _, ok := file.File.Peek(); !ok {
+			if _, err := file.File.GetOrEval(ctx, src.Result); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if file.Snapshot != nil {
+		if snapshot, ok := file.Snapshot.Peek(); !ok || snapshot == nil {
+			if _, err := file.Snapshot.GetOrEval(ctx, src.Result); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return cloneDetachedFileForContainerResult(ctx, file)
 }
 
 func CloneContainerMetaSnapshot(ctx context.Context, src *LazyAccessor[bkcache.ImmutableRef, *Container]) (*LazyAccessor[bkcache.ImmutableRef, *Container], error) {
@@ -967,7 +1011,11 @@ func CloneContainerDirectoryAccessor(ctx context.Context, src *LazyAccessor[*Dir
 	}
 	cp := new(LazyAccessor[*Directory, *Container])
 	dir, ok := src.Peek()
-	if !ok || dir == nil {
+	if !ok {
+		cp.copyMaterializerFrom(src)
+		return cp, nil
+	}
+	if dir == nil {
 		return cp, nil
 	}
 	detached, err := cloneDetachedDirectoryForContainerResult(ctx, dir)
@@ -1018,7 +1066,11 @@ func CloneContainerFileAccessor(ctx context.Context, src *LazyAccessor[*File, *C
 	}
 	cp := new(LazyAccessor[*File, *Container])
 	file, ok := src.Peek()
-	if !ok || file == nil {
+	if !ok {
+		cp.copyMaterializerFrom(src)
+		return cp, nil
+	}
+	if file == nil {
 		return cp, nil
 	}
 	detached, err := cloneDetachedFileForContainerResult(ctx, file)
@@ -5578,7 +5630,7 @@ func (container *Container) WithRootFS(ctx context.Context, dir dagql.ObjectResu
 	if err := cache.Evaluate(ctx, dir); err != nil {
 		return nil, err
 	}
-	detached, err := cloneDetachedDirectoryForContainerResult(ctx, dir.Self())
+	detached, err := cloneDetachedDirectoryResultForContainerResult(ctx, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -5910,7 +5962,7 @@ func (container *Container) WithMountedDirectory(
 	if err := cache.Evaluate(ctx, dir); err != nil {
 		return nil, err
 	}
-	detached, err := cloneDetachedDirectoryForContainerResult(ctx, dir.Self())
+	detached, err := cloneDetachedDirectoryResultForContainerResult(ctx, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -5957,7 +6009,7 @@ func (container *Container) WithMountedFile(
 	if err := cache.Evaluate(ctx, file); err != nil {
 		return nil, err
 	}
-	detached, err := cloneDetachedFileForContainerResult(ctx, file.Self())
+	detached, err := cloneDetachedFileResultForContainerResult(ctx, file)
 	if err != nil {
 		return nil, err
 	}
@@ -5996,7 +6048,7 @@ func (container *Container) WithMountedPathDockerfileCompat(
 	}
 
 	if path.Clean(sourcePath) == "/" {
-		sourceDir, err := cloneDetachedDirectoryForContainerResult(ctx, source.Self())
+		sourceDir, err := cloneDetachedDirectoryResultForContainerResult(ctx, source)
 		if err != nil {
 			return nil, err
 		}

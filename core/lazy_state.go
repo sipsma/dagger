@@ -223,6 +223,19 @@ func (a *LazyAccessor[V, T]) setMaterializer(materializer LazyAccessorMaterializ
 	a.materializer = materializer
 }
 
+func (a *LazyAccessor[V, T]) copyMaterializerFrom(src *LazyAccessor[V, T]) {
+	if a == nil || src == nil {
+		return
+	}
+	src.mu.RLock()
+	materializer := src.materializer
+	src.mu.RUnlock()
+	if materializer == nil {
+		return
+	}
+	a.setMaterializer(materializer)
+}
+
 func (a *LazyAccessor[V, T]) hasMaterializer() bool {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
