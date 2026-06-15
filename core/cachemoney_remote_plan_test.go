@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/containerd/containerd/v2/pkg/labels"
 	"github.com/dagger/dagger/dagql"
+	"github.com/dagger/dagger/engine"
 	bkcache "github.com/dagger/dagger/engine/snapshots"
 	"github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
@@ -101,6 +104,142 @@ func TestCachemoneyDecodeFileInstallsRemoteSnapshotPlan(t *testing.T) {
 	require.True(t, loadedFile.Snapshot.hasMaterializer())
 	_, ok := loadedFile.Snapshot.Peek()
 	require.False(t, ok)
+}
+
+func TestCachemoneyHTTPStateNotModifiedHydratesRemoteSnapshot(t *testing.T) {
+	t.Parallel()
+
+	ctx := engine.ContextWithClientMetadata(context.Background(), &engine.ClientMetadata{
+		ClientID:  "http-state-remote-cache-test-client",
+		SessionID: "http-state-remote-cache-test-session",
+	})
+	seenIfNoneMatch := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenIfNoneMatch <- r.Header.Get("If-None-Match")
+		w.Header().Set("ETag", `"http-etag"`)
+		w.WriteHeader(http.StatusNotModified)
+	}))
+	t.Cleanup(server.Close)
+
+	sourceRef := &cacheVolumeTestImmutableRef{
+		id:          "http-source-ref",
+		snapshotID:  "http-source-snapshot",
+		exportChain: &bkcache.ExportChain{},
+	}
+	sourceManager := &cacheVolumeTestSnapshotManager{
+		immutableBySnapshotID: map[string]bkcache.ImmutableRef{
+			"http-source-snapshot": sourceRef,
+		},
+	}
+	sourceCache, err := dagql.NewCache(ctx, filepath.Join(t.TempDir(), "source.db"), sourceManager, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, sourceCache.Close(context.Background()))
+	})
+	sourceSrv, sourceQuery := cachemoneyRemotePlanTestServer(t, sourceManager)
+	sourceCtx := ContextWithQuery(dagql.ContextWithCache(ctx, sourceCache), sourceQuery)
+
+	state := &HTTPState{
+		URL:           server.URL,
+		ETag:          `"http-etag"`,
+		ContentDigest: digest.FromString("http-body"),
+		snapshot:      sourceRef,
+	}
+	call := cachemoneyRemotePlanTestCall("remote-plan-http-state", (&HTTPState{}).Type())
+	_, err = sourceCache.GetOrInitCall(sourceCtx, "source-session", sourceSrv, &dagql.CallRequest{
+		ResultCall:    call,
+		IsPersistable: true,
+	}, func(context.Context) (dagql.AnyResult, error) {
+		return dagql.NewObjectResultForCall(state, sourceSrv, call)
+	})
+	require.NoError(t, err)
+
+	resolvedRoot := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(resolvedRoot, httpStateCanonicalPath), []byte("cached http body"), 0o600))
+	hydratedRef := &cacheVolumeTestImmutableRef{
+		id:         "http-hydrated-ref",
+		snapshotID: "http-hydrated-snapshot",
+	}
+	resolvedRef := &cacheVolumeTestImmutableRef{
+		id:         "http-resolved-ref",
+		snapshotID: "http-resolved-snapshot",
+	}
+	destManager := &cacheVolumeTestSnapshotManager{
+		immutableBySnapshotID: map[string]bkcache.ImmutableRef{
+			"http-hydrated-snapshot": hydratedRef,
+		},
+		importImageResult: hydratedRef,
+		newResult: &cacheVolumeTestMutableRef{
+			cacheVolumeTestImmutableRef: cacheVolumeTestImmutableRef{
+				id:         "http-resolving-ref",
+				snapshotID: "http-resolving-snapshot",
+				mountDir:   resolvedRoot,
+			},
+			commitResult: resolvedRef,
+		},
+	}
+	destCache, destSrv, destCtx := cachemoneyRemotePlanTestImportWithManager(t, ctx, sourceCache, destManager)
+	resultID := cachemoneyRemotePlanTestResultID(t, destCtx, destCache, "snapshot")
+	loaded, err := destCache.LoadResultByResultID(destCtx, "", destSrv, resultID)
+	require.NoError(t, err)
+	loadedState := loaded.(dagql.ObjectResult[*HTTPState])
+	require.NotNil(t, loadedState.Self().snapshotMaterializer)
+	require.Nil(t, loadedState.Self().snapshot)
+
+	query, err := CurrentQuery(destCtx)
+	require.NoError(t, err)
+	fetched, err := loadedState.Self().Resolve(destCtx, query, loadedState.Result, dagql.Optional[dagql.String]{}, 0o600, "tini-amd64")
+	require.NoError(t, err)
+	require.Equal(t, `"http-etag"`, <-seenIfNoneMatch)
+	require.Equal(t, digest.FromString("http-body"), fetched.ContentDigest)
+	require.Len(t, destManager.importImageCalls, 1)
+	require.Empty(t, destManager.importImageCalls[0].Layers)
+	require.Equal(t, []struct{ leaseID, snapshotID string }{{
+		leaseID:    fmt.Sprintf("dagql/result/%d/snapshot", resultID),
+		snapshotID: "http-hydrated-snapshot",
+	}}, destManager.attachCalls)
+	require.Equal(t, []bkcache.ImmutableRef{hydratedRef}, destManager.newCalls)
+
+	filePath, ok := fetched.File.File.Peek()
+	require.True(t, ok)
+	require.Equal(t, "tini-amd64", filePath)
+	fileSnapshot, ok := fetched.File.Snapshot.Peek()
+	require.True(t, ok)
+	require.Equal(t, "http-resolved-snapshot", fileSnapshot.SnapshotID())
+}
+
+func TestCachemoneyHTTPStateNotModifiedWithoutSnapshotChainKeepsHardError(t *testing.T) {
+	t.Parallel()
+
+	ctx := engine.ContextWithClientMetadata(context.Background(), &engine.ClientMetadata{
+		ClientID:  "http-state-no-chain-test-client",
+		SessionID: "http-state-no-chain-test-session",
+	})
+	seenIfNoneMatch := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenIfNoneMatch <- r.Header.Get("If-None-Match")
+		w.Header().Set("ETag", `"http-etag"`)
+		w.WriteHeader(http.StatusNotModified)
+	}))
+	t.Cleanup(server.Close)
+
+	manager := &cacheVolumeTestSnapshotManager{}
+	srv, query := cachemoneyRemotePlanTestServer(t, manager)
+	ctx = ContextWithQuery(ctx, query)
+	state := &HTTPState{
+		URL:           server.URL,
+		ETag:          `"http-etag"`,
+		ContentDigest: digest.FromString("http-body"),
+	}
+	owner, err := dagql.NewObjectResultForCall(state, srv, cachemoneyRemotePlanTestCall("remote-plan-http-state-no-chain", (&HTTPState{}).Type()))
+	require.NoError(t, err)
+
+	fetched, err := state.Resolve(ctx, query, owner.Result, dagql.Optional[dagql.String]{}, 0o600, "tini-amd64")
+	require.Error(t, err)
+	require.Nil(t, fetched)
+	require.Contains(t, err.Error(), "returned 304 without a cached snapshot")
+	require.Equal(t, `"http-etag"`, <-seenIfNoneMatch)
+	require.Empty(t, manager.importImageCalls)
 }
 
 func TestCachemoneyDecodeContainerInstallsIndependentRemoteSnapshotPlans(t *testing.T) {
@@ -743,6 +882,7 @@ func cachemoneyRemotePlanTestServer(t *testing.T, manager bkcache.SnapshotManage
 	srv.InstallObject(dagql.NewClass(srv, dagql.ClassOpts[*Container]{}))
 	srv.InstallObject(dagql.NewClass(srv, dagql.ClassOpts[*Directory]{}))
 	srv.InstallObject(dagql.NewClass(srv, dagql.ClassOpts[*File]{}))
+	srv.InstallObject(dagql.NewClass(srv, dagql.ClassOpts[*HTTPState]{}))
 	return srv, query
 }
 
@@ -757,6 +897,12 @@ func cachemoneyRemotePlanTestCall(field string, typ *ast.Type) *dagql.ResultCall
 func cachemoneyRemotePlanTestImport(t *testing.T, ctx context.Context, sourceCache *dagql.Cache) (*dagql.Cache, *dagql.Server, context.Context) {
 	t.Helper()
 
+	return cachemoneyRemotePlanTestImportWithManager(t, ctx, sourceCache, &cacheVolumeTestSnapshotManager{})
+}
+
+func cachemoneyRemotePlanTestImportWithManager(t *testing.T, ctx context.Context, sourceCache *dagql.Cache, manager bkcache.SnapshotManager) (*dagql.Cache, *dagql.Server, context.Context) {
+	t.Helper()
+
 	exportPath := filepath.Join(t.TempDir(), "metadata.db")
 	prepared, err := sourceCache.PrepareCachemoneyExport(ctx, exportPath)
 	require.NoError(t, err)
@@ -764,7 +910,7 @@ func cachemoneyRemotePlanTestImport(t *testing.T, ctx context.Context, sourceCac
 		require.NoError(t, prepared.Release(context.Background()))
 	})
 
-	destCache, err := dagql.NewCache(ctx, filepath.Join(t.TempDir(), "dest.db"), &cacheVolumeTestSnapshotManager{}, nil)
+	destCache, err := dagql.NewCache(ctx, filepath.Join(t.TempDir(), "dest.db"), manager, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, destCache.Close(context.Background()))
@@ -773,7 +919,7 @@ func cachemoneyRemotePlanTestImport(t *testing.T, ctx context.Context, sourceCac
 		ID:             "remote-source",
 		MetadataDBPath: exportPath,
 	}))
-	destSrv, destQuery := cachemoneyRemotePlanTestServer(t, nil)
+	destSrv, destQuery := cachemoneyRemotePlanTestServer(t, manager)
 	destCtx := ContextWithQuery(dagql.ContextWithCache(ctx, destCache), destQuery)
 	return destCache, destSrv, destCtx
 }

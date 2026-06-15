@@ -16,6 +16,7 @@ import (
 	bkcache "github.com/dagger/dagger/engine/snapshots"
 	bkconfig "github.com/dagger/dagger/engine/snapshots/config"
 	"github.com/dagger/dagger/internal/buildkit/client"
+	"github.com/dagger/dagger/internal/buildkit/executor/oci"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -26,6 +27,10 @@ type cacheVolumeTestQueryServer struct {
 
 func (s *cacheVolumeTestQueryServer) SnapshotManager() bkcache.SnapshotManager {
 	return s.cacheManager
+}
+
+func (s *cacheVolumeTestQueryServer) DNS() *oci.DNSConfig {
+	return &oci.DNSConfig{}
 }
 
 type cacheVolumeTestSnapshotManager struct {
@@ -39,6 +44,9 @@ type cacheVolumeTestSnapshotManager struct {
 	attachCalls           []struct{ leaseID, snapshotID string }
 	removeCalls           []string
 	deleteStaleKeep       map[string]struct{}
+	importImageResult     bkcache.ImmutableRef
+	importImageCalls      []*bkcache.ImportedImage
+	importImageOpts       []bkcache.ImportImageOpts
 
 	getBySnapshotIDCalls        []string
 	getMutableBySnapshotIDCalls []string
@@ -132,8 +140,13 @@ func (m *cacheVolumeTestSnapshotManager) GetMutableBySnapshotID(ctx context.Cont
 	return ref, nil
 }
 
-func (*cacheVolumeTestSnapshotManager) ImportImage(context.Context, *bkcache.ImportedImage, bkcache.ImportImageOpts) (bkcache.ImmutableRef, error) {
-	panic("unexpected ImportImage call")
+func (m *cacheVolumeTestSnapshotManager) ImportImage(_ context.Context, img *bkcache.ImportedImage, opts bkcache.ImportImageOpts) (bkcache.ImmutableRef, error) {
+	if m.importImageResult == nil {
+		panic("unexpected ImportImage call")
+	}
+	m.importImageCalls = append(m.importImageCalls, img)
+	m.importImageOpts = append(m.importImageOpts, opts)
+	return m.importImageResult, nil
 }
 
 func (*cacheVolumeTestSnapshotManager) ApplySnapshotDiff(context.Context, bkcache.ImmutableRef, bkcache.ImmutableRef, ...bkcache.RefOption) (bkcache.ImmutableRef, error) {
@@ -327,9 +340,13 @@ func (r cacheVolumeTestMountableRef) Mount() ([]ctrdmount.Mount, func() error, e
 
 type cacheVolumeTestMutableRef struct {
 	cacheVolumeTestImmutableRef
+	commitResult bkcache.ImmutableRef
 }
 
-func (*cacheVolumeTestMutableRef) Commit(context.Context) (bkcache.ImmutableRef, error) {
+func (r *cacheVolumeTestMutableRef) Commit(context.Context) (bkcache.ImmutableRef, error) {
+	if r.commitResult != nil {
+		return r.commitResult, nil
+	}
 	panic("unexpected Commit call")
 }
 

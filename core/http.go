@@ -36,8 +36,9 @@ type HTTPState struct {
 	LastModified  string
 	ContentDigest digest.Digest
 
-	snapshot   bkcache.ImmutableRef
-	snapshotID string
+	snapshot             bkcache.ImmutableRef
+	snapshotID           string
+	snapshotMaterializer *remoteSnapshotAccessorPlan[*HTTPState]
 }
 
 type persistedHTTPStatePayload struct {
@@ -225,6 +226,13 @@ func (*HTTPState) DecodePersistedObject(ctx context.Context, dag *dagql.Server, 
 			state.snapshotID = link.RefKey
 			break
 		}
+		chain, hasRemoteChain, err := loadPersistedRemoteSnapshotChainByResultID(ctx, dag, resultID, "http state", "snapshot")
+		if err != nil {
+			return nil, err
+		}
+		if hasRemoteChain {
+			state.snapshotMaterializer = newRemoteSnapshotAccessorPlan[*HTTPState](resultID, "snapshot", chain)
+		}
 	}
 	return state, nil
 }
@@ -232,6 +240,7 @@ func (*HTTPState) DecodePersistedObject(ctx context.Context, dag *dagql.Server, 
 func (state *HTTPState) Resolve(
 	ctx context.Context,
 	query *Query,
+	owner dagql.Result[*HTTPState],
 	checksum dagql.Optional[dagql.String],
 	permissions int,
 	name string,
@@ -295,7 +304,13 @@ func (state *HTTPState) Resolve(
 
 	if resp.StatusCode == http.StatusNotModified {
 		if state.snapshot == nil {
-			return nil, fmt.Errorf("http state %q returned 304 without a cached snapshot", state.URL)
+			ok, err := state.materializeRemoteSnapshot(ctx, owner)
+			if err != nil {
+				return nil, fmt.Errorf("http state %q returned 304 without a cached snapshot: %w", state.URL, err)
+			}
+			if !ok || state.snapshot == nil {
+				return nil, fmt.Errorf("http state %q returned 304 without a cached snapshot", state.URL)
+			}
 		}
 		if etag := etagValue(resp.Header.Get("ETag")); etag != "" {
 			state.ETag = etag
@@ -334,6 +349,22 @@ func (state *HTTPState) Resolve(
 	state.LastModified = newLastModified
 
 	return state.fileResult(ctx, query, name, permissions)
+}
+
+func (state *HTTPState) materializeRemoteSnapshot(ctx context.Context, owner dagql.Result[*HTTPState]) (bool, error) {
+	if state.snapshotMaterializer == nil {
+		return false, nil
+	}
+	snapshot, ok, err := state.snapshotMaterializer.Materialize(ctx, owner)
+	if err != nil || !ok {
+		return ok, err
+	}
+	if snapshot == nil {
+		return true, fmt.Errorf("remote snapshot materializer returned nil snapshot")
+	}
+	state.snapshot = snapshot
+	state.snapshotID = snapshot.SnapshotID()
+	return true, nil
 }
 
 func writeHTTPStateSnapshot(

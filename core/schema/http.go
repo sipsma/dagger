@@ -154,7 +154,7 @@ func (s *httpSchema) httpStateResolve(ctx context.Context, parent dagql.ObjectRe
 	if err != nil {
 		return inst, fmt.Errorf("current query: %w", err)
 	}
-	fetched, err := parent.Self().Resolve(ctx, query, args.Checksum, args.Permissions, args.Name)
+	fetched, err := parent.Self().Resolve(ctx, query, parent.Result, args.Checksum, args.Permissions, args.Name)
 	if err != nil {
 		return inst, err
 	}
