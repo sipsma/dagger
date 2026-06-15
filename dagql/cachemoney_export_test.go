@@ -142,6 +142,9 @@ func TestPrepareCachemoneyExportAggregatesDiagnostics(t *testing.T) {
 	msg := err.Error()
 	for _, want := range []string{
 		"cachemoney export diagnostics",
+		"summary:",
+		"unpersistable types: CachemoneyDiagUnpersistableA=1, CachemoneyDiagUnpersistableB=1",
+		"mutable links: PersistSnapshotValue/snapshot/diag-mutable-link=1",
 		"unpersistable object payloads (2)",
 		`type="CachemoneyDiagUnpersistableA"`,
 		`type="CachemoneyDiagUnpersistableB"`,

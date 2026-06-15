@@ -43,7 +43,11 @@ func (d cachemoneyExportDiagnostics) String() string {
 		return ""
 	}
 	var b strings.Builder
+	d.appendSummary(&b)
 	if len(d.UnpersistableObjects) > 0 {
+		if b.Len() > 0 {
+			b.WriteString(" ")
+		}
 		fmt.Fprintf(&b, "unpersistable object payloads (%d):", len(d.UnpersistableObjects))
 		for _, obj := range d.UnpersistableObjects {
 			fmt.Fprintf(&b, " result=%d type=%q", obj.ResultID, obj.TypeName)
@@ -80,6 +84,59 @@ func (d cachemoneyExportDiagnostics) String() string {
 		}
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func (d cachemoneyExportDiagnostics) appendSummary(b *strings.Builder) {
+	segments := make([]string, 0, 3)
+	if len(d.UnpersistableObjects) > 0 {
+		segments = append(segments, "unpersistable types: "+formatCachemoneyExportDiagnosticCounts(countCachemoneyExportDiagnosticObjects(d.UnpersistableObjects)))
+	}
+	if len(d.ObjectEncodeErrors) > 0 {
+		segments = append(segments, "encode-error types: "+formatCachemoneyExportDiagnosticCounts(countCachemoneyExportDiagnosticObjects(d.ObjectEncodeErrors)))
+	}
+	if len(d.MutableSnapshotLinks) > 0 {
+		segments = append(segments, "mutable links: "+formatCachemoneyExportDiagnosticCounts(countCachemoneyExportDiagnosticSnapshotLinks(d.MutableSnapshotLinks)))
+	}
+	if len(segments) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "summary: %s.", strings.Join(segments, "; "))
+}
+
+func countCachemoneyExportDiagnosticObjects(objects []cachemoneyExportDiagnosticObject) map[string]int {
+	counts := make(map[string]int, len(objects))
+	for _, obj := range objects {
+		counts[obj.TypeName]++
+	}
+	return counts
+}
+
+func countCachemoneyExportDiagnosticSnapshotLinks(links []cachemoneyExportDiagnosticSnapshotLink) map[string]int {
+	counts := make(map[string]int, len(links))
+	for _, link := range links {
+		key := link.TypeName + "/" + link.Role
+		if link.RecordType != "" {
+			key += "/" + link.RecordType
+		}
+		counts[key]++
+	}
+	return counts
+}
+
+func formatCachemoneyExportDiagnosticCounts(counts map[string]int) string {
+	if len(counts) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(counts))
+	for key := range counts {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%d", key, counts[key]))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func appendCachemoneyExportDiagnosticResultContext(b *strings.Builder, field, recordType, description string) {

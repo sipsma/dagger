@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -26,6 +27,29 @@ type Check struct {
 type CheckGroup struct {
 	Node   *ModTreeNode `json:"node"`
 	Checks []*Check     `json:"checks"`
+}
+
+var _ dagql.PersistedObject = (*Check)(nil)
+var _ dagql.PersistedObjectDecoder = (*Check)(nil)
+var _ dagql.HasDependencyResults = (*Check)(nil)
+var _ dagql.PersistedObject = (*CheckGroup)(nil)
+var _ dagql.PersistedObjectDecoder = (*CheckGroup)(nil)
+var _ dagql.HasDependencyResults = (*CheckGroup)(nil)
+
+type persistedCheckPayload struct {
+	NodeID     int  `json:"nodeID,omitempty"`
+	IsGenerate bool `json:"isGenerate,omitempty"`
+}
+
+type persistedCheckObjectPayload struct {
+	Tree  persistedModTree      `json:"tree"`
+	Check persistedCheckPayload `json:"check"`
+}
+
+type persistedCheckGroupPayload struct {
+	Tree   persistedModTree        `json:"tree"`
+	NodeID int                     `json:"nodeID,omitempty"`
+	Checks []persistedCheckPayload `json:"checks,omitempty"`
 }
 
 func NewCheckGroup(ctx context.Context, mod dagql.ObjectResult[*Module], include []string, noGenerate, onlyGenerate bool) (*CheckGroup, error) {
@@ -221,6 +245,176 @@ func (c *Check) Clone() *Check {
 	cp := *c
 	cp.Node = c.Node.Clone()
 	return &cp
+}
+
+func encodePersistedCheckPayload(
+	tree *persistedModTreeEncoder,
+	c *Check,
+) (persistedCheckPayload, error) {
+	if c == nil {
+		return persistedCheckPayload{}, fmt.Errorf("encode persisted check: nil check")
+	}
+	nodeID, err := tree.Add(c.Node)
+	if err != nil {
+		return persistedCheckPayload{}, err
+	}
+	return persistedCheckPayload{
+		NodeID:     nodeID,
+		IsGenerate: c.IsGenerate,
+	}, nil
+}
+
+func decodePersistedCheckPayload(
+	nodes map[int]*ModTreeNode,
+	payload persistedCheckPayload,
+) (*Check, error) {
+	if payload.NodeID == 0 {
+		return nil, fmt.Errorf("decode persisted check: missing node ID")
+	}
+	node, ok := nodes[payload.NodeID]
+	if !ok {
+		return nil, fmt.Errorf("decode persisted check: unknown node ID %d", payload.NodeID)
+	}
+	return &Check{
+		Node:       node,
+		IsGenerate: payload.IsGenerate,
+	}, nil
+}
+
+func (c *Check) EncodePersistedObject(ctx context.Context, cache dagql.PersistedObjectCache) (dagql.PersistedObjectEncoding, error) {
+	_ = ctx
+	tree := newPersistedModTreeEncoder(cache)
+	checkPayload, err := encodePersistedCheckPayload(tree, c)
+	if err != nil {
+		return dagql.PersistedObjectEncoding{}, err
+	}
+	payload, err := json.Marshal(persistedCheckObjectPayload{
+		Tree:  tree.tree,
+		Check: checkPayload,
+	})
+	if err != nil {
+		return dagql.PersistedObjectEncoding{}, fmt.Errorf("marshal persisted check payload: %w", err)
+	}
+	return encodePersistedObjectRawJSON(payload), nil
+}
+
+func (*Check) DecodePersistedObject(
+	ctx context.Context,
+	dag *dagql.Server,
+	_ uint64,
+	_ *dagql.ResultCall,
+	payload json.RawMessage,
+) (dagql.Typed, error) {
+	var persisted persistedCheckObjectPayload
+	if err := json.Unmarshal(payload, &persisted); err != nil {
+		return nil, fmt.Errorf("decode persisted check payload: %w", err)
+	}
+	nodes, err := decodePersistedModTree(ctx, dag, persisted.Tree)
+	if err != nil {
+		return nil, err
+	}
+	return decodePersistedCheckPayload(nodes, persisted.Check)
+}
+
+func (c *Check) AttachDependencyResults(
+	ctx context.Context,
+	_ dagql.AnyResult,
+	attach func(dagql.AnyResult) (dagql.AnyResult, error),
+) ([]dagql.AnyResult, error) {
+	_ = ctx
+	if c == nil {
+		return nil, nil
+	}
+	return attachModTreeNodeDependencyResults(c.Node, attach)
+}
+
+func (r *CheckGroup) EncodePersistedObject(ctx context.Context, cache dagql.PersistedObjectCache) (dagql.PersistedObjectEncoding, error) {
+	_ = ctx
+	if r == nil {
+		return dagql.PersistedObjectEncoding{}, fmt.Errorf("encode persisted check group: nil check group")
+	}
+	tree := newPersistedModTreeEncoder(cache)
+	nodeID, err := tree.Add(r.Node)
+	if err != nil {
+		return dagql.PersistedObjectEncoding{}, err
+	}
+	checkPayloads := make([]persistedCheckPayload, 0, len(r.Checks))
+	for _, check := range r.Checks {
+		checkPayload, err := encodePersistedCheckPayload(tree, check)
+		if err != nil {
+			return dagql.PersistedObjectEncoding{}, err
+		}
+		checkPayloads = append(checkPayloads, checkPayload)
+	}
+	payload, err := json.Marshal(persistedCheckGroupPayload{
+		Tree:   tree.tree,
+		NodeID: nodeID,
+		Checks: checkPayloads,
+	})
+	if err != nil {
+		return dagql.PersistedObjectEncoding{}, fmt.Errorf("marshal persisted check group payload: %w", err)
+	}
+	return encodePersistedObjectRawJSON(payload), nil
+}
+
+func (*CheckGroup) DecodePersistedObject(
+	ctx context.Context,
+	dag *dagql.Server,
+	_ uint64,
+	_ *dagql.ResultCall,
+	payload json.RawMessage,
+) (dagql.Typed, error) {
+	var persisted persistedCheckGroupPayload
+	if err := json.Unmarshal(payload, &persisted); err != nil {
+		return nil, fmt.Errorf("decode persisted check group payload: %w", err)
+	}
+	nodes, err := decodePersistedModTree(ctx, dag, persisted.Tree)
+	if err != nil {
+		return nil, err
+	}
+	var node *ModTreeNode
+	if persisted.NodeID != 0 {
+		var ok bool
+		node, ok = nodes[persisted.NodeID]
+		if !ok {
+			return nil, fmt.Errorf("decode persisted check group: unknown node ID %d", persisted.NodeID)
+		}
+	}
+	checks := make([]*Check, 0, len(persisted.Checks))
+	for _, checkPayload := range persisted.Checks {
+		check, err := decodePersistedCheckPayload(nodes, checkPayload)
+		if err != nil {
+			return nil, err
+		}
+		checks = append(checks, check)
+	}
+	return &CheckGroup{
+		Node:   node,
+		Checks: checks,
+	}, nil
+}
+
+func (r *CheckGroup) AttachDependencyResults(
+	ctx context.Context,
+	_ dagql.AnyResult,
+	attach func(dagql.AnyResult) (dagql.AnyResult, error),
+) ([]dagql.AnyResult, error) {
+	_ = ctx
+	if r == nil {
+		return nil, nil
+	}
+	owned, err := attachModTreeNodeDependencyResults(r.Node, attach)
+	if err != nil {
+		return nil, err
+	}
+	for _, check := range r.Checks {
+		checkDeps, err := check.AttachDependencyResults(ctx, nil, attach)
+		if err != nil {
+			return nil, err
+		}
+		owned = append(owned, checkDeps...)
+	}
+	return owned, nil
 }
 
 func (c *Check) Run(ctx context.Context) (*Check, error) {
