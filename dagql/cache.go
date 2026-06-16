@@ -2129,6 +2129,156 @@ func (c *Cache) AddExplicitDependency(ctx context.Context, parent AnyResult, dep
 	return c.addExplicitDependencyLocked(ctx, parentRes, depRes, reason)
 }
 
+type resultCallDependencyRef struct {
+	resultID sharedResultID
+	path     string
+}
+
+func collectResultCallDependencyRefs(frame *ResultCall, ownerID sharedResultID) ([]resultCallDependencyRef, error) {
+	if frame == nil {
+		return nil, nil
+	}
+
+	seenResults := map[sharedResultID]struct{}{}
+	seenCalls := map[*ResultCall]struct{}{}
+
+	var joinPath func(string, string) string
+	var walkFrame func(string, *ResultCall) error
+	var walkRef func(string, *ResultCallRef) error
+	var walkLiteral func(string, *ResultCallLiteral) error
+
+	joinPath = func(prefix string, segment string) string {
+		switch {
+		case prefix == "":
+			return segment
+		case segment == "":
+			return prefix
+		default:
+			return prefix + "." + segment
+		}
+	}
+
+	var deps []resultCallDependencyRef
+	walkRef = func(path string, ref *ResultCallRef) error {
+		if ref == nil {
+			return nil
+		}
+		if ref.Call != nil {
+			return walkFrame(path, ref.Call)
+		}
+		if ref.ResultID == 0 {
+			return nil
+		}
+		resultID := sharedResultID(ref.ResultID)
+		if resultID == ownerID {
+			return nil
+		}
+		if _, seen := seenResults[resultID]; seen {
+			return nil
+		}
+		seenResults[resultID] = struct{}{}
+		deps = append(deps, resultCallDependencyRef{
+			resultID: resultID,
+			path:     path,
+		})
+		return nil
+	}
+
+	walkLiteral = func(path string, lit *ResultCallLiteral) error {
+		if lit == nil {
+			return nil
+		}
+		switch lit.Kind {
+		case ResultCallLiteralKindResultRef:
+			return walkRef(path, lit.ResultRef)
+		case ResultCallLiteralKindList:
+			for i, item := range lit.ListItems {
+				if err := walkLiteral(fmt.Sprintf("%s[%d]", path, i), item); err != nil {
+					return err
+				}
+			}
+		case ResultCallLiteralKindObject:
+			for _, field := range lit.ObjectFields {
+				if field == nil {
+					continue
+				}
+				if err := walkLiteral(joinPath(path, field.Name), field.Value); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+
+	walkFrame = func(path string, frame *ResultCall) error {
+		if frame == nil {
+			return nil
+		}
+		if _, seen := seenCalls[frame]; seen {
+			return nil
+		}
+		seenCalls[frame] = struct{}{}
+
+		if err := walkRef(joinPath(path, "receiver"), frame.Receiver); err != nil {
+			return fmt.Errorf("receiver: %w", err)
+		}
+		if frame.Module != nil {
+			if err := walkRef(joinPath(path, "module"), frame.Module.ResultRef); err != nil {
+				return fmt.Errorf("module: %w", err)
+			}
+		}
+		for _, arg := range frame.Args {
+			if arg == nil {
+				continue
+			}
+			if err := walkLiteral(joinPath(path, "arg:"+arg.Name), arg.Value); err != nil {
+				return fmt.Errorf("arg %q: %w", arg.Name, err)
+			}
+		}
+		for _, input := range frame.ImplicitInputs {
+			if input == nil {
+				continue
+			}
+			if err := walkLiteral(joinPath(path, "implicit_input:"+input.Name), input.Value); err != nil {
+				return fmt.Errorf("implicit input %q: %w", input.Name, err)
+			}
+		}
+		return nil
+	}
+
+	if err := walkFrame("", frame); err != nil {
+		return nil, err
+	}
+	return deps, nil
+}
+
+func (c *Cache) addResultCallDependencyEdgesLocked(ctx context.Context, res *sharedResult, frame *ResultCall) error {
+	if c == nil || res == nil || res.id == 0 || frame == nil {
+		return nil
+	}
+	deps, err := collectResultCallDependencyRefs(frame, res.id)
+	if err != nil {
+		return err
+	}
+	for _, dep := range deps {
+		depRes := c.resultsByID[dep.resultID]
+		if depRes == nil {
+			return fmt.Errorf("retain result call ref %d: missing cached result", dep.resultID)
+		}
+		if res.deps == nil {
+			res.deps = make(map[sharedResultID]struct{})
+		}
+		if _, alreadyHeld := res.deps[dep.resultID]; alreadyHeld {
+			continue
+		}
+		res.deps[dep.resultID] = struct{}{}
+		c.rememberDependencyEdgeLocked(res, depRes)
+		c.incrementIncomingOwnershipLocked(ctx, depRes)
+		c.traceResultCallDepAdded(ctx, res.id, dep.resultID, dep.path)
+	}
+	return nil
+}
+
 func (c *Cache) addExplicitDependencyLocked(
 	ctx context.Context,
 	parentRes *sharedResult,
@@ -4100,124 +4250,6 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 			return fmt.Errorf("derive result digest: %w", err)
 		}
 	}
-	type resultCallDep struct {
-		resultID sharedResultID
-		path     string
-	}
-	var resultCallDeps []resultCallDep
-	if !resWasCacheBacked {
-		if resultCall := oc.res.loadResultCall(); resultCall != nil {
-			seenResults := map[sharedResultID]struct{}{}
-			seenCalls := map[*ResultCall]struct{}{}
-
-			var joinPath func(string, string) string
-			var walkFrame func(string, *ResultCall) error
-			var walkRef func(string, *ResultCallRef) error
-			var walkLiteral func(string, *ResultCallLiteral) error
-
-			joinPath = func(prefix string, segment string) string {
-				switch {
-				case prefix == "":
-					return segment
-				case segment == "":
-					return prefix
-				default:
-					return prefix + "." + segment
-				}
-			}
-
-			walkRef = func(path string, ref *ResultCallRef) error {
-				if ref == nil {
-					return nil
-				}
-				if ref.Call != nil {
-					return walkFrame(path, ref.Call)
-				}
-				if ref.ResultID == 0 {
-					return nil
-				}
-				resultID := sharedResultID(ref.ResultID)
-				if resultID == oc.res.id {
-					return nil
-				}
-				if _, seen := seenResults[resultID]; seen {
-					return nil
-				}
-				seenResults[resultID] = struct{}{}
-				resultCallDeps = append(resultCallDeps, resultCallDep{
-					resultID: resultID,
-					path:     path,
-				})
-				return nil
-			}
-
-			walkLiteral = func(path string, lit *ResultCallLiteral) error {
-				if lit == nil {
-					return nil
-				}
-				switch lit.Kind {
-				case ResultCallLiteralKindResultRef:
-					return walkRef(path, lit.ResultRef)
-				case ResultCallLiteralKindList:
-					for i, item := range lit.ListItems {
-						if err := walkLiteral(fmt.Sprintf("%s[%d]", path, i), item); err != nil {
-							return err
-						}
-					}
-				case ResultCallLiteralKindObject:
-					for _, field := range lit.ObjectFields {
-						if field == nil {
-							continue
-						}
-						if err := walkLiteral(joinPath(path, field.Name), field.Value); err != nil {
-							return err
-						}
-					}
-				}
-				return nil
-			}
-
-			walkFrame = func(path string, frame *ResultCall) error {
-				if frame == nil {
-					return nil
-				}
-				if _, seen := seenCalls[frame]; seen {
-					return nil
-				}
-				seenCalls[frame] = struct{}{}
-
-				if err := walkRef(joinPath(path, "receiver"), frame.Receiver); err != nil {
-					return fmt.Errorf("receiver: %w", err)
-				}
-				if frame.Module != nil {
-					if err := walkRef(joinPath(path, "module"), frame.Module.ResultRef); err != nil {
-						return fmt.Errorf("module: %w", err)
-					}
-				}
-				for _, arg := range frame.Args {
-					if arg == nil {
-						continue
-					}
-					if err := walkLiteral(joinPath(path, "arg:"+arg.Name), arg.Value); err != nil {
-						return fmt.Errorf("arg %q: %w", arg.Name, err)
-					}
-				}
-				for _, input := range frame.ImplicitInputs {
-					if input == nil {
-						continue
-					}
-					if err := walkLiteral(joinPath(path, "implicit_input:"+input.Name), input.Value); err != nil {
-						return fmt.Errorf("implicit input %q: %w", input.Name, err)
-					}
-				}
-				return nil
-			}
-
-			if err := walkFrame("", resultCall); err != nil {
-				return fmt.Errorf("collect result call dependencies: %w", err)
-			}
-		}
-	}
 
 	c.egraphMu.Lock()
 	resultCall := oc.res.loadResultCall()
@@ -4240,23 +4272,11 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 		c.egraphMu.Unlock()
 		return indexErr
 	}
-	for _, dep := range resultCallDeps {
-		depID := dep.resultID
-		depRes := c.resultsByID[depID]
-		if depRes == nil {
+	if !resWasCacheBacked {
+		if err := c.addResultCallDependencyEdgesLocked(ctx, oc.res, resultCall); err != nil {
 			c.egraphMu.Unlock()
-			return fmt.Errorf("retain result call ref %d: missing cached result", depID)
+			return fmt.Errorf("collect result call dependencies: %w", err)
 		}
-		if oc.res.deps == nil {
-			oc.res.deps = make(map[sharedResultID]struct{})
-		}
-		if _, alreadyHeld := oc.res.deps[depID]; alreadyHeld {
-			continue
-		}
-		oc.res.deps[depID] = struct{}{}
-		c.rememberDependencyEdgeLocked(oc.res, depRes)
-		c.incrementIncomingOwnershipLocked(ctx, depRes)
-		c.traceResultCallDepAdded(ctx, oc.res.id, depID, dep.path)
 	}
 	if err := c.recomputeRequiredSessionResourcesLocked(oc.res); err != nil {
 		c.egraphMu.Unlock()

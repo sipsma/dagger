@@ -2525,6 +2525,10 @@ type CurrentModule struct {
 	Module dagql.ObjectResult[*Module]
 }
 
+var _ dagql.PersistedObject = (*CurrentModule)(nil)
+var _ dagql.PersistedObjectDecoder = (*CurrentModule)(nil)
+var _ dagql.HasDependencyResults = (*CurrentModule)(nil)
+
 func (*CurrentModule) Type() *ast.Type {
 	return &ast.Type{
 		NamedType: "CurrentModule",
@@ -2542,4 +2546,67 @@ func (mod CurrentModule) Clone() *CurrentModule {
 		cp.Module = mod.Module
 	}
 	return &cp
+}
+
+type persistedCurrentModulePayload struct {
+	ModuleResultID uint64 `json:"moduleResultID,omitempty"`
+}
+
+func (mod *CurrentModule) EncodePersistedObject(ctx context.Context, cache dagql.PersistedObjectCache) (dagql.PersistedObjectEncoding, error) {
+	_ = ctx
+	if mod == nil {
+		return dagql.PersistedObjectEncoding{}, fmt.Errorf("encode persisted current module: nil current module")
+	}
+	if mod.Module.Self() == nil {
+		return dagql.PersistedObjectEncoding{}, fmt.Errorf("encode persisted current module: missing module")
+	}
+	moduleID, err := encodePersistedObjectRef(cache, mod.Module, "current module")
+	if err != nil {
+		return dagql.PersistedObjectEncoding{}, err
+	}
+	return encodePersistedObjectPayload(persistedCurrentModulePayload{
+		ModuleResultID: moduleID,
+	})
+}
+
+func (*CurrentModule) DecodePersistedObject(
+	ctx context.Context,
+	dag *dagql.Server,
+	_ uint64,
+	_ *dagql.ResultCall,
+	payload json.RawMessage,
+) (dagql.Typed, error) {
+	var persisted persistedCurrentModulePayload
+	if err := json.Unmarshal(payload, &persisted); err != nil {
+		return nil, fmt.Errorf("decode persisted current module payload: %w", err)
+	}
+	if persisted.ModuleResultID == 0 {
+		return nil, fmt.Errorf("decode persisted current module: missing module result ID")
+	}
+	mod, err := loadPersistedObjectResultByResultID[*Module](ctx, dag, persisted.ModuleResultID, "current module")
+	if err != nil {
+		return nil, err
+	}
+	return &CurrentModule{Module: mod}, nil
+}
+
+func (mod *CurrentModule) AttachDependencyResults(
+	ctx context.Context,
+	_ dagql.AnyResult,
+	attach func(dagql.AnyResult) (dagql.AnyResult, error),
+) ([]dagql.AnyResult, error) {
+	_ = ctx
+	if mod == nil || mod.Module.Self() == nil {
+		return nil, nil
+	}
+	attached, err := attach(mod.Module)
+	if err != nil {
+		return nil, fmt.Errorf("attach current module: %w", err)
+	}
+	typed, ok := attached.(dagql.ObjectResult[*Module])
+	if !ok {
+		return nil, fmt.Errorf("attach current module: unexpected result %T", attached)
+	}
+	mod.Module = typed
+	return []dagql.AnyResult{typed}, nil
 }

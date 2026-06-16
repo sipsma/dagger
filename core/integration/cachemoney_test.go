@@ -157,6 +157,7 @@ func (CachePersistenceSuite) TestCachemoneyD0RealBackendRoundTrip(ctx context.Co
 	require.True(t, importRecompute.Imported)
 	recomputedOutput := cachemoneyD0RunWorkload(ctx, t, recompute.client, workload)
 	require.NotEqual(t, sourceOutput.Random, recomputedOutput.Random, "metadata-only D0 cache hit should recompute when content blobs are missing")
+	require.NotEqual(t, sourceOutput.MountedChangesetPatch, recomputedOutput.MountedChangesetPatch, "metadata-only D0 changeset should recompute when mounted source blobs are missing")
 	recomputeStats := cachemoneyDebugStats(ctx, t, recompute.debugURL)
 	require.Greater(t, cachemoneyMaterializationOutcomeTotal(recomputeStats, "recomputed_remote_miss"), uint64(0))
 	require.Greater(t, recomputeStats.Cachemoney.RecomputeReasons["index_miss"], uint64(0))
@@ -714,14 +715,15 @@ type cachemoneyD0Workload struct {
 }
 
 type cachemoneyD0WorkloadOutput struct {
-	Random           string
-	Filesync         string
-	SourceCache      string
-	Git              string
-	MountedFile      string
-	MountedDirectory string
-	WithDirectory    string
-	EmptyDir         string
+	Random                string
+	Filesync              string
+	SourceCache           string
+	Git                   string
+	MountedFile           string
+	MountedDirectory      string
+	MountedChangesetPatch string
+	WithDirectory         string
+	EmptyDir              string
 }
 
 func cachemoneyD0RunWorkload(ctx context.Context, t *testctx.T, c *dagger.Client, workload cachemoneyD0Workload) cachemoneyD0WorkloadOutput {
@@ -830,26 +832,35 @@ func cachemoneyD0RunModuleQuery(ctx context.Context, t *testctx.T, engine *cache
 }
 
 type cachemoneyD0WorkloadContainers struct {
-	Random           *dagger.Container
-	Filesync         *dagger.Container
-	SourceCache      *dagger.Container
-	Git              *dagger.Container
-	MountedFile      *dagger.Container
-	MountedDirectory *dagger.Container
-	WithDirectory    *dagger.Container
-	EmptyDir         *dagger.Directory
+	Random                 *dagger.Container
+	Filesync               *dagger.Container
+	SourceCache            *dagger.Container
+	Git                    *dagger.Container
+	MountedFile            *dagger.Container
+	MountedDirectory       *dagger.Container
+	MountedChangesetSource *dagger.Directory
+	MountedChangesetBefore *dagger.Directory
+	MountedChangesetAfter  *dagger.Directory
+	MountedChangeset       *dagger.Changeset
+	WithDirectory          *dagger.Container
+	EmptyDir               *dagger.Directory
 }
 
 func cachemoneyD0WorkloadContainersFor(c *dagger.Client, workload cachemoneyD0Workload) cachemoneyD0WorkloadContainers {
+	mountedChangesetSource, mountedChangesetBefore, mountedChangesetAfter, mountedChangeset := cachemoneyMountedDirectoryChangeset(c, workload.CacheBust)
 	return cachemoneyD0WorkloadContainers{
-		Random:           cachemoneyRandomExecContainer(c, workload.CacheBust),
-		Filesync:         cachemoneyFilesyncExecContainer(c, workload.HostDir, workload.CacheBust),
-		SourceCache:      cachemoneySourceCacheExecContainer(c, workload.HostDir, workload.CacheVolumeKey, workload.CacheBust),
-		Git:              cachemoneyGitExecContainer(c, workload.GitRepoURL, workload.CacheBust),
-		MountedFile:      cachemoneyMountedFileExecContainer(c, workload.CacheBust),
-		MountedDirectory: cachemoneyMountedDirectoryExecContainer(c, workload.CacheBust),
-		WithDirectory:    cachemoneyWithDirectoryExecContainer(c, workload.CacheBust),
-		EmptyDir:         c.Directory(),
+		Random:                 cachemoneyRandomExecContainer(c, workload.CacheBust),
+		Filesync:               cachemoneyFilesyncExecContainer(c, workload.HostDir, workload.CacheBust),
+		SourceCache:            cachemoneySourceCacheExecContainer(c, workload.HostDir, workload.CacheVolumeKey, workload.CacheBust),
+		Git:                    cachemoneyGitExecContainer(c, workload.GitRepoURL, workload.CacheBust),
+		MountedFile:            cachemoneyMountedFileExecContainer(c, workload.CacheBust),
+		MountedDirectory:       cachemoneyMountedDirectoryExecContainer(c, workload.CacheBust),
+		MountedChangesetSource: mountedChangesetSource,
+		MountedChangesetBefore: mountedChangesetBefore,
+		MountedChangesetAfter:  mountedChangesetAfter,
+		MountedChangeset:       mountedChangeset,
+		WithDirectory:          cachemoneyWithDirectoryExecContainer(c, workload.CacheBust),
+		EmptyDir:               c.Directory(),
 	}
 }
 
@@ -867,20 +878,25 @@ func cachemoneyD0PrimeWorkload(ctx context.Context, t *testctx.T, containers cac
 		_, err := ctr.Sync(ctx)
 		require.NoError(t, err)
 	}
+	_ = cachemoneyD0DirectoryDigest(ctx, t, containers.MountedChangesetSource)
+	_ = cachemoneyD0DirectoryDigest(ctx, t, containers.MountedChangesetBefore)
+	_ = cachemoneyD0DirectoryDigest(ctx, t, containers.MountedChangesetAfter)
+	_ = cachemoneyD0ChangesetID(ctx, t, containers.MountedChangeset)
 	_ = cachemoneyD0DirectoryID(ctx, t, containers.EmptyDir)
 }
 
 func cachemoneyD0ReadWorkload(ctx context.Context, t *testctx.T, containers cachemoneyD0WorkloadContainers) cachemoneyD0WorkloadOutput {
 	t.Helper()
 	return cachemoneyD0WorkloadOutput{
-		Random:           cachemoneyD0ContainerFileContents(ctx, t, containers.Random, "/work/random.txt"),
-		Filesync:         cachemoneyD0ContainerFileContents(ctx, t, containers.Filesync, "/work/filesync-random.txt"),
-		SourceCache:      cachemoneyD0ContainerFileContents(ctx, t, containers.SourceCache, "/work/cache-random.txt"),
-		Git:              cachemoneyD0ContainerFileContents(ctx, t, containers.Git, "/work/git-random.txt"),
-		MountedFile:      cachemoneyD0ContainerFileContents(ctx, t, containers.MountedFile, "/work/mounted-file-random.txt"),
-		MountedDirectory: cachemoneyD0ContainerFileContents(ctx, t, containers.MountedDirectory, "/work/mounted-directory-random.txt"),
-		WithDirectory:    cachemoneyD0ContainerFileContents(ctx, t, containers.WithDirectory, "/work/withdirectory-random.txt"),
-		EmptyDir:         cachemoneyD0EmptyDirectoryMarker(ctx, t, containers.EmptyDir),
+		Random:                cachemoneyD0ContainerFileContents(ctx, t, containers.Random, "/work/random.txt"),
+		Filesync:              cachemoneyD0ContainerFileContents(ctx, t, containers.Filesync, "/work/filesync-random.txt"),
+		SourceCache:           cachemoneyD0ContainerFileContents(ctx, t, containers.SourceCache, "/work/cache-random.txt"),
+		Git:                   cachemoneyD0ContainerFileContents(ctx, t, containers.Git, "/work/git-random.txt"),
+		MountedFile:           cachemoneyD0ContainerFileContents(ctx, t, containers.MountedFile, "/work/mounted-file-random.txt"),
+		MountedDirectory:      cachemoneyD0ContainerFileContents(ctx, t, containers.MountedDirectory, "/work/mounted-directory-random.txt"),
+		MountedChangesetPatch: cachemoneyD0ChangesetPatch(ctx, t, containers.MountedChangeset),
+		WithDirectory:         cachemoneyD0ContainerFileContents(ctx, t, containers.WithDirectory, "/work/withdirectory-random.txt"),
+		EmptyDir:              cachemoneyD0EmptyDirectoryMarker(ctx, t, containers.EmptyDir),
 	}
 }
 
@@ -1001,6 +1017,38 @@ head -c 32 /dev/urandom | sha256sum | cut -d' ' -f1 > /work/mounted-directory-ra
 		})
 }
 
+func cachemoneyMountedDirectoryChangeset(c *dagger.Client, cacheBust string) (*dagger.Directory, *dagger.Directory, *dagger.Directory, *dagger.Changeset) {
+	sourceDir := c.Container().
+		From(alpineImage).
+		WithEnvVariable("CACHE_BUST", cacheBust).
+		WithExec([]string{
+			"sh",
+			"-ec",
+			`set -eu
+mkdir -p /source
+printf 'mounted-changeset:%s\n' "$CACHE_BUST" > /source/input.txt
+head -c 32 /dev/urandom | sha256sum | cut -d' ' -f1 > /source/random.txt`,
+		}).
+		Directory("/source")
+	base := c.Container().
+		From(alpineImage).
+		WithEnvVariable("CACHE_BUST", cacheBust).
+		WithWorkdir("/app").
+		WithMountedDirectory(".", sourceDir)
+	before := base.Directory(".")
+	after := base.WithExec([]string{
+		"sh",
+		"-ec",
+		`set -eu
+test "$(cat input.txt)" = "mounted-changeset:$CACHE_BUST"
+random="$(cat random.txt)"
+test -n "$random"
+printf 'mounted-changeset:%s\nrandom=%s\n' "$CACHE_BUST" "$random" > generated.txt
+printf 'updated:%s\n' "$CACHE_BUST" >> input.txt`,
+	}).Directory(".")
+	return sourceDir, before, after, after.Changes(before)
+}
+
 func cachemoneyWithDirectoryExecContainer(c *dagger.Client, cacheBust string) *dagger.Container {
 	base := c.Container().
 		From(alpineImage).
@@ -1052,6 +1100,32 @@ func cachemoneyD0DirectoryID(ctx context.Context, t *testctx.T, dir *dagger.Dire
 	require.NoError(t, err)
 	require.NotEmpty(t, id)
 	return string(id)
+}
+
+func cachemoneyD0DirectoryDigest(ctx context.Context, t *testctx.T, dir *dagger.Directory) string {
+	t.Helper()
+	digest, err := dir.Digest(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, digest)
+	return digest
+}
+
+func cachemoneyD0ChangesetID(ctx context.Context, t *testctx.T, changes *dagger.Changeset) string {
+	t.Helper()
+	id, err := changes.ID(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, id)
+	return string(id)
+}
+
+func cachemoneyD0ChangesetPatch(ctx context.Context, t *testctx.T, changes *dagger.Changeset) string {
+	t.Helper()
+	contents, err := changes.AsPatch().Contents(ctx)
+	require.NoError(t, err)
+	require.Contains(t, contents, "generated.txt")
+	require.Contains(t, contents, "random=")
+	require.Contains(t, contents, "updated:")
+	return contents
 }
 
 func cachemoneyD0EmptyDirectoryMarker(ctx context.Context, t *testctx.T, dir *dagger.Directory) string {

@@ -1213,6 +1213,46 @@ func containerResultMayEvaluateUnplannedAccessors(ctx context.Context, res dagql
 	return containerResultCanEvaluate(ctx, res)
 }
 
+func containerMountSourceHasValueOrMaterializer(mnt *ContainerMount) bool {
+	if mnt == nil {
+		return true
+	}
+	switch {
+	case mnt.DirectorySource != nil:
+		return containerAccessorHasValueOrMaterializer(mnt.DirectorySource)
+	case mnt.FileSource != nil:
+		return containerAccessorHasValueOrMaterializer(mnt.FileSource)
+	default:
+		return true
+	}
+}
+
+func locatePathAfterEvaluatingUnplannedMountSource(ctx context.Context, parent dagql.ObjectResult[*Container], targetPath string) (*ContainerMount, string, error) {
+	parentSelf := parent.Self()
+	if parentSelf == nil {
+		return nil, "", fmt.Errorf("container path %s: nil parent container", targetPath)
+	}
+	mnt, subpath, err := locatePath(parentSelf, targetPath)
+	if err != nil {
+		return nil, "", err
+	}
+	if mnt == nil || containerMountSourceHasValueOrMaterializer(mnt) || !containerResultMayEvaluateUnplannedAccessors(ctx, parent) {
+		return mnt, subpath, nil
+	}
+	cache, err := dagql.EngineCache(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	if err := cache.Evaluate(ctx, parent); err != nil {
+		return nil, "", err
+	}
+	parentSelf = parent.Self()
+	if parentSelf == nil {
+		return nil, "", fmt.Errorf("container path %s: nil evaluated parent container", targetPath)
+	}
+	return locatePath(parentSelf, targetPath)
+}
+
 func materializeContainerStateFromParent(ctx context.Context, dst *Container, parent dagql.ObjectResult[*Container]) error {
 	parentSelf := parent.Self()
 	if parentSelf == nil {
@@ -3599,8 +3639,7 @@ func (lazy *ContainerWithRootFSLazy) EncodePersisted(ctx context.Context, cache 
 //nolint:gocyclo // intrinsically long state machine; refactoring would hurt clarity
 func (lazy *ContainerDirectoryLazy) Evaluate(ctx context.Context, dir *Directory) error {
 	return lazy.LazyState.Evaluate(ctx, "Container.directory", func(ctx context.Context) error {
-		parent := lazy.Parent.Self()
-		if parent == nil {
+		if lazy.Parent.Self() == nil {
 			return fmt.Errorf("container directory lazy: nil parent container")
 		}
 
@@ -3609,7 +3648,7 @@ func (lazy *ContainerDirectoryLazy) Evaluate(ctx context.Context, dir *Directory
 			return err
 		}
 
-		mnt, subpath, err := locatePath(parent, lazy.Path)
+		mnt, subpath, err := locatePathAfterEvaluatingUnplannedMountSource(ctx, lazy.Parent, lazy.Path)
 		if err != nil {
 			return err
 		}
@@ -3752,8 +3791,7 @@ func (lazy *ContainerDirectoryLazy) EncodePersisted(ctx context.Context, cache d
 //nolint:gocyclo // intrinsically long state machine; refactoring would hurt clarity
 func (lazy *ContainerFileLazy) Evaluate(ctx context.Context, file *File) error {
 	return lazy.LazyState.Evaluate(ctx, "Container.file", func(ctx context.Context) error {
-		parent := lazy.Parent.Self()
-		if parent == nil {
+		if lazy.Parent.Self() == nil {
 			return fmt.Errorf("container file lazy: nil parent container")
 		}
 
@@ -3762,7 +3800,7 @@ func (lazy *ContainerFileLazy) Evaluate(ctx context.Context, file *File) error {
 			return err
 		}
 
-		mnt, subpath, err := locatePath(parent, lazy.Path)
+		mnt, subpath, err := locatePathAfterEvaluatingUnplannedMountSource(ctx, lazy.Parent, lazy.Path)
 		if err != nil {
 			return err
 		}

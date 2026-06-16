@@ -108,8 +108,26 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 			continue
 		}
 
-		depIDs := make([]sharedResultID, 0, len(res.deps))
+		frame := res.loadResultCall()
+		if err := c.validatePersistSnapshotResultCallRefsLocked(resultID, frame, omittedResultTypes); err != nil {
+			c.egraphMu.RUnlock()
+			return persistStateSnapshot{}, err
+		}
+
+		depIDSet := make(map[sharedResultID]struct{}, len(res.deps))
 		for depID := range res.deps {
+			depIDSet[depID] = struct{}{}
+		}
+		frameDeps, err := collectResultCallDependencyRefs(frame, resultID)
+		if err != nil {
+			c.egraphMu.RUnlock()
+			return persistStateSnapshot{}, fmt.Errorf("persist result %d call frame deps: %w", resultID, err)
+		}
+		for _, dep := range frameDeps {
+			depIDSet[dep.resultID] = struct{}{}
+		}
+		depIDs := make([]sharedResultID, 0, len(depIDSet))
+		for depID := range depIDSet {
 			depIDs = append(depIDs, depID)
 		}
 		slices.Sort(depIDs)
@@ -140,11 +158,6 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 		}
 
 		payload := res.loadPayloadState()
-		frame := res.loadResultCall()
-		if err := c.validatePersistSnapshotResultCallRefsLocked(resultID, frame, omittedResultTypes); err != nil {
-			c.egraphMu.RUnlock()
-			return persistStateSnapshot{}, err
-		}
 		var frameSnapshot *ResultCall
 		if frame != nil {
 			frameSnapshot = frame.clone()
@@ -323,7 +336,7 @@ func persistSnapshotNonPersistedObjectType(res *sharedResult) (string, bool) {
 }
 
 func (c *Cache) validatePersistSnapshotResultCallRefsLocked(resultID sharedResultID, frame *ResultCall, omittedResultTypes map[sharedResultID]string) error {
-	if len(omittedResultTypes) == 0 {
+	if frame == nil {
 		return nil
 	}
 	if err := c.cachemoneyWalkResultCallRefsLocked(frame, func(ref *ResultCallRef) error {
@@ -331,6 +344,9 @@ func (c *Cache) validatePersistSnapshotResultCallRefsLocked(resultID sharedResul
 			return nil
 		}
 		refID := sharedResultID(ref.ResultID)
+		if c.resultsByID[refID] == nil {
+			return fmt.Errorf("missing result %d", refID)
+		}
 		if typeName, omitted := omittedResultTypes[refID]; omitted {
 			return fmt.Errorf("references non-persisted result %d (%s)", refID, typeName)
 		}

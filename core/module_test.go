@@ -9,6 +9,66 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestCurrentModulePersistenceRoundTripsModuleRef(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	cache, err := dagql.NewCache(ctx, "", nil, nil)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, cache.Close(context.Background()))
+	}()
+	ctx = dagql.ContextWithCache(ctx, cache)
+
+	root := &Query{}
+	dag := newCoreDagqlServerForTest(t, root)
+	dag.InstallObject(dagql.NewClass(dag, dagql.ClassOpts[*Module]{Typed: &Module{}}))
+
+	modCall := &dagql.ResultCall{
+		Kind:        dagql.ResultCallKindSynthetic,
+		SyntheticOp: "current-module-persistence-module",
+		Type:        dagql.NewResultCallType((&Module{}).Type()),
+	}
+	modAny, err := cache.GetOrInitCall(ctx, "current-module-persistence", dag, &dagql.CallRequest{
+		ResultCall:    modCall,
+		IsPersistable: true,
+	}, func(callCtx context.Context) (dagql.AnyResult, error) {
+		return dagql.NewObjectResultForCurrentCall(callCtx, dag, &Module{NameField: "persisted-current-module"})
+	})
+	require.NoError(t, err)
+	modRes, ok := modAny.(dagql.ObjectResult[*Module])
+	require.True(t, ok)
+
+	current := &CurrentModule{Module: modRes}
+	encoded, err := current.EncodePersistedObject(ctx, cache)
+	require.NoError(t, err)
+
+	decoded, err := (&CurrentModule{}).DecodePersistedObject(ctx, dag, 0, nil, encoded.JSON)
+	require.NoError(t, err)
+	decodedCurrent, ok := decoded.(*CurrentModule)
+	require.True(t, ok)
+	require.Equal(t, "persisted-current-module", decodedCurrent.Module.Self().NameField)
+
+	attachedMod, err := dagql.NewObjectResultForCall(
+		&Module{NameField: "attached-current-module"},
+		dag,
+		&dagql.ResultCall{
+			Kind:        dagql.ResultCallKindSynthetic,
+			SyntheticOp: "attached-current-module",
+			Type:        dagql.NewResultCallType((&Module{}).Type()),
+		},
+	)
+	require.NoError(t, err)
+	deps, err := current.AttachDependencyResults(ctx, nil, func(res dagql.AnyResult) (dagql.AnyResult, error) {
+		require.Equal(t, modRes.Self(), res.Unwrap())
+		return attachedMod, nil
+	})
+	require.NoError(t, err)
+	require.Len(t, deps, 1)
+	require.Equal(t, attachedMod.Self(), deps[0].Unwrap())
+	require.Equal(t, attachedMod.Self(), current.Module.Self())
+}
+
 func TestNamespaceSourceMap(t *testing.T) {
 	mod := &Module{NameField: "mymod"}
 

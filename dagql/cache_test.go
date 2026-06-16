@@ -4266,6 +4266,71 @@ func TestCacheTeachContentDigestWithResultRefs(t *testing.T) {
 	assert.Equal(t, 0, c.Size())
 }
 
+func TestCacheTeachContentDigestRetainsStoredFrameRefs(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	cacheIface, err := NewCache(ctx, "", nil, nil)
+	assert.NilError(t, err)
+	ctx = ContextWithCache(ctx, cacheIface)
+	c := cacheIface
+
+	depCall := cacheTestIntCall("teach-content-digest-retain-dep")
+	depRes, err := c.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{ResultCall: depCall}, func(context.Context) (AnyResult, error) {
+		return cacheTestIntResult(depCall, 11), nil
+	})
+	assert.NilError(t, err)
+	depShared := depRes.cacheSharedResult()
+	assert.Assert(t, depShared != nil)
+
+	rootCall := &ResultCall{
+		Kind:  ResultCallKindField,
+		Type:  NewResultCallType(Int(0).Type()),
+		Field: "teach-content-digest-retain-root",
+		Args: []*ResultCallArg{
+			{
+				Name: "dep",
+				Value: &ResultCallLiteral{
+					Kind: ResultCallLiteralKindResultRef,
+					ResultRef: &ResultCallRef{
+						ResultID: uint64(depShared.id),
+					},
+				},
+			},
+		},
+	}
+	rootRes, err := c.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{ResultCall: rootCall}, func(context.Context) (AnyResult, error) {
+		return cacheTestIntResult(rootCall, 22), nil
+	})
+	assert.NilError(t, err)
+	rootShared := rootRes.cacheSharedResult()
+	assert.Assert(t, rootShared != nil)
+
+	c.egraphMu.Lock()
+	delete(rootShared.deps, depShared.id)
+	c.forgetDependencyEdgeLocked(rootShared.id, depShared.id)
+	_, err = c.decrementIncomingOwnershipLocked(ctx, depShared, nil)
+	assert.NilError(t, err)
+	incomingBeforeTeach := depShared.incomingOwnershipCount
+	c.egraphMu.Unlock()
+
+	contentDigest := digest.FromString("teach-content-digest-retains-stored-frame-refs")
+	assert.NilError(t, c.TeachContentDigest(ctx, rootRes, contentDigest))
+
+	c.egraphMu.RLock()
+	_, retainedDep := rootShared.deps[depShared.id]
+	depParentsHasRoot := depShared.depParents != nil && depShared.depParents.Contains(rootShared.id)
+	incomingAfterTeach := depShared.incomingOwnershipCount
+	c.egraphMu.RUnlock()
+
+	assert.Assert(t, retainedDep)
+	assert.Assert(t, depParentsHasRoot)
+	assert.Equal(t, incomingBeforeTeach+1, incomingAfterTeach)
+
+	cacheTestReleaseSession(t, c, ctx)
+	assert.Equal(t, 0, c.Size())
+}
+
 func TestDerefValueForNullables(t *testing.T) {
 	t.Parallel()
 

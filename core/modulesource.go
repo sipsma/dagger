@@ -141,6 +141,30 @@ func (*SDKConfig) TypeDescription() string {
 	return "The SDK config of the module."
 }
 
+var _ dagql.PersistedObject = (*SDKConfig)(nil)
+var _ dagql.PersistedObjectDecoder = (*SDKConfig)(nil)
+
+func (sdk *SDKConfig) EncodePersistedObject(context.Context, dagql.PersistedObjectCache) (dagql.PersistedObjectEncoding, error) {
+	if sdk == nil {
+		return dagql.PersistedObjectEncoding{}, fmt.Errorf("encode persisted sdk config: nil sdk config")
+	}
+	return encodePersistedObjectPayload(sdk)
+}
+
+func (*SDKConfig) DecodePersistedObject(
+	_ context.Context,
+	_ *dagql.Server,
+	_ uint64,
+	_ *dagql.ResultCall,
+	payload json.RawMessage,
+) (dagql.Typed, error) {
+	var sdk SDKConfig
+	if err := json.Unmarshal(payload, &sdk); err != nil {
+		return nil, fmt.Errorf("decode persisted sdk config payload: %w", err)
+	}
+	return &sdk, nil
+}
+
 func (sdk SDKConfig) Clone() *SDKConfig {
 	cp := sdk
 	return &cp

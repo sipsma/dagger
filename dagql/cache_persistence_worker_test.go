@@ -395,6 +395,96 @@ func TestCachePersistenceWorkerRejectsMarkedNonPersistedCallFrameArgRef(t *testi
 	assert.ErrorContains(t, err, `call frame refs: arg "input": references non-persisted result`)
 }
 
+func TestCachePersistenceWorkerRejectsMissingCallFrameRef(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	cacheIface, err := NewCache(ctx, dbPath, nil, nil)
+	assert.NilError(t, err)
+	c := cacheIface
+	defer c.Close(context.Background())
+
+	parent := &sharedResult{
+		id:       1,
+		self:     Int(7),
+		hasValue: true,
+		resultCall: &ResultCall{
+			Kind:  ResultCallKindField,
+			Type:  NewResultCallType(Int(0).Type()),
+			Field: "persist-worker-missing-call-ref-parent",
+			Args: []*ResultCallArg{{
+				Name: "missing",
+				Value: &ResultCallLiteral{
+					Kind:      ResultCallLiteralKindResultRef,
+					ResultRef: &ResultCallRef{ResultID: 99},
+				},
+			}},
+		},
+	}
+	c.egraphMu.Lock()
+	c.initEgraphLocked()
+	c.resultsByID[parent.id] = parent
+	c.egraphMu.Unlock()
+
+	_, err = c.snapshotPersistState(ctx)
+	assert.ErrorContains(t, err, `persist result 1 call frame refs: arg "missing": missing result 99`)
+}
+
+func TestCachePersistenceWorkerMirrorsCallFrameRefsAsDeps(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	cacheIface, err := NewCache(ctx, dbPath, nil, nil)
+	assert.NilError(t, err)
+	c := cacheIface
+	defer c.Close(context.Background())
+
+	child := &sharedResult{
+		id:         1,
+		self:       Int(3),
+		hasValue:   true,
+		resultCall: cacheTestIntCall("persist-worker-call-frame-dep-child"),
+	}
+	parent := &sharedResult{
+		id:       2,
+		self:     Int(4),
+		hasValue: true,
+		resultCall: &ResultCall{
+			Kind:  ResultCallKindField,
+			Type:  NewResultCallType(Int(0).Type()),
+			Field: "persist-worker-call-frame-dep-parent",
+			Args: []*ResultCallArg{{
+				Name: "child",
+				Value: &ResultCallLiteral{
+					Kind:      ResultCallLiteralKindResultRef,
+					ResultRef: &ResultCallRef{ResultID: uint64(child.id)},
+				},
+			}},
+		},
+	}
+	c.egraphMu.Lock()
+	c.initEgraphLocked()
+	c.resultsByID[child.id] = child
+	c.resultsByID[parent.id] = parent
+	c.egraphMu.Unlock()
+
+	snapshot, err := c.snapshotPersistState(ctx)
+	assert.NilError(t, err)
+	var parentDeps []persistdb.MirrorResultDep
+	for _, result := range snapshot.results {
+		if result.resultID == parent.id {
+			parentDeps = result.resultDeps
+			break
+		}
+	}
+	assert.DeepEqual(t, parentDeps, []persistdb.MirrorResultDep{{
+		ParentResultID: int64(parent.id),
+		DepResultID:    int64(child.id),
+	}})
+}
+
 func TestCachePersistenceWorkerRejectsMarkedNonPersistedPayloadRef(t *testing.T) {
 	t.Parallel()
 

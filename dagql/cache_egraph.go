@@ -1068,6 +1068,10 @@ func (c *Cache) TeachContentDigest(ctx context.Context, res AnyResult, contentDi
 			c.egraphMu.Unlock()
 			return err
 		}
+		if err := c.addResultCallDependencyEdgesLocked(ctx, shared, frame); err != nil {
+			c.egraphMu.Unlock()
+			return fmt.Errorf("teach content digest: retain result call dependencies: %w", err)
+		}
 		shared.storeResultCall(frame)
 		c.traceResultCallFrameUpdated(ctx, shared, "teach_content_digest", baseFrame, frame)
 		c.egraphMu.Unlock()
@@ -1491,6 +1495,9 @@ func (c *Cache) indexWaitResultInEgraphLocked(
 	if res.loadResultCall() == nil && requestFrame != nil {
 		res.storeResultCall(requestFrame.clone())
 		c.traceResultCallFrameUpdated(ctx, res, "index_wait_result_request_frame", nil, res.loadResultCall())
+		if err := c.addResultCallDependencyEdgesLocked(ctx, res, res.loadResultCall()); err != nil {
+			return fmt.Errorf("index result call dependencies: %w", err)
+		}
 	}
 	c.traceResultCreated(ctx, res)
 

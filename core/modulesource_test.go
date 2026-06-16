@@ -106,6 +106,29 @@ func TestModuleSourcePersistenceRetainsSelfCallsCapability(t *testing.T) {
 	require.True(t, decodedSrc.SelfCallsEnabled())
 }
 
+func TestSDKConfigPersistenceRoundTripsStandaloneConfig(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	sdk := &SDKConfig{
+		Source: "go",
+		Debug:  true,
+		Config: map[string]any{
+			"module": "github.com/example/sdk",
+		},
+		Experimental: map[string]bool{
+			"selfCalls": true,
+		},
+	}
+
+	encoded, err := sdk.EncodePersistedObject(ctx, nil)
+	require.NoError(t, err)
+
+	decoded, err := (&SDKConfig{}).DecodePersistedObject(ctx, nil, 0, nil, encoded.JSON)
+	require.NoError(t, err)
+	require.Equal(t, sdk, decoded)
+}
+
 func TestGitModuleSourceSymbolic(t *testing.T) {
 	testCases := []struct {
 		name        string
