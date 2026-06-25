@@ -93,13 +93,27 @@ func beginOTelPublishResult(ctx context.Context) trace.Span {
 // the loader rebases), and decimal strings round-trip exactly through Cloud's
 // map[string]any JSON decode where a number would lose precision above 2^53.
 func emitOTelCallWait(ctx context.Context, target trace.SpanContext, reason wcprof.WaitReason, startNS, endNS int64) {
-	if !target.IsValid() {
-		return
-	}
 	span := trace.SpanFromContext(ctx)
 	if !span.IsRecording() {
+		// No recording waiter to attach the edge to: this caller has no op in the
+		// loaded graph, so there is no self-time to over-credit and nothing to
+		// under-serialize. Telemetry-off path; allocation-free.
 		return
 	}
+	// Attach the wait edge even when target is invalid. In the always-on model
+	// the executor and every caller record uniformly, so a recording waiter's
+	// target (oc.execSpanCtx) is always valid (Invariant T). The only way it is
+	// invalid here is a non-uniform / mixed-recording trace — e.g. a recording
+	// caller joining a singleflight execution started by an *untraced* session
+	// (ongoingCalls is keyed by call+concurrency, not session). We must not drop
+	// the edge silently: a never-emitted wait is the under-serialization the
+	// §6.1 gate exists to catch. Emitting it with a zero target still carries
+	// attributes, so the SDK retains the link (recordingSpan.AddLink keeps any
+	// attributed link), the loader resolves no target and counts an unresolved
+	// wait, and the structural gate fails loud — exactly mirroring native, whose
+	// targetless wcprof.BeginWait the gate also sees as unresolved. Such a trace
+	// mixes recorded and unrecorded in-flight work and cannot be faithfully
+	// analyzed anyway, so failing loud is the correct outcome.
 	span.AddLink(trace.Link{
 		SpanContext: target,
 		Attributes: []attribute.KeyValue{
