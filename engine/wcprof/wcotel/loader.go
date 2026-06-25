@@ -1,0 +1,512 @@
+// Package wcotel compiles the engine's OTel telemetry (the traces that flow to
+// Dagger Cloud) into the same wcprof IR the native recorder produces, so the
+// unchanged wcanalyze replay can rank wall-clock bottlenecks from a trace.
+//
+// It is the "OTel source" half of the wcprof × OTel design
+// (hack/designs/wcprof-otel-design.md). The loader does *only* mechanical
+// translation — zero causal inference (design §5): spans become ops, the
+// engine's explicit wait-edge links (design §3.0) become wait events, and the
+// causal parent of an op is the engine-emitted wcprof.parent override if
+// present, else the span's parentId (design §1.1, Invariant E). Any cycle or
+// impossible structure in the loaded graph is a bug in the *emit* side, made
+// loud by the structural gate (gate.go, design §6.1) — never papered over here.
+//
+// Chunk 1 reads the dev-loop front-end: otlpdump JSONL (the telemetry-capture
+// skill). The production front-end (the Dagger Cloud trace API) is a later
+// chunk; it produces the same neutral Span values and reuses Compile unchanged.
+package wcotel
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"io"
+	"sort"
+	"strconv"
+
+	telemetry "github.com/dagger/otel-go"
+
+	"github.com/dagger/dagger/engine/telemetryattrs"
+	"github.com/dagger/dagger/engine/wcprof"
+	"github.com/dagger/dagger/engine/wcprof/wcanalyze"
+)
+
+// Span is the neutral, front-end-agnostic representation of one OTel span the
+// loader compiles. The otlpdump JSONL front-end (this file) and the future
+// Cloud trace-API front-end both produce these; Compile consumes them.
+type Span struct {
+	// SpanID and ParentID are lower-hex OTel ids (16 hex chars). An empty or
+	// all-zero ParentID means the span is a trace root.
+	SpanID   string
+	ParentID string
+	Name     string
+	// StartUnixNS/EndUnixNS are absolute Unix nanoseconds. EndUnixNS == 0 marks
+	// a span exported on start but not yet on end (in-flight / live-only).
+	StartUnixNS uint64
+	EndUnixNS   uint64
+	Attrs       map[string]any
+	// StatusError is true when the span's OTel status code is ERROR.
+	StatusError bool
+	Links       []Link
+	// DroppedLinks is the OTLP Span.DroppedLinksCount: links the SDK evicted
+	// because the span exceeded its LinkCountLimit. Surfaced by the structural
+	// gate (design §6.1) because dropped wait links silently under-serialize.
+	DroppedLinks int
+}
+
+// Link is one OTel span link on a Span.
+type Link struct {
+	// SpanID is the link target's span id (lower-hex).
+	SpanID string
+	Attrs  map[string]any
+	// DroppedAttrs is the OTLP per-link DroppedAttributesCount.
+	DroppedAttrs int
+}
+
+// Compiled is the loader's output: the wcprof IR (ready for wcanalyze.Build)
+// plus the provenance the structural gate needs but the Graph does not carry
+// (dropped-link counts, malformed-wait counts).
+type Compiled struct {
+	Header *wcprof.DumpHeader
+	Events []wcprof.DumpEvent
+
+	SpanCount     int
+	OpenSpanCount int
+	WaitEdgeCount int
+
+	// Dropped-count provenance (otlpdump path; design §6.1). The Cloud path
+	// cannot report these, so they are engineered out via LinkCountLimit there.
+	TotalDroppedLinks       int
+	TotalDroppedLinkAttrs   int
+	WaitBearingDroppedLinks int // dropped links on spans that carry ≥1 wait link
+	WaitLinkDroppedAttrs    int // dropped attributes on wait links specifically
+
+	// MalformedWaitTimings counts wait links whose wcprof.wait.*_unix_ns
+	// attributes were missing or unparseable (a malformed emit; conservatively
+	// recorded as a zero-duration wait at the waiter's start).
+	MalformedWaitTimings int
+}
+
+// Load parses an otlpdump JSONL stream, compiles it to the wcprof IR, and
+// builds the analyzer graph.
+func Load(r io.Reader) (*Compiled, *wcanalyze.Graph, error) {
+	spans, err := ParseOTLPDumpJSONL(r)
+	if err != nil {
+		return nil, nil, err
+	}
+	c, err := Compile(spans)
+	if err != nil {
+		return nil, nil, err
+	}
+	g, err := wcanalyze.Build(c.Header, c.Events)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build graph: %w", err)
+	}
+	return c, g, nil
+}
+
+// otlpSpan/otlpLink mirror the otlpdump JSONL wire shape (hack/otlpdump). Note
+// the integer timestamp fields are typed (uint64), so encoding/json parses them
+// exactly — decoding into interface{}/map[string]any would coerce them to
+// float64 and lose nanosecond precision above 2^53. The wait-edge timestamps
+// (carried in link attributes, a map[string]any) dodge the same trap by being
+// decimal *strings* on the wire (design §3.0).
+type otlpSpan struct {
+	Kind         string         `json:"kind"`
+	SpanID       string         `json:"spanId"`
+	ParentID     string         `json:"parentId"`
+	Name         string         `json:"name"`
+	StartNs      uint64         `json:"startNs"`
+	EndNs        uint64         `json:"endNs"`
+	Attrs        map[string]any `json:"attrs"`
+	Status       string         `json:"status"`
+	Links        []otlpLink     `json:"links"`
+	DroppedLinks int            `json:"droppedLinks"`
+}
+
+type otlpLink struct {
+	SpanID       string         `json:"spanId"`
+	Attrs        map[string]any `json:"attrs"`
+	DroppedAttrs int            `json:"droppedAttrs"`
+}
+
+// ParseOTLPDumpJSONL reads an otlpdump JSONL capture and returns its spans
+// (log and metric lines are ignored).
+func ParseOTLPDumpJSONL(r io.Reader) ([]Span, error) {
+	sc := bufio.NewScanner(r)
+	// otlpdump lines (a span with a large dag.call attribute) can be long.
+	sc.Buffer(make([]byte, 0, 1<<20), 64<<20)
+	var spans []Span
+	for line := 0; sc.Scan(); line++ {
+		raw := sc.Bytes()
+		if len(raw) == 0 {
+			continue
+		}
+		var s otlpSpan
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return nil, fmt.Errorf("otlpdump line %d: %w", line+1, err)
+		}
+		if s.Kind != "span" {
+			continue
+		}
+		links := make([]Link, 0, len(s.Links))
+		for _, l := range s.Links {
+			links = append(links, Link{SpanID: l.SpanID, Attrs: l.Attrs, DroppedAttrs: l.DroppedAttrs})
+		}
+		spans = append(spans, Span{
+			SpanID:       s.SpanID,
+			ParentID:     s.ParentID,
+			Name:         s.Name,
+			StartUnixNS:  s.StartNs,
+			EndUnixNS:    s.EndNs,
+			Attrs:        s.Attrs,
+			StatusError:  isErrorStatus(s.Status),
+			Links:        links,
+			DroppedLinks: s.DroppedLinks,
+		})
+	}
+	if err := sc.Err(); err != nil {
+		return nil, fmt.Errorf("read otlpdump: %w", err)
+	}
+	return spans, nil
+}
+
+// Compile maps a set of one trace's spans to the wcprof IR (design §5),
+// performing only mechanical translation.
+func Compile(spans []Span) (*Compiled, error) {
+	c := &Compiled{}
+
+	// Step 1: dedup live-exported duplicates — keep the ended copy (max end).
+	bySpan := make(map[string]Span, len(spans))
+	for _, s := range spans {
+		if s.SpanID == "" {
+			continue
+		}
+		if prev, ok := bySpan[s.SpanID]; !ok || s.EndUnixNS > prev.EndUnixNS {
+			bySpan[s.SpanID] = s
+		}
+	}
+	deduped := make([]Span, 0, len(bySpan))
+	for _, s := range bySpan {
+		deduped = append(deduped, s)
+	}
+	c.SpanCount = len(deduped)
+	if len(deduped) == 0 {
+		return nil, fmt.Errorf("no spans to compile")
+	}
+
+	// Deterministic op-id assignment: sort by (start, span id) and number 1..N.
+	sort.Slice(deduped, func(i, j int) bool {
+		if deduped[i].StartUnixNS != deduped[j].StartUnixNS {
+			return deduped[i].StartUnixNS < deduped[j].StartUnixNS
+		}
+		return deduped[i].SpanID < deduped[j].SpanID
+	})
+	opIDBySpan := make(map[string]uint64, len(deduped))
+	for i, s := range deduped {
+		opIDBySpan[s.SpanID] = uint64(i + 1)
+	}
+
+	// Epoch = min span start; trace end = max ended-span end. Op intervals (and
+	// wait intervals) are rebased to the epoch, matching the dump's relative-ns
+	// convention (design §5 step 2; wcprof/dump.go).
+	epoch := int64(deduped[0].StartUnixNS) // sorted, so this is the min start
+	var traceEnd int64
+	for _, s := range deduped {
+		if s.EndUnixNS > 0 {
+			if e := int64(s.EndUnixNS); e > traceEnd {
+				traceEnd = e
+			}
+		}
+	}
+	if traceEnd < epoch {
+		traceEnd = epoch
+	}
+
+	// Identify which spans host a call_exec child, so the structural
+	// withExec⇒exec fallback can be suppressed once the corrected shape exists
+	// (design §5 step 2; impl-plan Chunk 1 op-kind precedence). A call_exec
+	// span's causal parent is the caller call span.
+	hasCallExecChild := make(map[uint64]bool)
+	for _, s := range deduped {
+		if attrStr(s.Attrs, telemetryattrs.WcprofOpKindAttr) == wcprof.OpKindCallExec.String() {
+			if pid := opIDBySpan[causalParentSpanID(s)]; pid != 0 {
+				hasCallExecChild[pid] = true
+			}
+		}
+	}
+
+	str := newStringTable()
+	resultIDs := newU64Interner()
+	var (
+		events  []wcprof.DumpEvent
+		openOps []wcprof.DumpOpenOp
+	)
+
+	for _, s := range deduped {
+		opID := opIDBySpan[s.SpanID]
+		parentID := opIDBySpan[causalParentSpanID(s)]
+		if parentID == opID {
+			parentID = 0 // never self-parent
+		}
+		kind := classifyKind(s, hasCallExecChild[opID])
+		class := s.Name
+		ident := attrStr(s.Attrs, telemetry.DagDigestAttr)
+		workType := attrStr(s.Attrs, telemetryattrs.WcprofWorkTypeAttr)
+		if workType == "" {
+			workType = wcprof.WorkTypeEngine.String()
+		}
+		var resultID uint64
+		if out := attrStr(s.Attrs, telemetry.DagOutputAttr); out != "" {
+			resultID = resultIDs.intern(out)
+		}
+
+		if s.EndUnixNS == 0 {
+			// In-flight at capture: an open op (Build ends it at dump time).
+			c.OpenSpanCount++
+			openOps = append(openOps, wcprof.DumpOpenOp{
+				OpID:     opID,
+				ParentID: parentID,
+				Kind:     kind,
+				WorkType: workType,
+				ClassID:  str.intern(class),
+				IdentID:  str.intern(ident),
+				StartNS:  int64(s.StartUnixNS) - epoch,
+			})
+			continue
+		}
+
+		events = append(events, wcprof.DumpEvent{
+			Type:     "op",
+			OpKind:   kind,
+			WorkType: workType,
+			Outcome:  computeOutcome(s),
+			OpID:     opID,
+			ParentID: parentID,
+			ResultID: resultID,
+			ClassID:  str.intern(class),
+			IdentID:  str.intern(ident),
+			StartNS:  int64(s.StartUnixNS) - epoch,
+			EndNS:    int64(s.EndUnixNS) - epoch,
+		})
+	}
+
+	// Step 3: wait-edge links → wait events, attributed to the waiter span.
+	for _, s := range deduped {
+		waiterID := opIDBySpan[s.SpanID]
+		spanHasWait := false
+		for _, l := range s.Links {
+			if attrStr(l.Attrs, telemetry.LinkPurposeAttr) != telemetryattrs.LinkPurposeWait {
+				continue
+			}
+			spanHasWait = true
+			c.WaitEdgeCount++
+			c.WaitLinkDroppedAttrs += l.DroppedAttrs
+
+			reason := attrStr(l.Attrs, telemetryattrs.WcprofWaitReasonAttr)
+			ident := attrStr(l.Attrs, telemetryattrs.WcprofWaitIdentAttr)
+			var targetID uint64
+			if reason != wcprof.WaitReasonLock.String() {
+				targetID = opIDBySpan[normalizeSpanID(l.SpanID)]
+			}
+
+			startAbs, okS := parseUnixNS(l.Attrs, telemetryattrs.WcprofWaitStartUnixNanoAttr)
+			endAbs, okE := parseUnixNS(l.Attrs, telemetryattrs.WcprofWaitEndUnixNanoAttr)
+			var startNS, endNS int64
+			if okS && okE {
+				startNS = startAbs - epoch
+				endNS = endAbs - epoch
+			} else {
+				// Malformed emit: keep the causal target but a zero-duration,
+				// no-op interval (replay classifies it as an abandoned wait).
+				c.MalformedWaitTimings++
+				startNS = int64(s.StartUnixNS) - epoch
+				endNS = startNS
+			}
+
+			events = append(events, wcprof.DumpEvent{
+				Type:     "wait",
+				Reason:   reason,
+				ParentID: waiterID,
+				TargetID: targetID,
+				IdentID:  str.intern(ident),
+				StartNS:  startNS,
+				EndNS:    endNS,
+			})
+		}
+		if spanHasWait && s.DroppedLinks > 0 {
+			c.WaitBearingDroppedLinks += s.DroppedLinks
+		}
+		c.TotalDroppedLinks += s.DroppedLinks
+		for _, l := range s.Links {
+			c.TotalDroppedLinkAttrs += l.DroppedAttrs
+		}
+	}
+
+	c.Header = &wcprof.DumpHeader{
+		SchemaVersion:  wcprof.DumpSchemaVersion,
+		EpochUnixNano:  epoch,
+		DumpedUnixNano: traceEnd,
+		EventCount:     len(events),
+		Strings:        str.values,
+		OpenOps:        openOps,
+	}
+	c.Events = events
+	return c, nil
+}
+
+// classifyKind picks the op kind for a span (design §5 step 2; impl-plan
+// Chunk 1 precedence): an explicit wcprof.op.kind always wins; otherwise a
+// DagQL call span stays "call". The structural withExec⇒exec fallback exists
+// only to give the intentionally-wrong un-augmented baseline some shape and is
+// suppressed the moment the corrected shape exists (a call_exec child or a
+// wcprof.op.kind), so the class table converges to native rather than drifting.
+func classifyKind(s Span, hasCallExecChild bool) string {
+	if k := attrStr(s.Attrs, telemetryattrs.WcprofOpKindAttr); k != "" {
+		return k
+	}
+	if hasCallExecChild {
+		return wcprof.OpKindCall.String()
+	}
+	if s.Name == "Container.withExec" {
+		return wcprof.OpKindExec.String()
+	}
+	if attrStr(s.Attrs, telemetry.DagDigestAttr) != "" {
+		return wcprof.OpKindCall.String()
+	}
+	return "" // unclassified (session root, leaf I/O, …) — future seams
+}
+
+// computeOutcome maps the available status/cache attributes to a wcprof
+// outcome (design §5 step 2). An un-augmented call span cannot distinguish
+// executed/joined/do_not_cache, so a non-cached success is reported as the
+// generic "ok" rather than over-claiming an execution (Chunk 2's call_exec
+// makes the distinction faithful).
+func computeOutcome(s Span) string {
+	switch {
+	case attrBool(s.Attrs, telemetry.CanceledAttr):
+		return wcprof.OutcomeCanceled.String()
+	case s.StatusError:
+		return wcprof.OutcomeError.String()
+	case attrBool(s.Attrs, telemetry.CachedAttr):
+		return wcprof.OutcomeHit.String()
+	default:
+		return wcprof.OutcomeOK.String()
+	}
+}
+
+// causalParentSpanID is the loader's only parentage rule: the engine-emitted
+// wcprof.parent override if present, else the span's parentId (design §1.1
+// Invariant E, §5). The loader only reads the override; it never derives one.
+func causalParentSpanID(s Span) string {
+	if p := attrStr(s.Attrs, telemetryattrs.WcprofParentAttr); p != "" {
+		return normalizeSpanID(p)
+	}
+	return normalizeSpanID(s.ParentID)
+}
+
+// normalizeSpanID treats an empty or all-zero span id as "none".
+func normalizeSpanID(id string) string {
+	if id == "" {
+		return ""
+	}
+	for _, ch := range id {
+		if ch != '0' {
+			return id
+		}
+	}
+	return ""
+}
+
+func isErrorStatus(status string) bool {
+	// otlpdump renders Status.Code.String(), e.g. "STATUS_CODE_ERROR".
+	return status == "STATUS_CODE_ERROR" || status == "Error"
+}
+
+func attrStr(m map[string]any, key string) string {
+	if v, ok := m[key]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+func attrBool(m map[string]any, key string) bool {
+	if v, ok := m[key]; ok {
+		if b, ok := v.(bool); ok {
+			return b
+		}
+	}
+	return false
+}
+
+// parseUnixNS parses a decimal-string absolute-Unix-nanos attribute exactly
+// (design §3.0: strings, not numbers, to survive the map[string]any float64
+// coercion). A non-string value is also accepted defensively for forward
+// compatibility, but the canonical wire form is the decimal string.
+func parseUnixNS(m map[string]any, key string) (int64, bool) {
+	v, ok := m[key]
+	if !ok {
+		return 0, false
+	}
+	switch n := v.(type) {
+	case string:
+		got, err := strconv.ParseInt(n, 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		return got, true
+	case json.Number:
+		got, err := n.Int64()
+		if err != nil {
+			return 0, false
+		}
+		return got, true
+	default:
+		return 0, false
+	}
+}
+
+// stringTable interns class/ident strings into the dump header's table, with
+// id 0 reserved for the empty string (matching wcprof's recorder convention).
+type stringTable struct {
+	byValue map[string]uint32
+	values  []string
+}
+
+func newStringTable() *stringTable {
+	return &stringTable{byValue: map[string]uint32{"": 0}, values: []string{""}}
+}
+
+func (t *stringTable) intern(s string) uint32 {
+	if s == "" {
+		return 0
+	}
+	if id, ok := t.byValue[s]; ok {
+		return id
+	}
+	id := uint32(len(t.values))
+	t.values = append(t.values, s)
+	t.byValue[s] = id
+	return id
+}
+
+// u64Interner assigns dense uint64 ids to strings (used for the dag.output
+// result-id seam, which shares no id space with op ids).
+type u64Interner struct {
+	byValue map[string]uint64
+}
+
+func newU64Interner() *u64Interner {
+	return &u64Interner{byValue: map[string]uint64{}}
+}
+
+func (t *u64Interner) intern(s string) uint64 {
+	if id, ok := t.byValue[s]; ok {
+		return id
+	}
+	id := uint64(len(t.byValue) + 1)
+	t.byValue[s] = id
+	return id
+}

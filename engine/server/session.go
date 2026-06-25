@@ -750,7 +750,18 @@ func (srv *Server) initializeDaggerClient(
 
 	// configure OTel providers that export to SQLite
 	client.spanExporter = srv.telemetryPubSub.Spans(client)
+	// Raise the per-span link cap well above the SDK default of 128. The wcprof
+	// OTel profiling source emits runtime wait edges as span links attached to
+	// the *waiter*; a span that hosts many concurrent telemetry-suppressed
+	// siblings can accrue many such links, and the default cap evicts the
+	// *oldest* links on overflow — silently dropping the earliest waits and
+	// under-serializing the analysis. Build from NewSpanLimits() so every other
+	// limit keeps its default; WithRawSpanLimits would treat a zero-valued field
+	// as a real zero limit. See hack/designs/wcprof-otel-design.md §3.0.
+	spanLimits := sdktrace.NewSpanLimits()
+	spanLimits.LinkCountLimit = 16384
 	tracerOpts := []sdktrace.TracerProviderOption{
+		sdktrace.WithRawSpanLimits(spanLimits),
 		// save to our own client's DB
 		sdktrace.WithSpanProcessor(telemetry.NewLiveSpanProcessor(
 			client.spanExporter,
