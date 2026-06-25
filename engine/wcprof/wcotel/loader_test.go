@@ -73,6 +73,8 @@ const (
 	idNone  = "0000000000000000"
 	baseEp  = 1_700_000_000_000_000_000 // > 2^53: exercises the float64 trap
 	baseEnd = 1_700_000_001_000_000_000
+	traceA  = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	traceB  = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 )
 
 // TestParseDedupKeepsEndedCopy: a live-exported span appears on start (end=0)
@@ -345,5 +347,67 @@ func TestOpenSpanRoutedToOpenOps(t *testing.T) {
 	}
 	if c.Header.OpenOps[0].ParentID == 0 {
 		t.Fatal("open op should retain its parent")
+	}
+}
+
+// TestParseCarriesTraceID: the front-end retains traceId so Compile can enforce
+// the one-trace invariant.
+func TestParseCarriesTraceID(t *testing.T) {
+	jsonl := toJSONL(t, rec(map[string]any{"traceId": traceA, "spanId": idA, "name": "A", "startNs": baseEp, "endNs": baseEnd}))
+	spans, err := ParseOTLPDumpJSONL(strings.NewReader(jsonl))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(spans) != 1 || spans[0].TraceID != traceA {
+		t.Fatalf("traceId not carried: %+v", spans)
+	}
+}
+
+// TestCompileRejectsMultipleTraces: appending two runs into one otlpdump file
+// (two trace ids) must be rejected, not silently merged into a multi-root graph
+// (design §10 decision 2).
+func TestCompileRejectsMultipleTraces(t *testing.T) {
+	jsonl := toJSONL(t,
+		rec(map[string]any{"traceId": traceA, "spanId": idA, "parentId": idNone, "name": "A", "startNs": baseEp, "endNs": baseEnd}),
+		rec(map[string]any{"traceId": traceB, "spanId": idB, "parentId": idNone, "name": "B", "startNs": baseEp, "endNs": baseEnd}),
+	)
+	spans, err := ParseOTLPDumpJSONL(strings.NewReader(jsonl))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if _, err := Compile(spans); err == nil {
+		t.Fatal("multi-trace input must be rejected")
+	}
+}
+
+// TestSelfParentGuardCleared: a causal parent that resolves to the op itself is
+// cleared to a root (never a self-edge).
+func TestSelfParentGuardCleared(t *testing.T) {
+	jsonl := toJSONL(t, rec(map[string]any{
+		"spanId": idA, "parentId": idNone, "name": "Container.x", "startNs": baseEp, "endNs": baseEnd,
+		"attrs": map[string]any{telemetryattrs.WcprofParentAttr: idA},
+	}))
+	if op := findOp(mustCompile(t, jsonl), "Container.x"); op.ParentID != 0 {
+		t.Fatalf("self-parent must be cleared to 0, got %d", op.ParentID)
+	}
+}
+
+// TestCompileEmptyInputErrors: no spans is an error, not an empty graph.
+func TestCompileEmptyInputErrors(t *testing.T) {
+	if _, err := Compile(nil); err == nil {
+		t.Fatal("empty input must error")
+	}
+}
+
+// TestCompileCountsSkippedNoSpanID: a record with no span id is unmappable and
+// counted, never silently dropped.
+func TestCompileCountsSkippedNoSpanID(t *testing.T) {
+	jsonl := toJSONL(t,
+		rec(map[string]any{"spanId": idA, "parentId": idNone, "name": "A", "startNs": baseEp, "endNs": baseEnd}),
+		rec(map[string]any{"spanId": "", "name": "B", "startNs": baseEp, "endNs": baseEnd}),
+	)
+	c := mustCompile(t, jsonl)
+	if c.SkippedNoSpanID != 1 {
+		t.Fatalf("want 1 skipped no-span-id record, got %d", c.SkippedNoSpanID)
 	}
 }

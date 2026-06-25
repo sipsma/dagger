@@ -35,6 +35,10 @@ import (
 // loader compiles. The otlpdump JSONL front-end (this file) and the future
 // Cloud trace-API front-end both produce these; Compile consumes them.
 type Span struct {
+	// TraceID is the lower-hex OTel trace id (32 hex chars). The loader's unit
+	// of analysis is one trace (design §10 decision 2); Compile rejects a span
+	// set spanning more than one trace.
+	TraceID string
 	// SpanID and ParentID are lower-hex OTel ids (16 hex chars). An empty or
 	// all-zero ParentID means the span is a trace root.
 	SpanID   string
@@ -73,6 +77,9 @@ type Compiled struct {
 	SpanCount     int
 	OpenSpanCount int
 	WaitEdgeCount int
+	// SkippedNoSpanID counts records dropped in dedup for lacking a span id
+	// (unmappable; surfaced so the skip is never silent).
+	SkippedNoSpanID int
 
 	// Dropped-count provenance (otlpdump path; design §6.1). The Cloud path
 	// cannot report these, so they are engineered out via LinkCountLimit there.
@@ -81,9 +88,16 @@ type Compiled struct {
 	WaitBearingDroppedLinks int // dropped links on spans that carry ≥1 wait link
 	WaitLinkDroppedAttrs    int // dropped attributes on wait links specifically
 
+	// UnresolvedWaitTargets counts non-lock wait links whose target span id did
+	// not resolve to an op (a missing/truncated target — Invariant T regression,
+	// front-end loss, or typo). Build leaves such waits targetless and replay
+	// degrades them from a join to a fixed delay, losing counterfactual
+	// propagation to the target class; the gate makes this loud (design §6.1).
+	UnresolvedWaitTargets int
+
 	// MalformedWaitTimings counts wait links whose wcprof.wait.*_unix_ns
 	// attributes were missing or unparseable (a malformed emit; conservatively
-	// recorded as a zero-duration wait at the waiter's start).
+	// recorded as a zero-duration wait at the waiter's start, and failed by the gate).
 	MalformedWaitTimings int
 }
 
@@ -113,6 +127,7 @@ func Load(r io.Reader) (*Compiled, *wcanalyze.Graph, error) {
 // decimal *strings* on the wire (design §3.0).
 type otlpSpan struct {
 	Kind         string         `json:"kind"`
+	TraceID      string         `json:"traceId"`
 	SpanID       string         `json:"spanId"`
 	ParentID     string         `json:"parentId"`
 	Name         string         `json:"name"`
@@ -154,6 +169,7 @@ func ParseOTLPDumpJSONL(r io.Reader) ([]Span, error) {
 			links = append(links, Link{SpanID: l.SpanID, Attrs: l.Attrs, DroppedAttrs: l.DroppedAttrs})
 		}
 		spans = append(spans, Span{
+			TraceID:      s.TraceID,
 			SpanID:       s.SpanID,
 			ParentID:     s.ParentID,
 			Name:         s.Name,
@@ -177,10 +193,23 @@ func Compile(spans []Span) (*Compiled, error) {
 	c := &Compiled{}
 
 	// Step 1: dedup live-exported duplicates — keep the ended copy (max end).
+	// While iterating, reject input that spans more than one trace: the unit of
+	// analysis is one trace (design §10 decision 2), and otlpdump appends across
+	// runs, so two runs in one file must not silently merge into a multi-root
+	// graph.
 	bySpan := make(map[string]Span, len(spans))
+	traceID := ""
 	for _, s := range spans {
 		if s.SpanID == "" {
+			c.SkippedNoSpanID++
 			continue
+		}
+		if s.TraceID != "" {
+			if traceID == "" {
+				traceID = s.TraceID
+			} else if s.TraceID != traceID {
+				return nil, fmt.Errorf("otlpdump input spans more than one trace (%s, %s); the loader analyzes one trace (design §10) — capture each run to a fresh -out file", traceID, s.TraceID)
+			}
 		}
 		if prev, ok := bySpan[s.SpanID]; !ok || s.EndUnixNS > prev.EndUnixNS {
 			bySpan[s.SpanID] = s
@@ -218,6 +247,13 @@ func Compile(spans []Span) (*Compiled, error) {
 				traceEnd = e
 			}
 		}
+	}
+	// Dump time must not precede any span's start: a late in-flight span (one
+	// that starts after every ended span) would otherwise get a zero/negative
+	// open-op duration. deduped is start-sorted, so the last entry is the max
+	// start.
+	if maxStart := int64(deduped[len(deduped)-1].StartUnixNS); maxStart > traceEnd {
+		traceEnd = maxStart
 	}
 	if traceEnd < epoch {
 		traceEnd = epoch
@@ -308,6 +344,14 @@ func Compile(spans []Span) (*Compiled, error) {
 			var targetID uint64
 			if reason != wcprof.WaitReasonLock.String() {
 				targetID = opIDBySpan[normalizeSpanID(l.SpanID)]
+				if targetID == 0 {
+					// A non-lock wait must name a resolvable target span
+					// (Invariant T). A miss means the target was truncated or
+					// lost; the wait is still emitted (targetless ⇒ a fixed
+					// delay in replay) so the report renders, but the gate fails
+					// on it loudly (design §6.1).
+					c.UnresolvedWaitTargets++
+				}
 			}
 
 			startAbs, okS := parseUnixNS(l.Attrs, telemetryattrs.WcprofWaitStartUnixNanoAttr)

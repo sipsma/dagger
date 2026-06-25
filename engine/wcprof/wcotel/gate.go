@@ -37,20 +37,33 @@ type GateReport struct {
 	MakespanNS  int64
 	TraceSpanNS int64
 
-	// Hard invariants.
+	// Hard invariants — over-serialization.
 	ReplayErr      error
 	Cycles         int
 	SelfGtMakespan []*wcanalyze.Op
 	IntervalGtSpan []*wcanalyze.Op
-	// Dropped-link invariants (otlpdump path; design §6.1).
-	WaitBearingDroppedLinks int
-	WaitLinkDroppedAttrs    int
+
+	// Hard invariants — wait-edge loss (under-serialization). A faithful
+	// augmented trace must compile every wait edge or fail loudly; a lost wait
+	// silently degrades a join into a fixed delay and drops counterfactual
+	// propagation to the target class (design §6.1).
+	UnresolvedWaitTargets int // non-lock waits with no resolvable target
+	MalformedWaitTimings  int // waits with missing/unparseable timing
+
+	// Dropped-link signal (otlpdump path only — Cloud cannot report it). On a
+	// wait-carrying (augmented) trace any dropped link/link-attr is treated as
+	// wait loss and fails; on an un-augmented trace (no wait edges) a dropped
+	// non-wait link is benign and stays report-only, so un-augmented baselines
+	// captured from a stock 128-cap engine never false-positive.
+	TotalDroppedLinks       int
+	TotalDroppedLinkAttrs   int
+	WaitBearingDroppedLinks int // diagnostic: drops on a span that kept ≥1 wait
+	WaitLinkDroppedAttrs    int // diagnostic: dropped attrs on surviving wait links
 
 	// Soft / regression metrics.
-	FallbackAnchors      int
-	FallbackBound        int // MaxFallbackAnchors, echoed; 0 = report-only
-	TotalDroppedLinks    int
-	MalformedWaitTimings int
+	FallbackAnchors int
+	FallbackBound   int // MaxFallbackAnchors, echoed; 0 = report-only
+	SkippedNoSpanID int
 
 	violations []string
 }
@@ -65,11 +78,14 @@ func CheckStructural(c *Compiled, g *wcanalyze.Graph, opts GateOptions) GateRepo
 		WaitEdges:               c.WaitEdgeCount,
 		MakespanNS:              wcanalyze.ActualMakespanNS(g),
 		TraceSpanNS:             g.TraceEndNS - g.TraceStartNS,
+		UnresolvedWaitTargets:   c.UnresolvedWaitTargets,
+		MalformedWaitTimings:    c.MalformedWaitTimings,
+		TotalDroppedLinks:       c.TotalDroppedLinks,
+		TotalDroppedLinkAttrs:   c.TotalDroppedLinkAttrs,
 		WaitBearingDroppedLinks: c.WaitBearingDroppedLinks,
 		WaitLinkDroppedAttrs:    c.WaitLinkDroppedAttrs,
 		FallbackBound:           opts.MaxFallbackAnchors,
-		TotalDroppedLinks:       c.TotalDroppedLinks,
-		MalformedWaitTimings:    c.MalformedWaitTimings,
+		SkippedNoSpanID:         c.SkippedNoSpanID,
 	}
 
 	// Reuse the replay's own cycle/fallback signal (design §6.1).
@@ -99,11 +115,18 @@ func CheckStructural(c *Compiled, g *wcanalyze.Graph, opts GateOptions) GateRepo
 	if n := len(r.IntervalGtSpan); n > 0 {
 		r.violations = append(r.violations, fmt.Sprintf("%d op(s) with interval > trace span (e.g. a service-availability span leaking self-time, design §3.4)", n))
 	}
-	if r.WaitBearingDroppedLinks > 0 {
-		r.violations = append(r.violations, fmt.Sprintf("%d dropped link(s) on wait-bearing spans — wait edges were silently evicted (raise LinkCountLimit, design §3.0)", r.WaitBearingDroppedLinks))
+	if r.UnresolvedWaitTargets > 0 {
+		r.violations = append(r.violations, fmt.Sprintf("%d non-lock wait(s) with an unresolved target span — Invariant T regression or a truncated/lost target; the join degrades to a fixed delay (design §3.0.1, §6.1)", r.UnresolvedWaitTargets))
 	}
-	if r.WaitLinkDroppedAttrs > 0 {
-		r.violations = append(r.violations, fmt.Sprintf("%d dropped attribute(s) on wait links — a wait edge lost its timing/target", r.WaitLinkDroppedAttrs))
+	if r.MalformedWaitTimings > 0 {
+		r.violations = append(r.violations, fmt.Sprintf("%d wait(s) with missing/unparseable wcprof.wait.*_unix_ns timing — a malformed emit (design §3.0)", r.MalformedWaitTimings))
+	}
+	// Dropped-link wait-loss: only meaningful when the trace carries wait edges.
+	// This subsumes the surviving-wait predicate (a span that kept a wait but
+	// dropped links) and also catches a span that lost ALL its waits or a
+	// dropped link.purpose attribute — both invisible to that predicate.
+	if r.WaitEdges > 0 && (r.TotalDroppedLinks > 0 || r.TotalDroppedLinkAttrs > 0) {
+		r.violations = append(r.violations, fmt.Sprintf("%d dropped link(s) / %d dropped link-attr(s) on a wait-carrying trace — wait edges may have been silently evicted (raise LinkCountLimit, design §3.0)", r.TotalDroppedLinks, r.TotalDroppedLinkAttrs))
 	}
 	if opts.MaxFallbackAnchors > 0 && r.FallbackAnchors > opts.MaxFallbackAnchors {
 		r.violations = append(r.violations, fmt.Sprintf("fallback anchors %d exceed bound %d", r.FallbackAnchors, opts.MaxFallbackAnchors))
@@ -130,13 +153,18 @@ func (r GateReport) Write(w io.Writer) {
 	fmt.Fprintf(w, "  ops=%d roots=%d open=%d wait-edges=%d\n", r.OpCount, r.RootCount, r.OpenOps, r.WaitEdges)
 	fmt.Fprintf(w, "  cycles=%d  self>makespan=%d  interval>tracespan=%d\n",
 		r.Cycles, len(r.SelfGtMakespan), len(r.IntervalGtSpan))
+	fmt.Fprintf(w, "  wait-loss: unresolved-targets=%d  malformed-timing=%d\n",
+		r.UnresolvedWaitTargets, r.MalformedWaitTimings)
 	bound := "report-only"
 	if r.FallbackBound > 0 {
 		bound = fmt.Sprintf("bound %d", r.FallbackBound)
 	}
 	fmt.Fprintf(w, "  fallback-anchors=%d (%s)\n", r.FallbackAnchors, bound)
-	fmt.Fprintf(w, "  dropped-links: total=%d wait-bearing=%d wait-link-attrs=%d  malformed-waits=%d\n",
-		r.TotalDroppedLinks, r.WaitBearingDroppedLinks, r.WaitLinkDroppedAttrs, r.MalformedWaitTimings)
+	fmt.Fprintf(w, "  dropped-links: total=%d (%d attrs) wait-bearing=%d wait-link-attrs=%d\n",
+		r.TotalDroppedLinks, r.TotalDroppedLinkAttrs, r.WaitBearingDroppedLinks, r.WaitLinkDroppedAttrs)
+	if r.SkippedNoSpanID > 0 {
+		fmt.Fprintf(w, "  skipped (no span id)=%d\n", r.SkippedNoSpanID)
+	}
 	for _, v := range r.violations {
 		fmt.Fprintf(w, "  ! %s\n", v)
 	}
