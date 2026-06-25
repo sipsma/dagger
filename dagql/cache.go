@@ -1769,6 +1769,12 @@ type ongoingCall struct {
 	// profOpID is the wcprof op for the shared execution of this call, when
 	// profiling is enabled. Waiters record wait events against it.
 	profOpID uint64
+	// execSpanCtx is the OTel call_exec span for the shared execution (design
+	// §3.1), the analog of profOpID for the OTel profiling source. It is minted
+	// and stashed under callsMu before this ongoingCall is published, so every
+	// joiner has a valid wait target (Invariant T, design §3.0.1). Invalid when
+	// telemetry is off.
+	execSpanCtx trace.SpanContext
 
 	res *sharedResult
 }
@@ -3675,10 +3681,23 @@ func (c *Cache) getOrInitCallInner(
 			ClientID: profClientID(ctx),
 		})
 	}
+	// The OTel analog of execOp (design §3.1): the call_exec span for the OTel
+	// profiling source, minted here — on the call's detached context, under
+	// callsMu and before the ongoingCalls publish below (Invariant T, §3.0.1) —
+	// so the resolver's sub-call spans nest under it and every joiner has a valid
+	// wait target. Independent of wcprof so the OTel source works from a Cloud
+	// trace alone.
+	var execSpan trace.Span
+	if otelProfActive(callCtx) {
+		callCtx, execSpan = beginOTelCallExec(callCtx, callKey, profCallClass(req.ResultCall))
+	}
 	sharedWorkCtx, releaseSharedWorkLease, err := withOperationLease(withoutOperationLease(callCtx))
 	if err != nil {
 		c.callsMu.Unlock()
 		execOp.End(wcprof.OutcomeError)
+		if execSpan != nil {
+			execSpan.End()
+		}
 		return nil, fmt.Errorf("acquire shared operation lease: %w", err)
 	}
 	oc := &ongoingCall{
@@ -3692,6 +3711,11 @@ func (c *Cache) getOrInitCallInner(
 		releaseSharedWorkLeaseFn: releaseSharedWorkLease,
 		profOpID:                 execOp.ID(),
 	}
+	if execSpan != nil {
+		// stash the call_exec span context as the joiner wait target, under
+		// callsMu and before the ongoingCalls publish below (Invariant T)
+		oc.execSpanCtx = execSpan.SpanContext()
+	}
 
 	if req.ConcurrencyKey != "" {
 		c.ongoingCalls[callConcKeys] = oc
@@ -3703,6 +3727,9 @@ func (c *Cache) getOrInitCallInner(
 		oc.err = err
 		oc.val = val
 		execOp.EndWithResult(profErrOutcome(err), profResultID(val))
+		if execSpan != nil {
+			telemetry.EndWithCause(execSpan, &err)
+		}
 
 		c.callsMu.Lock()
 		noWaiters := oc.waiters == 0
@@ -3864,14 +3891,22 @@ func (c *Cache) wait(
 		completed     bool
 	)
 
+	reason := wcprof.WaitReasonCallExec
+	if joined {
+		reason = wcprof.WaitReasonSingleflight
+	}
 	var profWait *wcprof.Wait
 	if wcprof.Enabled(ctx) {
-		reason := wcprof.WaitReasonCallExec
-		if joined {
-			reason = wcprof.WaitReasonSingleflight
-		}
 		profWait = wcprof.BeginWait(ctx, oc.profOpID, reason)
 	}
+	// OTel wait edge (design §3.0, §3.1): record the blocked interval as a span
+	// link on the caller's current span, targeting the call_exec span. For a
+	// joiner this is the only edge connecting it to the execution (the
+	// load-bearing fix for Breaks #1–#2); for the executor it is
+	// redundant-but-harmless (call_exec already nests under it). Emitted from the
+	// cache layer because a telemetry-suppressed caller never enters AroundFunc,
+	// and absolute Unix nanos so the loader can rebase to the trace epoch.
+	otelWaitStartNS := time.Now().UnixNano()
 	select {
 	case <-oc.waitCh:
 		completed = true
@@ -3879,6 +3914,7 @@ func (c *Cache) wait(
 		canceledErr = context.Cause(ctx)
 	}
 	profWait.End()
+	emitOTelCallWait(ctx, oc.execSpanCtx, reason, otelWaitStartNS, time.Now().UnixNano())
 
 	if completed {
 		completionErr = oc.err
@@ -3933,6 +3969,12 @@ func (c *Cache) wait(
 				wcprof.OpKindInternal, "dagql.publishResult", wcprof.OpOpts{},
 			)
 		}
+		// OTel analog of pubOp (design §3.1): a native-parity diagnostic span,
+		// child of the already-ended call_exec span carried by sharedWorkCtx.
+		var pubSpan trace.Span
+		if oc.execSpanCtx.IsValid() {
+			pubSpan = beginOTelPublishResult(context.WithoutCancel(oc.sharedWorkCtx))
+		}
 		oc.initCompletedResultErr = c.initCompletedResult(context.WithoutCancel(oc.sharedWorkCtx), resolver, oc, req, sessionID)
 		if pubOp != nil {
 			var resID uint64
@@ -3940,6 +3982,9 @@ func (c *Cache) wait(
 				resID = uint64(oc.res.id)
 			}
 			pubOp.EndWithResult(profErrOutcome(oc.initCompletedResultErr), resID)
+		}
+		if pubSpan != nil {
+			telemetry.EndWithCause(pubSpan, &oc.initCompletedResultErr)
 		}
 		c.callsMu.Lock()
 		delete(c.ongoingCalls, oc.callConcurrencyKeys)
