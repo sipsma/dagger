@@ -20,11 +20,16 @@ import (
 
 // GateOptions tunes the gate's soft thresholds.
 type GateOptions struct {
-	// MaxFallbackAnchors, when > 0, makes the gate fail if the baseline replay
-	// fallback-anchors more ops than this. It defaults to report-only (0): the
-	// un-augmented baseline legitimately fallback-anchors lazy work re-pointed
-	// under its producer, so the count is a regression metric, not a hard
-	// invariant, until later chunks make the shape faithful (design §6.1).
+	// MaxFallbackAnchors is the number of recorded-offset fallback anchors the
+	// gate tolerates before failing; it defaults to 0, so ANY fallback anchor
+	// fails the gate. A fallback anchor is the surviving startOf-style
+	// approximation — the replay could not compute an op's counterfactual from
+	// causal prefixes (a cross-root reference whose root is unscheduled, or an
+	// in-flight ancestor) and fell back to its recorded offset, which is exact
+	// at baseline but wrong under a what-if that shifts it. Enforcing on this
+	// precondition (not on sampled what-if harm, which no finite factor sweep
+	// can rule out) is the analyzer's confidence bar. Raise it only to force
+	// best-effort offline analysis of a trace known to need the approximation.
 	MaxFallbackAnchors int
 }
 
@@ -62,7 +67,7 @@ type GateReport struct {
 
 	// Soft / regression metrics.
 	FallbackAnchors int
-	FallbackBound   int // MaxFallbackAnchors, echoed; 0 = report-only
+	FallbackBound   int // MaxFallbackAnchors, echoed; 0 = hard-fail on any
 	SkippedNoSpanID int
 	// SimStartConflicts counts anchored-start disagreements in the baseline
 	// replay: the end-ordered gating model anchors a child identically whether
@@ -135,8 +140,8 @@ func CheckStructural(c *Compiled, g *wcanalyze.Graph, opts GateOptions) GateRepo
 	if r.WaitEdges > 0 && (r.TotalDroppedLinks > 0 || r.TotalDroppedLinkAttrs > 0) {
 		r.violations = append(r.violations, fmt.Sprintf("%d dropped link(s) / %d dropped link-attr(s) on a wait-carrying trace — wait edges may have been silently evicted (raise LinkCountLimit, design §3.0)", r.TotalDroppedLinks, r.TotalDroppedLinkAttrs))
 	}
-	if opts.MaxFallbackAnchors > 0 && r.FallbackAnchors > opts.MaxFallbackAnchors {
-		r.violations = append(r.violations, fmt.Sprintf("fallback anchors %d exceed bound %d", r.FallbackAnchors, opts.MaxFallbackAnchors))
+	if r.FallbackAnchors > opts.MaxFallbackAnchors {
+		r.violations = append(r.violations, fmt.Sprintf("%d op(s) anchored at a recorded-offset approximation (cross-root reference or in-flight ancestor) — the replay could not compute their counterfactual from causal prefixes, so what-if rankings are unreliable (design §6.1)", r.FallbackAnchors))
 	}
 
 	return r
@@ -162,9 +167,9 @@ func (r GateReport) Write(w io.Writer) {
 		r.Cycles, len(r.SelfGtMakespan), len(r.IntervalGtSpan))
 	fmt.Fprintf(w, "  wait-loss: unresolved-targets=%d  malformed-timing=%d\n",
 		r.UnresolvedWaitTargets, r.MalformedWaitTimings)
-	bound := "report-only"
+	bound := "hard-fail if >0"
 	if r.FallbackBound > 0 {
-		bound = fmt.Sprintf("bound %d", r.FallbackBound)
+		bound = fmt.Sprintf("tolerate ≤%d", r.FallbackBound)
 	}
 	fmt.Fprintf(w, "  fallback-anchors=%d (%s)  start-conflicts=%d\n", r.FallbackAnchors, bound, r.SimStartConflicts)
 	fmt.Fprintf(w, "  dropped-links: total=%d (%d attrs) wait-bearing=%d wait-link-attrs=%d\n",

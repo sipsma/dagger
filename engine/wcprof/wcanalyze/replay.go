@@ -98,8 +98,8 @@ type replayProgram struct {
 
 	// actions[actOff[i]:actOff[i+1]] is op i's timeline, sorted by
 	// (at, actionRank): at equal times a max-gate (a join wait, or a fixed
-	// delay's end — both sequenced at their end) applies first, then self, then
-	// spawn, then a fixed delay's start-marker / noop.
+	// delay's end — both sequenced at their end) applies first, then spawn, then
+	// self, then a fixed delay's start-marker / noop.
 	actions []action
 	actOff  []int32
 
@@ -172,20 +172,25 @@ func compileProgram(g *Graph) *replayProgram {
 
 	p.actions = make([]action, 0, totalActions)
 	p.pendIdx = make([]int32, 0, totalPend)
-	// Ordering at equal recorded times. A max-gate — a JOIN wait or a fixed
-	// delay's END, both sequenced at their recorded end — applies BEFORE any
-	// post-wait self/spawn at that same instant, so those are gated by it (a
-	// spawn the wait did not outlast already sorts earlier by its smaller
-	// recorded time). A fixed delay's start-marker and a noop sit at their start
-	// after self/spawn: the marker only records the clock (it does not gate), so
-	// a child spawned at the same instant stays concurrent.
+	// Ordering at equal recorded times:
+	//   0: max-gate — a JOIN wait or a fixed delay's END (both sequenced at their
+	//      recorded end). Applies first, so post-gate work at that instant is
+	//      gated (a spawn the wait did not outlast sorts earlier by its smaller
+	//      recorded time and so is not gated).
+	//   1: spawn — anchors a child at the (post-gate) clock. BEFORE self so a
+	//      child spawned at the same instant a self segment starts is anchored
+	//      concurrently with that self, not serialized after it. (Only a
+	//      zero-duration child can share a spawn instant with a self-segment
+	//      start; a normal child's interval carves the self out of that point.)
+	//   2: self — advances the clock by its (scaled) duration.
+	//   3: a fixed delay's start-marker and a noop, which only record/mark.
 	actionRank := func(kind uint8) int {
 		switch kind {
 		case actWaitJoin, actWaitFixedEnd:
 			return 0
-		case actSelf:
-			return 1
 		case actSpawn:
+			return 1
+		case actSelf:
 			return 2
 		default: // actWaitFixedStart, actWaitNoop — start markers, non-gating
 			return 3
@@ -460,12 +465,22 @@ func (s *Simulation) advance(op, stopAt int32) int64 {
 			if s.p.endNS[c] > t {
 				return
 			}
-			pendCur++
 			if !s.started[c] {
-				// child never anchored (e.g. spawn outside op interval);
-				// anchor at current clock
+				if s.p.startNS[c] == t {
+					// c's own spawn action is pending at this same instant (the
+					// only way an in-range child is unstarted here: its spawn
+					// and end both equal t, a zero-duration child). Do NOT anchor
+					// it at the current pre-gate clock — a max-gate at t (e.g. a
+					// join wait ending now) sorts before the spawn and must raise
+					// the clock first. Defer (leave pendCur) so the spawn action
+					// anchors c at the gated clock; the next joinUpTo joins it.
+					return
+				}
+				// genuine orphan: spawn outside the op's reachable actions —
+				// anchor at the current clock so it is not lost.
 				s.setStart(c, clock)
 			}
+			pendCur++
 			if f := s.finish(c); f > clock {
 				clock = f
 			}

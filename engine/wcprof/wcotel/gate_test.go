@@ -224,10 +224,14 @@ func TestGateFailsOnDroppedWaitLinks(t *testing.T) {
 	}
 }
 
-// TestGateFallbackAnchorsReportOnlyAndThreshold: a root that wait-joins two
-// other roots before they replay produces fallback anchors. They are
-// report-only by default (design §6.1), but a bound makes them fail.
-func TestGateFallbackAnchorsReportOnlyAndThreshold(t *testing.T) {
+// TestGateFallbackAnchorsHardFail: a root that wait-joins two other roots before
+// they replay produces fallback anchors (the recorded-offset approximation — the
+// surviving startOf corner). Any fallback anchor HARD-FAILS the gate by default:
+// the replay could not compute those ops from causal prefixes, so its what-if
+// rankings are unreliable. The MaxFallbackAnchors knob is an explicit opt-out for
+// best-effort offline analysis. (This cross-root shape is what item-3 on-demand
+// root scheduling would make exact, so it would then stop producing fallbacks.)
+func TestGateFallbackAnchorsHardFail(t *testing.T) {
 	jsonl := toJSONL(t,
 		rec(map[string]any{"spanId": idA, "parentId": idNone, "name": "A", "startNs": baseEp, "endNs": baseEp + 300,
 			"links": []any{
@@ -239,16 +243,17 @@ func TestGateFallbackAnchorsReportOnlyAndThreshold(t *testing.T) {
 	)
 	c, g := mustLoad(t, jsonl)
 
-	reportOnly := CheckStructural(c, g, GateOptions{})
-	if reportOnly.FallbackAnchors == 0 {
+	def := CheckStructural(c, g, GateOptions{})
+	if def.FallbackAnchors == 0 {
 		t.Fatal("expected fallback anchors from cross-root wait-joins")
 	}
-	if err := reportOnly.Err(); err != nil {
-		t.Fatalf("fallback anchors must be report-only by default: %v", err)
+	if def.Err() == nil {
+		t.Fatal("any fallback anchor must hard-fail the gate by default")
 	}
 
-	bounded := CheckStructural(c, g, GateOptions{MaxFallbackAnchors: reportOnly.FallbackAnchors - 1})
-	if bounded.Err() == nil {
-		t.Fatal("a fallback-anchor bound below the count must fail")
+	// The opt-out (tolerate up to the observed count) lets offline analysis proceed.
+	tolerated := CheckStructural(c, g, GateOptions{MaxFallbackAnchors: def.FallbackAnchors})
+	if err := tolerated.Err(); err != nil {
+		t.Fatalf("raising the tolerance to the observed count must pass: %v", err)
 	}
 }

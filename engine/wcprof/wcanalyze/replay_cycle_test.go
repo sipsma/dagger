@@ -280,25 +280,24 @@ func TestWaitEndGatingBoundary(t *testing.T) {
 	}
 }
 
-// --- (d2) zero-duration child exactly at a gating join wait's end. joinUpTo runs
-// before the action tie-break, so the child (EndNS == the wait's end) is implicitly
-// joined-and-anchored at the pre-wait clock before the wait's own action, then its
-// later spawn action re-anchors it to the post-wait clock — a counted
-// SimStartConflict. It is BENIGN: a zero-duration child's finish equals its start,
-// which is ≤ the wait it sits at, so it is absorbed and the op's finish is
-// unaffected. This is why a non-zero SimStartConflict is surfaced, not hard-failed:
-// it can be this harmless coincidence, not only a real order-dependence.
+// --- (d2) zero-duration child exactly at a gating join wait's end. joinUpTo
+// runs before the action tie-break, so without care the child (EndNS == the
+// wait's end) would be implicitly anchored at the PRE-wait clock before the
+// wait's own gate. That is a wrong start, and when the child is itself a wait
+// target it propagates (see TestZeroDurWaitTargetPropagation). joinUpTo must
+// instead DEFER a child whose spawn is still pending at this instant, so the
+// gate (the wait end) raises the clock first and the spawn anchors it correctly.
 //
 //	root [0,300]
 //	├── S (call) [0,300] → T (call_exec) [50,100]   (wait target, finish 100)
-//	└── P (call) [0,300]   self [0,50]; waits T [50,100]; zero-dur child Z [100,100]
+//	└── P (call) [0,100]   self [0,50]; waits T [50,100]; zero-dur child Z [100,100]
 func TestZeroDurChildAtJoinWaitEnd(t *testing.T) {
 	s := newFixtureStrings()
 	events := []wcprof.DumpEvent{
 		opEvent(s, 1, 0, "session_phase", "session.query", "", "ok", 0, 300*ms),
 		opEvent(s, 2, 1, "call", "S.call", "sv", "executed", 0, 300*ms),
 		opEvent(s, 3, 2, "call_exec", "T.work", "tt", "ok", 50*ms, 100*ms),
-		opEvent(s, 4, 1, "call", "P.call", "p", "executed", 0, 300*ms),
+		opEvent(s, 4, 1, "call", "P.call", "p", "executed", 0, 100*ms),
 		opEvent(s, 5, 4, "call_exec", "Z.work", "z", "ok", 100*ms, 100*ms),
 		waitEvent(s, 4, 3, "", "call_exec", 50*ms, 100*ms),
 	}
@@ -310,16 +309,96 @@ func TestZeroDurChildAtJoinWaitEnd(t *testing.T) {
 	if sim.CycleWarnings != 0 {
 		t.Fatalf("CycleWarnings = %d, want 0", sim.CycleWarnings)
 	}
-	// The benign conflict does NOT corrupt the finish: P blocks on T to 100, then
-	// runs post-wait self [100,300] → 300, with Z (zero-duration) absorbed.
-	_, pFinish := simByClass(sim, g, "P.call")
-	if pFinish != 300*ms {
-		t.Fatalf("P finish = %v, want 300ms (the zero-dur child must be absorbed, not corrupt the finish)", time.Duration(pFinish))
+	// Z spawns AFTER P's wait on T (which gates to 100), so Z anchors at the
+	// gated clock 100, not the pre-wait 50 — deferred past the gate, no conflict.
+	zStart, _ := simByClass(sim, g, "Z.work")
+	if zStart != 100*ms {
+		t.Fatalf("Z start = %v, want 100ms (gated by the wait, not anchored early at the pre-wait clock)", time.Duration(zStart))
 	}
-	// Document the benign conflict so a future change that eliminates it updates
-	// this deliberately rather than silently.
-	if sim.SimStartConflicts != 1 {
-		t.Fatalf("SimStartConflicts = %d, want 1 (the benign zero-dur join-before-spawn coincidence)", sim.SimStartConflicts)
+	_, pFinish := simByClass(sim, g, "P.call")
+	if pFinish != 100*ms {
+		t.Fatalf("P finish = %v, want 100ms", time.Duration(pFinish))
+	}
+	// The early-anchor/re-anchor that produced this conflict is now eliminated,
+	// so SimStartConflicts is a clean signal here.
+	if sim.SimStartConflicts != 0 {
+		t.Fatalf("SimStartConflicts = %d, want 0 (the join-before-spawn early anchor is fixed)", sim.SimStartConflicts)
+	}
+}
+
+// TestZeroDurWaitTargetPropagation is the showstopper the above guards against:
+// a zero-duration child Z that is itself a WAIT TARGET, anchored early, feeds a
+// wrong finish into a downstream wait chain → wrong makespan, with no
+// FallbackAnchor to flag it. P waits T (gates to 100) then spawns zero-dur Z at
+// 100; B waits Z; A waits B then runs 200ms self; root reaches B before P so Z is
+// anchored out of order. The bug anchored Z at P's pre-wait clock (50) → B=50,
+// A=250, makespan 250. Correct: Z=100, B=100, A=300, makespan 300.
+func TestZeroDurWaitTargetPropagation(t *testing.T) {
+	s := newFixtureStrings()
+	events := []wcprof.DumpEvent{
+		opEvent(s, 1, 0, "session_phase", "session.query", "", "ok", 0, 300*ms),
+		opEvent(s, 2, 1, "call", "A.crit", "a", "executed", 0, 300*ms),
+		waitEvent(s, 2, 3, "", "call_exec", 0, 100*ms), // A waits B
+		opEvent(s, 3, 1, "call", "B.mid", "b", "executed", 0, 100*ms),
+		waitEvent(s, 3, 6, "", "call_exec", 0, 100*ms), // B waits Z
+		opEvent(s, 5, 1, "call", "P.parent", "p", "executed", 0, 100*ms),
+		opEvent(s, 6, 5, "call_exec", "Z.zero", "z", "ok", 100*ms, 100*ms), // zero-dur child of P
+		waitEvent(s, 5, 7, "", "call_exec", 50*ms, 100*ms),                 // P waits T
+		opEvent(s, 7, 1, "call_exec", "T.work", "tt", "ok", 0, 100*ms),     // real self so finish(T)=100 > P's pre-wait 50
+	}
+	g := buildGraph(t, s, events)
+	sim := NewSimulation(g, nil)
+	makespan, err := sim.Run()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sim.CycleWarnings != 0 || sim.SimStartConflicts != 0 {
+		t.Fatalf("cycles=%d conflicts=%d, want 0/0", sim.CycleWarnings, sim.SimStartConflicts)
+	}
+	zFinish := func(c string) int64 { _, f := simByClass(sim, g, c); return f }
+	if z := zFinish("Z.zero"); z != 100*ms {
+		t.Fatalf("Z finish = %v, want 100ms (the wait-target zero-dur child must not anchor early)", time.Duration(z))
+	}
+	if b := zFinish("B.mid"); b != 100*ms {
+		t.Fatalf("B finish = %v, want 100ms (Z's wrong-early finish must not propagate)", time.Duration(b))
+	}
+	if makespan != 300*ms {
+		t.Fatalf("makespan = %v, want 300ms (the early-anchor bug gives 250ms)", time.Duration(makespan))
+	}
+}
+
+// TestZeroDurChildAtSelfStart is the second face of the same fix: a zero-duration
+// child spawned at the START of a self segment (not a wait) must anchor
+// concurrently with that self, not serialized after it. Only a zero-duration
+// child can share a spawn instant with a self-segment start (a normal child's
+// interval carves the self out of that point), so the spawn-before-self rank
+// only changes this case.
+//
+//	P (call) [0,200]
+//	├── C (call_exec) [0,100]       carves [0,100] so self starts at 100
+//	├── self [100,200]
+//	└── Z (call_exec) [100,100]     zero-dur, spawned at the self start
+//
+// Z is concurrent with the self → anchors at 100. The old self-before-spawn rank
+// (with the deferral) anchored it after the self at 200.
+func TestZeroDurChildAtSelfStart(t *testing.T) {
+	s := newFixtureStrings()
+	g := buildGraph(t, s, []wcprof.DumpEvent{
+		opEvent(s, 1, 0, "session_phase", "session.query", "", "ok", 0, 200*ms),
+		opEvent(s, 2, 1, "call", "P.call", "p", "executed", 0, 200*ms),
+		opEvent(s, 3, 2, "call_exec", "C.work", "c", "ok", 0, 100*ms),
+		opEvent(s, 4, 2, "call_exec", "Z.zero", "z", "ok", 100*ms, 100*ms),
+	})
+	sim := NewSimulation(g, nil)
+	if _, err := sim.Run(); err != nil {
+		t.Fatal(err)
+	}
+	if sim.CycleWarnings != 0 || sim.SimStartConflicts != 0 {
+		t.Fatalf("cycles=%d conflicts=%d, want 0/0", sim.CycleWarnings, sim.SimStartConflicts)
+	}
+	zStart, _ := simByClass(sim, g, "Z.zero")
+	if zStart != 100*ms {
+		t.Fatalf("Z start = %v, want 100ms (concurrent with the self segment, not serialized after it)", time.Duration(zStart))
 	}
 }
 
