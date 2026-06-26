@@ -95,7 +95,7 @@ func TestLazyEmitRetryDoesNotLeakStaleWaitTarget(t *testing.T) {
 	}
 	l1Span.End()
 
-	// L2: an UNTRACED leader retries (otelProfActive(evalCtx) is false on the
+	// L2: an UNTRACED leader retries (OTelProfActive(evalCtx) is false on the
 	// untraced base ctx), so beginOTelLazyOp is not called and must not leave a
 	// stale target behind.
 	var l2err error

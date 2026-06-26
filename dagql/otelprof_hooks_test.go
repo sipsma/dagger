@@ -4,7 +4,7 @@ package dagql
 // HOLISTIC-1): the wcotel fixtures hand-build the OTel JSON shape, so they prove
 // the loader/gate/oracle but not that the *real* hooks emit that shape. These
 // tests drive the three real emit hooks (beginOTelCallExec / beginOTelPublishResult
-// / emitOTelWait) against an in-memory SDK tracer, then feed the genuinely
+// / EmitOTelWait) against an in-memory SDK tracer, then feed the genuinely
 // exported spans through the Chunk 1 loader + structural gate — so the
 // fixture↔emit correspondence is machine-checked, not just code-reviewed. The
 // real per-provider LinkCountLimit cap stays an empirical check (out of scope here).
@@ -138,8 +138,8 @@ func TestEmitHooksProduceLoaderShape(t *testing.T) {
 
 	// executor waits on its own call_exec; a joiner (on the caller span) waits too.
 	base := time.Now().UnixNano()
-	emitOTelWait(callerCtx, execSpan.SpanContext(), wcprof.WaitReasonCallExec, base, base+2_000_000)
-	emitOTelWait(callerCtx, execSpan.SpanContext(), wcprof.WaitReasonSingleflight, base+500_000, base+2_000_000)
+	EmitOTelWait(callerCtx, execSpan.SpanContext(), wcprof.WaitReasonCallExec, base, base+2_000_000)
+	EmitOTelWait(callerCtx, execSpan.SpanContext(), wcprof.WaitReasonSingleflight, base+500_000, base+2_000_000)
 
 	pubSpan.End()
 	execSpan.End()
@@ -255,7 +255,7 @@ func TestEmitWaitGateObservableOnMissingTarget(t *testing.T) {
 	sr, rootCtx, root := newRecordingRoot("POST /query")
 	base := time.Now().UnixNano()
 	// invalid target = the executor minted no call_exec span (oc.execSpanCtx zero).
-	emitOTelWait(rootCtx, trace.SpanContext{}, wcprof.WaitReasonSingleflight, base, base+1_000_000)
+	EmitOTelWait(rootCtx, trace.SpanContext{}, wcprof.WaitReasonSingleflight, base, base+1_000_000)
 	root.End()
 	ended := sr.Ended()
 
@@ -301,7 +301,7 @@ func TestEmitWaitNonRecordingWaiterDrops(t *testing.T) {
 		SpanID:     trace.SpanID{0x02},
 		TraceFlags: trace.FlagsSampled,
 	})
-	emitOTelWait(ctx, target, wcprof.WaitReasonSingleflight, 1, 2)
+	EmitOTelWait(ctx, target, wcprof.WaitReasonSingleflight, 1, 2)
 	span.End()
 	if got := len(sr.Ended()); got != 0 {
 		t.Fatalf("non-recording waiter must export no span/link, got %d ended", got)

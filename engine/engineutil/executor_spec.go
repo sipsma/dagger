@@ -1268,13 +1268,20 @@ func (c *Client) runContainer(ctx context.Context, state *execState) (rerr error
 	}
 
 	profStartNS := wcprof.NowNS()
+	profStartWall := time.Now()
 	var profStartedNS atomic.Int64
+	// wall-clock counterpart of profStartedNS for the OTel exec split (design
+	// §3.3): the OTel spans carry absolute wall-clock intervals, captured at the
+	// same started-callback boundary native records. Stored unconditionally (one
+	// cheap atomic per container run); only read when OTel emit is active.
+	var profStartedWall atomic.Int64
 	startedCallback := func() {
 		state.startedOnce.Do(func() {
 			trace.SpanFromContext(ctx).AddEvent("Container started")
 			if wcprof.Enabled(ctx) {
 				profStartedNS.Store(wcprof.NowNS())
 			}
+			profStartedWall.Store(time.Now().UnixNano())
 			if state.startedCh != nil {
 				close(state.startedCh)
 			}
@@ -1396,6 +1403,7 @@ func (c *Client) runContainer(ctx context.Context, state *execState) (rerr error
 	}
 
 	runErr := c.callWithIO(ctx, state.procInfo, startedCallback, killer, runcCall)
+	endWall := time.Now()
 	if wcprof.Enabled(ctx) {
 		// split engine overhead (creating/starting the container) from the
 		// user's process runtime
@@ -1411,5 +1419,14 @@ func (c *Client) runContainer(ctx context.Context, state *execState) (rerr error
 			wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "exec.containerStart", wcprof.OpOpts{Ident: state.id}, profStartNS, endNS, outcome)
 		}
 	}
+	// OTel exec split (design §3.3): the same containerStart/processRun boundary,
+	// emitted as backdated children of the exec.run span so a slow user process
+	// headlines as user work (work_type=user) rather than engine overhead.
+	// emitOTelExecSplit self-gates on telemetry being active.
+	var profStartedWallTime time.Time
+	if ns := profStartedWall.Load(); ns > 0 {
+		profStartedWallTime = time.Unix(0, ns)
+	}
+	emitOTelExecSplit(ctx, state.id, profStartWall, profStartedWallTime, endWall, runErr)
 	return exitError(ctx, state.exitCodePath, runErr, state.procInfo.Meta.ValidExitCodes)
 }

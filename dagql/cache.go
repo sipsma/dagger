@@ -2955,7 +2955,7 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 		// before publishing lazyEvalWaitCh (Invariant T, §3.0.1) — valid when the
 		// current leader was recording. In a mixed-recording trace (an untraced
 		// leader on the in-flight attempt) it is the reset-to-invalid zero value
-		// (reset per attempt before publish), and emitOTelWait below emits a
+		// (reset per attempt before publish), and EmitOTelWait below emits a
 		// gate-observable targetless wait rather than a stale link to a prior
 		// attempt's op (design §3.0.1).
 		lazyOpSpanCtx := shared.lazyEvalSpanCtx
@@ -2967,10 +2967,10 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 		profWait.End()
 		// OTel joiner wait edge (design §3.2 step 4): the load-bearing edge — the
 		// lazy op is in the leader's subtree, not this joiner's, so this wait is
-		// the joiner's only causal link to the eval. emitOTelWait is a no-op when
+		// the joiner's only causal link to the eval. EmitOTelWait is a no-op when
 		// the waiter is non-recording, and gate-observable (targetless) when the
 		// target is invalid (a non-uniform cross-session trace), mirroring native.
-		emitOTelWait(stackCtx, lazyOpSpanCtx, wcprof.WaitReasonLazy, otelWaitStartNS, time.Now().UnixNano())
+		EmitOTelWait(stackCtx, lazyOpSpanCtx, wcprof.WaitReasonLazy, otelWaitStartNS, time.Now().UnixNano())
 		return waitErr
 	}
 
@@ -3014,7 +3014,7 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 		lazyCallbackCtx = evalCtx
 		lazyIsResume    bool
 	)
-	if otelProfActive(evalCtx) {
+	if OTelProfActive(evalCtx) {
 		lazyCallbackCtx, lazySpan, lazyIsResume = c.beginOTelLazyOp(evalCtx, shared.id, resultCall)
 		shared.lazyEvalSpanCtx = lazySpan.SpanContext()
 	}
@@ -3100,7 +3100,7 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 		// op nests under the leader, so the implicit join already serializes it and
 		// this edge is redundant-but-harmless — emitted for oracle parity with
 		// native's leader wait (just above) and matching Chunk 2's executor wait.
-		emitOTelWait(stackCtx, lazySpan.SpanContext(), wcprof.WaitReasonLazy, otelWaitStartNS, time.Now().UnixNano())
+		EmitOTelWait(stackCtx, lazySpan.SpanContext(), wcprof.WaitReasonLazy, otelWaitStartNS, time.Now().UnixNano())
 	}
 	return waitErr
 }
@@ -3729,7 +3729,7 @@ func (c *Cache) getOrInitCallInner(
 	// wait target. Independent of wcprof so the OTel source works from a Cloud
 	// trace alone.
 	var execSpan trace.Span
-	if otelProfActive(callCtx) {
+	if OTelProfActive(callCtx) {
 		callCtx, execSpan = beginOTelCallExec(callCtx, callKey, profCallClass(req.ResultCall))
 	}
 	sharedWorkCtx, releaseSharedWorkLease, err := withOperationLease(withoutOperationLease(callCtx))
@@ -3955,7 +3955,7 @@ func (c *Cache) wait(
 		canceledErr = context.Cause(ctx)
 	}
 	profWait.End()
-	emitOTelWait(ctx, oc.execSpanCtx, reason, otelWaitStartNS, time.Now().UnixNano())
+	EmitOTelWait(ctx, oc.execSpanCtx, reason, otelWaitStartNS, time.Now().UnixNano())
 
 	if completed {
 		completionErr = oc.err

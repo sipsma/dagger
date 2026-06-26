@@ -29,11 +29,16 @@ import (
 
 const publishResultSpanName = "dagql.publishResult"
 
-// otelProfActive reports whether OTel profiling spans should be emitted for work
+// OTelProfActive reports whether OTel profiling spans should be emitted for work
 // under ctx: true exactly when ctx carries a live recording span (the engine's
 // telemetry is on). Mirrors how core.AroundFunc only emits under an active
 // tracer and keeps the telemetry-off path allocation-free.
-func otelProfActive(ctx context.Context) bool {
+//
+// Exported so the choke points that live outside this package can gate on the
+// same condition: the executor exec-split (engine/engineutil, design §3.3) and
+// service start (core, design §3.4). One definition keeps "is the OTel source
+// recording here?" answered identically everywhere.
+func OTelProfActive(ctx context.Context) bool {
 	return trace.SpanFromContext(ctx).IsRecording()
 }
 
@@ -78,21 +83,24 @@ func beginOTelPublishResult(ctx context.Context) trace.Span {
 	return span
 }
 
-// emitOTelWait records, as a span link on the waiter's current span, that the
+// EmitOTelWait records, as a span link on the waiter's current span, that the
 // waiter blocked on a target op over [startNS,endNS] (design §3.0) — the OTel
 // analog of native's wcprof.BeginWait. It is shared by every choke point that
 // blocks on shared work: the cache singleflight (reason "call_exec"/"singleflight",
-// §3.1) and lazy evaluation (reason "lazy", §3.2). The waiter is the current span
-// in ctx: the caller's own span, or — if that caller was telemetry-suppressed —
+// §3.1), lazy evaluation (reason "lazy", §3.2) and service start (reason
+// "service", §3.4 — emitted from core, hence exported). The waiter is the current
+// span in ctx: the caller's own span, or — if that caller was telemetry-suppressed —
 // the ancestor span that actually blocked, which is the correct place for the
 // time to land. Attaching to the waiter (never fanning links onto the target) is
-// what keeps a high-fan-in target under the link cap (design §3.0).
+// what keeps a high-fan-in target under the link cap (design §3.0). One
+// implementation so every source's wait edge is byte-identical on the wire and
+// the loader/gate read them uniformly.
 //
 // Timestamps are absolute Unix nanoseconds as decimal strings: the engine only
 // knows wall-clock at emit time (the trace epoch is unknowable until ingest, so
 // the loader rebases), and decimal strings round-trip exactly through Cloud's
 // map[string]any JSON decode where a number would lose precision above 2^53.
-func emitOTelWait(ctx context.Context, target trace.SpanContext, reason wcprof.WaitReason, startNS, endNS int64) {
+func EmitOTelWait(ctx context.Context, target trace.SpanContext, reason wcprof.WaitReason, startNS, endNS int64) {
 	span := trace.SpanFromContext(ctx)
 	if !span.IsRecording() {
 		// No recording waiter to attach the edge to: this caller has no op in the
