@@ -224,14 +224,20 @@ func TestGateFailsOnDroppedWaitLinks(t *testing.T) {
 	}
 }
 
-// TestGateFallbackAnchorsHardFail: a root that wait-joins two other roots before
-// they replay produces fallback anchors (the recorded-offset approximation — the
-// surviving startOf corner). Any fallback anchor HARD-FAILS the gate by default:
-// the replay could not compute those ops from causal prefixes, so its what-if
-// rankings are unreliable. The MaxFallbackAnchors knob is an explicit opt-out for
-// best-effort offline analysis. (This cross-root shape is what item-3 on-demand
-// root scheduling would make exact, so it would then stop producing fallbacks.)
-func TestGateFallbackAnchorsHardFail(t *testing.T) {
+// TestGateCrossRootNoFallback: a root that wait-joins two OTHER roots is the
+// concurrent cross-root (dedup) shape. Under the rational model — roots anchored
+// independently at their recorded starts, the wait honored as a recorded edge —
+// this is computed exactly: NO recorded-offset fallback, so FallbackAnchors == 0
+// and the gate PASSES. (Before item 3, the chaining model gave these roots a
+// competing start and the replay used a recorded-offset fallback, which the gate
+// then hard-failed — a band-aid over the analysis compensating for itself.)
+//
+// FallbackAnchors now means an unfaithful-DATA reference the recorded causal
+// structure cannot schedule (an inverted reference / malformed nesting); on
+// faithful data it is 0 by construction, and the gate's hard-fail on it is an
+// invariant assertion that should never trip — pointed at the EMIT, not at the
+// analysis having approximated.
+func TestGateCrossRootNoFallback(t *testing.T) {
 	jsonl := toJSONL(t,
 		rec(map[string]any{"spanId": idA, "parentId": idNone, "name": "A", "startNs": baseEp, "endNs": baseEp + 300,
 			"links": []any{
@@ -243,17 +249,14 @@ func TestGateFallbackAnchorsHardFail(t *testing.T) {
 	)
 	c, g := mustLoad(t, jsonl)
 
-	def := CheckStructural(c, g, GateOptions{})
-	if def.FallbackAnchors == 0 {
-		t.Fatal("expected fallback anchors from cross-root wait-joins")
+	r := CheckStructural(c, g, GateOptions{})
+	if r.FallbackAnchors != 0 {
+		t.Fatalf("cross-root dedup must produce 0 fallback anchors under independent root anchoring, got %d", r.FallbackAnchors)
 	}
-	if def.Err() == nil {
-		t.Fatal("any fallback anchor must hard-fail the gate by default")
+	if r.SimStartConflicts != 0 {
+		t.Fatalf("independent roots must not conflict, got %d start conflicts", r.SimStartConflicts)
 	}
-
-	// The opt-out (tolerate up to the observed count) lets offline analysis proceed.
-	tolerated := CheckStructural(c, g, GateOptions{MaxFallbackAnchors: def.FallbackAnchors})
-	if err := tolerated.Err(); err != nil {
-		t.Fatalf("raising the tolerance to the observed count must pass: %v", err)
+	if err := r.Err(); err != nil {
+		t.Fatalf("a faithful cross-root trace must pass the gate, got: %v", err)
 	}
 }

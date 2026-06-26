@@ -367,6 +367,38 @@ func TestZeroDurWaitTargetPropagation(t *testing.T) {
 	}
 }
 
+// TestTwoZeroDurCoEnding: two zero-duration children co-ending at a gating wait's
+// end, where one waits on the other. The defer returns out of joinUpTo at the
+// first, but both are re-joined after their spawns, so both anchor at the gated
+// clock (100, not the pre-wait clock) and the Z2→Z1 dependency is honored. Guards
+// the low/theoretical residual the replay owner flagged.
+func TestTwoZeroDurCoEnding(t *testing.T) {
+	s := newFixtureStrings()
+	g := buildGraph(t, s, []wcprof.DumpEvent{
+		opEvent(s, 1, 0, "session_phase", "session.query", "", "ok", 0, 300*ms),
+		opEvent(s, 2, 1, "call", "S.call", "sv", "executed", 0, 300*ms),
+		opEvent(s, 3, 2, "call_exec", "T.work", "tt", "ok", 0, 100*ms),
+		opEvent(s, 4, 1, "call", "P.call", "p", "executed", 0, 100*ms),
+		waitEvent(s, 4, 3, "", "call_exec", 50*ms, 100*ms), // P waits T (gates to 100)
+		opEvent(s, 5, 4, "call_exec", "Z1.zero", "z1", "ok", 100*ms, 100*ms),
+		opEvent(s, 6, 4, "call_exec", "Z2.zero", "z2", "ok", 100*ms, 100*ms),
+		waitEvent(s, 6, 5, "", "call_exec", 100*ms, 100*ms), // Z2 waits Z1
+	})
+	sim := NewSimulation(g, nil)
+	if _, err := sim.Run(); err != nil {
+		t.Fatal(err)
+	}
+	z1, _ := simByClass(sim, g, "Z1.zero")
+	z2, _ := simByClass(sim, g, "Z2.zero")
+	if z1 != 100*ms || z2 != 100*ms {
+		t.Fatalf("Z1=%v Z2=%v, want both 100ms (gated, not pre-wait-anchored)", time.Duration(z1), time.Duration(z2))
+	}
+	if sim.SimStartConflicts != 0 || sim.CycleWarnings != 0 || sim.FallbackAnchors != 0 {
+		t.Fatalf("faithfulness signals nonzero: conflicts=%d cycles=%d fallbacks=%d, want 0/0/0",
+			sim.SimStartConflicts, sim.CycleWarnings, sim.FallbackAnchors)
+	}
+}
+
 // TestZeroDurChildAtSelfStart is the second face of the same fix: a zero-duration
 // child spawned at the START of a self segment (not a wait) must anchor
 // concurrently with that self, not serialized after it. Only a zero-duration
@@ -469,52 +501,57 @@ func TestFixedWaitConcurrentChild(t *testing.T) {
 	})
 }
 
-// --- (f) cross-root / out-of-order root reference: one root waits on another,
-// overlapping root, which is anchored at its recorded start by the par<0
-// fallback (counted), and never cycles. This is the one place the recorded-offset
-// approximation survives, so it is also where a what-if factor can make the
-// anchor disagree with Run's shifted chain — surfaced, not silent.
-func TestCrossRootAnchor(t *testing.T) {
-	s := newFixtureStrings()
-	events := []wcprof.DumpEvent{
-		opEvent(s, 1, 0, "session_phase", "session.query", "", "ok", 0, 200*ms),
-		waitEvent(s, 1, 2, "", "call_exec", 50*ms, 150*ms), // root1 waits on root2 (overlapping)
-		opEvent(s, 2, 0, "session_phase", "session.query2", "", "ok", 0, 150*ms),
+// --- (f) Case (a): concurrent cross-root singleflight dedup. Two independent
+// roots start at 0; R_B loads the module, R_A dedups onto it via a RECORDED
+// cross-root wait. The data is sufficient and the rational model needs no
+// chaining and no fallback — both roots anchor at their recorded starts (exact),
+// and the saving propagates across the root boundary through the wait edge.
+//
+//	R_A (session.A) [0,300]   self [0,50]; waits T [50,300]
+//	R_B (session.B) [0,300]   setup self [0,100]; spawns T
+//	                          └── T (call_exec ModuleLoad) [100,300]  self 200
+//
+// Baseline 300. Scale R_B's setup → 0: T spawns at 0, runs 0→200, R_A's wait
+// unblocks at 200 → makespan 200, a 100ms saving crossing the root boundary.
+// FallbackAnchors / SimStartConflicts / CycleWarnings are 0 BY CONSTRUCTION.
+func TestCrossRootDedup(t *testing.T) {
+	build := func() *Graph {
+		s := newFixtureStrings()
+		return buildGraph(t, s, []wcprof.DumpEvent{
+			opEvent(s, 1, 0, "session_phase", "session.A", "", "ok", 0, 300*ms),
+			waitEvent(s, 1, 3, "", "call_exec", 50*ms, 300*ms), // R_A waits R_B's T (cross-root)
+			opEvent(s, 2, 0, "session_phase", "session.B", "", "ok", 0, 300*ms),
+			opEvent(s, 3, 2, "call_exec", "ModuleLoad", "m", "ok", 100*ms, 300*ms),
+		})
 	}
-	g := buildGraph(t, s, events)
+	g := build()
 
 	base := NewSimulation(g, nil)
 	makespan, err := base.Run()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if base.CycleWarnings != 0 || makespan <= 0 {
-		t.Fatalf("cycles=%d makespan=%v, want 0 / >0", base.CycleWarnings, time.Duration(makespan))
+	if makespan != 300*ms {
+		t.Fatalf("baseline makespan = %v, want 300ms", time.Duration(makespan))
 	}
-	// Baseline: the recorded-offset fallback fires (counted) but there is no shift,
-	// so the anchor agrees with the chain → no conflict.
-	if base.FallbackAnchors == 0 {
-		t.Fatalf("expected the cross-root fallback to fire (FallbackAnchors>0), got 0")
-	}
-	if base.SimStartConflicts != 0 {
-		t.Fatalf("baseline SimStartConflicts = %d, want 0 (no shift at factor 1)", base.SimStartConflicts)
+	if base.FallbackAnchors != 0 || base.SimStartConflicts != 0 || base.CycleWarnings != 0 {
+		t.Fatalf("faithfulness signals nonzero: fallbacks=%d conflicts=%d cycles=%d, want 0/0/0 by construction",
+			base.FallbackAnchors, base.SimStartConflicts, base.CycleWarnings)
 	}
 
-	// Under a factor that shifts root2's chain, the recorded-offset anchor
-	// disagrees with the shifted full-finish value → an order-dependent saving,
-	// which must be SURFACED (it is, via SimStartConflicts) rather than silent.
-	// It can only happen where the fallback anchored (the precondition).
-	scaled := NewSimulation(g, map[ClassKey]float64{
-		{Kind: "session_phase", Class: "session.query2"}: 0.5,
+	scaled := NewSimulation(build(), map[ClassKey]float64{
+		{Kind: "session_phase", Class: "session.B"}: 0,
 	})
-	if _, err := scaled.Run(); err != nil {
+	m2, err := scaled.Run()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if scaled.SimStartConflicts == 0 {
-		t.Fatalf("expected the cross-root fallback to surface a conflict under a shifting factor, got 0")
+	if m2 != 200*ms {
+		t.Fatalf("scaled makespan = %v, want 200ms (the saving must cross the root boundary through the recorded wait)", time.Duration(m2))
 	}
-	if scaled.FallbackAnchors == 0 {
-		t.Fatalf("a what-if conflict must pair with a fallback anchor; FallbackAnchors=0")
+	if scaled.FallbackAnchors != 0 || scaled.SimStartConflicts != 0 {
+		t.Fatalf("scaled faithfulness signals nonzero: fallbacks=%d conflicts=%d, want 0/0",
+			scaled.FallbackAnchors, scaled.SimStartConflicts)
 	}
 }
 

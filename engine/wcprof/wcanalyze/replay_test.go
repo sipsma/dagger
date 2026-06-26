@@ -188,9 +188,15 @@ func TestWhatIfSingleflight(t *testing.T) {
 	}
 }
 
-// Two sequential roots with an idle gap between them: the gap is preserved,
-// and savings in the first root pull the second root earlier.
-func TestRootChaining(t *testing.T) {
+// Case (b): two roots with no recorded causal edge between them (e.g. a shell
+// running `dagger call A && dagger call B` — the serialization happened OUTSIDE
+// the engine, which recorded no A→B edge). The rational model treats them as
+// INDEPENDENT: each is anchored at its own recorded start, and scaling A does
+// NOT pull B earlier. The old chaining model inferred a dependency from temporal
+// order (the forbidden inference) and wrongly shifted B; that is removed. The
+// cross-session wall-clock question is out of engine scope — it needs an
+// orchestrator-level edge the engine cannot observe.
+func TestRootsIndependent(t *testing.T) {
 	s := newFixtureStrings()
 	events := []wcprof.DumpEvent{
 		opEvent(s, 1, 0, "session_phase", "session.query", "", "ok", 0, 100*ms),
@@ -210,6 +216,10 @@ func TestRootChaining(t *testing.T) {
 	if baseline != 250*ms {
 		t.Fatalf("baseline = %v, want 250ms", time.Duration(baseline))
 	}
+	if sim.FallbackAnchors != 0 || sim.SimStartConflicts != 0 || sim.CycleWarnings != 0 {
+		t.Fatalf("faithfulness signals nonzero: fallbacks=%d conflicts=%d cycles=%d, want 0/0/0",
+			sim.FallbackAnchors, sim.SimStartConflicts, sim.CycleWarnings)
+	}
 
 	sim = NewSimulation(g, map[ClassKey]float64{
 		{Kind: "session_phase", Class: "session.query"}: 0,
@@ -218,10 +228,11 @@ func TestRootChaining(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// first root drops to 0; the 50ms think-time gap is preserved; second
-	// root still takes 100ms => 150ms total
-	if makespan != 150*ms {
-		t.Fatalf("makespan = %v, want 150ms", time.Duration(makespan))
+	// B is independent (its recorded start is a fact): scaling A to 0 does NOT
+	// move it, so the makespan is still bounded by B's [150,250] = 250ms. A
+	// chaining heuristic would (wrongly) pull B to 150ms.
+	if makespan != 250*ms {
+		t.Fatalf("makespan = %v, want 250ms (scaling A must not shift the independent B)", time.Duration(makespan))
 	}
 }
 

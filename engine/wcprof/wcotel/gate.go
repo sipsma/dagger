@@ -20,16 +20,16 @@ import (
 
 // GateOptions tunes the gate's soft thresholds.
 type GateOptions struct {
-	// MaxFallbackAnchors is the number of recorded-offset fallback anchors the
-	// gate tolerates before failing; it defaults to 0, so ANY fallback anchor
-	// fails the gate. A fallback anchor is the surviving startOf-style
-	// approximation — the replay could not compute an op's counterfactual from
-	// causal prefixes (a cross-root reference whose root is unscheduled, or an
-	// in-flight ancestor) and fell back to its recorded offset, which is exact
-	// at baseline but wrong under a what-if that shifts it. Enforcing on this
-	// precondition (not on sampled what-if harm, which no finite factor sweep
-	// can rule out) is the analyzer's confidence bar. Raise it only to force
-	// best-effort offline analysis of a trace known to need the approximation.
+	// MaxFallbackAnchors tolerates that many unfaithful-data references before
+	// failing; it defaults to 0, so ANY one fails the gate. After the rational
+	// root model (independent roots, no chaining, no recorded-offset fallback), a
+	// FallbackAnchor is no longer an approximation the analysis chose — it is a
+	// reference the recorded causal structure cannot schedule (an inverted
+	// reference, or a child its parent never spawns), which is impossible in a
+	// faithful synchronous nesting. So 0 is an invariant for faithful data, and a
+	// non-zero count means the EMIT is unfaithful. This knob is a debug-only
+	// escape hatch to inspect such a trace; it must never be raised for a trusted
+	// ranking (and is a candidate for removal — a tolerance for unfaithful data).
 	MaxFallbackAnchors int
 }
 
@@ -141,7 +141,7 @@ func CheckStructural(c *Compiled, g *wcanalyze.Graph, opts GateOptions) GateRepo
 		r.violations = append(r.violations, fmt.Sprintf("%d dropped link(s) / %d dropped link-attr(s) on a wait-carrying trace — wait edges may have been silently evicted (raise LinkCountLimit, design §3.0)", r.TotalDroppedLinks, r.TotalDroppedLinkAttrs))
 	}
 	if r.FallbackAnchors > opts.MaxFallbackAnchors {
-		r.violations = append(r.violations, fmt.Sprintf("%d op(s) anchored at a recorded-offset approximation (cross-root reference or in-flight ancestor) — the replay could not compute their counterfactual from causal prefixes, so what-if rankings are unreliable (design §6.1)", r.FallbackAnchors))
+		r.violations = append(r.violations, fmt.Sprintf("%d op(s) the recorded causal structure cannot schedule — an inverted reference (an op referenced before its ancestor spawns it) or a malformed nesting; both are impossible in a faithful synchronous nesting, so this is an unfaithful EMIT to fix at the choke point, never papered over (design §6.1)", r.FallbackAnchors))
 	}
 
 	return r
