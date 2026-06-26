@@ -2831,6 +2831,10 @@ func (c *Cache) waitForLazyEvaluation(ctx context.Context, shared *sharedResult,
 			shared.lazyEvalWaitCh = nil
 			shared.lazyEvalCancel = nil
 			shared.lazyEvalErr = nil
+			// Clear the joiner wait targets alongside lazyEvalWaitCh so they share
+			// its lifecycle (valid only while an attempt is in flight, design §3.0.1).
+			shared.lazyEvalProfOpID = 0
+			shared.lazyEvalSpanCtx = trace.SpanContext{}
 		}
 		shared.lazyMu.Unlock()
 		// Tag the failure with the result it belongs to so that an enclosing
@@ -2947,9 +2951,13 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 	if shared.lazyEvalWaitCh != nil {
 		waitCh := shared.lazyEvalWaitCh
 		lazyOpID := shared.lazyEvalProfOpID
-		// OTel wait target, stashed by the leader under lazyMu before
-		// lazyEvalWaitCh was published (Invariant T, §3.0.1) — so it is set
-		// whenever this branch is reachable.
+		// OTel wait target for this joiner. The leader stashes it under lazyMu
+		// before publishing lazyEvalWaitCh (Invariant T, §3.0.1) — valid when the
+		// current leader was recording. In a mixed-recording trace (an untraced
+		// leader on the in-flight attempt) it is the reset-to-invalid zero value
+		// (reset per attempt before publish), and emitOTelWait below emits a
+		// gate-observable targetless wait rather than a stale link to a prior
+		// attempt's op (design §3.0.1).
 		lazyOpSpanCtx := shared.lazyEvalSpanCtx
 		shared.lazyEvalWaiters++
 		shared.lazyMu.Unlock()
@@ -2973,6 +2981,19 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 	if resultCall != nil {
 		evalCtx = ContextWithCall(evalCtx, resultCall)
 	}
+	// Reset both per-attempt joiner wait targets before this attempt mints (or
+	// doesn't) and publishes lazyEvalWaitCh below. A failed lazy eval is retryable
+	// (lazyEvalComplete is set only on success), and these fields are read by
+	// joiners whenever lazyEvalWaitCh is set. If a later retry leader does not
+	// re-mint — its wcprof/telemetry is off — a stale target left by a prior
+	// recording attempt must NOT leak to a joiner: it would silently mis-link the
+	// wait to the old op instead of being gate-observable as an unresolved target
+	// (the mixed-recording rule, design §3.0.1). Each is overwritten just below
+	// only when this attempt actually mints it. (lazyEvalProfOpID is native's
+	// analog and had the same not-reset hazard; reset together to keep the two
+	// sources aligned and both honest under non-uniform recording.)
+	shared.lazyEvalProfOpID = 0
+	shared.lazyEvalSpanCtx = trace.SpanContext{}
 	var lazyOp *wcprof.Op
 	if wcprof.Enabled(evalCtx) {
 		// the run of this result's lazy evaluation callback; the class ties
@@ -3061,6 +3082,9 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 			shared.lazyEvalWaitCh = nil
 			shared.lazyEvalCancel = nil
 			shared.lazyEvalErr = nil
+			// Clear the joiner wait targets alongside lazyEvalWaitCh (see §3.0.1).
+			shared.lazyEvalProfOpID = 0
+			shared.lazyEvalSpanCtx = trace.SpanContext{}
 		}
 		shared.lazyMu.Unlock()
 
