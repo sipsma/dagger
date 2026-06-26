@@ -54,6 +54,7 @@ type GateReport struct {
 	// propagation to the target class (design §6.1).
 	UnresolvedWaitTargets int // non-lock waits with no resolvable target
 	MalformedWaitTimings  int // waits with missing/unparseable timing
+	OrphanedParents       int // ops whose recorded parent span is absent (capture loss)
 
 	// Dropped-link signal (otlpdump path only — Cloud cannot report it). On a
 	// wait-carrying (augmented) trace any dropped link/link-attr is treated as
@@ -91,6 +92,7 @@ func CheckStructural(c *Compiled, g *wcanalyze.Graph, opts GateOptions) GateRepo
 		TraceSpanNS:             g.TraceEndNS - g.TraceStartNS,
 		UnresolvedWaitTargets:   c.UnresolvedWaitTargets,
 		MalformedWaitTimings:    c.MalformedWaitTimings,
+		OrphanedParents:         c.OrphanedParents,
 		TotalDroppedLinks:       c.TotalDroppedLinks,
 		TotalDroppedLinkAttrs:   c.TotalDroppedLinkAttrs,
 		WaitBearingDroppedLinks: c.WaitBearingDroppedLinks,
@@ -133,6 +135,9 @@ func CheckStructural(c *Compiled, g *wcanalyze.Graph, opts GateOptions) GateRepo
 	if r.MalformedWaitTimings > 0 {
 		r.violations = append(r.violations, fmt.Sprintf("%d wait(s) with missing/unparseable wcprof.wait.*_unix_ns timing — a malformed emit (design §3.0)", r.MalformedWaitTimings))
 	}
+	if r.OrphanedParents > 0 {
+		r.violations = append(r.violations, fmt.Sprintf("%d op(s) with a recorded parent span ABSENT from the graph — the parent id is SET (the op had a parent), but its span is missing, surfacing the op as a false root and losing the saving that should cross its parent edge. The data is INCOMPLETE. This is distinct from a true independent root (empty parent) and from an emit-side parentless bug (the id is set). It is observed reproducibly on local otlpdump captures; the exact loss point — capture instrument, export pipeline, ingest, or an emit bug that set a bad id — is NOT yet pinned. Do not trust this ranking until the source is verified complete (design §6.1)", r.OrphanedParents))
+	}
 	// Dropped-link wait-loss: only meaningful when the trace carries wait edges.
 	// This subsumes the surviving-wait predicate (a span that kept a wait but
 	// dropped links) and also catches a span that lost ALL its waits or a
@@ -167,6 +172,7 @@ func (r GateReport) Write(w io.Writer) {
 		r.Cycles, len(r.SelfGtMakespan), len(r.IntervalGtSpan))
 	fmt.Fprintf(w, "  wait-loss: unresolved-targets=%d  malformed-timing=%d\n",
 		r.UnresolvedWaitTargets, r.MalformedWaitTimings)
+	fmt.Fprintf(w, "  capture-loss: orphaned-parents=%d (dropped parent spans → false roots)\n", r.OrphanedParents)
 	bound := "hard-fail if >0"
 	if r.FallbackBound > 0 {
 		bound = fmt.Sprintf("tolerate ≤%d", r.FallbackBound)

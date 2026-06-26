@@ -43,6 +43,41 @@ func waitLinkRaw(target string, attrs map[string]any) map[string]any {
 	return map[string]any{"spanId": target, "attrs": a}
 }
 
+// TestGateFailsOnOrphanedParent: a span whose recorded parentId is set but points
+// to a span ABSENT from the capture is a DROPPED PARENT (capture loss — the local
+// otlpdump live-export drops spans under a burst), surfacing the op as a false
+// root. The gate must fail: this is an incomplete capture, not a true independent
+// root (which has an EMPTY parent) and not anyone's wait target (so the
+// unresolved-wait-target check misses it — the real exec capture passed with 330
+// such orphans before this signal).
+func TestGateFailsOnOrphanedParent(t *testing.T) {
+	const dropped = "dddddddddddddddd" // a parent span id that is NOT in the capture
+	jsonl := toJSONL(t,
+		rec(map[string]any{"spanId": idA, "parentId": idNone, "name": "session", "startNs": baseEp, "endNs": baseEnd}),
+		// a publishResult whose call_exec parent (dropped) is absent:
+		rec(map[string]any{"spanId": idB, "parentId": dropped, "name": "dagql.publishResult", "startNs": baseEp + 1, "endNs": baseEp + 1,
+			"attrs": map[string]any{telemetryattrs.WcprofOpKindAttr: "internal"}}),
+	)
+	c, g := mustLoad(t, jsonl)
+	r := CheckStructural(c, g, GateOptions{})
+	if r.OrphanedParents != 1 {
+		t.Fatalf("OrphanedParents = %d, want 1 (the dropped-parent orphan)", r.OrphanedParents)
+	}
+	if r.Err() == nil {
+		t.Fatal("a capture with a dropped parent span must fail the gate")
+	}
+	// A TRUE root (empty parent) must NOT be counted as an orphan.
+	clean := toJSONL(t,
+		rec(map[string]any{"spanId": idA, "parentId": idNone, "name": "session", "startNs": baseEp, "endNs": baseEnd}),
+		rec(map[string]any{"spanId": idB, "parentId": idA, "name": "dagql.publishResult", "startNs": baseEp + 1, "endNs": baseEp + 1,
+			"attrs": map[string]any{telemetryattrs.WcprofOpKindAttr: "internal"}}),
+	)
+	cc, gg := mustLoad(t, clean)
+	if rr := CheckStructural(cc, gg, GateOptions{}); rr.OrphanedParents != 0 {
+		t.Fatalf("complete capture OrphanedParents = %d, want 0", rr.OrphanedParents)
+	}
+}
+
 // TestGateFailsOnUnresolvedWaitTarget: a non-lock wait whose target span is not
 // in the trace is a wait-edge loss (Invariant T regression / truncation) and
 // must fail loudly — replay would otherwise silently degrade it to a fixed

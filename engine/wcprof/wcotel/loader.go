@@ -99,6 +99,23 @@ type Compiled struct {
 	// attributes were missing or unparseable (a malformed emit; conservatively
 	// recorded as a zero-duration wait at the waiter's start, and failed by the gate).
 	MalformedWaitTimings int
+
+	// OrphanedParents counts ops whose recorded causal parent span id (wcprof.parent
+	// or parentId) is NON-EMPTY but whose parent span is ABSENT from the graph, so the
+	// op surfaces as a FALSE root. The data is incomplete: the op had a parent and it
+	// is missing. This is distinct from a TRUE root (empty parent — an independent
+	// session) and from an emit-side parentless bug (the id is set, so a parent
+	// existed). The replay would treat the false root as independent and miss savings
+	// that should propagate through its lost parent edge, so the gate fails.
+	//
+	// Observed reproducibly on local otlpdump captures (e.g. ~330–540 on the exec
+	// workload). The exact loss point is NOT pinned — it could be the local capture
+	// instrument, the export pipeline, ingest, or an emit bug that set a bad id; do
+	// not state a mechanism the evidence does not support. (The unresolved-WAIT-target
+	// check does NOT catch this — a dropped parent need not be anyone's wait target,
+	// as the exec capture's 330 orphans passing that check showed.)
+	OrphanedParents      int
+	OrphanedParentSample []string
 }
 
 // Load parses an otlpdump JSONL stream, compiles it to the wcprof IR, and
@@ -281,7 +298,16 @@ func Compile(spans []Span) (*Compiled, error) {
 
 	for _, s := range deduped {
 		opID := opIDBySpan[s.SpanID]
-		parentID := opIDBySpan[causalParentSpanID(s)]
+		cpSpan := causalParentSpanID(s)
+		parentID := opIDBySpan[cpSpan]
+		if cpSpan != "" && parentID == 0 {
+			// Recorded a causal parent, but its span is absent from the capture:
+			// a dropped parent (capture loss), surfacing this op as a false root.
+			c.OrphanedParents++
+			if len(c.OrphanedParentSample) < 10 {
+				c.OrphanedParentSample = append(c.OrphanedParentSample, s.SpanID)
+			}
+		}
 		if parentID == opID {
 			parentID = 0 // never self-parent
 		}
