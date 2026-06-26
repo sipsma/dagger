@@ -160,8 +160,9 @@ func WriteReport(w io.Writer, g *Graph, opts ReportOptions) error {
 
 	// Baseline + what-ifs.
 	baseSim := NewSimulation(g, nil)
-	if _, err := baseSim.Run(); err == nil && (baseSim.CycleWarnings > 0 || baseSim.FallbackAnchors > 0) {
-		fmt.Fprintf(w, "sim diagnostics: %d broken cycles, %d fallback anchors\n", baseSim.CycleWarnings, baseSim.FallbackAnchors)
+	if _, err := baseSim.Run(); err == nil && (baseSim.CycleWarnings > 0 || baseSim.FallbackAnchors > 0 || baseSim.SimStartConflicts > 0) {
+		fmt.Fprintf(w, "sim diagnostics: %d broken cycles, %d fallback anchors, %d start conflicts\n",
+			baseSim.CycleWarnings, baseSim.FallbackAnchors, baseSim.SimStartConflicts)
 	}
 	baseline, whatIfs, err := RunWhatIfs(g, opts.WhatIfFactors, opts.MinClassSelfNS)
 	if err != nil {

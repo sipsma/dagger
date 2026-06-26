@@ -19,7 +19,12 @@ import (
 //   - waits: clock = max(clock, simulated finish of the target); waits on
 //     named resources (locks etc.) are kept as fixed delays; waits that
 //     ended before their target's recorded end were abandoned
-//     (cancellation) or mis-resolved and contribute nothing
+//     (cancellation) or mis-resolved and contribute nothing. A gating wait is
+//     sequenced at its recorded END, so it gates the op's own finish but does
+//     NOT gate a child the op spawned while still waiting (the spawn precedes
+//     the wait's end): that concurrency is preserved, not serialized, and the
+//     child's anchored start is the same whether the child is reached in order
+//     or out of order.
 //   - implicit joins: whenever the op reaches an action at original time t,
 //     it first joins every child that had originally ended by t. This bakes
 //     the observed ordering in as a constraint, which correctly models
@@ -53,6 +58,10 @@ const (
 )
 
 type action struct {
+	// at is the recorded time the action is sequenced at: a self segment's or
+	// spawn's start, or — for a GATING wait (join/fixed) — the wait's recorded
+	// END, so the wait gates only actions at or after that instant. A non-gating
+	// noop stays at the wait's start.
 	at   int64
 	dur  int64 // self duration or fixed-wait duration (unscaled)
 	ref  int32 // child / wait-target op index
@@ -141,14 +150,21 @@ func compileProgram(g *Graph) *replayProgram {
 
 	p.actions = make([]action, 0, totalActions)
 	p.pendIdx = make([]int32, 0, totalPend)
+	// Ordering at equal recorded times. A gating wait is sequenced at its
+	// recorded END (below) and must apply BEFORE any post-wait self/spawn at
+	// that same instant, so those are gated by it; a spawn the wait did not
+	// outlast already sorts earlier by its smaller recorded time. The
+	// non-gating noop marker (kept at the wait's start) sorts last.
 	actionRank := func(kind uint8) int {
 		switch kind {
-		case actSelf:
+		case actWaitJoin, actWaitFixed:
 			return 0
-		case actSpawn:
+		case actSelf:
 			return 1
-		default:
+		case actSpawn:
 			return 2
+		default: // actWaitNoop
+			return 3
 		}
 	}
 	for i, op := range p.ops {
@@ -160,16 +176,29 @@ func compileProgram(g *Graph) *replayProgram {
 			p.actions = append(p.actions, action{at: c.StartNS, kind: actSpawn, ref: p.idxByID[c.ID]})
 		}
 		for _, w := range op.Waits {
-			a := action{at: w.StartNS}
+			a := action{}
 			switch {
 			case w.Target != nil && w.Target != op && w.EndNS >= w.Target.EndNS-joinEpsilonNS:
+				// Sequence the gate at the wait's OWN recorded end (not the
+				// target-end proxy, and not the start): a wait gates an action
+				// iff it completed by that action's recorded time. So a child
+				// the op spawned before this wait ended is left ungated in both
+				// the out-of-order prefix anchor and the in-order finish — the
+				// child's start is order-independent by construction.
 				a.kind = actWaitJoin
 				a.ref = p.idxByID[w.Target.ID]
+				a.at = w.EndNS
 			case w.Target == nil:
+				// Fixed delay: charge its duration at the point it completes, so
+				// a spawn during the delay (before its end) is not gated by it.
 				a.kind = actWaitFixed
 				a.dur = w.Duration()
+				a.at = w.EndNS
 			default:
+				// Abandoned wait: no time, only a join action point; left at its
+				// start because it never gates anything.
 				a.kind = actWaitNoop
+				a.at = w.StartNS
 			}
 			p.actions = append(p.actions, a)
 		}
@@ -221,14 +250,34 @@ type Simulation struct {
 	simStart  []int64
 	simFinish []int64
 
-	// CycleWarnings counts wait/join cycles broken during replay.
+	// CycleWarnings counts genuine wait/join cycles broken during replay: an
+	// op whose own dependency chain re-enters it while in flight. Spurious
+	// over-serializations (a concurrent wait that did not gate a spawn) are
+	// resolved by the end-ordered gating model and do NOT count here.
 	CycleWarnings int
-	// FallbackAnchors counts ops anchored without their parent's replay
-	// reaching their spawn (parent in flight or inconsistent data). They
-	// anchor in the parent's shifted frame at their recorded offset.
+	// FallbackAnchors counts ops anchored at their recorded offset because the
+	// parent's prefix replay could not reach their spawn — the parent (or an
+	// ancestor) was itself mid-replay, or the target was referenced from a root
+	// not yet scheduled. This is the only place the recorded-offset
+	// approximation survives; on a faithful trace it is rare and is reported,
+	// never silent.
 	FallbackAnchors int
 	// FallbackAnchorOps holds a sample of fallback-anchored ops.
 	FallbackAnchorOps []*Op
+	// PrefixAnchors counts ops whose start was anchored by replaying their
+	// parent's timeline up to (and only up to) their spawn — the normal
+	// out-of-order path. Informational: large counts just mean many cross-tree
+	// references, not a problem.
+	PrefixAnchors int
+	// SimStartConflicts counts setStart calls that tried to overwrite an
+	// already-anchored op with a DIFFERENT start. The end-ordered gating model
+	// makes a child's anchored start independent of whether it is reached in
+	// order or out of order, so this must stay 0 on a faithful baseline; a
+	// non-zero count flags a residual order-dependence (e.g. the in-flight
+	// fallback corner disagreeing with the later in-order spawn).
+	SimStartConflicts int
+	// SimStartConflictOps holds a sample of conflicting ops.
+	SimStartConflictOps []*Op
 }
 
 // NewSimulation prepares a replay over g with the given per-class self-time
@@ -300,6 +349,16 @@ func (s *Simulation) setStart(i int32, v int64) {
 	if !s.started[i] {
 		s.started[i] = true
 		s.simStart[i] = v
+		return
+	}
+	// Already anchored. The end-ordered gating model computes the same start
+	// whichever path reaches the op first, so a different value here is a
+	// residual order-dependence worth surfacing; keep first-write-wins.
+	if s.simStart[i] != v {
+		s.SimStartConflicts++
+		if len(s.SimStartConflictOps) < 10 {
+			s.SimStartConflictOps = append(s.SimStartConflictOps, s.p.ops[i])
+		}
 	}
 }
 
@@ -310,46 +369,50 @@ func (s *Simulation) finish(i int32) int64 {
 		return s.simFinish[i]
 	}
 
-	// Make sure the op has a simulated start: anchored by its parent's
-	// replay at the spawn point. Replaying the parent may recursively replay
-	// op itself (via an implicit join), which the memo check above handles
-	// when we come back around.
+	// Make sure the op has a simulated start. spawnTo replays only the parent's
+	// PREFIX up to i's spawn — never the parent's later actions — so reaching an
+	// op out of order cannot pull in cross-references that follow its spawn (the
+	// false-cycle the full-parent anchor used to create). The prefix replay can
+	// finish i itself (i ends at its own spawn, a zero-duration child); the memo
+	// re-check below returns that without re-replaying.
 	if !s.started[i] {
-		if par := s.p.parent[i]; par >= 0 && !s.inFlight[par] {
-			s.finish(par)
-			if s.finished[i] {
-				return s.simFinish[i]
-			}
-		}
-		if !s.started[i] {
-			// fallback: anchor in the parent's shifted frame, preserving the
-			// op's recorded offset within its parent (recorded start for
-			// true roots). Happens when the parent is mid-replay or data is
-			// inconsistent.
-			anchor := s.p.startNS[i]
-			if par := s.p.parent[i]; par >= 0 && s.started[par] {
-				anchor = s.simStart[par] + (s.p.startNS[i] - s.p.startNS[par])
-			}
-			s.setStart(i, anchor)
-			s.FallbackAnchors++
-			if len(s.FallbackAnchorOps) < 10 {
-				s.FallbackAnchorOps = append(s.FallbackAnchorOps, s.p.ops[i])
-			}
+		s.spawnTo(s.p.parent[i], i)
+		if s.finished[i] {
+			return s.simFinish[i]
 		}
 	}
 
 	if s.inFlight[i] {
-		// cycle: break it by assuming original duration from the anchored start
+		// genuine cycle: i's own dependency chain re-entered it. Break it by
+		// assuming the recorded duration from the anchored start.
 		s.CycleWarnings++
 		return s.simStart[i] + (s.p.endNS[i] - s.p.startNS[i])
 	}
 	s.inFlight[i] = true
+	clock := s.advance(i, -1)
+	s.simFinish[i] = clock
+	s.finished[i] = true
+	s.inFlight[i] = false
+	return clock
+}
 
-	clock := s.simStart[i]
-	factor := s.factorOf[s.p.classOf[i]]
+// advance replays op's timeline under the current factors, starting from its
+// anchored start. If stopAt < 0 it runs the whole timeline and returns op's
+// finish (used by finish). If stopAt >= 0 it runs only until it has spawned
+// stopAt — anchoring stopAt at the parent's clock there — then returns without
+// finishing op (used by the out-of-order prefix anchor, spawnTo).
+//
+// Because gating waits are sequenced at their recorded END (compileProgram), the
+// clock evolution from op's start up to any spawn is identical whether this is
+// the bounded prefix walk or the full finish: a wait still open at the spawn is
+// not yet reached and does not gate it. So a child's anchored start is the same
+// on both paths — order-independent — and the prefix walk simply stops early.
+func (s *Simulation) advance(op, stopAt int32) int64 {
+	clock := s.simStart[op]
+	factor := s.factorOf[s.p.classOf[op]]
 
-	pendCur := s.p.pendOff[i]
-	pendEnd := s.p.pendOff[i+1]
+	pendCur := s.p.pendOff[op]
+	pendEnd := s.p.pendOff[op+1]
 	joinUpTo := func(t int64) {
 		for pendCur < pendEnd {
 			c := s.p.pendIdx[pendCur]
@@ -368,7 +431,7 @@ func (s *Simulation) finish(i int32) int64 {
 		}
 	}
 
-	for ai := s.p.actOff[i]; ai < s.p.actOff[i+1]; ai++ {
+	for ai := s.p.actOff[op]; ai < s.p.actOff[op+1]; ai++ {
 		a := s.p.actions[ai]
 		joinUpTo(a.at)
 		switch a.kind {
@@ -376,6 +439,9 @@ func (s *Simulation) finish(i int32) int64 {
 			clock += int64(float64(a.dur) * factor)
 		case actSpawn:
 			s.setStart(a.ref, clock)
+			if stopAt >= 0 && a.ref == stopAt {
+				return clock
+			}
 		case actWaitJoin:
 			if f := s.finish(a.ref); f > clock {
 				clock = f
@@ -386,12 +452,72 @@ func (s *Simulation) finish(i int32) int64 {
 			// abandoned wait: action point only
 		}
 	}
-	joinUpTo(s.p.endNS[i])
-
-	s.simFinish[i] = clock
-	s.finished[i] = true
-	s.inFlight[i] = false
+	joinUpTo(s.p.endNS[op])
 	return clock
+}
+
+// spawnTo anchors target's simulated start by replaying par's prefix up to
+// target's spawn (par == target's parent). It guarantees target is started on
+// return. The recorded-offset fallbacks — par itself, or an ancestor, still in
+// flight — are the only place the recorded approximation survives; each is
+// counted (FallbackAnchors), never silent.
+func (s *Simulation) spawnTo(par, target int32) {
+	if par < 0 {
+		// True root referenced out of order (its own root chain has not been
+		// scheduled by Run yet): anchor at its recorded start, in the original
+		// frame. Counted: a what-if shift would make this disagree with Run's
+		// chained start, which SimStartConflicts then surfaces.
+		s.setStart(target, s.p.startNS[target])
+		s.FallbackAnchors++
+		if len(s.FallbackAnchorOps) < 10 {
+			s.FallbackAnchorOps = append(s.FallbackAnchorOps, s.p.ops[target])
+		}
+		return
+	}
+
+	if !s.started[par] {
+		// Anchor par first (recursively), unless its own parent is mid-replay.
+		if pp := s.p.parent[par]; pp >= 0 && !s.inFlight[pp] {
+			s.spawnTo(pp, par)
+		}
+		if !s.started[par] {
+			s.fallbackAnchor(par)
+		}
+	}
+
+	if s.inFlight[par] {
+		// par is mid-replay (a genuine inversion: target is referenced from
+		// within par's own prefix before par spawns it): recorded-offset last
+		// resort, counted.
+		s.fallbackAnchor(target)
+		return
+	}
+
+	s.inFlight[par] = true
+	s.advance(par, target)
+	s.inFlight[par] = false
+
+	if s.started[target] {
+		s.PrefixAnchors++
+		return
+	}
+	// par's prefix never reached target's spawn (target is not actually par's
+	// recorded child): recorded-offset last resort, counted.
+	s.fallbackAnchor(target)
+}
+
+// fallbackAnchor anchors i at its recorded offset within its parent's shifted
+// frame (recorded start when it has no started parent) and counts it.
+func (s *Simulation) fallbackAnchor(i int32) {
+	anchor := s.p.startNS[i]
+	if par := s.p.parent[i]; par >= 0 && s.started[par] {
+		anchor = s.simStart[par] + (s.p.startNS[i] - s.p.startNS[par])
+	}
+	s.setStart(i, anchor)
+	s.FallbackAnchors++
+	if len(s.FallbackAnchorOps) < 10 {
+		s.FallbackAnchorOps = append(s.FallbackAnchorOps, s.p.ops[i])
+	}
 }
 
 // SimTimes returns the simulated start/finish for an op (zero values when

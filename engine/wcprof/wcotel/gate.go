@@ -64,6 +64,12 @@ type GateReport struct {
 	FallbackAnchors int
 	FallbackBound   int // MaxFallbackAnchors, echoed; 0 = report-only
 	SkippedNoSpanID int
+	// SimStartConflicts counts anchored-start disagreements in the baseline
+	// replay: the end-ordered gating model anchors a child identically whether
+	// it is reached in order or out of order, so this should stay 0. A non-zero
+	// count is a residual order-dependence (e.g. an in-flight fallback corner),
+	// reported as a regression metric.
+	SimStartConflicts int
 
 	violations []string
 }
@@ -96,6 +102,7 @@ func CheckStructural(c *Compiled, g *wcanalyze.Graph, opts GateOptions) GateRepo
 	}
 	r.Cycles = sim.CycleWarnings
 	r.FallbackAnchors = sim.FallbackAnchors
+	r.SimStartConflicts = sim.SimStartConflicts
 
 	for _, op := range g.Ops {
 		if op.SelfNS() > r.MakespanNS {
@@ -159,7 +166,7 @@ func (r GateReport) Write(w io.Writer) {
 	if r.FallbackBound > 0 {
 		bound = fmt.Sprintf("bound %d", r.FallbackBound)
 	}
-	fmt.Fprintf(w, "  fallback-anchors=%d (%s)\n", r.FallbackAnchors, bound)
+	fmt.Fprintf(w, "  fallback-anchors=%d (%s)  start-conflicts=%d\n", r.FallbackAnchors, bound, r.SimStartConflicts)
 	fmt.Fprintf(w, "  dropped-links: total=%d (%d attrs) wait-bearing=%d wait-link-attrs=%d\n",
 		r.TotalDroppedLinks, r.TotalDroppedLinkAttrs, r.WaitBearingDroppedLinks, r.WaitLinkDroppedAttrs)
 	if r.SkippedNoSpanID > 0 {
