@@ -762,6 +762,16 @@ func (srv *Server) initializeDaggerClient(
 	spanLimits.LinkCountLimit = 16384
 	tracerOpts := []sdktrace.TracerProviderOption{
 		sdktrace.WithRawSpanLimits(spanLimits),
+		// Stamp the wcprof.parent causal-parent override on lazy re-pointed work
+		// spans (design §3.0.2/§3.2). Listed FIRST — before the LiveSpanProcessor
+		// below and the parent-export LiveSpanProcessors appended in the loop —
+		// so OnStart sets the attribute on the shared span object before any
+		// live-start snapshot is taken. There is one tracer provider per client,
+		// so this single registration covers every per-client export (this
+		// client's own DB plus every parent below): a lazy-work span never misses
+		// the override on any export path (design §9 stamping-processor coverage;
+		// behavioral guard: dagql TestWcprofLazyParentProcessorStampsAllExports).
+		sdktrace.WithSpanProcessor(dagql.NewWcprofLazyParentProcessor()),
 		// save to our own client's DB
 		sdktrace.WithSpanProcessor(telemetry.NewLiveSpanProcessor(
 			client.spanExporter,

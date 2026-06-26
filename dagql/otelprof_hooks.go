@@ -78,21 +78,21 @@ func beginOTelPublishResult(ctx context.Context) trace.Span {
 	return span
 }
 
-// emitOTelCallWait records, as a span link on the waiter's current span, that a
-// caller blocked on a call_exec execution over [startNS,endNS] (design §3.0,
-// §3.1) — the OTel analog of native's wcprof.BeginWait. reason is "call_exec"
-// for the executor or "singleflight" for a joiner. The waiter is the current
-// span in ctx: the caller's own call span, or — if that caller was
-// telemetry-suppressed — the ancestor span that actually blocked, which is the
-// correct place for the time to land. Attaching to the waiter (never fanning
-// links onto the target) is what keeps a high-fan-in execution under the link
-// cap (design §3.0).
+// emitOTelWait records, as a span link on the waiter's current span, that the
+// waiter blocked on a target op over [startNS,endNS] (design §3.0) — the OTel
+// analog of native's wcprof.BeginWait. It is shared by every choke point that
+// blocks on shared work: the cache singleflight (reason "call_exec"/"singleflight",
+// §3.1) and lazy evaluation (reason "lazy", §3.2). The waiter is the current span
+// in ctx: the caller's own span, or — if that caller was telemetry-suppressed —
+// the ancestor span that actually blocked, which is the correct place for the
+// time to land. Attaching to the waiter (never fanning links onto the target) is
+// what keeps a high-fan-in target under the link cap (design §3.0).
 //
 // Timestamps are absolute Unix nanoseconds as decimal strings: the engine only
 // knows wall-clock at emit time (the trace epoch is unknowable until ingest, so
 // the loader rebases), and decimal strings round-trip exactly through Cloud's
 // map[string]any JSON decode where a number would lose precision above 2^53.
-func emitOTelCallWait(ctx context.Context, target trace.SpanContext, reason wcprof.WaitReason, startNS, endNS int64) {
+func emitOTelWait(ctx context.Context, target trace.SpanContext, reason wcprof.WaitReason, startNS, endNS int64) {
 	span := trace.SpanFromContext(ctx)
 	if !span.IsRecording() {
 		// No recording waiter to attach the edge to: this caller has no op in the
@@ -101,12 +101,13 @@ func emitOTelCallWait(ctx context.Context, target trace.SpanContext, reason wcpr
 		return
 	}
 	// Attach the wait edge even when target is invalid. In the always-on model
-	// the executor and every caller record uniformly, so a recording waiter's
-	// target (oc.execSpanCtx) is always valid (Invariant T). The only way it is
-	// invalid here is a non-uniform / mixed-recording trace — e.g. a recording
-	// caller joining a singleflight execution started by an *untraced* session
-	// (ongoingCalls is keyed by call+concurrency, not session). We must not drop
-	// the edge silently: a never-emitted wait is the under-serialization the
+	// the work owner and every waiter record uniformly, so a recording waiter's
+	// target (oc.execSpanCtx for call_exec, shared.lazyEvalSpanCtx for lazy) is
+	// always valid (Invariant T). The only way it is invalid here is a non-uniform
+	// / mixed-recording trace — e.g. a recording waiter joining shared work started
+	// by an *untraced* session (ongoingCalls / lazy state are shared across
+	// sessions, not session-keyed). We must not drop the edge silently: a
+	// never-emitted wait is the under-serialization the
 	// §6.1 gate exists to catch. Emitting it with a zero target still carries
 	// attributes, so the SDK retains the link (recordingSpan.AddLink keeps any
 	// attributed link), the loader resolves no target and counts an unresolved

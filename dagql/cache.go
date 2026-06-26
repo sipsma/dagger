@@ -1515,6 +1515,12 @@ type sharedResult struct {
 	// (guarded by lazyMu alongside lazyEvalWaitCh). Waiters record wait
 	// events against it.
 	lazyEvalProfOpID uint64
+	// lazyEvalSpanCtx is the OTel `lazy` op span for the in-flight lazy
+	// evaluation (design §3.2), the analog of lazyEvalProfOpID for the OTel
+	// profiling source. Minted and stashed under lazyMu before lazyEvalWaitCh is
+	// published so every joiner has a valid wait target (Invariant T, §3.0.1).
+	// Invalid when telemetry is off.
+	lazyEvalSpanCtx trace.SpanContext
 }
 
 type sharedResultPayloadState struct {
@@ -2941,11 +2947,22 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 	if shared.lazyEvalWaitCh != nil {
 		waitCh := shared.lazyEvalWaitCh
 		lazyOpID := shared.lazyEvalProfOpID
+		// OTel wait target, stashed by the leader under lazyMu before
+		// lazyEvalWaitCh was published (Invariant T, §3.0.1) — so it is set
+		// whenever this branch is reachable.
+		lazyOpSpanCtx := shared.lazyEvalSpanCtx
 		shared.lazyEvalWaiters++
 		shared.lazyMu.Unlock()
 		profWait := wcprof.BeginWait(stackCtx, lazyOpID, wcprof.WaitReasonLazy)
+		otelWaitStartNS := time.Now().UnixNano()
 		waitErr := c.waitForLazyEvaluation(stackCtx, shared, waitCh)
 		profWait.End()
+		// OTel joiner wait edge (design §3.2 step 4): the load-bearing edge — the
+		// lazy op is in the leader's subtree, not this joiner's, so this wait is
+		// the joiner's only causal link to the eval. emitOTelWait is a no-op when
+		// the waiter is non-recording, and gate-observable (targetless) when the
+		// target is invalid (a non-uniform cross-session trace), mirroring native.
+		emitOTelWait(stackCtx, lazyOpSpanCtx, wcprof.WaitReasonLazy, otelWaitStartNS, time.Now().UnixNano())
 		return waitErr
 	}
 
@@ -2965,6 +2982,21 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 		})
 		shared.lazyEvalProfOpID = lazyOp.ID()
 	}
+	// OTel `lazy` op (design §3.2): mint its span here — under lazyMu, before
+	// lazyEvalWaitCh is published below — so every joiner has a valid wait target
+	// (Invariant T, §3.0.1). The goroutine adopts it to run + end the callback,
+	// and the stamping processor re-homes the re-pointed work spans to it causally
+	// without moving any span (UI unchanged). Gated on telemetry being active (not
+	// wcprof.Enabled) so the OTel source reconstructs from a Cloud trace alone.
+	var (
+		lazySpan        trace.Span
+		lazyCallbackCtx = evalCtx
+		lazyIsResume    bool
+	)
+	if otelProfActive(evalCtx) {
+		lazyCallbackCtx, lazySpan, lazyIsResume = c.beginOTelLazyOp(evalCtx, shared.id, resultCall)
+		shared.lazyEvalSpanCtx = lazySpan.SpanContext()
+	}
 	shared.lazyEvalWaitCh = waitCh
 	shared.lazyEvalCancel = cancel
 	shared.lazyEvalWaiters = 1
@@ -2972,54 +3004,31 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 	shared.lazyMu.Unlock()
 
 	go func() {
-		callbackCtx := evalCtx
-		var resumeSpan trace.Span
-		if clientMD, err := engine.ClientMetadataFromContext(evalCtx); err == nil && clientMD.SessionID != "" {
-			if originalSpanCtx, ok := c.sessionLazySpanContext(clientMD.SessionID, shared.id); ok {
-				spanName := "resume lazy evaluation"
-				if resultCall != nil && resultCall.Field != "" {
-					spanName = "resume " + resultCall.Field
-				}
-				// Lazy failure attribution: link the resume span back to all
-				// API spans that installed/own this result in the session.
-				// dagui interprets cause-purpose links as "this resume is the
-				// cause of those installs failing" and propagates failure.
-				installCtxs := c.sessionResultInstallSpanContexts(clientMD.SessionID, shared.id)
-				links := lazyResumeLinks(originalSpanCtx, installCtxs)
-				var resumeCtx context.Context
-				resumeCtx, resumeSpan = Tracer(evalCtx).Start(
-					evalCtx,
-					spanName,
-					trace.WithLinks(links...),
-					telemetry.Passthrough(),
-				)
-				callbackCtx = trace.ContextWithSpan(resumeCtx, resumedCallbackSpan{
-					Span: resumeSpan,
-					sc:   originalSpanCtx,
-					tp:   resumeSpan.TracerProvider(),
-				})
-			}
-		}
+		// The lazy op span and the re-pointed callback context were minted under
+		// lazyMu above (beginOTelLazyOp, Invariant T); adopt them here. A span
+		// created on one goroutine and ended on another is fine.
+		callbackCtx := lazyCallbackCtx
 
 		var err error
-		// End resumeSpan before close(waitCh) so that callers awaiting
-		// evaluation observe the span as ended (and exported, via sync
-		// processors). Deferring would fire only after close(waitCh) and
-		// race with the caller's flush/read of exported spans.
+		// End lazySpan before close(waitCh) so that callers awaiting evaluation
+		// observe the span as ended (and exported, via sync processors), and so a
+		// joiner's wait target span is closed. Deferring would fire only after
+		// close(waitCh) and race with the caller's flush/read of exported spans.
 		runEval := func() {
-			if resumeSpan != nil {
+			if lazySpan != nil {
 				defer func() {
-					// If the callback failed only because a prerequisite
-					// result's evaluation failed, this result's own deferred
-					// work never ran. Mark the resume span blocked so the UI
-					// returns the owning API spans to pending instead of
-					// marking them caused-failed with the cascaded error. The
-					// failing prerequisite's own resume span carries the real
-					// failure and its install-span cause links.
-					if err != nil && blockedOnPrerequisite(err, shared.id) {
-						resumeSpan.SetAttributes(attribute.Bool(telemetryattrs.DagBlockedAttr, true))
+					// Producer-context re-point only (the resume span): if the
+					// callback failed only because a prerequisite result's
+					// evaluation failed, this result's own deferred work never
+					// ran. Mark the resume span blocked so the UI returns the
+					// owning API spans to pending instead of marking them
+					// caused-failed with the cascaded error. The failing
+					// prerequisite's own resume span carries the real failure and
+					// its install-span cause links.
+					if lazyIsResume && err != nil && blockedOnPrerequisite(err, shared.id) {
+						lazySpan.SetAttributes(attribute.Bool(telemetryattrs.DagBlockedAttr, true))
 					}
-					telemetry.EndWithCause(resumeSpan, &err)
+					telemetry.EndWithCause(lazySpan, &err)
 				}()
 			}
 
@@ -3059,8 +3068,16 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 	}()
 
 	profWait := wcprof.BeginWait(stackCtx, lazyOp.ID(), wcprof.WaitReasonLazy)
+	otelWaitStartNS := time.Now().UnixNano()
 	waitErr := c.waitForLazyEvaluation(stackCtx, shared, waitCh)
 	profWait.End()
+	if lazySpan != nil {
+		// The leader's OTel wait on its own lazy op (design §3.2 step 4): the lazy
+		// op nests under the leader, so the implicit join already serializes it and
+		// this edge is redundant-but-harmless — emitted for oracle parity with
+		// native's leader wait (just above) and matching Chunk 2's executor wait.
+		emitOTelWait(stackCtx, lazySpan.SpanContext(), wcprof.WaitReasonLazy, otelWaitStartNS, time.Now().UnixNano())
+	}
 	return waitErr
 }
 
@@ -3914,7 +3931,7 @@ func (c *Cache) wait(
 		canceledErr = context.Cause(ctx)
 	}
 	profWait.End()
-	emitOTelCallWait(ctx, oc.execSpanCtx, reason, otelWaitStartNS, time.Now().UnixNano())
+	emitOTelWait(ctx, oc.execSpanCtx, reason, otelWaitStartNS, time.Now().UnixNano())
 
 	if completed {
 		completionErr = oc.err
