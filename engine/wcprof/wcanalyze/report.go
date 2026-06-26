@@ -164,10 +164,17 @@ func WriteReport(w io.Writer, g *Graph, opts ReportOptions) error {
 		fmt.Fprintf(w, "sim diagnostics: %d broken cycles, %d fallback anchors, %d start conflicts\n",
 			baseSim.CycleWarnings, baseSim.FallbackAnchors, baseSim.SimStartConflicts)
 	}
-	baseline, whatIfs, err := RunWhatIfs(g, opts.WhatIfFactors, opts.MinClassSelfNS)
+	baseline, whatIfs, whatIfConflicts, err := RunWhatIfs(g, opts.WhatIfFactors, opts.MinClassSelfNS)
 	if err != nil {
 		fmt.Fprintf(w, "simulation unavailable: %v\n\n", err)
 	} else {
+		if whatIfConflicts > 0 {
+			// A non-baseline factor exposed a recorded-offset fallback anchor
+			// disagreeing with the shifted schedule: the savings for the
+			// fallback-anchored (cross-root / in-flight) classes are
+			// order-dependent. Pairs with a non-zero fallback-anchors count.
+			fmt.Fprintf(w, "what-if start conflicts: %d (some savings are order-dependent where fallback anchoring occurred)\n", whatIfConflicts)
+		}
 		drift := float64(0)
 		if actual > 0 {
 			drift = 100 * float64(baseline-actual) / float64(actual)

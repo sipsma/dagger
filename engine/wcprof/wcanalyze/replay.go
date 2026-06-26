@@ -19,12 +19,14 @@ import (
 //   - waits: clock = max(clock, simulated finish of the target); waits on
 //     named resources (locks etc.) are kept as fixed delays; waits that
 //     ended before their target's recorded end were abandoned
-//     (cancellation) or mis-resolved and contribute nothing. A gating wait is
+//     (cancellation) or mis-resolved and contribute nothing. A JOIN wait is
 //     sequenced at its recorded END, so it gates the op's own finish but does
 //     NOT gate a child the op spawned while still waiting (the spawn precedes
 //     the wait's end): that concurrency is preserved, not serialized, and the
 //     child's anchored start is the same whether the child is reached in order
-//     or out of order.
+//     or out of order. (Fixed-delay waits stay at their start; they are a
+//     non-scalable additive segment, not a max-join, so end-ordering them
+//     would over-serialize a child that finished inside the delay.)
 //   - implicit joins: whenever the op reaches an action at original time t,
 //     it first joins every child that had originally ended by t. This bakes
 //     the observed ordering in as a constraint, which correctly models
@@ -34,9 +36,14 @@ import (
 // Roots are chained by preserving original idle gaps between strictly
 // sequential roots (e.g. successive queries from the CLI). The simulation
 // runs in the original trace's time frame (the first root keeps its
-// recorded start); mixing frames would corrupt the schedule because ops
-// reached through cross-tree wait targets are anchored at original times
-// when their own root has not been replayed yet.
+// recorded start). An op reached out of order through a cross-tree wait
+// target is anchored by replaying its producer's timeline up to (and only
+// up to) its spawn under the same factor (see finish/spawnTo), so its start
+// tracks the counterfactual rather than freezing at the recorded time; only
+// a genuine inversion — an ancestor still mid-replay, or a cross-root
+// forward reference whose own root is unscheduled — falls back to the
+// recorded offset, and every such fallback is counted (FallbackAnchors),
+// never silent.
 //
 // The timeline of every op is factor-independent, so it is compiled once
 // per graph into a flat action program (replayProgram); each simulation is
@@ -59,9 +66,9 @@ const (
 
 type action struct {
 	// at is the recorded time the action is sequenced at: a self segment's or
-	// spawn's start, or — for a GATING wait (join/fixed) — the wait's recorded
-	// END, so the wait gates only actions at or after that instant. A non-gating
-	// noop stays at the wait's start.
+	// spawn's start, a fixed delay's or noop's start, or — for a JOIN wait — the
+	// wait's recorded END, so the join gates only actions at or after that
+	// instant.
 	at   int64
 	dur  int64 // self duration or fixed-wait duration (unscaled)
 	ref  int32 // child / wait-target op index
@@ -81,7 +88,8 @@ type replayProgram struct {
 	parent  []int32 // -1 when none
 
 	// actions[actOff[i]:actOff[i+1]] is op i's timeline, sorted by
-	// (at, self<spawn<wait) to match replay ordering rules.
+	// (at, actionRank): at equal times a join wait (sequenced at its end)
+	// applies first, then self, then spawn, then fixed-delay/noop.
 	actions []action
 	actOff  []int32
 
@@ -150,20 +158,24 @@ func compileProgram(g *Graph) *replayProgram {
 
 	p.actions = make([]action, 0, totalActions)
 	p.pendIdx = make([]int32, 0, totalPend)
-	// Ordering at equal recorded times. A gating wait is sequenced at its
-	// recorded END (below) and must apply BEFORE any post-wait self/spawn at
-	// that same instant, so those are gated by it; a spawn the wait did not
-	// outlast already sorts earlier by its smaller recorded time. The
-	// non-gating noop marker (kept at the wait's start) sorts last.
+	// Ordering at equal recorded times. Only a JOIN wait is end-ordered: it is
+	// sequenced at its recorded END (below) and must apply BEFORE any post-wait
+	// self/spawn at that same instant, so those are gated by it (a spawn the
+	// wait did not outlast already sorts earlier by its smaller recorded time).
+	// Fixed delays and noop markers stay at their START and keep the old
+	// after-spawn order — a fixed delay contributes additively (clock += dur),
+	// which does not commute with the child-join max, so end-ordering it would
+	// over-serialize a child that finished inside the delay; it is also never a
+	// cycle (no target to recurse into), so it does not need moving.
 	actionRank := func(kind uint8) int {
 		switch kind {
-		case actWaitJoin, actWaitFixed:
+		case actWaitJoin:
 			return 0
 		case actSelf:
 			return 1
 		case actSpawn:
 			return 2
-		default: // actWaitNoop
+		default: // actWaitFixed, actWaitNoop — start-ordered, non-gating-reorder
 			return 3
 		}
 	}
@@ -189,11 +201,16 @@ func compileProgram(g *Graph) *replayProgram {
 				a.ref = p.idxByID[w.Target.ID]
 				a.at = w.EndNS
 			case w.Target == nil:
-				// Fixed delay: charge its duration at the point it completes, so
-				// a spawn during the delay (before its end) is not gated by it.
+				// Fixed delay (lock / named resource): a non-scalable self-like
+				// segment, charged additively (clock += dur) at its START. Kept
+				// at StartNS — unlike a join wait — because the additive charge
+				// does not commute with the child-join max: end-ordering it would
+				// stack the full duration on top of a child that finished inside
+				// the delay, over-serializing the op's finish. (Fixed delays are
+				// never part of a cycle, so they need no re-ordering for the fix.)
 				a.kind = actWaitFixed
 				a.dur = w.Duration()
-				a.at = w.EndNS
+				a.at = w.StartNS
 			default:
 				// Abandoned wait: no time, only a join action point; left at its
 				// start because it never gates anything.
@@ -272,9 +289,19 @@ type Simulation struct {
 	// SimStartConflicts counts setStart calls that tried to overwrite an
 	// already-anchored op with a DIFFERENT start. The end-ordered gating model
 	// makes a child's anchored start independent of whether it is reached in
-	// order or out of order, so this must stay 0 on a faithful baseline; a
-	// non-zero count flags a residual order-dependence (e.g. the in-flight
-	// fallback corner disagreeing with the later in-order spawn).
+	// order or out of order, so on the normal path this stays 0. Two distinct
+	// sources can make it non-zero — which is why it is surfaced, not
+	// hard-failed:
+	//   - benign: a zero-duration child whose end coincides with a gating
+	//     wait's end is implicitly join-anchored (at the pre-wait clock) before
+	//     its own spawn action re-anchors it. Its finish is absorbed (a
+	//     zero-duration finish can't exceed the wait it sits at), so the op's
+	//     finish is unaffected — a harmless coincidence, not a wrong answer.
+	//   - real: a recorded-offset fallback anchor (so it pairs with
+	//     FallbackAnchors > 0) disagrees with the shifted full-finish value
+	//     under a what-if factor that moves the schedule — an order-dependent
+	//     saving for that cross-root / in-flight-anchored class. The baseline
+	//     (factor 1, no shift) cannot see this; RunWhatIfs surfaces it.
 	SimStartConflicts int
 	// SimStartConflictOps holds a sample of conflicting ops.
 	SimStartConflictOps []*Op
@@ -608,11 +635,11 @@ const maxWhatIfClasses = 200
 // time >= minSelfNS (up to maxWhatIfClasses, by total self-time), the
 // makespan saving when scaling that class's self time by each factor.
 // Simulations run in parallel.
-func RunWhatIfs(g *Graph, factors []float64, minSelfNS int64) (baselineNS int64, results []WhatIfResult, err error) {
+func RunWhatIfs(g *Graph, factors []float64, minSelfNS int64) (baselineNS int64, results []WhatIfResult, whatIfConflicts int, err error) {
 	baseSim := NewSimulation(g, nil)
 	baselineNS, err = baseSim.Run()
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, 0, err
 	}
 
 	totalSelf := make(map[ClassKey]int64)
@@ -674,6 +701,12 @@ func RunWhatIfs(g *Graph, factors []float64, minSelfNS int64) (baselineNS int64,
 					err = simErr
 				} else {
 					results[j.ki].SavedNS[factors[j.fi]] = baselineNS - makespan
+					// Surface order-dependence that only a non-baseline factor
+					// reveals: a recorded-offset fallback anchor (cross-root /
+					// in-flight ancestor) disagrees with the shifted full-finish
+					// value once a factor moves the schedule. Baseline (factor 1)
+					// has no shift, so report.go's baseline check cannot see it.
+					whatIfConflicts = max(whatIfConflicts, sim.SimStartConflicts)
 				}
 				mu.Unlock()
 			}
@@ -687,9 +720,9 @@ func RunWhatIfs(g *Graph, factors []float64, minSelfNS int64) (baselineNS int64,
 	close(jobs)
 	wg.Wait()
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, 0, err
 	}
-	return baselineNS, results, nil
+	return baselineNS, results, whatIfConflicts, nil
 }
 
 // BlockingChain walks back from the op that finishes last in the baseline

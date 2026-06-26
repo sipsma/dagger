@@ -286,7 +286,7 @@ func TestNestedClientReparenting(t *testing.T) {
 
 func TestRunWhatIfsRanking(t *testing.T) {
 	g := sequentialFixture(t)
-	baseline, results, err := RunWhatIfs(g, []float64{0, 0.5}, ms)
+	baseline, results, _, err := RunWhatIfs(g, []float64{0, 0.5}, ms)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -48,7 +48,7 @@ type ClassImpact struct {
 // oracle compares across sources. minSelfNS filters out classes too cheap to
 // matter (mirroring the report's own threshold).
 func TopBottlenecks(g *wcanalyze.Graph, factor float64, minSelfNS int64) (baselineNS int64, ranked []ClassImpact, err error) {
-	baselineNS, results, err := wcanalyze.RunWhatIfs(g, []float64{factor}, minSelfNS)
+	baselineNS, results, _, err := wcanalyze.RunWhatIfs(g, []float64{factor}, minSelfNS)
 	if err != nil {
 		return 0, nil, err
 	}
