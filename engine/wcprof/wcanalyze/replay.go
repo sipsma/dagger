@@ -24,9 +24,11 @@ import (
 //     NOT gate a child the op spawned while still waiting (the spawn precedes
 //     the wait's end): that concurrency is preserved, not serialized, and the
 //     child's anchored start is the same whether the child is reached in order
-//     or out of order. (Fixed-delay waits stay at their start; they are a
-//     non-scalable additive segment, not a max-join, so end-ordering them
-//     would over-serialize a child that finished inside the delay.)
+//     or out of order. A fixed-delay (lock) wait is modelled as a non-scalable
+//     segment that runs concurrently with the op's other work: its completion
+//     is max(clock, clock-when-it-began + duration), so a child spawned or
+//     finished while the lock was held stays concurrent with it rather than
+//     serialized behind it.
 //   - implicit joins: whenever the op reaches an action at original time t,
 //     it first joins every child that had originally ended by t. This bakes
 //     the observed ordering in as a constraint, which correctly models
@@ -61,17 +63,24 @@ const (
 	// time (the op moved on at its own pace) but still marks an action point
 	// for implicit joins.
 	actWaitNoop
-	actWaitFixed
+	// A fixed delay (lock / named resource) is a non-scalable segment that runs
+	// concurrently with the op's other work, so it compiles to a pair: at its
+	// start, actWaitFixedStart records the op's current sim clock X (in the
+	// fixedWaitClock slot named by ref); at its end, actWaitFixedEnd raises the
+	// clock to X+dur (a max, like a join — NOT clock+=dur, which would
+	// over-serialize a child that ran during the delay).
+	actWaitFixedStart
+	actWaitFixedEnd
 )
 
 type action struct {
 	// at is the recorded time the action is sequenced at: a self segment's or
-	// spawn's start, a fixed delay's or noop's start, or — for a JOIN wait — the
-	// wait's recorded END, so the join gates only actions at or after that
-	// instant.
+	// spawn's start, a noop's or a fixed delay's-start-marker's start, or — for
+	// a max-gate (a JOIN wait, or a fixed delay's end) — the wait's recorded
+	// END, so the gate applies only to actions at or after that instant.
 	at   int64
 	dur  int64 // self duration or fixed-wait duration (unscaled)
-	ref  int32 // child / wait-target op index
+	ref  int32 // child / wait-target op index, or fixed-wait clock slot
 	kind uint8
 }
 
@@ -88,10 +97,15 @@ type replayProgram struct {
 	parent  []int32 // -1 when none
 
 	// actions[actOff[i]:actOff[i+1]] is op i's timeline, sorted by
-	// (at, actionRank): at equal times a join wait (sequenced at its end)
-	// applies first, then self, then spawn, then fixed-delay/noop.
+	// (at, actionRank): at equal times a max-gate (a join wait, or a fixed
+	// delay's end — both sequenced at their end) applies first, then self, then
+	// spawn, then a fixed delay's start-marker / noop.
 	actions []action
 	actOff  []int32
+
+	// numFixedWaits is the count of fixed delays across the graph; each owns a
+	// fixedWaitClock slot, named by its start/end actions' ref.
+	numFixedWaits int32
 
 	// pendIdx[pendOff[i]:pendOff[i+1]] is op i's children sorted by
 	// (EndNS, ID): the implicit-join order.
@@ -158,24 +172,22 @@ func compileProgram(g *Graph) *replayProgram {
 
 	p.actions = make([]action, 0, totalActions)
 	p.pendIdx = make([]int32, 0, totalPend)
-	// Ordering at equal recorded times. Only a JOIN wait is end-ordered: it is
-	// sequenced at its recorded END (below) and must apply BEFORE any post-wait
-	// self/spawn at that same instant, so those are gated by it (a spawn the
-	// wait did not outlast already sorts earlier by its smaller recorded time).
-	// Fixed delays and noop markers stay at their START and keep the old
-	// after-spawn order — a fixed delay contributes additively (clock += dur),
-	// which does not commute with the child-join max, so end-ordering it would
-	// over-serialize a child that finished inside the delay; it is also never a
-	// cycle (no target to recurse into), so it does not need moving.
+	// Ordering at equal recorded times. A max-gate — a JOIN wait or a fixed
+	// delay's END, both sequenced at their recorded end — applies BEFORE any
+	// post-wait self/spawn at that same instant, so those are gated by it (a
+	// spawn the wait did not outlast already sorts earlier by its smaller
+	// recorded time). A fixed delay's start-marker and a noop sit at their start
+	// after self/spawn: the marker only records the clock (it does not gate), so
+	// a child spawned at the same instant stays concurrent.
 	actionRank := func(kind uint8) int {
 		switch kind {
-		case actWaitJoin:
+		case actWaitJoin, actWaitFixedEnd:
 			return 0
 		case actSelf:
 			return 1
 		case actSpawn:
 			return 2
-		default: // actWaitFixed, actWaitNoop — start-ordered, non-gating-reorder
+		default: // actWaitFixedStart, actWaitNoop — start markers, non-gating
 			return 3
 		}
 	}
@@ -188,36 +200,33 @@ func compileProgram(g *Graph) *replayProgram {
 			p.actions = append(p.actions, action{at: c.StartNS, kind: actSpawn, ref: p.idxByID[c.ID]})
 		}
 		for _, w := range op.Waits {
-			a := action{}
 			switch {
 			case w.Target != nil && w.Target != op && w.EndNS >= w.Target.EndNS-joinEpsilonNS:
 				// Sequence the gate at the wait's OWN recorded end (not the
-				// target-end proxy, and not the start): a wait gates an action
+				// target-end proxy, and not the start): a join gates an action
 				// iff it completed by that action's recorded time. So a child
 				// the op spawned before this wait ended is left ungated in both
 				// the out-of-order prefix anchor and the in-order finish — the
 				// child's start is order-independent by construction.
-				a.kind = actWaitJoin
-				a.ref = p.idxByID[w.Target.ID]
-				a.at = w.EndNS
+				p.actions = append(p.actions, action{at: w.EndNS, kind: actWaitJoin, ref: p.idxByID[w.Target.ID]})
 			case w.Target == nil:
-				// Fixed delay (lock / named resource): a non-scalable self-like
-				// segment, charged additively (clock += dur) at its START. Kept
-				// at StartNS — unlike a join wait — because the additive charge
-				// does not commute with the child-join max: end-ordering it would
-				// stack the full duration on top of a child that finished inside
-				// the delay, over-serializing the op's finish. (Fixed delays are
-				// never part of a cycle, so they need no re-ordering for the fix.)
-				a.kind = actWaitFixed
-				a.dur = w.Duration()
-				a.at = w.StartNS
+				// Fixed delay (lock / named resource): a non-scalable segment
+				// that runs concurrently with the op's other work. Compile it to
+				// a start-marker (records the sim clock when the op reaches the
+				// delay) and an end-gate (raises the clock to that + dur, a max).
+				// Modelling it as a max — not an additive clock += dur — keeps a
+				// child spawned or finished DURING the delay concurrent with it,
+				// instead of stacking the delay on top of that child's join.
+				slot := p.numFixedWaits
+				p.numFixedWaits++
+				p.actions = append(p.actions,
+					action{at: w.StartNS, kind: actWaitFixedStart, ref: slot},
+					action{at: w.EndNS, kind: actWaitFixedEnd, ref: slot, dur: w.Duration()})
 			default:
 				// Abandoned wait: no time, only a join action point; left at its
 				// start because it never gates anything.
-				a.kind = actWaitNoop
-				a.at = w.StartNS
+				p.actions = append(p.actions, action{at: w.StartNS, kind: actWaitNoop})
 			}
-			p.actions = append(p.actions, a)
 		}
 		span := p.actions[p.actOff[i]:]
 		slices.SortStableFunc(span, func(a, b action) int {
@@ -267,6 +276,10 @@ type Simulation struct {
 	simStart  []int64
 	simFinish []int64
 
+	// fixedWaitClock[slot] holds the sim clock recorded at a fixed delay's start,
+	// read at its end to raise the clock by the delay's duration (a max).
+	fixedWaitClock []int64
+
 	// CycleWarnings counts genuine wait/join cycles broken during replay: an
 	// op whose own dependency chain re-enters it while in flight. Spurious
 	// over-serializations (a concurrent wait that did not gate a spawn) are
@@ -313,15 +326,16 @@ func NewSimulation(g *Graph, factors map[ClassKey]float64) *Simulation {
 	p := g.program()
 	n := len(p.ops)
 	s := &Simulation{
-		g:         g,
-		p:         p,
-		Factors:   factors,
-		factorOf:  make([]float64, len(p.classKeys)),
-		started:   make([]bool, n),
-		finished:  make([]bool, n),
-		inFlight:  make([]bool, n),
-		simStart:  make([]int64, n),
-		simFinish: make([]int64, n),
+		g:              g,
+		p:              p,
+		Factors:        factors,
+		factorOf:       make([]float64, len(p.classKeys)),
+		started:        make([]bool, n),
+		finished:       make([]bool, n),
+		inFlight:       make([]bool, n),
+		simStart:       make([]int64, n),
+		simFinish:      make([]int64, n),
+		fixedWaitClock: make([]int64, p.numFixedWaits),
 	}
 	for i := range s.factorOf {
 		s.factorOf[i] = 1
@@ -473,8 +487,15 @@ func (s *Simulation) advance(op, stopAt int32) int64 {
 			if f := s.finish(a.ref); f > clock {
 				clock = f
 			}
-		case actWaitFixed:
-			clock += a.dur
+		case actWaitFixedStart:
+			// record the clock at which the op reaches the fixed delay
+			s.fixedWaitClock[a.ref] = clock
+		case actWaitFixedEnd:
+			// the delay completes dur after it began; a max, so concurrent work
+			// (a child joined during the delay) is not double-charged
+			if end := s.fixedWaitClock[a.ref] + a.dur; end > clock {
+				clock = end
+			}
 		case actWaitNoop:
 			// abandoned wait: action point only
 		}

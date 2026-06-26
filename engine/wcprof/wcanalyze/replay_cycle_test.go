@@ -323,43 +323,71 @@ func TestZeroDurChildAtJoinWaitEnd(t *testing.T) {
 	}
 }
 
-// --- (e) a fixed (named-resource / lock) delay must NOT be end-ordered: it is a
-// non-scalable additive segment (clock += dur), which does not commute with the
-// max-join of a child that finishes inside the delay. End-ordering it stacked the
-// full duration on top of that child's join and over-serialized the op's finish.
-//
-//	O (session) [0,100]   self [0,5] + [40,100]
-//	├── c (call_exec) [5,35]   spawned BEFORE the lock, finishes INSIDE it
-//	└── fixed lock wait [10,40]   (dur 30)
-//
-// O is blocked on the lock [10,40] while c runs concurrently to 35, then resumes.
-// Correct finish ≈ 95 (recorded 100). End-ordering the fixed delay gave 125 — the
-// lock duration double-counted against c's overlapping join.
-func TestFixedWaitChildFinishesInside(t *testing.T) {
-	s := newFixtureStrings()
-	events := []wcprof.DumpEvent{
-		opEvent(s, 1, 0, "session_phase", "session.query", "", "ok", 0, 100*ms),
-		opEvent(s, 2, 1, "call_exec", "C.work", "c", "ok", 5*ms, 35*ms),
-		// target 0 + a non-exec reason + an ident matching no op ⇒ fixed delay.
-		waitEvent(s, 1, 0, "some-lock", "lock", 10*ms, 40*ms),
-	}
-	g := buildGraph(t, s, events)
-	sim := NewSimulation(g, nil)
-	finish, err := sim.Run()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if sim.CycleWarnings != 0 || sim.SimStartConflicts != 0 {
-		t.Fatalf("cycles=%d conflicts=%d, want 0/0", sim.CycleWarnings, sim.SimStartConflicts)
-	}
-	// 5 (pre-lock self) + 30 (lock, overlapping c) + 60 (post-lock self) = 95.
-	// A double-count of the lock duration after c's join would give 125.
-	if finish != 95*ms {
-		t.Fatalf("O finish = %v, want 95ms (the fixed delay must overlap c's join, not stack on top of it)", time.Duration(finish))
-	}
-	// Note: a child SPAWNED during a fixed delay still anchors after the delay (a
-	// parked op cannot spawn; this matches the validated native model). That is a
-	// pre-existing fixed-delay approximation, out of scope for the cycle fix.
+// --- (e) a fixed (lock / named-resource) delay is a non-scalable segment that
+// runs CONCURRENTLY with the op's other work. Modelling it as clock += dur (an
+// additive jump) instead of max(clock, start-clock + dur) serializes a child
+// that ran during the delay behind it — over-serializing the op's finish. Both
+// the child-finishes-inside and child-spawned-during cases must stay concurrent.
+func TestFixedWaitConcurrentChild(t *testing.T) {
+	// Case 1 — child spawned BEFORE the lock, finishes INSIDE it.
+	//   O (session) [0,100]   self [0,5] + [40,100]
+	//   ├── c (call_exec) [5,35]
+	//   └── lock [10,40]   (dur 30)
+	// O blocks on the lock [10,40] while c runs concurrently to 35, then resumes:
+	// 5 + 30 (lock, overlapping c) + 60 = 95. An additive clock += dur after c's
+	// join would give 125.
+	t.Run("child-finishes-inside", func(t *testing.T) {
+		s := newFixtureStrings()
+		g := buildGraph(t, s, []wcprof.DumpEvent{
+			opEvent(s, 1, 0, "session_phase", "session.query", "", "ok", 0, 100*ms),
+			opEvent(s, 2, 1, "call_exec", "C.work", "c", "ok", 5*ms, 35*ms),
+			waitEvent(s, 1, 0, "some-lock", "lock", 10*ms, 40*ms),
+		})
+		sim := NewSimulation(g, nil)
+		finish, err := sim.Run()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sim.CycleWarnings != 0 || sim.SimStartConflicts != 0 {
+			t.Fatalf("cycles=%d conflicts=%d, want 0/0", sim.CycleWarnings, sim.SimStartConflicts)
+		}
+		if finish != 95*ms {
+			t.Fatalf("O finish = %v, want 95ms", time.Duration(finish))
+		}
+	})
+
+	// Case 2 — child SPAWNED during the lock (concurrent fan-out while blocked).
+	//   P (call) [0,300]   self [0,50] + [200,300]
+	//   ├── U (call_exec) [100,200]   spawned at 100, during the lock
+	//   └── lock [50,200]   (dur 150)
+	// U is concurrent with the lock: it anchors at P's pre-lock clock (50ms) and
+	// finishes at 150, well before P's post-lock self. P's critical path is
+	// self(50) → lock(150)=200 → self(100) = 300. Serializing U behind the lock
+	// (anchor 200 → finish 300 → +100 self) would give the wrong 400.
+	t.Run("child-spawned-during", func(t *testing.T) {
+		s := newFixtureStrings()
+		g := buildGraph(t, s, []wcprof.DumpEvent{
+			opEvent(s, 1, 0, "session_phase", "session.query", "", "ok", 0, 300*ms),
+			opEvent(s, 2, 1, "call", "P.call", "p", "executed", 0, 300*ms),
+			opEvent(s, 3, 2, "call_exec", "U.work", "u", "ok", 100*ms, 200*ms),
+			waitEvent(s, 2, 0, "some-lock", "lock", 50*ms, 200*ms),
+		})
+		sim := NewSimulation(g, nil)
+		if _, err := sim.Run(); err != nil {
+			t.Fatal(err)
+		}
+		if sim.CycleWarnings != 0 || sim.SimStartConflicts != 0 {
+			t.Fatalf("cycles=%d conflicts=%d, want 0/0", sim.CycleWarnings, sim.SimStartConflicts)
+		}
+		uStart, _ := simByClass(sim, g, "U.work")
+		_, pFinish := simByClass(sim, g, "P.call")
+		if uStart != 50*ms {
+			t.Fatalf("U start = %v, want 50ms (U must stay concurrent with the lock, not serialized behind it)", time.Duration(uStart))
+		}
+		if pFinish != 300*ms {
+			t.Fatalf("P finish = %v, want 300ms (serializing U behind the lock gives the wrong 400ms)", time.Duration(pFinish))
+		}
+	})
 }
 
 // --- (f) cross-root / out-of-order root reference: one root waits on another,
