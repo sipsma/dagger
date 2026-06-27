@@ -1,21 +1,23 @@
-// wcprof-otel-analyze reads an otlpdump JSONL capture of a dagger run's OTel
-// telemetry and reports wall-clock bottleneck analysis through the same
-// wcanalyze replay the native wcprof dump path uses — the "OTel source" of the
-// wcprof × OTel design (hack/designs/wcprof-otel-design.md §5).
+// wcprof-otel-analyze reports wall-clock bottleneck analysis for a dagger run's
+// OTel telemetry through the same wcanalyze replay the native wcprof dump path
+// uses — the "OTel source" of the wcprof × OTel design
+// (hack/designs/wcprof-otel-design.md §5).
 //
-// It runs the structural gate (design §6.1) first and exits non-zero if a hard
-// invariant is violated, then renders the report. On an un-augmented engine the
-// report is deliberately wrong (the four faithfulness breaks of design §2 are
-// all present) but the gate still passes — that baseline is the measuring stick
-// for the emit-side fixes in later chunks.
+// It ingests from either source (design §5): a local otlpdump JSONL capture (the
+// dev loop) OR, with -trace, a trace fetched from the Dagger Cloud trace API (the
+// production ingest, §6.6). Both feed the identical compile/replay stage. It runs
+// the structural gate (design §6.1) first and exits non-zero if a hard invariant
+// is violated, then renders the report.
 //
 // Usage:
 //
 //	go run ./hack/otlpdump -out /tmp/telemetry.jsonl    # capture (telemetry-capture skill)
 //	go run ./cmd/wcprof-otel-analyze /tmp/telemetry.jsonl
+//	go run ./cmd/wcprof-otel-analyze -trace <traceID>   # from Dagger Cloud (requires `dagger login`)
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -24,7 +26,10 @@ import (
 	"time"
 
 	"github.com/dagger/dagger/engine/wcprof/wcanalyze"
+	"github.com/dagger/dagger/engine/wcprof/wccloud"
 	"github.com/dagger/dagger/engine/wcprof/wcotel"
+	"github.com/dagger/dagger/internal/cloud"
+	"github.com/dagger/dagger/internal/cloud/auth"
 )
 
 func main() {
@@ -34,12 +39,15 @@ func main() {
 		minSelf    = flag.Duration("min-self", time.Millisecond, "ignore classes with less total self-time than this in what-ifs")
 		deadAirMin = flag.Duration("dead-air-min", 50*time.Millisecond, "minimum gap to report as dead air")
 		chainDepth = flag.Int("chain-depth", 25, "max length of the blocking chain to print")
+		traceID    = flag.String("trace", "", "fetch this trace id from Dagger Cloud instead of reading a file (requires `dagger login`)")
+		orgID      = flag.String("org", "", "Dagger Cloud org id for -trace (default: the current logged-in org)")
 	)
 	flag.Parse()
 
-	if flag.NArg() < 1 {
+	if *traceID == "" && flag.NArg() < 1 {
 		fmt.Fprintf(os.Stderr, "usage: wcprof-otel-analyze [flags] <otlpdump.jsonl> [more.jsonl...]\n")
-		fmt.Fprintf(os.Stderr, "each file is one captured trace and is analyzed independently\n")
+		fmt.Fprintf(os.Stderr, "   or: wcprof-otel-analyze [flags] -trace <traceID>\n")
+		fmt.Fprintf(os.Stderr, "each file/trace is one trace and is analyzed independently\n")
 		flag.PrintDefaults()
 		os.Exit(2)
 	}
@@ -61,15 +69,22 @@ func main() {
 		DeadAirMinNS:   int64(*deadAirMin),
 		ChainDepth:     *chainDepth,
 	}
-	if err := run(flag.Args(), opts, wcotel.GateOptions{}); err != nil {
+
+	var err error
+	if *traceID != "" {
+		err = runCloud(context.Background(), *traceID, *orgID, opts)
+	} else {
+		err = runFiles(flag.Args(), opts)
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(paths []string, opts wcanalyze.ReportOptions, gateOpts wcotel.GateOptions) error {
-	// The design's unit of analysis is one trace (design §10 decision 2), so
-	// each file is loaded and analyzed independently rather than merged.
+func runFiles(paths []string, opts wcanalyze.ReportOptions) error {
+	// The design's unit of analysis is one trace (design §10 decision 2), so each
+	// file is loaded and analyzed independently rather than merged.
 	var failed bool
 	for _, path := range paths {
 		if len(paths) > 1 {
@@ -79,22 +94,43 @@ func run(paths []string, opts wcanalyze.ReportOptions, gateOpts wcotel.GateOptio
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
-
-		gate := wcotel.CheckStructural(c, g, gateOpts)
-		gate.Write(os.Stderr)
-		if err := gate.Err(); err != nil {
-			fmt.Fprintln(os.Stderr, err)
+		if !analyze(c, g, opts) {
 			failed = true
-		}
-
-		if err := wcanalyze.WriteReport(os.Stdout, g, opts); err != nil {
-			return err
 		}
 	}
 	if failed {
 		return fmt.Errorf("structural gate failed (see above)")
 	}
 	return nil
+}
+
+// runCloud swaps the loader's input to the Dagger Cloud trace API (design §5,
+// §6.6): same compile/replay stage, different source.
+func runCloud(ctx context.Context, traceID, orgID string, opts wcanalyze.ReportOptions) error {
+	c, g, err := loadCloud(ctx, traceID, orgID)
+	if err != nil {
+		return err
+	}
+	if !analyze(c, g, opts) {
+		return fmt.Errorf("structural gate failed (see above)")
+	}
+	return nil
+}
+
+// analyze runs the structural gate then the report; returns false if the gate failed.
+func analyze(c *wcotel.Compiled, g *wcanalyze.Graph, opts wcanalyze.ReportOptions) bool {
+	gate := wcotel.CheckStructural(c, g, wcotel.GateOptions{})
+	gate.Write(os.Stderr)
+	ok := true
+	if err := gate.Err(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		ok = false
+	}
+	if err := wcanalyze.WriteReport(os.Stdout, g, opts); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		ok = false
+	}
+	return ok
 }
 
 func loadFile(path string) (*wcotel.Compiled, *wcanalyze.Graph, error) {
@@ -104,4 +140,24 @@ func loadFile(path string) (*wcotel.Compiled, *wcanalyze.Graph, error) {
 	}
 	defer f.Close()
 	return wcotel.Load(f)
+}
+
+func loadCloud(ctx context.Context, traceID, orgID string) (*wcotel.Compiled, *wcanalyze.Graph, error) {
+	cloudAuth, err := auth.GetCloudAuth(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cloud auth (run `dagger login`): %w", err)
+	}
+	client, err := cloud.NewClient(ctx, cloudAuth)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cloud client: %w", err)
+	}
+	if orgID == "" {
+		if org, orgErr := auth.CurrentOrg(); orgErr == nil {
+			orgID = org.ID
+		}
+	}
+	if orgID == "" {
+		return nil, nil, fmt.Errorf("no org id: pass -org or set a current org via `dagger login`")
+	}
+	return wccloud.Load(ctx, client, orgID, traceID)
 }
