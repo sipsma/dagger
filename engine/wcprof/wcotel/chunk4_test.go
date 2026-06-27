@@ -24,16 +24,16 @@ import (
 
 // span ids beyond the loader_test.go / chunk3_test.go sets.
 const (
-	idERun    = "1010101010101010" // exec.run
-	idCStart  = "2020202020202020" // exec.containerStart
-	idPRun    = "3030303030303030" // exec.processRun
-	idInstA   = "4040404040404040" // first service installer
+	idERun     = "1010101010101010" // exec.run
+	idCStart   = "2020202020202020" // exec.containerStart
+	idPRun     = "3030303030303030" // exec.processRun
+	idInstA    = "4040404040404040" // first service installer
 	idSvcStart = "5050505050505050" // service.start
-	idSvcSpan = "6060606060606060" // long-lived service availability span (OTel-only)
-	idDRun    = "7070707070707070" // daemon exec.run
-	idDPRun   = "8080808080808080" // daemon exec.processRun (idle)
-	idInstB   = "9090909090909090" // second installer (joiner)
-	idCExec   = "a1a1a1a1a1a1a1a1" // consumer call_exec (on-path user work)
+	idSvcSpan  = "6060606060606060" // long-lived service availability span (OTel-only)
+	idDRun     = "7070707070707070" // daemon exec.run
+	idDPRun    = "8080808080808080" // daemon exec.processRun (idle)
+	idInstB    = "9090909090909090" // second installer (joiner)
+	idCExec    = "a1a1a1a1a1a1a1a1" // consumer call_exec (on-path user work)
 )
 
 // execRunAttrs are the exec.run span attributes beginOTelExecRun emits.
@@ -163,12 +163,12 @@ func TestChunk4ExecSplitFidelity(t *testing.T) {
 			// (§6.2) cross-source oracle: the native IR for the same run.
 			nat := newNativeIR()
 			const (
-				nRoot  uint64 = 1
-				nCall  uint64 = 2
-				nExec  uint64 = 3
-				nERun  uint64 = 4
-				nCS    uint64 = 5
-				nPR    uint64 = 6
+				nRoot uint64 = 1
+				nCall uint64 = 2
+				nExec uint64 = 3
+				nERun uint64 = 4
+				nCS   uint64 = 5
+				nPR   uint64 = 6
 			)
 			nat.op(nRoot, 0, "", "POST /query", 0, 100, wcprof.OutcomeOK.String())
 			nat.op(nCall, nRoot, wcprof.OpKindCall.String(), "Container.withExec", 5, 95, wcprof.OutcomeExecuted.String())
@@ -296,11 +296,11 @@ func TestChunk4ServicesFidelity(t *testing.T) {
 	// the irreducible native-vs-OTel structural difference (§6.2 scope-matching).
 	nat := newNativeIR()
 	const (
-		nRoot uint64 = 1
+		nRoot  uint64 = 1
 		nInstA uint64 = 2
-		nSvc  uint64 = 3
-		nDRun uint64 = 4
-		nDPR  uint64 = 5
+		nSvc   uint64 = 3
+		nDRun  uint64 = 4
+		nDPR   uint64 = 5
 		nInstB uint64 = 6
 		nCExec uint64 = 7
 	)
@@ -322,5 +322,92 @@ func TestChunk4ServicesFidelity(t *testing.T) {
 	if !cmp.Agrees(1.0, 0.01) {
 		t.Fatalf("native↔OTel must converge on the service-using ranking: jaccard=%.2f drift=%.2f native-only=%v otel-only=%v",
 			cmp.JaccardTopN(), cmp.MaxRelDrift(), cmp.NativeOnly, cmp.OTelOnly)
+	}
+}
+
+// TestChunk4SlowServiceStartHeadlines is the §3.4 self-erasure INVERSE of
+// TestChunk4ServicesFidelity: when the service START is slow (image pull +
+// health-check polling on the critical path) the service.start op must HEADLINE as
+// the bottleneck, while the idle availability still contributes ~0 to the ranking.
+// Here the daemon spins up only near the END of the start window, so service.start
+// carries the start+health-check self-time (its long-lived child does not erase it),
+// and a consumer that waited for the service is the small post-start work that ends
+// last. The "slow start headlines" assertion the §3.4 refinement owes.
+func TestChunk4SlowServiceStartHeadlines(t *testing.T) {
+	const (
+		dSvc      = "sha256:slow-service-digest"
+		dDaemon   = "sha256:slow-daemon-exec"
+		dConsumer = "sha256:slow-consumer-digest"
+	)
+	// service.start [8,60] = 47ms self-time (the slow start: pull + health-check),
+	// the dominant on-critical-path cost. installer B waits for it, then a small
+	// consumer [61,84] ends last (the makespan tail). The daemon comes up only at 55
+	// and idles to 80 — substantial self-time, but off-path and ending before the
+	// consumer, so it must NOT rank.
+	otelRecs := []map[string]any{
+		otSpan(idRoot, idNone, "POST /query", 0, 90, nil),
+		// installer A triggers + is synchronously blocked in the start (nesting).
+		otSpan(idInstA, idRoot, "Container.asService", 5, 62, callAttrs(dSvc)),
+		// the SLOW service.start op: pull + health-check polling.
+		otSpan(idSvcStart, idInstA, "service.start", 8, 60, serviceStartAttrs(dSvc)),
+		// the daemon spins up only near the end of the start window; passthrough
+		// availability marker that slightly outlives service.start and then idles.
+		otSpan(idSvcSpan, idSvcStart, "exec daemon-cmd", 55, 82, map[string]any{telemetry.UIPassthroughAttr: true}),
+		otSpan(idDRun, idSvcSpan, "exec.run", 56, 81, execRunAttrs(dDaemon)),
+		otSpan(idDPRun, idDRun, "exec.processRun", 57, 80, execPhaseAttrs(dDaemon, true)),
+		// installer B joins the in-flight start: blocks on service.start, then runs a
+		// SMALL consumer that ends last.
+		otSpan(idInstB, idRoot, "Container.withServiceBinding", 40, 85, callAttrs(dConsumer),
+			otWait(idSvcStart, "service", 45, 60)),
+		otSpan(idCExec, idInstB, "Container.stdout", 61, 84, callExecAttrs(dConsumer)),
+	}
+	c := mustCompile(t, toJSONL(t, otelRecs...))
+	g, err := wcanalyze.Build(c.Header, c.Events)
+	if err != nil {
+		t.Fatalf("otel build: %v", err)
+	}
+
+	// §6.1 + Invariant T: the installer service wait resolves to service.start; gate clean.
+	gate := mustGate(t, c, g)
+	if gate.UnresolvedWaitTargets != 0 || gate.OrphanedParents != 0 || gate.UnschedulableOps != 0 || len(gate.IntervalGtSpan) != 0 {
+		t.Fatalf("gate must be clean: unresolved=%d orphaned=%d unschedulable=%d interval>span=%d",
+			gate.UnresolvedWaitTargets, gate.OrphanedParents, gate.UnschedulableOps, len(gate.IntervalGtSpan))
+	}
+
+	svcStart := opByClassKind(g, wcprof.OpKindServiceStart.String(), "service.start")
+	daemonPR := opByClassKind(g, wcprof.OpKindExecPhase.String(), "exec.processRun")
+	if svcStart == nil || daemonPR == nil {
+		t.Fatalf("missing ops: service.start=%v daemonProcessRun=%v", svcStart, daemonPR)
+	}
+	// service.start carries the start+health-check self-time (NOT erased to ~0 like
+	// the idle-remainder case): its long-lived child overlaps only the tail.
+	if svcStart.SelfNS() < 40*int64(ms) {
+		t.Fatalf("service.start must carry the start+health-check self-time; got %dns", svcStart.SelfNS())
+	}
+
+	// the headline: the slow service.start tops the ranking.
+	_, ranked, err := TopBottlenecks(g, 0.5, 0)
+	if err != nil {
+		t.Fatalf("what-ifs: %v", err)
+	}
+	if len(ranked) == 0 {
+		t.Fatal("no bottleneck classes ranked")
+	}
+	top := ranked[0]
+	if top.Key.Kind != wcprof.OpKindServiceStart.String() || top.Key.Class != "service.start" {
+		t.Fatalf("headline must be the slow {service_start,service.start}; got {%s,%s} (saved=%dns)",
+			top.Key.Kind, top.Key.Class, top.SavedNS)
+	}
+
+	// ...while the idle availability contributes ~0 to the ranking (self-erasure
+	// holds even when the start is slow): neither the idle daemon process (despite
+	// substantial self-time) nor the long-lived availability span ranks.
+	daemonSaved := savedForKey(ranked, wcanalyze.ClassKey{Kind: wcprof.OpKindExecPhase.String(), Class: "exec.processRun"})
+	if daemonSaved != 0 {
+		t.Fatalf("the idle daemon must NOT rank (off critical path); got saved=%dns (self=%dns)", daemonSaved, daemonPR.SelfNS())
+	}
+	svcSpanSaved := savedForKey(ranked, wcanalyze.ClassKey{Kind: "", Class: "exec daemon-cmd"})
+	if svcSpanSaved != 0 {
+		t.Fatalf("the long-lived availability span must not rank; got saved=%dns", svcSpanSaved)
 	}
 }

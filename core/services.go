@@ -374,12 +374,21 @@ func (ss *Services) Get(ctx context.Context, dig digest.Digest, clientSpecific b
 			return running, nil
 		case isStarting:
 			profWait := wcprof.BeginWait(ctx, starting.profOpID, wcprof.WaitReasonService)
+			// OTel installer wait edge (design §3.4): a Get caller that blocks on the
+			// in-flight start credits its blocked interval to the service.start span,
+			// the analog of native's BeginWait above (mirrors startWithKey's isStarting
+			// branch). dagql.EmitOTelWait self-gates on a recording waiter and, per
+			// Invariant T (§3.0.1), emits a gate-observable targetless wait if the start
+			// ran untraced (the cross-session case) rather than dropping the edge.
+			otelWaitStartNS := time.Now().UnixNano()
 			select {
 			case <-ctx.Done():
 				profWait.End()
+				dagql.EmitOTelWait(ctx, starting.otelStartSpanCtx, wcprof.WaitReasonService, otelWaitStartNS, time.Now().UnixNano())
 				return nil, context.Cause(ctx)
 			case <-starting.done:
 				profWait.End()
+				dagql.EmitOTelWait(ctx, starting.otelStartSpanCtx, wcprof.WaitReasonService, otelWaitStartNS, time.Now().UnixNano())
 			}
 		default:
 			return nil, notRunningErr

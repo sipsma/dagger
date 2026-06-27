@@ -299,7 +299,7 @@ type Simulation struct {
 	// in a completed run, so a recorded cycle is a false (non-synchronous) edge —
 	// unfaithful data.
 	CycleWarnings int
-	// FallbackAnchors counts references the recorded causal structure could NOT
+	// UnschedulableOps counts references the recorded causal structure could NOT
 	// schedule: an op referenced from within its own ancestor's prefix before
 	// that ancestor spawns it (an inverted reference), or a recorded child its
 	// parent never spawns (a malformed nesting). Both are impossible in a
@@ -308,9 +308,9 @@ type Simulation struct {
 	// all roots are pre-anchored so a cross-root reference never needs a fallback.
 	// The recorded-offset anchor here only bounds the damage; the count fails the
 	// gate so the emit is fixed. 0 on faithful data.
-	FallbackAnchors int
-	// FallbackAnchorOps holds a sample of the unfaithful-reference ops.
-	FallbackAnchorOps []*Op
+	UnschedulableOps int
+	// UnschedulableOpsSample holds a sample of the unfaithful-reference ops.
+	UnschedulableOpsSample []*Op
 	// PrefixAnchors counts ops whose start was anchored by replaying their
 	// parent's timeline up to (and only up to) their spawn — the normal
 	// out-of-order path. Informational: large counts just mean many cross-tree
@@ -320,7 +320,7 @@ type Simulation struct {
 	// already-anchored op with a DIFFERENT start. With roots anchored
 	// independently (no chaining) and the end-ordered gating model, an op's start
 	// is path-independent, so this is 0 by construction on faithful data. A
-	// non-zero value pairs with a FallbackAnchor (the unfaithful-reference case)
+	// non-zero value pairs with an unschedulable op (the unfaithful-reference case)
 	// and is the same data-faithfulness signal.
 	SimStartConflicts int
 	// SimStartConflictOps holds a sample of conflicting ops.
@@ -472,7 +472,7 @@ func (s *Simulation) advance(op, stopAt int32) int64 {
 				// parent's reachable actions — a malformed nesting edge, i.e.
 				// unfaithful DATA. Flag it (not a silent anchor); anchor at the
 				// current clock only to bound the damage.
-				s.fallbackAnchor(c)
+				s.anchorUnschedulable(c)
 			}
 			pendCur++
 			if f := s.finish(c); f > clock {
@@ -518,7 +518,7 @@ func (s *Simulation) advance(op, stopAt int32) int64 {
 // return. With all roots pre-anchored by Run, the only anchors it produces are
 // exact (a root's recorded start, or a child reached by its parent's prefix
 // replay). The remaining corners are unfaithful DATA — a reference the recorded
-// causal structure cannot schedule — flagged via fallbackAnchor, not silently
+// causal structure cannot schedule — flagged via anchorUnschedulable, not silently
 // approximated.
 func (s *Simulation) spawnTo(par, target int32) {
 	if par < 0 {
@@ -536,7 +536,7 @@ func (s *Simulation) spawnTo(par, target int32) {
 			s.spawnTo(pp, par)
 		}
 		if !s.started[par] {
-			s.fallbackAnchor(par)
+			s.anchorUnschedulable(par)
 		}
 	}
 
@@ -545,7 +545,7 @@ func (s *Simulation) spawnTo(par, target int32) {
 		// BEFORE par spawns it — a recorded inversion that cannot occur in a
 		// faithful synchronous nesting. Unfaithful data: flag it (don't silently
 		// approximate); anchor only to bound the damage so the rest still runs.
-		s.fallbackAnchor(target)
+		s.anchorUnschedulable(target)
 		return
 	}
 
@@ -559,24 +559,24 @@ func (s *Simulation) spawnTo(par, target int32) {
 	}
 	// par's prefix never reached target's spawn: target is not actually par's
 	// recorded child — a malformed parent/child edge. Unfaithful data, flagged.
-	s.fallbackAnchor(target)
+	s.anchorUnschedulable(target)
 }
 
-// fallbackAnchor records an op the replay could NOT schedule from the recorded
+// anchorUnschedulable records an op the replay could NOT schedule from the recorded
 // causal structure (an inverted reference or a malformed nesting). This is an
 // unfaithful-DATA signal, not an approximation the analysis chose: it anchors at
-// the recorded offset only to bound the damage, and counts it (FallbackAnchors)
+// the recorded offset only to bound the damage, and counts it (UnschedulableOps)
 // so the gate fails loudly and the EMIT is fixed — never silent. On faithful
 // data it never fires.
-func (s *Simulation) fallbackAnchor(i int32) {
+func (s *Simulation) anchorUnschedulable(i int32) {
 	anchor := s.p.startNS[i]
 	if par := s.p.parent[i]; par >= 0 && s.started[par] {
 		anchor = s.simStart[par] + (s.p.startNS[i] - s.p.startNS[par])
 	}
 	s.setStart(i, anchor)
-	s.FallbackAnchors++
-	if len(s.FallbackAnchorOps) < 10 {
-		s.FallbackAnchorOps = append(s.FallbackAnchorOps, s.p.ops[i])
+	s.UnschedulableOps++
+	if len(s.UnschedulableOpsSample) < 10 {
+		s.UnschedulableOpsSample = append(s.UnschedulableOpsSample, s.p.ops[i])
 	}
 }
 
@@ -735,7 +735,7 @@ func RunWhatIfs(g *Graph, factors []float64, minSelfNS int64) (baselineNS int64,
 				} else {
 					results[j.ki].SavedNS[factors[j.fi]] = baselineNS - makespan
 					// Surface order-dependence that only a non-baseline factor
-					// reveals: a recorded-offset fallback anchor (cross-root /
+					// reveals: a unschedulable-op anchor (cross-root /
 					// in-flight ancestor) disagrees with the shifted full-finish
 					// value once a factor moves the schedule. Baseline (factor 1)
 					// has no shift, so report.go's baseline check cannot see it.

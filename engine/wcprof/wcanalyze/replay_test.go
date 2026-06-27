@@ -216,9 +216,9 @@ func TestRootsIndependent(t *testing.T) {
 	if baseline != 250*ms {
 		t.Fatalf("baseline = %v, want 250ms", time.Duration(baseline))
 	}
-	if sim.FallbackAnchors != 0 || sim.SimStartConflicts != 0 || sim.CycleWarnings != 0 {
-		t.Fatalf("faithfulness signals nonzero: fallbacks=%d conflicts=%d cycles=%d, want 0/0/0",
-			sim.FallbackAnchors, sim.SimStartConflicts, sim.CycleWarnings)
+	if sim.UnschedulableOps != 0 || sim.SimStartConflicts != 0 || sim.CycleWarnings != 0 {
+		t.Fatalf("faithfulness signals nonzero: unschedulable=%d conflicts=%d cycles=%d, want 0/0/0",
+			sim.UnschedulableOps, sim.SimStartConflicts, sim.CycleWarnings)
 	}
 
 	sim = NewSimulation(g, map[ClassKey]float64{

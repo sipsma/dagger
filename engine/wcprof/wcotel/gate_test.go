@@ -262,12 +262,12 @@ func TestGateFailsOnDroppedWaitLinks(t *testing.T) {
 // TestGateCrossRootNoFallback: a root that wait-joins two OTHER roots is the
 // concurrent cross-root (dedup) shape. Under the rational model — roots anchored
 // independently at their recorded starts, the wait honored as a recorded edge —
-// this is computed exactly: NO recorded-offset fallback, so FallbackAnchors == 0
+// this is computed exactly: NO recorded-offset fallback, so UnschedulableOps == 0
 // and the gate PASSES. (Before item 3, the chaining model gave these roots a
 // competing start and the replay used a recorded-offset fallback, which the gate
 // then hard-failed — a band-aid over the analysis compensating for itself.)
 //
-// FallbackAnchors now means an unfaithful-DATA reference the recorded causal
+// UnschedulableOps now means an unfaithful-DATA reference the recorded causal
 // structure cannot schedule (an inverted reference / malformed nesting); on
 // faithful data it is 0 by construction, and the gate's hard-fail on it is an
 // invariant assertion that should never trip — pointed at the EMIT, not at the
@@ -285,8 +285,8 @@ func TestGateCrossRootNoFallback(t *testing.T) {
 	c, g := mustLoad(t, jsonl)
 
 	r := CheckStructural(c, g, GateOptions{})
-	if r.FallbackAnchors != 0 {
-		t.Fatalf("cross-root dedup must produce 0 fallback anchors under independent root anchoring, got %d", r.FallbackAnchors)
+	if r.UnschedulableOps != 0 {
+		t.Fatalf("cross-root dedup must produce 0 unschedulable ops under independent root anchoring, got %d", r.UnschedulableOps)
 	}
 	if r.SimStartConflicts != 0 {
 		t.Fatalf("independent roots must not conflict, got %d start conflicts", r.SimStartConflicts)

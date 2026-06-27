@@ -65,9 +65,9 @@ func TestWhatIfConfigParsePrefixAnchor(t *testing.T) {
 	if baseMakespan != 500*ms {
 		t.Fatalf("baseline makespan = %v, want 500ms", time.Duration(baseMakespan))
 	}
-	if base.CycleWarnings != 0 || base.FallbackAnchors != 0 || base.SimStartConflicts != 0 {
-		t.Fatalf("baseline diagnostics: cycles=%d fallbacks=%d conflicts=%d, want all 0",
-			base.CycleWarnings, base.FallbackAnchors, base.SimStartConflicts)
+	if base.CycleWarnings != 0 || base.UnschedulableOps != 0 || base.SimStartConflicts != 0 {
+		t.Fatalf("baseline diagnostics: cycles=%d unschedulable=%d conflicts=%d, want all 0",
+			base.CycleWarnings, base.UnschedulableOps, base.SimStartConflicts)
 	}
 	if base.PrefixAnchors == 0 {
 		t.Fatalf("expected at least one out-of-order prefix anchor, got 0 (the fixture must exercise spawnTo)")
@@ -149,7 +149,7 @@ func TestMinCycleNoFalseCycle(t *testing.T) {
 	// B is reached out of order while its grandparent (root) is mid-replay, so
 	// it anchors at its recorded offset — counted, not silent. The recorded
 	// offset is exact here (no shift), so it does not corrupt anything.
-	t.Logf("diagnostics: prefix-anchors=%d fallback-anchors=%d", sim.PrefixAnchors, sim.FallbackAnchors)
+	t.Logf("diagnostics: prefix-anchors=%d unschedulable-ops=%d", sim.PrefixAnchors, sim.UnschedulableOps)
 }
 
 // --- (c) dual semantics + order-independence: a wait concurrent with a child
@@ -329,7 +329,7 @@ func TestZeroDurChildAtJoinWaitEnd(t *testing.T) {
 // TestZeroDurWaitTargetPropagation is the showstopper the above guards against:
 // a zero-duration child Z that is itself a WAIT TARGET, anchored early, feeds a
 // wrong finish into a downstream wait chain → wrong makespan, with no
-// FallbackAnchor to flag it. P waits T (gates to 100) then spawns zero-dur Z at
+// an unschedulable-op signal to flag it. P waits T (gates to 100) then spawns zero-dur Z at
 // 100; B waits Z; A waits B then runs 200ms self; root reaches B before P so Z is
 // anchored out of order. The bug anchored Z at P's pre-wait clock (50) → B=50,
 // A=250, makespan 250. Correct: Z=100, B=100, A=300, makespan 300.
@@ -393,9 +393,9 @@ func TestTwoZeroDurCoEnding(t *testing.T) {
 	if z1 != 100*ms || z2 != 100*ms {
 		t.Fatalf("Z1=%v Z2=%v, want both 100ms (gated, not pre-wait-anchored)", time.Duration(z1), time.Duration(z2))
 	}
-	if sim.SimStartConflicts != 0 || sim.CycleWarnings != 0 || sim.FallbackAnchors != 0 {
-		t.Fatalf("faithfulness signals nonzero: conflicts=%d cycles=%d fallbacks=%d, want 0/0/0",
-			sim.SimStartConflicts, sim.CycleWarnings, sim.FallbackAnchors)
+	if sim.SimStartConflicts != 0 || sim.CycleWarnings != 0 || sim.UnschedulableOps != 0 {
+		t.Fatalf("faithfulness signals nonzero: conflicts=%d cycles=%d unschedulable=%d, want 0/0/0",
+			sim.SimStartConflicts, sim.CycleWarnings, sim.UnschedulableOps)
 	}
 }
 
@@ -513,7 +513,7 @@ func TestFixedWaitConcurrentChild(t *testing.T) {
 //
 // Baseline 300. Scale R_B's setup → 0: T spawns at 0, runs 0→200, R_A's wait
 // unblocks at 200 → makespan 200, a 100ms saving crossing the root boundary.
-// FallbackAnchors / SimStartConflicts / CycleWarnings are 0 BY CONSTRUCTION.
+// UnschedulableOps / SimStartConflicts / CycleWarnings are 0 BY CONSTRUCTION.
 func TestCrossRootDedup(t *testing.T) {
 	build := func() *Graph {
 		s := newFixtureStrings()
@@ -534,9 +534,9 @@ func TestCrossRootDedup(t *testing.T) {
 	if makespan != 300*ms {
 		t.Fatalf("baseline makespan = %v, want 300ms", time.Duration(makespan))
 	}
-	if base.FallbackAnchors != 0 || base.SimStartConflicts != 0 || base.CycleWarnings != 0 {
-		t.Fatalf("faithfulness signals nonzero: fallbacks=%d conflicts=%d cycles=%d, want 0/0/0 by construction",
-			base.FallbackAnchors, base.SimStartConflicts, base.CycleWarnings)
+	if base.UnschedulableOps != 0 || base.SimStartConflicts != 0 || base.CycleWarnings != 0 {
+		t.Fatalf("faithfulness signals nonzero: unschedulable=%d conflicts=%d cycles=%d, want 0/0/0 by construction",
+			base.UnschedulableOps, base.SimStartConflicts, base.CycleWarnings)
 	}
 
 	scaled := NewSimulation(build(), map[ClassKey]float64{
@@ -549,9 +549,9 @@ func TestCrossRootDedup(t *testing.T) {
 	if m2 != 200*ms {
 		t.Fatalf("scaled makespan = %v, want 200ms (the saving must cross the root boundary through the recorded wait)", time.Duration(m2))
 	}
-	if scaled.FallbackAnchors != 0 || scaled.SimStartConflicts != 0 {
-		t.Fatalf("scaled faithfulness signals nonzero: fallbacks=%d conflicts=%d, want 0/0",
-			scaled.FallbackAnchors, scaled.SimStartConflicts)
+	if scaled.UnschedulableOps != 0 || scaled.SimStartConflicts != 0 {
+		t.Fatalf("scaled faithfulness signals nonzero: unschedulable=%d conflicts=%d, want 0/0",
+			scaled.UnschedulableOps, scaled.SimStartConflicts)
 	}
 }
 
@@ -593,7 +593,7 @@ func TestFanOutOutOfOrderAnchors(t *testing.T) {
 	if sim.PrefixAnchors == 0 {
 		t.Fatalf("expected out-of-order prefix anchors, got 0 (fixture must exercise the fan-out path)")
 	}
-	t.Logf("fan-out diagnostics: prefix-anchors=%d fallback-anchors=%d", sim.PrefixAnchors, sim.FallbackAnchors)
+	t.Logf("fan-out diagnostics: prefix-anchors=%d unschedulable-ops=%d", sim.PrefixAnchors, sim.UnschedulableOps)
 }
 
 // simByClass returns the simulated start/finish of the (single) op with the

@@ -18,20 +18,12 @@ import (
 // wait links. Such a failure is always an emit-side bug to fix there, never a
 // thing to paper over in the loader (design §5, §6.3).
 
-// GateOptions tunes the gate's soft thresholds.
-type GateOptions struct {
-	// MaxFallbackAnchors tolerates that many unfaithful-data references before
-	// failing; it defaults to 0, so ANY one fails the gate. After the rational
-	// root model (independent roots, no chaining, no recorded-offset fallback), a
-	// FallbackAnchor is no longer an approximation the analysis chose — it is a
-	// reference the recorded causal structure cannot schedule (an inverted
-	// reference, or a child its parent never spawns), which is impossible in a
-	// faithful synchronous nesting. So 0 is an invariant for faithful data, and a
-	// non-zero count means the EMIT is unfaithful. This knob is a debug-only
-	// escape hatch to inspect such a trace; it must never be raised for a trusted
-	// ranking (and is a candidate for removal — a tolerance for unfaithful data).
-	MaxFallbackAnchors int
-}
+// GateOptions is reserved for future soft thresholds. Under the rational root
+// model the structural invariants are HARD — 0 by construction on faithful data —
+// so there is nothing to tune; an empty value is the norm. (The former
+// MaxFallbackAnchors tolerance was removed: an unschedulable op is an unfaithful
+// EMIT to fix, never a quantity to tolerate.)
+type GateOptions struct{}
 
 // GateReport is the outcome of the structural gate.
 type GateReport struct {
@@ -66,10 +58,13 @@ type GateReport struct {
 	WaitBearingDroppedLinks int // diagnostic: drops on a span that kept ≥1 wait
 	WaitLinkDroppedAttrs    int // diagnostic: dropped attrs on surviving wait links
 
-	// Soft / regression metrics.
-	FallbackAnchors int
-	FallbackBound   int // MaxFallbackAnchors, echoed; 0 = hard-fail on any
-	SkippedNoSpanID int
+	// UnschedulableOps is a hard faithfulness signal (0 on faithful data): ops the
+	// recorded causal structure cannot schedule — an inverted reference (an op
+	// referenced before its ancestor spawns it) or a child its parent never spawns.
+	// Under the rational root model this is 0 by construction; any non-zero count is
+	// an unfaithful EMIT to fix at the choke point, never tolerated.
+	UnschedulableOps int
+	SkippedNoSpanID  int
 	// SimStartConflicts counts anchored-start disagreements in the baseline
 	// replay: the end-ordered gating model anchors a child identically whether
 	// it is reached in order or out of order, so this should stay 0. A non-zero
@@ -97,18 +92,17 @@ func CheckStructural(c *Compiled, g *wcanalyze.Graph, opts GateOptions) GateRepo
 		TotalDroppedLinkAttrs:   c.TotalDroppedLinkAttrs,
 		WaitBearingDroppedLinks: c.WaitBearingDroppedLinks,
 		WaitLinkDroppedAttrs:    c.WaitLinkDroppedAttrs,
-		FallbackBound:           opts.MaxFallbackAnchors,
 		SkippedNoSpanID:         c.SkippedNoSpanID,
 	}
 
-	// Reuse the replay's own cycle/fallback signal (design §6.1).
+	// Reuse the replay's own cycle/unschedulable signal (design §6.1).
 	sim := wcanalyze.NewSimulation(g, nil)
 	if _, err := sim.Run(); err != nil {
 		r.ReplayErr = err
 		r.violations = append(r.violations, fmt.Sprintf("replay failed: %v", err))
 	}
 	r.Cycles = sim.CycleWarnings
-	r.FallbackAnchors = sim.FallbackAnchors
+	r.UnschedulableOps = sim.UnschedulableOps
 	r.SimStartConflicts = sim.SimStartConflicts
 
 	for _, op := range g.Ops {
@@ -145,8 +139,8 @@ func CheckStructural(c *Compiled, g *wcanalyze.Graph, opts GateOptions) GateRepo
 	if r.WaitEdges > 0 && (r.TotalDroppedLinks > 0 || r.TotalDroppedLinkAttrs > 0) {
 		r.violations = append(r.violations, fmt.Sprintf("%d dropped link(s) / %d dropped link-attr(s) on a wait-carrying trace — wait edges may have been silently evicted (raise LinkCountLimit, design §3.0)", r.TotalDroppedLinks, r.TotalDroppedLinkAttrs))
 	}
-	if r.FallbackAnchors > opts.MaxFallbackAnchors {
-		r.violations = append(r.violations, fmt.Sprintf("%d op(s) the recorded causal structure cannot schedule — an inverted reference (an op referenced before its ancestor spawns it) or a malformed nesting; both are impossible in a faithful synchronous nesting, so this is an unfaithful EMIT to fix at the choke point, never papered over (design §6.1)", r.FallbackAnchors))
+	if r.UnschedulableOps > 0 {
+		r.violations = append(r.violations, fmt.Sprintf("%d op(s) the recorded causal structure cannot schedule — an inverted reference (an op referenced before its ancestor spawns it) or a malformed nesting; both are impossible in a faithful synchronous nesting, so this is an unfaithful EMIT to fix at the choke point, never papered over (design §6.1)", r.UnschedulableOps))
 	}
 
 	return r
@@ -173,11 +167,7 @@ func (r GateReport) Write(w io.Writer) {
 	fmt.Fprintf(w, "  wait-loss: unresolved-targets=%d  malformed-timing=%d\n",
 		r.UnresolvedWaitTargets, r.MalformedWaitTimings)
 	fmt.Fprintf(w, "  capture-loss: orphaned-parents=%d (dropped parent spans → false roots)\n", r.OrphanedParents)
-	bound := "hard-fail if >0"
-	if r.FallbackBound > 0 {
-		bound = fmt.Sprintf("tolerate ≤%d", r.FallbackBound)
-	}
-	fmt.Fprintf(w, "  fallback-anchors=%d (%s)  start-conflicts=%d\n", r.FallbackAnchors, bound, r.SimStartConflicts)
+	fmt.Fprintf(w, "  unschedulable-ops=%d (hard-fail if >0)  start-conflicts=%d\n", r.UnschedulableOps, r.SimStartConflicts)
 	fmt.Fprintf(w, "  dropped-links: total=%d (%d attrs) wait-bearing=%d wait-link-attrs=%d\n",
 		r.TotalDroppedLinks, r.TotalDroppedLinkAttrs, r.WaitBearingDroppedLinks, r.WaitLinkDroppedAttrs)
 	if r.SkippedNoSpanID > 0 {

@@ -29,12 +29,11 @@ import (
 
 func main() {
 	var (
-		topClasses   = flag.Int("top", 30, "number of classes to show in rankings")
-		factorsStr   = flag.String("factors", "0,0.5,0.9", "comma-separated self-time scaling factors for what-if simulation")
-		minSelf      = flag.Duration("min-self", time.Millisecond, "ignore classes with less total self-time than this in what-ifs")
-		deadAirMin   = flag.Duration("dead-air-min", 50*time.Millisecond, "minimum gap to report as dead air")
-		chainDepth   = flag.Int("chain-depth", 25, "max length of the blocking chain to print")
-		maxFallbacks = flag.Int("max-fallback-anchors", 0, "fail the structural gate above this many fallback anchors (0 = report-only)")
+		topClasses = flag.Int("top", 30, "number of classes to show in rankings")
+		factorsStr = flag.String("factors", "0,0.5,0.9", "comma-separated self-time scaling factors for what-if simulation")
+		minSelf    = flag.Duration("min-self", time.Millisecond, "ignore classes with less total self-time than this in what-ifs")
+		deadAirMin = flag.Duration("dead-air-min", 50*time.Millisecond, "minimum gap to report as dead air")
+		chainDepth = flag.Int("chain-depth", 25, "max length of the blocking chain to print")
 	)
 	flag.Parse()
 
@@ -62,7 +61,7 @@ func main() {
 		DeadAirMinNS:   int64(*deadAirMin),
 		ChainDepth:     *chainDepth,
 	}
-	if err := run(flag.Args(), opts, wcotel.GateOptions{MaxFallbackAnchors: *maxFallbacks}); err != nil {
+	if err := run(flag.Args(), opts, wcotel.GateOptions{}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

@@ -160,20 +160,20 @@ func WriteReport(w io.Writer, g *Graph, opts ReportOptions) error {
 
 	// Baseline + what-ifs.
 	baseSim := NewSimulation(g, nil)
-	if _, err := baseSim.Run(); err == nil && (baseSim.CycleWarnings > 0 || baseSim.FallbackAnchors > 0 || baseSim.SimStartConflicts > 0) {
-		fmt.Fprintf(w, "sim diagnostics: %d broken cycles, %d fallback anchors, %d start conflicts\n",
-			baseSim.CycleWarnings, baseSim.FallbackAnchors, baseSim.SimStartConflicts)
+	if _, err := baseSim.Run(); err == nil && (baseSim.CycleWarnings > 0 || baseSim.UnschedulableOps > 0 || baseSim.SimStartConflicts > 0) {
+		fmt.Fprintf(w, "sim diagnostics: %d broken cycles, %d unschedulable ops, %d start conflicts\n",
+			baseSim.CycleWarnings, baseSim.UnschedulableOps, baseSim.SimStartConflicts)
 	}
 	baseline, whatIfs, whatIfConflicts, err := RunWhatIfs(g, opts.WhatIfFactors, opts.MinClassSelfNS)
 	if err != nil {
 		fmt.Fprintf(w, "simulation unavailable: %v\n\n", err)
 	} else {
 		if whatIfConflicts > 0 {
-			// A non-baseline factor exposed a recorded-offset fallback anchor
+			// A non-baseline factor exposed a unschedulable-op anchor
 			// disagreeing with the shifted schedule: the savings for the
 			// fallback-anchored (cross-root / in-flight) classes are
 			// order-dependent. Pairs with a non-zero fallback-anchors count.
-			fmt.Fprintf(w, "what-if start conflicts: %d (some savings are order-dependent where fallback anchoring occurred)\n", whatIfConflicts)
+			fmt.Fprintf(w, "what-if start conflicts: %d (some savings are order-dependent where an op was unschedulable)\n", whatIfConflicts)
 		}
 		drift := float64(0)
 		if actual > 0 {
