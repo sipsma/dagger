@@ -120,9 +120,10 @@ type Compiled struct {
 	// Completeness checksum (design §6.1, leaf-drop detection). A dropped LEAF span
 	// breaks no edge, so it is invisible to OrphanedParents/UnresolvedWaitTargets; on
 	// a large Cloud trace with the residual CLI→Cloud export drop that means a
-	// silently-incomplete-but-gate-passing trace. The producer declares the total it
-	// emitted (WcprofSessionSpanCountAttr on the session-root span); the loader counts
-	// the distinct engine spans it received (WcprofEngineSpanAttr) and reconciles.
+	// silently-incomplete-but-gate-passing trace. The producer declares the exact total
+	// it emitted (WcprofSessionSpanCountAttr, stamped at session teardown on the
+	// wcprof.session_complete carrier span); the loader counts the distinct engine spans
+	// it received (WcprofEngineSpanAttr) and reconciles.
 	//
 	// SessionMarkerPresent is whether any received span carried the declared total.
 	// Absent ⇒ unverifiable ⇒ the gate hard-fails (fail-by-default; an unstamped or
@@ -263,8 +264,10 @@ func Compile(spans []Span) (*Compiled, error) {
 	// leaf is invisible to the reference-based gate signals, so without this a large
 	// trace with the residual export drop could gate-pass while silently incomplete.
 	// Counts distinct WcprofEngineSpanAttr spans; the declared total rides on the
-	// session-root span (WcprofSessionSpanCountAttr, string-encoded). The gate fails on
-	// received < declared OR an absent marker (fail-by-default).
+	// teardown wcprof.session_complete carrier (WcprofSessionSpanCountAttr, string-
+	// encoded). The gate fails on received < declared OR an absent marker
+	// (fail-by-default); received > declared is impossible under the exact-count
+	// invariant and is hard-failed too (see gate.go).
 	for i := range deduped {
 		if attrBool(deduped[i].Attrs, telemetryattrs.WcprofEngineSpanAttr) {
 			c.ReceivedEngineSpans++

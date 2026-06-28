@@ -847,10 +847,10 @@ func (srv *Server) initializeDaggerClient(
 		// Count + mark every engine span for the wcprof completeness checksum
 		// (design §6.1, leaf-drop detection). Shared across all per-client tracer
 		// providers (main + nested) so a command's whole span population counts into
-		// one per-trace total; the main query handler Stamps the running total on the
-		// session-root span and the loader keeps the max. Listed before the
-		// LiveSpanProcessor so the engine-span mark is set on the shared span object
-		// before any live-start snapshot is taken.
+		// one per-trace total; removeDaggerSession stamps that EXACT total at teardown
+		// on a wcprof.session_complete carrier span (see stampSessionComplete). Listed
+		// before the LiveSpanProcessor so the engine-span mark is set on the shared span
+		// object before any live-start snapshot is taken.
 		sdktrace.WithSpanProcessor(srv.wcprofSpanCount),
 		// save to our own client's DB
 		sdktrace.WithSpanProcessor(telemetry.NewLiveSpanProcessor(

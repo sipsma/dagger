@@ -2,6 +2,7 @@ package wcotel
 
 import (
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/dagger/dagger/engine/telemetryattrs"
@@ -253,5 +254,52 @@ func TestCompletenessCarrierDropFailsByDefault(t *testing.T) {
 	}
 	if gate.Err() == nil {
 		t.Fatal("fail-by-default: a trace whose count carrier dropped is unverifiable and must be refused")
+	}
+}
+
+// TestCompletenessReceivedGtDeclaredFailsLoud is the exact-upper-bound invariant
+// guard. The teardown count is the EXACT total read after the trace's spans have
+// quiesced, so received <= declared always holds; received > declared is impossible
+// unless emit-side quiescence regressed (a counted span created after the final count
+// was read), which would re-open the post-count masking window. The gate hard-fails
+// it as a DISTINCT violation (not MissingSpans) so such a regression fails loud
+// rather than silently trusting a count that is no longer an exact upper bound.
+func TestCompletenessReceivedGtDeclaredFailsLoud(t *testing.T) {
+	eng := func(attrs map[string]any) map[string]any {
+		out := map[string]any{telemetryattrs.WcprofEngineSpanAttr: true}
+		for k, v := range attrs {
+			out[k] = v
+		}
+		return out
+	}
+	recs := []map[string]any{
+		otSpan(idRoot, idNone, "POST /query", 0, 100, eng(nil)),
+		otSpan(idA, idRoot, "Container.withExec", 5, 95, eng(callExecAttrs("sha256:x"))),
+		otSpan(idB, idRoot, "Container.from", 6, 94, eng(callAttrs("sha256:y"))),
+		// The carrier declares only 2, but 3 engine spans are present — modelling a
+		// counted span created AFTER the teardown count was read.
+		otSpan(idCarrier, idRoot, "wcprof.session_complete", 99, 100, map[string]any{
+			telemetryattrs.WcprofSessionCompleteAttr:  true,
+			telemetryattrs.WcprofSessionSpanCountAttr: "2",
+		}),
+	}
+	c := mustCompile(t, toJSONLRaw(t, recs...))
+	g, err := wcanalyze.Build(c.Header, c.Events)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	gate := CheckStructural(c, g, GateOptions{})
+	if gate.ReceivedEngineSpans != 3 || gate.DeclaredEngineSpans != 2 {
+		t.Fatalf("setup: received=%d declared=%d (want 3, 2)", gate.ReceivedEngineSpans, gate.DeclaredEngineSpans)
+	}
+	// received > declared is a distinct class from a drop — it must NOT report MissingSpans.
+	if gate.MissingSpans != 0 {
+		t.Fatalf("received>declared must not report MissingSpans, got %d", gate.MissingSpans)
+	}
+	if gate.Err() == nil {
+		t.Fatal("received > declared must hard-fail (exact-upper-bound invariant violated)")
+	}
+	if !strings.Contains(gate.Err().Error(), "invariant violated") {
+		t.Fatalf("expected the distinct invariant-violation message, got: %v", gate.Err())
 	}
 }
