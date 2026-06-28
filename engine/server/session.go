@@ -89,6 +89,13 @@ type daggerSession struct {
 	cancelClosing    context.CancelCauseFunc
 	closeClosingOnce sync.Once
 
+	// wcprofTraceID is this session's trace, captured once on the first traced
+	// main-client query (when the propagated trace id is in hand), so
+	// removeDaggerSession can Reap the wcprof completeness span-counter entry at
+	// teardown. See wcprofSpanCounter (engine/server/wcprofcount.go).
+	wcprofTraceID   trace.TraceID
+	wcprofTraceOnce sync.Once
+
 	// closed after the shutdown endpoint is called
 	shutdownCh        chan struct{}
 	closeShutdownOnce sync.Once
@@ -475,6 +482,10 @@ func (srv *Server) removeDaggerSession(ctx context.Context, sess *daggerSession)
 		time.AfterFunc(time.Second, srv.throttledGC)
 	}()
 
+	// Drop this trace's wcprof completeness span-counter entry now the session (and
+	// hence the trace) is done, so the counter map stays bounded to live traces.
+	srv.wcprofSpanCount.Reap(sess.wcprofTraceID)
+
 	var errs error
 
 	// in theory none of this should block very long, but add a safeguard just in case
@@ -772,6 +783,14 @@ func (srv *Server) initializeDaggerClient(
 		// the override on any export path (design §9 stamping-processor coverage;
 		// behavioral guard: dagql TestWcprofLazyParentProcessorStampsAllExports).
 		sdktrace.WithSpanProcessor(dagql.NewWcprofLazyParentProcessor()),
+		// Count + mark every engine span for the wcprof completeness checksum
+		// (design §6.1, leaf-drop detection). Shared across all per-client tracer
+		// providers (main + nested) so a command's whole span population counts into
+		// one per-trace total; the main query handler Stamps the running total on the
+		// session-root span and the loader keeps the max. Listed before the
+		// LiveSpanProcessor so the engine-span mark is set on the shared span object
+		// before any live-start snapshot is taken.
+		sdktrace.WithSpanProcessor(srv.wcprofSpanCount),
 		// save to our own client's DB
 		sdktrace.WithSpanProcessor(telemetry.NewLiveSpanProcessor(
 			client.spanExporter,
@@ -1569,6 +1588,25 @@ func (srv *Server) serveQuery(w http.ResponseWriter, r *http.Request, client *da
 			trace.WithAttributes(attrs...),
 		)
 		defer telemetry.EndWithCause(span, &rerr)
+
+		// wcprof completeness checksum (design §6.1): on the OUTERMOST query (a main
+		// client has no parents; nested module-runtime clients do) declare the engine
+		// span total for this trace onto this session-root span, so the loader can
+		// detect a dropped LEAF span (which breaks no edge and is otherwise invisible
+		// to the reference-based gate). Registered right after EndWithCause so LIFO
+		// runs it FIRST — while the span is still open — and it fires at query return,
+		// by when every synchronous engine span up to now (this client plus its whole
+		// nested-client subtree, all sharing the trace and the one shared counter) has
+		// been created and counted. ctx is captured here, pinned to this POST /query
+		// span. A command issues many main queries under one trace, so Stamp writes the
+		// RUNNING total and the loader keeps the max; the entry is Reaped at session
+		// teardown via the trace id recorded once here.
+		if len(client.parents) == 0 {
+			sess.wcprofTraceOnce.Do(func() {
+				sess.wcprofTraceID = trace.SpanContextFromContext(ctx).TraceID()
+			})
+			defer srv.wcprofSpanCount.Stamp(ctx)
+		}
 	}
 
 	// install a logger+meter provider that records to the client's DB

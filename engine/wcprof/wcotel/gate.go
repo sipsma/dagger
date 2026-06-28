@@ -48,6 +48,17 @@ type GateReport struct {
 	MalformedWaitTimings  int // waits with missing/unparseable timing
 	OrphanedParents       int // ops whose recorded parent span is absent (capture loss)
 
+	// Completeness checksum (design §6.1, leaf-drop detection). A dropped LEAF span
+	// breaks no edge, so the signals above miss it; the producer declares its emitted
+	// engine-span total and the loader reconciles. MissingSpans = declared − received
+	// (> 0 ⇒ dropped spans ⇒ hard-fail). SessionMarkerPresent is whether the declared
+	// total was found; absent ⇒ unverifiable ⇒ hard-fail (fail-by-default — an
+	// unstamped/pre-checksum trace is refused rather than trusted).
+	MissingSpans         int
+	SessionMarkerPresent bool
+	DeclaredEngineSpans  int
+	ReceivedEngineSpans  int
+
 	// Dropped-link signal (otlpdump path only — Cloud cannot report it). On a
 	// wait-carrying (augmented) trace any dropped link/link-attr is treated as
 	// wait loss and fails; on an un-augmented trace (no wait edges) a dropped
@@ -93,6 +104,10 @@ func CheckStructural(c *Compiled, g *wcanalyze.Graph, opts GateOptions) GateRepo
 		WaitBearingDroppedLinks: c.WaitBearingDroppedLinks,
 		WaitLinkDroppedAttrs:    c.WaitLinkDroppedAttrs,
 		SkippedNoSpanID:         c.SkippedNoSpanID,
+		MissingSpans:            c.MissingSpans,
+		SessionMarkerPresent:    c.SessionMarkerPresent,
+		DeclaredEngineSpans:     c.DeclaredEngineSpans,
+		ReceivedEngineSpans:     c.ReceivedEngineSpans,
 	}
 
 	// Reuse the replay's own cycle/unschedulable signal (design §6.1).
@@ -142,6 +157,15 @@ func CheckStructural(c *Compiled, g *wcanalyze.Graph, opts GateOptions) GateRepo
 	if r.UnschedulableOps > 0 {
 		r.violations = append(r.violations, fmt.Sprintf("%d op(s) the recorded causal structure cannot schedule — an inverted reference (an op referenced before its ancestor spawns it) or a malformed nesting; both are impossible in a faithful synchronous nesting, so this is an unfaithful EMIT to fix at the choke point, never papered over (design §6.1)", r.UnschedulableOps))
 	}
+	// Completeness checksum (design §6.1, leaf-drop detection): a dropped LEAF span
+	// breaks no edge, so everything above misses it. Refuse a trace whose engine span
+	// count cannot be confirmed equal to what the producer declared — faithful data or
+	// refuse, never a silently-wrong ranking.
+	if !r.SessionMarkerPresent {
+		r.violations = append(r.violations, "incomplete-or-unverifiable trace: no engine span-count marker (wcprof.session_span_count) on the session root — a dropped LEAF span leaves no edge to catch, so completeness cannot be confirmed and the trace is refused. An old/unstamped capture fails by default; re-capture from an engine that stamps the count (design §6.1)")
+	} else if r.MissingSpans > 0 {
+		r.violations = append(r.violations, fmt.Sprintf("incomplete trace: %d engine span(s) dropped (declared %d, received %d) — a dropped LEAF span breaks no edge and is invisible to the orphaned-parent / unresolved-wait signals, so this checksum is the only thing that catches it; the ranking would be silently wrong, so the trace is refused (design §6.1)", r.MissingSpans, r.DeclaredEngineSpans, r.ReceivedEngineSpans))
+	}
 
 	return r
 }
@@ -167,6 +191,8 @@ func (r GateReport) Write(w io.Writer) {
 	fmt.Fprintf(w, "  wait-loss: unresolved-targets=%d  malformed-timing=%d\n",
 		r.UnresolvedWaitTargets, r.MalformedWaitTimings)
 	fmt.Fprintf(w, "  capture-loss: orphaned-parents=%d (dropped parent spans → false roots)\n", r.OrphanedParents)
+	fmt.Fprintf(w, "  completeness: missing-spans=%d (declared=%d received=%d marker=%v; hard-fail if missing>0 or marker absent)\n",
+		r.MissingSpans, r.DeclaredEngineSpans, r.ReceivedEngineSpans, r.SessionMarkerPresent)
 	fmt.Fprintf(w, "  unschedulable-ops=%d (hard-fail if >0)  start-conflicts=%d\n", r.UnschedulableOps, r.SimStartConflicts)
 	fmt.Fprintf(w, "  dropped-links: total=%d (%d attrs) wait-bearing=%d wait-link-attrs=%d\n",
 		r.TotalDroppedLinks, r.TotalDroppedLinkAttrs, r.WaitBearingDroppedLinks, r.WaitLinkDroppedAttrs)

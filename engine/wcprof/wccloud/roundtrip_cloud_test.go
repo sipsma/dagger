@@ -2,7 +2,10 @@ package wccloud
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/dagger/dagger/engine/telemetryattrs"
@@ -142,15 +145,21 @@ func TestCloudRoundTrip(t *testing.T) {
 		if err != nil {
 			t.Fatalf("build local graph: %v", err)
 		}
-		lgate := wcotel.CheckStructural(lc, lg, wcotel.GateOptions{})
-		if cc.SpanCount != lc.SpanCount || gate.WaitEdges != lgate.WaitEdges {
-			t.Fatalf("complete cloud trace must compile to the same graph: cloud ops=%d waits=%d vs local ops=%d waits=%d",
-				cc.SpanCount, gate.WaitEdges, lc.SpanCount, lgate.WaitEdges)
+		// The local capture is the reference; it too must be complete (its own
+		// marker present, 0/0) for the comparison to mean anything.
+		if err := wcotel.CheckStructural(lc, lg, wcotel.GateOptions{}).Err(); err != nil {
+			t.Fatalf("local reference capture must itself gate clean: %v", err)
 		}
+		// STRUCTURAL equality, not just counts: two graphs with the same op and
+		// wait-edge counts can still differ in parentage or wait targets. Compare a
+		// canonical fingerprint keyed by front-end-independent op identity.
+		cfp, lfp := graphFingerprint(cg), graphFingerprint(lg)
+		assertSameGraph(t, cfp, lfp)
 		if err := gate.Err(); err != nil {
 			t.Fatalf("§6.1 gate must be clean on a complete Cloud trace: %v", err)
 		}
-		t.Logf("COMPLETE round-trip: cloud graph == local (%d ops, %d wait edges), gate 0/0", cc.SpanCount, gate.WaitEdges)
+		t.Logf("COMPLETE round-trip: cloud graph == local (%d ops, %d wait edges, structural fingerprint identical), gate 0/0",
+			cc.SpanCount, gate.WaitEdges)
 	} else {
 		msg := "incomplete Cloud trace (CLI→Cloud exporter BSP drop, a known productionization gap, not a front-end bug): " +
 			"the structural gate correctly refuses it"
@@ -200,4 +209,49 @@ func max1(n int) int {
 		return 1
 	}
 	return n
+}
+
+// graphFingerprint canonically serializes a graph's STRUCTURE: every op keyed by a
+// front-end-independent identity (class|ident|kind|start|end — the internal uint64
+// op ids are per-front-end assignment indices and must NOT be compared), each op's
+// PARENT identity, and each WAIT edge (resolved target identity, reason, interval).
+// Two graphs compiled from the same complete run produce identical fingerprints;
+// matching op/edge counts alone would miss a mis-parented op or a re-targeted wait.
+func graphFingerprint(g *wcanalyze.Graph) []string {
+	key := func(o *wcanalyze.Op) string {
+		if o == nil {
+			return "<nil>"
+		}
+		return fmt.Sprintf("%s|%s|%s|%d|%d", o.Class, o.Ident, o.Kind, o.StartNS, o.EndNS)
+	}
+	lines := make([]string, 0, len(g.Ops))
+	for _, o := range g.Ops {
+		waits := make([]string, 0, len(o.Waits))
+		for _, w := range o.Waits {
+			target := key(w.Target)
+			if w.Target == nil { // unresolved/resource wait: pin the intended target ident
+				target = "ident:" + w.TargetIdent
+			}
+			waits = append(waits, fmt.Sprintf("wait[%s r=%s %d-%d]", target, w.Reason, w.StartNS, w.EndNS))
+		}
+		sort.Strings(waits)
+		lines = append(lines, fmt.Sprintf("OP %s parent=%s %s", key(o), key(o.Parent), strings.Join(waits, " ")))
+	}
+	sort.Strings(lines)
+	return lines
+}
+
+// assertSameGraph fails with the first structural divergence between two
+// fingerprints (both already sorted by graphFingerprint).
+func assertSameGraph(t *testing.T, cloud, local []string) {
+	t.Helper()
+	if len(cloud) != len(local) {
+		t.Fatalf("complete cloud trace must compile to the same graph: op count cloud=%d vs local=%d", len(cloud), len(local))
+	}
+	for i := range cloud {
+		if cloud[i] != local[i] {
+			t.Fatalf("complete cloud trace must compile to the same GRAPH as local (structure, not just counts); first divergence:\n  cloud: %s\n  local: %s",
+				cloud[i], local[i])
+		}
+	}
 }

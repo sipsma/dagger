@@ -129,7 +129,7 @@ func TestCloudFetchDedupGateClean(t *testing.T) {
 	// a live "start" snapshot of the caller (EndTime nil) in an earlier batch; the
 	// ended copy in the next batch must win the dedup (Compile keeps max end).
 	startSnapshot := cspan("b0b0b0b0b0b0b0b0", "a0a0a0a0a0a0a0a0", "Container.withExec", e+5, 0, callAttrs("sha256:exec"))
-	fake := &fakeStreamer{batches: [][]cloud.SpanData{{startSnapshot}, ended}}
+	fake := &fakeStreamer{batches: markCloudComplete([]cloud.SpanData{startSnapshot}, ended)}
 
 	c, g, err := Load(context.Background(), fake, "org", "trace")
 	if err != nil {
@@ -149,6 +149,34 @@ func TestCloudFetchDedupGateClean(t *testing.T) {
 
 func callAttrs(digest string) map[string]any {
 	return map[string]any{telemetry.DagDigestAttr: digest}
+}
+
+// markCloudComplete stamps the §6.1 completeness checksum onto a synthetic,
+// known-complete Cloud trace so it passes the fail-by-default structural gate:
+// every span is marked an engine span and the trace root declares the DISTINCT
+// engine-span total (dedup-safe — a span exported as a live start/end pair shares
+// one id and is counted once). Tests that assert the gate PASSES must call this;
+// it mutates the spans in place and returns the batches for the streamer.
+func markCloudComplete(batches ...[]cloud.SpanData) [][]cloud.SpanData {
+	distinct := map[string]bool{}
+	for bi := range batches {
+		for si := range batches[bi] {
+			s := &batches[bi][si]
+			if s.Attributes == nil {
+				s.Attributes = map[string]any{}
+			}
+			s.Attributes[telemetryattrs.WcprofEngineSpanAttr] = true
+			distinct[s.ID] = true
+		}
+	}
+	for bi := range batches {
+		for si := range batches[bi] {
+			if s := &batches[bi][si]; s.ParentID == nil {
+				s.Attributes[telemetryattrs.WcprofSessionSpanCountAttr] = strconv.Itoa(len(distinct))
+			}
+		}
+	}
+	return batches
 }
 
 // TestCloudCapStressThousandsOfWaitLinks is the §6.6 cap-stress at the converter
@@ -174,7 +202,7 @@ func TestCloudCapStressThousandsOfWaitLinks(t *testing.T) {
 	// ...all waited on by ONE span.
 	spans = append(spans, cspan("f0f0f0f0f0f0f0f0", "d0d0d0d0d0d0d0d0", "Container.withServiceBinding", e+1, e+9_000, callAttrs("sha256:waiter"), waiterLinks...))
 
-	c, g, err := Load(context.Background(), &fakeStreamer{batches: [][]cloud.SpanData{spans}}, "org", "trace")
+	c, g, err := Load(context.Background(), &fakeStreamer{batches: markCloudComplete(spans)}, "org", "trace")
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}

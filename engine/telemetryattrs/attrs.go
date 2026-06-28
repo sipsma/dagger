@@ -92,4 +92,27 @@ const (
 	// (defined in github.com/dagger/otel-go, which this repo cannot edit). It
 	// marks a span link as a runtime wait edge for the wcprof analyzer. (design §3.0)
 	LinkPurposeWait = "wait"
+
+	// Completeness checksum (design §6.1, leaf-drop detection). The reference-based
+	// gate signals (OrphanedParents/UnresolvedWaitTargets) catch loss that breaks an
+	// EDGE, but a dropped LEAF span that nothing references leaves no evidence — so a
+	// large Cloud trace with the residual CLI→Cloud export drop could gate-pass while
+	// silently incomplete. The producer therefore declares how many spans it emitted,
+	// and the loader refuses a trace that received fewer (faithful data or refuse,
+	// never a wrong answer). A dropped leaf is otherwise undetectable from the trace.
+
+	// WcprofEngineSpanAttr (bool true) marks a span the ENGINE emitted for a trace —
+	// the counted, ranking-critical population. Stamped at span creation by the
+	// engine's per-client span-count processor (engine/server). The loader counts
+	// these to reconcile against the declared total; CLI-shell and HTTP/buildkit
+	// spans (which the engine does not count) are unmarked and excluded, so they
+	// cannot cause a false pass/fail.
+	WcprofEngineSpanAttr = "wcprof.engine_span"
+
+	// WcprofSessionSpanCountAttr (string-encoded int, like the other wcprof numeric
+	// attrs) is the TOTAL number of engine spans the engine emitted for this trace,
+	// stamped on the per-query session-root span at query end. The loader compares
+	// the count of received WcprofEngineSpanAttr spans to this declared total:
+	// received < total ⇒ spans dropped ⇒ hard-fail; absent ⇒ unverifiable ⇒ hard-fail.
+	WcprofSessionSpanCountAttr = "wcprof.session_span_count"
 )

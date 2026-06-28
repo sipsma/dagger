@@ -116,6 +116,23 @@ type Compiled struct {
 	// as the exec capture's 330 orphans passing that check showed.)
 	OrphanedParents      int
 	OrphanedParentSample []string
+
+	// Completeness checksum (design §6.1, leaf-drop detection). A dropped LEAF span
+	// breaks no edge, so it is invisible to OrphanedParents/UnresolvedWaitTargets; on
+	// a large Cloud trace with the residual CLI→Cloud export drop that means a
+	// silently-incomplete-but-gate-passing trace. The producer declares the total it
+	// emitted (WcprofSessionSpanCountAttr on the session-root span); the loader counts
+	// the distinct engine spans it received (WcprofEngineSpanAttr) and reconciles.
+	//
+	// SessionMarkerPresent is whether any received span carried the declared total.
+	// Absent ⇒ unverifiable ⇒ the gate hard-fails (fail-by-default; an unstamped or
+	// pre-checksum trace is refused). DeclaredEngineSpans is that total;
+	// ReceivedEngineSpans is the distinct received count; MissingSpans = declared −
+	// received (0 on a complete trace; > 0 ⇒ the gate hard-fails).
+	SessionMarkerPresent bool
+	DeclaredEngineSpans  int
+	ReceivedEngineSpans  int
+	MissingSpans         int
 }
 
 // Load parses an otlpdump JSONL stream, compiles it to the wcprof IR, and
@@ -239,6 +256,28 @@ func Compile(spans []Span) (*Compiled, error) {
 	c.SpanCount = len(deduped)
 	if len(deduped) == 0 {
 		return nil, fmt.Errorf("no spans to compile")
+	}
+
+	// Completeness checksum (design §6.1, leaf-drop detection): reconcile the engine's
+	// declared engine-span total against the distinct engine spans received. A dropped
+	// leaf is invisible to the reference-based gate signals, so without this a large
+	// trace with the residual export drop could gate-pass while silently incomplete.
+	// Counts distinct WcprofEngineSpanAttr spans; the declared total rides on the
+	// session-root span (WcprofSessionSpanCountAttr, string-encoded). The gate fails on
+	// received < declared OR an absent marker (fail-by-default).
+	for i := range deduped {
+		if attrBool(deduped[i].Attrs, telemetryattrs.WcprofEngineSpanAttr) {
+			c.ReceivedEngineSpans++
+		}
+		if v := attrStr(deduped[i].Attrs, telemetryattrs.WcprofSessionSpanCountAttr); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > c.DeclaredEngineSpans {
+				c.SessionMarkerPresent = true
+				c.DeclaredEngineSpans = n
+			}
+		}
+	}
+	if c.SessionMarkerPresent && c.DeclaredEngineSpans > c.ReceivedEngineSpans {
+		c.MissingSpans = c.DeclaredEngineSpans - c.ReceivedEngineSpans
 	}
 
 	// Deterministic op-id assignment: sort by (start, span id) and number 1..N.

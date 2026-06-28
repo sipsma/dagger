@@ -19,7 +19,19 @@ func rec(m map[string]any) map[string]any {
 	return m
 }
 
+// toJSONL serializes hand-built fixture spans to otlpdump JSONL AND stamps the
+// completeness checksum the real engine emits (design §6.1): every span is marked
+// WcprofEngineSpanAttr (the counted engine population) and the first span (the
+// fixture root) carries WcprofSessionSpanCountAttr = the span count. A fixture is a
+// complete engine trace, so declaring it lets the fixtures exercise the completeness
+// gate as "complete" rather than tripping its fail-by-default. Use toJSONLRaw for a
+// trace that must NOT carry the marker (the marker-absent gate test).
 func toJSONL(t *testing.T, recs ...map[string]any) string {
+	t.Helper()
+	return toJSONLRaw(t, markComplete(recs)...)
+}
+
+func toJSONLRaw(t *testing.T, recs ...map[string]any) string {
 	t.Helper()
 	var b strings.Builder
 	for _, r := range recs {
@@ -31,6 +43,31 @@ func toJSONL(t *testing.T, recs ...map[string]any) string {
 		b.WriteByte('\n')
 	}
 	return b.String()
+}
+
+// markComplete stamps the engine completeness checksum onto fixture spans without
+// mutating the caller's literals: WcprofEngineSpanAttr=true on every span, and
+// WcprofSessionSpanCountAttr=len on the first (root) span.
+func markComplete(recs []map[string]any) []map[string]any {
+	out := make([]map[string]any, len(recs))
+	for i, r := range recs {
+		cp := make(map[string]any, len(r)+1)
+		for k, v := range r {
+			cp[k] = v
+		}
+		attrs, _ := cp["attrs"].(map[string]any)
+		na := make(map[string]any, len(attrs)+2)
+		for k, v := range attrs {
+			na[k] = v
+		}
+		na[telemetryattrs.WcprofEngineSpanAttr] = true
+		if i == 0 {
+			na[telemetryattrs.WcprofSessionSpanCountAttr] = strconv.Itoa(len(recs))
+		}
+		cp["attrs"] = na
+		out[i] = cp
+	}
+	return out
 }
 
 func mustCompile(t *testing.T, jsonl string) *Compiled {

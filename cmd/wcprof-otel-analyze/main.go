@@ -94,7 +94,12 @@ func runFiles(paths []string, opts wcanalyze.ReportOptions) error {
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
-		if !analyze(c, g, opts) {
+		gateOK, werr := analyze(c, g, opts)
+		if werr != nil {
+			// A report I/O failure is distinct from a gate failure; surface it as-is.
+			return fmt.Errorf("%s: %w", path, werr)
+		}
+		if !gateOK {
 			failed = true
 		}
 	}
@@ -111,26 +116,34 @@ func runCloud(ctx context.Context, traceID, orgID string, opts wcanalyze.ReportO
 	if err != nil {
 		return err
 	}
-	if !analyze(c, g, opts) {
+	gateOK, werr := analyze(c, g, opts)
+	if werr != nil {
+		return werr // report I/O failure, distinct from a gate failure
+	}
+	if !gateOK {
 		return fmt.Errorf("structural gate failed (see above)")
 	}
 	return nil
 }
 
-// analyze runs the structural gate then the report; returns false if the gate failed.
-func analyze(c *wcotel.Compiled, g *wcanalyze.Graph, opts wcanalyze.ReportOptions) bool {
+// analyze runs the structural gate (design §6.1) then renders the report, keeping
+// the two failure modes DISTINCT: gateOK=false means the trace violated a hard
+// invariant (unfaithful or incomplete data — the ranking is refused, the whole
+// point of the gate); a non-nil error is a report I/O failure (the gate verdict is
+// still valid and was already printed). A caller must not report a write error as a
+// gate failure.
+func analyze(c *wcotel.Compiled, g *wcanalyze.Graph, opts wcanalyze.ReportOptions) (gateOK bool, err error) {
 	gate := wcotel.CheckStructural(c, g, wcotel.GateOptions{})
 	gate.Write(os.Stderr)
-	ok := true
-	if err := gate.Err(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		ok = false
+	gateOK = true
+	if gerr := gate.Err(); gerr != nil {
+		fmt.Fprintln(os.Stderr, gerr)
+		gateOK = false
 	}
-	if err := wcanalyze.WriteReport(os.Stdout, g, opts); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		ok = false
+	if werr := wcanalyze.WriteReport(os.Stdout, g, opts); werr != nil {
+		return gateOK, fmt.Errorf("write report: %w", werr)
 	}
-	return ok
+	return gateOK, nil
 }
 
 func loadFile(path string) (*wcotel.Compiled, *wcanalyze.Graph, error) {
