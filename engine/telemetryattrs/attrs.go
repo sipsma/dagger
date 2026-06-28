@@ -110,9 +110,20 @@ const (
 	WcprofEngineSpanAttr = "wcprof.engine_span"
 
 	// WcprofSessionSpanCountAttr (string-encoded int, like the other wcprof numeric
-	// attrs) is the TOTAL number of engine spans the engine emitted for this trace,
-	// stamped on the per-query session-root span at query end. The loader compares
-	// the count of received WcprofEngineSpanAttr spans to this declared total:
-	// received < total ⇒ spans dropped ⇒ hard-fail; absent ⇒ unverifiable ⇒ hard-fail.
+	// attrs) is the EXACT TOTAL number of engine spans the engine emitted for this
+	// trace, stamped at SESSION TEARDOWN on the WcprofSessionCompleteAttr carrier
+	// span — after every query is drained and every service stopped, so it is the
+	// final total, not a running floor. The loader compares the count of received
+	// WcprofEngineSpanAttr spans to this declared total: because the declaration is
+	// the exact final (received <= total always), received < total ⇒ spans dropped ⇒
+	// hard-fail; absent ⇒ unverifiable ⇒ hard-fail (fail-by-default).
 	WcprofSessionSpanCountAttr = "wcprof.session_span_count"
+
+	// WcprofSessionCompleteAttr (bool true) marks the dedicated session-teardown
+	// carrier span that declares WcprofSessionSpanCountAttr. It is a pure count
+	// messenger, NOT a unit of work and NOT a counted engine span: the producer's
+	// span-count processor skips it (so it is excluded from the total it carries —
+	// no chicken-and-egg) and the loader drops it from the compiled ops (so the
+	// graph/replay is untouched) after reading its count.
+	WcprofSessionCompleteAttr = "wcprof.session_complete"
 )

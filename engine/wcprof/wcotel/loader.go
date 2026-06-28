@@ -280,6 +280,23 @@ func Compile(spans []Span) (*Compiled, error) {
 		c.MissingSpans = c.DeclaredEngineSpans - c.ReceivedEngineSpans
 	}
 
+	// Drop the teardown count carrier (design §6.1) from the compiled ops: it rode in
+	// only to carry the EXACT declared total (read just above) and is not a unit of
+	// work, so excluding it keeps the graph/replay untouched. It is not marked
+	// WcprofEngineSpanAttr either, so it never counted toward received.
+	filtered := deduped[:0]
+	for _, s := range deduped {
+		if attrBool(s.Attrs, telemetryattrs.WcprofSessionCompleteAttr) {
+			continue
+		}
+		filtered = append(filtered, s)
+	}
+	deduped = filtered
+	c.SpanCount = len(deduped)
+	if len(deduped) == 0 {
+		return nil, fmt.Errorf("no spans to compile")
+	}
+
 	// Deterministic op-id assignment: sort by (start, span id) and number 1..N.
 	sort.Slice(deduped, func(i, j int) bool {
 		if deduped[i].StartUnixNS != deduped[j].StartUnixNS {

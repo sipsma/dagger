@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"strconv"
 	"sync"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -12,6 +11,11 @@ import (
 
 	"github.com/dagger/dagger/engine/telemetryattrs"
 )
+
+// wcprofSessionCompleteSpanName is the name of the session-teardown count carrier
+// span (see wcprofSpanCounter). OnStart matches it to exclude the carrier from the
+// total it declares.
+const wcprofSessionCompleteSpanName = "wcprof.session_complete"
 
 // wcprofSpanCounter is the producer half of the wcprof completeness checksum
 // (design §6.1, leaf-drop detection). A span the engine drops on the way to Cloud
@@ -23,25 +27,31 @@ import (
 // It is an sdktrace.SpanProcessor registered on EVERY per-client tracer provider
 // (main and nested module-runtime clients), all sharing this one instance, so the
 // per-trace count accumulates across the whole nested-client tree of a session. At
-// span creation it (a) marks the span WcprofEngineSpanAttr — the counted
+// span creation OnStart (a) marks the span WcprofEngineSpanAttr — the counted
 // population, which lets the loader exclude CLI-shell and otelhttp/buildkit spans
-// the engine never counts — and (b) increments the trace's MONOTONIC count.
+// the engine never counts — and (b) increments the trace's count.
 //
-// A single command issues MANY main-client queries (introspection, schema, the
-// workload) under ONE trace, so the count must NOT be reset per query. Each main
-// query's handler calls Stamp at its end to write the RUNNING total onto its own
-// session-root (POST /query) span; the loader takes the MAX such marker, which is
-// the final total once the last query has stamped. The session-teardown handler
-// calls Reap once to drop the per-trace entry (otherwise the map would grow one int
-// per trace for the engine's lifetime).
+// The total is declared ONCE, at session teardown: removeDaggerSession drains the
+// session's queries and stops its services (so no more engine spans will be
+// created), reads the EXACT Final count, and stamps it on a dedicated carrier span
+// (wcprofSessionCompleteSpanName). Because that declaration is the exact final —
+// not a per-query running floor — received <= declared ALWAYS holds, so ANY drop
+// (an individual leaf, a whole trailing query whose own root is lost, or
+// post-query async padding) shows up as received < declared and is caught. Reap
+// then drops the per-trace entry, bounding the map to live traces.
 //
-// Scope (the engine-vs-CLI population decision, design point 4): N counts ENGINE
-// spans only (the ranking-critical class: call/call_exec/exec/lazy/service +
+// The carrier must not be counted in the total it carries: OnStart skips the span
+// named wcprofSessionCompleteSpanName (no mark, no increment), so it is excluded
+// from both the declared count and the loader's received tally.
+//
+// Scope (the engine-vs-CLI population decision, design point 4): the count covers
+// ENGINE spans only (the ranking-critical class: call/call_exec/exec/lazy/service +
 // user-work + module-load). CLI-shell spans are out of scope and unmarked, so they
-// never skew the reconciliation. Engine spans created AFTER the last query's Stamp
-// (session shutdown, async service-availability) are a documented residual: they
-// are excluded from N and can only make received >= N (never a false fail); they
-// cannot mask a synchronous drop in the common case.
+// never skew the reconciliation. The only residual is an engine span created AFTER
+// the teardown stamp (e.g. a container-release span on a non-per-client tracer);
+// such spans are not on a counted tracer and/or are past telemetry shutdown, so
+// they neither inflate received nor escape the count — verified empirically that a
+// complete capture reconciles received == declared exactly.
 type wcprofSpanCounter struct {
 	mu     sync.Mutex
 	counts map[trace.TraceID]int
@@ -56,6 +66,11 @@ func (c *wcprofSpanCounter) OnStart(_ context.Context, s sdktrace.ReadWriteSpan)
 	if !tid.IsValid() {
 		return
 	}
+	// The teardown carrier rides in only to DECLARE the total; it must not be part
+	// of it. Skip it (no mark, no count) so it is excluded from declared and received.
+	if s.Name() == wcprofSessionCompleteSpanName {
+		return
+	}
 	// Mark the engine population (one cheap bool attr); the loader counts these.
 	s.SetAttributes(attribute.Bool(telemetryattrs.WcprofEngineSpanAttr, true))
 	c.mu.Lock()
@@ -67,34 +82,20 @@ func (c *wcprofSpanCounter) OnEnd(sdktrace.ReadOnlySpan)      {}
 func (c *wcprofSpanCounter) Shutdown(context.Context) error   { return nil }
 func (c *wcprofSpanCounter) ForceFlush(context.Context) error { return nil }
 
-// Stamp writes the RUNNING engine span total for ctx's trace onto the current span
-// (a session-root POST /query span, which carries the marker for the loader to
-// read). The main query handler calls it at query end, when every synchronous
-// engine span up to now — this client and its nested-client subtree, all sharing
-// the trace — has been created and counted. The count is NOT reset (see Reap): a
-// later query stamps a larger running total and the loader keeps the max, so the
-// final stamp wins. SetAttributes on the still-open session-root span is carried on
-// its end-export.
-func (c *wcprofSpanCounter) Stamp(ctx context.Context) {
-	span := trace.SpanFromContext(ctx)
-	sc := span.SpanContext()
-	if !sc.IsValid() || !span.IsRecording() {
-		return
-	}
-	tid := sc.TraceID()
+// Final returns the current engine span total for tid WITHOUT reaping it. The
+// session-teardown handler calls it once span emission for the trace has quiesced
+// (queries drained, services stopped), so the value is the EXACT final total. It is
+// then stamped on the carrier span and read back by the loader as the authoritative
+// declared count.
+func (c *wcprofSpanCounter) Final(tid trace.TraceID) int {
 	c.mu.Lock()
-	n := c.counts[tid]
-	c.mu.Unlock()
-	if n == 0 {
-		return
-	}
-	// String-encoded like the other wcprof numeric attrs, so it survives Cloud's
-	// JSON without float64 coercion (design §3.0/§6.6).
-	span.SetAttributes(attribute.String(telemetryattrs.WcprofSessionSpanCountAttr, strconv.Itoa(n)))
+	defer c.mu.Unlock()
+	return c.counts[tid]
 }
 
 // Reap drops the per-trace counter entry. The session-teardown handler calls it
-// once the session (hence the trace) is done, bounding the map to live traces.
+// after stamping the final count, once the session (hence the trace) is done,
+// keeping the map bounded to live traces.
 func (c *wcprofSpanCounter) Reap(tid trace.TraceID) {
 	if !tid.IsValid() {
 		return

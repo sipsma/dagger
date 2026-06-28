@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"slices"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/containerd/containerd/v2/core/content"
 	"github.com/containerd/containerd/v2/core/leases"
 	bkcache "github.com/dagger/dagger/engine/snapshots"
+	"github.com/dagger/dagger/engine/telemetryattrs"
 	"github.com/dagger/dagger/internal/buildkit/executor/oci"
 	bkgw "github.com/dagger/dagger/internal/buildkit/frontend/gateway/client"
 	"github.com/dagger/dagger/internal/buildkit/util/bklog"
@@ -89,12 +91,15 @@ type daggerSession struct {
 	cancelClosing    context.CancelCauseFunc
 	closeClosingOnce sync.Once
 
-	// wcprofTraceID is this session's trace, captured once on the first traced
-	// main-client query (when the propagated trace id is in hand), so
-	// removeDaggerSession can Reap the wcprof completeness span-counter entry at
-	// teardown. See wcprofSpanCounter (engine/server/wcprofcount.go).
-	wcprofTraceID   trace.TraceID
-	wcprofTraceOnce sync.Once
+	// wcprofTraceID / wcprofRootSpanID are this session's trace and its session-root
+	// (POST /query) span, captured once on the first traced main-client query (when
+	// the propagated ids are in hand). At teardown removeDaggerSession stamps the
+	// EXACT final engine span count on a carrier span parented here (so it lands in
+	// this trace) and Reaps the counter entry. See wcprofSpanCounter
+	// (engine/server/wcprofcount.go).
+	wcprofTraceID    trace.TraceID
+	wcprofRootSpanID trace.SpanID
+	wcprofTraceOnce  sync.Once
 
 	// closed after the shutdown endpoint is called
 	shutdownCh        chan struct{}
@@ -482,10 +487,6 @@ func (srv *Server) removeDaggerSession(ctx context.Context, sess *daggerSession)
 		time.AfterFunc(time.Second, srv.throttledGC)
 	}()
 
-	// Drop this trace's wcprof completeness span-counter entry now the session (and
-	// hence the trace) is done, so the counter map stays bounded to live traces.
-	srv.wcprofSpanCount.Reap(sess.wcprofTraceID)
-
 	var errs error
 
 	// in theory none of this should block very long, but add a safeguard just in case
@@ -503,6 +504,28 @@ func (srv *Server) removeDaggerSession(ctx context.Context, sess *daggerSession)
 		errs = errors.Join(errs, sess.resolver.Close())
 		sess.resolver = nil
 	}
+
+	// Drain in-flight queries before declaring the wcprof completeness count and
+	// before shutting telemetry down below: it makes the per-trace span count EXACT
+	// (no query is still creating spans) and means a late query's telemetry is
+	// recorded before its provider closes rather than lost.
+	sess.dagqlMu.Lock()
+	sess.dagqlClosing = true
+	for sess.dagqlInFlight > 0 {
+		sess.dagqlCond.Wait()
+	}
+	sess.dagqlMu.Unlock()
+
+	// wcprof completeness checksum (design §6.1): queries are drained and services
+	// stopped, so the per-trace engine span counter is now its EXACT final value.
+	// Declare that total on a teardown carrier span (parented in this trace, created
+	// here so the telemetry shutdown below still flushes it) and drop the counter
+	// entry. Because the declaration is the exact final — not a per-query running
+	// floor — received <= declared always holds, so any drop (an individual leaf, a
+	// whole trailing query whose root is lost, or post-query async padding) shows up
+	// as received < declared and is caught.
+	srv.stampSessionComplete(ctx, sess)
+	srv.wcprofSpanCount.Reap(sess.wcprofTraceID)
 
 	// release containers + buildkit solver/session state in parallel
 
@@ -545,12 +568,8 @@ func (srv *Server) removeDaggerSession(ctx context.Context, sess *daggerSession)
 	// cleanup analytics and telemetry
 	errs = errors.Join(errs, sess.analytics.Close())
 
-	sess.dagqlMu.Lock()
-	sess.dagqlClosing = true
-	for sess.dagqlInFlight > 0 {
-		sess.dagqlCond.Wait()
-	}
-	sess.dagqlMu.Unlock()
+	// (queries were already drained above, before the completeness stamp + telemetry
+	// shutdown, so dagql is quiescent here for the cache release.)
 
 	beforeDagqlEntries := srv.engineCache.Size()
 	beforeDagqlStats := srv.engineCache.EntryStats()
@@ -594,6 +613,48 @@ func (srv *Server) deleteSession(sess *daggerSession) {
 		delete(srv.daggerSessions, sess.sessionID)
 	}
 	srv.daggerSessionsMu.Unlock()
+}
+
+// stampSessionComplete declares the EXACT engine span total for the session's trace
+// (the wcprof completeness checksum, design §6.1). It is called from teardown once
+// the session's queries are drained and its services stopped, so the counter is at
+// its final value. It writes that total on a dedicated carrier span — parented at
+// the session-root span recorded in serveQuery so it lands in this trace, named
+// wcprofSessionCompleteSpanName so the counter excludes it from the total and the
+// loader drops it from the compiled ops — and ends it immediately so the live
+// exporter ships it (this runs before the per-client telemetry is shut down). A
+// trace that never ran a traced main query, or whose count is zero, gets no carrier
+// and so fails the loader's gate by default (unverifiable → refused).
+func (srv *Server) stampSessionComplete(ctx context.Context, sess *daggerSession) {
+	if !sess.wcprofTraceID.IsValid() || !sess.wcprofRootSpanID.IsValid() {
+		return
+	}
+	n := srv.wcprofSpanCount.Final(sess.wcprofTraceID)
+	if n == 0 {
+		return
+	}
+	sess.clientMu.RLock()
+	mainClient := sess.clients[sess.mainClientCallerID]
+	sess.clientMu.RUnlock()
+	if mainClient == nil || mainClient.tracerProvider == nil {
+		return
+	}
+	// Parent the carrier at the recorded session-root span so it inherits this
+	// trace (a teardown ctx carries no span); the loader excludes it from ops, but a
+	// real parent also keeps it from ever reading as an orphaned-parent false root.
+	parentCtx := trace.ContextWithSpanContext(ctx, trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    sess.wcprofTraceID,
+		SpanID:     sess.wcprofRootSpanID,
+		TraceFlags: trace.FlagsSampled,
+	}))
+	_, span := mainClient.tracerProvider.Tracer(InstrumentationLibrary).Start(
+		parentCtx, wcprofSessionCompleteSpanName,
+		trace.WithAttributes(
+			attribute.Bool(telemetryattrs.WcprofSessionCompleteAttr, true),
+			attribute.String(telemetryattrs.WcprofSessionSpanCountAttr, strconv.Itoa(n)),
+		),
+	)
+	span.End()
 }
 
 type ClientInitOpts struct {
@@ -1589,23 +1650,19 @@ func (srv *Server) serveQuery(w http.ResponseWriter, r *http.Request, client *da
 		)
 		defer telemetry.EndWithCause(span, &rerr)
 
-		// wcprof completeness checksum (design §6.1): on the OUTERMOST query (a main
-		// client has no parents; nested module-runtime clients do) declare the engine
-		// span total for this trace onto this session-root span, so the loader can
-		// detect a dropped LEAF span (which breaks no edge and is otherwise invisible
-		// to the reference-based gate). Registered right after EndWithCause so LIFO
-		// runs it FIRST — while the span is still open — and it fires at query return,
-		// by when every synchronous engine span up to now (this client plus its whole
-		// nested-client subtree, all sharing the trace and the one shared counter) has
-		// been created and counted. ctx is captured here, pinned to this POST /query
-		// span. A command issues many main queries under one trace, so Stamp writes the
-		// RUNNING total and the loader keeps the max; the entry is Reaped at session
-		// teardown via the trace id recorded once here.
+		// wcprof completeness checksum (design §6.1): record this trace and its
+		// session-root span once, from the OUTERMOST query (a main client has no
+		// parents; nested module-runtime clients do). The engine span total is NOT
+		// declared here — a command issues many queries under one trace and a per-query
+		// stamp is only a running floor (it cannot see a whole trailing query drop or
+		// post-query async padding). It is declared ONCE, exactly, at session teardown
+		// (removeDaggerSession) on a carrier span parented at the ids recorded here.
 		if len(client.parents) == 0 {
 			sess.wcprofTraceOnce.Do(func() {
-				sess.wcprofTraceID = trace.SpanContextFromContext(ctx).TraceID()
+				sc := trace.SpanContextFromContext(ctx)
+				sess.wcprofTraceID = sc.TraceID()
+				sess.wcprofRootSpanID = sc.SpanID()
 			})
-			defer srv.wcprofSpanCount.Stamp(ctx)
 		}
 	}
 
