@@ -9,6 +9,7 @@ package core
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -64,6 +65,26 @@ func otelprofToWcotelSpans(ended []sdktrace.ReadOnlySpan) []wcotel.Span {
 		})
 	}
 	return out
+}
+
+// otelprofMarkSpansComplete stamps the engine completeness checksum onto
+// SDK-emitted spans the way the engine's per-client span-count processor does (and
+// loader_test's markComplete does for JSONL fixtures): every span is a counted
+// engine span, and the exact total is declared on the first one. Without it the
+// fail-by-default completeness gate (the leaf-drop checksum, a later effort)
+// refuses this in-memory trace, which carries no marker — independent of the
+// service-start emit under test here.
+func otelprofMarkSpansComplete(spans []wcotel.Span) []wcotel.Span {
+	for i := range spans {
+		if spans[i].Attrs == nil {
+			spans[i].Attrs = map[string]any{}
+		}
+		spans[i].Attrs[telemetryattrs.WcprofEngineSpanAttr] = true
+	}
+	if len(spans) > 0 {
+		spans[0].Attrs[telemetryattrs.WcprofSessionSpanCountAttr] = strconv.Itoa(len(spans))
+	}
+	return spans
 }
 
 func otelprofSpanByName(t *testing.T, ended []sdktrace.ReadOnlySpan, name string) sdktrace.ReadOnlySpan {
@@ -169,7 +190,7 @@ func TestEmitServiceStartProducesLoaderShape(t *testing.T) {
 
 	// (3) end-to-end: compile the REAL exported spans through the Chunk 1 loader +
 	// gate; the wait must resolve to the service.start op (Invariant T).
-	c, err := wcotel.Compile(otelprofToWcotelSpans(ended))
+	c, err := wcotel.Compile(otelprofMarkSpansComplete(otelprofToWcotelSpans(ended)))
 	if err != nil {
 		t.Fatalf("compile real emit: %v", err)
 	}
