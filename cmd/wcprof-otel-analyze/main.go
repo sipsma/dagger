@@ -42,6 +42,8 @@ func main() {
 		traceID    = flag.String("trace", "", "fetch this trace id from Dagger Cloud instead of reading a file (requires `dagger login`)")
 		orgID      = flag.String("org", "", "Dagger Cloud org id for -trace (default: the current logged-in org)")
 	)
+	var execGroups multiFlag
+	flag.Var(&execGroups, "exec-group", "offline exec grouping rule '<match>=<label>' (repeatable; prefix the match with 'contains:' for a substring match)")
 	flag.Parse()
 
 	if *traceID == "" && flag.NArg() < 1 {
@@ -70,11 +72,16 @@ func main() {
 		ChainDepth:     *chainDepth,
 	}
 
-	var err error
+	rules, err := wcanalyze.ParseExecGroupRules(execGroups)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+
 	if *traceID != "" {
-		err = runCloud(context.Background(), *traceID, *orgID, opts)
+		err = runCloud(context.Background(), *traceID, *orgID, rules, opts)
 	} else {
-		err = runFiles(flag.Args(), opts)
+		err = runFiles(flag.Args(), rules, opts)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -82,7 +89,17 @@ func main() {
 	}
 }
 
-func runFiles(paths []string, opts wcanalyze.ReportOptions) error {
+// multiFlag collects a repeatable string flag, preserving flag order.
+type multiFlag []string
+
+func (m *multiFlag) String() string { return strings.Join(*m, ", ") }
+
+func (m *multiFlag) Set(v string) error {
+	*m = append(*m, v)
+	return nil
+}
+
+func runFiles(paths []string, rules []wcanalyze.ExecGroupRule, opts wcanalyze.ReportOptions) error {
 	// The design's unit of analysis is one trace (design §10 decision 2), so each
 	// file is loaded and analyzed independently rather than merged.
 	var failed bool
@@ -94,7 +111,7 @@ func runFiles(paths []string, opts wcanalyze.ReportOptions) error {
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
-		gateOK, werr := analyze(c, g, opts)
+		gateOK, werr := analyze(c, g, rules, opts)
 		if werr != nil {
 			// A report I/O failure is distinct from a gate failure; surface it as-is.
 			return fmt.Errorf("%s: %w", path, werr)
@@ -111,12 +128,12 @@ func runFiles(paths []string, opts wcanalyze.ReportOptions) error {
 
 // runCloud swaps the loader's input to the Dagger Cloud trace API (design §5,
 // §6.6): same compile/replay stage, different source.
-func runCloud(ctx context.Context, traceID, orgID string, opts wcanalyze.ReportOptions) error {
+func runCloud(ctx context.Context, traceID, orgID string, rules []wcanalyze.ExecGroupRule, opts wcanalyze.ReportOptions) error {
 	c, g, err := loadCloud(ctx, traceID, orgID)
 	if err != nil {
 		return err
 	}
-	gateOK, werr := analyze(c, g, opts)
+	gateOK, werr := analyze(c, g, rules, opts)
 	if werr != nil {
 		return werr // report I/O failure, distinct from a gate failure
 	}
@@ -132,12 +149,13 @@ func runCloud(ctx context.Context, traceID, orgID string, opts wcanalyze.ReportO
 // point of the gate); a non-nil error is a report I/O failure (the gate verdict is
 // still valid and was already printed). A caller must not report a write error as a
 // gate failure.
-func analyze(c *wcotel.Compiled, g *wcanalyze.Graph, opts wcanalyze.ReportOptions) (gateOK bool, err error) {
-	// Decompose user execs into per-command classes BEFORE the structural gate
-	// compiles (and memoizes) the replay program, so the gate, the class table, and
-	// the what-if savings all see the same relabeled classes (design §4.4). The
-	// gate's verdict is class-independent, so classifying first cannot change it.
-	wcanalyze.ClassifyExecs(g, nil)
+func analyze(c *wcotel.Compiled, g *wcanalyze.Graph, rules []wcanalyze.ExecGroupRule, opts wcanalyze.ReportOptions) (gateOK bool, err error) {
+	// Decompose user execs into per-command classes (applying any --exec-group
+	// rules) BEFORE the structural gate compiles (and memoizes) the replay program,
+	// so the gate, the class table, and the what-if savings all see the same
+	// relabeled classes (design §4.4). The gate's verdict is class-independent, so
+	// classifying first cannot change it.
+	wcanalyze.ClassifyExecs(g, rules)
 	gate := wcotel.CheckStructural(c, g, wcotel.GateOptions{})
 	gate.Write(os.Stderr)
 	gateOK = true

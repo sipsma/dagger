@@ -260,3 +260,40 @@ func TestCoverageBoundaryNoArgvStaysBlob(t *testing.T) {
 		t.Error("an argv-less exec must remain the exec.processRun blob (coverage boundary)")
 	}
 }
+
+// TestReGroupCrossSource (§6 test 5, cross-source): the SAME --exec-group rule
+// re-groups BOTH sources identically (collapsing two commands into one class) and
+// the sources still agree exactly under the rule.
+func TestReGroupCrossSource(t *testing.T) {
+	nativeG := nativeExecWorkloadGraph(t)
+	c := mustCompile(t, otelExecWorkloadJSONL(t))
+	otelG, err := wcanalyze.Build(c.Header, c.Events)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rules, err := wcanalyze.ParseExecGroupRules([]string{"go build=builds", "git clone=builds"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wcanalyze.ClassifyExecs(nativeG, rules)
+	wcanalyze.ClassifyExecs(otelG, rules)
+
+	nc, oc := graphClasses(nativeG), graphClasses(otelG)
+	if !nc["exec_phase:builds"] || !oc["exec_phase:builds"] {
+		t.Fatalf("both sources must collapse into 'builds' (native=%v otel=%v)", nc, oc)
+	}
+	for _, gone := range []string{"exec_phase:go build", "exec_phase:git clone"} {
+		if nc[gone] || oc[gone] {
+			t.Errorf("re-grouped class %q must be gone on both sources", gone)
+		}
+	}
+
+	cmp, err := Oracle(nativeG, otelG, 0, 15, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cmp.Agrees(1.0, 0.0) {
+		t.Fatalf("sources must agree exactly under the same rule: jaccard=%.2f drift=%.4f", cmp.JaccardTopN(), cmp.MaxRelDrift())
+	}
+}

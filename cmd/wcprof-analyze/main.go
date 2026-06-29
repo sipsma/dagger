@@ -28,6 +28,8 @@ func main() {
 		deadAirMin = flag.Duration("dead-air-min", 50*time.Millisecond, "minimum gap to report as dead air")
 		chainDepth = flag.Int("chain-depth", 25, "max length of the blocking chain to print")
 	)
+	var execGroups multiFlag
+	flag.Var(&execGroups, "exec-group", "offline exec grouping rule '<match>=<label>' (repeatable; prefix the match with 'contains:' for a substring match)")
 	flag.Parse()
 
 	if flag.NArg() < 1 {
@@ -47,7 +49,13 @@ func main() {
 		factors = append(factors, f)
 	}
 
-	if err := run(flag.Args(), wcanalyze.ReportOptions{
+	rules, err := wcanalyze.ParseExecGroupRules(execGroups)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+
+	if err := run(flag.Args(), rules, wcanalyze.ReportOptions{
 		TopClasses:     *topClasses,
 		WhatIfFactors:  factors,
 		MinClassSelfNS: int64(*minSelf),
@@ -59,7 +67,17 @@ func main() {
 	}
 }
 
-func run(paths []string, opts wcanalyze.ReportOptions) error {
+// multiFlag collects a repeatable string flag, preserving flag order.
+type multiFlag []string
+
+func (m *multiFlag) String() string { return strings.Join(*m, ", ") }
+
+func (m *multiFlag) Set(v string) error {
+	*m = append(*m, v)
+	return nil
+}
+
+func run(paths []string, rules []wcanalyze.ExecGroupRule, opts wcanalyze.ReportOptions) error {
 	readers := make([]io.Reader, 0, len(paths))
 	for _, path := range paths {
 		f, err := os.Open(path)
@@ -74,9 +92,9 @@ func run(paths []string, opts wcanalyze.ReportOptions) error {
 	if err != nil {
 		return fmt.Errorf("load dumps: %w", err)
 	}
-	// Decompose user execs into per-command classes BEFORE the report's first
-	// simulation compiles (and memoizes) the replay program, so the class table and
-	// the what-if savings agree (design §4.4).
-	wcanalyze.ClassifyExecs(graph, nil)
+	// Decompose user execs into per-command classes (applying any --exec-group
+	// rules) BEFORE the report's first simulation compiles (and memoizes) the replay
+	// program, so the class table and the what-if savings agree (design §4.4).
+	wcanalyze.ClassifyExecs(graph, rules)
 	return wcanalyze.WriteReport(os.Stdout, graph, opts)
 }

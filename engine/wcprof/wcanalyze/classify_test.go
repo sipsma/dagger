@@ -227,3 +227,71 @@ func TestClassifyExecsIdempotentAndArgvlessUntouched(t *testing.T) {
 		t.Errorf("argv-less exec must remain the exec.processRun blob; have %v", classes)
 	}
 }
+
+// TestExecGroupRuleMatching: the boundary-aware literal prefix (default) matches a
+// command and its space-continued extensions but respects the word boundary;
+// contains: switches to substring matching (the sh -c case) (design §4.6).
+func TestExecGroupRuleMatching(t *testing.T) {
+	prefix := ExecGroupRule{Match: "go build", Label: "builds"}
+	if !prefix.matches("go build") || !prefix.matches("go build ./...") {
+		t.Error("prefix must match the exact command and a space-continued one")
+	}
+	if prefix.matches("go buildx thing") {
+		t.Error("boundary guard: 'go build' must NOT match 'go buildx ...'")
+	}
+	if prefix.matches("go buil") {
+		t.Error("a partial prefix must not match")
+	}
+
+	sub := ExecGroupRule{Match: "go build", Label: "builds", Contains: true}
+	if !sub.matches("sh -c cd x && go build ./...") {
+		t.Error("contains: must match a shell-wrapped command")
+	}
+	if sub.matches("sh -c echo hi") {
+		t.Error("contains: must not match when the substring is absent")
+	}
+}
+
+// TestParseExecGroupRule: the <match>=<label> grammar, the contains: modifier, the
+// split-on-first-= rule, and the rejected empty forms (design §4.6, §9).
+func TestParseExecGroupRule(t *testing.T) {
+	if r, err := ParseExecGroupRule("go build=builds"); err != nil || r != (ExecGroupRule{Match: "go build", Label: "builds"}) {
+		t.Fatalf("prefix rule parse: %+v err=%v", r, err)
+	}
+	if r, err := ParseExecGroupRule("contains:go build=builds"); err != nil || r != (ExecGroupRule{Match: "go build", Label: "builds", Contains: true}) {
+		t.Fatalf("contains rule parse: %+v err=%v", r, err)
+	}
+	// label is everything after the FIRST '=' (a label may itself contain '=').
+	if r, err := ParseExecGroupRule("go test=unit=tests"); err != nil || r.Match != "go test" || r.Label != "unit=tests" {
+		t.Fatalf("first-= split: %+v err=%v", r, err)
+	}
+	for _, bad := range []string{"noequals", "=label", "match=", "contains:=label"} {
+		if _, err := ParseExecGroupRule(bad); err == nil {
+			t.Errorf("malformed spec %q must error", bad)
+		}
+	}
+}
+
+// TestReGroupWithoutReEmit (§6 test 5): one captured graph, analyzed twice — the
+// default keeps commands separate, then a rule collapses them — with NO re-capture,
+// because the raw argv lives in the IR and grouping is purely offline (design §4.6).
+func TestReGroupWithoutReEmit(t *testing.T) {
+	g := workloadGraph(t)
+
+	ClassifyExecs(g, nil)
+	c0 := classSet(g)
+	if !c0["exec_phase:go build"] || !c0["exec_phase:git clone"] {
+		t.Fatalf("default grouping must keep commands separate; have %v", c0)
+	}
+
+	// Re-group the SAME graph with different rules — no re-emit.
+	rules := []ExecGroupRule{{Match: "go build", Label: "builds"}, {Match: "git clone", Label: "builds"}}
+	ClassifyExecs(g, rules)
+	c1 := classSet(g)
+	if !c1["exec_phase:builds"] {
+		t.Errorf("re-grouping must collapse the two commands into 'builds'; have %v", c1)
+	}
+	if c1["exec_phase:go build"] || c1["exec_phase:git clone"] {
+		t.Errorf("re-grouped commands must no longer rank separately; have %v", c1)
+	}
+}

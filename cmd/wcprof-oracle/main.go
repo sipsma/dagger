@@ -24,6 +24,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/dagger/dagger/engine/wcprof/wcanalyze"
 	"github.com/dagger/dagger/engine/wcprof/wcotel"
@@ -39,6 +40,8 @@ func main() {
 		minJaccard = flag.Float64("min-jaccard", 0.8, "minimum top-N class overlap to call the sources converged")
 		maxDrift   = flag.Float64("max-rel-drift", 0.1, "maximum per-class relative savings drift to call the sources converged")
 	)
+	var execGroups multiFlag
+	flag.Var(&execGroups, "exec-group", "offline exec grouping rule '<match>=<label>' applied to BOTH sources (repeatable; prefix the match with 'contains:' for a substring match)")
 	flag.Parse()
 
 	if *nativePath == "" || *otelPath == "" {
@@ -47,13 +50,29 @@ func main() {
 		os.Exit(2)
 	}
 
-	if err := run(*nativePath, *otelPath, *factor, *topN, *minSelfMS*1_000_000, *minJaccard, *maxDrift); err != nil {
+	rules, err := wcanalyze.ParseExecGroupRules(execGroups)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+
+	if err := run(*nativePath, *otelPath, rules, *factor, *topN, *minSelfMS*1_000_000, *minJaccard, *maxDrift); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(nativePath, otelPath string, factor float64, topN int, minSelfNS int64, minJaccard, maxDrift float64) error {
+// multiFlag collects a repeatable string flag, preserving flag order.
+type multiFlag []string
+
+func (m *multiFlag) String() string { return strings.Join(*m, ", ") }
+
+func (m *multiFlag) Set(v string) error {
+	*m = append(*m, v)
+	return nil
+}
+
+func run(nativePath, otelPath string, rules []wcanalyze.ExecGroupRule, factor float64, topN int, minSelfNS int64, minJaccard, maxDrift float64) error {
 	nf, err := os.Open(nativePath)
 	if err != nil {
 		return err
@@ -77,8 +96,8 @@ func run(nativePath, otelPath string, factor float64, topN int, minSelfNS int64,
 	// Decompose user execs on BOTH graphs with IDENTICAL rules, before the gate and
 	// the comparison, so the cross-source oracle compares like-for-like per-command
 	// classes (the same argv → the same ClassKey on both sources, design §1.5, §4.4).
-	wcanalyze.ClassifyExecs(nativeG, nil)
-	wcanalyze.ClassifyExecs(otelG, nil)
+	wcanalyze.ClassifyExecs(nativeG, rules)
+	wcanalyze.ClassifyExecs(otelG, rules)
 
 	// Run the structural gate on the OTel source first: an oracle comparison on a
 	// structurally-broken trace is meaningless (design §6).
