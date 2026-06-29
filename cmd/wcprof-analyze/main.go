@@ -74,5 +74,9 @@ func run(paths []string, opts wcanalyze.ReportOptions) error {
 	if err != nil {
 		return fmt.Errorf("load dumps: %w", err)
 	}
+	// Decompose user execs into per-command classes BEFORE the report's first
+	// simulation compiles (and memoizes) the replay program, so the class table and
+	// the what-if savings agree (design §4.4).
+	wcanalyze.ClassifyExecs(graph, nil)
 	return wcanalyze.WriteReport(os.Stdout, graph, opts)
 }

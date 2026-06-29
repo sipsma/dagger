@@ -71,6 +71,20 @@ type ExecutionMetadata struct {
 
 	// If true, skip injecting dagger-init into the container.
 	NoInit bool
+
+	// ProfArgs is the fully-resolved user command (entrypoint + args), captured
+	// in core at exec-run time BEFORE any engine shim (the QEMU emulator, the
+	// executor's /.init) wraps it, so wall-clock profiling can headline the user's
+	// real program (e.g. "go build") instead of a shim. It is read at the executor
+	// emit site (executor_spec.go) by both the native recorder and the OTel source.
+	//
+	// json:"-" is load-bearing: ExecutionMetadata is JSON-serialized into exec
+	// cache keys (dagql.SerializedString/DigestedSerializedString), and ProfArgs
+	// must never perturb a cache key. It is excluded structurally here; it is also
+	// set only at run time (after every execMD digest is computed), and the
+	// core->executor hand-off is an in-process pointer (never re-serialized), so
+	// excluding it from JSON cannot drop it before the emit.
+	ProfArgs []string `json:"-"`
 }
 
 func (c *Client) Run(

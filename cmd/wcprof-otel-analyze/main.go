@@ -133,6 +133,11 @@ func runCloud(ctx context.Context, traceID, orgID string, opts wcanalyze.ReportO
 // still valid and was already printed). A caller must not report a write error as a
 // gate failure.
 func analyze(c *wcotel.Compiled, g *wcanalyze.Graph, opts wcanalyze.ReportOptions) (gateOK bool, err error) {
+	// Decompose user execs into per-command classes BEFORE the structural gate
+	// compiles (and memoizes) the replay program, so the gate, the class table, and
+	// the what-if savings all see the same relabeled classes (design §4.4). The
+	// gate's verdict is class-independent, so classifying first cannot change it.
+	wcanalyze.ClassifyExecs(g, nil)
 	gate := wcotel.CheckStructural(c, g, wcotel.GateOptions{})
 	gate.Write(os.Stderr)
 	gateOK = true

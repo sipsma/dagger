@@ -377,6 +377,11 @@ func Compile(spans []Span) (*Compiled, error) {
 		if workType == "" {
 			workType = wcprof.WorkTypeEngine.String()
 		}
+		// The exec argv rides as a scalar JSON-array string; intern it verbatim
+		// into MetaID — the SAME dump field the native recorder uses — so the one
+		// shared wcanalyze.Build path decodes Op.Argv for both sources. Zero
+		// inference: the string is mapped through untouched (absent ⇒ "" ⇒ id 0).
+		argv := attrStr(s.Attrs, telemetryattrs.WcprofExecArgvAttr)
 		var resultID uint64
 		if out := attrStr(s.Attrs, telemetry.DagOutputAttr); out != "" {
 			resultID = resultIDs.intern(out)
@@ -392,6 +397,7 @@ func Compile(spans []Span) (*Compiled, error) {
 				WorkType: workType,
 				ClassID:  str.intern(class),
 				IdentID:  str.intern(ident),
+				MetaID:   str.intern(argv),
 				StartNS:  int64(s.StartUnixNS) - epoch,
 			})
 			continue
@@ -407,6 +413,7 @@ func Compile(spans []Span) (*Compiled, error) {
 			ResultID: resultID,
 			ClassID:  str.intern(class),
 			IdentID:  str.intern(ident),
+			MetaID:   str.intern(argv),
 			StartNS:  int64(s.StartUnixNS) - epoch,
 			EndNS:    int64(s.EndUnixNS) - epoch,
 		})

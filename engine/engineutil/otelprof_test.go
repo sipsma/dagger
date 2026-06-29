@@ -10,6 +10,7 @@ package engineutil
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 
@@ -80,6 +81,25 @@ func toWcotelSpans(ended []sdktrace.ReadOnlySpan) []wcotel.Span {
 	return out
 }
 
+// markSpansComplete stamps the engine completeness checksum onto SDK-emitted spans
+// the way the engine's per-client span-count processor does (and loader_test's
+// markComplete does for JSONL fixtures): every span is a counted engine span, and
+// the exact total is declared on the first one. Without it the fail-by-default
+// completeness gate (the leaf-drop checksum, a later effort) refuses this in-memory
+// trace, which carries no marker — independent of the exec split under test here.
+func markSpansComplete(spans []wcotel.Span) []wcotel.Span {
+	for i := range spans {
+		if spans[i].Attrs == nil {
+			spans[i].Attrs = map[string]any{}
+		}
+		spans[i].Attrs[telemetryattrs.WcprofEngineSpanAttr] = true
+	}
+	if len(spans) > 0 {
+		spans[0].Attrs[telemetryattrs.WcprofSessionSpanCountAttr] = strconv.Itoa(len(spans))
+	}
+	return spans
+}
+
 func spanByName(t *testing.T, ended []sdktrace.ReadOnlySpan, name string) sdktrace.ReadOnlySpan {
 	t.Helper()
 	for _, s := range ended {
@@ -117,7 +137,7 @@ func attrBool(s sdktrace.ReadOnlySpan, key string) bool {
 // machine-check the emit↔fixture correspondence.
 func TestEmitExecSplitProducesLoaderShape(t *testing.T) {
 	const (
-		digest = "xxh3:withexec-digest"
+		digest  = "xxh3:withexec-digest"
 		stateID = "exec-state-id-0001"
 	)
 	sr, ctx, root := newRecordingRoot("Container.withExec")
@@ -133,7 +153,7 @@ func TestEmitExecSplitProducesLoaderShape(t *testing.T) {
 	started := time.Now()
 	time.Sleep(12 * time.Millisecond)
 	end := time.Now()
-	emitOTelExecSplit(ctx, stateID, start, started, end, nil)
+	emitOTelExecSplit(ctx, stateID, start, started, end, nil, []string{"go", "build", "./..."})
 	var nilErr error
 	endOTelExecRun(execRun, &nilErr)
 	root.End()
@@ -185,11 +205,19 @@ func TestEmitExecSplitProducesLoaderShape(t *testing.T) {
 	if !pr.StartTime().Equal(started) || !pr.EndTime().Equal(end) {
 		t.Fatalf("processRun interval = [%v,%v], want [%v,%v]", pr.StartTime(), pr.EndTime(), started, end)
 	}
+	// processRun carries the user command as the scalar JSON-array string the loader
+	// compiles into Op.Argv (the same bytes native interns); containerStart must not.
+	if got, ok := attrStr(pr, telemetryattrs.WcprofExecArgvAttr); !ok || got != `["go","build","./..."]` {
+		t.Fatalf("processRun must carry wcprof.exec.argv = %q, got %q (present=%v)", `["go","build","./..."]`, got, ok)
+	}
+	if _, ok := attrStr(cs, telemetryattrs.WcprofExecArgvAttr); ok {
+		t.Fatal("containerStart (engine) must NOT carry wcprof.exec.argv")
+	}
 
 	// (4) end-to-end: compile the REAL exported spans through the Chunk 1 loader +
 	// gate, and confirm the loaded ops classify correctly with work_type=user
 	// surviving onto the process-run op.
-	c, err := wcotel.Compile(toWcotelSpans(ended))
+	c, err := wcotel.Compile(markSpansComplete(toWcotelSpans(ended)))
 	if err != nil {
 		t.Fatalf("compile real emit: %v", err)
 	}
@@ -232,8 +260,9 @@ func TestEmitExecSplitSetupFailure(t *testing.T) {
 	time.Sleep(5 * time.Millisecond)
 	end := time.Now()
 	runErr := errors.New("setup failed: mount error")
-	// started == zero time: the process never started.
-	emitOTelExecSplit(ctx, "exec-state-id-fail", start, time.Time{}, end, runErr)
+	// started == zero time: the process never started. A non-nil argv is supplied to
+	// prove it never leaks onto the engine-setup span when there is no user process.
+	emitOTelExecSplit(ctx, "exec-state-id-fail", start, time.Time{}, end, runErr, []string{"go", "build"})
 	endOTelExecRun(execRun, &runErr)
 	root.End()
 	ended := sr.Ended()
@@ -241,6 +270,9 @@ func TestEmitExecSplitSetupFailure(t *testing.T) {
 	for _, s := range ended {
 		if s.Name() == "exec.processRun" {
 			t.Fatal("a never-started exec must emit no processRun span")
+		}
+		if _, ok := attrStr(s, telemetryattrs.WcprofExecArgvAttr); ok {
+			t.Fatal("a never-started exec must emit no wcprof.exec.argv (no user process ran)")
 		}
 	}
 	cs := spanByName(t, ended, "exec.containerStart")

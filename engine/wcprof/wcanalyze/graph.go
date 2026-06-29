@@ -4,6 +4,7 @@
 package wcanalyze
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"slices"
@@ -26,6 +27,11 @@ type Op struct {
 	ResultID uint64
 	StartNS  int64
 	EndNS    int64
+	// Argv is the scrubbed, bounded user command for a container-exec op
+	// (decoded from the dump's interned MetaID JSON-array string); nil for
+	// non-exec ops or an exec with no resolved command. ClassifyExecs derives
+	// the op's per-command Class from it. Never inferred from a span name.
+	Argv []string
 	// Open marks ops that had not ended at dump time; EndNS is the dump time.
 	Open bool
 
@@ -141,6 +147,21 @@ func LoadMulti(readers []io.Reader) (*Graph, error) {
 	return Build(merged, allEvents)
 }
 
+// decodeArgv recovers a user-exec op's argv from its interned MetaID string (the
+// canonical scalar JSON-array encoding both sources emit). Empty ⇒ nil (the op
+// stays the aggregated exec blob); a malformed string ⇒ nil too — defensive, never
+// a panic, and never inferred from anything but the explicit emitted value.
+func decodeArgv(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var argv []string
+	if err := json.Unmarshal([]byte(s), &argv); err != nil {
+		return nil
+	}
+	return argv
+}
+
 // Build reconstructs the op graph from parsed dump data.
 //
 //nolint:gocyclo // linear reconstruction flow over the event union
@@ -190,6 +211,7 @@ func Build(header *wcprof.DumpHeader, events []wcprof.DumpEvent) (*Graph, error)
 				Ident:    str(ev.IdentID),
 				ClientID: str(ev.ClientID),
 				ResultID: ev.ResultID,
+				Argv:     decodeArgv(str(ev.MetaID)),
 				StartNS:  ev.StartNS,
 				EndNS:    max(ev.EndNS, ev.StartNS),
 			}
@@ -226,6 +248,7 @@ func Build(header *wcprof.DumpHeader, events []wcprof.DumpEvent) (*Graph, error)
 			Class:    str(oo.ClassID),
 			Ident:    str(oo.IdentID),
 			ClientID: str(oo.ClientID),
+			Argv:     decodeArgv(str(oo.MetaID)),
 			StartNS:  oo.StartNS,
 			EndNS:    max(dumpRelNS, oo.StartNS),
 			Open:     true,
@@ -405,4 +428,15 @@ func (op *Op) SelfNS() int64 {
 // Key returns the op's aggregation class key.
 func (op *Op) Key() ClassKey {
 	return ClassKey{Kind: op.Kind, Class: op.Class}
+}
+
+// invalidateProgram resets the memoized replay program so the next simulation
+// recompiles its class buckets from the current op.Class values. ClassifyExecs
+// calls it after relabeling exec ops, so a program already compiled (e.g. by the
+// OTel structural gate) cannot leave the what-if savings computed on the stale
+// pre-classify class table while the report re-buckets live. This is a cache
+// reset on the Graph, NOT a change to the replay algorithm.
+func (g *Graph) invalidateProgram() {
+	g.progOnce = sync.Once{}
+	g.prog = nil
 }

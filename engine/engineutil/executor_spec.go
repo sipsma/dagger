@@ -109,6 +109,10 @@ type execState struct {
 	exitCodePath     string
 	metaMountDirPath string
 	origEnvMap       map[string]string
+	// profSecretFilePaths is the resolved, stat-filtered secret file path list
+	// stashed by setupSecretScrubbing, so the profile-argv scrubber at the emit
+	// site reuses the exact same secret set as the stdout/stderr scrubbers.
+	profSecretFilePaths []string
 
 	startedOnce *sync.Once
 	startedCh   chan<- struct{}
@@ -871,6 +875,8 @@ func (c *Client) setupSecretScrubbing(ctx context.Context, state *execState) err
 			bklog.G(ctx).Warnf("failed to stat secret file path %s: %v", filePath, err)
 		}
 	}
+	// Stash the resolved set so the profile-argv scrubber (emit site) reuses it.
+	state.profSecretFilePaths = secretFilePaths
 
 	stdoutR, stdoutW := io.Pipe()
 	stdoutScrubReader, err := NewSecretScrubReader(stdoutR, state.spec.Process.Env, state.execMD.SecretEnvNames, secretFilePaths)
@@ -1404,6 +1410,14 @@ func (c *Client) runContainer(ctx context.Context, state *execState) (rerr error
 
 	runErr := c.callWithIO(ctx, state.procInfo, startedCallback, killer, runcCall)
 	endWall := time.Now()
+	// Scrub + bound the captured user command ONCE, only when a profile source is
+	// active, and feed the SAME slice to both sinks below so native and OTel carry
+	// a byte-identical argv. It rides only on the user processRun phase (where the
+	// scalable self-time lives); a never-started exec emits no processRun and no argv.
+	var profArgv []string
+	if wcprof.Enabled(ctx) || dagql.OTelProfActive(ctx) {
+		profArgv = execProfArgv(state)
+	}
 	if wcprof.Enabled(ctx) {
 		// split engine overhead (creating/starting the container) from the
 		// user's process runtime
@@ -1414,7 +1428,7 @@ func (c *Client) runContainer(ctx context.Context, state *execState) (rerr error
 		}
 		if startedNS := profStartedNS.Load(); startedNS > 0 {
 			wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "exec.containerStart", wcprof.OpOpts{Ident: state.id}, profStartNS, startedNS, wcprof.OutcomeOK)
-			wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "exec.processRun", wcprof.OpOpts{Ident: state.id, WorkType: wcprof.WorkTypeUser}, startedNS, endNS, outcome)
+			wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "exec.processRun", wcprof.OpOpts{Ident: state.id, WorkType: wcprof.WorkTypeUser, Argv: profArgv}, startedNS, endNS, outcome)
 		} else {
 			wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "exec.containerStart", wcprof.OpOpts{Ident: state.id}, profStartNS, endNS, outcome)
 		}
@@ -1427,6 +1441,6 @@ func (c *Client) runContainer(ctx context.Context, state *execState) (rerr error
 	if ns := profStartedWall.Load(); ns > 0 {
 		profStartedWallTime = time.Unix(0, ns)
 	}
-	emitOTelExecSplit(ctx, state.id, profStartWall, profStartedWallTime, endWall, runErr)
+	emitOTelExecSplit(ctx, state.id, profStartWall, profStartedWallTime, endWall, runErr, profArgv)
 	return exitError(ctx, state.exitCodePath, runErr, state.procInfo.Meta.ValidExitCodes)
 }

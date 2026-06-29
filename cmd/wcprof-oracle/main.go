@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/dagger/dagger/engine/wcprof/wcanalyze"
 	"github.com/dagger/dagger/engine/wcprof/wcotel"
 )
 
@@ -72,6 +73,12 @@ func run(nativePath, otelPath string, factor float64, topN int, minSelfNS int64,
 	if err != nil {
 		return fmt.Errorf("load otel capture: %w", err)
 	}
+
+	// Decompose user execs on BOTH graphs with IDENTICAL rules, before the gate and
+	// the comparison, so the cross-source oracle compares like-for-like per-command
+	// classes (the same argv → the same ClassKey on both sources, design §1.5, §4.4).
+	wcanalyze.ClassifyExecs(nativeG, nil)
+	wcanalyze.ClassifyExecs(otelG, nil)
 
 	// Run the structural gate on the OTel source first: an oracle comparison on a
 	// structurally-broken trace is meaningless (design §6).

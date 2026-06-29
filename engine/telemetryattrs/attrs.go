@@ -87,6 +87,17 @@ const (
 	// have no target span (reason "lock"), in place of the link's target span id.
 	WcprofWaitIdentAttr = "wcprof.wait.ident"
 
+	// WcprofExecArgvAttr (string) carries the user command of a container-exec
+	// processRun span so the offline analyzer ranks the exec by its real argv
+	// (e.g. "go build") instead of the anonymous exec.processRun blob. Its value
+	// is the scrubbed, bounded argv encoded as a single scalar JSON-array string
+	// (e.g. `["go","build","./..."]`) — the SAME bytes the native recorder interns
+	// as its MetaID, so both sources reconstruct an identical argv (cross-source
+	// parity). It is a scalar string (not an OTLP array) so it survives Cloud's
+	// map[string]any attribute decode bit-exact, like the decimal-string wait
+	// timings above. (design §4.1c)
+	WcprofExecArgvAttr = "wcprof.exec.argv"
+
 	// LinkPurposeWait is a new value for telemetry.LinkPurposeAttr
 	// ("dagger.io/link.purpose"), alongside the existing "cause"/"error_origin"
 	// (defined in github.com/dagger/otel-go, which this repo cannot edit). It
