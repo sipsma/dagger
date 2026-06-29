@@ -852,8 +852,11 @@ func (srv *Server) initializeDaggerClient(
 		// before the LiveSpanProcessor so the engine-span mark is set on the shared span
 		// object before any live-start snapshot is taken.
 		sdktrace.WithSpanProcessor(srv.wcprofSpanCount),
-		// save to our own client's DB
-		sdktrace.WithSpanProcessor(telemetry.NewLiveSpanProcessor(
+		// save to our own client's DB. Large-queue BSP so a big burst (a cold engine
+		// build is ~15k spans, live-double-emitted ≈ 30k records) does not overflow the
+		// default 2048-slot queue and silently drop spans before they reach the DB the
+		// CLI drains toward Cloud (see enginetel.NewLargeQueueLiveSpanProcessor).
+		sdktrace.WithSpanProcessor(enginetel.NewLargeQueueLiveSpanProcessor(
 			client.spanExporter,
 		)),
 	}
@@ -876,10 +879,11 @@ func (srv *Server) initializeDaggerClient(
 		)),
 	}
 
-	// export to parent client DBs too
+	// export to parent client DBs too (same large-queue BSP — nested-client spans
+	// reach Cloud via the parent DB, so this hop must not drop on a burst either).
 	for _, parent := range client.parents {
 		tracerOpts = append(tracerOpts, sdktrace.WithSpanProcessor(
-			telemetry.NewLiveSpanProcessor(
+			enginetel.NewLargeQueueLiveSpanProcessor(
 				srv.telemetryPubSub.Spans(parent),
 			),
 		))
