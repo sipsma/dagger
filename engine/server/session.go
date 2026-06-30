@@ -621,8 +621,8 @@ func (srv *Server) deleteSession(sess *daggerSession) {
 // its final value. It writes that total on a dedicated carrier span — parented at
 // the session-root span recorded in serveQuery so it lands in this trace, named
 // wcprofSessionCompleteSpanName so the counter excludes it from the total and the
-// loader drops it from the compiled ops — and ends it immediately so the live
-// exporter ships it (this runs before the per-client telemetry is shut down). A
+// loader drops it from the compiled ops — then ends AND synchronously force-flushes
+// it so the live exporter ships it before the per-client telemetry is shut down. A
 // trace that never ran a traced main query, or whose count is zero, gets no carrier
 // and so fails the loader's gate by default (unverifiable → refused).
 func (srv *Server) stampSessionComplete(ctx context.Context, sess *daggerSession) {
@@ -655,6 +655,20 @@ func (srv *Server) stampSessionComplete(ctx context.Context, sess *daggerSession
 		),
 	)
 	span.End()
+	// The carrier is the TRAILING span of the trace (stamped at teardown), so relying
+	// on the async live-export batch to ship it races the per-client telemetry
+	// Shutdown below — and removeDaggerSession runs under the session-closing
+	// cancellation (withClosingCancel), so on a heavy build the bulk of spans ship
+	// live but this one last span is left queued and dropped once the ctx cancels,
+	// leaving the loader unable to certify completeness (marker absent → gate refuses).
+	// Force it through the exporter synchronously, under a context detached from the
+	// closing cancellation with a bounded timeout, so the count reliably reaches the
+	// client DB the CLI drains toward Cloud regardless of build size.
+	flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	if err := mainClient.tracerProvider.ForceFlush(flushCtx); err != nil {
+		slog.Warn("wcprof: failed to flush session-complete carrier span", "error", err)
+	}
 }
 
 type ClientInitOpts struct {
