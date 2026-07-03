@@ -84,13 +84,31 @@
   .chip.modf { color: var(--modify); background: var(--modify-bg); }
   .trace { background: #f4f5f7; border-left: 3px solid var(--accent); border-radius: 6px; padding: 8px 14px; font-size: 14px; margin: 12px 0; }
   .shelfnote { background: var(--drop-bg); border: 1px solid #e0b6b1; border-radius: 8px; padding: 10px 14px; font-size: 14px; margin: 10px 0 16px; }
+  .verdict { background: var(--keep-bg); border: 1px solid #bfe0cc; border-left: 5px solid var(--keep); border-radius: 10px; padding: 14px 18px; margin: 20px 0; }
+  .verdict .vtag { display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: .08em; color: var(--keep); margin-bottom: 4px; }
+  .decide { background: var(--new-bg); border: 1px solid #c5d2f0; border-radius: 10px; padding: 12px 18px 14px; margin: 16px 0; }
+  .decide .dtag { font-size: 11px; font-weight: 800; letter-spacing: .08em; color: var(--new); display: block; margin-bottom: 4px; }
+  .steps { counter-reset: step; list-style: none; padding-left: 0; margin: 14px 0; }
+  .steps > li { counter-increment: step; position: relative; padding: 12px 0 12px 54px; border-bottom: 1px dashed var(--line); color: #2b2f36; }
+  .steps > li:last-child { border-bottom: 0; }
+  .steps > li::before { content: counter(step); position: absolute; left: 0; top: 12px; width: 34px; height: 34px;
+    border-radius: 50%; background: var(--new-bg); color: var(--new); font-weight: 800; font-size: 15px;
+    display: flex; align-items: center; justify-content: center; }
+  .steps .tag { font-size: 11.5px; font-weight: 700; color: var(--muted); letter-spacing: .04em; }
+  pre .cm { color: #8b949e; font-style: italic; }
+  pre .em { color: #7ee2a8; font-weight: 600; }
+  .src { display: block; text-align: right; font-size: 12px; color: var(--muted); margin: -8px 2px 16px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 12px 0; }
+  @media (max-width: 800px) { .two { grid-template-columns: 1fr; } }
+  .subcard { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; }
+  .subcard h4 { margin: 2px 0 6px; }
 </style>
 </head>
 <body>
 <main>
 
 <h1>Remote Cache — Design</h1>
-<p class="sub">v5 &nbsp;·&nbsp; Requirements + target shape: ratified &nbsp;·&nbsp; §7 content home: draft for review &nbsp;·&nbsp; 2026-07-03</p>
+<p class="sub">v6 &nbsp;·&nbsp; Requirements + target shape: ratified &nbsp;·&nbsp; §7 content home: draft for review (presentation pass 2) &nbsp;·&nbsp; 2026-07-03</p>
 
 <div class="banner">
 <b>Status.</b> This is the living design doc for the remote-cache engine work, restarted
@@ -618,133 +636,371 @@ simultaneously — the content-home section carries an explicit metadata-growth 
 
 <details class="fold" id="home" open><summary><h2>7. The content home: result &amp; materialization state <span class="pill">(draft, under discussion)</span></h2></summary>
 
-<div class="trace"><b>Traces to:</b> R5 (the home itself), R1/R2 (retained sources and
-fall-through), R12 (demand-bounded), R4 (what identities may appear where), R10 (growth
-model). <b>Answers</b> both open questions from §6, at the model level. <b>Necessity:</b>
-this is the state model everything else reads and writes; it is a <em>consolidation</em>
-of state that already exists scattered on main, not a new layer.</div>
+<p><b>The idea in three sentences.</b> Every cached result gets exactly one place that
+answers "what does this result have, and how can it be re-made?" — a small record on the
+cache's own result row. The values your code touches (Directory, File, Container) stay
+exactly what they are on main; their content cells become <em>caches of</em> that record's
+answer rather than competing sources of truth. Everything else in this section — the
+source list, the fall-through order, the growth model — is that one idea meeting the
+requirements.</p>
 
-<h3>Current state on main <span class="pill">(verified @ 672ce93530)</span></h3>
-<ul>
-<li><b>Content lives on value structs, in accessor cells.</b>
-<code>Directory{Lazy, Dir, Snapshot *LazyAccessor}</code> (<code>core/directory.go:43–51</code>);
-<code>Container{FS, MetaSnapshot *LazyAccessor, …}</code> (<code>core/container.go:62–78</code>);
-exec result sources <code>DirectorySource/FileSource</code> (<code>:437–439</code>). Clones
-sometimes <em>copy</em> cells (e.g. <code>CloneContainerMetaSnapshot</code>,
-<code>core/container.go:906</code>).</li>
-<li><b>Persistence encodes a per-result envelope</b> — typed payload plus snapshot
-references harvested from the value (<code>encodePersistedResultEnvelope</code>,
-<code>dagql/cache_persistence_self.go:85</code>; <code>snapshotOwnerLinksFromTyped</code>,
-<code>:390</code>). Snapshot references are <b>local</b> refKeys kept alive by leases —
-they never cross engine boundaries, consistent with R4's local carve-out.</li>
-<li><b>Restored results already realize on demand.</b> Deferred decode
-(<code>ensurePersistedHitValueLoaded</code>, <code>dagql/cache_persistence_import.go:552</code>)
-and value-level lazy evaluation on the result row — <code>shared.lazyEval</code> with its
-own singleflight/waiter machinery (<code>dagql/cache.go:2895–3032</code>) — which re-runs
-the value's <code>Lazy</code> closure (the recipe) with session attribution.</li>
-<li><b>Failure handling is all-or-nothing.</b> Schema mismatch, unclean shutdown, or
-<em>any</em> import failure resets the entire store
-(<code>dagql/cache.go:98–101</code>; <code>engine/server/server.go:444–460</code>,
-"resetting worker and dagql persistence state").</li>
-<li><b>The R5 gaps, concretely:</b> capability ("what does this result have; how can it be
-re-made") is implicit and scattered across envelope, cells, and closures; a cell copied
-before realization strands capability the row still has; a lost snapshot has no ordered
-fallback (stranded hit, or the full wipe above); and nothing states which writes are legal
-when.</li>
-</ul>
+<div class="decide"><span class="dtag">ON THE TABLE — WHAT THIS SECTION ASKS YOU TO RATIFY</span>
+<ol style="margin:4px 0 2px">
+<li>Both §6 open questions, as answered in the two green verdict boxes below.</li>
+<li>The home placed on the result row, with value cells demoted to realization caches —
+and deliberately <em>not</em> re-plumbed (smallest change that satisfies R5).</li>
+<li>Naming the third source (<code>content-chain</code>) now, building it only in the
+remote take.</li>
+</ol>
+</div>
 
-<h3>Design</h3>
-<ol>
-<li><b>The home lives on the cache's result row.</b> Each result row
-(<code>sharedResult</code>) owns a <code>materializationState</code>: the persisted-form
-<b>envelope</b>, the ordered list of <b>retained sources</b>, and a <b>realized</b> flag
-for the in-memory value payload. Core value structs remain exactly what they are on main —
-plain data whose accessor cells are <em>realization artifacts</em> — but the row is the
-sole source of truth for capability. The row is written only at the decision points:
-<b>publication</b> (locally-completed work; sources recorded as available:
-local-snapshot, plus recipe when retainable), <b>lazy content arrival</b> (realization
-marks its own row realized), <b>import</b> (row created with envelope + sources,
-unrealized), and <b>flush</b> (reads). All under the cache's existing locking; no new
-locks (R15).</li>
-<li><b>Retained sources, in fall-through order (R1/R2):</b>
-<code>local-snapshot</code> (local refKeys + leases; local-only identity per R4) →
-<code>recipe</code> (the frozen frame — the value's existing <code>Lazy</code> closure,
-made an explicit, persisted capability) → <em>reserved seam:</em>
-<code>content-chain</code> (R4 chainIDs, the remote future — named once here so
-fall-through order is designed once; <b>not built this take</b>). A row with zero viable
-sources is not servable as a hit (R2): at restore it is dropped along with its dependents
-— the partial-persistence behavior itself lands in the restore section.</li>
-<li><b>Open question 1, answered: on-demand materialization <em>is</em> the existing
-lazy-evaluation path.</b> This is main's reality already — restored rows realize via
-deferred decode plus <code>shared.lazyEval</code>'s existing singleflight — and the design
-keeps it. What changes is <em>what the lazy work consults</em>: the row's ordered sources,
-falling through on failure, instead of an implicit snapshot-or-closure choice. How waiting
-works does not change; no new wait/claim machinery exists (the shelved kernel stays
-shelved). Mechanism detail — source iteration, error taxonomy, what "viable" checks —
-is owned by the warm-lookup section.</li>
-<li><b>The surgery rule (R5).</b> Accessor cells are realization caches, never capability
-records. A clone that copies a cell copies realized-state-or-absence, and absence is
-always recoverable through the row (a cell's <code>GetOrEval</code> already routes through
-its owner to the row's lazy path). No value-side write may create capability the row
-doesn't know about: persistence <b>encodes from the row</b>, not by harvesting value state
-— retiring the harvest-from-value pattern is a transition detail owned by the persistence
-section.</li>
-<li><b>Open question 2, answered: the metadata-growth model.</b> Rows are created in
-exactly two ways: genuinely-new executions (honest growth, R10) and first-time import
-(idempotent by portable identity — re-import and import→re-export cycles add zero rows,
-R3/R10). Winner-at-lookup adds no rows and copies no content. Redundant content
-<em>bytes</em> between independently-executed equivalents are possible; they are bounded
-by real independent cold executions (exactly what sharing exists to make rare) and are
-reclaimed by normal prune as the losers' last-use ages out. Redundant <em>metadata</em> is
-just the loser rows themselves — which R10 requires to remain distinct anyway (related by
-digests; collapsing them for serving is backend merge policy, out of engine scope). No
-reconciliation, forwarding, or healing machinery exists to amplify anything. The
-persistence section adds R10's self-check metric.</li>
-<li><b>Deliberate non-additions:</b> no cross-result sharing of any kind; no replacement
-of <code>LazyAccessor</code> (cells stay as they are — smallest change that satisfies R5;
-pointing cells into the row was considered and dropped absent a demonstrated need); no new
-locks; no eager content hashing anywhere (R4).</li>
+<h3>7.1 &nbsp;Where content state lives today</h3>
+
+<p>On main, a value's content is held in <b>accessor cells on the value struct itself</b>.
+Here is the real thing, not a paraphrase:</p>
+
+<pre><code>type Directory struct {
+	Platform Platform
+	Services ServiceBindings
+
+	Lazy     Lazy[*Directory]                                <span class="cm">// ← the recipe: how to (re)compute this value</span>
+	Dir      *LazyAccessor[string, *Directory]               <span class="cm">// a selected subdir of the snapshot, if any</span>
+	Snapshot *LazyAccessor[bkcache.ImmutableRef, *Directory] <span class="cm">// ← the content: a LOCAL snapshot ref</span>
+}
+</code></pre>
+<span class="src">core/directory.go:43 (verbatim)</span>
+
+<pre><code>type Container struct {
+	FS           *LazyAccessor[*Directory, *Container]           <span class="cm">// root filesystem</span>
+	MetaSnapshot *LazyAccessor[bkcache.ImmutableRef, *Container] <span class="cm">// exec stdout/stderr/exit-code files</span>
+	Mounts       ContainerMounts
+	Config       dockerspec.DockerOCIImageConfig
+	<span class="cm">// … ~10 more plain metadata fields (Platform, Ports, Secrets, ImageRef, Services, …)</span>
+}
+</code></pre>
+<span class="src">core/container.go:62 (content-bearing fields; rest elided)</span>
+
+<p>Three facts about this arrangement matter for everything below:</p>
+
+<p><b>Fact 1 — a "cell" is a tiny lazy container, and clones sometimes copy it.</b>
+<code>LazyAccessor</code> is get-or-compute-once around a value
+(<code>core/lazy_state.go:73</code>). When schema handlers build a derived object they
+clone the parent, and some of those clones <em>copy the cell</em> (e.g.
+<code>CloneContainerMetaSnapshot</code>, <code>core/container.go:906</code>). A copy taken
+<em>before</em> the cell was filled is a fork: the original may later realize content the
+copy will never see.</p>
+
+<p><b>Fact 2 — restored results already come back to life lazily.</b> This is the
+load-bearing discovery of this section, so here is the actual shape of it. At boot, rows
+are loaded as identity plus a <b>persisted envelope</b> — the typed payload with its
+snapshot references, which are <b>local</b> refKeys kept alive by leases (they never cross
+an engine boundary; R4's local carve-out). No values are decoded at boot. Then, on first
+use:</p>
+
+<pre><code><span class="cm">// distilled from the real warm path — dagql/cache_persistence_import.go:552,</span>
+<span class="cm">// dagql/cache.go:2895–3032 — this machinery EXISTS on main today:</span>
+
+hit := lookup(call)                        <span class="cm">// row found: it's a hit, value not loaded yet</span>
+val := ensurePersistedHitValueLoaded(hit)  <span class="cm">// deferred decode: envelope → value struct + cells</span>
+
+<span class="cm">// and if the value's content must be (re)computed rather than decoded:</span>
+if lazy := shared.lazyEval; lazy != nil {
+	<span class="em">// one runner, N waiters, last-waiter-cancels, caller-detached ctx,</span>
+	<span class="em">// resume-span attribution — a working singleflight, already here</span>
+	runOrWait(shared, lazy)
+}
+</code></pre>
+<span class="src">distillation; the real code adds span attribution, retry-on-failure, and cleanup</span>
+
+<p><b>Fact 3 — when anything goes wrong, everything goes.</b> There is no per-result
+fallback today. The failure vocabulary on main is store-wide:</p>
+
+<pre><code>const (
+	CachePersistenceResetNone            CachePersistenceResetReason = ""
+	CachePersistenceResetSchemaMismatch  CachePersistenceResetReason = "schema_mismatch"
+	CachePersistenceResetUncleanShutdown CachePersistenceResetReason = "unclean_shutdown"
+	CachePersistenceResetImportFailure   CachePersistenceResetReason = "import_failure"  <span class="cm">// ← ANY import failure</span>
+)
+</code></pre>
+<span class="src">dagql/cache.go:98 (verbatim) — acted on at engine/server/server.go:444: "resetting worker and dagql persistence state"</span>
+
+<p>Summed up against R5, with names for where each gap bites:</p>
+
+<table class="filetbl">
+<tr><th>Gap on main</th><th>Concretely</th><th>Where it bites</th></tr>
+<tr><td><b>Capability is scattered</b></td>
+<td>"How can this result be re-made?" has no single answer — it's implicit across the
+envelope, the cells, and the <code>Lazy</code> closure. Persistence <em>harvests</em>
+snapshot refs back out of value structs at encode time
+(<code>snapshotOwnerLinksFromTyped</code>, cache_persistence_self.go:390).</td>
+<td>Encode trusts whatever state the value happens to hold; nothing owns the truth.</td></tr>
+<tr><td><b>Cell copies fork the truth</b></td>
+<td>A clone's cell copied before realization never learns what the original later
+computed (Fact 1).</td>
+<td>The stranded-capability disease family: a result that <em>has</em> content, reachable
+through an object that doesn't know it.</td></tr>
+<tr><td><b>No ordered fallback</b></td>
+<td>A restored result whose snapshot was pruned has no next move, even when its recipe
+is sitting right there in the envelope.</td>
+<td>R2 violated: a hit that can't materialize = a stranded hit.</td></tr>
+<tr><td><b>All-or-nothing restore</b></td>
+<td>One bad row wipes the entire store (Fact 3).</td>
+<td>The partial-persistence corollary is impossible until this changes.</td></tr>
+</table>
+
+<h3>7.2 &nbsp;The design: one home per result</h3>
+
+<figure>
+<svg viewBox="0 0 960 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Anatomy of the content home">
+  <defs>
+    <marker id="arrH" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5c6470"/>
+    </marker>
+    <marker id="arrHG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1a7f4b"/>
+    </marker>
+    <marker id="arrHB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2757d6"/>
+    </marker>
+  </defs>
+
+  <!-- the row -->
+  <rect x="330" y="70" width="380" height="240" rx="12" fill="#fff" stroke="#9aa1ab" stroke-width="1.5"/>
+  <text x="520" y="96" text-anchor="middle" font-size="14" font-weight="700" fill="#1a1d23">result row (sharedResult)</text>
+  <text x="520" y="113" text-anchor="middle" font-size="11.5" fill="#5c6470">one per result — the cache's entry; never serialized itself (R3)</text>
+
+  <rect x="350" y="126" width="340" height="164" rx="8" fill="#f4f5f7" stroke="#c9ccd2"/>
+  <text x="520" y="146" text-anchor="middle" font-size="12.5" font-weight="700" fill="#2757d6">materializationState — the home</text>
+
+  <rect x="364" y="158" width="312" height="30" rx="6" fill="#fff" stroke="#c9ccd2"/>
+  <text x="520" y="177" text-anchor="middle" font-size="12" fill="#2b2f36">envelope — the persisted form of the value</text>
+
+  <rect x="364" y="194" width="312" height="52" rx="6" fill="#fff" stroke="#c9ccd2"/>
+  <text x="520" y="211" text-anchor="middle" font-size="12" fill="#2b2f36">sources, in fall-through order:</text>
+  <text x="520" y="228" text-anchor="middle" font-size="11.5" fill="#2b2f36">① local snapshot &nbsp;→&nbsp; ② recipe &nbsp;→&nbsp; ③ content-chain <tspan fill="#a06000">(reserved)</tspan></text>
+
+  <rect x="364" y="252" width="312" height="28" rx="6" fill="#fff" stroke="#c9ccd2"/>
+  <text x="520" y="270" text-anchor="middle" font-size="12" fill="#2b2f36">realized — is the in-memory value usable right now?</text>
+
+  <!-- the value satellite -->
+  <rect x="20" y="130" width="240" height="120" rx="10" fill="#fff" stroke="#c9ccd2" stroke-dasharray="5 4"/>
+  <text x="140" y="156" text-anchor="middle" font-size="13" font-weight="700" fill="#1a1d23">value struct + cells</text>
+  <text x="140" y="175" text-anchor="middle" font-size="11.5" fill="#5c6470">Directory / File / Container,</text>
+  <text x="140" y="191" text-anchor="middle" font-size="11.5" fill="#5c6470">unchanged from main</text>
+  <text x="140" y="215" text-anchor="middle" font-size="12" font-weight="600" fill="#a06000">cells = realization caches,</text>
+  <text x="140" y="231" text-anchor="middle" font-size="12" font-weight="600" fill="#a06000">never capability records</text>
+
+  <line x1="260" y1="190" x2="326" y2="190" stroke="#5c6470" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arrH)"/>
+  <text x="293" y="180" text-anchor="middle" font-size="11" fill="#5c6470">absence resolves</text>
+  <text x="293" y="205" text-anchor="middle" font-size="11" fill="#5c6470">via the row</text>
+
+  <!-- write points -->
+  <line x1="430" y1="18" x2="430" y2="66" stroke="#1a7f4b" stroke-width="2.5" marker-end="url(#arrHG)"/>
+  <text x="430" y="12" text-anchor="middle" font-size="11.5" font-weight="700" fill="#1a7f4b">publication (new local work)</text>
+
+  <line x1="610" y1="18" x2="610" y2="66" stroke="#2757d6" stroke-width="2.5" marker-end="url(#arrHB)"/>
+  <text x="610" y="12" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2757d6">import (boot, R14)</text>
+
+  <line x1="330" y1="330" x2="430" y2="314" stroke="#1a7f4b" stroke-width="2.5" marker-end="url(#arrHG)"/>
+  <text x="300" y="345" text-anchor="start" font-size="11.5" font-weight="700" fill="#1a7f4b">lazy arrival (a row realizing ITSELF)</text>
+
+  <line x1="714" y1="190" x2="790" y2="190" stroke="#a06000" stroke-width="2.5" marker-end="url(#arrH)"/>
+  <text x="800" y="182" text-anchor="start" font-size="11.5" font-weight="700" fill="#a06000">flush (shutdown)</text>
+  <text x="800" y="198" text-anchor="start" font-size="11" fill="#5c6470">reads the home;</text>
+  <text x="800" y="212" text-anchor="start" font-size="11" fill="#5c6470">no more harvesting</text>
+  <text x="800" y="226" text-anchor="start" font-size="11" fill="#5c6470">values at encode</text>
+</svg>
+<figcaption>Fig. 3 — The home and its four write points. Everything writes the row it owns;
+nothing writes anyone else's row; values reference, never copy.</figcaption>
+</figure>
+
+<h4>D1 — The home lives on the result row</h4>
+<p>Each row owns a <code>materializationState</code>: the <b>envelope</b>, the ordered
+<b>sources</b>, and a <b>realized</b> flag. It is written at exactly the four points in
+Fig. 3 — publication, import, a row's own lazy realization, and flush (which only reads) —
+all under the cache's existing locking. No new locks, no state shared between rows
+(R5, R15). Why the row and not the value: the row is the one object with the same lifetime
+as the result's identity — values come and go (decoded, cloned, discarded), the row is
+where a "promise to materialize" (R2) can actually live.</p>
+
+<h4>D2 — Retained sources, in fall-through order</h4>
+<p>The home's source list is the whole R1/R2 story in one field:</p>
+
+<figure>
+<svg viewBox="0 0 960 170" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Source fall-through">
+  <defs>
+    <marker id="arrF" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5c6470"/>
+    </marker>
+    <marker id="arrFG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1a7f4b"/>
+    </marker>
+  </defs>
+  <rect x="15" y="25" width="240" height="62" rx="10" fill="#e7f5ec" stroke="#bfe0cc"/>
+  <text x="135" y="50" text-anchor="middle" font-size="13" font-weight="700" fill="#1a1d23">① local snapshot</text>
+  <text x="135" y="70" text-anchor="middle" font-size="11.5" fill="#5c6470">refKeys + leases · local-only identity (R4)</text>
+
+  <line x1="255" y1="56" x2="330" y2="56" stroke="#5c6470" stroke-width="2" marker-end="url(#arrF)"/>
+  <text x="292" y="46" text-anchor="middle" font-size="11" fill="#b3362c">not viable / failed</text>
+
+  <rect x="335" y="25" width="240" height="62" rx="10" fill="#e7f5ec" stroke="#bfe0cc"/>
+  <text x="455" y="50" text-anchor="middle" font-size="13" font-weight="700" fill="#1a1d23">② recipe</text>
+  <text x="455" y="70" text-anchor="middle" font-size="11.5" fill="#5c6470">frozen frame · re-executes via lazy path (R6)</text>
+
+  <line x1="575" y1="56" x2="650" y2="56" stroke="#5c6470" stroke-width="2" marker-end="url(#arrF)"/>
+  <text x="612" y="46" text-anchor="middle" font-size="11" fill="#b3362c">not retainable / failed</text>
+
+  <rect x="655" y="25" width="240" height="62" rx="10" fill="#fdf3e0" stroke="#ecd9ac" stroke-dasharray="6 4"/>
+  <text x="775" y="50" text-anchor="middle" font-size="13" font-weight="700" fill="#a06000">③ content-chain</text>
+  <text x="775" y="70" text-anchor="middle" font-size="11.5" fill="#a06000">reserved seam (R4 chainIDs) — NOT built this take</text>
+
+  <line x1="135" y1="87" x2="135" y2="125" stroke="#1a7f4b" stroke-width="2.5" marker-end="url(#arrFG)"/>
+  <line x1="455" y1="87" x2="455" y2="125" stroke="#1a7f4b" stroke-width="2.5" marker-end="url(#arrFG)"/>
+  <text x="295" y="147" text-anchor="middle" font-size="13" font-weight="700" fill="#1a7f4b">SERVE — and mark this row realized</text>
+
+  <text x="775" y="115" text-anchor="middle" font-size="12" font-weight="700" fill="#b3362c">no viable source at all ⇒ not servable (R2):</text>
+  <text x="775" y="133" text-anchor="middle" font-size="12" fill="#b3362c">dropped at restore, with dependents</text>
+  <text x="775" y="151" text-anchor="middle" font-size="11" fill="#5c6470">(behavior lands in the restore section)</text>
+</svg>
+<figcaption>Fig. 4 — Fall-through. Naming source ③ now means the order is designed exactly
+once; building it stays out of this take.</figcaption>
+</figure>
+
+<div class="verdict"><span class="vtag">ANSWER — §6 OPEN QUESTION 1</span><br>
+<b>On-demand materialization is the existing lazy-evaluation path.</b> Not by decree — by
+observation: main <em>already</em> realizes restored results on demand through deferred
+decode plus <code>shared.lazyEval</code>'s singleflight (Fact 2). This design keeps that
+machinery byte-for-byte and changes only <em>what the work consults</em>:
+<table class="filetbl" style="margin-top:10px">
+<tr><th>Unchanged (main's machinery)</th><th>Changed (what the work does)</th></tr>
+<tr><td>One runner, N waiters, last-waiter-cancels</td>
+<td>The runner walks <code>row.sources</code> in order instead of an implicit
+snapshot-or-closure choice</td></tr>
+<tr><td>Deferred decode on first use</td>
+<td>Decode = realizing the <b>local-snapshot</b> source</td></tr>
+<tr><td>Recipe re-execution with resume-span attribution</td>
+<td>Re-execution = realizing the <b>recipe</b> source (the same closure, now an explicit,
+persisted capability)</td></tr>
+<tr><td>Retry-on-failure semantics</td>
+<td>Failure of one source falls through to the next (R2)</td></tr>
+</table>
+<p style="margin:8px 0 0">Consequences: <b>no new wait/claim machinery exists</b> — the
+shelved kernel stays shelved — and the mechanism details (what "viable" checks, error
+taxonomy, iteration) belong to the warm-lookup section, with the model fixed here.</p>
+</div>
+
+<h4>D3 — The surgery rule: cells are caches, the row is truth</h4>
+<p>The rule that retires the stranded-capability disease, stated once: <b>no value-side
+state is ever the only holder of a capability.</b> A cell may hold a realized ref
+(fast path); a cell may be empty (recoverable — its accessor's get-or-compute already
+routes through the owner to the row's lazy path); and persistence <b>encodes from the
+row</b>, never by harvesting value structs. The micro-example that used to go wrong:</p>
+<ol class="mini">
+<li><b>t₀</b> — a restored row is unrealized; its envelope + sources sit on the row.</li>
+<li><b>t₁</b> — a schema handler clones the value; the clone's cell is a copy — empty.</li>
+<li><b>t₂</b> — the original realizes (cell filled, row marked realized).</li>
+<li><b>Today:</b> the clone's empty cell is a dead end — capability stranded on a fork.
+<b>Design:</b> the clone's absence resolves through the row like anyone else's; the copy
+was only ever a cache miss.</li>
+</ol>
+<p class="pill">Deliberately <em>not</em> done: re-pointing cells into the row
+(a plumbing change through core/ with no demonstrated need), replacing
+<code>LazyAccessor</code>, or any cross-row sharing. Smallest change that satisfies R5.</p>
+
+<div class="verdict"><span class="vtag">ANSWER — §6 OPEN QUESTION 2</span><br>
+<b>The metadata-growth model under winner-at-lookup.</b> Rows are born in exactly two
+ways, and every event in the system has a known growth signature:
+<table class="filetbl" style="margin-top:10px">
+<tr><th>Event</th><th>Result rows</th><th>Content bytes</th><th>Bounded by</th></tr>
+<tr><td>New local execution</td><td>+1 (honest)</td><td>+ its outputs</td>
+<td>Work actually performed (R10)</td></tr>
+<tr><td>Import, first time</td><td>+N imported</td><td>0 — metadata only</td>
+<td>Bundle contents; re-import adds <b>zero</b> (idempotent, R3)</td></tr>
+<tr><td>Import → re-export cycle</td><td><b>+0</b></td><td>0</td><td>R10, by requirement</td></tr>
+<tr><td>Warm hit via winner-at-lookup</td><td>+0</td><td>0 (or lazy hydration of that
+result only, R12)</td><td>—</td></tr>
+<tr><td>Two engines independently compute equivalents</td><td>+1 row each</td>
+<td>duplicate bytes possible</td><td>Real independent cold executions — exactly what
+sharing makes rare; losers age out via normal prune</td></tr>
+</table>
+<p style="margin:8px 0 0">The loser rows themselves are not waste: R10 <em>requires</em>
+independently-produced equivalents to remain distinct rows related by digests (collapsing
+them for serving is backend merge policy, out of engine scope). And there is no
+reconciliation, forwarding, or healing machinery left that could amplify anything — the
+previous take's growth mechanisms don't exist here. The persistence section adds R10's
+self-check metric so this model is measured, not assumed.</p>
+</div>
+
+<h3>7.3 &nbsp;A warm hit, end to end</h3>
+<p>The whole model in one story. An engine restarts; a session re-issues the same
+<code>container().from(base).withExec(…)</code> chain it ran yesterday.</p>
+<ol class="steps">
+<li><span class="tag">BOOT · import decision point (R14, R16)</span><br>
+Rows are restored: the identity index, and per row
+<code>{envelope, sources: [local-snapshot, recipe], realized: false}</code>. No values
+decoded, no content touched — boot moves metadata only.</li>
+<li><span class="tag">LOOKUP</span><br>
+The session's call resolves through the e-graph (unchanged from main) to the row — a hit,
+one winner, picked once.</li>
+<li><span class="tag">FIRST USE · the existing lazy path</span><br>
+Something actually reads the value. The lazy machinery starts one runner; concurrent
+callers wait — the same singleflight main runs today (Fact 2).</li>
+<li><span class="tag">REALIZE · source ①</span><br>
+The runner walks the row's sources: local-snapshot first — refKeys still present, leases
+acquired → decode the envelope → value struct + cells filled → the row marks
+<b>itself</b> realized (the lazy-arrival write point).</li>
+<li><span class="tag">SERVE</span><br>
+The value flows to the caller; every later use takes the realized fast path.</li>
+<li><span class="tag">COUNTERFACTUAL · source ② (fall-through, R2)</span><br>
+Suppose the snapshot had been pruned: source ① reports not-viable, the runner falls
+through to the recipe and re-executes the frozen frame — the same closure main's lazy
+evaluation runs today (R6 principal semantics) — and the output lands on <b>this row</b>,
+which realizes as above.</li>
+<li><span class="tag">COUNTERFACTUAL · zero sources (restore section)</span><br>
+Had <em>no</em> source been viable at boot, the row and its dependents would have been
+dropped during restore: the call cold-misses and recomputes honestly. A hit is a promise
+or it isn't made (R2) — and one bad row no longer wipes the store (Fact 3, retired).</li>
 </ol>
 
-<h3>Implementation detail</h3>
-<p>This is consolidation, not addition: the row-side state that already exists in pieces —
+<h3>7.4 &nbsp;Implementation shape</h3>
+<p>Consolidation, not addition: the row-side state that exists in pieces today —
 <code>shared.lazyEval</code>/<code>lazyEvalComplete</code>, the deferred-decode envelope
-handling, the harvested snapshot links — becomes one named structure.</p>
-<pre><code>// dagql/cache.go — on sharedResult (consolidating existing fields)
+handling, the harvested snapshot links — becomes one named structure:</p>
+
+<pre><code><span class="cm">// dagql/cache.go — on sharedResult (consolidating existing fields)</span>
 
 type materializationState struct {
-	// envelope is the persisted form of this result's value: present iff the
-	// result was restored from persistence (or prepared for flush).
+	<span class="cm">// The persisted form of this result's value: present iff the result was</span>
+	<span class="cm">// restored from persistence (or prepared for flush).</span>
 	envelope *PersistedResultEnvelope
 
-	// sources this result can be re-made from, in fall-through order (R1/R2).
-	// Zero viable sources ⇒ the row is not servable as a hit (R2).
+	<span class="cm">// What this result can be re-made from, in fall-through order (R1/R2).</span>
+	<span class="cm">// Zero viable sources ⇒ the row is not servable as a hit (R2).</span>
 	sources []retainedSource
 
-	// realized reports whether the in-memory value payload is currently
-	// usable (decoded, refs resolvable). Written only by the row's own
-	// realization (lazy arrival) or publication.
+	<span class="cm">// Whether the in-memory value payload is currently usable (decoded, refs</span>
+	<span class="cm">// resolvable). Written only by this row's own realization or publication.</span>
 	realized bool
 }
 
 type retainedSourceKind uint8
 
 const (
-	// Local snapshot refKeys + leases. Local-only identity: never crosses an
-	// engine boundary (R4).
+	<span class="cm">// Local snapshot refKeys + leases. Local-only identity: never crosses an</span>
+	<span class="cm">// engine boundary (R4).</span>
 	sourceLocalSnapshot retainedSourceKind = iota
-	// The frozen recipe frame; re-executed through the existing
-	// lazy-evaluation path.
+
+	<span class="cm">// The frozen recipe frame; re-executed through the existing lazy path.</span>
 	sourceRecipe
-	// sourceContentChain: reserved seam for the remote future (R4 chainIDs).
-	// Named so fall-through order is designed exactly once; not built this
-	// take.
+
+	<span class="cm">// sourceContentChain: reserved seam for the remote future (R4 chainIDs).</span>
+	<span class="cm">// Named so fall-through order is designed exactly once; not built this take.</span>
 )
 
 type retainedSource struct {
 	kind retainedSourceKind
-	// kind-specific identity (refKeys / frame reference) — encoding owned by
-	// the persistence section.
+	<span class="cm">// kind-specific identity (refKeys / frame reference) — encoding owned by</span>
+	<span class="cm">// the persistence section</span>
 }
 </code></pre>
 
@@ -752,46 +1008,36 @@ type retainedSource struct {
 <tr><th>File</th><th></th><th>Change</th></tr>
 <tr><td><code>dagql/cache.go</code></td><td><span class="chip modf">MOD</span></td>
 <td><code>sharedResult</code> gains <code>materializationState</code>; existing
-<code>lazyEval*</code>/envelope fields consolidate into it (no semantic change to the lazy
-path itself).</td></tr>
+<code>lazyEval*</code>/envelope fields consolidate into it. No semantic change to the lazy
+path itself.</td></tr>
 <tr><td><code>dagql/cache_persistence_self.go</code></td><td><span class="chip modf">MOD</span></td>
-<td>Encode reads the row's materialization state (transition from value-harvest owned by
-the persistence section; this section only makes the row the source encode consults).</td></tr>
+<td>Encode reads the row's state (the transition away from value-harvesting is owned by
+the persistence section; this section makes the row what encode consults).</td></tr>
 <tr><td><code>dagql/cache_persistence_import.go</code></td><td><span class="chip modf">MOD</span></td>
 <td>Decode populates the row (envelope + sources, unrealized);
 <code>ensurePersistedHitValueLoaded</code> consults it.</td></tr>
 <tr><td><code>dagql/materialization_test.go</code></td><td><span class="chip newf">NEW</span></td>
-<td>Model-level unit tests: source fall-through order; zero-viable-sources refusal (R2);
-write-point legality (only publication / own-row realization / import / flush-read touch
-the state).</td></tr>
-<tr><td colspan="3" class="pill">No <code>core/</code> changes in this section. Value
+<td>Model-level unit tests: fall-through order; zero-viable-sources refusal (R2);
+write-point legality (only publication / own-row realization / import / flush-read may
+touch the state).</td></tr>
+<tr><td colspan="3" class="pill">No <code>core/</code> changes in this section — value
 structs and cells untouched.</td></tr>
 </table>
 
 <p><b>Observability for this section</b> (process tooling, per §5): the existing debug
 snapshot gains per-row <code>{sources, realized}</code> — the inspection surface every
-later section's proof will lean on. Nothing more yet.</p>
+later section's proof leans on. Nothing more yet.</p>
 
-<h3>Validation gate</h3>
+<h3>7.5 &nbsp;Validation gate</h3>
 <ul>
-<li><b>P-7.1:</b> the R11 gate — persistence/restart suite, cross-session-caching tests,
-selected services tests — green with <b>no behavior change</b>: this section is
+<li><b>P-7.1</b> — the R11 gate (persistence/restart suite, cross-session-caching tests,
+selected services tests) green with <b>no behavior change</b>: this section is
 consolidation; fallback-on-lost-snapshot and partial restore deliberately do <em>not</em>
 land here.</li>
-<li><b>P-7.2:</b> the new model-level unit tests green under <code>-race</code>.</li>
-<li><b>P-7.3:</b> on a warm boot in the restart suite, the debug snapshot shows restored
+<li><b>P-7.2</b> — the model-level unit tests green under <code>-race</code>.</li>
+<li><b>P-7.3</b> — on a warm boot in the restart suite, the debug snapshot shows restored
 rows carrying their sources (envelope-backed, unrealized until first use) — checked by a
 test probe, not by eyeball.</li>
-</ul>
-
-<h3>For review — the decisions this section asks you to ratify</h3>
-<ul>
-<li>The two §6 open questions as answered above (materialization rides the existing lazy
-path; the growth model as stated).</li>
-<li>The home placed on the result row, with cells demoted to realization caches (and
-explicitly <em>not</em> re-plumbed — smallest change).</li>
-<li>The reserved-but-unbuilt <code>content-chain</code> seam (name the third source now,
-build it in the remote take).</li>
 </ul>
 </details>
 
