@@ -72,32 +72,66 @@
   .qs li { margin: 10px 0; }
   .foot { margin-top: 60px; font-size: 13.5px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 14px; }
   .pill { font-size: 12.5px; color: var(--muted); }
+  .fold { border: 0; margin: 44px 0 0; }
+  .fold summary { list-style: none; cursor: pointer; }
+  .fold summary::-webkit-details-marker { display: none; }
+  .fold summary h2 { display: inline-block; margin: 0 0 12px; }
+  .fold summary h2::before { content: "▸ "; color: var(--muted); }
+  .fold[open] summary h2::before { content: "▾ "; }
+  .fold summary h3 { display: inline-block; margin: 0 0 8px; }
+  .fold summary h3::before { content: "▸ "; color: var(--muted); }
+  .fold[open] summary h3::before { content: "▾ "; }
+  .controls { margin: 14px 0 0; font-size: 13.5px; }
+  .controls button { font: inherit; font-size: 13px; color: var(--accent); background: none;
+    border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; cursor: pointer; margin-right: 8px; }
+  .controls button:hover { border-color: var(--accent); }
+  pre { background: #14161a; color: #e8eaee; border-radius: 10px; padding: 14px 18px;
+    overflow-x: auto; font-size: 13px; line-height: 1.55; }
+  pre code { background: none; padding: 0; color: inherit; font-size: inherit; }
+  .filetbl { width: 100%; border-collapse: collapse; font-size: 14px; margin: 10px 0; }
+  .filetbl th, .filetbl td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .filetbl th { font-size: 12px; letter-spacing: 0.06em; color: var(--muted); }
+  .chip { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 5px; padding: 1px 7px; white-space: nowrap; }
+  .chip.newf { color: var(--new); background: var(--new-bg); }
+  .chip.modf { color: var(--modify); background: var(--modify-bg); }
+  .trace { background: #f4f5f7; border-left: 3px solid var(--accent); border-radius: 6px; padding: 8px 14px; font-size: 14px; margin: 12px 0; }
+  h4 { font-size: 15.5px; margin: 22px 0 6px; }
 </style>
 </head>
 <body>
 <main>
 
 <h1>Remote Cache — Reset Design</h1>
-<p class="sub">Part I: Requirements Re-scope &nbsp;·&nbsp; v2 — review round 1 folded in &nbsp;·&nbsp; 2026-07-03</p>
+<p class="sub">v3 &nbsp;·&nbsp; Part I (Requirements): ratified rounds 1–2 &nbsp;·&nbsp; Part II (Build plan: M0–M1): for review &nbsp;·&nbsp; 2026-07-03</p>
 
 <div class="banner">
-<b>Status: RESET.</b> This page restarts the design from requirements. It carries forward
-the previous effort's R1–R13 (each re-adjudicated below: keep / modify / drop), adds new
-requirements born from what we learned, and states explicit non-goals. Nothing downstream
-of requirements (architecture, milestones) is designed yet — that comes after this part is
-agreed. This page is the source of truth; the prior markdown docs remain untouched for
-reference one directory up.
+<b>Status: RESET, building back up.</b> Part I re-derived the requirements from scratch
+(previous take's R1–R13 re-adjudicated + R14–R16 new); it is <b>ratified</b> through two
+review rounds and its sections start collapsed below. Part II begins the build plan,
+designed strictly against Part I: milestones M0 (observability) and M1 (wait/claim
+primitive), currently <b>awaiting review</b>. This page is the source of truth; the prior
+take's markdown docs remain untouched one directory up, for reference only.
+</div>
+<div class="controls">
+<button type="button" onclick="setAll(true)">expand all sections</button>
+<button type="button" onclick="setAll(false)">collapse all sections</button>
 </div>
 
 <div class="toc">
-<b>Contents</b>
+<b>Contents — Part I: Requirements (ratified)</b>
 <ol>
   <li><a href="#goal">The goal (unchanged)</a></li>
   <li><a href="#shift">The one structural shift this re-scope makes</a></li>
   <li><a href="#carried">Carried requirements R1–R13, re-adjudicated</a></li>
   <li><a href="#newreqs">New requirements R14–R16</a></li>
   <li><a href="#nongoals">Explicit non-goals</a></li>
-  <li><a href="#open">Open questions for Erik</a></li>
+  <li><a href="#open">Review log</a></li>
+</ol>
+<b>Part II: Build plan (for review)</b>
+<ol start="7">
+  <li><a href="#plan">How the build plan is written</a></li>
+  <li><a href="#m0">M0 — Cache observability: outcomes, summaries, strict modes</a></li>
+  <li><a href="#m1">M1 — The stage primitive: one wait/claim kernel</a></li>
 </ol>
 </div>
 
@@ -222,7 +256,7 @@ only when they publish.
 Interchangeability moves from "continuous invariant" to "lookup-time policy."</figcaption>
 </figure>
 
-<h2 id="carried">3. Carried requirements, re-adjudicated</h2>
+<details class="fold" id="carried"><summary><h2>3. Carried requirements, re-adjudicated</h2></summary>
 <p class="pill">Original text is condensed but faithful; the verbatim originals are in
 <code>../01-engine-baseline-design.md §1</code> (previous take's worktree). Badges:
 <span class="badge keep">KEEP</span> unchanged ·
@@ -414,7 +448,9 @@ falls back to its recipe or is dropped (with its dependents), keeping the rest.<
 win that falls straight out of R1+R2+R5', with zero remote-cache dependency.</p>
 </div>
 
-<h2 id="newreqs">4. New requirements</h2>
+</details>
+
+<details class="fold" id="newreqs"><summary><h2>4. New requirements</h2></summary>
 
 <div class="card new">
 <h3>R14 — Startup-only import; the serving-time cache is read-mostly <span class="badge new">NEW</span></h3>
@@ -449,23 +485,33 @@ decision-point policy (pick a winner at lookup), never continuous reconciliation
 mutable state.</p>
 </div>
 
-<div class="card modify">
-<h3>R16 — Restart-deterministic lookup identity <span class="badge modify">UNDER DISCUSSION</span></h3>
-<p><b>Proposed property:</b> warm lookup keys are a pure function of persisted,
-content-addressed identity — a restarted (or foreign) engine derives identical keys for
-identical calls regardless of in-memory assignment order, timing, or concurrent load. Any
-key component derived from memory-assigned ordinals (class numbers, allocator IDs,
-insertion order) is either recomputed canonically from persisted digests on load or never
-participates in persisted identity at all.</p>
-<p class="pill">Status: NOT yet ratified. The empirical observation motivating it comes
-from the previous take's final instrumented runs and was characterized but never
-root-caused — and it was observed on an engine carrying since-abandoned machinery with
-known co-resident bugs, so it needs owner review before it becomes a requirement.
-Evidence and confidence assessment under discussion with Erik; this card will be
-ratified, reworded, or removed based on that.</p>
+<div class="card new">
+<h3>R16 — Restart-deterministic lookup identity <span class="badge new">NEW</span></h3>
+<p>Warm lookup keys are a pure function of persisted, content-addressed identity — a
+restarted (or foreign) engine derives identical keys for identical calls regardless of
+in-memory assignment order, timing, or concurrent load. Any key component derived from
+memory-assigned ordinals (class numbers, allocator IDs, insertion order) is either
+recomputed canonically from persisted digests on load or never participates in persisted
+identity at all. This is cheaply testable as a property (boot a fresh engine on persisted
+state, derive keys, compare) — a determinism test, not an integration saga.</p>
+<p><b>Clarification — what "identical calls" means here.</b> The engine deliberately
+supports identity scoped narrower than content: per-client, per-session, and per-call
+inputs exist on purpose, make two calls genuinely <em>non-identical</em> across engines
+(or across sessions), and are fully legal under this requirement — they simply never
+produce cross-engine key matches themselves, and results downstream of them that acquire
+content-addressed identity are where sharing resumes, by design. R16 constrains only
+<em>accidental</em> divergence: bookkeeping artifacts leaking into the keys of calls that
+<em>are</em> semantically identical. Deliberate cache partitioning is a feature;
+timing-dependent cache partitioning is the bug.</p>
+<p class="pill">Ratified in review round 2, justified on first principles (warm hits must
+not depend on when in-memory bookkeeping catches up). One-line provenance: a previous-take
+observation pointed here, but was never root-caused and is deliberately not load-bearing —
+the new architecture must satisfy this by construction, not by fixing that observation.</p>
 </div>
 
-<h2 id="nongoals">5. Explicit non-goals (this take)</h2>
+</details>
+
+<details class="fold" id="nongoals"><summary><h2>5. Explicit non-goals (this take)</h2></summary>
 <div class="card drop">
 <h3>Removed from scope <span class="badge drop">NON-GOALS</span></h3>
 <ul>
@@ -483,7 +529,9 @@ ratified, reworded, or removed based on that.</p>
 </ul>
 </div>
 
-<h2 id="open">6. Review log — round 1 (2026-07-03) resolutions</h2>
+</details>
+
+<details class="fold" id="open"><summary><h2>6. Review log</h2></summary>
 <div class="qs">
 <ol>
   <li><b>Winner-at-lookup duplicates / metadata growth — RESOLVED (direction).</b> Owner
@@ -500,18 +548,301 @@ ratified, reworded, or removed based on that.</p>
   <li><b>Goal scope — RESOLVED: engine-only for this take.</b> Remote service/transport
   remains in the goal statement as context, out of this batch's scope (now stated in §1).</li>
 </ol>
-<p><b>Still open:</b> R16 ratification (evidence review with owner in progress — see the
-R16 card).</p>
+<p><b>Round 2 (2026-07-03):</b> R16 <b>ratified</b> as reworded (keys as a pure function of
+persisted content-addressed identity), with the scoped-identity clarification added to its
+card (per-client/session/call inputs are deliberate partitioning, not R16 violations); the
+motivating prior-take observation is explicitly non-load-bearing. Partial local
+persistence confirmed in scope. Part II (M0, M1) added for review.</p>
 </div>
+</details>
+
+<h2 id="plan">Part II — Build plan</h2>
+<p><b>How milestones are written.</b> Every milestone in this plan has five parts:
+<b>Goal &amp; traceability</b> (what it delivers and which requirements it serves — the L3
+necessity question answered up front); <b>Current state on main</b> (verified against this
+tree, commit <code>672ce93530</code>, with file:line grounding); <b>Design</b>;
+<b>Implementation detail</b> (a file plan plus code snippets wherever a snippet is clearer
+than prose — appropriately detailed, not every line of boilerplate); and a <b>Validation
+gate</b> with pre-registered predictions in M0's vocabulary (R8/R11).</p>
+<p class="pill">Naming note: M0/M1 keep their names from the previous take because
+re-deriving the plan from the ratified requirements landed in similar places first — but
+they are designed from scratch here and reviewed as such; nothing is carried by reference.
+Later milestones follow in subsequent parts once these two establish the pattern.</p>
+
+<details class="fold" id="m0" open><summary><h2>M0 — Cache observability: outcomes, summaries, strict modes</h2></summary>
+
+<h3>Goal &amp; traceability</h3>
+<p>Before any caching behavior changes, the engine can <b>explain</b> its cache decisions
+and <b>prove</b> claims about them: every cache lookup classifies its outcome exactly once
+against a small structured vocabulary; every session can produce a reuse summary; strict
+modes convert unexpected outcomes into loud failures at the offending call. M0 changes no
+caching behavior — observability only.</p>
+<div class="trace"><b>Traces to:</b> R8 directly; R11 (the standing gates assert on these
+counters); every later milestone's pre-registered predictions are expressed in this
+vocabulary. <b>Necessity:</b> nothing like it exists on main (verified below); a bare log
+line would not give assertable counters or strict enforcement; the mechanism is contained
+to one new file plus classification at one function's terminal paths.</div>
+
+<h3>Current state on main</h3>
+<ul>
+<li><code>Cache.EntryStats()</code> — coarse totals only (ongoing/completed/retained
+counts), <code>dagql/cache.go:3118</code>.</li>
+<li>A cache/e-graph debug snapshot writer exposed through the server:
+<code>engine/server/server.go:869</code> (<code>DagqlDebugSnapshot</code>) and
+<code>:876</code> (<code>WriteDagqlCacheDebugSnapshot</code>).</li>
+<li>Span-level <code>telemetry.CachedAttr</code> set when a call is served from cache
+(<code>core/telemetry.go:260</code>) — per-span, not aggregable, no miss/restored detail.</li>
+<li>Not present anywhere: per-lookup outcome classification, restored-vs-live hit
+distinction, per-session aggregation or summary, strict modes.</li>
+</ul>
+
+<h3>Design</h3>
+<ol>
+<li><b>Outcome vocabulary</b> — deliberately tiny at M0; later milestones <em>extend</em>
+this enum as they create new paths (adoption, viability, materialization sources) and may
+not invent a second reporting channel:
+<ul>
+  <li><code>hit_live</code> — served from a result created during this engine process's
+  lifetime;</li>
+  <li><code>hit_restored</code> — served from a result restored from persisted state at
+  startup;</li>
+  <li><code>miss_first</code> — no candidate existed; the work executed.</li>
+</ul>
+Classification happens at the terminal paths of the lookup entry point
+(<code>GetOrInitCall</code>'s few return sites), not sprinkled across call sites — the
+"exactly once per lookup" property holds by construction at a decision point (lesson L5's
+preferred shape, and here it is clean).</li>
+<li><b>Counters and per-session tallies.</b> Engine-lifetime atomic counters keyed
+(outcome, field); a bounded per-session tally created on first classification for a
+session and emitted-then-dropped at session close.</li>
+<li><b>Reuse summary.</b> One structured, stable, grep-able log line at session close —
+<code>cache summary session=… hit_live=… hit_restored=… miss_first=…</code> — and the same
+data included in the debug snapshot output.</li>
+<li><b>Strict modes.</b> A policy seam evaluated inside classification. M0 ships the seam
+plus the one mode the restart proof needs: <code>_DAGGER_CACHE_STRICT=warm-no-first-miss</code>
+— on an engine booted with it, any <code>miss_first</code> fails that lookup with a
+structured error naming the call. An optional <code>_DAGGER_CACHE_STRICT_FIELDS=&lt;csv&gt;</code>
+narrows enforcement to named fields, because a warm engine legitimately first-misses
+session-scoped calls (per-client/session/call inputs — see R16's clarification); tests
+name the calls that must hit. Deliberately crude (engine-level env, set by the test on the
+warm engine of a restart pair); richer scoping only if a real need appears.</li>
+<li><b>Restored-origin marking.</b> Results created by the persistence-import path carry
+<code>origin=restored</code> on their in-memory row so hits classify correctly. No effect
+on identity or behavior.</li>
+<li><b>Forensics ring.</b> A bounded ring (last 512 classified events with field +
+session) included in the debug snapshot — first-line evidence without a re-run.</li>
+</ol>
+
+<h3>Implementation detail</h3>
+<pre><code>// dagql/cache_stats.go (new)
+
+type LookupOutcome string
+
+const (
+	OutcomeHitLive     LookupOutcome = "hit_live"
+	OutcomeHitRestored LookupOutcome = "hit_restored"
+	OutcomeMissFirst   LookupOutcome = "miss_first"
+	// Later milestones extend this vocabulary (adoption, viability,
+	// materialization sources). They must not add a second channel.
+)
+
+type lookupEvent struct {
+	Outcome   LookupOutcome
+	Field     string // schema field, e.g. "withExec"
+	SessionID string
+}
+
+// classify records one terminal lookup outcome: engine counters, the session
+// tally, the forensics ring, and the strict policy — whose verdict is
+// returned and, when non-nil, fails the lookup loudly at the offending call.
+func (s *cacheStats) classify(ev lookupEvent) error
+</code></pre>
+
+<table class="filetbl">
+<tr><th>File</th><th></th><th>Change</th></tr>
+<tr><td><code>dagql/cache_stats.go</code></td><td><span class="chip newf">NEW</span></td>
+<td>Vocabulary, counters, session tallies, summary emission, strict-policy seam, forensics ring.</td></tr>
+<tr><td><code>dagql/cache_stats_test.go</code></td><td><span class="chip newf">NEW</span></td>
+<td>Exactly-once classification per lookup path (table over scenarios); strict-mode verdicts incl. field filtering; tally lifecycle.</td></tr>
+<tr><td><code>dagql/cache.go</code></td><td><span class="chip modf">MOD</span></td>
+<td>Classify at <code>GetOrInitCall</code>'s terminal paths; <code>origin</code> field on the in-memory result row.</td></tr>
+<tr><td><code>dagql/cache_persistence_import.go</code></td><td><span class="chip modf">MOD</span></td>
+<td>Set <code>origin=restored</code> on import-created rows.</td></tr>
+<tr><td><code>engine/server/server.go</code></td><td><span class="chip modf">MOD</span></td>
+<td>Stats + ring in <code>WriteDagqlCacheDebugSnapshot</code>; read strict env at cache construction; emit the session summary at session teardown.</td></tr>
+<tr><td><code>core/integration</code> (persistence suite)</td><td><span class="chip modf">MOD</span></td>
+<td>Warm-phase counter assertions; strict mode enabled on warm engines for the named calls.</td></tr>
+</table>
+
+<h3>Validation gate — pre-registered predictions</h3>
+<ul>
+<li><b>P-M0-1:</b> the same call issued twice in one session yields a summary with
+<code>hit_live ≥ 1</code> for it, and the second call's span still carries
+<code>CachedAttr</code> (existing behavior untouched).</li>
+<li><b>P-M0-2:</b> a restart pair on the persistence suite: the cold engine's summaries
+contain zero <code>hit_restored</code>; the warm engine reports <code>hit_restored ≥ N</code>
+(N asserted per test) and passes with strict mode enabled on the asserted fields.</li>
+<li><b>P-M0-3:</b> the full R11 curated gate is green with zero behavior delta — the only
+observable differences are new log lines, counters, and snapshot fields.</li>
+</ul>
+</details>
+
+<details class="fold" id="m1" open><summary><h2>M1 — The stage primitive: one wait/claim kernel</h2></summary>
+
+<h3>Goal &amp; traceability</h3>
+<p>One tested kernel for "many callers wait on one deferred piece of work" under the
+cache — explicit waiter accounting, last-waiter cancellation with cause, caller-detached
+execution context, sticky vs retryable completion — replacing the hand-rolled per-site
+protocols main carries today. M1 is a behavior-preserving consolidation; it is also,
+deliberately, the concurrency kernel the architecture part's warm-lookup path
+(claim → materialize → fall through, R2) will be built on.</p>
+<div class="trace"><b>Traces to:</b> R2 (the future claim/release/retry kernel must be
+sound once, not re-proven per site), R6 (caller-detached execution and
+principal-independent identity are properties of the primitive, tested once), R15
+(net-negative invariant count: it deletes hand-rolled protocols).
+<b>Necessity, honestly stated:</b> the primary justification is what gets built on it; if
+the architecture part's review concludes its lookup path doesn't need this kernel, M1
+shrinks to optional cleanup and must be re-justified rather than defended. Standing alone
+it still pays down verified risk — three divergent protocols, one relying on
+comment-enforced ordering.</div>
+
+<h3>Current state on main — the protocols being replaced</h3>
+<ol>
+<li><b>In-flight call execution/publication:</b> <code>ongoingCall</code> with
+<code>waitCh chan struct{}</code> + <code>waiters int</code>
+(<code>dagql/cache.go:1745–1757</code>, constructed ~<code>:1983</code>).</li>
+<li><b>Lazy evaluation:</b> <code>lazyEvalWaitCh</code> + <code>lazyEvalWaiters</code> +
+<code>waitForLazyEvaluation</code> (<code>dagql/cache.go:2802–3032</code>) — with
+last-waiter cleanup conditions
+(<code>lazyEvalWaiters == 0 &amp;&amp; lazyEvalWaitCh == waitCh</code>) and ordering
+enforced by comment ("End resumeSpan before close(waitCh)…", <code>:2977</code>).</li>
+<li><b>Dependency-attachment barrier for restored results:</b>
+<code>attachDepsMu</code>/<code>attachDepsWaitCh</code>/<code>attachDepsErr</code>
+(<code>dagql/cache_persistence_import.go:563–576</code>).</li>
+</ol>
+<p class="pill">The implementation audit may find further instances of the pattern; each
+either migrates or documents why not.</p>
+
+<h3>Design</h3>
+<p>The <code>stage</code> is <b>error-only by design</b>: payloads live on the owning
+object, written by the run before completion; waiters read them only after observing
+completion, so the channel close provides the happens-before edge. No type parameter, no
+payload plumbing. The correctness property that motivates the whole primitive:
+<code>run.err</code> is written before <code>close(run.done)</code>, and waiters read the
+outcome only after <code>&lt;-done</code> — there is no shared error field observed outside
+the synchronization that produced it, and no ordering that lives in a comment.</p>
+<ul>
+<li><b>Two completion policies.</b> <i>Sticky</i>: the first outcome, success or failure,
+is frozen — publication semantics (a produced result is a one-time fact). <i>Retryable</i>:
+success freezes; a failed run returns the stage to idle so a later caller re-runs — lazy
+evaluation today; decode and materialization later.</li>
+<li><b>Protocol.</b> <code>begin</code> joins the current run, starts a new one (the
+starter then calls <code>launch</code>), or observes a frozen outcome; every caller
+<code>await</code>s; every <code>begin</code> pairs with exactly one <code>leave</code>
+(leaving room for per-waiter post-work between the two); the last waiter to leave an
+unfinished run cancels it with a cause and detaches it.</li>
+<li><b>Producer-barrier variant.</b> <code>openBarrier</code>/<code>awaitIfPresent</code>
+for the attach-deps shape: a single producer resolves the barrier; readers wait passively
+and never cancel the producer.</li>
+</ul>
+
+<h3>Implementation detail</h3>
+<pre><code>// dagql/cache_stage.go (new)
+
+type stageResetPolicy uint8
+
+const (
+	// stageSticky freezes the first completed outcome, success or failure.
+	// Publication: a produced result is a one-time fact.
+	stageSticky stageResetPolicy = iota
+	// stageRetryable freezes success; a failed run leaves the stage idle so
+	// the next join starts a fresh run. Lazy evaluation now; decode and
+	// materialization later.
+	stageRetryable
+)
+
+// begin joins the stage's current run, starts a new one (state ==
+// stageJoinStarter — the caller must then launch), or reports a frozen
+// outcome. prepare runs under the stage lock with the run's caller-detached
+// base context and returns the context the work will execute under.
+func (s *stage) begin(ctx context.Context, prepare func(run *stageRun, base context.Context) context.Context) (state stageJoinState, run *stageRun, frozenErr error)
+
+// launch executes work on a goroutine under the run's caller-detached context.
+func (s *stage) launch(run *stageRun, work func(runCtx context.Context) error)
+
+// await blocks until the run completes or ctx is cancelled. It never touches
+// waiter accounting — every begin pairs with exactly one leave.
+func (s *stage) await(ctx context.Context, run *stageRun) (err error, completed bool)
+
+// leave decrements the waiter count; the last waiter leaving an unfinished
+// run cancels it with cause and detaches it so the next caller starts fresh.
+func (s *stage) leave(run *stageRun, cause error) (wasLast bool)
+</code></pre>
+
+<p><b>Migration order</b> — simplest first, each step independently landable and gated:</p>
+<ol>
+<li>attach-deps barrier → <code>openBarrier</code>/<code>awaitIfPresent</code> (pure
+barrier; no cancellation semantics to preserve);</li>
+<li><code>ongoingCall</code> → sticky stage: the singleflight rendezvous (the map and
+<code>callsMu</code>) stays exactly where it is — the stage replaces only the
+waitCh/waiters/error tuple and the execution/outcome handoff;</li>
+<li>lazy evaluation → retryable stage: the delicate one — preserves last-waiter-cancel and
+retry-on-failure, and makes the span-ordering requirement structural (completion closes
+<code>done</code> after the run's teardown work) instead of comment-enforced.</li>
+</ol>
+<p><b>Explicitly not in M1:</b> the claim/reservation wiring for adoption. Its consumer
+doesn't exist until the architecture part; the primitive is shaped so a per-result
+retryable stage composes into claim/winner-runs semantics, and it is listed here strictly
+as the intended consumer. Building it now would violate the scoping discipline this reset
+exists to enforce.</p>
+
+<table class="filetbl">
+<tr><th>File</th><th></th><th>Change</th></tr>
+<tr><td><code>dagql/cache_stage.go</code></td><td><span class="chip newf">NEW</span></td>
+<td>The primitive: stage, stageRun, policies, begin/launch/await/leave, join convenience, barrier variant.</td></tr>
+<tr><td><code>dagql/cache_stage_test.go</code></td><td><span class="chip newf">NEW</span></td>
+<td>Waiter-accounting matrix; last-waiter-cancel incl. cause propagation; sticky/retryable matrix; the ordering property; <code>-race</code> stress. Every behavioral branch pinned by a deterministic test, not only stress.</td></tr>
+<tr><td><code>dagql/cache.go</code></td><td><span class="chip modf">MOD</span></td>
+<td>ongoingCall + lazy-eval protocols onto the stage; delete <code>waitCh</code>/<code>waiters</code>/<code>lazyEvalWaitCh</code>/<code>lazyEvalWaiters</code> fields.</td></tr>
+<tr><td><code>dagql/cache_persistence_import.go</code></td><td><span class="chip modf">MOD</span></td>
+<td>attach-deps barrier onto the barrier variant.</td></tr>
+<tr><td colspan="3" class="pill">No <code>core/</code> or schema changes. No behavior change intended anywhere.</td></tr>
+</table>
+
+<h3>Validation gate — pre-registered predictions</h3>
+<ul>
+<li><b>P-M1-1:</b> unit suite green under <code>-race</code> at high repetition; every
+public behavior covered by a deterministic test.</li>
+<li><b>P-M1-2:</b> after <em>each</em> migration step, the full R11 curated gate is green.</li>
+<li><b>P-M1-3:</b> behavior preservation, <em>measured</em>: the persistence suite's M0
+outcome summaries are distribution-identical before vs after M1 (same counts per outcome
+per subtest; any nondeterministic counts enumerated explicitly, not waved at). M0's
+counters are what make this claim checkable — that is why M0 lands first.</li>
+</ul>
+</details>
 
 <div class="foot">
 Source of truth: this page (<code>hack/designs/remote-cache/reset/design.html</code>).
 Prior-take docs (unmodified, for reference): <code>hack/designs/remote-cache/*.md</code> in the
-previous worktree. Lessons: <code>reset/lessons.md</code>. Next part after sign-off:
-architecture (content-home model, persistence/import shape, warm-lookup path), designed
-strictly against the requirements above.
+previous worktree. Lessons: <code>reset/lessons.md</code>. After M0/M1 sign-off, Part III:
+the architecture — content-home model, persistence/import shape, warm-lookup path
+(claim/materialize/fallback), designed strictly against Part I.
 </div>
 
 </main>
+<script>
+function setAll(open){document.querySelectorAll('details.fold').forEach(function(d){d.open=open;});}
+function openTarget(){
+  if(!location.hash) return;
+  var el=document.querySelector(location.hash);
+  if(!el) return;
+  var d=el.closest('details');
+  if(d && !d.open) d.open=true;
+  if(el.tagName==='DETAILS' && !el.open) el.open=true;
+  el.scrollIntoView();
+}
+window.addEventListener('hashchange',openTarget);
+window.addEventListener('load',openTarget);
+</script>
 </body>
 </html>
