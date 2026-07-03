@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Remote Cache — Reset Design (Part I: Requirements Re-scope)</title>
+<title>Remote Cache — Design (reset)</title>
 <style>
   :root {
     --ink: #1a1d23; --muted: #5c6470; --paper: #fafaf8; --card: #ffffff;
@@ -22,6 +22,7 @@
   h1 { font-size: 30px; line-height: 1.25; margin: 0 0 6px; letter-spacing: -0.02em; }
   h2 { font-size: 22px; margin: 56px 0 12px; letter-spacing: -0.01em; border-bottom: 2px solid var(--line); padding-bottom: 8px; }
   h3 { font-size: 17px; margin: 28px 0 8px; }
+  h4 { font-size: 15.5px; margin: 22px 0 6px; }
   p, li { color: #2b2f36; }
   .sub { color: var(--muted); font-size: 15px; margin: 0 0 24px; }
   .banner {
@@ -33,7 +34,7 @@
   .toc { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px 22px; margin-top: 26px; font-size: 15px; }
   .toc a { color: var(--accent); text-decoration: none; }
   .toc a:hover { text-decoration: underline; }
-  .toc ol { margin: 6px 0 0; padding-left: 22px; }
+  .toc ol { margin: 6px 0 10px; padding-left: 22px; }
 
   .card {
     background: var(--card); border: 1px solid var(--line); border-left-width: 5px;
@@ -52,19 +53,6 @@
   .badge.modify { color: var(--modify); background: var(--modify-bg); }
   .badge.new    { color: var(--new);    background: var(--new-bg); }
   .badge.drop   { color: var(--drop);   background: var(--drop-bg); }
-  .orig {
-    background: #f4f5f7; border-radius: 8px; padding: 10px 14px; margin: 10px 0;
-    font-size: 14.5px; color: #454b54;
-  }
-  .orig .tag { font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: 0.08em; }
-  .verdict { margin: 10px 0 2px; }
-  .verdict .tag { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; }
-  .verdict.keep .tag   { color: var(--keep); }
-  .verdict.modify .tag { color: var(--modify); }
-  .verdict.new .tag    { color: var(--new); }
-  .verdict.drop .tag   { color: var(--drop); }
-  .rewrite { background: var(--new-bg); border-radius: 8px; padding: 10px 14px; margin: 10px 0; font-size: 14.5px; }
-  .rewrite .tag { font-size: 11px; font-weight: 700; color: var(--new); letter-spacing: 0.08em; }
   figure { margin: 26px 0; }
   figcaption { font-size: 14px; color: var(--muted); margin-top: 8px; text-align: center; }
   svg { width: 100%; height: auto; display: block; }
@@ -95,22 +83,24 @@
   .chip.newf { color: var(--new); background: var(--new-bg); }
   .chip.modf { color: var(--modify); background: var(--modify-bg); }
   .trace { background: #f4f5f7; border-left: 3px solid var(--accent); border-radius: 6px; padding: 8px 14px; font-size: 14px; margin: 12px 0; }
-  h4 { font-size: 15.5px; margin: 22px 0 6px; }
+  .shelfnote { background: var(--drop-bg); border: 1px solid #e0b6b1; border-radius: 8px; padding: 10px 14px; font-size: 14px; margin: 10px 0 16px; }
 </style>
 </head>
 <body>
 <main>
 
-<h1>Remote Cache — Reset Design</h1>
-<p class="sub">v3 &nbsp;·&nbsp; Part I (Requirements): ratified rounds 1–2 &nbsp;·&nbsp; Part II (Build plan: M0–M1): for review &nbsp;·&nbsp; 2026-07-03</p>
+<h1>Remote Cache — Design</h1>
+<p class="sub">v4 &nbsp;·&nbsp; Requirements: ratified &nbsp;·&nbsp; Target shape: draft for discussion &nbsp;·&nbsp; 2026-07-03</p>
 
 <div class="banner">
-<b>Status: RESET, building back up.</b> Part I re-derived the requirements from scratch
-(previous take's R1–R13 re-adjudicated + R14–R16 new); it is <b>ratified</b> through two
-review rounds and its sections start collapsed below. Part II begins the build plan,
-designed strictly against Part I: milestones M0 (observability) and M1 (wait/claim
-primitive), currently <b>awaiting review</b>. This page is the source of truth; the prior
-take's markdown docs remain untouched one directory up, for reference only.
+<b>Status.</b> This is the living design doc for the remote-cache engine work, restarted
+from requirements after the previous take. Part I (requirements &amp; non-goals) is
+ratified through three review rounds and starts collapsed. Part II is the design proper,
+written step by step — architecture, implementation detail, and validation gates
+<em>together</em> — and currently contains the target-shape overview, under discussion.
+Shelved material lives at the bottom, clearly demarcated: kept for reference, explicitly
+not part of the design. Prior-take docs remain untouched one directory up, for reference
+only.
 </div>
 <div class="controls">
 <button type="button" onclick="setAll(true)">expand all sections</button>
@@ -118,24 +108,25 @@ take's markdown docs remain untouched one directory up, for reference only.
 </div>
 
 <div class="toc">
-<b>Contents — Part I: Requirements (ratified)</b>
+<b>Contents — Part I (ratified)</b>
 <ol>
-  <li><a href="#goal">The goal (unchanged)</a></li>
-  <li><a href="#shift">The one structural shift this re-scope makes</a></li>
-  <li><a href="#carried">Carried requirements R1–R13, re-adjudicated</a></li>
-  <li><a href="#newreqs">New requirements R14–R16</a></li>
-  <li><a href="#nongoals">Explicit non-goals</a></li>
+  <li><a href="#goal">The goal</a></li>
+  <li><a href="#shift">The structural shift from the previous take</a></li>
+  <li><a href="#reqs">Requirements and non-goals</a></li>
   <li><a href="#open">Review log</a></li>
 </ol>
-<b>Part II: Build plan (for review)</b>
+<b>Part II — The design</b>
+<ol start="5">
+  <li><a href="#plan">How this design is written</a></li>
+  <li><a href="#target">Target shape (draft, under discussion)</a></li>
+</ol>
+<b>Appendix</b>
 <ol start="7">
-  <li><a href="#plan">How the build plan is written</a></li>
-  <li><a href="#m0">M0 — Cache observability: outcomes, summaries, strict modes</a></li>
-  <li><a href="#m1">M1 — The stage primitive: one wait/claim kernel</a></li>
+  <li><a href="#shelf">The shelf (not part of the design)</a></li>
 </ol>
 </div>
 
-<h2 id="goal">1. The goal (unchanged)</h2>
+<h2 id="goal">1. The goal</h2>
 <p>
 A run on engine A executes a build graph; its cache results (metadata + content) become
 available to engine B, which adopts equivalent results as cache hits and materializes
@@ -158,7 +149,7 @@ as the end state everything must remain compatible with, but nothing here design
 builds it.
 </p>
 
-<h2 id="shift">2. The one structural shift this re-scope makes</h2>
+<h2 id="shift">2. The structural shift from the previous take</h2>
 <p>
 The previous take coupled two layers that must stay separate. The engine's existing
 <b>identity layer</b> (the e-graph: equivalence classes over calls/results, merged live as
@@ -171,7 +162,7 @@ three interacting locks) whose correctness surface was every reader, writer, and
 point in the engine. That machinery generated its own bug supply and consumed the effort.
 </p>
 <p>
-The re-scope keeps the identity layer exactly as it is on main, and demotes
+This design keeps the identity layer exactly as it is on main, and demotes
 interchangeability from a <em>continuous runtime invariant</em> to a
 <em>decision-point policy</em>: equivalence is consulted when it matters — at lookup
 (pick one winner and materialize <em>that</em> result), at publication, at import — and
@@ -194,7 +185,6 @@ only when they publish.
     </marker>
   </defs>
 
-  <!-- Left panel: previous take -->
   <rect x="10" y="10" width="455" height="380" rx="12" fill="#fbeae8" opacity="0.45"/>
   <text x="237" y="38" text-anchor="middle" font-size="15" font-weight="700" fill="#b3362c">PREVIOUS TAKE</text>
 
@@ -226,9 +216,8 @@ only when they publish.
   </g>
   <text x="237" y="362" text-anchor="middle" font-size="12.5" font-weight="600" fill="#b3362c">invariant surface = every reader, writer, entry point</text>
 
-  <!-- Right panel: reset -->
   <rect x="495" y="10" width="455" height="380" rx="12" fill="#e7f5ec" opacity="0.5"/>
-  <text x="722" y="38" text-anchor="middle" font-size="15" font-weight="700" fill="#1a7f4b">RESET</text>
+  <text x="722" y="38" text-anchor="middle" font-size="15" font-weight="700" fill="#1a7f4b">THIS DESIGN</text>
 
   <rect x="545" y="58" width="355" height="46" rx="8" fill="#fff" stroke="#c9ccd2"/>
   <text x="722" y="80" text-anchor="middle" font-size="13.5" fill="#1a1d23">identity layer: e-graph, live class merges</text>
@@ -256,70 +245,49 @@ only when they publish.
 Interchangeability moves from "continuous invariant" to "lookup-time policy."</figcaption>
 </figure>
 
-<details class="fold" id="carried"><summary><h2>3. Carried requirements, re-adjudicated</h2></summary>
-<p class="pill">Original text is condensed but faithful; the verbatim originals are in
-<code>../01-engine-baseline-design.md §1</code> (previous take's worktree). Badges:
-<span class="badge keep">KEEP</span> unchanged ·
-<span class="badge modify">MODIFY</span> rewritten below ·
-<span class="badge drop">DROP</span> removed.</p>
+<details class="fold" id="reqs"><summary><h2>3. Requirements and non-goals</h2></summary>
+<p class="pill">Normative text. Provenance tags: <span class="badge keep">CARRIED</span>
+from the previous take's requirements (re-adjudicated at reset),
+<span class="badge modify">REWRITTEN</span> this take,
+<span class="badge new">NEW</span> this take. Adjudication history lives in the
+review log (§4); the previous take's verbatim originals are in
+<code>../01-engine-baseline-design.md §1</code>.</p>
 
 <div class="card keep">
-<h3>R1 — Dual materialization paths <span class="badge keep">KEEP</span></h3>
-<div class="orig"><span class="tag">ORIGINAL</span><br>
-A result must be re-creatable on an engine that didn't produce it, by content transfer
+<h3>R1 — Dual materialization paths <span class="badge keep">CARRIED</span></h3>
+<p>A result must be re-creatable on an engine that didn't produce it, by content transfer
 <em>or</em> by recomputation — at least one retained path, both when possible (some recipes
 are legitimately not retainable). Materializing a result must not destroy its recipe;
-persisting a result must be able to carry value, recipe, or both.</div>
-<p class="verdict keep"><span class="tag">VERDICT</span> — Keep unchanged. This is the heart
-of a lazy remote cache and played no part in the complexity failure.</p>
+persisting a result must be able to carry value, recipe, or both.</p>
 </div>
 
 <div class="card keep">
-<h3>R2 — No stranded hits <span class="badge keep">KEEP</span></h3>
-<div class="orig"><span class="tag">ORIGINAL</span><br>
-Adopting a result as a cache hit is a promise: it will materialize on demand via some
-retained source, or the adoption itself was a bug. Preferred-source failure falls through
-to the next source. Silent wrong answers and use-time "missing snapshot" errors are design
-failures.</div>
-<p class="verdict keep"><span class="tag">VERDICT</span> — Keep unchanged. The essence of
-correctness for the whole feature.</p>
+<h3>R2 — No stranded hits <span class="badge keep">CARRIED</span></h3>
+<p>Adopting a result as a cache hit is a promise: the result will materialize on demand
+via <em>some</em> retained source, or the adoption itself was a bug. Preferred-source
+failure falls through to the next source. Silent wrong answers and use-time "missing
+snapshot" errors are design failures.</p>
 </div>
 
 <div class="card keep">
-<h3>R3 — Portable semantic identity <span class="badge keep">KEEP</span></h3>
-<div class="orig"><span class="tag">ORIGINAL</span><br>
-Every identity that crosses an engine boundary (persistence file, export bundle, backend
-row) is either a semantic digest or a durable origin identity. Engine-local allocator IDs
-never serialize. Importing the same result twice is idempotent.</div>
-<p class="verdict keep"><span class="tag">VERDICT</span> — Keep unchanged. Validated in
-practice; the identity/portability layer was not where the trouble came from.</p>
+<h3>R3 — Portable semantic identity <span class="badge keep">CARRIED</span></h3>
+<p>Every identity that crosses an engine boundary (persistence file, export bundle,
+backend row) is either a semantic digest or a durable origin identity. Engine-local
+allocator IDs never serialize. Importing the same result twice is idempotent.</p>
 </div>
 
 <div class="card keep">
-<h3>R4 — Content-addressed snapshot identity, lazy at export <span class="badge keep">KEEP</span></h3>
-<div class="orig"><span class="tag">ORIGINAL</span><br>
-Immutable snapshot content crossing any boundary is identified by its content (layer
+<h3>R4 — Content-addressed snapshot identity, lazy at export <span class="badge keep">CARRIED</span></h3>
+<p>Immutable snapshot content crossing any boundary is identified by its content (layer
 diffID chains), never by local snapshotter keys. Mutable-owner snapshots never cross
-boundaries as content. Hard constraint: content identity is computed lazily at export
-time (hash-while-packing), never eagerly during normal execution — eager content-hashing
-is a previously-hit, real performance trap.</div>
-<p class="verdict keep"><span class="tag">VERDICT</span> — Keep unchanged, including the
-anti-requirement on eager hashing.</p>
+boundaries as content. Hard constraint: content identity is computed lazily at export time
+(hash-while-packing), never eagerly during normal execution — eager content-hashing is a
+previously-hit, real performance trap.</p>
 </div>
 
 <div class="card modify">
-<h3>R5 — Materialization state: one home per result, surgery-proof <span class="badge modify">MODIFY</span></h3>
-<div class="orig"><span class="tag">ORIGINAL</span><br>
-Materialization state is cache-owned and surgery-proof: whether a slot of a result is
-materialized, remotely materializable, or recomputable is a fact the cache owns per
-result. Object cloning/copying/mount-replay cannot silently strand or drop that
-capability — attached or detached.</div>
-<p class="verdict modify"><span class="tag">VERDICT</span> — Keep the intent, rewrite the
-text. As written, "the cache owns state per result" licensed an escalation: cache-owned
-records → records <em>shared across equivalence classes</em> → live reconciliation → the
-overlay/transaction machinery. The valid core is narrower and must say so explicitly.</p>
-<div class="rewrite"><span class="tag">REWRITE (R5')</span><br>
-Every result's materialization state (materialized / remotely materializable /
+<h3>R5 — Materialization state: one home per result, surgery-proof <span class="badge modify">REWRITTEN</span></h3>
+<p>Every result's materialization state (materialized / remotely materializable /
 recomputable, plus the content itself once present) has <b>exactly one home</b>, owned by
 the cache, keyed by the result. It is written only at well-defined points — publication of
 locally-completed work, lazy content arrival for that result, import — under the cache's
@@ -327,130 +295,94 @@ ordinary locking. Clones, copies, detached views, and mount-replay <b>reference<
 home (so they can never strand or drop capability); they never copy its state and never
 acquire homes of their own. <b>Content state is never shared across results</b>: if two
 equivalent results both have content, that is tolerated redundancy for GC, not a
-consistency problem to reconcile.</div>
+consistency problem to reconcile.</p>
 </div>
 
 <div class="card keep">
-<h3>R6 — Explicit execution identity <span class="badge keep">KEEP</span></h3>
-<div class="orig"><span class="tag">ORIGINAL</span><br>
-Deferred/recomputed work runs under an explicit principal (the forcing waiter's), with
-retry on principal death; the identity of a result is fully determined by its recipe and
-never contaminated by whoever forced materialization.</div>
-<p class="verdict keep"><span class="tag">VERDICT</span> — Keep unchanged.</p>
+<h3>R6 — Explicit execution identity <span class="badge keep">CARRIED</span></h3>
+<p>Deferred/recomputed work runs under an explicit principal (the forcing waiter's), with
+retry on principal death; the <em>identity</em> of a result is fully determined by its
+recipe and never contaminated by whoever forced materialization.</p>
 </div>
 
 <div class="card keep">
-<h3>R7 — Session-resource soundness extends to foreign results <span class="badge keep">KEEP</span></h3>
-<div class="orig"><span class="tag">ORIGINAL</span><br>
-An adopted result that transitively requires secret/socket handles is only adoptable by
-sessions holding those handles — same rule as today, surviving import.</div>
-<p class="verdict keep"><span class="tag">VERDICT</span> — Keep unchanged. (The known
-per-engine secret-salt issue remains a deliberately deferred, separately-tracked item, as
-before; it partitions caches across engines until addressed.)</p>
+<h3>R7 — Session-resource soundness extends to foreign results <span class="badge keep">CARRIED</span></h3>
+<p>An adopted result that transitively requires secret/socket handles is only adoptable by
+sessions holding those handles — same rule as today, surviving import. (The known
+per-engine secret-salt issue remains deliberately deferred and separately tracked; it
+partitions caches across engines until addressed.)</p>
 </div>
 
 <div class="card keep">
-<h3>R8 — Falsifiable observability <span class="badge keep">KEEP + STRENGTHEN</span></h3>
-<div class="orig"><span class="tag">ORIGINAL</span><br>
-Every lookup outcome, adoption decision, materialization-source execution, and fallback is
-observable with structured vocabulary; every run can produce a reuse summary; strict modes
-turn unexpected fallback/recompute into hard failures for proofs and tests.</div>
-<p class="verdict keep"><span class="tag">VERDICT</span> — Keep, and add one sentence the
-previous take proved out: <b>landings are validated against pre-registered, falsifiable
-predictions</b> (state what the counters must show before running the test), and forensic
-diagnostics that earn their keep at a failure site are made permanent, not left as
-temporary instruments.</p>
+<h3>R8 — Falsifiable observability <span class="badge keep">CARRIED</span></h3>
+<p>Every lookup outcome, adoption decision, materialization-source execution, and fallback
+is observable with structured vocabulary; every run can produce a reuse summary; proofs
+and tests can turn unexpected outcomes into hard failures. Landings are validated against
+<b>pre-registered, falsifiable predictions</b> (state what the evidence must show before
+running the test), and forensic diagnostics that earn their keep at a failure site are
+made permanent rather than left as temporary instruments.</p>
 </div>
 
 <div class="card keep">
-<h3>R9 — One portable result encoding <span class="badge keep">KEEP</span></h3>
-<div class="orig"><span class="tag">ORIGINAL</span><br>
-Local persistence and remote export share one encoding for results (frames, payload
-envelopes, snapshot links, recipes). Local persistence may additionally dump engine-local
-index rows for fast same-engine restart; bundles carry none of that. No second, looser
-result-serialization model.</div>
-<p class="verdict keep"><span class="tag">VERDICT</span> — Keep unchanged, with one
-cross-reference: whatever engine-local index rows are persisted must satisfy the new R16
-(a restarted engine must not depend on in-memory numbering to reproduce lookup keys).</p>
+<h3>R9 — One portable result encoding <span class="badge keep">CARRIED</span></h3>
+<p>Local persistence and remote export share one encoding for <em>results</em> (frames,
+payload envelopes, snapshot links, recipes). The surrounding structure differs by design:
+local persistence may additionally dump engine-local index rows for fast same-engine
+restart — subject to R16 — while bundles carry none of that. No second, looser
+result-serialization model.</p>
 </div>
 
 <div class="card keep">
-<h3>R10 — Identity-stable metadata <span class="badge keep">KEEP</span></h3>
-<div class="orig"><span class="tag">ORIGINAL</span><br>
-Import → re-export cycles add zero result rows. Genuinely new executions add honestly-new
-rows; independently-produced equivalents remain distinct rows related by semantic digests;
-collapsing those for serving is backend merge policy on the digest layer.</div>
-<p class="verdict keep"><span class="tag">VERDICT</span> — Keep unchanged. Note how well
-this sits with the structural shift: "equivalents remain distinct rows related by digests"
-was already the right philosophy — the previous take's content layer just didn't follow it.</p>
+<h3>R10 — Identity-stable metadata <span class="badge keep">CARRIED</span></h3>
+<p>Import → re-export cycles add zero result rows. Genuinely new executions add
+honestly-new rows; independently-produced equivalents remain distinct rows related by
+semantic digests, and collapsing those for serving is backend merge policy on the digest
+layer — the engine's obligations are stable row identity, faithful digest emission, and a
+self-check metric.</p>
 </div>
 
 <div class="card keep">
-<h3>R11 — In-repo provability <span class="badge keep">KEEP + STRENGTHEN</span></h3>
-<div class="orig"><span class="tag">ORIGINAL</span><br>
-The full adoption/hydration/fallback model is exercisable by integration tests inside
-dagger/dagger with no cloud stack.</div>
-<p class="verdict keep"><span class="tag">VERDICT</span> — Keep, strengthened per lesson
-L2: a curated integration set is a <b>standing gate for every landed chunk</b>, not a
-milestone-end event. Legitimate intermediate failures are named, temporary,
-owner-acknowledged exceptions. Anchor membership (per owner review): the
-persistence/restart suite; the cross-session-caching tests (a consistent naming pattern
-across several suites — they exercise tricky caching scenarios including modules); a
-selection of the services tests. Agents may add tests they judge valuable, within reason.
-Budget is deliberately <em>not</em> encoded as a number here: the full gate on the order
-of a quarter-hour is acceptable, focused subsets are what you run while iterating, and the
-owner monitors actual costs — no mechanical timeout to game or trip over.</p>
+<h3>R11 — In-repo provability, gated continuously <span class="badge keep">CARRIED</span></h3>
+<p>The full adoption/hydration/fallback model is exercisable by integration tests inside
+dagger/dagger with no cloud stack. A curated integration set is a <b>standing gate for
+every landed chunk of work</b>, not a milestone-end event: anchors are the
+persistence/restart suite, the cross-session-caching tests, and a selection of the
+services tests; agents may add tests they judge valuable, within reason. Budget is
+deliberately not encoded as a number here — the full gate on the order of a quarter-hour
+is acceptable, focused subsets are for iteration, and the owner monitors actual costs.
+Legitimate intermediate failures are named, temporary, owner-acknowledged exceptions.</p>
 </div>
 
 <div class="card keep">
-<h3>R12 — Sparse, demand-bounded materialization <span class="badge keep">KEEP</span></h3>
-<div class="orig"><span class="tag">ORIGINAL</span><br>
-Materializing a slot moves and creates only what that slot strictly requires: the content
-path touches exactly that slot's chain blobs; the recipe path recurses only into inputs
+<h3>R12 — Sparse, demand-bounded materialization <span class="badge keep">CARRIED</span></h3>
+<p>Materializing a result moves and creates only what is strictly required: the content
+path touches exactly the needed chain blobs; the recipe path recurses only into the inputs
 the recipe actually reads, itself demand-driven; adoption, viability, and import are
-metadata-only and move zero content. Canonical scenario: a huge tangled DAG culminating in
-one result — a warm run that reads one file hydrates that file's chain and nothing else.</div>
-<p class="verdict keep"><span class="tag">VERDICT</span> — Keep, with one granularity clarification.
-The load-bearing floor of this requirement is: <b>materializing a result must never require
-materializing its dependency DAG</b>. Granularity <em>within</em> a single result is
-deliberately left open: for a multi-output result (e.g. an exec's filesystem + its
-stdout/exit metadata), materializing outputs individually and materializing them together
-are <b>both acceptable</b> — choose whichever is simpler and most cohesive with the system.
-Note the recipe path already materializes all of a result's outputs together (running the
-exec produces everything at once), so insisting on per-output granularity for the content
-path creates an asymmetry between the two paths — don't pay complexity for that symmetry
-break without a strong, stated reason. One design-time consideration to weigh when the
-time comes (not a requirement): very small outputs (exit codes, small streams) may simply
-live in metadata rather than participate in content materialization at all, which sidesteps
-the granularity question for the common "read exit code without pulling a large filesystem"
-case.</p>
+metadata-only and move zero content. The canonical scenario: a huge tangled DAG
+culminating in one result — a warm run that reads one file from it hydrates that file's
+chain and nothing else.</p>
+<p><b>Granularity clarification (owner-ruled).</b> The load-bearing floor is:
+materializing a result must never require materializing its <em>dependency DAG</em>.
+Granularity <em>within</em> a single result is deliberately open: for a multi-output
+result (e.g. an exec's filesystem + its stdout/exit metadata), materializing outputs
+individually and materializing them together are <b>both acceptable</b> — choose whichever
+is simpler and more cohesive. The recipe path already materializes all of a result's
+outputs together, so insisting on per-output granularity for the content path creates an
+asymmetry between the two paths — don't pay complexity for that without a strong, stated
+reason. A design-time consideration (not a requirement): very small outputs (exit codes,
+small streams) may simply live in metadata rather than participate in content
+materialization at all.</p>
 </div>
 
 <div class="card keep">
-<h3>R13 — Recipes are closed over engine-ambient state <span class="badge keep">KEEP</span></h3>
-<div class="orig"><span class="tag">ORIGINAL</span><br>
-Any engine-local input that shapes a result — native platform, engine secret salt,
-engine/schema version, anything read off server state during planning or resolution — is
-either canonicalized into the recipe or explicitly partitions the cache. Identity that
-silently depends on which engine ran the call fails silently: wrong adoptions or permanent
-misses.</div>
-<p class="verdict keep"><span class="tag">VERDICT</span> — Keep unchanged (the ambient-state
-audit from the previous take remains valid input material for the new architecture part).</p>
+<h3>R13 — Recipes are closed over engine-ambient state <span class="badge keep">CARRIED</span></h3>
+<p>Any engine-local input that shapes a result — native platform, the engine secret salt,
+engine/schema version, anything read off server state during planning <em>or
+resolution</em> — must either be canonicalized into the recipe (so equivalent work matches
+and different work partitions) or explicitly partition the cache. Identity that silently
+depends on which engine ran the call fails silently: wrong adoptions or permanent
+misses.</p>
 </div>
-
-<div class="card keep">
-<h3>Corollary — Partial local persistence <span class="badge keep">KEEP</span></h3>
-<div class="orig"><span class="tag">ORIGINAL</span><br>
-Local persistent cache stops being all-or-nothing: today any inconsistency wipes the whole
-store; with per-result source state and adoption gating, a result whose snapshot was lost
-falls back to its recipe or is dropped (with its dependents), keeping the rest.</div>
-<p class="verdict keep"><span class="tag">VERDICT</span> — Keep. A user-visible robustness
-win that falls straight out of R1+R2+R5', with zero remote-cache dependency.</p>
-</div>
-
-</details>
-
-<details class="fold" id="newreqs"><summary><h2>4. New requirements</h2></summary>
 
 <div class="card new">
 <h3>R14 — Startup-only import; the serving-time cache is read-mostly <span class="badge new">NEW</span></h3>
@@ -458,13 +390,13 @@ win that falls straight out of R1+R2+R5', with zero remote-cache dependency.</p>
 bundle import — completes <b>before the engine serves sessions</b>, under coarse locking
 (these are fast, batched metadata writes; there is no pause-time problem to engineer
 around). While serving, cache state changes only through publication of locally-completed
-work and lazy content arrival on a result's own home (R5'). Continuous / mid-serving
+work and lazy content arrival on a result's own home (R5). Continuous / mid-serving
 import is an explicit non-goal for this take; if a future take adds it, it arrives with
 its own explicit quiesce design and may not weaken R15 to do so.</p>
 </div>
 
 <div class="card new">
-<h3>R15 — No new cross-cutting concurrency invariants (the simplicity ratchet) <span class="badge new">NEW</span></h3>
+<h3>R15 — No new cross-cutting concurrency invariants <span class="badge new">NEW</span></h3>
 <p>The design builds on the engine's existing locking and singleflight structure, and this
 document is the source of truth for its concurrency model. The strong default: no new
 <em>cross-cutting</em> concurrency invariants — reader-audience classifications, run-scoped
@@ -503,330 +435,279 @@ content-addressed identity are where sharing resumes, by design. R16 constrains 
 <em>accidental</em> divergence: bookkeeping artifacts leaking into the keys of calls that
 <em>are</em> semantically identical. Deliberate cache partitioning is a feature;
 timing-dependent cache partitioning is the bug.</p>
-<p class="pill">Ratified in review round 2, justified on first principles (warm hits must
-not depend on when in-memory bookkeeping catches up). One-line provenance: a previous-take
-observation pointed here, but was never root-caused and is deliberately not load-bearing —
-the new architecture must satisfy this by construction, not by fixing that observation.</p>
 </div>
 
-</details>
+<div class="card keep">
+<h3>Corollary — Partial local persistence <span class="badge keep">CARRIED</span></h3>
+<p>A deliberate local corollary of R1+R2+R5: local persistent cache stops being
+all-or-nothing. Today any inconsistency wipes the whole store; with per-result source
+state and adoption gating, a result whose snapshot was lost falls back to its recipe or is
+dropped (with its dependents), keeping the rest. A user-visible robustness win with zero
+remote-cache dependency — in scope (owner-confirmed); sequencing within the take is
+decided in Part II.</p>
+</div>
 
-<details class="fold" id="nongoals"><summary><h2>5. Explicit non-goals (this take)</h2></summary>
 <div class="card drop">
-<h3>Removed from scope <span class="badge drop">NON-GOALS</span></h3>
+<h3>Explicit non-goals (this take) <span class="badge drop">NON-GOALS</span></h3>
 <ul>
   <li><b>Live / continuous import while serving.</b> Superseded by R14. Import happens at
   startup; later arrivals wait for the next boot (or a future, separately-designed quiesce).</li>
   <li><b>Content interchangeability as a continuous runtime invariant.</b> Superseded by
-  R15 + R5'. Equivalents are interchangeable <em>at lookup time</em>; nothing moves content
+  R15 + R5. Equivalents are interchangeable <em>at lookup time</em>; nothing moves content
   between results after the fact.</li>
   <li><b>Cross-result / cross-class sharing of content state</b> (shared records,
   fill-if-absent reconciliation, live healing). Redundant content between equivalent
   results is acceptable and garbage-collectible.</li>
   <li><b>Run-scoped transactional isolation over cache state</b> (overlays, forks,
-  commit/discard, reader-audience splits). With R5'+R15 there is no mid-run shared state to
+  commit/discard, reader-audience splits). With R5+R15 there is no mid-run shared state to
   isolate; runs build private values and publish once.</li>
+  <li><b>The remote service/transport itself.</b> Out of this take entirely (§1); the
+  engine work must only remain compatible with it.</li>
 </ul>
 </div>
-
 </details>
 
-<details class="fold" id="open"><summary><h2>6. Review log</h2></summary>
+<details class="fold" id="open"><summary><h2>4. Review log</h2></summary>
 <div class="qs">
 <ol>
-  <li><b>Winner-at-lookup duplicates / metadata growth — RESOLVED (direction).</b> Owner
-  agrees: the metadata-growth concern must be explicitly re-examined, and the answer must
-  satisfy <b>R10 and R15 simultaneously</b> — no metadata blow-up, and no return of
-  content-sharing complexity to prevent it. The architecture part must therefore include
-  an explicit metadata-growth model demonstrating both.</li>
-  <li><b>Integration-gate membership — RESOLVED.</b> Folded into R11: persistence/restart
-  suite + cross-session-caching tests + selected services tests as anchors; agent
-  discretion to add within reason; budget deliberately non-prescriptive (owner monitors).</li>
-  <li><b>Partial local persistence — RESOLVED: in scope.</b> Sequencing within the take
-  (before vs after the first restart proof) is left to the architecture/plan part.</li>
-  <li><b>R7 / secret salt — RESOLVED: deferred</b>, tracked, unchanged.</li>
-  <li><b>Goal scope — RESOLVED: engine-only for this take.</b> Remote service/transport
-  remains in the goal statement as context, out of this batch's scope (now stated in §1).</li>
+  <li><b>Round 1 (2026-07-03).</b> R1–R13 re-adjudicated (all kept; R5 rewritten to
+  single-home form; R8/R11 strengthened). Winner-at-lookup duplicates: the metadata-growth
+  concern must be re-examined explicitly and the answer must satisfy <b>R10 and R15
+  simultaneously</b> — the architecture must include a metadata-growth model demonstrating
+  both. Integration-gate membership folded into R11 (persistence + cross-session +
+  selected services; non-prescriptive budget). Partial local persistence: in scope.
+  R7/salt: deferred, tracked. Goal scope: engine-only. R12 gained the within-result
+  granularity clarification. R15 rephrased as strong-default + tripwire + written-exception
+  path rather than prohibition.</li>
+  <li><b>Round 2 (2026-07-03).</b> R16 <b>ratified</b> as reworded (keys as a pure
+  function of persisted content-addressed identity) with the scoped-identity clarification
+  (per-client/session/call inputs are deliberate partitioning, not R16 violations); the
+  motivating prior-take observation is explicitly non-load-bearing.</li>
+  <li><b>Round 3 (2026-07-03).</b> Structure: requirements, new requirements, and
+  non-goals merged into one section (§3) — the doc now reads as the living design doc.
+  Build plan and architecture merged into one step-by-step Part II (each section carries
+  architecture + implementation + gate together); a target-shape overview added as its
+  head. <b>M0 (observability-first milestone) and M1 (shared wait/claim kernel) moved to
+  the shelf</b>: R8 stays fully in force, but each design section specifies the proof and
+  observability it actually needs, with real consumers — an up-front consolidated
+  observability pass may be re-decided at the <em>end</em> of the design once needs are
+  known. The wait/claim mechanism is designed with its consumer if and when a consumer
+  section needs it; notably, <b>whether remote-cache pull is simply the existing
+  lazy-evaluation path is an open design question</b> — deliberately undecided, and
+  nothing in this doc may presuppose either answer. Per-section observability is process
+  debugging tooling: built properly, but expected to <em>reconcile</em> with the parallel
+  observability workstreams (OTel-based profiling / cache analysis) rather than outlive
+  them as-is, and deliberately not entangled with them now.</li>
 </ol>
-<p><b>Round 2 (2026-07-03):</b> R16 <b>ratified</b> as reworded (keys as a pure function of
-persisted content-addressed identity), with the scoped-identity clarification added to its
-card (per-client/session/call inputs are deliberate partitioning, not R16 violations); the
-motivating prior-take observation is explicitly non-load-bearing. Partial local
-persistence confirmed in scope. Part II (M0, M1) added for review.</p>
 </div>
 </details>
 
-<h2 id="plan">Part II — Build plan</h2>
-<p><b>How milestones are written.</b> Every milestone in this plan has five parts:
-<b>Goal &amp; traceability</b> (what it delivers and which requirements it serves — the L3
-necessity question answered up front); <b>Current state on main</b> (verified against this
-tree, commit <code>672ce93530</code>, with file:line grounding); <b>Design</b>;
-<b>Implementation detail</b> (a file plan plus code snippets wherever a snippet is clearer
-than prose — appropriately detailed, not every line of boilerplate); and a <b>Validation
-gate</b> with pre-registered predictions in M0's vocabulary (R8/R11).</p>
-<p class="pill">Naming note: M0/M1 keep their names from the previous take because
-re-deriving the plan from the ratified requirements landed in similar places first — but
-they are designed from scratch here and reviewed as such; nothing is carried by reference.
-Later milestones follow in subsequent parts once these two establish the pattern.</p>
+<h2 id="plan">Part II — The design &nbsp;·&nbsp; 5. How it is written</h2>
+<p>Part II is the design proper, developed step by step in dependency order. Each section
+carries, together: the <b>architecture</b> of its slice; the <b>implementation detail</b>
+(file plan against main — currently commit <code>672ce93530</code> — plus code snippets
+wherever a snippet is clearer than prose); and its <b>validation gate</b>, which names the
+integration suites it must keep green (per R11: the persistence/restart suite, the
+cross-session-caching tests, selected services tests) and states pre-registered,
+falsifiable predictions for what the landing must demonstrate (per R8). Whatever
+observability a section needs for its proof, it specifies in place — as process debugging
+tooling: built properly, scoped to this effort, expected to reconcile later with the
+parallel observability workstreams rather than outlive them as-is.</p>
+<p class="pill">Tentative section roadmap (subject to reordering as the design proceeds):
+target shape → the content home: result &amp; materialization state → persistence encoding,
+shutdown flush &amp; restore → import at boot → warm lookup &amp; on-demand materialization →
+partial-persistence robustness → the restart proof. Nothing in this list pre-decides a
+mechanism.</p>
 
-<details class="fold" id="m0" open><summary><h2>M0 — Cache observability: outcomes, summaries, strict modes</h2></summary>
+<details class="fold" id="target" open><summary><h2>6. Target shape (draft, under discussion)</h2></summary>
+<p>The one-screen picture of the system this design builds, stated mechanism-neutrally —
+every "how" here is owned by a later section, and two explicitly open questions are
+flagged rather than implied away.</p>
 
-<h3>Goal &amp; traceability</h3>
-<p>Before any caching behavior changes, the engine can <b>explain</b> its cache decisions
-and <b>prove</b> claims about them: every cache lookup classifies its outcome exactly once
-against a small structured vocabulary; every session can produce a reuse summary; strict
-modes convert unexpected outcomes into loud failures at the offending call. M0 changes no
-caching behavior — observability only.</p>
-<div class="trace"><b>Traces to:</b> R8 directly; R11 (the standing gates assert on these
-counters); every later milestone's pre-registered predictions are expressed in this
-vocabulary. <b>Necessity:</b> nothing like it exists on main (verified below); a bare log
-line would not give assertable counters or strict enforcement; the mechanism is contained
-to one new file plus classification at one function's terminal paths.</div>
+<figure>
+<svg viewBox="0 0 960 240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Engine lifecycle">
+  <defs>
+    <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5c6470"/>
+    </marker>
+  </defs>
+  <rect x="15" y="30" width="255" height="170" rx="10" fill="#e9effc" stroke="#c5d2f0"/>
+  <text x="142" y="58" text-anchor="middle" font-size="14" font-weight="700" fill="#2757d6">BOOT</text>
+  <text x="142" y="84" text-anchor="middle" font-size="12.5" fill="#2b2f36">restore local persisted state</text>
+  <text x="142" y="102" text-anchor="middle" font-size="12.5" fill="#2b2f36">+ import provided bundles</text>
+  <text x="142" y="126" text-anchor="middle" font-size="12" fill="#5c6470">before serving, coarse lock (R14)</text>
+  <text x="142" y="150" text-anchor="middle" font-size="12" fill="#5c6470">lookup keys derivable from</text>
+  <text x="142" y="166" text-anchor="middle" font-size="12" fill="#5c6470">persisted digests alone (R16)</text>
 
-<h3>Current state on main</h3>
+  <line x1="270" y1="115" x2="330" y2="115" stroke="#5c6470" stroke-width="2.5" marker-end="url(#arr2)"/>
+
+  <rect x="335" y="30" width="330" height="170" rx="10" fill="#e7f5ec" stroke="#bfe0cc"/>
+  <text x="500" y="58" text-anchor="middle" font-size="14" font-weight="700" fill="#1a7f4b">SERVE</text>
+  <text x="500" y="84" text-anchor="middle" font-size="12.5" fill="#2b2f36">lookup → resolve equivalence → one winner</text>
+  <text x="500" y="102" text-anchor="middle" font-size="12.5" fill="#2b2f36">winner's content materializes on demand</text>
+  <text x="500" y="120" text-anchor="middle" font-size="12.5" fill="#2b2f36">via a retained source, falling through (R1, R2)</text>
+  <text x="500" y="144" text-anchor="middle" font-size="12" fill="#5c6470">publication appends results + teaches equivalence</text>
+  <text x="500" y="160" text-anchor="middle" font-size="12" fill="#5c6470">content written once, to that result's home (R5)</text>
+  <text x="500" y="176" text-anchor="middle" font-size="12" fill="#5c6470">cache mutates at decision points only</text>
+
+  <line x1="665" y1="115" x2="725" y2="115" stroke="#5c6470" stroke-width="2.5" marker-end="url(#arr2)"/>
+
+  <rect x="730" y="30" width="215" height="170" rx="10" fill="#fdf3e0" stroke="#ecd9ac"/>
+  <text x="837" y="58" text-anchor="middle" font-size="14" font-weight="700" fill="#a06000">SHUTDOWN</text>
+  <text x="837" y="84" text-anchor="middle" font-size="12.5" fill="#2b2f36">flush persisted state</text>
+  <text x="837" y="108" text-anchor="middle" font-size="12" fill="#5c6470">one portable result</text>
+  <text x="837" y="124" text-anchor="middle" font-size="12" fill="#5c6470">encoding (R9)</text>
+  <text x="837" y="148" text-anchor="middle" font-size="12" fill="#5c6470">value, recipe, or both</text>
+  <text x="837" y="164" text-anchor="middle" font-size="12" fill="#5c6470">per result (R1)</text>
+</svg>
+<figcaption>Fig. 2 — Engine lifecycle. The cache is written at boot (import), at publication,
+at lazy content arrival, and at shutdown (flush) — nowhere else.</figcaption>
+</figure>
+
+<h3>The shape, in prose</h3>
 <ul>
-<li><code>Cache.EntryStats()</code> — coarse totals only (ongoing/completed/retained
-counts), <code>dagql/cache.go:3118</code>.</li>
-<li>A cache/e-graph debug snapshot writer exposed through the server:
-<code>engine/server/server.go:869</code> (<code>DagqlDebugSnapshot</code>) and
-<code>:876</code> (<code>WriteDagqlCacheDebugSnapshot</code>).</li>
-<li>Span-level <code>telemetry.CachedAttr</code> set when a call is served from cache
-(<code>core/telemetry.go:260</code>) — per-span, not aggregable, no miss/restored detail.</li>
-<li>Not present anywhere: per-lookup outcome classification, restored-vs-live hit
-distinction, per-session aggregation or summary, strict modes.</li>
+<li><b>Boot.</b> The engine restores its local persisted state and imports any provided
+bundles before serving sessions, under coarse locking (R14). The identity index is rebuilt
+such that lookup keys are pure functions of persisted digests (R16) — no dependence on
+reconstruction order or timing.</li>
+<li><b>Serving — lookups.</b> A lookup consults the identity layer (the e-graph, unchanged
+from main) and resolves to at most one winning result. A winner whose content is not yet
+local is still a normal cache hit: its content materializes on demand via a retained
+source — local snapshot, content transfer (in the remote future), or recipe re-execution —
+falling through on failure (R1, R2), moving only what is demanded (R12).</li>
+<li><b>Serving — publication.</b> Completed local work appends results and teaches
+equivalence exactly as main does today. Content state is written once, to that result's
+single home (R5). Runs build private values; the cache never exposes in-progress state
+because there is none to expose.</li>
+<li><b>Shutdown.</b> Persisted state is flushed using the one portable result encoding
+(R9): per result, value, recipe, or both (R1).</li>
 </ul>
 
-<h3>Design</h3>
-<ol>
-<li><b>Outcome vocabulary</b> — deliberately tiny at M0; later milestones <em>extend</em>
-this enum as they create new paths (adoption, viability, materialization sources) and may
-not invent a second reporting channel:
+<h3>Cross-section invariants</h3>
 <ul>
-  <li><code>hit_live</code> — served from a result created during this engine process's
-  lifetime;</li>
-  <li><code>hit_restored</code> — served from a result restored from persisted state at
-  startup;</li>
-  <li><code>miss_first</code> — no candidate existed; the work executed.</li>
+<li>One content home per result; references, never copies (R5).</li>
+<li>The cache mutates at decision points only: boot-import, publication, lazy content
+arrival, shutdown flush (R14, R15).</li>
+<li>Lookup-key determinism across restart (R16).</li>
+<li>No new cross-cutting concurrency machinery anywhere in the above (R15).</li>
 </ul>
-Classification happens at the terminal paths of the lookup entry point
-(<code>GetOrInitCall</code>'s few return sites), not sprinkled across call sites — the
-"exactly once per lookup" property holds by construction at a decision point (lesson L5's
-preferred shape, and here it is clean).</li>
-<li><b>Counters and per-session tallies.</b> Engine-lifetime atomic counters keyed
-(outcome, field); a bounded per-session tally created on first classification for a
-session and emitted-then-dropped at session close.</li>
-<li><b>Reuse summary.</b> One structured, stable, grep-able log line at session close —
-<code>cache summary session=… hit_live=… hit_restored=… miss_first=…</code> — and the same
-data included in the debug snapshot output.</li>
-<li><b>Strict modes.</b> A policy seam evaluated inside classification. M0 ships the seam
-plus the one mode the restart proof needs: <code>_DAGGER_CACHE_STRICT=warm-no-first-miss</code>
-— on an engine booted with it, any <code>miss_first</code> fails that lookup with a
-structured error naming the call. An optional <code>_DAGGER_CACHE_STRICT_FIELDS=&lt;csv&gt;</code>
-narrows enforcement to named fields, because a warm engine legitimately first-misses
-session-scoped calls (per-client/session/call inputs — see R16's clarification); tests
-name the calls that must hit. Deliberately crude (engine-level env, set by the test on the
-warm engine of a restart pair); richer scoping only if a real need appears.</li>
-<li><b>Restored-origin marking.</b> Results created by the persistence-import path carry
-<code>origin=restored</code> on their in-memory row so hits classify correctly. No effect
-on identity or behavior.</li>
-<li><b>Forensics ring.</b> A bounded ring (last 512 classified events with field +
-session) included in the debug snapshot — first-line evidence without a re-run.</li>
-</ol>
 
-<h3>Implementation detail</h3>
-<pre><code>// dagql/cache_stats.go (new)
-
-type LookupOutcome string
-
-const (
-	OutcomeHitLive     LookupOutcome = "hit_live"
-	OutcomeHitRestored LookupOutcome = "hit_restored"
-	OutcomeMissFirst   LookupOutcome = "miss_first"
-	// Later milestones extend this vocabulary (adoption, viability,
-	// materialization sources). They must not add a second channel.
-)
-
-type lookupEvent struct {
-	Outcome   LookupOutcome
-	Field     string // schema field, e.g. "withExec"
-	SessionID string
-}
-
-// classify records one terminal lookup outcome: engine counters, the session
-// tally, the forensics ring, and the strict policy — whose verdict is
-// returned and, when non-nil, fails the lookup loudly at the offending call.
-func (s *cacheStats) classify(ev lookupEvent) error
-</code></pre>
-
-<table class="filetbl">
-<tr><th>File</th><th></th><th>Change</th></tr>
-<tr><td><code>dagql/cache_stats.go</code></td><td><span class="chip newf">NEW</span></td>
-<td>Vocabulary, counters, session tallies, summary emission, strict-policy seam, forensics ring.</td></tr>
-<tr><td><code>dagql/cache_stats_test.go</code></td><td><span class="chip newf">NEW</span></td>
-<td>Exactly-once classification per lookup path (table over scenarios); strict-mode verdicts incl. field filtering; tally lifecycle.</td></tr>
-<tr><td><code>dagql/cache.go</code></td><td><span class="chip modf">MOD</span></td>
-<td>Classify at <code>GetOrInitCall</code>'s terminal paths; <code>origin</code> field on the in-memory result row.</td></tr>
-<tr><td><code>dagql/cache_persistence_import.go</code></td><td><span class="chip modf">MOD</span></td>
-<td>Set <code>origin=restored</code> on import-created rows.</td></tr>
-<tr><td><code>engine/server/server.go</code></td><td><span class="chip modf">MOD</span></td>
-<td>Stats + ring in <code>WriteDagqlCacheDebugSnapshot</code>; read strict env at cache construction; emit the session summary at session teardown.</td></tr>
-<tr><td><code>core/integration</code> (persistence suite)</td><td><span class="chip modf">MOD</span></td>
-<td>Warm-phase counter assertions; strict mode enabled on warm engines for the named calls.</td></tr>
-</table>
-
-<h3>Validation gate — pre-registered predictions</h3>
+<h3>Explicitly open questions (owned by later sections, not decided here)</h3>
 <ul>
-<li><b>P-M0-1:</b> the same call issued twice in one session yields a summary with
-<code>hit_live ≥ 1</code> for it, and the second call's span still carries
-<code>CachedAttr</code> (existing behavior untouched).</li>
-<li><b>P-M0-2:</b> a restart pair on the persistence suite: the cold engine's summaries
-contain zero <code>hit_restored</code>; the warm engine reports <code>hit_restored ≥ N</code>
-(N asserted per test) and passes with strict mode enabled on the asserted fields.</li>
-<li><b>P-M0-3:</b> the full R11 curated gate is green with zero behavior delta — the only
-observable differences are new log lines, counters, and snapshot fields.</li>
+<li><b>Is on-demand materialization of a restored result simply the engine's existing
+lazy-evaluation path?</b> It might be — restored-result hydration and lazy evaluation have
+the same shape (a result whose value isn't computed yet, computed on first demand). If so,
+no new wait/claim machinery exists at all. If not, the content-home section must argue why
+and design the difference minimally. Deliberately undecided; nothing in this doc may
+presuppose either answer.</li>
+<li><b>Metadata growth under winner-at-lookup.</b> Tolerating redundant content between
+equivalent results (GC instead of reconciliation) must be shown to satisfy R10 and R15
+simultaneously — the content-home section carries an explicit metadata-growth model.</li>
 </ul>
 </details>
 
-<details class="fold" id="m1" open><summary><h2>M1 — The stage primitive: one wait/claim kernel</h2></summary>
+<details class="fold" id="shelf"><summary><h2>7. The shelf <span class="pill">(not part of the design)</span></h2></summary>
+<div class="shelfnote">
+<b>What the shelf is.</b> Material that was drafted, discussed, and deliberately set
+aside. It is <em>not</em> part of the design and must not be treated as pre-decided or
+implied; it is kept because it may naturally re-emerge — if, while designing or
+implementing, a real need appears that one of these answers, it can be unshelved and
+re-reviewed then. Nothing gets built from here for its own sake.
+</div>
 
-<h3>Goal &amp; traceability</h3>
-<p>One tested kernel for "many callers wait on one deferred piece of work" under the
-cache — explicit waiter accounting, last-waiter cancellation with cause, caller-detached
-execution context, sticky vs retryable completion — replacing the hand-rolled per-site
-protocols main carries today. M1 is a behavior-preserving consolidation; it is also,
-deliberately, the concurrency kernel the architecture part's warm-lookup path
-(claim → materialize → fall through, R2) will be built on.</p>
-<div class="trace"><b>Traces to:</b> R2 (the future claim/release/retry kernel must be
-sound once, not re-proven per site), R6 (caller-detached execution and
-principal-independent identity are properties of the primitive, tested once), R15
-(net-negative invariant count: it deletes hand-rolled protocols).
-<b>Necessity, honestly stated:</b> the primary justification is what gets built on it; if
-the architecture part's review concludes its lookup path doesn't need this kernel, M1
-shrinks to optional cleanup and must be re-justified rather than defended. Standing alone
-it still pays down verified risk — three divergent protocols, one relying on
-comment-enforced ordering.</div>
+<details class="fold"><summary><h3>Shelved: M0 — observability-first milestone</h3></summary>
+<p><b>Why shelved (owner ruling, round 3):</b> horse before cart. R8 remains fully in
+force — but each design section specifies the proof and observability it actually needs,
+with real consumers, when it is written. Building a standalone observability layer first
+means designing vocabulary and machinery against imagined consumers (the drafting history
+proved the point: its strict modes and forensics ring were cut in review for exactly that
+flaw before the whole milestone was shelved). A consolidated up-front observability pass
+may be <em>re-decided at the end of the design</em>, once every section's needs are known
+— that decision belongs there, not here.</p>
+<p><b>Reconciliation note (kept with this entry):</b> any observability built for this
+effort is process debugging tooling — built properly, but expected to reconcile with the
+parallel observability workstreams (OTel-based profiling / cache-performance analysis, in
+flight elsewhere) rather than outlive them as-is, and deliberately not entangled with them
+now, so this effort never ends up debugging that plumbing alongside its own.</p>
+<p>The shelved draft, in useful-summary form (was grounded against main @
+<code>672ce93530</code>; main has only coarse <code>EntryStats()</code>
+(<code>dagql/cache.go:3118</code>), the debug snapshot writer
+(<code>engine/server/server.go:869/:876</code>), and span-level <code>CachedAttr</code>
+(<code>core/telemetry.go:260</code>)):</p>
+<ul>
+<li><b>Outcome vocabulary</b> — every cache lookup classifies its outcome exactly once, at
+the terminal paths of the lookup entry point (<code>GetOrInitCall</code>'s return sites).
+Provisional terms: <code>hit_live</code>, <code>hit_restored</code>,
+<code>miss_first</code>; later work extends the enum (adoption, viability, sources) rather
+than adding a second reporting channel. The real payoff arrives when remote caching makes
+"what kind of hit was that?" a genuinely multi-valued question.</li>
+<li><b>Per-field counters</b> — engine-lifetime counters keyed (outcome, field). Field
+keying is what makes strong assertions safe: a warm engine legitimately first-misses
+session-scoped calls (R16's clarification), so proofs assert per named field, not
+globally.</li>
+<li><b>Per-event debug log</b> — one debug-level structured line per classification
+(outcome, field, call digest): the diagnosis path when a count assertion fails.</li>
+<li><b>Surfaces</b> — a small stats JSON written next to the persisted DB at clean
+shutdown (the test-assertion vehicle: files, not log streams); the same data folded into
+the existing debug snapshot; one INFO summary line at session close for humans.</li>
+<li><b>Restored-origin marking</b> — import-created rows marked so hits classify as
+<code>hit_restored</code>.</li>
+<li><b>The concrete restart proof it was designed around:</b> cold engine A runs a
+pipeline whose exec writes a random value; clean shutdown; warm engine B runs the
+identical pipeline; assert (1) outputs equal — which proves reuse only for the rigged
+random call, since deterministic outputs prove nothing about caching — and (2) from B's
+stats: <code>hit_restored ≥ K</code> and <code>miss_first == 0</code> for the pipeline's
+named fields; diagnose failures by grepping the per-event log for those fields' misses.</li>
+<li><b>Recorded cuts (review round 3, before shelving):</b> strict modes (the concrete
+walkthrough showed per-field counter assertions + per-event logs deliver both the proof
+and the attribution; fail-at-the-call enforcement can return against a concrete consumer);
+the forensics ring (superseded by the per-event log — no new storage or endpoint);
+per-session tallies (no consumer — the proof harness boots dedicated engines, so
+per-engine counters are already per-test).</li>
+</ul>
+</details>
 
-<h3>Current state on main — the protocols being replaced</h3>
-<ol>
-<li><b>In-flight call execution/publication:</b> <code>ongoingCall</code> with
-<code>waitCh chan struct{}</code> + <code>waiters int</code>
-(<code>dagql/cache.go:1745–1757</code>, constructed ~<code>:1983</code>).</li>
-<li><b>Lazy evaluation:</b> <code>lazyEvalWaitCh</code> + <code>lazyEvalWaiters</code> +
-<code>waitForLazyEvaluation</code> (<code>dagql/cache.go:2802–3032</code>) — with
-last-waiter cleanup conditions
-(<code>lazyEvalWaiters == 0 &amp;&amp; lazyEvalWaitCh == waitCh</code>) and ordering
-enforced by comment ("End resumeSpan before close(waitCh)…", <code>:2977</code>).</li>
-<li><b>Dependency-attachment barrier for restored results:</b>
-<code>attachDepsMu</code>/<code>attachDepsWaitCh</code>/<code>attachDepsErr</code>
+<details class="fold"><summary><h3>Shelved: M1 — shared wait/claim kernel (the "stage")</h3></summary>
+<p><b>Why shelved (owner ruling, round 3):</b> no consumer exists yet, and designing a
+concurrency primitive against hypothetical consumers is how policy knobs
+(sticky/retryable) appear before anything needs them. The draft was also, honestly, partly
+carry-over reflex from the previous take's equivalent. If a design section develops a real
+need, the mechanism gets designed <em>there, with its consumer</em> — and whether the
+existing hand-rolled protocols then migrate onto it is an explicit
+boilerplate-vs-abstraction decision (lesson L5) made at that point. <b>Load-bearing open
+question recorded in §6:</b> on-demand materialization of restored results may simply be
+the existing lazy-evaluation path — in which case no new wait/claim machinery ever exists.
+This shelf entry must not bias that question.</p>
+<p><b>What the draft contained,</b> kept as grounding for that future decision:</p>
+<ul>
+<li><b>The pattern it targeted</b> ("many callers wait on one deferred piece of work"),
+hand-rolled today in three places on main, each slightly different:
+<code>ongoingCall</code>'s waitCh/waiters (<code>dagql/cache.go:1745–1757</code>);
+the lazy-evaluation protocol (<code>dagql/cache.go:2802–3032</code>) with last-waiter
+cleanup and ordering enforced by comment (":2977"); the restored-result
+dependency-attachment barrier
 (<code>dagql/cache_persistence_import.go:563–576</code>).</li>
-</ol>
-<p class="pill">The implementation audit may find further instances of the pattern; each
-either migrates or documents why not.</p>
-
-<h3>Design</h3>
-<p>The <code>stage</code> is <b>error-only by design</b>: payloads live on the owning
-object, written by the run before completion; waiters read them only after observing
-completion, so the channel close provides the happens-before edge. No type parameter, no
-payload plumbing. The correctness property that motivates the whole primitive:
-<code>run.err</code> is written before <code>close(run.done)</code>, and waiters read the
-outcome only after <code>&lt;-done</code> — there is no shared error field observed outside
-the synchronization that produced it, and no ordering that lives in a comment.</p>
-<ul>
-<li><b>Two completion policies.</b> <i>Sticky</i>: the first outcome, success or failure,
-is frozen — publication semantics (a produced result is a one-time fact). <i>Retryable</i>:
-success freezes; a failed run returns the stage to idle so a later caller re-runs — lazy
-evaluation today; decode and materialization later.</li>
-<li><b>Protocol.</b> <code>begin</code> joins the current run, starts a new one (the
-starter then calls <code>launch</code>), or observes a frozen outcome; every caller
-<code>await</code>s; every <code>begin</code> pairs with exactly one <code>leave</code>
-(leaving room for per-waiter post-work between the two); the last waiter to leave an
-unfinished run cancels it with a cause and detaches it.</li>
-<li><b>Producer-barrier variant.</b> <code>openBarrier</code>/<code>awaitIfPresent</code>
-for the attach-deps shape: a single producer resolves the barrier; readers wait passively
-and never cancel the producer.</li>
+<li><b>The primitive it proposed:</b> an error-only "stage" (payloads live on the owning
+object, written before completion; the channel close provides the happens-before edge)
+with explicit waiter accounting, last-waiter cancellation with cause, caller-detached
+execution context, and two completion policies (freeze-first-outcome for publication;
+retry-on-failure for lazy evaluation and materialization). Its correctness pitch: no
+shared error observed outside the synchronization that produced it, and no ordering that
+lives in a comment.</li>
+<li><b>The "claim" idea</b> — N concurrent sessions racing to use a restored result whose
+content isn't materialized: one wins and materializes, others wait, failure releases so
+the next waiter retries the next source (R2's fall-through). This is the hypothetical
+consumer; it only becomes real if the warm-lookup design needs a mechanism distinct from
+lazy evaluation.</li>
 </ul>
-
-<h3>Implementation detail</h3>
-<pre><code>// dagql/cache_stage.go (new)
-
-type stageResetPolicy uint8
-
-const (
-	// stageSticky freezes the first completed outcome, success or failure.
-	// Publication: a produced result is a one-time fact.
-	stageSticky stageResetPolicy = iota
-	// stageRetryable freezes success; a failed run leaves the stage idle so
-	// the next join starts a fresh run. Lazy evaluation now; decode and
-	// materialization later.
-	stageRetryable
-)
-
-// begin joins the stage's current run, starts a new one (state ==
-// stageJoinStarter — the caller must then launch), or reports a frozen
-// outcome. prepare runs under the stage lock with the run's caller-detached
-// base context and returns the context the work will execute under.
-func (s *stage) begin(ctx context.Context, prepare func(run *stageRun, base context.Context) context.Context) (state stageJoinState, run *stageRun, frozenErr error)
-
-// launch executes work on a goroutine under the run's caller-detached context.
-func (s *stage) launch(run *stageRun, work func(runCtx context.Context) error)
-
-// await blocks until the run completes or ctx is cancelled. It never touches
-// waiter accounting — every begin pairs with exactly one leave.
-func (s *stage) await(ctx context.Context, run *stageRun) (err error, completed bool)
-
-// leave decrements the waiter count; the last waiter leaving an unfinished
-// run cancels it with cause and detaches it so the next caller starts fresh.
-func (s *stage) leave(run *stageRun, cause error) (wasLast bool)
-</code></pre>
-
-<p><b>Migration order</b> — simplest first, each step independently landable and gated:</p>
-<ol>
-<li>attach-deps barrier → <code>openBarrier</code>/<code>awaitIfPresent</code> (pure
-barrier; no cancellation semantics to preserve);</li>
-<li><code>ongoingCall</code> → sticky stage: the singleflight rendezvous (the map and
-<code>callsMu</code>) stays exactly where it is — the stage replaces only the
-waitCh/waiters/error tuple and the execution/outcome handoff;</li>
-<li>lazy evaluation → retryable stage: the delicate one — preserves last-waiter-cancel and
-retry-on-failure, and makes the span-ordering requirement structural (completion closes
-<code>done</code> after the run's teardown work) instead of comment-enforced.</li>
-</ol>
-<p><b>Explicitly not in M1:</b> the claim/reservation wiring for adoption. Its consumer
-doesn't exist until the architecture part; the primitive is shaped so a per-result
-retryable stage composes into claim/winner-runs semantics, and it is listed here strictly
-as the intended consumer. Building it now would violate the scoping discipline this reset
-exists to enforce.</p>
-
-<table class="filetbl">
-<tr><th>File</th><th></th><th>Change</th></tr>
-<tr><td><code>dagql/cache_stage.go</code></td><td><span class="chip newf">NEW</span></td>
-<td>The primitive: stage, stageRun, policies, begin/launch/await/leave, join convenience, barrier variant.</td></tr>
-<tr><td><code>dagql/cache_stage_test.go</code></td><td><span class="chip newf">NEW</span></td>
-<td>Waiter-accounting matrix; last-waiter-cancel incl. cause propagation; sticky/retryable matrix; the ordering property; <code>-race</code> stress. Every behavioral branch pinned by a deterministic test, not only stress.</td></tr>
-<tr><td><code>dagql/cache.go</code></td><td><span class="chip modf">MOD</span></td>
-<td>ongoingCall + lazy-eval protocols onto the stage; delete <code>waitCh</code>/<code>waiters</code>/<code>lazyEvalWaitCh</code>/<code>lazyEvalWaiters</code> fields.</td></tr>
-<tr><td><code>dagql/cache_persistence_import.go</code></td><td><span class="chip modf">MOD</span></td>
-<td>attach-deps barrier onto the barrier variant.</td></tr>
-<tr><td colspan="3" class="pill">No <code>core/</code> or schema changes. No behavior change intended anywhere.</td></tr>
-</table>
-
-<h3>Validation gate — pre-registered predictions</h3>
-<ul>
-<li><b>P-M1-1:</b> unit suite green under <code>-race</code> at high repetition; every
-public behavior covered by a deterministic test.</li>
-<li><b>P-M1-2:</b> after <em>each</em> migration step, the full R11 curated gate is green.</li>
-<li><b>P-M1-3:</b> behavior preservation, <em>measured</em>: the persistence suite's M0
-outcome summaries are distribution-identical before vs after M1 (same counts per outcome
-per subtest; any nondeterministic counts enumerated explicitly, not waved at). M0's
-counters are what make this claim checkable — that is why M0 lands first.</li>
-</ul>
+</details>
 </details>
 
 <div class="foot">
 Source of truth: this page (<code>hack/designs/remote-cache/reset/design.html</code>).
 Prior-take docs (unmodified, for reference): <code>hack/designs/remote-cache/*.md</code> in the
-previous worktree. Lessons: <code>reset/lessons.md</code>. After M0/M1 sign-off, Part III:
-the architecture — content-home model, persistence/import shape, warm-lookup path
-(claim/materialize/fallback), designed strictly against Part I.
+previous worktree. Lessons: <code>reset/lessons.md</code>. Next drafting step: the
+content-home section (result &amp; materialization state), once the target shape settles.
 </div>
 
 </main>
@@ -837,7 +718,7 @@ function openTarget(){
   var el=document.querySelector(location.hash);
   if(!el) return;
   var d=el.closest('details');
-  if(d && !d.open) d.open=true;
+  while(d){ if(!d.open) d.open=true; d=d.parentElement ? d.parentElement.closest('details') : null; }
   if(el.tagName==='DETAILS' && !el.open) el.open=true;
   el.scrollIntoView();
 }
