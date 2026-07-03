@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Remote Cache — Reset Design (Part I: Requirements Re-scope)</title>
+<style>
+  :root {
+    --ink: #1a1d23; --muted: #5c6470; --paper: #fafaf8; --card: #ffffff;
+    --line: #e3e4e8; --accent: #2757d6;
+    --keep: #1a7f4b; --keep-bg: #e7f5ec;
+    --modify: #a06000; --modify-bg: #fdf3e0;
+    --new: #2757d6; --new-bg: #e9effc;
+    --drop: #b3362c; --drop-bg: #fbeae8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font: 16px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 940px; margin: 0 auto; padding: 40px 28px 120px; }
+  h1 { font-size: 30px; line-height: 1.25; margin: 0 0 6px; letter-spacing: -0.02em; }
+  h2 { font-size: 22px; margin: 56px 0 12px; letter-spacing: -0.01em; border-bottom: 2px solid var(--line); padding-bottom: 8px; }
+  h3 { font-size: 17px; margin: 28px 0 8px; }
+  p, li { color: #2b2f36; }
+  .sub { color: var(--muted); font-size: 15px; margin: 0 0 24px; }
+  .banner {
+    background: #fff8e6; border: 1px solid #eadfa9; border-radius: 10px;
+    padding: 14px 18px; font-size: 15px; margin: 22px 0 8px;
+  }
+  .banner b { color: #7a5b00; }
+  code { background: #eef0f3; border-radius: 4px; padding: 1px 5px; font-size: 0.92em; }
+  .toc { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px 22px; margin-top: 26px; font-size: 15px; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .toc ol { margin: 6px 0 0; padding-left: 22px; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-left-width: 5px;
+    border-radius: 10px; padding: 18px 22px 16px; margin: 18px 0;
+  }
+  .card.keep   { border-left-color: var(--keep); }
+  .card.modify { border-left-color: var(--modify); }
+  .card.new    { border-left-color: var(--new); }
+  .card.drop   { border-left-color: var(--drop); }
+  .card h3 { margin: 0 0 6px; font-size: 17px; }
+  .badge {
+    display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: 0.06em;
+    border-radius: 999px; padding: 2px 11px; vertical-align: 2px; margin-left: 10px;
+  }
+  .badge.keep   { color: var(--keep);   background: var(--keep-bg); }
+  .badge.modify { color: var(--modify); background: var(--modify-bg); }
+  .badge.new    { color: var(--new);    background: var(--new-bg); }
+  .badge.drop   { color: var(--drop);   background: var(--drop-bg); }
+  .orig {
+    background: #f4f5f7; border-radius: 8px; padding: 10px 14px; margin: 10px 0;
+    font-size: 14.5px; color: #454b54;
+  }
+  .orig .tag { font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: 0.08em; }
+  .verdict { margin: 10px 0 2px; }
+  .verdict .tag { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; }
+  .verdict.keep .tag   { color: var(--keep); }
+  .verdict.modify .tag { color: var(--modify); }
+  .verdict.new .tag    { color: var(--new); }
+  .verdict.drop .tag   { color: var(--drop); }
+  .rewrite { background: var(--new-bg); border-radius: 8px; padding: 10px 14px; margin: 10px 0; font-size: 14.5px; }
+  .rewrite .tag { font-size: 11px; font-weight: 700; color: var(--new); letter-spacing: 0.08em; }
+  figure { margin: 26px 0; }
+  figcaption { font-size: 14px; color: var(--muted); margin-top: 8px; text-align: center; }
+  svg { width: 100%; height: auto; display: block; }
+  .qs { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 6px 22px 14px; }
+  .qs li { margin: 10px 0; }
+  .foot { margin-top: 60px; font-size: 13.5px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 14px; }
+  .pill { font-size: 12.5px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Remote Cache — Reset Design</h1>
+<p class="sub">Part I: Requirements Re-scope &nbsp;·&nbsp; v1 for Erik's review &nbsp;·&nbsp; 2026-07-03</p>
+
+<div class="banner">
+<b>Status: RESET.</b> This page restarts the design from requirements. It carries forward
+the previous effort's R1–R13 (each re-adjudicated below: keep / modify / drop), adds new
+requirements born from what we learned, and states explicit non-goals. Nothing downstream
+of requirements (architecture, milestones) is designed yet — that comes after this part is
+agreed. This page is the source of truth; the prior markdown docs remain untouched for
+reference one directory up.
+</div>
+
+<div class="toc">
+<b>Contents</b>
+<ol>
+  <li><a href="#goal">The goal (unchanged)</a></li>
+  <li><a href="#shift">The one structural shift this re-scope makes</a></li>
+  <li><a href="#carried">Carried requirements R1–R13, re-adjudicated</a></li>
+  <li><a href="#newreqs">New requirements R14–R16</a></li>
+  <li><a href="#nongoals">Explicit non-goals</a></li>
+  <li><a href="#open">Open questions for Erik</a></li>
+</ol>
+</div>
+
+<h2 id="goal">1. The goal (unchanged)</h2>
+<p>
+A run on engine A executes a build graph; its cache results (metadata + content) become
+available to engine B, which adopts equivalent results as cache hits and materializes
+their content on demand — downloading snapshot content when available, re-executing the
+recipe when not. The near-term proof is unchanged: a cold CI run seeds the cache; a warm
+run on fresh engines shows a real, expected-scale improvement, with counters that
+demonstrate actual adoption and reuse — and that would have failed loudly if reuse hadn't
+happened.
+</p>
+<p>
+The first concrete configuration of that goal is the <b>restart case</b>: one engine
+persists to disk, a fresh engine boots on that state and gets warm hits. It is the
+same problem as the remote case with the transport removed, and it is provable entirely
+in-repo (R11).
+</p>
+
+<h2 id="shift">2. The one structural shift this re-scope makes</h2>
+<p>
+The previous take coupled two layers that must stay separate. The engine's existing
+<b>identity layer</b> (the e-graph: equivalence classes over calls/results, merged live as
+work completes) was extended so that <b>content state</b> (filesystem snapshots, metadata,
+materialization status) was shared across equivalence classes and reconciled continuously —
+any equivalent result could serve any sibling's content at any moment, including mid-run.
+Protecting running work from that live movement required a transactional machinery
+(run-private overlays, reader-audience classification, evaluation gates, instance binding,
+three interacting locks) whose correctness surface was every reader, writer, and entry
+point in the engine. That machinery generated its own bug supply and consumed the effort.
+</p>
+<p>
+The re-scope keeps the identity layer exactly as it is on main, and demotes
+interchangeability from a <em>continuous runtime invariant</em> to a
+<em>decision-point policy</em>: equivalence is consulted when it matters — at lookup
+(pick one winner and materialize <em>that</em> result), at publication, at import — and
+content state has exactly one home per result, mutated only at well-defined points under
+ordinary locking. Runs build private values, as they do on main today, and touch the cache
+only when they publish.
+</p>
+
+<figure>
+<svg viewBox="0 0 960 400" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Before and after coupling diagram">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5c6470"/>
+    </marker>
+    <marker id="arrRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#b3362c"/>
+    </marker>
+    <marker id="arrGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1a7f4b"/>
+    </marker>
+  </defs>
+
+  <!-- Left panel: previous take -->
+  <rect x="10" y="10" width="455" height="380" rx="12" fill="#fbeae8" opacity="0.45"/>
+  <text x="237" y="38" text-anchor="middle" font-size="15" font-weight="700" fill="#b3362c">PREVIOUS TAKE</text>
+
+  <rect x="60" y="58" width="355" height="46" rx="8" fill="#fff" stroke="#c9ccd2"/>
+  <text x="237" y="80" text-anchor="middle" font-size="13.5" fill="#1a1d23">identity layer: e-graph, live class merges</text>
+  <text x="237" y="96" text-anchor="middle" font-size="11.5" fill="#5c6470">(pre-existing on main)</text>
+
+  <line x1="237" y1="104" x2="237" y2="140" stroke="#b3362c" stroke-width="4" marker-end="url(#arrRed)"/>
+  <text x="252" y="128" font-size="12" font-weight="700" fill="#b3362c">class merges move CONTENT, live, mid-run</text>
+
+  <rect x="60" y="144" width="355" height="46" rx="8" fill="#fff" stroke="#c9ccd2"/>
+  <text x="237" y="166" text-anchor="middle" font-size="13.5" fill="#1a1d23">content state: records shared across classes,</text>
+  <text x="237" y="182" text-anchor="middle" font-size="13.5" fill="#1a1d23">reconciled continuously (fill-if-absent)</text>
+
+  <line x1="237" y1="190" x2="237" y2="222" stroke="#5c6470" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="252" y="212" font-size="12" fill="#5c6470">…which forces:</text>
+
+  <g font-size="12" fill="#7a2620">
+    <rect x="38"  y="228" width="190" height="30" rx="6" fill="#fff" stroke="#e0b6b1"/>
+    <text x="133" y="247" text-anchor="middle">run-private overlays (fork/commit/discard)</text>
+    <rect x="242" y="228" width="190" height="30" rx="6" fill="#fff" stroke="#e0b6b1"/>
+    <text x="337" y="247" text-anchor="middle">reader "audience" classification</text>
+    <rect x="38"  y="266" width="190" height="30" rx="6" fill="#fff" stroke="#e0b6b1"/>
+    <text x="133" y="285" text-anchor="middle">evaluation gates + re-entry tokens</text>
+    <rect x="242" y="266" width="190" height="30" rx="6" fill="#fff" stroke="#e0b6b1"/>
+    <text x="337" y="285" text-anchor="middle">instance binding + capture/restore</text>
+    <rect x="140" y="304" width="190" height="30" rx="6" fill="#fff" stroke="#e0b6b1"/>
+    <text x="235" y="323" text-anchor="middle">3 interacting locks</text>
+  </g>
+  <text x="237" y="362" text-anchor="middle" font-size="12.5" font-weight="600" fill="#b3362c">invariant surface = every reader, writer, entry point</text>
+
+  <!-- Right panel: reset -->
+  <rect x="495" y="10" width="455" height="380" rx="12" fill="#e7f5ec" opacity="0.5"/>
+  <text x="722" y="38" text-anchor="middle" font-size="15" font-weight="700" fill="#1a7f4b">RESET</text>
+
+  <rect x="545" y="58" width="355" height="46" rx="8" fill="#fff" stroke="#c9ccd2"/>
+  <text x="722" y="80" text-anchor="middle" font-size="13.5" fill="#1a1d23">identity layer: e-graph, live class merges</text>
+  <text x="722" y="96" text-anchor="middle" font-size="11.5" fill="#5c6470">(untouched — it only moves small identity state)</text>
+
+  <line x1="722" y1="104" x2="722" y2="140" stroke="#1a7f4b" stroke-width="3" marker-end="url(#arrGreen)"/>
+  <text x="737" y="128" font-size="12" font-weight="700" fill="#1a7f4b">consulted at decision points only</text>
+
+  <rect x="545" y="144" width="355" height="62" rx="8" fill="#fff" stroke="#c9ccd2"/>
+  <text x="722" y="166" text-anchor="middle" font-size="13.5" fill="#1a1d23">lookup: resolve equivalence → pick ONE winner</text>
+  <text x="722" y="183" text-anchor="middle" font-size="13.5" fill="#1a1d23">→ materialize that result</text>
+  <text x="722" y="199" text-anchor="middle" font-size="11.5" fill="#5c6470">(interchangeability enforced here, once)</text>
+
+  <line x1="722" y1="206" x2="722" y2="238" stroke="#1a7f4b" stroke-width="3" marker-end="url(#arrGreen)"/>
+
+  <rect x="545" y="242" width="355" height="62" rx="8" fill="#fff" stroke="#c9ccd2"/>
+  <text x="722" y="264" text-anchor="middle" font-size="13.5" fill="#1a1d23">content state: ONE home per result,</text>
+  <text x="722" y="281" text-anchor="middle" font-size="13.5" fill="#1a1d23">written at publication · lazy arrival · import</text>
+  <text x="722" y="297" text-anchor="middle" font-size="11.5" fill="#5c6470">(ordinary lock; duplicates tolerated, GC'd later)</text>
+
+  <text x="722" y="340" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1a7f4b">runs build private values (as on main); the cache</text>
+  <text x="722" y="358" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1a7f4b">changes only at decision points — no mid-run observation problem exists</text>
+</svg>
+<figcaption>Fig. 1 — The structural shift: identity stays live (it already is, on main); content stops being live-shared.
+Interchangeability moves from "continuous invariant" to "lookup-time policy."</figcaption>
+</figure>
+
+<h2 id="carried">3. Carried requirements, re-adjudicated</h2>
+<p class="pill">Original text is condensed but faithful; the verbatim originals are in
+<code>../01-engine-baseline-design.md §1</code> (previous take's worktree). Badges:
+<span class="badge keep">KEEP</span> unchanged ·
+<span class="badge modify">MODIFY</span> rewritten below ·
+<span class="badge drop">DROP</span> removed.</p>
+
+<div class="card keep">
+<h3>R1 — Dual materialization paths <span class="badge keep">KEEP</span></h3>
+<div class="orig"><span class="tag">ORIGINAL</span><br>
+A result must be re-creatable on an engine that didn't produce it, by content transfer
+<em>or</em> by recomputation — at least one retained path, both when possible (some recipes
+are legitimately not retainable). Materializing a result must not destroy its recipe;
+persisting a result must be able to carry value, recipe, or both.</div>
+<p class="verdict keep"><span class="tag">VERDICT</span> — Keep unchanged. This is the heart
+of a lazy remote cache and played no part in the complexity failure.</p>
+</div>
+
+<div class="card keep">
+<h3>R2 — No stranded hits <span class="badge keep">KEEP</span></h3>
+<div class="orig"><span class="tag">ORIGINAL</span><br>
+Adopting a result as a cache hit is a promise: it will materialize on demand via some
+retained source, or the adoption itself was a bug. Preferred-source failure falls through
+to the next source. Silent wrong answers and use-time "missing snapshot" errors are design
+failures.</div>
+<p class="verdict keep"><span class="tag">VERDICT</span> — Keep unchanged. The essence of
+correctness for the whole feature.</p>
+</div>
+
+<div class="card keep">
+<h3>R3 — Portable semantic identity <span class="badge keep">KEEP</span></h3>
+<div class="orig"><span class="tag">ORIGINAL</span><br>
+Every identity that crosses an engine boundary (persistence file, export bundle, backend
+row) is either a semantic digest or a durable origin identity. Engine-local allocator IDs
+never serialize. Importing the same result twice is idempotent.</div>
+<p class="verdict keep"><span class="tag">VERDICT</span> — Keep unchanged. Validated in
+practice; the identity/portability layer was not where the trouble came from.</p>
+</div>
+
+<div class="card keep">
+<h3>R4 — Content-addressed snapshot identity, lazy at export <span class="badge keep">KEEP</span></h3>
+<div class="orig"><span class="tag">ORIGINAL</span><br>
+Immutable snapshot content crossing any boundary is identified by its content (layer
+diffID chains), never by local snapshotter keys. Mutable-owner snapshots never cross
+boundaries as content. Hard constraint: content identity is computed lazily at export
+time (hash-while-packing), never eagerly during normal execution — eager content-hashing
+is a previously-hit, real performance trap.</div>
+<p class="verdict keep"><span class="tag">VERDICT</span> — Keep unchanged, including the
+anti-requirement on eager hashing.</p>
+</div>
+
+<div class="card modify">
+<h3>R5 — Materialization state: one home per result, surgery-proof <span class="badge modify">MODIFY</span></h3>
+<div class="orig"><span class="tag">ORIGINAL</span><br>
+Materialization state is cache-owned and surgery-proof: whether a slot of a result is
+materialized, remotely materializable, or recomputable is a fact the cache owns per
+result. Object cloning/copying/mount-replay cannot silently strand or drop that
+capability — attached or detached.</div>
+<p class="verdict modify"><span class="tag">VERDICT</span> — Keep the intent, rewrite the
+text. As written, "the cache owns state per result" licensed an escalation: cache-owned
+records → records <em>shared across equivalence classes</em> → live reconciliation → the
+overlay/transaction machinery. The valid core is narrower and must say so explicitly.</p>
+<div class="rewrite"><span class="tag">REWRITE (R5')</span><br>
+Every result's materialization state (materialized / remotely materializable /
+recomputable, plus the content itself once present) has <b>exactly one home</b>, owned by
+the cache, keyed by the result. It is written only at well-defined points — publication of
+locally-completed work, lazy content arrival for that result, import — under the cache's
+ordinary locking. Clones, copies, detached views, and mount-replay <b>reference</b> the
+home (so they can never strand or drop capability); they never copy its state and never
+acquire homes of their own. <b>Content state is never shared across results</b>: if two
+equivalent results both have content, that is tolerated redundancy for GC, not a
+consistency problem to reconcile.</div>
+</div>
+
+<div class="card keep">
+<h3>R6 — Explicit execution identity <span class="badge keep">KEEP</span></h3>
+<div class="orig"><span class="tag">ORIGINAL</span><br>
+Deferred/recomputed work runs under an explicit principal (the forcing waiter's), with
+retry on principal death; the identity of a result is fully determined by its recipe and
+never contaminated by whoever forced materialization.</div>
+<p class="verdict keep"><span class="tag">VERDICT</span> — Keep unchanged.</p>
+</div>
+
+<div class="card keep">
+<h3>R7 — Session-resource soundness extends to foreign results <span class="badge keep">KEEP</span></h3>
+<div class="orig"><span class="tag">ORIGINAL</span><br>
+An adopted result that transitively requires secret/socket handles is only adoptable by
+sessions holding those handles — same rule as today, surviving import.</div>
+<p class="verdict keep"><span class="tag">VERDICT</span> — Keep unchanged. (The known
+per-engine secret-salt issue remains a deliberately deferred, separately-tracked item, as
+before; it partitions caches across engines until addressed.)</p>
+</div>
+
+<div class="card keep">
+<h3>R8 — Falsifiable observability <span class="badge keep">KEEP + STRENGTHEN</span></h3>
+<div class="orig"><span class="tag">ORIGINAL</span><br>
+Every lookup outcome, adoption decision, materialization-source execution, and fallback is
+observable with structured vocabulary; every run can produce a reuse summary; strict modes
+turn unexpected fallback/recompute into hard failures for proofs and tests.</div>
+<p class="verdict keep"><span class="tag">VERDICT</span> — Keep, and add one sentence the
+previous take proved out: <b>landings are validated against pre-registered, falsifiable
+predictions</b> (state what the counters must show before running the test), and forensic
+diagnostics that earn their keep at a failure site are made permanent, not left as
+temporary instruments.</p>
+</div>
+
+<div class="card keep">
+<h3>R9 — One portable result encoding <span class="badge keep">KEEP</span></h3>
+<div class="orig"><span class="tag">ORIGINAL</span><br>
+Local persistence and remote export share one encoding for results (frames, payload
+envelopes, snapshot links, recipes). Local persistence may additionally dump engine-local
+index rows for fast same-engine restart; bundles carry none of that. No second, looser
+result-serialization model.</div>
+<p class="verdict keep"><span class="tag">VERDICT</span> — Keep unchanged, with one
+cross-reference: whatever engine-local index rows are persisted must satisfy the new R16
+(a restarted engine must not depend on in-memory numbering to reproduce lookup keys).</p>
+</div>
+
+<div class="card keep">
+<h3>R10 — Identity-stable metadata <span class="badge keep">KEEP</span></h3>
+<div class="orig"><span class="tag">ORIGINAL</span><br>
+Import → re-export cycles add zero result rows. Genuinely new executions add honestly-new
+rows; independently-produced equivalents remain distinct rows related by semantic digests;
+collapsing those for serving is backend merge policy on the digest layer.</div>
+<p class="verdict keep"><span class="tag">VERDICT</span> — Keep unchanged. Note how well
+this sits with the structural shift: "equivalents remain distinct rows related by digests"
+was already the right philosophy — the previous take's content layer just didn't follow it.</p>
+</div>
+
+<div class="card keep">
+<h3>R11 — In-repo provability <span class="badge keep">KEEP + STRENGTHEN</span></h3>
+<div class="orig"><span class="tag">ORIGINAL</span><br>
+The full adoption/hydration/fallback model is exercisable by integration tests inside
+dagger/dagger with no cloud stack.</div>
+<p class="verdict keep"><span class="tag">VERDICT</span> — Keep, strengthened per lesson
+L2: a curated integration set (the persistence/restart suite plus a deliberately chosen
+affordable set — membership is an open question below) is a <b>standing gate for every
+landed chunk</b>, not a milestone-end event. Legitimate intermediate failures are named,
+temporary, owner-acknowledged exceptions.</p>
+</div>
+
+<div class="card keep">
+<h3>R12 — Sparse, demand-bounded materialization <span class="badge keep">KEEP</span></h3>
+<div class="orig"><span class="tag">ORIGINAL</span><br>
+Materializing a slot moves and creates only what that slot strictly requires: the content
+path touches exactly that slot's chain blobs; the recipe path recurses only into inputs
+the recipe actually reads, itself demand-driven; adoption, viability, and import are
+metadata-only and move zero content. Canonical scenario: a huge tangled DAG culminating in
+one result — a warm run that reads one file hydrates that file's chain and nothing else.</div>
+<p class="verdict keep"><span class="tag">VERDICT</span> — Keep unchanged.</p>
+</div>
+
+<div class="card keep">
+<h3>R13 — Recipes are closed over engine-ambient state <span class="badge keep">KEEP</span></h3>
+<div class="orig"><span class="tag">ORIGINAL</span><br>
+Any engine-local input that shapes a result — native platform, engine secret salt,
+engine/schema version, anything read off server state during planning or resolution — is
+either canonicalized into the recipe or explicitly partitions the cache. Identity that
+silently depends on which engine ran the call fails silently: wrong adoptions or permanent
+misses.</div>
+<p class="verdict keep"><span class="tag">VERDICT</span> — Keep unchanged (the ambient-state
+audit from the previous take remains valid input material for the new architecture part).</p>
+</div>
+
+<div class="card keep">
+<h3>Corollary — Partial local persistence <span class="badge keep">KEEP</span></h3>
+<div class="orig"><span class="tag">ORIGINAL</span><br>
+Local persistent cache stops being all-or-nothing: today any inconsistency wipes the whole
+store; with per-result source state and adoption gating, a result whose snapshot was lost
+falls back to its recipe or is dropped (with its dependents), keeping the rest.</div>
+<p class="verdict keep"><span class="tag">VERDICT</span> — Keep. A user-visible robustness
+win that falls straight out of R1+R2+R5', with zero remote-cache dependency.</p>
+</div>
+
+<h2 id="newreqs">4. New requirements</h2>
+
+<div class="card new">
+<h3>R14 — Startup-only import; the serving-time cache is read-mostly <span class="badge new">NEW</span></h3>
+<p>All bulk ingestion of identity and result metadata — disk restore <em>and</em> remote
+bundle import — completes <b>before the engine serves sessions</b>, under coarse locking
+(these are fast, batched metadata writes; there is no pause-time problem to engineer
+around). While serving, cache state changes only through publication of locally-completed
+work and lazy content arrival on a result's own home (R5'). Continuous / mid-serving
+import is an explicit non-goal for this take; if a future take adds it, it arrives with
+its own explicit quiesce design and may not weaken R15 to do so.</p>
+</div>
+
+<div class="card new">
+<h3>R15 — No new cross-cutting concurrency invariants (the simplicity ratchet) <span class="badge new">NEW</span></h3>
+<p>The design builds on the engine's existing locking and singleflight structure. It must
+not introduce invariants whose enforcement requires classifying or wrapping broad swaths
+of engine code — reader audiences, run-scoped transactions or overlays over shared state,
+multi-lock protocols spanning packages. Working test: <b>if a proposed mechanism requires
+auditing "every reader / every writer / every entry point," it is the wrong mechanism</b> —
+redesign so the property holds at a decision point instead (lookup, publication, import).
+Interchangeability of equivalents is a decision-point policy (pick a winner at lookup),
+never continuous reconciliation of shared mutable state.</p>
+</div>
+
+<div class="card new">
+<h3>R16 — Restart-deterministic lookup identity <span class="badge new">NEW</span></h3>
+<p>The persisted identity index must be sufficient for a restarted (or foreign) engine to
+derive <b>bit-identical lookup keys for identical calls</b>, independent of in-memory
+assignment order, timing, or concurrent load. Any key component derived from
+memory-assigned ordinals (class numbers, allocator IDs, insertion order) either is
+recomputed canonically from persisted digests on load, or never participates in persisted
+identity at all. A warm engine's ability to hit must never depend on <em>when</em> its
+in-memory bookkeeping catches up.</p>
+<p class="pill">Provenance: generalized from the previous take's end-state finding — the
+first engine persisted everything correctly, and warm misses were caused by the second
+engine deriving different keys for identical calls under load. Stated here as a property,
+so the new architecture designs it in rather than debugging it out.</p>
+</div>
+
+<h2 id="nongoals">5. Explicit non-goals (this take)</h2>
+<div class="card drop">
+<h3>Removed from scope <span class="badge drop">NON-GOALS</span></h3>
+<ul>
+  <li><b>Live / continuous import while serving.</b> Superseded by R14. Import happens at
+  startup; later arrivals wait for the next boot (or a future, separately-designed quiesce).</li>
+  <li><b>Content interchangeability as a continuous runtime invariant.</b> Superseded by
+  R15 + R5'. Equivalents are interchangeable <em>at lookup time</em>; nothing moves content
+  between results after the fact.</li>
+  <li><b>Cross-result / cross-class sharing of content state</b> (shared records,
+  fill-if-absent reconciliation, live healing). Redundant content between equivalent
+  results is acceptable and garbage-collectible.</li>
+  <li><b>Run-scoped transactional isolation over cache state</b> (overlays, forks,
+  commit/discard, reader-audience splits). With R5'+R15 there is no mid-run shared state to
+  isolate; runs build private values and publish once.</li>
+</ul>
+</div>
+
+<h2 id="open">6. Open questions for Erik</h2>
+<div class="qs">
+<ol>
+  <li><b>The winner-at-lookup duplicate question.</b> Tolerating redundant content between
+  equivalent results (GC instead of reconciliation) is load-bearing for R15. A prior-take
+  concern was metadata/dedup blow-up in exactly this area. I believe R10 (identity-stable
+  metadata, import→re-export adds zero rows) plus GC bounds it, but I want us to
+  explicitly re-examine that concern against this model before the architecture part —
+  agree?</li>
+  <li><b>Curated integration-gate membership (R11).</b> Persistence/restart suite is the
+  anchor. What else earns a slot — a module-heavy test, a services test, one
+  client/filesync-heavy test? Budget: what's the per-landing wall-clock you're willing to
+  pay?</li>
+  <li><b>Partial local persistence corollary.</b> Keep in scope for the first milestone
+  slice (it forces R2/R5' honesty early), or defer to after the restart proof?</li>
+  <li><b>R7/salt.</b> Still deferred as before (per-engine salt partitions caches), or do
+  you want the cross-engine handle-identity question pulled into this take's scope?</li>
+  <li><b>Anything you want <em>added</em> to the goal itself</b> before we design to it —
+  e.g. is the two-engine remote proof (not just restart) required inside this take, or is
+  restart-warm-hits the bar and remote transport the next take?</li>
+</ol>
+</div>
+
+<div class="foot">
+Source of truth: this page (<code>hack/designs/remote-cache/reset/design.html</code>).
+Prior-take docs (unmodified, for reference): <code>hack/designs/remote-cache/*.md</code> in the
+previous worktree. Lessons: <code>reset/lessons.md</code>. Next part after sign-off:
+architecture (content-home model, persistence/import shape, warm-lookup path), designed
+strictly against the requirements above.
+</div>
+
+</main>
+</body>
+</html>
