@@ -42,22 +42,27 @@ this exist? which requirement does it trace to? what would deleting it cost?**
 Human review time is budgeted for exactly this question — it is the one
 reviewers-of-diffs are structurally worst at.
 
+## L4 — Two inert fix-rounds on one symptom ⇒ stop and re-examine the architecture
+
+Never a third fix round on momentum, no matter how evidence-anchored each
+individual round looks. Repeated falsification of "the enforcement surface is
+now complete" claims is a design smell, not a diligence gap. (Approved on a
+try-it basis — lessons here are a living list and get re-evaluated for
+usefulness.)
+
+## L5 — Weigh decision-point policies against continuous invariants, explicitly
+
+When a property could be enforced either at a few discrete decision points
+(a lookup, a publication, an import) or continuously/intrinsically throughout
+the code, make that choice consciously — it is a subtle trade-off, not a rule.
+Bias toward the decision-point form when it can be done cleanly. But don't
+rule out the continuous form: boring, pattern-following boilerplate everywhere
+is sometimes lower-abstraction and easier to reason about than a choke point
+that accretes cases until it becomes a gnarly state machine. The lesson is to
+*consider the trade-off explicitly*, with a modest bias toward decision
+points — either form chosen by default, without weighing the other, is how the
+wrong one gets picked.
+
 ---
 
-## Proposed — awaiting Erik's approval
-
-- **P1 — Two inert fix-rounds on one symptom ⇒ stop and re-examine the
-  architecture.** Never a third fix round on momentum, no matter how
-  evidence-anchored each individual round looks. Repeated falsification of
-  "the enforcement surface is now complete" claims is a design smell, not a
-  diligence gap.
-- **P2 — Budget anchors in every brief.** Agent work orders carry explicit
-  wall-clock/token checkpoints with a default action of stop-and-escalate.
-  Progress is measured against the goal and the budget, not by artifacts
-  produced per round.
-- **P3 — Prefer decision-point policies over continuous invariants.** When a
-  property can be enforced at a discrete decision point (a lookup, a
-  publication, an import), do that; a design that instead maintains the
-  property continuously across concurrent shared state must justify itself —
-  and any invariant whose enforcement requires auditing "every reader/writer/
-  entry point" is presumptively the wrong mechanism.
+*(Future proposals are discussed with Erik before landing in this file.)*

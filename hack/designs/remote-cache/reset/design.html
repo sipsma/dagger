@@ -78,7 +78,7 @@
 <main>
 
 <h1>Remote Cache — Reset Design</h1>
-<p class="sub">Part I: Requirements Re-scope &nbsp;·&nbsp; v1 for Erik's review &nbsp;·&nbsp; 2026-07-03</p>
+<p class="sub">Part I: Requirements Re-scope &nbsp;·&nbsp; v2 — review round 1 folded in &nbsp;·&nbsp; 2026-07-03</p>
 
 <div class="banner">
 <b>Status: RESET.</b> This page restarts the design from requirements. It carries forward
@@ -116,6 +116,12 @@ The first concrete configuration of that goal is the <b>restart case</b>: one en
 persists to disk, a fresh engine boots on that state and gets warm hits. It is the
 same problem as the remote case with the transport removed, and it is provable entirely
 in-repo (R11).
+</p>
+<p>
+<b>Scope of this take (owner-confirmed):</b> engine changes only. The remote
+service/transport is not part of this batch of work — it stays in the goal statement above
+as the end state everything must remain compatible with, but nothing here designs or
+builds it.
 </p>
 
 <h2 id="shift">2. The one structural shift this re-scope makes</h2>
@@ -351,10 +357,15 @@ was already the right philosophy — the previous take's content layer just didn
 The full adoption/hydration/fallback model is exercisable by integration tests inside
 dagger/dagger with no cloud stack.</div>
 <p class="verdict keep"><span class="tag">VERDICT</span> — Keep, strengthened per lesson
-L2: a curated integration set (the persistence/restart suite plus a deliberately chosen
-affordable set — membership is an open question below) is a <b>standing gate for every
-landed chunk</b>, not a milestone-end event. Legitimate intermediate failures are named,
-temporary, owner-acknowledged exceptions.</p>
+L2: a curated integration set is a <b>standing gate for every landed chunk</b>, not a
+milestone-end event. Legitimate intermediate failures are named, temporary,
+owner-acknowledged exceptions. Anchor membership (per owner review): the
+persistence/restart suite; the cross-session-caching tests (a consistent naming pattern
+across several suites — they exercise tricky caching scenarios including modules); a
+selection of the services tests. Agents may add tests they judge valuable, within reason.
+Budget is deliberately <em>not</em> encoded as a number here: the full gate on the order
+of a quarter-hour is acceptable, focused subsets are what you run while iterating, and the
+owner monitors actual costs — no mechanical timeout to game or trip over.</p>
 </div>
 
 <div class="card keep">
@@ -365,7 +376,20 @@ path touches exactly that slot's chain blobs; the recipe path recurses only into
 the recipe actually reads, itself demand-driven; adoption, viability, and import are
 metadata-only and move zero content. Canonical scenario: a huge tangled DAG culminating in
 one result — a warm run that reads one file hydrates that file's chain and nothing else.</div>
-<p class="verdict keep"><span class="tag">VERDICT</span> — Keep unchanged.</p>
+<p class="verdict keep"><span class="tag">VERDICT</span> — Keep, with one granularity clarification.
+The load-bearing floor of this requirement is: <b>materializing a result must never require
+materializing its dependency DAG</b>. Granularity <em>within</em> a single result is
+deliberately left open: for a multi-output result (e.g. an exec's filesystem + its
+stdout/exit metadata), materializing outputs individually and materializing them together
+are <b>both acceptable</b> — choose whichever is simpler and most cohesive with the system.
+Note the recipe path already materializes all of a result's outputs together (running the
+exec produces everything at once), so insisting on per-output granularity for the content
+path creates an asymmetry between the two paths — don't pay complexity for that symmetry
+break without a strong, stated reason. One design-time consideration to weigh when the
+time comes (not a requirement): very small outputs (exit codes, small streams) may simply
+live in metadata rather than participate in content materialization at all, which sidesteps
+the granularity question for the common "read exit code without pulling a large filesystem"
+case.</p>
 </div>
 
 <div class="card keep">
@@ -405,29 +429,40 @@ its own explicit quiesce design and may not weaken R15 to do so.</p>
 
 <div class="card new">
 <h3>R15 — No new cross-cutting concurrency invariants (the simplicity ratchet) <span class="badge new">NEW</span></h3>
-<p>The design builds on the engine's existing locking and singleflight structure. It must
-not introduce invariants whose enforcement requires classifying or wrapping broad swaths
-of engine code — reader audiences, run-scoped transactions or overlays over shared state,
-multi-lock protocols spanning packages. Working test: <b>if a proposed mechanism requires
-auditing "every reader / every writer / every entry point," it is the wrong mechanism</b> —
-redesign so the property holds at a decision point instead (lookup, publication, import).
-Interchangeability of equivalents is a decision-point policy (pick a winner at lookup),
-never continuous reconciliation of shared mutable state.</p>
+<p>The design builds on the engine's existing locking and singleflight structure, and this
+document is the source of truth for its concurrency model. The strong default: no new
+<em>cross-cutting</em> concurrency invariants — reader-audience classifications, run-scoped
+transactions or overlays over shared state, multi-lock protocols spanning packages.
+Working test: <b>if a proposed mechanism requires auditing "every reader / every writer /
+every entry point" to be correct, treat that as a tripwire</b> — stop, escalate, and
+discuss before building.</p>
+<p>Two clarifications so this constraint cuts where intended. First, it does <em>not</em>
+forbid ordinary, contained engineering: adding a mutex around a data structure, a
+singleflight on a call path, or similar locally-reasoned synchronization is normal work,
+not an exception to this requirement. Second, this is a design constraint, not a taboo:
+if a cross-cutting mechanism ever appears genuinely necessary, the path is to make the
+case, get explicit agreement, and write it into this design <em>before</em> implementation
+— necessity and agreement are both required, and any such proposal should be treated with
+the utmost suspicion precisely because this class of mechanism is where the previous
+attempt's complexity came from. Interchangeability of equivalents, specifically, is a
+decision-point policy (pick a winner at lookup), never continuous reconciliation of shared
+mutable state.</p>
 </div>
 
-<div class="card new">
-<h3>R16 — Restart-deterministic lookup identity <span class="badge new">NEW</span></h3>
-<p>The persisted identity index must be sufficient for a restarted (or foreign) engine to
-derive <b>bit-identical lookup keys for identical calls</b>, independent of in-memory
-assignment order, timing, or concurrent load. Any key component derived from
-memory-assigned ordinals (class numbers, allocator IDs, insertion order) either is
-recomputed canonically from persisted digests on load, or never participates in persisted
-identity at all. A warm engine's ability to hit must never depend on <em>when</em> its
-in-memory bookkeeping catches up.</p>
-<p class="pill">Provenance: generalized from the previous take's end-state finding — the
-first engine persisted everything correctly, and warm misses were caused by the second
-engine deriving different keys for identical calls under load. Stated here as a property,
-so the new architecture designs it in rather than debugging it out.</p>
+<div class="card modify">
+<h3>R16 — Restart-deterministic lookup identity <span class="badge modify">UNDER DISCUSSION</span></h3>
+<p><b>Proposed property:</b> warm lookup keys are a pure function of persisted,
+content-addressed identity — a restarted (or foreign) engine derives identical keys for
+identical calls regardless of in-memory assignment order, timing, or concurrent load. Any
+key component derived from memory-assigned ordinals (class numbers, allocator IDs,
+insertion order) is either recomputed canonically from persisted digests on load or never
+participates in persisted identity at all.</p>
+<p class="pill">Status: NOT yet ratified. The empirical observation motivating it comes
+from the previous take's final instrumented runs and was characterized but never
+root-caused — and it was observed on an engine carrying since-abandoned machinery with
+known co-resident bugs, so it needs owner review before it becomes a requirement.
+Evidence and confidence assessment under discussion with Erik; this card will be
+ratified, reworded, or removed based on that.</p>
 </div>
 
 <h2 id="nongoals">5. Explicit non-goals (this take)</h2>
@@ -448,27 +483,25 @@ so the new architecture designs it in rather than debugging it out.</p>
 </ul>
 </div>
 
-<h2 id="open">6. Open questions for Erik</h2>
+<h2 id="open">6. Review log — round 1 (2026-07-03) resolutions</h2>
 <div class="qs">
 <ol>
-  <li><b>The winner-at-lookup duplicate question.</b> Tolerating redundant content between
-  equivalent results (GC instead of reconciliation) is load-bearing for R15. A prior-take
-  concern was metadata/dedup blow-up in exactly this area. I believe R10 (identity-stable
-  metadata, import→re-export adds zero rows) plus GC bounds it, but I want us to
-  explicitly re-examine that concern against this model before the architecture part —
-  agree?</li>
-  <li><b>Curated integration-gate membership (R11).</b> Persistence/restart suite is the
-  anchor. What else earns a slot — a module-heavy test, a services test, one
-  client/filesync-heavy test? Budget: what's the per-landing wall-clock you're willing to
-  pay?</li>
-  <li><b>Partial local persistence corollary.</b> Keep in scope for the first milestone
-  slice (it forces R2/R5' honesty early), or defer to after the restart proof?</li>
-  <li><b>R7/salt.</b> Still deferred as before (per-engine salt partitions caches), or do
-  you want the cross-engine handle-identity question pulled into this take's scope?</li>
-  <li><b>Anything you want <em>added</em> to the goal itself</b> before we design to it —
-  e.g. is the two-engine remote proof (not just restart) required inside this take, or is
-  restart-warm-hits the bar and remote transport the next take?</li>
+  <li><b>Winner-at-lookup duplicates / metadata growth — RESOLVED (direction).</b> Owner
+  agrees: the metadata-growth concern must be explicitly re-examined, and the answer must
+  satisfy <b>R10 and R15 simultaneously</b> — no metadata blow-up, and no return of
+  content-sharing complexity to prevent it. The architecture part must therefore include
+  an explicit metadata-growth model demonstrating both.</li>
+  <li><b>Integration-gate membership — RESOLVED.</b> Folded into R11: persistence/restart
+  suite + cross-session-caching tests + selected services tests as anchors; agent
+  discretion to add within reason; budget deliberately non-prescriptive (owner monitors).</li>
+  <li><b>Partial local persistence — RESOLVED: in scope.</b> Sequencing within the take
+  (before vs after the first restart proof) is left to the architecture/plan part.</li>
+  <li><b>R7 / secret salt — RESOLVED: deferred</b>, tracked, unchanged.</li>
+  <li><b>Goal scope — RESOLVED: engine-only for this take.</b> Remote service/transport
+  remains in the goal statement as context, out of this batch's scope (now stated in §1).</li>
 </ol>
+<p><b>Still open:</b> R16 ratification (evidence review with owner in progress — see the
+R16 card).</p>
 </div>
 
 <div class="foot">
