@@ -1055,7 +1055,7 @@ already uses to build values — then returns. One contained change in
 <code>core/lazy_state.go</code> plus a small per-type fill hook; no new locks, no
 cross-result state (the fill reads the caller's own result). Implementation adds a
 deterministic pin for the clone-before-realize case; if it reproduces on unmodified main,
-this doubles as a latent-bug fix and the pin is the regression test.</b></p>
+this doubles as a latent-bug fix and the pin is the regression test.</p>
 </div>
 
 
