@@ -148,7 +148,7 @@
 <main>
 
 <h1>Remote Cache — Design</h1>
-<p class="sub">v16 &nbsp;·&nbsp; A2–A4, A6–A9 ratified &amp; folded &nbsp;·&nbsp; A1 + A5 (purple, rewritten) awaiting owner review &nbsp;·&nbsp; 2026-07-03</p>
+<p class="sub">v17 &nbsp;·&nbsp; all amendments ratified &amp; folded &nbsp;·&nbsp; pre-implementation finalization pass pending &nbsp;·&nbsp; 2026-07-03</p>
 
 <div class="banner">
 <b>Status.</b> The living design doc for the remote-cache engine work. Part I
@@ -157,9 +157,7 @@ design proper — architecture, implementation detail, and validation gates
 <em>together</em> — through the definition of done (§10). Shelved material lives at the
 bottom, clearly demarcated: kept for reference, explicitly not part of the design.
 Archived docs from earlier efforts sit one directory up — reference only, not inputs to
-this design. <b>Two proposed amendments (purple boxes: A1, A5 — rewritten for clarity in round 12)
-await owner review; the other seven from round 11 are ratified and folded into the
-normative text.</b>
+this design. <b>All review-round amendments are ratified and folded into the normative text.</b>
 </div>
 <div class="controls">
 <button type="button" onclick="setAll(true)">expand all sections</button>
@@ -636,6 +634,15 @@ decided in Part II.</p>
   Separately, the term "capability" was purged from all normative text (R5, §7's gap
   table and D3) in favor of plain language ("the result's content, or the way to re-make
   it") — flagged by the owner as opaque.</li>
+  <li><b>Round 13 (2026-07-04).</b> <b>A5 ratified</b> explicitly; <b>A1 folded</b> under
+  the standing tacit-agreement rule after the owner confirmed the rewrite was fully
+  comprehensible (flag to reopen). Both folded forward-stated: §7 D3 now specifies the
+  GetOrEval read-through as mechanism (with the core/lazy_state.go file-plan row and the
+  reproduce-on-main pin); §8 D1 now specifies capture-at-publication for the both-forms
+  rule (with the publication file-plan row). Owner also set the standing writing bar for
+  all human-facing artifacts: the A1-rewrite style — story first, real code annotated
+  inline, no undefined shorthand, each unit readable on its own without dropping technical
+  depth.</li>
 </ol>
 </div>
 </details>
@@ -1014,10 +1021,16 @@ taxonomy, iteration) belong to the warm-lookup section, with the model fixed her
 
 <h4>D3 — The surgery rule: accessors are caches, the sharedResult is truth</h4>
 <p>The rule that retires the stranded-content disease, stated once: <b>nothing a value struct holds is
-ever the only copy of a result's content, or of the way to re-make it.</b> An accessor may hold a realized ref
-(fast path); it may be empty (recoverable — get-or-compute already routes through the
-owning value to the sharedResult's lazy path); and persistence <b>encodes from the
-sharedResult</b>, never by harvesting value structs. The micro-example that used to go wrong:</p>
+ever the only copy of a result's content, or of the way to re-make it.</b> An accessor may hold a realized
+value (fast path). It may be empty — in which case <code>GetOrEval</code> <b>reads
+through</b>: when <code>Evaluate</code> reports the result already computed but this
+accessor is still empty (a clone copied before realization — today this path hard-errors,
+core/lazy_state.go:98), it fills itself from the result's canonical, already-computed
+value — the same type-directed fill decode uses — and returns it. One focused change in
+<code>core/lazy_state.go</code> plus a small per-type hook so each accessor knows which
+field of the canonical value it mirrors; no new locks — a result reading its own finished
+value. And persistence <b>encodes from the sharedResult</b>, never by harvesting value
+structs. The micro-example that used to go wrong:</p>
 <ol class="mini">
 <li><b>t₀</b> — a restored result is unrealized; its envelope + sources sit on its sharedResult.</li>
 <li><b>t₁</b> — a schema handler clones the value; the clone's accessor is a copy — empty.</li>
@@ -1027,58 +1040,12 @@ copy has lost its path to it.
 <b>Design:</b> the clone's absence resolves through the sharedResult like anyone else's;
 the copy was only ever a cache miss.</li>
 </ol>
-<p class="pill">Deliberately <em>not</em> done: re-pointing accessors into the sharedResult
-(a plumbing change through core/ with no demonstrated need), replacing
-<code>LazyAccessor</code>, or any cross-result sharing. Smallest change that satisfies R5.</p>
+<p class="pill">Deliberately <em>not</em> done: re-pointing accessors into the sharedResult,
+replacing <code>LazyAccessor</code> wholesale, or any cross-result sharing. The
+read-through above is the one <code>core/</code> change this section makes — the smallest
+that satisfies R5.</p>
 
-<div class="amend"><span class="atag">PROPOSED AMENDMENT A1 — clones with empty accessors: the fix D3 actually needs <span style="font-weight:400">· awaiting owner review · rewritten for clarity (round 12)</span></span>
-<p><b>The problem, as a story.</b> Directory, File, and Container keep their expensive
-pieces — a snapshot ref, a subpath — in accessors: one-field, compute-once holders (§7's
-terminology key). Schema handlers clone these value structs constantly, and some clone
-helpers copy the accessor object itself. Now run the clock:</p>
-<ol class="mini">
-<li><b>t₀</b> — a result exists whose value hasn't computed yet (restored from disk, or
-simply lazy). Its accessors are empty.</li>
-<li><b>t₁</b> — a handler clones the value. The clone gets a <b>copy</b> of the empty
-accessor — a separate object.</li>
-<li><b>t₂</b> — someone uses the <em>original</em>: the recipe runs (once per result,
-ever), fills the <em>original's</em> accessor, and the result is marked complete.</li>
-<li><b>t₃</b> — someone uses the <em>clone</em>. Here is the actual code that runs:</li>
-</ol>
-<pre><code>func (a *LazyAccessor[V, T]) GetOrEval(ctx context.Context, res dagql.Result[T]) (V, error) {
-	...
-	err = c.Evaluate(ctx, res)   <span class="cm">// "compute this result" — but it already computed at t₂,</span>
-	                             <span class="cm">// so this returns immediately, touching nothing</span>
-	...
-	if !a.isSet {                <span class="cm">// …and THIS clone's accessor was never filled</span>
-		return zero, fmt.Errorf("lazy accessor value not set after evaluation")  <span class="cm">// ← hard error</span>
-	}
-	return a.value, nil
-}
-</code></pre>
-<span class="src">core/lazy_state.go:83–103 (trimmed)</span>
-<p>The value exists — it is sitting in the <em>original's</em> accessor — but the clone
-has no path to it, and the call fails with that error. This directly contradicts D3's
-sentence "absence is always recoverable through the sharedResult" (the routing exists;
-the recovery doesn't), and it disproves the pill's "no <code>core/</code> changes" claim.</p>
-<div class="finding"><span class="ftag">WHY THIS MATTERS BEYOND THE DESIGN</span><br>
-Nothing in t₀–t₃ requires anything from this design — main can do this today (e.g.
-<code>CloneContainerMetaSnapshot</code> copies the accessor object,
-core/container.go:906). This is a suspected <b>existing latent bug</b> the review surfaced
-while checking our claim.</div>
-<p><b>Proposed change.</b> Give <code>GetOrEval</code> a recovery step instead of the
-error: when <code>Evaluate</code> reports "already computed" but <em>this</em> accessor is
-still empty, fetch the value from where it actually lives — the result's canonical,
-already-computed value (the one filled at t₂) — copy it into this accessor, and return
-it. Concretely: one focused change in <code>core/lazy_state.go</code> (the error branch
-becomes this read-through) plus a small per-type hook so each accessor knows which field
-of the canonical value it mirrors. No new locks — this is a result reading its own
-finished value. Doc changes if ratified: D3's recoverability sentence becomes
-true-by-mechanism instead of aspirational; the "no core/ changes" pill is corrected; the
-§7 file plan gains a <code>core/lazy_state.go</code> row. Implementation starts with a
-test that tries to reproduce t₀–t₃ on unmodified main; if it reproduces, this fix is also
-a bugfix and that test is its regression pin.</p>
-</div>
+
 
 
 <div class="verdict"><span class="vtag">ANSWER — §6 OPEN QUESTION 2</span><br>
@@ -1196,8 +1163,13 @@ consults).</td></tr>
 <td>Model-level unit tests: fall-through order; zero-viable-sources refusal (R2);
 write-point legality (only publication / own-result realization / import / flush-read
 may touch the state).</td></tr>
-<tr><td colspan="3" class="pill">No <code>core/</code> changes in this section — value
-structs and accessors untouched.</td></tr>
+<tr><td><code>core/lazy_state.go</code></td><td><span class="chip modf">MOD</span></td>
+<td><code>GetOrEval</code>'s empty-after-Evaluate branch becomes the read-through (+ a
+small per-type fill hook). Implementation starts with a pin reproducing
+clone-copied-before-realize on unmodified main; if it reproduces, the read-through is also
+a latent-bug fix and the pin is its regression test.</td></tr>
+<tr><td colspan="3" class="pill">Value structs and their fields are otherwise untouched —
+the read-through is the only <code>core/</code> change.</td></tr>
 </table>
 
 <p><b>Observability for this section</b> (process tooling, per §5): the existing debug
@@ -1356,12 +1328,22 @@ value structs and asks them what refs they hold (Fact 3). In this design it copi
 from the result's <code>materializationState.sources</code> — the per-result record §7
 introduced — and never consults value structs at flush. Same rows on disk; an honest
 in-memory source for them.</p>
-<p><b>The one real encode delta: record both forms when both exist.</b> Today's encoder
-picks <em>one</em> form — snapshot if the value has one, else lazy
-(core/directory.go:225: the snapshot branch returns early). R1 wants "both when possible":
-a value that has a snapshot <em>and</em> a lazy form should persist both, so losing the
-snapshot later still leaves a path. That is the whole change — a small encode adjustment,
-no new schema.</p>
+<p><b>The one real encode delta: record both forms when both exist — captured at
+publication.</b> Today's encoder picks <em>one</em> form — snapshot if the value has one,
+else lazy (core/directory.go:225: the snapshot branch returns early) — and by flush time
+the choice is forced anyway, because realization deliberately destroys the recipe the
+moment it finishes running: the value drops its recipe object (core/directory.go:126–139)
+and the cache drops <code>shared.lazyEval</code> (dagql/cache.go:3015) — good behavior,
+since the recipe holds references to input results that should release. So R1's "both
+when possible" is implemented at the only moment both are guaranteed to exist:
+<b>publication</b>. When a value carrying a recipe publishes, its recipe fragment is
+serialized right then — the same <code>LazyKind</code>/<code>LazyJSON</code> encoding
+flush uses, its input-result references resolving because those results are attached at
+that moment — and stashed on <code>materializationState</code>. Realization clearing
+stays exactly as it is; the stashed payload survives on the sharedResult; flush writes
+snapshot + stashed recipe; decoders accept an envelope carrying both (today they assume
+exactly one, e.g. core/file.go:284/291 — covered by this take's
+<code>schema_version</code> bump). No new schema tables.</p>
 <p><b>And nothing needs a "retainability" concept.</b> Whether a result can be recomputed
 falls out of what its payload factually is: a value with no in-engine lazy form simply
 encodes without one. The canonical example: <code>host.directory(…)</code> results — the
@@ -1378,55 +1360,7 @@ viability at restore is just "does the payload have something usable" — D2's j
 per-result encoding minus the engine-local rows (no integer keys, no refKeys — R3/R4),
 which the next decision makes possible.</p>
 
-<div class="amend"><span class="atag">PROPOSED AMENDMENT A5 — "persist both forms" must capture the recipe at publication, because realization destroys it <span style="font-weight:400">· awaiting owner review · rewritten for clarity (round 12)</span></span>
-<p><b>What D1 promised.</b> When a value has <em>both</em> a snapshot and a lazy recipe,
-persist both (R1's "both when possible") — so if the snapshot is lost later, the recipe
-path still exists. D1 called that "a small encode adjustment" at flush time. It cannot be
-done at flush time at all, and here is why.</p>
-<p><b>The engine deliberately throws the recipe away the moment it finishes running.</b>
-Two places, both on the success path:</p>
-<pre><code><span class="cm">// core/directory.go:126–139 — the value side, right after the recipe succeeds:</span>
-lazy := dir.Lazy
-...
-if dir.Lazy == lazy {
-	dir.Lazy = nil         <span class="cm">// ← the recipe object is dropped from the value</span>
-}
 
-<span class="cm">// dagql/cache.go:3015–3018 — the cache side, at the same moment:</span>
-if err == nil {
-	shared.lazyEvalComplete = true
-	shared.lazyEval = nil  <span class="cm">// ← …and from the result row</span>
-}
-</code></pre>
-<p>That clearing is good behavior — the recipe object holds references to its input
-results, and dropping it lets them release. But it fixes the timeline:</p>
-<ol class="mini">
-<li><b>publish</b> — the value is created; the recipe is present. <em>This is the only
-moment both are guaranteed to exist.</em></li>
-<li><b>first use / realize</b> — the recipe runs; the snapshot now exists; <b>the recipe
-object is destroyed</b> (the code above).</li>
-<li><b>shutdown flush</b> — only the snapshot is left in memory. "Persist both" has
-nothing left to persist.</li>
-</ol>
-<p>(The decoders hold the mirror-image assumption — a persisted payload is <em>either</em>
-snapshot-form <em>or</em> lazy-form, e.g. the switch at core/file.go:284/291 — so an
-envelope carrying both is also a small format change on the read side.)</p>
-<p><b>Proposed change.</b> Capture the recipe at <b>publication</b> (step 1 — a §7 write
-point that already exists): when a value carrying a recipe publishes, serialize the recipe
-fragment right then — the same <code>LazyKind</code>/<code>LazyJSON</code> encoding flush
-uses today, and its input-result references resolve because those results are attached at
-that moment — and stash that JSON on the result's <code>materializationState</code>. The
-live recipe object is still destroyed at realization exactly as today (release behavior
-unchanged); the stashed JSON survives on the sharedResult; flush writes snapshot + stashed
-recipe; decoders learn to accept an envelope carrying both (covered by the
-<code>schema_version</code> bump this take already requires). Doc change if ratified:
-D1's "small encode adjustment" sentence is replaced by this capture-at-publication rule.</p>
-<p class="pill">This is also the concrete answer to the reviewer's "shrink
-materializationState to an augmentation" suggestion: the sharedResult's record is the one
-object whose lifetime covers both sides — it outlives the recipe (destroyed at
-realization) and any particular value struct (cloned and discarded freely). That lifetime
-is why the consolidation exists.</p>
-</div>
 
 
 <div class="verdict"><span class="vtag">DECISION — R16 BECOMES DESIGN</span><br>
@@ -1656,9 +1590,12 @@ for _, res := range restoredResultsTopoOrder {
 <td>Class rebuild from digests + term-key recomputation (D1); dependencies-first vetting
 with drop-with-dependents (D2); <code>import_failure</code> no longer a reset reason.</td></tr>
 <tr><td><code>dagql/cache_persistence_self.go</code></td><td><span class="chip modf">MOD</span></td>
-<td>Encode reads <code>materializationState</code>; records BOTH forms when both exist
-(today: snapshot else lazy, exclusive); <code>snapshotOwnerLinksFromTyped</code>
-harvesting retired.</td></tr>
+<td>Encode reads <code>materializationState</code>; records BOTH forms when both exist,
+the recipe fragment having been captured at publication (D1);
+<code>snapshotOwnerLinksFromTyped</code> harvesting retired.</td></tr>
+<tr><td><code>dagql/cache.go</code></td><td><span class="chip modf">MOD</span></td>
+<td>Publication captures the recipe fragment onto <code>materializationState</code>
+(D1's both-forms rule).</td></tr>
 <tr><td><code>dagql/cache_persistence_worker.go</code></td><td><span class="chip modf">MOD</span></td>
 <td>Flush writes R10 self-check counts alongside the markers.</td></tr>
 <tr><td><code>engine/server/server.go</code></td><td><span class="chip modf">MOD</span></td>
