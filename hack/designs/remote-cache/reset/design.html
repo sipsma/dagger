@@ -108,7 +108,7 @@
 <main>
 
 <h1>Remote Cache — Design</h1>
-<p class="sub">v8 &nbsp;·&nbsp; Requirements + target shape: ratified &nbsp;·&nbsp; §7 content home + §8 persistence: drafts for review &nbsp;·&nbsp; 2026-07-03</p>
+<p class="sub">v9 &nbsp;·&nbsp; Requirements + target shape: ratified &nbsp;·&nbsp; §7 + §8: drafts, review round in progress &nbsp;·&nbsp; 2026-07-03</p>
 
 <div class="banner">
 <b>Status.</b> This is the living design doc for the remote-cache engine work, restarted
@@ -526,6 +526,16 @@ decided in Part II.</p>
   <code>materializationState</code>, ordered retained sources with the reserved
   content-chain seam, and the surgery rule demoting the value structs' accessors to
   realization caches.</li>
+  <li><b>Round 5 (2026-07-03), §8 review.</b> Owner rulings folded in: the persisted
+  <code>term_digest</code> column is <b>removed</b>, not "kept as a diagnostic" —
+  ownership means cleaning up what a change obsoletes, never leaving cruft for a future
+  reader (generalized as a proposed lesson). "Not retainable" made concrete in D1
+  (<code>host.directory</code>-class calls: identity persists, re-execution needs the
+  client — snapshot-only results). The while-serving behavior is stated plainly as
+  unchanged-from-main (prior-take asides removed from design prose). The R16 determinism
+  test gained an escalation caveat (legitimate nondeterminism ⇒ stop and discuss, never
+  contort). Every section's validation gate now opens with an explicit Step 0 naming the
+  integration suites to run.</li>
 </ol>
 </div>
 </details>
@@ -1035,9 +1045,14 @@ snapshot gains per-result <code>{sources, realized}</code> — the inspection su
 later section's proof leans on. Nothing more yet.</p>
 
 <h3>7.5 &nbsp;Validation gate</h3>
+<p><b>Step 0 — the existing integration suites, run explicitly, all green (R11; every
+landing in this section):</b> the cache persistence tests (<code>TestCachePersistence</code>,
+including the full disk-persistence-across-restart suite), the cross-session caching tests
+(the CrossSession-pattern tests across suites, including their module coverage), and the
+selected services tests. Any legitimately-expected failure must be a named,
+owner-acknowledged exception <em>in advance</em> — none are expected in this section.</p>
 <ul>
-<li><b>P-7.1</b> — the R11 gate (persistence/restart suite, cross-session-caching tests,
-selected services tests) green with <b>no behavior change</b>: this section is
+<li><b>P-7.1</b> — Step 0 green with <b>no behavior change</b>: this section is
 consolidation; fallback-on-lost-snapshot and partial restore deliberately do <em>not</em>
 land here.</li>
 <li><b>P-7.2</b> — the model-level unit tests green under <code>-race</code>.</li>
@@ -1049,8 +1064,8 @@ test probe, not by eyeball.</li>
 
 <details class="fold" id="persist" open><summary><h2>8. Persistence: encoding, flush, and restore <span class="pill">(draft, under discussion)</span></h2></summary>
 
-<p><b>The idea in three sentences.</b> What hits disk is each sharedResult's home (§7),
-written in the one portable encoding — and it mostly already does: main persists every
+<p><b>The idea in three sentences.</b> What hits disk is each result's
+<code>materializationState</code> (§7), written in the one portable encoding — and it mostly already does: main persists every
 result's recipe and its snapshot links today, so §7's source list needs vetting logic,
 not new schema. What must change is <em>identity</em>: today's persisted lookup keys hash
 in-memory integer class IDs, which is exactly the accident R16 forbids — so keys become
@@ -1068,13 +1083,14 @@ lookup index; <b>result_snapshot_links</b> are a result's local snapshot refKeys
 <div class="decide"><span class="dtag">ON THE TABLE — WHAT THIS SECTION ASKS YOU TO RATIFY</span>
 <ol style="margin:4px 0 2px">
 <li><b>R16's implementation:</b> lookup keys become process-local — recomputed from
-persisted digests at boot; the persisted <code>term_digest</code> column is demoted to a
-diagnostic. Integer IDs stay in the file as ordinary foreign keys, never as identity.</li>
+persisted digests at boot. The persisted <code>term_digest</code> column is <b>removed</b>
+(schema_version bump). Integer IDs stay in the file as ordinary foreign keys, never as
+identity.</li>
 <li><b>Restore becomes per-result vetting</b> with drop-with-dependents; the wholesale
 wipe survives only for <code>schema_mismatch</code> and <code>unclean_shutdown</code>.
 This is where the partial-persistence corollary lands.</li>
-<li><b>Encode reads the home:</b> flush serializes from
-<code>materializationState</code>, retiring the harvest-refs-from-value-structs pattern.</li>
+<li><b>Flush stops walking value structs:</b> each result serializes from its
+<code>materializationState</code> (§7) instead.</li>
 <li><b>R10's self-check metric</b> lands at flush (measured, not assumed).</li>
 </ol>
 </div>
@@ -1138,30 +1154,52 @@ what R16 names as the bug ("timing-dependent cache partitioning"). The classes'
 <em>digests</em> are persisted (<code>eq_class_digests</code>); the integer numbering is
 the only non-portable ingredient.</p>
 
-<p><b>Fact 3 — flush and import are wholesale.</b> Flush runs at clean shutdown
-(<code>persistCurrentState</code> → <code>snapshotPersistState</code> →
-<code>applyPersistStateSnapshot</code>, dagql/cache_persistence_worker.go:14–267), writing
-the <code>clean_shutdown</code> and <code>schema_version</code> markers. Import loads
-every table in one pass (<code>importPersistedState</code>,
-cache_persistence_import.go:15) — and per §7's Fact 3, <em>any</em> failure anywhere wipes
-the entire store. Snapshot references are encoded by harvesting them back out of value
-structs (<code>snapshotOwnerLinksFromTyped</code>, cache_persistence_self.go:390) — the
-pattern §7's surgery rule retires.</p>
+<p><b>Fact 3 — flush and import are each one big all-or-nothing pass.</b></p>
+<p><b>At shutdown:</b> the engine snapshots everything worth keeping, writes it in one
+transaction, and sets the two markers (<code>clean_shutdown</code>,
+<code>schema_version</code>). One detail matters for this design: to find a result's
+snapshot refs, the encoder <em>walks the value structs</em> — it asks a Directory or
+Container which refs it currently holds, because there is no other record of them. §7's
+surgery rule already declared that pattern unsound; this section is where it actually gets
+replaced.</p>
+<span class="src">flush: persistCurrentState → snapshotPersistState → applyPersistStateSnapshot,
+dagql/cache_persistence_worker.go:14–267 · the value-struct walk: snapshotOwnerLinksFromTyped,
+cache_persistence_self.go:390</span>
+<p><b>At boot:</b> import reads every table in one pass and builds the in-memory state
+from it. There is no per-result error handling: if anything fails to load — one bad row is
+enough — the entire store is wiped and the engine starts cold (§7, Fact 3).</p>
+<span class="src">importPersistedState, dagql/cache_persistence_import.go:15</span>
 
 <h3>8.2 &nbsp;Design</h3>
 
-<h4>D1 — The encoding: the home, serialized; almost no schema delta</h4>
-<p>Flush writes each sharedResult's <code>materializationState</code> using the tables
-above as-is: the envelope into <code>self_payload</code>, the local-snapshot source into
-<code>result_snapshot_links</code>, the recipe source implicitly as
-<code>call_frame_json</code> (a result whose recipe is not retainable — R1's legitimate
-exceptions — is marked so in its envelope rather than by a schema change). The encode path
-<b>reads the home</b>: <code>encodePersistedResultEnvelope</code> takes its snapshot links
-from <code>materializationState.sources</code> instead of harvesting value structs — the
-value struct is no longer consulted at flush at all. One encoding serves local persistence
-now and bundles later (R9): a bundle is the same result encoding <em>minus</em> the
-engine-local tables (no integer-keyed rows, no refKeys — R3/R4), which the next decision
-makes possible.</p>
+<h4>D1 — What flush writes, and where it gets it</h4>
+<p>Per result, flush writes exactly what today's tables already hold:</p>
+<ul>
+<li>the <b>value</b> → the envelope, into <code>results.self_payload</code>;</li>
+<li>the <b>local-snapshot source</b> → its refKeys, into
+<code>result_snapshot_links</code>;</li>
+<li>the <b>recipe source</b> → nothing new at all: the call is already persisted as
+<code>results.call_frame_json</code>.</li>
+</ul>
+<p>What changes is <em>where the encoder gets the snapshot refs</em>. Today it walks the
+value structs and asks them what refs they hold (Fact 3). In this design it copies them
+from the result's <code>materializationState.sources</code> — the per-result record §7
+introduced — and never consults value structs at flush. Same rows on disk; an honest
+in-memory source for them.</p>
+<p><b>"Not retainable," made concrete.</b> R1 says every result keeps at least one
+retained path, "both when possible — some recipes are legitimately not retainable." What
+that means: a recipe is <b>retainable</b> when a later boot could re-execute it without
+the original client session. Most recipes qualify. The canonical exception is
+<code>host.directory(…)</code> and its relatives: the persisted call says "upload this
+path from the connected client's machine" — perfectly good <em>identity</em>, but
+re-executing it requires that client to be attached, which a later boot cannot assume.
+Results of such calls are <b>snapshot-only</b>: their single retained path is the local
+snapshot, recorded as such in the envelope (no schema change needed). The vetting
+consequence lands in D2: a snapshot-only result whose snapshot was pruned has zero viable
+sources and is dropped — honestly, per R2.</p>
+<p>One encoding serves local persistence now and bundles later (R9): a bundle is this same
+per-result encoding minus the engine-local rows (no integer keys, no refKeys — R3/R4),
+which the next decision makes possible.</p>
 
 <div class="verdict"><span class="vtag">DECISION — R16 BECOMES DESIGN</span><br>
 <b>Lookup keys are process-local. Persisted identity is digests, full stop.</b>
@@ -1175,17 +1213,18 @@ ordinary foreign keys stitching rows together, never as identity.</li>
 <code>calcEgraphTermDigest</code>. Whether the IDs match the file's is irrelevant by
 construction — the only consistency that matters is between what import built and what a
 lookup computes, and both now happen in the same process from the same map. The persisted
-<code>term_digest</code> column stops being read on the load-bearing path (kept as a
-diagnostic; dropping it outright is a schema-version decision we don't need to make
-now).</li>
-<li><b>While serving:</b> a new value's content digest is associated with an existing
-class <em>synchronously at publication</em>, under the cache's lock — which is what main's
-<code>teachResultIdentityLocked</code> already does. No deferred teaching, no
-catch-up window for a lookup to race (the previous take's observed divergence shape is
-structurally absent).</li>
+<code>term_digest</code> column is <b>removed</b> — a column nothing authoritative reads
+is cruft, and leaving it around invites someone to read it again. <code>schema_version</code>
+bumps; existing stores wipe on upgrade, the sanctioned cost of a format change.</li>
+<li><b>While serving — unchanged from main:</b> a new value's content digest is
+associated with its class synchronously at publication, under the cache's lock
+(<code>teachResultIdentityLocked</code>). This design changes nothing there.</li>
 <li><b>The property test (R16 is "cheaply testable"):</b> boot the same store twice,
 derive all keys both times, require identical hit behavior for identical calls — a
-determinism unit test, plus the restart suite as the integration check.</li>
+determinism unit test, plus the restart suite as the integration check. <em>Standing
+caveat (owner-ruled): if this test ever trips on what looks like legitimate
+nondeterminism, stop and escalate for discussion — assess real-defect vs benign source and
+decide deliberately; do not contort the design to satisfy the test.</em></li>
 <li><b>Bundle compatibility for free:</b> since nothing authoritative depends on file-local
 integers, a future bundle carries digests and frames only, and import treats it exactly
 like a second digest source — no parallel identity scheme (R9).</li>
@@ -1264,7 +1303,8 @@ recipes, or decode envelopes (beyond structural validation) — boot stays metad
 
 <h4>D3 — Flush: unchanged cadence, honest reads</h4>
 <p>Flush stays a clean-shutdown snapshot (R14's read-mostly serving window doesn't change),
-with two differences: it reads homes (D1), and it writes the R10 self-check alongside the
+with two differences: it builds each result's rows from
+<code>materializationState</code> (D1), and it writes the R10 self-check alongside the
 markers — per-boot counts <code>{results_total, results_executed_this_boot,
 results_imported}</code> into <code>meta</code> and the debug snapshot. The R10 assertion
 ("import → re-export adds zero rows") becomes a test that boots a store, flushes it
@@ -1308,7 +1348,7 @@ for _, term := range restoredTerms {
 	inputIDs := classIDsForRestoredInputs(term)   <span class="cm">// via eq_class_digests → this boot's classes</span>
 	indexTerm(term.selfDigest, inputIDs)          <span class="cm">// key = calcEgraphTermDigest(self, inputIDs)</span>
 }
-<span class="cm">// persisted term_digest column: not consulted (diagnostic only)</span>
+<span class="cm">// terms.term_digest no longer exists in the schema — keys are computed, never read</span>
 
 <span class="cm">// (2) Vetting, dependencies-first; drops cascade to dependents.</span>
 for _, res := range restoredResultsTopoOrder {
@@ -1335,8 +1375,8 @@ harvesting retired.</td></tr>
 <tr><td><code>engine/server/server.go</code></td><td><span class="chip modf">MOD</span></td>
 <td><code>initLocalCacheState</code> reset loop narrowed to the two store-level reasons.</td></tr>
 <tr><td><code>dagql/persistdb/schema.sql</code></td><td><span class="chip modf">MOD</span></td>
-<td>Minimal: no new tables for sources (Fact 1); <code>meta</code> gains the R10 count
-keys. <code>term_digest</code> column retained as diagnostic.</td></tr>
+<td>No new tables for sources (Fact 1); <code>meta</code> gains the R10 count keys;
+<code>terms.term_digest</code> column <b>removed</b> (schema_version bump).</td></tr>
 <tr><td><code>dagql/cache_persistence_import_test.go</code></td><td><span class="chip modf">MOD</span></td>
 <td>Unit: R16 determinism (boot twice, identical keys/hits); vetting matrix (pruned
 snapshot → kept-with-recipe; malformed row → dropped-with-dependents; store survives).</td></tr>
@@ -1348,10 +1388,15 @@ boot summary <code>{kept, dropped, wiped:bool, reason}</code>; both also in the 
 snapshot. The R10 counts as above. Nothing more.</p>
 
 <h3>8.5 &nbsp;Validation gate</h3>
+<p><b>Step 0 — the existing integration suites, run explicitly, all green (R11; every
+landing in this section):</b> the cache persistence tests (<code>TestCachePersistence</code>,
+including the full disk-persistence-across-restart suite), the cross-session caching tests
+(the CrossSession-pattern tests across suites, including their module coverage), and the
+selected services tests. Any legitimately-expected failure must be a named,
+owner-acknowledged exception <em>in advance</em> — none are expected in this section.</p>
 <ul>
-<li><b>P-8.1</b> — the R11 gate (persistence/restart suite, cross-session-caching tests,
-selected services tests) green; the unclean-shutdown subtest still passes <em>unchanged</em>
-(the wipe it asserts is one of the two we keep).</li>
+<li><b>P-8.1</b> — Step 0 green; in particular the unclean-shutdown subtest passes
+<em>unchanged</em> (the wipe it asserts is one of the two we keep).</li>
 <li><b>P-8.2</b> — R16 determinism test green: same store, two boots, identical key
 derivation and identical hit behavior for identical calls.</li>
 <li><b>P-8.3</b> — new integration case: prune one result's snapshot between boots → warm
