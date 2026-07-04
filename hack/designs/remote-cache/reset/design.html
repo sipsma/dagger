@@ -108,7 +108,7 @@
 <main>
 
 <h1>Remote Cache — Design</h1>
-<p class="sub">v6 &nbsp;·&nbsp; Requirements + target shape: ratified &nbsp;·&nbsp; §7 content home: draft for review (presentation pass 2) &nbsp;·&nbsp; 2026-07-03</p>
+<p class="sub">v7 &nbsp;·&nbsp; Requirements + target shape: ratified &nbsp;·&nbsp; §7 content home: draft for review (codebase terminology) &nbsp;·&nbsp; 2026-07-03</p>
 
 <div class="banner">
 <b>Status.</b> This is the living design doc for the remote-cache engine work, restarted
@@ -523,8 +523,8 @@ decided in Part II.</p>
   in main's deferred-decode + <code>shared.lazyEval</code> reality), and the
   metadata-growth model under winner-at-lookup — plus the row-homed
   <code>materializationState</code>, ordered retained sources with the reserved
-  content-chain seam, and the surgery rule demoting accessor cells to realization
-  caches.</li>
+  content-chain seam, and the surgery rule demoting the value structs' accessors to
+  realization caches.</li>
 </ol>
 </div>
 </details>
@@ -638,16 +638,19 @@ simultaneously — the content-home section carries an explicit metadata-growth 
 
 <p><b>The idea in three sentences.</b> Every cached result gets exactly one place that
 answers "what does this result have, and how can it be re-made?" — a small record on the
-cache's own result row. The values your code touches (Directory, File, Container) stay
-exactly what they are on main; their content cells become <em>caches of</em> that record's
+result's <code>sharedResult</code> — the cache's single in-memory entry per result. The
+values your code touches (Directory, File, Container) stay exactly what they are on main;
+the <code>LazyAccessor</code> fields they hold content in become <em>caches of</em> that record's
 answer rather than competing sources of truth. Everything else in this section — the
 source list, the fall-through order, the growth model — is that one idea meeting the
 requirements.</p>
 
+<p class="pill"><b>Names here are the codebase's own:</b> a <b>value struct</b> is the Go object handlers touch (<code>Directory</code>, <code>File</code>, <code>Container</code>); its <b>accessors</b> are the <code>LazyAccessor</code> fields holding content on that struct (<code>Directory.Snapshot</code>, <code>Container.FS</code>, …) — several per struct; the <b>sharedResult</b> is the cache's single in-memory entry per result (dagql/cache.go). The proposed <code>materializationState</code> lives on the sharedResult.</p>
+
 <div class="decide"><span class="dtag">ON THE TABLE — WHAT THIS SECTION ASKS YOU TO RATIFY</span>
 <ol style="margin:4px 0 2px">
 <li>Both §6 open questions, as answered in the two green verdict boxes below.</li>
-<li>The home placed on the result row, with value cells demoted to realization caches —
+<li>The home placed on the <code>sharedResult</code>, with the value structs' accessors demoted to realization caches —
 and deliberately <em>not</em> re-plumbed (smallest change that satisfies R5).</li>
 <li>Naming the third source (<code>content-chain</code>) now, building it only in the
 remote take.</li>
@@ -656,7 +659,7 @@ remote take.</li>
 
 <h3>7.1 &nbsp;Where content state lives today</h3>
 
-<p>On main, a value's content is held in <b>accessor cells on the value struct itself</b>.
+<p>On main, a value's content is held in <b><code>LazyAccessor</code> fields on the value struct itself</b>.
 Here is the real thing, not a paraphrase:</p>
 
 <pre><code>type Directory struct {
@@ -682,17 +685,17 @@ Here is the real thing, not a paraphrase:</p>
 
 <p>Three facts about this arrangement matter for everything below:</p>
 
-<p><b>Fact 1 — a "cell" is a tiny lazy container, and clones sometimes copy it.</b>
+<p><b>Fact 1 — a <code>LazyAccessor</code> is a one-field, compute-once content holder, and clones sometimes copy it.</b>
 <code>LazyAccessor</code> is get-or-compute-once around a value
 (<code>core/lazy_state.go:73</code>). When schema handlers build a derived object they
-clone the parent, and some of those clones <em>copy the cell</em> (e.g.
+clone the parent, and some of those clones <em>copy the accessor</em> (e.g.
 <code>CloneContainerMetaSnapshot</code>, <code>core/container.go:906</code>). A copy taken
-<em>before</em> the cell was filled is a fork: the original may later realize content the
+<em>before</em> the accessor was filled is a fork: the original may later realize content the
 copy will never see.</p>
 
 <p><b>Fact 2 — restored results already come back to life lazily.</b> This is the
-load-bearing discovery of this section, so here is the actual shape of it. At boot, rows
-are loaded as identity plus a <b>persisted envelope</b> — the typed payload with its
+load-bearing discovery of this section, so here is the actual shape of it. At boot, persisted
+results are loaded as identity plus a <b>persisted envelope</b> each — the typed payload with its
 snapshot references, which are <b>local</b> refKeys kept alive by leases (they never cross
 an engine boundary; R4's local carve-out). No values are decoded at boot. Then, on first
 use:</p>
@@ -700,8 +703,8 @@ use:</p>
 <pre><code><span class="cm">// distilled from the real warm path — dagql/cache_persistence_import.go:552,</span>
 <span class="cm">// dagql/cache.go:2895–3032 — this machinery EXISTS on main today:</span>
 
-hit := lookup(call)                        <span class="cm">// row found: it's a hit, value not loaded yet</span>
-val := ensurePersistedHitValueLoaded(hit)  <span class="cm">// deferred decode: envelope → value struct + cells</span>
+hit := lookup(call)                        <span class="cm">// sharedResult found: it's a hit, value not loaded yet</span>
+val := ensurePersistedHitValueLoaded(hit)  <span class="cm">// deferred decode: envelope → value struct + accessors</span>
 
 <span class="cm">// and if the value's content must be (re)computed rather than decoded:</span>
 if lazy := shared.lazyEval; lazy != nil {
@@ -730,12 +733,12 @@ fallback today. The failure vocabulary on main is store-wide:</p>
 <tr><th>Gap on main</th><th>Concretely</th><th>Where it bites</th></tr>
 <tr><td><b>Capability is scattered</b></td>
 <td>"How can this result be re-made?" has no single answer — it's implicit across the
-envelope, the cells, and the <code>Lazy</code> closure. Persistence <em>harvests</em>
+envelope, the accessors, and the <code>Lazy</code> closure. Persistence <em>harvests</em>
 snapshot refs back out of value structs at encode time
 (<code>snapshotOwnerLinksFromTyped</code>, cache_persistence_self.go:390).</td>
 <td>Encode trusts whatever state the value happens to hold; nothing owns the truth.</td></tr>
-<tr><td><b>Cell copies fork the truth</b></td>
-<td>A clone's cell copied before realization never learns what the original later
+<tr><td><b>Accessor copies fork the truth</b></td>
+<td>A clone's accessor, copied before realization, never learns what the original later
 computed (Fact 1).</td>
 <td>The stranded-capability disease family: a result that <em>has</em> content, reachable
 through an object that doesn't know it.</td></tr>
@@ -744,7 +747,7 @@ through an object that doesn't know it.</td></tr>
 is sitting right there in the envelope.</td>
 <td>R2 violated: a hit that can't materialize = a stranded hit.</td></tr>
 <tr><td><b>All-or-nothing restore</b></td>
-<td>One bad row wipes the entire store (Fact 3).</td>
+<td>One bad result wipes the entire store (Fact 3).</td>
 <td>The partial-persistence corollary is impossible until this changes.</td></tr>
 </table>
 
@@ -766,8 +769,8 @@ is sitting right there in the envelope.</td>
 
   <!-- the row -->
   <rect x="330" y="70" width="380" height="240" rx="12" fill="#fff" stroke="#9aa1ab" stroke-width="1.5"/>
-  <text x="520" y="96" text-anchor="middle" font-size="14" font-weight="700" fill="#1a1d23">result row (sharedResult)</text>
-  <text x="520" y="113" text-anchor="middle" font-size="11.5" fill="#5c6470">one per result — the cache's entry; never serialized itself (R3)</text>
+  <text x="520" y="96" text-anchor="middle" font-size="14" font-weight="700" fill="#1a1d23">sharedResult</text>
+  <text x="520" y="113" text-anchor="middle" font-size="11.5" fill="#5c6470">the cache's single in-memory entry per result; never serialized itself (R3)</text>
 
   <rect x="350" y="126" width="340" height="164" rx="8" fill="#f4f5f7" stroke="#c9ccd2"/>
   <text x="520" y="146" text-anchor="middle" font-size="12.5" font-weight="700" fill="#2757d6">materializationState — the home</text>
@@ -784,10 +787,10 @@ is sitting right there in the envelope.</td>
 
   <!-- the value satellite -->
   <rect x="20" y="130" width="240" height="120" rx="10" fill="#fff" stroke="#c9ccd2" stroke-dasharray="5 4"/>
-  <text x="140" y="156" text-anchor="middle" font-size="13" font-weight="700" fill="#1a1d23">value struct + cells</text>
+  <text x="140" y="156" text-anchor="middle" font-size="13" font-weight="700" fill="#1a1d23">value struct + its accessors</text>
   <text x="140" y="175" text-anchor="middle" font-size="11.5" fill="#5c6470">Directory / File / Container,</text>
   <text x="140" y="191" text-anchor="middle" font-size="11.5" fill="#5c6470">unchanged from main</text>
-  <text x="140" y="215" text-anchor="middle" font-size="12" font-weight="600" fill="#a06000">cells = realization caches,</text>
+  <text x="140" y="215" text-anchor="middle" font-size="12" font-weight="600" fill="#a06000">accessors = realization caches,</text>
   <text x="140" y="231" text-anchor="middle" font-size="12" font-weight="600" fill="#a06000">never capability records</text>
 
   <line x1="260" y1="190" x2="326" y2="190" stroke="#5c6470" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arrH)"/>
@@ -802,7 +805,7 @@ is sitting right there in the envelope.</td>
   <text x="610" y="12" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2757d6">import (boot, R14)</text>
 
   <line x1="330" y1="330" x2="430" y2="314" stroke="#1a7f4b" stroke-width="2.5" marker-end="url(#arrHG)"/>
-  <text x="300" y="345" text-anchor="start" font-size="11.5" font-weight="700" fill="#1a7f4b">lazy arrival (a row realizing ITSELF)</text>
+  <text x="300" y="345" text-anchor="start" font-size="11.5" font-weight="700" fill="#1a7f4b">lazy arrival (a sharedResult realizing ITSELF)</text>
 
   <line x1="714" y1="190" x2="790" y2="190" stroke="#a06000" stroke-width="2.5" marker-end="url(#arrH)"/>
   <text x="800" y="182" text-anchor="start" font-size="11.5" font-weight="700" fill="#a06000">flush (shutdown)</text>
@@ -810,18 +813,19 @@ is sitting right there in the envelope.</td>
   <text x="800" y="212" text-anchor="start" font-size="11" fill="#5c6470">no more harvesting</text>
   <text x="800" y="226" text-anchor="start" font-size="11" fill="#5c6470">values at encode</text>
 </svg>
-<figcaption>Fig. 3 — The home and its four write points. Everything writes the row it owns;
-nothing writes anyone else's row; values reference, never copy.</figcaption>
+<figcaption>Fig. 3 — The home and its four write points. Everything writes the sharedResult it owns;
+nothing writes anyone else's; values reference, never copy.</figcaption>
 </figure>
 
-<h4>D1 — The home lives on the result row</h4>
-<p>Each row owns a <code>materializationState</code>: the <b>envelope</b>, the ordered
+<h4>D1 — The home lives on the sharedResult</h4>
+<p>Each sharedResult owns a <code>materializationState</code>: the <b>envelope</b>, the ordered
 <b>sources</b>, and a <b>realized</b> flag. It is written at exactly the four points in
-Fig. 3 — publication, import, a row's own lazy realization, and flush (which only reads) —
-all under the cache's existing locking. No new locks, no state shared between rows
-(R5, R15). Why the row and not the value: the row is the one object with the same lifetime
-as the result's identity — values come and go (decoded, cloned, discarded), the row is
-where a "promise to materialize" (R2) can actually live.</p>
+Fig. 3 — publication, import, a sharedResult's own lazy realization, and flush (which only reads) —
+all under the cache's existing locking. No new locks, no state shared between results
+(R5, R15). Why the sharedResult and not the value: it is the one object with the same
+lifetime as the result's identity — value structs come and go (decoded, cloned,
+discarded), so the sharedResult is where a "promise to materialize" (R2) can actually
+live.</p>
 
 <h4>D2 — Retained sources, in fall-through order</h4>
 <p>The home's source list is the whole R1/R2 story in one field:</p>
@@ -856,7 +860,7 @@ where a "promise to materialize" (R2) can actually live.</p>
 
   <line x1="135" y1="87" x2="135" y2="125" stroke="#1a7f4b" stroke-width="2.5" marker-end="url(#arrFG)"/>
   <line x1="455" y1="87" x2="455" y2="125" stroke="#1a7f4b" stroke-width="2.5" marker-end="url(#arrFG)"/>
-  <text x="295" y="147" text-anchor="middle" font-size="13" font-weight="700" fill="#1a7f4b">SERVE — and mark this row realized</text>
+  <text x="295" y="147" text-anchor="middle" font-size="13" font-weight="700" fill="#1a7f4b">SERVE — and mark the sharedResult realized</text>
 
   <text x="775" y="115" text-anchor="middle" font-size="12" font-weight="700" fill="#b3362c">no viable source at all ⇒ not servable (R2):</text>
   <text x="775" y="133" text-anchor="middle" font-size="12" fill="#b3362c">dropped at restore, with dependents</text>
@@ -874,7 +878,7 @@ machinery byte-for-byte and changes only <em>what the work consults</em>:
 <table class="filetbl" style="margin-top:10px">
 <tr><th>Unchanged (main's machinery)</th><th>Changed (what the work does)</th></tr>
 <tr><td>One runner, N waiters, last-waiter-cancels</td>
-<td>The runner walks <code>row.sources</code> in order instead of an implicit
+<td>The runner walks the sharedResult's <code>sources</code> in order instead of an implicit
 snapshot-or-closure choice</td></tr>
 <tr><td>Deferred decode on first use</td>
 <td>Decode = realizing the <b>local-snapshot</b> source</td></tr>
@@ -889,23 +893,23 @@ shelved kernel stays shelved — and the mechanism details (what "viable" checks
 taxonomy, iteration) belong to the warm-lookup section, with the model fixed here.</p>
 </div>
 
-<h4>D3 — The surgery rule: cells are caches, the row is truth</h4>
+<h4>D3 — The surgery rule: accessors are caches, the sharedResult is truth</h4>
 <p>The rule that retires the stranded-capability disease, stated once: <b>no value-side
-state is ever the only holder of a capability.</b> A cell may hold a realized ref
-(fast path); a cell may be empty (recoverable — its accessor's get-or-compute already
-routes through the owner to the row's lazy path); and persistence <b>encodes from the
-row</b>, never by harvesting value structs. The micro-example that used to go wrong:</p>
+state is ever the only holder of a capability.</b> An accessor may hold a realized ref
+(fast path); it may be empty (recoverable — get-or-compute already routes through the
+owning value to the sharedResult's lazy path); and persistence <b>encodes from the
+sharedResult</b>, never by harvesting value structs. The micro-example that used to go wrong:</p>
 <ol class="mini">
-<li><b>t₀</b> — a restored row is unrealized; its envelope + sources sit on the row.</li>
-<li><b>t₁</b> — a schema handler clones the value; the clone's cell is a copy — empty.</li>
-<li><b>t₂</b> — the original realizes (cell filled, row marked realized).</li>
-<li><b>Today:</b> the clone's empty cell is a dead end — capability stranded on a fork.
-<b>Design:</b> the clone's absence resolves through the row like anyone else's; the copy
-was only ever a cache miss.</li>
+<li><b>t₀</b> — a restored result is unrealized; its envelope + sources sit on its sharedResult.</li>
+<li><b>t₁</b> — a schema handler clones the value; the clone's accessor is a copy — empty.</li>
+<li><b>t₂</b> — the original realizes (accessor filled, sharedResult marked realized).</li>
+<li><b>Today:</b> the clone's empty accessor is a dead end — capability stranded on a fork.
+<b>Design:</b> the clone's absence resolves through the sharedResult like anyone else's;
+the copy was only ever a cache miss.</li>
 </ol>
-<p class="pill">Deliberately <em>not</em> done: re-pointing cells into the row
+<p class="pill">Deliberately <em>not</em> done: re-pointing accessors into the sharedResult
 (a plumbing change through core/ with no demonstrated need), replacing
-<code>LazyAccessor</code>, or any cross-row sharing. Smallest change that satisfies R5.</p>
+<code>LazyAccessor</code>, or any cross-result sharing. Smallest change that satisfies R5.</p>
 
 <div class="verdict"><span class="vtag">ANSWER — §6 OPEN QUESTION 2</span><br>
 <b>The metadata-growth model under winner-at-lookup.</b> Rows are born in exactly two
@@ -923,7 +927,7 @@ result only, R12)</td><td>—</td></tr>
 <td>duplicate bytes possible</td><td>Real independent cold executions — exactly what
 sharing makes rare; losers age out via normal prune</td></tr>
 </table>
-<p style="margin:8px 0 0">The loser rows themselves are not waste: R10 <em>requires</em>
+<p style="margin:8px 0 0">The losers' persisted rows themselves are not waste: R10 <em>requires</em>
 independently-produced equivalents to remain distinct rows related by digests (collapsing
 them for serving is backend merge policy, out of engine scope). And there is no
 reconciliation, forwarding, or healing machinery left that could amplify anything — the
@@ -936,34 +940,34 @@ self-check metric so this model is measured, not assumed.</p>
 <code>container().from(base).withExec(…)</code> chain it ran yesterday.</p>
 <ol class="steps">
 <li><span class="tag">BOOT · import decision point (R14, R16)</span><br>
-Rows are restored: the identity index, and per row
-<code>{envelope, sources: [local-snapshot, recipe], realized: false}</code>. No values
-decoded, no content touched — boot moves metadata only.</li>
+Persisted results are restored: the identity index, and per result a sharedResult
+carrying <code>{envelope, sources: [local-snapshot, recipe], realized: false}</code>. No
+values decoded, no content touched — boot moves metadata only.</li>
 <li><span class="tag">LOOKUP</span><br>
-The session's call resolves through the e-graph (unchanged from main) to the row — a hit,
+The session's call resolves through the e-graph (unchanged from main) to its sharedResult — a hit,
 one winner, picked once.</li>
 <li><span class="tag">FIRST USE · the existing lazy path</span><br>
 Something actually reads the value. The lazy machinery starts one runner; concurrent
 callers wait — the same singleflight main runs today (Fact 2).</li>
 <li><span class="tag">REALIZE · source ①</span><br>
-The runner walks the row's sources: local-snapshot first — refKeys still present, leases
-acquired → decode the envelope → value struct + cells filled → the row marks
-<b>itself</b> realized (the lazy-arrival write point).</li>
+The runner walks the sharedResult's sources: local-snapshot first — refKeys still
+present, leases acquired → decode the envelope → value struct + accessors filled → the
+sharedResult marks <b>itself</b> realized (the lazy-arrival write point).</li>
 <li><span class="tag">SERVE</span><br>
 The value flows to the caller; every later use takes the realized fast path.</li>
 <li><span class="tag">COUNTERFACTUAL · source ② (fall-through, R2)</span><br>
 Suppose the snapshot had been pruned: source ① reports not-viable, the runner falls
 through to the recipe and re-executes the frozen frame — the same closure main's lazy
-evaluation runs today (R6 principal semantics) — and the output lands on <b>this row</b>,
+evaluation runs today (R6 principal semantics) — and the output lands on <b>this sharedResult</b>,
 which realizes as above.</li>
 <li><span class="tag">COUNTERFACTUAL · zero sources (restore section)</span><br>
-Had <em>no</em> source been viable at boot, the row and its dependents would have been
+Had <em>no</em> source been viable at boot, the result and its dependents would have been
 dropped during restore: the call cold-misses and recomputes honestly. A hit is a promise
-or it isn't made (R2) — and one bad row no longer wipes the store (Fact 3, retired).</li>
+or it isn't made (R2) — and one bad result no longer wipes the store (Fact 3, retired).</li>
 </ol>
 
 <h3>7.4 &nbsp;Implementation shape</h3>
-<p>Consolidation, not addition: the row-side state that exists in pieces today —
+<p>Consolidation, not addition: the sharedResult-side state that exists in pieces today —
 <code>shared.lazyEval</code>/<code>lazyEvalComplete</code>, the deferred-decode envelope
 handling, the harvested snapshot links — becomes one named structure:</p>
 
@@ -975,11 +979,11 @@ type materializationState struct {
 	envelope *PersistedResultEnvelope
 
 	<span class="cm">// What this result can be re-made from, in fall-through order (R1/R2).</span>
-	<span class="cm">// Zero viable sources ⇒ the row is not servable as a hit (R2).</span>
+	<span class="cm">// Zero viable sources ⇒ the sharedResult is not servable as a hit (R2).</span>
 	sources []retainedSource
 
 	<span class="cm">// Whether the in-memory value payload is currently usable (decoded, refs</span>
-	<span class="cm">// resolvable). Written only by this row's own realization or publication.</span>
+	<span class="cm">// resolvable). Written only by this sharedResult's own realization or publication.</span>
 	realized bool
 }
 
@@ -1011,21 +1015,22 @@ type retainedSource struct {
 <code>lazyEval*</code>/envelope fields consolidate into it. No semantic change to the lazy
 path itself.</td></tr>
 <tr><td><code>dagql/cache_persistence_self.go</code></td><td><span class="chip modf">MOD</span></td>
-<td>Encode reads the row's state (the transition away from value-harvesting is owned by
-the persistence section; this section makes the row what encode consults).</td></tr>
+<td>Encode reads the sharedResult's state (the transition away from value-harvesting is
+owned by the persistence section; this section makes the sharedResult what encode
+consults).</td></tr>
 <tr><td><code>dagql/cache_persistence_import.go</code></td><td><span class="chip modf">MOD</span></td>
-<td>Decode populates the row (envelope + sources, unrealized);
+<td>Decode populates the sharedResult (envelope + sources, unrealized);
 <code>ensurePersistedHitValueLoaded</code> consults it.</td></tr>
 <tr><td><code>dagql/materialization_test.go</code></td><td><span class="chip newf">NEW</span></td>
 <td>Model-level unit tests: fall-through order; zero-viable-sources refusal (R2);
-write-point legality (only publication / own-row realization / import / flush-read may
-touch the state).</td></tr>
+write-point legality (only publication / own-result realization / import / flush-read
+may touch the state).</td></tr>
 <tr><td colspan="3" class="pill">No <code>core/</code> changes in this section — value
-structs and cells untouched.</td></tr>
+structs and accessors untouched.</td></tr>
 </table>
 
 <p><b>Observability for this section</b> (process tooling, per §5): the existing debug
-snapshot gains per-row <code>{sources, realized}</code> — the inspection surface every
+snapshot gains per-result <code>{sources, realized}</code> — the inspection surface every
 later section's proof leans on. Nothing more yet.</p>
 
 <h3>7.5 &nbsp;Validation gate</h3>
@@ -1036,7 +1041,7 @@ consolidation; fallback-on-lost-snapshot and partial restore deliberately do <em
 land here.</li>
 <li><b>P-7.2</b> — the model-level unit tests green under <code>-race</code>.</li>
 <li><b>P-7.3</b> — on a warm boot in the restart suite, the debug snapshot shows restored
-rows carrying their sources (envelope-backed, unrealized until first use) — checked by a
+sharedResults carrying their sources (envelope-backed, unrealized until first use) — checked by a
 test probe, not by eyeball.</li>
 </ul>
 </details>
