@@ -122,7 +122,7 @@
 <b>Contents — Part I (ratified)</b>
 <ol>
   <li><a href="#goal">The goal</a></li>
-  <li><a href="#shift">The structural shift from the previous take</a></li>
+  <li><a href="#shift">The load-bearing structural decision</a></li>
   <li><a href="#reqs">Requirements and non-goals</a></li>
   <li><a href="#open">Review log</a></li>
 </ol>
@@ -144,17 +144,16 @@
 <main>
 
 <h1>Remote Cache — Design</h1>
-<p class="sub">v13 &nbsp;·&nbsp; §1–§6 + §9 ratified &nbsp;·&nbsp; §7–§8 reviewed &nbsp;·&nbsp; §10 (definition of done): draft for review &nbsp;·&nbsp; 2026-07-03</p>
+<p class="sub">v14 &nbsp;·&nbsp; §1–§6 + §9 ratified &nbsp;·&nbsp; §7–§8 reviewed &nbsp;·&nbsp; §10: draft &nbsp;·&nbsp; holistic review pending &nbsp;·&nbsp; 2026-07-03</p>
 
 <div class="banner">
-<b>Status.</b> This is the living design doc for the remote-cache engine work, restarted
-from requirements after the previous take. Part I (requirements &amp; non-goals) is
-ratified through three review rounds and starts collapsed. Part II is the design proper,
-written step by step — architecture, implementation detail, and validation gates
-<em>together</em> — and currently contains the target-shape overview, under discussion.
-Shelved material lives at the bottom, clearly demarcated: kept for reference, explicitly
-not part of the design. Prior-take docs remain untouched one directory up, for reference
-only.
+<b>Status.</b> The living design doc for the remote-cache engine work. Part I
+(requirements &amp; non-goals) and the target shape are ratified; Part II carries the
+design proper — architecture, implementation detail, and validation gates
+<em>together</em> — through the definition of done (§10). Shelved material lives at the
+bottom, clearly demarcated: kept for reference, explicitly not part of the design.
+Archived docs from earlier efforts sit one directory up — reference only, not inputs to
+this design.
 </div>
 <div class="controls">
 <button type="button" onclick="setAll(true)">expand all sections</button>
@@ -186,26 +185,27 @@ as the end state everything must remain compatible with, but nothing here design
 builds it.
 </p>
 
-<h2 id="shift">2. The structural shift from the previous take</h2>
+<h2 id="shift">2. The load-bearing structural decision</h2>
 <p>
-The previous take coupled two layers that must stay separate. The engine's existing
-<b>identity layer</b> (the e-graph: equivalence classes over calls/results, merged live as
-work completes) was extended so that <b>content state</b> (filesystem snapshots, metadata,
-materialization status) was shared across equivalence classes and reconciled continuously —
-any equivalent result could serve any sibling's content at any moment, including mid-run.
-Protecting running work from that live movement required a transactional machinery
-(run-private overlays, reader-audience classification, evaluation gates, instance binding,
-three interacting locks) whose correctness surface was every reader, writer, and entry
-point in the engine. That machinery generated its own bug supply and consumed the effort.
+Two layers stay separate, permanently. The <b>identity layer</b> — the e-graph:
+equivalence classes over calls and results, merged live as work completes — stays exactly
+as it is on main. <b>Content state</b> (filesystem snapshots, metadata, materialization
+status) has exactly one home per result, mutated only at well-defined decision points
+under ordinary locking. Interchangeability of equivalents is a <em>decision-point
+policy</em>: consulted at lookup (pick one winner and materialize <em>that</em> result),
+at publication, and at import — never enforced continuously across shared mutable state.
+Runs build private values, as they do on main today, and touch the cache only when they
+publish.
 </p>
 <p>
-This design keeps the identity layer exactly as it is on main, and demotes
-interchangeability from a <em>continuous runtime invariant</em> to a
-<em>decision-point policy</em>: equivalence is consulted when it matters — at lookup
-(pick one winner and materialize <em>that</em> result), at publication, at import — and
-content state has exactly one home per result, mutated only at well-defined points under
-ordinary locking. Runs build private values, as they do on main today, and touch the cache
-only when they publish.
+The tempting alternative is named here so it stays dead: sharing content state across
+equivalence classes and reconciling it continuously, so any equivalent result can serve a
+sibling's content at any moment, mid-run included. That coupling looks attractive whenever
+dedup or "why not just share it" comes up — and it drags in run-scoped isolation
+machinery (overlays, reader-audience classification, evaluation gates, multi-lock
+protocols) whose correctness surface is every reader, writer, and entry point in the
+engine. It is forbidden by R5, R15, and the non-goals; a proposal heading there is R15's
+tripwire: stop and escalate before building.
 </p>
 
 <figure>
@@ -223,7 +223,7 @@ only when they publish.
   </defs>
 
   <rect x="10" y="10" width="455" height="380" rx="12" fill="#fbeae8" opacity="0.45"/>
-  <text x="237" y="38" text-anchor="middle" font-size="15" font-weight="700" fill="#b3362c">PREVIOUS TAKE</text>
+  <text x="237" y="38" text-anchor="middle" font-size="15" font-weight="700" fill="#b3362c">THE REJECTED COUPLING</text>
 
   <rect x="60" y="58" width="355" height="46" rx="8" fill="#fff" stroke="#c9ccd2"/>
   <text x="237" y="80" text-anchor="middle" font-size="13.5" fill="#1a1d23">identity layer: e-graph, live class merges</text>
@@ -278,20 +278,16 @@ only when they publish.
   <text x="722" y="340" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1a7f4b">runs build private values (as on main); the cache</text>
   <text x="722" y="358" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1a7f4b">changes only at decision points — no mid-run observation problem exists</text>
 </svg>
-<figcaption>Fig. 1 — The structural shift: identity stays live (it already is, on main); content stops being live-shared.
-Interchangeability moves from "continuous invariant" to "lookup-time policy."</figcaption>
+<figcaption>Fig. 1 — The structural decision: identity stays live (as on main); content is never
+live-shared. The left coupling is forbidden (R5, R15); interchangeability is a lookup-time policy.</figcaption>
 </figure>
 
 <details class="fold" id="reqs"><summary><h2>3. Requirements and non-goals</h2></summary>
-<p class="pill">Normative text. Provenance tags: <span class="badge keep">CARRIED</span>
-from the previous take's requirements (re-adjudicated at reset),
-<span class="badge modify">REWRITTEN</span> this take,
-<span class="badge new">NEW</span> this take. Adjudication history lives in the
-review log (§4); the previous take's verbatim originals are in
-<code>../01-engine-baseline-design.md §1</code>.</p>
+<p class="pill">Normative text. Adjudication history and provenance live in the review
+log (§4).</p>
 
 <div class="card keep">
-<h3>R1 — Dual materialization paths <span class="badge keep">CARRIED</span></h3>
+<h3>R1 — Dual materialization paths</h3>
 <p>A result must be re-creatable on an engine that didn't produce it, by content transfer
 <em>or</em> by recomputation — at least one retained path, both when possible (some results have no
 in-engine recomputation path — e.g. client uploads, whose recipe lives on the client
@@ -301,7 +297,7 @@ persisting a result must be able to carry value, recipe, or both.</p>
 </div>
 
 <div class="card keep">
-<h3>R2 — No stranded hits <span class="badge keep">CARRIED</span></h3>
+<h3>R2 — No stranded hits</h3>
 <p>Adopting a result as a cache hit is a promise: the result will materialize on demand
 via <em>some</em> retained source, or the adoption itself was a bug. Preferred-source
 failure falls through to the next source. Silent wrong answers and use-time "missing
@@ -309,14 +305,14 @@ snapshot" errors are design failures.</p>
 </div>
 
 <div class="card keep">
-<h3>R3 — Portable semantic identity <span class="badge keep">CARRIED</span></h3>
+<h3>R3 — Portable semantic identity</h3>
 <p>Every identity that crosses an engine boundary (persistence file, export bundle,
 backend row) is either a semantic digest or a durable origin identity. Engine-local
 allocator IDs never serialize. Importing the same result twice is idempotent.</p>
 </div>
 
 <div class="card keep">
-<h3>R4 — Content-addressed snapshot identity, lazy at export <span class="badge keep">CARRIED</span></h3>
+<h3>R4 — Content-addressed snapshot identity, lazy at export</h3>
 <p>Immutable snapshot content crossing any boundary is identified by its content (layer
 diffID chains), never by local snapshotter keys. Mutable-owner snapshots never cross
 boundaries as content. Hard constraint: content identity is computed lazily at export time
@@ -325,7 +321,7 @@ previously-hit, real performance trap.</p>
 </div>
 
 <div class="card modify">
-<h3>R5 — Materialization state: one home per result, surgery-proof <span class="badge modify">REWRITTEN</span></h3>
+<h3>R5 — Materialization state: one home per result, surgery-proof</h3>
 <p>Every result's materialization state (materialized / remotely materializable /
 recomputable, plus the content itself once present) has <b>exactly one home</b>, owned by
 the cache, keyed by the result. It is written only at well-defined points — publication of
@@ -338,14 +334,14 @@ consistency problem to reconcile.</p>
 </div>
 
 <div class="card keep">
-<h3>R6 — Explicit execution identity <span class="badge keep">CARRIED</span></h3>
+<h3>R6 — Explicit execution identity</h3>
 <p>Deferred/recomputed work runs under an explicit principal (the forcing waiter's), with
 retry on principal death; the <em>identity</em> of a result is fully determined by its
 recipe and never contaminated by whoever forced materialization.</p>
 </div>
 
 <div class="card keep">
-<h3>R7 — Session-resource soundness extends to foreign results <span class="badge keep">CARRIED</span></h3>
+<h3>R7 — Session-resource soundness extends to foreign results</h3>
 <p>An adopted result that transitively requires secret/socket handles is only adoptable by
 sessions holding those handles — same rule as today, surviving import. (The known
 per-engine secret-salt issue remains deliberately deferred and separately tracked; it
@@ -353,7 +349,7 @@ partitions caches across engines until addressed.)</p>
 </div>
 
 <div class="card keep">
-<h3>R8 — Falsifiable observability <span class="badge keep">CARRIED</span></h3>
+<h3>R8 — Falsifiable observability</h3>
 <p>Every lookup outcome, adoption decision, materialization-source execution, and fallback
 is observable with structured vocabulary; every run can produce a reuse summary; proofs
 and tests can turn unexpected outcomes into hard failures. Landings are validated against
@@ -363,7 +359,7 @@ made permanent rather than left as temporary instruments.</p>
 </div>
 
 <div class="card keep">
-<h3>R9 — One portable result encoding <span class="badge keep">CARRIED</span></h3>
+<h3>R9 — One portable result encoding</h3>
 <p>Local persistence and remote export share one encoding for <em>results</em> (frames,
 payload envelopes, snapshot links, recipes). The surrounding structure differs by design:
 local persistence may additionally dump engine-local index rows for fast same-engine
@@ -372,7 +368,7 @@ result-serialization model.</p>
 </div>
 
 <div class="card keep">
-<h3>R10 — Identity-stable metadata <span class="badge keep">CARRIED</span></h3>
+<h3>R10 — Identity-stable metadata</h3>
 <p>Import → re-export cycles add zero result rows. Genuinely new executions add
 honestly-new rows; independently-produced equivalents remain distinct rows related by
 semantic digests, and collapsing those for serving is backend merge policy on the digest
@@ -381,7 +377,7 @@ self-check metric.</p>
 </div>
 
 <div class="card keep">
-<h3>R11 — In-repo provability, gated continuously <span class="badge keep">CARRIED</span></h3>
+<h3>R11 — In-repo provability, gated continuously</h3>
 <p>The full adoption/hydration/fallback model is exercisable by integration tests inside
 dagger/dagger with no cloud stack. A curated integration set is a <b>standing gate for
 every landed chunk of work</b>, not a milestone-end event: anchors are the
@@ -393,7 +389,7 @@ Legitimate intermediate failures are named, temporary, owner-acknowledged except
 </div>
 
 <div class="card keep">
-<h3>R12 — Sparse, demand-bounded materialization <span class="badge keep">CARRIED</span></h3>
+<h3>R12 — Sparse, demand-bounded materialization</h3>
 <p>Materializing a result moves and creates only what is strictly required: the content
 path touches exactly the needed chain blobs; the recipe path recurses only into the inputs
 the recipe actually reads, itself demand-driven; adoption, viability, and import are
@@ -414,7 +410,7 @@ materialization at all.</p>
 </div>
 
 <div class="card keep">
-<h3>R13 — Recipes are closed over engine-ambient state <span class="badge keep">CARRIED</span></h3>
+<h3>R13 — Recipes are closed over engine-ambient state</h3>
 <p>Any engine-local input that shapes a result — native platform, the engine secret salt,
 engine/schema version, anything read off server state during planning <em>or
 resolution</em> — must either be canonicalized into the recipe (so equivalent work matches
@@ -424,7 +420,7 @@ misses.</p>
 </div>
 
 <div class="card new">
-<h3>R14 — Startup-only import; the serving-time cache is read-mostly <span class="badge new">NEW</span></h3>
+<h3>R14 — Startup-only import; the serving-time cache is read-mostly</h3>
 <p>All bulk ingestion of identity and result metadata — disk restore <em>and</em> remote
 bundle import — completes <b>before the engine serves sessions</b>, under coarse locking
 (these are fast, batched metadata writes; there is no pause-time problem to engineer
@@ -435,7 +431,7 @@ its own explicit quiesce design and may not weaken R15 to do so.</p>
 </div>
 
 <div class="card new">
-<h3>R15 — No new cross-cutting concurrency invariants <span class="badge new">NEW</span></h3>
+<h3>R15 — No new cross-cutting concurrency invariants</h3>
 <p>The design builds on the engine's existing locking and singleflight structure, and this
 document is the source of truth for its concurrency model. The strong default: no new
 <em>cross-cutting</em> concurrency invariants — reader-audience classifications, run-scoped
@@ -457,7 +453,7 @@ mutable state.</p>
 </div>
 
 <div class="card new">
-<h3>R16 — Restart-deterministic lookup identity <span class="badge new">NEW</span></h3>
+<h3>R16 — Restart-deterministic lookup identity</h3>
 <p>Warm lookup keys are a pure function of persisted, content-addressed identity — a
 restarted (or foreign) engine derives identical keys for identical calls regardless of
 in-memory assignment order, timing, or concurrent load. Any key component derived from
@@ -477,7 +473,7 @@ timing-dependent cache partitioning is the bug.</p>
 </div>
 
 <div class="card keep">
-<h3>Corollary — Partial local persistence <span class="badge keep">CARRIED</span></h3>
+<h3>Corollary — Partial local persistence</h3>
 <p>A deliberate local corollary of R1+R2+R5: local persistent cache stops being
 all-or-nothing. Today any inconsistency wipes the whole store; with per-result source
 state and adoption gating, a result whose snapshot was lost falls back to its recipe or is
@@ -597,6 +593,16 @@ decided in Part II.</p>
   cases T1–T8, the requirement coverage matrix with an honesty rule (runtime-proven vs
   review-guarded), and the scheduled end-of-design observability decision resolved: no
   standalone pass — §9 D5's slice is the entire up-front need.</li>
+  <li><b>Round 10 (2026-07-03).</b> Lessons L6 (own the whole change: remove what you
+  obsolete) and L7 (design prose describes the design, not the history) adopted. Per L7,
+  the de-historicization pass was applied ahead of fresh-agent review: the banner
+  neutralized; §2 reframed from a before/after narrative into the decision plus the
+  forbidden-coupling guardrail (Fig. 1's left panel relabeled "the rejected coupling");
+  §3's provenance badges removed (the carried/rewritten/new mapping remains recorded in
+  rounds 1–2 of this log); §7's growth-model wording de-narrated. Load-bearing warnings
+  were deliberately kept — named forbidden patterns with reasons and tripwires — per the
+  owner's ruling that guardrails are not history. The shelf and this log remain the
+  designated homes for history.</li>
 </ol>
 </div>
 </details>
@@ -1003,10 +1009,9 @@ sharing makes rare; losers age out via normal prune</td></tr>
 </table>
 <p style="margin:8px 0 0">The losers' persisted rows themselves are not waste: R10 <em>requires</em>
 independently-produced equivalents to remain distinct rows related by digests (collapsing
-them for serving is backend merge policy, out of engine scope). And there is no
-reconciliation, forwarding, or healing machinery left that could amplify anything — the
-previous take's growth mechanisms don't exist here. The persistence section adds R10's
-self-check metric so this model is measured, not assumed.</p>
+them for serving is backend merge policy, out of engine scope). And no reconciliation,
+forwarding, or healing machinery exists that could amplify anything. The persistence
+section adds R10's self-check metric so this model is measured, not assumed.</p>
 </div>
 
 <h3>7.3 &nbsp;A warm hit, end to end</h3>
@@ -1789,8 +1794,8 @@ machinery — it is the checklist the machinery must survive.</p>
 as evidence — not just exit codes.</li>
 <li><b>The build order</b> (§10.3): §7 → §8 in three independently-landable chunks → §9 →
 the acceptance run. Every landing passes its section's Step-0 gate.</li>
-<li><b>The end-of-design observability decision</b> you scheduled when shelving M0: with
-every section's needs now stated, the answer is that <b>no standalone observability pass
+<li><b>The observability decision deferred at the shelf (§11):</b> with every section's
+needs now stated, the answer is that <b>no standalone observability pass
 is warranted</b> — §9 D5's scoped slice is the entire up-front need, and it lands inside
 §9's implementation. Everything else stays shelved.</li>
 </ol>
@@ -2014,8 +2019,8 @@ lazy evaluation.</li>
 
 <div class="foot">
 Source of truth: this page (<code>hack/designs/remote-cache/reset/design.html</code>).
-Prior-take docs (unmodified, for reference): <code>hack/designs/remote-cache/*.md</code> in the
-previous worktree. Lessons: <code>reset/lessons.md</code>. Next drafting step: the
+Archived docs from earlier efforts: <code>hack/designs/remote-cache/*.md</code> one directory
+up (reference only — not inputs to this design). Lessons: <code>reset/lessons.md</code>. Next drafting step: the
 content-home section (result &amp; materialization state), once the target shape settles.
 </div>
 
