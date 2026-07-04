@@ -63,6 +63,25 @@ that accretes cases until it becomes a gnarly state machine. The lesson is to
 points — either form chosen by default, without weighing the other, is how the
 wrong one gets picked.
 
+## L6 — Own the whole change: remove what you obsolete
+
+When a change demotes or replaces something — a column, a field, a concept, a
+doc section — removing the obsolete thing is part of the change. "Keep it
+around as a diagnostic / for reference" is passing the buck: it leaves cruft a
+future reader will eventually trust or have to reverse-engineer. Cleanup
+includes what your change strands, not just what it touches; format/version
+bumps are the sanctioned cost of doing this properly.
+
+## L7 — Design prose describes the design, not the history
+
+Normative sections state what the system is and does — never "previously we
+did X, now we do Y." History, provenance, and adjudication live in the review
+log, and set-aside material lives on the shelf, both clearly demarcated so
+fresh readers are never framed by an old effort's narrative. The nuance
+(owner-ruled): load-bearing warnings are not history — where a temptation is
+real, the design should name the forbidden pattern and forbid it, with the
+reason and the tripwire, without narrating who once fell for it.
+
 ---
 
 *(Future proposals are discussed with Erik before landing in this file.)*
