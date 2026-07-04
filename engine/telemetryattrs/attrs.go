@@ -57,6 +57,16 @@ const (
 	// I/O: one of "engine", "user", "external". Absent ⇒ "engine". (design §3.3)
 	WcprofWorkTypeAttr = "wcprof.work_type"
 
+	// WcprofCallOutcomeAttr (string) carries a dagql call's cache outcome on
+	// its span when the engine decided one that ordinary telemetry cannot
+	// distinguish: "executed", "joined", or "do_not_cache" (the what-if-cached
+	// design's decision #5 emit). Hits stay visible via the standard cached
+	// attribute and failures via span status — both AUTHORITATIVE over this
+	// attr in the loader, since the stamp is written at the decision point
+	// while status is written at the end. Absent on pre-amendment traces; the
+	// loader then falls back to the status/cached derivation.
+	WcprofCallOutcomeAttr = "wcprof.call.outcome"
+
 	// WcprofParentAttr (string) is an explicit *causal*-parent override for a
 	// span whose parentId is deliberately a non-causal UI parent (the lazy
 	// re-point, design §2.5/§3.2). Its value is the causal parent's OTel span

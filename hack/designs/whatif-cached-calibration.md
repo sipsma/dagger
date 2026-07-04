@@ -97,6 +97,44 @@ yielding the 1.67s. The remedy is the simplification's stated data path
   material on these traces (baseline sim drift vs cold actual was ≈ 0 on
   both).
 
+## Amendment A1 re-run (V26): before/after on the same captures
+
+Gap source 1 led to Amendment A1 (approved by the lead 2026-07-04; design
+§3.3 A1): elision regions additionally include the subtrees of exec-kind ops
+whose ident IS the cached digest — the explicit `execIdent = CallDigest`
+attribution — with ancestor production-waits waived (counted, printed).
+Re-running the SAME captures through the A1 analyzer:
+
+| workload | counterfactual (pre-A1) | counterfactual (A1) | warm actual | drift pre-A1 → A1 |
+|---|---|---|---|---|
+| withExec pipeline | 5.28s | **3.86s** | 833.9ms | +533% → **+362%** |
+| module build | 20.88s | 20.88s | 121.6ms | +17069% (unchanged) |
+
+The module build is unchanged, as expected: its gap is digest instability
+(source 2), not attribution. The withExec pipeline's 3.86s counterfactual is
+a serial critical chain whose segments are each named (the warm run performs
+its own, much faster versions of the same phases inside its 834ms, so the
+segments decompose the counterfactual, not the difference):
+
+- **≈365ms: pre-query session phase** (connect/session setup ahead of the
+  serve-query root).
+- **≈2.19s: a second `Container.from` call whose recipe digest did not
+  transfer** (`xxh3:c2468dd6c0e34a98` executed cold, absent from the warm hit
+  set; its sibling `xxh3:bd838c8a8919c204` transferred and elided fine) —
+  gap source 2 again, at pipeline scale. It replays in full and anchors the
+  consumer chain behind it.
+- **≈1.31s: the lazy wrapper remainder** — the exec.run subtree elides under
+  A1, but the wrapping lazy op's own self-time (mount prep, output apply
+  phases recorded as wrapper work) replays, per A1's stated-remainder rule.
+  This is the number the lead asked for before considering a lazy-op ident
+  emit: on this workload the wrapper remainder is ~25% of the baseline —
+  material, and the follow-up proposal should carry it.
+- Counterfactual sim diagnostics: all zero (no fallback anchors, no
+  elided-op demands). On this capture the lazy→exec relationship is a
+  synchronous nesting (implicit join, no explicit wait edge), so the waived
+  production-wait count is 0; the explicit-wait shape (ident-resolved exec
+  waits) is exercised and counted by the committed A1 fixtures.
+
 ## What this means
 
 The calibration harness did its §3.5 job: it converts "trust the simulator"

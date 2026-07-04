@@ -74,6 +74,7 @@ type Op struct {
 	identID     uint32
 	clientID    uint32
 	metaID      uint32
+	inputsID    uint32
 	startNS     int64
 	outcomeHint Outcome
 }
@@ -164,6 +165,19 @@ func (op *Op) SetIdent(ident string) {
 	op.identID = op.r.Intern(ident)
 }
 
+// SetInputs records the op's cache-input digests (a call's structural input
+// recipe digests, already computed by the cache for its term lookup — the
+// Chunk 4 cache-DAG seam). Interned as the same canonical scalar JSON-array
+// encoding argv uses, so the OTel source's dag.inputs attribute maps to a
+// byte-identical string. Must be called from the goroutine that owns the op,
+// before End.
+func (op *Op) SetInputs(inputs []string) {
+	if op == nil {
+		return
+	}
+	op.inputsID = op.r.internArgv(inputs)
+}
+
 // outcomeHint carries an outcome decided mid-op (e.g. joined vs executed),
 // read back by the code that ends the op.
 func (op *Op) SetOutcomeHint(outcome Outcome) {
@@ -217,6 +231,7 @@ func (op *Op) EndWithResult(outcome Outcome, resultID uint64) {
 		IdentID:  op.identID,
 		ClientID: op.clientID,
 		MetaID:   op.metaID,
+		InputsID: op.inputsID,
 		StartNS:  op.startNS,
 		EndNS:    op.r.Now(),
 	})

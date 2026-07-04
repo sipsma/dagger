@@ -83,6 +83,22 @@ func beginOTelPublishResult(ctx context.Context) trace.Span {
 	return span
 }
 
+// stampOTelCallOutcome stamps the caller's current span with the call's cache
+// outcome at the point the engine decides it — the outcomes ordinary
+// telemetry cannot distinguish ("executed", "joined", "do_not_cache"; design
+// decision #5, batched into what-if-cached Chunk 4). Hits and failures are
+// NOT stamped: the standard cached attribute and the span status carry them
+// at span end, and the loader treats those as authoritative over this
+// mid-call stamp (a call stamped "executed" that later fails loads as the
+// failure, matching native's error-over-hint outcome rule).
+func stampOTelCallOutcome(ctx context.Context, outcome wcprof.Outcome) {
+	span := trace.SpanFromContext(ctx)
+	if !span.IsRecording() {
+		return
+	}
+	span.SetAttributes(attribute.String(telemetryattrs.WcprofCallOutcomeAttr, outcome.String()))
+}
+
 // EmitOTelWait records, as a span link on the waiter's current span, that the
 // waiter blocked on a target op over [startNS,endNS] (design §3.0) — the OTel
 // analog of native's wcprof.BeginWait. It is shared by every choke point that

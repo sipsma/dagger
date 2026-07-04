@@ -56,6 +56,7 @@ type DumpEvent struct {
 	IdentID  uint32 `json:"i,omitempty"`
 	ClientID uint32 `json:"cl,omitempty"`
 	MetaID   uint32 `json:"m,omitempty"`
+	InputsID uint32 `json:"n,omitempty"`
 
 	StartNS int64 `json:"s"`
 	EndNS   int64 `json:"d"`
@@ -85,6 +86,7 @@ func toDumpEvent(ev Event) DumpEvent {
 		IdentID:  ev.IdentID,
 		ClientID: ev.ClientID,
 		MetaID:   ev.MetaID,
+		InputsID: ev.InputsID,
 		StartNS:  ev.StartNS,
 		EndNS:    ev.EndNS,
 	}

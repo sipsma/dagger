@@ -32,6 +32,11 @@ type Op struct {
 	// non-exec ops or an exec with no resolved command. ClassifyExecs derives
 	// the op's per-command Class from it. Never inferred from a span name.
 	Argv []string
+	// CacheInputs is a call op's cache-input recipe digests (the structural
+	// inputs the cache computed for its term lookup), decoded from the dump's
+	// interned InputsID JSON-array string — the cache-DAG edges both sources
+	// now carry (native emit; OTel dag.inputs). nil when not recorded.
+	CacheInputs []string
 	// Open marks ops that had not ended at dump time; EndNS is the dump time.
 	Open bool
 
@@ -210,18 +215,19 @@ func Build(header *wcprof.DumpHeader, events []wcprof.DumpEvent) (*Graph, error)
 		switch ev.Type {
 		case "op":
 			g.Ops[ev.OpID] = &Op{
-				ID:       ev.OpID,
-				ParentID: ev.ParentID,
-				Kind:     ev.OpKind,
-				WorkType: ev.WorkType,
-				Outcome:  ev.Outcome,
-				Class:    str(ev.ClassID),
-				Ident:    str(ev.IdentID),
-				ClientID: str(ev.ClientID),
-				ResultID: ev.ResultID,
-				Argv:     decodeArgv(str(ev.MetaID)),
-				StartNS:  ev.StartNS,
-				EndNS:    max(ev.EndNS, ev.StartNS),
+				ID:          ev.OpID,
+				ParentID:    ev.ParentID,
+				Kind:        ev.OpKind,
+				WorkType:    ev.WorkType,
+				Outcome:     ev.Outcome,
+				Class:       str(ev.ClassID),
+				Ident:       str(ev.IdentID),
+				ClientID:    str(ev.ClientID),
+				ResultID:    ev.ResultID,
+				Argv:        decodeArgv(str(ev.MetaID)),
+				CacheInputs: decodeArgv(str(ev.InputsID)),
+				StartNS:     ev.StartNS,
+				EndNS:       max(ev.EndNS, ev.StartNS),
 			}
 		case "wait":
 			waits = append(waits, rawWait{

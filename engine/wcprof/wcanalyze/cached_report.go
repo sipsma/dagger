@@ -423,6 +423,9 @@ func (d *CachedDetail) Write(w io.Writer) {
 	if res.HitCallSelfNS > 0 {
 		fmt.Fprintf(w, "; %s hit-call self removed", fmtDur(res.HitCallSelfNS))
 	}
+	if res.WaivedProductionWaits > 0 {
+		fmt.Fprintf(w, "; %d production wait(s) waived (deferred production removed, A1)", res.WaivedProductionWaits)
+	}
 	if res.OrphanWaitsIntoElided > 0 {
 		fmt.Fprintf(w, "; %d orphan wait(s) into elided ops (%s) — unmodeled demand hint",
 			res.OrphanWaitsIntoElided, fmtDur(res.OrphanWaitNSIntoElided))
@@ -431,6 +434,14 @@ func (d *CachedDetail) Write(w io.Writer) {
 
 	if err := d.GateErr(); err != nil {
 		fmt.Fprintf(w, "%v\n\n", err)
+	}
+	// The counterfactual sim's data-faithfulness diagnostics, printed with
+	// the same visibility the baseline report gives its own (zero on
+	// faithful data; non-zero means order-dependent or fallback-anchored
+	// savings for the affected ops).
+	if d.sim.UnschedulableOps > 0 || d.sim.SimStartConflicts > 0 || d.sim.CycleWarnings > 0 {
+		fmt.Fprintf(w, "counterfactual sim diagnostics: %d broken cycles, %d unschedulable ops, %d start conflicts\n\n",
+			d.sim.CycleWarnings, d.sim.UnschedulableOps, d.sim.SimStartConflicts)
 	}
 
 	if len(d.Chain) > 1 {

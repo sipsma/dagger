@@ -307,6 +307,13 @@ type Simulation struct {
 	elided     []bool
 	hitShort   []bool
 	pullCostNS int64
+	// A1 waivers (see CachedResolution): an elided exec-attributed region's
+	// launch spawn and its ancestors' production waits are skipped WITHOUT
+	// tripping ElidedOpDemanded — they are the deferred production being
+	// counterfactually removed, precomputed by the pre-pass and counted in
+	// the resolution's report data.
+	spawnWaived []bool
+	waivedJoins map[uint64]struct{}
 	// Cached carries the resolved hypothesis driving this simulation (nil for
 	// plain factor sims): eligibility, kept-region, and residual report data.
 	Cached *CachedResolution
@@ -557,6 +564,11 @@ func (s *Simulation) advance(op, stopAt int32) int64 {
 			clock += int64(float64(a.dur) * factor)
 		case actSpawn:
 			if s.elided != nil && s.elided[a.ref] {
+				if s.spawnWaived != nil && s.spawnWaived[a.ref] {
+					// A1: launching an elided exec-attributed production —
+					// waived by the pre-pass, skipped silently.
+					break
+				}
 				// what-if-cached: an elided op's spawn is skipped. A live op
 				// spawning an elided child is a pre-pass violation (only the
 				// short-circuited region roots parent elided ops, and their
@@ -570,6 +582,13 @@ func (s *Simulation) advance(op, stopAt int32) int64 {
 			}
 		case actWaitJoin:
 			if s.elided != nil && s.elided[a.ref] {
+				if s.waivedJoins != nil {
+					if _, waived := s.waivedJoins[uint64(uint32(op))<<32|uint64(uint32(a.ref))]; waived {
+						// A1: an ancestor's wait on its elided deferred
+						// production — waived by the pre-pass.
+						break
+					}
+				}
 				// what-if-cached: a live op joining an elided op is a pre-pass
 				// violation. Counted and skipped — gating on a fictional
 				// finish would be compensation.

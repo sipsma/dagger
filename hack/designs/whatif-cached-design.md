@@ -231,6 +231,31 @@ replay**:
 > material on real traces, that's the data-driven case for Stage 2 — and we'll
 > know its size before building it.
 
+> **Amendment A1 — exec-attributed production regions (lead-approved
+> 2026-07-04, from the V23 calibration data; Erik's morning review
+> supersedes).** For lazy-producing calls (withExec above all), the actual
+> production executes at `Evaluate` time under a lazy op parented to the
+> CONSUMER — outside the producer call's nesting subtree — and the V23
+> calibration measured that whole-subtree elision then honestly saves ≈0.
+> The data carries an explicit, zero-inference attribution: the `exec.run`
+> op's ident IS the producing call digest (`executor.go` `execIdent =
+> execMD.CallDigest`; the OTel `exec.run` span's `dag.digest` is the same
+> value). A1 therefore extends a cached ident's elision regions with the
+> subtree of every exec-kind op whose ident equals the ident — ROOT
+> INCLUSIVE — under the unchanged elide-or-keep + keep fixpoint, with one
+> demand-test refinement: a wait into such a region whose waiter is an
+> ANCESTOR of the region root (the lazy wrapper / consumer chain that
+> spawned the deferred production) is the production wait being
+> counterfactually removed — it does not keep the region, it is waived in
+> the replay (never an `ElidedOpDemanded`), and the waived count is printed.
+> A third-party waiter keeps the region whole, as before. The lazy WRAPPER
+> is a stated remainder: it replays minus its elided exec child, and no
+> class-based attribution of wrapper residuals is permitted (the heuristic
+> slope) — if calibration shows wrapper phases are material (the withExec
+> workload measured ~25% of baseline), the identified follow-up is a
+> lazy-op ident EMIT, proposed with numbers, batched with Chunk 4's emit
+> work. Catalog rows V24–V26 pin all of this.
+
 > **Stated simplification #2 — lock contention is not relieved.**
 > Named-resource (lock) waits record the *waiter* and the duration — not who
 > held the lock. So when an elided region's ops vanish, their own lock waits
@@ -421,6 +446,9 @@ chunk as incomplete until its rows are covered.
 | V21 | Report goldens: ranking table, explicit-set detail, eligibility + kept-region sections. | Stable, deterministic output (the replay is deterministic by design; the report must not introduce map-order nondeterminism). | 2 |
 | V22 | Calibration, mechanical half: extract hit digests from a warm capture (`--cached-from-run`) on fixtures where the hit set is known. | Exactly the digests whose warm outcome is hit; nothing inferred. | 3 |
 | V23 | Calibration, empirical half: cold+warm runs of ≥2 real workloads; simulate cold under warm's hit set. | Deliverable is the honest drift number vs the warm run's actual makespan, plus an accounting of gap sources (unlimited-resource assumption, uninstrumented I/O, warm-run lazy decode). No threshold-gaming; the number is the product. | 3 |
+| V24 | A1: the withExec lazy-exec shape (thin resolver; production under a consumer-parented lazy op; `exec.run` ident = the producing digest), cached with vs without the attribution. | Unattributed: only the thin resolver elides (the honest ≈0 V23 measured). Attributed: the exec subtree elides too, the wrapper replays as the stated remainder, the ancestor's production wait/spawn are waived (counted, never `ElidedOpDemanded`). | 4 |
+| V25 | A1 demand distinctions: a same-ident exec of an UNCACHED digest; a third-party (non-ancestor) waiter into the attributed region; a second consumer joining the same evaluation via a lazy wait on the wrapper. | Uncached-ident execs are untouched (no leakage). Third-party demand keeps the region whole (reported; internal schedule preserved). The joining consumer waits the live wrapper and unblocks at its remainder finish. | 4 |
+| V26 | A1 calibration re-run: both V23 captures re-analyzed under A1. | Before/after drift recorded in `hack/designs/whatif-cached-calibration.md` with the residuals named; the module workload unchanged (its gap is digest instability, not attribution). | 4 |
 
 ## 5. Sequencing note: how this meets Track A
 
@@ -515,7 +543,29 @@ corners, each derived from the doctrine (§0) and the elide-or-keep semantics
     (`ShortCircuited + ElidedCalls`). The data keeps the two tallies distinct
     so the replay state stays honest while the report matches the row's
     letter.
-11. **The ranking's `removed-self` column and its candidate budget.** The
+11. **A1 replay mechanics (Chunk 4).** An elided exec-attributed region's
+    launch spawn (by its recorded parent) and its ancestors' gating waits
+    into it are precomputed WAIVERS: the replay skips exactly those without
+    tripping `ElidedOpDemanded` (which stays provably 0 on faithful data),
+    and `WaivedProductionWaits` prints the count. A synchronous lazy→exec
+    nesting (no explicit wait edge) needs no waiver — the implicit-join skip
+    covers it. Third-party demand keeps the region whole; a kept region
+    shifts with its anchors under other elisions but never deforms
+    internally. Rows V24–V25 pin all of it; V26's re-run lives in
+    `whatif-cached-calibration.md`.
+12. **Chunk 4 data path.** The dump gains `InputsID` (interned canonical
+    JSON-array of a call's cache-input recipe digests, the same encoding
+    argv uses), emitted at the term-lookup seam (`cache.go` requestInputs —
+    zero extra digest work) and decoded into `Op.CacheInputs` by the one
+    shared Build path; the OTel loader re-encodes `dag.inputs` to the
+    byte-identical string. The decision-#5 emit stamps
+    `wcprof.call.outcome` (executed/joined/do_not_cache) on call spans at
+    the decision point; the loader treats span status and the cached
+    attribute as AUTHORITATIVE over the mid-call stamp (a stamped-executed
+    call that later failed loads as the failure), and pre-amendment traces
+    fall back to the old derivation. No replay consumer yet: this is the
+    Stage-2/Track-A substrate, landed as data.
+13. **The ranking's `removed-self` column and its candidate budget.** The
     column sums elided-region self-time and the short-circuited calls' own
     self-time (`HitCallSelfNS`) — on un-augmented OTel captures, where the
     producing work is folded into the call span, the latter is the ONLY

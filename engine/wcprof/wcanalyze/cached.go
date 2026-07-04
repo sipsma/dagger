@@ -182,10 +182,20 @@ type CachedResolution struct {
 	// unmodeled demand, so they are printed, never silent.
 	OrphanWaitsIntoElided  int
 	OrphanWaitNSIntoElided int64
+	// WaivedProductionWaits counts ancestor waits into elided exec-attributed
+	// regions (Amendment A1): the deferred production being counterfactually
+	// removed. Waived in the replay — never a keep, never an
+	// ElidedOpDemanded — and printed here.
+	WaivedProductionWaits int
 
 	// Program-index-aligned replay state (nil when the hypothesis is a no-op).
-	elided   []bool
-	hitShort []bool
+	// spawnWaived marks elided exec-region roots whose recorded parent's
+	// spawn is production launch (skipped without tripping the gate);
+	// waivedJoins holds the (waiter, target) ancestor waits waived likewise.
+	elided      []bool
+	hitShort    []bool
+	spawnWaived []bool
+	waivedJoins map[uint64]struct{}
 }
 
 // Noop reports whether the resolved hypothesis changes nothing: the simulation
@@ -211,6 +221,8 @@ func NewCachedSimulation(g *Graph, res *CachedResolution) *Simulation {
 	s.Cached = res
 	s.elided = res.elided
 	s.hitShort = res.hitShort
+	s.spawnWaived = res.spawnWaived
+	s.waivedJoins = res.waivedJoins
 	s.pullCostNS = res.PullCostNS
 	return s
 }
@@ -241,10 +253,13 @@ type cachedIndex struct {
 	// selfSub[i]: total SelfNS of op i's subtree (op included).
 	selfSub []int64
 
-	// callsByIdent / execsByIdent index call and call_exec ops by ident, in
-	// deterministic (ID-sorted) order.
-	callsByIdent map[string][]int32
-	execsByIdent map[string][]int32
+	// callsByIdent / callExecsByIdent / execRunsByIdent index call, call_exec,
+	// and exec-kind (exec.run) ops by ident, in deterministic (ID-sorted)
+	// order. exec.run's ident is the owning call digest when the engine knew
+	// it (executor.go execIdent) — the A1 attribution seam.
+	callsByIdent     map[string][]int32
+	callExecsByIdent map[string][]int32
+	execRunsByIdent  map[string][]int32
 
 	// demandEdges holds every wait that gates as a join in the replay
 	// (joinWait — the ONE predicate shared with the program compiler), sorted
@@ -272,14 +287,15 @@ func buildCachedIndex(g *Graph) *cachedIndex {
 	p := g.program()
 	n := len(p.ops)
 	idx := &cachedIndex{
-		p:            p,
-		eulerIn:      make([]int32, n),
-		eulerOut:     make([]int32, n),
-		eulerOrder:   make([]int32, n),
-		openSub:      make([]bool, n),
-		selfSub:      make([]int64, n),
-		callsByIdent: make(map[string][]int32),
-		execsByIdent: make(map[string][]int32),
+		p:                p,
+		eulerIn:          make([]int32, n),
+		eulerOut:         make([]int32, n),
+		eulerOrder:       make([]int32, n),
+		openSub:          make([]bool, n),
+		selfSub:          make([]int64, n),
+		callsByIdent:     make(map[string][]int32),
+		callExecsByIdent: make(map[string][]int32),
+		execRunsByIdent:  make(map[string][]int32),
 	}
 	for i := range idx.eulerIn {
 		idx.eulerIn[i] = -1
@@ -323,18 +339,18 @@ func buildCachedIndex(g *Graph) *cachedIndex {
 		}
 	}
 
-	callKind := wcprof.OpKindCall.String()
-	execKind := wcprof.OpKindCallExec.String()
 	for i := int32(0); i < int32(n); i++ {
 		op := p.ops[i]
 		if op.Ident == "" {
 			continue
 		}
 		switch op.Kind {
-		case callKind:
+		case wcprof.OpKindCall.String():
 			idx.callsByIdent[op.Ident] = append(idx.callsByIdent[op.Ident], i)
-		case execKind:
-			idx.execsByIdent[op.Ident] = append(idx.execsByIdent[op.Ident], i)
+		case wcprof.OpKindCallExec.String():
+			idx.callExecsByIdent[op.Ident] = append(idx.callExecsByIdent[op.Ident], i)
+		case wcprof.OpKindExec.String():
+			idx.execRunsByIdent[op.Ident] = append(idx.execRunsByIdent[op.Ident], i)
 		}
 	}
 
@@ -383,18 +399,38 @@ func buildCachedIndex(g *Graph) *cachedIndex {
 // resolution: eligibility, regions, external-demand keep fixpoint
 //
 
-// cachedRegion is one candidate elision region: the strict-descendant subtree
-// of a cached call op, as an Euler interval (inPos, outPos].
+// cachedRegion is one candidate elision region as a closed Euler interval
+// [lo, outPos]. Two shapes exist:
+//
+//   - a CALL region: the strict-descendant subtree of a cached call op
+//     (lo = eulerIn[root]+1 — the root survives as the hit);
+//   - an EXEC region (Amendment A1): the subtree INCLUDING the root of an
+//     exec-kind op whose ident IS the cached digest — the engine's explicit
+//     attribution of lazily-deferred production (executor.go execIdent =
+//     execMD.CallDigest; the OTel exec.run span's dag.digest is the same
+//     value). Under the local-warm-hit model a cached result's deferred
+//     production does not run, so the whole attributed subtree elides.
 type cachedRegion struct {
 	root     int32
 	identIdx int
-	inPos    int32
+	lo       int32
 	outPos   int32
+	exec     bool // an A1 exec-attributed region (root-inclusive)
 
 	keep       bool
 	reason     string
 	demander   int32 // -1 when structural / none
 	demandWait *WaitEdge
+}
+
+// ops returns the region's op count (root included for exec regions).
+func (r *cachedRegion) ops() int { return int(r.outPos - r.lo + 1) }
+
+// isStrictAncestor reports whether a is a strict ancestor of b in the
+// nesting forest (Euler interval containment).
+func (idx *cachedIndex) isStrictAncestor(a, b int32) bool {
+	ain, bin := idx.eulerIn[a], idx.eulerIn[b]
+	return ain >= 0 && bin >= 0 && ain < bin && bin <= idx.eulerOut[a]
 }
 
 // ResolveCachedHypothesis statically resolves hyp against g (design §3.3):
@@ -459,6 +495,13 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 				openInRegion = true
 			}
 		}
+		// A1: attributed exec regions are production too — open ops inside
+		// them equally mean the production is not fully recorded.
+		for _, ei := range idx.execRunsByIdent[d] {
+			if idx.eulerIn[ei] >= 0 && idx.openSub[ei] {
+				openInRegion = true
+			}
+		}
 		switch {
 		case el.Calls == 0:
 			el.State = IdentNotFound
@@ -490,21 +533,39 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 					regions = append(regions, cachedRegion{
 						root:     ci,
 						identIdx: identIdx,
-						inPos:    idx.eulerIn[ci],
+						lo:       idx.eulerIn[ci] + 1,
 						outPos:   idx.eulerOut[ci],
 						demander: -1,
 					})
 				}
+			}
+			// A1: exec-attributed production regions (root-inclusive).
+			for _, ei := range idx.execRunsByIdent[d] {
+				if idx.eulerIn[ei] < 0 {
+					continue
+				}
+				regions = append(regions, cachedRegion{
+					root:     ei,
+					identIdx: identIdx,
+					lo:       idx.eulerIn[ei],
+					outPos:   idx.eulerOut[ei],
+					exec:     true,
+					demander: -1,
+				})
 			}
 		}
 		shortCands = append(shortCands, cands)
 		res.Idents = append(res.Idents, el)
 	}
 
-	// Deterministic region order (nesting/document order) so fixpoint reasons
+	// Deterministic region order (nesting/document order; wider first on the
+	// same start, so the union scans stay maximal-first) — fixpoint reasons
 	// and reports never depend on map iteration.
 	slices.SortFunc(regions, func(a, b cachedRegion) int {
-		return int(a.inPos - b.inPos)
+		if a.lo != b.lo {
+			return int(a.lo - b.lo)
+		}
+		return int(b.outPos - a.outPos)
 	})
 
 	// 2. Keep fixpoint (design §3.3). Op status given the current region
@@ -518,17 +579,28 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 	// Elide → keep is the only flip, so the live set only grows: the fixpoint
 	// is monotone and terminates in <= len(regions) rounds.
 	keptRoots := make(map[int32]bool)
-	coveredBy := func(x int32, keep bool) bool {
+	// coveredByExcl is coveredBy with one region excluded from consideration —
+	// the structural-demand test must judge a region's ROOT while ignoring the
+	// candidate's own interval (an A1 exec region covers its root, which would
+	// otherwise mask the root's position inside a surrounding kept region and
+	// let an elided exec region pierce that kept region's exact replay).
+	coveredByExcl := func(x int32, keep bool, exclude int) bool {
 		xin := idx.eulerIn[x]
 		if xin < 0 {
 			return false
 		}
 		for ri := range regions {
-			if regions[ri].keep == keep && regions[ri].inPos < xin && xin <= regions[ri].outPos {
+			if ri == exclude {
+				continue
+			}
+			if regions[ri].keep == keep && regions[ri].lo <= xin && xin <= regions[ri].outPos {
 				return true
 			}
 		}
 		return false
+	}
+	coveredBy := func(x int32, keep bool) bool {
+		return coveredByExcl(x, keep, -1)
 	}
 	live := func(x int32) bool {
 		if coveredBy(x, false) {
@@ -546,10 +618,13 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 			if r.keep {
 				continue
 			}
-			// Structural demand: the region's own root is live (it sits inside
-			// a kept region), so its recorded timeline — which spawns and joins
-			// this region — replays as recorded.
-			if live(r.root) {
+			// Structural demand: the region's root sits inside a SURROUNDING
+			// kept region and is not elided by any OTHER region — the kept
+			// region's exact replay spawns and gates this one, so it must be
+			// kept too. Judged excluding the candidate's own interval: a
+			// root-inclusive exec region covers its root, which would
+			// otherwise mask this exact case (the Chunk-4 review blocker).
+			if !coveredByExcl(r.root, false, ri) && coveredByExcl(r.root, true, ri) {
 				r.keep = true
 				keptRoots[r.root] = true
 				r.reason = "root inside a kept region (replays as recorded)"
@@ -559,7 +634,7 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 			// External demand: a live op's gating wait targets an op inside
 			// the region.
 			lo := sort.Search(len(idx.demandEdges), func(i int) bool {
-				return idx.demandEdges[i].targetIn > r.inPos
+				return idx.demandEdges[i].targetIn >= r.lo
 			})
 			for j := lo; j < len(idx.demandEdges) && idx.demandEdges[j].targetIn <= r.outPos; j++ {
 				e := idx.demandEdges[j]
@@ -567,6 +642,14 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 					// Orphan wait: the replay cannot model it (no waiter op to
 					// gate), so it does not demand a keep; it is reported
 					// against the elided set below instead.
+					continue
+				}
+				if r.exec && idx.isStrictAncestor(e.waiter, r.root) {
+					// A1: a wait from the region root's own ancestor chain (the
+					// lazy wrapper / consumer that spawned the deferred
+					// production) IS the production wait being counterfactually
+					// removed — it does not keep the region. It is waived in
+					// the replay at materialize time, counted, never silent.
 					continue
 				}
 				if !live(e.waiter) {
@@ -585,6 +668,12 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 
 	// 3. Materialize. Elided = union of elide-state regions; maximal regions
 	// only, so every op (and its duration) is counted exactly once (V12).
+	regionSelf := func(r *cachedRegion) int64 {
+		if r.exec {
+			return idx.selfSub[r.root] // root-inclusive
+		}
+		return idx.selfSub[r.root] - p.ops[r.root].SelfNS()
+	}
 	var maxOut, maxKeptOut int32 = -1, -1
 	anyElide := false
 	for ri := range regions {
@@ -595,8 +684,8 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 			res.KeptRegions = append(res.KeptRegions, KeptRegionReport{
 				Root:       p.ops[r.root],
 				Ident:      el.Ident,
-				Ops:        int(r.outPos - r.inPos),
-				SelfNS:     idx.selfSub[r.root] - p.ops[r.root].SelfNS(),
+				Ops:        r.ops(),
+				SelfNS:     regionSelf(r),
 				Reason:     r.reason,
 				DemandWait: r.demandWait,
 			})
@@ -604,11 +693,11 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 				res.KeptRegions[len(res.KeptRegions)-1].Demander = p.ops[r.demander]
 			}
 			// Aggregate over maximal kept regions only (regions are sorted by
-			// inPos; subtree intervals nest or are disjoint, so containment is
+			// lo; subtree intervals nest or are disjoint, so containment is
 			// exactly outPos <= the running max).
 			if r.outPos > maxKeptOut {
-				res.KeptOps += int(r.outPos - r.inPos)
-				res.KeptSelfNS += idx.selfSub[r.root] - p.ops[r.root].SelfNS()
+				res.KeptOps += r.ops()
+				res.KeptSelfNS += regionSelf(r)
 				maxKeptOut = r.outPos
 			}
 			continue
@@ -619,10 +708,38 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 			res.elided = make([]bool, n)
 			anyElide = true
 		}
+		if r.exec {
+			// A1 waivers for an ELIDED exec region: its recorded parent's
+			// spawn of the root, and its ancestors' waits into it, are the
+			// deferred production being counterfactually removed. The replay
+			// skips exactly these without tripping ElidedOpDemanded; the
+			// count is printed, never silent.
+			if res.spawnWaived == nil {
+				res.spawnWaived = make([]bool, n)
+			}
+			res.spawnWaived[r.root] = true
+			lo := sort.Search(len(idx.demandEdges), func(i int) bool {
+				return idx.demandEdges[i].targetIn >= r.lo
+			})
+			for j := lo; j < len(idx.demandEdges) && idx.demandEdges[j].targetIn <= r.outPos; j++ {
+				e := idx.demandEdges[j]
+				if e.waiter < 0 || !idx.isStrictAncestor(e.waiter, r.root) {
+					continue
+				}
+				if res.waivedJoins == nil {
+					res.waivedJoins = make(map[uint64]struct{})
+				}
+				key := uint64(uint32(e.waiter))<<32 | uint64(uint32(e.target))
+				if _, dup := res.waivedJoins[key]; !dup {
+					res.waivedJoins[key] = struct{}{}
+					res.WaivedProductionWaits++
+				}
+			}
+		}
 		if r.outPos <= maxOut {
 			continue // nested inside an already-materialized elided region
 		}
-		for pos := max(r.inPos+1, maxOut+1); pos <= r.outPos; pos++ {
+		for pos := max(r.lo, maxOut+1); pos <= r.outPos; pos++ {
 			op := idx.eulerOrder[pos]
 			res.elided[op] = true
 			res.ElidedOps++
@@ -661,7 +778,7 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 		// call_exec ops carrying the ident outside all of its regions: an
 		// executor call op is absent from the data, so that production cannot
 		// be attributed to a region and keeps running. Loud, not silent.
-		for _, ei := range idx.execsByIdent[el.Ident] {
+		for _, ei := range idx.callExecsByIdent[el.Ident] {
 			if res.elided != nil && res.elided[ei] {
 				continue
 			}
@@ -670,7 +787,7 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 				if regions[ri].identIdx != identIdx {
 					continue
 				}
-				if xin := idx.eulerIn[ei]; regions[ri].inPos < xin && xin <= regions[ri].outPos {
+				if xin := idx.eulerIn[ei]; regions[ri].lo <= xin && xin <= regions[ri].outPos {
 					inOwn = true
 					break
 				}

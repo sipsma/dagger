@@ -382,6 +382,17 @@ func Compile(spans []Span) (*Compiled, error) {
 		// shared wcanalyze.Build path decodes Op.Argv for both sources. Zero
 		// inference: the string is mapped through untouched (absent ⇒ "" ⇒ id 0).
 		argv := attrStr(s.Attrs, telemetryattrs.WcprofExecArgvAttr)
+		// cache-DAG edges (what-if-cached design Chunk 4): the call span's
+		// dag.inputs — the structural input recipe digests, emitted since
+		// forever and discarded until now — re-encoded to the canonical
+		// scalar JSON-array string the native dump uses, so the one shared
+		// Build path decodes Op.CacheInputs identically for both sources.
+		var inputsJSON string
+		if inputs := attrStrSlice(s.Attrs, telemetry.DagInputsAttr); len(inputs) > 0 {
+			if b, err := json.Marshal(inputs); err == nil {
+				inputsJSON = string(b)
+			}
+		}
 		var resultID uint64
 		if out := attrStr(s.Attrs, telemetry.DagOutputAttr); out != "" {
 			resultID = resultIDs.intern(out)
@@ -414,6 +425,7 @@ func Compile(spans []Span) (*Compiled, error) {
 			ClassID:  str.intern(class),
 			IdentID:  str.intern(ident),
 			MetaID:   str.intern(argv),
+			InputsID: str.intern(inputsJSON),
 			StartNS:  int64(s.StartUnixNS) - epoch,
 			EndNS:    int64(s.EndUnixNS) - epoch,
 		})
@@ -514,21 +526,28 @@ func classifyKind(s Span, hasCallExecChild bool) string {
 }
 
 // computeOutcome maps the available status/cache attributes to a wcprof
-// outcome (design §5 step 2). An un-augmented call span cannot distinguish
-// executed/joined/do_not_cache, so a non-cached success is reported as the
-// generic "ok" rather than over-claiming an execution (Chunk 2's call_exec
-// makes the distinction faithful).
+// outcome (design §5 step 2). Failures are authoritative (the stamp below is
+// written at the decision point, the status at span end — a call stamped
+// "executed" that later failed IS a failure, matching native's
+// error-over-hint rule). Then the explicit wcprof.call.outcome stamp
+// (executed/joined/do_not_cache — the what-if-cached decision #5 emit) wins
+// over the derived forms; without it, an un-augmented call span cannot
+// distinguish those, so a non-cached success stays the generic "ok" rather
+// than over-claiming an execution.
 func computeOutcome(s Span) string {
 	switch {
 	case attrBool(s.Attrs, telemetry.CanceledAttr):
 		return wcprof.OutcomeCanceled.String()
 	case s.StatusError:
 		return wcprof.OutcomeError.String()
-	case attrBool(s.Attrs, telemetry.CachedAttr):
-		return wcprof.OutcomeHit.String()
-	default:
-		return wcprof.OutcomeOK.String()
 	}
+	if o := attrStr(s.Attrs, telemetryattrs.WcprofCallOutcomeAttr); o != "" {
+		return o
+	}
+	if attrBool(s.Attrs, telemetry.CachedAttr) {
+		return wcprof.OutcomeHit.String()
+	}
+	return wcprof.OutcomeOK.String()
 }
 
 // causalParentSpanID is the loader's only parentage rule: the engine-emitted
@@ -575,6 +594,28 @@ func attrBool(m map[string]any, key string) bool {
 		}
 	}
 	return false
+}
+
+// attrStrSlice reads a string-slice attribute (an OTLP string array arrives
+// from the otlpdump JSON as []any of strings). Non-string elements are
+// impossible in a faithful emit and are simply not collected — never guessed
+// into strings.
+func attrStrSlice(m map[string]any, key string) []string {
+	v, ok := m[key]
+	if !ok {
+		return nil
+	}
+	raw, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, e := range raw {
+		if s, ok := e.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // parseUnixNS parses a decimal-string absolute-Unix-nanos attribute exactly

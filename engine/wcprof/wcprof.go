@@ -262,6 +262,10 @@ type Event struct {
 	// MetaID is an interned op-metadata string (currently the canonical
 	// scalar JSON-array encoding of a user exec's scrubbed argv), 0 when none.
 	MetaID uint32
+	// InputsID is an interned canonical JSON-array string of a call op's
+	// cache-input recipe digests (the structural inputs the cache computed
+	// for its term lookup) — the cache-DAG edge seam. 0 when none.
+	InputsID uint32
 
 	StartNS int64
 	EndNS   int64

@@ -3653,6 +3653,12 @@ func (c *Cache) getOrInitCallInner(
 	if req.DoNotCache {
 		// don't cache, don't dedupe calls, just call it
 
+		// what-if-cached decision #5: make do_not_cache visible to the OTel
+		// source (the engine refuses to cache this; simulating it cached is
+		// fiction the analyzer must be able to refuse)
+		if !req.ResultCall.ProfileSkip {
+			stampOTelCallOutcome(ctx, wcprof.OutcomeDoNotCache)
+		}
 		val, err := fn(ctx)
 		if err != nil {
 			return nil, err
@@ -3720,6 +3726,16 @@ func (c *Cache) getOrInitCallInner(
 	}
 	callKey := callDigest.String()
 	profOp.SetIdent(callKey)
+	if profOp != nil && len(requestInputs) > 0 {
+		// cache-DAG edges (what-if-cached design Chunk 4): the input digests
+		// were just computed for the term lookup anyway — record them at zero
+		// extra digest work, closing the native/OTel dag.inputs asymmetry.
+		inputs := make([]string, len(requestInputs))
+		for i, d := range requestInputs {
+			inputs[i] = d.String()
+		}
+		profOp.SetInputs(inputs)
+	}
 	if ctx.Value(cacheContextKey{callKey}) != nil {
 		return nil, ErrCacheRecursiveCall
 	}
@@ -3752,6 +3768,9 @@ func (c *Cache) getOrInitCallInner(
 			oc.waiters++
 			c.callsMu.Unlock()
 			profOp.SetOutcomeHint(wcprof.OutcomeJoined)
+			if !req.ResultCall.ProfileSkip {
+				stampOTelCallOutcome(ctx, wcprof.OutcomeJoined)
+			}
 			return c.wait(ctx, sessionID, resolver, oc, req, true)
 		}
 	}
@@ -3839,6 +3858,9 @@ func (c *Cache) getOrInitCallInner(
 
 	c.callsMu.Unlock()
 	profOp.SetOutcomeHint(wcprof.OutcomeExecuted)
+	if !req.ResultCall.ProfileSkip {
+		stampOTelCallOutcome(ctx, wcprof.OutcomeExecuted)
+	}
 	return c.wait(ctx, sessionID, resolver, oc, req, false)
 }
 
