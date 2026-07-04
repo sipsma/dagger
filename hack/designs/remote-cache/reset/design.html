@@ -102,29 +102,22 @@
   @media (max-width: 800px) { .two { grid-template-columns: 1fr; } }
   .subcard { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; }
   .subcard h4 { margin: 2px 0 6px; }
+  .layout { display: grid; grid-template-columns: 250px minmax(0, 940px); gap: 10px; justify-content: center; }
+  .layout main { margin: 0; }
+  nav.side { position: sticky; top: 0; align-self: start; max-height: 100vh; overflow-y: auto;
+    padding: 40px 4px 40px 10px; }
+  nav.side .toc { margin-top: 0; font-size: 13px; line-height: 1.5; padding: 14px 16px; }
+  nav.side .toc ol { padding-left: 18px; margin: 4px 0 8px; }
+  nav.side .toc li { margin: 3px 0; }
+  @media (max-width: 1260px) {
+    .layout { grid-template-columns: minmax(0, 940px); }
+    nav.side { position: static; max-height: none; padding: 28px 28px 0; }
+  }
 </style>
 </head>
 <body>
-<main>
-
-<h1>Remote Cache — Design</h1>
-<p class="sub">v10 &nbsp;·&nbsp; Requirements + target shape: ratified &nbsp;·&nbsp; §7 + §8: drafts, review round in progress &nbsp;·&nbsp; 2026-07-03</p>
-
-<div class="banner">
-<b>Status.</b> This is the living design doc for the remote-cache engine work, restarted
-from requirements after the previous take. Part I (requirements &amp; non-goals) is
-ratified through three review rounds and starts collapsed. Part II is the design proper,
-written step by step — architecture, implementation detail, and validation gates
-<em>together</em> — and currently contains the target-shape overview, under discussion.
-Shelved material lives at the bottom, clearly demarcated: kept for reference, explicitly
-not part of the design. Prior-take docs remain untouched one directory up, for reference
-only.
-</div>
-<div class="controls">
-<button type="button" onclick="setAll(true)">expand all sections</button>
-<button type="button" onclick="setAll(false)">collapse all sections</button>
-</div>
-
+<div class="layout">
+<nav class="side">
 <div class="toc">
 <b>Contents — Part I (ratified)</b>
 <ol>
@@ -145,6 +138,28 @@ only.
   <li><a href="#shelf">The shelf (not part of the design)</a></li>
 </ol>
 </div>
+</nav>
+<main>
+
+<h1>Remote Cache — Design</h1>
+<p class="sub">v11 &nbsp;·&nbsp; Requirements + target shape: ratified &nbsp;·&nbsp; §7 + §8: drafts, review round in progress &nbsp;·&nbsp; 2026-07-03</p>
+
+<div class="banner">
+<b>Status.</b> This is the living design doc for the remote-cache engine work, restarted
+from requirements after the previous take. Part I (requirements &amp; non-goals) is
+ratified through three review rounds and starts collapsed. Part II is the design proper,
+written step by step — architecture, implementation detail, and validation gates
+<em>together</em> — and currently contains the target-shape overview, under discussion.
+Shelved material lives at the bottom, clearly demarcated: kept for reference, explicitly
+not part of the design. Prior-take docs remain untouched one directory up, for reference
+only.
+</div>
+<div class="controls">
+<button type="button" onclick="setAll(true)">expand all sections</button>
+<button type="button" onclick="setAll(false)">collapse all sections</button>
+</div>
+
+
 
 <h2 id="goal">1. The goal</h2>
 <p>
@@ -550,6 +565,13 @@ decided in Part II.</p>
   the <b>lazy-form source</b>; the one real encode delta is recording both forms when both
   exist (today exclusive, snapshot-preferred). R1's parenthetical was retouched to the
   grounded phrasing (flagged for owner confirmation as a ratified-text edit).</li>
+  <li><b>Round 7 (2026-07-03).</b> Owner probed the transitive runtime-failure case
+  (warm hit → snapshot pull fails → lazy-form fall-through reaches an upload input): §8
+  gained the "beyond vetting" panel — failures fall through and propagate up chains; the
+  floor is <b>demote-to-miss</b> (the caller's live call executes with its own live
+  inputs); the upload case is walked end to end and pre-registered as §9's worked example.
+  Fig. 4 now shows both the boot outcome (dropped at restore) and the runtime outcome
+  (demote to miss). Also: the table of contents became a sticky sidebar.</li>
 </ol>
 </div>
 </details>
@@ -888,9 +910,9 @@ live.</p>
   <line x1="455" y1="87" x2="455" y2="125" stroke="#1a7f4b" stroke-width="2.5" marker-end="url(#arrFG)"/>
   <text x="295" y="147" text-anchor="middle" font-size="13" font-weight="700" fill="#1a7f4b">SERVE — and mark the sharedResult realized</text>
 
-  <text x="775" y="115" text-anchor="middle" font-size="12" font-weight="700" fill="#b3362c">no viable source at all ⇒ not servable (R2):</text>
-  <text x="775" y="133" text-anchor="middle" font-size="12" fill="#b3362c">dropped at restore, with dependents</text>
-  <text x="775" y="151" text-anchor="middle" font-size="11" fill="#5c6470">(behavior lands in the restore section)</text>
+  <text x="775" y="115" text-anchor="middle" font-size="12" font-weight="700" fill="#b3362c">zero sources ⇒ not servable (R2):</text>
+  <text x="775" y="133" text-anchor="middle" font-size="12" fill="#b3362c">at boot → dropped at restore, with dependents</text>
+  <text x="775" y="151" text-anchor="middle" font-size="11" fill="#5c6470">at runtime → demote to miss: the live call executes (§9)</text>
 </svg>
 <figcaption>Fig. 4 — Fall-through. Naming source ③ now means the order is designed exactly
 once; building it stays out of this take.</figcaption>
@@ -1331,6 +1353,49 @@ is just a non-viable result. What restore does <em>not</em> do: touch content, e
 recipes, or decode envelopes (beyond structural validation) — boot stays metadata-only
 (R14, §7's worked example step 1).</p>
 
+<h4>Beyond vetting: runtime source failure, and the fallback floor</h4>
+<p>Vetting is boot-time honesty about <em>local</em> facts. It cannot promise the future:
+a snapshot can be pruned after boot, and in the remote future a content pull can fail at
+use time (the metadata said available; the transfer returns 500s). Two rules complete R2
+at runtime:</p>
+<ol>
+<li><b>Failures fall through, and propagate up dependency chains naturally.</b> A source
+that fails at use time falls through to the result's next source (§7, Fig. 4) — and a
+lazy form fails if a result it references cannot itself be materialized, so a failure deep
+in a chain surfaces as source failure at the result being served.</li>
+<li><b>The floor: demote the hit to a miss.</b> When the result being served exhausts its
+sources, the caller's own <em>live</em> call executes, with the caller's own live inputs.
+Every serving flows from a live session call, so this floor always exists; the fresh
+execution publishes and re-teaches equivalence, healing the store as a side effect.</li>
+</ol>
+<p><b>The upload case, end to end</b> — the scenario that motivated this panel:</p>
+<ol class="steps">
+<li><span class="tag">WARM SESSION</span><br>
+The caller's session uploads its directory — <code>host.directory</code>, the caller's
+client <em>is</em> attached; the content digest is computed at upload
+(<code>mirror.Snapshot → ref, contentDgst</code>, host.go:314) — and calls
+<code>withExec</code> on it. The lookup content-matches the persisted withExec → a hit.</li>
+<li><span class="tag">SERVING FAILS FORWARD</span><br>
+Serving needs content: the withExec's snapshot source fails (pruned locally, or the remote
+pull 500s). Fall through to its lazy form — the exec — which needs its input directory
+materialized.</li>
+<li><span class="tag">THE INPUT IS AN UPLOAD — NOTHING TO REPLAY, STRUCTURALLY</span><br>
+The persisted input row has a snapshot source and nothing else: <b>there is no lazy struct
+on disk that could ever "re-run the upload"</b> (host.go:320 builds the value as
+<code>{Dir, Snapshot}</code> — no <code>Lazy</code>). Its snapshot is gone too → the input
+cannot be materialized → the withExec's lazy-form source fails.</li>
+<li><span class="tag">THE FLOOR</span><br>
+Sources exhausted → demote to miss: the caller's withExec executes live against the
+caller's <em>own</em> upload (already materialized in their session at step 1). Correct
+result, no stranded hit, no replayed upload — and the new execution publishes, healing the
+store.</li>
+</ol>
+<p class="pill">Ownership boundary: the precise mechanics — waiter semantics when several
+sessions hold the same failing hit, the error taxonomy, exactly what re-teaches — belong
+to §9 (warm lookup &amp; on-demand materialization), and this scenario is pre-registered as
+§9's worked example. What is settled <em>here</em>: the fallback floor exists, and the
+dangerous artifact — a replayable upload recipe — structurally does not.</p>
+
 <h4>D3 — Flush: unchanged cadence, honest reads</h4>
 <p>Flush stays a clean-shutdown snapshot (R14's read-mostly serving window doesn't change),
 with two differences: it builds each result's rows from
@@ -1550,6 +1615,7 @@ content-home section (result &amp; materialization state), once the target shape
 </div>
 
 </main>
+</div>
 <script>
 function setAll(open){document.querySelectorAll('details.fold').forEach(function(d){d.open=open;});}
 function openTarget(){
