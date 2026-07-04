@@ -108,7 +108,7 @@
 <main>
 
 <h1>Remote Cache — Design</h1>
-<p class="sub">v9 &nbsp;·&nbsp; Requirements + target shape: ratified &nbsp;·&nbsp; §7 + §8: drafts, review round in progress &nbsp;·&nbsp; 2026-07-03</p>
+<p class="sub">v10 &nbsp;·&nbsp; Requirements + target shape: ratified &nbsp;·&nbsp; §7 + §8: drafts, review round in progress &nbsp;·&nbsp; 2026-07-03</p>
 
 <div class="banner">
 <b>Status.</b> This is the living design doc for the remote-cache engine work, restarted
@@ -276,8 +276,10 @@ review log (§4); the previous take's verbatim originals are in
 <div class="card keep">
 <h3>R1 — Dual materialization paths <span class="badge keep">CARRIED</span></h3>
 <p>A result must be re-creatable on an engine that didn't produce it, by content transfer
-<em>or</em> by recomputation — at least one retained path, both when possible (some recipes
-are legitimately not retainable). Materializing a result must not destroy its recipe;
+<em>or</em> by recomputation — at least one retained path, both when possible (some results have no
+in-engine recomputation path — e.g. client uploads, whose recipe lives on the client
+machine; their retained path is their content). Materializing a result must not destroy
+its recipe;
 persisting a result must be able to carry value, recipe, or both.</p>
 </div>
 
@@ -536,6 +538,18 @@ decided in Part II.</p>
   test gained an escalation caveat (legitimate nondeterminism ⇒ stop and discuss, never
   contort). Every section's validation gate now opens with an explicit Step 0 naming the
   integration suites to run.</li>
+  <li><b>Round 6 (2026-07-03), the retainability challenge.</b> Owner challenged the
+  "retainable / not retainable / snapshot-only" taxonomy as hand-waving; code verification
+  proved him right and went further: <code>host.directory</code> identity is per-client by
+  design (<code>PerClientInput</code>, host.go:74) so its key is never re-derived; decode
+  never replays frames (<code>call_frame_json</code> is identity + decode context only);
+  and the real recomputation path is the <b>persisted lazy form</b> main already encodes
+  (payload <code>Form</code> = snapshot | lazy, with a registered lazy-struct kind
+  referencing other results — core/directory.go:199/225, file.go:189, container.go:538).
+  The taxonomy was deleted everywhere; the "recipe source" was renamed and re-grounded as
+  the <b>lazy-form source</b>; the one real encode delta is recording both forms when both
+  exist (today exclusive, snapshot-preferred). R1's parenthetical was retouched to the
+  grounded phrasing (flagged for owner confirmation as a ratified-text edit).</li>
 </ol>
 </div>
 </details>
@@ -611,8 +625,9 @@ reconstruction order or timing.</li>
 <li><b>Serving — lookups.</b> A lookup consults the identity layer (the e-graph, unchanged
 from main) and resolves to at most one winning result. A winner whose content is not yet
 local is still a normal cache hit: its content materializes on demand via a retained
-source — local snapshot, content transfer (in the remote future), or recipe re-execution —
-falling through on failure (R1, R2), moving only what is demanded (R12).</li>
+source — local snapshot, content transfer (in the remote future), or re-running the
+value's persisted lazy form — falling through on failure (R1, R2), moving only what is
+demanded (R12).</li>
 <li><b>Serving — publication.</b> Completed local work appends results and teaches
 equivalence exactly as main does today. Content state is written once, to that result's
 single home (R5). Runs build private values; the cache never exposes in-progress state
@@ -859,11 +874,11 @@ live.</p>
   <text x="292" y="46" text-anchor="middle" font-size="11" fill="#b3362c">not viable / failed</text>
 
   <rect x="335" y="25" width="240" height="62" rx="10" fill="#e7f5ec" stroke="#bfe0cc"/>
-  <text x="455" y="50" text-anchor="middle" font-size="13" font-weight="700" fill="#1a1d23">② recipe</text>
-  <text x="455" y="70" text-anchor="middle" font-size="11.5" fill="#5c6470">frozen frame · re-executes via lazy path (R6)</text>
+  <text x="455" y="50" text-anchor="middle" font-size="13" font-weight="700" fill="#1a1d23">② lazy form</text>
+  <text x="455" y="70" text-anchor="middle" font-size="11.5" fill="#5c6470">the value's persisted lazy struct · re-runs via lazy path</text>
 
   <line x1="575" y1="56" x2="650" y2="56" stroke="#5c6470" stroke-width="2" marker-end="url(#arrF)"/>
-  <text x="612" y="46" text-anchor="middle" font-size="11" fill="#b3362c">not retainable / failed</text>
+  <text x="612" y="46" text-anchor="middle" font-size="11" fill="#b3362c">no lazy form / failed</text>
 
   <rect x="655" y="25" width="240" height="62" rx="10" fill="#fdf3e0" stroke="#ecd9ac" stroke-dasharray="6 4"/>
   <text x="775" y="50" text-anchor="middle" font-size="13" font-weight="700" fill="#a06000">③ content-chain</text>
@@ -893,9 +908,9 @@ machinery byte-for-byte and changes only <em>what the work consults</em>:
 snapshot-or-closure choice</td></tr>
 <tr><td>Deferred decode on first use</td>
 <td>Decode = realizing the <b>local-snapshot</b> source</td></tr>
-<tr><td>Recipe re-execution with resume-span attribution</td>
-<td>Re-execution = realizing the <b>recipe</b> source (the same closure, now an explicit,
-persisted capability)</td></tr>
+<tr><td>Lazy re-execution with resume-span attribution</td>
+<td>Re-execution = realizing the <b>lazy-form</b> source (the same persisted lazy structs
+main decodes and runs today)</td></tr>
 <tr><td>Retry-on-failure semantics</td>
 <td>Failure of one source falls through to the next (R2)</td></tr>
 </table>
@@ -952,7 +967,7 @@ self-check metric so this model is measured, not assumed.</p>
 <ol class="steps">
 <li><span class="tag">BOOT · import decision point (R14, R16)</span><br>
 Persisted results are restored: the identity index, and per result a sharedResult
-carrying <code>{envelope, sources: [local-snapshot, recipe], realized: false}</code>. No
+carrying <code>{envelope, sources: [local-snapshot, lazy-form], realized: false}</code>. No
 values decoded, no content touched — boot moves metadata only.</li>
 <li><span class="tag">LOOKUP</span><br>
 The session's call resolves through the e-graph (unchanged from main) to its sharedResult — a hit,
@@ -968,8 +983,8 @@ sharedResult marks <b>itself</b> realized (the lazy-arrival write point).</li>
 The value flows to the caller; every later use takes the realized fast path.</li>
 <li><span class="tag">COUNTERFACTUAL · source ② (fall-through, R2)</span><br>
 Suppose the snapshot had been pruned: source ① reports not-viable, the runner falls
-through to the recipe and re-executes the frozen frame — the same closure main's lazy
-evaluation runs today (R6 principal semantics) — and the output lands on <b>this sharedResult</b>,
+through to the lazy form and re-runs it — the same persisted lazy struct main decodes and
+runs today (R6 principal semantics) — and the output lands on <b>this sharedResult</b>,
 which realizes as above.</li>
 <li><span class="tag">COUNTERFACTUAL · zero sources (restore section)</span><br>
 Had <em>no</em> source been viable at boot, the result and its dependents would have been
@@ -1005,8 +1020,9 @@ const (
 	<span class="cm">// engine boundary (R4).</span>
 	sourceLocalSnapshot retainedSourceKind = iota
 
-	<span class="cm">// The frozen recipe frame; re-executed through the existing lazy path.</span>
-	sourceRecipe
+	<span class="cm">// The value's persisted lazy form (a registered lazy struct referencing</span>
+	<span class="cm">// its input results); re-run through the existing lazy path.</span>
+	sourceLazyValue
 
 	<span class="cm">// sourceContentChain: reserved seam for the remote future (R4 chainIDs).</span>
 	<span class="cm">// Named so fall-through order is designed exactly once; not built this take.</span>
@@ -1014,7 +1030,7 @@ const (
 
 type retainedSource struct {
 	kind retainedSourceKind
-	<span class="cm">// kind-specific identity (refKeys / frame reference) — encoding owned by</span>
+	<span class="cm">// kind-specific identity (refKeys / lazy payload) — encoding owned by</span>
 	<span class="cm">// the persistence section</span>
 }
 </code></pre>
@@ -1066,8 +1082,8 @@ test probe, not by eyeball.</li>
 
 <p><b>The idea in three sentences.</b> What hits disk is each result's
 <code>materializationState</code> (§7), written in the one portable encoding — and it mostly already does: main persists every
-result's recipe and its snapshot links today, so §7's source list needs vetting logic,
-not new schema. What must change is <em>identity</em>: today's persisted lookup keys hash
+result's value (including its lazy form, when it has one) and its snapshot links, so §7's
+source list needs vetting logic, not new schema. What must change is <em>identity</em>: today's persisted lookup keys hash
 in-memory integer class IDs, which is exactly the accident R16 forbids — so keys become
 process-local, recomputed from persisted digests at boot. And restore stops being
 all-or-nothing: each result is vetted individually, kept if any source is viable, dropped
@@ -1075,8 +1091,10 @@ with its dependents if not.</p>
 
 <p class="pill"><b>Names here are the codebase's own:</b> the SQLite store lives at
 <code>dagql/persistdb/schema.sql</code>; a <b>frame</b> (<code>call_frame_json</code>) is
-a result's persisted call — its recipe; the <b>envelope</b>
-(<code>self_payload</code>) is the persisted value; <b>eq_class_digests</b> maps
+a result's persisted call — identity and decode context, never a materialization source;
+the <b>envelope</b> (<code>self_payload</code>) is the persisted value, carrying its
+<b>form</b> — snapshot-backed, or lazy (a registered lazy struct referencing other
+results); <b>eq_class_digests</b> maps
 equivalence classes to content digests; <b>terms</b>/<b>term_inputs</b> are the structural
 lookup index; <b>result_snapshot_links</b> are a result's local snapshot refKeys.</p>
 
@@ -1103,8 +1121,8 @@ links.</b> The store's core tables, trimmed to what matters (full DDL:
 
 <pre><code>CREATE TABLE results (
     id              INTEGER PRIMARY KEY,
-    call_frame_json TEXT NOT NULL,   <span class="cm">-- ← the recipe: the full call, per result, already here</span>
-    self_payload    BLOB NOT NULL,   <span class="cm">-- ← the envelope: the persisted value</span>
+    call_frame_json TEXT NOT NULL,   <span class="cm">-- ← the call: identity + decode context (never a materialization source)</span>
+    self_payload    BLOB NOT NULL,   <span class="cm">-- ← the envelope: the value + its form (snapshot-backed, or a lazy struct)</span>
     ...timestamps, record_type, description...
 );
 
@@ -1122,10 +1140,17 @@ CREATE TABLE result_deps (            <span class="cm">-- ← the dependency clo
 <span class="src">dagql/persistdb/schema.sql (trimmed; also: persisted_edges = retention roots,
 snapshot_content_links = snapshot→content digests, imported_layer_* = imported layer indices)</span>
 
-<p>Read that against §7: the <b>recipe source</b> is <code>call_frame_json</code> — free;
-the <b>local-snapshot source</b> is <code>result_snapshot_links</code> — free. §7's
-source list is a <em>reading</em> of tables that already exist, which is why this section
-is mostly about vetting and identity, not encoding.</p>
+<p>Read that against §7: the <b>local-snapshot source</b> is
+<code>result_snapshot_links</code> — free. The <b>lazy-form source</b> is already encoded
+<em>inside</em> <code>self_payload</code>: main's persisted values carry a
+<code>Form</code> — snapshot-backed, or lazy — where the lazy form is a registered, typed
+lazy struct (<code>LazyKind</code>/<code>LazyJSON</code>, e.g.
+<code>directory.withDirectory</code>, <code>container.rootfs</code>) whose fields
+reference <em>other persisted results</em> — which is what <code>result_deps</code>
+records. §7's source list is a <em>reading</em> of what already exists, which is why this
+section is mostly about vetting and identity, not encoding.</p>
+<span class="src">forms: core/directory.go:225 (EncodePersistedObject), lazy-kind registry core/directory.go:199;
+File and Container follow the same pattern (core/file.go:189, core/container.go:538)</span>
 
 <p><b>Fact 2 — the persisted lookup keys hash in-memory integers.</b> This is the R16
 crux, verbatim:</p>
@@ -1178,25 +1203,30 @@ enough — the entire store is wiped and the engine starts cold (§7, Fact 3).</
 <li>the <b>value</b> → the envelope, into <code>results.self_payload</code>;</li>
 <li>the <b>local-snapshot source</b> → its refKeys, into
 <code>result_snapshot_links</code>;</li>
-<li>the <b>recipe source</b> → nothing new at all: the call is already persisted as
-<code>results.call_frame_json</code>.</li>
+<li>the <b>lazy-form source</b> → nothing new at all: it is already inside the envelope
+(<code>LazyKind</code>/<code>LazyJSON</code>, referencing the results in
+<code>result_deps</code>).</li>
 </ul>
 <p>What changes is <em>where the encoder gets the snapshot refs</em>. Today it walks the
 value structs and asks them what refs they hold (Fact 3). In this design it copies them
 from the result's <code>materializationState.sources</code> — the per-result record §7
 introduced — and never consults value structs at flush. Same rows on disk; an honest
 in-memory source for them.</p>
-<p><b>"Not retainable," made concrete.</b> R1 says every result keeps at least one
-retained path, "both when possible — some recipes are legitimately not retainable." What
-that means: a recipe is <b>retainable</b> when a later boot could re-execute it without
-the original client session. Most recipes qualify. The canonical exception is
-<code>host.directory(…)</code> and its relatives: the persisted call says "upload this
-path from the connected client's machine" — perfectly good <em>identity</em>, but
-re-executing it requires that client to be attached, which a later boot cannot assume.
-Results of such calls are <b>snapshot-only</b>: their single retained path is the local
-snapshot, recorded as such in the envelope (no schema change needed). The vetting
-consequence lands in D2: a snapshot-only result whose snapshot was pruned has zero viable
-sources and is dropped — honestly, per R2.</p>
+<p><b>The one real encode delta: record both forms when both exist.</b> Today's encoder
+picks <em>one</em> form — snapshot if the value has one, else lazy
+(core/directory.go:225: the snapshot branch returns early). R1 wants "both when possible":
+a value that has a snapshot <em>and</em> a lazy form should persist both, so losing the
+snapshot later still leaves a path. That is the whole change — a small encode adjustment,
+no new schema.</p>
+<p><b>And nothing needs a "retainability" concept.</b> Whether a result can be recomputed
+falls out of what its payload factually is: a value with no in-engine lazy form simply
+encodes without one. The canonical example: <code>host.directory(…)</code> results — the
+"recipe" is an upload from the connected client's machine, so there is no lazy struct to
+persist; and since its call identity is deliberately per-client
+(<code>.WithInput(dagql.PerClientInput)</code>, core/schema/host.go:74), no later call
+ever derives its key anyway — it matters only as an input referenced by downstream lazy
+forms, and through its content class (R16's clarification). No marking, no taxonomy:
+viability at restore is just "does the payload have something usable" — D2's job.</p>
 <p>One encoding serves local persistence now and bundles later (R9): a bundle is this same
 per-result encoding minus the engine-local rows (no integer keys, no refKeys — R3/R4),
 which the next decision makes possible.</p>
@@ -1285,8 +1315,8 @@ like a second digest source — no parallel identity scheme (R9).</li>
   <text x="802" y="184" text-anchor="middle" font-size="12" font-weight="700" fill="#1a1d23">"any source viable?" means</text>
   <text x="802" y="206" text-anchor="middle" font-size="11.5" fill="#2b2f36">① local snapshot: refKeys still present</text>
   <text x="802" y="222" text-anchor="middle" font-size="11.5" fill="#2b2f36">in the worker store (leasable)</text>
-  <text x="802" y="244" text-anchor="middle" font-size="11.5" fill="#2b2f36">② recipe: frame decodable AND its</text>
-  <text x="802" y="260" text-anchor="middle" font-size="11.5" fill="#2b2f36">inputs survived vetting too</text>
+  <text x="802" y="244" text-anchor="middle" font-size="11.5" fill="#2b2f36">② lazy form: payload decodes AND the</text>
+  <text x="802" y="260" text-anchor="middle" font-size="11.5" fill="#2b2f36">results it references were kept</text>
   <text x="802" y="280" text-anchor="middle" font-size="11" fill="#5c6470">(order dependencies first: one pass, deps-first)</text>
 </svg>
 <figcaption>Fig. 5 — Restore. The wholesale wipe survives only for the two store-level
@@ -1294,8 +1324,8 @@ markers; everything else is a per-result decision with an honest blast radius.</
 </figure>
 
 <p>The mechanics worth pinning: vetting runs <b>dependencies-first</b> (one topological
-pass over <code>result_deps</code>), so "recipe viable" can require "inputs kept" without
-iteration; a dropped result drops its dependents in the same pass (reverse edges);
+pass over <code>result_deps</code>), so "lazy form viable" can require "the results it
+references were kept" without iteration; a dropped result drops its dependents in the same pass (reverse edges);
 <code>import_failure</code> stops being a store-wipe reason — a row that fails to decode
 is just a non-viable result. What restore does <em>not</em> do: touch content, execute
 recipes, or decode envelopes (beyond structural validation) — boot stays metadata-only
@@ -1314,7 +1344,7 @@ untouched, and diffs the counts — measured, not assumed (§7's growth model).<
 <ol class="steps">
 <li><span class="tag">ENGINE A · SHUTDOWN (flush decision point)</span><br>
 The §7 example chain flushes: per result, one <code>results</code> row
-(<code>call_frame_json</code> = recipe, <code>self_payload</code> = envelope), its
+(<code>call_frame_json</code> = the call, <code>self_payload</code> = envelope + form), its
 <code>result_snapshot_links</code> refKeys, its class digests, term structure, deps, and
 retention roots. <code>clean_shutdown=1</code>, <code>schema_version</code>, R10 counts.</li>
 <li><span class="tag">ENGINE B · BOOT, HAPPY PATH (import decision point)</span><br>
@@ -1323,10 +1353,12 @@ sharedResults created unrealized with vetted sources → classes rebuilt from
 <code>eq_class_digests</code> → <b>term keys recomputed with this process's IDs</b> (D1).
 Serving begins; §7's worked example takes over from here.</li>
 <li><span class="tag">COUNTERFACTUAL · A SNAPSHOT WAS PRUNED</span><br>
-Vetting finds the refKey missing from the worker store: source ① not viable, source ②
-(recipe) still is → <b>kept</b>, sources=[recipe]. Warm lookups still hit it; first use
-re-executes (§7 step 6). Today this row — and with it the entire store on some paths —
-would have been the casualty.</li>
+Vetting finds the refKey missing from the worker store: the snapshot source is gone. If
+the value also persisted a lazy form (D1's both-forms delta), it is <b>kept</b> with
+sources=[lazy-form] — warm lookups still hit; first use re-runs the lazy struct (§7 step
+6). If it had no lazy form (an upload), zero viable sources → dropped with its dependents;
+a warm call for equivalent work simply misses and executes live — the same honest outcome,
+with no special machinery.</li>
 <li><span class="tag">COUNTERFACTUAL · ONE ROW IS MALFORMED</span><br>
 A frame that no longer decodes (say, a field removed from the schema): that result is
 non-viable → dropped, along with its two dependents via <code>result_deps</code> —
@@ -1353,7 +1385,7 @@ for _, term := range restoredTerms {
 <span class="cm">// (2) Vetting, dependencies-first; drops cascade to dependents.</span>
 for _, res := range restoredResultsTopoOrder {
 	viable := res.snapshotRefsPresentInWorkerStore() ||
-		(res.frameDecodes() &amp;&amp; res.inputsKept())
+		(res.lazyFormDecodes() &amp;&amp; res.referencedResultsKept())
 	if !viable {
 		dropWithDependents(res)                   <span class="cm">// reverse result_deps walk</span>
 		continue
@@ -1368,7 +1400,8 @@ for _, res := range restoredResultsTopoOrder {
 <td>Class rebuild from digests + term-key recomputation (D1); dependencies-first vetting
 with drop-with-dependents (D2); <code>import_failure</code> no longer a reset reason.</td></tr>
 <tr><td><code>dagql/cache_persistence_self.go</code></td><td><span class="chip modf">MOD</span></td>
-<td>Encode reads <code>materializationState</code>; <code>snapshotOwnerLinksFromTyped</code>
+<td>Encode reads <code>materializationState</code>; records BOTH forms when both exist
+(today: snapshot else lazy, exclusive); <code>snapshotOwnerLinksFromTyped</code>
 harvesting retired.</td></tr>
 <tr><td><code>dagql/cache_persistence_worker.go</code></td><td><span class="chip modf">MOD</span></td>
 <td>Flush writes R10 self-check counts alongside the markers.</td></tr>
@@ -1400,9 +1433,10 @@ owner-acknowledged exception <em>in advance</em> — none are expected in this s
 <li><b>P-8.2</b> — R16 determinism test green: same store, two boots, identical key
 derivation and identical hit behavior for identical calls.</li>
 <li><b>P-8.3</b> — new integration case: prune one result's snapshot between boots → warm
-boot <b>keeps</b> the store; the pruned result is present with sources=[recipe] (checked
-via debug snapshot); every other result still hits. (Executing the recipe fallback is the
-warm-lookup section's gate, not this one's.)</li>
+boot <b>keeps</b> the store; a result that also persisted a lazy form is present with
+sources=[lazy-form], while a result with no lazy form (an upload) is dropped with
+exactly its dependents (both checked via debug snapshot); every other result still hits.
+(Executing the lazy-form fallback is the warm-lookup section's gate, not this one's.)</li>
 <li><b>P-8.4</b> — new integration case: corrupt one row between boots → that result and
 exactly its dependents are dropped (boot summary asserts the count); everything else
 hits; no wipe.</li>
