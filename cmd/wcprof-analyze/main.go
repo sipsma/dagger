@@ -30,6 +30,11 @@ func main() {
 	)
 	var execGroups multiFlag
 	flag.Var(&execGroups, "exec-group", "offline exec grouping rule '<match>=<label>' (repeatable; prefix the match with 'contains:' for a substring match)")
+	var cachedDigests, cachedClasses, cachedExecs multiFlag
+	flag.Var(&cachedDigests, "cached", "what-if-cached: recipe digest to simulate as a cache hit, or '@file' manifest with one digest per line (repeatable)")
+	flag.Var(&cachedClasses, "cached-class", "what-if-cached: cache every executed digest of this call class, e.g. 'Container.withExec' (repeatable)")
+	flag.Var(&cachedExecs, "cached-exec", "what-if-cached: cache the digests owning user execs matching this argv pattern (boundary-aware prefix; 'contains:' for substring; repeatable)")
+	cachedPull := flag.Duration("cached-pull-cost", 0, "what-if-cached: simulated cost of each hit (the pull-cost seam; 0 = local warm hit)")
 	flag.Parse()
 
 	if flag.NArg() < 1 {
@@ -55,7 +60,19 @@ func main() {
 		os.Exit(2)
 	}
 
-	if err := run(flag.Args(), rules, wcanalyze.ReportOptions{
+	digests, err := wcanalyze.ExpandCachedArgs(cachedDigests)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	sel := wcanalyze.CachedSelection{
+		Digests:      digests,
+		Classes:      cachedClasses,
+		ExecPatterns: cachedExecs,
+		PullCostNS:   int64(*cachedPull),
+	}
+
+	if err := run(flag.Args(), rules, sel, wcanalyze.ReportOptions{
 		TopClasses:     *topClasses,
 		WhatIfFactors:  factors,
 		MinClassSelfNS: int64(*minSelf),
@@ -77,7 +94,7 @@ func (m *multiFlag) Set(v string) error {
 	return nil
 }
 
-func run(paths []string, rules []wcanalyze.ExecGroupRule, opts wcanalyze.ReportOptions) error {
+func run(paths []string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.CachedSelection, opts wcanalyze.ReportOptions) error {
 	readers := make([]io.Reader, 0, len(paths))
 	for _, path := range paths {
 		f, err := os.Open(path)
@@ -96,5 +113,10 @@ func run(paths []string, rules []wcanalyze.ExecGroupRule, opts wcanalyze.ReportO
 	// rules) BEFORE the report's first simulation compiles (and memoizes) the replay
 	// program, so the class table and the what-if savings agree (design §4.4).
 	wcanalyze.ClassifyExecs(graph, rules)
-	return wcanalyze.WriteReport(os.Stdout, graph, opts)
+	if err := wcanalyze.WriteReport(os.Stdout, graph, opts); err != nil {
+		return err
+	}
+	// The explicit-set what-if-cached detail section (design §3.4 mode 2); a
+	// gate violation surfaces as a non-zero exit, distinct from report I/O.
+	return wcanalyze.WriteCachedSelectionDetail(os.Stdout, graph, sel, opts.ChainDepth)
 }

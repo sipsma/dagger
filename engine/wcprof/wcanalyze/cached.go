@@ -160,11 +160,22 @@ type CachedResolution struct {
 	// deterministic (nesting) order.
 	KeptRegions []KeptRegionReport
 
-	// Aggregate residual visibility.
+	// Aggregate residual visibility. The elided and kept totals are unions
+	// over maximal regions, so nested regions never double-count (V12);
+	// KeptRegions still lists every kept region (nested included) with its
+	// own reason.
 	ElidedOps           int   // ops removed from the schedule (union, once each)
 	ElidedSelfNS        int64 // their total self-time (union, once each)
+	KeptOps             int   // ops in kept regions (union, once each)
+	KeptSelfNS          int64 // their total self-time (union, once each)
 	ShortCircuitedCalls int
-	ElidedRegions       int
+	// HitCallSelfNS is the short-circuited calls' own recorded self-time —
+	// also removed by the hypothesis (a hit replays none of the call's
+	// timeline), and the ONLY removed work on captures whose producing
+	// subtrees are folded into the call span (the un-augmented OTel shape).
+	// Kept separate from ElidedSelfNS so region-vs-call removal stays visible.
+	HitCallSelfNS int64
+	ElidedRegions int
 	// OrphanWaitsIntoElided counts recorded waits with no owning op that
 	// target an elided op. The replay never models orphan waits (they cannot
 	// gate anything), so they do not demand a keep — but the data hints at
@@ -574,7 +585,7 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 
 	// 3. Materialize. Elided = union of elide-state regions; maximal regions
 	// only, so every op (and its duration) is counted exactly once (V12).
-	var maxOut int32 = -1
+	var maxOut, maxKeptOut int32 = -1, -1
 	anyElide := false
 	for ri := range regions {
 		r := &regions[ri]
@@ -591,6 +602,14 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 			})
 			if r.demander >= 0 {
 				res.KeptRegions[len(res.KeptRegions)-1].Demander = p.ops[r.demander]
+			}
+			// Aggregate over maximal kept regions only (regions are sorted by
+			// inPos; subtree intervals nest or are disjoint, so containment is
+			// exactly outPos <= the running max).
+			if r.outPos > maxKeptOut {
+				res.KeptOps += int(r.outPos - r.inPos)
+				res.KeptSelfNS += idx.selfSub[r.root] - p.ops[r.root].SelfNS()
+				maxKeptOut = r.outPos
 			}
 			continue
 		}
@@ -636,6 +655,7 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 				res.hitShort[ci] = true
 				el.ShortCircuited++
 				res.ShortCircuitedCalls++
+				res.HitCallSelfNS += p.ops[ci].SelfNS()
 			}
 		}
 		// call_exec ops carrying the ident outside all of its regions: an

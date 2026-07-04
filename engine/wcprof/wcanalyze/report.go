@@ -218,6 +218,11 @@ func WriteReport(w io.Writer, g *Graph, opts ReportOptions) error {
 			shown++
 		}
 		fmt.Fprintf(w, "\n")
+
+		// What-if-cached ranking (design §3.4): default-on whenever the graph
+		// has executed call digests; the explicit-set detail section is
+		// rendered by the CLIs behind the --cached flags.
+		writeWhatIfCachedRanking(w, RunWhatIfCached(g, baseline), opts.TopClasses)
 	}
 
 	// Class table.

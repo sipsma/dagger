@@ -44,6 +44,11 @@ func main() {
 	)
 	var execGroups multiFlag
 	flag.Var(&execGroups, "exec-group", "offline exec grouping rule '<match>=<label>' (repeatable; prefix the match with 'contains:' for a substring match)")
+	var cachedDigests, cachedClasses, cachedExecs multiFlag
+	flag.Var(&cachedDigests, "cached", "what-if-cached: recipe digest (dag.digest) to simulate as a cache hit, or '@file' manifest with one digest per line (repeatable)")
+	flag.Var(&cachedClasses, "cached-class", "what-if-cached: cache every executed digest of this call class, e.g. 'Container.withExec' (repeatable)")
+	flag.Var(&cachedExecs, "cached-exec", "what-if-cached: cache the digests owning user execs matching this argv pattern (boundary-aware prefix; 'contains:' for substring; repeatable)")
+	cachedPull := flag.Duration("cached-pull-cost", 0, "what-if-cached: simulated cost of each hit (the pull-cost seam; 0 = local warm hit)")
 	flag.Parse()
 
 	if *traceID == "" && flag.NArg() < 1 {
@@ -78,10 +83,22 @@ func main() {
 		os.Exit(2)
 	}
 
+	digests, err := wcanalyze.ExpandCachedArgs(cachedDigests)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	sel := wcanalyze.CachedSelection{
+		Digests:      digests,
+		Classes:      cachedClasses,
+		ExecPatterns: cachedExecs,
+		PullCostNS:   int64(*cachedPull),
+	}
+
 	if *traceID != "" {
-		err = runCloud(context.Background(), *traceID, *orgID, rules, opts)
+		err = runCloud(context.Background(), *traceID, *orgID, rules, sel, opts)
 	} else {
-		err = runFiles(flag.Args(), rules, opts)
+		err = runFiles(flag.Args(), rules, sel, opts)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -99,7 +116,7 @@ func (m *multiFlag) Set(v string) error {
 	return nil
 }
 
-func runFiles(paths []string, rules []wcanalyze.ExecGroupRule, opts wcanalyze.ReportOptions) error {
+func runFiles(paths []string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.CachedSelection, opts wcanalyze.ReportOptions) error {
 	// The design's unit of analysis is one trace (design §10 decision 2), so each
 	// file is loaded and analyzed independently rather than merged.
 	var failed bool
@@ -111,9 +128,10 @@ func runFiles(paths []string, rules []wcanalyze.ExecGroupRule, opts wcanalyze.Re
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
-		gateOK, werr := analyze(c, g, rules, opts)
+		gateOK, werr := analyze(c, g, rules, sel, opts)
 		if werr != nil {
-			// A report I/O failure is distinct from a gate failure; surface it as-is.
+			// A report I/O, selector, or what-if-cached gate failure — each
+			// carries its own explicit message; surface it as-is.
 			return fmt.Errorf("%s: %w", path, werr)
 		}
 		if !gateOK {
@@ -128,14 +146,14 @@ func runFiles(paths []string, rules []wcanalyze.ExecGroupRule, opts wcanalyze.Re
 
 // runCloud swaps the loader's input to the Dagger Cloud trace API (design §5,
 // §6.6): same compile/replay stage, different source.
-func runCloud(ctx context.Context, traceID, orgID string, rules []wcanalyze.ExecGroupRule, opts wcanalyze.ReportOptions) error {
+func runCloud(ctx context.Context, traceID, orgID string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.CachedSelection, opts wcanalyze.ReportOptions) error {
 	c, g, err := loadCloud(ctx, traceID, orgID)
 	if err != nil {
 		return err
 	}
-	gateOK, werr := analyze(c, g, rules, opts)
+	gateOK, werr := analyze(c, g, rules, sel, opts)
 	if werr != nil {
-		return werr // report I/O failure, distinct from a gate failure
+		return werr // report I/O / selector / cached-gate failure, distinct from the structural gate
 	}
 	if !gateOK {
 		return fmt.Errorf("structural gate failed (see above)")
@@ -149,7 +167,7 @@ func runCloud(ctx context.Context, traceID, orgID string, rules []wcanalyze.Exec
 // point of the gate); a non-nil error is a report I/O failure (the gate verdict is
 // still valid and was already printed). A caller must not report a write error as a
 // gate failure.
-func analyze(c *wcotel.Compiled, g *wcanalyze.Graph, rules []wcanalyze.ExecGroupRule, opts wcanalyze.ReportOptions) (gateOK bool, err error) {
+func analyze(c *wcotel.Compiled, g *wcanalyze.Graph, rules []wcanalyze.ExecGroupRule, sel wcanalyze.CachedSelection, opts wcanalyze.ReportOptions) (gateOK bool, err error) {
 	// Decompose user execs into per-command classes (applying any --exec-group
 	// rules) BEFORE the structural gate compiles (and memoizes) the replay program,
 	// so the gate, the class table, and the what-if savings all see the same
@@ -165,6 +183,13 @@ func analyze(c *wcotel.Compiled, g *wcanalyze.Graph, rules []wcanalyze.ExecGroup
 	}
 	if werr := wcanalyze.WriteReport(os.Stdout, g, opts); werr != nil {
 		return gateOK, fmt.Errorf("write report: %w", werr)
+	}
+	// The explicit-set what-if-cached detail section (design §3.4 mode 2),
+	// applied after ClassifyExecs like everything selector-shaped. A selector
+	// or cached-gate failure returns as an error with its own explicit
+	// message — a distinct failure mode from the structural gate above.
+	if werr := wcanalyze.WriteCachedSelectionDetail(os.Stdout, g, sel, opts.ChainDepth); werr != nil {
+		return gateOK, werr
 	}
 	return gateOK, nil
 }

@@ -515,6 +515,16 @@ corners, each derived from the doctrine (§0) and the elide-or-keep semantics
     (`ShortCircuited + ElidedCalls`). The data keeps the two tallies distinct
     so the replay state stays honest while the report matches the row's
     letter.
+11. **The ranking's `removed-self` column and its candidate budget.** The
+    column sums elided-region self-time and the short-circuited calls' own
+    self-time (`HitCallSelfNS`) — on un-augmented OTel captures, where the
+    producing work is folded into the call span, the latter is the ONLY
+    removed work. The split stays visible in the detail residual line. The
+    individual-digest candidates are a stated top-N budget ordered by the
+    ident's producing wall-clock (max non-hit successful call duration — the
+    interval bounding its producing subtree, an upper-bound proxy); the
+    budget and the ordering are printed in the table header, never silent,
+    and every emitted row's saving is a full re-simulation.
 
 ## 7. Appendix — verified code facts this design rests on
 
