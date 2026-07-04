@@ -83,6 +83,14 @@ type Graph struct {
 	// prog is the compiled replay program, built once on first simulation.
 	progOnce sync.Once
 	prog     *replayProgram
+
+	// cachedIdx is the structural index for what-if-cached hypothesis
+	// resolution (cached.go), built once on first use. It depends only on the
+	// nesting/wait structure (never on op classes), so it survives
+	// invalidateProgram; its dense op indexing is the same deterministic
+	// ID-sorted order every program compilation produces.
+	cachedIdxOnce sync.Once
+	cachedIdx     *cachedIndex
 }
 
 // ClassKey identifies an operation class for aggregation: ops are grouped by

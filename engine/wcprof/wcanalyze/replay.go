@@ -58,6 +58,15 @@ import (
 
 const joinEpsilonNS = int64(time.Millisecond)
 
+// joinWait reports whether wait w (owned by waiter; nil for an orphan wait)
+// compiles to a gating join in the replay: a resolved non-self target whose
+// recorded end the wait outlasted (within epsilon). The what-if-cached
+// external-demand test (cached.go) MUST agree with the program compiler on
+// which waits gate, so both use this one predicate.
+func joinWait(w *WaitEdge, waiter *Op) bool {
+	return w.Target != nil && w.Target != waiter && w.EndNS >= w.Target.EndNS-joinEpsilonNS
+}
+
 // action kinds in the compiled program.
 const (
 	actSelf uint8 = iota
@@ -210,7 +219,7 @@ func compileProgram(g *Graph) *replayProgram {
 		}
 		for _, w := range op.Waits {
 			switch {
-			case w.Target != nil && w.Target != op && w.EndNS >= w.Target.EndNS-joinEpsilonNS:
+			case joinWait(w, op):
 				// Sequence the gate at the wait's OWN recorded end (not the
 				// target-end proxy, and not the start): a join gates an action
 				// iff it completed by that action's recorded time. So a child
@@ -289,6 +298,19 @@ type Simulation struct {
 	// read at its end to raise the clock by the delay's duration (a max).
 	fixedWaitClock []int64
 
+	// What-if-cached state (NewCachedSimulation; nil for plain factor sims).
+	// An elided op is never replayed: its actions never run, its lock delays
+	// never charge, and — by the static pre-pass — nothing live references it.
+	// A hitShort op (a call of a cached digest) finishes at
+	// simStart + pullCostNS without replaying its timeline: its recorded
+	// self-time, waits, and children (the elided producing region) vanish.
+	elided     []bool
+	hitShort   []bool
+	pullCostNS int64
+	// Cached carries the resolved hypothesis driving this simulation (nil for
+	// plain factor sims): eligibility, kept-region, and residual report data.
+	Cached *CachedResolution
+
 	// The three counters below are DATA-FAITHFULNESS signals, not tolerances:
 	// against a rational model, faithful data yields 0 on all three by
 	// construction. A non-zero value means the recorded graph is unfaithful and
@@ -325,6 +347,16 @@ type Simulation struct {
 	SimStartConflicts int
 	// SimStartConflictOps holds a sample of conflicting ops.
 	SimStartConflictOps []*Op
+	// ElidedOpDemanded counts demands (a finish, wait join, spawn, or anchor)
+	// of an op the what-if-cached pre-pass marked elided. The static pre-pass
+	// guarantees nothing live references an elided region, so this is 0 by
+	// construction on faithful data; a non-zero value means the recorded
+	// graph contradicts the resolution (unfaithful data, or a pre-pass
+	// blinded by it) and fails the what-if-cached gate — the same
+	// never-compensate doctrine as UnschedulableOps.
+	ElidedOpDemanded int
+	// ElidedOpDemandedSample holds a sample of the demanded elided ops.
+	ElidedOpDemandedSample []*Op
 }
 
 // NewSimulation prepares a replay over g with the given per-class self-time
@@ -369,6 +401,12 @@ func (s *Simulation) Run() (makespanNS int64, err error) {
 	// cross-root wait resolve to an already-anchored target, so the replay never
 	// needs a recorded-offset fallback for a not-yet-scheduled root.
 	for _, r := range s.p.roots {
+		if s.elided != nil && s.elided[r] {
+			// Cannot occur by construction: elision regions are strict
+			// descendants of call ops, so no region member is a root. Counted
+			// defensively (gate signal), never guessed around.
+			s.noteElidedDemanded(r)
+		}
 		s.setStart(r, s.p.startNS[r])
 	}
 	firstStart := int64(-1)
@@ -407,6 +445,19 @@ func (s *Simulation) finish(i int32) int64 {
 		return s.simFinish[i]
 	}
 
+	if s.elided != nil && s.elided[i] {
+		// An elided op was demanded — the pre-pass promised nothing live
+		// references it. Count loudly (the what-if-cached gate fails) and
+		// bound the damage like a cycle break: recorded-offset anchor plus
+		// recorded duration, WITHOUT descending into the elided subtree.
+		// Never compensated: the result is already declared unfaithful.
+		s.noteElidedDemanded(i)
+		if !s.started[i] {
+			s.anchorAtRecordedOffset(i)
+		}
+		return s.simStart[i] + (s.p.endNS[i] - s.p.startNS[i])
+	}
+
 	// Make sure the op has a simulated start. spawnTo replays only the parent's
 	// PREFIX up to i's spawn — never the parent's later actions — so reaching an
 	// op out of order cannot pull in cross-references that follow its spawn (the
@@ -418,6 +469,15 @@ func (s *Simulation) finish(i int32) int64 {
 		if s.finished[i] {
 			return s.simFinish[i]
 		}
+	}
+
+	if s.hitShort != nil && s.hitShort[i] {
+		// What-if-cached hit short-circuit: the call returns a warm hit at
+		// pullCost after its (normally anchored) start; its recorded
+		// self-time, waits, and children are not replayed.
+		s.simFinish[i] = s.simStart[i] + s.pullCostNS
+		s.finished[i] = true
+		return s.simFinish[i]
 	}
 
 	if s.inFlight[i] {
@@ -454,6 +514,14 @@ func (s *Simulation) advance(op, stopAt int32) int64 {
 	joinUpTo := func(t int64) {
 		for pendCur < pendEnd {
 			c := s.p.pendIdx[pendCur]
+			if s.elided != nil && s.elided[c] {
+				// what-if-cached: an elided child was never spawned and is
+				// never joined. Skipped BEFORE the started checks so it can
+				// neither stall the defer path nor be anchored; the pre-pass
+				// violation, if any, is counted at its (skipped) spawn action.
+				pendCur++
+				continue
+			}
 			if s.p.endNS[c] > t {
 				return
 			}
@@ -488,11 +556,26 @@ func (s *Simulation) advance(op, stopAt int32) int64 {
 		case actSelf:
 			clock += int64(float64(a.dur) * factor)
 		case actSpawn:
+			if s.elided != nil && s.elided[a.ref] {
+				// what-if-cached: an elided op's spawn is skipped. A live op
+				// spawning an elided child is a pre-pass violation (only the
+				// short-circuited region roots parent elided ops, and their
+				// timelines never run) — counted, never anchored.
+				s.noteElidedDemanded(a.ref)
+				break
+			}
 			s.setStart(a.ref, clock)
 			if stopAt >= 0 && a.ref == stopAt {
 				return clock
 			}
 		case actWaitJoin:
+			if s.elided != nil && s.elided[a.ref] {
+				// what-if-cached: a live op joining an elided op is a pre-pass
+				// violation. Counted and skipped — gating on a fictional
+				// finish would be compensation.
+				s.noteElidedDemanded(a.ref)
+				break
+			}
 			if f := s.finish(a.ref); f > clock {
 				clock = f
 			}
@@ -527,6 +610,17 @@ func (s *Simulation) spawnTo(par, target int32) {
 		// faithful data this is already done before any finish; it is kept here,
 		// exact and UNCOUNTED, only for the defensive path.
 		s.setStart(target, s.p.startNS[target])
+		return
+	}
+
+	if (s.elided != nil && s.elided[par]) || (s.hitShort != nil && s.hitShort[par]) {
+		// what-if-cached backstop: an elided or hit-short-circuited op can
+		// never legitimately be asked to anchor a child — its children are
+		// elided by construction, and elided targets are intercepted before
+		// spawnTo. Reaching here means the pre-pass was contradicted; count
+		// it and bound the damage with the recorded-offset anchor.
+		s.noteElidedDemanded(target)
+		s.anchorAtRecordedOffset(target)
 		return
 	}
 
@@ -569,14 +663,31 @@ func (s *Simulation) spawnTo(par, target int32) {
 // so the gate fails loudly and the EMIT is fixed — never silent. On faithful
 // data it never fires.
 func (s *Simulation) anchorUnschedulable(i int32) {
+	s.anchorAtRecordedOffset(i)
+	s.UnschedulableOps++
+	if len(s.UnschedulableOpsSample) < 10 {
+		s.UnschedulableOpsSample = append(s.UnschedulableOpsSample, s.p.ops[i])
+	}
+}
+
+// anchorAtRecordedOffset is the damage-bounding anchor shared by the
+// unfaithful-data paths (anchorUnschedulable, the elided-demanded backstops):
+// the op's recorded offset from its started parent, else its own recorded
+// start. Callers count the violation; this never fires on faithful data.
+func (s *Simulation) anchorAtRecordedOffset(i int32) {
 	anchor := s.p.startNS[i]
 	if par := s.p.parent[i]; par >= 0 && s.started[par] {
 		anchor = s.simStart[par] + (s.p.startNS[i] - s.p.startNS[par])
 	}
 	s.setStart(i, anchor)
-	s.UnschedulableOps++
-	if len(s.UnschedulableOpsSample) < 10 {
-		s.UnschedulableOpsSample = append(s.UnschedulableOpsSample, s.p.ops[i])
+}
+
+// noteElidedDemanded records a demand of an op the what-if-cached pre-pass
+// marked elided — a pre-pass violation that fails the what-if-cached gate.
+func (s *Simulation) noteElidedDemanded(i int32) {
+	s.ElidedOpDemanded++
+	if len(s.ElidedOpDemandedSample) < 10 {
+		s.ElidedOpDemandedSample = append(s.ElidedOpDemandedSample, s.p.ops[i])
 	}
 }
 
