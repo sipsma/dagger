@@ -150,15 +150,14 @@
 <main>
 
 <h1>Remote Cache — Design</h1>
-<p class="sub">v18 &nbsp;·&nbsp; finalization pass complete &nbsp;·&nbsp; open: §10's three decisions (blue box) &nbsp;·&nbsp; 2026-07-03</p>
+<p class="sub">v19 &nbsp;·&nbsp; all sections settled &nbsp;·&nbsp; final independent verification pass in progress &nbsp;·&nbsp; 2026-07-03</p>
 
 <div class="banner">
 <b>Status.</b> The living design doc for the remote-cache engine work: requirements and
 non-goals (§3), the target shape (§6), and the design proper — architecture,
 implementation detail, and validation gates <em>together</em>, §7–§9 — are settled.
-<b>One thing remains open: §10's three decisions (its blue box) — the acceptance bar, the
-build order, and the observability resolution — await ratification.</b> History lives
-only in the review log (§4) and the shelf (§11); everything else is stated forward.
+<b>All sections are settled.</b> History lives only in the review log (§4) and the shelf
+(§11); everything else is stated forward.
 Archived docs from earlier efforts sit one directory up — reference only, not inputs to
 this design.
 </div>
@@ -678,6 +677,12 @@ decided in Part II.</p>
   Lessons L8 (corrupt data gets the dumbest treatment) and the L1 writing-bar extension
   were adopted. The one open item is §10's blue box (acceptance bar, build order,
   observability resolution), flagged in the banner and the §10 header.</li>
+  <li><b>Round 15 (2026-07-04).</b> §10's three decisions <b>ratified</b>: the acceptance
+  bar (three consecutive fully-green gate runs with stats-file evidence attached), the
+  build order (§7 → §8 in three chunks → §9 → acceptance), and the observability
+  resolution (no standalone pass; §9 D5's slice is the entire up-front need). The design
+  is fully settled; a final independent verification pass (same fresh reviewer, fold-drift
+  check + per-finding resolution check + the implementability question) dispatched.</li>
 </ol>
 </div>
 </details>
@@ -1931,7 +1936,7 @@ source walk pinned deterministically.</li>
 </ul>
 </details>
 
-<details class="fold" id="proof" open><summary><h2>10. The restart proof: definition of done <span class="pill">(three decisions awaiting ratification — blue box)</span></h2></summary>
+<details class="fold" id="proof" open><summary><h2>10. The restart proof: definition of done</h2></summary>
 
 <p><b>The idea in three sentences.</b> The take is done when a fresh engine, booted on
 another engine's persisted state, provably serves warm hits — with counters that would
@@ -1941,7 +1946,7 @@ proof: what the existing suite already covers, the eight test cases the design a
 requirement-by-requirement coverage matrix, and the build order. It introduces no new
 machinery — it is the checklist the machinery must survive.</p>
 
-<div class="decide"><span class="dtag">ON THE TABLE — THE THREE DECISIONS AWAITING RATIFICATION</span>
+<div class="decide"><span class="dtag">THE DECISIONS THIS SECTION MAKES</span>
 <ol style="margin:4px 0 2px">
 <li><b>The acceptance bar:</b> three consecutive fully-green runs of the complete gate
 (existing suites + the new cases), with the warm-phase stats files attached to the record
