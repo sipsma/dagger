@@ -22,7 +22,12 @@ HTML pages (served locally, opened in a browser pane): real typography,
 diagrams wherever they carry weight, interactive elements when genuinely
 useful. Same rigor and level of detail as any design doc — different
 presentation. The HTML page **is** the source of truth, not a rendering of a
-separate markdown doc.
+separate markdown doc. And the writing bar applies to every artifact a human
+will read: each section must be readable on its own by an expert human who
+hasn't loaded the authors' context — story first where a mechanism is
+introduced, real code shown and annotated where a claim is code-grounded,
+coined terms defined at first use or not used, structure over blob paragraphs —
+all without dropping technical depth.
 
 ## L2 — Continuous integration-test gates, not milestone-end validation
 
@@ -81,6 +86,14 @@ fresh readers are never framed by an old effort's narrative. The nuance
 (owner-ruled): load-bearing warnings are not history — where a temptation is
 real, the design should name the forbidden pattern and forbid it, with the
 reason and the tripwire, without narrating who once fell for it.
+
+## L8 — Corrupt or impossible data gets the dumbest treatment available
+
+Drop it or wipe it — never clever repair. Handling every conceivable corruption
+convolutes the code until the handling itself becomes the bug source; "that's
+corrupt, out of luck" is a fine answer. Design salvage paths to make binary
+decisions (keep or drop) on simple criteria, and let anything stranger fall
+through to the coarser path (drop more, or wipe).
 
 ---
 

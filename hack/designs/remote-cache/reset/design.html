@@ -88,6 +88,8 @@
   .amend .atag { font-size: 11px; font-weight: 800; letter-spacing: .08em; color: #7c3aed; display: block; margin-bottom: 6px; }
   .amend .finding { font-size: 13.5px; color: #443061; background: #ece1fb; padding: 8px 12px; border-radius: 6px; margin: 6px 0 10px; }
   .amend .finding .ftag { font-size: 10.5px; font-weight: 800; letter-spacing: .08em; color: #7c3aed; }
+  .gist { font-size: 14px; color: #35502f; background: #f3f7f1; border-left: 3px solid var(--keep);
+    padding: 6px 12px; border-radius: 6px; margin: 0 0 10px; font-style: italic; }
   .verdict { background: var(--keep-bg); border: 1px solid #bfe0cc; border-left: 5px solid var(--keep); border-radius: 10px; padding: 14px 18px; margin: 20px 0; }
   .verdict .vtag { display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: .08em; color: var(--keep); margin-bottom: 4px; }
   .decide { background: var(--new-bg); border: 1px solid #c5d2f0; border-radius: 10px; padding: 12px 18px 14px; margin: 16px 0; }
@@ -133,11 +135,11 @@
 <b>Part II — The design</b>
 <ol start="5">
   <li><a href="#plan">How this design is written</a></li>
-  <li><a href="#target">Target shape (ratified)</a></li>
-  <li><a href="#home">The content home: result &amp; materialization state (draft, under discussion)</a></li>
-  <li><a href="#persist">Persistence: encoding, flush, and restore (draft, under discussion)</a></li>
-  <li><a href="#warm">Warm lookup and on-demand materialization (ratified)</a></li>
-  <li><a href="#proof">The restart proof: definition of done (draft, under discussion)</a></li>
+  <li><a href="#target">Target shape</a></li>
+  <li><a href="#home">The content home: result &amp; materialization state</a></li>
+  <li><a href="#persist">Persistence: encoding, flush, and restore</a></li>
+  <li><a href="#warm">Warm lookup and on-demand materialization</a></li>
+  <li><a href="#proof">The restart proof: definition of done</a></li>
 </ol>
 <b>Appendix</b>
 <ol start="11">
@@ -148,16 +150,17 @@
 <main>
 
 <h1>Remote Cache — Design</h1>
-<p class="sub">v17 &nbsp;·&nbsp; all amendments ratified &amp; folded &nbsp;·&nbsp; pre-implementation finalization pass pending &nbsp;·&nbsp; 2026-07-03</p>
+<p class="sub">v18 &nbsp;·&nbsp; finalization pass complete &nbsp;·&nbsp; open: §10's three decisions (blue box) &nbsp;·&nbsp; 2026-07-03</p>
 
 <div class="banner">
-<b>Status.</b> The living design doc for the remote-cache engine work. Part I
-(requirements &amp; non-goals) and the target shape are ratified; Part II carries the
-design proper — architecture, implementation detail, and validation gates
-<em>together</em> — through the definition of done (§10). Shelved material lives at the
-bottom, clearly demarcated: kept for reference, explicitly not part of the design.
+<b>Status.</b> The living design doc for the remote-cache engine work: requirements and
+non-goals (§3), the target shape (§6), and the design proper — architecture,
+implementation detail, and validation gates <em>together</em>, §7–§9 — are settled.
+<b>One thing remains open: §10's three decisions (its blue box) — the acceptance bar, the
+build order, and the observability resolution — await ratification.</b> History lives
+only in the review log (§4) and the shelf (§11); everything else is stated forward.
 Archived docs from earlier efforts sit one directory up — reference only, not inputs to
-this design. <b>All review-round amendments are ratified and folded into the normative text.</b>
+this design.
 </div>
 <div class="controls">
 <button type="button" onclick="setAll(true)">expand all sections</button>
@@ -183,7 +186,7 @@ same problem as the remote case with the transport removed, and it is provable e
 in-repo (R11).
 </p>
 <p>
-<b>Scope of this take (owner-confirmed):</b> engine changes only. The remote
+<b>Scope of this take:</b> engine changes only. The remote
 service/transport is not part of this batch of work — it stays in the goal statement above
 as the end state everything must remain compatible with, but nothing here designs or
 builds it.
@@ -292,6 +295,7 @@ log (§4).</p>
 
 <div class="card keep">
 <h3>R1 — Dual materialization paths</h3>
+<p class="gist">Every cached result keeps at least one way to come back to life on another machine — ship the bytes, or re-run the work — and ideally both.</p>
 <p>A result must be re-creatable on an engine that didn't produce it, by content transfer
 <em>or</em> by recomputation — at least one retained path, both when possible (some results have no
 in-engine recomputation path — e.g. client uploads, whose recipe lives on the client
@@ -302,6 +306,7 @@ persisting a result must be able to carry value, recipe, or both.</p>
 
 <div class="card keep">
 <h3>R2 — No stranded hits</h3>
+<p class="gist">If the cache says "hit," it must be able to deliver. A hit that can't produce its content when asked was a bug at the moment it was promised.</p>
 <p>Adopting a result as a cache hit is a promise: the result will materialize on demand
 via <em>some</em> retained source, or the adoption itself was a bug. Preferred-source
 failure falls through to the next source. Silent wrong answers and use-time "missing
@@ -310,6 +315,7 @@ snapshot" errors are design failures.</p>
 
 <div class="card keep">
 <h3>R3 — Portable semantic identity</h3>
+<p class="gist">Anything written to disk or sent between engines is named by digests — never by whatever integer an engine's allocator happened to hand out.</p>
 <p>Every identity that crosses an engine boundary (persistence file, export bundle,
 backend row) is either a semantic digest or a durable origin identity. Engine-local
 allocator IDs never serialize. Importing the same result twice is idempotent.</p>
@@ -317,6 +323,7 @@ allocator IDs never serialize. Importing the same result twice is idempotent.</p
 
 <div class="card keep">
 <h3>R4 — Content-addressed snapshot identity, lazy at export</h3>
+<p class="gist">Filesystem content that crosses machines is identified by its bytes (layer digests), never by a local storage key — and that hashing happens at export time, never during normal builds.</p>
 <p>Immutable snapshot content crossing any boundary is identified by its content (layer
 diffID chains), never by local snapshotter keys. Mutable-owner snapshots never cross
 boundaries as content. Hard constraint: content identity is computed lazily at export time
@@ -326,6 +333,7 @@ previously-hit, real performance trap.</p>
 
 <div class="card modify">
 <h3>R5 — Materialization state: one home per result, surgery-proof</h3>
+<p class="gist">One result, one record of "what do we have, and how can we re-make it" — owned by the cache; copies point at it, never duplicate it.</p>
 <p>Every result's materialization state (materialized / remotely materializable /
 recomputable, plus the content itself once present) has <b>exactly one home</b>, owned by
 the cache, keyed by the result. It is written only at well-defined points — publication of
@@ -340,13 +348,17 @@ consistency problem to reconcile.</p>
 
 <div class="card keep">
 <h3>R6 — Explicit execution identity</h3>
-<p>Deferred/recomputed work runs under an explicit principal (the forcing waiter's), with
-retry on principal death; the <em>identity</em> of a result is fully determined by its
-recipe and never contaminated by whoever forced materialization.</p>
+<p class="gist">Deferred work runs on behalf of whoever demanded it — but a result's identity comes from its recipe alone, never from who happened to run it.</p>
+<p>Deferred or recomputed work runs on behalf of an explicit session — the caller whose
+demand forced it — and if that caller disappears mid-run, another waiting caller retries
+the work under its own identity. The <em>identity</em> of the result is fully determined
+by its recipe, and is never contaminated by which session happened to force the
+computation.</p>
 </div>
 
 <div class="card keep">
 <h3>R7 — Session-resource soundness extends to foreign results</h3>
+<p class="gist">A result that needed your secrets to build is only ever served to sessions holding those same secrets — restarts included.</p>
 <p>An adopted result that transitively requires secret/socket handles is only adoptable by
 sessions holding those handles — same rule as today, surviving import. (The known
 per-engine secret-salt issue remains deliberately deferred and separately tracked; it
@@ -355,6 +367,7 @@ partitions caches across engines until addressed.)</p>
 
 <div class="card keep">
 <h3>R8 — Falsifiable observability</h3>
+<p class="gist">Every cache decision is observable and countable, so claims like "this was reused" are proven by numbers that would have caught a lie.</p>
 <p>Every lookup outcome, adoption decision, materialization-source execution, and fallback
 is observable with structured vocabulary; every run can produce a reuse summary; proofs
 and tests can turn unexpected outcomes into hard failures. Landings are validated against
@@ -365,6 +378,7 @@ made permanent rather than left as temporary instruments.</p>
 
 <div class="card keep">
 <h3>R9 — One portable result encoding</h3>
+<p class="gist">There is exactly one serialization of a result — local disk today and remote bundles later share it.</p>
 <p>Local persistence and remote export share one encoding for <em>results</em> (frames,
 payload envelopes, snapshot links, recipes). The surrounding structure differs by design:
 local persistence may additionally dump engine-local index rows for fast same-engine
@@ -374,6 +388,7 @@ result-serialization model.</p>
 
 <div class="card keep">
 <h3>R10 — Identity-stable metadata</h3>
+<p class="gist">Re-importing or re-exporting what you already have adds zero rows. Only genuinely new work grows the store.</p>
 <p>Import → re-export cycles add zero result rows. Genuinely new executions add
 honestly-new rows; independently-produced equivalents remain distinct rows related by
 semantic digests, and collapsing those for serving is backend merge policy on the digest
@@ -383,6 +398,7 @@ self-check metric.</p>
 
 <div class="card keep">
 <h3>R11 — In-repo provability, gated continuously</h3>
+<p class="gist">Everything is provable by tests in this repo — and the proof suites run at every landing, not just at the end.</p>
 <p>The full adoption/hydration/fallback model is exercisable by integration tests inside
 dagger/dagger with no cloud stack. A curated integration set is a <b>standing gate for
 every landed chunk of work</b>, not a milestone-end event: anchors are the
@@ -395,13 +411,14 @@ Legitimate intermediate failures are named, temporary, owner-acknowledged except
 
 <div class="card keep">
 <h3>R12 — Sparse, demand-bounded materialization</h3>
+<p class="gist">Using one file from a huge cached build pulls that file's chain — never the whole build graph.</p>
 <p>Materializing a result moves and creates only what is strictly required: the content
 path touches exactly the needed chain blobs; the recipe path recurses only into the inputs
 the recipe actually reads, itself demand-driven; adoption, viability, and import are
 metadata-only and move zero content. The canonical scenario: a huge tangled DAG
 culminating in one result — a warm run that reads one file from it hydrates that file's
 chain and nothing else.</p>
-<p><b>Granularity clarification (owner-ruled).</b> The load-bearing floor is:
+<p><b>Granularity clarification.</b> The load-bearing floor is:
 materializing a result must never require materializing its <em>dependency DAG</em>.
 Granularity <em>within</em> a single result is deliberately open: for a multi-output
 result (e.g. an exec's filesystem + its stdout/exit metadata), materializing outputs
@@ -416,6 +433,7 @@ materialization at all.</p>
 
 <div class="card keep">
 <h3>R13 — Recipes are closed over engine-ambient state</h3>
+<p class="gist">If something engine-local shapes a result (platform, salt, version), it's either part of the recipe's identity or it partitions the cache — never silently ambient.</p>
 <p>Any engine-local input that shapes a result — native platform, the engine secret salt,
 engine/schema version, anything read off server state during planning <em>or
 resolution</em> — must either be canonicalized into the recipe (so equivalent work matches
@@ -426,6 +444,7 @@ misses.</p>
 
 <div class="card new">
 <h3>R14 — Startup-only import; the serving-time cache is read-mostly</h3>
+<p class="gist">All bulk loading happens at boot, before serving. While serving, the cache only gains results from finished local work.</p>
 <p>All bulk ingestion of identity and result metadata — disk restore <em>and</em> remote
 bundle import — completes <b>before the engine serves sessions</b>, under coarse locking
 (these are fast, batched metadata writes; there is no pause-time problem to engineer
@@ -437,6 +456,7 @@ its own explicit quiesce design and may not weaken R15 to do so.</p>
 
 <div class="card new">
 <h3>R15 — No new cross-cutting concurrency invariants</h3>
+<p class="gist">No mechanism may require auditing "every reader, writer, and entry point" to be correct. Properties are enforced at a few decision points — or they get redesigned.</p>
 <p>The design builds on the engine's existing locking and singleflight structure, and this
 document is the source of truth for its concurrency model. The strong default: no new
 <em>cross-cutting</em> concurrency invariants — reader-audience classifications, run-scoped
@@ -459,6 +479,7 @@ mutable state.</p>
 
 <div class="card new">
 <h3>R16 — Restart-deterministic lookup identity</h3>
+<p class="gist">A rebooted engine derives the same lookup keys for the same calls, every time — a cache hit can never depend on timing or in-memory numbering.</p>
 <p>Warm lookup keys are a pure function of persisted, content-addressed identity — a
 restarted (or foreign) engine derives identical keys for identical calls regardless of
 in-memory assignment order, timing, or concurrent load. Any key component derived from
@@ -479,11 +500,12 @@ timing-dependent cache partitioning is the bug.</p>
 
 <div class="card keep">
 <h3>Corollary — Partial local persistence</h3>
+<p class="gist">Lose one snapshot, lose one result (and its dependents) — not the whole store.</p>
 <p>A deliberate local corollary of R1+R2+R5: local persistent cache stops being
 all-or-nothing. Today any inconsistency wipes the whole store; with per-result source
 state and adoption gating, a result whose snapshot was lost falls back to its recipe or is
 dropped (with its dependents), keeping the rest. A user-visible robustness win with zero
-remote-cache dependency — in scope (owner-confirmed); sequencing within the take is
+remote-cache dependency — in scope; sequencing within the take is
 decided in Part II.</p>
 </div>
 
@@ -643,6 +665,19 @@ decided in Part II.</p>
   all human-facing artifacts: the A1-rewrite style — story first, real code annotated
   inline, no undefined shorthand, each unit readable on its own without dropping technical
   depth.</li>
+  <li><b>Round 14 (2026-07-04) — the finalization pass.</b> The doc was prepared for
+  fresh-agent handoff: all design-evolution narrative moved out of normative text (section
+  status pills removed; decision boxes retitled from ratification-asks to "the decisions
+  this section makes"; "owner-ruled/confirmed" attributions became standing rules;
+  review-round references in section bodies replaced with plain forward statements; the
+  roadmap/TOC de-statused — the banner is now the single status line). Readability pass at
+  the standing writing bar: every requirement gained a one-line plain-terms gist above its
+  unchanged normative text; R6 was rewritten for clarity (meaning-preserving: principal →
+  "runs on behalf of the caller whose demand forced it, retried by another waiter on
+  disappearance"); refKey and lease got definitions at first use (§8's terminology key).
+  Lessons L8 (corrupt data gets the dumbest treatment) and the L1 writing-bar extension
+  were adopted. The one open item is §10's blue box (acceptance bar, build order,
+  observability resolution), flagged in the banner and the §10 header.</li>
 </ol>
 </div>
 </details>
@@ -658,14 +693,11 @@ falsifiable predictions for what the landing must demonstrate (per R8). Whatever
 observability a section needs for its proof, it specifies in place — as process debugging
 tooling: built properly, scoped to this effort, expected to reconcile later with the
 parallel observability workstreams rather than outlive them as-is.</p>
-<p class="pill">Tentative section roadmap (subject to reordering as the design proceeds):
-target shape (ratified) → the content home (§7) → persistence: encoding, flush &amp; restore
-incl. import-at-boot and partial persistence (§8) → warm lookup &amp; on-demand
-materialization (§9, ratified) → the restart proof (§10, drafted — Part II structurally
-complete). Nothing in this list pre-decides a
-mechanism.</p>
+<p class="pill">Section order: target shape (§6) → the content home (§7) → persistence:
+encoding, flush &amp; restore, import-at-boot, partial persistence (§8) → warm lookup &amp;
+on-demand materialization (§9) → the restart proof / definition of done (§10).</p>
 
-<details class="fold" id="target"><summary><h2>6. Target shape <span class="pill">(ratified round 4 — living, adjustable)</span></h2></summary>
+<details class="fold" id="target"><summary><h2>6. Target shape</h2></summary>
 <p>The one-screen picture of the system this design builds, stated mechanism-neutrally —
 every "how" here is owned by a later section, and two explicitly open questions are
 flagged rather than implied away.</p>
@@ -739,22 +771,22 @@ arrival, shutdown flush (R14, R15).</li>
 <li>No new cross-cutting concurrency machinery anywhere in the above (R15).</li>
 </ul>
 
-<h3>Explicitly open questions (owned by later sections, not decided here)</h3>
+<h3>Questions this shape leaves to later sections (both settled in §7)</h3>
 <ul>
 <li><b>Is on-demand materialization of a restored result simply the engine's existing
 lazy-evaluation path?</b> It might be — restored-result hydration and lazy evaluation have
 the same shape (a result whose value isn't computed yet, computed on first demand). If so,
 no new wait/claim machinery exists at all. If not, the content-home section must argue why
 and design the difference minimally. Deliberately undecided; nothing in this doc may
-presuppose either answer. <span class="pill">→ answered by §7 (draft, pending review).</span></li>
+presuppose either answer. <span class="pill">→ settled in §7.</span></li>
 <li><b>Metadata growth under winner-at-lookup.</b> Tolerating redundant content between
 equivalent results (GC instead of reconciliation) must be shown to satisfy R10 and R15
 simultaneously — the content-home section carries an explicit metadata-growth model.
-<span class="pill">→ answered by §7 (draft, pending review).</span></li>
+<span class="pill">→ settled in §7.</span></li>
 </ul>
 </details>
 
-<details class="fold" id="home" open><summary><h2>7. The content home: result &amp; materialization state <span class="pill">(draft, under discussion)</span></h2></summary>
+<details class="fold" id="home" open><summary><h2>7. The content home: result &amp; materialization state</h2></summary>
 
 <p><b>The idea in three sentences.</b> Every cached result gets exactly one place that
 answers "what does this result have, and how can it be re-made?" — a small record on the
@@ -767,7 +799,7 @@ requirements.</p>
 
 <p class="pill"><b>Names here are the codebase's own:</b> a <b>value struct</b> is the Go object handlers touch (<code>Directory</code>, <code>File</code>, <code>Container</code>); its <b>accessors</b> are the <code>LazyAccessor</code> fields holding content on that struct (<code>Directory.Snapshot</code>, <code>Container.FS</code>, …) — several per struct; the <b>sharedResult</b> is the cache's single in-memory entry per result (dagql/cache.go). The proposed <code>materializationState</code> lives on the sharedResult — §7 calls it "the home" as shorthand.</p>
 
-<div class="decide"><span class="dtag">ON THE TABLE — WHAT THIS SECTION ASKS YOU TO RATIFY</span>
+<div class="decide"><span class="dtag">THE DECISIONS THIS SECTION MAKES</span>
 <ol style="margin:4px 0 2px">
 <li>Both §6 open questions, as answered in the two green verdict boxes below.</li>
 <li>The home placed on the <code>sharedResult</code>, with the value structs' accessors demoted to realization caches —
@@ -1194,7 +1226,7 @@ test probe, not by eyeball.</li>
 </ul>
 </details>
 
-<details class="fold" id="persist" open><summary><h2>8. Persistence: encoding, flush, and restore <span class="pill">(draft, under discussion)</span></h2></summary>
+<details class="fold" id="persist" open><summary><h2>8. Persistence: encoding, flush, and restore</h2></summary>
 
 <p><b>The idea in three sentences.</b> What hits disk is each result's
 <code>materializationState</code> (§7), written in the one portable encoding — and it mostly already does: main persists every
@@ -1212,9 +1244,11 @@ the <b>envelope</b> (<code>self_payload</code>) is the persisted value, carrying
 <b>form</b> — snapshot-backed, or lazy (a registered lazy struct referencing other
 results); <b>eq_class_digests</b> maps
 equivalence classes to content digests; <b>terms</b>/<b>term_inputs</b> are the structural
-lookup index; <b>result_snapshot_links</b> are a result's local snapshot refKeys.</p>
+lookup index; <b>result_snapshot_links</b> are a result's local snapshot refKeys — a <b>refKey</b>
+being the local snapshotter's name for one stored filesystem snapshot, kept alive by a
+<b>lease</b> (the keep-alive that stops the snapshotter from garbage-collecting it).</p>
 
-<div class="decide"><span class="dtag">ON THE TABLE — WHAT THIS SECTION ASKS YOU TO RATIFY</span>
+<div class="decide"><span class="dtag">THE DECISIONS THIS SECTION MAKES</span>
 <ol style="margin:4px 0 2px">
 <li><b>R16's implementation:</b> lookup keys become process-local — recomputed from
 persisted digests at boot. The persisted <code>term_digest</code> column is <b>removed</b>
@@ -1386,7 +1420,7 @@ associated with its class synchronously at publication, under the cache's lock
 <li><b>The property test (R16 is "cheaply testable"):</b> boot the same store twice,
 derive all keys both times, require identical hit behavior for identical calls — a
 determinism unit test, plus the restart suite as the integration check. <em>Standing
-caveat (owner-ruled): if this test ever trips on what looks like legitimate
+rule: if this test ever trips on what looks like legitimate
 nondeterminism, stop and escalate for discussion — assess real-defect vs benign source and
 decide deliberately; do not contort the design to satisfy the test.</em></li>
 <li><b>Bundle compatibility for free:</b> since nothing authoritative depends on file-local
@@ -1465,8 +1499,8 @@ pass over <code>result_deps</code>), so "lazy form viable" can require "the resu
 references were kept" without iteration; a dropped result drops its dependents in the same pass (reverse edges);
 <code>import_failure</code> stops being a store-wipe reason — a row that fails to decode
 is just a non-viable result. Two more rules keep salvage <b>deliberately dumb</b>
-(owner-ruled: corruption is dropped or wiped, never cleverly repaired — convoluted
-corrupt-data handling is where bugs live): a dependency <b>cycle</b> is treated as
+(standing rule, lessons L8: corruption is dropped or wiped, never cleverly repaired —
+convoluted corrupt-data handling is where bugs live): a dependency <b>cycle</b> is treated as
 corruption of every result in it — the strongly-connected component drops together, with
 its dependents (cycles cannot legitimately occur, so salvage never guesses); and snapshot
 owner <b>leases</b> are attached only after vetting, only for kept results, with stale
@@ -1517,8 +1551,8 @@ store.</li>
 </ol>
 <p class="pill">Ownership boundary: the precise mechanics — waiter semantics when several
 sessions hold the same failing hit, the error taxonomy, exactly what re-teaches — belong
-to §9 (warm lookup &amp; on-demand materialization), and this scenario is pre-registered as
-§9's worked example. What is settled <em>here</em>: the fallback floor exists, and the
+to §9 (warm lookup &amp; on-demand materialization), where this scenario is walked end to
+end (§9.3). What is settled <em>here</em>: the fallback floor exists, and the
 dangerous artifact — a replayable upload recipe — structurally does not.</p>
 
 <h4>D3 — Flush: unchanged cadence, honest reads</h4>
@@ -1640,7 +1674,7 @@ is zero.</li>
 </ul>
 </details>
 
-<details class="fold" id="warm"><summary><h2>9. Warm lookup and on-demand materialization <span class="pill">(ratified round 9)</span></h2></summary>
+<details class="fold" id="warm"><summary><h2>9. Warm lookup and on-demand materialization</h2></summary>
 
 <p><b>The idea in three sentences.</b> A warm call finds its result through the same two
 lookups main runs today — exact digests first, then the structural e-graph match —
@@ -1659,7 +1693,7 @@ what <code>selectLookupCandidateForSessionLocked</code> (:646) returns: the firs
 eligible candidate in deterministic set order. <b>Realize</b> = §7's materialization;
 <b>demote</b> = fall back to executing the caller's live call.</p>
 
-<div class="decide"><span class="dtag">ON THE TABLE — WHAT THIS SECTION ASKS YOU TO RATIFY</span>
+<div class="decide"><span class="dtag">THE DECISIONS THIS SECTION MAKES</span>
 <ol style="margin:4px 0 2px">
 <li><b>Lookup, eligibility, and winner selection: unchanged from main.</b> Restored
 results are ordinary candidates; the session-resource gate is the eligibility filter; the
@@ -1809,8 +1843,8 @@ the forensics ring — no consumer yet.</p>
 
 
 <h3>9.3 &nbsp;Worked example — the upload scenario, verified against the code</h3>
-<p>§8 pre-registered this scenario; it has since been traced through the actual machinery
-(review round 8). Client B loads an ID minted by client A: a withExec whose input was A's
+<p>The scenario that stress-tests every rule in this section, traced link by link against
+the actual machinery. Client B loads an ID minted by client A: a withExec whose input was A's
 <code>host.directory</code> upload. The remote/pruned worst case, end to end:</p>
 <ol class="steps">
 <li><span class="tag">LOOKUP HONORS THE CAPABILITY</span><br>
@@ -1897,7 +1931,7 @@ source walk pinned deterministically.</li>
 </ul>
 </details>
 
-<details class="fold" id="proof" open><summary><h2>10. The restart proof: definition of done <span class="pill">(draft, under discussion)</span></h2></summary>
+<details class="fold" id="proof" open><summary><h2>10. The restart proof: definition of done <span class="pill">(three decisions awaiting ratification — blue box)</span></h2></summary>
 
 <p><b>The idea in three sentences.</b> The take is done when a fresh engine, booted on
 another engine's persisted state, provably serves warm hits — with counters that would
@@ -1907,7 +1941,7 @@ proof: what the existing suite already covers, the eight test cases the design a
 requirement-by-requirement coverage matrix, and the build order. It introduces no new
 machinery — it is the checklist the machinery must survive.</p>
 
-<div class="decide"><span class="dtag">ON THE TABLE — WHAT THIS SECTION ASKS YOU TO RATIFY</span>
+<div class="decide"><span class="dtag">ON THE TABLE — THE THREE DECISIONS AWAITING RATIFICATION</span>
 <ol style="margin:4px 0 2px">
 <li><b>The acceptance bar:</b> three consecutive fully-green runs of the complete gate
 (existing suites + the new cases), with the warm-phase stats files attached to the record
@@ -2041,7 +2075,7 @@ that way rather than pretending a test covers them.</p>
 <tr><td>R13 recipes closed over ambient state</td><td>implementation-time ambient audit + review; platform partitioning exercised implicitly by the suites</td><td>review + implicit</td></tr>
 <tr><td>R14 startup-only import</td><td>structural (boot sequence) + the unclean-shutdown subtest; no serving-time import path exists to test</td><td>construction</td></tr>
 <tr><td>R15 no cross-cutting concurrency invariants</td><td>review guard (the tripwire); T8 exercises what concurrency exists</td><td>review</td></tr>
-<tr><td>R16 restart-deterministic keys</td><td>T5, with the owner-ruled escalation caveat on legitimate nondeterminism</td><td>runtime</td></tr>
+<tr><td>R16 restart-deterministic keys</td><td>T5, with the standing escalation rule on legitimate nondeterminism</td><td>runtime</td></tr>
 </table>
 </details>
 
