@@ -132,9 +132,10 @@
   <li><a href="#target">Target shape (ratified)</a></li>
   <li><a href="#home">The content home: result &amp; materialization state (draft, under discussion)</a></li>
   <li><a href="#persist">Persistence: encoding, flush, and restore (draft, under discussion)</a></li>
+  <li><a href="#warm">Warm lookup and on-demand materialization (draft, under discussion)</a></li>
 </ol>
 <b>Appendix</b>
-<ol start="9">
+<ol start="10">
   <li><a href="#shelf">The shelf (not part of the design)</a></li>
 </ol>
 </div>
@@ -142,7 +143,7 @@
 <main>
 
 <h1>Remote Cache — Design</h1>
-<p class="sub">v11 &nbsp;·&nbsp; Requirements + target shape: ratified &nbsp;·&nbsp; §7 + §8: drafts, review round in progress &nbsp;·&nbsp; 2026-07-03</p>
+<p class="sub">v12 &nbsp;·&nbsp; Requirements + target shape: ratified &nbsp;·&nbsp; §7–§9: drafts under review &nbsp;·&nbsp; 2026-07-03</p>
 
 <div class="banner">
 <b>Status.</b> This is the living design doc for the remote-cache engine work, restarted
@@ -572,6 +573,20 @@ decided in Part II.</p>
   inputs); the upload case is walked end to end and pre-registered as §9's worked example.
   Fig. 4 now shows both the boot outcome (dropped at restore) and the runtime outcome
   (demote to miss). Also: the table of contents became a sticky sidebar.</li>
+  <li><b>Round 8 (2026-07-03).</b> Owner asked for a code-verified double check that the
+  demote/heal story actually works through the ID-load path, and an audit of the
+  client-resource family. Verified and recorded in §9.3: lookup honors loaded IDs as
+  capabilities (own digest + extra digests incl. content, server.go:1364; implicit inputs
+  preserved as literals for structural lookup, server.go:1528); execution re-resolves
+  implicit inputs from the live context (objects.go:545, cache_inputs.go:14) so per-client
+  identity is never a stored constant on the execution path; upload content digests teach
+  equivalence synchronously at publication (host.go:313/332 → cache_egraph.go:988); the
+  session-resource gate is transitive, persisted, and enforced at candidate eligibility
+  (cache_egraph.go:633/646). Audit of mirrors, secrets, SSH sockets, host services: same
+  shape throughout; the per-engine secret-salt deferral stands. §9 drafted with this trace
+  as its worked example; cross-client ID-load fallback (loader-flavored re-evaluation)
+  sanctioned explicitly in D4; a scoped slice of the shelved observability un-shelved with
+  its consumer in D5.</li>
 </ol>
 </div>
 </details>
@@ -590,7 +605,7 @@ parallel observability workstreams rather than outlive them as-is.</p>
 <p class="pill">Tentative section roadmap (subject to reordering as the design proceeds):
 target shape (ratified) → the content home (§7, drafted) → persistence: encoding, flush
 &amp; restore incl. import-at-boot and partial persistence (§8, drafted) → warm lookup &amp;
-on-demand materialization → the restart proof. Nothing in this list pre-decides a
+on-demand materialization (§9, drafted) → the restart proof. Nothing in this list pre-decides a
 mechanism.</p>
 
 <details class="fold" id="target"><summary><h2>6. Target shape <span class="pill">(ratified round 4 — living, adjustable)</span></h2></summary>
@@ -1510,7 +1525,243 @@ is zero.</li>
 </ul>
 </details>
 
-<details class="fold" id="shelf"><summary><h2>9. The shelf <span class="pill">(not part of the design)</span></h2></summary>
+<details class="fold" id="warm" open><summary><h2>9. Warm lookup and on-demand materialization <span class="pill">(draft, under discussion)</span></h2></summary>
+
+<p><b>The idea in three sentences.</b> A warm call finds its result through the same two
+lookups main runs today — exact digests first, then the structural e-graph match —
+filtered by the session-resource gate, taking the first eligible candidate as the winner.
+Serving the winner means realizing content on demand through the existing lazy-evaluation
+machinery, now walking §7's source list with fall-through instead of assuming the snapshot
+is there. And when every source is exhausted, the hit <b>demotes to a miss</b>: the
+caller's own live call executes — the floor that keeps R2 honest under runtime failure.</p>
+
+<p class="pill"><b>Names here are the codebase's own:</b> the two lookup stages are
+<code>lookupMatchForDigestsLocked</code> (recipe digest, then extra digests including
+content) and <code>lookupMatchForCallLocked</code> (the structural term match) —
+cache_egraph.go:658/683; <b>eligibility</b> is
+<code>sessionSatisfiesResourceRequirementsLocked</code> (:633) and the <b>winner</b> is
+what <code>selectLookupCandidateForSessionLocked</code> (:646) returns: the first
+eligible candidate in deterministic set order. <b>Realize</b> = §7's materialization;
+<b>demote</b> = fall back to executing the caller's live call.</p>
+
+<div class="decide"><span class="dtag">ON THE TABLE — WHAT THIS SECTION ASKS YOU TO RATIFY</span>
+<ol style="margin:4px 0 2px">
+<li><b>Lookup, eligibility, and winner selection: unchanged from main.</b> Restored
+results are ordinary candidates; the session-resource gate is the eligibility filter; the
+winner stays "first eligible in deterministic order." (Preferring an already-realized
+candidate is recorded as a possible future optimization — not built.)</li>
+<li><b>Realization = the existing lazy singleflight walking §7's sources</b>, with one
+propagation rule and one marking rule (D2).</li>
+<li><b>The demote-to-miss floor</b> as specified in D3 — per-caller, healing, final.</li>
+<li><b>Cross-client ID-load fallback is loader-flavored re-evaluation</b>, explicitly
+sanctioned (D4) — a semantics statement so nobody ever "fixes" it into something
+dangerous.</li>
+<li><b>A scoped slice of the shelved observability comes off the shelf with its
+consumer</b> (D5): outcome + serving-source counters, the shutdown stats file, per-event
+debug logs. Strict modes, session tallies, and the rest stay shelved.</li>
+</ol>
+</div>
+
+<h3>9.1 &nbsp;Current state on main</h3>
+<ul>
+<li><b>Lookup is already two-stage and already winner-based.</b> Exact digests first —
+recipe digest, then extra digests <em>including the content digest</em>
+(<code>lookupMatchForDigestsLocked</code>, cache_egraph.go:658) — then the structural
+term match over input equivalence classes (<code>lookupMatchForCallLocked</code>, :683).
+Candidates are filtered by the session-resource subset gate (:633 — a result requiring
+secret/socket handles is invisible to sessions not holding them, R7) and the first
+eligible one wins (:646).</li>
+<li><b>Serving a restored result is deferred decode + lazy evaluation</b> (§7 Fact 2,
+§8 D1): the envelope decodes on first use; lazy forms re-run through
+<code>shared.lazyEval</code>'s singleflight — one runner, N waiters,
+last-waiter-cancels, retry-on-failure.</li>
+<li><b>What main does not have:</b> the decode path assumes snapshot refs are valid — a
+ref that died after boot is a hard error at use time (a stranded hit, R2's named enemy);
+there is no source fall-through, no demote floor, and no reuse counters to prove any of
+this behavior in tests.</li>
+</ul>
+
+<h3>9.2 &nbsp;Design</h3>
+
+<h4>D1 — Lookup and the winner: no changes</h4>
+<p>This design adds <em>nothing</em> to the lookup path. Restored sharedResults enter the
+same digest and term indexes at boot (§8 D2, with R16's recomputed keys) and compete as
+ordinary candidates. The session-resource gate already implements R7 at exactly the right
+place — candidate eligibility — and it is transitive and persisted (§8; cache.go:254–277,
+import.go:426/682). Winner selection stays "first eligible in deterministic order":
+introducing a preference (say, realized-before-unrealized) is a real optimization with a
+real cost in policy surface, and nothing in the requirements demands it — recorded as a
+future option, not built (L5).</p>
+
+<h4>D2 — Realization: the lazy runner walks the sources</h4>
+<p>The existing lazy singleflight is kept exactly as-is — one runner, N waiters,
+last-waiter-cancels, retry-on-failure. What changes is the runner's body, which walks the
+winner's source list (§7, Fig. 4) instead of assuming one path:</p>
+
+<pre><code><span class="cm">// the lazy runner's body, sketched — dagql/cache.go</span>
+
+func (c *Cache) realize(shared *sharedResult) error {
+	for _, src := range shared.materialization.sources {
+		if !src.viable() {                        <span class="cm">// marked non-viable earlier? skip</span>
+			continue
+		}
+		err := src.realizeInto(shared)            <span class="cm">// snapshot: verify refs + lease + decode</span>
+		                                          <span class="cm">// lazy form: materialize referenced inputs</span>
+		                                          <span class="cm">//   (recursively, demand-bounded — R12),</span>
+		                                          <span class="cm">//   then re-run the persisted lazy struct</span>
+		if err == nil {
+			shared.materialization.realized = true
+			return nil                            <span class="cm">// serve; lazy-arrival write point (§7)</span>
+		}
+		if isPermanent(err) {                     <span class="cm">// e.g. refKey gone from the worker store</span>
+			src.markNonViable(err)                <span class="cm">// don't retry a dead source forever</span>
+		}
+		<span class="cm">// fall through to the next source (R2)</span>
+	}
+	return errSourcesExhausted                    <span class="cm">// → the caller demotes (D3)</span>
+}
+</code></pre>
+
+<p>Two rules, stated once:</p>
+<ul>
+<li><b>Propagation:</b> a lazy form fails if a result it references cannot itself be
+materialized — so a failure deep in a dependency chain surfaces as source failure at the
+result being served, with no per-type special cases (§8's "beyond vetting" panel).</li>
+<li><b>Marking:</b> permanent failures (a refKey missing from the worker store) mark that
+source non-viable on the sharedResult so retries don't spin on a dead source; transient
+failures (cancellation, resource pressure) don't mark anything — the existing
+retry-on-failure semantics mean the next waiter's attempt walks the list again.</li>
+</ul>
+
+<h4>D3 — The floor: demote to a miss</h4>
+<p>When <code>realize</code> exhausts the sources, every waiter receives the terminal
+sources-exhausted outcome, and each caller then <b>executes its own live call</b> — the
+call it was already making, with its own live inputs, under its own session (R6 principal
+semantics come free: the executor <em>is</em> the caller). The fresh execution publishes
+normally, and publication's content-digest teaching (<code>TeachContentDigest</code>,
+cache_egraph.go:988 — synchronous, under the lock) re-unifies the new result with the old
+equivalence class: <b>the store heals as a side effect</b>, and the next caller hits. The
+floor always exists because every serving flows from a live session call; it is
+per-caller (two sessions demoting produce their own executions, deduplicated by the
+ordinary in-flight singleflight on identical calls); and it is final — there is nothing
+below it, which is what makes R2's promise honest rather than hopeful.</p>
+
+<h4>D4 — Cross-client ID loads: loader-flavored by design</h4>
+<p>A loaded ID is a capability: the fast lookup honors it exactly (the ID's own digest +
+its extra digests, server.go:1364), and the structural lookup preserves the minting
+client's implicit inputs as literals (server.go:1528). But if the named result is truly
+gone and execution is required, the final fallback runs through the normal resolve path,
+where implicit inputs are <b>re-resolved from the executing context</b> (objects.go:545;
+<code>PerClientInput.Resolver</code> reads the live client, cache_inputs.go:14) — so a
+different client loading the ID gets a <b>loader-flavored</b> re-evaluation: their client
+identity, their filesystem, their secrets. For the same client this is identical
+semantics; across clients it is the only sound option and matches the trust model
+(handing someone an ID grants access to the <em>result</em>, not to your machine).
+<b>Sanctioned explicitly here so it is never "fixed."</b></p>
+
+<h4>D5 — Observability for this section: a scoped un-shelving</h4>
+<p>This section's gate needs to <em>prove</em> reuse and demotion, which is exactly the
+consumer the shelved observability milestone was waiting for. Off the shelf comes the
+minimal slice (per §5's rule — specified here, with its consumer): the outcome vocabulary
+and per-field counters — <code>hit_live</code>, <code>hit_restored</code>,
+<code>miss_first</code>, plus this section's additions
+<code>served_from{snapshot|lazy_form}</code> and <code>demoted_to_miss</code> — classified
+exactly once at the lookup/serving terminal paths; one debug-level structured line per
+event (the diagnosis path); the shutdown <b>stats file</b> next to the persisted DB (the
+test-assertion vehicle — files, not log streams) plus the same data in the debug snapshot
+and a one-line session summary. Still shelved: strict modes, per-session tallies, the
+forensics ring — no consumer yet.</p>
+
+<h3>9.3 &nbsp;Worked example — the upload scenario, verified against the code</h3>
+<p>§8 pre-registered this scenario; it has since been traced through the actual machinery
+(review round 8). Client B loads an ID minted by client A: a withExec whose input was A's
+<code>host.directory</code> upload. The remote/pruned worst case, end to end:</p>
+<ol class="steps">
+<li><span class="tag">LOOKUP HONORS THE CAPABILITY</span><br>
+The load's fast lookup uses the ID's own digest <em>plus its extra digests</em> —
+including the content digest — so it hits A's exact row when present, or any
+content-equivalent row (server.go:1364). On fast-miss, the structural lookup preserves
+A's per-client implicit input as a literal from the ID (server.go:1528) and can still
+match through the e-graph.</li>
+<li><span class="tag">B'S OWN SESSION MADE THE MATCH POSSIBLE</span><br>
+Where the hit came via content equivalence: B's session already uploaded its own
+directory — B's client <em>is</em> attached — and the upload's content digest was taught
+at publication, synchronously, under the lock (<code>WithContentDigest → TeachContentDigest
+→ teachResultIdentityLocked</code>, host.go:313/332, cache_egraph.go:988). Same bytes ⇒
+B's class unified with the imported class ⇒ the withExec term matched. The union-find
+doing precisely its job.</li>
+<li><span class="tag">SERVING FAILS FORWARD</span><br>
+The withExec winner needs content: the snapshot source fails (pruned locally, or the
+remote pull 500s). The runner falls through to the lazy form — the exec — which needs its
+input directory materialized (D2).</li>
+<li><span class="tag">NOTHING TO REPLAY, STRUCTURALLY</span><br>
+A's upload row has a snapshot source and nothing else — <code>host.directory</code> builds
+its value with no <code>Lazy</code> at all (host.go:320), so no lazy struct was ever
+persisted. Its snapshot is gone too ⇒ the input cannot materialize ⇒ the withExec's
+lazy-form source fails by propagation (D2). And had anything ever tried to <em>execute</em>
+an upload call, the per-client input re-resolves to the executing client and
+<code>SpecificClientAttachableConn</code> (host.go:280) demands that client be attached —
+a clean error, never a fabricated replay.</li>
+<li><span class="tag">THE FLOOR, LANDING ON B'S OWN INPUT</span><br>
+Sources exhausted ⇒ demote (D3): B's withExec executes live against B's own
+already-materialized upload from step 2. Correct result, no stranded hit, nothing
+replayed; the execution publishes, re-teaches, and heals the store —
+<code>demoted_to_miss</code> ticks once (D5), which is how the gate proves this path
+rather than assuming it.</li>
+</ol>
+<p class="pill">The same round audited the neighboring client-resource family — filesync
+mirrors (keyed by stable client ID), client secrets and SSH sockets (salted handles
+taught as content digests; gated by the transitive session-resource requirements at
+candidate eligibility), host services (caller-module scoped) — and found the same shape
+everywhere: per-client identity where execution needs the client, content/handle
+equivalence where sharing is safe, session-resource gating where access must be proven.
+Known deferred item, unchanged: the per-engine secret salt partitions handles across
+engines (bites the remote take, not restart).</p>
+
+<h3>9.4 &nbsp;Implementation shape</h3>
+<table class="filetbl">
+<tr><th>File</th><th></th><th>Change</th></tr>
+<tr><td><code>dagql/cache.go</code></td><td><span class="chip modf">MOD</span></td>
+<td>The lazy runner's body becomes the source walk (D2: viability skip, permanent-failure
+marking, propagation); the serving path gains the demote branch (D3) and the terminal
+classification calls (D5). Lookup and winner selection untouched (D1).</td></tr>
+<tr><td><code>dagql/cache_stats.go</code></td><td><span class="chip newf">NEW</span></td>
+<td>The scoped observability slice (D5): vocabulary, per-field counters, per-event debug
+line, stats-file writer. (The shelf entry's design, minus everything without a consumer.)</td></tr>
+<tr><td><code>engine/server/server.go</code></td><td><span class="chip modf">MOD</span></td>
+<td>Stats in the debug snapshot; stats file written alongside the shutdown flush; session
+summary line at session close.</td></tr>
+<tr><td><code>dagql/cache_stats_test.go</code> / <code>dagql/materialize_test.go</code></td><td><span class="chip newf">NEW</span></td>
+<td>Unit: fall-through matrix (viable/non-viable/permanent/transient), propagation through
+a referenced-input failure, waiter semantics (one runner, N waiters, retry walks fresh),
+demote emission, exactly-once classification.</td></tr>
+</table>
+
+<h3>9.5 &nbsp;Validation gate</h3>
+<p><b>Step 0 — the existing integration suites, run explicitly, all green (R11; every
+landing in this section):</b> the cache persistence tests (<code>TestCachePersistence</code>,
+including the full disk-persistence-across-restart suite), the cross-session caching tests
+(the CrossSession-pattern tests across suites, including their module coverage), and the
+selected services tests. Any legitimately-expected failure must be a named,
+owner-acknowledged exception <em>in advance</em> — none are expected in this section.</p>
+<ul>
+<li><b>P-9.1</b> — the restart proof, now assertable: cold engine runs a pipeline whose
+exec writes a random value; warm engine runs the identical pipeline; outputs equal
+<em>and</em> the warm stats file shows <code>hit_restored ≥ K</code> on the pipeline's
+named fields with <code>demoted_to_miss == 0</code>. (Per-field assertion, because
+session-scoped calls legitimately first-miss — R16's clarification.)</li>
+<li><b>P-9.2</b> — the demote path, provoked: prune the winner's snapshot <em>after</em>
+boot, then call: the call still succeeds, <code>demoted_to_miss ≥ 1</code>, and a
+follow-up identical call hits again (the heal, proven by counters).</li>
+<li><b>P-9.3</b> — concurrency: N concurrent sessions force the same unrealized restored
+result: exactly one materialization run (counters), N−1 waits, no torn outcomes, under
+<code>-race</code>.</li>
+<li><b>P-9.4</b> — the unit matrix green under <code>-race</code>; every branch of the
+source walk pinned deterministically.</li>
+</ul>
+</details>
+
+<details class="fold" id="shelf"><summary><h2>10. The shelf <span class="pill">(not part of the design)</span></h2></summary>
 <div class="shelfnote">
 <b>What the shelf is.</b> Material that was drafted, discussed, and deliberately set
 aside. It is <em>not</em> part of the design and must not be treated as pre-decided or
