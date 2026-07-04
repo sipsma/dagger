@@ -84,6 +84,10 @@
   .chip.modf { color: var(--modify); background: var(--modify-bg); }
   .trace { background: #f4f5f7; border-left: 3px solid var(--accent); border-radius: 6px; padding: 8px 14px; font-size: 14px; margin: 12px 0; }
   .shelfnote { background: var(--drop-bg); border: 1px solid #e0b6b1; border-radius: 8px; padding: 10px 14px; font-size: 14px; margin: 10px 0 16px; }
+  .amend { background: #f5effd; border: 1px solid #d9c8f2; border-left: 5px solid #7c3aed; border-radius: 10px; padding: 14px 18px; margin: 20px 0; }
+  .amend .atag { font-size: 11px; font-weight: 800; letter-spacing: .08em; color: #7c3aed; display: block; margin-bottom: 6px; }
+  .amend .finding { font-size: 13.5px; color: #443061; background: #ece1fb; padding: 8px 12px; border-radius: 6px; margin: 6px 0 10px; }
+  .amend .finding .ftag { font-size: 10.5px; font-weight: 800; letter-spacing: .08em; color: #7c3aed; }
   .verdict { background: var(--keep-bg); border: 1px solid #bfe0cc; border-left: 5px solid var(--keep); border-radius: 10px; padding: 14px 18px; margin: 20px 0; }
   .verdict .vtag { display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: .08em; color: var(--keep); margin-bottom: 4px; }
   .decide { background: var(--new-bg); border: 1px solid #c5d2f0; border-radius: 10px; padding: 12px 18px 14px; margin: 16px 0; }
@@ -144,7 +148,7 @@
 <main>
 
 <h1>Remote Cache — Design</h1>
-<p class="sub">v14 &nbsp;·&nbsp; §1–§6 + §9 ratified &nbsp;·&nbsp; §7–§8 reviewed &nbsp;·&nbsp; §10: draft &nbsp;·&nbsp; holistic review pending &nbsp;·&nbsp; 2026-07-03</p>
+<p class="sub">v15 &nbsp;·&nbsp; §1–§6 + §9 ratified &nbsp;·&nbsp; amendments A1–A9 (purple) awaiting owner review &nbsp;·&nbsp; 2026-07-03</p>
 
 <div class="banner">
 <b>Status.</b> The living design doc for the remote-cache engine work. Part I
@@ -153,7 +157,9 @@ design proper — architecture, implementation detail, and validation gates
 <em>together</em> — through the definition of done (§10). Shelved material lives at the
 bottom, clearly demarcated: kept for reference, explicitly not part of the design.
 Archived docs from earlier efforts sit one directory up — reference only, not inputs to
-this design.
+this design. <b>Nine proposed amendments (purple boxes, A1–A9) from review round 11 are
+placed inline at the text they would change — existing text is unchanged until each is
+ratified.</b>
 </div>
 <div class="controls">
 <button type="button" onclick="setAll(true)">expand all sections</button>
@@ -603,6 +609,22 @@ decided in Part II.</p>
   were deliberately kept — named forbidden patterns with reasons and tripwires — per the
   owner's ruling that guardrails are not history. The shelf and this log remain the
   designated homes for history.</li>
+  <li><b>Round 11 (2026-07-04).</b> Fresh independent review (Codex, deliberately minimal
+  context) returned <b>needs-rework</b> with two legitimate blockers and five majors, all
+  code-verified during triage. Dispositions: ACCEPTED as inline amendments A1 (accessor
+  read-through — GetOrEval errors on cloned-empty accessors, core/lazy_state.go:98), A2
+  (runtime exhaustion drops the result — same rule as boot vetting; fixes demote thrash),
+  A3 (the three-seam materialization map + a named owner for the source walk), A4 (R16
+  delta shrinks: import already recomputes term keys, import.go:272; column removal also
+  deletes a wipe trigger; T5 upgraded to a renumbered-store test), A5 (both-forms requires
+  capturing the lazy payload at publication, before realization clears it), A6 (vetting
+  cycle/SCC + lease ordering), A7 (T2 fault injection defined), A8 (host.go citation
+  corrected — RequestedCacheInput), A9 (counters bounded by consumers, stated). REJECTED:
+  keeping the term_digest column (owner's no-cruft ruling stands; A4 carries the reviewer's
+  precondition instead). HELD FOR OWNER: dropping the sourceContentChain enum entry
+  (ratified earlier; reviewer prefers prose-only) and shrinking materializationState to an
+  augmentation (triage leans keep — A5 shows the home is load-bearing precisely because it
+  outlives what realization clears).</li>
 </ol>
 </div>
 </details>
@@ -794,6 +816,31 @@ if lazy := shared.lazyEval; lazy != nil {
 }
 </code></pre>
 <span class="src">distillation; the real code adds span attribution, retry-on-failure, and cleanup</span>
+
+<div class="amend"><span class="atag">PROPOSED AMENDMENT A3 — the accurate seam map (and who owns the source walk) <span style="font-weight:400">· awaiting owner review · existing text above is unchanged until ratified</span></span>
+<div class="finding"><span class="ftag">REVIEW FINDING (round 11, verified in code)</span><br>Major, confirmed: Fact 2 oversimplifies. Main has <b>three</b> materialization-adjacent
+seams, not one: (i) a selected subset of results <b>eager-decodes at import</b> — errors
+ignored, resolver-less — specifically to populate the session-resource gating metadata the
+eligibility filter needs (<code>eagerDecodeResultIDs</code>, cache_persistence_import.go:404,
+copying <code>requiredSessionResources</code> from the decoded value); (ii) hit-time decode
+runs under its own singleflight (<code>persistDecodeMu</code>/<code>persistDecodeWaitCh</code>,
+import.go:598+) inside <code>ensurePersistedHitValueLoaded</code>, called from the lookup
+path itself (cache_egraph.go:915), after waiting the attach-deps barrier; (iii) value-level
+lazy evaluation is registered <em>after</em> decode and runs separately. "No values decoded
+at boot" and "the lazy runner walks sources" are each imprecise.</div>
+<p><b>Proposed change (amends Fact 2 here; amends §9 D2's first paragraph; touches the
+§7/§8 worked-example wording):</b> (1) Fact 2 and both worked examples say precisely:
+<em>boot touches no content</em>; a small subset of envelopes eager-decodes at import
+solely to populate session-resource gating metadata (kept, and stated as such). (2) The
+source walk gets <b>one named owner</b>: the materialization entry that today is the pair
+"<code>ensurePersistedHitValueLoaded</code> → lazy evaluation" — the walk unifies decode
+(source ①'s realize step) and lazy re-run (source ②'s) behind that single entry, called
+from the hit path and from <code>Evaluate</code>/read-through alike, and the
+<code>persistDecodeMu</code> protocol folds into the same singleflight rather than
+remaining a fourth hand-rolled wait. (3) §9 D2's sketch is re-captioned to name this owner
+explicitly so an implementer is never forced to invent the boundary.</p>
+</div>
+
 
 <p><b>Fact 3 — when anything goes wrong, everything goes.</b> There is no per-result
 fallback today. The failure vocabulary on main is store-wide:</p>
@@ -990,6 +1037,27 @@ the copy was only ever a cache miss.</li>
 <p class="pill">Deliberately <em>not</em> done: re-pointing accessors into the sharedResult
 (a plumbing change through core/ with no demonstrated need), replacing
 <code>LazyAccessor</code>, or any cross-result sharing. Smallest change that satisfies R5.</p>
+
+<div class="amend"><span class="atag">PROPOSED AMENDMENT A1 — the accessor read-through D3 actually requires <span style="font-weight:400">· awaiting owner review · existing text above is unchanged until ratified</span></span>
+<div class="finding"><span class="ftag">REVIEW FINDING (round 11, verified in code)</span><br>Blocker, confirmed: a cloned-empty accessor does <b>not</b> recover through the
+sharedResult. <code>GetOrEval</code> calls <code>Evaluate</code> and then reads its own
+field; when the sharedResult is already complete, <code>Evaluate</code> no-ops and
+GetOrEval fails hard — <code>"lazy accessor value not set after evaluation"</code>
+(core/lazy_state.go:98–103). D3's "absence is always recoverable" describes routing that
+exists but repopulation that doesn't, and the pill's "no core/ changes" claim is wrong.
+Likely latent on main today (clone-copied-before-realize, e.g.
+<code>CloneContainerMetaSnapshot</code>, container.go:906).</div>
+<p><b>Proposed change (amends D3's recoverability sentence and withdraws the
+no-core-changes claim; adds a file-plan row):</b> <code>GetOrEval</code>'s post-Evaluate
+miss becomes a <b>read-through</b>: instead of erroring, it fills this accessor from the
+sharedResult's canonical realized value — the same type-directed fill the decode path
+already uses to build values — then returns. One contained change in
+<code>core/lazy_state.go</code> plus a small per-type fill hook; no new locks, no
+cross-result state (the fill reads the caller's own result). Implementation adds a
+deterministic pin for the clone-before-realize case; if it reproduces on unmodified main,
+this doubles as a latent-bug fix and the pin is the regression test.</b></p>
+</div>
+
 
 <div class="verdict"><span class="vtag">ANSWER — §6 OPEN QUESTION 2</span><br>
 <b>The metadata-growth model under winner-at-lookup.</b> Rows are born in exactly two
@@ -1280,9 +1348,44 @@ persist; and since its call identity is deliberately per-client
 ever derives its key anyway — it matters only as an input referenced by downstream lazy
 forms, and through its content class (R16's clarification). No marking, no taxonomy:
 viability at restore is just "does the payload have something usable" — D2's job.</p>
+
+<div class="amend"><span class="atag">PROPOSED AMENDMENT A8 — citation correction — host.directory's exact cache input <span style="font-weight:400">· awaiting owner review · existing text above is unchanged until ratified</span></span>
+<div class="finding"><span class="ftag">REVIEW FINDING (round 11, verified in code)</span><br>Minor, confirmed: <code>host.directory</code> is not literally
+<code>.WithInput(dagql.PerClientInput)</code>: directory/file/findUp use
+<code>RequestedCacheInput("noCache")</code> (host.go:47ff), which resolves to
+<b>per-client when noCache=false (the default) and per-call when true</b>
+(cache_inputs.go:77–91). unixSocket, tunnel, and containerImage use
+<code>PerClientInput</code> directly; _sshAuthSocket is <code>PerCallInput</code>;
+host.service is <code>PerSessionInput</code> + <code>CachePerCallerModule</code>.</div>
+<p><b>Proposed change (corrects the citation here and in §9.3 step 4):</b> replace the
+PerClientInput citation with the accurate one — <code>RequestedCacheInput("noCache")</code>,
+per-client by default and per-call under <code>noCache</code>. The design's substance is
+unchanged and slightly strengthened: under either resolution, the identity is never
+re-derivable by a different client or a later boot.</p>
+</div>
+
 <p>One encoding serves local persistence now and bundles later (R9): a bundle is this same
 per-result encoding minus the engine-local rows (no integer keys, no refKeys — R3/R4),
 which the next decision makes possible.</p>
+
+<div class="amend"><span class="atag">PROPOSED AMENDMENT A5 — both-forms requires capturing the lazy payload before realization clears it <span style="font-weight:400">· awaiting owner review · existing text above is unchanged until ratified</span></span>
+<div class="finding"><span class="ftag">REVIEW FINDING (round 11, verified in code)</span><br>Major, confirmed: "record both forms when both exist" is larger than a flush-time
+adjustment, because by flush time the lazy form is <b>gone</b>: successful realization
+clears the value's lazy recipe (core/directory.go:126–139) and the cache clears
+<code>shared.lazyEval</code> on success (dagql/cache.go:3017), and today's decoders treat
+<code>Form</code> as exclusive (core/file.go:284/291).</div>
+<p><b>Proposed change (amends the "one real encode delta" paragraph):</b> the home
+captures the <b>encoded lazy payload at publication</b> — when a value carrying a lazy
+form publishes, its <code>LazyKind</code>/<code>LazyJSON</code> fragment is encoded then
+and stored on <code>materializationState</code> (referenced results are attached at that
+moment, so their persisted IDs resolve). Realization clearing stays exactly as it is —
+the live struct goes, the captured payload remains on the home, and flush writes both
+forms from there. Decoders accept a both-forms envelope (a compatible extension;
+<code>schema_version</code> bumps regardless in this take). This is the concrete reason
+the home is a <em>consolidation</em> rather than an augmentation: it is the one place
+that outlives both the value's lazy struct and the realization that clears it.</p>
+</div>
+
 
 <div class="verdict"><span class="vtag">DECISION — R16 BECOMES DESIGN</span><br>
 <b>Lookup keys are process-local. Persisted identity is digests, full stop.</b>
@@ -1313,6 +1416,28 @@ integers, a future bundle carries digests and frames only, and import treats it 
 like a second digest source — no parallel identity scheme (R9).</li>
 </ul>
 </div>
+
+<div class="amend"><span class="atag">PROPOSED AMENDMENT A4 — the R16 delta is smaller than drafted — and the test must be stronger <span style="font-weight:400">· awaiting owner review · existing text above is unchanged until ratified</span></span>
+<div class="finding"><span class="ftag">REVIEW FINDING (round 11, verified in code)</span><br>Major, confirmed with a bonus: import <b>already recomputes</b> every term key —
+<code>termDigest := calcEgraphTermDigest(selfDigest, inputEqIDs)</code> per term at load
+(cache_persistence_import.go:272) — and then <em>validates it against the stored
+column</em>: a mismatch is an import failure, i.e. a <b>full store wipe</b> today
+(import.go:274). Also: import does not renumber — file class IDs become in-memory IDs
+verbatim (parents[i]=i, import.go:92) — so cross-store identity rests entirely on the
+digest→class mapping, and "boot the same store twice" (T5) would pass even on a broken
+scheme.</div>
+<p><b>Proposed change (amends this box's "at boot" bullet and P-8.2/T5):</b> (1) The
+design's recompute is main's existing recompute <b>made authoritative</b>: the stored
+column is removed, which also deletes the stored-vs-rebuilt mismatch as a wipe trigger —
+one fewer all-or-nothing failure, for free. (2) The digest anchoring is stated as the
+invariant it already is: in-memory class identity derives from <code>eq_class_digests</code>
+(the digest→class map); integer IDs — file or memory — are joins, never identity. (3) T5
+is upgraded from "same store twice" to a <b>renumbered-store equivalence test</b>: take a
+store, rewrite every eq-class and term ID consistently (digests untouched), boot both,
+require identical hit behavior for identical calls. That is the test that actually fails
+if identity ever leans on an ordinal.</p>
+</div>
+
 
 <h4>D2 — Restore: per-result vetting, drop-with-dependents</h4>
 
@@ -1383,6 +1508,21 @@ references were kept" without iteration; a dropped result drops its dependents i
 is just a non-viable result. What restore does <em>not</em> do: touch content, execute
 recipes, or decode envelopes (beyond structural validation) — boot stays metadata-only
 (R14, §7's worked example step 1).</p>
+
+<div class="amend"><span class="atag">PROPOSED AMENDMENT A6 — vetting needs cycle and lease semantics spelled out <span style="font-weight:400">· awaiting owner review · existing text above is unchanged until ratified</span></span>
+<div class="finding"><span class="ftag">REVIEW FINDING (round 11, verified in code)</span><br>Major, confirmed: <code>result_deps</code> carries no acyclicity constraint
+(schema.sql:56), so "dependencies-first topological pass" is underspecified for a
+malformed store; and kept snapshots get owner leases attached during import
+(import.go:493+), so dropping a result has lease consequences the text never states.</div>
+<p><b>Proposed change (adds two sentences to the mechanics paragraph):</b> (1) The
+vetting pass treats any dependency cycle as corruption of every result in it: the
+strongly-connected component is dropped together, with its dependents — cycles cannot
+legitimately occur, so salvage never guesses. (2) Lease ordering is explicit: snapshot
+owner leases are attached only <em>after</em> vetting, only for kept results; any lease
+IDs belonging to dropped results from a prior boot are deleted in the same pass, so a
+dropped row can never pin content.</p>
+</div>
+
 
 <h4>Beyond vetting: runtime source failure, and the fallback floor</h4>
 <p>Vetting is boot-time honesty about <em>local</em> facts. It cannot promise the future:
@@ -1662,6 +1802,25 @@ per-caller (two sessions demoting produce their own executions, deduplicated by 
 ordinary in-flight singleflight on identical calls); and it is final — there is nothing
 below it, which is what makes R2's promise honest rather than hopeful.</p>
 
+<div class="amend"><span class="atag">PROPOSED AMENDMENT A2 — exhaustion drops the result — the same rule as boot vetting <span style="font-weight:400">· awaiting owner review · existing text above is unchanged until ratified</span></span>
+<div class="finding"><span class="ftag">REVIEW FINDING (round 11, verified in code)</span><br>Blocker, confirmed: as drafted, nothing removes an exhausted result from candidacy.
+Winner selection checks only session-resource eligibility (cache_egraph.go:646), and the
+exhausted, lower-ID candidate stays indexed — so it keeps winning, every future call
+demotes, and P-9.2's "follow-up call hits again" is unproven. Marking <em>sources</em>
+non-viable (D2) never marks the <em>result</em> unservable.</div>
+<p><b>Proposed change (adds one rule to D3; resolves the reviewer's open question
+"dropped, deindexed, or left?"):</b> when the source walk exhausts with every failure
+<em>permanent</em>, the result is <b>dropped, with its dependents — the same rule boot
+vetting applies</b> (§8 D2), executed at the same decision points: deindexed from digest
+and term candidacy and released, under the cache's ordinary locking. One rule, two
+moments: "zero viable sources ⇒ the result is dropped," at boot or at runtime. The
+caller then demotes as specified; the fresh execution publishes and re-teaches; the next
+lookup finds only the new result — which is what makes P-9.2's heal assertion provable.
+Transient exhaustion (cancellation, pressure) drops nothing: the next waiter retries the
+walk as today.</p>
+</div>
+
+
 <h4>D4 — Cross-client ID loads: loader-flavored by design</h4>
 <p>A loaded ID is a capability: the fast lookup honors it exactly (the ID's own digest +
 its extra digests, server.go:1364), and the structural lookup preserves the minting
@@ -1687,6 +1846,16 @@ event (the diagnosis path); the shutdown <b>stats file</b> next to the persisted
 test-assertion vehicle — files, not log streams) plus the same data in the debug snapshot
 and a one-line session summary. Still shelved: strict modes, per-session tallies, the
 forensics ring — no consumer yet.</p>
+
+<div class="amend"><span class="atag">PROPOSED AMENDMENT A9 — counters stay exactly as large as their consumers <span style="font-weight:400">· awaiting owner review · existing text above is unchanged until ratified</span></span>
+<div class="finding"><span class="ftag">REVIEW FINDING (round 11, verified in code)</span><br>Question-grade: the reviewer read D5 as possibly seeding a broader stats framework and
+recommended keeping only what T1/T2 consume.</div>
+<p><b>Proposed change (one clarifying sentence in D5):</b> the slice is bounded by its
+consumers by rule — every counter and surface in D5 is consumed by a named gate case
+(T1, T2, and §8's T6); anything without a consuming test does not land, and additions
+require a new consumer first. (This was the intent; now it is text.)</p>
+</div>
+
 
 <h3>9.3 &nbsp;Worked example — the upload scenario, verified against the code</h3>
 <p>§8 pre-registered this scenario; it has since been traced through the actual machinery
@@ -1845,6 +2014,20 @@ one materialization run, N−1 waits, no torn outcomes, under <code>-race</code>
 <p class="pill">T1–T4 and T7 extend the existing persistence suite in place; T5, T6, T8
 live at the dagql level. The unclean-shutdown subtest continues to assert the wholesale
 wipe — one of the two we deliberately keep (§8 D2).</p>
+
+<div class="amend"><span class="atag">PROPOSED AMENDMENT A7 — T2's fault injection must be defined — normal prune can't produce it <span style="font-weight:400">· awaiting owner review · existing text above is unchanged until ratified</span></span>
+<div class="finding"><span class="ftag">REVIEW FINDING (round 11, verified in code)</span><br>Major, confirmed: kept imported snapshots carry owner leases (import.go:493+), and the
+real prune path removes whole persisted edges/results (cache_prune.go:97,
+<code>removePersistedEdge</code>) — never "just the snapshot behind a still-indexed
+result." As written, T2 has no natural operation that produces its precondition.</div>
+<p><b>Proposed change (amends T2's description and P-9.2):</b> T2 uses a defined,
+test-only fault injection: delete the winner's backing snapshot out-of-band via the
+snapshotter (leases notwithstanding), simulating the external-loss class this path exists
+for — disk damage, manual GC, and the remote future's failed content pull. The injection
+is named in the test, not improvised; the production prune path is explicitly <em>not</em>
+what T2 exercises (real prune drops the row, which is an ordinary miss, already covered).</p>
+</div>
+
 
 <h3>10.3 &nbsp;Build order</h3>
 <ol>
