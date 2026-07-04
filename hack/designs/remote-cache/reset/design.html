@@ -646,7 +646,7 @@ answer rather than competing sources of truth. Everything else in this section �
 source list, the fall-through order, the growth model — is that one idea meeting the
 requirements.</p>
 
-<p class="pill"><b>Names here are the codebase's own:</b> a <b>value struct</b> is the Go object handlers touch (<code>Directory</code>, <code>File</code>, <code>Container</code>); its <b>accessors</b> are the <code>LazyAccessor</code> fields holding content on that struct (<code>Directory.Snapshot</code>, <code>Container.FS</code>, …) — several per struct; the <b>sharedResult</b> is the cache's single in-memory entry per result (dagql/cache.go). The proposed <code>materializationState</code> lives on the sharedResult.</p>
+<p class="pill"><b>Names here are the codebase's own:</b> a <b>value struct</b> is the Go object handlers touch (<code>Directory</code>, <code>File</code>, <code>Container</code>); its <b>accessors</b> are the <code>LazyAccessor</code> fields holding content on that struct (<code>Directory.Snapshot</code>, <code>Container.FS</code>, …) — several per struct; the <b>sharedResult</b> is the cache's single in-memory entry per result (dagql/cache.go). The proposed <code>materializationState</code> lives on the sharedResult — §7 calls it "the home" as shorthand.</p>
 
 <div class="decide"><span class="dtag">ON THE TABLE — WHAT THIS SECTION ASKS YOU TO RATIFY</span>
 <ol style="margin:4px 0 2px">
@@ -1107,7 +1107,7 @@ CREATE TABLE result_deps (            <span class="cm">-- ← the dependency clo
 snapshot_content_links = snapshot→content digests, imported_layer_* = imported layer indices)</span>
 
 <p>Read that against §7: the <b>recipe source</b> is <code>call_frame_json</code> — free;
-the <b>local-snapshot source</b> is <code>result_snapshot_links</code> — free. The home's
+the <b>local-snapshot source</b> is <code>result_snapshot_links</code> — free. §7's
 source list is a <em>reading</em> of tables that already exist, which is why this section
 is mostly about vetting and identity, not encoding.</p>
 
