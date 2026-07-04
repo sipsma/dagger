@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	telemetry "github.com/dagger/otel-go"
+
 	"github.com/dagger/dagger/engine/wcprof"
 	"github.com/dagger/dagger/engine/wcprof/wcanalyze"
 )
@@ -114,6 +116,41 @@ func TestCachedCrossSourceParity(t *testing.T) {
 	if no.shortCircuited != 4 || no.elidedOps != 2 || no.kept != 0 {
 		t.Fatalf("expected 4 hits (executor + 3 joiners), 2 elided ops, 0 kept; got %+v", no)
 	}
+}
+
+// --- V22 (OTel front-end): hit-digest extraction through wcotel.Load — the
+// CachedAttr-derived hit outcome, deduped, with ok / error / open spans never
+// counted. Exactly the digests whose warm outcome is hit, nothing inferred.
+func TestCachedHitDigestExtractionOTel(t *testing.T) {
+	errSpan := otSpan(idLazy, idRoot, "C.op", 60, 70, callAttrs("d-err"))
+	errSpan["status"] = "STATUS_CODE_ERROR"
+	openSpan := otSpan("eeeeeeeeeeeeeeee", idRoot, "D.op", 70, 0, cachedAttrs("d-open"))
+	openSpan["endNs"] = 0 // exported on start only: open at capture
+	recs := []map[string]any{
+		otSpan(idRoot, idNone, "POST /query", 0, 100, nil),
+		otSpan(idA, idRoot, "A.op", 0, 10, cachedAttrs("d-hit")),
+		otSpan(idB, idRoot, "A.op", 10, 20, cachedAttrs("d-hit")), // dup: one entry
+		otSpan(idExec, idRoot, "B.op", 20, 60, callAttrs("d-ok")), // ok: not a hit
+		errSpan,
+		openSpan,
+	}
+	c := mustCompile(t, toJSONL(t, recs...))
+	g, err := wcanalyze.Build(c.Header, c.Events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := wcanalyze.HitDigests(g)
+	if len(got) != 1 || got[0] != "d-hit" {
+		t.Fatalf("hit digests = %v, want exactly [d-hit]", got)
+	}
+}
+
+// cachedAttrs is a call span satisfied from cache: dag.digest + the cached
+// marker the loader maps to the hit outcome.
+func cachedAttrs(digest string) map[string]any {
+	a := callAttrs(digest)
+	a[telemetry.CachedAttr] = true
+	return a
 }
 
 // --- V20: OTel end-to-end on the committed testdata capture — the real

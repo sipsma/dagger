@@ -68,6 +68,26 @@ func ExpandCachedArgs(vals []string) ([]string, error) {
 	return out, nil
 }
 
+// HitDigests returns the distinct call idents with at least one recorded
+// cache-hit call op, sorted — a warm run's actual hit set (catalog row V22:
+// exactly the digests whose warm outcome is hit, nothing inferred). Open ops
+// have no outcome yet and never count.
+func HitDigests(g *Graph) []string {
+	idx := g.cachedIndexOnce()
+	var out []string
+	for ident, calls := range idx.callsByIdent {
+		for _, ci := range calls {
+			op := idx.p.ops[ci]
+			if !op.Open && op.Outcome == wcprof.OutcomeHit.String() {
+				out = append(out, ident)
+				break
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
 // isCallSuccessOutcome reports whether a call op's recorded outcome is a
 // non-hit success: executed/joined natively, the generic ok on the OTel
 // source (which cannot distinguish executed from joined — irrelevant under

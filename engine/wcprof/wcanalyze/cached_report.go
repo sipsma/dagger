@@ -212,6 +212,62 @@ func WriteCachedSelectionDetail(w io.Writer, g *Graph, sel CachedSelection, chai
 	return detail.GateErr()
 }
 
+// CachedCalibration is the cold/warm calibration comparison (design §3.5
+// gate 4): the cold run simulated under the warm run's ACTUAL hit set,
+// against the warm run's ACTUAL makespan. The drift number is the product —
+// the honest answer to whether this tool can replace the empirical cold/warm
+// A/B loop — and no threshold is enforced (v1 reports; humans judge).
+type CachedCalibration struct {
+	Detail *CachedDetail
+	// WarmHitDigests is the warm run's extracted hit-set size; FoundInRun of
+	// those exist as call idents in the analyzed (cold) run — the rest are
+	// listed not-found by the eligibility section, never silently dropped.
+	WarmHitDigests int
+	FoundInRun     int
+	WarmActualNS   int64
+}
+
+// RunCachedCalibration extracts the warm run's hit digests and simulates the
+// cold run under them at the given pull cost.
+func RunCachedCalibration(coldG, warmG *Graph, pullCostNS int64, chainDepth int) (*CachedCalibration, error) {
+	hits := HitDigests(warmG)
+	if len(hits) == 0 {
+		return nil, fmt.Errorf("the warm capture records no cache-hit calls — not a warm run, or hits were not recorded")
+	}
+	detail, err := RunCachedDetail(coldG, NewCachedHypothesis(hits, pullCostNS), chainDepth)
+	if err != nil {
+		return nil, err
+	}
+	found := 0
+	for i := range detail.Resolution.Idents {
+		if detail.Resolution.Idents[i].State != IdentNotFound {
+			found++
+		}
+	}
+	return &CachedCalibration{
+		Detail:         detail,
+		WarmHitDigests: len(hits),
+		FoundInRun:     found,
+		WarmActualNS:   ActualMakespanNS(warmG),
+	}, nil
+}
+
+// Write renders the detail section followed by the calibration block.
+func (c *CachedCalibration) Write(w io.Writer) {
+	c.Detail.Write(w)
+	fmt.Fprintf(w, "calibration: cold run simulated under the warm run's hit set\n\n")
+	fmt.Fprintf(w, "  warm-run hit digests:              %d (%d found as call idents in this run)\n", c.WarmHitDigests, c.FoundInRun)
+	fmt.Fprintf(w, "  cold run baseline (simulated):     %s\n", fmtDur(c.Detail.BaselineNS))
+	fmt.Fprintf(w, "  simulated counterfactual makespan: %s\n", fmtDur(c.Detail.MakespanNS))
+	fmt.Fprintf(w, "  warm run actual makespan:          %s\n", fmtDur(c.WarmActualNS))
+	if c.WarmActualNS > 0 {
+		drift := 100 * float64(c.Detail.MakespanNS-c.WarmActualNS) / float64(c.WarmActualNS)
+		fmt.Fprintf(w, "  drift (sim vs warm actual):        %+.1f%%\n", drift)
+	}
+	fmt.Fprintf(w, "  (known gap sources: unlimited-resource scheduling, uninstrumented I/O,\n")
+	fmt.Fprintf(w, "   warm-run lazy decode, run-specific digests absent from the cold run)\n\n")
+}
+
 // CachedDetail is the explicit-set what-if-cached result: one hypothesis,
 // full residual visibility, and the counterfactual blocking chain.
 type CachedDetail struct {
@@ -222,9 +278,11 @@ type CachedDetail struct {
 	// the last-finishing root of the CACHED simulation (what the new
 	// bottleneck would be).
 	Chain []*Op
-	// ChainSim exposes the cached simulation's per-op times for rendering the
-	// chain.
-	sim *Simulation
+	// sim exposes the cached simulation's per-op times for rendering the
+	// chain; traceStartNS rebases them to the report's trace-relative
+	// convention.
+	sim          *Simulation
+	traceStartNS int64
 	// ElidedOpDemanded > 0 fails the section's gate (design §3.5).
 	ElidedOpDemanded int
 }
@@ -247,6 +305,7 @@ func RunCachedDetail(g *Graph, hyp CachedHypothesis, chainDepth int) (*CachedDet
 		BaselineNS:       baseline,
 		MakespanNS:       makespan,
 		sim:              sim,
+		traceStartNS:     g.TraceStartNS,
 		ElidedOpDemanded: sim.ElidedOpDemanded,
 	}
 	// Counterfactual blocking chain from the last-finishing root.
@@ -274,19 +333,45 @@ func (d *CachedDetail) GateErr() error {
 }
 
 // Write renders the explicit-set detail section.
-func (d *CachedDetail) Write(w io.Writer) {
-	res := d.Resolution
-	fmt.Fprintf(w, "what-if-cached: explicit hypothesis (%d digest(s), pull cost %s)\n\n",
-		len(res.Idents), fmtDur(res.PullCostNS))
-	saved := d.BaselineNS - d.MakespanNS
-	pct := float64(0)
-	if d.BaselineNS > 0 {
-		pct = 100 * float64(saved) / float64(d.BaselineNS)
-	}
-	fmt.Fprintf(w, "baseline makespan: %s   counterfactual: %s   saved: %s (%.1f%%)\n\n",
-		fmtDur(d.BaselineNS), fmtDur(d.MakespanNS), fmtDur(saved), pct)
+// eligibilityListLimit is the ident count above which the eligibility section
+// summarizes per state instead of listing every ident — the calibration form,
+// where hypotheses carry a whole warm run's hit set. Counts stay exact and
+// every non-eligible state is still listed or sampled; only the per-ident
+// enumeration is elided, and the summary says how much.
+const eligibilityListLimit = 24
 
+func writeEligibility(w io.Writer, res *CachedResolution) {
 	fmt.Fprintf(w, "eligibility:\n")
+	if len(res.Idents) > eligibilityListLimit {
+		counts := map[IdentState]int{}
+		for i := range res.Idents {
+			counts[res.Idents[i].State]++
+		}
+		for _, state := range []IdentState{IdentEligible, IdentAllHit, IdentNotFound, IdentDoNotCache, IdentOpen, IdentUnknownOutcome, IdentFailedOnly} {
+			n := counts[state]
+			if n == 0 {
+				continue
+			}
+			fmt.Fprintf(w, "  %d digest(s): %s", n, state)
+			// Ineligible states beyond not-found are rare and worth naming.
+			if state != IdentEligible && state != IdentNotFound && state != IdentAllHit {
+				shown := 0
+				for i := range res.Idents {
+					if res.Idents[i].State != state || shown >= 8 {
+						continue
+					}
+					if shown == 0 {
+						fmt.Fprintf(w, " —")
+					}
+					fmt.Fprintf(w, " %s", res.Idents[i].Ident)
+					shown++
+				}
+			}
+			fmt.Fprintf(w, "\n")
+		}
+		fmt.Fprintf(w, "  (per-ident lines elided above %d digests; counts are exact)\n\n", eligibilityListLimit)
+		return
+	}
 	for i := range res.Idents {
 		el := &res.Idents[i]
 		fmt.Fprintf(w, "  %s: %s", el.Ident, el.State)
@@ -302,6 +387,21 @@ func (d *CachedDetail) Write(w io.Writer) {
 		fmt.Fprintf(w, "\n")
 	}
 	fmt.Fprintf(w, "\n")
+}
+
+func (d *CachedDetail) Write(w io.Writer) {
+	res := d.Resolution
+	fmt.Fprintf(w, "what-if-cached: explicit hypothesis (%d digest(s), pull cost %s)\n\n",
+		len(res.Idents), fmtDur(res.PullCostNS))
+	saved := d.BaselineNS - d.MakespanNS
+	pct := float64(0)
+	if d.BaselineNS > 0 {
+		pct = 100 * float64(saved) / float64(d.BaselineNS)
+	}
+	fmt.Fprintf(w, "baseline makespan: %s   counterfactual: %s   saved: %s (%.1f%%)\n\n",
+		fmtDur(d.BaselineNS), fmtDur(d.MakespanNS), fmtDur(saved), pct)
+
+	writeEligibility(w, res)
 
 	if len(res.KeptRegions) > 0 {
 		fmt.Fprintf(w, "kept regions (work the hypothesis could NOT remove):\n")
@@ -337,8 +437,9 @@ func (d *CachedDetail) Write(w io.Writer) {
 		fmt.Fprintf(w, "counterfactual blocking chain (what the new bottleneck would be):\n\n")
 		for _, op := range d.Chain {
 			start, finish := d.sim.SimTimes(op)
+			// trace-relative, matching the report's blocking-chain convention
 			fmt.Fprintf(w, "  %-12s %-50s sim=[%s..%s]\n",
-				op.Kind, truncate(op.Class, 50), fmtDur(start), fmtDur(finish))
+				op.Kind, truncate(op.Class, 50), fmtDur(start-d.traceStartNS), fmtDur(finish-d.traceStartNS))
 		}
 		fmt.Fprintf(w, "\n")
 	}

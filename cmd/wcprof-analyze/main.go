@@ -35,6 +35,7 @@ func main() {
 	flag.Var(&cachedClasses, "cached-class", "what-if-cached: cache every executed digest of this call class, e.g. 'Container.withExec' (repeatable)")
 	flag.Var(&cachedExecs, "cached-exec", "what-if-cached: cache the digests owning user execs matching this argv pattern (boundary-aware prefix; 'contains:' for substring; repeatable)")
 	cachedPull := flag.Duration("cached-pull-cost", 0, "what-if-cached: simulated cost of each hit (the pull-cost seam; 0 = local warm hit)")
+	cachedFromRun := flag.String("cached-from-run", "", "what-if-cached calibration: path to a WARM run's wcprof dump — simulate this (cold) run under the warm run's actual hit set and report drift vs its actual makespan (exclusive with the other -cached* selectors)")
 	flag.Parse()
 
 	if flag.NArg() < 1 {
@@ -60,6 +61,12 @@ func main() {
 		os.Exit(2)
 	}
 
+	// Exclusivity is a flag-shape check: test it on the RAW selectors, before
+	// manifest expansion can fail with a misleading error.
+	if *cachedFromRun != "" && len(cachedDigests)+len(cachedClasses)+len(cachedExecs) > 0 {
+		fmt.Fprintln(os.Stderr, "-cached-from-run is exclusive with the other -cached* selectors")
+		os.Exit(2)
+	}
 	digests, err := wcanalyze.ExpandCachedArgs(cachedDigests)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -72,7 +79,7 @@ func main() {
 		PullCostNS:   int64(*cachedPull),
 	}
 
-	if err := run(flag.Args(), rules, sel, wcanalyze.ReportOptions{
+	if err := run(flag.Args(), rules, sel, *cachedFromRun, wcanalyze.ReportOptions{
 		TopClasses:     *topClasses,
 		WhatIfFactors:  factors,
 		MinClassSelfNS: int64(*minSelf),
@@ -94,7 +101,7 @@ func (m *multiFlag) Set(v string) error {
 	return nil
 }
 
-func run(paths []string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.CachedSelection, opts wcanalyze.ReportOptions) error {
+func run(paths []string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.CachedSelection, cachedFromRun string, opts wcanalyze.ReportOptions) error {
 	readers := make([]io.Reader, 0, len(paths))
 	for _, path := range paths {
 		f, err := os.Open(path)
@@ -115,6 +122,26 @@ func run(paths []string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.CachedSe
 	wcanalyze.ClassifyExecs(graph, rules)
 	if err := wcanalyze.WriteReport(os.Stdout, graph, opts); err != nil {
 		return err
+	}
+	if cachedFromRun != "" {
+		// Cold/warm calibration (design §3.5 gate 4): simulate THIS run under
+		// the warm capture's actual hit set and report drift vs its actual
+		// makespan.
+		wf, err := os.Open(cachedFromRun)
+		if err != nil {
+			return fmt.Errorf("open warm capture: %w", err)
+		}
+		defer wf.Close()
+		warmG, err := wcanalyze.Load(wf)
+		if err != nil {
+			return fmt.Errorf("load warm capture: %w", err)
+		}
+		cal, err := wcanalyze.RunCachedCalibration(graph, warmG, sel.PullCostNS, opts.ChainDepth)
+		if err != nil {
+			return err
+		}
+		cal.Write(os.Stdout)
+		return cal.Detail.GateErr()
 	}
 	// The explicit-set what-if-cached detail section (design §3.4 mode 2); a
 	// gate violation surfaces as a non-zero exit, distinct from report I/O.

@@ -49,6 +49,7 @@ func main() {
 	flag.Var(&cachedClasses, "cached-class", "what-if-cached: cache every executed digest of this call class, e.g. 'Container.withExec' (repeatable)")
 	flag.Var(&cachedExecs, "cached-exec", "what-if-cached: cache the digests owning user execs matching this argv pattern (boundary-aware prefix; 'contains:' for substring; repeatable)")
 	cachedPull := flag.Duration("cached-pull-cost", 0, "what-if-cached: simulated cost of each hit (the pull-cost seam; 0 = local warm hit)")
+	cachedFromRun := flag.String("cached-from-run", "", "what-if-cached calibration: path to a WARM run's otlpdump capture — simulate this (cold) trace under the warm run's actual hit set and report drift vs its actual makespan (exclusive with the other -cached* selectors; not supported with -trace)")
 	flag.Parse()
 
 	if *traceID == "" && flag.NArg() < 1 {
@@ -83,6 +84,12 @@ func main() {
 		os.Exit(2)
 	}
 
+	// Exclusivity is a flag-shape check: test it on the RAW selectors, before
+	// manifest expansion can fail with a misleading error.
+	if *cachedFromRun != "" && len(cachedDigests)+len(cachedClasses)+len(cachedExecs) > 0 {
+		fmt.Fprintln(os.Stderr, "-cached-from-run is exclusive with the other -cached* selectors")
+		os.Exit(2)
+	}
 	digests, err := wcanalyze.ExpandCachedArgs(cachedDigests)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -95,10 +102,15 @@ func main() {
 		PullCostNS:   int64(*cachedPull),
 	}
 
+	if *cachedFromRun != "" && *traceID != "" {
+		fmt.Fprintln(os.Stderr, "-cached-from-run is not supported with -trace yet (capture the warm run locally)")
+		os.Exit(2)
+	}
+
 	if *traceID != "" {
 		err = runCloud(context.Background(), *traceID, *orgID, rules, sel, opts)
 	} else {
-		err = runFiles(flag.Args(), rules, sel, opts)
+		err = runFiles(flag.Args(), rules, sel, *cachedFromRun, opts)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -116,10 +128,29 @@ func (m *multiFlag) Set(v string) error {
 	return nil
 }
 
-func runFiles(paths []string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.CachedSelection, opts wcanalyze.ReportOptions) error {
+func runFiles(paths []string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.CachedSelection, cachedFromRun string, opts wcanalyze.ReportOptions) error {
 	// The design's unit of analysis is one trace (design §10 decision 2), so each
 	// file is loaded and analyzed independently rather than merged.
-	var failed bool
+	var (
+		failed bool
+		warmG  *wcanalyze.Graph
+	)
+	if cachedFromRun != "" {
+		// Calibration warm capture (design §3.5 gate 4). It must pass the
+		// structural gate itself: an incomplete warm capture would silently
+		// under-extract the hit set and skew the drift number — refuse instead.
+		warmC, wg, err := loadFile(cachedFromRun)
+		if err != nil {
+			return fmt.Errorf("warm capture %s: %w", cachedFromRun, err)
+		}
+		warmGate := wcotel.CheckStructural(warmC, wg, wcotel.GateOptions{})
+		if gerr := warmGate.Err(); gerr != nil {
+			fmt.Fprintf(os.Stderr, "warm capture %s:\n", cachedFromRun)
+			warmGate.Write(os.Stderr)
+			return fmt.Errorf("warm capture failed the structural gate: %w", gerr)
+		}
+		warmG = wg
+	}
 	for _, path := range paths {
 		if len(paths) > 1 {
 			fmt.Printf("=== %s ===\n", path)
@@ -136,6 +167,16 @@ func runFiles(paths []string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.Cac
 		}
 		if !gateOK {
 			failed = true
+		}
+		if warmG != nil {
+			cal, err := wcanalyze.RunCachedCalibration(g, warmG, sel.PullCostNS, opts.ChainDepth)
+			if err != nil {
+				return fmt.Errorf("%s: %w", path, err)
+			}
+			cal.Write(os.Stdout)
+			if gerr := cal.Detail.GateErr(); gerr != nil {
+				return fmt.Errorf("%s: %w", path, gerr)
+			}
 		}
 	}
 	if failed {

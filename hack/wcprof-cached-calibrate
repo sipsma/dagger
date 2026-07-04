@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# wcprof-cached-calibrate — the cold/warm calibration harness for the
+# what-if-cached simulator (hack/designs/whatif-cached-design.md §4 Chunk 3,
+# design §3.5 gate 4).
+#
+# The empirical loop this tool exists to replace is also its ground truth:
+# run a workload against a FRESH dev engine (cold), run it again (warm),
+# capture a native wcprof dump after each run, then simulate the COLD run
+# under the WARM run's actual hit set and compare the simulated counterfactual
+# makespan against the warm run's actual makespan. The final drift number is
+# the product; no threshold is enforced (v1 reports, humans judge — the gap
+# sources are listed in the report footer).
+#
+# Usage:
+#   hack/wcprof-cached-calibrate [-o outdir] [-k] -- <command...>
+#
+#   -o outdir   keep captures in outdir (default: a fresh /tmp dir, printed)
+#   -k          keep the current dev engine (skip the cold reset; use when the
+#               engine is already fresh or a reset is managed externally)
+#   <command>   the workload, run twice via hack/with-dev — e.g.
+#                 hack/wcprof-cached-calibrate -- ./bin/dagger call -m ./mymod build
+#
+# Requirements: a running docker daemon; hack/build must be able to build and
+# start the dev engine (container $_EXPERIMENTAL_DAGGER_DEV_CONTAINER,
+# default dagger-engine.dev) with its debug port published.
+set -e -u -o pipefail
+
+HACK="$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")" && pwd)"
+CONTAINER="${_EXPERIMENTAL_DAGGER_DEV_CONTAINER:-dagger-engine.dev}"
+OUTDIR=""
+KEEP_ENGINE=0
+
+while getopts "o:k" opt; do
+  case "$opt" in
+    o) OUTDIR="$OPTARG" ;;
+    k) KEEP_ENGINE=1 ;;
+    *) exit 2 ;;
+  esac
+done
+shift $((OPTIND - 1))
+[ "${1:-}" = "--" ] && shift
+if [ $# -eq 0 ]; then
+  echo "usage: $0 [-o outdir] [-k] -- <command...>" >&2
+  exit 2
+fi
+if [ -z "$OUTDIR" ]; then
+  OUTDIR="$(mktemp -d /tmp/wcprof-calibrate.XXXXXX)"
+fi
+mkdir -p "$OUTDIR"
+
+if [ "$KEEP_ENGINE" = 0 ]; then
+  echo "==> resetting dev engine $CONTAINER (cold state: container + cache volume)" >&2
+  docker rm -fv "$CONTAINER" >/dev/null 2>&1 || true
+  docker volume rm "$CONTAINER" >/dev/null 2>&1 || true
+  "$HACK/build"
+fi
+
+# The engine's debug endpoint: hack/build starts the engine with --debug;
+# resolve the published host port for container port 6060.
+debug_port="$(docker port "$CONTAINER" 6060 2>/dev/null | head -n1 | sed 's/.*://')"
+if [ -z "$debug_port" ]; then
+  echo "cannot resolve the dev engine's debug port (docker port $CONTAINER 6060)" >&2
+  exit 1
+fi
+DEBUG="http://localhost:$debug_port"
+
+echo "==> enabling wcprof recording ($DEBUG)" >&2
+curl -fsS -X POST -d on "$DEBUG/debug/wcprof/enabled" >/dev/null
+
+# The workload MUST run on the same engine the dumps are pulled from, or the
+# drift number is fiction: hack/with-dev derives its runner host from
+# _EXPERIMENTAL_DAGGER_DEV_CONTAINER, so pin it to this harness's container.
+export _EXPERIMENTAL_DAGGER_DEV_CONTAINER="$CONTAINER"
+
+echo "==> COLD run: $*" >&2
+"$HACK/with-dev" "$@"
+echo "==> capturing cold profile" >&2
+curl -fsS "$DEBUG/debug/wcprof/dump" > "$OUTDIR/cold.wcprof" # flushes by default
+
+echo "==> WARM run: $*" >&2
+"$HACK/with-dev" "$@"
+echo "==> capturing warm profile" >&2
+curl -fsS "$DEBUG/debug/wcprof/dump" > "$OUTDIR/warm.wcprof"
+
+echo "==> analyzing: cold run under the warm run's hit set" >&2
+echo "    captures kept in $OUTDIR" >&2
+exec go run "$HACK/../cmd/wcprof-analyze" \
+  -cached-from-run "$OUTDIR/warm.wcprof" \
+  "$OUTDIR/cold.wcprof"
