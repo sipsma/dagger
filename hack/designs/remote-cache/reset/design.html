@@ -132,10 +132,11 @@
   <li><a href="#target">Target shape (ratified)</a></li>
   <li><a href="#home">The content home: result &amp; materialization state (draft, under discussion)</a></li>
   <li><a href="#persist">Persistence: encoding, flush, and restore (draft, under discussion)</a></li>
-  <li><a href="#warm">Warm lookup and on-demand materialization (draft, under discussion)</a></li>
+  <li><a href="#warm">Warm lookup and on-demand materialization (ratified)</a></li>
+  <li><a href="#proof">The restart proof: definition of done (draft, under discussion)</a></li>
 </ol>
 <b>Appendix</b>
-<ol start="10">
+<ol start="11">
   <li><a href="#shelf">The shelf (not part of the design)</a></li>
 </ol>
 </div>
@@ -143,7 +144,7 @@
 <main>
 
 <h1>Remote Cache — Design</h1>
-<p class="sub">v12 &nbsp;·&nbsp; Requirements + target shape: ratified &nbsp;·&nbsp; §7–§9: drafts under review &nbsp;·&nbsp; 2026-07-03</p>
+<p class="sub">v13 &nbsp;·&nbsp; §1–§6 + §9 ratified &nbsp;·&nbsp; §7–§8 reviewed &nbsp;·&nbsp; §10 (definition of done): draft for review &nbsp;·&nbsp; 2026-07-03</p>
 
 <div class="banner">
 <b>Status.</b> This is the living design doc for the remote-cache engine work, restarted
@@ -587,6 +588,15 @@ decided in Part II.</p>
   as its worked example; cross-client ID-load fallback (loader-flavored re-evaluation)
   sanctioned explicitly in D4; a scoped slice of the shelved observability un-shelved with
   its consumer in D5.</li>
+  <li><b>Round 9 (2026-07-03).</b> §9 <b>ratified in full</b> — all five decisions
+  (lookup/winner unchanged; source-walk realization with the propagation and marking
+  rules; the demote-to-miss floor; loader-flavored ID fallback sanctioned; the scoped
+  observability un-shelving). §10 (the restart proof / definition of done) drafted:
+  acceptance bar (three consecutive fully-green gate runs with stats-file evidence
+  attached), build order (§7 → §8 in three chunks → §9 → acceptance), the eight new proof
+  cases T1–T8, the requirement coverage matrix with an honesty rule (runtime-proven vs
+  review-guarded), and the scheduled end-of-design observability decision resolved: no
+  standalone pass — §9 D5's slice is the entire up-front need.</li>
 </ol>
 </div>
 </details>
@@ -603,9 +613,10 @@ observability a section needs for its proof, it specifies in place — as proces
 tooling: built properly, scoped to this effort, expected to reconcile later with the
 parallel observability workstreams rather than outlive them as-is.</p>
 <p class="pill">Tentative section roadmap (subject to reordering as the design proceeds):
-target shape (ratified) → the content home (§7, drafted) → persistence: encoding, flush
-&amp; restore incl. import-at-boot and partial persistence (§8, drafted) → warm lookup &amp;
-on-demand materialization (§9, drafted) → the restart proof. Nothing in this list pre-decides a
+target shape (ratified) → the content home (§7) → persistence: encoding, flush &amp; restore
+incl. import-at-boot and partial persistence (§8) → warm lookup &amp; on-demand
+materialization (§9, ratified) → the restart proof (§10, drafted — Part II structurally
+complete). Nothing in this list pre-decides a
 mechanism.</p>
 
 <details class="fold" id="target"><summary><h2>6. Target shape <span class="pill">(ratified round 4 — living, adjustable)</span></h2></summary>
@@ -1525,7 +1536,7 @@ is zero.</li>
 </ul>
 </details>
 
-<details class="fold" id="warm" open><summary><h2>9. Warm lookup and on-demand materialization <span class="pill">(draft, under discussion)</span></h2></summary>
+<details class="fold" id="warm"><summary><h2>9. Warm lookup and on-demand materialization <span class="pill">(ratified round 9)</span></h2></summary>
 
 <p><b>The idea in three sentences.</b> A warm call finds its result through the same two
 lookups main runs today — exact digests first, then the structural e-graph match —
@@ -1761,7 +1772,150 @@ source walk pinned deterministically.</li>
 </ul>
 </details>
 
-<details class="fold" id="shelf"><summary><h2>10. The shelf <span class="pill">(not part of the design)</span></h2></summary>
+<details class="fold" id="proof" open><summary><h2>10. The restart proof: definition of done <span class="pill">(draft, under discussion)</span></h2></summary>
+
+<p><b>The idea in three sentences.</b> The take is done when a fresh engine, booted on
+another engine's persisted state, provably serves warm hits — with counters that would
+have failed loudly if reuse hadn't happened (R8), on a store that survives partial damage
+honestly (R2), with keys that don't depend on timing (R16). This section consolidates the
+proof: what the existing suite already covers, the eight test cases the design adds, the
+requirement-by-requirement coverage matrix, and the build order. It introduces no new
+machinery — it is the checklist the machinery must survive.</p>
+
+<div class="decide"><span class="dtag">ON THE TABLE — WHAT THIS SECTION ASKS YOU TO RATIFY</span>
+<ol style="margin:4px 0 2px">
+<li><b>The acceptance bar:</b> three consecutive fully-green runs of the complete gate
+(existing suites + the new cases), with the warm-phase stats files attached to the record
+as evidence — not just exit codes.</li>
+<li><b>The build order</b> (§10.3): §7 → §8 in three independently-landable chunks → §9 →
+the acceptance run. Every landing passes its section's Step-0 gate.</li>
+<li><b>The end-of-design observability decision</b> you scheduled when shelving M0: with
+every section's needs now stated, the answer is that <b>no standalone observability pass
+is warranted</b> — §9 D5's scoped slice is the entire up-front need, and it lands inside
+§9's implementation. Everything else stays shelved.</li>
+</ol>
+</div>
+
+<h3>10.1 &nbsp;What exists, and what it cannot prove today</h3>
+<p>The persistence suite already exists and is substantial:
+<code>TestCachePersistence / TestDiskPersistenceAcrossRestart</code> — 19 subtests
+covering restart survival for containers, host mounts, git, services, modules, cache
+volumes, unclean shutdown, and more (core/integration/engine_persistence_test.go). Its
+strongest trick is the random-write exec: an exec whose output is random can only match
+across boots via a real cache hit, so output equality proves reuse — <em>for the rigged
+call</em>.</p>
+<p>What it cannot prove today: reuse of <b>deterministic</b> calls (equal outputs prove
+nothing — a silent full recompute passes every existing assertion), <em>which</em> source
+served a hit, that fallback paths exist at all, or that the store survives partial damage
+(today it can't — §8 Fact 3). Those gaps are exactly what the new cases close.</p>
+
+<h3>10.2 &nbsp;The new proof cases</h3>
+<table class="filetbl">
+<tr><th>#</th><th>Case</th><th>Proves</th><th>Defined in</th><th>Level</th></tr>
+<tr><td>T1</td><td>Counter-asserted restart pipeline: outputs equal <em>and</em> warm
+stats show <code>hit_restored ≥ K</code> per named field, <code>demoted_to_miss == 0</code></td>
+<td>Real reuse incl. deterministic calls (R8, R11)</td><td>P-9.1</td><td>integration</td></tr>
+<tr><td>T2</td><td>Provoked demote: prune the winner's snapshot post-boot → call succeeds,
+<code>demoted_to_miss ≥ 1</code>, follow-up call hits again</td>
+<td>The floor exists and heals (R2)</td><td>P-9.2</td><td>integration</td></tr>
+<tr><td>T3</td><td>Prune between boots → store kept; both-forms result present with
+sources=[lazy-form]; upload-shaped result dropped with exactly its dependents</td>
+<td>Partial restore, honest blast radius (R2, R5)</td><td>P-8.3</td><td>integration</td></tr>
+<tr><td>T4</td><td>Corrupt one row between boots → that result + exactly its dependents
+dropped; no wipe; everything else hits</td>
+<td>Per-result vetting (R2)</td><td>P-8.4</td><td>integration</td></tr>
+<tr><td>T5</td><td>Boot the same store twice → identical key derivation, identical hit
+behavior for identical calls</td>
+<td>Restart-deterministic identity (R16)</td><td>P-8.2</td><td>unit</td></tr>
+<tr><td>T6</td><td>Boot a seeded store, flush untouched → zero row delta</td>
+<td>Identity-stable metadata, measured (R10)</td><td>P-8.5</td><td>integration</td></tr>
+<tr><td>T7</td><td>Sparse hydration: seed a wide DAG culminating in one result; warm run
+reads one file → only that file's chain realizes (asserted via the debug snapshot's
+per-result <code>realized</code> flags)</td>
+<td>Demand-bounded materialization (R12)</td><td>new here</td><td>integration</td></tr>
+<tr><td>T8</td><td>N sessions concurrently force one unrealized restored result → exactly
+one materialization run, N−1 waits, no torn outcomes, under <code>-race</code></td>
+<td>Concurrency of realization (R6, R15)</td><td>P-9.3</td><td>unit + integration</td></tr>
+</table>
+<p class="pill">T1–T4 and T7 extend the existing persistence suite in place; T5, T6, T8
+live at the dagql level. The unclean-shutdown subtest continues to assert the wholesale
+wipe — one of the two we deliberately keep (§8 D2).</p>
+
+<h3>10.3 &nbsp;Build order</h3>
+<ol>
+<li><b>§7 — the content home.</b> Consolidation, no behavior change; its gate is parity
+(P-7.1–7.3). Lands first because every later chunk reads and writes
+<code>materializationState</code>.</li>
+<li><b>§8 — persistence, as three independently-landable chunks,</b> each behind the full
+Step-0 gate:
+<ol type="a">
+<li><b>R16 keys:</b> recompute term keys at import from digests; remove
+<code>terms.term_digest</code> (schema_version bump). Gate: T5 + Step-0.</li>
+<li><b>Encode from the home:</b> flush reads <code>materializationState</code>; record
+both forms when both exist; retire value-harvesting. Gate: Step-0 + §8's parity
+predictions.</li>
+<li><b>Vetting &amp; partial restore:</b> dependencies-first vetting, drop-with-dependents,
+wipe narrowed to the two store-level reasons; R10 self-check counts at flush. Gate: T3,
+T4, T6 + Step-0.</li>
+</ol></li>
+<li><b>§9 — warm serving:</b> the source walk, the demote floor, and the D5 observability
+slice (which T1/T2 consume). Gate: T1, T2, T8 + Step-0.</li>
+<li><b>T7</b> lands with §9 or immediately after (it only consumes the debug snapshot).</li>
+<li><b>The acceptance run</b> (§10.4).</li>
+</ol>
+<p class="pill">Sequencing within a chunk, and any discovered need to reorder, follows the
+standing process: deviations from this design are stop-and-discuss, never silent
+(lessons L3; R15's tripwire for anything concurrency-shaped).</p>
+
+<h3>10.4 &nbsp;The acceptance run</h3>
+<ol class="steps">
+<li><span class="tag">THE GATE, COMPLETE</span><br>
+The full Step-0 suite set — <code>TestCachePersistence</code> including the complete
+disk-persistence-across-restart suite, the CrossSession-pattern tests including module
+coverage, the selected services tests — plus T1–T8.</li>
+<li><span class="tag">THE BAR</span><br>
+<b>Three consecutive fully-green runs</b>, no retries-until-green, no
+skipped-but-counted subtests; any legitimately-expected exception must have been named and
+owner-acknowledged in advance (none are expected).</li>
+<li><span class="tag">THE EVIDENCE</span><br>
+The warm-phase stats files from each run attached to the record: per-field
+<code>hit_restored</code> counts on the asserted pipelines, <code>demoted_to_miss</code>
+zero except where T2 provokes it, the R10 zero-delta counts. Green with evidence, not
+green by exit code (R8).</li>
+<li><span class="tag">DONE MEANS</span><br>
+All sections implemented and gated; this document updated to as-built where reality
+diverged (through the review process, not silently); the shelf re-examined once — anything
+still consumer-less stays shelved. Then the take is complete, and the remote take (bundles,
+transport, the content-chain source) starts as its own effort against the seams R9/§7
+reserved.</li>
+</ol>
+
+<h3>10.5 &nbsp;Requirement coverage matrix</h3>
+<p class="pill">Honesty rule for this table: a requirement is "runtime-proven" only if a
+test fails when it's violated; requirements that live at design/review time are marked
+that way rather than pretending a test covers them.</p>
+<table class="filetbl">
+<tr><th>Req</th><th>Proven by</th><th>Mode</th></tr>
+<tr><td>R1 dual paths</td><td>T3 (both forms kept and usable), T2 (recompute path serves)</td><td>runtime</td></tr>
+<tr><td>R2 no stranded hits</td><td>T2 (floor), T3/T4 (vetting drops instead of stranding)</td><td>runtime</td></tr>
+<tr><td>R3 portable identity</td><td>T5 (no ordinal dependence); bundle round-trip belongs to the remote take</td><td>runtime (partial by scope)</td></tr>
+<tr><td>R4 content-addressed snapshots, lazy hashing</td><td>upload content digests exercised by T1's host cases; the eager-hashing ban is a review guard</td><td>runtime + review</td></tr>
+<tr><td>R5 one home, surgery-proof</td><td>§7 unit tests (write-point legality, fall-through model), P-7.3</td><td>runtime</td></tr>
+<tr><td>R6 execution identity</td><td>T8 (runner identity under concurrency); demote-as-caller by construction (§9 D3)</td><td>runtime + construction</td></tr>
+<tr><td>R7 session-resource soundness</td><td>existing cross-session secret/socket coverage + eligibility gate exercised by every warm hit; salt deferral tracked</td><td>runtime</td></tr>
+<tr><td>R8 falsifiable observability</td><td>T1/T2/T6 are themselves the counters' proof (they fail if counters lie or vanish)</td><td>runtime</td></tr>
+<tr><td>R9 one encoding</td><td>§8 encode tests; the bundle-shares-it claim is proven in the remote take</td><td>runtime (partial by scope)</td></tr>
+<tr><td>R10 identity-stable metadata</td><td>T6 (measured zero delta)</td><td>runtime</td></tr>
+<tr><td>R11 in-repo provability</td><td>the gate itself — every case runs in dagger/dagger with no cloud stack</td><td>runtime</td></tr>
+<tr><td>R12 demand-bounded materialization</td><td>T7 (one file's chain and nothing else)</td><td>runtime</td></tr>
+<tr><td>R13 recipes closed over ambient state</td><td>implementation-time ambient audit + review; platform partitioning exercised implicitly by the suites</td><td>review + implicit</td></tr>
+<tr><td>R14 startup-only import</td><td>structural (boot sequence) + the unclean-shutdown subtest; no serving-time import path exists to test</td><td>construction</td></tr>
+<tr><td>R15 no cross-cutting concurrency invariants</td><td>review guard (the tripwire); T8 exercises what concurrency exists</td><td>review</td></tr>
+<tr><td>R16 restart-deterministic keys</td><td>T5, with the owner-ruled escalation caveat on legitimate nondeterminism</td><td>runtime</td></tr>
+</table>
+</details>
+
+<details class="fold" id="shelf"><summary><h2>11. The shelf <span class="pill">(not part of the design)</span></h2></summary>
 <div class="shelfnote">
 <b>What the shelf is.</b> Material that was drafted, discussed, and deliberately set
 aside. It is <em>not</em> part of the design and must not be treated as pre-decided or
