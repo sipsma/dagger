@@ -150,7 +150,7 @@
 <main>
 
 <h1>Remote Cache — Design</h1>
-<p class="sub">v19 &nbsp;·&nbsp; all sections settled &nbsp;·&nbsp; final independent verification pass in progress &nbsp;·&nbsp; 2026-07-03</p>
+<p class="sub">v20 &nbsp;·&nbsp; all sections settled &nbsp;·&nbsp; verification round 16 folded &nbsp;·&nbsp; 2026-07-03</p>
 
 <div class="banner">
 <b>Status.</b> The living design doc for the remote-cache engine work: requirements and
@@ -683,6 +683,21 @@ decided in Part II.</p>
   resolution (no standalone pass; §9 D5's slice is the entire up-front need). The design
   is fully settled; a final independent verification pass (same fresh reviewer, fold-drift
   check + per-finding resolution check + the implementability question) dispatched.</li>
+  <li><b>Round 16 (2026-07-04).</b> The delta-verify, by the same fresh reviewer. (Its
+  first pass accidentally reviewed a stale pre-finalization copy — reviewer worktrees fork
+  at spawn time, so re-reviews must be handed an explicit commit; the reviewer caught the
+  staleness itself.) Against the real document: <b>all eight original findings verified
+  resolved; all three deliberate dispositions accepted.</b> Five narrow findings, all
+  accepted and folded: (1) the runtime exhaustion-drop is now named inside the write-point
+  invariant — "materialization outcome" covers arrival and drop (§6, Fig. 2, §7 D1);
+  (2) §7.4 pins the implementer answers — lock, <code>realized</code> definition,
+  in-chunk <code>sources</code> population, fill-hook shape, and the boundary that wait
+  protocols move only in §9's chunk; (3) the R16 decision box's property test upgraded to
+  the renumbered-store form it had drifted from (P-8.2/T5); (4) §9 D3 states what the
+  drop touches and never touches (candidacy + persisted retention; never live holders)
+  and its exact plug-in point; (5) the last history sentence in §9.3 rewritten forward.
+  §8 D1 additionally pins the persisted both-forms shape (form discriminator removed;
+  presence-based).</li>
 </ol>
 </div>
 </details>
@@ -744,7 +759,8 @@ flagged rather than implied away.</p>
   <text x="837" y="164" text-anchor="middle" font-size="12" fill="#5c6470">per result (R1)</text>
 </svg>
 <figcaption>Fig. 2 — Engine lifecycle. The cache is written at boot (import), at publication,
-at lazy content arrival, and at shutdown (flush) — nowhere else.</figcaption>
+at materialization outcome (lazy content arrival — or, on permanent source exhaustion,
+the result's drop, §9 D3), and at shutdown (flush) — nowhere else.</figcaption>
 </figure>
 
 <h3>The shape, in prose</h3>
@@ -770,8 +786,9 @@ because there is none to expose.</li>
 <h3>Cross-section invariants</h3>
 <ul>
 <li>One content home per result; references, never copies (R5).</li>
-<li>The cache mutates at decision points only: boot-import, publication, lazy content
-arrival, shutdown flush (R14, R15).</li>
+<li>The cache mutates at decision points only: boot-import, publication, materialization
+outcome (content arrival — or the result's drop on permanent source exhaustion, §9 D3),
+shutdown flush (R14, R15).</li>
 <li>Lookup-key determinism across restart (R16).</li>
 <li>No new cross-cutting concurrency machinery anywhere in the above (R15).</li>
 </ul>
@@ -976,15 +993,16 @@ is sitting right there in the envelope.</td>
   <text x="800" y="212" text-anchor="start" font-size="11" fill="#5c6470">no more harvesting</text>
   <text x="800" y="226" text-anchor="start" font-size="11" fill="#5c6470">values at encode</text>
 </svg>
-<figcaption>Fig. 3 — The home and its four write points. Everything writes the sharedResult it owns;
+<figcaption>Fig. 3 — The home and its write points. Everything writes the sharedResult it owns;
 nothing writes anyone else's; values reference, never copy.</figcaption>
 </figure>
 
 <h4>D1 — The home lives on the sharedResult</h4>
 <p>Each sharedResult owns a <code>materializationState</code>: the <b>envelope</b>, the ordered
-<b>sources</b>, and a <b>realized</b> flag. It is written at exactly the four points in
-Fig. 3 — publication, import, a sharedResult's own lazy realization, and flush (which only reads) —
-all under the cache's existing locking. No new locks, no state shared between results
+<b>sources</b>, and a <b>realized</b> flag. It is written at exactly the decision points in
+Fig. 3 — publication, import, a sharedResult's own materialization outcome (realization
+on success; on permanent source exhaustion, the §9 D3 drop), and flush (which only
+reads) — all under the cache's existing locking. No new locks, no state shared between results
 (R5, R15). Why the sharedResult and not the value: it is the one object with the same
 lifetime as the result's identity — value structs come and go (decoded, cloned,
 discarded), so the sharedResult is where a "promise to materialize" (R2) can actually
@@ -1141,9 +1159,13 @@ or it isn't made (R2) — and one bad result no longer wipes the store (Fact 3, 
 </ol>
 
 <h3>7.4 &nbsp;Implementation shape</h3>
-<p>Consolidation, not addition: the sharedResult-side state that exists in pieces today —
-<code>shared.lazyEval</code>/<code>lazyEvalComplete</code>, the deferred-decode envelope
-handling, the harvested snapshot links — becomes one named structure:</p>
+<p>Consolidation, not addition: the sharedResult-side <em>state</em> that exists in pieces
+today — the deferred-decode envelope handling, the harvested snapshot links, the
+realized-or-not fact — becomes one named structure. The <em>wait protocols</em> beside
+that state (the <code>lazyEval</code> singleflight fields, the decode gate under
+<code>persistDecodeMu</code>) deliberately do <b>not</b> move in this chunk; they fold
+into the one source-walk owner when §9 builds it. That boundary is what keeps this chunk
+mechanically checkable as no-behavior-change:</p>
 
 <pre><code><span class="cm">// dagql/cache.go — on sharedResult (consolidating existing fields)</span>
 
@@ -1183,12 +1205,37 @@ type retainedSource struct {
 }
 </code></pre>
 
+<p><b>Pinned answers an implementer would otherwise have to ask for:</b></p>
+<ul>
+<li><b>Locking.</b> <code>materializationState</code> is guarded by the same sharedResult
+lock that guards the fields it absorbs today (the payload-state lock). No new lock, and
+no lock-order change — the lazy-eval and decode protocols keep their own locks until §9
+unifies them.</li>
+<li><b>realized, precisely.</b> <code>realized</code> is today's "payload present and
+usable" fact given one name and one home — set true only by this result's own successful
+decode, lazy realization, or publication-with-value. A rename-with-a-home, not a new
+state machine.</li>
+<li><b>Who fills <code>sources</code> in this chunk.</b> Derivation from what already
+exists, not new information: at import/decode, a row in
+<code>result_snapshot_links</code> ⇒ a local-snapshot source and a lazy-form payload in
+the envelope ⇒ a lazy-form source; at publication, the same snapshot refs the encoder
+harvests today. Capturing the lazy fragment at publication (both-forms, §8 D1) arrives
+with §8's encode chunk — not here.</li>
+<li><b>The per-type fill hook.</b> Each accessor is constructed with the function that
+maps the type's canonical value to that accessor's field — for
+<code>Directory.Snapshot</code>, a <code>func(*Directory) (bkcache.ImmutableRef,
+bool)</code> — the same mapping the decode path already performs.
+<code>GetOrEval</code> already receives the canonical <code>dagql.Result[T]</code>
+(core/lazy_state.go:83), so its empty-after-Evaluate branch calls the hook against that
+result's value instead of erroring.</li>
+</ul>
+
 <table class="filetbl">
 <tr><th>File</th><th></th><th>Change</th></tr>
 <tr><td><code>dagql/cache.go</code></td><td><span class="chip modf">MOD</span></td>
-<td><code>sharedResult</code> gains <code>materializationState</code>; existing
-<code>lazyEval*</code>/envelope fields consolidate into it. No semantic change to the lazy
-path itself.</td></tr>
+<td><code>sharedResult</code> gains <code>materializationState</code>; the envelope and
+snapshot-link state consolidate into it (the <code>lazyEval*</code> wait protocol stays
+put until §9). No semantic change to the lazy path itself.</td></tr>
 <tr><td><code>dagql/cache_persistence_self.go</code></td><td><span class="chip modf">MOD</span></td>
 <td>Encode reads the sharedResult's state (the transition away from value-harvesting is
 owned by the persistence section; this section makes the sharedResult what encode
@@ -1383,6 +1430,12 @@ stays exactly as it is; the stashed payload survives on the sharedResult; flush 
 snapshot + stashed recipe; decoders accept an envelope carrying both (today they assume
 exactly one, e.g. core/file.go:284/291 — covered by this take's
 <code>schema_version</code> bump). No new schema tables.</p>
+<p><b>The persisted shape, pinned:</b> the payload's exclusive form discriminator goes
+away. Snapshot-backedness is indicated by what already indicates it — the result's rows
+in <code>result_snapshot_links</code> — and the lazy form by a non-empty
+<code>LazyKind</code>/<code>LazyJSON</code>; either, both, or (for self-contained scalar
+payloads) neither may be present. Old decoders never meet the new shape: the
+<code>schema_version</code> bump wipes on upgrade (§8 D2's store-level rule).</p>
 <p><b>And nothing needs a "retainability" concept.</b> Whether a result can be recomputed
 falls out of what its payload factually is: a value with no in-engine lazy form simply
 encodes without one. The canonical example: <code>host.directory(…)</code> results — the
@@ -1422,9 +1475,11 @@ upgrade, the sanctioned cost of a format change.</li>
 <li><b>While serving — unchanged from main:</b> a new value's content digest is
 associated with its class synchronously at publication, under the cache's lock
 (<code>teachResultIdentityLocked</code>). This design changes nothing there.</li>
-<li><b>The property test (R16 is "cheaply testable"):</b> boot the same store twice,
-derive all keys both times, require identical hit behavior for identical calls — a
-determinism unit test, plus the restart suite as the integration check. <em>Standing
+<li><b>The property test (R16 is "cheaply testable"):</b> take a store, rewrite its
+eq-class and term IDs consistently (digests untouched), boot the original and the
+renumbered copy, require identical key derivation and identical hit behavior for
+identical calls (P-8.2 / T5) — a determinism unit test, plus the restart suite as the
+integration check. <em>Standing
 rule: if this test ever trips on what looks like legitimate
 nondeterminism, stop and escalate for discussion — assess real-defect vs benign source and
 decide deliberately; do not contort the design to satisfy the test.</em></li>
@@ -1811,6 +1866,15 @@ term candidacy and released, under the cache's ordinary locking. One rule, two m
 finds only whatever the demoted callers freshly published — which is exactly what makes
 P-9.2's heal assertion provable. Transient exhaustion (cancellation, resource pressure)
 drops nothing: the next waiter retries the walk.</p>
+<p><b>What the drop touches — and what it never touches.</b> Dropping means removing the
+result and its dependents from digest and term candidacy and from persisted retention
+(their rows are gone at the next flush), so they can never be served or flushed again.
+It never reaches into live sessions: a session already holding the value keeps it — the
+value in hand is plain data — and in-flight uses are unaffected; what ends is future
+servability. And the plug-in point, concretely: <code>errSourcesExhausted</code> surfaces
+where a hit's materialization error already surfaces today — inside the lookup path —
+and is consumed there: the same call invocation proceeds as a miss (executes live,
+publishes normally) instead of propagating the internal error to the caller.</p>
 
 
 
@@ -1884,14 +1948,13 @@ replayed; the execution publishes, re-teaches, and heals the store —
 <code>demoted_to_miss</code> ticks once (D5), which is how the gate proves this path
 rather than assuming it.</li>
 </ol>
-<p class="pill">The same round audited the neighboring client-resource family — filesync
+<p class="pill">The neighboring client-resource family follows the same shape — filesync
 mirrors (keyed by stable client ID), client secrets and SSH sockets (salted handles
 taught as content digests; gated by the transitive session-resource requirements at
-candidate eligibility), host services (caller-module scoped) — and found the same shape
-everywhere: per-client identity where execution needs the client, content/handle
-equivalence where sharing is safe, session-resource gating where access must be proven.
-Known deferred item, unchanged: the per-engine secret salt partitions handles across
-engines (bites the remote take, not restart).</p>
+candidate eligibility), host services (caller-module scoped): per-client identity where
+execution needs the client, content/handle equivalence where sharing is safe,
+session-resource gating where access must be proven. Known deferral: the per-engine
+secret salt partitions handles across engines (a remote-take concern, not restart).</p>
 
 <h3>9.4 &nbsp;Implementation shape</h3>
 <table class="filetbl">
