@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1521,6 +1522,21 @@ type sharedResult struct {
 	// published so every joiner has a valid wait target (Invariant T, §3.0.1).
 	// Invalid when telemetry is off.
 	lazyEvalSpanCtx trace.SpanContext
+	// forcedMarks dedupes the forced-evaluation facts the Evaluate fast path
+	// emits per forcer (whatif-cached lazy-semantics §4.4): keyed by the
+	// forcer's wcprof op id (or span id when only OTel records), typed by
+	// source so a native op id can never collide with a span-derived key.
+	// Guarded by lazyMu; allocated only when a profiling source is active.
+	forcedMarks map[forcedMarkKey]struct{}
+	// lazyDoneProfOpID / lazyDoneSpanCtx retain the COMPLETING lazy
+	// evaluation's op/span as the forced-fact target. Deliberately distinct
+	// from the per-attempt joiner-target fields above, which reset per
+	// attempt and clear with lazyEvalWaitCh (§3.0.1) — these are set exactly
+	// once, on success, and only read after lazyEvalComplete. Zero when the
+	// completing attempt was not recorded (the fact then carries only the
+	// digest). Guarded by lazyMu.
+	lazyDoneProfOpID uint64
+	lazyDoneSpanCtx  trace.SpanContext
 }
 
 type sharedResultPayloadState struct {
@@ -2919,6 +2935,54 @@ func (c *Cache) Evaluate(ctx context.Context, results ...AnyResult) error {
 	return eg.Wait()
 }
 
+// forcedMarkKey identifies a forced-fact forcer for dedupe: a native wcprof
+// op id or (otel=true) a span-derived id — separate namespaces, never mixed.
+type forcedMarkKey struct {
+	otel bool
+	id   uint64
+}
+
+// emitForcedFact records, once per forcer, that the op/span current in ctx
+// forced evaluation of an ALREADY-COMPLETE lazy result — the zero-duration
+// dependency fact the Evaluate fast path otherwise erases from the record
+// (whatif-cached lazy-semantics §4.4). Native: a LinkKindForced event whose
+// target is the completing lazy op when this run recorded it (retained in
+// lazyEvalProfOpID after completion; 0 when production predated recording).
+// OTel: a forced-purpose link on the forcer's current span, gated on the
+// producer's skip flag like the lazy waits. Deduped per forcer via
+// forcedMarks; the caller holds shared.lazyMu.
+func (c *Cache) emitForcedFact(ctx context.Context, shared *sharedResult, producerDigest string) {
+	var key forcedMarkKey
+	nativeOp := wcprof.CurrentOpID(ctx)
+	span := trace.SpanFromContext(ctx)
+	switch {
+	case nativeOp != 0:
+		key = forcedMarkKey{id: nativeOp}
+	case span.IsRecording() && span.SpanContext().IsValid():
+		sid := span.SpanContext().SpanID()
+		key = forcedMarkKey{otel: true, id: binary.BigEndian.Uint64(sid[:])}
+	default:
+		// No attributable forcer surface on either source: demand from
+		// outside the instrumented op graph, a declared model boundary —
+		// counted (never silent), reported as a caveat by the analysis.
+		wcprof.CountSuppressedUninstrumentedForcer(ctx)
+		return
+	}
+	if shared.forcedMarks == nil {
+		shared.forcedMarks = make(map[forcedMarkKey]struct{})
+	}
+	if _, dup := shared.forcedMarks[key]; dup {
+		return
+	}
+	shared.forcedMarks[key] = struct{}{}
+	if nativeOp != 0 {
+		wcprof.Link(ctx, wcprof.LinkKindForced, nativeOp, shared.lazyDoneProfOpID, producerDigest, uint64(shared.id))
+	}
+	if !shared.profileSkip() {
+		EmitOTelForced(ctx, shared.lazyDoneSpanCtx, producerDigest)
+	}
+}
+
 func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 	if c == nil {
 		return errors.New("evaluate: nil cache")
@@ -2943,10 +3007,41 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 		parent: stack,
 	})
 
+	// Producer attribution for profiling (whatif-cached lazy-semantics §4.2):
+	// the recipe digest of the call this lazy work materializes. Derived
+	// OUTSIDE lazyMu (deriveRecipeDigest can recurse into egraphMu; no new
+	// lock-order edge), memoized on the frame so the common path is free, and
+	// omitted on error — attribution degrades, evaluation behavior never
+	// changes. Gated on a profiling source being active so the off path pays
+	// nothing.
+	var producerDigest string
+	if wcprof.Enabled(stackCtx) || OTelProfActive(stackCtx) {
+		if rc := shared.loadResultCall(); rc != nil {
+			if dig, digErr := rc.deriveRecipeDigest(c); digErr == nil {
+				producerDigest = dig.String()
+			}
+		}
+		if producerDigest == "" {
+			// The omission is counted on both sources, never silent: the
+			// what-if-cached analysis refuses a capture with a nonzero
+			// count (doctrine — a suppressed ident/fact could alter its
+			// answer). Evaluation behavior is still never changed.
+			wcprof.CountSuppressedIdentDerivation(stackCtx)
+			stampOTelSuppressedIdent(stackCtx)
+		}
+	}
+
 	// Fast path: if evaluation is already complete or there is nothing to do,
 	// skip preflight entirely.
 	shared.lazyMu.Lock()
 	if shared.lazyEvalComplete || lazyEvalFuncOfResult(res) == nil {
+		if shared.lazyEvalComplete && producerDigest != "" {
+			// Forced-evaluation fact (lazy-semantics §4.4): this op demanded a
+			// result whose deferred production ALREADY ran — the dependency
+			// the fast path otherwise erases from the record. Zero duration,
+			// deduped per forcer under lazyMu, never gates anything.
+			c.emitForcedFact(stackCtx, shared, producerDigest)
+		}
 		shared.lazyMu.Unlock()
 		return nil
 	}
@@ -3041,8 +3136,13 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 	var lazyOp *wcprof.Op
 	if wcprof.Enabled(evalCtx) {
 		// the run of this result's lazy evaluation callback; the class ties
-		// the cost back to the call that created the lazy value
+		// the cost back to the call that created the lazy value, and the
+		// ident is that call's recipe digest (derived outside lazyMu above;
+		// empty on a derivation error) — the deferred-production attribution
+		// the what-if-cached general rule sources elision regions from
+		// (lazy-semantics §4.1-4.2)
 		evalCtx, lazyOp = wcprof.BeginOp(evalCtx, wcprof.OpKindLazy, profCallClass(resultCall), wcprof.OpOpts{
+			Ident:    producerDigest,
 			ClientID: profClientID(stackCtx),
 		})
 		shared.lazyEvalProfOpID = lazyOp.ID()
@@ -3059,7 +3159,7 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 		lazyIsResume    bool
 	)
 	if OTelProfActive(evalCtx) && !producerSkip {
-		lazyCallbackCtx, lazySpan, lazyIsResume = c.beginOTelLazyOp(evalCtx, shared.id, resultCall)
+		lazyCallbackCtx, lazySpan, lazyIsResume = c.beginOTelLazyOp(evalCtx, shared.id, resultCall, producerDigest)
 		shared.lazyEvalSpanCtx = lazySpan.SpanContext()
 	}
 	shared.lazyEvalWaitCh = waitCh
@@ -3120,6 +3220,11 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 		if err == nil {
 			shared.lazyEvalComplete = true
 			shared.lazyEval = nil
+			// Retain the completing evaluation's identity for forced-fact
+			// targets (lazy-semantics §4.4) — the per-attempt fields below
+			// clear with the wait channel per §3.0.1.
+			shared.lazyDoneProfOpID = shared.lazyEvalProfOpID
+			shared.lazyDoneSpanCtx = shared.lazyEvalSpanCtx
 		}
 		clearState := shared.lazyEvalWaiters == 0 && shared.lazyEvalWaitCh == waitCh
 		if clearState {
@@ -3622,7 +3727,14 @@ func (c *Cache) getOrInitCall(
 	case req.DoNotCache:
 		outcome = wcprof.OutcomeDoNotCache
 	case res != nil && res.HitCache():
-		outcome = wcprof.OutcomeHit
+		if HasPendingLazyEvaluation(res) {
+			// lazy-semantics state B2: the recipe was cached but the deferred
+			// production had not run yet — a hit whose first materialization
+			// is still owed (the structural remote-pull shape)
+			outcome = wcprof.OutcomeHitPending
+		} else {
+			outcome = wcprof.OutcomeHit
+		}
 	case outcome == wcprof.OutcomeNone:
 		outcome = wcprof.OutcomeOK
 	}
@@ -3749,6 +3861,14 @@ func (c *Cache) getOrInitCallInner(
 		return nil, err
 	}
 	if hit {
+		// Hit-production-state emit (lazy-semantics §4.2 companion), OTel
+		// side: a hit whose deferred production has not run yet (state B2) is
+		// stamped hit_pending via the wcprof outcome attr. ADDITIVE only —
+		// the UI-facing CachedAttr/PendingAttr semantics (core/telemetry.go)
+		// are untouched; complete hits stay signalled by CachedAttr as today.
+		if !req.ResultCall.ProfileSkip && HasPendingLazyEvaluation(hitRes) {
+			stampOTelCallOutcome(ctx, wcprof.OutcomeHitPending)
+		}
 		c.captureSessionLazySpanContext(ctx, sessionID, hitRes)
 		c.captureSessionResultInstallSpan(ctx, sessionID, hitRes)
 		return hitRes, nil

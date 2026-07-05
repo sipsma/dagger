@@ -169,16 +169,23 @@ func TestCachedSelectorExec(t *testing.T) {
 	}
 
 	// "go" matches BOTH go execs; only the one whose exec.run carries a call
-	// digest resolves — the note states the unresolvable remainder.
-	hyp, notes, err := CachedSelection{ExecPatterns: []string{"go"}}.Resolve(g)
+	// digest resolves. Partial resolution is an ERROR without the explicit
+	// flag (doctrine audit finding 5: the hypothesis would silently cover
+	// less than the pattern names) …
+	if _, _, err := (CachedSelection{ExecPatterns: []string{"go"}}).Resolve(g); err == nil ||
+		!strings.Contains(err.Error(), "allow-partial-selection") {
+		t.Fatalf("partial resolution must error without the flag, got %v", err)
+	}
+	// … and with the flag it proceeds, stating the partial coverage loudly.
+	hyp, notes, err := CachedSelection{ExecPatterns: []string{"go"}, AllowPartialSelection: true}.Resolve(g)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := hypIdents(hyp); !slices.Equal(got, []string{"dW1"}) {
 		t.Fatalf("partial digests = %v, want [dW1]", got)
 	}
-	if len(notes) != 1 || !strings.Contains(notes[0], "1 exec(s) unresolvable") {
-		t.Fatalf("partial resolution must be stated in the note, got %v", notes)
+	if len(notes) != 1 || !strings.Contains(notes[0], "PARTIAL: 1 exec(s) unresolvable") {
+		t.Fatalf("the partial coverage must be stated in the note, got %v", notes)
 	}
 
 	// Zero matches and zero-resolvable are loud errors.

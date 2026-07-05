@@ -108,6 +108,27 @@ const (
 	// timings above. (design §4.1c)
 	WcprofExecArgvAttr = "wcprof.exec.argv"
 
+	// LinkPurposeForced marks a span link recording that the linking span's
+	// op forced evaluation of an ALREADY-COMPLETE lazy result (the Evaluate
+	// fast path; lazy-semantics §4.4). The link target is the completing
+	// lazy span when known; WcprofForcedDigestAttr carries the producer's
+	// recipe digest. A demand fact for offline analysis; zero duration,
+	// never gates anything.
+	LinkPurposeForced = "forced"
+
+	// WcprofForcedDigestAttr (string) is the producer recipe digest on a
+	// LinkPurposeForced link.
+	WcprofForcedDigestAttr = "wcprof.forced.digest"
+
+	// LinkPurposeSuppressedIdent marks, once PER FIRING (a targetless span
+	// link, so the count is exact and its loss shows in droppedLinks), that
+	// a lazy evaluation's producer digest could not be derived — its ident
+	// and any forced-evaluation fact were omitted. Expected never to appear
+	// on a real capture (the digest is memoized from the cache lookup that
+	// admitted the result); the what-if-cached analysis refuses a trace
+	// carrying it — the omission is counted, never silent.
+	LinkPurposeSuppressedIdent = "suppressed_ident_derivation"
+
 	// LinkPurposeWait is a new value for telemetry.LinkPurposeAttr
 	// ("dagger.io/link.purpose"), alongside the existing "cause"/"error_origin"
 	// (defined in github.com/dagger/otel-go, which this repo cannot edit). It

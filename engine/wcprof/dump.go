@@ -20,6 +20,13 @@ type DumpHeader struct {
 	DroppedEvents  uint64   `json:"dropped_events"`
 	EventCount     int      `json:"event_count"`
 	Strings        []string `json:"strings"`
+	// Emit-side suppression counters (see Recorder): cumulative counts of
+	// lazy-ident derivation failures (fact+ident omitted; expected 0, the
+	// cached analysis refuses on nonzero) and of forced facts not emitted
+	// for want of an instrumented forcer (declared boundary, reported as a
+	// caveat). Absent (0) on captures from engines predating the counters.
+	SuppressedIdentDerivations      uint64 `json:"suppressed_ident_derivations,omitempty"`
+	SuppressedUninstrumentedForcers uint64 `json:"suppressed_uninstrumented_forcers,omitempty"`
 	// OpenOps are ops begun but not ended at dump time (e.g. in-flight or
 	// hung work).
 	OpenOps []DumpOpenOp `json:"open_ops,omitempty"`
@@ -148,13 +155,15 @@ func (r *Recorder) WriteDump(w io.Writer, flush bool) error {
 	}
 
 	header := DumpHeader{
-		SchemaVersion:  DumpSchemaVersion,
-		EpochUnixNano:  r.wallEpoch,
-		DumpedUnixNano: time.Now().UnixNano(),
-		DroppedEvents:  r.dropped.Load(),
-		EventCount:     total,
-		Strings:        r.strings.snapshot(),
-		OpenOps:        open,
+		SchemaVersion:                   DumpSchemaVersion,
+		EpochUnixNano:                   r.wallEpoch,
+		DumpedUnixNano:                  time.Now().UnixNano(),
+		DroppedEvents:                   r.dropped.Load(),
+		EventCount:                      total,
+		Strings:                         r.strings.snapshot(),
+		OpenOps:                         open,
+		SuppressedIdentDerivations:      r.suppressedIdentDerivations.Load(),
+		SuppressedUninstrumentedForcers: r.suppressedUninstrumentedForcers.Load(),
 	}
 
 	bw := bufio.NewWriterSize(w, 1<<20)

@@ -31,6 +31,56 @@ type WhatIfCachedRow struct {
 	// GateBad marks a simulation that demanded an elided op — unfaithful data
 	// (never expected; rendered loudly, not dropped).
 	GateBad bool
+	// DegradedEvidence marks a row whose hypothesis was touched by degraded
+	// forced-fact evidence: an unrecorded-target fact's containment keep
+	// altered the row, or an orphan fact (unknown forcer) names production
+	// this row elides — rendered loudly on the row, never just in the detail
+	// section.
+	DegradedEvidence bool
+}
+
+// cachedRefusalErr is the what-if-cached admission gate over a graph's
+// capture provenance (doctrine: refuse, never answer on data that may have
+// silently lost the facts the answer depends on). DroppedEvents means the
+// recorder evicted events — any of them could have been the demand evidence
+// that keeps a region — and SuppressedIdentDerivations means the emit
+// omitted lazy idents/facts it should have carried (expected 0; nonzero is
+// a broken emit to fix). The general report may still render with warnings;
+// the cached sections refuse. Uninstrumented-forcer suppressions do NOT
+// refuse — they are a declared model boundary — and print as a caveat.
+func cachedRefusalErr(g *Graph) error {
+	var clauses []string
+	if g.DroppedEvents > 0 {
+		clauses = append(clauses, fmt.Sprintf("%d recorder event(s) dropped — elision demand evidence may be missing (this capture records %d orphan wait(s) and %d orphan forced fact(s), demand whose owner is already unknown); recapture with a larger wcprof buffer",
+			g.DroppedEvents, len(g.OrphanWaits), len(g.OrphanForcedFacts)))
+	}
+	if g.SuppressedIdentDerivations > 0 {
+		clauses = append(clauses, fmt.Sprintf("%d lazy ident derivation failure(s) at emit time — lazy idents and forced facts were omitted, so elision sourcing and demand evidence are incomplete; this counter is expected to be 0 (the digest is memoized from the cache lookup), so a nonzero value is an emit bug to fix, never data to analyze around",
+			g.SuppressedIdentDerivations))
+	}
+	if len(clauses) == 0 {
+		return nil
+	}
+	// Every violated condition in ONE refusal — the first problem must not
+	// hide the rest — and the declared-boundary caveat rides along when it
+	// fired too (the refusal path never reaches the section that prints it).
+	msg := "what-if-cached REFUSED: " + strings.Join(clauses, "; AND ")
+	if cav := cachedForcerCaveat(g); cav != "" {
+		msg += "; additionally, " + cav
+	}
+	return fmt.Errorf("%s", msg)
+}
+
+// cachedForcerCaveat renders the declared-boundary caveat for forced facts
+// not emitted because the forcer was outside the instrumented op graph:
+// savings for regions such a forcer demanded may be overstated. Printed in
+// every what-if-cached section when nonzero; empty string otherwise.
+func cachedForcerCaveat(g *Graph) string {
+	if g.SuppressedUninstrumentedForcers == 0 {
+		return ""
+	}
+	return fmt.Sprintf("CAVEAT: %d forced-evaluation fact(s) were not recorded because the forcing context carried no instrumented op (demand from outside the recorded op graph — a declared model boundary): savings may be overstated for production such forcers demanded.",
+		g.SuppressedUninstrumentedForcers)
 }
 
 // maxWhatIfCachedDigests bounds the individual-digest candidates (the
@@ -126,11 +176,12 @@ func RunWhatIfCached(g *Graph, baselineNS int64) []WhatIfCachedRow {
 				sim := NewCachedSimulation(g, res)
 				makespan, err := sim.Run()
 				row := WhatIfCachedRow{
-					Label:         cands[i].label,
-					Digests:       len(cands[i].idents),
-					RemovedSelfNS: res.ElidedSelfNS + res.HitCallSelfNS,
-					KeptSelfNS:    res.KeptSelfNS,
-					GateBad:       err != nil || sim.ElidedOpDemanded > 0,
+					Label:            cands[i].label,
+					Digests:          len(cands[i].idents),
+					RemovedSelfNS:    res.ElidedSelfNS + res.HitCallSelfNS,
+					KeptSelfNS:       res.KeptSelfNS,
+					GateBad:          err != nil || sim.ElidedOpDemanded > 0,
+					DegradedEvidence: res.UnresolvedContainmentKeeps > 0 || res.OrphanForcedFactsIntoElided > 0,
 				}
 				if err == nil {
 					row.SavedNS = baselineNS - makespan
@@ -178,6 +229,9 @@ func writeWhatIfCachedRanking(w io.Writer, rows []WhatIfCachedRow, topRows int) 
 		if row.GateBad {
 			gate = "  GATE-FAILED (elided op demanded: unfaithful data)"
 		}
+		if row.DegradedEvidence {
+			gate += "  DEGRADED-EVIDENCE (unrecorded-target/orphan forced facts touch this hypothesis)"
+		}
 		fmt.Fprintf(w, "%-70s %8d %12s %12s %13s%s\n",
 			truncate(row.Label, 70), row.Digests,
 			fmtDur(row.RemovedSelfNS), fmtDur(row.KeptSelfNS), fmtDur(row.SavedNS), gate)
@@ -224,15 +278,38 @@ type CachedCalibration struct {
 	// listed not-found by the eligibility section, never silently dropped.
 	WarmHitDigests int
 	FoundInRun     int
-	WarmActualNS   int64
+	// WarmPendingHits counts warm digests with only PENDING-production hits
+	// (lazy-semantics B2): excluded from the CachedSet — they do not witness
+	// a materialized payload — and printed, never silent.
+	WarmPendingHits int
+	WarmActualNS    int64
 }
 
 // RunCachedCalibration extracts the warm run's hit digests and simulates the
 // cold run under them at the given pull cost.
 func RunCachedCalibration(coldG, warmG *Graph, pullCostNS int64, chainDepth int) (*CachedCalibration, error) {
+	// The cold graph's admission gate fires inside RunCachedDetail; the warm
+	// capture is gated here for the same reason — a dropped warm event could
+	// have been a hit call, silently shrinking the extracted CachedSet.
+	if warmG.DroppedEvents > 0 {
+		return nil, fmt.Errorf("what-if-cached calibration REFUSED: the WARM capture dropped %d recorder event(s) — the extracted hit set may be silently incomplete; recapture with a larger wcprof buffer", warmG.DroppedEvents)
+	}
 	hits := HitDigests(warmG)
+	// Pending-production hits (B2) do not witness a materialized payload:
+	// counted and printed, never asserted into the B1 CachedSet (V30). A
+	// digest with BOTH outcomes stays in via its complete hit.
+	pendingOnly := 0
+	inHits := make(map[string]struct{}, len(hits))
+	for _, d := range hits {
+		inHits[d] = struct{}{}
+	}
+	for _, d := range PendingHitDigests(warmG) {
+		if _, ok := inHits[d]; !ok {
+			pendingOnly++
+		}
+	}
 	if len(hits) == 0 {
-		return nil, fmt.Errorf("the warm capture records no cache-hit calls — not a warm run, or hits were not recorded")
+		return nil, fmt.Errorf("the warm capture records no complete cache-hit calls — not a warm run, or hits were not recorded")
 	}
 	detail, err := RunCachedDetail(coldG, NewCachedHypothesis(hits, pullCostNS), chainDepth)
 	if err != nil {
@@ -245,10 +322,11 @@ func RunCachedCalibration(coldG, warmG *Graph, pullCostNS int64, chainDepth int)
 		}
 	}
 	return &CachedCalibration{
-		Detail:         detail,
-		WarmHitDigests: len(hits),
-		FoundInRun:     found,
-		WarmActualNS:   ActualMakespanNS(warmG),
+		Detail:          detail,
+		WarmHitDigests:  len(hits),
+		FoundInRun:      found,
+		WarmPendingHits: pendingOnly,
+		WarmActualNS:    ActualMakespanNS(warmG),
 	}, nil
 }
 
@@ -257,6 +335,9 @@ func (c *CachedCalibration) Write(w io.Writer) {
 	c.Detail.Write(w)
 	fmt.Fprintf(w, "calibration: cold run simulated under the warm run's hit set\n\n")
 	fmt.Fprintf(w, "  warm-run hit digests:              %d (%d found as call idents in this run)\n", c.WarmHitDigests, c.FoundInRun)
+	if c.WarmPendingHits > 0 {
+		fmt.Fprintf(w, "  pending-production hits excluded:  %d (recipe cached, production had not run — B2)\n", c.WarmPendingHits)
+	}
 	fmt.Fprintf(w, "  cold run baseline (simulated):     %s\n", fmtDur(c.Detail.BaselineNS))
 	fmt.Fprintf(w, "  simulated counterfactual makespan: %s\n", fmtDur(c.Detail.MakespanNS))
 	fmt.Fprintf(w, "  warm run actual makespan:          %s\n", fmtDur(c.WarmActualNS))
@@ -285,10 +366,16 @@ type CachedDetail struct {
 	traceStartNS int64
 	// ElidedOpDemanded > 0 fails the section's gate (design §3.5).
 	ElidedOpDemanded int
+	// forcerCaveat is the declared-boundary caveat for uninstrumented-forcer
+	// suppressions (empty when none); printed prominently by Write.
+	forcerCaveat string
 }
 
 // RunCachedDetail resolves and simulates one explicit hypothesis.
 func RunCachedDetail(g *Graph, hyp CachedHypothesis, chainDepth int) (*CachedDetail, error) {
+	if err := cachedRefusalErr(g); err != nil {
+		return nil, err
+	}
 	baseSim := NewSimulation(g, nil)
 	baseline, err := baseSim.Run()
 	if err != nil {
@@ -307,6 +394,7 @@ func RunCachedDetail(g *Graph, hyp CachedHypothesis, chainDepth int) (*CachedDet
 		sim:              sim,
 		traceStartNS:     g.TraceStartNS,
 		ElidedOpDemanded: sim.ElidedOpDemanded,
+		forcerCaveat:     cachedForcerCaveat(g),
 	}
 	// Counterfactual blocking chain from the last-finishing root.
 	var last *Op
@@ -380,8 +468,8 @@ func writeEligibility(w io.Writer, res *CachedResolution) {
 				el.Calls, el.Hits, el.Successes, el.Failures,
 				el.ShortCircuited+el.ElidedCalls, el.ShortCircuited, el.ElidedCalls,
 				el.KeptCalls, el.RegionsElided, el.RegionsKept)
-			if el.UnanchoredExecs > 0 {
-				fmt.Fprintf(w, "; %d call_exec(s) outside every region (still run)", el.UnanchoredExecs)
+			if el.PendingHits > 0 {
+				fmt.Fprintf(w, "; %d of the hits pending-production (B2)", el.PendingHits)
 			}
 		}
 		fmt.Fprintf(w, "\n")
@@ -393,6 +481,9 @@ func (d *CachedDetail) Write(w io.Writer) {
 	res := d.Resolution
 	fmt.Fprintf(w, "what-if-cached: explicit hypothesis (%d digest(s), pull cost %s)\n\n",
 		len(res.Idents), fmtDur(res.PullCostNS))
+	if d.forcerCaveat != "" {
+		fmt.Fprintf(w, "%s\n\n", d.forcerCaveat)
+	}
 	saved := d.BaselineNS - d.MakespanNS
 	pct := float64(0)
 	if d.BaselineNS > 0 {
@@ -429,6 +520,18 @@ func (d *CachedDetail) Write(w io.Writer) {
 	if res.OrphanWaitsIntoElided > 0 {
 		fmt.Fprintf(w, "; %d orphan wait(s) into elided ops (%s) — unmodeled demand hint",
 			res.OrphanWaitsIntoElided, fmtDur(res.OrphanWaitNSIntoElided))
+	}
+	if res.ForcedFacts > 0 {
+		fmt.Fprintf(w, "; %d forced fact(s) consumed", res.ForcedFacts)
+		if res.ForcedFactsUnresolved > 0 {
+			fmt.Fprintf(w, " (%d unrecorded-target, demand by recorded-ident containment)", res.ForcedFactsUnresolved)
+		}
+	}
+	if res.OrphanForcedFacts > 0 {
+		fmt.Fprintf(w, "; %d orphan forced fact(s), no known forcer", res.OrphanForcedFacts)
+		if res.OrphanForcedFactsIntoElided > 0 {
+			fmt.Fprintf(w, " (%d naming elided production — unmodeled demand hint)", res.OrphanForcedFactsIntoElided)
+		}
 	}
 	fmt.Fprintf(w, "\n\n")
 

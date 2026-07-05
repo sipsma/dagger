@@ -40,6 +40,35 @@ func Enabled(ctx context.Context) bool {
 	return recorderFor(ctx) != nil
 }
 
+// CountSuppressedIdentDerivation records that a lazy evaluation's producer
+// digest could not be derived, so its ident and any forced-evaluation fact
+// were omitted (doctrine: the omission is counted, never silent; the
+// what-if-cached analysis refuses a capture with a nonzero count). No-op
+// when recording is off for ctx.
+func CountSuppressedIdentDerivation(ctx context.Context) {
+	if r := recorderFor(ctx); r != nil {
+		r.suppressedIdentDerivations.Add(1)
+	}
+}
+
+// CountSuppressedUninstrumentedForcer records that a forced-evaluation fact
+// was not emitted because the forcing context carried no instrumented op —
+// demand from outside the recorded op graph, a declared model boundary the
+// what-if-cached report prints as a caveat. No-op when recording is off for
+// ctx (an uninstrumented, unprofiled context is outside even this counter's
+// reach — the residual boundary, declared in the design doc).
+func CountSuppressedUninstrumentedForcer(ctx context.Context) {
+	if r := recorderFor(ctx); r != nil {
+		r.suppressedUninstrumentedForcers.Add(1)
+	}
+}
+
+// SuppressedCounts exposes the emit-side suppression counters (for tests and
+// diagnostics; the dump header carries them for analysis).
+func (r *Recorder) SuppressedCounts() (identDerivations, uninstrumentedForcers uint64) {
+	return r.suppressedIdentDerivations.Load(), r.suppressedUninstrumentedForcers.Load()
+}
+
 // recorderFor returns the recorder if work under ctx should be recorded:
 // either engine-global recording is on, or ctx belongs to a profiled flow
 // (it carries a recorded op as its current op, or a per-session profiling

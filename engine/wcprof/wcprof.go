@@ -127,7 +127,8 @@ type Outcome uint8
 
 const (
 	OutcomeNone Outcome = iota
-	// OutcomeHit: dagql call satisfied from cache.
+	// OutcomeHit: dagql call satisfied from cache, production complete (the
+	// payload was materialized — lazy-semantics state B1).
 	OutcomeHit
 	// OutcomeExecuted: dagql call missed cache and this caller spawned the
 	// execution.
@@ -143,11 +144,17 @@ const (
 	OutcomeError
 	// OutcomeCanceled: op canceled.
 	OutcomeCanceled
+	// OutcomeHitPending: dagql call satisfied from cache while the result's
+	// deferred production had not yet run (lazy-semantics state B2 — the
+	// structural remote-pull shape: the recipe/identity was cached, first
+	// materialization still pending at the first forcer).
+	OutcomeHitPending
 )
 
 var outcomeNames = map[Outcome]string{
 	OutcomeNone:       "",
 	OutcomeHit:        "hit",
+	OutcomeHitPending: "hit_pending",
 	OutcomeExecuted:   "executed",
 	OutcomeJoined:     "joined",
 	OutcomeDoNotCache: "do_not_cache",
@@ -219,12 +226,20 @@ const (
 	// LinkKindReusedResult: op was satisfied by reusing the dagql result
 	// with ResultID (cache hit).
 	LinkKindReusedResult
+	// LinkKindForced: op forced evaluation of an ALREADY-COMPLETE lazy
+	// result — the zero-duration fact the Evaluate fast path leaves behind
+	// (lazy-semantics §4.4). TargetID is the completing lazy op when known
+	// (0 when production predated recording); the ident is the producer's
+	// recipe digest. Carries demand facts for the what-if-cached keep test;
+	// never gates the replay.
+	LinkKindForced
 )
 
 var linkKindNames = map[LinkKind]string{
 	LinkKindNestedClient: "nested_client",
 	LinkKindResult:       "result",
 	LinkKindReusedResult: "reused_result",
+	LinkKindForced:       "forced",
 }
 
 func (k LinkKind) String() string {
@@ -302,6 +317,25 @@ type Recorder struct {
 	dropped  atomic.Uint64
 	maxTotal int64
 	total    atomic.Int64
+
+	// Emit-side suppression counters (doctrine: an omission that can alter a
+	// what-if-cached answer is counted, never silent). Cumulative like
+	// dropped; carried in every DumpHeader.
+	//
+	// suppressedIdentDerivations counts lazy evaluations where the producer
+	// recipe digest could not be derived — the lazy op's ident AND any
+	// forced-evaluation fact from that evaluation are omitted. Expected 0 on
+	// real runs (the digest is memoized from the cache lookup that admitted
+	// the result); nonzero means a broken emit, and the what-if-cached
+	// analysis refuses the capture.
+	//
+	// suppressedUninstrumentedForcers counts forced-evaluation facts NOT
+	// emitted because the forcing context carried no instrumented op — demand
+	// from outside the recorded op graph, a declared model boundary
+	// (legitimately nonzero under per-session profiling); the what-if-cached
+	// report prints it as a caveat.
+	suppressedIdentDerivations      atomic.Uint64
+	suppressedUninstrumentedForcers atomic.Uint64
 
 	strings stringTable
 

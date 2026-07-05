@@ -83,6 +83,28 @@ func beginOTelPublishResult(ctx context.Context) trace.Span {
 	return span
 }
 
+// EmitOTelForced records, as a span link on the forcer's current span, that
+// the forcer demanded an ALREADY-COMPLETE lazy result (the Evaluate fast
+// path; whatif-cached lazy-semantics §4.4) — the zero-duration fact the fast
+// path otherwise erases. target is the completing lazy span when this engine
+// run recorded it (an invalid zero context when production predated
+// recording — the digest attribute still carries the fact, and the SDK
+// retains attributed links regardless). Never gates anything; consumed only
+// by the offline what-if-cached keep test.
+func EmitOTelForced(ctx context.Context, target trace.SpanContext, producerDigest string) {
+	span := trace.SpanFromContext(ctx)
+	if !span.IsRecording() {
+		return
+	}
+	span.AddLink(trace.Link{
+		SpanContext: target,
+		Attributes: []attribute.KeyValue{
+			attribute.String(telemetry.LinkPurposeAttr, telemetryattrs.LinkPurposeForced),
+			attribute.String(telemetryattrs.WcprofForcedDigestAttr, producerDigest),
+		},
+	})
+}
+
 // stampOTelCallOutcome stamps the caller's current span with the call's cache
 // outcome at the point the engine decides it — the outcomes ordinary
 // telemetry cannot distinguish ("executed", "joined", "do_not_cache"; design
@@ -97,6 +119,29 @@ func stampOTelCallOutcome(ctx context.Context, outcome wcprof.Outcome) {
 		return
 	}
 	span.SetAttributes(attribute.String(telemetryattrs.WcprofCallOutcomeAttr, outcome.String()))
+}
+
+// stampOTelSuppressedIdent records, on the current span, that a lazy
+// evaluation under it could not derive its producer digest, so the ident and
+// any forced fact were omitted — the OTel half of the suppression counter.
+// One targetless span LINK per firing: the loader's tally is then exact
+// (doctrine: every firing counted), and a lost mark is visible as a dropped
+// link, which the structural gate refuses (a span attr would drop with no
+// loss signal). The SDK retains invalid-context links that carry attributes,
+// the same behavior the unresolved forced-fact link relies on.
+func stampOTelSuppressedIdent(ctx context.Context) {
+	if !OTelProfActive(ctx) {
+		return
+	}
+	span := trace.SpanFromContext(ctx)
+	if !span.IsRecording() {
+		return
+	}
+	span.AddLink(trace.Link{
+		Attributes: []attribute.KeyValue{
+			attribute.String(telemetry.LinkPurposeAttr, telemetryattrs.LinkPurposeSuppressedIdent),
+		},
+	})
 }
 
 // EmitOTelWait records, as a span link on the waiter's current span, that the

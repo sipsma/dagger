@@ -307,11 +307,12 @@ type Simulation struct {
 	elided     []bool
 	hitShort   []bool
 	pullCostNS int64
-	// A1 waivers (see CachedResolution): an elided exec-attributed region's
-	// launch spawn and its ancestors' production waits are skipped WITHOUT
-	// tripping ElidedOpDemanded — they are the deferred production being
-	// counterfactually removed, precomputed by the pre-pass and counted in
-	// the resolution's report data.
+	// Production waivers (see CachedResolution): an elided attributed
+	// region's launch spawn, its ancestors' production waits, and live joins
+	// on an elided LAZY region's root (concurrent forcers the hypothesis
+	// satisfies) are skipped WITHOUT tripping ElidedOpDemanded — they are
+	// the deferred production being counterfactually removed, precomputed by
+	// the pre-pass and counted in the resolution's report data.
 	spawnWaived []bool
 	waivedJoins map[uint64]struct{}
 	// Cached carries the resolved hypothesis driving this simulation (nil for
@@ -584,8 +585,9 @@ func (s *Simulation) advance(op, stopAt int32) int64 {
 			if s.elided != nil && s.elided[a.ref] {
 				if s.waivedJoins != nil {
 					if _, waived := s.waivedJoins[uint64(uint32(op))<<32|uint64(uint32(a.ref))]; waived {
-						// A1: an ancestor's wait on its elided deferred
-						// production — waived by the pre-pass.
+						// A precomputed production wait — an ancestor's wait
+						// on its elided deferred production, or a live join
+						// on an elided lazy root — waived by the pre-pass.
 						break
 					}
 				}

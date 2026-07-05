@@ -135,6 +135,49 @@ segments decompose the counterfactual, not the difference):
   production-wait count is 0; the explicit-wait shape (ident-resolved exec
   waits) is exercised and counted by the committed A1 fixtures.
 
+## Recording-changes re-run (V34): fresh captures on an engine with the four emits
+
+Erik's 2026-07-05 ruling landed the lazy-op producer-digest emit, the
+hit-production-state emit, the forced-evaluation facts, and the loader
+precedence fix, with elision sourced from the kind-agnostic attribution.
+FRESH cold/warm captures (the emits change what the engine records, so the
+old captures cannot exercise them; new engine, same workloads, same method):
+
+| workload | cold actual | warm actual | counterfactual (sim) | drift | prior drifts (same workload, earlier captures) |
+|---|---|---|---|---|---|
+| withExec pipeline | 6.25s | 773.4ms | **2.59s** | **+235%** | +533% (v1) → +362% (A1) |
+| module build | 15.1s | 150.9ms | **522.5ms** | **+246%** | +17069% (v1 = A1) |
+
+What the new emits did, visibly in the report:
+
+- **withExec pipeline**: the lazy wrapper is now removable (the consumer's
+  chain collapses to an instant at its anchor; the live production wait
+  waived, printed). One REAL pending-production hit (B2) appeared in the warm
+  capture and was excluded from the CachedSet, printed. The remaining
+  ~1.8s over warm is the previously-named pre-consumer segment: the
+  run-specific `Container.from` digest that does not transfer (gap source
+  2) plus the session phases.
+- **module build — a result better than predicted**: §"Gap source 2" above
+  reasoned the module gap was digest instability and A1-style attribution
+  would not move it. That was right about the OUTER chain
+  (`ModuleSource.asModule` digests still do not transfer) but wrong about
+  its consequence: the module's production hangs off lazy ops whose
+  producer digests are the STABLE inner calls (1436/1438 warm hits found
+  in the cold run), so the general rule's attribution reaches the
+  production through the transferring layer and bypasses the unstable
+  outer digests entirely — elided self 24.45s (was 9.33s). The equivalence-fact emit (simplification #1) remains the
+  remedy for the outer chain, but it is no longer the workload's dominant
+  gap.
+
+Both workloads now sit at drift ≈ +235–246%, but the residuals differ in
+kind: the ATTRIBUTION gap (gap source 1 and its module-build cousin) is
+closed on both, while the TRANSFER gap (source 2) remains the dominant
+withExec residual — the ~1.8s over warm is mostly the run-specific
+`Container.from` digest that does not transfer, plus session phases. The
+module build's remaining ~370ms is sub-second generic sources (session
+serve phases, scheduling granularity at the hundreds-of-milliseconds
+scale). Counterfactual sim diagnostics: zero on both.
+
 ## What this means
 
 The calibration harness did its §3.5 job: it converts "trust the simulator"

@@ -5,9 +5,11 @@ not special — a large fraction of dagql operations split into cheap
 synchronous plan-building plus deferred lazy production — so a rule keyed to
 exec-kind ops is suspicious, and the deeper question is what "X was cached"
 even MEANS across that split. This document answers both from the engine and
-cache code as it exists at this branch. Analysis only; no code changed.
-Doctrine applies: every gap identified here resolves to an EMIT proposal,
-never analyzer inference.
+cache code as it exists at this branch. Delivered as analysis only (no code
+changed with it); the emits it proposed have since landed under Erik's
+2026-07-05 ruling — the landed-resolution/STATUS callouts below mark what
+shipped. Doctrine applies: every gap identified here resolves to an EMIT
+proposal, never analyzer inference.
 
 **TL;DR.**
 (1) Erik is right that withExec is not special: ~68 concrete lazy types span
@@ -42,8 +44,8 @@ consumer genuinely needed (savings overstated). The missing fact is an
 evaluation-time event, so the remedy is a small "forced (already complete)"
 emit at the Evaluate fast path; structural cache-input edges CANNOT stand in
 for it (review-verified: every ordinary consumer references the digest
-structurally, so input-edge demand would destroy real savings). Until the
-emit exists, this is a stated simplification with a known error direction.
+structurally, so input-edge demand would destroy real savings). The emit and
+its consumption landed with Erik's 2026-07-05 ruling (row V31).
 
 ---
 
@@ -97,7 +99,7 @@ the enclosing op's self-time everywhere.
 | `Directory.*` / `File.*` mutation & view lazies | arg normalization, shell construction — cheap | snapshot reopening, content ops; frequently `cache.Evaluate(parent)` → NESTED lazy ops chain under the same forcer | deferred | lazy op class only; nothing else |
 | `Container` config mutations (`withEnvVariable`, …) | shell copy | `materializeContainerStateFromParent` + the eager helper | deferred but usually small; the parent-evaluation it forces can be huge | lazy op class only |
 | git / http / host / module load | EVERYTHING (fetch, snapshot, codegen) | — none | sync | call/call_exec digest ✓ (v1 semantics already correct) |
-| services | `Service` object creation cheap | not dagql-lazy: `Services.startWithOpts` singleflight keyed by a service digest (`core/services.go:473-477`) | start+healthcheck under `service.start` | `service.start` Ident = the service's CONTENT-PREFERRED digest (`services.go:524, :1032-1034`) — real attribution, but it matches a recipe-digest CachedSet only when the two coincide; otherwise it sits in the same equivalence gap as simplification #1 |
+| services | `Service` object creation cheap | not dagql-lazy: `Services.startWithOpts` singleflight keyed by a service digest (`core/services.go:473-477`) | start+healthcheck under `service.start` | `service.start` Ident = the service's CONTENT-PREFERRED digest (`services.go:524, :1032-1034`) — but the ident attributes per-session runtime READINESS, not result production: warm runs re-start services, so it never roots elision regions in either digest direction (the §4.1 landed resolution, V33) |
 
 Two structural facts about the lazy shape, both load-bearing:
 
@@ -245,16 +247,29 @@ becomes real (the calibration harness is already the test bench for it).
 > says so. Elision regions for D ∈ CachedSet are: (1) the nesting subtrees of
 > D's non-hit call ops (the sync half), plus (2) the subtrees (root
 > inclusive) of every op carrying a deferred-production attribution to D —
-> regardless of op kind. Demand, keep-fixpoint, ancestor-waiver, and
-> whole-region elide-or-keep apply to (2) exactly as A1 defined them.
+> regardless of op kind (landed narrowing: except `service_start`, whose
+> ident is readiness, not production — the V33 resolution below). Demand,
+> keep-fixpoint, ancestor-waiver, and whole-region elide-or-keep apply to
+> (2) exactly as A1 defined them.
 
 Today, attribution-to-D exists on: `exec.run` (Ident = CallDigest,
-`executor.go:130-138` — A1's source), and — with a caveat — `service.start`
+`executor.go:130-138` — A1's source), and — nominally — `service.start`
 (Ident = the service's content-preferred digest, `services.go:524,
-:1032-1034`: usable only where that digest coincides with the recipe digest
-a CachedSet names; the mismatch cases belong to the equivalence gap). It is
-MISSING on the one op that would make the rule complete and kind-agnostic:
-the **lazy op itself**.
+:1032-1034`; this analysis originally treated it as usable where that
+digest coincides with the recipe digest a CachedSet names, but the landed
+resolution below excludes it from sourcing ENTIRELY — the ident is real
+attribution of readiness, not of production). It is MISSING on the one op
+that would make the rule complete and kind-agnostic: the **lazy op
+itself**.
+
+> **Landed resolution (V33):** implementation surfaced the deeper fact —
+> service startup is per-session runtime READINESS, not result production
+> (`ServiceKey` is session-scoped, `core/services.go:473-477`; a real warm
+> run re-starts every service with all results cached). So `service.start`
+> is EXCLUDED from region sourcing entirely, in both digest directions: the
+> coincidence caveat above is moot, and eliding a coincident start would
+> remove work warm reality re-pays. This is a reasoned narrowing of the
+> "regardless of op kind" rule, pinned from both directions by V33.
 
 ### 4.2 The missing emit, precisely
 
@@ -295,8 +310,9 @@ covers all ~68 lazy types at once — Container, Directory, File, from's pull,
 the volatile substitution, everything — with zero per-type work and zero
 inference. Loader-side: nothing to change; the existing ident plumbing
 carries it (`wcotel/loader.go` already maps `dag.digest` to Ident for every
-span). Analyzer-side: region sourcing adds `lazy`-kind (and, if desired,
-`service_start`-kind) idents to the existing exec-kind index — the fixpoint,
+span). Analyzer-side: region sourcing adds `lazy`-kind idents to the existing
+exec-kind index (NOT `service_start` — per-session readiness, never
+production; the §4.1 landed resolution) — the fixpoint,
 waivers, and replay are UNCHANGED (they are already kind-agnostic over
 "root-inclusive attributed region").
 
@@ -368,7 +384,19 @@ forced-fact whose digest is ITSELF in CachedSet demands nothing (the forcer
 would hit the materialized payload counterfactually); only a forced-fact
 naming a NON-hypothesized digest whose production sits inside an elided
 region rescues that nested production (keeps it, or the enclosing region,
-per the usual whole-region rule). In particular the Chunk-4 **cache-DAG input edges are NOT usable as
+per the usual whole-region rule).
+
+**STATUS: landed (Erik's 2026-07-05 ruling; catalog row V31).** The fast
+path at `cache.go:2949` now emits the fact (a `LinkKindForced` event / a
+forced-purpose span link, deduped per forcer, targeting the completing lazy
+op retained for this purpose), and the keep test consumes it with exactly
+the rule above (a live op's fact into the region keeps it; an
+eligible-hypothesized-digest fact is free under B1). There is deliberately
+NO ancestor waiver for facts, unlike A1's waits: a fact is emitted only on
+the Evaluate fast path — post-completion consumption — while the launch
+join takes the slow path and never emits one, so an ancestor's fact is a
+survivor's real demand like any other (pinned by V31's ancestor variant).
+The interim stated-simplification treatment is therefore withdrawn. In particular the Chunk-4 **cache-DAG input edges are NOT usable as
 keep-demand here** (an earlier draft of this analysis proposed that; review
 refuted it): `CacheInputs` are structural recipe references, and every
 ordinary consumer of D carries D there — under B1 those consumers use the
@@ -379,9 +407,7 @@ complete)" event — waiter op → producer digest — at the `cache.go:2949` fa
 path (the leader/joiner paths already leave ops and waits). Volume is
 bounded by Evaluate calls on completed results; if measurement shows it
 matters, it can be sampled DOWN only by dropping duplicates per (waiter op,
-digest), never by inference. Until such an emit exists, this residual should
-be stated in the design's simplification list with its error direction, like
-simplifications #1 and #2.
+digest), never by inference.
 
 ### 4.5 Calibration implications, revisited
 
@@ -417,20 +443,23 @@ simplifications #1 and #2.
   be the only deferred-production op carrying a producer digest today.
 - Path: land the lazy-op ident emit (§4.2; one choke point, both sources,
   near-free), generalize region sourcing to "any op kind whose ident is a
-  cached digest and which is not itself a call/call_exec" — or more
-  conservatively an explicit kind set {exec, lazy, service_start} — and keep
+  cached digest and which is not itself a call/call_exec" — as landed:
+  every non-call ident-carrying kind EXCEPT `service_start` (per-session
+  readiness, never production; §4.1 landed resolution, V33) — and keep
   exec-ident sourcing operative regardless, since it is what pre-emit traces
   (including every existing Cloud trace) carry. A1's V24–V26 rows stay
   valid as the exec-shaped instances of the general rule; new rows cover
   lazy-shaped and from-shaped fixtures, plus the §4.4
-  forced-evaluation-fact emit if adopted.
+  forced-evaluation-fact emit (landed).
 - Not proposed: reverting A1 (loses real coverage on all existing traces for
   no gain), or keeping it as-is (leaves the majority of lazy production —
   and the measured 25% wrapper residual — unattributed).
 
-None of this is built. It awaits Erik's ruling on: (1) the general rule +
-lazy-op ident emit; (2) the optional hit-production-state emit (§4.2's
-companion, the pullCost groundwork); (3) the forced-evaluation-fact emit
-(§4.4), or — until then — recording that residual as a stated
-simplification. All three are data-path changes, in keeping with the
-doctrine; the analyzer's model needs no new heuristics for any of them.
+**RULING (Erik, 2026-07-05): all of the above approved and LANDED as one
+change set** — (1) the general rule + lazy-op ident emit (with the two §4.2
+disciplines binding), (2) the hit-production-state emit (`hit_pending`,
+OTel-additive), (3) the forced-evaluation-fact emit + its consumption rule,
+and (4) the loader's PendingAttr-aware outcome precedence (with the
+bare-PendingAttr ambiguity resolved to "never guessed" — see the design md
+§6.5 note 13). Catalog rows V27–V34 pin the set; A1's sourcing became the
+automatic pre-emit-trace fallback of the general rule, as §5 proposed.

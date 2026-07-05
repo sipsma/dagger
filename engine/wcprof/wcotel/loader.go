@@ -74,9 +74,15 @@ type Compiled struct {
 	Header *wcprof.DumpHeader
 	Events []wcprof.DumpEvent
 
-	SpanCount     int
-	OpenSpanCount int
-	WaitEdgeCount int
+	SpanCount       int
+	OpenSpanCount   int
+	WaitEdgeCount   int
+	ForcedEdgeCount int
+	// SuppressedIdentDerivations counts the emit-side ident-suppression
+	// links, one per firing — an exact tally (also carried in the
+	// synthesized Header, where the shared what-if-cached admission gate
+	// refuses on nonzero; a lost mark shows as a dropped link, gated).
+	SuppressedIdentDerivations int
 	// SkippedNoSpanID counts records dropped in dedup for lacking a span id
 	// (unmappable; surfaced so the skip is never silent).
 	SkippedNoSpanID int
@@ -432,10 +438,31 @@ func Compile(spans []Span) (*Compiled, error) {
 	}
 
 	// Step 3: wait-edge links → wait events, attributed to the waiter span.
+	// Forced-evaluation links (lazy-semantics §4.4) map alongside: purely
+	// factual link events (kind "forced"), never wait-shaped — a missing
+	// target is LEGITIMATE there (production predated recording), so they
+	// deliberately bypass the unresolved-wait gate signals.
 	for _, s := range deduped {
 		waiterID := opIDBySpan[s.SpanID]
 		spanHasWait := false
 		for _, l := range s.Links {
+			if attrStr(l.Attrs, telemetry.LinkPurposeAttr) == telemetryattrs.LinkPurposeSuppressedIdent {
+				// One link per emit-side ident-suppression firing: the tally
+				// is exact, and a lost mark shows as a dropped link (gated).
+				c.SuppressedIdentDerivations++
+				continue
+			}
+			if attrStr(l.Attrs, telemetry.LinkPurposeAttr) == telemetryattrs.LinkPurposeForced {
+				c.ForcedEdgeCount++
+				events = append(events, wcprof.DumpEvent{
+					Type:     "link",
+					LinkKind: wcprof.LinkKindForced.String(),
+					ParentID: waiterID,
+					TargetID: opIDBySpan[normalizeSpanID(l.SpanID)],
+					IdentID:  str.intern(attrStr(l.Attrs, telemetryattrs.WcprofForcedDigestAttr)),
+				})
+				continue
+			}
 			if attrStr(l.Attrs, telemetry.LinkPurposeAttr) != telemetryattrs.LinkPurposeWait {
 				continue
 			}
@@ -492,12 +519,13 @@ func Compile(spans []Span) (*Compiled, error) {
 	}
 
 	c.Header = &wcprof.DumpHeader{
-		SchemaVersion:  wcprof.DumpSchemaVersion,
-		EpochUnixNano:  epoch,
-		DumpedUnixNano: traceEnd,
-		EventCount:     len(events),
-		Strings:        str.values,
-		OpenOps:        openOps,
+		SchemaVersion:              wcprof.DumpSchemaVersion,
+		EpochUnixNano:              epoch,
+		DumpedUnixNano:             traceEnd,
+		EventCount:                 len(events),
+		Strings:                    str.values,
+		OpenOps:                    openOps,
+		SuppressedIdentDerivations: uint64(c.SuppressedIdentDerivations),
 	}
 	c.Events = events
 	return c, nil
@@ -526,14 +554,25 @@ func classifyKind(s Span, hasCallExecChild bool) string {
 }
 
 // computeOutcome maps the available status/cache attributes to a wcprof
-// outcome (design §5 step 2). Failures are authoritative (the stamp below is
-// written at the decision point, the status at span end — a call stamped
-// "executed" that later failed IS a failure, matching native's
-// error-over-hint rule). Then the explicit wcprof.call.outcome stamp
-// (executed/joined/do_not_cache — the what-if-cached decision #5 emit) wins
-// over the derived forms; without it, an un-augmented call span cannot
-// distinguish those, so a non-cached success stays the generic "ok" rather
-// than over-claiming an execution.
+// outcome (design §5 step 2), precedence: status > stamp > cached/pending >
+// ok. Failures are authoritative (the stamp below is written at the decision
+// point, the status at span end — a call stamped "executed" that later
+// failed IS a failure, matching native's error-over-hint rule). Then the
+// explicit wcprof.call.outcome stamp (executed/joined/do_not_cache from the
+// decision-#5 emit, plus hit_pending from the hit-production-state emit —
+// lazy-semantics state B2) wins over the derived forms. CachedAttr maps to
+// the complete hit as before (its emit is gated on production completeness,
+// core/telemetry.go recordStatus).
+//
+// A bare PendingAttr without a stamp stays "ok", deliberately: recordPending
+// (core/telemetry.go:157) runs at the end of EVERY call span, hit or miss,
+// so on pre-stamp traces "pending ∧ ¬cached" is ambiguous between a
+// pending-production hit and a cold miss that returned a lazy result —
+// mapping it to a hit would corrupt hit sets on every lazy-producing miss.
+// Post-emit traces disambiguate via the stamp (pending hits carry
+// hit_pending; every non-hit success carries executed/joined), so the
+// ambiguous shape only occurs on traces predating the emits, where the
+// generic ok is the honest answer.
 func computeOutcome(s Span) string {
 	switch {
 	case attrBool(s.Attrs, telemetry.CanceledAttr):

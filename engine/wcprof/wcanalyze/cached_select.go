@@ -28,6 +28,12 @@ type CachedSelection struct {
 	ExecPatterns []string
 	// PullCostNS is the simulated cost of each hit (--cached-pull-cost).
 	PullCostNS int64
+	// AllowPartialSelection permits an exec pattern whose matches only
+	// PARTLY resolve to owning call digests (--allow-partial-selection).
+	// Without it, unresolvable matches are an ERROR: the hypothesis would
+	// silently cover less than the pattern named, and the resulting number
+	// would answer a smaller question than the one asked.
+	AllowPartialSelection bool
 }
 
 // Empty reports whether no selector was given.
@@ -79,6 +85,27 @@ func HitDigests(g *Graph) []string {
 		for _, ci := range calls {
 			op := idx.p.ops[ci]
 			if !op.Open && op.Outcome == wcprof.OutcomeHit.String() {
+				out = append(out, ident)
+				break
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// PendingHitDigests returns the distinct call idents with at least one
+// recorded hit_pending call op (lazy-semantics state B2: the recipe was
+// cached but production had not run at hit time), sorted. Kept separate from
+// HitDigests: a pending hit does NOT witness a materialized payload, so the
+// calibration must not assert B1 for it (V30).
+func PendingHitDigests(g *Graph) []string {
+	idx := g.cachedIndexOnce()
+	var out []string
+	for ident, calls := range idx.callsByIdent {
+		for _, ci := range calls {
+			op := idx.p.ops[ci]
+			if !op.Open && op.Outcome == wcprof.OutcomeHitPending.String() {
 				out = append(out, ident)
 				break
 			}
@@ -194,7 +221,11 @@ func (sel CachedSelection) Resolve(g *Graph) (CachedHypothesis, []string, error)
 			}
 			note := fmt.Sprintf("--cached-exec %s: %d exec(s) -> %d owning digest(s)", pat, matchedExecs, len(digests))
 			if unresolved > 0 {
-				note += fmt.Sprintf(" (%d exec(s) unresolvable: no owning call digest recorded)", unresolved)
+				if !sel.AllowPartialSelection {
+					return hyp, nil, fmt.Errorf("--cached-exec %q: %d of %d matched exec(s) resolve to no owning call digest — the hypothesis would silently cover less than the pattern names; pass -allow-partial-selection to proceed with the %d resolved digest(s) (the partial coverage is then printed, never silent)",
+						pat, unresolved, matchedExecs, len(digests))
+				}
+				note += fmt.Sprintf(" (PARTIAL: %d exec(s) unresolvable — no owning call digest recorded; proceeding under -allow-partial-selection)", unresolved)
 			}
 			notes = append(notes, note)
 		}

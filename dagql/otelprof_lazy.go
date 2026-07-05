@@ -138,7 +138,18 @@ func (wcprofLazyParentProcessor) ForceFlush(context.Context) error { return nil 
 // loader's class for that op is "resume <field>" rather than native's
 // profCallClass — a benign divergence because the lazy op's self-time is ~0 and
 // it never ranks in the bottleneck oracle (design §6.2).
-func (c *Cache) beginOTelLazyOp(evalCtx context.Context, sharedID sharedResultID, resultCall *ResultCall) (context.Context, trace.Span, bool) {
+func (c *Cache) beginOTelLazyOp(evalCtx context.Context, sharedID sharedResultID, resultCall *ResultCall, producerDigest string) (context.Context, trace.Span, bool) {
+	// The producer's recipe digest (derived by the caller OUTSIDE lazyMu;
+	// empty on a derivation error) rides as dag.digest on both mint shapes —
+	// the OTel half of the deferred-production attribution the what-if-cached
+	// general rule sources elision regions from (lazy-semantics §4.2),
+	// symmetric with the exec.run span's stamp (engineutil/otelprof.go).
+	attrs := []attribute.KeyValue{
+		attribute.String(telemetryattrs.WcprofOpKindAttr, wcprof.OpKindLazy.String()),
+	}
+	if producerDigest != "" {
+		attrs = append(attrs, attribute.String(telemetry.DagDigestAttr, producerDigest))
+	}
 	if clientMD, err := engine.ClientMetadataFromContext(evalCtx); err == nil && clientMD.SessionID != "" {
 		if originalSpanCtx, ok := c.sessionLazySpanContext(clientMD.SessionID, sharedID); ok {
 			spanName := "resume lazy evaluation"
@@ -156,7 +167,7 @@ func (c *Cache) beginOTelLazyOp(evalCtx context.Context, sharedID sharedResultID
 				spanName,
 				trace.WithLinks(links...),
 				telemetry.Passthrough(),
-				trace.WithAttributes(attribute.String(telemetryattrs.WcprofOpKindAttr, wcprof.OpKindLazy.String())),
+				trace.WithAttributes(attrs...),
 			)
 			callbackCtx := trace.ContextWithSpan(resumeCtx, resumedCallbackSpan{
 				Span: resumeSpan,
@@ -171,7 +182,7 @@ func (c *Cache) beginOTelLazyOp(evalCtx context.Context, sharedID sharedResultID
 		evalCtx,
 		profCallClass(resultCall),
 		telemetry.Passthrough(),
-		trace.WithAttributes(attribute.String(telemetryattrs.WcprofOpKindAttr, wcprof.OpKindLazy.String())),
+		trace.WithAttributes(attrs...),
 	)
 	return callbackCtx, lazySpan, false
 }

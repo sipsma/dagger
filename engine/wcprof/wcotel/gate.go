@@ -31,8 +31,13 @@ type GateReport struct {
 	RootCount   int
 	OpenOps     int
 	WaitEdges   int
-	MakespanNS  int64
-	TraceSpanNS int64
+	ForcedEdges int
+	// SuppressedIdents counts emit-side ident-suppression links — a
+	// correctness-bearing carrier like waits/facts, so its presence arms the
+	// dropped-link violation too.
+	SuppressedIdents int
+	MakespanNS       int64
+	TraceSpanNS      int64
 
 	// Hard invariants — over-serialization.
 	ReplayErr      error
@@ -99,6 +104,8 @@ func CheckStructural(c *Compiled, g *wcanalyze.Graph, opts GateOptions) GateRepo
 		RootCount:               len(g.Roots),
 		OpenOps:                 g.OpenOps,
 		WaitEdges:               c.WaitEdgeCount,
+		ForcedEdges:             c.ForcedEdgeCount,
+		SuppressedIdents:        c.SuppressedIdentDerivations,
 		MakespanNS:              wcanalyze.ActualMakespanNS(g),
 		TraceSpanNS:             g.TraceEndNS - g.TraceStartNS,
 		UnresolvedWaitTargets:   c.UnresolvedWaitTargets,
@@ -152,12 +159,14 @@ func CheckStructural(c *Compiled, g *wcanalyze.Graph, opts GateOptions) GateRepo
 	if r.OrphanedParents > 0 {
 		r.violations = append(r.violations, fmt.Sprintf("%d op(s) with a recorded parent span ABSENT from the graph — the parent id is SET (the op had a parent), but its span is missing, surfacing the op as a false root and losing the saving that should cross its parent edge. The data is INCOMPLETE. This is distinct from a true independent root (empty parent) and from an emit-side parentless bug (the id is set). It is observed reproducibly on local otlpdump captures; the exact loss point — capture instrument, export pipeline, ingest, or an emit bug that set a bad id — is NOT yet pinned. Do not trust this ranking until the source is verified complete (design §6.1)", r.OrphanedParents))
 	}
-	// Dropped-link wait-loss: only meaningful when the trace carries wait edges.
-	// This subsumes the surviving-wait predicate (a span that kept a wait but
-	// dropped links) and also catches a span that lost ALL its waits or a
-	// dropped link.purpose attribute — both invisible to that predicate.
-	if r.WaitEdges > 0 && (r.TotalDroppedLinks > 0 || r.TotalDroppedLinkAttrs > 0) {
-		r.violations = append(r.violations, fmt.Sprintf("%d dropped link(s) / %d dropped link-attr(s) on a wait-carrying trace — wait edges may have been silently evicted (raise LinkCountLimit, design §3.0)", r.TotalDroppedLinks, r.TotalDroppedLinkAttrs))
+	// Dropped-link loss: only meaningful when the trace carries link-borne
+	// facts — wait edges OR forced-evaluation facts (both are
+	// correctness-bearing demand evidence; lazy-semantics §4.4). This
+	// subsumes the surviving-wait predicate (a span that kept a wait but
+	// dropped links) and also catches a span that lost ALL its waits/facts or
+	// a dropped link.purpose attribute — both invisible to that predicate.
+	if (r.WaitEdges > 0 || r.ForcedEdges > 0 || r.SuppressedIdents > 0) && (r.TotalDroppedLinks > 0 || r.TotalDroppedLinkAttrs > 0) {
+		r.violations = append(r.violations, fmt.Sprintf("%d dropped link(s) / %d dropped link-attr(s) on a trace carrying wait/forced/suppression links — correctness-bearing edges may have been silently evicted (raise LinkCountLimit, design §3.0)", r.TotalDroppedLinks, r.TotalDroppedLinkAttrs))
 	}
 	if r.UnschedulableOps > 0 {
 		r.violations = append(r.violations, fmt.Sprintf("%d op(s) the recorded causal structure cannot schedule — an inverted reference (an op referenced before its ancestor spawns it) or a malformed nesting; both are impossible in a faithful synchronous nesting, so this is an unfaithful EMIT to fix at the choke point, never papered over (design §6.1)", r.UnschedulableOps))
@@ -197,7 +206,7 @@ func (r GateReport) Write(w io.Writer) {
 		status = "FAIL"
 	}
 	fmt.Fprintf(w, "structural gate: %s\n", status)
-	fmt.Fprintf(w, "  ops=%d roots=%d open=%d wait-edges=%d\n", r.OpCount, r.RootCount, r.OpenOps, r.WaitEdges)
+	fmt.Fprintf(w, "  ops=%d roots=%d open=%d wait-edges=%d forced-links=%d\n", r.OpCount, r.RootCount, r.OpenOps, r.WaitEdges, r.ForcedEdges)
 	fmt.Fprintf(w, "  cycles=%d  self>makespan=%d  interval>tracespan=%d\n",
 		r.Cycles, len(r.SelfGtMakespan), len(r.IntervalGtSpan))
 	fmt.Fprintf(w, "  wait-loss: unresolved-targets=%d  malformed-timing=%d\n",

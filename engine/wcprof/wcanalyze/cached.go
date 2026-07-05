@@ -20,8 +20,9 @@ import (
 // per-reference runtime guards would make anchors evaluation-order-dependent —
 // the order-dependence the replay treats as a correctness failure
 // (SimStartConflicts). A region anything live still demands is NOT partially
-// elided: it is kept whole, replays exactly as recorded, and is reported
-// (whole-region elide-or-keep, loud residuals).
+// elided: it is kept whole, replays as recorded (modulo waived production
+// waits the hypothesis itself satisfies), and is reported (whole-region
+// elide-or-keep, loud residuals).
 
 // CachedHypothesis is a what-if-cached hypothesis: the recipe digests (wcprof
 // Idents of call ops) assumed present in the cache, plus the simulated cost of
@@ -123,15 +124,17 @@ type IdentEligibility struct {
 	KeptCalls      int // calls inside kept regions (or kept roots), as recorded
 	RegionsElided  int
 	RegionsKept    int
-	// UnanchoredExecs counts call_exec ops carrying this ident that sit
-	// outside every producing region of the ident (an executor call op absent
-	// from the data). Their work cannot be attributed to a region and keeps
-	// running — a loud residual, not a silent one.
-	UnanchoredExecs int
+	// PendingHits counts the Hits whose recorded outcome was hit_pending
+	// (lazy-semantics state B2: the recipe was cached but production had not
+	// run at hit time) — a subset of Hits, reported so B1/B2 stay visible.
+	PendingHits int
 }
 
 // KeptRegionReport describes one producing region the hypothesis could not
-// elide: kept whole, replayed exactly as recorded, with the reason printed.
+// elide: kept whole, replayed as recorded, with the reason printed. The one
+// deformation a kept region can see is a wait the hypothesis itself
+// satisfies: a kept op joining an ELIDED lazy region's root (another cached
+// digest's production) has that join waived, like any live forcer's.
 type KeptRegionReport struct {
 	// Root is the cached call op whose producing subtree was kept; it is NOT
 	// short-circuited (the region's exact replay depends on its recorded
@@ -182,16 +185,44 @@ type CachedResolution struct {
 	// unmodeled demand, so they are printed, never silent.
 	OrphanWaitsIntoElided  int
 	OrphanWaitNSIntoElided int64
-	// WaivedProductionWaits counts ancestor waits into elided exec-attributed
-	// regions (Amendment A1): the deferred production being counterfactually
-	// removed. Waived in the replay — never a keep, never an
-	// ElidedOpDemanded — and printed here.
+	// WaivedProductionWaits counts waits into elided attributed regions that
+	// are the deferred production being counterfactually removed: ancestor
+	// waits (Amendment A1) plus live waits targeting an elided LAZY region's
+	// root (a concurrent forcer joining production the hypothesis satisfies).
+	// Waived in the replay — never a keep, never an ElidedOpDemanded — and
+	// printed here. Waiters that are themselves elided need no waiver (their
+	// waits never replay) and are not counted.
 	WaivedProductionWaits int
+	// Forced-evaluation fact provenance (doctrine §0: every degraded-data
+	// path is counted and visible, never a silent default). ForcedFacts is
+	// the total consumed by the keep test; ForcedFactsUnresolved is the
+	// subset whose completing lazy op predated recording — an EXPLICIT
+	// emit-time state (native TargetID=0; OTel zeroed link span id), not
+	// capture loss (the structural gate separately refuses captures with
+	// missing spans or dropped links on fact-carrying traces). Their demand
+	// test degrades from target position to recorded-ident containment —
+	// still a pure function of recorded data, direction conservative (can
+	// only ADD keeps, never enable an elision) — and every keep it produces
+	// carries its own reason string. OrphanForcedFacts counts facts whose
+	// FORCER op is unknown: like orphan waits they demand nothing (no
+	// liveness to test); OrphanForcedFactsIntoElided flags those whose
+	// digest still names non-service_start attributed production inside an
+	// elided region — an unmodeled demand hint, printed, never silent.
+	ForcedFacts                 int
+	ForcedFactsUnresolved       int
+	OrphanForcedFacts           int
+	OrphanForcedFactsIntoElided int
+	// UnresolvedContainmentKeeps counts kept regions whose keep came from an
+	// unrecorded-target fact's recorded-ident containment test (the degraded
+	// demand path) — the answer-altering firings, surfaced per ranking row
+	// (DegradedEvidence) as well as in the kept-region reasons.
+	UnresolvedContainmentKeeps int
 
 	// Program-index-aligned replay state (nil when the hypothesis is a no-op).
 	// spawnWaived marks elided exec-region roots whose recorded parent's
 	// spawn is production launch (skipped without tripping the gate);
-	// waivedJoins holds the (waiter, target) ancestor waits waived likewise.
+	// waivedJoins holds the (waiter, target) production waits waived
+	// likewise: ancestor waits plus live joins on elided lazy roots.
 	elided      []bool
 	hitShort    []bool
 	spawnWaived []bool
@@ -253,13 +284,18 @@ type cachedIndex struct {
 	// selfSub[i]: total SelfNS of op i's subtree (op included).
 	selfSub []int64
 
-	// callsByIdent / callExecsByIdent / execRunsByIdent index call, call_exec,
-	// and exec-kind (exec.run) ops by ident, in deterministic (ID-sorted)
-	// order. exec.run's ident is the owning call digest when the engine knew
-	// it (executor.go execIdent) — the A1 attribution seam.
-	callsByIdent     map[string][]int32
-	callExecsByIdent map[string][]int32
-	execRunsByIdent  map[string][]int32
+	// callsByIdent indexes call ops by ident; attributedByIdent indexes every
+	// NON-call op carrying an ident — the kind-agnostic deferred-production
+	// attribution surface (lazy-semantics §4.1): call_exec (callKey,
+	// cache.go:3791), exec.run (execIdent, executor.go:130-138), lazy ops
+	// (producer recipe digest, cache.go:3045 — the general-rule emit), and
+	// service_start (content-preferred digest, services.go:524 — indexed,
+	// but its ident attributes runtime READINESS, never production: it can
+	// neither root a region nor stand as in-region production evidence,
+	// V33). Kinds whose idents are not call digests (exec phases carry
+	// execution state ids) simply never match a hypothesis.
+	callsByIdent      map[string][]int32
+	attributedByIdent map[string][]int32
 
 	// demandEdges holds every wait that gates as a join in the replay
 	// (joinWait — the ONE predicate shared with the program compiler), sorted
@@ -267,6 +303,19 @@ type cachedIndex struct {
 	// for an orphan wait (no owning op: unmodeled by the replay, reported but
 	// never demanding).
 	demandEdges []demandEdge
+
+	// forcedEdges holds the recorded forced-evaluation facts (lazy-semantics
+	// §4.4) with resolved targets, sorted by the target's euler position;
+	// forcedUnresolved holds those whose completing lazy op predated
+	// recording — their demand test degrades to the digest's recorded
+	// attributed ops, and their keeps carry a distinct reason string.
+	// forcedOrphanIdents holds the digests of facts whose FORCER op is
+	// unknown: like orphan waits they can demand nothing (no liveness to
+	// test), but they are counted and reported, never silently dropped.
+	// Facts, never replay actions.
+	forcedEdges        []forcedFact
+	forcedUnresolved   []forcedFact
+	forcedOrphanIdents []string
 }
 
 type demandEdge struct {
@@ -274,6 +323,13 @@ type demandEdge struct {
 	target   int32
 	waiter   int32 // -1 for an orphan wait
 	wait     *WaitEdge
+}
+
+type forcedFact struct {
+	targetIn int32 // eulerIn of the completing lazy op; -1 when unresolved
+	target   int32 // -1 when unresolved
+	forcer   int32
+	ident    string // the producer recipe digest
 }
 
 func (g *Graph) cachedIndexOnce() *cachedIndex {
@@ -287,15 +343,14 @@ func buildCachedIndex(g *Graph) *cachedIndex {
 	p := g.program()
 	n := len(p.ops)
 	idx := &cachedIndex{
-		p:                p,
-		eulerIn:          make([]int32, n),
-		eulerOut:         make([]int32, n),
-		eulerOrder:       make([]int32, n),
-		openSub:          make([]bool, n),
-		selfSub:          make([]int64, n),
-		callsByIdent:     make(map[string][]int32),
-		callExecsByIdent: make(map[string][]int32),
-		execRunsByIdent:  make(map[string][]int32),
+		p:                 p,
+		eulerIn:           make([]int32, n),
+		eulerOut:          make([]int32, n),
+		eulerOrder:        make([]int32, n),
+		openSub:           make([]bool, n),
+		selfSub:           make([]int64, n),
+		callsByIdent:      make(map[string][]int32),
+		attributedByIdent: make(map[string][]int32),
 	}
 	for i := range idx.eulerIn {
 		idx.eulerIn[i] = -1
@@ -344,13 +399,10 @@ func buildCachedIndex(g *Graph) *cachedIndex {
 		if op.Ident == "" {
 			continue
 		}
-		switch op.Kind {
-		case wcprof.OpKindCall.String():
+		if op.Kind == wcprof.OpKindCall.String() {
 			idx.callsByIdent[op.Ident] = append(idx.callsByIdent[op.Ident], i)
-		case wcprof.OpKindCallExec.String():
-			idx.callExecsByIdent[op.Ident] = append(idx.callExecsByIdent[op.Ident], i)
-		case wcprof.OpKindExec.String():
-			idx.execRunsByIdent[op.Ident] = append(idx.execRunsByIdent[op.Ident], i)
+		} else {
+			idx.attributedByIdent[op.Ident] = append(idx.attributedByIdent[op.Ident], i)
 		}
 	}
 
@@ -392,6 +444,38 @@ func buildCachedIndex(g *Graph) *cachedIndex {
 		return int(a.wait.StartNS - b.wait.StartNS)
 	})
 
+	// Forced-evaluation facts, resolved to dense indices (event order is
+	// deterministic; the resolved list re-sorts by target position). A
+	// forcer that misses the dense index joins the orphan idents — counted,
+	// never silently dropped.
+	for _, fe := range g.OrphanForcedFacts {
+		idx.forcedOrphanIdents = append(idx.forcedOrphanIdents, fe.Ident)
+	}
+	for _, fe := range g.ForcedEdges {
+		fi, ok := p.idxByID[fe.Forcer.ID]
+		if !ok {
+			idx.forcedOrphanIdents = append(idx.forcedOrphanIdents, fe.Ident)
+			continue
+		}
+		f := forcedFact{targetIn: -1, target: -1, forcer: fi, ident: fe.Ident}
+		if fe.Target != nil {
+			if ti, tok := p.idxByID[fe.Target.ID]; tok && idx.eulerIn[ti] >= 0 {
+				f.target, f.targetIn = ti, idx.eulerIn[ti]
+			}
+		}
+		if f.target >= 0 {
+			idx.forcedEdges = append(idx.forcedEdges, f)
+		} else {
+			idx.forcedUnresolved = append(idx.forcedUnresolved, f)
+		}
+	}
+	slices.SortStableFunc(idx.forcedEdges, func(a, b forcedFact) int {
+		if a.targetIn != b.targetIn {
+			return int(a.targetIn - b.targetIn)
+		}
+		return int(a.forcer - b.forcer)
+	})
+
 	return idx
 }
 
@@ -411,11 +495,11 @@ func buildCachedIndex(g *Graph) *cachedIndex {
 //     value). Under the local-warm-hit model a cached result's deferred
 //     production does not run, so the whole attributed subtree elides.
 type cachedRegion struct {
-	root     int32
-	identIdx int
-	lo       int32
-	outPos   int32
-	exec     bool // an A1 exec-attributed region (root-inclusive)
+	root       int32
+	identIdx   int
+	lo         int32
+	outPos     int32
+	attributed bool // a deferred-production-attributed region (root-inclusive)
 
 	keep       bool
 	reason     string
@@ -433,6 +517,37 @@ func (idx *cachedIndex) isStrictAncestor(a, b int32) bool {
 	return ain >= 0 && bin >= 0 && ain < bin && bin <= idx.eulerOut[a]
 }
 
+// nonRegionAttribution reports whether an attributed op must NOT root an
+// elision region, for one of two reasoned causes:
+//
+//   - REDUNDANT: a call_exec nested directly under its own same-ident
+//     executor call — the anchored shape whose subtree IS the call region
+//     already; rooting a second (nested, identical) region would only
+//     duplicate reports and fixpoint work. A call_exec WITHOUT that parent
+//     (the executor call op missing from the data) roots its own region,
+//     which is what covers the formerly-"unanchored" production.
+//   - NOT PRODUCTION: a service_start op. Service startup is per-session
+//     runtime READINESS, not result production — ServiceKey is
+//     session-scoped (core/services.go:473-477), so a real warm run
+//     re-starts the service even when every result is cached. Eliding it
+//     under a cached hypothesis would remove work warm reality re-pays,
+//     systematically overstating savings. Its ident (the content-preferred
+//     digest, services.go:524) stays in the index for reporting, never for
+//     regions.
+//
+// Other attributed kinds (lazy, exec) always root regions: a lazy op can
+// legitimately hang under a same-ident HIT call (a pending hit forcing its
+// own production), which is not a region root.
+func nonRegionAttribution(op *Op) bool {
+	if op.Kind == wcprof.OpKindServiceStart.String() {
+		return true
+	}
+	return op.Kind == wcprof.OpKindCallExec.String() &&
+		op.Parent != nil &&
+		op.Parent.Kind == wcprof.OpKindCall.String() &&
+		op.Parent.Ident == op.Ident
+}
+
 // ResolveCachedHypothesis statically resolves hyp against g (design §3.3):
 // classifies each ident's eligibility, forms the candidate elision regions
 // (the nesting subtrees of the eligible idents' non-hit call ops), runs the
@@ -448,6 +563,9 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 	p := idx.p
 	n := len(p.ops)
 	res := &CachedResolution{PullCostNS: hyp.PullCostNS}
+	res.ForcedFacts = len(idx.forcedEdges) + len(idx.forcedUnresolved)
+	res.ForcedFactsUnresolved = len(idx.forcedUnresolved)
+	res.OrphanForcedFacts = len(idx.forcedOrphanIdents)
 
 	idents := make([]string, 0, len(hyp.Idents))
 	for d := range hyp.Idents {
@@ -460,9 +578,10 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 	// 1. Eligibility per ident (design §3.2), checked loudly in a fixed
 	// precedence order; only eligible idents contribute candidates.
 	var (
-		regions    []cachedRegion
-		shortCands = make([][]int32, 0, len(idents)) // per ident: non-hit calls
-		cachedCall = make(map[int32]bool)            // union of all shortCands
+		regions     []cachedRegion
+		shortCands  = make([][]int32, 0, len(idents)) // per ident: non-hit calls
+		cachedCall  = make(map[int32]bool)            // union of all shortCands
+		eligibleSet = make(map[string]struct{})       // ELIGIBLE hypothesized digests
 	)
 	for _, d := range idents {
 		el := IdentEligibility{Ident: d}
@@ -479,6 +598,12 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 				switch op.Outcome {
 				case wcprof.OutcomeHit.String():
 					el.Hits++
+				case wcprof.OutcomeHitPending.String():
+					// lazy-semantics B2: cached recipe, production not yet
+					// run at hit time — a hit for eligibility, tallied so
+					// the B1/B2 split stays visible
+					el.Hits++
+					el.PendingHits++
 				case wcprof.OutcomeExecuted.String(), wcprof.OutcomeJoined.String(), wcprof.OutcomeOK.String():
 					el.Successes++
 				case wcprof.OutcomeError.String(), wcprof.OutcomeCanceled.String():
@@ -495,10 +620,12 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 				openInRegion = true
 			}
 		}
-		// A1: attributed exec regions are production too — open ops inside
-		// them equally mean the production is not fully recorded.
-		for _, ei := range idx.execRunsByIdent[d] {
-			if idx.eulerIn[ei] >= 0 && idx.openSub[ei] {
+		// Attributed production regions are production too — open ops inside
+		// them equally mean the production is not fully recorded. (The
+		// anchored call_exec shape needs no separate check: it sits inside
+		// the call subtree checked above.)
+		for _, ei := range idx.attributedByIdent[d] {
+			if idx.eulerIn[ei] >= 0 && !nonRegionAttribution(p.ops[ei]) && idx.openSub[ei] {
 				openInRegion = true
 			}
 		}
@@ -521,10 +648,14 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 
 		var cands []int32
 		if el.State == IdentEligible {
+			eligibleSet[d] = struct{}{}
 			identIdx := len(res.Idents)
 			for _, ci := range calls {
-				if p.ops[ci].Outcome == wcprof.OutcomeHit.String() {
+				if o := p.ops[ci].Outcome; o == wcprof.OutcomeHit.String() || o == wcprof.OutcomeHitPending.String() {
 					// A recorded hit was already a lookup: untouched (V6).
+					// A pending hit's forced production, if recorded, is a
+					// lazy op carrying this ident — its own attributed
+					// region, handled below.
 					continue
 				}
 				cands = append(cands, ci)
@@ -539,18 +670,21 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 					})
 				}
 			}
-			// A1: exec-attributed production regions (root-inclusive).
-			for _, ei := range idx.execRunsByIdent[d] {
-				if idx.eulerIn[ei] < 0 {
+			// Deferred-production-attributed regions (root-inclusive; the
+			// general rule, lazy-semantics §4.1): every non-call op carrying
+			// this ident, except the anchored call_exec shape whose subtree
+			// is already the call region above.
+			for _, ei := range idx.attributedByIdent[d] {
+				if idx.eulerIn[ei] < 0 || nonRegionAttribution(p.ops[ei]) {
 					continue
 				}
 				regions = append(regions, cachedRegion{
-					root:     ei,
-					identIdx: identIdx,
-					lo:       idx.eulerIn[ei],
-					outPos:   idx.eulerOut[ei],
-					exec:     true,
-					demander: -1,
+					root:       ei,
+					identIdx:   identIdx,
+					lo:         idx.eulerIn[ei],
+					outPos:     idx.eulerOut[ei],
+					attributed: true,
+					demander:   -1,
 				})
 			}
 		}
@@ -573,8 +707,9 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 	// short-circuited: a cached call outside every region that is not itself
 	// a kept region's root (a pure hit, its recorded waits vanish); live:
 	// everything else, INCLUDING ops and cached calls inside kept regions AND
-	// kept regions' roots — a kept region replays exactly as recorded, which
-	// is only possible if nothing inside it is altered and its root's
+	// kept regions' roots — a kept region replays as recorded (its one
+	// deformation: production waits waived when the hypothesis satisfies
+	// them), which requires that nothing inside it is removed and its root's
 	// recorded timeline (which spawns and gates the region) runs unmodified.
 	// Elide → keep is the only flip, so the live set only grows: the fixpoint
 	// is monotone and terminates in <= len(regions) rounds.
@@ -644,12 +779,22 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 					// against the elided set below instead.
 					continue
 				}
-				if r.exec && idx.isStrictAncestor(e.waiter, r.root) {
+				if r.attributed && idx.isStrictAncestor(e.waiter, r.root) {
 					// A1: a wait from the region root's own ancestor chain (the
 					// lazy wrapper / consumer that spawned the deferred
 					// production) IS the production wait being counterfactually
 					// removed — it does not keep the region. It is waived in
 					// the replay at materialize time, counted, never silent.
+					continue
+				}
+				if r.attributed && e.target == r.root && p.ops[r.root].Kind == wcprof.OpKindLazy.String() {
+					// A wait ON a lazy region's root — a concurrent forcer
+					// joining this digest's in-flight production — is equally
+					// production demand: under B1 that joiner hits the
+					// materialized payload, ancestor or not. (Waits on an
+					// EXEC root stay demand: a third party waiting on the
+					// execution wants its side effects, V25b.) Waived at
+					// materialize time, counted.
 					continue
 				}
 				if !live(e.waiter) {
@@ -663,13 +808,82 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 				changed = true
 				break
 			}
+			if r.keep {
+				continue
+			}
+			// Forced-evaluation demand (lazy-semantics §4.4): a LIVE op's
+			// recorded post-completion force of production inside the region
+			// keeps it. Two exclusions, both reasoned: a fact whose digest is
+			// itself an ELIGIBLE hypothesized digest demands nothing (under
+			// B1 its forcer would hit the materialized payload — Erik's
+			// same-digest rule, generalized to the whole eligible set); and a
+			// non-live forcer's demand vanishes with the forcer. There is NO
+			// ancestor exclusion, deliberately — the A1 waiver symmetry does
+			// not apply to facts: a fact is emitted only on the Evaluate fast
+			// path (post-completion consumption), the production launch takes
+			// the slow path and never emits one, and a target inside this
+			// region cannot have been launched by an ancestor of the region
+			// root (its lazy op would be parented under that ancestor,
+			// OUTSIDE the region). So every ancestor-forcer fact is a real
+			// consumer of a non-hypothesized nested production, and skipping
+			// it would silently remove work a survivor demands. Facts never
+			// gate the replay, so no replay-side waiver bookkeeping exists
+			// for them.
+			keepForced := func(f forcedFact, reason string) bool {
+				if _, hyp := eligibleSet[f.ident]; hyp {
+					return false
+				}
+				if !live(f.forcer) {
+					return false
+				}
+				r.keep = true
+				keptRoots[r.root] = true
+				r.reason = reason
+				r.demander = f.forcer
+				changed = true
+				return true
+			}
+			flo := sort.Search(len(idx.forcedEdges), func(i int) bool {
+				return idx.forcedEdges[i].targetIn >= r.lo
+			})
+			for j := flo; j < len(idx.forcedEdges) && idx.forcedEdges[j].targetIn <= r.outPos; j++ {
+				if keepForced(idx.forcedEdges[j], "externally forced (post-completion demand)") {
+					break
+				}
+			}
+			if r.keep {
+				continue
+			}
+			// Unresolved-target facts (production predated recording): the
+			// digest still names the dependency — demand iff any attributed
+			// op of that digest sits inside the region. A service_start
+			// match is NOT production evidence (its ident attributes
+			// readiness, V33) and is skipped; an anchored call_exec IS the
+			// digest's executing subtree and stays — dropping it would trade
+			// this conservative keep for a silent over-elision.
+			for _, f := range idx.forcedUnresolved {
+				inRegion := false
+				for _, ai := range idx.attributedByIdent[f.ident] {
+					if p.ops[ai].Kind == wcprof.OpKindServiceStart.String() {
+						continue
+					}
+					if xin := idx.eulerIn[ai]; xin >= r.lo && xin <= r.outPos {
+						inRegion = true
+						break
+					}
+				}
+				if inRegion && keepForced(f, "externally forced (unrecorded target; demand matched by recorded ident containment)") {
+					res.UnresolvedContainmentKeeps++
+					break
+				}
+			}
 		}
 	}
 
 	// 3. Materialize. Elided = union of elide-state regions; maximal regions
 	// only, so every op (and its duration) is counted exactly once (V12).
 	regionSelf := func(r *cachedRegion) int64 {
-		if r.exec {
+		if r.attributed {
 			return idx.selfSub[r.root] // root-inclusive
 		}
 		return idx.selfSub[r.root] - p.ops[r.root].SelfNS()
@@ -708,12 +922,14 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 			res.elided = make([]bool, n)
 			anyElide = true
 		}
-		if r.exec {
-			// A1 waivers for an ELIDED exec region: its recorded parent's
-			// spawn of the root, and its ancestors' waits into it, are the
-			// deferred production being counterfactually removed. The replay
-			// skips exactly these without tripping ElidedOpDemanded; the
-			// count is printed, never silent.
+		if r.attributed {
+			// Production waivers for an ELIDED attributed region: its
+			// recorded parent's spawn of the root, its ancestors' waits into
+			// it, and live joins on a LAZY root (concurrent forcers the
+			// hypothesis satisfies) are the deferred production being
+			// counterfactually removed. The replay skips exactly these
+			// without tripping ElidedOpDemanded; the count is printed, never
+			// silent.
 			if res.spawnWaived == nil {
 				res.spawnWaived = make([]bool, n)
 			}
@@ -721,9 +937,23 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 			lo := sort.Search(len(idx.demandEdges), func(i int) bool {
 				return idx.demandEdges[i].targetIn >= r.lo
 			})
+			rootIsLazy := p.ops[r.root].Kind == wcprof.OpKindLazy.String()
 			for j := lo; j < len(idx.demandEdges) && idx.demandEdges[j].targetIn <= r.outPos; j++ {
 				e := idx.demandEdges[j]
-				if e.waiter < 0 || !idx.isStrictAncestor(e.waiter, r.root) {
+				if e.waiter < 0 {
+					continue
+				}
+				// A waiter that is itself elided never replays its wait: no
+				// waiver needed, and counting it would inflate the printed
+				// residual with waits that cannot occur.
+				if coveredBy(e.waiter, false) {
+					continue
+				}
+				// The two waived production-demand shapes, mirroring the
+				// fixpoint's skips: ancestor waits (the launch chain) and —
+				// for lazy roots — concurrent forcers joining the production
+				// itself (B1 satisfies them, ancestor or not).
+				if !idx.isStrictAncestor(e.waiter, r.root) && !(rootIsLazy && e.target == r.root) {
 					continue
 				}
 				if res.waivedJoins == nil {
@@ -775,27 +1005,11 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 				res.HitCallSelfNS += p.ops[ci].SelfNS()
 			}
 		}
-		// call_exec ops carrying the ident outside all of its regions: an
-		// executor call op is absent from the data, so that production cannot
-		// be attributed to a region and keeps running. Loud, not silent.
-		for _, ei := range idx.callExecsByIdent[el.Ident] {
-			if res.elided != nil && res.elided[ei] {
-				continue
-			}
-			inOwn := false
-			for ri := range regions {
-				if regions[ri].identIdx != identIdx {
-					continue
-				}
-				if xin := idx.eulerIn[ei]; regions[ri].lo <= xin && xin <= regions[ri].outPos {
-					inOwn = true
-					break
-				}
-			}
-			if !inOwn {
-				el.UnanchoredExecs++
-			}
-		}
+		// NOTE: the pre-general-rule UnanchoredExecs residual ("attributed
+		// production outside every region of its ident") is gone BY
+		// CONSTRUCTION: every non-call op carrying the ident now roots its
+		// own attributed region, so unattributable production of an eligible
+		// ident no longer exists.
 	}
 
 	// Orphan waits targeting elided ops: unmodeled demand hints, printed.
@@ -804,6 +1018,20 @@ func ResolveCachedHypothesis(g *Graph, hyp CachedHypothesis) *CachedResolution {
 			if e.waiter < 0 && res.elided[e.target] {
 				res.OrphanWaitsIntoElided++
 				res.OrphanWaitNSIntoElided += e.wait.Duration()
+			}
+		}
+		// Orphan forced facts whose digest names attributed production that
+		// was elided: the same unmodeled-demand hint (service_start matches
+		// are readiness, not production — excluded as everywhere, V33).
+		for _, ident := range idx.forcedOrphanIdents {
+			for _, ai := range idx.attributedByIdent[ident] {
+				if p.ops[ai].Kind == wcprof.OpKindServiceStart.String() {
+					continue
+				}
+				if res.elided[ai] {
+					res.OrphanForcedFactsIntoElided++
+					break
+				}
 			}
 		}
 	}

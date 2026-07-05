@@ -181,6 +181,60 @@ func TestGateUnaugmentedDroppedLinkPasses(t *testing.T) {
 	}
 }
 
+// TestGateFailsOnForcedCarryingTraceWithDroppedLinks: forced-evaluation links
+// are correctness-bearing demand facts (lazy-semantics §4.4), so a trace that
+// carries them gates dropped links exactly like a wait-carrying trace — even
+// with ZERO wait edges, a dropped link may be a silently evicted fact.
+func TestGateFailsOnForcedCarryingTraceWithDroppedLinks(t *testing.T) {
+	jsonl := toJSONL(t,
+		rec(map[string]any{"spanId": idExec, "parentId": idNone, "name": "L.prod", "startNs": baseEp, "endNs": baseEnd,
+			"attrs": map[string]any{telemetryattrs.WcprofOpKindAttr: "lazy", telemetry.DagDigestAttr: "sha256:prod"}}),
+		rec(map[string]any{"spanId": idA, "parentId": idNone, "name": "C.consume", "startNs": baseEp, "endNs": baseEnd,
+			"links": []any{map[string]any{
+				"spanId": idExec,
+				"attrs": map[string]any{
+					telemetry.LinkPurposeAttr:             telemetryattrs.LinkPurposeForced,
+					telemetryattrs.WcprofForcedDigestAttr: "sha256:prod",
+				},
+			}}}),
+		rec(map[string]any{"spanId": idB, "parentId": idNone, "name": "Container.sync", "startNs": baseEp, "endNs": baseEnd,
+			"droppedLinks": 3}),
+	)
+	c, g := mustLoad(t, jsonl)
+	if c.WaitEdgeCount != 0 || c.ForcedEdgeCount != 1 || c.TotalDroppedLinks != 3 {
+		t.Fatalf("setup: want waits=0 forced=1 dropped=3, got waits=%d forced=%d dropped=%d",
+			c.WaitEdgeCount, c.ForcedEdgeCount, c.TotalDroppedLinks)
+	}
+	if CheckStructural(c, g, GateOptions{}).Err() == nil {
+		t.Fatal("dropped links on a forced-fact-carrying trace must fail the gate")
+	}
+}
+
+// TestGateFailsOnSuppressionCarryingTraceWithDroppedLinks: emit-side
+// ident-suppression links arm the dropped-link violation exactly like
+// wait/forced links — a lost suppression mark must never pass silently.
+func TestGateFailsOnSuppressionCarryingTraceWithDroppedLinks(t *testing.T) {
+	jsonl := toJSONL(t,
+		rec(map[string]any{"spanId": idA, "parentId": idNone, "name": "C.consume", "startNs": baseEp, "endNs": baseEnd,
+			"links": []any{map[string]any{
+				"spanId": idNone,
+				"attrs": map[string]any{
+					telemetry.LinkPurposeAttr: telemetryattrs.LinkPurposeSuppressedIdent,
+				},
+			}}}),
+		rec(map[string]any{"spanId": idB, "parentId": idNone, "name": "Container.sync", "startNs": baseEp, "endNs": baseEnd,
+			"droppedLinks": 2}),
+	)
+	c, g := mustLoad(t, jsonl)
+	if c.WaitEdgeCount != 0 || c.SuppressedIdentDerivations != 1 || c.TotalDroppedLinks != 2 {
+		t.Fatalf("setup: want waits=0 suppressed=1 dropped=2, got waits=%d suppressed=%d dropped=%d",
+			c.WaitEdgeCount, c.SuppressedIdentDerivations, c.TotalDroppedLinks)
+	}
+	if CheckStructural(c, g, GateOptions{}).Err() == nil {
+		t.Fatal("dropped links on a suppression-carrying trace must fail the gate")
+	}
+}
+
 // TestGateLockWaitNoTargetPasses: a lock wait is intentionally targetless and
 // must not be counted as an unresolved target.
 func TestGateLockWaitNoTargetPasses(t *testing.T) {

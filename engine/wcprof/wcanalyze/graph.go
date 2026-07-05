@@ -70,6 +70,18 @@ func (w *WaitEdge) Duration() int64 {
 	return w.EndNS - w.StartNS
 }
 
+// ForcedEdge is one recorded forced-evaluation fact (lazy-semantics §4.4):
+// Forcer demanded an already-complete lazy result of the producer recipe
+// digest Ident. Zero duration; never gates the replay — consumed only by the
+// what-if-cached keep test.
+type ForcedEdge struct {
+	Forcer *Op
+	// Target is the completing lazy op when the run recorded it; nil when
+	// production predated recording (the Ident still carries the fact).
+	Target *Op
+	Ident  string
+}
+
 // Graph is the reconstructed op graph for one dump.
 type Graph struct {
 	Ops   map[uint64]*Op
@@ -78,8 +90,25 @@ type Graph struct {
 	// OrphanWaits are waits whose waiter op is unknown.
 	OrphanWaits []*WaitEdge
 
+	// ForcedEdges are the recorded forced-evaluation facts, in event order.
+	// Forcer is always known here; a fact whose forcer op is unknown lands
+	// in OrphanForcedFacts instead — like an orphan wait it can demand
+	// nothing (no liveness to test), but it is retained and counted, never
+	// silently dropped.
+	ForcedEdges       []*ForcedEdge
+	OrphanForcedFacts []*ForcedEdge
+
 	DroppedEvents uint64
 	OpenOps       int
+
+	// Emit-side suppression counters from the dump header (0 on captures
+	// predating them). Derivation failures make the what-if-cached analysis
+	// REFUSE the capture (a suppressed ident/fact could alter its answer);
+	// uninstrumented forcers are a declared model boundary printed as a
+	// caveat. The OTel loader fills the derivation count from per-firing
+	// suppression links (exact; loss shows as dropped links, gated).
+	SuppressedIdentDerivations      uint64
+	SuppressedUninstrumentedForcers uint64
 
 	// TraceStartNS/TraceEndNS bound all recorded activity.
 	TraceStartNS int64
@@ -153,6 +182,8 @@ func LoadMulti(readers []io.Reader) (*Graph, error) {
 				merged.OpenOps = header.OpenOps
 			}
 			merged.DroppedEvents = max(merged.DroppedEvents, header.DroppedEvents)
+			merged.SuppressedIdentDerivations = max(merged.SuppressedIdentDerivations, header.SuppressedIdentDerivations)
+			merged.SuppressedUninstrumentedForcers = max(merged.SuppressedUninstrumentedForcers, header.SuppressedUninstrumentedForcers)
 		}
 		allEvents = append(allEvents, events...)
 	}
@@ -187,8 +218,10 @@ func Build(header *wcprof.DumpHeader, events []wcprof.DumpEvent) (*Graph, error)
 	}
 
 	g := &Graph{
-		Ops:           make(map[uint64]*Op),
-		DroppedEvents: header.DroppedEvents,
+		Ops:                             make(map[uint64]*Op),
+		DroppedEvents:                   header.DroppedEvents,
+		SuppressedIdentDerivations:      header.SuppressedIdentDerivations,
+		SuppressedUninstrumentedForcers: header.SuppressedUninstrumentedForcers,
 	}
 
 	dumpRelNS := header.DumpedUnixNano - header.EpochUnixNano
@@ -304,9 +337,24 @@ func Build(header *wcprof.DumpHeader, events []wcprof.DumpEvent) (*Graph, error)
 		}
 	}
 
-	// Nested-client links: clientID -> hosting exec op.
+	// Nested-client links: clientID -> hosting exec op. Forced-evaluation
+	// links become first-class edges (a nil target is legitimate there:
+	// production predated recording).
 	nestedClientExec := make(map[string]*Op)
 	for _, rl := range links {
+		if rl.kind == "forced" {
+			fe := &ForcedEdge{Ident: rl.ident}
+			if t, ok := g.Ops[rl.targetID]; ok {
+				fe.Target = t
+			}
+			if forcer, ok := g.Ops[rl.fromID]; ok {
+				fe.Forcer = forcer
+				g.ForcedEdges = append(g.ForcedEdges, fe)
+			} else {
+				g.OrphanForcedFacts = append(g.OrphanForcedFacts, fe)
+			}
+			continue
+		}
 		if rl.kind != "nested_client" || rl.ident == "" {
 			continue
 		}

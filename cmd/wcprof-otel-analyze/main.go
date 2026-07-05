@@ -48,6 +48,7 @@ func main() {
 	flag.Var(&cachedDigests, "cached", "what-if-cached: recipe digest (dag.digest) to simulate as a cache hit, or '@file' manifest with one digest per line (repeatable)")
 	flag.Var(&cachedClasses, "cached-class", "what-if-cached: cache every executed digest of this call class, e.g. 'Container.withExec' (repeatable)")
 	flag.Var(&cachedExecs, "cached-exec", "what-if-cached: cache the digests owning user execs matching this argv pattern (boundary-aware prefix; 'contains:' for substring; repeatable)")
+	allowPartial := flag.Bool("allow-partial-selection", false, "what-if-cached: proceed when a -cached-exec pattern's matches only partly resolve to owning call digests (the partial coverage is printed; without this flag it is an error)")
 	cachedPull := flag.Duration("cached-pull-cost", 0, "what-if-cached: simulated cost of each hit (the pull-cost seam; 0 = local warm hit)")
 	cachedFromRun := flag.String("cached-from-run", "", "what-if-cached calibration: path to a WARM run's otlpdump capture — simulate this (cold) trace under the warm run's actual hit set and report drift vs its actual makespan (exclusive with the other -cached* selectors; not supported with -trace)")
 	flag.Parse()
@@ -96,10 +97,11 @@ func main() {
 		os.Exit(2)
 	}
 	sel := wcanalyze.CachedSelection{
-		Digests:      digests,
-		Classes:      cachedClasses,
-		ExecPatterns: cachedExecs,
-		PullCostNS:   int64(*cachedPull),
+		Digests:               digests,
+		Classes:               cachedClasses,
+		ExecPatterns:          cachedExecs,
+		AllowPartialSelection: *allowPartial,
+		PullCostNS:            int64(*cachedPull),
 	}
 
 	if *cachedFromRun != "" && *traceID != "" {

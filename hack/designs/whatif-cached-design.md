@@ -216,8 +216,11 @@ replay**:
 4. **Elide-or-keep, whole regions.** An elided region vanishes: its ops'
    actions are never replayed, its lock (fixed-delay) waits never charge, and
    — by the demand test — nothing live references it. A kept region replays
-   *exactly as recorded*, and its cached root is *not* short-circuited;
-   instead it's reported: `kept: externally shared (N ops, X.Xs)`.
+   *as recorded* — nothing inside it is removed or short-circuited, and its
+   cached root is *not* short-circuited; the one refinement is that waits
+   the hypothesis itself satisfies (a kept op joining an elided lazy root,
+   §6.5 note 13) are waived — instead it's reported:
+   `kept: externally shared (N ops, X.Xs)`.
 
 > **Why no partial elision in v1.** The faithful refinement — elide the
 > non-shared branches of a kept region and re-anchor the shared service at its
@@ -449,6 +452,14 @@ chunk as incomplete until its rows are covered.
 | V24 | A1: the withExec lazy-exec shape (thin resolver; production under a consumer-parented lazy op; `exec.run` ident = the producing digest), cached with vs without the attribution. | Unattributed: only the thin resolver elides (the honest ≈0 V23 measured). Attributed: the exec subtree elides too, the wrapper replays as the stated remainder, the ancestor's production wait/spawn are waived (counted, never `ElidedOpDemanded`). | 4 |
 | V25 | A1 demand distinctions: a same-ident exec of an UNCACHED digest; a third-party (non-ancestor) waiter into the attributed region; a second consumer joining the same evaluation via a lazy wait on the wrapper. | Uncached-ident execs are untouched (no leakage). Third-party demand keeps the region whole (reported; internal schedule preserved). The joining consumer waits the live wrapper and unblocks at its remainder finish. | 4 |
 | V26 | A1 calibration re-run: both V23 captures re-analyzed under A1. | Before/after drift recorded in `hack/designs/whatif-cached-calibration.md` with the residuals named; the module workload unchanged (its gap is digest instability, not attribution). | 4 |
+| V27 | The lazy-op producer-digest emit, across lazy families (Container/Directory/File shapes). | Lazy ops carry the producer's recipe digest as their ident, byte-identical between the native dump and the OTel loader (`dag.digest` on both mint shapes). The emit-side unit test also pins the omit-on-error/frameless degradation: no ident, evaluation behavior unchanged. | R |
+| V28 | General-rule elision on the post-emit withExec shape (ident-carrying lazy wrapper containing prepareMounts / exec.run / applyOutputs). | The whole wrapper elides via the lazy region; savings exceed the exec-only fallback's by EXACTLY the wrapper's critical contribution (fixture: 800ms vs 650ms, difference = the 150ms wrapper). | R |
+| V29 | Pre-emit-trace regression: the same shape with an ident-less lazy op, plus the committed OTel capture. | A1's exec-sourced answers unchanged — the fallback is automatic (an ident-less lazy op joins no region); the committed-capture tests keep passing untouched. | R |
+| V30 | Hit-set extraction on a warm fixture containing complete, pending, and mixed-outcome hit digests. | `HitDigests` returns complete hits only; `PendingHitDigests` the pending ones; the calibration excludes pending-ONLY digests from the CachedSet (they witness no materialized payload) and prints the exclusion count. | R |
+| V31 | The G1 scenario: D's lazy production nests E's; a later consumer forces the completed E (recorded only as a forced fact). | WITHOUT the fact, hypothesizing {D} elides E's production a survivor needed — the pre-fix overstatement, pinned as the motivating assertion. WITH it, the region is kept whole, reason "externally forced (post-completion demand)". A fact whose digest is itself an ELIGIBLE hypothesized digest demands nothing (its forcer hits the materialized payload under B1). | R |
+| V32 | Pending-production hits on the OTel source; native/OTel parity. | The explicit hit_pending stamp loads as a hit (pending-tallied); a BARE PendingAttr without a stamp stays "ok" — recordPending fires on misses too (`core/telemetry.go:157`), so the pre-emit shape is ambiguous and never guessed; CachedAttr stays the complete hit. Both sources classify identically. | R |
+| V33 | service_start semantics, pinned from both directions (`services.go:524, :473-477`). | Service startup is per-session runtime READINESS, not result production: a real warm run re-starts the service with every result cached, so service_start ops NEVER root elision regions — neither when the content-preferred ident mismatches the recipe digest nor when it coincides. The start honestly survives in both cases. | R |
+| V34 | Recording-changes calibration re-run: both workloads captured on an engine with the four emits. | Before/after drift recorded in `whatif-cached-calibration.md`; expected: the withExec drift drops as the wrapper remainder becomes removable. Honest numbers whatever they are. | R |
 
 ## 5. Sequencing note: how this meets Track A
 
@@ -550,8 +561,10 @@ corners, each derived from the doctrine (§0) and the elide-or-keep semantics
     and `WaivedProductionWaits` prints the count. A synchronous lazy→exec
     nesting (no explicit wait edge) needs no waiver — the implicit-join skip
     covers it. Third-party demand keeps the region whole; a kept region
-    shifts with its anchors under other elisions but never deforms
-    internally. Rows V24–V25 pin all of it; V26's re-run lives in
+    shifts with its anchors under other elisions and does not deform
+    internally — except for waits the hypothesis itself satisfies, the one
+    reasoned refinement note 13 adds (a kept op's join on an elided lazy
+    root is waived). Rows V24–V25 pin all of it; V26's re-run lives in
     `whatif-cached-calibration.md`.
 12. **Chunk 4 data path.** The dump gains `InputsID` (interned canonical
     JSON-array of a call's cache-input recipe digests, the same encoding
@@ -565,7 +578,90 @@ corners, each derived from the doctrine (§0) and the elide-or-keep semantics
     call that later failed loads as the failure), and pre-amendment traces
     fall back to the old derivation. No replay consumer yet: this is the
     Stage-2/Track-A substrate, landed as data.
-13. **The ranking's `removed-self` column and its candidate budget.** The
+13. **The four approved recording changes (Erik's 2026-07-05 ruling; catalog
+    rows V27–V34).** (a) The GENERAL RULE replaces A1's exec-only sourcing:
+    elision regions come from `attributedByIdent` — every non-call op whose
+    ident names the cached digest (lazy ops via the new producer-digest emit
+    at `dagql/cache.go:3045`, exec.run, orphaned call_execs) — with A1's
+    machinery unchanged and the exec sourcing automatic on pre-emit traces.
+    service_start ops are indexed but EXCLUDED from region sourcing: startup
+    is per-session runtime readiness a warm run re-pays, never elidable
+    production (V33). The anchored call_exec shape (a call_exec directly
+    under its same-ident executor call) is excluded from region-rooting as
+    REDUNDANT, not exempt: its subtree IS the call region; rooting it again
+    would only duplicate reports and fixpoint work (`nonRegionAttribution`,
+    which also carries the service_start exclusion). A gating wait TARGETING
+    a lazy region's ROOT is production demand from a concurrent forcer —
+    waived regardless of waiter ancestry (B1 grants that joiner the
+    materialized payload; waits on an EXEC root remain third-party demand,
+    V25b), and waivers are neither installed nor counted for waiters that
+    are themselves elided (their waits never replay). Consequently "a kept
+    region replays exactly as recorded" gains one reasoned refinement: waits
+    the hypothesis itself satisfies (a kept-region op joining an ELIDED
+    lazy root of another eligible digest) are waived inside it too.
+    The `UnanchoredExecs` residual is deleted — dead by construction, since
+    unanchored attributed production now roots its own region. (b) The
+    hit-production-state emit: pending-production hits record `hit_pending`
+    natively and stamp it on the call span (OTel-ADDITIVE; CachedAttr's
+    UI-facing gating untouched); eligibility counts them as hits with the
+    B1/B2 split visible; hit-set extraction separates them and the
+    calibration excludes pending-only digests loudly. (c) The
+    forced-evaluation fact: the Evaluate fast path leaves a zero-duration
+    `LinkKindForced` event / forced-purpose span link (deduped per forcer
+    under `lazyMu`; target = the completing lazy op retained in dedicated
+    done-fields, distinct from the §3.0.1 per-attempt resets), consumed by
+    the keep test with two reasoned exclusions: eligible-hypothesized-digest
+    facts demand nothing (B1), and a non-live forcer's demand vanishes with
+    it. There is deliberately NO ancestor exclusion for facts — the A1
+    waiver symmetry does not apply: facts are emitted only on the fast path
+    (post-completion consumption; the launch join takes the slow path and
+    never emits one), and a target inside a region cannot have been launched
+    by an ancestor of that region's root (its lazy op would be parented
+    outside the region) — so an ancestor's fact is a survivor's real demand
+    (V31's ancestor variant pins it). An UNRESOLVED-TARGET fact — its
+    completing lazy op predated recording, an EXPLICIT emit-time state
+    (native TargetID=0; OTel zeroed link span id), distinct from capture
+    loss, which the structural gate separately refuses (missing-span
+    checksum; dropped-links violation on fact-carrying traces) — degrades
+    its demand test from target position to recorded-ident containment:
+    still a pure function of recorded data (no guessed value anywhere),
+    conservative in direction (it can only ADD keeps, never enable an
+    elision), with every firing visible — such keeps carry their own reason
+    string ("unrecorded target; demand matched by recorded ident
+    containment") and the report prints the fact counts (consumed /
+    unrecorded-target / orphan). In the containment test a service_start
+    match is skipped (readiness, not production, V33) but an anchored
+    call_exec match counts (it IS the digest's executing subtree; dropping
+    it would silently over-elide). A fact whose FORCER op is unknown
+    demands nothing — there is no forcer whose liveness the keep test could
+    judge, the orphan-WAIT rationale exactly — but is retained and counted
+    (`OrphanForcedFacts`), with an unmodeled-demand hint printed when its
+    digest names elided production. Facts never gate the replay, so
+    `ElidedOpDemanded`'s provability argument is untouched. EMIT-side
+    omissions are counted too, in the dump header / span attrs: a lazy
+    ident-derivation failure (ident AND fact omitted) makes the
+    what-if-cached sections REFUSE the capture — expected 0, since the
+    digest is memoized from the cache lookup that admitted the result — and
+    a fact not emitted for want of an instrumented forcer prints as a
+    CAVEAT (a declared model boundary, legitimately nonzero under
+    per-session profiling; a context that is neither instrumented nor
+    profiling-marked is outside even the counter's reach — same boundary).
+    The what-if-cached sections also refuse a native capture with
+    DroppedEvents > 0 (any dropped event could have been demand evidence;
+    the refusal surfaces the orphan-demand counts), and a ranking row
+    touched by degraded fact evidence (a containment keep or an orphan fact
+    naming elided production) is marked DEGRADED-EVIDENCE on the row
+    itself. `--cached-exec` patterns whose matches only partly resolve to
+    owning digests are an ERROR without `-allow-partial-selection` (with
+    it, the partial coverage is printed). Declared boundary, per Erik's
+    ruling: whether a capture predates these emits (old engine) is NOT
+    detected or refused — pre-emit captures simply carry no facts/idents
+    and answer under v1 semantics with zero-valued counters. (d) The loader's outcome precedence
+    is status > stamp > cached > ok; a BARE `PendingAttr` deliberately stays
+    "ok" (`recordPending` fires on misses too — the pre-emit shape is
+    ambiguous and never guessed; post-emit pending hits always carry the
+    stamp).
+14. **The ranking's `removed-self` column and its candidate budget.** The
     column sums elided-region self-time and the short-circuited calls' own
     self-time (`HitCallSelfNS`) — on un-augmented OTel captures, where the
     producing work is folded into the call span, the latter is the ONLY

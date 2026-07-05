@@ -221,8 +221,18 @@ func WriteReport(w io.Writer, g *Graph, opts ReportOptions) error {
 
 		// What-if-cached ranking (design §3.4): default-on whenever the graph
 		// has executed call digests; the explicit-set detail section is
-		// rendered by the CLIs behind the --cached flags.
-		writeWhatIfCachedRanking(w, RunWhatIfCached(g, baseline), opts.TopClasses)
+		// rendered by the CLIs behind the --cached flags. The section refuses
+		// a capture whose provenance may have silently lost demand evidence
+		// (dropped recorder events / emit-side ident suppression) and prints
+		// the uninstrumented-forcer boundary as a caveat.
+		if err := cachedRefusalErr(g); err != nil {
+			fmt.Fprintf(w, "%v\n\n", err)
+		} else {
+			if cav := cachedForcerCaveat(g); cav != "" {
+				fmt.Fprintf(w, "%s\n\n", cav)
+			}
+			writeWhatIfCachedRanking(w, RunWhatIfCached(g, baseline), opts.TopClasses)
+		}
 	}
 
 	// Class table.
