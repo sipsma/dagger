@@ -150,7 +150,7 @@
 <main>
 
 <h1>Remote Cache — Design</h1>
-<p class="sub">v20 &nbsp;·&nbsp; all sections settled &nbsp;·&nbsp; verification round 16 folded &nbsp;·&nbsp; 2026-07-03</p>
+<p class="sub">v21 &nbsp;·&nbsp; all sections settled &nbsp;·&nbsp; verification round 16 complete &nbsp;·&nbsp; 2026-07-03</p>
 
 <div class="banner">
 <b>Status.</b> The living design doc for the remote-cache engine work: requirements and
@@ -336,7 +336,8 @@ previously-hit, real performance trap.</p>
 <p>Every result's materialization state (materialized / remotely materializable /
 recomputable, plus the content itself once present) has <b>exactly one home</b>, owned by
 the cache, keyed by the result. It is written only at well-defined points — publication of
-locally-completed work, lazy content arrival for that result, import — under the cache's
+locally-completed work, the result's own materialization outcome (content arrival, or the
+drop on permanent source exhaustion, §9 D3), import — under the cache's
 ordinary locking. Clones, copies, detached views, and mount-replay <b>reference</b> the
 home — so a copy can never become the only holder of, nor lose its path to, the result's
 content or the way to re-make it — and they never copy its state or acquire homes of
@@ -448,7 +449,8 @@ misses.</p>
 bundle import — completes <b>before the engine serves sessions</b>, under coarse locking
 (these are fast, batched metadata writes; there is no pause-time problem to engineer
 around). While serving, cache state changes only through publication of locally-completed
-work and lazy content arrival on a result's own home (R5). Continuous / mid-serving
+work and a result's own materialization outcome — content arrival, or the drop on
+permanent source exhaustion (R5, §9 D3). Continuous / mid-serving
 import is an explicit non-goal for this take; if a future take adds it, it arrives with
 its own explicit quiesce design and may not weaken R15 to do so.</p>
 </div>
@@ -697,7 +699,11 @@ decided in Part II.</p>
   drop touches and never touches (candidacy + persisted retention; never live holders)
   and its exact plug-in point; (5) the last history sentence in §9.3 rewritten forward.
   §8 D1 additionally pins the persisted both-forms shape (form discriminator removed;
-  presence-based).</li>
+  presence-based). A scoped confirmation sub-round then verified every fold and surfaced
+  two residuals, both folded: three stale "only these write points" claims that predated
+  the drop (R5, R14, §7's test row) now name the materialization outcome; and the
+  both-forms shape no longer claims <code>LazyKind</code> universally (Container's
+  payload has none — core/container.go:534).</li>
 </ol>
 </div>
 </details>
@@ -1245,8 +1251,8 @@ consults).</td></tr>
 <code>ensurePersistedHitValueLoaded</code> consults it.</td></tr>
 <tr><td><code>dagql/materialization_test.go</code></td><td><span class="chip newf">NEW</span></td>
 <td>Model-level unit tests: fall-through order; zero-viable-sources refusal (R2);
-write-point legality (only publication / own-result realization / import / flush-read
-may touch the state).</td></tr>
+write-point legality (only publication / own-result materialization outcome (realization
+or the §9 D3 exhaustion drop) / import / flush-read may touch the state).</td></tr>
 <tr><td><code>core/lazy_state.go</code></td><td><span class="chip modf">MOD</span></td>
 <td><code>GetOrEval</code>'s empty-after-Evaluate branch becomes the read-through (+ a
 small per-type fill hook). Implementation starts with a pin reproducing
@@ -1406,8 +1412,8 @@ enough — the entire store is wiped and the engine starts cold (§7, Fact 3).</
 <li>the <b>local-snapshot source</b> → its refKeys, into
 <code>result_snapshot_links</code>;</li>
 <li>the <b>lazy-form source</b> → nothing new at all: it is already inside the envelope
-(<code>LazyKind</code>/<code>LazyJSON</code>, referencing the results in
-<code>result_deps</code>).</li>
+(<code>LazyJSON</code>, plus <code>LazyKind</code> for types with several lazy kinds,
+referencing the results in <code>result_deps</code>).</li>
 </ul>
 <p>What changes is <em>where the encoder gets the snapshot refs</em>. Today it walks the
 value structs and asks them what refs they hold (Fact 3). In this design it copies them
@@ -1432,8 +1438,10 @@ exactly one, e.g. core/file.go:284/291 — covered by this take's
 <code>schema_version</code> bump). No new schema tables.</p>
 <p><b>The persisted shape, pinned:</b> the payload's exclusive form discriminator goes
 away. Snapshot-backedness is indicated by what already indicates it — the result's rows
-in <code>result_snapshot_links</code> — and the lazy form by a non-empty
-<code>LazyKind</code>/<code>LazyJSON</code>; either, both, or (for self-contained scalar
+in <code>result_snapshot_links</code> — and the lazy form by a non-empty lazy payload:
+<code>LazyJSON</code>, with <code>LazyKind</code> alongside where a type registers
+several lazy kinds (Directory and File do; Container's single lazy form carries no kind
+discriminator, core/container.go:534). Either form, both, or (for self-contained scalar
 payloads) neither may be present. Old decoders never meet the new shape: the
 <code>schema_version</code> bump wipes on upgrade (§8 D2's store-level rule).</p>
 <p><b>And nothing needs a "retainability" concept.</b> Whether a result can be recomputed
