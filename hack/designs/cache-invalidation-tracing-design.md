@@ -354,9 +354,11 @@ engine-dev-test workflow only.
 
 ## 12. Flagged for Erik (not blocking)
 
-The Cloud faithfulness bar (Q6); E2 vs dag.call-parsing as the category-1 authority; and whether
-category 2's answer text should eventually name the lifetime mechanism (would need retention
-facts — refused for now per §4).
+The Cloud faithfulness bar (Q6); and whether category 2's answer text should eventually name
+the lifetime mechanism (would need retention facts — refused for now per §4). RESOLVED since
+this list was written: E2 vs dag.call-parsing as the category-1 authority — E2 was ADOPTED on
+W10's evidence at Chunk 3 (ruling and reasoning in §13), with dag.call parsing remaining the
+OTel path.
 
 ## 13. As-built validation notes (implementation record)
 
@@ -368,8 +370,14 @@ applied here is not recorded. History searched: the one paired reference capture
 scoped chains (`Query.moduleSource` cold `xxh3:8107b9e7f62d4dac` → warm `xxh3:410bda4bc8c95210`)
 pair via the unique same-class root partner and answer category 3 naming *"scope input values"*
 among the self-change candidates with the *"scope structure not recorded (native)"* label — the
-category-1 half of W10 is E2-gated on native captures per §6.1's own data-availability statement
-and completes with Chunk 3's E2 decision; (c) the from-tag pair answers with its paired
+category-1 half of W10 was E2-gated on native captures per §6.1's own data-availability
+statement, and **COMPLETED after Chunk 3's E2 adoption**: fresh native cold/warm captures from
+an E2-emitting engine build (2026-07-06, module workload `hello@v0.3.0`, captures in
+`/tmp/invtrace-w10/`) answer the warm scoped chain (`Query.moduleSource
+xxh3:308c3f7996cacd4a`) with category 1 — *"scoped per client … (dagql.PerClientInput)"*, scope
+evidence `cachePerClient` — natively; the same captures carry live E1 facts (`request
+no_matching_term`, `request input_unknown 1`) and zero DNC-ident suppressions; (c) the from-tag
+pair answers with its paired
 counterpart and paired price (warm `Container.from xxh3:b677e73b409dfa9b` ← cold
 `xxh3:e442fcb8babb1931`, save@pull=0 = 670.6ms) — NOTE the cold capture holds TWO from digests
 (the digest-pinned form `xxh3:bd838c8a8919c204`, stable and hit warm; the tag-scoped form,
@@ -449,10 +457,13 @@ saturating at 2 — ambiguity ALWAYS refuses; the byte-identical exception is pr
 argued in-code), one-to-one in-order class matching between anchors, empty-side gaps as
 deletions/additions, the per-pairing E3a ordered-vector soundness gate, and the poison-set
 restart-to-fixpoint for pairing conflicts (the final report derives nothing from a voided
-pairing); (d) classification precedence: 7 (any-dnc, cross-capture) > 8-within-capture >
-E1-exact (5/6/9) > stable-reference (7-dnc-mixed > 8-failed-only > 2) > 1-scoped > 3-paired >
-4-absent > undetermined — with every answer carrying its deciding datum and the searched-history
-statement; (e) E3b arg-level attribution (`diffCallSelf`) with the identical-rendering label.
+pairing); (d) classification precedence — the EXACT switch order in `classifyOrigin`: 7 from THIS
+capture's outcomes (any-dnc per-digest rule) > 8 within-capture (failed-before-re-demand) >
+E1-exact (5/6/9 from recorded terminal facts) > stable-reference (inside which: 7 when the
+reference records dnc for the digest > 8 failed-only > 2, else the tally-labeled undetermined) >
+1-scoped > 3-paired > 4-absent > undetermined — with every answer carrying its deciding datum
+and the searched-history statement; (e) E3b arg-level attribution (`diffCallSelf`) with the
+identical-rendering label.
 
 **14.3 Pricing:** the offline analyzer prices origins with the what-if-cached replay (W7:
 equality with the detail run). Cloud has no replay; the honest Cloud v1 renders the walk,
@@ -472,9 +483,13 @@ dropped-events/suppressed-idents admission rule, per-node refusals (module-blind
 pairing, corrupt dag.call as CORRUPT not absent), and an explicit "incomplete trace" render
 state instead of a silently partial answer.
 
-**14.6 Activation model:** on ALL existing Cloud traces: the walk (module-blind caveats),
-categories 1/7 via dag.call + outcomes, pair-mode digest-stable answers (2/8), E3b arg-level
-attribution. On profiled runs (wcprof OTel source active): E1 exact causes (5/6/9,
-input_unknown next hops), E3a positional pairing, the digest-only lookup facts. Native dumps
-additionally carry E2 scope facts and the DNC ident micro-emit. The take-3 merge folds E1's
-`persisted_load_failed` into the `demoted_to_miss` seam (§13's drift table).
+**14.6 Activation model:** on ALL existing Cloud traces: the walk (module-blind caveats and
+per-node refusals), categories 1/7 via dag.call + outcomes, pair-mode digest-stable answers
+(2/8), and the E3b STRUCTURES (parsed and rendered on every dag.call-bearing span). E3b
+ATTRIBUTION, however, only fires from the category-3 paired branch — it needs a positionally
+paired origin, which needs ordered vectors on both input-bearing sides — so on unprofiled
+traces it reaches only zero-input root pairs; arg-level attribution in general activates with
+E3a (profiled runs). On profiled runs additionally: E1 exact causes (5/6/9, input_unknown next
+hops), E3a positional pairing, the digest-only lookup facts. Native dumps additionally carry E2
+scope facts and the DNC ident micro-emit. The take-3 merge folds E1's `persisted_load_failed`
+into the `demoted_to_miss` seam (§13's drift table).
