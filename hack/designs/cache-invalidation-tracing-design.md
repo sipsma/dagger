@@ -135,7 +135,8 @@ the which/why × how-much join of the two tracks, and it is what ranks the front
 
 ## 4. Data plan: have / add-justified / refused
 
-**Have today (both sources unless noted):** `Op.CacheInputs` (ordered input digests);
+**Have today (both sources unless noted):** `Op.CacheInputs` (native: the ordered structural-ref
+vector; OTel: an ordered deduplicated module-less edge list — see §3.1);
 recipe-digest idents on calls and production; outcomes incl. `hit_pending` + `do_not_cache`;
 producer-labeled deferred work; use-markers; result ids (native; per-capture on OTel);
 `dag.call` on OTel — the full call AST **including implicit-input names**
@@ -158,8 +159,8 @@ analyzer" until that lands.
   are *underivable offline* — candidate collection silently drops expired and session-filtered
   results (`cache_egraph.go:554-559,:577-607,:632-656`) and captures carry no TTL/resource facts;
   `input_unknown(k)` gives the walk an authoritative next hop even in single-capture mode.
-  Round-2 refinements (accepted): E1 is a LOOKUP-OUTCOME fact, not "miss calls only" — it is
-  emitted whenever the outcome is not a clean hit, covering misses AND the hit-unusable case
+  Round-2 refinements (accepted): E1 is a LOOKUP-OUTCOME fact, not "miss calls only" — for
+  lookup-performing calls it is emitted on a miss or hit-unusable outcome, covering the miss arms AND the hit-unusable case
   (`persisted_load_failed` fires on a SELECTED hit whose payload load then fails,
   `cache_egraph.go:915-933`); the lookup ENTRY (request path vs digest-only path) is an orthogonal
   flag, not an enum value — specific reasons still apply on digest-only entries.
@@ -223,7 +224,10 @@ join machinery reused):
   anchors, pair the leftover positions only when they match one-to-one by class in order on both
   sides (equal leftover counts, classes agreeing pairwise); any other shape — unequal leftovers,
   duplicate classes that admit more than one order-preserving matching, crossing anchors — is the
-  refusal line. Digest anchoring first is what defeats the greedy-prefix mispair (A=[C:d1, C:d2,
+  refusal line. The digest LCS itself must be UNIQUE at occurrence level: repeated equal digests
+  that admit multiple maximal anchor sets refuse too (the evidence cannot say which duplicate was
+  removed), except when the ambiguous interval is byte-identical on both sides and yields no
+  report either way. Digest anchoring first is what defeats the greedy-prefix mispair (A=[C:d1, C:d2,
   D:d3] vs B=[C:d2, D:d3]: d2 and d3 anchor, d1 is exposed as the deletion). E3b upgrades
   attribution within pairs; it does not loosen the refusal contract. A node
   that pairs with nothing is category 4 (new work) or part of such a structural change, reported
@@ -240,7 +244,10 @@ pipeline" without changing the algorithm.
 1. **Offline analyzer first** (this design's implementation): a `why-uncached` mode on both CLIs —
    input: one capture or a pair + a target selector (digest / class / argv, reusing the whatif
    selector machinery); output: ranked frontier, per-origin category + why-text + priced impact +
-   the Merkle path. Works on native dumps and Cloud traces (`wccloud.Load`) today.
+   the Merkle path. Works on native dumps today; Cloud traces (`wccloud.Load`) support
+   single-capture analysis with the §3.1 OTel caveats (module edges absent pre-E3 — global caveat,
+   per-node refusal after Chunk 4), and pair/module-complete walks require E3a/E3b; category 1 on
+   OTel after Chunk-1 dag.call implicit-input parsing, on native after E2.
 2. **Cloud destination**: port the converged algorithm — materialize `(digest, inputs, cached,
    outcome, miss-reason)` per op from `otel_traces` (ClickHouse MV), GraphQL
    "traceInvalidation(spanID)" walking the stored DAG, UI rendering the frontier + path.
@@ -318,9 +325,11 @@ guess to make a report prettier.
 - **Chunk 3 — E1 emit** (engine): terminal-complete lookup-outcome fact, both sources,
   additive-only, both entries + the do-not-cache ident micro-emit; analyzer consumption;
   categories 5/6/9. Rows W5, W14. E2 decision rides with it.
-- **Chunk 4 — E3a + dag.call parsing (OTel pair mode + category 1)**: the ordered-input parity
-  attr, loader preservation of call structure (E3b), OTel positional pairing unlocked, arg-level
-  change attribution. Rows W8, W12, W13.
+- **Chunk 4 — E3a + full dag.call structure (OTel pair mode)**: the ordered-input parity attr,
+  loader preservation of CANONICAL SELF STRUCTURE (E3b — full args/literals), OTel positional
+  pairing unlocked, arg-level change attribution, module-bearing per-node refusal for the walk.
+  Rows W8, W12, W13, W16c. (Ownership split, explicit: Chunk 1 parses ONLY the implicit-input
+  NAMES from dag.call — enough for category 1; Chunk 4 parses the full structure.)
 - **Chunk 5 — CLI surface + report** polish; Cloud-destination appendix finalized for handoff.
 
 Per-chunk Codex xhigh review to convergence; commit early/often; integration tests via the
