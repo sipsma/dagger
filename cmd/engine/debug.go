@@ -71,29 +71,7 @@ func setupDebugHandlers(addr string, eng *server.Server) error {
 			return
 		}
 	}))
-	if os.Getenv("_DAGGER_TESTONLY_CACHE_TRANSPORT") == "1" {
-		// Test-only file transport: export the retained cache as a bundle
-		// file plus a directory CAS of its chain blobs, for cross-engine
-		// integration tests over a shared volume. The real transport
-		// (service client + admin API) replaces this endpoint.
-		m.Handle("/debug/testonly/export-cache-bundle", http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-			if eng == nil {
-				http.Error(rw, "engine server not available", http.StatusServiceUnavailable)
-				return
-			}
-			bundlePath := req.URL.Query().Get("bundle")
-			if bundlePath == "" {
-				http.Error(rw, "missing bundle path", http.StatusBadRequest)
-				return
-			}
-			casDir := req.URL.Query().Get("cas")
-			if err := eng.TestOnlyExportCacheBundle(req.Context(), bundlePath, casDir); err != nil {
-				http.Error(rw, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			rw.WriteHeader(http.StatusOK)
-		}))
-	}
+	registerTestOnlyCacheTransportHandlers(m, eng)
 
 	if os.Getenv("_DAGGER_TESTONLY_SNAPSHOT_LOSS") == "1" {
 		// Test-only fault injection: simulate external loss of one snapshot

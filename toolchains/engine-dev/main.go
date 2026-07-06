@@ -68,7 +68,8 @@ type EngineDev struct {
 	SubnetNumber int      // +private
 	EBPFProgs    []string // +private
 
-	Race               bool // +private
+	Race               bool     // +private
+	BuildTags          []string // +private
 	ClientDockerConfig *dagger.Secret
 }
 
@@ -93,6 +94,13 @@ func (dev *EngineDev) WithEngineConfig(key, value string) *EngineDev {
 
 func (dev *EngineDev) WithRace() *EngineDev {
 	dev.Race = true
+	return dev
+}
+
+// WithBuildTags adds Go build tags to the engine binary build (e.g. the
+// integration-test build's testonly_cache_transport).
+func (dev *EngineDev) WithBuildTags(tags []string) *EngineDev {
+	dev.BuildTags = append(dev.BuildTags, tags...)
 	return dev
 }
 
@@ -170,6 +178,7 @@ func (dev *EngineDev) Container(
 		return nil, err
 	}
 	builder = builder.WithRace(dev.Race)
+	builder = builder.WithBuildTags(dev.BuildTags)
 	if platform != "" {
 		builder = builder.WithPlatform(platform)
 	}

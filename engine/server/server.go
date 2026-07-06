@@ -47,7 +47,6 @@ import (
 	"github.com/dagger/dagger/internal/buildkit/util/winlayers"
 	wlabel "github.com/dagger/dagger/internal/buildkit/worker/label"
 	"github.com/moby/locker"
-	digest "github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
 	bolt "go.etcd.io/bbolt"
@@ -542,37 +541,6 @@ func (srv *Server) initLocalCacheStateOnce(ctx context.Context, cfg config.Confi
 	return localCacheStateResetNone, nil
 }
 
-// testOnlyCacheTransportBoot is the file-transport half of the bundle
-// inflow for integration tests: env-gated bundle import after local restore
-// (inside the pre-serving boot window) plus a directory-CAS blob source for
-// content-chain realization. The real transport (config-driven service
-// client) replaces this wiring; failures degrade like any bundle inflow —
-// logged, counted at the dagql layer, never a boot failure.
-func (srv *Server) testOnlyCacheTransportBoot(ctx context.Context) {
-	if os.Getenv("_DAGGER_TESTONLY_CACHE_TRANSPORT") != "1" {
-		return
-	}
-	if casDir := os.Getenv("_DAGGER_TESTONLY_CHAIN_CAS_DIR"); casDir != "" {
-		srv.engineCache.SetContentChainBlobSource(bkcache.DirectoryCAS{Root: casDir})
-	}
-	bundlePath := os.Getenv("_DAGGER_TESTONLY_IMPORT_CACHE_BUNDLE")
-	if bundlePath == "" {
-		return
-	}
-	f, err := os.Open(bundlePath)
-	if err != nil {
-		logrus.WithError(err).Warn("test-only cache bundle import: open bundle")
-		return
-	}
-	defer f.Close()
-	summary, err := srv.engineCache.ImportBundle(ctx, f)
-	if err != nil {
-		logrus.WithError(err).Warn("test-only cache bundle import: bundle skipped")
-		return
-	}
-	logrus.WithField("summary", fmt.Sprintf("%+v", summary)).Info("test-only cache bundle imported")
-}
-
 func (srv *Server) closeLocalCacheStateForReset() error {
 	var err error
 	if srv.engineCache != nil {
@@ -898,51 +866,6 @@ func (srv *Server) DagqlCacheEntryStats() dagql.CacheEntryStats {
 		return dagql.CacheEntryStats{}
 	}
 	return srv.engineCache.EntryStats()
-}
-
-// TestOnlyExportCacheBundle writes the retained cache as a bundle file and
-// copies its chain blobs into a directory CAS — the file-transport export
-// integration tests drive between engines sharing a volume. Reachable only
-// through the test-gated debug endpoint; the real transport (service
-// client, admin API) replaces this wiring.
-func (srv *Server) TestOnlyExportCacheBundle(ctx context.Context, bundlePath, casDir string) (rerr error) {
-	if srv.engineCache == nil {
-		return fmt.Errorf("dagql cache not available")
-	}
-	f, err := os.Create(bundlePath)
-	if err != nil {
-		return fmt.Errorf("create bundle file: %w", err)
-	}
-	defer func() {
-		if cerr := f.Close(); cerr != nil && rerr == nil {
-			rerr = cerr
-		}
-	}()
-	summary, err := srv.engineCache.ExportBundle(ctx, f, dagql.CacheBundleExportOptions{
-		EngineVersion: engine.Version,
-	})
-	if err != nil {
-		return err
-	}
-	if casDir == "" {
-		return nil
-	}
-	cas := bkcache.DirectoryCAS{Root: casDir}
-	for _, raw := range summary.BlobIndex {
-		dgst := digest.Digest(raw)
-		rc, err := srv.workerCache.OpenBlob(ctx, dgst)
-		if err != nil {
-			return fmt.Errorf("open chain blob %s: %w", dgst, err)
-		}
-		putErr := cas.PutBlob(ctx, dgst, rc)
-		if cerr := rc.Close(); putErr == nil {
-			putErr = cerr
-		}
-		if putErr != nil {
-			return fmt.Errorf("copy chain blob %s: %w", dgst, putErr)
-		}
-	}
-	return nil
 }
 
 // TestOnlyMarkSnapshotDeleted simulates external loss of one snapshot for

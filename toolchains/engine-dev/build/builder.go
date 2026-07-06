@@ -30,7 +30,8 @@ type Builder struct {
 
 	gpuSupport bool
 
-	race bool
+	race      bool
+	buildTags []string
 }
 
 func NewBuilder(
@@ -72,6 +73,12 @@ func (build *Builder) WithPlatform(p dagger.Platform) *Builder {
 	b := *build
 	b.platform = p
 	b.platformSpec = platforms.Normalize(platforms.MustParse(string(p)))
+	return &b
+}
+
+func (build *Builder) WithBuildTags(tags []string) *Builder {
+	b := *build
+	b.buildTags = append(append([]string{}, build.buildTags...), tags...)
 	return &b
 }
 
@@ -231,16 +238,18 @@ func (build *Builder) goWithSource(source *dagger.Directory, version bool, race 
 	if version && build.tag != "" {
 		values = append(values, "github.com/dagger/dagger/engine.Tag="+build.tag)
 	}
+	tags := []string{
+		// The engine uses the dockerfile2llb code from buildkit, which makes use of tags
+		// for enabling features at compile time:
+		"dfexcludepatterns", // to support COPY/ADD --exclude=...
+		"dfparents",         // to support COPY/ADD --parents
+	}
+	tags = append(tags, build.buildTags...)
 	return dag.Go(dagger.GoOpts{
 		Source: source,
 		Values: values,
 		Race:   race,
-		Tags: []string{
-			// The engine uses the dockerfile2llb code from buildkit, which makes use of tags
-			// for enabling features at compile time:
-			"dfexcludepatterns", // to support COPY/ADD --exclude=...
-			"dfparents",         // to support COPY/ADD --parents
-		},
+		Tags:   tags,
 	})
 }
 
