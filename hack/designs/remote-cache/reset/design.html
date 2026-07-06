@@ -849,6 +849,22 @@ decided in Part II.</p>
   mark is visible in the debug snapshot. Implementation lives in the service take
   (chunk B) with a two-call regression proof (only the first call demotes) plus
   sole-candidate service and clear-on-success assertions.</li>
+  <li><b>Round 25 (2026-07-06, the reserved seam is built).</b> The service take's
+  chunk B landed (merge 93135b3b0b after my landing review): <code>sourceContentChain</code>
+  is now a declared source in exactly the round-19 slot — between local snapshot and
+  lazy form — and the walk's content-chain arm fetches missing blobs, applies them as
+  snapshot layers, and installs a local-snapshot source, so content arrives once and
+  serving is local thereafter. Chains hash at export only (R4's lazy-hashing ban held);
+  chains validate before vetting with the honest blast-radius split (per-row
+  <code>chain_damaged</code> drops with dependents; section garbage skips the whole
+  bundle, never touching local reset vocabulary). The round-24 tie-break landed exactly
+  as ratified, with its full lifecycle test. Verified pre-existing on this take's base
+  and fixed adjacently: an <code>ongoingCall.isPersistable</code> race (written under
+  callsMu, read outside it; made atomic). Landing evidence: three adversarial
+  service-side reviews; my first-hand -race runs on the tip; Step-0 persistence 25/0,
+  cross-session 112/0 (with a bare-base 111/0 reconciliation run proving the +1 is a new
+  top-level parent, zero cross-session leaves changed), services 80/0 — leaf counts,
+  logs preserved under the implementer worktree's hack/logs/.</li>
 </ol>
 </div>
 </details>
