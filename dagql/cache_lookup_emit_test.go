@@ -215,6 +215,7 @@ func TestLookupOutcomeAndScopeEmit(t *testing.T) {
 	assert.Equal(t, dnc[0].outcome, wcprof.OutcomeDoNotCache.String())
 	assert.Assert(t, dnc[0].ident != "", "the micro-emit must make do_not_cache digest-addressable")
 	assert.Equal(t, dnc[0].lookup, "", "do_not_cache never looks up")
+	assert.Equal(t, dnc[0].scope, "[]", "E2 rides the do-not-cache path too (every profiled call)")
 
 	scoped := factsByClass["Query.lookupScoped"]
 	assert.Equal(t, len(scoped), 1)

@@ -3785,6 +3785,10 @@ func (c *Cache) getOrInitCallInner(
 			} else {
 				wcprof.CountSuppressedDoNotCacheIdent(ctx)
 			}
+			// E2 rides here too: this path returns before the normal
+			// SetIdent seam, and "recorded for EVERY profiled call" is what
+			// makes the absence authoritative.
+			profOp.SetScopeInputs(scopeInputsOfFrame(req.ResultCall))
 		}
 		val, err := fn(ctx)
 		if err != nil {

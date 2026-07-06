@@ -969,6 +969,15 @@ func (w *whyMissWalk) classifyOrigin(n *WhyMissNode) *WhyMissOrigin {
 		// inference) and names the history actually searched (row W16).
 		a := n.aSide
 		switch {
+		case a.Tally.DoNotCache > 0:
+			// The per-digest summary rule crosses captures (W15): any
+			// recorded do_not_cache call means the engine refuses this
+			// recipe — a static property, so it decides over the retention
+			// story.
+			o.Category = CategoryEngineRefuses
+			o.Answer = fmt.Sprintf(
+				"this call is never cached (do-not-cache): the reference capture records the engine refusing it (%s), a static property of the recipe — an expected miss in every run.",
+				a.Tally)
 		case a.Tally.Successes == 0 && a.Tally.Failures > 0 &&
 			a.Tally.Hits == 0 && a.Tally.PendingHits == 0:
 			o.Category = CategoryPriorAttemptFailed
@@ -1058,10 +1067,11 @@ func (w *whyMissWalk) classifyOrigin(n *WhyMissNode) *WhyMissOrigin {
 	// to the recorded no-candidate-remaining terminal (mechanism text stays
 	// unrecorded — release/collection are not E1-distinguishable, design
 	// §3.1); ambiguous digest-only facts are labeled, never picked from.
-	if e1Reason == wcprof.LookupReasonInputUnknown && n.E1LookupCall != nil {
-		hint := fmt.Sprintf("the engine recorded input #%d as never seen by the cache (input_unknown — the authoritative next hop", n.E1LookupCall.LookupInputIdx)
-		if v := n.E1LookupCall.CacheInputs; n.E1LookupCall.LookupInputIdx < len(v) {
-			hint += ": " + v[n.E1LookupCall.LookupInputIdx]
+	if e1Reason == wcprof.LookupReasonInputUnknown && n.E1LookupCall != nil && n.E1LookupCall.LookupInputIdx >= 0 {
+		idx := n.E1LookupCall.LookupInputIdx
+		hint := fmt.Sprintf("the engine recorded input #%d as never seen by the cache (input_unknown — the authoritative next hop", idx)
+		if v := n.E1LookupCall.CacheInputs; idx < len(v) {
+			hint += ": " + v[idx]
 		}
 		o.Notes = append(o.Notes, hint+")")
 	}

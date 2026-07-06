@@ -63,7 +63,9 @@ func EncodeLookupOutcome(entry, reason string, inputIdx int) string {
 }
 
 // DecodeLookupOutcome parses EncodeLookupOutcome's encoding. ok is false for
-// malformed strings (never guessed into a fact); inputIdx is -1 when absent.
+// malformed strings — including input_unknown WITHOUT its required index, or
+// an index on any other reason (review round 1: a malformed fact must never
+// become accepted evidence); inputIdx is -1 when absent.
 func DecodeLookupOutcome(s string) (entry, reason string, inputIdx int, ok bool) {
 	parts := strings.Split(s, " ")
 	if len(parts) < 2 || len(parts) > 3 || parts[0] == "" || parts[1] == "" {
@@ -76,6 +78,9 @@ func DecodeLookupOutcome(s string) (entry, reason string, inputIdx int, ok bool)
 			return "", "", -1, false
 		}
 		inputIdx = n
+	}
+	if (parts[1] == LookupReasonInputUnknown) != (inputIdx >= 0) {
+		return "", "", -1, false
 	}
 	return parts[0], parts[1], inputIdx, true
 }

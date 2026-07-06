@@ -211,6 +211,56 @@ func TestWhyMissW15MixedOutcomeSummaryRules(t *testing.T) {
 	}
 }
 
+// W15's cross-capture flavor: a digest-stable node whose REFERENCE side is
+// do-not-cache-mixed decides category 7 (the static refusal), never
+// category 2 — the per-digest summary rule crosses captures.
+func TestWhyMissW15StableReferenceDNCMixed(t *testing.T) {
+	sB := newFixtureStrings()
+	gB := buildWhyGraph(t, sB, []wcprof.DumpEvent{
+		opEvent(sB, 1, 0, "session_phase", "session.query", "", "ok", 0, 300*ms),
+		opEvent(sB, 2, 1, "call", "Query.mixed", "d-m", "executed", 0, 100*ms),
+	})
+	sA := newFixtureStrings()
+	gA := buildWhyGraph(t, sA, []wcprof.DumpEvent{
+		opEvent(sA, 1, 0, "session_phase", "session.query", "", "ok", 0, 300*ms),
+		opEvent(sA, 2, 1, "call", "Query.mixed", "d-m", "executed", 0, 100*ms),
+		opEvent(sA, 3, 1, "call", "Query.mixed", "d-m", "do_not_cache", 120*ms, 200*ms),
+	})
+	rep, err := RunWhyUncachedPair(gB, gA, "d-m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := rep.Origins[0]
+	if o.Category != CategoryEngineRefuses {
+		t.Fatalf("stable dnc-mixed reference must decide category 7, got %v (answer %q)", o.Category, o.Answer)
+	}
+	if !strings.Contains(o.Answer, "do_not_cache") {
+		t.Fatalf("the answer must print the reference tally: %q", o.Answer)
+	}
+}
+
+// A malformed input_unknown fact (no index) never becomes evidence: the
+// decode rejects it, so the op carries no lookup fact at all.
+func TestWhyMissMalformedFactRejected(t *testing.T) {
+	s := newFixtureStrings()
+	tgt := opEvent(s, 2, 1, "call", "Container.build", "d-t", "executed", 0, 200*ms)
+	tgt.LookupID = s.id("request input_unknown") // missing required index
+	g := buildWhyGraph(t, s, []wcprof.DumpEvent{
+		opEvent(s, 1, 0, "session_phase", "session.query", "", "ok", 0, 300*ms),
+		tgt,
+	})
+	if op := g.Ops[2]; op.LookupReason != "" || op.LookupInputIdx != -1 {
+		t.Fatalf("malformed fact must not decode: %q/%d", op.LookupReason, op.LookupInputIdx)
+	}
+	rep, err := RunWhyUncached(g, "d-t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Origins[0].Category != CategoryUndetermined {
+		t.Fatalf("malformed fact must leave the origin undetermined, got %v", rep.Origins[0].Category)
+	}
+}
+
 // The do-not-cache ident-suppression caveat surfaces on walks (a counted
 // degradation, never a refusal).
 func TestWhyMissDNCSuppressionCaveat(t *testing.T) {
