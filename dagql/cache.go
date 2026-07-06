@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	telemetry "github.com/dagger/otel-go"
@@ -133,6 +134,7 @@ func NewCache(
 	}
 	if found && schemaVersionVal != cachePersistenceSchemaVersion {
 		c.persistenceResetReason = CachePersistenceResetSchemaMismatch
+		c.restoreSummary = &CacheRestoreSummary{Wiped: true, Reason: string(CachePersistenceResetSchemaMismatch)}
 		c.tracePersistStoreWipedSchemaMismatch(ctx, cachePersistenceSchemaVersion, schemaVersionVal)
 		slog.Warn("dagql persistence store schema version mismatch; wiping and cold-starting", "expected", cachePersistenceSchemaVersion, "actual", schemaVersionVal)
 		if closeErr := closeCacheDBs(db, c.pdb); closeErr != nil {
@@ -159,6 +161,7 @@ func NewCache(
 	}
 	if found && cleanShutdownVal != "1" {
 		c.persistenceResetReason = CachePersistenceResetUncleanShutdown
+		c.restoreSummary = &CacheRestoreSummary{Wiped: true, Reason: string(CachePersistenceResetUncleanShutdown)}
 		c.tracePersistStoreWipedUncleanShutdown(ctx, cleanShutdownVal)
 		slog.Warn("dagql persistence store marked unclean; wiping and cold-starting", "cleanShutdown", cleanShutdownVal)
 		if closeErr := closeCacheDBs(db, c.pdb); closeErr != nil {
@@ -177,6 +180,7 @@ func NewCache(
 	}
 	if err := c.importPersistedState(ctx); err != nil {
 		c.persistenceResetReason = CachePersistenceResetImportFailure
+		c.restoreSummary = &CacheRestoreSummary{Wiped: true, Reason: string(CachePersistenceResetImportFailure)}
 		c.tracePersistStoreWipedImportFailure(ctx, err)
 		slog.Warn("dagql persistence import failed; wiping and cold-starting", "err", err)
 		if closeErr := closeCacheDBs(db, c.pdb); closeErr != nil {
@@ -1113,31 +1117,6 @@ func (c *Cache) SyncResultSnapshotOwnerLeases(ctx context.Context, res AnyResult
 	return c.syncResultSnapshotLeases(ctx, shared)
 }
 
-func (c *Cache) desiredImportedOwnerLeaseIDs() map[string]struct{} {
-	if c == nil {
-		return nil
-	}
-
-	c.egraphMu.RLock()
-	results := make([]*sharedResult, 0, len(c.resultsByID))
-	for _, res := range c.resultsByID {
-		if res != nil {
-			results = append(results, res)
-		}
-	}
-	c.egraphMu.RUnlock()
-
-	desired := make(map[string]struct{})
-	for _, res := range results {
-		links := desiredSnapshotLinksForResult(res)
-		for _, link := range links {
-			desired[resultSnapshotLeaseID(res.id, link.Role)] = struct{}{}
-		}
-	}
-
-	return desired
-}
-
 func prepareCacheDBs(ctx context.Context, dbPath string) (*sql.DB, *persistdb.Queries, error) {
 	connURL := &url.URL{
 		Scheme: "file",
@@ -1227,6 +1206,16 @@ type Cache struct {
 	egraphMu sync.RWMutex
 
 	persistenceResetReason CachePersistenceResetReason
+
+	// restoreSummary records the boot-restore outcome (kept/dropped/wiped);
+	// guarded by egraphMu after the boot writes it.
+	restoreSummary *CacheRestoreSummary
+	// importedResultCount is how many persisted rows survived restore
+	// vetting this boot; freshResultCount counts results published from
+	// work executed this boot. Flush writes both, plus the total, as the
+	// self-check that importing and re-exporting a store adds no rows.
+	importedResultCount int64
+	freshResultCount    atomic.Int64
 
 	// calls that are in progress, keyed by a combination of the call key and the concurrency key
 	// two calls with the same call+concurrency key will be "single-flighted" (only one will actually run)
@@ -4458,6 +4447,9 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 	// destroys it), and its input results are attached so their IDs resolve.
 	// A capture failure costs the result its re-make fragment, nothing more;
 	// the call itself already succeeded.
+	if !resWasCacheBacked {
+		c.freshResultCount.Add(1)
+	}
 	if !resWasCacheBacked && oc.val != nil {
 		if fragEncoder, ok := UnwrapAs[PersistedLazyFragmentEncoder](oc.val); ok {
 			frag, err := fragEncoder.EncodePersistedLazyFragment(ctx, c)

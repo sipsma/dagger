@@ -610,7 +610,7 @@ func (cm *snapshotManager) Merge(ctx context.Context, parents []ImmutableRef, op
 }
 
 func IsNotFound(err error) bool {
-	return errors.Is(err, errNotFound)
+	return errors.Is(err, errNotFound) || cerrdefs.IsNotFound(err)
 }
 
 type RefOption interface{}

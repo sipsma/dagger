@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 
 	persistdb "github.com/dagger/dagger/dagql/persistdb"
 	"github.com/dagger/dagger/engine/slog"
@@ -20,7 +21,24 @@ func (c *Cache) persistCurrentState(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return c.applyPersistStateSnapshot(ctx, snapshot)
+	if err := c.applyPersistStateSnapshot(ctx, snapshot); err != nil {
+		return err
+	}
+
+	// The per-boot result counts are the self-check that importing and
+	// re-exporting a store adds no rows: a flush of an untouched boot must
+	// show total == imported with nothing executed.
+	counts := map[string]int64{
+		persistdb.MetaKeyResultsTotal:            int64(len(snapshot.results)),
+		persistdb.MetaKeyResultsImported:         c.importedResultCount,
+		persistdb.MetaKeyResultsExecutedThisBoot: c.freshResultCount.Load(),
+	}
+	for key, value := range counts {
+		if err := c.pdb.UpsertMeta(ctx, key, strconv.FormatInt(value, 10)); err != nil {
+			return fmt.Errorf("write %s metadata: %w", key, err)
+		}
+	}
+	return nil
 }
 
 //nolint:gocyclo // intrinsically long state machine; refactoring would hurt clarity

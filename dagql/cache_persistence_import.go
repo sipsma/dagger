@@ -2,11 +2,11 @@ package dagql
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"slices"
 
 	"github.com/dagger/dagger/dagql/call"
+	"github.com/dagger/dagger/engine/slog"
 	bkcache "github.com/dagger/dagger/engine/snapshots"
 	"github.com/opencontainers/go-digest"
 )
@@ -71,6 +71,44 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 		return nil
 	}
 
+	// Snapshot metadata hydrates before vetting: attaching an owner lease —
+	// vetting's snapshot-presence check — needs the content-digest rows.
+	if c.snapshotManager != nil {
+		rows := bkcache.PersistentMetadataRows{
+			SnapshotContent: make([]bkcache.SnapshotContentRow, 0, len(snapshotContentRows)),
+			ImportedByBlob:  make([]bkcache.ImportedLayerBlobRow, 0, len(importedLayerBlobRows)),
+			ImportedByDiff:  make([]bkcache.ImportedLayerDiffRow, 0, len(importedLayerDiffRows)),
+		}
+		for _, row := range snapshotContentRows {
+			rows.SnapshotContent = append(rows.SnapshotContent, bkcache.SnapshotContentRow{
+				SnapshotID: row.SnapshotID,
+				Digest:     normalizeImportedDigest(row.Digest),
+			})
+		}
+		for _, row := range importedLayerBlobRows {
+			rows.ImportedByBlob = append(rows.ImportedByBlob, bkcache.ImportedLayerBlobRow{
+				ParentSnapshotID: row.ParentSnapshotID,
+				BlobDigest:       normalizeImportedDigest(row.BlobDigest),
+				SnapshotID:       row.SnapshotID,
+			})
+		}
+		for _, row := range importedLayerDiffRows {
+			rows.ImportedByDiff = append(rows.ImportedByDiff, bkcache.ImportedLayerDiffRow{
+				ParentSnapshotID: row.ParentSnapshotID,
+				DiffID:           normalizeImportedDigest(row.DiffID),
+				SnapshotID:       row.SnapshotID,
+			})
+		}
+		if err := c.snapshotManager.LoadPersistentMetadata(rows); err != nil {
+			return fmt.Errorf("hydrate snapshot metadata: %w", err)
+		}
+	}
+
+	keptRows, restoreSummary, err := c.vetRestoredResults(ctx, resultRows, resultDepRows, resultSnapshotRows)
+	if err != nil {
+		return err
+	}
+
 	var eagerDecodeResultIDs []sharedResultID
 
 	c.egraphMu.Lock()
@@ -102,7 +140,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			if eqID == 0 {
 				return fmt.Errorf("import eq_class_digest %q: zero eq_class_id", row.Digest)
 			}
-			if c.egraphParents[eqID] == 0 {
+			if int(eqID) >= len(c.egraphParents) || c.egraphParents[eqID] == 0 {
 				return fmt.Errorf("import eq_class_digest %q: missing eq_class %d", row.Digest, eqID)
 			}
 			if row.Digest == "" {
@@ -131,35 +169,14 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 		var maxResultID sharedResultID
 		for _, row := range resultRows {
 			resultID := sharedResultID(row.ID)
-			if resultID == 0 {
-				return fmt.Errorf("import result: zero ID")
-			}
 			if resultID > maxResultID {
 				maxResultID = resultID
 			}
-
-			var env PersistedResultEnvelope
-			if len(row.SelfPayload) > 0 {
-				if err := json.Unmarshal(row.SelfPayload, &env); err != nil {
-					return fmt.Errorf("import result %d self payload: %w", resultID, err)
-				}
-			} else {
-				env = PersistedResultEnvelope{
-					Version: 1,
-					Kind:    persistedResultKindNull,
-				}
+			restored, wasKept := keptRows[resultID]
+			if !wasKept {
+				continue
 			}
-			if env.Kind == "" {
-				return fmt.Errorf("import result %d: empty self payload kind", resultID)
-			}
-
-			if row.CallFrameJSON == "" {
-				return fmt.Errorf("import result %d: empty call_frame_json", resultID)
-			}
-			frame := &ResultCall{}
-			if err := json.Unmarshal([]byte(row.CallFrameJSON), frame); err != nil {
-				return fmt.Errorf("import result %d call_frame_json: %w", resultID, err)
-			}
+			env := restored.env
 
 			res := &sharedResult{
 				id:                    resultID,
@@ -170,7 +187,10 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 				lastUsedAtUnixNano:    row.LastUsedAtUnixNano,
 				description:           row.Description,
 				recordType:            row.RecordType,
-				materialization:       materializationState{envelope: &env},
+				materialization:       materializationState{envelope: &restored.env},
+			}
+			if len(restored.links) > 0 {
+				res.materialization.setLocalSnapshotSource(restored.links)
 			}
 			if len(env.LazyJSON) > 0 {
 				res.materialization.setLazyFragment(&PersistedLazyFragment{
@@ -178,8 +198,8 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 					JSON: env.LazyJSON,
 				})
 			}
-			res.storeResultCall(frame)
-			c.traceResultCallFrameUpdated(ctx, res, "import_persisted_result", nil, frame)
+			res.storeResultCall(restored.frame)
+			c.traceResultCallFrameUpdated(ctx, res, "import_persisted_result", nil, restored.frame)
 
 			if env.Kind == persistedResultKindNull {
 				res.materialization.realized = true
@@ -199,7 +219,9 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			}
 			res := c.resultsByID[resultID]
 			if res == nil {
-				return fmt.Errorf("import persisted_edge %d: missing result", resultID)
+				// The edge's result was dropped at vetting (or never
+				// existed); a retention root without a row retains nothing.
+				continue
 			}
 			if c.persistedEdgesByResult == nil {
 				c.persistedEdgesByResult = make(map[sharedResultID]persistedEdge)
@@ -313,7 +335,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			resultID := sharedResultID(row.ResultID)
 			res := c.resultsByID[resultID]
 			if res == nil {
-				return fmt.Errorf("import result_output_eq_class: missing result %d", row.ResultID)
+				continue
 			}
 			outputEqID := c.findEqClassLocked(eqClassID(row.EqClassID))
 			if outputEqID == 0 {
@@ -331,11 +353,14 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			parentID := sharedResultID(row.ParentResultID)
 			parent := c.resultsByID[parentID]
 			if parent == nil {
-				return fmt.Errorf("import result_dep: missing parent result %d", row.ParentResultID)
+				continue
 			}
 			depID := sharedResultID(row.DepResultID)
 			if c.resultsByID[depID] == nil {
-				return fmt.Errorf("import result_dep: missing dep result %d", row.DepResultID)
+				// Vetting drops any row whose dependency is gone, so a
+				// missing dep here means the parent was dropped too; edges
+				// between dropped rows carry nothing.
+				continue
 			}
 			if parent.deps == nil {
 				parent.deps = make(map[sharedResultID]struct{})
@@ -348,19 +373,10 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			c.traceExplicitDepAdded(ctx, parentID, depID, "import")
 		}
 
-		for _, row := range resultSnapshotRows {
-			resultID := sharedResultID(row.ResultID)
-			res := c.resultsByID[resultID]
-			if res == nil {
-				return fmt.Errorf("import result_snapshot_link: missing result %d", row.ResultID)
+		for _, restored := range keptRows {
+			for _, link := range restored.links {
+				c.traceImportResultSnapshotLinkLoaded(ctx, importRunID, restored.id, link.RefKey, link.Role)
 			}
-			res.payloadMu.Lock()
-			res.materialization.appendLocalSnapshotLink(PersistedSnapshotRefLink{
-				RefKey: row.RefKey,
-				Role:   row.Role,
-			})
-			res.payloadMu.Unlock()
-			c.traceImportResultSnapshotLinkLoaded(ctx, importRunID, resultID, row.RefKey, row.Role)
 		}
 
 		for _, res := range c.resultsByID {
@@ -458,66 +474,28 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 	}
 
 	if c.snapshotManager != nil {
-		rows := bkcache.PersistentMetadataRows{
-			SnapshotContent: make([]bkcache.SnapshotContentRow, 0, len(snapshotContentRows)),
-			ImportedByBlob:  make([]bkcache.ImportedLayerBlobRow, 0, len(importedLayerBlobRows)),
-			ImportedByDiff:  make([]bkcache.ImportedLayerDiffRow, 0, len(importedLayerDiffRows)),
-		}
-		for _, row := range snapshotContentRows {
-			rows.SnapshotContent = append(rows.SnapshotContent, bkcache.SnapshotContentRow{
-				SnapshotID: row.SnapshotID,
-				Digest:     normalizeImportedDigest(row.Digest),
-			})
-		}
-		for _, row := range importedLayerBlobRows {
-			rows.ImportedByBlob = append(rows.ImportedByBlob, bkcache.ImportedLayerBlobRow{
-				ParentSnapshotID: row.ParentSnapshotID,
-				BlobDigest:       normalizeImportedDigest(row.BlobDigest),
-				SnapshotID:       row.SnapshotID,
-			})
-		}
-		for _, row := range importedLayerDiffRows {
-			rows.ImportedByDiff = append(rows.ImportedByDiff, bkcache.ImportedLayerDiffRow{
-				ParentSnapshotID: row.ParentSnapshotID,
-				DiffID:           normalizeImportedDigest(row.DiffID),
-				SnapshotID:       row.SnapshotID,
-			})
-		}
-		if err := c.snapshotManager.LoadPersistentMetadata(rows); err != nil {
-			return fmt.Errorf("hydrate snapshot metadata: %w", err)
-		}
-
-		desiredLeaseIDs := c.desiredImportedOwnerLeaseIDs()
-		c.egraphMu.RLock()
-		results := make([]*sharedResult, 0, len(c.resultsByID))
-		for _, res := range c.resultsByID {
-			if res != nil {
-				results = append(results, res)
+		// Vetting attached owner leases for kept rows as its presence check;
+		// everything else — dropped rows' leases, partial attachments from
+		// rows that lost their snapshot source, strays from earlier boots —
+		// is stale and goes, so a dropped row can never pin content.
+		keepLeaseIDs := make(map[string]struct{})
+		for _, restored := range keptRows {
+			for _, link := range restored.links {
+				keepLeaseIDs[resultSnapshotLeaseID(restored.id, link.Role)] = struct{}{}
 			}
 		}
-		c.egraphMu.RUnlock()
-		for _, res := range results {
-			links := desiredSnapshotLinksForResult(res)
-			seen := make(map[snapshotOwnerKey]struct{}, len(links))
-			for _, link := range links {
-				key := snapshotOwnerKey{Role: link.Role}
-				if _, alreadySeen := seen[key]; alreadySeen {
-					continue
-				}
-				seen[key] = struct{}{}
-				if err := c.snapshotManager.AttachLease(
-					ctx,
-					resultSnapshotLeaseID(res.id, link.Role),
-					link.RefKey,
-				); err != nil {
-					return fmt.Errorf("attach imported result %d owner lease %q: %w", res.id, key.Role, err)
-				}
-			}
-		}
-		if err := c.snapshotManager.DeleteStaleDaggerOwnerLeases(ctx, desiredLeaseIDs); err != nil {
+		if err := c.snapshotManager.DeleteStaleDaggerOwnerLeases(ctx, keepLeaseIDs); err != nil {
 			return fmt.Errorf("delete stale owner leases: %w", err)
 		}
 	}
+
+	c.egraphMu.Lock()
+	c.restoreSummary = restoreSummary
+	c.importedResultCount = int64(restoreSummary.Kept)
+	c.egraphMu.Unlock()
+	c.traceRestoreSummary(ctx, restoreSummary)
+	slog.Info("dagql persistence restore complete",
+		"kept", restoreSummary.Kept, "dropped", restoreSummary.Dropped)
 
 	return nil
 }

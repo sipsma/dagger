@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/vektah/gqlparser/v2/ast"
 	"gotest.tools/v3/assert"
 
@@ -64,6 +65,9 @@ type fakeSnapshotManager struct {
 	removeCalls         []string
 	deleteStaleKeep     map[string]struct{}
 	deleteStaleCallSeen bool
+	// missingSnapshots makes AttachLease fail with the store's not-found
+	// error for these snapshot IDs, simulating pruned content.
+	missingSnapshots map[string]struct{}
 }
 
 func (*fakeSnapshotManager) Search(context.Context, string, bool) ([]bkcache.RefMetadata, error) {
@@ -134,6 +138,9 @@ func (*fakeSnapshotManager) IdentityMapping() *idtools.IdentityMapping {
 
 func (m *fakeSnapshotManager) AttachLease(ctx context.Context, leaseID, snapshotID string) error {
 	_ = ctx
+	if _, missing := m.missingSnapshots[snapshotID]; missing {
+		return fmt.Errorf("snapshot %q: %w", snapshotID, cerrdefs.ErrNotFound)
+	}
 	m.attachCalls = append(m.attachCalls, struct{ LeaseID, SnapshotID string }{
 		LeaseID:    leaseID,
 		SnapshotID: snapshotID,
