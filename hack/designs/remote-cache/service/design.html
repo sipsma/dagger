@@ -783,6 +783,284 @@ the engine that executed the work, exactly once, and everything downstream is
 origin-preserving copies. The gate measures this rather than trusting it (T-S2, T-S3).</p>
 </details>
 
+<details class="fold" id="export" open><summary><h2>7. Engine: export</h2></summary>
+
+<p><b>The idea in three sentences.</b> Export is the local flush pointed across the wire: the
+same in-memory snapshot pass local persistence runs at shutdown
+(<code>snapshotPersistState</code>, dagql/cache_persistence_worker.go:45 — graph lock held
+only for the copy-out) produces the rows, the bundle writer emits them in the §6 shape, and
+content chains are computed at that moment — never earlier (R4). The bundle's metadata
+publishes first and atomically; blob upload then streams as CAS-deduped delta, so
+interruption costs bytes, never correctness (S5/S6). Export runs when the engine is told to
+(a first-class admin API — in the cloud, the keeper calls it) or, opt-in, at graceful
+shutdown; it is decoupled from run success by construction (S4).</p>
+
+<div class="decide"><span class="dtag">THE DECISIONS THIS SECTION MAKES</span>
+<ol style="margin:4px 0 2px">
+<li><b>Triggers: an authenticated engine admin API, plus an opt-in graceful-shutdown hook.</b>
+The cloud lifecycle (keeper) drives the API and sequences export <em>before</em> instance
+teardown, so no platform grace window is ever a correctness deadline.</li>
+<li><b>Order: metadata publishes first</b>, marked <code>blobs_pending</code>; blob upload
+follows (existence-checked delta, per-blob completion), then the completeness mark. Both
+interruption modes leave valid state.</li>
+<li><b>v1 policy: export the whole retained graph's metadata, and chains for every
+immutable snapshot it holds</b> — with blob upload deduped against the CAS, so steady-state
+exports upload only what is new. A <code>metadata-only</code> mode is the recompute-forcing
+test lever. The policy hook is the seam for future cleverness.</li>
+<li><b>Chains are computed at export time</b> on the existing layer-export machinery, with
+one pinned compression (zstd), and chain computation is cached per snapshot across
+exports.</li>
+</ol>
+</div>
+
+<h3>7.1 &nbsp;D1 — Triggers, and who pulls them</h3>
+<p>The engine gains a small cache-service client, configured through engine config
+(service URL, auth token, cache scope, budgets, opt-in flags — absent config disables the
+whole feature). Two triggers:</p>
+<ul>
+<li><b>The admin API (primary).</b> <code>POST /v1/cache/export</code> on the engine's
+authenticated admin surface — a productized endpoint, deliberately <em>not</em> a debug
+endpoint: the cloud depends on it. It snapshots and exports the current retained state.
+Concurrent calls coalesce onto the in-flight export (one export at a time per engine);
+the response reports the outcome summary (§11's counters). The caller in the managed cloud
+is the <b>keeper</b> — it already owns the "engine is idle ⇒ tear it down" decision, so the
+sequence becomes <em>export (bounded) → teardown</em>. Because the keeper waits, the
+platform's kill-grace window never truncates an export; and because bundles are valid when
+sparse (S5), even an operator-imposed budget just costs blobs.</li>
+<li><b>Graceful shutdown (opt-in).</b> With <code>exportOnShutdown</code> set, the engine
+exports inside <code>GracefulStop</code> after sessions drain and prune runs — the same
+steady state local flush sees (engine/server/server.go GracefulStop ordering) — bounded by a
+configured budget so shutdown cannot hang. This is the path for self-managed engines with no
+keeper. Metadata publishes early in the budget; blobs consume the rest.</li>
+</ul>
+<p><b>Mid-serve exports are legal.</b> The snapshot pass runs under the existing locks and
+does not require quiescence. One filter distinguishes it from shutdown flush: the export
+closure is the <b>persisted-edge-rooted</b> retained graph (the reverse-dependency closure of
+<code>persisted_edges</code>), excluding rows retained only by live sessions — those are
+another session's in-flight state, not durable cache, and an importer would drop them as
+unrooted anyway. At shutdown the two closures coincide (sessions are gone).</p>
+
+<h3>7.2 &nbsp;D2 — Chains: content identity computed at the boundary</h3>
+<p>For every immutable snapshot link in the export closure, the exporter produces the chain:
+the ordered layer list, each layer a (diffID, blob digest, size, media type). The machinery
+exists — it is what container publish uses: per snapshot, walk its layer parents and obtain
+each layer's blob in the pinned compression, computing it if this snapshot has never been
+exported (<code>ensureExportBlob</code>, engine/snapshots/remote.go:63, and the
+compression-variant handling next to it). Three rules pin the behavior:</p>
+<ul>
+<li><b>Hash-at-export only (R4).</b> Nothing computes layer blobs or diffIDs during normal
+builds. First export of a snapshot pays the diff/compress cost; the resulting blobs and
+descriptors persist in the content store, so subsequent exports of the same snapshot are
+lookups. This makes export cost proportional to <em>content new since the last export</em>
+in the steady state — a measured quantity (§11), not an assumption either way.</li>
+<li><b>One compression, pinned: zstd.</b> The CAS dedups by blob digest; letting compression
+vary per engine would silently halve dedup. (The prior attempts hit exactly this as
+descriptor-variant merge conflicts; pinning removes the class. Changing the pin later is a
+bundle-format version bump.)</li>
+<li><b>Mutable-owner snapshots produce no chain</b> (§6.4): cache volumes, git/filesync
+mirrors cross as identity-only rows.</li>
+</ul>
+
+<h3>7.3 &nbsp;D3 — What to export: the v1 policy, and the seam</h3>
+<p>V1 exports, per trigger:</p>
+<ul>
+<li><b>Metadata: everything retained.</b> The full persisted-edge closure — every row, dep,
+identity table, origin. Metadata is the cheap, high-leverage half: it is what makes warm
+lookups hit at all, and its size (SQLite rows, no content) is megabytes at the scale the
+prior attempts measured (~10⁴ results). Nothing is gained by curating it in v1.</li>
+<li><b>Content: chains for every immutable snapshot in that closure.</b> Not leaves-only:
+blob upload is deduped by digest against the CAS, and a leaf's chain already contains every
+ancestor layer, so offering all chains adds approximately zero bytes over leaves-only — what
+it adds is <em>direct</em> hydration for mid-chain results (a warm run that reads one
+intermediate directory pulls that chain, not a dependent's superset — R12's sparse story),
+and it removes a policy concept ("what is a leaf") from the correctness path entirely.</li>
+<li><b><code>metadata-only</code> mode</b> (config/per-call flag): skip chains and blobs.
+Two consumers: the recompute-fallback proof (T-S5 forces the lazy-form path on a warm
+engine), and operators who want lookup-warmth without content storage.</li>
+</ul>
+<p><b>The seam for future cleverness:</b> the exporter consults one policy hook —
+<code>selectExportContent(snapshot) → offer chain | skip</code> — with exactly the two v1
+implementations above (all-immutable, none). An analysis-guided policy (export only what
+history says gets reused) is a future implementation of this hook plus, symmetrically, the
+service-side selection seam (§10 D3). Nothing else in the pipeline changes when the policy
+does.</p>
+
+<h3>7.4 &nbsp;D4 — The export pipeline, end to end</h3>
+<ol class="steps">
+<li><span class="tag">SNAPSHOT (existing machinery)</span><br>
+Take the persist snapshot under the existing locks; filter to the persisted-edge closure.
+No new lock, no quiescence, no value-struct walking — rows come from
+<code>materializationState</code> exactly as local flush reads them (reset §8 D1).</li>
+<li><span class="tag">ENCODE</span><br>
+Write <code>metadata.db</code> (mirror schema minus local-only tables, plus
+<code>result_origins</code>) and compute chains (D2) into <code>manifest.json</code>.
+Results whose chains fail to compute (e.g. snapshot pruned mid-export) degrade per-result:
+the row still exports with its lazy fragment; a row with neither is omitted from the bundle
+(never from the local store). Loud counter, never an export failure (S4).</li>
+<li><span class="tag">PUBLISH METADATA (atomic)</span><br>
+<code>POST /v1/scopes/{scope}/bundles</code> with the archive. The service stores it and
+lists the bundle as <code>blobs_pending</code>. From this moment the export has durable
+value; everything after is enrichment.</li>
+<li><span class="tag">BLOB DELTA</span><br>
+Batched existence check: <code>POST /v1/blobs/stat</code> with the manifest's blob index →
+the missing subset. Upload each missing blob (direct or presigned per backend, §10 D4),
+streamed from the content store. Per-blob failures retry, then skip — a skipped blob is
+sparseness, not failure (S5).</li>
+<li><span class="tag">COMPLETE</span><br>
+<code>POST …/bundles/{id}/complete</code> with the uploaded/skipped tally → the bundle is
+marked <code>blobs_complete</code> (or stays pending with recorded gaps). The engine emits
+its export summary counters (§11) and, when triggered via the admin API, returns them to
+the caller.</li>
+</ol>
+<p><b>Interruption analysis</b> (the two halves of S6): die before step 3 — nothing
+published; any blobs previously in the CAS still amortize the next export. Die during
+step 4 — the bundle serves with sparser blobs; importers fall through per chain (S5); the
+next export from any engine re-offers the same digests and completes the gap. There is no
+state to repair in either case, which is the L8-dumbest possible failure handling.</p>
+
+<h3>7.5 &nbsp;Implementation shape</h3>
+<table class="filetbl">
+<tr><th>File</th><th></th><th>Change</th></tr>
+<tr><td><code>dagql/cache_bundle_export.go</code></td><td><span class="chip newf">NEW</span></td>
+<td>Bundle writer: persisted-closure filter over the existing persist snapshot; metadata.db
+emission (shared row-building with <code>applyPersistStateSnapshot</code>, exclusion list
+applied); manifest assembly.</td></tr>
+<tr><td><code>engine/snapshots/</code> (chain export)</td><td><span class="chip modf">MOD</span></td>
+<td>A <code>ChainForSnapshot(ref, zstd)</code> entry over the existing
+<code>ensureExportBlob</code>/compression machinery, returning the ordered layer list +
+descriptors; per-snapshot chain memoization in the snapshot-manager metadata.</td></tr>
+<tr><td><code>engine/cacheservice/client.go</code></td><td><span class="chip newf">NEW</span></td>
+<td>The service client: publish, stat-blobs, upload, complete, select/download (§8). Config
+from engine config; auth header; budgets.</td></tr>
+<tr><td><code>engine/server/</code> (admin API + shutdown hook)</td><td><span class="chip modf">MOD</span></td>
+<td><code>POST /v1/cache/export</code> on the authenticated admin surface; coalescing;
+<code>exportOnShutdown</code> in <code>GracefulStop</code> after session drain + prune,
+budget-bounded.</td></tr>
+<tr><td><code>dagql/cache.go</code> (origins)</td><td><span class="chip modf">MOD</span></td>
+<td>Origin minted at publication (store UUID + local ID) and carried on
+<code>sharedResult</code>; §6 D1's <code>result_origins</code> flush/restore.</td></tr>
+</table>
+</details>
+
+<details class="fold" id="import" open><summary><h2>8. Engine: bundle import at boot</h2></summary>
+
+<p><b>The idea in three sentences.</b> Boot gains one step, exactly where the reset design
+reserved it: after the local store restores, the engine downloads its selected bundles and
+merges each one through the same shape of pass local restore runs — per-result vetting,
+dependencies-first, drop-with-dependents — plus the two moves only foreign rows need:
+origin-keyed dedup against everything already present (S2) and reference rewriting into the
+local ID space (§6.3). A bundle that fails structurally is skipped whole and counted; it can
+never wipe or damage the local store (S4, L8). Everything after the merge is the reset
+design verbatim: imported rows are ordinary rows with sources, competing in lookup under
+R16-recomputed keys and the session-resource gate.</p>
+
+<div class="decide"><span class="dtag">THE DECISIONS THIS SECTION MAKES</span>
+<ol style="margin:4px 0 2px">
+<li><b>Import order and atomicity:</b> local store first, then bundles oldest→newest; each
+bundle merges all-or-nothing into memory; the whole phase runs under the boot lock (R14)
+within a configurable budget, degrading to fewer bundles / cold start (S4).</li>
+<li><b>Bundle failure semantics:</b> store-level damage in a bundle ⇒ skip that bundle
+(never the local wipe); per-result damage ⇒ drop that result with its in-bundle dependents
+(the local vetting rules, bundle-scoped).</li>
+<li><b>Origin dedup is the row-creation gate</b>, and skipped rows still join the reference
+remap so sibling rows rewrite correctly.</li>
+<li><b>Imported chains become materialization sources</b> and persist locally
+(<code>result_content_chains</code>), so a warm engine's local restarts keep remote
+sources without re-downloading bundles.</li>
+</ol>
+</div>
+
+<h3>8.1 &nbsp;The merge pass, per bundle</h3>
+<ol class="steps">
+<li><span class="tag">FETCH + STRUCTURAL CHECK</span><br>
+Download; verify manifest versions (bundle format, engine <code>schema_version</code> — a
+mismatch should have been filtered by selection; if present anyway, skip the bundle),
+open the metadata DB, read all tables. Any store-level failure — unreadable SQLite, broken
+identity-table references, zero IDs (the same named classes reset §8 D2 pins for the local
+store) — skips the whole bundle with a counted reason. <b>The local <code>import_failure</code>
+wipe path is unreachable from bundle import by construction</b>: bundle merge begins only
+after local restore has committed, and its failure handling has no wipe branch.</li>
+<li><span class="tag">VET, DEPENDENCIES-FIRST (existing rules, bundle-flavored)</span><br>
+The local vetting pass runs against the bundle's rows (dagql/cache_persistence_vetting.go):
+malformed rows drop; missing-dep and cycle rules apply within the bundle; drops cascade to
+in-bundle dependents. One substitution: the local "snapshots present in the worker store"
+check does not apply (bundles carry no refKeys); a bundle row's content viability is
+<b>structural chain presence</b> — availability of the chain's blobs is deliberately
+<em>not</em> checked at boot (S5; runtime fall-through owns that). Rows with no chain and no
+lazy fragment but a self-contained payload — scalars, mutable-owner identity rows — vet
+exactly as they do locally today: the as-built rule only drops a row whose <em>claimed</em>
+content is gone with no fallback (vetting.go:149–161), and an identity-only row claims
+none.</li>
+<li><span class="tag">ORIGIN DEDUP + ID ASSIGNMENT</span><br>
+For each kept row, look up its origin pair in the store-wide origin index: present ⇒ no new
+row; record <code>bundleID → existing localID</code> in the remap table and refresh
+last-used metadata. Absent ⇒ allocate a fresh local ID, record the remap, stage the row.
+The remap table covers every kept row either way — sibling rows' references must resolve
+regardless of which side of the dedup their targets landed on.</li>
+<li><span class="tag">REWRITE REFERENCES (§6.3, once)</span><br>
+Frames by structured walk; payload envelopes by the <code>$dagqlResultRef</code> token walk.
+A reference that misses the remap table (its target was dropped by vetting) drops the
+referring row with its dependents — the missing-dep rule, applied post-remap.</li>
+<li><span class="tag">MERGE IDENTITY + GRAPH</span><br>
+Class digests teach into the live e-graph (<code>ensureEqClassForDigestLocked</code> /
+merge — this is where cross-engine equivalence composes); term keys recompute in the local
+space (R16, the same recompute local restore runs); deps and persisted edges land for staged
+rows (dedup on existing edges). Session-resource requirements recompute transitively, as
+local import already does.</li>
+<li><span class="tag">INSTALL SOURCES</span><br>
+Each staged row's <code>materializationState</code> gets: a <b>content-chain source</b> per
+manifest chain entry (§9), and its <b>lazy-form source</b> when the envelope carries a
+fragment — in the reset design's fall-through order with content-chain third (reset §7,
+Fig. 4: local snapshot → lazy form → content chain; an imported row simply has no first
+source until content arrives). Commit the staged bundle into the cache; move to the next
+bundle.</li>
+</ol>
+<p class="pill">Ordering note: bundles merge oldest→newest (stable tie-break on bundle ID) so
+metadata refreshes deterministically favor the newest observation; row existence is
+order-independent by origin dedup. The whole phase is inside the R14 boot window — coarse
+lock, before serving, no new concurrency.</p>
+
+<h3>8.2 &nbsp;D3 — Retention and lifecycle of imported rows</h3>
+<p>Imported persisted edges become ordinary local persisted edges: what the exporter retained,
+the importer retains, and from that moment the local prune policy owns them — disk pressure
+prunes them exactly like local results (dagql/cache_prune.go's edge-cut model, unchanged).
+Imported rows flush to the local store at shutdown like any rows — carrying their origins and
+chains — so a warm engine that restarts locally is still warm without re-fetching bundles,
+and its own next export re-emits the imported rows under their original origins (the S2/S3
+loop). There is no "imported" flag with behavioral meaning; provenance lives in the origin
+table and the counters, not in the serving path.</p>
+
+<h3>8.3 &nbsp;D4 — Budgets and degradation</h3>
+<p>The entire inflow — selection call, downloads, merges — runs within
+<code>importBudget</code> (config; default on the order of a minute). Budget exhaustion or
+any transport failure degrades monotonically: fewer bundles, else none — never a boot
+failure, never a partial bundle (per-bundle atomicity), never the local store's integrity
+(S4). Every degradation increments a typed counter and lands in the boot summary (§11): a
+cold start that should have been warm must be diagnosable from the engine's own logs.</p>
+
+<h3>8.4 &nbsp;Implementation shape</h3>
+<table class="filetbl">
+<tr><th>File</th><th></th><th>Change</th></tr>
+<tr><td><code>dagql/cache_bundle_import.go</code></td><td><span class="chip newf">NEW</span></td>
+<td>The per-bundle merge pass: structural checks, bundle-flavored vetting reuse, origin
+dedup + remap, reference rewrite, staged commit. Consumes the existing vetting and import
+helpers rather than duplicating them.</td></tr>
+<tr><td><code>dagql/cache_persistence_vetting.go</code></td><td><span class="chip modf">MOD</span></td>
+<td>Vetting core parameterized over its content check (local: refKeys present; bundle:
+chain presence structural) so both passes share one rule set.</td></tr>
+<tr><td><code>dagql/cache_persistence_import.go</code> / <code>engine/server/server.go</code></td><td><span class="chip modf">MOD</span></td>
+<td>Boot sequence gains the bundle inflow after local restore, inside the pre-serving
+window; budget handling; boot summary extension.</td></tr>
+<tr><td><code>dagql/persistdb/schema.sql</code></td><td><span class="chip modf">MOD</span></td>
+<td><code>result_origins</code> (§6 D1) and <code>result_content_chains</code> (§8 D4's
+local persistence of imported chains); <code>schema_version</code> bump shared with §6's
+encoding changes.</td></tr>
+<tr><td><code>core/persisted_object.go</code> + payload codecs</td><td><span class="chip modf">MOD</span></td>
+<td>The ref token (§6.3): <code>encodePersistedObjectRef</code>/decoders exchange
+<code>{"$dagqlResultRef": N}</code>; compiler-enumerated site updates.</td></tr>
+</table>
+</details>
+
 </main>
 </div>
 <script>
