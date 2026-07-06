@@ -150,7 +150,7 @@
 <main>
 
 <h1>Remote Cache — Design</h1>
-<p class="sub">v25 &nbsp;·&nbsp; §7–§9 all landed &nbsp;·&nbsp; follow-ups + acceptance remain &nbsp;·&nbsp; 2026-07-03</p>
+<p class="sub">v26 &nbsp;·&nbsp; all chunks landed &nbsp;·&nbsp; acceptance trio running &nbsp;·&nbsp; 2026-07-03</p>
 
 <div class="banner">
 <b>Status.</b> The living design doc for the remote-cache engine work: requirements and
@@ -771,6 +771,26 @@ decided in Part II.</p>
   docs; retirement-mark hardening) → fix round → ready-to-land, no new issues.
   Remaining before acceptance: the T2-integration demote (contextual-directory vehicle),
   T7-integration, then the §10.4 run.</li>
+  <li><b>Round 21 (2026-07-06, follow-ups landed — one item flagged for Erik).</b> The
+  T2-integration work (integration 8ad2279a7c) surfaced and fixed a real hole in §9's
+  runtime drop: result-ID <em>handle</em> loads resolve rows directly, bypassing lookup
+  candidacy, so a dropped row stayed servable and a post-drop touch produced an
+  unclassified decode error. As built, the drop clears the envelope and every retained
+  source atomically with the drop mark (realized values stay for in-flight holders), so
+  all later touches flow through the zero-viable refusal — demote at lookups, the honest
+  dropped-row error at handles. <b>Flagged for Erik — a user-observable shape:</b> when a
+  dropped row is its own input (a function returning its contextual-directory argument —
+  publication adopts the input as the result), the demoted invocation executes live but
+  the enclosing query surfaces ONE honest, retry-instructing error at the handle
+  re-binding, and the retry heals in-session. Ruled the sanctioned D4 handle outcome
+  (handle loads carry no recipe; R2 promises no stranding, not zero honest errors);
+  query-level healing would be new ID→handle binding scope no requirement demands. Also:
+  T7-integration landed (four pipelines restored, exactly one realizes on warm read);
+  acceptance run 1 was stopped on a non-environmental red per the consecutive rule — a
+  netcat listener-restart race in main's own service-bound subtest scaffolding (verbatim
+  on main, zero lines touched by this take; passes 4/4 isolated) — fixed as a bounded,
+  loud-failing test-only hardening rather than named as an exception; the trio restarts
+  from run 1.</li>
 </ol>
 </div>
 </details>
