@@ -544,6 +544,19 @@ redesign salting — that remains a cloud/tenancy work item.</p>
   argument for §9.1: a lazy-form-first order can cascade recursive input materialization,
   making recipe-first potentially <em>more</em> expensive than the chain pull it avoids.
   Implementation began at this round per the standing no-blocking rule.</li>
+  <li><b>Round 5 (2026-07-06, implementation as-built — chunk D check-in).</b> The chunk D
+  implementer's protocol-freeze questions surfaced a real D1/D4 tension: the
+  <code>stat</code> endpoint took digests only, while D4 required size-verified-before-
+  present — semantics a digests-only backend HEAD cannot provide, and per-digest HEADs are
+  the wrong cost shape for manifest-scale batches anyway. Adopted: a
+  <b>verified-blob inventory table</b> (<code>cache_blobs</code>) written only at
+  successful upload-completion verification; presence means verified; stat is a batch
+  table lookup; mark-sweep GC gains its authoritative stored-set enumeration; unverified
+  presigned PUTs are simply absent and re-upload is idempotent (§10.4 updated). Also
+  confirmed as-built: <code>schema_version</code> stored as opaque TEXT (S7); MinIO served
+  by the S3 backend's endpoint override rather than a fourth implementation; bundle
+  archives get a small server-side put/get interface separate from the presign-shaped blob
+  interface; new service code lands untagged.</li>
 </ol>
 </div>
 </details>
@@ -1430,8 +1443,16 @@ store_uuid, schema_version, bundle_format, engine_version, status, counts, creat
 <td>Opaque on the serving path (S7).</td></tr>
 <tr><td>Blob CAS</td><td>Object storage, keyed <code>org/sha256:…</code></td>
 <td>Size-verified on upload against the backend's authoritative object metadata before a
-blob is recorded present (the ported backends' verification semantics, §16); immutable;
-existence = the <code>stat</code> answer.</td></tr>
+blob is recorded present (the ported backends' verification semantics, §16); immutable.</td></tr>
+<tr><td>Verified-blob inventory</td><td>Postgres: <code>cache_blobs(org, digest, size,
+verified_at)</code></td>
+<td>A row is written only when an upload's completion verification passes — <b>presence
+means verified</b>, and the <code>stat</code> answer is a batch lookup against this table
+(a manifest can reference thousands of digests; per-digest backend HEADs would be the
+wrong cost shape). It also gives mark-sweep GC (D6) its authoritative stored-set
+enumeration, and closes the presigned-upload gap: bytes PUT without a completed
+verification are simply not present, and re-upload is idempotent. As-built refinement
+adopted at chunk D's check-in (§4).</td></tr>
 <tr><td>Event log</td><td>Postgres: append-only <code>cache_events</code></td>
 <td>Publish/complete/select/fetch-summary/GC rows; the insight and debugging spine (§11).</td></tr>
 </table>
