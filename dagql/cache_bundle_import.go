@@ -39,8 +39,9 @@ type CacheBundleImportSummary struct {
 	// ChainSourcesInstalled counts rows (staged or same-origin unions) that
 	// gained a content-chain source from this bundle's manifest;
 	// ChainsSkippedMalformed counts manifest chain references that were
-	// structurally unusable and dropped per-chain (the row keeps its other
-	// sources).
+	// structurally unusable — the referencing rows' content promises cannot
+	// be honored, so those rows survive only on a lazy fragment (else they
+	// drop at vetting as chain_damaged, with their dependents).
 	ChainSourcesInstalled  int
 	ChainsSkippedMalformed int
 }
@@ -92,22 +93,33 @@ func (c *Cache) ImportBundle(ctx context.Context, r io.Reader) (CacheBundleImpor
 		return summary, bundleSkip(CacheBundleSkipBrokenIdentity, err)
 	}
 
+	// Manifest chains parse and validate BEFORE vetting, so a row whose
+	// content promise rides a chain the manifest cannot honor is judged
+	// with that fact in hand (never kept chainless to hard-error at
+	// decode). Damage attributable to a row (dangling chainID reference,
+	// malformed layers, duplicate roles) marks that row's content damaged;
+	// section-level garbage the rows cannot be blamed for skips the whole
+	// bundle. Blob AVAILABILITY stays a runtime concern (S5) — only
+	// structure is checked here.
+	manifestChains, err := parseBundleManifestChains(manifest)
+	if err != nil {
+		return summary, bundleSkip(CacheBundleSkipMalformedChains, err)
+	}
+	summary.ChainsSkippedMalformed = manifestChains.damagedRefs
+	chainsByBundleResult := manifestChains.byResult
+
 	// Per-result vetting: the exact local rules (malformed, missing-dep,
 	// cycle, cascade), bundle-flavored — bundles carry no snapshot link
 	// rows (and no chain rows: chains live in the manifest), so the local
 	// snapshot-presence check has nothing to test and content viability is
-	// what the row structurally carries.
-	kept, vetSummary, err := c.vetRestoredResults(ctx, rows.results, rows.resultDeps, nil, rows.resultOrigins, nil)
+	// what the row structurally carries: a row whose chain claim is damaged
+	// survives only on its lazy fragment, exactly like local
+	// claimed-content damage.
+	kept, vetSummary, err := c.vetRestoredResults(ctx, rows.results, rows.resultDeps, nil, rows.resultOrigins, nil, manifestChains.damaged)
 	if err != nil {
 		return summary, bundleSkip(CacheBundleSkipBrokenIdentity, err)
 	}
 	summary.RowsDroppedVetting = vetSummary.Dropped
-
-	// Manifest chains become content-chain sources (§8.1 step 6). Damage is
-	// per-chain: a malformed or dangling chain reference is skipped with a
-	// count, never a bundle skip — blob availability stays a runtime
-	// concern (S5), only structure is checked here.
-	chainsByBundleResult := parseBundleManifestChains(manifest, &summary)
 
 	order := topoOrderRestoredRows(kept)
 
@@ -634,15 +646,47 @@ func (c *Cache) ImportBundle(ctx context.Context, r io.Reader) (CacheBundleImpor
 	return summary, nil
 }
 
-// parseBundleManifestChains resolves the manifest's chain declarations into
-// per-bundle-result chain identities. Structural damage is per-chain: a
-// resultChain whose chainID has no chain entry, whose role duplicates an
-// earlier one for the same result, or whose layers are malformed is skipped
-// with a count — the row keeps its other sources, and availability of the
-// chain's blobs is deliberately not a boot-time concern (S5).
-func parseBundleManifestChains(manifest CacheBundleManifest, summary *CacheBundleImportSummary) map[sharedResultID][]PersistedResultContentChain {
+// bundleManifestChains is the validated view of a manifest's chain
+// declarations: usable chain identities per bundle result, plus the rows
+// whose chain claims turned out damaged — those rows' content promises
+// cannot be honored, and vetting judges them with that fact.
+type bundleManifestChains struct {
+	byResult map[sharedResultID][]PersistedResultContentChain
+	// damaged marks rows with at least one unusable chain claim (dangling
+	// chainID reference, malformed layers, duplicate role). A damaged row
+	// gets NO chain sources — partial content promises are not kept.
+	damaged map[sharedResultID]struct{}
+	// damagedRefs counts the unusable chain references themselves (the
+	// observability tally behind the per-row damage).
+	damagedRefs int
+}
+
+// parseBundleManifestChains validates the manifest's chain declarations
+// before any row is vetted. Damage splits by blast radius: garbage
+// attributable to a specific row (a resultChain with a dangling chainID, a
+// chain whose layers are malformed, a duplicate role) marks that row's
+// content damaged — the row survives only on a lazy fragment, and drops
+// with its dependents otherwise. Section-level garbage no row can be blamed
+// for (empty or duplicate chainIDs, a resultChain naming no row) fails the
+// whole bundle. Availability of the chains' blobs is deliberately not
+// checked (S5) — structure only.
+func parseBundleManifestChains(manifest CacheBundleManifest) (bundleManifestChains, error) {
+	out := bundleManifestChains{
+		byResult: make(map[sharedResultID][]PersistedResultContentChain),
+		damaged:  make(map[sharedResultID]struct{}),
+	}
+
 	layersByChainID := make(map[string][]PersistedContentChainLayer, len(manifest.Chains))
+	malformedChainIDs := make(map[string]struct{})
 	for _, chain := range manifest.Chains {
+		if chain.ChainID == "" {
+			return out, errors.New("manifest chain entry with empty chainID")
+		}
+		_, dupUsable := layersByChainID[chain.ChainID]
+		_, dupMalformed := malformedChainIDs[chain.ChainID]
+		if dupUsable || dupMalformed {
+			return out, fmt.Errorf("duplicate manifest chain entry %q", chain.ChainID)
+		}
 		layers := make([]PersistedContentChainLayer, 0, len(chain.Layers))
 		malformed := false
 		for _, layer := range chain.Layers {
@@ -658,22 +702,33 @@ func parseBundleManifestChains(manifest CacheBundleManifest, summary *CacheBundl
 			})
 		}
 		if malformed {
-			summary.ChainsSkippedMalformed++
-			slog.Warn("skipping malformed bundle chain", "chainID", chain.ChainID)
+			// Attributed below to every row referencing this chain.
+			malformedChainIDs[chain.ChainID] = struct{}{}
 			continue
 		}
 		layersByChainID[chain.ChainID] = layers
 	}
 
-	chainsByResult := make(map[sharedResultID][]PersistedResultContentChain)
 	seenRoles := make(map[sharedResultID]map[string]struct{})
+	markDamaged := func(bundleID sharedResultID, why string, resultChain CacheBundleResultChain) {
+		out.damaged[bundleID] = struct{}{}
+		out.damagedRefs++
+		slog.Warn("bundle result chain claim is damaged",
+			"why", why, "bundleResultID", resultChain.ResultID,
+			"role", resultChain.Role, "chainID", resultChain.ChainID)
+	}
 	for _, resultChain := range manifest.ResultChains {
 		bundleID := sharedResultID(resultChain.ResultID)
+		if bundleID == 0 {
+			return out, errors.New("manifest resultChain with zero resultID")
+		}
+		if _, isMalformed := malformedChainIDs[resultChain.ChainID]; isMalformed {
+			markDamaged(bundleID, "malformed chain layers", resultChain)
+			continue
+		}
 		layers, known := layersByChainID[resultChain.ChainID]
-		if !known || bundleID == 0 {
-			summary.ChainsSkippedMalformed++
-			slog.Warn("skipping dangling bundle result chain",
-				"bundleResultID", resultChain.ResultID, "role", resultChain.Role, "chainID", resultChain.ChainID)
+		if !known {
+			markDamaged(bundleID, "dangling chainID reference", resultChain)
 			continue
 		}
 		roles := seenRoles[bundleID]
@@ -682,19 +737,23 @@ func parseBundleManifestChains(manifest CacheBundleManifest, summary *CacheBundl
 			seenRoles[bundleID] = roles
 		}
 		if _, dup := roles[resultChain.Role]; dup {
-			summary.ChainsSkippedMalformed++
-			slog.Warn("skipping duplicate bundle result chain role",
-				"bundleResultID", resultChain.ResultID, "role", resultChain.Role)
+			markDamaged(bundleID, "duplicate role", resultChain)
 			continue
 		}
 		roles[resultChain.Role] = struct{}{}
-		chainsByResult[bundleID] = append(chainsByResult[bundleID], PersistedResultContentChain{
+		out.byResult[bundleID] = append(out.byResult[bundleID], PersistedResultContentChain{
 			Role:    resultChain.Role,
 			ChainID: resultChain.ChainID,
 			Layers:  layers,
 		})
 	}
-	return chainsByResult
+
+	// A damaged row's content promise is not honored partially: whatever
+	// chains parsed fine for it are discarded with the damaged ones.
+	for bundleID := range out.damaged {
+		delete(out.byResult, bundleID)
+	}
+	return out, nil
 }
 
 // stagedBundleRow is one kept bundle row with every reference rewritten

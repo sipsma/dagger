@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -601,6 +602,205 @@ func TestContentChainConcurrentForcingSingleflights(t *testing.T) {
 	assert.Equal(t, int64(1), counters[cacheServeFromContentChain]["uploadObj"])
 	assert.Equal(t, int64(0), counters[cacheServeDemotedToMiss]["uploadObj"])
 	cacheTestReleaseSession(t, cache, ctx)
+}
+
+// seedDoctoredChainBundle exports a bundle whose upload row (snapshot-only,
+// no fragment) crossed chain-backed, with a dependent row chained on it,
+// then hands the manifest + metadata path to the caller for doctoring.
+func seedDoctoredChainBundle(t *testing.T, ctx context.Context, dir string) (CacheBundleManifest, string, map[resultOrigin]sharedResultID) {
+	t.Helper()
+	managerA := &fakeSnapshotManager{
+		chainForSnapshot: map[string]bkcache.SnapshotChain{
+			"upload-snap": snapshotChainFromPersisted(chainTestChains()[0]),
+		},
+	}
+	cacheA, err := NewCache(ctx, filepath.Join(dir, "a.db"), managerA, nil)
+	assert.NilError(t, err)
+	srvA := newVettingTestServer()
+	rootCtxA := vettingRootCtx(ctx, cacheA, srvA)
+	var name String
+	assert.NilError(t, srvA.Select(rootCtxA, srvA.root, &name, Selector{Field: "uploadObj"}, Selector{Field: "name"}))
+	assert.Equal(t, String("upload"), name)
+	cacheTestReleaseSession(t, cacheA, rootCtxA)
+	origins := bundleTestOrigins(cacheA)
+
+	var bundle bytes.Buffer
+	exportSummary, err := cacheA.ExportBundle(ctx, &bundle, CacheBundleExportOptions{})
+	assert.NilError(t, err)
+	assert.NilError(t, cacheA.Close(context.Background()))
+	assert.Equal(t, 1, exportSummary.Chains)
+	assert.Equal(t, 0, exportSummary.ExcludedNoPortableContent)
+
+	manifest, metadataPath, err := readCacheBundleArchive(bytes.NewReader(bundle.Bytes()), t.TempDir())
+	assert.NilError(t, err)
+	return manifest, metadataPath, origins
+}
+
+// TestCacheBundleDamagedChainDropsRowWithDependents: a row whose export
+// contract required a chain must never survive import chainless — a
+// doctored manifest (dangling chainID reference; malformed layer entry)
+// drops the row WITH its in-bundle dependents at vetting, and the row's
+// call recomputes honestly instead of hard-erroring at decode (S4).
+func TestCacheBundleDamagedChainDropsRowWithDependents(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+
+	doctor := func(t *testing.T, mutate func(*CacheBundleManifest)) {
+		t.Helper()
+		dir := t.TempDir()
+		manifest, metadataPath, originsA := seedDoctoredChainBundle(t, ctx, dir)
+		mutate(&manifest)
+		var doctored bytes.Buffer
+		assert.NilError(t, writeCacheBundleArchive(&doctored, manifest, metadataPath))
+
+		cacheB, err := NewCache(ctx, filepath.Join(dir, "b.db"), &fakeSnapshotManager{missingSnapshots: map[string]struct{}{}}, nil)
+		assert.NilError(t, err)
+		defer func() {
+			assert.NilError(t, cacheB.Close(context.Background()))
+		}()
+		summary, err := cacheB.ImportBundle(ctx, bytes.NewReader(doctored.Bytes()))
+		assert.NilError(t, err, "per-result chain damage must never fail the import")
+		assert.Assert(t, summary.ChainsSkippedMalformed >= 1)
+		assert.Assert(t, summary.RowsDroppedVetting >= 2,
+			"the chain-backed row and its dependent must both drop; summary: %+v", summary)
+		assert.Equal(t, 0, summary.ChainSourcesInstalled)
+
+		// Neither the damaged row nor its dependent crossed.
+		originsB := bundleTestOrigins(cacheB)
+		for origin := range originsA {
+			_, present := originsB[origin]
+			assert.Assert(t, !present, "origin %v must not survive chain damage", origin)
+		}
+
+		// S4, proven at the serving surface: the call misses and executes
+		// live — never a stranded decode error.
+		srvB := newVettingTestServer()
+		rootCtxB := vettingRootCtx(ctx, cacheB, srvB)
+		res, err := srvB.root.Select(rootCtxB, srvB, Selector{Field: "uploadObj"})
+		assert.NilError(t, err, "the dropped row's call must recompute honestly")
+		assert.Assert(t, !res.HitCache())
+		cacheTestReleaseSession(t, cacheB, rootCtxB)
+	}
+
+	t.Run("dangling chainID reference", func(t *testing.T) {
+		t.Parallel()
+		doctor(t, func(manifest *CacheBundleManifest) {
+			manifest.ResultChains[0].ChainID = "sha256:00000000000000000000000000000000000000000000000000000000000000ff"
+		})
+	})
+	t.Run("malformed layer entry", func(t *testing.T) {
+		t.Parallel()
+		doctor(t, func(manifest *CacheBundleManifest) {
+			manifest.Chains[0].Layers[0].Blob = ""
+		})
+	})
+}
+
+// TestCacheBundleChainSectionGarbageSkipsBundle: chain-section damage no
+// row can be blamed for fails the whole bundle, typed, with the local store
+// untouched.
+func TestCacheBundleChainSectionGarbageSkipsBundle(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+
+	doctor := func(t *testing.T, mutate func(*CacheBundleManifest)) {
+		t.Helper()
+		dir := t.TempDir()
+		manifest, metadataPath, _ := seedDoctoredChainBundle(t, ctx, dir)
+		mutate(&manifest)
+		var doctored bytes.Buffer
+		assert.NilError(t, writeCacheBundleArchive(&doctored, manifest, metadataPath))
+
+		cacheB, err := NewCache(ctx, filepath.Join(dir, "b.db"), &fakeSnapshotManager{}, nil)
+		assert.NilError(t, err)
+		defer func() {
+			assert.NilError(t, cacheB.Close(context.Background()))
+		}()
+		seedBundleTestJunk(t, ctx, cacheB, 2)
+		before := bundleTestSnapshotCounts(cacheB)
+
+		_, err = cacheB.ImportBundle(ctx, bytes.NewReader(doctored.Bytes()))
+		var skip *CacheBundleSkipError
+		assert.Assert(t, errors.As(err, &skip), "expected a bundle skip, got %v", err)
+		assert.Equal(t, CacheBundleSkipMalformedChains, skip.Reason)
+		assert.DeepEqual(t, before, bundleTestSnapshotCounts(cacheB))
+		assert.Equal(t, CachePersistenceResetNone, cacheB.PersistenceResetReason())
+	}
+
+	t.Run("empty chainID entry", func(t *testing.T) {
+		t.Parallel()
+		doctor(t, func(manifest *CacheBundleManifest) {
+			manifest.Chains = append(manifest.Chains, CacheBundleChain{ChainID: "", Layers: []CacheBundleChainLayer{}})
+		})
+	})
+	t.Run("duplicate chainID entry", func(t *testing.T) {
+		t.Parallel()
+		doctor(t, func(manifest *CacheBundleManifest) {
+			manifest.Chains = append(manifest.Chains, manifest.Chains[0])
+		})
+	})
+}
+
+// TestCacheBundleDamagedChainFragmentRowSurvivesOnFragment: a both-forms
+// row whose chain claim is damaged keeps its content promise through the
+// lazy fragment — kept, no chain source, counted.
+func TestCacheBundleDamagedChainFragmentRowSurvivesOnFragment(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dir := t.TempDir()
+
+	managerA := &fakeSnapshotManager{
+		chainForSnapshot: map[string]bkcache.SnapshotChain{
+			"mat-home-snap": snapshotChainFromPersisted(chainTestChains()[0]),
+		},
+	}
+	cacheA, err := NewCache(ctx, filepath.Join(dir, "a.db"), managerA, nil)
+	assert.NilError(t, err)
+	srvA := newVettingTestServer()
+	rootCtxA := vettingRootCtx(ctx, cacheA, srvA)
+	_, err = srvA.root.Select(rootCtxA, srvA, Selector{Field: "bothObj"})
+	assert.NilError(t, err)
+	cacheTestReleaseSession(t, cacheA, rootCtxA)
+	originsA := bundleTestOrigins(cacheA)
+
+	var bundle bytes.Buffer
+	exportSummary, err := cacheA.ExportBundle(ctx, &bundle, CacheBundleExportOptions{})
+	assert.NilError(t, err)
+	assert.NilError(t, cacheA.Close(context.Background()))
+	assert.Equal(t, 1, exportSummary.Chains)
+
+	manifest, metadataPath, err := readCacheBundleArchive(bytes.NewReader(bundle.Bytes()), t.TempDir())
+	assert.NilError(t, err)
+	manifest.ResultChains[0].ChainID = "sha256:00000000000000000000000000000000000000000000000000000000000000ff"
+	var doctored bytes.Buffer
+	assert.NilError(t, writeCacheBundleArchive(&doctored, manifest, metadataPath))
+
+	cacheB, err := NewCache(ctx, filepath.Join(dir, "b.db"), &fakeSnapshotManager{}, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, cacheB.Close(context.Background()))
+	}()
+	summary, err := cacheB.ImportBundle(ctx, bytes.NewReader(doctored.Bytes()))
+	assert.NilError(t, err)
+	assert.Assert(t, summary.ChainsSkippedMalformed >= 1)
+	assert.Equal(t, 0, summary.ChainSourcesInstalled)
+
+	originsB := bundleTestOrigins(cacheB)
+	var imported *sharedResult
+	for origin := range originsA {
+		cacheB.egraphMu.RLock()
+		res := cacheB.resultsByID[originsB[origin]]
+		cacheB.egraphMu.RUnlock()
+		if res != nil && res.loadLazyFragment() != nil {
+			imported = res
+		}
+	}
+	assert.Assert(t, imported != nil, "the fragment-backed row must survive its damaged chain")
+	assert.Equal(t, 0, len(imported.loadContentChains()))
+	assert.DeepEqual(t, []retainedSourceKind{sourceLazyValue}, imported.loadPayloadState().sourceKinds)
 }
 
 // contentlessProbeObj is a registered identity-only type: it owns a mutable

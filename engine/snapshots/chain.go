@@ -35,12 +35,17 @@ type ChainLayer struct {
 }
 
 // SnapshotChain is a full chain for one snapshot. A snapshot with no
-// exportable layers (empty content) has zero layers and an empty ChainID;
-// materializing it produces an empty snapshot.
+// exportable layers (empty content) has zero layers and the deterministic
+// EmptyChainID; materializing it produces an empty snapshot. An empty
+// chainID is malformed everywhere — importers reject it — so every content
+// promise has a real name.
 type SnapshotChain struct {
 	ChainID digest.Digest
 	Layers  []ChainLayer
 }
+
+// EmptyChainID names the zero-layer chain (empty content).
+var EmptyChainID = digest.FromString("dagger:empty-content-chain")
 
 // chainExportCompression is the one pinned compression for chain blobs.
 // The CAS dedups by blob digest, so per-engine compression variance would
@@ -173,6 +178,8 @@ func (cm *snapshotManager) ChainForSnapshot(ctx context.Context, snapshotID stri
 	}
 	if len(diffIDs) > 0 {
 		chain.ChainID = imagespecidentity.ChainID(diffIDs)
+	} else {
+		chain.ChainID = EmptyChainID
 	}
 
 	cm.mu.Lock()

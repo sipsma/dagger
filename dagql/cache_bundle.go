@@ -111,6 +111,7 @@ const (
 	CacheBundleSkipManifestMismatch   = "manifest_mismatch"
 	CacheBundleSkipUnreadableMetadata = "unreadable_metadata"
 	CacheBundleSkipBrokenIdentity     = "broken_identity"
+	CacheBundleSkipMalformedChains    = "malformed_chains"
 )
 
 // contentlessPersistedTypeNames are the persisted object types whose rows

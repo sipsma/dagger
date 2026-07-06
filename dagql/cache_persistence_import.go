@@ -113,7 +113,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 		}
 	}
 
-	keptRows, restoreSummary, err := c.vetRestoredResults(ctx, resultRows, resultDepRows, resultSnapshotRows, resultOriginRows, resultContentChainRows)
+	keptRows, restoreSummary, err := c.vetRestoredResults(ctx, resultRows, resultDepRows, resultSnapshotRows, resultOriginRows, resultContentChainRows, nil)
 	if err != nil {
 		return err
 	}

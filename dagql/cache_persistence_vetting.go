@@ -21,6 +21,9 @@ const (
 	// The row's snapshots are gone from the local store and it has neither a
 	// content chain nor a lazy fragment to be re-made from.
 	restoreDropSnapshotMissing restoreDropReason = "snapshot_missing"
+	// The row's manifest chain claim is structurally unusable (bundle
+	// import only) and no lazy fragment remains to re-make from.
+	restoreDropChainDamaged restoreDropReason = "chain_damaged"
 	// The row references a dependency row that does not exist in the store.
 	restoreDropMissingDep restoreDropReason = "missing_dep"
 	// A row this one depends on was dropped; drops cascade forward.
@@ -85,6 +88,7 @@ func (c *Cache) vetRestoredResults(
 	resultSnapshotRows []persistdb.MirrorResultSnapshotLink,
 	resultOriginRows []persistdb.MirrorResultOrigin,
 	resultContentChainRows []persistdb.MirrorResultContentChain,
+	contentDamaged map[sharedResultID]struct{},
 ) (map[sharedResultID]*restoredResultRow, *CacheRestoreSummary, error) {
 	rows, malformed, err := parseRestoredResultRows(resultRows)
 	if err != nil {
@@ -186,6 +190,15 @@ func (c *Cache) vetRestoredResults(
 		for _, depID := range restored.deps {
 			if _, depKept := kept[depID]; !depKept {
 				reason := restoreDropDependent
+				return &reason, nil
+			}
+		}
+		if _, damaged := contentDamaged[restored.id]; damaged {
+			// The row's chain claim is unusable (the chain IS the damage,
+			// so it cannot be the fallback): survival needs the lazy
+			// fragment, exactly like local claimed-content damage.
+			if len(restored.env.LazyJSON) == 0 {
+				reason := restoreDropChainDamaged
 				return &reason, nil
 			}
 		}
