@@ -39,6 +39,7 @@ type persistResultSnapshot struct {
 	snapshotOwnerLinks    []PersistedSnapshotRefLink
 	lazyFragment          *PersistedLazyFragment
 	row                   persistdb.MirrorResult
+	origin                persistdb.MirrorResultOrigin
 	resultDeps            []persistdb.MirrorResultDep
 	resultSnapshotLinks   []persistdb.MirrorResultSnapshotLink
 }
@@ -54,4 +55,8 @@ type persistStateSnapshot struct {
 	snapshotContentLinks  []persistdb.MirrorSnapshotContentLink
 	importedLayerByBlob   []persistdb.MirrorImportedLayerBlobIndex
 	importedLayerByDiff   []persistdb.MirrorImportedLayerDiffIndex
+
+	// maxAllocatedResultID is the allocator high-water mark at snapshot
+	// time, flushed into meta so boot resumes allocation above it.
+	maxAllocatedResultID sharedResultID
 }

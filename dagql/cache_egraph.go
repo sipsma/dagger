@@ -212,7 +212,10 @@ func (c *Cache) initEgraphLocked() {
 		c.nextEgraphTermID = 1
 	}
 	if c.nextSharedResultID == 0 {
-		c.nextSharedResultID = 1
+		// Resume allocation above the high-water mark, never at 1: after a
+		// drain reset (or a boot following prune) re-using an ID would let
+		// one origin pair name two different results.
+		c.nextSharedResultID = c.maxAllocatedResultID + 1
 	}
 }
 
@@ -1465,6 +1468,13 @@ func (c *Cache) indexWaitResultInEgraphLocked(
 		res.id = c.nextSharedResultID
 		c.nextSharedResultID++
 	}
+	c.noteAllocatedResultIDLocked(res.id)
+	// First publication mints the result's durable origin: this store's
+	// UUID plus its local ID here. Rows that already carry an origin
+	// (imported from a bundle) keep it verbatim.
+	if c.storeUUID != "" {
+		c.assignResultOriginLocked(res, resultOrigin{storeUUID: c.storeUUID, resultID: uint64(res.id)})
+	}
 	c.resultsByID[res.id] = res
 	if res.loadResultCall() == nil && requestFrame != nil {
 		res.storeResultCall(requestFrame.clone())
@@ -1729,8 +1739,11 @@ func (c *Cache) maybeResetEgraphLocked() {
 	c.egraphTermsByTermDigest = nil
 	c.egraphResultsByDigest = nil
 	c.resultsByID = nil
+	c.resultsByOrigin = nil
 	c.nextEgraphClassID = 0
 	c.nextEgraphTermID = 0
+	// maxAllocatedResultID deliberately survives: initEgraphLocked resumes
+	// allocation above it, so drained-and-reborn stores never re-use IDs.
 	c.nextSharedResultID = 0
 }
 

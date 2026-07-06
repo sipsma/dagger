@@ -86,15 +86,15 @@ var _ dagql.HasDependencyResults = (*Service)(nil)
 
 type persistedServicePayload struct {
 	CustomHostname                string                        `json:"customHostname,omitempty"`
-	ContainerResultID             uint64                        `json:"containerResultID,omitempty"`
+	ContainerResultID             dagql.PersistedResultRef                        `json:"containerResultID,omitempty"`
 	Args                          []string                      `json:"args,omitempty"`
 	ExperimentalPrivilegedNesting bool                          `json:"experimentalPrivilegedNesting,omitempty"`
 	InsecureRootCapabilities      bool                          `json:"insecureRootCapabilities,omitempty"`
 	NoInit                        bool                          `json:"noInit,omitempty"`
 	ExecMD                        *engineutil.ExecutionMetadata `json:"execMD,omitempty"`
-	ModuleContextResultID         uint64                        `json:"moduleContextResultID,omitempty"`
+	ModuleContextResultID         dagql.PersistedResultRef                        `json:"moduleContextResultID,omitempty"`
 	ExecMeta                      *executor.Meta                `json:"execMeta,omitempty"`
-	TunnelUpstreamResultID        uint64                        `json:"tunnelUpstreamResultID,omitempty"`
+	TunnelUpstreamResultID        dagql.PersistedResultRef                        `json:"tunnelUpstreamResultID,omitempty"`
 	TunnelPorts                   []PortForward                 `json:"tunnelPorts,omitempty"`
 	HostSockets                   []persistedServiceHostSocket  `json:"hostSockets,omitempty"`
 }
@@ -108,7 +108,7 @@ type persistedServiceHostSocket struct {
 }
 
 type persistedServiceBinding struct {
-	ServiceResultID uint64   `json:"serviceResultID"`
+	ServiceResultID dagql.PersistedResultRef   `json:"serviceResultID"`
 	Hostname        string   `json:"hostname"`
 	Aliases         AliasSet `json:"aliases,omitempty"`
 }

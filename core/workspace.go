@@ -92,7 +92,7 @@ var _ dagql.PersistedObjectDecoder = (*Workspace)(nil)
 var _ dagql.HasDependencyResults = (*Workspace)(nil)
 
 type persistedWorkspacePayload struct {
-	RootfsResultID  uint64                        `json:"rootfsResultID,omitempty"`
+	RootfsResultID  dagql.PersistedResultRef                        `json:"rootfsResultID,omitempty"`
 	CompatWorkspace *workspacepkg.CompatWorkspace `json:"compatWorkspace,omitempty"`
 	Address         string                        `json:"address,omitempty"`
 	Cwd             string                        `json:"cwd,omitempty"`

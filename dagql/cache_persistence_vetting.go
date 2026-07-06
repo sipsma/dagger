@@ -36,12 +36,13 @@ const (
 // may have been cleared when the backing snapshots turned out to be gone
 // but the row survived on its lazy fragment.
 type restoredResultRow struct {
-	id    sharedResultID
-	row   persistdb.MirrorResult
-	frame *ResultCall
-	env   PersistedResultEnvelope
-	links []PersistedSnapshotRefLink
-	deps  []sharedResultID
+	id     sharedResultID
+	row    persistdb.MirrorResult
+	frame  *ResultCall
+	env    PersistedResultEnvelope
+	links  []PersistedSnapshotRefLink
+	deps   []sharedResultID
+	origin resultOrigin
 }
 
 // CacheRestoreDroppedResult records one row dropped at boot vetting.
@@ -79,10 +80,30 @@ func (c *Cache) vetRestoredResults(
 	resultRows []persistdb.MirrorResult,
 	resultDepRows []persistdb.MirrorResultDep,
 	resultSnapshotRows []persistdb.MirrorResultSnapshotLink,
+	resultOriginRows []persistdb.MirrorResultOrigin,
 ) (map[sharedResultID]*restoredResultRow, *CacheRestoreSummary, error) {
 	rows, malformed, err := parseRestoredResultRows(resultRows)
 	if err != nil {
 		return nil, nil, err
+	}
+
+	// Every row must carry exactly one origin: a row without one cannot be
+	// exported or deduped honestly, which is per-row damage, not store
+	// damage.
+	originsByResult := make(map[sharedResultID]resultOrigin, len(resultOriginRows))
+	for _, row := range resultOriginRows {
+		originsByResult[sharedResultID(row.ResultID)] = resultOrigin{
+			storeUUID: row.OriginStoreUUID,
+			resultID:  uint64(row.OriginResultID),
+		}
+	}
+	for id, restored := range rows {
+		origin, hasOrigin := originsByResult[id]
+		if !hasOrigin || origin.storeUUID == "" || origin.resultID == 0 {
+			malformed[id] = struct{}{}
+			continue
+		}
+		restored.origin = origin
 	}
 
 	missingDep := make(map[sharedResultID]struct{})

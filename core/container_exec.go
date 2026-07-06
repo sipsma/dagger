@@ -101,11 +101,11 @@ type ContainerExecLazy struct {
 }
 
 type persistedContainerExecLazy struct {
-	ParentResultID                 uint64                        `json:"parentResultID"`
-	ModuleContextResultID          uint64                        `json:"moduleContextResultID,omitempty"`
+	ParentResultID                 dagql.PersistedResultRef                        `json:"parentResultID"`
+	ModuleContextResultID          dagql.PersistedResultRef                        `json:"moduleContextResultID,omitempty"`
 	Opts                           ContainerExecOpts             `json:"opts"`
 	ExecMD                         *engineutil.ExecutionMetadata `json:"execMD,omitempty"`
-	VolatileCacheHitParentResultID uint64                        `json:"volatileCacheHitParentResultID,omitempty"`
+	VolatileCacheHitParentResultID dagql.PersistedResultRef                        `json:"volatileCacheHitParentResultID,omitempty"`
 	VolatileCacheHitVolatileEnv    []string                      `json:"volatileCacheHitVolatileEnv,omitempty"`
 }
 
@@ -164,7 +164,7 @@ func (lazy *ContainerExecLazy) EncodePersisted(ctx context.Context, cache dagql.
 	if err != nil {
 		return nil, err
 	}
-	var moduleContextID uint64
+	var moduleContextID dagql.PersistedResultRef
 	if lazy.State.ModuleContext.Self() != nil {
 		moduleContextID, err = encodePersistedObjectRef(cache, lazy.State.ModuleContext, "container withExec module context")
 		if err != nil {

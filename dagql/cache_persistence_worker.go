@@ -38,6 +38,9 @@ func (c *Cache) persistCurrentState(ctx context.Context) error {
 			return fmt.Errorf("write %s metadata: %w", key, err)
 		}
 	}
+	if err := c.pdb.UpsertMeta(ctx, persistdb.MetaKeyMaxResultID, strconv.FormatUint(uint64(snapshot.maxAllocatedResultID), 10)); err != nil {
+		return fmt.Errorf("write %s metadata: %w", persistdb.MetaKeyMaxResultID, err)
+	}
 	return nil
 }
 
@@ -145,8 +148,21 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 		}
 
 		payload := res.loadPayloadState()
+		// Locally-minted rows that never went through publication minting
+		// (persistence-disabled windows cannot occur here: the store UUID is
+		// set before any allocation) still get their deterministic local
+		// origin — identical to what publication would have minted.
+		origin := res.origin
+		if origin.isZero() {
+			origin = resultOrigin{storeUUID: c.storeUUID, resultID: uint64(resultID)}
+		}
 		snapshot.results = append(snapshot.results, persistResultSnapshot{
-			resultID:              resultID,
+			resultID: resultID,
+			origin: persistdb.MirrorResultOrigin{
+				ResultID:        int64(resultID),
+				OriginStoreUUID: origin.storeUUID,
+				OriginResultID:  int64(origin.resultID),
+			},
 			frame:                 res.loadResultCall().clone(),
 			self:                  payload.self,
 			isObject:              payload.isObject,
@@ -166,6 +182,8 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 			resultDeps: resultDeps,
 		})
 	}
+
+	snapshot.maxAllocatedResultID = c.maxAllocatedResultID
 
 	persistedResultIDs := make([]sharedResultID, 0, len(c.persistedEdgesByResult))
 	for resultID := range c.persistedEdgesByResult {
@@ -345,6 +363,10 @@ func (c *Cache) applyPersistStateSnapshot(ctx context.Context, snapshot persistS
 		}
 	}
 	for _, result := range snapshot.results {
+		if err := q.InsertMirrorResultOrigin(ctx, result.origin); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("insert result_origin (%d,%s,%d): %w", result.origin.ResultID, result.origin.OriginStoreUUID, result.origin.OriginResultID, err)
+		}
 		for _, row := range result.resultDeps {
 			if err := q.InsertMirrorResultDep(ctx, row); err != nil {
 				_ = tx.Rollback()

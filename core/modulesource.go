@@ -429,7 +429,7 @@ type persistedGitModuleSourcePayload struct {
 
 type persistedDirModuleSourcePayload struct {
 	OriginalSourceRootSubpath  string `json:"originalSourceRootSubpath,omitempty"`
-	OriginalContextDirResultID uint64 `json:"originalContextDirResultID,omitempty"`
+	OriginalContextDirResultID dagql.PersistedResultRef `json:"originalContextDirResultID,omitempty"`
 }
 
 type persistedModuleSourceSDKCapabilities struct {
@@ -453,22 +453,22 @@ type persistedModuleSourcePayload struct {
 	IncludePaths                    []string                              `json:"includePaths,omitempty"`
 	RebasedIncludePaths             []string                              `json:"rebasedIncludePaths,omitempty"`
 	ConfigDependencies              []*modules.ModuleConfigDependency     `json:"configDependencies,omitempty"`
-	DependencyResultIDs             []uint64                              `json:"dependencyResultIDs,omitempty"`
+	DependencyResultIDs             []dagql.PersistedResultRef                              `json:"dependencyResultIDs,omitempty"`
 	ConfigBlueprint                 *modules.ModuleConfigDependency       `json:"configBlueprint,omitempty"`
-	BlueprintResultID               uint64                                `json:"blueprintResultID,omitempty"`
+	BlueprintResultID               dagql.PersistedResultRef                                `json:"blueprintResultID,omitempty"`
 	ConfigToolchains                []*modules.ModuleConfigDependency     `json:"configToolchains,omitempty"`
-	ToolchainResultIDs              []uint64                              `json:"toolchainResultIDs,omitempty"`
+	ToolchainResultIDs              []dagql.PersistedResultRef                              `json:"toolchainResultIDs,omitempty"`
 	UserDefaults                    *EnvFile                              `json:"userDefaults,omitempty"`
 	ConfigClients                   []*modules.ModuleConfigClient         `json:"configClients,omitempty"`
 	SourceRootSubpath               string                                `json:"sourceRootSubpath,omitempty"`
 	SourceSubpath                   string                                `json:"sourceSubpath,omitempty"`
 	OriginalSubpath                 string                                `json:"originalSubpath,omitempty"`
-	ContextDirectoryResultID        uint64                                `json:"contextDirectoryResultID,omitempty"`
+	ContextDirectoryResultID        dagql.PersistedResultRef                                `json:"contextDirectoryResultID,omitempty"`
 	Kind                            ModuleSourceKind                      `json:"kind"`
 	Local                           *LocalModuleSource                    `json:"local,omitempty"`
 	Git                             *persistedGitModuleSourcePayload      `json:"git,omitempty"`
 	DirSrc                          *persistedDirModuleSourcePayload      `json:"dirSrc,omitempty"`
-	GitUnfilteredContextDirResultID uint64                                `json:"gitUnfilteredContextDirResultID,omitempty"`
+	GitUnfilteredContextDirResultID dagql.PersistedResultRef                                `json:"gitUnfilteredContextDirResultID,omitempty"`
 	SDKCapabilities                 *persistedModuleSourceSDKCapabilities `json:"sdkCapabilities,omitempty"`
 }
 
@@ -710,7 +710,7 @@ func (src *ModuleSource) EncodePersistedObject(ctx context.Context, cache dagql.
 		}
 		payload.ContextDirectoryResultID = contextDirID
 	}
-	payload.DependencyResultIDs = make([]uint64, 0, len(src.Dependencies))
+	payload.DependencyResultIDs = make([]dagql.PersistedResultRef, 0, len(src.Dependencies))
 	for _, dep := range src.Dependencies {
 		if dep.Self() == nil {
 			continue
@@ -728,7 +728,7 @@ func (src *ModuleSource) EncodePersistedObject(ctx context.Context, cache dagql.
 		}
 		payload.BlueprintResultID = blueprintID
 	}
-	payload.ToolchainResultIDs = make([]uint64, 0, len(src.Toolchains))
+	payload.ToolchainResultIDs = make([]dagql.PersistedResultRef, 0, len(src.Toolchains))
 	for _, toolchain := range src.Toolchains {
 		if toolchain.Self() == nil {
 			continue

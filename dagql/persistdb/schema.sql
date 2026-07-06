@@ -68,6 +68,23 @@ CREATE TABLE IF NOT EXISTS persisted_edges (
     FOREIGN KEY(result_id) REFERENCES results(id) ON DELETE CASCADE
 ) STRICT;
 
+CREATE TABLE IF NOT EXISTS result_origins (
+    result_id INTEGER PRIMARY KEY,
+    origin_store_uuid TEXT NOT NULL,
+    origin_result_id INTEGER NOT NULL,
+    UNIQUE(origin_store_uuid, origin_result_id),
+    FOREIGN KEY(result_id) REFERENCES results(id) ON DELETE CASCADE
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS result_content_chains (
+    result_id INTEGER NOT NULL,
+    role TEXT NOT NULL,
+    chain_id TEXT NOT NULL,
+    layers_json TEXT NOT NULL,
+    PRIMARY KEY(result_id, role),
+    FOREIGN KEY(result_id) REFERENCES results(id) ON DELETE CASCADE
+) STRICT, WITHOUT ROWID;
+
 CREATE TABLE IF NOT EXISTS result_snapshot_links (
     result_id INTEGER NOT NULL,
     ref_key TEXT NOT NULL,

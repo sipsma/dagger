@@ -88,7 +88,7 @@ var _ dagql.HasDependencyResults = (*GeneratorGroup)(nil)
 type persistedGeneratorPayload struct {
 	NodeID          int    `json:"nodeID,omitempty"`
 	Completed       bool   `json:"completed,omitempty"`
-	ChangesResultID uint64 `json:"changesResultID,omitempty"`
+	ChangesResultID dagql.PersistedResultRef `json:"changesResultID,omitempty"`
 }
 
 type persistedGeneratorObjectPayload struct {

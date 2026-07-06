@@ -240,7 +240,7 @@ type persistedGitRepositoryPayload struct {
 }
 
 type persistedLocalGitRepositoryPayload struct {
-	DirectoryResultID uint64 `json:"directoryResultID"`
+	DirectoryResultID dagql.PersistedResultRef `json:"directoryResultID"`
 }
 
 type persistedRemoteGitRepositoryPayload struct {
@@ -352,7 +352,7 @@ func (*GitRepository) DecodePersistedObject(ctx context.Context, dag *dagql.Serv
 }
 
 type persistedGitRefPayload struct {
-	RepoResultID uint64 `json:"repoResultID"`
+	RepoResultID dagql.PersistedResultRef `json:"repoResultID"`
 	Name         string `json:"name,omitempty"`
 	SHA          string `json:"sha"`
 }

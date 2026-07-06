@@ -986,9 +986,9 @@ type persistedModTreeNode struct {
 	ParentID               int    `json:"parentID,omitempty"`
 	Name                   string `json:"name,omitempty"`
 	Description            string `json:"description,omitempty"`
-	ModuleResultID         uint64 `json:"moduleResultID,omitempty"`
-	OriginalModuleResultID uint64 `json:"originalModuleResultID,omitempty"`
-	TypeResultID           uint64 `json:"typeResultID,omitempty"`
+	ModuleResultID         dagql.PersistedResultRef `json:"moduleResultID,omitempty"`
+	OriginalModuleResultID dagql.PersistedResultRef `json:"originalModuleResultID,omitempty"`
+	TypeResultID           dagql.PersistedResultRef `json:"typeResultID,omitempty"`
 	IsCheck                bool   `json:"isCheck,omitempty"`
 	IsGenerator            bool   `json:"isGenerator,omitempty"`
 	IsUp                   bool   `json:"isUp,omitempty"`
@@ -1065,7 +1065,7 @@ func (enc *persistedModTreeEncoder) Add(node *ModTreeNode) (int, error) {
 
 func decodePersistedModTree(ctx context.Context, dag *dagql.Server, tree persistedModTree) (map[int]*ModTreeNode, error) {
 	nodes := make(map[int]*ModTreeNode, len(tree.Nodes))
-	serverByModuleID := map[uint64]*dagql.Server{}
+	serverByModuleID := map[dagql.PersistedResultRef]*dagql.Server{}
 
 	for _, persisted := range tree.Nodes {
 		if persisted.ID == 0 {

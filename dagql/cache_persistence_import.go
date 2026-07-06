@@ -54,6 +54,10 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list mirror result_snapshot_links: %w", err)
 	}
+	resultOriginRows, err := c.pdb.ListMirrorResultOrigins(ctx)
+	if err != nil {
+		return fmt.Errorf("list mirror result_origins: %w", err)
+	}
 	snapshotContentRows, err := c.pdb.ListMirrorSnapshotContentLinks(ctx)
 	if err != nil {
 		return fmt.Errorf("list mirror snapshot_content_links: %w", err)
@@ -104,7 +108,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 		}
 	}
 
-	keptRows, restoreSummary, err := c.vetRestoredResults(ctx, resultRows, resultDepRows, resultSnapshotRows)
+	keptRows, restoreSummary, err := c.vetRestoredResults(ctx, resultRows, resultDepRows, resultSnapshotRows, resultOriginRows)
 	if err != nil {
 		return err
 	}
@@ -190,6 +194,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 				materialization:       materializationState{envelope: &restored.env},
 				restored:              true,
 			}
+			c.assignResultOriginLocked(res, restored.origin)
 			if len(restored.links) > 0 {
 				res.materialization.setLocalSnapshotSource(restored.links)
 			}
@@ -423,12 +428,13 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			}
 		}
 
-		c.nextSharedResultID = maxResultID + 1
+		// Resume allocation above BOTH the surviving rows and the persisted
+		// high-water mark: surviving-max alone would re-allocate IDs that a
+		// pruned-then-restarted store already exported as origins.
+		c.noteAllocatedResultIDLocked(maxResultID)
+		c.nextSharedResultID = c.maxAllocatedResultID + 1
 		c.nextEgraphTermID = maxTermID + 1
 		c.nextEgraphClassID = maxEqClassID + 1
-		if c.nextSharedResultID == 0 {
-			c.nextSharedResultID = 1
-		}
 		if c.nextEgraphTermID == 0 {
 			c.nextEgraphTermID = 1
 		}
