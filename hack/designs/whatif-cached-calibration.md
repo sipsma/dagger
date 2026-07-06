@@ -7,6 +7,15 @@ explanation are the product. Captured 2026-07-04 against a fresh dev engine
 built from this branch (`hack/wcprof-cached-calibrate` flow, run manually with
 an isolated container/port; native wcprof dumps).
 
+> **Presentation superseded (2026-07-06).** The sections below present a
+> single cross-run drift percentage as the headline. The v2 design (design
+> page §7.4; design md §3.7) refuted that presentation: a warm run is not the
+> counterfactual made flesh, and one percentage conflates simulator claims
+> with another run's prices and per-run overhead. The analyzer no longer
+> prints any cross-run percentage; the current deliverable is the bucketed
+> decomposition in the final section (V45). Earlier sections are kept
+> unchanged for the record.
+
 ## Method
 
 Per workload: reset the dev engine (container + cache volume), enable wcprof,
@@ -189,3 +198,128 @@ understates savings, in the direction the design predicted, by amounts the
 report now prints instead of hiding. Both remedies are data-path work
 (exec-attribution regions; equivalence-fact emit), consistent with doctrine
 §0.3: fix the data, never the model.
+
+## The bucketed decomposition (V45): fresh captures, 2026-07-06
+
+The §3.7 decomposition replaced the aggregate presentation. FRESH cold/warm
+captures on a fresh dev engine built from this commit (same two workloads,
+same manual harness flow: isolated container `dagger-engine.whatif-cal`,
+debug port published on 6062, native wcprof dumps, flushing dump between the
+runs). The analyzer output below is the deliverable — every recorded second
+of both captures lands in exactly one named bucket, the simulator is graded
+only structurally, and no cross-run percentage exists anywhere. Makespans are
+context lines.
+
+### withExec pipeline
+
+Context makespans: cold actual 5.05s · cold baseline (sim) 5.05s ·
+counterfactual (sim) 2.59s · warm actual 771.4ms. (The counterfactual equals
+the V34 run's 2.59s exactly, across fully independent captures.)
+
+GRADED — hypothesis: 1480 warm complete-hit digests, 1 pending-only digest
+excluded (B2). **1476 removed cleanly; 0 kept; 0 ineligible; 4 not found in
+the cold capture** — all 4 carry result ids beyond the cold capture's
+recorded range (intra-warm derivations on this fresh-engine harness; on an
+engine with imported persisted results that direction would be consistent,
+not proven). Hits on results that existed BEFORE the warm run began:
+**0** (Finding B of the equivalence scoping note holds on these captures
+too).
+
+Warm-capture ledger (total recorded self 28.04s in 19,654 ops):
+
+| bucket | self | ops |
+|---|---|---|
+| recorded-hit lookups (B1) | 2.61s | 1,695 |
+| executed in both captures | 24.70s | 8,619 |
+| executed only in warm | 689.1ms | 44 |
+| session/setup phases | 37.3ms | 9,296 |
+| **UNASSIGNED REMAINDER (gated)** | **0ns** | **0** |
+
+Cold-capture ledger under the hypothesis (total 61.56s in 39,566 ops):
+
+| bucket | self | ops |
+|---|---|---|
+| removed by the hypothesis | 23.40s | 4,623 |
+| recorded-hit lookups (the cold run's own hits) | 533.7ms | 5,049 |
+| executed in both captures | 35.20s | 8,500 |
+| executed only in cold | 2.39s | 12,098 |
+| session/setup phases | 45.5ms | 9,296 |
+| **UNASSIGNED REMAINDER (gated)** | **0ns** | **0** |
+
+The cross-run identity boundary, named per digest:
+
+- **Executed only in cold: 4,062 digests, 2.41s producing self** — dominated
+  by `Container.from xxh3:e442fcb8babb1931` at 2.23s, which the recorded
+  result-id pairing names as the SAME result the warm run re-derived under
+  `xxh3:b677e73b409dfa9b` for 670.6ms (rid 6801): the from-chain price
+  variance is now one printed line instead of an anonymous drift component.
+- **Executed only in warm: 9 digests, 695.3ms** (the warm-minted from +
+  module-source chain re-executions).
+- **Executed in BOTH captures (same digest): 2,685 digests — cold 35.20s vs
+  warm 24.70s recorded self** — `Container.stdout` (2.46s → 929µs) and
+  thousands of typedef-loading calls (`ObjectTypeDef.functions`,
+  `Function.args`, …), each printed with its recorded outcomes
+  (executed×1 in both runs). The recorded fact is: same recipe digest, missed
+  and re-executed warm. Why the entries did not survive to the warm session
+  is NOT recorded; a plausible mechanism — per-session cache-reference
+  release dropping unpersisted entries — is a hypothesis whose discriminating
+  test is a `/debug/dagql/cache` snapshot between the two runs.
+
+**Gate: PASS — both ledger remainders exactly 0 ops / 0ns, no
+contradictions.** Counterfactual sim diagnostics all zero; 1 production wait
+waived; 3 forced facts consumed, none degraded.
+
+### module build (`dagger -m modules/alpine functions`)
+
+Context makespans: cold actual 10.96s · cold baseline (sim) 10.96s ·
+counterfactual (sim) 460.4ms · warm actual 128.6ms.
+
+GRADED — hypothesis: 1439 warm complete-hit digests. **1437 removed cleanly;
+0 kept; 0 ineligible; 2 not found in cold** — both with result ids beyond
+the cold capture's recorded range (intra-warm derivations on this
+fresh-engine harness). Hits on results that existed before the warm run
+began: **0**.
+
+Warm-capture ledger (total 22.81s in 19,953 ops): hit lookups 1.99s /
+executed-in-both 20.72s / executed-only-in-warm 54.1ms / session 36.1ms /
+**remainder 0**. Cold-capture ledger (total 75.53s in 50,952 ops): removed
+32.42s / cold recorded-hit lookups 664.8ms / executed-in-both 42.10s /
+executed-only-in-cold 310.9ms / session 35.0ms / **remainder 0**.
+
+The cross-run identity boundary:
+
+- **Executed only in cold: 5,072 digests, 11.03s producing self** — dominated
+  by `ModuleSource.asModule xxh3:74301d14ee67a251` at 10.73s (the codegen
+  chain). No recorded pairing exists for it (the module results are distinct
+  objects across runs — matching the equivalence scoping note's rid evidence).
+- **Executed only in warm: 10 digests, 72.8ms** — the warm re-mint of the
+  same chains (`ModuleSource.asModule` 29.1ms, `Query.moduleSource` 24.9ms,
+  host probes), cheap because their heavy inner calls hit.
+- **Executed in BOTH: 2,862 digests — cold 42.10s vs warm 20.72s recorded
+  self**, the same stable-digest re-execution population as the other
+  workload (typedef loading), plus two runtime-container config calls whose
+  cold producing intervals contain the module materialization
+  (per-digest prices overlap across digests by design; the ledger counts
+  every op once).
+
+**Gate: PASS — both ledger remainders exactly 0 ops / 0ns, no
+contradictions.** Counterfactual sim diagnostics zero; 13 forced facts
+consumed, none degraded.
+
+### What the decomposition establishes
+
+- **The gated remainder came out to exactly 0** on both sides of both
+  workloads: every recorded op classified into a named bucket, so the
+  coverage claim ("every second lands somewhere") held on real data with no
+  tuning.
+- The old +235%/+246% aggregates dissolved into three named, separately-sized
+  populations, none of which is a simulator error: work surviving at cold
+  prices because its digest cannot transfer (2.41s / 11.03s), the warm run's
+  own re-execution of the same chains at warm prices (695ms / 73ms), and a
+  large stable-digest population the cache re-executed in both runs
+  (24.7s / 20.7s warm recorded self) that the aggregate silently folded into
+  "drift".
+- The simulator's actual claims — remove exactly the warm-witnessed hit
+  production, keep what recorded demand forbids removing — graded clean:
+  2,913 of 2,919 hypothesis digests removed cleanly across both workloads,
+  the rest coverage findings listed per digest, zero contradictions.

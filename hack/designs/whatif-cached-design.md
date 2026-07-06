@@ -324,6 +324,216 @@ second chain takes over).
   skipped at emit. Both are report-level caveats on the OTel path, not model
   changes. If they matter in practice, the fix is a small emit — decision #5.
 
+### 3.7 The calibration decomposition — the honest accounting form (design page §7.4)
+
+Derived 2026-07-06, before implementation, as the resolution of the flagged
+design tension ("a makespan is a schedule property, not a sum"); the deviation
+from the design page's Figure 5 it forces was escalated to and RULED ON by the
+workstream lead (2026-07-06: Option A + binding conditions, all recorded
+below). The lead will rewrite the page's §7.4/Figure 5 to match once this
+lands; until then THIS section is authoritative for the as-built form.
+
+#### 3.7.1 Why the accounting is in total-recorded-time space
+
+A makespan is the length of a schedule's critical chain. The counterfactual
+simulation and the warm run are two DIFFERENT schedules; attributing the
+difference of their makespans to per-item buckets is non-unique no matter how
+it is done (attribution depends on removal order — the same reason the
+ranking's savings are not additive across rows, §3.4). So "every second of the
+makespan DIFFERENCE lands in a named bucket" is not an honest accounting
+identity, and no bucket set can make it one.
+
+What IS an honest identity: every recorded op's self-time is a recorded fact;
+assign each op to exactly one named bucket per capture by recorded properties
+only (kind, outcome, its digest's cross-capture classification, containment);
+then bucket sums equal total recorded self-time exactly, by construction. The
+decomposition therefore consists of two op-partitioned LEDGERS in recorded
+self-time (the same currency as the class table and the residual lines, §6.5
+note 7) — one over the warm capture, one over the cold capture under the
+hypothesis — plus per-digest price comparisons where a cross-capture join
+lands. The four makespans (cold actual, cold baseline sim, counterfactual
+sim, warm actual) print as CONTEXT lines only: schedule properties, labeled
+as such, never graded, never divided into one another. The old
+`drift (sim vs warm actual): +N%` line is DELETED; no cross-run percentage
+appears anywhere in the analyzer's output (a within-run percentage — saved vs
+the same run's baseline — is not a cross-run fidelity number and stays).
+
+Critical chains were considered as the accounting substrate and rejected: a
+chain covers one path through the schedule, so seconds off the chain would
+vanish from the accounting — "every second lands in a named bucket" fails
+structurally. The counterfactual blocking chain remains printed as
+illustrative context (unchanged from §3.4), never as the accounting.
+
+#### 3.7.2 The join, and the fact that reshapes Figure 5's buckets
+
+The join is per recipe digest, over the two captures: per digest, both
+captures' call-outcome tallies and producing prices (call self + the
+elision-region definition of §3.3/A1/general-rule applied as a MEASURE: the
+digest's call subtrees plus its attributed non-call regions, root-inclusive,
+unioned within the digest). Pure functions of the two recorded graphs.
+
+The verified fact (hack/designs/equivalence-facts-scoping.md §2, checked
+against the V34 captures; resolver anchors core/schema/container.go:1015-1046,
+core/schema/modulesource.go:64-65, dagql/cache_inputs.go:14-92): scope values
+are hashed INTO the recipe digest, so scope-limited chains mint a DIFFERENT
+digest every run and re-execute warm under the new digest (Container.from:
+xxh3:9382969610723944 cold / xxh3:076fc01455d1bae4 warm, same result object
+rid 6801; ModuleSource.asModule: xxh3:338d592281b016ac / xxh3:f83e04ad7a3680be,
+rids 5305/8167). Consequently, under a per-digest join:
+
+- "executed in both captures" (Figure 5's bucket b) can NEVER hold the scoped
+  population — it holds only genuine same-digest cross-run re-executions
+  (expected near-empty; any entry is itself noteworthy, see 3.7.3);
+- the scoped work lands as two SIDE-LOCAL populations: digests executed only
+  in the cold capture (surviving in the simulation at cold prices) and
+  digests executed only in the warm capture (warm-minted);
+- gating "warm-only digests ≈ 0" (Figure 5's bucket d, taken literally) would
+  fail BY DESIGN on every scoped workload — reason derives the gate fires, so
+  the ≈0 expectation would not be reason-derivable. That contradiction is what
+  was escalated.
+
+**The lead's ruling (2026-07-06), binding:** Option A — the gate covers only
+conditions whose ≈0 IS derivable by reason (3.7.4); warm-only executed
+digests are a LOUD REPORTED bucket, not a gated one, under these conditions:
+
+1. **Neutral labeling, attribution split by verification level.** The bucket
+   is "executed only in the warm capture" — never "scoped work". The bucket
+   header states the verified population-level MECHANISM (scope inputs hashed
+   into recipe digests; the resolver citations above) and states plainly that
+   per-digest attribution is UNVERIFIED until the §8.2 scope recording
+   exists. No per-digest line claims "scoped" as a fact today. The same
+   discipline applies to the cold-only side.
+2. **The bucket's total is prominent** — it is the number the §8.2 scope
+   recording will convert from population-explained to per-digest-verified,
+   and the report says exactly that.
+3. **Bucket b entries print their recorded outcomes alongside the prices**
+   (a same-digest cross-run re-execution means the cache did not retain —
+   do-not-cache, eviction, error; the outcomes let a human read the why, the
+   analyzer classifies nothing).
+
+#### 3.7.3 The buckets
+
+**GRADED (bucket a) — warm complete-hit digests vs the cold resolution,
+structural, per digest.** The hypothesis is the warm run's COMPLETE-hit set
+(hit_pending separated as ever, V30). For each digest in it, the cold
+resolution yields exactly one verdict, every non-removed one a listed
+finding: removed (calls short-circuited or covered by elision; regions
+elided) / kept-with-reason (the recorded cold structure says a survivor
+demanded work inside — reported per digest with reason, demander, size) /
+ineligible-with-reason / not-found-in-cold (a coverage finding — the cold run
+never made this call). No durations are graded; the grade is structural.
+
+**Bucket b — executed in both captures.** True per-digest join matches with
+non-hit successful calls on both sides: per digest, cold producing price vs
+warm producing price, with each side's recorded outcome tallies (ruling
+condition 3). Real-world price variance; NOT graded.
+
+**The side-local pair (reported, ruling conditions 1–2).** Digests executed
+only in the cold capture (they survive the counterfactual at cold prices) and
+digests executed only in the warm capture — per digest: class, price,
+outcome tallies; prominent totals. Where the two captures RECORD the pairing
+— equality of the native shared-result ID on call ops (already recorded,
+consumed per equivalence-facts-scoping.md §3b) — each side's line carries
+the FULL pair: partner digest, rid, and the partner's price ("same recorded
+result as X (rid N, cold price 2.23s)"), so the pair's price variance reads
+off either line. This pairing is NATIVE-ONLY: the OTel loader's Op.ResultID
+is a per-capture intern of the dag.output attribute
+(wcotel/loader.go:402-405), never comparable across captures. Stated in the
+report.
+
+**Warm-only HIT digests** (hit in warm, digest absent from cold): split by
+recorded result-id provenance. rid ≤ the cold capture's max recorded rid
+means the result object existed before the warm run began (rids are
+per-store monotonic, dagql/cache.go:1277; persisted imports happen at engine
+start and advance the counter past their stored ids, so both allocation and
+import precede the warm run) — a hit crossing the run boundary without a
+recipe-digest match: expect 0 (Finding B of the scoping note), reported
+LOUDLY as stated-simplification-#1 territory if ever nonzero. rid > cold max
+is CONSISTENT WITH an intra-warm derivation but not proven — an engine
+carrying imported persisted results can hold ids the cold capture never
+recorded (review finding, 2026-07-06) — and the report says so. Native-only,
+stated.
+
+**Pending hits (B2).** Pending-hit lookups and, where recorded, their forced
+production (the lazy regions carrying those digests) — their own ledger
+bucket, never fed to the hypothesis, never counted as B1 evidence.
+
+**Session/setup phases** (both captures) and **service starts** (per-run
+readiness a warm run re-pays, V33) — reported.
+
+**Engine-refuses-to-cache (do_not_cache) and failed-only digests** — their
+own lines, outcomes printed.
+
+**The ledgers.** Warm side: every op lands in exactly one bucket — by
+containment in the OUTERMOST classified digest region (nested foreign-digest
+production is attributed to the outermost producer; per-digest price LINES may
+overlap across digests and are labeled as non-additive), else hit/pending
+lookup self on the call itself, else nearest session_phase/service_start
+ancestor, else the GATED remainder. Cold side under the hypothesis: removed
+(elided regions + short-circuited hit-call self) / kept regions / surviving,
+with the surviving population split per digest classification exactly like
+the warm side (including the cold capture's own recorded-hit lookups), else
+the same session/service fallbacks, else the GATED remainder. Sums are exact
+on both sides. Two classification rules the recorded shapes force: attributed
+production of a digest with NO recorded call in the capture (the parent-chain
+materialization shape, design page §3.2 — a deferred recipe materializes its
+parent, whose digest the run never called) forms its own named regions —
+usually absorbed by the forcing digest's surrounding region, and otherwise
+reported on its own line ("production of digests with no recorded call"),
+never gated and never silently folded into session time; and a KIND-LESS root
+op is the session root by construction (the OTel loader deliberately leaves
+the session/query root unclassified — wcotel classifyKind; native roots
+always carry the session_phase kind), so it feeds the session bucket rather
+than falsely firing the remainder gate on every OTel capture.
+
+#### 3.7.4 The gate — ≈0 derivable by reason, fixture-pinned including firing
+
+The calibration FAILS (non-zero exit, verdict line) iff any of:
+
+1. **Ledger remainder** (either side): an op classifiable into NO bucket —
+   no digest region contains it, it is not a call, and it has no
+   session_phase/service_start ancestor. Derivably ≈0 post-emits: every op is
+   a call with an outcome, production attributed by ident (the general rule),
+   nested under a classified root, a session phase, or a service start. A
+   nonzero remainder is a recording/classification gap — enumerated, never
+   absorbed.
+2. **Recorded-data contradictions** in the graded bucket, each forbidden by
+   cache semantics (≈0 by reason, never expected): a warm-complete-hit digest
+   that is do_not_cache-only in cold (the engine refuses to cache it, yet it
+   hit); a warm-complete-hit digest that is failed-only in cold (failed
+   executions publish no result, yet it hit); production attributed to a
+   digest whose calls in the same capture are ALL complete hits **and
+   recorded starting after a complete-hit call of the digest ended** —
+   production complete at the hit cannot run again afterwards. Production of
+   such a digest recorded BEFORE its hits is the legitimate
+   forced-earlier-this-capture shape (a parent-chain materialization ran,
+   then the call hit complete) — its own reported ledger line, never gated
+   (the untimed form of this condition was the 2026-07-06 review's blocker:
+   it false-positives on that legitimate shape). One structural form needs
+   no timing: a same-ident call_exec CHILD of a complete-hit call is
+   forbidden at any recorded time (a hit returns before any execution op is
+   minted, §2.1) — it fires regardless, including on mixed-outcome digests
+   and when it overlaps the hit interval. The check is a per-digest scan
+   over the attribution index, deliberately independent of the ledger's
+   outermost-wins assignment, which can absorb a NESTED contradiction into a
+   surrounding producer's bucket.
+
+Existing refusals and gates (DroppedEvents on both captures, suppression
+counters, ElidedOpDemanded) are unchanged and compose. Both gate conditions
+are pinned by fixture rows in BOTH directions — pass and fire (ruling
+condition; rows V41–V42).
+
+**Deliberately NOT gated:** the side-local executed-only populations (the
+engine's scope semantics guarantee them at the population level; per-digest
+verification is a stated data gap with a named path — the §8.2 scope-bit
+recording; a recorded-data alternative exists on the OTel source only: the
+dag.call payload carries implicit-input NAMES (callpbv1.Call.implicitInputs,
+values redacted — dagql/call/id.go:510-521), from which per-digest scope
+classification could be recovered without a new emit; consuming it is real
+loader work and is recorded here as a named alternative, not built) and the
+cross-run equivalence-hit line (its nonzero form is stated simplification #1
+working as stated, reported loudly, not a data error).
+
 ## 4. Implementation plan
 
 Chunked to land independently with tests (each chunk reviewable alone; no
@@ -460,6 +670,17 @@ chunk as incomplete until its rows are covered.
 | V32 | Pending-production hits on the OTel source; native/OTel parity. | The explicit hit_pending stamp loads as a hit (pending-tallied); a BARE PendingAttr without a stamp stays "ok" — recordPending fires on misses too (`core/telemetry.go:157`), so the pre-emit shape is ambiguous and never guessed; CachedAttr stays the complete hit. Both sources classify identically. | R |
 | V33 | service_start semantics, pinned from both directions (`services.go:524, :473-477`). | Service startup is per-session runtime READINESS, not result production: a real warm run re-starts the service with every result cached, so service_start ops NEVER root elision regions — neither when the content-preferred ident mismatches the recipe digest nor when it coincides. The start honestly survives in both cases. | R |
 | V34 | Recording-changes calibration re-run: both workloads captured on an engine with the four emits. | Before/after drift recorded in `whatif-cached-calibration.md`; expected: the withExec drift drops as the wrapper remainder becomes removable. Honest numbers whatever they are. | R |
+| V35 | Ledger totality/exactness (§3.7.3): a synthetic cold/warm pair exercising every shape at once — session phases, complete and pending hits with forced production, digests executed in both / one capture, do_not_cache, service start, nested cross-digest production. | Every op lands in exactly ONE bucket per side; per-side bucket sums equal total recorded self-time EXACTLY (the partition is exact by construction; the test asserts the sums); nested foreign-digest production is attributed to the OUTERMOST producer; per-digest price lines may overlap and the report labels them non-additive. | D |
+| V36 | Clean case + the no-fidelity-percentage assertion: warm complete-hit set exactly covers the cold run's executed digests. | Graded bucket: all removed, zero findings; bucket b and both executed-only buckets empty; both ledger remainders 0; gate PASS. The rendered calibration block contains NO cross-run percentage or ratio anywhere — makespans appear only as labeled context lines. | D |
+| V37 | Bucket b: one digest executed in BOTH captures at different prices (cold 400ms, warm 100ms). | The digest joins into "executed in both captures" with cold vs warm producing prices AND each side's recorded outcome tallies printed (ruling condition 3); NOT graded; remainders stay 0; gate PASS. Reason: a same-digest cross-run re-execution is real-world price variance — no simulator claim exists about another run's prices. | D |
+| V38 | The side-local pair: a warm-minted executed digest (absent from cold) and a cold executed digest not in the warm hit set. | Warm-only: reported under "executed only in the warm capture" with class+price+outcomes and a PROMINENT bucket total; neutrally labeled (never "scoped" per digest), header carries the population-level mechanism + the §8.2 upgrade statement. Cold-only: reported symmetrically, surviving in the counterfactual at cold prices. NOT gated; remainders 0; gate PASS. | D |
+| V39 | Pending-hit placement in the decomposition (extends V30): a warm digest with only hit_pending calls plus its recorded forced production; another digest with BOTH pending and complete hits. | Pending-only digest: excluded from the graded hypothesis, its lookup self AND its attributed production land in the B2 bucket, printed. Mixed digest: stays in the hypothesis via its complete hit; its pending-call self still tallies B2. Never B1 evidence in either form. | D |
+| V40 | Graded bucket, kept-region verdict: a warm complete-hit digest whose cold region is kept (third-party demand into it). | The graded section reports the digest as KEPT-WITH-REASON (demander + size) — a listed finding, neither a silent pass nor a gate failure; the kept seconds sit in the cold ledger's kept-regions bucket. Reason: the keep is forced by recorded cold demand from a survivor; reporting it per digest is the claim the calibration makes. | D |
+| V41 | GATE FIRES — ledger remainder: a warm op the classification cannot place (an ident-less non-call op rooted outside every session/service/region subtree). | Remainder count > 0 on the warm side; the calibration FAILS with the remainder enumerated (kind/class/self). Reason: work the model cannot name breaks the decomposition's coverage claim — a recording gap, surfaced, never absorbed. The mirror cold-side case fires identically. | D |
+| V42 | GATE FIRES — recorded-data contradictions, one fixture each: (i) warm-complete-hit digest that is do_not_cache-only in cold; (ii) warm-complete-hit digest that is failed-only in cold; (iii) production attributed to a pure-complete-hit digest recorded STARTING AFTER its complete hit ended — plus the two shapes that must NOT fire: (iv) production of a later-hit digest recorded BEFORE the hit (the legitimate forced-earlier shape → its own reported bucket); (v) the post-hit contradiction NESTED inside another digest's region (outermost-wins owns its seconds, the per-digest scan still fires). | (i)–(iii) and (v) fire the contradiction gate with the digest named; the calibration FAILS. (iv) passes, with the production on the "production preceding the digest's complete hits" line. Reason: the engine does not cache what it refuses / what failed, and production complete at a hit cannot run again AFTERWARDS — but a complete hit says nothing about production forced EARLIER in the same capture (the 2026-07-06 review's blocker on the untimed form). | D |
+| V43 | Result-id pairing of side-local entries (native), and its OTel boundary: a warm-only executed digest whose call records the same ResultID as a cold executed call; a second pair with differing rids; the same shapes as OTel captures. | Native: each side's line carries the FULL pair — partner digest, rid, and the partner's price ("same recorded result as X (rid N, cold/warm price P)"); the differing-rid pair stays two-sided. OTel: no pairing line appears (Op.ResultID is a per-capture intern of dag.output — never comparable across captures) and the report says so; buckets otherwise identical to native (cross-source parity). | D |
+| V44 | Warm-only HIT provenance (native): one warm-only hit digest whose rid ≤ the cold capture's max recorded rid; one whose rid exceeds it. | The first prints on the existed-before-the-warm-run line (expect-0, LOUD — stated-simplification-#1 territory); the second prints as "beyond the cold capture's recorded range" — consistent with an intra-warm derivation but NOT claimed as proven (imported persisted results can carry ids the cold capture never recorded; the report says so). Reason: rid ≤ cold-max proves pre-warm existence (monotonic allocation; imports happen at engine start); the converse direction proves nothing. Zero-id ops are excluded (no recorded result). | D |
+| V45 | Decomposition calibration re-run: both real workloads, fresh captures, the decomposed report. | Committed to `whatif-cached-calibration.md`: the graded verdicts, both ledgers with exact totals, the side-local pair with prominent totals, the gate verdict, and the four context makespans. Honest numbers whatever they are; the gated remainder's actual value stated exactly. | D |
 
 ## 5. Sequencing note: how this meets Track A
 
@@ -671,6 +892,40 @@ corners, each derived from the doctrine (§0) and the elide-or-keep semantics
     interval bounding its producing subtree, an upper-bound proxy); the
     budget and the ordering are printed in the table header, never silent,
     and every emitted row's saving is a full re-simulation.
+
+15. **Decomposition mechanics (§3.7) — the underdetermined corners, resolved.**
+    (a) Per-digest CLASSIFICATION within one capture uses the recorded outcome
+    tallies with a documented precedence for the join populations: executed
+    (≥1 non-hit success) > do_not_cache > pending-hit-only > complete-hit-only
+    > failed-only > open-only; the row always prints ALL tallies, so precedence
+    orders lines, never hides data. A digest with executed AND hit calls in
+    one capture is the within-run norm (first call misses, later calls hit) —
+    its lookup self tallies the hit bucket, its production the executed
+    population. (b) A digest with ONLY open calls, or open ops in its regions,
+    lands on an "open at capture" line (count + self) — reported, not gated,
+    not fed to any population (the cold-side eligibility already refuses opens
+    per digest). (c) The ledger sweep assigns ops by outermost-region
+    containment computed over the SAME Euler intervals the elision engine uses
+    (cachedIndex); the cold side applies the resolution's elided/hitShort
+    marks FIRST (removed), then kept-region membership, then the population
+    regions, then the session/service ancestor fallback, then the gated
+    remainder — so removed/kept/surviving partition exactly and nested
+    hypothesis digests inside surviving regions stay counted as removed
+    (never double-assigned). (d) The calibration's gate error composes: the
+    detail's ElidedOpDemanded gate AND the decomposition gate (remainders,
+    contradictions) — one combined non-zero exit with every violated condition
+    named (same aggregation style as the admission refusal). (e) The gate
+    triggers on COUNT > 0, not a duration epsilon: zero-duration anomalies are
+    still anomalies; durations are reported alongside. (f) The native
+    result-id consumptions (pairing, provenance) treat rid 0 as "no recorded
+    result" and never consume it. (g) 2026-07-06 review round: a digest's
+    classification treats open ops ANYWHERE in its price intervals as
+    open-at-capture (mirroring eligibility's region-inclusive open check —
+    an executed digest with open production has a half-recorded price and
+    must not classify executed); the production-after-complete-hit
+    contradiction is time-ordered (§3.7.4) and scanned per digest
+    independent of ledger nesting; the pre-hit production shape is its own
+    reported bucket; paired side-local lines carry the partner's price.
 
 ## 7. Appendix — verified code facts this design rests on
 

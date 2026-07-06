@@ -157,6 +157,10 @@ func Load(r io.Reader) (*Compiled, *wcanalyze.Graph, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("build graph: %w", err)
 	}
+	// Op.ResultID on this source is a per-capture intern of dag.output (see
+	// the intern above) — never comparable across captures, unlike the native
+	// recorder's engine-global shared-result ids.
+	g.ResultIDsCaptureLocal = true
 	return c, g, nil
 }
 

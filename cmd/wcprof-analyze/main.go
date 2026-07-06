@@ -143,7 +143,7 @@ func run(paths []string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.CachedSe
 			return err
 		}
 		cal.Write(os.Stdout)
-		return cal.Detail.GateErr()
+		return cal.GateErr()
 	}
 	// The explicit-set what-if-cached detail section (design §3.4 mode 2); a
 	// gate violation surfaces as a non-zero exit, distinct from report I/O.

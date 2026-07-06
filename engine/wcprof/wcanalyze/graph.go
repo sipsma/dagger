@@ -114,6 +114,13 @@ type Graph struct {
 	TraceStartNS int64
 	TraceEndNS   int64
 
+	// ResultIDsCaptureLocal marks graphs whose Op.ResultID values are
+	// per-capture interns (the OTel loader interns dag.output strings)
+	// rather than the engine's global shared-result ids. Such ids are never
+	// comparable across captures, so the calibration's cross-capture
+	// result-id consumptions (design §3.7) are disabled for them.
+	ResultIDsCaptureLocal bool
+
 	// prog is the compiled replay program, built once on first simulation.
 	progOnce sync.Once
 	prog     *replayProgram

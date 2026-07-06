@@ -176,7 +176,7 @@ func runFiles(paths []string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.Cac
 				return fmt.Errorf("%s: %w", path, err)
 			}
 			cal.Write(os.Stdout)
-			if gerr := cal.Detail.GateErr(); gerr != nil {
+			if gerr := cal.GateErr(); gerr != nil {
 				return fmt.Errorf("%s: %w", path, gerr)
 			}
 		}
