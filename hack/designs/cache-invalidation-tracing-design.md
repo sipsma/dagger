@@ -1,7 +1,7 @@
 # Cache-invalidation tracing: design
 
 Status: revision 4 after adversarial review rounds 1-3 (verdicts: reject x3, findings accepted
-each round) · 2026-07-07 · mechanism claims verified against the code at `4bc3d9404` (the commit this doc's
+each round) · 2026-07-06 · mechanism claims verified against the code at `4bc3d9404` (the commit this doc's
 branch forks from); every claim carries its deciding code path.
 
 ## 1. Goal and non-goals

@@ -26,6 +26,7 @@ import (
 
 	telemetry "github.com/dagger/otel-go"
 
+	"github.com/dagger/dagger/dagql/call/callpbv1"
 	"github.com/dagger/dagger/engine/telemetryattrs"
 	"github.com/dagger/dagger/engine/wcprof"
 	"github.com/dagger/dagger/engine/wcprof/wcanalyze"
@@ -93,6 +94,14 @@ type Compiled struct {
 	TotalDroppedLinkAttrs   int
 	WaitBearingDroppedLinks int // dropped links on spans that carry ≥1 wait link
 	WaitLinkDroppedAttrs    int // dropped attributes on wait links specifically
+
+	// MalformedDagCalls counts spans whose dag.call attribute failed to
+	// decode (base64/proto). The scope implicit inputs for such a call are
+	// left unrecorded (Op.ScopeInputs nil — "scope not recorded", the same
+	// honest degradation as their absence), never guessed; the count keeps
+	// the degradation visible. Expected 0: the engine emits the attribute
+	// from a successful Encode.
+	MalformedDagCalls int
 
 	// UnresolvedWaitTargets counts non-lock wait links whose target span id did
 	// not resolve to an op (a missing/truncated target — Invariant T regression,
@@ -407,6 +416,22 @@ func Compile(spans []Span) (*Compiled, error) {
 		if out := attrStr(s.Attrs, telemetry.DagOutputAttr); out != "" {
 			resultID = resultIDs.intern(out)
 		}
+		// Scope implicit inputs (invalidation-tracing design §4, Chunk-1
+		// loader work): the dag.call payload — recorded since forever,
+		// discarded until now — carries the call's implicit inputs
+		// (callpbv1.Call.implicitInputs), the engine's deliberate cache-key
+		// scoping. Parse ONLY the implicit-input names + value emptiness
+		// (category-1 evidence); the full call structure is Chunk-4 work.
+		var scopeJSON string
+		if enc := attrStr(s.Attrs, telemetry.DagCallAttr); enc != "" {
+			if scope, ok := decodeScopeInputs(enc); ok {
+				if b, err := json.Marshal(scope); err == nil {
+					scopeJSON = string(b)
+				}
+			} else {
+				c.MalformedDagCalls++
+			}
+		}
 
 		if s.EndUnixNS == 0 {
 			// In-flight at capture: an open op (Build ends it at dump time).
@@ -436,6 +461,7 @@ func Compile(spans []Span) (*Compiled, error) {
 			IdentID:  str.intern(ident),
 			MetaID:   str.intern(argv),
 			InputsID: str.intern(inputsJSON),
+			ScopeID:  str.intern(scopeJSON),
 			StartNS:  int64(s.StartUnixNS) - epoch,
 			EndNS:    int64(s.EndUnixNS) - epoch,
 		})
@@ -533,6 +559,37 @@ func Compile(spans []Span) (*Compiled, error) {
 	}
 	c.Events = events
 	return c, nil
+}
+
+// decodeScopeInputs extracts the scope implicit inputs from an encoded
+// dag.call attribute: the base64 proto of the span's callpbv1.Call, whose
+// implicitInputs field carries the engine-computed inputs hashed into the
+// recipe digest (deliberate cache-key scoping — invalidation-tracing design
+// §3.2 category 1). Only the NAMES plus a recorded-empty-value flag are
+// kept: the emptiness is deciding data (an empty value is the engine
+// deliberately NOT scoping, e.g. fromSessionScope on a digest-pinned ref),
+// while the values themselves (session/client ids) decide nothing more. A
+// literal that is not a plain string (impossible for in-tree scope inputs
+// today) is conservatively non-empty: the input contributes SOMETHING to the
+// key, which is the fact that matters. ok=false means the attribute failed
+// to decode — counted by the caller, never guessed around.
+func decodeScopeInputs(encoded string) (scope []wcanalyze.ScopeInput, ok bool) {
+	var pbCall callpbv1.Call
+	if err := pbCall.Decode(encoded); err != nil {
+		return nil, false
+	}
+	scope = make([]wcanalyze.ScopeInput, 0, len(pbCall.ImplicitInputs))
+	for _, in := range pbCall.ImplicitInputs {
+		if in == nil || in.Name == "" {
+			continue
+		}
+		si := wcanalyze.ScopeInput{Name: in.Name}
+		if lit, isStr := in.Value.GetValue().(*callpbv1.Literal_String_); isStr {
+			si.EmptyValue = lit.String_ == ""
+		}
+		scope = append(scope, si)
+	}
+	return scope, true
 }
 
 // classifyKind picks the op kind for a span (design §5 step 2; impl-plan

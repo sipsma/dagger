@@ -37,6 +37,14 @@ type Op struct {
 	// interned InputsID JSON-array string — the cache-DAG edges both sources
 	// now carry (native emit; OTel dag.inputs). nil when not recorded.
 	CacheInputs []string
+	// ScopeInputs is a call op's scope implicit inputs — the engine-computed
+	// inputs hashed into its recipe digest beyond the explicit arguments
+	// (dagql/cache_inputs.go) — decoded from the dump's interned ScopeID
+	// string. The OTel loader parses them from the recorded dag.call payload
+	// (invalidation-tracing design, Chunk-1 loader work); native dumps do not
+	// record them today. nil = scope structure NOT recorded; empty non-nil =
+	// recorded with no scope inputs (an authoritative absence).
+	ScopeInputs []ScopeInput
 	// Open marks ops that had not ended at dump time; EndNS is the dump time.
 	Open bool
 
@@ -54,6 +62,36 @@ type Op struct {
 
 func (op *Op) Duration() int64 {
 	return op.EndNS - op.StartNS
+}
+
+// ScopeInput is one recorded scope implicit input on a call: an
+// engine-computed input hashed into the recipe digest beyond the explicit
+// arguments (dagql ImplicitInput). EmptyValue marks an input whose recorded
+// value was the empty string — the engine's way of deliberately NOT scoping
+// on a code path that could have (e.g. container.from's fromSessionScope
+// resolves to "" for digest-pinned refs, core/schema/container.go:1032-1034),
+// so classification must not read it as active scoping. Values themselves
+// are never carried here: the names plus the emptiness flag are the deciding
+// data, and values (session ids, client ids) add nothing but bulk.
+type ScopeInput struct {
+	Name       string `json:"n"`
+	EmptyValue bool   `json:"e,omitempty"`
+}
+
+// decodeScopeInputs recovers a call op's scope implicit inputs from the
+// interned ScopeID string (a JSON array of ScopeInput). "" ⇒ nil (scope
+// structure not recorded); "[]" ⇒ empty non-nil (recorded, no scope inputs —
+// an authoritative absence); malformed ⇒ nil — defensive, never a panic,
+// never inferred.
+func decodeScopeInputs(s string) []ScopeInput {
+	if s == "" {
+		return nil
+	}
+	inputs := []ScopeInput{}
+	if err := json.Unmarshal([]byte(s), &inputs); err != nil {
+		return nil
+	}
+	return inputs
 }
 
 // WaitEdge is one recorded blocked-on interval.
@@ -266,6 +304,7 @@ func Build(header *wcprof.DumpHeader, events []wcprof.DumpEvent) (*Graph, error)
 				ResultID:    ev.ResultID,
 				Argv:        decodeArgv(str(ev.MetaID)),
 				CacheInputs: decodeArgv(str(ev.InputsID)),
+				ScopeInputs: decodeScopeInputs(str(ev.ScopeID)),
 				StartNS:     ev.StartNS,
 				EndNS:       max(ev.EndNS, ev.StartNS),
 			}

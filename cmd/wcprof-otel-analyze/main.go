@@ -51,6 +51,10 @@ func main() {
 	allowPartial := flag.Bool("allow-partial-selection", false, "what-if-cached: proceed when a -cached-exec pattern's matches only partly resolve to owning call digests (the partial coverage is printed; without this flag it is an error)")
 	cachedPull := flag.Duration("cached-pull-cost", 0, "what-if-cached: simulated cost of each hit (the pull-cost seam; 0 = local warm hit)")
 	cachedFromRun := flag.String("cached-from-run", "", "what-if-cached calibration: path to a WARM run's otlpdump capture — simulate this (cold) trace under the warm run's actual hit set and report drift vs its actual makespan (exclusive with the other -cached* selectors; not supported with -trace)")
+	var whyDigests, whyClasses, whyExecs multiFlag
+	flag.Var(&whyDigests, "why-uncached", "cache-invalidation tracing: walk this uncached recipe digest (dag.digest) to its miss frontier and answer each origin's root cause (repeatable)")
+	flag.Var(&whyClasses, "why-uncached-class", "cache-invalidation tracing: trace the uncached digests of this call class, e.g. 'Container.withExec' (repeatable; top digests by producing wall-clock, budget printed)")
+	flag.Var(&whyExecs, "why-uncached-exec", "cache-invalidation tracing: trace the digests owning user execs matching this argv pattern (boundary-aware prefix; 'contains:' for substring; repeatable)")
 	flag.Parse()
 
 	if *traceID == "" && flag.NArg() < 1 {
@@ -103,6 +107,11 @@ func main() {
 		AllowPartialSelection: *allowPartial,
 		PullCostNS:            int64(*cachedPull),
 	}
+	whySel := wcanalyze.WhyUncachedSelection{
+		Digests:      whyDigests,
+		Classes:      whyClasses,
+		ExecPatterns: whyExecs,
+	}
 
 	if *cachedFromRun != "" && *traceID != "" {
 		fmt.Fprintln(os.Stderr, "-cached-from-run is not supported with -trace yet (capture the warm run locally)")
@@ -110,9 +119,9 @@ func main() {
 	}
 
 	if *traceID != "" {
-		err = runCloud(context.Background(), *traceID, *orgID, rules, sel, opts)
+		err = runCloud(context.Background(), *traceID, *orgID, rules, sel, whySel, opts)
 	} else {
-		err = runFiles(flag.Args(), rules, sel, *cachedFromRun, opts)
+		err = runFiles(flag.Args(), rules, sel, whySel, *cachedFromRun, opts)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -130,7 +139,7 @@ func (m *multiFlag) Set(v string) error {
 	return nil
 }
 
-func runFiles(paths []string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.CachedSelection, cachedFromRun string, opts wcanalyze.ReportOptions) error {
+func runFiles(paths []string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.CachedSelection, whySel wcanalyze.WhyUncachedSelection, cachedFromRun string, opts wcanalyze.ReportOptions) error {
 	// The design's unit of analysis is one trace (design §10 decision 2), so each
 	// file is loaded and analyzed independently rather than merged.
 	var (
@@ -161,7 +170,7 @@ func runFiles(paths []string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.Cac
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
-		gateOK, werr := analyze(c, g, rules, sel, opts)
+		gateOK, werr := analyze(c, g, rules, sel, whySel, opts)
 		if werr != nil {
 			// A report I/O, selector, or what-if-cached gate failure — each
 			// carries its own explicit message; surface it as-is.
@@ -189,12 +198,12 @@ func runFiles(paths []string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.Cac
 
 // runCloud swaps the loader's input to the Dagger Cloud trace API (design §5,
 // §6.6): same compile/replay stage, different source.
-func runCloud(ctx context.Context, traceID, orgID string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.CachedSelection, opts wcanalyze.ReportOptions) error {
+func runCloud(ctx context.Context, traceID, orgID string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.CachedSelection, whySel wcanalyze.WhyUncachedSelection, opts wcanalyze.ReportOptions) error {
 	c, g, err := loadCloud(ctx, traceID, orgID)
 	if err != nil {
 		return err
 	}
-	gateOK, werr := analyze(c, g, rules, sel, opts)
+	gateOK, werr := analyze(c, g, rules, sel, whySel, opts)
 	if werr != nil {
 		return werr // report I/O / selector / cached-gate failure, distinct from the structural gate
 	}
@@ -210,7 +219,7 @@ func runCloud(ctx context.Context, traceID, orgID string, rules []wcanalyze.Exec
 // point of the gate); a non-nil error is a report I/O failure (the gate verdict is
 // still valid and was already printed). A caller must not report a write error as a
 // gate failure.
-func analyze(c *wcotel.Compiled, g *wcanalyze.Graph, rules []wcanalyze.ExecGroupRule, sel wcanalyze.CachedSelection, opts wcanalyze.ReportOptions) (gateOK bool, err error) {
+func analyze(c *wcotel.Compiled, g *wcanalyze.Graph, rules []wcanalyze.ExecGroupRule, sel wcanalyze.CachedSelection, whySel wcanalyze.WhyUncachedSelection, opts wcanalyze.ReportOptions) (gateOK bool, err error) {
 	// Decompose user execs into per-command classes (applying any --exec-group
 	// rules) BEFORE the structural gate compiles (and memoizes) the replay program,
 	// so the gate, the class table, and the what-if savings all see the same
@@ -232,6 +241,13 @@ func analyze(c *wcotel.Compiled, g *wcanalyze.Graph, rules []wcanalyze.ExecGroup
 	// or cached-gate failure returns as an error with its own explicit
 	// message — a distinct failure mode from the structural gate above.
 	if werr := wcanalyze.WriteCachedSelectionDetail(os.Stdout, g, sel, opts.ChainDepth); werr != nil {
+		return gateOK, werr
+	}
+	// Cache-invalidation tracing (why-uncached mode): walk the selected
+	// digests to their miss frontier. Refusals and price-gate violations
+	// return as errors — the same distinct-failure-mode contract as the
+	// cached detail section above.
+	if werr := wcanalyze.WriteWhyUncached(os.Stdout, g, whySel); werr != nil {
 		return gateOK, werr
 	}
 	return gateOK, nil

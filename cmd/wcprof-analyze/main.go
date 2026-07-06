@@ -37,6 +37,10 @@ func main() {
 	allowPartial := flag.Bool("allow-partial-selection", false, "what-if-cached: proceed when a -cached-exec pattern's matches only partly resolve to owning call digests (the partial coverage is printed; without this flag it is an error)")
 	cachedPull := flag.Duration("cached-pull-cost", 0, "what-if-cached: simulated cost of each hit (the pull-cost seam; 0 = local warm hit)")
 	cachedFromRun := flag.String("cached-from-run", "", "what-if-cached calibration: path to a WARM run's wcprof dump — simulate this (cold) run under the warm run's actual hit set and report drift vs its actual makespan (exclusive with the other -cached* selectors)")
+	var whyDigests, whyClasses, whyExecs multiFlag
+	flag.Var(&whyDigests, "why-uncached", "cache-invalidation tracing: walk this uncached recipe digest to its miss frontier and answer each origin's root cause (repeatable)")
+	flag.Var(&whyClasses, "why-uncached-class", "cache-invalidation tracing: trace the uncached digests of this call class, e.g. 'Container.withExec' (repeatable; top digests by producing wall-clock, budget printed)")
+	flag.Var(&whyExecs, "why-uncached-exec", "cache-invalidation tracing: trace the digests owning user execs matching this argv pattern (boundary-aware prefix; 'contains:' for substring; repeatable)")
 	flag.Parse()
 
 	if flag.NArg() < 1 {
@@ -80,8 +84,13 @@ func main() {
 		AllowPartialSelection: *allowPartial,
 		PullCostNS:            int64(*cachedPull),
 	}
+	whySel := wcanalyze.WhyUncachedSelection{
+		Digests:      whyDigests,
+		Classes:      whyClasses,
+		ExecPatterns: whyExecs,
+	}
 
-	if err := run(flag.Args(), rules, sel, *cachedFromRun, wcanalyze.ReportOptions{
+	if err := run(flag.Args(), rules, sel, whySel, *cachedFromRun, wcanalyze.ReportOptions{
 		TopClasses:     *topClasses,
 		WhatIfFactors:  factors,
 		MinClassSelfNS: int64(*minSelf),
@@ -103,7 +112,7 @@ func (m *multiFlag) Set(v string) error {
 	return nil
 }
 
-func run(paths []string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.CachedSelection, cachedFromRun string, opts wcanalyze.ReportOptions) error {
+func run(paths []string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.CachedSelection, whySel wcanalyze.WhyUncachedSelection, cachedFromRun string, opts wcanalyze.ReportOptions) error {
 	readers := make([]io.Reader, 0, len(paths))
 	for _, path := range paths {
 		f, err := os.Open(path)
@@ -147,5 +156,11 @@ func run(paths []string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.CachedSe
 	}
 	// The explicit-set what-if-cached detail section (design §3.4 mode 2); a
 	// gate violation surfaces as a non-zero exit, distinct from report I/O.
-	return wcanalyze.WriteCachedSelectionDetail(os.Stdout, graph, sel, opts.ChainDepth)
+	if err := wcanalyze.WriteCachedSelectionDetail(os.Stdout, graph, sel, opts.ChainDepth); err != nil {
+		return err
+	}
+	// Cache-invalidation tracing (why-uncached mode): walk the selected
+	// digests to their miss frontier; refusals and price-gate violations
+	// exit non-zero.
+	return wcanalyze.WriteWhyUncached(os.Stdout, graph, whySel)
 }

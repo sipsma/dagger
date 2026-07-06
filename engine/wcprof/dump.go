@@ -64,6 +64,13 @@ type DumpEvent struct {
 	ClientID uint32 `json:"cl,omitempty"`
 	MetaID   uint32 `json:"m,omitempty"`
 	InputsID uint32 `json:"n,omitempty"`
+	// ScopeID is an interned JSON array describing a call op's scope
+	// implicit inputs (name + recorded-empty-value flag), parsed from the
+	// OTel dag.call payload by the wcotel loader (invalidation-tracing
+	// design, Chunk-1 loader work). 0 = scope structure not recorded (all
+	// native dumps today — the E2 decision rides with Chunk 3); an interned
+	// "[]" = recorded with no scope inputs, an authoritative absence.
+	ScopeID uint32 `json:"sp,omitempty"`
 
 	StartNS int64 `json:"s"`
 	EndNS   int64 `json:"d"`
