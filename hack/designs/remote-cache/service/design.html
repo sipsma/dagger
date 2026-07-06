@@ -648,6 +648,36 @@ redesign salting — that remains a cloud/tenancy work item.</p>
   same-digest races) after its round-3 confirmation resolved everything else; the
   Namespace no-copy posture was formally accepted as a rung-5 deferral with a
   credential-gated live immutability probe pinning the runtime claim.</li>
+  <li><b>Round 11 (2026-07-06, implementation as-built — chunk B complete; the first
+  cross-engine warm proof).</b> Chains + the content-chain source landed (branch
+  <code>svc-chunk-b-implementer-4c435784</code> @ aa2a607e2b, 7 commits on chunk A's
+  base): <b>T-S4 passed through real file transport</b> — a fresh engine with a different
+  state key imported another engine's bundle at boot and reproduced its random-marker
+  output exactly, with <code>served_from_content_chain ≥ 1</code>,
+  <code>chain_fetch_ok ≥ 1</code>, per-field <code>hit_restored ≥ 1</code> and zero
+  demotes; T-S6 (blob deleted → green run, <code>chain_fetch_missing ≥ 1</code>, heal
+  proven), T-S8 (16 forcings, one materialization, <code>-race</code>), T-S13
+  (toggle-red), contentless-decode red tests per type, Step-0 fully green. As-built
+  adjudications: (1) transient source exhaustion now demotes <em>without</em> dropping the
+  row (<code>errSourcesUnavailable</code>) — implementing reset §9 D2's ratified
+  transient-drops-nothing text, which previously had no implementation need; (2) serving
+  outcome classifies from the pre-decode source view (decode re-syncs home links from the
+  realized value); (3) the chain arm's exhaustion short-circuit fires only when a chain
+  source exists — self-contained envelopes decode as before (getting this wrong initially
+  surfaced a latent, pre-existing <code>ongoingCall.isPersistable</code> data race on the
+  integration base, fixed as its own commit); (4) export's claimed-content truth is the
+  encoded link rows, not in-memory accessor state; (5) the zstd pin uses forced
+  re-compression (a pulled-gzip layer exports its zstd form — the pin's dedup rationale
+  requires it; one-time cost per layer per store, at export only); (6) T-S13's guarded
+  case is precisely hydrated-then-pruned rows surviving on persisted chains
+  (never-hydrated imported rows pass vetting trivially — they claim no local content);
+  (7) T-S12's integration form simplified to unit+dagql level per the fixture-reality
+  note, pre-sanctioned; (8) a test-only transport surface
+  (<code>_DAGGER_TESTONLY_CACHE_TRANSPORT</code> + a testonly debug export endpoint)
+  exists solely for the gates and is subsumed by chunk C's real client; (9) zero-layer
+  chains share chainID <code>""</code> (harmless dedup collision among identical-empty
+  chains); chain-fetch counters are per-realization-attempt, with blob/byte tallies
+  deferred to chunk C's client.</li>
 </ol>
 </div>
 </details>
