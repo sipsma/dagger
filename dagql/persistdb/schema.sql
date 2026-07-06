@@ -30,7 +30,6 @@ CREATE TABLE IF NOT EXISTS eq_class_digests (
 CREATE TABLE IF NOT EXISTS terms (
     id INTEGER PRIMARY KEY,
     self_digest TEXT NOT NULL,
-    term_digest TEXT NOT NULL,
     output_eq_class_id INTEGER NOT NULL,
     FOREIGN KEY(output_eq_class_id) REFERENCES eq_classes(id) ON DELETE CASCADE
 ) STRICT;

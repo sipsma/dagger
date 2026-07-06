@@ -27,7 +27,6 @@ type MirrorEqClassDigest struct {
 type MirrorTerm struct {
 	ID              int64
 	SelfDigest      string
-	TermDigest      string
 	OutputEqClassID int64
 }
 
@@ -147,11 +146,11 @@ func (q *Queries) InsertMirrorEqClassDigest(ctx context.Context, arg MirrorEqCla
 }
 
 const insertMirrorTerm = `
-INSERT INTO terms (id, self_digest, term_digest, output_eq_class_id) VALUES (?, ?, ?, ?)
+INSERT INTO terms (id, self_digest, output_eq_class_id) VALUES (?, ?, ?)
 `
 
 func (q *Queries) InsertMirrorTerm(ctx context.Context, arg MirrorTerm) error {
-	_, err := q.exec(ctx, nil, insertMirrorTerm, arg.ID, arg.SelfDigest, arg.TermDigest, arg.OutputEqClassID)
+	_, err := q.exec(ctx, nil, insertMirrorTerm, arg.ID, arg.SelfDigest, arg.OutputEqClassID)
 	return err
 }
 
@@ -322,7 +321,7 @@ func (q *Queries) ListMirrorEqClassDigests(ctx context.Context) ([]MirrorEqClass
 	return out, rows.Err()
 }
 
-const listMirrorTerms = `SELECT id, self_digest, term_digest, output_eq_class_id FROM terms`
+const listMirrorTerms = `SELECT id, self_digest, output_eq_class_id FROM terms`
 
 func (q *Queries) ListMirrorTerms(ctx context.Context) ([]MirrorTerm, error) {
 	rows, err := q.db.QueryContext(ctx, listMirrorTerms)
@@ -333,7 +332,7 @@ func (q *Queries) ListMirrorTerms(ctx context.Context) ([]MirrorTerm, error) {
 	var out []MirrorTerm
 	for rows.Next() {
 		var row MirrorTerm
-		if err := rows.Scan(&row.ID, &row.SelfDigest, &row.TermDigest, &row.OutputEqClassID); err != nil {
+		if err := rows.Scan(&row.ID, &row.SelfDigest, &row.OutputEqClassID); err != nil {
 			return nil, err
 		}
 		out = append(out, row)

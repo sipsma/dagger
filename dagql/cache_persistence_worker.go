@@ -79,7 +79,6 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 		snapshot.terms = append(snapshot.terms, persistdb.MirrorTerm{
 			ID:              int64(termID),
 			SelfDigest:      term.selfDigest.String(),
-			TermDigest:      calcEgraphTermDigest(term.selfDigest, inputEqIDs),
 			OutputEqClassID: int64(outputEqID),
 		})
 	}
