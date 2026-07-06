@@ -668,17 +668,20 @@ derivation (<code>recipeDigestForCachedResult</code> resolves through
 <code>c.resultsByID</code>), so they must point at live local rows before any identity is
 derived.</p>
 <p><b>Payload envelopes — bare integers today, structured tokens after this phase.</b>
-Object payloads embed references as raw <code>uint64</code> result IDs produced by one
-chokepoint, <code>encodePersistedObjectRef</code> (core/persisted_object.go:47), and parsed
-back by type-specific decoders (git repos/refs, services, changesets, generators, module
-trees — each embeds the integer in its own JSON shape). Those bytes are opaque to the
-persistence layer: nothing generic can find the refs to rewrite them. This phase changes the
-encoding at that chokepoint: <code>encodePersistedObjectRef</code> returns (and decoders
-parse) a <b>ref token</b> — a small struct whose JSON form is
-<code>{"$dagqlResultRef": N}</code> — instead of a bare integer. The compiler finds every
-encode/decode site (the return/parameter type changes); the persistence layer gains a
-generic, non-heuristic walk: any JSON object holding the reserved key is a ref; anything
-else is data. Import rewrites payload refs in the same pass as frame refs.
+Object payloads <em>and lazy fragments</em> embed references as raw <code>uint64</code>
+result IDs, all produced by one chokepoint — <code>encodePersistedObjectRef</code>
+(core/persisted_object.go:47) — and parsed back by type-specific decoders. The sites are
+numerous (git repos/refs, services, changesets, generators, module trees, and every
+registered lazy struct's <code>ParentResultID</code>/<code>SourceResultID</code>-style
+fields — e.g. <code>persistedContainerWithRootFSLazy</code>, core/container.go:702; 80+
+encode calls across container/directory/file alone) but the bytes they produce are opaque
+to the persistence layer: nothing generic can find the refs to rewrite them. This phase
+changes the encoding at the chokepoint: <code>encodePersistedObjectRef</code> returns (and
+the persisted structs' fields and decoders carry) a <b>ref token</b> — a small type whose
+JSON form is <code>{"$dagqlResultRef": N}</code> — instead of a bare integer. The change is
+mechanical and compiler-enumerated (the type change surfaces every site); the persistence
+layer gains a generic, non-heuristic walk: any JSON object holding the reserved key is a
+ref; anything else is data. Import rewrites payload refs in the same pass as frame refs.
 <code>schema_version</code> bumps (same bump as D1's).</p>
 
 <p>Two alternatives were considered and rejected — recorded because both will re-tempt:</p>
@@ -712,9 +715,15 @@ never carries concrete session resources — handle form only (S10).</td>
 membership)</td><td>Verbatim; importer recomputes keys in its own space (R16, already
 built).</td><td>reset §8 D1; cache_persistence_import.go key recompute</td></tr>
 <tr><td><b>Graph tables</b> (<code>result_deps</code>, <code>persisted_edges</code>)</td>
-<td>Verbatim (IDs remapped). Persisted edges are the bundle's retention roots: what the
-exporter retained, the importer retains, then prunes normally (§8 D3).</td>
-<td>persistdb/schema.sql</td></tr>
+<td>Verbatim (IDs remapped), with one strip: the <b><code>unpruneable</code> bit does not
+cross</b> — imported persisted edges arrive ordinary-pruneable (expiry kept). Unpruneable
+retention is engine-lifetime state (core typedef graphs and kin); letting it cross would
+accrete every exporting store's engine-ambient rows into every importer, permanently and
+un-GC-ably, growing with fleet size. Each engine re-creates its own unpruneable edges for
+its own ambient state at boot, as it already does. Persisted edges are otherwise the
+bundle's retention roots: what the exporter retained, the importer retains, then prunes
+normally (§8 D3).</td>
+<td>persistdb/schema.sql; MakeResultUnpruneable (core/schema/coremod.go)</td></tr>
 <tr><td><b>Immutable snapshot content</b> (refKeys + leases locally)</td>
 <td>As <b>chains</b>: per snapshot-owning result, an ordered layer list (diffID, blob digest,
 size, media type) identified by chainID — computed at export (R4's hash-at-export rule,
@@ -757,6 +766,15 @@ bundle.tar.zst
 └── metadata.db        <span class="cm">// SQLite, the local mirror schema minus local-only tables,</span>
                        <span class="cm">// plus result_origins; IDs are intra-bundle joins (§6.2/§6.3)</span>
 </code></pre>
+<p><b>Seam-compatibility note (flagged for the owner rather than assumed):</b> the reset
+design's R16 decision box contains the sentence "a future bundle carries digests and frames
+only." Read as an exclusion it would forbid envelopes in bundles — but R9's ratified text
+explicitly names "payload envelopes … recipes" as part of the one encoding that "local
+persistence and remote export share," and a bundle without envelopes could carry neither
+values nor lazy forms (no R1 dual paths at all). This design reads the R16 sentence as it
+was scoped — a statement about bundle <em>identity</em> (digests, never ordinals), made
+while ruling on key derivation — and carries envelopes per R9. If the owner intended the
+narrower reading, that is a stop-and-discuss before chunk A.</p>
 <p>Reusing SQLite for the metadata is deliberate: the flush writer
 (<code>applyPersistStateSnapshot</code>) and import reader already speak it, so the bundle
 writer/reader are the same row-building code with an exclusion list — not a second
@@ -819,8 +837,11 @@ exports.</li>
 whole feature). Two triggers:</p>
 <ul>
 <li><b>The admin API (primary).</b> <code>POST /v1/cache/export</code> on the engine's
-authenticated admin surface — a productized endpoint, deliberately <em>not</em> a debug
-endpoint: the cloud depends on it. It snapshots and exports the current retained state.
+operator surface — a productized endpoint held to release compatibility, deliberately not
+one of the ad-hoc debug handlers (cmd/engine/debug.go), though it may share their listener.
+Exposure posture: the listener is operator/instance-internal (in the managed stack the
+keeper is a co-located sidecar), with an optional shared-secret header from engine config
+for defense in depth. The cloud depends on it. It snapshots and exports the current retained state.
 Concurrent calls coalesce onto the in-flight export (one export at a time per engine);
 the response reports the outcome summary (§11's counters). The caller in the managed cloud
 is the <b>keeper</b> — it already owns the "engine is idle ⇒ tear it down" decision, so the
@@ -996,7 +1017,12 @@ For each kept row, look up its origin pair in the store-wide origin index: prese
 row; record <code>bundleID → existing localID</code> in the remap table and refresh
 last-used metadata. Absent ⇒ allocate a fresh local ID, record the remap, stage the row.
 The remap table covers every kept row either way — sibling rows' references must resolve
-regardless of which side of the dedup their targets landed on.</li>
+regardless of which side of the dedup their targets landed on. <b>Same-origin observations
+union sources, never replace rows:</b> when a later bundle carries a chain for an origin
+already present without one (the exporting store realized content after an earlier export),
+the existing row gains that content-chain source; nothing about an existing row is
+overwritten or removed by import — first-imported wins for row content, later observations
+may only add sources and refresh timestamps.</li>
 <li><span class="tag">REWRITE REFERENCES (§6.3, once)</span><br>
 Frames by structured walk; payload envelopes by the <code>$dagqlResultRef</code> token walk.
 A reference that misses the remap table (its target was dropped by vetting) drops the
