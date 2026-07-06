@@ -4193,11 +4193,13 @@ func scopeInputsOfFrame(frame *ResultCall) []wcprof.ScopeInput {
 			continue
 		}
 		si := wcprof.ScopeInput{Name: in.Name}
+		// ONLY the empty-string convention marks deliberate non-scoping
+		// (fromSessionScope's digest-pinned shape). Every other shape — a
+		// nil or null literal included — is conservatively non-empty: it
+		// contributes something to the key, and claiming otherwise would be
+		// a guess.
 		if in.Value != nil && in.Value.Kind == ResultCallLiteralKindString {
 			si.EmptyValue = in.Value.StringValue == ""
-		}
-		if in.Value == nil {
-			si.EmptyValue = true
 		}
 		out = append(out, si)
 	}
