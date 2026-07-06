@@ -486,10 +486,28 @@ set -eu
 mkdir -p /work
 head -c 32 /dev/urandom | sha256sum | cut -d' ' -f1 > /work/service-random.txt
 `
+		// The client fetch retries with a hard cap: the service's
+		// while-true listener loop has a gap between one nc -l exiting and
+		// the next starting, and a client that connects in (or right at the
+		// edge of) that gap gets a refused connection or a zero-byte read.
+		// The race is in this scaffolding, not in anything under test; the
+		// cap keeps a service that never serves content failing loudly.
 		serviceRunScript := `
 set -eu
 mkdir -p /work
-nc sidecar 8080 > /work/service.txt
+attempts=0
+while :; do
+	nc sidecar 8080 > /work/service.txt || true
+	if [ -s /work/service.txt ]; then
+		break
+	fi
+	attempts=$((attempts+1))
+	if [ "$attempts" -ge 10 ]; then
+		echo "service never served content after $attempts attempts" >&2
+		exit 1
+	fi
+	sleep 1
+done
 head -c 32 /dev/urandom | sha256sum | cut -d' ' -f1 > /work/client-random.txt
 `
 
