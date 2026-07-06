@@ -125,7 +125,7 @@
 <main>
 
 <h1>Remote Cache — The Cache Manager</h1>
-<p class="sub">v3 &nbsp;·&nbsp; successor to the superseded store-and-select design &nbsp;·&nbsp; review rounds 1–2 folded &nbsp;·&nbsp; 2026-07-07</p>
+<p class="sub">v4 &nbsp;·&nbsp; converged (review rounds 1–3; verdict: ready) &nbsp;·&nbsp; awaiting program-owner review + one owner ruling (§13 placement) &nbsp;·&nbsp; 2026-07-07</p>
 
 <div class="banner">
 <b>Status.</b> Draft for adversarial review. This document supersedes
@@ -334,10 +334,12 @@ of operations. In-memory-only merged state is forbidden.</p>
 
 <div class="card keep">
 <h3>M3 — Origin-idempotent ingest (was S2, re-homed server-side)</h3>
-<p class="gist">Announcing the same work twice — or from two engines that both imported it — adds zero rows to the merged view, ever.</p>
+<p class="gist">Announcing work whose origins live in the merged view adds zero rows — the same export twice, or two engines that both imported it, dedup to one.</p>
 <p>Ingest deduplicates by the landed origin identity (chunk A): a row whose origin pair
-is already in the merged view is never re-created; identity evidence unions; re-announce
-is a no-op. The red test runs server-side from day one: ingest the same announcement
+is <em>live</em> in the merged view is never re-created; identity evidence unions;
+re-announce of live origins is a no-op (after a prune collected them, re-import is
+legitimate and honest — §7's retry contract). The red test runs server-side from day
+one: ingest the same announcement
 twice ⇒ zero merged-view growth. The growth gate (≥3 cycles across multiple engines,
 flat modulo new work — was S3) is measured on the merged view.</p>
 </div>
@@ -496,6 +498,13 @@ eligibility counter exists for the same-engine shapes it can observe.</p>
   bytes (T-M13 shared-chain case); <b>(N4, minor)</b> §15's A′ updated to the three real
   deltas and B′ explicitly marked BLOCKED on the §13 owner ruling; the §6.1 table's stale
   "validated in practice by v2" claim corrected to the in-memory-embed-only reading.</li>
+  <li><b>Round 3 (2026-07-07), final confirmation. Verdict: READY.</b> All four residuals
+  verified resolved; one wording cleanup applied post-verdict (M3's "no-op ever" narrowed
+  to live origins, matching §7's honest retry contract — the reviewer's parting note).
+  Outstanding items, process not review: (1) the §13 manager-core placement needs the
+  owner's ruling (build-order B&prime; is blocked on it); (2) program-owner (cache-chief)
+  review of this converged document; (3) the three A&prime; engine deltas land via the
+  take-3 landing protocol when implementation resumes.</li>
 </ol>
 </div>
 </details>
@@ -550,8 +559,8 @@ end to end; the manager owns merge, decision, composition, and retention.</figca
 manager holds no second identity model.</li>
 <li>Per scope, the merged view has one writer at a time; every mutation lands durably
 (flush + checkpoint) before its effects are served (M2, §6).</li>
-<li>Ingest is origin-idempotent; re-announcement and overlap are no-ops by construction
-(M3, §7).</li>
+<li>Ingest is origin-idempotent: re-announcement and overlap of live origins are no-ops;
+what prune collected may honestly return (M3, §7's retry contract).</li>
 <li>Metadata is record-visible everywhere in the manager; the CAS is the sole opaque
 layer (M1); blob availability is never a correctness input (M5).</li>
 <li>Version alignment is asserted, never bridged (M8, §12).</li>
