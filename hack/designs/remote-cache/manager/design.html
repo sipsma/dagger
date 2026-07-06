@@ -761,6 +761,254 @@ shelved with the analysis seam — the merged view makes them <em>possible</em>,
 part of the point of having it.</p>
 </details>
 
+<details class="fold" id="retention" open><summary><h2>9. Retention and pruning, service-side</h2></summary>
+<p><b>The idea in three sentences.</b> The merged view is pruned by the engine's own prune
+machinery — persisted edges are the retention roots (the union of what announcing engines
+retained), the existing policy vocabulary (<code>KeepDuration</code>, size targets,
+filters) configures per-scope limits, and the edge-cut + ownership-cascade model does the
+rest, exactly as it does on any engine. Blob retention follows metadata retention: the
+CAS's live set is the union of chain-blob digests referenced by live merged stores —
+a direct query over record-visible state, not a manifest union — and mark-sweep deletes
+the rest, safely at any aggressiveness because sparseness is legal (M5). Prune is the
+scope-size control surface, which makes it the artifact-size control surface (§8).</p>
+<div class="decide"><span class="dtag">THE DECISIONS THIS SECTION MAKES</span>
+<ol style="margin:4px 0 2px">
+<li><b>Metadata prune = <code>Cache.Prune</code> over the merged store</b>, per-scope
+policy from manager configuration (v1 defaults: a keep-duration plus a max-store-size
+target), run under the scope lease at ingest-time thresholds or on a period; a prune that
+cuts anything bumps the generation (the next artifact reflects it).</li>
+<li><b>Blob GC = mark-sweep over the CAS</b>: live set enumerated from
+<code>result_content_chains</code> across live merged stores (+ a staging/pending safety
+window); orphaned checkpoint and artifact objects of superseded generations sweep on the
+same job. The chunk F GC-inventory notes fold in here.</li>
+<li><b>Prune-vs-announce interplay is the landed churn model</b>: a pruned row
+re-announced by an engine that still has it re-enters (origin-dedup makes it exactly
+once); fleet-wide convergence comes from engines themselves pruning and the manager's
+policy horizon — the measured churn-not-growth argument carries over with the manager as
+the composition point, and the growth gate (M3) measures it there.</li>
+</ol>
+</div>
+</details>
+
+<details class="fold" id="policy" open><summary><h2>10. The upload-decision policy</h2></summary>
+<p><b>The idea in three sentences.</b> One server-side function owns "what do we want
+uploaded": <code>requestedBlobs(view, casInventory, announcement) → requested, declined
+(with reasons)</code> — the direct descendant of the v2-era server policy, now standing in
+front of a merged view instead of a per-source blob map. <b>v1 policy: request every
+chain blob the announcement offers that the CAS does not have verified-present</b> —
+maximal caching, minimal cleverness, always sparse-safe. The hook is the named convergence
+seam with the cache-performance analysis workstream: what-if-cached analysis produces
+per-record worth signals ("caching this saves X across the fleet; this is churn"), and
+when that lands, the policy consumes it here — same function, same protocol, smarter
+answer.</p>
+<div class="decide"><span class="dtag">THE DECISIONS THIS SECTION MAKES</span>
+<ol style="margin:4px 0 2px">
+<li><b>The hook signature and home</b>: manager-core, evaluated at announce time
+post-merge (§7.2), returning the requested set plus typed decline reasons
+(<code>already_present</code>, <code>policy_declined</code>, …) that land in events and
+counters (M6) — falsifiable from day one.</li>
+<li><b>v1 = all-missing-immutable-chain-blobs.</b> Mutable-owner content never crosses
+(landed R4 semantics); everything else the fleet produced is worth having until analysis
+says otherwise.</li>
+<li><b>The analysis seam, named</b>: the wcprof cache-performance workstream's
+what-if-cached output is the intended v2 policy input, per the owner's long-standing
+intent; additionally the merged view powers the <em>should-be-cached vs is-cached</em>
+insight (§11) that previews the same signals for humans first. Nothing in the protocol
+changes when policy smartens — only the answer.</li>
+</ol>
+</div>
+</details>
+
+<details class="fold" id="insight" open><summary><h2>11. Insight over the merged view</h2></summary>
+<p><b>The idea in three sentences.</b> The merged view is the insight substrate Erik asked
+for — "all of the cache from all of the engines is one big merged view" — and insight
+becomes direct queries over record-visible state: what the fleet caches, who produced it
+(origins), what content backs it (chains × CAS inventory), what gets reused vs sits cold,
+growth over time, prune pressure. The converged chunk F machinery re-homes with its
+hardest part deleted: there are no opaque bundles to best-effort-index anymore — the
+"indexer" collapses into scope-store queries the manager can run natively, while the
+event log, CAS statistics, dashboard rendering, and read-only discipline carry over
+as built.</p>
+<div class="decide"><span class="dtag">THE DECISIONS THIS SECTION MAKES</span>
+<ol style="margin:4px 0 2px">
+<li><b>Surfaces</b> (re-derived from chunk F): per-scope inventory (rows, classes,
+chains, CAS bytes, coverage = chain blobs verified-present / referenced), the event log
+(announce/decide/compose/prune/GC, typed + sanitized as converged), growth series by
+generation, and the dashboard (plain server-rendered HTML + SVG, as converged) — now
+including the first <b>should-be-cached vs is-cached</b> panel: offered-vs-requested-vs-
+declined tallies from §10's counters, the human preview of the analysis seam.</li>
+<li><b>Mechanism</b>: read-only queries against scope stores (activated read-only from
+checkpoints — never against the live write path) + Postgres (registry, events, CAS
+inventory). The read-only discipline test carries over verbatim (S7's spirit lives here:
+insight has no write path into cache state).</li>
+<li><b>Chunk F disposition</b>: event/CAS/dashboard/read-only machinery re-homes (~its
+own estimate: 70% neutral); the bundle-facts indexer and per-bundle coverage semantics
+retire with the architecture that needed them.</li>
+</ol>
+</div>
+</details>
+
+<details class="fold" id="versions" open><summary><h2>12. Version alignment</h2></summary>
+<p>By owner ruling, the fleet and the manager are version-aligned and compatibility
+machinery is out of scope. Concretely: the manager is built importing the engine module at
+a pinned version; every engine-facing request carries the engine's version and persistence
+schema version; the manager asserts equality with its own and rejects mismatches with a
+typed, counted 409 — redeploys align the fleet, and that is the whole mechanism. A manager
+upgrade whose engine module changes the persistence schema <b>wipes its merged stores</b>
+(the sanctioned wipe-on-upgrade rule, now at fleet scale) and bumps generations; the view
+rebuilds from engines' ongoing announcements — which is the same honest path as M2's
+disaster recovery, exercised routinely enough to stay real. Checkpoints and artifacts are
+schema-tagged in the registry so a stale object can never be restored into a newer
+manager. What this design deliberately does <em>not</em> contain: version negotiation,
+dual-schema reading, migration code, or any decision shaped by redeploy avoidance.</p>
+</details>
+
+<details class="fold" id="dev" open><summary><h2>13. The dev stack and the test ladder</h2></summary>
+<p><b>The load-bearing placement decision (flagged for owner veto):</b> the
+<b>manager-core lives in dagger/dagger</b> as a Go package (working name
+<code>engine/cachemanager</code>): scope-store lifecycle (§6), ingest+decide (§7),
+compose (§8), prune loop (§9), the policy hook (§10) — everything that is cache
+semantics. The dagger.io service is the <b>shell</b>: tenancy/auth, Postgres registry +
+events, real CAS backends, HTTP surface, deployment. Rationale: the core is nothing but
+engine code orchestrated (it imports dagql either way — from inside the same repo, the
+import is natural and version skew is impossible by construction); R11/M7 in-repo
+provability then covers the REAL merge/decide/compose semantics rather than a
+protocol-faithful fake; and the version-alignment story (M8) collapses to "the shell
+builds against the same commit." The prior test-service-vs-real-service drift problem
+disappears: the in-repo test harness runs the actual manager-core over filesystem
+storage. What stays proprietary is the shell — the product surface, tenancy, operations.</p>
+<ol class="steps">
+<li><span class="tag">UNIT (dagger/dagger)</span><br>
+Manager-core: ingest idempotence (M3 red test), decide-policy matrix, compose round-trip
+(merged store → artifact → fresh engine store, keys as digest projections), checkpoint/
+recovery (crash between flush and registry commit ⇒ previous generation), lease
+serialization, the nil-snapshotter compose red test (§6.1).</li>
+<li><span class="tag">IN-REPO INTEGRATION (dagger/dagger)</span><br>
+The chunk C harness re-targeted: N dev engines + the manager-core behind a thin test HTTP
+shell (filesystem CAS, static token) as Dagger services. The proof set of §14 runs here —
+real merge, real negotiate, real artifacts, no cloud stack (M7). The conformance suite
+re-derives for the new protocol and runs against the test shell (rung 1) and later the
+real shell (rungs 3–4).</li>
+<li><span class="tag">SHELL HARNESS (dagger.io)</span><br>
+Real handlers + Postgres + MinIO, no dev stack, no credentials — the converged dev-server
+pattern with the manager-core wired in; conformance green here proves the shell adds
+tenancy without changing semantics.</li>
+<li><span class="tag">E2E (dagger.io)</span><br>
+Full stack inside Dagger: API server (manager enabled) + Postgres + MinIO + keeper + ≥2
+dev engines; lifecycle (announce-after-green via the salvaged command lane,
+export-then-teardown keeper sequencing), the multi-engine warm proof, growth gate,
+manager-restart-survival (M2), upgrade-wipe-rebuild (M8).</li>
+<li><span class="tag">LIVE (credential-gated, last)</span><br>
+Deploy; the cloud warm proof (§14) with the same evidence contract as ever.</li>
+</ol>
+</details>
+
+<details class="fold" id="proof" open><summary><h2>14. The warm proof: definition of done</h2></summary>
+<table class="filetbl">
+<tr><th>#</th><th>Case</th><th>Proves</th><th>Level</th></tr>
+<tr><td>T-M1</td><td>Server-side ingest idempotence: announce the same export twice (and
+from two engines that both hold the same imported rows) ⇒ zero merged-view growth;
+counters show full origin-dedup</td><td>M3 — the red test, day one</td><td>unit + integration</td></tr>
+<tr><td>T-M2</td><td><b>The merged-view proof</b>: engines A and B each run distinct
+random-marker workloads and announce; fresh engine C downloads one artifact and
+reproduces BOTH outputs warm (per-field <code>hit_restored</code>,
+<code>served_from_content_chain ≥ 1</code>, zero demotes)</td>
+<td>M1 — one view of everyone's cache, served as one unit</td><td>integration + e2e + live</td></tr>
+<tr><td>T-M3</td><td>The upload decision is server-made: A announces (all blobs
+requested); B — having imported the artifact — re-announces overlapping work:
+<code>requested == ∅</code> for the overlap, declines typed
+<code>already_present</code></td><td>M4</td><td>integration</td></tr>
+<tr><td>T-M4</td><td>Durability: manager restarts (and a replica takeover) between seed
+and warm run ⇒ T-M2 still passes; registry/checkpoint recovery exercised, including the
+crash-before-checkpoint-commit case falling back a generation</td><td>M2</td><td>integration + e2e</td></tr>
+<tr><td>T-M5</td><td>Growth: ≥3 announce/import cycles across ≥2 engines with a
+manager-side prune in the middle — merged rows, artifact rows, and origins flat modulo
+new work; blob re-uploads zero on warm cycles</td><td>M3's gate at the composition
+point</td><td>integration + e2e</td></tr>
+<tr><td>T-M6</td><td>Sparse safety end-to-end: delete a CAS blob after seeding → warm
+run green (fall-through / heal); prune the merged view aggressively → engines with
+older artifacts still run green (stale metadata + missing blobs = misses, never
+errors)</td><td>M5</td><td>integration</td></tr>
+<tr><td>T-M7</td><td>Version misalignment: engine with a different schema/version header
+⇒ typed 409, counted, nothing merged; manager schema upgrade ⇒ stores wiped, generation
+bumped, view rebuilds from the next announcements (the M8/M2 shared path)</td>
+<td>M8</td><td>integration</td></tr>
+<tr><td>T-M8</td><td>Insight renders from a multi-engine merged scope: inventory,
+events, growth, and the offered/requested/declined panel populated and consistent with
+the gate counters</td><td>M6, §11</td><td>integration + e2e</td></tr>
+</table>
+<p class="pill">Standing gates carry: the reset Step-0 suites and the landed chunk A+B
+suites stay green at every engine-side landing; evidence discipline is the take-3
+standard (logs on disk, counting levels stated, three consecutive fully-green acceptance
+runs; the live rung keeps the service-restart-survival and honest wall-clock
+cold-vs-warm reporting obligations).</p>
+</details>
+
+<details class="fold" id="order" open><summary><h2>15. Build order and salvage consumption</h2></summary>
+<ol>
+<li><b>A′ — engine deltas (dagql/engine, small):</b> <code>Cache.Flush</code> for
+embedders; the nil-snapshotter compose red test (stop-and-discuss if it fails); the
+announce-shaped export client (reshape chunk C's parked publish→stat→upload into
+announce→upload-requested; delete SelectBundles + the multi-bundle loop per its salvage
+note); K=1 boot import. Lands via the take-3 landing protocol (their manager's seat is
+warm for it).</li>
+<li><b>B′ — manager-core (dagger/dagger, new package):</b> scope-store lifecycle,
+ingest+decide, compose, prune loop, policy hook, filesystem-backed unit + integration
+tests (T-M1..T-M8 in-repo forms) + the re-derived conformance suite + test shell.</li>
+<li><b>C′ — the shell (dagger.io):</b> re-home the converged chunk D branch: KEEP the
+CAS surface verbatim (blobstore backends, staging/promote, advisory locks, verified
+inventory, signed tokens, limits, sanitized events, mounting/config/startup gates);
+REPLACE cache_bundles/selection with the scope registry + announce + artifact endpoints;
+wire the manager-core. Migration renumbering lands here.</li>
+<li><b>D′ — insight re-home (dagger.io):</b> chunk F's branch minus the bundle-facts
+indexer, plus the merged-view queries and the offered/requested/declined panel.</li>
+<li><b>E′ — lifecycle + e2e (dagger.io):</b> keeper announce-after-green +
+export-then-teardown (salvaged command lane), provisioning env, the full-stack e2e
+(rung 4), T-M4/T-M7 chaos cases.</li>
+<li><b>F′ — live (credential-gated).</b></li>
+</ol>
+<table class="filetbl">
+<tr><th>Parked/landed asset</th><th>Disposition here</th></tr>
+<tr><td>Landed chunks A+B (engine)</td><td>Consumed as-is; the entire §6/§7/§8 machinery
+is their code. The two salvage-map calibration items resolve as: validation unit = one
+announcement (§7); manifest StoreUUID = composer identity (§8).</td></tr>
+<tr><td>Chunk C branch (parked)</td><td>Client/CAS/BlobSource/export-pipeline/boot-frame/
+config/counters/harness re-home per its own salvage split; selection + multi-bundle loop
++ their conformance cases retire. The test-service PATTERN is superseded by the real
+manager-core in-repo (§13) — a strict upgrade.</td></tr>
+<tr><td>Chunk D branch (converged, unmerged)</td><td>CAS + hardening + mounting verbatim;
+cache_bundles/selection replaced (its STATE-OF-WORK split, exactly).</td></tr>
+<tr><td>Chunk F branch (complete, unreviewed)</td><td>Per §11 D3.</td></tr>
+<tr><td>v2-era server merge (cachemoney_real.go)</td><td>Validated precedent for §6;
+its negotiate response shape is §7's ancestor; its two defects are §2's named dead
+coupling. Code itself: reference only.</td></tr>
+</table>
+</details>
+
+<details class="fold" id="shelf"><summary><h2>16. The shelf <span class="pill">(not part of the design)</span></h2></summary>
+<ul>
+<li><b>Analysis-driven policy</b> (§10's seam; the wcprof convergence) — the named next
+phase.</li>
+<li><b>Artifact slicing / per-workload composition</b> — enabled by the merged view;
+after v1 measurement.</li>
+<li><b>Incremental/batched checkpointing; artifact delta encoding</b> — when flush/compose
+measurement demands.</li>
+<li><b>Server-only layering of the imported engine code</b> — future work by ruling.</li>
+<li><b>Version compatibility machinery</b> — future "annoying boilerplate," by ruling.</li>
+<li><b>Multi-writer scopes / streaming ingest</b> — the lease is v1's answer; revisit at
+scale.</li>
+<li><b>Carried deferrals</b>: salt unification, finer tenancy, cross-org content pools,
+subscription gating (the escalated product question, unchanged).</li>
+</ul>
+</details>
+
+<div class="foot">
+Source of truth: this page (<code>hack/designs/remote-cache/manager/design.html</code>).
+Supersedes <code>../service/design.html</code> (kept as record). Binding companions: the
+reset design (<code>../reset/design.html</code>) + lessons; the salvage maps (engine map in
+the take-3 worktree; chunk C/D/F STATE-OF-WORK.md files on their branches).
+</div>
+
 </main>
 </div>
 <script>
