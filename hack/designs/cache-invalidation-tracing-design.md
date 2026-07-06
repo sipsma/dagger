@@ -1,7 +1,7 @@
 # Cache-invalidation tracing: design
 
-Status: revision 2 after adversarial review round 1 (verdict: reject; all accepted findings folded
-in) · 2026-07-07 · mechanism claims verified against the code at `4bc3d9404` (the commit this doc's
+Status: revision 3 after adversarial review rounds 1-2 (both verdicts: reject; all accepted
+findings folded in) · 2026-07-07 · mechanism claims verified against the code at `4bc3d9404` (the commit this doc's
 branch forks from); every claim carries its deciding code path.
 
 ## 1. Goal and non-goals
@@ -48,7 +48,7 @@ The single decision path is `Cache.getOrInitCallInner` → `lookupCacheForReques
    semantically-equivalent result is unusable if this session lacks its required resources
    (secrets, sockets — `sessionSatisfiesResourceRequirementsLocked`, `:632-644`).
 5. On miss: in-flight **join** if an execution with the same call digest AND the same concurrency
-   key is running (`callKey + ConcurrencyKey`, default per-client — `cache.go:1348-1350,
+   key is running (`callKey + ConcurrencyKey`, default per-SESSION (`objects.go:604-608`) — `cache.go:1348-1350,
    :3882-3895`), else **execute**; errored executions publish no result (`cache.go:4193-4210`).
 
 Completeness notes (round-1 findings, accepted): (a) a second lookup entry exists — the
@@ -70,14 +70,21 @@ distinguish expired or session-filtered candidates from plain no-match).
 
 ### 3.1 The frontier walk
 
-Given uncached op X in a capture, walk X's recorded cache-input digests (`Op.CacheInputs` — both
-sources since `bb7625e2c`; ordered exactly as the recipe hash consumes them) downward: an input
-that was a hit is a boundary; an input that missed is walked recursively. The
-**miss frontier** = the deepest uncached digests whose own inputs are all hits or leaves. The walk
-operates on **digest nodes**, not op instances: one digest can legitimately have both executed and
-hit calls in one capture (first demand executes, later demands hit). A digest node's status is the
-well-defined per-digest summary — *missed-at-first-demand* if any call recorded executed/joined,
-*cached-from-the-start* iff every call recorded a hit. Everything
+Given uncached op X in a capture, walk X's recorded cache-input digests (`Op.CacheInputs`)
+downward: an input that was a hit is a boundary; an input that missed is walked recursively.
+Source fidelity (round-2 correction): NATIVE CacheInputs is the ordered structural-ref vector the
+recipe hash consumes, module ref included (`cache.go:3841-3849` ← `result_call_frame.go:839-931`);
+OTel `dag.inputs` is a DEDUPLICATED, module-less digest list (`core/telemetry.go:129-136` ←
+`result_call_frame.go:327-403`) — sufficient for the walk itself (edge set), NOT for positional
+pairing (§5, E3). The **miss frontier** = the deepest uncached digests whose own inputs are all
+hits or leaves. The walk operates on **digest nodes**, not op instances, with a TIME-AWARE status
+(round-2 correction — mixes exist in both directions): a digest's status is its FIRST recorded
+call's outcome in demand order (StartNS — pure recorded data): *missed-at-first-demand* (first
+call executed/joined) or *cached-at-first-demand* (first call hit or hit_pending — the recipe was
+cached; pending is a nuance). A digest whose later calls REVERSE the first status (hit then
+executed, or vice versa) is *context-dependent within the run* — reported as such, walked as a
+miss, and precisely classifiable once E1 lands (TTL/session-filter are the code's mechanisms for
+such reversals). Everything
 between X and the frontier missed as *Merkle collateral* (its digest changed because an input's
 digest changed) and is shown as the path, not the cause. The output is the **ranked frontier**
 (there can be several independent origins), never a single guessed origin.
@@ -98,7 +105,7 @@ answer is the stated *undetermined* form, never a guess.
 | 6 | **Session-resource filtered** | "an equivalent result exists but requires session resources this session lacks" | **terminal fact only** — underivable offline today | `cache_egraph.go:632-656` |
 | 7 | **Engine refuses** | "this call is never cached (do-not-cache)" | recorded outcome | `cache.go:3765`; outcome `do_not_cache` |
 | 8 | **Prior attempt failed** | "the previous execution errored; failures are not cached" | prior capture: same digest, failed outcomes only | `cache.go:4193-4210` |
-| 9 | **Persisted payload failed to load** | "a cached result was found but its persisted payload could not be loaded" | **terminal fact only (E1)** | `cache_egraph.go:915-933`, `cache.go:4094-4112` |
+| 9 | **Hit unusable: persisted payload failed to load** | "a cached result was found but its persisted payload could not be loaded" | **terminal fact only (E1; the hit-unusable arm, not a miss reason)** | `cache_egraph.go:915-933`, `cache.go:4094-4112` |
 | — | *Nuances, not categories* | `hit_pending` (recipe cached, first materialization owed) and `joined` (in-flight dedupe) annotate nodes on the path | recorded outcomes | whatif design §3.2 |
 
 **Undetermined form:** with only a single capture and no terminal fact, categories 2/3/4/5/6
@@ -137,28 +144,41 @@ analyzer" until that lands.
   are *underivable offline* — candidate collection silently drops expired and session-filtered
   results (`cache_egraph.go:554-559,:577-607,:632-656`) and captures carry no TTL/resource facts;
   `input_unknown(k)` gives the walk an authoritative next hop even in single-capture mode.
+  Round-2 refinements (accepted): E1 is a LOOKUP-OUTCOME fact, not "miss calls only" — it is
+  emitted whenever the outcome is not a clean hit, covering misses AND the hit-unusable case
+  (`persisted_load_failed` fires on a SELECTED hit whose payload load then fails,
+  `cache_egraph.go:915-933`); the lookup ENTRY (request path vs digest-only path) is an orthogonal
+  flag, not an enum value — specific reasons still apply on digest-only entries.
   Implementation spec (round-1 gap, accepted): the existing `cache_debug.go:644-660` tracer is
   compile-time disabled and terminal-incomplete — E1 is a REAL capture-schema addition, not a
   tracer toggle: candidate collection counts what it skips instead of dropping silently (small
-  lookup change), a miss-reason field on the native op event (`dump.go`/`record.go`) and an
-  additive OTel attr, loader/graph preservation, classification at BOTH lookup entries (the
-  request path and the digest-only path), and precedence pinned by tests. Volume: one small enum
-  (+ one int) on miss calls only. This is old Track-A Option B, argued from the lookup code.
+  lookup change), a reason field on the native op event (`dump.go`/`record.go`) and an additive
+  OTel attr, loader/graph preservation, both lookup entries, precedence = first terminal reached,
+  pinned by tests. Companion micro-emit (round-2 critical finding): native `do_not_cache` calls
+  return before `SetIdent` (`cache.go:3765` vs `:3840`), so category 7 is not digest-addressable
+  natively — when profiling is enabled, derive+set the ident on the do-not-cache path too (zero
+  cost when profiling is off); until then native category 7 is class-level, stated. Volume: one
+  small enum + entry flag + optional int, non-clean-hit calls only.
 - **E2 — scope-kind fact** on calls whose recipe includes scope inputs (kind: client / session /
   call / schema / from-tag / requested). Justification: makes category 1 authoritative and
   native-complete; today it is derivable only via OTel `dag.call` parsing (named alternative if E2
   is declined — the analyzer then classifies on OTel captures and labels native captures
   "scope not recorded").
 
-- **E3 — cross-source structural-input parity + self identity** (required for the Cloud
-  destination's pair mode; round-1 critical finding, accepted): native `CacheInputs` records the
-  ordered structural term inputs (module ref included) while OTel `dag.inputs` is a *deduplicated*
-  digest list *without* the module ref (`core/telemetry.go:129-136` emitting
-  `result_call_frame.go:327-403`, vs native `:839-931`) — the two are NOT the same vector, so
-  positional pairing is unsound on OTel captures today. E3 = additive OTel attrs carrying the
-  native-parity ordered input vector plus a self-identity tuple (field, type, nth, view), making
-  pair mode work on Cloud traces. Until E3 lands, pair mode is **native-first** and the analyzer
-  refuses positional pairing on OTel pairs (labels them digest-stable-only) rather than mispairing.
+- **E3 — cross-source pair-mode completion** (round-1 critical finding; re-specified after
+  round 2 refuted the tuple form): each source has HALF of what pair mode needs. Native has the
+  sound ordered input vector but no call structure (class+digest only); OTel has the full call
+  structure — `dag.call` carries arg names, literal shapes, implicit inputs
+  (`callpbv1.Call`, incl. everything the self digest consumes, `result_call_frame.go:868-900,
+  :1315-1381`) — but a deduplicated module-less input list. So: **E3a** = additive OTel attr
+  carrying the native-parity ordered input vector (small; enables positional pairing on Cloud
+  traces); **E3b (loader work, no emit)** = parse `dag.call` into canonical self structure on the
+  analyzer's op, giving OTel pairs arg-level change attribution ("scalar arg 'platform' differed")
+  — a tuple is NOT sufficient (round-2 finding accepted). Native pair mode reports changes at
+  digest granularity with the label "arg-level detail available on OTel captures" — a full native
+  call-structure emit is REFUSED for now on volume grounds, stated. Until E3a lands, positional
+  pairing on OTel pairs is refused (digest-stable analysis only) rather than mispaired; ambiguity
+  contract in §5.
 
 **Refused (with reasons):** retention/eviction event facts (category 2 stays coarse; per Erik,
 cross-session non-retention is by-design behavior, not a defect to instrument — revisit only if a
@@ -179,10 +199,15 @@ join machinery reused):
   `dag.inputs` — see E3) and the analyzer refuses positional pairing there rather than mispairing.
   Class equality is a necessary-not-sufficient guard (round-1 finding accepted: `wcanalyze.Op`
   carries no self digest/AST, so scalar-arg/nth/view changes are invisible to it) — therefore any
-  ambiguity (equal classes at multiple unpaired positions, unequal vector lengths without a single
-  insertion point) is REFUSED into a "structural change, not pairwise attributable" report line,
-  never guessed. E3's self-identity tuple upgrades this. A node that pairs with nothing is
-  category 4 (new work) or part of such a structural change, reported as such.
+  ambiguity is REFUSED into a "structural change, not pairwise attributable" report line, never
+  guessed. The pairing contract, precisely (round-2 gap accepted): pair position-by-position while
+  positions agree on class; on first disagreement, pair the remainder only when it is a SINGLE
+  contiguous insertion/deletion whose flanks re-align with classes matching (one longest-common-
+  prefix/suffix pass — deterministic, no search); anything else — equal classes at multiple
+  candidate positions, multiple edits, duplicate digests at ambiguous positions — is the refusal
+  line. E3b upgrades attribution within pairs; it does not loosen the refusal contract. A node
+  that pairs with nothing is category 4 (new work) or part of such a structural change, reported
+  as such.
 - The walk descends A/B in lockstep from the queried op to the frontier; each origin's category
   text then names the concrete divergence ("input #2 — `Directory.withFile` — content changed").
 
@@ -236,18 +261,21 @@ guess to make a report prettier.
   WITHOUT E1 → the undetermined form (never a guessed 5/6).
 - **W6** categories 7/8 from outcomes; `hit_pending`/`joined` render as nuances, not origins.
 - **W7** priced impact: origin's saving equals the whatif detail run for the same digest.
-- **W8** cross-source parity on a dual fixture; Cloud-trace path via `wccloud` end-to-end.
+- **W8** Cloud-trace path via `wccloud` end-to-end (single-capture pre-E3a; pair mode post-E3a on
+  a dual fixture).
 - **W9** refusals: gated capture → the walk refuses; single-capture mode prints the undetermined
   form for a pair-only category.
 - **W10** real-workload fixtures: the §7.4 capture pairs — known scoped chains answer category 1,
   known prior-run population answers category 2 (with its mechanism-not-recorded text), the
   from-tag pair's paired prices.
-- **W11** duplicate-digest semantics: one digest with executed + hit calls in one capture →
-  missed-at-first-demand; all-hit digest → boundary (never walked into).
+- **W11** digest-node semantics: first-demand ordering decides (executed-then-hit →
+  missed-at-first-demand; hit-then-executed → context-dependent, reported, walked as miss);
+  all-hit and all-hit_pending digests → boundaries (pending rendered as nuance).
 - **W12** source divergence pinned: the same synthetic run as native and OTel captures — pair mode
   works natively; OTel pair refuses positional pairing pre-E3 with the stated label.
-- **W13** structural changes: scalar-arg / nth / view / module-ref change fixtures → pre-E3
-  "structural change" refusal (no mispairing); with E3, correct pairs.
+- **W13** structural changes: scalar-arg / nth / view / module-ref change fixtures → native
+  digest-granularity change reports; OTel pre-E3a refusal; post-E3a/E3b correct pairs WITH
+  arg-level attribution (scalar change named from dag.call structure, not guessed).
 - **W14** E1 precedence: fixtures driving each terminal (incl. both lookup entries and
   persisted_load_failed) → exactly one reason each, precedence pinned.
 - **W15** mixed-outcome digests across captures (failed-then-executed, do-not-cache-mixed) →
@@ -260,12 +288,15 @@ guess to make a report prettier.
 - **Chunk 1 — the walk + taxonomy core** (`wcanalyze/whymiss.go`): frontier walk over
   `CacheInputs`, single-capture categories (1 via dag.call where present, 7, 8, undetermined),
   ranked output, priced impact via the existing simulator. Rows W1, W2, W6, W7, W9.
-- **Chunk 2 — pair mode**: capture-pair join (reuse `cached_calibrate.go` machinery), positional
-  pairing, categories 2/3/4. Rows W3, W4, W10, W8.
-- **Chunk 3 — E1 emit** (engine): terminal-complete miss-reason fact at the `cache_debug.go` seam,
-  both sources, additive-only; analyzer consumption; categories 5/6. Row W5. E2 decision rides
-  with it (or the dag.call alternative is promoted, decided at review).
-- **Chunk 4 — CLI surface + report** polish; Cloud-destination appendix finalized for handoff.
+- **Chunk 2 — pair mode (native)**: capture-pair join (reuse `cached_calibrate.go` machinery),
+  positional pairing with the §5 contract, categories 2/3/4. Rows W3, W4, W10.
+- **Chunk 3 — E1 emit** (engine): terminal-complete lookup-outcome fact, both sources,
+  additive-only, both entries + the do-not-cache ident micro-emit; analyzer consumption;
+  categories 5/6/9. Rows W5, W14. E2 decision rides with it.
+- **Chunk 4 — E3a + dag.call parsing (OTel pair mode + category 1)**: the ordered-input parity
+  attr, loader preservation of call structure (E3b), OTel positional pairing unlocked, arg-level
+  change attribution. Rows W8, W12, W13.
+- **Chunk 5 — CLI surface + report** polish; Cloud-destination appendix finalized for handoff.
 
 Per-chunk Codex xhigh review to convergence; commit early/often; integration tests via the
 engine-dev-test workflow only.
