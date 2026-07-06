@@ -901,6 +901,16 @@ func TestCacheBundleChainSectionGarbageSkipsBundle(t *testing.T) {
 			manifest.Chains = append(manifest.Chains, manifest.Chains[0])
 		})
 	})
+	t.Run("orphan resultChain entry", func(t *testing.T) {
+		t.Parallel()
+		doctor(t, func(manifest *CacheBundleManifest) {
+			manifest.ResultChains = append(manifest.ResultChains, CacheBundleResultChain{
+				ResultID: 999999,
+				Role:     "snapshot",
+				ChainID:  manifest.Chains[0].ChainID,
+			})
+		})
+	})
 }
 
 // TestCacheBundleDamagedChainFragmentRowSurvivesOnFragment: a both-forms

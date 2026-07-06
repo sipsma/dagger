@@ -101,7 +101,11 @@ func (c *Cache) ImportBundle(ctx context.Context, r io.Reader) (CacheBundleImpor
 	// section-level garbage the rows cannot be blamed for skips the whole
 	// bundle. Blob AVAILABILITY stays a runtime concern (S5) — only
 	// structure is checked here.
-	manifestChains, err := parseBundleManifestChains(manifest)
+	knownResults := make(map[sharedResultID]struct{}, len(rows.results))
+	for _, row := range rows.results {
+		knownResults[sharedResultID(row.ID)] = struct{}{}
+	}
+	manifestChains, err := parseBundleManifestChains(manifest, knownResults)
 	if err != nil {
 		return summary, bundleSkip(CacheBundleSkipMalformedChains, err)
 	}
@@ -667,10 +671,10 @@ type bundleManifestChains struct {
 // chain whose layers are malformed, a duplicate role) marks that row's
 // content damaged — the row survives only on a lazy fragment, and drops
 // with its dependents otherwise. Section-level garbage no row can be blamed
-// for (empty or duplicate chainIDs, a resultChain naming no row) fails the
-// whole bundle. Availability of the chains' blobs is deliberately not
-// checked (S5) — structure only.
-func parseBundleManifestChains(manifest CacheBundleManifest) (bundleManifestChains, error) {
+// for (empty or duplicate chainIDs, a resultChain naming no row in
+// knownResults — zero or orphan) fails the whole bundle. Availability of
+// the chains' blobs is deliberately not checked (S5) — structure only.
+func parseBundleManifestChains(manifest CacheBundleManifest, knownResults map[sharedResultID]struct{}) (bundleManifestChains, error) {
 	out := bundleManifestChains{
 		byResult: make(map[sharedResultID][]PersistedResultContentChain),
 		damaged:  make(map[sharedResultID]struct{}),
@@ -721,6 +725,11 @@ func parseBundleManifestChains(manifest CacheBundleManifest) (bundleManifestChai
 		bundleID := sharedResultID(resultChain.ResultID)
 		if bundleID == 0 {
 			return out, errors.New("manifest resultChain with zero resultID")
+		}
+		if _, known := knownResults[bundleID]; !known {
+			// An orphan claim names no row the metadata carries: nothing to
+			// attribute the damage to, so the whole bundle is suspect.
+			return out, fmt.Errorf("manifest resultChain names no bundle row (result %d, chain %q)", resultChain.ResultID, resultChain.ChainID)
 		}
 		if _, isMalformed := malformedChainIDs[resultChain.ChainID]; isMalformed {
 			markDamaged(bundleID, "malformed chain layers", resultChain)
