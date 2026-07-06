@@ -21,6 +21,11 @@ type CacheBundleExportOptions struct {
 	Scope string
 	// EngineVersion is stamped into the manifest.
 	EngineVersion string
+	// MetadataOnly strips content chains from the bundle (§7 D3's lever):
+	// importers get lookup warmth and re-make content through lazy forms.
+	// Rows whose only content story was a snapshot are excluded by the
+	// portability rule exactly as if their chain could not compute.
+	MetadataOnly bool
 }
 
 // CacheBundleExportSummary reports what an export emitted and, loudly, what
@@ -136,9 +141,11 @@ func (c *Cache) ExportBundle(ctx context.Context, w io.Writer, opts CacheBundleE
 		// the same rows local flush writes to result_snapshot_links.
 		claimedLinks := row.resultSnapshotLinks
 		contentless := isContentlessPersistedType(rowEnvelopeTypeName(row))
-		if contentless {
+		if contentless || opts.MetadataOnly {
 			// Mutable-owner snapshots never cross as content: the row is
 			// identity-only, re-acquired lazily by the importer's decoder.
+			// Metadata-only exports strip every chain the same way — the
+			// importer's content story is the lazy form or nothing.
 			row.contentChains = nil
 		} else if len(row.contentChains) == 0 && len(claimedLinks) > 0 && c.snapshotManager != nil {
 			chains, err := c.computeExportChains(ctx, claimedLinks)

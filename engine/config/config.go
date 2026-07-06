@@ -33,6 +33,61 @@ type Config struct {
 	// Registries configures custom registry mirrors, root CAs, and
 	// insecure/HTTP access.
 	Registries map[string]RegistryConfig `json:"registries,omitempty"`
+
+	// CacheService configures the remote cache service integration: bundle
+	// import at boot, content-chain blob fetch at serving time, and cache
+	// export. Absent (and with no DAGGER_CACHE_SERVICE_* environment
+	// overrides) the whole feature is disabled.
+	CacheService *CacheServiceConfig `json:"cacheService,omitempty"`
+}
+
+// CacheServiceConfig wires the engine to a remote cache service. Every
+// field can also be injected through the environment
+// (DAGGER_CACHE_SERVICE_URL, _TOKEN, _TOKEN_FILE, _SCOPE, _IMPORT_BUDGET,
+// _IMPORT_LIMIT, _EXPORT_ON_SHUTDOWN, _EXPORT_BUDGET, _METADATA_ONLY,
+// _EXPORT_SECRET); environment values win over the file, so provisioning
+// systems that can only inject env vars can fully configure the feature.
+type CacheServiceConfig struct {
+	// URL is the cache service base URL. Empty disables the feature.
+	URL string `json:"url,omitempty"`
+
+	// Token is the org-scoped service token, inline. Prefer TokenFile or the
+	// environment for production credentials.
+	Token string `json:"token,omitempty"`
+
+	// TokenFile is a path the token is read from at boot.
+	TokenFile string `json:"tokenFile,omitempty"`
+
+	// Scope is the cache namespace within the org (by convention the
+	// repository identity for CI fleets).
+	Scope string `json:"scope,omitempty"`
+
+	// ImportBudget bounds the whole boot-time bundle inflow (selection,
+	// downloads, merges). Exhaustion degrades to fewer bundles, then none —
+	// never a boot failure. Default 1m.
+	ImportBudget Duration `json:"importBudget,omitempty"`
+
+	// ImportLimit is the maximum number of bundles requested at boot.
+	// Zero means the service default.
+	ImportLimit int `json:"importLimit,omitempty"`
+
+	// ExportOnShutdown opts into a budget-bounded cache export during
+	// graceful shutdown (after sessions drain and prune runs).
+	ExportOnShutdown bool `json:"exportOnShutdown,omitempty"`
+
+	// ExportBudget bounds a shutdown export so shutdown cannot hang; an
+	// exhausted budget costs blobs, never correctness. Default 2m. Exports
+	// triggered through the admin API are bounded by their caller instead.
+	ExportBudget Duration `json:"exportBudget,omitempty"`
+
+	// MetadataOnly makes exports skip content chains and blob upload:
+	// importers get lookup warmth and recompute content via lazy forms.
+	MetadataOnly bool `json:"metadataOnly,omitempty"`
+
+	// ExportSecret optionally guards the engine's export admin endpoint: when
+	// set, POST /v1/cache/export requires it in the X-Dagger-Export-Secret
+	// header (defense in depth on the operator listener).
+	ExportSecret string `json:"exportSecret,omitempty"`
 }
 
 type LogLevel string

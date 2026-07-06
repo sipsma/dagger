@@ -25,18 +25,19 @@ const (
 )
 
 type EGraphDebugSnapshot struct {
-	TraceFormatVersion int                         `json:"trace_format_version"`
-	BootID             string                      `json:"boot_id"`
-	CapturedAtSeq      uint64                      `json:"captured_at_seq"`
-	CapturedAtTime     string                      `json:"captured_at_time"`
-	RestoreSummary     *CacheRestoreSummary        `json:"restore_summary,omitempty"`
-	ResultCounts       CacheDebugResultCounts      `json:"result_counts"`
-	ServeCounters      map[string]map[string]int64 `json:"serve_counters,omitempty"`
-	Results            []EGraphDebugResult         `json:"results"`
-	Terms              []EGraphDebugTerm           `json:"terms"`
-	ResultTerms        []EGraphDebugResultTerm     `json:"result_terms"`
-	Digests            []EGraphDebugDigestMapping  `json:"digests"`
-	EqClasses          []EGraphDebugEqClass        `json:"eq_classes"`
+	TraceFormatVersion  int                         `json:"trace_format_version"`
+	BootID              string                      `json:"boot_id"`
+	CapturedAtSeq       uint64                      `json:"captured_at_seq"`
+	CapturedAtTime      string                      `json:"captured_at_time"`
+	RestoreSummary      *CacheRestoreSummary        `json:"restore_summary,omitempty"`
+	BundleImportSummary *CacheBundleBootSummary     `json:"bundle_import_summary,omitempty"`
+	ResultCounts        CacheDebugResultCounts      `json:"result_counts"`
+	ServeCounters       map[string]map[string]int64 `json:"serve_counters,omitempty"`
+	Results             []EGraphDebugResult         `json:"results"`
+	Terms               []EGraphDebugTerm           `json:"terms"`
+	ResultTerms         []EGraphDebugResultTerm     `json:"result_terms"`
+	Digests             []EGraphDebugDigestMapping  `json:"digests"`
+	EqClasses           []EGraphDebugEqClass        `json:"eq_classes"`
 }
 
 type CacheDebugSnapshot struct {
@@ -78,20 +79,20 @@ func debugSourceKindNames(kinds []retainedSourceKind) []string {
 }
 
 type EGraphDebugResult struct {
-	SharedResultID           uint64                     `json:"shared_result_id"`
-	OutputEqClassIDs         []uint64                   `json:"output_eq_class_ids,omitempty"`
-	RecordType               string                     `json:"record_type,omitempty"`
-	Description              string                     `json:"description,omitempty"`
-	TypeName                 string                     `json:"type_name,omitempty"`
-	IncomingOwnershipCount   int64                      `json:"incoming_ownership_count"`
-	Realized                 bool                       `json:"realized"`
-	Sources                  []string                   `json:"sources,omitempty"`
+	SharedResultID         uint64   `json:"shared_result_id"`
+	OutputEqClassIDs       []uint64 `json:"output_eq_class_ids,omitempty"`
+	RecordType             string   `json:"record_type,omitempty"`
+	Description            string   `json:"description,omitempty"`
+	TypeName               string   `json:"type_name,omitempty"`
+	IncomingOwnershipCount int64    `json:"incoming_ownership_count"`
+	Realized               bool     `json:"realized"`
+	Sources                []string `json:"sources,omitempty"`
 	// TransientlyStarved surfaces the boot-scoped selection tie-break mark
 	// (a transient failure starved this row's last materialization walk):
 	// the S4 counters show the storms it prevents, the snapshot shows the
 	// mechanism.
-	TransientlyStarved bool   `json:"transiently_starved,omitempty"`
-	PayloadState       string `json:"payload_state"`
+	TransientlyStarved       bool                       `json:"transiently_starved,omitempty"`
+	PayloadState             string                     `json:"payload_state"`
 	HasPersistedEdge         bool                       `json:"has_persisted_edge"`
 	PersistedEdgeUnpruneable bool                       `json:"persisted_edge_unpruneable"`
 	ExplicitDeps             []uint64                   `json:"explicit_dep_ids,omitempty"`
@@ -970,11 +971,12 @@ func (c *Cache) DebugEGraphSnapshot() *EGraphDebugSnapshot {
 	defer c.egraphMu.RUnlock()
 
 	snap := &EGraphDebugSnapshot{
-		TraceFormatVersion: egraphTraceFormatV1,
-		BootID:             c.traceBootID,
-		CapturedAtSeq:      atomic.LoadUint64(&c.traceSeq),
-		CapturedAtTime:     time.Now().UTC().Format(time.RFC3339Nano),
-		RestoreSummary:     c.restoreSummary,
+		TraceFormatVersion:  egraphTraceFormatV1,
+		BootID:              c.traceBootID,
+		CapturedAtSeq:       atomic.LoadUint64(&c.traceSeq),
+		CapturedAtTime:      time.Now().UTC().Format(time.RFC3339Nano),
+		RestoreSummary:      c.restoreSummary,
+		BundleImportSummary: c.bundleBootSummary,
 		ResultCounts: CacheDebugResultCounts{
 			Total:            len(c.resultsByID),
 			Imported:         c.importedResultCount,
@@ -1214,6 +1216,14 @@ func (c *Cache) WriteDebugCacheSnapshot(w io.Writer) error {
 			return err
 		}
 		if err := writeValue(c.restoreSummary); err != nil {
+			return err
+		}
+	}
+	if c.bundleBootSummary != nil {
+		if err := writeField("bundle_import_summary"); err != nil {
+			return err
+		}
+		if err := writeValue(c.bundleBootSummary); err != nil {
 			return err
 		}
 	}

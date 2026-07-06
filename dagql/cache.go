@@ -1449,6 +1449,11 @@ type Cache struct {
 
 	persistenceResetReason CachePersistenceResetReason
 
+	// bundleBootSummary records the boot-time bundle inflow outcome; nil
+	// when no cache service is configured. Set once in the boot window,
+	// surfaced beside restoreSummary in the stats file and debug snapshots.
+	bundleBootSummary *CacheBundleBootSummary
+
 	// restoreSummary records the boot-restore outcome (kept/dropped/wiped);
 	// guarded by egraphMu after the boot writes it.
 	restoreSummary *CacheRestoreSummary

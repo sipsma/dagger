@@ -126,8 +126,9 @@ func (c *Cache) classifyServeOutcome(ctx context.Context, outcome string, frame 
 // counters plus the boot-restore summary — the file-based assertion vehicle
 // for reuse proofs.
 type CacheServeStatsFile struct {
-	Counters       map[string]map[string]int64 `json:"counters"`
-	RestoreSummary *CacheRestoreSummary        `json:"restore_summary,omitempty"`
+	Counters            map[string]map[string]int64 `json:"counters"`
+	RestoreSummary      *CacheRestoreSummary        `json:"restore_summary,omitempty"`
+	BundleImportSummary *CacheBundleBootSummary     `json:"bundle_import_summary,omitempty"`
 }
 
 // cacheStatsFilePath derives the stats file path from the persisted store's
@@ -148,10 +149,12 @@ func (c *Cache) writeServeStatsFile() {
 	}
 	c.egraphMu.RLock()
 	restoreSummary := c.restoreSummary
+	bundleBootSummary := c.bundleBootSummary
 	c.egraphMu.RUnlock()
 	payload := CacheServeStatsFile{
-		Counters:       c.serveStats.byOutcome(),
-		RestoreSummary: restoreSummary,
+		Counters:            c.serveStats.byOutcome(),
+		RestoreSummary:      restoreSummary,
+		BundleImportSummary: bundleBootSummary,
 	}
 	encoded, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {

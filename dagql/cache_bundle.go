@@ -134,6 +134,71 @@ func isContentlessPersistedType(typeName string) bool {
 	return ok
 }
 
+// PersistenceSchemaVersion is the engine's cache persistence schema
+// version, as bundle manifests carry it — what a booting engine sends to
+// bundle selection so only byte-compatible bundles are offered.
+func (c *Cache) PersistenceSchemaVersion() string {
+	return cachePersistenceSchemaVersion
+}
+
+// ReadCacheBundleManifest reads only the manifest from a bundle archive
+// stream. The manifest is the archive's first entry by construction
+// (writeCacheBundleArchive), so this never decompresses the metadata DB. It
+// returns the raw manifest bytes alongside the parsed form so a caller
+// re-sending the manifest (the multipart publish part) stays byte-identical
+// with the archive's copy.
+func ReadCacheBundleManifest(r io.Reader) (CacheBundleManifest, []byte, error) {
+	var manifest CacheBundleManifest
+	zr, err := zstd.NewReader(r)
+	if err != nil {
+		return manifest, nil, fmt.Errorf("open bundle zstd reader: %w", err)
+	}
+	defer zr.Close()
+	tr := tar.NewReader(zr)
+	hdr, err := tr.Next()
+	if err != nil {
+		return manifest, nil, fmt.Errorf("read bundle first entry: %w", err)
+	}
+	if hdr.Name != cacheBundleManifestName {
+		return manifest, nil, fmt.Errorf("bundle first entry is %q, want %q", hdr.Name, cacheBundleManifestName)
+	}
+	manifestJSON, err := io.ReadAll(tr)
+	if err != nil {
+		return manifest, nil, fmt.Errorf("read bundle manifest: %w", err)
+	}
+	if err := json.Unmarshal(manifestJSON, &manifest); err != nil {
+		return manifest, nil, fmt.Errorf("parse bundle manifest: %w", err)
+	}
+	return manifest, manifestJSON, nil
+}
+
+// CacheBundleBootSummary is the boot-time bundle inflow's outcome (§8 D4's
+// degradation made diagnosable): what selection offered, what actually
+// fetched and merged, what was skipped and why, and what the merges did.
+// It lands in the stats file and the debug snapshots next to the restore
+// summary — a cold start that should have been warm is answerable from the
+// engine's own evidence.
+type CacheBundleBootSummary struct {
+	BundlesOffered        int            `json:"bundles_offered"`
+	BundlesFetched        int            `json:"bundles_fetched"`
+	BundlesMerged         int            `json:"bundles_merged"`
+	SkippedByReason       map[string]int `json:"bundles_skipped_by_reason,omitempty"`
+	RowsImported          int            `json:"rows_imported"`
+	RowsDedupedByOrigin   int            `json:"rows_deduped_by_origin"`
+	ImportBudgetExhausted bool           `json:"import_budget_exhausted"`
+}
+
+// SetBundleBootSummary records the boot inflow outcome for the stats file
+// and debug snapshots. Called once, during the boot window.
+func (c *Cache) SetBundleBootSummary(summary *CacheBundleBootSummary) {
+	if c == nil {
+		return
+	}
+	c.egraphMu.Lock()
+	c.bundleBootSummary = summary
+	c.egraphMu.Unlock()
+}
+
 // writeCacheBundleArchive streams manifest.json + metadata.db as tar.zst.
 func writeCacheBundleArchive(w io.Writer, manifest CacheBundleManifest, metadataDBPath string) (rerr error) {
 	manifestJSON, err := json.MarshalIndent(manifest, "", "  ")
