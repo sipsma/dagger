@@ -125,7 +125,7 @@
 <main>
 
 <h1>Remote Cache — The Cache Manager</h1>
-<p class="sub">v4 &nbsp;·&nbsp; converged (review rounds 1–3; verdict: ready) &nbsp;·&nbsp; awaiting program-owner review + one owner ruling (§13 placement) &nbsp;·&nbsp; 2026-07-07</p>
+<p class="sub">v5 &nbsp;·&nbsp; converged + four owner rulings folded (round 4) &nbsp;·&nbsp; delta round in flight &nbsp;·&nbsp; open: §13 placement ruling &nbsp;·&nbsp; 2026-07-07</p>
 
 <div class="banner">
 <b>Status.</b> Draft for adversarial review. This document supersedes
@@ -505,6 +505,29 @@ eligibility counter exists for the same-engine shapes it can observe.</p>
   owner's ruling (build-order B&prime; is blocked on it); (2) program-owner (cache-chief)
   review of this converged document; (3) the three A&prime; engine deltas land via the
   take-3 landing protocol when implementation resumes.</li>
+  <li><b>Round 4 (2026-07-07). Four owner rulings recorded as ratified (Erik, 2026-07-06
+  morning), verified against the converged text.</b> <b>(1) Snapshot-to-snapshot merge
+  advancement</b> — ingests serialized/batched into consistent snapshots; importers served
+  a consistent snapshot; no live shared mutable state across serving requests: VERIFIED
+  already satisfied (§6's lease-serialized mutation + generation model; §8 composes only
+  from the checkpointed state a generation names; readers never touch the live store) —
+  the take-3 structural lesson applied server-side, now owner-ratified rather than merely
+  designed. <b>(2) Retention in v1 + local prune no longer propagates</b>: §9 already
+  carried v1 retention; the propagation change is now stated in ink — the prior text's
+  "fleet-wide convergence comes from engines themselves pruning" was a stale
+  store-and-select framing and was WRONG under the merged view; corrected to
+  "announcements only add; service-side retention owns the merged view's lifetime,
+  alone." <b>(3) Import payload = the whole merged store per scope, measure before
+  cleverer</b>: VERIFIED already satisfied (§8's whole-scope K=1 with budget gates and
+  slicing shelved) — now owner-ratified, closing §8's choice as ruled rather than
+  provisional. <b>(4) Content-addressed blob race semantics</b>: the race statement
+  (storage resolves concurrent same-digest writes benignly; read-side errors ride the
+  existing source-walk/demote discipline) added to §7; the <b>pure-function requirement
+  on upload instructions</b> (a function of merged snapshot + offered metadata, so
+  overlapping exporters get idempotent instructions) added to §10 with a unit pin; the
+  <b>per-backend concurrent-write test requirement</b> pinned as T-M15 (consuming the
+  converged CAS suites for S3/MinIO/filesystem + the Namespace live probe). Folds (2) and
+  (4) exceed editorial scope and go to the reviewer as a delta round.</li>
 </ol>
 </div>
 </details>
@@ -810,6 +833,17 @@ ordinary sweep-owned residue (§9), bounded by the announce/upload window, never
 correctness issue (M5). Engine-side budgets wrap the whole announce round-trip (the
 parked export budget), and a manager that cannot answer within it degrades to no-export
 — never a failed run (M5).</p>
+<p><b>Blob race semantics (Erik ruling, 2026-07-06 morning), pinned.</b> Blobs are
+content-addressed, so concurrent same-digest uploads from overlapping exporters are
+benign by construction: whether the storage backend lets one write win or both writes
+land identical bytes, the digest names the same content. The design requirement this
+carries: <b>each chosen backend's concurrent-write semantics is verified and pinned with
+its own test</b> — S3, MinIO, and filesystem in ordinary CI, Namespace under its
+credential-gated live probes (the converged CAS work already carries most of these:
+concurrent same-digest completion single-copy tests per backend; T-M15 consumes and
+extends them for the manager flow). Read-side blob errors need nothing new: they are
+handled by the engines' existing cache-download error discipline — the source walk's
+typed fall-through and the demote floor (M5).</p>
 
 <h3>7.2 &nbsp;Server-side sequence, per announcement</h3>
 <ol class="steps">
@@ -939,11 +973,17 @@ the artifact-size control surface, which is what bounds §8's whole-scope choice
 <code>result_content_chains</code> across live merged stores (+ a staging/pending safety
 window); orphaned checkpoint and artifact objects of superseded generations sweep on the
 same job. The chunk F GC-inventory notes fold in here.</li>
-<li><b>Prune-vs-announce interplay is the landed churn model</b>: a pruned row
-re-announced by an engine that still has it re-enters (origin-dedup makes it exactly
-once); fleet-wide convergence comes from engines themselves pruning and the manager's
-policy horizon — the measured churn-not-growth argument carries over with the manager as
-the composition point, and the growth gate (M3) measures it there.</li>
+<li><b>The semantic change, stated in ink (Erik ruling, 2026-07-06 morning): an engine's
+local pruning no longer propagates.</b> Under the superseded architecture, an engine's
+prune flowed into the fleet through its next export superseding its older bundles; under
+the merged view that channel does not exist — announcements only <em>add</em> knowledge,
+and nothing about an engine deleting local rows removes them from the merged view.
+<b>Service-side retention owns the merged view's lifetime, alone.</b> Consequences,
+spelled out: the merged view's contents shrink only through §9's own policy (and the M8
+wipe); a row pruned locally by every engine still serves to the next booting engine
+until the manager's policy cuts it; a pruned-then-re-announced row re-enters at most
+once (origin-dedup). The growth gate (M3) measures the merged view directly, where
+growth and retention now both live.</li>
 </ol>
 </div>
 </details>
@@ -964,7 +1004,14 @@ answer.</p>
 <li><b>The hook signature and home</b>: manager-core, evaluated at announce time
 post-merge (§7.2), returning the requested set plus typed decline reasons
 (<code>already_present</code>, <code>policy_declined</code>, …) that land in events and
-counters (M6) — falsifiable from day one.</li>
+counters (M6) — falsifiable from day one. <b>Purity requirement (Erik ruling, 2026-07-06
+morning): the decision is a pure function of (the merged snapshot, the CAS verified
+inventory, the offered metadata)</b> — no per-caller state, no randomness, no clock — so
+overlapping exporters offering the same content receive idempotent instructions: whoever
+announces the same offer against the same state gets the same answer, and concurrent
+same-digest uploads that both proceed are benign by content addressing (§7's race
+semantics). Pinned by a unit test: two identical announcements against one snapshot
+produce byte-identical requested sets.</li>
 <li><b>v1 = all-missing-immutable-chain-blobs.</b> Mutable-owner content never crosses
 (landed R4 semantics); everything else the fleet produced is worth having until analysis
 says otherwise.</li>
@@ -1130,6 +1177,12 @@ error, not a quiet skip</td><td>§9, §6.1 delta 2</td><td>unit</td></tr>
 <tr><td>T-M14</td><td>Compose integrity: the round-trip verification gate rejects a
 doctored staged artifact; a chainless snapshot-backed row makes compose fail typed
 (never a silently smaller artifact)</td><td>§8, §6.1 delta 3</td><td>unit</td></tr>
+<tr><td>T-M15</td><td>Blob race semantics per backend: concurrent same-digest uploads
+from two exporters resolve benignly on every chosen backend (S3, MinIO, filesystem in
+CI; Namespace via its credential-gated live probe) — one copy, stable bytes, both
+callers succeed; plus the §10 purity pin: two identical announcements against one
+snapshot yield byte-identical requested sets</td>
+<td>§7 race semantics, §10 purity (Erik ruling 2026-07-06)</td><td>unit + integration</td></tr>
 </table>
 <p class="pill">Standing gates carry: the reset Step-0 suites and the landed chunk A+B
 suites stay green at every engine-side landing; evidence discipline is the take-3
