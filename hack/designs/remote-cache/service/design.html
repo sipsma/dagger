@@ -739,6 +739,18 @@ redesign salting — that remains a cloud/tenancy work item.</p>
   the test-engine build sets; fetched-blob/byte tallies land with exactly-once
   discipline), plus the two ruling items; tip 7f82922c99 on the landing base, full gates
   green; delta review dispatched.</li>
+  <li><b>Round 15 (2026-07-07). CHUNK B READY; chunk C spawned.</b> Chunk B's delta round
+  surfaced one new finding (orphan <code>resultChain</code> entries — nonzero IDs naming
+  no bundle row — were silently ignored instead of whole-bundle
+  <code>malformed_chains</code> skip), closed at 9ab371d6f3 and reviewer-confirmed:
+  <b>chunk B is review-converged</b> (15 commits; 31 bundle/chain tests; the ratified
+  tie-break with its full lifecycle test — demote→mark→heal→deliver→clear→normal-order
+  →reboot→re-mark; landing package in preparation for the take-3 manager). Chunk C
+  (service client, export/boot wiring, in-repo test service, conformance suite,
+  T-S2/3/5/7 integration gates) spawned from chunk B's converged worktree with the
+  as-built chunk-D protocol named as wire truth and the testonly-transport replacement
+  contract carried (real client supersedes the env+build-tag surface; BlobSource +
+  ChainFetchStats are the seams).</li>
 </ol>
 </div>
 </details>
