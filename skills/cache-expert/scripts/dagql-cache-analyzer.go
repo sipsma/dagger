@@ -11,23 +11,32 @@ import (
 )
 
 type resultNode struct {
-	ID                    uint64   `json:"shared_result_id"`
-	OutputEqClassIDs      []uint64 `json:"output_eq_class_ids"`
-	RecordType            string   `json:"record_type"`
-	Description           string   `json:"description"`
-	TypeName              string   `json:"type_name"`
-	RefCount              int64    `json:"ref_count"`
-	HasValue              bool     `json:"has_value"`
-	PayloadState          string   `json:"payload_state"`
-	DepOfPersistedResult  bool     `json:"dep_of_persisted_result"`
-	ExplicitDeps          []uint64 `json:"explicit_dep_ids"`
-	HeldDependencyResults int      `json:"held_dependency_results_count"`
-	SafeToPersistCache    bool     `json:"safe_to_persist_cache"`
-	ExpiresAtUnix         int64    `json:"expires_at_unix"`
-	SizeEstimateBytes     int64    `json:"size_estimate_bytes"`
-	UsageIdentity         string   `json:"usage_identity"`
+	ID                       uint64           `json:"shared_result_id"`
+	OutputEqClassIDs         []uint64         `json:"output_eq_class_ids"`
+	RecordType               string           `json:"record_type"`
+	Description              string           `json:"description"`
+	TypeName                 string           `json:"type_name"`
+	IncomingOwnershipCount   int64            `json:"incoming_ownership_count"`
+	Realized                 bool             `json:"realized"`
+	Sources                  []string         `json:"sources"`
+	PayloadState             string           `json:"payload_state"`
+	HasPersistedEdge         bool             `json:"has_persisted_edge"`
+	ExplicitDeps             []uint64         `json:"explicit_dep_ids"`
+	HeldDependencyResults    int              `json:"held_dependency_results_count"`
+	ExpiresAtUnix            int64            `json:"expires_at_unix"`
+	CacheUsageSizeByIdentity map[string]int64 `json:"cache_usage_size_by_identity"`
 
 	Deps []uint64 `json:"-"`
+}
+
+// sizeEstimateBytes sums the per-identity usage sizes reported for this
+// result. Zero means no size is known.
+func (res *resultNode) sizeEstimateBytes() int64 {
+	var total int64
+	for _, size := range res.CacheUsageSizeByIdentity {
+		total += size
+	}
+	return total
 }
 
 type termNode struct {
@@ -311,11 +320,11 @@ func (a *analyzer) classifyRoots() (liveRoots, persistedRoots, orphanZeroRefRoot
 			continue
 		}
 		switch {
-		case res.RefCount > 0 && res.DepOfPersistedResult:
+		case res.IncomingOwnershipCount > 0 && res.HasPersistedEdge:
 			persistedRoots = append(persistedRoots, id)
-		case res.RefCount > 0:
+		case res.IncomingOwnershipCount > 0:
 			liveRoots = append(liveRoots, id)
-		case res.DepOfPersistedResult:
+		case res.HasPersistedEdge:
 			persistedRoots = append(persistedRoots, id)
 		default:
 			orphanZeroRefRoots = append(orphanZeroRefRoots, id)
@@ -333,11 +342,11 @@ func (a *analyzer) printOverview(start time.Time, liveRoots, persistedRoots, orp
 	refPositive := 0
 	refPositiveNonPersisted := 0
 	depOfPersisted := 0
-	hasValue := 0
+	realizedCount := 0
 	knownSizeCount := 0
 	var knownSizeTotal int64
 	for _, res := range a.results {
-		switch rc := res.RefCount; {
+		switch rc := res.IncomingOwnershipCount; {
 		case rc == 0:
 			refBuckets["0"]++
 		case rc == 1:
@@ -349,21 +358,21 @@ func (a *analyzer) printOverview(start time.Time, liveRoots, persistedRoots, orp
 		default:
 			refBuckets["21+"]++
 		}
-		if res.RefCount > 0 {
+		if res.IncomingOwnershipCount > 0 {
 			refPositive++
-			if !res.DepOfPersistedResult {
+			if !res.HasPersistedEdge {
 				refPositiveNonPersisted++
 			}
 		}
-		if res.DepOfPersistedResult {
+		if res.HasPersistedEdge {
 			depOfPersisted++
 		}
-		if res.HasValue {
-			hasValue++
+		if res.Realized {
+			realizedCount++
 		}
-		if res.SizeEstimateBytes > 0 {
+		if res.sizeEstimateBytes() > 0 {
 			knownSizeCount++
-			knownSizeTotal += res.SizeEstimateBytes
+			knownSizeTotal += res.sizeEstimateBytes()
 		}
 	}
 
@@ -383,15 +392,15 @@ func (a *analyzer) printOverview(start time.Time, liveRoots, persistedRoots, orp
 	fmt.Println()
 
 	fmt.Println("Retention Shape")
-	fmt.Printf("- dep_of_persisted_result=true: %d\n", depOfPersisted)
-	fmt.Printf("- ref_count>0: %d\n", refPositive)
-	fmt.Printf("- ref_count>0 && !dep_of_persisted_result: %d\n", refPositiveNonPersisted)
-	fmt.Printf("- has_value=true: %d\n", hasValue)
-	fmt.Printf("- live roots (ref_count>0, no incoming deps): %d\n", len(liveRoots))
-	fmt.Printf("- persisted roots (dep_of_persisted_result, no incoming deps): %d\n", len(persistedRoots))
-	fmt.Printf("- orphan zero-ref non-persisted roots: %d\n", len(orphanZeroRefRoots))
+	fmt.Printf("- has_persisted_edge=true: %d\n", depOfPersisted)
+	fmt.Printf("- incoming_ownership_count>0: %d\n", refPositive)
+	fmt.Printf("- incoming_ownership_count>0 && !has_persisted_edge: %d\n", refPositiveNonPersisted)
+	fmt.Printf("- realized=true: %d\n", realizedCount)
+	fmt.Printf("- live roots (incoming_ownership_count>0, no incoming deps): %d\n", len(liveRoots))
+	fmt.Printf("- persisted roots (has_persisted_edge, no incoming deps): %d\n", len(persistedRoots))
+	fmt.Printf("- orphan zero-ownership non-persisted roots: %d\n", len(orphanZeroRefRoots))
 	fmt.Printf("- known nonzero size estimates: %d results, %s total\n", knownSizeCount, humanBytes(knownSizeTotal))
-	fmt.Printf("- refcount buckets: 0=%d 1=%d 2-5=%d 6-20=%d 21+=%d\n",
+	fmt.Printf("- ownership-count buckets: 0=%d 1=%d 2-5=%d 6-20=%d 21+=%d\n",
 		refBuckets["0"], refBuckets["1"], refBuckets["2-5"], refBuckets["6-20"], refBuckets["21+"])
 	fmt.Println()
 }
@@ -407,11 +416,11 @@ func (a *analyzer) printResultCounters(topN int) {
 	for _, res := range a.results {
 		typeCounts[nz(res.TypeName)]++
 		recordCounts[nz(res.RecordType)]++
-		if res.DepOfPersistedResult {
+		if res.HasPersistedEdge {
 			persistedTypeCounts[nz(res.TypeName)]++
 			persistedRecordCounts[nz(res.RecordType)]++
 		}
-		if res.RefCount > 0 {
+		if res.IncomingOwnershipCount > 0 {
 			liveTypeCounts[nz(res.TypeName)]++
 			liveRecordCounts[nz(res.RecordType)]++
 		}
@@ -573,12 +582,12 @@ func (a *analyzer) printTopRootClosures(title string, roots []rootSummary, limit
 		if res == nil {
 			continue
 		}
-		fmt.Printf("- id=%d type=%s record=%s desc=%s refcount=%d reachable=%d known_bytes=%s known_byte_nodes=%d top_types=%s\n",
+		fmt.Printf("- id=%d type=%s record=%s desc=%s ownership_count=%d reachable=%d known_bytes=%s known_byte_nodes=%d top_types=%s\n",
 			root.ID,
 			nz(res.TypeName),
 			nz(res.RecordType),
 			nz(res.Description),
-			res.RefCount,
+			res.IncomingOwnershipCount,
 			root.Summary.NodeCount,
 			humanBytes(root.Summary.KnownBytes),
 			root.Summary.KnownByteNodes,
@@ -611,8 +620,8 @@ func (a *analyzer) closure(rootIDs []uint64) graphSummary {
 		summary.NodeCount++
 		summary.ByType[nz(res.TypeName)]++
 		summary.ByRecord[nz(res.RecordType)]++
-		if res.SizeEstimateBytes > 0 {
-			summary.KnownBytes += res.SizeEstimateBytes
+		if res.sizeEstimateBytes() > 0 {
+			summary.KnownBytes += res.sizeEstimateBytes()
 			summary.KnownByteNodes++
 		}
 

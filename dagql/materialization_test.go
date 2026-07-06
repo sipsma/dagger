@@ -50,8 +50,10 @@ func TestMaterializationStateFallThroughOrder(t *testing.T) {
 func TestMaterializationStateZeroSourcesRefusal(t *testing.T) {
 	t.Parallel()
 
-	// A state with no realized value, no envelope, and no sources has
-	// nothing to deliver: it must refuse to be served as a hit.
+	// Model-level check of servable(): a state with no realized value, no
+	// envelope, and no sources reports it has nothing to deliver. The
+	// consumers that enforce this at restore vetting and at serving arrive
+	// with the persistence and warm-lookup work; nothing consults it yet.
 	var m materializationState
 	assert.Assert(t, !m.servable())
 
@@ -200,8 +202,10 @@ func matHomeDebugResult(t *testing.T, c *Cache) EGraphDebugResult {
 }
 
 // TestMaterializationStateWritePoints drives the state through its legal
-// write points — publication, import, the result's own decode — and checks
-// that flush and plain reads leave it untouched.
+// write points — publication, import, the result's own decode — across a
+// real persist/boot round trip and checks that each behaves as specified,
+// and that flush and plain reads leave the state untouched. It proves the
+// legal writers' behavior; it cannot prove that no illegal writer exists.
 func TestMaterializationStateWritePoints(t *testing.T) {
 	t.Parallel()
 
