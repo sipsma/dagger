@@ -515,7 +515,13 @@ type decodedContainerMount struct {
 }
 
 type persistedContainerPayload struct {
-	Form               string                              `json:"form"`
+	// Pending marks a container that still carries live deferred work: the
+	// value stays hollow until its lazy runs, so decode must re-attach the
+	// envelope's lazy fragment as live work. It is not a which-form
+	// discriminator — a completed container's payload carries its full
+	// state alongside a captured fragment kept only for re-making content.
+	Pending bool `json:"pending,omitempty"`
+
 	FS                 json.RawMessage                     `json:"fs,omitempty"`
 	Config             dockerspec.DockerOCIImageConfig     `json:"config"`
 	EnabledGPUs        []string                            `json:"enabledGPUs,omitempty"`
@@ -531,13 +537,7 @@ type persistedContainerPayload struct {
 	SystemEnvNames     []string                            `json:"systemEnvNames,omitempty"`
 	VolatileEnv        []string                            `json:"volatileEnv,omitempty"`
 	DefaultArgs        bool                                `json:"defaultArgs,omitempty"`
-	LazyJSON           json.RawMessage                     `json:"lazyJSON,omitempty"`
 }
-
-const (
-	persistedContainerFormReady = "ready"
-	persistedContainerFormLazy  = "lazy"
-)
 
 type persistedContainerWithEntrypointLazy struct {
 	ParentResultID  uint64   `json:"parentResultID"`
@@ -1414,7 +1414,7 @@ func decodePersistedContainerDirectoryValue(ctx context.Context, dag *dagql.Serv
 	case persistedContainerValueFormPending:
 		return decodedContainerDirectoryValue{Dir: nil, Kind: wrapped.Form}, nil
 	case persistedContainerValueFormMaterialized:
-		dir, err := decodePersistedDirectoryWithSnapshotRole(ctx, dag, resultID, wrapped.Value, role)
+		dir, err := decodePersistedDirectoryWithSnapshotRole(ctx, dag, resultID, wrapped.Value, role, dagql.PersistedLazyFragment{})
 		if err != nil {
 			return decodedContainerDirectoryValue{}, err
 		}
@@ -1438,7 +1438,7 @@ func decodePersistedContainerFileValue(ctx context.Context, dag *dagql.Server, r
 	case persistedContainerValueFormPending:
 		return decodedContainerFileValue{File: nil, Kind: wrapped.Form}, nil
 	case persistedContainerValueFormMaterialized:
-		file, err := decodePersistedFileWithSnapshotRole(ctx, dag, resultID, wrapped.Value, role)
+		file, err := decodePersistedFileWithSnapshotRole(ctx, dag, resultID, wrapped.Value, role, dagql.PersistedLazyFragment{})
 		if err != nil {
 			return decodedContainerFileValue{}, err
 		}
@@ -1459,7 +1459,7 @@ func (container *Container) EncodePersistedObject(ctx context.Context, cache dag
 
 	var snapshotLinks []dagql.PersistedSnapshotRefLink
 	payload := persistedContainerPayload{
-		Form:               persistedContainerFormReady,
+		Pending:            container.Lazy != nil,
 		Config:             container.Config,
 		EnabledGPUs:        slices.Clone(container.EnabledGPUs),
 		Mounts:             make([]persistedContainerMountPayload, 0, len(container.Mounts)),
@@ -1474,14 +1474,6 @@ func (container *Container) EncodePersistedObject(ctx context.Context, cache dag
 		SystemEnvNames:     slices.Clone(container.SystemEnvNames),
 		VolatileEnv:        slices.Clone(container.VolatileEnv),
 		DefaultArgs:        container.DefaultArgs,
-	}
-	if container.Lazy != nil {
-		lazyJSON, err := container.Lazy.EncodePersisted(ctx, cache)
-		if err != nil {
-			return dagql.PersistedObjectEncoding{}, err
-		}
-		payload.Form = persistedContainerFormLazy
-		payload.LazyJSON = lazyJSON
 	}
 	if container.MetaSnapshot != nil {
 		if snapshot, ok := container.MetaSnapshot.Peek(); ok && snapshot != nil {
@@ -1579,13 +1571,23 @@ func (container *Container) EncodePersistedObject(ctx context.Context, cache dag
 	}, nil
 }
 
-func (*Container) DecodePersistedObject(ctx context.Context, dag *dagql.Server, resultID uint64, call *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (container *Container) EncodePersistedLazyFragment(ctx context.Context, cache dagql.PersistedObjectCache) (*dagql.PersistedLazyFragment, error) {
+	if container == nil || container.Lazy == nil {
+		return nil, nil
+	}
+	lazyJSON, err := container.Lazy.EncodePersisted(ctx, cache)
+	if err != nil {
+		return nil, err
+	}
+	// Container registers a single lazy form, so the fragment carries no
+	// kind discriminator.
+	return &dagql.PersistedLazyFragment{JSON: lazyJSON}, nil
+}
+
+func (*Container) DecodePersistedObject(ctx context.Context, dag *dagql.Server, resultID uint64, call *dagql.ResultCall, payload json.RawMessage, lazy dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	var persisted persistedContainerPayload
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted container payload: %w", err)
-	}
-	if persisted.Form == "" {
-		persisted.Form = persistedContainerFormReady
 	}
 
 	fs := new(LazyAccessor[*Directory, *Container])
@@ -1714,13 +1716,18 @@ func (*Container) DecodePersistedObject(ctx context.Context, dag *dagql.Server, 
 		VolatileEnv:        slices.Clone(persisted.VolatileEnv),
 		DefaultArgs:        persisted.DefaultArgs,
 	}
-	if persisted.Form != persistedContainerFormLazy {
+	if !persisted.Pending {
 		return container, nil
 	}
-	if call == nil {
-		return nil, fmt.Errorf("decode persisted container payload: missing call for lazy form")
+	// A pending container's value is hollow until its deferred work runs:
+	// the envelope's lazy fragment IS that work, so it re-attaches live.
+	if len(lazy.JSON) == 0 {
+		return nil, fmt.Errorf("decode persisted container payload: pending container has no lazy fragment")
 	}
-	if err := decodePersistedContainerLazy(ctx, dag, call, container, persisted.LazyJSON, decodedRootFS, decodedMounts); err != nil {
+	if call == nil {
+		return nil, fmt.Errorf("decode persisted container payload: missing call for pending container")
+	}
+	if err := decodePersistedContainerLazy(ctx, dag, call, container, lazy.JSON, decodedRootFS, decodedMounts); err != nil {
 		return nil, err
 	}
 	return container, nil

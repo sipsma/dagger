@@ -210,11 +210,6 @@ func (file *File) PersistedSnapshotRefLinks() []dagql.PersistedSnapshotRefLink {
 }
 
 const (
-	persistedFileFormSnapshot = "snapshot"
-	persistedFileFormLazy     = "lazy"
-)
-
-const (
 	persistedFileLazyKindDirectoryFile  = "directory.file"
 	persistedFileLazyKindContainerFile  = "container.file"
 	persistedFileLazyKindWithName       = "file.withName"
@@ -224,12 +219,9 @@ const (
 )
 
 type persistedFilePayload struct {
-	Form     string                    `json:"form"`
 	File     string                    `json:"file,omitempty"`
 	Platform Platform                  `json:"platform"`
 	Services []persistedServiceBinding `json:"services,omitempty"`
-	LazyKind string                    `json:"lazyKind,omitempty"`
-	LazyJSON json.RawMessage           `json:"lazyJSON,omitempty"`
 }
 
 func (file *File) EncodePersistedObject(ctx context.Context, cache dagql.PersistedObjectCache) (dagql.PersistedObjectEncoding, error) {
@@ -253,7 +245,6 @@ func (file *File) EncodePersistedObject(ctx context.Context, cache dagql.Persist
 	}
 	if file.Snapshot != nil {
 		if snapshot, ok := file.Snapshot.Peek(); ok && snapshot != nil {
-			payload.Form = persistedFileFormSnapshot
 			payloadJSON, err := json.Marshal(payload)
 			if err != nil {
 				return dagql.PersistedObjectEncoding{}, fmt.Errorf("marshal persisted file payload: %w", err)
@@ -268,13 +259,8 @@ func (file *File) EncodePersistedObject(ctx context.Context, cache dagql.Persist
 		}
 	}
 	if file.Lazy != nil {
-		payload.Form = persistedFileFormLazy
-		lazyKind, lazyJSON, err := encodePersistedFileLazy(ctx, cache, file.Lazy)
-		if err != nil {
-			return dagql.PersistedObjectEncoding{}, err
-		}
-		payload.LazyKind = lazyKind
-		payload.LazyJSON = lazyJSON
+		// The deferred work is serialized separately as the value's lazy
+		// fragment; the payload carries only the plain fields.
 		payloadJSON, err := json.Marshal(payload)
 		if err != nil {
 			return dagql.PersistedObjectEncoding{}, fmt.Errorf("marshal persisted file payload: %w", err)
@@ -284,8 +270,19 @@ func (file *File) EncodePersistedObject(ctx context.Context, cache dagql.Persist
 	return dagql.PersistedObjectEncoding{}, fmt.Errorf("%w: encode persisted file: missing snapshot and lazy op", dagql.ErrPersistStateNotReady)
 }
 
+func (file *File) EncodePersistedLazyFragment(ctx context.Context, cache dagql.PersistedObjectCache) (*dagql.PersistedLazyFragment, error) {
+	if file == nil || file.Lazy == nil {
+		return nil, nil
+	}
+	lazyKind, lazyJSON, err := encodePersistedFileLazy(ctx, cache, file.Lazy)
+	if err != nil {
+		return nil, err
+	}
+	return &dagql.PersistedLazyFragment{Kind: lazyKind, JSON: lazyJSON}, nil
+}
+
 //nolint:dupl // symmetric with decodePersistedDirectoryWithSnapshotRole in directory.go; sharing hides type specifics
-func decodePersistedFileWithSnapshotRole(ctx context.Context, dag *dagql.Server, resultID uint64, payload json.RawMessage, snapshotRole string) (*File, error) {
+func decodePersistedFileWithSnapshotRole(ctx context.Context, dag *dagql.Server, resultID uint64, payload json.RawMessage, snapshotRole string, lazy dagql.PersistedLazyFragment) (*File, error) {
 	var persisted persistedFilePayload
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted file payload: %w", err)
@@ -304,31 +301,33 @@ func decodePersistedFileWithSnapshotRole(ctx context.Context, dag *dagql.Server,
 	if persisted.File != "" {
 		file.File.setValue(persisted.File)
 	}
-	switch persisted.Form {
-	case persistedFileFormSnapshot:
-		snapshot, err := loadPersistedImmutableSnapshotByResultID(ctx, dag, resultID, "file", snapshotRole)
-		if err != nil {
-			return nil, err
-		}
+	// The snapshot wins when both forms are present: the lazy fragment then
+	// only retains the way to re-make the content and is not attached as
+	// live deferred work.
+	snapshot, found, err := loadPersistedImmutableSnapshotByResultIDIfPresent(ctx, dag, resultID, "file", snapshotRole)
+	if err != nil {
+		return nil, err
+	}
+	if found {
 		file.Snapshot.setValue(snapshot)
 		return file, nil
-	case persistedFileFormLazy:
-		if persisted.LazyKind == "" {
+	}
+	if len(lazy.JSON) > 0 {
+		if lazy.Kind == "" {
 			return nil, fmt.Errorf("decode persisted file payload: missing lazy kind")
 		}
-		lazy, err := decodePersistedFileLazy(ctx, dag, persisted.LazyKind, persisted.LazyJSON)
+		lazyOp, err := decodePersistedFileLazy(ctx, dag, lazy.Kind, lazy.JSON)
 		if err != nil {
 			return nil, err
 		}
-		file.Lazy = lazy
+		file.Lazy = lazyOp
 		return file, nil
-	default:
-		return nil, fmt.Errorf("decode persisted file payload: unsupported form %q", persisted.Form)
 	}
+	return nil, fmt.Errorf("decode persisted file payload: missing snapshot and lazy fragment")
 }
 
-func (*File) DecodePersistedObject(ctx context.Context, dag *dagql.Server, resultID uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
-	return decodePersistedFileWithSnapshotRole(ctx, dag, resultID, payload, "snapshot")
+func (*File) DecodePersistedObject(ctx context.Context, dag *dagql.Server, resultID uint64, _ *dagql.ResultCall, payload json.RawMessage, lazy dagql.PersistedLazyFragment) (dagql.Typed, error) {
+	return decodePersistedFileWithSnapshotRole(ctx, dag, resultID, payload, "snapshot", lazy)
 }
 
 type FileWithReplacedLazy struct {

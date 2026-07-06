@@ -89,45 +89,14 @@ func TestMaterializationStateCloneSharesNoSlices(t *testing.T) {
 	assert.DeepEqual(t, []retainedSourceKind{sourceLocalSnapshot, sourceLazyValue}, cp.sourceKinds())
 }
 
-func TestEnvelopeCarriesLazyPayload(t *testing.T) {
-	t.Parallel()
-
-	obj := func(objectJSON string) *PersistedResultEnvelope {
-		return &PersistedResultEnvelope{
-			Version:    2,
-			Kind:       persistedResultKindObject,
-			TypeName:   "Test",
-			ObjectJSON: json.RawMessage(objectJSON),
-		}
-	}
-
-	assert.Assert(t, obj(`{"form":"lazy","lazyJSON":{"kind":"test"}}`).carriesLazyPayload())
-	assert.Assert(t, !obj(`{"form":"snapshot"}`).carriesLazyPayload())
-	// Corrupt payloads simply do not yield a source.
-	assert.Assert(t, !obj(`{not json`).carriesLazyPayload())
-	assert.Assert(t, !(&PersistedResultEnvelope{Version: 2, Kind: persistedResultKindScalar, ScalarJSON: json.RawMessage(`1`)}).carriesLazyPayload())
-
-	list := &PersistedResultEnvelope{
-		Version: 2,
-		Kind:    persistedResultKindList,
-		Items: []PersistedResultEnvelope{
-			*obj(`{"form":"snapshot"}`),
-			*obj(`{"form":"lazy","lazyJSON":{"kind":"test"}}`),
-		},
-	}
-	assert.Assert(t, list.carriesLazyPayload())
-}
-
-// matHomeObj is a persistable object whose encoded payload carries both a
-// snapshot link and a lazy form, so a restored result derives both retained
-// sources.
+// matHomeObj is a persistable object that persists both a snapshot link and
+// a lazy fragment, so a restored result derives both retained sources.
 type matHomeObj struct {
 	Name string
 }
 
 type persistedMatHomeObj struct {
-	Name     string          `json:"name"`
-	LazyJSON json.RawMessage `json:"lazyJSON,omitempty"`
+	Name string `json:"name"`
 }
 
 func (*matHomeObj) Type() *ast.Type {
@@ -140,10 +109,7 @@ func (*matHomeObj) Type() *ast.Type {
 func (obj *matHomeObj) EncodePersistedObject(ctx context.Context, cache PersistedObjectCache) (PersistedObjectEncoding, error) {
 	_ = ctx
 	_ = cache
-	payload, err := json.Marshal(persistedMatHomeObj{
-		Name:     obj.Name,
-		LazyJSON: json.RawMessage(`{"kind":"mat-home-test"}`),
-	})
+	payload, err := json.Marshal(persistedMatHomeObj{Name: obj.Name})
 	if err != nil {
 		return PersistedObjectEncoding{}, err
 	}
@@ -155,7 +121,16 @@ func (obj *matHomeObj) EncodePersistedObject(ctx context.Context, cache Persiste
 	}, nil
 }
 
-func (*matHomeObj) DecodePersistedObject(ctx context.Context, dag *Server, _ uint64, _ *ResultCall, payload json.RawMessage) (Typed, error) {
+func (obj *matHomeObj) EncodePersistedLazyFragment(ctx context.Context, cache PersistedObjectCache) (*PersistedLazyFragment, error) {
+	_ = ctx
+	_ = cache
+	return &PersistedLazyFragment{
+		Kind: "mat-home-test",
+		JSON: json.RawMessage(`{"kind":"mat-home-test"}`),
+	}, nil
+}
+
+func (*matHomeObj) DecodePersistedObject(ctx context.Context, dag *Server, _ uint64, _ *ResultCall, payload json.RawMessage, _ PersistedLazyFragment) (Typed, error) {
 	_ = ctx
 	_ = dag
 	var persisted persistedMatHomeObj
@@ -221,13 +196,19 @@ func TestMaterializationStateWritePoints(t *testing.T) {
 	assert.NilError(t, err)
 
 	// Publication: the freshly published result is realized with no
-	// envelope. (Snapshot-link state at publication is maintained by the
-	// owner-lease sync, which requires a snapshot manager; with none
-	// configured the source list stays empty, as before this change.)
+	// envelope, and its lazy fragment was captured right then — the value's
+	// recipe would be destroyed by realization, so publication is the only
+	// moment the fragment is guaranteed to exist. (Snapshot-link state at
+	// publication is maintained by the owner-lease sync, which requires a
+	// snapshot manager; with none configured the link list stays empty.)
 	sharedA := resA.cacheSharedResult()
 	stateA := sharedA.loadPayloadState()
 	assert.Assert(t, stateA.realized)
 	assert.Assert(t, stateA.persistedEnvelope == nil)
+	assert.DeepEqual(t, []retainedSourceKind{sourceLazyValue}, stateA.sourceKinds)
+	fragA := sharedA.loadLazyFragment()
+	assert.Assert(t, fragA != nil)
+	assert.Equal(t, "mat-home-test", fragA.Kind)
 
 	cacheTestReleaseSession(t, cacheA, rootCtxA)
 	assert.NilError(t, cacheA.persistCurrentState(ctx))
@@ -267,4 +248,57 @@ func TestMaterializationStateWritePoints(t *testing.T) {
 	assert.Equal(t, "materialized", decoded.PayloadState)
 	assert.DeepEqual(t, []string{"local_snapshot", "lazy_value"}, decoded.Sources)
 	cacheTestReleaseSession(t, cacheB, rootCtxB)
+}
+
+// TestMaterializationBothFormsSurviveDecodeAndReflush pins the §-independent
+// heart of capture-at-publication: the captured fragment lives on the
+// sharedResult, so decoding a restored result (which clears the envelope)
+// must not lose it — a store can be booted, used, and re-flushed any number
+// of times and every generation keeps both retained forms.
+func TestMaterializationBothFormsSurviveDecodeAndReflush(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+
+	// Generation 0: publish and flush.
+	cacheA, err := NewCache(ctx, dbPath, nil, nil)
+	assert.NilError(t, err)
+	srvA := newMatHomeTestServer()
+	rootCtxA := matHomeRootCtx(ctx, cacheA, srvA)
+	_, err = srvA.root.Select(rootCtxA, srvA, Selector{Field: "matHomeObj"})
+	assert.NilError(t, err)
+	cacheTestReleaseSession(t, cacheA, rootCtxA)
+	assert.NilError(t, cacheA.persistCurrentState(ctx))
+	assert.NilError(t, cacheA.Close(context.Background()))
+
+	// Generations 1..2: boot, take a warm hit (decoding the envelope), and
+	// flush again. Both retained sources must survive every generation.
+	for generation := 1; generation <= 2; generation++ {
+		cache, err := NewCache(ctx, dbPath, nil, nil)
+		assert.NilError(t, err)
+		assert.Equal(t, CachePersistenceResetNone, cache.PersistenceResetReason())
+
+		restored := matHomeDebugResult(t, cache)
+		assert.Assert(t, !restored.Realized, "generation %d", generation)
+		assert.DeepEqual(t, []string{"local_snapshot", "lazy_value"}, restored.Sources)
+
+		srv := newMatHomeTestServer()
+		rootCtx := matHomeRootCtx(ctx, cache, srv)
+		res, err := srv.root.Select(rootCtx, srv, Selector{Field: "matHomeObj"})
+		assert.NilError(t, err)
+		assert.Assert(t, res.HitCache(), "generation %d", generation)
+
+		// Decode cleared the envelope; the captured fragment must remain.
+		decoded := matHomeDebugResult(t, cache)
+		assert.Assert(t, decoded.Realized, "generation %d", generation)
+		assert.DeepEqual(t, []string{"local_snapshot", "lazy_value"}, decoded.Sources)
+		frag := res.cacheSharedResult().loadLazyFragment()
+		assert.Assert(t, frag != nil, "generation %d lost the captured fragment after decode", generation)
+		assert.Equal(t, "mat-home-test", frag.Kind)
+
+		cacheTestReleaseSession(t, cache, rootCtx)
+		assert.NilError(t, cache.persistCurrentState(ctx))
+		assert.NilError(t, cache.Close(context.Background()))
+	}
 }

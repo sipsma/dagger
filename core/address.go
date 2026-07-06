@@ -36,7 +36,7 @@ func (addr *Address) EncodePersistedObject(ctx context.Context, cache dagql.Pers
 	return encodePersistedObjectPayload(addr)
 }
 
-func (*Address) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*Address) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	_ = ctx
 	_ = dag
 	var addr Address

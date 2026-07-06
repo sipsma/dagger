@@ -51,7 +51,7 @@ func (ef *EnvFile) EncodePersistedObject(ctx context.Context, cache dagql.Persis
 	return encodePersistedObjectPayload(ef)
 }
 
-func (*EnvFile) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*EnvFile) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	_ = ctx
 	_ = dag
 	var ef EnvFile

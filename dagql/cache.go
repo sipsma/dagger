@@ -87,7 +87,7 @@ type persistedEdge struct {
 	unpruneable       bool
 }
 
-const cachePersistenceSchemaVersion = "17"
+const cachePersistenceSchemaVersion = "18"
 
 var ErrCacheRecursiveCall = fmt.Errorf("recursive call detected")
 var ErrPersistStateNotReady = errors.New("persist state not ready")
@@ -1485,9 +1485,13 @@ type retainedSource struct {
 
 	// snapshotLinks is the identity for sourceLocalSnapshot: the local
 	// snapshotter refKeys holding this result's content. Empty for other
-	// kinds. (A sourceLazyValue entry carries no identity of its own: the
-	// lazy form's payload lives inside the envelope.)
+	// kinds.
 	snapshotLinks []PersistedSnapshotRefLink
+
+	// lazyFragment is the identity for sourceLazyValue: the value's
+	// serialized deferred work, captured at publication (before realization
+	// destroys the live recipe) or copied from the envelope at import.
+	lazyFragment *PersistedLazyFragment
 }
 
 // ensureSource returns the source of the given kind, inserting it at its
@@ -1535,6 +1539,26 @@ func (m *materializationState) localSnapshotLinks() []PersistedSnapshotRefLink {
 	return nil
 }
 
+// setLazyFragment records the value's serialized deferred work as the
+// lazy-value source's identity.
+func (m *materializationState) setLazyFragment(frag *PersistedLazyFragment) {
+	if frag == nil || len(frag.JSON) == 0 {
+		return
+	}
+	m.ensureSource(sourceLazyValue).lazyFragment = frag
+}
+
+// lazyFragment returns a copy of the lazy-value source's fragment, or nil
+// when the source is absent or carries no payload.
+func (m *materializationState) lazyFragment() *PersistedLazyFragment {
+	for i := range m.sources {
+		if m.sources[i].kind == sourceLazyValue {
+			return m.sources[i].lazyFragment.clone()
+		}
+	}
+	return nil
+}
+
 // sourceKinds returns the kinds present, in fall-through order.
 func (m *materializationState) sourceKinds() []retainedSourceKind {
 	if len(m.sources) == 0 {
@@ -1564,6 +1588,7 @@ func (m *materializationState) clone() materializationState {
 		for i := range m.sources {
 			cp.sources[i] = m.sources[i]
 			cp.sources[i].snapshotLinks = slices.Clone(m.sources[i].snapshotLinks)
+			cp.sources[i].lazyFragment = m.sources[i].lazyFragment.clone()
 		}
 	}
 	return cp
@@ -1735,6 +1760,25 @@ func (res *sharedResult) cloneMaterializationState() materializationState {
 	cp := res.materialization.clone()
 	res.payloadMu.RUnlock()
 	return cp
+}
+
+func (res *sharedResult) storeLazyFragment(frag *PersistedLazyFragment) {
+	if res == nil {
+		return
+	}
+	res.payloadMu.Lock()
+	res.materialization.setLazyFragment(frag)
+	res.payloadMu.Unlock()
+}
+
+func (res *sharedResult) loadLazyFragment() *PersistedLazyFragment {
+	if res == nil {
+		return nil
+	}
+	res.payloadMu.RLock()
+	frag := res.materialization.lazyFragment()
+	res.payloadMu.RUnlock()
+	return frag
 }
 
 func (res *sharedResult) storeSnapshotOwnerLinks(links []PersistedSnapshotRefLink) {
@@ -4408,6 +4452,23 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 		attachErr := errors.Join(err, decErr, collectErr, runOnReleaseFuncs(context.WithoutCancel(ctx), collectReleases))
 		finishAttachDeps(attachErr)
 		return attachErr
+	}
+	// Capture the value's lazy fragment now: publication is the one moment a
+	// fresh result is guaranteed to still carry its recipe (realization
+	// destroys it), and its input results are attached so their IDs resolve.
+	// A capture failure costs the result its re-make fragment, nothing more;
+	// the call itself already succeeded.
+	if !resWasCacheBacked && oc.val != nil {
+		if fragEncoder, ok := UnwrapAs[PersistedLazyFragmentEncoder](oc.val); ok {
+			frag, err := fragEncoder.EncodePersistedLazyFragment(ctx, c)
+			switch {
+			case err != nil:
+				slog.Warn("failed to capture lazy fragment at publication",
+					"sharedResultID", oc.res.id, "type", fmt.Sprintf("%T", oc.val.Unwrap()), "err", err)
+			case frag != nil:
+				oc.res.storeLazyFragment(frag)
+			}
+		}
 	}
 	c.registerLazyEvaluation(oc.res, oc.val)
 	finishAttachDeps(nil)

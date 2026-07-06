@@ -53,7 +53,7 @@ func (code *GeneratedCode) EncodePersistedObject(ctx context.Context, cache dagq
 	return encodePersistedObjectRawJSON(payloadJSON), nil
 }
 
-func (*GeneratedCode) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*GeneratedCode) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	var persisted persistedGeneratedCodePayload
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted generated code payload: %w", err)

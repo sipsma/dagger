@@ -172,8 +172,11 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 				recordType:            row.RecordType,
 				materialization:       materializationState{envelope: &env},
 			}
-			if env.carriesLazyPayload() {
-				res.materialization.ensureSource(sourceLazyValue)
+			if len(env.LazyJSON) > 0 {
+				res.materialization.setLazyFragment(&PersistedLazyFragment{
+					Kind: env.LazyKind,
+					JSON: env.LazyJSON,
+				})
 			}
 			res.storeResultCall(frame)
 			c.traceResultCallFrameUpdated(ctx, res, "import_persisted_result", nil, frame)

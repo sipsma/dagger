@@ -142,6 +142,7 @@ func (*Workspace) DecodePersistedObject(
 	_ uint64,
 	_ *dagql.ResultCall,
 	payload json.RawMessage,
+	_ dagql.PersistedLazyFragment,
 ) (dagql.Typed, error) {
 	var persisted persistedWorkspacePayload
 	if err := json.Unmarshal(payload, &persisted); err != nil {

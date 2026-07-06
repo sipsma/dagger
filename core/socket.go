@@ -76,7 +76,7 @@ func (socket *Socket) EncodePersistedObject(ctx context.Context, cache dagql.Per
 	return encodePersistedObjectPayload(payload)
 }
 
-func (*Socket) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, call *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*Socket) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, call *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	var persisted persistedSocketPayload
 	if len(payload) > 0 {
 		if err := json.Unmarshal(payload, &persisted); err != nil {

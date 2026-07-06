@@ -32,43 +32,43 @@ type PersistedResultEnvelope struct {
 	ScalarJSON            json.RawMessage           `json:"scalarJSON,omitempty"`
 	ElemTypeName          string                    `json:"elemTypeName,omitempty"`
 	Items                 []PersistedResultEnvelope `json:"items,omitempty"`
+
+	// LazyKind and LazyJSON are the value's lazy fragment: the serialized
+	// deferred work the value can be re-made by running. A non-empty
+	// LazyJSON is what marks an envelope as carrying a lazy form; LazyKind
+	// discriminates between fragment payloads for types that register more
+	// than one. Snapshot-backedness is carried separately, by the result's
+	// snapshot link rows — an envelope may carry either form, both, or (for
+	// self-contained payloads) neither.
+	LazyKind string          `json:"lazyKind,omitempty"`
+	LazyJSON json.RawMessage `json:"lazyJSON,omitempty"`
 }
 
-// persistedPayloadLazyProbe mirrors the one field shared by every object
-// payload that can carry a persisted lazy form (Directory, File, and
-// Container all encode it under this key).
-type persistedPayloadLazyProbe struct {
-	LazyJSON json.RawMessage `json:"lazyJSON"`
+// PersistedLazyFragment is one value's serialized deferred work, as stored
+// on the envelope's LazyKind/LazyJSON fields.
+type PersistedLazyFragment struct {
+	Kind string
+	JSON json.RawMessage
 }
 
-// carriesLazyPayload reports whether the envelope's object payload (or any
-// list item's) includes a persisted lazy form the value could be re-run
-// from. Payloads that fail to parse simply report false: a payload that
-// cannot be read cannot be a source.
-func (env *PersistedResultEnvelope) carriesLazyPayload() bool {
-	if env == nil {
-		return false
+func (frag *PersistedLazyFragment) clone() *PersistedLazyFragment {
+	if frag == nil {
+		return nil
 	}
-	switch env.Kind {
-	case persistedResultKindObject:
-		if len(env.ObjectJSON) == 0 {
-			return false
-		}
-		var probe persistedPayloadLazyProbe
-		if err := json.Unmarshal(env.ObjectJSON, &probe); err != nil {
-			return false
-		}
-		return len(probe.LazyJSON) > 0
-	case persistedResultKindList:
-		for i := range env.Items {
-			if env.Items[i].carriesLazyPayload() {
-				return true
-			}
-		}
-		return false
-	default:
-		return false
+	return &PersistedLazyFragment{
+		Kind: frag.Kind,
+		JSON: json.RawMessage(append([]byte(nil), frag.JSON...)),
 	}
+}
+
+// PersistedLazyFragmentEncoder is implemented by values whose live deferred
+// work can be serialized for persistence. The fragment is captured at
+// publication — the one moment a value is guaranteed to still carry its
+// recipe — so it survives the recipe's destruction at realization.
+type PersistedLazyFragmentEncoder interface {
+	// EncodePersistedLazyFragment serializes the value's live deferred
+	// work, or returns nil when the value carries none.
+	EncodePersistedLazyFragment(context.Context, PersistedObjectCache) (*PersistedLazyFragment, error)
 }
 
 type PersistedObjectCache interface {
@@ -89,10 +89,12 @@ type PersistedObject interface {
 
 // PersistedObjectDecoder is implemented by zero-value object types that know
 // how to reconstruct a persisted object self payload without replaying the
-// original dagql call chain.
+// original dagql call chain. The envelope's lazy fragment is handed through
+// so content types can attach or retain the value's deferred work; types
+// without deferred work ignore it.
 type PersistedObjectDecoder interface {
 	Typed
-	DecodePersistedObject(context.Context, *Server, uint64, *ResultCall, json.RawMessage) (Typed, error)
+	DecodePersistedObject(context.Context, *Server, uint64, *ResultCall, json.RawMessage, PersistedLazyFragment) (Typed, error)
 }
 
 // PersistedSelfCodec is the shared interface used to encode/decode result self
@@ -147,43 +149,47 @@ func encodePersistedResultEnvelope(ctx context.Context, cache PersistedObjectCac
 		isObject = true
 	}
 
+	encodeObject := func(encoder PersistedObject) (PersistedResultEncoding, error) {
+		objectEncoding, err := encoder.EncodePersistedObject(ctx, cache)
+		if err != nil {
+			return PersistedResultEncoding{}, fmt.Errorf("encode persisted object payload: %w", err)
+		}
+		env := PersistedResultEnvelope{
+			Version:               2,
+			Kind:                  persistedResultKindObject,
+			TypeName:              res.Type().Name(),
+			ResultID:              resultID,
+			SessionResourceHandle: sessionResourceHandle,
+			ObjectJSON:            objectEncoding.JSON,
+		}
+		// A value still carrying its live deferred work serializes it here;
+		// values whose recipe was already destroyed by realization rely on
+		// the fragment captured at publication, overlaid by flush.
+		if fragEncoder, ok := encoder.(PersistedLazyFragmentEncoder); ok {
+			frag, err := fragEncoder.EncodePersistedLazyFragment(ctx, cache)
+			if err != nil {
+				return PersistedResultEncoding{}, fmt.Errorf("encode persisted lazy fragment: %w", err)
+			}
+			if frag != nil {
+				env.LazyKind = frag.Kind
+				env.LazyJSON = frag.JSON
+			}
+		}
+		return PersistedResultEncoding{
+			Envelope:      env,
+			SnapshotLinks: objectEncoding.SnapshotLinks,
+		}, nil
+	}
+
 	if isObject {
 		encoder, ok := res.Unwrap().(PersistedObject)
 		if !ok {
 			return PersistedResultEncoding{}, fmt.Errorf("encode persisted object payload: type %q does not implement persisted object encoding", res.Type().Name())
 		}
-		objectEncoding, err := encoder.EncodePersistedObject(ctx, cache)
-		if err != nil {
-			return PersistedResultEncoding{}, fmt.Errorf("encode persisted object payload: %w", err)
-		}
-		return PersistedResultEncoding{
-			Envelope: PersistedResultEnvelope{
-				Version:               2,
-				Kind:                  persistedResultKindObject,
-				TypeName:              res.Type().Name(),
-				ResultID:              resultID,
-				SessionResourceHandle: sessionResourceHandle,
-				ObjectJSON:            objectEncoding.JSON,
-			},
-			SnapshotLinks: objectEncoding.SnapshotLinks,
-		}, nil
+		return encodeObject(encoder)
 	}
 	if encoder, ok := res.Unwrap().(PersistedObject); ok {
-		objectEncoding, err := encoder.EncodePersistedObject(ctx, cache)
-		if err != nil {
-			return PersistedResultEncoding{}, fmt.Errorf("encode persisted object payload: %w", err)
-		}
-		return PersistedResultEncoding{
-			Envelope: PersistedResultEnvelope{
-				Version:               2,
-				Kind:                  persistedResultKindObject,
-				TypeName:              res.Type().Name(),
-				ResultID:              resultID,
-				SessionResourceHandle: sessionResourceHandle,
-				ObjectJSON:            objectEncoding.JSON,
-			},
-			SnapshotLinks: objectEncoding.SnapshotLinks,
-		}, nil
+		return encodeObject(encoder)
 	}
 
 	if enumerable, ok := res.Unwrap().(Enumerable); ok {
@@ -276,7 +282,10 @@ func decodePersistedResultEnvelope(ctx context.Context, dag *Server, resultID ui
 			return nil, fmt.Errorf("decode object_id envelope: object type %q does not implement persisted decode", env.TypeName)
 		}
 		decodeCtx := ContextWithCall(ctx, call)
-		valSelf, err := decoder.DecodePersistedObject(decodeCtx, dag, resultID, call, env.ObjectJSON)
+		valSelf, err := decoder.DecodePersistedObject(decodeCtx, dag, resultID, call, env.ObjectJSON, PersistedLazyFragment{
+			Kind: env.LazyKind,
+			JSON: env.LazyJSON,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("decode object_id envelope load: %w", err)
 		}

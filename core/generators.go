@@ -276,6 +276,7 @@ func (*Generator) DecodePersistedObject(
 	_ uint64,
 	_ *dagql.ResultCall,
 	payload json.RawMessage,
+	_ dagql.PersistedLazyFragment,
 ) (dagql.Typed, error) {
 	var persisted persistedGeneratorObjectPayload
 	if err := json.Unmarshal(payload, &persisted); err != nil {
@@ -351,6 +352,7 @@ func (*GeneratorGroup) DecodePersistedObject(
 	_ uint64,
 	_ *dagql.ResultCall,
 	payload json.RawMessage,
+	_ dagql.PersistedLazyFragment,
 ) (dagql.Typed, error) {
 	var persisted persistedGeneratorGroupPayload
 	if err := json.Unmarshal(payload, &persisted); err != nil {

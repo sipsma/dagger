@@ -37,6 +37,7 @@ type persistResultSnapshot struct {
 	sessionResourceHandle SessionResourceHandle
 	persistedEnvelope     *PersistedResultEnvelope
 	snapshotOwnerLinks    []PersistedSnapshotRefLink
+	lazyFragment          *PersistedLazyFragment
 	row                   persistdb.MirrorResult
 	resultDeps            []persistdb.MirrorResultDep
 	resultSnapshotLinks   []persistdb.MirrorResultSnapshotLink

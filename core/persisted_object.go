@@ -114,26 +114,40 @@ func loadPersistedObjectResultByResultID[T dagql.Typed](ctx context.Context, dag
 }
 
 func loadPersistedSnapshotLinkByResultID(ctx context.Context, dag *dagql.Server, resultID uint64, label, role string) (dagql.PersistedSnapshotRefLink, error) {
+	link, found, err := findPersistedSnapshotLinkByResultID(ctx, dag, resultID, label, role)
+	if err != nil {
+		return dagql.PersistedSnapshotRefLink{}, err
+	}
+	if !found {
+		return dagql.PersistedSnapshotRefLink{}, fmt.Errorf("missing persisted %s snapshot link role %q for result %d", label, role, resultID)
+	}
+	return link, nil
+}
+
+// findPersistedSnapshotLinkByResultID looks the link up without treating
+// absence as an error: a result may legitimately have no snapshot for the
+// role and be re-made from its lazy fragment instead.
+func findPersistedSnapshotLinkByResultID(ctx context.Context, dag *dagql.Server, resultID uint64, label, role string) (dagql.PersistedSnapshotRefLink, bool, error) {
 	if resultID == 0 {
-		return dagql.PersistedSnapshotRefLink{}, fmt.Errorf("load persisted %s snapshot link: zero result ID", label)
+		return dagql.PersistedSnapshotRefLink{}, false, fmt.Errorf("find persisted %s snapshot link: zero result ID", label)
 	}
 	if _, err := persistedDecodeQuery(dag); err != nil {
-		return dagql.PersistedSnapshotRefLink{}, fmt.Errorf("load persisted %s snapshot link query: %w", label, err)
+		return dagql.PersistedSnapshotRefLink{}, false, fmt.Errorf("find persisted %s snapshot link query: %w", label, err)
 	}
 	cache, err := dagql.EngineCache(ctx)
 	if err != nil {
-		return dagql.PersistedSnapshotRefLink{}, fmt.Errorf("load persisted %s snapshot link cache: %w", label, err)
+		return dagql.PersistedSnapshotRefLink{}, false, fmt.Errorf("find persisted %s snapshot link cache: %w", label, err)
 	}
 	links, err := cache.PersistedSnapshotLinksByResultID(ctx, resultID)
 	if err != nil {
-		return dagql.PersistedSnapshotRefLink{}, fmt.Errorf("load persisted %s snapshot link: %w", label, err)
+		return dagql.PersistedSnapshotRefLink{}, false, fmt.Errorf("find persisted %s snapshot link: %w", label, err)
 	}
 	for _, link := range links {
 		if link.Role == role {
-			return link, nil
+			return link, true, nil
 		}
 	}
-	return dagql.PersistedSnapshotRefLink{}, fmt.Errorf("missing persisted %s snapshot link role %q for result %d", label, role, resultID)
+	return dagql.PersistedSnapshotRefLink{}, false, nil
 }
 
 func loadPersistedSnapshotLinksByResultID(ctx context.Context, dag *dagql.Server, resultID uint64, label string) ([]dagql.PersistedSnapshotRefLink, error) {
@@ -159,6 +173,24 @@ func loadPersistedImmutableSnapshotByResultID(ctx context.Context, dag *dagql.Se
 	if err != nil {
 		return nil, err
 	}
+	return openPersistedImmutableSnapshot(ctx, dag, link)
+}
+
+// loadPersistedImmutableSnapshotByResultIDIfPresent opens the role's
+// snapshot when the result has a link for it; absence is not an error.
+func loadPersistedImmutableSnapshotByResultIDIfPresent(ctx context.Context, dag *dagql.Server, resultID uint64, label, role string) (bkcache.ImmutableRef, bool, error) {
+	link, found, err := findPersistedSnapshotLinkByResultID(ctx, dag, resultID, label, role)
+	if err != nil || !found {
+		return nil, false, err
+	}
+	ref, err := openPersistedImmutableSnapshot(ctx, dag, link)
+	if err != nil {
+		return nil, false, err
+	}
+	return ref, true, nil
+}
+
+func openPersistedImmutableSnapshot(ctx context.Context, dag *dagql.Server, link dagql.PersistedSnapshotRefLink) (bkcache.ImmutableRef, error) {
 	query, err := persistedDecodeQuery(dag)
 	if err != nil {
 		return nil, err

@@ -692,6 +692,7 @@ func (obj *ModuleObject) DecodePersistedObject(
 	_ uint64,
 	_ *dagql.ResultCall,
 	jsonBytes json.RawMessage,
+	_ dagql.PersistedLazyFragment,
 ) (dagql.Typed, error) {
 	if obj == nil || obj.Module.Self() == nil || obj.TypeDef == nil {
 		return nil, fmt.Errorf("decode persisted module object: missing module/type definition")

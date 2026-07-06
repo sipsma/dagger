@@ -95,7 +95,7 @@ func (fn *Function) EncodePersistedObject(ctx context.Context, cache dagql.Persi
 	return encodePersistedObjectPayload(payload)
 }
 
-func (*Function) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*Function) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	var persisted persistedFunction
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted function payload: %w", err)
@@ -659,7 +659,7 @@ func (arg *FunctionArg) EncodePersistedObject(ctx context.Context, cache dagql.P
 	return encodePersistedObjectPayload(payload)
 }
 
-func (*FunctionArg) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*FunctionArg) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	var persisted persistedFunctionArg
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted function arg payload: %w", err)
@@ -843,7 +843,7 @@ func (typeDef *TypeDef) EncodePersistedObject(ctx context.Context, cache dagql.P
 	return encodePersistedObjectPayload(payload)
 }
 
-func (*TypeDef) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*TypeDef) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	var persisted persistedTypeDef
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted type def payload: %w", err)
@@ -1211,7 +1211,7 @@ func (obj *ObjectTypeDef) EncodePersistedObject(ctx context.Context, cache dagql
 	return encodePersistedObjectPayload(payload)
 }
 
-func (*ObjectTypeDef) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*ObjectTypeDef) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	var persisted persistedObjectTypeDef
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted object type def payload: %w", err)
@@ -1499,7 +1499,7 @@ func (field *FieldTypeDef) EncodePersistedObject(ctx context.Context, cache dagq
 	return encodePersistedObjectPayload(payload)
 }
 
-func (*FieldTypeDef) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*FieldTypeDef) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	var persisted persistedFieldTypeDef
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted field type def payload: %w", err)
@@ -1616,7 +1616,7 @@ func (iface *InterfaceTypeDef) EncodePersistedObject(ctx context.Context, cache 
 	return encodePersistedObjectPayload(payload)
 }
 
-func (*InterfaceTypeDef) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*InterfaceTypeDef) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	var persisted persistedInterfaceTypeDef
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted interface type def payload: %w", err)
@@ -1781,7 +1781,7 @@ func (typeDef *ScalarTypeDef) EncodePersistedObject(ctx context.Context, cache d
 	return encodePersistedObjectPayload(encodePersistedScalarTypeDef(typeDef))
 }
 
-func (*ScalarTypeDef) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*ScalarTypeDef) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	_ = ctx
 	_ = dag
 	var persisted persistedScalarTypeDef
@@ -1833,7 +1833,7 @@ func (typeDef *ListTypeDef) EncodePersistedObject(ctx context.Context, cache dag
 	return encodePersistedObjectPayload(payload)
 }
 
-func (*ListTypeDef) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*ListTypeDef) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	var persisted persistedListTypeDef
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted list type def payload: %w", err)
@@ -1905,7 +1905,7 @@ func (typeDef *InputTypeDef) EncodePersistedObject(ctx context.Context, cache da
 	return encodePersistedObjectPayload(payload)
 }
 
-func (*InputTypeDef) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*InputTypeDef) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	var persisted persistedInputTypeDef
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted input type def payload: %w", err)
@@ -2010,7 +2010,7 @@ func (enum *EnumTypeDef) EncodePersistedObject(ctx context.Context, cache dagql.
 	return encodePersistedObjectPayload(payload)
 }
 
-func (*EnumTypeDef) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*EnumTypeDef) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	var persisted persistedEnumTypeDef
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted enum type def payload: %w", err)
@@ -2191,7 +2191,7 @@ func (enumValue *EnumMemberTypeDef) EncodePersistedObject(ctx context.Context, c
 	return encodePersistedObjectPayload(payload)
 }
 
-func (*EnumMemberTypeDef) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*EnumMemberTypeDef) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	var persisted persistedEnumMemberTypeDef
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted enum member type def payload: %w", err)
@@ -2432,7 +2432,7 @@ func (fnCall *FunctionCall) EncodePersistedObject(ctx context.Context, cache dag
 	return encodePersistedObjectPayload(persistedFunctionCall(*fnCall))
 }
 
-func (*FunctionCall) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*FunctionCall) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	_ = ctx
 	_ = dag
 	var persisted persistedFunctionCall
@@ -2524,7 +2524,7 @@ func (arg *FunctionCallArgValue) EncodePersistedObject(ctx context.Context, cach
 	return encodePersistedObjectPayload(persistedFunctionCallArgValue(*arg))
 }
 
-func (*FunctionCallArgValue) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*FunctionCallArgValue) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	_ = ctx
 	_ = dag
 	var persisted persistedFunctionCallArgValue
@@ -2566,7 +2566,7 @@ func (sourceMap *SourceMap) EncodePersistedObject(ctx context.Context, cache dag
 	return encodePersistedObjectPayload(encodePersistedSourceMap(sourceMap))
 }
 
-func (*SourceMap) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*SourceMap) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	_ = ctx
 	_ = dag
 	var persisted persistedSourceMap

@@ -259,7 +259,7 @@ func TestModulePersistedTypeDefsRoundTripPreservesNullableValidity(t *testing.T)
 	payload, err := mod.EncodePersistedObject(ctx, sc)
 	assert.NilError(t, err)
 
-	decodedTyped, err := (&Module{}).DecodePersistedObject(ctx, dag, 0, nil, payload.JSON)
+	decodedTyped, err := (&Module{}).DecodePersistedObject(ctx, dag, 0, nil, payload.JSON, dagql.PersistedLazyFragment{})
 	assert.NilError(t, err)
 	decoded, ok := decodedTyped.(*Module)
 	assert.Assert(t, ok)
@@ -518,7 +518,7 @@ func TestModuleObjectPersistedResultRefsRoundTrip(t *testing.T) {
 	assert.NilError(t, json.Unmarshal(payload.JSON, &persisted))
 	assert.Equal(t, persistedModuleObjectValueKindResultRef, persisted.Fields["child"].Kind)
 
-	decodedTyped, err := obj.DecodePersistedObject(ctx, dag, 0, nil, payload.JSON)
+	decodedTyped, err := obj.DecodePersistedObject(ctx, dag, 0, nil, payload.JSON, dagql.PersistedLazyFragment{})
 	assert.NilError(t, err)
 	decoded, ok := decodedTyped.(*ModuleObject)
 	assert.Assert(t, ok)
