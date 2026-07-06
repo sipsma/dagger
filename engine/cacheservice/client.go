@@ -277,7 +277,10 @@ func (c *Client) PrepareBlobUpload(ctx context.Context, dgst string, size int64,
 }
 
 // PutBlob streams one blob's bytes to its prepared upload target. The URL
-// is pre-authorized; no org token is attached.
+// is pre-authorized; no org token is attached. The caller retains ownership
+// of r's lifetime: any Closer it implements is deliberately hidden from the
+// HTTP client, which would otherwise close the underlying source (e.g. a
+// content-store reader) out from under the caller.
 func (c *Client) PutBlob(ctx context.Context, prep BlobUploadResponse, r io.Reader, size int64) error {
 	if prep.URL == "" {
 		return errors.New("cache service: blob upload target has no URL")
@@ -290,7 +293,7 @@ func (c *Client) PutBlob(ctx context.Context, prep BlobUploadResponse, r io.Read
 	if method == "" {
 		method = http.MethodPut
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL.ResolveReference(u).String(), r)
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL.ResolveReference(u).String(), struct{ io.Reader }{r})
 	if err != nil {
 		return err
 	}

@@ -157,6 +157,48 @@ func TestClientBlobUploadAndFetch(t *testing.T) {
 	require.Equal(t, blob, fetched)
 }
 
+// closeCountingReader records closes, standing in for a content-store
+// reader whose lifetime the caller owns.
+type closeCountingReader struct {
+	io.Reader
+	closes int
+}
+
+func (r *closeCountingReader) Close() error {
+	r.closes++
+	if r.closes > 1 {
+		return errors.New("file already closed")
+	}
+	return nil
+}
+
+// TestClientPutBlobLeavesBodyOwnershipWithCaller pins the upload-path
+// ownership contract: PutBlob must not let the HTTP client close a
+// ReadCloser body, so the caller's own Close is the first and only one.
+// (The engine streams blobs from the content store as ReadClosers; a
+// double-close surfaced as every blob "failing" upload.)
+func TestClientPutBlobLeavesBodyOwnershipWithCaller(t *testing.T) {
+	ctx := context.Background()
+	client, _ := startTestService(t)
+
+	blob := []byte("ownership-proof-blob")
+	dgst := digest.FromBytes(blob)
+	size := int64(len(blob))
+
+	prep, err := client.PrepareBlobUpload(ctx, dgst.String(), size, "")
+	require.NoError(t, err)
+	body := &closeCountingReader{Reader: bytes.NewReader(blob)}
+	require.NoError(t, client.PutBlob(ctx, prep, body, size))
+	require.NoError(t, body.Close(), "the caller's close must be the first close")
+	require.Equal(t, 1, body.closes)
+
+	resp, err := client.CompleteBlobUploads(ctx, []enginecacheservice.BlobUploadCompletion{{
+		Digest: dgst.String(), Size: size, UploadID: prep.UploadID,
+	}})
+	require.NoError(t, err)
+	require.Equal(t, []string{dgst.String()}, resp.Verified)
+}
+
 func TestClientUploadVerificationRejectsCorruptBytes(t *testing.T) {
 	ctx := context.Background()
 	client, _ := startTestService(t)
