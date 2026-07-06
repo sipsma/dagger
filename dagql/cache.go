@@ -2119,6 +2119,13 @@ type sharedResult struct {
 	// is retained-source exhaustion rather than a live call's own failure.
 	restored               bool
 	pendingWorkFromRestore bool
+	// transientlyStarved marks a row whose last materialization walk was
+	// starved by a transient failure (sources unavailable, not exhausted).
+	// In-memory only, boot-scoped, never persisted; its one consumer is
+	// candidate selection's tie-break (marked rows rank behind unmarked
+	// ones — never an eligibility change), and a successful walk clears it.
+	// Atomic: written by walk goroutines, read under the e-graph lock.
+	transientlyStarved atomic.Bool
 	// dropped marks a result removed from future servability after its
 	// sources were permanently exhausted; guarded by egraphMu. Flush skips
 	// dropped rows.

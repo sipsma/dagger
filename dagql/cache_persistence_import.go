@@ -722,8 +722,10 @@ func (c *Cache) decodeRestoredValueWalk(ctx context.Context, resolver TypeResolv
 			// envelope — is NOT this case: it falls through to the ordinary
 			// decode below. Distinguish "every failure permanent" (drop;
 			// boot vetting's rule at its second moment) from "a transient
-			// failure starved the walk" (retry next demand).
+			// failure starved the walk" (retry next demand; the starved mark
+			// ranks this row behind fresher equivalents at selection).
 			if sawChainTransient {
+				res.transientlyStarved.Store(true)
 				return fmt.Errorf("%w: result %d", errSourcesUnavailable, res.id)
 			}
 			return fmt.Errorf("%w: result %d has no viable retained source", errSourcesExhausted, res.id)
@@ -761,6 +763,9 @@ func (c *Cache) decodeRestoredValueWalk(ctx context.Context, resolver TypeResolv
 				outcome = cacheServeFromContentChain
 			}
 			c.classifyServeOutcome(ctx, outcome, res.loadResultCall(), res.id)
+			// A delivering walk retires any starved mark: the row competes
+			// on equal footing again.
+			res.transientlyStarved.Store(false)
 			return nil
 		}
 		if !bkcache.IsNotFound(err) {
@@ -792,6 +797,7 @@ func (c *Cache) decodeRestoredValueWalk(ctx context.Context, resolver TypeResolv
 			continue
 		}
 		if sawChainTransient {
+			res.transientlyStarved.Store(true)
 			return fmt.Errorf("%w: result %d: %w", errSourcesUnavailable, res.id, err)
 		}
 		return fmt.Errorf("%w: result %d: %w", errSourcesExhausted, res.id, err)

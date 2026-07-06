@@ -540,7 +540,54 @@ func TestContentChainTransientFailureDemotesWithoutDrop(t *testing.T) {
 	assert.Assert(t, old != nil)
 	assert.Assert(t, !old.dropped, "a transiently starved row must not drop")
 	assert.Equal(t, 1, len(old.loadViableContentChains()))
+
+	// The no-loop proof: the demoted caller published a fresh equivalent,
+	// and the starved mark ranks the stale row behind it — the second
+	// identical call hits the fresh row instead of re-demoting off the
+	// same dead transport, forever.
+	assert.Assert(t, old.transientlyStarved.Load(), "the starved walk must mark the row")
+	res2, err := srv.root.Select(rootCtx, srv, Selector{Field: "uploadObj"})
+	assert.NilError(t, err)
+	assert.Assert(t, res2.HitCache(), "the second call must hit the fresh equivalent")
+	counters = cache.serveStats.byOutcome()
+	assert.Equal(t, int64(1), counters[cacheServeHitLive]["uploadObj"])
+	assert.Equal(t, int64(1), counters[cacheServeDemotedToMiss]["uploadObj"], "the demote must not repeat")
+	assert.Equal(t, int64(1), counters[cacheChainFetchError]["uploadObj"], "the dead transport must not be re-probed")
 	cacheTestReleaseSession(t, cache, rootCtx)
+}
+
+// TestTransientlyStarvedSelectionTieBreak pins the selection rule in
+// isolation: a starved mark is ordering advice only — marked candidates
+// rank behind unmarked ones, and a marked candidate still serves when it
+// is the only one.
+func TestTransientlyStarvedSelectionTieBreak(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	cache, err := NewCache(ctx, "", nil, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, cache.Close(context.Background()))
+	}()
+
+	starved := &sharedResult{id: 1}
+	starved.transientlyStarved.Store(true)
+	fresh := &sharedResult{id: 2}
+
+	candidates := newSharedResultSet()
+	candidates.Insert(starved)
+	candidates.Insert(fresh)
+	cache.egraphMu.RLock()
+	winner := cache.selectLookupCandidateForSessionLocked("session", candidates)
+	cache.egraphMu.RUnlock()
+	assert.Assert(t, winner == fresh, "the unmarked candidate must outrank the starved one despite its higher ID")
+
+	only := newSharedResultSet()
+	only.Insert(starved)
+	cache.egraphMu.RLock()
+	winner = cache.selectLookupCandidateForSessionLocked("session", only)
+	cache.egraphMu.RUnlock()
+	assert.Assert(t, winner == starved, "a starved candidate still serves when it is the only one")
 }
 
 // TestContentChainConcurrentForcingSingleflights is T-S8: N concurrent
