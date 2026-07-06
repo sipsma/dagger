@@ -111,7 +111,7 @@ func (e *Error) EncodePersistedObject(ctx context.Context, cache dagql.Persisted
 	return encodePersistedObjectPayload(e)
 }
 
-func (*Error) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*Error) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	_ = ctx
 	_ = dag
 	var e Error
@@ -163,7 +163,7 @@ func (e *ErrorValue) EncodePersistedObject(ctx context.Context, cache dagql.Pers
 	return encodePersistedObjectPayload(e)
 }
 
-func (*ErrorValue) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*ErrorValue) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	_ = ctx
 	_ = dag
 	var e ErrorValue

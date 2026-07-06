@@ -56,7 +56,7 @@ func (obj *persistConcurrentDecodeObj) EncodePersistedObject(ctx context.Context
 	return PersistedObjectEncoding{JSON: payload}, nil
 }
 
-func (*persistConcurrentDecodeObj) DecodePersistedObject(ctx context.Context, dag *Server, resultID uint64, _ *ResultCall, payload json.RawMessage) (Typed, error) {
+func (*persistConcurrentDecodeObj) DecodePersistedObject(ctx context.Context, dag *Server, resultID uint64, _ *ResultCall, payload json.RawMessage, _ PersistedLazyFragment) (Typed, error) {
 	_ = dag
 	var persisted persistedPersistConcurrentDecodeObj
 	if err := json.Unmarshal(payload, &persisted); err != nil {

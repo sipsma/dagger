@@ -215,11 +215,6 @@ func (dir *Directory) PersistedSnapshotRefLinks() []dagql.PersistedSnapshotRefLi
 }
 
 const (
-	persistedDirectoryFormSnapshot = "snapshot"
-	persistedDirectoryFormLazy     = "lazy"
-)
-
-const (
 	persistedDirectoryLazyKindContainerRootFS               = "container.rootfs"
 	persistedDirectoryLazyKindContainerDirectory            = "container.directory"
 	persistedDirectoryLazyKindWithDirectory                 = "directory.withDirectory"
@@ -238,12 +233,9 @@ const (
 )
 
 type persistedDirectoryPayload struct {
-	Form     string                    `json:"form"`
 	Dir      string                    `json:"dir,omitempty"`
 	Platform Platform                  `json:"platform"`
 	Services []persistedServiceBinding `json:"services,omitempty"`
-	LazyKind string                    `json:"lazyKind,omitempty"`
-	LazyJSON json.RawMessage           `json:"lazyJSON,omitempty"`
 }
 
 func (dir *Directory) EncodePersistedObject(ctx context.Context, cache dagql.PersistedObjectCache) (dagql.PersistedObjectEncoding, error) {
@@ -267,7 +259,6 @@ func (dir *Directory) EncodePersistedObject(ctx context.Context, cache dagql.Per
 	}
 	if dir.Snapshot != nil {
 		if snapshot, ok := dir.Snapshot.Peek(); ok && snapshot != nil {
-			payload.Form = persistedDirectoryFormSnapshot
 			payloadJSON, err := json.Marshal(payload)
 			if err != nil {
 				return dagql.PersistedObjectEncoding{}, fmt.Errorf("marshal persisted directory payload: %w", err)
@@ -282,13 +273,8 @@ func (dir *Directory) EncodePersistedObject(ctx context.Context, cache dagql.Per
 		}
 	}
 	if dir.Lazy != nil {
-		payload.Form = persistedDirectoryFormLazy
-		lazyKind, lazyJSON, err := encodePersistedDirectoryLazy(ctx, cache, dir.Lazy)
-		if err != nil {
-			return dagql.PersistedObjectEncoding{}, err
-		}
-		payload.LazyKind = lazyKind
-		payload.LazyJSON = lazyJSON
+		// The deferred work is serialized separately as the value's lazy
+		// fragment; the payload carries only the plain fields.
 		payloadJSON, err := json.Marshal(payload)
 		if err != nil {
 			return dagql.PersistedObjectEncoding{}, fmt.Errorf("marshal persisted directory payload: %w", err)
@@ -304,8 +290,19 @@ func (dir *Directory) EncodePersistedObject(ctx context.Context, cache dagql.Per
 	return dagql.PersistedObjectEncoding{}, fmt.Errorf("%w: encode persisted directory: missing snapshot and lazy op", dagql.ErrPersistStateNotReady)
 }
 
+func (dir *Directory) EncodePersistedLazyFragment(ctx context.Context, cache dagql.PersistedObjectCache) (*dagql.PersistedLazyFragment, error) {
+	if dir == nil || dir.Lazy == nil {
+		return nil, nil
+	}
+	lazyKind, lazyJSON, err := encodePersistedDirectoryLazy(ctx, cache, dir.Lazy)
+	if err != nil {
+		return nil, err
+	}
+	return &dagql.PersistedLazyFragment{Kind: lazyKind, JSON: lazyJSON}, nil
+}
+
 //nolint:dupl // symmetric with decodePersistedFileWithSnapshotRole in file.go; sharing hides type specifics
-func decodePersistedDirectoryWithSnapshotRole(ctx context.Context, dag *dagql.Server, resultID uint64, payload json.RawMessage, snapshotRole string) (*Directory, error) {
+func decodePersistedDirectoryWithSnapshotRole(ctx context.Context, dag *dagql.Server, resultID uint64, payload json.RawMessage, snapshotRole string, lazy dagql.PersistedLazyFragment) (*Directory, error) {
 	var persisted persistedDirectoryPayload
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted directory payload: %w", err)
@@ -324,31 +321,33 @@ func decodePersistedDirectoryWithSnapshotRole(ctx context.Context, dag *dagql.Se
 	if persisted.Dir != "" {
 		dir.Dir.setValue(persisted.Dir)
 	}
-	switch persisted.Form {
-	case persistedDirectoryFormSnapshot:
-		snapshot, err := loadPersistedImmutableSnapshotByResultID(ctx, dag, resultID, "directory", snapshotRole)
-		if err != nil {
-			return nil, err
-		}
+	// The snapshot wins when both forms are present: the lazy fragment then
+	// only retains the way to re-make the content and is not attached as
+	// live deferred work.
+	snapshot, found, err := loadPersistedImmutableSnapshotByResultIDIfPresent(ctx, dag, resultID, "directory", snapshotRole)
+	if err != nil {
+		return nil, err
+	}
+	if found {
 		dir.Snapshot.setValue(snapshot)
 		return dir, nil
-	case persistedDirectoryFormLazy:
-		if persisted.LazyKind == "" {
+	}
+	if len(lazy.JSON) > 0 {
+		if lazy.Kind == "" {
 			return nil, fmt.Errorf("decode persisted directory payload: missing lazy kind")
 		}
-		lazy, err := decodePersistedDirectoryLazy(ctx, dag, persisted.LazyKind, persisted.LazyJSON)
+		lazyOp, err := decodePersistedDirectoryLazy(ctx, dag, lazy.Kind, lazy.JSON)
 		if err != nil {
 			return nil, err
 		}
-		dir.Lazy = lazy
+		dir.Lazy = lazyOp
 		return dir, nil
-	default:
-		return nil, fmt.Errorf("decode persisted directory payload: unsupported form %q", persisted.Form)
 	}
+	return nil, fmt.Errorf("decode persisted directory payload: missing snapshot and lazy fragment")
 }
 
-func (*Directory) DecodePersistedObject(ctx context.Context, dag *dagql.Server, resultID uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
-	return decodePersistedDirectoryWithSnapshotRole(ctx, dag, resultID, payload, "snapshot")
+func (*Directory) DecodePersistedObject(ctx context.Context, dag *dagql.Server, resultID uint64, _ *dagql.ResultCall, payload json.RawMessage, lazy dagql.PersistedLazyFragment) (dagql.Typed, error) {
+	return decodePersistedDirectoryWithSnapshotRole(ctx, dag, resultID, payload, "snapshot", lazy)
 }
 
 func loadCanonicalScratchDirectory(ctx context.Context) (string, bkcache.ImmutableRef, error) {
@@ -3144,7 +3143,7 @@ func (s *Stat) EncodePersistedObject(ctx context.Context, cache dagql.PersistedO
 	return encodePersistedObjectPayload(s)
 }
 
-func (*Stat) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*Stat) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	_ = ctx
 	_ = dag
 	var s Stat

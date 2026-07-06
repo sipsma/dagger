@@ -68,7 +68,7 @@ func (r *SearchResult) EncodePersistedObject(context.Context, dagql.PersistedObj
 	return encodePersistedObjectPayload(payload)
 }
 
-func (*SearchResult) DecodePersistedObject(_ context.Context, _ *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*SearchResult) DecodePersistedObject(_ context.Context, _ *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	var persisted persistedSearchResult
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted search result payload: %w", err)
@@ -126,7 +126,7 @@ func (m *SearchSubmatch) EncodePersistedObject(context.Context, dagql.PersistedO
 	})
 }
 
-func (*SearchSubmatch) DecodePersistedObject(_ context.Context, _ *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*SearchSubmatch) DecodePersistedObject(_ context.Context, _ *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	var persisted persistedSearchSubmatch
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted search submatch payload: %w", err)

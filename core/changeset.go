@@ -133,7 +133,7 @@ func (s *DiffStat) EncodePersistedObject(context.Context, dagql.PersistedObjectC
 	})
 }
 
-func (*DiffStat) DecodePersistedObject(_ context.Context, _ *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*DiffStat) DecodePersistedObject(_ context.Context, _ *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	var persisted persistedDiffStat
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted diff stat payload: %w", err)
@@ -357,6 +357,7 @@ func (*Changeset) DecodePersistedObject(
 	_ uint64,
 	_ *dagql.ResultCall,
 	payload json.RawMessage,
+	_ dagql.PersistedLazyFragment,
 ) (dagql.Typed, error) {
 	var persisted persistedChangesetPayload
 	if err := json.Unmarshal(payload, &persisted); err != nil {

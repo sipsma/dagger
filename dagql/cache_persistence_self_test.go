@@ -56,7 +56,7 @@ func (obj *persistCodecObj) EncodePersistedObject(ctx context.Context, cache Per
 	return PersistedObjectEncoding{JSON: payload}, nil
 }
 
-func (*persistCodecObj) DecodePersistedObject(ctx context.Context, dag *Server, _ uint64, _ *ResultCall, payload json.RawMessage) (Typed, error) {
+func (*persistCodecObj) DecodePersistedObject(ctx context.Context, dag *Server, _ uint64, _ *ResultCall, payload json.RawMessage, _ PersistedLazyFragment) (Typed, error) {
 	_ = ctx
 	_ = dag
 	var persisted persistedPersistCodecObj

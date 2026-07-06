@@ -99,7 +99,7 @@ func TestModuleSourcePersistenceRetainsSelfCallsCapability(t *testing.T) {
 	encoded, err := src.EncodePersistedObject(ctx, nil)
 	require.NoError(t, err)
 
-	decoded, err := (&ModuleSource{}).DecodePersistedObject(ctx, nil, 0, nil, encoded.JSON)
+	decoded, err := (&ModuleSource{}).DecodePersistedObject(ctx, nil, 0, nil, encoded.JSON, dagql.PersistedLazyFragment{})
 	require.NoError(t, err)
 	decodedSrc, ok := decoded.(*ModuleSource)
 	require.True(t, ok)

@@ -196,7 +196,7 @@ func (state *HTTPState) EncodePersistedObject(ctx context.Context, cache dagql.P
 	}, nil
 }
 
-func (*HTTPState) DecodePersistedObject(ctx context.Context, dag *dagql.Server, resultID uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*HTTPState) DecodePersistedObject(ctx context.Context, dag *dagql.Server, resultID uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	var persisted persistedHTTPStatePayload
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted http state payload: %w", err)

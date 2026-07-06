@@ -40,7 +40,7 @@ func (m *WorkspaceModule) EncodePersistedObject(ctx context.Context, cache dagql
 	return encodePersistedObjectPayload(m)
 }
 
-func (*WorkspaceModule) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*WorkspaceModule) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	_ = ctx
 	_ = dag
 	var m WorkspaceModule
@@ -80,7 +80,7 @@ func (s *WorkspaceModuleSetting) EncodePersistedObject(ctx context.Context, cach
 	return encodePersistedObjectPayload(s)
 }
 
-func (*WorkspaceModuleSetting) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*WorkspaceModuleSetting) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	_ = ctx
 	_ = dag
 	var s WorkspaceModuleSetting

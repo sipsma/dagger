@@ -33,7 +33,7 @@ func (v *JSONValue) EncodePersistedObject(ctx context.Context, cache dagql.Persi
 	return encodePersistedObjectPayload(v)
 }
 
-func (*JSONValue) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*JSONValue) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	_ = ctx
 	_ = dag
 	var v JSONValue

@@ -61,7 +61,7 @@ func (secret *Secret) EncodePersistedObject(ctx context.Context, cache dagql.Per
 	return encodePersistedObjectPayload(payload)
 }
 
-func (*Secret) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, call *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*Secret) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, call *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	var persisted persistedSecretPayload
 	if len(payload) > 0 {
 		if err := json.Unmarshal(payload, &persisted); err != nil {

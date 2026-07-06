@@ -967,7 +967,7 @@ func (mod *Module) EncodePersistedObject(ctx context.Context, cache dagql.Persis
 	return encodePersistedObjectRawJSON(jsonBytes), nil
 }
 
-func (*Module) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*Module) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	var persisted persistedModulePayload
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted module payload: %w", err)

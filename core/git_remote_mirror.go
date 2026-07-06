@@ -132,7 +132,7 @@ func (mirror *RemoteGitMirror) EncodePersistedObject(ctx context.Context, cache 
 	}, nil
 }
 
-func (*RemoteGitMirror) DecodePersistedObject(ctx context.Context, dag *dagql.Server, resultID uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*RemoteGitMirror) DecodePersistedObject(ctx context.Context, dag *dagql.Server, resultID uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	var persisted persistedRemoteGitMirrorPayload
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted remote git mirror payload: %w", err)

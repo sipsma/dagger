@@ -132,7 +132,7 @@ func (usage *LLMTokenUsage) EncodePersistedObject(ctx context.Context, cache dag
 	return encodePersistedObjectPayload(usage)
 }
 
-func (*LLMTokenUsage) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*LLMTokenUsage) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	_ = ctx
 	_ = dag
 	var usage LLMTokenUsage
@@ -1130,7 +1130,7 @@ func (v *LLMVariable) EncodePersistedObject(ctx context.Context, cache dagql.Per
 	return encodePersistedObjectPayload(v)
 }
 
-func (*LLMVariable) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*LLMVariable) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	_ = ctx
 	_ = dag
 	var v LLMVariable

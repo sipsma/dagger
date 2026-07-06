@@ -131,6 +131,7 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 			sessionResourceHandle: res.sessionResourceHandle,
 			persistedEnvelope:     payload.persistedEnvelope,
 			snapshotOwnerLinks:    payload.snapshotOwnerLinks,
+			lazyFragment:          res.loadLazyFragment(),
 			row: persistdb.MirrorResult{
 				ID:                 int64(resultID),
 				ExpiresAtUnix:      res.expiresAtUnix,
@@ -437,6 +438,21 @@ func (c *Cache) persistResultEnvelope(ctx context.Context, snapshot *persistResu
 	persistCtx := context.WithoutCancel(ctx)
 	persistCtx = ContextWithCall(persistCtx, snapshot.frame)
 	env, err := DefaultPersistedSelfCodec.EncodeResult(persistCtx, c, Result[Typed]{shared: shared})
+	if err == nil {
+		// A realized value's recipe was destroyed by realization; the
+		// fragment captured at publication takes its place on the envelope.
+		// Values still carrying live deferred work serialized it during
+		// encode above.
+		if len(env.Envelope.LazyJSON) == 0 && snapshot.lazyFragment != nil {
+			env.Envelope.LazyKind = snapshot.lazyFragment.Kind
+			env.Envelope.LazyJSON = snapshot.lazyFragment.JSON
+		}
+		if len(env.Envelope.LazyJSON) == 0 {
+			if hl, ok := snapshot.self.(HasLazyEvaluation); ok && hl.LazyEvalFunc() != nil {
+				err = fmt.Errorf("%w: result %d has pending deferred work but no lazy fragment to persist", ErrPersistStateNotReady, snapshot.resultID)
+			}
+		}
+	}
 	if err != nil {
 		field := snapshot.frame.Field
 		if field == "" {

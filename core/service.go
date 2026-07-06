@@ -167,7 +167,7 @@ func (svc *Service) EncodePersistedObject(ctx context.Context, cache dagql.Persi
 	return encodePersistedObjectRawJSON(enc), nil
 }
 
-func (*Service) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*Service) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage, _ dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	var persisted persistedServicePayload
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted service payload: %w", err)
