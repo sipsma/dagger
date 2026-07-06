@@ -35,6 +35,14 @@ type CacheBundleImportSummary struct {
 
 	TermsImported int
 	TermsDeduped  int
+
+	// ChainSourcesInstalled counts rows (staged or same-origin unions) that
+	// gained a content-chain source from this bundle's manifest;
+	// ChainsSkippedMalformed counts manifest chain references that were
+	// structurally unusable and dropped per-chain (the row keeps its other
+	// sources).
+	ChainSourcesInstalled  int
+	ChainsSkippedMalformed int
 }
 
 // ImportBundle merges one bundle into the live cache. It is a separate
@@ -94,6 +102,12 @@ func (c *Cache) ImportBundle(ctx context.Context, r io.Reader) (CacheBundleImpor
 		return summary, bundleSkip(CacheBundleSkipBrokenIdentity, err)
 	}
 	summary.RowsDroppedVetting = vetSummary.Dropped
+
+	// Manifest chains become content-chain sources (§8.1 step 6). Damage is
+	// per-chain: a malformed or dangling chain reference is skipped with a
+	// count, never a bundle skip — blob availability stays a runtime
+	// concern (S5), only structure is checked here.
+	chainsByBundleResult := parseBundleManifestChains(manifest, &summary)
 
 	order := topoOrderRestoredRows(kept)
 
@@ -241,6 +255,10 @@ func (c *Cache) ImportBundle(ctx context.Context, r io.Reader) (CacheBundleImpor
 			restored: true,
 		}
 		c.assignResultOriginLocked(res, restored.origin)
+		if chains := chainsByBundleResult[bundleID]; len(chains) > 0 {
+			res.materialization.setContentChainSource(chains)
+			summary.ChainSourcesInstalled++
+		}
 		if len(row.envelope.LazyJSON) > 0 {
 			// Fragment-with-no-snapshot-links is also the shape the decode
 			// walk reads as a retired snapshot source, which is exactly
@@ -502,8 +520,14 @@ func (c *Cache) ImportBundle(ctx context.Context, r io.Reader) (CacheBundleImpor
 	}
 
 	// Same-origin observations union sources and refresh timestamps, never
-	// replace rows: a deduped bundle row may add its lazy-form source to an
-	// existing row that lacks one; nothing is overwritten.
+	// replace rows: a deduped bundle row may add its content-chain or
+	// lazy-form source to an existing row that lacks one (the exporting
+	// store realized content after an earlier export); nothing is
+	// overwritten — first-imported wins per source. This is the second
+	// locus of the same-origin union rule: identity evidence unions in the
+	// membership pass above (per membership row, under the e-graph lock);
+	// source state unions here (per deduped row, under its payload lock).
+	// One rule, two data planes.
 	for _, bundleID := range order {
 		if _, isDeduped := dedupedIDs[bundleID]; !isDeduped {
 			continue
@@ -520,6 +544,13 @@ func (c *Cache) ImportBundle(ctx context.Context, r io.Reader) (CacheBundleImpor
 		res.payloadMu.Lock()
 		if restored.row.LastUsedAtUnixNano > res.lastUsedAtUnixNano {
 			res.lastUsedAtUnixNano = restored.row.LastUsedAtUnixNano
+		}
+		if chains := chainsByBundleResult[bundleID]; len(chains) > 0 {
+			hadChainSource := res.materialization.contentChains() != nil
+			res.materialization.unionContentChains(chains)
+			if !hadChainSource && res.materialization.contentChains() != nil {
+				summary.ChainSourcesInstalled++
+			}
 		}
 		hasLazySource := res.materialization.lazyFragment() != nil
 		res.payloadMu.Unlock()
@@ -601,6 +632,69 @@ func (c *Cache) ImportBundle(ctx context.Context, r io.Reader) (CacheBundleImpor
 		"droppedRewrite", summary.RowsDroppedRewrite,
 	)
 	return summary, nil
+}
+
+// parseBundleManifestChains resolves the manifest's chain declarations into
+// per-bundle-result chain identities. Structural damage is per-chain: a
+// resultChain whose chainID has no chain entry, whose role duplicates an
+// earlier one for the same result, or whose layers are malformed is skipped
+// with a count — the row keeps its other sources, and availability of the
+// chain's blobs is deliberately not a boot-time concern (S5).
+func parseBundleManifestChains(manifest CacheBundleManifest, summary *CacheBundleImportSummary) map[sharedResultID][]PersistedResultContentChain {
+	layersByChainID := make(map[string][]PersistedContentChainLayer, len(manifest.Chains))
+	for _, chain := range manifest.Chains {
+		layers := make([]PersistedContentChainLayer, 0, len(chain.Layers))
+		malformed := false
+		for _, layer := range chain.Layers {
+			if layer.DiffID == "" || layer.Blob == "" {
+				malformed = true
+				break
+			}
+			layers = append(layers, PersistedContentChainLayer{
+				DiffID:    layer.DiffID,
+				Blob:      layer.Blob,
+				Size:      layer.Size,
+				MediaType: layer.MediaType,
+			})
+		}
+		if malformed {
+			summary.ChainsSkippedMalformed++
+			slog.Warn("skipping malformed bundle chain", "chainID", chain.ChainID)
+			continue
+		}
+		layersByChainID[chain.ChainID] = layers
+	}
+
+	chainsByResult := make(map[sharedResultID][]PersistedResultContentChain)
+	seenRoles := make(map[sharedResultID]map[string]struct{})
+	for _, resultChain := range manifest.ResultChains {
+		bundleID := sharedResultID(resultChain.ResultID)
+		layers, known := layersByChainID[resultChain.ChainID]
+		if !known || bundleID == 0 {
+			summary.ChainsSkippedMalformed++
+			slog.Warn("skipping dangling bundle result chain",
+				"bundleResultID", resultChain.ResultID, "role", resultChain.Role, "chainID", resultChain.ChainID)
+			continue
+		}
+		roles := seenRoles[bundleID]
+		if roles == nil {
+			roles = make(map[string]struct{})
+			seenRoles[bundleID] = roles
+		}
+		if _, dup := roles[resultChain.Role]; dup {
+			summary.ChainsSkippedMalformed++
+			slog.Warn("skipping duplicate bundle result chain role",
+				"bundleResultID", resultChain.ResultID, "role", resultChain.Role)
+			continue
+		}
+		roles[resultChain.Role] = struct{}{}
+		chainsByResult[bundleID] = append(chainsByResult[bundleID], PersistedResultContentChain{
+			Role:    resultChain.Role,
+			ChainID: resultChain.ChainID,
+			Layers:  layers,
+		})
+	}
+	return chainsByResult
 }
 
 // stagedBundleRow is one kept bundle row with every reference rewritten

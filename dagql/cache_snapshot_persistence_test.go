@@ -88,12 +88,12 @@ type fakeSnapshotManager struct {
 	materializeChainCalls []bkcache.SnapshotChain
 }
 
+// ChainForSnapshot answers from the configured map; snapshots without an
+// entry (including the nil map) report chain computation failure — the
+// per-row degrade path export must survive.
 func (m *fakeSnapshotManager) ChainForSnapshot(_ context.Context, snapshotID string) (bkcache.SnapshotChain, error) {
 	m.chainMu.Lock()
 	defer m.chainMu.Unlock()
-	if m.chainForSnapshot == nil {
-		panic("unexpected ChainForSnapshot call")
-	}
 	chain, ok := m.chainForSnapshot[snapshotID]
 	if !ok {
 		return bkcache.SnapshotChain{}, fmt.Errorf("no chain for snapshot %q", snapshotID)
