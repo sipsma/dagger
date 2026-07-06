@@ -116,6 +116,91 @@ func rewritePersistedPayloadRefs(
 	return rewriteRefsInValue(raw, rewriteResultRef, rewriteCallID)
 }
 
+// rewriteResultCallRefs rewrites every ResultCallRef.ResultID reachable
+// from the frame — receiver, module, args and implicit-input literals,
+// and inline sub-frames — through remap. The frame must be an unshared
+// tree (decoded from persisted JSON or cloned); rewrite is in place. A
+// remap failure means the referenced row is not available in the target
+// ID space, which the caller treats as a missing dependency of the
+// referring row.
+func rewriteResultCallRefs(frame *ResultCall, remap func(uint64) (uint64, error)) error {
+	var walkCall func(*ResultCall) error
+	var walkRef func(*ResultCallRef) error
+	var walkLiteral func(*ResultCallLiteral) error
+	var walkArgs func([]*ResultCallArg) error
+
+	walkRef = func(ref *ResultCallRef) error {
+		if ref == nil {
+			return nil
+		}
+		if ref.ResultID != 0 {
+			rewritten, err := remap(ref.ResultID)
+			if err != nil {
+				return err
+			}
+			ref.ResultID = rewritten
+		}
+		return walkCall(ref.Call)
+	}
+	walkLiteral = func(lit *ResultCallLiteral) error {
+		if lit == nil {
+			return nil
+		}
+		switch lit.Kind {
+		case ResultCallLiteralKindResultRef:
+			return walkRef(lit.ResultRef)
+		case ResultCallLiteralKindList:
+			for i, item := range lit.ListItems {
+				if err := walkLiteral(item); err != nil {
+					return fmt.Errorf("list item %d: %w", i, err)
+				}
+			}
+		case ResultCallLiteralKindObject:
+			for _, field := range lit.ObjectFields {
+				if field == nil {
+					continue
+				}
+				if err := walkLiteral(field.Value); err != nil {
+					return fmt.Errorf("field %q: %w", field.Name, err)
+				}
+			}
+		}
+		return nil
+	}
+	walkArgs = func(args []*ResultCallArg) error {
+		for _, arg := range args {
+			if arg == nil {
+				continue
+			}
+			if err := walkLiteral(arg.Value); err != nil {
+				return fmt.Errorf("arg %q: %w", arg.Name, err)
+			}
+		}
+		return nil
+	}
+	walkCall = func(call *ResultCall) error {
+		if call == nil {
+			return nil
+		}
+		if err := walkRef(call.Receiver); err != nil {
+			return fmt.Errorf("receiver: %w", err)
+		}
+		if call.Module != nil {
+			if err := walkRef(call.Module.ResultRef); err != nil {
+				return fmt.Errorf("module: %w", err)
+			}
+		}
+		if err := walkArgs(call.Args); err != nil {
+			return err
+		}
+		if err := walkArgs(call.ImplicitInputs); err != nil {
+			return err
+		}
+		return nil
+	}
+	return walkCall(frame)
+}
+
 func rewriteRefsInValue(
 	raw json.RawMessage,
 	rewriteResultRef func(uint64) (uint64, error),

@@ -44,8 +44,27 @@ func (c *Cache) persistCurrentState(ctx context.Context) error {
 	return nil
 }
 
-//nolint:gocyclo // intrinsically long state machine; refactoring would hurt clarity
 func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot, error) {
+	snapshot, err := c.copyOutPersistState()
+	if err != nil {
+		return persistStateSnapshot{}, err
+	}
+	for i := range snapshot.results {
+		if err := c.encodeSnapshotResultRow(ctx, &snapshot.results[i]); err != nil {
+			return persistStateSnapshot{}, err
+		}
+	}
+	return snapshot, nil
+}
+
+// copyOutPersistState copies the retained in-memory cache state into a
+// detached snapshot, holding the graph lock only for the copy. Result rows
+// come back un-encoded; encodeSnapshotResultRow fills each row's envelope
+// bytes. Local flush encodes every row and fails on the first error; the
+// bundle writer encodes its filtered closure and degrades per-row.
+//
+//nolint:gocyclo // intrinsically long state machine; refactoring would hurt clarity
+func (c *Cache) copyOutPersistState() (persistStateSnapshot, error) {
 	var snapshot persistStateSnapshot
 
 	c.egraphMu.RLock()
@@ -271,40 +290,42 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 		}
 	}
 
-	for i := range snapshot.results {
-		resultSnapshot := &snapshot.results[i]
-		if resultSnapshot.frame == nil {
-			if resultSnapshot.self == nil || resultSnapshot.self.Type() == nil || resultSnapshot.self.Type().Name() != "Query" {
-				return persistStateSnapshot{}, fmt.Errorf("persist result %d: missing result call frame", resultSnapshot.resultID)
-			}
-		}
-
-		encoding, err := c.persistResultEnvelope(ctx, resultSnapshot)
-		switch {
-		case errors.Is(err, ErrPersistStateNotReady):
-			return persistStateSnapshot{}, err
-		case err != nil:
-			return persistStateSnapshot{}, fmt.Errorf("persist result %d envelope: %w", resultSnapshot.resultID, err)
-		}
-
-		payload, err := json.Marshal(encoding.Envelope)
-		if err != nil {
-			return persistStateSnapshot{}, fmt.Errorf("persist result %d payload JSON: %w", resultSnapshot.resultID, err)
-		}
-		if resultSnapshot.frame != nil {
-			callFrameJSON, err := json.Marshal(resultSnapshot.frame)
-			if err != nil {
-				return persistStateSnapshot{}, fmt.Errorf("persist result %d call frame JSON: %w", resultSnapshot.resultID, err)
-			}
-			resultSnapshot.row.CallFrameJSON = string(callFrameJSON)
-		}
-		resultSnapshot.row.SelfPayload = payload
-		resultSnapshot.resultSnapshotLinks = resultSnapshotLinkRows(resultSnapshot.resultID, encoding.SnapshotLinks)
-	}
 	return snapshot, nil
 }
 
-//nolint:gocyclo // intrinsically long state machine; refactoring would hurt clarity
+// encodeSnapshotResultRow fills one copied-out result row's persisted
+// bytes: the envelope payload, the frame JSON, and the snapshot link rows.
+func (c *Cache) encodeSnapshotResultRow(ctx context.Context, resultSnapshot *persistResultSnapshot) error {
+	if resultSnapshot.frame == nil {
+		if resultSnapshot.self == nil || resultSnapshot.self.Type() == nil || resultSnapshot.self.Type().Name() != "Query" {
+			return fmt.Errorf("persist result %d: missing result call frame", resultSnapshot.resultID)
+		}
+	}
+
+	encoding, err := c.persistResultEnvelope(ctx, resultSnapshot)
+	switch {
+	case errors.Is(err, ErrPersistStateNotReady):
+		return err
+	case err != nil:
+		return fmt.Errorf("persist result %d envelope: %w", resultSnapshot.resultID, err)
+	}
+
+	payload, err := json.Marshal(encoding.Envelope)
+	if err != nil {
+		return fmt.Errorf("persist result %d payload JSON: %w", resultSnapshot.resultID, err)
+	}
+	if resultSnapshot.frame != nil {
+		callFrameJSON, err := json.Marshal(resultSnapshot.frame)
+		if err != nil {
+			return fmt.Errorf("persist result %d call frame JSON: %w", resultSnapshot.resultID, err)
+		}
+		resultSnapshot.row.CallFrameJSON = string(callFrameJSON)
+	}
+	resultSnapshot.row.SelfPayload = payload
+	resultSnapshot.resultSnapshotLinks = resultSnapshotLinkRows(resultSnapshot.resultID, encoding.SnapshotLinks)
+	return nil
+}
+
 func (c *Cache) applyPersistStateSnapshot(ctx context.Context, snapshot persistStateSnapshot) error {
 	if c.sqlDB == nil || c.pdb == nil {
 		return nil
@@ -319,87 +340,87 @@ func (c *Cache) applyPersistStateSnapshot(ctx context.Context, snapshot persistS
 		_ = tx.Rollback()
 		return fmt.Errorf("clear mirror state: %w", err)
 	}
+	if err := insertPersistStateSnapshotRows(ctx, q, snapshot); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit persistence mirror tx: %w", err)
+	}
+	return nil
+}
 
+// insertPersistStateSnapshotRows writes a snapshot's rows through the given
+// query handle. It is the one row-writing path shared by local flush and
+// the bundle writer (R9's one-encoding rule): the bundle writer feeds it a
+// closure-filtered snapshot against a fresh metadata DB.
+//
+//nolint:gocyclo // intrinsically long state machine; refactoring would hurt clarity
+func insertPersistStateSnapshotRows(ctx context.Context, q *persistdb.Queries, snapshot persistStateSnapshot) error {
 	for _, row := range snapshot.eqClasses {
 		if err := q.InsertMirrorEqClass(ctx, row); err != nil {
-			_ = tx.Rollback()
 			return fmt.Errorf("insert eq_class %d: %w", row.ID, err)
 		}
 	}
 	for _, row := range snapshot.eqClassDigests {
 		if err := q.InsertMirrorEqClassDigest(ctx, row); err != nil {
-			_ = tx.Rollback()
 			return fmt.Errorf("insert eq_class_digest (%d,%s,%s): %w", row.EqClassID, row.Digest, row.Label, err)
 		}
 	}
 	for _, result := range snapshot.results {
 		if err := q.InsertMirrorResult(ctx, result.row); err != nil {
-			_ = tx.Rollback()
 			return fmt.Errorf("insert result %d: %w", result.resultID, err)
 		}
 	}
 	for _, row := range snapshot.terms {
 		if err := q.InsertMirrorTerm(ctx, row); err != nil {
-			_ = tx.Rollback()
 			return fmt.Errorf("insert term %d: %w", row.ID, err)
 		}
 	}
 	for _, row := range snapshot.termInputs {
 		if err := q.InsertMirrorTermInput(ctx, row); err != nil {
-			_ = tx.Rollback()
 			return fmt.Errorf("insert term_input (%d,%d): %w", row.TermID, row.Position, err)
 		}
 	}
 	for _, row := range snapshot.resultOutputEqClasses {
 		if err := q.InsertMirrorResultOutputEqClass(ctx, row); err != nil {
-			_ = tx.Rollback()
 			return fmt.Errorf("insert result_output_eq_class (%d,%d): %w", row.ResultID, row.EqClassID, err)
 		}
 	}
 	for _, row := range snapshot.persistedEdges {
 		if err := q.InsertMirrorPersistedEdge(ctx, row); err != nil {
-			_ = tx.Rollback()
 			return fmt.Errorf("insert persisted_edge (%d): %w", row.ResultID, err)
 		}
 	}
 	for _, result := range snapshot.results {
 		if err := q.InsertMirrorResultOrigin(ctx, result.origin); err != nil {
-			_ = tx.Rollback()
 			return fmt.Errorf("insert result_origin (%d,%s,%d): %w", result.origin.ResultID, result.origin.OriginStoreUUID, result.origin.OriginResultID, err)
 		}
 		for _, row := range result.resultDeps {
 			if err := q.InsertMirrorResultDep(ctx, row); err != nil {
-				_ = tx.Rollback()
 				return fmt.Errorf("insert result_dep (%d,%d): %w", row.ParentResultID, row.DepResultID, err)
 			}
 		}
 		for _, row := range result.resultSnapshotLinks {
 			if err := q.InsertMirrorResultSnapshotLink(ctx, row); err != nil {
-				_ = tx.Rollback()
 				return fmt.Errorf("insert result_snapshot_link (%d,%s,%s): %w", row.ResultID, row.RefKey, row.Role, err)
 			}
 		}
 	}
 	for _, row := range snapshot.snapshotContentLinks {
 		if err := q.InsertMirrorSnapshotContentLink(ctx, row); err != nil {
-			_ = tx.Rollback()
 			return fmt.Errorf("insert snapshot_content_link (%s,%s): %w", row.SnapshotID, row.Digest, err)
 		}
 	}
 	for _, row := range snapshot.importedLayerByBlob {
 		if err := q.InsertMirrorImportedLayerBlobIndex(ctx, row); err != nil {
-			_ = tx.Rollback()
 			return fmt.Errorf("insert imported_layer_blob_index (%s,%s,%s): %w", row.ParentSnapshotID, row.BlobDigest, row.SnapshotID, err)
 		}
 	}
 	for _, row := range snapshot.importedLayerByDiff {
 		if err := q.InsertMirrorImportedLayerDiffIndex(ctx, row); err != nil {
-			_ = tx.Rollback()
 			return fmt.Errorf("insert imported_layer_diff_index (%s,%s,%s): %w", row.ParentSnapshotID, row.DiffID, row.SnapshotID, err)
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit persistence mirror tx: %w", err)
 	}
 	return nil
 }
