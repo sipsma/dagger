@@ -77,8 +77,10 @@ type SnapshotManager interface {
 	// one immutable snapshot — export-time only (R4: hash-at-export).
 	ChainForSnapshot(ctx context.Context, snapshotID string) (SnapshotChain, error)
 	// MaterializeChain reconstructs a chain's snapshot locally from a blob
-	// source, pinned under ownerLeaseID before it returns.
-	MaterializeChain(ctx context.Context, ownerLeaseID string, chain SnapshotChain, src BlobSource) (string, error)
+	// source, pinned under ownerLeaseID before it returns. The stats report
+	// blobs/bytes actually fetched (on failure too — transfers before the
+	// failure are real).
+	MaterializeChain(ctx context.Context, ownerLeaseID string, chain SnapshotChain, src BlobSource) (string, ChainFetchStats, error)
 	// OpenBlob reads one blob out of the local content store (the
 	// export-side counterpart of BlobSource).
 	OpenBlob(ctx context.Context, dgst digest.Digest) (io.ReadCloser, error)

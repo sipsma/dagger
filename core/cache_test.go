@@ -186,7 +186,7 @@ func (*cacheVolumeTestSnapshotManager) ChainForSnapshot(context.Context, string)
 	panic("unexpected ChainForSnapshot call")
 }
 
-func (*cacheVolumeTestSnapshotManager) MaterializeChain(context.Context, string, bkcache.SnapshotChain, bkcache.BlobSource) (string, error) {
+func (*cacheVolumeTestSnapshotManager) MaterializeChain(context.Context, string, bkcache.SnapshotChain, bkcache.BlobSource) (string, bkcache.ChainFetchStats, error) {
 	panic("unexpected MaterializeChain call")
 }
 

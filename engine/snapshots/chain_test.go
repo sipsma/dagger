@@ -46,7 +46,7 @@ func TestEnsureChainBlobCorruptIngestDiscarded(t *testing.T) {
 	corruptSource := blobSourceFunc(func(context.Context, digest.Digest, int64) (io.ReadCloser, error) {
 		return io.NopCloser(bytes.NewReader(corrupt)), nil
 	})
-	err = cm.ensureChainBlob(ctx, desc, corruptSource)
+	_, err = cm.ensureChainBlob(ctx, desc, corruptSource)
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrChainBlobCorrupt), "corrupt bytes must report typed: %v", err)
 
@@ -55,7 +55,9 @@ func TestEnsureChainBlobCorruptIngestDiscarded(t *testing.T) {
 	healedSource := blobSourceFunc(func(context.Context, digest.Digest, int64) (io.ReadCloser, error) {
 		return io.NopCloser(bytes.NewReader(payload)), nil
 	})
-	require.NoError(t, cm.ensureChainBlob(ctx, desc, healedSource))
+	fetched, err := cm.ensureChainBlob(ctx, desc, healedSource)
+	require.NoError(t, err)
+	require.True(t, fetched, "the healed attempt is a real transfer")
 
 	info, err := store.Info(ctx, dgst)
 	require.NoError(t, err)

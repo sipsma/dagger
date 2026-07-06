@@ -49,16 +49,26 @@ func (CacheBundleTransportSuite) TestCrossEngineWarmViaChainFetch(ctx context.Co
 	engineB.stop(ctx, t)
 
 	counters := readServeStatsCounters(ctx, t, c, stateKeyB)
-	var chainServes, chainFetchOK int64
+	var chainServes, chainFetchOK, chainBlobs, chainBytes int64
 	for _, count := range counters["served_from_content_chain"] {
 		chainServes += count
 	}
 	for _, count := range counters["chain_fetch_ok"] {
 		chainFetchOK += count
 	}
+	for _, count := range counters["chain_fetch_blobs"] {
+		chainBlobs += count
+	}
+	for _, count := range counters["chain_fetch_bytes"] {
+		chainBytes += count
+	}
 	require.GreaterOrEqual(t, chainServes, int64(1),
 		"warm serving must realize through the content chain; counters: %v", counters)
 	require.GreaterOrEqual(t, chainFetchOK, int64(1))
+	require.GreaterOrEqual(t, chainBlobs, int64(1),
+		"realization must tally the blobs it moved; counters: %v", counters)
+	require.Greater(t, chainBytes, int64(0),
+		"realization must tally the bytes it moved; counters: %v", counters)
 	require.GreaterOrEqual(t, counters["hit_restored"]["withExec"], int64(1),
 		"imported withExec rows must serve as restored hits; counters: %v", counters)
 	require.Empty(t, counters["demoted_to_miss"],

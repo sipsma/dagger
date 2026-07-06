@@ -84,7 +84,7 @@ type fakeSnapshotManager struct {
 	chainForSnapshot map[string]bkcache.SnapshotChain
 	// materializeChainFunc, when set, handles MaterializeChain. Every call
 	// is recorded in materializeChainCalls either way.
-	materializeChainFunc  func(ctx context.Context, ownerLeaseID string, chain bkcache.SnapshotChain, src bkcache.BlobSource) (string, error)
+	materializeChainFunc  func(ctx context.Context, ownerLeaseID string, chain bkcache.SnapshotChain, src bkcache.BlobSource) (string, bkcache.ChainFetchStats, error)
 	materializeChainCalls []bkcache.SnapshotChain
 }
 
@@ -101,7 +101,7 @@ func (m *fakeSnapshotManager) ChainForSnapshot(_ context.Context, snapshotID str
 	return chain, nil
 }
 
-func (m *fakeSnapshotManager) MaterializeChain(ctx context.Context, ownerLeaseID string, chain bkcache.SnapshotChain, src bkcache.BlobSource) (string, error) {
+func (m *fakeSnapshotManager) MaterializeChain(ctx context.Context, ownerLeaseID string, chain bkcache.SnapshotChain, src bkcache.BlobSource) (string, bkcache.ChainFetchStats, error) {
 	m.chainMu.Lock()
 	fn := m.materializeChainFunc
 	m.materializeChainCalls = append(m.materializeChainCalls, chain)

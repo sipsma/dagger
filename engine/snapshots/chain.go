@@ -48,6 +48,19 @@ type SnapshotChain struct {
 // EmptyChainID names the zero-layer chain (empty content).
 var EmptyChainID = digest.FromString("dagger:empty-content-chain")
 
+// ChainFetchStats tallies what a chain materialization actually moved:
+// blobs fetched from the source into the content store (layers resolved by
+// prefix reuse or already-present content fetch nothing) and their bytes.
+type ChainFetchStats struct {
+	Blobs int
+	Bytes int64
+}
+
+func (s *ChainFetchStats) add(other ChainFetchStats) {
+	s.Blobs += other.Blobs
+	s.Bytes += other.Bytes
+}
+
 // chainExportCompression is the one pinned compression for chain blobs.
 // The CAS dedups by blob digest, so per-engine compression variance would
 // silently halve dedup; Force converts pre-existing variants (e.g. gzip
@@ -195,17 +208,20 @@ func (cm *snapshotManager) ChainForSnapshot(ctx context.Context, snapshotID stri
 // (digest-verified by the store's commit), and each layer applies with the
 // image-pull machinery. The final snapshot is pinned under ownerLeaseID
 // before the call returns, and its chain identity is recorded at arrival so
-// a future export finds it memoized.
-func (cm *snapshotManager) MaterializeChain(ctx context.Context, ownerLeaseID string, chain SnapshotChain, src BlobSource) (_ string, rerr error) {
+// a future export finds it memoized. The fetch stats report what actually
+// moved — on failure too, since blobs fetched before the failure are real
+// transfers (and stay ingested, so a retry does not move them again).
+func (cm *snapshotManager) MaterializeChain(ctx context.Context, ownerLeaseID string, chain SnapshotChain, src BlobSource) (_ string, _ ChainFetchStats, rerr error) {
+	var stats ChainFetchStats
 	if ownerLeaseID == "" {
-		return "", errors.New("materialize chain: empty owner lease ID")
+		return "", stats, errors.New("materialize chain: empty owner lease ID")
 	}
 
 	// A temporary lease keeps intermediate snapshots and ingested blobs
 	// alive until the owner lease pins the final snapshot.
 	leaseCtx, done, err := WithLease(ctx, cm.LeaseManager, MakeTemporary)
 	if err != nil {
-		return "", err
+		return "", stats, err
 	}
 	defer done(context.WithoutCancel(leaseCtx))
 	ctx = leaseCtx
@@ -240,14 +256,19 @@ func (cm *snapshotManager) MaterializeChain(ctx context.Context, ownerLeaseID st
 		_, diffHit := cm.importedLayerByDiff[ImportedLayerDiffKey{ParentSnapshotID: parentSnapshotID, DiffID: layer.DiffID}]
 		cm.mu.Unlock()
 		if !blobHit && !diffHit {
-			if err := cm.ensureChainBlob(ctx, desc, src); err != nil {
-				return "", err
+			fetched, err := cm.ensureChainBlob(ctx, desc, src)
+			if fetched {
+				stats.Blobs++
+				stats.Bytes += desc.Size
+			}
+			if err != nil {
+				return "", stats, err
 			}
 		}
 
 		next, err := cm.importImageLayer(ctx, desc, current, opts)
 		if err != nil {
-			return "", errors.Wrapf(err, "materialize chain: apply layer %s", layer.Blob)
+			return "", stats, errors.Wrapf(err, "materialize chain: apply layer %s", layer.Blob)
 		}
 		if current != nil {
 			_ = current.Release(context.WithoutCancel(ctx))
@@ -263,19 +284,19 @@ func (cm *snapshotManager) MaterializeChain(ctx context.Context, ownerLeaseID st
 			WithDescription("materialized empty content chain"),
 		)
 		if err != nil {
-			return "", err
+			return "", stats, err
 		}
 		ref, err := mut.Commit(ctx)
 		if err != nil {
 			_ = mut.Release(context.WithoutCancel(ctx))
-			return "", err
+			return "", stats, err
 		}
 		current = ref
 	}
 
 	snapshotID := current.SnapshotID()
 	if err := cm.AttachLease(ctx, ownerLeaseID, snapshotID); err != nil {
-		return "", errors.Wrapf(err, "materialize chain: pin snapshot %s", snapshotID)
+		return "", stats, errors.Wrapf(err, "materialize chain: pin snapshot %s", snapshotID)
 	}
 
 	// Identity recorded at arrival: a future export of this snapshot is a
@@ -284,28 +305,29 @@ func (cm *snapshotManager) MaterializeChain(ctx context.Context, ownerLeaseID st
 	cm.snapshotChains[snapshotID] = chain
 	cm.mu.Unlock()
 
-	return snapshotID, nil
+	return snapshotID, stats, nil
 }
 
 // ensureChainBlob makes the blob present in the content store, fetching it
-// from src when absent. The content store's commit verifies size and digest,
-// so corrupt bytes never land: they surface as ErrChainBlobCorrupt and the
-// partial ingest is discarded.
-func (cm *snapshotManager) ensureChainBlob(ctx context.Context, desc ocispecs.Descriptor, src BlobSource) error {
+// from src when absent (fetched reports whether a transfer happened). The
+// content store's commit verifies size and digest, so corrupt bytes never
+// land: they surface as ErrChainBlobCorrupt and the partial ingest is
+// discarded.
+func (cm *snapshotManager) ensureChainBlob(ctx context.Context, desc ocispecs.Descriptor, src BlobSource) (fetched bool, _ error) {
 	_, err := cm.ContentStore.Info(ctx, desc.Digest)
 	if err == nil {
-		return nil
+		return false, nil
 	}
 	if !cerrdefs.IsNotFound(err) {
-		return errors.Wrapf(err, "stat chain blob %s", desc.Digest)
+		return false, errors.Wrapf(err, "stat chain blob %s", desc.Digest)
 	}
 	if src == nil {
-		return errors.Wrapf(ErrBlobNotFound, "chain blob %s: no blob source configured", desc.Digest)
+		return false, errors.Wrapf(ErrBlobNotFound, "chain blob %s: no blob source configured", desc.Digest)
 	}
 
 	rc, err := src.OpenBlob(ctx, desc.Digest, desc.Size)
 	if err != nil {
-		return errors.Wrapf(err, "fetch chain blob %s", desc.Digest)
+		return false, errors.Wrapf(err, "fetch chain blob %s", desc.Digest)
 	}
 	defer rc.Close()
 
@@ -324,11 +346,11 @@ func (cm *snapshotManager) ensureChainBlob(ctx context.Context, desc ocispecs.De
 		// digest or size with a failed-precondition error: corrupt data,
 		// dumbest treatment — discard and report.
 		if cerrdefs.IsFailedPrecondition(err) {
-			return errors.Wrapf(ErrChainBlobCorrupt, "chain blob %s: %v", desc.Digest, err)
+			return false, errors.Wrapf(ErrChainBlobCorrupt, "chain blob %s: %v", desc.Digest, err)
 		}
-		return errors.Wrapf(err, "ingest chain blob %s", desc.Digest)
+		return false, errors.Wrapf(err, "ingest chain blob %s", desc.Digest)
 	}
-	return nil
+	return true, nil
 }
 
 // OpenBlob opens a blob from the local content store for reading — the

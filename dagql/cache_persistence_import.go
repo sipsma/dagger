@@ -828,10 +828,21 @@ func (c *Cache) realizeContentChainSource(ctx context.Context, res *sharedResult
 	}
 	frame := res.loadResultCall()
 
+	// Blob/byte tallies land exactly once per realization attempt, success
+	// or failure: transfers that happened are real (and stay ingested, so
+	// a retry never re-moves them).
+	var fetchStats bkcache.ChainFetchStats
+	defer func() {
+		c.serveStats.add(cacheChainFetchBlobs, statFieldName(frame), int64(fetchStats.Blobs))
+		c.serveStats.add(cacheChainFetchBytes, statFieldName(frame), fetchStats.Bytes)
+	}()
+
 	links := make([]PersistedSnapshotRefLink, 0, len(chains))
 	for _, chain := range chains {
 		leaseID := resultSnapshotLeaseID(res.id, chain.Role)
-		snapshotID, err := c.snapshotManager.MaterializeChain(ctx, leaseID, chain.bkSnapshotChain(), c.contentChainBlobSource)
+		snapshotID, roleStats, err := c.snapshotManager.MaterializeChain(ctx, leaseID, chain.bkSnapshotChain(), c.contentChainBlobSource)
+		fetchStats.Blobs += roleStats.Blobs
+		fetchStats.Bytes += roleStats.Bytes
 		if err != nil {
 			// The realization is all-or-nothing per result: leases already
 			// attached for earlier roles release, so a half-realized chain

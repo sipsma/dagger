@@ -331,10 +331,10 @@ func TestContentChainRealizesImportedRow(t *testing.T) {
 	manager := &fakeSnapshotManager{missingSnapshots: map[string]struct{}{
 		"upload-snap": {},
 	}}
-	manager.materializeChainFunc = func(ctx context.Context, ownerLeaseID string, chain bkcache.SnapshotChain, src bkcache.BlobSource) (string, error) {
+	manager.materializeChainFunc = func(ctx context.Context, ownerLeaseID string, chain bkcache.SnapshotChain, src bkcache.BlobSource) (string, bkcache.ChainFetchStats, error) {
 		assert.Equal(t, chains[0].ChainID, chain.ChainID.String())
 		assert.NilError(t, manager.AttachLease(ctx, ownerLeaseID, "chain-mat-snap"))
-		return "chain-mat-snap", nil
+		return "chain-mat-snap", bkcache.ChainFetchStats{Blobs: 2, Bytes: 49}, nil
 	}
 	cache, err := NewCache(ctx, dbPath, manager, nil)
 	assert.NilError(t, err)
@@ -355,6 +355,8 @@ func TestContentChainRealizesImportedRow(t *testing.T) {
 	counters := cache.serveStats.byOutcome()
 	assert.Equal(t, int64(1), counters[cacheServeFromContentChain]["uploadObj"])
 	assert.Equal(t, int64(1), counters[cacheChainFetchOK]["uploadObj"])
+	assert.Equal(t, int64(2), counters[cacheChainFetchBlobs]["uploadObj"])
+	assert.Equal(t, int64(49), counters[cacheChainFetchBytes]["uploadObj"])
 	assert.Equal(t, int64(1), counters[cacheServeHitRestored]["uploadObj"])
 	assert.Equal(t, int64(0), counters[cacheServeDemotedToMiss]["uploadObj"])
 	assert.Equal(t, 1, manager.materializeChainCallCount())
@@ -425,8 +427,8 @@ func TestContentChainMissingBlobFallsThroughToFragment(t *testing.T) {
 	manager := &fakeSnapshotManager{missingSnapshots: map[string]struct{}{
 		"mat-home-snap": {},
 	}}
-	manager.materializeChainFunc = func(context.Context, string, bkcache.SnapshotChain, bkcache.BlobSource) (string, error) {
-		return "", fmt.Errorf("blob sha256:2222: %w", bkcache.ErrBlobNotFound)
+	manager.materializeChainFunc = func(context.Context, string, bkcache.SnapshotChain, bkcache.BlobSource) (string, bkcache.ChainFetchStats, error) {
+		return "", bkcache.ChainFetchStats{}, fmt.Errorf("blob sha256:2222: %w", bkcache.ErrBlobNotFound)
 	}
 	cache, err := NewCache(ctx, dbPath, manager, nil)
 	assert.NilError(t, err)
@@ -464,8 +466,8 @@ func TestContentChainMissingBlobNoFragmentDemotes(t *testing.T) {
 	manager := &fakeSnapshotManager{missingSnapshots: map[string]struct{}{
 		"upload-snap": {},
 	}}
-	manager.materializeChainFunc = func(context.Context, string, bkcache.SnapshotChain, bkcache.BlobSource) (string, error) {
-		return "", fmt.Errorf("blob sha256:2222: %w", bkcache.ErrBlobNotFound)
+	manager.materializeChainFunc = func(context.Context, string, bkcache.SnapshotChain, bkcache.BlobSource) (string, bkcache.ChainFetchStats, error) {
+		return "", bkcache.ChainFetchStats{}, fmt.Errorf("blob sha256:2222: %w", bkcache.ErrBlobNotFound)
 	}
 	cache, err := NewCache(ctx, dbPath, manager, nil)
 	assert.NilError(t, err)
@@ -511,8 +513,8 @@ func TestContentChainTransientFailureDemotesWithoutDrop(t *testing.T) {
 	manager := &fakeSnapshotManager{missingSnapshots: map[string]struct{}{
 		"upload-snap": {},
 	}}
-	manager.materializeChainFunc = func(context.Context, string, bkcache.SnapshotChain, bkcache.BlobSource) (string, error) {
-		return "", fmt.Errorf("dial cas: connection refused")
+	manager.materializeChainFunc = func(context.Context, string, bkcache.SnapshotChain, bkcache.BlobSource) (string, bkcache.ChainFetchStats, error) {
+		return "", bkcache.ChainFetchStats{}, fmt.Errorf("dial cas: connection refused")
 	}
 	cache, err := NewCache(ctx, dbPath, manager, nil)
 	assert.NilError(t, err)
@@ -555,10 +557,10 @@ func TestContentChainConcurrentForcingSingleflights(t *testing.T) {
 	manager := &fakeSnapshotManager{missingSnapshots: map[string]struct{}{
 		"upload-snap": {},
 	}}
-	manager.materializeChainFunc = func(ctx context.Context, ownerLeaseID string, _ bkcache.SnapshotChain, _ bkcache.BlobSource) (string, error) {
+	manager.materializeChainFunc = func(ctx context.Context, ownerLeaseID string, _ bkcache.SnapshotChain, _ bkcache.BlobSource) (string, bkcache.ChainFetchStats, error) {
 		time.Sleep(30 * time.Millisecond)
 		assert.NilError(t, manager.AttachLease(ctx, ownerLeaseID, "chain-mat-snap"))
-		return "chain-mat-snap", nil
+		return "chain-mat-snap", bkcache.ChainFetchStats{Blobs: 2, Bytes: 49}, nil
 	}
 	cache, err := NewCache(ctx, dbPath, manager, nil)
 	assert.NilError(t, err)
