@@ -282,14 +282,16 @@ working time.
 </div>
 <div class="honesty"><b>Declared simplification — attribution within the window.</b> W is an aggregate
 counter for the whole container; the data cannot say <em>when</em> within the window the CPU was
-burned. The model places all of W on the in-window self segments — equivalently, it assumes the
-container's CPU use during engine-recorded waits and nested-client children is negligible. For a
-multi-process container that computes in the background while its nested client blocks, this misplaces
-demand in time (total W is conserved; the placement, not the amount, is wrong). No denominator choice
-fixes this from an aggregate counter — every choice assumes a placement — and guessing a distribution
-would be compensation. Stated here, restated in the report's method note (§11.4); error direction not
-derivable in general; the designed empirical remedy is the B2 time-series refinement (Appendix B),
-triggered by calibration evidence.</div>
+burned. The model places all of W uniformly on the in-window self segments (D_e, §3.5) — equivalently,
+it assumes the container's CPU use during the <em>gaps</em> in D_e (recorded waits of dilation-set ops
+and uncovered child intervals) is negligible, and that its CPU use is uniform elsewhere — including
+through sibling nested-client overlap, where demand deliberately continues (the no-suspension rule): a
+host that in fact blocked synchronously on its nested call gets its demand smeared over that span.
+Total W is conserved in every case; only the placement can be wrong, and no denominator choice fixes
+placement from an aggregate counter — every choice assumes one — so guessing a distribution would be
+compensation. Stated here, restated in the report's method note (§11.4); error direction not derivable
+in general; the designed empirical remedy is the B2 time-series refinement (Appendix B), triggered by
+calibration evidence.</div>
 <ul>
 <li>d = 0 (a container that used ~no CPU) is legal: such an exec never contends and never stretches.</li>
 <li>SW = 0 with W &gt; 0 is degenerate recorded data (work with no working time): counted, excluded,
@@ -420,10 +422,47 @@ empty — dilating the processRun grandchild never moves the parent's clock), so
 explicit <b>window transform M_e</b>: the monotone map from recorded window-work position to sim time
 that the event loop builds as it executes the exec's dilated fragments (proportional-by-rate inside
 fragments, rigid across gaps). A non-exec_phase child spawned at recorded t inside the window is
-anchored at M_e(t) via a deferred spawn that fires when the executed window position reaches p(t); a
-window truncated before a registered anchor fires it at the window's end image and counts it (G6
-family, never silent).</figcaption>
+anchored at M_e(t) via a deferred spawn; the full case-by-case definition, the pendingAnchor state, and
+the honestly-scoped C′=∞ equivalence follow below.</figcaption>
 </figure>
+
+<div class="define"><b>The window transform M_e — over recorded instants, case by case.</b>
+<b>D_e</b> = the union of (self segments of dilation-set ops) ∩ [ws,we), in recorded order — §3.3's
+demand intervals. <b>Gaps</b> = the window minus D_e: every in-window instant not covered by any
+dilation-set op's self segment (recorded waits of dilation-set ops; child intervals not contributing
+self time through the traversal). NOT gaps: an exec_phase child's interval (the traversal descends into
+it) and a <em>sibling</em> nested-client overlap (it cuts only the exec op's near-empty self time —
+processRun's self segments still cover those instants: the no-suspension rule, mechanically).
+p(t) = the D_e length in [ws,t].<br><br>
+<b>Case 1 — t inside a fragment:</b> M_e(t) = the sim time at which e's executed fragment-time reaches
+p(t). This is a <b>progress milestone: a first-class projected event</b> — when a fragment is
+(re)projected at a rate change, every registered milestone inside it is re-projected at the
+interpolated sim time, with the same generation-counter invalidation as completions (otherwise a
+milestone projected under an old rate fires at the wrong time under exactly the contention this mode
+models).<br>
+<b>Case 2 — t inside a gap:</b> M_e(t) = the gap's sim start image + (t − the gap's recorded start),
+clamped to the gap's sim end image (gaps resolve by their own join/fixed-delay semantics, so their sim
+durations can differ from recorded; each clamp is counted — defensive, G6 family). A window truncated
+before a registered anchor fires it at the window's end image and counts it — never silent.<br><br>
+<b>The pendingAnchor state.</b> A registered-but-unfired deferred spawn puts the child in state
+pendingAnchor — global state owned by e's window progress, NOT by the registering parent, which moves
+on un-blocked. The parent's implicit joins treat a pendingAnchor child as unfinished: the parent blocks
+at that join point until the spawn fires and the child finishes (the recorded ordering constraint,
+unchanged). No deadlock on faithful data: window progress is carried by the phase coroutines, which
+never wait on the exec op's later actions; an unfaithful cycle lands in quiescence detection (G6).
+</div>
+
+<div class="rule"><b>What M_e means for the C′=∞ equivalence (G8) — scoped honestly.</b> The M_e anchor
+is a deliberate <em>refinement</em> over the infinite mode, at every C′ including ∞: the infinite mode
+anchors a nested child at the exec op's local clock, and the exec op's own self time is nearly empty,
+so when a hypothesis factor scales the host exec's class, the infinite mode does NOT move the nested
+spawn at all — an <b>existing modeling gap this design exposed</b> (named as a §14 seam; fixing the
+infinite mode is out of scope). The equivalence contract: (1) graphs with no capacity data or no
+demand-carrying execs — every existing replay test graph — bit-for-bit, always; (2) demand-carrying
+baseline (factors 1) at C′=∞ — M_e is the identity — bit-for-bit; (3) demand-carrying under hypothesis
+factors at C′=∞ — bit-for-bit for every op EXCEPT M_e-remapped anchors and their causal downstream,
+with the remapped anchors asserted against hand-derived M_e-at-∞ values (V-R12/V-R21/V-R22 — the
+catalog asserts the divergence itself: it is the documented refinement, not an accident).</div>
 
 <h3>§3.6 What deliberately does not change</h3>
 <ul>
@@ -476,8 +515,9 @@ fragment lengths as differences of <em>cumulative</em> rounded positions
 once-rounded total (V-R15, including the 3ns/f=0.9 adversarial case).</td></tr>
 <tr><td>hypothesis factors on dilated segments (exact rule)</td>
 <td>a class factor f applied to a demand-carrying exec scales each dilated self segment's recorded time
-by f AND scales the exec's conservation target to <b>W′ = f·W</b> (the simulated work), leaving the
-demand rate d unchanged. Interpretation: "this class is f× faster" means the same job takes f× the time
+by f AND scales the exec's conservation target to <b>W′ = d·T′</b> (T′ = the sum of once-rounded
+factor-scaled dilated fragment lengths — ≈ f·W up to the once-per-action rounding), leaving the demand
+rate d unchanged. Interpretation: "this class is f× faster" means the same job takes f× the time
 at the same CPU intensity — seconds and core-seconds shrink together. W stays untouched as the
 <em>measured</em> provenance value; every simulated ledger, the G7 check, and the stretched-exec
 accounting use W′ (= W with no factor). Consequences, asserted by V-R16: G7 checks delivered core-time
@@ -533,9 +573,11 @@ input permutations. The recursion's <code>SimStartConflicts</code> order-indepen
 analog here (a forward loop computes each start exactly once); a defensive never-two-starts counter
 replaces it, expected 0 always.</li>
 <li><b>Machine-seconds conservation</b> (gate G7): the loop asserts, at each exec's window completion,
-that delivered core-time equals the measured W within fixed-point error. This is bookkeeping
-exactness, not a tolerance: the fluid model <em>defines</em> window completion as "W core-seconds
-delivered".</li>
+that delivered core-time equals the <b>simulated work target W′ = d·T′</b> (T′ = the sum of
+once-rounded factor-scaled dilated fragment lengths — §4.2's rounding rule; = the recorded dilated time
+with no factor). Deriving W′ from the same rounded T′ the time arithmetic uses makes the identity
+exact: window time advances at a/d while a is delivered, so delivered ≡ d × window-time-advanced ≡
+d·T′. Bookkeeping exactness, not a tolerance; raw measured W is provenance only.</li>
 </ul>
 
 <!-- ============================ §5 ============================ -->
@@ -832,8 +874,9 @@ reserved for counterfactual packing.</p>
 
 <h3>§8.1 Saturation timeline</h3>
 <div class="define"><b>S(t)</b> := Σ of d<sub>i</sub> over execs with an <b>in-window self segment</b>
-containing t — the same demand intervals the simulator charges (§3.3/§3.4: demand is inactive during
-recorded waits, nested-client children, and outside the window). Summing over whole windows instead
+containing t — the same demand intervals the simulator charges (§3.3/§3.5: demand is inactive during
+the gaps in D_e — dilation-set waits and uncovered child intervals — and outside the window; sibling
+nested-client overlap does NOT suspend demand). Summing over whole windows instead
 would fabricate saturation during known blocking — exactly the intervals the model excludes. S(t) is
 piecewise-constant with breakpoints at in-window self-segment edges, computable exactly by an event
 sweep. <b>SAT</b> := max<sub>t</sub> S(t)/C_rec. Also reported: total duration where
@@ -903,10 +946,12 @@ revisit trigger: after the first calibration round (§11.5), re-derive them from
 and record the derivation in the calibration doc. The layer-2 "no" is deliberately <b>scoped to the
 measured exec population</b>: the model's boundary (§3.2) is real — engine-internal CPU is unmodeled,
 so low exec-side numbers cannot prove the whole run was CPU-unconstrained. The verdict always prints its
-coverage context (Σ exec in-window self time as a fraction of the makespan; Σ W against
-C_rec × makespan), and when coverage is small, the verdict line itself says the measured population
-explains too little of the run to carry a global claim — a refusal of the global phrasing, not a
-hedge.</figcaption>
+coverage context as two distinct numbers with distinct meanings: <b>wall-clock coverage</b> = |union
+of all modeled demand intervals| / makespan (a union, not a sum — a sum of parallel self times can
+exceed 100% and would mask exactly the condition this line discloses; always ≤ 1), and <b>work
+intensity</b> = Σ W / (C_rec × makespan). When wall-clock coverage is small, the verdict line itself
+says the measured population explains too little of the run to carry a global claim — a refusal of the
+global phrasing, not a hedge.</figcaption>
 </figure>
 
 <h3>§8.4 Memory feasibility — annotation, never timing</h3>
@@ -967,10 +1012,10 @@ print with op-ID samples capped at 10, as the existing signals do
 <td>below tolerance: printed residual (measurement noise). Above tolerance: capacity mode <b>refuses</b> — the demand data and the machine facts contradict each other (e.g. wrong capacity provenance), and results built on contradicted inputs would be decoration. The measured numbers still print as diagnostics with the refusal.</td></tr>
 <tr><td><b>G6</b> forward-schedulability</td><td>quiescence with unfinished ops (recorded cycles / inversions / malformed nestings, §4.4); also the defensive deferred-spawn counter (a window truncated before a registered nested anchor, §3.5/Figure 3)</td>
 <td>counted per break; the run's capacity results marked FAILED-GATE — mirroring UnschedulableOps/CycleWarnings doctrine <span class="cite">(replay.go:326-343)</span></td></tr>
-<tr><td><b>G7</b> conservation</td><td>per-exec delivered core-time ≠ <b>W′</b> (the simulated work target: f·W under a class factor f, = W otherwise — §4.2) beyond fixed-point error at window completion; raw measured W is provenance only</td>
+<tr><td><b>G7</b> conservation</td><td>per-exec delivered core-time ≠ <b>W′ = d·T′</b> (T′ = the sum of once-rounded factor-scaled dilated fragment lengths — §4.2/§4.4; ≈ f·W up to once-per-action rounding, = W with no factor) at window completion; raw measured W is provenance only</td>
 <td>hard assertion (a loop bug, not a data condition): fail the run loudly</td></tr>
-<tr><td><b>G8</b> mode agreement</td><td>capacity mode at C=∞ differs from infinite mode on any op's times</td>
-<td>hard assertion in tests (V-R1); not evaluated at runtime (cost) — enforced by the shared-compilation design</td></tr>
+<tr><td><b>G8</b> mode agreement (scoped — §3.5)</td><td>(1) any graph without capacity data / demand-carrying execs: capacity mode at C′=∞ differs anywhere from infinite mode; (2) demand-carrying baseline (factors 1) at C′=∞: differs anywhere; (3) demand-carrying with factors at C′=∞: differs anywhere OUTSIDE M_e-remapped anchors and their causal downstream (remapped anchors assert hand-derived values, V-R22)</td>
+<td>hard assertion in tests (V-R1/V-R22); not evaluated at runtime (cost) — enforced by the shared-compilation + overlay design</td></tr>
 </table>
 
 <!-- ============================ §11 ============================ -->
@@ -981,8 +1026,8 @@ graphs are constructed in-test (the existing idiom across <code>replay_*_test.go
 example is a catalog entry with its hand-derived numbers.</p>
 <table>
 <tr><th>id</th><th>scenario</th><th>exact expectation</th></tr>
-<tr><td>V-R1</td><td>every existing replay test graph + randomized graphs, capacity mode at C=∞</td>
-<td>per-op simStart/simFinish identical to the current Simulation, bit-for-bit — this also proves the forward loop's anchors match the recursion's on faithful data</td></tr>
+<tr><td>V-R1</td><td>every existing replay test graph + randomized graphs (none carry resource data), capacity mode at C′=∞; plus demand-carrying synthetic graphs at baseline factors</td>
+<td>per-op simStart/simFinish identical to the current Simulation, bit-for-bit (G8 scopes 1 and 2) — this also proves the forward loop's anchors match the recursion's on faithful data</td></tr>
 <tr><td>V-R2</td><td>constructed graphs with S(t) ≤ C everywhere</td><td>capacity baseline == infinite baseline exactly (zero stretch, zero residual)</td></tr>
 <tr><td>V-R3</td><td>W1 (§5.1) at C ∈ {2,4,6,8}</td><td>counterfactual makespan = max(10, 60/C) s exactly: 30 / 15 / 10 / 10</td></tr>
 <tr><td>V-R4</td><td>W2 allocator unit tests</td><td>allocations (0.5, 1.5, 2.0); Σd ≤ C ⇒ a=d; single d &gt; C ⇒ a=C; d=0 ⇒ r=1</td></tr>
@@ -999,7 +1044,8 @@ example is a catalog entry with its hand-derived numbers.</p>
 <tr><td>V-R13</td><td>join inside window</td><td>a blocked exec leaves the active set; the conservation ledger proves no work delivered while blocked</td></tr>
 <tr><td>V-R14</td><td>recorded cycle / inverted reference</td><td>G6 break at the lowest-ID blocked op, counted, gate failed — mirroring the recursion's counters on the same graph</td></tr>
 <tr><td>V-R15</td><td>window straddling segment boundaries; window inside a wait; window at op edges; fragmented action under a factor</td><td>overlay split correctness, hand-derived per case; fragment lengths telescope to the once-rounded dur×f total (the §4.2 fragment rounding rule), including the 3ns/f=0.9 adversarial case</td></tr>
-<tr><td>V-R16</td><td>hypothesis factors × capacity (the §4.2 exact rule)</td><td>factor f on a demand-carrying exec scales dilated segment time AND its W share by f with d invariant: G7 target = f·W; at C′=∞ the segment length is exactly f·dur (G8); plus a hand-derived mixed case with a factor-scaled non-exec segment composing with a dilated window</td></tr>
+<tr><td>V-R16</td><td>hypothesis factors × capacity (the §4.2 exact rule)</td><td>factor f on a demand-carrying exec scales dilated segment time with d invariant and conservation target W′ = d·T′ (T′ from the telescoping rounding rule): G7 exact; at C′=∞ the segment length is exactly the once-rounded f·dur (G8 scope 3); plus a hand-derived mixed case with a factor-scaled non-exec segment composing with a dilated window</td></tr>
+<tr><td>V-R22</td><td>the G8 scope-3 divergence itself: a nested-client child spawned mid-window of an exec whose class carries factor f, simulated at C′=∞</td><td>the infinite mode leaves the nested spawn at the exec op's (unmoved) local clock; the capacity mode anchors it at the hand-derived factor-scaled window image M_e(t); the catalog asserts BOTH values — the divergence is the documented refinement, not an accident (§3.5)</td></tr>
 <tr><td>V-R17</td><td>real exec anatomy: containerStart + processRun as grandchildren under the runContainer phase (the executor_spec.go:1429-1434 shape)</td><td>SW equals the processRun-window self time (non-zero); a children-only traversal would yield SW=0 — asserted against the descendant rule; emitted window == recorded processRun interval (G4 cross-check passes)</td></tr>
 <tr><td>V-R18</td><td>downward grid: W1 at C′=2 where d=3 &gt; C′</td><td>valid simulation, no G5: allocator caps a=2, stretch d/a=1.5 applies — G5 fires only against C_rec (§3.1)</td></tr>
 <tr><td>V-R19</td><td>an exec with a mid-window recorded wait OWNED BY a dilation-set op (e.g. a lock wait on the runContainer phase)</td><td>S(t) excludes the wait interval (saturation over in-window self segments, §8.1); the sim's active set drops the exec for the same interval — identical demand intervals by construction. Contrast with V-R21: a <em>sibling</em> nested overlap suspends nothing.</td></tr>
@@ -1012,8 +1058,12 @@ example is a catalog entry with its hand-derived numbers.</p>
 final totals (cumulative counters, final read at end of life — §6.1); window timestamps are
 callback-time, not cgroup-file time (sub-ms skew); PSI totals carry kernel bookkeeping granularity;
 whole-window averaging smears bursts (Appendix B is the designed refinement, deferred until CAL data
-shows it is the dominant error). None is corrected for; they are why G2/G5 carry measured-floor
-tolerances instead of zero.</p>
+shows it is the dominant error); the in-window placement of the aggregate W is the §3.3 declared
+simplification (the container is assumed CPU-idle during the gaps in D_e and uniformly busy elsewhere,
+including through sibling nested-client overlap — total W conserved, placement not derivable from an
+aggregate counter); the post-we teardown tail is included in W but not in the window (negligible,
+teardown-only). None is corrected for; they are why G2/G5 carry measured-floor tolerances instead of
+zero.</p>
 
 <h3>§11.5 Real-engine calibration (evidence committed under hack/logs/)</h3>
 <p>Method mirrors the established what-if-cached calibration harness (same workloads, same dump
@@ -1091,6 +1141,11 @@ plus a <em>simulated assignment policy</em> (never an optimizer). Blocked on dat
 yet: cross-machine transfer costs, multi-engine traces. The v1 down-payment is the downward half of
 the sensitivity grid (machine right-sizing).</li>
 <li><b>Aggregate engine-usage lane</b> — Appendix A: designed, deactivated pending ratification.</li>
+<li><b>Infinite-mode nested-anchor gap</b> (found during this design, §3.5): the infinite replay does
+not move a nested-client spawn when a hypothesis factor scales its host exec (the exec op's own self
+time is nearly empty, so the parent clock never traverses the scaled work). The capacity mode's M_e
+anchor is the refinement; back-porting it to the infinite mode would change existing behavior and is
+deliberately out of scope here.</li>
 </ul>
 
 <!-- ============================ §15 ============================ -->
