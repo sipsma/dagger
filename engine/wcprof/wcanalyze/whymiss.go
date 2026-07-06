@@ -322,110 +322,143 @@ func runWhyUncached(g *Graph, pair *whyPairState, target string) (*WhyMissReport
 			return nil, fmt.Errorf("why-uncached (reference capture) %s", err)
 		}
 	}
-	w := newWhyMissWalk(g)
-	w.pair = pair
-	tn := w.node(target)
-	if tn.Status == MissStatusUnrecorded {
-		return nil, fmt.Errorf("why-uncached: digest %s has no recorded call in this capture", target)
-	}
+	// The walk runs to a CONFLICT-FREE FIXPOINT (review round 2): a pairing
+	// claimed by two distinct reference occurrences is ambiguous and must be
+	// voided — but a conflict can surface AFTER the node's paired descent
+	// already emitted derived pairings (a later parent claims the same B
+	// digest). Rather than retroactively patching emitted state, the walk
+	// RESTARTS from scratch with the conflicted digest poisoned (it accepts
+	// no pairing from the start), until a whole walk completes with no new
+	// conflict. The final report is therefore generated entirely under the
+	// final voided set — nothing in it derives from a pairing it disavows.
+	// Terminates: the poison set grows strictly per restart, bounded by the
+	// capture's digest count; deterministic: the BFS itself is.
+	poisoned := map[string][2]string{}
 
-	rep := &WhyMissReport{Target: tn, PairMode: pair != nil}
-	if g.ResultIDsCaptureLocal {
-		// The OTel source caveats (design §3.1, round-3 findings). Native
-		// captures are demand-complete and carry the ordered, module-ref-
-		// inclusive input vector; the OTel source is neither.
-		rep.Caveats = append(rep.Caveats,
-			"OTel capture: repeated same-digest call spans are deliberately suppressed at emit (seen-key suppression, dagql/telemetry.go), so per-digest evidence is first-emission-only; first-demand status is computed from what is recorded",
-			"OTel capture: module-ref edges are not recorded in dag.inputs — a module-caused miss cannot be walked to its true frontier; the frontier may be shallow for module-provided calls (E3 closes this; per-node refusal lands with Chunk 4)",
-		)
-	}
-	if pair != nil && pair.refusePositional {
-		rep.Caveats = append(rep.Caveats,
-			"OTel capture pair: positional pairing REFUSED — dag.inputs is a deduplicated, module-less digest list, unsound for the §5 ordered pairing contract (E3a unlocks it); digest-stable analysis only (categories 2/8 by digest identity; changed nodes stay single-capture-classified)")
-	}
-
-	if !tn.WalkedAsMiss() {
-		// Nothing to trace: the target was served from cache at first demand
-		// (or its status is undecidable, which the report states as-is).
-		return rep, nil
-	}
-
-	// Root pairing: an absent-from-reference target needs an A-side partner
-	// for its inputs to pair positionally. The partner must be unambiguous —
-	// the single reference digest of the target's class that is itself
-	// absent from this capture — else pairing is refused with the reason
-	// stated (never guessed).
-	if pair != nil && !pair.refusePositional && !pair.stable(tn.Digest) {
-		if pa, why := pair.rootPartner(w, tn); pa != "" {
-			tn.PairedWith = pa
-		} else if why != "" {
-			rep.PairLines = append(rep.PairLines, why)
+	var (
+		w   *whyMissWalk
+		tn  *WhyMissNode
+		rep *WhyMissReport
+	)
+	for {
+		w = newWhyMissWalk(g)
+		w.pair = pair
+		tn = w.node(target)
+		if tn.Status == MissStatusUnrecorded {
+			return nil, fmt.Errorf("why-uncached: digest %s has no recorded call in this capture", target)
 		}
-	}
 
-	// Deterministic BFS over recorded cache-input digests: input order is the
-	// recorded order, node identity is the digest (visited once).
-	queue := []*WhyMissNode{tn}
-	tn.walked = true
-	for len(queue) > 0 {
-		n := queue[0]
-		queue = queue[1:]
-		rep.NodesWalked++
-		if n.Status == MissStatusRefused {
-			// A do-not-cache node terminates its path: the refusal is an
-			// unconditional, first-class complete answer for this node's
-			// miss — nothing below it can change that (category 7).
-			continue
+		rep = &WhyMissReport{Target: tn, PairMode: pair != nil}
+		if g.ResultIDsCaptureLocal {
+			// The OTel source caveats (design §3.1, round-3 findings). Native
+			// captures are demand-complete and carry the ordered, module-ref-
+			// inclusive input vector; the OTel source is neither.
+			rep.Caveats = append(rep.Caveats,
+				"OTel capture: repeated same-digest call spans are deliberately suppressed at emit (seen-key suppression, dagql/telemetry.go), so per-digest evidence is first-emission-only; first-demand status is computed from what is recorded",
+				"OTel capture: module-ref edges are not recorded in dag.inputs — a module-caused miss cannot be walked to its true frontier; the frontier may be shallow for module-provided calls (E3 closes this; per-node refusal lands with Chunk 4)",
+			)
 		}
-		if pair != nil && pair.stable(n.Digest) {
-			// Digest-stable in the reference: the A-side outcome answers
-			// directly (design §5 bullet 1 — category 2/8 family). No
-			// descent: every digest below a stable digest is stable by
-			// Merkle construction, so descending repeats the same answer.
-			n.StableInA = true
-			n.aSide = pair.side(n.Digest)
-			continue
+		if pair != nil && pair.refusePositional {
+			rep.Caveats = append(rep.Caveats,
+				"OTel capture pair: positional pairing REFUSED — dag.inputs is a deduplicated, module-less digest list, unsound for the §5 ordered pairing contract (E3a unlocks it); digest-stable analysis only (categories 2/8 by digest identity; changed nodes stay single-capture-classified)")
 		}
-		var edges []whyMissEdge
-		if pair != nil && !pair.refusePositional && n.PairedWith != "" {
-			edges = w.pairedInputEdges(rep, n)
-		} else {
-			for _, dig := range w.inputsOf(n) {
-				edges = append(edges, whyMissEdge{b: dig})
+
+		if !tn.WalkedAsMiss() {
+			// Nothing to trace: the target was served from cache at first demand
+			// (or its status is undecidable, which the report states as-is).
+			return rep, nil
+		}
+
+		// Root pairing: an absent-from-reference target needs an A-side partner
+		// for its inputs to pair positionally. The partner must be unambiguous —
+		// the single reference digest of the target's class that is itself
+		// absent from this capture — else pairing is refused with the reason
+		// stated (never guessed).
+		if pair != nil && !pair.refusePositional && !pair.stable(tn.Digest) {
+			if pa, why := pair.rootPartner(w, tn); pa != "" {
+				tn.PairedWith = pa
+			} else if why != "" {
+				rep.PairLines = append(rep.PairLines, why)
 			}
 		}
-		seenEdge := map[string]bool{}
-		for _, e := range edges {
-			in, seen := w.nodes[e.b]
-			if !seen {
-				in = w.node(e.b)
-			}
-			// Pairing reconciliation runs on EVERY occurrence (dedup below is
-			// only for walk edges): two distinct A occurrences claiming one B
-			// digest make the partner ambiguous — the pairing is voided and
-			// stated, never first-wins-classified (review round 1, finding 3).
-			if e.pairA != "" && !in.PairConflict {
-				switch {
-				case in.PairedWith == "":
-					in.PairedWith = e.pairA
-				case in.PairedWith != e.pairA:
-					rep.PairLines = append(rep.PairLines, fmt.Sprintf(
-						"digest %s claimed by two distinct reference pairings (%s and %s) — the partner is ambiguous, so the pairing is VOIDED for this node (classified by digest identity only)",
-						in.Digest, in.PairedWith, e.pairA))
-					in.PairedWith = ""
-					in.PairConflict = true
-				}
-			}
-			if seenEdge[e.b] {
+
+		// Deterministic BFS over recorded cache-input digests: input order is
+		// the recorded order, node identity is the digest (visited once).
+		newConflict := false
+		voidLineEmitted := map[string]bool{}
+		queue := []*WhyMissNode{tn}
+		tn.walked = true
+		for len(queue) > 0 && !newConflict {
+			n := queue[0]
+			queue = queue[1:]
+			rep.NodesWalked++
+			if n.Status == MissStatusRefused {
+				// A do-not-cache node terminates its path: the refusal is an
+				// unconditional, first-class complete answer for this node's
+				// miss — nothing below it can change that (category 7).
 				continue
 			}
-			seenEdge[e.b] = true
-			n.Inputs = append(n.Inputs, in)
-			if in.WalkedAsMiss() && !in.walked {
-				in.walked = true
-				in.walkParent = n
-				queue = append(queue, in)
+			if pair != nil && pair.stable(n.Digest) {
+				// Digest-stable in the reference: the A-side outcome answers
+				// directly (design §5 bullet 1 — category 2/8 family). No
+				// descent: every digest below a stable digest is stable by
+				// Merkle construction, so descending repeats the same answer.
+				n.StableInA = true
+				n.aSide = pair.side(n.Digest)
+				continue
 			}
+			var edges []whyMissEdge
+			if pair != nil && !pair.refusePositional && n.PairedWith != "" {
+				edges = w.pairedInputEdges(rep, n)
+			} else {
+				for _, dig := range w.inputsOf(n) {
+					edges = append(edges, whyMissEdge{b: dig})
+				}
+			}
+			seenEdge := map[string]bool{}
+			for _, e := range edges {
+				in, seen := w.nodes[e.b]
+				if !seen {
+					in = w.node(e.b)
+				}
+				// Poisoned digests accept no pairing at all this walk; the
+				// void line renders once, on the first claim.
+				if claims, bad := poisoned[in.Digest]; bad {
+					in.PairConflict = true
+					if e.pairA != "" && !voidLineEmitted[in.Digest] {
+						voidLineEmitted[in.Digest] = true
+						rep.PairLines = append(rep.PairLines, fmt.Sprintf(
+							"digest %s claimed by two distinct reference pairings (%s and %s) — the partner is ambiguous, so the pairing is VOIDED for this node (classified by digest identity only)",
+							in.Digest, claims[0], claims[1]))
+					}
+				} else if e.pairA != "" {
+					// Pairing reconciliation runs on EVERY occurrence (dedup
+					// below is only for walk edges): a second distinct claim
+					// poisons the digest and restarts the walk (review round
+					// 2 — a conflict discovered after paired descent must not
+					// leave derived pairings standing).
+					switch {
+					case in.PairedWith == "":
+						in.PairedWith = e.pairA
+					case in.PairedWith != e.pairA:
+						poisoned[in.Digest] = [2]string{in.PairedWith, e.pairA}
+						newConflict = true
+					}
+				}
+				if seenEdge[e.b] {
+					continue
+				}
+				seenEdge[e.b] = true
+				n.Inputs = append(n.Inputs, in)
+				if in.WalkedAsMiss() && !in.walked {
+					in.walked = true
+					in.walkParent = n
+					queue = append(queue, in)
+				}
+			}
+		}
+		if !newConflict {
+			break
 		}
 	}
 

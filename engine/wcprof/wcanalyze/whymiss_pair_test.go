@@ -418,6 +418,68 @@ func TestWhyMissPairAmbiguityRefusal(t *testing.T) {
 	}
 }
 
+// Cross-parent DELAYED conflict (review round 2): the second claim arrives
+// from a parent walked AFTER the node's paired descent already ran. The walk
+// must restart with the digest poisoned so the final report derives nothing
+// from the voided pairing.
+func TestWhyMissPairConflictAcrossParentsRestarts(t *testing.T) {
+	sA := newFixtureStrings()
+	gA := buildWhyGraph(t, sA, []wcprof.DumpEvent{
+		opEvent(sA, 1, 0, "session_phase", "session.query", "", "ok", 0, 900*ms),
+		opEvent(sA, 2, 1, "call", "X.dep", "a1", "executed", 0, 40*ms),
+		opEvent(sA, 3, 1, "call", "X.dep", "a2", "executed", 40*ms, 80*ms),
+		withInputs(t, sA, opEvent(sA, 4, 1, "call", "P.one", "p1A", "executed", 80*ms, 200*ms), []string{"a1"}),
+		withInputs(t, sA, opEvent(sA, 5, 1, "call", "P.two", "p2A", "executed", 200*ms, 320*ms), []string{"a2"}),
+		withInputs(t, sA, opEvent(sA, 6, 1, "call", "T.build", "tA", "executed", 320*ms, 800*ms), []string{"p1A", "p2A"}),
+	})
+	sB := newFixtureStrings()
+	gB := buildWhyGraph(t, sB, []wcprof.DumpEvent{
+		opEvent(sB, 1, 0, "session_phase", "session.query", "", "ok", 0, 900*ms),
+		opEvent(sB, 2, 1, "call", "X.dep", "x", "executed", 0, 40*ms),
+		withInputs(t, sB, opEvent(sB, 3, 1, "call", "P.one", "p1B", "executed", 40*ms, 160*ms), []string{"x"}),
+		withInputs(t, sB, opEvent(sB, 4, 1, "call", "P.two", "p2B", "executed", 160*ms, 280*ms), []string{"x"}),
+		withInputs(t, sB, opEvent(sB, 5, 1, "call", "T.build", "tB", "executed", 280*ms, 800*ms), []string{"p1B", "p2B"}),
+		opEvent(sB, 6, 5, "call_exec", "T.build", "tB", "ok", 280*ms, 800*ms),
+		waitEvent(sB, 5, 6, "", "call_exec", 280*ms, 800*ms),
+	})
+	rep, err := RunWhyUncachedPair(gB, gA, "tB")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Derived: tB pairs with tA; its gap pairs (p1A->p1B, p2A->p2B); p1B's
+	// descent claims (a1->x), then p2B's claims (a2->x) — a conflict AFTER
+	// x's pairing was already consumed. The walk restarts with x poisoned:
+	// the final report voids x's pairing entirely.
+	o := originByDigest(t, rep, "x")
+	if o.Category == CategoryInputChanged {
+		t.Fatalf("x's pairing was ambiguous across parents — it must not classify category 3")
+	}
+	if o.Node.PairedWith != "" || !o.Node.PairConflict {
+		t.Fatalf("x must end voided: PairedWith=%q conflict=%v", o.Node.PairedWith, o.Node.PairConflict)
+	}
+	voided := false
+	for _, l := range rep.PairLines {
+		if strings.Contains(l, "VOIDED") && strings.Contains(l, "a1") && strings.Contains(l, "a2") {
+			voided = true
+		}
+	}
+	if !voided {
+		t.Fatalf("the void line must name both claims, got %v", rep.PairLines)
+	}
+	// The parents keep their own sound pairings.
+	for _, dig := range []string{"p1B", "p2B"} {
+		found := false
+		for _, l := range rep.PairLines {
+			if strings.Contains(l, dig) && strings.Contains(l, "input #1 changed") {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("%s's own changed-input attribution must survive the restart, got %v", dig, rep.PairLines)
+		}
+	}
+}
+
 // --- W11 (formal pinning; the first-demand rules were pinned with Chunk 1):
 // all-hit and all-hit_pending digests are boundaries, pending rendered as a
 // nuance — and the same digest-node semantics hold unchanged in pair mode.
