@@ -241,6 +241,11 @@ func (c *Cache) ImportBundle(ctx context.Context, r io.Reader) (CacheBundleImpor
 		}
 		c.assignResultOriginLocked(res, restored.origin)
 		if len(row.envelope.LazyJSON) > 0 {
+			// Fragment-with-no-snapshot-links is also the shape the decode
+			// walk reads as a retired snapshot source, which is exactly
+			// right for bundle rows: any snapshot IDs their payloads
+			// textually carry are the exporter's, and first-use decode must
+			// re-make from the fragment, never probe local snapshots.
 			res.materialization.setLazyFragment(&PersistedLazyFragment{
 				Kind: row.envelope.LazyKind,
 				JSON: row.envelope.LazyJSON,

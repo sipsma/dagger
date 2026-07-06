@@ -973,9 +973,16 @@ func TestCacheBundleOriginRebindSurvivesCorpseRelease(t *testing.T) {
 			break
 		}
 	}
-	// Simulate §9's exhaustion drop of a row a session still holds: marked
-	// dropped, deindexed from servability, but not yet released.
+	// Simulate the exhaustion drop of a row a session still holds, in the
+	// drop path's own shape: the dropped mark lands together with the
+	// cleared envelope and emptied source list (dropExhaustedResult leaves
+	// an unrealized target with nothing to deliver), but the row is not
+	// yet released.
 	corpse.dropped = true
+	corpse.payloadMu.Lock()
+	corpse.materialization.envelope = nil
+	corpse.materialization.sources = nil
+	corpse.payloadMu.Unlock()
 	cacheB.egraphMu.Unlock()
 	assert.Assert(t, corpse != nil)
 
