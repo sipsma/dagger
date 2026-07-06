@@ -153,9 +153,9 @@ func TestPersistedSelfCodecUsesSharedObjectClassification(t *testing.T) {
 		Field: "obj",
 	}
 	shared := &sharedResult{
-		self:     &persistCodecObj{Name: "x"},
-		isObject: true,
-		hasValue: true,
+		self:            &persistCodecObj{Name: "x"},
+		isObject:        true,
+		materialization: materializationState{realized: true},
 	}
 	shared.storeResultCall(call)
 

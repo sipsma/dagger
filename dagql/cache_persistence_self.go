@@ -34,6 +34,43 @@ type PersistedResultEnvelope struct {
 	Items                 []PersistedResultEnvelope `json:"items,omitempty"`
 }
 
+// persistedPayloadLazyProbe mirrors the one field shared by every object
+// payload that can carry a persisted lazy form (Directory, File, and
+// Container all encode it under this key).
+type persistedPayloadLazyProbe struct {
+	LazyJSON json.RawMessage `json:"lazyJSON"`
+}
+
+// carriesLazyPayload reports whether the envelope's object payload (or any
+// list item's) includes a persisted lazy form the value could be re-run
+// from. Payloads that fail to parse simply report false: a payload that
+// cannot be read cannot be a source.
+func (env *PersistedResultEnvelope) carriesLazyPayload() bool {
+	if env == nil {
+		return false
+	}
+	switch env.Kind {
+	case persistedResultKindObject:
+		if len(env.ObjectJSON) == 0 {
+			return false
+		}
+		var probe persistedPayloadLazyProbe
+		if err := json.Unmarshal(env.ObjectJSON, &probe); err != nil {
+			return false
+		}
+		return len(probe.LazyJSON) > 0
+	case persistedResultKindList:
+		for i := range env.Items {
+			if env.Items[i].carriesLazyPayload() {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
 type PersistedObjectCache interface {
 	PersistedResultID(AnyResult) (uint64, error)
 }

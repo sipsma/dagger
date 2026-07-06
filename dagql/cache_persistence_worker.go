@@ -128,7 +128,7 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 			frame:                 res.loadResultCall().clone(),
 			self:                  payload.self,
 			isObject:              payload.isObject,
-			hasValue:              payload.hasValue,
+			realized:              payload.realized,
 			sessionResourceHandle: res.sessionResourceHandle,
 			persistedEnvelope:     payload.persistedEnvelope,
 			snapshotOwnerLinks:    payload.snapshotOwnerLinks,
@@ -396,7 +396,7 @@ func (c *Cache) persistResultEnvelope(ctx context.Context, snapshot *persistResu
 			SnapshotLinks: snapshot.snapshotOwnerLinks,
 		}, nil
 	}
-	if snapshot == nil || !snapshot.hasValue {
+	if snapshot == nil || !snapshot.realized {
 		return PersistedResultEncoding{
 			Envelope: PersistedResultEnvelope{
 				Version: 1,
@@ -421,7 +421,7 @@ func (c *Cache) persistResultEnvelope(ctx context.Context, snapshot *persistResu
 		shared := &sharedResult{
 			self:                  snapshot.self,
 			isObject:              snapshot.isObject,
-			hasValue:              snapshot.hasValue,
+			materialization:       materializationState{realized: snapshot.realized},
 			id:                    snapshot.resultID,
 			sessionResourceHandle: snapshot.sessionResourceHandle,
 		}
@@ -430,7 +430,7 @@ func (c *Cache) persistResultEnvelope(ctx context.Context, snapshot *persistResu
 	shared := &sharedResult{
 		self:                  snapshot.self,
 		isObject:              snapshot.isObject,
-		hasValue:              snapshot.hasValue,
+		materialization:       materializationState{realized: snapshot.realized},
 		id:                    snapshot.resultID,
 		sessionResourceHandle: snapshot.sessionResourceHandle,
 	}
@@ -460,7 +460,7 @@ func (c *Cache) persistResultEnvelope(ctx context.Context, snapshot *persistResu
 			"kind", snapshot.frame.Kind,
 			"typeName", typeName,
 			"selfType", selfType,
-			"hasValue", snapshot.hasValue,
+			"realized", snapshot.realized,
 			"sessionResourceHandle", snapshot.sessionResourceHandle,
 			"err", err,
 		)

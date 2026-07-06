@@ -33,7 +33,7 @@ type persistResultSnapshot struct {
 	frame                 *ResultCall
 	self                  Typed
 	isObject              bool
-	hasValue              bool
+	realized              bool
 	sessionResourceHandle SessionResourceHandle
 	persistedEnvelope     *PersistedResultEnvelope
 	snapshotOwnerLinks    []PersistedSnapshotRefLink

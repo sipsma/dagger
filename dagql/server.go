@@ -1727,11 +1727,11 @@ func (s *Server) Select(ctx context.Context, self AnyObjectResult, dest any, sel
 				if state.isObject {
 					typeName := sharedResultObjectTypeName(shared, state)
 					return fmt.Errorf(
-						"select %s returned unresolved object-typed result %q (shared result %d: hasValue=%t, persistedEnvelope=%t)",
+						"select %s returned unresolved object-typed result %q (shared result %d: realized=%t, envelope=%t)",
 						sel.Field,
 						typeName,
 						shared.id,
-						state.hasValue,
+						state.realized,
 						state.persistedEnvelope != nil,
 					)
 				}
@@ -1742,11 +1742,11 @@ func (s *Server) Select(ctx context.Context, self AnyObjectResult, dest any, sel
 					payload := shared.loadPayloadState()
 					typeName = sharedResultObjectTypeName(shared, payload)
 					return fmt.Errorf(
-						"select %s returned unresolved object result %q (shared result %d: hasValue=%t, persistedEnvelope=%t)",
+						"select %s returned unresolved object result %q (shared result %d: realized=%t, envelope=%t)",
 						sel.Field,
 						typeName,
 						shared.id,
-						payload.hasValue,
+						payload.realized,
 						payload.persistedEnvelope != nil,
 					)
 				}

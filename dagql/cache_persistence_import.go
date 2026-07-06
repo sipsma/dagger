@@ -170,14 +170,17 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 				lastUsedAtUnixNano:    row.LastUsedAtUnixNano,
 				description:           row.Description,
 				recordType:            row.RecordType,
-				persistedEnvelope:     &env,
+				materialization:       materializationState{envelope: &env},
+			}
+			if env.carriesLazyPayload() {
+				res.materialization.ensureSource(sourceLazyValue)
 			}
 			res.storeResultCall(frame)
 			c.traceResultCallFrameUpdated(ctx, res, "import_persisted_result", nil, frame)
 
 			if env.Kind == persistedResultKindNull {
-				res.hasValue = true
-				res.persistedEnvelope = nil
+				res.materialization.realized = true
+				res.materialization.envelope = nil
 				c.tracePersistedPayloadImportedEager(ctx, importRunID, resultID, "", "nil")
 			} else {
 				eagerDecodeResultIDs = append(eagerDecodeResultIDs, resultID)
@@ -349,7 +352,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 				return fmt.Errorf("import result_snapshot_link: missing result %d", row.ResultID)
 			}
 			res.payloadMu.Lock()
-			res.snapshotOwnerLinks = append(res.snapshotOwnerLinks, PersistedSnapshotRefLink{
+			res.materialization.appendLocalSnapshotLink(PersistedSnapshotRefLink{
 				RefKey: row.RefKey,
 				Role:   row.Role,
 			})
@@ -404,7 +407,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 	for _, resultID := range eagerDecodeResultIDs {
 		res := c.resultsByID[resultID]
 		state := res.loadPayloadState()
-		if res == nil || state.hasValue || state.persistedEnvelope == nil {
+		if res == nil || state.realized || state.persistedEnvelope == nil {
 			continue
 		}
 		call := res.loadResultCall()
@@ -414,9 +417,9 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 		decodeCtx := ContextWithCall(ctx, call)
 		if decoded, err := DefaultPersistedSelfCodec.DecodeResult(decodeCtx, nil, uint64(resultID), call, *state.persistedEnvelope); err == nil && decoded != nil {
 			res.payloadMu.Lock()
-			if !res.hasValue && res.persistedEnvelope != nil {
+			if !res.materialization.realized && res.materialization.envelope != nil {
 				res.self = decoded.Unwrap()
-				res.hasValue = true
+				res.materialization.realized = true
 				if objDecoded, ok := decoded.(AnyObjectResult); ok && res.objClass == nil {
 					res.objClass = objDecoded.ObjectType()
 				}
@@ -429,7 +432,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 						res.requiredSessionResources = nil
 					}
 				}
-				res.persistedEnvelope = nil
+				res.materialization.envelope = nil
 			}
 			res.payloadMu.Unlock()
 			if onReleaser, ok := UnwrapAs[OnReleaser](decoded); ok {
@@ -445,7 +448,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 	for _, resultID := range eagerDecodeResultIDs {
 		res := c.resultsByID[resultID]
 		state := res.loadPayloadState()
-		if res == nil || state.persistedEnvelope == nil || state.hasValue {
+		if res == nil || state.persistedEnvelope == nil || state.realized {
 			continue
 		}
 		c.tracePersistedPayloadImportedLazy(ctx, importRunID, resultID, "", state.persistedEnvelope.Kind, state.persistedEnvelope.TypeName)
@@ -579,10 +582,10 @@ func (c *Cache) ensurePersistedHitValueLoaded(ctx context.Context, resolver Type
 
 	for {
 		state := res.loadPayloadState()
-		if state.isObject && state.hasValue && state.self == nil {
-			return nil, fmt.Errorf("ensure persisted hit value loaded: invalid object payload state for result %d (hasValue=true, self=nil)", res.id)
+		if state.isObject && state.realized && state.self == nil {
+			return nil, fmt.Errorf("ensure persisted hit value loaded: invalid object payload state for result %d (realized=true, self=nil)", res.id)
 		}
-		if state.hasValue || state.persistedEnvelope == nil {
+		if state.realized || state.persistedEnvelope == nil {
 			if !state.isObject {
 				c.registerLazyEvaluation(res, hit)
 				return hit, nil
@@ -670,9 +673,9 @@ func (c *Cache) ensurePersistedHitValueLoaded(ctx context.Context, resolver Type
 		}
 
 		res.payloadMu.Lock()
-		if !res.hasValue && res.persistedEnvelope != nil {
+		if !res.materialization.realized && res.materialization.envelope != nil {
 			res.self = decoded.Unwrap()
-			res.hasValue = true
+			res.materialization.realized = true
 			if objDecoded, ok := decoded.(AnyObjectResult); ok && res.objClass == nil {
 				res.objClass = objDecoded.ObjectType()
 			}
@@ -685,7 +688,7 @@ func (c *Cache) ensurePersistedHitValueLoaded(ctx context.Context, resolver Type
 					res.requiredSessionResources = nil
 				}
 			}
-			res.persistedEnvelope = nil
+			res.materialization.envelope = nil
 			c.tracePersistedPayloadDecoded(ctx, res, state.persistedEnvelope)
 		}
 		res.payloadMu.Unlock()

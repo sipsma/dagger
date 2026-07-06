@@ -6162,9 +6162,9 @@ func TestCompactEqClassesSkipsWhenBelowThreshold(t *testing.T) {
 	_ = c.ensureEqClassForDigestLocked(ctx, "compact-threshold-dead-1")
 	_ = c.ensureEqClassForDigestLocked(ctx, "compact-threshold-dead-2")
 	c.resultsByID = map[sharedResultID]*sharedResult{
-		1: {id: 1, self: Int(1), hasValue: true, resultCall: cacheTestIntCall("compact-threshold-a")},
-		2: {id: 2, self: Int(2), hasValue: true, resultCall: cacheTestIntCall("compact-threshold-b")},
-		3: {id: 3, self: Int(3), hasValue: true, resultCall: cacheTestIntCall("compact-threshold-c")},
+		1: {id: 1, self: Int(1), materialization: materializationState{realized: true}, resultCall: cacheTestIntCall("compact-threshold-a")},
+		2: {id: 2, self: Int(2), materialization: materializationState{realized: true}, resultCall: cacheTestIntCall("compact-threshold-b")},
+		3: {id: 3, self: Int(3), materialization: materializationState{realized: true}, resultCall: cacheTestIntCall("compact-threshold-c")},
 	}
 	c.resultOutputEqClasses[1] = map[eqClassID]struct{}{a: {}}
 	c.resultOutputEqClasses[2] = map[eqClassID]struct{}{b: {}}
@@ -6316,9 +6316,9 @@ func TestCachePruneDoesNotProtectTermProvenanceOnlyResultFromActiveResult(t *tes
 	c := cacheIface
 
 	root := &sharedResult{
-		id:       1,
-		self:     cacheTestSizedInt{Int: Int(1), sizeByIdentity: map[string]int64{"snapshot://prune-structural-root": 10}, usageIdentities: []string{"snapshot://prune-structural-root"}},
-		hasValue: true,
+		id:              1,
+		self:            cacheTestSizedInt{Int: Int(1), sizeByIdentity: map[string]int64{"snapshot://prune-structural-root": 10}, usageIdentities: []string{"snapshot://prune-structural-root"}},
+		materialization: materializationState{realized: true},
 		resultCall: &ResultCall{
 			Kind:        ResultCallKindSynthetic,
 			SyntheticOp: "root",
@@ -6327,9 +6327,9 @@ func TestCachePruneDoesNotProtectTermProvenanceOnlyResultFromActiveResult(t *tes
 		incomingOwnershipCount: 1,
 	}
 	provenanceOnly := &sharedResult{
-		id:       2,
-		self:     cacheTestSizedInt{Int: Int(2), sizeByIdentity: map[string]int64{"snapshot://prune-structural-provenance-only": 20}, usageIdentities: []string{"snapshot://prune-structural-provenance-only"}},
-		hasValue: true,
+		id:              2,
+		self:            cacheTestSizedInt{Int: Int(2), sizeByIdentity: map[string]int64{"snapshot://prune-structural-provenance-only": 20}, usageIdentities: []string{"snapshot://prune-structural-provenance-only"}},
+		materialization: materializationState{realized: true},
 		resultCall: &ResultCall{
 			Kind:        ResultCallKindSynthetic,
 			SyntheticOp: "provenanceOnly",

@@ -1000,7 +1000,7 @@ func desiredSnapshotLinksForResult(res *sharedResult) []PersistedSnapshotRefLink
 	}
 
 	state := res.loadPayloadState()
-	if state.hasValue && state.self != nil {
+	if state.realized && state.self != nil {
 		return snapshotOwnerLinksFromTyped(state.self)
 	}
 
@@ -1424,6 +1424,151 @@ type cacheUsageMayChange interface {
 	CacheUsageMayChange() bool
 }
 
+// materializationState is the single home for a result's content state: what
+// the result currently has in memory, and what it can be (re)made from. It
+// lives on the sharedResult — the one object with the same lifetime as the
+// result's identity — and is written only at the cache's decision points:
+// publication of locally completed work, import at boot, and the result's
+// own materialization outcome (decode or lazy realization). Flush only reads
+// it. Guarded by the owning sharedResult's payloadMu.
+type materializationState struct {
+	// envelope is the persisted form of this result's value. Present iff the
+	// result was restored from persistence and not yet decoded.
+	envelope *PersistedResultEnvelope
+
+	// sources is what this result's content can be (re)materialized from, in
+	// fall-through order (see retainedSourceKind). Content state is never
+	// shared across results: these sources belong to this result alone.
+	sources []retainedSource
+
+	// realized reports whether the in-memory value payload is currently
+	// usable; it distinguishes "initialized (possibly with a nil value)"
+	// from "not initialized". Set only by this result's own publication,
+	// decode, or lazy realization.
+	realized bool
+}
+
+// retainedSourceKind identifies one way a result's content can be
+// (re)materialized. Declaration order is the fall-through order used when a
+// result must be realized: local snapshot first, then the persisted lazy
+// form. A third content-chain source (content-addressed layer chains pulled
+// from a remote store) is reserved as the next entry; it is not built yet.
+type retainedSourceKind uint8
+
+const (
+	// sourceLocalSnapshot is content already present in the local
+	// snapshotter, identified by refKeys and kept alive by leases. RefKeys
+	// are engine-local names and never cross an engine boundary.
+	sourceLocalSnapshot retainedSourceKind = iota + 1
+
+	// sourceLazyValue is the value's persisted lazy form: a registered lazy
+	// struct referencing its input results, re-run through the existing lazy
+	// evaluation path.
+	sourceLazyValue
+)
+
+func (k retainedSourceKind) String() string {
+	switch k {
+	case sourceLocalSnapshot:
+		return "local_snapshot"
+	case sourceLazyValue:
+		return "lazy_value"
+	default:
+		return fmt.Sprintf("unknown(%d)", uint8(k))
+	}
+}
+
+// retainedSource is one entry in a result's fall-through source list,
+// carrying the kind-specific identity needed to realize from it.
+type retainedSource struct {
+	kind retainedSourceKind
+
+	// snapshotLinks is the identity for sourceLocalSnapshot: the local
+	// snapshotter refKeys holding this result's content. Empty for other
+	// kinds. (A sourceLazyValue entry carries no identity of its own: the
+	// lazy form's payload lives inside the envelope.)
+	snapshotLinks []PersistedSnapshotRefLink
+}
+
+// ensureSource returns the source of the given kind, inserting it at its
+// fall-through position if absent.
+func (m *materializationState) ensureSource(kind retainedSourceKind) *retainedSource {
+	idx := 0
+	for idx < len(m.sources) && m.sources[idx].kind < kind {
+		idx++
+	}
+	if idx < len(m.sources) && m.sources[idx].kind == kind {
+		return &m.sources[idx]
+	}
+	m.sources = slices.Insert(m.sources, idx, retainedSource{kind: kind})
+	return &m.sources[idx]
+}
+
+// setLocalSnapshotSource replaces the local-snapshot source's refKey links.
+// Empty links remove the source: content that is not in the local
+// snapshotter is not a local-snapshot source.
+func (m *materializationState) setLocalSnapshotSource(links []PersistedSnapshotRefLink) {
+	if len(links) == 0 {
+		m.sources = slices.DeleteFunc(m.sources, func(src retainedSource) bool {
+			return src.kind == sourceLocalSnapshot
+		})
+		return
+	}
+	m.ensureSource(sourceLocalSnapshot).snapshotLinks = slices.Clone(links)
+}
+
+// appendLocalSnapshotLink adds one refKey link to the local-snapshot source,
+// creating the source if absent.
+func (m *materializationState) appendLocalSnapshotLink(link PersistedSnapshotRefLink) {
+	src := m.ensureSource(sourceLocalSnapshot)
+	src.snapshotLinks = append(src.snapshotLinks, link)
+}
+
+// localSnapshotLinks returns a copy of the local-snapshot source's refKey
+// links, or nil when the source is absent.
+func (m *materializationState) localSnapshotLinks() []PersistedSnapshotRefLink {
+	for i := range m.sources {
+		if m.sources[i].kind == sourceLocalSnapshot {
+			return slices.Clone(m.sources[i].snapshotLinks)
+		}
+	}
+	return nil
+}
+
+// sourceKinds returns the kinds present, in fall-through order.
+func (m *materializationState) sourceKinds() []retainedSourceKind {
+	if len(m.sources) == 0 {
+		return nil
+	}
+	kinds := make([]retainedSourceKind, len(m.sources))
+	for i := range m.sources {
+		kinds[i] = m.sources[i].kind
+	}
+	return kinds
+}
+
+// servable reports whether this state can still honor a cache hit: the value
+// is realized, a persisted envelope remains to decode, or at least one
+// retained source remains to re-make the value from. A state with none of
+// these has nothing to deliver and must not be served as a hit.
+func (m *materializationState) servable() bool {
+	return m.realized || m.envelope != nil || len(m.sources) > 0
+}
+
+// clone returns a copy sharing no mutable slices with the original.
+func (m *materializationState) clone() materializationState {
+	cp := *m
+	cp.sources = nil
+	if len(m.sources) > 0 {
+		cp.sources = make([]retainedSource, len(m.sources))
+		for i := range m.sources {
+			cp.sources[i] = m.sources[i]
+			cp.sources[i].snapshotLinks = slices.Clone(m.sources[i].snapshotLinks)
+		}
+	}
+	return cp
+}
+
 // sharedResult holds cache-entry state and shared payload published to per-call Result values.
 type sharedResult struct {
 	// id is the stable cache-local identity for this materialized result.
@@ -1452,9 +1597,12 @@ type sharedResult struct {
 	// payloadMu guards lazy payload publication for imported persisted hits and
 	// prune-accounting timestamps that can change after initial publication.
 	payloadMu sync.RWMutex
-	// hasValue distinguishes "initialized with a nil value" from "not initialized".
-	hasValue  bool
-	onRelease OnReleaseFunc
+	// materialization is the single home for this result's content state:
+	// the persisted envelope, the retained sources the content can be
+	// (re)made from, and whether the in-memory value payload is usable.
+	// Guarded by payloadMu.
+	materialization materializationState
+	onRelease       OnReleaseFunc
 	// deps tracks exact materialized child-result dependencies used for
 	// release/liveness propagation and persistence closure. This includes
 	// explicit out-of-band deps and exact resultCall refs mirrored into deps
@@ -1469,19 +1617,10 @@ type sharedResult struct {
 	// transitive set of handle requirements for cache-hit validation.
 	sessionResourceHandle    SessionResourceHandle
 	requiredSessionResources *set.TreeSet[SessionResourceHandle]
-	// snapshotOwnerLinks are the exact direct snapshot-owner links currently
-	// attached for this result. They are the source of truth for owner lease
-	// cleanup and debug output. Persistence export for newly encoded objects
-	// derives links from the same object encode pass that produced the payload.
-	// They are not child-result deps.
-	snapshotOwnerLinks []PersistedSnapshotRefLink
 
 	// expiresAtUnix is the in-memory TTL deadline for cache-hit eligibility.
 	// 0 means "never expires".
 	expiresAtUnix int64
-	// persistedEnvelope is populated for imported rows and decoded lazily on
-	// first cache-hit use in a server-aware context.
-	persistedEnvelope *PersistedResultEnvelope
 
 	// Prune-accounting metadata. Sizes are unknown until explicitly measured.
 	createdAtUnixNano        int64
@@ -1515,10 +1654,11 @@ type sharedResult struct {
 type sharedResultPayloadState struct {
 	self               Typed
 	isObject           bool
-	hasValue           bool
+	realized           bool
 	objClass           ObjectType
 	persistedEnvelope  *PersistedResultEnvelope
 	snapshotOwnerLinks []PersistedSnapshotRefLink
+	sourceKinds        []retainedSourceKind
 	createdAtUnixNano  int64
 	lastUsedAtUnixNano int64
 }
@@ -1550,10 +1690,11 @@ func (res *sharedResult) loadPayloadState() sharedResultPayloadState {
 	state := sharedResultPayloadState{
 		self:               res.self,
 		isObject:           res.isObject,
-		hasValue:           res.hasValue,
+		realized:           res.materialization.realized,
 		objClass:           res.objClass,
-		persistedEnvelope:  res.persistedEnvelope,
-		snapshotOwnerLinks: slices.Clone(res.snapshotOwnerLinks),
+		persistedEnvelope:  res.materialization.envelope,
+		snapshotOwnerLinks: res.materialization.localSnapshotLinks(),
+		sourceKinds:        res.materialization.sourceKinds(),
 		createdAtUnixNano:  res.createdAtUnixNano,
 		lastUsedAtUnixNano: res.lastUsedAtUnixNano,
 	}
@@ -1581,9 +1722,19 @@ func (res *sharedResult) loadSnapshotOwnerLinks() []PersistedSnapshotRefLink {
 		return nil
 	}
 	res.payloadMu.RLock()
-	links := slices.Clone(res.snapshotOwnerLinks)
+	links := res.materialization.localSnapshotLinks()
 	res.payloadMu.RUnlock()
 	return links
+}
+
+func (res *sharedResult) cloneMaterializationState() materializationState {
+	if res == nil {
+		return materializationState{}
+	}
+	res.payloadMu.RLock()
+	cp := res.materialization.clone()
+	res.payloadMu.RUnlock()
+	return cp
 }
 
 func (res *sharedResult) storeSnapshotOwnerLinks(links []PersistedSnapshotRefLink) {
@@ -1591,7 +1742,7 @@ func (res *sharedResult) storeSnapshotOwnerLinks(links []PersistedSnapshotRefLin
 		return
 	}
 	res.payloadMu.Lock()
-	res.snapshotOwnerLinks = slices.Clone(links)
+	res.materialization.setLocalSnapshotSource(links)
 	res.payloadMu.Unlock()
 }
 
@@ -1693,8 +1844,8 @@ func wrapSharedResultWithResolver(ctx context.Context, res *sharedResult, hitCac
 		switch {
 		case state.persistedEnvelope != nil:
 			return nil, fmt.Errorf("reconstruct object result %q: persisted payload has not been decoded", typeName)
-		case state.hasValue:
-			return nil, fmt.Errorf("reconstruct object result %q: invalid payload state (hasValue=true, self=nil)", typeName)
+		case state.realized:
+			return nil, fmt.Errorf("reconstruct object result %q: invalid payload state (realized=true, self=nil)", typeName)
 		default:
 			return nil, fmt.Errorf("reconstruct object result %q: missing typed payload", typeName)
 		}
@@ -1783,9 +1934,9 @@ func newDetachedResult[T Typed](call *ResultCall, self T) Result[T] {
 	}
 	return Result[T]{
 		shared: &sharedResult{
-			self:       self,
-			resultCall: resultCall,
-			hasValue:   true,
+			self:            self,
+			resultCall:      resultCall,
+			materialization: materializationState{realized: true},
 		},
 	}
 }
@@ -2412,7 +2563,6 @@ func (r Result[T]) WithContentDigest(ctx context.Context, contentDigest digest.D
 		isObject:              state.isObject,
 		objClass:              state.objClass,
 		resultCall:            frame.fork(),
-		hasValue:              state.hasValue,
 		deps:                  deps,
 		sessionResourceHandle: r.shared.sessionResourceHandle,
 		requiredSessionResources: func() *set.TreeSet[SessionResourceHandle] {
@@ -2421,8 +2571,7 @@ func (r Result[T]) WithContentDigest(ctx context.Context, contentDigest digest.D
 			}
 			return r.shared.requiredSessionResources.Copy()
 		}(),
-		persistedEnvelope:  state.persistedEnvelope,
-		snapshotOwnerLinks: state.snapshotOwnerLinks,
+		materialization:    r.shared.cloneMaterializationState(),
 		createdAtUnixNano:  state.createdAtUnixNano,
 		lastUsedAtUnixNano: state.lastUsedAtUnixNano,
 		cacheUsageSizeByIdentity: func() map[string]int64 {
@@ -2512,12 +2661,10 @@ func (r Result[T]) WithSessionResourceHandle(ctx context.Context, handle Session
 		isObject:                 state.isObject,
 		objClass:                 state.objClass,
 		resultCall:               frame,
-		hasValue:                 state.hasValue,
 		deps:                     deps,
 		sessionResourceHandle:    handle,
 		requiredSessionResources: reqs,
-		persistedEnvelope:        state.persistedEnvelope,
-		snapshotOwnerLinks:       state.snapshotOwnerLinks,
+		materialization:          r.shared.cloneMaterializationState(),
 		createdAtUnixNano:        state.createdAtUnixNano,
 		lastUsedAtUnixNano:       state.lastUsedAtUnixNano,
 		cacheUsageSizeByIdentity: func() map[string]int64 {
@@ -3309,7 +3456,7 @@ func (c *Cache) collectUsageMeasurementInputs() []cacheUsageMeasurementInput {
 			identities    []string
 			sizeMayChange bool
 		)
-		if state.hasValue && state.self != nil {
+		if state.realized && state.self != nil {
 			self = state.self
 			identities = cacheUsageIdentitiesFromSelf(state.self)
 			sizeMayChange = cacheUsageSizeMayChangeFromSelf(state.self)
@@ -3520,9 +3667,9 @@ func (c *Cache) getOrInitCall(
 		}
 
 		detached := &sharedResult{
-			self:       val.Unwrap(),
-			resultCall: req.ResultCall.clone(),
-			hasValue:   true,
+			self:            val.Unwrap(),
+			resultCall:      req.ResultCall.clone(),
+			materialization: materializationState{realized: true},
 		}
 		if shared := val.cacheSharedResult(); shared != nil {
 			detached.sessionResourceHandle = shared.sessionResourceHandle
@@ -3976,7 +4123,7 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 				oc.res.storeResultCall(req.ResultCall.clone())
 				c.traceResultCallFrameUpdated(ctx, oc.res, "init_completed_result_request_frame", nil, oc.res.loadResultCall())
 			}
-			oc.res.hasValue = true
+			oc.res.materialization.realized = true
 
 			if onReleaser, ok := UnwrapAs[OnReleaser](oc.val); ok {
 				oc.res.onRelease = onReleaser.OnRelease
@@ -4280,7 +4427,7 @@ func (c *Cache) attachDependencyResults(ctx context.Context, sessionID string, r
 	self := Result[Typed]{shared: parent}
 	var attachedSelf AnyResult = self
 	parentState := parent.loadPayloadState()
-	if parentState.hasValue && parentState.isObject {
+	if parentState.realized && parentState.isObject {
 		objSelf, err := wrapSharedResultWithResolver(ctx, parent, false, resolver)
 		if err != nil {
 			return fmt.Errorf("attach dependency results: reconstruct attached self: %w", err)
@@ -4441,7 +4588,7 @@ func cacheUsageIdentities(res *sharedResult) []string {
 		return nil
 	}
 	state := res.loadPayloadState()
-	if state.hasValue && state.self != nil {
+	if state.realized && state.self != nil {
 		return cacheUsageIdentitiesFromSelf(state.self)
 	}
 	return cacheUsageIdentitiesFromSnapshotLinks(state.snapshotOwnerLinks)

@@ -53,6 +53,17 @@ type CacheDebugSnapshot struct {
 	CompletedArbitraryCalls []CacheDebugArbitraryCall     `json:"completed_arbitrary_calls,omitempty"`
 }
 
+func debugSourceKindNames(kinds []retainedSourceKind) []string {
+	if len(kinds) == 0 {
+		return nil
+	}
+	names := make([]string, len(kinds))
+	for i, kind := range kinds {
+		names[i] = kind.String()
+	}
+	return names
+}
+
 type EGraphDebugResult struct {
 	SharedResultID           uint64                     `json:"shared_result_id"`
 	OutputEqClassIDs         []uint64                   `json:"output_eq_class_ids,omitempty"`
@@ -60,7 +71,8 @@ type EGraphDebugResult struct {
 	Description              string                     `json:"description,omitempty"`
 	TypeName                 string                     `json:"type_name,omitempty"`
 	IncomingOwnershipCount   int64                      `json:"incoming_ownership_count"`
-	HasValue                 bool                       `json:"has_value"`
+	Realized                 bool                       `json:"realized"`
+	Sources                  []string                   `json:"sources,omitempty"`
 	PayloadState             string                     `json:"payload_state"`
 	HasPersistedEdge         bool                       `json:"has_persisted_edge"`
 	PersistedEdgeUnpruneable bool                       `json:"persisted_edge_unpruneable"`
@@ -370,11 +382,11 @@ func (c *Cache) traceRefUnderflow(ctx context.Context, res *sharedResult, owners
 		switch {
 		case res == nil:
 			payloadState = "unknown"
-		case state.persistedEnvelope != nil && !state.hasValue:
+		case state.persistedEnvelope != nil && !state.realized:
 			payloadState = "imported_lazy_envelope"
-		case state.hasValue && state.self == nil:
+		case state.realized && state.self == nil:
 			payloadState = "nil"
-		case state.hasValue:
+		case state.realized:
 			payloadState = "materialized"
 		}
 		args := []any{
@@ -959,11 +971,11 @@ func (c *Cache) DebugEGraphSnapshot() *EGraphDebugSnapshot {
 
 		payloadState := "uninitialized"
 		switch {
-		case state.persistedEnvelope != nil && !state.hasValue:
+		case state.persistedEnvelope != nil && !state.realized:
 			payloadState = "imported_lazy_envelope"
-		case state.hasValue && state.self == nil:
+		case state.realized && state.self == nil:
 			payloadState = "nil"
-		case state.hasValue:
+		case state.realized:
 			payloadState = "materialized"
 		}
 
@@ -974,7 +986,8 @@ func (c *Cache) DebugEGraphSnapshot() *EGraphDebugSnapshot {
 			Description:              res.description,
 			TypeName:                 typeName,
 			IncomingOwnershipCount:   res.incomingOwnershipCount,
-			HasValue:                 state.hasValue,
+			Realized:                 state.realized,
+			Sources:                  debugSourceKindNames(state.sourceKinds),
 			PayloadState:             payloadState,
 			HasPersistedEdge:         c.persistedEdgesByResult[res.id].resultID != 0,
 			PersistedEdgeUnpruneable: c.persistedEdgesByResult[res.id].unpruneable,
@@ -1217,11 +1230,11 @@ func (c *Cache) WriteDebugCacheSnapshot(w io.Writer) error {
 
 			payloadState := "uninitialized"
 			switch {
-			case state.persistedEnvelope != nil && !state.hasValue:
+			case state.persistedEnvelope != nil && !state.realized:
 				payloadState = "imported_lazy_envelope"
-			case state.hasValue && state.self == nil:
+			case state.realized && state.self == nil:
 				payloadState = "nil"
-			case state.hasValue:
+			case state.realized:
 				payloadState = "materialized"
 			}
 
@@ -1274,7 +1287,8 @@ func (c *Cache) WriteDebugCacheSnapshot(w io.Writer) error {
 					Description:              res.description,
 					TypeName:                 typeName,
 					IncomingOwnershipCount:   res.incomingOwnershipCount,
-					HasValue:                 state.hasValue,
+					Realized:                 state.realized,
+					Sources:                  debugSourceKindNames(state.sourceKinds),
 					PayloadState:             payloadState,
 					HasPersistedEdge:         c.persistedEdgesByResult[res.id].resultID != 0,
 					PersistedEdgeUnpruneable: c.persistedEdgesByResult[res.id].unpruneable,
