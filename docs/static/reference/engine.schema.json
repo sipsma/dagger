@@ -3,6 +3,53 @@
   "$id": "https://github.com/dagger/dagger/engine/config/config",
   "$ref": "#/$defs/Config",
   "$defs": {
+    "CacheServiceConfig": {
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "URL is the cache service base URL. Empty disables the feature."
+        },
+        "token": {
+          "type": "string",
+          "description": "Token is the org-scoped service token, inline. Prefer TokenFile or the environment for production credentials."
+        },
+        "tokenFile": {
+          "type": "string",
+          "description": "TokenFile is a path the token is read from at boot."
+        },
+        "scope": {
+          "type": "string",
+          "description": "Scope is the cache namespace within the org (by convention the repository identity for CI fleets)."
+        },
+        "importBudget": {
+          "$ref": "#/$defs/Duration",
+          "description": "ImportBudget bounds the whole boot-time bundle inflow (selection, downloads, merges). Exhaustion degrades to fewer bundles, then none — never a boot failure. Default 1m."
+        },
+        "importLimit": {
+          "type": "integer",
+          "description": "ImportLimit is the maximum number of bundles requested at boot. Zero means the service default."
+        },
+        "exportOnShutdown": {
+          "type": "boolean",
+          "description": "ExportOnShutdown opts into a budget-bounded cache export during graceful shutdown (after sessions drain and prune runs)."
+        },
+        "exportBudget": {
+          "$ref": "#/$defs/Duration",
+          "description": "ExportBudget bounds a shutdown export so shutdown cannot hang; an exhausted budget costs blobs, never correctness. Default 2m. Exports triggered through the admin API are bounded by their caller instead."
+        },
+        "metadataOnly": {
+          "type": "boolean",
+          "description": "MetadataOnly makes exports skip content chains and blob upload: importers get lookup warmth and recompute content via lazy forms."
+        },
+        "exportSecret": {
+          "type": "string",
+          "description": "ExportSecret optionally guards the engine's export admin endpoint: when set, POST /v1/cache/export requires it in the X-Dagger-Export-Secret header (defense in depth on the operator listener)."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "description": "CacheServiceConfig wires the engine to a remote cache service."
+    },
     "Config": {
       "properties": {
         "logLevel": {
@@ -31,6 +78,10 @@
           },
           "type": "object",
           "description": "Registries configures custom registry mirrors, root CAs, and insecure/HTTP access."
+        },
+        "cacheService": {
+          "$ref": "#/$defs/CacheServiceConfig",
+          "description": "CacheService configures the remote cache service integration: bundle import at boot, content-chain blob fetch at serving time, and cache export. Absent (and with no DAGGER_CACHE_SERVICE_* environment overrides) the whole feature is disabled."
         }
       },
       "additionalProperties": false,
