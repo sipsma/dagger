@@ -265,6 +265,7 @@ func LoadMulti(readers []io.Reader) (*Graph, error) {
 			merged.DroppedEvents = max(merged.DroppedEvents, header.DroppedEvents)
 			merged.SuppressedIdentDerivations = max(merged.SuppressedIdentDerivations, header.SuppressedIdentDerivations)
 			merged.SuppressedUninstrumentedForcers = max(merged.SuppressedUninstrumentedForcers, header.SuppressedUninstrumentedForcers)
+			merged.SuppressedDoNotCacheIdents = max(merged.SuppressedDoNotCacheIdents, header.SuppressedDoNotCacheIdents)
 		}
 		allEvents = append(allEvents, events...)
 	}
