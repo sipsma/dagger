@@ -555,8 +555,6 @@ func (srv *Server) initLocalCacheStateOnce(ctx context.Context, cfg config.Confi
 	// client, and any failure degrades to a colder boot, never a failed one.
 	srv.cacheServiceBootImport(ctx)
 
-	srv.testOnlyCacheTransportBoot(ctx)
-
 	return localCacheStateResetNone, nil
 }
 

@@ -242,9 +242,6 @@ func (dev *EngineDev) test(
 func (dev *EngineDev) testContainer(ctx context.Context, ebpfProgs []string) (*dagger.Container, string, error) {
 	devEngine, err := dev.
 		WithEBPFProgs(ebpfProgs).
-		// The integration-test engine compiles in the test-only cache-bundle
-		// file transport; release and ordinary dev builds carry none of it.
-		WithBuildTags([]string{"testonly_cache_transport"}).
 		WithEngineConfig(`registry."registry:5000"`, `http = true`).
 		WithEngineConfig(`registry."privateregistry:5000"`, `http = true`).
 		WithEngineConfig(`registry."docker.io"`, `mirrors = ["mirror.gcr.io"]`).
@@ -271,10 +268,21 @@ func (dev *EngineDev) testContainer(ctx context.Context, ebpfProgs []string) (*d
 	// I also load the dagger binary, so that the remote cache tests can use it to
 	// run dagger queries.
 
+	// The in-repo test cache service (the /v1 protocol's reference
+	// implementation): a static binary the cache-service integration tests
+	// run as a Dagger service between dev engines.
+	testCacheServiceBin := dag.Go(dagger.GoOpts{Source: dev.Source}).Env().
+		WithEnvVariable("CGO_ENABLED", "0").
+		WithExec([]string{"go", "build", "-o", "/out/test-cacheservice", "./internal/testutil/cacheservice/cmd"}).
+		File("/out/test-cacheservice")
+
 	// These are used by core/integration/remotecache_test.go
 	testEngineUtils := dag.Directory().
 		WithFile("engine.tar", devEngine.AsTarball()).
 		WithFile("dagger", devBinary, dagger.DirectoryWithFileOpts{
+			Permissions: 0755,
+		}).
+		WithFile("test-cacheservice", testCacheServiceBin, dagger.DirectoryWithFileOpts{
 			Permissions: 0755,
 		})
 

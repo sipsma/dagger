@@ -97,8 +97,8 @@ func (dev *EngineDev) WithRace() *EngineDev {
 	return dev
 }
 
-// WithBuildTags adds Go build tags to the engine binary build (e.g. the
-// integration-test build's testonly_cache_transport).
+// WithBuildTags adds Go build tags to the engine binary build, for
+// test-only or experimental compilation surfaces.
 func (dev *EngineDev) WithBuildTags(tags []string) *EngineDev {
 	dev.BuildTags = append(dev.BuildTags, tags...)
 	return dev

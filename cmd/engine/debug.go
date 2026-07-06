@@ -83,8 +83,6 @@ func setupDebugHandlers(addr string, eng *server.Server) error {
 		eng.HandleCacheExport(rw, req)
 	}))
 
-	registerTestOnlyCacheTransportHandlers(m, eng)
-
 	if os.Getenv("_DAGGER_TESTONLY_SNAPSHOT_LOSS") == "1" {
 		// Test-only fault injection: simulate external loss of one snapshot
 		// so integration tests can provoke the demote-to-miss floor.
