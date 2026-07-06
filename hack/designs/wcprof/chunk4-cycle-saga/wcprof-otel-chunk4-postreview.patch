@@ -1,0 +1,529 @@
+diff --git a/engine/wcprof/wcanalyze/replay.go b/engine/wcprof/wcanalyze/replay.go
+index aeb5339be2..84a8960d9e 100644
+--- a/engine/wcprof/wcanalyze/replay.go
++++ b/engine/wcprof/wcanalyze/replay.go
+@@ -19,12 +19,16 @@ import (
+ //   - waits: clock = max(clock, simulated finish of the target); waits on
+ //     named resources (locks etc.) are kept as fixed delays; waits that
+ //     ended before their target's recorded end were abandoned
+-//     (cancellation) or mis-resolved and contribute nothing. A gating wait is
++//     (cancellation) or mis-resolved and contribute nothing. A JOIN wait is
+ //     sequenced at its recorded END, so it gates the op's own finish but does
+ //     NOT gate a child the op spawned while still waiting (the spawn precedes
+ //     the wait's end): that concurrency is preserved, not serialized, and the
+ //     child's anchored start is the same whether the child is reached in order
+-//     or out of order.
++//     or out of order. A fixed-delay (lock) wait is modelled as a non-scalable
++//     segment that runs concurrently with the op's other work: its completion
++//     is max(clock, clock-when-it-began + duration), so a child spawned or
++//     finished while the lock was held stays concurrent with it rather than
++//     serialized behind it.
+ //   - implicit joins: whenever the op reaches an action at original time t,
+ //     it first joins every child that had originally ended by t. This bakes
+ //     the observed ordering in as a constraint, which correctly models
+@@ -34,9 +38,14 @@ import (
+ // Roots are chained by preserving original idle gaps between strictly
+ // sequential roots (e.g. successive queries from the CLI). The simulation
+ // runs in the original trace's time frame (the first root keeps its
+-// recorded start); mixing frames would corrupt the schedule because ops
+-// reached through cross-tree wait targets are anchored at original times
+-// when their own root has not been replayed yet.
++// recorded start). An op reached out of order through a cross-tree wait
++// target is anchored by replaying its producer's timeline up to (and only
++// up to) its spawn under the same factor (see finish/spawnTo), so its start
++// tracks the counterfactual rather than freezing at the recorded time; only
++// a genuine inversion — an ancestor still mid-replay, or a cross-root
++// forward reference whose own root is unscheduled — falls back to the
++// recorded offset, and every such fallback is counted (FallbackAnchors),
++// never silent.
+ //
+ // The timeline of every op is factor-independent, so it is compiled once
+ // per graph into a flat action program (replayProgram); each simulation is
+@@ -54,17 +63,24 @@ const (
+ 	// time (the op moved on at its own pace) but still marks an action point
+ 	// for implicit joins.
+ 	actWaitNoop
+-	actWaitFixed
++	// A fixed delay (lock / named resource) is a non-scalable segment that runs
++	// concurrently with the op's other work, so it compiles to a pair: at its
++	// start, actWaitFixedStart records the op's current sim clock X (in the
++	// fixedWaitClock slot named by ref); at its end, actWaitFixedEnd raises the
++	// clock to X+dur (a max, like a join — NOT clock+=dur, which would
++	// over-serialize a child that ran during the delay).
++	actWaitFixedStart
++	actWaitFixedEnd
+ )
+ 
+ type action struct {
+ 	// at is the recorded time the action is sequenced at: a self segment's or
+-	// spawn's start, or — for a GATING wait (join/fixed) — the wait's recorded
+-	// END, so the wait gates only actions at or after that instant. A non-gating
+-	// noop stays at the wait's start.
++	// spawn's start, a noop's or a fixed delay's-start-marker's start, or — for
++	// a max-gate (a JOIN wait, or a fixed delay's end) — the wait's recorded
++	// END, so the gate applies only to actions at or after that instant.
+ 	at   int64
+ 	dur  int64 // self duration or fixed-wait duration (unscaled)
+-	ref  int32 // child / wait-target op index
++	ref  int32 // child / wait-target op index, or fixed-wait clock slot
+ 	kind uint8
+ }
+ 
+@@ -81,10 +97,16 @@ type replayProgram struct {
+ 	parent  []int32 // -1 when none
+ 
+ 	// actions[actOff[i]:actOff[i+1]] is op i's timeline, sorted by
+-	// (at, self<spawn<wait) to match replay ordering rules.
++	// (at, actionRank): at equal times a max-gate (a join wait, or a fixed
++	// delay's end — both sequenced at their end) applies first, then self, then
++	// spawn, then a fixed delay's start-marker / noop.
+ 	actions []action
+ 	actOff  []int32
+ 
++	// numFixedWaits is the count of fixed delays across the graph; each owns a
++	// fixedWaitClock slot, named by its start/end actions' ref.
++	numFixedWaits int32
++
+ 	// pendIdx[pendOff[i]:pendOff[i+1]] is op i's children sorted by
+ 	// (EndNS, ID): the implicit-join order.
+ 	pendIdx []int32
+@@ -150,20 +172,22 @@ func compileProgram(g *Graph) *replayProgram {
+ 
+ 	p.actions = make([]action, 0, totalActions)
+ 	p.pendIdx = make([]int32, 0, totalPend)
+-	// Ordering at equal recorded times. A gating wait is sequenced at its
+-	// recorded END (below) and must apply BEFORE any post-wait self/spawn at
+-	// that same instant, so those are gated by it; a spawn the wait did not
+-	// outlast already sorts earlier by its smaller recorded time. The
+-	// non-gating noop marker (kept at the wait's start) sorts last.
++	// Ordering at equal recorded times. A max-gate — a JOIN wait or a fixed
++	// delay's END, both sequenced at their recorded end — applies BEFORE any
++	// post-wait self/spawn at that same instant, so those are gated by it (a
++	// spawn the wait did not outlast already sorts earlier by its smaller
++	// recorded time). A fixed delay's start-marker and a noop sit at their start
++	// after self/spawn: the marker only records the clock (it does not gate), so
++	// a child spawned at the same instant stays concurrent.
+ 	actionRank := func(kind uint8) int {
+ 		switch kind {
+-		case actWaitJoin, actWaitFixed:
++		case actWaitJoin, actWaitFixedEnd:
+ 			return 0
+ 		case actSelf:
+ 			return 1
+ 		case actSpawn:
+ 			return 2
+-		default: // actWaitNoop
++		default: // actWaitFixedStart, actWaitNoop — start markers, non-gating
+ 			return 3
+ 		}
+ 	}
+@@ -176,31 +200,33 @@ func compileProgram(g *Graph) *replayProgram {
+ 			p.actions = append(p.actions, action{at: c.StartNS, kind: actSpawn, ref: p.idxByID[c.ID]})
+ 		}
+ 		for _, w := range op.Waits {
+-			a := action{}
+ 			switch {
+ 			case w.Target != nil && w.Target != op && w.EndNS >= w.Target.EndNS-joinEpsilonNS:
+ 				// Sequence the gate at the wait's OWN recorded end (not the
+-				// target-end proxy, and not the start): a wait gates an action
++				// target-end proxy, and not the start): a join gates an action
+ 				// iff it completed by that action's recorded time. So a child
+ 				// the op spawned before this wait ended is left ungated in both
+ 				// the out-of-order prefix anchor and the in-order finish — the
+ 				// child's start is order-independent by construction.
+-				a.kind = actWaitJoin
+-				a.ref = p.idxByID[w.Target.ID]
+-				a.at = w.EndNS
++				p.actions = append(p.actions, action{at: w.EndNS, kind: actWaitJoin, ref: p.idxByID[w.Target.ID]})
+ 			case w.Target == nil:
+-				// Fixed delay: charge its duration at the point it completes, so
+-				// a spawn during the delay (before its end) is not gated by it.
+-				a.kind = actWaitFixed
+-				a.dur = w.Duration()
+-				a.at = w.EndNS
++				// Fixed delay (lock / named resource): a non-scalable segment
++				// that runs concurrently with the op's other work. Compile it to
++				// a start-marker (records the sim clock when the op reaches the
++				// delay) and an end-gate (raises the clock to that + dur, a max).
++				// Modelling it as a max — not an additive clock += dur — keeps a
++				// child spawned or finished DURING the delay concurrent with it,
++				// instead of stacking the delay on top of that child's join.
++				slot := p.numFixedWaits
++				p.numFixedWaits++
++				p.actions = append(p.actions,
++					action{at: w.StartNS, kind: actWaitFixedStart, ref: slot},
++					action{at: w.EndNS, kind: actWaitFixedEnd, ref: slot, dur: w.Duration()})
+ 			default:
+ 				// Abandoned wait: no time, only a join action point; left at its
+ 				// start because it never gates anything.
+-				a.kind = actWaitNoop
+-				a.at = w.StartNS
++				p.actions = append(p.actions, action{at: w.StartNS, kind: actWaitNoop})
+ 			}
+-			p.actions = append(p.actions, a)
+ 		}
+ 		span := p.actions[p.actOff[i]:]
+ 		slices.SortStableFunc(span, func(a, b action) int {
+@@ -250,6 +276,10 @@ type Simulation struct {
+ 	simStart  []int64
+ 	simFinish []int64
+ 
++	// fixedWaitClock[slot] holds the sim clock recorded at a fixed delay's start,
++	// read at its end to raise the clock by the delay's duration (a max).
++	fixedWaitClock []int64
++
+ 	// CycleWarnings counts genuine wait/join cycles broken during replay: an
+ 	// op whose own dependency chain re-enters it while in flight. Spurious
+ 	// over-serializations (a concurrent wait that did not gate a spawn) are
+@@ -272,9 +302,19 @@ type Simulation struct {
+ 	// SimStartConflicts counts setStart calls that tried to overwrite an
+ 	// already-anchored op with a DIFFERENT start. The end-ordered gating model
+ 	// makes a child's anchored start independent of whether it is reached in
+-	// order or out of order, so this must stay 0 on a faithful baseline; a
+-	// non-zero count flags a residual order-dependence (e.g. the in-flight
+-	// fallback corner disagreeing with the later in-order spawn).
++	// order or out of order, so on the normal path this stays 0. Two distinct
++	// sources can make it non-zero — which is why it is surfaced, not
++	// hard-failed:
++	//   - benign: a zero-duration child whose end coincides with a gating
++	//     wait's end is implicitly join-anchored (at the pre-wait clock) before
++	//     its own spawn action re-anchors it. Its finish is absorbed (a
++	//     zero-duration finish can't exceed the wait it sits at), so the op's
++	//     finish is unaffected — a harmless coincidence, not a wrong answer.
++	//   - real: a recorded-offset fallback anchor (so it pairs with
++	//     FallbackAnchors > 0) disagrees with the shifted full-finish value
++	//     under a what-if factor that moves the schedule — an order-dependent
++	//     saving for that cross-root / in-flight-anchored class. The baseline
++	//     (factor 1, no shift) cannot see this; RunWhatIfs surfaces it.
+ 	SimStartConflicts int
+ 	// SimStartConflictOps holds a sample of conflicting ops.
+ 	SimStartConflictOps []*Op
+@@ -286,15 +326,16 @@ func NewSimulation(g *Graph, factors map[ClassKey]float64) *Simulation {
+ 	p := g.program()
+ 	n := len(p.ops)
+ 	s := &Simulation{
+-		g:         g,
+-		p:         p,
+-		Factors:   factors,
+-		factorOf:  make([]float64, len(p.classKeys)),
+-		started:   make([]bool, n),
+-		finished:  make([]bool, n),
+-		inFlight:  make([]bool, n),
+-		simStart:  make([]int64, n),
+-		simFinish: make([]int64, n),
++		g:              g,
++		p:              p,
++		Factors:        factors,
++		factorOf:       make([]float64, len(p.classKeys)),
++		started:        make([]bool, n),
++		finished:       make([]bool, n),
++		inFlight:       make([]bool, n),
++		simStart:       make([]int64, n),
++		simFinish:      make([]int64, n),
++		fixedWaitClock: make([]int64, p.numFixedWaits),
+ 	}
+ 	for i := range s.factorOf {
+ 		s.factorOf[i] = 1
+@@ -446,8 +487,15 @@ func (s *Simulation) advance(op, stopAt int32) int64 {
+ 			if f := s.finish(a.ref); f > clock {
+ 				clock = f
+ 			}
+-		case actWaitFixed:
+-			clock += a.dur
++		case actWaitFixedStart:
++			// record the clock at which the op reaches the fixed delay
++			s.fixedWaitClock[a.ref] = clock
++		case actWaitFixedEnd:
++			// the delay completes dur after it began; a max, so concurrent work
++			// (a child joined during the delay) is not double-charged
++			if end := s.fixedWaitClock[a.ref] + a.dur; end > clock {
++				clock = end
++			}
+ 		case actWaitNoop:
+ 			// abandoned wait: action point only
+ 		}
+@@ -608,11 +656,11 @@ const maxWhatIfClasses = 200
+ // time >= minSelfNS (up to maxWhatIfClasses, by total self-time), the
+ // makespan saving when scaling that class's self time by each factor.
+ // Simulations run in parallel.
+-func RunWhatIfs(g *Graph, factors []float64, minSelfNS int64) (baselineNS int64, results []WhatIfResult, err error) {
++func RunWhatIfs(g *Graph, factors []float64, minSelfNS int64) (baselineNS int64, results []WhatIfResult, whatIfConflicts int, err error) {
+ 	baseSim := NewSimulation(g, nil)
+ 	baselineNS, err = baseSim.Run()
+ 	if err != nil {
+-		return 0, nil, err
++		return 0, nil, 0, err
+ 	}
+ 
+ 	totalSelf := make(map[ClassKey]int64)
+@@ -674,6 +722,12 @@ func RunWhatIfs(g *Graph, factors []float64, minSelfNS int64) (baselineNS int64,
+ 					err = simErr
+ 				} else {
+ 					results[j.ki].SavedNS[factors[j.fi]] = baselineNS - makespan
++					// Surface order-dependence that only a non-baseline factor
++					// reveals: a recorded-offset fallback anchor (cross-root /
++					// in-flight ancestor) disagrees with the shifted full-finish
++					// value once a factor moves the schedule. Baseline (factor 1)
++					// has no shift, so report.go's baseline check cannot see it.
++					whatIfConflicts = max(whatIfConflicts, sim.SimStartConflicts)
+ 				}
+ 				mu.Unlock()
+ 			}
+@@ -687,9 +741,9 @@ func RunWhatIfs(g *Graph, factors []float64, minSelfNS int64) (baselineNS int64,
+ 	close(jobs)
+ 	wg.Wait()
+ 	if err != nil {
+-		return 0, nil, err
++		return 0, nil, 0, err
+ 	}
+-	return baselineNS, results, nil
++	return baselineNS, results, whatIfConflicts, nil
+ }
+ 
+ // BlockingChain walks back from the op that finishes last in the baseline
+diff --git a/engine/wcprof/wcanalyze/replay_cycle_test.go b/engine/wcprof/wcanalyze/replay_cycle_test.go
+index 21d7cef6e6..b9268c3c95 100644
+--- a/engine/wcprof/wcanalyze/replay_cycle_test.go
++++ b/engine/wcprof/wcanalyze/replay_cycle_test.go
+@@ -280,62 +280,163 @@ func TestWaitEndGatingBoundary(t *testing.T) {
+ 	}
+ }
+ 
+-// --- (e) a fixed (named-resource) wait overlapping a child spawn must not gate
+-// the spawn either: the child is concurrent with the delay.
++// --- (d2) zero-duration child exactly at a gating join wait's end. joinUpTo runs
++// before the action tie-break, so the child (EndNS == the wait's end) is implicitly
++// joined-and-anchored at the pre-wait clock before the wait's own action, then its
++// later spawn action re-anchors it to the post-wait clock — a counted
++// SimStartConflict. It is BENIGN: a zero-duration child's finish equals its start,
++// which is ≤ the wait it sits at, so it is absorbed and the op's finish is
++// unaffected. This is why a non-zero SimStartConflict is surfaced, not hard-failed:
++// it can be this harmless coincidence, not only a real order-dependence.
+ //
+ //	root [0,300]
+-//	└── P (call) [0,300]
+-//	     ├── (fixed wait on a lock) [50,200]
+-//	     └── U (call_exec) [100,200]   spawned during the lock wait
+-func TestFixedWaitOverlapsSpawn(t *testing.T) {
++//	├── S (call) [0,300] → T (call_exec) [50,100]   (wait target, finish 100)
++//	└── P (call) [0,300]   self [0,50]; waits T [50,100]; zero-dur child Z [100,100]
++func TestZeroDurChildAtJoinWaitEnd(t *testing.T) {
+ 	s := newFixtureStrings()
+ 	events := []wcprof.DumpEvent{
+ 		opEvent(s, 1, 0, "session_phase", "session.query", "", "ok", 0, 300*ms),
+-		opEvent(s, 2, 1, "call", "P.call", "p", "executed", 0, 300*ms),
+-		opEvent(s, 3, 2, "call_exec", "U.work", "u", "ok", 100*ms, 200*ms),
+-		// target 0 + a non-exec reason + an ident matching no op ⇒ fixed delay.
+-		waitEvent(s, 2, 0, "some-lock", "lock", 50*ms, 200*ms),
++		opEvent(s, 2, 1, "call", "S.call", "sv", "executed", 0, 300*ms),
++		opEvent(s, 3, 2, "call_exec", "T.work", "tt", "ok", 50*ms, 100*ms),
++		opEvent(s, 4, 1, "call", "P.call", "p", "executed", 0, 300*ms),
++		opEvent(s, 5, 4, "call_exec", "Z.work", "z", "ok", 100*ms, 100*ms),
++		waitEvent(s, 4, 3, "", "call_exec", 50*ms, 100*ms),
+ 	}
+ 	g := buildGraph(t, s, events)
+ 	sim := NewSimulation(g, nil)
+ 	if _, err := sim.Run(); err != nil {
+ 		t.Fatal(err)
+ 	}
+-	if sim.CycleWarnings != 0 || sim.SimStartConflicts != 0 {
+-		t.Fatalf("cycles=%d conflicts=%d, want 0/0", sim.CycleWarnings, sim.SimStartConflicts)
++	if sim.CycleWarnings != 0 {
++		t.Fatalf("CycleWarnings = %d, want 0", sim.CycleWarnings)
++	}
++	// The benign conflict does NOT corrupt the finish: P blocks on T to 100, then
++	// runs post-wait self [100,300] → 300, with Z (zero-duration) absorbed.
++	_, pFinish := simByClass(sim, g, "P.call")
++	if pFinish != 300*ms {
++		t.Fatalf("P finish = %v, want 300ms (the zero-dur child must be absorbed, not corrupt the finish)", time.Duration(pFinish))
+ 	}
+-	uStart, _ := simByClass(sim, g, "U.work")
+-	// P self [0,50] → clock 50; the fixed delay [50,200] runs concurrently with
+-	// U's spawn at 100, so U anchors at 50ms, not behind the delay's end.
+-	if uStart != 50*ms {
+-		t.Fatalf("U start = %v, want 50ms (a fixed wait overlapping the spawn must not gate it)", time.Duration(uStart))
++	// Document the benign conflict so a future change that eliminates it updates
++	// this deliberately rather than silently.
++	if sim.SimStartConflicts != 1 {
++		t.Fatalf("SimStartConflicts = %d, want 1 (the benign zero-dur join-before-spawn coincidence)", sim.SimStartConflicts)
+ 	}
+ }
+ 
+-// --- (f) cross-root / out-of-order root reference: a wait in one root that
+-// targets an op under a later, not-yet-scheduled root anchors that op at its
+-// recorded start (counted), and never cycles.
++// --- (e) a fixed (lock / named-resource) delay is a non-scalable segment that
++// runs CONCURRENTLY with the op's other work. Modelling it as clock += dur (an
++// additive jump) instead of max(clock, start-clock + dur) serializes a child
++// that ran during the delay behind it — over-serializing the op's finish. Both
++// the child-finishes-inside and child-spawned-during cases must stay concurrent.
++func TestFixedWaitConcurrentChild(t *testing.T) {
++	// Case 1 — child spawned BEFORE the lock, finishes INSIDE it.
++	//   O (session) [0,100]   self [0,5] + [40,100]
++	//   ├── c (call_exec) [5,35]
++	//   └── lock [10,40]   (dur 30)
++	// O blocks on the lock [10,40] while c runs concurrently to 35, then resumes:
++	// 5 + 30 (lock, overlapping c) + 60 = 95. An additive clock += dur after c's
++	// join would give 125.
++	t.Run("child-finishes-inside", func(t *testing.T) {
++		s := newFixtureStrings()
++		g := buildGraph(t, s, []wcprof.DumpEvent{
++			opEvent(s, 1, 0, "session_phase", "session.query", "", "ok", 0, 100*ms),
++			opEvent(s, 2, 1, "call_exec", "C.work", "c", "ok", 5*ms, 35*ms),
++			waitEvent(s, 1, 0, "some-lock", "lock", 10*ms, 40*ms),
++		})
++		sim := NewSimulation(g, nil)
++		finish, err := sim.Run()
++		if err != nil {
++			t.Fatal(err)
++		}
++		if sim.CycleWarnings != 0 || sim.SimStartConflicts != 0 {
++			t.Fatalf("cycles=%d conflicts=%d, want 0/0", sim.CycleWarnings, sim.SimStartConflicts)
++		}
++		if finish != 95*ms {
++			t.Fatalf("O finish = %v, want 95ms", time.Duration(finish))
++		}
++	})
++
++	// Case 2 — child SPAWNED during the lock (concurrent fan-out while blocked).
++	//   P (call) [0,300]   self [0,50] + [200,300]
++	//   ├── U (call_exec) [100,200]   spawned at 100, during the lock
++	//   └── lock [50,200]   (dur 150)
++	// U is concurrent with the lock: it anchors at P's pre-lock clock (50ms) and
++	// finishes at 150, well before P's post-lock self. P's critical path is
++	// self(50) → lock(150)=200 → self(100) = 300. Serializing U behind the lock
++	// (anchor 200 → finish 300 → +100 self) would give the wrong 400.
++	t.Run("child-spawned-during", func(t *testing.T) {
++		s := newFixtureStrings()
++		g := buildGraph(t, s, []wcprof.DumpEvent{
++			opEvent(s, 1, 0, "session_phase", "session.query", "", "ok", 0, 300*ms),
++			opEvent(s, 2, 1, "call", "P.call", "p", "executed", 0, 300*ms),
++			opEvent(s, 3, 2, "call_exec", "U.work", "u", "ok", 100*ms, 200*ms),
++			waitEvent(s, 2, 0, "some-lock", "lock", 50*ms, 200*ms),
++		})
++		sim := NewSimulation(g, nil)
++		if _, err := sim.Run(); err != nil {
++			t.Fatal(err)
++		}
++		if sim.CycleWarnings != 0 || sim.SimStartConflicts != 0 {
++			t.Fatalf("cycles=%d conflicts=%d, want 0/0", sim.CycleWarnings, sim.SimStartConflicts)
++		}
++		uStart, _ := simByClass(sim, g, "U.work")
++		_, pFinish := simByClass(sim, g, "P.call")
++		if uStart != 50*ms {
++			t.Fatalf("U start = %v, want 50ms (U must stay concurrent with the lock, not serialized behind it)", time.Duration(uStart))
++		}
++		if pFinish != 300*ms {
++			t.Fatalf("P finish = %v, want 300ms (serializing U behind the lock gives the wrong 400ms)", time.Duration(pFinish))
++		}
++	})
++}
++
++// --- (f) cross-root / out-of-order root reference: one root waits on another,
++// overlapping root, which is anchored at its recorded start by the par<0
++// fallback (counted), and never cycles. This is the one place the recorded-offset
++// approximation survives, so it is also where a what-if factor can make the
++// anchor disagree with Run's shifted chain — surfaced, not silent.
+ func TestCrossRootAnchor(t *testing.T) {
+ 	s := newFixtureStrings()
+ 	events := []wcprof.DumpEvent{
+ 		opEvent(s, 1, 0, "session_phase", "session.query", "", "ok", 0, 200*ms),
+-		waitEvent(s, 1, 2, "", "call_exec", 50*ms, 150*ms), // root1 waits an op under root2
++		waitEvent(s, 1, 2, "", "call_exec", 50*ms, 150*ms), // root1 waits on root2 (overlapping)
+ 		opEvent(s, 2, 0, "session_phase", "session.query2", "", "ok", 0, 150*ms),
+ 	}
+ 	g := buildGraph(t, s, events)
+-	sim := NewSimulation(g, nil)
+-	makespan, err := sim.Run()
++
++	base := NewSimulation(g, nil)
++	makespan, err := base.Run()
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+-	if sim.CycleWarnings != 0 {
+-		t.Fatalf("CycleWarnings = %d, want 0", sim.CycleWarnings)
++	if base.CycleWarnings != 0 || makespan <= 0 {
++		t.Fatalf("cycles=%d makespan=%v, want 0 / >0", base.CycleWarnings, time.Duration(makespan))
++	}
++	// Baseline: the recorded-offset fallback fires (counted) but there is no shift,
++	// so the anchor agrees with the chain → no conflict.
++	if base.FallbackAnchors == 0 {
++		t.Fatalf("expected the cross-root fallback to fire (FallbackAnchors>0), got 0")
++	}
++	if base.SimStartConflicts != 0 {
++		t.Fatalf("baseline SimStartConflicts = %d, want 0 (no shift at factor 1)", base.SimStartConflicts)
++	}
++
++	// Under a factor that shifts root2's chain, the recorded-offset anchor
++	// disagrees with the shifted full-finish value → an order-dependent saving,
++	// which must be SURFACED (it is, via SimStartConflicts) rather than silent.
++	// It can only happen where the fallback anchored (the precondition).
++	scaled := NewSimulation(g, map[ClassKey]float64{
++		{Kind: "session_phase", Class: "session.query2"}: 0.5,
++	})
++	if _, err := scaled.Run(); err != nil {
++		t.Fatal(err)
++	}
++	if scaled.SimStartConflicts == 0 {
++		t.Fatalf("expected the cross-root fallback to surface a conflict under a shifting factor, got 0")
+ 	}
+-	if makespan <= 0 {
+-		t.Fatalf("makespan = %v, want > 0", time.Duration(makespan))
++	if scaled.FallbackAnchors == 0 {
++		t.Fatalf("a what-if conflict must pair with a fallback anchor; FallbackAnchors=0")
+ 	}
+-	t.Logf("cross-root diagnostics: makespan=%v fallback-anchors=%d conflicts=%d",
+-		time.Duration(makespan), sim.FallbackAnchors, sim.SimStartConflicts)
+ }
+ 
+ // --- (g) fan-out: one parent with many children each referenced out of order
+diff --git a/engine/wcprof/wcanalyze/replay_test.go b/engine/wcprof/wcanalyze/replay_test.go
+index 69b531830e..53dbaa4eeb 100644
+--- a/engine/wcprof/wcanalyze/replay_test.go
++++ b/engine/wcprof/wcanalyze/replay_test.go
+@@ -286,7 +286,7 @@ func TestNestedClientReparenting(t *testing.T) {
+ 
+ func TestRunWhatIfsRanking(t *testing.T) {
+ 	g := sequentialFixture(t)
+-	baseline, results, err := RunWhatIfs(g, []float64{0, 0.5}, ms)
++	baseline, results, _, err := RunWhatIfs(g, []float64{0, 0.5}, ms)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+diff --git a/engine/wcprof/wcanalyze/report.go b/engine/wcprof/wcanalyze/report.go
+index 3f2bfcce71..636df6dfc4 100644
+--- a/engine/wcprof/wcanalyze/report.go
++++ b/engine/wcprof/wcanalyze/report.go
+@@ -164,10 +164,17 @@ func WriteReport(w io.Writer, g *Graph, opts ReportOptions) error {
+ 		fmt.Fprintf(w, "sim diagnostics: %d broken cycles, %d fallback anchors, %d start conflicts\n",
+ 			baseSim.CycleWarnings, baseSim.FallbackAnchors, baseSim.SimStartConflicts)
+ 	}
+-	baseline, whatIfs, err := RunWhatIfs(g, opts.WhatIfFactors, opts.MinClassSelfNS)
++	baseline, whatIfs, whatIfConflicts, err := RunWhatIfs(g, opts.WhatIfFactors, opts.MinClassSelfNS)
+ 	if err != nil {
+ 		fmt.Fprintf(w, "simulation unavailable: %v\n\n", err)
+ 	} else {
++		if whatIfConflicts > 0 {
++			// A non-baseline factor exposed a recorded-offset fallback anchor
++			// disagreeing with the shifted schedule: the savings for the
++			// fallback-anchored (cross-root / in-flight) classes are
++			// order-dependent. Pairs with a non-zero fallback-anchors count.
++			fmt.Fprintf(w, "what-if start conflicts: %d (some savings are order-dependent where fallback anchoring occurred)\n", whatIfConflicts)
++		}
+ 		drift := float64(0)
+ 		if actual > 0 {
+ 			drift = 100 * float64(baseline-actual) / float64(actual)
+diff --git a/engine/wcprof/wcotel/oracle.go b/engine/wcprof/wcotel/oracle.go
+index 50ac5f94ef..a585b93c7c 100644
+--- a/engine/wcprof/wcotel/oracle.go
++++ b/engine/wcprof/wcotel/oracle.go
+@@ -48,7 +48,7 @@ type ClassImpact struct {
+ // oracle compares across sources. minSelfNS filters out classes too cheap to
+ // matter (mirroring the report's own threshold).
+ func TopBottlenecks(g *wcanalyze.Graph, factor float64, minSelfNS int64) (baselineNS int64, ranked []ClassImpact, err error) {
+-	baselineNS, results, err := wcanalyze.RunWhatIfs(g, []float64{factor}, minSelfNS)
++	baselineNS, results, _, err := wcanalyze.RunWhatIfs(g, []float64{factor}, minSelfNS)
+ 	if err != nil {
+ 		return 0, nil, err
+ 	}

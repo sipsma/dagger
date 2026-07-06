@@ -1,0 +1,372 @@
+commit e8c0dfe49828e02076f4790aaf801d9f36f98664
+Author: Erik Sipsma <erik@sipsma.dev>
+Date:   Fri Jun 26 13:15:14 2026 -0700
+
+    fix(wcprof): zero-dur wait-target wrong answer; hard-fail fallback anchors
+    
+    Two items from the re-confirm review.
+    
+    (1) Showstopper found by fresh Codex, verified on the harness: a zero-duration
+    child whose end coincides with a gating wait's end was anchored EARLY. joinUpTo
+    runs before the action tie-break, so it grabbed the unstarted child at the
+    pre-gate clock before the wait's own gate raised the clock. For a leaf that was
+    benign (the child's finish is absorbed), but when the child is itself a WAIT
+    TARGET the wrong-early finish propagates: P waits T (gating to 100) then spawns
+    zero-dur Z at 100; B waits Z; A waits B then runs 200ms self — Z anchored at
+    P's pre-wait clock (50) gives B=50, A=250, makespan 250 instead of 300, with NO
+    FallbackAnchor to flag it. (My earlier "benign" call covered only the leaf.)
+    
+    Fix, two parts:
+      - joinUpTo no longer anchors an unstarted child whose own spawn is still
+        pending at this instant (the only way an in-range child is unstarted there:
+        a zero-duration child whose spawn and end both equal the gate time). It
+        defers, so the gate raises the clock first and the spawn anchors the child.
+      - actionRank now orders spawn BEFORE self (gate -> spawn -> self), so the
+        deferred child's spawn anchors it concurrently with a same-time self segment
+        rather than serialized after it. Only a zero-duration child can share a
+        spawn instant with a self-segment start (a normal child's interval carves
+        the self out of that point), so this rank change touches nothing else.
+    Both faces are tested (wait-target propagation, self-segment start). The fix
+    also eliminates the benign zero-dur SimStartConflict, making that signal clean:
+    a conflict now implies a recorded-offset fallback.
+    
+    (2) Per Erik's decision, ANY recorded-offset fallback anchor now hard-fails the
+    OTel structural gate (was report-only). A fallback is the surviving startOf
+    approximation -- the replay could not compute an op from causal prefixes -- and
+    a finite what-if sweep cannot prove the resulting rankings sound, so the gate
+    enforces on the precondition. MaxFallbackAnchors becomes the explicit opt-out
+    (tolerate up to N) for best-effort offline analysis. 0 on all current traces,
+    so it is free here; the cross-root shape that still produces fallbacks is
+    item-3 (on-demand root scheduling) territory.
+    
+    Real traces bit-unchanged (native -0.1% / OTel -2.4%); full suite + the
+    gate-using emit-path tests green.
+    
+    Signed-off-by: Erik Sipsma <erik@sipsma.dev>
+
+diff --git a/engine/wcprof/wcanalyze/replay.go b/engine/wcprof/wcanalyze/replay.go
+index 84a8960d9e..88407a8fc6 100644
+--- a/engine/wcprof/wcanalyze/replay.go
++++ b/engine/wcprof/wcanalyze/replay.go
+@@ -98,8 +98,8 @@ type replayProgram struct {
+ 
+ 	// actions[actOff[i]:actOff[i+1]] is op i's timeline, sorted by
+ 	// (at, actionRank): at equal times a max-gate (a join wait, or a fixed
+-	// delay's end — both sequenced at their end) applies first, then self, then
+-	// spawn, then a fixed delay's start-marker / noop.
++	// delay's end — both sequenced at their end) applies first, then spawn, then
++	// self, then a fixed delay's start-marker / noop.
+ 	actions []action
+ 	actOff  []int32
+ 
+@@ -172,20 +172,25 @@ func compileProgram(g *Graph) *replayProgram {
+ 
+ 	p.actions = make([]action, 0, totalActions)
+ 	p.pendIdx = make([]int32, 0, totalPend)
+-	// Ordering at equal recorded times. A max-gate — a JOIN wait or a fixed
+-	// delay's END, both sequenced at their recorded end — applies BEFORE any
+-	// post-wait self/spawn at that same instant, so those are gated by it (a
+-	// spawn the wait did not outlast already sorts earlier by its smaller
+-	// recorded time). A fixed delay's start-marker and a noop sit at their start
+-	// after self/spawn: the marker only records the clock (it does not gate), so
+-	// a child spawned at the same instant stays concurrent.
++	// Ordering at equal recorded times:
++	//   0: max-gate — a JOIN wait or a fixed delay's END (both sequenced at their
++	//      recorded end). Applies first, so post-gate work at that instant is
++	//      gated (a spawn the wait did not outlast sorts earlier by its smaller
++	//      recorded time and so is not gated).
++	//   1: spawn — anchors a child at the (post-gate) clock. BEFORE self so a
++	//      child spawned at the same instant a self segment starts is anchored
++	//      concurrently with that self, not serialized after it. (Only a
++	//      zero-duration child can share a spawn instant with a self-segment
++	//      start; a normal child's interval carves the self out of that point.)
++	//   2: self — advances the clock by its (scaled) duration.
++	//   3: a fixed delay's start-marker and a noop, which only record/mark.
+ 	actionRank := func(kind uint8) int {
+ 		switch kind {
+ 		case actWaitJoin, actWaitFixedEnd:
+ 			return 0
+-		case actSelf:
+-			return 1
+ 		case actSpawn:
++			return 1
++		case actSelf:
+ 			return 2
+ 		default: // actWaitFixedStart, actWaitNoop — start markers, non-gating
+ 			return 3
+@@ -460,12 +465,22 @@ func (s *Simulation) advance(op, stopAt int32) int64 {
+ 			if s.p.endNS[c] > t {
+ 				return
+ 			}
+-			pendCur++
+ 			if !s.started[c] {
+-				// child never anchored (e.g. spawn outside op interval);
+-				// anchor at current clock
++				if s.p.startNS[c] == t {
++					// c's own spawn action is pending at this same instant (the
++					// only way an in-range child is unstarted here: its spawn
++					// and end both equal t, a zero-duration child). Do NOT anchor
++					// it at the current pre-gate clock — a max-gate at t (e.g. a
++					// join wait ending now) sorts before the spawn and must raise
++					// the clock first. Defer (leave pendCur) so the spawn action
++					// anchors c at the gated clock; the next joinUpTo joins it.
++					return
++				}
++				// genuine orphan: spawn outside the op's reachable actions —
++				// anchor at the current clock so it is not lost.
+ 				s.setStart(c, clock)
+ 			}
++			pendCur++
+ 			if f := s.finish(c); f > clock {
+ 				clock = f
+ 			}
+diff --git a/engine/wcprof/wcanalyze/replay_cycle_test.go b/engine/wcprof/wcanalyze/replay_cycle_test.go
+index b9268c3c95..1393634687 100644
+--- a/engine/wcprof/wcanalyze/replay_cycle_test.go
++++ b/engine/wcprof/wcanalyze/replay_cycle_test.go
+@@ -280,25 +280,24 @@ func TestWaitEndGatingBoundary(t *testing.T) {
+ 	}
+ }
+ 
+-// --- (d2) zero-duration child exactly at a gating join wait's end. joinUpTo runs
+-// before the action tie-break, so the child (EndNS == the wait's end) is implicitly
+-// joined-and-anchored at the pre-wait clock before the wait's own action, then its
+-// later spawn action re-anchors it to the post-wait clock — a counted
+-// SimStartConflict. It is BENIGN: a zero-duration child's finish equals its start,
+-// which is ≤ the wait it sits at, so it is absorbed and the op's finish is
+-// unaffected. This is why a non-zero SimStartConflict is surfaced, not hard-failed:
+-// it can be this harmless coincidence, not only a real order-dependence.
++// --- (d2) zero-duration child exactly at a gating join wait's end. joinUpTo
++// runs before the action tie-break, so without care the child (EndNS == the
++// wait's end) would be implicitly anchored at the PRE-wait clock before the
++// wait's own gate. That is a wrong start, and when the child is itself a wait
++// target it propagates (see TestZeroDurWaitTargetPropagation). joinUpTo must
++// instead DEFER a child whose spawn is still pending at this instant, so the
++// gate (the wait end) raises the clock first and the spawn anchors it correctly.
+ //
+ //	root [0,300]
+ //	├── S (call) [0,300] → T (call_exec) [50,100]   (wait target, finish 100)
+-//	└── P (call) [0,300]   self [0,50]; waits T [50,100]; zero-dur child Z [100,100]
++//	└── P (call) [0,100]   self [0,50]; waits T [50,100]; zero-dur child Z [100,100]
+ func TestZeroDurChildAtJoinWaitEnd(t *testing.T) {
+ 	s := newFixtureStrings()
+ 	events := []wcprof.DumpEvent{
+ 		opEvent(s, 1, 0, "session_phase", "session.query", "", "ok", 0, 300*ms),
+ 		opEvent(s, 2, 1, "call", "S.call", "sv", "executed", 0, 300*ms),
+ 		opEvent(s, 3, 2, "call_exec", "T.work", "tt", "ok", 50*ms, 100*ms),
+-		opEvent(s, 4, 1, "call", "P.call", "p", "executed", 0, 300*ms),
++		opEvent(s, 4, 1, "call", "P.call", "p", "executed", 0, 100*ms),
+ 		opEvent(s, 5, 4, "call_exec", "Z.work", "z", "ok", 100*ms, 100*ms),
+ 		waitEvent(s, 4, 3, "", "call_exec", 50*ms, 100*ms),
+ 	}
+@@ -310,16 +309,96 @@ func TestZeroDurChildAtJoinWaitEnd(t *testing.T) {
+ 	if sim.CycleWarnings != 0 {
+ 		t.Fatalf("CycleWarnings = %d, want 0", sim.CycleWarnings)
+ 	}
+-	// The benign conflict does NOT corrupt the finish: P blocks on T to 100, then
+-	// runs post-wait self [100,300] → 300, with Z (zero-duration) absorbed.
++	// Z spawns AFTER P's wait on T (which gates to 100), so Z anchors at the
++	// gated clock 100, not the pre-wait 50 — deferred past the gate, no conflict.
++	zStart, _ := simByClass(sim, g, "Z.work")
++	if zStart != 100*ms {
++		t.Fatalf("Z start = %v, want 100ms (gated by the wait, not anchored early at the pre-wait clock)", time.Duration(zStart))
++	}
+ 	_, pFinish := simByClass(sim, g, "P.call")
+-	if pFinish != 300*ms {
+-		t.Fatalf("P finish = %v, want 300ms (the zero-dur child must be absorbed, not corrupt the finish)", time.Duration(pFinish))
++	if pFinish != 100*ms {
++		t.Fatalf("P finish = %v, want 100ms", time.Duration(pFinish))
++	}
++	// The early-anchor/re-anchor that produced this conflict is now eliminated,
++	// so SimStartConflicts is a clean signal here.
++	if sim.SimStartConflicts != 0 {
++		t.Fatalf("SimStartConflicts = %d, want 0 (the join-before-spawn early anchor is fixed)", sim.SimStartConflicts)
++	}
++}
++
++// TestZeroDurWaitTargetPropagation is the showstopper the above guards against:
++// a zero-duration child Z that is itself a WAIT TARGET, anchored early, feeds a
++// wrong finish into a downstream wait chain → wrong makespan, with no
++// FallbackAnchor to flag it. P waits T (gates to 100) then spawns zero-dur Z at
++// 100; B waits Z; A waits B then runs 200ms self; root reaches B before P so Z is
++// anchored out of order. The bug anchored Z at P's pre-wait clock (50) → B=50,
++// A=250, makespan 250. Correct: Z=100, B=100, A=300, makespan 300.
++func TestZeroDurWaitTargetPropagation(t *testing.T) {
++	s := newFixtureStrings()
++	events := []wcprof.DumpEvent{
++		opEvent(s, 1, 0, "session_phase", "session.query", "", "ok", 0, 300*ms),
++		opEvent(s, 2, 1, "call", "A.crit", "a", "executed", 0, 300*ms),
++		waitEvent(s, 2, 3, "", "call_exec", 0, 100*ms), // A waits B
++		opEvent(s, 3, 1, "call", "B.mid", "b", "executed", 0, 100*ms),
++		waitEvent(s, 3, 6, "", "call_exec", 0, 100*ms), // B waits Z
++		opEvent(s, 5, 1, "call", "P.parent", "p", "executed", 0, 100*ms),
++		opEvent(s, 6, 5, "call_exec", "Z.zero", "z", "ok", 100*ms, 100*ms), // zero-dur child of P
++		waitEvent(s, 5, 7, "", "call_exec", 50*ms, 100*ms),                 // P waits T
++		opEvent(s, 7, 1, "call_exec", "T.work", "tt", "ok", 0, 100*ms),     // real self so finish(T)=100 > P's pre-wait 50
++	}
++	g := buildGraph(t, s, events)
++	sim := NewSimulation(g, nil)
++	makespan, err := sim.Run()
++	if err != nil {
++		t.Fatal(err)
++	}
++	if sim.CycleWarnings != 0 || sim.SimStartConflicts != 0 {
++		t.Fatalf("cycles=%d conflicts=%d, want 0/0", sim.CycleWarnings, sim.SimStartConflicts)
++	}
++	zFinish := func(c string) int64 { _, f := simByClass(sim, g, c); return f }
++	if z := zFinish("Z.zero"); z != 100*ms {
++		t.Fatalf("Z finish = %v, want 100ms (the wait-target zero-dur child must not anchor early)", time.Duration(z))
++	}
++	if b := zFinish("B.mid"); b != 100*ms {
++		t.Fatalf("B finish = %v, want 100ms (Z's wrong-early finish must not propagate)", time.Duration(b))
++	}
++	if makespan != 300*ms {
++		t.Fatalf("makespan = %v, want 300ms (the early-anchor bug gives 250ms)", time.Duration(makespan))
++	}
++}
++
++// TestZeroDurChildAtSelfStart is the second face of the same fix: a zero-duration
++// child spawned at the START of a self segment (not a wait) must anchor
++// concurrently with that self, not serialized after it. Only a zero-duration
++// child can share a spawn instant with a self-segment start (a normal child's
++// interval carves the self out of that point), so the spawn-before-self rank
++// only changes this case.
++//
++//	P (call) [0,200]
++//	├── C (call_exec) [0,100]       carves [0,100] so self starts at 100
++//	├── self [100,200]
++//	└── Z (call_exec) [100,100]     zero-dur, spawned at the self start
++//
++// Z is concurrent with the self → anchors at 100. The old self-before-spawn rank
++// (with the deferral) anchored it after the self at 200.
++func TestZeroDurChildAtSelfStart(t *testing.T) {
++	s := newFixtureStrings()
++	g := buildGraph(t, s, []wcprof.DumpEvent{
++		opEvent(s, 1, 0, "session_phase", "session.query", "", "ok", 0, 200*ms),
++		opEvent(s, 2, 1, "call", "P.call", "p", "executed", 0, 200*ms),
++		opEvent(s, 3, 2, "call_exec", "C.work", "c", "ok", 0, 100*ms),
++		opEvent(s, 4, 2, "call_exec", "Z.zero", "z", "ok", 100*ms, 100*ms),
++	})
++	sim := NewSimulation(g, nil)
++	if _, err := sim.Run(); err != nil {
++		t.Fatal(err)
++	}
++	if sim.CycleWarnings != 0 || sim.SimStartConflicts != 0 {
++		t.Fatalf("cycles=%d conflicts=%d, want 0/0", sim.CycleWarnings, sim.SimStartConflicts)
+ 	}
+-	// Document the benign conflict so a future change that eliminates it updates
+-	// this deliberately rather than silently.
+-	if sim.SimStartConflicts != 1 {
+-		t.Fatalf("SimStartConflicts = %d, want 1 (the benign zero-dur join-before-spawn coincidence)", sim.SimStartConflicts)
++	zStart, _ := simByClass(sim, g, "Z.zero")
++	if zStart != 100*ms {
++		t.Fatalf("Z start = %v, want 100ms (concurrent with the self segment, not serialized after it)", time.Duration(zStart))
+ 	}
+ }
+ 
+diff --git a/engine/wcprof/wcotel/gate.go b/engine/wcprof/wcotel/gate.go
+index 95dc5e8cea..271f01d0f1 100644
+--- a/engine/wcprof/wcotel/gate.go
++++ b/engine/wcprof/wcotel/gate.go
+@@ -20,11 +20,16 @@ import (
+ 
+ // GateOptions tunes the gate's soft thresholds.
+ type GateOptions struct {
+-	// MaxFallbackAnchors, when > 0, makes the gate fail if the baseline replay
+-	// fallback-anchors more ops than this. It defaults to report-only (0): the
+-	// un-augmented baseline legitimately fallback-anchors lazy work re-pointed
+-	// under its producer, so the count is a regression metric, not a hard
+-	// invariant, until later chunks make the shape faithful (design §6.1).
++	// MaxFallbackAnchors is the number of recorded-offset fallback anchors the
++	// gate tolerates before failing; it defaults to 0, so ANY fallback anchor
++	// fails the gate. A fallback anchor is the surviving startOf-style
++	// approximation — the replay could not compute an op's counterfactual from
++	// causal prefixes (a cross-root reference whose root is unscheduled, or an
++	// in-flight ancestor) and fell back to its recorded offset, which is exact
++	// at baseline but wrong under a what-if that shifts it. Enforcing on this
++	// precondition (not on sampled what-if harm, which no finite factor sweep
++	// can rule out) is the analyzer's confidence bar. Raise it only to force
++	// best-effort offline analysis of a trace known to need the approximation.
+ 	MaxFallbackAnchors int
+ }
+ 
+@@ -62,7 +67,7 @@ type GateReport struct {
+ 
+ 	// Soft / regression metrics.
+ 	FallbackAnchors int
+-	FallbackBound   int // MaxFallbackAnchors, echoed; 0 = report-only
++	FallbackBound   int // MaxFallbackAnchors, echoed; 0 = hard-fail on any
+ 	SkippedNoSpanID int
+ 	// SimStartConflicts counts anchored-start disagreements in the baseline
+ 	// replay: the end-ordered gating model anchors a child identically whether
+@@ -135,8 +140,8 @@ func CheckStructural(c *Compiled, g *wcanalyze.Graph, opts GateOptions) GateRepo
+ 	if r.WaitEdges > 0 && (r.TotalDroppedLinks > 0 || r.TotalDroppedLinkAttrs > 0) {
+ 		r.violations = append(r.violations, fmt.Sprintf("%d dropped link(s) / %d dropped link-attr(s) on a wait-carrying trace — wait edges may have been silently evicted (raise LinkCountLimit, design §3.0)", r.TotalDroppedLinks, r.TotalDroppedLinkAttrs))
+ 	}
+-	if opts.MaxFallbackAnchors > 0 && r.FallbackAnchors > opts.MaxFallbackAnchors {
+-		r.violations = append(r.violations, fmt.Sprintf("fallback anchors %d exceed bound %d", r.FallbackAnchors, opts.MaxFallbackAnchors))
++	if r.FallbackAnchors > opts.MaxFallbackAnchors {
++		r.violations = append(r.violations, fmt.Sprintf("%d op(s) anchored at a recorded-offset approximation (cross-root reference or in-flight ancestor) — the replay could not compute their counterfactual from causal prefixes, so what-if rankings are unreliable (design §6.1)", r.FallbackAnchors))
+ 	}
+ 
+ 	return r
+@@ -162,9 +167,9 @@ func (r GateReport) Write(w io.Writer) {
+ 		r.Cycles, len(r.SelfGtMakespan), len(r.IntervalGtSpan))
+ 	fmt.Fprintf(w, "  wait-loss: unresolved-targets=%d  malformed-timing=%d\n",
+ 		r.UnresolvedWaitTargets, r.MalformedWaitTimings)
+-	bound := "report-only"
++	bound := "hard-fail if >0"
+ 	if r.FallbackBound > 0 {
+-		bound = fmt.Sprintf("bound %d", r.FallbackBound)
++		bound = fmt.Sprintf("tolerate ≤%d", r.FallbackBound)
+ 	}
+ 	fmt.Fprintf(w, "  fallback-anchors=%d (%s)  start-conflicts=%d\n", r.FallbackAnchors, bound, r.SimStartConflicts)
+ 	fmt.Fprintf(w, "  dropped-links: total=%d (%d attrs) wait-bearing=%d wait-link-attrs=%d\n",
+diff --git a/engine/wcprof/wcotel/gate_test.go b/engine/wcprof/wcotel/gate_test.go
+index 44627de685..32cfe97be8 100644
+--- a/engine/wcprof/wcotel/gate_test.go
++++ b/engine/wcprof/wcotel/gate_test.go
+@@ -224,10 +224,14 @@ func TestGateFailsOnDroppedWaitLinks(t *testing.T) {
+ 	}
+ }
+ 
+-// TestGateFallbackAnchorsReportOnlyAndThreshold: a root that wait-joins two
+-// other roots before they replay produces fallback anchors. They are
+-// report-only by default (design §6.1), but a bound makes them fail.
+-func TestGateFallbackAnchorsReportOnlyAndThreshold(t *testing.T) {
++// TestGateFallbackAnchorsHardFail: a root that wait-joins two other roots before
++// they replay produces fallback anchors (the recorded-offset approximation — the
++// surviving startOf corner). Any fallback anchor HARD-FAILS the gate by default:
++// the replay could not compute those ops from causal prefixes, so its what-if
++// rankings are unreliable. The MaxFallbackAnchors knob is an explicit opt-out for
++// best-effort offline analysis. (This cross-root shape is what item-3 on-demand
++// root scheduling would make exact, so it would then stop producing fallbacks.)
++func TestGateFallbackAnchorsHardFail(t *testing.T) {
+ 	jsonl := toJSONL(t,
+ 		rec(map[string]any{"spanId": idA, "parentId": idNone, "name": "A", "startNs": baseEp, "endNs": baseEp + 300,
+ 			"links": []any{
+@@ -239,16 +243,17 @@ func TestGateFallbackAnchorsReportOnlyAndThreshold(t *testing.T) {
+ 	)
+ 	c, g := mustLoad(t, jsonl)
+ 
+-	reportOnly := CheckStructural(c, g, GateOptions{})
+-	if reportOnly.FallbackAnchors == 0 {
++	def := CheckStructural(c, g, GateOptions{})
++	if def.FallbackAnchors == 0 {
+ 		t.Fatal("expected fallback anchors from cross-root wait-joins")
+ 	}
+-	if err := reportOnly.Err(); err != nil {
+-		t.Fatalf("fallback anchors must be report-only by default: %v", err)
++	if def.Err() == nil {
++		t.Fatal("any fallback anchor must hard-fail the gate by default")
+ 	}
+ 
+-	bounded := CheckStructural(c, g, GateOptions{MaxFallbackAnchors: reportOnly.FallbackAnchors - 1})
+-	if bounded.Err() == nil {
+-		t.Fatal("a fallback-anchor bound below the count must fail")
++	// The opt-out (tolerate up to the observed count) lets offline analysis proceed.
++	tolerated := CheckStructural(c, g, GateOptions{MaxFallbackAnchors: def.FallbackAnchors})
++	if err := tolerated.Err(); err != nil {
++		t.Fatalf("raising the tolerance to the observed count must pass: %v", err)
+ 	}
+ }

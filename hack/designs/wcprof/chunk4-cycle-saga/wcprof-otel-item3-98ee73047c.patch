@@ -1,0 +1,559 @@
+commit 98ee73047c63b84dbc0f34e1bd48b6911e0754e5
+Author: Erik Sipsma <erik@sipsma.dev>
+Date:   Fri Jun 26 14:40:53 2026 -0700
+
+    fix(wcprof): rational root model — remove chaining inference + fallbacks
+    
+    Item 3, from first principles (unanimous council): the analysis must be a
+    rational function of the recorded data and never compensate for it. Two pieces
+    of the replay violated that and are removed:
+    
+      - The Run() CHAINING: it inferred a sequential dependency between successive
+        or overlapping roots from their temporal order — a guess with no recorded
+        causal edge (a shell serializing two CLI commands is invisible to the
+        engine). Removed: every root has no incoming edge, so the data says it is
+        INDEPENDENT — anchor it at its own recorded start, an exact fact. All roots
+        are pre-anchored before any finish, so a cross-root wait always resolves to
+        an already-anchored target.
+    
+      - The spawnTo recorded-offset FALLBACK for a not-yet-scheduled root: dead once
+        roots are pre-anchored. The par<0 branch is now the exact root anchor
+        (uncounted). The remaining corners (an op referenced from within its
+        ancestor's prefix before the ancestor spawns it; a recorded child its parent
+        never spawns; the joinUpTo orphan) are not approximations to choose — they
+        are impossible in a faithful synchronous nesting, i.e. unfaithful DATA. They
+        are flagged (FallbackAnchors, gate-failing) so the EMIT is fixed, never
+        silently approximated.
+    
+    The counterfactual still crosses a root boundary, but only through a RECORDED
+    edge: a cross-root wait propagates the saving to its waiter; an in-engine
+    sub-session is a recorded nesting/launch edge (nested-client reparenting already
+    does this), so it is not a pure root. The counters are now data-faithfulness
+    signals: CycleWarnings + FallbackAnchors + SimStartConflicts == 0 by
+    construction for faithful data; any non-zero ⇒ fix the emit.
+    
+    NOT bit-identical, contrary to the council's framing — and that is the win.
+    Removing the chaining makes the baseline MATCH the recorded makespan, because
+    the chaining was propagating each root's replay drift into later root starts:
+    native 5.86s/-0.1% → 5.87s/-0.0%, OTel 5.96s/-2.4% → 6.11s/+0.0%, both now
+    exact. The OTel -2.4% "drift" was entirely the chaining artifact, not an
+    unrecorded wait. Multi-root what-ifs change (independent roots no longer falsely
+    shift) — validated by the synthetic case-(a) (cross-root dedup: saving crosses
+    the boundary, makespan 200) and case-(b) (sequential roots: scaling A does not
+    shift B) fixtures, NOT by the old native ranking (the thing under suspicion).
+    
+    Tests: TestRootChaining → TestRootsIndependent (case b); TestCrossRootAnchor →
+    TestCrossRootDedup (case a, makespan 200, 0 signals by construction);
+    TestTwoZeroDurCoEnding (the co-terminating zero-dur residual); the OTel gate
+    test flips (cross-root now passes with 0 fallbacks).
+    
+    Consequence stated honestly: cross-SESSION wall-time is now explicitly out of
+    engine scope (it was being faked by the chaining). Single-query runs unaffected;
+    multi-command CI timing is a separate orchestrator/multi-trace concern.
+    
+    Signed-off-by: Erik Sipsma <erik@sipsma.dev>
+
+diff --git a/engine/wcprof/wcanalyze/replay.go b/engine/wcprof/wcanalyze/replay.go
+index 88407a8fc6..11af372803 100644
+--- a/engine/wcprof/wcanalyze/replay.go
++++ b/engine/wcprof/wcanalyze/replay.go
+@@ -35,17 +35,21 @@ import (
+ //     synchronous child calls (no explicit wait edge exists for plain
+ //     function calls) and is conservatively safe for async children.
+ //
+-// Roots are chained by preserving original idle gaps between strictly
+-// sequential roots (e.g. successive queries from the CLI). The simulation
+-// runs in the original trace's time frame (the first root keeps its
+-// recorded start). An op reached out of order through a cross-tree wait
+-// target is anchored by replaying its producer's timeline up to (and only
+-// up to) its spawn under the same factor (see finish/spawnTo), so its start
+-// tracks the counterfactual rather than freezing at the recorded time; only
+-// a genuine inversion — an ancestor still mid-replay, or a cross-root
+-// forward reference whose own root is unscheduled — falls back to the
+-// recorded offset, and every such fallback is counted (FallbackAnchors),
+-// never silent.
++// Each root is an op with no recorded incoming causal edge, so the data says
++// it is INDEPENDENT: it is anchored at its own recorded start, an exact fact.
++// Roots are NOT chained — the analysis does not infer a dependency between
++// successive or overlapping roots from their temporal order (that would be
++// guessing where the data is silent: a shell that serialized two CLI commands
++// is invisible to the engine, and the model must not invent the edge). The
++// counterfactual crosses a root boundary only through a RECORDED edge: a
++// cross-root wait propagates the saving to its waiter; a sub-session launched
++// in-engine is a recorded nesting/launch edge, so it is not a pure root. An op
++// reached out of order through a wait is anchored by replaying its producer's
++// timeline up to its spawn under the same factor (finish/spawnTo); because all
++// roots are pre-anchored, that producer's root is always already anchored, so
++// no recorded-offset fallback is ever needed. A reference the recorded causal
++// structure cannot schedule (an inverted reference, an impossible nesting) is
++// unfaithful DATA — counted and gate-failing, never silently approximated.
+ //
+ // The timeline of every op is factor-independent, so it is compiled once
+ // per graph into a flat action program (replayProgram); each simulation is
+@@ -285,19 +289,27 @@ type Simulation struct {
+ 	// read at its end to raise the clock by the delay's duration (a max).
+ 	fixedWaitClock []int64
+ 
+-	// CycleWarnings counts genuine wait/join cycles broken during replay: an
+-	// op whose own dependency chain re-enters it while in flight. Spurious
+-	// over-serializations (a concurrent wait that did not gate a spawn) are
+-	// resolved by the end-ordered gating model and do NOT count here.
++	// The three counters below are DATA-FAITHFULNESS signals, not tolerances:
++	// against a rational model, faithful data yields 0 on all three by
++	// construction. A non-zero value means the recorded graph is unfaithful and
++	// the EMIT must be fixed — never that the analysis should compensate.
++	//
++	// CycleWarnings counts genuine wait/join cycles: an op whose own dependency
++	// chain re-enters it while in flight. A real mutual dependency cannot occur
++	// in a completed run, so a recorded cycle is a false (non-synchronous) edge —
++	// unfaithful data.
+ 	CycleWarnings int
+-	// FallbackAnchors counts ops anchored at their recorded offset because the
+-	// parent's prefix replay could not reach their spawn — the parent (or an
+-	// ancestor) was itself mid-replay, or the target was referenced from a root
+-	// not yet scheduled. This is the only place the recorded-offset
+-	// approximation survives; on a faithful trace it is rare and is reported,
+-	// never silent.
++	// FallbackAnchors counts references the recorded causal structure could NOT
++	// schedule: an op referenced from within its own ancestor's prefix before
++	// that ancestor spawns it (an inverted reference), or a recorded child its
++	// parent never spawns (a malformed nesting). Both are impossible in a
++	// faithful synchronous nesting. It is NOT a recorded-offset approximation the
++	// analysis chose — a true root's recorded start is exact and uncounted, and
++	// all roots are pre-anchored so a cross-root reference never needs a fallback.
++	// The recorded-offset anchor here only bounds the damage; the count fails the
++	// gate so the emit is fixed. 0 on faithful data.
+ 	FallbackAnchors int
+-	// FallbackAnchorOps holds a sample of fallback-anchored ops.
++	// FallbackAnchorOps holds a sample of the unfaithful-reference ops.
+ 	FallbackAnchorOps []*Op
+ 	// PrefixAnchors counts ops whose start was anchored by replaying their
+ 	// parent's timeline up to (and only up to) their spawn — the normal
+@@ -305,21 +317,11 @@ type Simulation struct {
+ 	// references, not a problem.
+ 	PrefixAnchors int
+ 	// SimStartConflicts counts setStart calls that tried to overwrite an
+-	// already-anchored op with a DIFFERENT start. The end-ordered gating model
+-	// makes a child's anchored start independent of whether it is reached in
+-	// order or out of order, so on the normal path this stays 0. Two distinct
+-	// sources can make it non-zero — which is why it is surfaced, not
+-	// hard-failed:
+-	//   - benign: a zero-duration child whose end coincides with a gating
+-	//     wait's end is implicitly join-anchored (at the pre-wait clock) before
+-	//     its own spawn action re-anchors it. Its finish is absorbed (a
+-	//     zero-duration finish can't exceed the wait it sits at), so the op's
+-	//     finish is unaffected — a harmless coincidence, not a wrong answer.
+-	//   - real: a recorded-offset fallback anchor (so it pairs with
+-	//     FallbackAnchors > 0) disagrees with the shifted full-finish value
+-	//     under a what-if factor that moves the schedule — an order-dependent
+-	//     saving for that cross-root / in-flight-anchored class. The baseline
+-	//     (factor 1, no shift) cannot see this; RunWhatIfs surfaces it.
++	// already-anchored op with a DIFFERENT start. With roots anchored
++	// independently (no chaining) and the end-ordered gating model, an op's start
++	// is path-independent, so this is 0 by construction on faithful data. A
++	// non-zero value pairs with a FallbackAnchor (the unfaithful-reference case)
++	// and is the same data-faithfulness signal.
+ 	SimStartConflicts int
+ 	// SimStartConflictOps holds a sample of conflicting ops.
+ 	SimStartConflictOps []*Op
+@@ -362,31 +364,21 @@ func (s *Simulation) Run() (makespanNS int64, err error) {
+ 		return 0, fmt.Errorf("no root ops to simulate")
+ 	}
+ 
+-	chainOrigEnd := s.p.startNS[s.p.roots[0]]
+-	chainSimEnd := chainOrigEnd
++	// Anchor every root at its own recorded start (each is independent — no
++	// incoming causal edge), BEFORE finishing any. Pre-anchoring is what makes a
++	// cross-root wait resolve to an already-anchored target, so the replay never
++	// needs a recorded-offset fallback for a not-yet-scheduled root.
++	for _, r := range s.p.roots {
++		s.setStart(r, s.p.startNS[r])
++	}
+ 	firstStart := int64(-1)
+ 	var lastFinish int64
+-
+ 	for _, r := range s.p.roots {
+-		var start int64
+-		if s.p.startNS[r] >= chainOrigEnd {
+-			// strictly after the previous chained root finished: preserve the
+-			// original idle gap (client think-time) but inherit any shift
+-			start = chainSimEnd + (s.p.startNS[r] - chainOrigEnd)
+-		} else {
+-			// overlaps the previous root: keep the same displacement
+-			start = s.p.startNS[r] + (chainSimEnd - chainOrigEnd)
+-		}
+-		s.setStart(r, start)
+ 		finish := s.finish(r)
+ 		if firstStart < 0 || s.simStart[r] < firstStart {
+ 			firstStart = s.simStart[r]
+ 		}
+ 		lastFinish = max(lastFinish, finish)
+-		if s.p.endNS[r] >= chainOrigEnd {
+-			chainOrigEnd = s.p.endNS[r]
+-			chainSimEnd = finish
+-		}
+ 	}
+ 	return lastFinish - firstStart, nil
+ }
+@@ -476,9 +468,11 @@ func (s *Simulation) advance(op, stopAt int32) int64 {
+ 					// anchors c at the gated clock; the next joinUpTo joins it.
+ 					return
+ 				}
+-				// genuine orphan: spawn outside the op's reachable actions —
+-				// anchor at the current clock so it is not lost.
+-				s.setStart(c, clock)
++				// Genuine orphan: a recorded child whose spawn is outside its
++				// parent's reachable actions — a malformed nesting edge, i.e.
++				// unfaithful DATA. Flag it (not a silent anchor); anchor at the
++				// current clock only to bound the damage.
++				s.fallbackAnchor(c)
+ 			}
+ 			pendCur++
+ 			if f := s.finish(c); f > clock {
+@@ -521,20 +515,18 @@ func (s *Simulation) advance(op, stopAt int32) int64 {
+ 
+ // spawnTo anchors target's simulated start by replaying par's prefix up to
+ // target's spawn (par == target's parent). It guarantees target is started on
+-// return. The recorded-offset fallbacks — par itself, or an ancestor, still in
+-// flight — are the only place the recorded approximation survives; each is
+-// counted (FallbackAnchors), never silent.
++// return. With all roots pre-anchored by Run, the only anchors it produces are
++// exact (a root's recorded start, or a child reached by its parent's prefix
++// replay). The remaining corners are unfaithful DATA — a reference the recorded
++// causal structure cannot schedule — flagged via fallbackAnchor, not silently
++// approximated.
+ func (s *Simulation) spawnTo(par, target int32) {
+ 	if par < 0 {
+-		// True root referenced out of order (its own root chain has not been
+-		// scheduled by Run yet): anchor at its recorded start, in the original
+-		// frame. Counted: a what-if shift would make this disagree with Run's
+-		// chained start, which SimStartConflicts then surfaces.
++		// target is a true root (no incoming causal edge): its recorded start is
++		// an exact fact, not an approximation. Run pre-anchors every root, so on
++		// faithful data this is already done before any finish; it is kept here,
++		// exact and UNCOUNTED, only for the defensive path.
+ 		s.setStart(target, s.p.startNS[target])
+-		s.FallbackAnchors++
+-		if len(s.FallbackAnchorOps) < 10 {
+-			s.FallbackAnchorOps = append(s.FallbackAnchorOps, s.p.ops[target])
+-		}
+ 		return
+ 	}
+ 
+@@ -549,9 +541,10 @@ func (s *Simulation) spawnTo(par, target int32) {
+ 	}
+ 
+ 	if s.inFlight[par] {
+-		// par is mid-replay (a genuine inversion: target is referenced from
+-		// within par's own prefix before par spawns it): recorded-offset last
+-		// resort, counted.
++		// par is mid-replay: target is referenced from within par's own prefix
++		// BEFORE par spawns it — a recorded inversion that cannot occur in a
++		// faithful synchronous nesting. Unfaithful data: flag it (don't silently
++		// approximate); anchor only to bound the damage so the rest still runs.
+ 		s.fallbackAnchor(target)
+ 		return
+ 	}
+@@ -564,13 +557,17 @@ func (s *Simulation) spawnTo(par, target int32) {
+ 		s.PrefixAnchors++
+ 		return
+ 	}
+-	// par's prefix never reached target's spawn (target is not actually par's
+-	// recorded child): recorded-offset last resort, counted.
++	// par's prefix never reached target's spawn: target is not actually par's
++	// recorded child — a malformed parent/child edge. Unfaithful data, flagged.
+ 	s.fallbackAnchor(target)
+ }
+ 
+-// fallbackAnchor anchors i at its recorded offset within its parent's shifted
+-// frame (recorded start when it has no started parent) and counts it.
++// fallbackAnchor records an op the replay could NOT schedule from the recorded
++// causal structure (an inverted reference or a malformed nesting). This is an
++// unfaithful-DATA signal, not an approximation the analysis chose: it anchors at
++// the recorded offset only to bound the damage, and counts it (FallbackAnchors)
++// so the gate fails loudly and the EMIT is fixed — never silent. On faithful
++// data it never fires.
+ func (s *Simulation) fallbackAnchor(i int32) {
+ 	anchor := s.p.startNS[i]
+ 	if par := s.p.parent[i]; par >= 0 && s.started[par] {
+diff --git a/engine/wcprof/wcanalyze/replay_cycle_test.go b/engine/wcprof/wcanalyze/replay_cycle_test.go
+index 1393634687..467460306f 100644
+--- a/engine/wcprof/wcanalyze/replay_cycle_test.go
++++ b/engine/wcprof/wcanalyze/replay_cycle_test.go
+@@ -367,6 +367,38 @@ func TestZeroDurWaitTargetPropagation(t *testing.T) {
+ 	}
+ }
+ 
++// TestTwoZeroDurCoEnding: two zero-duration children co-ending at a gating wait's
++// end, where one waits on the other. The defer returns out of joinUpTo at the
++// first, but both are re-joined after their spawns, so both anchor at the gated
++// clock (100, not the pre-wait clock) and the Z2→Z1 dependency is honored. Guards
++// the low/theoretical residual the replay owner flagged.
++func TestTwoZeroDurCoEnding(t *testing.T) {
++	s := newFixtureStrings()
++	g := buildGraph(t, s, []wcprof.DumpEvent{
++		opEvent(s, 1, 0, "session_phase", "session.query", "", "ok", 0, 300*ms),
++		opEvent(s, 2, 1, "call", "S.call", "sv", "executed", 0, 300*ms),
++		opEvent(s, 3, 2, "call_exec", "T.work", "tt", "ok", 0, 100*ms),
++		opEvent(s, 4, 1, "call", "P.call", "p", "executed", 0, 100*ms),
++		waitEvent(s, 4, 3, "", "call_exec", 50*ms, 100*ms), // P waits T (gates to 100)
++		opEvent(s, 5, 4, "call_exec", "Z1.zero", "z1", "ok", 100*ms, 100*ms),
++		opEvent(s, 6, 4, "call_exec", "Z2.zero", "z2", "ok", 100*ms, 100*ms),
++		waitEvent(s, 6, 5, "", "call_exec", 100*ms, 100*ms), // Z2 waits Z1
++	})
++	sim := NewSimulation(g, nil)
++	if _, err := sim.Run(); err != nil {
++		t.Fatal(err)
++	}
++	z1, _ := simByClass(sim, g, "Z1.zero")
++	z2, _ := simByClass(sim, g, "Z2.zero")
++	if z1 != 100*ms || z2 != 100*ms {
++		t.Fatalf("Z1=%v Z2=%v, want both 100ms (gated, not pre-wait-anchored)", time.Duration(z1), time.Duration(z2))
++	}
++	if sim.SimStartConflicts != 0 || sim.CycleWarnings != 0 || sim.FallbackAnchors != 0 {
++		t.Fatalf("faithfulness signals nonzero: conflicts=%d cycles=%d fallbacks=%d, want 0/0/0",
++			sim.SimStartConflicts, sim.CycleWarnings, sim.FallbackAnchors)
++	}
++}
++
+ // TestZeroDurChildAtSelfStart is the second face of the same fix: a zero-duration
+ // child spawned at the START of a self segment (not a wait) must anchor
+ // concurrently with that self, not serialized after it. Only a zero-duration
+@@ -469,52 +501,57 @@ func TestFixedWaitConcurrentChild(t *testing.T) {
+ 	})
+ }
+ 
+-// --- (f) cross-root / out-of-order root reference: one root waits on another,
+-// overlapping root, which is anchored at its recorded start by the par<0
+-// fallback (counted), and never cycles. This is the one place the recorded-offset
+-// approximation survives, so it is also where a what-if factor can make the
+-// anchor disagree with Run's shifted chain — surfaced, not silent.
+-func TestCrossRootAnchor(t *testing.T) {
+-	s := newFixtureStrings()
+-	events := []wcprof.DumpEvent{
+-		opEvent(s, 1, 0, "session_phase", "session.query", "", "ok", 0, 200*ms),
+-		waitEvent(s, 1, 2, "", "call_exec", 50*ms, 150*ms), // root1 waits on root2 (overlapping)
+-		opEvent(s, 2, 0, "session_phase", "session.query2", "", "ok", 0, 150*ms),
++// --- (f) Case (a): concurrent cross-root singleflight dedup. Two independent
++// roots start at 0; R_B loads the module, R_A dedups onto it via a RECORDED
++// cross-root wait. The data is sufficient and the rational model needs no
++// chaining and no fallback — both roots anchor at their recorded starts (exact),
++// and the saving propagates across the root boundary through the wait edge.
++//
++//	R_A (session.A) [0,300]   self [0,50]; waits T [50,300]
++//	R_B (session.B) [0,300]   setup self [0,100]; spawns T
++//	                          └── T (call_exec ModuleLoad) [100,300]  self 200
++//
++// Baseline 300. Scale R_B's setup → 0: T spawns at 0, runs 0→200, R_A's wait
++// unblocks at 200 → makespan 200, a 100ms saving crossing the root boundary.
++// FallbackAnchors / SimStartConflicts / CycleWarnings are 0 BY CONSTRUCTION.
++func TestCrossRootDedup(t *testing.T) {
++	build := func() *Graph {
++		s := newFixtureStrings()
++		return buildGraph(t, s, []wcprof.DumpEvent{
++			opEvent(s, 1, 0, "session_phase", "session.A", "", "ok", 0, 300*ms),
++			waitEvent(s, 1, 3, "", "call_exec", 50*ms, 300*ms), // R_A waits R_B's T (cross-root)
++			opEvent(s, 2, 0, "session_phase", "session.B", "", "ok", 0, 300*ms),
++			opEvent(s, 3, 2, "call_exec", "ModuleLoad", "m", "ok", 100*ms, 300*ms),
++		})
+ 	}
+-	g := buildGraph(t, s, events)
++	g := build()
+ 
+ 	base := NewSimulation(g, nil)
+ 	makespan, err := base.Run()
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+-	if base.CycleWarnings != 0 || makespan <= 0 {
+-		t.Fatalf("cycles=%d makespan=%v, want 0 / >0", base.CycleWarnings, time.Duration(makespan))
+-	}
+-	// Baseline: the recorded-offset fallback fires (counted) but there is no shift,
+-	// so the anchor agrees with the chain → no conflict.
+-	if base.FallbackAnchors == 0 {
+-		t.Fatalf("expected the cross-root fallback to fire (FallbackAnchors>0), got 0")
++	if makespan != 300*ms {
++		t.Fatalf("baseline makespan = %v, want 300ms", time.Duration(makespan))
+ 	}
+-	if base.SimStartConflicts != 0 {
+-		t.Fatalf("baseline SimStartConflicts = %d, want 0 (no shift at factor 1)", base.SimStartConflicts)
++	if base.FallbackAnchors != 0 || base.SimStartConflicts != 0 || base.CycleWarnings != 0 {
++		t.Fatalf("faithfulness signals nonzero: fallbacks=%d conflicts=%d cycles=%d, want 0/0/0 by construction",
++			base.FallbackAnchors, base.SimStartConflicts, base.CycleWarnings)
+ 	}
+ 
+-	// Under a factor that shifts root2's chain, the recorded-offset anchor
+-	// disagrees with the shifted full-finish value → an order-dependent saving,
+-	// which must be SURFACED (it is, via SimStartConflicts) rather than silent.
+-	// It can only happen where the fallback anchored (the precondition).
+-	scaled := NewSimulation(g, map[ClassKey]float64{
+-		{Kind: "session_phase", Class: "session.query2"}: 0.5,
++	scaled := NewSimulation(build(), map[ClassKey]float64{
++		{Kind: "session_phase", Class: "session.B"}: 0,
+ 	})
+-	if _, err := scaled.Run(); err != nil {
++	m2, err := scaled.Run()
++	if err != nil {
+ 		t.Fatal(err)
+ 	}
+-	if scaled.SimStartConflicts == 0 {
+-		t.Fatalf("expected the cross-root fallback to surface a conflict under a shifting factor, got 0")
++	if m2 != 200*ms {
++		t.Fatalf("scaled makespan = %v, want 200ms (the saving must cross the root boundary through the recorded wait)", time.Duration(m2))
+ 	}
+-	if scaled.FallbackAnchors == 0 {
+-		t.Fatalf("a what-if conflict must pair with a fallback anchor; FallbackAnchors=0")
++	if scaled.FallbackAnchors != 0 || scaled.SimStartConflicts != 0 {
++		t.Fatalf("scaled faithfulness signals nonzero: fallbacks=%d conflicts=%d, want 0/0",
++			scaled.FallbackAnchors, scaled.SimStartConflicts)
+ 	}
+ }
+ 
+diff --git a/engine/wcprof/wcanalyze/replay_test.go b/engine/wcprof/wcanalyze/replay_test.go
+index 53dbaa4eeb..a0bfba0ac7 100644
+--- a/engine/wcprof/wcanalyze/replay_test.go
++++ b/engine/wcprof/wcanalyze/replay_test.go
+@@ -188,9 +188,15 @@ func TestWhatIfSingleflight(t *testing.T) {
+ 	}
+ }
+ 
+-// Two sequential roots with an idle gap between them: the gap is preserved,
+-// and savings in the first root pull the second root earlier.
+-func TestRootChaining(t *testing.T) {
++// Case (b): two roots with no recorded causal edge between them (e.g. a shell
++// running `dagger call A && dagger call B` — the serialization happened OUTSIDE
++// the engine, which recorded no A→B edge). The rational model treats them as
++// INDEPENDENT: each is anchored at its own recorded start, and scaling A does
++// NOT pull B earlier. The old chaining model inferred a dependency from temporal
++// order (the forbidden inference) and wrongly shifted B; that is removed. The
++// cross-session wall-clock question is out of engine scope — it needs an
++// orchestrator-level edge the engine cannot observe.
++func TestRootsIndependent(t *testing.T) {
+ 	s := newFixtureStrings()
+ 	events := []wcprof.DumpEvent{
+ 		opEvent(s, 1, 0, "session_phase", "session.query", "", "ok", 0, 100*ms),
+@@ -210,6 +216,10 @@ func TestRootChaining(t *testing.T) {
+ 	if baseline != 250*ms {
+ 		t.Fatalf("baseline = %v, want 250ms", time.Duration(baseline))
+ 	}
++	if sim.FallbackAnchors != 0 || sim.SimStartConflicts != 0 || sim.CycleWarnings != 0 {
++		t.Fatalf("faithfulness signals nonzero: fallbacks=%d conflicts=%d cycles=%d, want 0/0/0",
++			sim.FallbackAnchors, sim.SimStartConflicts, sim.CycleWarnings)
++	}
+ 
+ 	sim = NewSimulation(g, map[ClassKey]float64{
+ 		{Kind: "session_phase", Class: "session.query"}: 0,
+@@ -218,10 +228,11 @@ func TestRootChaining(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+-	// first root drops to 0; the 50ms think-time gap is preserved; second
+-	// root still takes 100ms => 150ms total
+-	if makespan != 150*ms {
+-		t.Fatalf("makespan = %v, want 150ms", time.Duration(makespan))
++	// B is independent (its recorded start is a fact): scaling A to 0 does NOT
++	// move it, so the makespan is still bounded by B's [150,250] = 250ms. A
++	// chaining heuristic would (wrongly) pull B to 150ms.
++	if makespan != 250*ms {
++		t.Fatalf("makespan = %v, want 250ms (scaling A must not shift the independent B)", time.Duration(makespan))
+ 	}
+ }
+ 
+diff --git a/engine/wcprof/wcotel/gate.go b/engine/wcprof/wcotel/gate.go
+index 271f01d0f1..bd0fd403ff 100644
+--- a/engine/wcprof/wcotel/gate.go
++++ b/engine/wcprof/wcotel/gate.go
+@@ -20,16 +20,16 @@ import (
+ 
+ // GateOptions tunes the gate's soft thresholds.
+ type GateOptions struct {
+-	// MaxFallbackAnchors is the number of recorded-offset fallback anchors the
+-	// gate tolerates before failing; it defaults to 0, so ANY fallback anchor
+-	// fails the gate. A fallback anchor is the surviving startOf-style
+-	// approximation — the replay could not compute an op's counterfactual from
+-	// causal prefixes (a cross-root reference whose root is unscheduled, or an
+-	// in-flight ancestor) and fell back to its recorded offset, which is exact
+-	// at baseline but wrong under a what-if that shifts it. Enforcing on this
+-	// precondition (not on sampled what-if harm, which no finite factor sweep
+-	// can rule out) is the analyzer's confidence bar. Raise it only to force
+-	// best-effort offline analysis of a trace known to need the approximation.
++	// MaxFallbackAnchors tolerates that many unfaithful-data references before
++	// failing; it defaults to 0, so ANY one fails the gate. After the rational
++	// root model (independent roots, no chaining, no recorded-offset fallback), a
++	// FallbackAnchor is no longer an approximation the analysis chose — it is a
++	// reference the recorded causal structure cannot schedule (an inverted
++	// reference, or a child its parent never spawns), which is impossible in a
++	// faithful synchronous nesting. So 0 is an invariant for faithful data, and a
++	// non-zero count means the EMIT is unfaithful. This knob is a debug-only
++	// escape hatch to inspect such a trace; it must never be raised for a trusted
++	// ranking (and is a candidate for removal — a tolerance for unfaithful data).
+ 	MaxFallbackAnchors int
+ }
+ 
+@@ -141,7 +141,7 @@ func CheckStructural(c *Compiled, g *wcanalyze.Graph, opts GateOptions) GateRepo
+ 		r.violations = append(r.violations, fmt.Sprintf("%d dropped link(s) / %d dropped link-attr(s) on a wait-carrying trace — wait edges may have been silently evicted (raise LinkCountLimit, design §3.0)", r.TotalDroppedLinks, r.TotalDroppedLinkAttrs))
+ 	}
+ 	if r.FallbackAnchors > opts.MaxFallbackAnchors {
+-		r.violations = append(r.violations, fmt.Sprintf("%d op(s) anchored at a recorded-offset approximation (cross-root reference or in-flight ancestor) — the replay could not compute their counterfactual from causal prefixes, so what-if rankings are unreliable (design §6.1)", r.FallbackAnchors))
++		r.violations = append(r.violations, fmt.Sprintf("%d op(s) the recorded causal structure cannot schedule — an inverted reference (an op referenced before its ancestor spawns it) or a malformed nesting; both are impossible in a faithful synchronous nesting, so this is an unfaithful EMIT to fix at the choke point, never papered over (design §6.1)", r.FallbackAnchors))
+ 	}
+ 
+ 	return r
+diff --git a/engine/wcprof/wcotel/gate_test.go b/engine/wcprof/wcotel/gate_test.go
+index 32cfe97be8..a87e02e7b3 100644
+--- a/engine/wcprof/wcotel/gate_test.go
++++ b/engine/wcprof/wcotel/gate_test.go
+@@ -224,14 +224,20 @@ func TestGateFailsOnDroppedWaitLinks(t *testing.T) {
+ 	}
+ }
+ 
+-// TestGateFallbackAnchorsHardFail: a root that wait-joins two other roots before
+-// they replay produces fallback anchors (the recorded-offset approximation — the
+-// surviving startOf corner). Any fallback anchor HARD-FAILS the gate by default:
+-// the replay could not compute those ops from causal prefixes, so its what-if
+-// rankings are unreliable. The MaxFallbackAnchors knob is an explicit opt-out for
+-// best-effort offline analysis. (This cross-root shape is what item-3 on-demand
+-// root scheduling would make exact, so it would then stop producing fallbacks.)
+-func TestGateFallbackAnchorsHardFail(t *testing.T) {
++// TestGateCrossRootNoFallback: a root that wait-joins two OTHER roots is the
++// concurrent cross-root (dedup) shape. Under the rational model — roots anchored
++// independently at their recorded starts, the wait honored as a recorded edge —
++// this is computed exactly: NO recorded-offset fallback, so FallbackAnchors == 0
++// and the gate PASSES. (Before item 3, the chaining model gave these roots a
++// competing start and the replay used a recorded-offset fallback, which the gate
++// then hard-failed — a band-aid over the analysis compensating for itself.)
++//
++// FallbackAnchors now means an unfaithful-DATA reference the recorded causal
++// structure cannot schedule (an inverted reference / malformed nesting); on
++// faithful data it is 0 by construction, and the gate's hard-fail on it is an
++// invariant assertion that should never trip — pointed at the EMIT, not at the
++// analysis having approximated.
++func TestGateCrossRootNoFallback(t *testing.T) {
+ 	jsonl := toJSONL(t,
+ 		rec(map[string]any{"spanId": idA, "parentId": idNone, "name": "A", "startNs": baseEp, "endNs": baseEp + 300,
+ 			"links": []any{
+@@ -243,17 +249,14 @@ func TestGateFallbackAnchorsHardFail(t *testing.T) {
+ 	)
+ 	c, g := mustLoad(t, jsonl)
+ 
+-	def := CheckStructural(c, g, GateOptions{})
+-	if def.FallbackAnchors == 0 {
+-		t.Fatal("expected fallback anchors from cross-root wait-joins")
++	r := CheckStructural(c, g, GateOptions{})
++	if r.FallbackAnchors != 0 {
++		t.Fatalf("cross-root dedup must produce 0 fallback anchors under independent root anchoring, got %d", r.FallbackAnchors)
+ 	}
+-	if def.Err() == nil {
+-		t.Fatal("any fallback anchor must hard-fail the gate by default")
++	if r.SimStartConflicts != 0 {
++		t.Fatalf("independent roots must not conflict, got %d start conflicts", r.SimStartConflicts)
+ 	}
+-
+-	// The opt-out (tolerate up to the observed count) lets offline analysis proceed.
+-	tolerated := CheckStructural(c, g, GateOptions{MaxFallbackAnchors: def.FallbackAnchors})
+-	if err := tolerated.Err(); err != nil {
+-		t.Fatalf("raising the tolerance to the observed count must pass: %v", err)
++	if err := r.Err(); err != nil {
++		t.Fatalf("a faithful cross-root trace must pass the gate, got: %v", err)
+ 	}
+ }
