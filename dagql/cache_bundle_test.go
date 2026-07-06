@@ -877,10 +877,123 @@ func TestCacheBundleCorruptBundleSkips(t *testing.T) {
 	assert.NilError(t, writeCacheBundleArchive(&brokenMembership, manifest2, metadataPath2))
 	assertSkipped(brokenMembership.Bytes(), CacheBundleSkipBrokenIdentity)
 
-	// After all of that abuse, a valid bundle still imports.
+	// A zero term output class never occurs in honest stores (every live
+	// term is born from a nonzero merged output class): corrupt, skip.
+	doctorMetadata := func(stmts ...string) []byte {
+		t.Helper()
+		tmpN := t.TempDir()
+		manifestN, metadataPathN, err := readCacheBundleArchive(bytes.NewReader(valid.Bytes()), tmpN)
+		assert.NilError(t, err)
+		db, q, err := prepareCacheDBs(ctx, metadataPathN)
+		assert.NilError(t, err)
+		for _, stmt := range stmts {
+			_, err = db.ExecContext(ctx, stmt)
+			assert.NilError(t, err)
+		}
+		_, err = db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)")
+		assert.NilError(t, err)
+		assert.NilError(t, closeCacheDBs(db, q))
+		var out bytes.Buffer
+		assert.NilError(t, writeCacheBundleArchive(&out, manifestN, metadataPathN))
+		return out.Bytes()
+	}
+	assertSkipped(doctorMetadata(
+		`UPDATE terms SET output_eq_class_id = 0 WHERE id = (SELECT MIN(id) FROM terms)`,
+	), CacheBundleSkipBrokenIdentity)
+
+	// A term output class with no digests identifies nothing: corrupt, skip.
+	assertSkipped(doctorMetadata(
+		`INSERT INTO eq_classes (id) VALUES (777777)`,
+		`UPDATE terms SET output_eq_class_id = 777777 WHERE id = (SELECT MIN(id) FROM terms)`,
+	), CacheBundleSkipBrokenIdentity)
+
+	// A zero term INPUT class is legal store state (digest-provenance
+	// inputs whose digest resolved to no class persist as zero, exactly as
+	// local restore accepts them): the bundle must import, not skip.
+	zeroInput := doctorMetadata(
+		`INSERT INTO term_inputs (term_id, position, input_eq_class_id, provenance_kind)
+		 SELECT id, (SELECT COUNT(*) FROM term_inputs ti WHERE ti.term_id = terms.id), 0, 'digest'
+		 FROM terms WHERE id = (SELECT MIN(id) FROM terms)`,
+	)
+	zeroInputSummary, err := cacheB.ImportBundle(ctx, bytes.NewReader(zeroInput))
+	assert.NilError(t, err, "zero term input class is legal and must not skip")
+	assert.Assert(t, zeroInputSummary.RowsImported > 0)
+
+	// After all of that abuse, a valid bundle still imports (deduping
+	// against the zero-input import's rows by origin).
 	summary, err := cacheB.ImportBundle(ctx, bytes.NewReader(valid.Bytes()))
 	assert.NilError(t, err)
-	assert.Assert(t, summary.RowsImported > 0)
+	assert.Assert(t, summary.RowsImported+summary.RowsDedupedByOrigin > 0)
+}
+
+// TestCacheBundleOriginRebindSurvivesCorpseRelease is the second direction
+// of the origin-index hygiene guard: after an exhaustion-dropped corpse's
+// origin is re-supplied by a bundle (fresh row staged, index re-bound),
+// the corpse's eventual release must NOT clobber the fresh binding.
+func TestCacheBundleOriginRebindSurvivesCorpseRelease(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dir := t.TempDir()
+
+	cacheA, err := NewCache(ctx, filepath.Join(dir, "a.db"), nil, nil)
+	assert.NilError(t, err)
+	key := cacheTestIntCall("origin-rebind-row")
+	_, err = cacheA.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{
+		ResultCall:    key,
+		IsPersistable: true,
+	}, func(context.Context) (AnyResult, error) {
+		return cacheTestIntResult(key, 1), nil
+	})
+	assert.NilError(t, err)
+	cacheTestReleaseSession(t, cacheA, ctx)
+	var bundle bytes.Buffer
+	_, err = cacheA.ExportBundle(ctx, &bundle, CacheBundleExportOptions{})
+	assert.NilError(t, err)
+	assert.NilError(t, cacheA.Close(context.Background()))
+
+	cacheB, err := NewCache(ctx, filepath.Join(dir, "b.db"), nil, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, cacheB.Close(context.Background()))
+	}()
+	seedBundleTestJunk(t, ctx, cacheB, 2)
+
+	first, err := cacheB.ImportBundle(ctx, bytes.NewReader(bundle.Bytes()))
+	assert.NilError(t, err)
+	assert.Assert(t, first.RowsImported > 0)
+
+	var corpseOrigin resultOrigin
+	var corpse *sharedResult
+	cacheB.egraphMu.Lock()
+	for origin, id := range cacheB.resultsByOrigin {
+		if origin.storeUUID != cacheB.storeUUID {
+			corpseOrigin = origin
+			corpse = cacheB.resultsByID[id]
+			break
+		}
+	}
+	// Simulate §9's exhaustion drop of a row a session still holds: marked
+	// dropped, deindexed from servability, but not yet released.
+	corpse.dropped = true
+	cacheB.egraphMu.Unlock()
+	assert.Assert(t, corpse != nil)
+
+	// The bundle re-supplies the origin: the dedup gate must stage a fresh
+	// row and re-bind the origin index to it.
+	second, err := cacheB.ImportBundle(ctx, bytes.NewReader(bundle.Bytes()))
+	assert.NilError(t, err)
+	assert.Assert(t, second.RowsImported > 0, "dropped corpse must not absorb the re-imported origin")
+	fresh := bundleTestOrigins(cacheB)[corpseOrigin]
+	assert.Assert(t, fresh != corpse.id)
+
+	// The corpse's holders release; its removal must not clobber the fresh
+	// binding.
+	cacheB.egraphMu.Lock()
+	cacheB.removeResultFromEgraphLocked(ctx, corpse)
+	cacheB.egraphMu.Unlock()
+	assert.Equal(t, fresh, bundleTestOrigins(cacheB)[corpseOrigin],
+		"corpse release clobbered the fresh row's origin binding")
 }
 
 // TestCacheBundleDedupUnionsIdentityEvidence: a later bundle's observation

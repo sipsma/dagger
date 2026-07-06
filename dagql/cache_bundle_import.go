@@ -536,9 +536,9 @@ func (c *Cache) ImportBundle(ctx context.Context, r io.Reader) (CacheBundleImpor
 	}
 
 	// The same opportunistic eager decode local restore runs: payloads
-	// that reconstruct without a live dagql server (scalars, lists of
-	// them, self-contained objects) realize now; everything else stays an
-	// envelope for first-use decode. This is serve-path parity — a bundle
+	// that reconstruct without a live dagql server (scalars and lists of
+	// scalars — object decode requires a server and stays lazy) realize
+	// now; everything else stays an envelope for first-use decode. This is serve-path parity — a bundle
 	// row must be exactly as servable as the same row restored locally.
 	// Deliberately absent from local restore's version: the owner-lease
 	// sync. A foreign payload's decoded value may textually carry the
@@ -801,10 +801,16 @@ func validateBundleIdentityRows(rows bundleMetadataRows) error {
 		if row.ID == 0 {
 			return errors.New("term with zero ID")
 		}
-		if row.OutputEqClassID != 0 {
-			if err := referencedClassUsable(row.OutputEqClassID); err != nil {
-				return fmt.Errorf("term %d output: %w", row.ID, err)
-			}
+		// A zero output class never occurs in an honest store: every live
+		// term is born from a nonzero merged output class and flush
+		// preserves that, so a bundle claiming one is corrupt — and
+		// accepting it would let bundles introduce zero-output terms into
+		// stores that otherwise never contain them.
+		if row.OutputEqClassID == 0 {
+			return fmt.Errorf("term %d has zero output eq_class", row.ID)
+		}
+		if err := referencedClassUsable(row.OutputEqClassID); err != nil {
+			return fmt.Errorf("term %d output: %w", row.ID, err)
 		}
 		termExists[row.ID] = struct{}{}
 	}
@@ -821,6 +827,11 @@ func validateBundleIdentityRows(rows bundleMetadataRows) error {
 		default:
 			return fmt.Errorf("term_input %d/%d has unsupported provenance %q", row.TermID, row.Position, row.ProvenanceKind)
 		}
+		// A zero INPUT class is legal store state, unlike a zero output:
+		// digest-provenance input slots whose digest resolved to no class
+		// persist as zero (ensureTermInputEqIDsLocked produces them, local
+		// restore accepts them), so bundle legality matches the local
+		// store's exactly.
 		if row.InputEqClassID != 0 {
 			if err := referencedClassUsable(row.InputEqClassID); err != nil {
 				return fmt.Errorf("term_input %d/%d: %w", row.TermID, row.Position, err)
