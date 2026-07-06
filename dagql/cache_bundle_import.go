@@ -121,11 +121,17 @@ func (c *Cache) ImportBundle(ctx context.Context, r io.Reader) (CacheBundleImpor
 			continue
 		}
 		bundleIDByOrigin[restored.origin] = bundleID
-		if localID, exists := c.resultsByOrigin[restored.origin]; exists && c.resultsByID[localID] != nil {
-			remap[bundleID] = localID
-			dedupedIDs[bundleID] = struct{}{}
-			summary.RowsDedupedByOrigin++
-			continue
+		// The dedup gate reads "origin already present" as present on a
+		// live, servable row: a row dropped at source exhaustion is no
+		// longer servable (and never flushes), so a bundle re-supplying its
+		// origin stages a fresh row — the healing miss, one level earlier.
+		if localID, exists := c.resultsByOrigin[restored.origin]; exists {
+			if existing := c.resultsByID[localID]; existing != nil && !existing.dropped {
+				remap[bundleID] = localID
+				dedupedIDs[bundleID] = struct{}{}
+				summary.RowsDedupedByOrigin++
+				continue
+			}
 		}
 		localID := c.nextSharedResultID
 		c.nextSharedResultID++
@@ -209,6 +215,11 @@ func (c *Cache) ImportBundle(ctx context.Context, r io.Reader) (CacheBundleImpor
 			description:           restored.row.Description,
 			recordType:            restored.row.RecordType,
 			materialization:       materializationState{envelope: row.envelope},
+			// Bundle rows are created from persisted state exactly like
+			// local restore's: their re-attached deferred work failing
+			// permanently is retained-source exhaustion (the row drops and
+			// future lookups heal), and their hits classify as restored.
+			restored: true,
 		}
 		c.assignResultOriginLocked(res, restored.origin)
 		if len(row.envelope.LazyJSON) > 0 {
