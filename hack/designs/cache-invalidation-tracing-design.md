@@ -258,14 +258,20 @@ pipeline" without changing the algorithm.
 ## 7. Relationship to the warm-serving outcome vocabulary (take-3)
 
 The take-3 remote-cache work introduces serving-outcome classification at the lookup/serving
-terminals (`hit_live / hit_restored / miss_first / served_from_* / demoted_to_miss`,
-`dagql/cache_stats.go` on the take-3 integration branch — per program-coordination description;
-file verification pending vm access). The two vocabularies are **complementary axes at the same
-terminals**: theirs says *what the serving outcome was*; ours (E1 + the taxonomy) says *why a miss
-happened*. Reconciliation requirement (Erik, end-of-program): one terminal classification family —
-every `miss_first`/`demoted_to_miss` should be able to carry an E1 reason; neither vocabulary may
-fork the other's semantics. This design keeps E1's enum minimal and terminal-anchored specifically
-so it can merge into that family.
+terminals — VERIFIED against `dagql/cache_stats.go` on the take-3 integration worktree
+(`remote-cache-take3-fork-0bdd5926`, HEAD `2924af65ce`): `hit_live | hit_restored | miss_first |
+served_from_snapshot | served_from_lazy_form | demoted_to_miss`, classified exactly once at the
+terminals (`classifyServeOutcome`), counted per (outcome, field), persisted as a shutdown stats
+file. The two vocabularies are **complementary axes at the same terminals**: theirs says *what the
+serving outcome was*; ours (E1 + the taxonomy) says *why a miss happened*. Two verified
+convergence points: their own comment states a warm engine "legitimately first-misses
+session-scoped calls" — the same expected-miss framing this design's categories 1–2 encode; and
+their `demoted_to_miss` ("a hit's retained sources were exhausted; the call executed live") is the
+serving-side sibling of this design's hit-unusable arm — E1's reasons are the natural "why"
+companions to their `miss_first`/`demoted_to_miss`. Reconciliation requirement (Erik,
+end-of-program): one terminal classification family; neither vocabulary may fork the other's
+semantics. E1's enum stays minimal and terminal-anchored specifically so it can merge into that
+family.
 
 ## 8. Faithfulness and gates
 
