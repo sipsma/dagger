@@ -124,6 +124,14 @@ type ReportOptions struct {
 	MinClassSelfNS int64
 	DeadAirMinNS   int64
 	ChainDepth     int
+	// RefuseCachedSections, when non-empty, makes the what-if-cached
+	// ranking section print this refusal reason instead of rendering — the
+	// CLI sets it when a capture-level gate OUTSIDE the graph's own
+	// provenance (the OTel structural gate) failed: rendering a
+	// counterfactual over data a gate already declared unfaithful is
+	// decoration, not analysis. The general report still renders with its
+	// warnings.
+	RefuseCachedSections string
 }
 
 func (o *ReportOptions) defaults() {
@@ -225,13 +233,18 @@ func WriteReport(w io.Writer, g *Graph, opts ReportOptions) error {
 		// a capture whose provenance may have silently lost demand evidence
 		// (dropped recorder events / emit-side ident suppression) and prints
 		// the uninstrumented-forcer boundary as a caveat.
-		if err := cachedRefusalErr(g); err != nil {
-			fmt.Fprintf(w, "%v\n\n", err)
-		} else {
-			if cav := cachedForcerCaveat(g); cav != "" {
-				fmt.Fprintf(w, "%s\n\n", cav)
+		switch {
+		case opts.RefuseCachedSections != "":
+			fmt.Fprintf(w, "what-if-cached REFUSED: %s\n\n", opts.RefuseCachedSections)
+		default:
+			if err := cachedRefusalErr(g); err != nil {
+				fmt.Fprintf(w, "%v\n\n", err)
+			} else {
+				if cav := cachedForcerCaveat(g); cav != "" {
+					fmt.Fprintf(w, "%s\n\n", cav)
+				}
+				writeWhatIfCachedRanking(w, RunWhatIfCached(g, baseline), opts.TopClasses)
 			}
-			writeWhatIfCachedRanking(w, RunWhatIfCached(g, baseline), opts.TopClasses)
 		}
 	}
 

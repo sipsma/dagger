@@ -165,3 +165,29 @@ func TestReportIncludesCachedRanking(t *testing.T) {
 		}
 	}
 }
+
+// A CLI-level gate failure (RefuseCachedSections) makes the ranking section
+// print the refusal instead of a counterfactual — rendering one over data a
+// gate already declared unfaithful is decoration, not analysis (manager
+// directive, coordinator-approved; the same rule the why-uncached walk has
+// had since Chunk 1).
+func TestReportRefusesCachedRankingOnGateFailure(t *testing.T) {
+	g := sequentialFixture(t)
+	var buf bytes.Buffer
+	if err := WriteReport(&buf, g, ReportOptions{
+		RefuseCachedSections: "this capture failed the structural gate (test)",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "what-if-cached REFUSED: this capture failed the structural gate (test)") {
+		t.Fatalf("refusal must print:\n%s", out)
+	}
+	if strings.Contains(out, "makespan saved if these results had been cache hits") {
+		t.Fatalf("the ranking must NOT render on a refused capture:\n%s", out)
+	}
+	// The general report still renders (class table etc.).
+	if !strings.Contains(out, "top classes by total self-time") {
+		t.Fatalf("the general report must still render:\n%s", out)
+	}
+}

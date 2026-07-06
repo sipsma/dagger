@@ -207,13 +207,19 @@ func runFiles(paths []string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.Cac
 			failed = true
 		}
 		if warmG != nil {
-			cal, err := wcanalyze.RunCachedCalibration(g, warmG, sel.PullCostNS, opts.ChainDepth)
-			if err != nil {
-				return fmt.Errorf("%s: %w", path, err)
-			}
-			cal.Write(os.Stdout)
-			if gerr := cal.GateErr(); gerr != nil {
-				return fmt.Errorf("%s: %w", path, gerr)
+			if !gateOK {
+				// Same refusal as every cached section: a gate-failed cold
+				// capture must not feed a calibration.
+				fmt.Fprintln(os.Stdout, "what-if-cached calibration REFUSED: the cold capture failed the structural gate (see above)")
+			} else {
+				cal, err := wcanalyze.RunCachedCalibration(g, warmG, sel.PullCostNS, opts.ChainDepth)
+				if err != nil {
+					return fmt.Errorf("%s: %w", path, err)
+				}
+				cal.Write(os.Stdout)
+				if gerr := cal.GateErr(); gerr != nil {
+					return fmt.Errorf("%s: %w", path, gerr)
+				}
 			}
 		}
 	}
@@ -260,6 +266,15 @@ func analyze(c *wcotel.Compiled, g *wcanalyze.Graph, rules []wcanalyze.ExecGroup
 		fmt.Fprintln(os.Stderr, gerr)
 		gateOK = false
 	}
+	// A structural-gate failure refuses EVERY cached counterfactual section
+	// (ranking, detail, calibration, the why-uncached walk): rendering a
+	// counterfactual over data a gate already declared unfaithful is
+	// decoration, not analysis. The general report still renders with its
+	// warnings.
+	const gateRefusal = "this capture failed the structural gate (see above) — cached counterfactuals cannot be trusted on incomplete or unfaithful traces"
+	if !gateOK {
+		opts.RefuseCachedSections = gateRefusal
+	}
 	if werr := wcanalyze.WriteReport(os.Stdout, g, opts); werr != nil {
 		return gateOK, fmt.Errorf("write report: %w", werr)
 	}
@@ -267,7 +282,11 @@ func analyze(c *wcotel.Compiled, g *wcanalyze.Graph, rules []wcanalyze.ExecGroup
 	// applied after ClassifyExecs like everything selector-shaped. A selector
 	// or cached-gate failure returns as an error with its own explicit
 	// message — a distinct failure mode from the structural gate above.
-	if werr := wcanalyze.WriteCachedSelectionDetail(os.Stdout, g, sel, opts.ChainDepth); werr != nil {
+	if !gateOK {
+		if !sel.Empty() {
+			fmt.Fprintf(os.Stdout, "what-if-cached detail REFUSED: %s\n", gateRefusal)
+		}
+	} else if werr := wcanalyze.WriteCachedSelectionDetail(os.Stdout, g, sel, opts.ChainDepth); werr != nil {
 		return gateOK, werr
 	}
 	// Cache-invalidation tracing (why-uncached mode): walk the selected
