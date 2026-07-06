@@ -1322,38 +1322,47 @@ printf 'layered\n' > /work/layered.txt
 		engineSvcA = nil
 		engineClientA = nil
 
-		// Engine B exposes the test-only fault-injection debug endpoint.
-		debugEngineOpts := func(ctr *dagger.Container) *dagger.Container {
-			return ctr.
-				WithEnvVariable("_DAGGER_TESTONLY_SNAPSHOT_LOSS", "1").
-				WithExposedPort(6060)
-		}
-		withDebugArgs := func(ctr *dagger.Container) *dagger.Container {
-			deviceName, cidr := testutil.GetUniqueNestedEngineNetwork()
-			return ctr.WithDefaultArgs([]string{
+		// Engine B exposes the test-only fault-injection debug endpoint. The
+		// container is built inline: the shared helper's default args would
+		// overwrite the --debugaddr flag.
+		engineCtrB := devEngineContainerWithStateKey(c, stateKey, engineWithPersistenceTestGC(ctx, t))
+		deviceName, cidr := testutil.GetUniqueNestedEngineNetwork()
+		engineCtrB = engineCtrB.
+			WithEnvVariable("_DAGGER_TESTONLY_SNAPSHOT_LOSS", "1").
+			WithExposedPort(6060).
+			WithDefaultArgs([]string{
 				"--addr", "tcp://0.0.0.0:1234",
 				"--debugaddr", "0.0.0.0:6060",
 				"--network-name", deviceName,
 				"--network-cidr", cidr,
 			})
-		}
-		upstreamSvcB, engineSvcB, engineClientB := startEngine(c, ctx, t, stateKey,
-			engineWithPersistenceTestGC(ctx, t), debugEngineOpts, withDebugArgs)
+		upstreamSvcB := devEngineContainerAsService(engineCtrB)
+		engineSvcB, err := c.Host().Tunnel(upstreamSvcB, dagger.HostTunnelOpts{
+			Ports: []dagger.PortForward{{Backend: 1234, Protocol: dagger.NetworkProtocolTcp}},
+		}).Start(ctx)
+		require.NoError(t, err)
+		endpointB, err := engineSvcB.Endpoint(ctx, dagger.ServiceEndpointOpts{Scheme: "tcp"})
+		require.NoError(t, err)
+		engineClientB, err := dagger.Connect(ctx,
+			dagger.WithRunnerHost(endpointB),
+			dagger.WithLogOutput(testutil.NewTWriter(t)))
+		require.NoError(t, err)
 		t.Cleanup(func() { stopEngine(ctx, t, upstreamSvcB, engineSvcB, engineClientB) })
-
-		debugSvc, err := c.Host().Tunnel(upstreamSvcB).Start(ctx)
+		debugSvcB, err := c.Host().Tunnel(upstreamSvcB, dagger.HostTunnelOpts{
+			Ports: []dagger.PortForward{{Backend: 6060, Protocol: dagger.NetworkProtocolTcp}},
+		}).Start(ctx)
 		require.NoError(t, err)
-		t.Cleanup(func() { _, _ = debugSvc.Stop(ctx) })
-		debugEndpoint, err := debugSvc.Endpoint(ctx, dagger.ServiceEndpointOpts{Port: 6060, Scheme: "http"})
+		t.Cleanup(func() { _, _ = debugSvcB.Stop(ctx) })
+		debugEndpoint, err := debugSvcB.Endpoint(ctx, dagger.ServiceEndpointOpts{Scheme: "http"})
 		require.NoError(t, err)
 
-		// Simulate external loss of the restored directory rows' snapshots —
+		// Simulate external loss of the restored withExec rows' snapshots —
 		// rows that retained a lazy fragment alongside, so the walk can
-		// re-make their content.
+		// re-make their content by re-running the exec.
 		snapshot := fetchEGraphDebugSnapshot(ctx, t, debugEndpoint)
 		var lostRefKeys []string
 		for _, res := range snapshot.Results {
-			if res.RecordType != "directory" || len(res.SnapshotLinks) == 0 {
+			if res.RecordType != "withExec" || len(res.SnapshotLinks) == 0 {
 				continue
 			}
 			hasFragment := false
@@ -1369,7 +1378,7 @@ printf 'layered\n' > /work/layered.txt
 				lostRefKeys = append(lostRefKeys, link.RefKey)
 			}
 		}
-		require.NotEmpty(t, lostRefKeys, "the seeded store must contain restored fragment-backed directory rows with snapshot links")
+		require.NotEmpty(t, lostRefKeys, "the seeded store must contain restored fragment-backed withExec rows with snapshot links")
 		for _, refKey := range lostRefKeys {
 			markSnapshotDeleted(ctx, t, debugEndpoint, refKey)
 		}
