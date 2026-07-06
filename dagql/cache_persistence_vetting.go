@@ -18,8 +18,8 @@ type restoreDropReason string
 const (
 	// The row's call frame or payload envelope does not parse.
 	restoreDropMalformed restoreDropReason = "malformed"
-	// The row's snapshots are gone from the local store and it has no lazy
-	// fragment to be re-made from.
+	// The row's snapshots are gone from the local store and it has neither a
+	// content chain nor a lazy fragment to be re-made from.
 	restoreDropSnapshotMissing restoreDropReason = "snapshot_missing"
 	// The row references a dependency row that does not exist in the store.
 	restoreDropMissingDep restoreDropReason = "missing_dep"
@@ -41,6 +41,7 @@ type restoredResultRow struct {
 	frame  *ResultCall
 	env    PersistedResultEnvelope
 	links  []PersistedSnapshotRefLink
+	chains []PersistedResultContentChain
 	deps   []sharedResultID
 	origin resultOrigin
 }
@@ -64,7 +65,9 @@ type CacheRestoreSummary struct {
 // vetRestoredResults decides, per persisted row, whether it can still honor
 // a cache hit: its frame and envelope parse, every row it depends on was
 // kept, and it retains at least one way to deliver content — its snapshots
-// (verified present by attaching their owner leases) or its lazy fragment.
+// (verified present by attaching their owner leases), its persisted content
+// chain (blob availability deliberately unchecked: the runtime fall-through
+// owns that), or its lazy fragment.
 // Rows are vetted dependencies-first so a drop cascades to dependents,
 // never backwards; rows left unprocessed by that order sit on a dependency
 // cycle, which honest data cannot contain, and drop wholesale.
@@ -81,6 +84,7 @@ func (c *Cache) vetRestoredResults(
 	resultDepRows []persistdb.MirrorResultDep,
 	resultSnapshotRows []persistdb.MirrorResultSnapshotLink,
 	resultOriginRows []persistdb.MirrorResultOrigin,
+	resultContentChainRows []persistdb.MirrorResultContentChain,
 ) (map[sharedResultID]*restoredResultRow, *CacheRestoreSummary, error) {
 	rows, malformed, err := parseRestoredResultRows(resultRows)
 	if err != nil {
@@ -137,6 +141,24 @@ func (c *Cache) vetRestoredResults(
 		})
 	}
 
+	for _, row := range resultContentChainRows {
+		id := sharedResultID(row.ResultID)
+		restored, exists := rows[id]
+		if !exists {
+			continue
+		}
+		chain, err := contentChainFromRow(row)
+		if err != nil {
+			// Per-chain damage: the chain is absent, the row is not. If the
+			// row's survival depended on it, the fallback rule below drops
+			// the row — the same binary keep/drop shape, one level up.
+			slog.Warn("dropping unparseable persisted content chain",
+				"sharedResultID", id, "role", row.Role, "err", err)
+			continue
+		}
+		restored.chains = append(restored.chains, chain)
+	}
+
 	kept := make(map[sharedResultID]*restoredResultRow, len(rows))
 	droppedReasons := make(map[sharedResultID]restoreDropReason)
 	drop := func(id sharedResultID, reason restoreDropReason) {
@@ -173,8 +195,13 @@ func (c *Cache) vetRestoredResults(
 				return nil, err
 			}
 			if !present {
+				// The row's claimed content is gone from the local store. It
+				// survives on a re-make fallback: its persisted content chain
+				// (the walk re-fetches from the CAS on first use) or its lazy
+				// fragment (the walk re-executes). With neither, the promise
+				// cannot be honored and the row drops.
 				restored.links = nil
-				if len(restored.env.LazyJSON) == 0 {
+				if len(restored.env.LazyJSON) == 0 && len(restored.chains) == 0 {
 					reason := restoreDropSnapshotMissing
 					return &reason, nil
 				}

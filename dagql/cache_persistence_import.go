@@ -58,6 +58,10 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list mirror result_origins: %w", err)
 	}
+	resultContentChainRows, err := c.pdb.ListMirrorResultContentChains(ctx)
+	if err != nil {
+		return fmt.Errorf("list mirror result_content_chains: %w", err)
+	}
 	snapshotContentRows, err := c.pdb.ListMirrorSnapshotContentLinks(ctx)
 	if err != nil {
 		return fmt.Errorf("list mirror snapshot_content_links: %w", err)
@@ -108,7 +112,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 		}
 	}
 
-	keptRows, restoreSummary, err := c.vetRestoredResults(ctx, resultRows, resultDepRows, resultSnapshotRows, resultOriginRows)
+	keptRows, restoreSummary, err := c.vetRestoredResults(ctx, resultRows, resultDepRows, resultSnapshotRows, resultOriginRows, resultContentChainRows)
 	if err != nil {
 		return err
 	}
@@ -197,6 +201,9 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			c.assignResultOriginLocked(res, restored.origin)
 			if len(restored.links) > 0 {
 				res.materialization.setLocalSnapshotSource(restored.links)
+			}
+			if len(restored.chains) > 0 {
+				res.materialization.setContentChainSource(restored.chains)
 			}
 			if len(env.LazyJSON) > 0 {
 				res.materialization.setLazyFragment(&PersistedLazyFragment{

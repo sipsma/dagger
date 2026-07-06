@@ -1686,12 +1686,10 @@ type materializationState struct {
 
 // retainedSourceKind identifies one way a result's content can be
 // (re)materialized. Declaration order is the fall-through order used when a
-// result must be realized: local snapshot first, then the persisted lazy
-// form. A content-chain source (content-addressed layer chains pulled from
-// a remote store) is reserved BETWEEN those two — pulling available content
-// beats re-executing a recipe, whose realization recurses into demand-driven
-// input materialization. It is not built yet; kinds are never persisted, so
-// slotting it in later renumbers nothing durable.
+// result must be realized: local snapshot first, then the content chain,
+// then the persisted lazy form. Local bytes always win; pulling available
+// content beats re-executing a recipe, whose realization recurses into
+// demand-driven input materialization. Kinds are never persisted.
 type retainedSourceKind uint8
 
 const (
@@ -1699,6 +1697,13 @@ const (
 	// snapshotter, identified by refKeys and kept alive by leases. RefKeys
 	// are engine-local names and never cross an engine boundary.
 	sourceLocalSnapshot retainedSourceKind = iota + 1
+
+	// sourceContentChain is content reconstructible from content-addressed
+	// layer chains: per snapshot role, an ordered layer list whose blobs a
+	// CAS serves by digest. Realizing it fetches the missing blobs, applies
+	// them as local snapshot layers, and installs the result as this row's
+	// local-snapshot source — content arrives once, then serving is local.
+	sourceContentChain
 
 	// sourceLazyValue is the value's persisted lazy form: a registered lazy
 	// struct referencing its input results, re-run through the existing lazy
@@ -1710,11 +1715,50 @@ func (k retainedSourceKind) String() string {
 	switch k {
 	case sourceLocalSnapshot:
 		return "local_snapshot"
+	case sourceContentChain:
+		return "content_chain"
 	case sourceLazyValue:
 		return "lazy_value"
 	default:
 		return fmt.Sprintf("unknown(%d)", uint8(k))
 	}
+}
+
+// PersistedContentChainLayer is one layer of a content chain: the
+// uncompressed diff identity plus the compressed blob a CAS serves.
+type PersistedContentChainLayer struct {
+	DiffID    string `json:"diffID"`
+	Blob      string `json:"blob"`
+	Size      int64  `json:"size"`
+	MediaType string `json:"mediaType"`
+}
+
+// PersistedResultContentChain is the content-chain identity for one of a
+// result's snapshot roles: the ordered layer list that reconstructs the
+// role's snapshot, identified by its containerd chainID. It is portable by
+// construction (digests only, no engine-local names) and is what crosses in
+// bundle manifests and persists locally in result_content_chains.
+type PersistedResultContentChain struct {
+	Role    string
+	ChainID string
+	Layers  []PersistedContentChainLayer
+}
+
+func (chain PersistedResultContentChain) clone() PersistedResultContentChain {
+	cp := chain
+	cp.Layers = slices.Clone(chain.Layers)
+	return cp
+}
+
+func cloneContentChains(chains []PersistedResultContentChain) []PersistedResultContentChain {
+	if len(chains) == 0 {
+		return nil
+	}
+	out := make([]PersistedResultContentChain, len(chains))
+	for i := range chains {
+		out[i] = chains[i].clone()
+	}
+	return out
 }
 
 // retainedSource is one entry in a result's fall-through source list,
@@ -1727,10 +1771,21 @@ type retainedSource struct {
 	// kinds.
 	snapshotLinks []PersistedSnapshotRefLink
 
+	// contentChains is the identity for sourceContentChain: per snapshot
+	// role, the layer chain that reconstructs it from CAS blobs. Empty for
+	// other kinds.
+	contentChains []PersistedResultContentChain
+
 	// lazyFragment is the identity for sourceLazyValue: the value's
 	// serialized deferred work, captured at publication (before realization
 	// destroys the live recipe) or copied from the envelope at import.
 	lazyFragment *PersistedLazyFragment
+
+	// nonViable marks a source whose last realization attempt failed
+	// permanently for this boot (e.g. a chain blob the CAS no longer has).
+	// The walk skips non-viable sources; the identity stays — availability
+	// is not identity, so flush still persists it and the next boot retries.
+	nonViable bool
 }
 
 // ensureSource returns the source of the given kind, inserting it at its
@@ -1776,6 +1831,80 @@ func (m *materializationState) localSnapshotLinks() []PersistedSnapshotRefLink {
 		}
 	}
 	return nil
+}
+
+// setContentChainSource replaces the content-chain source's identity.
+// Empty chains remove the source.
+func (m *materializationState) setContentChainSource(chains []PersistedResultContentChain) {
+	if len(chains) == 0 {
+		m.sources = slices.DeleteFunc(m.sources, func(src retainedSource) bool {
+			return src.kind == sourceContentChain
+		})
+		return
+	}
+	m.ensureSource(sourceContentChain).contentChains = cloneContentChains(chains)
+}
+
+// unionContentChains adds chain identities for roles the content-chain
+// source does not already carry. Existing roles are never overwritten:
+// same-origin observations may only add, first-imported wins per role.
+func (m *materializationState) unionContentChains(chains []PersistedResultContentChain) {
+	if len(chains) == 0 {
+		return
+	}
+	src := m.ensureSource(sourceContentChain)
+	existing := make(map[string]struct{}, len(src.contentChains))
+	for _, chain := range src.contentChains {
+		existing[chain.Role] = struct{}{}
+	}
+	for _, chain := range chains {
+		if _, present := existing[chain.Role]; present {
+			continue
+		}
+		existing[chain.Role] = struct{}{}
+		src.contentChains = append(src.contentChains, chain.clone())
+	}
+	if len(src.contentChains) == 0 {
+		m.setContentChainSource(nil)
+	}
+}
+
+// contentChains returns a copy of the content-chain source's identity, or
+// nil when the source is absent.
+func (m *materializationState) contentChains() []PersistedResultContentChain {
+	for i := range m.sources {
+		if m.sources[i].kind == sourceContentChain {
+			return cloneContentChains(m.sources[i].contentChains)
+		}
+	}
+	return nil
+}
+
+// viableContentChains returns a copy of the content-chain source's identity
+// when the source exists and has not been marked non-viable this boot.
+func (m *materializationState) viableContentChains() []PersistedResultContentChain {
+	for i := range m.sources {
+		if m.sources[i].kind == sourceContentChain {
+			if m.sources[i].nonViable {
+				return nil
+			}
+			return cloneContentChains(m.sources[i].contentChains)
+		}
+	}
+	return nil
+}
+
+// markContentChainNonViable applies reset §9 D2's marking rule to the chain
+// source: permanent realization failures (a blob the CAS no longer has,
+// corrupt bytes) stop retries for this boot. The identity stays — flush
+// still persists it and the next boot retries.
+func (m *materializationState) markContentChainNonViable() {
+	for i := range m.sources {
+		if m.sources[i].kind == sourceContentChain {
+			m.sources[i].nonViable = true
+			return
+		}
+	}
 }
 
 // setLazyFragment records the value's serialized deferred work as the
@@ -1827,6 +1956,7 @@ func (m *materializationState) clone() materializationState {
 		for i := range m.sources {
 			cp.sources[i] = m.sources[i]
 			cp.sources[i].snapshotLinks = slices.Clone(m.sources[i].snapshotLinks)
+			cp.sources[i].contentChains = cloneContentChains(m.sources[i].contentChains)
 			cp.sources[i].lazyFragment = m.sources[i].lazyFragment.clone()
 		}
 	}
@@ -1956,6 +2086,7 @@ type sharedResultPayloadState struct {
 	objClass           ObjectType
 	persistedEnvelope  *PersistedResultEnvelope
 	snapshotOwnerLinks []PersistedSnapshotRefLink
+	contentChains      []PersistedResultContentChain
 	sourceKinds        []retainedSourceKind
 	createdAtUnixNano  int64
 	lastUsedAtUnixNano int64
@@ -1993,6 +2124,7 @@ func (res *sharedResult) loadPayloadState() sharedResultPayloadState {
 		objClass:           res.objClass,
 		persistedEnvelope:  res.materialization.envelope,
 		snapshotOwnerLinks: res.materialization.localSnapshotLinks(),
+		contentChains:      res.materialization.contentChains(),
 		sourceKinds:        res.materialization.sourceKinds(),
 		createdAtUnixNano:  res.createdAtUnixNano,
 		lastUsedAtUnixNano: res.lastUsedAtUnixNano,
@@ -2053,6 +2185,44 @@ func (res *sharedResult) loadLazyFragment() *PersistedLazyFragment {
 	frag := res.materialization.lazyFragment()
 	res.payloadMu.RUnlock()
 	return frag
+}
+
+func (res *sharedResult) loadContentChains() []PersistedResultContentChain {
+	if res == nil {
+		return nil
+	}
+	res.payloadMu.RLock()
+	chains := res.materialization.contentChains()
+	res.payloadMu.RUnlock()
+	return chains
+}
+
+func (res *sharedResult) loadViableContentChains() []PersistedResultContentChain {
+	if res == nil {
+		return nil
+	}
+	res.payloadMu.RLock()
+	chains := res.materialization.viableContentChains()
+	res.payloadMu.RUnlock()
+	return chains
+}
+
+func (res *sharedResult) storeContentChains(chains []PersistedResultContentChain) {
+	if res == nil {
+		return
+	}
+	res.payloadMu.Lock()
+	res.materialization.setContentChainSource(chains)
+	res.payloadMu.Unlock()
+}
+
+func (res *sharedResult) markContentChainNonViable() {
+	if res == nil {
+		return
+	}
+	res.payloadMu.Lock()
+	res.materialization.markContentChainNonViable()
+	res.payloadMu.Unlock()
 }
 
 func (res *sharedResult) storeSnapshotOwnerLinks(links []PersistedSnapshotRefLink) {

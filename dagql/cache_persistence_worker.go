@@ -189,6 +189,7 @@ func (c *Cache) copyOutPersistState() (persistStateSnapshot, error) {
 			sessionResourceHandle: res.sessionResourceHandle,
 			persistedEnvelope:     payload.persistedEnvelope,
 			snapshotOwnerLinks:    payload.snapshotOwnerLinks,
+			contentChains:         payload.contentChains,
 			lazyFragment:          res.loadLazyFragment(),
 			row: persistdb.MirrorResult{
 				ID:                 int64(resultID),
@@ -406,6 +407,15 @@ func insertPersistStateSnapshotRows(ctx context.Context, q *persistdb.Queries, s
 				return fmt.Errorf("insert result_snapshot_link (%d,%s,%s): %w", row.ResultID, row.RefKey, row.Role, err)
 			}
 		}
+		chainRows, err := resultContentChainRows(result.resultID, result.contentChains)
+		if err != nil {
+			return fmt.Errorf("encode result %d content chains: %w", result.resultID, err)
+		}
+		for _, row := range chainRows {
+			if err := q.InsertMirrorResultContentChain(ctx, row); err != nil {
+				return fmt.Errorf("insert result_content_chain (%d,%s): %w", row.ResultID, row.Role, err)
+			}
+		}
 	}
 	for _, row := range snapshot.snapshotContentLinks {
 		if err := q.InsertMirrorSnapshotContentLink(ctx, row); err != nil {
@@ -453,6 +463,58 @@ func resultSnapshotLinkRows(resultID sharedResultID, links []PersistedSnapshotRe
 		})
 	}
 	return rows
+}
+
+// resultContentChainRows encodes a result's content-chain identities as
+// result_content_chains rows, layer lists as JSON, in deterministic role
+// order.
+func resultContentChainRows(resultID sharedResultID, chains []PersistedResultContentChain) ([]persistdb.MirrorResultContentChain, error) {
+	if len(chains) == 0 {
+		return nil, nil
+	}
+	chains = slices.Clone(chains)
+	slices.SortFunc(chains, func(a, b PersistedResultContentChain) int {
+		switch {
+		case a.Role < b.Role:
+			return -1
+		case a.Role > b.Role:
+			return 1
+		default:
+			return 0
+		}
+	})
+	rows := make([]persistdb.MirrorResultContentChain, 0, len(chains))
+	for _, chain := range chains {
+		layers := chain.Layers
+		if layers == nil {
+			layers = []PersistedContentChainLayer{}
+		}
+		layersJSON, err := json.Marshal(layers)
+		if err != nil {
+			return nil, fmt.Errorf("marshal chain layers for role %q: %w", chain.Role, err)
+		}
+		rows = append(rows, persistdb.MirrorResultContentChain{
+			ResultID:   int64(resultID),
+			Role:       chain.Role,
+			ChainID:    chain.ChainID,
+			LayersJSON: string(layersJSON),
+		})
+	}
+	return rows, nil
+}
+
+// contentChainFromRow decodes one result_content_chains row back into the
+// chain identity. A row that fails to decode is per-chain damage: the
+// caller treats the chain as absent rather than failing the restore.
+func contentChainFromRow(row persistdb.MirrorResultContentChain) (PersistedResultContentChain, error) {
+	chain := PersistedResultContentChain{
+		Role:    row.Role,
+		ChainID: row.ChainID,
+	}
+	if err := json.Unmarshal([]byte(row.LayersJSON), &chain.Layers); err != nil {
+		return PersistedResultContentChain{}, fmt.Errorf("parse chain layers for role %q: %w", row.Role, err)
+	}
+	return chain, nil
 }
 
 func (c *Cache) persistResultEnvelope(ctx context.Context, snapshot *persistResultSnapshot) (PersistedResultEncoding, error) {

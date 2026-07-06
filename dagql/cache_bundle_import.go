@@ -86,9 +86,10 @@ func (c *Cache) ImportBundle(ctx context.Context, r io.Reader) (CacheBundleImpor
 
 	// Per-result vetting: the exact local rules (malformed, missing-dep,
 	// cycle, cascade), bundle-flavored — bundles carry no snapshot link
-	// rows, so the local snapshot-presence check has nothing to test and
-	// content viability is what the row structurally carries.
-	kept, vetSummary, err := c.vetRestoredResults(ctx, rows.results, rows.resultDeps, nil, rows.resultOrigins)
+	// rows (and no chain rows: chains live in the manifest), so the local
+	// snapshot-presence check has nothing to test and content viability is
+	// what the row structurally carries.
+	kept, vetSummary, err := c.vetRestoredResults(ctx, rows.results, rows.resultDeps, nil, rows.resultOrigins, nil)
 	if err != nil {
 		return summary, bundleSkip(CacheBundleSkipBrokenIdentity, err)
 	}
