@@ -1061,6 +1061,315 @@ encoding changes.</td></tr>
 </table>
 </details>
 
+<details class="fold" id="chain" open><summary><h2>9. Engine: the content-chain source</h2></summary>
+
+<p><b>The idea in three sentences.</b> The reset design reserved a third retained source —
+<code>sourceContentChain</code>, named in the fall-through order precisely so it would be
+designed exactly once (reset §7 D2, Fig. 4) — and this section makes it real. Realizing a
+content-chain source means: reuse whatever prefix of the chain already exists locally, fetch
+the missing layer blobs from the CAS, apply them as snapshot layers with the machinery image
+pulls already use, and hand the resulting local snapshot to the same decode path source ①
+uses — at which point the result also <em>gains</em> a local-snapshot source, so the chain is
+paid for once. Every failure semantic is inherited: a permanently missing blob marks the
+source non-viable, the walk falls through to the lazy form, and the floor is demote-to-miss
+(reset §9 D2/D3, unchanged).</p>
+
+<div class="decide"><span class="dtag">THE DECISIONS THIS SECTION MAKES</span>
+<ol style="margin:4px 0 2px">
+<li><b>The chain source realizes into a local snapshot, then defers to the existing decode
+path</b> — it is a content fetcher, not a second materialization model.</li>
+<li><b>Prefix reuse is mandatory</b>, via the snapshot manager's imported-layer indexes —
+shared ancestry across results costs one copy.</li>
+<li><b>Failure typing:</b> a 404 on a required blob marks this chain source non-viable for
+this boot; transport errors are transient (no marking; next waiter retries) — the reset
+design's marking rule applied to HTTP.</li>
+<li><b>Fetched content registers its identity once</b> (snapshot-content links), so
+re-export of a hydrated result never re-hashes (R4's hash-once economy).</li>
+</ol>
+</div>
+
+<h3>9.1 &nbsp;Where it plugs in</h3>
+<p>Reset §9 D2's <code>realize()</code> walks <code>materializationState.sources</code> in
+order inside the existing lazy singleflight (one runner, N waiters). This phase un-reserves
+the third enum value: an imported result's sources arrive from §8 as
+<code>[content-chain, lazy-form]</code> (no local snapshot yet); a hydrated or locally-built
+result's walk still finds its local snapshot first and never touches the network. The
+demand-boundedness is structural (R12): the walk runs for the one result being served, and a
+chain realizes only that result's snapshot — dependency inputs are touched only if the walk
+falls through to the lazy form, which recurses demand-driven exactly as designed.</p>
+
+<h3>9.2 &nbsp;Realizing a chain</h3>
+<ol class="steps">
+<li><span class="tag">PREFIX CHECK</span><br>
+Walk the chain's layers in order, resolving the longest prefix that already exists locally
+via the snapshot manager's imported-layer indexes
+(<code>imported_layer_blob_index</code>/<code>imported_layer_diff_index</code> — the
+persisted maps from (parent snapshot, blob/diff digest) → local snapshot that exist for
+exactly this job). Two imported results sharing ancestry — the common case, since chains are
+layer paths through the same build graphs — share every prefix snapshot.</li>
+<li><span class="tag">FETCH MISSING BLOBS</span><br>
+For each layer past the prefix: <code>GET</code> the blob from the CAS (direct or presigned,
+§10 D4) into the containerd content store. Concurrent fetches of the same digest across
+results dedup on the content store's ingestion locks — no new synchronization. Fetches run
+under the serving session's context with the client's budgets; this is the one serving-time
+network dependency the phase adds, and it is fall-through-protected (S4/S5).</li>
+<li><span class="tag">APPLY + REGISTER</span><br>
+Apply the fetched layers on top of the prefix with the existing unpack/apply machinery
+(the image-pull path in engine/snapshots — pull.go / diffapply), extending the
+imported-layer indexes per layer. Register the final snapshot: refKeys + owner lease, and
+its snapshot-content links (chainID and blob digests — identity recorded at arrival, so a
+future export finds it memoized, §7 D2).</li>
+<li><span class="tag">HAND OFF</span><br>
+The chain source writes the freshly-registered refKeys as the result's local-snapshot
+source and defers to the source walk, which now realizes source ① — the ordinary
+envelope-decode path — and marks the home realized (the sanctioned content-arrival write
+point, reset Fig. 2). Subsequent uses take the realized fast path; a later local restart
+restores this result with a real local snapshot.</li>
+</ol>
+
+<h3>9.3 &nbsp;Failure semantics, typed</h3>
+<table class="filetbl">
+<tr><th>Failure</th><th>Type</th><th>Effect</th></tr>
+<tr><td>Blob 404 (GC'd, never uploaded, sparse bundle)</td><td>Permanent (this boot)</td>
+<td>Mark this chain source non-viable (reset §9 D2's marking rule); fall through to lazy
+form; counter <code>chain_fetch_missing</code>.</td></tr>
+<tr><td>Transport error, 5xx, timeout</td><td>Transient</td>
+<td>No marking; this attempt falls through; the next waiter's walk retries the chain.
+Counter <code>chain_fetch_error</code>.</td></tr>
+<tr><td>Digest mismatch on fetched bytes</td><td>Permanent + loud</td>
+<td>Discard bytes, mark non-viable, counter <code>chain_fetch_corrupt</code> — corrupt data
+gets the dumbest treatment (L8); no retry-with-repair.</td></tr>
+<tr><td>Apply failure (snapshotter error)</td><td>Transient</td>
+<td>As transport; if it persists, the source exhausts and the lazy form / demote floor owns
+the outcome — the promise stays honest (R2).</td></tr>
+</table>
+
+<h3>9.4 &nbsp;Implementation shape</h3>
+<table class="filetbl">
+<tr><th>File</th><th></th><th>Change</th></tr>
+<tr><td><code>dagql/cache.go</code></td><td><span class="chip modf">MOD</span></td>
+<td><code>sourceContentChain</code> un-reserved: chain identity on
+<code>retainedSource</code>; the walk body gains the chain arm (fetch → apply → install
+local-snapshot source → continue walk).</td></tr>
+<tr><td><code>engine/snapshots/</code></td><td><span class="chip modf">MOD</span></td>
+<td><code>MaterializeChain(chain) → refKey</code>: prefix resolution over the imported-layer
+indexes; blob ingestion; layer apply; index/lease/content-link registration.</td></tr>
+<tr><td><code>engine/cacheservice/client.go</code></td><td><span class="chip modf">MOD</span></td>
+<td>Blob GET (direct/presigned), digest verification, budgets.</td></tr>
+</table>
+</details>
+
+<details class="fold" id="service" open><summary><h2>10. The cache service (dagger.io)</h2></summary>
+
+<p><b>The idea in three sentences.</b> The service is three dumb stores and one small brain:
+a bundle inventory (Postgres rows + archives in object storage), a digest-addressed blob CAS
+(object storage), an append-only event log — and the selection function that answers a
+booting engine. It integrates with the managed-engine lifecycle at exactly two points:
+engines boot with cache-service configuration injected at provisioning (import needs no
+lifecycle command at all), and the keeper drives export before teardown through the engine's
+admin API. Its state is durable because it is boring — and disposable anyway, because it is
+a cache.</p>
+
+<div class="decide"><span class="dtag">THE DECISIONS THIS SECTION MAKES</span>
+<ol style="margin:4px 0 2px">
+<li><b>API surface</b> (D1): six engine-facing endpoints, org-token authenticated, versioned
+under <code>/v1</code>.</li>
+<li><b>Scope model</b> (D2): cache namespace = (org, scope string); v1 scopes are
+operator-chosen (per repo by convention); no cross-org sharing.</li>
+<li><b>Selection</b> (D3): newest bundle per distinct origin store, up to K stores,
+matching the requester's versions, preferring blob-complete — one pure function of the
+inventory, and the service-side seam for future policy.</li>
+<li><b>Storage</b> (D4): Postgres inventory + pluggable object storage (S3 and Namespace
+Artifacts ported from the prior attempt's battle-tested backends; MinIO/filesystem for
+dev).</li>
+<li><b>Lifecycle</b> (D5): config-injected import at provision; keeper-driven export
+before teardown over the salvaged command lane; export never gates run success (S4).</li>
+<li><b>GC</b> (D6): retention by count/age per (scope, store), plus mark-sweep blob GC
+against live manifests — safe at any aggressiveness because of S5.</li>
+</ol>
+</div>
+
+<h3>10.1 &nbsp;D1 — The API</h3>
+<pre><code><span class="cm">// All under org-token auth; {scope} is the org-scoped cache namespace (D2).</span>
+
+POST /v1/scopes/{scope}/bundles            <span class="cm">// publish: manifest + metadata archive (multipart)</span>
+  → { bundleID }                           <span class="cm">// stored + listed as blobs_pending (S6)</span>
+POST /v1/scopes/{scope}/bundles/{id}/complete
+  → {}                                     <span class="cm">// marks blobs_complete, records upload tally</span>
+GET  /v1/scopes/{scope}/bundles?schemaVersion=&amp;bundleFormat=&amp;limit=
+  → { bundles: [ {bundleID, storeUUID, createdAt, status, downloadURL, counts} ] }
+                                           <span class="cm">// THE selection endpoint (D3)</span>
+POST /v1/blobs/stat                        <span class="cm">// { digests: [...] } → { missing: [...] }</span>
+POST /v1/blobs/uploads                     <span class="cm">// { digest, size } → { url | alreadyExists }  (upload target, presigned per backend)</span>
+GET  /v1/blobs/{digest}                    <span class="cm">// → bytes or redirect/presigned URL (backend-dependent)</span>
+</code></pre>
+<p>The shapes deliberately echo the prior attempt's proven wire mechanics (multipart
+publish, stat-then-upload with <code>alreadyExists</code> short-circuit, presigned
+indirection) while removing every server-side cache semantic: there is no server-side
+"requested snapshots" decision, no merge on ingest, no import endpoint that composes state.
+Blobs are org-namespaced in storage layout but deduplicated within the org across scopes.</p>
+
+<h3>10.2 &nbsp;D2 — Scope and tenancy</h3>
+<p>A cache namespace is <code>(org, scope)</code>: the org comes from the token; the scope
+string is engine configuration, by convention the repository identity for CI fleets.
+Everything — bundles, selection, insight — is per-namespace; blob bytes dedup org-wide
+(digest-addressed, org-prefixed). V1 makes no attempt at cross-org content sharing and no
+finer-than-scope access partitioning; within a scope, the session-resource gate (R7) and the
+salt partition (S10) remain the engine-side safety net they are locally. This is the
+deliberately-dumb v1 of tenancy; revisiting it (public base-content pools, per-branch
+scopes, salt strategy) is future work with its own security review.</p>
+
+<h3>10.3 &nbsp;D3 — Selection</h3>
+<p>Given a request (scope, schemaVersion, bundleFormat, limit K — engine default modest,
+e.g. 4): return the newest bundle <b>per distinct origin store UUID</b>, newest stores
+first, up to K, filtered to exactly matching versions, preferring
+<code>blobs_complete</code> over pending when both exist for a store. Rationale: bundles
+from one store are snapshots of a monotonically-evolving cache — the newest supersedes its
+siblings — while bundles from <em>different</em> stores are genuinely divergent state worth
+merging (M concurrent CI engines), which origin-dedup makes cheap to combine. This function
+is the service's entire intelligence, it is pure over the inventory, and it is the
+service-side seam: a future policy (workload-aware selection, bundle slicing) replaces this
+function without touching storage, protocol, or engine.</p>
+
+<h3>10.4 &nbsp;D4 — Storage</h3>
+<table class="filetbl">
+<tr><th>State</th><th>Where</th><th>Notes</th></tr>
+<tr><td>Bundle inventory</td><td>Postgres: <code>cache_bundles(bundle_id, org, scope,
+store_uuid, schema_version, bundle_format, engine_version, status, counts, created_at)</code></td>
+<td>Row per bundle; status ∈ {pending, complete}; the selection input.</td></tr>
+<tr><td>Bundle archives</td><td>Object storage, keyed by bundle ID</td>
+<td>Opaque on the serving path (S7).</td></tr>
+<tr><td>Blob CAS</td><td>Object storage, keyed <code>org/sha256:…</code></td>
+<td>Size-verified on upload (the HeadObject/Artifact.Size verification semantics from the
+prior backends carry over); immutable; existence = the <code>stat</code> answer.</td></tr>
+<tr><td>Event log</td><td>Postgres: append-only <code>cache_events</code></td>
+<td>Publish/complete/select/fetch-summary/GC rows; the insight and debugging spine (§11).</td></tr>
+</table>
+<p>Backends are pluggable behind one blob-store interface with the two production
+implementations ported from the prior attempt (S3; Namespace Artifacts with its finalize
+retries and digest-addressed resolution) plus MinIO (e2e) and filesystem (unit) — see the
+salvage ledger (§16).</p>
+
+<h3>10.5 &nbsp;D5 — Lifecycle of managed engines</h3>
+<ul>
+<li><b>Import needs no command.</b> Provisioning injects cache-service configuration
+(URL, org token, scope, budgets) into the engine's environment; the engine imports at boot
+by itself (§8). This deletes the prior attempt's import-command path — and with it the
+import-vs-export queue-priority problem that path created (an engine that imports at boot
+cannot be starved by queued exports).</li>
+<li><b>Export is keeper-driven.</b> The salvaged command lane (<code>engine_cache_commands</code>,
+schema 00097: queued/claimed/completed with idempotency keys and provider-instance matching)
+carries one command kind: export. The check runner enqueues export-after-green; the keeper
+also triggers export in its idle-teardown sequence (<em>export → then teardown</em>), so
+shutdown grace windows never truncate exports (§7 D1). The keeper claims, calls the engine's
+admin API, records the outcome. Export commands are best-effort: failure marks the command
+failed and the event logged — never the check (S4).</li>
+<li><b>Self-managed engines</b> use the same engine features with no keeper:
+config + <code>exportOnShutdown</code>, or explicit admin-API calls from their own
+automation.</li>
+</ul>
+
+<h3>10.6 &nbsp;D6 — Garbage collection</h3>
+<p>Two independent, boring collectors: <b>bundles</b> — keep the newest N per (scope, store
+UUID) and drop bundles older than a max age or superseded beyond N (inventory row + archive
+deleted together); <b>blobs</b> — periodic mark-sweep: the live set is the union of live
+bundles' manifest blob indexes; unreferenced blobs older than a safety window are deleted.
+Any aggressiveness is safe: an over-eager sweep only creates sparseness, which the engine
+already survives per-chain (S5). GC actions land in the event log and the inventory
+surfaces (§11).</p>
+
+<h3>10.7 &nbsp;Implementation shape (dagger.io)</h3>
+<table class="filetbl">
+<tr><th>Where</th><th></th><th>What</th></tr>
+<tr><td><code>api/server/cacheservice/</code></td><td><span class="chip newf">NEW</span></td>
+<td>Handlers for D1; selection; inventory access. Fresh code in the store-and-select shape;
+multipart/presign/verification mechanics lifted from the prior handlers where they fit
+(§16).</td></tr>
+<tr><td><code>api/server/cacheservice/blobstore/</code></td><td><span class="chip newf">NEW</span></td>
+<td>Blob-store interface + S3, Namespace Artifacts, MinIO, filesystem backends (ports).</td></tr>
+<tr><td><code>api/schema/postgres/</code></td><td><span class="chip newf">NEW</span></td>
+<td><code>cache_bundles</code>, <code>cache_events</code> migrations; the existing
+<code>engine_cache_commands</code> schema re-scoped to the export command kind.</td></tr>
+<tr><td><code>api/cmd/keeper/</code></td><td><span class="chip modf">MOD</span></td>
+<td>Export-command claim loop → engine admin API; export-then-teardown sequencing in the
+idle path.</td></tr>
+<tr><td><code>api/checks/</code></td><td><span class="chip modf">MOD</span></td>
+<td>Enqueue export-after-green; check-name allowlist knob retained for affordable live
+loops.</td></tr>
+<tr><td><code>api/cmd/cacheservice-dev-server/</code></td><td><span class="chip newf">NEW</span></td>
+<td>The D0-harness pattern: real route registration + MinIO/filesystem, no dev stack, no
+credentials (§12).</td></tr>
+</table>
+</details>
+
+<details class="fold" id="obs" open><summary><h2>11. Observability and insight</h2></summary>
+
+<p><b>The idea in three sentences.</b> Two audiences, one discipline. For proofs and
+debugging: engine counters extending the reset design's outcome vocabulary across the wire,
+every one consumed by a named gate case (R8/S8 — nothing decorative). For understanding —
+"I need visualizations, I need to understand the cache, the state of it" — the service
+carries a read-only insight layer over its inventory, event log, and (best-effort,
+version-aware) bundle contents, surfaced as JSON endpoints plus a small dashboard.</p>
+
+<h3>11.1 &nbsp;Engine counters (the proof surface)</h3>
+<table class="filetbl">
+<tr><th>Counter / field</th><th>Emitted</th><th>Consumed by</th></tr>
+<tr><td><code>served_from{content_chain}</code> — joins the reset vocabulary
+(<code>snapshot</code>, <code>lazy_form</code>)</td><td>serving terminal paths</td>
+<td>T-S4 (warm proof: &gt; 0), T-S5 (metadata-only: == 0)</td></tr>
+<tr><td><code>chain_fetch_{ok,missing,error,corrupt}</code>, bytes/blobs downloaded</td>
+<td>chain source (§9.3)</td><td>T-S4, T-S6 (sparse), dashboards</td></tr>
+<tr><td>Boot summary: <code>{bundles_offered, fetched, merged, skipped_by_reason,
+rows_imported, rows_deduped_by_origin, import_budget_exhausted}</code></td>
+<td>boot, into the stats file + debug snapshot (existing vehicles, reset §9 D5)</td>
+<td>T-S2 (dedup == total on re-import), T-S3 (growth flat), S4 diagnosis</td></tr>
+<tr><td>Export summary: <code>{rows, chains, blobs_offered, uploaded, already_present,
+skipped, bytes, phase_durations}</code></td><td>export completion (returned to the admin
+caller and logged)</td><td>T-S3, the export-cost measurement (§7 D2 — measured, not
+assumed)</td></tr>
+<tr><td><code>candidate_ineligible_session_resources</code> — typed, distinguishing the
+salt/handle partition from a plain miss</td><td>lookup eligibility filter</td>
+<td>T-S7 (salt partition made visible), S10</td></tr>
+<tr><td><code>demoted_to_miss</code>, per-field <code>hit_restored</code> (existing)</td>
+<td>unchanged</td><td>every warm proof; T-S4 asserts <code>demoted_to_miss == 0</code> on
+the happy path</td></tr>
+</table>
+<p class="pill">Vehicle discipline is inherited: stats file next to the store at shutdown
+(test-assertion vehicle), same data in the debug snapshot, one-line summaries for humans.
+Anything without a consuming test or named surface does not land (reset §9 D5's bounding
+rule).</p>
+
+<h3>11.2 &nbsp;Service insight (the understanding surface)</h3>
+<ul>
+<li><b>Inventory API</b>: per scope — bundle timeline (store, age, status, counts), blob
+store totals, coverage (fraction of manifest blobs present per bundle — computable from
+stat), GC activity. Pure Postgres queries.</li>
+<li><b>Event log API</b>: filterable publish/select/complete/GC events — "which engine
+exported what, when; who imported it" as one query. This is the operational debugging
+spine; the prior live-loop pain (reconstructing lifecycle from scattered logs) is the
+motivating consumer.</li>
+<li><b>The indexer</b> (read-only, version-aware, best-effort — §2's boundary): parses
+manifests always (they are service-versioned), and metadata DBs for known engine schema
+versions, materializing per-bundle facts: result counts by type, origin-store composition,
+chain/blob statistics, overlap between bundles (shared origins). Unknown versions degrade
+to manifest-only. Indexer output feeds the dashboard; nothing on the serving path reads
+it.</li>
+<li><b>The dashboard</b>: one server-rendered page per scope — bundle timeline, growth
+curves (rows and bytes over time: S3's measurement made visible), blob coverage and dedup
+ratio, recent events, and the engine-side stats files' warm/cold summaries when uploaded
+alongside CI runs. V1 is deliberately plain (tables + inline SVG sparklines); it exists so
+that "what is the state of the cache" is a page, not an investigation.</li>
+</ul>
+
+<h3>11.3 &nbsp;Reconciliation note</h3>
+<p>All of this is process/ops tooling in the reset design's sense (§5 there): built
+properly, scoped to this effort, expected to reconcile with the parallel OTel-based
+observability workstreams (engine telemetry, cache-perf analysis) rather than outlive them
+as-is — and deliberately not entangled with them now. The one intentional overlap: engine
+export/import operations emit ordinary spans so cloud traces show cache lifecycle cost
+alongside build cost.</p>
+</details>
+
 </main>
 </div>
 <script>
