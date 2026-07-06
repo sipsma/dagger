@@ -19,6 +19,24 @@ import (
 	digest "github.com/opencontainers/go-digest"
 )
 
+// versionTag mirrors the real service's liberal version decode: an
+// engine-owned opaque tag arriving as a JSON string or number (S7).
+type versionTag string
+
+func (v *versionTag) UnmarshalJSON(data []byte) error {
+	var asString string
+	if err := json.Unmarshal(data, &asString); err == nil {
+		*v = versionTag(asString)
+		return nil
+	}
+	var asNumber json.Number
+	if err := json.Unmarshal(data, &asNumber); err == nil {
+		*v = versionTag(asNumber.String())
+		return nil
+	}
+	return fmt.Errorf("version tag must be a JSON string or number, got %s", data)
+}
+
 func (s *Service) publishBundle(w http.ResponseWriter, r *http.Request) {
 	scope, ok := scopeFromRequest(w, r)
 	if !ok {
@@ -109,7 +127,7 @@ func (s *Service) publishBundle(w http.ResponseWriter, r *http.Request) {
 	// manifest is engine business (S7).
 	var manifest struct {
 		BundleFormat  int             `json:"bundleFormat"`
-		SchemaVersion json.Number     `json:"schemaVersion"`
+		SchemaVersion versionTag      `json:"schemaVersion"`
 		EngineVersion string          `json:"engineVersion"`
 		StoreUUID     string          `json:"storeUUID"`
 		Counts        json.RawMessage `json:"counts,omitempty"`
@@ -122,7 +140,7 @@ func (s *Service) publishBundle(w http.ResponseWriter, r *http.Request) {
 	case manifest.BundleFormat < 1:
 		http.Error(w, fmt.Sprintf("bundle manifest bundleFormat %d is invalid", manifest.BundleFormat), http.StatusBadRequest)
 		return
-	case manifest.SchemaVersion.String() == "":
+	case manifest.SchemaVersion == "":
 		http.Error(w, "bundle manifest missing schemaVersion", http.StatusBadRequest)
 		return
 	case manifest.EngineVersion == "":
@@ -153,7 +171,7 @@ func (s *Service) publishBundle(w http.ResponseWriter, r *http.Request) {
 		BundleID:      bundleID,
 		Scope:         scope,
 		StoreUUID:     manifest.StoreUUID,
-		SchemaVersion: manifest.SchemaVersion.String(),
+		SchemaVersion: string(manifest.SchemaVersion),
 		BundleFormat:  manifest.BundleFormat,
 		EngineVersion: manifest.EngineVersion,
 		Status:        enginecacheservice.BundleStatusPending,
