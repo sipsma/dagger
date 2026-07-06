@@ -112,6 +112,13 @@ func (c *Cache) ImportBundle(ctx context.Context, r io.Reader) (CacheBundleImpor
 	aliasOf := make(map[sharedResultID]sharedResultID)
 	stagedIDs := make(map[sharedResultID]struct{}, len(kept))
 	dedupedIDs := make(map[sharedResultID]struct{})
+	// IDs are RESERVED from a local cursor during staging and the shared
+	// allocator advances only at commit, over the rows that actually land:
+	// a bundle whose rows all drop leaves the allocator exactly as it was
+	// (the all-or-nothing contract covers allocator state too). Reserved
+	// IDs of rewrite-dropped rows are never committed and never referenced
+	// — any row referencing a dropped row drops with it.
+	reservedNextID := c.nextSharedResultID
 	for _, bundleID := range order {
 		restored := kept[bundleID]
 		if firstBundleID, dup := bundleIDByOrigin[restored.origin]; dup {
@@ -133,9 +140,8 @@ func (c *Cache) ImportBundle(ctx context.Context, r io.Reader) (CacheBundleImpor
 				continue
 			}
 		}
-		localID := c.nextSharedResultID
-		c.nextSharedResultID++
-		c.noteAllocatedResultIDLocked(localID)
+		localID := reservedNextID
+		reservedNextID++
 		remap[bundleID] = localID
 		stagedIDs[bundleID] = struct{}{}
 	}
@@ -200,6 +206,18 @@ func (c *Cache) ImportBundle(ctx context.Context, r io.Reader) (CacheBundleImpor
 	// rows land, identity teaches into the live e-graph with local-space
 	// key recomputation (R16), deps and persisted edges land with dedup,
 	// same-origin observations union sources and refresh timestamps.
+
+	// The allocator advances over exactly the IDs that commit. Surviving
+	// reserved IDs are contiguous-from-current except for rewrite-dropped
+	// gaps, which nothing references; a bundle that commits nothing leaves
+	// the allocator untouched.
+	for _, bundleID := range stagedOrder {
+		if localID := remap[bundleID]; localID >= c.nextSharedResultID {
+			c.nextSharedResultID = localID + 1
+			c.noteAllocatedResultIDLocked(localID)
+		}
+	}
+
 	for _, bundleID := range stagedOrder {
 		row := staged[bundleID]
 		restored := kept[bundleID]
@@ -418,15 +436,27 @@ func (c *Cache) ImportBundle(ctx context.Context, r io.Reader) (CacheBundleImpor
 		summary.TermsImported++
 	}
 
-	// Output-class membership and digest indexes for staged rows.
+	// Output-class membership and digest indexes. This teaching applies to
+	// every kept row's local target — staged rows AND rows deduped by
+	// origin: a later bundle's observation of an existing row may carry
+	// identity evidence (a content digest, a new output class) the local
+	// store has never seen, and same-origin observations union identity
+	// exactly as they union sources. Without the union, exact-digest
+	// lookups on the new evidence could never reach the existing row
+	// (lookup reads egraphResultsByDigest directly).
+	touchedLocalIDs := make(map[sharedResultID]struct{}, len(stagedOrder)+len(dedupedIDs))
 	for _, row := range rows.resultOutputEqClasses {
 		bundleID := sharedResultID(row.ResultID)
-		if _, isStaged := staged[bundleID]; !isStaged {
+		localID, found := remap[resolveBundleID(bundleID)]
+		if !found || c.resultsByID[localID] == nil {
 			continue
 		}
-		localID := remap[bundleID]
 		outputEqID := localClassFor(row.EqClassID)
 		if outputEqID == 0 {
+			// Unreachable after up-front validation (every referenced class
+			// exists and carries digests); loud if it ever regresses.
+			slog.Error("bundle membership row resolved to no local class",
+				"bundleResultID", bundleID, "bundleEqClassID", row.EqClassID)
 			continue
 		}
 		outputEqClasses := c.resultOutputEqClasses[localID]
@@ -435,9 +465,12 @@ func (c *Cache) ImportBundle(ctx context.Context, r io.Reader) (CacheBundleImpor
 			c.resultOutputEqClasses[localID] = outputEqClasses
 		}
 		outputEqClasses[outputEqID] = struct{}{}
+		touchedLocalIDs[localID] = struct{}{}
 	}
 	for _, bundleID := range stagedOrder {
-		localID := remap[bundleID]
+		touchedLocalIDs[remap[bundleID]] = struct{}{}
+	}
+	for localID := range touchedLocalIDs {
 		for outputEqID := range c.outputEqClassesForResultLocked(localID) {
 			for dig := range c.eqClassToDigests[outputEqID] {
 				set := c.egraphResultsByDigest[dig]
@@ -500,6 +533,55 @@ func (c *Cache) ImportBundle(ctx context.Context, r io.Reader) (CacheBundleImpor
 			JSON: rewrittenLazy,
 		})
 		res.payloadMu.Unlock()
+	}
+
+	// The same opportunistic eager decode local restore runs: payloads
+	// that reconstruct without a live dagql server (scalars, lists of
+	// them, self-contained objects) realize now; everything else stays an
+	// envelope for first-use decode. This is serve-path parity — a bundle
+	// row must be exactly as servable as the same row restored locally.
+	// Deliberately absent from local restore's version: the owner-lease
+	// sync. A foreign payload's decoded value may textually carry the
+	// exporter's engine-local snapshot IDs, and those must never bind
+	// leases onto coincidentally-matching local snapshots (R4: refKeys
+	// never cross).
+	for _, bundleID := range stagedOrder {
+		res := c.resultsByID[remap[bundleID]]
+		state := res.loadPayloadState()
+		if res == nil || state.realized || state.persistedEnvelope == nil {
+			continue
+		}
+		frame := res.loadResultCall()
+		if frame == nil {
+			continue
+		}
+		decodeCtx := ContextWithCall(ctx, frame)
+		decoded, err := DefaultPersistedSelfCodec.DecodeResult(decodeCtx, nil, uint64(res.id), frame, *state.persistedEnvelope)
+		if err != nil || decoded == nil {
+			continue
+		}
+		res.payloadMu.Lock()
+		if !res.materialization.realized && res.materialization.envelope != nil {
+			res.self = decoded.Unwrap()
+			res.materialization.realized = true
+			if objDecoded, ok := decoded.(AnyObjectResult); ok && res.objClass == nil {
+				res.objClass = objDecoded.ObjectType()
+			}
+			decodedShared := decoded.cacheSharedResult()
+			if decodedShared != nil {
+				res.sessionResourceHandle = decodedShared.sessionResourceHandle
+				if decodedShared.requiredSessionResources != nil {
+					res.requiredSessionResources = decodedShared.requiredSessionResources.Copy()
+				} else if decodedShared.sessionResourceHandle == "" {
+					res.requiredSessionResources = nil
+				}
+			}
+			res.materialization.envelope = nil
+		}
+		res.payloadMu.Unlock()
+		if onReleaser, ok := UnwrapAs[OnReleaser](decoded); ok {
+			res.onRelease = joinOnRelease(c.resultSnapshotLeaseCleanup(res), onReleaser.OnRelease)
+		}
 	}
 
 	c.importedResultCount += int64(summary.RowsImported)
@@ -669,8 +751,22 @@ func readBundleMetadataRows(ctx context.Context, metadataPath string) (rows bund
 // validateBundleIdentityRows applies the same store-level identity checks
 // local restore treats as wipe-worthy — zero IDs, broken identity-table
 // references, invalid provenance — as pure pre-validation. In a bundle they
-// mean "skip this bundle", never anything about the local store.
+// mean "skip this bundle", never anything about the local store. The rules
+// are deliberately complete: everything the merge later resolves (class
+// refs from membership rows, terms and term inputs; result refs from
+// membership and edge rows) is proven resolvable here, so the commit phase
+// never meets a broken reference it would have to skip silently. A class
+// referenced by anything must also carry at least one digest — a
+// digest-less class identifies nothing and cannot be taught into the local
+// e-graph, so a reference to one is broken identity metadata, not a
+// harmless row.
+//
+//nolint:gocyclo // one flat rule list; splitting would obscure the contract
 func validateBundleIdentityRows(rows bundleMetadataRows) error {
+	resultExists := make(map[int64]struct{}, len(rows.results))
+	for _, row := range rows.results {
+		resultExists[row.ID] = struct{}{}
+	}
 	classExists := make(map[int64]struct{}, len(rows.eqClasses))
 	for _, row := range rows.eqClasses {
 		if row.ID == 0 {
@@ -678,6 +774,7 @@ func validateBundleIdentityRows(rows bundleMetadataRows) error {
 		}
 		classExists[row.ID] = struct{}{}
 	}
+	classHasDigests := make(map[int64]struct{}, len(rows.eqClasses))
 	for _, row := range rows.eqClassDigests {
 		if row.EqClassID == 0 {
 			return fmt.Errorf("eq_class_digest %q with zero eq_class_id", row.Digest)
@@ -688,6 +785,16 @@ func validateBundleIdentityRows(rows bundleMetadataRows) error {
 		if row.Digest == "" {
 			return fmt.Errorf("empty digest for eq_class %d", row.EqClassID)
 		}
+		classHasDigests[row.EqClassID] = struct{}{}
+	}
+	referencedClassUsable := func(classID int64) error {
+		if _, ok := classExists[classID]; !ok {
+			return fmt.Errorf("missing eq_class %d", classID)
+		}
+		if _, ok := classHasDigests[classID]; !ok {
+			return fmt.Errorf("eq_class %d has no digests", classID)
+		}
+		return nil
 	}
 	termExists := make(map[int64]struct{}, len(rows.terms))
 	for _, row := range rows.terms {
@@ -695,8 +802,8 @@ func validateBundleIdentityRows(rows bundleMetadataRows) error {
 			return errors.New("term with zero ID")
 		}
 		if row.OutputEqClassID != 0 {
-			if _, ok := classExists[row.OutputEqClassID]; !ok {
-				return fmt.Errorf("term %d references missing output eq_class %d", row.ID, row.OutputEqClassID)
+			if err := referencedClassUsable(row.OutputEqClassID); err != nil {
+				return fmt.Errorf("term %d output: %w", row.ID, err)
 			}
 		}
 		termExists[row.ID] = struct{}{}
@@ -715,8 +822,8 @@ func validateBundleIdentityRows(rows bundleMetadataRows) error {
 			return fmt.Errorf("term_input %d/%d has unsupported provenance %q", row.TermID, row.Position, row.ProvenanceKind)
 		}
 		if row.InputEqClassID != 0 {
-			if _, ok := classExists[row.InputEqClassID]; !ok {
-				return fmt.Errorf("term_input %d/%d references missing eq_class %d", row.TermID, row.Position, row.InputEqClassID)
+			if err := referencedClassUsable(row.InputEqClassID); err != nil {
+				return fmt.Errorf("term_input %d/%d: %w", row.TermID, row.Position, err)
 			}
 		}
 		positionsByTerm[row.TermID] = append(positionsByTerm[row.TermID], row.Position)
@@ -729,9 +836,26 @@ func validateBundleIdentityRows(rows bundleMetadataRows) error {
 			}
 		}
 	}
+	for _, row := range rows.resultOutputEqClasses {
+		if row.ResultID == 0 {
+			return errors.New("result_output_eq_class with zero result ID")
+		}
+		if _, ok := resultExists[row.ResultID]; !ok {
+			return fmt.Errorf("result_output_eq_class references missing result %d", row.ResultID)
+		}
+		if row.EqClassID == 0 {
+			return fmt.Errorf("result_output_eq_class for result %d with zero eq_class_id", row.ResultID)
+		}
+		if err := referencedClassUsable(row.EqClassID); err != nil {
+			return fmt.Errorf("result_output_eq_class for result %d: %w", row.ResultID, err)
+		}
+	}
 	for _, row := range rows.persistedEdges {
 		if row.ResultID == 0 {
 			return errors.New("persisted_edge with zero result ID")
+		}
+		if _, ok := resultExists[row.ResultID]; !ok {
+			return fmt.Errorf("persisted_edge references missing result %d", row.ResultID)
 		}
 	}
 	return nil

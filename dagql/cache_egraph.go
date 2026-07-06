@@ -1672,6 +1672,15 @@ func (c *Cache) removeResultFromEgraphLocked(ctx context.Context, res *sharedRes
 	depCount := len(res.deps)
 	res.storeResultCall(nil)
 	delete(c.resultsByID, res.id)
+	// The origin index must not outlive the row. Guarded on the ID because
+	// the binding may already point elsewhere: an exhaustion-dropped row
+	// lingers un-removed while sessions still hold it (at most one such
+	// corpse per origin per drop cycle, gone when its holders release), and
+	// a bundle re-supplying that origin re-binds the entry to the fresh row
+	// — a newer binding this corpse's eventual release must not clobber.
+	if !res.origin.isZero() && c.resultsByOrigin[res.origin] == res.id {
+		delete(c.resultsByOrigin, res.origin)
+	}
 	c.traceResultRemoved(ctx, res, oldFrame, depCount)
 
 	nowUnix := time.Now().Unix()

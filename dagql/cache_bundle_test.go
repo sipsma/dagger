@@ -10,30 +10,37 @@ import (
 	"testing"
 
 	"github.com/dagger/dagger/dagql/call"
+	"github.com/opencontainers/go-digest"
 	"github.com/vektah/gqlparser/v2/ast"
 	"gotest.tools/v3/assert"
 )
 
 // bundleTestCounts is the projection of live cache state the growth and
 // isolation assertions compare: if any of these move when they must not,
-// the import created or destroyed something.
+// the import created or destroyed something. The allocator fields make
+// ID-reservation leaks observable: a skipped or fully-dropped bundle must
+// leave them exactly as they were.
 type bundleTestCounts struct {
-	Results        int
-	Terms          int
-	EqClasses      int
-	Origins        int
-	PersistedEdges int
+	Results              int
+	Terms                int
+	EqClasses            int
+	Origins              int
+	PersistedEdges       int
+	NextSharedResultID   uint64
+	MaxAllocatedResultID uint64
 }
 
 func bundleTestSnapshotCounts(c *Cache) bundleTestCounts {
 	c.egraphMu.RLock()
 	defer c.egraphMu.RUnlock()
 	return bundleTestCounts{
-		Results:        len(c.resultsByID),
-		Terms:          len(c.egraphTerms),
-		EqClasses:      len(c.eqClassToDigests),
-		Origins:        len(c.resultsByOrigin),
-		PersistedEdges: len(c.persistedEdgesByResult),
+		Results:              len(c.resultsByID),
+		Terms:                len(c.egraphTerms),
+		EqClasses:            len(c.eqClassToDigests),
+		Origins:              len(c.resultsByOrigin),
+		PersistedEdges:       len(c.persistedEdgesByResult),
+		NextSharedResultID:   uint64(c.nextSharedResultID),
+		MaxAllocatedResultID: uint64(c.maxAllocatedResultID),
 	}
 }
 
@@ -851,10 +858,325 @@ func TestCacheBundleCorruptBundleSkips(t *testing.T) {
 	assert.NilError(t, writeCacheBundleArchive(&brokenBundle, manifest, metadataPath))
 	assertSkipped(brokenBundle.Bytes(), CacheBundleSkipBrokenIdentity)
 
+	// Broken result_output_eq_classes reference: identity metadata naming a
+	// class the bundle does not carry skips the whole bundle loudly — never
+	// a silently-degraded merge.
+	tmp2 := t.TempDir()
+	manifest2, metadataPath2, err := readCacheBundleArchive(bytes.NewReader(valid.Bytes()), tmp2)
+	assert.NilError(t, err)
+	db, q, err = prepareCacheDBs(ctx, metadataPath2)
+	assert.NilError(t, err)
+	var anyResultID int64
+	assert.NilError(t, db.QueryRowContext(ctx, `SELECT MIN(id) FROM results`).Scan(&anyResultID))
+	_, err = db.ExecContext(ctx, `INSERT INTO result_output_eq_classes (result_id, eq_class_id) VALUES (?1, 999999)`, anyResultID)
+	assert.NilError(t, err)
+	_, err = db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)")
+	assert.NilError(t, err)
+	assert.NilError(t, closeCacheDBs(db, q))
+	var brokenMembership bytes.Buffer
+	assert.NilError(t, writeCacheBundleArchive(&brokenMembership, manifest2, metadataPath2))
+	assertSkipped(brokenMembership.Bytes(), CacheBundleSkipBrokenIdentity)
+
 	// After all of that abuse, a valid bundle still imports.
 	summary, err := cacheB.ImportBundle(ctx, bytes.NewReader(valid.Bytes()))
 	assert.NilError(t, err)
 	assert.Assert(t, summary.RowsImported > 0)
+}
+
+// TestCacheBundleDedupUnionsIdentityEvidence: a later bundle's observation
+// of an already-present origin may carry identity evidence the local store
+// has never seen (here: a content digest taught after the first export).
+// Same-origin dedup must union that evidence onto the existing row — an
+// exact-digest lookup for the new digest afterwards hits the existing row
+// (lookup reads egraphResultsByDigest directly, so without the union the
+// evidence would be unreachable).
+func TestCacheBundleDedupUnionsIdentityEvidence(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dir := t.TempDir()
+
+	cacheA, err := NewCache(ctx, filepath.Join(dir, "a.db"), nil, nil)
+	assert.NilError(t, err)
+	key := cacheTestIntCall("dedup-evidence-row")
+	resA, err := cacheA.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{
+		ResultCall:    key,
+		IsPersistable: true,
+	}, func(context.Context) (AnyResult, error) {
+		return cacheTestIntResult(key, 7), nil
+	})
+	assert.NilError(t, err)
+
+	var bundle1 bytes.Buffer
+	_, err = cacheA.ExportBundle(ctx, &bundle1, CacheBundleExportOptions{})
+	assert.NilError(t, err)
+
+	// New identity evidence lands after the first export; only the second
+	// bundle carries it.
+	newEvidence := digest.FromString("dedup-new-evidence")
+	_, err = resA.WithContentDigestAny(ContextWithCache(ctx, cacheA), newEvidence)
+	assert.NilError(t, err)
+	cacheTestReleaseSession(t, cacheA, ctx)
+	var bundle2 bytes.Buffer
+	_, err = cacheA.ExportBundle(ctx, &bundle2, CacheBundleExportOptions{})
+	assert.NilError(t, err)
+	assert.NilError(t, cacheA.Close(context.Background()))
+
+	cacheB, err := NewCache(ctx, filepath.Join(dir, "b.db"), nil, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, cacheB.Close(context.Background()))
+	}()
+	seedBundleTestJunk(t, ctx, cacheB, 3)
+
+	first, err := cacheB.ImportBundle(ctx, bytes.NewReader(bundle1.Bytes()))
+	assert.NilError(t, err)
+	assert.Assert(t, first.RowsImported > 0)
+	second, err := cacheB.ImportBundle(ctx, bytes.NewReader(bundle2.Bytes()))
+	assert.NilError(t, err)
+	assert.Equal(t, 0, second.RowsImported)
+	assert.Assert(t, second.RowsDedupedByOrigin > 0)
+
+	// The probe is a distinct call whose only link to the row is the new
+	// evidence digest; it must hit the deduped row, not execute.
+	probe := cacheTestIntCall("dedup-evidence-probe", call.ExtraDigest{
+		Digest: newEvidence,
+		Label:  call.ExtraDigestLabelContent,
+	})
+	probeRes, err := cacheB.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{
+		ResultCall: probe,
+	}, func(context.Context) (AnyResult, error) {
+		return cacheTestIntResult(probe, 999), nil
+	})
+	assert.NilError(t, err)
+	assert.Assert(t, probeRes.HitCache(), "new digest evidence from the deduped observation is not reachable by exact-digest lookup")
+	assert.Equal(t, 7, cacheTestUnwrapInt(t, probeRes))
+	cacheTestReleaseSession(t, cacheB, ctx)
+}
+
+// rewriteBundleResultPayload unpacks a bundle, rewrites one results row's
+// envelope through mutate, and re-archives it — the doctoring helper for
+// malformed-bundle tests.
+func rewriteBundleResultPayload(t *testing.T, ctx context.Context, data []byte, mutate func(*PersistedResultEnvelope)) []byte {
+	t.Helper()
+	tmp := t.TempDir()
+	manifest, metadataPath, err := readCacheBundleArchive(bytes.NewReader(data), tmp)
+	assert.NilError(t, err)
+	db, q, err := prepareCacheDBs(ctx, metadataPath)
+	assert.NilError(t, err)
+	var rowID int64
+	var payload []byte
+	assert.NilError(t, db.QueryRowContext(ctx, `SELECT id, self_payload FROM results ORDER BY id LIMIT 1`).Scan(&rowID, &payload))
+	var env PersistedResultEnvelope
+	assert.NilError(t, json.Unmarshal(payload, &env))
+	mutate(&env)
+	mutated, err := json.Marshal(env)
+	assert.NilError(t, err)
+	_, err = db.ExecContext(ctx, `UPDATE results SET self_payload = ?1 WHERE id = ?2`, mutated, rowID)
+	assert.NilError(t, err)
+	_, err = db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)")
+	assert.NilError(t, err)
+	assert.NilError(t, closeCacheDBs(db, q))
+	var out bytes.Buffer
+	assert.NilError(t, writeCacheBundleArchive(&out, manifest, metadataPath))
+	return out.Bytes()
+}
+
+// TestCacheBundleRewriteDropLeavesAllocatorUntouched: staging reserves IDs
+// from a local cursor and the shared allocator advances only over rows
+// that commit — a bundle whose rows all drop at reference rewrite leaves
+// nextSharedResultID and the high-water mark exactly as they were.
+func TestCacheBundleRewriteDropLeavesAllocatorUntouched(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dir := t.TempDir()
+
+	cacheA, err := NewCache(ctx, filepath.Join(dir, "a.db"), nil, nil)
+	assert.NilError(t, err)
+	key := cacheTestIntCall("allocator-drop-row")
+	_, err = cacheA.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{
+		ResultCall:    key,
+		IsPersistable: true,
+	}, func(context.Context) (AnyResult, error) {
+		return cacheTestIntResult(key, 1), nil
+	})
+	assert.NilError(t, err)
+	cacheTestReleaseSession(t, cacheA, ctx)
+	var bundle bytes.Buffer
+	exportSummary, err := cacheA.ExportBundle(ctx, &bundle, CacheBundleExportOptions{})
+	assert.NilError(t, err)
+	assert.Equal(t, 1, exportSummary.Results, "fixture wants a single-row bundle so the drop empties it")
+	assert.NilError(t, cacheA.Close(context.Background()))
+
+	// A payload token referencing a result that is not in the bundle: the
+	// row vets fine (parse-clean) and then drops at reference rewrite.
+	doctored := rewriteBundleResultPayload(t, ctx, bundle.Bytes(), func(env *PersistedResultEnvelope) {
+		env.ScalarJSON = json.RawMessage(`{"$dagqlResultRef":9999}`)
+	})
+
+	cacheB, err := NewCache(ctx, filepath.Join(dir, "b.db"), nil, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, cacheB.Close(context.Background()))
+	}()
+	seedBundleTestJunk(t, ctx, cacheB, 2)
+	before := bundleTestSnapshotCounts(cacheB)
+
+	summary, err := cacheB.ImportBundle(ctx, bytes.NewReader(doctored))
+	assert.NilError(t, err)
+	assert.Equal(t, 0, summary.RowsImported)
+	assert.Equal(t, 1, summary.RowsDroppedRewrite)
+	// The reviewer-pinned invariant: no allocator state leaks from
+	// reserved-but-dropped rows, and no row-shaped state lands. Identity
+	// tables (terms, classes) deliberately teach row-independently — the
+	// same parity local restore has, where vetting drops never un-teach
+	// digest truth — and re-import dedups them, so they are asserted to
+	// grow only by this bundle's own identity rows, not held flat.
+	after := bundleTestSnapshotCounts(cacheB)
+	assert.Equal(t, before.NextSharedResultID, after.NextSharedResultID)
+	assert.Equal(t, before.MaxAllocatedResultID, after.MaxAllocatedResultID)
+	assert.Equal(t, before.Results, after.Results)
+	assert.Equal(t, before.Origins, after.Origins)
+	assert.Equal(t, before.PersistedEdges, after.PersistedEdges)
+
+	// And re-importing the same doctored bundle adds nothing further —
+	// the identity teaching is idempotent even when every row drops.
+	afterOnce := bundleTestSnapshotCounts(cacheB)
+	_, err = cacheB.ImportBundle(ctx, bytes.NewReader(doctored))
+	assert.NilError(t, err)
+	assert.DeepEqual(t, afterOnce, bundleTestSnapshotCounts(cacheB))
+}
+
+// TestCacheBundleSelfContained: with nothing excluded, every reference a
+// bundle carries resolves inside the bundle — deps, membership, term
+// inputs/outputs, edges, origins. (When the writer excludes a row, its
+// dependents' deps rows may deliberately dangle: the importer's
+// missing-dep rule owns those. This invariant is for the closure and
+// identity fixpoint themselves.)
+func TestCacheBundleSelfContained(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dir := t.TempDir()
+
+	cacheA, err := NewCache(ctx, filepath.Join(dir, "a.db"), nil, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, cacheA.Close(context.Background()))
+	}()
+	srvA, _, _ := newR16TestServer()
+	rootCtxA := r16RootCtx(ctx, cacheA, srvA)
+	var name String
+	assert.NilError(t, srvA.Select(rootCtxA, srvA.root, &name, Selector{Field: "r16Obj"}, Selector{Field: "name"}))
+	cacheTestReleaseSession(t, cacheA, rootCtxA)
+
+	var bundle bytes.Buffer
+	summary, err := cacheA.ExportBundle(ctx, &bundle, CacheBundleExportOptions{})
+	assert.NilError(t, err)
+	assert.Equal(t, 0, summary.ExcludedNoPortableContent+summary.ExcludedEncodeFailed)
+
+	tmp := t.TempDir()
+	_, metadataPath, err := readCacheBundleArchive(bytes.NewReader(bundle.Bytes()), tmp)
+	assert.NilError(t, err)
+	rows, err := readBundleMetadataRows(ctx, metadataPath)
+	assert.NilError(t, err)
+
+	results := make(map[int64]struct{}, len(rows.results))
+	for _, row := range rows.results {
+		results[row.ID] = struct{}{}
+	}
+	classes := make(map[int64]struct{}, len(rows.eqClasses))
+	for _, row := range rows.eqClasses {
+		classes[row.ID] = struct{}{}
+	}
+	classesWithDigests := make(map[int64]struct{})
+	for _, row := range rows.eqClassDigests {
+		_, ok := classes[row.EqClassID]
+		assert.Assert(t, ok, "digest row references class %d outside the bundle", row.EqClassID)
+		classesWithDigests[row.EqClassID] = struct{}{}
+	}
+	for _, row := range rows.resultDeps {
+		_, ok := results[row.ParentResultID]
+		assert.Assert(t, ok, "dep row parent %d outside the bundle", row.ParentResultID)
+		_, ok = results[row.DepResultID]
+		assert.Assert(t, ok, "dep row dep %d outside the bundle", row.DepResultID)
+	}
+	for _, row := range rows.resultOutputEqClasses {
+		_, ok := results[row.ResultID]
+		assert.Assert(t, ok, "membership row result %d outside the bundle", row.ResultID)
+		_, ok = classesWithDigests[row.EqClassID]
+		assert.Assert(t, ok, "membership row class %d missing or digest-less", row.EqClassID)
+	}
+	terms := make(map[int64]struct{}, len(rows.terms))
+	for _, row := range rows.terms {
+		terms[row.ID] = struct{}{}
+		if row.OutputEqClassID != 0 {
+			_, ok := classesWithDigests[row.OutputEqClassID]
+			assert.Assert(t, ok, "term %d output class %d missing or digest-less", row.ID, row.OutputEqClassID)
+		}
+	}
+	for _, row := range rows.termInputs {
+		_, ok := terms[row.TermID]
+		assert.Assert(t, ok, "term input references term %d outside the bundle", row.TermID)
+		if row.InputEqClassID != 0 {
+			_, ok := classesWithDigests[row.InputEqClassID]
+			assert.Assert(t, ok, "term %d input class %d missing or digest-less", row.TermID, row.InputEqClassID)
+		}
+	}
+	for _, row := range rows.persistedEdges {
+		_, ok := results[row.ResultID]
+		assert.Assert(t, ok, "persisted edge references result %d outside the bundle", row.ResultID)
+	}
+	origins := make(map[int64]struct{}, len(rows.resultOrigins))
+	for _, row := range rows.resultOrigins {
+		_, ok := results[row.ResultID]
+		assert.Assert(t, ok, "origin row references result %d outside the bundle", row.ResultID)
+		origins[row.ResultID] = struct{}{}
+	}
+	assert.Equal(t, len(results), len(origins), "every bundled result carries exactly one origin")
+}
+
+// TestCacheBundleOriginIndexDropsWithRow: releasing a row removes its
+// origin-index entry (the index must not outgrow the store by one corpse
+// per released row).
+func TestCacheBundleOriginIndexDropsWithRow(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dir := t.TempDir()
+
+	c, err := NewCache(ctx, filepath.Join(dir, "a.db"), nil, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, c.Close(context.Background()))
+	}()
+
+	persistedKey := cacheTestIntCall("origin-index-persisted")
+	_, err = c.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{
+		ResultCall:    persistedKey,
+		IsPersistable: true,
+	}, func(context.Context) (AnyResult, error) {
+		return cacheTestIntResult(persistedKey, 1), nil
+	})
+	assert.NilError(t, err)
+	sessionKey := cacheTestIntCall("origin-index-session-only")
+	sessionRes, err := c.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{
+		ResultCall: sessionKey,
+	}, func(context.Context) (AnyResult, error) {
+		return cacheTestIntResult(sessionKey, 2), nil
+	})
+	assert.NilError(t, err)
+	sessionOrigin := sessionRes.cacheSharedResult().origin
+	assert.Assert(t, !sessionOrigin.isZero())
+
+	_, present := bundleTestOrigins(c)[sessionOrigin]
+	assert.Assert(t, present)
+	cacheTestReleaseSession(t, c, ctx)
+	origins := bundleTestOrigins(c)
+	_, present = origins[sessionOrigin]
+	assert.Assert(t, !present, "released row's origin entry survived in the index")
+	assert.Assert(t, len(origins) > 0, "the persisted row's origin must survive the release")
 }
 
 // TestCacheBundleExportExcludesSnapshotOnlyRows: a row whose only content
