@@ -448,6 +448,7 @@ func Compile(spans []Span) (*Compiled, error) {
 				ClassID:  str.intern(class),
 				IdentID:  str.intern(ident),
 				MetaID:   str.intern(argv),
+				ScopeID:  str.intern(scopeJSON),
 				StartNS:  int64(s.StartUnixNS) - epoch,
 			})
 			continue

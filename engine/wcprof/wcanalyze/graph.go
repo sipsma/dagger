@@ -341,17 +341,19 @@ func Build(header *wcprof.DumpHeader, events []wcprof.DumpEvent) (*Graph, error)
 			continue
 		}
 		g.Ops[oo.OpID] = &Op{
-			ID:       oo.OpID,
-			ParentID: oo.ParentID,
-			Kind:     oo.Kind,
-			WorkType: oo.WorkType,
-			Class:    str(oo.ClassID),
-			Ident:    str(oo.IdentID),
-			ClientID: str(oo.ClientID),
-			Argv:     decodeArgv(str(oo.MetaID)),
-			StartNS:  oo.StartNS,
-			EndNS:    max(dumpRelNS, oo.StartNS),
-			Open:     true,
+			ID:           oo.OpID,
+			ParentID:     oo.ParentID,
+			Kind:         oo.Kind,
+			WorkType:     oo.WorkType,
+			Class:        str(oo.ClassID),
+			Ident:        str(oo.IdentID),
+			ClientID:     str(oo.ClientID),
+			Argv:         decodeArgv(str(oo.MetaID)),
+			ScopeInputs:  decodeScopeInputs(str(oo.ScopeID)),
+			ScopeCorrupt: str(oo.ScopeID) == wcprof.ScopeMalformedSentinel,
+			StartNS:      oo.StartNS,
+			EndNS:        max(dumpRelNS, oo.StartNS),
+			Open:         true,
 		}
 		g.OpenOps++
 	}

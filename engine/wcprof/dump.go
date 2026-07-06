@@ -50,7 +50,12 @@ type DumpOpenOp struct {
 	IdentID  uint32 `json:"ident_id,omitempty"`
 	ClientID uint32 `json:"client_id,omitempty"`
 	MetaID   uint32 `json:"meta_id,omitempty"`
-	StartNS  int64  `json:"start_ns"`
+	// ScopeID mirrors DumpEvent.ScopeID for calls still open at capture:
+	// scope evidence recorded at span start must survive even when the span
+	// never ended (review round 2 — otherwise open calls silently drop both
+	// valid and corrupt scope structure).
+	ScopeID uint32 `json:"sp,omitempty"`
+	StartNS int64  `json:"start_ns"`
 }
 
 // DumpEvent is the JSON form of an Event. Short keys keep dumps compact.
