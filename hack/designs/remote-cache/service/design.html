@@ -696,6 +696,24 @@ redesign salting — that remains a cloud/tenancy work item.</p>
   the two §8.1-step-3 unions deliberately remain two code paths — "one rule, two data
   planes": identity evidence under the e-graph lock, sources under the payload lock) and
   entered its own adversarial review.</li>
+  <li><b>Round 13 (2026-07-06/07). CHUNK A LANDED.</b> The take-3 manager's landing review
+  passed first-hand (commit chain, §9 interactions in the diff, R14/R15 legitimacy of the
+  boot-window bundle merge — recorded as round 23 in the reset design's log, gates re-run
+  on the tip) and merged the seven commits: <b>integration tip df3e1d6b39</b> (no-ff merge
+  6146c7e31a). Post-merge full Step-0 on the landed state dispatched as the agreed
+  insurance. <b>Chunk B review round 1</b>: needs-rework — dispositions: (blocker) the
+  transient-demote loop — a transiently-starved imported row is re-selected
+  lowest-ID-first over the freshly-published equivalent forever; fix shape = a boot-scoped
+  in-memory transient-demote mark used only as a candidate-selection tie-break,
+  implemented as a held commit <b>pending the take-3 manager's ruling</b> (it touches
+  reset §9 D1's frozen selection order; the full realized-first preference stays a future
+  option); (blocker) manifest chains must parse + validate <em>before</em> vetting so a
+  chain-required row whose chain entry is damaged drops with dependents instead of
+  surviving into a build-breaking decode error (S4); (major) corrupt blob ingests must
+  abort the containerd ingest ref, not leave poisoned resumable progress; (major) the
+  test-only transport gets compiled out or hard-gated + path-restricted; (minor)
+  MaterializeChain reports fetched-blob/byte tallies now. Chunk B folds the re-hop onto
+  the landed base into the same round.</li>
 </ol>
 </div>
 </details>
