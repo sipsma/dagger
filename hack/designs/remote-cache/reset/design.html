@@ -1487,7 +1487,10 @@ associated with its class synchronously at publication, under the cache's lock
 <li><b>The property test (R16 is "cheaply testable"):</b> take a store, rewrite its
 eq-class and term IDs consistently (digests untouched), boot the original and the
 renumbered copy, require identical key derivation and identical hit behavior for
-identical calls (P-8.2 / T5) — a determinism unit test, plus the restart suite as the
+identical calls (P-8.2 / T5). "Identical key derivation" is compared as each key's
+digest projection — the self digest plus the digest sets of its input and output
+classes — because raw in-memory key strings embed this boot's class numbering, which
+is a join, never identity. A determinism unit test, plus the restart suite as the
 integration check. <em>Standing
 rule: if this test ever trips on what looks like legitimate
 nondeterminism, stop and escalate for discussion — assess real-defect vs benign source and
