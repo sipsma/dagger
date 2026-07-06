@@ -150,7 +150,7 @@
 <main>
 
 <h1>Remote Cache — Design</h1>
-<p class="sub">v26 &nbsp;·&nbsp; all chunks landed &nbsp;·&nbsp; acceptance trio running &nbsp;·&nbsp; 2026-07-03</p>
+<p class="sub">v27 &nbsp;·&nbsp; TAKE COMPLETE — §10.4 acceptance met (3× fully green, evidence attached) &nbsp;·&nbsp; 2026-07-03</p>
 
 <div class="banner">
 <b>Status.</b> The living design doc for the remote-cache engine work: requirements and
@@ -791,6 +791,24 @@ decided in Part II.</p>
   on main, zero lines touched by this take; passes 4/4 isolated) — fixed as a bounded,
   loud-failing test-only hardening rather than named as an exception; the trio restarts
   from run 1.</li>
+  <li><b>Round 22 (2026-07-06). THE TAKE IS COMPLETE — §10.4 acceptance met.</b> Three
+  consecutive fully-green runs of the complete gate on tip 622ca2fe02
+  (tree-identical to integration 8ad2279a7c): dagql 250/0 top-level ×3 (-race),
+  persistence 21/2 leaf-subtests ×3 with the two failures being exactly the pre-named
+  environmental exceptions (signatures verified per run; evidence: host ssh-signing key
+  refuses in a bare temp repo with no engine involved; /app exists only in Dagger CI's
+  container), CrossSession 47/0 ×3, services 13/0 ×3. Warm-phase stats byte-identical
+  across runs and attached per run (/tmp/acceptance/run{1,2,3}/): T1
+  hit_restored[withExec]=2 with zero demotes; T2 exactly one provoked demote
+  (demoted_to_miss={directory:1}, miss_first[data]=1, hit_live[data]=2, no repeat); R10
+  restore summaries dropped:0/wiped:false throughout. Manager spot-verified the evidence
+  first-hand. The shelf was re-examined once per the DONE bullet: M0 and M1 remain
+  consumer-less and stay shelved. Named end-of-take as-built candidates awaiting Erik:
+  rename ensurePersistedHitValueLoaded to a materialize* name (reviewer + cache-chief
+  suggestion) and reconcile the doc's §7.4/§9 pre-unification field names to as-built —
+  both cosmetic, neither blocks DONE. Items explicitly flagged for Erik's morning:
+  round 19 (fall-through order as v1 policy; R16 bundle-sentence scope) and round 21
+  (the corpse-as-own-input one-retry shape).</li>
 </ol>
 </div>
 </details>
