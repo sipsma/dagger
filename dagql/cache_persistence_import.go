@@ -272,11 +272,11 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 
 			selfDigest := normalizeImportedDigest(row.SelfDigest)
 			outputEqID := c.findEqClassLocked(eqClassID(row.OutputEqClassID))
-			termDigest := calcEgraphTermDigest(selfDigest, inputEqIDs)
-			if row.TermDigest != "" && row.TermDigest != termDigest {
-				return fmt.Errorf("import term %d digest mismatch: stored=%s rebuilt=%s", termID, row.TermDigest, termDigest)
-			}
 
+			// Term lookup keys are process-local: newEgraphTerm derives this
+			// boot's term digest from the persisted self digest and the input
+			// classes as numbered by this process. Nothing persisted carries a
+			// term key.
 			term := newEgraphTerm(termID, selfDigest, inputEqIDs, outputEqID)
 			c.egraphTerms[termID] = term
 			c.termInputProvenance[termID] = inputProvenance
