@@ -150,14 +150,16 @@
 <p class="sub">v3 &nbsp;·&nbsp; the phase after the engine fundamentals &nbsp;·&nbsp; review rounds 1–2 folded &nbsp;·&nbsp; 2026-07-06</p>
 
 <div class="banner">
-<b>Status.</b> Draft for adversarial review. This document designs the phase that follows the
+<b>Status.</b> Converged through three adversarial review rounds (verdict: ready — §4);
+awaiting program-owner review. This document designs the phase that follows the
 engine-fundamentals take (<code>hack/designs/remote-cache/reset/design.html</code>, "the reset
 design"): engines exporting cache to and importing cache from a real cloud service. It builds
-on the reset design's ratified requirements R1–R16 and its reserved seams, and must remain
-compatible with them; any deviation from a reserved seam is stop-and-discuss, never silent.
-The engine-side code references below are grounded against the take-3 integration branch
-(reset §7 + §8a–c merged); prior-attempt artifacts are cited as <em>evidence about those
-attempts</em>, never as precedent (see §4, round 0).
+on the reset design's ratified requirements R1–R16 and its reserved seams; any deviation from
+a reserved seam is stop-and-discuss, never silent — <b>one such item is open</b>: the §9.1
+source-order amendment to the reset design, ratification-gated before chunk B. Engine-side
+code references are grounded against the take-3 integration branch (reset §7 + §8a–c merged);
+prior-attempt artifacts are cited as <em>evidence about those attempts</em>, never as
+precedent (§4, round 0; dispositions in §16).
 </div>
 <div class="controls">
 <button type="button" onclick="setAll(true)">expand all sections</button>
@@ -521,6 +523,13 @@ redesign salting — that remains a cloud/tenancy work item.</p>
   selection renamed to <b>exporter store UUID</b> with the not-per-row-origins rationale
   stated (S7); the serve wording qualified everywhere; §8.1 step 4 now names all four
   rewrite mechanisms.</li>
+  <li><b>Round 3 (2026-07-06), final confirmation (same reviewer, against commit
+  ac124c0756).</b> All round-2 items verified resolved, no regressions in the reworded
+  areas, L7 sweep clean. <b>Verdict: ready.</b> Outstanding process items, not review
+  items: (1) the §9.1 source-order amendment needs ratification in the reset design before
+  chunk B builds; (2) cache-chief review of the converged document; (3) the R16-box
+  seam-compatibility note in §6.5 asks the owner to confirm the envelopes-in-bundles
+  reading.</li>
 </ol>
 </div>
 </details>
