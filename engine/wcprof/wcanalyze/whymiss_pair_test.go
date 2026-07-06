@@ -418,6 +418,35 @@ func TestWhyMissPairAmbiguityRefusal(t *testing.T) {
 	}
 }
 
+// Both-non-empty UNEQUAL leftovers between anchors (a §5 refusal-family
+// member the W16b mapping exposed as unpinned): reference gap [d-c1, d-c2]
+// vs query gap [d-c3] — a partial pairing would have to GUESS which
+// reference item aligns, so the whole gap refuses into the stated line and
+// the query-side leftover descends unpaired.
+func TestWhyMissPairUnequalNonEmptyLeftoversRefuse(t *testing.T) {
+	gB, gA := pairedParentsFixtures(t,
+		[]string{"d-cA", "d-dA", "d-s"}, // reference gap: two leftovers
+		[]string{"d-cB", "d-s"},         // query gap: one leftover
+	)
+	rep, err := RunWhyUncachedPair(gB, gA, "p-B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	refused := false
+	for _, l := range rep.PairLines {
+		if strings.Contains(l, "structural change, not pairwise attributable") {
+			refused = true
+		}
+	}
+	if !refused {
+		t.Fatalf("unequal non-empty leftovers must refuse, got %v", rep.PairLines)
+	}
+	o := originByDigest(t, rep, "d-cB")
+	if o.Category == CategoryInputChanged {
+		t.Fatal("no pair may form from a refused gap")
+	}
+}
+
 // Cross-parent DELAYED conflict (review round 2): the second claim arrives
 // from a parent walked AFTER the node's paired descent already ran. The walk
 // must restart with the digest poisoned so the final report derives nothing

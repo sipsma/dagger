@@ -225,9 +225,14 @@ join machinery reused):
   sides (equal leftover counts, classes agreeing pairwise); any other shape — unequal leftovers,
   duplicate classes that admit more than one order-preserving matching, crossing anchors — is the
   refusal line. The digest LCS itself must be UNIQUE at occurrence level: repeated equal digests
-  that admit multiple maximal anchor sets refuse too (the evidence cannot say which duplicate was
-  removed), except when the ambiguous interval is byte-identical on both sides and yields no
-  report either way. Digest anchoring first is what defeats the greedy-prefix mispair (A=[C:d1, C:d2,
+  that admit multiple maximal anchor sets refuse, ALWAYS (the evidence cannot say which duplicate
+  was removed). [AMENDED at Chunk 2, coordinator-ratified: the ratified text carved out an
+  exception — "except when the ambiguous interval is byte-identical on both sides and yields no
+  report either way" — which is provably VACUOUS: were every position anchored, the embedding
+  would be forced (unique), so any ambiguity leaves an unanchored position, and an unanchored
+  position always yields a report whose content or attribution depends on the occurrence choice.
+  The implemented contract refuses on ambiguity unconditionally; this text is amended to match
+  the implementation, not vice versa.] Digest anchoring first is what defeats the greedy-prefix mispair (A=[C:d1, C:d2,
   D:d3] vs B=[C:d2, D:d3]: d2 and d3 anchor, d1 is exposed as the deletion). E3b upgrades
   attribution within pairs; it does not loosen the refusal contract. A node
   that pairs with nothing is category 4 (new work) or part of such a structural change, reported
@@ -384,6 +389,68 @@ counterpart and paired price (warm `Container.from xxh3:b677e73b409dfa9b` ← co
 re-minted warm), and the walk's lineage counterpart (tag-scoped) is consistent with the
 calibration's independent result-id pairing (both forms share rid 6801).
 
+**Gate-rendering fix (manager directive at Chunk 5, coordinator-approved; the pre-existing
+whatif behavior flagged during Chunk-1 review):** the what-if-cached RANKING, DETAIL, and
+CALIBRATION sections now REFUSE rendering when the OTel structural gate failed (previously they
+rendered after the gate verdict printed) — a counterfactual over data a gate already declared
+unfaithful is decoration. Same rule the why-uncached walk has had since Chunk 1; the general
+report still renders with warnings. `ReportOptions.RefuseCachedSections` carries the CLI-level
+verdict; pinned by `TestReportRefusesCachedRankingOnGateFailure`.
+
+**W10 evidence regeneration recipe (durability; the /tmp captures are not the row's only
+home):** the §7.4 pairs (`/tmp/whatif-cal3-{module,withexec}/`) and the W10-completion pair
+(`/tmp/invtrace-w10/`) regenerate as follows. (1) Private OUTER engine (two agents' CLIs GC each
+other's auto-provisioned engines): `docker run -d --name dagger-outer.<tag> --privileged -v
+<vol>:/var/lib/dagger registry.dagger.io/engine:v0.21.7`. (2) Build engine+CLI from the branch:
+`PATH=$HOME/bin:$PATH _EXPERIMENTAL_DAGGER_RUNNER_HOST=docker-container://dagger-outer.<tag>
+_EXPERIMENTAL_DAGGER_DEV_CONTAINER=dagger-engine.<tag>
+_EXPERIMENTAL_DAGGER_DEV_IMAGE=localhost/dagger-engine.<tag> ./hack/build` (the final start step
+fails on port 6060 — expected; host 6060 is taken). (3) Cold start manually:
+`docker rm -f dagger-engine.<tag>; docker volume rm dagger-engine.<tag>; docker run -d --name
+dagger-engine.<tag> -p <port>:6060 --privileged -v dagger-engine.<tag>:/var/lib/dagger
+localhost/dagger-engine.<tag> --extra-debug --debugaddr=0.0.0.0:6060`. (4) Enable profiling:
+`curl -X POST -d on http://172.17.0.1:<port>/debug/wcprof/enabled` (from inside the tailcall
+container use gateway 172.17.0.1, never localhost). (5) Run the workload twice from an empty
+dir with `_EXPERIMENTAL_DAGGER_RUNNER_HOST=docker-container://dagger-engine.<tag>
+<branch>/bin/dagger …` — module workload: `-m github.com/shykes/daggerverse/hello@v0.3.0
+functions` (any module exercises the scoped chains); the §7.4 originals used a dagger-repo
+module build and a withExec-heavy pipeline (hack/wcprof-cached-calibrate documents that flow).
+(6) Capture `curl http://172.17.0.1:<port>/debug/wcprof/dump?flush=true` after EACH run
+(cold.wcprof, warm.wcprof). Analyze: `go run ./cmd/wcprof-analyze -why-uncached-class
+'Query.moduleSource' -why-uncached-vs cold.wcprof warm.wcprof`.
+
+**§5 refusal-family → pinned-test mapping (Chunk 2/4 as-built):** duplicates at anchors, d1
+never paired to d2 → `TestWhyMissW16bDigestAnchorsBeatClassPairing`; crossing anchor candidates
+(reordering never pairs across an anchor) → `TestWhyMissW4InputChanged` (reordering variant);
+multiple maximal anchor sets (occurrence-uniqueness refusal) →
+`TestLCSAnchorsOccurrenceUniqueness` ([X,X]×[X], two-distinct-max-strings) +
+`TestWhyMissPairAmbiguityRefusal` (end-to-end); unequal leftovers, one side EMPTY
+(deletion/addition reports, per this section's amended reading and W16b's own row text) →
+`TestWhyMissW16bDigestAnchorsBeatClassPairing` + `TestWhyMissW4InputChanged`; unequal leftovers,
+BOTH non-empty (the refusal line) → `TestWhyMissPairUnequalNonEmptyLeftoversRefuse` (added when
+this mapping exposed it unpinned); pairwise class mismatch → `TestWhyMissW4InputChanged`
+(class-mismatch variant); duplicate classes with equal counts (the complete in-order matching is
+positional and unique — any other complete matching crosses; argued in `pairInputVectors`'s
+contract comment) with the same-digest-duplicate consequence voided →
+`TestWhyMissPairConflictVoids` + `TestWhyMissPairConflictAcrossParentsRestarts`; the
+now-vacuous byte-identical case (full anchoring forces uniqueness) →
+`TestLCSAnchorsOccurrenceUniqueness` ([X,X]×[X,X] anchors fully, unique).
+
+**E2 ratification record:** E2's adoption was ratified by the MANAGER on the W10 evidence and
+independently ratified by the COORDINATOR ("the delegated standard was met in its strongest
+form"); it remains flagged to Erik (§12), who may re-litigate. The E3a
+profiling-source-activation note above is likewise recorded for Erik: one line flips it to
+always-on (dag.inputs precedent) if he wants unprofiled Cloud traces to carry ordered vectors.
+
+**ResultIDsCaptureLocal blast radius (coordinator requirement, verified from the docs' own
+provenance statements, not memory):** every committed calibration and validation number — the
+§7.4/V-row results in `whatif-cached-calibration.md` (its own provenance: "isolated
+container/port; native wcprof dumps", debug port 6062) and this doc's W10 results (native dumps
+in `/tmp/whatif-cal3-*` and `/tmp/invtrace-w10`, provenance stated above) — derives from LOCAL
+NATIVE captures. No committed evidence was ever derived from Cloud-trace pairs: **no committed
+evidence affected; the exposure was latent for Cloud pairs only** (and is closed by the Chunk-4
+fix that marks wccloud-loaded graphs ResultIDsCaptureLocal).
+
 **Pair-walk refinement (review round, Chunk 2):** in pair mode a DIGEST-STABLE missed input does
 
 not make its changed parent Merkle collateral — a stable digest is an unchanged input ref, so it
@@ -394,7 +461,11 @@ is unchanged. Deepest-changed-node answers name the concrete divergence the pair
 
 **E1 seam-check against the take-3 as-built tip (Chunk 3, coordinator-required; read via the vm
 worktree-holder from `remote-cache-take3-fork-0bdd5926` at HEAD `0a42c6b8fd`):** §2's anchors
-re-verified. No drift in the lookup core: `lookupCacheForRequestLocked` and its helpers are
+re-verified. [Dual citation, per the coordinator: take-3's integration tip subsequently moved
+`0a42c6b8fd` → `df3e1d6b39` (chunk A: service bundle import + origin identity, schema 19); the
+coordinator reviewed that diff first-hand and attests it TERMINAL-NEUTRAL (import/persistence
+work, not the serve path) — so this drift table remains verified against `0a42c6b8fd` and holds
+at `df3e1d6b39` on the coordinator's first-hand review.] No drift in the lookup core: `lookupCacheForRequestLocked` and its helpers are
 byte-stable at the same lines (`cache_egraph.go:805-861`, `:554-559`, `:646-656`, `:683-734`).
 Line-only drift: the DoNotCache pre-lookup return moved `:3765→:3912`; `lookupCacheForDigests`
 moved to `:4113-4186`; the no-publish error terminal for waiters sits at `cache.go:4275-4284`.
