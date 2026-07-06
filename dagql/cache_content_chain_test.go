@@ -556,6 +556,117 @@ func TestContentChainTransientFailureDemotesWithoutDrop(t *testing.T) {
 	cacheTestReleaseSession(t, cache, rootCtx)
 }
 
+// TestTransientlyStarvedClearsOnDeliveryAndRemarks pins the mark's
+// lifecycle (reset round 24's clear-on-success refinement): a starved row
+// that successfully materializes clears its mark and regains full
+// selection standing — and a later transient demote re-marks it. The mark
+// is also visible in the per-result debug snapshot throughout: the S4
+// counters show the storms it prevents, the snapshot shows the mechanism.
+func TestTransientlyStarvedClearsOnDeliveryAndRemarks(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	uploadID := seedChainVettingStore(t, ctx, dbPath, chainTestChains())
+
+	snapshotStarved := func(cache *Cache, id uint64) bool {
+		t.Helper()
+		for _, res := range cache.DebugEGraphSnapshot().Results {
+			if res.SharedResultID == id {
+				return res.TransientlyStarved
+			}
+		}
+		t.Fatalf("result %d not in debug snapshot", id)
+		return false
+	}
+
+	manager := &fakeSnapshotManager{missingSnapshots: map[string]struct{}{
+		"upload-snap": {},
+	}}
+	transportDead := true
+	manager.materializeChainFunc = func(ctx context.Context, ownerLeaseID string, _ bkcache.SnapshotChain, _ bkcache.BlobSource) (string, bkcache.ChainFetchStats, error) {
+		if transportDead {
+			return "", bkcache.ChainFetchStats{}, fmt.Errorf("dial cas: connection refused")
+		}
+		assert.NilError(t, manager.AttachLease(ctx, ownerLeaseID, "chain-mat-snap"))
+		return "chain-mat-snap", bkcache.ChainFetchStats{Blobs: 2, Bytes: 49}, nil
+	}
+	cache, err := NewCache(ctx, dbPath, manager, nil)
+	assert.NilError(t, err)
+
+	srv := newVettingTestServer()
+	rootCtx := vettingRootCtx(ctx, cache, srv)
+
+	// Dead transport: the call demotes and the row marks.
+	res, err := srv.root.Select(rootCtx, srv, Selector{Field: "uploadObj"})
+	assert.NilError(t, err)
+	assert.Assert(t, !res.HitCache())
+	cache.egraphMu.RLock()
+	original := cache.resultsByID[sharedResultID(uploadID)]
+	cache.egraphMu.RUnlock()
+	assert.Assert(t, original != nil)
+	assert.Assert(t, original.transientlyStarved.Load())
+	assert.Assert(t, snapshotStarved(cache, uploadID), "the mark must surface in the debug snapshot")
+
+	// The CAS heals; the marked row's next walk delivers (forced directly
+	// by exact result ID — a lookup or an equivalent-mode load would
+	// prefer the fresh equivalent) and the mark clears: full standing
+	// restored.
+	transportDead = false
+	loaded, err := cache.LoadResultByResultID(rootCtx, "", srv, uint64(uploadID))
+	assert.NilError(t, err)
+	obj, ok := UnwrapAs[*matSnapOnlyObj](loaded.Unwrap())
+	assert.Assert(t, ok)
+	assert.Equal(t, "upload", obj.Name)
+	assert.Assert(t, !original.transientlyStarved.Load(), "a delivering walk must clear the mark")
+	assert.Assert(t, !snapshotStarved(cache, uploadID))
+	counters := cache.serveStats.byOutcome()
+	assert.Equal(t, int64(1), counters[cacheServeFromContentChain]["uploadObj"])
+
+	// Normal standing again: the original row (lowest ID, unmarked)
+	// outranks the demote's fresh equivalent at selection.
+	res2, err := srv.root.Select(rootCtx, srv, Selector{Field: "uploadObj"})
+	assert.NilError(t, err)
+	assert.Assert(t, res2.HitCache())
+	assert.Equal(t, uploadID, uint64(res2.cacheSharedResult().id),
+		"the cleared row must win selection on its normal order again")
+	cacheTestReleaseSession(t, cache, rootCtx)
+	assert.NilError(t, cache.persistCurrentState(ctx))
+	assert.NilError(t, cache.Close(context.Background()))
+
+	// Re-markable: a fresh boot (the mark never persists) with the chain's
+	// materialized snapshot gone and the transport dead again — the row
+	// survives vetting on its persisted chain, the walk starves, the row
+	// re-marks. (The demote's fresh equivalent had no re-make fallback and
+	// dropped at vetting.)
+	manager2 := &fakeSnapshotManager{missingSnapshots: map[string]struct{}{
+		"upload-snap":    {},
+		"chain-mat-snap": {},
+	}}
+	manager2.materializeChainFunc = func(context.Context, string, bkcache.SnapshotChain, bkcache.BlobSource) (string, bkcache.ChainFetchStats, error) {
+		return "", bkcache.ChainFetchStats{}, fmt.Errorf("dial cas: connection refused")
+	}
+	cache2, err := NewCache(ctx, dbPath, manager2, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, cache2.Close(context.Background()))
+	}()
+	cache2.egraphMu.RLock()
+	rebooted := cache2.resultsByID[sharedResultID(uploadID)]
+	cache2.egraphMu.RUnlock()
+	assert.Assert(t, rebooted != nil, "the chain-backed row must survive the reboot's vetting")
+	assert.Assert(t, !rebooted.transientlyStarved.Load(), "the mark is boot-scoped")
+
+	srv2 := newVettingTestServer()
+	rootCtx2 := vettingRootCtx(ctx, cache2, srv2)
+	res3, err := srv2.root.Select(rootCtx2, srv2, Selector{Field: "uploadObj"})
+	assert.NilError(t, err)
+	assert.Assert(t, !res3.HitCache(), "the starved walk demotes again")
+	assert.Assert(t, rebooted.transientlyStarved.Load(), "a later transient demote re-marks the row")
+	assert.Assert(t, snapshotStarved(cache2, uploadID))
+	cacheTestReleaseSession(t, cache2, rootCtx2)
+}
+
 // TestTransientlyStarvedSelectionTieBreak pins the selection rule in
 // isolation: a starved mark is ordering advice only — marked candidates
 // rank behind unmarked ones, and a marked candidate still serves when it
