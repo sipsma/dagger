@@ -936,6 +936,7 @@ func (c *Cache) lookupCacheForRequest(
 			// result drops — with its dependents — and this same invocation
 			// proceeds to execute live, publish, and re-teach equivalence,
 			// healing the store.
+			c.classifyServeOutcome(ctx, cacheServeDemotedToMiss, hitShared.loadResultCall(), hitShared.id)
 			c.traceHitDemotedToMiss(ctx, hitShared, err)
 			demoteErr := errors.Join(decErr, collectErr, releaseErr, c.dropExhaustedResult(ctx, hitShared))
 			if demoteErr != nil {

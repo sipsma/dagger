@@ -133,6 +133,8 @@ func NewCache(
 		return c, nil
 	}
 
+	c.statsFilePath = cacheStatsFilePath(dbPath)
+
 	db, persistDB, err := prepareCacheDBs(ctx, dbPath)
 	if err != nil {
 		return nil, err
@@ -1326,6 +1328,10 @@ type Cache struct {
 	// restoreSummary records the boot-restore outcome (kept/dropped/wiped);
 	// guarded by egraphMu after the boot writes it.
 	restoreSummary *CacheRestoreSummary
+	// serveStats are the warm-serving counters; statsFilePath is where they
+	// flush at shutdown, next to the persisted store.
+	serveStats    cacheServeStats
+	statsFilePath string
 	// importedResultCount is how many persisted rows survived restore
 	// vetting this boot; freshResultCount counts results published from
 	// work executed this boot. Flush writes both, plus the total, as the
@@ -3399,6 +3405,7 @@ func (c *Cache) Close(ctx context.Context) error {
 			slog.Error("dagql cache close exiting with error", "err", c.closeErr)
 			return
 		}
+		c.writeServeStatsFile()
 		if c.pdb != nil {
 			slog.Info("marking dagql cache clean shutdown")
 			if err := c.pdb.UpsertMeta(ctx, persistdb.MetaKeyCleanShutdown, "1"); err != nil {
@@ -3923,6 +3930,11 @@ func (c *Cache) getOrInitCall(
 		return nil, err
 	}
 	if hit {
+		outcome := cacheServeHitLive
+		if shared := hitRes.cacheSharedResult(); shared != nil && shared.restored {
+			outcome = cacheServeHitRestored
+		}
+		c.classifyServeOutcome(ctx, outcome, req.ResultCall, hitRes.cacheSharedResult().id)
 		c.captureSessionLazySpanContext(ctx, sessionID, hitRes)
 		c.captureSessionResultInstallSpan(ctx, sessionID, hitRes)
 		return hitRes, nil
@@ -3959,6 +3971,7 @@ func (c *Cache) getOrInitCall(
 		c.callsMu.Unlock()
 		return nil, fmt.Errorf("acquire shared operation lease: %w", err)
 	}
+	c.classifyServeOutcome(ctx, cacheServeMissFirst, req.ResultCall, 0)
 	oc := &ongoingCall{
 		callConcurrencyKeys:      callConcKeys,
 		isPersistable:            req.IsPersistable,
@@ -4123,6 +4136,7 @@ func (c *Cache) lookupCacheForDigests(
 			// result drops — with its dependents — and this same invocation
 			// proceeds to execute live, publish, and re-teach equivalence,
 			// healing the store.
+			c.classifyServeOutcome(ctx, cacheServeDemotedToMiss, hitShared.loadResultCall(), hitShared.id)
 			c.traceHitDemotedToMiss(ctx, hitShared, err)
 			demoteErr := errors.Join(decErr, collectErr, releaseErr, c.dropExhaustedResult(ctx, hitShared))
 			if demoteErr != nil {

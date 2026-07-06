@@ -659,6 +659,11 @@ func (c *Cache) decodeRestoredValueWalk(ctx context.Context, resolver *TypeResol
 	for {
 		err := c.decodeRestoredValueOnce(ctx, resolver, res, env)
 		if err == nil {
+			outcome := cacheServeFromSnapshot
+			if len(res.loadSnapshotOwnerLinks()) == 0 {
+				outcome = cacheServeFromLazyForm
+			}
+			c.classifyServeOutcome(ctx, outcome, res.loadResultCall(), res.id)
 			return nil
 		}
 		if !bkcache.IsNotFound(err) {
