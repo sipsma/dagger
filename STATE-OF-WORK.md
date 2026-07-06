@@ -34,15 +34,26 @@ This is the phase-level record; each implementer worktree carries its own STATE-
 
 ## What was MID-FLIGHT at the pause
 
-- **Chunk C (engine transport + test service + conformance)**: ~6 commits on its branch
-  (`svc-chunk-c-implementer` worktree), all unit gates green, integration suite green on
-  final background run; was about to re-hop onto `07e050e233` and report. Pause relayed;
-  it is writing its own state note. NOT reviewed, NOT landed. One design-relevant finding
-  it surfaced: T-S7's cross-engine salt-partition counter is unimplementable as written —
-  salted handles are baked into recipe identity (content-digest scoping), so a
-  different-salt engine misses at IDENTITY level (zero candidates) and the eligibility
-  gate never fires; the partition is provable by consequence instead. (Design §11/T-S7
-  needs this as-built correction whenever work resumes.)
+- **Chunk C (engine transport + test service + conformance)**: PARKED COMPLETE AND GREEN
+  (confirmed post-pause) — branch `svc-chunk-c-implementer-19c3c387` pushed @
+  `9888ffdce6`, 10 commits on chunk B's pre-landing tip `55dab5073e`; deliberately NOT
+  re-hopped onto `07e050e233`, NOT reviewed, NOT landed. Final gate record, all exit 0:
+  the 7/7 integration suite over the REAL transport — cross-engine warm proof,
+  sparse-heal, T-S2 re-import zero growth (boot 2: 0 imported / 4620 deduped-by-origin),
+  **T-S3 four cycles with a prune, rows flat 4620→4620→4616→4620 and zero blob
+  re-uploads on warm cycles** (the growth model empirically held before the pause),
+  T-S5 metadata-only via lazy forms, T-S7 both halves — plus Step-0 25/112/80 identical
+  to chunk B's baseline, conformance rung 1, full dagql -race. Two fixes its gates
+  caught: an http.Client ReadCloser double-close silently emptying the CAS (fixed with
+  regression test + skip_reasons in the export summary), and the T-S7 refinement below.
+  Its own STATE-OF-WORK.md carries the chunk-level salvage map. Design-relevant findings
+  for the resume: (1) T-S7's cross-engine salt-partition counter is unimplementable as
+  written — salted handles are baked into recipe identity (content-digest scoping), so a
+  different-salt engine misses at IDENTITY level and the eligibility gate never fires;
+  the partition is provable by consequence instead (design §11/T-S7 as-built correction
+  owed); (2) finer-grained: `setSecret` handles are salt-INDEPENDENT and portable across
+  engines — only the URI-secret/SSH-fingerprint surfaces are salted, so the partition's
+  blast radius is narrower than S10 implies.
 - **Chunk B landing follow-ups**: none — fully closed.
 - **Next steps that would have followed**: chunk C review + landing; chunk E (keeper
   lane, checks enqueue, e2e full-stack — brief drafted at
