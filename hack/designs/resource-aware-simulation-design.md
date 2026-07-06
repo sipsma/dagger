@@ -32,7 +32,7 @@ are declared as such, with rationale and a revisit trigger.
 - §12 Performance and complexity
 - §13 Composition with what-if-cached
 - §14 Seams named, not built
-- §15 Defaults pending ratification
+- §15 Ratification status of the four defaults
 - Appendix A: aggregate engine-usage lane (designed, deactivated)
 - Appendix B: time-series demand refinement (B2, deferred)
 
@@ -1055,20 +1055,24 @@ plugs in at the executor level only:
 
 ---
 
-## §15 Defaults pending ratification
+## §15 Ratification status of the four defaults
 
-Adopted as design defaults so phase 2 could proceed; each is a one-line
-change if ruled otherwise:
+Adopted as design defaults for phase 2. Interim rulings from cache-chief
+arrived with the conditional phase-2 GO (2026-07-06); Erik may override any
+of them — each is a bounded edit if he does:
 
 1. **Aggregate engine-usage lane: OUT of v1** (Appendix A designed,
-   deactivated). The §3.2 optimism bias stays and is stated in every
-   report.
+   deactivated). **HELD FOR ERIK** — deliberately designed so a later yes
+   is an enable, not a redesign. The §3.2 optimism bias stays and is
+   stated in every report.
 2. **The "more CPUs?" answer is verdict + bound + simulated relief**
-   (§8.3), never a point prediction beyond evidence.
+   (§8.3), never a point prediction beyond evidence. **Interim GO** — "it
+   is the fidelity contract."
 3. **Native-only resource data in v1**; OTel loads nil and refuses with
-   capability labeling (§6.3).
+   capability labeling (§6.3). **Interim GO** — matches the per-source
+   capability honesty precedent.
 4. **Sensitivity grid default C × {0.5, 1, 2, 4, ∞}**, configurable via
-   `-capacity-grid`.
+   `-capacity-grid`. **Interim GO** — as a flag, which it is (§9).
 
 ---
 
