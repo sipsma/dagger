@@ -486,10 +486,28 @@ set -eu
 mkdir -p /work
 head -c 32 /dev/urandom | sha256sum | cut -d' ' -f1 > /work/service-random.txt
 `
+		// The client fetch retries with a hard cap: the service's
+		// while-true listener loop has a gap between one nc -l exiting and
+		// the next starting, and a client that connects in (or right at the
+		// edge of) that gap gets a refused connection or a zero-byte read.
+		// The race is in this scaffolding, not in anything under test; the
+		// cap keeps a service that never serves content failing loudly.
 		serviceRunScript := `
 set -eu
 mkdir -p /work
-nc sidecar 8080 > /work/service.txt
+attempts=0
+while :; do
+	nc sidecar 8080 > /work/service.txt || true
+	if [ -s /work/service.txt ]; then
+		break
+	fi
+	attempts=$((attempts+1))
+	if [ "$attempts" -ge 10 ]; then
+		echo "service never served content after $attempts attempts" >&2
+		exit 1
+	fi
+	sleep 1
+done
 head -c 32 /dev/urandom | sha256sum | cut -d' ' -f1 > /work/client-random.txt
 `
 
@@ -1322,39 +1340,8 @@ printf 'layered\n' > /work/layered.txt
 		engineSvcA = nil
 		engineClientA = nil
 
-		// Engine B exposes the test-only fault-injection debug endpoint. The
-		// container is built inline: the shared helper's default args would
-		// overwrite the --debugaddr flag.
-		engineCtrB := devEngineContainerWithStateKey(c, stateKey, engineWithPersistenceTestGC(ctx, t))
-		deviceName, cidr := testutil.GetUniqueNestedEngineNetwork()
-		engineCtrB = engineCtrB.
-			WithEnvVariable("_DAGGER_TESTONLY_SNAPSHOT_LOSS", "1").
-			WithExposedPort(6060).
-			WithDefaultArgs([]string{
-				"--addr", "tcp://0.0.0.0:1234",
-				"--debugaddr", "0.0.0.0:6060",
-				"--network-name", deviceName,
-				"--network-cidr", cidr,
-			})
-		upstreamSvcB := devEngineContainerAsService(engineCtrB)
-		engineSvcB, err := c.Host().Tunnel(upstreamSvcB, dagger.HostTunnelOpts{
-			Ports: []dagger.PortForward{{Backend: 1234, Protocol: dagger.NetworkProtocolTcp}},
-		}).Start(ctx)
-		require.NoError(t, err)
-		endpointB, err := engineSvcB.Endpoint(ctx, dagger.ServiceEndpointOpts{Scheme: "tcp"})
-		require.NoError(t, err)
-		engineClientB, err := dagger.Connect(ctx,
-			dagger.WithRunnerHost(endpointB),
-			dagger.WithLogOutput(testutil.NewTWriter(t)))
-		require.NoError(t, err)
+		upstreamSvcB, engineSvcB, engineClientB, debugEndpoint := startEngineWithDebug(ctx, t, c, stateKey, engineWithPersistenceTestGC(ctx, t))
 		t.Cleanup(func() { stopEngine(ctx, t, upstreamSvcB, engineSvcB, engineClientB) })
-		debugSvcB, err := c.Host().Tunnel(upstreamSvcB, dagger.HostTunnelOpts{
-			Ports: []dagger.PortForward{{Backend: 6060, Protocol: dagger.NetworkProtocolTcp}},
-		}).Start(ctx)
-		require.NoError(t, err)
-		t.Cleanup(func() { _, _ = debugSvcB.Stop(ctx) })
-		debugEndpoint, err := debugSvcB.Endpoint(ctx, dagger.ServiceEndpointOpts{Scheme: "http"})
-		require.NoError(t, err)
 
 		// Simulate external loss of the restored withExec rows' snapshots —
 		// rows that retained a lazy fragment alongside, so the walk can
@@ -1401,6 +1388,241 @@ printf 'layered\n' > /work/layered.txt
 		require.Empty(t, counters["demoted_to_miss"],
 			"fragment-backed loss must fall through, not demote; counters: %v", counters)
 	})
+
+	t.Run("snapshot loss on an upload-shaped module row demotes to a live miss and heals", func(ctx context.Context, t *testctx.T) {
+		c := connect(ctx, t)
+		stateKey := "phase9-demote-state-" + identity.NewID()
+
+		// A module contextual directory is the upload shape reachable by a
+		// fresh client: its identity is content-addressed, so a warm lookup
+		// finds the restored row, and its recipe lives on the client, so no
+		// lazy fragment is retained — losing its snapshot leaves nothing.
+		modDir := t.TempDir()
+		copyTestdataFixture(ctx, t, modDir, "modules", "go", "persistence-contextual-demote")
+		require.NoError(t, os.MkdirAll(filepath.Join(modDir, "data"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(modDir, "data", "f.txt"), []byte("phase9-demote-content\n"), 0o644))
+
+		serveModule := func(client *dagger.Client) {
+			t.Helper()
+			mod, err := client.ModuleSource(modDir).AsModule().Sync(ctx)
+			require.NoError(t, err)
+			require.NoError(t, mod.Serve(ctx))
+		}
+		queryDataContents := func(client *dagger.Client) string {
+			t.Helper()
+			res, err := testutil.QueryWithClient[struct {
+				Test struct {
+					Data struct {
+						File struct {
+							Contents string
+						}
+					}
+				}
+			}](client, t, `{test{data{file(path:"f.txt"){contents}}}}`, nil)
+			require.NoError(t, err)
+			return res.Test.Data.File.Contents
+		}
+		queryData := func(client *dagger.Client) string {
+			t.Helper()
+			serveModule(client)
+			return queryDataContents(client)
+		}
+
+		upstreamSvcA, engineSvcA, engineClientA := startEngine(c, ctx, t, stateKey, engineWithPersistenceTestGC(ctx, t))
+		t.Cleanup(func() { stopEngine(ctx, t, upstreamSvcA, engineSvcA, engineClientA) })
+		outA := queryData(engineClientA)
+		require.Equal(t, "phase9-demote-content\n", outA)
+		stopEngine(ctx, t, upstreamSvcA, engineSvcA, engineClientA)
+		upstreamSvcA = nil
+		engineSvcA = nil
+		engineClientA = nil
+
+		upstreamSvcB, engineSvcB, engineClientB, debugEndpoint := startEngineWithDebug(ctx, t, c, stateKey, engineWithPersistenceTestGC(ctx, t))
+		t.Cleanup(func() { stopEngine(ctx, t, upstreamSvcB, engineSvcB, engineClientB) })
+
+		// Serve the module first: module initialization realizes every
+		// module-infrastructure row it needs (including the module source's
+		// own context directory, which is upload-shaped too and is loaded
+		// through non-demotable attach surfaces). Realized rows never decode
+		// again, so after this the only unrealized upload-shaped Directory
+		// row is the contextual argument row — the demote target.
+		serveModule(engineClientB)
+
+		snapshot := fetchEGraphDebugSnapshot(ctx, t, debugEndpoint)
+		var lostRefKeys []string
+		var candidates []string
+		for _, res := range snapshot.Results {
+			if res.TypeName != "Directory" || res.Realized || len(res.SnapshotLinks) == 0 {
+				continue
+			}
+			hasFragment := false
+			for _, source := range res.Sources {
+				if source == "lazy_value" {
+					hasFragment = true
+				}
+			}
+			if hasFragment {
+				continue
+			}
+			candidates = append(candidates, fmt.Sprintf("id=%d record_type=%q sources=%v links=%d", res.SharedResultID, res.RecordType, res.Sources, len(res.SnapshotLinks)))
+			for _, link := range res.SnapshotLinks {
+				lostRefKeys = append(lostRefKeys, link.RefKey)
+			}
+		}
+		t.Logf("upload-shaped directory rows targeted for snapshot loss: %v", candidates)
+		require.Len(t, candidates, 1, "exactly the contextual argument row must remain unrealized and upload-shaped")
+		for _, refKey := range lostRefKeys {
+			markSnapshotDeleted(ctx, t, debugEndpoint, refKey)
+		}
+
+		// The demoting query: the warm lookup demotes the lost row and the
+		// data invocation executes live (both proven by the counters below),
+		// but this vehicle's query still fails once, honestly. The module
+		// function returns its argument, so at seed time publication adopted
+		// the contextual directory row as the function's own result; the
+		// re-executed function's returned ID then re-binds that same row by
+		// result handle, and handle loads carry no recipe to re-run — the
+		// sanctioned outcome is the dropped-row error instructing a retry.
+		_, err := testutil.QueryWithClient[struct {
+			Test struct {
+				Data struct {
+					File struct {
+						Contents string
+					}
+				}
+			}
+		}](engineClientB, t, `{test{data{file(path:"f.txt"){contents}}}}`, nil)
+		require.Error(t, err, "the demoting query re-binds the dropped row by handle and must surface the honest outcome")
+		require.ErrorContains(t, err, "dropped from the cache")
+		require.ErrorContains(t, err, "retrying will re-execute it")
+
+		// The retry heals in the same session: the demote deindexed the
+		// corpse, so every recipe re-resolves live and the content returns.
+		outB := queryDataContents(engineClientB)
+		require.Equal(t, outA, outB, "the retry after the demote must heal by executing live")
+
+		// A fresh session hits the healed row; the demote must not repeat.
+		endpointB, err := engineSvcB.Endpoint(ctx, dagger.ServiceEndpointOpts{Scheme: "tcp"})
+		require.NoError(t, err)
+		engineClientB2, err := dagger.Connect(ctx,
+			dagger.WithRunnerHost(endpointB),
+			dagger.WithLogOutput(testutil.NewTWriter(t)))
+		require.NoError(t, err)
+		outB2 := queryData(engineClientB2)
+		require.Equal(t, outA, outB2)
+		require.NoError(t, engineClientB2.Close())
+
+		stopEngine(ctx, t, upstreamSvcB, engineSvcB, engineClientB)
+		upstreamSvcB = nil
+		engineSvcB = nil
+		engineClientB = nil
+
+		counters := readServeStatsCounters(ctx, t, c, stateKey)
+		var demotes int64
+		for field, count := range counters["demoted_to_miss"] {
+			demotes += count
+			require.Equal(t, int64(1), count,
+				"a dropped row cannot demote twice; field %q demoted %d times", field, count)
+		}
+		require.Equal(t, int64(1), demotes,
+			"losing the one upload-shaped row's snapshot must demote its warm lookup exactly once; counters: %v", counters)
+		require.GreaterOrEqual(t, counters["miss_first"]["data"], int64(1),
+			"the demoted invocation must execute live as a miss; counters: %v", counters)
+		require.GreaterOrEqual(t, counters["hit_live"]["data"], int64(1),
+			"follow-up calls must hit the healed row; counters: %v", counters)
+	})
+
+	t.Run("sparse hydration realizes only the demanded chain", func(ctx context.Context, t *testctx.T) {
+		c := connect(ctx, t)
+		stateKey := "phase9-sparse-state-" + identity.NewID()
+
+		buildOut := func(client *dagger.Client, i int) string {
+			t.Helper()
+			out, err := client.
+				Container().
+				From(alpineImage).
+				WithExec([]string{"sh", "-ec", fmt.Sprintf("echo phase9-sparse-%d > /out.txt; cat /out.txt", i)}).
+				Stdout(ctx)
+			require.NoError(t, err)
+			return out
+		}
+
+		upstreamSvcA, engineSvcA, engineClientA := startEngine(c, ctx, t, stateKey, engineWithPersistenceTestGC(ctx, t))
+		t.Cleanup(func() { stopEngine(ctx, t, upstreamSvcA, engineSvcA, engineClientA) })
+		const pipelines = 4
+		outs := make([]string, pipelines)
+		for i := 0; i < pipelines; i++ {
+			outs[i] = buildOut(engineClientA, i)
+		}
+		stopEngine(ctx, t, upstreamSvcA, engineSvcA, engineClientA)
+		upstreamSvcA = nil
+		engineSvcA = nil
+		engineClientA = nil
+
+		upstreamSvcB, engineSvcB, engineClientB, debugEndpoint := startEngineWithDebug(ctx, t, c, stateKey, engineWithPersistenceTestGC(ctx, t))
+		t.Cleanup(func() { stopEngine(ctx, t, upstreamSvcB, engineSvcB, engineClientB) })
+
+		out2 := buildOut(engineClientB, 2)
+		require.Equal(t, outs[2], out2)
+
+		// Demand-bounded materialization: of the restored exec rows, only
+		// the demanded pipeline's may have decoded.
+		snapshot := fetchEGraphDebugSnapshot(ctx, t, debugEndpoint)
+		totalExecs, realizedExecs := 0, 0
+		for _, res := range snapshot.Results {
+			if res.RecordType != "withExec" {
+				continue
+			}
+			totalExecs++
+			if res.Realized {
+				realizedExecs++
+			}
+		}
+		require.GreaterOrEqual(t, totalExecs, pipelines,
+			"the warm store must have restored every seeded exec row")
+		require.Equal(t, 1, realizedExecs,
+			"only the demanded pipeline's exec row may realize (%d of %d realized)", realizedExecs, totalExecs)
+	})
+}
+
+// startEngineWithDebug boots the nested engine with its debug server and the
+// test-only fault-injection endpoint enabled, tunneling the session port and
+// the debug port separately (each tunnel's frontend port is random, so one
+// tunnel per backend port keeps them addressable). The engine container is
+// built inline: the shared helper's default args would overwrite the
+// --debugaddr flag.
+func startEngineWithDebug(ctx context.Context, t *testctx.T, c *dagger.Client, stateKey string, opts ...func(*dagger.Container) *dagger.Container) (*dagger.Service, *dagger.Service, *dagger.Client, string) {
+	t.Helper()
+	engineCtr := devEngineContainerWithStateKey(c, stateKey, opts...)
+	deviceName, cidr := testutil.GetUniqueNestedEngineNetwork()
+	engineCtr = engineCtr.
+		WithEnvVariable("_DAGGER_TESTONLY_SNAPSHOT_LOSS", "1").
+		WithExposedPort(6060).
+		WithDefaultArgs([]string{
+			"--addr", "tcp://0.0.0.0:1234",
+			"--debugaddr", "0.0.0.0:6060",
+			"--network-name", deviceName,
+			"--network-cidr", cidr,
+		})
+	upstreamSvc := devEngineContainerAsService(engineCtr)
+	engineSvc, err := c.Host().Tunnel(upstreamSvc, dagger.HostTunnelOpts{
+		Ports: []dagger.PortForward{{Backend: 1234, Protocol: dagger.NetworkProtocolTcp}},
+	}).Start(ctx)
+	require.NoError(t, err)
+	endpoint, err := engineSvc.Endpoint(ctx, dagger.ServiceEndpointOpts{Scheme: "tcp"})
+	require.NoError(t, err)
+	engineClient, err := dagger.Connect(ctx,
+		dagger.WithRunnerHost(endpoint),
+		dagger.WithLogOutput(testutil.NewTWriter(t)))
+	require.NoError(t, err)
+	debugSvc, err := c.Host().Tunnel(upstreamSvc, dagger.HostTunnelOpts{
+		Ports: []dagger.PortForward{{Backend: 6060, Protocol: dagger.NetworkProtocolTcp}},
+	}).Start(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = debugSvc.Stop(ctx) })
+	debugEndpoint, err := debugSvc.Endpoint(ctx, dagger.ServiceEndpointOpts{Scheme: "http"})
+	require.NoError(t, err)
+	return upstreamSvc, engineSvc, engineClient, debugEndpoint
 }
 
 type serveStatsFilePayload struct {
@@ -1420,6 +1642,7 @@ func readServeStatsCounters(ctx context.Context, t *testctx.T, c *dagger.Client,
 		WithExec([]string{"sh", "-ec", `cat "$(find /var/lib/dagger -maxdepth 4 -name dagql-cache-stats.json | head -n 1)"`}).
 		Stdout(ctx)
 	require.NoError(t, err)
+	t.Logf("cache serve stats file (%s): %s", stateKey, out)
 	var payload serveStatsFilePayload
 	require.NoError(t, json.Unmarshal([]byte(out), &payload), "stats file: %s", out)
 	return payload.Counters
@@ -1430,6 +1653,7 @@ type egraphDebugSnapshotPayload struct {
 		SharedResultID uint64   `json:"shared_result_id"`
 		RecordType     string   `json:"record_type"`
 		TypeName       string   `json:"type_name"`
+		Realized       bool     `json:"realized"`
 		Sources        []string `json:"sources"`
 		SnapshotLinks  []struct {
 			RefKey string `json:"RefKey"`

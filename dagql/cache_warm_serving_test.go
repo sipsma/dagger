@@ -753,3 +753,43 @@ func TestWarmServingRetirementFactReachesDecoders(t *testing.T) {
 		cacheTestReleaseSession(t, cache, rootCtx)
 	})
 }
+
+// TestWarmServingDroppedRowRefusesLaterTouches pins the drop's completeness:
+// result-ID handles still resolve a dropped row directly (deindexing only
+// removes recipe candidacy), so the drop must leave nothing servable — a
+// later touch flows through the exhaustion machinery and gets the honest
+// dropped error, never a doomed decode of the corpse's leftovers.
+func TestWarmServingDroppedRowRefusesLaterTouches(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	uploadID, _ := seedVettingStore(t, ctx, dbPath)
+
+	manager := &fakeSnapshotManager{missingSnapshots: map[string]struct{}{}}
+	cache, err := NewCache(ctx, dbPath, manager, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, cache.Close(context.Background()))
+	}()
+	manager.missingSnapshots["upload-snap"] = struct{}{}
+
+	srv := newVettingTestServer()
+	rootCtx := vettingRootCtx(ctx, cache, srv)
+	corpse := testSharedResultByID(cache, uploadID)
+	assert.Assert(t, corpse != nil)
+
+	// First touch: exhaustion drops the row.
+	_, err = cache.AttachResult(rootCtx, "drop-touch-1", srv, Result[Typed]{shared: corpse})
+	assert.Assert(t, err != nil)
+	assert.ErrorContains(t, err, "dropped from the cache")
+
+	// Second touch, through the same direct handle: the corpse must refuse
+	// with the same honest shape — not attempt a decode against the cleared
+	// sources and surface an unclassified error.
+	_, err = cache.AttachResult(rootCtx, "drop-touch-2", srv, Result[Typed]{shared: corpse})
+	assert.Assert(t, err != nil)
+	assert.Assert(t, !errors.Is(err, errSourcesExhausted), "the exhaustion sentinel must not escape the cache")
+	assert.ErrorContains(t, err, "dropped from the cache")
+	cacheTestReleaseSession(t, cache, rootCtx)
+}
