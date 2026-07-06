@@ -112,3 +112,62 @@ func EncodeScopeInputs(inputs []ScopeInput) string {
 	}
 	return string(b)
 }
+
+// CallSelf is the canonical SELF structure of a call, parsed by the OTel
+// loader from the recorded dag.call payload (E3b — loader work, no emit;
+// invalidation-tracing design §4). It carries everything the self digest
+// consumes, rendered to bounded strings, so pair mode can attribute a
+// changed call at ARG level ("scalar arg 'platform' differed") instead of
+// digest granularity. Native captures never carry it (a full native
+// call-structure emit is REFUSED on volume grounds, stated in the design).
+type CallSelf struct {
+	Field    string      `json:"f"`
+	Receiver string      `json:"r,omitempty"` // receiver call digest
+	View     string      `json:"v,omitempty"`
+	Nth      int64       `json:"n,omitempty"`
+	Module   *CallModule `json:"m,omitempty"`
+	Args     []CallArg   `json:"a,omitempty"`
+	Implicit []CallArg   `json:"i,omitempty"`
+}
+
+// CallModule is the module providing a call's implementation.
+type CallModule struct {
+	CallDigest string `json:"d,omitempty"`
+	Name       string `json:"n,omitempty"`
+	Ref        string `json:"r,omitempty"`
+	Pin        string `json:"p,omitempty"`
+}
+
+// CallArg is one named argument (or implicit input) with a bounded
+// canonical rendering of its literal value (redactions appear as the
+// recorded "***"; call references render as their digests).
+type CallArg struct {
+	Name  string `json:"n"`
+	Value string `json:"v"`
+}
+
+// EncodeCallSelf renders the canonical JSON for interning; "" on marshal
+// error (never a partial emit).
+func EncodeCallSelf(cs *CallSelf) string {
+	if cs == nil {
+		return ""
+	}
+	b, err := json.Marshal(cs)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// DecodeCallSelf parses EncodeCallSelf's encoding; nil for empty or
+// malformed strings (never guessed).
+func DecodeCallSelf(s string) *CallSelf {
+	if s == "" {
+		return nil
+	}
+	cs := &CallSelf{}
+	if err := json.Unmarshal([]byte(s), cs); err != nil {
+		return nil
+	}
+	return cs
+}

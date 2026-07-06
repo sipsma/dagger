@@ -5,6 +5,8 @@ import (
 	"io"
 	"slices"
 	"strings"
+
+	"github.com/dagger/dagger/engine/wcprof"
 )
 
 // Cross-run pair mode for cache-invalidation tracing (design §5): the same
@@ -57,8 +59,9 @@ func (p *whyPairState) aClassOf(digest string) string {
 
 // aInputsVector returns the A-side digest's raw recorded cache-input vector
 // (first call in demand order carrying one; empties and self-refs removed,
-// duplicates kept — occurrence-level, mirroring whyMissWalk.inputsVector).
-func (p *whyPairState) aInputsVector(digest string) []string {
+// duplicates kept — occurrence-level, mirroring whyMissWalk.inputsVector)
+// plus the op that supplied it (for the ordered-vector soundness check).
+func (p *whyPairState) aInputsVector(digest string) ([]string, *Op) {
 	idx := p.gA.cachedIndexOnce()
 	calls := make([]*Op, 0, len(idx.callsByIdent[digest]))
 	for _, ci := range idx.callsByIdent[digest] {
@@ -76,7 +79,19 @@ func (p *whyPairState) aInputsVector(digest string) []string {
 			}
 			out = append(out, d)
 		}
-		return out
+		return out, c
+	}
+	return nil, nil
+}
+
+// aCallSelf returns the A-side digest's canonical self structure (E3b) when
+// any of its calls carries one.
+func (p *whyPairState) aCallSelf(digest string) *wcprof.CallSelf {
+	idx := p.gA.cachedIndexOnce()
+	for _, ci := range idx.callsByIdent[digest] {
+		if cs := idx.p.ops[ci].CallSelf; cs != nil {
+			return cs
+		}
 	}
 	return nil
 }
@@ -122,7 +137,7 @@ func (p *whyPairState) rootPartner(w *whyMissWalk, tn *WhyMissNode) (partner, re
 // refusals) to the report.
 func (w *whyMissWalk) pairedInputEdges(rep *WhyMissReport, n *WhyMissNode) []whyMissEdge {
 	vB := w.inputsVector(n)
-	vA := w.pair.aInputsVector(n.PairedWith)
+	vA, aOp := w.pair.aInputsVector(n.PairedWith)
 	if vB == nil || vA == nil {
 		side := "this capture"
 		if vB != nil {
@@ -131,6 +146,26 @@ func (w *whyMissWalk) pairedInputEdges(rep *WhyMissReport, n *WhyMissNode) []why
 		n.pairUnavailable = fmt.Sprintf("no cache-input vector recorded on %s", side)
 		rep.PairLines = append(rep.PairLines, fmt.Sprintf(
 			"%s ~ %s: positional pairing unavailable — %s; descending unpaired",
+			n.Digest, n.PairedWith, n.pairUnavailable))
+		var out []whyMissEdge
+		for _, d := range vB {
+			out = append(out, whyMissEdge{b: d})
+		}
+		return out
+	}
+	// §5 soundness gate, per node since E3a: positional pairing needs the
+	// NATIVE-PARITY ordered vector on BOTH sides — native graphs by
+	// construction, OTel ops only when the E3a attr recorded it. An
+	// unordered side refuses this pairing (stated) and descends unpaired;
+	// digest-stable analysis is unaffected.
+	if !w.g.OrderedInputs(n.InputsFrom) || !w.pair.gA.OrderedInputs(aOp) {
+		side := "this capture's"
+		if w.g.OrderedInputs(n.InputsFrom) {
+			side = "the reference capture's"
+		}
+		n.pairUnavailable = fmt.Sprintf("%s input vector is unordered (deduplicated module-less dag.inputs; the E3a ordered-input attr is absent)", side)
+		rep.PairLines = append(rep.PairLines, fmt.Sprintf(
+			"%s ~ %s: positional pairing REFUSED — %s; descending unpaired",
 			n.Digest, n.PairedWith, n.pairUnavailable))
 		var out []whyMissEdge
 		for _, d := range vB {
@@ -365,6 +400,63 @@ func lcsAnchorsUnique(a, b []string) (anchors [][2]int, ambiguous bool) {
 		}
 	}
 	return anchors, false
+}
+
+// diffCallSelf names the components on which two recorded canonical self
+// structures differ (E3b arg-level attribution): a pure, deterministic diff
+// of recorded renderings — argument values, added/removed argument names,
+// nth/view/receiver, the providing module, and implicit (scope) input
+// values. Output order is fixed: structural fields, then args in B's order
+// (then A-only args), then implicit inputs likewise.
+func diffCallSelf(a, b *wcprof.CallSelf) []string {
+	var out []string
+	if a.Field != b.Field {
+		out = append(out, fmt.Sprintf("field differed: %s -> %s", a.Field, b.Field))
+	}
+	if a.Receiver != b.Receiver {
+		out = append(out, fmt.Sprintf("receiver call digest differed: %s -> %s", orDash(a.Receiver), orDash(b.Receiver)))
+	}
+	if a.Nth != b.Nth {
+		out = append(out, fmt.Sprintf("nth differed: %d -> %d", a.Nth, b.Nth))
+	}
+	if a.View != b.View {
+		out = append(out, fmt.Sprintf("view differed: %q -> %q", a.View, b.View))
+	}
+	switch {
+	case (a.Module == nil) != (b.Module == nil):
+		out = append(out, "providing module differed (present on one side only)")
+	case a.Module != nil && *a.Module != *b.Module:
+		out = append(out, fmt.Sprintf("providing module differed: %s@%s (%s) -> %s@%s (%s)",
+			a.Module.Ref, a.Module.Pin, a.Module.CallDigest, b.Module.Ref, b.Module.Pin, b.Module.CallDigest))
+	}
+	out = append(out, diffArgLists("arg", a.Args, b.Args)...)
+	out = append(out, diffArgLists("implicit (scope) input", a.Implicit, b.Implicit)...)
+	return out
+}
+
+func diffArgLists(kind string, a, b []wcprof.CallArg) []string {
+	aByName := map[string]string{}
+	for _, arg := range a {
+		aByName[arg.Name] = arg.Value
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, arg := range b {
+		seen[arg.Name] = true
+		av, ok := aByName[arg.Name]
+		switch {
+		case !ok:
+			out = append(out, fmt.Sprintf("%s %q added (value %s)", kind, arg.Name, arg.Value))
+		case av != arg.Value:
+			out = append(out, fmt.Sprintf("%s %q differed: %s -> %s", kind, arg.Name, av, arg.Value))
+		}
+	}
+	for _, arg := range a {
+		if !seen[arg.Name] {
+			out = append(out, fmt.Sprintf("%s %q removed (was %s)", kind, arg.Name, arg.Value))
+		}
+	}
+	return out
 }
 
 // RunWhyUncachedPair walks one target digest of g (the capture whose miss is

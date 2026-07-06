@@ -60,6 +60,16 @@ type Op struct {
 	LookupEntry    string
 	LookupReason   string
 	LookupInputIdx int
+	// CallSelf is the call's canonical self structure (E3b), parsed by the
+	// OTel loader from the recorded dag.call payload. nil on native dumps
+	// (a full native call-structure emit is refused on volume grounds) and
+	// on spans without the payload.
+	CallSelf *wcprof.CallSelf
+	// InputsOrdered marks an OTel-sourced op whose CacheInputs carry the
+	// E3a native-parity ORDERED vector (module ref included). On native
+	// graphs ordered-ness is implied by the source; use
+	// Graph-level OrderedInputs(op) — this flag alone is only the OTel half.
+	InputsOrdered bool
 	// Open marks ops that had not ended at dump time; EndNS is the dump time.
 	Open bool
 
@@ -354,6 +364,8 @@ func Build(header *wcprof.DumpHeader, events []wcprof.DumpEvent) (*Graph, error)
 					op.LookupEntry, op.LookupReason, op.LookupInputIdx = entry, reason, idx
 				}
 			}
+			op.CallSelf = wcprof.DecodeCallSelf(str(ev.SelfID))
+			op.InputsOrdered = ev.InputsOrdered
 			g.Ops[ev.OpID] = op
 		case "wait":
 			waits = append(waits, rawWait{
@@ -601,6 +613,18 @@ func (op *Op) SelfNS() int64 {
 // Key returns the op's aggregation class key.
 func (op *Op) Key() ClassKey {
 	return ClassKey{Kind: op.Kind, Class: op.Class}
+}
+
+// OrderedInputs reports whether op's CacheInputs are the NATIVE-PARITY
+// ordered structural vector the recipe hash consumes (module ref included) —
+// the soundness requirement for §5 positional pairing. Native dumps are
+// ordered by construction; OTel ops are ordered only when the E3a attr
+// supplied the vector.
+func (g *Graph) OrderedInputs(op *Op) bool {
+	if op == nil {
+		return false
+	}
+	return !g.ResultIDsCaptureLocal || op.InputsOrdered
 }
 
 // invalidateProgram resets the memoized replay program so the next simulation

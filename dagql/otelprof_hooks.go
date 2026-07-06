@@ -2,6 +2,7 @@ package dagql
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -119,6 +120,29 @@ func stampOTelCallOutcome(ctx context.Context, outcome wcprof.Outcome) {
 		return
 	}
 	span.SetAttributes(attribute.String(telemetryattrs.WcprofCallOutcomeAttr, outcome.String()))
+}
+
+// stampOTelOrderedInputs stamps the E3a ordered-input parity attr on the
+// current call span: the NATIVE-PARITY ordered structural input vector
+// (module ref included) as the same canonical scalar JSON-array string the
+// native recorder interns (both sides json.Marshal the identical slice) —
+// byte-identical, so positional pairing means the same thing against either
+// source. Gated on the wcprof OTel source being active: this attr exists
+// for the profiling pipeline, and the marshal must not ride on unprofiled
+// runs.
+func stampOTelOrderedInputs(ctx context.Context, inputs []string) {
+	if !OTelProfActive(ctx) {
+		return
+	}
+	span := trace.SpanFromContext(ctx)
+	if !span.IsRecording() {
+		return
+	}
+	b, err := json.Marshal(inputs)
+	if err != nil {
+		return
+	}
+	span.SetAttributes(attribute.String(telemetryattrs.WcprofInputsOrderedAttr, string(b)))
 }
 
 // stampOTelLookupOutcome stamps the E1 lookup-outcome fact on the current

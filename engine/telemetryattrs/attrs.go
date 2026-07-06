@@ -120,6 +120,15 @@ const (
 	// LinkPurposeForced link.
 	WcprofForcedDigestAttr = "wcprof.forced.digest"
 
+	// WcprofInputsOrderedAttr (string) is the E3a ordered-input parity attr
+	// on a call span: the NATIVE-PARITY ordered structural input vector the
+	// recipe hash consumes (module ref included), as the same canonical
+	// scalar JSON-array string the native recorder interns — byte-identical
+	// across sources. dag.inputs stays as-is (deduplicated, module-less, the
+	// UI-facing edge list); this attr is what makes positional pairing sound
+	// on OTel pairs (invalidation-tracing design §4 E3a).
+	WcprofInputsOrderedAttr = "wcprof.inputs.ordered"
+
 	// WcprofLookupOutcomeAttr (string) carries the E1 lookup-outcome fact on
 	// a call span whose cache lookup returned no usable hit: the canonical
 	// wcprof.EncodeLookupOutcome encoding "<entry> <reason>[ <inputIdx>]"

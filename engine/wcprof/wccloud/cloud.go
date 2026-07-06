@@ -114,5 +114,12 @@ func Load(ctx context.Context, client SpanStreamer, orgID, traceID string) (*wco
 	if err != nil {
 		return nil, nil, fmt.Errorf("build graph: %w", err)
 	}
+	// Same OTel-source semantics as wcotel.Load: result ids are per-capture
+	// interns of dag.output (never cross-capture comparable), and input
+	// vectors are ordered ONLY where the E3a attr recorded them. Without
+	// this marker a Cloud graph would pass for native — the calibration's
+	// rid consumptions and pair mode's positional-pairing soundness gate
+	// both key on it.
+	g.ResultIDsCaptureLocal = true
 	return c, g, nil
 }

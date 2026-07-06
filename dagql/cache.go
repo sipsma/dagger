@@ -3857,7 +3857,7 @@ func (c *Cache) getOrInitCallInner(
 	}
 	callKey := callDigest.String()
 	profOp.SetIdent(callKey)
-	if profOp != nil && len(requestInputs) > 0 {
+	if len(requestInputs) > 0 && (profOp != nil || (!req.ResultCall.ProfileSkip && OTelProfActive(ctx))) {
 		// cache-DAG edges (what-if-cached design Chunk 4): the input digests
 		// were just computed for the term lookup anyway — record them at zero
 		// extra digest work, closing the native/OTel dag.inputs asymmetry.
@@ -3866,6 +3866,14 @@ func (c *Cache) getOrInitCallInner(
 			inputs[i] = d.String()
 		}
 		profOp.SetInputs(inputs)
+		// E3a (invalidation-tracing design §4): the ORDERED structural
+		// input vector — module ref included, exactly what the recipe hash
+		// consumes — as an additive attr on the call span, byte-identical
+		// to the native encoding. This is what makes positional pairing
+		// sound on OTel pairs (dag.inputs is deduplicated and module-less).
+		if !req.ResultCall.ProfileSkip {
+			stampOTelOrderedInputs(ctx, inputs)
+		}
 	}
 	if profOp != nil {
 		// E2 scope-kind fact (invalidation-tracing design §4): the call's

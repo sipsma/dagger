@@ -23,6 +23,7 @@ import (
 	"io"
 	"sort"
 	"strconv"
+	"strings"
 
 	telemetry "github.com/dagger/otel-go"
 
@@ -406,8 +407,16 @@ func Compile(spans []Span) (*Compiled, error) {
 		// forever and discarded until now — re-encoded to the canonical
 		// scalar JSON-array string the native dump uses, so the one shared
 		// Build path decodes Op.CacheInputs identically for both sources.
+		// The E3a ordered-input parity attr, when present, is PREFERRED: it
+		// is the native-parity ORDERED vector (module ref included) already
+		// in the canonical encoding, and it is what makes positional
+		// pairing sound on this source (invalidation-tracing design §4).
 		var inputsJSON string
-		if inputs := attrStrSlice(s.Attrs, telemetry.DagInputsAttr); len(inputs) > 0 {
+		inputsOrdered := false
+		if ord := attrStr(s.Attrs, telemetryattrs.WcprofInputsOrderedAttr); ord != "" {
+			inputsJSON = ord
+			inputsOrdered = true
+		} else if inputs := attrStrSlice(s.Attrs, telemetry.DagInputsAttr); len(inputs) > 0 {
 			if b, err := json.Marshal(inputs); err == nil {
 				inputsJSON = string(b)
 			}
@@ -416,22 +425,21 @@ func Compile(spans []Span) (*Compiled, error) {
 		if out := attrStr(s.Attrs, telemetry.DagOutputAttr); out != "" {
 			resultID = resultIDs.intern(out)
 		}
-		// Scope implicit inputs (invalidation-tracing design §4, Chunk-1
-		// loader work): the dag.call payload — recorded since forever,
-		// discarded until now — carries the call's implicit inputs
-		// (callpbv1.Call.implicitInputs), the engine's deliberate cache-key
-		// scoping. Parse ONLY the implicit-input names + value emptiness
-		// (category-1 evidence); the full call structure is Chunk-4 work.
-		var scopeJSON string
+		// The dag.call payload — recorded since forever, discarded until
+		// the invalidation-tracing work: the scope implicit inputs
+		// (Chunk 1, category-1 evidence) and the FULL canonical self
+		// structure (E3b, Chunk 4 — arg-level change attribution on pairs).
+		// One parse feeds both. Recorded-but-undecodable payloads are
+		// counted AND marked via the sentinel, so the analyzer labels
+		// corrupted evidence as corrupted — never as absent.
+		var scopeJSON, selfJSON string
 		if enc := attrStr(s.Attrs, telemetry.DagCallAttr); enc != "" {
-			if scope, ok := decodeScopeInputs(enc); ok {
+			if scope, self, ok := decodeDagCall(enc); ok {
 				if b, err := json.Marshal(scope); err == nil {
 					scopeJSON = string(b)
 				}
+				selfJSON = wcprof.EncodeCallSelf(self)
 			} else {
-				// Recorded but undecodable: counted AND marked on the op via
-				// the sentinel, so the analyzer labels corrupted evidence as
-				// corrupted — never as absent.
 				c.MalformedDagCalls++
 				scopeJSON = wcprof.ScopeMalformedSentinel
 			}
@@ -470,8 +478,12 @@ func Compile(spans []Span) (*Compiled, error) {
 			// The E1 lookup-outcome fact (additive attr; the same canonical
 			// encoding the native dump interns).
 			LookupID: str.intern(attrStr(s.Attrs, telemetryattrs.WcprofLookupOutcomeAttr)),
-			StartNS:  int64(s.StartUnixNS) - epoch,
-			EndNS:    int64(s.EndUnixNS) - epoch,
+			// E3b: the canonical self structure; E3a: the ordered-vector
+			// marker.
+			SelfID:        str.intern(selfJSON),
+			InputsOrdered: inputsOrdered,
+			StartNS:       int64(s.StartUnixNS) - epoch,
+			EndNS:         int64(s.EndUnixNS) - epoch,
 		})
 	}
 
@@ -581,22 +593,25 @@ func Compile(spans []Span) (*Compiled, error) {
 	return c, nil
 }
 
-// decodeScopeInputs extracts the scope implicit inputs from an encoded
-// dag.call attribute: the base64 proto of the span's callpbv1.Call, whose
-// implicitInputs field carries the engine-computed inputs hashed into the
-// recipe digest (deliberate cache-key scoping — invalidation-tracing design
-// §3.2 category 1). Only the NAMES plus a recorded-empty-value flag are
-// kept: the emptiness is deciding data (an empty value is the engine
-// deliberately NOT scoping, e.g. fromSessionScope on a digest-pinned ref),
-// while the values themselves (session/client ids) decide nothing more. A
-// literal that is not a plain string (impossible for in-tree scope inputs
-// today) is conservatively non-empty: the input contributes SOMETHING to the
-// key, which is the fact that matters. ok=false means the attribute failed
-// to decode — counted by the caller, never guessed around.
-func decodeScopeInputs(encoded string) (scope []wcanalyze.ScopeInput, ok bool) {
+// decodeDagCall parses an encoded dag.call attribute (the base64 proto of
+// the span's callpbv1.Call) into BOTH consumptions of the recorded payload:
+//
+//   - the scope implicit inputs (Chunk-1 loader work, category-1 evidence):
+//     NAMES plus a recorded-empty-value flag only — the emptiness is
+//     deciding data (an empty value is the engine deliberately NOT scoping,
+//     e.g. fromSessionScope on a digest-pinned ref), while the values
+//     themselves decide nothing more. A literal that is not a plain string
+//     is conservatively non-empty.
+//   - the canonical SELF structure (E3b, Chunk 4): field, receiver digest,
+//     nth/view, module, and args/implicit inputs with bounded literal
+//     renderings — what arg-level change attribution diffs on pairs.
+//
+// ok=false means the attribute failed to decode — counted by the caller,
+// never guessed around.
+func decodeDagCall(encoded string) (scope []wcanalyze.ScopeInput, self *wcprof.CallSelf, ok bool) {
 	var pbCall callpbv1.Call
 	if err := pbCall.Decode(encoded); err != nil {
-		return nil, false
+		return nil, nil, false
 	}
 	scope = make([]wcanalyze.ScopeInput, 0, len(pbCall.ImplicitInputs))
 	for _, in := range pbCall.ImplicitInputs {
@@ -609,7 +624,108 @@ func decodeScopeInputs(encoded string) (scope []wcanalyze.ScopeInput, ok bool) {
 		}
 		scope = append(scope, si)
 	}
-	return scope, true
+
+	self = &wcprof.CallSelf{
+		Field:    pbCall.Field,
+		Receiver: pbCall.ReceiverDigest,
+		View:     pbCall.View,
+		Nth:      pbCall.Nth,
+		Args:     renderArgs(pbCall.Args),
+		Implicit: renderArgs(pbCall.ImplicitInputs),
+	}
+	if m := pbCall.Module; m != nil {
+		self.Module = &wcprof.CallModule{
+			CallDigest: m.CallDigest,
+			Name:       m.Name,
+			Ref:        m.Ref,
+			Pin:        m.Pin,
+		}
+	}
+	return scope, self, true
+}
+
+func renderArgs(args []*callpbv1.Argument) []wcprof.CallArg {
+	if len(args) == 0 {
+		return nil
+	}
+	out := make([]wcprof.CallArg, 0, len(args))
+	for _, a := range args {
+		if a == nil || a.Name == "" {
+			continue
+		}
+		out = append(out, wcprof.CallArg{Name: a.Name, Value: renderLiteral(a.GetValue().GetValue(), 0)})
+	}
+	return out
+}
+
+// maxLiteralRender bounds one rendered literal; elision is stated inline so
+// a truncated rendering is never mistaken for the full value.
+const maxLiteralRender = 96
+
+// renderLiteral produces a bounded, deterministic canonical text for a
+// dag.call literal: call references render as their digests (the identity
+// lane), digested strings as their digests, scalars verbatim (sensitive
+// values arrive already redacted as "***"). Purely mechanical — the
+// rendering exists to be DIFFED between two captures, so equal structures
+// must render equal and the bound must be deterministic.
+func renderLiteral(lit any, depth int) string {
+	if depth > 4 {
+		return "…(depth)"
+	}
+	var s string
+	switch v := lit.(type) {
+	case nil:
+		s = "null"
+	case *callpbv1.Literal_CallDigest:
+		s = v.CallDigest
+	case *callpbv1.Literal_Null:
+		s = "null"
+	case *callpbv1.Literal_Bool:
+		if v.Bool {
+			s = "true"
+		} else {
+			s = "false"
+		}
+	case *callpbv1.Literal_Enum:
+		s = v.Enum
+	case *callpbv1.Literal_Int:
+		s = strconv.FormatInt(v.Int, 10)
+	case *callpbv1.Literal_Float:
+		s = strconv.FormatFloat(v.Float, 'g', -1, 64)
+	case *callpbv1.Literal_String_:
+		s = strconv.Quote(v.String_)
+	case *callpbv1.Literal_DigestedString:
+		if v.DigestedString != nil {
+			s = "digested:" + v.DigestedString.Digest
+		} else {
+			s = "digested:"
+		}
+	case *callpbv1.Literal_List:
+		parts := []string{}
+		if v.List != nil {
+			for _, e := range v.List.Values {
+				parts = append(parts, renderLiteral(e.GetValue(), depth+1))
+			}
+		}
+		s = "[" + strings.Join(parts, ",") + "]"
+	case *callpbv1.Literal_Object:
+		parts := []string{}
+		if v.Object != nil {
+			for _, f := range v.Object.Values {
+				if f == nil {
+					continue
+				}
+				parts = append(parts, f.Name+":"+renderLiteral(f.GetValue(), depth+1))
+			}
+		}
+		s = "{" + strings.Join(parts, ",") + "}"
+	default:
+		s = "?(unknown literal kind)"
+	}
+	if len(s) > maxLiteralRender {
+		s = s[:maxLiteralRender] + fmt.Sprintf("…(%d more bytes)", len(s)-maxLiteralRender)
+	}
+	return s
 }
 
 // classifyKind picks the op kind for a span (design §5 step 2; impl-plan

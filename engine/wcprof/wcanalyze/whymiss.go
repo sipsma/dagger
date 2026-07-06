@@ -235,9 +235,38 @@ type WhyMissNode struct {
 	pairRefused     int // gaps refused as not pairwise attributable
 	pairChanged     int // changed-pair edges emitted
 
+	// ModuleBlindRefused (W16c, post-Chunk-4): a module-provided call on an
+	// OTel capture WITHOUT the E3a ordered vector — its module input edge is
+	// not recorded (dag.inputs is module-less), so descending would walk a
+	// known-incomplete edge set. The walk refuses instead, stated.
+	ModuleBlindRefused bool
+
 	// walk bookkeeping
 	walkParent *WhyMissNode // discovery parent (deterministic BFS), for path rendering
 	walked     bool
+}
+
+// moduleBearing reports whether any of the node's calls carries a parsed
+// self structure naming a providing module (E3b evidence; false when no
+// dag.call was recorded — the walk then stays on the global caveat).
+func (n *WhyMissNode) moduleBearing() bool {
+	for _, c := range n.Calls {
+		if c.CallSelf != nil && c.CallSelf.Module != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// callSelfAny returns the node's canonical self structure when any call
+// carries one.
+func (n *WhyMissNode) callSelfAny() *wcprof.CallSelf {
+	for _, c := range n.Calls {
+		if c.CallSelf != nil {
+			return c.CallSelf
+		}
+	}
+	return nil
 }
 
 // e1Evidence returns the node's E1 lookup-outcome reason and its deciding
@@ -415,7 +444,7 @@ func runWhyUncached(g *Graph, pair *whyPairState, target string) (*WhyMissReport
 		}
 		if pair != nil && pair.refusePositional {
 			rep.Caveats = append(rep.Caveats,
-				"OTel capture pair: positional pairing REFUSED — dag.inputs is a deduplicated, module-less digest list, unsound for the §5 ordered pairing contract (E3a unlocks it); digest-stable analysis only (categories 2/8 by digest identity; changed nodes stay single-capture-classified)")
+				"OTel capture pair: positional pairing applies ONLY where the E3a ordered-input attr was recorded on both sides (dag.inputs alone is deduplicated and module-less — unsound for the §5 contract); unordered pairings refuse with stated lines, digest-stable analysis is unaffected")
 		}
 		if g.SuppressedDoNotCacheIdents > 0 {
 			rep.Caveats = append(rep.Caveats, fmt.Sprintf(
@@ -434,7 +463,10 @@ func runWhyUncached(g *Graph, pair *whyPairState, target string) (*WhyMissReport
 		// the single reference digest of the target's class that is itself
 		// absent from this capture — else pairing is refused with the reason
 		// stated (never guessed).
-		if pair != nil && !pair.refusePositional && !pair.stable(tn.Digest) {
+		if pair != nil && !pair.stable(tn.Digest) {
+			// Root partnering is class/absence-based (no vectors consumed);
+			// the per-pairing E3a ordered-vector gate applies where vectors
+			// actually pair, in pairedInputEdges.
 			if pa, why := pair.rootPartner(w, tn); pa != "" {
 				tn.PairedWith = pa
 			} else if why != "" {
@@ -467,8 +499,20 @@ func runWhyUncached(g *Graph, pair *whyPairState, target string) (*WhyMissReport
 				n.aSide = pair.side(n.Digest)
 				continue
 			}
+			// W16c per-node refusal (post-Chunk-4): a module-provided call on
+			// an OTel capture whose input vector is UNORDERED (no E3a attr)
+			// has no recorded module input edge — descending would walk a
+			// known-incomplete edge set and report a false frontier. Refuse
+			// descent, stated; the node classifies with the refusal note.
+			if w.g.ResultIDsCaptureLocal {
+				vB := w.inputsVector(n)
+				if len(vB) > 0 && !w.g.OrderedInputs(n.InputsFrom) && n.moduleBearing() {
+					n.ModuleBlindRefused = true
+					continue
+				}
+			}
 			var edges []whyMissEdge
-			if pair != nil && !pair.refusePositional && n.PairedWith != "" {
+			if pair != nil && n.PairedWith != "" {
 				edges = w.pairedInputEdges(rep, n)
 			} else {
 				for _, dig := range w.inputsOf(n) {
@@ -1046,10 +1090,26 @@ func (w *whyMissWalk) classifyOrigin(n *WhyMissNode) *WhyMissOrigin {
 				"The input-level divergence could not be decomposed (%s), so the change is reported at whole-call granularity only.", reason)
 		case len(deltas) > 0:
 			o.Answer = lead + "Divergence: " + strings.Join(deltas, "; ") +
-				". Reported at digest granularity on native captures; arg-level detail available on OTel captures once E3b lands."
+				". Reported at digest granularity on native captures; arg-level detail available on OTel captures (E3b)."
 		default:
 			o.Answer = lead +
-				"Its recorded input vector is identical to the counterpart's (all inputs digest-anchored), so the change is in the call itself: arguments, nth/view, module ref, or scope input values. Reported at digest granularity on native captures; arg-level detail available on OTel captures once E3b lands."
+				"Its recorded input vector is identical to the counterpart's (all inputs digest-anchored), so the change is in the call itself."
+			// E3b arg-level attribution: when BOTH sides recorded the
+			// canonical self structure (dag.call), name the differing
+			// components — never guessed, purely a diff of recorded
+			// renderings.
+			csB := n.callSelfAny()
+			csA := w.pair.aCallSelf(n.PairedWith)
+			switch {
+			case csB != nil && csA != nil:
+				if diffs := diffCallSelf(csA, csB); len(diffs) > 0 {
+					o.Answer += " Recorded self divergence (E3b): " + strings.Join(diffs, "; ") + "."
+				} else {
+					o.Answer += " The recorded self structures render IDENTICALLY at the recorded granularity (bounded literal rendering) — the digest difference lies below that rendering; stated rather than guessed."
+				}
+			default:
+				o.Answer += " Component-level detail: not recorded on this capture pair (native captures carry digest granularity only; OTel captures carry dag.call for E3b arg-level attribution)."
+			}
 		}
 	case w.pair != nil:
 		o.Category = CategoryNewWork
@@ -1061,6 +1121,9 @@ func (w *whyMissWalk) classifyOrigin(n *WhyMissNode) *WhyMissOrigin {
 
 	if n.PairConflict {
 		o.Notes = append(o.Notes, "positional pairing VOIDED for this node: distinct reference occurrences claimed this digest (see pair evidence); classified by digest identity only")
+	}
+	if n.ModuleBlindRefused {
+		o.Notes = append(o.Notes, "module-provided call on an OTel capture without the E3a ordered-input vector: the module input edge is not recorded (dag.inputs is module-less), so the walk below would be incomplete — descent REFUSED; the true frontier may be deeper (W16c)")
 	}
 	// E1 walk hints (never categories): input_unknown gives the walk an
 	// authoritative next hop; no_live_candidate upgrades the reversal notes

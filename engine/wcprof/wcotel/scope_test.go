@@ -152,6 +152,100 @@ func TestLoaderParsesLookupOutcome(t *testing.T) {
 	}
 }
 
+// E3a preference: the ordered-input attr wins over dag.inputs verbatim
+// (byte-identical to the native encoding, module ref included) and marks
+// the op ordered; without it, dag.inputs loads unordered.
+func TestLoaderPrefersE3aOrderedInputs(t *testing.T) {
+	jsonl := toJSONL(t,
+		rec(map[string]any{"spanId": idRoot, "parentId": idNone, "name": "root", "startNs": baseEp, "endNs": baseEnd}),
+		rec(map[string]any{"spanId": idA, "parentId": idRoot, "name": "Query.ordered", "startNs": baseEp + 1, "endNs": baseEnd,
+			"attrs": map[string]any{
+				telemetry.DagDigestAttr:                "xxh3:ordered",
+				telemetry.DagInputsAttr:                []string{"xxh3:in-b", "xxh3:in-a"}, // deduped module-less shape
+				telemetryattrs.WcprofInputsOrderedAttr: `["xxh3:in-a","xxh3:in-b","xxh3:in-a","xxh3:mod"]`,
+			}}),
+		rec(map[string]any{"spanId": idB, "parentId": idRoot, "name": "Query.unordered", "startNs": baseEp + 2, "endNs": baseEnd,
+			"attrs": map[string]any{
+				telemetry.DagDigestAttr: "xxh3:unordered",
+				telemetry.DagInputsAttr: []string{"xxh3:in-a"},
+			}}),
+	)
+	g := buildGraphFromCompiled(t, mustCompile(t, jsonl))
+	g.ResultIDsCaptureLocal = true
+
+	ord := opByIdent(t, g, "xxh3:ordered")
+	want := []string{"xxh3:in-a", "xxh3:in-b", "xxh3:in-a", "xxh3:mod"}
+	if len(ord.CacheInputs) != len(want) {
+		t.Fatalf("E3a vector must win verbatim: %v", ord.CacheInputs)
+	}
+	for i := range want {
+		if ord.CacheInputs[i] != want[i] {
+			t.Fatalf("E3a vector[%d] = %q, want %q (occurrence-level order preserved)", i, ord.CacheInputs[i], want[i])
+		}
+	}
+	if !ord.InputsOrdered || !g.OrderedInputs(ord) {
+		t.Fatal("the E3a-sourced op must be ordered")
+	}
+	unord := opByIdent(t, g, "xxh3:unordered")
+	if unord.InputsOrdered || g.OrderedInputs(unord) {
+		t.Fatal("a dag.inputs-only op on an OTel graph must be unordered")
+	}
+}
+
+// E3b: the full canonical self structure loads from dag.call — field,
+// receiver, nth/view, module, args and implicit inputs with bounded
+// renderings.
+func TestLoaderParsesCallSelf(t *testing.T) {
+	pb := &callpbv1.Call{
+		Field:          "withExec",
+		ReceiverDigest: "xxh3:recv",
+		View:           "v1",
+		Nth:            2,
+		Type:           &callpbv1.Type{NamedType: "Container"},
+		Module:         &callpbv1.Module{CallDigest: "xxh3:mod", Name: "myMod", Ref: "github.com/x/m", Pin: "abc"},
+		Args: []*callpbv1.Argument{
+			strArg("platform", "linux/amd64"),
+			{Name: "count", Value: &callpbv1.Literal{Value: &callpbv1.Literal_Int{Int: 3}}},
+			{Name: "list", Value: &callpbv1.Literal{Value: &callpbv1.Literal_List{List: &callpbv1.List{Values: []*callpbv1.Literal{
+				{Value: &callpbv1.Literal_Bool{Bool: true}},
+				{Value: &callpbv1.Literal_CallDigest{CallDigest: "xxh3:refarg"}},
+			}}}}},
+		},
+		ImplicitInputs: []*callpbv1.Argument{strArg("cachePerSession", "sess-1")},
+	}
+	enc, err := pb.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	jsonl := toJSONL(t,
+		rec(map[string]any{"spanId": idRoot, "parentId": idNone, "name": "root", "startNs": baseEp, "endNs": baseEnd}),
+		rec(map[string]any{"spanId": idA, "parentId": idRoot, "name": "Container.withExec", "startNs": baseEp + 1, "endNs": baseEnd,
+			"attrs": map[string]any{
+				telemetry.DagDigestAttr: "xxh3:self",
+				telemetry.DagCallAttr:   enc,
+			}}),
+	)
+	g := buildGraphFromCompiled(t, mustCompile(t, jsonl))
+	op := opByIdent(t, g, "xxh3:self")
+	cs := op.CallSelf
+	if cs == nil {
+		t.Fatal("CallSelf must load from dag.call")
+	}
+	if cs.Field != "withExec" || cs.Receiver != "xxh3:recv" || cs.View != "v1" || cs.Nth != 2 {
+		t.Fatalf("self fields: %+v", cs)
+	}
+	if cs.Module == nil || cs.Module.Ref != "github.com/x/m" || cs.Module.Pin != "abc" {
+		t.Fatalf("module: %+v", cs.Module)
+	}
+	if len(cs.Args) != 3 || cs.Args[0].Value != `"linux/amd64"` || cs.Args[1].Value != "3" ||
+		cs.Args[2].Value != "[true,xxh3:refarg]" {
+		t.Fatalf("args renderings: %+v", cs.Args)
+	}
+	if len(cs.Implicit) != 1 || cs.Implicit[0].Name != "cachePerSession" || cs.Implicit[0].Value != `"sess-1"` {
+		t.Fatalf("implicit renderings: %+v", cs.Implicit)
+	}
+}
+
 // No dag.call attribute ⇒ scope structure not recorded (nil), and a
 // malformed one ⇒ counted, left unrecorded, never guessed.
 func TestLoaderScopeAbsentAndMalformed(t *testing.T) {

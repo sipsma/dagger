@@ -538,31 +538,66 @@ func TestWhyMissPairRefusesGatedReference(t *testing.T) {
 	}
 }
 
-// OTel pairs refuse positional pairing (the §5 soundness boundary): stable
-// analysis still answers, the caveat states the refusal, and no positional
-// pair forms.
-func TestWhyMissOTelPairRefusesPositional(t *testing.T) {
+// --- W12 (source divergence pinned): the same pair shape works natively
+// (category 3 via positional pairing — TestWhyMissW4InputChanged) while an
+// OTel pair WITHOUT the E3a ordered-input attr refuses positional pairing
+// per-pairing with the stated line: unordered dag.inputs is unsound for the
+// §5 contract. Digest-stable analysis is unaffected.
+func TestWhyMissW12OTelPairRefusesUnorderedPositional(t *testing.T) {
 	gB, gA := pairedParentsFixtures(t, []string{"d-cA", "d-s"}, []string{"d-cB", "d-s"})
-	gB.ResultIDsCaptureLocal = true // mark the query side OTel-sourced
+	gB.ResultIDsCaptureLocal = true // mark the query side OTel-sourced, no E3a attrs
 	rep, err := RunWhyUncachedPair(gB, gA, "p-B")
 	if err != nil {
 		t.Fatal(err)
 	}
 	caveat := false
 	for _, c := range rep.Caveats {
-		if strings.Contains(c, "positional pairing REFUSED") {
+		if strings.Contains(c, "E3a ordered-input attr") {
 			caveat = true
 		}
 	}
 	if !caveat {
-		t.Fatalf("OTel pair must carry the positional-refusal caveat, got %v", rep.Caveats)
+		t.Fatalf("OTel pair must carry the E3a caveat, got %v", rep.Caveats)
+	}
+	refused := false
+	for _, l := range rep.PairLines {
+		if strings.Contains(l, "positional pairing REFUSED") && strings.Contains(l, "unordered") {
+			refused = true
+		}
+	}
+	if !refused {
+		t.Fatalf("the unordered pairing must refuse with a stated line, got %v", rep.PairLines)
 	}
 	for _, o := range rep.Origins {
 		if o.Category == CategoryInputChanged {
-			t.Fatalf("no positional pair may form on an OTel pair, got category 3 for %s", o.Node.Digest)
+			t.Fatalf("no positional pair may form without ordered vectors, got category 3 for %s", o.Node.Digest)
 		}
 		if o.Node.Digest == "d-cB" && o.Category != CategoryNewWork {
 			t.Fatalf("d-cB should classify by digest identity only (absent → 4), got %v", o.Category)
+		}
+	}
+
+	// Post-E3a: the SAME shape with ordered vectors on both sides pairs
+	// positionally — category 3 returns.
+	gB, gA = pairedParentsFixtures(t, []string{"d-cA", "d-s"}, []string{"d-cB", "d-s"})
+	gB.ResultIDsCaptureLocal = true
+	markOrderedInputs(gB)
+	rep, err = RunWhyUncachedPair(gB, gA, "p-B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := originByDigest(t, rep, "d-cB")
+	if o.Category != CategoryInputChanged {
+		t.Fatalf("E3a-ordered OTel pair must pair positionally, got %v", o.Category)
+	}
+}
+
+// markOrderedInputs flags every inputs-carrying op as E3a-ordered (what the
+// loader does when the attr supplied the vector).
+func markOrderedInputs(g *Graph) {
+	for _, op := range g.Ops {
+		if len(op.CacheInputs) > 0 {
+			op.InputsOrdered = true
 		}
 	}
 }

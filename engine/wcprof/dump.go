@@ -85,6 +85,18 @@ type DumpEvent struct {
 	// fact, wcprof.EncodeLookupOutcome) on a call op whose cache lookup
 	// returned no usable hit. 0 = no fact.
 	LookupID uint32 `json:"lo,omitempty"`
+	// SelfID is an interned canonical call-self structure
+	// (wcprof.EncodeCallSelf), parsed by the OTel loader from the recorded
+	// dag.call payload (E3b). 0 on native dumps (a full native
+	// call-structure emit is refused on volume grounds) and pre-parse
+	// captures.
+	SelfID uint32 `json:"cs,omitempty"`
+	// InputsOrdered marks an OTel-sourced op whose InputsID carries the
+	// NATIVE-PARITY ordered structural input vector (the E3a attr, module
+	// ref included) rather than the deduplicated module-less dag.inputs.
+	// Native dumps leave it false: their ordering is implied by the source
+	// (the analyzer derives ordered-ness as native-source OR this flag).
+	InputsOrdered bool `json:"io,omitempty"`
 	// ScopeID is an interned JSON array describing a call op's scope
 	// implicit inputs (name + recorded-empty-value flag), parsed from the
 	// OTel dag.call payload by the wcotel loader (invalidation-tracing
