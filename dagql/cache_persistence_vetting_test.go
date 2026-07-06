@@ -16,9 +16,12 @@ import (
 
 // matSnapOnlyObj is upload-shaped: its persisted form is a snapshot link and
 // nothing else — no lazy fragment to be re-made from, like a client upload
-// whose recipe lives on the client machine.
+// whose recipe lives on the client machine. Like the real content types, a
+// decoded value reports the snapshot it holds (SnapshotID), so the
+// post-decode owner-lease sync keeps that link on the home.
 type matSnapOnlyObj struct {
-	Name string
+	Name       string
+	SnapshotID string
 }
 
 type persistedMatSnapOnlyObj struct {
@@ -32,6 +35,13 @@ func (*matSnapOnlyObj) Type() *ast.Type {
 	}
 }
 
+func (obj *matSnapOnlyObj) PersistedSnapshotRefLinks() []PersistedSnapshotRefLink {
+	if obj == nil || obj.SnapshotID == "" {
+		return nil
+	}
+	return []PersistedSnapshotRefLink{{RefKey: obj.SnapshotID, Role: "snapshot"}}
+}
+
 func (obj *matSnapOnlyObj) EncodePersistedObject(ctx context.Context, cache PersistedObjectCache) (PersistedObjectEncoding, error) {
 	_ = ctx
 	_ = cache
@@ -39,50 +49,56 @@ func (obj *matSnapOnlyObj) EncodePersistedObject(ctx context.Context, cache Pers
 	if err != nil {
 		return PersistedObjectEncoding{}, err
 	}
+	snapshotID := obj.SnapshotID
+	if snapshotID == "" {
+		snapshotID = "upload-snap"
+	}
 	return PersistedObjectEncoding{
 		JSON: payload,
 		SnapshotLinks: []PersistedSnapshotRefLink{
-			{RefKey: "upload-snap", Role: "snapshot"},
+			{RefKey: snapshotID, Role: "snapshot"},
 		},
 	}, nil
 }
 
 func (*matSnapOnlyObj) DecodePersistedObject(ctx context.Context, dag *Server, resultID uint64, _ *ResultCall, payload json.RawMessage, lazy PersistedLazyFragment) (Typed, error) {
 	_ = dag
-	if err := openTestSnapshotSource(ctx, resultID, lazy); err != nil {
+	snapshotID, err := openTestSnapshotSource(ctx, resultID, lazy)
+	if err != nil {
 		return nil, err
 	}
 	var persisted persistedMatSnapOnlyObj
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, err
 	}
-	return &matSnapOnlyObj{Name: persisted.Name}, nil
+	return &matSnapOnlyObj{Name: persisted.Name, SnapshotID: snapshotID}, nil
 }
 
 // openTestSnapshotSource emulates the content types' decode contract: a
-// snapshot link wins and must open, absence falls through to the lazy
-// fragment, and neither is an error.
-func openTestSnapshotSource(ctx context.Context, resultID uint64, lazy PersistedLazyFragment) error {
+// snapshot link wins and must open (its refKey is returned so the decoded
+// value can report the snapshot it holds), absence falls through to the
+// lazy fragment, and neither is an error.
+func openTestSnapshotSource(ctx context.Context, resultID uint64, lazy PersistedLazyFragment) (string, error) {
 	cache, err := EngineCache(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	links, err := cache.PersistedSnapshotLinksByResultID(ctx, resultID)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if len(links) > 0 {
 		if cache.snapshotManager != nil {
 			if _, err := cache.snapshotManager.GetBySnapshotID(ctx, links[0].RefKey); err != nil {
-				return err
+				return "", err
 			}
 		}
-		return nil
+		return links[0].RefKey, nil
 	}
 	if len(lazy.JSON) > 0 {
-		return nil
+		return "", nil
 	}
-	return fmt.Errorf("decode test payload %d: missing snapshot and lazy fragment", resultID)
+	return "", fmt.Errorf("decode test payload %d: missing snapshot and lazy fragment", resultID)
 }
 
 // newVettingTestServer serves a both-forms object (snapshot link + lazy

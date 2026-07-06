@@ -3,10 +3,12 @@ package dagql
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
-	digest "github.com/opencontainers/go-digest"
 	"gotest.tools/v3/assert"
 
 	bkcache "github.com/dagger/dagger/engine/snapshots"
@@ -282,16 +284,321 @@ func TestCacheBundleChainUnionOnDedup(t *testing.T) {
 // snapshotChainFromPersisted converts the dagql-side chain identity into
 // the snapshot manager's shape, for fake-manager wiring in tests.
 func snapshotChainFromPersisted(chain PersistedResultContentChain) bkcache.SnapshotChain {
-	out := bkcache.SnapshotChain{ChainID: digest.Digest(chain.ChainID)}
-	for _, layer := range chain.Layers {
-		out.Layers = append(out.Layers, bkcache.ChainLayer{
-			DiffID:    digest.Digest(layer.DiffID),
-			Blob:      digest.Digest(layer.Blob),
-			Size:      layer.Size,
-			MediaType: layer.MediaType,
-		})
+	return chain.bkSnapshotChain()
+}
+
+// seedChainVettingStoreBoth seeds a both-forms row (snapshot link
+// "mat-home-snap" + lazy fragment) carrying a content-chain source, and
+// flushes.
+func seedChainVettingStoreBoth(t *testing.T, ctx context.Context, dbPath string, chains []PersistedResultContentChain) uint64 {
+	t.Helper()
+	cache, err := NewCache(ctx, dbPath, nil, nil)
+	assert.NilError(t, err)
+	srv := newVettingTestServer()
+	rootCtx := vettingRootCtx(ctx, cache, srv)
+
+	bothRes, err := srv.root.Select(rootCtx, srv, Selector{Field: "bothObj"})
+	assert.NilError(t, err)
+	shared := bothRes.cacheSharedResult()
+	if len(chains) > 0 {
+		shared.storeContentChains(chains)
 	}
-	return out
+	id := uint64(shared.id)
+
+	cacheTestReleaseSession(t, cache, rootCtx)
+	assert.NilError(t, cache.persistCurrentState(ctx))
+	assert.NilError(t, cache.Close(context.Background()))
+	return id
+}
+
+// TestContentChainRealizesImportedRow is the walk-level warm proof (the
+// dagql form of T-S4's serving half): a restored row whose refKeys are gone
+// but whose chain survives realizes through the chain arm — the chain
+// materializes into a local snapshot, the ordinary decode serves it, and the
+// row afterwards has a real local-snapshot source that survives another
+// restart.
+func TestContentChainRealizesImportedRow(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	chains := chainTestChains()
+	uploadID := seedChainVettingStore(t, ctx, dbPath, chains)
+
+	manager := &fakeSnapshotManager{missingSnapshots: map[string]struct{}{
+		"upload-snap": {},
+	}}
+	manager.materializeChainFunc = func(ctx context.Context, ownerLeaseID string, chain bkcache.SnapshotChain, src bkcache.BlobSource) (string, error) {
+		assert.Equal(t, chains[0].ChainID, chain.ChainID.String())
+		assert.NilError(t, manager.AttachLease(ctx, ownerLeaseID, "chain-mat-snap"))
+		return "chain-mat-snap", nil
+	}
+	cache, err := NewCache(ctx, dbPath, manager, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, cache.Close(context.Background()))
+	}()
+	assert.Equal(t, CachePersistenceResetNone, cache.PersistenceResetReason())
+
+	srv := newVettingTestServer()
+	rootCtx := vettingRootCtx(ctx, cache, srv)
+	res, err := srv.root.Select(rootCtx, srv, Selector{Field: "uploadObj"})
+	assert.NilError(t, err)
+	assert.Assert(t, res.HitCache(), "chain realization serves a hit, not a recompute")
+	obj, ok := UnwrapAs[*matSnapOnlyObj](res.Unwrap())
+	assert.Assert(t, ok)
+	assert.Equal(t, "upload", obj.Name)
+
+	counters := cache.serveStats.byOutcome()
+	assert.Equal(t, int64(1), counters[cacheServeFromContentChain]["uploadObj"])
+	assert.Equal(t, int64(1), counters[cacheChainFetchOK]["uploadObj"])
+	assert.Equal(t, int64(1), counters[cacheServeHitRestored]["uploadObj"])
+	assert.Equal(t, int64(0), counters[cacheServeDemotedToMiss]["uploadObj"])
+	assert.Equal(t, 1, manager.materializeChainCallCount())
+
+	// Content arrived once: the home now has a real local-snapshot source
+	// ahead of the chain.
+	shared := res.cacheSharedResult()
+	links := shared.loadSnapshotOwnerLinks()
+	assert.Equal(t, 1, len(links))
+	assert.Equal(t, "chain-mat-snap", links[0].RefKey)
+	assert.DeepEqual(t,
+		[]retainedSourceKind{sourceLocalSnapshot, sourceContentChain},
+		shared.loadPayloadState().sourceKinds)
+	cacheTestReleaseSession(t, cache, rootCtx)
+
+	// A local restart keeps both: the fresh snapshot and the chain.
+	assert.NilError(t, cache.persistCurrentState(ctx))
+	db, q, err := prepareCacheDBs(ctx, dbPath)
+	assert.NilError(t, err)
+	var linkCount, chainCount int64
+	assert.NilError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM result_snapshot_links WHERE result_id = ?`, uploadID).Scan(&linkCount))
+	assert.NilError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM result_content_chains WHERE result_id = ?`, uploadID).Scan(&chainCount))
+	assert.Equal(t, int64(1), linkCount)
+	assert.Equal(t, int64(1), chainCount)
+	assert.NilError(t, closeCacheDBs(db, q))
+}
+
+// TestContentChainLocalSnapshotWins pins the ratified order's first step: a
+// row with a live local snapshot never touches its chain.
+func TestContentChainLocalSnapshotWins(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	seedChainVettingStore(t, ctx, dbPath, chainTestChains())
+
+	manager := &fakeSnapshotManager{missingSnapshots: map[string]struct{}{}}
+	cache, err := NewCache(ctx, dbPath, manager, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, cache.Close(context.Background()))
+	}()
+
+	srv := newVettingTestServer()
+	rootCtx := vettingRootCtx(ctx, cache, srv)
+	res, err := srv.root.Select(rootCtx, srv, Selector{Field: "uploadObj"})
+	assert.NilError(t, err)
+	assert.Assert(t, res.HitCache())
+
+	counters := cache.serveStats.byOutcome()
+	assert.Equal(t, int64(1), counters[cacheServeFromSnapshot]["uploadObj"])
+	assert.Equal(t, int64(0), counters[cacheServeFromContentChain]["uploadObj"])
+	assert.Equal(t, 0, manager.materializeChainCallCount())
+	cacheTestReleaseSession(t, cache, rootCtx)
+}
+
+// TestContentChainMissingBlobFallsThroughToFragment is T-S6's walk half: a
+// permanently missing chain blob marks the source non-viable for the boot
+// and the fragment serves — still a hit, no demote, identity retained for
+// the next boot's retry.
+func TestContentChainMissingBlobFallsThroughToFragment(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	seedChainVettingStoreBoth(t, ctx, dbPath, chainTestChains())
+
+	manager := &fakeSnapshotManager{missingSnapshots: map[string]struct{}{
+		"mat-home-snap": {},
+	}}
+	manager.materializeChainFunc = func(context.Context, string, bkcache.SnapshotChain, bkcache.BlobSource) (string, error) {
+		return "", fmt.Errorf("blob sha256:2222: %w", bkcache.ErrBlobNotFound)
+	}
+	cache, err := NewCache(ctx, dbPath, manager, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, cache.Close(context.Background()))
+	}()
+
+	srv := newVettingTestServer()
+	rootCtx := vettingRootCtx(ctx, cache, srv)
+	res, err := srv.root.Select(rootCtx, srv, Selector{Field: "bothObj"})
+	assert.NilError(t, err)
+	assert.Assert(t, res.HitCache(), "fragment fall-through is still a hit")
+
+	counters := cache.serveStats.byOutcome()
+	assert.Equal(t, int64(1), counters[cacheChainFetchMissing]["bothObj"])
+	assert.Equal(t, int64(1), counters[cacheServeFromLazyForm]["bothObj"])
+	assert.Equal(t, int64(0), counters[cacheServeDemotedToMiss]["bothObj"])
+
+	// Marked non-viable for this boot; the identity survives for the next.
+	shared := res.cacheSharedResult()
+	assert.Equal(t, 0, len(shared.loadViableContentChains()))
+	assert.Equal(t, 1, len(shared.loadContentChains()))
+	cacheTestReleaseSession(t, cache, rootCtx)
+}
+
+// TestContentChainMissingBlobNoFragmentDemotes: with no fragment behind the
+// missing blob, the walk exhausts permanently — demote, drop, heal.
+func TestContentChainMissingBlobNoFragmentDemotes(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	uploadID := seedChainVettingStore(t, ctx, dbPath, chainTestChains())
+
+	manager := &fakeSnapshotManager{missingSnapshots: map[string]struct{}{
+		"upload-snap": {},
+	}}
+	manager.materializeChainFunc = func(context.Context, string, bkcache.SnapshotChain, bkcache.BlobSource) (string, error) {
+		return "", fmt.Errorf("blob sha256:2222: %w", bkcache.ErrBlobNotFound)
+	}
+	cache, err := NewCache(ctx, dbPath, manager, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, cache.Close(context.Background()))
+	}()
+
+	srv := newVettingTestServer()
+	rootCtx := vettingRootCtx(ctx, cache, srv)
+	res, err := srv.root.Select(rootCtx, srv, Selector{Field: "uploadObj"})
+	assert.NilError(t, err)
+	assert.Assert(t, !res.HitCache(), "the demoted invocation executes live")
+
+	counters := cache.serveStats.byOutcome()
+	assert.Equal(t, int64(1), counters[cacheChainFetchMissing]["uploadObj"])
+	assert.Equal(t, int64(1), counters[cacheServeDemotedToMiss]["uploadObj"])
+
+	// True exhaustion is terminal for the row.
+	cache.egraphMu.RLock()
+	old := cache.resultsByID[sharedResultID(uploadID)]
+	dropped := old != nil && old.dropped
+	cache.egraphMu.RUnlock()
+	assert.Assert(t, old == nil || dropped, "a permanently exhausted row must drop")
+
+	// The heal: the live publication serves the follow-up.
+	res2, err := srv.root.Select(rootCtx, srv, Selector{Field: "uploadObj"})
+	assert.NilError(t, err)
+	assert.Assert(t, res2.HitCache())
+	cacheTestReleaseSession(t, cache, rootCtx)
+}
+
+// TestContentChainTransientFailureDemotesWithoutDrop: a transport-shaped
+// chain failure on a chain-only row demotes this use to an honest live
+// execution but drops nothing — nothing permanent was learned, the row
+// stays for the next walk to retry.
+func TestContentChainTransientFailureDemotesWithoutDrop(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	uploadID := seedChainVettingStore(t, ctx, dbPath, chainTestChains())
+
+	manager := &fakeSnapshotManager{missingSnapshots: map[string]struct{}{
+		"upload-snap": {},
+	}}
+	manager.materializeChainFunc = func(context.Context, string, bkcache.SnapshotChain, bkcache.BlobSource) (string, error) {
+		return "", fmt.Errorf("dial cas: connection refused")
+	}
+	cache, err := NewCache(ctx, dbPath, manager, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, cache.Close(context.Background()))
+	}()
+
+	srv := newVettingTestServer()
+	rootCtx := vettingRootCtx(ctx, cache, srv)
+	res, err := srv.root.Select(rootCtx, srv, Selector{Field: "uploadObj"})
+	assert.NilError(t, err)
+	assert.Assert(t, !res.HitCache(), "the demoted invocation executes live")
+
+	counters := cache.serveStats.byOutcome()
+	assert.Equal(t, int64(1), counters[cacheChainFetchError]["uploadObj"])
+	assert.Equal(t, int64(1), counters[cacheServeDemotedToMiss]["uploadObj"])
+
+	// The row survives with its chain source unmarked: the next walk
+	// retries.
+	cache.egraphMu.RLock()
+	old := cache.resultsByID[sharedResultID(uploadID)]
+	cache.egraphMu.RUnlock()
+	assert.Assert(t, old != nil)
+	assert.Assert(t, !old.dropped, "a transiently starved row must not drop")
+	assert.Equal(t, 1, len(old.loadViableContentChains()))
+	cacheTestReleaseSession(t, cache, rootCtx)
+}
+
+// TestContentChainConcurrentForcingSingleflights is T-S8: N concurrent
+// forcings of one chain-backed imported row produce exactly one chain
+// materialization; everyone else waits and shares the outcome (run with
+// -race).
+func TestContentChainConcurrentForcingSingleflights(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	seedChainVettingStore(t, ctx, dbPath, chainTestChains())
+
+	manager := &fakeSnapshotManager{missingSnapshots: map[string]struct{}{
+		"upload-snap": {},
+	}}
+	manager.materializeChainFunc = func(ctx context.Context, ownerLeaseID string, _ bkcache.SnapshotChain, _ bkcache.BlobSource) (string, error) {
+		time.Sleep(30 * time.Millisecond)
+		assert.NilError(t, manager.AttachLease(ctx, ownerLeaseID, "chain-mat-snap"))
+		return "chain-mat-snap", nil
+	}
+	cache, err := NewCache(ctx, dbPath, manager, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, cache.Close(context.Background()))
+	}()
+
+	const demanders = 16
+	var wg sync.WaitGroup
+	values := make([]string, demanders)
+	errs := make([]error, demanders)
+	for i := 0; i < demanders; i++ {
+		wg.Add(1)
+		go func(worker int) {
+			defer wg.Done()
+			srv := newVettingTestServer()
+			rootCtx := vettingRootCtx(ctx, cache, srv)
+			res, err := srv.root.Select(rootCtx, srv, Selector{Field: "uploadObj"})
+			if err != nil {
+				errs[worker] = err
+				return
+			}
+			obj, ok := UnwrapAs[*matSnapOnlyObj](res.Unwrap())
+			if !ok {
+				errs[worker] = fmt.Errorf("unexpected value type")
+				return
+			}
+			values[worker] = obj.Name
+		}(i)
+	}
+	wg.Wait()
+
+	for worker := 0; worker < demanders; worker++ {
+		assert.NilError(t, errs[worker], "worker %d", worker)
+		assert.Equal(t, "upload", values[worker], "worker %d", worker)
+	}
+	assert.Equal(t, 1, manager.materializeChainCallCount(),
+		"exactly one chain materialization for N concurrent forcings")
+	counters := cache.serveStats.byOutcome()
+	assert.Equal(t, int64(1), counters[cacheChainFetchOK]["uploadObj"])
+	assert.Equal(t, int64(1), counters[cacheServeFromContentChain]["uploadObj"])
+	assert.Equal(t, int64(0), counters[cacheServeDemotedToMiss]["uploadObj"])
+	cacheTestReleaseSession(t, cache, ctx)
 }
 
 // TestContentChainSurvivesLocalRestartVetting is T-S13: a locally-restored

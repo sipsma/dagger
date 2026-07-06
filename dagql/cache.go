@@ -100,6 +100,15 @@ var ErrCacheRecursiveCall = fmt.Errorf("recursive call detected")
 // never see it.
 var errSourcesExhausted = errors.New("cached result's retained sources are exhausted")
 
+// errSourcesUnavailable reports a walk that could not deliver right now but
+// might later: a transient failure (network transport, snapshotter apply)
+// starved every remaining source. The caller demotes to a miss exactly like
+// exhaustion — the run computes honestly (S4) — but the row is NOT dropped:
+// nothing permanent was learned about its sources, so the next lookup's
+// walk retries them (reset §9 D2's transient rule). Like the exhaustion
+// sentinel, it never escapes the cache.
+var errSourcesUnavailable = errors.New("cached result's retained sources are transiently unavailable")
+
 // isTransientMaterializeFailure classifies retained-source walk failures.
 // The rule is deliberately dumb: cancellation and deadline are transient —
 // the next demander retries the walk — and everything else the work itself
@@ -1053,7 +1062,15 @@ func (c *Cache) dropExhaustedResult(ctx context.Context, res *sharedResult) erro
 // it. Dropping is idempotent, so surfaces downstream of a runner that
 // already dropped are safe to normalize again.
 func (c *Cache) normalizeExhaustedResultError(ctx context.Context, res *sharedResult, err error) error {
-	if err == nil || !errors.Is(err, errSourcesExhausted) {
+	if err == nil {
+		return err
+	}
+	// Transient unavailability drops nothing: this use receives an honest
+	// error without the sentinel, and the row's next demand retries.
+	if errors.Is(err, errSourcesUnavailable) {
+		return fmt.Errorf("cached result %d could not be materialized right now; retrying may succeed (%s)", res.id, err.Error())
+	}
+	if !errors.Is(err, errSourcesExhausted) {
 		return err
 	}
 	dropErr := c.dropExhaustedResult(ctx, res)
@@ -1575,8 +1592,24 @@ type Cache struct {
 	snapshotManager bkcache.SnapshotManager
 	snapshotGC      func(context.Context) error
 
+	// contentChainBlobSource serves content-chain blobs the local content
+	// store is missing. Set once during the boot window, before serving
+	// (R14); nil means chains realize from local content alone (a blob
+	// absent locally is then a permanently missing blob for this boot).
+	contentChainBlobSource bkcache.BlobSource
+
 	closeOnce sync.Once
 	closeErr  error
+}
+
+// SetContentChainBlobSource wires the transport content-chain realization
+// fetches missing blobs through. Must be called during the boot window,
+// before the cache serves.
+func (c *Cache) SetContentChainBlobSource(src bkcache.BlobSource) {
+	if c == nil {
+		return
+	}
+	c.contentChainBlobSource = src
 }
 
 type callConcurrencyKeys struct {
@@ -1748,6 +1781,20 @@ func (chain PersistedResultContentChain) clone() PersistedResultContentChain {
 	cp := chain
 	cp.Layers = slices.Clone(chain.Layers)
 	return cp
+}
+
+// bkSnapshotChain converts to the snapshot manager's chain shape.
+func (chain PersistedResultContentChain) bkSnapshotChain() bkcache.SnapshotChain {
+	out := bkcache.SnapshotChain{ChainID: digest.Digest(chain.ChainID)}
+	for _, layer := range chain.Layers {
+		out.Layers = append(out.Layers, bkcache.ChainLayer{
+			DiffID:    digest.Digest(layer.DiffID),
+			Blob:      digest.Digest(layer.Blob),
+			Size:      layer.Size,
+			MediaType: layer.MediaType,
+		})
+	}
+	return out
 }
 
 func cloneContentChains(chains []PersistedResultContentChain) []PersistedResultContentChain {
@@ -4470,7 +4517,10 @@ func (c *Cache) lookupCacheForDigests(
 // materialize. Source exhaustion is consumed here: the exhausted result
 // drops — with its dependents — and the invocation proceeds as a miss,
 // executing live, publishing, and re-teaching equivalence to heal the
-// store. Any other failure propagates.
+// store. Transient source unavailability demotes the same way — the run
+// computes honestly — but drops nothing: the row's sources were not proven
+// dead, so the next lookup's walk retries them. Any other failure
+// propagates.
 func (c *Cache) releaseFailedHit(ctx context.Context, sessionID string, hitShared *sharedResult, alreadyTracked bool, err error) (demoted bool, rerr error) {
 	c.egraphMu.Lock()
 	c.sessionMu.Lock()
@@ -4493,6 +4543,11 @@ func (c *Cache) releaseFailedHit(ctx context.Context, sessionID string, hitShare
 		c.classifyServeOutcome(ctx, cacheServeDemotedToMiss, hitShared.loadResultCall(), hitShared.id)
 		c.traceHitDemotedToMiss(ctx, hitShared, err)
 		return true, errors.Join(decErr, collectErr, releaseErr, c.dropExhaustedResult(ctx, hitShared))
+	}
+	if errors.Is(err, errSourcesUnavailable) {
+		c.classifyServeOutcome(ctx, cacheServeDemotedToMiss, hitShared.loadResultCall(), hitShared.id)
+		c.traceHitDemotedToMiss(ctx, hitShared, err)
+		return true, errors.Join(decErr, collectErr, releaseErr)
 	}
 	return false, errors.Join(err, decErr, collectErr, releaseErr)
 }

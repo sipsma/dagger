@@ -657,7 +657,7 @@ func (*matRetireProbeObj) DecodePersistedObject(ctx context.Context, dag *Server
 	if r, ok := matRetireProbeRegistry.Load(persisted.Name); ok {
 		r.(*retireProbeRecorder).record(SnapshotSourceRetired(ctx, resultID))
 	}
-	if err := openTestSnapshotSource(ctx, resultID, lazy); err != nil {
+	if _, err := openTestSnapshotSource(ctx, resultID, lazy); err != nil {
 		return nil, err
 	}
 	return &matRetireProbeObj{Name: persisted.Name}, nil
