@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/pprof"
+	"os"
 	"runtime"
 	"runtime/debug"
 	"strconv"
@@ -70,6 +71,27 @@ func setupDebugHandlers(addr string, eng *server.Server) error {
 			return
 		}
 	}))
+	if os.Getenv("_DAGGER_TESTONLY_SNAPSHOT_LOSS") == "1" {
+		// Test-only fault injection: simulate external loss of one snapshot
+		// so integration tests can provoke the demote-to-miss floor.
+		m.Handle("/debug/testonly/mark-snapshot-deleted", http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			if eng == nil {
+				http.Error(rw, "engine server not available", http.StatusServiceUnavailable)
+				return
+			}
+			snapshotID := req.URL.Query().Get("snapshotID")
+			if snapshotID == "" {
+				http.Error(rw, "missing snapshotID", http.StatusBadRequest)
+				return
+			}
+			if err := eng.TestOnlyMarkSnapshotDeleted(req.Context(), snapshotID); err != nil {
+				http.Error(rw, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			rw.WriteHeader(http.StatusOK)
+		}))
+	}
+
 	m.Handle("/debug/dagql/cache", http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		if eng == nil {
 			http.Error(rw, "engine server not available", http.StatusServiceUnavailable)

@@ -129,6 +129,27 @@ func (cm *snapshotManager) PersistentMetadataRows() PersistentMetadataRows {
 	return rows
 }
 
+// TestOnlyMarkSnapshotDeleted marks a snapshot's metadata deleted so record
+// lookups treat it as gone from the store — the external-loss case tests
+// provoke. It deliberately leaves owner leases untouched: real external
+// loss leaves them dangling, and that dangling state is what is under test.
+// Reachable only through a test-gated debug endpoint.
+func (cm *snapshotManager) TestOnlyMarkSnapshotDeleted(ctx context.Context, snapshotID string) error {
+	if snapshotID == "" {
+		return stderrors.New("mark snapshot deleted: empty snapshot ID")
+	}
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	if err := cm.rehydrateSnapshotMetadataLocked(ctx, snapshotID, true); err != nil {
+		return err
+	}
+	md := cm.ensureMetadata(snapshotID)
+	if err := md.queueDeleted(); err != nil {
+		return err
+	}
+	return md.commitMetadata()
+}
+
 func (cm *snapshotManager) AttachLease(ctx context.Context, leaseID, snapshotID string) error {
 	if leaseID == "" {
 		return stderrors.New("attach lease: empty lease ID")
