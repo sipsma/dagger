@@ -809,6 +809,19 @@ decided in Part II.</p>
   both cosmetic, neither blocks DONE. Items explicitly flagged for Erik's morning:
   round 19 (fall-through order as v1 policy; R16 bundle-sentence scope) and round 21
   (the corpse-as-own-input one-retry shape).</li>
+  <li><b>Round 23 (2026-07-06, post-take landing note).</b> The service take's chunk A
+  (bundles + origin identity, schema 19) landed on the integration branch (merge
+  6146c7e31a) after my landing review. One reset-text touchpoint, no amendment needed:
+  R14's escape hatch ("a future take may add mid-serving import with its own explicit
+  quiesce design, not weakening R15") is now exercised — ImportBundle merges under the
+  coarse egraphMu hold with an all-fallible-before-first-mutation commit discipline, no
+  new cross-cutting invariants. The coverage matrix's "no serving-time import path
+  exists to test" R14 row is superseded for the landed state by the service take's own
+  gates. Beneficial seam interactions verified in review: bundle rows join §9's restored
+  materialize protocol; the retirement mark's fragment-and-no-links derivation is
+  exactly correct for bundle rows (their snapshot IDs are the exporter's and must never
+  probe local snapshots); origin-dedup skips exhaustion corpses so a re-supplied origin
+  stages the healing row.</li>
 </ol>
 </div>
 </details>
