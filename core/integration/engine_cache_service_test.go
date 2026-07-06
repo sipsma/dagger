@@ -174,7 +174,10 @@ func (h *cacheServiceHarness) startEngine(ctx context.Context, t *testctx.T, sta
 	require.NoError(t, err)
 	e.client, err = dagger.Connect(ctx,
 		dagger.WithRunnerHost(e.endpoint),
-		dagger.WithLogOutput(testutil.NewTWriter(t)))
+		dagger.WithLogOutput(testutil.NewTWriter(t)),
+		// The salt-partition workload resolves its secret from the client
+		// environment (env:// URI form — the salted handle derivation).
+		dagger.WithEnvironmentVariable(cacheSvcProofSecretEnv, cacheSvcProofSecretValue))
 	require.NoError(t, err)
 
 	e.debugSvc, err = h.c.Host().Tunnel(e.upstreamSvc, dagger.HostTunnelOpts{
@@ -283,13 +286,21 @@ func (h *cacheServiceHarness) runWarmPipeline(ctx context.Context, t *testctx.T,
 	return out
 }
 
-// runSecretPipeline is the salt-partition workload: an exec that requires
-// a session secret, with a random marker so any recompute is visible in
-// the output. The secret name and plaintext are fixed so both engines
-// derive the same handle iff their salts match.
+const (
+	cacheSvcProofSecretEnv   = "CACHESVC_PROOF_SECRET"
+	cacheSvcProofSecretValue = "salt-proof-plaintext"
+)
+
+// runSecretPipeline is the salt-partition workload: an exec requiring a
+// URI-form secret, with a random marker so any recompute is visible in the
+// output. The URI form matters — its handle derives from the plaintext
+// under the engine's secret salt (SecretHandleFromPlaintext), so two
+// engines agree on the handle iff their salts match. (setSecret handles
+// are name-scoped and salt-independent by design; they transfer across
+// engines and cannot exercise the partition.)
 func (h *cacheServiceHarness) runSecretPipeline(ctx context.Context, t *testctx.T, client *dagger.Client) string {
 	t.Helper()
-	secret := client.SetSecret("cachesvc-salt-proof", "salt-proof-plaintext")
+	secret := client.Secret("env://" + cacheSvcProofSecretEnv)
 	out, err := client.
 		Container().
 		From(alpineImage).
@@ -570,13 +581,13 @@ func (CacheServiceSuite) TestMetadataOnlyExportServesViaLazyForms(ctx context.Co
 
 // TestSaltPartitionScopesReuse is T-S7's partition half. Engines with
 // different secret salts derive different session-resource handles from
-// the same secret plaintext, and the handle participates in downstream
+// the same URI-secret plaintext, and the handle participates in downstream
 // call identity (content-digest scoping — deliberate, per the reset
 // design). The partition therefore surfaces as a scoped identity miss: the
 // secret-dependent exec recomputes on the warm engine while the non-secret
 // workload still hits.
 //
-// AS-BUILT NOTE (deviation from the T-S9 table's literal text, reported in
+// AS-BUILT NOTE (deviation from the T-S7 row's literal text, reported in
 // the chunk log): the design expected the partition to surface as
 // candidate_ineligible_session_resources at the eligibility filter. As
 // built, salted handles are baked into recipe identity, so a different-salt
@@ -584,6 +595,9 @@ func (CacheServiceSuite) TestMetadataOnlyExportServesViaLazyForms(ctx context.Co
 // never sees them. The typed counter exists and is emitted at the filter
 // (unit-pinned in dagql); this proof asserts the partition through its
 // as-built signature instead: scoped recompute beside non-secret reuse.
+// A second as-built fact this test surfaced: only URI-form secrets salt
+// their handles; setSecret handles are name-scoped and portable, so
+// setSecret-dependent results transfer across engines regardless of salt.
 func (CacheServiceSuite) TestSaltPartitionScopesReuse(ctx context.Context, t *testctx.T) {
 	c := connect(ctx, t)
 	h := newCacheServiceHarness(ctx, t, c)
