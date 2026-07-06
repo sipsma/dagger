@@ -717,6 +717,19 @@ decided in Part II.</p>
   payload-probe convention outright and simplifies list handling. §8 D1's pinned-shape
   paragraph rewritten to match; T5's digest-projection comparison was pinned the same way
   earlier this phase (§8a). Both rulings recorded here for the owner's review.</li>
+  <li><b>Round 18 (2026-07-06, implementation as-built).</b> §8c landed per-result vetting;
+  its review round surfaced that "wipe narrows to exactly two reasons" was too absolute:
+  some import corruption genuinely has no per-result blast radius. As built,
+  <code>import_failure</code> survives for named store-level classes only (each pinned by
+  a wipe test); D2's text updated. The sharpest review catch: §8a's deletion of the
+  stored-term-digest comparison had silently removed an <em>accidental</em> integrity net
+  for broken identity references (a dangling class ID used to produce a digest mismatch →
+  wipe; post-§8a it collapsed to the digest-provenance sentinel and imported as
+  legitimate) — closed with explicit raw referential checks → wipe. Also fixed: wipe paths
+  now sweep owner leases (abort-after-attach could strand them — a pre-existing narrow
+  leak on main, widened by attach-at-vet, now closed on all paths); a latent main panic on
+  out-of-range eq_class_id (unchecked slice index) → bounds-checked wipe. T6 upgraded to
+  per-table count equality over every table.</li>
 </ol>
 </div>
 </details>
@@ -1326,7 +1339,9 @@ persisted digests at boot. The persisted <code>term_digest</code> column is <b>r
 (schema_version bump). Integer IDs stay in the file as ordinary foreign keys, never as
 identity.</li>
 <li><b>Restore becomes per-result vetting</b> with drop-with-dependents; the wholesale
-wipe survives only for <code>schema_mismatch</code> and <code>unclean_shutdown</code>.
+wipe survives for <code>schema_mismatch</code>, <code>unclean_shutdown</code>, and (as
+built) the named store-level import corruptions no result's blast radius can scope,
+which keep the <code>import_failure</code> reason. Per-result damage never wipes.
 This is where the partial-persistence corollary lands.</li>
 <li><b>Flush stops walking value structs:</b> each result serializes from its
 <code>materializationState</code> (§7) instead.</li>
@@ -1593,8 +1608,14 @@ markers; everything else is a per-result decision with an honest blast radius.</
 <p>The mechanics worth pinning: vetting runs <b>dependencies-first</b> (one topological
 pass over <code>result_deps</code>), so "lazy form viable" can require "the results it
 references were kept" without iteration; a dropped result drops its dependents in the same pass (reverse edges);
-<code>import_failure</code> stops being a store-wipe reason — a row that fails to decode
-is just a non-viable result. Two more rules keep salvage <b>deliberately dumb</b>
+<code>import_failure</code> stops firing for per-result damage — a row that fails to
+decode is just a non-viable result. It survives (as built) only for the named
+store-level classes where per-result reasoning has nothing to stand on: SQLite
+table-read errors, broken identity-table references (a nonzero class or term ID that
+resolves to nothing — checked raw, never normalized), zero IDs, snapshot-metadata
+hydration failure, and non-not-found lease-infrastructure errors — each class pinned by
+a wipe test, and every wipe path sweeps the store's owner leases so a wiped store pins
+no snapshots. Two more rules keep salvage <b>deliberately dumb</b>
 (standing rule, lessons L8: corruption is dropped or wiped, never cleverly repaired —
 convoluted corrupt-data handling is where bugs live): a dependency <b>cycle</b> is treated as
 corruption of every result in it — the strongly-connected component drops together, with
@@ -1685,9 +1706,10 @@ non-viable → dropped, along with its two dependents via <code>result_deps</cod
 <b>three rows gone, the store lives</b>. Today: <code>import_failure</code>, total wipe.</li>
 <li><span class="tag">STILL WHOLESALE, ON PURPOSE</span><br>
 <code>schema_mismatch</code> (the format changed — version-bump invalidation is
-sanctioned) and <code>unclean_shutdown</code> (the SQLite state itself is suspect) keep
-the wipe: when the <em>store's</em> integrity is in question, per-result reasoning has
-nothing to stand on.</li>
+sanctioned), <code>unclean_shutdown</code> (the SQLite state itself is suspect), and the
+named store-level <code>import_failure</code> classes (see the pinned mechanics above)
+keep the wipe: when the <em>store's</em> integrity is in question, per-result reasoning
+has nothing to stand on.</li>
 </ol>
 
 <h3>8.4 &nbsp;Implementation shape</h3>
@@ -1718,7 +1740,8 @@ for _, res := range restoredResultsTopoOrder {
 <tr><th>File</th><th></th><th>Change</th></tr>
 <tr><td><code>dagql/cache_persistence_import.go</code></td><td><span class="chip modf">MOD</span></td>
 <td>Class rebuild from digests + term-key recomputation (D1); dependencies-first vetting
-with drop-with-dependents (D2); <code>import_failure</code> no longer a reset reason.</td></tr>
+with drop-with-dependents (D2); <code>import_failure</code> narrowed to the named
+store-level classes.</td></tr>
 <tr><td><code>dagql/cache_persistence_self.go</code></td><td><span class="chip modf">MOD</span></td>
 <td>Encode reads <code>materializationState</code>; records BOTH forms when both exist,
 the recipe fragment having been captured at publication (D1);
@@ -1729,7 +1752,7 @@ the recipe fragment having been captured at publication (D1);
 <tr><td><code>dagql/cache_persistence_worker.go</code></td><td><span class="chip modf">MOD</span></td>
 <td>Flush writes R10 self-check counts alongside the markers.</td></tr>
 <tr><td><code>engine/server/server.go</code></td><td><span class="chip modf">MOD</span></td>
-<td><code>initLocalCacheState</code> reset loop narrowed to the two store-level reasons.</td></tr>
+<td><code>initLocalCacheState</code> reset loop: per-result damage no longer resets.</td></tr>
 <tr><td><code>dagql/persistdb/schema.sql</code></td><td><span class="chip modf">MOD</span></td>
 <td>No new tables for sources (Fact 1); <code>meta</code> gains the R10 count keys;
 <code>terms.term_digest</code> column <b>removed</b> (schema_version bump).</td></tr>
@@ -2123,7 +2146,7 @@ Step-0 gate:
 both forms when both exist; retire value-harvesting. Gate: Step-0 + §8's parity
 predictions.</li>
 <li><b>Vetting &amp; partial restore:</b> dependencies-first vetting, drop-with-dependents,
-wipe narrowed to the two store-level reasons; R10 self-check counts at flush. Gate: T3,
+wipe narrowed to store-level reasons only; R10 self-check counts at flush. Gate: T3,
 T4, T6 + Step-0.</li>
 </ol></li>
 <li><b>§9 — warm serving:</b> the source walk, the demote floor, and the D5 observability
