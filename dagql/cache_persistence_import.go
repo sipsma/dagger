@@ -552,7 +552,6 @@ func persistedEnvelopeObjectTypeNames(env PersistedResultEnvelope, names []strin
 	return names
 }
 
-//nolint:gocyclo // intrinsically long state machine; refactoring would hurt clarity
 func (c *Cache) ensurePersistedHitValueLoaded(ctx context.Context, resolver TypeResolver, hit AnyResult) (AnyResult, error) {
 	if resolver == nil {
 		return nil, fmt.Errorf("ensure persisted hit value loaded: type resolver is nil")
@@ -692,7 +691,7 @@ func (c *Cache) decodeRestoredValueWalk(ctx context.Context, resolver *TypeResol
 			}
 			continue
 		}
-		return fmt.Errorf("%w: result %d: %v", errSourcesExhausted, res.id, err)
+		return fmt.Errorf("%w: result %d: %w", errSourcesExhausted, res.id, err)
 	}
 }
 
@@ -732,25 +731,35 @@ func (c *Cache) decodeRestoredValueOnce(ctx context.Context, resolver *TypeResol
 	}
 
 	res.payloadMu.Lock()
+	decodeWon := false
 	if !res.materialization.realized && res.materialization.envelope != nil {
+		decodeWon = true
 		res.self = decoded.Unwrap()
 		res.materialization.realized = true
 		if objDecoded, ok := decoded.(AnyObjectResult); ok && res.objClass == nil {
 			res.objClass = objDecoded.ObjectType()
 		}
-		decodedShared := decoded.cacheSharedResult()
-		if decodedShared != nil {
+		res.materialization.envelope = nil
+	}
+	res.payloadMu.Unlock()
+	if decodeWon {
+		// The session-resource fields belong to candidate eligibility, which
+		// reads them under the e-graph lock — never under payloadMu (the
+		// established order is egraphMu before payloadMu, so they cannot be
+		// written inside the block above). Import populated both from the
+		// same envelope already; this re-affirms them from the decoded value.
+		if decodedShared := decoded.cacheSharedResult(); decodedShared != nil {
+			c.egraphMu.Lock()
 			res.sessionResourceHandle = decodedShared.sessionResourceHandle
 			if decodedShared.requiredSessionResources != nil {
 				res.requiredSessionResources = decodedShared.requiredSessionResources.Copy()
 			} else if decodedShared.sessionResourceHandle == "" {
 				res.requiredSessionResources = nil
 			}
+			c.egraphMu.Unlock()
 		}
-		res.materialization.envelope = nil
 		c.tracePersistedPayloadDecoded(ctx, res, env)
 	}
-	res.payloadMu.Unlock()
 	if onReleaser, ok := UnwrapAs[OnReleaser](decoded); ok {
 		res.onRelease = joinOnRelease(c.resultSnapshotLeaseCleanup(res), onReleaser.OnRelease)
 	}

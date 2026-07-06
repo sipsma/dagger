@@ -3,6 +3,7 @@ package dagql
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -46,14 +47,42 @@ func (obj *matSnapOnlyObj) EncodePersistedObject(ctx context.Context, cache Pers
 	}, nil
 }
 
-func (*matSnapOnlyObj) DecodePersistedObject(ctx context.Context, dag *Server, _ uint64, _ *ResultCall, payload json.RawMessage, _ PersistedLazyFragment) (Typed, error) {
-	_ = ctx
+func (*matSnapOnlyObj) DecodePersistedObject(ctx context.Context, dag *Server, resultID uint64, _ *ResultCall, payload json.RawMessage, lazy PersistedLazyFragment) (Typed, error) {
 	_ = dag
+	if err := openTestSnapshotSource(ctx, resultID, lazy); err != nil {
+		return nil, err
+	}
 	var persisted persistedMatSnapOnlyObj
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, err
 	}
 	return &matSnapOnlyObj{Name: persisted.Name}, nil
+}
+
+// openTestSnapshotSource emulates the content types' decode contract: a
+// snapshot link wins and must open, absence falls through to the lazy
+// fragment, and neither is an error.
+func openTestSnapshotSource(ctx context.Context, resultID uint64, lazy PersistedLazyFragment) error {
+	cache, err := EngineCache(ctx)
+	if err != nil {
+		return err
+	}
+	links, err := cache.PersistedSnapshotLinksByResultID(ctx, resultID)
+	if err != nil {
+		return err
+	}
+	if len(links) > 0 {
+		if cache.snapshotManager != nil {
+			if _, err := cache.snapshotManager.GetBySnapshotID(ctx, links[0].RefKey); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if len(lazy.JSON) > 0 {
+		return nil
+	}
+	return fmt.Errorf("decode test payload %d: missing snapshot and lazy fragment", resultID)
 }
 
 // newVettingTestServer serves a both-forms object (snapshot link + lazy

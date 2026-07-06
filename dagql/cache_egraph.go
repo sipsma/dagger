@@ -914,37 +914,8 @@ func (c *Cache) lookupCacheForRequest(
 
 	loadedHit, err := c.ensurePersistedHitValueLoaded(ctx, resolver, retRes)
 	if err != nil {
-		c.egraphMu.Lock()
-		c.sessionMu.Lock()
-		if resultIDs := c.sessionResultIDsBySession[sessionID]; resultIDs != nil {
-			delete(resultIDs, hitShared.id)
-			if len(resultIDs) == 0 {
-				delete(c.sessionResultIDsBySession, sessionID)
-			}
-		}
-		c.sessionMu.Unlock()
-		queue := []*sharedResult(nil)
-		var decErr error
-		if !alreadyTracked {
-			queue, decErr = c.decrementIncomingOwnershipLocked(ctx, hitShared, nil)
-		}
-		collectReleases, collectErr := c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
-		c.egraphMu.Unlock()
-		releaseErr := runOnReleaseFuncs(context.WithoutCancel(ctx), collectReleases)
-		if errors.Is(err, errSourcesExhausted) {
-			// The hit cannot deliver: demote it to a miss. The exhausted
-			// result drops — with its dependents — and this same invocation
-			// proceeds to execute live, publish, and re-teach equivalence,
-			// healing the store.
-			c.classifyServeOutcome(ctx, cacheServeDemotedToMiss, hitShared.loadResultCall(), hitShared.id)
-			c.traceHitDemotedToMiss(ctx, hitShared, err)
-			demoteErr := errors.Join(decErr, collectErr, releaseErr, c.dropExhaustedResult(ctx, hitShared))
-			if demoteErr != nil {
-				return nil, false, demoteErr
-			}
-			return nil, false, nil
-		}
-		return nil, false, errors.Join(err, decErr, collectErr, releaseErr)
+		demoted, hitErr := c.releaseFailedHit(ctx, sessionID, hitShared, alreadyTracked, err)
+		return nil, false, ifNotDemoted(demoted, hitErr)
 	}
 
 	if c.traceEnabled() {

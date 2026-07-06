@@ -91,8 +91,14 @@ func (*fakeSnapshotManager) Get(context.Context, string, ...bkcache.RefOption) (
 	panic("unexpected Get call")
 }
 
-func (*fakeSnapshotManager) GetBySnapshotID(context.Context, string, ...bkcache.RefOption) (bkcache.ImmutableRef, error) {
-	panic("unexpected GetBySnapshotID call")
+func (m *fakeSnapshotManager) GetBySnapshotID(_ context.Context, snapshotID string, _ ...bkcache.RefOption) (bkcache.ImmutableRef, error) {
+	if m.missingSnapshots == nil {
+		panic("unexpected GetBySnapshotID call")
+	}
+	if _, missing := m.missingSnapshots[snapshotID]; missing {
+		return nil, fmt.Errorf("snapshot %q: %w", snapshotID, cerrdefs.ErrNotFound)
+	}
+	return nil, nil
 }
 
 func (*fakeSnapshotManager) Scratch(context.Context) (bkcache.ImmutableRef, error) {

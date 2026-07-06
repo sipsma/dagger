@@ -3279,7 +3279,18 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 	shared.materializeErr = nil
 	shared.materializeMu.Unlock()
 
-	go func() {
+	go c.runDeferredWork(evalCtx, shared, resultCall, lazyEval, waitCh)
+
+	return c.waitForLazyEvaluation(stackCtx, shared, waitCh)
+}
+
+// runDeferredWork is the deferred-work phase of the materialization
+// protocol: it runs the result's pending lazy work on a caller-detached
+// context with resume-span attribution, classifies a permanent failure of
+// restored work as retained-source exhaustion (dropping the result), and
+// completes the wait protocol for every current waiter.
+func (c *Cache) runDeferredWork(evalCtx context.Context, shared *sharedResult, resultCall *ResultCall, lazyEval LazyEvalFunc, waitCh chan struct{}) {
+	{
 		callbackCtx := evalCtx
 		var resumeSpan trace.Span
 		if clientMD, err := engine.ClientMetadataFromContext(evalCtx); err == nil && clientMD.SessionID != "" {
@@ -3361,7 +3372,7 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 			if dropErr != nil {
 				err = errors.Join(err, dropErr)
 			}
-			err = fmt.Errorf("%w: result %d deferred work: %v", errSourcesExhausted, shared.id, err)
+			err = fmt.Errorf("%w: result %d deferred work: %w", errSourcesExhausted, shared.id, err)
 		}
 
 		shared.materializeMu.Lock()
@@ -3379,9 +3390,7 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 		shared.materializeMu.Unlock()
 
 		close(waitCh)
-	}()
-
-	return c.waitForLazyEvaluation(stackCtx, shared, waitCh)
+	}
 }
 
 func (c *Cache) Close(ctx context.Context) error {
@@ -4114,42 +4123,53 @@ func (c *Cache) lookupCacheForDigests(
 
 	loadedHit, err := c.ensurePersistedHitValueLoaded(ctx, resolver, retRes)
 	if err != nil {
-		c.egraphMu.Lock()
-		c.sessionMu.Lock()
-		if resultIDs := c.sessionResultIDsBySession[sessionID]; resultIDs != nil {
-			delete(resultIDs, hitShared.id)
-			if len(resultIDs) == 0 {
-				delete(c.sessionResultIDsBySession, sessionID)
-			}
-		}
-		c.sessionMu.Unlock()
-		queue := []*sharedResult(nil)
-		var decErr error
-		if !alreadyTracked {
-			queue, decErr = c.decrementIncomingOwnershipLocked(ctx, hitShared, nil)
-		}
-		collectReleases, collectErr := c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
-		c.egraphMu.Unlock()
-		releaseErr := runOnReleaseFuncs(context.WithoutCancel(ctx), collectReleases)
-		if errors.Is(err, errSourcesExhausted) {
-			// The hit cannot deliver: demote it to a miss. The exhausted
-			// result drops — with its dependents — and this same invocation
-			// proceeds to execute live, publish, and re-teach equivalence,
-			// healing the store.
-			c.classifyServeOutcome(ctx, cacheServeDemotedToMiss, hitShared.loadResultCall(), hitShared.id)
-			c.traceHitDemotedToMiss(ctx, hitShared, err)
-			demoteErr := errors.Join(decErr, collectErr, releaseErr, c.dropExhaustedResult(ctx, hitShared))
-			if demoteErr != nil {
-				return nil, false, demoteErr
-			}
-			return nil, false, nil
-		}
-		return nil, false, errors.Join(err, decErr, collectErr, releaseErr)
+		demoted, hitErr := c.releaseFailedHit(ctx, sessionID, hitShared, alreadyTracked, err)
+		return nil, false, ifNotDemoted(demoted, hitErr)
 	}
 	if c.traceEnabled() {
 		c.traceSessionResultTracked(ctx, sessionID, loadedHit, true, trackedCount)
 	}
 	return loadedHit, true, nil
+}
+
+// releaseFailedHit undoes a hit's session tracking after its value failed to
+// materialize. Source exhaustion is consumed here: the exhausted result
+// drops — with its dependents — and the invocation proceeds as a miss,
+// executing live, publishing, and re-teaching equivalence to heal the
+// store. Any other failure propagates.
+func (c *Cache) releaseFailedHit(ctx context.Context, sessionID string, hitShared *sharedResult, alreadyTracked bool, err error) (demoted bool, rerr error) {
+	c.egraphMu.Lock()
+	c.sessionMu.Lock()
+	if resultIDs := c.sessionResultIDsBySession[sessionID]; resultIDs != nil {
+		delete(resultIDs, hitShared.id)
+		if len(resultIDs) == 0 {
+			delete(c.sessionResultIDsBySession, sessionID)
+		}
+	}
+	c.sessionMu.Unlock()
+	queue := []*sharedResult(nil)
+	var decErr error
+	if !alreadyTracked {
+		queue, decErr = c.decrementIncomingOwnershipLocked(ctx, hitShared, nil)
+	}
+	collectReleases, collectErr := c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
+	c.egraphMu.Unlock()
+	releaseErr := runOnReleaseFuncs(context.WithoutCancel(ctx), collectReleases)
+	if errors.Is(err, errSourcesExhausted) {
+		c.classifyServeOutcome(ctx, cacheServeDemotedToMiss, hitShared.loadResultCall(), hitShared.id)
+		c.traceHitDemotedToMiss(ctx, hitShared, err)
+		return true, errors.Join(decErr, collectErr, releaseErr, c.dropExhaustedResult(ctx, hitShared))
+	}
+	return false, errors.Join(err, decErr, collectErr, releaseErr)
+}
+
+// ifNotDemoted keeps a consumed demote silent: a demoted hit with clean
+// bookkeeping returns no error so the invocation proceeds as a miss.
+func ifNotDemoted(demoted bool, err error) error {
+	if demoted && err == nil {
+		return nil
+	}
+	return err
 }
 
 func (c *Cache) wait(
