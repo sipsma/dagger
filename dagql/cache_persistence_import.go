@@ -674,6 +674,15 @@ func (c *Cache) decodeRestoredValueWalk(ctx context.Context, resolver TypeResolv
 		// content decoders are told so explicitly. They must never infer
 		// retirement from raw link absence: legitimate shapes (pending
 		// values, config-only values) are link-less too.
+		//
+		// The prior-boot case works because this shape doubles as the
+		// durable retirement record: content-bearing completed publications
+		// always write their snapshot links, so a completed row holding
+		// content and a fragment but no snapshot source can only have been
+		// retired. Anyone building a producer whose COMPLETED values
+		// legitimately never have snapshot links must add an explicit
+		// persisted retirement marker first — the home's shape stops being
+		// unambiguous the moment such a producer exists.
 		if res.loadLazyFragment() != nil && len(res.loadSnapshotOwnerLinks()) == 0 {
 			attemptCtx = contextWithRetiredSnapshotSource(ctx, uint64(res.id))
 		}

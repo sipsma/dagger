@@ -1652,6 +1652,14 @@ func (*Container) DecodePersistedObject(ctx context.Context, dag *dagql.Server, 
 	// the retained inputs on first use. The retained-source walk states the
 	// retirement explicitly; inferring it from link absence is forbidden,
 	// since link-less containers also occur legitimately.
+	//
+	// The walk's statement covers prior-boot retirement too, because it can
+	// read retirement off the persisted shape: completed content-bearing
+	// publications always write snapshot links. Anyone building a producer
+	// whose COMPLETED values legitimately never have snapshot links must
+	// add an explicit persisted retirement marker before shipping it — that
+	// shape-based record stops being unambiguous the moment such a producer
+	// exists.
 	rebuildFromFragment := !persisted.Pending && len(lazy.JSON) > 0 && dagql.SnapshotSourceRetired(ctx, resultID)
 	hollow := persisted.Pending || rebuildFromFragment
 

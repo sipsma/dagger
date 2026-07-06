@@ -895,6 +895,7 @@ func (c *Cache) dropExhaustedResult(ctx context.Context, res *sharedResult) erro
 		queue   []*sharedResult
 		rerr    error
 	)
+	droppedLinks := map[*sharedResult][]PersistedSnapshotRefLink{}
 	c.egraphMu.Lock()
 	seen := map[sharedResultID]struct{}{}
 	pending := []*sharedResult{res}
@@ -930,6 +931,21 @@ func (c *Cache) dropExhaustedResult(ctx context.Context, res *sharedResult) erro
 			queue = append(queue, q...)
 			rerr = errors.Join(rerr, err)
 		}
+		// Deindexing removes the row from recipe lookups, but result-ID
+		// handles still reach it directly. An undecoded dropped row must
+		// refuse those touches through the exhaustion machinery, not attempt
+		// a decode its sources can no longer back — so the envelope and the
+		// retained sources go too, leaving the state with nothing to deliver
+		// (servable() false). A realized target keeps its value: holders in
+		// flight stay usable. The links come out with the sources here; the
+		// lease removal below works from this capture.
+		target.payloadMu.Lock()
+		if !target.materialization.realized {
+			target.materialization.envelope = nil
+		}
+		droppedLinks[target] = target.materialization.localSnapshotLinks()
+		target.materialization.sources = nil
+		target.payloadMu.Unlock()
 	}
 	collectReleases, collectErr := c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
 	rerr = errors.Join(rerr, collectErr)
@@ -940,8 +956,7 @@ func (c *Cache) dropExhaustedResult(ctx context.Context, res *sharedResult) erro
 	// once those release.
 	if c.snapshotManager != nil {
 		for _, target := range targets {
-			links := target.loadSnapshotOwnerLinks()
-			target.storeSnapshotOwnerLinks(nil)
+			links := droppedLinks[target]
 			seenLeases := make(map[string]struct{}, len(links))
 			for _, link := range links {
 				leaseID := resultSnapshotLeaseID(target.id, link.Role)
