@@ -1645,11 +1645,14 @@ func (*Container) DecodePersistedObject(ctx context.Context, dag *dagql.Server, 
 	if err != nil {
 		return nil, err
 	}
-	// A completed container whose snapshots are gone (the walk retires them
-	// on external loss) rebuilds through its lazy fragment: decode hollow —
-	// exactly the pending shape — and re-attach the fragment as live work,
-	// which re-derives the content from the retained inputs on first use.
-	rebuildFromFragment := !persisted.Pending && len(lazy.JSON) > 0 && len(links) == 0
+	// A completed container whose snapshot source was retired (external loss
+	// after boot, or boot vetting found the snapshots gone) rebuilds through
+	// its lazy fragment: decode hollow — exactly the pending shape — and
+	// re-attach the fragment as live work, which re-derives the content from
+	// the retained inputs on first use. The retained-source walk states the
+	// retirement explicitly; inferring it from link absence is forbidden,
+	// since link-less containers also occur legitimately.
+	rebuildFromFragment := !persisted.Pending && len(lazy.JSON) > 0 && dagql.SnapshotSourceRetired(ctx, resultID)
 	hollow := persisted.Pending || rebuildFromFragment
 
 	fs := new(LazyAccessor[*Directory, *Container])

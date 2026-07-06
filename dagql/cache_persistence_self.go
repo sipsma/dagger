@@ -97,6 +97,27 @@ type PersistedObjectDecoder interface {
 	DecodePersistedObject(context.Context, *Server, uint64, *ResultCall, json.RawMessage, PersistedLazyFragment) (Typed, error)
 }
 
+// retiredSnapshotSourceCtxKey marks a decode attempt that is deliberately
+// running against a result's lazy fragment because its snapshot source is
+// retired. The value is the result ID the fact applies to, so the mark
+// cannot leak into nested loads of other results.
+type retiredSnapshotSourceCtxKey struct{}
+
+func contextWithRetiredSnapshotSource(ctx context.Context, resultID uint64) context.Context {
+	return context.WithValue(ctx, retiredSnapshotSourceCtxKey{}, resultID)
+}
+
+// SnapshotSourceRetired reports whether the retained-source walk retired the
+// given result's snapshot source for the current decode attempt (or found it
+// already retired by boot vetting or a prior boot). Content decoders whose
+// completed form can be rebuilt from the lazy fragment must gate that
+// rebuild on this fact — never on the absence of snapshot links, which
+// legitimate shapes (pending values, config-only values) share.
+func SnapshotSourceRetired(ctx context.Context, resultID uint64) bool {
+	id, ok := ctx.Value(retiredSnapshotSourceCtxKey{}).(uint64)
+	return ok && id == resultID
+}
+
 // PersistedSelfCodec is the shared interface used to encode/decode result self
 // payloads for disk persistence.
 type PersistedSelfCodec interface {

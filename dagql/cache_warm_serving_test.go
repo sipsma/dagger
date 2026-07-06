@@ -3,10 +3,13 @@ package dagql
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/vektah/gqlparser/v2/ast"
 	"gotest.tools/v3/assert"
@@ -256,4 +259,497 @@ func TestWarmServingSparseHydration(t *testing.T) {
 	assert.Equal(t, 1, realizedObjects, "only the demanded object result may realize")
 	assert.Equal(t, uint64(res.cacheSharedResult().id), realizedID)
 	cacheTestReleaseSession(t, cache, rootCtx)
+}
+
+// testSharedResultByID fetches the live shared result for a persisted row so
+// surface tests can hand the cache a result handle directly.
+func testSharedResultByID(c *Cache, id uint64) *sharedResult {
+	c.egraphMu.RLock()
+	defer c.egraphMu.RUnlock()
+	return c.resultsByID[sharedResultID(id)]
+}
+
+func pollMaterializeWaiters(t *testing.T, res *sharedResult, want int) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		res.materializeMu.Lock()
+		got := res.materializeWaiters
+		res.materializeMu.Unlock()
+		if got == want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %d materialize waiters (have %d)", want, got)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func pollMaterializeIdle(t *testing.T, res *sharedResult) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		res.materializeMu.Lock()
+		idle := res.materializeWaitCh == nil
+		res.materializeMu.Unlock()
+		if idle {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for the materialize runner to go idle")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// matGateObj's decode blocks on a per-name gate so cancellation tests can
+// hold a decode in flight and observe the runner's context.
+type matGateObj struct {
+	Name string
+}
+
+type matGateHooks struct {
+	started chan struct{}
+	release chan struct{}
+	runs    atomic.Int32
+	cancels atomic.Int32
+}
+
+var matGateRegistry sync.Map // object name -> *matGateHooks
+
+func (*matGateObj) Type() *ast.Type {
+	return &ast.Type{
+		NamedType: "MatGateObj",
+		NonNull:   true,
+	}
+}
+
+func (obj *matGateObj) EncodePersistedObject(ctx context.Context, cache PersistedObjectCache) (PersistedObjectEncoding, error) {
+	_ = ctx
+	_ = cache
+	payload, err := json.Marshal(persistedMatHomeObj{Name: obj.Name})
+	if err != nil {
+		return PersistedObjectEncoding{}, err
+	}
+	return PersistedObjectEncoding{JSON: payload}, nil
+}
+
+func (*matGateObj) DecodePersistedObject(ctx context.Context, dag *Server, resultID uint64, _ *ResultCall, payload json.RawMessage, _ PersistedLazyFragment) (Typed, error) {
+	_ = dag
+	_ = resultID
+	var persisted persistedMatHomeObj
+	if err := json.Unmarshal(payload, &persisted); err != nil {
+		return nil, err
+	}
+	if h, ok := matGateRegistry.Load(persisted.Name); ok {
+		hooks := h.(*matGateHooks)
+		hooks.runs.Add(1)
+		select {
+		case hooks.started <- struct{}{}:
+		default:
+		}
+		select {
+		case <-hooks.release:
+		case <-ctx.Done():
+			hooks.cancels.Add(1)
+			return nil, context.Cause(ctx)
+		}
+	}
+	return &matGateObj{Name: persisted.Name}, nil
+}
+
+func newMatGateTestServer(name string) *Server {
+	srv, err := NewServer(context.Background(), &persistCodecRoot{})
+	if err != nil {
+		panic(err)
+	}
+	srv.InstallObject(NewClass(srv, ClassOpts[*matGateObj]{}))
+	Fields[*persistCodecRoot]{
+		NodeFunc("gateObj", func(ctx context.Context, _ ObjectResult[*persistCodecRoot], _ struct{}) (ObjectResult[*matGateObj], error) {
+			return NewObjectResultForCurrentCall(ctx, srv, &matGateObj{Name: name})
+		}).IsPersistable(),
+	}.Install(srv)
+	return srv
+}
+
+func seedGateStore(t *testing.T, ctx context.Context, dbPath, name string) uint64 {
+	t.Helper()
+	cache, err := NewCache(ctx, dbPath, nil, nil)
+	assert.NilError(t, err)
+	srv := newMatGateTestServer(name)
+	rootCtx := vettingRootCtx(ctx, cache, srv)
+	res, err := srv.root.Select(rootCtx, srv, Selector{Field: "gateObj"})
+	assert.NilError(t, err)
+	id := uint64(res.cacheSharedResult().id)
+	cacheTestReleaseSession(t, cache, rootCtx)
+	assert.NilError(t, cache.persistCurrentState(ctx))
+	assert.NilError(t, cache.Close(context.Background()))
+	return id
+}
+
+// TestWarmServingDecodeSurvivesFirstDemanderCancel pins the runner's
+// independence from any one demander: the demander that claimed the decode
+// cancels while others wait, the runner keeps going, and the remaining
+// demanders receive the decoded value.
+func TestWarmServingDecodeSurvivesFirstDemanderCancel(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	id := seedGateStore(t, ctx, dbPath, "gate-survive")
+
+	hooks := &matGateHooks{
+		started: make(chan struct{}, 8),
+		release: make(chan struct{}),
+	}
+	matGateRegistry.Store("gate-survive", hooks)
+	defer matGateRegistry.Delete("gate-survive")
+
+	cache, err := NewCache(ctx, dbPath, nil, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, cache.Close(context.Background()))
+	}()
+	shared := testSharedResultByID(cache, id)
+	assert.Assert(t, shared != nil)
+
+	demand := func(demandCtx context.Context, errCh chan<- error) {
+		srv := newMatGateTestServer("gate-survive")
+		rootCtx := vettingRootCtx(demandCtx, cache, srv)
+		res, err := srv.root.Select(rootCtx, srv, Selector{Field: "gateObj"})
+		if err == nil {
+			obj, ok := UnwrapAs[*matGateObj](res.Unwrap())
+			if !ok || obj.Name != "gate-survive" {
+				err = fmt.Errorf("unexpected decoded value")
+			}
+		}
+		errCh <- err
+	}
+
+	firstCtx, cancelFirst := context.WithCancel(ctx)
+	defer cancelFirst()
+	firstErrCh := make(chan error, 1)
+	go demand(firstCtx, firstErrCh)
+	<-hooks.started
+
+	const others = 3
+	otherErrCh := make(chan error, others)
+	for i := 0; i < others; i++ {
+		go demand(ctx, otherErrCh)
+	}
+	pollMaterializeWaiters(t, shared, 1+others)
+
+	cancelFirst()
+	assert.Assert(t, errors.Is(<-firstErrCh, context.Canceled), "the departing demander gets its own cancellation")
+
+	close(hooks.release)
+	for i := 0; i < others; i++ {
+		assert.NilError(t, <-otherErrCh, "demander %d", i)
+	}
+	assert.Equal(t, int32(1), hooks.runs.Load(), "one demander leaving must not restart or kill the decode")
+	assert.Equal(t, int32(0), hooks.cancels.Load(), "the runner must survive a non-final demander's cancellation")
+	cacheTestReleaseSession(t, cache, ctx)
+}
+
+// TestWarmServingDecodeLastDemanderCancelStopsRunner pins the other half of
+// the cancellation contract: when every demander gives up, the last one out
+// cancels the runner, and a later demand retries the decode fresh.
+func TestWarmServingDecodeLastDemanderCancelStopsRunner(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	id := seedGateStore(t, ctx, dbPath, "gate-stop")
+
+	hooks := &matGateHooks{
+		started: make(chan struct{}, 8),
+		release: make(chan struct{}),
+	}
+	matGateRegistry.Store("gate-stop", hooks)
+	defer matGateRegistry.Delete("gate-stop")
+
+	cache, err := NewCache(ctx, dbPath, nil, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, cache.Close(context.Background()))
+	}()
+	shared := testSharedResultByID(cache, id)
+	assert.Assert(t, shared != nil)
+
+	onlyCtx, cancelOnly := context.WithCancel(ctx)
+	defer cancelOnly()
+	errCh := make(chan error, 1)
+	go func() {
+		srv := newMatGateTestServer("gate-stop")
+		rootCtx := vettingRootCtx(onlyCtx, cache, srv)
+		_, err := srv.root.Select(rootCtx, srv, Selector{Field: "gateObj"})
+		errCh <- err
+	}()
+	<-hooks.started
+
+	cancelOnly()
+	assert.Assert(t, errors.Is(<-errCh, context.Canceled))
+	pollMaterializeIdle(t, shared)
+	assert.Equal(t, int32(1), hooks.cancels.Load(), "the last demander out must cancel the runner")
+
+	// A fresh demand retries the decode and succeeds through the open gate.
+	close(hooks.release)
+	srv := newMatGateTestServer("gate-stop")
+	rootCtx := vettingRootCtx(ctx, cache, srv)
+	res, err := srv.root.Select(rootCtx, srv, Selector{Field: "gateObj"})
+	assert.NilError(t, err)
+	obj, ok := UnwrapAs[*matGateObj](res.Unwrap())
+	assert.Assert(t, ok)
+	assert.Equal(t, "gate-stop", obj.Name)
+	assert.Equal(t, int32(2), hooks.runs.Load(), "the retry must run a fresh decode")
+	cacheTestReleaseSession(t, cache, rootCtx)
+}
+
+// TestWarmServingExhaustedAttachDropsAndNormalizes pins the attach surface's
+// exhaustion rule: attaching an exhausted restored result drops it (healing
+// future lookups) and returns an honest error — never the internal sentinel.
+func TestWarmServingExhaustedAttachDropsAndNormalizes(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	uploadID, _ := seedVettingStore(t, ctx, dbPath)
+
+	manager := &fakeSnapshotManager{missingSnapshots: map[string]struct{}{}}
+	cache, err := NewCache(ctx, dbPath, manager, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, cache.Close(context.Background()))
+	}()
+	manager.missingSnapshots["upload-snap"] = struct{}{}
+
+	srv := newVettingTestServer()
+	rootCtx := vettingRootCtx(ctx, cache, srv)
+	corpse := testSharedResultByID(cache, uploadID)
+	assert.Assert(t, corpse != nil)
+
+	_, err = cache.AttachResult(rootCtx, "attach-session", srv, Result[Typed]{shared: corpse})
+	assert.Assert(t, err != nil)
+	assert.Assert(t, !errors.Is(err, errSourcesExhausted), "the exhaustion sentinel must not escape the cache")
+	assert.ErrorContains(t, err, "dropped from the cache")
+
+	// The drop healed the store: the same recipe now misses and executes
+	// live — no demote, because no hit was ever served.
+	res, err := srv.root.Select(rootCtx, srv, Selector{Field: "uploadObj"})
+	assert.NilError(t, err)
+	assert.Assert(t, !res.HitCache())
+	counters := cache.serveStats.byOutcome()
+	assert.Equal(t, int64(0), counters[cacheServeDemotedToMiss]["uploadObj"])
+	cacheTestReleaseSession(t, cache, rootCtx)
+}
+
+// TestWarmServingExhaustedAdoptionDropsAndNormalizes pins the wait surface:
+// a call's function returns an existing cache-backed result that turns out
+// to be an exhausted restored row, publication adopts it, and the post-
+// completion normalization drops it with an honest error instead of leaking
+// the sentinel or leaving the corpse indexed.
+func TestWarmServingExhaustedAdoptionDropsAndNormalizes(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	uploadID, _ := seedVettingStore(t, ctx, dbPath)
+
+	manager := &fakeSnapshotManager{missingSnapshots: map[string]struct{}{}}
+	cache, err := NewCache(ctx, dbPath, manager, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, cache.Close(context.Background()))
+	}()
+	manager.missingSnapshots["upload-snap"] = struct{}{}
+
+	srv := newVettingTestServer()
+	rootCtx := vettingRootCtx(ctx, cache, srv)
+	corpse := testSharedResultByID(cache, uploadID)
+	assert.Assert(t, corpse != nil)
+
+	corpseClass := NewClass(srv, ClassOpts[*matSnapOnlyObj]{})
+	Fields[*persistCodecRoot]{
+		NodeFunc("corpseHandle", func(ctx context.Context, _ ObjectResult[*persistCodecRoot], _ struct{}) (ObjectResult[*matSnapOnlyObj], error) {
+			return ObjectResult[*matSnapOnlyObj]{
+				Result: Result[*matSnapOnlyObj]{shared: corpse},
+				class:  corpseClass,
+			}, nil
+		}).IsPersistable(),
+	}.Install(srv)
+
+	_, err = srv.root.Select(rootCtx, srv, Selector{Field: "corpseHandle"})
+	assert.Assert(t, err != nil)
+	assert.Assert(t, !errors.Is(err, errSourcesExhausted), "the exhaustion sentinel must not escape the cache")
+	assert.ErrorContains(t, err, "dropped from the cache")
+
+	// The drop healed the store for the recipe that owns the content.
+	res, err := srv.root.Select(rootCtx, srv, Selector{Field: "uploadObj"})
+	assert.NilError(t, err)
+	assert.Assert(t, !res.HitCache())
+	cacheTestReleaseSession(t, cache, rootCtx)
+}
+
+// matRetireProbeObj records, per decode attempt, whether the walk stated
+// that its snapshot source is retired — the fact content decoders gate
+// fragment rebuilds on.
+type matRetireProbeObj struct {
+	Name string
+}
+
+type retireProbeRecorder struct {
+	mu    sync.Mutex
+	flags []bool
+}
+
+func (r *retireProbeRecorder) record(v bool) {
+	r.mu.Lock()
+	r.flags = append(r.flags, v)
+	r.mu.Unlock()
+}
+
+func (r *retireProbeRecorder) snapshot() []bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]bool(nil), r.flags...)
+}
+
+var matRetireProbeRegistry sync.Map // object name -> *retireProbeRecorder
+
+func (*matRetireProbeObj) Type() *ast.Type {
+	return &ast.Type{
+		NamedType: "MatRetireProbeObj",
+		NonNull:   true,
+	}
+}
+
+func (obj *matRetireProbeObj) EncodePersistedObject(ctx context.Context, cache PersistedObjectCache) (PersistedObjectEncoding, error) {
+	_ = ctx
+	_ = cache
+	payload, err := json.Marshal(persistedMatHomeObj{Name: obj.Name})
+	if err != nil {
+		return PersistedObjectEncoding{}, err
+	}
+	return PersistedObjectEncoding{
+		JSON: payload,
+		SnapshotLinks: []PersistedSnapshotRefLink{
+			{RefKey: "probe-snap-" + obj.Name, Role: "snapshot"},
+		},
+	}, nil
+}
+
+func (*matRetireProbeObj) EncodePersistedLazyFragment(ctx context.Context, cache PersistedObjectCache) (*PersistedLazyFragment, error) {
+	_ = ctx
+	_ = cache
+	return &PersistedLazyFragment{
+		Kind: "retire-probe-test",
+		JSON: json.RawMessage(`{"kind":"retire-probe-test"}`),
+	}, nil
+}
+
+func (*matRetireProbeObj) DecodePersistedObject(ctx context.Context, dag *Server, resultID uint64, _ *ResultCall, payload json.RawMessage, lazy PersistedLazyFragment) (Typed, error) {
+	_ = dag
+	var persisted persistedMatHomeObj
+	if err := json.Unmarshal(payload, &persisted); err != nil {
+		return nil, err
+	}
+	if r, ok := matRetireProbeRegistry.Load(persisted.Name); ok {
+		r.(*retireProbeRecorder).record(SnapshotSourceRetired(ctx, resultID))
+	}
+	if err := openTestSnapshotSource(ctx, resultID, lazy); err != nil {
+		return nil, err
+	}
+	return &matRetireProbeObj{Name: persisted.Name}, nil
+}
+
+func newRetireProbeServer(name string) *Server {
+	srv, err := NewServer(context.Background(), &persistCodecRoot{})
+	if err != nil {
+		panic(err)
+	}
+	srv.InstallObject(NewClass(srv, ClassOpts[*matRetireProbeObj]{}))
+	Fields[*persistCodecRoot]{
+		NodeFunc("probeObj", func(ctx context.Context, _ ObjectResult[*persistCodecRoot], _ struct{}) (ObjectResult[*matRetireProbeObj], error) {
+			return NewObjectResultForCurrentCall(ctx, srv, &matRetireProbeObj{Name: name})
+		}).IsPersistable(),
+	}.Install(srv)
+	return srv
+}
+
+func seedRetireProbeStore(t *testing.T, ctx context.Context, dbPath, name string) {
+	t.Helper()
+	cache, err := NewCache(ctx, dbPath, nil, nil)
+	assert.NilError(t, err)
+	srv := newRetireProbeServer(name)
+	rootCtx := vettingRootCtx(ctx, cache, srv)
+	_, err = srv.root.Select(rootCtx, srv, Selector{Field: "probeObj"})
+	assert.NilError(t, err)
+	cacheTestReleaseSession(t, cache, rootCtx)
+	assert.NilError(t, cache.persistCurrentState(ctx))
+	assert.NilError(t, cache.Close(context.Background()))
+}
+
+// TestWarmServingRetirementFactReachesDecoders pins the explicit threading
+// of "the snapshot source was retired" from the walk into content decoders,
+// for both retirement moments: a snapshot lost at runtime (first attempt
+// decodes links unmarked, the retry after retirement is marked) and one
+// pruned by boot vetting (the only attempt is marked from the start).
+func TestWarmServingRetirementFactReachesDecoders(t *testing.T) {
+	t.Parallel()
+
+	t.Run("runtime retirement marks the retry", func(t *testing.T) {
+		t.Parallel()
+		ctx := cacheTestContext(t.Context())
+		dbPath := filepath.Join(t.TempDir(), "cache.db")
+		seedRetireProbeStore(t, ctx, dbPath, "rt")
+
+		recorder := &retireProbeRecorder{}
+		matRetireProbeRegistry.Store("rt", recorder)
+		defer matRetireProbeRegistry.Delete("rt")
+
+		manager := &fakeSnapshotManager{missingSnapshots: map[string]struct{}{}}
+		cache, err := NewCache(ctx, dbPath, manager, nil)
+		assert.NilError(t, err)
+		defer func() {
+			assert.NilError(t, cache.Close(context.Background()))
+		}()
+		manager.missingSnapshots["probe-snap-rt"] = struct{}{}
+
+		srv := newRetireProbeServer("rt")
+		rootCtx := vettingRootCtx(ctx, cache, srv)
+		res, err := srv.root.Select(rootCtx, srv, Selector{Field: "probeObj"})
+		assert.NilError(t, err)
+		assert.Assert(t, res.HitCache())
+		assert.DeepEqual(t, []bool{false, true}, recorder.snapshot())
+		cacheTestReleaseSession(t, cache, rootCtx)
+	})
+
+	t.Run("boot-vetted retirement marks the first attempt", func(t *testing.T) {
+		t.Parallel()
+		ctx := cacheTestContext(t.Context())
+		dbPath := filepath.Join(t.TempDir(), "cache.db")
+		seedRetireProbeStore(t, ctx, dbPath, "boot")
+
+		recorder := &retireProbeRecorder{}
+		matRetireProbeRegistry.Store("boot", recorder)
+		defer matRetireProbeRegistry.Delete("boot")
+
+		manager := &fakeSnapshotManager{missingSnapshots: map[string]struct{}{
+			"probe-snap-boot": {},
+		}}
+		cache, err := NewCache(ctx, dbPath, manager, nil)
+		assert.NilError(t, err)
+		defer func() {
+			assert.NilError(t, cache.Close(context.Background()))
+		}()
+
+		srv := newRetireProbeServer("boot")
+		rootCtx := vettingRootCtx(ctx, cache, srv)
+		res, err := srv.root.Select(rootCtx, srv, Selector{Field: "probeObj"})
+		assert.NilError(t, err)
+		assert.Assert(t, res.HitCache())
+		assert.DeepEqual(t, []bool{true}, recorder.snapshot())
+		cacheTestReleaseSession(t, cache, rootCtx)
+	})
 }

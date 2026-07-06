@@ -956,6 +956,25 @@ func (c *Cache) dropExhaustedResult(ctx context.Context, res *sharedResult) erro
 	return errors.Join(rerr, runOnReleaseFuncs(context.WithoutCancel(ctx), collectReleases))
 }
 
+// normalizeExhaustedResultError consumes retained-source exhaustion at
+// surfaces that have no invocation to re-execute (result attachment, wait's
+// post-completion normalization, handle loads). The rule mirrors the demote
+// floor one level down: the exhausted row drops — with its dependents — so
+// future lookups miss and heal, and this use receives an honest error. The
+// sentinel itself never escapes the cache; no caller may observe or match
+// it. Dropping is idempotent, so surfaces downstream of a runner that
+// already dropped are safe to normalize again.
+func (c *Cache) normalizeExhaustedResultError(ctx context.Context, res *sharedResult, err error) error {
+	if err == nil || !errors.Is(err, errSourcesExhausted) {
+		return err
+	}
+	dropErr := c.dropExhaustedResult(ctx, res)
+	return errors.Join(
+		fmt.Errorf("cached result %d can no longer be materialized and was dropped from the cache; retrying will re-execute it (%s)", res.id, err.Error()),
+		dropErr,
+	)
+}
+
 func (c *Cache) removePersistedEdge(ctx context.Context, resultID sharedResultID) (bool, error) {
 	if c == nil || resultID == 0 {
 		return false, nil
@@ -2255,7 +2274,7 @@ func (c *Cache) attachResult(ctx context.Context, sessionID string, resolver Typ
 	if shared.id != 0 {
 		loaded, err := c.ensurePersistedHitValueLoaded(ctx, resolver, res)
 		if err != nil {
-			return nil, fmt.Errorf("attach dependency result: refresh cache-backed value: %w", err)
+			return nil, fmt.Errorf("attach dependency result: refresh cache-backed value: %w", c.normalizeExhaustedResultError(ctx, shared, err))
 		}
 		touchSharedResultLastUsed(shared, time.Now().UnixNano())
 		c.traceAttachResultReusedCacheBacked(ctx, sessionID, shared)
@@ -2326,7 +2345,12 @@ func (c *Cache) attachResult(ctx context.Context, sessionID string, resolver Typ
 	attachedRes := Result[Typed]{shared: oc.res}
 	attached, err := c.ensurePersistedHitValueLoaded(ctx, resolver, attachedRes)
 	if err != nil {
-		return nil, fmt.Errorf("attach dependency result: normalize attached result: %w", err)
+		// Exhaustion cannot actually surface here: a cache-backed input
+		// (shared.id != 0) returned above before reaching this flow, so
+		// initCompletedResult saw a detached value, took its fresh branch,
+		// and left oc.res realized — nothing remains to decode. Normalize
+		// anyway so the sentinel cannot escape if that invariant ever moves.
+		return nil, fmt.Errorf("attach dependency result: normalize attached result: %w", c.normalizeExhaustedResultError(ctx, oc.res, err))
 	}
 	attachedShared := attached.cacheSharedResult()
 	if attachedShared == nil || attachedShared.id == 0 {
@@ -3135,7 +3159,13 @@ func (s resumedCallbackSpan) TracerProvider() trace.TracerProvider {
 	return s.tp
 }
 
-func (c *Cache) waitForLazyEvaluation(ctx context.Context, shared *sharedResult, waitCh chan struct{}) error {
+// waitForMaterialization is the waiter side of the materialization
+// protocol, shared by both phases (restored-value decode and deferred lazy
+// work): waiters are counted, a departing waiter that leaves the runner
+// with no audience cancels it with its own cause, and the last waiter to
+// observe a finished attempt clears the protocol state so the next demand
+// can retry.
+func (c *Cache) waitForMaterialization(ctx context.Context, shared *sharedResult, waitCh chan struct{}) error {
 	var waitErr error
 	select {
 	case <-waitCh:
@@ -3263,7 +3293,7 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 		waitCh := shared.materializeWaitCh
 		shared.materializeWaiters++
 		shared.materializeMu.Unlock()
-		return c.waitForLazyEvaluation(stackCtx, shared, waitCh)
+		return c.waitForMaterialization(stackCtx, shared, waitCh)
 	}
 
 	waitCh := make(chan struct{})
@@ -3281,7 +3311,7 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 
 	go c.runDeferredWork(evalCtx, shared, resultCall, lazyEval, waitCh)
 
-	return c.waitForLazyEvaluation(stackCtx, shared, waitCh)
+	return c.waitForMaterialization(stackCtx, shared, waitCh)
 }
 
 // runDeferredWork is the deferred-work phase of the materialization
@@ -3372,7 +3402,11 @@ func (c *Cache) runDeferredWork(evalCtx context.Context, shared *sharedResult, r
 			if dropErr != nil {
 				err = errors.Join(err, dropErr)
 			}
-			err = fmt.Errorf("%w: result %d deferred work: %w", errSourcesExhausted, shared.id, err)
+			// The waiters get an honest terminal error, not the internal
+			// exhaustion sentinel: deferred-work failures surface through
+			// Evaluate, which has no demote consumer, and the drop above
+			// already did everything the sentinel would ask for.
+			err = fmt.Errorf("restored result %d's deferred work failed permanently and the result was dropped from the cache; retrying will re-execute it: %w", shared.id, err)
 		}
 
 		shared.materializeMu.Lock()
@@ -4303,7 +4337,12 @@ func (c *Cache) wait(
 
 	retResAny, err := c.ensurePersistedHitValueLoaded(ctx, resolver, retRes)
 	if err != nil {
-		return nil, fmt.Errorf("wait: normalize returned result: %w", err)
+		// Reachable for restored rows when the call's function returned an
+		// existing cache-backed result and the canonical pick adopted an
+		// exhausted sibling: there is no fresh value left to fall back to
+		// (adoption discarded it), so this use fails honestly and the drop
+		// heals the next lookup.
+		return nil, fmt.Errorf("wait: normalize returned result: %w", c.normalizeExhaustedResultError(ctx, oc.res, err))
 	}
 	return retResAny, nil
 }

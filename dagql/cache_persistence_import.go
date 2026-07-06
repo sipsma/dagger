@@ -610,42 +610,51 @@ func (c *Cache) ensurePersistedHitValueLoaded(ctx context.Context, resolver Type
 		res.materializeMu.Lock()
 		if res.materializeWaitCh != nil {
 			waitCh := res.materializeWaitCh
+			res.materializeWaiters++
 			res.materializeMu.Unlock()
-
-			select {
-			case <-waitCh:
-			case <-ctx.Done():
-				return nil, context.Cause(ctx)
-			}
-
-			res.materializeMu.Lock()
-			decodeErr := res.materializeErr
-			res.materializeMu.Unlock()
-			if decodeErr != nil {
-				return nil, decodeErr
+			if err := c.waitForMaterialization(ctx, res, waitCh); err != nil {
+				return nil, err
 			}
 			continue
 		}
 
-		res.materializeWaitCh = make(chan struct{})
+		waitCh := make(chan struct{})
+		decodeCtx, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
+		res.materializeWaitCh = waitCh
+		res.materializeCancel = cancel
+		res.materializeWaiters = 1
 		res.materializeErr = nil
 		res.materializeMu.Unlock()
 
-		finishPersistDecode := func(err error) {
-			res.materializeMu.Lock()
-			res.materializeErr = err
-			waitCh := res.materializeWaitCh
-			res.materializeWaitCh = nil
-			res.materializeMu.Unlock()
-			close(waitCh)
-		}
+		go c.runRestoredValueDecode(decodeCtx, resolver, res, state.persistedEnvelope, waitCh)
 
-		err := c.decodeRestoredValueWalk(ctx, &resolver, res, state.persistedEnvelope)
-		finishPersistDecode(err)
-		if err != nil {
+		if err := c.waitForMaterialization(ctx, res, waitCh); err != nil {
 			return nil, err
 		}
 	}
+}
+
+// runRestoredValueDecode is the decode phase's runner: one goroutine per
+// in-flight decode, running the retained-source walk on a context detached
+// from any single demander. Demanders are counted waiters; a demander that
+// gives up while others remain just leaves, the last one to give up cancels
+// the runner with its own cause, and a failed attempt is retried by the
+// next demand once the protocol state clears. This is the same protocol the
+// deferred-work phase runs (runDeferredWork); the two phases never overlap
+// in demand for one result, so they can share the fields.
+func (c *Cache) runRestoredValueDecode(runCtx context.Context, resolver TypeResolver, res *sharedResult, env *PersistedResultEnvelope, waitCh chan struct{}) {
+	err := c.decodeRestoredValueWalk(runCtx, resolver, res, env)
+
+	res.materializeMu.Lock()
+	res.materializeErr = err
+	clearState := res.materializeWaiters == 0 && res.materializeWaitCh == waitCh
+	if clearState {
+		res.materializeWaitCh = nil
+		res.materializeCancel = nil
+		res.materializeErr = nil
+	}
+	res.materializeMu.Unlock()
+	close(waitCh)
 }
 
 // decodeRestoredValueWalk is the value phase of the retained-source walk: it
@@ -654,9 +663,21 @@ func (c *Cache) ensurePersistedHitValueLoaded(ctx context.Context, resolver Type
 // the store (external loss after boot vetting). When no source can deliver,
 // it reports source exhaustion, which the lookup path consumes by demoting
 // the hit to a miss.
-func (c *Cache) decodeRestoredValueWalk(ctx context.Context, resolver *TypeResolver, res *sharedResult, env *PersistedResultEnvelope) error {
+func (c *Cache) decodeRestoredValueWalk(ctx context.Context, resolver TypeResolver, res *sharedResult, env *PersistedResultEnvelope) error {
 	for {
-		err := c.decodeRestoredValueOnce(ctx, resolver, res, env)
+		attemptCtx := ctx
+		// The walk owns source accounting. When the home retains the lazy
+		// fragment but no local-snapshot source — because this walk just
+		// retired a dead snapshot source, or because boot vetting or a prior
+		// boot retired it and the row flushed link-less — the attempt is
+		// deliberately decoding against the fragment, and fragment-capable
+		// content decoders are told so explicitly. They must never infer
+		// retirement from raw link absence: legitimate shapes (pending
+		// values, config-only values) are link-less too.
+		if res.loadLazyFragment() != nil && len(res.loadSnapshotOwnerLinks()) == 0 {
+			attemptCtx = contextWithRetiredSnapshotSource(ctx, uint64(res.id))
+		}
+		err := c.decodeRestoredValueOnce(attemptCtx, resolver, res, env)
 		if err == nil {
 			outcome := cacheServeFromSnapshot
 			if len(res.loadSnapshotOwnerLinks()) == 0 {
@@ -695,12 +716,12 @@ func (c *Cache) decodeRestoredValueWalk(ctx context.Context, resolver *TypeResol
 	}
 }
 
-func (c *Cache) decodeRestoredValueOnce(ctx context.Context, resolver *TypeResolver, res *sharedResult, env *PersistedResultEnvelope) error {
+func (c *Cache) decodeRestoredValueOnce(ctx context.Context, resolver TypeResolver, res *sharedResult, env *PersistedResultEnvelope) error {
 	call := res.loadResultCall()
 	if call == nil {
 		return fmt.Errorf("decode persisted hit payload: missing authoritative call for object result %d", res.id)
 	}
-	decodeResolver := *resolver
+	decodeResolver := resolver
 	seenTypeNames := map[string]struct{}{}
 	for _, typeName := range persistedEnvelopeObjectTypeNames(*env, nil) {
 		if _, seen := seenTypeNames[typeName]; seen {
@@ -763,7 +784,6 @@ func (c *Cache) decodeRestoredValueOnce(ctx context.Context, resolver *TypeResol
 	if onReleaser, ok := UnwrapAs[OnReleaser](decoded); ok {
 		res.onRelease = joinOnRelease(c.resultSnapshotLeaseCleanup(res), onReleaser.OnRelease)
 	}
-	*resolver = decodeResolver
 	if err := c.syncResultSnapshotLeases(ctx, res); err != nil {
 		return fmt.Errorf("sync persisted hit owner leases: %w", err)
 	}
