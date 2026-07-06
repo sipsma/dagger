@@ -143,6 +143,73 @@ schema 19) and this design consumes them as built.
 <button type="button" onclick="setAll(false)">collapse all sections</button>
 </div>
 
+<details class="fold" id="terms" open><summary><h2 style="border-bottom:0; margin:24px 0 8px">Terms and prior work, defined once</h2></summary>
+<p class="pill">Everything below is defined here so every section reads self-contained.
+Skip if you carry the context; return here whenever a term needs grounding.</p>
+<table class="filetbl">
+<tr><th>Term</th><th>Meaning</th></tr>
+<tr><td><b>The engine cache (dagql)</b></td><td>Every Dagger engine's in-memory cache of
+build results: an <b>e-graph</b> (equivalence classes over calls and results — "these two
+recipes produce interchangeable outputs") plus, per result, the value/how-to-remake-it
+state. It persists itself to a SQLite file on clean shutdown and restores at boot.</td></tr>
+<tr><td><b>The reset design / "take 3"</b></td><td>The ratified engine-fundamentals design
+(<code>../reset/design.html</code>): how one engine persists, restores, vets, and serves
+its cache across restarts. Its requirements are cited as R-numbers; the ones used here:
+<b>R4</b> (filesystem content crossing machines is identified by content digests, hashed
+only at export time), <b>R9</b> (exactly one serialization of a result — local disk and
+network transfer share it), <b>R11</b> (everything provable by tests in the open-source
+repo, no cloud stack), <b>R14</b> (engines bulk-import only at boot, before serving),
+<b>R16</b> (a rebooted engine derives identical lookup keys — no timing-dependent cache
+identity). Its process lessons are L-numbers; used here: <b>L3</b> (every review asks
+"should this mechanism exist at all"), <b>L8</b> (corrupt data is dropped or wiped, never
+cleverly repaired).</td></tr>
+<tr><td><b>Chunks A+B (landed)</b></td><td>Engine work already merged into the take-3
+integration branch (persistence schema version 19). <b>Chunk A</b>: the portable
+transfer format ("bundles"), <b>origin identity</b>, and idempotent import. <b>Chunk B</b>:
+content <b>chains</b> and on-demand content download. Both are consumed by this design
+as-built.</td></tr>
+<tr><td><b>Bundle / announcement</b></td><td>One store's cache state serialized portably:
+a small JSON <b>manifest</b> (versions, composer identity, chain + blob listings) plus a
+<b>metadata.db</b> (the same SQLite row encoding local persistence uses, minus
+engine-local rows). An <b>announcement</b> is a bundle an engine sends the manager with
+zero content bytes — metadata and chain listings only.</td></tr>
+<tr><td><b>Origin identity</b></td><td>Every cached result row carries a durable pair
+(the UUID of the store that first created it, its row ID there), minted exactly once and
+preserved verbatim through every export/import hop. Any importer — engine or manager —
+skips rows whose origin it already holds, which is what makes re-import/re-announce add
+zero rows and makes merging safe from compounding duplication.</td></tr>
+<tr><td><b>Chain</b></td><td>The portable identity of one filesystem snapshot: its
+ordered list of layers, each layer a (diff digest, blob digest, size). An engine holding
+a chain can rebuild the snapshot by fetching the listed blobs and applying them in order
+— which it does lazily, on first use, not at import.</td></tr>
+<tr><td><b>Blob / the CAS</b></td><td>A blob is one layer's compressed bytes, named by
+its content digest (sha256). The CAS (content-addressed store) is the manager-side blob
+storage: upload via presigned URLs, verified before recorded present, immutable, served
+back to engines by digest. Deliberately the one opaque layer — bytes are opaque by
+nature.</td></tr>
+<tr><td><b>Scope</b></td><td>The cache-sharing namespace: (organization, scope string —
+by convention the repository). One merged view exists per scope.</td></tr>
+<tr><td><b>Retention roots / persisted edges</b></td><td>The engine cache's "keep this"
+markers: a result with a persisted edge survives (with everything it depends on) until a
+prune policy cuts the edge; everything else is garbage-collectible. The merged view uses
+the same mechanism server-side.</td></tr>
+<tr><td><b>Generation</b></td><td>This design's per-scope version counter: every durable
+mutation of a scope's merged view (ingest, prune, wipe) produces generation N+1. Used
+both as the checkpoint/artifact version and as the fencing token for replica-safe
+writes.</td></tr>
+<tr><td><b>The superseded design</b></td><td>The rejected predecessor
+(<code>../service/design.html</code>, kept as record): a service that stored engines'
+bundles as opaque sealed units and only selected which to serve ("store-and-select").
+Rejected because opacity forbids every intelligent decision this product exists to make.
+Several of its converged <em>mechanisms</em> (the CAS, event log, hardening) re-home
+here; its architecture does not.</td></tr>
+<tr><td><b>wcprof / what-if-cached</b></td><td>A parallel Dagger workstream: engine
+profiling + cache-performance analysis that can estimate, per record, what caching it
+would save across real workloads. Named here because its output is the intended future
+input to the manager's upload/retention decisions (§10).</td></tr>
+</table>
+</details>
+
 <h2 id="goal">1. The goal</h2>
 <p>
 The cache service is <b>a cache manager</b>: the component that holds the cache semantics
@@ -709,6 +776,60 @@ it says nothing about the persistence lifecycle, which is exactly what delta 1 m
 sound.</p>
 
 <h3>6.2 &nbsp;Durability: flush, checkpoint, generation</h3>
+<figure>
+<svg viewBox="0 0 960 330" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Checkpoint and generation lifecycle">
+  <defs>
+    <marker id="ckA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5c6470"/></marker>
+    <marker id="ckG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1a7f4b"/></marker>
+    <marker id="ckR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#b3362c"/></marker>
+  </defs>
+  <rect x="10" y="16" width="185" height="66" rx="9" fill="#e9effc" stroke="#c5d2f0"/>
+  <text x="102" y="42" text-anchor="middle" font-size="12.5" font-weight="700">1 · MUTATE</text>
+  <text x="102" y="60" text-anchor="middle" font-size="10.5" fill="#5c6470">under the scope lease;</text>
+  <text x="102" y="73" text-anchor="middle" font-size="10.5" fill="#5c6470">live DB marker stays DIRTY</text>
+  <line x1="195" y1="49" x2="240" y2="49" stroke="#5c6470" stroke-width="2.2" marker-end="url(#ckA)"/>
+  <rect x="243" y="16" width="185" height="66" rx="9" fill="#e9effc" stroke="#c5d2f0"/>
+  <text x="335" y="36" text-anchor="middle" font-size="12.5" font-weight="700">2 · FLUSH + COPY</text>
+  <text x="335" y="53" text-anchor="middle" font-size="10.5" fill="#5c6470">persist live DB (still dirty);</text>
+  <text x="335" y="66" text-anchor="middle" font-size="10.5" fill="#5c6470">VACUUM INTO → consistent copy</text>
+  <line x1="428" y1="49" x2="473" y2="49" stroke="#5c6470" stroke-width="2.2" marker-end="url(#ckA)"/>
+  <rect x="476" y="16" width="215" height="66" rx="9" fill="#e9effc" stroke="#c5d2f0"/>
+  <text x="583" y="36" text-anchor="middle" font-size="12.5" font-weight="700">3 · CLEAN-MARK THE COPY</text>
+  <text x="583" y="53" text-anchor="middle" font-size="10.5" fill="#5c6470">non-WAL connection; close handles;</text>
+  <text x="583" y="66" text-anchor="middle" font-size="10.5" fill="#5c6470">verify: sidecar-less open reads clean</text>
+  <line x1="691" y1="49" x2="736" y2="49" stroke="#5c6470" stroke-width="2.2" marker-end="url(#ckA)"/>
+  <rect x="739" y="16" width="210" height="66" rx="9" fill="#e9effc" stroke="#c5d2f0"/>
+  <text x="844" y="36" text-anchor="middle" font-size="12.5" font-weight="700">4 · UPLOAD BASE FILE</text>
+  <text x="844" y="53" text-anchor="middle" font-size="10.5" fill="#5c6470">object storage, key = gen N+1</text>
+  <text x="844" y="66" text-anchor="middle" font-size="10.5" fill="#5c6470">(no WAL sidecars, ever)</text>
+  <line x1="844" y1="82" x2="844" y2="122" stroke="#1a7f4b" stroke-width="2.4" marker-end="url(#ckG)"/>
+  <rect x="620" y="126" width="329" height="72" rx="9" fill="#e7f5ec" stroke="#bfe0cc"/>
+  <text x="784" y="148" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1a7f4b">5 · FENCED COMMIT (the only truth switch)</text>
+  <text x="784" y="166" text-anchor="middle" font-size="10.5" fill="#2b2f36">registry row: generation N → N+1, compare-and-swap</text>
+  <text x="784" y="180" text-anchor="middle" font-size="10.5" fill="#2b2f36">on the N the writer read — a stale writer FAILS here</text>
+  <text x="784" y="193" text-anchor="middle" font-size="10.5" fill="#5c6470">only now do the mutation's effects become servable</text>
+
+  <rect x="10" y="126" width="580" height="72" rx="9" fill="#fbeae8" stroke="#e0b6b1"/>
+  <text x="300" y="147" text-anchor="middle" font-size="12" font-weight="700" fill="#b3362c">crash anywhere in 1–4 (or a lost lease at 5)</text>
+  <text x="300" y="165" text-anchor="middle" font-size="10.5" fill="#7a2620">registry still says generation N → previous checkpoint stays authoritative;</text>
+  <text x="300" y="179" text-anchor="middle" font-size="10.5" fill="#7a2620">the abandoned local DB is dirty → the engine code's own unclean rule wipes it at next activation;</text>
+  <text x="300" y="192" text-anchor="middle" font-size="10.5" fill="#7a2620">the engine re-announces later and ingest is origin-idempotent — nothing to repair</text>
+  <line x1="590" y1="162" x2="618" y2="162" stroke="#b3362c" stroke-width="2.2" marker-end="url(#ckR)"/>
+
+  <rect x="10" y="226" width="939" height="84" rx="9" fill="#fff" stroke="#c9ccd2"/>
+  <text x="480" y="248" text-anchor="middle" font-size="12" font-weight="700">why the copy dance exists (the WAL trap)</text>
+  <text x="480" y="267" text-anchor="middle" font-size="10.5" fill="#2b2f36">the live store must stay honestly dirty (its marker protects against its own crashes) — so the clean marker goes into a COPY;</text>
+  <text x="480" y="282" text-anchor="middle" font-size="10.5" fill="#2b2f36">and SQLite in WAL mode parks writes in a -wal sidecar file, so a marker written through a WAL connection is invisible to a base-file-only restore —</text>
+  <text x="480" y="297" text-anchor="middle" font-size="10.5" fill="#2b2f36">hence: mark through a non-WAL connection, close every handle, verify with a fresh sidecar-less open, and only then upload the single base file</text>
+</svg>
+<figcaption>Fig. 3 — One durable mutation, end to end. Steps 1–4 are preparation with no
+externally visible effect; step 5's compare-and-swap is the single instant the scope's
+truth advances. Every crash window falls back to the previous generation.</figcaption>
+</figure>
+
 <ol class="steps">
 <li><span class="tag">MUTATE (under the scope lease)</span><br>
 An ingest (or prune) mutates the live store through the engine code. The live store's
@@ -794,6 +915,54 @@ validated ancestor; chunk D's stat/uploads/complete endpoints survive beneath it
 </div>
 
 <h3>7.1 &nbsp;The protocol</h3>
+<figure>
+<svg viewBox="0 0 960 470" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Negotiate-then-upload sequence">
+  <defs>
+    <marker id="sqA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2757d6"/></marker>
+    <marker id="sqB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#a06000"/></marker>
+  </defs>
+  <text x="140" y="28" text-anchor="middle" font-size="13.5" font-weight="700">ENGINE</text>
+  <text x="480" y="28" text-anchor="middle" font-size="13.5" font-weight="700">CACHE MANAGER</text>
+  <text x="830" y="28" text-anchor="middle" font-size="13.5" font-weight="700">BLOB CAS</text>
+  <line x1="140" y1="38" x2="140" y2="440" stroke="#c9ccd2" stroke-width="2"/>
+  <line x1="480" y1="38" x2="480" y2="440" stroke="#c9ccd2" stroke-width="2"/>
+  <line x1="830" y1="38" x2="830" y2="440" stroke="#c9ccd2" stroke-width="2"/>
+
+  <line x1="140" y1="70" x2="480" y2="70" stroke="#2757d6" stroke-width="2.4" marker-end="url(#sqA)"/>
+  <text x="310" y="60" text-anchor="middle" font-size="11.5" fill="#2757d6">ANNOUNCE: metadata + chain listings, zero content bytes</text>
+  <text x="310" y="84" text-anchor="middle" font-size="10" fill="#5c6470">(version headers asserted first — mismatch is a typed rejection)</text>
+
+  <rect x="368" y="98" width="224" height="118" rx="8" fill="#e7f5ec" stroke="#bfe0cc"/>
+  <text x="480" y="117" text-anchor="middle" font-size="11" font-weight="700" fill="#1a7f4b">under the scope lease:</text>
+  <text x="480" y="134" text-anchor="middle" font-size="10.5" fill="#2b2f36">merge into the view (origin-dedup;</text>
+  <text x="480" y="148" text-anchor="middle" font-size="10.5" fill="#2b2f36">damaged announcement ⇒ rejected whole)</text>
+  <text x="480" y="164" text-anchor="middle" font-size="10.5" fill="#2b2f36">decide uploads: pure fn of</text>
+  <text x="480" y="178" text-anchor="middle" font-size="10.5" fill="#2b2f36">(merged snapshot, CAS inventory, offer)</text>
+  <text x="480" y="194" text-anchor="middle" font-size="10.5" fill="#2b2f36">checkpoint + fenced commit → gen N+1</text>
+  <text x="480" y="209" text-anchor="middle" font-size="10" fill="#5c6470">(Fig. 3 — durable before the reply)</text>
+
+  <line x1="480" y1="232" x2="140" y2="232" stroke="#a06000" stroke-width="2.4" marker-end="url(#sqB)"/>
+  <text x="310" y="222" text-anchor="middle" font-size="11.5" fill="#a06000">"upload THESE": requested digests + presigned targets + counters</text>
+
+  <line x1="140" y1="268" x2="830" y2="268" stroke="#2757d6" stroke-width="2.4" marker-end="url(#sqA)"/>
+  <text x="480" y="258" text-anchor="middle" font-size="11.5" fill="#2757d6">PUT each requested blob (presigned; staging keys; budget-bounded, retry-then-skip)</text>
+
+  <line x1="140" y1="300" x2="480" y2="300" stroke="#2757d6" stroke-width="2.4" marker-end="url(#sqA)"/>
+  <text x="310" y="290" text-anchor="middle" font-size="11.5" fill="#2757d6">complete uploads (signed tokens)</text>
+  <line x1="480" y1="330" x2="830" y2="330" stroke="#a06000" stroke-width="2.4" marker-end="url(#sqB)"/>
+  <text x="655" y="320" text-anchor="middle" font-size="11.5" fill="#a06000">verify size → promote to final key → record verified</text>
+
+  <rect x="30" y="360" width="900" height="70" rx="9" fill="#fff" stroke="#c9ccd2"/>
+  <text x="480" y="381" text-anchor="middle" font-size="11.5" font-weight="700">failure posture, every arrow</text>
+  <text x="480" y="399" text-anchor="middle" font-size="10.5" fill="#2b2f36">lost response ⇒ engine re-announces (a fresh, complete conversation — live origins dedup); skipped/failed blob uploads ⇒ a sparser CAS, legal everywhere;</text>
+  <text x="480" y="414" text-anchor="middle" font-size="10.5" fill="#2b2f36">manager slow/unreachable ⇒ the engine's export budget expires and the run continues untouched — cache traffic never fails a build</text>
+</svg>
+<figcaption>Fig. 4 — Negotiate, then upload. The upload decision happens server-side,
+against the post-merge view, and is durable before the engine hears the answer.</figcaption>
+</figure>
+
 <pre><code><span class="cm">// All under org-token auth; version headers asserted per M8/§12.</span>
 
 POST /v1/scopes/{scope}/announce          <span class="cm">// multipart: manifest + metadata.db (blob-less bundle)</span>
@@ -902,6 +1071,55 @@ code).</li>
 </div>
 
 <h3>8.1 &nbsp;Composition and caching</h3>
+<figure>
+<svg viewBox="0 0 960 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Merged artifact serving flow">
+  <defs>
+    <marker id="svA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5c6470"/></marker>
+    <marker id="svG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1a7f4b"/></marker>
+  </defs>
+  <rect x="10" y="20" width="170" height="60" rx="9" fill="#e9effc" stroke="#c5d2f0"/>
+  <text x="95" y="45" text-anchor="middle" font-size="12" font-weight="700">engine boots:</text>
+  <text x="95" y="63" text-anchor="middle" font-size="10.5" fill="#5c6470">GET scope artifact</text>
+  <line x1="180" y1="50" x2="222" y2="50" stroke="#5c6470" stroke-width="2.2" marker-end="url(#svA)"/>
+  <rect x="225" y="20" width="190" height="60" rx="9" fill="#fff" stroke="#c9ccd2"/>
+  <text x="320" y="41" text-anchor="middle" font-size="11.5" font-weight="700">registry: generation N —</text>
+  <text x="320" y="57" text-anchor="middle" font-size="10.5" fill="#5c6470">artifact for N already</text>
+  <text x="320" y="70" text-anchor="middle" font-size="10.5" fill="#5c6470">published?</text>
+  <line x1="415" y1="38" x2="470" y2="38" stroke="#1a7f4b" stroke-width="2.2" marker-end="url(#svG)"/>
+  <text x="441" y="30" text-anchor="middle" font-size="10" fill="#1a7f4b">yes</text>
+  <rect x="473" y="14" width="200" height="48" rx="9" fill="#e7f5ec" stroke="#bfe0cc"/>
+  <text x="573" y="34" text-anchor="middle" font-size="11.5" font-weight="700" fill="#1a7f4b">307 → the cached artifact</text>
+  <text x="573" y="50" text-anchor="middle" font-size="10.5" fill="#35502f">(one composed file per generation)</text>
+
+  <line x1="320" y1="80" x2="320" y2="118" stroke="#5c6470" stroke-width="2.2" marker-end="url(#svA)"/>
+  <text x="338" y="102" font-size="10" fill="#5c6470">no — compose once</text>
+  <rect x="120" y="122" width="400" height="120" rx="9" fill="#fff" stroke="#9aa1ab"/>
+  <text x="320" y="142" text-anchor="middle" font-size="11.5" font-weight="700">compose, under the scope lease</text>
+  <text x="320" y="161" text-anchor="middle" font-size="10.5" fill="#2b2f36">re-read the registry (compose the CURRENT generation)</text>
+  <text x="320" y="177" text-anchor="middle" font-size="10.5" fill="#2b2f36">export the merged store's retained closure → staging object</text>
+  <text x="320" y="193" text-anchor="middle" font-size="10.5" fill="#2b2f36">VERIFY BY ROUND-TRIP: import it into a throwaway store —</text>
+  <text x="320" y="207" text-anchor="middle" font-size="10.5" fill="#2b2f36">the same code engines run; counts must match the closure</text>
+  <text x="320" y="226" text-anchor="middle" font-size="10.5" fill="#2b2f36">publish: promote to the generation's key + fenced registry record</text>
+  <line x1="520" y1="182" x2="565" y2="120" stroke="#1a7f4b" stroke-width="2.2" marker-end="url(#svG)"/>
+
+  <rect x="690" y="90" width="260" height="150" rx="9" fill="#e9effc" stroke="#c5d2f0"/>
+  <text x="820" y="112" text-anchor="middle" font-size="11.5" font-weight="700">engine imports it (landed machinery)</text>
+  <text x="820" y="132" text-anchor="middle" font-size="10.5" fill="#2b2f36">one unit, before serving, budget-bounded;</text>
+  <text x="820" y="147" text-anchor="middle" font-size="10.5" fill="#2b2f36">vetting + origin-dedup vs local state;</text>
+  <text x="820" y="162" text-anchor="middle" font-size="10.5" fill="#2b2f36">rows carry chains → content downloads</text>
+  <text x="820" y="177" text-anchor="middle" font-size="10.5" fill="#2b2f36">lazily from the CAS on first use;</text>
+  <text x="820" y="196" text-anchor="middle" font-size="10.5" fill="#7a2620">damaged artifact ⇒ skipped whole,</text>
+  <text x="820" y="211" text-anchor="middle" font-size="10.5" fill="#7a2620">cold boot (honest); import failure</text>
+  <text x="820" y="226" text-anchor="middle" font-size="10.5" fill="#7a2620">never breaks the engine or the build</text>
+  <line x1="673" y1="38" x2="760" y2="88" stroke="#5c6470" stroke-width="2" marker-end="url(#svA)"/>
+</svg>
+<figcaption>Fig. 5 — Serving. Composition happens once per generation and is verified by
+running the importer against it; engines consume it as the single-unit case of the
+machinery they already have.</figcaption>
+</figure>
+
 <ol class="steps">
 <li><span class="tag">REQUEST</span><br>
 <code>GET /v1/scopes/{scope}/artifact</code> (version headers asserted, M8). The registry
@@ -1077,6 +1295,42 @@ by redeploy avoidance.</p>
 </details>
 
 <details class="fold" id="dev" open><summary><h2>13. The dev stack and the test ladder</h2></summary>
+<figure>
+<svg viewBox="0 0 960 340" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Manager-core placement options">
+  <text x="240" y="26" text-anchor="middle" font-size="13.5" font-weight="700" fill="#1a7f4b">OPTION 1 — core in dagger/dagger (PROPOSED)</text>
+  <rect x="15" y="38" width="450" height="180" rx="10" fill="#e7f5ec" stroke="#bfe0cc"/>
+  <text x="240" y="60" text-anchor="middle" font-size="11.5" font-weight="700">open-source: engine/cachemanager</text>
+  <text x="240" y="80" text-anchor="middle" font-size="10.5" fill="#2b2f36">cache semantics ONLY: scope-store lifecycle · ingest+merge ·</text>
+  <text x="240" y="95" text-anchor="middle" font-size="10.5" fill="#2b2f36">compose · prune loop · policy INTERFACE + the trivial v1 policy</text>
+  <text x="240" y="110" text-anchor="middle" font-size="10.5" fill="#2b2f36">— over abstract CAS / checkpoint / registry / event interfaces</text>
+  <rect x="35" y="126" width="410" height="80" rx="8" fill="#fff" stroke="#bfe0cc"/>
+  <text x="240" y="146" text-anchor="middle" font-size="11" font-weight="700" fill="#a06000">proprietary shell (dagger.io)</text>
+  <text x="240" y="164" text-anchor="middle" font-size="10.5" fill="#2b2f36">tenancy · auth · billing · Postgres · real CAS backends ·</text>
+  <text x="240" y="179" text-anchor="middle" font-size="10.5" fill="#2b2f36">HTTP surface · deployment · EVERY smart policy implementation</text>
+  <text x="240" y="194" text-anchor="middle" font-size="10.5" fill="#35502f">(the product feature — analysis-driven decisions — stays proprietary)</text>
+  <text x="240" y="242" text-anchor="middle" font-size="10.5" fill="#35502f">+ in-repo tests exercise the REAL merge/compose semantics (R11)</text>
+  <text x="240" y="257" text-anchor="middle" font-size="10.5" fill="#35502f">+ version skew with the engine impossible by construction</text>
+  <text x="240" y="272" text-anchor="middle" font-size="10.5" fill="#35502f">+ no test-service-vs-real-service drift — same core code</text>
+  <text x="240" y="292" text-anchor="middle" font-size="10.5" fill="#7a2620">− the manager's orchestration shape is public</text>
+
+  <text x="720" y="26" text-anchor="middle" font-size="13.5" font-weight="700" fill="#a06000">OPTION 2 — core in dagger.io</text>
+  <rect x="495" y="38" width="450" height="180" rx="10" fill="#fdf3e0" stroke="#ecd9ac"/>
+  <text x="720" y="60" text-anchor="middle" font-size="11.5" font-weight="700">proprietary: everything above the imported dagql module</text>
+  <text x="720" y="80" text-anchor="middle" font-size="10.5" fill="#2b2f36">dagger.io imports the engine cache code directly and builds</text>
+  <text x="720" y="95" text-anchor="middle" font-size="10.5" fill="#2b2f36">lifecycle/ingest/compose/prune/policy as service code</text>
+  <rect x="515" y="126" width="410" height="80" rx="8" fill="#fff" stroke="#ecd9ac"/>
+  <text x="720" y="146" text-anchor="middle" font-size="11" font-weight="700">open-source keeps only what is landed today</text>
+  <text x="720" y="164" text-anchor="middle" font-size="10.5" fill="#2b2f36">(bundles, origins, chains, import/export — the engine side)</text>
+  <text x="720" y="186" text-anchor="middle" font-size="10.5" fill="#2b2f36">manager behavior testable only via dagger.io's own harnesses</text>
+  <text x="720" y="242" text-anchor="middle" font-size="10.5" fill="#35502f">+ maximal privacy of manager internals</text>
+  <text x="720" y="257" text-anchor="middle" font-size="10.5" fill="#7a2620">− in-repo (R11) coverage of merge semantics impossible —</text>
+  <text x="720" y="272" text-anchor="middle" font-size="10.5" fill="#7a2620">the open repo can't test code it doesn't contain</text>
+  <text x="720" y="292" text-anchor="middle" font-size="10.5" fill="#7a2620">− engine↔manager version alignment becomes cross-repo process</text>
+</svg>
+<figcaption>Fig. 6 — The placement options. The proposal is Option 1; the decision is the
+owner's, and nothing in the rest of the design changes with the answer — only where the
+core package lives and how it is tested.</figcaption>
+</figure>
 <p><b>The load-bearing placement decision — OPEN, awaiting owner ruling (build order
 B′ does not start before it):</b> the proposal is that the <b>manager-core lives in
 dagger/dagger</b> as a Go package (working name <code>engine/cachemanager</code>), with
@@ -1192,6 +1446,66 @@ cold-vs-warm reporting obligations).</p>
 </details>
 
 <details class="fold" id="order" open><summary><h2>15. Build order and salvage consumption</h2></summary>
+<figure>
+<svg viewBox="0 0 960 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Salvage consumption map">
+  <defs>
+    <marker id="slG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1a7f4b"/></marker>
+    <marker id="slR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#b3362c"/></marker>
+  </defs>
+  <text x="180" y="24" text-anchor="middle" font-size="12.5" font-weight="700">what exists today</text>
+  <rect x="15" y="34" width="330" height="64" rx="9" fill="#e7f5ec" stroke="#bfe0cc"/>
+  <text x="180" y="54" text-anchor="middle" font-size="11.5" font-weight="700">chunks A+B — LANDED in the engine</text>
+  <text x="180" y="71" text-anchor="middle" font-size="10.5" fill="#2b2f36">bundles · origin identity · chains · import/export</text>
+  <text x="180" y="86" text-anchor="middle" font-size="10.5" fill="#2b2f36">vetting · idempotence · content download</text>
+  <rect x="15" y="108" width="330" height="56" rx="9" fill="#fff" stroke="#c9ccd2"/>
+  <text x="180" y="128" text-anchor="middle" font-size="11.5" font-weight="700">chunk C — parked branch (engine)</text>
+  <text x="180" y="145" text-anchor="middle" font-size="10.5" fill="#2b2f36">service client · export pipeline · boot wiring ·</text>
+  <text x="180" y="158" text-anchor="middle" font-size="10.5" fill="#2b2f36">test-service + conformance pattern · counters</text>
+  <rect x="15" y="174" width="330" height="56" rx="9" fill="#fff" stroke="#c9ccd2"/>
+  <text x="180" y="194" text-anchor="middle" font-size="11.5" font-weight="700">chunk D — parked branch (dagger.io)</text>
+  <text x="180" y="211" text-anchor="middle" font-size="10.5" fill="#2b2f36">blob CAS backends · signed URLs · staging/promote ·</text>
+  <text x="180" y="224" text-anchor="middle" font-size="10.5" fill="#2b2f36">event log · limits · mounting · startup gates</text>
+  <rect x="15" y="240" width="330" height="52" rx="9" fill="#fff" stroke="#c9ccd2"/>
+  <text x="180" y="260" text-anchor="middle" font-size="11.5" font-weight="700">chunk F — parked branch (dagger.io)</text>
+  <text x="180" y="277" text-anchor="middle" font-size="10.5" fill="#2b2f36">insight APIs · dashboard · event surfaces · indexer</text>
+
+  <line x1="345" y1="66" x2="470" y2="120" stroke="#1a7f4b" stroke-width="2.6" marker-end="url(#slG)"/>
+  <text x="415" y="76" text-anchor="middle" font-size="10" fill="#1a7f4b">as-is</text>
+  <line x1="345" y1="136" x2="470" y2="160" stroke="#1a7f4b" stroke-width="2.2" marker-end="url(#slG)"/>
+  <text x="412" y="136" text-anchor="middle" font-size="10" fill="#1a7f4b">reshape: announce, K=1</text>
+  <line x1="345" y1="202" x2="470" y2="200" stroke="#1a7f4b" stroke-width="2.2" marker-end="url(#slG)"/>
+  <text x="410" y="192" text-anchor="middle" font-size="10" fill="#1a7f4b">CAS verbatim</text>
+  <line x1="345" y1="266" x2="470" y2="238" stroke="#1a7f4b" stroke-width="2.2" marker-end="url(#slG)"/>
+  <text x="415" y="268" text-anchor="middle" font-size="10" fill="#1a7f4b">minus indexer</text>
+
+  <rect x="475" y="100" width="300" height="160" rx="10" fill="#e9effc" stroke="#c5d2f0"/>
+  <text x="625" y="124" text-anchor="middle" font-size="12.5" font-weight="700" fill="#2757d6">THE CACHE MANAGER (this design)</text>
+  <text x="625" y="146" text-anchor="middle" font-size="10.5" fill="#2b2f36">merged view = the landed engine cache code,</text>
+  <text x="625" y="160" text-anchor="middle" font-size="10.5" fill="#2b2f36">operated server-side, durable, per scope</text>
+  <text x="625" y="180" text-anchor="middle" font-size="10.5" fill="#2b2f36">+ negotiate ingest · artifact serving ·</text>
+  <text x="625" y="194" text-anchor="middle" font-size="10.5" fill="#2b2f36">retention · policy hook · insight</text>
+  <text x="625" y="216" text-anchor="middle" font-size="10.5" fill="#5c6470">new code = the manager-core orchestration</text>
+  <text x="625" y="230" text-anchor="middle" font-size="10.5" fill="#5c6470">+ the three small engine deltas (A&prime;)</text>
+
+  <rect x="800" y="120" width="150" height="120" rx="10" fill="#fbeae8" stroke="#e0b6b1"/>
+  <text x="875" y="142" text-anchor="middle" font-size="11.5" font-weight="700" fill="#b3362c">retired</text>
+  <text x="875" y="162" text-anchor="middle" font-size="10" fill="#7a2620">bundle selection</text>
+  <text x="875" y="177" text-anchor="middle" font-size="10" fill="#7a2620">multi-bundle boot loop</text>
+  <text x="875" y="192" text-anchor="middle" font-size="10" fill="#7a2620">per-bundle inventory</text>
+  <text x="875" y="207" text-anchor="middle" font-size="10" fill="#7a2620">bundle-facts indexer</text>
+  <text x="875" y="222" text-anchor="middle" font-size="10" fill="#7a2620">opacity itself</text>
+  <line x1="775" y1="180" x2="798" y2="180" stroke="#b3362c" stroke-width="2.2" marker-end="url(#slR)"/>
+
+  <rect x="15" y="306" width="935" height="42" rx="9" fill="#fff" stroke="#c9ccd2"/>
+  <text x="482" y="324" text-anchor="middle" font-size="10.5" fill="#2b2f36">the economics: the hard, reviewed machinery (identity, merge, chains, CAS, hardening) all survives; what the rejected architecture uniquely owned —</text>
+  <text x="482" y="339" text-anchor="middle" font-size="10.5" fill="#2b2f36">choosing among sealed bundles — is the thin layer that retires. Chunk D/F re-homes carry re-review debt (they never got their post-pause reviews).</text>
+</svg>
+<figcaption>Fig. 7 — Salvage consumption. Detail per row in the table below; the split
+follows the four salvage maps produced at the pause.</figcaption>
+</figure>
+
 <ol>
 <li><b>A′ — engine deltas (dagql/engine, small):</b> the three §6.1 deltas —
 <code>Cache.Checkpoint</code> (WAL-safe clean-marked copy, T-M9), headless chain-size
