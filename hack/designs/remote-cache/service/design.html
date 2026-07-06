@@ -592,6 +592,22 @@ redesign salting — that remains a cloud/tenancy work item.</p>
   contentless decoders. Next for chunk A: rebase onto the integration tip
   (<code>93cc7419a4</code>, post-§9), re-gate, fresh adversarial review, then land per the
   round-6 ruling.</li>
+  <li><b>Round 8 (2026-07-06, implementation as-built — chunk D protocol slice
+  complete).</b> The full §10.1 surface is served (dagger.io branch
+  <code>svc-chunk-d-implementer-207ba9ac</code> @ 34a68d109; 27/27 tests green against
+  migrated Postgres). As-built pins: (1) blob-upload verification is a distinct endpoint,
+  <code>POST /v1/blobs/uploads/complete</code> (sanctioned by the S6 flow; the
+  <code>uploadID</code> is backend-opaque and stateless across replicas — it carries the
+  Namespace finalize handle); (2) the selection preference reading:
+  <b>a store's newest <em>complete</em> bundle wins even when a newer pending exists</b>
+  (the transient-upload-window reading), pinned by test and a one-line change if ever
+  re-read; (3) protocol limits chosen: manifest ≤64 MiB, JSON bodies ≤1 MiB, stat ≤4096
+  digests, completion batch ≤1024, selection limit clamp 32; (4) publish stores the
+  archive before the inventory row + publish event land in one transaction, so a listed
+  bundle always has its archive (a failed insert orphans an archive for future GC, never
+  lists a phantom); (5) protocol wire types live service-side
+  (<code>cacheservice/protocol.go</code>); <code>schemaVersion</code> decodes liberally
+  (string or number) into the opaque TEXT tag.</li>
 </ol>
 </div>
 </details>
