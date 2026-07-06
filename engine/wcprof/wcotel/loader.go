@@ -467,6 +467,9 @@ func Compile(spans []Span) (*Compiled, error) {
 			MetaID:   str.intern(argv),
 			InputsID: str.intern(inputsJSON),
 			ScopeID:  str.intern(scopeJSON),
+			// The E1 lookup-outcome fact (additive attr; the same canonical
+			// encoding the native dump interns).
+			LookupID: str.intern(attrStr(s.Attrs, telemetryattrs.WcprofLookupOutcomeAttr)),
 			StartNS:  int64(s.StartUnixNS) - epoch,
 			EndNS:    int64(s.EndUnixNS) - epoch,
 		})
@@ -485,6 +488,18 @@ func Compile(spans []Span) (*Compiled, error) {
 				// One link per emit-side ident-suppression firing: the tally
 				// is exact, and a lost mark shows as a dropped link (gated).
 				c.SuppressedIdentDerivations++
+				continue
+			}
+			if attrStr(l.Attrs, telemetry.LinkPurposeAttr) == telemetryattrs.LinkPurposeLookupOutcome {
+				// E1 digest-only lookup-outcome fact: mapped to the same
+				// link-event shape the native recorder emits.
+				events = append(events, wcprof.DumpEvent{
+					Type:     "link",
+					LinkKind: wcprof.LinkKindLookupOutcome.String(),
+					ParentID: waiterID,
+					IdentID:  str.intern(attrStr(l.Attrs, telemetryattrs.WcprofLookupDigestAttr)),
+					MetaID:   str.intern(attrStr(l.Attrs, telemetryattrs.WcprofLookupOutcomeAttr)),
+				})
 				continue
 			}
 			if attrStr(l.Attrs, telemetry.LinkPurposeAttr) == telemetryattrs.LinkPurposeForced {

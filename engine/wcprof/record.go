@@ -63,6 +63,18 @@ func CountSuppressedUninstrumentedForcer(ctx context.Context) {
 	}
 }
 
+// CountSuppressedDoNotCacheIdent records that a do-not-cache call's
+// best-effort recipe-digest derivation failed (the E1 companion micro-emit):
+// the call's ident is omitted, so category 7 stays class-level for it. A
+// printed caveat, never a capture refusal, and never an execution change —
+// the derivation error is swallowed here by design. No-op when recording is
+// off for ctx.
+func CountSuppressedDoNotCacheIdent(ctx context.Context) {
+	if r := recorderFor(ctx); r != nil {
+		r.suppressedDoNotCacheIdents.Add(1)
+	}
+}
+
 // SuppressedCounts exposes the emit-side suppression counters (for tests and
 // diagnostics; the dump header carries them for analysis).
 func (r *Recorder) SuppressedCounts() (identDerivations, uninstrumentedForcers uint64) {
@@ -104,6 +116,8 @@ type Op struct {
 	clientID    uint32
 	metaID      uint32
 	inputsID    uint32
+	scopeID     uint32
+	lookupID    uint32
 	startNS     int64
 	outcomeHint Outcome
 }
@@ -207,6 +221,30 @@ func (op *Op) SetInputs(inputs []string) {
 	op.inputsID = op.r.internArgv(inputs)
 }
 
+// SetScopeInputs records the op's scope implicit inputs (the E2 emit): the
+// deliberate cache-key scoping hashed into its recipe digest, as names +
+// empty-value flags. A nil/empty slice records the authoritative absence
+// ("[]"), distinct from never calling this (scope not recorded). Must be
+// called from the goroutine that owns the op, before End.
+func (op *Op) SetScopeInputs(inputs []ScopeInput) {
+	if op == nil {
+		return
+	}
+	if enc := EncodeScopeInputs(inputs); enc != "" {
+		op.scopeID = op.r.Intern(enc)
+	}
+}
+
+// SetLookupOutcome records the E1 lookup-outcome fact on a call op whose
+// cache lookup returned no usable hit (EncodeLookupOutcome's canonical
+// encoding). Must be called from the goroutine that owns the op, before End.
+func (op *Op) SetLookupOutcome(encoded string) {
+	if op == nil || encoded == "" {
+		return
+	}
+	op.lookupID = op.r.Intern(encoded)
+}
+
 // outcomeHint carries an outcome decided mid-op (e.g. joined vs executed),
 // read back by the code that ends the op.
 func (op *Op) SetOutcomeHint(outcome Outcome) {
@@ -261,6 +299,8 @@ func (op *Op) EndWithResult(outcome Outcome, resultID uint64) {
 		ClientID: op.clientID,
 		MetaID:   op.metaID,
 		InputsID: op.inputsID,
+		ScopeID:  op.scopeID,
+		LookupID: op.lookupID,
 		StartNS:  op.startNS,
 		EndNS:    op.r.Now(),
 	})
@@ -388,6 +428,28 @@ func Link(ctx context.Context, kind LinkKind, fromOpID, targetOpID uint64, ident
 		TargetID: targetOpID,
 		IdentID:  r.Intern(ident),
 		ResultID: resultID,
+		StartNS:  now,
+		EndNS:    now,
+	})
+}
+
+// LinkMeta records a link that additionally carries an interned metadata
+// string (MetaID) — the E1 digest-only lookup-outcome fact's shape: ident =
+// the looked-up recipe digest, meta = the canonical lookup-outcome encoding.
+func LinkMeta(ctx context.Context, kind LinkKind, ident, meta string) {
+	r := recorderFor(ctx)
+	if r == nil {
+		return
+	}
+	fromOpID := CurrentOpID(ctx)
+	sh := r.shardFor(fromOpID)
+	now := r.Now()
+	r.append(sh, Event{
+		Type:     EventTypeLink,
+		LinkKind: kind,
+		ParentID: fromOpID,
+		IdentID:  r.Intern(ident),
+		MetaID:   r.Intern(meta),
 		StartNS:  now,
 		EndNS:    now,
 	})

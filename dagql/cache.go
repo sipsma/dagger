@@ -2029,7 +2029,7 @@ func (c *Cache) attachResult(ctx context.Context, sessionID string, resolver Typ
 		requestInputs = append(requestInputs, dig)
 	}
 
-	hitRes, hit, err := c.lookupCacheForRequest(ctx, sessionID, resolver, req, callDigest, requestSelf, requestInputs, requestInputRefs)
+	hitRes, hit, _, err := c.lookupCacheForRequest(ctx, sessionID, resolver, req, callDigest, requestSelf, requestInputs, requestInputRefs)
 	if err != nil {
 		return nil, fmt.Errorf("attach dependency result: %w", err)
 	}
@@ -3771,6 +3771,21 @@ func (c *Cache) getOrInitCallInner(
 		if !req.ResultCall.ProfileSkip {
 			stampOTelCallOutcome(ctx, wcprof.OutcomeDoNotCache)
 		}
+		// E1 companion micro-emit (invalidation-tracing design §4): this
+		// path returns before SetIdent, so category 7 is not
+		// digest-addressable natively — derive and set the ident here,
+		// BEST-EFFORT ONLY when profiling is on: a derivation error is
+		// swallowed for execution (this path has no such failure mode today
+		// and must not gain one) and counted; category 7 then stays
+		// class-level for the call. Zero cost when profiling is off
+		// (profOp is nil).
+		if profOp != nil {
+			if dncDigest, derr := req.deriveRecipeDigest(c); derr == nil {
+				profOp.SetIdent(dncDigest.String())
+			} else {
+				wcprof.CountSuppressedDoNotCacheIdent(ctx)
+			}
+		}
 		val, err := fn(ctx)
 		if err != nil {
 			return nil, err
@@ -3848,6 +3863,17 @@ func (c *Cache) getOrInitCallInner(
 		}
 		profOp.SetInputs(inputs)
 	}
+	if profOp != nil {
+		// E2 scope-kind fact (invalidation-tracing design §4): the call's
+		// scope implicit inputs — the deliberate cache-key scoping already
+		// resolved on the frame — recorded as names + empty-value flags, so
+		// category 1 is native-complete ("deliberately scoped" is the
+		// feature's first-class answer and must not degrade to "scope not
+		// recorded" on the native-first surface). Recorded for EVERY
+		// profiled call (empty list = authoritative absence): the absence
+		// has to be authoritative for the undetermined form to be honest.
+		profOp.SetScopeInputs(scopeInputsOfFrame(req.ResultCall))
+	}
 	if ctx.Value(cacheContextKey{callKey}) != nil {
 		return nil, ErrCacheRecursiveCall
 	}
@@ -3856,7 +3882,20 @@ func (c *Cache) getOrInitCallInner(
 		concurrencyKey: req.ConcurrencyKey,
 	}
 
-	hitRes, hit, err := c.lookupCacheForRequest(ctx, sessionID, resolver, req, callDigest, requestSelf, requestInputs, requestInputRefs)
+	hitRes, hit, lookupMiss, err := c.lookupCacheForRequest(ctx, sessionID, resolver, req, callDigest, requestSelf, requestInputs, requestInputRefs)
+	if lookupMiss != nil {
+		// E1 lookup-outcome fact (invalidation-tracing design §4): this call
+		// performed a lookup and did not get a usable hit — record why,
+		// classified where the engine knows it (the lookup terminals; the
+		// take-3 classifyServeOutcome family's "why" companion). Emitted for
+		// the miss arms AND the hit-unusable arm, before any error return so
+		// persisted_load_failed is never lost.
+		encoded := wcprof.EncodeLookupOutcome(wcprof.LookupEntryRequest, lookupMiss.reason, lookupMiss.inputIdx)
+		profOp.SetLookupOutcome(encoded)
+		if !req.ResultCall.ProfileSkip {
+			stampOTelLookupOutcome(ctx, encoded)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -4017,7 +4056,7 @@ func (c *Cache) lookupCallRequest(
 		requestInputs = append(requestInputs, dig)
 	}
 
-	hitRes, hit, err := c.lookupCacheForRequest(ctx, sessionID, resolver, req, callDigest, requestSelf, requestInputs, requestInputRefs)
+	hitRes, hit, _, err := c.lookupCacheForRequest(ctx, sessionID, resolver, req, callDigest, requestSelf, requestInputs, requestInputRefs)
 	if err != nil {
 		return nil, false, err
 	}
@@ -4053,6 +4092,13 @@ func (c *Cache) lookupCacheForDigests(
 	if hitRes == nil {
 		c.traceLookupMissNoMatch(ctx, recipeDigest.String(), false, -1, "", 0)
 		c.egraphMu.Unlock()
+		// E1 at the DIGEST-ONLY entry (design §2 completeness note (a)):
+		// this entry has no call op of its own, so the fact rides as a
+		// zero-duration link (native) / targetless span link (OTel), keyed
+		// by the looked-up digest — the digest-only path must not produce
+		// unlabeled misses.
+		emitDigestOnlyLookupOutcome(ctx, recipeDigest.String(),
+			classifyLookupMiss(match, match.candidates != nil && !match.candidates.Empty()))
 		return nil, false, nil
 	}
 
@@ -4109,12 +4155,53 @@ func (c *Cache) lookupCacheForDigests(
 		}
 		collectReleases, collectErr := c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
 		c.egraphMu.Unlock()
+		// The hit-unusable arm at the digest-only entry: a selected hit
+		// whose persisted payload failed to load (E1 persisted_load_failed).
+		emitDigestOnlyLookupOutcome(ctx, recipeDigest.String(),
+			lookupMissInfo{reason: wcprof.LookupReasonPersistedLoadFailed, inputIdx: -1})
 		return nil, false, errors.Join(err, decErr, collectErr, runOnReleaseFuncs(context.WithoutCancel(ctx), collectReleases))
 	}
 	if c.traceEnabled() {
 		c.traceSessionResultTracked(ctx, sessionID, loadedHit, true, trackedCount)
 	}
 	return loadedHit, true, nil
+}
+
+// emitDigestOnlyLookupOutcome records the E1 fact for the digest-only
+// lookup entry on both sources: a native link event (ident = the looked-up
+// digest, meta = the canonical encoding) and a targetless OTel span link.
+// Facts, never execution changes; no-ops when neither source is recording.
+func emitDigestOnlyLookupOutcome(ctx context.Context, digestStr string, miss lookupMissInfo) {
+	encoded := wcprof.EncodeLookupOutcome(wcprof.LookupEntryDigestOnly, miss.reason, miss.inputIdx)
+	wcprof.LinkMeta(ctx, wcprof.LinkKindLookupOutcome, digestStr, encoded)
+	stampOTelLookupOutcomeLink(ctx, digestStr, encoded)
+}
+
+// scopeInputsOfFrame extracts the E2 scope-input facts from a call frame's
+// resolved implicit inputs: name + whether the resolved value was the empty
+// string (the engine deliberately not scoping on that path — e.g.
+// container.from's fromSessionScope on a digest-pinned ref). A non-string
+// literal is conservatively non-empty: it contributes SOMETHING to the key,
+// which is the deciding fact. Values are never recorded.
+func scopeInputsOfFrame(frame *ResultCall) []wcprof.ScopeInput {
+	if frame == nil || len(frame.ImplicitInputs) == 0 {
+		return nil
+	}
+	out := make([]wcprof.ScopeInput, 0, len(frame.ImplicitInputs))
+	for _, in := range frame.ImplicitInputs {
+		if in == nil || in.Name == "" {
+			continue
+		}
+		si := wcprof.ScopeInput{Name: in.Name}
+		if in.Value != nil && in.Value.Kind == ResultCallLiteralKindString {
+			si.EmptyValue = in.Value.StringValue == ""
+		}
+		if in.Value == nil {
+			si.EmptyValue = true
+		}
+		out = append(out, si)
+	}
+	return out
 }
 
 func (c *Cache) wait(

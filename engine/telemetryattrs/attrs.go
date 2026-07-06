@@ -120,6 +120,25 @@ const (
 	// LinkPurposeForced link.
 	WcprofForcedDigestAttr = "wcprof.forced.digest"
 
+	// WcprofLookupOutcomeAttr (string) carries the E1 lookup-outcome fact on
+	// a call span whose cache lookup returned no usable hit: the canonical
+	// wcprof.EncodeLookupOutcome encoding "<entry> <reason>[ <inputIdx>]"
+	// (invalidation-tracing design §4). Additive; absent on usable hits,
+	// do-not-cache calls, and pre-E1 traces.
+	WcprofLookupOutcomeAttr = "wcprof.lookup.outcome"
+
+	// LinkPurposeLookupOutcome marks a targetless span link carrying the E1
+	// fact for a DIGEST-ONLY lookup (the ID/recipe-loading entry, which has
+	// no call span of its own): WcprofLookupDigestAttr names the looked-up
+	// recipe digest and WcprofLookupOutcomeAttr the canonical encoding. The
+	// same exact-tally link shape as the suppression counter (loss shows as
+	// dropped links, gated).
+	LinkPurposeLookupOutcome = "lookup_outcome"
+
+	// WcprofLookupDigestAttr (string) is the looked-up recipe digest on a
+	// LinkPurposeLookupOutcome link.
+	WcprofLookupDigestAttr = "wcprof.lookup.digest"
+
 	// LinkPurposeSuppressedIdent marks, once PER FIRING (a targetless span
 	// link, so the count is exact and its loss shows in droppedLinks), that
 	// a lazy evaluation's producer digest could not be derived — its ident

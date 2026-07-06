@@ -35,6 +35,10 @@ type DumpHeader struct {
 	// caveat). Absent (0) on captures from engines predating the counters.
 	SuppressedIdentDerivations      uint64 `json:"suppressed_ident_derivations,omitempty"`
 	SuppressedUninstrumentedForcers uint64 `json:"suppressed_uninstrumented_forcers,omitempty"`
+	// SuppressedDoNotCacheIdents counts do-not-cache calls whose best-effort
+	// ident derivation failed (category 7 stays class-level for them) — a
+	// printed caveat, never a refusal.
+	SuppressedDoNotCacheIdents uint64 `json:"suppressed_dnc_idents,omitempty"`
 	// OpenOps are ops begun but not ended at dump time (e.g. in-flight or
 	// hung work).
 	OpenOps []DumpOpenOp `json:"open_ops,omitempty"`
@@ -77,6 +81,10 @@ type DumpEvent struct {
 	ClientID uint32 `json:"cl,omitempty"`
 	MetaID   uint32 `json:"m,omitempty"`
 	InputsID uint32 `json:"n,omitempty"`
+	// LookupID is an interned canonical lookup-outcome string (the E1
+	// fact, wcprof.EncodeLookupOutcome) on a call op whose cache lookup
+	// returned no usable hit. 0 = no fact.
+	LookupID uint32 `json:"lo,omitempty"`
 	// ScopeID is an interned JSON array describing a call op's scope
 	// implicit inputs (name + recorded-empty-value flag), parsed from the
 	// OTel dag.call payload by the wcotel loader (invalidation-tracing
@@ -116,6 +124,8 @@ func toDumpEvent(ev Event) DumpEvent {
 		ClientID: ev.ClientID,
 		MetaID:   ev.MetaID,
 		InputsID: ev.InputsID,
+		ScopeID:  ev.ScopeID,
+		LookupID: ev.LookupID,
 		StartNS:  ev.StartNS,
 		EndNS:    ev.EndNS,
 	}
@@ -186,6 +196,7 @@ func (r *Recorder) WriteDump(w io.Writer, flush bool) error {
 		OpenOps:                         open,
 		SuppressedIdentDerivations:      r.suppressedIdentDerivations.Load(),
 		SuppressedUninstrumentedForcers: r.suppressedUninstrumentedForcers.Load(),
+		SuppressedDoNotCacheIdents:      r.suppressedDoNotCacheIdents.Load(),
 	}
 
 	bw := bufio.NewWriterSize(w, 1<<20)

@@ -121,6 +121,41 @@ func stampOTelCallOutcome(ctx context.Context, outcome wcprof.Outcome) {
 	span.SetAttributes(attribute.String(telemetryattrs.WcprofCallOutcomeAttr, outcome.String()))
 }
 
+// stampOTelLookupOutcome stamps the E1 lookup-outcome fact on the current
+// call span (the canonical wcprof.EncodeLookupOutcome encoding) — the
+// additive OTel attr half of the emit; the native half is
+// Op.SetLookupOutcome. One value per call span: a call performs at most one
+// lookup.
+func stampOTelLookupOutcome(ctx context.Context, encoded string) {
+	span := trace.SpanFromContext(ctx)
+	if !span.IsRecording() {
+		return
+	}
+	span.SetAttributes(attribute.String(telemetryattrs.WcprofLookupOutcomeAttr, encoded))
+}
+
+// stampOTelLookupOutcomeLink records the E1 fact for a DIGEST-ONLY lookup
+// (which has no call span of its own) as a targetless link on the current
+// span, carrying the looked-up digest and the canonical encoding — the same
+// exact-tally link shape the suppression counter uses (a lost mark shows as
+// a dropped link, gated).
+func stampOTelLookupOutcomeLink(ctx context.Context, digestStr, encoded string) {
+	if !OTelProfActive(ctx) {
+		return
+	}
+	span := trace.SpanFromContext(ctx)
+	if !span.IsRecording() {
+		return
+	}
+	span.AddLink(trace.Link{
+		Attributes: []attribute.KeyValue{
+			attribute.String(telemetry.LinkPurposeAttr, telemetryattrs.LinkPurposeLookupOutcome),
+			attribute.String(telemetryattrs.WcprofLookupDigestAttr, digestStr),
+			attribute.String(telemetryattrs.WcprofLookupOutcomeAttr, encoded),
+		},
+	})
+}
+
 // stampOTelSuppressedIdent records, on the current span, that a lazy
 // evaluation under it could not derive its producer digest, so the ident and
 // any forced fact were omitted — the OTel half of the suppression counter.

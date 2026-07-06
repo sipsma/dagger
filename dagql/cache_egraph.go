@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/dagger/dagger/dagql/call"
+	"github.com/dagger/dagger/engine/wcprof"
 	"github.com/dagger/dagger/util/hashutil"
 	set "github.com/hashicorp/go-set/v3"
 	"github.com/opencontainers/go-digest"
@@ -568,45 +569,61 @@ type lookupMatch struct {
 	candidates            *set.TreeSet[*sharedResult]
 	termDigest            string
 	termSetSize           int
+	// expiredSkipped counts TTL-expired results candidate collection
+	// skipped (E1: the silent drop is now counted so a lookup that missed
+	// ONLY because everything had expired can say so — invalidation-tracing
+	// design §4, categories 5/6 are underivable offline without this).
+	expiredSkipped int
 }
 
 func newSharedResultSet() *set.TreeSet[*sharedResult] {
 	return set.NewTreeSet(compareSharedResults)
 }
 
-func (c *Cache) appendDigestResultsLocked(candidates *set.TreeSet[*sharedResult], dig digest.Digest, nowUnix int64) {
+// appendDigestResultsLocked collects live results indexed under dig,
+// returning how many TTL-expired ones it skipped (E1: counted, not silent).
+func (c *Cache) appendDigestResultsLocked(candidates *set.TreeSet[*sharedResult], dig digest.Digest, nowUnix int64) (expiredSkipped int) {
 	if dig == "" {
-		return
+		return 0
 	}
 	resultSet := c.egraphResultsByDigest[dig.String()]
 	if resultSet == nil {
-		return
+		return 0
 	}
 	for resID := range resultSet.Items() {
 		res := c.resultsByID[resID]
-		if res == nil || c.resultExpiredAtLocked(res, nowUnix) {
+		if res == nil {
+			continue
+		}
+		if c.resultExpiredAtLocked(res, nowUnix) {
+			expiredSkipped++
 			continue
 		}
 		candidates.Insert(res)
 	}
+	return expiredSkipped
 }
 
-func (c *Cache) appendTermSetResultsLocked(candidates *set.TreeSet[*sharedResult], termSet *set.TreeSet[egraphTermID], nowUnix int64) {
+func (c *Cache) appendTermSetResultsLocked(candidates *set.TreeSet[*sharedResult], termSet *set.TreeSet[egraphTermID], nowUnix int64) (expiredSkipped int) {
 	if termSet == nil {
-		return
+		return 0
 	}
 
 	for termID := range termSet.Items() {
 		for resID := range c.termResults[termID] {
 			res := c.resultsByID[resID]
-			if res == nil || c.resultExpiredAtLocked(res, nowUnix) {
+			if res == nil {
+				continue
+			}
+			if c.resultExpiredAtLocked(res, nowUnix) {
+				expiredSkipped++
 				continue
 			}
 			candidates.Insert(res)
 		}
 	}
 	if !candidates.Empty() {
-		return
+		return expiredSkipped
 	}
 
 	seenOutputEqClasses := make(map[eqClassID]struct{}, termSet.Size())
@@ -624,9 +641,10 @@ func (c *Cache) appendTermSetResultsLocked(candidates *set.TreeSet[*sharedResult
 		}
 		seenOutputEqClasses[outputEqID] = struct{}{}
 		for dig := range c.eqClassToDigests[outputEqID] {
-			c.appendDigestResultsLocked(candidates, digest.Digest(dig), nowUnix)
+			expiredSkipped += c.appendDigestResultsLocked(candidates, digest.Digest(dig), nowUnix)
 		}
 	}
+	return expiredSkipped
 }
 
 func (c *Cache) sessionSatisfiesResourceRequirementsLocked(sessionID string, res *sharedResult) bool {
@@ -665,14 +683,14 @@ func (c *Cache) lookupMatchForDigestsLocked(recipeDigest digest.Digest, extraDig
 	}
 
 	candidates := newSharedResultSet()
-	c.appendDigestResultsLocked(candidates, recipeDigest, nowUnix)
+	match.expiredSkipped += c.appendDigestResultsLocked(candidates, recipeDigest, nowUnix)
 	if !candidates.Empty() {
 		match.candidates = candidates
 		match.hitRecipeDigest = true
 		return match
 	}
 	for _, extra := range extraDigests {
-		c.appendDigestResultsLocked(candidates, extra.Digest, nowUnix)
+		match.expiredSkipped += c.appendDigestResultsLocked(candidates, extra.Digest, nowUnix)
 	}
 	if !candidates.Empty() {
 		match.candidates = candidates
@@ -725,7 +743,7 @@ func (c *Cache) lookupMatchForCallLocked(
 			match.termSetSize = termSet.Size()
 		}
 		candidates := newSharedResultSet()
-		c.appendTermSetResultsLocked(candidates, termSet, nowUnix)
+		match.expiredSkipped += c.appendTermSetResultsLocked(candidates, termSet, nowUnix)
 		if !candidates.Empty() {
 			match.candidates = candidates
 		}
@@ -797,9 +815,44 @@ func (c *Cache) removeResultDigestsLocked(resID sharedResultID, outputEqClasses 
 	}
 }
 
+// lookupMissInfo is the E1 lookup-outcome fact for a performed lookup that
+// returned no usable hit (invalidation-tracing design §4): the reason enum
+// value plus the input index for input_unknown. Pure recorded engine state —
+// classified exactly where the engine knows it, at the lookup terminals.
+type lookupMissInfo struct {
+	reason   string
+	inputIdx int
+}
+
+// classifyLookupMiss derives the E1 reason from the lookup's terminal state,
+// precedence = the first terminal reached on the design-§2 decision path:
+// candidates that survived collection but failed session filtering decide
+// session_filtered (the selection terminal); an empty candidate set decides
+// by what the collection recorded, in path order — expired skips (step 2's
+// silent drop, now counted) before the structural abort (input_unknown at
+// step 3) before the term-level distinctions (a matched term whose results
+// are gone vs no matching term at all).
+func classifyLookupMiss(match lookupMatch, candidatesSurvived bool) lookupMissInfo {
+	switch {
+	case candidatesSurvived:
+		return lookupMissInfo{reason: wcprof.LookupReasonSessionFiltered, inputIdx: -1}
+	case match.expiredSkipped > 0:
+		return lookupMissInfo{reason: wcprof.LookupReasonExpired, inputIdx: -1}
+	case match.missingInputIndex >= 0:
+		return lookupMissInfo{reason: wcprof.LookupReasonInputUnknown, inputIdx: match.missingInputIndex}
+	case match.termSetSize > 0:
+		return lookupMissInfo{reason: wcprof.LookupReasonNoLiveCandidate, inputIdx: -1}
+	default:
+		return lookupMissInfo{reason: wcprof.LookupReasonNoMatchingTerm, inputIdx: -1}
+	}
+}
+
 // lookupCacheForRequestLocked checks if the given call ID has an equivalent result in the cache.
 // It first attempts direct digest lookup using the request recipe/extra digests. If that misses,
 // it falls back to the canonical term lookup using (self, input eq-classes).
+//
+// On a miss the returned *lookupMissInfo carries the E1 lookup-outcome fact
+// (nil on a hit).
 //
 // This method assumes egraphMu is already held by the caller.
 func (c *Cache) lookupCacheForRequestLocked(
@@ -810,9 +863,9 @@ func (c *Cache) lookupCacheForRequestLocked(
 	requestSelf digest.Digest,
 	requestInputs []digest.Digest,
 	requestInputRefs []ResultCallStructuralInputRef,
-) (AnyResult, bool, error) {
+) (AnyResult, bool, *lookupMissInfo, error) {
 	if req == nil || req.ResultCall == nil {
-		return nil, false, nil
+		return nil, false, nil, nil
 	}
 	now := time.Now()
 	nowUnix := now.Unix()
@@ -822,7 +875,8 @@ func (c *Cache) lookupCacheForRequestLocked(
 
 	if hitRes == nil {
 		c.traceLookupMissNoMatch(ctx, requestDigest.String(), match.primaryLookupPossible, match.missingInputIndex, match.termDigest, match.termSetSize)
-		return nil, false, nil
+		miss := classifyLookupMiss(match, match.candidates != nil && !match.candidates.Empty())
+		return nil, false, &miss, nil
 	}
 
 	// fast-path: if we got a very simple recipe-digest hit we can skip trying to teach the egraph anything new
@@ -833,7 +887,7 @@ func (c *Cache) lookupCacheForRequestLocked(
 			hitCache: true,
 		}
 		c.traceLookupHit(ctx, requestDigest.String(), hitRes, match.termDigest)
-		return retRes, true, nil
+		return retRes, true, nil, nil
 	}
 
 	// We have a cache hit. Teach this request identity onto the existing shared
@@ -850,14 +904,14 @@ func (c *Cache) lookupCacheForRequestLocked(
 		c.upsertPersistedEdgeLocked(ctx, res, candidateSharedResultExpiryUnix(nowUnix, req.TTL), false)
 	}
 	if err := c.teachResultIdentityLocked(ctx, res, req.ResultCall, requestDigest, requestSelf, requestInputs, requestInputRefs); err != nil {
-		return nil, false, err
+		return nil, false, nil, err
 	}
 	retRes := Result[Typed]{
 		shared:   res,
 		hitCache: true,
 	}
 	c.traceLookupHit(ctx, requestDigest.String(), res, match.termDigest)
-	return retRes, true, nil
+	return retRes, true, nil, nil
 }
 
 func (c *Cache) lookupCacheForRequest(
@@ -869,28 +923,28 @@ func (c *Cache) lookupCacheForRequest(
 	requestSelf digest.Digest,
 	requestInputs []digest.Digest,
 	requestInputRefs []ResultCallStructuralInputRef,
-) (AnyResult, bool, error) {
+) (AnyResult, bool, *lookupMissInfo, error) {
 	if sessionID == "" {
-		return nil, false, errors.New("lookup cache for request: empty session ID")
+		return nil, false, nil, errors.New("lookup cache for request: empty session ID")
 	}
 	if resolver == nil {
-		return nil, false, errors.New("lookup cache for request: type resolver is nil")
+		return nil, false, nil, errors.New("lookup cache for request: type resolver is nil")
 	}
 	if req == nil || req.ResultCall == nil {
-		return nil, false, nil
+		return nil, false, nil, nil
 	}
 
 	c.egraphMu.Lock()
-	retRes, hit, err := c.lookupCacheForRequestLocked(ctx, sessionID, req, requestDigest, requestSelf, requestInputs, requestInputRefs)
+	retRes, hit, miss, err := c.lookupCacheForRequestLocked(ctx, sessionID, req, requestDigest, requestSelf, requestInputs, requestInputRefs)
 	if err != nil || !hit {
 		c.egraphMu.Unlock()
-		return retRes, hit, err
+		return retRes, hit, miss, err
 	}
 
 	hitShared := retRes.cacheSharedResult()
 	if hitShared == nil || hitShared.id == 0 {
 		c.egraphMu.Unlock()
-		return nil, false, fmt.Errorf("lookup cache for request: hit missing shared result ID")
+		return nil, false, nil, fmt.Errorf("lookup cache for request: hit missing shared result ID")
 	}
 
 	trackedCount := 0
@@ -930,13 +984,20 @@ func (c *Cache) lookupCacheForRequest(
 		}
 		collectReleases, collectErr := c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
 		c.egraphMu.Unlock()
-		return nil, false, errors.Join(err, decErr, collectErr, runOnReleaseFuncs(context.WithoutCancel(ctx), collectReleases))
+		// The hit-unusable arm (design §2 completeness note (b)): a SELECTED
+		// hit whose persisted payload failed to load — E1's
+		// persisted_load_failed, a lookup-outcome fact distinct from every
+		// miss reason. (The take-3 as-built tree consumes source exhaustion
+		// here as demoted_to_miss; on this branch the failure propagates —
+		// the seam is the same, recorded in the design doc's as-built note.)
+		return nil, false, &lookupMissInfo{reason: wcprof.LookupReasonPersistedLoadFailed, inputIdx: -1},
+			errors.Join(err, decErr, collectErr, runOnReleaseFuncs(context.WithoutCancel(ctx), collectReleases))
 	}
 
 	if c.traceEnabled() {
 		c.traceSessionResultTracked(ctx, sessionID, loadedHit, true, trackedCount)
 	}
-	return loadedHit, true, nil
+	return loadedHit, true, nil, nil
 }
 
 func (c *Cache) TeachCallEquivalentToResult(ctx context.Context, sessionID string, frame *ResultCall, res AnyResult) error {

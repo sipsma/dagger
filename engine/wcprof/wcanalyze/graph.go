@@ -50,6 +50,16 @@ type Op struct {
 	// reported as such — never silently downgraded to "not recorded".
 	// ScopeInputs is nil when set.
 	ScopeCorrupt bool
+	// LookupEntry/LookupReason/LookupInputIdx are the call's E1
+	// lookup-outcome fact (invalidation-tracing design §4), decoded from the
+	// dump's interned LookupID string: why a performed lookup returned no
+	// usable hit, classified at the engine's own terminals. Empty when no
+	// fact was recorded (a usable hit, do-not-cache, or a pre-E1 capture).
+	// LookupInputIdx is the 0-based structural-input index for
+	// input_unknown, -1 otherwise.
+	LookupEntry    string
+	LookupReason   string
+	LookupInputIdx int
 	// Open marks ops that had not ended at dump time; EndNS is the dump time.
 	Open bool
 
@@ -77,11 +87,10 @@ func (op *Op) Duration() int64 {
 // resolves to "" for digest-pinned refs, core/schema/container.go:1032-1034),
 // so classification must not read it as active scoping. Values themselves
 // are never carried here: the names plus the emptiness flag are the deciding
-// data, and values (session ids, client ids) add nothing but bulk.
-type ScopeInput struct {
-	Name       string `json:"n"`
-	EmptyValue bool   `json:"e,omitempty"`
-}
+// data, and values (session ids, client ids) add nothing but bulk. The type
+// is the wcprof wire struct: the native E2 emit and the OTel loader's
+// dag.call parse encode the identical JSON.
+type ScopeInput = wcprof.ScopeInput
 
 // decodeScopeInputs recovers a call op's scope implicit inputs from the
 // interned ScopeID string (a JSON array of ScopeInput). "" ⇒ nil (scope
@@ -114,6 +123,17 @@ func (w *WaitEdge) Duration() int64 {
 	return w.EndNS - w.StartNS
 }
 
+// LookupFact is one recorded E1 lookup-outcome fact from the digest-only
+// lookup entry (LinkKindLookupOutcome): the looked-up recipe digest and why
+// the lookup returned no usable hit. A fact, never a replay action.
+type LookupFact struct {
+	Owner    *Op // nil when the loading context carried no instrumented op
+	Digest   string
+	Entry    string
+	Reason   string
+	InputIdx int
+}
+
 // ForcedEdge is one recorded forced-evaluation fact (lazy-semantics §4.4):
 // Forcer demanded an already-complete lazy result of the producer recipe
 // digest Ident. Zero duration; never gates the replay — consumed only by the
@@ -142,6 +162,12 @@ type Graph struct {
 	ForcedEdges       []*ForcedEdge
 	OrphanForcedFacts []*ForcedEdge
 
+	// LookupFacts are the E1 lookup-outcome facts from the DIGEST-ONLY
+	// lookup entry (recorded as links: the entry has no call op of its
+	// own), in event order. Owner is the op whose context performed the
+	// load (nil when uninstrumented — retained, never dropped).
+	LookupFacts []*LookupFact
+
 	DroppedEvents uint64
 	OpenOps       int
 
@@ -151,8 +177,12 @@ type Graph struct {
 	// uninstrumented forcers are a declared model boundary printed as a
 	// caveat. The OTel loader fills the derivation count from per-firing
 	// suppression links (exact; loss shows as dropped links, gated).
+	// SuppressedDoNotCacheIdents counts do-not-cache calls whose best-effort
+	// ident derivation failed (category 7 stays class-level for them) — a
+	// printed caveat, never a refusal.
 	SuppressedIdentDerivations      uint64
 	SuppressedUninstrumentedForcers uint64
+	SuppressedDoNotCacheIdents      uint64
 
 	// TraceStartNS/TraceEndNS bound all recorded activity.
 	TraceStartNS int64
@@ -273,6 +303,7 @@ func Build(header *wcprof.DumpHeader, events []wcprof.DumpEvent) (*Graph, error)
 		DroppedEvents:                   header.DroppedEvents,
 		SuppressedIdentDerivations:      header.SuppressedIdentDerivations,
 		SuppressedUninstrumentedForcers: header.SuppressedUninstrumentedForcers,
+		SuppressedDoNotCacheIdents:      header.SuppressedDoNotCacheIdents,
 	}
 
 	dumpRelNS := header.DumpedUnixNano - header.EpochUnixNano
@@ -290,6 +321,7 @@ func Build(header *wcprof.DumpHeader, events []wcprof.DumpEvent) (*Graph, error)
 		targetID uint64
 		ident    string
 		kind     string
+		meta     string
 		resultID uint64
 	}
 	var waits []rawWait
@@ -298,23 +330,30 @@ func Build(header *wcprof.DumpHeader, events []wcprof.DumpEvent) (*Graph, error)
 	for _, ev := range events {
 		switch ev.Type {
 		case "op":
-			g.Ops[ev.OpID] = &Op{
-				ID:           ev.OpID,
-				ParentID:     ev.ParentID,
-				Kind:         ev.OpKind,
-				WorkType:     ev.WorkType,
-				Outcome:      ev.Outcome,
-				Class:        str(ev.ClassID),
-				Ident:        str(ev.IdentID),
-				ClientID:     str(ev.ClientID),
-				ResultID:     ev.ResultID,
-				Argv:         decodeArgv(str(ev.MetaID)),
-				CacheInputs:  decodeArgv(str(ev.InputsID)),
-				ScopeInputs:  decodeScopeInputs(str(ev.ScopeID)),
-				ScopeCorrupt: str(ev.ScopeID) == wcprof.ScopeMalformedSentinel,
-				StartNS:      ev.StartNS,
-				EndNS:        max(ev.EndNS, ev.StartNS),
+			op := &Op{
+				ID:             ev.OpID,
+				ParentID:       ev.ParentID,
+				Kind:           ev.OpKind,
+				WorkType:       ev.WorkType,
+				Outcome:        ev.Outcome,
+				Class:          str(ev.ClassID),
+				Ident:          str(ev.IdentID),
+				ClientID:       str(ev.ClientID),
+				ResultID:       ev.ResultID,
+				Argv:           decodeArgv(str(ev.MetaID)),
+				CacheInputs:    decodeArgv(str(ev.InputsID)),
+				ScopeInputs:    decodeScopeInputs(str(ev.ScopeID)),
+				ScopeCorrupt:   str(ev.ScopeID) == wcprof.ScopeMalformedSentinel,
+				LookupInputIdx: -1,
+				StartNS:        ev.StartNS,
+				EndNS:          max(ev.EndNS, ev.StartNS),
 			}
+			if s := str(ev.LookupID); s != "" {
+				if entry, reason, idx, ok := wcprof.DecodeLookupOutcome(s); ok {
+					op.LookupEntry, op.LookupReason, op.LookupInputIdx = entry, reason, idx
+				}
+			}
+			g.Ops[ev.OpID] = op
 		case "wait":
 			waits = append(waits, rawWait{
 				waiterID: ev.ParentID,
@@ -330,6 +369,7 @@ func Build(header *wcprof.DumpHeader, events []wcprof.DumpEvent) (*Graph, error)
 				targetID: ev.TargetID,
 				ident:    str(ev.IdentID),
 				kind:     ev.LinkKind,
+				meta:     str(ev.MetaID),
 				resultID: ev.ResultID,
 			})
 		}
@@ -341,19 +381,20 @@ func Build(header *wcprof.DumpHeader, events []wcprof.DumpEvent) (*Graph, error)
 			continue
 		}
 		g.Ops[oo.OpID] = &Op{
-			ID:           oo.OpID,
-			ParentID:     oo.ParentID,
-			Kind:         oo.Kind,
-			WorkType:     oo.WorkType,
-			Class:        str(oo.ClassID),
-			Ident:        str(oo.IdentID),
-			ClientID:     str(oo.ClientID),
-			Argv:         decodeArgv(str(oo.MetaID)),
-			ScopeInputs:  decodeScopeInputs(str(oo.ScopeID)),
-			ScopeCorrupt: str(oo.ScopeID) == wcprof.ScopeMalformedSentinel,
-			StartNS:      oo.StartNS,
-			EndNS:        max(dumpRelNS, oo.StartNS),
-			Open:         true,
+			ID:             oo.OpID,
+			ParentID:       oo.ParentID,
+			Kind:           oo.Kind,
+			WorkType:       oo.WorkType,
+			Class:          str(oo.ClassID),
+			Ident:          str(oo.IdentID),
+			ClientID:       str(oo.ClientID),
+			Argv:           decodeArgv(str(oo.MetaID)),
+			ScopeInputs:    decodeScopeInputs(str(oo.ScopeID)),
+			ScopeCorrupt:   str(oo.ScopeID) == wcprof.ScopeMalformedSentinel,
+			LookupInputIdx: -1,
+			StartNS:        oo.StartNS,
+			EndNS:          max(dumpRelNS, oo.StartNS),
+			Open:           true,
 		}
 		g.OpenOps++
 	}
@@ -397,6 +438,20 @@ func Build(header *wcprof.DumpHeader, events []wcprof.DumpEvent) (*Graph, error)
 	// production predated recording).
 	nestedClientExec := make(map[string]*Op)
 	for _, rl := range links {
+		if rl.kind == wcprof.LinkKindLookupOutcome.String() {
+			// E1 digest-only lookup-outcome facts: a fact with an unknown
+			// owner is retained (nil Owner) — the digest evidence stands on
+			// its own. Malformed encodings are dropped-by-decode, never
+			// guessed into facts.
+			if entry, reason, idx, ok := wcprof.DecodeLookupOutcome(rl.meta); ok && rl.ident != "" {
+				lf := &LookupFact{Digest: rl.ident, Entry: entry, Reason: reason, InputIdx: idx}
+				if owner, ok := g.Ops[rl.fromID]; ok {
+					lf.Owner = owner
+				}
+				g.LookupFacts = append(g.LookupFacts, lf)
+			}
+			continue
+		}
 		if rl.kind == "forced" {
 			fe := &ForcedEdge{Ident: rl.ident}
 			if t, ok := g.Ops[rl.targetID]; ok {

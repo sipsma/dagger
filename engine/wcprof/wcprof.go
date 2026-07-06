@@ -233,13 +233,23 @@ const (
 	// recipe digest. Carries demand facts for the what-if-cached keep test;
 	// never gates the replay.
 	LinkKindForced
+	// LinkKindLookupOutcome: the DIGEST-ONLY cache-lookup entry (ID/recipe
+	// loading) concluded without a usable hit — the E1 lookup-outcome fact
+	// for the lookup entry that has no call op of its own
+	// (invalidation-tracing design §4 E1, "both entries"). ParentID is the
+	// op whose context performed the load (0 when uninstrumented); the
+	// ident is the looked-up recipe digest; MetaID carries the canonical
+	// lookup-outcome encoding (EncodeLookupOutcome). A fact, never a replay
+	// action.
+	LinkKindLookupOutcome
 )
 
 var linkKindNames = map[LinkKind]string{
-	LinkKindNestedClient: "nested_client",
-	LinkKindResult:       "result",
-	LinkKindReusedResult: "reused_result",
-	LinkKindForced:       "forced",
+	LinkKindNestedClient:  "nested_client",
+	LinkKindResult:        "result",
+	LinkKindReusedResult:  "reused_result",
+	LinkKindForced:        "forced",
+	LinkKindLookupOutcome: "lookup_outcome",
 }
 
 func (k LinkKind) String() string {
@@ -281,6 +291,16 @@ type Event struct {
 	// cache-input recipe digests (the structural inputs the cache computed
 	// for its term lookup) — the cache-DAG edge seam. 0 when none.
 	InputsID uint32
+	// ScopeID is an interned canonical JSON array of a call op's scope
+	// implicit inputs (the E2 emit, invalidation-tracing design §4): the
+	// engine-computed inputs hashed into the recipe digest beyond the
+	// explicit arguments, recorded as name + empty-value flag. An interned
+	// "[]" is an authoritative absence; 0 = scope not recorded.
+	ScopeID uint32
+	// LookupID is an interned canonical lookup-outcome string (the E1 emit;
+	// EncodeLookupOutcome) on a call op whose cache lookup did not return a
+	// usable hit. 0 = no fact (usable hit, do-not-cache, or pre-E1 capture).
+	LookupID uint32
 
 	StartNS int64
 	EndNS   int64
@@ -334,8 +354,16 @@ type Recorder struct {
 	// from outside the recorded op graph, a declared model boundary
 	// (legitimately nonzero under per-session profiling); the what-if-cached
 	// report prints it as a caveat.
+	// suppressedDoNotCacheIdents counts do-not-cache calls whose recipe
+	// digest derivation failed at the best-effort ident micro-emit
+	// (invalidation-tracing design §4 E1 companion): the ident is omitted
+	// and category 7 stays class-level for that call. Deliberately a
+	// SEPARATE counter from suppressedIdentDerivations: it degrades one
+	// call's addressability, never the elision demand evidence, so it is a
+	// printed caveat — not a capture refusal.
 	suppressedIdentDerivations      atomic.Uint64
 	suppressedUninstrumentedForcers atomic.Uint64
+	suppressedDoNotCacheIdents      atomic.Uint64
 
 	strings stringTable
 

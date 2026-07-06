@@ -6,6 +6,7 @@ import (
 	telemetry "github.com/dagger/otel-go"
 
 	"github.com/dagger/dagger/dagql/call/callpbv1"
+	"github.com/dagger/dagger/engine/telemetryattrs"
 	"github.com/dagger/dagger/engine/wcprof/wcanalyze"
 )
 
@@ -111,6 +112,43 @@ func TestLoaderScopeRecordedEmpty(t *testing.T) {
 	op := opByIdent(t, g, "xxh3:feedface")
 	if op.ScopeInputs == nil || len(op.ScopeInputs) != 0 {
 		t.Fatalf("recorded-empty scope must be non-nil empty, got %#v", op.ScopeInputs)
+	}
+}
+
+// The E1 lookup-outcome fact loads from the additive span attr (request
+// entry) and from targetless lookup_outcome links (the digest-only entry),
+// byte-identical to the native encoding.
+func TestLoaderParsesLookupOutcome(t *testing.T) {
+	jsonl := toJSONL(t,
+		rec(map[string]any{"spanId": idRoot, "parentId": idNone, "name": "root", "startNs": baseEp, "endNs": baseEnd,
+			"links": []map[string]any{{
+				"spanId": idNone,
+				"attrs": map[string]any{
+					telemetry.LinkPurposeAttr:              telemetryattrs.LinkPurposeLookupOutcome,
+					telemetryattrs.WcprofLookupDigestAttr:  "xxh3:digest-only-miss",
+					telemetryattrs.WcprofLookupOutcomeAttr: "digest_only expired",
+				},
+			}}}),
+		rec(map[string]any{"spanId": idA, "parentId": idRoot, "name": "Query.thing", "startNs": baseEp + 1, "endNs": baseEnd,
+			"attrs": map[string]any{
+				telemetry.DagDigestAttr:                "xxh3:request-miss",
+				telemetryattrs.WcprofLookupOutcomeAttr: "request input_unknown 2",
+			}}),
+	)
+	g := buildGraphFromCompiled(t, mustCompile(t, jsonl))
+	op := opByIdent(t, g, "xxh3:request-miss")
+	if op.LookupEntry != "request" || op.LookupReason != "input_unknown" || op.LookupInputIdx != 2 {
+		t.Fatalf("op lookup fact = %q/%q/%d, want request/input_unknown/2", op.LookupEntry, op.LookupReason, op.LookupInputIdx)
+	}
+	if len(g.LookupFacts) != 1 {
+		t.Fatalf("want 1 digest-only fact, got %d", len(g.LookupFacts))
+	}
+	lf := g.LookupFacts[0]
+	if lf.Digest != "xxh3:digest-only-miss" || lf.Entry != "digest_only" || lf.Reason != "expired" {
+		t.Fatalf("digest-only fact = %+v", lf)
+	}
+	if lf.Owner == nil || lf.Owner.Class != "root" {
+		t.Fatalf("the fact's owner must be the loading span's op, got %+v", lf.Owner)
 	}
 }
 

@@ -110,6 +110,18 @@ const (
 	// CategoryNewWork (4, pair mode): the digest is absent from the
 	// available history (the paired reference capture, named as such).
 	CategoryNewWork
+	// CategoryExpired (5, E1 terminal fact): a result existed but its TTL
+	// had expired — the engine recorded the exact terminal; underivable
+	// offline without E1 (candidate collection used to skip expired results
+	// silently).
+	CategoryExpired
+	// CategorySessionFiltered (6, E1 terminal fact): an equivalent result
+	// exists but requires session resources this session lacks.
+	CategorySessionFiltered
+	// CategoryHitUnusable (9, E1 terminal fact): a cached result was
+	// SELECTED but its persisted payload failed to load — the hit-unusable
+	// arm, not a miss reason.
+	CategoryHitUnusable
 )
 
 func (c WhyMissCategory) String() string {
@@ -128,6 +140,12 @@ func (c WhyMissCategory) String() string {
 		return "input changed (category 3)"
 	case CategoryNewWork:
 		return "new work (category 4)"
+	case CategoryExpired:
+		return "expired TTL (category 5)"
+	case CategorySessionFiltered:
+		return "session-resource filtered (category 6)"
+	case CategoryHitUnusable:
+		return "hit unusable: persisted payload failed to load (category 9)"
 	default:
 		return "invalid"
 	}
@@ -167,6 +185,24 @@ type WhyMissNode struct {
 	HitPendingCalls int
 	JoinedCalls     int
 
+	// HasDoNotCache: at least one recorded call of the digest is
+	// do_not_cache — a static per-recipe property of the engine, so the
+	// per-digest summary rule (row W15) decides category 7 from ANY such
+	// call, never by single-op sampling. DNCCall is the deciding op.
+	HasDoNotCache bool
+	DNCCall       *Op
+
+	// E1LookupCall is the earliest call in demand order carrying a recorded
+	// lookup-outcome fact (nil when none); E1FactReason/E1FactEntry hold the
+	// digest-only fact evidence when the digest's calls carry none and the
+	// graph's LookupFacts name it UNAMBIGUOUSLY (one distinct reason).
+	// E1Ambiguous marks conflicting digest-only reasons — labeled, never
+	// picked from.
+	E1LookupCall *Op
+	E1FactReason string
+	E1FactEntry  string
+	E1Ambiguous  bool
+
 	// InputsFrom is the call op whose recorded CacheInputs the walk
 	// descended (the first call in demand order carrying them); nil when no
 	// call recorded inputs — the walk then cannot descend and says so.
@@ -202,6 +238,25 @@ type WhyMissNode struct {
 	// walk bookkeeping
 	walkParent *WhyMissNode // discovery parent (deterministic BFS), for path rendering
 	walked     bool
+}
+
+// e1Evidence returns the node's E1 lookup-outcome reason and its deciding
+// datum text: the earliest call in demand order carrying a recorded fact,
+// else the digest-only fact evidence when unambiguous. Empty when no fact
+// was recorded (the pre-E1 shape — classification then falls through to the
+// derived categories, never a guessed 5/6/9).
+func (n *WhyMissNode) e1Evidence() (reason, datum string) {
+	if n.E1LookupCall != nil {
+		return n.E1LookupCall.LookupReason,
+			fmt.Sprintf("recorded lookup outcome %q (%s entry) on call op %d",
+				n.E1LookupCall.LookupReason, n.E1LookupCall.LookupEntry, n.E1LookupCall.ID)
+	}
+	if n.E1FactReason != "" {
+		return n.E1FactReason,
+			fmt.Sprintf("recorded lookup outcome %q on the %s entry (a digest-only lookup fact)",
+				n.E1FactReason, n.E1FactEntry)
+	}
+	return "", ""
 }
 
 // WalkedAsMiss reports whether the walk treats this node as uncached:
@@ -361,6 +416,11 @@ func runWhyUncached(g *Graph, pair *whyPairState, target string) (*WhyMissReport
 		if pair != nil && pair.refusePositional {
 			rep.Caveats = append(rep.Caveats,
 				"OTel capture pair: positional pairing REFUSED — dag.inputs is a deduplicated, module-less digest list, unsound for the §5 ordered pairing contract (E3a unlocks it); digest-stable analysis only (categories 2/8 by digest identity; changed nodes stay single-capture-classified)")
+		}
+		if g.SuppressedDoNotCacheIdents > 0 {
+			rep.Caveats = append(rep.Caveats, fmt.Sprintf(
+				"%d do-not-cache call(s) could not derive an ident at emit (counted, execution unchanged): category 7 stays class-level for them — such calls are not digest-addressable in this capture",
+				g.SuppressedDoNotCacheIdents))
 		}
 
 		if !tn.WalkedAsMiss() {
@@ -614,6 +674,36 @@ func (w *whyMissWalk) node(digest string) *WhyMissNode {
 		n.Status = MissStatusMissed
 	}
 
+	for _, c := range calls {
+		if !c.Open && c.Outcome == wcprof.OutcomeDoNotCache.String() && !n.HasDoNotCache {
+			// do_not_cache is a static per-recipe property: ANY such call
+			// decides category 7 per the per-digest summary rule (W15).
+			n.HasDoNotCache = true
+			n.DNCCall = c
+		}
+		if c.LookupReason != "" && n.E1LookupCall == nil {
+			n.E1LookupCall = c
+		}
+	}
+	if n.E1LookupCall == nil {
+		// Digest-only facts (the entry with no call op of its own): usable
+		// evidence only when unambiguous — one distinct recorded reason.
+		reasons := map[string]bool{}
+		for _, lf := range w.g.LookupFacts {
+			if lf.Digest != digest {
+				continue
+			}
+			if n.E1FactReason == "" {
+				n.E1FactReason, n.E1FactEntry = lf.Reason, lf.Entry
+			}
+			reasons[lf.Reason] = true
+		}
+		if len(reasons) > 1 {
+			n.E1FactReason, n.E1FactEntry = "", ""
+			n.E1Ambiguous = true
+		}
+	}
+
 	isNonHitDemand := func(o string) bool {
 		switch o {
 		case wcprof.OutcomeExecuted.String(), wcprof.OutcomeJoined.String(), wcprof.OutcomeOK.String(),
@@ -840,17 +930,38 @@ func (w *whyMissWalk) classifyOrigin(n *WhyMissNode) *WhyMissOrigin {
 	note, active := scopeNote(n)
 	o.ScopeNote = note
 
+	e1Reason, e1Datum := n.e1Evidence()
+
 	switch {
-	case n.Status == MissStatusRefused:
+	case n.Status == MissStatusRefused || n.HasDoNotCache:
+		// Per-digest summary rule (W15): do_not_cache is a static property
+		// of the recipe, so ANY recorded do_not_cache call decides — never
+		// single-op sampling on mixed data.
 		o.Category = CategoryEngineRefuses
+		deciding := n.FirstCall
+		if n.DNCCall != nil {
+			deciding = n.DNCCall
+		}
 		o.Answer = fmt.Sprintf(
 			"this call is never cached (do-not-cache): the engine executes it inline without a cache lookup, by design — an expected miss. Deciding datum: recorded do_not_cache outcome on call op %d.",
-			n.FirstCall.ID)
+			deciding.ID)
 	case n.FailedBeforeReExecution:
 		o.Category = CategoryPriorAttemptFailed
 		o.Answer = fmt.Sprintf(
 			"a previous execution of this call errored in this capture; failed executions publish no result (failures are not cached), so the later demand re-executed. Deciding data: call op %d (%s) ended before call op %d re-demanded the digest.",
 			n.FailedCall.ID, n.FailedCall.Outcome, n.ReDemandCall.ID)
+	case e1Reason == wcprof.LookupReasonExpired:
+		// E1 terminal facts (categories 5/6/9): exact engine-recorded
+		// causes, underivable offline before the emit — they outrank every
+		// derived classification below.
+		o.Category = CategoryExpired
+		o.Answer = "a result existed under this key but its TTL had expired at lookup — the engine recorded the exact terminal (candidate collection counted the expired skip instead of dropping it silently). Deciding datum: " + e1Datum + "."
+	case e1Reason == wcprof.LookupReasonSessionFiltered:
+		o.Category = CategorySessionFiltered
+		o.Answer = "an equivalent cached result exists but requires session resources (secrets, sockets) this session lacks — the engine recorded the session-filter terminal. Deciding datum: " + e1Datum + "."
+	case e1Reason == wcprof.LookupReasonPersistedLoadFailed:
+		o.Category = CategoryHitUnusable
+		o.Answer = "a cached result was found and selected, but its persisted payload could not be loaded (the hit-unusable arm, not a miss reason; on this engine build the call then errors — the take-3 engine demotes such hits to live re-execution). Deciding datum: " + e1Datum + "."
 	case n.StableInA:
 		// Digest-stable against the reference capture (design §5 bullet 1):
 		// the A-side outcomes answer directly. The answer never claims WHICH
@@ -941,6 +1052,24 @@ func (w *whyMissWalk) classifyOrigin(n *WhyMissNode) *WhyMissOrigin {
 
 	if n.PairConflict {
 		o.Notes = append(o.Notes, "positional pairing VOIDED for this node: distinct reference occurrences claimed this digest (see pair evidence); classified by digest identity only")
+	}
+	// E1 walk hints (never categories): input_unknown gives the walk an
+	// authoritative next hop; no_live_candidate upgrades the reversal notes
+	// to the recorded no-candidate-remaining terminal (mechanism text stays
+	// unrecorded — release/collection are not E1-distinguishable, design
+	// §3.1); ambiguous digest-only facts are labeled, never picked from.
+	if e1Reason == wcprof.LookupReasonInputUnknown && n.E1LookupCall != nil {
+		hint := fmt.Sprintf("the engine recorded input #%d as never seen by the cache (input_unknown — the authoritative next hop", n.E1LookupCall.LookupInputIdx)
+		if v := n.E1LookupCall.CacheInputs; n.E1LookupCall.LookupInputIdx < len(v) {
+			hint += ": " + v[n.E1LookupCall.LookupInputIdx]
+		}
+		o.Notes = append(o.Notes, hint+")")
+	}
+	if e1Reason == wcprof.LookupReasonNoLiveCandidate {
+		o.Notes = append(o.Notes, "the engine recorded no-live-candidate at lookup: the structural term matched but none of its results remained (in-run release/collection are real mechanisms; which applied is not recorded)")
+	}
+	if n.E1Ambiguous {
+		o.Notes = append(o.Notes, "digest-only lookup facts for this digest record CONFLICTING reasons — the evidence is ambiguous and no exact category is claimed from it")
 	}
 	if n.ContextDependent {
 		o.Notes = append(o.Notes, "context-dependent within the run: cached at first demand, later demand(s) missed — a cached result stopped being served; which lifetime mechanism applied is not recorded in this capture")

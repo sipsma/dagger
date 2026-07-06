@@ -382,3 +382,35 @@ cannot have changed the parent's key; both nodes are independent origins (the st
 category 2/8, the changed parent reports its own divergence). The single-capture collateral rule
 is unchanged. Deepest-changed-node answers name the concrete divergence the pairing found
 (removed/added/changed inputs vs a true self change), never a blanket "the call changed".
+
+**E1 seam-check against the take-3 as-built tip (Chunk 3, coordinator-required; read via the vm
+worktree-holder from `remote-cache-take3-fork-0bdd5926` at HEAD `0a42c6b8fd`):** §2's anchors
+re-verified. No drift in the lookup core: `lookupCacheForRequestLocked` and its helpers are
+byte-stable at the same lines (`cache_egraph.go:805-861`, `:554-559`, `:646-656`, `:683-734`).
+Line-only drift: the DoNotCache pre-lookup return moved `:3765→:3912`; `lookupCacheForDigests`
+moved to `:4113-4186`; the no-publish error terminal for waiters sits at `cache.go:4275-4284`.
+SEMANTIC drift, and the reconciliation E1 adopts: (1) take-3 classifies serve outcomes at exactly
+three sites — the hit return (`hit_live`/`hit_restored`, cache.go:3998), the EXECUTOR-path miss
+after the join check (`miss_first`, :4036 — joiners classify nothing), and `releaseFailedHit`
+(`demoted_to_miss`, :4212); E1's classification points are positioned to coincide with that
+family (one seam): the request-entry reason is derived inside the same locked lookup whose
+terminals take-3 classifies, and the hit-unusable arm fires exactly where `releaseFailedHit`
+consumes source exhaustion. (2) The design's `persisted_load_failed` terminal is SPLIT as-built:
+`errSourcesExhausted` → `demoted_to_miss` (consumed; the call executes live), any other load
+failure → a propagated request error (`ifNotDemoted`). On this branch (which predates take-3) the
+load failure propagates as an error and E1 records `persisted_load_failed` before the return; at
+merge time that emit belongs inside the demote seam and `persisted_load_failed` becomes the "why"
+companion of `demoted_to_miss` — same family, no fork. (3) The digest-only entry classifies no
+serve outcome in take-3; E1 extends the family there (link-borne facts) rather than forking it.
+
+**E2 ruling (Chunk 3, decided on evidence per the coordinator's default):** E2 is ADOPTED. The
+deciding evidence is W10's native run: the flagship scoped chains — the feature's binding
+first-class answer — could only reply "scope structure not recorded" on native captures, and the
+offline surface is native-FIRST (§11.3). The emit is one interned JSON per profiled call at the
+existing SetIdent seam (names + empty-value flags, never values), recorded for EVERY profiled
+call so the absence ("[]") is authoritative — the refinement over E2's minimal form that makes
+the undetermined form's "carries no scope inputs" an engine statement rather than a guess. The
+dag.call-parsing alternative remains the OTel path (Chunk 1); both encode the identical JSON.
+Companion counters: do-not-cache ident derivation failures are a separate counted caveat
+(`SuppressedDoNotCacheIdents`), never a capture refusal — they degrade one call's addressability,
+not demand evidence.
