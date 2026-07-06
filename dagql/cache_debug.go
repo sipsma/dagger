@@ -29,6 +29,8 @@ type EGraphDebugSnapshot struct {
 	BootID             string                     `json:"boot_id"`
 	CapturedAtSeq      uint64                     `json:"captured_at_seq"`
 	CapturedAtTime     string                     `json:"captured_at_time"`
+	RestoreSummary     *CacheRestoreSummary       `json:"restore_summary,omitempty"`
+	ResultCounts       CacheDebugResultCounts     `json:"result_counts"`
 	Results            []EGraphDebugResult        `json:"results"`
 	Terms              []EGraphDebugTerm          `json:"terms"`
 	ResultTerms        []EGraphDebugResultTerm    `json:"result_terms"`
@@ -41,6 +43,8 @@ type CacheDebugSnapshot struct {
 	BootID                  string                        `json:"boot_id"`
 	CapturedAtSeq           uint64                        `json:"captured_at_seq"`
 	CapturedAtTime          string                        `json:"captured_at_time"`
+	RestoreSummary          *CacheRestoreSummary          `json:"restore_summary,omitempty"`
+	ResultCounts            CacheDebugResultCounts        `json:"result_counts"`
 	SessionResults          []CacheDebugSessionResults    `json:"session_results,omitempty"`
 	Results                 []CacheDebugResult            `json:"results"`
 	ResultDigestIndexes     []CacheDebugResultDigestIndex `json:"result_digest_indexes"`
@@ -51,6 +55,14 @@ type CacheDebugSnapshot struct {
 	OngoingCalls            []CacheDebugOngoingCall       `json:"ongoing_calls,omitempty"`
 	OngoingArbitraryCalls   []CacheDebugArbitraryCall     `json:"ongoing_arbitrary_calls,omitempty"`
 	CompletedArbitraryCalls []CacheDebugArbitraryCall     `json:"completed_arbitrary_calls,omitempty"`
+}
+
+// CacheDebugResultCounts are the per-boot result counts backing the
+// self-check that importing and re-exporting a store adds no rows.
+type CacheDebugResultCounts struct {
+	Total            int   `json:"total"`
+	Imported         int64 `json:"imported"`
+	ExecutedThisBoot int64 `json:"executed_this_boot"`
 }
 
 func debugSourceKindNames(kinds []retainedSourceKind) []string {
@@ -910,6 +922,18 @@ func (c *Cache) tracePersistedPayloadDecodeFailed(ctx context.Context, res *shar
 	})
 }
 
+func (c *Cache) traceRestoreResultDropped(ctx context.Context, id sharedResultID, reason restoreDropReason) {
+	c.traceLazy(ctx, "restore_result_dropped", func() []any {
+		return []any{"phase", "startup", "shared_result_id", id, "reason", string(reason)}
+	})
+}
+
+func (c *Cache) traceRestoreSummary(ctx context.Context, summary *CacheRestoreSummary) {
+	c.traceLazy(ctx, "restore_summary", func() []any {
+		return []any{"phase", "startup", "kept", summary.Kept, "dropped", summary.Dropped, "wiped", summary.Wiped, "reason", summary.Reason}
+	})
+}
+
 func (c *Cache) tracePersistedPayloadDecoded(ctx context.Context, res *sharedResult, env *PersistedResultEnvelope) {
 	c.traceLazy(ctx, "persisted_payload_decoded", func() []any {
 		return []any{"phase", "runtime", "shared_result_id", res.id, "payload_kind", env.Kind, "type_name", env.TypeName}
@@ -926,6 +950,12 @@ func (c *Cache) DebugEGraphSnapshot() *EGraphDebugSnapshot {
 		BootID:             c.traceBootID,
 		CapturedAtSeq:      atomic.LoadUint64(&c.traceSeq),
 		CapturedAtTime:     time.Now().UTC().Format(time.RFC3339Nano),
+		RestoreSummary:     c.restoreSummary,
+		ResultCounts: CacheDebugResultCounts{
+			Total:            len(c.resultsByID),
+			Imported:         c.importedResultCount,
+			ExecutedThisBoot: c.freshResultCount.Load(),
+		},
 	}
 
 	resultIDs := make([]sharedResultID, 0, len(c.resultsByID))
@@ -1151,6 +1181,24 @@ func (c *Cache) WriteDebugCacheSnapshot(w io.Writer) error {
 		return err
 	}
 	if err := writeValue(atomic.LoadUint64(&c.traceSeq)); err != nil {
+		return err
+	}
+	if c.restoreSummary != nil {
+		if err := writeField("restore_summary"); err != nil {
+			return err
+		}
+		if err := writeValue(c.restoreSummary); err != nil {
+			return err
+		}
+	}
+	if err := writeField("result_counts"); err != nil {
+		return err
+	}
+	if err := writeValue(CacheDebugResultCounts{
+		Total:            len(c.resultsByID),
+		Imported:         c.importedResultCount,
+		ExecutedThisBoot: c.freshResultCount.Load(),
+	}); err != nil {
 		return err
 	}
 	if err := writeField("captured_at_time"); err != nil {

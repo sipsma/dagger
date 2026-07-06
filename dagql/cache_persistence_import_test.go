@@ -555,7 +555,9 @@ func TestCacheCloseDiscardingPersistenceDoesNotMarkClean(t *testing.T) {
 	assert.NilError(t, closeCacheDBs(db, q))
 }
 
-func TestCachePersistenceImportFailureWipesStore(t *testing.T) {
+// TestCachePersistenceCorruptRowDropsWithoutWipe pins per-result vetting:
+// row damage costs that row (and its dependents), never the store.
+func TestCachePersistenceCorruptRowDropsWithoutWipe(t *testing.T) {
 	t.Parallel()
 
 	ctx := cacheTestContext(t.Context())
@@ -565,7 +567,7 @@ func TestCachePersistenceImportFailureWipesStore(t *testing.T) {
 	assert.NilError(t, err)
 	cA := cacheA
 
-	key := cacheTestIntCall("persist-import-corrupt-wipe")
+	key := cacheTestIntCall("persist-import-corrupt-drop")
 	_, err = cA.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{
 		ResultCall:    key,
 		IsPersistable: true,
@@ -587,10 +589,17 @@ func TestCachePersistenceImportFailureWipesStore(t *testing.T) {
 	cacheB, err := NewCache(ctx, dbPath, nil, nil)
 	assert.NilError(t, err)
 	cB := cacheB
-	assert.Equal(t, CachePersistenceResetImportFailure, cB.PersistenceResetReason())
+	assert.Equal(t, CachePersistenceResetNone, cB.PersistenceResetReason())
 	defer func() {
 		assert.NilError(t, cB.Close(context.Background()))
 	}()
+	snap := cB.DebugEGraphSnapshot()
+	assert.Assert(t, snap.RestoreSummary != nil)
+	assert.Assert(t, !snap.RestoreSummary.Wiped)
+	assert.Equal(t, 0, snap.RestoreSummary.Kept)
+	assert.Equal(t, 1, snap.RestoreSummary.Dropped)
+	assert.Equal(t, 1, len(snap.RestoreSummary.DroppedResults))
+	assert.Equal(t, string(restoreDropMalformed), snap.RestoreSummary.DroppedResults[0].Reason)
 
 	resB, err := cB.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{
 		ResultCall:    key,

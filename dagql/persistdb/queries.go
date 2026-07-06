@@ -9,6 +9,12 @@ import (
 const (
 	MetaKeySchemaVersion = "schema_version"
 	MetaKeyCleanShutdown = "clean_shutdown"
+
+	// Per-boot result counts written at flush; the self-check that importing
+	// and re-exporting a store adds no rows reads these.
+	MetaKeyResultsTotal            = "results_total"
+	MetaKeyResultsImported         = "results_imported"
+	MetaKeyResultsExecutedThisBoot = "results_executed_this_boot"
 )
 
 const selectMeta = `SELECT key, value FROM meta WHERE key = ?`
