@@ -377,6 +377,7 @@ re-minted warm), and the walk's lineage counterpart (tag-scoped) is consistent w
 calibration's independent result-id pairing (both forms share rid 6801).
 
 **Pair-walk refinement (review round, Chunk 2):** in pair mode a DIGEST-STABLE missed input does
+
 not make its changed parent Merkle collateral — a stable digest is an unchanged input ref, so it
 cannot have changed the parent's key; both nodes are independent origins (the stable one answers
 category 2/8, the changed parent reports its own divergence). The single-capture collateral rule
@@ -403,6 +404,13 @@ merge time that emit belongs inside the demote seam and `persisted_load_failed` 
 companion of `demoted_to_miss` — same family, no fork. (3) The digest-only entry classifies no
 serve outcome in take-3; E1 extends the family there (link-borne facts) rather than forking it.
 
+**E3a activation model (Chunk 4):** the ordered-input attr is gated on the wcprof OTel source
+being active (the same activation as the wait-link and forced-fact emits), so ordinary
+UNPROFILED Cloud traces do not carry it — positional pairing on Cloud traces activates for
+profiled runs. dag.call-derived evidence (category 1, E3b structures, the module-bearing
+detection) is on ALL traces, profiled or not. If Erik wants E3a always-on (the dag.inputs
+precedent), it is a one-line gate change in `stampOTelOrderedInputs`.
+
 **E2 ruling (Chunk 3, decided on evidence per the coordinator's default):** E2 is ADOPTED. The
 deciding evidence is W10's native run: the flagship scoped chains — the feature's binding
 first-class answer — could only reply "scope structure not recorded" on native captures, and the
@@ -414,3 +422,59 @@ dag.call-parsing alternative remains the OTel path (Chunk 1); both encode the id
 Companion counters: do-not-cache ident derivation failures are a separate counted caveat
 (`SuppressedDoNotCacheIdents`), never a capture refusal — they degrade one call's addressability,
 not demand evidence.
+
+## 14. Cloud-destination appendix (Chunk 5 — the handoff)
+
+The offline analyzer is the reference implementation; the Cloud port carries the ALGORITHM, not
+a re-derivation (§6.2's binding rule: the walk must not be re-derived in SQL). What Cloud needs,
+in dependency order:
+
+**14.1 The per-op tuple to materialize** (ClickHouse MV over `otel_traces`, one row per call
+span): `(trace_id, span_id, dag.digest, outcome, wcprof.call.outcome, wcprof.lookup.outcome,
+dag.inputs, wcprof.inputs.ordered, dag.call-derived: {implicit-input names+emptiness,
+module-bearing bit, canonical self structure}, dagger.io/dag.cached, start, end, op id order)`.
+Everything is a recorded attribute today except the dag.call derivations, which are a PARSE of a
+recorded attribute (the loader's `decodeDagCall` is the reference: one base64-proto decode
+yielding scope inputs, the CallSelf rendering, and the module bit). The digest-only lookup facts
+ride as span LINKS (`link.purpose=lookup_outcome` with `wcprof.lookup.digest` +
+`wcprof.lookup.outcome`) and materialize into a side table keyed by digest.
+
+**14.2 The algorithm surface to port** (all in `engine/wcprof/wcanalyze/whymiss*.go`, each with
+its validation rows): (a) digest-node construction with first-demand status (StartNS, op-id
+tie-break) and the within-run annotations (context-dependent, re-executed, failed-before-
+re-demand — the EXACT per-digest summary predicates, W11/W15); (b) the frontier walk with the
+single-capture collateral rule and the pair-mode refinement (stable inputs never collateralize a
+changed parent, §13); (c) the §5 pairing contract: occurrence-unique LCS (embedding-count DP,
+saturating at 2 — ambiguity ALWAYS refuses; the byte-identical exception is provably vacuous,
+argued in-code), one-to-one in-order class matching between anchors, empty-side gaps as
+deletions/additions, the per-pairing E3a ordered-vector soundness gate, and the poison-set
+restart-to-fixpoint for pairing conflicts (the final report derives nothing from a voided
+pairing); (d) classification precedence: 7 (any-dnc, cross-capture) > 8-within-capture >
+E1-exact (5/6/9) > stable-reference (7-dnc-mixed > 8-failed-only > 2) > 1-scoped > 3-paired >
+4-absent > undetermined — with every answer carrying its deciding datum and the searched-history
+statement; (e) E3b arg-level attribution (`diffCallSelf`) with the identical-rendering label.
+
+**14.3 Pricing:** the offline analyzer prices origins with the what-if-cached replay (W7:
+equality with the detail run). Cloud has no replay; the honest Cloud v1 renders the walk,
+categories, and answer texts WITHOUT priced impact (or with the origin's recorded producing
+wall-clock labeled as such — a recorded quantity, not a counterfactual). Porting the replay is a
+separate, later decision; a schedule-free "savings" number would violate the §3.3 contract.
+
+**14.4 History generalization:** pair mode's reference capture generalizes to "recent runs of
+this pipeline" WITHOUT algorithm changes (§5): stable/absent checks become an indexed digest
+lookup over the history set; the reference side of positional pairing uses the most recent run
+containing the class-matched counterpart; every absence statement names the history actually
+searched (run ids), per row W16.
+
+**14.5 Faithfulness bar (Q6, flagged for Erik in §12):** the recommendation stands — the same
+refuse-if-unverifiable gates: the completeness checksum (declared vs received span counts), the
+dropped-events/suppressed-idents admission rule, per-node refusals (module-blind, unordered
+pairing, corrupt dag.call as CORRUPT not absent), and an explicit "incomplete trace" render
+state instead of a silently partial answer.
+
+**14.6 Activation model:** on ALL existing Cloud traces: the walk (module-blind caveats),
+categories 1/7 via dag.call + outcomes, pair-mode digest-stable answers (2/8), E3b arg-level
+attribution. On profiled runs (wcprof OTel source active): E1 exact causes (5/6/9,
+input_unknown next hops), E3a positional pairing, the digest-only lookup facts. Native dumps
+additionally carry E2 scope facts and the DNC ident micro-emit. The take-3 merge folds E1's
+`persisted_load_failed` into the `demoted_to_miss` seam (§13's drift table).

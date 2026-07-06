@@ -553,7 +553,7 @@ func TestWhyMissOTelCaveats(t *testing.T) {
 		t.Fatalf("want the 2 OTel caveats, got %v", rep.Caveats)
 	}
 	joined := strings.Join(rep.Caveats, "\n")
-	if !strings.Contains(joined, "first-emission-only") || !strings.Contains(joined, "module-ref edges are not recorded") {
+	if !strings.Contains(joined, "first-emission-only") || !strings.Contains(joined, "no module-ref edges") {
 		t.Fatalf("caveats must name seen-key suppression and module blindness: %v", rep.Caveats)
 	}
 }

@@ -101,6 +101,22 @@ stitching) and reports:
 - the end-of-workload blocking chain.
 - dead air: trace gaps where no recorded op was running (= uninstrumented
   blocking, or client-side stalls).
+- **what-if-cached** (`-cached*` flags): digest-level cache hypotheses —
+  "how much would this run have saved if these results had been cache
+  hits" — via whole-region elide-or-keep re-simulation
+  (hack/designs/whatif-cached-design.md), plus the cold/warm calibration
+  harness (`-cached-from-run`).
+- **why-uncached** (`-why-uncached*` flags): cache-invalidation tracing —
+  walk an uncached digest to its miss FRONTIER and answer each origin with
+  a root-cause category in the engine's own semantics (deliberately
+  scoped, not retained from a previous run, input changed, new work,
+  expired, session-filtered, engine-refuses, prior attempt failed,
+  hit-unusable), with priced impact from the what-if simulator. Pair mode
+  (`-why-uncached-vs <reference capture>`) classifies against another run
+  ("cached in run A but not in run B"). Design:
+  hack/designs/cache-invalidation-tracing-design.md; every answer prints
+  its deciding recorded datum, and undecidable questions are refused or
+  labeled, never guessed.
 
 Simulation assumptions (v1, deliberate): unlimited resources (never
 CPU-bound), recorded dependency structure is invariant under the hypothesis,

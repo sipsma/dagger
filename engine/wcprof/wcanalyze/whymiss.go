@@ -439,7 +439,7 @@ func runWhyUncached(g *Graph, pair *whyPairState, target string) (*WhyMissReport
 			// inclusive input vector; the OTel source is neither.
 			rep.Caveats = append(rep.Caveats,
 				"OTel capture: repeated same-digest call spans are deliberately suppressed at emit (seen-key suppression, dagql/telemetry.go), so per-digest evidence is first-emission-only; first-demand status is computed from what is recorded",
-				"OTel capture: module-ref edges are not recorded in dag.inputs — a module-caused miss cannot be walked to its true frontier; the frontier may be shallow for module-provided calls (E3 closes this; per-node refusal lands with Chunk 4)",
+				"OTel capture: dag.inputs records no module-ref edges — on ops without the E3a ordered-input attr the frontier may be shallow for module-provided calls; module-bearing nodes detected via dag.call refuse descent per-node (see origin notes)",
 			)
 		}
 		if pair != nil && pair.refusePositional {
@@ -945,7 +945,7 @@ func scopeNote(n *WhyMissNode) (note string, activeScopes []ScopeInput) {
 		return "scope structure was RECORDED for this call but is malformed (undecodable at load; counted as MalformedDagCalls) — the scope evidence is lost, so classification stays undetermined rather than guessed", nil
 	}
 	if !recorded {
-		return "scope structure not recorded in this capture (native captures do not record scope inputs today; OTel captures record them in dag.call)", nil
+		return "scope structure not recorded in this capture (the E2 native emit and the OTel dag.call payload both carry it; this capture predates the emit or the span lacked the payload)", nil
 	}
 	var active, empty []string
 	for _, si := range scope {
