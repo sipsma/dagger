@@ -94,4 +94,34 @@ Remember, dagger logs not just the execution of your inner command, but the enti
 
 ## Integration Tests
 
-FIXME
+**The canonical invocation — REQUIRED for any gate, acceptance, or landing evidence:**
+
+```shell
+dagger call engine-dev test --pkg=./core/integration/ --run='TestCachePersistence'
+```
+
+This runs the test binary INSIDE the engine-dev test container: the repo is mounted at
+`/app` (the Go toolchain's workdir), git config is hermetic, and a nested dev engine is
+provisioned from your source. Several integration tests REQUIRE this environment —
+running them on the host produces misleading failures that look environmental but are
+harness artifacts (`lstat /app: no such file or directory` from `Host().Directory("/app")`;
+git fixtures failing on the host's own gitconfig/signing setup).
+
+Useful flags (see `toolchains/engine-dev/test.go`): `--run`, `--skip`, `--pkg`
+(default `./...`), `--race`, `--parallel`, `--timeout`, `--count`, `--test-verbose`,
+`--failfast`, `--update` (golden files).
+
+Evidence retention (house rule): tee gate output to `<worktree>/hack/logs/` (untracked
+is fine — never only /tmp) and append an exit-code line:
+
+```shell
+(dagger call engine-dev test --pkg=./core/integration/ --run='TestCachePersistence' 2>&1;   echo "persistence_exit=$?") | tee hack/logs/<purpose>-persistence.log
+```
+
+**The host-run variant is NOT gate-grade.** `hack/with-dev` (and `hack/most-tests`,
+which wraps it) exec the test binary on the host pointed at a dev-engine container.
+That is fine for quick iteration on tests that tolerate it — but `hack/most-tests`
+carries a `-skip` list precisely because a class of tests relies on running inside
+Dagger and fails on the host. Never use host-run output as gate or acceptance evidence,
+and never classify its failures as environmental without first running the same test
+through `dagger call engine-dev test`.
