@@ -1581,8 +1581,11 @@ type materializationState struct {
 // retainedSourceKind identifies one way a result's content can be
 // (re)materialized. Declaration order is the fall-through order used when a
 // result must be realized: local snapshot first, then the persisted lazy
-// form. A third content-chain source (content-addressed layer chains pulled
-// from a remote store) is reserved as the next entry; it is not built yet.
+// form. A content-chain source (content-addressed layer chains pulled from
+// a remote store) is reserved BETWEEN those two — pulling available content
+// beats re-executing a recipe, whose realization recurses into demand-driven
+// input materialization. It is not built yet; kinds are never persisted, so
+// slotting it in later renumbers nothing durable.
 type retainedSourceKind uint8
 
 const (
