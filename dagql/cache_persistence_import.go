@@ -188,6 +188,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 				description:           row.Description,
 				recordType:            row.RecordType,
 				materialization:       materializationState{envelope: &restored.env},
+				restored:              true,
 			}
 			if len(restored.links) > 0 {
 				res.materialization.setLocalSnapshotSource(restored.links)
@@ -551,7 +552,6 @@ func persistedEnvelopeObjectTypeNames(env PersistedResultEnvelope, names []strin
 	return names
 }
 
-//nolint:gocyclo // intrinsically long state machine; refactoring would hurt clarity
 func (c *Cache) ensurePersistedHitValueLoaded(ctx context.Context, resolver TypeResolver, hit AnyResult) (AnyResult, error) {
 	if resolver == nil {
 		return nil, fmt.Errorf("ensure persisted hit value loaded: type resolver is nil")
@@ -586,7 +586,15 @@ func (c *Cache) ensurePersistedHitValueLoaded(ctx context.Context, resolver Type
 			return nil, fmt.Errorf("ensure persisted hit value loaded: invalid object payload state for result %d (realized=true, self=nil)", res.id)
 		}
 		if state.realized || state.persistedEnvelope == nil {
+			// A live result published with a nil value is legitimately
+			// unrealized with nothing to decode; only a restored row in this
+			// state is a stranded hit — nothing remains that could make its
+			// value usable, so the caller demotes it to a miss.
+			if !state.realized && !state.servable && res.restored {
+				return nil, fmt.Errorf("%w: result %d has no value, envelope, or retained source", errSourcesExhausted, res.id)
+			}
 			if !state.isObject {
+				c.markPendingWorkFromRestore(res, hit)
 				c.registerLazyEvaluation(res, hit)
 				return hit, nil
 			}
@@ -594,113 +602,190 @@ func (c *Cache) ensurePersistedHitValueLoaded(ctx context.Context, resolver Type
 			if err != nil {
 				return nil, fmt.Errorf("reconstruct object result from cache hit payload: %w", err)
 			}
+			c.markPendingWorkFromRestore(res, objRes)
 			c.registerLazyEvaluation(res, objRes)
 			return objRes, nil
 		}
 
-		res.persistDecodeMu.Lock()
-		if res.persistDecodeWaitCh != nil {
-			waitCh := res.persistDecodeWaitCh
-			res.persistDecodeMu.Unlock()
-
-			select {
-			case <-waitCh:
-			case <-ctx.Done():
-				return nil, context.Cause(ctx)
-			}
-
-			res.persistDecodeMu.Lock()
-			decodeErr := res.persistDecodeErr
-			res.persistDecodeMu.Unlock()
-			if decodeErr != nil {
-				return nil, decodeErr
+		res.materializeMu.Lock()
+		if res.materializeWaitCh != nil {
+			waitCh := res.materializeWaitCh
+			res.materializeWaiters++
+			res.materializeMu.Unlock()
+			if err := c.waitForMaterialization(ctx, res, waitCh); err != nil {
+				return nil, err
 			}
 			continue
 		}
 
-		res.persistDecodeWaitCh = make(chan struct{})
-		res.persistDecodeErr = nil
-		res.persistDecodeMu.Unlock()
+		waitCh := make(chan struct{})
+		decodeCtx, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
+		res.materializeWaitCh = waitCh
+		res.materializeCancel = cancel
+		res.materializeWaiters = 1
+		res.materializeErr = nil
+		res.materializeMu.Unlock()
 
-		finishPersistDecode := func(err error) {
-			res.persistDecodeMu.Lock()
-			res.persistDecodeErr = err
-			waitCh := res.persistDecodeWaitCh
-			res.persistDecodeWaitCh = nil
-			res.persistDecodeMu.Unlock()
-			close(waitCh)
-		}
+		go c.runRestoredValueDecode(decodeCtx, resolver, res, state.persistedEnvelope, waitCh)
 
-		call := res.loadResultCall()
-		if call == nil {
-			err := fmt.Errorf("decode persisted hit payload: missing authoritative call for object result %d", res.id)
-			finishPersistDecode(err)
+		if err := c.waitForMaterialization(ctx, res, waitCh); err != nil {
 			return nil, err
 		}
-		decodeResolver := resolver
-		seenTypeNames := map[string]struct{}{}
-		for _, typeName := range persistedEnvelopeObjectTypeNames(*state.persistedEnvelope, nil) {
-			if _, seen := seenTypeNames[typeName]; seen {
-				continue
-			}
-			seenTypeNames[typeName] = struct{}{}
-			var err error
-			decodeResolver, err = resolverForSharedResultObject(ctx, decodeResolver, res, typeName)
-			if err != nil {
-				err = fmt.Errorf("decode persisted hit payload: %w", err)
-				finishPersistDecode(err)
-				return nil, err
-			}
-		}
-		dag := resolverServer(decodeResolver)
-		if dag == nil {
-			err := fmt.Errorf("decode persisted hit payload: type resolver %T does not provide dagql server", decodeResolver)
-			finishPersistDecode(err)
-			return nil, err
-		}
-		decodeCtx := ContextWithCall(ctx, call)
-		decoded, err := DefaultPersistedSelfCodec.DecodeResult(decodeCtx, dag, uint64(res.id), call, *state.persistedEnvelope)
-		if err != nil {
-			c.tracePersistedPayloadDecodeFailed(ctx, res, state.persistedEnvelope, err)
-			err = fmt.Errorf("decode persisted hit payload: %w", err)
-			finishPersistDecode(err)
-			return nil, err
-		}
-		if decoded == nil || decoded.Unwrap() == nil {
-			err := fmt.Errorf("decode persisted hit payload: decoded nil payload for object result %d", res.id)
-			finishPersistDecode(err)
-			return nil, err
-		}
+	}
+}
 
-		res.payloadMu.Lock()
-		if !res.materialization.realized && res.materialization.envelope != nil {
-			res.self = decoded.Unwrap()
-			res.materialization.realized = true
-			if objDecoded, ok := decoded.(AnyObjectResult); ok && res.objClass == nil {
-				res.objClass = objDecoded.ObjectType()
+// runRestoredValueDecode is the decode phase's runner: one goroutine per
+// in-flight decode, running the retained-source walk on a context detached
+// from any single demander. Demanders are counted waiters; a demander that
+// gives up while others remain just leaves, the last one to give up cancels
+// the runner with its own cause, and a failed attempt is retried by the
+// next demand once the protocol state clears. This is the same protocol the
+// deferred-work phase runs (runDeferredWork); the two phases never overlap
+// in demand for one result, so they can share the fields.
+func (c *Cache) runRestoredValueDecode(runCtx context.Context, resolver TypeResolver, res *sharedResult, env *PersistedResultEnvelope, waitCh chan struct{}) {
+	err := c.decodeRestoredValueWalk(runCtx, resolver, res, env)
+
+	res.materializeMu.Lock()
+	res.materializeErr = err
+	clearState := res.materializeWaiters == 0 && res.materializeWaitCh == waitCh
+	if clearState {
+		res.materializeWaitCh = nil
+		res.materializeCancel = nil
+		res.materializeErr = nil
+	}
+	res.materializeMu.Unlock()
+	close(waitCh)
+}
+
+// decodeRestoredValueWalk is the value phase of the retained-source walk: it
+// decodes the persisted envelope, preferring the local snapshot and falling
+// through to the lazy fragment when the snapshots turn out to be gone from
+// the store (external loss after boot vetting). When no source can deliver,
+// it reports source exhaustion, which the lookup path consumes by demoting
+// the hit to a miss.
+func (c *Cache) decodeRestoredValueWalk(ctx context.Context, resolver TypeResolver, res *sharedResult, env *PersistedResultEnvelope) error {
+	for {
+		attemptCtx := ctx
+		// The walk owns source accounting. When the home retains the lazy
+		// fragment but no local-snapshot source — because this walk just
+		// retired a dead snapshot source, or because boot vetting or a prior
+		// boot retired it and the row flushed link-less — the attempt is
+		// deliberately decoding against the fragment, and fragment-capable
+		// content decoders are told so explicitly. They must never infer
+		// retirement from raw link absence: legitimate shapes (pending
+		// values, config-only values) are link-less too.
+		if res.loadLazyFragment() != nil && len(res.loadSnapshotOwnerLinks()) == 0 {
+			attemptCtx = contextWithRetiredSnapshotSource(ctx, uint64(res.id))
+		}
+		err := c.decodeRestoredValueOnce(attemptCtx, resolver, res, env)
+		if err == nil {
+			outcome := cacheServeFromSnapshot
+			if len(res.loadSnapshotOwnerLinks()) == 0 {
+				outcome = cacheServeFromLazyForm
 			}
-			decodedShared := decoded.cacheSharedResult()
-			if decodedShared != nil {
-				res.sessionResourceHandle = decodedShared.sessionResourceHandle
-				if decodedShared.requiredSessionResources != nil {
-					res.requiredSessionResources = decodedShared.requiredSessionResources.Copy()
-				} else if decodedShared.sessionResourceHandle == "" {
-					res.requiredSessionResources = nil
+			c.classifyServeOutcome(ctx, outcome, res.loadResultCall(), res.id)
+			return nil
+		}
+		if !bkcache.IsNotFound(err) {
+			return err
+		}
+		// A snapshot this value needs is gone from the local store. If the
+		// snapshot source is still recorded and a lazy fragment remains,
+		// retire the snapshot source — its leases pin nothing real — and
+		// decode again against the fragment.
+		links := res.loadSnapshotOwnerLinks()
+		if len(links) > 0 && res.loadLazyFragment() != nil {
+			c.traceRestoredSnapshotSourceRetired(ctx, res, err)
+			res.storeSnapshotOwnerLinks(nil)
+			seen := make(map[string]struct{}, len(links))
+			for _, link := range links {
+				leaseID := resultSnapshotLeaseID(res.id, link.Role)
+				if _, alreadySeen := seen[leaseID]; alreadySeen {
+					continue
+				}
+				seen[leaseID] = struct{}{}
+				if c.snapshotManager != nil {
+					if removeErr := c.snapshotManager.RemoveLease(ctx, leaseID); removeErr != nil {
+						return fmt.Errorf("remove dead snapshot owner lease %q: %w", leaseID, removeErr)
+					}
 				}
 			}
-			res.materialization.envelope = nil
-			c.tracePersistedPayloadDecoded(ctx, res, state.persistedEnvelope)
+			continue
 		}
-		res.payloadMu.Unlock()
-		if onReleaser, ok := UnwrapAs[OnReleaser](decoded); ok {
-			res.onRelease = joinOnRelease(c.resultSnapshotLeaseCleanup(res), onReleaser.OnRelease)
-		}
-		resolver = decodeResolver
-		if err := c.syncResultSnapshotLeases(ctx, res); err != nil {
-			err = fmt.Errorf("sync persisted hit owner leases: %w", err)
-			finishPersistDecode(err)
-			return nil, err
-		}
-		finishPersistDecode(nil)
+		return fmt.Errorf("%w: result %d: %w", errSourcesExhausted, res.id, err)
 	}
+}
+
+func (c *Cache) decodeRestoredValueOnce(ctx context.Context, resolver TypeResolver, res *sharedResult, env *PersistedResultEnvelope) error {
+	call := res.loadResultCall()
+	if call == nil {
+		return fmt.Errorf("decode persisted hit payload: missing authoritative call for object result %d", res.id)
+	}
+	decodeResolver := resolver
+	seenTypeNames := map[string]struct{}{}
+	for _, typeName := range persistedEnvelopeObjectTypeNames(*env, nil) {
+		if _, seen := seenTypeNames[typeName]; seen {
+			continue
+		}
+		seenTypeNames[typeName] = struct{}{}
+		var err error
+		decodeResolver, err = resolverForSharedResultObject(ctx, decodeResolver, res, typeName)
+		if err != nil {
+			return fmt.Errorf("decode persisted hit payload: %w", err)
+		}
+	}
+	dag := resolverServer(decodeResolver)
+	if dag == nil {
+		return fmt.Errorf("decode persisted hit payload: type resolver %T does not provide dagql server", decodeResolver)
+	}
+	decodeCtx := ContextWithCall(ctx, call)
+	decoded, err := DefaultPersistedSelfCodec.DecodeResult(decodeCtx, dag, uint64(res.id), call, *env)
+	if err != nil {
+		c.tracePersistedPayloadDecodeFailed(ctx, res, env, err)
+		if bkcache.IsNotFound(err) {
+			return err
+		}
+		return fmt.Errorf("decode persisted hit payload: %w", err)
+	}
+	if decoded == nil || decoded.Unwrap() == nil {
+		return fmt.Errorf("decode persisted hit payload: decoded nil payload for object result %d", res.id)
+	}
+
+	res.payloadMu.Lock()
+	decodeWon := false
+	if !res.materialization.realized && res.materialization.envelope != nil {
+		decodeWon = true
+		res.self = decoded.Unwrap()
+		res.materialization.realized = true
+		if objDecoded, ok := decoded.(AnyObjectResult); ok && res.objClass == nil {
+			res.objClass = objDecoded.ObjectType()
+		}
+		res.materialization.envelope = nil
+	}
+	res.payloadMu.Unlock()
+	if decodeWon {
+		// The session-resource fields belong to candidate eligibility, which
+		// reads them under the e-graph lock — never under payloadMu (the
+		// established order is egraphMu before payloadMu, so they cannot be
+		// written inside the block above). Import populated both from the
+		// same envelope already; this re-affirms them from the decoded value.
+		if decodedShared := decoded.cacheSharedResult(); decodedShared != nil {
+			c.egraphMu.Lock()
+			res.sessionResourceHandle = decodedShared.sessionResourceHandle
+			if decodedShared.requiredSessionResources != nil {
+				res.requiredSessionResources = decodedShared.requiredSessionResources.Copy()
+			} else if decodedShared.sessionResourceHandle == "" {
+				res.requiredSessionResources = nil
+			}
+			c.egraphMu.Unlock()
+		}
+		c.tracePersistedPayloadDecoded(ctx, res, env)
+	}
+	if onReleaser, ok := UnwrapAs[OnReleaser](decoded); ok {
+		res.onRelease = joinOnRelease(c.resultSnapshotLeaseCleanup(res), onReleaser.OnRelease)
+	}
+	if err := c.syncResultSnapshotLeases(ctx, res); err != nil {
+		return fmt.Errorf("sync persisted hit owner leases: %w", err)
+	}
+	return nil
 }

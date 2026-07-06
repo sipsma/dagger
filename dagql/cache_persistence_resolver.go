@@ -116,6 +116,13 @@ func (c *Cache) loadResultByResultID(ctx context.Context, sessionID string, dag 
 	}
 	loaded, err := c.ensurePersistedHitValueLoaded(ctx, dag, wrapped)
 	if err != nil {
+		// A handle load names one exact result and carries no recipe to
+		// re-run, so exhaustion here cannot demote to execution; the row
+		// still drops (inside normalization) so recipe-shaped lookups heal,
+		// and the caller gets an honest error. Recipe-ID loads take the
+		// lookup path instead, where exhaustion demotes to live
+		// re-evaluation.
+		err = c.normalizeExhaustedResultError(ctx, res, err)
 		if sessionID != "" {
 			c.egraphMu.Lock()
 			c.sessionMu.Lock()

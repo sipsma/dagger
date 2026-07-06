@@ -25,17 +25,18 @@ const (
 )
 
 type EGraphDebugSnapshot struct {
-	TraceFormatVersion int                        `json:"trace_format_version"`
-	BootID             string                     `json:"boot_id"`
-	CapturedAtSeq      uint64                     `json:"captured_at_seq"`
-	CapturedAtTime     string                     `json:"captured_at_time"`
-	RestoreSummary     *CacheRestoreSummary       `json:"restore_summary,omitempty"`
-	ResultCounts       CacheDebugResultCounts     `json:"result_counts"`
-	Results            []EGraphDebugResult        `json:"results"`
-	Terms              []EGraphDebugTerm          `json:"terms"`
-	ResultTerms        []EGraphDebugResultTerm    `json:"result_terms"`
-	Digests            []EGraphDebugDigestMapping `json:"digests"`
-	EqClasses          []EGraphDebugEqClass       `json:"eq_classes"`
+	TraceFormatVersion int                         `json:"trace_format_version"`
+	BootID             string                      `json:"boot_id"`
+	CapturedAtSeq      uint64                      `json:"captured_at_seq"`
+	CapturedAtTime     string                      `json:"captured_at_time"`
+	RestoreSummary     *CacheRestoreSummary        `json:"restore_summary,omitempty"`
+	ResultCounts       CacheDebugResultCounts      `json:"result_counts"`
+	ServeCounters      map[string]map[string]int64 `json:"serve_counters,omitempty"`
+	Results            []EGraphDebugResult         `json:"results"`
+	Terms              []EGraphDebugTerm           `json:"terms"`
+	ResultTerms        []EGraphDebugResultTerm     `json:"result_terms"`
+	Digests            []EGraphDebugDigestMapping  `json:"digests"`
+	EqClasses          []EGraphDebugEqClass        `json:"eq_classes"`
 }
 
 type CacheDebugSnapshot struct {
@@ -934,6 +935,24 @@ func (c *Cache) traceRestoreSummary(ctx context.Context, summary *CacheRestoreSu
 	})
 }
 
+func (c *Cache) traceHitDemotedToMiss(ctx context.Context, res *sharedResult, err error) {
+	c.traceLazy(ctx, "hit_demoted_to_miss", func() []any {
+		return []any{"phase", "runtime", "shared_result_id", res.id, "record_type", res.recordType, "error", err.Error()}
+	})
+}
+
+func (c *Cache) traceResultDroppedSourcesExhausted(ctx context.Context, res *sharedResult) {
+	c.traceLazy(ctx, "result_dropped_sources_exhausted", func() []any {
+		return []any{"phase", "runtime", "shared_result_id", res.id, "record_type", res.recordType}
+	})
+}
+
+func (c *Cache) traceRestoredSnapshotSourceRetired(ctx context.Context, res *sharedResult, err error) {
+	c.traceLazy(ctx, "restored_snapshot_source_retired", func() []any {
+		return []any{"phase", "runtime", "shared_result_id", res.id, "error", err.Error()}
+	})
+}
+
 func (c *Cache) tracePersistedPayloadDecoded(ctx context.Context, res *sharedResult, env *PersistedResultEnvelope) {
 	c.traceLazy(ctx, "persisted_payload_decoded", func() []any {
 		return []any{"phase", "runtime", "shared_result_id", res.id, "payload_kind", env.Kind, "type_name", env.TypeName}
@@ -956,6 +975,7 @@ func (c *Cache) DebugEGraphSnapshot() *EGraphDebugSnapshot {
 			Imported:         c.importedResultCount,
 			ExecutedThisBoot: c.freshResultCount.Load(),
 		},
+		ServeCounters: c.serveStats.byOutcome(),
 	}
 
 	resultIDs := make([]sharedResultID, 0, len(c.resultsByID))

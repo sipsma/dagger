@@ -91,6 +91,21 @@ type persistedEdge struct {
 const cachePersistenceSchemaVersion = "18"
 
 var ErrCacheRecursiveCall = fmt.Errorf("recursive call detected")
+
+// errSourcesExhausted reports that a restored result's retained sources are
+// permanently exhausted: nothing remains that could deliver its value. It is
+// consumed inside the lookup path, where the hit demotes to a miss; callers
+// never see it.
+var errSourcesExhausted = errors.New("cached result's retained sources are exhausted")
+
+// isTransientMaterializeFailure classifies retained-source walk failures.
+// The rule is deliberately dumb: cancellation and deadline are transient —
+// the next demander retries the walk — and everything else the work itself
+// produced is permanent.
+func isTransientMaterializeFailure(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
 var ErrPersistStateNotReady = errors.New("persist state not ready")
 
 type CachePersistenceResetReason string
@@ -117,6 +132,8 @@ func NewCache(
 	if dbPath == "" {
 		return c, nil
 	}
+
+	c.statsFilePath = cacheStatsFilePath(dbPath)
 
 	db, persistDB, err := prepareCacheDBs(ctx, dbPath)
 	if err != nil {
@@ -680,8 +697,8 @@ func HasPendingLazyEvaluation(res AnyResult) bool {
 		return false
 	}
 
-	shared.lazyMu.Lock()
-	defer shared.lazyMu.Unlock()
+	shared.materializeMu.Lock()
+	defer shared.materializeMu.Unlock()
 	if shared.lazyEvalComplete {
 		return false
 	}
@@ -859,6 +876,103 @@ func (c *Cache) MakeResultUnpruneable(ctx context.Context, res AnyResult) error 
 	c.upsertPersistedEdgeLocked(ctx, shared, 0, true)
 	c.egraphMu.Unlock()
 	return nil
+}
+
+// dropExhaustedResult removes a result whose retained sources are
+// permanently exhausted — and, transitively, every result depending on it —
+// from future servability: lookup candidacy, persisted retention, and
+// snapshot owner leases. It never reaches into live holders: values already
+// in hand stay usable, in-flight uses are unaffected, and each row's full
+// cleanup runs through normal release once its holders let go. The same
+// zero-viable-sources rule boot vetting applies, at its second moment.
+func (c *Cache) dropExhaustedResult(ctx context.Context, res *sharedResult) error {
+	if c == nil || res == nil || res.id == 0 {
+		return nil
+	}
+
+	var (
+		targets []*sharedResult
+		queue   []*sharedResult
+		rerr    error
+	)
+	c.egraphMu.Lock()
+	seen := map[sharedResultID]struct{}{}
+	pending := []*sharedResult{res}
+	for len(pending) > 0 {
+		target := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		if target == nil {
+			continue
+		}
+		if _, alreadySeen := seen[target.id]; alreadySeen {
+			continue
+		}
+		seen[target.id] = struct{}{}
+		if target.dropped {
+			continue
+		}
+		targets = append(targets, target)
+		if target.depParents != nil {
+			for _, parentID := range target.depParents.Slice() {
+				if parent := c.resultsByID[parentID]; parent != nil {
+					pending = append(pending, parent)
+				}
+			}
+		}
+	}
+	for _, target := range targets {
+		target.dropped = true
+		c.deindexResultCandidacyLocked(ctx, target)
+		c.traceResultDroppedSourcesExhausted(ctx, target)
+		if _, found := c.persistedEdgesByResult[target.id]; found {
+			delete(c.persistedEdgesByResult, target.id)
+			q, err := c.decrementIncomingOwnershipLocked(ctx, target, nil)
+			queue = append(queue, q...)
+			rerr = errors.Join(rerr, err)
+		}
+	}
+	collectReleases, collectErr := c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
+	rerr = errors.Join(rerr, collectErr)
+	c.egraphMu.Unlock()
+
+	// Dropped rows must not pin content: their owner leases go now. Values
+	// still held keep their own open refs; the content becomes collectible
+	// once those release.
+	if c.snapshotManager != nil {
+		for _, target := range targets {
+			links := target.loadSnapshotOwnerLinks()
+			target.storeSnapshotOwnerLinks(nil)
+			seenLeases := make(map[string]struct{}, len(links))
+			for _, link := range links {
+				leaseID := resultSnapshotLeaseID(target.id, link.Role)
+				if _, alreadySeen := seenLeases[leaseID]; alreadySeen {
+					continue
+				}
+				seenLeases[leaseID] = struct{}{}
+				rerr = errors.Join(rerr, c.snapshotManager.RemoveLease(ctx, leaseID))
+			}
+		}
+	}
+	return errors.Join(rerr, runOnReleaseFuncs(context.WithoutCancel(ctx), collectReleases))
+}
+
+// normalizeExhaustedResultError consumes retained-source exhaustion at
+// surfaces that have no invocation to re-execute (result attachment, wait's
+// post-completion normalization, handle loads). The rule mirrors the demote
+// floor one level down: the exhausted row drops — with its dependents — so
+// future lookups miss and heal, and this use receives an honest error. The
+// sentinel itself never escapes the cache; no caller may observe or match
+// it. Dropping is idempotent, so surfaces downstream of a runner that
+// already dropped are safe to normalize again.
+func (c *Cache) normalizeExhaustedResultError(ctx context.Context, res *sharedResult, err error) error {
+	if err == nil || !errors.Is(err, errSourcesExhausted) {
+		return err
+	}
+	dropErr := c.dropExhaustedResult(ctx, res)
+	return errors.Join(
+		fmt.Errorf("cached result %d can no longer be materialized and was dropped from the cache; retrying will re-execute it (%s)", res.id, err.Error()),
+		dropErr,
+	)
 }
 
 func (c *Cache) removePersistedEdge(ctx context.Context, resultID sharedResultID) (bool, error) {
@@ -1233,6 +1347,10 @@ type Cache struct {
 	// restoreSummary records the boot-restore outcome (kept/dropped/wiped);
 	// guarded by egraphMu after the boot writes it.
 	restoreSummary *CacheRestoreSummary
+	// serveStats are the warm-serving counters; statsFilePath is where they
+	// flush at shutdown, next to the persisted store.
+	serveStats    cacheServeStats
+	statsFilePath string
 	// importedResultCount is how many persisted rows survived restore
 	// vetting this boot; freshResultCount counts results published from
 	// work executed this boot. Flush writes both, plus the total, as the
@@ -1675,23 +1793,37 @@ type sharedResult struct {
 	attachDepsWaitCh chan struct{}
 	attachDepsErr    error
 
-	persistDecodeMu     sync.Mutex
-	persistDecodeWaitCh chan struct{}
-	persistDecodeErr    error
+	// materialize* is the one wait protocol for this result's
+	// materialization work — decoding the persisted envelope through the
+	// retained-source walk, and running pending deferred work. One runner,
+	// N waiters, last-waiter-cancels, retry-on-failure. The two phases
+	// never overlap in demand: value materialization only runs while the
+	// payload is unrealized, deferred work only after it is realized.
+	materializeMu      sync.Mutex
+	lazyEval           LazyEvalFunc
+	lazyEvalComplete   bool
+	materializeWaitCh  chan struct{}
+	materializeCancel  context.CancelCauseFunc
+	materializeWaiters int
+	materializeErr     error
 
-	lazyMu           sync.Mutex
-	lazyEval         LazyEvalFunc
-	lazyEvalComplete bool
-	lazyEvalWaitCh   chan struct{}
-	lazyEvalCancel   context.CancelCauseFunc
-	lazyEvalWaiters  int
-	lazyEvalErr      error
+	// restored marks a result created from persisted state at boot;
+	// pendingWorkFromRestore marks that its deferred work was re-attached
+	// from the persisted lazy fragment, so a permanent failure of that work
+	// is retained-source exhaustion rather than a live call's own failure.
+	restored               bool
+	pendingWorkFromRestore bool
+	// dropped marks a result removed from future servability after its
+	// sources were permanently exhausted; guarded by egraphMu. Flush skips
+	// dropped rows.
+	dropped bool
 }
 
 type sharedResultPayloadState struct {
 	self               Typed
 	isObject           bool
 	realized           bool
+	servable           bool
 	objClass           ObjectType
 	persistedEnvelope  *PersistedResultEnvelope
 	snapshotOwnerLinks []PersistedSnapshotRefLink
@@ -1728,6 +1860,7 @@ func (res *sharedResult) loadPayloadState() sharedResultPayloadState {
 		self:               res.self,
 		isObject:           res.isObject,
 		realized:           res.materialization.realized,
+		servable:           res.materialization.servable(),
 		objClass:           res.objClass,
 		persistedEnvelope:  res.materialization.envelope,
 		snapshotOwnerLinks: res.materialization.localSnapshotLinks(),
@@ -2141,7 +2274,7 @@ func (c *Cache) attachResult(ctx context.Context, sessionID string, resolver Typ
 	if shared.id != 0 {
 		loaded, err := c.ensurePersistedHitValueLoaded(ctx, resolver, res)
 		if err != nil {
-			return nil, fmt.Errorf("attach dependency result: refresh cache-backed value: %w", err)
+			return nil, fmt.Errorf("attach dependency result: refresh cache-backed value: %w", c.normalizeExhaustedResultError(ctx, shared, err))
 		}
 		touchSharedResultLastUsed(shared, time.Now().UnixNano())
 		c.traceAttachResultReusedCacheBacked(ctx, sessionID, shared)
@@ -2212,7 +2345,12 @@ func (c *Cache) attachResult(ctx context.Context, sessionID string, resolver Typ
 	attachedRes := Result[Typed]{shared: oc.res}
 	attached, err := c.ensurePersistedHitValueLoaded(ctx, resolver, attachedRes)
 	if err != nil {
-		return nil, fmt.Errorf("attach dependency result: normalize attached result: %w", err)
+		// Exhaustion cannot actually surface here: a cache-backed input
+		// (shared.id != 0) returned above before reaching this flow, so
+		// initCompletedResult saw a detached value, took its fresh branch,
+		// and left oc.res realized — nothing remains to decode. Normalize
+		// anyway so the sentinel cannot escape if that invariant ever moves.
+		return nil, fmt.Errorf("attach dependency result: normalize attached result: %w", c.normalizeExhaustedResultError(ctx, oc.res, err))
 	}
 	attachedShared := attached.cacheSharedResult()
 	if attachedShared == nil || attachedShared.id == 0 {
@@ -2958,6 +3096,25 @@ func lazyEvalFuncOfResult(val AnyResult) LazyEvalFunc {
 	return lazy.LazyEvalFunc()
 }
 
+// markPendingWorkFromRestore records that a restored result's deferred work
+// was re-attached from its persisted lazy fragment. A permanent failure of
+// that work is then retained-source exhaustion — the row drops so future
+// lookups heal — where a live call's own deferred work failing stays that
+// call's failure.
+func (c *Cache) markPendingWorkFromRestore(shared *sharedResult, val AnyResult) {
+	if shared == nil || !shared.restored || val == nil {
+		return
+	}
+	if lazyEvalFuncOfResult(val) == nil {
+		return
+	}
+	shared.materializeMu.Lock()
+	if !shared.lazyEvalComplete {
+		shared.pendingWorkFromRestore = true
+	}
+	shared.materializeMu.Unlock()
+}
+
 func (c *Cache) registerLazyEvaluation(shared *sharedResult, val AnyResult) {
 	if shared == nil || val == nil {
 		return
@@ -2967,11 +3124,11 @@ func (c *Cache) registerLazyEvaluation(shared *sharedResult, val AnyResult) {
 		return
 	}
 
-	shared.lazyMu.Lock()
+	shared.materializeMu.Lock()
 	if shared.lazyEval == nil && !shared.lazyEvalComplete {
 		shared.lazyEval = lazyEval
 	}
-	shared.lazyMu.Unlock()
+	shared.materializeMu.Unlock()
 }
 
 func lazyEvalStackFromContext(ctx context.Context) *lazyEvalStackNode {
@@ -3002,19 +3159,25 @@ func (s resumedCallbackSpan) TracerProvider() trace.TracerProvider {
 	return s.tp
 }
 
-func (c *Cache) waitForLazyEvaluation(ctx context.Context, shared *sharedResult, waitCh chan struct{}) error {
+// waitForMaterialization is the waiter side of the materialization
+// protocol, shared by both phases (restored-value decode and deferred lazy
+// work): waiters are counted, a departing waiter that leaves the runner
+// with no audience cancels it with its own cause, and the last waiter to
+// observe a finished attempt clears the protocol state so the next demand
+// can retry.
+func (c *Cache) waitForMaterialization(ctx context.Context, shared *sharedResult, waitCh chan struct{}) error {
 	var waitErr error
 	select {
 	case <-waitCh:
-		shared.lazyMu.Lock()
-		waitErr = shared.lazyEvalErr
-		shared.lazyEvalWaiters--
-		if shared.lazyEvalWaiters == 0 && shared.lazyEvalWaitCh == waitCh {
-			shared.lazyEvalWaitCh = nil
-			shared.lazyEvalCancel = nil
-			shared.lazyEvalErr = nil
+		shared.materializeMu.Lock()
+		waitErr = shared.materializeErr
+		shared.materializeWaiters--
+		if shared.materializeWaiters == 0 && shared.materializeWaitCh == waitCh {
+			shared.materializeWaitCh = nil
+			shared.materializeCancel = nil
+			shared.materializeErr = nil
 		}
-		shared.lazyMu.Unlock()
+		shared.materializeMu.Unlock()
 		// Tag the failure with the result it belongs to so that an enclosing
 		// lazy callback's resume span can tell "a prerequisite failed" apart
 		// from "my own deferred work failed". See blockedOnPrerequisite.
@@ -3023,11 +3186,11 @@ func (c *Cache) waitForLazyEvaluation(ctx context.Context, shared *sharedResult,
 		}
 	case <-ctx.Done():
 		waitErr = context.Cause(ctx)
-		shared.lazyMu.Lock()
-		shared.lazyEvalWaiters--
-		lastWaiter := shared.lazyEvalWaiters == 0
-		cancel := shared.lazyEvalCancel
-		shared.lazyMu.Unlock()
+		shared.materializeMu.Lock()
+		shared.materializeWaiters--
+		lastWaiter := shared.materializeWaiters == 0
+		cancel := shared.materializeCancel
+		shared.materializeMu.Unlock()
 		if lastWaiter && cancel != nil {
 			cancel(waitErr)
 		}
@@ -3102,35 +3265,35 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 
 	// Fast path: if evaluation is already complete or there is nothing to do,
 	// skip preflight entirely.
-	shared.lazyMu.Lock()
+	shared.materializeMu.Lock()
 	if shared.lazyEvalComplete || lazyEvalFuncOfResult(res) == nil {
-		shared.lazyMu.Unlock()
+		shared.materializeMu.Unlock()
 		return nil
 	}
-	shared.lazyMu.Unlock()
+	shared.materializeMu.Unlock()
 
-	shared.lazyMu.Lock()
+	shared.materializeMu.Lock()
 	currentLazyEval := lazyEvalFuncOfResult(res)
 	if currentLazyEval == nil {
 		shared.lazyEval = nil
 		shared.lazyEvalComplete = true
-		shared.lazyMu.Unlock()
+		shared.materializeMu.Unlock()
 		return nil
 	}
 	if shared.lazyEvalComplete {
-		shared.lazyMu.Unlock()
+		shared.materializeMu.Unlock()
 		return nil
 	}
 	shared.lazyEval = currentLazyEval
 	if shared.lazyEval == nil {
-		shared.lazyMu.Unlock()
+		shared.materializeMu.Unlock()
 		return nil
 	}
-	if shared.lazyEvalWaitCh != nil {
-		waitCh := shared.lazyEvalWaitCh
-		shared.lazyEvalWaiters++
-		shared.lazyMu.Unlock()
-		return c.waitForLazyEvaluation(stackCtx, shared, waitCh)
+	if shared.materializeWaitCh != nil {
+		waitCh := shared.materializeWaitCh
+		shared.materializeWaiters++
+		shared.materializeMu.Unlock()
+		return c.waitForMaterialization(stackCtx, shared, waitCh)
 	}
 
 	waitCh := make(chan struct{})
@@ -3140,13 +3303,24 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 	if resultCall != nil {
 		evalCtx = ContextWithCall(evalCtx, resultCall)
 	}
-	shared.lazyEvalWaitCh = waitCh
-	shared.lazyEvalCancel = cancel
-	shared.lazyEvalWaiters = 1
-	shared.lazyEvalErr = nil
-	shared.lazyMu.Unlock()
+	shared.materializeWaitCh = waitCh
+	shared.materializeCancel = cancel
+	shared.materializeWaiters = 1
+	shared.materializeErr = nil
+	shared.materializeMu.Unlock()
 
-	go func() {
+	go c.runDeferredWork(evalCtx, shared, resultCall, lazyEval, waitCh)
+
+	return c.waitForMaterialization(stackCtx, shared, waitCh)
+}
+
+// runDeferredWork is the deferred-work phase of the materialization
+// protocol: it runs the result's pending lazy work on a caller-detached
+// context with resume-span attribution, classifies a permanent failure of
+// restored work as retained-source exhaustion (dropping the result), and
+// completes the wait protocol for every current waiter.
+func (c *Cache) runDeferredWork(evalCtx context.Context, shared *sharedResult, resultCall *ResultCall, lazyEval LazyEvalFunc, waitCh chan struct{}) {
+	{
 		callbackCtx := evalCtx
 		var resumeSpan trace.Span
 		if clientMD, err := engine.ClientMetadataFromContext(evalCtx); err == nil && clientMD.SessionID != "" {
@@ -3215,24 +3389,42 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) error {
 		}
 		runEval()
 
-		shared.lazyMu.Lock()
-		shared.lazyEvalErr = err
+		shared.materializeMu.Lock()
+		restoredWork := shared.pendingWorkFromRestore
+		shared.materializeMu.Unlock()
+		if err != nil && restoredWork && !isTransientMaterializeFailure(err) {
+			// The restored fragment cannot re-make this content, and decode
+			// already preferred a snapshot when one was viable, so nothing
+			// remains: exhaustion is terminal for the result, not just the
+			// attempt. Drop it — with its dependents — so future lookups
+			// miss and heal; current waiters receive the terminal outcome.
+			dropErr := c.dropExhaustedResult(callbackCtx, shared)
+			if dropErr != nil {
+				err = errors.Join(err, dropErr)
+			}
+			// The waiters get an honest terminal error, not the internal
+			// exhaustion sentinel: deferred-work failures surface through
+			// Evaluate, which has no demote consumer, and the drop above
+			// already did everything the sentinel would ask for.
+			err = fmt.Errorf("restored result %d's deferred work failed permanently and the result was dropped from the cache; retrying will re-execute it: %w", shared.id, err)
+		}
+
+		shared.materializeMu.Lock()
+		shared.materializeErr = err
 		if err == nil {
 			shared.lazyEvalComplete = true
 			shared.lazyEval = nil
 		}
-		clearState := shared.lazyEvalWaiters == 0 && shared.lazyEvalWaitCh == waitCh
+		clearState := shared.materializeWaiters == 0 && shared.materializeWaitCh == waitCh
 		if clearState {
-			shared.lazyEvalWaitCh = nil
-			shared.lazyEvalCancel = nil
-			shared.lazyEvalErr = nil
+			shared.materializeWaitCh = nil
+			shared.materializeCancel = nil
+			shared.materializeErr = nil
 		}
-		shared.lazyMu.Unlock()
+		shared.materializeMu.Unlock()
 
 		close(waitCh)
-	}()
-
-	return c.waitForLazyEvaluation(stackCtx, shared, waitCh)
+	}
 }
 
 func (c *Cache) Close(ctx context.Context) error {
@@ -3256,6 +3448,7 @@ func (c *Cache) Close(ctx context.Context) error {
 			slog.Error("dagql cache close exiting with error", "err", c.closeErr)
 			return
 		}
+		c.writeServeStatsFile()
 		if c.pdb != nil {
 			slog.Info("marking dagql cache clean shutdown")
 			if err := c.pdb.UpsertMeta(ctx, persistdb.MetaKeyCleanShutdown, "1"); err != nil {
@@ -3780,6 +3973,11 @@ func (c *Cache) getOrInitCall(
 		return nil, err
 	}
 	if hit {
+		outcome := cacheServeHitLive
+		if shared := hitRes.cacheSharedResult(); shared != nil && shared.restored {
+			outcome = cacheServeHitRestored
+		}
+		c.classifyServeOutcome(ctx, outcome, req.ResultCall, hitRes.cacheSharedResult().id)
 		c.captureSessionLazySpanContext(ctx, sessionID, hitRes)
 		c.captureSessionResultInstallSpan(ctx, sessionID, hitRes)
 		return hitRes, nil
@@ -3816,6 +4014,7 @@ func (c *Cache) getOrInitCall(
 		c.callsMu.Unlock()
 		return nil, fmt.Errorf("acquire shared operation lease: %w", err)
 	}
+	c.classifyServeOutcome(ctx, cacheServeMissFirst, req.ResultCall, 0)
 	oc := &ongoingCall{
 		callConcurrencyKeys:      callConcKeys,
 		isPersistable:            req.IsPersistable,
@@ -3958,28 +4157,53 @@ func (c *Cache) lookupCacheForDigests(
 
 	loadedHit, err := c.ensurePersistedHitValueLoaded(ctx, resolver, retRes)
 	if err != nil {
-		c.egraphMu.Lock()
-		c.sessionMu.Lock()
-		if resultIDs := c.sessionResultIDsBySession[sessionID]; resultIDs != nil {
-			delete(resultIDs, hitShared.id)
-			if len(resultIDs) == 0 {
-				delete(c.sessionResultIDsBySession, sessionID)
-			}
-		}
-		c.sessionMu.Unlock()
-		queue := []*sharedResult(nil)
-		var decErr error
-		if !alreadyTracked {
-			queue, decErr = c.decrementIncomingOwnershipLocked(ctx, hitShared, nil)
-		}
-		collectReleases, collectErr := c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
-		c.egraphMu.Unlock()
-		return nil, false, errors.Join(err, decErr, collectErr, runOnReleaseFuncs(context.WithoutCancel(ctx), collectReleases))
+		demoted, hitErr := c.releaseFailedHit(ctx, sessionID, hitShared, alreadyTracked, err)
+		return nil, false, ifNotDemoted(demoted, hitErr)
 	}
 	if c.traceEnabled() {
 		c.traceSessionResultTracked(ctx, sessionID, loadedHit, true, trackedCount)
 	}
 	return loadedHit, true, nil
+}
+
+// releaseFailedHit undoes a hit's session tracking after its value failed to
+// materialize. Source exhaustion is consumed here: the exhausted result
+// drops — with its dependents — and the invocation proceeds as a miss,
+// executing live, publishing, and re-teaching equivalence to heal the
+// store. Any other failure propagates.
+func (c *Cache) releaseFailedHit(ctx context.Context, sessionID string, hitShared *sharedResult, alreadyTracked bool, err error) (demoted bool, rerr error) {
+	c.egraphMu.Lock()
+	c.sessionMu.Lock()
+	if resultIDs := c.sessionResultIDsBySession[sessionID]; resultIDs != nil {
+		delete(resultIDs, hitShared.id)
+		if len(resultIDs) == 0 {
+			delete(c.sessionResultIDsBySession, sessionID)
+		}
+	}
+	c.sessionMu.Unlock()
+	queue := []*sharedResult(nil)
+	var decErr error
+	if !alreadyTracked {
+		queue, decErr = c.decrementIncomingOwnershipLocked(ctx, hitShared, nil)
+	}
+	collectReleases, collectErr := c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
+	c.egraphMu.Unlock()
+	releaseErr := runOnReleaseFuncs(context.WithoutCancel(ctx), collectReleases)
+	if errors.Is(err, errSourcesExhausted) {
+		c.classifyServeOutcome(ctx, cacheServeDemotedToMiss, hitShared.loadResultCall(), hitShared.id)
+		c.traceHitDemotedToMiss(ctx, hitShared, err)
+		return true, errors.Join(decErr, collectErr, releaseErr, c.dropExhaustedResult(ctx, hitShared))
+	}
+	return false, errors.Join(err, decErr, collectErr, releaseErr)
+}
+
+// ifNotDemoted keeps a consumed demote silent: a demoted hit with clean
+// bookkeeping returns no error so the invocation proceeds as a miss.
+func ifNotDemoted(demoted bool, err error) error {
+	if demoted && err == nil {
+		return nil
+	}
+	return err
 }
 
 func (c *Cache) wait(
@@ -4113,7 +4337,12 @@ func (c *Cache) wait(
 
 	retResAny, err := c.ensurePersistedHitValueLoaded(ctx, resolver, retRes)
 	if err != nil {
-		return nil, fmt.Errorf("wait: normalize returned result: %w", err)
+		// Reachable for restored rows when the call's function returned an
+		// existing cache-backed result and the canonical pick adopted an
+		// exhausted sibling: there is no fresh value left to fall back to
+		// (adoption discarded it), so this use fails honestly and the drop
+		// heals the next lookup.
+		return nil, fmt.Errorf("wait: normalize returned result: %w", c.normalizeExhaustedResultError(ctx, oc.res, err))
 	}
 	return retResAny, nil
 }

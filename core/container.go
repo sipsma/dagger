@@ -1584,15 +1584,80 @@ func (container *Container) EncodePersistedLazyFragment(ctx context.Context, cac
 	return &dagql.PersistedLazyFragment{JSON: lazyJSON}, nil
 }
 
+func decodePersistedContainerMounts(ctx context.Context, dag *dagql.Server, resultID uint64, persistedMounts []persistedContainerMountPayload, hollow bool) (ContainerMounts, []decodedContainerMount, error) {
+	mounts := make(ContainerMounts, 0, len(persistedMounts))
+	decodedMounts := make([]decodedContainerMount, 0, len(persistedMounts))
+	for _, persistedMount := range persistedMounts {
+		mnt := ContainerMount{
+			Target:   persistedMount.Target,
+			Readonly: persistedMount.Readonly,
+		}
+		decodedMount := decodedContainerMount{Kind: persistedMount.Kind}
+		switch persistedMount.Kind {
+		case persistedContainerMountKindDirectory:
+			mnt.DirectorySource = new(LazyAccessor[*Directory, *Container])
+			if len(persistedMount.Value) > 0 && !hollow {
+				dirVal, err := decodePersistedContainerDirectoryValue(ctx, dag, resultID, fmt.Sprintf("mount_dir:%d", len(mounts)), persistedMount.Value)
+				if err != nil {
+					return nil, nil, err
+				}
+				decodedMount.Kind = dirVal.Kind
+				if dirVal.Dir != nil {
+					mnt.DirectorySource.setValue(dirVal.Dir)
+				}
+			}
+		case persistedContainerMountKindFile:
+			mnt.FileSource = new(LazyAccessor[*File, *Container])
+			if len(persistedMount.Value) > 0 && !hollow {
+				fileVal, err := decodePersistedContainerFileValue(ctx, dag, resultID, fmt.Sprintf("mount_file:%d", len(mounts)), persistedMount.Value)
+				if err != nil {
+					return nil, nil, err
+				}
+				decodedMount.Kind = fileVal.Kind
+				if fileVal.File != nil {
+					mnt.FileSource.setValue(fileVal.File)
+				}
+			}
+		case persistedContainerMountKindCache:
+			cacheRes, err := loadPersistedObjectResultByResultID[*CacheVolume](ctx, dag, persistedMount.CacheSourceResultID, "container mount cache")
+			if err != nil {
+				return nil, nil, err
+			}
+			mnt.CacheSource = &CacheMountSource{Volume: cacheRes}
+		case persistedContainerMountKindTmpfs:
+			mnt.TmpfsSource = &TmpfsMountSource{Size: persistedMount.TmpfsSize}
+		default:
+			return nil, nil, fmt.Errorf("decode persisted container mount %q: unsupported kind %q", persistedMount.Target, persistedMount.Kind)
+		}
+		mounts = append(mounts, mnt)
+		decodedMounts = append(decodedMounts, decodedMount)
+	}
+	return mounts, decodedMounts, nil
+}
+
 func (*Container) DecodePersistedObject(ctx context.Context, dag *dagql.Server, resultID uint64, call *dagql.ResultCall, payload json.RawMessage, lazy dagql.PersistedLazyFragment) (dagql.Typed, error) {
 	var persisted persistedContainerPayload
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted container payload: %w", err)
 	}
 
+	links, err := loadPersistedSnapshotLinksByResultID(ctx, dag, resultID, "container")
+	if err != nil {
+		return nil, err
+	}
+	// A completed container whose snapshot source was retired (external loss
+	// after boot, or boot vetting found the snapshots gone) rebuilds through
+	// its lazy fragment: decode hollow — exactly the pending shape — and
+	// re-attach the fragment as live work, which re-derives the content from
+	// the retained inputs on first use. The retained-source walk states the
+	// retirement explicitly; inferring it from link absence is forbidden,
+	// since link-less containers also occur legitimately.
+	rebuildFromFragment := !persisted.Pending && len(lazy.JSON) > 0 && dagql.SnapshotSourceRetired(ctx, resultID)
+	hollow := persisted.Pending || rebuildFromFragment
+
 	fs := new(LazyAccessor[*Directory, *Container])
 	var decodedRootFS decodedContainerDirectoryValue
-	if len(persisted.FS) > 0 {
+	if len(persisted.FS) > 0 && !hollow {
 		rootfs, err := decodePersistedContainerDirectoryValue(ctx, dag, resultID, "fs", persisted.FS)
 		if err != nil {
 			return nil, err
@@ -1603,52 +1668,9 @@ func (*Container) DecodePersistedObject(ctx context.Context, dag *dagql.Server, 
 		}
 	}
 
-	mounts := make(ContainerMounts, 0, len(persisted.Mounts))
-	decodedMounts := make([]decodedContainerMount, 0, len(persisted.Mounts))
-	for _, persistedMount := range persisted.Mounts {
-		mnt := ContainerMount{
-			Target:   persistedMount.Target,
-			Readonly: persistedMount.Readonly,
-		}
-		decodedMount := decodedContainerMount{Kind: persistedMount.Kind}
-		switch persistedMount.Kind {
-		case persistedContainerMountKindDirectory:
-			mnt.DirectorySource = new(LazyAccessor[*Directory, *Container])
-			if len(persistedMount.Value) > 0 {
-				dirVal, err := decodePersistedContainerDirectoryValue(ctx, dag, resultID, fmt.Sprintf("mount_dir:%d", len(mounts)), persistedMount.Value)
-				if err != nil {
-					return nil, err
-				}
-				decodedMount.Kind = dirVal.Kind
-				if dirVal.Dir != nil {
-					mnt.DirectorySource.setValue(dirVal.Dir)
-				}
-			}
-		case persistedContainerMountKindFile:
-			mnt.FileSource = new(LazyAccessor[*File, *Container])
-			if len(persistedMount.Value) > 0 {
-				fileVal, err := decodePersistedContainerFileValue(ctx, dag, resultID, fmt.Sprintf("mount_file:%d", len(mounts)), persistedMount.Value)
-				if err != nil {
-					return nil, err
-				}
-				decodedMount.Kind = fileVal.Kind
-				if fileVal.File != nil {
-					mnt.FileSource.setValue(fileVal.File)
-				}
-			}
-		case persistedContainerMountKindCache:
-			cacheRes, err := loadPersistedObjectResultByResultID[*CacheVolume](ctx, dag, persistedMount.CacheSourceResultID, "container mount cache")
-			if err != nil {
-				return nil, err
-			}
-			mnt.CacheSource = &CacheMountSource{Volume: cacheRes}
-		case persistedContainerMountKindTmpfs:
-			mnt.TmpfsSource = &TmpfsMountSource{Size: persistedMount.TmpfsSize}
-		default:
-			return nil, fmt.Errorf("decode persisted container mount %q: unsupported kind %q", persistedMount.Target, persistedMount.Kind)
-		}
-		mounts = append(mounts, mnt)
-		decodedMounts = append(decodedMounts, decodedMount)
+	mounts, decodedMounts, err := decodePersistedContainerMounts(ctx, dag, resultID, persisted.Mounts, hollow)
+	if err != nil {
+		return nil, err
 	}
 	secrets := make([]ContainerSecret, 0, len(persisted.Secrets))
 	for _, persistedSecret := range persisted.Secrets {
@@ -1682,10 +1704,6 @@ func (*Container) DecodePersistedObject(ctx context.Context, dag *dagql.Server, 
 	}
 
 	metaAccessor := new(LazyAccessor[bkcache.ImmutableRef, *Container])
-	links, err := loadPersistedSnapshotLinksByResultID(ctx, dag, resultID, "container")
-	if err != nil {
-		return nil, err
-	}
 	for _, link := range links {
 		if link.Role != "meta" {
 			continue
@@ -1716,11 +1734,13 @@ func (*Container) DecodePersistedObject(ctx context.Context, dag *dagql.Server, 
 		VolatileEnv:        slices.Clone(persisted.VolatileEnv),
 		DefaultArgs:        persisted.DefaultArgs,
 	}
-	if !persisted.Pending {
+	if !hollow {
 		return container, nil
 	}
-	// A pending container's value is hollow until its deferred work runs:
-	// the envelope's lazy fragment IS that work, so it re-attaches live.
+	// A hollow container's value is unusable until its deferred work runs:
+	// the envelope's lazy fragment IS that work (a pending container's
+	// original work, or a completed one's re-derivation), so it re-attaches
+	// live.
 	if len(lazy.JSON) == 0 {
 		return nil, fmt.Errorf("decode persisted container payload: pending container has no lazy fragment")
 	}

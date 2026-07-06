@@ -866,6 +866,19 @@ func (srv *Server) DagqlCacheEntryStats() dagql.CacheEntryStats {
 	return srv.engineCache.EntryStats()
 }
 
+// TestOnlyMarkSnapshotDeleted simulates external loss of one snapshot for
+// integration tests; reachable only through the test-gated debug endpoint.
+func (srv *Server) TestOnlyMarkSnapshotDeleted(ctx context.Context, snapshotID string) error {
+	type testOnlySnapshotDeleter interface {
+		TestOnlyMarkSnapshotDeleted(context.Context, string) error
+	}
+	deleter, ok := srv.workerCache.(testOnlySnapshotDeleter)
+	if !ok {
+		return fmt.Errorf("snapshot manager %T does not support test-only deletion", srv.workerCache)
+	}
+	return deleter.TestOnlyMarkSnapshotDeleted(ctx, snapshotID)
+}
+
 func (srv *Server) DagqlDebugSnapshot() *dagql.EGraphDebugSnapshot {
 	if srv.engineCache == nil {
 		return nil

@@ -130,9 +130,11 @@ func (obj *matHomeObj) EncodePersistedLazyFragment(ctx context.Context, cache Pe
 	}, nil
 }
 
-func (*matHomeObj) DecodePersistedObject(ctx context.Context, dag *Server, _ uint64, _ *ResultCall, payload json.RawMessage, _ PersistedLazyFragment) (Typed, error) {
-	_ = ctx
+func (*matHomeObj) DecodePersistedObject(ctx context.Context, dag *Server, resultID uint64, _ *ResultCall, payload json.RawMessage, lazy PersistedLazyFragment) (Typed, error) {
 	_ = dag
+	if err := openTestSnapshotSource(ctx, resultID, lazy); err != nil {
+		return nil, err
+	}
 	var persisted persistedMatHomeObj
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, err

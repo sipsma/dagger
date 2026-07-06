@@ -914,23 +914,8 @@ func (c *Cache) lookupCacheForRequest(
 
 	loadedHit, err := c.ensurePersistedHitValueLoaded(ctx, resolver, retRes)
 	if err != nil {
-		c.egraphMu.Lock()
-		c.sessionMu.Lock()
-		if resultIDs := c.sessionResultIDsBySession[sessionID]; resultIDs != nil {
-			delete(resultIDs, hitShared.id)
-			if len(resultIDs) == 0 {
-				delete(c.sessionResultIDsBySession, sessionID)
-			}
-		}
-		c.sessionMu.Unlock()
-		queue := []*sharedResult(nil)
-		var decErr error
-		if !alreadyTracked {
-			queue, decErr = c.decrementIncomingOwnershipLocked(ctx, hitShared, nil)
-		}
-		collectReleases, collectErr := c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
-		c.egraphMu.Unlock()
-		return nil, false, errors.Join(err, decErr, collectErr, runOnReleaseFuncs(context.WithoutCancel(ctx), collectReleases))
+		demoted, hitErr := c.releaseFailedHit(ctx, sessionID, hitShared, alreadyTracked, err)
+		return nil, false, ifNotDemoted(demoted, hitErr)
 	}
 
 	if c.traceEnabled() {
@@ -1625,6 +1610,30 @@ func (c *Cache) indexWaitResultInEgraphLocked(
 	}
 
 	return nil
+}
+
+// deindexResultCandidacyLocked removes a result from lookup candidacy —
+// digest index, term associations, output classes — without touching its
+// row, value, deps, or holders. It is the servability half of removal: the
+// result can no longer be found, while everything already holding it keeps
+// working and normal release performs the full cleanup later.
+func (c *Cache) deindexResultCandidacyLocked(ctx context.Context, res *sharedResult) {
+	if res == nil {
+		return
+	}
+	affectedOutputEqClasses := c.outputEqClassesForResultLocked(res.id)
+	for termID := range c.resultTerms[res.id] {
+		if termResults := c.termResults[termID]; termResults != nil {
+			delete(termResults, res.id)
+			if len(termResults) == 0 {
+				delete(c.termResults, termID)
+			}
+		}
+		c.traceResultTermAssocRemoved(ctx, res.id, termID)
+	}
+	delete(c.resultTerms, res.id)
+	c.removeResultDigestsLocked(res.id, affectedOutputEqClasses)
+	delete(c.resultOutputEqClasses, res.id)
 }
 
 func (c *Cache) removeResultFromEgraphLocked(ctx context.Context, res *sharedResult) {

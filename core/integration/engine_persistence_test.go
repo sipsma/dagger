@@ -10,7 +10,11 @@ package core
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1243,4 +1247,218 @@ printf 'layered\n' > /work/layered.txt
 		}
 		require.NoError(t, eg.Wait())
 	})
+
+	t.Run("warm serving proven by stats counters", func(ctx context.Context, t *testctx.T) {
+		c := connect(ctx, t)
+		stateKey := "phase9-counter-proof-state-" + identity.NewID()
+
+		runPipeline := func(client *dagger.Client) string {
+			t.Helper()
+			out, err := client.
+				Container().
+				From(alpineImage).
+				WithExec([]string{"sh", "-ec", "echo phase9-deterministic > /out.txt"}).
+				WithExec([]string{"sh", "-ec", "head -c 32 /dev/urandom | sha256sum | cut -d' ' -f1 >> /out.txt; cat /out.txt"}).
+				Stdout(ctx)
+			require.NoError(t, err)
+			return out
+		}
+
+		upstreamSvcA, engineSvcA, engineClientA := startEngine(c, ctx, t, stateKey, engineWithPersistenceTestGC(ctx, t))
+		t.Cleanup(func() { stopEngine(ctx, t, upstreamSvcA, engineSvcA, engineClientA) })
+		outA := runPipeline(engineClientA)
+		stopEngine(ctx, t, upstreamSvcA, engineSvcA, engineClientA)
+		upstreamSvcA = nil
+		engineSvcA = nil
+		engineClientA = nil
+
+		upstreamSvcB, engineSvcB, engineClientB := startEngine(c, ctx, t, stateKey, engineWithPersistenceTestGC(ctx, t))
+		t.Cleanup(func() { stopEngine(ctx, t, upstreamSvcB, engineSvcB, engineClientB) })
+		outB := runPipeline(engineClientB)
+		// The random exec matching across engines proves reuse for that one
+		// rigged call; the counters below prove it for the whole pipeline.
+		require.Equal(t, outA, outB)
+		stopEngine(ctx, t, upstreamSvcB, engineSvcB, engineClientB)
+		upstreamSvcB = nil
+		engineSvcB = nil
+		engineClientB = nil
+
+		counters := readServeStatsCounters(ctx, t, c, stateKey)
+		require.GreaterOrEqual(t, counters["hit_restored"]["withExec"], int64(1),
+			"warm run must serve restored withExec hits; counters: %v", counters)
+		require.Empty(t, counters["demoted_to_miss"],
+			"an undamaged store must serve without demotes")
+	})
+
+	t.Run("external snapshot loss serves through the lazy fragment", func(ctx context.Context, t *testctx.T) {
+		c := connect(ctx, t)
+		stateKey := "phase9-snapshot-loss-state-" + identity.NewID()
+		hostDir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(hostDir, "input.txt"), []byte("phase9-input\n"), 0o600))
+
+		runPipeline := func(client *dagger.Client) (string, string) {
+			t.Helper()
+			base := client.
+				Container().
+				From(alpineImage).
+				WithExec([]string{"sh", "-ec", "mkdir -p /out && echo phase9-dir-content > /out/f.txt"})
+			dirOut, err := base.Directory("/out").File("f.txt").Contents(ctx)
+			require.NoError(t, err)
+			hostOut, err := client.
+				Container().
+				From(alpineImage).
+				WithMountedDirectory("/src", client.Host().Directory(hostDir)).
+				WithExec([]string{"sh", "-ec", "cat /src/input.txt"}).
+				Stdout(ctx)
+			require.NoError(t, err)
+			return dirOut, hostOut
+		}
+
+		upstreamSvcA, engineSvcA, engineClientA := startEngine(c, ctx, t, stateKey, engineWithPersistenceTestGC(ctx, t))
+		t.Cleanup(func() { stopEngine(ctx, t, upstreamSvcA, engineSvcA, engineClientA) })
+		dirOutA, hostOutA := runPipeline(engineClientA)
+		stopEngine(ctx, t, upstreamSvcA, engineSvcA, engineClientA)
+		upstreamSvcA = nil
+		engineSvcA = nil
+		engineClientA = nil
+
+		// Engine B exposes the test-only fault-injection debug endpoint. The
+		// container is built inline: the shared helper's default args would
+		// overwrite the --debugaddr flag.
+		engineCtrB := devEngineContainerWithStateKey(c, stateKey, engineWithPersistenceTestGC(ctx, t))
+		deviceName, cidr := testutil.GetUniqueNestedEngineNetwork()
+		engineCtrB = engineCtrB.
+			WithEnvVariable("_DAGGER_TESTONLY_SNAPSHOT_LOSS", "1").
+			WithExposedPort(6060).
+			WithDefaultArgs([]string{
+				"--addr", "tcp://0.0.0.0:1234",
+				"--debugaddr", "0.0.0.0:6060",
+				"--network-name", deviceName,
+				"--network-cidr", cidr,
+			})
+		upstreamSvcB := devEngineContainerAsService(engineCtrB)
+		engineSvcB, err := c.Host().Tunnel(upstreamSvcB, dagger.HostTunnelOpts{
+			Ports: []dagger.PortForward{{Backend: 1234, Protocol: dagger.NetworkProtocolTcp}},
+		}).Start(ctx)
+		require.NoError(t, err)
+		endpointB, err := engineSvcB.Endpoint(ctx, dagger.ServiceEndpointOpts{Scheme: "tcp"})
+		require.NoError(t, err)
+		engineClientB, err := dagger.Connect(ctx,
+			dagger.WithRunnerHost(endpointB),
+			dagger.WithLogOutput(testutil.NewTWriter(t)))
+		require.NoError(t, err)
+		t.Cleanup(func() { stopEngine(ctx, t, upstreamSvcB, engineSvcB, engineClientB) })
+		debugSvcB, err := c.Host().Tunnel(upstreamSvcB, dagger.HostTunnelOpts{
+			Ports: []dagger.PortForward{{Backend: 6060, Protocol: dagger.NetworkProtocolTcp}},
+		}).Start(ctx)
+		require.NoError(t, err)
+		t.Cleanup(func() { _, _ = debugSvcB.Stop(ctx) })
+		debugEndpoint, err := debugSvcB.Endpoint(ctx, dagger.ServiceEndpointOpts{Scheme: "http"})
+		require.NoError(t, err)
+
+		// Simulate external loss of the restored withExec rows' snapshots —
+		// rows that retained a lazy fragment alongside, so the walk can
+		// re-make their content by re-running the exec.
+		snapshot := fetchEGraphDebugSnapshot(ctx, t, debugEndpoint)
+		var lostRefKeys []string
+		for _, res := range snapshot.Results {
+			if res.RecordType != "withExec" || len(res.SnapshotLinks) == 0 {
+				continue
+			}
+			hasFragment := false
+			for _, source := range res.Sources {
+				if source == "lazy_value" {
+					hasFragment = true
+				}
+			}
+			if !hasFragment {
+				continue
+			}
+			for _, link := range res.SnapshotLinks {
+				lostRefKeys = append(lostRefKeys, link.RefKey)
+			}
+		}
+		require.NotEmpty(t, lostRefKeys, "the seeded store must contain restored fragment-backed withExec rows with snapshot links")
+		for _, refKey := range lostRefKeys {
+			markSnapshotDeleted(ctx, t, debugEndpoint, refKey)
+		}
+
+		dirOutB, hostOutB := runPipeline(engineClientB)
+		require.Equal(t, dirOutA, dirOutB, "fall-through re-make must reproduce the directory content")
+		require.Equal(t, hostOutA, hostOutB)
+		stopEngine(ctx, t, upstreamSvcB, engineSvcB, engineClientB)
+		upstreamSvcB = nil
+		engineSvcB = nil
+		engineClientB = nil
+
+		counters := readServeStatsCounters(ctx, t, c, stateKey)
+		var lazyServes int64
+		for _, count := range counters["served_from_lazy_form"] {
+			lazyServes += count
+		}
+		require.GreaterOrEqual(t, lazyServes, int64(1),
+			"the fragment-backed directory must serve via its lazy form; counters: %v", counters)
+		require.Empty(t, counters["demoted_to_miss"],
+			"fragment-backed loss must fall through, not demote; counters: %v", counters)
+	})
+}
+
+type serveStatsFilePayload struct {
+	Counters map[string]map[string]int64 `json:"counters"`
+}
+
+// readServeStatsCounters reads the warm-serving counters the engine flushed
+// at clean shutdown, from the stats file next to the persisted store on the
+// engine's state volume.
+func readServeStatsCounters(ctx context.Context, t *testctx.T, c *dagger.Client, stateKey string) map[string]map[string]int64 {
+	t.Helper()
+	out, err := c.
+		Container().
+		From(alpineImage).
+		WithMountedCache("/var/lib/dagger", c.CacheVolume(stateKey)).
+		WithEnvVariable("CACHE_BUST", identity.NewID()).
+		WithExec([]string{"sh", "-ec", `cat "$(find /var/lib/dagger -maxdepth 4 -name dagql-cache-stats.json | head -n 1)"`}).
+		Stdout(ctx)
+	require.NoError(t, err)
+	var payload serveStatsFilePayload
+	require.NoError(t, json.Unmarshal([]byte(out), &payload), "stats file: %s", out)
+	return payload.Counters
+}
+
+type egraphDebugSnapshotPayload struct {
+	Results []struct {
+		SharedResultID uint64   `json:"shared_result_id"`
+		RecordType     string   `json:"record_type"`
+		TypeName       string   `json:"type_name"`
+		Sources        []string `json:"sources"`
+		SnapshotLinks  []struct {
+			RefKey string `json:"RefKey"`
+			Role   string `json:"Role"`
+		} `json:"snapshot_links"`
+	} `json:"results"`
+}
+
+func fetchEGraphDebugSnapshot(ctx context.Context, t *testctx.T, debugEndpoint string) egraphDebugSnapshotPayload {
+	t.Helper()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, debugEndpoint+"/debug/dagql/egraph", nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var payload egraphDebugSnapshotPayload
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&payload))
+	return payload
+}
+
+func markSnapshotDeleted(ctx context.Context, t *testctx.T, debugEndpoint, refKey string) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		debugEndpoint+"/debug/testonly/mark-snapshot-deleted?snapshotID="+url.QueryEscape(refKey), nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "mark snapshot deleted %s: %s", refKey, string(body))
 }

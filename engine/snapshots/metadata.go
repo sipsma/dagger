@@ -405,6 +405,10 @@ func (md *cacheMetadata) getDeleted() bool {
 	return md.getBool(keyDeleted)
 }
 
+func (md *cacheMetadata) queueDeleted() error {
+	return md.queueValue(keyDeleted, true, "")
+}
+
 func (md *cacheMetadata) queueSize(s int64) error {
 	return md.queueValue(keySize, s, "")
 }

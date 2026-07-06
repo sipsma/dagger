@@ -69,26 +69,28 @@ That gives two important properties:
 
 The tests in `dagql/cache_test.go` cover both behaviors.
 
-## `sharedResult` Lazy State
+## `sharedResult` Materialization State
 
-Attached results carry cache-owned lazy state in `dagql.sharedResult`:
+Attached results carry cache-owned materialization-protocol state in `dagql.sharedResult`:
 
 - `lazyEval`
 - `lazyEvalComplete`
-- `lazyEvalWaitCh`
-- `lazyEvalCancel`
-- `lazyEvalWaiters`
-- `lazyEvalErr`
+- `materializeWaitCh`
+- `materializeCancel`
+- `materializeWaiters`
+- `materializeErr`
 
-This state is guarded by `lazyMu`.
+This state is guarded by `materializeMu`.
 
 Conceptually:
 
 - `lazyEval` is the callback the cache should run
-- `lazyEvalComplete` means the attached result is fully materialized
-- `lazyEvalWaitCh` means evaluation is currently in flight
-- `lazyEvalWaiters` tracks how many callers are waiting on that in-flight evaluation
-- `lazyEvalCancel` lets the cache cancel the in-flight evaluation if the last waiter goes away
+- `lazyEvalComplete` means the attached result's deferred work has run
+- `materializeWaitCh` means a materialization (a restored value's decode, or a lazy evaluation) is currently in flight
+- `materializeWaiters` tracks how many callers are waiting on that in-flight work
+- `materializeCancel` lets the cache cancel the in-flight runner if the last waiter goes away
+
+The `materialize*` fields implement one shared singleflight protocol used by two phases that never overlap in demand for one result: decoding a restored result's persisted value (`runRestoredValueDecode`), and running its deferred lazy work (`runDeferredWork`). Both sides wait through `waitForMaterialization`.
 
 ## How Lazy Callbacks Get Registered
 
