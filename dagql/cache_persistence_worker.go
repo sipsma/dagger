@@ -111,6 +111,11 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 		if res == nil {
 			continue
 		}
+		// A dropped result's servability is over; its row must not outlive
+		// this boot.
+		if res.dropped {
+			continue
+		}
 
 		depIDs := make([]sharedResultID, 0, len(res.deps))
 		for depID := range res.deps {

@@ -116,6 +116,17 @@ func (c *Cache) loadResultByResultID(ctx context.Context, sessionID string, dag 
 	}
 	loaded, err := c.ensurePersistedHitValueLoaded(ctx, dag, wrapped)
 	if err != nil {
+		// A handle load names one exact result and carries no recipe to
+		// re-run, so exhaustion here cannot demote to execution; the row
+		// still drops so recipe-shaped lookups heal, and the caller gets
+		// the plain outcome. Recipe-ID loads take the lookup path instead,
+		// where exhaustion demotes to live re-evaluation.
+		if errors.Is(err, errSourcesExhausted) {
+			c.traceHitDemotedToMiss(ctx, res, err)
+			if dropErr := c.dropExhaustedResult(ctx, res); dropErr != nil {
+				err = errors.Join(err, dropErr)
+			}
+		}
 		if sessionID != "" {
 			c.egraphMu.Lock()
 			c.sessionMu.Lock()

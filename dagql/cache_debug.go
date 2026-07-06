@@ -934,6 +934,24 @@ func (c *Cache) traceRestoreSummary(ctx context.Context, summary *CacheRestoreSu
 	})
 }
 
+func (c *Cache) traceHitDemotedToMiss(ctx context.Context, res *sharedResult, err error) {
+	c.traceLazy(ctx, "hit_demoted_to_miss", func() []any {
+		return []any{"phase", "runtime", "shared_result_id", res.id, "record_type", res.recordType, "error", err.Error()}
+	})
+}
+
+func (c *Cache) traceResultDroppedSourcesExhausted(ctx context.Context, res *sharedResult) {
+	c.traceLazy(ctx, "result_dropped_sources_exhausted", func() []any {
+		return []any{"phase", "runtime", "shared_result_id", res.id, "record_type", res.recordType}
+	})
+}
+
+func (c *Cache) traceRestoredSnapshotSourceRetired(ctx context.Context, res *sharedResult, err error) {
+	c.traceLazy(ctx, "restored_snapshot_source_retired", func() []any {
+		return []any{"phase", "runtime", "shared_result_id", res.id, "error", err.Error()}
+	})
+}
+
 func (c *Cache) tracePersistedPayloadDecoded(ctx context.Context, res *sharedResult, env *PersistedResultEnvelope) {
 	c.traceLazy(ctx, "persisted_payload_decoded", func() []any {
 		return []any{"phase", "runtime", "shared_result_id", res.id, "payload_kind", env.Kind, "type_name", env.TypeName}
