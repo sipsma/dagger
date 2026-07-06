@@ -92,10 +92,24 @@ const (
 	// CategoryEngineRefuses (7): a do_not_cache call — never cached, never
 	// looked up; an expected miss.
 	CategoryEngineRefuses
-	// CategoryPriorAttemptFailed (8): an earlier execution in this capture
-	// errored; failed executions publish no result, so later demands
-	// re-executed.
+	// CategoryPriorAttemptFailed (8): an earlier execution — in this capture
+	// or in the paired reference capture — errored; failed executions
+	// publish no result, so later demands re-executed.
 	CategoryPriorAttemptFailed
+	// CategoryNotRetained (2, pair mode): the digest was computed or served
+	// in the reference capture; no cached result under it in this one. The
+	// engine's designed lifetime mechanisms decide retention — which one
+	// applied is deliberately NOT claimed (design §3.2 row 2: that would be
+	// inference). A first-class expected-miss answer.
+	CategoryNotRetained
+	// CategoryInputChanged (3, pair mode): the deepest positionally-paired
+	// node whose recipe digest differs from its counterpart while its own
+	// inputs are digest-stable or pairwise attributed — the change is in the
+	// call itself; parent edges carry the "input #k changed" attribution.
+	CategoryInputChanged
+	// CategoryNewWork (4, pair mode): the digest is absent from the
+	// available history (the paired reference capture, named as such).
+	CategoryNewWork
 )
 
 func (c WhyMissCategory) String() string {
@@ -108,6 +122,12 @@ func (c WhyMissCategory) String() string {
 		return "engine refuses to cache (category 7)"
 	case CategoryPriorAttemptFailed:
 		return "prior attempt failed (category 8)"
+	case CategoryNotRetained:
+		return "not retained from a previous run (category 2)"
+	case CategoryInputChanged:
+		return "input changed (category 3)"
+	case CategoryNewWork:
+		return "new work (category 4)"
 	default:
 		return "invalid"
 	}
@@ -153,6 +173,16 @@ type WhyMissNode struct {
 	InputsFrom *Op
 	// Inputs are the distinct walked input digests, in recorded order.
 	Inputs []*WhyMissNode
+
+	// Pair-mode facts (design §5). StableInA: the digest is present in the
+	// reference capture — its A-side outcomes answer directly (category 2/8
+	// family) and the walk does not descend (every digest below a stable
+	// digest is stable by Merkle construction; descending would only repeat
+	// the same answer). PairedWith: the A-side digest this node pairs with
+	// positionally (a changed pair under a paired parent).
+	StableInA  bool
+	PairedWith string
+	aSide      *calibSide // A-side recorded facts when StableInA
 
 	// walk bookkeeping
 	walkParent *WhyMissNode // discovery parent (deterministic BFS), for path rendering
@@ -231,6 +261,14 @@ type WhyMissReport struct {
 	// edges, so the walk may be shallow for module-provided calls pre-E3.
 	Caveats []string
 
+	// PairMode marks a report classified against a reference capture
+	// (design §5); PairLines carry the pairwise evidence lines — removed
+	// inputs, changed-input attributions, and the §5 refusal lines
+	// ("structural change, not pairwise attributable") — in deterministic
+	// discovery order.
+	PairMode  bool
+	PairLines []string
+
 	BaselineNS int64
 
 	// priceGateErr aggregates per-origin ElidedOpDemanded gate failures —
@@ -253,16 +291,30 @@ func (r *WhyMissReport) GateErr() error {
 // recorded calls and demand evidence, any of which a dropped event could
 // have been), per row W9.
 func RunWhyUncached(g *Graph, target string) (*WhyMissReport, error) {
+	return runWhyUncached(g, nil, target)
+}
+
+func runWhyUncached(g *Graph, pair *whyPairState, target string) (*WhyMissReport, error) {
 	if err := cachedRefusalErr(g); err != nil {
 		return nil, fmt.Errorf("why-uncached %s", err)
 	}
+	if pair != nil {
+		// Absence claims (category 4, and the stable/absent split itself)
+		// are only as good as the reference capture's completeness: a
+		// dropped event there could have been the very call whose absence
+		// the answer asserts.
+		if err := cachedRefusalErr(pair.gA); err != nil {
+			return nil, fmt.Errorf("why-uncached (reference capture) %s", err)
+		}
+	}
 	w := newWhyMissWalk(g)
+	w.pair = pair
 	tn := w.node(target)
 	if tn.Status == MissStatusUnrecorded {
 		return nil, fmt.Errorf("why-uncached: digest %s has no recorded call in this capture", target)
 	}
 
-	rep := &WhyMissReport{Target: tn}
+	rep := &WhyMissReport{Target: tn, PairMode: pair != nil}
 	if g.ResultIDsCaptureLocal {
 		// The OTel source caveats (design §3.1, round-3 findings). Native
 		// captures are demand-complete and carry the ordered, module-ref-
@@ -272,11 +324,28 @@ func RunWhyUncached(g *Graph, target string) (*WhyMissReport, error) {
 			"OTel capture: module-ref edges are not recorded in dag.inputs — a module-caused miss cannot be walked to its true frontier; the frontier may be shallow for module-provided calls (E3 closes this; per-node refusal lands with Chunk 4)",
 		)
 	}
+	if pair != nil && pair.refusePositional {
+		rep.Caveats = append(rep.Caveats,
+			"OTel capture pair: positional pairing REFUSED — dag.inputs is a deduplicated, module-less digest list, unsound for the §5 ordered pairing contract (E3a unlocks it); digest-stable analysis only (categories 2/8 by digest identity; changed nodes stay single-capture-classified)")
+	}
 
 	if !tn.WalkedAsMiss() {
 		// Nothing to trace: the target was served from cache at first demand
 		// (or its status is undecidable, which the report states as-is).
 		return rep, nil
+	}
+
+	// Root pairing: an absent-from-reference target needs an A-side partner
+	// for its inputs to pair positionally. The partner must be unambiguous —
+	// the single reference digest of the target's class that is itself
+	// absent from this capture — else pairing is refused with the reason
+	// stated (never guessed).
+	if pair != nil && !pair.refusePositional && !pair.stable(tn.Digest) {
+		if pa, why := pair.rootPartner(w, tn); pa != "" {
+			tn.PairedWith = pa
+		} else if why != "" {
+			rep.PairLines = append(rep.PairLines, why)
+		}
 	}
 
 	// Deterministic BFS over recorded cache-input digests: input order is the
@@ -293,10 +362,41 @@ func RunWhyUncached(g *Graph, target string) (*WhyMissReport, error) {
 			// miss — nothing below it can change that (category 7).
 			continue
 		}
-		for _, dig := range w.inputsOf(n) {
-			in, seen := w.nodes[dig]
+		if pair != nil && pair.stable(n.Digest) {
+			// Digest-stable in the reference: the A-side outcome answers
+			// directly (design §5 bullet 1 — category 2/8 family). No
+			// descent: every digest below a stable digest is stable by
+			// Merkle construction, so descending repeats the same answer.
+			n.StableInA = true
+			n.aSide = pair.side(n.Digest)
+			continue
+		}
+		var edges []whyMissEdge
+		if pair != nil && !pair.refusePositional && n.PairedWith != "" {
+			edges = w.pairedInputEdges(rep, n)
+		} else {
+			for _, dig := range w.inputsOf(n) {
+				edges = append(edges, whyMissEdge{b: dig})
+			}
+		}
+		seenEdge := map[string]bool{}
+		for _, e := range edges {
+			if seenEdge[e.b] {
+				continue
+			}
+			seenEdge[e.b] = true
+			in, seen := w.nodes[e.b]
 			if !seen {
-				in = w.node(dig)
+				in = w.node(e.b)
+			}
+			if e.pairA != "" {
+				if in.PairedWith == "" {
+					in.PairedWith = e.pairA
+				} else if in.PairedWith != e.pairA {
+					rep.PairLines = append(rep.PairLines, fmt.Sprintf(
+						"digest %s reached with two distinct pairings (%s kept, %s ignored — first discovery wins, deterministic)",
+						in.Digest, in.PairedWith, e.pairA))
+				}
 			}
 			n.Inputs = append(n.Inputs, in)
 			if in.WalkedAsMiss() && !in.walked {
@@ -354,7 +454,7 @@ func RunWhyUncached(g *Graph, target string) (*WhyMissReport, error) {
 	rep.BaselineNS = baseline
 	var gateClauses []string
 	for _, n := range origins {
-		o := classifyOrigin(n)
+		o := w.classifyOrigin(n)
 		o.PathMisses = w.countPathMisses(n)
 		priceOrigin(g, baseline, o)
 		if o.PriceGateBad {
@@ -392,6 +492,14 @@ type whyMissWalk struct {
 	idx   *cachedIndex
 	nodes map[string]*WhyMissNode
 	order []*WhyMissNode // creation order — deterministic iteration
+	pair  *whyPairState  // nil in single-capture mode
+}
+
+// whyMissEdge is one walk edge: a B-side input digest, plus the A-side
+// digest it pairs with positionally when the §5 contract attributed one.
+type whyMissEdge struct {
+	b     string
+	pairA string
 }
 
 func newWhyMissWalk(g *Graph) *whyMissWalk {
@@ -502,31 +610,50 @@ func (w *whyMissWalk) node(digest string) *WhyMissNode {
 	return n
 }
 
-// inputsOf returns the node's distinct recorded cache-input digests in
-// recorded order, from the first call in demand order that carries them
+// inputsVector returns the node's RAW recorded cache-input vector (empties
+// and self-references removed, duplicates KEPT — the §5 pairing contract is
+// occurrence-level), from the first call in demand order that carries one
 // (on OTel captures, seen-key suppression means only the first emission
 // exists; on native every call records the same structural vector). Sets
-// InputsFrom for the report; empty result with a nil InputsFrom means the
-// capture recorded no inputs for this call — the walk says so rather than
+// InputsFrom for the report; nil with a nil InputsFrom means the capture
+// recorded no inputs for this call — the walk says so rather than
 // descending blind.
-func (w *whyMissWalk) inputsOf(n *WhyMissNode) []string {
+func (w *whyMissWalk) inputsVector(n *WhyMissNode) []string {
 	for _, c := range n.Calls {
 		if len(c.CacheInputs) == 0 {
 			continue
 		}
 		n.InputsFrom = c
 		out := make([]string, 0, len(c.CacheInputs))
-		seen := map[string]bool{}
 		for _, d := range c.CacheInputs {
-			if d == "" || d == n.Digest || seen[d] {
+			if d == "" || d == n.Digest {
 				continue
 			}
-			seen[d] = true
 			out = append(out, d)
 		}
 		return out
 	}
 	return nil
+}
+
+// inputsOf returns the node's distinct recorded cache-input digests in
+// recorded order (the walk-edge view of inputsVector: node identity is the
+// digest, so duplicates collapse).
+func (w *whyMissWalk) inputsOf(n *WhyMissNode) []string {
+	raw := w.inputsVector(n)
+	if raw == nil {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	seen := map[string]bool{}
+	for _, d := range raw {
+		if seen[d] {
+			continue
+		}
+		seen[d] = true
+		out = append(out, d)
+	}
+	return out
 }
 
 // countPathMisses counts the walked miss nodes (the target included) from
@@ -644,7 +771,7 @@ func scopeNote(n *WhyMissNode) (note string, activeScopes []ScopeInput) {
 	return strings.Join(parts, "; "), activeScopes
 }
 
-func classifyOrigin(n *WhyMissNode) *WhyMissOrigin {
+func (w *whyMissWalk) classifyOrigin(n *WhyMissNode) *WhyMissOrigin {
 	o := &WhyMissOrigin{Node: n}
 	note, active := scopeNote(n)
 	o.ScopeNote = note
@@ -660,6 +787,37 @@ func classifyOrigin(n *WhyMissNode) *WhyMissOrigin {
 		o.Answer = fmt.Sprintf(
 			"a previous execution of this call errored in this capture; failed executions publish no result (failures are not cached), so the later demand re-executed. Deciding data: call op %d (%s) ended before call op %d re-demanded the digest.",
 			n.FailedCall.ID, n.FailedCall.Outcome, n.ReDemandCall.ID)
+	case n.StableInA:
+		// Digest-stable against the reference capture (design §5 bullet 1):
+		// the A-side outcomes answer directly. The answer never claims WHICH
+		// lifetime mechanism applied (design §3.2 row 2 — that would be
+		// inference) and names the history actually searched (row W16).
+		a := n.aSide
+		switch {
+		case a.Tally.Successes == 0 && a.Tally.Failures > 0 &&
+			a.Tally.Hits == 0 && a.Tally.PendingHits == 0:
+			o.Category = CategoryPriorAttemptFailed
+			o.Answer = fmt.Sprintf(
+				"the reference capture's execution of this call errored; failed executions publish no result (failures are not cached). Deciding data: the reference capture records only failures for this digest (%s).",
+				a.Tally)
+		case a.Tally.Successes > 0 || a.Tally.Hits > 0 || a.Tally.PendingHits > 0:
+			lead := "computed in a previous run"
+			if a.Tally.Successes == 0 {
+				lead = "served from cache in a previous run"
+			}
+			o.Category = CategoryNotRetained
+			o.Answer = fmt.Sprintf(
+				"%s; no cached result under this key in this capture. The engine's designed lifetime mechanisms (session release, pruning, persistence policy/reset) decide retention — which one applied here is not recorded. An expected miss for anything the engine does not retain across runs. Deciding data: the reference capture records this digest as %s. History searched: the one paired reference capture.",
+				lead, a.Tally)
+		default:
+			// Present in the reference only as do_not_cache/open/unknown —
+			// the mixed shapes whose per-digest summary rules land with the
+			// E1 chunk (row W15). Stated, never guessed.
+			o.Category = CategoryUndetermined
+			o.Answer = fmt.Sprintf(
+				"the digest exists in the reference capture but with no usable outcome evidence (%s); cause not recorded. History searched: the one paired reference capture.",
+				a.Tally)
+		}
 	case len(active) > 0:
 		o.Category = CategoryDeliberatelyScoped
 		texts := make([]string, 0, len(active))
@@ -668,6 +826,22 @@ func classifyOrigin(n *WhyMissNode) *WhyMissOrigin {
 		}
 		o.Answer = "not cached across the recorded scope, by design: " + strings.Join(texts, "; AND ") +
 			". An expected miss — a result keyed under another scope value cannot serve this call."
+		if w.pair != nil {
+			o.Answer += " In pair mode: the digest is absent from the reference capture — scope values are hashed into the recipe digest (dagql/result_call_frame.go), so each scope instance mints its own digest by design; this is the expected cross-run shape of a scoped call."
+		}
+	case w.pair != nil && n.PairedWith != "":
+		// The deepest positionally-paired changed node: its own inputs are
+		// digest-stable or pairwise attributed, so the divergence is in the
+		// call itself. Digest granularity is the native pair-mode contract
+		// (design §4 E3: a full native call-structure emit is refused on
+		// volume grounds; arg-level attribution arrives with OTel E3b).
+		o.Category = CategoryInputChanged
+		o.Answer = fmt.Sprintf(
+			"this call's recipe digest differs from its positionally-paired counterpart in the reference capture (%s -> %s) while its own recorded inputs are digest-stable or pairwise attributed: the change is in the call itself (arguments, nth/view, module ref, or scope input values). Reported at digest granularity on native captures; arg-level detail available on OTel captures once E3b lands.",
+			n.PairedWith, n.Digest)
+	case w.pair != nil:
+		o.Category = CategoryNewWork
+		o.Answer = "first appearance of this call in the available history: the digest is absent from the paired reference capture (the history actually searched — absence is stated over that one capture, nothing broader)."
 	default:
 		o.Category = CategoryUndetermined
 		o.Answer = "no cached result existed under this key; cause not recorded in this capture."
@@ -685,7 +859,7 @@ func classifyOrigin(n *WhyMissNode) *WhyMissOrigin {
 	if n.JoinedCalls > 0 {
 		o.Notes = append(o.Notes, fmt.Sprintf("%d joined call(s): in-flight dedupe (nuance, not an origin)", n.JoinedCalls))
 	}
-	if n.InputsFrom == nil && n.Status != MissStatusRefused {
+	if n.InputsFrom == nil && n.Status != MissStatusRefused && !n.StableInA {
 		// Both sources record inputs only when the structural vector is
 		// non-empty, so a zero-input root call and an inputs-not-recorded
 		// capture are indistinguishable here — the note states both readings
@@ -731,6 +905,9 @@ func priceOrigin(g *Graph, baselineNS int64, o *WhyMissOrigin) {
 func (r *WhyMissReport) Write(w io.Writer) {
 	t := r.Target
 	fmt.Fprintf(w, "why-uncached: %s — %s\n", t.Digest, t.Class)
+	if r.PairMode {
+		fmt.Fprintf(w, "pair mode: classified against one reference capture (categories 2/3/4 decidable there; every absence statement is scoped to that single capture)\n")
+	}
 	fmt.Fprintf(w, "status: %s", t.Status)
 	if t.FirstCall != nil {
 		fmt.Fprintf(w, " (first demand: call op %d, outcome %s; %d recorded call(s))",
@@ -786,6 +963,14 @@ func (r *WhyMissReport) Write(w io.Writer) {
 		}
 		if path := renderPath(r.Target, n); path != "" {
 			fmt.Fprintf(w, "  path: %s\n", path)
+		}
+		fmt.Fprintf(w, "\n")
+	}
+
+	if len(r.PairLines) > 0 {
+		fmt.Fprintf(w, "pair evidence (positional pairing per the §5 contract; refusals stated, never guessed):\n")
+		for _, l := range r.PairLines {
+			fmt.Fprintf(w, "  %s\n", l)
 		}
 		fmt.Fprintf(w, "\n")
 	}

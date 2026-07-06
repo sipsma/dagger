@@ -41,6 +41,7 @@ func main() {
 	flag.Var(&whyDigests, "why-uncached", "cache-invalidation tracing: walk this uncached recipe digest to its miss frontier and answer each origin's root cause (repeatable)")
 	flag.Var(&whyClasses, "why-uncached-class", "cache-invalidation tracing: trace the uncached digests of this call class, e.g. 'Container.withExec' (repeatable; top digests by producing wall-clock, budget printed)")
 	flag.Var(&whyExecs, "why-uncached-exec", "cache-invalidation tracing: trace the digests owning user execs matching this argv pattern (boundary-aware prefix; 'contains:' for substring; repeatable)")
+	whyVs := flag.String("why-uncached-vs", "", "cache-invalidation tracing pair mode: path to a REFERENCE run's wcprof dump (e.g. the run where things were cached) — origins classify against it (categories 2/3/4)")
 	flag.Parse()
 
 	if flag.NArg() < 1 {
@@ -89,8 +90,12 @@ func main() {
 		Classes:      whyClasses,
 		ExecPatterns: whyExecs,
 	}
+	if *whyVs != "" && whySel.Empty() {
+		fmt.Fprintln(os.Stderr, "-why-uncached-vs requires a -why-uncached* target selector")
+		os.Exit(2)
+	}
 
-	if err := run(flag.Args(), rules, sel, whySel, *cachedFromRun, wcanalyze.ReportOptions{
+	if err := run(flag.Args(), rules, sel, whySel, *whyVs, *cachedFromRun, wcanalyze.ReportOptions{
 		TopClasses:     *topClasses,
 		WhatIfFactors:  factors,
 		MinClassSelfNS: int64(*minSelf),
@@ -112,7 +117,7 @@ func (m *multiFlag) Set(v string) error {
 	return nil
 }
 
-func run(paths []string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.CachedSelection, whySel wcanalyze.WhyUncachedSelection, cachedFromRun string, opts wcanalyze.ReportOptions) error {
+func run(paths []string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.CachedSelection, whySel wcanalyze.WhyUncachedSelection, whyVs string, cachedFromRun string, opts wcanalyze.ReportOptions) error {
 	readers := make([]io.Reader, 0, len(paths))
 	for _, path := range paths {
 		f, err := os.Open(path)
@@ -161,6 +166,19 @@ func run(paths []string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.CachedSe
 	}
 	// Cache-invalidation tracing (why-uncached mode): walk the selected
 	// digests to their miss frontier; refusals and price-gate violations
-	// exit non-zero.
+	// exit non-zero. With -why-uncached-vs, origins classify against the
+	// reference capture (pair mode, categories 2/3/4).
+	if whyVs != "" {
+		rf, err := os.Open(whyVs)
+		if err != nil {
+			return fmt.Errorf("open reference capture: %w", err)
+		}
+		defer rf.Close()
+		refG, err := wcanalyze.Load(rf)
+		if err != nil {
+			return fmt.Errorf("load reference capture: %w", err)
+		}
+		return wcanalyze.WriteWhyUncachedPair(os.Stdout, graph, refG, whySel)
+	}
 	return wcanalyze.WriteWhyUncached(os.Stdout, graph, whySel)
 }

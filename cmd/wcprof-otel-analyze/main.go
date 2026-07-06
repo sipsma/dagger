@@ -55,6 +55,7 @@ func main() {
 	flag.Var(&whyDigests, "why-uncached", "cache-invalidation tracing: walk this uncached recipe digest (dag.digest) to its miss frontier and answer each origin's root cause (repeatable)")
 	flag.Var(&whyClasses, "why-uncached-class", "cache-invalidation tracing: trace the uncached digests of this call class, e.g. 'Container.withExec' (repeatable; top digests by producing wall-clock, budget printed)")
 	flag.Var(&whyExecs, "why-uncached-exec", "cache-invalidation tracing: trace the digests owning user execs matching this argv pattern (boundary-aware prefix; 'contains:' for substring; repeatable)")
+	whyVs := flag.String("why-uncached-vs", "", "cache-invalidation tracing pair mode: path to a REFERENCE run's otlpdump capture — origins classify against it by digest identity (positional pairing is refused on OTel pairs pre-E3a, stated in the report; not supported with -trace)")
 	flag.Parse()
 
 	if *traceID == "" && flag.NArg() < 1 {
@@ -117,11 +118,19 @@ func main() {
 		fmt.Fprintln(os.Stderr, "-cached-from-run is not supported with -trace yet (capture the warm run locally)")
 		os.Exit(2)
 	}
+	if *whyVs != "" && whySel.Empty() {
+		fmt.Fprintln(os.Stderr, "-why-uncached-vs requires a -why-uncached* target selector")
+		os.Exit(2)
+	}
+	if *whyVs != "" && *traceID != "" {
+		fmt.Fprintln(os.Stderr, "-why-uncached-vs is not supported with -trace yet (capture the reference run locally)")
+		os.Exit(2)
+	}
 
 	if *traceID != "" {
 		err = runCloud(context.Background(), *traceID, *orgID, rules, sel, whySel, opts)
 	} else {
-		err = runFiles(flag.Args(), rules, sel, whySel, *cachedFromRun, opts)
+		err = runFiles(flag.Args(), rules, sel, whySel, *whyVs, *cachedFromRun, opts)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -139,13 +148,31 @@ func (m *multiFlag) Set(v string) error {
 	return nil
 }
 
-func runFiles(paths []string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.CachedSelection, whySel wcanalyze.WhyUncachedSelection, cachedFromRun string, opts wcanalyze.ReportOptions) error {
+func runFiles(paths []string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.CachedSelection, whySel wcanalyze.WhyUncachedSelection, whyVs string, cachedFromRun string, opts wcanalyze.ReportOptions) error {
 	// The design's unit of analysis is one trace (design §10 decision 2), so each
 	// file is loaded and analyzed independently rather than merged.
 	var (
 		failed bool
 		warmG  *wcanalyze.Graph
+		whyRef *wcanalyze.Graph
 	)
+	if whyVs != "" {
+		// The why-uncached reference capture must itself pass the structural
+		// gate: absence claims (category 4, the stable/absent split) are only
+		// as good as the reference's completeness — refuse instead of
+		// classifying against silently-incomplete history.
+		refC, rg, err := loadFile(whyVs)
+		if err != nil {
+			return fmt.Errorf("reference capture %s: %w", whyVs, err)
+		}
+		refGate := wcotel.CheckStructural(refC, rg, wcotel.GateOptions{})
+		if gerr := refGate.Err(); gerr != nil {
+			fmt.Fprintf(os.Stderr, "reference capture %s:\n", whyVs)
+			refGate.Write(os.Stderr)
+			return fmt.Errorf("why-uncached reference capture failed the structural gate: %w", gerr)
+		}
+		whyRef = rg
+	}
 	if cachedFromRun != "" {
 		// Calibration warm capture (design §3.5 gate 4). It must pass the
 		// structural gate itself: an incomplete warm capture would silently
@@ -170,7 +197,7 @@ func runFiles(paths []string, rules []wcanalyze.ExecGroupRule, sel wcanalyze.Cac
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
-		gateOK, werr := analyze(c, g, rules, sel, whySel, opts)
+		gateOK, werr := analyze(c, g, rules, sel, whySel, whyRef, opts)
 		if werr != nil {
 			// A report I/O, selector, or what-if-cached gate failure — each
 			// carries its own explicit message; surface it as-is.
@@ -203,7 +230,7 @@ func runCloud(ctx context.Context, traceID, orgID string, rules []wcanalyze.Exec
 	if err != nil {
 		return err
 	}
-	gateOK, werr := analyze(c, g, rules, sel, whySel, opts)
+	gateOK, werr := analyze(c, g, rules, sel, whySel, nil, opts)
 	if werr != nil {
 		return werr // report I/O / selector / cached-gate failure, distinct from the structural gate
 	}
@@ -219,7 +246,7 @@ func runCloud(ctx context.Context, traceID, orgID string, rules []wcanalyze.Exec
 // point of the gate); a non-nil error is a report I/O failure (the gate verdict is
 // still valid and was already printed). A caller must not report a write error as a
 // gate failure.
-func analyze(c *wcotel.Compiled, g *wcanalyze.Graph, rules []wcanalyze.ExecGroupRule, sel wcanalyze.CachedSelection, whySel wcanalyze.WhyUncachedSelection, opts wcanalyze.ReportOptions) (gateOK bool, err error) {
+func analyze(c *wcotel.Compiled, g *wcanalyze.Graph, rules []wcanalyze.ExecGroupRule, sel wcanalyze.CachedSelection, whySel wcanalyze.WhyUncachedSelection, whyRef *wcanalyze.Graph, opts wcanalyze.ReportOptions) (gateOK bool, err error) {
 	// Decompose user execs into per-command classes (applying any --exec-group
 	// rules) BEFORE the structural gate compiles (and memoizes) the replay program,
 	// so the gate, the class table, and the what-if savings all see the same
@@ -252,6 +279,12 @@ func analyze(c *wcotel.Compiled, g *wcanalyze.Graph, rules []wcanalyze.ExecGroup
 	// exactly what an incomplete trace silently corrupts).
 	if !whySel.Empty() && !gateOK {
 		fmt.Fprintln(os.Stdout, "why-uncached REFUSED: this capture failed the structural gate (see above) — first-demand statuses and cache-input edges cannot be trusted on incomplete or unfaithful traces")
+		return gateOK, nil
+	}
+	if whyRef != nil {
+		if werr := wcanalyze.WriteWhyUncachedPair(os.Stdout, g, whyRef, whySel); werr != nil {
+			return gateOK, werr
+		}
 		return gateOK, nil
 	}
 	if werr := wcanalyze.WriteWhyUncached(os.Stdout, g, whySel); werr != nil {
