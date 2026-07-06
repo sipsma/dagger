@@ -460,12 +460,12 @@ type persistedContainerMountPayload struct {
 	Readonly            bool            `json:"readonly,omitempty"`
 	Kind                string          `json:"kind"`
 	Value               json.RawMessage `json:"value,omitempty"`
-	CacheSourceResultID uint64          `json:"cacheSourceResultID,omitempty"`
+	CacheSourceResultID dagql.PersistedResultRef          `json:"cacheSourceResultID,omitempty"`
 	TmpfsSize           int             `json:"tmpfsSize,omitempty"`
 }
 
 type persistedContainerSecretPayload struct {
-	SecretResultID uint64      `json:"secretResultID"`
+	SecretResultID dagql.PersistedResultRef      `json:"secretResultID"`
 	EnvName        string      `json:"envName,omitempty"`
 	MountPath      string      `json:"mountPath,omitempty"`
 	Owner          *Ownership  `json:"owner,omitempty"`
@@ -473,7 +473,7 @@ type persistedContainerSecretPayload struct {
 }
 
 type persistedContainerSocketPayload struct {
-	SourceResultID uint64     `json:"sourceResultID"`
+	SourceResultID dagql.PersistedResultRef     `json:"sourceResultID"`
 	ContainerPath  string     `json:"containerPath"`
 	Owner          *Ownership `json:"owner,omitempty"`
 }
@@ -540,90 +540,90 @@ type persistedContainerPayload struct {
 }
 
 type persistedContainerWithEntrypointLazy struct {
-	ParentResultID  uint64   `json:"parentResultID"`
+	ParentResultID  dagql.PersistedResultRef   `json:"parentResultID"`
 	Args            []string `json:"args,omitempty"`
 	KeepDefaultArgs bool     `json:"keepDefaultArgs,omitempty"`
 }
 
 type persistedContainerWithoutEntrypointLazy struct {
-	ParentResultID  uint64 `json:"parentResultID"`
+	ParentResultID  dagql.PersistedResultRef `json:"parentResultID"`
 	KeepDefaultArgs bool   `json:"keepDefaultArgs,omitempty"`
 }
 
 type persistedContainerWithDefaultArgsLazy struct {
-	ParentResultID uint64   `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef   `json:"parentResultID"`
 	Args           []string `json:"args,omitempty"`
 }
 
 type persistedContainerWithoutDefaultArgsLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 }
 
 type persistedContainerWithUserLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Name           string `json:"name"`
 }
 
 type persistedContainerWithoutUserLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 }
 
 type persistedContainerWithWorkdirLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Path           string `json:"path"`
 	Expand         bool   `json:"expand,omitempty"`
 }
 
 type persistedContainerWithoutWorkdirLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 }
 
 type persistedContainerWithEnvVariableLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Name           string `json:"name"`
 	Value          string `json:"value"`
 	Expand         bool   `json:"expand,omitempty"`
 }
 
 type persistedContainerWithEnvFileVariablesLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
-	SourceResultID uint64 `json:"sourceResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
+	SourceResultID dagql.PersistedResultRef `json:"sourceResultID"`
 }
 
 type persistedContainerWithSystemEnvVariableLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Name           string `json:"name"`
 }
 
 type persistedContainerWithVolatileVariableLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Name           string `json:"name"`
 	Value          string `json:"value"`
 }
 
 type persistedContainerWithoutEnvVariableLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Name           string `json:"name"`
 }
 
 type persistedContainerWithoutVolatileVariableLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Name           string `json:"name"`
 }
 
 type persistedContainerWithLabelLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Name           string `json:"name"`
 	Value          string `json:"value"`
 }
 
 type persistedContainerWithoutLabelLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Name           string `json:"name"`
 }
 
 type persistedContainerWithImageConfigMetadataLazy struct {
-	ParentResultID uint64                        `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef                        `json:"parentResultID"`
 	Healthcheck    *dockerspec.HealthcheckConfig `json:"healthcheck,omitempty"`
 	OnBuild        []string                      `json:"onBuild,omitempty"`
 	Shell          []string                      `json:"shell,omitempty"`
@@ -632,65 +632,65 @@ type persistedContainerWithImageConfigMetadataLazy struct {
 }
 
 type persistedContainerWithHealthcheckLazy struct {
-	ParentResultID uint64                       `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef                       `json:"parentResultID"`
 	Healthcheck    dockerspec.HealthcheckConfig `json:"healthcheck"`
 }
 
 type persistedContainerWithoutHealthcheckLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 }
 
 type persistedContainerSetGPUsLazy struct {
-	ParentResultID uint64   `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef   `json:"parentResultID"`
 	Devices        []string `json:"devices,omitempty"`
 }
 
 type persistedContainerWithAnnotationLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Name           string `json:"name"`
 	Value          string `json:"value"`
 }
 
 type persistedContainerWithoutAnnotationLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Name           string `json:"name"`
 }
 
 type persistedContainerWithSecretVariableLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Name           string `json:"name"`
-	SecretResultID uint64 `json:"secretResultID"`
+	SecretResultID dagql.PersistedResultRef `json:"secretResultID"`
 }
 
 type persistedContainerWithoutSecretVariableLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Name           string `json:"name"`
 }
 
 type persistedContainerWithServiceBindingLazy struct {
-	ParentResultID  uint64 `json:"parentResultID"`
-	ServiceResultID uint64 `json:"serviceResultID"`
+	ParentResultID  dagql.PersistedResultRef `json:"parentResultID"`
+	ServiceResultID dagql.PersistedResultRef `json:"serviceResultID"`
 	Alias           string `json:"alias,omitempty"`
 }
 
 type persistedContainerWithExposedPortLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Port           Port   `json:"port"`
 }
 
 type persistedContainerWithoutExposedPortLazy struct {
-	ParentResultID uint64          `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef          `json:"parentResultID"`
 	Port           int             `json:"port"`
 	Protocol       NetworkProtocol `json:"protocol"`
 }
 
 type persistedContainerWithDefaultTerminalCmdLazy struct {
-	ParentResultID uint64                 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef                 `json:"parentResultID"`
 	Opts           DefaultTerminalCmdOpts `json:"opts"`
 }
 
 type persistedContainerFromLazy struct {
-	ParentResultID    uint64                           `json:"parentResultID"`
+	ParentResultID    dagql.PersistedResultRef                           `json:"parentResultID"`
 	CanonicalRef      string                           `json:"canonicalRef"`
 	Config            dockerspec.DockerOCIImageConfig  `json:"config"`
 	ImageRef          string                           `json:"imageRef,omitempty"`
@@ -700,115 +700,115 @@ type persistedContainerFromLazy struct {
 }
 
 type persistedContainerWithRootFSLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
-	SourceResultID uint64 `json:"sourceResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
+	SourceResultID dagql.PersistedResultRef `json:"sourceResultID"`
 }
 
 type persistedContainerRootFSLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 }
 
 type persistedContainerWithDirectoryLazy struct {
-	ParentResultID uint64     `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef     `json:"parentResultID"`
 	Path           string     `json:"path"`
-	SourceResultID uint64     `json:"sourceResultID"`
+	SourceResultID dagql.PersistedResultRef     `json:"sourceResultID"`
 	Filter         CopyFilter `json:"filter,omitempty"`
 	Owner          string     `json:"owner,omitempty"`
 }
 
 type persistedContainerDirectoryLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Path           string `json:"path"`
 }
 
 type persistedContainerWithFileLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Path           string `json:"path"`
-	SourceResultID uint64 `json:"sourceResultID"`
+	SourceResultID dagql.PersistedResultRef `json:"sourceResultID"`
 	Permissions    *int   `json:"permissions,omitempty"`
 	Owner          string `json:"owner,omitempty"`
 }
 
 type persistedContainerFileLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Path           string `json:"path"`
 }
 
 type persistedContainerWithMountedDirectoryLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Target         string `json:"target"`
-	SourceResultID uint64 `json:"sourceResultID"`
+	SourceResultID dagql.PersistedResultRef `json:"sourceResultID"`
 	Owner          string `json:"owner,omitempty"`
 	Readonly       bool   `json:"readonly,omitempty"`
 }
 
 type persistedContainerWithMountedFileLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Target         string `json:"target"`
-	SourceResultID uint64 `json:"sourceResultID"`
+	SourceResultID dagql.PersistedResultRef `json:"sourceResultID"`
 	Owner          string `json:"owner,omitempty"`
 	Readonly       bool   `json:"readonly,omitempty"`
 }
 
 type persistedContainerWithMountedPathDockerfileCompatLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Target         string `json:"target"`
-	SourceResultID uint64 `json:"sourceResultID"`
+	SourceResultID dagql.PersistedResultRef `json:"sourceResultID"`
 	SourcePath     string `json:"sourcePath,omitempty"`
 	Readonly       bool   `json:"readonly,omitempty"`
 }
 
 type persistedContainerWithMountedCacheLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Target         string `json:"target"`
-	CacheResultID  uint64 `json:"cacheResultID"`
+	CacheResultID  dagql.PersistedResultRef `json:"cacheResultID"`
 }
 
 type persistedContainerWithMountedTempLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Target         string `json:"target"`
 	Size           int    `json:"size,omitempty"`
 }
 
 type persistedContainerWithMountedSecretLazy struct {
-	ParentResultID uint64      `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef      `json:"parentResultID"`
 	Target         string      `json:"target"`
-	SourceResultID uint64      `json:"sourceResultID"`
+	SourceResultID dagql.PersistedResultRef      `json:"sourceResultID"`
 	Owner          string      `json:"owner,omitempty"`
 	Mode           fs.FileMode `json:"mode,omitempty"`
 }
 
 type persistedContainerWithoutMountLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Target         string `json:"target"`
 }
 
 type persistedContainerWithoutPathLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Path           string `json:"path"`
 }
 
 type persistedContainerWithSymlinkLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Target         string `json:"target"`
 	LinkPath       string `json:"linkPath"`
 }
 
 type persistedContainerWithUnixSocketLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Target         string `json:"target"`
-	SourceResultID uint64 `json:"sourceResultID"`
+	SourceResultID dagql.PersistedResultRef `json:"sourceResultID"`
 	Owner          string `json:"owner,omitempty"`
 }
 
 type persistedContainerWithoutUnixSocketLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Target         string `json:"target"`
 }
 
 type persistedContainerImportLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
-	SourceResultID uint64 `json:"sourceResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
+	SourceResultID dagql.PersistedResultRef `json:"sourceResultID"`
 	Tag            string `json:"tag,omitempty"`
 }
 

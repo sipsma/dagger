@@ -2649,8 +2649,8 @@ type persistedSourceMap struct {
 type persistedFunctionArg struct {
 	Name              string   `json:"name,omitempty"`
 	Description       string   `json:"description,omitempty"`
-	SourceMapResultID uint64   `json:"sourceMapResultID,omitempty"`
-	TypeDefResultID   uint64   `json:"typeDefResultID,omitempty"`
+	SourceMapResultID dagql.PersistedResultRef   `json:"sourceMapResultID,omitempty"`
+	TypeDefResultID   dagql.PersistedResultRef   `json:"typeDefResultID,omitempty"`
 	DefaultValue      JSON     `json:"defaultValue,omitempty"`
 	DefaultPath       string   `json:"defaultPath,omitempty"`
 	DefaultAddress    string   `json:"defaultAddress,omitempty"`
@@ -2662,10 +2662,10 @@ type persistedFunctionArg struct {
 type persistedFunction struct {
 	Name               string              `json:"name,omitempty"`
 	Description        string              `json:"description,omitempty"`
-	ArgResultIDs       []uint64            `json:"argResultIDs,omitempty"`
-	ReturnTypeResultID uint64              `json:"returnTypeResultID,omitempty"`
+	ArgResultIDs       []dagql.PersistedResultRef            `json:"argResultIDs,omitempty"`
+	ReturnTypeResultID dagql.PersistedResultRef              `json:"returnTypeResultID,omitempty"`
 	Deprecated         *string             `json:"deprecated,omitempty"`
-	SourceMapResultID  uint64              `json:"sourceMapResultID,omitempty"`
+	SourceMapResultID  dagql.PersistedResultRef              `json:"sourceMapResultID,omitempty"`
 	SourceModuleName   string              `json:"sourceModuleName,omitempty"`
 	CachePolicy        FunctionCachePolicy `json:"cachePolicy,omitempty"`
 	CacheTTLSeconds    *int64              `json:"cacheTTLSeconds,omitempty"`
@@ -2679,21 +2679,21 @@ type persistedFunction struct {
 type persistedTypeDef struct {
 	Kind                TypeDefKind `json:"kind,omitempty"`
 	Optional            bool        `json:"optional,omitempty"`
-	AsListResultID      uint64      `json:"asListResultID,omitempty"`
-	AsObjectResultID    uint64      `json:"asObjectResultID,omitempty"`
-	AsInterfaceResultID uint64      `json:"asInterfaceResultID,omitempty"`
-	AsInputResultID     uint64      `json:"asInputResultID,omitempty"`
-	AsScalarResultID    uint64      `json:"asScalarResultID,omitempty"`
-	AsEnumResultID      uint64      `json:"asEnumResultID,omitempty"`
+	AsListResultID      dagql.PersistedResultRef      `json:"asListResultID,omitempty"`
+	AsObjectResultID    dagql.PersistedResultRef      `json:"asObjectResultID,omitempty"`
+	AsInterfaceResultID dagql.PersistedResultRef      `json:"asInterfaceResultID,omitempty"`
+	AsInputResultID     dagql.PersistedResultRef      `json:"asInputResultID,omitempty"`
+	AsScalarResultID    dagql.PersistedResultRef      `json:"asScalarResultID,omitempty"`
+	AsEnumResultID      dagql.PersistedResultRef      `json:"asEnumResultID,omitempty"`
 }
 
 type persistedObjectTypeDef struct {
 	Name                string   `json:"name,omitempty"`
 	Description         string   `json:"description,omitempty"`
-	SourceMapResultID   uint64   `json:"sourceMapResultID,omitempty"`
-	FieldResultIDs      []uint64 `json:"fieldResultIDs,omitempty"`
-	FunctionResultIDs   []uint64 `json:"functionResultIDs,omitempty"`
-	ConstructorResultID uint64   `json:"constructorResultID,omitempty"`
+	SourceMapResultID   dagql.PersistedResultRef   `json:"sourceMapResultID,omitempty"`
+	FieldResultIDs      []dagql.PersistedResultRef `json:"fieldResultIDs,omitempty"`
+	FunctionResultIDs   []dagql.PersistedResultRef `json:"functionResultIDs,omitempty"`
+	ConstructorResultID dagql.PersistedResultRef   `json:"constructorResultID,omitempty"`
 	Deprecated          *string  `json:"deprecated,omitempty"`
 	SourceModuleName    string   `json:"sourceModuleName,omitempty"`
 	OriginalName        string   `json:"originalName,omitempty"`
@@ -2702,8 +2702,8 @@ type persistedObjectTypeDef struct {
 type persistedFieldTypeDef struct {
 	Name              string  `json:"name,omitempty"`
 	Description       string  `json:"description,omitempty"`
-	TypeDefResultID   uint64  `json:"typeDefResultID,omitempty"`
-	SourceMapResultID uint64  `json:"sourceMapResultID,omitempty"`
+	TypeDefResultID   dagql.PersistedResultRef  `json:"typeDefResultID,omitempty"`
+	SourceMapResultID dagql.PersistedResultRef  `json:"sourceMapResultID,omitempty"`
 	Deprecated        *string `json:"deprecated,omitempty"`
 	OriginalName      string  `json:"originalName,omitempty"`
 }
@@ -2711,8 +2711,8 @@ type persistedFieldTypeDef struct {
 type persistedInterfaceTypeDef struct {
 	Name              string   `json:"name,omitempty"`
 	Description       string   `json:"description,omitempty"`
-	SourceMapResultID uint64   `json:"sourceMapResultID,omitempty"`
-	FunctionResultIDs []uint64 `json:"functionResultIDs,omitempty"`
+	SourceMapResultID dagql.PersistedResultRef   `json:"sourceMapResultID,omitempty"`
+	FunctionResultIDs []dagql.PersistedResultRef `json:"functionResultIDs,omitempty"`
 	SourceModuleName  string   `json:"sourceModuleName,omitempty"`
 	OriginalName      string   `json:"originalName,omitempty"`
 }
@@ -2725,19 +2725,19 @@ type persistedScalarTypeDef struct {
 }
 
 type persistedListTypeDef struct {
-	ElementTypeDefResultID uint64 `json:"elementTypeDefResultID,omitempty"`
+	ElementTypeDefResultID dagql.PersistedResultRef `json:"elementTypeDefResultID,omitempty"`
 }
 
 type persistedInputTypeDef struct {
 	Name           string   `json:"name,omitempty"`
-	FieldResultIDs []uint64 `json:"fieldResultIDs,omitempty"`
+	FieldResultIDs []dagql.PersistedResultRef `json:"fieldResultIDs,omitempty"`
 }
 
 type persistedEnumTypeDef struct {
 	Name              string   `json:"name,omitempty"`
 	Description       string   `json:"description,omitempty"`
-	MemberResultIDs   []uint64 `json:"memberResultIDs,omitempty"`
-	SourceMapResultID uint64   `json:"sourceMapResultID,omitempty"`
+	MemberResultIDs   []dagql.PersistedResultRef `json:"memberResultIDs,omitempty"`
+	SourceMapResultID dagql.PersistedResultRef   `json:"sourceMapResultID,omitempty"`
 	SourceModuleName  string   `json:"sourceModuleName,omitempty"`
 	OriginalName      string   `json:"originalName,omitempty"`
 }
@@ -2746,7 +2746,7 @@ type persistedEnumMemberTypeDef struct {
 	Name              string  `json:"name,omitempty"`
 	Value             string  `json:"value,omitempty"`
 	Description       string  `json:"description,omitempty"`
-	SourceMapResultID uint64  `json:"sourceMapResultID,omitempty"`
+	SourceMapResultID dagql.PersistedResultRef  `json:"sourceMapResultID,omitempty"`
 	Deprecated        *string `json:"deprecated,omitempty"`
 	OriginalName      string  `json:"originalName,omitempty"`
 }
@@ -2867,7 +2867,7 @@ func encodePersistedFunction(cache dagql.PersistedObjectCache, fn *Function) (*p
 		ttl := int64(fn.CacheTTLSeconds.Value)
 		payload.CacheTTLSeconds = &ttl
 	}
-	payload.ArgResultIDs = make([]uint64, 0, len(fn.Args))
+	payload.ArgResultIDs = make([]dagql.PersistedResultRef, 0, len(fn.Args))
 	for _, arg := range fn.Args {
 		argID, err := encodePersistedObjectRef(cache, arg, "function arg")
 		if err != nil {
@@ -3036,8 +3036,8 @@ func encodePersistedObjectTypeDef(cache dagql.PersistedObjectCache, obj *ObjectT
 		Deprecated:        obj.Deprecated,
 		SourceModuleName:  obj.SourceModuleName,
 		OriginalName:      obj.OriginalName,
-		FieldResultIDs:    make([]uint64, 0, len(obj.Fields)),
-		FunctionResultIDs: make([]uint64, 0, len(obj.Functions)),
+		FieldResultIDs:    make([]dagql.PersistedResultRef, 0, len(obj.Fields)),
+		FunctionResultIDs: make([]dagql.PersistedResultRef, 0, len(obj.Functions)),
 	}
 	if obj.SourceMap.Valid && obj.SourceMap.Value.Self() != nil {
 		sourceMapID, err := encodePersistedObjectRef(cache, obj.SourceMap.Value, "object typedef source map")
@@ -3173,7 +3173,7 @@ func encodePersistedInterfaceTypeDef(cache dagql.PersistedObjectCache, iface *In
 		Description:       iface.Description,
 		SourceModuleName:  iface.SourceModuleName,
 		OriginalName:      iface.OriginalName,
-		FunctionResultIDs: make([]uint64, 0, len(iface.Functions)),
+		FunctionResultIDs: make([]dagql.PersistedResultRef, 0, len(iface.Functions)),
 	}
 	if iface.SourceMap.Valid && iface.SourceMap.Value.Self() != nil {
 		sourceMapID, err := encodePersistedObjectRef(cache, iface.SourceMap.Value, "interface typedef source map")
@@ -3277,7 +3277,7 @@ func encodePersistedInputTypeDef(cache dagql.PersistedObjectCache, typeDef *Inpu
 	}
 	payload := &persistedInputTypeDef{
 		Name:           typeDef.Name,
-		FieldResultIDs: make([]uint64, 0, len(typeDef.Fields)),
+		FieldResultIDs: make([]dagql.PersistedResultRef, 0, len(typeDef.Fields)),
 	}
 	for _, field := range typeDef.Fields {
 		fieldID, err := encodePersistedObjectRef(cache, field, "input typedef field")
@@ -3316,7 +3316,7 @@ func encodePersistedEnumTypeDef(cache dagql.PersistedObjectCache, enum *EnumType
 		Description:      enum.Description,
 		SourceModuleName: enum.SourceModuleName,
 		OriginalName:     enum.OriginalName,
-		MemberResultIDs:  make([]uint64, 0, len(enum.Members)),
+		MemberResultIDs:  make([]dagql.PersistedResultRef, 0, len(enum.Members)),
 	}
 	if enum.SourceMap.Valid && enum.SourceMap.Value.Self() != nil {
 		sourceMapID, err := encodePersistedObjectRef(cache, enum.SourceMap.Value, "enum typedef source map")

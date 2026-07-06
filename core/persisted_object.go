@@ -37,14 +37,18 @@ func persistedDecodeQuery(dag *dagql.Server) (*Query, error) {
 	return query, nil
 }
 
-func encodePersistedCallID(id *call.ID) (string, error) {
+func encodePersistedCallID(id *call.ID) (dagql.PersistedCallID, error) {
 	if id == nil {
 		return "", fmt.Errorf("encode persisted call ID: nil ID")
 	}
-	return id.Encode()
+	encoded, err := id.Encode()
+	if err != nil {
+		return "", err
+	}
+	return dagql.NewPersistedCallID(encoded), nil
 }
 
-func encodePersistedObjectRef(cache dagql.PersistedObjectCache, ref any, label string) (uint64, error) {
+func encodePersistedObjectRef(cache dagql.PersistedObjectCache, ref any, label string) (dagql.PersistedResultRef, error) {
 	if cache == nil {
 		return 0, fmt.Errorf("encode persisted %s cache: nil cache", label)
 	}
@@ -56,24 +60,25 @@ func encodePersistedObjectRef(cache dagql.PersistedObjectCache, ref any, label s
 		if err != nil {
 			return 0, fmt.Errorf("encode persisted %s ref: %w", label, err)
 		}
-		return resultID, nil
+		return dagql.NewPersistedResultRef(resultID), nil
 	default:
 		return 0, fmt.Errorf("encode persisted %s ref: unsupported value %T", label, ref)
 	}
 }
 
-func decodePersistedCallID(raw string) (*call.ID, error) {
+func decodePersistedCallID(raw dagql.PersistedCallID) (*call.ID, error) {
 	if raw == "" {
 		return nil, nil
 	}
 	var id call.ID
-	if err := id.Decode(raw); err != nil {
+	if err := id.Decode(raw.Encoded()); err != nil {
 		return nil, fmt.Errorf("decode persisted call ID: %w", err)
 	}
 	return &id, nil
 }
 
-func loadPersistedResultByResultID(ctx context.Context, dag *dagql.Server, resultID uint64, label string) (dagql.AnyResult, error) {
+func loadPersistedResultByResultID(ctx context.Context, dag *dagql.Server, ref dagql.PersistedResultRef, label string) (dagql.AnyResult, error) {
+	resultID := ref.ResultID()
 	if resultID == 0 {
 		return nil, nil
 	}
@@ -91,7 +96,8 @@ func loadPersistedResultByResultID(ctx context.Context, dag *dagql.Server, resul
 	return res, nil
 }
 
-func loadPersistedObjectResultByResultID[T dagql.Typed](ctx context.Context, dag *dagql.Server, resultID uint64, label string) (dagql.ObjectResult[T], error) {
+func loadPersistedObjectResultByResultID[T dagql.Typed](ctx context.Context, dag *dagql.Server, ref dagql.PersistedResultRef, label string) (dagql.ObjectResult[T], error) {
+	resultID := ref.ResultID()
 	if resultID == 0 {
 		return dagql.ObjectResult[T]{}, nil
 	}

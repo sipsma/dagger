@@ -189,7 +189,7 @@ func TestDecodePersistedModuleObjectValueResultRefLoadsResult(t *testing.T) {
 
 	decoded, err := decodePersistedModuleObjectValue(ctx, dag, persistedModuleObjectValue{
 		Kind:     persistedModuleObjectValueKindResultRef,
-		ResultID: resultID,
+		ResultID: dagql.NewPersistedResultRef(resultID),
 	})
 	assert.NilError(t, err)
 	decodedRes, ok := decoded.(dagql.AnyResult)

@@ -279,8 +279,8 @@ type changesetJSONEnvelope struct {
 }
 
 type persistedChangesetPayload struct {
-	BeforeResultID uint64 `json:"beforeResultID,omitempty"`
-	AfterResultID  uint64 `json:"afterResultID,omitempty"`
+	BeforeResultID dagql.PersistedResultRef `json:"beforeResultID,omitempty"`
+	AfterResultID  dagql.PersistedResultRef `json:"afterResultID,omitempty"`
 }
 
 // MarshalJSON implements custom JSON marshaling that stores directory IDs

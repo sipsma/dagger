@@ -23,7 +23,7 @@ var _ dagql.PersistedObjectDecoder = (*GeneratedCode)(nil)
 var _ dagql.HasDependencyResults = (*GeneratedCode)(nil)
 
 type persistedGeneratedCodePayload struct {
-	CodeResultID      uint64   `json:"codeResultID"`
+	CodeResultID      dagql.PersistedResultRef   `json:"codeResultID"`
 	VCSGeneratedPaths []string `json:"vcsGeneratedPaths,omitempty"`
 	VCSIgnoredPaths   []string `json:"vcsIgnoredPaths,omitempty"`
 }

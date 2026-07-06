@@ -298,7 +298,7 @@ func (s *cacheVolumeStore) release(ctx context.Context, snapshotID string) error
 type persistedCacheVolumePayload struct {
 	Key            string           `json:"key"`
 	Namespace      string           `json:"namespace,omitempty"`
-	SourceResultID uint64           `json:"sourceResultID,omitempty"`
+	SourceResultID dagql.PersistedResultRef           `json:"sourceResultID,omitempty"`
 	Sharing        CacheSharingMode `json:"sharing,omitempty"`
 	Owner          string           `json:"owner,omitempty"`
 	Selector       string           `json:"selector,omitempty"`
@@ -309,7 +309,7 @@ func (cache *CacheVolume) EncodePersistedObject(ctx context.Context, persistedCa
 	if cache == nil {
 		return dagql.PersistedObjectEncoding{}, fmt.Errorf("encode persisted cache volume: nil cache volume")
 	}
-	var sourceResultID uint64
+	var sourceResultID dagql.PersistedResultRef
 	if cache.Source.Valid {
 		encoded, err := encodePersistedObjectRef(persistedCache, cache.Source.Value, "cache volume source")
 		if err != nil {

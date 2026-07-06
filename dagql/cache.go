@@ -13,11 +13,13 @@ import (
 	"os"
 	"reflect"
 	"slices"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	telemetry "github.com/dagger/otel-go"
+	"github.com/google/uuid"
 	set "github.com/hashicorp/go-set/v3"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -88,7 +90,7 @@ type persistedEdge struct {
 	unpruneable       bool
 }
 
-const cachePersistenceSchemaVersion = "18"
+const cachePersistenceSchemaVersion = "19"
 
 var ErrCacheRecursiveCall = fmt.Errorf("recursive call detected")
 
@@ -201,6 +203,12 @@ func NewCache(
 		c.sqlDB = db
 		c.pdb = persistDB
 	}
+	if err := c.loadStoreIdentity(ctx); err != nil {
+		if closeErr := closeCacheDBs(db, c.pdb); closeErr != nil {
+			return nil, errors.Join(err, closeErr)
+		}
+		return nil, err
+	}
 	if err := c.importPersistedState(ctx); err != nil {
 		c.persistenceResetReason = CachePersistenceResetImportFailure
 		c.restoreSummary = &CacheRestoreSummary{Wiped: true, Reason: string(CachePersistenceResetImportFailure)}
@@ -221,6 +229,15 @@ func NewCache(
 		}
 		c.sqlDB = db
 		c.pdb = persistDB
+		// The wipe destroyed the store's meta, and with it the store's
+		// identity: a fresh UUID retires every origin the old store ever
+		// minted (they age out of any remote inventory on their own).
+		if err := c.loadStoreIdentity(ctx); err != nil {
+			if closeErr := closeCacheDBs(db, c.pdb); closeErr != nil {
+				return nil, errors.Join(err, closeErr)
+			}
+			return nil, err
+		}
 	}
 
 	if err := c.pdb.UpsertMeta(ctx, persistdb.MetaKeySchemaVersion, cachePersistenceSchemaVersion); err != nil {
@@ -236,6 +253,62 @@ func NewCache(
 		return nil, fmt.Errorf("mark clean_shutdown=0 at startup: %w", err)
 	}
 	return c, nil
+}
+
+// loadStoreIdentity loads (or mints, for a fresh store) the store UUID and
+// the allocator high-water mark from meta. It runs after every wipe
+// decision in NewCache, so a wiped store always starts with a fresh
+// identity — which retires every origin the old store minted.
+func (c *Cache) loadStoreIdentity(ctx context.Context) error {
+	storeUUID, found, err := c.pdb.SelectMetaValue(ctx, persistdb.MetaKeyStoreUUID)
+	if err != nil {
+		return fmt.Errorf("read store_uuid metadata: %w", err)
+	}
+	if !found || storeUUID == "" {
+		storeUUID = uuid.NewString()
+		if err := c.pdb.UpsertMeta(ctx, persistdb.MetaKeyStoreUUID, storeUUID); err != nil {
+			return fmt.Errorf("mint store_uuid metadata: %w", err)
+		}
+	}
+	c.storeUUID = storeUUID
+
+	highWaterVal, found, err := c.pdb.SelectMetaValue(ctx, persistdb.MetaKeyMaxResultID)
+	if err != nil {
+		return fmt.Errorf("read max_result_id metadata: %w", err)
+	}
+	if found && highWaterVal != "" {
+		highWater, err := strconv.ParseUint(highWaterVal, 10, 64)
+		if err != nil {
+			return fmt.Errorf("parse max_result_id metadata %q: %w", highWaterVal, err)
+		}
+		c.noteAllocatedResultIDLocked(sharedResultID(highWater))
+	}
+	return nil
+}
+
+// noteAllocatedResultIDLocked advances the allocator high-water mark; called
+// wherever a result ID is assigned or observed. The mark is monotone for the
+// store's lifetime: it survives in-memory e-graph drain resets and restores
+// from meta at boot, so an ID that ever named a result — including one an
+// export already published as an origin — is never allocated again.
+func (c *Cache) noteAllocatedResultIDLocked(id sharedResultID) {
+	if id > c.maxAllocatedResultID {
+		c.maxAllocatedResultID = id
+	}
+}
+
+// assignResultOriginLocked binds a result's durable origin pair and indexes
+// it. First assignment wins: a result that already carries an origin (a
+// bundle-imported row) keeps it.
+func (c *Cache) assignResultOriginLocked(res *sharedResult, origin resultOrigin) {
+	if res == nil || !res.origin.isZero() || origin.isZero() {
+		return
+	}
+	res.origin = origin
+	if c.resultsByOrigin == nil {
+		c.resultsByOrigin = make(map[resultOrigin]sharedResultID)
+	}
+	c.resultsByOrigin[origin] = res.id
 }
 
 func (c *Cache) trackSessionResult(ctx context.Context, sessionID string, res AnyResult, hitCache bool) {
@@ -1420,8 +1493,20 @@ type Cache struct {
 
 	nextSharedResultID sharedResultID
 
+	// maxAllocatedResultID is the allocator high-water mark: the maximum
+	// result ID ever allocated in this store's lifetime. Unlike
+	// nextSharedResultID it is monotone — it survives e-graph drain resets
+	// in memory and restores from meta at boot — so an ID bound to an
+	// exported origin can never be re-allocated to a different result.
+	maxAllocatedResultID sharedResultID
+
 	// result id -> result
 	resultsByID map[sharedResultID]*sharedResult
+
+	// resultsByOrigin indexes results by their durable origin pair. It is
+	// the bundle-import dedup gate: a row whose origin is already present
+	// is never re-created.
+	resultsByOrigin map[resultOrigin]sharedResultID
 
 	// map of eq class -> all terms that have it as an input, needed during repair to
 	// figure out all the terms that need repair after eq class union
@@ -1476,6 +1561,12 @@ type Cache struct {
 	sqlDB *sql.DB
 	// persistent normalized cache store (disk persistence/import).
 	pdb *persistdb.Queries
+
+	// storeUUID is this persistence store's identity: minted once at store
+	// creation, persisted in meta, wiped with the store. It is the first
+	// half of every locally-minted result origin. Empty when persistence
+	// is disabled (no DB path).
+	storeUUID string
 
 	traceBootID     string
 	traceSeq        uint64
@@ -1742,10 +1833,30 @@ func (m *materializationState) clone() materializationState {
 	return cp
 }
 
+// resultOrigin is a result's durable cross-engine identity: the store where
+// the result was first created plus its result ID there. Minted exactly once
+// at first publication and preserved verbatim through every export/import
+// hop; import dedups rows by this pair. Origin never participates in lookup
+// identity — digests and terms do that.
+type resultOrigin struct {
+	storeUUID string
+	resultID  uint64
+}
+
+func (o resultOrigin) isZero() bool {
+	return o.storeUUID == "" && o.resultID == 0
+}
+
 // sharedResult holds cache-entry state and shared payload published to per-call Result values.
 type sharedResult struct {
 	// id is the stable cache-local identity for this materialized result.
 	id sharedResultID
+
+	// origin is this result's durable origin pair. For locally-minted
+	// results it is (the store's UUID, id); for bundle-imported results it
+	// is the pair carried in the bundle. Set once, under egraphMu, at ID
+	// assignment / restore / bundle import; immutable afterward.
+	origin resultOrigin
 
 	// Immutable payload shared by all per-call Result values.
 	self     Typed

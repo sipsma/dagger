@@ -54,6 +54,19 @@ type MirrorPersistedEdge struct {
 	Unpruneable       bool
 }
 
+type MirrorResultOrigin struct {
+	ResultID        int64
+	OriginStoreUUID string
+	OriginResultID  int64
+}
+
+type MirrorResultContentChain struct {
+	ResultID   int64
+	Role       string
+	ChainID    string
+	LayersJSON string
+}
+
 type MirrorResultSnapshotLink struct {
 	ResultID int64
 	RefKey   string
@@ -77,6 +90,8 @@ type MirrorImportedLayerDiffIndex struct {
 	SnapshotID       string
 }
 
+const clearMirrorResultOrigins = `DELETE FROM result_origins`
+const clearMirrorResultContentChains = `DELETE FROM result_content_chains`
 const clearMirrorImportedLayerDiffIndex = `DELETE FROM imported_layer_diff_index`
 const clearMirrorImportedLayerBlobIndex = `DELETE FROM imported_layer_blob_index`
 const clearMirrorSnapshotContentLinks = `DELETE FROM snapshot_content_links`
@@ -92,6 +107,8 @@ const clearMirrorEqClasses = `DELETE FROM eq_classes`
 
 func (q *Queries) ClearMirrorState(ctx context.Context) error {
 	for _, stmt := range []string{
+		clearMirrorResultOrigins,
+		clearMirrorResultContentChains,
 		clearMirrorImportedLayerDiffIndex,
 		clearMirrorImportedLayerBlobIndex,
 		clearMirrorSnapshotContentLinks,
@@ -187,6 +204,24 @@ INSERT INTO persisted_edges (result_id, created_at_unix_nano, expires_at_unix, u
 
 func (q *Queries) InsertMirrorPersistedEdge(ctx context.Context, arg MirrorPersistedEdge) error {
 	_, err := q.exec(ctx, nil, insertMirrorPersistedEdge, arg.ResultID, arg.CreatedAtUnixNano, arg.ExpiresAtUnix, arg.Unpruneable)
+	return err
+}
+
+const insertMirrorResultOrigin = `
+INSERT INTO result_origins (result_id, origin_store_uuid, origin_result_id) VALUES (?, ?, ?)
+`
+
+func (q *Queries) InsertMirrorResultOrigin(ctx context.Context, arg MirrorResultOrigin) error {
+	_, err := q.exec(ctx, nil, insertMirrorResultOrigin, arg.ResultID, arg.OriginStoreUUID, arg.OriginResultID)
+	return err
+}
+
+const insertMirrorResultContentChain = `
+INSERT INTO result_content_chains (result_id, role, chain_id, layers_json) VALUES (?, ?, ?, ?)
+`
+
+func (q *Queries) InsertMirrorResultContentChain(ctx context.Context, arg MirrorResultContentChain) error {
+	_, err := q.exec(ctx, nil, insertMirrorResultContentChain, arg.ResultID, arg.Role, arg.ChainID, arg.LayersJSON)
 	return err
 }
 
@@ -390,6 +425,44 @@ func (q *Queries) ListMirrorResultDeps(ctx context.Context) ([]MirrorResultDep, 
 	for rows.Next() {
 		var row MirrorResultDep
 		if err := rows.Scan(&row.ParentResultID, &row.DepResultID); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+const listMirrorResultOrigins = `SELECT result_id, origin_store_uuid, origin_result_id FROM result_origins`
+
+func (q *Queries) ListMirrorResultOrigins(ctx context.Context) ([]MirrorResultOrigin, error) {
+	rows, err := q.db.QueryContext(ctx, listMirrorResultOrigins)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []MirrorResultOrigin
+	for rows.Next() {
+		var row MirrorResultOrigin
+		if err := rows.Scan(&row.ResultID, &row.OriginStoreUUID, &row.OriginResultID); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+const listMirrorResultContentChains = `SELECT result_id, role, chain_id, layers_json FROM result_content_chains`
+
+func (q *Queries) ListMirrorResultContentChains(ctx context.Context) ([]MirrorResultContentChain, error) {
+	rows, err := q.db.QueryContext(ctx, listMirrorResultContentChains)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []MirrorResultContentChain
+	for rows.Next() {
+		var row MirrorResultContentChain
+		if err := rows.Scan(&row.ResultID, &row.Role, &row.ChainID, &row.LayersJSON); err != nil {
 			return nil, err
 		}
 		out = append(out, row)

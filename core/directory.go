@@ -468,19 +468,19 @@ type DirectoryChownLazy struct {
 }
 
 type persistedDirectoryWithDirectoryLazy struct {
-	ParentResultID uint64     `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef     `json:"parentResultID"`
 	DestDir        string     `json:"destDir"`
-	SourceResultID uint64     `json:"sourceResultID"`
+	SourceResultID dagql.PersistedResultRef     `json:"sourceResultID"`
 	Filter         CopyFilter `json:"filter"`
 	Owner          string     `json:"owner,omitempty"`
 	Permissions    *int       `json:"permissions,omitempty"`
 }
 
 type persistedDirectoryWithDirectoryDockerfileCompatLazy struct {
-	ParentResultID                   uint64     `json:"parentResultID"`
+	ParentResultID                   dagql.PersistedResultRef     `json:"parentResultID"`
 	DestDir                          string     `json:"destDir"`
 	SrcPath                          string     `json:"srcPath,omitempty"`
-	SourceResultID                   uint64     `json:"sourceResultID"`
+	SourceResultID                   dagql.PersistedResultRef     `json:"sourceResultID"`
 	Filter                           CopyFilter `json:"filter"`
 	Owner                            string     `json:"owner,omitempty"`
 	Permissions                      *int       `json:"permissions,omitempty"`
@@ -494,12 +494,12 @@ type persistedDirectoryWithDirectoryDockerfileCompatLazy struct {
 }
 
 type persistedDirectoryWithPatchFileLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
-	PatchResultID  uint64 `json:"patchResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
+	PatchResultID  dagql.PersistedResultRef `json:"patchResultID"`
 }
 
 type persistedDirectoryWithNewFileLazy struct {
-	ParentResultID uint64      `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef      `json:"parentResultID"`
 	Dest           string      `json:"dest"`
 	Content        []byte      `json:"content"`
 	Permissions    fs.FileMode `json:"permissions"`
@@ -507,9 +507,9 @@ type persistedDirectoryWithNewFileLazy struct {
 }
 
 type persistedDirectoryWithFileLazy struct {
-	ParentResultID                   uint64 `json:"parentResultID"`
+	ParentResultID                   dagql.PersistedResultRef `json:"parentResultID"`
 	DestPath                         string `json:"destPath"`
-	SourceResultID                   uint64 `json:"sourceResultID"`
+	SourceResultID                   dagql.PersistedResultRef `json:"sourceResultID"`
 	Permissions                      *int   `json:"permissions,omitempty"`
 	Owner                            string `json:"owner,omitempty"`
 	DoNotCreateDestPath              bool   `json:"doNotCreateDestPath,omitempty"`
@@ -517,44 +517,44 @@ type persistedDirectoryWithFileLazy struct {
 }
 
 type persistedDirectoryWithTimestampsLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Timestamp      int    `json:"timestamp"`
 }
 
 type persistedDirectoryWithNewDirectoryLazy struct {
-	ParentResultID uint64      `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef      `json:"parentResultID"`
 	Dest           string      `json:"dest"`
 	Permissions    fs.FileMode `json:"permissions"`
 }
 
 type persistedDirectorySubdirectoryLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Subdir         string `json:"subdir"`
 }
 
 type persistedDirectoryDiffLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
-	OtherResultID  uint64 `json:"otherResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
+	OtherResultID  dagql.PersistedResultRef `json:"otherResultID"`
 }
 
 type persistedDirectoryWithChangesLazy struct {
-	ParentResultID  uint64 `json:"parentResultID"`
-	ChangesResultID uint64 `json:"changesResultID"`
+	ParentResultID  dagql.PersistedResultRef `json:"parentResultID"`
+	ChangesResultID dagql.PersistedResultRef `json:"changesResultID"`
 }
 
 type persistedDirectoryWithoutLazy struct {
-	ParentResultID uint64   `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef   `json:"parentResultID"`
 	Paths          []string `json:"paths"`
 }
 
 type persistedDirectoryWithSymlinkLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Target         string `json:"target"`
 	LinkName       string `json:"linkName"`
 }
 
 type persistedDirectoryChownLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	ChownPath      string `json:"chownPath"`
 	Owner          string `json:"owner"`
 }

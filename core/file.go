@@ -364,7 +364,7 @@ type FileSubfileLazy struct {
 }
 
 type persistedFileWithReplacedLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Search         string `json:"search"`
 	Replacement    string `json:"replacement"`
 	FirstFrom      *int   `json:"firstFrom,omitempty"`
@@ -372,22 +372,22 @@ type persistedFileWithReplacedLazy struct {
 }
 
 type persistedFileWithNameLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Filename       string `json:"filename"`
 }
 
 type persistedFileWithTimestampsLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Timestamp      int    `json:"timestamp"`
 }
 
 type persistedFileChownLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Owner          string `json:"owner"`
 }
 
 type persistedFileSubfileLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
+	ParentResultID dagql.PersistedResultRef `json:"parentResultID"`
 	Path           string `json:"path"`
 }
 

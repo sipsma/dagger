@@ -431,7 +431,7 @@ func TestCacheVolumeEncodePersistsSourceResultID(t *testing.T) {
 
 	var raw persistedCacheVolumePayload
 	require.NoError(t, json.Unmarshal(payload.JSON, &raw))
-	require.Equal(t, uint64(17), raw.SourceResultID)
+	require.Equal(t, dagql.NewPersistedResultRef(17), raw.SourceResultID)
 	require.Len(t, persisted.seen, 1)
 
 	seenSource, ok := persisted.seen[0].(dagql.ObjectResult[*Directory])

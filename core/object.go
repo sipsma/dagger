@@ -449,8 +449,8 @@ const (
 
 type persistedModuleObjectValue struct {
 	Kind       string                                `json:"kind"`
-	ResultID   uint64                                `json:"resultID,omitempty"`
-	CallID     string                                `json:"callID,omitempty"`
+	ResultID   dagql.PersistedResultRef              `json:"resultID,omitempty"`
+	CallID     dagql.PersistedCallID                 `json:"callID,omitempty"`
 	ScalarJSON json.RawMessage                       `json:"scalarJSON,omitempty"`
 	Items      []persistedModuleObjectValue          `json:"items,omitempty"`
 	Fields     map[string]persistedModuleObjectValue `json:"fields,omitempty"`

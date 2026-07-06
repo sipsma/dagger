@@ -862,18 +862,18 @@ func (mod *Module) AttachDependencyResults(
 }
 
 type persistedModulePayload struct {
-	SourceResultID                uint64                          `json:"sourceResultID,omitempty"`
-	ContextSourceResultID         uint64                          `json:"contextSourceResultID,omitempty"`
-	RuntimeResultID               uint64                          `json:"runtimeResultID,omitempty"`
-	DepModuleResultIDs            []uint64                        `json:"depModuleResultIDs,omitempty"`
+	SourceResultID                dagql.PersistedResultRef                          `json:"sourceResultID,omitempty"`
+	ContextSourceResultID         dagql.PersistedResultRef                          `json:"contextSourceResultID,omitempty"`
+	RuntimeResultID               dagql.PersistedResultRef                          `json:"runtimeResultID,omitempty"`
+	DepModuleResultIDs            []dagql.PersistedResultRef                        `json:"depModuleResultIDs,omitempty"`
 	IncludeSelfInDeps             bool                            `json:"includeSelfInDeps,omitempty"`
 	NameField                     string                          `json:"nameField,omitempty"`
 	OriginalName                  string                          `json:"originalName,omitempty"`
 	SDKConfig                     *SDKConfig                      `json:"sdkConfig,omitempty"`
 	Description                   string                          `json:"description,omitempty"`
-	ObjectDefResultIDs            []uint64                        `json:"objectDefResultIDs,omitempty"`
-	InterfaceDefResultIDs         []uint64                        `json:"interfaceDefResultIDs,omitempty"`
-	EnumDefResultIDs              []uint64                        `json:"enumDefResultIDs,omitempty"`
+	ObjectDefResultIDs            []dagql.PersistedResultRef                        `json:"objectDefResultIDs,omitempty"`
+	InterfaceDefResultIDs         []dagql.PersistedResultRef                        `json:"interfaceDefResultIDs,omitempty"`
+	EnumDefResultIDs              []dagql.PersistedResultRef                        `json:"enumDefResultIDs,omitempty"`
 	LegacyDefaultPath             bool                            `json:"legacyDefaultPath,omitempty"`
 	LegacyArgCustomizations       []*modules.ModuleConfigArgument `json:"legacyArgCustomizations,omitempty"`
 	WorkspaceConfig               map[string]any                  `json:"workspaceConfig,omitempty"`
@@ -908,7 +908,7 @@ func (mod *Module) EncodePersistedObject(ctx context.Context, cache dagql.Persis
 
 	persisted.IncludeSelfInDeps = mod.IncludeSelfInDeps
 	if mod.Deps != nil {
-		persisted.DepModuleResultIDs = make([]uint64, 0, len(mod.Deps.Mods()))
+		persisted.DepModuleResultIDs = make([]dagql.PersistedResultRef, 0, len(mod.Deps.Mods()))
 		for _, dep := range mod.Deps.Mods() {
 			depInst := dep.ModuleResult()
 			if depInst.Self() == nil {
@@ -929,7 +929,7 @@ func (mod *Module) EncodePersistedObject(ctx context.Context, cache dagql.Persis
 	persisted.OriginalName = mod.OriginalName
 	persisted.SDKConfig = mod.SDKConfig
 	persisted.Description = mod.Description
-	persisted.ObjectDefResultIDs = make([]uint64, 0, len(mod.ObjectDefs))
+	persisted.ObjectDefResultIDs = make([]dagql.PersistedResultRef, 0, len(mod.ObjectDefs))
 	for _, def := range mod.ObjectDefs {
 		defID, err := encodePersistedObjectRef(cache, def, "module object typedef")
 		if err != nil {
@@ -937,7 +937,7 @@ func (mod *Module) EncodePersistedObject(ctx context.Context, cache dagql.Persis
 		}
 		persisted.ObjectDefResultIDs = append(persisted.ObjectDefResultIDs, defID)
 	}
-	persisted.InterfaceDefResultIDs = make([]uint64, 0, len(mod.InterfaceDefs))
+	persisted.InterfaceDefResultIDs = make([]dagql.PersistedResultRef, 0, len(mod.InterfaceDefs))
 	for _, def := range mod.InterfaceDefs {
 		defID, err := encodePersistedObjectRef(cache, def, "module interface typedef")
 		if err != nil {
@@ -945,7 +945,7 @@ func (mod *Module) EncodePersistedObject(ctx context.Context, cache dagql.Persis
 		}
 		persisted.InterfaceDefResultIDs = append(persisted.InterfaceDefResultIDs, defID)
 	}
-	persisted.EnumDefResultIDs = make([]uint64, 0, len(mod.EnumDefs))
+	persisted.EnumDefResultIDs = make([]dagql.PersistedResultRef, 0, len(mod.EnumDefs))
 	for _, def := range mod.EnumDefs {
 		defID, err := encodePersistedObjectRef(cache, def, "module enum typedef")
 		if err != nil {
