@@ -150,7 +150,7 @@
 <main>
 
 <h1>Remote Cache — Design</h1>
-<p class="sub">v22 &nbsp;·&nbsp; implementation in progress &nbsp;·&nbsp; as-built refinements land via the review log &nbsp;·&nbsp; 2026-07-03</p>
+<p class="sub">v24 &nbsp;·&nbsp; implementation in progress &nbsp;·&nbsp; as-built refinements land via the review log &nbsp;·&nbsp; 2026-07-03</p>
 
 <div class="banner">
 <b>Status.</b> The living design doc for the remote-cache engine work: requirements and
@@ -730,6 +730,25 @@ decided in Part II.</p>
   leak on main, widened by attach-at-vet, now closed on all paths); a latent main panic on
   out-of-range eq_class_id (unchecked slice index) → bounds-checked wipe. T6 upgraded to
   per-table count equality over every table.</li>
+  <li><b>Round 19 (2026-07-06, owner adjudications — flagged for Erik's morning review).</b>
+  Two items raised by the service-phase design, routed here because they touch ratified
+  text. <b>(1) The reserved fall-through order is amended:</b> ① local snapshot →
+  ② content-chain (reserved) → ③ lazy form — content-chain moves ahead of the lazy form.
+  The ratified order dated from when the third source was a consumer-less placeholder and
+  carried no rationale of its own; with a remote store real, re-executing a recipe before
+  pulling available bytes inverts the remote cache's value — and by this design's own §9
+  D2, recipe realization recurses into demand-driven input materialization, so
+  recipe-first can cascade into more downloads and computation than the single terminal
+  chain pull it avoided. Zero behavior change in this take (the content-chain source is
+  still only a reserved name; source kinds are never persisted, so the future renumbering
+  is free — one stale code comment noted for the next landing). Pinned as <b>v1 default
+  policy</b>: local-first is not policy; the ②/③ pull-vs-re-execute choice is, and a
+  future per-result cost decision may override it at the walk and nowhere else. Fig. 3,
+  Fig. 4, the §7.4 sketch, and §7's decide box updated. <b>(2) The R16 box's bundle
+  sentence clarified:</b> "digests and frames only" was always scoped to identity — a
+  bundle carries the per-result payload envelopes per R9's one-encoding rule; without
+  them it could carry neither values nor lazy forms. The service design's reading was
+  correct; the box now says so explicitly.</li>
 </ol>
 </div>
 </details>
@@ -858,8 +877,8 @@ requirements.</p>
 <li>Both §6 open questions, as answered in the two green verdict boxes below.</li>
 <li>The home placed on the <code>sharedResult</code>, with the value structs' accessors demoted to realization caches —
 and deliberately <em>not</em> re-plumbed (smallest change that satisfies R5).</li>
-<li>Naming the third source (<code>content-chain</code>) now, building it only in the
-remote take.</li>
+<li>Naming the <code>content-chain</code> source now — reserved second in the
+fall-through order, ahead of the lazy form — building it only in the remote take.</li>
 </ol>
 </div>
 
@@ -992,7 +1011,7 @@ is sitting right there in the envelope.</td>
 
   <rect x="364" y="194" width="312" height="52" rx="6" fill="#fff" stroke="#c9ccd2"/>
   <text x="520" y="211" text-anchor="middle" font-size="12" fill="#2b2f36">sources, in fall-through order:</text>
-  <text x="520" y="228" text-anchor="middle" font-size="11.5" fill="#2b2f36">① local snapshot &nbsp;→&nbsp; ② recipe &nbsp;→&nbsp; ③ content-chain <tspan fill="#a06000">(reserved)</tspan></text>
+  <text x="520" y="228" text-anchor="middle" font-size="11.5" fill="#2b2f36">① local snapshot &nbsp;→&nbsp; ② content-chain <tspan fill="#a06000">(reserved)</tspan> &nbsp;→&nbsp; ③ lazy form</text>
 
   <rect x="364" y="252" width="312" height="28" rx="6" fill="#fff" stroke="#c9ccd2"/>
   <text x="520" y="270" text-anchor="middle" font-size="12" fill="#2b2f36">realized — is the in-memory value usable right now?</text>
@@ -1041,7 +1060,16 @@ discarded), so the sharedResult is where a "promise to materialize" (R2) can act
 live.</p>
 
 <h4>D2 — Retained sources, in fall-through order</h4>
-<p>The home's source list is the whole R1/R2 story in one field:</p>
+<p>The home's source list is the whole R1/R2 story in one field. The declared order —
+local snapshot, then content-chain, then lazy form — is the <b>v1 default policy</b>.
+Local-first is not policy: local bytes always win. The choice between ② and ③ (pull
+available content vs re-execute the recipe) is policy: pulling is the mainline because
+recipe realization recurses into demand-driven input materialization (§9 D2) — one
+re-execution can cascade into more downloads and computation than the single terminal
+chain pull it avoided. A future per-result cost decision (pull price vs recompute price)
+may override exactly that choice, at exactly this decision point — the walk — and
+nowhere else.</p>
+<p>The list itself:</p>
 
 <figure>
 <svg viewBox="0 0 960 170" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Source fall-through">
@@ -1060,24 +1088,24 @@ live.</p>
   <line x1="255" y1="56" x2="330" y2="56" stroke="#5c6470" stroke-width="2" marker-end="url(#arrF)"/>
   <text x="292" y="46" text-anchor="middle" font-size="11" fill="#b3362c">not viable / failed</text>
 
-  <rect x="335" y="25" width="240" height="62" rx="10" fill="#e7f5ec" stroke="#bfe0cc"/>
-  <text x="455" y="50" text-anchor="middle" font-size="13" font-weight="700" fill="#1a1d23">② lazy form</text>
-  <text x="455" y="70" text-anchor="middle" font-size="11.5" fill="#5c6470">the value's persisted lazy struct · re-runs via lazy path</text>
+  <rect x="335" y="25" width="240" height="62" rx="10" fill="#fdf3e0" stroke="#ecd9ac" stroke-dasharray="6 4"/>
+  <text x="455" y="50" text-anchor="middle" font-size="13" font-weight="700" fill="#a06000">② content-chain</text>
+  <text x="455" y="70" text-anchor="middle" font-size="11.5" fill="#a06000">reserved seam (R4 chainIDs) — NOT built this take</text>
 
   <line x1="575" y1="56" x2="650" y2="56" stroke="#5c6470" stroke-width="2" marker-end="url(#arrF)"/>
-  <text x="612" y="46" text-anchor="middle" font-size="11" fill="#b3362c">no lazy form / failed</text>
+  <text x="612" y="46" text-anchor="middle" font-size="11" fill="#b3362c">no chain (not built) / failed</text>
 
-  <rect x="655" y="25" width="240" height="62" rx="10" fill="#fdf3e0" stroke="#ecd9ac" stroke-dasharray="6 4"/>
-  <text x="775" y="50" text-anchor="middle" font-size="13" font-weight="700" fill="#a06000">③ content-chain</text>
-  <text x="775" y="70" text-anchor="middle" font-size="11.5" fill="#a06000">reserved seam (R4 chainIDs) — NOT built this take</text>
+  <rect x="655" y="25" width="240" height="62" rx="10" fill="#e7f5ec" stroke="#bfe0cc"/>
+  <text x="775" y="50" text-anchor="middle" font-size="13" font-weight="700" fill="#1a1d23">③ lazy form</text>
+  <text x="775" y="70" text-anchor="middle" font-size="11.5" fill="#5c6470">the value's persisted lazy struct · re-runs via lazy path</text>
 
   <line x1="135" y1="87" x2="135" y2="125" stroke="#1a7f4b" stroke-width="2.5" marker-end="url(#arrFG)"/>
-  <line x1="455" y1="87" x2="455" y2="125" stroke="#1a7f4b" stroke-width="2.5" marker-end="url(#arrFG)"/>
-  <text x="295" y="147" text-anchor="middle" font-size="13" font-weight="700" fill="#1a7f4b">SERVE — and mark the sharedResult realized</text>
+  <line x1="685" y1="87" x2="685" y2="125" stroke="#1a7f4b" stroke-width="2.5" marker-end="url(#arrFG)"/>
+  <text x="410" y="147" text-anchor="middle" font-size="13" font-weight="700" fill="#1a7f4b">SERVE — and mark the sharedResult realized</text>
 
-  <text x="775" y="115" text-anchor="middle" font-size="12" font-weight="700" fill="#b3362c">zero sources ⇒ not servable (R2):</text>
-  <text x="775" y="133" text-anchor="middle" font-size="12" fill="#b3362c">at boot → dropped at restore, with dependents</text>
-  <text x="775" y="151" text-anchor="middle" font-size="11" fill="#5c6470">at runtime → demote to miss: the live call executes (§9)</text>
+  <text x="822" y="118" text-anchor="middle" font-size="12" font-weight="700" fill="#b3362c">zero sources ⇒ not servable (R2):</text>
+  <text x="822" y="134" text-anchor="middle" font-size="12" fill="#b3362c">at boot → dropped at restore, with dependents</text>
+  <text x="822" y="150" text-anchor="middle" font-size="11" fill="#5c6470">at runtime → demote to miss (§9)</text>
 </svg>
 <figcaption>Fig. 4 — Fall-through. Naming source ③ now means the order is designed exactly
 once; building it stays out of this take.</figcaption>
@@ -1222,12 +1250,14 @@ const (
 	<span class="cm">// engine boundary (R4).</span>
 	sourceLocalSnapshot retainedSourceKind = iota
 
+	<span class="cm">// sourceContentChain: reserved seam for the remote future (R4 chainIDs),</span>
+	<span class="cm">// slotting HERE — ahead of the lazy form (pull before re-execute; §7 D2's</span>
+	<span class="cm">// v1 policy). Named so fall-through order is designed exactly once; not</span>
+	<span class="cm">// built this take. Kinds are never persisted, so the renumbering is free.</span>
+
 	<span class="cm">// The value's persisted lazy form (a registered lazy struct referencing</span>
 	<span class="cm">// its input results); re-run through the existing lazy path.</span>
 	sourceLazyValue
-
-	<span class="cm">// sourceContentChain: reserved seam for the remote future (R4 chainIDs).</span>
-	<span class="cm">// Named so fall-through order is designed exactly once; not built this take.</span>
 )
 
 type retainedSource struct {
@@ -1535,8 +1565,11 @@ rule: if this test ever trips on what looks like legitimate
 nondeterminism, stop and escalate for discussion — assess real-defect vs benign source and
 decide deliberately; do not contort the design to satisfy the test.</em></li>
 <li><b>Bundle compatibility for free:</b> since nothing authoritative depends on file-local
-integers, a future bundle carries digests and frames only, and import treats it exactly
-like a second digest source — no parallel identity scheme (R9).</li>
+integers, a future bundle's <em>identity</em> travels as digests and frames only — no
+integer keys, no term rows, no refKeys. (The per-result payload envelopes ride alongside,
+per R9's one-encoding rule — without them a bundle could carry neither values nor lazy
+forms.) Import treats it exactly like a second digest source — no parallel identity
+scheme (R9).</li>
 </ul>
 </div>
 
