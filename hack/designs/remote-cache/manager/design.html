@@ -125,7 +125,7 @@
 <main>
 
 <h1>Remote Cache — The Cache Manager</h1>
-<p class="sub">v5 &nbsp;·&nbsp; converged + four owner rulings folded (round 4) &nbsp;·&nbsp; delta round in flight &nbsp;·&nbsp; open: §13 placement ruling &nbsp;·&nbsp; 2026-07-07</p>
+<p class="sub">v6 &nbsp;·&nbsp; converged; four owner rulings verified/folded (rounds 4–5, ready) &nbsp;·&nbsp; open: §13 placement ruling &nbsp;·&nbsp; 2026-07-07</p>
 
 <div class="banner">
 <b>Status.</b> Draft for adversarial review. This document supersedes
@@ -231,7 +231,8 @@ deduplicated state of everyone's cache — and imports it through the exact mach
 already uses (landed chunks A+B), as the single-artifact case of what it already does.
 Content still moves lazily, by digest, on demand.</li>
 <li>The manager's view is <b>durable</b> (service restarts lose nothing), <b>idempotent
-under ingest</b> (origin identity — landed — makes re-announcement a no-op), and
+under ingest</b> (origin identity — landed — makes re-announcing anything the view still
+holds a no-op), and
 <b>pruned server-side</b> with the engine's own prune machinery.</li>
 </ul>
 <p>
@@ -595,6 +596,17 @@ eligibility counter exists for the same-engine shapes it can observe.</p>
   <b>per-backend concurrent-write test requirement</b> pinned as T-M15 (consuming the
   converged CAS suites for S3/MinIO/filesystem + the Namespace live probe). Folds (2) and
   (4) exceed editorial scope and go to the reviewer as a delta round.</li>
+  <li><b>Round 5 (2026-07-07), ruling-fold delta verification. Verdict: READY.</b> The
+  reviewer verified both already-satisfied rulings against the text (snapshot-to-snapshot
+  advancement; whole-store import), confirmed the §9 propagation rewrite consistent with
+  M3/§7/M2/T-M5, and confirmed the race/purity fold coherent (backend writes may race
+  while promote/record stays serialized — complementary; purity scoped to current durable
+  state — compatible with the retry contract; T-M15 non-duplicative). One wording residual
+  (§1's unqualified "no-op") fixed post-verdict. In the same round the presentation
+  standard was applied for the owner's pane review: the self-contained terminology panel
+  and five new figures (the checkpoint/fencing lifecycle, the negotiate-then-upload
+  sequence, the serving flow, the placement options, the salvage map) — presentation
+  only, no normative change.</li>
 </ol>
 </div>
 </details>
