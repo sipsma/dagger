@@ -2,6 +2,7 @@ package snapshots
 
 import (
 	"context"
+	"io"
 	"sync"
 	"time"
 
@@ -72,6 +73,15 @@ type SnapshotManager interface {
 	LoadPersistentMetadata(rows PersistentMetadataRows) error
 	PersistentMetadataRows() PersistentMetadataRows
 	DeleteStaleDaggerOwnerLeases(ctx context.Context, keep map[string]struct{}) error
+	// ChainForSnapshot computes (or looks up) the content chain identifying
+	// one immutable snapshot — export-time only (R4: hash-at-export).
+	ChainForSnapshot(ctx context.Context, snapshotID string) (SnapshotChain, error)
+	// MaterializeChain reconstructs a chain's snapshot locally from a blob
+	// source, pinned under ownerLeaseID before it returns.
+	MaterializeChain(ctx context.Context, ownerLeaseID string, chain SnapshotChain, src BlobSource) (string, error)
+	// OpenBlob reads one blob out of the local content store (the
+	// export-side counterpart of BlobSource).
+	OpenBlob(ctx context.Context, dgst digest.Digest) (io.ReadCloser, error)
 	Close() error
 }
 
@@ -94,9 +104,13 @@ type snapshotManager struct {
 	snapshotContentDigests map[string]map[digest.Digest]struct{}
 	importedLayerByBlob    map[ImportedLayerBlobKey]string
 	importedLayerByDiff    map[ImportedLayerDiffKey]string
-	snapshotOwnerLeases    map[string]map[string]struct{}
-	importLayerLocker      *locker.Locker
-	ownerLeaseLocker       *locker.Locker
+	// snapshotChains memoizes computed/arrived content chains per snapshot
+	// so re-exports within a boot are lookups (across boots the persisted
+	// per-result chain rows are the lookup).
+	snapshotChains      map[string]SnapshotChain
+	snapshotOwnerLeases map[string]map[string]struct{}
+	importLayerLocker   *locker.Locker
+	ownerLeaseLocker    *locker.Locker
 
 	mountPool sharableMountPool
 }
@@ -113,6 +127,7 @@ func NewSnapshotManager(opt SnapshotManagerOpt) (SnapshotManager, error) {
 		snapshotContentDigests: make(map[string]map[digest.Digest]struct{}),
 		importedLayerByBlob:    make(map[ImportedLayerBlobKey]string),
 		importedLayerByDiff:    make(map[ImportedLayerDiffKey]string),
+		snapshotChains:         make(map[string]SnapshotChain),
 		snapshotOwnerLeases:    make(map[string]map[string]struct{}),
 		importLayerLocker:      locker.New(),
 		ownerLeaseLocker:       locker.New(),
