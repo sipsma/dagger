@@ -4014,6 +4014,7 @@ func (c *Cache) getOrInitCall(
 	callCtx, cancel := context.WithCancelCause(context.WithoutCancel(callCtx))
 	sharedWorkCtx, releaseSharedWorkLease, err := withOperationLease(withoutOperationLease(callCtx))
 	if err != nil {
+		cancel(err)
 		c.callsMu.Unlock()
 		return nil, fmt.Errorf("acquire shared operation lease: %w", err)
 	}
