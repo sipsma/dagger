@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -599,4 +602,230 @@ func TestCachePersistenceImportFailureWipesStore(t *testing.T) {
 	assert.Assert(t, !resB.HitCache())
 	assert.Equal(t, 51, cacheTestUnwrapInt(t, resB))
 	cacheTestReleaseSession(t, cB, ctx)
+}
+
+// newR16TestServer builds a server whose seeded store carries a term with a
+// result-backed input class: a persistable object field plus a persistable
+// field selected on that object. The returned counters record initializer
+// executions so warm boots can prove they served hits without re-executing.
+func newR16TestServer() (*Server, *atomic.Int32, *atomic.Int32) {
+	srv, err := NewServer(context.Background(), &persistCodecRoot{})
+	if err != nil {
+		panic(err)
+	}
+	objCalls := &atomic.Int32{}
+	nameCalls := &atomic.Int32{}
+	srv.InstallObject(NewClass(srv, ClassOpts[*persistCodecObj]{}))
+	Fields[*persistCodecObj]{
+		Func("name", func(ctx context.Context, self *persistCodecObj, _ struct{}) (String, error) {
+			nameCalls.Add(1)
+			return String(self.Name), nil
+		}).IsPersistable(),
+	}.Install(srv)
+	Fields[*persistCodecRoot]{
+		NodeFunc("r16Obj", func(ctx context.Context, _ ObjectResult[*persistCodecRoot], _ struct{}) (ObjectResult[*persistCodecObj], error) {
+			objCalls.Add(1)
+			obj, err := NewObjectResultForCurrentCall(ctx, srv, &persistCodecObj{Name: "r16"})
+			if err != nil {
+				return ObjectResult[*persistCodecObj]{}, err
+			}
+			return obj.WithContentDigest(ctx, digest.FromString("r16-obj-content"))
+		}).IsPersistable(),
+	}.Install(srv)
+	return srv, objCalls, nameCalls
+}
+
+func r16RootCtx(ctx context.Context, cache *Cache, srv *Server) context.Context {
+	rootCtx := ContextWithCall(ctx, &ResultCall{
+		Kind:  ResultCallKindField,
+		Type:  NewResultCallType((&persistCodecRoot{}).Type()),
+		Field: "r16-root",
+	})
+	rootCtx = ContextWithCache(rootCtx, cache)
+	return srvToContext(rootCtx, srv)
+}
+
+func r16CopyFile(t *testing.T, src, dst string) {
+	t.Helper()
+	data, err := os.ReadFile(src)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return
+		}
+		t.Fatalf("copy %s: %v", src, err)
+	}
+	assert.NilError(t, os.WriteFile(dst, data, 0o600))
+}
+
+// r16RenumberStore rewrites every eq-class and term ID in the store through
+// one consistent order-reversing bijection, leaving digests untouched.
+// input_eq_class_id zero (digest-provenance inputs) has no class row and
+// stays zero.
+func r16RenumberStore(ctx context.Context, t *testing.T, dbPath string) {
+	t.Helper()
+
+	db, q, err := prepareCacheDBs(ctx, dbPath)
+	assert.NilError(t, err)
+
+	var maxEq, maxTerm int64
+	assert.NilError(t, db.QueryRowContext(ctx, `SELECT COALESCE(MAX(id), 0) FROM eq_classes`).Scan(&maxEq))
+	assert.NilError(t, db.QueryRowContext(ctx, `SELECT COALESCE(MAX(id), 0) FROM terms`).Scan(&maxTerm))
+	assert.Assert(t, maxEq > 1, "seed store must contain multiple eq classes for renumbering to mean anything")
+	assert.Assert(t, maxTerm > 1, "seed store must contain multiple terms for renumbering to mean anything")
+
+	// The bijection old -> (2*max + 1) - old reverses the order AND lands in
+	// [max+1 .. 2*max], disjoint from the original range, so the renumbered
+	// store shares no ID with the original. Two phases so intermediate
+	// values never collide with live IDs: shift everything far away, then
+	// map onto the target range.
+	const shift = int64(1) << 30
+	type renumberStmt struct {
+		sql  string
+		args []any
+	}
+	stmts := []renumberStmt{
+		{`UPDATE eq_classes SET id = id + ?1`, []any{shift}},
+		{`UPDATE eq_class_digests SET eq_class_id = eq_class_id + ?1`, []any{shift}},
+		{`UPDATE terms SET output_eq_class_id = output_eq_class_id + ?1`, []any{shift}},
+		{`UPDATE term_inputs SET input_eq_class_id = input_eq_class_id + ?1 WHERE input_eq_class_id != 0`, []any{shift}},
+		{`UPDATE result_output_eq_classes SET eq_class_id = eq_class_id + ?1`, []any{shift}},
+		{`UPDATE eq_classes SET id = 2 * ?2 + 1 - (id - ?1)`, []any{shift, maxEq}},
+		{`UPDATE eq_class_digests SET eq_class_id = 2 * ?2 + 1 - (eq_class_id - ?1)`, []any{shift, maxEq}},
+		{`UPDATE terms SET output_eq_class_id = 2 * ?2 + 1 - (output_eq_class_id - ?1)`, []any{shift, maxEq}},
+		{`UPDATE term_inputs SET input_eq_class_id = 2 * ?2 + 1 - (input_eq_class_id - ?1) WHERE input_eq_class_id != 0`, []any{shift, maxEq}},
+		{`UPDATE result_output_eq_classes SET eq_class_id = 2 * ?2 + 1 - (eq_class_id - ?1)`, []any{shift, maxEq}},
+		{`UPDATE terms SET id = id + ?1`, []any{shift}},
+		{`UPDATE term_inputs SET term_id = term_id + ?1`, []any{shift}},
+		{`UPDATE terms SET id = 2 * ?2 + 1 - (id - ?1)`, []any{shift, maxTerm}},
+		{`UPDATE term_inputs SET term_id = 2 * ?2 + 1 - (term_id - ?1)`, []any{shift, maxTerm}},
+	}
+	for _, stmt := range stmts {
+		if _, err := db.ExecContext(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("renumber (%s): %v", stmt.sql, err)
+		}
+	}
+
+	// The store still has structure the renumbering exercises: at least one
+	// term input backed by a real class.
+	var resultInputs int64
+	assert.NilError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM term_inputs WHERE input_eq_class_id != 0`).Scan(&resultInputs))
+	assert.Assert(t, resultInputs > 0, "seed store must contain result-backed term inputs")
+
+	assert.NilError(t, q.UpsertMeta(ctx, persistdb.MetaKeyCleanShutdown, "1"))
+	assert.NilError(t, closeCacheDBs(db, q))
+}
+
+// r16CanonicalTerms projects the booted term index down to persisted,
+// content-addressed identity only: each term rendered as its self digest,
+// its input classes' digest sets in position order, and its output class's
+// digest set. Two stores that differ only in integer numbering must project
+// identically.
+func r16CanonicalTerms(t *testing.T, c *Cache) ([]string, []uint64) {
+	t.Helper()
+	snap := c.DebugEGraphSnapshot()
+
+	classDigests := make(map[uint64]string, len(snap.EqClasses))
+	for _, class := range snap.EqClasses {
+		digests := append([]string(nil), class.Digests...)
+		sort.Strings(digests)
+		classDigests[class.EqClassID] = strings.Join(digests, ",")
+	}
+	canonClass := func(id uint64) string {
+		if id == 0 {
+			return "<none>"
+		}
+		return "{" + classDigests[id] + "}"
+	}
+
+	canon := make([]string, 0, len(snap.Terms))
+	termIDs := make([]uint64, 0, len(snap.Terms))
+	for _, term := range snap.Terms {
+		parts := term.SelfDigest
+		for _, in := range term.InputEqIDs {
+			parts += "|" + canonClass(in)
+		}
+		parts += "=>" + canonClass(term.OutputEqID)
+		canon = append(canon, parts)
+		termIDs = append(termIDs, term.TermID)
+	}
+	sort.Strings(canon)
+	sort.Slice(termIDs, func(i, j int) bool { return termIDs[i] < termIDs[j] })
+	return canon, termIDs
+}
+
+// TestCachePersistenceRenumberedStoreEquivalence is the R16 determinism
+// property test: rewrite a store's eq-class and term IDs through a
+// consistent order-reversing bijection (digests untouched), then boot the
+// original and the renumbered copy. Both must import without a wipe, derive
+// term identity that projects identically onto persisted digests, and serve
+// identical warm hits without re-executing anything. Only file-local integer
+// numbering differs between the two stores, so any divergence means identity
+// leaned on an ordinal.
+func TestCachePersistenceRenumberedStoreEquivalence(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "cache.db")
+
+	cacheA, err := NewCache(ctx, dbPath, nil, nil)
+	assert.NilError(t, err)
+	srvA, objCallsA, nameCallsA := newR16TestServer()
+	rootCtxA := r16RootCtx(ctx, cacheA, srvA)
+
+	var nameA String
+	assert.NilError(t, srvA.Select(rootCtxA, srvA.root, &nameA, Selector{Field: "r16Obj"}, Selector{Field: "name"}))
+	assert.Equal(t, String("r16"), nameA)
+	assert.Equal(t, int32(1), objCallsA.Load())
+	assert.Equal(t, int32(1), nameCallsA.Load())
+	cacheTestReleaseSession(t, cacheA, rootCtxA)
+	assert.NilError(t, cacheA.persistCurrentState(ctx))
+	assert.NilError(t, cacheA.Close(context.Background()))
+
+	renumberedPath := filepath.Join(dir, "renumbered.db")
+	r16CopyFile(t, dbPath, renumberedPath)
+	r16CopyFile(t, dbPath+"-wal", renumberedPath+"-wal")
+	r16CopyFile(t, dbPath+"-shm", renumberedPath+"-shm")
+	r16RenumberStore(ctx, t, renumberedPath)
+
+	type bootOutcome struct {
+		canonicalTerms []string
+		termIDs        []uint64
+	}
+	boot := func(path string) bootOutcome {
+		t.Helper()
+		cache, err := NewCache(ctx, path, nil, nil)
+		assert.NilError(t, err)
+		defer func() {
+			assert.NilError(t, cache.Close(context.Background()))
+		}()
+		assert.Equal(t, CachePersistenceResetNone, cache.PersistenceResetReason())
+
+		canonicalTerms, termIDs := r16CanonicalTerms(t, cache)
+
+		srv, objCalls, nameCalls := newR16TestServer()
+		rootCtx := r16RootCtx(ctx, cache, srv)
+		var name String
+		assert.NilError(t, srv.Select(rootCtx, srv.root, &name, Selector{Field: "r16Obj"}, Selector{Field: "name"}))
+		assert.Equal(t, String("r16"), name)
+		assert.Equal(t, int32(0), objCalls.Load(), "warm boot of %s re-executed the object field", path)
+		assert.Equal(t, int32(0), nameCalls.Load(), "warm boot of %s re-executed the chained field", path)
+		cacheTestReleaseSession(t, cache, rootCtx)
+
+		return bootOutcome{canonicalTerms: canonicalTerms, termIDs: termIDs}
+	}
+
+	original := boot(dbPath)
+	renumbered := boot(renumberedPath)
+
+	// Sanity: the copies really are numbered differently.
+	assert.Assert(t, len(original.termIDs) > 1)
+	assert.Assert(t, !slices.Equal(original.termIDs, renumbered.termIDs),
+		"renumbering did not change term IDs; the test is not exercising anything")
+
+	// Identical key derivation, expressed in the only identity that
+	// persists: digests. In-memory key strings are process-local by design
+	// (they embed this boot's class numbering), so the comparison projects
+	// every term onto the digest sets of its classes instead.
+	assert.DeepEqual(t, original.canonicalTerms, renumbered.canonicalTerms)
 }
