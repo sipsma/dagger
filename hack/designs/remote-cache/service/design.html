@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Remote Cache — Service Phase Design</title>
+<style>
+  :root {
+    --ink: #1a1d23; --muted: #5c6470; --paper: #fafaf8; --card: #ffffff;
+    --line: #e3e4e8; --accent: #2757d6;
+    --keep: #1a7f4b; --keep-bg: #e7f5ec;
+    --modify: #a06000; --modify-bg: #fdf3e0;
+    --new: #2757d6; --new-bg: #e9effc;
+    --drop: #b3362c; --drop-bg: #fbeae8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font: 16px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 940px; margin: 0 auto; padding: 40px 28px 120px; }
+  h1 { font-size: 30px; line-height: 1.25; margin: 0 0 6px; letter-spacing: -0.02em; }
+  h2 { font-size: 22px; margin: 56px 0 12px; letter-spacing: -0.01em; border-bottom: 2px solid var(--line); padding-bottom: 8px; }
+  h3 { font-size: 17px; margin: 28px 0 8px; }
+  h4 { font-size: 15.5px; margin: 22px 0 6px; }
+  p, li { color: #2b2f36; }
+  .sub { color: var(--muted); font-size: 15px; margin: 0 0 24px; }
+  .banner {
+    background: #fff8e6; border: 1px solid #eadfa9; border-radius: 10px;
+    padding: 14px 18px; font-size: 15px; margin: 22px 0 8px;
+  }
+  .banner b { color: #7a5b00; }
+  code { background: #eef0f3; border-radius: 4px; padding: 1px 5px; font-size: 0.92em; }
+  .toc { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px 22px; margin-top: 26px; font-size: 15px; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .toc ol { margin: 6px 0 10px; padding-left: 22px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-left-width: 5px;
+    border-radius: 10px; padding: 18px 22px 16px; margin: 18px 0;
+  }
+  .card.keep   { border-left-color: var(--keep); }
+  .card.modify { border-left-color: var(--modify); }
+  .card.new    { border-left-color: var(--new); }
+  .card.drop   { border-left-color: var(--drop); }
+  .card h3 { margin: 0 0 6px; font-size: 17px; }
+  .badge {
+    display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: 0.06em;
+    border-radius: 999px; padding: 2px 11px; vertical-align: 2px; margin-left: 10px;
+  }
+  .badge.keep   { color: var(--keep);   background: var(--keep-bg); }
+  .badge.modify { color: var(--modify); background: var(--modify-bg); }
+  .badge.new    { color: var(--new);    background: var(--new-bg); }
+  .badge.drop   { color: var(--drop);   background: var(--drop-bg); }
+  figure { margin: 26px 0; }
+  figcaption { font-size: 14px; color: var(--muted); margin-top: 8px; text-align: center; }
+  svg { width: 100%; height: auto; display: block; }
+  .qs { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 6px 22px 14px; }
+  .qs li { margin: 10px 0; }
+  .foot { margin-top: 60px; font-size: 13.5px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 14px; }
+  .pill { font-size: 12.5px; color: var(--muted); }
+  .fold { border: 0; margin: 44px 0 0; }
+  .fold summary { list-style: none; cursor: pointer; }
+  .fold summary::-webkit-details-marker { display: none; }
+  .fold summary h2 { display: inline-block; margin: 0 0 12px; }
+  .fold summary h2::before { content: "▸ "; color: var(--muted); }
+  .fold[open] summary h2::before { content: "▾ "; }
+  .fold summary h3 { display: inline-block; margin: 0 0 8px; }
+  .fold summary h3::before { content: "▸ "; color: var(--muted); }
+  .fold[open] summary h3::before { content: "▾ "; }
+  .controls { margin: 14px 0 0; font-size: 13.5px; }
+  .controls button { font: inherit; font-size: 13px; color: var(--accent); background: none;
+    border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; cursor: pointer; margin-right: 8px; }
+  .controls button:hover { border-color: var(--accent); }
+  pre { background: #14161a; color: #e8eaee; border-radius: 10px; padding: 14px 18px;
+    overflow-x: auto; font-size: 13px; line-height: 1.55; }
+  pre code { background: none; padding: 0; color: inherit; font-size: inherit; }
+  .filetbl { width: 100%; border-collapse: collapse; font-size: 14px; margin: 10px 0; }
+  .filetbl th, .filetbl td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .filetbl th { font-size: 12px; letter-spacing: 0.06em; color: var(--muted); }
+  .chip { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 5px; padding: 1px 7px; white-space: nowrap; }
+  .chip.newf { color: var(--new); background: var(--new-bg); }
+  .chip.modf { color: var(--modify); background: var(--modify-bg); }
+  .trace { background: #f4f5f7; border-left: 3px solid var(--accent); border-radius: 6px; padding: 8px 14px; font-size: 14px; margin: 12px 0; }
+  .shelfnote { background: var(--drop-bg); border: 1px solid #e0b6b1; border-radius: 8px; padding: 10px 14px; font-size: 14px; margin: 10px 0 16px; }
+  .gist { font-size: 14px; color: #35502f; background: #f3f7f1; border-left: 3px solid var(--keep);
+    padding: 6px 12px; border-radius: 6px; margin: 0 0 10px; font-style: italic; }
+  .verdict { background: var(--keep-bg); border: 1px solid #bfe0cc; border-left: 5px solid var(--keep); border-radius: 10px; padding: 14px 18px; margin: 20px 0; }
+  .verdict .vtag { display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: .08em; color: var(--keep); margin-bottom: 4px; }
+  .decide { background: var(--new-bg); border: 1px solid #c5d2f0; border-radius: 10px; padding: 12px 18px 14px; margin: 16px 0; }
+  .decide .dtag { font-size: 11px; font-weight: 800; letter-spacing: .08em; color: var(--new); display: block; margin-bottom: 4px; }
+  .steps { counter-reset: step; list-style: none; padding-left: 0; margin: 14px 0; }
+  .steps > li { counter-increment: step; position: relative; padding: 12px 0 12px 54px; border-bottom: 1px dashed var(--line); color: #2b2f36; }
+  .steps > li:last-child { border-bottom: 0; }
+  .steps > li::before { content: counter(step); position: absolute; left: 0; top: 12px; width: 34px; height: 34px;
+    border-radius: 50%; background: var(--new-bg); color: var(--new); font-weight: 800; font-size: 15px;
+    display: flex; align-items: center; justify-content: center; }
+  .steps .tag { font-size: 11.5px; font-weight: 700; color: var(--muted); letter-spacing: .04em; }
+  pre .cm { color: #8b949e; font-style: italic; }
+  pre .em { color: #7ee2a8; font-weight: 600; }
+  .src { display: block; text-align: right; font-size: 12px; color: var(--muted); margin: -8px 2px 16px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 12px 0; }
+  @media (max-width: 800px) { .two { grid-template-columns: 1fr; } }
+  .subcard { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; }
+  .subcard h4 { margin: 2px 0 6px; }
+  .layout { display: grid; grid-template-columns: 250px minmax(0, 940px); gap: 10px; justify-content: center; }
+  .layout main { margin: 0; }
+  nav.side { position: sticky; top: 0; align-self: start; max-height: 100vh; overflow-y: auto;
+    padding: 40px 4px 40px 10px; }
+  nav.side .toc { margin-top: 0; font-size: 13px; line-height: 1.5; padding: 14px 16px; }
+  nav.side .toc ol { padding-left: 18px; margin: 4px 0 8px; }
+  nav.side .toc li { margin: 3px 0; }
+  @media (max-width: 1260px) {
+    .layout { grid-template-columns: minmax(0, 940px); }
+    nav.side { position: static; max-height: none; padding: 28px 28px 0; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="side">
+<div class="toc">
+<b>Contents</b>
+<ol>
+  <li><a href="#goal">The goal</a></li>
+  <li><a href="#shift">The load-bearing structural decision</a></li>
+  <li><a href="#reqs">Requirements and non-goals</a></li>
+  <li><a href="#review">Review log</a></li>
+  <li><a href="#target">Target shape</a></li>
+  <li><a href="#bundle">The bundle: one portable cache artifact</a></li>
+  <li><a href="#export">Engine: export</a></li>
+  <li><a href="#import">Engine: bundle import at boot</a></li>
+  <li><a href="#chain">Engine: the content-chain source</a></li>
+  <li><a href="#service">The cache service (dagger.io)</a></li>
+  <li><a href="#obs">Observability and insight</a></li>
+  <li><a href="#dev">The dev stack and the test ladder</a></li>
+  <li><a href="#proof">The warm proof: definition of done</a></li>
+  <li><a href="#order">Build order</a></li>
+</ol>
+<b>Appendix</b>
+<ol start="15">
+  <li><a href="#shelf">The shelf (not part of the design)</a></li>
+  <li><a href="#salvage">Prior-attempt salvage ledger</a></li>
+</ol>
+</div>
+</nav>
+<main>
+
+<h1>Remote Cache — Service Phase Design</h1>
+<p class="sub">v1 draft &nbsp;·&nbsp; the phase after the engine fundamentals &nbsp;·&nbsp; 2026-07-06</p>
+
+<div class="banner">
+<b>Status.</b> Draft for adversarial review. This document designs the phase that follows the
+engine-fundamentals take (<code>hack/designs/remote-cache/reset/design.html</code>, "the reset
+design"): engines exporting cache to and importing cache from a real cloud service. It builds
+on the reset design's ratified requirements R1–R16 and its reserved seams, and must remain
+compatible with them; any deviation from a reserved seam is stop-and-discuss, never silent.
+The engine-side code references below are grounded against the take-3 integration branch
+(reset §7 + §8a–c merged); prior-attempt artifacts are cited as <em>evidence about those
+attempts</em>, never as precedent (see §4, round 0).
+</div>
+<div class="controls">
+<button type="button" onclick="setAll(true)">expand all sections</button>
+<button type="button" onclick="setAll(false)">collapse all sections</button>
+</div>
+
+<h2 id="goal">1. The goal</h2>
+<p>
+A run on engine A executes a build graph. When engine A is told to — or when it shuts down —
+it <b>exports</b> its cache to a cloud cache service: the result metadata, and the filesystem
+content behind it. A fresh engine B, booting later with credentials for the same cache scope,
+<b>imports</b> that cache before serving: warm lookups hit, and content downloads on demand,
+falling back to re-execution where content is missing. The near-term proof is the remote
+analogue of the reset design's restart proof: a cold CI run on one engine seeds the service;
+a warm run on a <em>different, fresh</em> engine shows real, counter-proven reuse — with
+numbers that would have failed loudly if reuse hadn't happened (R8).
+</p>
+<p>
+The reset design proved this shape with the transport removed (one engine's disk, a restart).
+This phase adds the transport and the service — and deliberately nothing else: the engine's
+lookup, vetting, materialization, and fallback machinery is consumed as built, not redesigned.
+</p>
+<p><b>Scope of this phase:</b></p>
+<ul>
+<li><b>Engine (dagger/dagger):</b> the export path (trigger, bundle encode, blob upload), the
+bundle import path at boot, and the <b>content-chain materialization source</b> — the third
+retained source the reset design named and reserved (reset §7 D2, Fig. 4) and explicitly left
+for "the remote take".</li>
+<li><b>Service (dagger.io, proprietary):</b> bundle storage, a digest-addressed blob store,
+bundle selection for booting engines, lifecycle integration with cloud-managed engines, and
+real insight surfaces ("I need visualizations, I need to understand the cache, the state of
+it").</li>
+<li><b>Proof:</b> integration tests in dagger/dagger requiring no cloud stack (R11), an
+end-to-end suite in dagger.io that stands up the whole stack inside Dagger, and a live warm
+proof on cloud-managed engines as the final, credential-gated step.</li>
+</ul>
+<p>
+<b>Explicitly deferred cleverness:</b> analysis-guided export policy (deciding <em>what</em>
+is worth exporting from run history) is out of scope. The seams where it will plug in are
+named (§7's export policy hook; §10's service-side bundle selection), and nothing in this
+design blocks it — but v1 policy is deliberately simple (§7 D3).
+</p>
+
+<h2 id="shift">2. The load-bearing structural decision</h2>
+<p>
+<b>The service stores; the engine merges.</b> The cache service never parses, merges, or
+rewrites engine cache state. It stores opaque, engine-versioned <b>bundles</b> (one export =
+one bundle: a metadata artifact plus a manifest), keeps a digest-addressed <b>blob store</b>
+(CAS) for filesystem content, and answers exactly one clever question: <em>"which bundles
+should this engine import?"</em> All cache semantics — identity, equivalence, dedup, vetting,
+retention — run inside the engine's existing boot import, which the reset design already
+specifies as "restore local persisted state <b>+ import provided bundles</b>" (reset §6,
+Fig. 2). The engine is the only component that understands cache state, and it already
+contains the entire machinery this job needs: per-result vetting (reset §8 D2),
+restart-deterministic key recomputation (R16), the e-graph for cross-source equivalence, and
+the session-resource gate (R7).
+</p>
+<p>
+The tempting alternative is named here so it stays dead: a <b>merging service</b> — the
+service internally maintains cache state (in whatever form: an embedded engine cache, its own
+result tables), merges each incoming export into it, and synthesizes merged state for
+importers. Both prior attempts built exactly this (an in-memory instance of the engine's own
+<code>dagql.Cache</code> as the server-side merge engine), and its structural costs are not
+incidental:
+</p>
+<ul>
+<li><b>It duplicates the engine's identity model on the server</b> — every subtlety
+(equivalence classes, congruence, result-row identity, session-resource gating) needs a
+second, server-side life. The v2 attempt's terminal failure — result rows compounding
+13,311 → 32,691 in a single warm cycle, because the server minted fresh row IDs on every
+import — lived precisely in this duplicated layer.</li>
+<li><b>It couples the service to the engine's schema at the row level.</b> The prior service
+embedded engine code and imported its rows 1:1; every engine schema bump flushed the API.
+The claimed "the API can evolve behind the wire protocol" was never realized — it can't be,
+when the API's internal state <em>is</em> the engine's state.</li>
+<li><b>It makes service state load-bearing and expensive.</b> Merged-in-memory state coupled
+every service restart to a full re-seed (a ~30-minute operational tax per backend fix in the
+prior live loops). Durable merged state would mean a second persistence model for the same
+data.</li>
+</ul>
+<p>
+With store-and-select, each of those costs structurally disappears rather than being managed:
+there are <em>no</em> service-side result rows to blow up; the service treats bundle contents
+as opaque bytes tagged with an engine schema version, so engine schema evolution never
+touches it; and service state is a bundle inventory plus a CAS — trivially durable in
+Postgres + object storage, trivially disposable (it is a cache). The price is paid at engine
+boot: an engine may download and merge K overlapping bundles instead of one pre-merged view.
+That price is bounded and paid in the right place — bundle metadata is small relative to
+content, import is batched metadata writes under the boot lock (R14: "these are fast; there
+is no pause-time problem to engineer around"), and overlap collapses via origin-keyed dedup
+(§6) inside the one component that owns identity.
+</p>
+
+<figure>
+<svg viewBox="0 0 960 420" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Merging service vs store-and-select">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5c6470"/>
+    </marker>
+    <marker id="arrRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#b3362c"/>
+    </marker>
+    <marker id="arrGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1a7f4b"/>
+    </marker>
+  </defs>
+
+  <rect x="10" y="10" width="455" height="400" rx="12" fill="#fbeae8" opacity="0.45"/>
+  <text x="237" y="38" text-anchor="middle" font-size="15" font-weight="700" fill="#b3362c">THE REJECTED COUPLING: A MERGING SERVICE</text>
+
+  <rect x="60" y="56" width="150" height="40" rx="8" fill="#fff" stroke="#c9ccd2"/>
+  <text x="135" y="80" text-anchor="middle" font-size="12.5">engine A export</text>
+  <rect x="265" y="56" width="150" height="40" rx="8" fill="#fff" stroke="#c9ccd2"/>
+  <text x="340" y="80" text-anchor="middle" font-size="12.5">engine B export</text>
+
+  <line x1="135" y1="96" x2="200" y2="150" stroke="#b3362c" stroke-width="3" marker-end="url(#arrRed)"/>
+  <line x1="340" y1="96" x2="275" y2="150" stroke="#b3362c" stroke-width="3" marker-end="url(#arrRed)"/>
+
+  <rect x="60" y="155" width="355" height="90" rx="8" fill="#fff" stroke="#e0b6b1"/>
+  <text x="237" y="180" text-anchor="middle" font-size="13" font-weight="700" fill="#b3362c">service-side cache state</text>
+  <text x="237" y="200" text-anchor="middle" font-size="11.5" fill="#7a2620">second life for identity/equivalence/dedup</text>
+  <text x="237" y="216" text-anchor="middle" font-size="11.5" fill="#7a2620">row-level engine schema coupling</text>
+  <text x="237" y="232" text-anchor="middle" font-size="11.5" fill="#7a2620">merged state is load-bearing (reseed on restart)</text>
+
+  <line x1="237" y1="245" x2="237" y2="290" stroke="#b3362c" stroke-width="3" marker-end="url(#arrRed)"/>
+  <text x="252" y="272" font-size="11.5" fill="#b3362c">synthesized merged view</text>
+
+  <rect x="140" y="295" width="195" height="40" rx="8" fill="#fff" stroke="#c9ccd2"/>
+  <text x="237" y="319" text-anchor="middle" font-size="12.5">warm engine imports</text>
+  <text x="237" y="368" text-anchor="middle" font-size="12.5" font-weight="600" fill="#b3362c">where the v2 result-row blowup lived:</text>
+  <text x="237" y="386" text-anchor="middle" font-size="12" fill="#b3362c">rows re-minted per import, growth compounding per cycle</text>
+
+  <rect x="495" y="10" width="455" height="400" rx="12" fill="#e7f5ec" opacity="0.5"/>
+  <text x="722" y="38" text-anchor="middle" font-size="15" font-weight="700" fill="#1a7f4b">THIS DESIGN: STORE AND SELECT</text>
+
+  <rect x="545" y="56" width="150" height="40" rx="8" fill="#fff" stroke="#c9ccd2"/>
+  <text x="620" y="80" text-anchor="middle" font-size="12.5">engine A export</text>
+  <rect x="750" y="56" width="150" height="40" rx="8" fill="#fff" stroke="#c9ccd2"/>
+  <text x="825" y="80" text-anchor="middle" font-size="12.5">engine B export</text>
+
+  <line x1="620" y1="96" x2="670" y2="150" stroke="#1a7f4b" stroke-width="3" marker-end="url(#arrGreen)"/>
+  <line x1="825" y1="96" x2="775" y2="150" stroke="#1a7f4b" stroke-width="3" marker-end="url(#arrGreen)"/>
+
+  <rect x="545" y="155" width="355" height="110" rx="8" fill="#fff" stroke="#bfe0cc"/>
+  <text x="722" y="180" text-anchor="middle" font-size="13" font-weight="700" fill="#1a7f4b">the service: bundles + blob CAS + selection</text>
+  <text x="722" y="200" text-anchor="middle" font-size="11.5" fill="#35502f">bundles stored opaque, tagged with schema version</text>
+  <text x="722" y="216" text-anchor="middle" font-size="11.5" fill="#35502f">blobs deduped by digest (content-addressed)</text>
+  <text x="722" y="232" text-anchor="middle" font-size="11.5" fill="#35502f">one decision: which bundles for this engine?</text>
+  <text x="722" y="252" text-anchor="middle" font-size="11" fill="#5c6470">durable in Postgres + object storage; disposable (it's a cache)</text>
+
+  <line x1="722" y1="265" x2="722" y2="310" stroke="#1a7f4b" stroke-width="3" marker-end="url(#arrGreen)"/>
+  <text x="737" y="292" font-size="11.5" fill="#1a7f4b">K selected bundles, verbatim</text>
+
+  <rect x="595" y="315" width="255" height="52" rx="8" fill="#fff" stroke="#c9ccd2"/>
+  <text x="722" y="336" text-anchor="middle" font-size="12.5">warm engine merges at boot</text>
+  <text x="722" y="353" text-anchor="middle" font-size="11" fill="#5c6470">vetting · R16 keys · origin dedup · e-graph</text>
+
+  <text x="722" y="392" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1a7f4b">identity lives in exactly one component: the engine</text>
+</svg>
+<figcaption>Fig. 1 — The structural decision. The service is a content-addressed store with
+one selection decision; every cache semantic runs in the engine's existing boot import.</figcaption>
+</figure>
+
+<p>
+One deliberate nuance keeps Erik's insight requirement honest without reopening the coupling:
+the service <em>may read</em> bundles — a read-only indexer parses manifests and metadata for
+the insight surfaces (§11) — but the serving path never depends on it. Insight parsing is
+best-effort per engine schema version and degrades gracefully on unknown versions; the
+store/select/serve path treats bundles as bytes always. Reading for visibility is not merging
+for correctness, and the boundary is enforced by construction: the indexer has no write path
+into bundle or blob state.
+</p>
+
+<details class="fold" id="reqs" open><summary><h2>3. Requirements and non-goals</h2></summary>
+<p class="pill">Normative. S-numbers are this phase's requirements; R-numbers cite the reset
+design's ratified requirements, all of which remain in force. Adjudication history lives in
+the review log (§4).</p>
+
+<div class="card keep">
+<h3>S1 — Reset-design compatibility, by consumption</h3>
+<p class="gist">This phase plugs into the engine fundamentals; it never re-opens them.</p>
+<p>The phase consumes the reset design's machinery as built: the content home and source walk
+(reset §7/§9), per-result vetting (reset §8 D2), R16 key recomputation, the demote-to-miss
+floor, and the session-resource gate. The one engine seam it builds is the one reserved for
+it: the <b>content-chain source</b> (reset §7 D2's source ③). Changes to reset-designed
+behavior beyond that seam are stop-and-discuss with the take-3 owner, never silent.</p>
+</div>
+
+<div class="card new">
+<h3>S2 — Idempotent, origin-keyed import</h3>
+<p class="gist">Importing the same bundle twice — or the same result via two bundles — adds zero rows, ever.</p>
+<p>Every exported result row carries a durable <b>origin identity</b> minted exactly once, at
+the store where the result was first created, and preserved verbatim through every
+import/re-export hop. Import dedups by origin identity: a row whose origin is already present
+is not re-created (its metadata may be refreshed). The red test exists from day one: import
+the same bundle twice ⇒ zero growth (T-S2). This implements R3's "durable origin identity"
+and R10's zero-growth cycles across the engine boundary.</p>
+</div>
+
+<div class="card new">
+<h3>S3 — Multi-cycle growth bound, measured</h3>
+<p class="gist">Cold→warm→warm→warm must show flat metadata growth, proven by counters, not asserted.</p>
+<p>The standing gate runs at least three consecutive export/import cycles over the same
+workload and requires the result-row count and bundle row count to stay flat modulo genuinely
+new executions (T-S3). Growth is a first-class observable (§11): the engine emits per-boot
+<code>{rows_local, rows_imported, rows_deduped_by_origin}</code>; the service reports
+per-scope bundle row counts over time. A consciously accepted growth debt without a
+measurement that screams is forbidden in this phase.</p>
+</div>
+
+<div class="card new">
+<h3>S4 — Cache traffic never breaks builds</h3>
+<p class="gist">The cache service is an accelerator. No export, import, or blob failure may fail a run that would otherwise be green.</p>
+<p>Export failure never fails a green run (it is decoupled from run/check success and runs
+after it, or in the background). Import failure or timeout at boot degrades to cold start,
+bounded by a configurable budget. Blob-fetch failure at serving time falls through the
+source walk to the demote-to-miss floor (reset §9 D3) — the run computes honestly. Every
+such degradation is loudly counted (S8), never silently absorbed.</p>
+</div>
+
+<div class="card new">
+<h3>S5 — Correct under arbitrarily sparse blob availability</h3>
+<p class="gist">Metadata may promise content the store no longer has — and nothing breaks.</p>
+<p>Blob availability is an optimization signal, never a correctness input. A bundle whose
+blobs are partially uploaded, partially GC'd, or entirely absent must produce only slower
+runs, not wrong ones: the content-chain source fails per-chain and falls through
+(recompute via the lazy form, or demote). This is what makes partial exports (S6) and
+service-side blob GC safe by construction, and it is exactly the behavior the reset design's
+runtime floor was built to provide.</p>
+</div>
+
+<div class="card new">
+<h3>S6 — Two-phase export: metadata commits, content streams</h3>
+<p class="gist">A bundle becomes visible only when its metadata is fully stored; blobs upload incrementally, and interruption loses bytes, not correctness.</p>
+<p>Export publishes the metadata artifact atomically (a bundle is either fully present and
+listed, or absent). Blob upload proceeds independently — deduped against the CAS by digest,
+resumable, interruptible — and an interrupted upload leaves a valid bundle with sparser
+blob availability (S5). Export duration is therefore not a correctness deadline anywhere;
+how long uploads take is a measured cost (§11), not an inherited assumption.</p>
+</div>
+
+<div class="card new">
+<h3>S7 — Engine-schema-agnostic service</h3>
+<p class="gist">The service must not need a deploy when the engine's cache schema changes.</p>
+<p>The serving path (store, select, hand out URLs) treats bundle metadata as opaque bytes
+tagged with the engine's persistence <code>schema_version</code> and the bundle format
+version. Engines request bundles matching their own versions; mismatched bundles are simply
+not offered (and age out via GC). Only the read-only insight indexer (§11) parses bundle
+contents, best-effort per known version. The engine's Go module may be imported for shared
+<em>protocol</em> types only — never for cache-state types.</p>
+</div>
+
+<div class="card keep">
+<h3>S8 — Falsifiable observability, extended to the service</h3>
+<p class="gist">Every export, import, selection, blob fetch, and fallback is countable — and the proofs consume the counters.</p>
+<p>R8 extends across the wire: the engine emits structured counters for export/import/fetch
+outcomes (including typed miss reasons — a session-resource/salt partition miss must be
+distinguishable from a plain miss); the service keeps a queryable event log and per-scope
+inventory. Every counter lands with a named consuming test or insight surface; none are
+decorative. Proof-of-reuse is by consequence (random-marker output equality) plus counters,
+never by proxy metrics like blob counts or green checks alone.</p>
+</div>
+
+<div class="card new">
+<h3>S9 — Credential-free development to the last step</h3>
+<p class="gist">Everything short of the live cloud deployment builds, runs, and proves itself without Erik's credentials.</p>
+<p>The full stack — engine, service, blob store, lifecycle — must stand up inside Dagger with
+no external credentials: in-repo integration tests against a protocol-faithful test service
+(dagger/dagger), and an e2e suite in dagger.io that builds the real service handlers against
+containerized Postgres/MinIO and real dev engines. The only credential-gated step is the
+final live deployment to the managed dev stack (Namespace), and its runbook must assume
+credentials may be unavailable to agents: everything before it is the definition of
+buildable-and-testable.</p>
+</div>
+
+<div class="card keep">
+<h3>S10 — No live secrets, no secret-derived content, in any bundle</h3>
+<p class="gist">Bundles carry handle-form dependencies only; the salt partition is explicit and observable.</p>
+<p>Session resources cross the wire exactly as they cross local persistence: handle form only
+(the persisted envelope already guarantees this). The known per-engine secret-salt partition
+(reset R7's tracked deferral) remains deferred: results transitively requiring salted handles
+will not match across engines with different salts. This phase makes that partition
+<em>visible</em> (a typed miss/ineligibility counter, S8) and the harness workaround explicit
+(pre-seeding <code>&lt;rootDir&gt;/secret-salt</code> across test engines), but does not
+redesign salting — that remains a cloud/tenancy work item.</p>
+</div>
+
+<div class="card drop">
+<h3>Explicit non-goals (this phase) <span class="badge drop">NON-GOALS</span></h3>
+<ul>
+  <li><b>A merging service.</b> Superseded by §2. The service never composes or rewrites
+  cache state; "smarter selection" is the sanctioned future path, "server-side merge" is not.</li>
+  <li><b>Analysis-guided export policy.</b> The v1 policy is §7 D3; the policy hook is the
+  seam. Learning what to export from run history is a later phase.</li>
+  <li><b>Mid-serving import.</b> R14 stands: bundles import at boot, before serving. Engines
+  that outlive many runs pick up new cache at their next boot.</li>
+  <li><b>Semantic (recipe-digest) row collapse.</b> R10 keeps independently-produced
+  equivalents as distinct rows; the e-graph already serves across them. Bounded semantic
+  dedup is a recorded future optimization (§15), not v1 correctness.</li>
+  <li><b>Cross-engine secret-salt unification.</b> Tracked deferral (S10).</li>
+  <li><b>Delta/incremental bundle formats.</b> Bundles are whole snapshots of the retained
+  store; blob upload is already delta-by-existence. Metadata delta encoding is an
+  optimization for later, never a correctness requirement.</li>
+  <li><b>Open/self-hosted service protocol guarantees.</b> The engine side is OSS and generic
+  (any endpoint implementing the protocol works — the in-repo test service proves it), but v1
+  makes no protocol-stability promises to third parties.</li>
+</ul>
+</div>
+</details>
+
+<details class="fold" id="review"><summary><h2>4. Review log</h2></summary>
+<div class="qs">
+<ol>
+  <li><b>Round 0 (2026-07-06), grounding.</b> Document drafted from: the reset design v23
+  (full read) and lessons L1–L8; internal-docs (cachebasics, cache_persistence, egraph,
+  cache_pruning, session_resources); the take-3 integration branch code (persistdb schema,
+  import/vetting/flush paths, materializationState as built); the verified recon report on
+  both abandoned prior attempts (HISTORY-SUMMARY.md); and targeted reads of the prior-attempt
+  artifacts (v2 wire proto, import remap code, dagger.io policy/backend/keeper/dev-server,
+  persistence taxonomy). Standing epistemic rule applied throughout: prior attempts are
+  evidence, not precedent — every inherited claim (export cost, leaf policy, keeper shape,
+  "hits must precede materializability checks") was re-derived against the current
+  architecture before use, and several were deliberately not inherited (e.g. "exports are
+  slow" as a design constraint; the smart-merge service; the name-heuristic payload remap).</li>
+</ol>
+</div>
+</details>
+
+</main>
+</div>
+<script>
+function setAll(open){document.querySelectorAll('details.fold').forEach(function(d){d.open=open;});}
+function openTarget(){
+  if(!location.hash) return;
+  var el=document.querySelector(location.hash);
+  if(!el) return;
+  var d=el.closest('details');
+  while(d){ if(!d.open) d.open=true; d=d.parentElement ? d.parentElement.closest('details') : null; }
+  if(el.tagName==='DETAILS' && !el.open) el.open=true;
+  el.scrollIntoView();
+}
+window.addEventListener('hashchange',openTarget);
+window.addEventListener('load',openTarget);
+</script>
+</body>
+</html>
