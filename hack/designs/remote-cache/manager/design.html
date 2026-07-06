@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Remote Cache — The Cache Manager</title>
+<style>
+  :root {
+    --ink: #1a1d23; --muted: #5c6470; --paper: #fafaf8; --card: #ffffff;
+    --line: #e3e4e8; --accent: #2757d6;
+    --keep: #1a7f4b; --keep-bg: #e7f5ec;
+    --modify: #a06000; --modify-bg: #fdf3e0;
+    --new: #2757d6; --new-bg: #e9effc;
+    --drop: #b3362c; --drop-bg: #fbeae8;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink);
+    font: 16px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 940px; margin: 0 auto; padding: 40px 28px 120px; }
+  h1 { font-size: 30px; line-height: 1.25; margin: 0 0 6px; letter-spacing: -0.02em; }
+  h2 { font-size: 22px; margin: 56px 0 12px; letter-spacing: -0.01em; border-bottom: 2px solid var(--line); padding-bottom: 8px; }
+  h3 { font-size: 17px; margin: 28px 0 8px; }
+  h4 { font-size: 15.5px; margin: 22px 0 6px; }
+  p, li { color: #2b2f36; }
+  .sub { color: var(--muted); font-size: 15px; margin: 0 0 24px; }
+  .banner { background: #fff8e6; border: 1px solid #eadfa9; border-radius: 10px;
+    padding: 14px 18px; font-size: 15px; margin: 22px 0 8px; }
+  .banner b { color: #7a5b00; }
+  code { background: #eef0f3; border-radius: 4px; padding: 1px 5px; font-size: 0.92em; }
+  .toc { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px 22px; margin-top: 26px; font-size: 15px; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .toc ol { margin: 6px 0 10px; padding-left: 22px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-left-width: 5px;
+    border-radius: 10px; padding: 18px 22px 16px; margin: 18px 0; }
+  .card.keep   { border-left-color: var(--keep); }
+  .card.new    { border-left-color: var(--new); }
+  .card.drop   { border-left-color: var(--drop); }
+  .card h3 { margin: 0 0 6px; font-size: 17px; }
+  .badge { display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: 0.06em;
+    border-radius: 999px; padding: 2px 11px; vertical-align: 2px; margin-left: 10px; }
+  .badge.drop   { color: var(--drop);   background: var(--drop-bg); }
+  figure { margin: 26px 0; }
+  figcaption { font-size: 14px; color: var(--muted); margin-top: 8px; text-align: center; }
+  svg { width: 100%; height: auto; display: block; }
+  .qs { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 6px 22px 14px; }
+  .qs li { margin: 10px 0; }
+  .foot { margin-top: 60px; font-size: 13.5px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 14px; }
+  .pill { font-size: 12.5px; color: var(--muted); }
+  .fold { border: 0; margin: 44px 0 0; }
+  .fold summary { list-style: none; cursor: pointer; }
+  .fold summary::-webkit-details-marker { display: none; }
+  .fold summary h2 { display: inline-block; margin: 0 0 12px; }
+  .fold summary h2::before { content: "▸ "; color: var(--muted); }
+  .fold[open] summary h2::before { content: "▾ "; }
+  .controls { margin: 14px 0 0; font-size: 13.5px; }
+  .controls button { font: inherit; font-size: 13px; color: var(--accent); background: none;
+    border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; cursor: pointer; margin-right: 8px; }
+  pre { background: #14161a; color: #e8eaee; border-radius: 10px; padding: 14px 18px;
+    overflow-x: auto; font-size: 13px; line-height: 1.55; }
+  pre code { background: none; padding: 0; color: inherit; font-size: inherit; }
+  .filetbl { width: 100%; border-collapse: collapse; font-size: 14px; margin: 10px 0; }
+  .filetbl th, .filetbl td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .filetbl th { font-size: 12px; letter-spacing: 0.06em; color: var(--muted); }
+  .chip { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 5px; padding: 1px 7px; white-space: nowrap; }
+  .chip.newf { color: var(--new); background: var(--new-bg); }
+  .chip.modf { color: var(--modify); background: var(--modify-bg); }
+  .gist { font-size: 14px; color: #35502f; background: #f3f7f1; border-left: 3px solid var(--keep);
+    padding: 6px 12px; border-radius: 6px; margin: 0 0 10px; font-style: italic; }
+  .verdict { background: var(--keep-bg); border: 1px solid #bfe0cc; border-left: 5px solid var(--keep); border-radius: 10px; padding: 14px 18px; margin: 20px 0; }
+  .verdict .vtag { display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: .08em; color: var(--keep); margin-bottom: 4px; }
+  .decide { background: var(--new-bg); border: 1px solid #c5d2f0; border-radius: 10px; padding: 12px 18px 14px; margin: 16px 0; }
+  .decide .dtag { font-size: 11px; font-weight: 800; letter-spacing: .08em; color: var(--new); display: block; margin-bottom: 4px; }
+  .steps { counter-reset: step; list-style: none; padding-left: 0; margin: 14px 0; }
+  .steps > li { counter-increment: step; position: relative; padding: 12px 0 12px 54px; border-bottom: 1px dashed var(--line); color: #2b2f36; }
+  .steps > li:last-child { border-bottom: 0; }
+  .steps > li::before { content: counter(step); position: absolute; left: 0; top: 12px; width: 34px; height: 34px;
+    border-radius: 50%; background: var(--new-bg); color: var(--new); font-weight: 800; font-size: 15px;
+    display: flex; align-items: center; justify-content: center; }
+  .steps .tag { font-size: 11.5px; font-weight: 700; color: var(--muted); letter-spacing: .04em; }
+  pre .cm { color: #8b949e; font-style: italic; }
+  pre .em { color: #7ee2a8; font-weight: 600; }
+  .src { display: block; text-align: right; font-size: 12px; color: var(--muted); margin: -8px 2px 16px; }
+  .layout { display: grid; grid-template-columns: 250px minmax(0, 940px); gap: 10px; justify-content: center; }
+  .layout main { margin: 0; }
+  nav.side { position: sticky; top: 0; align-self: start; max-height: 100vh; overflow-y: auto;
+    padding: 40px 4px 40px 10px; }
+  nav.side .toc { margin-top: 0; font-size: 13px; line-height: 1.5; padding: 14px 16px; }
+  nav.side .toc ol { padding-left: 18px; margin: 4px 0 8px; }
+  nav.side .toc li { margin: 3px 0; }
+  @media (max-width: 1260px) {
+    .layout { grid-template-columns: minmax(0, 940px); }
+    nav.side { position: static; max-height: none; padding: 28px 28px 0; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="side">
+<div class="toc">
+<b>Contents</b>
+<ol>
+  <li><a href="#goal">The goal</a></li>
+  <li><a href="#shift">The load-bearing structural decision</a></li>
+  <li><a href="#reqs">Requirements and non-goals</a></li>
+  <li><a href="#review">Review log</a></li>
+  <li><a href="#target">Target shape</a></li>
+  <li><a href="#view">The merged view</a></li>
+  <li><a href="#ingest">Ingest: negotiate, then upload</a></li>
+  <li><a href="#serve">Serving engines: the merged artifact</a></li>
+  <li><a href="#retention">Retention and pruning, service-side</a></li>
+  <li><a href="#policy">The upload-decision policy</a></li>
+  <li><a href="#insight">Insight over the merged view</a></li>
+  <li><a href="#versions">Version alignment</a></li>
+  <li><a href="#dev">The dev stack and the test ladder</a></li>
+  <li><a href="#proof">The warm proof: definition of done</a></li>
+  <li><a href="#order">Build order and salvage consumption</a></li>
+</ol>
+<b>Appendix</b>
+<ol start="16">
+  <li><a href="#shelf">The shelf</a></li>
+</ol>
+</div>
+</nav>
+<main>
+
+<h1>Remote Cache — The Cache Manager</h1>
+<p class="sub">v1 draft &nbsp;·&nbsp; successor to the superseded store-and-select design &nbsp;·&nbsp; 2026-07-07</p>
+
+<div class="banner">
+<b>Status.</b> Draft for adversarial review. This document supersedes
+<code>../service/design.html</code> (retained as the review-log record of the rejected
+architecture and of the landed engine work). It is written against the owner's
+architecture guidance of 2026-07-07, which is binding throughout, and against the salvage
+maps produced at the pause: the engine map (take-3 worktree
+<code>SALVAGE-MAP-ENGINE.md</code>) and the chunk C/D/F <code>STATE-OF-WORK.md</code>
+files. The reset design (<code>../reset/design.html</code>) and lessons L1–L8 remain fully
+binding; engine chunks A+B are landed reality (integration tip <code>07e050e233</code>,
+schema 19) and this design consumes them as built.
+</div>
+<div class="controls">
+<button type="button" onclick="setAll(true)">expand all sections</button>
+<button type="button" onclick="setAll(false)">collapse all sections</button>
+</div>
+
+<h2 id="goal">1. The goal</h2>
+<p>
+The cache service is <b>a cache manager</b>: the component that holds the cache semantics
+of the fleet. It maintains <b>one merged view</b> of the cache across all engines in a
+scope — every result, every equivalence, every content chain, from everyone — and it makes
+the intelligent decisions that only that view makes possible: what is worth uploading,
+what should be cached and whether it is, what to prune and when. Engines remain the
+executors and the local caches; the manager is where fleet-level cache intelligence lives,
+and "smart" is a fundamental product feature, not an optimization to defer.
+</p>
+<p>The concrete v1 loop:</p>
+<ul>
+<li>An engine finishing work tells the manager what it has (metadata + content
+manifests — no bytes). The manager merges that knowledge into the merged view and answers
+with <em>exactly which records' content it wants uploaded</em>; the engine uploads those
+blobs and nothing else. The upload decision lives server-side.</li>
+<li>A booting engine downloads its scope's <b>merged artifact</b> — the composed,
+deduplicated state of everyone's cache — and imports it through the exact machinery it
+already uses (landed chunks A+B), as the single-artifact case of what it already does.
+Content still moves lazily, by digest, on demand.</li>
+<li>The manager's view is <b>durable</b> (service restarts lose nothing), <b>idempotent
+under ingest</b> (origin identity — landed — makes re-announcement a no-op), and
+<b>pruned server-side</b> with the engine's own prune machinery.</li>
+</ul>
+<p>
+<b>The proof</b> is unchanged in spirit from every prior take: a cold run on one engine
+seeds the manager; a warm run on a fresh engine hits, with counters that would have failed
+loudly if reuse hadn't happened — plus the new, manager-specific proofs: N engines' work
+visible as one merged view, ingest idempotence measured server-side, and the upload
+decision demonstrably server-made.
+</p>
+<p><b>Deliberately deferred</b> (the seams exist; the cleverness comes later): the
+analysis-driven upload policy (§10 names the wcprof convergence seam explicitly — v1
+policy is simple); server-only re-layering of the imported engine code; backwards
+compatibility across engine/service versions (§12 — alignment is assumed, by ruling).</p>
+
+<h2 id="shift">2. The load-bearing structural decision</h2>
+<p>
+<b>The merged view is the product, and it is held by the engine's own cache code running
+server-side.</b> The manager embeds the engine's cache implementation — the e-graph, the
+persistence store, the bundle ingest/compose machinery, the prune engine — imported as a
+Go module from the open-source repo, and maintains one durable, per-scope cache store
+that every engine's exports merge into. Nothing about cache semantics is reimplemented,
+approximated, or mirrored: the code that decides equivalence on an engine decides it in
+the manager, because it is the same code. What the manager adds is what only a fleet-level
+component can add — the merged view itself, the upload decision, retention policy over
+everyone's cache, and the insight surfaces.
+</p>
+<p>Two named couplings stay dead, one from each prior failure:</p>
+<ul>
+<li><b>Opaque bundles / store-and-select</b> (the superseded design): a service that
+stores exporter bundles as sealed units and only chooses which to hand back can never make
+an intelligent decision about a record — not what to request for upload, not what to
+prune, not what is worth caching — because it cannot see records at all. Every future
+capability of this product runs through record-level visibility; opacity caps the product
+at "a bucket with a listing," and that ceiling is not acceptable. Any proposal that
+reintroduces a semantics-blind serving path for <em>metadata</em> is this coupling
+returning (content blobs are the deliberate exception: they are opaque bytes by nature,
+addressed by digest — §7).</li>
+<li><b>The fragile merge</b> (the v2-era failure shape): a server-side merge whose state
+is process memory (every restart loses the fleet's accumulated cache and forces a
+re-seed), and whose ingest mints fresh row identity per arrival (import → re-export
+cycles compound rows without bound). Both defects were properties of that implementation,
+not of server-side merging — and both are now structurally closed by machinery that has
+<em>landed</em>: the merged store is a durable persistence store with the engine's own
+restore/flush lifecycle (§6), and ingest deduplicates by origin identity, the
+mint-exactly-once row identity that chunk A built and that protects <em>any</em> importer,
+engine or manager alike (§7). The pivotal inversion of the salvage: origin identity was
+built to protect engines merging bundles; its greatest value lands server-side, protecting
+the merged view.</li>
+</ul>
+
+<figure>
+<svg viewBox="0 0 960 430" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The cache manager architecture">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5c6470"/>
+    </marker>
+    <marker id="arrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1a7f4b"/>
+    </marker>
+    <marker id="arrB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2757d6"/>
+    </marker>
+  </defs>
+
+  <rect x="15" y="30" width="200" height="80" rx="10" fill="#fff" stroke="#c9ccd2"/>
+  <text x="115" y="62" text-anchor="middle" font-size="13" font-weight="700">engine A</text>
+  <text x="115" y="82" text-anchor="middle" font-size="11.5" fill="#5c6470">local cache (dagql)</text>
+  <rect x="15" y="130" width="200" height="80" rx="10" fill="#fff" stroke="#c9ccd2"/>
+  <text x="115" y="162" text-anchor="middle" font-size="13" font-weight="700">engine B</text>
+  <text x="115" y="182" text-anchor="middle" font-size="11.5" fill="#5c6470">local cache (dagql)</text>
+  <rect x="15" y="230" width="200" height="80" rx="10" fill="#fff" stroke="#c9ccd2"/>
+  <text x="115" y="262" text-anchor="middle" font-size="13" font-weight="700">engine C (fresh)</text>
+  <text x="115" y="282" text-anchor="middle" font-size="11.5" fill="#5c6470">boots warm from the manager</text>
+
+  <line x1="215" y1="70" x2="330" y2="120" stroke="#1a7f4b" stroke-width="2.5" marker-end="url(#arrG)"/>
+  <text x="268" y="72" font-size="11" fill="#1a7f4b">announce (metadata)</text>
+  <line x1="330" y1="150" x2="215" y2="165" stroke="#a06000" stroke-width="2.5" marker-end="url(#arr)"/>
+  <text x="240" y="145" font-size="11" fill="#a06000">"upload these"</text>
+  <line x1="330" y1="255" x2="215" y2="265" stroke="#2757d6" stroke-width="2.5" marker-end="url(#arrB)"/>
+  <text x="230" y="245" font-size="11" fill="#2757d6">merged artifact</text>
+
+  <rect x="335" y="30" width="380" height="330" rx="12" fill="#e7f5ec" stroke="#bfe0cc" stroke-width="1.5"/>
+  <text x="525" y="58" text-anchor="middle" font-size="15" font-weight="700" fill="#1a7f4b">THE CACHE MANAGER</text>
+
+  <rect x="360" y="76" width="330" height="120" rx="8" fill="#fff" stroke="#bfe0cc"/>
+  <text x="525" y="100" text-anchor="middle" font-size="13" font-weight="700">the merged view (per scope)</text>
+  <text x="525" y="120" text-anchor="middle" font-size="11.5" fill="#2b2f36">the engine's own cache code, imported:</text>
+  <text x="525" y="136" text-anchor="middle" font-size="11.5" fill="#2b2f36">e-graph + persistence store + ingest + compose + prune</text>
+  <text x="525" y="156" text-anchor="middle" font-size="11.5" fill="#35502f">durable (restore/flush + checkpoint), origin-deduplicated</text>
+  <text x="525" y="176" text-anchor="middle" font-size="11.5" fill="#35502f">single writer per scope; wipe-on-schema-bump</text>
+
+  <rect x="360" y="208" width="158" height="66" rx="8" fill="#fff" stroke="#bfe0cc"/>
+  <text x="439" y="230" text-anchor="middle" font-size="12" font-weight="700">upload decision</text>
+  <text x="439" y="247" text-anchor="middle" font-size="10.5" fill="#5c6470">v1: missing chain blobs</text>
+  <text x="439" y="262" text-anchor="middle" font-size="10.5" fill="#a06000">seam: wcprof analysis</text>
+
+  <rect x="532" y="208" width="158" height="66" rx="8" fill="#fff" stroke="#bfe0cc"/>
+  <text x="611" y="230" text-anchor="middle" font-size="12" font-weight="700">retention / prune</text>
+  <text x="611" y="247" text-anchor="middle" font-size="10.5" fill="#5c6470">engine prune machinery</text>
+  <text x="611" y="262" text-anchor="middle" font-size="10.5" fill="#5c6470">+ CAS mark-sweep</text>
+
+  <rect x="360" y="286" width="330" height="58" rx="8" fill="#fff" stroke="#bfe0cc"/>
+  <text x="525" y="308" text-anchor="middle" font-size="12" font-weight="700">insight, over the merged view directly</text>
+  <text x="525" y="326" text-anchor="middle" font-size="10.5" fill="#5c6470">what should be cached · is it · who has what · growth · dashboards</text>
+
+  <rect x="740" y="120" width="205" height="150" rx="10" fill="#fdf3e0" stroke="#ecd9ac"/>
+  <text x="842" y="146" text-anchor="middle" font-size="13" font-weight="700" fill="#a06000">blob CAS</text>
+  <text x="842" y="166" text-anchor="middle" font-size="11" fill="#5c6470">content by digest</text>
+  <text x="842" y="182" text-anchor="middle" font-size="11" fill="#5c6470">(deliberately opaque bytes)</text>
+  <text x="842" y="202" text-anchor="middle" font-size="11" fill="#5c6470">verified inventory</text>
+  <text x="842" y="218" text-anchor="middle" font-size="11" fill="#5c6470">staging + promote</text>
+  <text x="842" y="234" text-anchor="middle" font-size="11" fill="#5c6470">presigned up/down</text>
+  <text x="842" y="250" text-anchor="middle" font-size="11" fill="#5c6470">(converged chunk D, as-is)</text>
+
+  <line x1="715" y1="240" x2="738" y2="230" stroke="#5c6470" stroke-width="2" marker-end="url(#arr)"/>
+  <line x1="115" y1="310" x2="740" y2="255" stroke="#5c6470" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr)"/>
+  <text x="430" y="392" text-anchor="middle" font-size="11" fill="#5c6470">engines fetch blobs by digest on demand (chains — landed chunk B), any time</text>
+</svg>
+<figcaption>Fig. 1 — The cache manager. One merged, durable, per-scope view held by the
+engine's own cache code; the upload decision and retention live beside it; the CAS remains
+the one deliberately-opaque layer, because content bytes are opaque by nature.</figcaption>
+</figure>
+
+<p>
+<b>Why importing the engine code is the implementation and not a shortcut:</b> the merge
+is the hard part of this product, and the engine already implements it — equivalence
+classes with congruence, origin-idempotent arrival, per-result vetting with honest blast
+radii, reference rewriting, portable encoding, restore-deterministic keys, pruning with
+retention roots. Every one of those was designed, adversarially reviewed, and landed in
+the open-source engine within this program. Rewriting them server-side would be the
+ridiculous option; the previous era's server merge already validated that the engine's
+cache embeds and runs server-side (the failure was its statelessness and identitylessness,
+both since solved — above). Version alignment between the imported module and the fleet is
+assumed by ruling (§12), which is exactly what makes this clean: the manager is another
+consumer of the same code at the same version, not a protocol peer across a compatibility
+chasm. Layering the engine code so server-only concerns separate more cleanly is future
+work by ruling, not v1.
+</p>
+
+<details class="fold" id="reqs" open><summary><h2>3. Requirements and non-goals</h2></summary>
+<p class="pill">Normative. M-numbers are this design's requirements. Carried requirements
+from the engine fundamentals (R1–R16, reset design) remain in force for the engine side;
+carried S-requirements from the superseded design are renumbered here where they survive,
+and their dispositions are recorded in §4 round 0. Notably: <b>old S7
+(engine-schema-agnostic service) is retired by owner ruling</b> — see M8.</p>
+
+<div class="card new">
+<h3>M1 — One merged view per scope, record-visible</h3>
+<p class="gist">The manager sees every record from every engine as one cache — never sealed units it can't look inside.</p>
+<p>The manager maintains, per cache scope, one merged cache store containing every
+ingested result row, identity table, and content-chain reference from every engine in the
+scope, held in the engine's own cache representation via the imported engine module.
+Every manager decision (upload, prune, insight) operates on records in this view. No
+serving or decision path treats engine-produced <em>metadata</em> as opaque. Content
+blobs are the deliberate exception: bytes are opaque, addressed by digest, stored in the
+CAS.</p>
+</div>
+
+<div class="card new">
+<h3>M2 — The merged view is durable</h3>
+<p class="gist">A manager restart loses nothing. The fleet's accumulated cache is state, not cache-of-a-cache.</p>
+<p>The merged view survives service restarts and redeploys without re-seeding from
+engines: it is persisted with the engine's own persistence machinery and checkpointed to
+durable storage (§6). Losing it is a disaster-recovery event with a defined, honest
+recovery (engines re-announce over time; the view rebuilds), never a routine consequence
+of operations. In-memory-only merged state is forbidden.</p>
+</div>
+
+<div class="card keep">
+<h3>M3 — Origin-idempotent ingest (was S2, re-homed server-side)</h3>
+<p class="gist">Announcing the same work twice — or from two engines that both imported it — adds zero rows to the merged view, ever.</p>
+<p>Ingest deduplicates by the landed origin identity (chunk A): a row whose origin pair
+is already in the merged view is never re-created; identity evidence unions; re-announce
+is a no-op. The red test runs server-side from day one: ingest the same announcement
+twice ⇒ zero merged-view growth. The growth gate (≥3 cycles across multiple engines,
+flat modulo new work — was S3) is measured on the merged view.</p>
+</div>
+
+<div class="card new">
+<h3>M4 — The upload decision is the manager's</h3>
+<p class="gist">Engines propose; the manager disposes. What content gets uploaded is decided against the merged view, server-side.</p>
+<p>The export protocol is negotiate-then-upload: the engine announces metadata + content
+manifests; the manager answers with the exact set of blobs it wants; the engine uploads
+those. The decision function is a named, server-side policy hook over (the merged view,
+the CAS inventory, the announcement) — v1 policy is deliberately simple (§10), and the
+hook is the explicit convergence seam for the cache-performance analysis workstream
+(wcprof what-if-cached): the long-standing intent is that analysis output decides what is
+worth caching. Engines never self-decide uploads beyond what the manager requested.</p>
+</div>
+
+<div class="card keep">
+<h3>M5 — Cache traffic never breaks builds (was S4) + sparse safety (was S5)</h3>
+<p class="gist">Everything about the manager is an accelerator; blob availability is never a correctness input.</p>
+<p>Announce/upload failure never fails a green run; boot-import failure or timeout
+degrades to cold start under a budget; blob-fetch failure at serving time falls through
+the landed source walk to the demote floor. Metadata may reference content the CAS no
+longer has, and nothing breaks — which is what makes manager-side blob pruning safe at
+any aggressiveness. Every degradation is loudly counted.</p>
+</div>
+
+<div class="card keep">
+<h3>M6 — Falsifiable observability (was S8), now including manager semantics</h3>
+<p class="gist">Every merge, decision, and serve is countable; the proofs consume the counters.</p>
+<p>Engine counters carry over as landed. The manager adds its own: per-ingest
+{rows_offered, rows_new, rows_deduped_by_origin, blobs_requested, blobs_declined},
+per-compose {rows, chains, generation}, prune outcomes, CAS sweep tallies — each consumed
+by a named gate case or insight surface. Proof-of-reuse remains by consequence
+(random-marker equality) plus counters.</p>
+</div>
+
+<div class="card keep">
+<h3>M7 — Credential-free development to the last step (was S9)</h3>
+<p class="gist">The full manager loop runs and proves itself with no external credentials.</p>
+<p>The manager core is buildable and testable in-repo (§13): the merge, negotiate,
+compose, and prune loops run against filesystem storage in dagger/dagger integration
+tests; the dagger.io shell adds tenancy, Postgres, real CAS backends, and deployment. The
+only credential-gated step remains the live cloud deployment.</p>
+</div>
+
+<div class="card new">
+<h3>M8 — Version alignment assumed; compatibility out of scope</h3>
+<p class="gist">Engines and the manager run aligned versions. Mismatch is rejected loudly, never bridged.</p>
+<p>By owner ruling, backwards compatibility is explicitly out of scope for this design:
+the fleet and the manager are assumed version-aligned (same engine module version, same
+persistence schema, same wire shapes). The manager asserts alignment per request and
+rejects mismatches with a typed error; a manager upgrade that changes the persistence
+schema wipes its merged stores (the sanctioned wipe-on-upgrade rule) and the view rebuilds
+from re-announcements. No migration code, no version bridging, no schema-agnosticism —
+the superseded design's S7 is retired, and designs must not be shaped by redeploy
+avoidance.</p>
+</div>
+
+<div class="card keep">
+<h3>M9 — Session-resource soundness crosses intact (was S10)</h3>
+<p class="gist">Handle-form only, in the merged view as everywhere; the salt partition is visible and narrower than once thought.</p>
+<p>The merged view carries session-resource dependencies in handle form only (guaranteed
+by the persisted encoding). As-built refinement carried from the pause: only URI-form
+secret handles and SSH-fingerprint handles are salted (per-engine partition);
+<code>setSecret</code> handles are salt-independent and portable. The partition surfaces
+at identity level (a different-salt engine simply has no candidates), and the typed
+eligibility counter exists for the same-engine shapes it can observe.</p>
+</div>
+
+<div class="card drop">
+<h3>Explicit non-goals (v1) <span class="badge drop">NON-GOALS</span></h3>
+<ul>
+  <li><b>Opaque metadata anywhere in the manager.</b> The rejected coupling (§2). Content
+  blobs in the CAS are the sole sanctioned opacity.</li>
+  <li><b>Analysis-driven upload/retention policy.</b> The hook is v1 (§10); the analysis
+  consumer is the named next phase.</li>
+  <li><b>Backwards/forwards version compatibility.</b> M8. Future "annoying boilerplate,"
+  by ruling — not fear, sequencing.</li>
+  <li><b>Server-only re-layering of the engine cache code.</b> Import it whole; factor
+  later if real needs emerge.</li>
+  <li><b>Cross-scope/cross-org content sharing, finer tenancy, salt unification.</b>
+  Carried deferrals.</li>
+  <li><b>Mid-serving engine import (R14 stands), continuous engine↔manager sync.</b>
+  Engines import at boot and announce at export points; anything streamier is future.</li>
+</ul>
+</div>
+</details>
+
+<details class="fold" id="review"><summary><h2>4. Review log</h2></summary>
+<div class="qs">
+<ol>
+  <li><b>Round 0 (2026-07-07), mandate and grounding.</b> Drafted against the owner's
+  architecture guidance (binding, quoted in the program record): the service is a cache
+  manager holding cache semantics; one merged server-side view; the service tells engines
+  what to upload (negotiate-then-upload, presigned URLs); implementation imports the
+  engine cache code ("obviously we're not going to rewrite the whole cache from scratch");
+  compatibility explicitly out of scope; "we don't pass the buck." Inputs read in full:
+  the engine salvage map (SALVAGE-MAP-ENGINE.md — nearly all landed A+B machinery is
+  composition-independent; the two calibration items are the bundle-as-validation-unit
+  blast radius at merged scale and the manifest StoreUUID connotation), chunk C/D/F
+  STATE-OF-WORK.md files, and the v2-era server merge (cachemoney_real.go — an in-memory
+  <code>dagql.NewCache(ctx, "", nil, nil)</code> with a server-side
+  <code>uploadPolicy.requestedBlobs(manifest, known)</code> negotiate response: the
+  validated precedent for embedding the engine cache server-side and the ancestor of §7's
+  protocol; its two defects — no durable state, no origin dedup — are §2's named dead
+  coupling). Carried-requirement dispositions: S2/S3→M3, S4/S5→M5, S8→M6, S9→M7, S10→M9;
+  <b>S7 retired by ruling</b> (M8); S1 (consume-don't-reopen the engine fundamentals)
+  remains the standing process rule; S6's two-phase mechanics survive inside §7's
+  protocol. Pause-era as-built corrections folded at birth: T-S7's salt partition is
+  identity-level; setSecret handles are portable; the http.Client body-ownership rule.</li>
+</ol>
+</div>
+</details>
+
+</main>
+</div>
+<script>
+function setAll(open){document.querySelectorAll('details.fold').forEach(function(d){d.open=open;});}
+function openTarget(){
+  if(!location.hash) return;
+  var el=document.querySelector(location.hash);
+  if(!el) return;
+  var d=el.closest('details');
+  while(d){ if(!d.open) d.open=true; d=d.parentElement ? d.parentElement.closest('details') : null; }
+  if(el.tagName==='DETAILS' && !el.open) el.open=true;
+  el.scrollIntoView();
+}
+window.addEventListener('hashchange',openTarget);
+window.addEventListener('load',openTarget);
+</script>
+</body>
+</html>
