@@ -150,7 +150,7 @@
 <main>
 
 <h1>Remote Cache — Design</h1>
-<p class="sub">v24 &nbsp;·&nbsp; implementation in progress &nbsp;·&nbsp; as-built refinements land via the review log &nbsp;·&nbsp; 2026-07-03</p>
+<p class="sub">v25 &nbsp;·&nbsp; §7–§9 all landed &nbsp;·&nbsp; follow-ups + acceptance remain &nbsp;·&nbsp; 2026-07-03</p>
 
 <div class="banner">
 <b>Status.</b> The living design doc for the remote-cache engine work: requirements and
@@ -749,6 +749,28 @@ decided in Part II.</p>
   bundle carries the per-result payload envelopes per R9's one-encoding rule; without
   them it could carry neither values nor lazy forms. The service design's reading was
   correct; the box now says so explicitly.</li>
+  <li><b>Round 20 (2026-07-06, §9 landed).</b> Warm serving merged (integration
+  6e892936d4). As built: the two restore protocols became one materialize protocol
+  (fields named <code>materialize*</code>; <code>waitForLazyEvaluation</code> →
+  <code>waitForMaterialization</code>); decode runs as a full runner — counted waiters,
+  last-waiter-cancels, retry — with the retirement/retry walk inside; the demote floor
+  consumes exhaustion at both lookup entries; every non-lookup surface normalizes the
+  sentinel through one consumer (idempotent drop + an honest "retrying will re-execute"
+  error), and evaluate-time permanent failure of restore-attached deferred work
+  drops-and-errors (no invocation exists to re-execute; the next lookup heals) —
+  ratified as the rule for all non-demotable surfaces. Snapshot-source retirement
+  travels as a result-scoped context mark derived from the home's own accounting; the
+  container hollow-rebuild gates on that mark, never on content inference. D5 as built:
+  counters hit_live / hit_restored / miss_first / served_from_snapshot /
+  served_from_lazy_form / demoted_to_miss, mirrored in the debug snapshot; stats file
+  <code>&lt;engine root&gt;/dagql-cache-stats.json</code> written at cache close. Two
+  real bugs surfaced by this chunk's gates: a pre-existing session-resource data race
+  (present on main; fixed under the established lock order) and completed containers
+  lacking any rebuild path after external snapshot loss (fixed by reusing the pending
+  decode shape). Review: needs-fixes (sentinel containment; decode protocol; stranded
+  docs; retirement-mark hardening) → fix round → ready-to-land, no new issues.
+  Remaining before acceptance: the T2-integration demote (contextual-directory vehicle),
+  T7-integration, then the §10.4 run.</li>
 </ol>
 </div>
 </details>
