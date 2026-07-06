@@ -631,6 +631,23 @@ redesign salting — that remains a cloud/tenancy work item.</p>
   heavy on the Namespace backend). Rescoped, not defects: production-API mounting is the
   next chunk D slice (was explicitly out of the reviewed slice); blob-path event coverage
   stays with the insight slice.</li>
+  <li><b>Round 10 (2026-07-06), review convergence.</b> <b>Chunk A: READY</b> (reviewer
+  confirmation over three rounds; final tip <code>5cd420dab4</code>, 17 bundle tests +
+  Step-0 green). Notable adjudications recorded as-built: same-origin dedup unions identity
+  evidence (per the round-9 §8.1 amendment); bundle identity validation matches <em>local</em>
+  legality exactly — zero term <em>output</em> classes reject as broken_identity (cannot
+  occur honestly; previously the one contamination path into honest stores), zero term
+  <em>input</em> classes stay legal (digest-provenance placeholders), with a positive test
+  pinning the legal case against future over-tightening; allocator advancement is
+  commit-phase-only; origin-index entries delete with their rows (guarded so a corpse's
+  release never clobbers a fresh re-import's binding); bundle import runs local restore's
+  eager-decode pass for scalars/lists with owner-lease sync deliberately omitted (a foreign
+  payload's textual snapshot IDs must never bind local leases — R4), leases arriving only
+  through real local realization. Landing still gated on the take-3 acceptance run + their
+  manager's OK (round 6). <b>Chunk D: one residual</b> (S3 promote atomicity under
+  same-digest races) after its round-3 confirmation resolved everything else; the
+  Namespace no-copy posture was formally accepted as a rung-5 deferral with a
+  credential-gated live immutability probe pinning the runtime claim.</li>
 </ol>
 </div>
 </details>
