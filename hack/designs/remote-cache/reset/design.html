@@ -813,11 +813,16 @@ decided in Part II.</p>
   (bundles + origin identity, schema 19) landed on the integration branch (merge
   6146c7e31a) after my landing review. One reset-text touchpoint, no amendment needed:
   R14's escape hatch ("a future take may add mid-serving import with its own explicit
-  quiesce design, not weakening R15") is now exercised — ImportBundle merges under the
-  coarse egraphMu hold with an all-fallible-before-first-mutation commit discipline, no
-  new cross-cutting invariants. The coverage matrix's "no serving-time import path
-  exists to test" R14 row is superseded for the landed state by the service take's own
-  gates. Beneficial seam interactions verified in review: bundle rows join §9's restored
+  quiesce design, not weakening R15") has its precondition satisfied at the MECHANISM
+  level — ImportBundle merges under the coarse egraphMu hold with an
+  all-fallible-before-first-mutation commit discipline, no new cross-cutting invariants,
+  making the entry safely callable at any time (which is also what makes it
+  unit-testable against live caches). Invocation POLICY is unchanged: the service
+  wiring invokes it at boot, before serving, per the service design's own rule —
+  mid-serving import as a shipped feature remains a deliberate future decision
+  (stop-and-discuss), not something this landing quietly enabled. The coverage matrix's
+  "no serving-time import path exists to test" R14 row is superseded for the landed
+  state by the service take's own gates. Beneficial seam interactions verified in review: bundle rows join §9's restored
   materialize protocol; the retirement mark's fragment-and-no-links derivation is
   exactly correct for bundle rows (their snapshot IDs are the exporter's and must never
   probe local snapshots); origin-dedup skips exhaustion corpses so a re-supplied origin
