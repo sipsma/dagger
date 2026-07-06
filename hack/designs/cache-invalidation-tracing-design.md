@@ -357,3 +357,28 @@ engine-dev-test workflow only.
 The Cloud faithfulness bar (Q6); E2 vs dag.call-parsing as the category-1 authority; and whether
 category 2's answer text should eventually name the lifetime mechanism (would need retention
 facts — refused for now per §4).
+
+## 13. As-built validation notes (implementation record)
+
+**W10 (real-workload §7.4 pairs, run 2026-07-06 at Chunk 2):** on the real cold/warm capture
+pairs (`/tmp/whatif-cal3-{module,withexec}/`), warm as the query side against cold as reference:
+(a) the known prior-run population answers category 2 exactly — e.g. `Container.withoutEnvVariable
+xxh3:f536b280c02268fe` (executed in both captures): *"computed in a previous run … which one
+applied here is not recorded. History searched: the one paired reference capture"*; (b) the known
+scoped chains (`Query.moduleSource` cold `xxh3:8107b9e7f62d4dac` → warm `xxh3:410bda4bc8c95210`)
+pair via the unique same-class root partner and answer category 3 naming *"scope input values"*
+among the self-change candidates with the *"scope structure not recorded (native)"* label — the
+category-1 half of W10 is E2-gated on native captures per §6.1's own data-availability statement
+and completes with Chunk 3's E2 decision; (c) the from-tag pair answers with its paired
+counterpart and paired price (warm `Container.from xxh3:b677e73b409dfa9b` ← cold
+`xxh3:e442fcb8babb1931`, save@pull=0 = 670.6ms) — NOTE the cold capture holds TWO from digests
+(the digest-pinned form `xxh3:bd838c8a8919c204`, stable and hit warm; the tag-scoped form,
+re-minted warm), and the walk's lineage counterpart (tag-scoped) is consistent with the
+calibration's independent result-id pairing (both forms share rid 6801).
+
+**Pair-walk refinement (review round, Chunk 2):** in pair mode a DIGEST-STABLE missed input does
+not make its changed parent Merkle collateral — a stable digest is an unchanged input ref, so it
+cannot have changed the parent's key; both nodes are independent origins (the stable one answers
+category 2/8, the changed parent reports its own divergence). The single-capture collateral rule
+is unchanged. Deepest-changed-node answers name the concrete divergence the pairing found
+(removed/added/changed inputs vs a true self change), never a blanket "the call changed".

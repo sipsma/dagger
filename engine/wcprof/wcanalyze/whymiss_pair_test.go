@@ -46,8 +46,10 @@ func pairQueryFixture(t *testing.T) *Graph {
 func TestWhyMissW3NotRetainedVsNewWork(t *testing.T) {
 	gB := pairQueryFixture(t)
 
-	// (a) A executed d-o → category 2. The digest-stable node is the origin
-	// and the walk does not descend it; d-x is Merkle collateral.
+	// (a) A executed d-o → category 2 for d-o. Derived (review round 1,
+	// finding 2 refinement): d-o is DIGEST-STABLE, so its miss cannot have
+	// changed d-x's key — d-x is NOT collateral; it is its own origin
+	// (absent from A → category 4, with the no-counterpart line visible).
 	rep, err := RunWhyUncachedPair(gB, pairRefFixtureWithDep(t, "executed"), "d-x")
 	if err != nil {
 		t.Fatal(err)
@@ -55,11 +57,26 @@ func TestWhyMissW3NotRetainedVsNewWork(t *testing.T) {
 	if !rep.PairMode {
 		t.Fatal("report must be marked pair mode")
 	}
-	if len(rep.Origins) != 1 {
-		t.Fatalf("want 1 origin, got %d", len(rep.Origins))
+	if len(rep.Origins) != 2 {
+		t.Fatalf("want 2 origins (stable-missed d-o AND the changed target d-x), got %d", len(rep.Origins))
 	}
-	o := rep.Origins[0]
-	if o.Node.Digest != "d-o" || o.Category != CategoryNotRetained {
+	if tx := originByDigest(t, rep, "d-x"); tx.Category != CategoryNewWork {
+		t.Fatalf("d-x (absent from reference, no counterpart) category %v, want new work (4)", tx.Category)
+	}
+	noPartner := false
+	for _, l := range rep.PairLines {
+		if strings.Contains(l, "no positional counterpart") {
+			noPartner = true
+		}
+	}
+	if !noPartner {
+		t.Fatalf("the zero-candidate root pairing must be visible, got %v", rep.PairLines)
+	}
+	if rep.Collaterals != 0 {
+		t.Fatalf("collaterals = %d, want 0 (a stable input never explains a changed parent)", rep.Collaterals)
+	}
+	o := originByDigest(t, rep, "d-o")
+	if o.Category != CategoryNotRetained {
 		t.Fatalf("origin %s category %v, want d-o as not-retained (2)", o.Node.Digest, o.Category)
 	}
 	if !strings.Contains(o.Answer, "computed in a previous run") {
@@ -70,9 +87,6 @@ func TestWhyMissW3NotRetainedVsNewWork(t *testing.T) {
 	}
 	if !strings.Contains(o.Answer, "History searched: the one paired reference capture") {
 		t.Fatalf("category-2 answer must name the searched history (W16): %q", o.Answer)
-	}
-	if rep.Collaterals != 1 {
-		t.Fatalf("collaterals = %d, want 1 (d-x)", rep.Collaterals)
 	}
 
 	// (b) d-o absent from A → category 4, absence stated over exactly the
@@ -118,7 +132,7 @@ func pairedParentsFixtures(t *testing.T, vA, vB []string) (gB, gA *Graph) {
 	eventsA := []wcprof.DumpEvent{
 		opEvent(sA, 1, 0, "session_phase", "session.query", "", "ok", 0, 900*ms),
 		opEvent(sA, 2, 1, "call", "S.stable", "d-s", "executed", 0, 50*ms),
-		opEvent(sA, 3, 1, "call", "C.dep", "d-cA", "executed", 50*ms, 150*ms),
+		withInputs(t, sA, opEvent(sA, 3, 1, "call", "C.dep", "d-cA", "executed", 50*ms, 150*ms), []string{"d-s"}),
 		opEvent(sA, 4, 1, "call", "D.dep", "d-dA", "executed", 150*ms, 200*ms),
 		withInputs(t, sA, opEvent(sA, 5, 1, "call", "P.build", "p-A", "executed", 200*ms, 700*ms), vA),
 	}
@@ -157,6 +171,8 @@ func TestWhyMissW4InputChanged(t *testing.T) {
 	if o.Category != CategoryInputChanged {
 		t.Fatalf("changed-input origin category %v, want input-changed (3)", o.Category)
 	}
+	// d-cB's own vectors are identical ([d-s] on both sides), so the answer
+	// may claim the change is in the call itself — the true self-change case.
 	if !strings.Contains(o.Answer, "d-cA -> d-cB") || !strings.Contains(o.Answer, "the change is in the call itself") {
 		t.Fatalf("category-3 answer must name the concrete divergence: %q", o.Answer)
 	}
@@ -278,6 +294,69 @@ func TestWhyMissW16bDigestAnchorsBeatClassPairing(t *testing.T) {
 	}
 	if o.Node.PairedWith != "p-A" {
 		t.Fatalf("p-B paired with %q, want p-A", o.Node.PairedWith)
+	}
+	// The answer must name the ACTUAL divergence — the removed input — and
+	// must NOT claim a self change (review round 1, finding 1).
+	if !strings.Contains(o.Answer, "input(s) removed vs the reference") || !strings.Contains(o.Answer, "d1") {
+		t.Fatalf("p-B's answer must name the d1 removal: %q", o.Answer)
+	}
+	if strings.Contains(o.Answer, "the change is in the call itself") {
+		t.Fatalf("p-B's answer must not claim self change when the vector differed: %q", o.Answer)
+	}
+}
+
+// Occurrence-conflict voiding (review round 1, finding 3): two distinct
+// reference occurrences pairing onto the same B digest make the partner
+// ambiguous — the pairing is voided with a stated line, never
+// first-wins-classified.
+func TestWhyMissPairConflictVoids(t *testing.T) {
+	// A parent pair whose gap pairs (a1->x, a2->x): B repeats digest d-x2
+	// twice where A had two DIFFERENT digests of the same class.
+	gB, gA := pairedParentsFixtures(t,
+		[]string{"d-cA", "d-dupA", "d-s"}, // A: two C.dep-class digests… classes must match pairwise
+		[]string{"d-x2", "d-x2", "d-s"},   // B: the same digest twice
+	)
+	// Give the A-side second leftover the same class as the first by reusing
+	// C.dep for d-dupA: rebuild A with d-dupA as C.dep.
+	sA := newFixtureStrings()
+	gA = buildWhyGraph(t, sA, []wcprof.DumpEvent{
+		opEvent(sA, 1, 0, "session_phase", "session.query", "", "ok", 0, 900*ms),
+		opEvent(sA, 2, 1, "call", "S.stable", "d-s", "executed", 0, 50*ms),
+		opEvent(sA, 3, 1, "call", "C.dep", "d-cA", "executed", 50*ms, 150*ms),
+		opEvent(sA, 4, 1, "call", "C.dep", "d-dupA", "executed", 150*ms, 200*ms),
+		withInputs(t, sA, opEvent(sA, 5, 1, "call", "P.build", "p-A", "executed", 200*ms, 700*ms), []string{"d-cA", "d-dupA", "d-s"}),
+	})
+	sB := newFixtureStrings()
+	gB = buildWhyGraph(t, sB, []wcprof.DumpEvent{
+		opEvent(sB, 1, 0, "session_phase", "session.query", "", "ok", 0, 900*ms),
+		opEvent(sB, 2, 1, "call", "S.stable", "d-s", "hit", 0, 10*ms),
+		opEvent(sB, 3, 1, "call", "C.dep", "d-x2", "executed", 10*ms, 110*ms),
+		withInputs(t, sB, opEvent(sB, 4, 1, "call", "P.build", "p-B", "executed", 110*ms, 700*ms), []string{"d-x2", "d-x2", "d-s"}),
+		opEvent(sB, 5, 4, "call_exec", "P.build", "p-B", "ok", 110*ms, 700*ms),
+		waitEvent(sB, 4, 5, "", "call_exec", 110*ms, 700*ms),
+	})
+	rep, err := RunWhyUncachedPair(gB, gA, "p-B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Derived: anchors [d-s]; gap aLeft=[d-cA,d-dupA] bLeft=[d-x2,d-x2],
+	// equal counts, classes all C.dep → pairs (d-cA->d-x2), (d-dupA->d-x2):
+	// the same B digest claimed by two distinct A occurrences → VOIDED.
+	voided := false
+	for _, l := range rep.PairLines {
+		if strings.Contains(l, "VOIDED") {
+			voided = true
+		}
+	}
+	if !voided {
+		t.Fatalf("conflicting pairings must void with a stated line, got %v", rep.PairLines)
+	}
+	o := originByDigest(t, rep, "d-x2")
+	if o.Category == CategoryInputChanged {
+		t.Fatalf("a voided pairing must not classify category 3")
+	}
+	if o.Node.PairedWith != "" || !o.Node.PairConflict {
+		t.Fatalf("voided node state: PairedWith=%q conflict=%v", o.Node.PairedWith, o.Node.PairConflict)
 	}
 }
 

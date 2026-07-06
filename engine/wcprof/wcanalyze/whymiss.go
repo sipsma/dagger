@@ -179,10 +179,25 @@ type WhyMissNode struct {
 	// family) and the walk does not descend (every digest below a stable
 	// digest is stable by Merkle construction; descending would only repeat
 	// the same answer). PairedWith: the A-side digest this node pairs with
-	// positionally (a changed pair under a paired parent).
-	StableInA  bool
-	PairedWith string
-	aSide      *calibSide // A-side recorded facts when StableInA
+	// positionally (a changed pair under a paired parent, or the root
+	// partner). PairConflict: distinct A-side occurrences claimed this B
+	// digest — the partner is ambiguous, so the pairing is VOIDED and stated
+	// (never first-wins-classified).
+	StableInA    bool
+	PairedWith   string
+	PairConflict bool
+	aSide        *calibSide // A-side recorded facts when StableInA
+
+	// Pairing deltas for this node's OWN input vectors (filled when the §5
+	// pairing ran on them): the concrete divergence a category-3 answer must
+	// name — falsely claiming "the call itself changed" while inputs were
+	// removed/added would misattribute the invalidation.
+	pairCompared    bool
+	pairUnavailable string // why the vectors could not be compared ("" when they were)
+	pairRemoved     []string
+	pairAdded       []string
+	pairRefused     int // gaps refused as not pairwise attributable
+	pairChanged     int // changed-pair edges emitted
 
 	// walk bookkeeping
 	walkParent *WhyMissNode // discovery parent (deterministic BFS), for path rendering
@@ -381,23 +396,30 @@ func runWhyUncached(g *Graph, pair *whyPairState, target string) (*WhyMissReport
 		}
 		seenEdge := map[string]bool{}
 		for _, e := range edges {
-			if seenEdge[e.b] {
-				continue
-			}
-			seenEdge[e.b] = true
 			in, seen := w.nodes[e.b]
 			if !seen {
 				in = w.node(e.b)
 			}
-			if e.pairA != "" {
-				if in.PairedWith == "" {
+			// Pairing reconciliation runs on EVERY occurrence (dedup below is
+			// only for walk edges): two distinct A occurrences claiming one B
+			// digest make the partner ambiguous — the pairing is voided and
+			// stated, never first-wins-classified (review round 1, finding 3).
+			if e.pairA != "" && !in.PairConflict {
+				switch {
+				case in.PairedWith == "":
 					in.PairedWith = e.pairA
-				} else if in.PairedWith != e.pairA {
+				case in.PairedWith != e.pairA:
 					rep.PairLines = append(rep.PairLines, fmt.Sprintf(
-						"digest %s reached with two distinct pairings (%s kept, %s ignored — first discovery wins, deterministic)",
+						"digest %s claimed by two distinct reference pairings (%s and %s) — the partner is ambiguous, so the pairing is VOIDED for this node (classified by digest identity only)",
 						in.Digest, in.PairedWith, e.pairA))
+					in.PairedWith = ""
+					in.PairConflict = true
 				}
 			}
+			if seenEdge[e.b] {
+				continue
+			}
+			seenEdge[e.b] = true
 			n.Inputs = append(n.Inputs, in)
 			if in.WalkedAsMiss() && !in.walked {
 				in.walked = true
@@ -407,9 +429,16 @@ func runWhyUncached(g *Graph, pair *whyPairState, target string) (*WhyMissReport
 		}
 	}
 
-	// Frontier extraction: origins are walked miss nodes with no walked-miss
-	// input (or do-not-cache refusals); everything walked between the target
-	// and the frontier is Merkle collateral. Leaves are tallied by kind.
+	// Frontier extraction: origins are walked miss nodes no input of which
+	// EXPLAINS their miss; everything walked between the target and the
+	// frontier is Merkle collateral. In single-capture mode any walked-miss
+	// input explains its parent (the Merkle notion: the parent's key embeds
+	// the input subgraph). In pair mode a DIGEST-STABLE missed input does
+	// NOT explain a changed parent — a stable digest is an unchanged input
+	// ref, so it cannot have changed the parent's key; its own miss
+	// (not-retained, category 2) is an independent origin, and the changed
+	// parent's own divergence must still be reported (review round 1,
+	// finding 2). Leaves are tallied by kind.
 	var origins []*WhyMissNode
 	counted := map[string]bool{}
 	for _, n := range w.order {
@@ -419,7 +448,9 @@ func runWhyUncached(g *Graph, pair *whyPairState, target string) (*WhyMissReport
 		missedInputs := 0
 		for _, in := range n.Inputs {
 			if in.WalkedAsMiss() {
-				missedInputs++
+				if pair == nil || !in.StableInA {
+					missedInputs++
+				}
 				continue
 			}
 			if counted[in.Digest] {
@@ -830,15 +861,43 @@ func (w *whyMissWalk) classifyOrigin(n *WhyMissNode) *WhyMissOrigin {
 			o.Answer += " In pair mode: the digest is absent from the reference capture — scope values are hashed into the recipe digest (dagql/result_call_frame.go), so each scope instance mints its own digest by design; this is the expected cross-run shape of a scoped call."
 		}
 	case w.pair != nil && n.PairedWith != "":
-		// The deepest positionally-paired changed node: its own inputs are
-		// digest-stable or pairwise attributed, so the divergence is in the
-		// call itself. Digest granularity is the native pair-mode contract
-		// (design §4 E3: a full native call-structure emit is refused on
-		// volume grounds; arg-level attribution arrives with OTel E3b).
+		// The deepest positionally-paired changed node: the answer names the
+		// CONCRETE divergence the pairing found (§5 bullet 3) — falsely
+		// claiming a self change while inputs were removed/added would
+		// misattribute the invalidation (review round 1, finding 1). Digest
+		// granularity is the native pair-mode contract (design §4 E3: a full
+		// native call-structure emit is refused on volume grounds; arg-level
+		// attribution arrives with OTel E3b).
 		o.Category = CategoryInputChanged
-		o.Answer = fmt.Sprintf(
-			"this call's recipe digest differs from its positionally-paired counterpart in the reference capture (%s -> %s) while its own recorded inputs are digest-stable or pairwise attributed: the change is in the call itself (arguments, nth/view, module ref, or scope input values). Reported at digest granularity on native captures; arg-level detail available on OTel captures once E3b lands.",
-			n.PairedWith, n.Digest)
+		lead := fmt.Sprintf("this call's recipe digest differs from its positionally-paired counterpart in the reference capture (%s -> %s). ", n.PairedWith, n.Digest)
+		var deltas []string
+		if len(n.pairRemoved) > 0 {
+			deltas = append(deltas, fmt.Sprintf("%d input(s) removed vs the reference (%s)", len(n.pairRemoved), strings.Join(boundList(n.pairRemoved, 4), ", ")))
+		}
+		if len(n.pairAdded) > 0 {
+			deltas = append(deltas, fmt.Sprintf("%d input(s) added (%s)", len(n.pairAdded), strings.Join(boundList(n.pairAdded, 4), ", ")))
+		}
+		if n.pairChanged > 0 {
+			deltas = append(deltas, fmt.Sprintf("%d input(s) changed pairwise (walked)", n.pairChanged))
+		}
+		if n.pairRefused > 0 {
+			deltas = append(deltas, fmt.Sprintf("%d input gap(s) not pairwise attributable (see pair evidence)", n.pairRefused))
+		}
+		switch {
+		case !n.pairCompared:
+			reason := n.pairUnavailable
+			if reason == "" {
+				reason = "input vectors not compared"
+			}
+			o.Answer = lead + fmt.Sprintf(
+				"The input-level divergence could not be decomposed (%s), so the change is reported at whole-call granularity only.", reason)
+		case len(deltas) > 0:
+			o.Answer = lead + "Divergence: " + strings.Join(deltas, "; ") +
+				". Reported at digest granularity on native captures; arg-level detail available on OTel captures once E3b lands."
+		default:
+			o.Answer = lead +
+				"Its recorded input vector is identical to the counterpart's (all inputs digest-anchored), so the change is in the call itself: arguments, nth/view, module ref, or scope input values. Reported at digest granularity on native captures; arg-level detail available on OTel captures once E3b lands."
+		}
 	case w.pair != nil:
 		o.Category = CategoryNewWork
 		o.Answer = "first appearance of this call in the available history: the digest is absent from the paired reference capture (the history actually searched — absence is stated over that one capture, nothing broader)."
@@ -847,6 +906,9 @@ func (w *whyMissWalk) classifyOrigin(n *WhyMissNode) *WhyMissOrigin {
 		o.Answer = "no cached result existed under this key; cause not recorded in this capture."
 	}
 
+	if n.PairConflict {
+		o.Notes = append(o.Notes, "positional pairing VOIDED for this node: distinct reference occurrences claimed this digest (see pair evidence); classified by digest identity only")
+	}
 	if n.ContextDependent {
 		o.Notes = append(o.Notes, "context-dependent within the run: cached at first demand, later demand(s) missed — a cached result stopped being served; which lifetime mechanism applied is not recorded in this capture")
 	}
@@ -981,6 +1043,16 @@ func orDash(s string) string {
 		return "-"
 	}
 	return s
+}
+
+// boundList truncates a list for answer text, stating the elision — never a
+// silent cap.
+func boundList(v []string, n int) []string {
+	if len(v) <= n {
+		return v
+	}
+	out := append([]string(nil), v[:n]...)
+	return append(out, fmt.Sprintf("… %d more", len(v)-n))
 }
 
 // renderPath renders the discovery path target → … → origin (Merkle

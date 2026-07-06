@@ -102,7 +102,13 @@ func (p *whyPairState) rootPartner(w *whyMissWalk, tn *WhyMissNode) (partner, re
 	case 1:
 		return cands[0], ""
 	case 0:
-		return "", "" // plain absence — category 4 territory, no refusal line needed
+		// Visible even when benign (review round 1, finding 2): the target
+		// has no counterpart, so its own classification is digest-identity
+		// only — the reader must see that no positional decomposition was
+		// possible, not infer it from silence.
+		return "", fmt.Sprintf(
+			"target %s has no positional counterpart in the reference capture (no %s digest there is absent from this capture) — classified by digest identity only",
+			tn.Digest, tn.Class)
 	default:
 		return "", fmt.Sprintf(
 			"target %s not positionally pairable against the reference: %d reference digests of class %s are absent from this capture — the evidence cannot say which one is the counterpart (refused, not guessed)",
@@ -122,9 +128,10 @@ func (w *whyMissWalk) pairedInputEdges(rep *WhyMissReport, n *WhyMissNode) []why
 		if vB != nil {
 			side = "the reference capture"
 		}
+		n.pairUnavailable = fmt.Sprintf("no cache-input vector recorded on %s", side)
 		rep.PairLines = append(rep.PairLines, fmt.Sprintf(
-			"%s ~ %s: positional pairing unavailable — no cache-input vector recorded on %s; descending unpaired",
-			n.Digest, n.PairedWith, side))
+			"%s ~ %s: positional pairing unavailable — %s; descending unpaired",
+			n.Digest, n.PairedWith, n.pairUnavailable))
 		var out []whyMissEdge
 		for _, d := range vB {
 			out = append(out, whyMissEdge{b: d})
@@ -138,6 +145,7 @@ func (w *whyMissWalk) pairedInputEdges(rep *WhyMissReport, n *WhyMissNode) []why
 	)
 	ctx := fmt.Sprintf("%s ~ %s", n.Digest, n.PairedWith)
 	if res.ambiguous {
+		n.pairUnavailable = "the digest anchor set is ambiguous at occurrence level"
 		rep.PairLines = append(rep.PairLines, fmt.Sprintf(
 			"%s: pairing REFUSED — the digest anchor set is ambiguous at occurrence level (repeated equal digests admit more than one maximal anchor set; the evidence cannot say which duplicate was removed); descending unpaired",
 			ctx))
@@ -147,6 +155,14 @@ func (w *whyMissWalk) pairedInputEdges(rep *WhyMissReport, n *WhyMissNode) []why
 		}
 		return out
 	}
+	// Record the concrete divergence on the node: the category-3 answer must
+	// name what actually differed (removed/added/refused/changed inputs vs a
+	// pure self change) — review round 1, finding 1.
+	n.pairCompared = true
+	n.pairRemoved = res.removed
+	n.pairAdded = res.added
+	n.pairRefused = res.refusedGaps
+	n.pairChanged = res.changedPairs
 	for _, l := range res.lines {
 		rep.PairLines = append(rep.PairLines, ctx+": "+l)
 	}
@@ -158,6 +174,13 @@ type pairResult struct {
 	edges     []whyMissEdge
 	lines     []string
 	ambiguous bool
+	// The concrete divergence tallies (what the parent's category-3 answer
+	// names): reference-only inputs (removed), this-capture-only inputs
+	// (added), gaps refused as not pairwise attributable, and changed pairs.
+	removed      []string
+	added        []string
+	refusedGaps  int
+	changedPairs int
 }
 
 // pairInputVectors implements the §5 pairing contract over two raw input
@@ -194,12 +217,14 @@ func pairInputVectors(vA, vB []string, classA, classB func(string) string) pairR
 			return
 		case len(bGap) == 0:
 			for k, d := range aGap {
+				res.removed = append(res.removed, d)
 				res.lines = append(res.lines, fmt.Sprintf(
 					"input removed vs the reference capture: %s (%s) at reference position %d",
 					d, orUnknownClass(classA(d)), aStart+k+1))
 			}
 		case len(aGap) == 0:
 			for _, d := range bGap {
+				res.added = append(res.added, d)
 				res.edges = append(res.edges, whyMissEdge{b: d})
 				res.lines = append(res.lines, fmt.Sprintf(
 					"input added vs the reference capture: %s (%s)", d, orUnknownClass(classB(d))))
@@ -217,12 +242,14 @@ func pairInputVectors(vA, vB []string, classA, classB func(string) string) pairR
 			}
 			if classesOK {
 				for k := range aGap {
+					res.changedPairs++
 					res.edges = append(res.edges, whyMissEdge{b: bGap[k], pairA: aGap[k]})
 					res.lines = append(res.lines, fmt.Sprintf(
 						"input #%d changed: %s -> %s (%s); the walk descends into it",
 						bStart+k+1, aGap[k], bGap[k], classB(bGap[k])))
 				}
 			} else {
+				res.refusedGaps++
 				res.lines = append(res.lines, fmt.Sprintf(
 					"structural change, not pairwise attributable: reference inputs [%s] vs this capture's [%s] between digest anchors (unequal counts, unknown classes, or a pairwise class mismatch); the B-side inputs descend unpaired",
 					renderVecWithClasses(aGap, classA), renderVecWithClasses(bGap, classB)))
