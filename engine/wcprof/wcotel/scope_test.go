@@ -132,10 +132,12 @@ func TestLoaderScopeAbsentAndMalformed(t *testing.T) {
 		t.Fatalf("malformed dag.call must be counted exactly once, got %d", c.MalformedDagCalls)
 	}
 	g := buildGraphFromCompiled(t, c)
-	if op := opByIdent(t, g, "xxh3:aaaa"); op.ScopeInputs != nil {
-		t.Fatalf("absent dag.call must leave scope unrecorded (nil), got %#v", op.ScopeInputs)
+	if op := opByIdent(t, g, "xxh3:aaaa"); op.ScopeInputs != nil || op.ScopeCorrupt {
+		t.Fatalf("absent dag.call must leave scope unrecorded (nil, not corrupt), got %#v corrupt=%v", op.ScopeInputs, op.ScopeCorrupt)
 	}
-	if op := opByIdent(t, g, "xxh3:bbbb"); op.ScopeInputs != nil {
-		t.Fatalf("malformed dag.call must leave scope unrecorded (nil), got %#v", op.ScopeInputs)
+	// Malformed is DISTINCT from absent: the sentinel survives the dump
+	// round-trip and marks the op corrupt (review round 1, finding 3).
+	if op := opByIdent(t, g, "xxh3:bbbb"); op.ScopeInputs != nil || !op.ScopeCorrupt {
+		t.Fatalf("malformed dag.call must mark ScopeCorrupt with nil inputs, got %#v corrupt=%v", op.ScopeInputs, op.ScopeCorrupt)
 	}
 }

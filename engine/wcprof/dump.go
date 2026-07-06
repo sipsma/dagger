@@ -11,6 +11,14 @@ import (
 // DumpSchemaVersion identifies the dump wire format.
 const DumpSchemaVersion = 1
 
+// ScopeMalformedSentinel is the ScopeID string a loader interns when a call's
+// recorded scope structure (the OTel dag.call payload) was PRESENT but failed
+// to decode: corrupted evidence, distinct from absent evidence (ScopeID 0).
+// The why-uncached analyzer labels the two differently — a corrupted payload
+// can hide a deliberately-scoped answer, and saying "not recorded" there
+// would misstate what the capture contains (refuse-or-label doctrine).
+const ScopeMalformedSentinel = "!malformed-dag.call"
+
 // DumpHeader is the first line of a dump. The remaining lines are one
 // DumpEvent JSON object per line.
 type DumpHeader struct {
@@ -69,7 +77,9 @@ type DumpEvent struct {
 	// OTel dag.call payload by the wcotel loader (invalidation-tracing
 	// design, Chunk-1 loader work). 0 = scope structure not recorded (all
 	// native dumps today — the E2 decision rides with Chunk 3); an interned
-	// "[]" = recorded with no scope inputs, an authoritative absence.
+	// "[]" = recorded with no scope inputs, an authoritative absence; the
+	// interned ScopeMalformedSentinel = recorded but undecodable (corrupted
+	// evidence, labeled distinctly — never conflated with absence).
 	ScopeID uint32 `json:"sp,omitempty"`
 
 	StartNS int64 `json:"s"`

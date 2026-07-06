@@ -246,7 +246,14 @@ func analyze(c *wcotel.Compiled, g *wcanalyze.Graph, rules []wcanalyze.ExecGroup
 	// Cache-invalidation tracing (why-uncached mode): walk the selected
 	// digests to their miss frontier. Refusals and price-gate violations
 	// return as errors — the same distinct-failure-mode contract as the
-	// cached detail section above.
+	// cached detail section above. A structural-gate failure REFUSES the
+	// walk outright (design §8: the analyzer refuses captures the existing
+	// gates refuse — the walk's first-demand statuses and input edges are
+	// exactly what an incomplete trace silently corrupts).
+	if !whySel.Empty() && !gateOK {
+		fmt.Fprintln(os.Stdout, "why-uncached REFUSED: this capture failed the structural gate (see above) — first-demand statuses and cache-input edges cannot be trusted on incomplete or unfaithful traces")
+		return gateOK, nil
+	}
 	if werr := wcanalyze.WriteWhyUncached(os.Stdout, g, whySel); werr != nil {
 		return gateOK, werr
 	}

@@ -218,10 +218,14 @@ type WhyMissReport struct {
 	// HitBoundaries / UnrecordedLeaves / UndecidableLeaves count the walk's
 	// non-miss leaves; the report names them so absence statements stay
 	// scoped to the history actually searched (this capture).
-	HitBoundaries     int
-	UnrecordedLeaves  int
-	UndecidableLeaves int
-	NodesWalked       int
+	// PendingHitBoundaries is the subset of HitBoundaries whose first demand
+	// was hit_pending — the recipe was cached with first materialization
+	// owed: a nuance rendered on the boundary line, never a miss (W6).
+	HitBoundaries        int
+	PendingHitBoundaries int
+	UnrecordedLeaves     int
+	UndecidableLeaves    int
+	NodesWalked          int
 	// Caveats are the source-fidelity caveats (design §3.1): OTel captures
 	// carry first-emission-only per-digest evidence and record no module-ref
 	// edges, so the walk may be shallow for module-provided calls pre-E3.
@@ -325,6 +329,9 @@ func RunWhyUncached(g *Graph, target string) (*WhyMissReport, error) {
 			switch in.Status {
 			case MissStatusCached:
 				rep.HitBoundaries++
+				if in.FirstCall != nil && in.FirstCall.Outcome == wcprof.OutcomeHitPending.String() {
+					rep.PendingHitBoundaries++
+				}
 			case MissStatusUnrecorded:
 				rep.UnrecordedLeaves++
 			case MissStatusUndecidable:
@@ -443,8 +450,6 @@ func (w *whyMissWalk) node(digest string) *WhyMissNode {
 		}
 		return false
 	}
-	var lastSuccessEnd int64 = -1
-	var lastFailed *Op
 	for _, c := range calls {
 		if c.Open {
 			continue
@@ -460,25 +465,38 @@ func (w *whyMissWalk) node(digest string) *WhyMissNode {
 			// demand missed (design §3.1) — context-dependent within the run.
 			n.ContextDependent = true
 		}
-		if isNonHitDemand(c.Outcome) {
-			if lastFailed != nil && lastFailed.EndNS <= c.StartNS && !n.FailedBeforeReExecution {
-				n.FailedBeforeReExecution = true
-				n.FailedCall = lastFailed
-				n.ReDemandCall = c
+		if !isNonHitDemand(c.Outcome) {
+			continue
+		}
+		// Category-8 evidence (per-digest summary, review round 1): this
+		// demand's miss is failure-explained ONLY when everything resolved
+		// before it started was a failure — at least one failed call ended
+		// before it, and NO successful execution or hit did. An intervening
+		// success or hit means a published/cached result existed, so
+		// "failures are not cached" is not derivable for this miss: that
+		// shape is the mechanism-unrecorded reversal family instead.
+		var latestFailedBefore *Op
+		goodBefore := false
+		for _, p := range calls {
+			if p == c || p.Open || p.EndNS > c.StartNS {
+				continue
 			}
-			if lastSuccessEnd >= 0 && c.StartNS >= lastSuccessEnd {
+			switch p.Outcome {
+			case wcprof.OutcomeError.String(), wcprof.OutcomeCanceled.String():
+				if latestFailedBefore == nil || p.EndNS > latestFailedBefore.EndNS {
+					latestFailedBefore = p
+				}
+			case wcprof.OutcomeExecuted.String(), wcprof.OutcomeOK.String():
+				goodBefore = true
 				n.ReExecutedAfterSuccess = true
+			case wcprof.OutcomeHit.String(), wcprof.OutcomeHitPending.String():
+				goodBefore = true
 			}
 		}
-		switch c.Outcome {
-		case wcprof.OutcomeExecuted.String(), wcprof.OutcomeOK.String():
-			if lastSuccessEnd < 0 || c.EndNS > lastSuccessEnd {
-				lastSuccessEnd = c.EndNS
-			}
-		case wcprof.OutcomeError.String(), wcprof.OutcomeCanceled.String():
-			if lastFailed == nil || c.EndNS > lastFailed.EndNS {
-				lastFailed = c
-			}
+		if latestFailedBefore != nil && !goodBefore && !n.FailedBeforeReExecution {
+			n.FailedBeforeReExecution = true
+			n.FailedCall = latestFailedBefore
+			n.ReDemandCall = c
 		}
 	}
 	return n
@@ -552,14 +570,19 @@ func (w *whyMissWalk) countPathMisses(origin *WhyMissNode) int {
 // scopeOf returns the node's recorded scope implicit inputs: the first call
 // in demand order whose ScopeInputs are recorded (non-nil). recorded=false
 // means no call recorded the scope structure (native captures pre-E2; OTel
-// spans whose dag.call was absent or malformed).
-func scopeOf(n *WhyMissNode) (scope []ScopeInput, recorded bool) {
+// spans without dag.call); corrupt=true means at least one call RECORDED the
+// structure but it was undecodable at load and no call carries a decodable
+// one — corrupted evidence, labeled distinctly from absence (review round 1).
+func scopeOf(n *WhyMissNode) (scope []ScopeInput, recorded, corrupt bool) {
 	for _, c := range n.Calls {
 		if c.ScopeInputs != nil {
-			return c.ScopeInputs, true
+			return c.ScopeInputs, true, false
+		}
+		if c.ScopeCorrupt {
+			corrupt = true
 		}
 	}
-	return nil, false
+	return nil, false, corrupt
 }
 
 // scopeWhyText is the per-scope why-text (design §3.2 category 1): each names
@@ -592,7 +615,10 @@ func scopeWhyText(name string) string {
 // e.g. a digest-pinned from ref), or the recording gap, each stated as what
 // the data records.
 func scopeNote(n *WhyMissNode) (note string, activeScopes []ScopeInput) {
-	scope, recorded := scopeOf(n)
+	scope, recorded, corrupt := scopeOf(n)
+	if corrupt {
+		return "scope structure was RECORDED for this call but is malformed (undecodable at load; counted as MalformedDagCalls) — the scope evidence is lost, so classification stays undetermined rather than guessed", nil
+	}
 	if !recorded {
 		return "scope structure not recorded in this capture (native captures do not record scope inputs today; OTel captures record them in dag.call)", nil
 	}
@@ -730,6 +756,9 @@ func (r *WhyMissReport) Write(w io.Writer) {
 
 	fmt.Fprintf(w, "frontier: %d origin(s); %d Merkle-collateral miss(es) on the path; %d hit boundary(ies)",
 		len(r.Origins), r.Collaterals, r.HitBoundaries)
+	if r.PendingHitBoundaries > 0 {
+		fmt.Fprintf(w, " (%d hit_pending: recipe cached, first materialization owed — a nuance, not a miss)", r.PendingHitBoundaries)
+	}
 	if r.UnrecordedLeaves > 0 {
 		fmt.Fprintf(w, "; %d input digest(s) with no recorded call in this capture (status unknown, labeled leaves)", r.UnrecordedLeaves)
 	}

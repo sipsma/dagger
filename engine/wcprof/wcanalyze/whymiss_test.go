@@ -324,12 +324,82 @@ func TestWhyMissW6OutcomeCategories(t *testing.T) {
 	if rep.NodesWalked != 3 {
 		t.Fatalf("nodes walked = %d, want 3 (x, dnc, f): a refusal terminates its path", rep.NodesWalked)
 	}
-	// d-p (pending hit) and d-h2 are hit boundaries.
+	// d-p (pending hit) and d-h2 are hit boundaries; d-p's pending state is
+	// a nuance rendered on the boundary line (review round 1, finding 4).
 	if rep.HitBoundaries != 2 {
 		t.Fatalf("hit boundaries = %d, want 2 (d-p pending nuance + d-h2)", rep.HitBoundaries)
 	}
+	if rep.PendingHitBoundaries != 1 {
+		t.Fatalf("pending-hit boundaries = %d, want 1 (d-p)", rep.PendingHitBoundaries)
+	}
+	var buf bytes.Buffer
+	rep.Write(&buf)
+	if !strings.Contains(buf.String(), "hit_pending: recipe cached, first materialization owed") {
+		t.Fatalf("pending boundary nuance must render:\n%s", buf.String())
+	}
 	if rep.Collaterals != 1 {
 		t.Fatalf("collaterals = %d, want 1 (d-x)", rep.Collaterals)
+	}
+}
+
+// Category-8 negative case (review round 1, finding 1): a failure followed by
+// a SUCCESSFUL execution followed by a re-execution is NOT category 8 — a
+// published result existed before the re-demand, so "failures are not
+// cached" is not derivable; the honest answer is the mechanism-unrecorded
+// re-execution note on an undetermined origin.
+func TestWhyMissCategory8RequiresNoInterveningSuccess(t *testing.T) {
+	s := newFixtureStrings()
+	events := []wcprof.DumpEvent{
+		opEvent(s, 1, 0, "session_phase", "session.query", "", "ok", 0, 1000*ms),
+		// Demand order: success [0,100], failure [150,250], re-exec [300,400].
+		// The re-exec's predecessors include a SUCCESS, so category 8 must
+		// not fire anywhere on this digest.
+		opEvent(s, 2, 1, "call", "A.flaky", "d-sfr", "executed", 0, 100*ms),
+		opEvent(s, 3, 1, "call", "A.flaky", "d-sfr", "error", 150*ms, 250*ms),
+		opEvent(s, 4, 1, "call", "A.flaky", "d-sfr", "executed", 300*ms, 400*ms),
+	}
+	g := buildWhyGraph(t, s, events)
+	rep, err := RunWhyUncached(g, "d-sfr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Origins) != 1 {
+		t.Fatalf("want 1 origin, got %d", len(rep.Origins))
+	}
+	o := rep.Origins[0]
+	if o.Category == CategoryPriorAttemptFailed {
+		t.Fatalf("category 8 fired despite an intervening successful publish — not derivable from the data")
+	}
+	if o.Category != CategoryUndetermined {
+		t.Fatalf("category = %v, want undetermined", o.Category)
+	}
+	if !o.Node.ReExecutedAfterSuccess {
+		t.Fatalf("the re-execution after a successful publish must be flagged (mechanism-unrecorded note)")
+	}
+}
+
+// Corrupted scope evidence (review round 1, finding 3): a recorded-but-
+// undecodable dag.call is labeled as corruption, never conflated with
+// "not recorded" — and never guessed into a category.
+func TestWhyMissCorruptScopeLabeled(t *testing.T) {
+	s := newFixtureStrings()
+	tgt := opEvent(s, 2, 1, "call", "Query.moduleSource", "d-t", "executed", 0, 100*ms)
+	tgt.ScopeID = s.id(wcprof.ScopeMalformedSentinel)
+	events := []wcprof.DumpEvent{
+		opEvent(s, 1, 0, "session_phase", "session.query", "", "ok", 0, 200*ms),
+		tgt,
+	}
+	g := buildWhyGraph(t, s, events)
+	rep, err := RunWhyUncached(g, "d-t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := rep.Origins[0]
+	if o.Category != CategoryUndetermined {
+		t.Fatalf("corrupt scope must stay undetermined, got %v", o.Category)
+	}
+	if !strings.Contains(o.ScopeNote, "malformed") || strings.Contains(o.ScopeNote, "not recorded in this capture (native") {
+		t.Fatalf("corrupt scope must be labeled as corruption, not absence: %q", o.ScopeNote)
 	}
 }
 

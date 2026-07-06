@@ -429,7 +429,11 @@ func Compile(spans []Span) (*Compiled, error) {
 					scopeJSON = string(b)
 				}
 			} else {
+				// Recorded but undecodable: counted AND marked on the op via
+				// the sentinel, so the analyzer labels corrupted evidence as
+				// corrupted — never as absent.
 				c.MalformedDagCalls++
+				scopeJSON = wcprof.ScopeMalformedSentinel
 			}
 		}
 

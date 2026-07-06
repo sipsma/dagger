@@ -45,6 +45,11 @@ type Op struct {
 	// record them today. nil = scope structure NOT recorded; empty non-nil =
 	// recorded with no scope inputs (an authoritative absence).
 	ScopeInputs []ScopeInput
+	// ScopeCorrupt marks a call whose scope structure was RECORDED but
+	// undecodable at load (the ScopeMalformedSentinel): corrupted evidence,
+	// reported as such — never silently downgraded to "not recorded".
+	// ScopeInputs is nil when set.
+	ScopeCorrupt bool
 	// Open marks ops that had not ended at dump time; EndNS is the dump time.
 	Open bool
 
@@ -81,10 +86,11 @@ type ScopeInput struct {
 // decodeScopeInputs recovers a call op's scope implicit inputs from the
 // interned ScopeID string (a JSON array of ScopeInput). "" ⇒ nil (scope
 // structure not recorded); "[]" ⇒ empty non-nil (recorded, no scope inputs —
-// an authoritative absence); malformed ⇒ nil — defensive, never a panic,
-// never inferred.
+// an authoritative absence); the malformed sentinel ⇒ nil with Op.ScopeCorrupt
+// set by the caller; anything else malformed ⇒ nil — defensive, never a
+// panic, never inferred.
 func decodeScopeInputs(s string) []ScopeInput {
-	if s == "" {
+	if s == "" || s == wcprof.ScopeMalformedSentinel {
 		return nil
 	}
 	inputs := []ScopeInput{}
@@ -293,20 +299,21 @@ func Build(header *wcprof.DumpHeader, events []wcprof.DumpEvent) (*Graph, error)
 		switch ev.Type {
 		case "op":
 			g.Ops[ev.OpID] = &Op{
-				ID:          ev.OpID,
-				ParentID:    ev.ParentID,
-				Kind:        ev.OpKind,
-				WorkType:    ev.WorkType,
-				Outcome:     ev.Outcome,
-				Class:       str(ev.ClassID),
-				Ident:       str(ev.IdentID),
-				ClientID:    str(ev.ClientID),
-				ResultID:    ev.ResultID,
-				Argv:        decodeArgv(str(ev.MetaID)),
-				CacheInputs: decodeArgv(str(ev.InputsID)),
-				ScopeInputs: decodeScopeInputs(str(ev.ScopeID)),
-				StartNS:     ev.StartNS,
-				EndNS:       max(ev.EndNS, ev.StartNS),
+				ID:           ev.OpID,
+				ParentID:     ev.ParentID,
+				Kind:         ev.OpKind,
+				WorkType:     ev.WorkType,
+				Outcome:      ev.Outcome,
+				Class:        str(ev.ClassID),
+				Ident:        str(ev.IdentID),
+				ClientID:     str(ev.ClientID),
+				ResultID:     ev.ResultID,
+				Argv:         decodeArgv(str(ev.MetaID)),
+				CacheInputs:  decodeArgv(str(ev.InputsID)),
+				ScopeInputs:  decodeScopeInputs(str(ev.ScopeID)),
+				ScopeCorrupt: str(ev.ScopeID) == wcprof.ScopeMalformedSentinel,
+				StartNS:      ev.StartNS,
+				EndNS:        max(ev.EndNS, ev.StartNS),
 			}
 		case "wait":
 			waits = append(waits, rawWait{
