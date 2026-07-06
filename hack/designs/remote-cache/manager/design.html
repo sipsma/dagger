@@ -453,6 +453,314 @@ eligibility counter exists for the same-engine shapes it can observe.</p>
 </div>
 </details>
 
+<details class="fold" id="target" open><summary><h2>5. Target shape</h2></summary>
+<figure>
+<svg viewBox="0 0 960 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Cache manager lifecycle">
+  <defs>
+    <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5c6470"/>
+    </marker>
+  </defs>
+  <rect x="15" y="20" width="290" height="120" rx="10" fill="#e9effc" stroke="#c5d2f0"/>
+  <text x="160" y="46" text-anchor="middle" font-size="14" font-weight="700" fill="#2757d6">ENGINE BOOT</text>
+  <text x="160" y="70" text-anchor="middle" font-size="12" fill="#2b2f36">download the scope's merged artifact</text>
+  <text x="160" y="88" text-anchor="middle" font-size="12" fill="#2b2f36">import it — the landed machinery, one unit</text>
+  <text x="160" y="106" text-anchor="middle" font-size="11" fill="#5c6470">budgeted; cold on failure (M5); before serving (R14)</text>
+  <text x="160" y="124" text-anchor="middle" font-size="11" fill="#5c6470">content stays lazy — chains fetch from the CAS on demand</text>
+
+  <line x1="305" y1="80" x2="355" y2="80" stroke="#5c6470" stroke-width="2.5" marker-end="url(#arr2)"/>
+
+  <rect x="360" y="20" width="280" height="120" rx="10" fill="#e7f5ec" stroke="#bfe0cc"/>
+  <text x="500" y="46" text-anchor="middle" font-size="14" font-weight="700" fill="#1a7f4b">SERVE (unchanged: reset design)</text>
+  <text x="500" y="70" text-anchor="middle" font-size="12" fill="#2b2f36">warm lookups hit merged results</text>
+  <text x="500" y="88" text-anchor="middle" font-size="12" fill="#2b2f36">source walk: local → chain → lazy → demote</text>
+  <text x="500" y="108" text-anchor="middle" font-size="11" fill="#5c6470">everything here landed with chunks A+B</text>
+
+  <line x1="640" y1="80" x2="690" y2="80" stroke="#5c6470" stroke-width="2.5" marker-end="url(#arr2)"/>
+
+  <rect x="695" y="20" width="250" height="120" rx="10" fill="#fdf3e0" stroke="#ecd9ac"/>
+  <text x="820" y="46" text-anchor="middle" font-size="14" font-weight="700" fill="#a06000">ANNOUNCE (signal / shutdown)</text>
+  <text x="820" y="70" text-anchor="middle" font-size="12" fill="#2b2f36">send metadata + chain manifests</text>
+  <text x="820" y="88" text-anchor="middle" font-size="12" fill="#2b2f36">manager replies: "upload these"</text>
+  <text x="820" y="106" text-anchor="middle" font-size="11" fill="#5c6470">engine uploads exactly that; sparse-safe (M5)</text>
+
+  <rect x="240" y="180" width="480" height="100" rx="10" fill="#fff" stroke="#9aa1ab" stroke-width="1.5"/>
+  <text x="480" y="206" text-anchor="middle" font-size="14" font-weight="700">THE MANAGER LOOP (per scope, single writer)</text>
+  <text x="480" y="228" text-anchor="middle" font-size="12" fill="#2b2f36">ingest announcement → merge (origin-dedup) → decide uploads → flush + checkpoint</text>
+  <text x="480" y="246" text-anchor="middle" font-size="12" fill="#2b2f36">generation bumps → compose the merged artifact lazily on next boot request</text>
+  <text x="480" y="264" text-anchor="middle" font-size="11" fill="#5c6470">prune by policy over the merged view; CAS mark-sweep against live chain refs</text>
+
+  <line x1="820" y1="140" x2="620" y2="180" stroke="#5c6470" stroke-width="2" marker-end="url(#arr2)"/>
+  <line x1="340" y1="180" x2="180" y2="143" stroke="#5c6470" stroke-width="2" marker-end="url(#arr2)"/>
+</svg>
+<figcaption>Fig. 2 — Lifecycle. Engine-side behavior is the landed reset-design machinery
+end to end; the manager owns merge, decision, composition, and retention.</figcaption>
+</figure>
+
+<h3>Cross-section invariants</h3>
+<ul>
+<li>Cache semantics run in exactly one codebase — the engine's, imported (M1, §2). The
+manager holds no second identity model.</li>
+<li>Per scope, the merged view has one writer at a time; every mutation lands durably
+(flush + checkpoint) before its effects are served (M2, §6).</li>
+<li>Ingest is origin-idempotent; re-announcement and overlap are no-ops by construction
+(M3, §7).</li>
+<li>Metadata is record-visible everywhere in the manager; the CAS is the sole opaque
+layer (M1); blob availability is never a correctness input (M5).</li>
+<li>Version alignment is asserted, never bridged (M8, §12).</li>
+</ul>
+</details>
+
+<details class="fold" id="view" open><summary><h2>6. The merged view</h2></summary>
+
+<p><b>The idea in three sentences.</b> A scope's merged view is an engine cache store with
+no engine around it: the same e-graph, the same SQLite persistence file (schema 19), the
+same restore/flush lifecycle, owned by the manager process through the imported engine
+module — constructed exactly the way the v2-era server merge already proved viable
+(<code>dagql.NewCache</code> with no worker/snapshotter), but with the two fatal omissions
+of that era corrected: it has a <b>real DB path</b> (the engine's own persistence
+machinery makes it durable), and every arrival is <b>origin-deduplicated</b> (the landed
+chunk A machinery). Durability beyond the local disk is a <b>generation-tagged checkpoint</b>
+of the SQLite file in object storage, with a Postgres scope registry and a single-writer
+lease serializing all mutation per scope.</p>
+
+<div class="decide"><span class="dtag">THE DECISIONS THIS SECTION MAKES</span>
+<ol style="margin:4px 0 2px">
+<li><b>Physical form:</b> one engine persistence store (SQLite, schema 19) per (org,
+scope), operated by the imported engine cache code with a nil worker/snapshotter — the
+mode the landed code already supports.</li>
+<li><b>Durability:</b> local store + per-generation checkpoint to object storage; a
+Postgres scope registry {org, scope, generation, checkpoint key, schema_version};
+recovery = restore latest checkpoint, and the disaster floor is re-announcement (M2).</li>
+<li><b>Concurrency:</b> one writer per scope (Postgres advisory lease — the converged
+chunk D pattern), mutations serialized; reads serve from composed artifacts, not the live
+store.</li>
+<li><b>Identity:</b> the merged store has its own store UUID + allocator high-water
+(landed machinery, verbatim); ingested rows keep their engine origins verbatim, which is
+what makes the entire downstream (engine re-import, re-announce, multi-manager futures)
+idempotent.</li>
+<li><b>Memory:</b> scope stores activate on demand and close when idle (flush →
+checkpoint → close); the manager holds a bounded working set of live scopes.</li>
+</ol>
+</div>
+
+<h3>6.1 &nbsp;What the manager actually runs</h3>
+<p>The manager-core uses exactly four engine entry points, all landed:</p>
+<table class="filetbl">
+<tr><th>Operation</th><th>Engine entry point (as landed)</th><th>Manager use</th></tr>
+<tr><td>Open / restore a scope store</td><td><code>dagql.NewCache(ctx, dbPath, nil, nil)</code>
+— restores persisted state, rebuilds the e-graph with R16-recomputed keys, per-result
+vetting; nil snapshot-manager operation is supported (lease attachment and content checks
+skip when nil — verified in the landed vetting/import paths, and validated in practice by
+the v2-era server merge)</td>
+<td>Scope activation: fetch latest checkpoint → open → serve the loop</td></tr>
+<tr><td>Ingest an announcement</td><td><code>Cache.ImportBundle(ctx, r)</code> — parse,
+validate (chains before vetting, blast-radius split), vet, origin-dedup, reference
+rewrite, all-or-nothing staged commit; skip-typed failures only</td>
+<td>The merge. One announcement = one validation unit — an engine's damaged announcement
+skips whole, exactly the right blast radius (the salvage map's recalibration question
+answers itself here: the unit stays "one engine's export," because that is what arrives)</td></tr>
+<tr><td>Compose the merged artifact</td><td><code>Cache.ExportBundle(ctx, w, opts)</code>
+— forward closure of persisted roots, one portable encoding, engine-local rows stripped,
+manifest with chains + blob index</td>
+<td>Serving (§8): the artifact IS an export of the merged store</td></tr>
+<tr><td>Retention</td><td><code>Cache.Prune(policy)</code> — persisted-edge cut model,
+the existing policy vocabulary</td>
+<td>Service-side pruning (§9)</td></tr>
+</table>
+<p><b>Engine-side deltas this requires (small, version-aligned, sanctioned):</b>
+(1) a public flush entry point (<code>Cache.Flush(ctx)</code> wrapping the existing
+persistence worker's flush) so an embedder can persist without closing — today flush
+happens at <code>Close</code>; (2) compose must re-emit <em>stored</em> chains
+(<code>result_content_chains</code>) for rows that arrived with chains, since the manager
+has no snapshotter to compute any — the landed export reuses memoized/stored chains and
+never computes without a snapshot manager, but this exact nil-snapshotter compose path is
+the one seam to verify at implementation, pinned as a red test (a store with imported
+chains and nil snapshotter exports those chains byte-identically); a failure here is
+stop-and-discuss, not a workaround.</p>
+
+<h3>6.2 &nbsp;Durability: flush, checkpoint, generation</h3>
+<ol class="steps">
+<li><span class="tag">MUTATE (under the scope lease)</span><br>
+An ingest (or prune) mutates the live store through the engine code.</li>
+<li><span class="tag">FLUSH</span><br>
+<code>Flush</code> writes the store's SQLite snapshot — the engine's own
+whole-snapshot-rewrite persistence, clean-shutdown markers included.</li>
+<li><span class="tag">CHECKPOINT</span><br>
+The SQLite file uploads to object storage under a fresh generation key; the scope
+registry row updates {generation, checkpoint key} transactionally. Only after this commit
+are the mutation's effects eligible to serve (artifact composition reads generations, §8).</li>
+<li><span class="tag">CRASH ANALYSIS</span><br>
+Crash before checkpoint-commit ⇒ the registry still points at the previous generation;
+the local file is discarded on next activation (its markers may be unclean — the engine's
+own wipe-on-unclean rule applies to the local copy, and recovery is simply the previous
+checkpoint). The lost announcement re-arrives on the announcing engine's next export and
+merges idempotently (M3). Nothing needs repair — L8's dumbest treatment, inherited.</li>
+</ol>
+<p class="pill">v1 checkpoints after every mutation batch (one announcement = one batch).
+Checkpoint upload cost is bounded by store size; batching/incremental checkpointing is
+shelved until measurement demands it (M6 counts flush/checkpoint durations per scope).</p>
+
+<h3>6.3 &nbsp;The scope registry and the lease</h3>
+<pre><code><span class="cm">-- Postgres (the manager shell); the merged stores themselves are engine SQLite files</span>
+CREATE TABLE cache_scopes (
+    org_id          UUID NOT NULL,
+    scope           TEXT NOT NULL,
+    generation      BIGINT NOT NULL DEFAULT 0,
+    checkpoint_key  TEXT,            <span class="cm">-- object-storage key of the current SQLite checkpoint</span>
+    schema_version  TEXT NOT NULL,   <span class="cm">-- the engine persistence schema this store speaks (M8)</span>
+    updated_at      TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (org_id, scope)
+);
+</code></pre>
+<p>All mutation for a scope runs under a Postgres advisory lease keyed (org, scope) — the
+converged chunk D locking pattern, re-homed: replica-safe single-writer, held for the
+mutate→flush→checkpoint window. Readers never take it (they read composed artifacts and
+registry rows). Idle scope stores close after a TTL (flush → checkpoint → close); an
+activation on another replica simply restores the latest checkpoint. Announcement
+ordering across engines is whatever the lease serializes — order does not matter, because
+ingest is commutative up to origin-dedup and identity teaching (the e-graph's merge is
+order-independent for equivalence facts).</p>
+</details>
+
+<details class="fold" id="ingest" open><summary><h2>7. Ingest: negotiate, then upload</h2></summary>
+
+<p><b>The idea in three sentences.</b> An engine's export becomes a conversation: it sends
+the manager its metadata — the same portable encoding it persists locally, with chain
+manifests describing what content exists, and zero content bytes — and the manager, having
+merged that knowledge into the view, answers with exactly the blobs it wants uploaded
+(presigned targets included). The engine uploads those and completes; the CAS machinery is
+the converged chunk D pipeline unchanged (staging + promote, verified inventory,
+completion authority). The decision of what to request is a server-side policy over the
+merged view (§10) — which is the entire point: the manager can decline content it already
+has from anyone, content it deems worthless, or content policy says to skip, and the
+engine never wastes the bytes.</p>
+
+<div class="decide"><span class="dtag">THE DECISIONS THIS SECTION MAKES</span>
+<ol style="margin:4px 0 2px">
+<li><b>The announcement payload is the existing bundle encoding</b> (manifest +
+metadata.db, blob-less) — the landed engine export pipeline survives with its trigger
+semantics (admin API + shutdown hook) and its two-phase shape re-pointed: publish → the
+negotiate response replaces blind stat-then-upload-everything.</li>
+<li><b>The merge happens at announce time, before the upload answer</b> — so the answer
+is computed against the post-merge view (a second engine announcing the same content gets
+"nothing, thanks").</li>
+<li><b>One announcement = one validation unit</b> (whole-announcement skip on section
+garbage; per-row damage drops rows with in-announcement dependents) — the landed ingest
+semantics at exactly the right blast radius.</li>
+<li><b>The wire protocol is minimal:</b> announce → {requested[], upload targets,
+complete} → uploads → complete. The v2-era <code>RequestedBlobs</code> response is the
+validated ancestor; chunk D's stat/uploads/complete endpoints survive beneath it.</li>
+</ol>
+</div>
+
+<h3>7.1 &nbsp;The protocol</h3>
+<pre><code><span class="cm">// All under org-token auth; version headers asserted per M8/§12.</span>
+
+POST /v1/scopes/{scope}/announce          <span class="cm">// multipart: manifest + metadata.db (blob-less bundle)</span>
+  → {
+      "generation":  N,                   <span class="cm">// merged-view generation after this ingest</span>
+      "ingest":      { "rowsOffered": …, "rowsNew": …, "rowsDedupedByOrigin": …,
+                       "skipped": bool, "skipReason": "…" },      <span class="cm">// M6 counters, echoed</span>
+      "requested":   [ "sha256:…", … ],   <span class="cm">// the manager's upload decision (§10)</span>
+      "declined":    M,                   <span class="cm">// count of offered-but-not-requested (typed in events)</span>
+      "uploads":     { … }                <span class="cm">// chunk D's prepare/complete flow for the requested set</span>
+    }
+POST /v1/blobs/uploads, /v1/blobs/uploads/complete, GET /v1/blobs/{digest}
+                                          <span class="cm">// UNCHANGED — the converged chunk D CAS surface</span>
+GET  /v1/scopes/{scope}/artifact          <span class="cm">// §8 — replaces the retired selection endpoint</span>
+</code></pre>
+<p>The engine-side pipeline is chunk C's parked shape with the negotiation folded in:
+encode (blob-less bundle) → announce → upload <em>exactly the requested set</em> (the
+existing budget-bounded, retry-then-skip uploader) → complete. Interruption analysis is
+unchanged from the landed two-phase design: metadata always lands first (the merge
+happened), an interrupted upload just leaves the CAS sparser, and sparseness is legal
+everywhere (M5). The trigger surfaces (operator endpoint + <code>exportOnShutdown</code>
+in GracefulStop, coalescing, summaries) survive as parked.</p>
+
+<h3>7.2 &nbsp;Server-side sequence, per announcement</h3>
+<ol class="steps">
+<li><span class="tag">ASSERT ALIGNMENT (M8)</span><br>
+Engine version / persistence schema headers must equal the manager's own; mismatch ⇒
+typed 409, counted, never bridged.</li>
+<li><span class="tag">LEASE + INGEST</span><br>
+Take the scope lease; <code>ImportBundle</code> the announcement into the merged store.
+Skip-typed failure ⇒ the announcement is rejected as a unit (typed response + event); the
+merged view is untouched (the landed all-or-nothing commit).</li>
+<li><span class="tag">DECIDE (§10)</span><br>
+<code>requestedBlobs(view, casInventory, manifest)</code> — v1: every chain blob in the
+announcement's blob index not verified-present in the CAS. Declines are counted and
+event-logged with the policy's reason vocabulary.</li>
+<li><span class="tag">FLUSH + CHECKPOINT + RESPOND</span><br>
+§6.2's durability steps; the response carries the new generation, the ingest counters,
+and the requested set with upload targets. Blob uploads then proceed against the CAS
+exactly as converged (verification, promotion, inventory).</li>
+</ol>
+<p class="pill">Ingest work is metadata-scale (the landed engine-side merge measured ~4600
+rows in low seconds inside the boot window; the manager pays the same shape plus flush +
+checkpoint I/O — M6 measures it per scope). Announce is synchronous end-to-end in v1:
+simplest, and the engine's export path is already budget-bounded and failure-tolerant
+around it.</p>
+</details>
+
+<details class="fold" id="serve" open><summary><h2>8. Serving engines: the merged artifact</h2></summary>
+
+<p><b>The idea in three sentences.</b> What a booting engine downloads is an
+<code>ExportBundle</code> of the merged store: the forward closure of the merged view's
+retention roots, in the one portable encoding, with the merged store's UUID as the
+composer identity and every row's <em>engine</em> origins preserved verbatim inside. The
+engine imports it through the landed machinery as the single-unit case of what it already
+does — no engine changes beyond deleting the multi-bundle selection loop (which was the
+store-and-select residue chunk C's salvage map already isolated). Composition is lazy and
+generation-cached: the first artifact request after a generation bump composes and stores
+the artifact; every other request until the next bump is a redirect.</p>
+
+<div class="decide"><span class="dtag">THE DECISIONS THIS SECTION MAKES</span>
+<ol style="margin:4px 0 2px">
+<li><b>The artifact = server-side ExportBundle of the merged store</b>, whole-scope in
+v1, generation-cached in object storage; composed under the scope lease, served without
+it.</li>
+<li><b>Engine boot import goes K=1</b>: fetch the scope artifact, import it, done. The
+multi-bundle loop, selection call, and their counter shapes retire (chunk C parked resume
+note); the boot budget, monotone degradation, and boot summary survive.</li>
+<li><b>Artifact integrity keeps the landed semantics</b>: an engine that receives a
+damaged artifact skips it whole and boots cold (honest, M5); the manager treats a failed
+composition as a bug surfaced by its own compose-time validation, regenerates on demand,
+and never serves a partial write (compose → verify → publish-by-rename).</li>
+<li><b>Origins inside the artifact are the engines'</b>; the manifest's composer UUID is
+the merged store's — the salvage map's "manifest StoreUUID connotation" fix lands here:
+the field means "who composed this unit," and nothing keys on it (verified in the landed
+code).</li>
+</ol>
+</div>
+
+<h3>8.1 &nbsp;Composition and caching</h3>
+<ol class="steps">
+<li><span class="tag">REQUEST</span><br>
+<code>GET /v1/scopes/{scope}/artifact</code> (version headers asserted, M8). The registry
+row gives {generation, artifact key?}. Cached artifact for this generation ⇒ 307 to it.</li>
+<li><span class="tag">COMPOSE (lease held)</span><br>
+Activate the scope store (restore checkpoint if cold), <code>ExportBundle</code> the
+forward closure of its persisted roots to a staging object, re-emitting stored chains
+(§6.1's pinned seam). Verify the staged artifact by re-reading its own manifest
+(compose-side sanity: parseable, counts match the store).</li>
+<li><span class="tag">PUBLISH</span><br>
+Promote staging → the generation's artifact key (create-if-absent, the chunk D promotion
+discipline); record it in the registry; respond 307. Subsequent generations orphan old
+artifacts for GC (§9).</li>
+<li><span class="tag">ENGINE SIDE</span><br>
+The landed boot import ingests it: vetting, origin-dedup against local state, R16 keys,
+chain sources installed — all as merged with chunks A+B. Local overlap dedups by origin
+(an engine re-importing work it originated is the designed no-op).</li>
+</ol>
+<p><b>Sizing honesty:</b> the artifact is the merged scope, so it is as big as the
+retention policy allows the scope to be (§9 is the control surface); engines pay one
+download + one metadata import per boot, both budget-bounded with cold-start as the
+floor. Scope-slicing / per-workload artifacts are the natural future refinement and are
+shelved with the analysis seam — the merged view makes them <em>possible</em>, which is
+part of the point of having it.</p>
+</details>
+
 </main>
 </div>
 <script>
