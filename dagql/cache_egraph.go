@@ -656,13 +656,19 @@ func (c *Cache) sessionSatisfiesResourceRequirementsLocked(sessionID string, res
 // mark is boot-scoped ordering advice, never eligibility), and this is
 // deliberately NOT a general realized-before-unrealized preference — that
 // remains a recorded future option, not built.
-func (c *Cache) selectLookupCandidateForSessionLocked(sessionID string, candidates *set.TreeSet[*sharedResult]) *sharedResult {
+//
+// resourceIneligible reports how many candidates the session-resource gate
+// rejected: when the winner is nil and this is positive, the miss is the
+// typed salt/handle partition (S10), not a plain miss — lookup terminals
+// classify it so cross-engine partition misses are visible, never silent.
+func (c *Cache) selectLookupCandidateForSessionLocked(sessionID string, candidates *set.TreeSet[*sharedResult]) (winner *sharedResult, resourceIneligible int) {
 	if candidates == nil {
-		return nil
+		return nil, 0
 	}
 	var firstTransientlyStarved *sharedResult
 	for res := range candidates.Items() {
 		if !c.sessionSatisfiesResourceRequirementsLocked(sessionID, res) {
+			resourceIneligible++
 			continue
 		}
 		if res.transientlyStarved.Load() {
@@ -671,9 +677,9 @@ func (c *Cache) selectLookupCandidateForSessionLocked(sessionID string, candidat
 			}
 			continue
 		}
-		return res
+		return res, resourceIneligible
 	}
-	return firstTransientlyStarved
+	return firstTransientlyStarved, resourceIneligible
 }
 
 func (c *Cache) lookupMatchForDigestsLocked(recipeDigest digest.Digest, extraDigests []call.ExtraDigest, nowUnix int64) lookupMatch {
@@ -839,9 +845,12 @@ func (c *Cache) lookupCacheForRequestLocked(
 	nowUnix := now.Unix()
 	match := c.lookupMatchForCallLocked(req.ResultCall, requestDigest, requestSelf, requestInputs, nowUnix)
 	c.traceLookupAttempt(ctx, requestDigest.String(), match.selfDigest.String(), match.inputDigests, req.IsPersistable)
-	hitRes := c.selectLookupCandidateForSessionLocked(sessionID, match.candidates)
+	hitRes, resourceIneligible := c.selectLookupCandidateForSessionLocked(sessionID, match.candidates)
 
 	if hitRes == nil {
+		if resourceIneligible > 0 {
+			c.classifyServeOutcome(ctx, cacheServeCandidateIneligibleSessionResources, req.ResultCall, 0)
+		}
 		c.traceLookupMissNoMatch(ctx, requestDigest.String(), match.primaryLookupPossible, match.missingInputIndex, match.termDigest, match.termSetSize)
 		return nil, false, nil
 	}

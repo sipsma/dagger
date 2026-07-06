@@ -2513,7 +2513,9 @@ func (c *Cache) canonicalEquivalentSharedResultLocked(sessionID string, res *sha
 	if candidates.Empty() {
 		return res
 	}
-	if canonical := c.selectLookupCandidateForSessionLocked(sessionID, candidates); canonical != nil {
+	// Canonicalization is not a lookup terminal: the ineligibility count is
+	// deliberately not classified here.
+	if canonical, _ := c.selectLookupCandidateForSessionLocked(sessionID, candidates); canonical != nil {
 		return canonical
 	}
 	return res
@@ -4474,8 +4476,11 @@ func (c *Cache) lookupCacheForDigests(
 	nowUnix := now.Unix()
 	match := c.lookupMatchForDigestsLocked(recipeDigest, extraDigests, nowUnix)
 	c.traceLookupAttempt(ctx, recipeDigest.String(), "", nil, false)
-	hitRes := c.selectLookupCandidateForSessionLocked(sessionID, match.candidates)
+	hitRes, resourceIneligible := c.selectLookupCandidateForSessionLocked(sessionID, match.candidates)
 	if hitRes == nil {
+		if resourceIneligible > 0 {
+			c.classifyServeOutcome(ctx, cacheServeCandidateIneligibleSessionResources, nil, 0)
+		}
 		c.traceLookupMissNoMatch(ctx, recipeDigest.String(), false, -1, "", 0)
 		c.egraphMu.Unlock()
 		return nil, false, nil

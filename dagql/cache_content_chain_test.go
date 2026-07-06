@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	set "github.com/hashicorp/go-set/v3"
 	"github.com/vektah/gqlparser/v2/ast"
 	"gotest.tools/v3/assert"
 
@@ -689,16 +690,56 @@ func TestTransientlyStarvedSelectionTieBreak(t *testing.T) {
 	candidates.Insert(starved)
 	candidates.Insert(fresh)
 	cache.egraphMu.RLock()
-	winner := cache.selectLookupCandidateForSessionLocked("session", candidates)
+	winner, _ := cache.selectLookupCandidateForSessionLocked("session", candidates)
 	cache.egraphMu.RUnlock()
 	assert.Assert(t, winner == fresh, "the unmarked candidate must outrank the starved one despite its higher ID")
 
 	only := newSharedResultSet()
 	only.Insert(starved)
 	cache.egraphMu.RLock()
-	winner = cache.selectLookupCandidateForSessionLocked("session", only)
+	winner, _ = cache.selectLookupCandidateForSessionLocked("session", only)
 	cache.egraphMu.RUnlock()
 	assert.Assert(t, winner == starved, "a starved candidate still serves when it is the only one")
+}
+
+// TestSessionResourceIneligibilityIsTyped pins the T-S7 counter's source:
+// when every lookup candidate is rejected by the session-resource gate, the
+// selection reports how many — the salt/handle partition signature the
+// lookup terminals classify as candidate_ineligible_session_resources
+// instead of letting it pass as a plain miss (S10).
+func TestSessionResourceIneligibilityIsTyped(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	cache, err := NewCache(ctx, "", nil, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, cache.Close(context.Background()))
+	}()
+
+	handle := SessionResourceHandle("secret:salted-handle")
+	requires := set.NewTreeSet(compareSessionResourceHandles)
+	requires.Insert(handle)
+	gated := &sharedResult{id: 1, requiredSessionResources: requires}
+
+	candidates := newSharedResultSet()
+	candidates.Insert(gated)
+
+	// A session without the handle: no winner, and the rejection is
+	// counted as resource ineligibility, not silence.
+	cache.egraphMu.RLock()
+	winner, ineligible := cache.selectLookupCandidateForSessionLocked("session-without-handle", candidates)
+	cache.egraphMu.RUnlock()
+	assert.Assert(t, winner == nil)
+	assert.Equal(t, ineligible, 1)
+
+	// The same candidate serves a session holding the handle.
+	assert.NilError(t, cache.BindSessionResource(ctx, "session-with-handle", "client", handle, "value"))
+	cache.egraphMu.RLock()
+	winner, ineligible = cache.selectLookupCandidateForSessionLocked("session-with-handle", candidates)
+	cache.egraphMu.RUnlock()
+	assert.Assert(t, winner == gated)
+	assert.Equal(t, ineligible, 0)
 }
 
 // TestContentChainConcurrentForcingSingleflights is T-S8: N concurrent

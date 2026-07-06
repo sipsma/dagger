@@ -30,6 +30,11 @@ const (
 	cacheServeFromLazyForm = "served_from_lazy_form"
 	// A hit's retained sources were exhausted; the call executed live.
 	cacheServeDemotedToMiss = "demoted_to_miss"
+	// A lookup found candidates but every one required session resources
+	// this session does not hold — the typed salt/handle-partition miss
+	// (S10), distinguishable from a plain miss. Counted once per lookup
+	// attempt at the eligibility filter.
+	cacheServeCandidateIneligibleSessionResources = "candidate_ineligible_session_resources"
 
 	// Chain-fetch outcomes, one per blob attempt during chain realization
 	// (§9.3's typed failure vocabulary; the field key is the call being

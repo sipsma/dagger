@@ -71,6 +71,18 @@ func setupDebugHandlers(addr string, eng *server.Server) error {
 			return
 		}
 	}))
+	// The productized cache-export trigger (remote-cache design §7 D1): an
+	// operator endpoint, deliberately not a debug handler, sharing the
+	// operator listener. The cloud keeper drives it; the handler owns
+	// method/secret checks and coalescing.
+	m.Handle("/v1/cache/export", http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		if eng == nil {
+			http.Error(rw, "engine server not available", http.StatusServiceUnavailable)
+			return
+		}
+		eng.HandleCacheExport(rw, req)
+	}))
+
 	registerTestOnlyCacheTransportHandlers(m, eng)
 
 	if os.Getenv("_DAGGER_TESTONLY_SNAPSHOT_LOSS") == "1" {

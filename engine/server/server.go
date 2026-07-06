@@ -55,6 +55,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/dagger/dagger/engine"
+	cacheservice "github.com/dagger/dagger/engine/cacheservice"
 	"github.com/dagger/dagger/engine/clientdb"
 	"github.com/dagger/dagger/engine/distconsts"
 	"github.com/dagger/dagger/engine/engineutil"
@@ -146,6 +147,14 @@ type Server struct {
 	engineCache *dagql.Cache
 
 	//
+	// remote cache service (nil client = feature disabled)
+	//
+	cacheServiceSettings cacheservice.Settings
+	cacheServiceClient   *cacheservice.Client
+	cacheExportMu        sync.Mutex
+	cacheExportFlight    *cacheExportFlight
+
+	//
 	// session+client state
 	//
 	daggerSessions   map[string]*daggerSession // session id -> session state
@@ -227,6 +236,11 @@ func NewServer(ctx context.Context, opts *NewServerOpts) (*Server, error) {
 	srv.buildkitMountPoolDir = filepath.Join(srv.workerRootDir, "cachemounts")
 
 	srv.executorRootDir = filepath.Join(srv.workerRootDir, "executor")
+
+	// The cache-service client must exist before local cache state
+	// initializes: the boot window imports bundles and installs the chain
+	// blob source (§8, R14).
+	srv.initCacheServiceClient(cfg)
 
 	if err := srv.initLocalCacheState(ctx, *cfg, ociCfg); err != nil {
 		return nil, err
@@ -536,6 +550,11 @@ func (srv *Server) initLocalCacheStateOnce(ctx context.Context, cfg config.Confi
 		return localCacheStateResetReason("dagql_" + string(resetReason)), nil
 	}
 
+	// The bundle inflow runs inside the pre-serving boot window, after
+	// local restore has committed (§8): warm state arrives before the first
+	// client, and any failure degrades to a colder boot, never a failed one.
+	srv.cacheServiceBootImport(ctx)
+
 	srv.testOnlyCacheTransportBoot(ctx)
 
 	return localCacheStateResetNone, nil
@@ -742,6 +761,11 @@ func (srv *Server) GracefulStop(ctx context.Context) error {
 			}
 		}
 	}
+
+	// The opt-in shutdown export runs on exactly the state local flush is
+	// about to persist: sessions drained, prune done, cache not yet closed
+	// (§7 D1). Budget-bounded; never fails the shutdown.
+	srv.cacheServiceShutdownExport(ctx)
 
 	if srv.engineCache != nil {
 		if closeErr := srv.engineCache.Close(ctx); closeErr != nil {
