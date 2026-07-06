@@ -608,6 +608,29 @@ redesign salting — that remains a cloud/tenancy work item.</p>
   lists a phantom); (5) protocol wire types live service-side
   (<code>cacheservice/protocol.go</code>); <code>schemaVersion</code> decodes liberally
   (string or number) into the opaque TEXT tag.</li>
+  <li><b>Round 9 (2026-07-06), first adversarial code reviews — both chunks
+  needs-rework, all findings triaged and dispatched.</b> <b>Chunk A</b> (fresh Codex, over
+  the rebased branch): three majors accepted — same-origin dedup must union <em>identity
+  evidence</em> onto the existing row, not only sources (a genuine under-specification in
+  §8.1 step 3, now amended above); bundle identity validation gains the missing
+  result_output_eq_classes/term-output/edge-existence checks with whole-bundle skip
+  replacing a silent per-row skip (L8); allocator advancement moves inside the staged
+  commit (the leak was benign-monotone but violated the stated all-or-nothing contract) —
+  plus origin-index cleanup on row removal and the test upgrades pinning each invariant.
+  The reviewer independently verified the callpbv1 recipe-form audit, both §9 adaptations,
+  closure direction, and wipe-isolation. SQLite <code>foreign_keys</code> being off was
+  noted and deliberately NOT changed (store-wide behavior belongs to the take-3 owner).
+  <b>Chunk D</b> (fresh Codex): the finding that matters — the blob-upload
+  <code>uploadID</code> was client-forgeable completion authority; fixed as a stateless
+  signed token binding {org, digest, size, object path, expiry} with backend path
+  assertion at finalize. Also accepted: atomic size-aware cache_blobs insert; real limit
+  enforcement (MaxBytesReader, EOF-after-decode, archive cap); signed filesystem URLs
+  (dev-backend parity); event-payload typing + redaction; staging-key upload with
+  server-side promote so final CAS keys are never client-writable (preferred; fallback =
+  documented engine-side digest-verify reliance with tripwire, only if promote proves
+  heavy on the Namespace backend). Rescoped, not defects: production-API mounting is the
+  next chunk D slice (was explicitly out of the reviewed slice); blob-path event coverage
+  stays with the insight slice.</li>
 </ol>
 </div>
 </details>
@@ -1214,11 +1237,15 @@ row; record <code>bundleID → existing localID</code> in the remap table and re
 last-used metadata. Absent ⇒ allocate a fresh local ID, record the remap, stage the row.
 The remap table covers every kept row either way — sibling rows' references must resolve
 regardless of which side of the dedup their targets landed on. <b>Same-origin observations
-union sources, never replace rows:</b> when a later bundle carries a chain for an origin
-already present without one (the exporting store realized content after an earlier export),
-the existing row gains that content-chain source; nothing about an existing row is
-overwritten or removed by import — first-imported wins for row content, later observations
-may only add sources and refresh timestamps.</li>
+union sources <em>and identity evidence</em>, never replace rows:</b> when a later bundle
+carries a chain for an origin already present without one (the exporting store realized
+content after an earlier export), the existing row gains that content-chain source; and
+when it carries new identity evidence for the row — output-class membership, digests — the
+existing row is taught that evidence exactly as a freshly-staged row would be (indexed
+under the new digests, class membership unioned), else a later observation's digest could
+never produce an exact-digest hit on the deduped row. Nothing about an existing row is
+overwritten or removed by import — first-imported wins for row content; later observations
+may only add sources, add identity evidence, and refresh timestamps.</li>
 <li><span class="tag">REWRITE REFERENCES (§6.3, once)</span><br>
 Frames by structured walk; envelope self-IDs (and per-item list IDs) structurally, since
 the persistence layer owns those fields; payload and lazy-fragment refs by the
