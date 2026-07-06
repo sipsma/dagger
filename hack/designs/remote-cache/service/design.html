@@ -573,6 +573,25 @@ redesign salting — that remains a cloud/tenancy work item.</p>
   fragment-backed rows a warm store actually restores — derived directory/file rows are
   not in any persisted root's closure, which shapes what bundle closures will contain in
   practice and what T-S1/T-S4 fixtures should assert against.</li>
+  <li><b>Round 7 (2026-07-06, implementation as-built — chunk A complete).</b> Chunk A
+  landed on its implementer branch (three commits, tip <code>67191f011a</code>, gates
+  green: 13/13 bundle tests with red-before/green-after mechanism toggles; Step-0 fully
+  green via the engine-dev toolchain; the §6.3(d) recipe-form audit came back <b>clean</b> —
+  the <code>callpbv1</code> wire format has no engine-result leaf anywhere, so only
+  handle-form IDs rewrite and recipe-form crosses byte-identical, pinned by test). As-built
+  facts folded: (1) the in-memory allocator is <em>also</em> zeroed whenever the e-graph
+  drains (<code>maybeResetEgraphLocked</code>), so §6.2's reuse hole existed within a boot,
+  not only across prune+restart — the high-water mark as built never resets in memory and
+  restores from <code>meta</code>, covering both; (2) the bundle's <code>metadata.db</code>
+  ships the full shared DDL with the local-only tables present-but-empty and never read
+  (the one-encoding reading; a stripped DDL was considered and not required); (3) the
+  payload-ref chokepoint is 144 call sites across 18 files (the §6.3 estimate corrected);
+  (4) rows that claim snapshot content with no portable re-make path are excluded with
+  typed counters, and an identity-only type registry
+  (<code>RegisterContentlessPersistedType</code>) is the §6.4 seam awaiting chunk B's
+  contentless decoders. Next for chunk A: rebase onto the integration tip
+  (<code>93cc7419a4</code>, post-§9), re-gate, fresh adversarial review, then land per the
+  round-6 ruling.</li>
 </ol>
 </div>
 </details>
@@ -803,8 +822,8 @@ result IDs, all produced by one chokepoint — <code>encodePersistedObjectRef</c
 (core/persisted_object.go:47) — and parsed back by type-specific decoders. The sites are
 numerous (git repos/refs, services, changesets, generators, module trees, and every
 registered lazy struct's <code>ParentResultID</code>/<code>SourceResultID</code>-style
-fields — e.g. <code>persistedContainerWithRootFSLazy</code>, core/container.go:702; 80+
-encode calls across container/directory/file alone) but the bytes they produce are opaque
+fields — e.g. <code>persistedContainerWithRootFSLazy</code>, core/container.go:702; 144
+encode calls across 18 files, as built) but the bytes they produce are opaque
 to the persistence layer: nothing generic can find the refs to rewrite them. This phase
 changes the encoding at the chokepoint: <code>encodePersistedObjectRef</code> returns (and
 the persisted structs' fields and decoders carry) a <b>ref token</b> — a small type whose
