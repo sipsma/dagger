@@ -557,10 +557,11 @@ state instead of a silently partial answer.
 **14.6 Activation model:** on ALL existing Cloud traces: the walk (module-blind caveats and
 per-node refusals), categories 1/7 via dag.call + outcomes, pair-mode digest-stable answers
 (2/8), and the E3b STRUCTURES (parsed and rendered on every dag.call-bearing span). E3b
-ATTRIBUTION, however, only fires from the category-3 paired branch — it needs a positionally
-paired origin, which needs ordered vectors on both input-bearing sides — so on unprofiled
-traces it reaches only zero-input root pairs; arg-level attribution in general activates with
-E3a (profiled runs). On profiled runs additionally: E1 exact causes (5/6/9, input_unknown next
-hops), E3a positional pairing, the digest-only lookup facts. Native dumps additionally carry E2
+ATTRIBUTION, however, does NOT fire on unprofiled traces at all: it runs only from the
+category-3 paired branch after the input vectors were actually COMPARED (`pairCompared`), which
+requires non-empty ordered vectors on both sides — zero-input and vector-less pairs take the
+"positional pairing unavailable" path before comparison is ever marked. Arg-level attribution
+therefore activates exactly with E3a (profiled runs). On profiled runs additionally: E1 exact
+causes (5/6/9, input_unknown next hops), E3a positional pairing, the digest-only lookup facts. Native dumps additionally carry E2
 scope facts and the DNC ident micro-emit. The take-3 merge folds E1's `persisted_load_failed`
 into the `demoted_to_miss` seam (§13's drift table).
