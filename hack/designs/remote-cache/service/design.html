@@ -1370,6 +1370,287 @@ export/import operations emit ordinary spans so cloud traces show cache lifecycl
 alongside build cost.</p>
 </details>
 
+<details class="fold" id="dev" open><summary><h2>12. The dev stack and the test ladder</h2></summary>
+
+<p><b>The idea in three sentences.</b> Every rung below the last runs with zero external
+credentials (S9): the engine side proves itself in-repo against a protocol-faithful test
+service; the real service proves itself in dagger.io against containerized Postgres/MinIO
+and real dev engines, all inside Dagger. One <b>conformance suite</b> — protocol-level tests
+parameterized over an endpoint — runs against both the test service and the real one, so the
+two cannot drift silently. The only credential-gated step is the final live deployment, and
+by the time it runs, everything it exercises has already passed twice.</p>
+
+<h3>12.1 &nbsp;The ladder</h3>
+<ol class="steps">
+<li><span class="tag">DAGQL UNIT (dagger/dagger)</span><br>
+Bundle round-trip against in-memory/file stores: encode a seeded store → import into a
+fresh store → identical key derivation and hit behavior (T-S1, the bundle analog of the
+reset's renumbered-store T5); origin dedup (T-S2 red test); the ref-token walk (loud on
+unknown shapes); bundle-flavored vetting matrix. The bundle reader/writer is factored over
+plain streams, so this rung needs no network at all.</li>
+<li><span class="tag">IN-REPO INTEGRATION (dagger/dagger)</span><br>
+The persistence suite's dagger-in-dagger pattern, extended: two dev engines with
+<em>different</em> state keys plus the <b>in-repo test service</b> — a small Go binary
+(<code>internal/testutil/cacheservice</code>) implementing the /v1 protocol over filesystem
+storage, doubling as the protocol's reference implementation — wired as Dagger services
+exactly like the restart tests wire engines today
+(core/integration/engine_persistence_test.go's start/stop helpers). Secret-salt pre-seeding
+(<code>&lt;rootDir&gt;/secret-salt</code>, 32 bytes) is a harness helper so cross-engine
+tests share handle identity deliberately (S10). This rung carries T-S3 through T-S8 and the
+conformance suite. It is R11's requirement made real: the full remote model provable in
+dagger/dagger with no cloud stack.</li>
+<li><span class="tag">SERVICE HARNESS (dagger.io, no dev stack)</span><br>
+<code>api/cmd/cacheservice-dev-server</code>: the real route registration + real handlers
+against MinIO and either embedded or containerized Postgres — the prior attempt's
+"cheap loop before full stack" pattern, which caught protocol drift that fakes had masked.
+Runs the conformance suite against the real handlers, plus real-engine round-trips
+(engine binaries in containers ↔ dev server ↔ MinIO). Zero credentials.</li>
+<li><span class="tag">E2E (dagger.io, "go ham")</span><br>
+The full stack stood up inside Dagger, the way dagger/dagger's own integration suite goes
+ham with services: API server with the cache-service handlers, Postgres, MinIO, keeper, two
+or more dev engines. Exercises the lifecycle end to end — provisioning-style config
+injection, a simulated green check enqueuing export, keeper claim → engine admin API →
+bundle published, teardown sequencing, fresh engine imports and runs warm — plus the growth
+gate (T-S3) and GC safety (delete unreferenced blobs; live runs unaffected). Still zero
+credentials.</li>
+<li><span class="tag">LIVE (credential-gated, the only such step)</span><br>
+Deploy to the managed dev stack (Namespace providers, the real keeper wiring, the real
+tenancy). Run the cloud warm proof (§13). This rung reuses the prior era's operational
+knowledge — the runbook, the fresh-engine destroy-and-reconcile discipline, the PR-trigger
+harness — as procedure, not as code. It is designed to be executed by whoever holds
+credentials, on top of artifacts that are already fully proven below; agents without
+credentials stop at rung 4 with nothing left unproven but the deployment itself.</li>
+</ol>
+
+<h3>12.2 &nbsp;Namespace awareness without Namespace access</h3>
+<p>Three concrete design choices keep rung 5 thin: the engine consumes only environment
+configuration (anything that can inject env vars can provision cache-enabled engines —
+Namespace, helm, docker run); the service's Namespace-specific surface is one blob-store
+backend (ported, already battle-tested) plus the keeper it already ships; and the export
+trigger is an ordinary authenticated API call, so keeper integration is invocation, not
+protocol. The live rung validates wiring and tenancy, not mechanisms.</p>
+</details>
+
+<details class="fold" id="proof" open><summary><h2>13. The warm proof: definition of done</h2></summary>
+
+<p><b>The idea in three sentences.</b> The phase is done when a fresh engine, booting against
+the service, provably serves another engine's work — outputs equal on a random-marker
+pipeline <em>and</em> counters that would have failed loudly on silent recompute — with
+growth flat across ≥3 cycles, idempotence proven by red test, and every degradation path
+(sparse blobs, metadata-only, salt partition) exercised and counted. Done is demonstrated
+three times: in-repo, in the dagger.io e2e, and live on cloud engines.</p>
+
+<h3>13.1 &nbsp;The new proof cases</h3>
+<table class="filetbl">
+<tr><th>#</th><th>Case</th><th>Proves</th><th>Level</th></tr>
+<tr><td>T-S1</td><td>Bundle round-trip: seeded store → bundle → fresh store; identical key
+derivation (digest projection) and hit behavior; refs resolve; origins verbatim</td>
+<td>Portable identity across the boundary (R3, R9, R16)</td><td>unit</td></tr>
+<tr><td>T-S2</td><td>Import the same bundle twice (same boot, and across boots) ⇒ zero row
+growth, <code>rows_deduped_by_origin</code> == bundle rows on the second pass</td>
+<td>Idempotent import (S2) — the red test, from day one</td><td>unit + integration</td></tr>
+<tr><td>T-S3</td><td>≥3 cycles cold→warm→warm→warm over one workload: engine result rows,
+bundle row counts, and origin counts flat modulo new executions; evidence = stats files +
+export summaries per cycle</td>
+<td>The growth bound that killed v2, measured (S3, R10)</td><td>integration + e2e</td></tr>
+<tr><td>T-S4</td><td>The cross-engine warm proof: engine A runs a random-marker pipeline,
+exports; fresh engine B (different state key, pre-seeded shared salt) imports, runs the
+identical pipeline: outputs equal, per-field <code>hit_restored ≥ K</code>,
+<code>served_from{content_chain} ≥ 1</code>, <code>demoted_to_miss == 0</code></td>
+<td>Real remote reuse, by consequence + counters (R8, S8)</td><td>integration + e2e + live</td></tr>
+<tr><td>T-S5</td><td>Metadata-only export → warm engine: lookups hit, zero chain fetches,
+lazy-form realizations &gt; 0, run green</td>
+<td>The recompute path serves remote metadata alone (R1; the §7 D3 test lever)</td>
+<td>integration</td></tr>
+<tr><td>T-S6</td><td>Sparse blobs: delete one chain's blob from the CAS after seeding →
+warm run still green; <code>chain_fetch_missing ≥ 1</code>; the affected result served via
+lazy form or demoted-and-healed; second run hits</td>
+<td>Correctness under sparse availability (S5), runtime floor end to end (R2)</td>
+<td>integration</td></tr>
+<tr><td>T-S7</td><td>Two engines, different salts, secret-dependent result: warm run
+misses <em>with</em> <code>candidate_ineligible_session_resources ≥ 1</code>; same test
+with pre-seeded shared salt: hits</td>
+<td>The salt partition is visible, not silent (S10, R7)</td><td>integration</td></tr>
+<tr><td>T-S8</td><td>N sessions concurrently force one imported result: exactly one chain
+materialization, one set of blob fetches, N−1 waiters, under <code>-race</code></td>
+<td>Chain realization rides the existing singleflight (R15)</td><td>unit + integration</td></tr>
+<tr><td>T-S9</td><td>Conformance suite green against the in-repo test service <em>and</em>
+the real handlers (rungs 2, 3, 4)</td>
+<td>The two implementations cannot drift (S9)</td><td>all rungs</td></tr>
+<tr><td>T-S10</td><td>Export interruption: kill blob upload mid-export → bundle valid and
+selectable, warm run green with fall-throughs; next export completes the gap; GC of
+unreferenced blobs leaves live runs unaffected</td>
+<td>Two-phase export + GC safety (S6, §10 D6)</td><td>e2e</td></tr>
+</table>
+<p class="pill">Existing gates stay in force: engine chunks run the reset design's Step-0
+suites (persistence/restart, cross-session, selected services) at every landing; T1–T8
+from the reset take must stay green throughout — this phase may not regress the restart
+case it builds on.</p>
+
+<h3>13.2 &nbsp;The acceptance bar</h3>
+<ol class="steps">
+<li><span class="tag">IN-REPO</span><br>
+Three consecutive fully-green runs of the complete in-repo gate (Step-0 + T-S1…T-S9's
+in-repo rungs), stats files attached as evidence — green with evidence, not by exit code.</li>
+<li><span class="tag">DAGGER.IO E2E</span><br>
+The full-stack suite (rungs 3–4) green with the same evidence discipline, including T-S3's
+multi-cycle growth record and T-S10.</li>
+<li><span class="tag">LIVE</span><br>
+One complete cloud warm proof on the managed dev stack: cold seed from a real CI-shaped
+run on one engine; engines destroyed with the fresh-engine discipline; a warm run on
+freshly-provisioned engines — outputs equal, counters attached, service event log corroborating
+(export → selection → fetches). Two properties the prior attempts never demonstrated are
+explicitly in scope here: the proof survives a <b>service restart</b> between seed and warm
+run (durable state — no in-memory-seed fragility), and the run reports a <b>wall-clock
+cold-vs-warm comparison</b> on the same pipeline — reported honestly as measurement, not
+as a pass/fail bar, because "faster" was the one claim the prior eras never actually
+evidenced.</li>
+<li><span class="tag">DONE MEANS</span><br>
+All of the above, this document updated to as-built through the review process, and the
+shelf re-examined once. Then the deferred cleverness (analysis-guided policy, selection
+intelligence) can start as its own effort against the two named seams.</li>
+</ol>
+
+<h3>13.3 &nbsp;Requirement coverage</h3>
+<table class="filetbl">
+<tr><th>Req</th><th>Proven by</th><th>Mode</th></tr>
+<tr><td>S1 consumption-only compatibility</td><td>Step-0 + reset T1–T8 standing green; review guard on seam changes</td><td>runtime + review</td></tr>
+<tr><td>S2 idempotent origin import</td><td>T-S2 (red test), T-S1 (origins verbatim)</td><td>runtime</td></tr>
+<tr><td>S3 growth bound</td><td>T-S3 (≥3 cycles, counted)</td><td>runtime</td></tr>
+<tr><td>S4 never breaks builds</td><td>T-S6 (fetch failure), T-S10 (interrupted export), import-budget degradation case in the in-repo suite</td><td>runtime</td></tr>
+<tr><td>S5 sparse-safe</td><td>T-S6; GC-safety in T-S10</td><td>runtime</td></tr>
+<tr><td>S6 two-phase export</td><td>T-S10</td><td>runtime</td></tr>
+<tr><td>S7 schema-agnostic service</td><td>construction (serving path parses manifest only) + version-mismatch selection case in conformance (T-S9)</td><td>construction + runtime</td></tr>
+<tr><td>S8 falsifiable observability</td><td>T-S2/3/4/5/6/7 are themselves the counters' consumers</td><td>runtime</td></tr>
+<tr><td>S9 credential-free to the last step</td><td>rungs 1–4 run in CI with no credentials, by construction</td><td>construction</td></tr>
+<tr><td>S10 handles only; salt visible</td><td>envelope construction (handle-form persistence, pre-existing) + T-S7</td><td>construction + runtime</td></tr>
+</table>
+</details>
+
+<details class="fold" id="order" open><summary><h2>14. Build order</h2></summary>
+<ol>
+<li><b>A — Bundle & origins (dagql, no network).</b> Origin minting/persistence, the ref
+token, the bundle writer/reader over streams, bundle-flavored vetting, origin dedup.
+Gate: T-S1, T-S2 + Step-0. <span class="pill">Depends on the take-3 engine fundamentals
+being merged (it consumes §7/§8's as-built state; coordinate with the take-3 owner on
+landing order and the shared schema_version bump).</span></li>
+<li><b>B — Chains & the content-chain source (engine).</b> Chain computation at export
+(zstd pinned, memoized), chain sources at import, the chain arm of the source walk with a
+file/dir CAS for tests. Gate: T-S4 (file transport), T-S6, T-S8 + Step-0. <span class="pill">
+Depends on reset §9's source walk being landed (it is the direct substrate).</span></li>
+<li><b>C — Transport & the in-repo service.</b> The service client, the test service, the
+admin API + shutdown hook, the conformance suite, the full in-repo integration suite.
+Gate: T-S3, T-S5, T-S7, T-S9 (rung 2) + Step-0.</li>
+<li><b>D — The real service (dagger.io).</b> Handlers, storage backends (ports), migrations,
+dev server. Gate: conformance (rung 3) + backend unit suites (S3/MinIO verification
+semantics).</li>
+<li><b>E — Lifecycle.</b> Keeper export command, checks enqueue, provisioning config, e2e
+"go ham" suite. Gate: T-S9 (rung 4), T-S10, e2e warm proof + growth gate.</li>
+<li><b>F — Insight.</b> Event log surfaces, indexer, dashboard. Parallel with E; gate:
+surfaces render from e2e-generated state; every counter's consumer table (§11) closed.</li>
+<li><b>G — Live.</b> Deploy, cloud warm proof (§13.2 step 3). Credential-gated;
+procedure-driven.</li>
+</ol>
+<p class="pill">Chunks land behind their gates with the reset design's discipline:
+legitimately-expected intermediate failures are named, owner-acknowledged exceptions;
+deviations from this design or the reset design's seams are stop-and-discuss, never
+silent.</p>
+</details>
+
+<details class="fold" id="shelf"><summary><h2>15. The shelf <span class="pill">(not part of the design)</span></h2></summary>
+<div class="shelfnote">
+<b>What the shelf is.</b> Deliberately set aside, not pre-decided. Unshelve only against a
+real need, with review.
+</div>
+<ul>
+<li><b>Bounded semantic row dedup</b> (collapsing distinct-origin rows with identical
+recipe digests + output classes at import, bounded per class). The e-graph already serves
+across equivalents; this is a metadata-size optimization with real subtlety (multiple
+materializations per class are a feature). Unshelve if T-S3-scale measurement shows
+independent-equivalent accumulation actually costing something.</li>
+<li><b>Delta / sliced bundles.</b> Whole-snapshot bundles are the v1 simplicity anchor;
+selection-side slicing or exporter-side deltas are pure optimizations once measurement
+demands them (S6 note: metadata size is a measured surface).</li>
+<li><b>Smarter selection / analysis-guided policy.</b> The two named seams (§7 D3,
+§10 D3). Explicitly the next phase's territory, not this one's.</li>
+<li><b>Salt unification / finer tenancy.</b> S10's tracked deferral; needs its own
+security-reviewed design (cloud-managed salt distribution, or handle schemes that don't
+partition).</li>
+<li><b>Import command lane / mid-serve import.</b> Deleted in this design (boot import is
+config-driven; R14 stands). Would return only with a quiesce design per the reset
+non-goals.</li>
+<li><b>Open protocol commitments.</b> The protocol is versioned and the test service is a
+reference implementation, but publishing it as a stable third-party contract is a product
+decision for later.</li>
+<li><b>Engine-to-engine / file-share transport as a product feature.</b> The bundle
+reader/writer is stream-factored and the unit rung uses files, so "export to a directory"
+nearly exists; productizing it (NFS-shared caches without a service) is deliberately not
+v1 surface.</li>
+</ul>
+</details>
+
+<details class="fold" id="salvage"><summary><h2>16. Prior-attempt salvage ledger</h2></summary>
+<p class="pill">Dispositions of the battle-tested prior code (dagger.io worktree
+<code>remote-cache-2-thread-202606122151</code> @ b48ec1114; engine worktree
+<code>remote-cache-2-thread-202606122148</code>), per Erik's standing rule: evidence about
+those attempts, evaluated against this architecture — never precedent.</p>
+<table class="filetbl">
+<tr><th>Asset</th><th>Disposition</th><th>Reason</th></tr>
+<tr><td>S3 + Namespace-Artifacts blob backends (size verification, finalize retries,
+digest addressing) + moto/MinIO tests</td><td><b>Port</b></td>
+<td>Protocol-agnostic, digest-keyed, empirically verified semantics; exactly D4's
+interface.</td></tr>
+<tr><td>Keeper sidecar + <code>engine_cache_commands</code> schema + claim/complete loop
+(idempotency keys, provider-instance matching)</td><td><b>Port, narrowed</b></td>
+<td>Lifecycle machinery proven live; narrowed to the export command kind — the import
+command lane is deleted by config-driven boot import (§10 D5), which also deletes the
+FIFO import-starvation class it needed a priority fix for.</td></tr>
+<tr><td>Checks integration (import-before/export-after, export decoupled from check result,
+<code>API_CHECK_NAME_ALLOWLIST</code>)</td><td><b>Port</b> (export-after half)</td>
+<td>"Export never fails a green check" is S4; the allowlist is the affordability knob for
+live loops.</td></tr>
+<tr><td><code>cachemoney-dev-server</code> (real routes + MinIO, strict readiness)</td>
+<td><b>Port (pattern)</b></td><td>The cheap-loop-before-full-stack gate that caught real
+protocol drift; becomes <code>cacheservice-dev-server</code> (§12 rung 3).</td></tr>
+<tr><td>Wire mechanics: multipart publish, stat-then-upload with
+<code>alreadyExists</code>, presigned indirection, complete-with-subset</td>
+<td><b>Adapt</b></td><td>Proven mechanics, re-homed under the store-and-select API
+(§10 D1).</td></tr>
+<tr><td>D0 round-trip test design (<code>TestCachemoneyD0RealBackendRoundTrip</code>:
+random-marker proof-by-consequence across workload families; metadata-only as the
+recompute forcer)</td><td><b>Adapt</b></td><td>The single most reusable test design of the
+era; becomes the in-repo integration suite's skeleton and T-S4/T-S5's shape.</td></tr>
+<tr><td>Warm-proof evidence contract (phase-d2 plan: capture set, stop conditions,
+fresh-engine discipline + DB reconciliation)</td><td><b>Adopt as procedure</b></td>
+<td>§13.2 step 3's runbook basis; note the in-memory-seed fragility it managed is gone by
+design (durable service state).</td></tr>
+<tr><td>Counter vocabulary (materialization outcomes by role, recompute reasons,
+bytes/blobs up/down)</td><td><b>Adapt</b></td><td>Folded into §11 on top of the reset
+vocabulary; the one known-misleading counter (<code>snapshots_requested</code>) does not
+carry over — its semantic doesn't exist in a stat-then-upload world.</td></tr>
+<tr><td>In-memory <code>dagql.Cache</code> service merge (<code>cachemoney_real.go</code>)</td>
+<td><b>Reject</b></td><td>§2's rejected coupling — the site of the terminal blowup, the
+schema coupling, and the reseed fragility.</td></tr>
+<tr><td>Server-side leaf-selection upload policy</td><td><b>Reject (concept)</b></td>
+<td>Superseded by all-chains + CAS existence dedup (§7 D3): equivalent bytes, less policy,
+direct mid-chain hydration. <code>metadata-only</code> survives as the test lever.</td></tr>
+<tr><td>Name-heuristic payload-ID remap walk</td><td><b>Reject</b></td>
+<td>Replaced by the contract-true ref token (§6.3's rejected-alternatives table).</td></tr>
+<tr><td>v2 wire proto (<code>cachemoneyproto</code>), per-source snapshot indexes,
+engine-startup import/export flags</td><td><b>Reference only</b></td>
+<td>Shapes consulted; superseded by the bundle model, chain manifests, and config-driven
+boot import respectively (mixing startup flags with lifecycle commands was a known
+failure class — config-driven import has exactly one owner).</td></tr>
+</table>
+</details>
+
+<div class="foot">
+Source of truth: this page (<code>hack/designs/remote-cache/service/design.html</code>).
+Companion: the reset design (<code>../reset/design.html</code>, engine fundamentals) and its
+<code>lessons.md</code>, both binding here. Prior-attempt artifacts: reference only, per the
+review log's round-0 rule.
+</div>
+
 </main>
 </div>
 <script>
