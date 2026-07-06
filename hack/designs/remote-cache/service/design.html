@@ -762,7 +762,12 @@ redesign salting — that remains a cloud/tenancy work item.</p>
   worktree's <code>hack/logs/</code> (survives /tmp churn — flagged by the take-3 manager
   to cache-chief as worth standardizing); the take-3 seat holds for chunk C's landing
   review, with anything beyond boot-time service invocation remaining stop-and-discuss.
-  Post-merge insurance gate on the landed tip dispatched.</li>
+  Post-merge insurance gate on the landed tip dispatched — and returned <b>green</b>
+  (merge parent verified verbatim; 25/112/80 leaf + 31 bundle/chain + dagql/core ok, logs
+  retained under <code>hack/logs/</code>). One environmental note recorded: concurrent
+  engine-dev harness runs from two agent worktrees on one host can contend (a
+  module-load failure before any test ran; clean on retry) — the manager serializes
+  engine-dev-heavy work to one implementer at a time from here.</li>
 </ol>
 </div>
 </details>
