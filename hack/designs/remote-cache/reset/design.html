@@ -150,7 +150,7 @@
 <main>
 
 <h1>Remote Cache — Design</h1>
-<p class="sub">v21 &nbsp;·&nbsp; all sections settled &nbsp;·&nbsp; verification round 16 complete &nbsp;·&nbsp; 2026-07-03</p>
+<p class="sub">v22 &nbsp;·&nbsp; implementation in progress &nbsp;·&nbsp; as-built refinements land via the review log &nbsp;·&nbsp; 2026-07-03</p>
 
 <div class="banner">
 <b>Status.</b> The living design doc for the remote-cache engine work: requirements and
@@ -705,6 +705,18 @@ decided in Part II.</p>
   both-forms shape no longer claims <code>LazyKind</code> universally (Container's
   payload has none — core/container.go:534). Final reviewer verdict:
   <b>ready-for-implementation</b>.</li>
+  <li><b>Round 17 (2026-07-05, implementation as-built).</b> §8b's pre-code surface map
+  (the implementer's stop-and-discuss) found the one thing rounds 14–16 missed about the
+  persisted shape: <b>Container's <code>form</code> was never the exclusive
+  discriminator</b> — its payload always carried both forms; the flag marks
+  is-deferred-work-still-pending over a hollow-until-evaluated value, a distinction
+  snapshot-links presence cannot replace for scratch/metadata-only chains. Adjudicated:
+  Container keeps one honestly-renamed <code>pending</code> bit (content-signal
+  heuristics rejected as the clever inference this design forbids); and the lazy
+  fragment's home is the <b>envelope</b>, not the type payloads — which retires chunk 1's
+  payload-probe convention outright and simplifies list handling. §8 D1's pinned-shape
+  paragraph rewritten to match; T5's digest-projection comparison was pinned the same way
+  earlier this phase (§8a). Both rulings recorded here for the owner's review.</li>
 </ol>
 </div>
 </details>
@@ -1412,9 +1424,9 @@ enough — the entire store is wiped and the engine starts cold (§7, Fact 3).</
 <li>the <b>value</b> → the envelope, into <code>results.self_payload</code>;</li>
 <li>the <b>local-snapshot source</b> → its refKeys, into
 <code>result_snapshot_links</code>;</li>
-<li>the <b>lazy-form source</b> → nothing new at all: it is already inside the envelope
-(<code>LazyJSON</code>, plus <code>LazyKind</code> for types with several lazy kinds,
-referencing the results in <code>result_deps</code>).</li>
+<li>the <b>lazy-form source</b> → the envelope's lazy fragment
+(<code>LazyKind</code>/<code>LazyJSON</code>, referencing the results in
+<code>result_deps</code>).</li>
 </ul>
 <p>What changes is <em>where the encoder gets the snapshot refs</em>. Today it walks the
 value structs and asks them what refs they hold (Fact 3). In this design it copies them
@@ -1437,14 +1449,26 @@ stays exactly as it is; the stashed payload survives on the sharedResult; flush 
 snapshot + stashed recipe; decoders accept an envelope carrying both (today they assume
 exactly one, e.g. core/file.go:284/291 — covered by this take's
 <code>schema_version</code> bump). No new schema tables.</p>
-<p><b>The persisted shape, pinned:</b> the payload's exclusive form discriminator goes
-away. Snapshot-backedness is indicated by what already indicates it — the result's rows
-in <code>result_snapshot_links</code> — and the lazy form by a non-empty lazy payload:
-<code>LazyJSON</code>, with <code>LazyKind</code> alongside where a type registers
-several lazy kinds (Directory and File do; Container's single lazy form carries no kind
-discriminator, core/container.go:534). Either form, both, or (for self-contained scalar
-payloads) neither may be present. Old decoders never meet the new shape: the
-<code>schema_version</code> bump wipes on upgrade (§8 D2's store-level rule).</p>
+<p><b>The persisted shape, pinned (as built):</b> the lazy fragment lives on the
+<b>envelope</b> — <code>PersistedResultEnvelope</code> gains
+<code>LazyKind</code>/<code>LazyJSON</code> fields (per-item envelopes carry per-item
+fragments for lists), and the type payloads drop their embedded lazy fields.
+Snapshot-backedness is indicated by what already indicates it — the result's rows in
+<code>result_snapshot_links</code> — and the lazy form by a non-empty envelope fragment,
+so import's lazy-source check is a length test, not a payload probe. Either form, both,
+or (for self-contained scalar payloads) neither may be present. When both are present,
+decode prefers the snapshot; the fragment then serves re-materialization (§9) and is not
+attached as live deferred work. One type-level marker survives, honestly renamed:
+Container's <code>form=ready|lazy</code> was never a which-form discriminator — its
+payload always carried both forms side by side — but an is-deferred-work-still-pending
+flag over a value that stays hollow until its lazy runs; it becomes <code>pending</code>,
+and decode attaches the envelope fragment as live work iff it is set. Directory and File
+need no such flag: their realization always produces a snapshot, so links-presence
+discriminates completely. (The nested <code>pending|materialized</code> markers on
+container mount/FS sub-values and git's <code>local|remote</code> are value-state and
+backend-type markers, not form discriminators — they stay.) Old decoders never meet the
+new shape: the <code>schema_version</code> bump wipes on upgrade (§8 D2's store-level
+rule).</p>
 <p><b>And nothing needs a "retainability" concept.</b> Whether a result can be recomputed
 falls out of what its payload factually is: a value with no in-engine lazy form simply
 encodes without one. The canonical example: <code>host.directory(…)</code> results — the
