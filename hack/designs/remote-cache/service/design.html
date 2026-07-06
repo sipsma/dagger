@@ -486,6 +486,303 @@ redesign salting — that remains a cloud/tenancy work item.</p>
 </div>
 </details>
 
+<details class="fold" id="target" open><summary><h2>5. Target shape</h2></summary>
+<p>The one-screen picture, stated mechanism-neutrally; every "how" is owned by a later
+section.</p>
+
+<figure>
+<svg viewBox="0 0 960 330" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Service phase lifecycle">
+  <defs>
+    <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5c6470"/>
+    </marker>
+  </defs>
+  <rect x="15" y="20" width="280" height="130" rx="10" fill="#e9effc" stroke="#c5d2f0"/>
+  <text x="155" y="46" text-anchor="middle" font-size="14" font-weight="700" fill="#2757d6">ENGINE BOOT</text>
+  <text x="155" y="70" text-anchor="middle" font-size="12" fill="#2b2f36">ask service: bundles for my scope+version</text>
+  <text x="155" y="88" text-anchor="middle" font-size="12" fill="#2b2f36">download K bundles (metadata only)</text>
+  <text x="155" y="106" text-anchor="middle" font-size="12" fill="#2b2f36">merge: vet, remap, origin-dedup, R16 keys</text>
+  <text x="155" y="128" text-anchor="middle" font-size="11" fill="#5c6470">before serving, bounded budget, cold on failure (S4)</text>
+
+  <line x1="295" y1="85" x2="345" y2="85" stroke="#5c6470" stroke-width="2.5" marker-end="url(#arr2)"/>
+
+  <rect x="350" y="20" width="290" height="130" rx="10" fill="#e7f5ec" stroke="#bfe0cc"/>
+  <text x="495" y="46" text-anchor="middle" font-size="14" font-weight="700" fill="#1a7f4b">SERVE (unchanged model)</text>
+  <text x="495" y="70" text-anchor="middle" font-size="12" fill="#2b2f36">warm lookups hit imported results</text>
+  <text x="495" y="88" text-anchor="middle" font-size="12" fill="#2b2f36">content-chain source pulls blobs on demand</text>
+  <text x="495" y="106" text-anchor="middle" font-size="12" fill="#2b2f36">fetch fails → lazy form → demote floor</text>
+  <text x="495" y="128" text-anchor="middle" font-size="11" fill="#5c6470">reset §9's source walk, third source now real</text>
+
+  <line x1="640" y1="85" x2="690" y2="85" stroke="#5c6470" stroke-width="2.5" marker-end="url(#arr2)"/>
+
+  <rect x="695" y="20" width="250" height="130" rx="10" fill="#fdf3e0" stroke="#ecd9ac"/>
+  <text x="820" y="46" text-anchor="middle" font-size="14" font-weight="700" fill="#a06000">EXPORT</text>
+  <text x="820" y="70" text-anchor="middle" font-size="12" fill="#2b2f36">on signal (API) or graceful shutdown</text>
+  <text x="820" y="88" text-anchor="middle" font-size="12" fill="#2b2f36">publish metadata bundle (atomic, fast)</text>
+  <text x="820" y="106" text-anchor="middle" font-size="12" fill="#2b2f36">upload missing blobs (delta, resumable)</text>
+  <text x="820" y="128" text-anchor="middle" font-size="11" fill="#5c6470">interruption ⇒ sparser blobs, still valid (S5/S6)</text>
+
+  <rect x="240" y="200" width="480" height="110" rx="10" fill="#fff" stroke="#9aa1ab" stroke-width="1.5"/>
+  <text x="480" y="226" text-anchor="middle" font-size="14" font-weight="700">THE CACHE SERVICE (dagger.io)</text>
+  <text x="480" y="250" text-anchor="middle" font-size="12" fill="#2b2f36">bundle inventory (Postgres) · blob CAS (object storage) · selection API</text>
+  <text x="480" y="268" text-anchor="middle" font-size="12" fill="#2b2f36">lifecycle: keeper drives import-at-provision / export-before-teardown</text>
+  <text x="480" y="290" text-anchor="middle" font-size="12" fill="#2b2f36">read-only insight indexer + event log → visualizations (§11)</text>
+
+  <line x1="155" y1="150" x2="280" y2="200" stroke="#5c6470" stroke-width="2" marker-end="url(#arr2)"/>
+  <line x1="680" y1="200" x2="820" y2="150" stroke="#5c6470" stroke-width="2" marker-end="url(#arr2)"/>
+</svg>
+<figcaption>Fig. 2 — Lifecycle. The engine's serve-time model is exactly the reset design's;
+this phase adds the boot-time bundle inflow, the export outflow, and the service between
+them.</figcaption>
+</figure>
+
+<h3>The shape, in prose</h3>
+<ul>
+<li><b>Export.</b> A configured engine, when signaled through its cache-admin API or when
+gracefully shutting down, snapshots its retained cache (the same snapshot machinery local
+flush uses), encodes it as a <b>bundle</b> — the one portable result encoding (R9) plus a
+manifest of content chains — publishes the metadata atomically to the service, then uploads
+whichever chain blobs the CAS is missing (S6).</li>
+<li><b>Import.</b> A booting engine asks the service for bundles matching its cache scope and
+schema version, downloads them, and merges them during the existing import-at-boot window
+(R14): per-result vetting, reference remapping into the local ID space, origin-keyed dedup
+(S2), R16 key recomputation. Imported results are ordinary rows afterward — they flush to
+local disk, prune normally, and survive local restarts.</li>
+<li><b>Serve.</b> Unchanged from the reset design. The one addition is that imported results
+carry a <b>content-chain source</b>: when the source walk reaches it, the engine fetches the
+chain's missing blobs from the CAS and applies them as snapshot layers — demand-bounded
+(R12), falling through on failure (S5).</li>
+<li><b>The service.</b> Stores bundles and blobs; selects bundles for booting engines;
+integrates with the managed-engine lifecycle (import at provision, export before teardown);
+exposes insight surfaces. It never composes cache state (§2).</li>
+</ul>
+
+<h3>Cross-section invariants</h3>
+<ul>
+<li>Identity semantics live only in the engine; the service serving path treats bundles as
+opaque (§2, S7).</li>
+<li>Origin identity is minted once and preserved through every hop (S2); import is
+idempotent at every level (row, bundle, blob).</li>
+<li>Blob availability is never a correctness input (S5); every degradation is a counted,
+typed event (S8).</li>
+<li>All bulk metadata movement happens at boot or at export decision points; serving-time
+network I/O is only demand-driven blob fetch by the materialization write point (R14's
+sanctioned "content arrival").</li>
+</ul>
+</details>
+
+<details class="fold" id="bundle" open><summary><h2>6. The bundle: one portable cache artifact</h2></summary>
+
+<p><b>The idea in three sentences.</b> A bundle is one engine's retained cache state in the
+same encoding local persistence writes — the same envelopes, frames, and identity tables —
+minus the rows that are engine-local by definition (snapshotter refKeys, leases), plus the
+portable identity that replaces them: per-result <b>origin identity</b> and per-result
+<b>content chains</b>. Integer row IDs appear in a bundle only as intra-bundle join keys
+(exactly their role in the local file — reset §8 D1); the durable identity of every row is
+its origin pair. Import rewrites join keys into the local ID space at one decision point and
+dedups rows by origin, which is what makes cycles growth-free (S2, S3).</p>
+
+<p class="pill"><b>Names used from here on:</b> the <b>store UUID</b> is a random identity
+minted when a persistence store is first created (stored in the <code>meta</code> table) and
+wiped with it; a result's <b>origin</b> is the pair <code>(origin_store_uuid,
+origin_result_id)</code> fixed at first publication; a <b>chain</b> is the ordered layer list
+(diffID + blob digest per layer) that reconstructs one immutable snapshot, identified by its
+containerd chainID (R4); the <b>manifest</b> is the bundle's small JSON header (versions,
+scope, roots, chains, blob index); the <b>metadata DB</b> is the bundle's SQLite artifact.</p>
+
+<div class="decide"><span class="dtag">THE DECISIONS THIS SECTION MAKES</span>
+<ol style="margin:4px 0 2px">
+<li><b>Bundle = manifest + metadata DB in the local persistence encoding</b> (R9's "one
+encoding", with the engine-local rows excluded and chains/origins added). No second
+serialization model.</li>
+<li><b>Row identity = origin pair</b>, minted at first publication, persisted locally, and
+carried verbatim through every export/import hop (S2).</li>
+<li><b>Reference remapping is a decision-point rewrite at import</b>: frame references via
+the existing structured walk; payload references via a <b>structured ref token</b> that
+replaces today's bare-integer encoding (a schema_version bump). The rejected alternatives
+are recorded below.</li>
+<li><b>What crosses and what doesn't</b>: immutable snapshot content crosses as chains;
+mutable-owner snapshots and refKeys never cross (R4); session resources cross as handles
+only (S10).</li>
+</ol>
+</div>
+
+<h3>6.1 &nbsp;What the local store already provides</h3>
+<p>The bundle design starts from what the take-3 store already writes at flush
+(<code>dagql/persistdb/schema.sql</code>): <code>results</code> (per result: the call frame
+JSON — identity and decode context — and the <code>self_payload</code> envelope carrying the
+value and/or its lazy fragment), the identity tables (<code>eq_classes</code>,
+<code>eq_class_digests</code>, <code>terms</code>, <code>term_inputs</code>,
+<code>result_output_eq_classes</code>), the graph tables (<code>result_deps</code>,
+<code>persisted_edges</code>), and the local-content tables
+(<code>result_snapshot_links</code> — snapshotter refKeys — plus the snapshot-manager
+metadata mirrors). Two facts matter:</p>
+<p><b>Fact 1 — everything identity-bearing is already portable.</b> After the take-3 R16 work,
+no persisted lookup key embeds in-memory ordinals: term keys are recomputed from digests at
+boot, and integer IDs in the file are joins, never identity (reset §8 D1). A bundle can
+therefore reuse the identity tables byte-for-byte: the importing engine already knows how to
+rebuild classes from digests and recompute keys in its own ID space —
+<code>importPersistedState</code> does exactly this for the local store today
+(dagql/cache_persistence_import.go:15, key recompute per reset §8 D1).</p>
+<p><b>Fact 2 — exactly two things in the store are engine-local.</b> The snapshotter refKeys
+(<code>result_snapshot_links.ref_key</code>, plus the snapshot-manager mirror tables keyed by
+snapshot IDs) and the store's integer ID spaces. The first is replaced in bundles by content
+chains (§6.4); the second is handled by the join-key + origin model (§6.2, §6.3).</p>
+
+<h3>6.2 &nbsp;D1 — Origin identity: minted once, carried forever</h3>
+<p>Every result row acquires an origin pair <code>(origin_store_uuid, origin_result_id)</code>:</p>
+<ul>
+<li><b>Minted at first publication.</b> A locally-executed result's origin is
+<code>(this store's UUID, its local result ID)</code>. Local result IDs are already stable
+across flush/restore (import preserves file IDs 1:1 — cache_persistence_import.go:180, the
+<code>sharedResult{id: resultID}</code> construction), so the pair is durable for the life of
+the store. A wiped store mints a fresh UUID; its old rows' origins simply age out of the
+service (it is a cache).</li>
+<li><b>Preserved through every hop.</b> Import records the origin of every imported row;
+re-export emits it verbatim. A result created on engine A, imported by B, and re-exported in
+B's bundle still carries A's origin.</li>
+<li><b>The dedup key, and nothing else.</b> Import skips (or metadata-refreshes) rows whose
+origin is already present — the S2 idempotence. Origin never participates in <em>lookup</em>
+identity: recipe/content digests and terms do that, exactly as today. Two engines
+independently computing equivalent results have different origins and remain distinct rows
+related by digests — precisely R10's requirement.</li>
+</ul>
+<p><b>Persistence shape:</b> a new local table <code>result_origins(result_id, origin_store_uuid,
+origin_result_id)</code> (unique on the origin pair), populated at publication
+(locally-minted) and at bundle import (carried); flushed and restored like every mirror
+table; exported into every bundle. Locally-minted rows are stored explicitly rather than
+implied, so the invariant "every row has exactly one origin, ever" is checkable per-table
+(the T-S3 gate counts it). <code>schema_version</code> bumps (the sanctioned cost, reset
+lessons L6).</p>
+
+<h3>6.3 &nbsp;D2 — Cross-result references: one rewrite, at import</h3>
+<p>Rows reference other rows in two encodings today, and a foreign bundle's rows arrive
+speaking the exporter's ID space, so import must translate them. The two encodings get two
+treatments:</p>
+<p><b>Frames — already structured, remapped by walk.</b> A call frame's references are typed
+fields (<code>ResultCallRef.ResultID</code> — dagql/result_call_frame.go:64 — reachable via
+receiver, module, args, implicit inputs). Import walks each imported frame and rewrites every
+ref from bundle ID space to the local IDs assigned during this import. This walk is
+structured (it visits known fields, not JSON text) and must be: frame refs feed recipe-digest
+derivation (<code>recipeDigestForCachedResult</code> resolves through
+<code>c.resultsByID</code>), so they must point at live local rows before any identity is
+derived.</p>
+<p><b>Payload envelopes — bare integers today, structured tokens after this phase.</b>
+Object payloads embed references as raw <code>uint64</code> result IDs produced by one
+chokepoint, <code>encodePersistedObjectRef</code> (core/persisted_object.go:47), and parsed
+back by type-specific decoders (git repos/refs, services, changesets, generators, module
+trees — each embeds the integer in its own JSON shape). Those bytes are opaque to the
+persistence layer: nothing generic can find the refs to rewrite them. This phase changes the
+encoding at that chokepoint: <code>encodePersistedObjectRef</code> returns (and decoders
+parse) a <b>ref token</b> — a small struct whose JSON form is
+<code>{"$dagqlResultRef": N}</code> — instead of a bare integer. The compiler finds every
+encode/decode site (the return/parameter type changes); the persistence layer gains a
+generic, non-heuristic walk: any JSON object holding the reserved key is a ref; anything
+else is data. Import rewrites payload refs in the same pass as frame refs.
+<code>schema_version</code> bumps (same bump as D1's).</p>
+
+<p>Two alternatives were considered and rejected — recorded because both will re-tempt:</p>
+<table class="filetbl">
+<tr><th>Alternative</th><th>Why rejected</th></tr>
+<tr><td><b>Name-heuristic JSON walk</b> (rewrite any field whose name looks like
+<code>*resultID</code>) — the prior attempt's mechanism, empirically functional.</td>
+<td>It is inference about intent from naming. A payload field that stores a number and
+happens to match the pattern gets silently corrupted; a ref field that doesn't match is
+silently missed until a warm run breaks. The reset design's ethos is explicit contracts at
+decision points, and the ref token is the same walk made contract-true at the cost of one
+sanctioned format bump.</td></tr>
+<tr><td><b>Namespace-at-decode</b> (never rewrite bytes; every row remembers which store's
+ID space its payload speaks; decode resolves refs through per-namespace origin maps).</td>
+<td>It trades one decision-point rewrite for a permanent, cross-cutting resolution concern:
+every decode path needs namespace context, per-store maps must be retained for as long as
+any undecoded payload speaking them exists, and the store stops having one ID space to
+reason about. Reset lesson L5's bias — the decision-point form, when clean, wins — applies
+squarely; the rewrite is clean.</td></tr>
+</table>
+
+<h3>6.4 &nbsp;D3 — What crosses the boundary, and as what</h3>
+<table class="filetbl">
+<tr><th>Store state</th><th>In the bundle</th><th>Grounding</th></tr>
+<tr><td><b>Result rows</b> (frame + envelope, both persisted forms — snapshot-backedness and
+the lazy fragment)</td><td>Verbatim (one encoding, R9), with refs as §6.3 and origin as
+§6.2. The envelope already carries the lazy fragment at the envelope level (take-3 §8b) and
+never carries concrete session resources — handle form only (S10).</td>
+<td>dagql/cache_persistence_self.go:25 (<code>PersistedResultEnvelope</code>)</td></tr>
+<tr><td><b>Identity tables</b> (classes, digests, terms, term inputs, output-class
+membership)</td><td>Verbatim; importer recomputes keys in its own space (R16, already
+built).</td><td>reset §8 D1; cache_persistence_import.go key recompute</td></tr>
+<tr><td><b>Graph tables</b> (<code>result_deps</code>, <code>persisted_edges</code>)</td>
+<td>Verbatim (IDs remapped). Persisted edges are the bundle's retention roots: what the
+exporter retained, the importer retains, then prunes normally (§8 D3).</td>
+<td>persistdb/schema.sql</td></tr>
+<tr><td><b>Immutable snapshot content</b> (refKeys + leases locally)</td>
+<td>As <b>chains</b>: per snapshot-owning result, an ordered layer list (diffID, blob digest,
+size, media type) identified by chainID — computed at export (R4's hash-at-export rule,
+§7 D2), stored in the manifest; blobs live in the CAS, referenced by digest. refKeys never
+appear in a bundle.</td>
+<td>R4; engine/snapshots layer-export machinery (remote.go:63 <code>ensureExportBlob</code>)</td></tr>
+<tr><td><b>Mutable-owner snapshots</b> (cache volumes, git mirrors, filesync mirrors)</td>
+<td><b>Identity only</b>: the result row crosses intact (rows, deps, frames — so no dangling
+references), with no chain. The decoders for these types already reconstruct a contentless
+identity object when no snapshot link is present and re-acquire lazily on use; an imported
+mutable-owner result is exactly that. (Verified in the prior attempt's taxonomy and still
+true of the current decoders — the vetting design already treats mutable links as
+local-only.)</td>
+<td>R4 ("mutable-owner snapshots never cross as content")</td></tr>
+<tr><td><b>Snapshotter/lease mirrors</b> (<code>result_snapshot_links</code>,
+<code>snapshot_content_links</code>, <code>imported_layer_*</code>)</td>
+<td>Excluded. These are the engine-local index R9 explicitly scopes out of bundles. The
+importing engine builds its own as content arrives.</td><td>R9</td></tr>
+<tr><td><b>Store meta</b> (schema_version, clean_shutdown, R10 counts)</td>
+<td>Versions go in the manifest (schema_version + bundle format version + engine version);
+shutdown markers and counts do not cross.</td><td>—</td></tr>
+</table>
+
+<h3>6.5 &nbsp;The artifact, concretely</h3>
+<pre><code><span class="cm">// The bundle is a single archive:</span>
+bundle.tar.zst
+├── manifest.json      <span class="cm">// small, service-readable header (the ONLY part selection touches)</span>
+│     {
+│       "bundleFormat":   1,
+│       "schemaVersion":  &lt;engine persistence schema_version&gt;,
+│       "engineVersion":  "v0.xx.x",
+│       "storeUUID":      "…",          <span class="cm">// exporter's store identity</span>
+│       "scope":          "org/…",      <span class="cm">// cache scope key (§10 D2)</span>
+│       "createdAt":      …,
+│       "counts":         { "results": N, "chains": M, "blobs": B, "blobBytes": … },
+│       "chains":         [ { "chainID": "…", "layers": [ {"diffID","blob","size","mediaType"}… ] }… ],
+│       "resultChains":   [ { "resultID": J, "role": "…", "chainID": "…" }… ],  <span class="cm">// J = intra-bundle join key</span>
+│       "blobIndex":      [ "sha256:…", … ]   <span class="cm">// all blob digests any chain references</span>
+│     }
+└── metadata.db        <span class="cm">// SQLite, the local mirror schema minus local-only tables,</span>
+                       <span class="cm">// plus result_origins; IDs are intra-bundle joins (§6.2/§6.3)</span>
+</code></pre>
+<p>Reusing SQLite for the metadata is deliberate: the flush writer
+(<code>applyPersistStateSnapshot</code>) and import reader already speak it, so the bundle
+writer/reader are the same row-building code with an exclusion list — not a second
+serialization path (R9). The manifest exists so that the service's selection and insight
+never need to open the metadata DB, and so the engine can plan blob work (chains, blob
+index) without joining SQLite tables. Chains live in the manifest, not new engine tables:
+on import they become sources on the in-memory <code>materializationState</code> and are
+re-emitted at local flush into one new local table (<code>result_content_chains</code>,
+§8 D4) so a locally-restarted warm engine keeps its remote sources.</p>
+
+<h3>6.6 &nbsp;Growth model (S2/S3, shown once)</h3>
+<table class="filetbl">
+<tr><th>Event</th><th>Result rows (engine)</th><th>Bundle rows (service)</th><th>Blob bytes (CAS)</th></tr>
+<tr><td>New local execution</td><td>+1, origin minted here</td><td>appears in next export</td><td>+ its layers (if new)</td></tr>
+<tr><td>Import a bundle, first time</td><td>+N foreign-origin rows</td><td>0</td><td>0 (metadata only)</td></tr>
+<tr><td>Import same bundle again (any boot)</td><td><b>+0</b> (origin dedup, S2)</td><td>0</td><td>0</td></tr>
+<tr><td>Import overlapping bundles</td><td>+union by origin, <b>never</b> per-bundle copies</td><td>0</td><td>0</td></tr>
+<tr><td>Import → run nothing → export</td><td>+0</td><td>new bundle, <b>row count equal</b>, origins verbatim (T-S3)</td><td>+0 (all blobs exist)</td></tr>
+<tr><td>Two engines race the same cold work</td><td>+1 each, distinct origins (R10)</td><td>both present, related by digests</td><td>duplicate bytes possible; blobs still dedup by digest</td></tr>
+</table>
+<p>The compounding mechanism that killed the previous attempt cannot be expressed in this
+model: there is no importer that mints identity. The only actor that ever creates a row is
+the engine that executed the work, exactly once, and everything downstream is
+origin-preserving copies. The gate measures this rather than trusting it (T-S2, T-S3).</p>
+</details>
+
 </main>
 </div>
 <script>
