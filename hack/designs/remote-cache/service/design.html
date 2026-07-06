@@ -147,7 +147,7 @@
 <main>
 
 <h1>Remote Cache — Service Phase Design</h1>
-<p class="sub">v1 draft &nbsp;·&nbsp; the phase after the engine fundamentals &nbsp;·&nbsp; 2026-07-06</p>
+<p class="sub">v2 &nbsp;·&nbsp; the phase after the engine fundamentals &nbsp;·&nbsp; review round 1 folded &nbsp;·&nbsp; 2026-07-06</p>
 
 <div class="banner">
 <b>Status.</b> Draft for adversarial review. This document designs the phase that follows the
@@ -219,24 +219,23 @@ the session-resource gate (R7).
 The tempting alternative is named here so it stays dead: a <b>merging service</b> — the
 service internally maintains cache state (in whatever form: an embedded engine cache, its own
 result tables), merges each incoming export into it, and synthesizes merged state for
-importers. Both prior attempts built exactly this (an in-memory instance of the engine's own
-<code>dagql.Cache</code> as the server-side merge engine), and its structural costs are not
-incidental:
+importers. Its structural costs are intrinsic, not implementation accidents:
 </p>
 <ul>
 <li><b>It duplicates the engine's identity model on the server</b> — every subtlety
 (equivalence classes, congruence, result-row identity, session-resource gating) needs a
-second, server-side life. The v2 attempt's terminal failure — result rows compounding
-13,311 → 32,691 in a single warm cycle, because the server minted fresh row IDs on every
-import — lived precisely in this duplicated layer.</li>
-<li><b>It couples the service to the engine's schema at the row level.</b> The prior service
-embedded engine code and imported its rows 1:1; every engine schema bump flushed the API.
-The claimed "the API can evolve behind the wire protocol" was never realized — it can't be,
-when the API's internal state <em>is</em> the engine's state.</li>
-<li><b>It makes service state load-bearing and expensive.</b> Merged-in-memory state coupled
-every service restart to a full re-seed (a ~30-minute operational tax per backend fix in the
-prior live loops). Durable merged state would mean a second persistence model for the same
-data.</li>
+second, server-side life, and every divergence between the two lives is a correctness bug
+with a fleet-wide blast radius. Row identity is the sharpest instance: a merge layer that
+mints its own row identities on ingest turns import→re-export cycles into compounding
+metadata growth. (The evidence that this failure mode is real and terminal, not
+hypothetical, is recorded in the salvage ledger, §16.)</li>
+<li><b>It couples the service to the engine's schema at the row level.</b> A service whose
+internal state <em>is</em> engine cache state must be redeployed — or flushed — on every
+engine schema change; "the API evolves behind the wire protocol" is unachievable from that
+position by construction.</li>
+<li><b>It makes service state load-bearing and expensive.</b> Merged state must either be
+durable (a second persistence model for the same data) or in-memory (every service restart
+costs a full re-seed of the fleet's cache).</li>
 </ul>
 <p>
 With store-and-select, each of those costs structurally disappears rather than being managed:
@@ -482,6 +481,32 @@ redesign salting — that remains a cloud/tenancy work item.</p>
   "hits must precede materializability checks") was re-derived against the current
   architecture before use, and several were deliberately not inherited (e.g. "exports are
   slow" as a design constraint; the smart-merge service; the name-heuristic payload remap).</li>
+  <li><b>Round 1 (2026-07-06), adversarial review (Codex, code-verified).</b> Verdict:
+  needs-rework — 4 blockers, 4 majors, 1 minor, all triaged and folded; plus a verified list
+  (vetting keeps self-contained rows; dropped rows leave no dangling edges; prefix-reuse
+  machinery grounded; handle-form-only secrets; R14 compatibility of demand blob fetch).
+  Dispositions: <b>#1 ACCEPTED</b> — origin IDs could be re-allocated after prune +
+  clean restart; fixed with the persisted allocator high-water mark (§6.2) + T-S1's
+  collision red test. <b>#2 ACCEPTED (modified)</b> — the reset design's ratified source
+  order puts content-chain after lazy form; rather than inverting this design's economics,
+  the conflict is surfaced as an explicit amendment proposal with rationale and a
+  ratification gate on chunk B (§9.1) — compatibility is no longer claimed where it doesn't
+  hold. <b>#3 ACCEPTED</b> — export closure direction corrected to the forward dependency
+  closure of persisted roots, with the no-dangling argument stated (§7 D1).
+  <b>#4 ACCEPTED</b> — the ref inventory was incomplete (envelope self-IDs; persisted
+  call.ID strings with handle-form engine-local IDs, core/object.go:748); §6.3 became the
+  four-row portable-ref contract with per-location red tests and the non-portable-row
+  exclusion rule. <b>#5 ACCEPTED</b> — contentless decode for git/filesync mirrors is real
+  engine work, not an assumed property (CacheVolume verified tolerant); §6.4 rewritten,
+  T-S12 added, rows non-portable until their type's decode lands. <b>#6 ACCEPTED
+  (modified)</b> — newest-per-store selection is kept, but its semantic ("the service
+  mirrors each store's latest retained state; prune propagates") is now stated rather than
+  implied, with the union alternative named and shelved (§10 D3). <b>#7 ACCEPTED</b> — the
+  growth model gained the prune/re-import churn row and the churn-not-growth argument
+  (§6.6); T-S3 gained a prune cycle. <b>#8 ACCEPTED</b> — "bundle import cannot wipe" is
+  now a mechanism (separate reader, skip-typed errors, no reset-reason constructor) plus
+  T-S11. <b>#9 ACCEPTED (scoped)</b> — normative §2 de-historicized to impersonal
+  structural costs (evidence stays in §16); test-scope slang replaced. </li>
 </ol>
 </div>
 </details>
@@ -633,11 +658,19 @@ chains (§6.4); the second is handled by the join-key + origin model (§6.2, §6
 <p>Every result row acquires an origin pair <code>(origin_store_uuid, origin_result_id)</code>:</p>
 <ul>
 <li><b>Minted at first publication.</b> A locally-executed result's origin is
-<code>(this store's UUID, its local result ID)</code>. Local result IDs are already stable
-across flush/restore (import preserves file IDs 1:1 — cache_persistence_import.go:180, the
-<code>sharedResult{id: resultID}</code> construction), so the pair is durable for the life of
-the store. A wiped store mints a fresh UUID; its old rows' origins simply age out of the
-service (it is a cache).</li>
+<code>(this store's UUID, its local result ID)</code>. Local result IDs are stable across
+flush/restore (import preserves file IDs 1:1 — cache_persistence_import.go:180, the
+<code>sharedResult{id: resultID}</code> construction) — but stability of <em>surviving</em>
+rows is not enough: after prune removes high rows and a clean restart resumes the allocator
+above the surviving maximum, an ID that was already exported could be <b>re-allocated to a
+different result</b>, and two results would claim one origin. So the allocator carries a
+persisted <b>high-water mark</b>: the maximum result ID ever allocated in the store's
+lifetime is tracked in memory and flushed into <code>meta</code>; boot resumes allocation
+above <code>max(surviving rows, high-water mark)</code>. Unclean shutdown loses the mark —
+and wipes the store, minting a fresh UUID, which retires every old origin at once. The
+red test is pinned in T-S1: seed, export, prune the tail, clean-restart, execute new work,
+export — no origin pair may ever name two different results. A wiped store's old origins
+simply age out of the service (it is a cache).</li>
 <li><b>Preserved through every hop.</b> Import records the origin of every imported row;
 re-export emits it verbatim. A result created on engine A, imported by B, and re-exported in
 B's bundle still carries A's origin.</li>
@@ -656,9 +689,38 @@ implied, so the invariant "every row has exactly one origin, ever" is checkable 
 lessons L6).</p>
 
 <h3>6.3 &nbsp;D2 — Cross-result references: one rewrite, at import</h3>
-<p>Rows reference other rows in two encodings today, and a foreign bundle's rows arrive
-speaking the exporter's ID space, so import must translate them. The two encodings get two
-treatments:</p>
+<p>Rows reference other rows in <b>four</b> encodings today, and a foreign bundle's rows
+arrive speaking the exporter's ID space, so import must translate every one of them. This
+is the <b>portable-ref contract</b>: the complete inventory of where engine-local result
+IDs live in persisted bytes, each with its rewrite mechanism and a red test. Anything
+outside the inventory that turns out to hold a result ID is a contract violation fixed at
+the encode site, never papered over at import; and a row whose references cannot be made
+portable is <b>excluded from the bundle with a typed counter</b> (its in-bundle dependents
+then drop by the missing-dep rule at import) — degradation, never guessing.</p>
+<table class="filetbl">
+<tr><th>Ref location</th><th>Shape today</th><th>Treatment</th></tr>
+<tr><td>Call frames (receiver, module, args/literals, implicit inputs)</td>
+<td>Typed <code>ResultCallRef.ResultID</code> fields (dagql/result_call_frame.go:64)</td>
+<td>Structured walk-and-rewrite at import (below)</td></tr>
+<tr><td>Envelope self-reference</td>
+<td><code>PersistedResultEnvelope.ResultID</code>, recursively in list
+<code>Items</code> (dagql/cache_persistence_self.go:29)</td>
+<td>Structural: the persistence layer owns this field and rewrites it directly
+(per-item for lists)</td></tr>
+<tr><td>Object payloads + lazy fragments</td>
+<td>Bare <code>uint64</code>s via <code>encodePersistedObjectRef</code></td>
+<td>The ref token (below)</td></tr>
+<tr><td>Persisted <code>call.ID</code> values inside module-object payloads</td>
+<td>Encoded ID strings via <code>encodePersistedCallID</code>
+(core/object.go:748–775); a <b>handle-form</b> ID embeds an engine-local result ID
+(<code>NewEngineResultID</code>, dagql/call/id.go:87)</td>
+<td>A parallel token (<code>{"$dagqlCallID": "…"}</code>) at the same chokepoint; import
+decodes the ID, rewrites the handle-form <code>engineResultID</code>, re-encodes.
+Recipe-form IDs are audited for embedded result references during chunk A with a red test
+per finding; any form that cannot be rewritten makes the row non-portable (excluded, as
+above).</td></tr>
+</table>
+<p>The two rewrite mechanisms:</p>
 <p><b>Frames — already structured, remapped by walk.</b> A call frame's references are typed
 fields (<code>ResultCallRef.ResultID</code> — dagql/result_call_frame.go:64 — reachable via
 receiver, module, args, implicit inputs). Import walks each imported frame and rewrites every
@@ -732,11 +794,16 @@ appear in a bundle.</td>
 <td>R4; engine/snapshots layer-export machinery (remote.go:63 <code>ensureExportBlob</code>)</td></tr>
 <tr><td><b>Mutable-owner snapshots</b> (cache volumes, git mirrors, filesync mirrors)</td>
 <td><b>Identity only</b>: the result row crosses intact (rows, deps, frames — so no dangling
-references), with no chain. The decoders for these types already reconstruct a contentless
-identity object when no snapshot link is present and re-acquire lazily on use; an imported
-mutable-owner result is exactly that. (Verified in the prior attempt's taxonomy and still
-true of the current decoders — the vetting design already treats mutable links as
-local-only.)</td>
+references, and downstream immutable results keep their dep chains), with no chain. On the
+importing engine these rows must decode to a <b>contentless identity object</b> that
+re-acquires lazily on first use (re-clone, re-sync, init-fresh) — which is <em>engine work
+this phase does, not a property it assumes</em>: on the current branch,
+<code>CacheVolume</code>'s decoder already tolerates absent links, but the git-mirror and
+filesync-mirror decoders require their snapshot links and must gain the contentless path
+(type-local changes in core/git_remote_mirror.go and core/client_filesync_mirror.go, each
+with a red test: import an identity-only row, first use re-acquires, downstream results
+still hit). Until a type's contentless decode lands, its rows are non-portable (excluded,
+§6.3's rule) — never exported as a promise the importer can't keep.</td>
 <td>R4 ("mutable-owner snapshots never cross as content")</td></tr>
 <tr><td><b>Snapshotter/lease mirrors</b> (<code>result_snapshot_links</code>,
 <code>snapshot_content_links</code>, <code>imported_layer_*</code>)</td>
@@ -794,11 +861,22 @@ re-emitted at local flush into one new local table (<code>result_content_chains<
 <tr><td>Import overlapping bundles</td><td>+union by origin, <b>never</b> per-bundle copies</td><td>0</td><td>0</td></tr>
 <tr><td>Import → run nothing → export</td><td>+0</td><td>new bundle, <b>row count equal</b>, origins verbatim (T-S3)</td><td>+0 (all blobs exist)</td></tr>
 <tr><td>Two engines race the same cold work</td><td>+1 each, distinct origins (R10)</td><td>both present, related by digests</td><td>duplicate bytes possible; blobs still dedup by digest</td></tr>
+<tr><td>Prune a row locally, then re-import it from a still-selected bundle at next boot</td><td>+1 (it returns — bounded churn, see below)</td><td>0</td><td>0 (content stays lazy)</td></tr>
 </table>
-<p>The compounding mechanism that killed the previous attempt cannot be expressed in this
-model: there is no importer that mints identity. The only actor that ever creates a row is
-the engine that executed the work, exactly once, and everything downstream is
-origin-preserving copies. The gate measures this rather than trusting it (T-S2, T-S3).</p>
+<p>A compounding mechanism — an importer that mints identity — cannot be expressed in this
+model: the only actor that ever creates a row is the engine that executed the work, exactly
+once, and everything downstream is origin-preserving copies. The gate measures this rather
+than trusting it (T-S2, T-S3, including a prune cycle inside T-S3).</p>
+<p><b>The prune/import interaction, named honestly.</b> Local prune and bundle import pull
+in opposite directions: an engine that prunes a row for disk pressure will see it return at
+the next boot if a selected bundle still carries it — <b>churn, not growth</b> (the row
+count is bounded by the selected bundles' contents; origin dedup caps it at one copy), and
+cheap churn at that (metadata only; content never re-fetches until demanded). The design
+accepts this for v1 and bounds it structurally: selection serves each store's <em>newest</em>
+bundle (§10 D3), so an engine's own pruning propagates through its next export — the fleet
+converges on retained state, and nothing keeps resurrecting rows that every engine has
+pruned. What v1 deliberately does not build: prune tombstones or cross-engine retention
+consensus (shelved, §15).</p>
 </details>
 
 <details class="fold" id="export" open><summary><h2>7. Engine: export</h2></summary>
@@ -856,10 +934,17 @@ keeper. Metadata publishes early in the budget; blobs consume the rest.</li>
 </ul>
 <p><b>Mid-serve exports are legal.</b> The snapshot pass runs under the existing locks and
 does not require quiescence. One filter distinguishes it from shutdown flush: the export
-closure is the <b>persisted-edge-rooted</b> retained graph (the reverse-dependency closure of
-<code>persisted_edges</code>), excluding rows retained only by live sessions — those are
-another session's in-flight state, not durable cache, and an importer would drop them as
-unrooted anyway. At shutdown the two closures coincide (sessions are gone).</p>
+closure is the <b>forward dependency closure of the persisted-edge roots</b> — each root plus
+everything it transitively depends on, following <code>sharedResult.deps</code> downward,
+the same direction retention itself propagates. Rows outside that closure (retained only by
+live sessions) are another session's in-flight state, not durable cache, and are excluded.
+The exclusion cannot dangle a reference by construction: if a persisted root reaches a row
+through dependencies, that row is <em>in</em> the closure regardless of who else retains it —
+"session-only" rows are precisely the rows no persisted root reaches. Every projected table
+(results, deps, frames, envelopes, origins, chains, edges, and the identity rows for the
+closure's digests) is filtered to this same closure so the bundle is self-contained. At
+shutdown the closure and the whole store coincide (sessions are gone; the retained graph
+<em>is</em> the persisted closure).</p>
 
 <h3>7.2 &nbsp;D2 — Chains: content identity computed at the boundary</h3>
 <p>For every immutable snapshot link in the export closure, the exporter produces the chain:
@@ -999,8 +1084,14 @@ mismatch should have been filtered by selection; if present anyway, skip the bun
 open the metadata DB, read all tables. Any store-level failure — unreadable SQLite, broken
 identity-table references, zero IDs (the same named classes reset §8 D2 pins for the local
 store) — skips the whole bundle with a counted reason. <b>The local <code>import_failure</code>
-wipe path is unreachable from bundle import by construction</b>: bundle merge begins only
-after local restore has committed, and its failure handling has no wipe branch.</li>
+wipe path is unreachable from bundle import, by mechanism, not assertion:</b> the bundle
+reader is a separate entry point whose error type is "skip this bundle" — it shares the
+row-parsing and vetting helpers but is not called from <code>importPersistedState</code>,
+returns into the boot sequence <em>after</em> local restore has committed, and no branch of
+its error handling constructs <code>CachePersistenceResetImportFailure</code> or touches the
+local DB/worker reset paths (engine/server's reset loop consumes only local-restore errors).
+The red test is pinned in T-S11: a deliberately corrupted bundle imports as a skip, and the
+local store and worker state are bit-identical to a no-bundle boot.</li>
 <li><span class="tag">VET, DEPENDENCIES-FIRST (existing rules, bundle-flavored)</span><br>
 The local vetting pass runs against the bundle's rows (dagql/cache_persistence_vetting.go):
 malformed rows drop; missing-dep and cycle rules apply within the bundle; drops cascade to
@@ -1036,10 +1127,10 @@ local import already does.</li>
 <li><span class="tag">INSTALL SOURCES</span><br>
 Each staged row's <code>materializationState</code> gets: a <b>content-chain source</b> per
 manifest chain entry (§9), and its <b>lazy-form source</b> when the envelope carries a
-fragment — in the reset design's fall-through order with content-chain third (reset §7,
-Fig. 4: local snapshot → lazy form → content chain; an imported row simply has no first
-source until content arrives). Commit the staged bundle into the cache; move to the next
-bundle.</li>
+fragment — ordered local snapshot → content chain → lazy form, per the source-order
+amendment this design proposes to the reset design (§9.1; an imported row simply has no
+first source until content arrives). Commit the staged bundle into the cache; move to the
+next bundle.</li>
 </ol>
 <p class="pill">Ordering note: bundles merge oldest→newest (stable tie-break on bundle ID) so
 metadata refreshes deterministically favor the newest observation; row existence is
@@ -1114,15 +1205,32 @@ re-export of a hydrated result never re-hashes (R4's hash-once economy).</li>
 </ol>
 </div>
 
-<h3>9.1 &nbsp;Where it plugs in</h3>
+<h3>9.1 &nbsp;Where it plugs in — and the one amendment this design proposes</h3>
 <p>Reset §9 D2's <code>realize()</code> walks <code>materializationState.sources</code> in
 order inside the existing lazy singleflight (one runner, N waiters). This phase un-reserves
-the third enum value: an imported result's sources arrive from §8 as
+the reserved enum value: an imported result's sources arrive from §8 as
 <code>[content-chain, lazy-form]</code> (no local snapshot yet); a hydrated or locally-built
 result's walk still finds its local snapshot first and never touches the network. The
 demand-boundedness is structural (R12): the walk runs for the one result being served, and a
 chain realizes only that result's snapshot — dependency inputs are touched only if the walk
 falls through to the lazy form, which recurses demand-driven exactly as designed.</p>
+<div class="decide"><span class="dtag">PROPOSED AMENDMENT TO THE RESET DESIGN — RATIFICATION REQUIRED BEFORE CHUNK B</span>
+<p style="margin:6px 0 4px">The reset design drew the fall-through order as
+<b>local snapshot → lazy form → content-chain</b> (reset §7 Fig. 4, and the enum-declaration
+order the source list sorts by, dagql/cache.go:1463–1520) — placing the then-reserved
+content-chain <em>last</em>. This design requires <b>local snapshot → content-chain → lazy
+form</b>: for a warm imported result, downloading its content is the mainline and
+re-executing its recipe is the fallback — the opposite order would make every warm engine
+<em>re-run</em> any work that has a persisted lazy form and reach for the network only when
+re-execution isn't possible, inverting the value proposition of remote cache (transfer is
+the point; recompute is the floor before demote). The counter-case is acknowledged: for
+some results a huge blob download can cost more than a trivial re-exec — that is
+per-result policy cleverness, explicitly out of v1 scope (§15); v1 takes the static order
+that matches the north star. The reset order was drawn while source ③ was a named
+placeholder with no consumer; this is the consumer. <b>Process:</b> this is a change to
+ratified reset text (Fig. 4 and the §7 D2 enum comment) — stop-and-discuss with the take-3
+owner applies, and chunk B does not build until it is ratified there. Mechanically the
+change is the enum/sort order plus the Fig. 4 edit; no walk logic changes.</p></div>
 
 <h3>9.2 &nbsp;Realizing a chain</h3>
 <ol class="steps">
@@ -1249,10 +1357,15 @@ scopes, salt strategy) is future work with its own security review.</p>
 <p>Given a request (scope, schemaVersion, bundleFormat, limit K — engine default modest,
 e.g. 4): return the newest bundle <b>per distinct origin store UUID</b>, newest stores
 first, up to K, filtered to exactly matching versions, preferring
-<code>blobs_complete</code> over pending when both exist for a store. Rationale: bundles
-from one store are snapshots of a monotonically-evolving cache — the newest supersedes its
-siblings — while bundles from <em>different</em> stores are genuinely divergent state worth
-merging (M concurrent CI engines), which origin-dedup makes cheap to combine. This function
+<code>blobs_complete</code> over pending when both exist for a store. The semantic, stated
+precisely: <b>the service mirrors each store's latest retained state</b>. A store's newest
+bundle supersedes its older siblings <em>including anything they contained that the store
+has since pruned</em> — pruning deliberately propagates through export (§6.6's prune/import
+interaction depends on exactly this to stay churn-not-growth). Bundles from
+<em>different</em> stores are genuinely divergent state worth merging (M concurrent CI
+engines), which origin-dedup makes cheap to combine. A selection that instead unioned a
+store's bundle history would retain more — and would also resurrect every pruned row
+forever; v1 chooses the converging semantic, and richer selection is shelved (§15). This function
 is the service's entire intelligence, it is pure over the inventory, and it is the
 service-side seam: a future policy (workload-aware selection, bundle slicing) replaces this
 function without touching storage, protocol, or engine.</p>
@@ -1431,10 +1544,10 @@ against MinIO and either embedded or containerized Postgres — the prior attemp
 "cheap loop before full stack" pattern, which caught protocol drift that fakes had masked.
 Runs the conformance suite against the real handlers, plus real-engine round-trips
 (engine binaries in containers ↔ dev server ↔ MinIO). Zero credentials.</li>
-<li><span class="tag">E2E (dagger.io, "go ham")</span><br>
-The full stack stood up inside Dagger, the way dagger/dagger's own integration suite goes
-ham with services: API server with the cache-service handlers, Postgres, MinIO, keeper, two
-or more dev engines. Exercises the lifecycle end to end — provisioning-style config
+<li><span class="tag">E2E (dagger.io, full stack)</span><br>
+The full stack stood up inside Dagger, in the same style as dagger/dagger's own integration
+suite — every needed service containerized and wired in-test: API server with the
+cache-service handlers, Postgres, MinIO, keeper, two or more dev engines. Exercises the lifecycle end to end — provisioning-style config
 injection, a simulated green check enqueuing export, keeper claim → engine admin API →
 bundle published, teardown sequencing, fresh engine imports and runs warm — plus the growth
 gate (T-S3) and GC safety (delete unreferenced blobs; live runs unaffected). Still zero
@@ -1470,15 +1583,21 @@ three times: in-repo, in the dagger.io e2e, and live on cloud engines.</p>
 <table class="filetbl">
 <tr><th>#</th><th>Case</th><th>Proves</th><th>Level</th></tr>
 <tr><td>T-S1</td><td>Bundle round-trip: seeded store → bundle → fresh store; identical key
-derivation (digest projection) and hit behavior; refs resolve; origins verbatim</td>
-<td>Portable identity across the boundary (R3, R9, R16)</td><td>unit</td></tr>
+derivation (digest projection) and hit behavior; refs resolve (one red test per
+portable-ref location, §6.3's inventory); origins verbatim. Plus the origin-collision red
+test: seed → export → prune the ID tail → clean restart → new work → export; no origin
+pair ever names two results (§6.2's high-water mark)</td>
+<td>Portable identity across the boundary (R3, R9, R16, S2)</td><td>unit</td></tr>
 <tr><td>T-S2</td><td>Import the same bundle twice (same boot, and across boots) ⇒ zero row
 growth, <code>rows_deduped_by_origin</code> == bundle rows on the second pass</td>
 <td>Idempotent import (S2) — the red test, from day one</td><td>unit + integration</td></tr>
 <tr><td>T-S3</td><td>≥3 cycles cold→warm→warm→warm over one workload: engine result rows,
-bundle row counts, and origin counts flat modulo new executions; evidence = stats files +
-export summaries per cycle</td>
-<td>The growth bound that killed v2, measured (S3, R10)</td><td>integration + e2e</td></tr>
+bundle row counts, and origin counts flat modulo new executions — with one cycle including
+a local prune, asserting the churn bound (pruned rows return at most once per boot, counts
+stay flat across the following cycle); evidence = stats files + export summaries per
+cycle</td>
+<td>The growth bound, measured — including the prune/re-import interaction (S3, R10,
+§6.6)</td><td>integration + e2e</td></tr>
 <tr><td>T-S4</td><td>The cross-engine warm proof: engine A runs a random-marker pipeline,
 exports; fresh engine B (different state key, pre-seeded shared salt) imports, runs the
 identical pipeline: outputs equal, per-field <code>hit_restored ≥ K</code>,
@@ -1507,6 +1626,15 @@ the real handlers (rungs 2, 3, 4)</td>
 selectable, warm run green with fall-throughs; next export completes the gap; GC of
 unreferenced blobs leaves live runs unaffected</td>
 <td>Two-phase export + GC safety (S6, §10 D6)</td><td>e2e</td></tr>
+<tr><td>T-S11</td><td>Corrupt-bundle isolation: a deliberately corrupted bundle (unreadable
+SQLite; broken identity refs; bad manifest) imports as a counted skip; the local store and
+worker state are identical to a no-bundle boot — no wipe, no reset, warm local hits
+unaffected</td>
+<td>Bundle import cannot reach the local wipe path (S4, §8.1)</td><td>integration</td></tr>
+<tr><td>T-S12</td><td>Mutable-owner identity rows: export a graph rooted in a filesync/git
+mirror; warm engine imports; first use re-acquires the mirror (re-sync/re-clone),
+downstream immutable results still hit via their own chains</td>
+<td>Contentless identity decode per type (§6.4)</td><td>integration</td></tr>
 </table>
 <p class="pill">Existing gates stay in force: engine chunks run the reset design's Step-0
 suites (persistence/restart, cross-session, selected services) at every landing; T1–T8
@@ -1562,8 +1690,11 @@ being merged (it consumes §7/§8's as-built state; coordinate with the take-3 o
 landing order and the shared schema_version bump).</span></li>
 <li><b>B — Chains & the content-chain source (engine).</b> Chain computation at export
 (zstd pinned, memoized), chain sources at import, the chain arm of the source walk with a
-file/dir CAS for tests. Gate: T-S4 (file transport), T-S6, T-S8 + Step-0. <span class="pill">
-Depends on reset §9's source walk being landed (it is the direct substrate).</span></li>
+file/dir CAS for tests, and the mutable-owner contentless-decode work (§6.4). Gate: T-S4
+(file transport), T-S6, T-S8, T-S12 + Step-0. <span class="pill">Depends on reset §9's
+source walk being landed (it is the direct substrate) <b>and on the §9.1 source-order
+amendment being ratified in the reset design</b> — chunk B does not build before that
+ruling.</span></li>
 <li><b>C — Transport & the in-repo service.</b> The service client, the test service, the
 admin API + shutdown hook, the conformance suite, the full in-repo integration suite.
 Gate: T-S3, T-S5, T-S7, T-S9 (rung 2) + Step-0.</li>
@@ -1571,7 +1702,7 @@ Gate: T-S3, T-S5, T-S7, T-S9 (rung 2) + Step-0.</li>
 dev server. Gate: conformance (rung 3) + backend unit suites (S3/MinIO verification
 semantics).</li>
 <li><b>E — Lifecycle.</b> Keeper export command, checks enqueue, provisioning config, e2e
-"go ham" suite. Gate: T-S9 (rung 4), T-S10, e2e warm proof + growth gate.</li>
+full-stack suite. Gate: T-S9 (rung 4), T-S10, e2e warm proof + growth gate.</li>
 <li><b>F — Insight.</b> Event log surfaces, indexer, dashboard. Parallel with E; gate:
 surfaces render from e2e-generated state; every counter's consumer table (§11) closed.</li>
 <li><b>G — Live.</b> Deploy, cloud warm proof (§13.2 step 3). Credential-gated;
@@ -1598,7 +1729,10 @@ independent-equivalent accumulation actually costing something.</li>
 selection-side slicing or exporter-side deltas are pure optimizations once measurement
 demands them (S6 note: metadata size is a measured surface).</li>
 <li><b>Smarter selection / analysis-guided policy.</b> The two named seams (§7 D3,
-§10 D3). Explicitly the next phase's territory, not this one's.</li>
+§10 D3). Explicitly the next phase's territory, not this one's. Includes richer
+per-store selection (unioning a store's bundle history) and its prerequisite machinery —
+prune tombstones / cross-engine retention consensus — which v1's converging
+newest-per-store semantic deliberately avoids (§6.6, §10 D3).</li>
 <li><b>Salt unification / finer tenancy.</b> S10's tracked deferral; needs its own
 security-reviewed design (cloud-managed salt distribution, or handle schemes that don't
 partition).</li>
