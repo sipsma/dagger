@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
 	persistdb "github.com/dagger/dagger/dagql/persistdb"
@@ -29,12 +31,26 @@ type CacheBundleExportSummary struct {
 	EqClasses int
 	Terms     int
 
+	// Chains/Blobs/BlobBytes mirror the manifest counts; BlobIndex is every
+	// blob digest the bundle's chains reference — what the caller offers to
+	// (and existence-checks against) a CAS after the metadata publishes.
+	Chains    int
+	Blobs     int
+	BlobBytes int64
+	BlobIndex []string
+
 	// ExcludedNoPortableContent counts rows whose only content source is a
-	// local snapshot (no content chain yet, no lazy fragment, not a
-	// sanctioned identity-only type): exporting them would promise content
-	// the importer can never obtain. Their in-bundle dependents drop at
-	// import by the missing-dep rule.
+	// local snapshot with no cross-boundary re-make path (no computable
+	// content chain, no lazy fragment, not a sanctioned identity-only
+	// type): exporting them would promise content the importer can never
+	// obtain. Their in-bundle dependents drop at import by the missing-dep
+	// rule.
 	ExcludedNoPortableContent int
+	// ChainComputeFailed counts rows whose content chain failed to compute
+	// at export time (e.g. the snapshot vanished mid-export). The row
+	// degrades per-result: it still exports when a lazy fragment remains,
+	// else it is excluded (counted above) — never an export failure.
+	ChainComputeFailed int
 	// ExcludedEncodeFailed counts rows whose envelope failed to encode at
 	// export time; the row stays local, the bundle just doesn't carry it.
 	ExcludedEncodeFailed int
@@ -95,9 +111,11 @@ func (c *Cache) ExportBundle(ctx context.Context, w io.Writer, opts CacheBundleE
 	}
 
 	// Filter rows to the closure, applying the portability rule: a row
-	// that claims local snapshot content and has no cross-boundary way to
-	// re-make it (no chain yet in this phase, no lazy fragment) is
-	// excluded unless its type is sanctioned to cross identity-only.
+	// that claims local snapshot content crosses with its content chain —
+	// reused verbatim when the row already carries one (imported rows,
+	// hydrated arrivals), computed at the boundary otherwise (R4's
+	// hash-at-export). A row with no computable chain and no lazy fragment
+	// is excluded unless its type is sanctioned to cross identity-only.
 	// Excluded rows' deps rows may dangle inside the bundle; the importer's
 	// missing-dep rule drops the dependents there (by design — the writer
 	// never guesses at content it cannot promise).
@@ -108,16 +126,34 @@ func (c *Cache) ExportBundle(ctx context.Context, w io.Writer, opts CacheBundleE
 		if _, inClosure := closure[row.resultID]; !inClosure {
 			continue
 		}
-		if len(row.snapshotOwnerLinks) > 0 && !rowHasLazyFragment(row) && !isContentlessPersistedType(rowEnvelopeTypeName(row)) {
-			summary.ExcludedNoPortableContent++
-			slog.Debug("cache bundle export excluding row without portable content",
-				"sharedResultID", row.resultID, "type", rowEnvelopeTypeName(row))
-			continue
-		}
 		if err := c.encodeSnapshotResultRow(ctx, row); err != nil {
 			summary.ExcludedEncodeFailed++
 			slog.Warn("cache bundle export excluding row that failed to encode",
 				"sharedResultID", row.resultID, "err", err)
+			continue
+		}
+		// The encoded snapshot link rows are the row's claimed content —
+		// the same rows local flush writes to result_snapshot_links.
+		claimedLinks := row.resultSnapshotLinks
+		contentless := isContentlessPersistedType(rowEnvelopeTypeName(row))
+		if contentless {
+			// Mutable-owner snapshots never cross as content: the row is
+			// identity-only, re-acquired lazily by the importer's decoder.
+			row.contentChains = nil
+		} else if len(row.contentChains) == 0 && len(claimedLinks) > 0 && c.snapshotManager != nil {
+			chains, err := c.computeExportChains(ctx, claimedLinks)
+			if err != nil {
+				summary.ChainComputeFailed++
+				slog.Warn("cache bundle export failed to compute content chain",
+					"sharedResultID", row.resultID, "err", err)
+			} else {
+				row.contentChains = chains
+			}
+		}
+		if len(claimedLinks) > 0 && len(row.contentChains) == 0 && !rowHasLazyFragment(row) && !contentless {
+			summary.ExcludedNoPortableContent++
+			slog.Debug("cache bundle export excluding row without portable content",
+				"sharedResultID", row.resultID, "type", rowEnvelopeTypeName(row))
 			continue
 		}
 		// The snapshotter refKey link rows are engine-local by definition
@@ -196,6 +232,56 @@ func (c *Cache) ExportBundle(ctx context.Context, w io.Writer, opts CacheBundleE
 		bundled.eqClassDigests = append(bundled.eqClassDigests, dig)
 	}
 
+	// Chains cross in the manifest, never in the metadata DB (the bundle's
+	// result_content_chains table stays empty like every engine-local
+	// table): collect them per result, dedup chain entries by chainID, and
+	// index every referenced blob — then strip them from the rows about to
+	// be written.
+	var (
+		manifestChains       []CacheBundleChain
+		manifestResultChains []CacheBundleResultChain
+		blobIndex            []string
+		chainSeen            = make(map[string]struct{})
+		blobSeen             = make(map[string]struct{})
+		blobBytes            int64
+	)
+	for i := range bundled.results {
+		row := &bundled.results[i]
+		chains := slices.Clone(row.contentChains)
+		slices.SortFunc(chains, func(a, b PersistedResultContentChain) int {
+			return strings.Compare(a.Role, b.Role)
+		})
+		for _, chain := range chains {
+			manifestResultChains = append(manifestResultChains, CacheBundleResultChain{
+				ResultID: uint64(row.resultID),
+				Role:     chain.Role,
+				ChainID:  chain.ChainID,
+			})
+			if _, dup := chainSeen[chain.ChainID]; dup {
+				continue
+			}
+			chainSeen[chain.ChainID] = struct{}{}
+			bundleChain := CacheBundleChain{ChainID: chain.ChainID, Layers: []CacheBundleChainLayer{}}
+			for _, layer := range chain.Layers {
+				bundleChain.Layers = append(bundleChain.Layers, CacheBundleChainLayer{
+					DiffID:    layer.DiffID,
+					Blob:      layer.Blob,
+					Size:      layer.Size,
+					MediaType: layer.MediaType,
+				})
+				if _, dup := blobSeen[layer.Blob]; dup {
+					continue
+				}
+				blobSeen[layer.Blob] = struct{}{}
+				blobIndex = append(blobIndex, layer.Blob)
+				blobBytes += layer.Size
+			}
+			manifestChains = append(manifestChains, bundleChain)
+		}
+		row.contentChains = nil
+	}
+	slices.Sort(blobIndex)
+
 	// Write the metadata DB (the shared row-writing path local flush uses)
 	// into a scratch file, then stream the archive.
 	tmpDir, err := os.MkdirTemp("", "dagger-cache-bundle-export-*")
@@ -212,6 +298,10 @@ func (c *Cache) ExportBundle(ctx context.Context, w io.Writer, opts CacheBundleE
 	summary.Roots = len(bundled.persistedEdges)
 	summary.EqClasses = len(bundled.eqClasses)
 	summary.Terms = len(bundled.terms)
+	summary.Chains = len(manifestChains)
+	summary.Blobs = len(blobIndex)
+	summary.BlobBytes = blobBytes
+	summary.BlobIndex = blobIndex
 
 	manifest := CacheBundleManifest{
 		BundleFormat:  CacheBundleFormatVersion,
@@ -221,8 +311,14 @@ func (c *Cache) ExportBundle(ctx context.Context, w io.Writer, opts CacheBundleE
 		Scope:         opts.Scope,
 		CreatedAt:     time.Now().UTC(),
 		Counts: CacheBundleCounts{
-			Results: len(bundled.results),
+			Results:   len(bundled.results),
+			Chains:    len(manifestChains),
+			Blobs:     len(blobIndex),
+			BlobBytes: blobBytes,
 		},
+		Chains:       manifestChains,
+		ResultChains: manifestResultChains,
+		BlobIndex:    blobIndex,
 	}
 	for _, edge := range bundled.persistedEdges {
 		manifest.Roots = append(manifest.Roots, uint64(edge.ResultID))
@@ -232,6 +328,39 @@ func (c *Cache) ExportBundle(ctx context.Context, w io.Writer, opts CacheBundleE
 		return summary, fmt.Errorf("export bundle: %w", err)
 	}
 	return summary, nil
+}
+
+// computeExportChains derives a snapshot-backed row's content chains, one
+// per snapshot role, through the snapshot manager's export machinery
+// (memoized per snapshot; first computation is the sanctioned
+// hash-at-export cost).
+func (c *Cache) computeExportChains(ctx context.Context, links []persistdb.MirrorResultSnapshotLink) ([]PersistedResultContentChain, error) {
+	var chains []PersistedResultContentChain
+	seenRoles := make(map[string]struct{}, len(links))
+	for _, link := range links {
+		if _, dup := seenRoles[link.Role]; dup {
+			continue
+		}
+		seenRoles[link.Role] = struct{}{}
+		snapChain, err := c.snapshotManager.ChainForSnapshot(ctx, link.RefKey)
+		if err != nil {
+			return nil, fmt.Errorf("chain for role %q snapshot %q: %w", link.Role, link.RefKey, err)
+		}
+		chain := PersistedResultContentChain{
+			Role:    link.Role,
+			ChainID: snapChain.ChainID.String(),
+		}
+		for _, layer := range snapChain.Layers {
+			chain.Layers = append(chain.Layers, PersistedContentChainLayer{
+				DiffID:    layer.DiffID.String(),
+				Blob:      layer.Blob.String(),
+				Size:      layer.Size,
+				MediaType: layer.MediaType,
+			})
+		}
+		chains = append(chains, chain)
+	}
+	return chains, nil
 }
 
 func writeBundleMetadataDB(ctx context.Context, path string, bundled persistStateSnapshot) (rerr error) {

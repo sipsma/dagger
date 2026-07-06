@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/containerd/containerd/v2/core/snapshots"
+	digest "github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagger/dagger/dagql"
@@ -178,6 +180,18 @@ func (m *cacheVolumeTestSnapshotManager) DeleteStaleDaggerOwnerLeases(ctx contex
 		m.deleteStaleKeep[leaseID] = struct{}{}
 	}
 	return nil
+}
+
+func (*cacheVolumeTestSnapshotManager) ChainForSnapshot(context.Context, string) (bkcache.SnapshotChain, error) {
+	panic("unexpected ChainForSnapshot call")
+}
+
+func (*cacheVolumeTestSnapshotManager) MaterializeChain(context.Context, string, bkcache.SnapshotChain, bkcache.BlobSource) (string, bkcache.ChainFetchStats, error) {
+	panic("unexpected MaterializeChain call")
+}
+
+func (*cacheVolumeTestSnapshotManager) OpenBlob(context.Context, digest.Digest) (io.ReadCloser, error) {
+	panic("unexpected OpenBlob call")
 }
 
 func (*cacheVolumeTestSnapshotManager) Close() error {

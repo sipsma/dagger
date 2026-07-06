@@ -2,6 +2,7 @@ package dagql
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -58,6 +59,10 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list mirror result_origins: %w", err)
 	}
+	resultContentChainRows, err := c.pdb.ListMirrorResultContentChains(ctx)
+	if err != nil {
+		return fmt.Errorf("list mirror result_content_chains: %w", err)
+	}
 	snapshotContentRows, err := c.pdb.ListMirrorSnapshotContentLinks(ctx)
 	if err != nil {
 		return fmt.Errorf("list mirror snapshot_content_links: %w", err)
@@ -108,7 +113,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 		}
 	}
 
-	keptRows, restoreSummary, err := c.vetRestoredResults(ctx, resultRows, resultDepRows, resultSnapshotRows, resultOriginRows)
+	keptRows, restoreSummary, err := c.vetRestoredResults(ctx, resultRows, resultDepRows, resultSnapshotRows, resultOriginRows, resultContentChainRows, nil)
 	if err != nil {
 		return err
 	}
@@ -197,6 +202,9 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			c.assignResultOriginLocked(res, restored.origin)
 			if len(restored.links) > 0 {
 				res.materialization.setLocalSnapshotSource(restored.links)
+			}
+			if len(restored.chains) > 0 {
+				res.materialization.setContentChainSource(restored.chains)
 			}
 			if len(env.LazyJSON) > 0 {
 				res.materialization.setLazyFragment(&PersistedLazyFragment{
@@ -663,23 +671,73 @@ func (c *Cache) runRestoredValueDecode(runCtx context.Context, resolver TypeReso
 	close(waitCh)
 }
 
-// decodeRestoredValueWalk is the value phase of the retained-source walk: it
-// decodes the persisted envelope, preferring the local snapshot and falling
-// through to the lazy fragment when the snapshots turn out to be gone from
-// the store (external loss after boot vetting). When no source can deliver,
-// it reports source exhaustion, which the lookup path consumes by demoting
-// the hit to a miss.
+// decodeRestoredValueWalk is the value phase of the retained-source walk,
+// in the ratified fall-through order: local snapshot, then content chain,
+// then lazy fragment. The chain arm realizes remote content INTO a local
+// snapshot (via the snapshot manager) and the ordinary snapshot decode
+// serves it — the chain is a content fetcher, never a second decode model.
+// When no source can deliver, the walk reports source exhaustion — or, when
+// a transient failure starved the remaining sources, source unavailability —
+// which the lookup path consumes by demoting the hit to a miss (dropping
+// the row only for true exhaustion).
 func (c *Cache) decodeRestoredValueWalk(ctx context.Context, resolver TypeResolver, res *sharedResult, env *PersistedResultEnvelope) error {
+	var (
+		realizedViaChain  bool
+		chainAttempted    bool
+		sawChainTransient bool
+	)
 	for {
+		// The chain arm: no local snapshot (a bundle-imported row's initial
+		// state, links retired by boot vetting or a prior boot, or a dead
+		// source this walk just retired) and a viable chain remaining. One
+		// attempt per walk: this attempt falls through on failure, the next
+		// waiter's walk retries anything unmarked.
+		if len(res.loadSnapshotOwnerLinks()) == 0 && !chainAttempted {
+			outcome, chainErr := c.realizeContentChainSource(ctx, res)
+			switch outcome {
+			case chainRealizeNone:
+				// nothing attempted; not a strike against retries
+			case chainRealizeOK:
+				chainAttempted = true
+				realizedViaChain = true
+			default:
+				chainAttempted = true
+				if outcome == chainRealizeTransient {
+					sawChainTransient = true
+				}
+				// A walk canceled mid-fetch fails with its cancellation,
+				// never a fall-through or a demote.
+				if ctxErr := context.Cause(ctx); ctxErr != nil {
+					return chainErr
+				}
+			}
+		}
+
+		links := res.loadSnapshotOwnerLinks()
+		fragment := res.loadLazyFragment()
+		if len(links) == 0 && fragment == nil && len(res.loadContentChains()) > 0 {
+			// The chain was this row's only content source and it cannot
+			// deliver this walk (it failed above, or an earlier walk marked
+			// it). A row that never claimed content — a self-contained
+			// envelope — is NOT this case: it falls through to the ordinary
+			// decode below. Distinguish "every failure permanent" (drop;
+			// boot vetting's rule at its second moment) from "a transient
+			// failure starved the walk" (retry next demand; the starved mark
+			// ranks this row behind fresher equivalents at selection).
+			if sawChainTransient {
+				res.transientlyStarved.Store(true)
+				return fmt.Errorf("%w: result %d", errSourcesUnavailable, res.id)
+			}
+			return fmt.Errorf("%w: result %d has no viable retained source", errSourcesExhausted, res.id)
+		}
+
 		attemptCtx := ctx
 		// The walk owns source accounting. When the home retains the lazy
-		// fragment but no local-snapshot source — because this walk just
-		// retired a dead snapshot source, or because boot vetting or a prior
-		// boot retired it and the row flushed link-less — the attempt is
-		// deliberately decoding against the fragment, and fragment-capable
-		// content decoders are told so explicitly. They must never infer
-		// retirement from raw link absence: legitimate shapes (pending
-		// values, config-only values) are link-less too.
+		// fragment but no local-snapshot source, the attempt is deliberately
+		// decoding against the fragment, and fragment-capable content
+		// decoders are told so explicitly. They must never infer retirement
+		// from raw link absence: legitimate shapes (pending values,
+		// config-only values) are link-less too.
 		//
 		// The prior-boot case works because this shape doubles as the
 		// durable retirement record: content-bearing completed publications
@@ -689,29 +747,40 @@ func (c *Cache) decodeRestoredValueWalk(ctx context.Context, resolver TypeResolv
 		// legitimately never have snapshot links must add an explicit
 		// persisted retirement marker first — the home's shape stops being
 		// unambiguous the moment such a producer exists.
-		if res.loadLazyFragment() != nil && len(res.loadSnapshotOwnerLinks()) == 0 {
+		if fragment != nil && len(links) == 0 {
 			attemptCtx = contextWithRetiredSnapshotSource(ctx, uint64(res.id))
 		}
 		err := c.decodeRestoredValueOnce(attemptCtx, resolver, res, env)
 		if err == nil {
+			// Classified from the pre-decode view the attempt actually used:
+			// decode re-syncs the home's links from the realized value, so
+			// the post-decode state no longer says which source served.
 			outcome := cacheServeFromSnapshot
-			if len(res.loadSnapshotOwnerLinks()) == 0 {
+			switch {
+			case len(links) == 0:
 				outcome = cacheServeFromLazyForm
+			case realizedViaChain:
+				outcome = cacheServeFromContentChain
 			}
 			c.classifyServeOutcome(ctx, outcome, res.loadResultCall(), res.id)
+			// A delivering walk retires any starved mark: the row competes
+			// on equal footing again.
+			res.transientlyStarved.Store(false)
 			return nil
 		}
 		if !bkcache.IsNotFound(err) {
 			return err
 		}
 		// A snapshot this value needs is gone from the local store. If the
-		// snapshot source is still recorded and a lazy fragment remains,
-		// retire the snapshot source — its leases pin nothing real — and
-		// decode again against the fragment.
-		links := res.loadSnapshotOwnerLinks()
-		if len(links) > 0 && res.loadLazyFragment() != nil {
+		// snapshot source is still recorded and another source remains —
+		// the chain (untried or unmarked) or the fragment — retire the
+		// snapshot source (its leases pin nothing real) and walk on.
+		links = res.loadSnapshotOwnerLinks()
+		chainRemains := !chainAttempted && len(res.loadViableContentChains()) > 0
+		if len(links) > 0 && (fragment != nil || chainRemains) {
 			c.traceRestoredSnapshotSourceRetired(ctx, res, err)
 			res.storeSnapshotOwnerLinks(nil)
+			realizedViaChain = false
 			seen := make(map[string]struct{}, len(links))
 			for _, link := range links {
 				leaseID := resultSnapshotLeaseID(res.id, link.Role)
@@ -727,8 +796,95 @@ func (c *Cache) decodeRestoredValueWalk(ctx context.Context, resolver TypeResolv
 			}
 			continue
 		}
+		if sawChainTransient {
+			res.transientlyStarved.Store(true)
+			return fmt.Errorf("%w: result %d: %w", errSourcesUnavailable, res.id, err)
+		}
 		return fmt.Errorf("%w: result %d: %w", errSourcesExhausted, res.id, err)
 	}
+}
+
+// chainRealizeOutcome classifies one content-chain realization attempt for
+// the walk (§9.3's failure typing).
+type chainRealizeOutcome int
+
+const (
+	// chainRealizeNone: no viable chain source (absent or marked) —
+	// nothing was attempted.
+	chainRealizeNone chainRealizeOutcome = iota
+	chainRealizeOK
+	// chainRealizePermanent: a required blob is missing from the CAS or
+	// arrived corrupt; the chain source is marked non-viable for this boot.
+	chainRealizePermanent
+	// chainRealizeTransient: transport/apply-shaped failure; nothing marks,
+	// the next walk retries.
+	chainRealizeTransient
+)
+
+// realizeContentChainSource realizes a result's viable content chains into
+// local snapshots: per role, materialize the chain (prefix reuse + blob
+// fetch + layer apply, pinned under this result's owner lease inside the
+// manager), then install the fresh refKeys as the row's local-snapshot
+// source — the sanctioned content-arrival write point. The ordinary decode
+// path then serves them like any local snapshot.
+func (c *Cache) realizeContentChainSource(ctx context.Context, res *sharedResult) (chainRealizeOutcome, error) {
+	chains := res.loadViableContentChains()
+	if len(chains) == 0 || c.snapshotManager == nil {
+		return chainRealizeNone, nil
+	}
+	frame := res.loadResultCall()
+
+	// Blob/byte tallies land exactly once per realization attempt, success
+	// or failure: transfers that happened are real (and stay ingested, so
+	// a retry never re-moves them).
+	var fetchStats bkcache.ChainFetchStats
+	defer func() {
+		c.serveStats.add(cacheChainFetchBlobs, statFieldName(frame), int64(fetchStats.Blobs))
+		c.serveStats.add(cacheChainFetchBytes, statFieldName(frame), fetchStats.Bytes)
+	}()
+
+	links := make([]PersistedSnapshotRefLink, 0, len(chains))
+	for _, chain := range chains {
+		leaseID := resultSnapshotLeaseID(res.id, chain.Role)
+		snapshotID, roleStats, err := c.snapshotManager.MaterializeChain(ctx, leaseID, chain.bkSnapshotChain(), c.contentChainBlobSource)
+		fetchStats.Blobs += roleStats.Blobs
+		fetchStats.Bytes += roleStats.Bytes
+		if err != nil {
+			// The realization is all-or-nothing per result: leases already
+			// attached for earlier roles release, so a half-realized chain
+			// pins nothing.
+			for _, link := range links {
+				if removeErr := c.snapshotManager.RemoveLease(ctx, resultSnapshotLeaseID(res.id, link.Role)); removeErr != nil {
+					slog.Warn("release partial chain realization lease",
+						"sharedResultID", res.id, "role", link.Role, "err", removeErr)
+				}
+			}
+			switch {
+			case errors.Is(err, bkcache.ErrBlobNotFound):
+				res.markContentChainNonViable()
+				c.classifyServeOutcome(ctx, cacheChainFetchMissing, frame, res.id)
+				slog.Warn("content chain blob missing; chain source marked non-viable",
+					"sharedResultID", res.id, "role", chain.Role, "err", err)
+				return chainRealizePermanent, err
+			case errors.Is(err, bkcache.ErrChainBlobCorrupt):
+				res.markContentChainNonViable()
+				c.classifyServeOutcome(ctx, cacheChainFetchCorrupt, frame, res.id)
+				slog.Error("content chain blob corrupt; bytes discarded, chain source marked non-viable",
+					"sharedResultID", res.id, "role", chain.Role, "err", err)
+				return chainRealizePermanent, err
+			default:
+				c.classifyServeOutcome(ctx, cacheChainFetchError, frame, res.id)
+				slog.Warn("content chain realization failed transiently",
+					"sharedResultID", res.id, "role", chain.Role, "err", err)
+				return chainRealizeTransient, err
+			}
+		}
+		links = append(links, PersistedSnapshotRefLink{RefKey: snapshotID, Role: chain.Role})
+	}
+
+	res.storeSnapshotOwnerLinks(links)
+	c.classifyServeOutcome(ctx, cacheChainFetchOK, frame, res.id)
+	return chainRealizeOK, nil
 }
 
 func (c *Cache) decodeRestoredValueOnce(ctx context.Context, resolver TypeResolver, res *sharedResult, env *PersistedResultEnvelope) error {

@@ -536,6 +536,8 @@ func (srv *Server) initLocalCacheStateOnce(ctx context.Context, cfg config.Confi
 		return localCacheStateResetReason("dagql_" + string(resetReason)), nil
 	}
 
+	srv.testOnlyCacheTransportBoot(ctx)
+
 	return localCacheStateResetNone, nil
 }
 

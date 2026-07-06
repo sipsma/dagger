@@ -35,6 +35,15 @@ type CacheBundleImportSummary struct {
 
 	TermsImported int
 	TermsDeduped  int
+
+	// ChainSourcesInstalled counts rows (staged or same-origin unions) that
+	// gained a content-chain source from this bundle's manifest;
+	// ChainsSkippedMalformed counts manifest chain references that were
+	// structurally unusable — the referencing rows' content promises cannot
+	// be honored, so those rows survive only on a lazy fragment (else they
+	// drop at vetting as chain_damaged, with their dependents).
+	ChainSourcesInstalled  int
+	ChainsSkippedMalformed int
 }
 
 // ImportBundle merges one bundle into the live cache. It is a separate
@@ -84,11 +93,33 @@ func (c *Cache) ImportBundle(ctx context.Context, r io.Reader) (CacheBundleImpor
 		return summary, bundleSkip(CacheBundleSkipBrokenIdentity, err)
 	}
 
+	// Manifest chains parse and validate BEFORE vetting, so a row whose
+	// content promise rides a chain the manifest cannot honor is judged
+	// with that fact in hand (never kept chainless to hard-error at
+	// decode). Damage attributable to a row (dangling chainID reference,
+	// malformed layers, duplicate roles) marks that row's content damaged;
+	// section-level garbage the rows cannot be blamed for skips the whole
+	// bundle. Blob AVAILABILITY stays a runtime concern (S5) — only
+	// structure is checked here.
+	knownResults := make(map[sharedResultID]struct{}, len(rows.results))
+	for _, row := range rows.results {
+		knownResults[sharedResultID(row.ID)] = struct{}{}
+	}
+	manifestChains, err := parseBundleManifestChains(manifest, knownResults)
+	if err != nil {
+		return summary, bundleSkip(CacheBundleSkipMalformedChains, err)
+	}
+	summary.ChainsSkippedMalformed = manifestChains.damagedRefs
+	chainsByBundleResult := manifestChains.byResult
+
 	// Per-result vetting: the exact local rules (malformed, missing-dep,
 	// cycle, cascade), bundle-flavored — bundles carry no snapshot link
-	// rows, so the local snapshot-presence check has nothing to test and
-	// content viability is what the row structurally carries.
-	kept, vetSummary, err := c.vetRestoredResults(ctx, rows.results, rows.resultDeps, nil, rows.resultOrigins)
+	// rows (and no chain rows: chains live in the manifest), so the local
+	// snapshot-presence check has nothing to test and content viability is
+	// what the row structurally carries: a row whose chain claim is damaged
+	// survives only on its lazy fragment, exactly like local
+	// claimed-content damage.
+	kept, vetSummary, err := c.vetRestoredResults(ctx, rows.results, rows.resultDeps, nil, rows.resultOrigins, nil, manifestChains.damaged)
 	if err != nil {
 		return summary, bundleSkip(CacheBundleSkipBrokenIdentity, err)
 	}
@@ -240,6 +271,10 @@ func (c *Cache) ImportBundle(ctx context.Context, r io.Reader) (CacheBundleImpor
 			restored: true,
 		}
 		c.assignResultOriginLocked(res, restored.origin)
+		if chains := chainsByBundleResult[bundleID]; len(chains) > 0 {
+			res.materialization.setContentChainSource(chains)
+			summary.ChainSourcesInstalled++
+		}
 		if len(row.envelope.LazyJSON) > 0 {
 			// Fragment-with-no-snapshot-links is also the shape the decode
 			// walk reads as a retired snapshot source, which is exactly
@@ -501,8 +536,14 @@ func (c *Cache) ImportBundle(ctx context.Context, r io.Reader) (CacheBundleImpor
 	}
 
 	// Same-origin observations union sources and refresh timestamps, never
-	// replace rows: a deduped bundle row may add its lazy-form source to an
-	// existing row that lacks one; nothing is overwritten.
+	// replace rows: a deduped bundle row may add its content-chain or
+	// lazy-form source to an existing row that lacks one (the exporting
+	// store realized content after an earlier export); nothing is
+	// overwritten — first-imported wins per source. This is the second
+	// locus of the same-origin union rule: identity evidence unions in the
+	// membership pass above (per membership row, under the e-graph lock);
+	// source state unions here (per deduped row, under its payload lock).
+	// One rule, two data planes.
 	for _, bundleID := range order {
 		if _, isDeduped := dedupedIDs[bundleID]; !isDeduped {
 			continue
@@ -519,6 +560,13 @@ func (c *Cache) ImportBundle(ctx context.Context, r io.Reader) (CacheBundleImpor
 		res.payloadMu.Lock()
 		if restored.row.LastUsedAtUnixNano > res.lastUsedAtUnixNano {
 			res.lastUsedAtUnixNano = restored.row.LastUsedAtUnixNano
+		}
+		if chains := chainsByBundleResult[bundleID]; len(chains) > 0 {
+			hadChainSource := res.materialization.contentChains() != nil
+			res.materialization.unionContentChains(chains)
+			if !hadChainSource && res.materialization.contentChains() != nil {
+				summary.ChainSourcesInstalled++
+			}
 		}
 		hasLazySource := res.materialization.lazyFragment() != nil
 		res.payloadMu.Unlock()
@@ -600,6 +648,121 @@ func (c *Cache) ImportBundle(ctx context.Context, r io.Reader) (CacheBundleImpor
 		"droppedRewrite", summary.RowsDroppedRewrite,
 	)
 	return summary, nil
+}
+
+// bundleManifestChains is the validated view of a manifest's chain
+// declarations: usable chain identities per bundle result, plus the rows
+// whose chain claims turned out damaged — those rows' content promises
+// cannot be honored, and vetting judges them with that fact.
+type bundleManifestChains struct {
+	byResult map[sharedResultID][]PersistedResultContentChain
+	// damaged marks rows with at least one unusable chain claim (dangling
+	// chainID reference, malformed layers, duplicate role). A damaged row
+	// gets NO chain sources — partial content promises are not kept.
+	damaged map[sharedResultID]struct{}
+	// damagedRefs counts the unusable chain references themselves (the
+	// observability tally behind the per-row damage).
+	damagedRefs int
+}
+
+// parseBundleManifestChains validates the manifest's chain declarations
+// before any row is vetted. Damage splits by blast radius: garbage
+// attributable to a specific row (a resultChain with a dangling chainID, a
+// chain whose layers are malformed, a duplicate role) marks that row's
+// content damaged — the row survives only on a lazy fragment, and drops
+// with its dependents otherwise. Section-level garbage no row can be blamed
+// for (empty or duplicate chainIDs, a resultChain naming no row in
+// knownResults — zero or orphan) fails the whole bundle. Availability of
+// the chains' blobs is deliberately not checked (S5) — structure only.
+func parseBundleManifestChains(manifest CacheBundleManifest, knownResults map[sharedResultID]struct{}) (bundleManifestChains, error) {
+	out := bundleManifestChains{
+		byResult: make(map[sharedResultID][]PersistedResultContentChain),
+		damaged:  make(map[sharedResultID]struct{}),
+	}
+
+	layersByChainID := make(map[string][]PersistedContentChainLayer, len(manifest.Chains))
+	malformedChainIDs := make(map[string]struct{})
+	for _, chain := range manifest.Chains {
+		if chain.ChainID == "" {
+			return out, errors.New("manifest chain entry with empty chainID")
+		}
+		_, dupUsable := layersByChainID[chain.ChainID]
+		_, dupMalformed := malformedChainIDs[chain.ChainID]
+		if dupUsable || dupMalformed {
+			return out, fmt.Errorf("duplicate manifest chain entry %q", chain.ChainID)
+		}
+		layers := make([]PersistedContentChainLayer, 0, len(chain.Layers))
+		malformed := false
+		for _, layer := range chain.Layers {
+			if layer.DiffID == "" || layer.Blob == "" {
+				malformed = true
+				break
+			}
+			layers = append(layers, PersistedContentChainLayer{
+				DiffID:    layer.DiffID,
+				Blob:      layer.Blob,
+				Size:      layer.Size,
+				MediaType: layer.MediaType,
+			})
+		}
+		if malformed {
+			// Attributed below to every row referencing this chain.
+			malformedChainIDs[chain.ChainID] = struct{}{}
+			continue
+		}
+		layersByChainID[chain.ChainID] = layers
+	}
+
+	seenRoles := make(map[sharedResultID]map[string]struct{})
+	markDamaged := func(bundleID sharedResultID, why string, resultChain CacheBundleResultChain) {
+		out.damaged[bundleID] = struct{}{}
+		out.damagedRefs++
+		slog.Warn("bundle result chain claim is damaged",
+			"why", why, "bundleResultID", resultChain.ResultID,
+			"role", resultChain.Role, "chainID", resultChain.ChainID)
+	}
+	for _, resultChain := range manifest.ResultChains {
+		bundleID := sharedResultID(resultChain.ResultID)
+		if bundleID == 0 {
+			return out, errors.New("manifest resultChain with zero resultID")
+		}
+		if _, known := knownResults[bundleID]; !known {
+			// An orphan claim names no row the metadata carries: nothing to
+			// attribute the damage to, so the whole bundle is suspect.
+			return out, fmt.Errorf("manifest resultChain names no bundle row (result %d, chain %q)", resultChain.ResultID, resultChain.ChainID)
+		}
+		if _, isMalformed := malformedChainIDs[resultChain.ChainID]; isMalformed {
+			markDamaged(bundleID, "malformed chain layers", resultChain)
+			continue
+		}
+		layers, known := layersByChainID[resultChain.ChainID]
+		if !known {
+			markDamaged(bundleID, "dangling chainID reference", resultChain)
+			continue
+		}
+		roles := seenRoles[bundleID]
+		if roles == nil {
+			roles = make(map[string]struct{})
+			seenRoles[bundleID] = roles
+		}
+		if _, dup := roles[resultChain.Role]; dup {
+			markDamaged(bundleID, "duplicate role", resultChain)
+			continue
+		}
+		roles[resultChain.Role] = struct{}{}
+		out.byResult[bundleID] = append(out.byResult[bundleID], PersistedResultContentChain{
+			Role:    resultChain.Role,
+			ChainID: resultChain.ChainID,
+			Layers:  layers,
+		})
+	}
+
+	// A damaged row's content promise is not honored partially: whatever
+	// chains parsed fine for it are discarded with the damaged ones.
+	for bundleID := range out.damaged {
+		delete(out.byResult, bundleID)
+	}
+	return out, nil
 }
 
 // stagedBundleRow is one kept bundle row with every reference rewritten

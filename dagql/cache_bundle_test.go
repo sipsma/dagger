@@ -1300,9 +1300,9 @@ func TestCacheBundleOriginIndexDropsWithRow(t *testing.T) {
 }
 
 // TestCacheBundleExportExcludesSnapshotOnlyRows: a row whose only content
-// source is a local snapshot (no lazy fragment, no chain yet in this
-// phase) cannot keep its promise across the boundary and is excluded with
-// a typed counter; rows with a lazy fallback cross.
+// source is a local snapshot and whose content chain fails to compute (no
+// lazy fragment either) cannot keep its promise across the boundary and is
+// excluded with typed counters; rows with a lazy fallback cross.
 func TestCacheBundleExportExcludesSnapshotOnlyRows(t *testing.T) {
 	t.Parallel()
 
@@ -1343,6 +1343,7 @@ func TestCacheBundleExportExcludesSnapshotOnlyRows(t *testing.T) {
 	var bundle bytes.Buffer
 	summary, err := cacheA.ExportBundle(ctx, &bundle, CacheBundleExportOptions{})
 	assert.NilError(t, err)
+	assert.Equal(t, 1, summary.ChainComputeFailed, "the unchainable snapshot must count loudly")
 	assert.Equal(t, 1, summary.ExcludedNoPortableContent)
 
 	tmp := t.TempDir()

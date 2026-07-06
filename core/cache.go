@@ -60,6 +60,13 @@ func NewCache(
 var _ dagql.OnReleaser = (*CacheVolume)(nil)
 var _ dagql.HasDependencyResults = (*CacheVolume)(nil)
 
+func init() {
+	// A cache volume is a mutable-owner snapshot: its content never crosses
+	// an engine boundary, but the row may — its decoder already tolerates
+	// absent snapshot links (the volume initializes fresh on first use).
+	dagql.RegisterContentlessPersistedType("CacheVolume")
+}
+
 func (cache *CacheVolume) AttachDependencyResults(
 	ctx context.Context,
 	self dagql.AnyResult,

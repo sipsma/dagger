@@ -24,6 +24,13 @@ var _ dagql.PersistedObject = (*RemoteGitMirror)(nil)
 var _ dagql.PersistedObjectDecoder = (*RemoteGitMirror)(nil)
 var _ dagql.OnReleaser = (*RemoteGitMirror)(nil)
 
+func init() {
+	// The mirror is a mutable-owner snapshot: its content never crosses an
+	// engine boundary, but the row may — decoding without a snapshot link
+	// yields an identity-only mirror that re-fetches on first use.
+	dagql.RegisterContentlessPersistedType("RemoteGitMirror")
+}
+
 func NewRemoteGitMirror(remoteURL string) *RemoteGitMirror {
 	return &RemoteGitMirror{RemoteURL: remoteURL}
 }
@@ -141,9 +148,15 @@ func (*RemoteGitMirror) DecodePersistedObject(ctx context.Context, dag *dagql.Se
 	if resultID == 0 {
 		return mirror, nil
 	}
-	link, err := loadPersistedSnapshotLinkByResultID(ctx, dag, resultID, "remote git mirror", "bare_repo")
+	link, found, err := findPersistedSnapshotLinkByResultID(ctx, dag, resultID, "remote git mirror", "bare_repo")
 	if err != nil {
 		return nil, err
+	}
+	if !found {
+		// Identity-only row (e.g. imported from another engine, where the
+		// mirror's mutable snapshot never crosses): the first use creates a
+		// fresh bare repo and re-fetches.
+		return mirror, nil
 	}
 	query, err := persistedDecodeQuery(dag)
 	if err != nil {

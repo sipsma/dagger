@@ -646,16 +646,34 @@ func (c *Cache) sessionSatisfiesResourceRequirementsLocked(sessionID string, res
 	return available.Subset(res.requiredSessionResources)
 }
 
+// selectLookupCandidateForSessionLocked picks the winner: the first
+// eligible candidate in deterministic order, with exactly one tie-break —
+// candidates whose last materialization walk was starved by a transient
+// failure rank behind unmarked ones. Without the tie-break, a demoted
+// caller's fresh publication can never win over the stale lower-ID row it
+// healed around, and every future lookup re-demotes off the same dead
+// transport. A marked candidate still serves when it is the only one (the
+// mark is boot-scoped ordering advice, never eligibility), and this is
+// deliberately NOT a general realized-before-unrealized preference — that
+// remains a recorded future option, not built.
 func (c *Cache) selectLookupCandidateForSessionLocked(sessionID string, candidates *set.TreeSet[*sharedResult]) *sharedResult {
 	if candidates == nil {
 		return nil
 	}
+	var firstTransientlyStarved *sharedResult
 	for res := range candidates.Items() {
-		if c.sessionSatisfiesResourceRequirementsLocked(sessionID, res) {
-			return res
+		if !c.sessionSatisfiesResourceRequirementsLocked(sessionID, res) {
+			continue
 		}
+		if res.transientlyStarved.Load() {
+			if firstTransientlyStarved == nil {
+				firstTransientlyStarved = res
+			}
+			continue
+		}
+		return res
 	}
-	return nil
+	return firstTransientlyStarved
 }
 
 func (c *Cache) lookupMatchForDigestsLocked(recipeDigest digest.Digest, extraDigests []call.ExtraDigest, nowUnix int64) lookupMatch {

@@ -23,10 +23,33 @@ const (
 	cacheServeMissFirst = "miss_first"
 	// A restored value materialized by decoding its local snapshot.
 	cacheServeFromSnapshot = "served_from_snapshot"
+	// A restored value materialized by fetching and applying its content
+	// chain, which installed a local snapshot the decode then used.
+	cacheServeFromContentChain = "served_from_content_chain"
 	// A restored value materialized from its lazy fragment instead.
 	cacheServeFromLazyForm = "served_from_lazy_form"
 	// A hit's retained sources were exhausted; the call executed live.
 	cacheServeDemotedToMiss = "demoted_to_miss"
+
+	// Chain-fetch outcomes, one per blob attempt during chain realization
+	// (§9.3's typed failure vocabulary; the field key is the call being
+	// served).
+	cacheChainFetchOK = "chain_fetch_ok"
+	// A required blob is absent from the CAS: permanent for this boot, the
+	// chain source marks non-viable.
+	cacheChainFetchMissing = "chain_fetch_missing"
+	// Transport-shaped failure (network, 5xx, timeout, apply): transient,
+	// nothing marks, the next walk retries the chain.
+	cacheChainFetchError = "chain_fetch_error"
+	// Fetched bytes did not match the blob digest: permanent and loud, the
+	// bytes are discarded and the chain source marks non-viable.
+	cacheChainFetchCorrupt = "chain_fetch_corrupt"
+	// What chain realization actually moved: blobs fetched from the CAS
+	// into the content store, and their bytes. Tallied exactly once per
+	// realization attempt (success or failure — transfers before a failure
+	// are real, and stay ingested, so a retry never re-moves them).
+	cacheChainFetchBlobs = "chain_fetch_blobs"
+	cacheChainFetchBytes = "chain_fetch_bytes"
 )
 
 type cacheStatKey struct {
@@ -44,11 +67,18 @@ type cacheServeStats struct {
 }
 
 func (s *cacheServeStats) inc(outcome, field string) {
+	s.add(outcome, field, 1)
+}
+
+func (s *cacheServeStats) add(outcome, field string, n int64) {
+	if n == 0 {
+		return
+	}
 	s.mu.Lock()
 	if s.counters == nil {
 		s.counters = make(map[cacheStatKey]int64)
 	}
-	s.counters[cacheStatKey{outcome: outcome, field: field}]++
+	s.counters[cacheStatKey{outcome: outcome, field: field}] += n
 	s.mu.Unlock()
 }
 

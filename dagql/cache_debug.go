@@ -86,7 +86,12 @@ type EGraphDebugResult struct {
 	IncomingOwnershipCount   int64                      `json:"incoming_ownership_count"`
 	Realized                 bool                       `json:"realized"`
 	Sources                  []string                   `json:"sources,omitempty"`
-	PayloadState             string                     `json:"payload_state"`
+	// TransientlyStarved surfaces the boot-scoped selection tie-break mark
+	// (a transient failure starved this row's last materialization walk):
+	// the S4 counters show the storms it prevents, the snapshot shows the
+	// mechanism.
+	TransientlyStarved bool   `json:"transiently_starved,omitempty"`
+	PayloadState       string `json:"payload_state"`
 	HasPersistedEdge         bool                       `json:"has_persisted_edge"`
 	PersistedEdgeUnpruneable bool                       `json:"persisted_edge_unpruneable"`
 	ExplicitDeps             []uint64                   `json:"explicit_dep_ids,omitempty"`
@@ -1038,6 +1043,7 @@ func (c *Cache) DebugEGraphSnapshot() *EGraphDebugSnapshot {
 			IncomingOwnershipCount:   res.incomingOwnershipCount,
 			Realized:                 state.realized,
 			Sources:                  debugSourceKindNames(state.sourceKinds),
+			TransientlyStarved:       res.transientlyStarved.Load(),
 			PayloadState:             payloadState,
 			HasPersistedEdge:         c.persistedEdgesByResult[res.id].resultID != 0,
 			PersistedEdgeUnpruneable: c.persistedEdgesByResult[res.id].unpruneable,
@@ -1357,6 +1363,7 @@ func (c *Cache) WriteDebugCacheSnapshot(w io.Writer) error {
 					IncomingOwnershipCount:   res.incomingOwnershipCount,
 					Realized:                 state.realized,
 					Sources:                  debugSourceKindNames(state.sourceKinds),
+					TransientlyStarved:       res.transientlyStarved.Load(),
 					PayloadState:             payloadState,
 					HasPersistedEdge:         c.persistedEdgesByResult[res.id].resultID != 0,
 					PersistedEdgeUnpruneable: c.persistedEdgesByResult[res.id].unpruneable,
@@ -1557,7 +1564,7 @@ func (c *Cache) WriteDebugCacheSnapshot(w io.Writer) error {
 					CallKey:        key.callKey,
 					ConcurrencyKey: key.concurrencyKey,
 					Waiters:        call.waiters,
-					IsPersistable:  call.isPersistable,
+					IsPersistable:  call.isPersistable.Load(),
 					TTLSeconds:     call.ttlSeconds,
 					Completed:      completed,
 				}

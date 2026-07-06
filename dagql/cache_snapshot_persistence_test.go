@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"path/filepath"
 	"sort"
+	"sync"
 	"testing"
 
 	cerrdefs "github.com/containerd/errdefs"
+	digest "github.com/opencontainers/go-digest"
 	"github.com/vektah/gqlparser/v2/ast"
 	"gotest.tools/v3/assert"
 
@@ -72,6 +75,51 @@ type fakeSnapshotManager struct {
 	// leases tracks the currently live dagql owner leases, so tests can
 	// assert what actually remains after attach/remove/sweep sequences.
 	leases map[string]struct{}
+
+	// chainMu guards the chain fields: the walk's chain arm runs on decode
+	// goroutines, so concurrency tests reach them under -race.
+	chainMu sync.Mutex
+	// chainForSnapshot answers ChainForSnapshot per snapshot ID; absent IDs
+	// error (a snapshot with no computable chain).
+	chainForSnapshot map[string]bkcache.SnapshotChain
+	// materializeChainFunc, when set, handles MaterializeChain. Every call
+	// is recorded in materializeChainCalls either way.
+	materializeChainFunc  func(ctx context.Context, ownerLeaseID string, chain bkcache.SnapshotChain, src bkcache.BlobSource) (string, bkcache.ChainFetchStats, error)
+	materializeChainCalls []bkcache.SnapshotChain
+}
+
+// ChainForSnapshot answers from the configured map; snapshots without an
+// entry (including the nil map) report chain computation failure — the
+// per-row degrade path export must survive.
+func (m *fakeSnapshotManager) ChainForSnapshot(_ context.Context, snapshotID string) (bkcache.SnapshotChain, error) {
+	m.chainMu.Lock()
+	defer m.chainMu.Unlock()
+	chain, ok := m.chainForSnapshot[snapshotID]
+	if !ok {
+		return bkcache.SnapshotChain{}, fmt.Errorf("no chain for snapshot %q", snapshotID)
+	}
+	return chain, nil
+}
+
+func (m *fakeSnapshotManager) MaterializeChain(ctx context.Context, ownerLeaseID string, chain bkcache.SnapshotChain, src bkcache.BlobSource) (string, bkcache.ChainFetchStats, error) {
+	m.chainMu.Lock()
+	fn := m.materializeChainFunc
+	m.materializeChainCalls = append(m.materializeChainCalls, chain)
+	m.chainMu.Unlock()
+	if fn == nil {
+		panic("unexpected MaterializeChain call")
+	}
+	return fn(ctx, ownerLeaseID, chain, src)
+}
+
+func (m *fakeSnapshotManager) materializeChainCallCount() int {
+	m.chainMu.Lock()
+	defer m.chainMu.Unlock()
+	return len(m.materializeChainCalls)
+}
+
+func (*fakeSnapshotManager) OpenBlob(context.Context, digest.Digest) (io.ReadCloser, error) {
+	panic("unexpected OpenBlob call")
 }
 
 func (m *fakeSnapshotManager) liveLeases() []string {

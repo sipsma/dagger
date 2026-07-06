@@ -242,6 +242,9 @@ func (dev *EngineDev) test(
 func (dev *EngineDev) testContainer(ctx context.Context, ebpfProgs []string) (*dagger.Container, string, error) {
 	devEngine, err := dev.
 		WithEBPFProgs(ebpfProgs).
+		// The integration-test engine compiles in the test-only cache-bundle
+		// file transport; release and ordinary dev builds carry none of it.
+		WithBuildTags([]string{"testonly_cache_transport"}).
 		WithEngineConfig(`registry."registry:5000"`, `http = true`).
 		WithEngineConfig(`registry."privateregistry:5000"`, `http = true`).
 		WithEngineConfig(`registry."docker.io"`, `mirrors = ["mirror.gcr.io"]`).
