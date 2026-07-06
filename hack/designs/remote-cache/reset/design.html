@@ -827,6 +827,28 @@ decided in Part II.</p>
   exactly correct for bundle rows (their snapshot IDs are the exporter's and must never
   probe local snapshots); origin-dedup skips exhaustion corpses so a re-supplied origin
   stages the healing row.</li>
+  <li><b>Round 24 (2026-07-06, owner ruling on a §9 D1 seam — flagged for Erik).</b> The
+  service take's content-chain source surfaced a starvation loop the reset's own sources
+  could not: a row whose only source fails <em>transiently</em> (a CAS blip) demotes to
+  miss — correct, and transient exhaustion deliberately drops nothing — but candidate
+  selection is lowest-ID-first, so the starved imported row outranks the fresh realized
+  equivalent the demote just published, and every subsequent identical call re-selects,
+  re-fails, and re-executes: a demote storm for as long as the blip lasts. Ruled:
+  candidate selection gains exactly ONE deterministic tie-break — candidates
+  <b>transiently demoted this boot</b> order after those not — as an in-memory,
+  boot-scoped mark that is never persisted (R16 untouched: lookup keys and persisted
+  identity unchanged), is <b>cleared by the row's own successful materialization</b> (a
+  proven-viable row regains normal standing; re-demote re-marks), and never disqualifies:
+  a marked row still serves when it is the only candidate. This is NOT the general
+  realized-before-unrealized preference — that remains an explicitly unbuilt future
+  option. Rationale: selection is the design's sanctioned lookup-time policy point (§2);
+  the mark is per-result state written at one existing decision point (demote
+  classification) and read at another (selection), under the existing lock — no new
+  cross-cutting invariants (R15); the rejected shapes: drop-on-transient contradicts the
+  ratified transient-drops-nothing rule, and doing nothing leaves a standing storm. The
+  mark is visible in the debug snapshot. Implementation lives in the service take
+  (chunk B) with a two-call regression proof (only the first call demotes) plus
+  sole-candidate service and clear-on-success assertions.</li>
 </ol>
 </div>
 </details>
