@@ -663,8 +663,8 @@ func (ch *Changeset) AsPatch(ctx context.Context) (*File, error) {
 	}
 	file := &File{
 		Platform: query.Platform(),
-		File:     new(LazyAccessor[string, *File]),
-		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *File]),
+		File:     newFileFileAccessor(),
+		Snapshot: newFileSnapshotAccessor(),
 	}
 	file.File.setValue(ChangesetPatchFilename)
 	file.Snapshot.setValue(snap)
@@ -1139,8 +1139,8 @@ func withGitMergeWorkspace(ctx context.Context, base dagql.ObjectResult[*Directo
 	dir := &Directory{
 		Platform: query.Platform(),
 		Services: slices.Clone(base.Self().Services),
-		Dir:      new(LazyAccessor[string, *Directory]),
-		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+		Dir:      newDirectoryDirAccessor(),
+		Snapshot: newDirectorySnapshotAccessor(),
 	}
 	dir.Dir.setValue(baseSelector)
 	dir.Snapshot.setValue(snap)

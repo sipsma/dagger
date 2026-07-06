@@ -121,8 +121,8 @@ func (lazy *ContainerFromImageRefLazy) Evaluate(ctx context.Context, container *
 		rootfsDir := &Directory{
 			Platform: container.Platform,
 			Services: slices.Clone(container.Services),
-			Dir:      new(LazyAccessor[string, *Directory]),
-			Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+			Dir:      newDirectoryDirAccessor(),
+			Snapshot: newDirectorySnapshotAccessor(),
 		}
 		rootfsDir.Dir.setValue("/")
 		rootfsDir.Snapshot.setValue(rootfs)
@@ -232,8 +232,8 @@ func (container *Container) FromOCIStore(
 	rootfsDir := &Directory{
 		Platform: rootPlatform,
 		Services: slices.Clone(container.Services),
-		Dir:      new(LazyAccessor[string, *Directory]),
-		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+		Dir:      newDirectoryDirAccessor(),
+		Snapshot: newDirectorySnapshotAccessor(),
 	}
 	rootfsDir.Dir.setValue("/")
 	rootfsDir.Snapshot.setValue(rootfs)
@@ -309,8 +309,8 @@ func (container *Container) AsTarball(
 	bkref = nil
 	f = &File{
 		Platform: query.Platform(),
-		File:     new(LazyAccessor[string, *File]),
-		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *File]),
+		File:     newFileFileAccessor(),
+		Snapshot: newFileSnapshotAccessor(),
 	}
 	f.File.setValue(filePath)
 	f.Snapshot.setValue(snap)

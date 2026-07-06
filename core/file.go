@@ -43,6 +43,30 @@ type File struct {
 	Snapshot *LazyAccessor[bkcache.ImmutableRef, *File]
 }
 
+// newFileFileAccessor constructs a File.File accessor. When a copy of it is
+// empty at read time, it resolves from the same field on the file's
+// canonical value.
+func newFileFileAccessor() *LazyAccessor[string, *File] {
+	return NewLazyAccessor(func(file *File) (string, bool) {
+		if file == nil || file.File == nil {
+			return "", false
+		}
+		return file.File.Peek()
+	})
+}
+
+// newFileSnapshotAccessor constructs a File.Snapshot accessor. When a copy
+// of it is empty at read time, it resolves from the same field on the
+// file's canonical value.
+func newFileSnapshotAccessor() *LazyAccessor[bkcache.ImmutableRef, *File] {
+	return NewLazyAccessor(func(file *File) (bkcache.ImmutableRef, bool) {
+		if file == nil || file.Snapshot == nil {
+			return nil, false
+		}
+		return file.Snapshot.Peek()
+	})
+}
+
 func (*File) Type() *ast.Type {
 	return &ast.Type{
 		NamedType: "File",
@@ -274,8 +298,8 @@ func decodePersistedFileWithSnapshotRole(ctx context.Context, dag *dagql.Server,
 	file := &File{
 		Platform: persisted.Platform,
 		Services: services,
-		File:     new(LazyAccessor[string, *File]),
-		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *File]),
+		File:     newFileFileAccessor(),
+		Snapshot: newFileSnapshotAccessor(),
 	}
 	if persisted.File != "" {
 		file.File.setValue(persisted.File)

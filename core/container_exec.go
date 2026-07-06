@@ -1312,8 +1312,8 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 			output := &Directory{
 				Platform: platform,
 				Services: services,
-				Dir:      new(LazyAccessor[string, *Directory]),
-				Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+				Dir:      newDirectoryDirAccessor(),
+				Snapshot: newDirectorySnapshotAccessor(),
 			}
 			output.Dir.setValue(dirPath)
 			output.Snapshot.setValue(ref)
@@ -1349,8 +1349,8 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 					output := &Directory{
 						Platform: platform,
 						Services: slices.Clone(services),
-						Dir:      new(LazyAccessor[string, *Directory]),
-						Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+						Dir:      newDirectoryDirAccessor(),
+						Snapshot: newDirectorySnapshotAccessor(),
 					}
 					output.Dir.setValue(dirPath)
 					output.Snapshot.setValue(ref)
@@ -1373,8 +1373,8 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 					output := &File{
 						Platform: platform,
 						Services: slices.Clone(services),
-						File:     new(LazyAccessor[string, *File]),
-						Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *File]),
+						File:     newFileFileAccessor(),
+						Snapshot: newFileSnapshotAccessor(),
 					}
 					output.File.setValue(filePath)
 					output.Snapshot.setValue(ref)
@@ -1920,8 +1920,8 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 						rootDir := &Directory{
 							Platform: rootPlatform,
 							Services: rootServices,
-							Dir:      new(LazyAccessor[string, *Directory]),
-							Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+							Dir:      newDirectoryDirAccessor(),
+							Snapshot: newDirectorySnapshotAccessor(),
 						}
 						rootDir.Dir.setValue(rootDirPath)
 						rootDir.Snapshot.setValue(rootRef)
@@ -1956,8 +1956,8 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 						outputDir := &Directory{
 							Platform: inputDir.Platform,
 							Services: slices.Clone(inputDir.Services),
-							Dir:      new(LazyAccessor[string, *Directory]),
-							Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+							Dir:      newDirectoryDirAccessor(),
+							Snapshot: newDirectorySnapshotAccessor(),
 						}
 						outputDir.Dir.setValue(dirPath)
 						outputDir.Snapshot.setValue(mountRef)
@@ -1977,8 +1977,8 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 						outputFile := &File{
 							Platform: inputFile.Platform,
 							Services: slices.Clone(inputFile.Services),
-							File:     new(LazyAccessor[string, *File]),
-							Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *File]),
+							File:     newFileFileAccessor(),
+							Snapshot: newFileSnapshotAccessor(),
 						}
 						outputFile.File.setValue(filePath)
 						outputFile.Snapshot.setValue(mountRef)

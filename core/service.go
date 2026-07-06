@@ -1552,8 +1552,8 @@ func (svc *Service) runAndSnapshotChanges(
 	snapshot := &Directory{
 		Platform: source.Self().Platform,
 		Services: slices.Clone(source.Self().Services),
-		Dir:      new(LazyAccessor[string, *Directory]),
-		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+		Dir:      newDirectoryDirAccessor(),
+		Snapshot: newDirectorySnapshotAccessor(),
 	}
 	snapshot.Dir.setValue(sourceDirPath)
 	snapshot.Snapshot.setValue(immutableRef)

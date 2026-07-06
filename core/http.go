@@ -436,8 +436,8 @@ func (state *HTTPState) fileResult(
 	}
 	file := &File{
 		Platform: query.Platform(),
-		File:     new(LazyAccessor[string, *File]),
-		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *File]),
+		File:     newFileFileAccessor(),
+		Snapshot: newFileSnapshotAccessor(),
 	}
 	file.File.setValue(name)
 	file.Snapshot.setValue(snap)
@@ -532,8 +532,8 @@ func FetchHTTPFile(
 
 	file := &File{
 		Platform: query.Platform(),
-		File:     new(LazyAccessor[string, *File]),
-		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *File]),
+		File:     newFileFileAccessor(),
+		Snapshot: newFileSnapshotAccessor(),
 	}
 	file.File.setValue(opts.Filename)
 	file.Snapshot.setValue(snap)

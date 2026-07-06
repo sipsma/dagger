@@ -50,6 +50,30 @@ type Directory struct {
 	Snapshot *LazyAccessor[bkcache.ImmutableRef, *Directory]
 }
 
+// newDirectoryDirAccessor constructs a Directory.Dir accessor. When a copy
+// of it is empty at read time, it resolves from the same field on the
+// directory's canonical value.
+func newDirectoryDirAccessor() *LazyAccessor[string, *Directory] {
+	return NewLazyAccessor(func(dir *Directory) (string, bool) {
+		if dir == nil || dir.Dir == nil {
+			return "", false
+		}
+		return dir.Dir.Peek()
+	})
+}
+
+// newDirectorySnapshotAccessor constructs a Directory.Snapshot accessor.
+// When a copy of it is empty at read time, it resolves from the same field
+// on the directory's canonical value.
+func newDirectorySnapshotAccessor() *LazyAccessor[bkcache.ImmutableRef, *Directory] {
+	return NewLazyAccessor(func(dir *Directory) (bkcache.ImmutableRef, bool) {
+		if dir == nil || dir.Snapshot == nil {
+			return nil, false
+		}
+		return dir.Snapshot.Peek()
+	})
+}
+
 func (*Directory) Type() *ast.Type {
 	return &ast.Type{
 		NamedType: "Directory",
@@ -294,8 +318,8 @@ func decodePersistedDirectoryWithSnapshotRole(ctx context.Context, dag *dagql.Se
 	dir := &Directory{
 		Platform: persisted.Platform,
 		Services: services,
-		Dir:      new(LazyAccessor[string, *Directory]),
-		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+		Dir:      newDirectoryDirAccessor(),
+		Snapshot: newDirectorySnapshotAccessor(),
 	}
 	if persisted.Dir != "" {
 		dir.Dir.setValue(persisted.Dir)
@@ -1860,8 +1884,8 @@ func (dir *Directory) Subdirectory(ctx context.Context, parent dagql.ObjectResul
 			Parent:    parent,
 			Subdir:    subdir,
 		},
-		Dir:      new(LazyAccessor[string, *Directory]),
-		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+		Dir:      newDirectoryDirAccessor(),
+		Snapshot: newDirectorySnapshotAccessor(),
 	}, nil
 }
 
@@ -1887,8 +1911,8 @@ func (dir *Directory) Subfile(ctx context.Context, parent dagql.ObjectResult[*Di
 			Parent:    parent,
 			Path:      file,
 		},
-		File:     new(LazyAccessor[string, *File]),
-		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *File]),
+		File:     newFileFileAccessor(),
+		Snapshot: newFileSnapshotAccessor(),
 	}
 	if parentDir, ok := parent.Self().Dir.Peek(); ok {
 		subfile.File.setValue(filepath.Join(parentDir, file))

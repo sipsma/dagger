@@ -187,8 +187,8 @@ func (repo *LocalGitRepository) Cleaned(ctx context.Context) (inst dagql.ObjectR
 	dir := &Directory{
 		Platform: query.Platform(),
 		Services: slices.Clone(repo.Directory.Self().Services),
-		Dir:      new(LazyAccessor[string, *Directory]),
-		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+		Dir:      newDirectoryDirAccessor(),
+		Snapshot: newDirectorySnapshotAccessor(),
 	}
 	dir.Dir.setValue(repoDirPath)
 	dir.Snapshot.setValue(snap)
@@ -289,8 +289,8 @@ func (ref *LocalGitRef) Tree(ctx context.Context, srv *dagql.Server, discardGitD
 	bkref = nil
 	dir := &Directory{
 		Platform: query.Platform(),
-		Dir:      new(LazyAccessor[string, *Directory]),
-		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+		Dir:      newDirectoryDirAccessor(),
+		Snapshot: newDirectorySnapshotAccessor(),
 	}
 	dir.Dir.setValue("/")
 	dir.Snapshot.setValue(snap)
