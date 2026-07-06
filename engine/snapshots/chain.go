@@ -11,6 +11,7 @@ import (
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/dagger/dagger/engine/snapshots/config"
 	"github.com/dagger/dagger/internal/buildkit/client"
+	"github.com/dagger/dagger/internal/buildkit/util/bklog"
 	"github.com/dagger/dagger/internal/buildkit/util/compression"
 	digest "github.com/opencontainers/go-digest"
 	imagespecidentity "github.com/opencontainers/image-spec/identity"
@@ -310,6 +311,15 @@ func (cm *snapshotManager) ensureChainBlob(ctx context.Context, desc ocispecs.De
 
 	ref := "dagql-chain-blob-" + desc.Digest.String()
 	if err := content.WriteBlob(ctx, cm.ContentStore, ref, rc, desc); err != nil {
+		// A failed write leaves a resumable ingest under this ref, and a
+		// retry would resume it — re-committing the SAME poisoned bytes (or
+		// demanding a seek the blob source cannot honor). Discard means
+		// discard: abort the ingest so the next attempt starts clean. The
+		// fresh context matters — the failure may itself be a cancellation.
+		abortCtx := context.WithoutCancel(ctx)
+		if aerr := cm.ContentStore.Abort(abortCtx, ref); aerr != nil && !cerrdefs.IsNotFound(aerr) {
+			bklog.G(ctx).WithError(aerr).Warnf("failed to abort chain blob ingest %q", ref)
+		}
 		// The store rejects a commit whose bytes do not match the expected
 		// digest or size with a failed-precondition error: corrupt data,
 		// dumbest treatment — discard and report.
