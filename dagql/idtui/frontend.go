@@ -677,13 +677,27 @@ func (r *renderer) renderDuration(out TermOutput, span *dagui.Span, space bool) 
 	if space {
 		fmt.Fprint(out, out.String(" "))
 	}
-	duration := out.String(dagui.FormatDuration(span.Activity.Duration(r.now)))
+	// The honest number: when a row spent material time provably blocked on
+	// other ops, show the time it actually spent executing, not the
+	// wall-clock it was blocked or dormant for.
+	hb := span.HonestBreakdown(r.now)
+	blocked, blockedNow := hb.BlockedNow(r.now)
+	shown := span.Activity.Duration(r.now)
+	if hb.Material || blockedNow {
+		shown = hb.Own
+	}
+	duration := out.String(dagui.FormatDuration(shown))
 	if span.IsRunningOrEffectsRunning() {
 		duration = duration.Foreground(termenv.ANSIYellow)
 	} else {
 		duration = duration.Faint()
 	}
 	fmt.Fprint(out, duration)
+	// While the row is blocked, say on what; once it is done waiting there
+	// is nothing extra to show.
+	if blockedNow && blocked.Label != "" {
+		fmt.Fprint(out, out.String(" ⋯ waiting on "+blocked.Label).Faint())
+	}
 }
 
 var metricsVerbosity = map[string]int{
@@ -924,4 +938,15 @@ func skipLoggedOutTraceMsg() bool {
 		}
 	}
 	return false
+}
+
+// honestDuration is the duration a row should report: its honest own-work
+// time when it spent material time blocked on other ops, its activity time
+// otherwise.
+func honestDuration(span *dagui.Span, now time.Time) time.Duration {
+	hb := span.HonestBreakdown(now)
+	if _, blockedNow := hb.BlockedNow(now); hb.Material || blockedNow {
+		return hb.Own
+	}
+	return span.Activity.Duration(now)
 }

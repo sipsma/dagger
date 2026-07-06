@@ -854,7 +854,7 @@ func (fe *frontendPretty) reportHeartbeatLine(elapsed time.Duration) string {
 		switch {
 		case running:
 			runningChecks = append(runningChecks,
-				fmt.Sprintf("%s (%s)", span.CheckName, dagui.FormatDuration(span.Activity.Duration(now))))
+				fmt.Sprintf("%s (%s)", span.CheckName, dagui.FormatDuration(honestDuration(span, now))))
 		case span.IsFailed():
 			checksDone++
 			checksFailed++
