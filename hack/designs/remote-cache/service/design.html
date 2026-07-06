@@ -147,7 +147,7 @@
 <main>
 
 <h1>Remote Cache — Service Phase Design</h1>
-<p class="sub">v2 &nbsp;·&nbsp; the phase after the engine fundamentals &nbsp;·&nbsp; review round 1 folded &nbsp;·&nbsp; 2026-07-06</p>
+<p class="sub">v3 &nbsp;·&nbsp; the phase after the engine fundamentals &nbsp;·&nbsp; review rounds 1–2 folded &nbsp;·&nbsp; 2026-07-06</p>
 
 <div class="banner">
 <b>Status.</b> Draft for adversarial review. This document designs the phase that follows the
@@ -286,8 +286,8 @@ is no pause-time problem to engineer around"), and overlap collapses via origin-
 
   <rect x="140" y="295" width="195" height="40" rx="8" fill="#fff" stroke="#c9ccd2"/>
   <text x="237" y="319" text-anchor="middle" font-size="12.5">warm engine imports</text>
-  <text x="237" y="368" text-anchor="middle" font-size="12.5" font-weight="600" fill="#b3362c">where the v2 result-row blowup lived:</text>
-  <text x="237" y="386" text-anchor="middle" font-size="12" fill="#b3362c">rows re-minted per import, growth compounding per cycle</text>
+  <text x="237" y="368" text-anchor="middle" font-size="12.5" font-weight="600" fill="#b3362c">the structural trap: a merge layer mints row identity,</text>
+  <text x="237" y="386" text-anchor="middle" font-size="12" fill="#b3362c">so import → re-export cycles compound metadata growth</text>
 
   <rect x="495" y="10" width="455" height="400" rx="12" fill="#e7f5ec" opacity="0.5"/>
   <text x="722" y="38" text-anchor="middle" font-size="15" font-weight="700" fill="#1a7f4b">THIS DESIGN: STORE AND SELECT</text>
@@ -507,6 +507,20 @@ redesign salting — that remains a cloud/tenancy work item.</p>
   now a mechanism (separate reader, skip-typed errors, no reset-reason constructor) plus
   T-S11. <b>#9 ACCEPTED (scoped)</b> — normative §2 de-historicized to impersonal
   structural costs (evidence stays in §16); test-scope slang replaced. </li>
+  <li><b>Round 2 (2026-07-06), delta verification (same reviewer, against commit
+  dfff36327f read directly from the author's worktree).</b> Findings #1–#8: verified
+  RESOLVED (the reviewer independently re-checked the high-water mark against the wipe
+  paths, the forward-closure argument against the branch's retention model, and re-grepped
+  for a fifth ref location — none found). #9 NOT-RESOLVED with an itemized list of
+  remaining history leaks in normative prose; plus three new findings: (N1, major)
+  "origin store UUID" in §10 D3 ambiguously suggested per-row origins where the selection
+  key is the manifest's exporter store UUID; (N2, minor) three stale "serving unchanged
+  from reset" phrasings undercut the §9.1 amendment; (N3, minor) §8.1 step 4 conflated the
+  structural envelope-ID remap with the token walk. All four folded: the L7 pass applied
+  to every cited site (provenance now points at §16 instead of being narrated in place);
+  selection renamed to <b>exporter store UUID</b> with the not-per-row-origins rationale
+  stated (S7); the serve wording qualified everywhere; §8.1 step 4 now names all four
+  rewrite mechanisms.</li>
 </ol>
 </div>
 </details>
@@ -532,7 +546,7 @@ section.</p>
   <line x1="295" y1="85" x2="345" y2="85" stroke="#5c6470" stroke-width="2.5" marker-end="url(#arr2)"/>
 
   <rect x="350" y="20" width="290" height="130" rx="10" fill="#e7f5ec" stroke="#bfe0cc"/>
-  <text x="495" y="46" text-anchor="middle" font-size="14" font-weight="700" fill="#1a7f4b">SERVE (unchanged model)</text>
+  <text x="495" y="46" text-anchor="middle" font-size="14" font-weight="700" fill="#1a7f4b">SERVE (reset architecture)</text>
   <text x="495" y="70" text-anchor="middle" font-size="12" fill="#2b2f36">warm lookups hit imported results</text>
   <text x="495" y="88" text-anchor="middle" font-size="12" fill="#2b2f36">content-chain source pulls blobs on demand</text>
   <text x="495" y="106" text-anchor="middle" font-size="12" fill="#2b2f36">fetch fails → lazy form → demote floor</text>
@@ -556,9 +570,9 @@ section.</p>
   <line x1="155" y1="150" x2="280" y2="200" stroke="#5c6470" stroke-width="2" marker-end="url(#arr2)"/>
   <line x1="680" y1="200" x2="820" y2="150" stroke="#5c6470" stroke-width="2" marker-end="url(#arr2)"/>
 </svg>
-<figcaption>Fig. 2 — Lifecycle. The engine's serve-time model is exactly the reset design's;
-this phase adds the boot-time bundle inflow, the export outflow, and the service between
-them.</figcaption>
+<figcaption>Fig. 2 — Lifecycle. The engine's serve-time architecture is the reset design's
+(with the §9.1 source-order amendment); this phase adds the boot-time bundle inflow, the
+export outflow, and the service between them.</figcaption>
 </figure>
 
 <h3>The shape, in prose</h3>
@@ -573,10 +587,11 @@ schema version, downloads them, and merges them during the existing import-at-bo
 (R14): per-result vetting, reference remapping into the local ID space, origin-keyed dedup
 (S2), R16 key recomputation. Imported results are ordinary rows afterward — they flush to
 local disk, prune normally, and survive local restarts.</li>
-<li><b>Serve.</b> Unchanged from the reset design. The one addition is that imported results
-carry a <b>content-chain source</b>: when the source walk reaches it, the engine fetches the
-chain's missing blobs from the CAS and applies them as snapshot layers — demand-bounded
-(R12), falling through on failure (S5).</li>
+<li><b>Serve.</b> The reset design's serving architecture, with one addition and one
+amendment: imported results carry a <b>content-chain source</b> — when the source walk
+reaches it, the engine fetches the chain's missing blobs from the CAS and applies them as
+snapshot layers, demand-bounded (R12), falling through on failure (S5) — and the source
+order places that chain ahead of the lazy form (the §9.1 amendment, ratification-gated).</li>
 <li><b>The service.</b> Stores bundles and blobs; selects bundles for booting engines;
 integrates with the managed-engine lifecycle (import at provision, export before teardown);
 exposes insight surfaces. It never composes cache state (§2).</li>
@@ -750,7 +765,7 @@ ref; anything else is data. Import rewrites payload refs in the same pass as fra
 <table class="filetbl">
 <tr><th>Alternative</th><th>Why rejected</th></tr>
 <tr><td><b>Name-heuristic JSON walk</b> (rewrite any field whose name looks like
-<code>*resultID</code>) — the prior attempt's mechanism, empirically functional.</td>
+<code>*resultID</code>) — empirically functional in past use (provenance: §16).</td>
 <td>It is inference about intent from naming. A payload field that stores a number and
 happens to match the pattern gets silently corrupted; a ref field that doesn't match is
 silently missed until a warm run breaks. The reset design's ethos is explicit contracts at
@@ -960,9 +975,9 @@ descriptors persist in the content store, so subsequent exports of the same snap
 lookups. This makes export cost proportional to <em>content new since the last export</em>
 in the steady state — a measured quantity (§11), not an assumption either way.</li>
 <li><b>One compression, pinned: zstd.</b> The CAS dedups by blob digest; letting compression
-vary per engine would silently halve dedup. (The prior attempts hit exactly this as
-descriptor-variant merge conflicts; pinning removes the class. Changing the pin later is a
-bundle-format version bump.)</li>
+vary per engine silently halves dedup and surfaces as descriptor-variant conflicts wherever
+two engines' chains describe the same diff. Pinning removes the class outright; changing the
+pin later is a bundle-format version bump.</li>
 <li><b>Mutable-owner snapshots produce no chain</b> (§6.4): cache volumes, git/filesync
 mirrors cross as identity-only rows.</li>
 </ul>
@@ -972,8 +987,9 @@ mirrors cross as identity-only rows.</li>
 <ul>
 <li><b>Metadata: everything retained.</b> The full persisted-edge closure — every row, dep,
 identity table, origin. Metadata is the cheap, high-leverage half: it is what makes warm
-lookups hit at all, and its size (SQLite rows, no content) is megabytes at the scale the
-prior attempts measured (~10⁴ results). Nothing is gained by curating it in v1.</li>
+lookups hit at all, and its size (SQLite rows, no content) is megabytes at a typical
+retained-store scale of ~10⁴ results (evidence for the scale estimate: §16). Nothing is
+gained by curating it in v1.</li>
 <li><b>Content: chains for every immutable snapshot in that closure.</b> Not leaves-only:
 blob upload is deduped by digest against the CAS, and a leaf's chain already contains every
 ancestor layer, so offering all chains adds approximately zero bytes over leaves-only — what
@@ -1115,9 +1131,12 @@ the existing row gains that content-chain source; nothing about an existing row 
 overwritten or removed by import — first-imported wins for row content, later observations
 may only add sources and refresh timestamps.</li>
 <li><span class="tag">REWRITE REFERENCES (§6.3, once)</span><br>
-Frames by structured walk; payload envelopes by the <code>$dagqlResultRef</code> token walk.
-A reference that misses the remap table (its target was dropped by vetting) drops the
-referring row with its dependents — the missing-dep rule, applied post-remap.</li>
+Frames by structured walk; envelope self-IDs (and per-item list IDs) structurally, since
+the persistence layer owns those fields; payload and lazy-fragment refs by the
+<code>$dagqlResultRef</code> token walk; persisted call IDs by the <code>$dagqlCallID</code>
+token (decode, rewrite handle-form, re-encode). A reference that misses the remap table
+(its target was dropped by vetting) drops the referring row with its dependents — the
+missing-dep rule, applied post-remap.</li>
 <li><span class="tag">MERGE IDENTITY + GRAPH</span><br>
 Class digests teach into the live e-graph (<code>ensureEqClassForDigestLocked</code> /
 merge — this is where cross-engine equivalence composes); term keys recompute in the local
@@ -1310,12 +1329,11 @@ a cache.</p>
 under <code>/v1</code>.</li>
 <li><b>Scope model</b> (D2): cache namespace = (org, scope string); v1 scopes are
 operator-chosen (per repo by convention); no cross-org sharing.</li>
-<li><b>Selection</b> (D3): newest bundle per distinct origin store, up to K stores,
-matching the requester's versions, preferring blob-complete — one pure function of the
-inventory, and the service-side seam for future policy.</li>
+<li><b>Selection</b> (D3): newest bundle per distinct <em>exporter</em> store, up to K
+stores, matching the requester's versions, preferring blob-complete — one pure function of
+the inventory, and the service-side seam for future policy.</li>
 <li><b>Storage</b> (D4): Postgres inventory + pluggable object storage (S3 and Namespace
-Artifacts ported from the prior attempt's battle-tested backends; MinIO/filesystem for
-dev).</li>
+Artifacts as ported, battle-tested backends — §16; MinIO/filesystem for dev).</li>
 <li><b>Lifecycle</b> (D5): config-injected import at provision; keeper-driven export
 before teardown over the salvaged command lane; export never gates run success (S4).</li>
 <li><b>GC</b> (D6): retention by count/age per (scope, store), plus mark-sweep blob GC
@@ -1337,11 +1355,12 @@ POST /v1/blobs/stat                        <span class="cm">// { digests: [...] 
 POST /v1/blobs/uploads                     <span class="cm">// { digest, size } → { url | alreadyExists }  (upload target, presigned per backend)</span>
 GET  /v1/blobs/{digest}                    <span class="cm">// → bytes or redirect/presigned URL (backend-dependent)</span>
 </code></pre>
-<p>The shapes deliberately echo the prior attempt's proven wire mechanics (multipart
+<p>The wire mechanics are deliberately conventional and previously proven (multipart
 publish, stat-then-upload with <code>alreadyExists</code> short-circuit, presigned
-indirection) while removing every server-side cache semantic: there is no server-side
-"requested snapshots" decision, no merge on ingest, no import endpoint that composes state.
-Blobs are org-namespaced in storage layout but deduplicated within the org across scopes.</p>
+indirection — provenance: §16), while every server-side cache semantic is absent: there is
+no server-side "requested snapshots" decision, no merge on ingest, no import endpoint that
+composes state. Blobs are org-namespaced in storage layout but deduplicated within the org
+across scopes.</p>
 
 <h3>10.2 &nbsp;D2 — Scope and tenancy</h3>
 <p>A cache namespace is <code>(org, scope)</code>: the org comes from the token; the scope
@@ -1355,9 +1374,11 @@ scopes, salt strategy) is future work with its own security review.</p>
 
 <h3>10.3 &nbsp;D3 — Selection</h3>
 <p>Given a request (scope, schemaVersion, bundleFormat, limit K — engine default modest,
-e.g. 4): return the newest bundle <b>per distinct origin store UUID</b>, newest stores
-first, up to K, filtered to exactly matching versions, preferring
-<code>blobs_complete</code> over pending when both exist for a store. The semantic, stated
+e.g. 4): return the newest bundle <b>per distinct exporter store UUID</b> — the manifest's
+<code>storeUUID</code>, i.e. which store <em>produced</em> the bundle; deliberately not the
+per-row origin UUIDs, which live inside the metadata DB and would force the serving path to
+parse it (S7) — newest stores first, up to K, filtered to exactly matching versions,
+preferring <code>blobs_complete</code> over pending when both exist for a store. The semantic, stated
 precisely: <b>the service mirrors each store's latest retained state</b>. A store's newest
 bundle supersedes its older siblings <em>including anything they contained that the store
 has since pruned</em> — pruning deliberately propagates through export (§6.6's prune/import
@@ -1379,23 +1400,25 @@ store_uuid, schema_version, bundle_format, engine_version, status, counts, creat
 <tr><td>Bundle archives</td><td>Object storage, keyed by bundle ID</td>
 <td>Opaque on the serving path (S7).</td></tr>
 <tr><td>Blob CAS</td><td>Object storage, keyed <code>org/sha256:…</code></td>
-<td>Size-verified on upload (the HeadObject/Artifact.Size verification semantics from the
-prior backends carry over); immutable; existence = the <code>stat</code> answer.</td></tr>
+<td>Size-verified on upload against the backend's authoritative object metadata before a
+blob is recorded present (the ported backends' verification semantics, §16); immutable;
+existence = the <code>stat</code> answer.</td></tr>
 <tr><td>Event log</td><td>Postgres: append-only <code>cache_events</code></td>
 <td>Publish/complete/select/fetch-summary/GC rows; the insight and debugging spine (§11).</td></tr>
 </table>
 <p>Backends are pluggable behind one blob-store interface with the two production
-implementations ported from the prior attempt (S3; Namespace Artifacts with its finalize
-retries and digest-addressed resolution) plus MinIO (e2e) and filesystem (unit) — see the
-salvage ledger (§16).</p>
+implementations arriving as ports (S3; Namespace Artifacts with finalize retries and
+digest-addressed resolution) plus MinIO (e2e) and filesystem (unit) — see the salvage
+ledger (§16).</p>
 
 <h3>10.5 &nbsp;D5 — Lifecycle of managed engines</h3>
 <ul>
 <li><b>Import needs no command.</b> Provisioning injects cache-service configuration
 (URL, org token, scope, budgets) into the engine's environment; the engine imports at boot
-by itself (§8). This deletes the prior attempt's import-command path — and with it the
-import-vs-export queue-priority problem that path created (an engine that imports at boot
-cannot be starved by queued exports).</li>
+by itself (§8). A command-driven import path would also need queue-fairness rules so
+boot-critical imports never starve behind queued exports; config-driven boot import removes
+that class outright — an engine that imports at boot cannot be starved by anything on a
+command lane.</li>
 <li><b>Export is keeper-driven.</b> The salvaged command lane (<code>engine_cache_commands</code>,
 schema 00097: queued/claimed/completed with idempotency keys and provider-instance matching)
 carries one command kind: export. The check runner enqueues export-after-green; the keeper
@@ -1422,7 +1445,7 @@ surfaces (§11).</p>
 <tr><th>Where</th><th></th><th>What</th></tr>
 <tr><td><code>api/server/cacheservice/</code></td><td><span class="chip newf">NEW</span></td>
 <td>Handlers for D1; selection; inventory access. Fresh code in the store-and-select shape;
-multipart/presign/verification mechanics lifted from the prior handlers where they fit
+multipart/presign/verification mechanics lifted from the ported handler code where it fits
 (§16).</td></tr>
 <tr><td><code>api/server/cacheservice/blobstore/</code></td><td><span class="chip newf">NEW</span></td>
 <td>Blob-store interface + S3, Namespace Artifacts, MinIO, filesystem backends (ports).</td></tr>
@@ -1485,8 +1508,8 @@ store totals, coverage (fraction of manifest blobs present per bundle — comput
 stat), GC activity. Pure Postgres queries.</li>
 <li><b>Event log API</b>: filterable publish/select/complete/GC events — "which engine
 exported what, when; who imported it" as one query. This is the operational debugging
-spine; the prior live-loop pain (reconstructing lifecycle from scattered logs) is the
-motivating consumer.</li>
+spine: its consumer is an operator answering a lifecycle question as one query instead of
+reconstructing it from scattered logs.</li>
 <li><b>The indexer</b> (read-only, version-aware, best-effort — §2's boundary): parses
 manifests always (they are service-versioned), and metadata DBs for known engine schema
 versions, materializing per-bundle facts: result counts by type, origin-store composition,
@@ -1540,8 +1563,9 @@ conformance suite. It is R11's requirement made real: the full remote model prov
 dagger/dagger with no cloud stack.</li>
 <li><span class="tag">SERVICE HARNESS (dagger.io, no dev stack)</span><br>
 <code>api/cmd/cacheservice-dev-server</code>: the real route registration + real handlers
-against MinIO and either embedded or containerized Postgres — the prior attempt's
-"cheap loop before full stack" pattern, which caught protocol drift that fakes had masked.
+against MinIO and either embedded or containerized Postgres — the cheap-loop-before-full-stack
+gate: real handlers and real storage at a fraction of a full-stack cycle's cost, so protocol
+drift surfaces here rather than in the expensive rungs (provenance of the pattern: §16).
 Runs the conformance suite against the real handlers, plus real-engine round-trips
 (engine binaries in containers ↔ dev server ↔ MinIO). Zero credentials.</li>
 <li><span class="tag">E2E (dagger.io, full stack)</span><br>
@@ -1554,9 +1578,9 @@ gate (T-S3) and GC safety (delete unreferenced blobs; live runs unaffected). Sti
 credentials.</li>
 <li><span class="tag">LIVE (credential-gated, the only such step)</span><br>
 Deploy to the managed dev stack (Namespace providers, the real keeper wiring, the real
-tenancy). Run the cloud warm proof (§13). This rung reuses the prior era's operational
-knowledge — the runbook, the fresh-engine destroy-and-reconcile discipline, the PR-trigger
-harness — as procedure, not as code. It is designed to be executed by whoever holds
+tenancy). Run the cloud warm proof (§13). This rung reuses the existing operational
+runbooks — the fresh-engine destroy-and-reconcile discipline, the PR-trigger harness — as
+procedure, not as code (§16). It is designed to be executed by whoever holds
 credentials, on top of artifacts that are already fully proven below; agents without
 credentials stop at rung 4 with nothing left unproven but the deployment itself.</li>
 </ol>
@@ -1653,12 +1677,12 @@ multi-cycle growth record and T-S10.</li>
 One complete cloud warm proof on the managed dev stack: cold seed from a real CI-shaped
 run on one engine; engines destroyed with the fresh-engine discipline; a warm run on
 freshly-provisioned engines — outputs equal, counters attached, service event log corroborating
-(export → selection → fetches). Two properties the prior attempts never demonstrated are
-explicitly in scope here: the proof survives a <b>service restart</b> between seed and warm
-run (durable state — no in-memory-seed fragility), and the run reports a <b>wall-clock
-cold-vs-warm comparison</b> on the same pipeline — reported honestly as measurement, not
-as a pass/fail bar, because "faster" was the one claim the prior eras never actually
-evidenced.</li>
+(export → selection → fetches). Two properties are explicitly pinned into this proof
+because they are the easiest to quietly skip (why they are called out: §16): the proof must
+hold across a <b>service restart</b> between seed and warm run — exercising the durability
+§2 claims — and the run records a <b>wall-clock cold-vs-warm comparison</b> on the same
+pipeline, reported honestly as measurement rather than a pass/fail bar, so the speed claim
+is evidenced, never assumed.</li>
 <li><span class="tag">DONE MEANS</span><br>
 All of the above, this document updated to as-built through the review process, and the
 shelf re-examined once. Then the deferred cleverness (analysis-guided policy, selection
