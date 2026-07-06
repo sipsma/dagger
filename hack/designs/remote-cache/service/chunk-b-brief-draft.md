@@ -1,6 +1,6 @@
 # Chunk B implementer brief — DRAFT (held until gates clear)
 
-**Gates before spawning:** (1) reset §9 warm serving landed on the take-3 integration
+**Gates before spawning:** (1) ~~reset §9 landed~~ CLEARED (integration tip 93cc7419a4); (2) ~~§9.1 ratified~~ CLEARED (reset round 19, v24 — order: local → content-chain → lazy); (3) chunk A stable enough to base on — STILL OPEN. Original gate text follows: (1) reset §9 warm serving landed on the take-3 integration
 branch; (2) the §9.1 source-order amendment (local → content-chain → lazy) RATIFIED in the
 reset design; (3) chunk A landed or stable enough to base on. Spawn a fresh Fable xhigh
 implementer; adapt the boilerplate (process rules, Step-0 gate, report format, pre-code

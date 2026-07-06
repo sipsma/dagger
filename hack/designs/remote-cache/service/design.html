@@ -150,16 +150,18 @@
 <p class="sub">v4 &nbsp;·&nbsp; APPROVED (review rounds 1–4) &nbsp;·&nbsp; implementation in progress &nbsp;·&nbsp; 2026-07-06</p>
 
 <div class="banner">
-<b>Status.</b> Converged through three adversarial review rounds (verdict: ready — §4);
-awaiting program-owner review. This document designs the phase that follows the
-engine-fundamentals take (<code>hack/designs/remote-cache/reset/design.html</code>, "the reset
-design"): engines exporting cache to and importing cache from a real cloud service. It builds
-on the reset design's ratified requirements R1–R16 and its reserved seams; any deviation from
-a reserved seam is stop-and-discuss, never silent — <b>one such item is open</b>: the §9.1
-source-order amendment to the reset design, ratification-gated before chunk B. Engine-side
-code references are grounded against the take-3 integration branch (reset §7 + §8a–c merged);
-prior-attempt artifacts are cited as <em>evidence about those attempts</em>, never as
-precedent (§4, round 0; dispositions in §16).
+<b>Status.</b> APPROVED (three adversarial review rounds + program-owner review — §4);
+implementation in progress, as-built refinements landing via the review log. This document
+designs the phase that follows the engine-fundamentals take
+(<code>hack/designs/remote-cache/reset/design.html</code>, "the reset design"): engines
+exporting cache to and importing cache from a real cloud service. It builds on the reset
+design's ratified requirements R1–R16 and its reserved seams; any deviation from a reserved
+seam is stop-and-discuss, never silent. The two seam items this design raised are both
+resolved: the §9.1 source-order amendment and the envelopes-in-bundles reading (§6.5) were
+ratified owner-side in the reset design's round 19 (v24). Engine-side code references are
+grounded against the take-3 integration branch; prior-attempt artifacts are cited as
+<em>evidence about those attempts</em>, never as precedent (§4, round 0; dispositions in
+§16).
 </div>
 <div class="controls">
 <button type="button" onclick="setAll(true)">expand all sections</button>
@@ -557,6 +559,20 @@ redesign salting — that remains a cloud/tenancy work item.</p>
   by the S3 backend's endpoint override rather than a fourth implementation; bundle
   archives get a small server-side put/get interface separate from the presign-shaped blob
   interface; new service code lands untagged.</li>
+  <li><b>Round 6 (2026-07-06), seam adjudications returned + take-3 coordination.</b> Both
+  raised seam items were <b>ratified owner-side in the reset design's round 19 (v24)</b>:
+  the §9.1 source order (local → content-chain → lazy) as v1 default policy with
+  pull-vs-re-execute named the priced seam, and the R16-box reading (bundles carry
+  envelopes per R9; "digests and frames only" scopes identity). Reset §9 warm serving
+  landed on the take-3 integration branch (tip <code>93cc7419a4</code>; the content-chain
+  enum comment there already carries the ratified order, commit <code>ee8ea4a0e3</code>).
+  Take-3 manager's landing ruling recorded: chunk A rebases onto the accepted integration
+  tip and lands <em>after</em> the take-3 acceptance run completes; the service-phase
+  schema bump is 18→19 (wipe-on-upgrade, no migration code). One §9-era fact recorded for
+  bundle-content expectations: on the current integration state, containers are the only
+  fragment-backed rows a warm store actually restores — derived directory/file rows are
+  not in any persisted root's closure, which shapes what bundle closures will contain in
+  practice and what T-S1/T-S4 fixtures should assert against.</li>
 </ol>
 </div>
 </details>
@@ -627,7 +643,8 @@ local disk, prune normally, and survive local restarts.</li>
 amendment: imported results carry a <b>content-chain source</b> — when the source walk
 reaches it, the engine fetches the chain's missing blobs from the CAS and applies them as
 snapshot layers, demand-bounded (R12), falling through on failure (S5) — and the source
-order places that chain ahead of the lazy form (the §9.1 amendment, ratification-gated).</li>
+order places that chain ahead of the lazy form (the §9.1 amendment, ratified — reset
+round 19).</li>
 <li><b>The service.</b> Stores bundles and blobs; selects bundles for booting engines;
 integrates with the managed-engine lifecycle (import at provision, export before teardown);
 exposes insight surfaces. It never composes cache state (§2).</li>
@@ -884,15 +901,16 @@ bundle.tar.zst
 └── metadata.db        <span class="cm">// SQLite, the local mirror schema minus local-only tables,</span>
                        <span class="cm">// plus result_origins; IDs are intra-bundle joins (§6.2/§6.3)</span>
 </code></pre>
-<p><b>Seam-compatibility note (flagged for the owner rather than assumed):</b> the reset
-design's R16 decision box contains the sentence "a future bundle carries digests and frames
-only." Read as an exclusion it would forbid envelopes in bundles — but R9's ratified text
-explicitly names "payload envelopes … recipes" as part of the one encoding that "local
-persistence and remote export share," and a bundle without envelopes could carry neither
-values nor lazy forms (no R1 dual paths at all). This design reads the R16 sentence as it
-was scoped — a statement about bundle <em>identity</em> (digests, never ordinals), made
-while ruling on key derivation — and carries envelopes per R9. If the owner intended the
-narrower reading, that is a stop-and-discuss before chunk A.</p>
+<p><b>Seam-compatibility note (raised, adjudicated, confirmed):</b> the reset design's R16
+decision box contains the sentence "a future bundle carries digests and frames only." Read
+as an exclusion it would forbid envelopes in bundles — but R9's ratified text explicitly
+names "payload envelopes … recipes" as part of the one encoding that "local persistence and
+remote export share," and a bundle without envelopes could carry neither values nor lazy
+forms (no R1 dual paths at all). This design reads the R16 sentence as it was scoped — a
+statement about bundle <em>identity</em> (digests, never ordinals), made while ruling on
+key derivation — and carries envelopes per R9. <b>Confirmed owner-side in the reset
+design's round 19: bundles carry payload envelopes per R9; "digests and frames only"
+scopes identity.</b></p>
 <p>Reusing SQLite for the metadata is deliberate: the flush writer
 (<code>applyPersistStateSnapshot</code>) and import reader already speak it, so the bundle
 writer/reader are the same row-building code with an exclusion list — not a second
@@ -1275,23 +1293,21 @@ result's walk still finds its local snapshot first and never touches the network
 demand-boundedness is structural (R12): the walk runs for the one result being served, and a
 chain realizes only that result's snapshot — dependency inputs are touched only if the walk
 falls through to the lazy form, which recurses demand-driven exactly as designed.</p>
-<div class="decide"><span class="dtag">PROPOSED AMENDMENT TO THE RESET DESIGN — RATIFICATION REQUIRED BEFORE CHUNK B</span>
-<p style="margin:6px 0 4px">The reset design drew the fall-through order as
-<b>local snapshot → lazy form → content-chain</b> (reset §7 Fig. 4, and the enum-declaration
-order the source list sorts by, dagql/cache.go:1463–1520) — placing the then-reserved
-content-chain <em>last</em>. This design requires <b>local snapshot → content-chain → lazy
-form</b>: for a warm imported result, downloading its content is the mainline and
-re-executing its recipe is the fallback — the opposite order would make every warm engine
-<em>re-run</em> any work that has a persisted lazy form and reach for the network only when
-re-execution isn't possible, inverting the value proposition of remote cache (transfer is
-the point; recompute is the floor before demote). The counter-case is acknowledged: for
-some results a huge blob download can cost more than a trivial re-exec — that is
-per-result policy cleverness, explicitly out of v1 scope (§15); v1 takes the static order
-that matches the north star. The reset order was drawn while source ③ was a named
-placeholder with no consumer; this is the consumer. <b>Process:</b> this is a change to
-ratified reset text (Fig. 4 and the §7 D2 enum comment) — stop-and-discuss with the take-3
-owner applies, and chunk B does not build until it is ratified there. Mechanically the
-change is the enum/sort order plus the Fig. 4 edit; no walk logic changes.</p></div>
+<div class="verdict"><span class="vtag">AMENDMENT RATIFIED — reset design round 19 (v24)</span>
+<p style="margin:6px 0 4px">The fall-through order is <b>local snapshot → content-chain →
+lazy form</b>, ratified in the reset design as the v1 default policy (the reset design had
+originally drawn the then-reserved content-chain <em>last</em>; the owner-side adjudication
+adopted this design's order, and the integration branch's enum comment is already aligned —
+commit ee8ea4a0e3 there). The rationale, kept because it prices the seam: for a warm
+imported result, downloading content is the mainline and re-executing the recipe is the
+fallback — the reverse order would make every warm engine <em>re-run</em> any work with a
+persisted lazy form and touch the network only when re-execution isn't possible, inverting
+the value proposition (transfer is the point; recompute is the floor before demote), and a
+lazy-form-first order can additionally cascade recursive input materialization, making
+recipe-first potentially <em>more</em> expensive than the chain pull it avoids. The
+counter-case — a huge blob download costing more than a trivial re-exec — is real for some
+results and is exactly the <b>priced seam</b>: pull-vs-re-execute as per-result policy is
+future cleverness (§15), and v1 takes the static ratified order.</p></div>
 
 <h3>9.2 &nbsp;Realizing a chain</h3>
 <ol class="steps">
@@ -1772,10 +1788,9 @@ before that OK; landing may not.</span></li>
 (zstd pinned, memoized), chain sources at import, the chain arm of the source walk with a
 file/dir CAS for tests, the local-restore chain-viability change (§8.4, N1), and the
 mutable-owner contentless-decode work (§6.4). Gate: T-S4 (file transport), T-S6, T-S8,
-T-S12, T-S13 + Step-0. <span class="pill">Depends on reset §9's
-source walk being landed (it is the direct substrate) <b>and on the §9.1 source-order
-amendment being ratified in the reset design</b> — chunk B does not build before that
-ruling.</span></li>
+T-S12, T-S13 + Step-0. <span class="pill">Both former gates cleared: reset §9 landed on
+the integration branch (tip 93cc7419a4) and the §9.1 amendment is ratified (reset round
+19) — chunk B may build once it has a stable chunk-A base.</span></li>
 <li><b>C — Transport & the in-repo service.</b> The service client, the test service, the
 admin API + shutdown hook, the conformance suite, the full in-repo integration suite.
 Gate: T-S3, T-S5, T-S7, T-S9 (rung 2) + Step-0.</li>
