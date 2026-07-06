@@ -192,6 +192,34 @@ func TestLoaderPrefersE3aOrderedInputs(t *testing.T) {
 	}
 }
 
+// A malformed E3a attr is counted and DEGRADES to the dag.inputs fallback
+// (unordered) — never trusted verbatim, never silently suppressing the
+// fallback (review round 1).
+func TestLoaderMalformedE3aFallsBack(t *testing.T) {
+	jsonl := toJSONL(t,
+		rec(map[string]any{"spanId": idRoot, "parentId": idNone, "name": "root", "startNs": baseEp, "endNs": baseEnd}),
+		rec(map[string]any{"spanId": idA, "parentId": idRoot, "name": "Query.bad", "startNs": baseEp + 1, "endNs": baseEnd,
+			"attrs": map[string]any{
+				telemetry.DagDigestAttr:                "xxh3:bad",
+				telemetry.DagInputsAttr:                []string{"xxh3:in-a"},
+				telemetryattrs.WcprofInputsOrderedAttr: "%%% not json %%%",
+			}}),
+	)
+	c := mustCompile(t, jsonl)
+	if c.MalformedOrderedInputs != 1 {
+		t.Fatalf("malformed E3a must be counted, got %d", c.MalformedOrderedInputs)
+	}
+	g := buildGraphFromCompiled(t, c)
+	g.ResultIDsCaptureLocal = true
+	op := opByIdent(t, g, "xxh3:bad")
+	if len(op.CacheInputs) != 1 || op.CacheInputs[0] != "xxh3:in-a" {
+		t.Fatalf("the dag.inputs fallback must survive a malformed E3a attr, got %v", op.CacheInputs)
+	}
+	if op.InputsOrdered || g.OrderedInputs(op) {
+		t.Fatal("a malformed E3a attr must not mark the op ordered")
+	}
+}
+
 // E3b: the full canonical self structure loads from dag.call — field,
 // receiver, nth/view, module, args and implicit inputs with bounded
 // renderings.
@@ -233,6 +261,9 @@ func TestLoaderParsesCallSelf(t *testing.T) {
 	}
 	if cs.Field != "withExec" || cs.Receiver != "xxh3:recv" || cs.View != "v1" || cs.Nth != 2 {
 		t.Fatalf("self fields: %+v", cs)
+	}
+	if cs.Type != "Container" {
+		t.Fatalf("type rendering = %q, want Container", cs.Type)
 	}
 	if cs.Module == nil || cs.Module.Ref != "github.com/x/m" || cs.Module.Pin != "abc" {
 		t.Fatalf("module: %+v", cs.Module)

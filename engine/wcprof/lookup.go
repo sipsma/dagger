@@ -121,10 +121,14 @@ func EncodeScopeInputs(inputs []ScopeInput) string {
 // digest granularity. Native captures never carry it (a full native
 // call-structure emit is REFUSED on volume grounds, stated in the design).
 type CallSelf struct {
-	Field    string      `json:"f"`
-	Receiver string      `json:"r,omitempty"` // receiver call digest
-	View     string      `json:"v,omitempty"`
-	Nth      int64       `json:"n,omitempty"`
+	Field    string `json:"f"`
+	Receiver string `json:"r,omitempty"` // receiver call digest
+	View     string `json:"v,omitempty"`
+	Nth      int64  `json:"n,omitempty"`
+	// Type is the call's rendered return type (e.g. "[Container!]!") — the
+	// self digest consumes it (result_call_frame.go appendResultCallTypeBytes),
+	// so a type-only divergence must be diffable, not invisible.
+	Type     string      `json:"t,omitempty"`
 	Module   *CallModule `json:"m,omitempty"`
 	Args     []CallArg   `json:"a,omitempty"`
 	Implicit []CallArg   `json:"i,omitempty"`

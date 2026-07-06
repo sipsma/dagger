@@ -68,6 +68,18 @@ func TestDiffCallSelfMatrix(t *testing.T) {
 	if len(diffs) != 1 || !strings.Contains(diffs[0], `arg "cache" removed`) {
 		t.Fatalf("removed arg must be named, got %v", diffs)
 	}
+
+	// A TYPE-only divergence must be visible: the self digest consumes the
+	// return type (review round 1) — it must never fall into the
+	// identical-rendering label.
+	b = base()
+	b.Type = "[Container!]!"
+	a := base()
+	a.Type = "Container!"
+	diffs = diffCallSelf(a, b)
+	if len(diffs) != 1 || !strings.Contains(diffs[0], "return type differed: Container! -> [Container!]!") {
+		t.Fatalf("type divergence must be named, got %v", diffs)
+	}
 }
 
 // --- W13: on an E3a-ordered OTel pair whose deepest changed node has

@@ -103,6 +103,11 @@ type Compiled struct {
 	// the degradation visible. Expected 0: the engine emits the attribute
 	// from a successful Encode.
 	MalformedDagCalls int
+	// MalformedOrderedInputs counts spans whose E3a ordered-input attr
+	// failed to decode as a JSON string array: the op degrades to the
+	// unordered dag.inputs fallback (counted, never trusted verbatim into
+	// the interned vector). Expected 0.
+	MalformedOrderedInputs int
 
 	// UnresolvedWaitTargets counts non-lock wait links whose target span id did
 	// not resolve to an op (a missing/truncated target — Invariant T regression,
@@ -414,11 +419,23 @@ func Compile(spans []Span) (*Compiled, error) {
 		var inputsJSON string
 		inputsOrdered := false
 		if ord := attrStr(s.Attrs, telemetryattrs.WcprofInputsOrderedAttr); ord != "" {
-			inputsJSON = ord
-			inputsOrdered = true
-		} else if inputs := attrStrSlice(s.Attrs, telemetry.DagInputsAttr); len(inputs) > 0 {
-			if b, err := json.Marshal(inputs); err == nil {
-				inputsJSON = string(b)
+			// Validated, not trusted: a malformed attr must neither be
+			// interned as garbage nor silently suppress the dag.inputs
+			// fallback (review round 1) — it is counted and the op degrades
+			// to the unordered vector like a pre-E3a span.
+			var vec []string
+			if err := json.Unmarshal([]byte(ord), &vec); err == nil && len(vec) > 0 {
+				inputsJSON = ord
+				inputsOrdered = true
+			} else {
+				c.MalformedOrderedInputs++
+			}
+		}
+		if !inputsOrdered {
+			if inputs := attrStrSlice(s.Attrs, telemetry.DagInputsAttr); len(inputs) > 0 {
+				if b, err := json.Marshal(inputs); err == nil {
+					inputsJSON = string(b)
+				}
 			}
 		}
 		var resultID uint64
@@ -630,6 +647,7 @@ func decodeDagCall(encoded string) (scope []wcanalyze.ScopeInput, self *wcprof.C
 		Receiver: pbCall.ReceiverDigest,
 		View:     pbCall.View,
 		Nth:      pbCall.Nth,
+		Type:     renderType(pbCall.Type),
 		Args:     renderArgs(pbCall.Args),
 		Implicit: renderArgs(pbCall.ImplicitInputs),
 	}
@@ -642,6 +660,25 @@ func decodeDagCall(encoded string) (scope []wcanalyze.ScopeInput, self *wcprof.C
 		}
 	}
 	return scope, self, true
+}
+
+// renderType renders a call's return type canonically ("[Container!]!"):
+// the self digest consumes the type, so a type-only divergence must render
+// distinctly (review round 1).
+func renderType(t *callpbv1.Type) string {
+	if t == nil {
+		return ""
+	}
+	var s string
+	if t.Elem != nil {
+		s = "[" + renderType(t.Elem) + "]"
+	} else {
+		s = t.NamedType
+	}
+	if t.NonNull {
+		s += "!"
+	}
+	return s
 }
 
 func renderArgs(args []*callpbv1.Argument) []wcprof.CallArg {

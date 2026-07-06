@@ -422,6 +422,9 @@ func diffCallSelf(a, b *wcprof.CallSelf) []string {
 	if a.View != b.View {
 		out = append(out, fmt.Sprintf("view differed: %q -> %q", a.View, b.View))
 	}
+	if a.Type != b.Type {
+		out = append(out, fmt.Sprintf("return type differed: %s -> %s (the self digest consumes the type)", orDash(a.Type), orDash(b.Type)))
+	}
 	switch {
 	case (a.Module == nil) != (b.Module == nil):
 		out = append(out, "providing module differed (present on one side only)")
