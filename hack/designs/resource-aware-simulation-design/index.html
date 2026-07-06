@@ -1,0 +1,1141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Resource-constraint-aware wcprof simulation — full technical design</title>
+<style>
+  :root {
+    --ink: #1a222c; --muted: #5a6673; --bg: #fbfbf9; --panel: #ffffff;
+    --line: #d8dde3; --accent: #0b5fa5; --good: #1a7f4b; --bad: #b3382c;
+    --warn: #9a6700; --code-bg: #f0f2f5;
+    --cA: #4d8fd1; --cB: #e0a13c; --cZ: #6dbb8a; --cP: #b9a6d8; --cGrey: #c7ccd2;
+  }
+  html { scroll-behavior: smooth; }
+  body { font: 16px/1.55 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+         color: var(--ink); background: var(--bg); margin: 0; }
+  main { max-width: 980px; margin: 0 auto; padding: 24px 32px 120px; }
+  h1 { font-size: 1.7em; line-height: 1.25; margin: 24px 0 4px; }
+  h2 { font-size: 1.32em; margin-top: 2.2em; border-bottom: 2px solid var(--line); padding-bottom: 6px; }
+  h3 { font-size: 1.08em; margin-top: 1.6em; }
+  p, li { max-width: 74ch; }
+  code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px;
+         font: 0.86em/1.4 "SF Mono", ui-monospace, Menlo, Consolas, monospace; }
+  pre { background: var(--code-bg); padding: 12px 16px; border-radius: 8px; overflow-x: auto;
+        font: 0.84em/1.5 "SF Mono", ui-monospace, Menlo, Consolas, monospace; }
+  table { border-collapse: collapse; margin: 14px 0; font-size: 0.92em; width: 100%; }
+  th, td { border: 1px solid var(--line); padding: 7px 10px; text-align: left; vertical-align: top; }
+  th { background: #eef1f4; }
+  td.v-emit { color: var(--good); font-weight: 600; }
+  td.v-ref  { color: var(--bad);  font-weight: 600; }
+  td.v-def  { color: var(--warn); font-weight: 600; }
+  figure { margin: 26px 0; padding: 18px 18px 12px; background: var(--panel);
+           border: 1px solid var(--line); border-radius: 10px; }
+  figcaption { font-size: 0.9em; color: var(--muted); margin-top: 10px; max-width: 82ch; }
+  figcaption b { color: var(--ink); }
+  .status { background: #fff8e1; border: 1px solid #e6c866; border-radius: 8px;
+            padding: 12px 16px; font-size: 0.95em; }
+  .define { background: #eef5fb; border-left: 4px solid var(--accent); border-radius: 0 8px 8px 0;
+            padding: 10px 16px; margin: 14px 0; font-size: 0.95em; }
+  .define b:first-child { color: var(--accent); }
+  .rule { background: #f0f7f2; border-left: 4px solid var(--good); border-radius: 0 8px 8px 0;
+          padding: 10px 16px; margin: 14px 0; }
+  .honesty { background: #fdf3f2; border-left: 4px solid var(--bad); border-radius: 0 8px 8px 0;
+             padding: 10px 16px; margin: 14px 0; }
+  .cite { font-size: 0.82em; color: var(--muted); white-space: nowrap; }
+  nav#toc { position: sticky; top: 0; background: var(--bg); border-bottom: 1px solid var(--line);
+            padding: 8px 32px; font-size: 0.85em; z-index: 5; }
+  nav#toc a { color: var(--accent); text-decoration: none; margin-right: 14px; white-space: nowrap; }
+  .lit { color: var(--muted); font-size: 0.9em; }
+  svg text { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<nav id="toc">
+  <a href="#s1">§1 Goal</a><a href="#s2">§2 Today</a><a href="#s3">§3 Model</a>
+  <a href="#s4">§4 Event&nbsp;loop</a><a href="#s5">§5 Worked</a><a href="#s6">§6 Emits</a>
+  <a href="#s7">§7 Loader</a><a href="#s8">§8 Evidence&nbsp;&amp;&nbsp;verdict</a><a href="#s9">§9 Report</a>
+  <a href="#s10">§10 Gates</a><a href="#s11">§11 Validation</a><a href="#s12">§12 Cost</a>
+  <a href="#s13">§13 What-if-cached</a><a href="#s14">§14 Seams</a><a href="#s15">§15 Defaults</a>
+</nav>
+<main>
+
+<h1>Resource-constraint-aware wcprof simulation<br><span style="font-weight:400;color:var(--muted)">full technical design (phase 2)</span></h1>
+
+<div class="status">
+<b>Status:</b> phase-2 design, in adversarial review. In-repo record:
+<code>hack/designs/resource-aware-simulation-design.md</code> (same content as this page; this page adds the figures).
+Phase-1 feasibility: <code>hack/designs/resource-aware-simulation-feasibility.md</code> (commit <code>b865c9d6b</code>).<br>
+<b>Claims discipline:</b> every statement about current code carries a <span class="cite">file:line</span> citation read firsthand.
+Literature results are marked <span class="lit">(literature)</span>. Design constants are declared as choices, with revisit triggers.
+</div>
+
+<!-- ============================ §1 ============================ -->
+<h2 id="s1">§1 What this is and what it answers</h2>
+
+<p><b>wcprof</b> is the Dagger engine's wall-clock profiler. It records three kinds of events at the
+engine's blocking choke points — timed operation intervals (<b>ops</b>), blocked-on intervals
+(<b>waits</b>), and non-blocking correlations (<b>links</b>) — into a capture file. An offline analyzer
+(<b>wcanalyze</b>) rebuilds the causal graph from a capture and <em>replays</em> it under counterfactual
+hypotheses: "what if this class of work were 2× faster?", "what if these results had been cache hits?".
+The replay produces a simulated <b>makespan</b> — the run's wall-clock time, measured as the latest
+finish minus the earliest start over the run's root operations.</p>
+
+<p>The replay today assumes an <b>infinite machine</b>: unlimited CPU, unlimited memory, any number of
+processes runnable at once. This is stated in the code
+<span class="cite">(replay.go:11-13: "assuming unlimited resources (never CPU/disk bound)")</span>
+and in the profiler's README <span class="cite">(engine/wcprof/README.md:121-124)</span>. The assumption
+is harmless for hypotheses that only <em>remove or shrink</em> work on an otherwise-unchanged schedule.
+It becomes the dominant error source the moment a hypothesis <em>increases concurrency</em> — which is
+exactly what cache-elision counterfactuals do when they remove producers and let the surviving work
+pack together at the start of the run.</p>
+
+<p>This design adds a <b>capacity-aware replay mode</b>: the same recorded graph, the same compiled
+per-op timelines, executed under a finite CPU capacity, with per-exec CPU demands taken from
+measurement. It answers, honestly:</p>
+
+<ul>
+<li><b>(a)</b> When a counterfactual parallelizes a run <em>more</em>, where does the added parallelism
+stop paying because the machine is full?</li>
+<li><b>(b)</b> Would more CPUs have made this run faster? — answered in layers: a measured verdict, a
+measured bound, and simulated relief; never a fabricated point prediction (§8).</li>
+<li><b>(c)</b> (Down-payment only) Would this run fit on a smaller machine, and at what cost? Full
+multi-machine planning is a named seam (§14).</li>
+</ul>
+
+<div class="rule">
+<b>Two prior rulings bound everything here.</b>
+(1) Only user execs — container processes — have usable resource measurements; engine-internal
+operations are <em>never</em> attributed resource usage.
+(2) The simulator only ever <em>executes a fixed, documented scheduling policy</em> under a hypothesis.
+It never searches for a good schedule — schedule optimization for precedence-constrained tasks on
+finite machines is NP-hard <span class="lit">(literature: Ullman 1975; Blazewicz et&nbsp;al. 1983)</span>,
+and simulating a fixed policy is an O(E&nbsp;log&nbsp;E) discrete-event computation. That line is what keeps
+this project out of NP-hard territory.
+</div>
+
+<!-- ============================ §2 ============================ -->
+<h2 id="s2">§2 The recorded graph, the replay, and the three infinite-resource points</h2>
+
+<div class="define">
+<b>Op.</b> One recorded operation interval, with identity (kind, class, instance ident), timestamps
+StartNS/EndNS (nanoseconds relative to the recorder's epoch), a structural parent, children, and wait
+edges <span class="cite">(wcanalyze/graph.go:18-86)</span>.<br>
+<b>Exec op.</b> An op of kind <code>exec</code> — one container run. It is created around the whole
+container lifecycle <span class="cite">(engine/engineutil/executor.go:135-146, "exec.run")</span> and has
+one child op per setup phase (<code>exec.&lt;phaseName&gt;</code>, kind <code>exec_phase</code>
+<span class="cite">(executor.go:216-231)</span>), the last of which — <code>exec.runContainer</code> —
+contains the actual container lifetime. Inside that phase the profiler records two further exec_phase
+ops — <b>grandchildren</b> of exec.run — splitting engine overhead from user runtime:
+<code>exec.containerStart</code> (create/start) and <code>exec.processRun</code> (the user process,
+WorkType user), recorded with the runContainer phase as their parent
+<span class="cite">(executor_spec.go:1429-1434)</span>. A never-started exec records no processRun
+<span class="cite">(executor_spec.go:1432-1434)</span>.<br>
+<b>Open op.</b> An op that had not ended when the capture was dumped; its EndNS is the dump time and it
+is flagged Open <span class="cite">(graph.go:73-74, 391-412)</span>.<br>
+<b>Hit-short op.</b> In a what-if-cached simulation, a call of a cached digest: it finishes at its start
+plus the hypothesis pull cost; its recorded self-time, waits, and children are not replayed
+<span class="cite">(replay.go:482-489)</span>.<br>
+<b>Self segments.</b> An op's interval minus its children's intervals and its own wait intervals:
+the time the op was plausibly doing its own work <span class="cite">(graph.go:589-606)</span>.<br>
+<b>Fixed-delay wait.</b> A wait on a named resource (a lock), replayed as a recorded-duration delay
+running concurrently with the op's other work <span class="cite">(replay.go:79-87, 603-610)</span>.<br>
+<b>The replay.</b> Each op's timeline is compiled once into a flat program of actions — self segments,
+child spawns, waits — sorted by recorded time <span class="cite">(compileProgram, replay.go:138-280)</span>.
+A simulation executes these programs and derives every op's simulated start and finish.
+</div>
+
+<figure>
+<svg viewBox="0 0 940 330" width="100%" role="img" aria-label="The three infinite-resource points">
+  <!-- panel: infinite replay -->
+  <text x="16" y="22" font-size="14" font-weight="700">Where the infinite machine lives in the replay — and what happens to each point</text>
+  <!-- parent op bar -->
+  <rect x="60" y="60" width="620" height="26" fill="#e8edf3" stroke="#9fb0c0"/>
+  <text x="66" y="77" font-size="12">parent op timeline (compiled actions, recorded order)</text>
+  <!-- self segment -->
+  <rect x="120" y="60" width="90" height="26" fill="var(--cGrey)"/>
+  <text x="128" y="77" font-size="11">self&nbsp;segment</text>
+  <!-- spawn arrows -->
+  <line x1="250" y1="86" x2="250" y2="130" stroke="var(--accent)" stroke-width="2" marker-end="url(#arr)"/>
+  <rect x="250" y="130" width="180" height="22" fill="var(--cA)" opacity="0.85"/>
+  <text x="256" y="145" font-size="11" fill="#fff">child starts instantly at spawn</text>
+  <line x1="320" y1="86" x2="320" y2="164" stroke="var(--accent)" stroke-width="2" marker-end="url(#arr)"/>
+  <rect x="320" y="164" width="230" height="22" fill="var(--cB)" opacity="0.9"/>
+  <text x="326" y="179" font-size="11" fill="#fff">another child — unbounded concurrency</text>
+  <!-- lock -->
+  <rect x="470" y="60" width="120" height="26" fill="none" stroke="var(--warn)" stroke-dasharray="5 3" stroke-width="2"/>
+  <text x="478" y="77" font-size="11" fill="var(--warn)">lock: fixed delay</text>
+  <!-- badges -->
+  <circle cx="250" cy="105" r="11" fill="var(--accent)"/><text x="250" y="109" font-size="12" fill="#fff" text-anchor="middle">1</text>
+  <circle cx="165" cy="47" r="11" fill="var(--bad)"/><text x="165" y="51" font-size="12" fill="#fff" text-anchor="middle">2</text>
+  <circle cx="530" cy="47" r="11" fill="var(--warn)"/><text x="530" y="51" font-size="12" fill="#fff" text-anchor="middle">3</text>
+  <!-- legend of fates -->
+  <g font-size="12.5">
+    <circle cx="72" cy="222" r="10" fill="var(--accent)"/><text x="72" y="226" font-size="11" fill="#fff" text-anchor="middle">1</text>
+    <text x="92" y="226"><tspan font-weight="600">Spawns are free</tspan> — a child is anchored at the parent's clock, unconditionally <tspan class="cite">(replay.go:580)</tspan>.</text>
+    <text x="92" y="243" fill="var(--good)" font-weight="600">KEPT in capacity mode, deliberately:</text>
+    <text x="92" y="259">the real engine has no exec admission gate (oci-max-parallelism is parsed but consumed nowhere, §3.4) — concurrency is bounded by rate sharing, not queueing.</text>
+    <circle cx="72" cy="282" r="10" fill="var(--bad)"/><text x="72" y="286" font-size="11" fill="#fff" text-anchor="middle">2</text>
+    <text x="92" y="286"><tspan font-weight="600">Durations are exogenous</tspan> — clock += dur × factor, contention-immune <tspan class="cite">(replay.go:565)</tspan>.</text>
+    <text x="92" y="302" fill="var(--bad)" font-weight="600">REPLACED for exec container-run windows: they dilate at rate a/d under the shared capacity (§3.4).</text>
+    <circle cx="72" cy="322" r="10" fill="var(--warn)"/><text x="72" y="326" font-size="11" fill="#fff" text-anchor="middle">3</text>
+    <text x="92" y="326"><tspan font-weight="600">Lock delays are frozen</tspan> <tspan class="cite">(replay.go:603-610)</tspan> — <tspan fill="var(--warn)" font-weight="600">UNCHANGED</tspan>; the documented understatement direction stands.</text>
+  </g>
+  <defs><marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/></marker></defs>
+</svg>
+<figcaption><b>Figure 1 — the three infinite-resource points and their fates.</b> Only point ② changes:
+exec container-run time becomes elastic under shared capacity. Point ① is kept on evidence (the engine
+really does start execs as soon as dependencies allow), and point ③ is kept as the already-documented
+lock simplification. Everything else in the replay — compiled programs, ordering constraints,
+hypothesis factors — is untouched.</figcaption>
+</figure>
+
+<p><b>What must structurally change.</b> The current simulation is a lazy, memoized recursion —
+<code>finish(i)</code> recursively finishes dependencies on demand
+<span class="cite">(replay.go:451-503)</span>. An op's schedule depends only on its own dependencies,
+which is what makes the replay order-independent (asserted by the <code>SimStartConflicts</code>
+counter <span class="cite">(replay.go:349-355)</span>) and each simulation a cheap array DP over the
+compiled program. Under finite capacity, an op's progress rate depends on <em>everything else running
+at the same instant</em> — a global coupling. The capacity mode therefore uses a global time-ordered
+<b>event loop</b> (§4) over the <em>same compiled programs</em>. The infinite mode keeps its recursion,
+byte-for-byte untouched, and remains the default.</p>
+
+<!-- ============================ §3 ============================ -->
+<h2 id="s3">§3 The machine and demand model — exact semantics</h2>
+
+<h3>§3.1 The machine</h3>
+<p>One machine with CPU capacity <b>C</b>, in cores (fractional allowed), from the capture header
+(emit E-R2, §6.2). All the capacity facts can constrain the engine <em>simultaneously</em> (a container
+can have both a <code>cpu.max</code> quota and a restricted cpuset), so C is the <b>minimum over every
+present constraint</b> — never a precedence pick:</p>
+<pre>C_rec = min( cpu.max quota/period    [if present and not "max"],
+             |cpuset.cpus.effective|  [if present],
+             runtime.NumCPU()         [present whenever E-R2 is] )</pre>
+<p>The engine may itself be capacity-limited (a CI engine container with a CPU quota) — that is why the
+host's core count alone would be wrong. The report prints <em>each component</em> and which one bound
+(the provenance line), not just the resolved number. If E-R2 is absent entirely (old captures;
+non-Linux), capacity mode <b>refuses</b> (gate G1, §10). A CLI override (<code>-capacity-cores</code>)
+exists for sensitivity analysis and always prints as an override.</p>
+<div class="define"><b>C_rec vs C′.</b> <b>C_rec</b> is the recorded machine's resolved capacity
+(above); <b>C′</b> is whatever capacity a given simulation runs at — C_rec by default, a grid multiple
+or an override otherwise. Data-consistency checks (gate G5) compare measured demand against
+<b>C_rec only</b>: simulating at a <em>smaller</em> C′ deliberately puts demand above capacity — that is
+the sensitivity analysis working as intended, not an inconsistency.</div>
+<div class="honesty"><b>Memory is not part of the scheduling model.</b> Measured per-exec memory peaks
+feed feasibility checks and reporting only (§8.4). Simulating memory-constrained <em>timing</em> (swap,
+reclaim, OOM) from peak counters would be guessing nonlinear dynamics the data does not carry —
+refused.</div>
+
+<h3>§3.2 Which ops carry demand</h3>
+<p>Only <b>exec ops</b> carry CPU demand, because only they have a measured cgroup (one cgroup per
+container exec <span class="cite">(executor_spec.go:1220-1242)</span>). Every other op — calls, lazies,
+session phases, exec setup phases outside the demand window — has <b>zero modeled demand and unchanged
+recorded durations</b>. This is the declared model boundary from the prior ruling, restated in every
+capacity-mode report: engine-internal CPU use exists, is not modeled, and biases the model
+<em>optimistic about available capacity</em>.</p>
+
+<h3>§3.3 The demand window</h3>
+<p>Each exec op carries, from emit E-R1 (§6.1):</p>
+<ul>
+<li><b>W</b> — the container's total CPU work in core-microseconds: the final cumulative
+<code>usage_usec</code> from the exec cgroup's <code>cpu.stat</code>. (Cumulative counter ⇒ the final
+read is exact for the whole exec regardless of sampling interval — even a 300&nbsp;ms exec has an exact
+total.)</li>
+<li><b>[ws,&nbsp;we)</b> — the <b>process-run window</b>: <code>ws</code> is the container-started
+boundary the profiler already captures for the exec split
+<span class="cite">(executor_spec.go:1276-1289)</span>; <code>we</code> is the <b>process-exit
+boundary</b> — the instant <code>callWithIO</code> returns
+<span class="cite">(executor_spec.go:1411-1424)</span>, <em>before</em> any cleanup runs. These are
+exactly the boundaries the recorded <code>exec.processRun</code> phase carries
+<span class="cite">(executor_spec.go:1430-1431)</span> — deliberately redundant with a recorded fact:
+the loader cross-checks them (gate G4), and a never-started exec (no processRun) explicitly carries no
+window. Setup phases lie outside the window; the cgroup has no user processes before <code>ws</code>.
+The cgroup <em>files</em> are read later, in cleanup (§6.1) — safe because the counters are cumulative
+and the container's processes are dead by then.</li>
+</ul>
+
+<div class="define">
+<b>In-window self time.</b>&nbsp; SW = Σ length( selfSegment ∩ [ws,we) ) over the self segments of the
+exec op and <b>ALL exec_phase ops in its nesting subtree</b> (transitive descendants). Two details are
+load-bearing. <b>Descendants, not children:</b> the user-process phase <code>exec.processRun</code> is a
+child of the <code>exec.runContainer</code> phase — a <em>grandchild</em> of exec.run
+<span class="cite">(executor_spec.go:1429-1434)</span>; a children-only rule would exclude it, and since
+a parent's self segments exclude its children's intervals <span class="cite">(graph.go:589-606)</span>,
+the runContainer phase's self time is ~zero exactly where the window lives — SW would degenerate on
+every normal exec. <b>No double counting:</b> self segments are disjoint from child intervals by
+construction, so summing across the exec_phase subtree counts every instant at most once; the traversal
+stops at non-exec_phase boundaries, which is what excludes nested-client subtrees (§3.5).
+<b>The exact extent of the wait/child exclusion:</b> it covers recorded waits and child intervals
+<em>of the dilation-set ops themselves</em> (that is what SelfSegments subtracts). It does NOT cover
+nested-client subtrees: nested session ops are reparented as children of the exec op
+<span class="cite">(graph.go:489-502)</span> — <em>siblings</em> of the phase chain — so their
+intervals overlap <code>exec.processRun</code> without being subtracted from its self segments. That is
+deliberate: the recorded data carries <b>no container-side blocking edge</b> for nested calls (SDK
+clients routinely issue them asynchronously and keep computing), so treating a nested op's span as "the
+container was blocked" would be inventing a blocking fact. Demand therefore <b>continues</b> through
+nested-client overlap; the placement smear for a host that really did block synchronously is part of
+the declared simplification below, same B2 remedy.<br><br>
+<b>Demand rate.</b>&nbsp; d = W / SW&nbsp;(cores) — the measured average rate over the container's own
+working time.
+</div>
+<div class="honesty"><b>Declared simplification — attribution within the window.</b> W is an aggregate
+counter for the whole container; the data cannot say <em>when</em> within the window the CPU was
+burned. The model places all of W on the in-window self segments — equivalently, it assumes the
+container's CPU use during engine-recorded waits and nested-client children is negligible. For a
+multi-process container that computes in the background while its nested client blocks, this misplaces
+demand in time (total W is conserved; the placement, not the amount, is wrong). No denominator choice
+fixes this from an aggregate counter — every choice assumes a placement — and guessing a distribution
+would be compensation. Stated here, restated in the report's method note (§11.4); error direction not
+derivable in general; the designed empirical remedy is the B2 time-series refinement (Appendix B),
+triggered by calibration evidence.</div>
+<ul>
+<li>d = 0 (a container that used ~no CPU) is legal: such an exec never contends and never stretches.</li>
+<li>SW = 0 with W &gt; 0 is degenerate recorded data (work with no working time): counted, excluded,
+gate G4 fails. Never silently absorbed.</li>
+<li>d is <b>never capped</b>. Against the <em>recorded</em> capacity, d &gt; C_rec means the measured
+data and the machine facts disagree (e.g. a quota-derived C_rec while the cpuset allowed more cores — a
+provenance defect): gate G5's condition. Against a <em>simulated</em> C′ &lt; C_rec, d &gt; C′ is simply
+a deep deficit: the allocator caps a = C′ and the window stretches by d/C′ — the sensitivity analysis
+working as intended (V-R4, V-R18).</li>
+</ul>
+
+<h3>§3.4 The stretch rule (what dilation means)</h3>
+<div class="define">
+<b>Active set A.</b> The exec ops currently advancing an in-window self segment (not blocked on a
+join, not in setup, not finished).<br>
+<b>Water-filling (max-min fairness with caps).</b> Find the unique water level L with
+Σ<sub>i</sub>&nbsp;min(d<sub>i</sub>,&nbsp;L)&nbsp;=&nbsp;C (or L&nbsp;=&nbsp;∞ if
+Σd<sub>i</sub>&nbsp;≤&nbsp;C); exec i receives allocation
+a<sub>i</sub>&nbsp;=&nbsp;min(d<sub>i</sub>,&nbsp;L).<br>
+<b>Progress rate.</b> r<sub>i</sub> = a<sub>i</sub>/d<sub>i</sub> ≤ 1 recorded-seconds per
+simulated-second (d<sub>i</sub>=0 ⇒ r<sub>i</sub>=1).
+</div>
+
+<figure>
+<svg viewBox="0 0 940 260" width="100%" role="img" aria-label="Water-filling example">
+  <text x="16" y="22" font-size="14" font-weight="700">Water-filling: active demands {0.5, 1.5, 3.0} on C = 4  →  allocations (0.5, 1.5, 2.0)</text>
+  <!-- y axis: 40px per core, baseline y=220, up to 3 cores = 120px -->
+  <g>
+    <line x1="70" y1="220" x2="620" y2="220" stroke="var(--ink)"/>
+    <line x1="70" y1="220" x2="70" y2="70" stroke="var(--ink)"/>
+    <text x="40" y="224" font-size="11">0</text>
+    <text x="40" y="184" font-size="11">1</text><line x1="66" y1="180" x2="620" y2="180" stroke="#eee"/>
+    <text x="40" y="144" font-size="11">2</text><line x1="66" y1="140" x2="620" y2="140" stroke="#eee"/>
+    <text x="40" y="104" font-size="11">3</text><line x1="66" y1="100" x2="620" y2="100" stroke="#eee"/>
+    <text x="20" y="150" font-size="11" transform="rotate(-90 20 150)">cores</text>
+    <!-- bars: demand outline; fill=allocation -->
+    <!-- exec1 d=0.5 a=0.5 -->
+    <rect x="120" y="200" width="90" height="20" fill="var(--cZ)"/>
+    <rect x="120" y="200" width="90" height="20" fill="none" stroke="var(--ink)"/>
+    <text x="165" y="238" font-size="12" text-anchor="middle">d=0.5 → a=0.5 (satisfied, r=1)</text>
+    <!-- exec2 d=1.5 a=1.5 -->
+    <rect x="260" y="160" width="90" height="60" fill="var(--cA)"/>
+    <rect x="260" y="160" width="90" height="60" fill="none" stroke="var(--ink)"/>
+    <text x="305" y="238" font-size="12" text-anchor="middle">d=1.5 → a=1.5 (satisfied, r=1)</text>
+    <!-- exec3 d=3 a=2 -->
+    <rect x="400" y="140" width="90" height="80" fill="var(--cB)"/>
+    <rect x="400" y="100" width="90" height="40" fill="none" stroke="var(--bad)" stroke-dasharray="4 3"/>
+    <rect x="400" y="100" width="90" height="120" fill="none" stroke="var(--ink)"/>
+    <text x="445" y="238" font-size="12" text-anchor="middle">d=3.0 → a=2.0 (capped, r=2/3, ×1.5 stretch)</text>
+    <!-- water level -->
+    <line x1="90" y1="140" x2="560" y2="140" stroke="var(--accent)" stroke-width="2" stroke-dasharray="8 4"/>
+    <text x="566" y="144" font-size="12" fill="var(--accent)" font-weight="600">water level L = 2.0</text>
+    <text x="120" y="88" font-size="12" fill="var(--muted)">Σ allocations = 0.5 + 1.5 + 2.0 = 4 = C ✓&nbsp;&nbsp;&nbsp;dashed region = unmet demand (the stretch)</text>
+  </g>
+</svg>
+<figcaption><b>Figure 2 — the allocator on a mixed active set</b> (worked example W2; asserted exactly by
+catalog entry V-R4). Demands at or below the water level are fully satisfied; demand above the level is
+unmet and that exec's window time dilates by d/a. If Σd ≤ C, everyone gets d and nothing stretches.</figcaption>
+</figure>
+
+<div class="rule">
+<b>The stretch-only rule is the honesty keystone.</b> Nothing ever runs <em>faster</em> than recorded:
+the measured demand is a lower bound on what the process would have used on a larger machine, so
+simulating extra speed would be inventing data. If the machine can satisfy every active demand,
+everything runs at recorded speed; under deficit, contended windows dilate. What higher capacity can
+honestly do is un-stretch work that a tighter counterfactual had stretched — the "would more CPUs
+help?" question gets its answer from measured evidence instead (§8).
+</div>
+
+<p><b>Why max-min fair sharing and not something else.</b> The real engine imposes no exec scheduling
+of its own — the <code>oci-max-parallelism</code> flag is parsed
+<span class="cite">(cmd/engine/main.go:782-793)</span> but consumed nowhere in the Dagger executor path
+(verified by exhaustive grep; the only other reference is the config struct,
+<span class="cite">internal/buildkit/cmd/buildkitd/config/config.go:123-145</span>) — so containers
+compete under the kernel's fair scheduler. Max-min fairness is the standard fluid abstraction of a
+fair scheduler <span class="lit">(literature)</span>, it is deterministic, and it has no integer-slot
+artifacts. (The phase-1 assessment rejected discrete core slots: measured demands are fractional, and
+list schedules are non-monotone in processor count — Graham's scheduling anomalies
+<span class="lit">(literature: Graham 1966/1969)</span> — which would make capacity-sensitivity curves
+occasionally report that <em>adding</em> cores slowed the run down: indefensible output.)</p>
+
+<h3>§3.5 Exactly which recorded time dilates</h3>
+<figure>
+<svg viewBox="0 0 940 340" width="100%" role="img" aria-label="Exec anatomy and dilation set">
+  <text x="16" y="22" font-size="14" font-weight="700">Anatomy of one exec: the dilation set (exec_phase subtree) vs rigid engine-side work</text>
+  <!-- exec.run bar -->
+  <rect x="70" y="50" width="800" height="26" fill="#dfe7ee" stroke="#9fb0c0"/>
+  <text x="76" y="67" font-size="12">exec.run (kind exec) <tspan class="cite">executor.go:135-146</tspan></text>
+  <!-- phases -->
+  <rect x="70" y="92" width="60" height="22" fill="var(--cGrey)"/><text x="74" y="107" font-size="10">setupNetwork…</text>
+  <rect x="132" y="92" width="70" height="22" fill="var(--cGrey)"/><text x="136" y="107" font-size="10">setupRootfs…</text>
+  <rect x="204" y="92" width="666" height="22" fill="#cfd9e2"/><text x="210" y="107" font-size="11">exec.runContainer (phase child) <tspan class="cite">executor.go:216-231</tspan></text>
+  <!-- grandchildren: containerStart + processRun -->
+  <rect x="204" y="120" width="46" height="20" fill="var(--cGrey)"/><text x="207" y="134" font-size="9.5">containerStart</text>
+  <rect x="250" y="120" width="590" height="20" fill="#b7c8d8"/>
+  <text x="256" y="134" font-size="11">exec.processRun (GRANDCHILD of exec.run — WorkType user) <tspan class="cite">executor_spec.go:1429-1434</tspan></text>
+  <!-- window -->
+  <line x1="250" y1="40" x2="250" y2="272" stroke="var(--good)" stroke-width="2" stroke-dasharray="6 3"/>
+  <line x1="840" y1="40" x2="840" y2="272" stroke="var(--good)" stroke-width="2" stroke-dasharray="6 3"/>
+  <text x="250" y="36" font-size="12" fill="var(--good)" font-weight="600">ws (container started)</text>
+  <text x="840" y="36" font-size="12" fill="var(--good)" font-weight="600" text-anchor="end">we (process exit — pre-cleanup)</text>
+  <!-- dilating self -->
+  <rect x="250" y="152" width="220" height="22" fill="var(--cA)"/>
+  <rect x="600" y="152" width="240" height="22" fill="var(--cA)"/>
+  <text x="256" y="167" font-size="11" fill="#fff">in-window self segments (of the exec_phase SUBTREE) — DILATE at rate a/d</text>
+  <!-- nested client -->
+  <rect x="470" y="192" width="130" height="22" fill="#fff" stroke="var(--bad)" stroke-width="2"/>
+  <text x="476" y="207" font-size="11" fill="var(--bad)">nested-client op (engine side) — RIGID</text>
+  <line x1="470" y1="174" x2="470" y2="192" stroke="var(--bad)" stroke-width="2" marker-end="url(#arr2)"/>
+  <text x="330" y="236" font-size="11.5">spawn anchor REMAPS through the window transform M_e — a deferred spawn firing when the</text>
+  <text x="330" y="252" font-size="11.5">exec's stretched work reaches the spawn's recorded position; the nested subtree itself stays rigid.</text>
+  <!-- outside window -->
+  <text x="70" y="292" font-size="11.5" fill="var(--muted)">outside [ws,we): setup phases rigid (recorded durations; engine-side cost = declared §3.2 boundary)</text>
+  <text x="70" y="312" font-size="11.5" fill="var(--muted)">demand inactive while blocked: a join on an unfinished nested op removes the exec from the active set until woken (its waits were already excluded from SW)</text>
+  <defs><marker id="arr2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--bad)"/></marker></defs>
+</svg>
+<figcaption><b>Figure 3 — the dilation set.</b> Dilation applies to the exec op plus every exec_phase
+op in its nesting subtree — <em>transitive descendants</em>, crucially including the
+<code>exec.processRun</code> grandchild where the user work lives (a children-only rule would find ~zero
+self time in the window, because a parent's self segments exclude its children's intervals) — and only
+to the self-segment portions inside [ws,we). Action timestamps on dilated timelines shift by the
+accumulated dilation but keep recorded <em>order</em> (the compiled ordering and the implicit-join
+constraints compare recorded times and are untouched <span class="cite">(replay.go:32-36,
+188-211)</span>). Nested-client subtrees — engine work triggered from inside the container — are rigid:
+that is exactly what the cgroup did and did not measure. Their <em>anchors</em> cannot fall out of the
+compiled programs alone (the spawn action lives on the exec op's program, whose own self time is nearly
+empty — dilating the processRun grandchild never moves the parent's clock), so the design defines an
+explicit <b>window transform M_e</b>: the monotone map from recorded window-work position to sim time
+that the event loop builds as it executes the exec's dilated fragments (proportional-by-rate inside
+fragments, rigid across gaps). A non-exec_phase child spawned at recorded t inside the window is
+anchored at M_e(t) via a deferred spawn that fires when the executed window position reaches p(t); a
+window truncated before a registered anchor fires it at the window's end image and counts it (G6
+family, never silent).</figcaption>
+</figure>
+
+<h3>§3.6 What deliberately does not change</h3>
+<ul>
+<li>The infinite-resource mode: default, byte-for-byte untouched.</li>
+<li>Compiled programs <span class="cite">(replay.go:138-280)</span>: shared by both modes.</li>
+<li>Fixed-delay lock waits: recorded durations in both modes.</li>
+<li>What-if-cached hypothesis resolution (the elide-or-keep pre-pass): identical; capacity mode swaps
+only the replay executor underneath it (§13).</li>
+<li>The what-if class ranking table (up to 200 classes × factors
+<span class="cite">(replay.go:797-891)</span>): stays infinite-mode in v1, labeled (§9; rationale §12).</li>
+</ul>
+
+<!-- ============================ §4 ============================ -->
+<h2 id="s4">§4 The capacity-aware event loop — exact algorithm</h2>
+
+<h3>§4.1 State</h3>
+<p>Per op (dense arrays, same indexing as the compiled program): <code>pc</code> — next action index;
+<code>localClock</code> — the op's simulated clock; <code>status</code> ∈ {notStarted, runnable,
+inSelf(remaining&nbsp;recorded&nbsp;ns, dilated?), blockedOnJoin(target), blockedOnPend(child),
+finished}. Exec ops additionally carry window [ws,we), work W, in-window self time SW, demand d
+(precomputed at load), and a running ledger of allocated core-time (for conservation gate G7).</p>
+<p>Global: an event queue — a binary heap of (simTime, rank, opID, generation). <code>rank</code>
+breaks ties in the same relative order the compiled programs use at equal recorded times
+<span class="cite">(replay.go:188-211)</span>: gate events before spawns before segment completions
+before bookkeeping — so equal-time semantics match the infinite mode. <code>opID</code> breaks
+remaining ties; <code>generation</code> invalidates superseded entries (the standard discrete-event
+re-projection device: stale entries are popped and discarded). Plus: the active set A with current
+allocations, and a reverse-wait index (op → blocked waiters), built lazily from the compiled joins.</p>
+
+<h3>§4.2 Execution</h3>
+<p>Initialization: every root op is scheduled at its recorded start — an exact fact, exactly as the
+current replay pre-anchors roots <span class="cite">(replay.go:408-419)</span>. An op's coroutine,
+when it runs at sim time t, executes its compiled actions in order, mirroring the infinite replay's
+action semantics <span class="cite">(replay.go:560-617)</span> with these operational differences:</p>
+<table>
+<tr><th>action</th><th>capacity-mode behavior</th></tr>
+<tr><td><code>actSelf</code> (rigid: non-exec, or outside the window)</td>
+<td>schedule completion at localClock + dur × factor (hypothesis factors compose exactly as today)</td></tr>
+<tr><td><code>actSelf</code> (dilated portion)</td>
+<td>enter the active set with the remaining recorded time; trigger a rate event (§4.3). Completion is
+projected at localClock + remaining/r and re-projected on every rate change. A segment straddling the
+window boundary is split at the boundary (V-R15) — in a <b>capacity-mode-only precompute overlay</b>
+(derived arrays keyed by action index), never in the shared compiled program: the infinite mode keeps
+executing the untouched program byte-for-byte, which is what makes gate G8/V-R1 hold by construction
+rather than by re-verification. <b>Fragment rounding rule</b> (nanosecond-exact C′=∞ equivalence): the
+current replay rounds once per action — <code>int64(float64(dur) × factor)</code>
+<span class="cite">(replay.go:565)</span>; per-fragment rounding could drift ±1ns. The overlay computes
+fragment lengths as differences of <em>cumulative</em> rounded positions
+(round(prefix<sub>i+1</sub>·f) − round(prefix<sub>i</sub>·f)), which telescope to exactly the
+once-rounded total (V-R15, including the 3ns/f=0.9 adversarial case).</td></tr>
+<tr><td>hypothesis factors on dilated segments (exact rule)</td>
+<td>a class factor f applied to a demand-carrying exec scales each dilated self segment's recorded time
+by f AND scales the exec's conservation target to <b>W′ = f·W</b> (the simulated work), leaving the
+demand rate d unchanged. Interpretation: "this class is f× faster" means the same job takes f× the time
+at the same CPU intensity — seconds and core-seconds shrink together. W stays untouched as the
+<em>measured</em> provenance value; every simulated ledger, the G7 check, and the stretched-exec
+accounting use W′ (= W with no factor). Consequences, asserted by V-R16: G7 checks delivered core-time
+against W′; d (the allocator's input) is factor-invariant; at C′=∞ the dilated segment's length is
+exactly the once-rounded dur × f, matching the infinite mode (G8). Scaling time but not work would make
+a "faster" hypothesis change the exec's CPU intensity — a physical claim the hypothesis does not
+make.</td></tr>
+<tr><td><code>actSpawn</code></td>
+<td>set the child's start to the current localClock and schedule its first event — the same anchor rule
+as <span class="cite">replay.go:580</span>, executed forward in time. No out-of-order prefix machinery
+exists in this mode (the recursion's <code>spawnTo</code>
+<span class="cite">(replay.go:627-678)</span> is a lazy-evaluation device; a forward loop reaches
+children when their parents do). On faithful data both strategies anchor every child identically —
+asserted by V-R1.</td></tr>
+<tr><td><code>actWaitJoin</code></td>
+<td>target finished ⇒ localClock = max(localClock, target finish); else block; wake on the target's
+finish at that time.</td></tr>
+<tr><td>implicit joins (the pend list <span class="cite">(replay.go:520-558)</span>)</td>
+<td>unchanged <em>ordering</em> semantics — before an action at recorded time <code>at</code>, join
+every child whose recorded end ≤ <code>at</code> — but "join" means "block until that child's simulated
+finish" instead of recursive evaluation.</td></tr>
+<tr><td><code>actWaitFixedStart/End</code> (locks)</td>
+<td>the same max-gate arithmetic as <span class="cite">replay.go:603-610</span>, on the local clock.</td></tr>
+<tr><td>what-if-cached states</td>
+<td>elided ops never scheduled (spawns skipped or waived per the resolution); hit-short ops finish at
+start + pullCost — the identical skip/waive logic the recursion applies
+<span class="cite">(replay.go:456-489, 567-599)</span>, executed by this loop.</td></tr>
+</table>
+<p>An op finishes when its program is exhausted plus the final implicit-join sweep (mirror of
+<span class="cite">replay.go:616</span>); its waiters wake.</p>
+
+<h3>§4.3 Rate events</h3>
+<p>Rates change only when the active set changes: a dilated segment starts (op enters A), completes,
+or its op blocks on a join (op leaves A). At each such event: recompute water-filling over A
+(O(|A|&nbsp;log&nbsp;|A|)); for each op whose allocation changed, carry its remaining recorded time
+over and re-project its completion event (bump generation, push a new entry). Between rate events,
+rates are constant — the simulation is <em>exact</em>, not time-stepped: no numerical integration, no
+dt, closed-form piecewise-linear progress.</p>
+
+<h3>§4.4 Termination, faithfulness signals, determinism</h3>
+<ul>
+<li><b>Quiescence with unfinished ops</b> = the recorded causal structure could not schedule itself
+forward: a recorded cycle of waits, an inverted reference, a child its parent never spawns — exactly
+the unfaithful-data classes the current replay counts (CycleWarnings, UnschedulableOps
+<span class="cite">(replay.go:326-343)</span>). The event loop detects them <em>structurally</em>:
+nothing runnable, ops unfinished. Handling: count per break (gate G6 fails), break deterministically —
+anchor the lowest-op-ID blocked op at its recorded offset from its nearest started ancestor (the same
+damage-bounding anchor the recursion uses <span class="cite">(replay.go:694-704)</span>) — and
+continue. Never silent, never absorbed.</li>
+<li><b>Determinism by construction</b>: the event order (time, rank, opID) is total; water-filling is
+deterministic; no map iteration order reaches results. V-R11 asserts bit-identical outputs across
+input permutations. The recursion's <code>SimStartConflicts</code> order-independence signal has no
+analog here (a forward loop computes each start exactly once); a defensive never-two-starts counter
+replaces it, expected 0 always.</li>
+<li><b>Machine-seconds conservation</b> (gate G7): the loop asserts, at each exec's window completion,
+that delivered core-time equals the measured W within fixed-point error. This is bookkeeping
+exactness, not a tolerance: the fluid model <em>defines</em> window completion as "W core-seconds
+delivered".</li>
+</ul>
+
+<!-- ============================ §5 ============================ -->
+<h2 id="s5">§5 Worked examples — used identically by this page, the tests, and the catalog</h2>
+
+<h3>§5.1 W1 — the symmetric pair (headline example)</h3>
+<p>Machine C = 4 cores. Two pipelines, each a slow low-CPU producer feeding a CPU-heavy exec:
+P1 (window [0,10)s, d≈0) → A (window [10,20)s, d=3, W=30 core-s);
+P2 (window [0,20)s, d≈0) → B (window [20,30)s, d=3, W=30 core-s).
+Recorded makespan 30&nbsp;s; recorded concurrency never exceeds 3 ≤ C, so the baseline capacity replay
+stretches nothing (gate G2 behavior). Counterfactual: what-if-cached {P1, P2} — both producers elided;
+A and B start together at t=0.</p>
+
+<figure>
+<svg viewBox="0 0 940 560" width="100%" role="img" aria-label="Before/after schedules under infinite and capacity modes">
+  <text x="16" y="20" font-size="14" font-weight="700">W1: recorded schedule vs the counterfactual under both modes (C = 4)</text>
+  <!-- shared scales: x0=70, 14px/s (0..30s => 420px); y: 22px/core; each panel 150 tall -->
+  <!-- PANEL 1: recorded -->
+  <g transform="translate(0,36)">
+    <text x="70" y="14" font-size="12.5" font-weight="600">Recorded baseline — makespan 30 s</text>
+    <line x1="70" y1="130" x2="500" y2="130" stroke="var(--ink)"/>
+    <line x1="70" y1="130" x2="70" y2="24" stroke="var(--ink)"/>
+    <line x1="70" y1="42" x2="500" y2="42" stroke="var(--bad)" stroke-width="1.6" stroke-dasharray="7 4"/>
+    <text x="504" y="46" font-size="11" fill="var(--bad)">C = 4</text>
+    <!-- bands: height=demand*22 -->
+    <rect x="70" y="121" width="140" height="5" fill="var(--cP)"/><text x="74" y="118" font-size="10">P1 d≈0 (token height)</text>
+    <rect x="70" y="112" width="280" height="5" fill="#9d86c9"/><text x="216" y="109" font-size="10">P2 d≈0 (token height)</text>
+    <rect x="210" y="55" width="140" height="66" fill="var(--cA)"/><text x="216" y="70" font-size="11" fill="#fff">A d=3 [10,20)</text>
+    <rect x="350" y="64" width="140" height="66" fill="var(--cB)"/><text x="356" y="79" font-size="11" fill="#fff">B d=3 [20,30)</text>
+    <text x="70" y="146" font-size="10">0</text><text x="210" y="146" font-size="10">10</text><text x="350" y="146" font-size="10">20</text><text x="490" y="146" font-size="10">30 s</text>
+    <text x="520" y="90" font-size="11.5" fill="var(--muted)">S(t) never exceeds 3 (producers d=0) —</text>
+    <text x="520" y="106" font-size="11.5" fill="var(--muted)">the recorded overlap fit the machine,</text>
+    <text x="520" y="122" font-size="11.5" fill="var(--muted)">so the capacity baseline reproduces 30 s exactly.</text>
+  </g>
+  <!-- PANEL 2: infinite counterfactual -->
+  <g transform="translate(0,210)">
+    <text x="70" y="14" font-size="12.5" font-weight="600">Counterfactual {P1,P2 cached}, INFINITE mode — makespan 10 s (over-promise)</text>
+    <line x1="70" y1="130" x2="500" y2="130" stroke="var(--ink)"/>
+    <line x1="70" y1="130" x2="70" y2="10" stroke="var(--ink)"/>
+    <line x1="70" y1="42" x2="500" y2="42" stroke="var(--bad)" stroke-width="1.6" stroke-dasharray="7 4"/>
+    <text x="504" y="46" font-size="11" fill="var(--bad)">C = 4</text>
+    <rect x="70" y="64" width="140" height="66" fill="var(--cA)"/><text x="76" y="79" font-size="11" fill="#fff">A d=3 [0,10)</text>
+    <rect x="70" y="20" width="140" height="44" fill="var(--cB)" opacity="0.92"/><text x="76" y="35" font-size="11" fill="#fff">B d=3 (stacked)</text>
+    <!-- overflow hatch: stack 6 > 4 => region above C line from y=42 up to y=-2... band B spans y=20..64 crossing line at 42 -->
+    <rect x="70" y="20" width="140" height="22" fill="url(#hatch)" stroke="var(--bad)"/>
+    <text x="216" y="34" font-size="11.5" fill="var(--bad)" font-weight="600">Σd = 6 &gt; C: schedules 6 cores on a 4-core machine</text>
+    <text x="70" y="146" font-size="10">0</text><text x="210" y="146" font-size="10">10</text><text x="350" y="146" font-size="10">20</text><text x="490" y="146" font-size="10">30 s</text>
+  </g>
+  <!-- PANEL 3: capacity counterfactual -->
+  <g transform="translate(0,384)">
+    <text x="70" y="14" font-size="12.5" font-weight="600">Counterfactual {P1,P2 cached}, CAPACITY mode — makespan 15 s (the honest number)</text>
+    <line x1="70" y1="130" x2="500" y2="130" stroke="var(--ink)"/>
+    <line x1="70" y1="130" x2="70" y2="24" stroke="var(--ink)"/>
+    <line x1="70" y1="42" x2="500" y2="42" stroke="var(--bad)" stroke-width="1.6" stroke-dasharray="7 4"/>
+    <text x="504" y="46" font-size="11" fill="var(--bad)">C = 4</text>
+    <rect x="70" y="86" width="210" height="44" fill="var(--cA)"/><text x="76" y="101" font-size="11" fill="#fff">A a=2 (r=2/3, ×1.5) [0,15)</text>
+    <rect x="70" y="42" width="210" height="44" fill="var(--cB)"/><text x="76" y="57" font-size="11" fill="#fff">B a=2 (r=2/3, ×1.5) [0,15)</text>
+    <text x="290" y="60" font-size="11.5" fill="var(--good)" font-weight="600">stack = exactly C; each delivers 2 × 15 = 30 core-s = W ✓</text>
+    <text x="70" y="146" font-size="10">0</text><text x="210" y="146" font-size="10">10</text><text x="280" y="146" font-size="10">15</text><text x="350" y="146" font-size="10">20</text><text x="490" y="146" font-size="10">30 s</text>
+  </g>
+  <defs><pattern id="hatch" width="7" height="7" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+    <rect width="7" height="7" fill="none"/><line x1="0" y1="0" x2="0" y2="7" stroke="var(--bad)" stroke-width="2"/></pattern></defs>
+</svg>
+<figcaption><b>Figure 4 — before/after schedules</b> (worked example W1; catalog entry V-R3). Bands are
+execs drawn with height = demand (cores). The infinite mode packs 6 cores of demand onto a 4-core
+machine and promises 10&nbsp;s; the capacity mode shares 4 cores fairly (2 each), dilates both windows
+×1.5, and reports 15&nbsp;s. Elided producers P1/P2 never contend (§13).</figcaption>
+</figure>
+
+<figure>
+<svg viewBox="0 0 940 320" width="100%" role="img" aria-label="Capacity sensitivity curve">
+  <text x="16" y="20" font-size="14" font-weight="700">W1 counterfactual sensitivity: makespan(C) = max(10, 60/C) — the plateau is where structure takes over</text>
+  <!-- axes: x0=90 y0=270; x: C 0..10 -> 44px/unit; y: 0..32s -> 7.5px/s (270 - 7.5*m) -->
+  <g>
+    <line x1="90" y1="270" x2="560" y2="270" stroke="var(--ink)"/>
+    <line x1="90" y1="270" x2="90" y2="40" stroke="var(--ink)"/>
+    <text x="320" y="304" font-size="12">capacity C (cores)</text>
+    <text x="30" y="160" font-size="12" transform="rotate(-90 30 160)">makespan (s)</text>
+    <!-- gridlines y: 10,15,20,30 -->
+    <line x1="86" y1="195" x2="560" y2="195" stroke="#eee"/><text x="60" y="199" font-size="11">10</text>
+    <line x1="86" y1="157.5" x2="560" y2="157.5" stroke="#eee"/><text x="60" y="161" font-size="11">15</text>
+    <line x1="86" y1="120" x2="560" y2="120" stroke="#eee"/><text x="60" y="124" font-size="11">20</text>
+    <line x1="86" y1="45" x2="560" y2="45" stroke="#eee"/><text x="60" y="49" font-size="11">30</text>
+    <!-- x ticks 2,4,6,8,10 -->
+    <text x="178" y="288" font-size="11">2</text><text x="266" y="288" font-size="11">4</text>
+    <text x="354" y="288" font-size="11">6</text><text x="442" y="288" font-size="11">8</text><text x="530" y="288" font-size="11">10</text>
+    <!-- work-law region: curve 60/C from C=2..6: pts (2,30)(2.5,24)(3,20)(3.5,17.14)(4,15)(4.5,13.33)(5,12)(5.5,10.91)(6,10) -->
+    <polyline fill="none" stroke="var(--accent)" stroke-width="2.5"
+      points="178,45 200,90 222,120 244,141.4 266,157.5 288,170 310,180 332,188.2 354,195 560,195"/>
+    <!-- span floor -->
+    <line x1="90" y1="195" x2="560" y2="195" stroke="var(--good)" stroke-width="1.6" stroke-dasharray="7 4"/>
+    <text x="564" y="199" font-size="11" fill="var(--good)">span-law floor: 10 s</text>
+    <!-- plateau shade -->
+    <rect x="354" y="40" width="206" height="230" fill="var(--good)" opacity="0.07"/>
+    <line x1="354" y1="40" x2="354" y2="270" stroke="var(--good)" stroke-dasharray="4 3"/>
+    <text x="360" y="58" font-size="12" fill="var(--good)" font-weight="600">plateau: beyond C=6, added capacity buys nothing</text>
+    <text x="360" y="74" font-size="11.5" fill="var(--muted)">(structure binds — Erik's question (a) answered as a printed table)</text>
+    <!-- grid dots -->
+    <circle cx="178" cy="45" r="4.5" fill="var(--accent)"/><text x="186" y="42" font-size="11">C=2: 30 s</text>
+    <circle cx="266" cy="157.5" r="4.5" fill="var(--accent)"/><text x="274" y="152" font-size="11">C=4: 15 s</text>
+    <circle cx="354" cy="195" r="4.5" fill="var(--accent)"/><text x="330" y="216" font-size="11">C=6: 10 s</text>
+    <circle cx="442" cy="195" r="4.5" fill="var(--accent)"/><text x="428" y="216" font-size="11">C=8: 10 s</text>
+    <!-- work-law label -->
+    <text x="196" y="110" font-size="11.5" fill="var(--accent)">capacity-bound regime:</text>
+    <text x="196" y="126" font-size="11.5" fill="var(--accent)">makespan = total work / C = 60/C (work law)</text>
+  </g>
+</svg>
+<figcaption><b>Figure 5 — the sensitivity grid rendered</b> (catalog entry V-R3 asserts the four dots
+exactly: 30/15/10/10&nbsp;s at C = 2/4/6/8). Left of the plateau the schedule is capacity-bound and
+follows the work-law hyperbola; right of it the critical path (span law) binds and more cores change
+nothing. Real reports print this per hypothesis at the grid C × {½, 1, 2, 4, ∞} (default, §15).</figcaption>
+</figure>
+
+<h3>§5.2 W2 — water-filling with mixed demands</h3>
+<p>Rendered as Figure 2 above: active {0.5, 1.5, 3.0} on C=4 ⇒ allocations (0.5, 1.5, 2.0); only the
+d=3 exec stretches (r = 2/3). Catalog V-R4 also asserts: Σd ≤ C ⇒ a=d for all; a single exec with
+d &gt; C gets a = C; d=0 ⇒ r=1.</p>
+
+<h3>§5.3 W3 — mid-flight entry and re-projection</h3>
+<figure>
+<svg viewBox="0 0 940 360" width="100%" role="img" aria-label="Event loop worked timeline">
+  <text x="16" y="20" font-size="14" font-weight="700">W3: the event loop on W1's counterfactual plus a mid-flight exec Z (window [5,10), d=1) — C = 4</text>
+  <!-- stacked area: x0=70, 24px/s; y0=240, 30px/core (4 cores=120px) -->
+  <g>
+    <line x1="70" y1="240" x2="530" y2="240" stroke="var(--ink)"/>
+    <line x1="70" y1="240" x2="70" y2="100" stroke="var(--ink)"/>
+    <line x1="70" y1="120" x2="530" y2="120" stroke="var(--bad)" stroke-width="1.6" stroke-dasharray="7 4"/>
+    <text x="534" y="124" font-size="11" fill="var(--bad)">C = 4</text>
+    <!-- [0,5): A 2 (bottom 60px), B 2 (top 60px) -->
+    <rect x="70" y="180" width="120" height="60" fill="var(--cA)"/>
+    <rect x="70" y="120" width="120" height="60" fill="var(--cB)"/>
+    <!-- [5,10): Z 1 bottom 30, A 1.5 next 45, B 1.5 top 45 -->
+    <rect x="190" y="210" width="120" height="30" fill="var(--cZ)"/>
+    <rect x="190" y="165" width="120" height="45" fill="var(--cA)"/>
+    <rect x="190" y="120" width="120" height="45" fill="var(--cB)"/>
+    <!-- [10,16.25): A 2, B 2 ; 6.25s=150px -->
+    <rect x="310" y="180" width="150" height="60" fill="var(--cA)"/>
+    <rect x="310" y="120" width="150" height="60" fill="var(--cB)"/>
+    <!-- labels -->
+    <text x="120" y="214" font-size="11" fill="#fff">A: 2</text><text x="120" y="154" font-size="11" fill="#fff">B: 2</text>
+    <text x="238" y="230" font-size="11" fill="#fff">Z: 1</text><text x="238" y="192" font-size="11" fill="#fff">A: 1.5</text><text x="238" y="147" font-size="11" fill="#fff">B: 1.5</text>
+    <text x="370" y="214" font-size="11" fill="#fff">A: 2</text><text x="370" y="154" font-size="11" fill="#fff">B: 2</text>
+    <!-- event markers -->
+    <g stroke="var(--ink)" stroke-dasharray="3 3">
+      <line x1="70" y1="100" x2="70" y2="252"/><line x1="190" y1="100" x2="190" y2="252"/>
+      <line x1="310" y1="100" x2="310" y2="252"/><line x1="460" y1="100" x2="460" y2="252"/>
+    </g>
+    <text x="70" y="266" font-size="11" text-anchor="middle">t=0</text>
+    <text x="190" y="266" font-size="11" text-anchor="middle">t=5</text>
+    <text x="310" y="266" font-size="11" text-anchor="middle">t=10</text>
+    <text x="460" y="266" font-size="11" text-anchor="middle">t=16.25</text>
+    <text x="76" y="96" font-size="10.5" fill="var(--muted)">A,B enter; solve → (2,2)</text>
+    <text x="196" y="96" font-size="10.5" fill="var(--muted)">Z enters; solve → (1.5,1.5,1); re-project A,B</text>
+    <text x="316" y="96" font-size="10.5" fill="var(--muted)">Z exits; solve → (2,2); re-project</text>
+    <text x="430" y="82" font-size="10.5" fill="var(--muted)">A,B complete</text>
+    <!-- conservation note -->
+    <text x="560" y="140" font-size="11.5">Ledger (conservation gate G7):</text>
+    <text x="560" y="158" font-size="11.5">A: 2·5 + 1.5·5 + 2·6.25 = 30 ✓</text>
+    <text x="560" y="176" font-size="11.5">B: same = 30 ✓ &nbsp; Z: 1·5 = 5 ✓</text>
+    <text x="560" y="194" font-size="11.5">machine: 4·16.25 = 65 = 30+30+5 ✓</text>
+    <text x="560" y="222" font-size="11.5" fill="var(--muted)">Z is satisfied (d=1 ≤ water level),</text>
+    <text x="560" y="238" font-size="11.5" fill="var(--muted)">runs at r=1, exits on time at t=10.</text>
+  </g>
+  <!-- event table -->
+  <g font-size="11.5">
+    <text x="70" y="300" font-weight="600">Event queue trace (rank/opID tie-breaks omitted — no equal-time events here):</text>
+    <text x="70" y="320">t=0 A,B window-entry → water-fill {3,3}→(2,2), project both at t=15 &nbsp;|&nbsp; t=5 Z entry → {3,3,1}→(1.5,1.5,1), re-project A,B to t=18.33 (20 core-s left ÷ 1.5)</text>
+    <text x="70" y="338">t=10 Z window-exit → {3,3}→(2,2), re-project A,B to t=16.25 (12.5 ÷ 2) &nbsp;|&nbsp; t=16.25 A,B window-exit → makespan 16.25 s (V-R5 asserts every number)</text>
+  </g>
+</svg>
+<figcaption><b>Figure 6 — the event loop, worked end-to-end</b> (catalog entry V-R5). Four events, three
+water-filling solves, two re-projections. Between events rates are constant, so progress is closed-form
+— no time-stepping, no numerical error. The conservation ledger is the runtime gate G7.</figcaption>
+</figure>
+
+<!-- ============================ §6 ============================ -->
+<h2 id="s6">§6 The emits — field-by-field, justified or refused</h2>
+
+<div class="rule"><b>Doctrine.</b> Every emitted field must have a consumer in the analysis that
+<em>decides something</em> with it; fields without a deciding consumer are refused (listed, with
+reasons, revisited when a consumer exists). All emits are additive: zero behavior change when wcprof
+is off; no existing field changes meaning.</div>
+
+<h3>§6.1 E-R1 — per-exec final resource totals</h3>
+<p><b>Mechanism.</b> One read of the exec cgroup's files at container exit — <em>independent of the
+OTel metrics sampler and its gates</em>. The existing sampler only runs when the exec has a call digest
+and builds an OTel meter <span class="cite">(executor_spec.go:1221-1242)</span>; the wcprof emit must
+not inherit that gate: execs without call digests exist (<code>execIdent</code> falls back to the raw
+exec id <span class="cite">(executor.go:130-133)</span>), and a capacity model missing <em>any</em>
+exec's demand refuses (gate G3), so the emit must cover every container.</p>
+<p>Two boundaries, deliberately different. <b>Timestamps at the process-exit boundary:</b>
+WindowStartNS is the started-callback instant <span class="cite">(executor_spec.go:1276-1289)</span>;
+WindowEndNS is captured where <code>callWithIO</code> returns
+<span class="cite">(executor_spec.go:1411-1424)</span> — the same instants the recorded
+<code>exec.processRun</code> phase uses <span class="cite">(executor_spec.go:1430-1431)</span>. NOT at
+cleanup time: cleanup latency is engine overhead, not container runtime, and must not widen the window.
+<b>File reads in cleanup:</b> the cgroup files are read in <code>runContainer</code>'s cleanup path,
+immediately before the sampler-cancel cleanup, with the same path resolution the sampler uses — the OCI
+spec's cgroup path (<code>state.spec.Linux.CgroupsPath</code>
+<span class="cite">(executor_spec.go:1220)</span>) joined under the cgroupfs mountpoint
+<code>/sys/fs/cgroup</code> exactly as <code>resources.NewSampler</code> does
+<span class="cite">(sampler.go:14, 40)</span>; the raw spec path alone is relative and would be the
+wrong path. Reading after process exit is safe: the counters are cumulative and the container's
+processes are dead (the post-<code>we</code> tail is teardown-only, declared in §11.4); the cgroup
+provably still exists there — cleanups run LIFO
+<span class="cite">(util/cleanups/cleanup.go:49-55)</span> and the <code>runc delete</code> cleanup is
+registered earlier <span class="cite">(executor_spec.go:1216 vs 1247)</span>, so it runs later. The
+outer <code>RunContainer</code> attaches the snapshot to the profiler op before ending it
+(<code>execOp</code> ends at <span class="cite">executor.go:175</span>, after <code>c.run</code>'s
+deferred cleanups at <span class="cite">executor.go:203</span> — verified ordering). New recording API:
+<code>Op.SetResources(snap)</code> in <code>engine/wcprof/record.go</code>, fixed-size numeric fields
+on the op's event; no string interning involved.</p>
+
+<table>
+<tr><th>field</th><th>source</th><th>consumer that decides with it</th><th>verdict</th></tr>
+<tr><td>CPUUsageUS (uint64, core-µs)</td><td><code>cpu.stat usage_usec</code> <span class="cite">(cpustat.go:19)</span></td>
+<td>W in the demand model (§3.3); saturation timeline (§8.1); conservation gate G7</td><td class="v-emit">EMIT</td></tr>
+<tr><td>PSICPUSomeUS (uint64, µs)</td><td><code>cpu.pressure some total</code> <span class="cite">(cpustat.go:145-167, parse at :159)</span></td>
+<td>the "more CPUs?" measured bound and verdict thresholds (§8.2–§8.3)</td><td class="v-emit">EMIT</td></tr>
+<tr><td>PSICPUFullUS (uint64, µs)</td><td><code>cpu.pressure full total</code> <span class="cite">(gauge cpustat.go:129, parse :159-161)</span></td>
+<td>severity split in the contention ledger: <code>full</code> = all runnable tasks stalled — pure loss windows</td><td class="v-emit">EMIT</td></tr>
+<tr><td>PSIIOSomeUS (uint64, µs)</td><td><code>io.pressure some total</code> <span class="cite">(file const iostat.go:17, read/parse iostat.go:122-138)</span></td>
+<td>the verdict's IO caveat: "these stalls are IO — more CPUs won't relieve them" (§8.3)</td><td class="v-emit">EMIT</td></tr>
+<tr><td>MemPeakBytes (uint64)</td><td><code>memory.peak</code> <span class="cite">(memorystat.go:17)</span></td>
+<td>memory-feasibility annotations on counterfactual schedules (§8.4)</td><td class="v-emit">EMIT</td></tr>
+<tr><td>WindowStartNS / WindowEndNS (int64)</td><td>started-callback boundary <span class="cite">(executor_spec.go:1276-1289)</span>; the process-exit boundary where <code>callWithIO</code> returns <span class="cite">(executor_spec.go:1411-1424)</span> — the same instant <code>exec.processRun</code> records as its end</td>
+<td>ws/we in the demand model (§3.3); cross-checked against the recorded processRun interval (G4)</td><td class="v-emit">EMIT</td></tr>
+<tr><td>Presence bitmask</td><td>which files existed/parsed</td>
+<td>every gate in §10. Absence ≠ zero, per family: <code>memory.peak</code> needs a recent kernel, PSI
+needs CONFIG_PSI, and today's samplers skip missing files <em>silently</em>
+<span class="cite">(cpustat.go:82-83, memorystat.go:48-49, 92-94)</span> — the emit must not.</td><td class="v-emit">EMIT</td></tr>
+<tr><td>CPUUserUS / CPUSystemUS</td><td><code>cpu.stat</code></td><td>no analysis decides anything with the user/system split</td><td class="v-ref">REFUSED (revisit when a consumer exists)</td></tr>
+<tr><td>MemCurrentBytes</td><td><code>memory.current</code> at exit</td><td>meaningless at exit; peak dominates every consumer</td><td class="v-ref">REFUSED</td></tr>
+<tr><td>IOReadBytes / IOWriteBytes</td><td><code>io.stat</code></td><td>no v1 consumer (IO contention not modeled; right-sizing uses memory peak)</td><td class="v-ref">REFUSED</td></tr>
+<tr><td>Net* (rx/tx bytes/packets/drops)</td><td>netstat sampler</td><td>no v1 consumer</td><td class="v-ref">REFUSED</td></tr>
+<tr><td>per-sample time series</td><td>periodic 5 s sampler</td><td>Appendix B (B2); no v1 consumer</td><td class="v-def">DEFERRED</td></tr>
+</table>
+<p>Volume: ≤ 7 numeric fields + 1 bitmask, exec ops only (~10⁵ numbers on a 10⁴-exec capture) —
+negligible against existing event volume. Failure honesty: a failed read (parse error, teardown race)
+records the family <em>absent</em>; never zero. No bitmask at all (old engine) loads as
+<code>Resources == nil</code> (§7).</p>
+
+<h3>§6.2 E-R2 — capture-header machine facts</h3>
+<p>Read once at dump time (the dump handler already assembles the header
+<span class="cite">(dump.go:23-44)</span>), from the engine's own view — the engine cgroup path from
+<code>/proc/self/cgroup</code>:</p>
+<table>
+<tr><th>field</th><th>source</th><th>consumer</th><th>verdict</th></tr>
+<tr><td>HostNumCPU (int)</td><td><code>runtime.NumCPU()</code> (already computed for the container env var <span class="cite">(executor_spec.go:1067)</span>)</td><td>capacity resolution step 3 (§3.1)</td><td class="v-emit">EMIT</td></tr>
+<tr><td>EngineCPUMaxMilli (int64; −1 = "max")</td><td>engine cgroup <code>cpu.max</code></td><td>capacity resolution step 1</td><td class="v-emit">EMIT</td></tr>
+<tr><td>EngineCPUSetCount (int)</td><td>engine cgroup <code>cpuset.cpus.effective</code></td><td>capacity resolution step 2</td><td class="v-emit">EMIT</td></tr>
+<tr><td>MemTotalBytes (uint64)</td><td><code>/proc/meminfo</code> MemTotal</td><td>memory-feasibility annotations (§8.4)</td><td class="v-emit">EMIT</td></tr>
+<tr><td>Presence bitmask</td><td>which sources resolved</td><td>gate G1; the provenance line</td><td class="v-emit">EMIT</td></tr>
+<tr><td>load averages; engine memory.max; io limits</td><td>—</td><td>no v1 consumer</td><td class="v-ref">REFUSED</td></tr>
+</table>
+<p>On non-Linux or resolution failure every field is absent and capacity mode refuses with that stated
+(G1). Facts are read at dump time, so a mid-run limit change is invisible — stated in the provenance
+line; revisit trigger: if calibration ever shows drift attributable to mid-run limit changes, read at
+recorder init too and dump both.</p>
+
+<h3>§6.3 Where the OTel source stands</h3>
+<p>The identical measurements already leave the engine as OTel gauges joined to spans by attributes
+<span class="cite">(executor_spec.go:1224-1236)</span>. Loading them into the OTel capture path means
+ingesting a <em>metrics</em> stream and joining it to exec spans — a different pipeline from the span
+stream the wcotel loader reads today. v1: the OTel source loads <code>Resources == nil</code> /
+<code>Machine == nil</code>, and every capacity output refuses with "resource data: not available from
+this source" in the per-source capability table (§7). Parity is a named seam (§14); ratification
+default #3 (§15).</p>
+
+<!-- ============================ §7 ============================ -->
+<h2 id="s7">§7 Loader, graph, and per-source capability changes</h2>
+<ul>
+<li><code>Op</code> gains <code>Resources *OpResources</code> — nil means "not recorded" (old captures,
+OTel source, non-exec ops); carries the E-R1 fields plus per-family presence booleans. Never
+zero-filled.</li>
+<li><code>Graph</code> gains <code>Machine *MachineFacts</code> (nil = not recorded): E-R2 fields,
+presence flags — ALL the observed constraint components (consumers see every input), the resolved capacity C_rec (the §3.1 minimum), and a provenance enum naming which constraint was <b>binding</b> (quota | cpuset | numcpu | absent). The enum means only "which one bound"; the non-binding inputs are not discarded.</li>
+<li>Demand derivation (d, SW, window∩self-segment splits) happens once at load into dense per-op
+arrays alongside program compilation; degenerate cases counted for G4.</li>
+<li>The per-source capability table (the analyzer's existing honesty surface for native-vs-OTel
+differences) gains a "resource data" row: native = yes, with kernel-dependent families flagged per
+capture; OTel = no (v1).</li>
+<li><code>LoadMulti</code> (multi-dump merges of one recorder run
+<span class="cite">(graph.go:249-284)</span>): machine facts must agree across dumps of one epoch; a
+mismatch is a load error (same epoch = same engine process; disagreement means the facts changed
+mid-run — surfaced, not averaged).</li>
+</ul>
+
+<!-- ============================ §8 ============================ -->
+<h2 id="s8">§8 The measured-evidence layer and the "more CPUs?" verdict</h2>
+<p>Everything in this section is computed from <em>measured</em> data (E-R1/E-R2), independent of any
+simulation — so the strongest available answer is always given from measurement alone, with simulation
+reserved for counterfactual packing.</p>
+
+<h3>§8.1 Saturation timeline</h3>
+<div class="define"><b>S(t)</b> := Σ of d<sub>i</sub> over execs with an <b>in-window self segment</b>
+containing t — the same demand intervals the simulator charges (§3.3/§3.4: demand is inactive during
+recorded waits, nested-client children, and outside the window). Summing over whole windows instead
+would fabricate saturation during known blocking — exactly the intervals the model excludes. S(t) is
+piecewise-constant with breakpoints at in-window self-segment edges, computable exactly by an event
+sweep. <b>SAT</b> := max<sub>t</sub> S(t)/C_rec. Also reported: total duration where
+S(t) &gt; 0.9·C_rec ("saturation windows") and where S(t) &gt; C_rec (a measurement/capacity
+inconsistency — gate G5's timeline condition).</div>
+
+<h3>§8.2 CPU contention ledger</h3>
+<div class="define"><b>PSI</b> (pressure stall information) is a Linux kernel facility measuring time
+tasks were runnable but stalled waiting for a resource. Per cgroup, <code>cpu.pressure</code>
+accumulates: <b>some</b> = time at least one task was stalled on CPU; <b>full</b> = time <em>all</em>
+non-idle tasks were stalled simultaneously (pure loss). These are direct kernel measurements of CPU
+starvation, per exec. <b>STALL%</b> := Σ PSICPUSomeUS / Σ window durations.</div>
+<p>The ledger prints per-exec and per-class stall totals, absolute and as window fractions, with
+<code>full</code> split out.</p>
+
+<h3>§8.3 The layered verdict — exact rules</h3>
+<figure>
+<svg viewBox="0 0 940 380" width="100%" role="img" aria-label="More-CPUs verdict decision diagram">
+  <text x="16" y="20" font-size="14" font-weight="700">"Would more CPUs have made this run faster?" — the four layers</text>
+  <g font-size="12">
+    <!-- L1 -->
+    <rect x="40" y="40" width="400" height="58" rx="8" fill="#fff" stroke="var(--ink)"/>
+    <text x="52" y="62" font-weight="600">1 · Data present?</text>
+    <text x="52" y="80">Machine facts (G1), every exec's CPU totals (G3), PSI on this kernel?</text>
+    <rect x="520" y="40" width="380" height="58" rx="8" fill="#fdf3f2" stroke="var(--bad)"/>
+    <text x="532" y="62" fill="var(--bad)" font-weight="600">missing → that layer REFUSES, reason printed</text>
+    <text x="532" y="80" fill="var(--bad)">(PSI-absent still permits the saturation layer)</text>
+    <line x1="440" y1="69" x2="520" y2="69" stroke="var(--bad)" stroke-width="1.6" marker-end="url(#arr3)"/>
+    <line x1="240" y1="98" x2="240" y2="122" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#arr4)"/>
+    <!-- L2 -->
+    <rect x="40" y="122" width="400" height="58" rx="8" fill="#fff" stroke="var(--ink)"/>
+    <text x="52" y="144" font-weight="600">2 · Measured "no"?</text>
+    <text x="52" y="162">SAT &lt; 0.8 AND STALL% &lt; 1%  (declared constants, §8.3)</text>
+    <rect x="520" y="122" width="380" height="58" rx="8" fill="#f0f7f2" stroke="var(--good)"/>
+    <text x="532" y="140" fill="var(--good)" font-weight="600">→ SCOPED "no": "no evidence in the MEASURED exec</text>
+    <text x="532" y="156" fill="var(--good)">population" + numbers + coverage context; refuses the</text>
+    <text x="532" y="172" fill="var(--good)">global claim when exec coverage is small (§8.3)</text>
+    <line x1="440" y1="151" x2="520" y2="151" stroke="var(--good)" stroke-width="1.6" marker-end="url(#arr5)"/>
+    <line x1="240" y1="180" x2="240" y2="204" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#arr4)"/>
+    <!-- L3 -->
+    <rect x="40" y="204" width="400" height="74" rx="8" fill="#fff" stroke="var(--ink)"/>
+    <text x="52" y="226" font-weight="600">3 · Measured evidence of contention</text>
+    <text x="52" y="244">saturation windows · top-N execs by PSI stall (full split out)</text>
+    <text x="52" y="262">Σ stall = MEASURED CEILING on relief — a bound, not a prediction</text>
+    <rect x="520" y="204" width="380" height="74" rx="8" fill="#fff8e1" stroke="var(--warn)"/>
+    <text x="532" y="226" fill="var(--warn)" font-weight="600">IO caveat: where PSI-IO dominates PSI-CPU,</text>
+    <text x="532" y="244" fill="var(--warn)">"these stalls are IO waits —</text>
+    <text x="532" y="262" fill="var(--warn)">more CPUs won't relieve them"</text>
+    <line x1="440" y1="241" x2="520" y2="241" stroke="var(--warn)" stroke-width="1.6" marker-end="url(#arr6)"/>
+    <line x1="240" y1="278" x2="240" y2="302" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#arr4)"/>
+    <!-- L4 -->
+    <rect x="40" y="302" width="860" height="62" rx="8" fill="#fff" stroke="var(--accent)" stroke-width="1.6"/>
+    <text x="52" y="324" font-weight="600" fill="var(--accent)">4 · Simulated relief (capacity grid, §9)</text>
+    <text x="52" y="342">Recorded schedule at recorded C: stretch-only finds no relief above C by construction — printed with the one-sentence explanation ("the recorded</text>
+    <text x="52" y="358">schedule's structure did not queue on capacity; layers 2–3 carry the within-exec evidence"). Hypotheses that pack work: the grid shows what returns at each step.</text>
+  </g>
+  <defs>
+    <marker id="arr3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--bad)"/></marker>
+    <marker id="arr4" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--ink)"/></marker>
+    <marker id="arr5" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--good)"/></marker>
+    <marker id="arr6" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--warn)"/></marker>
+  </defs>
+</svg>
+<figcaption><b>Figure 7 — the layered verdict.</b> Every line prints its numbers; the two sentence-boundary
+thresholds (0.8, 1%) are declared design constants — every underlying number prints regardless — with a
+revisit trigger: after the first calibration round (§11.5), re-derive them from the measured noise floor
+and record the derivation in the calibration doc. The layer-2 "no" is deliberately <b>scoped to the
+measured exec population</b>: the model's boundary (§3.2) is real — engine-internal CPU is unmodeled,
+so low exec-side numbers cannot prove the whole run was CPU-unconstrained. The verdict always prints its
+coverage context (Σ exec in-window self time as a fraction of the makespan; Σ W against
+C_rec × makespan), and when coverage is small, the verdict line itself says the measured population
+explains too little of the run to carry a global claim — a refusal of the global phrasing, not a
+hedge.</figcaption>
+</figure>
+
+<h3>§8.4 Memory feasibility — annotation, never timing</h3>
+<p>For any capacity-mode schedule: sweep Σ MemPeakBytes over sim-concurrent exec windows; where the sum
+exceeds MemTotalBytes, annotate: <em>"this schedule co-locates exec peaks summing to X on a machine
+with Y — infeasible as scheduled; timing impact NOT modeled."</em> Peaks need not coincide in time
+within windows, so the sum is a conservative over-estimate — stated in the annotation text. It never
+alters timing.</p>
+
+<!-- ============================ §9 ============================ -->
+<h2 id="s9">§9 Report and CLI design</h2>
+<p>CLI (<span class="cite">cmd/wcprof-analyze/main.go</span>, plain flag surface as today):</p>
+<table>
+<tr><th>flag</th><th>meaning</th></tr>
+<tr><td><code>-capacity</code></td><td>enable capacity mode (off by default; every existing output unchanged when off)</td></tr>
+<tr><td><code>-capacity-cores &lt;float&gt;</code></td><td>override resolved C — always printed as an override beside the resolved value</td></tr>
+<tr><td><code>-capacity-grid "0.5,1,2,4,inf"</code></td><td>multipliers of C for the sensitivity table (default shown; ratification default #4)</td></tr>
+<tr><td>composition</td><td>each explicit <code>-cached*</code> hypothesis runs under both modes when <code>-capacity</code> is on (§13)</td></tr>
+</table>
+<p>Report additions, in order within the existing report:</p>
+<ol>
+<li><b>Machine line</b>: resolved C + provenance, MemTotal, kernel capability flags, and the
+model-boundary sentence (engine-internal usage unmodeled; direction stated).</li>
+<li><b>Exec demand ledger</b>: top exec classes by total W; per class: W, Σ window, mean d, PSI stall
+totals. Every number is a measured field.</li>
+<li><b>Saturation + verdict</b> (§8): timeline summary, contention ledger, the layered verdict.</li>
+<li><b>Capacity baseline</b>: capacity-mode vs infinite-mode baseline vs actual makespan; the
+baseline-stretch residual (G2) with its tolerance line.</li>
+<li><b>Sensitivity table</b>: makespan at each grid point for the baseline and each explicit
+hypothesis; the plateau called out (first grid point where the improvement falls below the G2
+residual).</li>
+<li><b>Per-hypothesis capacity detail</b>: infinite-mode saving vs capacity-mode saving (the honest
+headline), the stretched-execs ledger (who stretched, by how much), memory-feasibility annotations,
+gate/residual lines.</li>
+</ol>
+<p>The what-if class ranking table stays infinite-mode with the printed label <em>"rankings computed
+under infinite resources — capacity-aware detail available per hypothesis via -capacity"</em>.
+Rationale in §12; revisit trigger attached: if the measured event-loop cost makes a 200-sim
+capacity grid cheap, lift the restriction.</p>
+
+<!-- ============================ §10 ============================ -->
+<h2 id="s10">§10 Gates — every refusal and residual, exact conditions</h2>
+<div class="rule"><b>Doctrine.</b> Gates refuse rather than decorate; residuals print rather than
+absorb; a non-zero faithfulness counter means <em>fix the emit</em>, never bend the model. All counters
+print with op-ID samples capped at 10, as the existing signals do
+<span class="cite">(replay.go:343, 356)</span>.</div>
+<table>
+<tr><th>gate</th><th>exact condition</th><th>action</th></tr>
+<tr><td><b>G1</b> machine facts</td><td><code>Machine == nil</code>, or capacity unresolvable from present fields</td>
+<td>capacity mode refuses entirely, reason printed; measured-evidence layers needing only E-R1 still render, each behind its own gate</td></tr>
+<tr><td><b>G2</b> baseline residual</td><td>capacity baseline vs infinite baseline: total stretched time; makespan delta</td>
+<td>printed always; FAILS if makespan delta &gt; 2% of makespan — a declared constant whose value must trace to the CAL-1 measured noise floor; never widened to make runs pass</td></tr>
+<tr><td><b>G3</b> demand coverage</td><td>any non-elided exec op with <code>Resources == nil</code> or CPU family absent; any OPEN exec op (dump preceded exit — no final totals)</td>
+<td>capacity mode refuses; count + samples printed ("N execs lack resource data: fix the emit / capture after exits")</td></tr>
+<tr><td><b>G4</b> degenerate demand</td><td>SW = 0 with W &gt; 0; window outside the op interval; we ≤ ws; emitted window disagrees with the recorded <code>exec.processRun</code> interval when both exist (§3.3 — two records of the same boundary must match)</td>
+<td>counted per op; capacity mode refuses (recorded window/self-segment structure contradicts measured work — unfaithful data)</td></tr>
+<tr><td><b>G5</b> recorded-capacity consistency</td><td>against <b>C_rec only</b> (never a grid C′ or an override — §3.1), both limbs tolerance-governed by the same measured-floor discipline as G2 (constants set by CAL-1): d<sub>i</sub> &gt; C_rec·(1+τ<sub>d</sub>) for any exec, or S(t) &gt; C_rec on the recorded timeline for more than the declared duration tolerance (small overshoots of either limb are quantization/attribution noise — §11.4 — and print as residuals)</td>
+<td>below tolerance: printed residual (measurement noise). Above tolerance: capacity mode <b>refuses</b> — the demand data and the machine facts contradict each other (e.g. wrong capacity provenance), and results built on contradicted inputs would be decoration. The measured numbers still print as diagnostics with the refusal.</td></tr>
+<tr><td><b>G6</b> forward-schedulability</td><td>quiescence with unfinished ops (recorded cycles / inversions / malformed nestings, §4.4); also the defensive deferred-spawn counter (a window truncated before a registered nested anchor, §3.5/Figure 3)</td>
+<td>counted per break; the run's capacity results marked FAILED-GATE — mirroring UnschedulableOps/CycleWarnings doctrine <span class="cite">(replay.go:326-343)</span></td></tr>
+<tr><td><b>G7</b> conservation</td><td>per-exec delivered core-time ≠ <b>W′</b> (the simulated work target: f·W under a class factor f, = W otherwise — §4.2) beyond fixed-point error at window completion; raw measured W is provenance only</td>
+<td>hard assertion (a loop bug, not a data condition): fail the run loudly</td></tr>
+<tr><td><b>G8</b> mode agreement</td><td>capacity mode at C=∞ differs from infinite mode on any op's times</td>
+<td>hard assertion in tests (V-R1); not evaluated at runtime (cost) — enforced by the shared-compilation design</td></tr>
+</table>
+
+<!-- ============================ §11 ============================ -->
+<h2 id="s11">§11 Validation — reason-derived catalog + real-engine calibration</h2>
+<p><b>Method.</b> For every scenario the expected outcome is derived by logic <em>before</em> running
+the simulator, then asserted exactly — the established validation pattern of this substrate. Synthetic
+graphs are constructed in-test (the existing idiom across <code>replay_*_test.go</code>); every §5
+example is a catalog entry with its hand-derived numbers.</p>
+<table>
+<tr><th>id</th><th>scenario</th><th>exact expectation</th></tr>
+<tr><td>V-R1</td><td>every existing replay test graph + randomized graphs, capacity mode at C=∞</td>
+<td>per-op simStart/simFinish identical to the current Simulation, bit-for-bit — this also proves the forward loop's anchors match the recursion's on faithful data</td></tr>
+<tr><td>V-R2</td><td>constructed graphs with S(t) ≤ C everywhere</td><td>capacity baseline == infinite baseline exactly (zero stretch, zero residual)</td></tr>
+<tr><td>V-R3</td><td>W1 (§5.1) at C ∈ {2,4,6,8}</td><td>counterfactual makespan = max(10, 60/C) s exactly: 30 / 15 / 10 / 10</td></tr>
+<tr><td>V-R4</td><td>W2 allocator unit tests</td><td>allocations (0.5, 1.5, 2.0); Σd ≤ C ⇒ a=d; single d &gt; C ⇒ a=C; d=0 ⇒ r=1</td></tr>
+<tr><td>V-R5</td><td>W3 (§5.3)</td><td>events at t=0/5/10; makespan 16.25 s; conservation ledger 65 core-s</td></tr>
+<tr><td>V-R6</td><td>zero-demand execs under heavy contention</td><td>never stretch, never affect allocations</td></tr>
+<tr><td>V-R7</td><td>one exec with Resources=nil; one OPEN exec</td><td>G3 refusal, count 1, correct op sampled</td></tr>
+<tr><td>V-R8</td><td>monotonicity sweep: every synthetic scenario at ascending C</td>
+<td>makespan non-increasing; a violation fails the test and must be understood and documented before merge — a labeled expectation, not a theorem (release-time coupling makes a general proof subtle)</td></tr>
+<tr><td>V-R9</td><td>work/span floors, every catalog run + runtime</td>
+<td>makespan ≥ Σ(scheduled W)/C and ≥ the infinite-mode critical path — these ARE theorems for any capacity-respecting schedule <span class="lit">(literature: work law / span law)</span></td></tr>
+<tr><td>V-R10</td><td>W1's cached hypothesis under capacity</td><td>makespan_capacity(hyp) ≥ makespan_infinite(hyp) — the per-schedule relation (15 ≥ 10 on W1); elided execs never enter the active set (counter = 0). NOTE: the savings-difference inequality (savings_cap ≤ savings_inf) is NOT asserted — it is false in general: if the capacity baseline carries stretch, a contention-relieving hypothesis can save more under capacity than under infinity. Both savings print side by side; only the per-schedule ≥ relations are gates.</td></tr>
+<tr><td>V-R11</td><td>determinism</td><td>permuted op/event insertion order ⇒ bit-identical outputs</td></tr>
+<tr><td>V-R12</td><td>dilated anchors via the window transform (§3.5/Figure 3 M_e)</td><td>a nested-client child of the exec op, spawned at recorded t inside a stretched window, starts at the hand-computed M_e(t) (deferred spawn fires when the window’s executed position reaches p(t)); the nested subtree’s own timeline stays rigid</td></tr>
+<tr><td>V-R13</td><td>join inside window</td><td>a blocked exec leaves the active set; the conservation ledger proves no work delivered while blocked</td></tr>
+<tr><td>V-R14</td><td>recorded cycle / inverted reference</td><td>G6 break at the lowest-ID blocked op, counted, gate failed — mirroring the recursion's counters on the same graph</td></tr>
+<tr><td>V-R15</td><td>window straddling segment boundaries; window inside a wait; window at op edges; fragmented action under a factor</td><td>overlay split correctness, hand-derived per case; fragment lengths telescope to the once-rounded dur×f total (the §4.2 fragment rounding rule), including the 3ns/f=0.9 adversarial case</td></tr>
+<tr><td>V-R16</td><td>hypothesis factors × capacity (the §4.2 exact rule)</td><td>factor f on a demand-carrying exec scales dilated segment time AND its W share by f with d invariant: G7 target = f·W; at C′=∞ the segment length is exactly f·dur (G8); plus a hand-derived mixed case with a factor-scaled non-exec segment composing with a dilated window</td></tr>
+<tr><td>V-R17</td><td>real exec anatomy: containerStart + processRun as grandchildren under the runContainer phase (the executor_spec.go:1429-1434 shape)</td><td>SW equals the processRun-window self time (non-zero); a children-only traversal would yield SW=0 — asserted against the descendant rule; emitted window == recorded processRun interval (G4 cross-check passes)</td></tr>
+<tr><td>V-R18</td><td>downward grid: W1 at C′=2 where d=3 &gt; C′</td><td>valid simulation, no G5: allocator caps a=2, stretch d/a=1.5 applies — G5 fires only against C_rec (§3.1)</td></tr>
+<tr><td>V-R19</td><td>an exec with a mid-window recorded wait OWNED BY a dilation-set op (e.g. a lock wait on the runContainer phase)</td><td>S(t) excludes the wait interval (saturation over in-window self segments, §8.1); the sim's active set drops the exec for the same interval — identical demand intervals by construction. Contrast with V-R21: a <em>sibling</em> nested overlap suspends nothing.</td></tr>
+<tr><td>V-R20</td><td>capacity resolution with quota=8 cores, cpuset=4 cores, NumCPU=16</td><td>C_rec = 4 (the minimum), provenance line lists all three and marks cpuset as binding — never a precedence pick</td></tr>
+<tr><td>V-R21</td><td>the real sibling topology end-to-end: exec.run → runContainer phase → processRun grandchild, PLUS a nested-client child of exec.run overlapping processRun</td><td>processRun's self segments are NOT cut by the sibling nested interval (demand continues through the overlap — the §3.3 no-invented-blocking rule); SW and d hand-derived accordingly; the nested child's spawn remaps through M_e; conservation ledger balances</td></tr>
+</table>
+
+<h3>§11.4 Noise: stated, bounded, never compensated</h3>
+<p>Known noise sources, each stated in the report's method note: 5&nbsp;s sampling does not affect
+final totals (cumulative counters, final read at end of life — §6.1); window timestamps are
+callback-time, not cgroup-file time (sub-ms skew); PSI totals carry kernel bookkeeping granularity;
+whole-window averaging smears bursts (Appendix B is the designed refinement, deferred until CAL data
+shows it is the dominant error). None is corrected for; they are why G2/G5 carry measured-floor
+tolerances instead of zero.</p>
+
+<h3>§11.5 Real-engine calibration (evidence committed under hack/logs/)</h3>
+<p>Method mirrors the established what-if-cached calibration harness (same workloads, same dump
+discipline) — with the advantage that capacity is <em>directly manipulable</em>, which cache state
+never fully was:</p>
+<ul>
+<li><b>CAL-1 — baseline residual floor.</b> N unconstrained captures across the workload set;
+distribution of G2 residuals; sets and validates the G2/G5 tolerance constants (documented in the
+calibration doc; constants updated by evidence only).</li>
+<li><b>CAL-2 — constrained prediction, both directions.</b> Capture unconstrained; predict makespan at
+C=k via the grid; rerun the same workload on the same engine under cgroup <code>cpu.max</code>=k;
+compare — per-class stretch and makespan, decomposed gap sources per the calibration-doc precedent
+(context lines, no single grade). Then the reverse: capture constrained, predict at C′=host, compare
+with the unconstrained run. Honest expectation, stated before running: stretch-only semantics predicts
+(approximately) <b>no relief</b> in this direction — the constrained capture's demands were measured
+under throttling, so they fit its C_rec, and raising capacity un-stretches nothing. The comparison
+against the real unconstrained run therefore <em>quantifies the under-prediction gap</em> — the
+observed-demand-lower-bound limit made empirical — and the calibration reports that gap as the
+characterized limit, never as model failure and never as something to tune away. Companion
+characterization (not an assertion): compare the constrained run's PSI stall totals against the
+actually-measured speedup, to characterize how the §8.3 measured-ceiling layer relates to realized
+relief on this workload set.</li>
+<li><b>CAL-3 — evidence-layer sanity.</b> On CAL-2's constrained run, PSI stall totals must be large
+and the verdict must say yes-evidence; on the unconstrained run, near-zero and "no". A failure here is
+a data-pipeline defect (fix the emit), never a model tuning knob.</li>
+</ul>
+
+<!-- ============================ §12 ============================ -->
+<h2 id="s12">§12 Performance and complexity</h2>
+<ul>
+<li>Events: one per compiled action plus one per dilated-segment boundary — O(total actions), the same
+asymptotic count the recursion touches; heap cost O(log queue).</li>
+<li>Rate events: only exec window entry/exit/block/wake. Water-filling is O(|A| log |A|) per rate
+event; re-projection touches only active dilated execs. |A| is the number of <em>concurrently running
+containers</em> — dozens, not thousands, on real captures.</li>
+<li>Expected cost vs the current DP: constant-factor worse (heap + ledger bookkeeping).
+<b>Hypothesis, to be measured in implementation and recorded:</b> ≤ 5× the flat replay on
+multi-million-op captures — comfortably fine where capacity mode runs (baseline + explicit hypotheses
++ grid ≈ tens of sims), and the stated reason the 200-class ranking grid stays infinite-mode in v1
+(revisit trigger in §9).</li>
+<li>Memory: O(n) dense arrays alongside the existing program (statuses, ledgers, queue).</li>
+</ul>
+
+<!-- ============================ §13 ============================ -->
+<h2 id="s13">§13 Composition with what-if-cached</h2>
+<p>The what-if-cached machinery is unchanged through resolution: hypothesis → static elide-or-keep
+pre-pass → per-op elision/hit state. Capacity mode plugs in at the executor level only:</p>
+<ul>
+<li>Elided ops: never scheduled; spawns skipped or waived exactly per the resolution — the same flags
+the recursion consults <span class="cite">(replay.go:456-489, 567-599)</span>. An elided exec never
+enters the active set and never contends (asserted, V-R10).</li>
+<li>Hit-short ops: finish at start + pullCost; no demand.</li>
+<li>The <code>ElidedOpDemanded</code> faithfulness counter carries over unchanged: a demand on an
+elided op in the forward loop is the same pre-pass contradiction — counted, gate-failing.</li>
+<li><b>Relation gate</b> (V-R10, also printed at runtime): <b>per schedule</b>, for the same
+hypothesis, capacity-mode makespan ≥ infinite-mode makespan (and likewise for the baseline) — capacity
+can only delay a given schedule. The gate is deliberately NOT the savings-difference inequality
+(savings_cap ≤ savings_inf): that is false in general — when the capacity baseline carries stretch, a
+hypothesis that relieves contention can save <em>more</em> under capacity than under infinity. The
+per-hypothesis report prints both savings side by side; the honest headline is the capacity-mode
+number.</li>
+</ul>
+
+<!-- ============================ §14 ============================ -->
+<h2 id="s14">§14 Seams named, not built</h2>
+<ul>
+<li><b>Ranking under capacity</b> — once the measured event-loop cost allows a 200-sim grid (trigger
+recorded at §9).</li>
+<li><b>OTel parity</b> (§6.3) — metrics-stream ingestion + span join in the OTel loader.</li>
+<li><b>Remote-cache upload intelligence</b> — the planned cache service consumes what-if savings as its
+value-of-caching input; capacity-aware savings make that honest on busy machines. Interface unchanged:
+hypothesis in, honest saving out.</li>
+<li><b>Multi-machine planning</b> (question c) — the event loop generalizes to multiple capacity pools
+plus a <em>simulated assignment policy</em> (never an optimizer). Blocked on data that does not exist
+yet: cross-machine transfer costs, multi-engine traces. The v1 down-payment is the downward half of
+the sensitivity grid (machine right-sizing).</li>
+<li><b>Aggregate engine-usage lane</b> — Appendix A: designed, deactivated pending ratification.</li>
+</ul>
+
+<!-- ============================ §15 ============================ -->
+<h2 id="s15">§15 Defaults pending ratification</h2>
+<p>Adopted as design defaults so phase 2 could proceed; each is a one-line change if ruled otherwise:</p>
+<ol>
+<li><b>Aggregate engine-usage lane: OUT of v1</b> (Appendix A designed, deactivated). The §3.2
+optimism bias stays, and is stated in every report.</li>
+<li><b>The "more CPUs?" answer is verdict + bound + simulated relief</b> (§8.3) — never a point
+prediction beyond evidence.</li>
+<li><b>Native-only resource data in v1</b>; the OTel source loads nil and refuses with capability
+labeling (§6.3).</li>
+<li><b>Sensitivity grid default C × {0.5, 1, 2, 4, ∞}</b>, configurable via
+<code>-capacity-grid</code>.</li>
+</ol>
+
+<h2 id="appA">Appendix A — aggregate engine-usage lane (designed, deactivated)</h2>
+<p>If ratified: E-R2 gains one additional emit — the <em>engine cgroup's own</em> cumulative
+<code>cpu.stat usage_usec</code> at dump time (one aggregate number; under LoadMulti, per-dump samples
+give a coarse background series). Consumer: capacity honesty —
+C<sub>effective</sub>(t) = C − (engine aggregate rate − Σ exec rates), clamped ≥ 0, replacing the
+constant C in the water-filling (§3.4) and the saturation timeline (§8.1). No attribution to any
+internal operation ever occurs: the lane is one anonymous background band. Well-definedness requires
+the engine cgroup to <em>contain</em> the exec cgroups so the subtraction means something. That
+containment is a <b>precondition to verify at implementation time, not a code-proven fact</b>: the
+available citations (the OCI spec's cgroup path <span class="cite">(executor_spec.go:1220)</span>; the
+sampler's mountpoint join <span class="cite">(sampler.go:14, 40)</span>) establish only where paths are
+read from, not the parent/child relationship. Containment is expected from runc/OCI cgroup defaults,
+and the emit would gate on verifying it (comparing the engine's own cgroup path against each exec's) —
+refusing the lane, presence-flagged, where it does not hold. Deactivated until ratified because it is
+adjacent to the attribution ruling.</p>
+
+<h2 id="appB">Appendix B — time-series demand refinement (B2, deferred)</h2>
+<p>If CAL-2 shows whole-window averaging is the dominant gap source: E-R1 gains the periodic sampler's
+5&nbsp;s cumulative CPU samples as deltas — piecewise demand d(τ) over window time. The water-filling
+uses the current interval's demand; rate events gain sample-boundary crossings. Everything else —
+allocator, gates, catalog — is unchanged in shape; V-R3/V-R5 gain piecewise variants. Volume: ~12
+samples/minute/exec, packed array field. Deferred: no consumer until calibration evidence demands it.</p>
+
+<hr style="margin:48px 0 16px; border:none; border-top:1px solid var(--line)">
+<p style="color:var(--muted); font-size:0.85em">
+resource-model-designer-2 · phase-2 design · in-repo record:
+<code>hack/designs/resource-aware-simulation-design.md</code> · lineage: wcprof substrate → what-if-cached
+→ invalidation tracing → this. Every code citation read firsthand in the worktree at commit b865c9d6b+.
+</p>
+</main>
+</body>
+</html>
