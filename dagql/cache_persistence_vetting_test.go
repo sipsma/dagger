@@ -269,10 +269,58 @@ func TestCachePersistenceCorruptRowDropsExactlyItsDependents(t *testing.T) {
 	cacheTestReleaseSession(t, cache, rootCtx)
 }
 
-// TestCachePersistenceStoreLevelCorruptionStillWipes pins the one import
+// TestCachePersistenceStoreLevelCorruptionStillWipes pins the import
 // failure class that stays a wholesale wipe: damage to the identity tables,
-// which no single result's blast radius can scope.
+// which no single result's blast radius can scope. Every broken-reference
+// class must wipe rather than quietly normalize — a reference collapsing to
+// the zero class would change key derivation.
 func TestCachePersistenceStoreLevelCorruptionStillWipes(t *testing.T) {
+	t.Parallel()
+
+	corruptions := []struct {
+		name string
+		stmt string
+	}{
+		{"eq_class_digest references missing class", `UPDATE eq_class_digests SET eq_class_id = 999999`},
+		{"term_input references missing class", `UPDATE term_inputs SET input_eq_class_id = 999999 WHERE input_eq_class_id != 0`},
+		{"term references missing output class", `UPDATE terms SET output_eq_class_id = 999999`},
+		{"term_input references missing term", `UPDATE term_inputs SET term_id = 999999`},
+	}
+	for _, corruption := range corruptions {
+		t.Run(corruption.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := cacheTestContext(t.Context())
+			dbPath := filepath.Join(t.TempDir(), "cache.db")
+			seedVettingStore(t, ctx, dbPath)
+
+			db, q, err := prepareCacheDBs(ctx, dbPath)
+			assert.NilError(t, err)
+			res, err := db.Exec(corruption.stmt)
+			assert.NilError(t, err)
+			changed, err := res.RowsAffected()
+			assert.NilError(t, err)
+			assert.Assert(t, changed > 0, "corruption statement matched no rows; the case tests nothing")
+			assert.NilError(t, q.UpsertMeta(ctx, persistdb.MetaKeyCleanShutdown, "1"))
+			assert.NilError(t, closeCacheDBs(db, q))
+
+			cache, err := NewCache(ctx, dbPath, nil, nil)
+			assert.NilError(t, err)
+			defer func() {
+				assert.NilError(t, cache.Close(context.Background()))
+			}()
+			assert.Equal(t, CachePersistenceResetImportFailure, cache.PersistenceResetReason())
+			snap := cache.DebugEGraphSnapshot()
+			assert.Assert(t, snap.RestoreSummary != nil)
+			assert.Assert(t, snap.RestoreSummary.Wiped)
+		})
+	}
+}
+
+// TestCachePersistenceWipeSweepsLeasesAttachedBeforeAbort pins the abort
+// ordering: vetting attaches owner leases before the identity tables load,
+// so a store-level failure after successful attaches must not strand them —
+// the wipe sweeps every dagql owner lease.
+func TestCachePersistenceWipeSweepsLeasesAttachedBeforeAbort(t *testing.T) {
 	t.Parallel()
 
 	ctx := cacheTestContext(t.Context())
@@ -286,21 +334,24 @@ func TestCachePersistenceStoreLevelCorruptionStillWipes(t *testing.T) {
 	assert.NilError(t, q.UpsertMeta(ctx, persistdb.MetaKeyCleanShutdown, "1"))
 	assert.NilError(t, closeCacheDBs(db, q))
 
-	cache, err := NewCache(ctx, dbPath, nil, nil)
+	manager := &fakeSnapshotManager{}
+	cache, err := NewCache(ctx, dbPath, manager, nil)
 	assert.NilError(t, err)
 	defer func() {
 		assert.NilError(t, cache.Close(context.Background()))
 	}()
 	assert.Equal(t, CachePersistenceResetImportFailure, cache.PersistenceResetReason())
-	snap := cache.DebugEGraphSnapshot()
-	assert.Assert(t, snap.RestoreSummary != nil)
-	assert.Assert(t, snap.RestoreSummary.Wiped)
+
+	// Vetting really attached leases before the abort, and the wipe left
+	// none of them live.
+	assert.Assert(t, len(manager.attachCalls) > 0, "the aborted import never attached a lease; the case tests nothing")
+	assert.DeepEqual(t, []string{}, manager.liveLeases())
 }
 
 // TestCachePersistenceZeroDeltaFlush is the self-check that importing and
 // re-exporting a store adds no rows: boot a seeded store, flush it
-// untouched, and both the persisted counts and the actual row count must
-// show a zero delta.
+// untouched, and both the persisted counts and the per-table row counts of
+// every table in the store must show a zero delta.
 func TestCachePersistenceZeroDeltaFlush(t *testing.T) {
 	t.Parallel()
 
@@ -308,16 +359,33 @@ func TestCachePersistenceZeroDeltaFlush(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "cache.db")
 	seedVettingStore(t, ctx, dbPath)
 
-	countRows := func() int64 {
+	// Count every table, not just results: a stray per-boot row anywhere in
+	// the store is a delta.
+	countAllTables := func() map[string]int64 {
 		db, q, err := prepareCacheDBs(ctx, dbPath)
 		assert.NilError(t, err)
-		var count int64
-		assert.NilError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM results`).Scan(&count))
+		rows, err := db.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`)
+		assert.NilError(t, err)
+		var tables []string
+		for rows.Next() {
+			var name string
+			assert.NilError(t, rows.Scan(&name))
+			tables = append(tables, name)
+		}
+		assert.NilError(t, rows.Err())
+		rows.Close()
+		counts := make(map[string]int64, len(tables))
+		for _, table := range tables {
+			var count int64
+			assert.NilError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM "`+table+`"`).Scan(&count))
+			counts[table] = count
+		}
 		assert.NilError(t, q.UpsertMeta(ctx, persistdb.MetaKeyCleanShutdown, "1"))
 		assert.NilError(t, closeCacheDBs(db, q))
-		return count
+		return counts
 	}
-	seededRows := countRows()
+	seededCounts := countAllTables()
+	seededRows := seededCounts["results"]
 	assert.Assert(t, seededRows > 0)
 
 	cache, err := NewCache(ctx, dbPath, nil, nil)
@@ -345,7 +413,7 @@ func TestCachePersistenceZeroDeltaFlush(t *testing.T) {
 	assert.Equal(t, int64(0), snap.ResultCounts.ExecutedThisBoot)
 	assert.NilError(t, cache.Close(context.Background()))
 
-	assert.Equal(t, seededRows, countRows())
+	assert.DeepEqual(t, seededCounts, countAllTables())
 }
 
 // TestVetRestoredResultsCycleDropsWholeComponent pins the corruption rule

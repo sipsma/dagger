@@ -240,6 +240,13 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			c.incrementIncomingOwnershipLocked(ctx, res)
 		}
 
+		// Identity-table references must resolve exactly: a broken reference
+		// silently collapsing to the zero class would change key derivation,
+		// so it is store-level corruption and wipes.
+		eqClassExists := func(id eqClassID) bool {
+			return id != 0 && int(id) < len(c.egraphParents) && c.egraphParents[id] != 0
+		}
+
 		type importTermInput struct {
 			position       int
 			inputEqClassID eqClassID
@@ -257,9 +264,13 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			default:
 				return fmt.Errorf("import term_input %d/%d: unsupported provenance %q", row.TermID, row.Position, row.ProvenanceKind)
 			}
+			inputEqID := eqClassID(row.InputEqClassID)
+			if inputEqID != 0 && !eqClassExists(inputEqID) {
+				return fmt.Errorf("import term_input %d/%d: missing eq_class %d", row.TermID, row.Position, row.InputEqClassID)
+			}
 			inputsByTermID[termID] = append(inputsByTermID[termID], importTermInput{
 				position:       int(row.Position),
-				inputEqClassID: eqClassID(row.InputEqClassID),
+				inputEqClassID: inputEqID,
 				provenanceKind: provenance,
 			})
 		}
@@ -296,6 +307,9 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			}
 
 			selfDigest := normalizeImportedDigest(row.SelfDigest)
+			if row.OutputEqClassID != 0 && !eqClassExists(eqClassID(row.OutputEqClassID)) {
+				return fmt.Errorf("import term %d: missing output eq_class %d", termID, row.OutputEqClassID)
+			}
 			outputEqID := c.findEqClassLocked(eqClassID(row.OutputEqClassID))
 
 			// Term lookup keys are process-local: newEgraphTerm derives this
@@ -329,6 +343,11 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			}
 			outputTerms[termID] = struct{}{}
 			c.traceTermCreated(ctx, "import", importRunID, term)
+		}
+		for termID := range inputsByTermID {
+			if _, termLoaded := c.egraphTerms[termID]; !termLoaded {
+				return fmt.Errorf("import term_input: missing term %d", termID)
+			}
 		}
 
 		for _, row := range resultOutputEqClassRows {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"testing"
 
 	cerrdefs "github.com/containerd/errdefs"
@@ -68,6 +69,18 @@ type fakeSnapshotManager struct {
 	// missingSnapshots makes AttachLease fail with the store's not-found
 	// error for these snapshot IDs, simulating pruned content.
 	missingSnapshots map[string]struct{}
+	// leases tracks the currently live dagql owner leases, so tests can
+	// assert what actually remains after attach/remove/sweep sequences.
+	leases map[string]struct{}
+}
+
+func (m *fakeSnapshotManager) liveLeases() []string {
+	live := make([]string, 0, len(m.leases))
+	for leaseID := range m.leases {
+		live = append(live, leaseID)
+	}
+	sort.Strings(live)
+	return live
 }
 
 func (*fakeSnapshotManager) Search(context.Context, string, bool) ([]bkcache.RefMetadata, error) {
@@ -145,12 +158,17 @@ func (m *fakeSnapshotManager) AttachLease(ctx context.Context, leaseID, snapshot
 		LeaseID:    leaseID,
 		SnapshotID: snapshotID,
 	})
+	if m.leases == nil {
+		m.leases = make(map[string]struct{})
+	}
+	m.leases[leaseID] = struct{}{}
 	return nil
 }
 
 func (m *fakeSnapshotManager) RemoveLease(ctx context.Context, leaseID string) error {
 	_ = ctx
 	m.removeCalls = append(m.removeCalls, leaseID)
+	delete(m.leases, leaseID)
 	return nil
 }
 
@@ -169,6 +187,11 @@ func (m *fakeSnapshotManager) DeleteStaleDaggerOwnerLeases(ctx context.Context, 
 	m.deleteStaleKeep = make(map[string]struct{}, len(keep))
 	for leaseID := range keep {
 		m.deleteStaleKeep[leaseID] = struct{}{}
+	}
+	for leaseID := range m.leases {
+		if _, kept := keep[leaseID]; !kept {
+			delete(m.leases, leaseID)
+		}
 	}
 	return nil
 }

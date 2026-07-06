@@ -143,6 +143,9 @@ func NewCache(
 		if err := wipeSQLiteFiles(dbPath); err != nil {
 			return nil, fmt.Errorf("wipe schema-mismatched persistence db: %w", err)
 		}
+		if err := c.sweepAllDaggerOwnerLeases(ctx); err != nil {
+			return nil, err
+		}
 
 		db, persistDB, err = prepareCacheDBs(ctx, dbPath)
 		if err != nil {
@@ -170,6 +173,9 @@ func NewCache(
 		if err := wipeSQLiteFiles(dbPath); err != nil {
 			return nil, fmt.Errorf("wipe unclean persistence db: %w", err)
 		}
+		if err := c.sweepAllDaggerOwnerLeases(ctx); err != nil {
+			return nil, err
+		}
 
 		db, persistDB, err = prepareCacheDBs(ctx, dbPath)
 		if err != nil {
@@ -188,6 +194,9 @@ func NewCache(
 		}
 		if err := wipeSQLiteFiles(dbPath); err != nil {
 			return nil, fmt.Errorf("wipe persistence db after import failure: %w", err)
+		}
+		if err := c.sweepAllDaggerOwnerLeases(ctx); err != nil {
+			return nil, err
 		}
 		db, persistDB, err = prepareCacheDBs(ctx, dbPath)
 		if err != nil {
@@ -1115,6 +1124,20 @@ func (c *Cache) SyncResultSnapshotOwnerLeases(ctx context.Context, res AnyResult
 		return nil
 	}
 	return c.syncResultSnapshotLeases(ctx, shared)
+}
+
+// sweepAllDaggerOwnerLeases removes every dagql-owned snapshot lease. A
+// wiped store retains nothing, so no lease may survive the wipe — including
+// leases attached by a restore-vetting pass that aborted before its own
+// stale sweep could run.
+func (c *Cache) sweepAllDaggerOwnerLeases(ctx context.Context) error {
+	if c.snapshotManager == nil {
+		return nil
+	}
+	if err := c.snapshotManager.DeleteStaleDaggerOwnerLeases(ctx, nil); err != nil {
+		return fmt.Errorf("sweep dagql owner leases after wipe: %w", err)
+	}
+	return nil
 }
 
 func prepareCacheDBs(ctx context.Context, dbPath string) (*sql.DB, *persistdb.Queries, error) {
