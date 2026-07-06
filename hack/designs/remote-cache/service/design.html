@@ -678,6 +678,24 @@ redesign salting — that remains a cloud/tenancy work item.</p>
   chains share chainID <code>""</code> (harmless dedup collision among identical-empty
   chains); chain-fetch counters are per-realization-attempt, with blob/byte tallies
   deferred to chunk C's client.</li>
+  <li><b>Round 12 (2026-07-06), chunk D review convergence + landing gate opens.</b>
+  <b>Chunk D (protocol/storage slice): READY</b> after four review rounds — final residual
+  (S3 promote atomicity) closed backend-uniformly with a transaction-scoped Postgres
+  advisory lock per (org, digest) held across verify → promote → record; lock losers
+  answer already-exists without touching the backend; destination-conditional CopyObject
+  was rejected because MinIO support for it is doubtful and MinIO is the rung-3/4 backend
+  (S9). Slice state: 11 commits @ 99515359c, 50 named tests / 48 pass / 2
+  credential-gated NS-live skips. Production mounting dispatched as the next slice.
+  Meanwhile the <b>take-3 acceptance run completed and the landing OK was given</b>: the
+  accepted integration tip is <code>0a42c6b8fd</code>, whose §9 follow-ups changed
+  <code>dropExhaustedResult</code> (drops now clear envelope + sources atomically — a
+  semantic chunk A's corpse-skip must be re-verified against); chunk A's landing rebase
+  onto the accepted tip is in flight, landing shape ruled by the take-3 manager: no
+  squash, explicit counting levels in the handover, their merge commit after their landing
+  review + cache-chief's. Chunk B rebased onto chunk A's converged tip (zero conflicts;
+  the two §8.1-step-3 unions deliberately remain two code paths — "one rule, two data
+  planes": identity evidence under the e-graph lock, sources under the payload lock) and
+  entered its own adversarial review.</li>
 </ol>
 </div>
 </details>
