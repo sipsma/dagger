@@ -714,6 +714,31 @@ redesign salting — that remains a cloud/tenancy work item.</p>
   test-only transport gets compiled out or hard-gated + path-restricted; (minor)
   MaterializeChain reports fetched-blob/byte tallies now. Chunk B folds the re-hop onto
   the landed base into the same round.</li>
+  <li><b>Round 14 (2026-07-07). Landed-state insurance green; the starved tie-break
+  ratified; chunk D fully converged; chunk B rework complete.</b> (1) The post-merge
+  Step-0 on the landed integration state (df3e1d6b39) came back identical to the
+  pre-landing tallies — 25/111/80 leaf-level, exit 0 — closing chunk A end to end.
+  (2) The transient-demote fix was <b>ratified owner-side as reset round 24</b> with two
+  refinements folded (clear-on-success re-standing; debug-snapshot visibility of the
+  mark): an in-memory, boot-scoped, tie-break-only <code>transientlyStarved</code> mark —
+  never persisted (R16), never disqualifying, explicitly not the realized-first
+  preference (which stays a recorded future option). (3) Chunk D's production-mounting
+  slice: READY, no findings — the service now mounts into the real API server behind
+  <code>enable_cache_service</code> with provable inertness when disabled, startup gates
+  (including the ephemeral-token-key production gate), org-token auth composition, and a
+  full-protocol smoke through real server construction. <b>One product decision
+  escalated, not decided</b>: cache routes carry org-token auth only — subscription
+  gating (<code>EnsureActiveSubscription</code>, which the repo's other engine-facing
+  costful routes carry) is deliberately left to the lifecycle slice as a product/S4
+  question. (4) Chunk B's rework: all five findings fixed with red-toggle evidence
+  (chains parse+validate before vetting with a blast-radius split — row-attributable
+  chain damage drops the row with dependents as <code>chain_damaged</code>, section
+  garbage skips the bundle as <code>malformed_chains</code>; a deterministic
+  EmptyChainID sentinel replaces the "" collision; ingest-abort on failure closes the
+  poisoned-resume wedge; the test-only transport is compiled out behind a build tag only
+  the test-engine build sets; fetched-blob/byte tallies land with exactly-once
+  discipline), plus the two ruling items; tip 7f82922c99 on the landing base, full gates
+  green; delta review dispatched.</li>
 </ol>
 </div>
 </details>
