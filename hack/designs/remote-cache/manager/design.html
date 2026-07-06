@@ -125,7 +125,7 @@
 <main>
 
 <h1>Remote Cache — The Cache Manager</h1>
-<p class="sub">v2 &nbsp;·&nbsp; successor to the superseded store-and-select design &nbsp;·&nbsp; review round 1 folded &nbsp;·&nbsp; 2026-07-07</p>
+<p class="sub">v3 &nbsp;·&nbsp; successor to the superseded store-and-select design &nbsp;·&nbsp; review rounds 1–2 folded &nbsp;·&nbsp; 2026-07-07</p>
 
 <div class="banner">
 <b>Status.</b> Draft for adversarial review. This document supersedes
@@ -477,6 +477,25 @@ eligibility counter exists for the same-engine shapes it can observe.</p>
   marked OPEN with B′ blocked on the owner ruling; <b>(#10)</b> proof set extended
   T-M9–T-M14; <b>(#11)</b> the salvage table now states chunk D/F re-review risk honestly;
   <b>(#12)</b> §2's second coupling de-narrated to pattern + reason + tripwire.</li>
+  <li><b>Round 2 (2026-07-07), delta verification.</b> Eight of twelve verified resolved;
+  four residuals, all folded: <b>(N1, blocker)</b> the reviewer <em>reproduced</em> the
+  WAL trap — a clean marker written through a WAL connection lands in the
+  <code>-wal</code> sidecar and a base-file-only restore reads dirty — so §6.1 delta 1
+  now specifies the exact copy-mark-upload sequence (non-WAL journaling or
+  <code>wal_checkpoint(TRUNCATE)</code> + close all handles; upload the base file only
+  after a sidecar-less verification open reads clean; T-M9 pins base-file-only restore);
+  <b>(N2, major)</b> the retry contract overclaimed determinism (a prune between attempts
+  deletes collected rows' origin-index entries, so a retry honestly re-imports them; a
+  prune inside the upload window can strand verified blobs) — §7 rewritten to the honest
+  contract (every announce is complete and correct on its own; convergence from
+  origin-idempotence where origins live + sparse safety elsewhere; upload-window residue
+  is sweep-owned), T-M10 rewritten with the prune-between-attempts variant;
+  <b>(N3, major)</b> chain-size accounting gained its dedup semantics — per-layer blob
+  digests become cache-usage identities so shared layers count once through the engine's
+  existing shared-storage accounting, and MaxUsedSpace means deduplicated scope content
+  bytes (T-M13 shared-chain case); <b>(N4, minor)</b> §15's A′ updated to the three real
+  deltas and B′ explicitly marked BLOCKED on the §13 owner ruling; the §6.1 table's stale
+  "validated in practice by v2" claim corrected to the in-memory-embed-only reading.</li>
 </ol>
 </div>
 </details>
@@ -579,8 +598,9 @@ checkpoint → close); the manager holds a bounded working set of live scopes.</
 <tr><td>Open / restore a scope store</td><td><code>dagql.NewCache(ctx, dbPath, nil, nil)</code>
 — restores persisted state, rebuilds the e-graph with R16-recomputed keys, per-result
 vetting; nil snapshot-manager operation is supported (lease attachment and content checks
-skip when nil — verified in the landed vetting/import paths, and validated in practice by
-the v2-era server merge)</td>
+skip when nil — verified in the landed vetting/import paths; the v2-era precedent
+validates only in-memory embedding, §6.1's precedent-honesty note — the persistent
+nil-snapshotter restore is pinned by T-M9, not assumed)</td>
 <td>Scope activation: fetch latest checkpoint → open → serve the loop</td></tr>
 <tr><td>Ingest an announcement</td><td><code>Cache.ImportBundle(ctx, r)</code> — parse,
 validate (chains before vetting, blast-radius split), vet, origin-dedup, reference
@@ -608,12 +628,20 @@ existing persistence flush against the live DB (which stays honestly dirty), pro
 consistent <em>copy</em> (SQLite <code>VACUUM INTO</code>), and sets
 <code>clean_shutdown=1</code> inside the <b>copy only</b> — the copy is a truthful
 statement ("this snapshot is complete as of this flush"), the live store's marker still
-protects against its own crashes. The copy is what uploads as the generation checkpoint,
-and it restores through the unmodified <code>NewCache</code> path. Red tests: a
-checkpoint restores cleanly on another replica; a crash after flush but before
-checkpoint-commit leaves the previous generation authoritative; the live store's own
-unclean-crash wipe behavior is unchanged. (Fallback if <code>VACUUM INTO</code>
-misbehaves under WAL: close/reopen per mutation batch — correct, measured, slower.)</li>
+protects against its own crashes. <b>The WAL trap, specified away</b>: the landed opener
+forces WAL + <code>synchronous=OFF</code> (cache.go:1367/1376), and a marker written
+through a WAL connection can land only in the <code>-wal</code> sidecar — a
+base-file-only restore then still reads dirty. So the copy is clean-marked through its
+own short-lived connection with journaling forced non-WAL
+(<code>journal_mode=DELETE</code>, or <code>wal_checkpoint(TRUNCATE)</code> followed by
+closing every copy handle), and the checkpoint uploads <b>the base file only, after a
+verification open</b>: a fresh, sidecar-less open of the copy must read
+<code>clean_shutdown=1</code> before any upload. The copy restores through the unmodified
+<code>NewCache</code> path. Red tests (T-M9): base-file-only restore on another replica
+reads clean and imports; crash after flush but before checkpoint-commit leaves the
+previous generation authoritative; the live store's unclean-crash wipe behavior
+unchanged. (Fallback if <code>VACUUM INTO</code> misbehaves: close/reopen per mutation
+batch — correct, measured, slower.)</li>
 <li><b>Headless size accounting for prune (§9):</b> the landed prune's byte measurement
 runs through realized values and snapshot usage identities (cache.go:4039/4129,
 cache_prune.go:67) — in a nil-snapshotter store nothing measures, so size-target policies
@@ -621,7 +649,14 @@ silently never trigger (cache_prune.go:71). Delta: when the snapshot manager is 
 per-result size measurement falls back to the row's <b>stored chain layer sizes</b>
 (<code>result_content_chains</code> carries per-layer sizes) — honest content-bytes
 accounting available headless, which also benefits engine rows whose content is
-chain-only. §9's v1 policy is specified against exactly this.</li>
+chain-only. <b>Shared-layer attribution rides the landed machinery, not a new model</b>:
+the engine's prune already dedupes shared physical storage through cache-usage
+identities (identical identities = one storage; one owner publishes the size; bytes
+reclaim only when the last member releases), so headless measurement exposes <em>each
+chain layer's blob digest as a usage identity</em> sized by its layer size — two rows
+sharing a chain count its layers once, exactly as two snapshots sharing storage do
+today, and MaxUsedSpace means deduplicated content bytes attributable to the scope.
+§9's v1 policy is specified against exactly this; T-M13 pins the shared-chain case.</li>
 <li><b>Compose re-emits stored chains, loudly:</b> the landed export reuses stored
 chains and, with a snapshot manager, computes missing ones; with nil it <em>excludes</em>
 snapshot-backed rows lacking stored chains (cache_bundle_export.go:143/153) — silent
@@ -749,18 +784,23 @@ unchanged from the landed two-phase design: metadata always lands first (the mer
 happened), an interrupted upload just leaves the CAS sparser, and sparseness is legal
 everywhere (M5). The trigger surfaces (operator endpoint + <code>exportOnShutdown</code>
 in GracefulStop, coalescing, summaries) survive as parked.</p>
-<p><b>The retry/idempotency contract, pinned.</b> Announce is retryable by construction
-and needs no server-side idempotency state: a lost or timed-out announce response is
-retried by re-announcing the same export, and because ingest is origin-idempotent (M3)
-the retry merges as a no-op (<code>rowsNew = 0</code>) and the decision recomputes
-against the same view — yielding the same-or-smaller requested set. The response is a
-pure function of durable state, so caching it would only add a second source of truth.
-Orphan analysis: engines upload only <em>after</em> receiving a response, and a response
-is only sent after the generation committed (§6.2) — so uploaded blobs always follow
-durable metadata that references them; there is no uploaded-but-unreferenced window
-beyond ordinary staging residue, which the §9 sweep already owns. Engine-side budgets
-wrap the whole announce round-trip (the parked export budget), and a manager that cannot
-answer within it degrades to no-export — never a failed run (M5).</p>
+<p><b>The retry contract, pinned — and stated honestly.</b> Announce carries no
+server-side idempotency state; a lost or timed-out response is handled by
+<b>re-announcing, which is a fresh announce against current durable state</b>. The retry
+is <em>correct</em>, not <em>identical</em>: when the origins are still live in the
+merged view, ingest dedups them (typically <code>rowsNew = 0</code>) and the decision
+recomputes; but the view may legitimately have moved between attempts — a prune can have
+collected rows (whose origin-index entries delete with them, so a retry honestly
+re-imports those rows), policy or CAS state can have changed the requested set. The
+contract is therefore: <b>every announce, first or retried, is a complete and correct
+conversation on its own</b>; cross-attempt convergence comes from origin-idempotence
+where origins live and sparse safety everywhere else — never from response replay. Blob
+orphan analysis, honestly: uploads follow committed generations, but a prune between the
+response and an upload's completion can leave verified blobs no live chain references —
+ordinary sweep-owned residue (§9), bounded by the announce/upload window, never a
+correctness issue (M5). Engine-side budgets wrap the whole announce round-trip (the
+parked export budget), and a manager that cannot answer within it degrades to no-export
+— never a failed run (M5).</p>
 
 <h3>7.2 &nbsp;Server-side sequence, per announcement</h3>
 <ol class="steps">
@@ -1063,8 +1103,11 @@ replica; crash after flush but before the fenced commit ⇒ previous generation
 authoritative, abandoned local file wiped by the engine's own unclean rule; the live
 store's crash behavior unchanged</td><td>§6.1 delta 1, §6.2</td><td>unit + integration</td></tr>
 <tr><td>T-M10</td><td>Announce retry contract: kill the announce response after the
-generation commit → engine re-announces → rowsNew == 0, same-or-smaller requested set,
-no duplicate merged rows, no orphaned unreferenced blobs</td><td>§7, M3, M5</td><td>integration</td></tr>
+generation commit → engine re-announces → live origins dedup (no duplicate merged rows)
+and the fresh response is complete and correct on its own; variant with a prune between
+attempts → the collected rows honestly re-import, counters say so, and any
+upload-window blob residue is swept (§9), never load-bearing</td>
+<td>§7, M3, M5</td><td>integration</td></tr>
 <tr><td>T-M11</td><td>Fencing: a writer that loses its lease mid-mutation (simulated
 takeover) fails the generation CAS; its checkpoint/artifact never becomes
 authoritative; the successor's work stands</td><td>§6.3</td><td>unit + integration</td></tr>
@@ -1088,15 +1131,17 @@ cold-vs-warm reporting obligations).</p>
 
 <details class="fold" id="order" open><summary><h2>15. Build order and salvage consumption</h2></summary>
 <ol>
-<li><b>A′ — engine deltas (dagql/engine, small):</b> <code>Cache.Flush</code> for
-embedders; the nil-snapshotter compose red test (stop-and-discuss if it fails); the
-announce-shaped export client (reshape chunk C's parked publish→stat→upload into
-announce→upload-requested; delete SelectBundles + the multi-bundle loop per its salvage
-note); K=1 boot import. Lands via the take-3 landing protocol (their manager's seat is
-warm for it).</li>
-<li><b>B′ — manager-core (dagger/dagger, new package):</b> scope-store lifecycle,
-ingest+decide, compose, prune loop, policy hook, filesystem-backed unit + integration
-tests (T-M1..T-M8 in-repo forms) + the re-derived conformance suite + test shell.</li>
+<li><b>A′ — engine deltas (dagql/engine, small):</b> the three §6.1 deltas —
+<code>Cache.Checkpoint</code> (WAL-safe clean-marked copy, T-M9), headless chain-size
+prune accounting via per-layer usage identities (T-M13), loud manager-mode compose
+(T-M14) — plus the announce-shaped export client (reshape chunk C's parked
+publish→stat→upload into announce→upload-requested; delete SelectBundles + the
+multi-bundle loop per its salvage note) and K=1 boot import. Lands via the take-3
+landing protocol (their manager's seat is warm for it).</li>
+<li><b>B′ — manager-core (new package): BLOCKED on the §13 owner ruling</b> (placement).
+Scope: scope-store lifecycle, ingest+decide, compose, prune loop, the policy interface +
+trivial v1 policy, filesystem-backed unit + integration tests (T-M1..T-M14 in-repo
+forms) + the re-derived conformance suite + test shell.</li>
 <li><b>C′ — the shell (dagger.io):</b> re-home the converged chunk D branch: KEEP the
 CAS surface verbatim (blobstore backends, staging/promote, advisory locks, verified
 inventory, signed tokens, limits, sanitized events, mounting/config/startup gates);
