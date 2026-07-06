@@ -2431,8 +2431,10 @@ func wrapSharedResultWithResolver(ctx context.Context, res *sharedResult, hitCac
 // ongoingCall tracks one in-flight GetOrInitCall execution and points at the
 // shared result payload that will be returned to waiters.
 type ongoingCall struct {
-	callConcurrencyKeys     callConcurrencyKeys
-	isPersistable           bool
+	callConcurrencyKeys callConcurrencyKeys
+	// isPersistable is atomic because late joiners upgrade it under callsMu
+	// while the completing runner reads it outside that lock.
+	isPersistable           atomic.Bool
 	ttlSeconds              int64
 	initCompletedResultOnce sync.Once
 	handoffHoldActive       bool
@@ -4337,7 +4339,7 @@ func (c *Cache) getOrInitCall(
 	if req.ConcurrencyKey != "" {
 		if oc := c.ongoingCalls[callConcKeys]; oc != nil {
 			if req.IsPersistable {
-				oc.isPersistable = true
+				oc.isPersistable.Store(true)
 			}
 			// already an ongoing call
 			oc.waiters++
@@ -4364,7 +4366,6 @@ func (c *Cache) getOrInitCall(
 	c.classifyServeOutcome(ctx, cacheServeMissFirst, req.ResultCall, 0)
 	oc := &ongoingCall{
 		callConcurrencyKeys:      callConcKeys,
-		isPersistable:            req.IsPersistable,
 		ttlSeconds:               req.TTL,
 		waitCh:                   make(chan struct{}),
 		cancel:                   cancel,
@@ -4372,6 +4373,7 @@ func (c *Cache) getOrInitCall(
 		sharedWorkCtx:            sharedWorkCtx,
 		releaseSharedWorkLeaseFn: releaseSharedWorkLease,
 	}
+	oc.isPersistable.Store(req.IsPersistable)
 
 	if req.ConcurrencyKey != "" {
 		c.ongoingCalls[callConcKeys] = oc
@@ -5012,7 +5014,7 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 		c.egraphMu.Unlock()
 		return err
 	}
-	if oc.isPersistable {
+	if oc.isPersistable.Load() {
 		c.upsertPersistedEdgeLocked(ctx, oc.res, candidateSharedResultExpiryUnix(now.Unix(), oc.ttlSeconds), false)
 	}
 	// The cache-backed path already took the handoff hold when it adopted the
