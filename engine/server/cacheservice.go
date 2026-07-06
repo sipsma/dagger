@@ -165,6 +165,10 @@ type CacheServiceExportSummary struct {
 	BlobsAlreadyPresent int   `json:"blobs_already_present"`
 	BlobsSkipped        int   `json:"blobs_skipped"`
 	BytesUploaded       int64 `json:"bytes_uploaded"`
+	// SkipReasons carries the first few per-blob skip errors verbatim, so a
+	// sparse export is diagnosable from the summary alone (S8) instead of
+	// requiring engine-log access.
+	SkipReasons []string `json:"skip_reasons,omitempty"`
 
 	MetadataOnly bool `json:"metadata_only,omitempty"`
 
@@ -322,6 +326,9 @@ func (srv *Server) runCacheServiceExport(ctx context.Context, metadataOnly bool)
 		switch {
 		case lastErr != nil:
 			summary.BlobsSkipped++
+			if len(summary.SkipReasons) < 5 {
+				summary.SkipReasons = append(summary.SkipReasons, fmt.Sprintf("%s: %v", rawDigest, lastErr))
+			}
 			slog.Warn("cache export: blob upload skipped", "bundle", bundleID, "blob", rawDigest, "error", lastErr)
 		case alreadyPresent:
 			summary.BlobsAlreadyPresent++
