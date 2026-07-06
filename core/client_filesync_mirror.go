@@ -37,6 +37,14 @@ var _ dagql.PersistedObject = (*ClientFilesyncMirror)(nil)
 var _ dagql.PersistedObjectDecoder = (*ClientFilesyncMirror)(nil)
 var _ dagql.OnReleaser = (*ClientFilesyncMirror)(nil)
 
+func init() {
+	// The mirror is a mutable-owner snapshot: its content never crosses an
+	// engine boundary, but the row may — decoding without a snapshot link
+	// yields an identity-only mirror that re-syncs from the client on first
+	// use.
+	dagql.RegisterContentlessPersistedType("ClientFilesyncMirror")
+}
+
 func (*ClientFilesyncMirror) Type() *ast.Type {
 	return &ast.Type{
 		NamedType: "ClientFilesyncMirror",
@@ -145,9 +153,15 @@ func (*ClientFilesyncMirror) DecodePersistedObject(ctx context.Context, dag *dag
 		return mirror, nil
 	}
 
-	link, err := loadPersistedSnapshotLinkByResultID(ctx, dag, resultID, "client filesync mirror", "snapshot")
+	link, found, err := findPersistedSnapshotLinkByResultID(ctx, dag, resultID, "client filesync mirror", "snapshot")
 	if err != nil {
 		return nil, err
+	}
+	if !found {
+		// Identity-only row (e.g. imported from another engine, where the
+		// mirror's mutable snapshot never crosses): the first use creates a
+		// fresh snapshot and re-syncs from the client.
+		return mirror, nil
 	}
 	query, err := persistedDecodeQuery(dag)
 	if err != nil {

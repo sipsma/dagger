@@ -3,12 +3,14 @@ package dagql
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/vektah/gqlparser/v2/ast"
 	"gotest.tools/v3/assert"
 
 	bkcache "github.com/dagger/dagger/engine/snapshots"
@@ -599,6 +601,106 @@ func TestContentChainConcurrentForcingSingleflights(t *testing.T) {
 	assert.Equal(t, int64(1), counters[cacheServeFromContentChain]["uploadObj"])
 	assert.Equal(t, int64(0), counters[cacheServeDemotedToMiss]["uploadObj"])
 	cacheTestReleaseSession(t, cache, ctx)
+}
+
+// contentlessProbeObj is a registered identity-only type: it owns a mutable
+// snapshot locally, so it exports with neither chain nor refKeys — identity
+// alone crosses, and the importing engine's decoder re-acquires lazily.
+type contentlessProbeObj struct {
+	Name       string
+	SnapshotID string
+}
+
+func (*contentlessProbeObj) Type() *ast.Type {
+	return &ast.Type{NamedType: "ContentlessProbeObj", NonNull: true}
+}
+
+func (v *contentlessProbeObj) EncodePersistedObject(ctx context.Context, cache PersistedObjectCache) (PersistedObjectEncoding, error) {
+	_ = ctx
+	_ = cache
+	payload, err := json.Marshal(struct {
+		Name string `json:"name"`
+	}{Name: v.Name})
+	if err != nil {
+		return PersistedObjectEncoding{}, err
+	}
+	return PersistedObjectEncoding{
+		JSON:          payload,
+		SnapshotLinks: v.PersistedSnapshotRefLinks(),
+	}, nil
+}
+
+func (v *contentlessProbeObj) PersistedSnapshotRefLinks() []PersistedSnapshotRefLink {
+	if v == nil || v.SnapshotID == "" {
+		return nil
+	}
+	return []PersistedSnapshotRefLink{{RefKey: v.SnapshotID, Role: "snapshot"}}
+}
+
+func init() {
+	RegisterContentlessPersistedType("ContentlessProbeObj")
+}
+
+// TestCacheBundleContentlessTypeExportsIdentityOnly: a registered
+// mutable-owner type's snapshot-linked row crosses identity-only — no chain
+// is attempted (mutable-owner snapshots never produce chains), no refKeys
+// cross, and the row is not excluded.
+func TestCacheBundleContentlessTypeExportsIdentityOnly(t *testing.T) {
+	t.Parallel()
+
+	ctx := cacheTestContext(t.Context())
+	dir := t.TempDir()
+
+	// A fake manager with no computable chains: an unregistered type would
+	// count a chain-compute failure; the registered type must not even try.
+	manager := &fakeSnapshotManager{}
+	cacheA, err := NewCache(ctx, filepath.Join(dir, "a.db"), manager, nil)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, cacheA.Close(context.Background()))
+	}()
+
+	probeKey := &ResultCall{
+		Kind:  ResultCallKindField,
+		Type:  NewResultCallType((&contentlessProbeObj{}).Type()),
+		Field: "contentless-probe",
+	}
+	probeRes, err := cacheA.GetOrInitCall(ctx, "test-session", noopTypeResolver{}, &CallRequest{
+		ResultCall:    probeKey,
+		IsPersistable: true,
+	}, func(context.Context) (AnyResult, error) {
+		return cacheTestPlainResult(&contentlessProbeObj{Name: "probe", SnapshotID: "probe-mutable-snap"}), nil
+	})
+	assert.NilError(t, err)
+	probeRowID := probeRes.cacheSharedResult().id
+	cacheTestReleaseSession(t, cacheA, ctx)
+
+	var bundle bytes.Buffer
+	summary, err := cacheA.ExportBundle(ctx, &bundle, CacheBundleExportOptions{})
+	assert.NilError(t, err)
+	assert.Equal(t, 0, summary.ExcludedNoPortableContent)
+	assert.Equal(t, 0, summary.ChainComputeFailed)
+	assert.Equal(t, 0, summary.Chains)
+
+	tmp := t.TempDir()
+	manifest, metadataPath, err := readCacheBundleArchive(bytes.NewReader(bundle.Bytes()), tmp)
+	assert.NilError(t, err)
+	assert.Equal(t, 0, len(manifest.ResultChains))
+	rows, err := readBundleMetadataRows(ctx, metadataPath)
+	assert.NilError(t, err)
+	found := false
+	for _, row := range rows.results {
+		if sharedResultID(row.ID) == probeRowID {
+			found = true
+		}
+	}
+	assert.Assert(t, found, "the identity-only row must cross")
+	db, q, err := prepareCacheDBs(ctx, metadataPath)
+	assert.NilError(t, err)
+	var linkCount int64
+	assert.NilError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM result_snapshot_links`).Scan(&linkCount))
+	assert.Equal(t, int64(0), linkCount)
+	assert.NilError(t, closeCacheDBs(db, q))
 }
 
 // TestContentChainSurvivesLocalRestartVetting is T-S13: a locally-restored
