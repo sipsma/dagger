@@ -125,7 +125,7 @@
 <main>
 
 <h1>Remote Cache — The Cache Manager</h1>
-<p class="sub">v1 draft &nbsp;·&nbsp; successor to the superseded store-and-select design &nbsp;·&nbsp; 2026-07-07</p>
+<p class="sub">v2 &nbsp;·&nbsp; successor to the superseded store-and-select design &nbsp;·&nbsp; review round 1 folded &nbsp;·&nbsp; 2026-07-07</p>
 
 <div class="banner">
 <b>Status.</b> Draft for adversarial review. This document supersedes
@@ -202,17 +202,16 @@ at "a bucket with a listing," and that ceiling is not acceptable. Any proposal t
 reintroduces a semantics-blind serving path for <em>metadata</em> is this coupling
 returning (content blobs are the deliberate exception: they are opaque bytes by nature,
 addressed by digest — §7).</li>
-<li><b>The fragile merge</b> (the v2-era failure shape): a server-side merge whose state
-is process memory (every restart loses the fleet's accumulated cache and forces a
-re-seed), and whose ingest mints fresh row identity per arrival (import → re-export
-cycles compound rows without bound). Both defects were properties of that implementation,
-not of server-side merging — and both are now structurally closed by machinery that has
-<em>landed</em>: the merged store is a durable persistence store with the engine's own
-restore/flush lifecycle (§6), and ingest deduplicates by origin identity, the
-mint-exactly-once row identity that chunk A built and that protects <em>any</em> importer,
-engine or manager alike (§7). The pivotal inversion of the salvage: origin identity was
-built to protect engines merging bundles; its greatest value lands server-side, protecting
-the merged view.</li>
+<li><b>The fragile merge</b>: a server-side merge whose state is process memory (every
+restart loses the fleet's accumulated cache and forces a re-seed), or whose ingest mints
+fresh row identity per arrival (import → re-export cycles compound rows without bound).
+Neither defect is intrinsic to server-side merging, and both are structurally closed by
+machinery that has <em>landed</em>: the merged store is a durable persistence store with
+the engine's own restore lifecycle plus an honest checkpoint (§6), and ingest
+deduplicates by origin identity — the mint-exactly-once row identity that protects
+<em>any</em> importer, engine or manager alike (§7). The tripwire: any merged-state
+proposal that is memory-only, or any ingest path that allocates identity for arriving
+rows, is this coupling returning. (Provenance and the measured history: §4 round 0.)</li>
 </ul>
 
 <figure>
@@ -449,6 +448,35 @@ eligibility counter exists for the same-engine shapes it can observe.</p>
   remains the standing process rule; S6's two-phase mechanics survive inside §7's
   protocol. Pause-era as-built corrections folded at birth: T-S7's salt partition is
   identity-level; setSecret handles are portable; the http.Client body-ownership rule.</li>
+  <li><b>Round 1 (2026-07-07), adversarial review (fresh Codex, code-verified against the
+  landed tip).</b> Verdict: needs-rework — 2 blockers, 8 majors, 2 minors; the reviewer
+  explicitly verified the document satisfies the owner's architecture direction and that
+  the defects were mechanism soundness. All findings accepted (three with modifications)
+  and folded: <b>(#1)</b> the invented "flush with clean markers" lied against landed
+  clean-shutdown semantics (only Close marks clean; NewCache marks dirty; unclean restores
+  wipe) — replaced by the specified <code>Cache.Checkpoint</code> engine delta (flush the
+  honestly-dirty live store; VACUUM INTO a copy; clean-mark the copy only) with crash-window
+  red tests (T-M9); <b>(#2)</b> headless size-pruning was fictional (prune's byte
+  measurement needs snapshotters/realized values) — closed by the chain-size accounting
+  engine delta and an honest v1 policy (KeepDuration + MaxUsedSpace over chain bytes;
+  silent policy no-ops become typed errors, T-M13); <b>(#3)</b> the v2 precedent citation
+  corrected (it embedded an <em>in-memory</em> cache — validates embedding, not
+  persistence) and the manager-store invariant made loud (compose fails typed rather than
+  silently shrinking when a snapshot-backed row lacks stored chains, T-M14);
+  <b>(#4)</b> the announce retry/idempotency contract pinned (retry-by-re-announce; the
+  response is a pure function of durable state; no orphan window because uploads follow
+  committed generations; T-M10); <b>(#5)</b> whole-scope serving got its L3 trace and
+  bounds (retention caps = artifact size gates; slicing is the designed evolution);
+  <b>(#6)</b> compose races and verification hardened (generation re-read under lease;
+  fenced publish; verification = import round-trip into a throwaway store, T-M12/T-M14);
+  <b>(#7)</b> lease honesty: the generation CAS is the fencing mechanism, the lease only
+  serializes (T-M11); <b>(#8)</b> wipe-on-upgrade rebuild made operational (rebuilding
+  marker, stale artifacts deleted, convergence metric, keeper-driven re-announce + operator
+  sweep); <b>(#9)</b> the OSS-core boundary sharpened (core = semantics + policy interface
+  + trivial v1 policy over abstract storage interfaces; ALL smart policy proprietary) and
+  marked OPEN with B′ blocked on the owner ruling; <b>(#10)</b> proof set extended
+  T-M9–T-M14; <b>(#11)</b> the salvage table now states chunk D/F re-review risk honestly;
+  <b>(#12)</b> §2's second coupling de-narrated to pattern + reason + tripwire.</li>
 </ol>
 </div>
 </details>
@@ -568,34 +596,73 @@ manifest with chains + blob index</td>
 the existing policy vocabulary</td>
 <td>Service-side pruning (§9)</td></tr>
 </table>
-<p><b>Engine-side deltas this requires (small, version-aligned, sanctioned):</b>
-(1) a public flush entry point (<code>Cache.Flush(ctx)</code> wrapping the existing
-persistence worker's flush) so an embedder can persist without closing — today flush
-happens at <code>Close</code>; (2) compose must re-emit <em>stored</em> chains
-(<code>result_content_chains</code>) for rows that arrived with chains, since the manager
-has no snapshotter to compute any — the landed export reuses memoized/stored chains and
-never computes without a snapshot manager, but this exact nil-snapshotter compose path is
-the one seam to verify at implementation, pinned as a red test (a store with imported
-chains and nil snapshotter exports those chains byte-identically); a failure here is
-stop-and-discuss, not a workaround.</p>
+<p><b>Engine-side deltas this requires (small, version-aligned, sanctioned):</b></p>
+<ol>
+<li><b><code>Cache.Checkpoint(ctx) → (checkpoint bytes/path)</code></b> — a real
+checkpoint API honest about the landed clean-shutdown semantics. The landed lifecycle
+marks an open store dirty at <code>NewCache</code> (cache.go:258), never writes
+<code>clean_shutdown=1</code> except at <code>Close</code> (cache.go:3785), and wipes any
+restored store whose marker isn't clean (cache.go:186) — so an embedder cannot "flush with
+clean markers" on a live store without lying. <code>Checkpoint</code> therefore: runs the
+existing persistence flush against the live DB (which stays honestly dirty), produces a
+consistent <em>copy</em> (SQLite <code>VACUUM INTO</code>), and sets
+<code>clean_shutdown=1</code> inside the <b>copy only</b> — the copy is a truthful
+statement ("this snapshot is complete as of this flush"), the live store's marker still
+protects against its own crashes. The copy is what uploads as the generation checkpoint,
+and it restores through the unmodified <code>NewCache</code> path. Red tests: a
+checkpoint restores cleanly on another replica; a crash after flush but before
+checkpoint-commit leaves the previous generation authoritative; the live store's own
+unclean-crash wipe behavior is unchanged. (Fallback if <code>VACUUM INTO</code>
+misbehaves under WAL: close/reopen per mutation batch — correct, measured, slower.)</li>
+<li><b>Headless size accounting for prune (§9):</b> the landed prune's byte measurement
+runs through realized values and snapshot usage identities (cache.go:4039/4129,
+cache_prune.go:67) — in a nil-snapshotter store nothing measures, so size-target policies
+silently never trigger (cache_prune.go:71). Delta: when the snapshot manager is nil,
+per-result size measurement falls back to the row's <b>stored chain layer sizes</b>
+(<code>result_content_chains</code> carries per-layer sizes) — honest content-bytes
+accounting available headless, which also benefits engine rows whose content is
+chain-only. §9's v1 policy is specified against exactly this.</li>
+<li><b>Compose re-emits stored chains, loudly:</b> the landed export reuses stored
+chains and, with a snapshot manager, computes missing ones; with nil it <em>excludes</em>
+snapshot-backed rows lacking stored chains (cache_bundle_export.go:143/153) — silent
+artifact shrinkage. The manager-store invariant is that this exclusion can never fire:
+every non-contentless row arrives from an engine export, which only lets snapshot-backed
+rows cross <em>with</em> chains (the landed chunk B export gate) — so a firing exclusion
+means invariant breach, and compose in manager mode must <b>fail loudly</b> (a typed
+compose error, stop-and-discuss material), never shrink. Red test: a manager store with
+imported chains composes them byte-identically under nil snapshotter; a doctored
+chainless snapshot-backed row makes compose fail typed.</li>
+<li><b>The announce-shaped client</b> (§7) and K=1 boot import — reshapes of chunk C's
+parked pipeline per its salvage split.</li>
+</ol>
+<p class="pill">Precedent honesty: the v2-era server merge embedded
+<code>dagql.NewCache(ctx, "", nil, nil)</code> — an <em>in-memory</em> cache. It
+validates that the engine cache embeds and merges server-side with nil worker/snapshotter;
+it says nothing about the persistence lifecycle, which is exactly what delta 1 makes
+sound.</p>
 
 <h3>6.2 &nbsp;Durability: flush, checkpoint, generation</h3>
 <ol class="steps">
 <li><span class="tag">MUTATE (under the scope lease)</span><br>
-An ingest (or prune) mutates the live store through the engine code.</li>
-<li><span class="tag">FLUSH</span><br>
-<code>Flush</code> writes the store's SQLite snapshot — the engine's own
-whole-snapshot-rewrite persistence, clean-shutdown markers included.</li>
-<li><span class="tag">CHECKPOINT</span><br>
-The SQLite file uploads to object storage under a fresh generation key; the scope
-registry row updates {generation, checkpoint key} transactionally. Only after this commit
-are the mutation's effects eligible to serve (artifact composition reads generations, §8).</li>
+An ingest (or prune) mutates the live store through the engine code. The live store's
+<code>clean_shutdown</code> marker is honestly dirty the whole time (landed semantics).</li>
+<li><span class="tag">CHECKPOINT (the §6.1 delta-1 API)</span><br>
+<code>Cache.Checkpoint</code>: flush the live DB, produce a consistent clean-marked
+<em>copy</em>, upload the copy to object storage under a fresh generation key.</li>
+<li><span class="tag">COMMIT, FENCED</span><br>
+The scope registry row updates {generation, checkpoint key} with a <b>compare-and-swap on
+the generation the writer read when it took the lease</b> — the generation is the fencing
+token: a writer that lost its lease (connection drop, replica takeover) fails this CAS
+and discards its work. Only after this commit are the mutation's effects eligible to
+serve (§8 composes by generation).</li>
 <li><span class="tag">CRASH ANALYSIS</span><br>
-Crash before checkpoint-commit ⇒ the registry still points at the previous generation;
-the local file is discarded on next activation (its markers may be unclean — the engine's
-own wipe-on-unclean rule applies to the local copy, and recovery is simply the previous
-checkpoint). The lost announcement re-arrives on the announcing engine's next export and
-merges idempotently (M3). Nothing needs repair — L8's dumbest treatment, inherited.</li>
+Crash before the CAS commit ⇒ the registry still points at the previous generation; the
+abandoned local file is discarded at next activation (its dirty marker makes the engine's
+own wipe-on-unclean rule do this for free), and recovery is simply the previous
+checkpoint. The lost announcement's effects re-arrive: the engine treats a lost/failed
+announce response as retryable (§7's idempotency contract) and re-announces — ingest is
+origin-idempotent, so the retry is exactly once-equivalent. Nothing needs repair — L8's
+dumbest treatment, inherited.</li>
 </ol>
 <p class="pill">v1 checkpoints after every mutation batch (one announcement = one batch).
 Checkpoint upload cost is bounded by store size; batching/incremental checkpointing is
@@ -613,14 +680,19 @@ CREATE TABLE cache_scopes (
     PRIMARY KEY (org_id, scope)
 );
 </code></pre>
-<p>All mutation for a scope runs under a Postgres advisory lease keyed (org, scope) — the
-converged chunk D locking pattern, re-homed: replica-safe single-writer, held for the
-mutate→flush→checkpoint window. Readers never take it (they read composed artifacts and
-registry rows). Idle scope stores close after a TTL (flush → checkpoint → close); an
-activation on another replica simply restores the latest checkpoint. Announcement
-ordering across engines is whatever the lease serializes — order does not matter, because
-ingest is commutative up to origin-dedup and identity teaching (the e-graph's merge is
-order-independent for equivalence facts).</p>
+<p>All mutation for a scope runs under a Postgres advisory lease keyed (org, scope), held
+for the mutate→checkpoint→commit window — <b>and the lease alone is not the correctness
+mechanism</b>: the converged chunk D pattern proved advisory serialization for short blob
+promotions, but scope mutations are long enough that a lease can be lost mid-work
+(connection drop, replica death), so every effect that outlives the lease commits through
+the generation CAS above (registry rows, artifact publication §8). A stale writer's
+commit fails the CAS and its work discards — fencing by generation, not by faith in the
+lock. Readers never take the lease (they read composed artifacts and registry rows). Idle
+scope stores close after a TTL (checkpoint → close); an activation on another replica
+restores the latest checkpoint. Announcement ordering across engines is whatever the
+lease serializes — order does not matter, because ingest is commutative up to origin-dedup
+and identity teaching (the e-graph's merge is order-independent for equivalence
+facts).</p>
 </details>
 
 <details class="fold" id="ingest" open><summary><h2>7. Ingest: negotiate, then upload</h2></summary>
@@ -677,6 +749,18 @@ unchanged from the landed two-phase design: metadata always lands first (the mer
 happened), an interrupted upload just leaves the CAS sparser, and sparseness is legal
 everywhere (M5). The trigger surfaces (operator endpoint + <code>exportOnShutdown</code>
 in GracefulStop, coalescing, summaries) survive as parked.</p>
+<p><b>The retry/idempotency contract, pinned.</b> Announce is retryable by construction
+and needs no server-side idempotency state: a lost or timed-out announce response is
+retried by re-announcing the same export, and because ingest is origin-idempotent (M3)
+the retry merges as a no-op (<code>rowsNew = 0</code>) and the decision recomputes
+against the same view — yielding the same-or-smaller requested set. The response is a
+pure function of durable state, so caching it would only add a second source of truth.
+Orphan analysis: engines upload only <em>after</em> receiving a response, and a response
+is only sent after the generation committed (§6.2) — so uploaded blobs always follow
+durable metadata that references them; there is no uploaded-but-unreferenced window
+beyond ordinary staging residue, which the §9 sweep already owns. Engine-side budgets
+wrap the whole announce round-trip (the parked export budget), and a manager that cannot
+answer within it degrades to no-export — never a failed run (M5).</p>
 
 <h3>7.2 &nbsp;Server-side sequence, per announcement</h3>
 <ol class="steps">
@@ -739,26 +823,42 @@ code).</li>
 <li><span class="tag">REQUEST</span><br>
 <code>GET /v1/scopes/{scope}/artifact</code> (version headers asserted, M8). The registry
 row gives {generation, artifact key?}. Cached artifact for this generation ⇒ 307 to it.</li>
-<li><span class="tag">COMPOSE (lease held)</span><br>
-Activate the scope store (restore checkpoint if cold), <code>ExportBundle</code> the
-forward closure of its persisted roots to a staging object, re-emitting stored chains
-(§6.1's pinned seam). Verify the staged artifact by re-reading its own manifest
-(compose-side sanity: parseable, counts match the store).</li>
-<li><span class="tag">PUBLISH</span><br>
-Promote staging → the generation's artifact key (create-if-absent, the chunk D promotion
-discipline); record it in the registry; respond 307. Subsequent generations orphan old
-artifacts for GC (§9).</li>
+<li><span class="tag">COMPOSE (lease held, generation re-read)</span><br>
+Take the scope lease, re-read the registry (the generation may have moved past what the
+request saw — compose the current one), activate the scope store from its checkpoint, and
+<code>ExportBundle</code> the forward closure of its persisted roots to a staging object,
+re-emitting stored chains (§6.1 delta 3 — a would-be exclusion fails compose loudly).
+Composition always runs against the checkpointed state a generation names, never against
+a store mid-mutation: the lease serializes compose with ingest, and the generation CAS
+fences stale composers.</li>
+<li><span class="tag">VERIFY BY ROUND-TRIP</span><br>
+The staged artifact is verified by <b>importing it into a fresh throwaway store</b> —
+the strongest check available, using the very code engines will run: it must ingest
+without skip, with row/origin counts matching the source closure. Cheap at metadata
+scale; measured (M6). Weaker manifest-only sanity checks are not sufficient for the one
+artifact everyone boots from.</li>
+<li><span class="tag">PUBLISH, FENCED</span><br>
+Promote staging → the generation's artifact key (create-if-absent — two replicas racing
+the same generation converge on one artifact, and identical inputs make either winner
+correct), then record it in the registry with the generation CAS. Superseded generations'
+artifacts and checkpoints become sweep candidates (§9).</li>
 <li><span class="tag">ENGINE SIDE</span><br>
 The landed boot import ingests it: vetting, origin-dedup against local state, R16 keys,
 chain sources installed — all as merged with chunks A+B. Local overlap dedups by origin
 (an engine re-importing work it originated is the designed no-op).</li>
 </ol>
-<p><b>Sizing honesty:</b> the artifact is the merged scope, so it is as big as the
-retention policy allows the scope to be (§9 is the control surface); engines pay one
-download + one metadata import per boot, both budget-bounded with cold-start as the
-floor. Scope-slicing / per-workload artifacts are the natural future refinement and are
-shelved with the analysis seam — the merged view makes them <em>possible</em>, which is
-part of the point of having it.</p>
+<p><b>Sizing honesty, and the L3 trace for whole-scope serving:</b> the requirement is
+"a booting engine gets its scope's cache warm" — whole-scope K=1 is the <em>simplest</em>
+mechanism satisfying it, not the only one, and it is chosen for v1 <b>with its bound
+stated</b>: the artifact is exactly as big as §9's retention policy allows the scope to
+be, so the policy caps (age + content bytes) are the artifact's size gates, and the gate
+suite measures compose time and boot download+import time against pre-registered budgets
+(T-M5's evidence). Engines pay one download + one metadata import per boot,
+budget-bounded, cold-start as the floor (M5). If measurement shows scopes outgrowing the
+budgets, the designed evolution is artifact slicing (selectors on the artifact endpoint,
+composed from the record-visible view — the merged view is what makes slicing possible),
+shelved until then. What deleting whole-scope serving would cost today: K=1 simplicity
+and nothing else — recorded so the trade stays conscious.</p>
 </details>
 
 <details class="fold" id="retention" open><summary><h2>9. Retention and pruning, service-side</h2></summary>
@@ -773,10 +873,19 @@ the rest, safely at any aggressiveness because sparseness is legal (M5). Prune i
 scope-size control surface, which makes it the artifact-size control surface (§8).</p>
 <div class="decide"><span class="dtag">THE DECISIONS THIS SECTION MAKES</span>
 <ol style="margin:4px 0 2px">
-<li><b>Metadata prune = <code>Cache.Prune</code> over the merged store</b>, per-scope
-policy from manager configuration (v1 defaults: a keep-duration plus a max-store-size
-target), run under the scope lease at ingest-time thresholds or on a period; a prune that
-cuts anything bumps the generation (the next artifact reflects it).</li>
+<li><b>Metadata prune = <code>Cache.Prune</code> over the merged store, with honest
+headless accounting.</b> As landed, the prune's size targeting measures bytes through
+realized values and snapshot usage identities — which do not exist in a nil-snapshotter
+store, so size policies would silently never trigger (cache_prune.go:67/:71). §6.1
+delta 2 closes this: headless measurement falls back to stored chain layer sizes, making
+content-byte targeting real for merged stores. <b>v1 policy per scope:</b>
+<code>KeepDuration</code> (age) + <code>MaxUsedSpace</code> over chain-size accounting
+(content bytes attributable to the scope) — both running through the unmodified
+edge-cut/cascade machinery; metadata row count is capped indirectly by these and is
+surfaced as a first-class insight metric rather than a policy knob in v1. Prune runs
+under the scope lease at ingest-time thresholds or on a period; a prune that cuts
+anything checkpoints and bumps the generation (the next artifact reflects it — this is
+the artifact-size control surface, which is what bounds §8's whole-scope choice).</li>
 <li><b>Blob GC = mark-sweep over the CAS</b>: live set enumerated from
 <code>result_content_chains</code> across live merged stores (+ a staging/pending safety
 window); orphaned checkpoint and artifact objects of superseded generations sweep on the
@@ -856,20 +965,33 @@ schema version; the manager asserts equality with its own and rejects mismatches
 typed, counted 409 — redeploys align the fleet, and that is the whole mechanism. A manager
 upgrade whose engine module changes the persistence schema <b>wipes its merged stores</b>
 (the sanctioned wipe-on-upgrade rule, now at fleet scale) and bumps generations; the view
-rebuilds from engines' ongoing announcements — which is the same honest path as M2's
-disaster recovery, exercised routinely enough to stay real. Checkpoints and artifacts are
-schema-tagged in the registry so a stale object can never be restored into a newer
-manager. What this design deliberately does <em>not</em> contain: version negotiation,
-dual-schema reading, migration code, or any decision shaped by redeploy avoidance.</p>
+rebuilds from engines' ongoing announcements — the same honest path as M2's disaster
+recovery, exercised routinely enough to stay real. <b>The rebuild is managed, not
+hoped-for:</b> wiped scopes are marked <code>rebuilding</code> in the registry; their
+stale artifacts and checkpoints delete with the wipe (an engine asking for an artifact
+gets "none yet" and boots cold — honest, M5); convergence is a first-class metric (rows
+vs pre-wipe count per scope, on the dashboard and in events); and the lifecycle side owns
+the active trigger — the keeper's announce-after-green means every scope re-announces on
+its next completed run, and an operator sweep command (drive the fleet's engine admin
+export endpoints) exists for scopes that must warm faster than their natural cadence.
+Checkpoints and artifacts are schema-tagged in the registry so a stale object can never
+be restored into a newer manager. What this design deliberately does <em>not</em>
+contain: version negotiation, dual-schema reading, migration code, or any decision shaped
+by redeploy avoidance.</p>
 </details>
 
 <details class="fold" id="dev" open><summary><h2>13. The dev stack and the test ladder</h2></summary>
-<p><b>The load-bearing placement decision (flagged for owner veto):</b> the
-<b>manager-core lives in dagger/dagger</b> as a Go package (working name
-<code>engine/cachemanager</code>): scope-store lifecycle (§6), ingest+decide (§7),
-compose (§8), prune loop (§9), the policy hook (§10) — everything that is cache
-semantics. The dagger.io service is the <b>shell</b>: tenancy/auth, Postgres registry +
-events, real CAS backends, HTTP surface, deployment. Rationale: the core is nothing but
+<p><b>The load-bearing placement decision — OPEN, awaiting owner ruling (build order
+B′ does not start before it):</b> the proposal is that the <b>manager-core lives in
+dagger/dagger</b> as a Go package (working name <code>engine/cachemanager</code>), with
+the boundary drawn precisely so nothing product-shaped leaks into OSS: the core owns
+<b>cache semantics only</b> — scope-store lifecycle (§6), ingest (§7), compose (§8), the
+prune loop (§9), and the policy <em>interface</em> plus its trivial v1 implementation
+(all-missing, §10) — over abstract interfaces for CAS, checkpoint storage, registry, and
+events. The dagger.io service is the <b>shell and the product</b>: tenancy/auth/billing,
+Postgres registry + events, real CAS backends, HTTP surface, deployment — and every
+<em>smart</em> policy implementation (the analysis-driven upload/retention decisions,
+which are the product feature) implements the core's policy interface proprietary-side. Rationale: the core is nothing but
 engine code orchestrated (it imports dagql either way — from inside the same repo, the
 import is natural and version skew is impossible by construction); R11/M7 in-repo
 provability then covers the REAL merge/decide/compose semantics rather than a
@@ -936,6 +1058,26 @@ bumped, view rebuilds from the next announcements (the M8/M2 shared path)</td>
 <tr><td>T-M8</td><td>Insight renders from a multi-engine merged scope: inventory,
 events, growth, and the offered/requested/declined panel populated and consistent with
 the gate counters</td><td>M6, §11</td><td>integration + e2e</td></tr>
+<tr><td>T-M9</td><td>Checkpoint lifecycle: a checkpoint restores cleanly on a different
+replica; crash after flush but before the fenced commit ⇒ previous generation
+authoritative, abandoned local file wiped by the engine's own unclean rule; the live
+store's crash behavior unchanged</td><td>§6.1 delta 1, §6.2</td><td>unit + integration</td></tr>
+<tr><td>T-M10</td><td>Announce retry contract: kill the announce response after the
+generation commit → engine re-announces → rowsNew == 0, same-or-smaller requested set,
+no duplicate merged rows, no orphaned unreferenced blobs</td><td>§7, M3, M5</td><td>integration</td></tr>
+<tr><td>T-M11</td><td>Fencing: a writer that loses its lease mid-mutation (simulated
+takeover) fails the generation CAS; its checkpoint/artifact never becomes
+authoritative; the successor's work stands</td><td>§6.3</td><td>unit + integration</td></tr>
+<tr><td>T-M12</td><td>Concurrent compose of one generation from two replicas → exactly
+one published artifact (create-if-absent), both requests served, round-trip verification
+ran on the winner</td><td>§8</td><td>integration</td></tr>
+<tr><td>T-M13</td><td>Headless prune semantics: chain-size accounting drives
+MaxUsedSpace on a nil-snapshotter store (red before §6.1 delta 2); KeepDuration cuts by
+age; a would-be silent no-op policy (size targeting without measurable bytes) is a typed
+error, not a quiet skip</td><td>§9, §6.1 delta 2</td><td>unit</td></tr>
+<tr><td>T-M14</td><td>Compose integrity: the round-trip verification gate rejects a
+doctored staged artifact; a chainless snapshot-backed row makes compose fail typed
+(never a silently smaller artifact)</td><td>§8, §6.1 delta 3</td><td>unit</td></tr>
 </table>
 <p class="pill">Standing gates carry: the reset Step-0 suites and the landed chunk A+B
 suites stay green at every engine-side landing; evidence discipline is the take-3
@@ -976,9 +1118,15 @@ announcement (§7); manifest StoreUUID = composer identity (§8).</td></tr>
 config/counters/harness re-home per its own salvage split; selection + multi-bundle loop
 + their conformance cases retire. The test-service PATTERN is superseded by the real
 manager-core in-repo (§13) — a strict upgrade.</td></tr>
-<tr><td>Chunk D branch (converged, unmerged)</td><td>CAS + hardening + mounting verbatim;
-cache_bundles/selection replaced (its STATE-OF-WORK split, exactly).</td></tr>
-<tr><td>Chunk F branch (complete, unreviewed)</td><td>Per §11 D3.</td></tr>
+<tr><td>Chunk D branch (converged, unmerged)</td><td>CAS + hardening + mounting re-homed
+per its STATE-OF-WORK split — <b>reusable with residual risk stated</b>: the branch was
+review-converged but never merged or re-reviewed post-pause; C′ re-runs its suites and
+gives the re-homed result a fresh review round before anything builds on it.
+cache_bundles/selection replaced by the scope registry + announce/artifact surface.</td></tr>
+<tr><td>Chunk F branch (complete, unreviewed)</td><td>Per §11 D3 — <b>and it never
+received its adversarial review</b> (the pause landed first): D′ treats it as
+implementation input, not converged work; its re-home gets the review the original
+didn't.</td></tr>
 <tr><td>v2-era server merge (cachemoney_real.go)</td><td>Validated precedent for §6;
 its negotiate response shape is §7's ancestor; its two defects are §2's named dead
 coupling. Code itself: reference only.</td></tr>
