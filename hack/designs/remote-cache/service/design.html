@@ -147,7 +147,7 @@
 <main>
 
 <h1>Remote Cache — Service Phase Design</h1>
-<p class="sub">v3 &nbsp;·&nbsp; the phase after the engine fundamentals &nbsp;·&nbsp; review rounds 1–2 folded &nbsp;·&nbsp; 2026-07-06</p>
+<p class="sub">v4 &nbsp;·&nbsp; APPROVED (review rounds 1–4) &nbsp;·&nbsp; implementation in progress &nbsp;·&nbsp; 2026-07-06</p>
 
 <div class="banner">
 <b>Status.</b> Converged through three adversarial review rounds (verdict: ready — §4);
@@ -530,6 +530,20 @@ redesign salting — that remains a cloud/tenancy work item.</p>
   chunk B builds; (2) cache-chief review of the converged document; (3) the R16-box
   seam-compatibility note in §6.5 asks the owner to confirm the envelopes-in-bundles
   reading.</li>
+  <li><b>Round 4 (2026-07-06), program-owner review (cache-chief). APPROVED</b>, with
+  independent code spot-checks (the ref chokepoint and its call sites, frame ref shape,
+  import's 1:1 ID preservation, the as-built source enum) and two notes folded without a
+  re-review round: <b>N1</b> — the local-restore vetting pass must count a persisted chain
+  source as a viable fallback once chains persist locally, or a locally-restarted warm
+  engine drops every chain-only imported row (§8.4 pinned; T-S13 added; chunk B gate).
+  <b>N2</b> — chunk A's landing mechanics made operational: build from the take-3
+  integration branch freely, land into it only with the take-3 manager's explicit OK on
+  ordering vs their acceptance run (§14 pinned). The two flagged seam items (§9.1
+  amendment, §6.5 R16-box reading) were routed by cache-chief to the take-3 manager for
+  owner adjudication, with cache-chief's concurrence on both — including a supporting
+  argument for §9.1: a lazy-form-first order can cascade recursive input materialization,
+  making recipe-first potentially <em>more</em> expensive than the chain pull it avoids.
+  Implementation began at this round per the standing no-blocking rule.</li>
 </ol>
 </div>
 </details>
@@ -1192,7 +1206,13 @@ dedup + remap, reference rewrite, staged commit. Consumes the existing vetting a
 helpers rather than duplicating them.</td></tr>
 <tr><td><code>dagql/cache_persistence_vetting.go</code></td><td><span class="chip modf">MOD</span></td>
 <td>Vetting core parameterized over its content check (local: refKeys present; bundle:
-chain presence structural) so both passes share one rule set.</td></tr>
+chain presence structural) so both passes share one rule set. <b>And the local pass learns
+the chain source as a fallback:</b> once <code>result_content_chains</code> persists locally
+(§8 D4), a locally-restored row whose refKeys are gone survives vetting if it carries a
+persisted chain <em>or</em> a lazy fragment — the as-built rule ("claimed content gone with
+no fallback ⇒ drop", vetting.go:149–161) gains the chain as a second fallback, else a
+locally-restarted warm engine would drop every chain-only imported row at boot. Red test
+pinned as T-S13, landing with chunk B.</td></tr>
 <tr><td><code>dagql/cache_persistence_import.go</code> / <code>engine/server/server.go</code></td><td><span class="chip modf">MOD</span></td>
 <td>Boot sequence gains the bundle inflow after local restore, inside the pre-serving
 window; budget handling; boot summary extension.</td></tr>
@@ -1668,6 +1688,10 @@ unaffected</td>
 mirror; warm engine imports; first use re-acquires the mirror (re-sync/re-clone),
 downstream immutable results still hit via their own chains</td>
 <td>Contentless identity decode per type (§6.4)</td><td>integration</td></tr>
+<tr><td>T-S13</td><td>Chain-only rows survive local restart: import a bundle (no local
+snapshots), restart the engine locally → the imported rows pass local-restore vetting on
+their persisted chains, and first use fetches (red before the §8.4 local vetting change)</td>
+<td>Local restore counts the chain source as viable fallback (§8.4)</td><td>integration</td></tr>
 </table>
 <p class="pill">Existing gates stay in force: engine chunks run the reset design's Step-0
 suites (persistence/restart, cross-session, selected services) at every landing; T1–T8
@@ -1718,13 +1742,16 @@ intelligence) can start as its own effort against the two named seams.</li>
 <ol>
 <li><b>A — Bundle & origins (dagql, no network).</b> Origin minting/persistence, the ref
 token, the bundle writer/reader over streams, bundle-flavored vetting, origin dedup.
-Gate: T-S1, T-S2 + Step-0. <span class="pill">Depends on the take-3 engine fundamentals
-being merged (it consumes §7/§8's as-built state; coordinate with the take-3 owner on
-landing order and the shared schema_version bump).</span></li>
+Gate: T-S1, T-S2 + Step-0. <span class="pill">Landing mechanics, pinned: chunk A branches
+from the take-3 integration branch; its commits — including the shared
+<code>schema_version</code> bump — land into the integration branch only with the take-3
+manager's explicit OK on ordering relative to their acceptance run. Building may proceed
+before that OK; landing may not.</span></li>
 <li><b>B — Chains & the content-chain source (engine).</b> Chain computation at export
 (zstd pinned, memoized), chain sources at import, the chain arm of the source walk with a
-file/dir CAS for tests, and the mutable-owner contentless-decode work (§6.4). Gate: T-S4
-(file transport), T-S6, T-S8, T-S12 + Step-0. <span class="pill">Depends on reset §9's
+file/dir CAS for tests, the local-restore chain-viability change (§8.4, N1), and the
+mutable-owner contentless-decode work (§6.4). Gate: T-S4 (file transport), T-S6, T-S8,
+T-S12, T-S13 + Step-0. <span class="pill">Depends on reset §9's
 source walk being landed (it is the direct substrate) <b>and on the §9.1 source-order
 amendment being ratified in the reset design</b> — chunk B does not build before that
 ruling.</span></li>
