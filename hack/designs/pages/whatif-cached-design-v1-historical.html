@@ -1,0 +1,1214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>wcprof what-if-cached — design &amp; implementation plan</title>
+<style>
+  :root {
+    --ink: #1a1f27; --muted: #5b6572; --line: #dde3ea; --bg: #ffffff;
+    --panel: #f6f8fa; --accent: #0b62a4; --good: #1a7f37; --bad: #b42318;
+    --warn: #9a6700; --code-bg: #eef1f5; --elide: #c9d4de;
+  }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; color: var(--ink); background: var(--bg);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 2.2rem 1.6rem 5rem; }
+  h1 { font-size: 1.7rem; line-height: 1.25; margin: .2rem 0 .3rem; }
+  h2 { font-size: 1.28rem; margin: 2.6rem 0 .7rem; padding-top: 1.2rem; border-top: 1px solid var(--line); }
+  h3 { font-size: 1.05rem; margin: 1.7rem 0 .45rem; }
+  p { margin: .55rem 0; }
+  .sub { color: var(--muted); font-size: .95rem; margin-bottom: 1.4rem; }
+  code, pre {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .86em; background: var(--code-bg); border-radius: 4px;
+  }
+  code { padding: .08em .35em; }
+  pre { padding: .8rem 1rem; overflow-x: auto; line-height: 1.5; }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: .9rem 0; font-size: .92rem; }
+  th, td { border: 1px solid var(--line); padding: .45rem .6rem; text-align: left; vertical-align: top; }
+  th { background: var(--panel); font-weight: 600; }
+  .tldr {
+    background: #eaf3fb; border: 1px solid #bcd8ee; border-left: 4px solid var(--accent);
+    border-radius: 6px; padding: 1rem 1.2rem; margin: 1.4rem 0;
+  }
+  .tldr h2 { border: none; margin: 0 0 .5rem; padding: 0; font-size: 1.05rem; }
+  .callout {
+    background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--warn);
+    border-radius: 6px; padding: .7rem 1rem; margin: 1rem 0; font-size: .95rem;
+  }
+  .callout.good { border-left-color: var(--good); }
+  .callout.bad { border-left-color: var(--bad); }
+  .verdict-ok { color: var(--good); font-weight: 600; white-space: nowrap; }
+  .verdict-no { color: var(--bad); font-weight: 600; white-space: nowrap; }
+  .verdict-part { color: var(--warn); font-weight: 600; white-space: nowrap; }
+  figure { margin: 1.4rem 0; }
+  figcaption { color: var(--muted); font-size: .88rem; margin-top: .45rem; line-height: 1.45; }
+  .fig { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .8rem; }
+  nav.toc {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: .8rem 1.2rem; font-size: .92rem; margin: 1.2rem 0 0;
+  }
+  nav.toc a { color: var(--accent); text-decoration: none; }
+  nav.toc a:hover { text-decoration: underline; }
+  nav.toc ol { margin: .3rem 0; padding-left: 1.4rem; }
+  ul, ol { padding-left: 1.5rem; }
+  li { margin: .25rem 0; }
+  .filepath { white-space: nowrap; }
+  .chunk {
+    border: 1px solid var(--line); border-radius: 8px; margin: 1.1rem 0; overflow: hidden;
+  }
+  .chunk > .chead {
+    background: var(--panel); padding: .55rem 1rem; font-weight: 600;
+    border-bottom: 1px solid var(--line);
+  }
+  .chunk > .cbody { padding: .3rem 1rem .8rem; }
+  .tag {
+    display: inline-block; font-size: .74rem; font-weight: 600; border-radius: 999px;
+    padding: .1rem .6rem; margin-left: .5rem; vertical-align: middle;
+  }
+  .tag.blue { background: #dcebf7; color: var(--accent); }
+  .tag.green { background: #d9efe0; color: var(--good); }
+  .tag.amber { background: #f6ecd4; color: var(--warn); }
+  .small { font-size: .88rem; color: var(--muted); }
+  .qs li { margin-bottom: .7rem; }
+  .rec { color: var(--good); font-weight: 600; }
+
+  /* layout: sticky sidebar + content */
+  .layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); }
+  #sidebar {
+    position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+    border-right: 1px solid var(--line); background: var(--panel);
+    padding: 1.1rem .9rem 2rem; font-size: .84rem;
+  }
+  .side-head { font-weight: 700; margin-bottom: .3rem; }
+  .side-actions { margin: .4rem 0 .7rem; display: flex; gap: .4rem; }
+  .side-actions button {
+    font-size: .72rem; padding: .18rem .55rem; border: 1px solid var(--line);
+    background: #fff; border-radius: 4px; cursor: pointer; color: var(--muted);
+  }
+  .side-actions button:hover { color: var(--ink); }
+  #sideToc { list-style: none; padding: 0; margin: 0; }
+  #sideToc li { margin: 0; }
+  #sideToc a {
+    display: block; color: var(--muted); text-decoration: none;
+    padding: .22rem .5rem; border-left: 2px solid transparent; border-radius: 0 4px 4px 0;
+    line-height: 1.3;
+  }
+  #sideToc a:hover { color: var(--ink); background: #eef1f5; }
+  #sideToc a.active { color: var(--accent); border-left-color: var(--accent); background: #eaf3fb; font-weight: 600; }
+  #sideToc li.lvl3 a { padding-left: 1.4rem; font-size: .78rem; }
+  h2, h3 { scroll-margin-top: .8rem; }
+  h2.sec-toggle { cursor: pointer; user-select: none; }
+  h2.sec-toggle::before { content: "▾ "; color: var(--muted); font-size: .78em; }
+  h2.sec-toggle.collapsed::before { content: "▸ "; }
+  h2.sec-toggle:hover { color: var(--accent); }
+  @media (max-width: 920px) {
+    .layout { grid-template-columns: 1fr; }
+    #sidebar { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar" aria-label="Contents">
+  <div class="side-head">Contents</div>
+  <div class="side-actions">
+    <button id="expandAll" type="button">expand all</button>
+    <button id="collapseAll" type="button">collapse all</button>
+  </div>
+  <ul id="sideToc"></ul>
+</nav>
+<div class="wrap">
+
+<h1>wcprof <em>what-if-cached</em> — design &amp; implementation plan</h1>
+<p class="sub">
+  Track B of the Cache Performance Analysis workstream · author: Fable (dagger1) · 2026-07-04<br>
+  Basis: branch <code>cache-perf-fable-23313875</code> @ <code>db1caae0</code> (wcprof + OTel source + exec-decomp stack).
+  Every load-bearing claim re-verified against this code, independently of the prior Opus scoping.<br>
+  <strong>Status (2026-07-06): implementation complete and audited (final commit <code>bb7625e2c</code>) — but the
+  validation design has verified flaws; rebuild-vs-adjust decision pending Erik.</strong> Read the red box below first.
+</p>
+
+<div class="callout bad" id="state">
+<strong>STATE OF THIS DESIGN — read this first (updated 2026-07-06)</strong>
+<p>This page is the design as approved and built. The validation work since then exposed real flaws — one in this design
+itself. For the rebuild-vs-adjust call, here is what is broken and what stands. Every item verified, per the
+no-unjustified-claims rule.</p>
+<p><strong>Broken:</strong></p>
+<ul>
+<li><strong>The trust metric (§3.5, "cold/warm calibration") measures the wrong thing — a flaw in this design, the
+lead's.</strong> It grades the simulator's answer about the <em>cold</em> run against a <em>different run's</em> actual
+time. But a warm run legitimately re-runs session-/client-scoped calls (the engine scopes those keys on purpose) at its
+own prices, and prices differ between runs. The headline "drift" (+235% / +246%) therefore mostly measures price
+differences on work that ran in <em>both</em> runs, plus session overhead — not simulator error. Wrong exam, not
+(as far as current evidence shows) a wrong student.</li>
+<li><strong>The ranking can recommend caching things that can never be cached.</strong> Session-/client-scoped keys
+never hit across runs <em>by design</em>, and nothing recorded tells the simulator which keys are scoped — so
+"caching X saves 2.2s" can appear for an X no caching strategy can ever hit. Confidently wrong output; must be fixed
+regardless of the rebuild decision.</li>
+<li><strong>The "record digest-equivalence facts" next step was refuted and is retracted.</strong> The captures — new
+<em>and</em> old — contain zero cross-run hits that arrived through digest equivalence. The warm speedups were
+re-execution at cheaper prices plus genuine inner hits. That claim was asserted confidently, unverified, and passed
+through both the implementer and the lead; it's the incident behind the no-unjustified-claims rule.</li>
+<li><strong>The implied goal — "predict the warm run's time" — is impossible in principle.</strong> Another run has its
+own prices that no simulation of this run can know. The honest goal: predict the effect of a caching hypothesis
+<em>on the recorded run</em>.</li>
+</ul>
+<p><strong>Still standing (each verified):</strong></p>
+<ul>
+<li>The replay core: re-simulating the cold run as recorded lands within ~0% of its real time, on both workloads.</li>
+<li>The elision machinery and the general deferred-work rule (§3.3.2): reason-derived tests V1–V33 pass; the adversarial
+doctrine audit and its fixes converged (final commit <code>bb7625e2c</code>).</li>
+<li>The four approved recording changes (producer labels on deferred work, hit states, use-markers, suppression
+counters): real recorded truth, useful under any redesign.</li>
+<li>The instruments (result-id joins, outcome stamps, capture gates) — audited before being trusted.</li>
+</ul>
+<p><strong>Open — Erik's call:</strong> rebuild the validation + eligibility design from scratch, or adjust in place.
+Either way: retractions go into the committed docs; eligibility becomes scope-aware (needs one small recording addition:
+whether a call's key is session/client-scoped — the engine knows at derivation time); validation gets redefined around
+what the tool can honestly claim.</p>
+</div>
+
+<div class="callout good">
+<strong>Historical — morning brief (2026-07-05; superseded by the state box above)</strong>:
+<ul>
+  <li><strong>Shipped</strong> (implementer worktree <code>whatif-cached-impl-670a235b</code>, 4 local commits on
+      <code>db1caae0d</code>, no pushes): <code>bf383e84d</code> elision engine · <code>4dffd5903</code> selectors/ranking/CLI ·
+      <code>d0cf4ed33</code> calibration harness · <code>8d95c56fd</code> Amendment A1 + cache-DAG input edges + the
+      decision-#5 outcome stamp. Design markdown + calibration write-up committed under <code>hack/designs/</code>.</li>
+  <li><strong>Decided: the four recording changes are approved and in implementation</strong> (<a href="#decision-e1">§3.3.2</a>). Your A1 challenge was investigated and confirmed — 67 operation types defer their real work the way withExec does; the four changes (key one: every deferred-work op records <em>which call's result it is producing</em>) generalize the simulator to all of them, close the Figure-G1 overstatement gap, and fix OTel's invisible pending-hits. Each change ships with dedicated validation (V27–V34) plus a calibration re-run. Background: calibration proved the v1 nesting-region rule
+      gave an honest-but-useless ≈0 for withExec pipelines (production runs at Evaluate time under the consumer's lazy op);
+      I approved extending regions via the exec op's explicit call-digest ident (verified emitted on both sources). Your
+      review supersedes mine; the code is isolated if you want it different.</li>
+  <li><strong>Calibration numbers</strong> (committed, <code>hack/designs/whatif-cached-calibration.md</code>): baseline sim
+      drift ≈0.0% on both workloads. withExec pipeline what-if drift +533% → <strong>+362% under A1</strong>, residual fully
+      named: 2.19s run-specific <code>Container.from</code> digest (simplification #1 at pipeline scale) + 1.31s lazy-wrapper
+      remainder (~25% of baseline) + 0.37s session phase. Module build +17069% — simplification #1 wholesale
+      (run-specific ModuleSource digests; the ranking proves a stable digest would save 22.17s of 22.55s).</li>
+  <li><strong>Two follow-ups awaiting your call</strong>: (1) lazy-op ident emit — would reclaim the 1.31s wrapper remainder;
+      numbers are in the calibration md, nothing built; (2) equivalence-fact emit — now the <em>dominant measured gap on both
+      workloads</em>, materially strengthening the case for that post-v1 data work (and it's the same digest-stability story
+      the remote-cache effort needs).</li>
+  <li><strong>Pre-existing substrate issues found, not touched</strong> (verified base-broken, incl. by me on the untouched
+      base): 9 failing tests in <code>./dagql/</code> at <code>db1caae0d</code> (completeness gate refuses the emit-path test
+      captures — they predate fail-by-default) and a <code>go vet</code> lostcancel at <code>dagql/cache.go:3767</code>.
+      Yours to triage since the substrate stack is your unpushed work.</li>
+</ul>
+</div>
+
+
+<div class="tldr">
+<h2>TL;DR</h2>
+<ul>
+  <li><strong>Concur with the prior scoping's verdict</strong>: this is more than a CLI flag. Factor-0 self-time scaling is semantically wrong for exactly the ops caching targets. A new replay operation is needed.</li>
+  <li><strong>But its mechanism is under-specified and partly wrong.</strong> The proposed "<code>finish()</code> short-circuit + guard" cannot work as sketched: any outside wait into an elided subtree makes the replay <em>resurrect</em> that subtree through prefix-anchoring. Its Stage-2 premise ("dataflow edges are emitted natively") is false — those link kinds have <strong>zero emit sites</strong>.</li>
+  <li><strong>My design: cache hypotheses are recipe digests, not op instances.</strong> "Cached" = every call of that digest becomes a hit; its producing subtree is elided <em>as a unit</em> by a static pre-pass, or — if anything outside still demands work inside it — kept whole and reported. No partial elision in v1: it keeps the replay order-independent, which this simulator treats as a correctness invariant.</li>
+  <li><strong>v1 models a local warm hit</strong> (<code>finish = start + pullCost</code>, pullCost = 0), works on <strong>both sources day one</strong> (native ident and OTel <code>dag.digest</code> are the same key — verified), and adds a <em>what-if-cached ranking table</em> as the headline, mirroring the existing what-if report.</li>
+  <li><strong>Trust is built in, not asserted</strong>: baseline-invariance gate, loud kept/elided counters in the data-faithfulness style, and a <strong>cold-vs-warm calibration harness</strong> — simulate the cold run with the warm run's hit set, compare against the warm run's actual makespan. <strong style="color:var(--bad)">⚠ 2026-07-06: this harness as designed was refuted — see the state box.</strong></li>
+  <li><strong>Four chunks</strong>: ① elision engine in the replay, ② selection + report + CLI, ③ calibration harness, ④ (Stage 2, shared with Track A) cache-DAG input edges. Pull-cost stays a seam.</li>
+</ul>
+</div>
+
+<div class="callout good" id="plain">
+<strong>In plain words</strong> (the two terms of art from the TL;DR):<br>
+<strong>"Local warm hit model"</strong> — v1 pretends the cached result was already sitting, fully materialized, in this
+engine's in-memory cache: hitting it costs nothing (<code>finish = start + 0</code>). We are <em>not</em> yet modeling a
+remote cache where the hit costs a pull — that's the <code>pullCost</code> knob, plumbed but set to zero.<br>
+<strong>"Whole-region elide-or-keep with loud residuals"</strong> — for each result we pretend was cached, the work that
+produced it is removed from the simulated schedule <em>as one block</em>. If anything outside that block still needed a
+piece of it, we don't remove <em>any</em> of it — we keep the whole block as recorded and print exactly what was kept and
+why. So the headline number is never silently wrong; imprecision always shows up as ink in the report.
+</div>
+
+<h2 id="doctrine">0. The doctrine (read first — binding for every line of this feature)</h2>
+<p>
+This section exists so nobody working on wcprof ever re-litigates it. It has been the governing rule of the whole
+profiler effort and it is the most important thing in this document.
+</p>
+<ol>
+  <li><strong>The analyzer's model must make sense on its own.</strong> For any hypothetical change — "what if this were
+      cached", "what if this class were 2× faster" — there is a single reasonable answer derivable by logic from the
+      recorded data. Sometimes it takes real work to reason it out, but it always exists, and <em>that</em> is the answer
+      the analyzer must produce. Nothing else.</li>
+  <li><strong>The analyzer takes the data exactly as it is.</strong> It never compensates for missing, suspect, or
+      inconvenient data. No smoothing, no fallbacks that guess, no "the emit probably meant…". Heuristic compensation in
+      the analyzer is the gate to hell: it turns every future wrong answer into an unfalsifiable debugging swamp.
+      Prior agents went down this path; it is how this project fails.</li>
+  <li><strong>The data/model boundary is absolute.</strong> If the analyzer's honest answer disagrees with reality, the
+      defect is on the <em>data</em> side — go fix the emit, the recording, the ingestion. The analyzer is only required
+      to accept data that obeys the laws of physics; where recorded data violates them, it is counted and fails a gate
+      loudly (never absorbed). Existing embodiments of this rule: <code>SimStartConflicts</code>,
+      <code>UnschedulableOps</code>, <code>CycleWarnings</code>, the simulated-vs-actual drift check, the OTel structural
+      gate and span-count completeness checksum. This feature adds its own (<code>ElidedOpDemanded</code>, kept-region
+      residuals) in the same spirit.</li>
+  <li><strong>Because of 1–3, validation is reason-first.</strong> For every test scenario we can derive the expected
+      outcome by logic <em>before</em> running the simulator, and then assert it exactly. That makes the validation
+      catalog (§4.5) the primary QA instrument of this feature — not a nice-to-have. Every scenario in it states its
+      expected answer and the reasoning; a test whose expected answer cannot be reasoned out is a sign the model has a
+      hole, and that finding is itself valuable.</li>
+  <li><strong>Model simplifications are stated, bounded, and visible in output.</strong> A v1 simplification is
+      acceptable only when (a) it is written down with its error direction where knowable, (b) the run report shows its
+      residual (counts/durations, not adjectives), and (c) the refinement path is a <em>data</em> path, not a heuristic.
+      The e-graph note in §3.1 and the lock note in §3.3 are the two such simplifications in this design.</li>
+</ol>
+
+<h2 id="goal">1. The goal, in one paragraph</h2>
+<p>
+Take one profiled, mostly-uncached run and answer counterfactually: <em>"how much wall-clock time would this run have saved if operations X, Y, Z had been cache hits?"</em> — without re-running anything. The consumer is the remote-caching effort, which today answers this empirically (run cold, run warm, diff), which is slow, expensive, and doesn't scale across candidate caching strategies. The substrate is wcprof's replay simulator: a compiled, order-independent discrete-event re-execution of the recorded op graph that already answers "what if class X's self-time were scaled by <em>f</em>". Long-term, a remote hit has a pull cost, so the question becomes "pull or recompute?" — explicitly not designed now, but the mechanism leaves the seam.
+</p>
+
+<h2 id="review">2. Critical review of the prior scoping</h2>
+<p>
+Per your ask, I re-derived everything from the code rather than trusting the Opus doc
+(<code>whatif-cached-simulation-scoping.md</code>, retrieved in full from the VM). Its core analysis is right; the closer
+it gets to mechanism, the shakier it gets.
+</p>
+
+<h3>2.1 What stands (independently verified)</h3>
+<table>
+<tr><th>Claim</th><th>Verdict</th><th>Evidence</th></tr>
+<tr>
+  <td>The replay's only knob is per-<em>class</em> self-time scaling; nothing can express "skip this subtree".</td>
+  <td class="verdict-ok">Confirmed</td>
+  <td><code>Simulation.Factors map[ClassKey]float64</code>; factor applied at exactly one place (<code>actSelf</code>); <code>finish/advance</code> always spawn children and join waits. <span class="filepath">replay.go</span></td>
+</tr>
+<tr>
+  <td>Factor-0 is honest for leaf ops, and a confidently-wrong ≈0 for orchestrator <code>call</code>/<code>call_exec</code> ops — the ops remote caching targets.</td>
+  <td class="verdict-ok">Confirmed</td>
+  <td>An orchestrator's cost is child intervals, which are subtracted from self-time by construction (<code>SelfSegments</code>, <span class="filepath">graph.go</span>).</td>
+</tr>
+<tr>
+  <td>A hit call op returns before any execution op is minted; an executing call parents the shared <code>call_exec</code>, under which all nested resolver work records; joiners reach it only via wait edges.</td>
+  <td class="verdict-ok">Confirmed</td>
+  <td><span class="filepath">dagql/cache.go:3614–3841</span>: call op → <code>SetIdent(callKey)</code> → miss mints <code>call_exec</code> child (<code>:3772</code>) → joiner waits (<code>:3999</code>). <code>publishResult</code> is parented under the <code>call_exec</code> (<code>:4072</code>), so it elides with it.</td>
+</tr>
+<tr>
+  <td>Cache keys are recipe-structural, so "the producing subtree never runs" is a coherent counterfactual — a hit is determinable without evaluating inputs.</td>
+  <td class="verdict-ok">Confirmed</td>
+  <td><code>deriveRecipeDigest</code> / <code>selfDigestAndInputRefs</code> at the call site (<span class="filepath">cache.go:3705–3722</span>).</td>
+</tr>
+<tr>
+  <td>Verdict: "more than a CLI flag, bounded, stageable; needs a new instance-level replay operation distinct from <code>Factors</code>."</td>
+  <td class="verdict-ok">Concur</td>
+  <td>—</td>
+</tr>
+</table>
+
+<h3>2.2 What doesn't stand</h3>
+<table>
+<tr><th>Prior claim</th><th>Verdict</th><th>What the code actually says</th></tr>
+<tr>
+  <td>"Dataflow <code>result</code>/<code>reused_result</code> edges are <strong>emitted natively</strong>, dropped by the loader" (§5.2, §9; Stage 2 is built on loading them).</td>
+  <td class="verdict-no">False on the emit side</td>
+  <td><code>LinkKindResult</code>/<code>LinkKindReusedResult</code> are <em>defined</em> (<span class="filepath">wcprof.go:210–222</span> — the very lines the doc cites) but have <strong>zero emit sites</strong>: the only <code>wcprof.Link</code> call in the engine is the nested-client link (<span class="filepath">engineutil/executor.go:144</span>). What exists is <code>Op.ResultID</code> stamped at op end (<span class="filepath">cache.go:3629, :3827</span>) — a per-op field, not an edge, and engine-local. Stage 2 needs an <em>emit</em> (or the OTel <code>dag.inputs</code> route), not a loader fix.</td>
+</tr>
+<tr>
+  <td>Stage-1 wiring: "<code>cached []bool</code> + a short-circuit at the top of <code>finish()</code>; the conservative wait-target guard lives where an inside-op is reached from outside (<code>spawnTo</code>/<code>actWaitJoin</code>)."</td>
+  <td class="verdict-no">Mechanically insufficient</td>
+  <td>A short-circuit at <code>finish(X)</code> does <em>not</em> remove X's subtree from the schedule. If any live op waits on an op <em>inside</em> the subtree, <code>finish(inner)</code> → <code>spawnTo</code> walks the ancestor chain and replays each ancestor's <em>prefix</em> — and the prefix replay's <code>joinUpTo</code> <strong>fully finishes every earlier-ending sibling</strong> along the way. One stray wait resurrects most of the "elided" subtree, at full recorded cost. Runtime guards inside <code>spawnTo</code> would make anchors depend on evaluation order — exactly the order-dependence this replay's design treats as a data-faithfulness <em>failure</em> (<code>SimStartConflicts</code>). Elision must be a <strong>static pre-pass</strong>, resolved before the replay runs. (§3.3)</td>
+</tr>
+<tr>
+  <td>The Stage-1 boundary yields "a defensible <strong>upper bound</strong> on the saving."</td>
+  <td class="verdict-part">Unproven either way</td>
+  <td>The two residual error sources push in <em>opposite</em> directions: keeping externally-shared subtrees understates savings; a partial-elision scheme that kept recorded (early) anchors for surviving inner work would overstate them. No bound direction is established. My design doesn't claim one — it makes the residual <em>measured and reported</em> (kept-subtree counters, §3.5) instead of labeled.</td>
+</tr>
+<tr>
+  <td>Recommendations: select by <em>op instance / class + outcome filter</em>; <em>native-first</em>, OTel as a fast follow; surface leaf-only <code>save@0</code> as "Stage 0" now.</td>
+  <td class="verdict-part">Overruled (§3.1, §3.6)</td>
+  <td>The cacheable unit is the <strong>recipe digest</strong>, not an op instance — caching a result makes <em>every</em> caller of that recipe hit, executor and joiners alike; per-op-id sets can't express that and don't survive across sources or runs. Digest selection also makes OTel work <em>day one</em>: native <code>Ident</code> = <code>callKey</code> and OTel <code>Ident</code> = <code>dag.digest</code> are the same digest (verified), and executed-vs-joined — the native-only outcome — is <em>irrelevant</em> under digest-level elision. And leaf-only <code>save@0</code> should not be marketed as a caching answer at all; the prior doc's own §4.3 shows it's partial even for exec leaves.</td>
+</tr>
+</table>
+
+<h2 id="design">3. Design</h2>
+
+<h3 id="semantics">3.1 Semantics: the hypothesis is a set of recipe digests</h3>
+<p>
+A what-if-cached hypothesis is <strong>CachedSet: a set of recipe digests</strong> (wcprof <code>Ident</code>s of <code>call</code> ops), plus a
+<code>pullCost</code> (v1: 0). The counterfactual meaning, applied uniformly:
+</p>
+<ul>
+  <li>Every <code>call</code> op whose ident ∈ CachedSet — executor <em>and</em> joiners — becomes a hit:
+      <code>finish = simStart + pullCost</code>. Its recorded self-time, waits, and children are not replayed.</li>
+  <li>The producing work — the executing caller's <code>call_exec</code> child and everything nested under it
+      (exec phases, publish, nested module clients re-parented by links) — is <strong>elided</strong>: it never ran, so it
+      contributes nothing and holds no locks.</li>
+  <li>Everything else replays exactly as the baseline does. Consumers of the cached result are untouched —
+      they simply stop being blocked so long.</li>
+</ul>
+<p>
+<strong>v1 models a local warm hit</strong>: the payload is materialized and free to return. Remote-hit realism
+(pull time, lazy decode) is deliberately the <code>pullCost</code> seam (§5), not v1 semantics.
+</p>
+
+<div class="callout">
+<strong>Stated simplification #1 — recipe-digest identity only (Erik reviewed &amp; accepted, 2026-07-04).</strong>
+The real cache is not a digest→result map: it's an e-graph — a union-find over digest equivalence classes with
+content-digest evidence and congruence repair (<code>internal-docs/egraph.md</code>). Two consequences v1 does
+<em>not</em> model: a recorded hit may have arrived through <em>equivalence</em> rather than exact recipe identity, and —
+the interesting one — caching digest D could counterfactually make <em>other</em> recipes hit too (same output
+eq-class, or congruence downstream of it). Why v1 ignores this, on principle: the equivalence facts are
+<strong>not in the recorded data</strong> — ops carry recipe digest, outcome, and result ID, nothing about eq-classes —
+so modeling equivalence would mean the analyzer <em>guessing</em> engine state (doctrine §0.2 forbids it), and the honest
+alternative (emit equivalence facts and replicate the union-find offline) is a large data-path project that v1's value
+doesn't need. Error direction is knowable and safe: unmodeled equivalence-induced hits could only have elided
+<em>more</em> work, so v1 <strong>understates</strong> savings through this simplification. If real traces ever show it
+matters, the path is emitting equivalence facts (extra digests / merges) — a data fix, never an analyzer heuristic.
+</div>
+
+<figure class="fig">
+<svg viewBox="0 0 920 330" font-family="ui-monospace, Menlo, monospace" font-size="12">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b6572"/>
+    </marker>
+    <marker id="arrW" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#b42318"/>
+    </marker>
+  </defs>
+
+  <!-- LEFT PANEL: recorded -->
+  <text x="110" y="20" font-weight="bold" fill="#1a1f27">RECORDED (all uncached)</text>
+  <rect x="20" y="34" width="180" height="30" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="30" y="53">client root</text>
+
+  <rect x="20" y="96" width="190" height="30" rx="5" fill="#fff" stroke="#0b62a4" stroke-width="1.6"/>
+  <text x="30" y="115">call D <tspan fill="#9a6700">(executed)</tspan></text>
+
+  <rect x="250" y="96" width="170" height="30" rx="5" fill="#fff" stroke="#0b62a4" stroke-width="1.6"/>
+  <text x="260" y="115">call D <tspan fill="#9a6700">(joined)</tspan></text>
+
+  <rect x="40" y="158" width="160" height="30" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="50" y="177">call_exec D</text>
+
+  <rect x="60" y="220" width="120" height="28" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="70" y="238">exec phases</text>
+  <rect x="60" y="258" width="120" height="28" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="70" y="276">nested calls…</text>
+  <rect x="200" y="220" width="115" height="28" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="208" y="238">publishResult</text>
+
+  <!-- edges: nesting -->
+  <line x1="90" y1="64" x2="105" y2="96" stroke="#5b6572" marker-end="url(#arr)"/>
+  <line x1="150" y1="64" x2="320" y2="96" stroke="#5b6572" marker-end="url(#arr)"/>
+  <line x1="110" y1="126" x2="118" y2="158" stroke="#5b6572" marker-end="url(#arr)"/>
+  <line x1="110" y1="188" x2="118" y2="220" stroke="#5b6572" marker-end="url(#arr)"/>
+  <line x1="122" y1="188" x2="123" y2="258" stroke="#5b6572" marker-end="url(#arr)"/>
+  <line x1="170" y1="188" x2="252" y2="220" stroke="#5b6572" marker-end="url(#arr)"/>
+  <!-- wait edges -->
+  <line x1="335" y1="126" x2="205" y2="168" stroke="#b42318" stroke-dasharray="5 3" marker-end="url(#arrW)"/>
+  <text x="268" y="152" fill="#b42318">wait (singleflight)</text>
+  <line x1="60" y1="126" x2="52" y2="158" stroke="#b42318" stroke-dasharray="5 3" marker-end="url(#arrW)"/>
+
+  <!-- divider -->
+  <line x1="465" y1="10" x2="465" y2="320" stroke="#dde3ea"/>
+
+  <!-- RIGHT PANEL: counterfactual -->
+  <text x="530" y="20" font-weight="bold" fill="#1a1f27">COUNTERFACTUAL (digest D ∈ CachedSet)</text>
+  <rect x="500" y="34" width="180" height="30" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="510" y="53">client root</text>
+
+  <rect x="500" y="96" width="190" height="30" rx="5" fill="#e8f4ec" stroke="#1a7f37" stroke-width="1.6"/>
+  <text x="510" y="115">call D → <tspan fill="#1a7f37" font-weight="bold">hit</tspan></text>
+  <rect x="730" y="96" width="170" height="30" rx="5" fill="#e8f4ec" stroke="#1a7f37" stroke-width="1.6"/>
+  <text x="740" y="115">call D → <tspan fill="#1a7f37" font-weight="bold">hit</tspan></text>
+
+  <line x1="570" y1="64" x2="585" y2="96" stroke="#5b6572" marker-end="url(#arr)"/>
+  <line x1="630" y1="64" x2="800" y2="96" stroke="#5b6572" marker-end="url(#arr)"/>
+
+  <text x="510" y="148" fill="#1a7f37">finish = start + pullCost   (v1: pullCost = 0)</text>
+
+  <!-- elided region -->
+  <g opacity="0.45">
+    <rect x="500" y="162" width="330" height="130" rx="8" fill="#eef1f5" stroke="#c9d4de" stroke-dasharray="7 4"/>
+    <rect x="520" y="176" width="160" height="28" rx="5" fill="#fff" stroke="#c9d4de"/>
+    <text x="530" y="194" fill="#5b6572">call_exec D</text>
+    <rect x="540" y="216" width="120" height="26" rx="5" fill="#fff" stroke="#c9d4de"/>
+    <text x="550" y="233" fill="#5b6572">exec phases</text>
+    <rect x="540" y="252" width="120" height="26" rx="5" fill="#fff" stroke="#c9d4de"/>
+    <text x="550" y="269" fill="#5b6572">nested calls…</text>
+    <rect x="680" y="216" width="115" height="26" rx="5" fill="#fff" stroke="#c9d4de"/>
+    <text x="688" y="233" fill="#5b6572">publishResult</text>
+  </g>
+  <text x="560" y="312" fill="#5b6572" font-weight="bold">ELIDED — never runs, holds no locks</text>
+</svg>
+<figcaption><strong>Figure 1.</strong> Digest-level semantics. Left: the recorded run — the executing <code>call D</code> parents
+the shared <code>call_exec</code> subtree; a concurrent caller of the same recipe joins it via a wait edge. Right: under the
+hypothesis, <em>both</em> callers short-circuit to hits and the producing subtree is elided as a unit. Because every wait
+into a cached digest's <code>call_exec</code> comes from a caller of that same digest — itself short-circuited — those wait
+edges are never evaluated.</figcaption>
+</figure>
+
+<h3 id="selection">3.2 Selection surface and eligibility</h3>
+<p>Selectors resolve to digest sets before the sim runs (all repeatable, both analyzers):</p>
+<table>
+<tr><th>Flag</th><th>Meaning</th></tr>
+<tr><td><code>--cached &lt;digest&gt;</code></td><td>one recipe digest (as printed in reports / <code>dag.digest</code>)</td></tr>
+<tr><td><code>--cached @file</code></td><td>digest list, one per line — the "hand me a candidate cache manifest" form for the remote-cache team</td></tr>
+<tr><td><code>--cached-class &lt;pattern&gt;</code></td><td>all <em>executed</em> digests whose call class matches (e.g. <code>Container.withExec</code>, <code>myMod:Foo.bar</code>) — sugar that resolves to digests</td></tr>
+<tr><td><code>--cached-exec &lt;argv-pattern&gt;</code></td><td>exec-group-style argv predicate over user execs, resolved to the owning <code>withExec</code> digests — reuses the exec-decomp matcher ergonomics</td></tr>
+</table>
+<p><strong>Eligibility is checked, loudly</strong> (report section, not silent filtering):</p>
+<ul>
+  <li>ident has a <code>do_not_cache</code> outcome → <em>ineligible</em>, warn (the engine refuses to cache it; simulating it cached is fiction);</li>
+  <li>ident's executions all errored/canceled → ineligible, warn (failed results aren't cached);</li>
+  <li>ident already all-hits in this run → no-op, note it;</li>
+  <li>ident's ops open at dump time → ineligible, warn.</li>
+</ul>
+
+<h3 id="elision">3.3 The elision rule: static pre-pass, whole subtrees, elide-or-keep</h3>
+<p>
+This is where I diverge from the prior sketch, for a mechanical reason worth spelling out.
+The replay anchors an op reached out-of-order by replaying its parent's timeline <em>prefix</em>
+(<code>spawnTo</code>/<code>advance</code>), and any prefix walk <em>fully finishes</em> every child that ended before the
+stop point (<code>joinUpTo</code>). So "skip X in <code>finish()</code>" does not remove X's subtree: one wait from outside
+into any descendant re-enters the subtree through the ancestor chain and replays most of it at full recorded cost —
+silently, under a hypothesis that claims it was elided. And per-reference runtime guards would make simulated starts
+depend on evaluation order, which this simulator's whole design treats as a correctness failure
+(order-independence is asserted via <code>SimStartConflicts</code>).
+</p>
+<p>Therefore elision is resolved <strong>statically, per hypothesis, before the replay</strong>:</p>
+<ol>
+  <li><strong>Roots.</strong> For each ident in CachedSet, its cached-call roots are all <code>call</code> ops with that ident.
+      Candidate elision regions are their nesting subtrees (children transitively, including link-re-parented nested-client work).</li>
+  <li><strong>External-demand test.</strong> A region may be elided only if no <em>live</em> op (an op outside every elided
+      region and not itself a short-circuited cached call) has a wait edge targeting an op inside it. Waits from
+      same-digest callers don't count — those waiters are short-circuited hits. Waits from <em>elided</em> ops don't
+      count — they never run.</li>
+  <li><strong>Fixpoint.</strong> Keeping a region can make its ops live again, which can add demand into another region;
+      iterate keep-decisions to fixpoint (monotone, converges in ≤ #regions rounds; in practice 1–2).</li>
+  <li><strong>Elide-or-keep, whole regions.</strong> An elided region vanishes: its ops' actions are never replayed, its
+      lock (fixed-delay) waits never charge, and — by the demand test — nothing live references it. A kept region replays
+      <em>exactly as recorded</em>, and its cached root is <em>not</em> short-circuited; instead it's reported:
+      <code>kept: externally shared (N ops, X.Xs)</code>.</li>
+</ol>
+
+<figure class="fig">
+<svg viewBox="0 0 920 250" font-family="ui-monospace, Menlo, monospace" font-size="12">
+  <defs>
+    <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b6572"/>
+    </marker>
+    <marker id="arrW2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#b42318"/>
+    </marker>
+  </defs>
+  <!-- left: clean elide -->
+  <text x="30" y="24" font-weight="bold">Region A: no external demand → ELIDE</text>
+  <g opacity="0.45">
+    <rect x="30" y="40" width="330" height="150" rx="8" fill="#eef1f5" stroke="#c9d4de" stroke-dasharray="7 4"/>
+    <rect x="50" y="56" width="150" height="28" rx="5" fill="#fff" stroke="#c9d4de"/>
+    <text x="60" y="74" fill="#5b6572">call_exec D₁</text>
+    <rect x="70" y="100" width="130" height="26" rx="5" fill="#fff" stroke="#c9d4de"/>
+    <text x="80" y="117" fill="#5b6572">service start</text>
+    <rect x="70" y="140" width="130" height="26" rx="5" fill="#fff" stroke="#c9d4de"/>
+    <text x="80" y="157" fill="#5b6572">exec</text>
+  </g>
+  <text x="40" y="215" fill="#1a7f37" font-weight="bold">✓ elided in full; savings propagate to all its waiters-turned-hits</text>
+
+  <!-- right: kept -->
+  <text x="510" y="24" font-weight="bold">Region B: outside wait into it → KEEP (whole)</text>
+  <rect x="510" y="40" width="330" height="150" rx="8" fill="#fff8ec" stroke="#9a6700" stroke-dasharray="0"/>
+  <rect x="530" y="56" width="150" height="28" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="540" y="74">call_exec D₂</text>
+  <rect x="550" y="100" width="150" height="26" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="560" y="117">service start S</text>
+  <rect x="550" y="140" width="130" height="26" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="560" y="157">exec</text>
+  <rect x="700" y="200" width="180" height="30" rx="5" fill="#fff" stroke="#0b62a4" stroke-width="1.6"/>
+  <text x="710" y="219">other client's op</text>
+  <line x1="760" y1="200" x2="640" y2="126" stroke="#b42318" stroke-dasharray="5 3" marker-end="url(#arrW2)"/>
+  <text x="672" y="176" fill="#b42318">wait (service)</text>
+  <text x="520" y="215" fill="#9a6700" font-weight="bold">⚠ reported: kept — externally shared (N ops, X.Xs)</text>
+</svg>
+<figcaption><strong>Figure 2.</strong> The elide-or-keep rule. Left: the common case — a cached digest's producing region
+nothing else touches; it disappears. Right: an op outside the hypothesis (say, another client) waits on a service started
+inside the region — under the counterfactual that work would still have had to run <em>somewhere</em>, and v1 refuses to
+guess when/where: it keeps the region as recorded and reports the residual instead of silently mis-modeling it.</figcaption>
+</figure>
+
+<div class="callout">
+<strong>Why no partial elision in v1.</strong> The faithful refinement — elide the non-shared branches of region B and
+re-anchor the shared service at its external demander's simulated demand time — requires either demand-time anchoring
+(order-dependent under memoized <code>finish()</code>, i.e. a new class of <code>SimStartConflicts</code>) or keeping recorded
+anchors for surviving work (counterfactually early starts → overstated savings). Both violate the "rational function of
+faithful data" bar in ways that are <em>invisible in the output</em>. Elide-or-keep is coarser but sound, order-independent,
+and its imprecision is <strong>printed, not hidden</strong>. If the kept-counters turn out to be material on real traces,
+that's the data-driven case for Stage 2 — and we'll know its size before building it.
+</div>
+
+<h3 id="a1">3.3.1 Amendment A1 — the container-exec patch <span class="tag amber">works, but too narrow — replacement proposed in §3.3.2</span></h3>
+<p>
+Approved by the lead 2026-07-05 from calibration data; implemented and reviewed (commit <code>8d95c56fd</code>, catalog
+rows V24–V26). <strong>Erik's review: agrees with the problem, but challenged the fix as too narrow — withExec is not
+the only operation that defers its real work.</strong> That challenge was investigated in depth and confirmed
+(§3.3.2, Finding 1: 67 operation types defer work the same way). A1 stays in the code for now — it gives the right
+answer for container-exec workloads, and its internal machinery is reused unchanged by the proposed replacement — but
+it is <em>not ratified</em>; the decision at the end of §3.3.2 supersedes it. The rest of this section is the original
+explanation of the problem A1 patched, kept because the diagrams and examples still describe exactly what the
+§3.3.2 proposal generalizes.
+</p>
+
+<p><strong>The problem, in one sentence:</strong> <code>withExec</code> is lazy — the call itself only <em>builds the
+plan</em>; the actual container run happens later, at Evaluate time, and gets recorded under whoever <em>consumed</em>
+the result. So the v1 region rule (elide the cached call's own nesting subtree) removes almost nothing.</p>
+
+<figure class="fig">
+<svg viewBox="0 0 920 320" font-family="ui-monospace, Menlo, monospace" font-size="12">
+  <defs>
+    <marker id="arrA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b6572"/>
+    </marker>
+    <marker id="arrAW" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#b42318"/>
+    </marker>
+  </defs>
+  <text x="20" y="22" font-weight="bold" fill="#b42318">BEFORE A1 — why the sim said "caching saves ≈ 0"</text>
+
+  <rect x="20" y="40" width="170" height="30" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="30" y="59">client root</text>
+
+  <!-- withExec call, thin, with v1 region around it -->
+  <rect x="14" y="100" width="222" height="66" rx="8" fill="none" stroke="#1a7f37" stroke-dasharray="6 4"/>
+  <text x="22" y="94" fill="#1a7f37">v1 elision region (everything the sim removes)</text>
+  <rect x="20" y="108" width="210" height="30" rx="5" fill="#e8f4ec" stroke="#0b62a4"/>
+  <text x="30" y="127">call withExec <tspan font-weight="bold">D</tspan> — builds the plan</text>
+  <text x="30" y="158" fill="#5b6572">self ≈ 5ms, no heavy children</text>
+
+  <!-- consumer chain -->
+  <rect x="330" y="100" width="180" height="30" rx="5" fill="#fff" stroke="#0b62a4"/>
+  <text x="340" y="119">call stdout (consumer)</text>
+  <rect x="360" y="152" width="170" height="28" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="370" y="170">call_exec stdout</text>
+  <rect x="390" y="200" width="230" height="28" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="400" y="218">lazy wrapper (mounts, commit…)</text>
+  <rect x="420" y="248" width="330" height="34" rx="5" fill="#fbe9e7" stroke="#b42318" stroke-width="2"/>
+  <text x="432" y="269" fill="#b42318" font-weight="bold">exec: go build — 20s   (Ident = D)</text>
+
+  <line x1="90" y1="70" x2="110" y2="108" stroke="#5b6572" marker-end="url(#arrA)"/>
+  <line x1="150" y1="70" x2="410" y2="100" stroke="#5b6572" marker-end="url(#arrA)"/>
+  <line x1="420" y1="130" x2="440" y2="152" stroke="#5b6572" marker-end="url(#arrA)"/>
+  <line x1="450" y1="180" x2="490" y2="200" stroke="#5b6572" marker-end="url(#arrA)"/>
+  <line x1="500" y1="228" x2="560" y2="248" stroke="#5b6572" marker-end="url(#arrA)"/>
+
+  <text x="640" y="150" fill="#b42318" font-weight="bold">the actual cost lives HERE,</text>
+  <text x="640" y="166" fill="#b42318" font-weight="bold">under the CONSUMER —</text>
+  <text x="640" y="182" fill="#b42318" font-weight="bold">outside the region</text>
+
+  <text x="20" y="305" fill="#1a1f27">sim verdict: elide D's region = elide ~5ms → <tspan fill="#b42318" font-weight="bold">saving ≈ 0</tspan>. Honest per the rule; useless for the workload. Measured: calibration drift <tspan font-weight="bold">+533%</tspan>.</text>
+</svg>
+<figcaption><strong>Figure A1-before.</strong> The recorded shape of <code>from(...).withExec(["go","build"]).stdout()</code>.
+The withExec <em>call</em> is a 5ms plan-builder; the 20-second container run is recorded under <code>stdout</code>'s
+evaluation chain. v1's region (green dashes) removes only the plan-builder.</figcaption>
+</figure>
+
+<figure class="fig">
+<svg viewBox="0 0 920 330" font-family="ui-monospace, Menlo, monospace" font-size="12">
+  <defs>
+    <marker id="arrB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b6572"/>
+    </marker>
+    <marker id="arrBG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#1a7f37"/>
+    </marker>
+  </defs>
+  <text x="20" y="22" font-weight="bold" fill="#1a7f37">AFTER A1 — the exec's own ident points back to D</text>
+
+  <rect x="20" y="40" width="170" height="30" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="30" y="59">client root</text>
+
+  <rect x="20" y="108" width="210" height="30" rx="5" fill="#e8f4ec" stroke="#1a7f37" stroke-width="1.6"/>
+  <text x="30" y="127">call withExec D → <tspan fill="#1a7f37" font-weight="bold">hit</tspan></text>
+  <text x="30" y="156" fill="#5b6572">finish = start + pullCost</text>
+
+  <rect x="330" y="100" width="180" height="30" rx="5" fill="#fff" stroke="#0b62a4"/>
+  <text x="340" y="119">call stdout (consumer)</text>
+  <rect x="360" y="152" width="170" height="28" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="370" y="170">call_exec stdout</text>
+  <rect x="390" y="200" width="230" height="28" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="400" y="218">lazy wrapper — still replays</text>
+  <text x="400" y="240" fill="#9a6700">stated remainder (measured: 1.31s across the pipeline)</text>
+
+  <!-- elided exec region -->
+  <g opacity="0.5">
+    <rect x="414" y="252" width="342" height="46" rx="8" fill="#eef1f5" stroke="#c9d4de" stroke-dasharray="7 4"/>
+    <rect x="420" y="258" width="330" height="34" rx="5" fill="#fff" stroke="#c9d4de"/>
+    <text x="432" y="279" fill="#5b6572">exec: go build — 20s   (Ident = D)</text>
+  </g>
+  <text x="770" y="280" fill="#5b6572" font-weight="bold">ELIDED</text>
+
+  <line x1="90" y1="70" x2="110" y2="108" stroke="#5b6572" marker-end="url(#arrB)"/>
+  <line x1="150" y1="70" x2="410" y2="100" stroke="#5b6572" marker-end="url(#arrB)"/>
+  <line x1="420" y1="130" x2="440" y2="152" stroke="#5b6572" marker-end="url(#arrB)"/>
+  <line x1="450" y1="180" x2="490" y2="200" stroke="#5b6572" marker-end="url(#arrB)"/>
+
+  <!-- ident attribution arrow -->
+  <path d="M 230 123 C 320 123, 340 268, 412 272" fill="none" stroke="#1a7f37" stroke-width="1.8" marker-end="url(#arrBG)"/>
+  <text x="248" y="192" fill="#1a7f37" font-weight="bold">exec.Ident == D  ⇒  its subtree joins D's</text>
+  <text x="248" y="208" fill="#1a7f37" font-weight="bold">elision regions (explicit emitted data)</text>
+
+  <!-- waived wait -->
+  <text x="530" y="246" fill="#b42318" font-size="11">wrapper's wait on its exec: <tspan font-weight="bold">waived</tspan> — production demand, removed with it. A third-party waiter would still KEEP the region.</text>
+
+  <text x="20" y="320" fill="#1a1f27">sim verdict: elided = the 20s exec subtree → <tspan fill="#1a7f37" font-weight="bold">saving ≈ its critical-path contribution</tspan>. Measured: drift +533% → <tspan font-weight="bold">+362%</tspan>, remainder fully named.</text>
+</svg>
+<figcaption><strong>Figure A1-after.</strong> Same recorded graph, one added rule: an exec op whose <code>Ident</code>
+equals a cached digest brings its subtree into that digest's elision regions. The attribution is an explicit emitted fact
+(native <code>executor.go:130–138</code>; OTel <code>exec.run</code> span carries the same digest, <code>:155</code>) —
+zero inference. The lazy wrapper stays: its residual is printed, and reclaiming it is the identified lazy-op-ident-emit
+follow-up (a data fix, per doctrine §0.5).</figcaption>
+</figure>
+
+<h3 id="general-rule">3.3.2 Replacing A1 with a rule that covers all lazy operations <span class="tag blue">your decision needed — see "The decision" at the end</span></h3>
+
+<p>
+This section replaces the earlier jargon-heavy version. It explains, in order: the background, what the analysis found,
+the four concrete changes we propose, and the decision we need from you. Full detail with code citations lives in the
+committed doc <code>hack/designs/whatif-cached-lazy-semantics.md</code> (commit <code>7fc677a9b</code>, reviewed through
+two rounds by a Codex reviewer; I spot-checked the three most load-bearing code claims myself).
+</p>
+
+<h4>Background: the two-phase problem, restated plainly</h4>
+<p>
+Many dagql operations run in two phases. When you call <code>withExec</code>, the engine does a little synchronous work
+right then (build the container plan), and does the real work — actually running the container — later, when something
+like <code>stdout</code> first uses the result. The profiler records that later work under the operation that
+<em>used</em> the result, not under the call that <em>defined</em> it. The simulator removes work call-by-call, so when
+we simulated "this withExec was cached," it only removed the little synchronous part and left the container run in the
+schedule. That was the ≈0-savings bug. A1 patched it for container runs only, exploiting one lucky fact: an exec op
+already records which call's work it is (its recorded ident is the withExec call's digest). Your objection was that
+container runs can't be the only case — and the analysis confirms that.
+</p>
+
+<h4>Finding 1: which operations are two-phase</h4>
+<table>
+<tr><th>Family</th><th>Two-phase?</th><th>Where the cost lives</th></tr>
+<tr><td>Container (49 lazy types), Directory (13), File (5)</td><td>yes</td><td>almost all in the later phase (the container run, the filesystem materialization)</td></tr>
+<tr><td><code>Container.from</code></td><td>yes — <em>both</em> phases expensive</td><td>registry config resolve happens synchronously in the call; the layer pull is deferred</td></tr>
+<tr><td>git, http, host imports, module loading, services</td><td>no</td><td>all the work happens synchronously inside the call itself — the original v1 rule was already correct for these</td></tr>
+</table>
+
+<h4>Finding 2: the kinds of cache hit that actually exist</h4>
+<p>
+Your "outer vs inner cached" question, answered from the code: the cache has entries for <em>calls</em> only. Whether
+the deferred second-phase work has run yet is a separate flag on the cached result (<code>lazyEvalComplete</code>) —
+not a separate cache entry. That yields exactly these real situations:
+</p>
+<table>
+<tr><th>Situation</th><th>What happens</th><th>What the simulator should do</th></tr>
+<tr><td>miss</td><td>everything runs</td><td>baseline — no change</td></tr>
+<tr><td>hit, deferred work already done</td><td>nothing runs; result is ready</td><td>remove both phases — this is what v1 + A1 already model</td></tr>
+<tr><td>hit, deferred work NOT yet done</td><td>the call is skipped, but the deferred work still runs when something first uses the result. Real in two ways: same-engine result never yet used, or a result restored from disk in "lazy form" whose work re-runs on first use</td><td>remove only the call phase; charge the deferred work at first use. <strong>Note:</strong> this is exactly what a future <em>remote</em> cache hit looks like — you get the cache entry, but materializing it costs a pull. Modeling this case correctly later is the pull-cost model.</td></tr>
+<tr><td>hit on a result restored from a disk snapshot</td><td>a decode cost is paid at hit time</td><td>a small at-hit cost (distinct from the case above)</td></tr>
+<tr><td>"deferred work cached separately from its call"</td><td colspan="2">does not exist in dagql — there is no cache entry for the second phase on its own. (Content reuse below dagql, in the buildkit stores, is real but outside what a recipe-digest simulator can or should model.)</td></tr>
+</table>
+
+<h4>Finding 3: two recording gaps discovered along the way</h4>
+<ol>
+  <li><strong>Using an already-completed result records nothing.</strong> When an operation forces a result whose
+      deferred work already ran, the engine takes a fast path (<code>dagql/cache.go:2949</code>) and records no trace of
+      that use. Why that lets the simulator over-credit a cache — pictured below with exec <strong>D</strong> mounting
+      directory <strong>E</strong>, and a later unrelated operation <strong>C</strong> also reading E:
+
+<figure class="fig">
+<svg viewBox="0 0 920 560" font-family="ui-monospace, Menlo, monospace" font-size="12">
+  <defs>
+    <marker id="arrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b6572"/>
+    </marker>
+    <marker id="arrGR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#b42318"/>
+    </marker>
+    <marker id="arrGA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#9a6700"/>
+    </marker>
+  </defs>
+
+  <!-- BAND 1: recorded -->
+  <text x="20" y="24" font-weight="bold">① THE COLD RUN, AS RECORDED</text>
+  <rect x="20" y="66" width="185" height="46" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="30" y="85">call E — defines the dir</text>
+  <text x="30" y="102" fill="#5b6572" font-size="11">(its real work: not run yet)</text>
+
+  <rect x="255" y="42" width="390" height="122" rx="8" fill="#fff" stroke="#0b62a4" stroke-width="1.6"/>
+  <text x="267" y="62" fill="#0b62a4" font-weight="bold">D's deferred work (container run)</text>
+  <rect x="285" y="78" width="270" height="34" rx="5" fill="#dcebf7" stroke="#0b62a4"/>
+  <text x="297" y="99">E's materialization runs HERE</text>
+  <text x="285" y="132" fill="#5b6572" font-size="11">(D's mount setup forced it — recorded normally)</text>
+
+  <rect x="705" y="66" width="185" height="46" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="715" y="85">C reads E — LATER,</text>
+  <text x="715" y="102">after E's work is done</text>
+
+  <line x1="205" y1="89" x2="283" y2="95" stroke="#5b6572" marker-end="url(#arrG)"/>
+  <path d="M 705 95 C 640 95, 620 95, 557 95" fill="none" stroke="#b42318" stroke-dasharray="5 3" marker-end="url(#arrGR)"/>
+  <text x="575" y="82" fill="#b42318" font-weight="bold">∅ fast path: NOTHING recorded</text>
+
+  <!-- BAND 2: simulator -->
+  <line x1="20" y1="188" x2="900" y2="188" stroke="#dde3ea"/>
+  <text x="20" y="212" font-weight="bold">② SIMULATING "D WAS CACHED" — what the simulator does</text>
+  <g opacity="0.45">
+    <rect x="255" y="228" width="390" height="110" rx="8" fill="#eef1f5" stroke="#c9d4de" stroke-dasharray="7 4"/>
+    <rect x="285" y="262" width="270" height="34" rx="5" fill="#fff" stroke="#c9d4de"/>
+    <text x="297" y="283" fill="#5b6572">E's materialization</text>
+  </g>
+  <text x="267" y="248" fill="#5b6572" font-weight="bold">REMOVED — E's work goes with it</text>
+
+  <rect x="705" y="240" width="185" height="46" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="715" y="259">C reads E</text>
+  <text x="715" y="276" fill="#5b6572" font-size="11">left no trace (①)</text>
+
+  <text x="20" y="316" fill="#1a1f27">safety check: "does anything outside still need work in here?"</text>
+  <text x="20" y="334" fill="#b42318" font-weight="bold">→ finds nothing (C's need was never written down) → removal allowed</text>
+
+  <!-- BAND 3: reality -->
+  <line x1="20" y1="360" x2="900" y2="360" stroke="#dde3ea"/>
+  <text x="20" y="384" font-weight="bold">③ WHAT WOULD ACTUALLY HAPPEN IF D WERE CACHED</text>
+  <rect x="255" y="404" width="185" height="40" rx="5" fill="#e8f4ec" stroke="#1a7f37" stroke-width="1.6"/>
+  <text x="267" y="429" fill="#1a7f37" font-weight="bold">D → hit, never runs</text>
+
+  <rect x="705" y="398" width="185" height="46" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="715" y="417">C reads E…</text>
+  <rect x="660" y="460" width="230" height="36" rx="5" fill="#fff8ec" stroke="#9a6700" stroke-width="1.8"/>
+  <text x="672" y="483" fill="#9a6700" font-weight="bold">…E's work runs HERE instead</text>
+  <path d="M 795 444 L 785 460" fill="none" stroke="#9a6700" stroke-width="1.6" marker-end="url(#arrGA)"/>
+  <path d="M 420 281 C 480 380, 560 460, 656 476" fill="none" stroke="#9a6700" stroke-dasharray="6 4" marker-end="url(#arrGA)"/>
+  <text x="440" y="430" fill="#9a6700" font-weight="bold">the work MOVES — it doesn't vanish</text>
+
+  <text x="20" y="530" fill="#b42318" font-weight="bold">mismatch: the simulator deleted work reality only relocates → simulated savings TOO HIGH</text>
+  <text x="20" y="550" fill="#1a7f37" font-weight="bold">fix = change #3: the fast path in ① writes a tiny marker "C needed E" — then ②'s safety check finds it</text>
+</svg>
+<figcaption><strong>Figure G1 — the "already-completed result" recording gap.</strong>
+The hole is narrow: it needs another call's work nested inside the removed region, <em>every</em> later consumer arriving
+after that work completed (a consumer arriving while it's in-flight records a wait, which the safety check does see), and
+that call not itself being simulated as cached. Rejected alternative, for the record: the Chunk-4 "which digests does
+this call reference" edges can't stand in for the marker — every consumer references E structurally whether or not it
+ever forces the work, so treating references as demand would keep everything, always. Only a record of an actual use
+works, which is why this is a recording change, not an analyzer rule.</figcaption>
+</figure>
+  </li>
+  <li><strong>On the OTel side, some hits are invisible.</strong> A span is only marked <code>cached</code> when the
+      result's deferred work is also complete (<code>core/telemetry.go:270</code>). A hit on a result with pending
+      deferred work is therefore loaded from OTel traces as a plain success, not a hit. This matters as soon as we
+      extract "which digests hit" from a warm run's OTel trace — we'd miss those hits.</li>
+</ol>
+
+<h4>The proposal: four small recording changes</h4>
+<p>
+All four add information to what the engine records; none of them changes how the analyzer reasons (per the doctrine:
+when the data is missing, fix the recording, don't make the analyzer guess).
+</p>
+<table>
+<tr><th>#</th><th>What</th><th>Where</th><th>Why</th></tr>
+<tr><td>1</td><td>When a deferred-work callback runs, record on its op <em>which call's result it is producing</em> (the call's digest). Exec ops already do this; this extends the same fact to the lazy op that wraps all deferred work.</td><td>one recording site, <code>dagql/cache.go:3045</code> — the producing call's identity is already in a local variable there; same addition on the OTel span</td><td>this single change lets the simulator handle ALL 67 two-phase types the way A1 handled container runs. The simulator rule becomes one sentence: <em>"when simulating digest D as cached, also remove any op that recorded itself as producing D's result."</em> A1's exec-only matching stays as a fallback for traces recorded before this change (including existing Cloud traces).</td></tr>
+<tr><td>2</td><td>When a call is a cache hit, record whether the result's deferred work was already done or still pending.</td><td>the hit path in <code>dagql/cache.go</code>; one attribute on the call span for OTel</td><td>distinguishes the two hit kinds in Finding 2. Needed for accurate warm-run hit extraction now; later it is the calibration data for the pull-cost model.</td></tr>
+<tr><td>3</td><td>When an operation uses an already-completed result, record a tiny zero-duration marker ("needed result of digest D; already done").</td><td>the fast path at <code>dagql/cache.go:2949</code></td><td>closes gap #1 above: the simulator can then see that a later consumer needed the work and must not remove it. Until this lands, the gap stands as a documented limitation with its direction stated (savings may be overstated in that specific nested case).</td></tr>
+<tr><td>4</td><td>Teach the OTel trace loader to read the existing "pending" attribute so hits with pending deferred work load as hits.</td><td><code>engine/wcprof/wcotel/loader.go</code> (the attribute is already emitted; the loader ignores it today)</td><td>closes gap #2 above; pure loader change, no engine change.</td></tr>
+</table>
+
+<h4 id="decision-e1">The decision — APPROVED</h4>
+<div class="callout good">
+<p style="margin-top:0"><strong>Erik approved all four recording changes (2026-07-05), with test coverage for each as a
+hard requirement.</strong> Implementation dispatched to the implementer under the usual review protocol; validation rows
+V27–V34 cover the four changes (one or more rows each), the pre-emit-trace fallback, the Figure-G1 scenario as a fixture
+(pinning both the pre-fix overstatement and the post-fix keep), and a re-run of both calibrations with before/after
+numbers. The original options are kept below for the record.</p>
+<ul>
+  <li><strong>Approve all four together (my recommendation).</strong> Each is a few lines at a single code site; they
+      would be implemented and reviewed as one change set. Expected payoff: the withExec calibration improves further
+      (the 1.31s of deferred-work wrapper time becomes removable), <code>Container.from</code> and all Directory/File
+      operations become correctly simulatable, warm-run hit extraction becomes accurate, and the overstatement gap
+      closes.</li>
+  <li><strong>Approve a subset</strong> — #1 is the important one; #4 is trivial; #2 and #3 can wait if you want the
+      smallest possible change.</li>
+  <li><strong>Approve none</strong> — A1 stays as-is: container-exec workloads simulate correctly, everything else
+      two-phase silently under-reports, with the gaps documented.</li>
+</ul>
+<p style="margin-bottom:0">Relevant to your call: these touch recording paths in your unpushed substrate stack
+(<code>dagql/cache.go</code>, <code>core/telemetry.go</code> adjacency), so you may want to eyeball the exact sites
+before approving.</p>
+</div>
+
+<p><strong>Worked example 1 (the picture above, with numbers):</strong>
+<code>dag.container().from("alpine").withExec(["go","build","./..."]).stdout()</code>, cold run: withExec call 5ms ·
+stdout call_exec 30ms · lazy wrapper phases 300ms · exec <code>go build</code> 20.0s. Hypothesis
+<code>--cached &lt;digest-of-withExec&gt;</code>:</p>
+<table>
+<tr><th></th><th>elided</th><th>reported saving</th><th>faithful?</th></tr>
+<tr><td>before A1</td><td>the 5ms call subtree</td><td>≈ 0</td><td class="verdict-no">confidently wrong for the tool's purpose</td></tr>
+<tr><td>after A1</td><td>5ms call + 20.0s exec subtree</td><td>≈ 20s (less critical-path shift); 300ms wrapper printed as remainder</td><td class="verdict-ok">matches what a real warm hit does</td></tr>
+</table>
+
+<p><strong>Worked example 2 (the real calibration run, committed in
+<code>hack/designs/whatif-cached-calibration.md</code>):</strong> withExec pipeline, 5.28s cold baseline, all 1,477
+warm-hit digests cached. Before A1: saving ≈ 0, drift +533%. After A1: the counterfactual chain is fully named —
+0.37s session phase + 2.19s run-specific <code>Container.from</code> digest that didn't transfer between runs
+(simplification #1, not an A1 problem) + 1.31s lazy-wrapper remainder → drift +362%. Nothing unexplained.</p>
+
+<div class="callout good">
+<strong>What you're ratifying</strong> — three sentences:
+(1) A cached digest's elision regions additionally include the subtree of every <em>exec-kind</em> op whose
+<code>Ident</code> equals that digest — an explicit emitted attribution, same elide-or-keep + keep-fixpoint as everything
+else. (2) Wait edges from the region root's <em>ancestors</em> (the lazy-wrapper chain that spawned the exec) are the
+production demand being counterfactually removed and don't keep the region; any third-party waiter still keeps it whole,
+reported. (3) The lazy wrapper itself still replays and its residual is printed — reclaiming it is a separately-decided
+emit, not a heuristic. Rejecting A1 reverts to honest-but-≈0 answers for exec-heavy pipelines; the change is isolated and
+rows V24–V26 pin whichever semantics you choose.
+</div>
+
+<div class="callout">
+<strong>Stated simplification #2 — lock contention is not relieved.</strong> Named-resource (lock) waits record the
+<em>waiter</em> and the duration — not who held the lock. So when an elided region's ops vanish, their own lock waits
+vanish with them (a hit acquires nothing), but an <em>outside</em> waiter's recorded lock delay is unchanged even if the
+contending holder was inside the elided region — the data doesn't say so, and the analyzer will not guess (doctrine
+§0.2). This is the same fixed-delay treatment the baseline replay already applies to locks, extended consistently.
+Error direction: savings <strong>understated</strong> where an elided op was in fact the contending holder. If it
+matters, the fix is recording holder identity on lock waits — a data fix.
+</div>
+
+<h3 id="ranking">3.4 Reporting: the what-if-cached ranking + explicit sets</h3>
+<p>Two modes, mirroring how the existing what-if table earns its keep:</p>
+<ol>
+  <li><strong>Ranking mode (default on):</strong> enumerate candidate digest groups — per class of executed calls, plus the
+      top-N individual executed digests by subtree wall-clock — and run one sim per candidate
+      (the program compiles once; each sim is a cheap array DP; the existing report already runs ~600 sims).
+      Output, ranked by makespan saved:
+<pre><code>what-if-cached: makespan saved if these results had been cache hits
+class/digest                                   execs   elided     kept   save@pull=0
+Container.withExec (all 41 executed digests)      41    38m12s    2m01s        6m44s
+myMod:Build.compile xxh3:9f31…                     1     9m48s        0        3m10s
+…</code></pre></li>
+  <li><strong>Explicit-set mode:</strong> <code>--cached</code>/<code>@file</code> — one sim, full detail: baseline vs
+      counterfactual makespan, per-ident eligibility notes, kept-region report, and the counterfactual blocking chain
+      (reusing <code>BlockingChain</code>/<code>ExplainFinish</code>) so you can see what the <em>new</em> bottleneck would be.</li>
+</ol>
+<p class="small">Savings of a joint set are not the sum of individual savings (dependency chains, critical-path shifts) —
+the ranking table says so in its header, same honesty style as the existing what-if table.</p>
+
+<figure class="fig">
+<svg viewBox="0 0 920 210" font-family="ui-monospace, Menlo, monospace" font-size="12">
+  <text x="20" y="22" font-weight="bold">baseline replay</text>
+  <rect x="20" y="34" width="620" height="16" rx="3" fill="#c9d4de"/>
+  <rect x="90" y="56" width="300" height="16" rx="3" fill="#0b62a4" opacity="0.75"/>
+  <text x="95" y="69" fill="#fff">call_exec D (producing subtree)</text>
+  <rect x="395" y="78" width="245" height="16" rx="3" fill="#c9d4de"/>
+  <text x="400" y="91" fill="#1a1f27">downstream (blocked on D)</text>
+  <text x="650" y="47" fill="#5b6572">makespan ──────▶</text>
+
+  <text x="20" y="132" font-weight="bold">what-if-cached replay (D ∈ CachedSet)</text>
+  <rect x="20" y="144" width="620" height="16" rx="3" fill="#c9d4de" opacity="0.35"/>
+  <rect x="20" y="144" width="320" height="16" rx="3" fill="#c9d4de"/>
+  <rect x="90" y="166" width="6" height="16" rx="2" fill="#1a7f37"/>
+  <text x="102" y="179" fill="#1a7f37">hit (start + pullCost)</text>
+  <rect x="96" y="188" width="245" height="16" rx="3" fill="#c9d4de"/>
+  <text x="101" y="201" fill="#1a1f27">downstream, pulled left</text>
+  <line x1="340" y1="152" x2="640" y2="152" stroke="#1a7f37" stroke-dasharray="6 4"/>
+  <text x="400" y="140" fill="#1a7f37" font-weight="bold">saved ≈ 300 units (critical path shifts; measured by re-simulation, not subtraction)</text>
+</svg>
+<figcaption><strong>Figure 3.</strong> The saving is a property of the re-simulated schedule, not "sum of elided time":
+elided work off the critical path saves nothing; elided work on it can save less than its duration (a second chain takes
+over). This is exactly why the existing what-if machinery — not arithmetic over class totals — is the right substrate.</figcaption>
+</figure>
+
+<h3 id="gates">3.5 Gates and validation (how this earns trust)</h3>
+<table>
+<tr><th>Gate</th><th>What it asserts</th></tr>
+<tr><td><strong>Baseline invariance</strong></td><td>Empty CachedSet reproduces the baseline simulation <em>bit-for-bit</em> (same makespan, same per-op sim times). A unit test, run always.</td></tr>
+<tr><td><strong>Unreachability assertion</strong></td><td>An elided op demanded during replay (<code>finish</code>/<code>spawnTo</code> reaching one) is a hard counter (<code>ElidedOpDemanded</code>), zero by construction of the pre-pass — same never-compensate doctrine as <code>UnschedulableOps</code>. Non-zero fails the run's what-if-cached section.</td></tr>
+<tr><td><strong>Residual visibility</strong></td><td>Per hypothesis: elided op count/duration, kept regions (why + size), ineligible idents (why). Nothing silently dropped or absorbed.</td></tr>
+<tr><td><strong>Cold/warm calibration</strong> (Chunk 3)</td><td><strong style="color:var(--bad)">⚠ REFUTED AS DESIGNED (2026-07-06 — see the red state box up top).</strong> As written below, this metric grades the simulator against a different run's prices and conflates by-design re-execution with model error; its headline number is not a measure of simulator fidelity. Kept for the record: <s>The empirical loop this tool replaces is also its ground truth: profile a workload cold (run 1) and warm (run 2); feed run 2's <em>actual hit digests</em> as run 1's CachedSet; compare simulated makespan against run 2's actual makespan. Report the drift like the existing simulated-vs-actual baseline check. This is the number that tells the remote-cache team whether to trust the tool</s> — and it doubles as the regression harness for every future model refinement (incl. pullCost later).</td></tr>
+</table>
+
+<h3 id="sources">3.6 Both sources, day one</h3>
+<p>
+Digest-level semantics is what makes cross-source support nearly free — verified on this branch:
+</p>
+<ul>
+  <li><strong>Identity parity:</strong> native <code>call</code> ops are ident'd with <code>callKey</code> (the recipe digest,
+      <span class="filepath">cache.go:3722</span>); the OTel loader idents call ops with <code>dag.digest</code> — the same digest.
+      A digest CachedSet means the same thing against a native dump, a local otlpdump capture, or a Cloud trace.</li>
+  <li><strong>Outcome asymmetry doesn't matter here:</strong> OTel can't distinguish executed/joined — but elision doesn't
+      need to: all same-digest callers short-circuit, and the <code>call_exec</code> unit (present in OTel traces from the
+      augmented engine) elides with its parent region.</li>
+  <li><strong>Real OTel caveats, stated:</strong> <code>do_not_cache</code> isn't visible (eligibility check weakens to
+      "not marked cached"); the reflection/introspection class is skipped at emit. Both are report-level caveats on the
+      OTel path, not model changes. If they matter in practice, the fix is a small emit — decision #5 below.</li>
+</ul>
+
+<h2 id="impl">4. Implementation plan</h2>
+<p class="small">Chunked to land independently with tests, in the workstream's established style (each chunk reviewable alone; no pushes/PRs until you call it).</p>
+
+<div class="chunk">
+<div class="chead">Chunk 1 — the elision engine in the replay <span class="tag blue">wcanalyze</span></div>
+<div class="cbody">
+<p><strong>New file <code>engine/wcprof/wcanalyze/cached.go</code>:</strong></p>
+<ul>
+  <li><code>CachedHypothesis{Idents map[string]struct{}, PullCostNS int64}</code> and the resolution pre-pass:
+      subtree intervals over the nesting forest (one Euler-tour pass, computed once per graph and reused across candidate
+      sims), the external-demand test over wait edges, the keep fixpoint, and the resulting per-op state
+      (<code>elided[i]</code>, <code>hitShort[i]</code>, kept-region report data).</li>
+  <li>Eligibility classification per ident (executed / do_not_cache / error-only / all-hit / open).</li>
+</ul>
+<p><strong><code>replay.go</code> (small, surgical):</strong> <code>NewCachedSimulation(g, hyp)</code> wraps
+<code>NewSimulation</code> with the resolved state; <code>finish(i)</code> gains the hit short-circuit
+(<code>simStart + pullCost</code>); <code>advance</code>/<code>joinUpTo</code> skip actions whose <code>ref</code> is elided;
+<code>spawnTo</code>/<code>finish</code> increment <code>ElidedOpDemanded</code> if an elided op is ever demanded (assert-style,
+see §3.5). Roots that are themselves elided (none expected — roots are session-scoped) counted, not guessed.</p>
+<p><strong>Tests (<code>replay_cached_test.go</code>, synthetic graphs in the existing style):</strong></p>
+<ul>
+  <li>baseline invariance: empty hypothesis ≡ baseline sim exactly;</li>
+  <li>executor + joiner of one digest both become hits; downstream waiter's finish shifts left by the right amount;</li>
+  <li>elided subtree with an internal lock: fixed delay no longer charges anyone;</li>
+  <li>external wait into a region → whole region kept, root not short-circuited, counter reports it;</li>
+  <li>keep fixpoint: region A kept ⇒ its live op's wait into region B keeps B;</li>
+  <li>nested cached digests (inner digest's region inside outer's): union elides once, both roots hit;</li>
+  <li>critical-path shift: saving &lt; elided duration when a second chain takes over (Figure 3 as a test);</li>
+  <li><code>ElidedOpDemanded == 0</code> on all faithful fixtures; a deliberately-corrupted fixture trips it.</li>
+</ul>
+<p class="small">Authoritative coverage: validation catalog rows V1–V16 (§4.5). The chunk is not review-complete until they're all covered.</p>
+</div>
+</div>
+
+<div class="chunk">
+<div class="chead">Chunk 2 — selection, report, CLI <span class="tag blue">wcanalyze · cmd</span></div>
+<div class="cbody">
+<ul>
+  <li>Selector parsing (<code>--cached</code>, <code>--cached @file</code>, <code>--cached-class</code>, <code>--cached-exec</code>)
+      shared by <code>cmd/wcprof-analyze</code> and <code>cmd/wcprof-otel-analyze</code>; applied after <code>ClassifyExecs</code>
+      (same ordering discipline exec-decomp established — argv-based selection needs the classified graph).</li>
+  <li><code>RunWhatIfCached(g, candidates)</code> ranking pass (per-class groups of executed digests + top-N individual digests,
+      parallel sims, budget like <code>maxWhatIfClasses</code>) and the explicit-set detail section: baseline vs counterfactual,
+      eligibility + kept-region reporting, counterfactual blocking chain.</li>
+  <li>Report wiring in <code>report.go</code>; ranking table default-on when any executed calls exist, detail section behind the flags.</li>
+</ul>
+<p><strong>Tests:</strong> selector resolution (digest / file / class / argv; unknown digest → loud error), ranking on a synthetic
+multi-class graph, report golden-file checks in the existing style, OTel-source end-to-end on the committed testdata capture
+(select a digest visible in <code>baseline-simple-noservice.jsonl</code>, assert elision + savings line).
+Authoritative coverage: catalog rows V17–V21 (§4.5); Chunk 3 covers V22–V23.</p>
+</div>
+</div>
+
+<div class="chunk">
+<div class="chead">Chunk 3 — cold/warm calibration harness <span class="tag green">validation</span></div>
+<div class="cbody">
+<ul>
+  <li><code>hack/wcprof-cached-calibrate</code> (script + doc): run a chosen workload twice against a dev engine
+      (cold, then warm), capture both profiles, extract run 2's hit digests, simulate run 1 under that CachedSet, and print
+      <em>simulated vs actual warm makespan drift</em>.</li>
+  <li>An analyzer subcommand/flag (<code>--cached-from-run &lt;warm dump/trace&gt;</code>) so the digest-set extraction is a
+      first-class, testable step, not shell glue — it is also exactly the "comparing runs" primitive in miniature
+      (hit-set diff between two runs), so it seeds Track A's later work.</li>
+  <li>Acceptance: drift reported and understood on at least two real workloads (e.g. a module build and a
+      <code>Container.withExec</code>-heavy pipeline). No hard threshold in v1 — the deliverable is the honest number and the
+      explanation of its gap sources (scheduler assumptions, uninstrumented I/O, warm-run lazy decode).</li>
+</ul>
+</div>
+</div>
+
+<div class="chunk">
+<div class="chead">Chunk 4 — Stage 2 substrate: cache-DAG input edges <span class="tag amber">gated on your go — shared with Track A</span></div>
+<div class="cbody">
+<p>The one genuinely new data path, and it serves both tracks at once:</p>
+<ul>
+  <li><strong>OTel side (pure parsing):</strong> the loader starts consuming <code>dag.inputs</code> (already emitted on every
+      call span; currently discarded) into first-class cache-dependency edges in the IR — Track A's entire phase-1 gap.</li>
+  <li><strong>Native side (tiny emit at the perfect seam):</strong> <code>getOrInitCallInner</code> already computes the input
+      digests for the term lookup (<code>requestInputs</code>, <span class="filepath">cache.go:3713–3720</span>) — recording them
+      on the call op costs no extra digest work. This closes the native/OTel asymmetry Track A flagged.</li>
+  <li><strong>Then, and only if the kept-counters justify it:</strong> per-branch elision refinement inside kept regions,
+      designed against real residual data rather than speculation.</li>
+</ul>
+<p class="small">Note the prior doc's Stage 2 ("load the dropped reused-result links") is not buildable as written — those
+links were never emitted (§2.2). This chunk is the corrected form.</p>
+</div>
+</div>
+
+<div class="chunk">
+<div class="chead">Forward (not scheduled) — pull-cost model <span class="tag amber">seam only</span></div>
+<div class="cbody">
+<p><code>pullCost</code> is plumbed per-ident from Chunk 1 (v1 constant 0; a <code>--cached-pull-cost</code> escape hatch for
+crude sensitivity checks is nearly free and useful to the remote-cache team immediately). A <em>real</em> model —
+"pull or recompute?" — needs result/layer <strong>sizes</strong>, which nothing records today, plus a transfer-rate model.
+That's a future emit decision to design with the cachemoney folks; the calibration harness from Chunk 3 is already the
+right test bench for it when it comes.</p>
+</div>
+</div>
+
+<h3 id="catalog">4.5 Validation catalog — reasoned scenarios (doctrine §0.4 made concrete)</h3>
+<p>
+The authoritative test enumeration. Every row states the expected outcome <em>and why it must be so</em>; each becomes
+at least one committed test (synthetic graphs in the existing fixture style unless noted). The chunk lists above
+reference these; reviewers should treat a chunk as incomplete until its rows are covered.
+</p>
+<table>
+<tr><th>#</th><th>Scenario (setup)</th><th>Expected outcome — derived by reason</th><th>Chunk</th></tr>
+<tr><td>V1</td><td>Empty CachedSet on any graph (incl. the committed OTel testdata capture).</td><td>Bit-for-bit equal to the baseline sim: same makespan, same per-op sim times, zero new counters. Nothing was hypothesized, so nothing may differ.</td><td>1</td></tr>
+<tr><td>V2</td><td>Leaf digest cached: one executed <code>call</code> whose subtree is a single self-time block on the critical path.</td><td>Makespan shrinks by exactly that block minus any slack; the call's finish = start + pullCost. Equals the factor-0 answer for a true leaf — the one case where the old proxy was honest.</td><td>1</td></tr>
+<tr><td>V3</td><td>Orchestrator digest cached: <code>call</code> → <code>call_exec</code> → children carrying all the cost (call self ≈ 0).</td><td>Savings ≈ the subtree's critical contribution. Factor-0 on the same graph saves ≈ 0 — the pair of assertions <em>is</em> the motivating bug, pinned as a test.</td><td>1</td></tr>
+<tr><td>V4</td><td>Executor + joiner of one digest; a downstream op waits on the joiner's result.</td><td>Both callers become hits at their own recorded starts; the joiner's waiter is unblocked at joiner.start + pullCost; the elided <code>call_exec</code> is never demanded.</td><td>1</td></tr>
+<tr><td>V5</td><td>Same digest executed twice (dup execution, the <code>DupExecuted</code> case).</td><td>Both executions' regions elide; both callers hit. Digest-level semantics has no "first" caller.</td><td>1</td></tr>
+<tr><td>V6</td><td>Ident with one executed and one already-hit call op.</td><td>The recorded hit op is untouched (it was already a lookup); the executed one short-circuits; report notes the mixed ident.</td><td>1</td></tr>
+<tr><td>V7</td><td>Elided region containing a fixed-delay (lock) wait.</td><td>The delay charges nobody: its owner never runs. Makespan reflects its absence.</td><td>1</td></tr>
+<tr><td>V8</td><td>Outside op holds its own recorded lock delay on the same named resource an elided op also waited on.</td><td>The outside waiter's delay is <em>unchanged</em> (simplification #2, §3.3): the data names no holder, so no relief is granted. Pins the limitation so it can never silently "improve".</td><td>1</td></tr>
+<tr><td>V9</td><td>External wait into a candidate region (Figure 2: another client waits on a service started inside).</td><td>Whole region kept, recorded schedule preserved exactly, cached root NOT short-circuited, <code>kept: externally shared (N ops, X.Xs)</code> reported, savings for that ident = 0.</td><td>1</td></tr>
+<tr><td>V10</td><td>Keep-fixpoint chain: keeping region A revives a waiter whose wait targets region B.</td><td>B is kept too, in the second fixpoint round. Elide-decisions may only flip toward keep; the fixpoint terminates in ≤ #regions rounds.</td><td>1</td></tr>
+<tr><td>V11</td><td>All waits into a region come from same-digest callers (the singleflight norm).</td><td>Region elides: those waiters are themselves short-circuited hits, so no live demand exists. The common case must not be blocked by its own joiners.</td><td>1</td></tr>
+<tr><td>V12</td><td>Nested cached digests: inner digest's region strictly inside outer's.</td><td>Union elides once; both roots report as hits; no double-counting of elided duration in the residual report.</td><td>1</td></tr>
+<tr><td>V13</td><td>Critical-path shift: elided chain slightly longer than a parallel non-elided chain.</td><td>Saving = the <em>difference</em> of the chains, not the elided duration (Figure 3). Asserts savings come from re-simulation, not subtraction.</td><td>1</td></tr>
+<tr><td>V14</td><td>Ineligibility matrix: idents with <code>do_not_cache</code> / error-only / canceled-only / open-at-dump ops.</td><td>Each ineligible with its specific reason in the report; the sim result equals baseline for those idents. Simulating the engine caching what it refuses to cache is fiction, and fiction is refused loudly.</td><td>1</td></tr>
+<tr><td>V15</td><td>Corrupted fixture: an op inside an "elided" region referenced by a live wait the pre-pass was (deliberately) blinded to.</td><td><code>ElidedOpDemanded</code> &gt; 0 and the what-if-cached section fails its gate. The assert must be reachable and loud, never compensating.</td><td>1</td></tr>
+<tr><td>V16</td><td>pullCost &gt; 0 on V2's graph.</td><td>Finish shifts by exactly pullCost; savings shrink by exactly pullCost when the hit is on the critical path, by less (or zero) when slack absorbs it. The seam works before any real cost model exists.</td><td>1</td></tr>
+<tr><td>V17</td><td>Selector resolution: digest, <code>@file</code>, class pattern, argv pattern; unknown digest; pattern matching zero executed idents.</td><td>Each resolves to the reasoned digest set; unknowns and empty matches are loud errors, not silent no-ops.</td><td>2</td></tr>
+<tr><td>V18</td><td>Ranking non-additivity: two digests on one dependency chain, ranked individually and simulated jointly.</td><td>joint saving &lt; sum of individual savings; table header carries the non-additivity note. (Reason: the chains overlap; elision of one shifts the other off the critical path.)</td><td>2</td></tr>
+<tr><td>V19</td><td>Cross-source parity: the same synthetic workload expressed as native events and as OTel spans (existing dual-fixture style).</td><td>Identical CachedSet → identical elision decisions and savings. Digest identity is the same key on both sources; any divergence is a loader bug, not a model choice.</td><td>2</td></tr>
+<tr><td>V20</td><td>OTel end-to-end on committed testdata: cache a digest visible in <code>baseline-simple-noservice.jsonl</code>.</td><td>Elision + savings line appear; gate-clean. Exercises the real front-end path, not just Build().</td><td>2</td></tr>
+<tr><td>V21</td><td>Report goldens: ranking table, explicit-set detail, eligibility + kept-region sections.</td><td>Stable, deterministic output (the replay is deterministic by design; the report must not introduce map-order nondeterminism).</td><td>2</td></tr>
+<tr><td>V22</td><td>Calibration, mechanical half: extract hit digests from a warm capture (<code>--cached-from-run</code>) on fixtures where the hit set is known.</td><td>Exactly the digests whose warm outcome is hit; nothing inferred.</td><td>3</td></tr>
+<tr><td>V23</td><td>Calibration, empirical half: cold+warm runs of ≥2 real workloads; simulate cold under warm's hit set.</td><td>Deliverable is the honest drift number vs the warm run's actual makespan, plus an accounting of gap sources (unlimited-resource assumption, uninstrumented I/O, warm-run lazy decode). No threshold-gaming; the number is the product.</td><td>3</td></tr>
+<tr><td>V24</td><td><em>(A1)</em> withExec-shaped fixture: thin <code>call D</code> subtree; consumer's <code>call_exec</code> → <code>lazy</code> wrapper → <code>exec</code> child with Ident = D carrying the cost.</td><td>Caching D elides the exec subtree via the ident attribution; savings ≈ the exec's critical contribution; the lazy wrapper still replays (its thin residual is the stated remainder). Without A1 the same fixture must show ≈0 — both asserted, pinning why A1 exists.</td><td>A1</td></tr>
+<tr><td>V25</td><td><em>(A1)</em> Ancestor-vs-third-party demand: the lazy wrapper's own wait on its exec child (production demand), vs a separate live op waiting on something inside the exec subtree.</td><td>The ancestor wait does not keep the region (it is the removed production); the third-party wait keeps it whole with the kept-residual report. Exec ops with Ident = D when D ∉ CachedSet are untouched.</td><td>A1</td></tr>
+<tr><td>V26</td><td><em>(A1)</em> Re-run both V23 calibrations after A1.</td><td>The withExec pipeline's drift collapses from +533% to a small, explainable residual (wrapper phases + model assumptions). The module-build drift remains dominated by run-specific digests — stated simplification #1 quantified, remedy stays the post-v1 equivalence-fact emit. Honest numbers either way; both recorded in <code>hack/designs/whatif-cached-calibration.md</code>.</td><td>A1</td></tr>
+</table>
+
+<h2 id="stage2">5. Sequencing note: how this meets Track A</h2>
+<p>
+Chunks 1–3 are self-contained inside <code>wcanalyze</code>/<code>cmd</code> — no engine changes, no emit changes, usable on
+existing captures the day Chunk 2 lands. Chunk 4 is the deliberate convergence point: one data-path change
+(cache-DAG edges in the IR, both sources) that simultaneously unblocks Track A's invalidation frontier walk,
+Track A's run-comparison Merkle-diff, and Track B's precision refinement. I'd sequence it right after Chunk 2 if you
+want Track A moving in parallel, or after Chunk 3 if you want the calibration number first.
+</p>
+
+<h2 id="decisions">6. Decisions — settled (Erik, 2026-07-04)</h2>
+<div class="callout good">
+Erik adopted all recommendations below; the list is kept for the record. On #4 (calibration workloads) the working
+default is a dagger-repo module build + a <code>withExec</code>-heavy pipeline, to be revisited with the remote-cache
+(cachemoney) team. Erik also reviewed the e-graph question and accepted the recipe-digest-only simplification for v1
+(now stated as simplification #1, §3.1).
+</div>
+<ol class="qs">
+  <li><strong>v1 semantics sign-off:</strong> digest-level hypotheses + local-warm-hit model + whole-region elide-or-keep with
+      loud residuals (no partial elision, no bound claims). <span class="rec">My recommendation: yes — it's the largest design
+      point where I've overruled the prior scoping.</span></li>
+  <li><strong>Ranking candidates:</strong> per-class groups + top-N individual digests by default (my pick), or explicit-set-only
+      until the remote-cache team asks? <span class="rec">Recommend default-on ranking — it's the headline that makes the report
+      self-serve.</span></li>
+  <li><strong>Chunk 4 timing:</strong> after Chunk 2 (Track A moves sooner) or after Chunk 3 (calibration first)?
+      <span class="rec">Recommend after Chunk 3 — the calibration number is what makes everything downstream credible.</span></li>
+  <li><strong>Calibration workloads:</strong> which two real workloads should anchor Chunk 3? (Candidates: dagger-repo module
+      build; an integration-test pipeline; something from the cachemoney team's benchmarks.)</li>
+  <li><strong>OTel emit nits:</strong> is a small emit for <code>do_not_cache</code> visibility (and executed/joined if Track A
+      wants it) worth batching into Chunk 4's emit change, or defer entirely?
+      <span class="rec">Recommend batching into Chunk 4 — one emit review instead of two.</span></li>
+</ol>
+
+<h2 id="appendix">7. Appendix — verified code facts this design rests on</h2>
+<table>
+<tr><th>Fact</th><th>Where (this branch, <code>db1caae0</code>)</th></tr>
+<tr><td>Call op minted per caller; ident = recipe digest (<code>callKey</code>); outcome hit/executed/joined/do_not_cache; ResultID stamped at end.</td><td><span class="filepath">dagql/cache.go:3614, 3722, 3619–3629</span></td></tr>
+<tr><td>Input digests already computed at the call site (for term lookup) — the free native emit seam for Chunk 4.</td><td><span class="filepath">dagql/cache.go:3709–3720</span></td></tr>
+<tr><td><code>call_exec</code> is a child of the executing caller; joiners wait on it (<code>singleflight</code>/<code>call_exec</code> reasons); <code>publishResult</code> parented under it.</td><td><span class="filepath">dagql/cache.go:3772, 3999, 4072</span></td></tr>
+<tr><td>Lazy ops are parented under the <em>triggering</em> op and reached by <code>lazy</code> waits — so consumer-triggered lazy work is outside a producer's <em>nesting</em> region by construction. For lazy-producing calls this is where the production cost actually lives; Amendment A1 (§3.3) reclaims it via the exec op's explicit call-digest ident.</td><td><span class="filepath">dagql/cache.go:3045, 2988, 3141; engineutil/executor.go:130–138</span></td></tr>
+<tr><td><code>LinkKindResult</code>/<code>LinkKindReusedResult</code>: defined, never emitted; only link emit is nested-client.</td><td><span class="filepath">wcprof.go:210–235; engineutil/executor.go:144</span></td></tr>
+<tr><td>Replay: per-class factors only; applied at <code>actSelf</code>; <code>finish/advance</code> always descend; <code>joinUpTo</code> finishes ended children at every action point; <code>spawnTo</code> prefix-anchors out-of-order references; order-independence enforced via <code>SimStartConflicts</code>/<code>UnschedulableOps</code>.</td><td><span class="filepath">wcanalyze/replay.go</span></td></tr>
+<tr><td>OTel loader: call-op ident = <code>dag.digest</code>; outcome from <code>CachedAttr</code> → hit else ok/error/canceled; <code>dag.inputs</code> present on spans (incl. committed testdata) and currently unread; only <code>nested_client</code> links consumed by the graph builder.</td><td><span class="filepath">wcotel/loader.go:375–415, 505–532; wcanalyze/graph.go:296; wcotel/testdata/*.jsonl</span></td></tr>
+</table>
+
+<p class="small" style="margin-top:2.5rem">
+Sources: my own code verification on this branch; the full prior scoping doc
+<code>whatif-cached-simulation-scoping.md</code> (retrieved verbatim from the VM worktree via the Codex holder agent), and the
+Track A doc's back half for the convergence points. Governing principle throughout: analysis is a rational function of
+faithful data — residuals are measured and printed, never silently absorbed.
+</p>
+
+</div>
+</div>
+<script>
+(function () {
+  var wrap = document.querySelector('.wrap');
+
+  // Accordionize: each h2 owns the siblings up to the next h2.
+  var h2s = Array.prototype.slice.call(wrap.querySelectorAll('h2'));
+  h2s.forEach(function (h) {
+    var body = document.createElement('div');
+    body.className = 'sec-body';
+    var n = h.nextSibling;
+    while (n && !(n.nodeType === 1 && n.tagName === 'H2')) {
+      var next = n.nextSibling;
+      body.appendChild(n);
+      n = next;
+    }
+    h.parentNode.insertBefore(body, h.nextSibling);
+    h.classList.add('sec-toggle');
+    h.addEventListener('click', function () { setSec(h, !h.classList.contains('collapsed')); });
+  });
+  function setSec(h, collapsed) {
+    h.classList.toggle('collapsed', collapsed);
+    h.nextElementSibling.style.display = collapsed ? 'none' : '';
+  }
+  function setAll(collapsed) { h2s.forEach(function (h) { setSec(h, collapsed); }); }
+  document.getElementById('expandAll').addEventListener('click', function () { setAll(false); });
+  document.getElementById('collapseAll').addEventListener('click', function () { setAll(true); });
+
+  // Sidebar TOC from h2 + h3 (trim long titles at em-dash/paren).
+  var toc = document.getElementById('sideToc');
+  var auto = 0;
+  var heads = Array.prototype.slice.call(wrap.querySelectorAll('h2, h3'));
+  var linkById = {};
+  heads.forEach(function (h) {
+    if (!h.id) h.id = 'sec-auto-' + (auto++);
+    var li = document.createElement('li');
+    li.className = h.tagName === 'H3' ? 'lvl3' : 'lvl2';
+    var a = document.createElement('a');
+    a.href = '#' + h.id;
+    var t = h.textContent.replace(/\s+/g, ' ').trim();
+    t = t.split(' — ')[0].split(' (')[0];
+    a.textContent = t;
+    a.addEventListener('click', function () { expandFor(h); });
+    li.appendChild(a);
+    toc.appendChild(li);
+    linkById[h.id] = a;
+  });
+
+  // Expand the owning section when navigating to a heading inside it.
+  function owningH2(h) {
+    if (h.tagName === 'H2') return h;
+    var p = h;
+    while (p && !(p.classList && p.classList.contains('sec-body'))) p = p.parentNode;
+    return p ? p.previousElementSibling : null;
+  }
+  function expandFor(h) {
+    var h2 = owningH2(h);
+    if (h2 && h2.classList.contains('collapsed')) setSec(h2, false);
+  }
+  window.addEventListener('hashchange', function () {
+    var t = document.getElementById(location.hash.slice(1));
+    if (t) { expandFor(t); t.scrollIntoView(); }
+  });
+
+  // Scrollspy: highlight the TOC entry for the heading nearest the viewport top.
+  function spy() {
+    var best = null, bestTop = -Infinity;
+    heads.forEach(function (h) {
+      if (h.offsetParent === null) return; // hidden (collapsed section)
+      var top = h.getBoundingClientRect().top;
+      if (top <= 90 && top > bestTop) { best = h; bestTop = top; }
+    });
+    if (!best) best = heads[0];
+    var act = toc.querySelector('a.active');
+    if (act) act.classList.remove('active');
+    var a = linkById[best.id];
+    if (a) { a.classList.add('active'); }
+  }
+  var ticking = false;
+  window.addEventListener('scroll', function () {
+    if (!ticking) { ticking = true; requestAnimationFrame(function () { spy(); ticking = false; }); }
+  }, { passive: true });
+  spy();
+})();
+</script>
+</body>
+</html>

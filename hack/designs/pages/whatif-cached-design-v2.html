@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What-if-cached — design</title>
+<style>
+  :root {
+    --ink: #1a1f27; --muted: #5b6572; --line: #dde3ea; --bg: #ffffff;
+    --panel: #f6f8fa; --accent: #0b62a4; --good: #1a7f37; --bad: #b42318;
+    --warn: #9a6700; --code-bg: #eef1f5;
+  }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; color: var(--ink); background: var(--bg);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  .layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); }
+  #sidebar { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+    border-right: 1px solid var(--line); background: var(--panel); padding: 1.1rem .9rem 2rem; font-size: .84rem; }
+  .side-head { font-weight: 700; margin-bottom: .3rem; }
+  .side-actions { margin: .4rem 0 .7rem; display: flex; gap: .4rem; }
+  .side-actions button { font-size: .72rem; padding: .18rem .55rem; border: 1px solid var(--line);
+    background: #fff; border-radius: 4px; cursor: pointer; color: var(--muted); }
+  .side-actions button:hover { color: var(--ink); }
+  #sideToc { list-style: none; padding: 0; margin: 0; }
+  #sideToc a { display: block; color: var(--muted); text-decoration: none;
+    padding: .22rem .5rem; border-left: 2px solid transparent; border-radius: 0 4px 4px 0; line-height: 1.3; }
+  #sideToc a:hover { color: var(--ink); background: #eef1f5; }
+  #sideToc a.active { color: var(--accent); border-left-color: var(--accent); background: #eaf3fb; font-weight: 600; }
+  #sideToc li.lvl3 a { padding-left: 1.4rem; font-size: .78rem; }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 2.2rem 1.6rem 5rem; }
+  h1 { font-size: 1.7rem; line-height: 1.25; margin: .2rem 0 .3rem; }
+  h2 { font-size: 1.28rem; margin: 2.6rem 0 .7rem; padding-top: 1.2rem; border-top: 1px solid var(--line); }
+  h3 { font-size: 1.05rem; margin: 1.7rem 0 .45rem; }
+  h4 { font-size: .95rem; margin: 1.4rem 0 .4rem; }
+  h2, h3 { scroll-margin-top: .8rem; }
+  h2.sec-toggle { cursor: pointer; user-select: none; }
+  h2.sec-toggle::before { content: "▾ "; color: var(--muted); font-size: .78em; }
+  h2.sec-toggle.collapsed::before { content: "▸ "; }
+  h2.sec-toggle:hover { color: var(--accent); }
+  p { margin: .55rem 0; }
+  .sub { color: var(--muted); font-size: .95rem; margin-bottom: 1.4rem; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .86em; background: var(--code-bg); border-radius: 4px; }
+  code { padding: .08em .35em; }
+  pre { padding: .8rem 1rem; overflow-x: auto; line-height: 1.5; }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: .9rem 0; font-size: .92rem; }
+  th, td { border: 1px solid var(--line); padding: .45rem .6rem; text-align: left; vertical-align: top; }
+  th { background: var(--panel); font-weight: 600; }
+  .box { background: #eaf3fb; border: 1px solid #bcd8ee; border-left: 4px solid var(--accent);
+    border-radius: 6px; padding: 1rem 1.2rem; margin: 1.4rem 0; }
+  .box h2 { border: none; margin: 0 0 .5rem; padding: 0; font-size: 1.05rem; }
+  .callout { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--warn);
+    border-radius: 6px; padding: .7rem 1rem; margin: 1rem 0; font-size: .95rem; }
+  .callout.good { border-left-color: var(--good); }
+  figure { margin: 1.4rem 0; }
+  figcaption { color: var(--muted); font-size: .88rem; margin-top: .45rem; line-height: 1.45; }
+  .fig { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .8rem; }
+  ul, ol { padding-left: 1.5rem; }
+  li { margin: .25rem 0; }
+  .filepath { white-space: nowrap; }
+  .small { font-size: .88rem; color: var(--muted); }
+  @media (max-width: 920px) {
+    .layout { grid-template-columns: 1fr; }
+    #sidebar { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+<nav id="sidebar" aria-label="Contents">
+  <div class="side-head">Contents</div>
+  <div class="side-actions">
+    <button id="expandAll" type="button">expand all</button>
+    <button id="collapseAll" type="button">collapse all</button>
+  </div>
+  <ul id="sideToc"></ul>
+</nav>
+<div class="wrap">
+
+<h1>What-if-cached: design</h1>
+<p class="sub">
+  wcprof cache-performance analysis · 2026-07-06 · verified against the implementation at commit
+  <code>bb7625e2c</code> <em>and</em> against the engine's caching machinery and op implementations — the dagql cache
+  core, lazy evaluation, key derivation/scoping, and the Container/Directory/File/from/services/module/host resolvers
+  (every mechanism statement here was checked against that code; the map is in the appendix).
+</p>
+
+<div class="box">
+<h2>What this tool does, in plain words</h2>
+<p>
+You record one run of a Dagger workload with the wall-clock profiler. You then ask: <em>"how long would this run have
+taken if these operations had been cache hits?"</em> The tool answers by re-simulating the recorded run with those
+operations' work removed — the same discrete-event replay that powers the profiler's existing bottleneck rankings.
+The answer is about <strong>the recorded run</strong>: its prices, its schedule, its concurrency. The primary customer
+is the remote-caching effort, which today answers such questions by actually running workloads with and without cache —
+slow, expensive, and unable to explore many strategies. One recorded run plus many cheap simulations replaces that loop.
+</p>
+</div>
+
+<h2 id="doctrine">1. The doctrine (binding for every line of this feature)</h2>
+<ol>
+  <li><strong>The model must make sense on its own.</strong> For any hypothesis there is a single answer derivable by
+      logic from the recorded data, and that is the answer the tool must produce. Nothing else.</li>
+  <li><strong>The analyzer takes the data exactly as it is.</strong> It never compensates for missing, unresolvable, or
+      inconvenient data — no silent defaults, no guessed values, no assumed demand, no inferred producers, no heuristics
+      under any name. Where data is missing, the fix is on the recording side.</li>
+  <li><strong>Degradation is bounded, counted, and loud.</strong> When the analyzer must act on incomplete data, its
+      behavior stays a pure function of what <em>is</em> recorded, every firing increments a visible counter, and a gate
+      fails (or the report refuses) when firing could change the answer — unless the degradation is provably harmless,
+      with the proof written down.</li>
+  <li><strong>Every causal claim is verified with its evidence shown, or labeled a hypothesis with its discriminating
+      test named in the same sentence.</strong> This applies to design documents, reports, and conversation alike.</li>
+  <li><strong>Model simplifications are stated, with their error direction, and visible in output</strong> — counts and
+      durations, not adjectives. The refinement path for a simplification must be a data path, never an analyzer
+      heuristic.</li>
+</ol>
+<p class="small">
+Consequence for testing: because answers are derivable by logic, every test scenario states its expected outcome
+<em>before</em> running — the reasoned catalog in <code>hack/designs/whatif-cached-design.md</code> is the feature's
+primary QA instrument (§7.1).
+</p>
+
+<h2 id="goal">2. The question, precisely — and the non-goals</h2>
+<p>
+<strong>In scope:</strong> given one profiled run and a set of operations hypothesized as cached, compute the run's
+counterfactual wall-clock: which recorded work would not have run, and what the schedule — with all its real
+concurrency, waits, and critical-path shifts — would then have looked like. Rank candidate operations by that saving.
+</p>
+<p><strong>Out of scope, by the nature of the problem (each is a stated boundary, not a defect):</strong></p>
+<table>
+<tr><th>Not modeled</th><th>Why</th></tr>
+<tr><td>Another run's absolute time</td><td>a different run has its own prices (network, disk, load) that no simulation
+of <em>this</em> run can know; comparisons across runs must respect that (§7.4)</td></tr>
+<tr><td>Cache hits for scope-limited keys beyond their scope</td><td>the engine deliberately mixes scope values into
+some cache keys: per-client, per-session (<code>Container.from</code> with a tag — but a digest-pinned ref is exempt and
+fully cacheable), per-schema, per-call (a fresh random value every invocation — such calls can never hit at all), and
+arg-driven (<code>noCache</code>-style arguments). These keys cannot hit beyond their scope, by design (§5.3)</td></tr>
+<tr><td>Content reuse below the dagql cache</td><td>layer/snapshot sharing in the underlying stores is not addressed by
+recipe digests; a recipe-digest simulator has no honest claim there</td></tr>
+<tr><td>Lock-contention relief</td><td>lock waits record the waiter and duration, not the holder; removing a
+lock-holder therefore never shortens another waiter's recorded delay (error direction: savings understated)</td></tr>
+<tr><td>Resource limits</td><td>inherited from the replay's model: unlimited CPU/disk, so freed resources don't speed up
+surviving work (savings understated on saturated machines)</td></tr>
+</table>
+
+<h2 id="data">3. What the engine records</h2>
+<p>
+The profiler records three event types at the engine's blocking choke points: <strong>operations</strong> (timed
+intervals), <strong>waits</strong> (exact blocked-on intervals), and <strong>links</strong> (non-blocking facts).
+Everything below exists identically on both recording paths — the native in-memory recorder and the OTel span pipeline
+that feeds Dagger Cloud — and one shared graph builder consumes both.
+</p>
+
+<h3 id="data-ops">3.1 Operations and their cache identities</h3>
+<table>
+<tr><th>Op kind</th><th>What it is</th><th>Its recorded identity (<code>Ident</code>)</th></tr>
+<tr><td><code>call</code></td><td>one dagql cache request, per caller — hits included</td><td>the call's <strong>recipe
+digest</strong> (the cache key)</td></tr>
+<tr><td><code>call_exec</code></td><td>the shared execution of a call's resolver; concurrent same-recipe callers wait on
+one of these</td><td>the same recipe digest</td></tr>
+<tr><td><code>lazy</code></td><td>one run of a result's deferred work (the second phase of a two-phase operation, §3.2),
+recorded under whichever op <em>first used</em> the result</td><td>the recipe digest of the call <strong>whose result it
+produces</strong></td></tr>
+<tr><td><code>exec</code></td><td>a container run by the executor</td><td>the recipe digest of the owning
+<code>withExec</code> call</td></tr>
+<tr><td><code>service_start</code></td><td>service startup + health check</td><td>a content digest — recorded for
+reporting, but service startup is per-session <em>readiness</em>, not result production: a warm run re-starts services
+even when every result is cached, so this ident never participates in removal (§4.3)</td></tr>
+<tr><td>others (<code>exec_phase</code>, <code>io</code>, <code>session_phase</code>, …)</td><td>setup phases, leaf I/O,
+session serving</td><td>not call digests; never match a hypothesis</td></tr>
+</table>
+<p>
+A call op also records its <strong>outcome</strong> — <code>hit</code> (cached, payload ready),
+<code>hit_pending</code> (cached, deferred work not yet run — see §3.2), <code>executed</code>, <code>joined</code>,
+<code>do_not_cache</code>, <code>ok</code> (the OTel form of a non-hit success), error/canceled — its
+<strong>input digests</strong> (the structural inputs of its cache key, recorded at zero extra cost because the cache
+computes them for its own lookup), and the engine-local <strong>result id</strong> it returned.
+</p>
+<p class="small">
+Three engine facts behind this table, verified in the cache core: <em>implicit inputs</em> — including the scope values
+of §5.3 — are hashed into the recipe digest itself and are <em>not</em> among the recorded structural input digests,
+which is why scope is invisible to the analyzer today. <em>Label stability is provable:</em> when the engine later
+teaches a result a content digest, it forks the call frame — but extra digests are excluded from the recipe hash, so
+labels derived after teaching still equal the call's recorded digest. <em>In-flight deduplication is per client</em>, so
+two clients executing the same digest concurrently produce two recorded executions of it — digest-level semantics
+handles both identically. And errored executions publish no cached result, which grounds the "failures only"
+eligibility refusal (§5.1).
+</p>
+
+<h3 id="data-twophase">3.2 Two-phase operations: where deferred work is recorded</h3>
+<p>
+Most expensive dagql operations run in two phases. The call itself does cheap synchronous work (build the plan; for
+<code>Container.from</code>, also resolve the registry config). The real work — running the container, materializing a
+filesystem, pulling layers — runs <em>later</em>, when some operation first uses the result, and is recorded under that
+<em>consumer</em>, wrapped in a <code>lazy</code> op. 67 deferred-work recipe types implement this across the Container
+(49), Directory (13), and File (5) families — each with a persisted twin, 133 type declarations in all (count-verified);
+git, http, host imports, module loading, and services have no such types and do their work inside the call itself. The
+cache has one entry per <em>call</em>; whether the deferred work has run yet is a separate flag on the cached result —
+which is why a hit can be <code>hit</code> (work done, payload ready) or <code>hit_pending</code> (recipe cached, first
+materialization still owed). Two further engine behaviors shape the recorded graphs: a deferred-work recipe usually
+begins by <em>materializing its parent</em>, so forcing one result can chain into ancestors' deferred work — each run is
+its own <code>lazy</code> op carrying its own producer's digest, which is exactly why regions nest and the removal rule
+unions them; and a <em>failed</em> evaluation leaves the result pending and retryable — a retry is a fresh
+<code>lazy</code> op with the same label, so all attempts join the same digest's regions.
+</p>
+
+<figure class="fig">
+<svg viewBox="0 0 920 330" font-family="ui-monospace, Menlo, monospace" font-size="12">
+  <defs>
+    <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b6572"/>
+    </marker>
+    <marker id="a1r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#b42318"/>
+    </marker>
+  </defs>
+  <text x="20" y="22" font-weight="bold">THE RECORDED SHAPE OF A TWO-PHASE OPERATION (cold run)</text>
+
+  <rect x="20" y="44" width="170" height="30" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="30" y="63">client root</text>
+
+  <rect x="20" y="110" width="235" height="46" rx="5" fill="#fff" stroke="#0b62a4" stroke-width="1.6"/>
+  <text x="30" y="129">call withExec — <tspan font-weight="bold">Ident = D</tspan></text>
+  <text x="30" y="146" fill="#5b6572" font-size="11">phase 1: builds the plan (cheap)</text>
+
+  <rect x="330" y="102" width="180" height="30" rx="5" fill="#fff" stroke="#0b62a4"/>
+  <text x="340" y="121">call stdout (consumer)</text>
+  <rect x="360" y="150" width="170" height="28" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="370" y="168">call_exec stdout</text>
+  <rect x="390" y="196" width="270" height="30" rx="5" fill="#dcebf7" stroke="#0b62a4" stroke-width="1.6"/>
+  <text x="400" y="215">lazy — <tspan font-weight="bold">Ident = D</tspan> (produces D's result)</text>
+  <rect x="420" y="244" width="300" height="30" rx="5" fill="#dcebf7" stroke="#0b62a4" stroke-width="1.6"/>
+  <text x="430" y="263">exec: the container run — <tspan font-weight="bold">Ident = D</tspan></text>
+  <rect x="450" y="292" width="180" height="26" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="460" y="309">exec phases, publish…</text>
+
+  <line x1="90" y1="74" x2="110" y2="110" stroke="#5b6572" marker-end="url(#a1)"/>
+  <line x1="150" y1="74" x2="410" y2="102" stroke="#5b6572" marker-end="url(#a1)"/>
+  <line x1="420" y1="132" x2="440" y2="150" stroke="#5b6572" marker-end="url(#a1)"/>
+  <line x1="450" y1="178" x2="500" y2="196" stroke="#5b6572" marker-end="url(#a1)"/>
+  <line x1="520" y1="226" x2="560" y2="244" stroke="#5b6572" marker-end="url(#a1)"/>
+  <line x1="580" y1="274" x2="540" y2="292" stroke="#5b6572" marker-end="url(#a1)"/>
+
+  <path d="M 420 211 C 300 211, 260 170, 252 158" fill="none" stroke="#b42318" stroke-dasharray="5 3" marker-end="url(#a1r)"/>
+  <text x="140" y="188" fill="#b42318">wait: the wrapper blocks on production</text>
+
+  <text x="680" y="120" fill="#1a7f37" font-weight="bold">phase 2 — the real cost,</text>
+  <text x="680" y="136" fill="#1a7f37" font-weight="bold">recorded under the CONSUMER,</text>
+  <text x="680" y="152" fill="#1a7f37" font-weight="bold">carrying D's digest as its label</text>
+</svg>
+<figcaption><strong>Figure 1.</strong> <code>from(...).withExec(["go","build"]).stdout()</code> as recorded. The
+withExec <em>call</em> (left) is a cheap plan-builder. The container run happens when <code>stdout</code> first uses
+the result — under the consumer's subtree — but every op performing that deferred production records <strong>which
+call's result it produces</strong> (blue boxes, <code>Ident = D</code>). That explicit label is what lets the
+simulator find a call's full cost no matter where it was recorded.</figcaption>
+</figure>
+
+<h3 id="data-facts">3.3 Use-markers, and the two suppression counters</h3>
+<p>
+One consumption path would otherwise be invisible: an operation that uses a result whose deferred work <em>already
+ran</em> takes a fast path that does nothing — and records nothing. So the engine leaves a <strong>use-marker</strong>
+there (a zero-duration <code>forced</code> link): "this op needed the result of call digest D, whose production was
+already complete," pointing at the producing lazy op when this run recorded it. Markers are deduplicated per user, are
+never timing events, and exist solely so the simulator can see late consumers of nested production (§4.4).
+</p>
+<p>
+Two recording-side counters ride in every capture, because these omissions could change answers if they were silent:
+</p>
+<ul>
+  <li><strong>Ident-derivation failures</strong> — a lazy op's producer digest could not be derived, so its label and
+      any use-marker were omitted. Expected zero (the digest is memoized from the cache lookup that admitted the
+      result); the analysis <strong>refuses</strong> a capture with a nonzero count.</li>
+  <li><strong>Uninstrumented users</strong> — a use-marker was not emitted because the using context carried no
+      recorded op (demand from outside the instrumented graph, e.g. an unprofiled session). A declared model boundary,
+      printed as a caveat: savings may be overstated for production such users demanded.</li>
+</ul>
+<p class="small">
+On the OTel path both facts travel as span links (one per firing, so the tally is exact, and losing one shows up as a
+dropped link — which the structural gate refuses on any trace carrying wait, marker, or suppression links).
+</p>
+
+<h2 id="semantics">4. The counterfactual: what "cached" means and what gets removed</h2>
+
+<h3 id="hypothesis">4.1 The hypothesis</h3>
+<p>
+A hypothesis is a set of <strong>recipe digests</strong> plus a <strong>hit cost</strong> (default 0). Digest-level —
+not per-op — because that is what caching means: if digest D's result is in the cache, <em>every</em> caller of D hits,
+the executor and all its concurrent joiners alike. The hit cost models what a hit itself costs; zero is the
+<em>local warm hit</em>: the payload is materialized and free to return. (A remote hit that must pull data, and a
+pending hit that must still materialize on first use, are the same seam with a nonzero cost charged at the right place
+— future work, §8.1.)
+</p>
+
+<h3 id="removal">4.2 The removal rule</h3>
+<p>For each hypothesized digest D, resolved <strong>statically, before the replay runs</strong>:</p>
+<ol>
+  <li><strong>Every successful non-hit <code>call</code> op with ident D becomes a hit:</strong> it finishes at
+      <code>its start + hit cost</code>, replaying none of its recorded self-time, waits, or children. Calls that were
+      already recorded hits are untouched — they were already just lookups.</li>
+  <li><strong>D's producing work is removed as whole regions:</strong> the subtree under each such call, <em>plus</em>
+      the subtree (root included) of every op whose recorded label says "I produce D's result" — the lazy wrappers and
+      container runs of Figure 1, wherever in the graph they were recorded.</li>
+  <li><strong>A region that anything live still needs is not partially removed — it is kept whole</strong>, replays
+      exactly as recorded, and is reported with the reason and its size (§4.4). Partial removal is forbidden because it
+      would require inventing start times for surviving fragments; keeping the whole region keeps the replay's
+      order-independence intact.</li>
+</ol>
+
+<figure class="fig">
+<svg viewBox="0 0 920 350" font-family="ui-monospace, Menlo, monospace" font-size="12">
+  <defs>
+    <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b6572"/>
+    </marker>
+    <marker id="a2g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#1a7f37"/>
+    </marker>
+  </defs>
+  <text x="20" y="22" font-weight="bold">THE SAME RUN, SIMULATED WITH D CACHED</text>
+
+  <rect x="20" y="44" width="170" height="30" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="30" y="63">client root</text>
+
+  <rect x="20" y="110" width="235" height="46" rx="5" fill="#e8f4ec" stroke="#1a7f37" stroke-width="1.8"/>
+  <text x="30" y="129">call withExec D → <tspan font-weight="bold" fill="#1a7f37">hit</tspan></text>
+  <text x="30" y="146" fill="#1a7f37" font-size="11">finish = start + hit cost</text>
+
+  <rect x="330" y="102" width="180" height="30" rx="5" fill="#fff" stroke="#0b62a4"/>
+  <text x="340" y="121">call stdout (consumer)</text>
+  <rect x="360" y="150" width="170" height="28" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="370" y="168">call_exec stdout — <tspan fill="#1a7f37" font-weight="bold">unblocked sooner</tspan></text>
+
+  <g opacity="0.45">
+    <rect x="384" y="190" width="350" height="140" rx="8" fill="#eef1f5" stroke="#c9d4de" stroke-dasharray="7 4"/>
+    <rect x="390" y="200" width="270" height="28" rx="5" fill="#fff" stroke="#c9d4de"/>
+    <text x="400" y="218" fill="#5b6572">lazy (Ident = D)</text>
+    <rect x="420" y="240" width="300" height="28" rx="5" fill="#fff" stroke="#c9d4de"/>
+    <text x="430" y="258" fill="#5b6572">exec (Ident = D)</text>
+    <rect x="450" y="280" width="180" height="26" rx="5" fill="#fff" stroke="#c9d4de"/>
+    <text x="460" y="297" fill="#5b6572">exec phases, publish…</text>
+  </g>
+  <text x="756" y="264" fill="#5b6572" font-weight="bold">REMOVED</text>
+
+  <line x1="90" y1="74" x2="110" y2="110" stroke="#5b6572" marker-end="url(#a2)"/>
+  <line x1="150" y1="74" x2="410" y2="102" stroke="#5b6572" marker-end="url(#a2)"/>
+  <line x1="420" y1="132" x2="440" y2="150" stroke="#5b6572" marker-end="url(#a2)"/>
+
+  <path d="M 445 178 C 460 186, 470 190, 480 198" fill="none" stroke="#1a7f37" stroke-width="1.6" marker-end="url(#a2g)"/>
+  <text x="20" y="210" fill="#1a7f37" font-weight="bold">the wrapper's launch of the removed</text>
+  <text x="20" y="226" fill="#1a7f37" font-weight="bold">production, and its wait on it, are</text>
+  <text x="20" y="242" fill="#1a7f37" font-weight="bold">WAIVED — that demand is exactly what</text>
+  <text x="20" y="258" fill="#1a7f37" font-weight="bold">the hypothesis satisfies (counted,</text>
+  <text x="20" y="274" fill="#1a7f37" font-weight="bold">printed, never silent)</text>
+
+  <text x="20" y="340" fill="#1a1f27">saving = re-simulated makespan difference — measured by replaying the whole schedule, never by adding up removed time.</text>
+</svg>
+<figcaption><strong>Figure 2.</strong> Figure 1's run under the hypothesis "D was cached." The call becomes a hit; the
+labeled production regions are removed wherever they were recorded; the consumer's chain reflows earlier. Waits that
+exist only to launch or await the removed production are waived — they are the demand the cache hit satisfies. All
+other waits into a removed region would have <em>kept</em> it instead (Figure 3).</figcaption>
+</figure>
+
+<h3 id="keep">4.3 When removal is refused: the keep rule</h3>
+<p>
+Before anything is removed, every candidate region is tested: <em>does any live operation still need work inside
+it?</em> "Live" means: not itself removed, and not a hit under this same hypothesis. Three kinds of recorded evidence
+count as demand, and any one of them keeps the whole region, replayed exactly as recorded, with the reason printed:
+</p>
+<table>
+<tr><th>Demand evidence</th><th>Rule</th></tr>
+<tr><td>A <strong>gating wait</strong> from a live op targeting an op inside the region</td><td>keeps it — with two
+reasoned exceptions that are <em>satisfied</em> demand, waived and counted instead: a wait from the region root's own
+ancestors (the consumer chain that launched the production), and a join on a removed lazy region's root (a concurrent
+user of that same production — under a warm hit, both get the payload for free)</td></tr>
+<tr><td>A <strong>use-marker</strong> from a live op naming production inside the region (§3.3)</td><td>keeps it —
+unless the marker's digest is itself hypothesized as cached (then its user hits the cache and demands nothing). A
+marker whose recorded target predates profiling degrades to a containment test over recorded labels — still pure
+recorded data, only able to <em>add</em> keeps — and any keep it produces is separately counted and marked as degraded
+evidence in the ranking.</td></tr>
+<tr><td><strong>Structure:</strong> the region's root sits inside another region that was kept</td><td>keeps it — the
+kept region replays as recorded, which includes launching this one</td></tr>
+</table>
+<p>
+Keeping can revive demand (a kept region's ops are live again), so the test iterates to a fixed point — removal
+decisions only ever flip toward keeping, so it terminates. Two attribution rules from §3.1 apply throughout:
+<strong>service startup never roots a region and never counts as production evidence</strong> (it is per-session
+readiness a warm run re-pays), and an execution op nested directly under its own same-digest call adds no second region
+(the call's subtree already covers it).
+</p>
+
+<figure class="fig">
+<svg viewBox="0 0 920 250" font-family="ui-monospace, Menlo, monospace" font-size="12">
+  <defs>
+    <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b6572"/>
+    </marker>
+    <marker id="a3r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#b42318"/>
+    </marker>
+  </defs>
+  <text x="30" y="24" font-weight="bold">Region with no live demand → REMOVED</text>
+  <g opacity="0.45">
+    <rect x="30" y="40" width="330" height="150" rx="8" fill="#eef1f5" stroke="#c9d4de" stroke-dasharray="7 4"/>
+    <rect x="50" y="56" width="150" height="28" rx="5" fill="#fff" stroke="#c9d4de"/>
+    <text x="60" y="74" fill="#5b6572">lazy (Ident = D)</text>
+    <rect x="70" y="100" width="130" height="26" rx="5" fill="#fff" stroke="#c9d4de"/>
+    <text x="80" y="117" fill="#5b6572">exec</text>
+    <rect x="70" y="140" width="130" height="26" rx="5" fill="#fff" stroke="#c9d4de"/>
+    <text x="80" y="157" fill="#5b6572">nested calls…</text>
+  </g>
+  <text x="40" y="215" fill="#1a7f37" font-weight="bold">✓ removed whole; savings flow to every</text>
+  <text x="40" y="231" fill="#1a7f37" font-weight="bold">consumer-turned-hit</text>
+
+  <text x="510" y="24" font-weight="bold">Live demand into the region → KEPT (whole)</text>
+  <rect x="510" y="40" width="330" height="150" rx="8" fill="#fff8ec" stroke="#9a6700"/>
+  <rect x="530" y="56" width="150" height="28" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="540" y="74">lazy (Ident = D)</text>
+  <rect x="550" y="100" width="180" height="26" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="560" y="117">nested call, digest E</text>
+  <rect x="700" y="205" width="185" height="30" rx="5" fill="#fff" stroke="#0b62a4" stroke-width="1.6"/>
+  <text x="710" y="224">live op elsewhere</text>
+  <line x1="770" y1="205" x2="650" y2="126" stroke="#b42318" stroke-dasharray="5 3" marker-end="url(#a3r)"/>
+  <text x="660" y="172" fill="#b42318">wait / use-marker on E</text>
+  <text x="520" y="215" fill="#9a6700" font-weight="bold">⚠ kept: externally demanded (N ops, X.Xs) —</text>
+  <text x="520" y="231" fill="#9a6700" font-weight="bold">printed with demander and reason</text>
+</svg>
+<figcaption><strong>Figure 3.</strong> The keep rule. Left: the common case — nothing live touches the region, it
+vanishes. Right: some live operation needs work that happens to sit inside D's production (here a nested call of a
+different digest E) — the counterfactual cannot honestly remove work a survivor needs, and it will not invent a new
+schedule for a fragment, so the whole region stays, loudly.</figcaption>
+</figure>
+
+<h3 id="markers-why">4.4 Why use-markers exist, in one picture</h3>
+<figure class="fig">
+<svg viewBox="0 0 920 200" font-family="ui-monospace, Menlo, monospace" font-size="12">
+  <defs>
+    <marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b6572"/>
+    </marker>
+    <marker id="a4r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#b42318"/>
+    </marker>
+  </defs>
+  <rect x="20" y="30" width="380" height="120" rx="8" fill="#eef1f5" stroke="#c9d4de" stroke-dasharray="7 4" opacity="0.6"/>
+  <text x="32" y="52" fill="#5b6572" font-weight="bold">D's production (candidate for removal)</text>
+  <rect x="40" y="70" width="220" height="30" rx="5" fill="#fff" stroke="#5b6572"/>
+  <text x="50" y="89">E's materialization ran in here</text>
+
+  <rect x="640" y="60" width="250" height="46" rx="5" fill="#fff" stroke="#0b62a4" stroke-width="1.6"/>
+  <text x="650" y="79">later op C uses E — E is already</text>
+  <text x="650" y="96">done, so the engine does NOTHING…</text>
+
+  <path d="M 640 90 C 500 96, 400 92, 265 88" fill="none" stroke="#b42318" stroke-width="1.8" stroke-dasharray="5 3" marker-end="url(#a4r)"/>
+  <text x="380" y="72" fill="#b42318" font-weight="bold">…except leave a use-marker: "C needed E (already complete)"</text>
+
+  <text x="20" y="180" fill="#1a1f27">Without the marker, C's need is invisible → simulating "D cached" would delete E's work that reality would merely</text>
+  <text x="20" y="196" fill="#1a1f27">relocate to C → savings too high. With it, the keep rule sees C's demand and keeps the region (unless E is also hypothesized cached).</text>
+</svg>
+<figcaption><strong>Figure 4.</strong> The recording gap use-markers close. Deferred work often runs nested inside some
+other digest's production; consumers arriving after it completed would otherwise leave no trace of needing it.</figcaption>
+</figure>
+
+<h3 id="invariants">4.5 The two invariants the replay enforces</h3>
+<ul>
+  <li><strong>Empty hypothesis ⇒ bit-for-bit the baseline simulation.</strong> Asserted by test; the counterfactual
+      machinery must add exactly nothing when asked for nothing.</li>
+  <li><strong>Nothing live ever touches removed work.</strong> The static resolution guarantees it; the replay still
+      counts any contradiction (<code>ElidedOpDemanded</code>) and fails the result rather than improvising — the same
+      pattern as the replay's other data-faithfulness counters. Zero by construction on faithful data.</li>
+</ul>
+
+<h2 id="eligibility">5. Eligibility, selection, and the scope limitation</h2>
+
+<h3 id="elig">5.1 Which digests may be hypothesized</h3>
+<p>Checked per digest, refused loudly per reason — never silently filtered:</p>
+<table>
+<tr><th>State</th><th>Meaning / rule</th></tr>
+<tr><td>eligible</td><td>at least one successful non-hit call — its calls hit, its production regions become removal candidates</td></tr>
+<tr><td>not found</td><td>no call op with this digest in the trace — an error for explicit selections</td></tr>
+<tr><td>do-not-cache</td><td>the engine refuses to cache this call; simulating it cached is fiction</td></tr>
+<tr><td>open at capture</td><td>the call or its production was still running when the profile was dumped — removal is not determinable</td></tr>
+<tr><td>no recorded outcome</td><td>suspect data; never guessed into a hit</td></tr>
+<tr><td>failures only</td><td>failed results are not cached</td></tr>
+<tr><td>already all hits</td><td>a no-op, noted</td></tr>
+</table>
+
+<h3 id="selectors">5.2 Selectors</h3>
+<table>
+<tr><th>Flag</th><th>Resolves to</th></tr>
+<tr><td><code>--cached &lt;digest&gt;</code> / <code>--cached @file</code></td><td>explicit digests / a manifest file (one per line; an empty manifest is an error, not a no-op)</td></tr>
+<tr><td><code>--cached-class &lt;class&gt;</code></td><td>every executed digest of that call class (e.g. <code>Container.withExec</code>)</td></tr>
+<tr><td><code>--cached-exec &lt;argv-pattern&gt;</code></td><td>user execs matched by command line, resolved to their owning call digests via the exec op's recorded label; matches that cannot be resolved are an <em>error</em> unless <code>-allow-partial-selection</code> is passed (partial coverage is then printed)</td></tr>
+<tr><td><code>--cached-pull-cost &lt;dur&gt;</code></td><td>the hit cost (default 0)</td></tr>
+</table>
+
+<h3 id="scope">5.3 The scope limitation (stated)</h3>
+<p>
+Some cache keys deliberately include a scope value as an implicit input, hashed into the recipe digest itself. The
+engine's full vocabulary (verified in <code>dagql/cache_inputs.go</code> and the resolvers that opt in):
+</p>
+<table>
+<tr><th>Scope input</th><th>Effect</th><th>Who uses it</th></tr>
+<tr><td>per-client</td><td>hits only within one client</td><td>module-source calls; the default of arg-driven caching</td></tr>
+<tr><td>per-session</td><td>hits only within one session</td><td><code>Container.from</code> with a <em>tag</em> ref — a
+digest-pinned ref is exempt and fully cacheable, so pinning restores cross-run cacheability</td></tr>
+<tr><td>per-call</td><td>a fresh random value every invocation — <strong>never hits, ever</strong></td><td>the
+<code>noCache</code>-style arm of arg-driven caching</td></tr>
+<tr><td>per-schema</td><td>hits only under one schema digest (changes across engine/module schema changes)</td><td>schema-dependent calls</td></tr>
+</table>
+<p>
+Because the scope value hides inside the recipe digest (it is not among the recorded structural inputs, §3.1), the
+simulator cannot currently tell a scoped digest from a portable one — so a <em>cross-run</em> caching strategy built
+from a ranking may include digests that are unreachable in practice, or (per-call) unreachable anywhere. Within-run
+questions are unaffected. The remedy is a small recording addition — the engine knows the scope kind at key-derivation
+time — after which the ranking can mark each digest "cacheable across runs" / "session-scoped" / "never cacheable."
+<em>Status: planned; recording addition not yet built.</em>
+</p>
+
+<h2 id="output">6. Output: ranking, detail, and refusals</h2>
+
+<h3 id="ranking">6.1 The ranking (default on)</h3>
+<p>
+Candidates are formed per call class (all executed digests of the class as one group) plus the top individual executed
+digests by producing wall-clock; every row is a <strong>full re-simulation</strong> of that candidate hypothesis —
+savings are schedule properties, not sums of removed time, and joint savings are not additive across rows (the header
+says so). A row whose result depended on degraded marker evidence, or whose hypothesis overlaps an unmodeled orphaned
+demand, is marked <code>DEGRADED-EVIDENCE</code> on the row itself.
+</p>
+
+<h3 id="detail">6.2 The explicit-hypothesis detail</h3>
+<p>
+For a selected hypothesis: baseline vs counterfactual makespan; per-digest eligibility with all tallies; every kept
+region with its reason, size, and demander; the waived-demand and marker counters; and the <strong>counterfactual
+blocking chain</strong> — what the new bottleneck would be, walked from the last-finishing root of the simulated
+schedule.
+</p>
+
+<h3 id="refusals">6.3 Refusals and gates</h3>
+<table>
+<tr><th>Condition</th><th>Behavior</th></tr>
+<tr><td>the capture dropped recorder events, or recorded any ident-derivation suppression</td><td><strong>refuse</strong> the what-if-cached sections entirely (demand evidence may be missing / labels incomplete); all violated conditions aggregated into one message</td></tr>
+<tr><td>OTel trace with dropped links while carrying wait/marker/suppression links, missing spans, or failed span-count checksum</td><td><strong>refuse</strong> (the structural gate)</td></tr>
+<tr><td>anything live demanded removed work during replay (<code>ElidedOpDemanded &gt; 0</code>)</td><td>the section's result is declared invalid — <strong>fail</strong>, never patched</td></tr>
+<tr><td>uninstrumented-user suppressions &gt; 0</td><td>prominent <strong>caveat</strong>: savings may be overstated for production those users demanded (declared boundary)</td></tr>
+</table>
+
+<h2 id="validation">7. How we know it's right</h2>
+<p>Four layers, ordered from what the tool fully controls to what it can only be honestly compared against.</p>
+
+<h3 id="v-reason">7.1 Reason-first scenario tests</h3>
+<p>
+Because answers are logically derivable (doctrine §1.1), every behavior in §4–§6 is pinned by a synthetic-graph test
+whose expected value was derived <em>before</em> running: hit short-circuits (executor and joiners), region removal and
+reflow, every keep-rule row and both waiver shapes, marker demand incl. the hypothesized-digest exception and the
+degraded containment path, nested hypotheses, eligibility states, selector resolution errors, critical-path shifts
+(saving &lt; removed time when a second chain takes over), cross-source parity on dual fixtures, and both invariants of
+§4.5 — including a deliberately corrupted fixture that must trip the violation counter. The catalog lives in
+<code>hack/designs/whatif-cached-design.md</code> and is the contract: a change is incomplete until its rows are covered.
+</p>
+
+<h3 id="v-fidelity">7.2 Replay fidelity</h3>
+<p>
+The counterfactual inherits its credibility from the replay: simulating the recorded run <em>unchanged</em> must land
+on the recorded makespan. Measured on real workloads at ≈0.0% drift; reported on every run as the existing baseline
+sanity check.
+</p>
+
+<h3 id="v-gates">7.3 Data-faithfulness gates</h3>
+<p>
+All the refusals of §6.3, plus the recording-side suppression counters of §3.3. The design rule they implement: a
+counter nobody gates on is decoration; every counter here either refuses, fails, or prints a caveat in the sections
+whose answers it could bend.
+</p>
+
+<h3 id="v-empirical">7.4 The empirical check — comparing against a real warm run, honestly</h3>
+<p>
+A cold run and a warm run of the same workload provide real-world evidence — but a warm run is <em>not</em> the
+counterfactual made flesh, and grading the simulator against its end-to-end time would conflate unrelated quantities.
+The engine's own semantics guarantee differences that have nothing to do with simulator error: scope-minted keys (§5.3)
+re-execute warm under <em>new</em> digests at that run's prices; results the cache did not retain across sessions
+re-execute under the <em>same</em> digests; session setup exists in both runs. And because a makespan is a schedule
+property, not a sum, a difference of two makespans cannot be honestly attributed to per-item buckets at all. The
+protocol therefore uses <strong>op-partitioned total-recorded-time ledgers over both captures</strong>: every recorded
+op's self-time lands in exactly one named bucket per side, assigned by recorded properties only (kind, outcome, its
+digest's cross-capture classification, containing region), so the sums are exact by construction. The four makespans
+(cold actual, cold baseline sim, counterfactual sim, warm actual) print as context lines only; critical chains print as
+illustration, never as the accounting substrate; <strong>no cross-run percentage renders anywhere</strong> (test-pinned).
+The simulator is graded only on what it claims:
+</p>
+<table>
+<tr><th>Bucket</th><th>What it holds / tests</th><th>Graded?</th></tr>
+<tr><td><strong>Warm complete hits</strong> → fed as the cold hypothesis (pending hits are their own listed bucket, never fed as evidence of a materialized payload)</td><td>per-digest structural verdict against the cold resolution: <em>removed</em> (calls short-circuited, regions elided) / <em>kept-with-reason</em> / <em>ineligible-with-reason</em> / <em>not found in cold</em> — every non-removed digest is a listed finding</td><td><strong>yes</strong></td></tr>
+<tr><td><strong>Executed in both captures under the same digest</strong> (the true digest join)</td><td>an entry here means the cache did not hold the result between the runs — each prints its recorded outcomes alongside both prices, so the why stays readable without inference. Empirically this bucket is <em>large</em> on same-engine back-to-back runs (results owned only by a session are released with it; the retention mechanism per entry is a stated hypothesis with its discriminating test — a cache snapshot between runs — in the calibration doc)</td><td>no — real-world price variance, reported per digest</td></tr>
+<tr><td><strong>Executed only-in-cold / only-in-warm</strong> (digest minted in one capture only — the scope-limited populations)</td><td>neutral side-local labels; the <em>population-level</em> mechanism is verified engine scoping (§5.3, resolvers cited), while per-digest attribution is explicitly unverified until the §8.2 scope recording (or `dag.call` implicit-input parsing on OTel captures — a named, unbuilt alternative). Where recorded result ids pair across native captures, the pair prints as one line with both prices ("same result re-derived: cold 2.23s vs warm 671ms")</td><td>no — totals prominent; §8.2 upgrades this to per-digest-verified</td></tr>
+<tr><td><strong>Warm-only hits, split by result-id provenance</strong></td><td>id ≤ the cold capture's max ⇒ the result existed before the warm run — a genuine cross-run equivalence hit, expected 0 and loud if ever nonzero; id above it is labeled <em>consistent with</em> intra-warm derivation, not proven (persisted imports could also mint high ids). Native captures only (OTel result ids are per-capture interns, never comparable)</td><td>no — reported</td></tr>
+<tr><td><strong>Session/setup phases</strong>, both sides</td><td>per-run overhead present in both runs</td><td>no — reported</td></tr>
+<tr><td><strong>The gate</strong> — the calibration FAILS on either: (i) <em>ledger remainder</em>: any op classifiable into no bucket (0 by construction of the classification rules; fires when recording coverage breaks); (ii) <em>recorded-data contradictions</em>: warm production starting after a complete hit on its digest (time-ordered, plus the structural same-ident-child clause), or a warm complete-hit digest that is do-not-cache-only or failed-only in cold — shapes the cache's semantics forbid</td><td><strong>yes — hard fail</strong></td></tr>
+</table>
+<p>
+The deliverable of a calibration run is this decomposition — every recorded second on both sides lands in a named
+bucket, and only claims the simulator actually makes can fail it.
+<em>Status: implemented (commit <code>4bc3d9404</code>; derivation and classification rules in
+<code>hack/designs/whatif-cached-design.md</code> §3.7, rows V35–V45). First full run on both real workloads: the gated
+remainder came out to exactly 0 ops / 0 ns on all four ledgers, with zero contradictions.</em>
+</p>
+
+<figure class="fig">
+<svg viewBox="0 0 920 300" font-family="ui-monospace, Menlo, monospace" font-size="12">
+  <defs>
+    <marker id="a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b6572"/>
+    </marker>
+  </defs>
+  <rect x="20" y="30" width="180" height="40" rx="6" fill="#fff" stroke="#0b62a4" stroke-width="1.6"/>
+  <text x="30" y="48">cold capture</text>
+  <text x="30" y="63" fill="#5b6572" font-size="11">full profile, all prices</text>
+  <rect x="20" y="90" width="180" height="40" rx="6" fill="#fff" stroke="#0b62a4" stroke-width="1.6"/>
+  <text x="30" y="108">warm capture</text>
+  <text x="30" y="123" fill="#5b6572" font-size="11">hits + re-executions</text>
+
+  <rect x="290" y="55" width="180" height="50" rx="6" fill="#fff" stroke="#5b6572"/>
+  <text x="300" y="76">join per recipe digest</text>
+  <text x="300" y="93" fill="#5b6572" font-size="11">(outcomes + prices, both runs)</text>
+
+  <line x1="200" y1="50" x2="288" y2="70" stroke="#5b6572" marker-end="url(#a5)"/>
+  <line x1="200" y1="110" x2="288" y2="90" stroke="#5b6572" marker-end="url(#a5)"/>
+
+  <rect x="560" y="16" width="330" height="46" rx="6" fill="#e8f4ec" stroke="#1a7f37" stroke-width="1.6"/>
+  <text x="570" y="34" fill="#1a7f37" font-weight="bold">warm complete hits → must be removed</text>
+  <text x="570" y="52" fill="#1a7f37">GRADED, structural verdict per digest</text>
+
+  <rect x="560" y="70" width="330" height="46" rx="6" fill="#fff" stroke="#5b6572"/>
+  <text x="570" y="88">same digest executed in BOTH runs</text>
+  <text x="570" y="106" fill="#5b6572">cache didn't hold it — outcomes + prices printed</text>
+
+  <rect x="560" y="124" width="330" height="46" rx="6" fill="#fff" stroke="#5b6572"/>
+  <text x="570" y="142">executed only-cold / only-warm (scope-minted)</text>
+  <text x="570" y="160" fill="#5b6572">side-local, id-paired where recorded — §8.2 upgrades</text>
+
+  <rect x="560" y="178" width="330" height="46" rx="6" fill="#fff" stroke="#5b6572"/>
+  <text x="570" y="196">warm-only hits (id provenance) · session phases</text>
+  <text x="570" y="214" fill="#5b6572">reported — NOT graded</text>
+
+  <rect x="560" y="232" width="330" height="52" rx="6" fill="#fbe9e7" stroke="#b42318" stroke-width="1.6"/>
+  <text x="570" y="252" fill="#b42318" font-weight="bold">remainder (op in NO bucket) +</text>
+  <text x="570" y="270" fill="#b42318" font-weight="bold">recorded contradictions — must be 0, GATED</text>
+
+  <line x1="470" y1="70" x2="558" y2="40" stroke="#5b6572" marker-end="url(#a5)"/>
+  <line x1="470" y1="78" x2="558" y2="94" stroke="#5b6572" marker-end="url(#a5)"/>
+  <line x1="470" y1="86" x2="558" y2="148" stroke="#5b6572" marker-end="url(#a5)"/>
+  <line x1="470" y1="94" x2="558" y2="202" stroke="#5b6572" marker-end="url(#a5)"/>
+  <line x1="470" y1="102" x2="558" y2="258" stroke="#5b6572" marker-end="url(#a5)"/>
+
+  <text x="20" y="200" fill="#1a1f27" font-weight="bold">The rule: total-recorded-time ledgers,</text>
+  <text x="20" y="218" fill="#1a1f27" font-weight="bold">both sides — every op in exactly one</text>
+  <text x="20" y="236" fill="#1a1f27" font-weight="bold">bucket, sums exact by construction.</text>
+  <text x="20" y="254" fill="#1a1f27" font-weight="bold">Makespans print as context, never grades.</text>
+</svg>
+<figcaption><strong>Figure 5.</strong> The empirical protocol as built. One graded bucket tests what the tool actually
+asserts; the reported buckets are real-world variance the engine's own semantics produce (unretained results, scope-minted
+digests); the gate fires only on classification breaks or shapes the cache's semantics forbid. No single cross-run
+percentage is a fidelity number.</figcaption>
+</figure>
+
+<h2 id="future">8. Future directions</h2>
+<h3 id="pullcost">8.1 The pull-cost model</h3>
+<p>
+A remote hit costs a pull; a pending hit (recipe cached, work not yet run) costs its first materialization at the first
+user. The engine's own states point at the right model: the hit cost belongs at the <em>first forcer</em> of the result,
+not as a constant on every hit call. The current flat per-hit cost (charged at the call) is the stated v1 approximation,
+exact at cost 0. A real model needs result sizes — not recorded today — and a transfer model; the calibration protocol
+of §7.4 is the ready-made test bench for it.
+</p>
+<h3 id="scope-emit">8.2 Scope-aware rankings</h3>
+<p>One recorded bit per call (its key includes a session/client scope component) upgrades the §5.3 limitation into an
+explicit "not cacheable across runs" mark in the ranking.</p>
+<h3 id="trackA">8.3 Cache-dependency edges</h3>
+<p>Call ops record their cache-key input digests on both sources (§3.1) — the substrate for cache-miss frontier tracing
+and run comparison (the sibling invalidation-tracing track), unconsumed by this feature so far.</p>
+
+<h2 id="status">9. Implementation status</h2>
+<table>
+<tr><th>Component</th><th>State</th><th>Where</th></tr>
+<tr><td>Recording: labels, outcomes incl. <code>hit_pending</code>, use-markers, input digests, suppression counters — both sources</td><td>implemented</td><td><span class="filepath">dagql/cache.go</span>, <span class="filepath">dagql/otelprof_hooks.go</span>, <span class="filepath">engine/wcprof/{wcprof,record,dump}.go</span></td></tr>
+<tr><td>Elision engine: static resolution, keep fixpoint, waivers, replay integration, invariants</td><td>implemented</td><td><span class="filepath">engine/wcprof/wcanalyze/{cached,replay}.go</span></td></tr>
+<tr><td>Selection, ranking, detail, refusals/gates</td><td>implemented</td><td><span class="filepath">wcanalyze/{cached_select,cached_report}.go</span>, both CLIs</td></tr>
+<tr><td>OTel loader/gate consumption (outcome precedence, marker + suppression links, input digests)</td><td>implemented</td><td><span class="filepath">engine/wcprof/wcotel/{loader,gate}.go</span></td></tr>
+<tr><td>Reasoned test catalog</td><td>implemented (all rows green)</td><td><span class="filepath">wcanalyze/*_test.go</span>, <span class="filepath">wcotel/*_test.go</span></td></tr>
+<tr><td>Empirical protocol §7.4: capture harness + hit extraction + aggregate comparison</td><td>implemented</td><td><span class="filepath">hack/wcprof-cached-calibrate</span>, <span class="filepath">wcanalyze/cached_report.go</span></td></tr>
+<tr><td>Empirical protocol §7.4: ledgered decomposition + remainder/contradiction gate</td><td>implemented (commit <code>4bc3d9404</code>; first run gate-clean at exactly 0 on both workloads)</td><td><span class="filepath">wcanalyze/cached_calibrate.go</span>; design md §3.7, rows V35–V45</td></tr>
+<tr><td>Scope-aware rankings (§8.2), pull-cost model (§8.1)</td><td>future</td><td>—</td></tr>
+</table>
+
+<h2 id="appendix">10. Appendix — code map (verified 2026-07-06 at <code>bb7625e2c</code>)</h2>
+<table>
+<tr><th>Mechanism</th><th>Where</th></tr>
+<tr><td>Call op: recipe-digest ident; input digests recorded at the term-lookup seam; outcome decision incl. <code>hit_pending</code> via pending-production check</td><td><span class="filepath">dagql/cache.go:3840, :3841–3850, :3727–3737</span></td></tr>
+<tr><td>Lazy op: producer digest derived outside the lazy lock (memoized), omitted-and-counted on error; ident on the op and the OTel span</td><td><span class="filepath">dagql/cache.go:3010–3031, :3136–3146</span></td></tr>
+<tr><td>Use-markers: fast-path emit, per-user dedupe under the lazy lock, completing-lazy target retained on success; uninstrumented-user counter</td><td><span class="filepath">dagql/cache.go:2938–2989, :3040–3047, :3220–3227</span></td></tr>
+<tr><td>Exec op ident = owning call digest (native + OTel exec.run)</td><td><span class="filepath">engine/engineutil/executor.go:130–138, :155</span></td></tr>
+<tr><td>Event model: <code>hit_pending</code>, <code>forced</code> link kind, <code>InputsID</code>, suppression counters in recorder + dump header</td><td><span class="filepath">engine/wcprof/wcprof.go, record.go, dump.go</span></td></tr>
+<tr><td>Graph: marker edges (orphans retained + counted), <code>CacheInputs</code>, suppression counts; shared gating-wait predicate with the program compiler</td><td><span class="filepath">wcanalyze/graph.go:337–360, replay.go:66–68</span></td></tr>
+<tr><td>Structural index: Euler-tour subtree intervals, per-digest call/label indexes, demand edges, marker resolution</td><td><span class="filepath">wcanalyze/cached.go:265–480</span></td></tr>
+<tr><td>Resolution: eligibility precedence; call + labeled regions (service-start and anchored-call_exec exclusions); keep fixpoint (structural / wait / marker demand, waivers, hypothesized-digest exception, degraded containment + its counter); materialization with maximal-region unions</td><td><span class="filepath">wcanalyze/cached.go:497–1040</span></td></tr>
+<tr><td>Replay integration: hit short-circuit, removed-op skips, waived spawns/joins, <code>ElidedOpDemanded</code> backstops</td><td><span class="filepath">wcanalyze/replay.go:456–470, :479–487, :522–530, :564–600, :634–645</span></td></tr>
+<tr><td>Selection incl. exec-pattern owner resolution and partial-selection refusal</td><td><span class="filepath">wcanalyze/cached_select.go</span></td></tr>
+<tr><td>Refusal gate, ranking (full re-simulation per row, degraded-evidence marks), detail + counterfactual chain, calibration harness</td><td><span class="filepath">wcanalyze/cached_report.go:51–88, :96–, :269–, :374–421</span></td></tr>
+<tr><td>OTel: outcome precedence (status &gt; stamp &gt; cached &gt; ok; bare pending stays "ok" — pre-stamp it is ambiguous with a lazy-producing miss); marker/suppression links; <code>dag.inputs</code>; dropped-link gate armed by any correctness-bearing link</td><td><span class="filepath">wcotel/loader.go:557–589, :443–465; wcotel/gate.go:159–170</span></td></tr>
+<tr><td><strong>Engine-side facts:</strong> scope inputs (per-client/session/call/schema, arg-driven)</td><td><span class="filepath">dagql/cache_inputs.go:14–92</span></td></tr>
+<tr><td><code>Container.from</code> session scoping with the digest-pinned exemption; sync registry resolve; content digest taught post-production</td><td><span class="filepath">core/schema/container.go:1015–1046, :1122, :1165</span></td></tr>
+<tr><td>Module-source calls are per-client scoped</td><td><span class="filepath">core/schema/modulesource.go:64–65</span></td></tr>
+<tr><td>Services: runtime instance keyed per session (+ per client when client-specific); service ident is a content-preferred digest</td><td><span class="filepath">core/services.go:473–480, :524</span></td></tr>
+<tr><td>Recipe-digest hash covers receiver/field/args/<strong>implicit inputs</strong>/module/Nth/View — and excludes extra digests; memoized per frame. Content-digest teaching forks the frame (extra digests only) → labels stay equal to the call's recorded digest</td><td><span class="filepath">dagql/result_call_frame.go:633–726, :256–272; dagql/cache_egraph.go:988–1050</span></td></tr>
+<tr><td>Errored executions publish no cached result (the completion-error path returns before any publication)</td><td><span class="filepath">dagql/cache.go:4193–4210</span></td></tr>
+<tr><td>Lazy machinery: per-result singleflight, call-context restoration, success-materializes / failure-stays-pending; hit paths re-register callbacks (why <code>hit_pending</code> exists); 133 lazy recipe type declarations (67 runtime + persisted twins)</td><td><span class="filepath">dagql/cache.go:2800–2922, :3155+; internal-docs/lazy_evaluation.md; core/{container,directory,file,container_exec,container_image}.go</span></td></tr>
+</table>
+
+<p class="small" style="margin-top:2.5rem">
+Written 2026-07-06 against commit <code>bb7625e2c</code>. Companion documents in the repo:
+<code>hack/designs/whatif-cached-design.md</code> (the reasoned test catalog),
+<code>whatif-cached-lazy-semantics.md</code> (the two-phase/cache-state analysis behind §3.2 and §4),
+<code>whatif-cached-calibration.md</code> (empirical runs).
+</p>
+
+</div>
+</div>
+<script>
+(function () {
+  var wrap = document.querySelector('.wrap');
+  var h2s = Array.prototype.slice.call(wrap.querySelectorAll('h2'));
+  h2s.forEach(function (h) {
+    var body = document.createElement('div');
+    body.className = 'sec-body';
+    var n = h.nextSibling;
+    while (n && !(n.nodeType === 1 && n.tagName === 'H2')) {
+      var next = n.nextSibling;
+      body.appendChild(n);
+      n = next;
+    }
+    h.parentNode.insertBefore(body, h.nextSibling);
+    h.classList.add('sec-toggle');
+    h.addEventListener('click', function () { setSec(h, !h.classList.contains('collapsed')); });
+  });
+  function setSec(h, collapsed) {
+    h.classList.toggle('collapsed', collapsed);
+    h.nextElementSibling.style.display = collapsed ? 'none' : '';
+  }
+  function setAll(collapsed) { h2s.forEach(function (h) { setSec(h, collapsed); }); }
+  document.getElementById('expandAll').addEventListener('click', function () { setAll(false); });
+  document.getElementById('collapseAll').addEventListener('click', function () { setAll(true); });
+
+  var toc = document.getElementById('sideToc');
+  var auto = 0;
+  var heads = Array.prototype.slice.call(wrap.querySelectorAll('h2, h3'));
+  var linkById = {};
+  heads.forEach(function (h) {
+    if (!h.id) h.id = 'sec-auto-' + (auto++);
+    var li = document.createElement('li');
+    li.className = h.tagName === 'H3' ? 'lvl3' : 'lvl2';
+    var a = document.createElement('a');
+    a.href = '#' + h.id;
+    var t = h.textContent.replace(/\s+/g, ' ').trim();
+    t = t.split(' — ')[0].split(' (')[0].split(': ranking')[0];
+    a.textContent = t;
+    a.addEventListener('click', function () { expandFor(h); });
+    li.appendChild(a);
+    toc.appendChild(li);
+    linkById[h.id] = a;
+  });
+  function owningH2(h) {
+    if (h.tagName === 'H2') return h;
+    var p = h;
+    while (p && !(p.classList && p.classList.contains('sec-body'))) p = p.parentNode;
+    return p ? p.previousElementSibling : null;
+  }
+  function expandFor(h) {
+    var h2 = owningH2(h);
+    if (h2 && h2.classList.contains('collapsed')) setSec(h2, false);
+  }
+  window.addEventListener('hashchange', function () {
+    var t = document.getElementById(location.hash.slice(1));
+    if (t) { expandFor(t); t.scrollIntoView(); }
+  });
+  function spy() {
+    var best = null, bestTop = -Infinity;
+    heads.forEach(function (h) {
+      if (h.offsetParent === null) return;
+      var top = h.getBoundingClientRect().top;
+      if (top <= 90 && top > bestTop) { best = h; bestTop = top; }
+    });
+    if (!best) best = heads[0];
+    var act = toc.querySelector('a.active');
+    if (act) act.classList.remove('active');
+    var a = linkById[best.id];
+    if (a) a.classList.add('active');
+  }
+  var ticking = false;
+  window.addEventListener('scroll', function () {
+    if (!ticking) { ticking = true; requestAnimationFrame(function () { spy(); ticking = false; }); }
+  }, { passive: true });
+  spy();
+})();
+</script>
+</body>
+</html>
