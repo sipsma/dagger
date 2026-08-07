@@ -338,6 +338,7 @@ class Directory extends Client\AbstractObject implements Client\IdAble, Exportab
         ?Container $container = null,
         ?array $cmd = [],
         ?bool $experimentalPrivilegedNesting = false,
+        ?DaggerNesting $daggerNesting = null,
         ?bool $insecureRootCapabilities = false,
     ): Directory {
         $innerQueryBuilder = new \Dagger\Client\QueryBuilder('terminal');
@@ -349,6 +350,9 @@ class Directory extends Client\AbstractObject implements Client\IdAble, Exportab
         }
         if (null !== $experimentalPrivilegedNesting) {
         $innerQueryBuilder->setArgument('experimentalPrivilegedNesting', $experimentalPrivilegedNesting);
+        }
+        if (null !== $daggerNesting) {
+        $innerQueryBuilder->setArgument('daggerNesting', $daggerNesting);
         }
         if (null !== $insecureRootCapabilities) {
         $innerQueryBuilder->setArgument('insecureRootCapabilities', $insecureRootCapabilities);
