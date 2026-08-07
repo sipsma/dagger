@@ -12,6 +12,7 @@ class ConnectionTest extends TestCase
     private static array $daggerEnvVars = [];
 
     private static array $daggerEnvVarNames = [
+        'DAGGER_NESTING',
         'DAGGER_SESSION_PORT',
         'DAGGER_SESSION_TOKEN',
         '_EXPERIMENTAL_DAGGER_CLI_BIN',
@@ -70,6 +71,24 @@ class ConnectionTest extends TestCase
 
         $connection = Connection::newEnvSession();
         $this->assertNull($connection);
+    }
+
+    public function testIndependentSessionProvisionsCliWithoutInheritedToken(): void
+    {
+        putenv('DAGGER_NESTING=INDEPENDENT_SESSIONS');
+        putenv('DAGGER_SESSION_PORT=52037');
+        putenv('DAGGER_SESSION_TOKEN');
+
+        $this->assertNull(Connection::newEnvSession());
+    }
+
+    public function testRejectInvalidDaggerNestingEnvironment(): void
+    {
+        putenv('DAGGER_NESTING=UNKNOWN');
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('unknown DAGGER_NESTING');
+        Connection::newEnvSession();
     }
 
     public function testReturnConnectionFromDynamicProvisioning(): void
