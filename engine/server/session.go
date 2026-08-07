@@ -840,9 +840,11 @@ func (srv *Server) deleteSession(sess *daggerSession) {
 	if srv.daggerSessions[sess.sessionID] == sess {
 		delete(srv.daggerSessions, sess.sessionID)
 		deleted = true
-		if listener := srv.independentClientListeners[sess.independentClientListenerID]; listener != nil {
-			if claim, ok := listener.sessions[sess.sessionID]; ok && claim.session == sess {
-				delete(listener.sessions, sess.sessionID)
+		if sess.independentClientListenerID != "" {
+			if listener := srv.independentClientListeners[sess.independentClientListenerID]; listener != nil {
+				if claim, ok := listener.sessions[sess.sessionID]; ok && claim.session == sess {
+					delete(listener.sessions, sess.sessionID)
+				}
 			}
 		}
 	}

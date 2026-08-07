@@ -79,7 +79,9 @@ class ConnectionTest extends TestCase
         putenv('DAGGER_SESSION_PORT=52037');
         putenv('DAGGER_SESSION_TOKEN');
 
-        $this->assertNull(Connection::newEnvSession());
+        $connection = Connection::get('/workspace');
+
+        $this->assertInstanceOf(Connection\ProcessSessionConnection::class, $connection);
     }
 
     public function testRejectInvalidDaggerNestingEnvironment(): void
@@ -109,5 +111,15 @@ class ConnectionTest extends TestCase
         $connection = Connection::get();
 
         $this->assertInstanceOf(Connection\EnvSessionConnection::class, $connection);
+    }
+
+    public function testRejectWorkdirForExistingEnvSession(): void
+    {
+        putenv('DAGGER_SESSION_PORT=52037');
+        putenv('DAGGER_SESSION_TOKEN=189de95f-07df-415d-b42a-7851c731359d');
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('cannot configure workdir for existing session');
+        Connection::get('/workspace');
     }
 }

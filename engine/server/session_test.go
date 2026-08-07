@@ -455,6 +455,37 @@ func TestIndependentClientListenerClaimsFreshSession(t *testing.T) {
 	require.Equal(t, 1, srv.SessionDiagnostics().IndependentListenerClaimedSessions)
 }
 
+func TestIndependentClientListenerClaimsMultipleIsolatedSessions(t *testing.T) {
+	srv := &Server{
+		daggerSessions: map[string]*daggerSession{},
+		now:            time.Now,
+	}
+	require.NoError(t, srv.RegisterIndependentClientListener("listener-a"))
+
+	claim := func(sessionID, clientID, token string) *daggerSession {
+		opts := &ClientInitOpts{
+			ClientMetadata: &engine.ClientMetadata{
+				SessionID: sessionID, ClientID: clientID, ClientSecretToken: token,
+			},
+			IndependentClientListenerID: "listener-a",
+			RequireFreshSession:         true,
+		}
+		sess, created, err := srv.getOrCreateDaggerSession(opts, sessionID, clientID, token)
+		require.NoError(t, err)
+		require.True(t, created)
+		sess.lifecycleMu.Unlock()
+		return sess
+	}
+
+	first := claim("peer-a", "main-a", "secret-a")
+	second := claim("peer-b", "main-b", "secret-b")
+	require.NotSame(t, first, second)
+
+	first.clients["only-first"] = &daggerClient{clientID: "only-first"}
+	require.NotContains(t, second.clients, "only-first")
+	require.Equal(t, 2, srv.SessionDiagnostics().IndependentListenerClaimedSessions)
+}
+
 func TestIndependentClientListenerRejectsUnownedOrMismatchedSession(t *testing.T) {
 	srv := &Server{
 		daggerSessions: map[string]*daggerSession{},
@@ -483,6 +514,71 @@ func TestIndependentClientListenerRejectsUnownedOrMismatchedSession(t *testing.T
 	require.ErrorContains(t, err, "exact main client")
 	_, _, err = srv.getOrCreateDaggerSession(opts, "peer-a", "main-a", "other-secret")
 	require.ErrorContains(t, err, "exact main client")
+}
+
+func TestDeleteOrdinarySessionConcurrentWithIndependentListenerLifecycle(t *testing.T) {
+	t.Parallel()
+
+	srv := &Server{
+		daggerSessions:             map[string]*daggerSession{},
+		independentClientListeners: map[string]*independentClientListener{},
+	}
+	const cycles = 1000
+	start := make(chan struct{})
+	errCh := make(chan error, 1)
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-start
+		for i := range cycles {
+			listenerID := fmt.Sprintf("listener-%d", i)
+			if err := srv.RegisterIndependentClientListener(listenerID); err != nil {
+				select {
+				case errCh <- err:
+				default:
+				}
+				return
+			}
+			if err := srv.CloseIndependentClientListener(t.Context(), listenerID); err != nil {
+				select {
+				case errCh <- err:
+				default:
+				}
+				return
+			}
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-start
+		for i := range cycles {
+			sessionID := fmt.Sprintf("ordinary-%d", i)
+			sess := &daggerSession{sessionID: sessionID, clients: map[string]*daggerClient{}}
+			srv.daggerSessionsMu.Lock()
+			srv.daggerSessions[sessionID] = sess
+			srv.daggerSessionsMu.Unlock()
+			srv.deleteSession(sess)
+		}
+	}()
+
+	close(start)
+	wg.Wait()
+	select {
+	case err := <-errCh:
+		require.NoError(t, err)
+	default:
+	}
+
+	srv.daggerSessionsMu.RLock()
+	require.Empty(t, srv.daggerSessions)
+	srv.daggerSessionsMu.RUnlock()
+	srv.independentClientListenersMu.Lock()
+	require.Empty(t, srv.independentClientListeners)
+	srv.independentClientListenersMu.Unlock()
 }
 
 func TestIndependentClientListenerRejectsControlAndDetachableRolesWithoutAdmissionToken(t *testing.T) {
