@@ -18,6 +18,7 @@ import (
 
 	"github.com/dagger/dagger/engine/client"
 	enginetel "github.com/dagger/dagger/engine/telemetry"
+	"github.com/dagger/dagger/internal/buildkit/identity"
 )
 
 var (
@@ -65,6 +66,7 @@ func newSessionCmd(hidden bool) *cobra.Command {
 type connectParams struct {
 	Port         int    `json:"port"`
 	SessionToken string `json:"session_token"`
+	SessionID    string `json:"session_id,omitempty"`
 }
 
 func EngineSession(cmd *cobra.Command, args []string) error {
@@ -131,6 +133,7 @@ func EngineSession(cmd *cobra.Command, args []string) error {
 		paramBytes, err := json.Marshal(connectParams{
 			Port:         port,
 			SessionToken: sessionToken.String(),
+			SessionID:    sess.SessionID,
 		})
 		if err != nil {
 			return err
@@ -158,6 +161,8 @@ func sessionClientParams(secretToken string) (client.Params, error) {
 	}
 
 	params := client.Params{
+		ID:                   identity.NewID(),
+		SessionID:            identity.NewID(),
 		SecretToken:          secretToken,
 		Version:              sessionVersion,
 		LoadWorkspaceModules: sessionLoadWorkspaceModules,

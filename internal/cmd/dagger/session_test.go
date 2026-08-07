@@ -67,6 +67,20 @@ func TestSessionClientParamsWorkspace(t *testing.T) {
 	require.Equal(t, "github.com/acme/ws", *params.Workspace)
 }
 
+func TestSessionClientParamsUseFreshIdentities(t *testing.T) {
+	first, err := sessionClientParams("first-secret")
+	require.NoError(t, err)
+	second, err := sessionClientParams("second-secret")
+	require.NoError(t, err)
+
+	require.NotEmpty(t, first.SessionID)
+	require.NotEmpty(t, first.ID)
+	require.NotEqual(t, first.SessionID, second.SessionID)
+	require.NotEqual(t, first.ID, second.ID)
+	require.Equal(t, "first-secret", first.SecretToken)
+	require.Equal(t, "second-secret", second.SecretToken)
+}
+
 func TestSessionClientParamsGlobalWorkspace(t *testing.T) {
 	oldWorkspace := sessionWorkspace
 	oldGlobalWorkspace := workspaceRef

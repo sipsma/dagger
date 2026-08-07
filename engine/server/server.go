@@ -162,9 +162,13 @@ type Server struct {
 	//
 	// session+client state
 	//
-	daggerSessions   map[string]*daggerSession // session id -> session state
-	daggerSessionsMu sync.RWMutex
-	clientDBs        *clientdb.DBs
+	daggerSessions                      map[string]*daggerSession // session id -> session state
+	daggerSessionsMu                    sync.RWMutex
+	independentClientListeners          map[string]*independentClientListener
+	independentClientListenersMu        sync.Mutex
+	independentListenerCleanupSucceeded atomic.Uint64
+	independentListenerCleanupFailed    atomic.Uint64
+	clientDBs                           *clientdb.DBs
 
 	terminalSessionIDs   map[string]time.Time
 	terminalSessionIDsMu sync.Mutex
@@ -214,9 +218,10 @@ func NewServer(ctx context.Context, opts *NewServerOpts) (*Server, error) {
 			SearchDomains: bkcfg.DNS.SearchDomains,
 		},
 
-		daggerSessions:     make(map[string]*daggerSession),
-		terminalSessionIDs: make(map[string]time.Time),
-		now:                time.Now,
+		daggerSessions:             make(map[string]*daggerSession),
+		independentClientListeners: make(map[string]*independentClientListener),
+		terminalSessionIDs:         make(map[string]time.Time),
+		now:                        time.Now,
 
 		locker: locker.New(),
 	}
@@ -977,11 +982,53 @@ func (srv *Server) WriteDagqlCacheDebugSnapshot(w io.Writer) error {
 	return srv.engineCache.WriteDebugCacheSnapshot(w)
 }
 
-// ConnectedClients returns the number of currently connected clients
-func (srv *Server) ConnectedClients() int {
+type SessionDiagnostics struct {
+	LiveSessions                        int
+	TotalClients                        int
+	IndependentListenerClaimedSessions  int
+	IndependentListenerCleanupSucceeded uint64
+	IndependentListenerCleanupFailed    uint64
+}
+
+func (srv *Server) SessionDiagnostics() SessionDiagnostics {
 	srv.daggerSessionsMu.RLock()
-	defer srv.daggerSessionsMu.RUnlock()
-	return len(srv.daggerSessions)
+	sessions := make([]*daggerSession, 0, len(srv.daggerSessions))
+	for _, sess := range srv.daggerSessions {
+		sessions = append(sessions, sess)
+	}
+	srv.daggerSessionsMu.RUnlock()
+
+	diagnostics := SessionDiagnostics{
+		IndependentListenerCleanupSucceeded: srv.independentListenerCleanupSucceeded.Load(),
+		IndependentListenerCleanupFailed:    srv.independentListenerCleanupFailed.Load(),
+	}
+	for _, sess := range sessions {
+		if sess.state.Load() != sessionStateInitialized {
+			continue
+		}
+		diagnostics.LiveSessions++
+		sess.clientMu.RLock()
+		diagnostics.TotalClients += len(sess.clients)
+		sess.clientMu.RUnlock()
+	}
+
+	srv.independentClientListenersMu.Lock()
+	for _, listener := range srv.independentClientListeners {
+		diagnostics.IndependentListenerClaimedSessions += len(listener.sessions)
+	}
+	srv.independentClientListenersMu.Unlock()
+	return diagnostics
+}
+
+// IndependentListenerCleanupCounts returns the monotonic process-lifetime
+// listener cleanup outcome counters without scanning live sessions.
+func (srv *Server) IndependentListenerCleanupCounts() (succeeded, failed uint64) {
+	return srv.independentListenerCleanupSucceeded.Load(), srv.independentListenerCleanupFailed.Load()
+}
+
+// ConnectedClients returns the number of live daggerClient records.
+func (srv *Server) ConnectedClients() int {
+	return srv.SessionDiagnostics().TotalClients
 }
 
 func (srv *Server) CorruptDBReset() bool {

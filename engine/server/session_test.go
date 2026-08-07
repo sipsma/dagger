@@ -428,6 +428,132 @@ func sessionInRegistry(srv *Server, sessionID string) bool {
 	return ok
 }
 
+func TestIndependentClientListenerClaimsFreshSession(t *testing.T) {
+	srv := &Server{
+		daggerSessions: map[string]*daggerSession{},
+		now:            time.Now,
+	}
+	require.NoError(t, srv.RegisterIndependentClientListener("listener-a"))
+	opts := &ClientInitOpts{
+		ClientMetadata: &engine.ClientMetadata{
+			SessionID: "peer-a", ClientID: "main-a", ClientSecretToken: "secret-a",
+		},
+		IndependentClientListenerID: "listener-a",
+		RequireFreshSession:         true,
+	}
+
+	sess, created, err := srv.getOrCreateDaggerSession(opts, "peer-a", "main-a", "secret-a")
+	require.NoError(t, err)
+	require.True(t, created)
+	require.Equal(t, "listener-a", sess.independentClientListenerID)
+	sess.lifecycleMu.Unlock()
+
+	got, created, err := srv.getOrCreateDaggerSession(opts, "peer-a", "main-a", "secret-a")
+	require.NoError(t, err)
+	require.False(t, created)
+	require.Same(t, sess, got)
+	require.Equal(t, 1, srv.SessionDiagnostics().IndependentListenerClaimedSessions)
+}
+
+func TestIndependentClientListenerRejectsUnownedOrMismatchedSession(t *testing.T) {
+	srv := &Server{
+		daggerSessions: map[string]*daggerSession{},
+		now:            time.Now,
+	}
+	require.NoError(t, srv.RegisterIndependentClientListener("listener-a"))
+	require.NoError(t, srv.RegisterIndependentClientListener("listener-b"))
+	opts := &ClientInitOpts{
+		ClientMetadata: &engine.ClientMetadata{
+			SessionID: "peer-a", ClientID: "main-a", ClientSecretToken: "secret-a",
+		},
+		IndependentClientListenerID: "listener-a",
+		RequireFreshSession:         true,
+	}
+	sess, created, err := srv.getOrCreateDaggerSession(opts, "peer-a", "main-a", "secret-a")
+	require.NoError(t, err)
+	require.True(t, created)
+	sess.lifecycleMu.Unlock()
+
+	otherListener := *opts
+	otherListener.IndependentClientListenerID = "listener-b"
+	_, _, err = srv.getOrCreateDaggerSession(&otherListener, "peer-a", "main-a", "secret-a")
+	require.ErrorContains(t, err, "not claimed")
+
+	_, _, err = srv.getOrCreateDaggerSession(opts, "peer-a", "other-client", "secret-a")
+	require.ErrorContains(t, err, "exact main client")
+	_, _, err = srv.getOrCreateDaggerSession(opts, "peer-a", "main-a", "other-secret")
+	require.ErrorContains(t, err, "exact main client")
+}
+
+func TestIndependentClientListenerRejectsControlAndDetachableRolesWithoutAdmissionToken(t *testing.T) {
+	srv := &Server{}
+	require.NoError(t, srv.RegisterIndependentClientListener("listener-a"))
+
+	controlReq := httptest.NewRequest(http.MethodGet, "/v1/sessions", nil)
+	controlRes := httptest.NewRecorder()
+	srv.ServeHTTPToIndependentClient(controlRes, controlReq, "listener-a")
+	require.Equal(t, http.StatusForbidden, controlRes.Code)
+
+	md := engine.ClientMetadata{
+		SessionID: "peer-a", ClientID: "main-a", ClientSecretToken: "fresh-client-token",
+		ClientVersion: engine.Version, DetachableSession: true,
+	}
+	roleReq := httptest.NewRequest(http.MethodPost, engine.QueryEndpoint, nil)
+	roleReq.Header = md.AppendToHTTPHeaders(roleReq.Header)
+	// There is deliberately no Basic auth or inherited listener token.
+	roleRes := httptest.NewRecorder()
+	srv.ServeHTTPToIndependentClient(roleRes, roleReq, "listener-a")
+	require.Equal(t, http.StatusForbidden, roleRes.Code)
+}
+
+func TestCloseIndependentClientListenerTearsDownOnlyExactClaims(t *testing.T) {
+	srv := newTeardownTestServer(t)
+	require.NoError(t, srv.RegisterIndependentClientListener("listener-a"))
+	claimed, _ := newTeardownTestSession(srv, "claimed", "main-claimed", 0)
+	unclaimed, _ := newTeardownTestSession(srv, "unclaimed", "main-unclaimed", 0)
+	releaseTeardownDrain(claimed)
+	releaseTeardownDrain(unclaimed)
+	claimed.independentClientListenerID = "listener-a"
+	srv.independentClientListenersMu.Lock()
+	srv.independentClientListeners["listener-a"].sessions[claimed.sessionID] = mainClientClaim{
+		session: claimed, clientID: claimed.mainClientCallerID, clientSecretToken: "secret",
+	}
+	srv.independentClientListenersMu.Unlock()
+
+	require.NoError(t, srv.CloseIndependentClientListener(t.Context(), "listener-a"))
+	require.False(t, sessionInRegistry(srv, claimed.sessionID))
+	require.True(t, sessionInRegistry(srv, unclaimed.sessionID))
+	require.Equal(t, sessionStateInitialized, unclaimed.state.Load())
+	diagnostics := srv.SessionDiagnostics()
+	require.EqualValues(t, 1, diagnostics.IndependentListenerCleanupSucceeded)
+	require.Zero(t, diagnostics.IndependentListenerClaimedSessions)
+}
+
+func TestCloseIndependentClientListenerDoesNotStealRemovedTombstone(t *testing.T) {
+	srv := &Server{
+		daggerSessions:             map[string]*daggerSession{},
+		independentClientListeners: map[string]*independentClientListener{},
+	}
+	require.NoError(t, srv.RegisterIndependentClientListener("listener-a"))
+	sess := &daggerSession{
+		sessionID:                   "peer-removing",
+		independentClientListenerID: "listener-a",
+		clients:                     map[string]*daggerClient{},
+		mainClientCallerID:          "main-a",
+	}
+	sess.state.Store(sessionStateRemoved)
+	srv.daggerSessions[sess.sessionID] = sess
+	srv.independentClientListeners["listener-a"].sessions[sess.sessionID] = mainClientClaim{
+		session: sess, clientID: "main-a", clientSecretToken: "secret",
+	}
+
+	require.NoError(t, srv.CloseIndependentClientListener(t.Context(), "listener-a"))
+	require.True(t, sessionInRegistry(srv, sess.sessionID), "the in-progress ordinary teardown owns tombstone deletion")
+
+	srv.deleteSession(sess)
+	require.False(t, sessionInRegistry(srv, sess.sessionID))
+}
+
 func TestMainClientLastDisconnectDoesNotBlockOnTeardown(t *testing.T) {
 	t.Parallel()
 

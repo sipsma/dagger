@@ -57,6 +57,9 @@ type DefaultTerminalCmdOpts struct {
 	// Provide dagger access to the executed command
 	ExperimentalPrivilegedNesting dagql.Optional[dagql.Boolean] `default:"false"`
 
+	// Configure how the executed command may connect back to Dagger
+	DaggerNesting dagql.Optional[DaggerNesting]
+
 	// Grant the process all root capabilities
 	InsecureRootCapabilities dagql.Optional[dagql.Boolean] `default:"false"`
 }
@@ -6991,6 +6994,9 @@ type ContainerAsServiceArgs struct {
 	// Provide the executed command access back to the Dagger API
 	ExperimentalPrivilegedNesting bool `default:"false"`
 
+	// Configure how the executed command may connect back to Dagger
+	DaggerNesting dagql.Optional[DaggerNesting]
+
 	// Grant the process all root capabilities
 	InsecureRootCapabilities bool `default:"false"`
 
@@ -7003,6 +7009,9 @@ type ContainerAsServiceArgs struct {
 }
 
 func (container *Container) AsService(ctx context.Context, containerRes dagql.ObjectResult[*Container], args ContainerAsServiceArgs) (*Service, error) {
+	if _, err := daggerNestingMode(args.ExperimentalPrivilegedNesting, args.DaggerNesting); err != nil {
+		return nil, err
+	}
 	if containerRes.Self() == nil {
 		return nil, fmt.Errorf("container result is nil")
 	}
@@ -7033,6 +7042,7 @@ func (container *Container) AsService(ctx context.Context, containerRes dagql.Ob
 		Container:                     containerRes,
 		Args:                          cmdargs,
 		ExperimentalPrivilegedNesting: args.ExperimentalPrivilegedNesting,
+		DaggerNesting:                 args.DaggerNesting.Value,
 		InsecureRootCapabilities:      args.InsecureRootCapabilities,
 		NoInit:                        args.NoInit,
 	}, nil

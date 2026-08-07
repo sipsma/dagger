@@ -334,7 +334,24 @@ func connect(ctx context.Context, params Params, requestedMode connectionMode) (
 	defer telemetry.EndWithCause(span, &rerr)
 	slog := slog.SpanLogger(connectCtx, InstrumentationLibrary)
 
+	daggerNesting := os.Getenv("DAGGER_NESTING")
 	nestedSessionPortVal, isNestedSession := os.LookupEnv("DAGGER_SESSION_PORT")
+	independentSessions := false
+	switch daggerNesting {
+	case "":
+		// A missing marker with an inherited port is the legacy nested-client path.
+	case "NESTED_CLIENT":
+		if !isNestedSession {
+			return nil, errors.New("DAGGER_NESTING=NESTED_CLIENT requires DAGGER_SESSION_PORT")
+		}
+	case "INDEPENDENT_SESSIONS":
+		if !isNestedSession {
+			return nil, errors.New("DAGGER_NESTING=INDEPENDENT_SESSIONS requires DAGGER_SESSION_PORT")
+		}
+		independentSessions = true
+	default:
+		return nil, fmt.Errorf("unknown DAGGER_NESTING value %q", daggerNesting)
+	}
 	if isNestedSession {
 		if mode != connectionModeOrdinary {
 			return nil, errors.New("detachable, observer, and control-only modes are not supported through DAGGER_SESSION_PORT")
@@ -343,8 +360,10 @@ func connect(ctx context.Context, params Params, requestedMode connectionMode) (
 		if err != nil {
 			return nil, fmt.Errorf("parse DAGGER_SESSION_PORT: %w", err)
 		}
+		if daggerNesting != "" && nestedSessionPort < 1 {
+			return nil, fmt.Errorf("DAGGER_NESTING=%s requires a positive DAGGER_SESSION_PORT", daggerNesting)
+		}
 		c.nestedSessionPort = nestedSessionPort
-		c.SecretToken = os.Getenv("DAGGER_SESSION_TOKEN")
 		numCPUVal := os.Getenv("DAGGER_ENGINE_NUM_CPU")
 		if numCPUVal != "" {
 			numCPU, err := strconv.Atoi(numCPUVal)
@@ -353,17 +372,20 @@ func connect(ctx context.Context, params Params, requestedMode connectionMode) (
 			}
 			c.numCPU = numCPU
 		}
-		c.httpClient = c.newHTTPClient()
-		if err := c.init(connectCtx); err != nil {
-			return nil, fmt.Errorf("initialize nested client: %w", err)
+		if !independentSessions {
+			c.SecretToken = os.Getenv("DAGGER_SESSION_TOKEN")
+			c.httpClient = c.newHTTPClient()
+			if err := c.init(connectCtx); err != nil {
+				return nil, fmt.Errorf("initialize nested client: %w", err)
+			}
+			if err := c.subscribeTelemetry(connectCtx); err != nil {
+				return nil, fmt.Errorf("subscribe to telemetry: %w", err)
+			}
+			if err := c.daggerConnect(connectCtx); err != nil {
+				return nil, fmt.Errorf("failed to connect to dagger: %w", err)
+			}
+			return c, nil
 		}
-		if err := c.subscribeTelemetry(connectCtx); err != nil {
-			return nil, fmt.Errorf("subscribe to telemetry: %w", err)
-		}
-		if err := c.daggerConnect(connectCtx); err != nil {
-			return nil, fmt.Errorf("failed to connect to dagger: %w", err)
-		}
-		return c, nil
 	}
 
 	// Check if any of the upstream cache importers/exporters are enabled.
@@ -376,15 +398,17 @@ func connect(ctx context.Context, params Params, requestedMode connectionMode) (
 
 	c.stableClientID = GetHostStableID(slog)
 
-	if err := c.startEngine(connectCtx, params); err != nil {
-		return nil, fmt.Errorf("start engine: %w", err)
-	}
-	if !engine.CheckVersionCompatibility(engine.NormalizeVersion(c.bkVersion), engine.MinimumEngineVersion) {
-		return nil, fmt.Errorf("incompatible engine version %s", engine.NormalizeVersion(c.bkVersion))
+	if !independentSessions {
+		if err := c.startEngine(connectCtx, params); err != nil {
+			return nil, fmt.Errorf("start engine: %w", err)
+		}
+		if !engine.CheckVersionCompatibility(engine.NormalizeVersion(c.bkVersion), engine.MinimumEngineVersion) {
+			return nil, fmt.Errorf("incompatible engine version %s", engine.NormalizeVersion(c.bkVersion))
+		}
 	}
 
 	defer func() {
-		if rerr != nil {
+		if rerr != nil && c.bkClient != nil {
 			c.bkClient.Close()
 		}
 	}()
