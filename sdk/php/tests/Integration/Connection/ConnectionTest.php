@@ -103,6 +103,15 @@ class ConnectionTest extends TestCase
         $this->assertInstanceOf(Connection\ProcessSessionConnection::class, $connection);
     }
 
+    public function testReturnProcessConnectionWithWorkdirWhenEnvNotSet(): void
+    {
+        $connection = Connection::get('/workspace');
+
+        $this->assertInstanceOf(Connection\ProcessSessionConnection::class, $connection);
+        $workDir = new \ReflectionProperty($connection, 'workDir');
+        $this->assertSame('/workspace', $workDir->getValue($connection));
+    }
+
     public function testReturnConnectionFromEnvWithEnvVars(): void
     {
         putenv('DAGGER_SESSION_PORT=52037');
