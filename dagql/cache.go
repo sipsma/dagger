@@ -282,11 +282,11 @@ func (c *Cache) trackSessionResult(ctx context.Context, sessionID string, res An
 	c.sessionMu.Unlock()
 
 	if acquired {
-		c.egraphMu.Lock()
+		lock := c.lockEgraphMeasured("track-session-result")
 		if c.resultsByID[shared.id] == shared {
 			c.incrementIncomingOwnershipLocked(ctx, shared)
 		}
-		c.egraphMu.Unlock()
+		c.unlockEgraphMeasured(lock)
 	}
 
 	if c.traceEnabled() {
@@ -646,9 +646,9 @@ func (c *Cache) sessionResultInstallSpanContexts(sessionID string, resultID shar
 		return nil
 	}
 
-	c.egraphMu.RLock()
+	lock := c.rlockEgraphMeasured("result-install-span-ancestors")
 	ancestorIDs := c.installAncestorIDsLocked(resultID)
-	c.egraphMu.RUnlock()
+	c.runlockEgraphMeasured(lock)
 
 	c.sessionMu.Lock()
 	defer c.sessionMu.Unlock()
@@ -780,7 +780,7 @@ func (c *Cache) ReleaseSession(ctx context.Context, sessionID string) error {
 		rerr       error
 		onReleases []OnReleaseFunc
 	)
-	c.egraphMu.Lock()
+	lock := c.lockEgraphMeasured("release-session")
 	queue := make([]*sharedResult, 0, len(resultIDs))
 	for resultID := range resultIDs {
 		shared := c.resultsByID[resultID]
@@ -798,7 +798,7 @@ func (c *Cache) ReleaseSession(ctx context.Context, sessionID string) error {
 	collectReleases, collectErr := c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
 	onReleases = append(onReleases, collectReleases...)
 	rerr = errors.Join(rerr, collectErr)
-	c.egraphMu.Unlock()
+	c.unlockEgraphMeasured(lock)
 
 	rerr = errors.Join(rerr, runOnReleaseFuncs(context.WithoutCancel(ctx), onReleases))
 	for callKey := range arbitraryCallKeys {
@@ -890,9 +890,9 @@ func (c *Cache) MakeResultUnpruneable(ctx context.Context, res AnyResult) error 
 		return fmt.Errorf("make result unpruneable: result is not cache-backed")
 	}
 
-	c.egraphMu.Lock()
+	lock := c.lockEgraphMeasured("make-unpruneable")
 	c.upsertPersistedEdgeLocked(ctx, shared, 0, true)
-	c.egraphMu.Unlock()
+	c.unlockEgraphMeasured(lock)
 	return nil
 }
 
@@ -907,10 +907,10 @@ func (c *Cache) removePersistedEdge(ctx context.Context, resultID sharedResultID
 		onReleases []OnReleaseFunc
 		rerr       error
 	)
-	c.egraphMu.Lock()
+	lock := c.lockEgraphMeasured("prune-cut")
 	edge, found := c.persistedEdgesByResult[resultID]
 	if !found || edge.unpruneable {
-		c.egraphMu.Unlock()
+		c.unlockEgraphMeasured(lock)
 		return false, nil
 	}
 	delete(c.persistedEdgesByResult, resultID)
@@ -923,7 +923,7 @@ func (c *Cache) removePersistedEdge(ctx context.Context, resultID sharedResultID
 	collectReleases, collectErr := c.collectUnownedResultsLocked(ctx, queue)
 	onReleases = append(onReleases, collectReleases...)
 	rerr = errors.Join(rerr, collectErr)
-	c.egraphMu.Unlock()
+	c.unlockEgraphMeasured(lock)
 
 	return true, errors.Join(rerr, runOnReleaseFuncs(ctx, onReleases))
 }
@@ -966,6 +966,11 @@ func (c *Cache) collectUnownedResultsLocked(ctx context.Context, queue []*shared
 	if c == nil {
 		return nil, nil
 	}
+	collected := 0
+	maximumQueue := len(queue)
+	defer func() {
+		c.observeEgraphMeasurement("collect-unowned", collected, maximumQueue)
+	}()
 
 	var (
 		rerr       error
@@ -989,6 +994,7 @@ func (c *Cache) collectUnownedResultsLocked(ctx context.Context, queue []*shared
 		}
 
 		c.removeResultFromEgraphLocked(ctx, res)
+		collected++
 		if res.onRelease != nil {
 			onReleases = append(onReleases, res.onRelease)
 		}
@@ -1005,6 +1011,9 @@ func (c *Cache) collectUnownedResultsLocked(ctx context.Context, queue []*shared
 			var err error
 			queue, err = c.decrementIncomingOwnershipLocked(ctx, depRes, queue)
 			rerr = errors.Join(rerr, err)
+			if len(queue) > maximumQueue {
+				maximumQueue = len(queue)
+			}
 		}
 	}
 
@@ -1167,14 +1176,14 @@ func (c *Cache) desiredImportedOwnerLeaseIDs() map[string]struct{} {
 		return nil
 	}
 
-	c.egraphMu.RLock()
+	lock := c.rlockEgraphMeasured("imported-owner-lease-results")
 	results := make([]*sharedResult, 0, len(c.resultsByID))
 	for _, res := range c.resultsByID {
 		if res != nil {
 			results = append(results, res)
 		}
 	}
-	c.egraphMu.RUnlock()
+	c.runlockEgraphMeasured(lock)
 
 	desired := make(map[string]struct{})
 	for _, res := range results {
@@ -1274,6 +1283,10 @@ type Cache struct {
 	sessionMu sync.Mutex
 	// egraphMu protects all e-graph state and indexes.
 	egraphMu sync.RWMutex
+	// egraphLockObserver is set only by focused empirical benchmarks. It is
+	// installed before benchmark concurrency begins and remains fixed for the
+	// lifetime of that cache instance.
+	egraphLockObserver cacheEgraphLockObserver
 
 	persistenceResetReason CachePersistenceResetReason
 
@@ -1899,6 +1912,7 @@ func (c *Cache) canonicalEquivalentSharedResultLocked(sessionID string, res *sha
 			c.appendDigestResultsLocked(candidates, digest.Digest(dig), nowUnix, nil)
 		}
 	}
+	c.observeEgraphMeasurement("canonical-candidates", candidates.Size(), 0)
 
 	if candidates.Empty() {
 		return res
@@ -2081,10 +2095,10 @@ func (c *Cache) attachResult(ctx context.Context, sessionID string, resolver Typ
 	}
 	c.trackSessionResult(ctx, sessionID, Result[Typed]{shared: oc.res}, false)
 	if oc.handoffHoldActive {
-		c.egraphMu.Lock()
+		lock := c.lockEgraphMeasured("publication-handoff-release")
 		queue, decErr := c.decrementIncomingOwnershipLocked(ctx, oc.res, nil)
 		collectReleases, collectErr := c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
-		c.egraphMu.Unlock()
+		c.unlockEgraphMeasured(lock)
 		oc.handoffHoldActive = false
 		if relErr := errors.Join(decErr, collectErr, runOnReleaseFuncs(context.WithoutCancel(ctx), collectReleases)); relErr != nil {
 			return nil, fmt.Errorf("attach dependency result: release publication hold: %w", relErr)
@@ -2121,8 +2135,8 @@ func (c *Cache) AddExplicitDependency(ctx context.Context, parent AnyResult, dep
 		return nil
 	}
 
-	c.egraphMu.Lock()
-	defer c.egraphMu.Unlock()
+	lock := c.lockEgraphMeasured("add-explicit-dependency")
+	defer c.unlockEgraphMeasured(lock)
 
 	parentRes := c.resultsByID[parentShared.id]
 	if parentRes == nil {
@@ -2569,8 +2583,8 @@ func (r Result[T]) WithSessionResourceHandle(ctx context.Context, handle Session
 		if err != nil {
 			return r, fmt.Errorf("set session resource handle on %T: current dagql cache: %w", r.Self(), err)
 		}
-		cache.egraphMu.Lock()
-		defer cache.egraphMu.Unlock()
+		lock := cache.lockEgraphMeasured("set-session-resource-handle")
+		defer cache.unlockEgraphMeasured(lock)
 
 		cached := cache.resultsByID[r.shared.id]
 		if cached == nil {
@@ -3262,9 +3276,9 @@ func (c *Cache) Size() int {
 	completedArbitrary := len(c.completedArbitraryCalls)
 	c.callsMu.Unlock()
 
-	c.egraphMu.RLock()
+	lock := c.rlockEgraphMeasured("cache-size")
 	completedCalls := len(c.resultOutputEqClasses)
-	c.egraphMu.RUnlock()
+	c.runlockEgraphMeasured(lock)
 
 	// TODO: Re-implement size accounting directly from egraph state instead of
 	// relying on mixed index-oriented counters.
@@ -3284,10 +3298,10 @@ func (c *Cache) EntryStats() CacheEntryStats {
 	}
 	c.callsMu.Unlock()
 
-	c.egraphMu.RLock()
+	lock := c.rlockEgraphMeasured("cache-entry-stats")
 	stats.CompletedCalls = len(c.resultOutputEqClasses)
 	stats.RetainedCalls = len(c.persistedEdgesByResult)
-	c.egraphMu.RUnlock()
+	c.runlockEgraphMeasured(lock)
 
 	return stats
 }
@@ -3298,8 +3312,8 @@ func (c *Cache) MetadataEstimate() CacheMetadataEstimate {
 	if c == nil {
 		return CacheMetadataEstimate{}
 	}
-	c.egraphMu.RLock()
-	defer c.egraphMu.RUnlock()
+	lock := c.rlockEgraphMeasured("metadata-estimate")
+	defer c.runlockEgraphMeasured(lock)
 	return c.cacheMetadataEstimateLocked()
 }
 
@@ -3323,8 +3337,8 @@ func (c *Cache) cacheMetadataEstimateLocked() CacheMetadataEstimate {
 func (c *Cache) UsageEntriesAll(ctx context.Context) []CacheUsageEntry {
 	activeRoots := c.snapshotSessionResultIDs()
 	c.measureAllResultSizes(ctx)
-	c.egraphMu.RLock()
-	defer c.egraphMu.RUnlock()
+	lock := c.rlockEgraphMeasured("usage-entries")
+	defer c.runlockEgraphMeasured(lock)
 	entries := c.usageEntriesLocked(activeRoots)
 	return entries
 }
@@ -3483,8 +3497,8 @@ func (c *Cache) measureAllResultSizes(ctx context.Context) {
 }
 
 func (c *Cache) collectUsageMeasurementInputs() []cacheUsageMeasurementInput {
-	c.egraphMu.RLock()
-	defer c.egraphMu.RUnlock()
+	lock := c.rlockEgraphMeasured("collect-usage-measurement-inputs")
+	defer c.runlockEgraphMeasured(lock)
 	inputs := make([]cacheUsageMeasurementInput, 0, len(c.resultsByID))
 	for resID, res := range c.resultsByID {
 		if res == nil {
@@ -3620,8 +3634,8 @@ func buildCacheUsageMeasurements(ctx context.Context, snapshotManager bkcache.Sn
 }
 
 func (c *Cache) publishUsageMeasurements(measurements map[sharedResultID]map[string]cacheUsageIdentityMeasurement) {
-	c.egraphMu.Lock()
-	defer c.egraphMu.Unlock()
+	lock := c.lockEgraphMeasured("publish-usage-measurements")
+	defer c.unlockEgraphMeasured(lock)
 	for resultID, res := range c.resultsByID {
 		if res == nil {
 			continue
@@ -4006,15 +4020,20 @@ func (c *Cache) lookupCacheForDigests(
 		return nil, false, nil
 	}
 
-	c.egraphMu.Lock()
+	lock := c.lockEgraphMeasured("lookup-digests")
 	now := time.Now()
 	nowUnix := now.Unix()
 	match := c.lookupMatchForDigestsLocked(recipeDigest, extraDigests, nowUnix)
+	candidateCount := 0
+	if match.candidates != nil {
+		candidateCount = match.candidates.Size()
+	}
+	c.observeEgraphMeasurement("digest-lookup-candidates", candidateCount, 0)
 	c.traceLookupAttempt(ctx, recipeDigest.String(), "", nil, false)
 	hitRes := c.selectLookupCandidateForSessionLocked(sessionID, match.candidates)
 	if hitRes == nil {
 		c.traceLookupMissNoMatch(ctx, recipeDigest.String(), false, -1, "", 0)
-		c.egraphMu.Unlock()
+		c.unlockEgraphMeasured(lock)
 		return nil, false, nil
 	}
 
@@ -4030,7 +4049,7 @@ func (c *Cache) lookupCacheForDigests(
 	c.traceLookupHit(ctx, recipeDigest.String(), hitRes, match.termDigest)
 	hitShared := retRes.cacheSharedResult()
 	if hitShared == nil || hitShared.id == 0 {
-		c.egraphMu.Unlock()
+		c.unlockEgraphMeasured(lock)
 		return nil, false, fmt.Errorf("lookup cache for digests: hit missing shared result ID")
 	}
 
@@ -4051,11 +4070,11 @@ func (c *Cache) lookupCacheForDigests(
 	}
 	trackedCount = len(c.sessionResultIDsBySession[sessionID])
 	c.sessionMu.Unlock()
-	c.egraphMu.Unlock()
+	c.unlockEgraphMeasured(lock)
 
 	loadedHit, err := c.ensurePersistedHitValueLoaded(ctx, resolver, retRes)
 	if err != nil {
-		c.egraphMu.Lock()
+		rollbackLock := c.lockEgraphMeasured("lookup-digests-rollback")
 		c.sessionMu.Lock()
 		if resultIDs := c.sessionResultIDsBySession[sessionID]; resultIDs != nil {
 			delete(resultIDs, hitShared.id)
@@ -4070,7 +4089,7 @@ func (c *Cache) lookupCacheForDigests(
 			queue, decErr = c.decrementIncomingOwnershipLocked(ctx, hitShared, nil)
 		}
 		collectReleases, collectErr := c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
-		c.egraphMu.Unlock()
+		c.unlockEgraphMeasured(rollbackLock)
 		return nil, false, errors.Join(err, decErr, collectErr, runOnReleaseFuncs(context.WithoutCancel(ctx), collectReleases))
 	}
 	if c.traceEnabled() {
@@ -4142,10 +4161,10 @@ func (c *Cache) wait(
 		}
 		c.callsMu.Unlock()
 		if releaseHandoff && oc.res != nil {
-			c.egraphMu.Lock()
+			lock := c.lockEgraphMeasured("publication-handoff-release")
 			queue, decErr := c.decrementIncomingOwnershipLocked(ctx, oc.res, nil)
 			collectReleases, collectErr := c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
-			c.egraphMu.Unlock()
+			c.unlockEgraphMeasured(lock)
 			oc.handoffHoldActive = false
 			if relErr := errors.Join(decErr, collectErr, runOnReleaseFuncs(context.WithoutCancel(ctx), collectReleases)); relErr != nil {
 				return nil, errors.Join(canceledErr, relErr)
@@ -4207,10 +4226,10 @@ func (c *Cache) wait(
 		lastWaiter := oc.waiters == 0
 		c.callsMu.Unlock()
 		if lastWaiter && oc.handoffHoldActive {
-			c.egraphMu.Lock()
+			lock := c.lockEgraphMeasured("publication-handoff-release")
 			queue, decErr := c.decrementIncomingOwnershipLocked(ctx, oc.res, nil)
 			collectReleases, collectErr := c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
-			c.egraphMu.Unlock()
+			c.unlockEgraphMeasured(lock)
 			oc.handoffHoldActive = false
 			if relErr := errors.Join(decErr, collectErr, runOnReleaseFuncs(context.WithoutCancel(ctx), collectReleases)); relErr != nil {
 				return nil, relErr
@@ -4224,10 +4243,10 @@ func (c *Cache) wait(
 		lastWaiter := oc.waiters == 0
 		c.callsMu.Unlock()
 		if lastWaiter && oc.handoffHoldActive {
-			c.egraphMu.Lock()
+			lock := c.lockEgraphMeasured("publication-handoff-release")
 			queue, decErr := c.decrementIncomingOwnershipLocked(ctx, oc.res, nil)
 			collectReleases, collectErr := c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
-			c.egraphMu.Unlock()
+			c.unlockEgraphMeasured(lock)
 			oc.handoffHoldActive = false
 			if relErr := errors.Join(decErr, collectErr, runOnReleaseFuncs(context.WithoutCancel(ctx), collectReleases)); relErr != nil {
 				return nil, relErr
@@ -4250,10 +4269,10 @@ func (c *Cache) wait(
 	lastWaiter := oc.waiters == 0
 	c.callsMu.Unlock()
 	if lastWaiter && oc.handoffHoldActive {
-		c.egraphMu.Lock()
+		lock := c.lockEgraphMeasured("publication-handoff-release")
 		queue, decErr := c.decrementIncomingOwnershipLocked(ctx, oc.res, nil)
 		collectReleases, collectErr := c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
-		c.egraphMu.Unlock()
+		c.unlockEgraphMeasured(lock)
 		oc.handoffHoldActive = false
 		if relErr := errors.Join(decErr, collectErr, runOnReleaseFuncs(context.WithoutCancel(ctx), collectReleases)); relErr != nil {
 			return nil, relErr
@@ -4296,7 +4315,7 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 	oc.res = &sharedResult{}
 	if oc.val != nil {
 		if existingRes := oc.val.cacheSharedResult(); existingRes != nil && existingRes.id != 0 {
-			c.egraphMu.Lock()
+			lock := c.lockEgraphMeasured("publication-canonicalize")
 			oc.res = c.canonicalEquivalentSharedResultLocked(sessionID, existingRes, time.Now().Unix())
 			// Take the publication handoff hold inside the same critical
 			// section as the canonical pick: the adopted result may be owned
@@ -4306,7 +4325,7 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 			// ownership.
 			c.incrementIncomingOwnershipLocked(ctx, oc.res)
 			oc.handoffHoldActive = true
-			c.egraphMu.Unlock()
+			c.unlockEgraphMeasured(lock)
 			if objVal, ok := oc.val.(AnyObjectResult); ok {
 				oc.res.setObjClass(objVal.ObjectType())
 			}
@@ -4534,7 +4553,7 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 		}
 	}
 
-	c.egraphMu.Lock()
+	publicationLock := c.lockEgraphMeasured("publication-index")
 	resultCall := oc.res.loadResultCall()
 	indexErr := c.indexWaitResultInEgraphLocked(
 		ctx,
@@ -4552,14 +4571,14 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 		oc.res,
 	)
 	if indexErr != nil {
-		c.egraphMu.Unlock()
+		c.unlockEgraphMeasured(publicationLock)
 		return indexErr
 	}
 	for _, dep := range resultCallDeps {
 		depID := dep.resultID
 		depRes := c.resultsByID[depID]
 		if depRes == nil {
-			c.egraphMu.Unlock()
+			c.unlockEgraphMeasured(publicationLock)
 			return fmt.Errorf("retain result call ref %d: missing cached result", depID)
 		}
 		if oc.res.deps == nil {
@@ -4574,7 +4593,7 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 		c.traceResultCallDepAdded(ctx, oc.res.id, depID, dep.path)
 	}
 	if err := c.recomputeRequiredSessionResourcesLocked(oc.res); err != nil {
-		c.egraphMu.Unlock()
+		c.unlockEgraphMeasured(publicationLock)
 		return err
 	}
 	if oc.isPersistable {
@@ -4592,23 +4611,23 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 		oc.res.attachDepsErr = nil
 		oc.res.attachDepsMu.Unlock()
 	}
-	c.egraphMu.Unlock()
+	c.unlockEgraphMeasured(publicationLock)
 
 	if err := c.attachDependencyResults(ctx, sessionID, resolver, oc.res, oc.val); err != nil {
-		c.egraphMu.Lock()
+		lock := c.lockEgraphMeasured("publication-cleanup")
 		queue, decErr := c.decrementIncomingOwnershipLocked(ctx, oc.res, nil)
 		collectReleases, collectErr := c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
-		c.egraphMu.Unlock()
+		c.unlockEgraphMeasured(lock)
 		oc.handoffHoldActive = false
 		attachErr := errors.Join(err, decErr, collectErr, runOnReleaseFuncs(context.WithoutCancel(ctx), collectReleases))
 		finishAttachDeps(attachErr)
 		return attachErr
 	}
 	if err := c.syncResultSnapshotLeases(ctx, oc.res); err != nil {
-		c.egraphMu.Lock()
+		lock := c.lockEgraphMeasured("publication-cleanup")
 		queue, decErr := c.decrementIncomingOwnershipLocked(ctx, oc.res, nil)
 		collectReleases, collectErr := c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
-		c.egraphMu.Unlock()
+		c.unlockEgraphMeasured(lock)
 		oc.handoffHoldActive = false
 		attachErr := errors.Join(err, decErr, collectErr, runOnReleaseFuncs(context.WithoutCancel(ctx), collectReleases))
 		finishAttachDeps(attachErr)
