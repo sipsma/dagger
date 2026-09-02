@@ -387,7 +387,12 @@ func (s *llmSchema) withTools(ctx context.Context, llm *core.LLM, args struct {
 		}
 	}
 	// Fall back to eager loading if the type isn't resolvable structurally.
-	obj, err := srv.Load(ctx, id)
+	var obj dagql.AnyObjectResult
+	if dagql.RecomputingImplicitInputs(ctx) && id != nil && !id.IsHandle() {
+		obj, err = srv.LoadWithRecomputedImplicitInputs(ctx, id)
+	} else {
+		obj, err = srv.Load(ctx, id)
+	}
 	if err != nil {
 		return nil, err
 	}

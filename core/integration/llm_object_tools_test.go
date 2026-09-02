@@ -11,6 +11,8 @@ package core
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"dagger.io/dagger"
@@ -61,6 +63,17 @@ func (LLMSuite) TestPersistedUserModuleToolReplansOnFirstInvocation(ctx context.
 	require.NoError(t, err)
 	require.NotEmpty(t, saved.LLM.WithWorkspace.WithTools.PortableID)
 
+	// Change the module after saving while cA stays alive. A recorded deferred
+	// load would reuse cA's Greeter and return "hello, world!"; replanning the
+	// LazyRef in cB must rebuild it from cB's current workspace instead.
+	greeterSource := filepath.Join(workdir, ".dagger", "modules", "hello-world", "main.dang")
+	require.NoError(t, os.WriteFile(greeterSource, []byte(`type HelloWorld {
+  pub greet(name: String! = "world"): String! {
+    "hello from session b"
+  }
+}
+`), 0o644))
+
 	// Keep cA alive so a default recorded load could reuse its bound workspace
 	// and module results. Merely deriving tools in cB must remain lazy.
 	cB := connect(ctx, t, dagger.WithWorkdir(workdir), dagger.WithLoadWorkspaceModules())
@@ -75,7 +88,7 @@ func (LLMSuite) TestPersistedUserModuleToolReplansOnFirstInvocation(ctx context.
 		WithResponse([]dagger.LLMContentBlockInput{{
 			Kind: dagger.LLMContentBlockKindToolCall, CallID: "call_1", ToolName: "greet",
 		}}).
-		WithToolResult("call_1", "hello, world!", false).
+		WithToolResult("call_1", "hello from session b", false).
 		WithResponse([]dagger.LLMContentBlockInput{{
 			Kind: dagger.LLMContentBlockKindText, Text: "done",
 		}}))
