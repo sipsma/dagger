@@ -851,7 +851,7 @@ func (s *LLMSession) LoadSession(ctx, replayCtx context.Context, sessionID strin
 		return fmt.Errorf("invalid session data: missing LLM ID")
 	}
 
-	loadedLLM := dagger.Ref[*dagger.LLM](s.dag, dagger.ID(metadata.LLMID))
+	loadedLLM := dagger.RefWithRecomputedImplicitInputs[*dagger.LLM](s.dag, dagger.ID(metadata.LLMID))
 
 	// Replay the message history to emit telemetry spans so the TUI shows the
 	// conversation in its scrollback. Replay against replayCtx so the spans nest

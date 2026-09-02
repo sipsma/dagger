@@ -202,7 +202,7 @@ func TestForkedNodeUsesCurrentServerLoader(t *testing.T) {
 	require.NoError(t, err)
 
 	var called atomic.Bool
-	fork.SetNodeLoader(func(ctx context.Context, id *call.ID) (dagql.AnyObjectResult, error) {
+	fork.SetNodeLoader(func(ctx context.Context, id *call.ID, _ dagql.NodeLoadOptions) (dagql.AnyObjectResult, error) {
 		called.Store(true)
 		return fork.Load(ctx, id)
 	})

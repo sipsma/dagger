@@ -286,6 +286,19 @@ func Ref[T Loadable[T]](c *Client, id ID) T {
 	return zero.WithGraphQLQuery(selectNode(c.query, id, zero.XXX_GraphQLType()))
 }
 
+// RefWithRecomputedImplicitInputs returns a lazy reference that re-plans a
+// recipe-form ID under the current request context when it is first queried.
+// It is intended for explicitly persisted recipes whose engine-provided
+// implicit inputs must be refreshed, such as a resumed LLM session.
+func RefWithRecomputedImplicitInputs[T Loadable[T]](c *Client, id ID) T {
+	var zero T
+	q := c.query.Select("node").
+		Arg("id", id).
+		Arg("recomputeImplicitInputs", true).
+		InlineFragment(zero.XXX_GraphQLType())
+	return zero.WithGraphQLQuery(q)
+}
+
 // Load loads a node by its ID with type safety. It verifies that the
 // node exists and matches the expected type before returning.
 //

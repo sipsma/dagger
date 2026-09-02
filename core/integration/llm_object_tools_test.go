@@ -14,11 +14,75 @@ import (
 	"strings"
 
 	"dagger.io/dagger"
+	"github.com/dagger/dagger/internal/testutil"
 	"github.com/dagger/testctx"
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagger/dagger/dagql/call"
 )
+
+// TestPersistedUserModuleToolReplansOnFirstInvocation covers the real LazyRef
+// edge for portable LLM recipes. Restoring the LLM builds the user-module
+// toolset without evaluating its bound object; the first tool dispatch then
+// replans that object's recorded recipe in the resumed session.
+func (LLMSuite) TestPersistedUserModuleToolReplansOnFirstInvocation(ctx context.Context, t *testctx.T) {
+	workdir := t.TempDir()
+	copyTestdataFixture(ctx, t, workdir, "workspaces", "workspace-managed")
+	initGitRepo(ctx, t, workdir)
+
+	cA := connect(ctx, t, dagger.WithWorkdir(workdir), dagger.WithLoadWorkspaceModules())
+	greeter, err := testutil.QueryWithClient[struct {
+		Greeter struct{ ID string }
+	}](cA, t, `{greeter{id}}`, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, greeter.Greeter.ID)
+	workspaceID, err := cA.CurrentWorkspace().ID(ctx)
+	require.NoError(t, err)
+
+	saved, err := testutil.QueryWithClient[struct {
+		LLM struct {
+			WithWorkspace struct {
+				WithTools struct{ PortableID string }
+			}
+		}
+	}](cA, t, `query Save($workspace: ID!, $object: ID!) {
+		llm {
+			withWorkspace(workspace: $workspace) {
+				withTools(object: $object) { portableID }
+			}
+		}
+	}`, &testutil.QueryOptions{
+		Operation: "Save",
+		Variables: map[string]any{
+			"workspace": workspaceID,
+			"object":    greeter.Greeter.ID,
+		},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, saved.LLM.WithWorkspace.WithTools.PortableID)
+
+	// Keep cA alive so a default recorded load could reuse its bound workspace
+	// and module results. Merely deriving tools in cB must remain lazy.
+	cB := connect(ctx, t, dagger.WithWorkdir(workdir), dagger.WithLoadWorkspaceModules())
+	resumed := dagger.RefWithRecomputedImplicitInputs[*dagger.LLM](cB,
+		dagger.ID(saved.LLM.WithWorkspace.WithTools.PortableID))
+	tools, err := resumed.Tools(ctx)
+	require.NoError(t, err)
+	require.Contains(t, tools, "greet")
+
+	model := cannedReplayModel(ctx, t, cB, cB.LLM().
+		WithPrompt("greet").
+		WithResponse([]dagger.LLMContentBlockInput{{
+			Kind: dagger.LLMContentBlockKindToolCall, CallID: "call_1", ToolName: "greet",
+		}}).
+		WithToolResult("call_1", "hello, world!", false).
+		WithResponse([]dagger.LLMContentBlockInput{{
+			Kind: dagger.LLMContentBlockKindText, Text: "done",
+		}}))
+	reply, err := resumed.WithModel(model).WithPrompt("greet").Loop().LastReply(ctx)
+	require.NoError(t, err, "first bound-tool invocation must replan in the resumed session")
+	require.Equal(t, "done", reply)
+}
 
 // TestObjectToolset locks in that the LLM's tools come from the objects it's
 // bound to via withTools — one tool per eligible method — and not from the raw

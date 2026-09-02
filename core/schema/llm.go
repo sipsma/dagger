@@ -371,14 +371,19 @@ func (s *llmSchema) withTools(ctx context.Context, llm *core.LLM, args struct {
 	if err != nil {
 		return nil, err
 	}
-	// Resolve the bound object's type from its ID without evaluating it, so the
-	// toolset can be built lazily. The object itself is loaded only when a tool
-	// is actually invoked on it (see MCP.boundToolObject). This is what lets a
-	// persisted session restore a binding whose object has side effects or is no
-	// longer reproducible without re-running its construction.
+	// Resolve the bound object's type from its ID and recorded module provenance
+	// without evaluating it, so the toolset can be built lazily. The object itself
+	// is loaded only when a tool is actually invoked on it (see
+	// MCP.boundToolObject). This lets a persisted session restore a binding whose
+	// object has side effects or is no longer reproducible without re-running its
+	// construction.
 	if id.Type() != nil {
-		if objType, ok := srv.ObjectType(id.Type().NamedType()); ok {
-			return llm.WithLazyTools(id, objType, args.Except), nil
+		objType, ok, err := srv.ObjectTypeForID(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			return llm.WithLazyTools(id, objType, args.Except, dagql.RecomputingImplicitInputs(ctx)), nil
 		}
 	}
 	// Fall back to eager loading if the type isn't resolvable structurally.

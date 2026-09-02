@@ -78,7 +78,7 @@ type Server struct {
 	// resolve IDs through a server that has all necessary module
 	// dependencies installed, rather than being limited to the
 	// current server's schema.
-	nodeLoader func(ctx context.Context, id *call.ID) (AnyObjectResult, error)
+	nodeLoader func(ctx context.Context, id *call.ID, opts NodeLoadOptions) (AnyObjectResult, error)
 
 	// resultServerForCall, if set, rebuilds a dependency-aware server from a
 	// result's call graph so the cache can resolve an object class that is not
@@ -102,10 +102,15 @@ func (s *Server) SetCanonical(canonical *Server) {
 	s.canonical = canonical
 }
 
+// NodeLoadOptions controls the opt-in behavior of the node(id:) resolver.
+type NodeLoadOptions struct {
+	RecomputeImplicitInputs bool
+}
+
 // SetNodeLoader sets a custom loader for the node(id:) resolver.
 // This allows the Dagger core layer to resolve IDs through a server
 // that has all necessary module dependencies installed.
-func (s *Server) SetNodeLoader(loader func(ctx context.Context, id *call.ID) (AnyObjectResult, error)) {
+func (s *Server) SetNodeLoader(loader func(ctx context.Context, id *call.ID, opts NodeLoadOptions) (AnyObjectResult, error)) {
 	s.nodeLoader = loader
 }
 
@@ -188,6 +193,12 @@ func NewServer[T Typed](_ context.Context, root T) (*Server, error) {
 					Name: "id",
 					Type: AnyID{},
 				},
+				InputSpec{
+					Name:        "recomputeImplicitInputs",
+					Description: "Re-plan recipe-form IDs under the current request context, recomputing engine-provided implicit inputs.",
+					Type:        Boolean(false),
+					Default:     Boolean(false),
+				},
 			),
 			DoNotCache: "There's no point caching the loading call of an ID vs. letting the ID's calls cache on their own.",
 		},
@@ -200,12 +211,17 @@ func NewServer[T Typed](_ context.Context, root T) (*Server, error) {
 			if err != nil {
 				return nil, fmt.Errorf("expected valid ID: %w", err)
 			}
+			recomputeImplicitInputs, _ := args["recomputeImplicitInputs"].(Boolean)
+			opts := NodeLoadOptions{RecomputeImplicitInputs: recomputeImplicitInputs.Bool()}
 			loaderSrv := CurrentDagqlServer(ctx)
 			if loaderSrv == nil {
 				loaderSrv = srv
 			}
 			if loaderSrv.nodeLoader != nil {
-				return loaderSrv.nodeLoader(ctx, id)
+				return loaderSrv.nodeLoader(ctx, id, opts)
+			}
+			if opts.RecomputeImplicitInputs && !id.IsHandle() {
+				return loaderSrv.LoadWithRecomputedImplicitInputs(ctx, id)
 			}
 			return loaderSrv.Load(ctx, id)
 		},
@@ -1249,8 +1265,79 @@ func interfaceFieldsPresent(iface *Interface, objectType ObjectType, view call.V
 	return true
 }
 
+// ObjectTypeForID resolves the object type named by id without evaluating the
+// object itself. When the current schema does not carry the type, a recipe's
+// recorded module provenance is used to rebuild the schema that defined it.
+func (s *Server) ObjectTypeForID(ctx context.Context, id *call.ID) (ObjectType, bool, error) {
+	if id == nil || id.Type() == nil {
+		return nil, false, nil
+	}
+	typeName := id.Type().NamedType()
+	if objType, ok := s.ObjectType(typeName); ok {
+		return objType, true, nil
+	}
+	if id.IsHandle() || id.Module() == nil || id.Module().ID() == nil || s.resultServerForCall == nil {
+		return nil, false, nil
+	}
+
+	mode := recipeLoadRecorded
+	if RecomputingImplicitInputs(ctx) {
+		mode = recipeLoadReplan
+	}
+	moduleResult, err := s.loadType(ctx, id.Module().ID(), mode)
+	if err != nil {
+		return nil, false, fmt.Errorf("resolve object type %q module: %w", typeName, err)
+	}
+	if moduleResult == nil {
+		return nil, false, fmt.Errorf("resolve object type %q module: result is null", typeName)
+	}
+	moduleRef, err := resultCallRefFromResult(ctx, moduleResult)
+	if err != nil {
+		return nil, false, fmt.Errorf("resolve object type %q module ref: %w", typeName, err)
+	}
+	resultCall := &ResultCall{
+		Kind:  ResultCallKindField,
+		Type:  NewResultCallType(id.Type().ToAST()),
+		Field: id.Field(),
+		View:  id.View(),
+		Module: &ResultCallModule{
+			ResultRef: moduleRef,
+			Name:      id.Module().Name(),
+			Ref:       id.Module().Ref(),
+			Pin:       id.Module().Pin(),
+		},
+	}
+	resolved, err := s.resultServerForCall(ctx, resultCall)
+	if err != nil {
+		return nil, false, fmt.Errorf("resolve object type %q schema: %w", typeName, err)
+	}
+	if resolved == nil {
+		return nil, false, nil
+	}
+	objType, ok := resolved.ObjectType(typeName)
+	return objType, ok, nil
+}
+
+type recipeLoadMode uint8
+
+const (
+	recipeLoadRecorded recipeLoadMode = iota
+	recipeLoadReplan
+)
+
 // Load loads the object with the given ID.
 func (s *Server) Load(ctx context.Context, id *call.ID) (AnyObjectResult, error) {
+	return s.loadObject(ctx, id, recipeLoadRecorded)
+}
+
+// LoadWithRecomputedImplicitInputs loads an object from a recipe-form ID by
+// re-planning every recorded recipe vertex under the current request context.
+// Handle-form IDs retain their normal load behavior.
+func (s *Server) LoadWithRecomputedImplicitInputs(ctx context.Context, id *call.ID) (AnyObjectResult, error) {
+	return s.loadObject(ctx, id, recipeLoadReplan)
+}
+
+func (s *Server) loadObject(ctx context.Context, id *call.ID, mode recipeLoadMode) (AnyObjectResult, error) {
 	ctx = srvToContext(ctx, s)
 	if id == nil {
 		return nil, fmt.Errorf("load: nil ID")
@@ -1258,9 +1345,9 @@ func (s *Server) Load(ctx context.Context, id *call.ID) (AnyObjectResult, error)
 	// Delegate to the canonical server so IDs are always evaluated
 	// against the real schema, not the sugared one.
 	if c := s.canonical; c != nil {
-		return c.Load(ctx, id)
+		return c.loadObject(ctx, id, mode)
 	}
-	res, err := s.LoadType(ctx, id)
+	res, err := s.loadType(ctx, id, mode)
 	if err != nil {
 		return nil, err
 	}
@@ -1302,6 +1389,10 @@ func (s *Server) loadNthValue(
 }
 
 func (s *Server) LoadType(ctx context.Context, id *call.ID) (_ AnyResult, rerr error) {
+	return s.loadType(ctx, id, recipeLoadRecorded)
+}
+
+func (s *Server) loadType(ctx context.Context, id *call.ID, mode recipeLoadMode) (_ AnyResult, rerr error) {
 	ctx = srvToContext(ctx, s)
 	if id == nil {
 		return nil, fmt.Errorf("load type: nil ID")
@@ -1310,7 +1401,7 @@ func (s *Server) LoadType(ctx context.Context, id *call.ID) (_ AnyResult, rerr e
 		return nil, fmt.Errorf("load type: invalid recipe ID")
 	}
 	if c := s.canonical; c != nil {
-		return c.LoadType(ctx, id)
+		return c.loadType(ctx, id, mode)
 	}
 
 	leaseCtx, release, err := withOperationLease(ctx)
@@ -1364,6 +1455,7 @@ func (s *Server) LoadType(ctx context.Context, id *call.ID) (_ AnyResult, rerr e
 		srv:       s,
 		cache:     cache,
 		sessionID: clientMetadata.SessionID,
+		mode:      mode,
 		loads:     make(map[string]*recipeLoadFuture),
 	}
 	return state.load(id)
@@ -1380,6 +1472,7 @@ type recipeLoadState struct {
 	srv       *Server
 	cache     *Cache
 	sessionID string
+	mode      recipeLoadMode
 
 	mu    sync.Mutex
 	loads map[string]*recipeLoadFuture
@@ -1413,6 +1506,10 @@ func (state *recipeLoadState) load(id *call.ID) (AnyResult, error) {
 }
 
 func (state *recipeLoadState) loadRecipeVertex(id *call.ID) (AnyResult, error) {
+	if state.mode == recipeLoadReplan {
+		return state.replanRecipeVertex(id)
+	}
+
 	callCtx := state.ctx
 	if hit, ok, err := state.cache.lookupCacheForDigests(callCtx, state.sessionID, state.srv, id.Digest(), id.ExtraDigests()); err != nil {
 		return nil, fmt.Errorf("load %s: fast cache lookup: %w", idInputDebugString(id), err)
@@ -1487,6 +1584,190 @@ func (state *recipeLoadState) loadRecipeVertex(id *call.ID) (AnyResult, error) {
 		return hit, nil
 	}
 	return baseObj.Select(callCtx, state.srv, sel)
+}
+
+func (state *recipeLoadState) replanRecipeVertex(id *call.ID) (AnyResult, error) {
+	if nth := int(id.Nth()); nth != 0 {
+		receiver := id.Receiver()
+		if receiver == nil {
+			return nil, fmt.Errorf("load %s: nth selection missing receiver", idInputDebugString(id))
+		}
+		parent, err := state.load(receiver)
+		if err != nil {
+			return nil, fmt.Errorf("load %s: receiver: %w", idInputDebugString(id), err)
+		}
+		return state.srv.loadNthValue(state.ctx, parent, nth, true)
+	}
+
+	loadedInputs := make(map[string]AnyResult)
+	loadInput := func(inputID *call.ID) error {
+		if inputID == nil {
+			return nil
+		}
+		res, err := state.load(inputID)
+		if err != nil {
+			return err
+		}
+		loadedInputs[inputID.Digest().String()] = res
+		return nil
+	}
+
+	// Receiver and module provenance determine which schema supplies the field
+	// spec, so re-plan them before decoding the explicit arguments.
+	if err := loadInput(id.Receiver()); err != nil {
+		return nil, fmt.Errorf("load %s: receiver: %w", idInputDebugString(id), err)
+	}
+	if mod := id.Module(); mod != nil {
+		if err := loadInput(mod.ID()); err != nil {
+			return nil, fmt.Errorf("load %s: module: %w", idInputDebugString(id), err)
+		}
+	}
+
+	vertexSrv, err := state.replanServerForRecipeID(id, loadedInputs)
+	if err != nil {
+		return nil, fmt.Errorf("load %s: resolve schema: %w", idInputDebugString(id), err)
+	}
+	var base AnyResult
+	if receiver := id.Receiver(); receiver != nil {
+		base = loadedInputs[receiver.Digest().String()]
+		if base == nil {
+			return nil, fmt.Errorf("load %s: missing loaded receiver", idInputDebugString(id))
+		}
+	} else {
+		base = vertexSrv.root
+	}
+	baseObj, err := vertexSrv.toSelectable(state.ctx, base)
+	if err != nil {
+		return nil, fmt.Errorf("load %s: instantiate base: %w", idInputDebugString(id), err)
+	}
+
+	lazyRefs := lazyRefArgNamesForObject(id, baseObj)
+	inputIDs := explicitRecipeInputIDs(id, lazyRefs)
+	var loadedMu sync.Mutex
+	eg, _ := errgroup.WithContext(state.ctx)
+	for _, inputID := range inputIDs {
+		inputID := inputID
+		eg.Go(func() error {
+			res, err := state.load(inputID)
+			if err != nil {
+				return err
+			}
+			loadedMu.Lock()
+			loadedInputs[inputID.Digest().String()] = res
+			loadedMu.Unlock()
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return nil, fmt.Errorf("load %s: explicit inputs: %w", idInputDebugString(id), err)
+	}
+
+	sel, err := state.selectorForReplannedRecipeID(id, baseObj, loadedInputs, lazyRefs)
+	if err != nil {
+		return nil, fmt.Errorf("load %s: %w", idInputDebugString(id), err)
+	}
+	callCtx := srvToContext(withRecomputingImplicitInputs(state.ctx), vertexSrv)
+	return baseObj.Select(callCtx, vertexSrv, sel)
+}
+
+func (state *recipeLoadState) replanServerForRecipeID(id *call.ID, loadedInputs map[string]AnyResult) (*Server, error) {
+	mod := id.Module()
+	if mod == nil || mod.ID() == nil || state.srv.resultServerForCall == nil {
+		return state.srv, nil
+	}
+	moduleResult := loadedInputs[mod.ID().Digest().String()]
+	if moduleResult == nil {
+		return nil, fmt.Errorf("missing loaded module %s", mod.ID().Digest())
+	}
+	moduleRef, err := resultCallRefFromResult(state.ctx, moduleResult)
+	if err != nil {
+		return nil, fmt.Errorf("module ref: %w", err)
+	}
+	frame := &ResultCall{
+		Kind:  ResultCallKindField,
+		Type:  NewResultCallType(id.Type().ToAST()),
+		Field: id.Field(),
+		View:  id.View(),
+		Module: &ResultCallModule{
+			ResultRef: moduleRef,
+			Name:      mod.Name(),
+			Ref:       mod.Ref(),
+			Pin:       mod.Pin(),
+		},
+	}
+	resolved, err := state.srv.resultServerForCall(state.ctx, frame)
+	if err != nil {
+		return nil, err
+	}
+	if resolved == nil {
+		return nil, fmt.Errorf("module schema resolver returned nil")
+	}
+	return resolved.Canonical(), nil
+}
+
+func explicitRecipeInputIDs(id *call.ID, lazyRefs map[string]bool) []*call.ID {
+	if id == nil || id.IsHandle() {
+		return nil
+	}
+	var inputIDs []*call.ID
+	for _, arg := range id.Args() {
+		if arg == nil || lazyRefs[arg.Name()] {
+			continue
+		}
+		gatherRecipeLiteralInputIDs(arg.Value(), &inputIDs)
+	}
+	return inputIDs
+}
+
+func lazyRefArgNamesForObject(id *call.ID, baseObj AnyObjectResult) map[string]bool {
+	if id == nil || id.IsHandle() || len(id.Args()) == 0 || baseObj == nil {
+		return nil
+	}
+	fieldSpec, ok := baseObj.ObjectType().FieldSpec(id.Field(), id.View())
+	if !ok {
+		return nil
+	}
+	var lazyRefs map[string]bool
+	for _, argSpec := range fieldSpec.Args.Inputs(id.View()) {
+		if !argSpec.LazyRef {
+			continue
+		}
+		if lazyRefs == nil {
+			lazyRefs = make(map[string]bool)
+		}
+		lazyRefs[argSpec.Name] = true
+	}
+	return lazyRefs
+}
+
+func (state *recipeLoadState) selectorForReplannedRecipeID(
+	id *call.ID,
+	baseObj AnyObjectResult,
+	loadedInputs map[string]AnyResult,
+	lazyRefs map[string]bool,
+) (Selector, error) {
+	frame := &ResultCall{Field: id.Field(), View: id.View()}
+	for _, arg := range id.Args() {
+		if arg == nil {
+			continue
+		}
+		var (
+			converted *ResultCallArg
+			err       error
+		)
+		if lazyRefs[arg.Name()] {
+			var value *ResultCallLiteral
+			value, err = resultCallLiteralFromRecipeLiteral(state.ctx, arg.Value(), nil)
+			converted = &ResultCallArg{Name: arg.Name(), IsSensitive: arg.IsSensitive(), Value: value}
+		} else {
+			converted, err = state.loadedResultCallArgFromRecipeArgument(arg, loadedInputs)
+		}
+		if err != nil {
+			return Selector{}, fmt.Errorf("arg %q: %w", arg.Name(), err)
+		}
+		frame.Args = append(frame.Args, converted)
+	}
+	return selectorFromLoadedCall(state.ctx, frame, baseObj, id, lazyRefs)
 }
 
 func (state *recipeLoadState) directRecipeInputIDs(id *call.ID, lazyRefs map[string]bool) []*call.ID {
@@ -2075,6 +2356,8 @@ func ChildFieldCall(parent *ResultCall, field string, fieldType *ast.Type) *Resu
 
 type srvCtx struct{}
 
+type recomputingImplicitInputsCtx struct{}
+
 type cacheCtx struct{}
 
 func ContextWithCache(ctx context.Context, cache *Cache) context.Context {
@@ -2102,6 +2385,17 @@ func CurrentDagqlServer(ctx context.Context) *Server {
 		return nil
 	}
 	return val.(*Server)
+}
+
+func withRecomputingImplicitInputs(ctx context.Context) context.Context {
+	return context.WithValue(ctx, recomputingImplicitInputsCtx{}, true)
+}
+
+// RecomputingImplicitInputs reports whether the current resolver is being
+// freshly planned while loading an opted-in persisted recipe.
+func RecomputingImplicitInputs(ctx context.Context) bool {
+	recomputing, _ := ctx.Value(recomputingImplicitInputsCtx{}).(bool)
+	return recomputing
 }
 
 // NewResultForCurrentCall creates a new Result that's set to the current call

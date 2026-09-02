@@ -739,6 +739,21 @@
                 "isDeprecated": false,
                 "deprecationReason": "",
                 "directives": []
+              },
+              {
+                "name": "recomputeImplicitInputs",
+                "description": "Re-plan recipe-form IDs under the current request context, recomputing engine-provided implicit inputs.",
+                "defaultValue": "false",
+                "type": {
+                  "kind": "NON_NULL",
+                  "ofType": {
+                    "kind": "SCALAR",
+                    "name": "Boolean"
+                  }
+                },
+                "isDeprecated": false,
+                "deprecationReason": "",
+                "directives": []
               }
             ],
             "isDeprecated": false,

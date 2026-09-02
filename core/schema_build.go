@@ -42,7 +42,10 @@ func InstallCoreSchemaLoaders(dag *dagql.Server) {
 	// the shared result, so this hook only fires on the cold path (decode, or
 	// loads that bypassed class capture).
 	dag.SetResultServerForCall(serverForResultCall)
-	dag.SetNodeLoader(func(ctx context.Context, id *call.ID) (dagql.AnyObjectResult, error) {
+	dag.SetNodeLoader(func(ctx context.Context, id *call.ID, opts dagql.NodeLoadOptions) (dagql.AnyObjectResult, error) {
+		if opts.RecomputeImplicitInputs && id != nil && !id.IsHandle() {
+			return dag.LoadWithRecomputedImplicitInputs(ctx, id)
+		}
 		if id == nil || !id.IsHandle() || id.EngineResultID() == 0 {
 			return dag.Load(ctx, id)
 		}

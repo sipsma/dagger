@@ -47,8 +47,9 @@ type boundTool struct {
 	id *call.ID
 	// objType is the bound object's GraphQL type, known without loading, so the
 	// toolset can be built from a lazy binding.
-	objType dagql.ObjectType
-	Except  []string
+	objType      dagql.ObjectType
+	replanOnLoad bool
+	Except       []string
 }
 
 // typeName returns the bound object's type name without forcing a load.
@@ -88,10 +89,10 @@ func (m *MCP) WithTools(obj dagql.AnyObjectResult, except []string) *MCP {
 // MCP.boundToolObject), so restoring the conversation never re-runs the call
 // that produced the object. objType is the object's GraphQL type, resolved from
 // the ID's return type, so the toolset can still be built.
-func (m *MCP) WithLazyTools(id *call.ID, objType dagql.ObjectType, except []string) *MCP {
+func (m *MCP) WithLazyTools(id *call.ID, objType dagql.ObjectType, except []string, replanOnLoad bool) *MCP {
 	m = m.Clone()
 	typeName := objType.TypeName()
-	binding := boundTool{id: id, objType: objType, Except: except}
+	binding := boundTool{id: id, objType: objType, replanOnLoad: replanOnLoad, Except: except}
 	for i, b := range m.boundTools {
 		if b.typeName() == typeName {
 			m.boundTools[i] = binding
@@ -111,7 +112,10 @@ func (m *MCP) boundToolObject(ctx context.Context, srv *dagql.Server, typeName s
 	// in the same batch is visible. If it needs loading, release the lock first:
 	// srv.Load can be slow and may re-enter MCP, so it must not run under m.mu.
 	m.mu.Lock()
-	var toLoad *call.ID
+	var (
+		toLoad       *call.ID
+		replanOnLoad bool
+	)
 	for _, b := range m.boundTools {
 		if b.typeName() != typeName {
 			continue
@@ -126,6 +130,7 @@ func (m *MCP) boundToolObject(ctx context.Context, srv *dagql.Server, typeName s
 			return nil, false, fmt.Errorf("bound object of type %q has neither a loaded value nor an ID", typeName)
 		}
 		toLoad = b.id
+		replanOnLoad = b.replanOnLoad
 		break
 	}
 	m.mu.Unlock()
@@ -133,7 +138,13 @@ func (m *MCP) boundToolObject(ctx context.Context, srv *dagql.Server, typeName s
 		return nil, false, nil
 	}
 
-	obj, err := srv.Load(ctx, toLoad)
+	var obj dagql.AnyObjectResult
+	var err error
+	if replanOnLoad && !toLoad.IsHandle() {
+		obj, err = srv.LoadWithRecomputedImplicitInputs(ctx, toLoad)
+	} else {
+		obj, err = srv.Load(ctx, toLoad)
+	}
 	if err != nil {
 		return nil, true, fmt.Errorf("load bound object of type %q: %w", typeName, err)
 	}
