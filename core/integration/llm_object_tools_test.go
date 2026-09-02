@@ -92,9 +92,34 @@ func (LLMSuite) TestPersistedUserModuleToolReplansOnFirstInvocation(ctx context.
 		WithResponse([]dagger.LLMContentBlockInput{{
 			Kind: dagger.LLMContentBlockKindText, Text: "done",
 		}}))
-	reply, err := resumed.WithModel(model).WithPrompt("greet").Loop().LastReply(ctx)
+	looped := resumed.WithModel(model).WithPrompt("greet").Loop()
+	messages, err := looped.Messages(ctx)
 	require.NoError(t, err, "first bound-tool invocation must replan in the resumed session")
-	require.Equal(t, "done", reply)
+	var foundToolResult bool
+	for i := range messages {
+		blocks, err := messages[i].Content(ctx)
+		require.NoError(t, err)
+		for j := range blocks {
+			kind, err := blocks[j].Kind(ctx)
+			require.NoError(t, err)
+			if kind != dagger.LLMContentBlockKindToolResult {
+				continue
+			}
+			callID, err := blocks[j].CallID(ctx)
+			require.NoError(t, err)
+			if callID != "call_1" {
+				continue
+			}
+			foundToolResult = true
+			text, err := blocks[j].Text(ctx)
+			require.NoError(t, err)
+			require.Equal(t, "hello from session b", text)
+			errored, err := blocks[j].Errored(ctx)
+			require.NoError(t, err)
+			require.False(t, errored)
+		}
+	}
+	require.True(t, foundToolResult, "looped LLM must contain the live call_1 tool result")
 }
 
 // TestObjectToolset locks in that the LLM's tools come from the objects it's
