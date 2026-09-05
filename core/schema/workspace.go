@@ -235,7 +235,7 @@ func (s *workspaceSchema) Install(srv *dagql.Server) {
 			View(AfterVersion("v1.0.0-0")).
 			// Env-sensitive writes: what this records depends on the client's env
 			// selection, which travels in client metadata rather than the
-			// workspace ID, so a recipe recorded under one env must not replay
+			// workspace ID, so a recipe recorded under one env must not be reused
 			// under another.
 			WithInput(dagql.PerClientInput).
 			Doc("Return this workspace with a module installed in its config.",
@@ -822,7 +822,7 @@ func (s *workspaceSchema) workspaceReadPathExists(
 		if err != nil {
 			return false, fmt.Errorf("buildkit: %w", err)
 		}
-		statPath, err := pathutil.SandboxedRelativePath(resolvedPath, ws.HostPath())
+		statPath, err := pathutil.ResolvePathWithinRoot(resolvedPath, ws.HostPath())
 		if err != nil {
 			return false, err
 		}
@@ -909,7 +909,7 @@ func (s *workspaceSchema) resolveRootfsInner(
 		if err != nil {
 			return inst, err
 		}
-		absPath, err := pathutil.SandboxedRelativePath(resolvedPath, ws.HostPath())
+		absPath, err := pathutil.ResolvePathWithinRoot(resolvedPath, ws.HostPath())
 		if err != nil {
 			return inst, err
 		}
@@ -1015,7 +1015,7 @@ func (s *workspaceSchema) resolveHostOverlayRootfs(
 	if err != nil {
 		return inst, err
 	}
-	absPath, err := pathutil.SandboxedRelativePath(".", ws.HostPath())
+	absPath, err := pathutil.ResolvePathWithinRoot(".", ws.HostPath())
 	if err != nil {
 		return inst, err
 	}
@@ -2854,7 +2854,7 @@ func (s *workspaceSchema) sparseHostBase(
 	if err != nil {
 		return dagql.ObjectResult[*core.Directory]{}, err
 	}
-	absPath, err := pathutil.SandboxedRelativePath(".", ws.HostPath())
+	absPath, err := pathutil.ResolvePathWithinRoot(".", ws.HostPath())
 	if err != nil {
 		return dagql.ObjectResult[*core.Directory]{}, err
 	}
@@ -3037,7 +3037,7 @@ func (s *workspaceSchema) ensureWorkspaceGitDirectory(ctx context.Context, ws *c
 		}
 
 		statFS = core.NewCallerStatFS(bk)
-		statPath, err = pathutil.SandboxedRelativePath(".git", ws.HostPath())
+		statPath, err = pathutil.ResolvePathWithinRoot(".git", ws.HostPath())
 		if err != nil {
 			return err
 		}
@@ -3499,7 +3499,7 @@ func (s *workspaceSchema) findUp(
 		statFS = core.NewCallerStatFS(bk)
 		boundaryRoot := ws.HostPath()
 		pathForStat = func(candidate string) (string, error) {
-			return pathutil.SandboxedRelativePath(candidate, boundaryRoot)
+			return pathutil.ResolvePathWithinRoot(candidate, boundaryRoot)
 		}
 	} else {
 		rootfs, err := workspaceRootfs(ws)
