@@ -52,7 +52,7 @@ func spawnAgentWithSkills(ctx context.Context, t *testctx.T, c *dagger.Client, n
 				}
 			}`,
 			Variables: map[string]any{
-				"model": emptyReplayModel,
+				"model": emptyRecordingModel,
 				"dir":   string(dirID),
 				"name":  name,
 			},
@@ -231,7 +231,7 @@ func requireSkillInstalled(ctx context.Context, t *testctx.T, c *dagger.Client, 
 			Query: `query($model: String!, $dir: ID!) {
 				llm(model: $model) { withSkills(directory: $dir) { skills { name } } }
 			}`,
-			Variables: map[string]any{"model": emptyReplayModel, "dir": string(dirID)},
+			Variables: map[string]any{"model": emptyRecordingModel, "dir": string(dirID)},
 		},
 		&dagger.Response{Data: &res},
 	))

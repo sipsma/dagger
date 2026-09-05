@@ -32,7 +32,7 @@ func (AgentRuntimeSuite) TestNotifyDeliversLifecycleEvents(ctx context.Context, 
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
-	workerModel := cannedReplayModel(ctx, t, c, c.LLM().
+	workerModel := cannedRecordingModel(ctx, t, c, c.LLM().
 		WithPrompt("do the thing").
 		WithResponse([]dagger.LLMContentBlockInput{
 			{Kind: dagger.LLMContentBlockKindText, Text: "done"},
@@ -41,7 +41,7 @@ func (AgentRuntimeSuite) TestNotifyDeliversLifecycleEvents(ctx context.Context, 
 	// turn (the chief is idle until then), which is the wake-on-event
 	// contract. The recording must hold the rendered wire text — header
 	// plus the engine's event body — exactly as the model receives it.
-	chiefModel := cannedReplayModel(ctx, t, c, c.LLM().
+	chiefModel := cannedRecordingModel(ctx, t, c, c.LLM().
 		WithPrompt(agentIdleEventText("w", "done")).
 		WithResponse([]dagger.LLMContentBlockInput{
 			{Kind: dagger.LLMContentBlockKindText, Text: "noted"},
@@ -97,7 +97,7 @@ func (AgentRuntimeSuite) TestWait(ctx context.Context, t *testctx.T) {
 
 	// An empty recording fails its first step, so the send lands (delivery
 	// is conclusive at the drain) and the loop then dies.
-	h := spawnAgent(ctx, t, c, spawnOpts{model: emptyReplayModel, name: "flaky"})
+	h := spawnAgent(ctx, t, c, spawnOpts{model: emptyRecordingModel, name: "flaky"})
 	delivery, err := h.sendNoWait(ctx, t, "hi")
 	require.NoError(t, err)
 	require.Equal(t, "STARTED", delivery)
@@ -112,7 +112,7 @@ func (AgentRuntimeSuite) TestWait(ctx context.Context, t *testctx.T) {
 
 	// An inert agent projects IDLE — already settled — so the wait returns
 	// immediately rather than erroring or blocking.
-	inert := spawnAgent(ctx, t, c, spawnOpts{model: emptyReplayModel, name: "inert"})
+	inert := spawnAgent(ctx, t, c, spawnOpts{model: emptyRecordingModel, name: "inert"})
 	_, err = inert.run(ctx, t, `wait`)
 	require.NoError(t, err)
 	require.Equal(t, "IDLE", inert.state(ctx, t))
@@ -134,7 +134,7 @@ func (AgentRuntimeSuite) TestResumeRetryEmitsNoStaleIdle(ctx context.Context, t 
 
 	// One recorded exchange: the worker's second turn exhausts the
 	// recording and FAILS, and every resume-retry fails the same way.
-	workerModel := cannedReplayModel(ctx, t, c, c.LLM().
+	workerModel := cannedRecordingModel(ctx, t, c, c.LLM().
 		WithPrompt("do the thing").
 		WithResponse([]dagger.LLMContentBlockInput{
 			{Kind: dagger.LLMContentBlockKindText, Text: "done"},
@@ -142,7 +142,7 @@ func (AgentRuntimeSuite) TestResumeRetryEmitsNoStaleIdle(ctx context.Context, t 
 	// The chief's recording holds exactly ONE exchange: the real
 	// completion. A stale idle event would open a second chief turn this
 	// recording cannot serve, failing the chief — loudly visible below.
-	chiefModel := cannedReplayModel(ctx, t, c, c.LLM().
+	chiefModel := cannedRecordingModel(ctx, t, c, c.LLM().
 		WithPrompt(agentIdleEventText("w", "done")).
 		WithResponse([]dagger.LLMContentBlockInput{
 			{Kind: dagger.LLMContentBlockKindText, Text: "noted"},

@@ -10747,6 +10747,7 @@ type LLM struct {
 
 	contextTokens   *int
 	contextWindow   *int
+	emitHistory     *ID
 	hasPending      *bool
 	id              *ID
 	lastReply       *string
@@ -10754,7 +10755,6 @@ type LLM struct {
 	portableID      *ID
 	provider        *string
 	reasoningEffort *string
-	replay          *ID
 	spawn           *ID
 	sync            *ID
 	tools           *string
@@ -10814,6 +10814,19 @@ func (r *LLM) ContextWindow(ctx context.Context) (int, error) {
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
+}
+
+// Re-emit telemetry spans for the full message history, so a loaded conversation displays in the TUI.
+func (r *LLM) EmitHistory(ctx context.Context) (*LLM, error) {
+	q := r.query.Select("emitHistory")
+
+	var id ID
+	if err := q.Bind(&id).Execute(ctx); err != nil {
+		return nil, err
+	}
+	return &LLM{
+		query: selectNode(q.Root(), id, "LLM"),
+	}, nil
 }
 
 // Fork the conversation, so that otherwise-identical follow-ups evaluate independently instead of deduplicating to a single cached result.
@@ -11002,19 +11015,6 @@ func (r *LLM) ReasoningEffort(ctx context.Context) (string, error) {
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
-}
-
-// Re-emit telemetry spans for the full message history, so a loaded conversation displays in the TUI.
-func (r *LLM) Replay(ctx context.Context) (*LLM, error) {
-	q := r.query.Select("replay")
-
-	var id ID
-	if err := q.Bind(&id).Execute(ctx); err != nil {
-		return nil, err
-	}
-	return &LLM{
-		query: selectNode(q.Root(), id, "LLM"),
-	}, nil
 }
 
 // The skills visible to the model, exactly as the ListSkills tool serves them: engine-embedded skills, skills installed with withSkills, and skills discovered in the workspace.
