@@ -34,6 +34,8 @@ const temporalOutcome = "temporal"
 // a temporal property must be violated; any other value names the one
 // invariant that must be violated.
 var expectedOutcome = map[string]string{
+	"snapshot_import": "",
+	"snapshot_export": "",
 	// green: regression checks over the modeled cache behavior. (The
 	// former core configuration is folded into resources: same bounds,
 	// every core invariant, and strictly more behavior.)
@@ -344,7 +346,8 @@ func (m *TlaCheck) One(
 	ctr := m.base(m.Source)
 
 	if define != "" {
-		spec, err := m.Source.File("CacheLifecycle.tla").Contents(ctx)
+		model, _ := modelFiles(config)
+		spec, err := m.Source.File(model).Contents(ctx)
 		if err != nil {
 			return "", fmt.Errorf("read spec: %w", err)
 		}
@@ -355,10 +358,10 @@ func (m *TlaCheck) One(
 			return "", fmt.Errorf("spec terminator not found")
 		}
 		spec = spec[:term] + "\n" + define + "\n" + spec[term:]
-		ctr = ctr.WithNewFile("/spec/CacheLifecycle.tla", spec)
+		ctr = ctr.WithNewFile("/spec/"+model, spec)
 	}
 
-	cfgPath := fmt.Sprintf("CacheLifecycle_%s.cfg", config)
+	model, cfgPath := modelFiles(config)
 	if invariant != "" {
 		cfg, err := m.Source.File(cfgPath).Contents(ctx)
 		if err != nil {
@@ -384,8 +387,8 @@ func (m *TlaCheck) One(
 	// -Xmx8g: the JVM's default heap is a quarter of host memory, so four
 	// concurrent configurations could still overcommit a 64 GiB host.
 	cmd := fmt.Sprintf(
-		"java -Xmx8g -XX:+UseParallelGC -cp /tla2tools.jar tlc2.TLC -workers auto -deadlock -config %s CacheLifecycle.tla 2>&1; true",
-		cfgPath)
+		"java -Xmx8g -XX:+UseParallelGC -cp /tla2tools.jar tlc2.TLC -workers auto -deadlock -config %s %s 2>&1; true",
+		cfgPath, model)
 	return ctr.WithExec([]string{"sh", "-c", cmd}).Stdout(ctx)
 }
 
@@ -436,11 +439,15 @@ func runOne(
 	name,
 	expect string,
 ) *runFailure {
+	model, cfgPath := specName+".tla", configPrefix+name+".cfg"
+	if specName == "CacheLifecycle" {
+		model, cfgPath = modelFiles(name)
+	}
 	// -Xmx8g: the JVM's default heap is a quarter of host memory, so four
 	// concurrent configurations could still overcommit a 64 GiB host.
 	cmd := fmt.Sprintf(
-		"java -Xmx8g -XX:+UseParallelGC -cp /tla2tools.jar tlc2.TLC -workers auto -deadlock -config %s%s.cfg %s.tla 2>&1; true",
-		configPrefix, name, specName)
+		"java -Xmx8g -XX:+UseParallelGC -cp /tla2tools.jar tlc2.TLC -workers auto -deadlock -config %s %s 2>&1; true",
+		cfgPath, model)
 	out, err := base.WithExec([]string{"sh", "-c", cmd}).Stdout(ctx)
 	if err != nil {
 		return &runFailure{name: name, summary: "could not run TLC", detail: err.Error()}
@@ -497,5 +504,17 @@ func runOne(
 			summary: "unrecognized TLC outcome (no clean pass, invariant violation, or temporal violation)",
 			detail:  out,
 		}
+	}
+}
+
+// modelFiles preserves the existing short names and adds the snapshot component.
+func modelFiles(name string) (string, string) {
+	switch name {
+	case "snapshot_import":
+		return "SnapshotChain.tla", "SnapshotChain_import.cfg"
+	case "snapshot_export":
+		return "SnapshotChain.tla", "SnapshotChain_export.cfg"
+	default:
+		return "CacheLifecycle.tla", fmt.Sprintf("CacheLifecycle_%s.cfg", name)
 	}
 }
