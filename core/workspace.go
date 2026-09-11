@@ -653,7 +653,7 @@ const (
 	persistedWorkspaceSourceOverlay     = "overlay"
 )
 
-func encodePersistedWorkspaceSource(cache dagql.PersistedObjectCache, src WorkspaceSource) (*persistedWorkspaceSource, error) {
+func encodePersistedWorkspaceSource(enc *dagql.PersistEncodeContext, src WorkspaceSource) (*persistedWorkspaceSource, error) {
 	switch src := src.(type) {
 	case *WorkspaceSourceClientLocal:
 		return &persistedWorkspaceSource{Kind: persistedWorkspaceSourceClientLocal}, nil
@@ -665,7 +665,7 @@ func encodePersistedWorkspaceSource(cache dagql.PersistedObjectCache, src Worksp
 	case *WorkspaceSourceDirectory:
 		payload := &persistedWorkspaceSource{Kind: persistedWorkspaceSourceDirectory}
 		if src.Root.Self() != nil {
-			rootID, err := encodePersistedObjectRef(cache, src.Root, "workspace directory source")
+			rootID, err := encodePersistedObjectRef(enc, src.Root, "workspace directory source")
 			if err != nil {
 				return nil, err
 			}
@@ -673,7 +673,7 @@ func encodePersistedWorkspaceSource(cache dagql.PersistedObjectCache, src Worksp
 		}
 		return payload, nil
 	case *WorkspaceSourceGitRef:
-		refID, err := encodePersistedObjectRef(cache, src.Ref, "workspace git ref source")
+		refID, err := encodePersistedObjectRef(enc, src.Ref, "workspace git ref source")
 		if err != nil {
 			return nil, err
 		}
@@ -685,7 +685,7 @@ func encodePersistedWorkspaceSource(cache dagql.PersistedObjectCache, src Worksp
 	case *WorkspaceSourceOverlay:
 		payload := &persistedWorkspaceSource{Kind: persistedWorkspaceSourceOverlay}
 		if src.Base != nil {
-			base, err := encodePersistedWorkspaceSource(cache, src.Base)
+			base, err := encodePersistedWorkspaceSource(enc, src.Base)
 			if err != nil {
 				return nil, err
 			}
@@ -694,7 +694,7 @@ func encodePersistedWorkspaceSource(cache dagql.PersistedObjectCache, src Worksp
 		payload.TouchedPaths = src.TouchedPaths
 		payload.SeededPaths = src.SeededPaths
 		if src.Changes.Self() != nil {
-			changesID, err := encodePersistedObjectRef(cache, src.Changes, "workspace overlay changes")
+			changesID, err := encodePersistedObjectRef(enc, src.Changes, "workspace overlay changes")
 			if err != nil {
 				return nil, err
 			}
@@ -708,7 +708,7 @@ func encodePersistedWorkspaceSource(cache dagql.PersistedObjectCache, src Worksp
 
 func decodePersistedWorkspaceSource(
 	ctx context.Context,
-	dag *dagql.Server,
+	dec *dagql.PersistDecodeContext,
 	persisted *persistedWorkspaceSource,
 	rootfs dagql.ObjectResult[*Directory],
 	hostPath string,
@@ -729,7 +729,7 @@ func decodePersistedWorkspaceSource(
 		root := rootfs
 		if persisted.RootResultID != 0 {
 			var err error
-			root, err = loadPersistedObjectResultByResultID[*Directory](ctx, dag, persisted.RootResultID, "workspace directory source")
+			root, err = loadPersistedObjectResultByResultID[*Directory](ctx, dec, persisted.RootResultID, "workspace directory source")
 			if err != nil {
 				return nil, err
 			}
@@ -739,19 +739,19 @@ func decodePersistedWorkspaceSource(
 		if persisted.GitRefResultID == 0 {
 			return nil, fmt.Errorf("decode persisted workspace source: gitRef missing result ID")
 		}
-		ref, err := loadPersistedObjectResultByResultID[*GitRef](ctx, dag, persisted.GitRefResultID, "workspace git ref source")
+		ref, err := loadPersistedObjectResultByResultID[*GitRef](ctx, dec, persisted.GitRefResultID, "workspace git ref source")
 		if err != nil {
 			return nil, err
 		}
 		return NewWorkspaceSourceGitRef(ref.Result, persisted.ExplicitCommit), nil
 	case persistedWorkspaceSourceOverlay:
-		base, err := decodePersistedWorkspaceSource(ctx, dag, persisted.Base, rootfs, hostPath)
+		base, err := decodePersistedWorkspaceSource(ctx, dec, persisted.Base, rootfs, hostPath)
 		if err != nil {
 			return nil, err
 		}
 		var changes dagql.ObjectResult[*Changeset]
 		if persisted.ChangesID != 0 {
-			changes, err = loadPersistedObjectResultByResultID[*Changeset](ctx, dag, persisted.ChangesID, "workspace overlay changes")
+			changes, err = loadPersistedObjectResultByResultID[*Changeset](ctx, dec, persisted.ChangesID, "workspace overlay changes")
 			if err != nil {
 				return nil, err
 			}
@@ -762,7 +762,7 @@ func decodePersistedWorkspaceSource(
 	}
 }
 
-func (ws *Workspace) EncodePersistedObject(ctx context.Context, cache dagql.PersistedObjectCache) (dagql.PersistedObjectEncoding, error) {
+func (ws *Workspace) EncodePersistedObject(ctx context.Context, enc *dagql.PersistEncodeContext) (dagql.PersistedObjectEncoding, error) {
 	_ = ctx
 	if ws == nil {
 		return dagql.PersistedObjectEncoding{}, fmt.Errorf("encode persisted workspace: nil workspace")
@@ -779,14 +779,14 @@ func (ws *Workspace) EncodePersistedObject(ctx context.Context, cache dagql.Pers
 		SelectedEnv:     ws.selectedEnv,
 	}
 	if ws.rootfs.Self() != nil {
-		rootfsID, err := encodePersistedObjectRef(cache, ws.rootfs, "workspace rootfs")
+		rootfsID, err := encodePersistedObjectRef(enc, ws.rootfs, "workspace rootfs")
 		if err != nil {
 			return dagql.PersistedObjectEncoding{}, err
 		}
 		payload.RootfsResultID = rootfsID
 	}
 	if ws.mounts.Self() != nil {
-		mountsID, err := encodePersistedObjectRef(cache, ws.mounts, "workspace mounts")
+		mountsID, err := encodePersistedObjectRef(enc, ws.mounts, "workspace mounts")
 		if err != nil {
 			return dagql.PersistedObjectEncoding{}, err
 		}
@@ -794,7 +794,7 @@ func (ws *Workspace) EncodePersistedObject(ctx context.Context, cache dagql.Pers
 		payload.MountPoints = ws.mountPoints
 	}
 	if ws.Source() != nil {
-		source, err := encodePersistedWorkspaceSource(cache, ws.Source())
+		source, err := encodePersistedWorkspaceSource(enc, ws.Source())
 		if err != nil {
 			return dagql.PersistedObjectEncoding{}, err
 		}
@@ -808,13 +808,7 @@ func (ws *Workspace) EncodePersistedObject(ctx context.Context, cache dagql.Pers
 	return encodePersistedObjectRawJSON(payloadBytes), nil
 }
 
-func (*Workspace) DecodePersistedObject(
-	ctx context.Context,
-	dag *dagql.Server,
-	_ uint64,
-	_ *dagql.ResultCall,
-	payload json.RawMessage,
-) (dagql.Typed, error) {
+func (*Workspace) DecodePersistedObject(ctx context.Context, dec *dagql.PersistDecodeContext, payload json.RawMessage) (dagql.Typed, error) {
 	var persisted persistedWorkspacePayload
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted workspace payload: %w", err)
@@ -823,7 +817,7 @@ func (*Workspace) DecodePersistedObject(
 	var rootfs dagql.ObjectResult[*Directory]
 	if persisted.RootfsResultID != 0 {
 		var err error
-		rootfs, err = loadPersistedObjectResultByResultID[*Directory](ctx, dag, persisted.RootfsResultID, "workspace rootfs")
+		rootfs, err = loadPersistedObjectResultByResultID[*Directory](ctx, dec, persisted.RootfsResultID, "workspace rootfs")
 		if err != nil {
 			return nil, err
 		}
@@ -832,7 +826,7 @@ func (*Workspace) DecodePersistedObject(
 	var mounts dagql.ObjectResult[*Directory]
 	if persisted.MountsResultID != 0 {
 		var err error
-		mounts, err = loadPersistedObjectResultByResultID[*Directory](ctx, dag, persisted.MountsResultID, "workspace mounts")
+		mounts, err = loadPersistedObjectResultByResultID[*Directory](ctx, dec, persisted.MountsResultID, "workspace mounts")
 		if err != nil {
 			return nil, err
 		}
@@ -866,7 +860,7 @@ func (*Workspace) DecodePersistedObject(
 		selectedEnv:     persisted.SelectedEnv,
 	}
 	if persisted.Source != nil {
-		src, err := decodePersistedWorkspaceSource(ctx, dag, persisted.Source, rootfs, persisted.HostPath)
+		src, err := decodePersistedWorkspaceSource(ctx, dec, persisted.Source, rootfs, persisted.HostPath)
 		if err != nil {
 			return nil, err
 		}
@@ -1044,14 +1038,14 @@ type persistedWorkspaceGitPayload struct {
 	WorkspaceResultID uint64 `json:"workspaceResultID,omitempty"`
 }
 
-func (wg *WorkspaceGit) EncodePersistedObject(ctx context.Context, cache dagql.PersistedObjectCache) (dagql.PersistedObjectEncoding, error) {
+func (wg *WorkspaceGit) EncodePersistedObject(ctx context.Context, enc *dagql.PersistEncodeContext) (dagql.PersistedObjectEncoding, error) {
 	_ = ctx
 	if wg == nil {
 		return dagql.PersistedObjectEncoding{}, fmt.Errorf("encode persisted workspace git: nil workspace git")
 	}
 	var payload persistedWorkspaceGitPayload
 	if wg.Workspace.Self() != nil {
-		wsID, err := encodePersistedObjectRef(cache, wg.Workspace, "workspace git workspace")
+		wsID, err := encodePersistedObjectRef(enc, wg.Workspace, "workspace git workspace")
 		if err != nil {
 			return dagql.PersistedObjectEncoding{}, err
 		}
@@ -1064,20 +1058,14 @@ func (wg *WorkspaceGit) EncodePersistedObject(ctx context.Context, cache dagql.P
 	return encodePersistedObjectRawJSON(payloadBytes), nil
 }
 
-func (*WorkspaceGit) DecodePersistedObject(
-	ctx context.Context,
-	dag *dagql.Server,
-	_ uint64,
-	_ *dagql.ResultCall,
-	payload json.RawMessage,
-) (dagql.Typed, error) {
+func (*WorkspaceGit) DecodePersistedObject(ctx context.Context, dec *dagql.PersistDecodeContext, payload json.RawMessage) (dagql.Typed, error) {
 	var persisted persistedWorkspaceGitPayload
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted workspace git payload: %w", err)
 	}
 	wg := &WorkspaceGit{}
 	if persisted.WorkspaceResultID != 0 {
-		ws, err := loadPersistedObjectResultByResultID[*Workspace](ctx, dag, persisted.WorkspaceResultID, "workspace git workspace")
+		ws, err := loadPersistedObjectResultByResultID[*Workspace](ctx, dec, persisted.WorkspaceResultID, "workspace git workspace")
 		if err != nil {
 			return nil, err
 		}
