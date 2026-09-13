@@ -1,0 +1,630 @@
+diff --git a/core/container_capture_test.go b/core/container_capture_test.go
+new file mode 100644
+index 0000000000..114254861b
+--- /dev/null
++++ b/core/container_capture_test.go
+@@ -0,0 +1,247 @@
++package core
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"sync"
++	"sync/atomic"
++	"testing"
++
++	"github.com/dagger/dagger/dagql"
++	"github.com/stretchr/testify/require"
++)
++
++// Keep the real Container routing and LazyState latches, with controlled
++// bodies so capture can be attempted between a mutation and completion.
++type captureContainerGroupsOp struct {
++	ContainerWithLabelLazy
++	body        func(*Container, dagql.LazyGroupKey)
++	encode      func() error
++	encodeCalls atomic.Int32
++}
++
++func (op *captureContainerGroupsOp) Evaluate(ctx context.Context, ctr *Container) error {
++	return ctr.evaluateAllLazyGroups(ctx, op)
++}
++
++func (op *captureContainerGroupsOp) EvaluateContainerGroup(ctx context.Context, ctr *Container, group dagql.LazyGroupKey) error {
++	return op.LazyState.EvaluateGroup(ctx, "capture-test", group, func(context.Context) error {
++		if op.body != nil {
++			op.body(ctr, group)
++		}
++		return nil
++	})
++}
++
++func (op *captureContainerGroupsOp) EncodePersisted(ctx context.Context, enc *dagql.PersistEncodeContext) (json.RawMessage, error) {
++	op.encodeCalls.Add(1)
++	if op.encode != nil {
++		if err := op.encode(); err != nil {
++			return nil, err
++		}
++	}
++	return op.ContainerWithLabelLazy.EncodePersisted(ctx, enc)
++}
++
++func newCaptureContainer(t *testing.T) (context.Context, *dagql.Cache, dagql.ObjectResult[*Container], *captureContainerGroupsOp) {
++	t.Helper()
++	ctx, cache, srv, session := newContainerPartsTestCtx(t)
++	parent := attachContainerPartsTestResult(t, ctx, cache, srv, session, "capture-parent", NewContainer(Platform{}))
++	ctr := NewContainer(Platform{})
++	op := &captureContainerGroupsOp{ContainerWithLabelLazy: ContainerWithLabelLazy{
++		LazyState: NewLazyState(), Parent: parent, Name: "capture", Value: "inputs",
++	}}
++	ctr.Lazy = op
++	res := attachContainerPartsTestResult(t, ctx, cache, srv, session, "capture-child", ctr)
++	return ctx, cache, res, op
++}
++
++func TestCapturePersistedContainerDirectEvaluation(t *testing.T) {
++	for _, test := range []struct {
++		name  string
++		part  dagql.PartKey
++		whole bool
++	}{
++		{name: "metadata", part: ContainerPartMetadata},
++		{name: "snapshot", part: ContainerPartFS},
++		{name: "whole", part: ContainerPartMetadata, whole: true},
++	} {
++		t.Run(test.name, func(t *testing.T) {
++			ctx, cache, res, op := newCaptureContainer(t)
++			ctr := res.Self()
++			entered, allow := make(chan struct{}), make(chan struct{})
++			finish := sync.OnceFunc(func() { close(allow) })
++			defer finish()
++			op.body = func(ctr *Container, group dagql.LazyGroupKey) {
++				if group != dagql.LazyGroupKey(test.part) {
++					return
++				}
++				if test.part == ContainerPartMetadata {
++					ctr.Config.WorkingDir = "/half-written"
++				} else {
++					ctr.FS.SetValue(containerPersistenceTestDirectory("half-written", "/"))
++				}
++				close(entered)
++				<-allow
++				if test.part == ContainerPartMetadata {
++					ctr.Config.WorkingDir = "/final"
++				} else {
++					ctr.FS.SetValue(containerPersistenceTestDirectory("final", "/"))
++				}
++			}
++			before, err := cache.CapturePersistedRecord(ctx, res)
++			require.NoError(t, err)
++			select {
++			case <-entered:
++				t.Fatal("capture started evaluation")
++			default:
++			}
++			calls := op.encodeCalls.Load()
++			done := make(chan error, 1)
++			go func() {
++				if test.whole {
++					done <- ctr.Evaluate(ctx)
++				} else {
++					done <- ctr.evaluatePartsDirect(ctx, test.part)
++				}
++			}()
++			<-entered
++			_, err = cache.CapturePersistedRecord(ctx, res)
++			require.ErrorIs(t, err, dagql.ErrPersistStateNotReady)
++			require.Equal(t, calls, op.encodeCalls.Load(), "busy bodies must not reach recipe encoding")
++			if test.part == ContainerPartFS {
++				// A refused capture releases its locks, and a different group
++				// completes while the filesystem body remains parked.
++				require.NoError(t, ctr.evaluatePartsDirect(ctx, ContainerPartExecMeta))
++				require.True(t, op.GroupConsumed(dagql.LazyGroupKey(ContainerPartExecMeta)))
++			}
++			finish()
++			require.NoError(t, <-done)
++			after, err := cache.CapturePersistedRecord(ctx, res)
++			require.NoError(t, err)
++			var initial, final persistedContainerPayload
++			require.NoError(t, json.Unmarshal(before.Envelope.ObjectJSON, &initial))
++			require.NoError(t, json.Unmarshal(after.Envelope.ObjectJSON, &final))
++			require.JSONEq(t, string(initial.LazyJSON), string(final.LazyJSON))
++			if test.part == ContainerPartMetadata {
++				require.Equal(t, "/final", final.Metadata.Value.Config.WorkingDir)
++				require.True(t, final.Metadata.Consumed)
++			} else {
++				require.Contains(t, after.SnapshotLinks, dagql.PersistedSnapshotRefLink{Role: "fs", RefKey: "final"})
++			}
++		})
++	}
++}
++
++func TestCapturePersistedContainerExcludesNewDirectGroups(t *testing.T) {
++	ctx, cache, res, op := newCaptureContainer(t)
++	entered, allow := make(chan struct{}), make(chan struct{})
++	finish := sync.OnceFunc(func() { close(allow) })
++	defer finish()
++	op.encode = func() error { close(entered); <-allow; return nil }
++	var ran atomic.Bool
++	op.body = func(ctr *Container, group dagql.LazyGroupKey) {
++		if group == ContainerLazyGroupMetadata {
++			ran.Store(true)
++			ctr.Config.WorkingDir = "/after-capture"
++		}
++	}
++	captured := make(chan error, 1)
++	go func() { _, err := cache.CapturePersistedRecord(ctx, res); captured <- err }()
++	<-entered
++	requested, done := make(chan struct{}), make(chan error, 1)
++	go func() {
++		close(requested)
++		done <- res.Self().evaluatePartsDirect(ctx, ContainerPartMetadata)
++	}()
++	<-requested
++	// A mutex wait isn't a durable synctest wait. Check the held latch
++	// directly: all new EvaluateGroup runners must pass it before running.
++	locked := op.LazyMu.TryLock()
++	if locked {
++		op.LazyMu.Unlock()
++	}
++	require.False(t, locked)
++	require.False(t, ran.Load())
++	finish()
++	require.NoError(t, <-captured)
++	require.NoError(t, <-done)
++	require.True(t, ran.Load())
++}
++
++type captureContainerWholeOp struct {
++	LazyState
++	body func(*Container)
++}
++
++func (op *captureContainerWholeOp) Evaluate(ctx context.Context, ctr *Container) error {
++	return op.LazyState.Evaluate(ctx, "capture-whole-test", func(context.Context) error {
++		op.body(ctr)
++		return nil
++	})
++}
++
++func (*captureContainerWholeOp) AttachDependencies(context.Context, func(dagql.AnyResult) (dagql.AnyResult, error)) ([]dagql.AnyResult, error) {
++	return nil, nil
++}
++
++func (*captureContainerWholeOp) EncodePersisted(context.Context, *dagql.PersistEncodeContext) (json.RawMessage, error) {
++	return json.RawMessage(`{"input":"whole"}`), nil
++}
++
++func TestCapturePersistedContainerUnrefinedBody(t *testing.T) {
++	for _, consumed := range []bool{false, true} {
++		name := "active"
++		if consumed {
++			name = "consumed-before-return"
++		}
++		t.Run(name, func(t *testing.T) {
++			ctx, cache, srv, session := newContainerPartsTestCtx(t)
++			entered, allow := make(chan struct{}), make(chan struct{})
++			finish := sync.OnceFunc(func() { close(allow) })
++			defer finish()
++			op := &captureContainerWholeOp{LazyState: NewLazyState(), body: func(ctr *Container) {
++				ctr.Config.WorkingDir = "/half-written"
++				if consumed {
++					ctr.consumeLazyOp()
++				}
++				close(entered)
++				<-allow
++				ctr.Config.WorkingDir = "/final"
++				if !consumed {
++					ctr.consumeLazyOp()
++				}
++			}}
++			ctr := NewContainer(Platform{})
++			ctr.Lazy = op
++			res := attachContainerPartsTestResult(t, ctx, cache, srv, session, "capture-whole", ctr)
++			done := make(chan error, 1)
++			go func() { done <- ctr.Evaluate(ctx) }()
++			<-entered
++			_, err := cache.CapturePersistedRecord(ctx, res)
++			require.ErrorIs(t, err, dagql.ErrPersistStateNotReady)
++			finish()
++			require.NoError(t, <-done)
++			rec, err := cache.CapturePersistedRecord(ctx, res)
++			require.NoError(t, err)
++			var payload persistedContainerPayload
++			require.NoError(t, json.Unmarshal(rec.Envelope.ObjectJSON, &payload))
++			require.Equal(t, "/final", payload.Metadata.Value.Config.WorkingDir)
++			require.True(t, payload.Metadata.Consumed)
++		})
++	}
++}
++
++func TestCapturePersistedContainerReleasesLocksOnCodecError(t *testing.T) {
++	ctx, cache, res, op := newCaptureContainer(t)
++	require.NoError(t, res.Self().evaluatePartsDirect(ctx, ContainerPartMetadata))
++	injected := errors.New("recipe encoding failed")
++	op.encode = func() error { return injected }
++	_, err := cache.CapturePersistedRecord(ctx, res)
++	require.ErrorIs(t, err, injected)
++	op.encode = nil
++	require.NoError(t, res.Self().Evaluate(ctx))
++	_, err = cache.CapturePersistedRecord(ctx, res)
++	require.NoError(t, err)
++}
+diff --git a/core/container_persistence.go b/core/container_persistence.go
+index 996a10c374..469143c571 100644
+--- a/core/container_persistence.go
++++ b/core/container_persistence.go
+@@ -43,17 +43,22 @@ func (container *Container) EncodePersistedObject(ctx context.Context, enc *dagq
+ 	if container == nil {
+ 		return dagql.PersistedObjectEncoding{}, fmt.Errorf("encode persisted container: nil container")
+ 	}
++	unlock, err := container.lockForPersistence()
++	if err != nil {
++		return dagql.PersistedObjectEncoding{}, err
++	}
++	defer unlock()
+ 	lazy, completedRecipe, recipeJSON := container.lazyOpsForPersistence()
+ 	metadata, err := container.encodeContainerMetadata(enc)
+ 	if err != nil {
+ 		return dagql.PersistedObjectEncoding{}, err
+ 	}
+-	pending, parts, links, err := container.encodeContainerParts(ctx, enc, lazy)
++	pending, parts, links, err := container.encodeContainerPartsLocked(ctx, enc, lazy)
+ 	if err != nil {
+ 		return dagql.PersistedObjectEncoding{}, err
+ 	}
+ 	payload := persistedContainerPayload{
+-		Metadata: persistedContainerMetadata{Consumed: container.containerPartComputed(ctx, lazy, ContainerPartMetadata), Value: metadata},
++		Metadata: persistedContainerMetadata{Consumed: container.containerPartComputedLocked(ctx, lazy, ContainerPartMetadata), Value: metadata},
+ 		Parts:    parts,
+ 	}
+ 	recipe := lazy
+@@ -84,6 +89,54 @@ func (container *Container) EncodePersistedObject(ctx context.Context, enc *dagq
+ 	return dagql.PersistedObjectEncoding{JSON: encoded, SnapshotLinks: links}, nil
+ }
+ 
++// lockForPersistence excludes direct object-side evaluation, which need not
++// have a dagql attempt. LazyMu prevents whole-op bodies and new group runners;
++// each registered group's mutex excludes runners that already passed LazyMu.
++// No evaluation is started, and sibling groups still run in parallel normally.
++func (container *Container) lockForPersistence() (func(), error) {
++	container.lazyOpMu.Lock()
++	defer container.lazyOpMu.Unlock()
++	lazy := container.Lazy
++	if lazy == nil {
++		// An unrefined body may have cleared Lazy before returning. Its
++		// retained producer still carries the latch held by that body.
++		lazy = container.completedRecipe
++	}
++	if lazy == nil {
++		return func() {}, nil
++	}
++	provider, ok := lazy.(interface{ ContainerLazyState() *LazyState })
++	if !ok {
++		return nil, fmt.Errorf("encode persisted container: missing lazy state for %T", lazy)
++	}
++	state := provider.ContainerLazyState()
++	if state == nil || state.LazyMu == nil {
++		return nil, fmt.Errorf("encode persisted container: missing lazy mutex for %T", lazy)
++	}
++	// Evaluation can take lazyOpMu under LazyMu when consuming the op.
++	// Only try-lock in this inverse order; never wait while holding lazyOpMu.
++	if !state.LazyMu.TryLock() {
++		return nil, fmt.Errorf("%w: container lazy state in use", dagql.ErrPersistStateNotReady)
++	}
++	locked := make([]*lazyGroupOnce, 0, len(state.groups))
++	unlock := func() {
++		for _, group := range locked {
++			group.mu.Unlock()
++		}
++		state.LazyMu.Unlock()
++	}
++	for key, group := range state.groups {
++		// Bodies may consult LazyMu. A busy group must release every lock
++		// immediately, rather than waiting with LazyMu held.
++		if !group.mu.TryLock() {
++			unlock()
++			return nil, fmt.Errorf("%w: container group %q in use", dagql.ErrPersistStateNotReady, key)
++		}
++		locked = append(locked, group)
++	}
++	return unlock, nil
++}
++
+ func (container *Container) lazyOpsForPersistence() (Lazy[*Container], Lazy[*Container], json.RawMessage) {
+ 	container.lazyOpMu.Lock()
+ 	defer container.lazyOpMu.Unlock()
+@@ -134,6 +187,20 @@ func (container *Container) HasPendingLazyComputation() bool {
+ // same settled mapping before consuming its body. Other parts can still have
+ // succeeded, such as an exec metadata copy beside an unsupported write target.
+ func (container *Container) containerPartComputed(ctx context.Context, lazy Lazy[*Container], part dagql.PartKey) bool {
++	if op, ok := lazy.(LazyContainerParts); ok {
++		state := op.ContainerLazyState()
++		if state.LazyMu == nil {
++			return false
++		}
++		state.LazyMu.Lock()
++		defer state.LazyMu.Unlock()
++	}
++	return container.containerPartComputedLocked(ctx, lazy, part)
++}
++
++// containerPartComputedLocked requires the op's LazyMu or exclusive access to
++// an unpublished object. Restore wrappers and their recipes share this state.
++func (container *Container) containerPartComputedLocked(ctx context.Context, lazy Lazy[*Container], part dagql.PartKey) bool {
+ 	if _, stored := container.storedParts[part]; stored {
+ 		return true
+ 	}
+@@ -151,14 +218,14 @@ func (container *Container) containerPartComputed(ctx context.Context, lazy Lazy
+ 		return false
+ 	}
+ 	state := op.ContainerLazyState()
+-	if !state.GroupConsumed(ContainerLazyGroupMetadata) {
++	if !state.groupConsumedLocked(ContainerLazyGroupMetadata) {
+ 		return false
+ 	}
+ 	if part == ContainerPartMetadata {
+ 		return true
+ 	}
+ 	groups, err := op.ContainerLazyGroups(ctx, container, []dagql.PartKey{part})
+-	return err == nil && len(groups) == 1 && state.GroupConsumed(groups[0])
++	return err == nil && len(groups) == 1 && state.groupConsumedLocked(groups[0])
+ }
+ 
+ // ContainerRestoreLazy is constructed only by persisted decode. Pending work
+@@ -309,15 +376,17 @@ func (container *Container) containerPartValue(part dagql.PartKey) (containerSto
+ 	return value, nil
+ }
+ 
+-func (container *Container) encodeContainerParts(ctx context.Context, enc *dagql.PersistEncodeContext, lazy Lazy[*Container]) (bool, map[dagql.PartKey]persistedContainerPart, []dagql.PersistedSnapshotRefLink, error) {
++// encodeContainerPartsLocked requires the persistence locks or exclusive access
++// to a quiescent object.
++func (container *Container) encodeContainerPartsLocked(ctx context.Context, enc *dagql.PersistEncodeContext, lazy Lazy[*Container]) (bool, map[dagql.PartKey]persistedContainerPart, []dagql.PersistedSnapshotRefLink, error) {
+ 	parts := make(map[dagql.PartKey]persistedContainerPart)
+-	if !container.containerPartComputed(ctx, lazy, ContainerPartMetadata) {
++	if !container.containerPartComputedLocked(ctx, lazy, ContainerPartMetadata) {
+ 		return true, parts, nil, nil
+ 	}
+ 	pending := false
+ 	var links []dagql.PersistedSnapshotRefLink
+ 	for _, part := range containerSnapshotParts(container) {
+-		if !container.containerPartComputed(ctx, lazy, part) {
++		if !container.containerPartComputedLocked(ctx, lazy, part) {
+ 			parts[part] = persistedContainerPart{Kind: containerPartPending}
+ 			pending = true
+ 			continue
+diff --git a/core/container_persistence_test.go b/core/container_persistence_test.go
+index 38acf9dfde..e3f100ef68 100644
+--- a/core/container_persistence_test.go
++++ b/core/container_persistence_test.go
+@@ -332,13 +332,13 @@ func TestContainerPersistedPartsIgnorePendingAccessorSeeds(t *testing.T) {
+ 	op := &containerPartsTestBaseOp{LazyState: NewLazyState()}
+ 	ctr := &Container{Lazy: op, MetaSnapshot: new(LazyAccessor[bkcache.ImmutableRef, *Container])}
+ 	ctr.MetaSnapshot.setValue(&cacheVolumeTestImmutableRef{id: "input", snapshotID: "input"})
+-	pending, parts, links, err := ctr.encodeContainerParts(t.Context(), nil, op)
++	pending, parts, links, err := ctr.encodeContainerPartsLocked(t.Context(), nil, op)
+ 	require.NoError(t, err)
+ 	require.True(t, pending)
+ 	require.Empty(t, parts)
+ 	require.Empty(t, links)
+ 	require.NoError(t, op.EvaluateContainerGroup(t.Context(), ctr, ContainerLazyGroupMetadata))
+-	pending, parts, links, err = ctr.encodeContainerParts(t.Context(), nil, op)
++	pending, parts, links, err = ctr.encodeContainerPartsLocked(t.Context(), nil, op)
+ 	require.NoError(t, err)
+ 	require.True(t, pending)
+ 	require.Equal(t, containerPartPending, parts[ContainerPartExecMeta].Kind)
+@@ -368,7 +368,7 @@ func TestContainerPersistedJointOutputsSeedOriginalAndOpenIndependently(t *testi
+ 	require.Zero(t, manager.openCount("joint-fs"))
+ 	_, set := ctr.FS.Peek()
+ 	require.False(t, set)
+-	pending, encoded, encodedLinks, err := ctr.encodeContainerParts(ctx, dagql.NewPersistEncodeContext(cache, 0, nil), ctr.lazyOpForRouting())
++	pending, encoded, encodedLinks, err := ctr.encodeContainerPartsLocked(ctx, dagql.NewPersistEncodeContext(cache, 0, nil), ctr.lazyOpForRouting())
+ 	require.NoError(t, err)
+ 	require.False(t, pending)
+ 	require.Equal(t, parts, encoded)
+@@ -383,7 +383,7 @@ func TestContainerPersistedJointOutputsSeedOriginalAndOpenIndependently(t *testi
+ func TestContainerPersistedPartsRejectMissingCompletedValue(t *testing.T) {
+ 	ctr := &Container{FS: new(LazyAccessor[*Directory, *Container])}
+ 	ctr.FS.setValue(&Directory{Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory])})
+-	pending, _, _, err := ctr.encodeContainerParts(t.Context(), nil, nil)
++	pending, _, _, err := ctr.encodeContainerPartsLocked(t.Context(), nil, nil)
+ 	require.ErrorContains(t, err, "has no snapshot")
+ 	require.False(t, pending)
+ 
+diff --git a/dagql/cache_persistence_capture.go b/dagql/cache_persistence_capture.go
+index 8c6b0276cf..150652f44d 100644
+--- a/dagql/cache_persistence_capture.go
++++ b/dagql/cache_persistence_capture.go
+@@ -31,6 +31,14 @@ func (c *Cache) CapturePersistedRecord(ctx context.Context, result AnyResult) (_
+ 		c.egraphMu.Unlock()
+ 		return PersistedRecord{}, fmt.Errorf("capture persisted record: result %d is not registered in this cache", shared.id)
+ 	}
++	switch shared.attachmentState() {
++	case resultAttachmentOpen:
++		c.egraphMu.Unlock()
++		return PersistedRecord{}, fmt.Errorf("%w: result %d dependency attachment", ErrPersistStateNotReady, shared.id)
++	case resultAttachmentFailed:
++		c.egraphMu.Unlock()
++		return PersistedRecord{}, fmt.Errorf("capture persisted record: result %d dependency attachment failed", shared.id)
++	}
+ 	c.incrementIncomingOwnershipLocked(ctx, shared)
+ 	c.egraphMu.Unlock()
+ 	defer func() {
+diff --git a/dagql/cache_persistence_capture_test.go b/dagql/cache_persistence_capture_test.go
+index 7172c7c237..4dfc4b8bc2 100644
+--- a/dagql/cache_persistence_capture_test.go
++++ b/dagql/cache_persistence_capture_test.go
+@@ -19,6 +19,7 @@ type captureTestValue struct {
+ 	lazy        LazyEvalFunc
+ 	encode      func(context.Context) error
+ 	release     func(context.Context) error
++	attach      func(context.Context) error
+ 	links       []PersistedSnapshotRefLink
+ 	encodeCalls atomic.Int32
+ }
+@@ -34,6 +35,12 @@ func (v *captureTestValue) OnRelease(ctx context.Context) error {
+ 	}
+ 	return nil
+ }
++func (v *captureTestValue) AttachDependencyResults(ctx context.Context, _ AnyResult, _ func(AnyResult) (AnyResult, error)) ([]AnyResult, error) {
++	if v.attach != nil {
++		return nil, v.attach(ctx)
++	}
++	return nil, nil
++}
+ func (v *captureTestValue) EncodePersistedObject(ctx context.Context, _ *PersistEncodeContext) (PersistedObjectEncoding, error) {
+ 	v.encodeCalls.Add(1)
+ 	if v.encode != nil {
+@@ -388,3 +395,106 @@ func TestCapturePersistedRecordErrorsAndClose(t *testing.T) {
+ 		require.NoError(t, <-closed)
+ 	})
+ }
++
++func TestCapturePersistedRecordInitialAttachment(t *testing.T) {
++	for _, fail := range []bool{false, true} {
++		name := "clean"
++		if fail {
++			name = "failed"
++		}
++		t.Run(name, func(t *testing.T) {
++			ctx, c := newPartsTestCache(t, nil)
++			defer c.CloseDiscardingPersistence()
++			entered, allow := make(chan struct{}), make(chan struct{})
++			finish := sync.OnceFunc(func() { close(allow) })
++			defer finish()
++			attachErr := errors.New("initial attachment failed")
++			var released atomic.Int32
++			obj := &captureTestValue{text: "stable", release: func(context.Context) error {
++				released.Add(1)
++				return nil
++			}, attach: func(context.Context) error {
++				close(entered)
++				<-allow
++				if fail {
++					return attachErr
++				}
++				return nil
++			}}
++			srv := newDagqlServerForTest(t, &persistCodecRoot{})
++			srv.InstallObject(NewClass(srv, ClassOpts[*captureTestValue]{}))
++			frame := persistCodecFrame("initial-attachment", obj)
++			done := make(chan error, 1)
++			go func() {
++				_, err := c.GetOrInitCall(ctx, "publisher", srv, &CallRequest{ResultCall: frame}, func(context.Context) (AnyResult, error) {
++					return NewObjectResultForCall(obj, srv, frame)
++				})
++				done <- err
++			}()
++			<-entered
++			c.egraphMu.Lock()
++			var shared *sharedResult
++			for _, row := range c.resultsByID {
++				if row.loadPayloadState().self == obj {
++					shared = row
++					break
++				}
++			}
++			// Keep the failed publication registered so capture sees its failed
++			// barrier, instead of merely rejecting an already-collected row.
++			if shared != nil {
++				c.incrementIncomingOwnershipLocked(ctx, shared)
++			}
++			c.egraphMu.Unlock()
++			require.NotNil(t, shared)
++			res := Result[Typed]{shared: shared}
++			assertCaptureDoesNotLeak := func() error {
++				t.Helper()
++				c.egraphMu.RLock()
++				owners := shared.incomingOwnershipCount
++				c.egraphMu.RUnlock()
++				operations := c.activeGlobalOperations.Load()
++				_, err := c.CapturePersistedRecord(ctx, res)
++				c.egraphMu.RLock()
++				after := shared.incomingOwnershipCount
++				c.egraphMu.RUnlock()
++				require.Equal(t, owners, after)
++				require.Equal(t, operations, c.activeGlobalOperations.Load())
++				return err
++			}
++			require.Equal(t, resultAttachmentOpen, shared.attachmentState())
++			require.ErrorIs(t, assertCaptureDoesNotLeak(), ErrPersistStateNotReady)
++			require.Zero(t, obj.encodeCalls.Load())
++			finish()
++			if fail {
++				require.ErrorIs(t, <-done, attachErr)
++				require.Equal(t, resultAttachmentFailed, shared.attachmentState())
++				err := assertCaptureDoesNotLeak()
++				require.ErrorContains(t, err, "dependency attachment failed")
++				require.NotErrorIs(t, err, ErrPersistStateNotReady)
++				require.Zero(t, obj.encodeCalls.Load())
++			} else {
++				require.NoError(t, <-done)
++				require.Equal(t, resultAttachmentClean, shared.attachmentState())
++				first, err := c.CapturePersistedRecord(ctx, res)
++				require.NoError(t, err)
++				second, err := c.CapturePersistedRecord(ctx, res)
++				require.NoError(t, err)
++				require.Equal(t, first, second)
++				require.JSONEq(t, `"stable"`, string(first.Envelope.ObjectJSON))
++			}
++			c.egraphMu.Lock()
++			queue, err := c.decrementIncomingOwnershipLocked(ctx, shared, nil)
++			releases, collectErr := c.collectUnownedResultsLocked(ctx, queue)
++			c.egraphMu.Unlock()
++			require.NoError(t, errors.Join(err, collectErr, runOnReleaseFuncs(ctx, releases)))
++			require.NoError(t, c.ReleaseSession(ctx, "publisher"))
++			require.Equal(t, int32(1), released.Load())
++			require.Zero(t, c.activeGlobalOperations.Load())
++			c.egraphMu.RLock()
++			_, remains := c.resultsByID[shared.id]
++			c.egraphMu.RUnlock()
++			require.False(t, remains)
++		})
++	}
++}
+diff --git a/internal-docs/cache_persistence.md b/internal-docs/cache_persistence.md
+index 92ba16bd74..94ed6e7e42 100644
+--- a/internal-docs/cache_persistence.md
++++ b/internal-docs/cache_persistence.md
+@@ -393,6 +393,9 @@ often has two broad forms:
+ 
+ - **snapshot form**
+   - the object has a completed snapshot, open or retained by saved identity
++  - `lazyKind` and `lazyJSON` retain its completed producer's original inputs,
++    when present; completed-row decode keeps these raw bytes without loading
++    producer ancestors
+ - **lazy form**
+   - the object has not been fully materialized, but it still has a structured
+     lazy operation that can be serialized
+@@ -411,7 +414,9 @@ Today `Directory` and `File` explicitly do this when they have neither snapshot
+ nor lazy state available to encode.
+ 
+ `Container` uses one payload with consumed metadata, a record for each snapshot
+-part, and its original recipe only while computation remains. Each part is
++part, and its original producer inputs even after computation completes.
++Completed-row decode retains the producer's raw bytes without decoding its
++ancestors. Each part is
+ pending, absent, or a completed directory, file, or exec-metadata snapshot.
+ Completion comes from object-side group consumption, including final parent
+ copies, independently of cache bookkeeping completion. A settled mapping error
+diff --git a/internal-docs/lazy_evaluation.md b/internal-docs/lazy_evaluation.md
+index ba8cf4bcce..6a748a9c96 100644
+--- a/internal-docs/lazy_evaluation.md
++++ b/internal-docs/lazy_evaluation.md
+@@ -473,8 +473,14 @@ For `Directory` and `File`, persisted object encoding chooses between:
+ - a snapshot form when a concrete snapshot is already available
+ - a lazy form when the object is still deferred
+ 
++The snapshot form also retains the completed producer's original inputs in
++`lazyKind` and `lazyJSON`, when present. Decode keeps those raw bytes without
++loading producer ancestors.
++
+ `Container` has one payload: consumed metadata, pending/absent/completed records
+-for snapshot parts, and the original recipe while any computation remains.
++for snapshot parts, and the original producer inputs even after computation
++completes. Completed-row decode retains the producer's raw bytes without
++decoding its ancestors.
+ Completed directory/file values inside the container carry path, platform,
+ services, and a snapshot role link. Decode leaves their accessors closed and
+ seeds original completed group latches before publication. `ContainerRestoreLazy`

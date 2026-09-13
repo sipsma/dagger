@@ -1,0 +1,648 @@
+Remote Cache — Engine Foundations
+Contents
+1. The job
+1.1 Out of scope
+2. How the engine works today
+3. The direction
+3.8 Alternatives set aside
+4. Requirements
+5. Design by area
+5.1 Per-part evaluation
+5.2 Per-part attempts
+5.3 Pull-else-run body
+5.4 Snapshot layer
+5.5 Persistence per part
+5.6 Learning
+5.7 Describing
+5.8 Lookup preference
+5.9 Deliberately unchanged
+6. Decision record
+7. Model work
+8. Testing and success criteria
+How we know we succeeded
+9. Proposed order of work
+Stage 0 — stack merges
+Stage 1 — model catch-up, audits
+Stage 2 — per-part evaluation
+Stage 3 — persistence per part
+Stage 4 — recipe availability
+Stage 5 — snapshot layer
+Stage 6 — learning
+Stage 7 — describing
+Stage 8 — from(image) metadata
+10. Assumptions on record
+11. Open questions
+Remote Cache — Engine Foundations
+Design and implementation plan · revision 2 · 2026-08-21, updated 2026-08-22 · rewritten from the 2026-08-18 seed after the deep dive on on-demand materialization
+This document covers the foundational engine work for the remote cache: the changes that make the engine cache
+able to hold results it did not compute and serve them as ordinary cache hits, plus everything that has to be
+true in the engine before any cloud-side work can have a consumer. It sits under the
+guiding requirements & principles, which stay authoritative.
+This revision replaces the seed. It states a chosen direction, the design of each area at the depth needed to
+order the work, the decisions made and still open, the model work, and a proposed implementation order. The
+order (section 9) is the part most in need of review.
+Statuses: settled Erik has said this clearly ·
+preliminary working position, expected to be refined ·
+open deliberately undecided.
+Every decision here is a working position, revisable on evidence. None is a commandment
+(G32).
+1. The job
+Today the engine cache holds results it computed itself or restored from its own disk, and every retained result's
+snapshots are present locally. The remote-cache system needs the engine to hold results computed elsewhere, whose
+snapshot content may not be here, and serve them as ordinary cache hits, moving content only when a build actually
+needs it.
+This effort makes the engine capable of that. It is engine-only work: no cloud service, no channel, no transport,
+no policy about what is worth sharing. It blocks on no cloud-side work (G25). A large
+share of it is improvement to the engine's existing laziness that has value with no remote cache at all, and that
+part lands first.
+1.1 Out of scope
+The cloud service, and any engine-to-cloud channel or transport (G16).
+Telemetry changes. The one later item (cache-explain distinguishing a pending pull from pending computation)
+is listed after the stages, not in them.
+Policy: what is worth sharing, uploading, or prefetching. This work provides abilities; the caller decides.
+Compatibility of any shared form across engine versions (G22).
+Mutable state: cache volumes, the mutable client-directory mirror, mutable git stores
+(G15). Frozen snapshots of client directories and git sources stay open
+(OQ10).
+The audit for other implicit ambient inputs in cache identity (the rest of G9).
+An audit was run: most of its findings were noise, and the one real finding was unrelated to this effort.
+Erik does not trust that audit and considers the question still open. It is not a work item here, but every
+stage should keep an eye out for identity that depends on engine-local state rather than on the call.
+Out of scope but not to be foreclosed: the upload lifecycle for short-lived CI engines (drain at finish, overlap
+the run, or something else; OQ4). Nothing in this plan may make any of those answers
+impossible.
+2. How the engine works today
+Facts a first-time reader needs, verified against the code at the head of the cache-remediation stack (#13940 and
+the three PRs under it). Every later section builds on these.
+2.1 Results
+A cache result (sharedResult in dagql/cache.go) is an ID, a call frame (the call that
+produced it, with its arguments), a typed payload, dependency edges to other results, and an ownership count.
+For plain results (a string from stdout, an integer, a struct) the payload is the whole value. For
+Container, Directory, and File, the payload holds references to
+snapshots in accessor fields: Container.FS, Container.MetaSnapshot, one accessor per mount,
+Directory.Snapshot, File.Snapshot. The payload never contains file data.
+2.2 Snapshots
+A snapshot is a containerd layer managed by the snapshot manager (engine/snapshots). Each snapshot has
+exactly one parent, so every snapshot sits at the end of a linear chain of layers. Snapshot IDs are random and mean
+nothing outside this engine.
+2.3 How results and snapshots are connected
+A result declares which snapshots it holds as role-tagged links: for a container the roles are fs,
+meta, and one per mount; for a directory, snapshot. The cache attaches a containerd lease
+named after the result and role to the snapshot and every layer under it. Leases are synced right after a lazy
+evaluation finishes (syncResultSnapshotLeases) and at boot import, and removed when the result is
+collected. A snapshot therefore lives as long as any result that links to it. Many results can link to one snapshot.
+2.4 Dependencies and layers are two different graphs
+Dependency edges form a graph over results, from call structure and embedded values. Layer parentage is a linear
+chain per snapshot. They coincide in the common case (withExec creates its output snapshot on top of
+the parent's root filesystem), but they diverge often:
+container.from(image) is one result with many layers and no dependency edges for them.
+withDirectory(src) depends on src, but src's snapshot is not in the new
+chain: its files were copied in.
+host.directory, git checkouts, and directory.diff produce snapshots with no chain
+relation to some of their inputs.
+Neither graph can be derived from the other.
+2.5 Laziness
+A result has two forms. In the lazy form the result stores a recipe and the work has not run. For example,
+Container.WithExec runs nothing: it stores a recipe (parent, options, execution metadata) on the
+returned container. In the ready form the work has run and the recipe is cleared. A result moves from lazy to
+ready exactly once, in place on the same sharedResult, through Cache.Evaluate. Evaluating
+a child first evaluates its parent, so demanding the tip of a chain of lazy results evaluates each ancestor in turn.
+Two details that matter later:
+Lazy-versus-ready and holds-snapshots are independent. A lazy exec built on an evaluated parent already holds
+snapshot references for its read-only mounts, and persistence collects snapshot links regardless of form.
+Nothing enforces "lazy form has no snapshots."
+Every metadata reader on a container (workdir, envVariable, platform,
+entrypoint, defaultArgs, exposedPorts) evaluates the parent first, and
+every container mutation's recipe starts by evaluating its parent. Today that is free when the parent is
+already evaluated. On a lazy chain it runs the whole chain to answer a metadata question.
+A lazy result is an ordinary cache entry: it is lookup-visible and can be hit before its work ever runs.
+2.6 Persistence
+Persistence stores one form per result: the lazy recipe if the result is still lazy, otherwise the ready form with
+its snapshot links. Once evaluated, the recipe is dropped; only the call frame survives. Decoding a ready-form result
+reopens every linked snapshot by ID right then, and decode happens at hit time. A missing snapshot at decode is an
+error to the caller; a missing snapshot at boot fails lease attachment, which fails import, which wipes the store.
+That is how "ready form implies content present" is enforced today. The exec that runs a module function is
+not persistable; execs issued by a function are (verified: only the module runtime passes a function call
+into WithExec; the user-facing resolver passes none).
+2.7 Content identity
+A layer's portable identity is its diff digest and compressed blob digest. Those are computed when a layer is
+exported (diffed against its parent and compressed) or known from a registry pull. The manager records them per
+snapshot and keeps a deduplication index from (parent snapshot, blob digest) to the local snapshot. Identity does not
+exist for a layer that has never been exported.
+2.8 The TLA+ model
+The cache's concurrency kernel is modeled in dagql/tla/CacheLifecycle.tla and checked by
+dagger check tla-check:cache-lifecycle: lookup, in-flight deduplication, publication, ownership and
+release, the read barrier, lazy attempts (a body stage then a bookkeeping stage), persistence, restart, and per-session
+operation accounting. It does not model session-resource gating, e-graph merging, snapshots, or container operation
+semantics. All 25 configurations are green at the stack head.
+2.9 Surfaces
+For sizing: in core there are roughly 115 sites that peek at a snapshot accessor, 106 that get-or-evaluate
+one, 62 that mount a snapshot, and 20 that reopen a snapshot by ID.
+3. The direction
+preliminary Chosen as the working direction after comparing alternatives
+(3.7). Not final.
+3.1 In one paragraph
+A result learned from another engine enters the cache as a lazy result, the same shape as a lazy result that
+survived a restart. Its metadata is filled at import. Each snapshot it links is a part that stays unevaluated,
+and evaluating that part means: pull the part's layer chain from the remote store, and if that fails, run the
+result's own recipe. Evaluation becomes per part: each lazy operation declares which parts it writes, parts it does
+not write are delegated to the parent, and asking for a part runs the operation's work only if that operation writes
+the part. Layer pulls deduplicate per layer against what is already on disk, so materializing A and then B pulls
+their shared layers once.
+3.2 Parts
+A part is one separately evaluable piece of a result's value. These already exist as accessors; nothing new is
+being invented.
+Container: the metadata (image config, platform, ports, annotations, the mount list without snapshots,
+references to secrets, sockets, and services), the root filesystem snapshot (fs), the
+exec metadata snapshot (meta, where stdout and exit code live), and one part per mount's
+snapshot.
+Directory: path and snapshot. File: path and snapshot.
+3.3 Writers and delegation
+Each lazy operation declares which parts it writes:
+withEnvVariable, withWorkdir, and the other metadata mutations write metadata only.
+withDirectory writes fs only.
+withMountedDirectory writes metadata (the mount list) and the new mount's snapshot part.
+withExec writes fs, meta, and every writable mount's part, jointly:
+running the process fills all of them at once.
+from(image) writes metadata and fs.
+Parts an operation does not write are delegated to the parent: evaluating child.fs on a
+metadata-only operation means evaluate parent.fs and copy the reference. Delegation chains collapse to
+the nearest ancestor that writes the part. Evaluating a part runs an operation's work only if the operation writes
+that part; for a jointly written group, asking for any member runs the work once and fills the group.
+Almost every operation fits one of two templates: a metadata-only mutation (delegate all snapshot parts) or a
+snapshot-writing operation (run on demand for the parts it writes, delegate the rest). A default declaration of
+"writes everything jointly" reproduces today's behavior exactly, so operations can be refined one at a time.
+3.4 What evaluating a part means
+Local lazy result: as today, except only the operation that writes the requested part runs, and parent
+evaluation is limited to the parent parts that operation actually reads.
+Learned result: metadata parts are already filled. A snapshot part's evaluation is: pull this part's
+chain; if the pull fails, run the result's recipe, which evaluates the parent parts it reads (in turn pulled or
+run), mounts them, runs, and fills the group. A failed pull is never an error; it is the next step
+(G11).
+3.5 The snapshot layer
+A learned snapshot part carries a content identity: the ordered list of layer identities in its chain. Pulling it
+walks the chain from the bottom: for each layer, if (parent snapshot, blob digest) is already present locally, reuse
+it; if the index entry is stale because that snapshot was pruned, re-apply the layer; otherwise fetch the blob and
+apply it on its parent. The result is a local snapshot with a normal lease. Two consequences this gives for free:
+Materialize A (whose chain is B's chain plus one layer), then later materialize B: B's chain is a prefix of
+A's, every layer is already present, nothing is pulled. If B's layer was pruned in between, only that layer is
+re-applied.
+Two learned results whose chains share a prefix map to the same local snapshots.
+This lives in the snapshot layer under every option we considered; it is shared ground, not a consequence of the
+direction. Whether existing registry-pull code is reused for it is an implementation choice made later, not now.
+3.6 Three rules that fall out, stated as requirements
+Metadata may be eager; snapshots are never pulled until a part that needs them is evaluated (F11).
+A pull never evaluates any other result. A part's chain identity is self-contained, so pulling it touches no
+parent. Only running evaluates parents, and delegation limits that to the parent parts the operation
+reads (F12).
+A part evaluation pulls only the chains of its own group (F12).
+Together these keep a warm chain of fifty exec hits followed by stdout from pulling anything but one
+tiny meta chain, and keep workdir() on a learned container from pulling at all.
+3.7 What this direction is not
+Not related: the recipe-replay system. The engine recently gained a system for replaying recipe-form IDs
+persisted outside the engine, with a "not replayable" marking on some calls. It serves a different use case with
+different goals and is not an input to this effort (G31). When this document
+says "run the result's recipe," it means the lazy recipe and call frame the cache already stores and persists, the
+same thing a locally persisted lazy result runs after a restart. Nothing here depends on the replay system or its
+rules. Anyone who finds themselves reaching for it must stop and raise it.
+No new "content absent" state on results or on snapshots. Absence is expressed as an unevaluated part, which
+every existing site already understands as "pending lazy work."
+No change to how a locally missing snapshot is handled today (decode error, or wipe at boot). That is a
+bug-or-hardware case we do not design for (G24).
+No eager pulls of any kind: not at learn time, not at hit time, not for dependencies.
+No second cache, index, or lookup path. Learned results are found through the same digests and the same
+e-graph as everything else (G8).
+3.8 Alternatives considered and set aside
+Learned results enter as ready results; "not here yet" lives in the snapshot manager. Pulls would be
+exactly as fine-grained as mounts, but the manager would need its own retention for records containerd cannot
+lease, fetch errors would surface inside mount sites in the middle of someone else's operation, and the fallback
+would be a cross-result retry loop (turn a ready result back into a lazy one, evaluate it, retry the consumer)
+racing release and prune. Set aside for the new lifecycle transition and the new loop.
+Same, but "not here yet" lives in the accessors. Every peek and reopen site would have to learn about
+unresolved handles. Set aside for the audit width and the silent-misuse failure mode.
+Pull at hit time. Makes the fallback trivial but pulls content for every intermediate hit in a warm
+chain. Violates F11 outright.
+Retry from the client's query when a pull fails. Strictly more invasive than a branch inside the
+result's own deferred work. Set aside.
+Where the chosen direction could still break, if it is going to: mixing two productions inside one result
+(D11) and the two-level attempt structure per part and group (5.2).
+Both are model territory before they are code.
+4. Requirements
+Capability requirements. F1 through F10 are carried from the seed with F3 and F4 reworded for the direction; F11 and
+F12 are new. Each says what must be true, not how.
+F1settled
+One cache model. Everything happens inside the existing cache: the same identity rules, the same equivalence
+rules, the same lookup, the same session-resource checks. No second index, no separate remote lookup path, no
+remote-only rules (G8).
+F2settled
+The engine can learn about results it did not compute. Given a description of a result computed elsewhere, a
+later call equivalent to it gets a cache hit, the same as if this engine had computed it.
+F3reworded
+A learned result is an ordinary lazy entry. Its metadata is present; its snapshot parts are pending work. It
+can be found by lookup, selected, depended on, persisted, and pruned like any other lazy entry. No code anywhere
+assumes that a result's snapshot parts are present without evaluating them.
+The seed said "an entry without local content is an ordinary entry." The content is the same; the
+wording now names the mechanism that makes it ordinary.
+F4settled (order) · preliminary (per part)
+A part is produced on demand, in a fixed order of preference. When a part of a learned result is evaluated:
+Use the local snapshot, if the part is already evaluated.
+Otherwise pull the part's chain, deduplicating per layer against local snapshots. Failure here is ordinary and
+leads to the next step, not to an error.
+Otherwise run the result's recipe, which is a normal cache miss; a miss is never an error.
+Nothing is pulled for a part that is never evaluated.
+F5preliminary
+Lookup prefers entries that are cheaper to use. When several equivalent entries could serve a lookup, prefer
+one with no pending work over one that would pull, and one that would pull over one that would run
+(D15).
+F6settled
+Learning happens while the engine is serving. The engine can be told about new results at any time during
+normal operation, not only at startup (G18).
+F7settled
+The engine can describe its own results so another engine can learn them. On request, the engine produces
+descriptions of chosen results, and their layer content when asked, in a form another engine can use via F2.
+F8settled
+Resource-gated results stay gated. Results served only to sessions holding the right resources keep exactly
+that behavior when learned elsewhere. Descriptions carry what the cache needs to keep enforcing the existing checks.
+No new rules (G7).
+F9settled
+A learned entry can only help. If anything about it is wrong, stale, or unusable, the worst outcome is running
+the work. It never fails a build that would otherwise succeed, corrupts local state, or wedges the cache
+(G12, G14).
+F10settled
+Nothing changes until the new abilities are used. An engine that never learns foreign results and is never
+asked to describe its own behaves as today, with no meaningful cost on hot paths. The one deliberate exception: the
+per-part laziness improvements apply locally too, and that is a change we want.
+F11settled
+Metadata may be eager; snapshots are never pulled until a part that needs them is evaluated. Learning or
+hitting a result pulls nothing. Reading a container's metadata pulls nothing. This is a baseline requirement, not a
+performance optimization: without it a warm build on a cold engine would pull every intermediate layer.
+F12settled
+A pull never evaluates any other result, and a part evaluation pulls only its own group's chains.
+Dependencies' layers are never pulled recursively because of a dependency edge. Layers shared through a chain prefix
+are reused, not re-pulled.
+5. Design by area
+Enough depth to order the work and see the risks. Not an implementation specification; each area gets its own
+design pass when its stage starts.
+5.1 Per-part evaluation in core
+A part identifier per type (container: metadata, fs, meta, mount i; directory
+and file: snapshot).
+Each lazy operation declares the parts it writes and whether it writes them jointly. Default: everything,
+jointly, which is today's behavior.
+A generic delegation step: a part the operation does not write is resolved from the parent, recursively.
+Evaluate takes a part. Existing callers that need everything keep asking for everything. The
+audit (stage 1) tells us which callers can ask for less; the expected answer is that
+only execs and exports need everything.
+Nested values: Container.FS holds a directory with its own snapshot accessor, and mounts hold
+directory and file values. Parts nest; the existing cloning code already walks this nesting.
+Mount parts are positional. Operations that add, remove, or reorder mounts must keep part identity coherent.
+5.2 Per-part attempts in the cache
+Today one attempt record per result coordinates callers of Cache.Evaluate (singleflight,
+cancellation with retry on foreign cancellation, a body stage then a bookkeeping stage, a token that keeps the
+session's release deferred while the callback runs). This becomes one attempt per (result, part).
+A run writes a whole group, so a run attempt must exclude every part attempt in its group while it runs, and
+part attempts for the same group must join it rather than start their own. This is a two-level structure, and it
+is the most likely place for a race; it is modeled before it is written.
+Two callers wanting different parts of one result do not serialize on each other.
+The existing completion flag per result becomes per part; "fully evaluated" is derived.
+5.3 The pull-else-run body for learned results
+A learned result's snapshot part carries its chain identity. Its evaluation body is: pull the chain; on success
+fill the accessor and proceed to the normal bookkeeping stage (lease sync); on failure run the recipe, which
+fills the group.
+Pull failure is never a terminal outcome for any caller. A run failure is an ordinary lazy failure, retryable as
+today.
+What the result remembers after a failed pull, and whether a later evaluation of a different part retries the
+pull first, is open (D14).
+5.4 The snapshot layer
+Chain identity export: produce the ordered layer identities for a snapshot. Computed at export only; never
+eagerly during builds (D17).
+Chain pull from a blob source, with per-layer deduplication and pruned-layer re-apply. The mechanics live in
+OSS; the real blob source (the cloud's store) lives in the closed repo. Tests use an in-process source
+(section 8).
+Pulled snapshots get local IDs and normal leases; results link to them exactly as to local snapshots.
+5.5 Persistence per part
+A result with some parts evaluated and others still pending persists both states per part: a snapshot link
+for an evaluated part, a chain identity (and the recipe, per D10) for a pending one.
+Decoding a persisted result no longer reopens snapshots for pending parts. Evaluated parts keep today's
+behavior, including today's error on a missing local snapshot.
+Re-arming after restart happens per part; today it happens per result.
+A format change with no compatibility work (G22).
+5.6 Learning
+A description carries: metadata, the call frame and its digests, dependency references, a chain identity per
+linked snapshot, and the recipe (availability per D10). It is shaped like what persistence
+already stores per row.
+The learned row is retained by a persisted edge (D1), so it persists, prunes, and flushes
+like any other persisted entry.
+Its digests go through the normal e-graph association and merging (D3). The cloud never
+asserts equivalence; equivalence emerges locally from digest intersection.
+Applying a description is a counted cache operation, refused once shutdown begins (D5).
+Rows arrive one at a time, dependencies before dependents; a row referencing an unknown dependency is rejected
+the way boot import rejects dangling references (D9).
+The exact write path (import generalized to a live cache, or a third path feeding the same machinery) is open
+(D2).
+Session-resource requirements travel inside the description and are enforced by the existing lookup filter
+(F8).
+open How a description names its dependencies. A producer's numeric
+result IDs mean nothing on another engine, so dependency references must be portable: digests, call frames,
+or something else. What A produces, B must be able to resolve. Not assumed; decided with D2.
+No explicit "drop" of an unusable learned entry. A learned entry whose pull keeps failing runs its
+recipe instead (F9's worst case) and stays until pruning removes it like any persisted entry; what it
+remembers between attempts is D14. If a drop action turns out to be needed, it is a new
+decision.
+Learned entries are cheap individually and numerous collectively. The structural-memory pruning that
+landed on main (#13846, #13887) will see them. Expected to be fine; stated so it is designed for, not
+discovered.
+5.7 Describing
+On request, produce a description for a chosen result and, when asked, export its layers. Chain identities
+exist only after export, so a description of a snapshot-bearing result is produced together with, or after, the
+export of its layers. The cloud's view of "what an engine has" is therefore digest-based; chain identities arrive
+with uploads.
+Which results may be shared: anything the engine can persist today, no more. Containers holding secrets,
+sockets, or services, and the exec that runs a module function, are not persistable and are not shared. Execs
+issued by a module function are. This rule comes from persistence, not from the replay system
+(D16).
+The producing and consuming sides must agree on the description format; one encoder and one decoder, tested
+round-trip in OSS.
+5.8 Lookup preference
+Today lookup picks the lowest result ID among candidates. With learned lazy results sharing classes with local
+ones, candidates differ in cost: evaluated (free), learned (a pull), local lazy (a run).
+Working lean: prefer no pending work, then pullable over runnable (D15). Safety configs in
+the model keep nondeterministic selection; the policy gets its own configuration.
+5.9 Deliberately unchanged
+Local missing-snapshot handling at decode and at boot.
+E-graph merging, digest rules, and call identity.
+The session lifecycle, operation accounting, and release machinery from the remediation stack.
+The secret system beyond the already-landed salt override.
+6. Decision record
+Every entry is a working position (G32). "Made" means Erik agreed to proceed on it;
+"open" means nobody may fill it in silently.
+D1made
+A learned row is retained by a persisted edge. The cloud only tells an engine about entries worth keeping,
+which is what a persisted edge means. The row persists, prunes, and flushes like any other persisted entry with no
+new accounting. Limitation accepted: "learned" and "locally persisted" are the same thing.
+D2open
+Which code path writes a learned row. Narrowed to: boot import generalized to run against a live cache, or a
+third path feeding the same digest and dependency machinery. The publication path is set aside. Deferred until the
+learning stage; the direction makes generalized import more natural but does not force it.
+D3made
+Descriptions carry digests; the local e-graph derives equivalence. Same union-find, same digest-intersection
+merging as for local results. The service never asserts equivalence. The model's fixed equivalence table stays sound
+because equivalence only grows and the model already allows spurious misses.
+D4made (direction)
+Learned results are lazy results with per-part pull-else-run evaluation. Section 3. Chosen over the
+alternatives in 3.8.
+D5made
+Applying a description is a counted cache operation, refused once shutdown begins, so a shutdown snapshot
+never contains half a learn.
+D6superseded by D14
+The earlier "latch a fetch failure, retry on next demand" rule assumed fetch was a separate step. Under D4 a failed
+pull falls through to a run inside the same attempt.
+D7ruled: no change
+Decode failure of a persisted value stays an error. It signals an engine bug or hardware failure. Not changed,
+not designed for (G24).
+D8made
+Session-resource gating enters the model, as standalone work before the foundations, along with anything else
+in the baseline code the effort builds on that the model does not yet cover.
+D9lean
+Learning applies one row at a time, dependencies first. Small lock holds; rows referencing unknown
+dependencies rejected; delegation needs parents present before children. Can be revisited with D2.
+D10open — needs its own session
+Recipe availability. The fallback needs the result's recipe, and producers drop it the moment they evaluate.
+Either producers keep the recipe after evaluation (and persistence stores both forms), or the consumer rebuilds it
+from the call frame by re-resolving the field with its stored arguments. Gates the learning stage. Erik wants a
+dedicated discussion before ruling.
+D11open
+Mixing productions inside one result. If meta was pulled and then fs's pull fails
+and the exec runs locally, the run produces a new meta too. Either the run replaces every part (a value
+someone already read changes) or first writer wins per part (one result holds two productions of the same call).
+Both are legal under interchangeability (G8); legality does not pick one. Does not bite
+until learning exists.
+D12lean
+Part granularity: one part per snapshot link, execs writing their outputs jointly. Whether meta
+should always travel with fs is a performance question deferred until closer to implementation.
+D13open
+Which operations get refined declarations, and in what order. No area is off-limits; what changes is
+decided intentionally per stage. The audit in stage 1 produces the list; the first set is expected to be execs, the
+file and directory selectors, and the metadata readers.
+D14open — too deep for now
+What a result remembers after a failed pull. Whether a later evaluation of a different part retries the pull
+or goes straight to running, and whether a dead source is remembered across results.
+D15decision needed · lean recorded
+Lookup preference. Lean: prefer candidates with no pending work, then pullable over runnable. Must be decided,
+not left to ID order.
+D16made (rule) · open (edges)
+Which results may be shared: exactly what is persistable today. Not persistable, not shared. The replay
+system and its "not replayable" marking play no part (G31). Open edge: results that are
+persistable but reference engine-local things a foreign engine cannot reproduce, if any exist; to be found by the
+audit, not assumed.
+D17deferred
+When chain identities are computed. Fact: they exist only after export. Deferred: whether descriptions are
+always produced together with uploads, and what the cloud's pre-upload view of an engine's results is.
+D18in scope
+from(image) metadata without unpacking layers. Needed so delegation on a local chain can answer a
+metadata question without pulling an image. In scope; scheduled as its own stage.
+D19proposal in section 9
+Order of work.
+7. Model work
+The model (dagql/tla) is extended ahead of the code at every stage, per
+G30. Each PR that touches modeled behavior lands with its model change, a re-break run,
+and a reachability probe, and keeps every existing configuration green. New constants default off so existing
+configurations' state spaces are unchanged (verified by unchanged distinct-state counts).
+AreaWhat is addedWhat is checked
+Session resources
+Required-resource set per result, held set per session, the lookup filter.
+No result is returned to a session lacking a required resource. Later: requirements survive describe and learn.
+Canceled readers
+No new state; a direct non-interference property over the existing reader-cancellation actions.
+One caller's cancellation never changes another caller's outcome. Ownership exactness catches the accounting symptom today; this names the harm. Matters more once pull leaders can be canceled.
+Parts and groups
+Lazy attempts per (result, part); group attempts that exclude member attempts; per-part completion; tokens per attempt.
+Per-part versions of the existing lazy invariants (a successful return implies the part is complete; completion only with every stage settled; success permanent; at most one callback per group); release deferral per attempt; liveness.
+Pull stage
+Body stage split into pull (nondeterministic under a fetch-failure switch) then run.
+Pull failure is never a terminal outcome for any caller; order respected (no pull when the part is present; no run unless the pull failed or no source exists).
+Snapshots
+A small component: chains of layers, present or absent, shared prefixes, per-layer dedup, leases, layer pruning.
+Materializing A then B pulls nothing for the shared prefix; only pruned layers are re-pulled; a pull never evaluates another result; a part evaluation pulls only its group's chains.
+Persistence per part
+Flush rows carry per-part state; restart re-arms per part.
+Restart never marks a part evaluated that was not; flush completeness (every clean persisted root is kept).
+Learning
+A learn action inserting a lazy-form row with a persisted edge at any time while serving, dependencies first, refused once closing; composition with release, prune, flush, decode, lazy work.
+Learned entries only help (with every learned entry made unusable, nothing fails and nothing leaks); learning twice causes no ownership drift; ownership exact throughout.
+Describing
+An abstract description store; a describe action capturing a shareable result from live state; learn consumes from the store.
+Whatever describe captures, learn can use; captured descriptions reference only rows that were cleanly attached at capture; gated stays gated across the round trip.
+Container operations
+A separate module for the semantics of parts, writers, and delegation, meeting the cache model at the attempt machinery. Layout decided when it starts.
+Evaluating a metadata part never runs an exec; a run fills its whole group; delegation reaches the nearest writer.
+Mixing productions
+Whatever D11 decides, as a property.
+Per the decision.
+The model checks lifecycle and concurrency. Content correctness, performance, and type coverage stay with tests.
+What stays abstracted, and why
+Baseline machinery the effort touches that the model deliberately does not model, with the reason each
+abstraction stays sound. Revisit any of these if its reason stops holding.
+TTL and expiry: the model's prune action fires nondeterministically at any time, which over-approximates
+every expiry policy, including the lifetimes of learned rows retained by persisted edges.
+E-graph merging: equivalence only grows, and the model already allows spurious misses, so a fixed
+equivalence table per configuration covers every reachable hit-or-miss behavior (D3). The merge code is
+unchanged by this work and stays covered by Go tests.
+The arbitrary-value cache and the e-graph mutation-helper guards: same contracts as the modeled
+machinery; Go tests carry them (stated in the spec header).
+The recipe-replay system: not abstracted, excluded. Not an input to this effort
+(G31).
+DoNotCache: learned entries are by definition cached; no interaction.
+Snapshot leases: today abstracted by the lazy "syncing" stage; the snapshot component in the table
+above models enough of them for the pull properties.
+8. Testing and success criteria
+How we know the whole thing succeeded
+The headline demonstration works. An engine that never computed result X is told about X and serves
+it as a cache hit, with both endings shown: the pull succeeds and the build uses the content; the pull is made
+to fail and the build still succeeds through the run.
+Every requirement F1–F12 has a test that demonstrates it, at whatever level fits that requirement
+(G28).
+Nothing regressed. The existing suites pass at every stage, and the hot paths show no meaningful new
+cost when the new abilities are unused. open How that cost is measured.
+It merged. Each stage landed on main, dormant where nothing uses it yet.
+Erik kept up. He followed the design and the code at the level he chose, the assumption record has no
+entries he never saw, and every open question was resolved with him rather than by default. This work is the
+first real run of the working process and of the model-first rule; losing him partway is a failure even if
+the code is correct.
+Testing
+Engine-side mechanics are tested in OSS as ordinary unit and engine-level tests. Test code may use in-process
+stand-ins for the remote store (a Go value implementing the blob-source interface in a test). No fake remote
+servers or services in OSS (G2).
+open Whether this in-process stand-in matches Erik's intent for the OSS/closed
+boundary. Flagged for confirmation, not assumed.
+The per-part laziness stages have local tests of their own: a metadata read at the tip of a lazy chain runs
+nothing; a file selector on an exec evaluates only fs; a run fills its whole group once.
+The existing persistence and cross-session suites are the regression floor for every stage.
+The headline demonstration, at the learning stage: an engine that never computed X is told about X and serves
+it as a hit, shown both with the pull succeeding and with the pull made to fail and the build succeeding through
+the run.
+open Where the first true two-engine proof lives and what minimal cloud-side
+stand-in it needs. Anything shaped like a service belongs in the closed repo. Needs a ruling before the describe
+stage is called done.
+9. Proposed order of work
+proposal for review The goal of the order: land the baseline improvements first,
+because they have value on their own, carry the most risk, and make the remote-specific work small; keep every
+stage reviewable on its own; never leave a long-lived unmerged branch over dagql/cache.go. Each stage
+lists what it delivers, what it depends on, the model work that lands with it, the decisions that must be resolved
+before it starts, and what Erik should focus review on. Sizes are relative.
+How each stage is done. Design first, at the start of the stage, in this document: for every open mechanism
+question inside the stage, more than one candidate approach is written down before one is chosen, including
+approaches with no precedent in the old efforts (which are consulted only under the learning bar,
+G23). The model is extended before the code (G30).
+Assumptions are written down as they are noticed; a case that would widen the design stops and asks
+(G26). Implementation starts only after the stage's design settles with Erik.
+Stage 0 — The remediation stack merges
+Baseline · in flight · depends on nothing
+#13934, #13936, #13938, #13940. Everything below is based on its head. No work here beyond waiting; nothing in
+this document branches from main until the stack is in.
+Stage 1 — Model catch-up and audits
+Baseline · small · depends on stage 0 · no engine behavior change
+Model: session-resource gating, standalone (D8); the canceled-reader non-interference property; the
+written list of what stays abstracted and why (section 7), so the catch-up is visibly
+complete rather than assumed.
+Audits, written up as a linked page: every Evaluate site in core and
+core/schema classified by the part it actually needs; every container, directory, and file lazy
+operation classified by the parts it writes and whether it fits one of the two templates; the full list of
+mount, stat, and reopen-by-ID sites; whether each writable mount of an exec yields its own output snapshot
+link; whether the common resolvers are pure constructors of lazy operations (feeds D10).
+Decisions needed first: none.
+Review focus: the audit tables. This is where Erik's familiarity with the code catches a wrong
+classification cheaply.
+Stage 2 — Per-part evaluation
+Baseline · large, the riskiest stage · depends on stage 1 · standalone value
+2a, model first: generalize the lazy section to parts and groups; per-part invariants; probes.
+2b, cache: attempts per (result, part) with group exclusion; Evaluate takes a part; the
+default part set is "everything," so existing callers are unchanged. Model and code reconciled before 2c.
+2c, core: part identifiers; writes declarations with the default "everything, jointly"; generic
+delegation; the first refined operations per D13 (execs, file and directory selectors, metadata readers).
+Why it lands first: it fixes local over-evaluation today, it is the foundation every later stage
+stands on, and its race surface is the one we most want TLC to see before a user does.
+Decisions needed first: D12 (lean is enough), D13 for the first operation set. D11 does not bite here:
+with no learned results, a run always fills its whole group from one production.
+Review focus: the per-operation writes table (readable as a list), and the model trace of the two-level
+attempt structure.
+Split: 2a+2b as one PR, 2c as one or more. Erik's merge-early preference applies.
+Stage 3 — Persistence per part
+Baseline · medium · depends on stage 2
+Per-part persisted forms; decode without reopening pending parts; re-arm per part at import.
+Model: flush rows per part; restart re-arms per part; "restart never marks a part evaluated that was
+not"; flush completeness.
+Decisions needed first: none beyond stage 2. Format change, no compatibility work (G22).
+Review focus: that a pending part after restart behaves exactly like a pending part before it.
+Stage 4 — Recipe availability
+Gate for everything remote · size depends on D10 · depends on stage 3 and on D10 being ruled
+Implement whichever D10 chooses: producers keep recipes after evaluation, or consumers rebuild them from the
+call frame.
+Model: minimal; recipe presence as a flag on rows, the run arm enabled only when present.
+Decisions needed first: D10, after its dedicated discussion.
+Stage 5 — Snapshot layer: chain identity and pull
+Remote-specific mechanics, OSS · medium · depends on stage 0 only; can run in parallel with stages 2–4
+Chain identity export; the blob-source interface; chain pull with per-layer dedup and pruned-layer re-apply;
+leases for pulled layers; an in-process blob source for tests.
+Model: the snapshot component and its properties (A then B pulls nothing; only pruned layers re-pulled;
+a pull never evaluates another result).
+Decisions needed first: D12 (lean), D17 only to the extent of "identities are computed at export."
+Review focus: the dedup rule and the pruned case, as tests.
+Stage 6 — Learning
+Remote-specific · large · depends on stages 2–5
+The description format; learned results entering as lazy results with pull-else-run per part; persisted-edge
+retention; digests through the normal e-graph; counted operation; rows one at a time, dependencies first;
+lookup preference; session-resource requirements carried.
+Model: the learn action and the pull stage; pull failure never terminal; learned entries only help;
+learning twice harmless; restart never invents; gated stays gated; one wide configuration combining learning,
+pulls, lazy work, release, flush, and prune.
+Decisions needed first: D2, D9 (lean is enough), D11, D14, D15, D16's rule.
+Review focus: the headline demonstration, both endings; the wide configuration staying green.
+Stage 7 — Describing
+Remote-specific · medium · depends on stage 6
+Descriptions of shareable results: metadata, call frame and digests, dependency references, chain identities
+per link (after export), recipe per D10. One encoder, one decoder, round-trip tested.
+Model: the describe action and the description store; round-trip and capture-integrity properties.
+Decisions needed first: D16's edges, D17, the two-engine proof location.
+Review focus: the shareability rule, and that nothing in it refers to the replay system.
+Stage 8 — from(image) metadata without layers
+Baseline · medium · depends on stage 2 · can run in parallel with stages 5–7
+Fetch manifest and config without unpacking layers, so a metadata read on a local chain rooted at
+from pulls nothing (D18).
+After these stages
+Telemetry and cache-explain distinguishing "pending pull" from "pending computation," so warm hits are not
+reported as uncached. User-visible; not foundational.
+The channel, the service, and policy: out of scope for this document
+(G16).
+What the order assumes, so it can be challenged
+That per-part evaluation is worth landing as baseline work even if the remote cache slipped. If Erik disagrees,
+stages 2 and 3 could be narrowed to the exec and selector cases only.
+That D10 can be ruled before stage 4 without blocking stages 2, 3, and 5, which do not depend on it.
+That the snapshot-layer work (stage 5) is independent enough to be handed to a separate agent early.
+That one wide model configuration at stage 6 stays within TLC's budget with two parts and one group; if not,
+the composition gets split across configurations.
+10. Assumptions on record
+Load-bearing assumptions, each needing Erik's confirmation or correction (G26).
+A1. Learned entries participate in normal local persistence and pruning like any other entry. Now a
+direct consequence of D1 rather than an assumption; kept for visibility.
+A2. "Equivalent" in F2 means the cache's existing equivalence, unchanged. Now a direct consequence of
+D3; kept for visibility.
+A3. The preference order in F4 applies per part, at the moment a part is evaluated. No background
+process fills pending parts ahead of demand.
+A4. Across engines, a result with the same digests is interchangeable here. This rests on total trust
+within the org (G6) and the shared salt (G7); the model assumes it and never verifies it.
+A5. Content identities are never computed eagerly during builds; only at export. Verified against
+current code, where identities do not exist before export.
+A6. Execs issued by a module function are persistable and therefore shareable; only the exec that runs
+the function is excluded. Verified in code; recorded because the value of the feature for CI depends on it.
+11. Open questions
+The effort-wide registry in the guiding doc stays canonical. The ones this work must
+answer, by the stage that needs them:
+Before stage 2: D13's first operation set (from the audit).
+Before stage 4: D10, recipe availability. Needs its own session with Erik.
+Before stage 6: D2 (write path), D11 (mixing productions), D14 (memory after a failed pull), D15 (lookup
+preference), the OSS test-boundary confirmation.
+Before stage 7: D16's edges, D17, the two-engine proof location (OQ14).
+Any time: OQ10's remaining maybes (frozen client directories, git sources);
+OQ9 failure classification, which D14 partly covers.
+Revision 2 · maintained by Fable · under the guiding requirements & principles ·
+2026-08-21 · the seed revision of 2026-08-18 is superseded by this page.

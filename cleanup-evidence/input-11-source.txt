@@ -1,0 +1,1 @@
+Historical guidance recovered from git object d255a086c02c8413640f12a524a9f61d79446d9b. Latest revision identified by archived report tc-item-90. Current implementation remains 50016de4.

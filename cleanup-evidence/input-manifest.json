@@ -1,0 +1,72 @@
+[
+  {
+    "path": "/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/coordinator-takeover-investigator-81e086cb-31faa19d/COORDINATOR-TAKEOVER-AUDIT.md",
+    "sha256": "e880e9245894426be36c289b4f00840414f07c10c5d3f98bbe01ac494dae6c52",
+    "copy": "cleanup-evidence/input-00-COORDINATOR-TAKEOVER-AUDIT.md"
+  },
+  {
+    "path": "/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/lead-870c2256-d39e7bb3/REMOTE-CACHE-TAKEOVER.md",
+    "sha256": "a13955c6becc5673c63f907bd379ef10f074ac0ea75e2ec3a5b382831c05e3d2",
+    "copy": "cleanup-evidence/input-01-REMOTE-CACHE-TAKEOVER.md"
+  },
+  {
+    "path": "/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/former-lead-investigator-7a2ba142-82b7e287/audits/former-lead/REPORT.md",
+    "sha256": "cdb0ace0f1610b93511015b3fd815fb5822045da4d28846b7596fd4d008176f3",
+    "copy": "cleanup-evidence/input-02-REPORT.md"
+  },
+  {
+    "path": "/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-cleanup-coordinator-1419113d-da009e55/COORDINATOR-CLEANUP-REVIEW.md",
+    "sha256": "5d323d9701c4f06dccc90beb385193a2f3131bd522eac2e3cdd44530deed21f8",
+    "copy": "cleanup-evidence/input-03-COORDINATOR-CLEANUP-REVIEW.md"
+  },
+  {
+    "path": "/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-cleanup-reviewer-d12f34a0-8f1a88a6/reviews/remote-cache-cleanup/REVIEW.md",
+    "sha256": "75ce7d78f5ff56095b6de6774f874ff12702099c3f8357454579602488c559e3",
+    "copy": "cleanup-evidence/input-04-REVIEW.md"
+  },
+  {
+    "path": "/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-cleanup-reviewer-d12f34a0-8f1a88a6/reviews/remote-cache-cleanup/RECONCILIATION-ADDENDUM.md",
+    "sha256": "5d330c6dbefa1b1f55602dd5dc57e9bed108bd1ecb1bb9b5b6801291f1dfb792",
+    "copy": "cleanup-evidence/input-05-RECONCILIATION-ADDENDUM.md"
+  },
+  {
+    "path": "/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-scope-auditor-ab848778-5ef56a6d/audits/cleanup-review-20260913/REVIEW.md",
+    "sha256": "399a07f0d3fef2f93b23ebd10a2cabd492262a29caa6fff958ead3482476393c",
+    "copy": "cleanup-evidence/input-06-REVIEW.md"
+  },
+  {
+    "path": "/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-scope-auditor-ab848778-5ef56a6d/audits/cleanup-review-20260913/RECONCILIATION-ADDENDUM.md",
+    "sha256": "acdbf01ff141e9b92518831c635f58972d46bb806eb2d69ad0370ce197aa4d6f",
+    "copy": "cleanup-evidence/input-07-RECONCILIATION-ADDENDUM.md"
+  },
+  {
+    "path": "/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/coordinator-takeover-investigator-81e086cb-31faa19d/takeover-evidence/human-instructions.md",
+    "sha256": "45bde125faf6222cdd080bb481088a13103a23ca9abec683dfb608963c9c4db3",
+    "copy": "cleanup-evidence/input-08-human-instructions.md"
+  },
+  {
+    "path": "/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/coordinator-takeover-investigator-81e086cb-31faa19d/takeover-evidence/files/tmp/directory-file-opening-design-20260908/original-guidance/index.txt",
+    "sha256": "b53ec524e467cc93f920952565dda666e96d426978bde22042f9f466de5ca0fb",
+    "copy": "cleanup-evidence/input-09-index.txt"
+  },
+  {
+    "path": "/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/coordinator-takeover-investigator-81e086cb-31faa19d/takeover-evidence/files/tmp/directory-file-opening-design-20260908/original-guidance/engine-foundations.txt",
+    "sha256": "aedd40868734f5aa2bc487bea4fcc6f1de691943cbb53935d22a15e0728b9753",
+    "copy": "cleanup-evidence/input-10-engine-foundations.txt"
+  },
+  {
+    "path": "/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/coordinator-takeover-investigator-81e086cb-31faa19d/takeover-evidence/files/tmp/directory-file-opening-design-20260908/original-guidance/source.txt",
+    "sha256": "d3c598cec8aaf2bc20905b9cf6b60720490d94fa5ac96c819dfe3486c1e07b65",
+    "copy": "cleanup-evidence/input-11-source.txt"
+  },
+  {
+    "path": "/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-cleanup-implementer-2f409eb3-1d445bb7/CONTRIBUTING.md",
+    "sha256": "ef94f37ea404ed48395db5562799a01f092c7598a7649da6a93e05e890cc0b61",
+    "copy": "cleanup-evidence/input-12-CONTRIBUTING.md"
+  },
+  {
+    "path": "/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-cleanup-implementer-2f409eb3-1d445bb7/skills/engine-debugging/SKILL.md",
+    "sha256": "5f298c06331c40e73eec602e1f0f8a29fb2cf79fb21ba6d2cfbdd8c5b6a07397",
+    "copy": "cleanup-evidence/input-13-SKILL.md"
+  }
+]

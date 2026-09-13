@@ -1,0 +1,9 @@
+fix(cache): exclude attachment and direct evaluation from capture
+
+Reject open or failed initial attachment before reading a captured row.
+Guard Container encoding with its existing whole-op and group latches so
+direct evaluation cannot mutate the value while it is encoded. Keep the
+evaluation paths and sibling group parallelism unchanged.
+
+Add focused readiness, lifetime, and synchronization regressions, and
+correct the current internal docs about retained completed producers.
