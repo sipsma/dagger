@@ -4469,7 +4469,7 @@ func (c *Cache) runLazyTask(ctx context.Context, res AnyResult, shared *sharedRe
 			}
 			runEval()
 			if err == nil && spec == nil {
-				c.completeNativePartTask(installationToken)
+				err = c.completeNativePartTask(callbackCtx, installationToken)
 			}
 			lazyOp.EndWithResult(profErrOutcome(err), uint64(shared.id))
 
