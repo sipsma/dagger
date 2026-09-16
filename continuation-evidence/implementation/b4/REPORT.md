@@ -1,6 +1,6 @@
 # Batch 4 implementation report
 
-**Status: blocked on the native cold-module proof; the commission is incomplete.** The five implementation commits contain root and scoped inline acquisition. The first inline-ownership blocker is resolved by Addendum 1. The complete commission cannot be declared passed until the native cold proof and remaining acceptance cases pass. [BLOCKER-2.md](BLOCKER-2.md) records the observed cold closure's missing eager Container producers and two decision options.
+**Status: independent blocker-2 follow-up implemented; awaiting the two binding Addendum 2 commits for the cold proof. The commission is incomplete.** The five original implementation commits contain root and scoped inline acquisition. Addendum 1 resolved the inline-ownership blocker. The coordinator accepted blocker 2 and selected option A narrowly: record the reached eager Container mount producers and specify acquisition of unchanged parent parts by metadata children. Those design changes have not been implemented without the promised binding commits. The cold test is unchanged. [BLOCKER-2.md](BLOCKER-2.md) preserves the failure and records the decision.
 
 ## Inputs and commit boundary
 
@@ -23,6 +23,18 @@ The implementation order is preserved. `21234ff019` is the historical blocker-1 
 
 All implementation commits are buildable and signed off. Step 5's acceptance status is limited by the native results below; commit presence is not a claim that the full matrix passed.
 
+Subsequent signed commits preserve the reviewed history:
+
+| Commit | Follow-up |
+| --- | --- |
+| `8e0e2198d8` | Remove the bundled object-field fix in preparation for isolated review; compile check passes |
+| `5b73480d43` | Reapply only the declared SDK object-field retention fix and its regression, as requested |
+| `506649d04a` | Real two-engine mixed downloaded FS/private execMeta proof and gated release observation |
+| `2777bb534d` | Decision, cancellation, decode/publication, tuple coherence and retained-pin boundary cases |
+| `c4d58da56b` | Whole-producer restart, selective pending image metadata, native recipe guards and Ready donor backreference release |
+
+The final separate evidence commit is listed in the delivery reply. No reviewed commit or parent commit was amended.
+
 ## Implemented behavior
 
 The acquisition collector inspects copied records without decoding or opening storage, checks the owner's completed output first, then ranks all ordinarily eligible equivalents Ready before chain before saved producer, with stable route/ID ordering. Ordinary lookup/e-graph selection code is unchanged. D1 checks offer-owner dependencies' own resource requirements with the foreground session. The private sessionless Ready constructor accepts only imported receivers and current own-requirement subsets, with revalidation at Commit.
@@ -44,9 +56,17 @@ These are the changed paths and their intended effects:
 3. `core/lazy_state.go`: native completion, including failed bodies that may have mutated output state, increments an atomic output revision. Guarded capture and typed role collection retry on concurrent changes. Container revision remains available through retained completed recipes after the operational pointer clears.
 4. Persistence/encoding/visitors: snapshot links carry canonical declared paths; list encoding, capture, decode and typed role collection preserve them. Inline decoders have result ID zero plus a distinct owning-row/path carrier; copied empty maps are authoritative and mismatched carriers fail. Composite cleanup covers inline codec values and CAS losers. A public `NthValue` child borrowing an inline object retains its enclosing row and does not duplicate accessor cleanup or rebind its host.
 5. Persistence/boot: all root and inline lease IDs use the scoped key. Existing root leases are re-keyed by attaching the full desired set before stale removal. Private schema 20 gains the path column/stricter key; envelope 4 and bundle 1 are unchanged. Old private-20 stores lacking the column follow `import_failure` reset, then empty desired-set reconciliation. Applied, desired and attempted role maps all use `(path, role)`.
-6. `core/object.go`: declared object/interface fields received from an SDK now keep the already attached result, including string-handle and object-map inputs. Previously attachment retained the dependency but left the raw SDK value in the field; a handle string then serialized as opaque scalar JSON and escaped relocation. This uses the existing typed reference grammar and SDK conversion path. It changes internal stored representation while preserving SDK-visible values; opaque scalar fields remain scalars. The failing warm artifact case and a before/after regression establish why this additional integration fix was needed.
+6. `core/object.go`: **outside the acquisition design; requires council judgment.** Declared object/interface fields received from an SDK now keep the already attached result, including string-handle and object-map inputs. Previously attachment retained the dependency but left the raw SDK value in the field; a handle string then serialized as opaque scalar JSON and escaped relocation. This uses the existing typed reference grammar and SDK conversion path. It changes internal stored representation while preserving SDK-visible values; opaque scalar fields remain scalars. See the isolated-fix justification below.
 7. Snapshot import adds an independent pin and optional chain-content annotation mode. Ordinary image import keeps its previous mode and error behavior; a real regression checks shared chain reuse.
-8. The environment-gated transfer fixture accepts selected Directory/File output IDs, carries real blob files, binds an in-process provider, and records selected/installed routes, provider reads, producer entry, sync and settlement. The unconfigured engine has no fixture schema field or event collection. The probe module now returns and reads a selected Directory artifact; the cold test is enabled.
+8. The environment-gated transfer fixture accepts selected Directory/File snapshot IDs and Container FS IDs, carries real blob files, binds an in-process provider, and records selected/installed routes, provider reads, producer entry, sync and settlement. Its report includes copied applied snapshot links. With observation enabled, a private Container's actual FS ref is wrapped after execution to report successful or failed `Release` after the underlying call returns; the wrapper neither replaces the snapshot manager nor simulates execution. The unconfigured engine has no fixture schema field or event collection, and private refs are not wrapped. The probe module returns and reads a selected Directory artifact; the cold test remains enabled and unchanged in this follow-up.
+
+## Isolated object-field fix for council review
+
+The failing real case was the warmed module report's declared Directory artifact. After transfer, ordinary `artifact.file(path:"payload.txt").contents` followed an A-engine handle left in scalar JSON and selected an unrelated B Directory. Both warm orders failed before this fix; [the failure excerpt](logs/warm-before-fix-excerpt.log) and [the before regression](logs/declared-handle-before.log) establish the defect. The focused regression expected `result_id` but received `scalar_json`. After the fix, the same field enters `VisitEncodedReferences`, changes to the relocated ID, and preserves ordinary SDK conversion and dependency lifetime. Both warmed engine orders pass, including artifact contents and restart.
+
+The fix was initially bundled in `521b90d51d`. To honor the new request without rewriting reviewed history, `8e0e2198d8` removes exactly that change and `5b73480d43` reapplies it alone. The inverse commit compiles; the isolated fix passes the same focused object/relocation race selection ([output](logs/object-isolated-race.log)).
+
+The narrower dependency-only approach already existed and is exactly what failed: ownership alone cannot relocate a field represented as an opaque scalar. Parsing arbitrary strings as handles in generic persistence would reinterpret legitimate scalar strings; changing only the gated module fixture would conceal the real SDK boundary defect. Retaining the result at the existing declared Object/Interface conversion point uses type information and the established reference grammar, including nested object-map inputs. No generic scalar conversion changes. These facts justify the chosen scope but do not substitute for council approval of this additional behavior.
 
 ## Verification and limits
 
@@ -64,7 +84,15 @@ Native outcomes: **Warm PASS**, both import orders, selected artifact bytes, zer
 
 **Cold FAIL**, after import and before report selection: ordinary `AsModule().Serve` requires an unavailable `mount:/schema.json`. Eager `withMountedFile`, `withMountedDirectory` and subsequent complete-parent metadata transformations have no saved producer or offer. The final A bundle preserves the selected artifact as a relocated `result_id` reference (ordinal 2), so this failure is separate from the fixed warm-field issue. The previous cold run surfaced the other pending mount, `/src`. [Final failure](logs/cold-module-excerpt.log), [bundle projection](probes/cold-closure-summary.json), [decision record](BLOCKER-2.md). No builtin-route success or zero report-body acceptance is claimed for the cold case; its assertions are not reached.
 
-Still unproved: the full downloaded-FS plus actual privately executed execMeta engine case (including redundant FS ref release); every remaining boundary variant of the complete §10 matrix; and any end-to-end outcome past a failing native boundary. The passing two-chain mixed Container restart test is not represented as an actual mixed download/exec proof. No production service, batch 5 renewal or batch 6 sharing worker was added.
+**Mixed actual exec PASS:** the new `TestPartMixedExecOutputs` uses two real dev engines and independent state. Only the executed Container's FS and its parent's FS chains are exported. B reads known metadata without provider reads or producer entry, downloads the FS without execMeta, then demands stdout. Exactly one private saved `withExec` runs; only execMeta is published. The original FS snapshot ID is unchanged, the distinct redundant private FS ref is released exactly once before owner sync, and settlement occurs. Repeated reads do not rerun exec. [Run output](logs/mixed-exec-engine.log), [measured test output](logs/mixed-exec-measurement.log), [trace](https://dagger.cloud/dagger/traces/8c4e3f08dc2567a05cc63a2469a67655). The first attempt stopped at a test SDK API compile error; the corrected run passes.
+
+The remaining independent boundary follow-up passes focused race selections: actual late Ready and chain arrival during private preparation with zero private runs; a second stale preparation releases both real pins and returns reselect; ordinary and NoJoin conflicts during an inline decision; sibling admission before that decision's sync finishes; a late offer cannot interrupt Running; cancellation during pin preparation prevents publication and balances ownership; a broken local Ready descriptor returns its storage error. A decode paused on an old representation loses to a real new installation, releases the temporary value once, and sees the winning complete roles. File and Directory tuple publication races cover path, platform, service and snapshot coherence plus guarded role readers. A failed retained-pin release retries without downloading again or repeating successful owner sync. [DagQL output](logs/boundary-dagql.log), [core output](logs/boundary-core.log).
+
+The whole-producer restart case uses a real saved `_builtinContainer` recipe and a controlled valid mixed representation with FS transferred and execMeta pending. It checkpoints/reopens, performs no provider or producer work at boot, then invokes a fresh whole builtin, preserving the first installed FS and the raw recipe. The builtin resolves execMeta to **absent** and releases its redundant FS. This is a representation/whole-invoker proof, not a claim that builtins produce exec metadata snapshots; the real mixed exec case above proves the non-absent variant. Native pending Containers without a recipe still error outside the adapter representation. Pending image metadata also runs only its metadata producer and leaves FS pending with no snapshot open or provider read. [Whole/native output](logs/whole-restart.log), [pending metadata output](logs/pending-image-metadata.log).
+
+A Ready donor with a direct donor→receiver dependency collects before external Finish opens the owner's sync barrier. The published receiver does not gain a donor edge, and it collects after its final session and persisted owners release. [Backreference output](logs/ready-backreference.log).
+
+Still unproved: the native cold proof after the approved design additions, including its builtin and runtime-mount route assertions, zero matching report bodies, and subsequent restart/default assertions. No success beyond the failing cold boundary is claimed. No production service, batch 5 renewal or batch 6 sharing worker was added.
 
 ## Runtime measurements
 
@@ -84,6 +112,7 @@ Still unproved: the full downloaded-FS plus actual privately executed execMeta e
 | Chain with partial-sync retry | 51.53 ms; 1 pin, 2 owner-sync attempts, 0 private bodies; no repeated read |
 | Failed content → private File producer | 57.88 ms; 1 pin, 1 owner-sync attempt, 1 body |
 | Private File producer | 40.82 ms; 1 pin, 1 owner-sync attempt, 1 body |
+| Mixed real-engine private execMeta demand after FS download | 155.39 ms; 1 private exec, 1 distinct redundant FS ref release, original FS ID preserved |
 
 [Collector/host samples](logs/collector-host-costs.log) and [real route/re-key samples](logs/route-rekey-costs.log). The restart case also passes and takes 60.04 ms in this sample; its manager counters restart on reopen, so they are not whole-attempt pin totals. File body counts observe the actual `FileBlobLazy` mutable-snapshot creation. Lifetime tests separately check release/owner balance and final collection.
 

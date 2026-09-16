@@ -1,6 +1,45 @@
-# Final focused commands
+# Focused commands and blocker-2 follow-up
 
 Implementation tree: `521b90d51d` (tests ran against the same source before committing). Parent: `77f6279559061fd1bb6b3b18e6b08582c7b013a3`. Go 1.26.6, Linux/amd64. Final selections below ran sequentially, with no recursive package selection. Real snapshot tests used the private privileged mount namespace and did not skip.
+
+## Blocker-2 follow-up
+
+All following tests ran sequentially. The cold proof was not changed or rerun while awaiting its binding addenda.
+
+```sh
+# Inverse isolation commit, compile-only validation.
+go test ./core -run '^$' -count=1 -timeout=90s
+
+# Standalone object fix after reapplication.
+go test -race ./core -run '^Test(ModuleObject|PersistedModuleObjectPayloadRelocation|SavedPayloadRelocation)' -count=1 -timeout=90s
+
+go test ./core/schema -run '^TestRemoteCacheFixture$' -count=1 -timeout=90s
+
+dagger api call engine-dev test --pkg ./core/integration --run='TestRemoteCacheTransferSuite/TestPartMixedExecOutputs$' --timeout=5m --test-verbose
+
+go test -race -exec 'sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./dagql -run '^TestPart(Decision|Decode|ReadyPreparation)' -count=1 -v -timeout=90s
+
+go test -race -exec 'sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -run '^Test(PartFilesystemPublicationRoles|PartAcquisitionRootRoutes|PartTypedPublicationRoles|CapturePersistedFilesystemDirectEvaluation|FilesystemPersistenceRetainsBodyLatch)$' -count=1 -v -timeout=90s
+
+go test -race -exec 'sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -run '^TestPart(WholeProducerMixedRestart|NativePendingContainerRequiresRecipe)$' -count=1 -v -timeout=90s
+
+go test -race -exec 'sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -run '^TestPartPendingImageMetadataStaysSelective$' -count=1 -v -timeout=90s
+
+go test -race ./dagql -run '^TestReadyPartDonorBackreferenceReleasedBeforeSync$' -count=1 -v -timeout=90s
+```
+
+Passing evidence: [inverse compile](logs/object-isolation-build.log), [isolated object fix](logs/object-isolated-race.log), [fixture](logs/mixed-exec-schema.log), [mixed actual exec](logs/mixed-exec-engine.log), [DagQL boundaries](logs/boundary-dagql.log) (2.283 s), [core boundaries](logs/boundary-core.log) (4.234 s), [whole restart/native guard](logs/whole-restart.log) (1.861 s), [pending metadata](logs/pending-image-metadata.log) (1.513 s), [Ready donor backreference](logs/ready-backreference.log).
+
+The mixed proof's first invocation used the wrong SDK handle-loading spelling and failed to compile; after changing to the repository's `dagger.Ref[*dagger.Container]` API, the same selection passed. A boundary test initially tried attaching an already broken snapshot descriptor, which correctly failed during ordinary attachment; the corrected test attaches valid state then models disappeared backing before acquisition. The native decoder guard test initially used owner ID zero and correctly failed the storage-owner guard; it now supplies a nonzero owner and authoritative empty roles to reach the intended missing-recipe error. These were test construction corrections, not production fixes.
+
+The passing engine test took 1m8s; the encompassing CLI invocation took 2m18s including build/startup/cleanup. The measured stdout demand after downloading FS took 155.386279 ms. Default trace rendering does not print that passing test log line; it was retrieved read-only with:
+
+```sh
+dagger trace 8c4e3f08dc2567a05cc63a2469a67655 --test TestRemoteCacheTransferSuite/TestPartMixedExecOutputs -vvv
+dagger cloud logs 8c4e3f08dc2567a05cc63a2469a67655 --test TestRemoteCacheTransferSuite/TestPartMixedExecOutputs
+```
+
+Only the [single measurement line](logs/mixed-exec-measurement.log) is retained from those test logs. It records distinct original and redundant FS identities; assertions in the test prove real release order and one-time private execution. A stopped engine service can appear as `ERROR` in service cleanup while the selected Go test and CLI command pass.
 
 ## DagQL, core, snapshots and fixture
 

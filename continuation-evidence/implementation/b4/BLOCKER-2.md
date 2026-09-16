@@ -2,6 +2,8 @@
 
 The inline ownership blocker is resolved by Addendum 1. This is a separate failure of the required native cold-module proof. The acquisition implementation and scoped inline checks are present, but the commission is not complete.
 
+**Decision received:** the coordinator accepted this record and probe and selected option A narrowly in `remote-cache-coordinator-dagger-successor-5707b13a:continuation-evidence/implementation-reviews/b4/BLOCKER-DECISION-2.md` (read in full). Option B below is historical and was rejected as the primary proof route. Implementation awaits the promised council-confirmed Batch 1 and Batch 4 Addendum 2 commits. Meanwhile the independent mixed actual exec and boundary work has been completed; see [REPORT.md](REPORT.md). No recipe has been synthesized from a recorded field and the cold test has not changed.
+
 ## First observed divergence
 
 Run the unskipped `TestRemoteCacheTransferSuite/TestSchemaRecoveryCold` with two real dev engines and separate state, clients and module directories. A executes the ordinary report, including the selected Directory artifact. The gated fixture exports the saved report closure and that artifact's actual chain, copies the bundle and blob files, and imports them into B. B has made no `AsModule`, SDK runtime warmup or `Serve` call before import.
