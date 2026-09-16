@@ -1,0 +1,7 @@
+Implementation parent: 4041385fc3eff39c22e2617c96f8bcb30fe036ba
+Test change committed as: d6581335a9cd2ed6382b57a49e4a330fbf013bc6
+Working directory: repository root
+Command: env GOPATH=/home/exedev/go GOCACHE=/home/exedev/.cache/go-build go test -p=1 -exec='sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -run '^TestValueTransferParts' -count=1 -timeout=180s -v
+Output: addendum2-selected-chains.log (complete, unchanged)
+Exit status: 0
+All selected tests executed; no skips. Both Git backends use real checkout and snapshot stores. The remote backend fetches through a local file transport.

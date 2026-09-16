@@ -1,0 +1,16 @@
+Historical failure, superseded by the final fixture and successful full/isolated runs.
+Command: dagger api call engine-dev test --pkg ./core/integration --run='RemoteCacheTransferSuite/TestSchemaRecovery' --timeout=20m
+Configuration: default GC limits (before the persistence-suite bounds).
+Exit status: 1
+Trace: https://dagger.cloud/dagger/traces/f2042b4f219c9a435d19efa09f290326
+
+Selected failure excerpt:
+                Error Trace:    /app/core/integration/remote_cache_transfer_test.go:241
+                                                        /app/core/integration/remote_cache_transfer_test.go:252
+                                                        /go/pkg/mod/github.com/dagger/testctx@v0.1.2/testctx.go:296
+                                                        /go/pkg/mod/github.com/dagger/otel-go@v1.43.1-0.20260810200237-752a39ce1610/oteltestctx/trace.go:74
+                                                        /go/pkg/mod/github.com/dagger/testctx@v0.1.2/testctx.go:150
+                                                        /usr/lib/go/src/runtime/asm_amd64.s:1771
+                Error:          Received unexpected error:
+                                arg "id": resolve ID input "engineResult(4681): CacheProbeReport!": resolve result 4681: missing shared result
+                Test:           TestRemoteCacheTransferSuite/TestSchemaRecovery/after

@@ -1,0 +1,7 @@
+Implementation and fixture tip: 5316e2246885fc5e343c0a91df10fb9a2b712e80
+Working directory: repository root
+Command: dagger api call engine-dev test --pkg ./core/integration --run='RemoteCacheTransferSuite/TestSchemaRecovery' --timeout=20m --test-verbose
+Output: addendum2-native.log (complete, unchanged)
+Exit status: 0
+Trace: https://dagger.cloud/dagger/traces/99a85ab411411db41ec44b04eef30c16
+The selection includes TestSchemaRecoveryCold, which is skipped with the addendum 2 reason. The active TestSchemaRecovery runs its before, after, and foreign-context subtests sequentially.

@@ -1,100 +1,92 @@
-# Batch 2: blocked at cold native module setup
+# Batch 2 standalone implementation
 
 Branch: `remote-cache-b2-transfer-implementer-26387947`.
-Base: `1ca9f28a60f1d9597c1b0df01e65a91707ce3b0f`. The original first command reset
-there; log/status confirmed the requested base and a clean tree. This resumption
-preserved the implementation commits already on that base.
+Base: `1ca9f28a60f1d9597c1b0df01e65a91707ce3b0f`.
+Implementation tip: `5316e2246885fc5e343c0a91df10fb9a2b712e80`.
 
-Steps 1–4 are implemented. Step 5 is a buildable checkpoint with passing focused
-unit tests and a failing native acceptance case, **not a completed batch**.
-The addendum `ba20b55292003fc7c9a41bf4fc44af12383e162b` resolves the previous
-File/Directory capture blocker. Its permanent negative tests and the Container
-control pass. The older capture-gap evidence remains historical.
+Steps 1–5 are implemented under coordinator addenda 1 and 2. The full native
+standalone acceptance suite passes with B's runtime prepared through normal
+`AsModule` before import, without serving its schema or entering `report`.
+The isolated confirmation of the previously failing restart case also passes.
+The fully cold order remains an explicit skipped test naming addendum 2 and
+belongs to batch 4/7 acceptance. Batch 1 has not been merged into this branch.
 
-## Decision required
+## Result and verification
 
-The native `RemoteCacheTransferSuite/TestSchemaRecovery` reaches this boundary:
+Held export copies exact value closures, separates offer-owner retention from
+lookup requirements, exports only selected immutable chains, and imports fresh
+rows through one atomic publication. Foreign filesystem values retain pending
+metadata and saved producers; demand still returns the unavailable-part error.
+Schema recovery prefers installed operational Modules, then eligible exact
+recorded Modules, then the existing session-compatible canonical fallback.
+Operational readers of foreign local module paths return the explicit sentinel.
+Schema 20 / envelope 4 is a hard cut, with bundle version 1 and no migration.
 
-1. A loads and serves the real Go module, executes its report, and records one
-   actual function entry.
-2. A exports the report's metadata closure. The harness copies only the committed
-   bundle between distinct fixture volumes; the engines have distinct state.
-3. B imports successfully, with zero report entries.
-4. B's first normal `ModuleSource(".").AsModule().Serve(ctx)` fails:
-   `failed to call module "cache-probe" to get functions: call constructor: imported filesystem part is unavailable: Container.fs`.
+The native suite uses separate engine state, clients and fixture volumes. Only
+committed metadata bundles cross engines. It verifies:
 
-See [the exact failure](native-cold-runtime-blocker.log) and
-`core/integration/remote_cache_transfer_test.go:183`. This is before an ordinary
-report call or a saved-handle contextual method. The imported closure includes
-SDK/runtime values, and normal module setup encounters their pending filesystem
-state. The error is consistent with the required batch-2 unavailable-part
-boundary; the cold setup is not metadata-only in this run.
+- Import before schema installation and after normal schema loading; ordinary
+  `report` hits with zero B function entries, and a changed argument enters once.
+- Saved handles through `node(id:)`, B's current File default context, then a
+  clean restart and B's edited Directory default context. A raw fixture check
+  verifies the saved row exists immediately after restart.
+- Interface argument/return conversion, the non-builtin `Platform` scalar and
+  module-defined `Status` enum, including saved-handle recovery after restart.
+- Portable lazy bound tools, invocation through their defining schema, and
+  same-type return rebinding (`withSeed` followed by `label`).
+- A higher eligible native recorded Module in a bare client, with an assertion
+  that its imported equivalent has a lower result ID. Its contextual tool reads
+  B's notes. The existing conflicting-schema unit control also remains passing.
+- Both residual foreign-context cases in a client with prepared runtime but no
+  served Module: an explicitly imported recorded Module, and an expired recorded
+  Module with an eligible imported equivalent. Bare `node` loads recover the
+  schema; bound tools invoke the contextual method without requiring a GraphQL
+  fragment on an uninstalled type. Both return the foreign-context sentinel
+  before entering that method. A native no-import contextual control succeeds.
 
-Focused design `7a998854cc3b2efc7f221ffb9ec6debf5ab3d44e`, §§9–10, requires this
-before-normal-loading scenario while excluding acquisition and describing
-metadata transfer as sufficient. Per the commission's stop-on-disagreement rule,
-implementation stopped instead of changing lookup eligibility or adding an
-acquisition mechanism.
+The privileged selected-chain peers all run and pass, with no skips. They cover
+real local and remote Git checkout backends, a nested Directory/File view over a
+real snapshot, whole-parent bytes, a selected Container mount, unopened sibling
+parts, and a broken completed local open. The remote Git peer uses a local file
+transport. A separate real-store restart peer verifies that completed local
+snapshot ownership survives restart, redundant offer retirement, transfer-pin
+removal and GC. Exact commands and outcomes are in [VERIFICATION.md](VERIFICATION.md).
 
-Two options:
+The native fixture now uses the same GC bounds as the existing persistence suite.
+An earlier run using default limits lost a saved row at restart; it is retained
+in the verification history, not silently treated as a pass. Its precise cause
+was not established; both runs with the final fixture bounds pass. No production
+lookup, acquisition or persistence behavior was changed during addendum 2.
 
-1. **Revise the standalone setup:** prepare B's SDK/module runtime through normal
-   `AsModule` before import, without serving its schema or executing the measured
-   report. Then import and serve B's operational Module. This tests import before
-   schema installation; explicitly move the truly cold loading proof later.
-2. **Retain the cold acceptance requirement:** keep this failing case and make
-   its acceptance depend on integration with batch 4 acquisition. Steps 1–4 and
-   the fixture remain prerequisites; do not declare standalone batch 2 complete
-   from a warmed substitute.
+## Writer and reader inventories
 
-No option was implemented.
+Addendum 1's nonblocking File/Directory capture guards and typed `OutputRev`
+remain unchanged. The permanent latch-held negative tests and Container control
+pass. [OUTPUT-WRITERS.md](OUTPUT-WRITERS.md) is the complete report appendix of
+production publication and initializer sites from the included AST audit,
+including completion wrappers and stored-snapshot callbacks. The four accessor
+writes are centralized in guarded setters; completion retains the body's latch.
+Capture samples and rechecks typed output and encoded representation revisions.
+[FOREIGN-PATH-READERS.md](FOREIGN-PATH-READERS.md) classifies every audited path
+reader and conversion, including the data-only exceptions.
 
-## Signed commits, in order
+## Signed commit order
 
-- `de126ebe775d078a4c6e240d4d697d3bfdc6834c` — records, offer owners, visitors, lifetime/accounting and format cut.
-- `85de1ed96d12d1b91589dfdba4368b7cbc512557` — foreign codecs, pending forms, part mapping and identity labels.
-- `a9112444f626464590af400205bd39baf2cc00a6` — historical first-blocker evidence.
-- `f72572cb9a264a23d56791185a60765213412d33` — authorized File/Directory guards and typed output revisions.
-- `336de2cdb379323827f1be90ec32c9f548447bd4` — held export, atomic import, complete desired-role intent and decode publication.
-- `74b24a43784c4e6e52ec5cbe599c3fc78ac36695` — installed-module schema preference and foreign-path guards.
-- `ee7ccb765a3fb9b4d45f8f2efe5ba31952116ac7` — gated fixture, additional tests and native blocker checkpoint.
-- This final separate evidence commit — report, inventories and logs.
+1. `de126ebe775d078a4c6e240d4d697d3bfdc6834c` — common records, owners, visitors and format cut.
+2. `85de1ed96d12d1b91589dfdba4368b7cbc512557` — foreign forms and identity labels.
+3. `a9112444f626464590af400205bd39baf2cc00a6` — historical capture-blocker evidence.
+4. `f72572cb9a264a23d56791185a60765213412d33` — addendum 1 guards and output revisions.
+5. `336de2cdb379323827f1be90ec32c9f548447bd4` — held export and atomic import.
+6. `74b24a43784c4e6e52ec5cbe599c3fc78ac36695` — schema recovery and foreign-path guards.
+7. `ee7ccb765a3fb9b4d45f8f2efe5ba31952116ac7` — gated fixture and native checkpoint.
+8. `4041385fc3eff39c22e2617c96f8bcb30fe036ba` — historical cold-runtime blocker evidence.
+9. `d6581335a9cd2ed6382b57a49e4a330fbf013bc6` — both Git selected-chain peers.
+10. `66e115a4a09d14fd045f394c9e45a1e93328f5d1` — real completed-offer restart peer.
+11. `5316e2246885fc5e343c0a91df10fb9a2b712e80` — full standalone native acceptance and design §10 addendum.
+12. This separate final evidence commit — report, verification, logs and stack manifest.
 
-## Verification and remaining work
-
-[VERIFICATION.md](VERIFICATION.md) records the narrow sequential commands and
-what they prove. The final DagQL selection, required targeted race selection,
-core selection, schema reader/fixture tests, server reader test and production
-build pass. Coverage includes concurrent owner replacement/export/collection,
-import visibility and Close, fresh IDs, pending-owner persistence A→B→C,
-foreign root/inline validation, every Module reference position, stable installed
-candidate traversal, Workspace-backed subpath changes, foreign item removal,
-exact fixture handles, repeated imports, concurrent counters and rooted paths.
-
-The native case is blocked as above. Its later assertions have not been proved:
-import after loading, ordinary B report hit, saved node/contextual B contents,
-restart, both residual foreign-context cases, interface/custom-scalar recovery
-and native bound-tool controls. Those additional native controls are not all
-implemented. The existing local bound-tool defining-schema regression passes.
-Real selected-chain peers compile but skip on this host for lack of read-only
-bind-mount privileges; no real chain-byte result is claimed. Privileged host/Git/
-Container/view coverage, redundant-final-offer restart coverage and the broader
-native matrix remain acceptance work. The parallel batch-1 producer/HTTP changes
-have not been imported into this private branch.
-
-The complete writer list is part of this report in
-[OUTPUT-WRITERS.md](OUTPUT-WRITERS.md); it includes every production publication
-and private initializer found by the included AST audit. All four path/snapshot
-accessor writes are centralized in guarded setters. Producer completion retains
-the body latch after clearing Lazy. Capture checks typed output and encoded
-representation revisions after copying. The exhaustive reader classification is
-[FOREIGN-PATH-READERS.md](FOREIGN-PATH-READERS.md).
-
-Review especially independent owner retention versus lookup requirements,
-E/D/object lock ordering, decode publication against complete desired link maps,
-installed operational Module selection, and the fixture's exact temporary holds.
-Schema 20 / envelope 4 is a hard cut: older local checkpoints cold-start under
-the existing reset policy, with no migration. Bundle version is 1.
-
-No acquisition, offer scheduling, sharing, pushes, PRs, tags, infrastructure
-changes, agent transcript reads or author/reviewer contact were performed.
+All reviewed commits were preserved. The initial requested hard reset and clean
+base confirmation were performed in the original turn; resumptions retained the
+implementation history. No acquisition, offer scheduling, sharing, pushes, PRs,
+tags, infrastructure changes, agent transcript reads or author/reviewer contact
+were performed. Registry and visitor edits remain additive for integration.
