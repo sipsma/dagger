@@ -1,0 +1,178 @@
+diff --cc core/file.go
+index 808512f40e,9c6642794c..0000000000
+--- a/core/file.go
++++ b/core/file.go
+@@@ -605,9 -597,8 +615,14 @@@ func (lazy *FileBlobLazy) Evaluate(ctx 
+  		if err != nil {
+  			return fmt.Errorf("commit blob snapshot: %w", err)
+  		}
+++<<<<<<< HEAD
+ +		newRef = nil
+ +		file.File.setValue(filePath)
+ +		file.Snapshot.setValue(snapshot)
+++=======
++ 		file.SetPath(filePath)
++ 		file.SetSnapshot(snapshot)
+++>>>>>>> f72572cb9a (core: guard filesystem persistence and version output publication)
+  		return nil
+  	})
+  }
+diff --cc core/git_bundle.go
+index 59542d4eb3,5f9ce9bb3e..0000000000
+--- a/core/git_bundle.go
++++ b/core/git_bundle.go
+@@@ -776,14 -761,19 +776,25 @@@ func importGitBundleInto(ctx context.Co
+  
+  	snapshot, err := bkref.Commit(ctx)
+  	if err != nil {
+ -		return nil, err
+ +		return err
+  	}
+  	bkref = nil
+++<<<<<<< HEAD
+ +	dst.Dir.setValue("/")
+ +	dst.Services = nil
+ +	dst.Snapshot.setValue(snapshot)
+ +	return nil
+++=======
++ 	dir := &Directory{
++ 		Platform: query.Platform(),
++ 		Dir:      new(LazyAccessor[string, *Directory]),
++ 		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
++ 	}
++ 	dir.SetPath("/")
++ 	dir.SetSnapshot(snapshot)
++ 	return dir, nil
+++>>>>>>> f72572cb9a (core: guard filesystem persistence and version output publication)
+  }
+ -
+  func gitBundlePrerequisiteRef(index int) string {
+  	return "refs/dagger/bundle/prerequisites/" + strconv.Itoa(index)
+  }
+diff --cc core/git_local.go
+index d145fadb70,468350389d..0000000000
+--- a/core/git_local.go
++++ b/core/git_local.go
+@@@ -198,26 -181,24 +198,37 @@@ func (repo *LocalGitRepository) cleaned
+  
+  	snap, err := bkref.Commit(ctx)
+  	if err != nil {
+ -		return inst, err
+ +		return false, err
+  	}
+  	bkref = nil
+++<<<<<<< HEAD
+ +	dst.Dir.setValue(repoDirPath)
+ +	dst.Services = slices.Clone(repo.Directory.Self().Services)
+ +	dst.Snapshot.setValue(snap)
+ +	return false, nil
+ +}
+++=======
++ 	dir := &Directory{
++ 		Platform: query.Platform(),
++ 		Services: slices.Clone(repo.Directory.Self().Services),
++ 		Dir:      new(LazyAccessor[string, *Directory]),
++ 		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
++ 	}
++ 	dir.SetPath(repoDirPath)
++ 	dir.SetSnapshot(snap)
+++>>>>>>> f72572cb9a (core: guard filesystem persistence and version output publication)
+  
+ -	inst, err = dagql.NewObjectResultForCurrentCall(ctx, srv, dir)
+ -	if err != nil {
+ -		_ = dir.OnRelease(context.WithoutCancel(ctx))
+ -		return inst, err
+ +// withTemporaryGitIndex owns the newly created index until the Git commands finish.
+ +func withTemporaryGitIndex(idx io.Reader, tmp *os.File, run func(string) error) error {
+ +	defer os.Remove(tmp.Name())
+ +	if _, err := io.Copy(tmp, idx); err != nil {
+ +		_ = tmp.Close()
+ +		return err
+  	}
+ -	return inst, nil
+ +	if err := tmp.Close(); err != nil {
+ +		return err
+ +	}
+ +	return run(tmp.Name())
+  }
+  
+  func (repo *LocalGitRepository) mount(ctx context.Context, depth int, includeTags bool, refs []GitRefBackend, fn func(*gitutil.GitCLI) error) error {
+@@@ -311,76 -292,7 +322,76 @@@ func (ref *LocalGitRef) Tree(ctx contex
+  		Dir:      new(LazyAccessor[string, *Directory]),
+  		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+  	}
+- 	dir.Dir.setValue("/")
+- 	dir.Snapshot.setValue(snap)
++ 	dir.SetPath("/")
++ 	dir.SetSnapshot(snap)
+  	return dir, nil
+  }
+ +
+ +const persistedDirectoryLazyKindGitCleaned = "gitCleaned"
+ +
+ +type DirectoryGitCleanedLazy struct {
+ +	LazyState
+ +	Repo dagql.ObjectResult[*GitRepository]
+ +}
+ +
+ +type persistedDirectoryGitCleanedLazy struct {
+ +	RepoResultID uint64 `json:"repoResultID"`
+ +}
+ +
+ +func (p *persistedDirectoryGitCleanedLazy) validate() error {
+ +	if p.RepoResultID == 0 {
+ +		return fmt.Errorf("DirectoryGitCleanedLazy: missing repoResultID")
+ +	}
+ +	return nil
+ +}
+ +func (lazy *DirectoryGitCleanedLazy) Evaluate(ctx context.Context, dir *Directory) error {
+ +	return lazy.LazyState.Evaluate(ctx, "GitRepository.__cleaned", func(ctx context.Context) error {
+ +		if err := validateProducedDirectoryReceiver(dir); err != nil {
+ +			return err
+ +		}
+ +		if lazy.Repo.Self() == nil {
+ +			return fmt.Errorf("git cleaned producer: missing Repo")
+ +		}
+ +		local, ok := lazy.Repo.Self().Backend.(*LocalGitRepository)
+ +		if !ok {
+ +			return fmt.Errorf("git cleaned producer: Repo is not local")
+ +		}
+ +		unchanged, err := local.cleanedInto(ctx, dir)
+ +		if err != nil {
+ +			return err
+ +		}
+ +		if unchanged {
+ +			return fmt.Errorf("git cleaned producer: saved input has no worktree")
+ +		}
+ +		return nil
+ +	})
+ +}
+ +func (lazy *DirectoryGitCleanedLazy) AttachDependencies(ctx context.Context, attach func(dagql.AnyResult) (dagql.AnyResult, error)) ([]dagql.AnyResult, error) {
+ +	repo, err := attachCompletedProducerInput(attach, lazy.Repo, "DirectoryGitCleanedLazy.Repo")
+ +	if err != nil {
+ +		return nil, err
+ +	}
+ +	lazy.Repo = repo
+ +	return []dagql.AnyResult{repo}, nil
+ +}
+ +func (lazy *DirectoryGitCleanedLazy) EncodePersisted(ctx context.Context, enc *dagql.PersistEncodeContext) (json.RawMessage, error) {
+ +	repoID, err := encodePersistedObjectRef(enc, lazy.Repo, "DirectoryGitCleanedLazy.Repo")
+ +	if err != nil {
+ +		return nil, err
+ +	}
+ +	return json.Marshal(persistedDirectoryGitCleanedLazy{RepoResultID: repoID})
+ +}
+ +func decodeDirectoryGitCleanedLazy(ctx context.Context, dec *dagql.PersistDecodeContext, payload json.RawMessage) (Lazy[*Directory], error) {
+ +	var p persistedDirectoryGitCleanedLazy
+ +	if err := json.Unmarshal(payload, &p); err != nil {
+ +		return nil, fmt.Errorf("decode DirectoryGitCleanedLazy: %w", err)
+ +	}
+ +	if err := p.validate(); err != nil {
+ +		return nil, err
+ +	}
+ +	repo, err := loadPersistedObjectResultByResultID[*GitRepository](ctx, dec, p.RepoResultID, "DirectoryGitCleanedLazy.Repo")
+ +	if err != nil {
+ +		return nil, err
+ +	}
+ +	return &DirectoryGitCleanedLazy{LazyState: NewLazyState(), Repo: repo}, nil
+ +}

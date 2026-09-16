@@ -1,0 +1,126 @@
+ 1:  de126ebe77 =  1:  afe2e0a2b2 dagql: retain transfer offers through independent owners
+ 2:  85de1ed96d !  2:  936a1db759 core: encode foreign values as validated pending shells
+    @@ core/http.go: type HTTPState struct {
+      	ETag          string `json:"etag,omitempty"`
+      	LastModified  string `json:"lastModified,omitempty"`
+     @@ core/http.go: func (state *HTTPState) EncodePersistedObject(ctx context.Context, enc *dagql.Pe
+    - 		}}
+    + 		snapshotID = state.snapshot.SnapshotID()
+      	}
+    - 	payload, err := json.Marshal(persistedHTTPStatePayload{
+    -+		Form:          persistedBackingForm(state.foreignUninitialized, len(links) != 0),
+    - 		URL:           state.URL,
+    - 		ETag:          state.ETag,
+    - 		LastModified:  state.LastModified,
+    + 	saved := persistedHTTPStatePayload{URL: state.URL, ETag: state.ETag, LastModified: state.LastModified, ContentDigest: state.ContentDigest.String()}
+    ++	saved.Form = persistedBackingForm(state.foreignUninitialized, snapshotID != "")
+    + 	state.mu.Unlock()
+    + 	var links []dagql.PersistedSnapshotRefLink
+    + 	if snapshotID != "" {
+     @@ core/http.go: func (*HTTPState) DecodePersistedObject(ctx context.Context, dec *dagql.PersistD
+      		return nil, fmt.Errorf("decode persisted http state payload: %w", err)
+      	}
+ 3:  a9112444f6 =  3:  ba657b2f1e docs: record batch 2 progress and capture foundation blocker
+ 4:  f72572cb9a !  4:  cab50e7ff9 core: guard filesystem persistence and version output publication
+    @@ core/file.go: func decodePersistedFileWithSnapshotRole(ctx context.Context, dec
+      		return file, nil
+      	case persistedFileFormLazy:
+     @@ core/file.go: func (lazy *FileBlobLazy) Evaluate(ctx context.Context, file *File) error {
+    - 		if err != nil {
+      			return fmt.Errorf("commit blob snapshot: %w", err)
+      		}
+    + 		newRef = nil
+     -		file.File.setValue(filePath)
+     -		file.Snapshot.setValue(snapshot)
+     +		file.SetPath(filePath)
+    @@ core/git_bundle.go: func CreateGitBundleFile(ctx context.Context, repo *GitRepos
+      	return file, nil
+      }
+      
+    -@@ core/git_bundle.go: func ImportGitBundle(ctx context.Context, repo *GitRepository, bundle *GitBundle
+    - 		Dir:      new(LazyAccessor[string, *Directory]),
+    - 		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+    +@@ core/git_bundle.go: func importGitBundleInto(ctx context.Context, dst *Directory, repo *GitRepositor
+    + 		return err
+      	}
+    --	dir.Dir.setValue("/")
+    --	dir.Snapshot.setValue(snapshot)
+    -+	dir.SetPath("/")
+    -+	dir.SetSnapshot(snapshot)
+    - 	return dir, nil
+    + 	bkref = nil
+    +-	dst.Dir.setValue("/")
+    ++	dst.SetPath("/")
+    + 	dst.Services = nil
+    +-	dst.Snapshot.setValue(snapshot)
+    ++	dst.SetSnapshot(snapshot)
+    + 	return nil
+      }
+    - 
+    + func gitBundlePrerequisiteRef(index int) string {
+     
+      ## core/git_hostdir.go ##
+     @@ core/git_hostdir.go: func MaterializeGitCheckoutPack(ctx context.Context, pack *engineutil.GitCheckou
+    @@ core/git_hostdir.go: func MaterializeGitUncommittedPack(ctx context.Context, tre
+      		_ = dir.OnRelease(context.WithoutCancel(ctx))
+     
+      ## core/git_local.go ##
+    -@@ core/git_local.go: func (repo *LocalGitRepository) Cleaned(ctx context.Context) (inst dagql.ObjectR
+    - 		Dir:      new(LazyAccessor[string, *Directory]),
+    - 		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+    - 	}
+    --	dir.Dir.setValue(repoDirPath)
+    --	dir.Snapshot.setValue(snap)
+    -+	dir.SetPath(repoDirPath)
+    -+	dir.SetSnapshot(snap)
+    +@@ core/git_local.go: func (repo *LocalGitRepository) cleanedInto(ctx context.Context, dst *Directory)
+    + 		return false, err
+    + 	}
+    + 	bkref = nil
+    +-	dst.Dir.setValue(repoDirPath)
+    ++	dst.SetPath(repoDirPath)
+    + 	dst.Services = slices.Clone(repo.Directory.Self().Services)
+    +-	dst.Snapshot.setValue(snap)
+    ++	dst.SetSnapshot(snap)
+    + 	return false, nil
+    + }
+      
+    - 	inst, err = dagql.NewObjectResultForCurrentCall(ctx, srv, dir)
+    - 	if err != nil {
+     @@ core/git_local.go: func (ref *LocalGitRef) Tree(ctx context.Context, srv *dagql.Server, discardGitD
+      		Dir:      new(LazyAccessor[string, *Directory]),
+      		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+    @@ core/git_local.go: func (ref *LocalGitRef) Tree(ctx context.Context, srv *dagql.
+     +	dir.SetSnapshot(snap)
+      	return dir, nil
+      }
+    + 
+     
+      ## core/git_remote.go ##
+     @@ core/git_remote.go: func (ref *RemoteGitRef) Tree(ctx context.Context, srv *dagql.Server, discardGit
+    @@ core/http.go: func (state *HTTPState) fileResult(
+      	return &HTTPFetchResult{
+      		File:          file,
+      		ContentDigest: state.ContentDigest,
+    -@@ core/http.go: func FetchHTTPFile(
+    +@@ core/http.go: func fetchHTTPFile(ctx context.Context, query *Query, opts FetchHTTPRequestOpts,
+      		File:     new(LazyAccessor[string, *File]),
+      		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *File]),
+      	}
+ 5:  336de2cdb3 =  5:  0c095160b1 dagql: transfer held value graphs with atomic import publication
+ 6:  74b24a4378 =  6:  a3dc5bf42a core: recover schemas with installed modules and guard foreign host paths
+ 7:  ee7ccb765a =  7:  c73d498eac test: add gated transfer fixture and preserve cold runtime blocker
+ 8:  4041385fc3 =  8:  26f6f71970 docs: record batch 2 verification and cold runtime blocker
+ 9:  d6581335a9 =  9:  b31b345107 test: verify selected chains from both Git backends
+10:  66e115a4a0 = 10:  d62430bb3d test: retire redundant snapshot offers after local restart
+11:  5316e22468 = 11:  12e20a25d0 test: accept standalone schema recovery with prepared runtimes
+12:  d0dfcd04c8 = 12:  24f2a9cc66 docs: record standalone batch 2 acceptance and verification
+13:  1cdd67af3c = 13:  33b08ce3c1 dagql: return not-ready when pending offer copies fail
+14:  090193930c = 14:  a642330cfd dagql: verify inaccessible installed schema candidates fall through
+15:  5500d91796 = 15:  27e82e949d core: preserve pending Container parts in derived values
+16:  09cc690a42 = 16:  56e40116ee docs: leave value transfer design authority on the designer branch
+17:  8222830b0d = 17:  1cb7d3963a test: distinguish transfer root pruning from persistence resets
+18:  b76c6ccbff = 18:  d3eb1b5f8f test: skip GC diagnostic outside its allocation bound
+19:  5e1007a749 = 19:  410dc674c4 docs: record batch 2 round 2 fixes and pruning evidence
+20:  f985ac7887 = 20:  3a61ae1503 test: require opt-in for default GC pressure diagnostic
+21:  aa7f3fa330 = 21:  5483cfc495 docs: record batch 2 round 3 verification and journal notes

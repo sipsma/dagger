@@ -1,0 +1,7 @@
+Head: 5483cfc495f93d4777104bda7edede27e33607c9
+Command: go vet ./core/... ./dagql/... ./engine/...
+Started: 2026-09-16T08:52:22.868397+00:00
+Finished: 2026-09-16T08:52:39.687886+00:00
+Elapsed seconds: 16.819
+Exit status: 1
+Log: logs/vet.log

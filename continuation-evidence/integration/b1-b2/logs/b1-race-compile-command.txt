@@ -1,0 +1,7 @@
+Head: 5483cfc495f93d4777104bda7edede27e33607c9
+Command: go test -race -c ./core -o /tmp/b1-b2-integration/core-race.test
+Started: 2026-09-16T08:54:13.400458+00:00
+Finished: 2026-09-16T08:55:07.697030+00:00
+Elapsed seconds: 54.297
+Exit status: 0
+Log: logs/b1-race-compile.log

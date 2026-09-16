@@ -1,0 +1,7 @@
+Head: 5483cfc495f93d4777104bda7edede27e33607c9
+Command: dagger api call engine-dev test --pkg ./core/integration --run='TestGit/(TestGitUncommittedLocal|TestGitUncommittedRemote|TestGitBundleRoundTripAndStockInterop|TestGitBundleImportAfterPrerequisiteRefAdvances|TestGitCommit|TestDiscardGitDir|TestGitDepth|TestGitTags)$'
+Started: 2026-09-16T08:55:49.244933+00:00
+Finished: 2026-09-16T08:58:23.846370+00:00
+Elapsed seconds: 154.601
+Exit status: 0
+Log: logs/b1-native-git.log

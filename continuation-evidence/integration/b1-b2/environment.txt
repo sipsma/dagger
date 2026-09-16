@@ -1,0 +1,35 @@
+Recorded UTC: 2026-09-16T08:53:22.817106+00:00
+Working directory: /home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-integration-b1-b2-36d54e12-c4fb4f07
+$ go version
+go version go1.26.6 linux/amd64
+Exit status: 0
+
+$ dagger version
+version:     v1.0.0-beta.13
+commit:      6bf59d50
+dirty:       no
+platform:    linux/amd64
+runner-host: image://registry.dagger.io/engine:v1.0.0-beta.13
+Exit status: 0
+
+$ go env GOFLAGS GOPATH GOCACHE
+
+/home/exedev/go
+/home/exedev/.cache/go-build
+Exit status: 0
+
+$ git branch --show-current
+remote-cache-integration-b1-b2-36d54e12
+Exit status: 0
+
+$ git rev-parse HEAD
+5483cfc495f93d4777104bda7edede27e33607c9
+Exit status: 0
+
+$ git status --porcelain
+Exit status: 0
+
+$ docker ps --format {{.Names}}	{{.Image}}
+dagger-engine-v1.0.0-beta.13	registry.dagger.io/engine:v1.0.0-beta.13
+Exit status: 0
+

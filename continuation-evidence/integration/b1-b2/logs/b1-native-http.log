@@ -1,0 +1,26 @@
+[dagger] 30.0s elapsed · 3 steps running
+== TRACE ==  ✔ PASSED
+engine-dev test --pkg ./core/integration --run=TestHTTP/(TestHTTPName|TestHTTPPermissions|TestHTTPChecksum|TestHTTPChecksumMismatch|TestHTTPTimestamp|TestHTTPETag|TestHTTPCachePerSessions|TestHTTPAuth|TestHTTPService)$  54.8s
+
+✔ connect 0.3s
+✔ load workspace: . 2.4s
+✔ parsing command line arguments 0.0s
+
+✔ engineDev(
+  ┆ ws: currentWorkspace: Workspace!
+  ): EngineDev! 22.7s
+✔ .test(run: "TestHTTP/(TestHTTPName|TestHTTPPermissions|TestHTTPChecksum|TestHTTPChecksumMismatch|TestHTTPTimestamp|TestHTTPETag|TestHTTPCachePerSessions|TestHTTPAuth|TestHTTPService)$", pkg: "./core/integration"): Void 29.2s
+  ✘ fetching http://7olr1idt089d2 0.0s ████████████ 22 B ERROR
+  ✔ 1 upload, 12 fetches, 2 pulls, 3 unpacks 8.4s
+
+== SERVICES ==
+✔ rogct0dgr0vls.2f0gic32tpsri.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 23.0s EXITED span=8bcc57ee98c5e8e7
+✔ h4avdn8nctrm4.2f0gic32tpsri.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 23.0s EXITED span=00fa6a5db0714f82
+✘ mj49igd5j82p2.2f0gic32tpsri.dagger.local exec dagger-entrypoint.sh --addr unix:///run/dagger-engine.sock --addr tcp://0.0.0.0:1234 --network-name dagger-dev --network-cidr 10.88.0.0/16 --debugaddr 0.0.0.0:6060 22.7s ERROR span=4ac43de67d20b25c
+
+== TESTS ==
+  ✔ github.com/dagger/dagger/core/integration  1 passed
+
+  ✔ 1 passed
+
+Full trace at https://dagger.cloud/dagger/traces/84f80359ce4ba4e76eaf11740546a5d1

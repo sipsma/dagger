@@ -1,0 +1,4 @@
+Command: dagger trace 0af83972d2b99132c009d701bd2292c2 --test TestRemoteCacheTransferSuite/TestSchemaRecovery
+Exit status: 0
+Log: logs/b2-native-schema-trace.log
+Read-only fetch, no test rerun.

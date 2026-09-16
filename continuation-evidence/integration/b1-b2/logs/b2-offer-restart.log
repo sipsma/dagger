@@ -1,0 +1,12 @@
+=== RUN   TestValueTransferPersistenceFinalOfferRestart
+2026/09/16 08:55:49 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:55:49 INFO marking dagql cache clean shutdown
+2026/09/16 08:55:49 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:55:49 INFO completed dagql cache close successfully
+2026/09/16 08:55:49 INFO start lazy evaluation field=File.restore
+2026/09/16 08:55:49 INFO end lazy evaluation field=File.restore duration=112.53µs
+2026/09/16 08:55:49 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:55:49 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestValueTransferPersistenceFinalOfferRestart (0.21s)
+PASS
+ok  	github.com/dagger/dagger/core	0.306s

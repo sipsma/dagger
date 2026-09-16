@@ -1,0 +1,14 @@
+core/directory.go: switch cases: 48 combined labels, 48 integrated; missing=[]
+core/directory.go: visitor keys: 0 combined labels, 0 integrated; missing=[]
+core/directory.go: family names: 1 combined labels, 1 integrated; missing=[]
+core/file.go: switch cases: 19 combined labels, 19 integrated; missing=[]
+core/file.go: visitor keys: 0 combined labels, 0 integrated; missing=[]
+core/file.go: family names: 0 combined labels, 0 integrated; missing=[]
+core/persisted_visitors.go: switch cases: 4 combined labels, 4 integrated; missing=[]
+core/persisted_visitors.go: visitor keys: 78 combined labels, 78 integrated; missing=[]
+core/persisted_visitors.go: family names: 0 combined labels, 0 integrated; missing=[]
+core/persisted_families.go: switch cases: 0 combined labels, 0 integrated; missing=[]
+core/persisted_families.go: visitor keys: 0 combined labels, 0 integrated; missing=[]
+core/persisted_families.go: family names: 53 combined labels, 53 integrated; missing=[]
+Container persistence/encoder guard is byte-identical to batch 2.
+Batch 1 producer visitor additions (GitCommitTree, GitTree, GitBundleImport, GitCleaned, HTTPResolve, _builtinContainer) all retained.

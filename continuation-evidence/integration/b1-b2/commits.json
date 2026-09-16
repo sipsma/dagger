@@ -1,0 +1,107 @@
+[
+  {
+    "original": "de126ebe775d078a4c6e240d4d697d3bfdc6834c",
+    "integrated": "afe2e0a2b2db7d074f7abc2a86f714c89dac907e",
+    "subject": "dagql: retain transfer offers through independent owners"
+  },
+  {
+    "original": "85de1ed96d12d1b91589dfdba4368b7cbc512557",
+    "integrated": "936a1db75918a3232fe33dceaa99d1cc648987ce",
+    "subject": "core: encode foreign values as validated pending shells"
+  },
+  {
+    "original": "a9112444f626464590af400205bd39baf2cc00a6",
+    "integrated": "ba657b2f1e4dbae4a374bb24ffa8c1b5028a994d",
+    "subject": "docs: record batch 2 progress and capture foundation blocker"
+  },
+  {
+    "original": "f72572cb9a264a23d56791185a60765213412d33",
+    "integrated": "cab50e7ff92cfe0e98b46083121eb7b110542e5e",
+    "subject": "core: guard filesystem persistence and version output publication"
+  },
+  {
+    "original": "336de2cdb379323827f1be90ec32c9f548447bd4",
+    "integrated": "0c095160b100dc04c63f1eb54e72541a0dea71da",
+    "subject": "dagql: transfer held value graphs with atomic import publication"
+  },
+  {
+    "original": "74b24a43784c4e6e52ec5cbe599c3fc78ac36695",
+    "integrated": "a3dc5bf42af7248911283376b9441c4a10157adc",
+    "subject": "core: recover schemas with installed modules and guard foreign host paths"
+  },
+  {
+    "original": "ee7ccb765a3fb9b4d45f8f2efe5ba31952116ac7",
+    "integrated": "c73d498eac77bda84eaa7258356aa12415b59f1f",
+    "subject": "test: add gated transfer fixture and preserve cold runtime blocker"
+  },
+  {
+    "original": "4041385fc3eff39c22e2617c96f8bcb30fe036ba",
+    "integrated": "26f6f719702a6045148ee0dca67de7c6d3a32e8c",
+    "subject": "docs: record batch 2 verification and cold runtime blocker"
+  },
+  {
+    "original": "d6581335a9cd2ed6382b57a49e4a330fbf013bc6",
+    "integrated": "b31b345107210253b8c2669e4c824fb8f12f47a1",
+    "subject": "test: verify selected chains from both Git backends"
+  },
+  {
+    "original": "66e115a4a09d14fd045f394c9e45a1e93328f5d1",
+    "integrated": "d62430bb3dba766bd9e36a967f7b76e6462ff689",
+    "subject": "test: retire redundant snapshot offers after local restart"
+  },
+  {
+    "original": "5316e2246885fc5e343c0a91df10fb9a2b712e80",
+    "integrated": "12e20a25d0da27169f3ba0c187bd2be2161e41ff",
+    "subject": "test: accept standalone schema recovery with prepared runtimes"
+  },
+  {
+    "original": "d0dfcd04c87be3c39c579b7aae70e0c381b868f7",
+    "integrated": "24f2a9cc66f558e102a2a0332eb730b7c6c8d9c8",
+    "subject": "docs: record standalone batch 2 acceptance and verification"
+  },
+  {
+    "original": "1cdd67af3c8daccf520a85aff2584072533456a6",
+    "integrated": "33b08ce3c19ba41cb891112e72ba4be1fb1eb998",
+    "subject": "dagql: return not-ready when pending offer copies fail"
+  },
+  {
+    "original": "090193930c3c7f14f405df5cd0a2af0700832d08",
+    "integrated": "a642330cfdc93232f7e54b119312db5964dfa55e",
+    "subject": "dagql: verify inaccessible installed schema candidates fall through"
+  },
+  {
+    "original": "5500d91796402b51560a0a359cb73f2032ba1f82",
+    "integrated": "27e82e949db8814ed5389692fb63e97ff1865425",
+    "subject": "core: preserve pending Container parts in derived values"
+  },
+  {
+    "original": "09cc690a42bc5cd79a22b0e3acee891a929b493d",
+    "integrated": "56e40116ee9243de753a10f295948f61bd505a78",
+    "subject": "docs: leave value transfer design authority on the designer branch"
+  },
+  {
+    "original": "8222830b0dd4795005d5cd4674ed7117436c5c23",
+    "integrated": "1cb7d3963ab8d79887fce1c0bbc9e9eede08cf6a",
+    "subject": "test: distinguish transfer root pruning from persistence resets"
+  },
+  {
+    "original": "b76c6ccbff2f68f2ca6f52b5b89ef7ec6c6d2dbf",
+    "integrated": "d3eb1b5f8fe6167fd886bff5e1da65120ec4c0d2",
+    "subject": "test: skip GC diagnostic outside its allocation bound"
+  },
+  {
+    "original": "5e1007a749887cb0ef975331739fed58413f251a",
+    "integrated": "410dc674c4dd68b62203aeab44d19debf72d5441",
+    "subject": "docs: record batch 2 round 2 fixes and pruning evidence"
+  },
+  {
+    "original": "f985ac7887892f94d868aa8e8995a0e251dbf54c",
+    "integrated": "3a61ae15037284ba9f1837658d60f340d4fa0764",
+    "subject": "test: require opt-in for default GC pressure diagnostic"
+  },
+  {
+    "original": "aa7f3fa330faf7ac95217665a61edcb95b633768",
+    "integrated": "5483cfc495f93d4777104bda7edede27e33607c9",
+    "subject": "docs: record batch 2 round 3 verification and journal notes"
+  }
+]

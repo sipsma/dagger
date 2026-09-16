@@ -1,0 +1,7 @@
+Head: 5483cfc495f93d4777104bda7edede27e33607c9
+Command: dagger api call engine-dev test --pkg ./core/integration --run='RemoteCacheTransferSuite/TestSchemaRecovery' --timeout=20m --test-verbose
+Started: 2026-09-16T09:00:56.775400+00:00
+Finished: 2026-09-16T09:05:44.438931+00:00
+Elapsed seconds: 287.664
+Exit status: 0
+Log: logs/b2-native-schema.log
