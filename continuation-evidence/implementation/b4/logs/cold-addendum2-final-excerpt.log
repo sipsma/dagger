@@ -1,0 +1,43 @@
+Final cold engine rerun: exit 1; selected test 153.45 s; invocation 195.036 s.
+Trace ID: 075421afee8f5ae279ddfbd314ce854c
+Focused lines from the default CLI failure output; schema/bundle dumps omitted.
+
+1415:     testctx.go:206: acquisition delegation target=4243 address={"part":"mount:/src"} field=withWorkdir parent=4242 source={OutputPath: Part:mount:/src}
+1416:     testctx.go:206: acquisition delegation target=4244 address={"part":"mount:/src"} field=withEnvVariable parent=4243 source={OutputPath: Part:mount:/src}
+1417:     testctx.go:206: acquisition delegation target=4245 address={"part":"mount:/src"} field=withoutDefaultArgs parent=4244 source={OutputPath: Part:mount:/src}
+1418:     testctx.go:206: acquisition delegation target=4243 address={"part":"mount:/schema.json"} field=withWorkdir parent=4242 source={OutputPath: Part:mount:/schema.json}
+1419:     testctx.go:206: acquisition delegation target=4244 address={"part":"mount:/schema.json"} field=withEnvVariable parent=4243 source={OutputPath: Part:mount:/schema.json}
+1420:     testctx.go:206: acquisition delegation target=4245 address={"part":"mount:/schema.json"} field=withoutDefaultArgs parent=4244 source={OutputPath: Part:mount:/schema.json}
+1421:     testctx.go:206: acquisition delegation target=4236 address={"part":"fs"} field=withMountedCache parent=4230 source={OutputPath: Part:fs}
+1422:     testctx.go:206: acquisition delegation target=4237 address={"part":"fs"} field=withMountedCache parent=4236 source={OutputPath: Part:fs}
+1423:     testctx.go:206: acquisition delegation target=4238 address={"part":"fs"} field=__withSystemEnvVariable parent=4237 source={OutputPath: Part:fs}
+1424:     testctx.go:206: acquisition delegation target=4239 address={"part":"fs"} field=__withSystemEnvVariable parent=4238 source={OutputPath: Part:fs}
+1425:     testctx.go:206: acquisition delegation target=4243 address={"part":"fs"} field=withWorkdir parent=4242 source={OutputPath: Part:fs}
+1426:     testctx.go:206: acquisition delegation target=4244 address={"part":"fs"} field=withEnvVariable parent=4243 source={OutputPath: Part:fs}
+1427:     testctx.go:206: acquisition delegation target=4245 address={"part":"fs"} field=withoutDefaultArgs parent=4244 source={OutputPath: Part:fs}
+1428:     testctx.go:206: producer mount-route row=4242 address={"part":"mount:/src"} field=withMountedDirectory parent=4240 entries=1
+1429:     testctx.go:206: producer mount-write row=4242 address={"part":"mount:/src"} field=withMountedDirectory entries=1
+1430:     testctx.go:206: producer mount-route row=4240 address={"part":"fs"} field=withMountedFile parent=4239 entries=1
+1431:     testctx.go:206: producer mount-route row=4240 address={"part":"mount:/schema.json"} field=withMountedFile parent=4239 entries=1
+1432:     testctx.go:206: producer mount-write row=4240 address={"part":"mount:/schema.json"} field=withMountedFile entries=1
+1433:     testctx.go:206: producer mount-route row=4242 address={"part":"fs"} field=withMountedDirectory parent=4240 entries=1
+1434:     testctx.go:206: producer mount-route row=4242 address={"part":"mount:/schema.json"} field=withMountedDirectory parent=4240 entries=1
+1435:     testctx.go:206: acquisition Host input imported=4228 address={OutputPath: Part:snapshot} local=4457 snapshot=[{3rvdh8yymmn3j5yurb85nw1e3 snapshot }]
+1436:     testctx.go:206: acquisition SDK inherited-fs hops=map[__withSystemEnvVariable:2 withEnvVariable:1 withMountedCache:2 withWorkdir:1 withoutDefaultArgs:1]; producer mount-writer rows=map[withMountedDirectory:1 withMountedFile:1]
+1437:     testctx.go:206: acquisition route counters cold=true builtin=1 counts=map[installed-chain:1 installed-delegation:13 installed-producer:24 installed-ready:1 owner-sync:138 producer-enter:24 producer-ref-released:14 provider-read:1 selected-chain:1 selected-delegation:14 selected-ready:1 settled:45]
+1480:     testctx.go:198: 33  : CacheProbe.report(seed: "different"): CacheProbeReport!
+1482:                 Error Trace:    /app/core/integration/remote_cache_transfer_test.go:187
+1483:                                                         /app/core/integration/remote_cache_transfer_test.go:285
+1484:                                                         /go/pkg/mod/github.com/dagger/testctx@v0.1.2/testctx.go:296
+1485:                                                         /go/pkg/mod/github.com/dagger/otel-go@v1.43.1-0.20260810200237-752a39ce1610/oteltestctx/trace.go:74
+1486:                                                         /go/pkg/mod/github.com/dagger/testctx@v0.1.2/testctx.go:150
+1487:                                                         /usr/lib/go/src/runtime/asm_amd64.s:1771
+1488:                 Error:          Received unexpected error:
+1489:                                 imported filesystem part is unavailable: {"part":"snapshot"} [traceparent:075421afee8f5ae279ddfbd314ce854c-4b79152b08ba70d6]
+1490:                 Test:           TestRemoteCacheTransferSuite/TestSchemaRecoveryCold/before
+1491:     testctx.go:198: 40  : [26.2s] | time="2026-09-16T15:17:34Z" level=debug msg="handling http request" client_hostname=dagger client_id=oeqowq92laenqdkx9i7qrvsac contentType=application/json method=POST path=/query session_id=2tus5jnzohr1r246nuw1unlby span=85486a7525f08d58 spanID=85486a7525f08d58 trace=075421afee8f5ae279ddfbd314ce854c traceID=075421afee8f5ae279ddfbd314ce854c upgradeHeader=
+1501:     testctx.go:198: 33  : CacheProbe.report(seed: "different"): CacheProbeReport!
+3142: --- FAIL: TestRemoteCacheTransferSuite (153.45s)
+3143:     --- FAIL: TestRemoteCacheTransferSuite/TestSchemaRecoveryCold (153.45s)
+3144:         --- FAIL: TestRemoteCacheTransferSuite/TestSchemaRecoveryCold/before (51.10s)
+3145:         --- PASS: TestRemoteCacheTransferSuite/TestSchemaRecoveryCold/foreign_context (45.65s)

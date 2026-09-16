@@ -1,0 +1,88 @@
+package schema
+
+import (
+	"context"
+	"encoding/json"
+	"testing"
+
+	"github.com/dagger/dagger/core"
+	"github.com/dagger/dagger/dagql"
+	"github.com/dagger/dagger/engine"
+	bkcache "github.com/dagger/dagger/engine/snapshots"
+	"github.com/dagger/dagger/engine/snapshots/config"
+	"github.com/dagger/dagger/engine/snapshots/testutil"
+	"github.com/dagger/dagger/internal/buildkit/util/compression"
+	"github.com/stretchr/testify/require"
+)
+
+type scratchProbeServer struct {
+	*currentTypeDefsTestServer
+	manager bkcache.SnapshotManager
+}
+
+func (s *scratchProbeServer) SnapshotManager() bkcache.SnapshotManager { return s.manager }
+
+func TestB4ScratchAcquisitionGapProbe(t *testing.T) {
+	open := func(session string) (context.Context, *dagql.Cache, *dagql.Server, bkcache.SnapshotManager) {
+		store := testutil.NewStore(t)
+		server := &scratchProbeServer{currentTypeDefsTestServer: &currentTypeDefsTestServer{platform: core.Platform{OS: "linux", Architecture: "amd64"}}, manager: store.Manager}
+		query := core.NewRoot(server)
+		ctx := core.ContextWithQuery(t.Context(), query)
+		ctx = engine.ContextWithClientMetadata(ctx, &engine.ClientMetadata{ClientID: session, SessionID: session})
+		cache, err := dagql.NewCache(ctx, "", store.Manager, nil)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, cache.CloseDiscardingPersistence()) })
+		ctx = dagql.ContextWithCache(ctx, cache)
+		srv, err := dagql.NewServer(ctx, query)
+		require.NoError(t, err)
+		server.dag = srv
+		srv.InstallObject(dagql.NewClass(srv, dagql.ClassOpts[*core.Directory]{}))
+		dagql.Fields[*core.Query]{dagql.NodeFunc("directory", (&directorySchema{}).directory)}.Install(srv)
+		return ctx, cache, srv, store.Manager
+	}
+	actx, a, asrv, _ := open("a")
+	var original dagql.ObjectResult[*core.Directory]
+	require.NoError(t, asrv.Select(actx, asrv.Root(), &original, dagql.Selector{Field: "directory"}))
+	record, err := a.CapturePersistedRecord(actx, original)
+	require.NoError(t, err)
+	var native struct {
+		Form, LazyKind string
+		LazyJSON       json.RawMessage
+	}
+	require.NoError(t, json.Unmarshal(record.Envelope.ObjectJSON, &native))
+	require.Equal(t, "snapshot", native.Form)
+	require.Empty(t, native.LazyKind)
+	require.Empty(t, native.LazyJSON)
+	t.Logf("actual Query.directory native payload=%s roles=%+v", record.Envelope.ObjectJSON, record.SnapshotLinks)
+	require.NoError(t, a.WithExportedValues(actx, dagql.ValueSelection{Roots: []dagql.AnyResult{original}}, config.RefConfig{Compression: compression.New(compression.Uncompressed)}, func(_ context.Context, exported *dagql.ExportedValues) error {
+		require.Empty(t, exported.Chains.Entries)
+		t.Logf("foreign scratch payload=%s", exported.Bundle.Values[0].Record.Envelope.ObjectJSON)
+		for _, warm := range []bool{false, true} {
+			t.Run(map[bool]string{false: "cold", true: "warm"}[warm], func(t *testing.T) {
+				ctx, b, srv, manager := open(map[bool]string{false: "cold", true: "warm"}[warm])
+				// Both engines have the canonical local snapshot, but only warm B
+				// has an ordinary completed Directory row eligible as a source.
+				scratch, err := manager.Scratch(ctx)
+				require.NoError(t, err)
+				require.Equal(t, record.SnapshotLinks[0].RefKey, scratch.SnapshotID())
+				require.NoError(t, scratch.Release(ctx))
+				if warm {
+					var local dagql.ObjectResult[*core.Directory]
+					require.NoError(t, srv.Select(ctx, srv.Root(), &local, dagql.Selector{Field: "directory"}))
+				}
+				roots, err := b.ImportValues(ctx, exported.Bundle)
+				require.NoError(t, err)
+				loaded, err := b.LoadResultByResultID(ctx, "", srv, roots[0].ResultID)
+				require.NoError(t, err)
+				err = b.Evaluate(ctx, loaded)
+				if warm {
+					require.NoError(t, err)
+				} else {
+					require.ErrorIs(t, err, dagql.ErrUnavailablePart)
+				}
+				t.Logf("warm=%t exact imported scratch demand=%v", warm, err)
+			})
+		}
+		return nil
+	}))
+}

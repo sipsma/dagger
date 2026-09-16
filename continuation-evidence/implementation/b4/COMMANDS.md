@@ -1,4 +1,6 @@
-# Focused commands and blocker-2 follow-up
+# Focused commands and dispatch history
+
+The binding Addendum 2 dispatch reruns and new checks are recorded in [COMMANDS-ADDENDUM2.md](COMMANDS-ADDENDUM2.md). The cold outcome has advanced to [BLOCKER-3.md](BLOCKER-3.md); the sections below preserve earlier results.
 
 Implementation tree: `521b90d51d` (tests ran against the same source before committing). Parent: `77f6279559061fd1bb6b3b18e6b08582c7b013a3`. Go 1.26.6, Linux/amd64. Final selections below ran sequentially, with no recursive package selection. Real snapshot tests used the private privileged mount namespace and did not skip.
 
@@ -81,8 +83,8 @@ dagger api call engine-dev test --pkg ./core/integration --run='TestRemoteCacheT
 dagger api call engine-dev test --pkg ./core/integration --run='TestRemoteCacheTransferSuite/TestSchemaRecoveryCold$' --timeout=5m
 ```
 
-- Warm: [PASS](logs/warm-module.log), both import orders and subsequent restart/default assertions; [trace](https://dagger.cloud/dagger/traces/a2488cb947218342163d9a489b0ba81d).
-- Cold: [FAIL](logs/cold-module-excerpt.log), unavailable `mount:/schema.json` during ordinary `AsModule().Serve` after import; [trace](https://dagger.cloud/dagger/traces/3d2311232b262d9242880d88c6437624). This is the final run after the typed-field correction.
+- Warm: [PASS](logs/warm-module.log), both import orders and subsequent restart/default assertions; trace ID `a2488cb947218342163d9a489b0ba81d`.
+- Cold: [FAIL](logs/cold-module-excerpt.log), unavailable `mount:/schema.json` during ordinary `AsModule().Serve` after import; trace ID `3d2311232b262d9242880d88c6437624`. This is the final run after the typed-field correction.
 - The earlier warm failure is retained in [the diagnostic excerpt](logs/warm-before-fix-excerpt.log). It stopped at the artifact file because the raw A handle escaped relocation. It is superseded by the passing warm run.
 - The first cold attempt exposed a fixture-only missing compression configuration; it was fixed to use explicit uncompressed export. Its panic left peer shutdown stuck; the verified inner engine received SIGQUIT for diagnostics. Later cold runs finish normally and fail at the recorded source-availability boundary. No passing cold result is claimed.
 

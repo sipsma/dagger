@@ -1,0 +1,6 @@
+=== RUN   TestPartDelegationPath
+--- PASS: TestPartDelegationPath (0.00s)
+=== RUN   TestPartDelegationProofAdmission
+--- PASS: TestPartDelegationProofAdmission (0.09s)
+PASS
+ok  	github.com/dagger/dagger/dagql	1.141s

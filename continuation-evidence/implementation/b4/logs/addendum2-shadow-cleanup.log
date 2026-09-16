@@ -1,0 +1,34 @@
+=== RUN   TestProducerResolverCleanup
+=== RUN   TestProducerResolverCleanup/constructed_output_recording
+    producer_recording_fault_test.go:89: === RUN   TestProducerResolverCleanup
+        === RUN   TestProducerResolverCleanup/constructed_output_recording
+        === RUN   TestProducerResolverCleanup/constructed_output_recording/cleaned
+        2026/09/16 14:52:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+        === RUN   TestProducerResolverCleanup/constructed_output_recording/HTTP
+        2026/09/16 14:52:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+        === RUN   TestProducerResolverCleanup/constructed_output_recording/bundle
+        2026/09/16 14:52:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+        === RUN   TestProducerResolverCleanup/constructed_output_recording/schema_File
+        2026/09/16 14:52:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+        === RUN   TestProducerResolverCleanup/constructed_output_recording/builtin_Container
+        2026/09/16 14:52:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+        === RUN   TestProducerResolverCleanup/constructed_output_recording/mounted_File
+        2026/09/16 14:52:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+        === RUN   TestProducerResolverCleanup/constructed_output_recording/mounted_Directory
+        2026/09/16 14:52:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+        --- PASS: TestProducerResolverCleanup (0.61s)
+            --- PASS: TestProducerResolverCleanup/constructed_output_recording (0.61s)
+                --- PASS: TestProducerResolverCleanup/constructed_output_recording/cleaned (0.03s)
+                --- PASS: TestProducerResolverCleanup/constructed_output_recording/HTTP (0.00s)
+                --- PASS: TestProducerResolverCleanup/constructed_output_recording/bundle (0.56s)
+                --- PASS: TestProducerResolverCleanup/constructed_output_recording/schema_File (0.00s)
+                --- PASS: TestProducerResolverCleanup/constructed_output_recording/builtin_Container (0.01s)
+                --- PASS: TestProducerResolverCleanup/constructed_output_recording/mounted_File (0.00s)
+                --- PASS: TestProducerResolverCleanup/constructed_output_recording/mounted_Directory (0.00s)
+        PASS
+        ok  	github.com/dagger/dagger/core/schema	0.695s
+
+--- PASS: TestProducerResolverCleanup (31.86s)
+    --- PASS: TestProducerResolverCleanup/constructed_output_recording (31.86s)
+PASS
+ok  	github.com/dagger/dagger/core/schema	31.934s

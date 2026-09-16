@@ -1,6 +1,6 @@
 # Batch 4 implementation report
 
-**Status: independent blocker-2 follow-up implemented; awaiting the two binding Addendum 2 commits for the cold proof. The commission is incomplete.** The five original implementation commits contain root and scoped inline acquisition. Addendum 1 resolved the inline-ownership blocker. The coordinator accepted blocker 2 and selected option A narrowly: record the reached eager Container mount producers and specify acquisition of unchanged parent parts by metadata children. Those design changes have not been implemented without the promised binding commits. The cold test is unchanged. [BLOCKER-2.md](BLOCKER-2.md) preserves the failure and records the decision.
+**Status: the binding Addendum 2 implementation and focused verification are complete; the commission is blocked by a newly reached scratch Directory gap.** The cold run now passes ordinary AsModule/Serve, the matching report hit and selected artifact bytes, both saved mount writers, all 13 delegated installations and the SDK-base/Host route assertions. Its existing changed-argument control then fails on the imported canonical scratch Directory, which has no saved producer, offered chain or eligible B result. [BLOCKER-3.md](BLOCKER-3.md) records the precise failure, real-store probe and two decision options. No scratch behavior or cold-test setup was changed to hide it.
 
 ## Inputs and commit boundary
 
@@ -8,6 +8,8 @@
 - Commission: `10b43c933bce4afe4ee273332c79e15bcbd979c4:continuation-evidence/implementation-commissions/BATCH4-ACQUISITION-IMPL.md`.
 - Base acquisition design: `2ad7bff7a4f61e39361fd222230a21bf4ffb3569`, blob `b463258caa499307b5a44032664bae37aba11623`.
 - Binding Addendum 1: `04f6d695d4a944fd27e98eb006ed0cda761b3dca`, blob `289ba0f892f64eabcb01718f0f65fe1e21fb6d7f`; both consolidated council reviews and blocker decision 1 were read.
+- Binding producer Addendum 2 final: `d674bea3d6f270c8fe3b2118b87bda754e26a89e`, blob `3e254e4d36a9cd80848146b223067f84d2c98ad3`.
+- Binding acquisition Addendum 2 final: `7af104b49aad9dd4c9a02b42b9d2152e59a9c8fe`, blob `d63729442180a2d7faf872b687bf8d64cf19083b`. The earlier confirmed texts `0fae70578e` and `3ee2e8d1ba`, the full council consolidation `a8c33ab8e73ae64a37a07042a6e1a0adf0a4211d`, and both editorial diffs were read. The editorial changes add no rule.
 - Producer design `860cc5c8b6` §10 and Addendum 1 `8b8181c2cc`; transfer design `2e75801259` §§4, 4.2, 7 and addenda; explanation blob `54dcdac7` §§10.4, 12, 13, 18; shared resolutions A–D, F, H, I, L at `10b43c933bce`; integration decisions 1/2 at `ba6f7cfcdc8e`.
 - The complete `skills/engine-debugging/SKILL.md` was read before choosing checks. The real-store tests used the privileged private mount namespace runner and executed their storage assertions.
 
@@ -21,7 +23,7 @@ The implementation order is preserved. `21234ff019` is the historical blocker-1 
 | 4 | `df39d040c56f31cce8edf47855d205bb9dcfe909` | Fresh private producer, output postconditions and mixed raw Container restore |
 | 5 | 521b90d51d0ac66771aea0da460549e6b0592e63 | Scoped inline Addendum implementation, focused matrix, selected-byte fixture and enabled native proof |
 
-All implementation commits are buildable and signed off. Step 5's acceptance status is limited by the native results below; commit presence is not a claim that the full matrix passed.
+All implementation commits are buildable and signed off. Step 5's acceptance remains limited by the cold result below; commit presence is not a claim that the full commission passed.
 
 Subsequent signed commits preserve the reviewed history:
 
@@ -32,6 +34,18 @@ Subsequent signed commits preserve the reviewed history:
 | `506649d04a` | Real two-engine mixed downloaded FS/private execMeta proof and gated release observation |
 | `2777bb534d` | Decision, cancellation, decode/publication, tuple coherence and retained-pin boundary cases |
 | `c4d58da56b` | Whole-producer restart, selective pending image metadata, native recipe guards and Ready donor backreference release |
+
+New signed commits for the binding Addendum 2 dispatch:
+
+| Commit | Change |
+| --- | --- |
+| `f134133fc8` | Record the two completed eager mount recipes; preserve exact inputs and replay fresh recipes |
+| `c02411efad` | Closed exact-parent delegation, private proof/selector/path, gated observations and local pending restore |
+| `21d0da8c86` | Actual resolver rejection/cleanup checks, including borrowed-input preservation |
+| `3d90f1f724` | Release shadowed parent mount clones on eager construction failure |
+| `ff0879dfcb` | Source-ordering/waiter tests, exact proof checks, shifted roles, A→B→C, native restart and depth costs |
+| `3337963558` | Cold exact-row/full-address SDK and Host counters, separated from producer entries |
+| `4ccf106dd4` | Report all inherited mount-producer routes with exact row/address and recorded parent |
 
 The final separate evidence commit is listed in the delivery reply. No reviewed commit or parent commit was amended.
 
@@ -47,6 +61,14 @@ Addendum 1 is implemented in dependency order: path/key/SQL helpers, link preser
 
 `InstalledOutputs` is declared. `PartDemandState` leaves room for batch 5's second keyed set. Prepare/Commit/Finish arity is unchanged; no batch 6 ordered-base or predecessor provenance fields were implemented.
 
+Addendum 2 records the original typed parent/source, resolved target, effective owner and readonly option at the two eager mount resolvers. The narrow recorder checks construction ownership and completed accessors without evaluating or loading anything, then stores only `completedRecipe`. The parent's existing completed-recipe attachment fallback is retained and tested. Failure cleanup covers the fresh child and mount clones shadowed by the body, uses an uncanceled context and preserves cleanup errors.
+
+Delegation uses the exact receiver dependency for the ten closed core fields, with no saved recipe and consumed metadata. It preserves child metadata and translates mount target/kind to the child's own positional role. The private selector keeps own final outputs and ordinary Ready ties first, admits a Ready parent before a chain, and demands a pending parent only after the existing routes. Public equivalent-source selection keeps its prior meaning. A copied context path detects repeated row/full-address pairs before task joins. The child holds no write permit while awaiting the parent, and an already waiting caller waits for parent completion even when the child independently installs first.
+
+The delegated source proof binds both exact registrations, frozen frames, receiver edge/mapping, representation and descriptor versions, requesting-session resources and full addresses. Normal Prepare/Commit/Finish supplies independent pins, accessor refs, child roles, cycle checks and owner sync. The temporary parent hold drops at Commit/refusal before Finish or sync-failure retention. Never-imported pending metadata children decode into the same managed raw representation only when the closed mapping is valid; unsupported native missing-recipe states still fail.
+
+The fixture's single new `Source` field carries parent ID/full address only for `selected-delegation` and `installed-delegation`. The cold test reports these in its acquisition counters and reports mount producer entries separately. No production event collection is enabled by default, and no producer is inferred from a field name.
+
 ## Ordinary execution changes
 
 These are the changed paths and their intended effects:
@@ -58,7 +80,11 @@ These are the changed paths and their intended effects:
 5. Persistence/boot: all root and inline lease IDs use the scoped key. Existing root leases are re-keyed by attaching the full desired set before stale removal. Private schema 20 gains the path column/stricter key; envelope 4 and bundle 1 are unchanged. Old private-20 stores lacking the column follow `import_failure` reset, then empty desired-set reconciliation. Applied, desired and attempted role maps all use `(path, role)`.
 6. `core/object.go`: **outside the acquisition design; requires council judgment.** Declared object/interface fields received from an SDK now keep the already attached result, including string-handle and object-map inputs. Previously attachment retained the dependency but left the raw SDK value in the field; a handle string then serialized as opaque scalar JSON and escaped relocation. This uses the existing typed reference grammar and SDK conversion path. It changes internal stored representation while preserving SDK-visible values; opaque scalar fields remain scalars. See the isolated-fix justification below.
 7. Snapshot import adds an independent pin and optional chain-content annotation mode. Ordinary image import keeps its previous mode and error behavior; a real regression checks shared chain reuse.
-8. The environment-gated transfer fixture accepts selected Directory/File snapshot IDs and Container FS IDs, carries real blob files, binds an in-process provider, and records selected/installed routes, provider reads, producer entry, sync and settlement. Its report includes copied applied snapshot links. With observation enabled, a private Container's actual FS ref is wrapped after execution to report successful or failed `Release` after the underlying call returns; the wrapper neither replaces the snapshot manager nor simulates execution. The unconfigured engine has no fixture schema field or event collection, and private refs are not wrapped. The probe module returns and reads a selected Directory artifact; the cold test remains enabled and unchanged in this follow-up.
+8. The environment-gated transfer fixture accepts selected Directory/File snapshot IDs and Container FS IDs, carries real blob files, binds an in-process provider, and records selected/installed routes, provider reads, producer entry, sync and settlement. Its report includes copied applied snapshot links. With observation enabled, a private Container's actual FS ref is wrapped after execution to report successful or failed `Release` after the underlying call returns; the wrapper neither replaces the snapshot manager nor simulates execution. The unconfigured engine has no fixture schema field or event collection, and private refs are not wrapped. The probe module returns and reads a selected Directory artifact; the cold test remains enabled; this dispatch adds route assertions without changing its setup, export selection, cold ordering or existing controls.
+
+9. `core/schema/container.go` and `core/completed_producer.go`: the two eager mount calls now retain completed recipes. They remain eager with the same values/options and borrowed inputs. Their new invariant failure path releases construction-owned refs, including shadowed clones; owner/body failure cleanup also covers the successfully cloned child. Tracking the original mount list adds a shallow slice copy to those construction paths.
+10. `core/part_routes.go`, `dagql/cache_part_delegation.go` and the demand/Commit paths: eligible missing parts can acquire from the exact recorded parent, with the specified ordering and waiter latency. This affects managed missing-part demands, not ordinary request/egraph lookup.
+11. `core/container.go` and `dagql/cache_persistence_import.go`: a never-imported locally persisted pending metadata child with a valid mapping is now admitted for foreground acquisition after decode. Boot only marks the pure mapping and does no producer/provider work; ordinary completed local restore remains on its existing path.
 
 ## Isolated object-field fix for council review
 
@@ -80,42 +106,46 @@ Exact commands and outputs are in [COMMANDS.md](COMMANDS.md). Focused race check
 - Real content missing/truncation/checksum/apply failure versus writer/lease/cancellation, retained prefix, canceled waiter, native image reuse and independent pin ownership.
 - The required pre-existing native retirement/cancellation/bookkeeping/group-concurrency and core direct/refined/unrefined routing regressions.
 
-Native outcomes: **Warm PASS**, both import orders, selected artifact bytes, zero report-body count on the matching call, changed arguments, future defaults and clean restart. Assertions require provider reads, chain installation, owner sync and settlement. [Run output](logs/warm-module.log), [trace](https://dagger.cloud/dagger/traces/a2488cb947218342163d9a489b0ba81d).
+The final dispatch's exact sequential commands and outputs are in [COMMANDS-ADDENDUM2.md](COMMANDS-ADDENDUM2.md); [COMMANDS.md](COMMANDS.md) retains the earlier command history. All 17 implementation package-level commands passed, including every previously passing implementation package selection named there, all original native kernel/routing regressions, scoped inline/boot cases, real snapshot fault controls and the new recorder/delegation checks. No real-store check skipped. The historical parent gap probe also passed again on the unchanged exact parent. The warm schema-recovery engine selection passed (377.405 s invocation), and the real mixed downloaded-fs/private-execMeta selection passed (111.400 s invocation). [Engine manifest](validation-addendum2-engines.json), [warm output](logs/addendum2-warm-engine.log), [mixed output](logs/addendum2-mixed-engine.log).
 
-**Cold FAIL**, after import and before report selection: ordinary `AsModule().Serve` requires an unavailable `mount:/schema.json`. Eager `withMountedFile`, `withMountedDirectory` and subsequent complete-parent metadata transformations have no saved producer or offer. The final A bundle preserves the selected artifact as a relocated `result_id` reference (ordinal 2), so this failure is separate from the fixed warm-field issue. The previous cold run surfaced the other pending mount, `/src`. [Final failure](logs/cold-module-excerpt.log), [bundle projection](probes/cold-closure-summary.json), [decision record](BLOCKER-2.md). No builtin-route success or zero report-body acceptance is claimed for the cold case; its assertions are not reached.
+**Cold remains FAIL at a new boundary.** The binding mount/delegation changes pass their native route assertions: 13 exact delegated installations, one write each for the schema File and source Directory mounts, both cache and system-env fs hops, a builtin route, and a matching B Host capture. Matching report body count is zero and selected artifact bytes are read. The changed-argument report then fails on `Query.directory` scratch acquisition. The real-store probe reproduces the gap even with B's canonical scratch snapshot already available; an ordinary warm Directory row makes it succeed. [Blocker and options](BLOCKER-3.md), [cold output](logs/cold-addendum2-excerpt.log), [actual closure projection](probes/cold-addendum2-closure-summary.json), [probe](logs/scratch-gap-probe.log). Later cold changed-argument count, restart and future-default controls are not claimed to pass.
 
-**Mixed actual exec PASS:** the new `TestPartMixedExecOutputs` uses two real dev engines and independent state. Only the executed Container's FS and its parent's FS chains are exported. B reads known metadata without provider reads or producer entry, downloads the FS without execMeta, then demands stdout. Exactly one private saved `withExec` runs; only execMeta is published. The original FS snapshot ID is unchanged, the distinct redundant private FS ref is released exactly once before owner sync, and settlement occurs. Repeated reads do not rerun exec. [Run output](logs/mixed-exec-engine.log), [measured test output](logs/mixed-exec-measurement.log), [trace](https://dagger.cloud/dagger/traces/8c4e3f08dc2567a05cc63a2469a67655). The first attempt stopped at a test SDK API compile error; the corrected run passes.
+The final cold rerun confirms the same boundary (153.45 s selected test; 195.036 s invocation). Its [exact route output](logs/cold-addendum2-final-excerpt.log) additionally reports the mount producers' inherited fs and schema-mount routes. It records 14 delegation selections and 13 unique installations; selection can repeat, while each installed row/full-address is asserted once. Its foreign-context subtest passes independently. The earlier closure projection and row IDs remain labelled as the first run's evidence; row IDs are not assumed stable across runs.
+
+The original warm proof and mixed actual exec proof remain documented in the historical [warm output](logs/warm-module.log), [mixed output](logs/mixed-exec-engine.log) and [mixed measurement](logs/mixed-exec-measurement.log). The mixed test uses two real dev engines, downloads FS independently, privately executes execMeta once, preserves the installed FS, releases the distinct redundant private FS before sync, and does not rerun on repeat reads. Current-dispatch reruns are listed in the new command ledger.
 
 The remaining independent boundary follow-up passes focused race selections: actual late Ready and chain arrival during private preparation with zero private runs; a second stale preparation releases both real pins and returns reselect; ordinary and NoJoin conflicts during an inline decision; sibling admission before that decision's sync finishes; a late offer cannot interrupt Running; cancellation during pin preparation prevents publication and balances ownership; a broken local Ready descriptor returns its storage error. A decode paused on an old representation loses to a real new installation, releases the temporary value once, and sees the winning complete roles. File and Directory tuple publication races cover path, platform, service and snapshot coherence plus guarded role readers. A failed retained-pin release retries without downloading again or repeating successful owner sync. [DagQL output](logs/boundary-dagql.log), [core output](logs/boundary-core.log).
 
-The whole-producer restart case uses a real saved `_builtinContainer` recipe and a controlled valid mixed representation with FS transferred and execMeta pending. It checkpoints/reopens, performs no provider or producer work at boot, then invokes a fresh whole builtin, preserving the first installed FS and the raw recipe. The builtin resolves execMeta to **absent** and releases its redundant FS. This is a representation/whole-invoker proof, not a claim that builtins produce exec metadata snapshots; the real mixed exec case above proves the non-absent variant. Native pending Containers without a recipe still error outside the adapter representation. Pending image metadata also runs only its metadata producer and leaves FS pending with no snapshot open or provider read. [Whole/native output](logs/whole-restart.log), [pending metadata output](logs/pending-image-metadata.log).
+The whole-producer restart case uses a real saved `_builtinContainer` recipe and a controlled valid mixed representation with FS transferred and execMeta pending. It checkpoints/reopens, performs no provider or producer work at boot, then invokes a fresh whole builtin, preserving the first installed FS and the raw recipe. The builtin resolves execMeta to **absent** and releases its redundant FS. This is a representation/whole-invoker proof, not a claim that builtins produce exec metadata snapshots; the real mixed exec case above proves the non-absent variant. Native pending Containers without a recipe still error outside the imported adapter or the newly authorized exact-parent mapping. Pending image metadata also runs only its metadata producer and leaves FS pending with no snapshot open or provider read. [Whole/native output](logs/whole-restart.log), [pending metadata output](logs/pending-image-metadata.log).
 
 A Ready donor with a direct donor→receiver dependency collects before external Finish opens the owner's sync barrier. The published receiver does not gain a donor edge, and it collects after its final session and persisted owners release. [Backreference output](logs/ready-backreference.log).
 
-Still unproved: the native cold proof after the approved design additions, including its builtin and runtime-mount route assertions, zero matching report bodies, and subsequent restart/default assertions. No success beyond the failing cold boundary is claimed. No production service, batch 5 renewal or batch 6 sharing worker was added.
+New focused tests additionally pass all ten pure mappings and unsupported/malformed frame controls; Ready-parent versus child-chain ranking; ordinary Ready ties; chain-before-pending-parent fallback; a paused parent with independent child installation and no early waiter return; parent-hold release with the child pin retained after partial sync failure; copied path cycle/sibling controls; surviving File mount role `mount_file:1` → `mount_file:0`; wrong-kind refusal; A→B→C relocation without local links; and never-imported local pending restart at depths 1, 8 and 32. Exact tests and artifacts are linked in the new ledger. The cold changed-argument scratch gap prevents commission completion. No batch 5 renewal, batch 6 sharing worker, scratch producer or intrinsic-scratch rule was added.
 
 ## Runtime measurements
 
-| Measurement | Result |
+| Measurement | Current dispatch sample |
 | --- | --- |
-| Root lease re-key, 1 role | 5.88 ms; 1 attach, 1 stale scan, 1 removal; peak 2 owner leases |
-| Root lease re-key, 32 roles | 126.33 ms; 32 attaches, 1 stale scan, 32 removals; peak 64 owner leases |
-| Typed collector, 1 output / depth 1 | 3.91 µs, 1,794 B, 17 allocations per scan |
-| Typed collector, 128 outputs / depth 1 | 300.81 µs, 133,195 B, 1,185 allocations per scan |
-| Typed collector, 512 outputs / depth 3 | 2.09 ms, 882,749 B, 5,446 allocations per scan |
-| Concurrent publication, 128 outputs | 153 attempts / 25 retries / 128 accepted; 39.71 ms |
-| Concurrent publication, 512 outputs | 132 attempts / 4 retries / 128 accepted; 246.83 ms |
-| Native callback baseline | 0.91 ns, zero bytes/allocations per entry |
-| Activated native host entry | 1.68 µs, 504 B, 13 allocations per entry |
-| Ready File acquisition | 9.03 ms; 1 pin, 1 owner-sync attempt, 0 private bodies |
-| Chain File acquisition | 52.66 ms; 1 pin, 1 owner-sync attempt, 0 private bodies |
-| Chain with partial-sync retry | 51.53 ms; 1 pin, 2 owner-sync attempts, 0 private bodies; no repeated read |
-| Failed content → private File producer | 57.88 ms; 1 pin, 1 owner-sync attempt, 1 body |
-| Private File producer | 40.82 ms; 1 pin, 1 owner-sync attempt, 1 body |
-| Mixed real-engine private execMeta demand after FS download | 155.39 ms; 1 private exec, 1 distinct redundant FS ref release, original FS ID preserved |
+| Root lease re-key, 1 role | 5.37 ms; 1 attach, 1 stale scan, 1 removal; peak 2 owner leases |
+| Root lease re-key, 32 roles | 135.15 ms; 32 attaches, 1 stale scan, 32 removals; peak 64 owner leases |
+| Typed collector, 1 output / depth 1 | 2.93 µs, 1,794 B, 17 allocations per scan |
+| Typed collector, 128 outputs / depth 1 | 316.75 µs, 133,205 B, 1,185 allocations per scan |
+| Typed collector, 512 outputs / depth 3 | 2.07 ms, 882,868 B, 5,446 allocations per scan |
+| Concurrent publication, 128 outputs | 156 attempts / 28 retries / 128 accepted; 41.27 ms |
+| Concurrent publication, 512 outputs | 134 attempts / 6 retries / 128 accepted; 271.40 ms |
+| Native callback baseline | 0.66 ns, zero bytes/allocations per entry |
+| Activated native host entry | 1.70 µs, 504 B, 13 allocations per entry |
+| Ready File acquisition | 8.74 ms; 1 pin, 1 sync attempt, 0 private bodies |
+| Chain File acquisition | 45.80 ms; 1 pin, 1 sync attempt, 0 private bodies |
+| Partial-sync retry | 64.53 ms; 1 pin, 2 sync attempts, no repeated download/body |
+| Failed content → private File producer | 50.53 ms; 1 pin, 1 sync, 1 private body |
+| Private File producer | 42.36 ms; 1 pin, 1 sync, 1 private body |
+| Native restored delegation, depth 1 | 8.27 ms; 1 independent accessor ref, pin and child owner-sync step |
+| Native restored delegation, depth 8 | 70.22 ms; 8 independent accessor refs, pins and child owner-sync steps |
+| Native restored delegation, depth 32 | 291.18 ms; 32 independent accessor refs, pins and child owner-sync steps |
 
-[Collector/host samples](logs/collector-host-costs.log) and [real route/re-key samples](logs/route-rekey-costs.log). The restart case also passes and takes 60.04 ms in this sample; its manager counters restart on reopen, so they are not whole-attempt pin totals. File body counts observe the actual `FileBlobLazy` mutable-snapshot creation. Lifetime tests separately check release/owner balance and final collection.
+[Collector/host samples](logs/addendum2-collector-costs.log), [real route/re-key samples](logs/addendum2-route-costs.log), [depth costs](logs/addendum2-delegation-costs.log). Delegation creates one independently owned installed view and durable role per hop, with zero producer bodies/downloads in these Ready-ancestor samples; temporary pins release after owner sync, while accessors and owner leases remain with their rows. The existing receiver edges remain. These measurements include capture/probe and graph work, so they are not a constant-time per-hop guarantee.
 
-These are samples on Linux/amd64 (AMD EPYC 9554P, Go 1.26.6, 16-thread benchmark setting), not stable throughput bounds. Root migration and route latency include real local snapshot/lease operations. Typed collector measurements use held guarded values without encoder, decoder, storage or identity work. The concurrent cases perform 8,192 publications and require 128 accepted complete scans; retry counts depend on scheduling. The host microbenchmark measures entry only, excluding body and storage bookkeeping. Private execution allocation totals and large e-graph scaling remain unmeasured.
+These are Linux/amd64 (AMD EPYC 9554P, Go 1.26.6) samples, not throughput bounds. The collector race performs 8,192 publications and requires 128 complete accepted scans; retries depend on scheduling. The native host microbenchmark excludes bodies/storage. The chain-restart sample takes 66.47 ms, with counters reset on reopen, so it is not a whole-attempt pin total. Private execution allocation totals and large-egraph scaling remain unmeasured. The earlier real-engine mixed execMeta demand measured 155.39 ms; that historical timing is not presented as a new sample.
 
 No pushes, pull requests, tags, or author/reviewer contacts were made. Evidence contains focused commands, diagnostic excerpts, probes and measurements.

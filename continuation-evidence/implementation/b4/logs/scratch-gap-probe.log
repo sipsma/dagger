@@ -1,0 +1,15 @@
+=== RUN   TestB4ScratchAcquisitionGapProbe
+    b4_scratch_gap_probe_test.go:56: actual Query.directory native payload={"valueKnown":true,"form":"snapshot","dir":"/","platform":"linux/amd64"} roles=[{RefKey:dagger-scratch-rootfs-v1 Role:snapshot OutputPath:}]
+    b4_scratch_gap_probe_test.go:59: foreign scratch payload={"valueKnown":true,"producerState":"none","form":"transfer_pending","dir":"/","platform":"linux/amd64"}
+=== RUN   TestB4ScratchAcquisitionGapProbe/cold
+    b4_scratch_gap_probe_test.go:83: warm=false exact imported scratch demand=imported filesystem part is unavailable: {"part":"snapshot"}
+=== RUN   TestB4ScratchAcquisitionGapProbe/warm
+    b4_scratch_gap_probe_test.go:83: warm=true exact imported scratch demand=<nil>
+2026/09/16 15:01:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 15:01:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 15:01:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestB4ScratchAcquisitionGapProbe (0.10s)
+    --- PASS: TestB4ScratchAcquisitionGapProbe/cold (0.03s)
+    --- PASS: TestB4ScratchAcquisitionGapProbe/warm (0.04s)
+PASS
+ok  	github.com/dagger/dagger/core/schema	0.202s
