@@ -122,9 +122,9 @@ func moveProducedDirectory(dst, src *Directory) error {
 	if err != nil {
 		return err
 	}
-	dst.Dir.setValue(path)
+	dst.SetPath(path)
 	dst.Services = slices.Clone(src.Services)
-	dst.Snapshot.setValue(snapshot)
+	dst.SetSnapshot(snapshot)
 	src.Snapshot = new(LazyAccessor[bkcache.ImmutableRef, *Directory])
 	return nil
 }
@@ -137,9 +137,9 @@ func moveProducedFile(dst, src *File) error {
 	if err != nil {
 		return err
 	}
-	dst.File.setValue(path)
+	dst.SetPath(path)
 	dst.Services = slices.Clone(src.Services)
-	dst.Snapshot.setValue(snapshot)
+	dst.SetSnapshot(snapshot)
 	src.Snapshot = new(LazyAccessor[bkcache.ImmutableRef, *File])
 	return nil
 }
