@@ -1,0 +1,7 @@
+Head: a88e0e0cdde5383d085347c55288ff84651239e2
+Working directory: /tmp/b1-b2-followup/b1
+Command: env GOPATH=/home/exedev/go GOCACHE=/home/exedev/.cache/go-build go test -p=1 -exec='sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -count=1 -v
+Started: 2026-09-16T09:12:28.186245+00:00
+Finished: 2026-09-16T09:13:25.991995+00:00
+Exit status: 0
+Log: b1-standalone.log

@@ -1,0 +1,7 @@
+Head: 8d99a010afc875466c999d44c174a5a0c95f3504
+Working directory: /home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-integration-b1-b2-36d54e12-c4fb4f07
+Command: go vet ./core/... ./dagql/... ./engine/...
+Started: 2026-09-16T09:14:33.485672+00:00
+Finished: 2026-09-16T09:14:47.030750+00:00
+Exit status: 1
+Log: followup-vet.log

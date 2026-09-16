@@ -1,0 +1,91 @@
+$ git diff --exit-code dfe204d216..HEAD -- engine/engineutil/executor.go engine/server/session_attachables.go
+Exit status: 0
+
+$ git diff 1ca9f28a..a88e0e0cdd -- core/container.go
+diff --git a/core/container.go b/core/container.go
+index 4f44bab019..0ee186ef6a 100644
+--- a/core/container.go
++++ b/core/container.go
+@@ -4384,6 +4384,9 @@ func decodePersistedContainerRecipe(
+ 	payload json.RawMessage,
+ ) (Lazy[*Container], error) {
+ 	switch call.Field {
++	case "_builtinContainer":
++		return decodeContainerBuiltinLazy(payload)
++
+ 	case "withEntrypoint":
+ 		var persisted persistedContainerWithEntrypointLazy
+ 		if err := json.Unmarshal(payload, &persisted); err != nil {
+Exit status: 0
+
+$ git log --oneline 1ca9f28a..a88e0e0cdd -- dagql core/container_parts.go core/container_persistence.go core/container_shutdown_persistence_test.go core/persisted_families_test.go
+Exit status: 0
+
+$ git blame -L 341,357 1ca9f28a -- core/container_parts.go
+c8c6217742f (Erik Sipsma 2026-08-31 12:25:27 +0000 341) // consumeLazyOp is the locked-store half of the one-rule contract: every
+c8c6217742f (Erik Sipsma 2026-08-31 12:25:27 +0000 342) // post-construction clear of the op pointer - unrefined bodies consuming
+c8c6217742f (Erik Sipsma 2026-08-31 12:25:27 +0000 343) // themselves, and the refined all-groups-consumed clear - goes through
+c8c6217742f (Erik Sipsma 2026-08-31 12:25:27 +0000 344) // here. Safe to call while holding an op's LazyMu (the lock order is
+c8c6217742f (Erik Sipsma 2026-08-31 12:25:27 +0000 345) // LazyMu, then lazyOpMu, one way).
+c8c6217742f (Erik Sipsma 2026-08-31 12:25:27 +0000 346) func (container *Container) consumeLazyOp() {
+c8c6217742f (Erik Sipsma 2026-08-31 12:25:27 +0000 347) 	container.lazyOpMu.Lock()
+c3491f00ad2 (Erik Sipsma 2026-09-13 10:01:30 +0000 348) 	recipe := container.Lazy
+c3491f00ad2 (Erik Sipsma 2026-09-13 10:01:30 +0000 349) 	if restore, ok := recipe.(*ContainerRestoreLazy); ok {
+c3491f00ad2 (Erik Sipsma 2026-09-13 10:01:30 +0000 350) 		recipe = restore.recipe
+c3491f00ad2 (Erik Sipsma 2026-09-13 10:01:30 +0000 351) 	}
+c3491f00ad2 (Erik Sipsma 2026-09-13 10:01:30 +0000 352) 	if recipe != nil {
+c3491f00ad2 (Erik Sipsma 2026-09-13 10:01:30 +0000 353) 		container.completedRecipe = recipe
+c3491f00ad2 (Erik Sipsma 2026-09-13 10:01:30 +0000 354) 	}
+c8c6217742f (Erik Sipsma 2026-08-31 12:25:27 +0000 355) 	container.Lazy = nil
+c8c6217742f (Erik Sipsma 2026-08-31 12:25:27 +0000 356) 	container.lazyOpMu.Unlock()
+c8c6217742f (Erik Sipsma 2026-08-31 12:25:27 +0000 357) }
+Exit status: 0
+
+$ git blame -L 377,408 aa7f3fa330 -- dagql/cache_offer_owner.go
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 377) // validateStoredOwnershipLocked scopes offer references to their own owners.
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 378) // The ordinary envelope walker receives a copy without those separate edges.
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 379) func (c *Cache) validateStoredOwnershipLocked() error {
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 380) 	for _, res := range c.resultsByID {
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 381) 		if res.persistedEnvelope == nil {
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 382) 			continue
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 383) 		}
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 384) 		env := *res.persistedEnvelope
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 385) 		for _, offer := range env.PendingOffers {
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 386) 			if err := validateOfferReferences(offer); err != nil {
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 387) 				return fmt.Errorf("result %d: %w", res.id, err)
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 388) 			}
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 389) 		}
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 390) 		env.PendingOffers = nil
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 391) 		_, err := VisitEncodedReferences(PersistedRecord{ResultID: uint64(res.id), Envelope: env, Call: res.loadResultCall(), SnapshotLinks: res.loadSnapshotOwnerLinks()}, func(ref *PersistedRef) error {
+336de2cdb37 (Erik Sipsma 2026-09-16 05:43:01 +0000 392) 			if ref.RecipeID != nil {
+336de2cdb37 (Erik Sipsma 2026-09-16 05:43:01 +0000 393) 				return nil
+336de2cdb37 (Erik Sipsma 2026-09-16 05:43:01 +0000 394) 			}
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 395) 			switch ref.Kind {
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 396) 			case PersistedRefChild, PersistedRefCall:
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 397) 				if _, ok := res.deps[sharedResultID(ref.ResultID)]; !ok {
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 398) 					return fmt.Errorf("reference %s to %d is not a direct dependency", ref.Path, ref.ResultID)
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 399) 				}
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 400) 			}
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 401) 			return nil
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 402) 		})
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 403) 		if err != nil {
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 404) 			return fmt.Errorf("result %d: %w", res.id, err)
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 405) 		}
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 406) 	}
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 407) 	return nil
+de126ebe775 (Erik Sipsma 2026-09-16 04:48:50 +0000 408) }
+Exit status: 0
+
+$ git merge-base --is-ancestor c3491f00ad2187dbbffd1fc058e9d41835d4e9c0 1ca9f28a
+Exit status: 0
+
+$ go version
+go version go1.26.6 linux/amd64
+Exit status: 0
+
+$ go env GOFLAGS GOPATH GOCACHE
+
+/home/exedev/go
+/home/exedev/.cache/go-build
+Exit status: 0
+

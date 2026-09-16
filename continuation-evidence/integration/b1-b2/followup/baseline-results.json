@@ -1,0 +1,35 @@
+[
+  {
+    "name": "integrated-original",
+    "command": "env GOPATH=/home/exedev/go GOCACHE=/home/exedev/.cache/go-build go test -p=1 -exec='sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -count=1 -v",
+    "cwd": "/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-integration-b1-b2-36d54e12-c4fb4f07",
+    "head": "97ee3385fdfdb502638922d329e9775e0d040e67",
+    "exit_status": 1,
+    "seconds": 15.431,
+    "started": "2026-09-16T09:11:19.242976+00:00",
+    "finished": "2026-09-16T09:11:34.674486+00:00",
+    "log": "integrated-original.log"
+  },
+  {
+    "name": "b2-standalone",
+    "command": "env GOPATH=/home/exedev/go GOCACHE=/home/exedev/.cache/go-build go test -p=1 -exec='sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -count=1 -v",
+    "cwd": "/tmp/b1-b2-followup/b2",
+    "head": "aa7f3fa330faf7ac95217665a61edcb95b633768",
+    "exit_status": 1,
+    "seconds": 53.511,
+    "started": "2026-09-16T09:11:34.675044+00:00",
+    "finished": "2026-09-16T09:12:28.185710+00:00",
+    "log": "b2-standalone.log"
+  },
+  {
+    "name": "b1-standalone",
+    "command": "env GOPATH=/home/exedev/go GOCACHE=/home/exedev/.cache/go-build go test -p=1 -exec='sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -count=1 -v",
+    "cwd": "/tmp/b1-b2-followup/b1",
+    "head": "a88e0e0cdde5383d085347c55288ff84651239e2",
+    "exit_status": 0,
+    "seconds": 57.806,
+    "started": "2026-09-16T09:12:28.186245+00:00",
+    "finished": "2026-09-16T09:13:25.991995+00:00",
+    "log": "b1-standalone.log"
+  }
+]
