@@ -2022,6 +2022,7 @@ type sharedResultID uint64
 // attempt's state. All fields except the immutable done channel are read or
 // written under the shared result's lazyMu.
 type lazyEvalAttempt struct {
+	token   *PartTaskToken
 	done    chan struct{}
 	cancel  context.CancelCauseFunc
 	waiters int
@@ -2218,6 +2219,9 @@ type sharedResult struct {
 	// unsynchronized.
 	persistLeaseSyncPending bool
 
+	partGate       PartGateCell
+	lazyGeneration uint64 // lazyMu; zero is never issued
+
 	// lazyMu guards lazyWhole, lazyPartGroups, and lazyEvalComplete.
 	lazyMu sync.Mutex
 	// lazyPartGroups holds the named evaluation groups of a parts value
@@ -2247,6 +2251,8 @@ type sharedResult struct {
 // fields, per group. All fields are guarded by the owning sharedResult's
 // lazyMu.
 type lazyGroupState struct {
+	continuation       *lazyTaskContinuation
+	nativeInstallation *PartTaskToken
 	// eval is the stored callback for this group.
 	eval LazyEvalFunc
 	// complete records that this group's evaluation succeeded.
@@ -3752,6 +3758,8 @@ func (c *Cache) registerLazyEvaluation(shared *sharedResult, val AnyResult) {
 		return
 	}
 
+	c.bindPartHost(shared, val)
+
 	// A parts value never stores its whole-result callback: its per-group
 	// callbacks are re-read at attempt start (evaluateGroup), and a stored
 	// whole callback would keep HasPendingLazyEvaluation true after every
@@ -4135,7 +4143,14 @@ func prepareLazyGroupEvalLocked(
 // former whole-result evaluateOne loop.
 //
 //nolint:gocyclo // Keep joining, cancellation, and retirement in one shared attempt loop.
-func (c *Cache) evaluateGroup(ctx context.Context, res AnyResult, shared *sharedResult, group LazyGroupKey, partsVal HasLazyEvaluationParts) (rerr error) {
+func (c *Cache) evaluateGroup(ctx context.Context, res AnyResult, shared *sharedResult, group LazyGroupKey, partsVal HasLazyEvaluationParts) error {
+	if isPartTaskKey(group) {
+		return c.runLazyTask(ctx, res, shared, group, nil, &LazyTaskSpec{})
+	}
+	return c.runLazyTask(ctx, res, shared, group, partsVal, nil)
+}
+
+func (c *Cache) runLazyTask(ctx context.Context, res AnyResult, shared *sharedResult, group LazyGroupKey, partsVal HasLazyEvaluationParts, spec *LazyTaskSpec) (rerr error) {
 	stack := lazyEvalStackFromContext(ctx)
 	if stack != nil && lazyEvalStackContains(stack, shared.id, group) {
 		return fmt.Errorf("recursive lazy evaluation detected")
@@ -4151,9 +4166,13 @@ func (c *Cache) evaluateGroup(ctx context.Context, res AnyResult, shared *shared
 	shared.lazyMu.Unlock()
 	for {
 		shared.lazyMu.Lock()
-		if shared.lazyEvalComplete || g.complete {
+		if spec == nil && (shared.lazyEvalComplete || g.complete) {
 			shared.lazyMu.Unlock()
 			return nil
+		}
+		if spec != nil && spec.NoJoin && (g.attempt != nil || g.syncPending) {
+			shared.lazyMu.Unlock()
+			return ErrLazyTaskBusy
 		}
 		// Consult the published attempt before any object-side lazy state.
 		// Callback bodies clear their object-side callback pointer while the
@@ -4211,7 +4230,19 @@ func (c *Cache) evaluateGroup(ctx context.Context, res AnyResult, shared *shared
 		// attempt retries only the bookkeeping even if the value still
 		// exposes a non-nil callback. Otherwise a nil object-side callback
 		// means nothing deferred remains for this group.
-		if prepareLazyGroupEvalLocked(res, shared, g, group, partsVal) {
+		if spec != nil {
+			if g.syncPending {
+				g.eval = nil
+			} else {
+				if spec.Body == nil {
+					shared.lazyMu.Unlock()
+					return fmt.Errorf("lazy task %q: missing supplied body", group)
+				}
+				g.eval = spec.Body
+				g.complete = false
+				g.continuation = nil
+			}
+		} else if prepareLazyGroupEvalLocked(res, shared, g, group, partsVal) {
 			shared.lazyMu.Unlock()
 			return nil
 		}
@@ -4239,7 +4270,23 @@ func (c *Cache) evaluateGroup(ctx context.Context, res AnyResult, shared *shared
 		if resultCall != nil {
 			evalCtx = ContextWithCall(evalCtx, resultCall)
 		}
+		shared.lazyGeneration++
+		token := &PartTaskToken{row: shared, key: group, generation: shared.lazyGeneration}
+		token.active.Store(true)
+		installationToken := token
+		if g.syncPending && g.nativeInstallation != nil {
+			installationToken = g.nativeInstallation
+		}
+		var continuation *lazyTaskContinuation
+		if spec != nil {
+			continuation = g.continuation
+			if continuation == nil {
+				continuation = &lazyTaskContinuation{spec: *spec, token: token}
+			}
+		}
+		evalCtx = context.WithValue(evalCtx, partTaskContextKey{}, token)
 		attempt := &lazyEvalAttempt{
+			token:   token,
 			done:    make(chan struct{}),
 			cancel:  cancel,
 			waiters: 1,
@@ -4272,7 +4319,7 @@ func (c *Cache) evaluateGroup(ctx context.Context, res AnyResult, shared *shared
 			lazyIsResume    bool
 		)
 		var storedPart PartKey
-		if reporting, ok := UnwrapAs[HasLazyEvaluationReporting](res); ok {
+		if reporting, ok := UnwrapAs[HasLazyEvaluationReporting](res); ok && spec == nil {
 			storedPart = reporting.LazyGroupStoredPart(group)
 		}
 		if OTelProfActive(evalCtx) && !producerSkip {
@@ -4282,15 +4329,28 @@ func (c *Cache) evaluateGroup(ctx context.Context, res AnyResult, shared *shared
 		g.attempt = attempt
 		shared.lazyMu.Unlock()
 
+		if spec != nil {
+			c.egraphMu.Lock()
+			c.incrementIncomingOwnershipLocked(ctx, shared)
+			c.egraphMu.Unlock()
+		}
 		go func() {
 			// Finish the cache operation (including any deferred ReleaseSession
 			// cleanup) before releasing the runtime that owns this work.
 			defer clientScopeLease.Release()
 			defer attemptOp.finish(false)
+			if spec != nil {
+				defer func() {
+					if err := c.releasePartRow(context.WithoutCancel(attemptCtx), shared); err != nil {
+						c.recordReleaseCleanupError(attemptOp.sessionID, true, err)
+					}
+				}()
+			}
 			// The lazy op span and re-pointed callback context were minted under
 			// lazyMu before this attempt was published. A span created on one
 			// goroutine and ended on another is safe.
 			callbackCtx := lazyCallbackCtx
+			defer c.endPartTaskBody(token, false)
 
 			var err error
 			// bodyDone means the callback body (if this attempt had one) has
@@ -4310,15 +4370,26 @@ func (c *Cache) evaluateGroup(ctx context.Context, res AnyResult, shared *shared
 				if lazyEval != nil {
 					err = lazyEval(callbackCtx)
 				}
-				if err == nil {
+				c.endPartTaskBody(token, err == nil)
+				if continuation != nil && continuation.token.installed.Load() != nil {
 					bodyDone = true
-					err = c.syncResultSnapshotLeases(callbackCtx, shared)
+				}
+				if err == nil {
+					bodyDone = continuation == nil || continuation.token.installed.Load() != nil
+					if continuation != nil {
+						err = continuation.finish(callbackCtx, c, shared)
+					} else {
+						err = c.syncResultSnapshotLeases(callbackCtx, shared)
+					}
 				}
 				if releaseErr := release(context.WithoutCancel(callbackCtx)); releaseErr != nil && err == nil {
 					err = releaseErr
 				}
 			}
 			runEval()
+			if err == nil && spec == nil {
+				c.completeNativePartTask(installationToken)
+			}
 			lazyOp.EndWithResult(profErrOutcome(err), uint64(shared.id))
 
 			shared.lazyMu.Lock()
@@ -4328,13 +4399,19 @@ func (c *Cache) evaluateGroup(ctx context.Context, res AnyResult, shared *shared
 			attempt.cancel = nil
 			if err == nil {
 				g.complete = true
-				if partsVal == nil {
+				if partsVal == nil && spec == nil {
 					shared.lazyEvalComplete = true
 				}
 				g.eval = nil
 				g.syncPending = false
+				g.continuation = nil
+				g.nativeInstallation = nil
 			} else if bodyDone {
 				g.syncPending = true
+				g.continuation = continuation
+				if spec == nil {
+					g.nativeInstallation = installationToken
+				}
 			}
 			// Retire the shared pointer only after the callback has finished. Old
 			// waiters retain attempt, so they cannot read or decrement a retry's
@@ -4342,7 +4419,7 @@ func (c *Cache) evaluateGroup(ctx context.Context, res AnyResult, shared *shared
 			// still names this attempt: publishing a successor requires it to be
 			// nil, and only this path clears it.
 			g.attempt = nil
-			if err == nil && partsVal != nil {
+			if err == nil && partsVal != nil && spec == nil {
 				partial = lazyPartsEvaluationPartialLocked(shared, res)
 			}
 			shared.lazyMu.Unlock()

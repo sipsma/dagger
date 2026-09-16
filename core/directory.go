@@ -154,7 +154,7 @@ func (dir *Directory) LazyEvalFunc() dagql.LazyEvalFunc {
 	if lazy == nil {
 		return nil
 	}
-	return func(ctx context.Context) error {
+	raw := func(ctx context.Context) error {
 		if err := lazy.Evaluate(ctx, dir); err != nil {
 			return err
 		}
@@ -162,6 +162,12 @@ func (dir *Directory) LazyEvalFunc() dagql.LazyEvalFunc {
 		defer dir.outputMu.Unlock()
 		dir.finishLazyLocked(lazy)
 		return nil
+	}
+	return func(ctx context.Context) error {
+		if host := dir.partHost.Load(); host != nil {
+			return host.RunNative(ctx, dagql.LazyGroupWhole, []dagql.PartKey{"snapshot"}, raw)
+		}
+		return raw(ctx)
 	}
 }
 
