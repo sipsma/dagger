@@ -1,0 +1,3 @@
+Command: go build ./core/schema ./engine/server
+Exit status: 0
+Compiler output: empty
