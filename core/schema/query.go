@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"slices"
 	"strings"
 
 	codegenintrospection "github.com/dagger/dagger/cmd/codegen/introspection"
@@ -239,5 +240,8 @@ func (s *querySchema) schemaJSONFile(
 			rerr = errors.Join(rerr, file.OnRelease(context.WithoutCancel(ctx)))
 		}
 	}()
+	if err := core.RecordCompletedProducer(file, &core.FileBlobLazy{LazyState: core.NewLazyState(), Filename: schemaJSONFilename, Contents: slices.Clone(moduleSchemaJSON), Permissions: perm}); err != nil {
+		return inst, err
+	}
 	return dagql.NewObjectResultForCurrentCall(ctx, dag, file)
 }
