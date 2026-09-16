@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func producerGit(t *testing.T, root string, args ...string) string {
+func operationGit(t *testing.T, root string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
 	cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_ALLOW_PROTOCOL=file:git:http:https")
@@ -26,7 +26,7 @@ func producerGit(t *testing.T, root string, args ...string) string {
 	require.NoError(t, err, string(data))
 	return strings.TrimSpace(string(data))
 }
-func producerGitSnapshot(t *testing.T, ctx context.Context, store *testutil.Store, build func(string)) bkcache.ImmutableRef {
+func operationGitSnapshot(t *testing.T, ctx context.Context, store *testutil.Store, build func(string)) bkcache.ImmutableRef {
 	t.Helper()
 	mutable, err := store.Manager.New(ctx, nil)
 	require.NoError(t, err)
@@ -35,20 +35,20 @@ func producerGitSnapshot(t *testing.T, ctx context.Context, store *testutil.Stor
 	require.NoError(t, err)
 	return snapshot
 }
-func producerDirectoryResult(t *testing.T, ctx context.Context, cache *dagql.Cache, srv *dagql.Server, field, path string, snapshot bkcache.ImmutableRef) dagql.ObjectResult[*Directory] {
+func operationDirectoryResult(t *testing.T, ctx context.Context, cache *dagql.Cache, srv *dagql.Server, field, path string, snapshot bkcache.ImmutableRef) dagql.ObjectResult[*Directory] {
 	t.Helper()
-	dir := freshProducerDirectory()
+	dir := freshLazyOperationDirectory()
 	dir.Dir.setValue(path)
 	dir.Snapshot.setValue(snapshot)
-	return attachTransferObject(t, ctx, cache, srv, "producer-execution", field, dir)
+	return attachTransferObject(t, ctx, cache, srv, "operation-execution", field, dir)
 }
-func producerLocalRepo(t *testing.T, ctx context.Context, cache *dagql.Cache, srv *dagql.Server, field string, dir dagql.ObjectResult[*Directory]) dagql.ObjectResult[*GitRepository] {
+func operationLocalRepo(t *testing.T, ctx context.Context, cache *dagql.Cache, srv *dagql.Server, field string, dir dagql.ObjectResult[*Directory]) dagql.ObjectResult[*GitRepository] {
 	t.Helper()
 	srv.InstallObject(dagql.NewClass(srv, dagql.ClassOpts[*GitRepository]{}))
 	repo := &GitRepository{Backend: &LocalGitRepository{Directory: dir}, Remote: &gitutil.Remote{}}
-	return attachTransferObject(t, ctx, cache, srv, "producer-execution", field, repo)
+	return attachTransferObject(t, ctx, cache, srv, "operation-execution", field, repo)
 }
-func decodeDirectoryProducer(t *testing.T, ctx context.Context, cache *dagql.Cache, srv *dagql.Server, recipe Lazy[*Directory]) Lazy[*Directory] {
+func decodeDirectoryLazyOperation(t *testing.T, ctx context.Context, cache *dagql.Cache, srv *dagql.Server, recipe Lazy[*Directory]) Lazy[*Directory] {
 	t.Helper()
 	kind, raw, err := encodePersistedDirectoryLazy(ctx, dagql.NewPersistEncodeContext(cache, 0, nil), recipe)
 	require.NoError(t, err)
@@ -56,9 +56,9 @@ func decodeDirectoryProducer(t *testing.T, ctx context.Context, cache *dagql.Cac
 	require.NoError(t, err)
 	return output
 }
-func readProducerDirectoryFile(t *testing.T, ctx context.Context, dir *Directory, name string) []byte {
+func readLazyOperationDirectoryFile(t *testing.T, ctx context.Context, dir *Directory, name string) []byte {
 	t.Helper()
-	path, snapshot, err := producedDirectoryOutput(dir)
+	path, snapshot, err := directoryOutput(dir)
 	require.NoError(t, err)
 	var data []byte
 	require.NoError(t, MountRef(ctx, snapshot, func(root string, _ *mount.Mount) error {
@@ -67,47 +67,47 @@ func readProducerDirectoryFile(t *testing.T, ctx context.Context, dir *Directory
 	}))
 	return data
 }
-func TestGitCompletedProducersEvaluate(t *testing.T) {
+func TestGitLazyOperationsEvaluate(t *testing.T) {
 	ctx, store, cache, srv, _ := executionFixture(t)
 	var sha string
-	snapshot := producerGitSnapshot(t, ctx, store, func(root string) {
+	snapshot := operationGitSnapshot(t, ctx, store, func(root string) {
 		root = filepath.Join(root, "selected")
 		require.NoError(t, os.Mkdir(root, 0755))
-		producerGit(t, root, "init", "-b", "main")
-		producerGit(t, root, "config", "user.name", "Test")
-		producerGit(t, root, "config", "user.email", "test@example.com")
+		operationGit(t, root, "init", "-b", "main")
+		operationGit(t, root, "config", "user.name", "Test")
+		operationGit(t, root, "config", "user.email", "test@example.com")
 		for name, data := range map[string]string{"tracked": "original", "deleted": "retained", ".gitignore": "ignored\n"} {
 			require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(data), 0644))
 		}
-		producerGit(t, root, "add", ".")
-		producerGit(t, root, "commit", "-m", "saved")
-		sha = producerGit(t, root, "rev-parse", "HEAD")
+		operationGit(t, root, "add", ".")
+		operationGit(t, root, "commit", "-m", "saved")
+		sha = operationGit(t, root, "rev-parse", "HEAD")
 		require.NoError(t, os.WriteFile(filepath.Join(root, "tracked"), []byte("staged"), 0644))
-		producerGit(t, root, "add", "tracked")
+		operationGit(t, root, "add", "tracked")
 		require.NoError(t, os.WriteFile(filepath.Join(root, "tracked"), []byte("dirty"), 0644))
 		require.NoError(t, os.Remove(filepath.Join(root, "deleted")))
 		require.NoError(t, os.WriteFile(filepath.Join(root, "untracked"), []byte("untracked"), 0644))
 		require.NoError(t, os.WriteFile(filepath.Join(root, "ignored"), []byte("ignored"), 0644))
 		require.NoError(t, os.Mkdir(filepath.Join(root, "empty"), 0755))
 	})
-	dir := producerDirectoryResult(t, ctx, cache, srv, "localSource", "/selected", snapshot)
-	repo := producerLocalRepo(t, ctx, cache, srv, "localRepo", dir)
-	index := readProducerDirectoryFile(t, ctx, dir.Self(), ".git/index")
+	dir := operationDirectoryResult(t, ctx, cache, srv, "localSource", "/selected", snapshot)
+	repo := operationLocalRepo(t, ctx, cache, srv, "localRepo", dir)
+	index := readLazyOperationDirectoryFile(t, ctx, dir.Self(), ".git/index")
 	dagql.Fields[*GitRepository]{dagql.NodeFunc("fixtureCleaned", func(ctx context.Context, parent dagql.ObjectResult[*GitRepository], _ struct{}) (dagql.ObjectResult[*Directory], error) {
 		return parent.Self().Backend.Cleaned(ctx)
 	})}.Install(srv)
 	var eager dagql.ObjectResult[*Directory]
 	require.NoError(t, srv.Select(ctx, repo, &eager, dagql.Selector{Field: "fixtureCleaned"}))
-	lazy := decodeDirectoryProducer(t, ctx, cache, srv, &DirectoryGitCleanedLazy{LazyState: NewLazyState(), Repo: repo})
-	output := freshProducerDirectory()
+	lazy := decodeDirectoryLazyOperation(t, ctx, cache, srv, &DirectoryGitCleanedLazy{LazyState: NewLazyState(), Repo: repo})
+	output := freshLazyOperationDirectory()
 	require.NoError(t, lazy.Evaluate(ctx, output))
 	defer output.OnRelease(ctx)
 	for _, name := range []string{"tracked", "deleted", "ignored", ".git/index"} {
-		require.Equal(t, readProducerDirectoryFile(t, ctx, eager.Self(), name), readProducerDirectoryFile(t, ctx, output, name))
+		require.Equal(t, readLazyOperationDirectoryFile(t, ctx, eager.Self(), name), readLazyOperationDirectoryFile(t, ctx, output, name))
 	}
-	require.Equal(t, "original", string(readProducerDirectoryFile(t, ctx, output, "tracked")))
-	require.Equal(t, index, readProducerDirectoryFile(t, ctx, dir.Self(), ".git/index"))
-	require.Equal(t, "dirty", string(readProducerDirectoryFile(t, ctx, dir.Self(), "tracked")))
+	require.Equal(t, "original", string(readLazyOperationDirectoryFile(t, ctx, output, "tracked")))
+	require.Equal(t, index, readLazyOperationDirectoryFile(t, ctx, dir.Self(), ".git/index"))
+	require.Equal(t, "dirty", string(readLazyOperationDirectoryFile(t, ctx, dir.Self(), "tracked")))
 	path, _ := output.Dir.Peek()
 	require.Equal(t, "/selected", path)
 	srv.InstallObject(dagql.NewClass(srv, dagql.ClassOpts[*GitRef]{}))
@@ -118,7 +118,7 @@ func TestGitCompletedProducersEvaluate(t *testing.T) {
 				name := strings.Join([]string{boolName(repoDiscard), boolName(discard), boolName(commitTree)}, "-")
 				t.Run(name, func(t *testing.T) {
 					copyRepo := &GitRepository{Backend: repo.Self().Backend, Remote: repo.Self().Remote, DiscardGitDir: repoDiscard}
-					savedRepo := attachTransferObject(t, ctx, cache, srv, "producer-execution", "repo"+name, copyRepo)
+					savedRepo := attachTransferObject(t, ctx, cache, srv, "operation-execution", "repo"+name, copyRepo)
 					refValue := &gitutil.Ref{Name: "refs/heads/main", SHA: sha}
 					backend, err := copyRepo.Backend.Get(ctx, refValue)
 					require.NoError(t, err)
@@ -126,24 +126,24 @@ func TestGitCompletedProducersEvaluate(t *testing.T) {
 					var original *Directory
 					if commitTree {
 						commit := &GitCommit{Repo: savedRepo, Ref: &gitutil.Ref{SHA: sha}, FetchRef: refValue, Backend: backend}
-						parent := attachTransferObject(t, ctx, cache, srv, "producer-execution", "commit"+name, commit)
+						parent := attachTransferObject(t, ctx, cache, srv, "operation-execution", "commit"+name, commit)
 						recipe = &DirectoryGitCommitTreeLazy{LazyState: NewLazyState(), Commit: parent, DiscardGitDir: discard, Depth: 1, IncludeTags: true}
 						original, err = commit.Tree(ctx, srv, discard, 1, true)
 					} else {
 						ref := &GitRef{Repo: savedRepo, Ref: refValue, Backend: backend}
-						parent := attachTransferObject(t, ctx, cache, srv, "producer-execution", "ref"+name, ref)
+						parent := attachTransferObject(t, ctx, cache, srv, "operation-execution", "ref"+name, ref)
 						recipe = &DirectoryGitTreeLazy{LazyState: NewLazyState(), Ref: parent, DiscardGitDir: discard, Depth: 1, IncludeTags: true}
 						original, err = ref.Tree(ctx, srv, discard, 1, true)
 					}
 					require.NoError(t, err)
 					defer original.OnRelease(ctx)
-					output := freshProducerDirectory()
-					producer := decodeDirectoryProducer(t, ctx, cache, srv, recipe)
-					require.NoError(t, producer.Evaluate(ctx, output))
+					output := freshLazyOperationDirectory()
+					operation := decodeDirectoryLazyOperation(t, ctx, cache, srv, recipe)
+					require.NoError(t, operation.Evaluate(ctx, output))
 					defer output.OnRelease(ctx)
-					require.Equal(t, readProducerDirectoryFile(t, ctx, original, "tracked"), readProducerDirectoryFile(t, ctx, output, "tracked"))
-					require.Equal(t, "original", string(readProducerDirectoryFile(t, ctx, output, "tracked")))
-					_, snap, err := producedDirectoryOutput(output)
+					require.Equal(t, readLazyOperationDirectoryFile(t, ctx, original, "tracked"), readLazyOperationDirectoryFile(t, ctx, output, "tracked"))
+					require.Equal(t, "original", string(readLazyOperationDirectoryFile(t, ctx, output, "tracked")))
+					_, snap, err := directoryOutput(output)
 					require.NoError(t, err)
 					require.NoError(t, MountRef(ctx, snap, func(root string, _ *mount.Mount) error {
 						_, err := os.Stat(filepath.Join(root, ".git"))
@@ -158,11 +158,11 @@ func TestGitCompletedProducersEvaluate(t *testing.T) {
 			}
 		}
 	}
-	bare := producerGitSnapshot(t, ctx, store, func(root string) { producerGit(t, root, "init", "--bare") })
-	bareDir := producerDirectoryResult(t, ctx, cache, srv, "bareSource", "/", bare)
-	bareRepo := producerLocalRepo(t, ctx, cache, srv, "bareRepo", bareDir)
-	invalid := decodeDirectoryProducer(t, ctx, cache, srv, &DirectoryGitCleanedLazy{LazyState: NewLazyState(), Repo: bareRepo})
-	empty := freshProducerDirectory()
+	bare := operationGitSnapshot(t, ctx, store, func(root string) { operationGit(t, root, "init", "--bare") })
+	bareDir := operationDirectoryResult(t, ctx, cache, srv, "bareSource", "/", bare)
+	bareRepo := operationLocalRepo(t, ctx, cache, srv, "bareRepo", bareDir)
+	invalid := decodeDirectoryLazyOperation(t, ctx, cache, srv, &DirectoryGitCleanedLazy{LazyState: NewLazyState(), Repo: bareRepo})
+	empty := freshLazyOperationDirectory()
 	require.EqualError(t, invalid.Evaluate(ctx, empty), "git cleaned operation: saved input has no worktree")
 	alias, err := invalid.(*DirectoryGitCleanedLazy).EvaluateForCall(ctx, empty)
 	require.NoError(t, err)
@@ -179,118 +179,118 @@ func boolName(b bool) string {
 	return "false"
 }
 
-func TestGitCompletedProducersRemoteEvaluate(t *testing.T) {
+func TestGitLazyOperationsRemoteEvaluate(t *testing.T) {
 	ctx, _, cache, srv, _ := executionFixture(t)
 	base := t.TempDir()
 	work := filepath.Join(base, "work")
 	require.NoError(t, os.Mkdir(work, 0755))
-	producerGit(t, work, "init", "-b", "main")
-	producerGit(t, work, "config", "user.name", "Test")
-	producerGit(t, work, "config", "user.email", "test@example.com")
+	operationGit(t, work, "init", "-b", "main")
+	operationGit(t, work, "config", "user.name", "Test")
+	operationGit(t, work, "config", "user.email", "test@example.com")
 	require.NoError(t, os.WriteFile(filepath.Join(work, "tracked"), []byte("saved"), 0644))
-	producerGit(t, work, "add", ".")
-	producerGit(t, work, "commit", "-m", "saved")
-	savedSHA := producerGit(t, work, "rev-parse", "HEAD")
-	producerGit(t, work, "tag", "v1")
-	producerGit(t, base, "clone", "--bare", work, "origin.git")
+	operationGit(t, work, "add", ".")
+	operationGit(t, work, "commit", "-m", "saved")
+	savedSHA := operationGit(t, work, "rev-parse", "HEAD")
+	operationGit(t, work, "tag", "v1")
+	operationGit(t, base, "clone", "--bare", work, "origin.git")
 	gitPath, err := exec.LookPath("git")
 	require.NoError(t, err)
 	origin := httptest.NewServer(&cgi.Handler{Path: gitPath, Args: []string{"http-backend"}, Env: []string{"GIT_PROJECT_ROOT=" + base, "GIT_HTTP_EXPORT_ALL=1"}})
 	defer origin.Close()
 	sub := filepath.Join(base, "subwork")
 	require.NoError(t, os.Mkdir(sub, 0755))
-	producerGit(t, sub, "init", "-b", "main")
-	producerGit(t, sub, "config", "user.name", "Test")
-	producerGit(t, sub, "config", "user.email", "test@example.com")
+	operationGit(t, sub, "init", "-b", "main")
+	operationGit(t, sub, "config", "user.name", "Test")
+	operationGit(t, sub, "config", "user.email", "test@example.com")
 	require.NoError(t, os.WriteFile(filepath.Join(sub, "child"), []byte("saved submodule"), 0644))
-	producerGit(t, sub, "add", ".")
-	producerGit(t, sub, "commit", "-m", "submodule")
-	producerGit(t, base, "clone", "--bare", sub, "sub.git")
-	producerGit(t, work, "submodule", "add", origin.URL+"/sub.git", "module")
-	producerGit(t, work, "commit", "-am", "add submodule")
-	savedSHA = producerGit(t, work, "rev-parse", "HEAD")
-	producerGit(t, work, "push", filepath.Join(base, "origin.git"), "main")
+	operationGit(t, sub, "add", ".")
+	operationGit(t, sub, "commit", "-m", "submodule")
+	operationGit(t, base, "clone", "--bare", sub, "sub.git")
+	operationGit(t, work, "submodule", "add", origin.URL+"/sub.git", "module")
+	operationGit(t, work, "commit", "-am", "add submodule")
+	savedSHA = operationGit(t, work, "rev-parse", "HEAD")
+	operationGit(t, work, "push", filepath.Join(base, "origin.git"), "main")
 	url, err := gitutil.ParseURL(origin.URL + "/origin.git")
 	require.NoError(t, err)
 	srv.InstallObject(dagql.NewClass(srv, dagql.ClassOpts[*GitRepository]{}))
 	srv.InstallObject(dagql.NewClass(srv, dagql.ClassOpts[*GitRef]{}))
 	srv.InstallObject(dagql.NewClass(srv, dagql.ClassOpts[*GitCommit]{}))
 	srv.InstallObject(dagql.NewClass(srv, dagql.ClassOpts[*RemoteGitMirror]{}))
-	mirror := attachTransferObject(t, ctx, cache, srv, "producer-execution", "mirror", NewRemoteGitMirror(url.Remote()))
-	repo := attachTransferObject(t, ctx, cache, srv, "producer-execution", "remoteRepo", &GitRepository{Backend: &RemoteGitRepository{URL: url, Mirror: mirror}, Remote: &gitutil.Remote{}})
+	mirror := attachTransferObject(t, ctx, cache, srv, "operation-execution", "mirror", NewRemoteGitMirror(url.Remote()))
+	repo := attachTransferObject(t, ctx, cache, srv, "operation-execution", "remoteRepo", &GitRepository{Backend: &RemoteGitRepository{URL: url, Mirror: mirror}, Remote: &gitutil.Remote{}})
 	refValue := &gitutil.Ref{Name: "refs/heads/main", SHA: savedSHA}
 	backend, err := repo.Self().Backend.Get(ctx, refValue)
 	require.NoError(t, err)
-	ref := attachTransferObject(t, ctx, cache, srv, "producer-execution", "remoteRef", &GitRef{Repo: repo, Ref: refValue, Backend: backend})
-	commit := attachTransferObject(t, ctx, cache, srv, "producer-execution", "remoteCommit", &GitCommit{Repo: repo, Ref: &gitutil.Ref{SHA: savedSHA}, FetchRef: refValue, Backend: backend})
+	ref := attachTransferObject(t, ctx, cache, srv, "operation-execution", "remoteRef", &GitRef{Repo: repo, Ref: refValue, Backend: backend})
+	commit := attachTransferObject(t, ctx, cache, srv, "operation-execution", "remoteCommit", &GitCommit{Repo: repo, Ref: &gitutil.Ref{SHA: savedSHA}, FetchRef: refValue, Backend: backend})
 	require.NoError(t, os.WriteFile(filepath.Join(work, "tracked"), []byte("advanced"), 0644))
-	producerGit(t, work, "add", ".")
-	producerGit(t, work, "commit", "-m", "advanced")
-	producerGit(t, work, "push", filepath.Join(base, "origin.git"), "main")
+	operationGit(t, work, "add", ".")
+	operationGit(t, work, "commit", "-m", "advanced")
+	operationGit(t, work, "push", filepath.Join(base, "origin.git"), "main")
 	for _, recipe := range []Lazy[*Directory]{&DirectoryGitTreeLazy{LazyState: NewLazyState(), Ref: ref, DiscardGitDir: true, Depth: 1, IncludeTags: true}, &DirectoryGitCommitTreeLazy{LazyState: NewLazyState(), Commit: commit, DiscardGitDir: false, Depth: 0}} {
-		decoded := decodeDirectoryProducer(t, ctx, cache, srv, recipe)
-		output := freshProducerDirectory()
+		decoded := decodeDirectoryLazyOperation(t, ctx, cache, srv, recipe)
+		output := freshLazyOperationDirectory()
 		require.NoError(t, decoded.Evaluate(ctx, output))
-		require.Equal(t, "saved", string(readProducerDirectoryFile(t, ctx, output, "tracked")))
-		require.Equal(t, "saved submodule", string(readProducerDirectoryFile(t, ctx, output, "module/child")))
+		require.Equal(t, "saved", string(readLazyOperationDirectoryFile(t, ctx, output, "tracked")))
+		require.Equal(t, "saved submodule", string(readLazyOperationDirectoryFile(t, ctx, output, "module/child")))
 		require.NoError(t, output.OnRelease(ctx))
 	}
 }
 
-func TestGitBundleCompletedProducerEvaluate(t *testing.T) {
+func TestGitBundleLazyOperationEvaluate(t *testing.T) {
 	ctx, store, cache, srv, _ := executionFixture(t)
 	srv.InstallObject(dagql.NewClass(srv, dagql.ClassOpts[*GitBundle]{}))
 	var first, second string
-	source := producerGitSnapshot(t, ctx, store, func(root string) {
-		producerGit(t, root, "init", "-b", "main")
-		producerGit(t, root, "config", "user.name", "Test")
-		producerGit(t, root, "config", "user.email", "test@example.com")
+	source := operationGitSnapshot(t, ctx, store, func(root string) {
+		operationGit(t, root, "init", "-b", "main")
+		operationGit(t, root, "config", "user.name", "Test")
+		operationGit(t, root, "config", "user.email", "test@example.com")
 		require.NoError(t, os.WriteFile(filepath.Join(root, "tracked"), []byte("first"), 0644))
-		producerGit(t, root, "add", ".")
-		producerGit(t, root, "commit", "-m", "first")
-		first = producerGit(t, root, "rev-parse", "HEAD")
+		operationGit(t, root, "add", ".")
+		operationGit(t, root, "commit", "-m", "first")
+		first = operationGit(t, root, "rev-parse", "HEAD")
 		require.NoError(t, os.WriteFile(filepath.Join(root, "tracked"), []byte("second"), 0644))
-		producerGit(t, root, "add", ".")
-		producerGit(t, root, "commit", "-m", "second")
-		second = producerGit(t, root, "rev-parse", "HEAD")
-		producerGit(t, root, "branch", "alternate")
+		operationGit(t, root, "add", ".")
+		operationGit(t, root, "commit", "-m", "second")
+		second = operationGit(t, root, "rev-parse", "HEAD")
+		operationGit(t, root, "branch", "alternate")
 	})
-	dir := producerDirectoryResult(t, ctx, cache, srv, "bundleSource", "/", source)
-	repo := producerLocalRepo(t, ctx, cache, srv, "bundleRepo", dir)
+	dir := operationDirectoryResult(t, ctx, cache, srv, "bundleSource", "/", source)
+	repo := operationLocalRepo(t, ctx, cache, srv, "bundleRepo", dir)
 	for _, incremental := range []bool{false, true} {
 		t.Run(boolName(incremental), func(t *testing.T) {
-			bundleSnapshot := producerGitSnapshot(t, ctx, store, func(root string) {
+			bundleSnapshot := operationGitSnapshot(t, ctx, store, func(root string) {
 				require.NoError(t, MountRef(ctx, source, func(repoRoot string, _ *mount.Mount) error {
 					args := []string{"bundle", "create", filepath.Join(root, "repo.bundle"), "main", "alternate"}
 					if incremental {
 						args = append(args, "^"+first)
 					}
-					producerGit(t, repoRoot, args...)
+					operationGit(t, repoRoot, args...)
 					return nil
 				}))
 			})
-			file := freshProducerFile()
+			file := freshLazyOperationFile()
 			file.File.setValue("/repo.bundle")
 			file.Snapshot.setValue(bundleSnapshot)
-			fileRes := attachTransferObject(t, ctx, cache, srv, "producer-execution", "bundleFile"+boolName(incremental), file)
+			fileRes := attachTransferObject(t, ctx, cache, srv, "operation-execution", "bundleFile"+boolName(incremental), file)
 			bundle, err := ParseGitBundle(ctx, fileRes)
 			require.NoError(t, err)
 			require.Len(t, bundle.Refs, 2)
-			bundleRes := attachTransferObject(t, ctx, cache, srv, "producer-execution", "bundle"+boolName(incremental), bundle)
+			bundleRes := attachTransferObject(t, ctx, cache, srv, "operation-execution", "bundle"+boolName(incremental), bundle)
 			eager, err := ImportGitBundle(ctx, repo.Self(), bundle, "")
 			require.NoError(t, err)
 			defer eager.OnRelease(ctx)
-			producer := decodeDirectoryProducer(t, ctx, cache, srv, &DirectoryGitBundleImportLazy{LazyState: NewLazyState(), Repo: repo, Bundle: bundleRes})
-			output := freshProducerDirectory()
-			require.NoError(t, producer.Evaluate(ctx, output))
+			operation := decodeDirectoryLazyOperation(t, ctx, cache, srv, &DirectoryGitBundleImportLazy{LazyState: NewLazyState(), Repo: repo, Bundle: bundleRes})
+			output := freshLazyOperationDirectory()
+			require.NoError(t, operation.Evaluate(ctx, output))
 			defer output.OnRelease(ctx)
 			for _, dir := range []*Directory{eager, output} {
-				_, snapshot, err := producedDirectoryOutput(dir)
+				_, snapshot, err := directoryOutput(dir)
 				require.NoError(t, err)
 				require.NoError(t, MountRef(ctx, snapshot, func(root string, _ *mount.Mount) error {
-					require.Equal(t, second, producerGit(t, root, "rev-parse", "refs/heads/main"))
-					require.Equal(t, second, producerGit(t, root, "rev-parse", "refs/heads/alternate"))
-					require.Equal(t, "second", producerGit(t, root, "show", "refs/heads/main:tracked"))
+					require.Equal(t, second, operationGit(t, root, "rev-parse", "refs/heads/main"))
+					require.Equal(t, second, operationGit(t, root, "rev-parse", "refs/heads/alternate"))
+					require.Equal(t, "second", operationGit(t, root, "show", "refs/heads/main:tracked"))
 					return nil
 				}))
 			}
@@ -298,7 +298,7 @@ func TestGitBundleCompletedProducerEvaluate(t *testing.T) {
 				t.Run("advanced prerequisite hint on decoded repository", func(t *testing.T) {
 					base := t.TempDir()
 					require.NoError(t, MountRef(ctx, source, func(root string, _ *mount.Mount) error {
-						producerGit(t, base, "clone", "--bare", root, "origin.git")
+						operationGit(t, base, "clone", "--bare", root, "origin.git")
 						return nil
 					}))
 					gitPath, err := exec.LookPath("git")
@@ -308,28 +308,28 @@ func TestGitBundleCompletedProducerEvaluate(t *testing.T) {
 					url, err := gitutil.ParseURL(origin.URL + "/origin.git")
 					require.NoError(t, err)
 					srv.InstallObject(dagql.NewClass(srv, dagql.ClassOpts[*RemoteGitMirror]{}))
-					mirror := attachTransferObject(t, ctx, cache, srv, "producer-execution", "bundleHintMirror", NewRemoteGitMirror(url.Remote()))
+					mirror := attachTransferObject(t, ctx, cache, srv, "operation-execution", "bundleHintMirror", NewRemoteGitMirror(url.Remote()))
 					capturedRepo := &GitRepository{Backend: &RemoteGitRepository{URL: url, Mirror: mirror, Platform: Platform{OS: "linux", Architecture: "amd64"}}, Remote: &gitutil.Remote{}}
 					encoded, err := capturedRepo.EncodePersistedObject(ctx, dagql.NewPersistEncodeContext(cache, 0, nil))
 					require.NoError(t, err)
-					require.Equal(t, second, producerGit(t, filepath.Join(base, "origin.git"), "rev-parse", "main"))
+					require.Equal(t, second, operationGit(t, filepath.Join(base, "origin.git"), "rev-parse", "main"))
 
 					value, err := capturedRepo.DecodePersistedObject(ctx, dagql.NewPersistDecodeContext(srv, 0, nil), encoded.JSON)
 					require.NoError(t, err)
 					decodedRepo := value.(*GitRepository)
 					require.NotSame(t, capturedRepo, decodedRepo)
 					require.Nil(t, decodedRepo.Remote.Refs)
-					decodedRow := attachTransferObject(t, ctx, cache, srv, "producer-execution", "decodedBundleHintRepo", decodedRepo)
+					decodedRow := attachTransferObject(t, ctx, cache, srv, "operation-execution", "decodedBundleHintRepo", decodedRepo)
 					kind, recipeJSON, err := encodePersistedDirectoryLazy(ctx, dagql.NewPersistEncodeContext(cache, 0, nil), &DirectoryGitBundleImportLazy{LazyState: NewLazyState(), Repo: decodedRow, Bundle: bundleRes, PrerequisiteRef: "main"})
 					require.NoError(t, err)
 
-					producerGit(t, base, "clone", filepath.Join(base, "origin.git"), "advanced")
+					operationGit(t, base, "clone", filepath.Join(base, "origin.git"), "advanced")
 					work := filepath.Join(base, "advanced")
 					require.NoError(t, os.WriteFile(filepath.Join(work, "tracked"), []byte("advanced hint"), 0644))
-					producerGit(t, work, "add", ".")
-					producerGit(t, work, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "advance hint")
-					advanced := producerGit(t, work, "rev-parse", "HEAD")
-					producerGit(t, work, "push", "origin", "main")
+					operationGit(t, work, "add", ".")
+					operationGit(t, work, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "advance hint")
+					advanced := operationGit(t, work, "rev-parse", "HEAD")
+					operationGit(t, work, "push", "origin", "main")
 					require.NotEqual(t, second, advanced)
 
 					recipe, err := decodePersistedDirectoryLazy(ctx, dagql.NewPersistDecodeContext(srv, 0, nil), kind, recipeJSON)
@@ -342,7 +342,7 @@ func TestGitBundleCompletedProducerEvaluate(t *testing.T) {
 					observed := &bundlePrerequisiteObserver{GitRepositoryBackend: decodedRepo.Backend}
 					decodedRepo.Backend = observed
 					defer func() { decodedRepo.Backend = observed.GitRepositoryBackend }()
-					private := freshProducerDirectory()
+					private := freshLazyOperationDirectory()
 					require.NoError(t, pending.Evaluate(ctx, private))
 					defer private.OnRelease(ctx)
 					hint, err := decodedRepo.Remote.Lookup("main")
@@ -350,22 +350,22 @@ func TestGitBundleCompletedProducerEvaluate(t *testing.T) {
 					require.Equal(t, advanced, hint.SHA)
 					require.Equal(t, []gitutil.Ref{{Name: "refs/heads/main", SHA: first}}, observed.requested)
 					require.Equal(t, []string{first}, pending.Bundle.Self().PrerequisiteSHAs)
-					_, snapshot, err := producedDirectoryOutput(private)
+					_, snapshot, err := directoryOutput(private)
 					require.NoError(t, err)
 					require.NoError(t, MountRef(ctx, snapshot, func(root string, _ *mount.Mount) error {
 						for _, ref := range bundle.Refs {
-							require.Equal(t, ref.SHA, producerGit(t, root, "rev-parse", ref.Name))
-							require.Equal(t, first, producerGit(t, root, "rev-parse", ref.Name+"^"))
+							require.Equal(t, ref.SHA, operationGit(t, root, "rev-parse", ref.Name))
+							require.Equal(t, first, operationGit(t, root, "rev-parse", ref.Name+"^"))
 						}
-						require.Equal(t, first, producerGit(t, root, "rev-parse", first+"^{commit}"))
-						require.Equal(t, "second", producerGit(t, root, "show", "refs/heads/main:tracked"))
+						require.Equal(t, first, operationGit(t, root, "rev-parse", first+"^{commit}"))
+						require.Equal(t, "second", operationGit(t, root, "show", "refs/heads/main:tracked"))
 						return nil
 					}))
 				})
-				missingSnapshot := producerGitSnapshot(t, ctx, store, func(root string) { producerGit(t, root, "init", "--bare") })
-				missingDir := producerDirectoryResult(t, ctx, cache, srv, "missingPrerequisiteDirectory", "/", missingSnapshot)
-				missingRepo := producerLocalRepo(t, ctx, cache, srv, "missingPrerequisiteRepo", missingDir)
-				missing := freshProducerDirectory()
+				missingSnapshot := operationGitSnapshot(t, ctx, store, func(root string) { operationGit(t, root, "init", "--bare") })
+				missingDir := operationDirectoryResult(t, ctx, cache, srv, "missingPrerequisiteDirectory", "/", missingSnapshot)
+				missingRepo := operationLocalRepo(t, ctx, cache, srv, "missingPrerequisiteRepo", missingDir)
+				missing := freshLazyOperationDirectory()
 				err := (&DirectoryGitBundleImportLazy{LazyState: NewLazyState(), Repo: missingRepo, Bundle: bundleRes}).Evaluate(ctx, missing)
 				require.ErrorContains(t, err, "is not available from the repository")
 				_, ready := missing.Snapshot.Peek()
@@ -373,8 +373,8 @@ func TestGitBundleCompletedProducerEvaluate(t *testing.T) {
 			}
 			changed := bundle.Clone()
 			changed.ObjectFormat = "sha256"
-			changedRes := attachTransferObject(t, ctx, cache, srv, "producer-execution", "changedBundle"+boolName(incremental), changed)
-			rejected := freshProducerDirectory()
+			changedRes := attachTransferObject(t, ctx, cache, srv, "operation-execution", "changedBundle"+boolName(incremental), changed)
+			rejected := freshLazyOperationDirectory()
 			err = (&DirectoryGitBundleImportLazy{LazyState: NewLazyState(), Repo: repo, Bundle: changedRes}).Evaluate(ctx, rejected)
 			require.ErrorContains(t, err, "header changed")
 			_, ready := rejected.Snapshot.Peek()
@@ -388,29 +388,29 @@ func TestGitBundleCompletedProducerEvaluate(t *testing.T) {
 						case "ref order":
 							inputBundle.Refs[0], inputBundle.Refs[1] = inputBundle.Refs[1], inputBundle.Refs[0]
 						case "object format":
-							wrongFormat := producerGitSnapshot(t, ctx, store, func(root string) { producerGit(t, root, "init", "--bare", "--object-format=sha256") })
-							inputRepo = producerLocalRepo(t, ctx, cache, srv, "wrongFormatRepo", producerDirectoryResult(t, ctx, cache, srv, "wrongFormatDirectory", "/", wrongFormat))
+							wrongFormat := operationGitSnapshot(t, ctx, store, func(root string) { operationGit(t, root, "init", "--bare", "--object-format=sha256") })
+							inputRepo = operationLocalRepo(t, ctx, cache, srv, "wrongFormatRepo", operationDirectoryResult(t, ctx, cache, srv, "wrongFormatDirectory", "/", wrongFormat))
 							wantErr = "object format"
 						case "malformed", "oversize":
-							badSnapshot := producerGitSnapshot(t, ctx, store, func(root string) {
+							badSnapshot := operationGitSnapshot(t, ctx, store, func(root string) {
 								name := filepath.Join(root, "bad.bundle")
 								require.NoError(t, os.WriteFile(name, []byte("invalid bundle\n"), 0644))
 								if failure == "oversize" {
 									require.NoError(t, os.Truncate(name, (128<<20)+1))
 								}
 							})
-							badFile := freshProducerFile()
+							badFile := freshLazyOperationFile()
 							badFile.File.setValue("/bad.bundle")
 							badFile.Snapshot.setValue(badSnapshot)
-							inputBundle.File = attachTransferObject(t, ctx, cache, srv, "producer-execution", failure+"File", badFile)
+							inputBundle.File = attachTransferObject(t, ctx, cache, srv, "operation-execution", failure+"File", badFile)
 							wantErr = "signature"
 							if failure == "oversize" {
 								wantErr = "size"
 							}
 						}
-						input := attachTransferObject(t, ctx, cache, srv, "producer-execution", failure+"Bundle", inputBundle)
-						decoded := decodeDirectoryProducer(t, ctx, cache, srv, &DirectoryGitBundleImportLazy{LazyState: NewLazyState(), Repo: inputRepo, Bundle: input})
-						receiver := freshProducerDirectory()
+						input := attachTransferObject(t, ctx, cache, srv, "operation-execution", failure+"Bundle", inputBundle)
+						decoded := decodeDirectoryLazyOperation(t, ctx, cache, srv, &DirectoryGitBundleImportLazy{LazyState: NewLazyState(), Repo: inputRepo, Bundle: input})
+						receiver := freshLazyOperationDirectory()
 						privateErr := decoded.Evaluate(ctx, receiver)
 						require.ErrorContains(t, privateErr, wantErr)
 						_, eagerErr := ImportGitBundle(ctx, inputRepo.Self(), inputBundle, "")

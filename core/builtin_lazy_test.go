@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAuditedEagerProducersEvaluate(t *testing.T) {
+func TestBuiltinLazyOperationEvaluate(t *testing.T) {
 	ctx, store, cache, srv, server := executionFixture(t)
 	packaged, err := local.NewStore(t.TempDir())
 	require.NoError(t, err)
@@ -34,11 +34,11 @@ func TestAuditedEagerProducersEvaluate(t *testing.T) {
 	require.False(t, eager.Lazy.IsEvaluated())
 	require.Equal(t, requested, eager.Platform)
 	require.NoError(t, eager.Evaluate(ctx))
-	producer := eager.Lazy.(*ContainerBuiltinLazy)
-	require.Equal(t, requested, producer.Platform)
+	operation := eager.Lazy.(*ContainerBuiltinLazy)
+	require.Equal(t, requested, operation.Platform)
 	require.Equal(t, "amd64", eager.Platform.Architecture)
 	call := &dagql.ResultCall{Kind: dagql.ResultCallKindField, Field: "_builtinContainer", Type: dagql.NewResultCallType(eager.Type())}
-	raw, err := producer.EncodePersisted(ctx, dagql.NewPersistEncodeContext(cache, 0, call))
+	raw, err := operation.EncodePersisted(ctx, dagql.NewPersistEncodeContext(cache, 0, call))
 	require.NoError(t, err)
 	decoded, err := decodeContainerBuiltinLazy(raw)
 	require.NoError(t, err)
@@ -52,22 +52,22 @@ func TestAuditedEagerProducersEvaluate(t *testing.T) {
 	require.Equal(t, eager.Config, private.Config)
 	eagerFS, _ := eager.FS.Peek()
 	privateFS, _ := private.FS.Peek()
-	eagerPath, _, err := producedDirectoryOutput(eagerFS)
+	eagerPath, _, err := directoryOutput(eagerFS)
 	require.NoError(t, err)
-	privatePath, _, err := producedDirectoryOutput(privateFS)
+	privatePath, _, err := directoryOutput(privateFS)
 	require.NoError(t, err)
 	require.Equal(t, eagerPath, privatePath)
 	require.NoError(t, packaged.Delete(ctx, desc.Digest))
 	missing, err := decodeContainerBuiltinLazy(raw)
 	require.NoError(t, err)
 	require.ErrorContains(t, missing.Evaluate(ctx, NewContainer(requested)), "lookup builtin image manifest")
-	t.Run("empty patch without producer", func(t *testing.T) {
+	t.Run("empty patch without operation", func(t *testing.T) {
 		before, _ := store.Build(t, nil, "data", "before\n")
 		after, err := store.Manager.GetBySnapshotID(ctx, before.SnapshotID())
 		require.NoError(t, err)
 		change, err := NewChangeset(ctx,
-			producerDirectoryResult(t, ctx, cache, srv, "patchBefore", "/", before),
-			producerDirectoryResult(t, ctx, cache, srv, "patchAfter", "/", after))
+			operationDirectoryResult(t, ctx, cache, srv, "patchBefore", "/", before),
+			operationDirectoryResult(t, ctx, cache, srv, "patchAfter", "/", after))
 		require.NoError(t, err)
 		patch, err := change.AsPatch(ctx)
 		require.NoError(t, err)
@@ -90,7 +90,7 @@ func TestAuditedEagerProducersEvaluate(t *testing.T) {
 		decoded, err := decodePersistedFileLazy(ctx, nil, persistedFileLazyKindBlob, raw)
 		require.NoError(t, err)
 		server.srv = nil
-		output := freshProducerFile()
+		output := freshLazyOperationFile()
 		require.NoError(t, decoded.Evaluate(ctx, output))
 		defer output.OnRelease(ctx)
 		body, info := producedFileContents(t, ctx, output)
