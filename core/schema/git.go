@@ -1262,7 +1262,7 @@ func (s *gitSchema) withBundleDirectory(
 	ctx context.Context,
 	parent dagql.ObjectResult[*core.GitRepository],
 	args gitWithBundleArgs,
-) (inst dagql.ObjectResult[*core.Directory], _ error) {
+) (inst dagql.ObjectResult[*core.Directory], rerr error) {
 	srv, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
 		return inst, err
@@ -1275,6 +1275,11 @@ func (s *gitSchema) withBundleDirectory(
 	if err != nil {
 		return inst, err
 	}
+	defer func() {
+		if rerr != nil {
+			rerr = errors.Join(rerr, dir.OnRelease(context.WithoutCancel(ctx)))
+		}
+	}()
 	return dagql.NewObjectResultForCurrentCall(ctx, srv, dir)
 }
 
@@ -1725,7 +1730,7 @@ type treeArgs struct {
 	SSHAuthSocket dagql.Optional[core.SocketID] `name:"sshAuthSocket"`
 }
 
-func (s *gitSchema) tree(ctx context.Context, parent dagql.ObjectResult[*core.GitRef], args treeArgs) (inst dagql.ObjectResult[*core.Directory], _ error) {
+func (s *gitSchema) tree(ctx context.Context, parent dagql.ObjectResult[*core.GitRef], args treeArgs) (inst dagql.ObjectResult[*core.Directory], rerr error) {
 	srv, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
 		return inst, fmt.Errorf("failed to get current dagql server: %w", err)
@@ -1742,6 +1747,11 @@ func (s *gitSchema) tree(ctx context.Context, parent dagql.ObjectResult[*core.Gi
 	if err != nil {
 		return inst, err
 	}
+	defer func() {
+		if rerr != nil {
+			rerr = errors.Join(rerr, dir.OnRelease(context.WithoutCancel(ctx)))
+		}
+	}()
 	inst, err = dagql.NewObjectResultForCurrentCall(ctx, srv, dir)
 	if err != nil {
 		return inst, err
@@ -1826,7 +1836,7 @@ type commitTreeArgs struct {
 	IncludeTags   bool `default:"false"`
 }
 
-func (s *gitSchema) commitTree(ctx context.Context, parent dagql.ObjectResult[*core.GitCommit], args commitTreeArgs) (inst dagql.ObjectResult[*core.Directory], _ error) {
+func (s *gitSchema) commitTree(ctx context.Context, parent dagql.ObjectResult[*core.GitCommit], args commitTreeArgs) (inst dagql.ObjectResult[*core.Directory], rerr error) {
 	srv, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
 		return inst, fmt.Errorf("failed to get current dagql server: %w", err)
@@ -1836,6 +1846,11 @@ func (s *gitSchema) commitTree(ctx context.Context, parent dagql.ObjectResult[*c
 	if err != nil {
 		return inst, err
 	}
+	defer func() {
+		if rerr != nil {
+			rerr = errors.Join(rerr, dir.OnRelease(context.WithoutCancel(ctx)))
+		}
+	}()
 	inst, err = dagql.NewObjectResultForCurrentCall(ctx, srv, dir)
 	if err != nil {
 		return inst, err

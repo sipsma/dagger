@@ -148,6 +148,11 @@ func (s *hostSchema) builtinContainer(ctx context.Context, parent dagql.ObjectRe
 		return inst, err
 	}
 
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, ctr.OnRelease(context.WithoutCancel(ctx)))
+		}
+	}()
 	return dagql.NewObjectResultForCurrentCall(ctx, srv, ctr)
 }
 
