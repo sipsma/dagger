@@ -1,3 +1,5 @@
+> Resolved by coordinator decision 1 and acquisition Addendum 1 at `04f6d695d4a944fd27e98eb006ed0cda761b3dca`. The scoped inline implementation and passing checks are recorded in [REPORT.md](REPORT.md). The original record below is retained as history.
+
 # Blocker: storage-role ownership for inline part installation
 
 The mandatory inline-output contract needs a persistence mechanism absent from the specified parent. This blocks the complete Prepare/Commit/Finish implementation in step 2. No replacement ownership convention has been implemented.

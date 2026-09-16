@@ -1,0 +1,172 @@
+{
+  "description": "Projection of the actual A export from the final cold proof, after declared ModuleObject fields retain attached results. Counts, kinds and recipe presence only; no reconstructed producer.",
+  "valueCount": 226,
+  "selectedOutputs": [
+    {
+      "ordinal": 2,
+      "address": {
+        "part": "snapshot"
+      }
+    }
+  ],
+  "reportArtifactField": {
+    "kind": "result_id",
+    "resultID": 2
+  },
+  "rows": [
+    {
+      "ordinal": 1,
+      "field": "directory",
+      "family": "core.Directory",
+      "producerState": "none",
+      "hasLazyJSON": false,
+      "parts": {},
+      "form": "transfer_pending",
+      "pendingOfferCount": 0
+    },
+    {
+      "ordinal": 2,
+      "field": "withNewFile",
+      "family": "core.Directory",
+      "producerState": "completed",
+      "hasLazyJSON": true,
+      "parts": {},
+      "form": "transfer_pending",
+      "pendingOfferCount": 0
+    },
+    {
+      "ordinal": 199,
+      "field": "directory",
+      "family": "core.Directory",
+      "producerState": "none",
+      "hasLazyJSON": false,
+      "parts": {},
+      "form": "transfer_pending",
+      "pendingOfferCount": 0
+    },
+    {
+      "ordinal": 206,
+      "field": "withoutFile",
+      "family": "core.Directory",
+      "producerState": "completed",
+      "hasLazyJSON": true,
+      "parts": {},
+      "form": "transfer_pending",
+      "pendingOfferCount": 0
+    },
+    {
+      "ordinal": 211,
+      "field": "__schemaJSONFile",
+      "family": "core.File",
+      "producerState": "completed",
+      "hasLazyJSON": true,
+      "parts": {},
+      "form": "transfer_pending",
+      "pendingOfferCount": 0
+    },
+    {
+      "ordinal": 212,
+      "field": "withMountedFile",
+      "family": "core.Container",
+      "producerState": "none",
+      "hasLazyJSON": false,
+      "parts": {
+        "execMeta": "absent",
+        "fs": "pending",
+        "mount:/schema.json": "pending"
+      },
+      "form": null,
+      "pendingOfferCount": 0
+    },
+    {
+      "ordinal": 213,
+      "field": "withMountedDirectory",
+      "family": "core.Container",
+      "producerState": "none",
+      "hasLazyJSON": false,
+      "parts": {
+        "execMeta": "absent",
+        "fs": "pending",
+        "mount:/schema.json": "pending",
+        "mount:/src": "pending"
+      },
+      "form": null,
+      "pendingOfferCount": 0
+    },
+    {
+      "ordinal": 214,
+      "field": "withWorkdir",
+      "family": "core.Container",
+      "producerState": "none",
+      "hasLazyJSON": false,
+      "parts": {
+        "execMeta": "absent",
+        "fs": "pending",
+        "mount:/schema.json": "pending",
+        "mount:/src": "pending"
+      },
+      "form": null,
+      "pendingOfferCount": 0
+    },
+    {
+      "ordinal": 215,
+      "field": "withEnvVariable",
+      "family": "core.Container",
+      "producerState": "none",
+      "hasLazyJSON": false,
+      "parts": {
+        "execMeta": "absent",
+        "fs": "pending",
+        "mount:/schema.json": "pending",
+        "mount:/src": "pending"
+      },
+      "form": null,
+      "pendingOfferCount": 0
+    },
+    {
+      "ordinal": 216,
+      "field": "withoutDefaultArgs",
+      "family": "core.Container",
+      "producerState": "none",
+      "hasLazyJSON": false,
+      "parts": {
+        "execMeta": "absent",
+        "fs": "pending",
+        "mount:/schema.json": "pending",
+        "mount:/src": "pending"
+      },
+      "form": null,
+      "pendingOfferCount": 0
+    },
+    {
+      "ordinal": 217,
+      "field": "withExec",
+      "family": "core.Container",
+      "producerState": "completed",
+      "hasLazyJSON": true,
+      "parts": {
+        "execMeta": "pending",
+        "fs": "pending",
+        "mount:/schema.json": "pending",
+        "mount:/src": "pending"
+      },
+      "form": null,
+      "pendingOfferCount": 0
+    },
+    {
+      "ordinal": 218,
+      "field": "withExec",
+      "family": "core.Container",
+      "producerState": "completed",
+      "hasLazyJSON": true,
+      "parts": {
+        "execMeta": "pending",
+        "fs": "pending",
+        "mount:/schema.json": "pending",
+        "mount:/src": "pending"
+      },
+      "form": null,
+      "pendingOfferCount": 0
+    }
+  ]
+}
