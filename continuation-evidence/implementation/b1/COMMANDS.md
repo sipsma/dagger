@@ -1,5 +1,25 @@
 # Verification commands
 
+## Round 2
+
+The tested implementation tip is `688bef3408`; the new commits are recorded in `ROUND2-COMMITS.txt`. The engine-debugging skill was read again before running tests. All commands ran sequentially, with no edits to Go files during the unfiltered run. `GOFLAGS` was empty.
+
+```sh
+go test -c ./core -o /tmp/b1-r2-core.test
+sudo -n unshare --mount --propagation private /tmp/b1-r2-core.test -test.run '^TestGitBundleCompletedProducerEvaluate$' -test.count=1 -test.v
+
+go test -o /tmp/b1-r2-core.test ./core -run '^TestRecordCompletedProducer$' -count=1 -v
+go test ./core/schema -run '^TestProducerResolverCleanup$' -count=1 -v
+
+env GOPATH=/home/exedev/go GOCACHE=/home/exedev/.cache/go-build go test -p=1 -exec='sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core ./core/schema ./dagql -count=1
+```
+
+The final command is I3's unfiltered package run. `-p=1` serializes packages; `-exec` gives each test binary mount privileges inside a private mount namespace. Neither flag filters tests. The preserved Go paths let the nested test-only build-overlay fixture use the existing toolchain and dependency cache. The fixture builds only its five injection cases in the child process, while the outer package run remains unfiltered.
+
+The first I1 fixture run failed because its RemoteGitRepository omitted a platform; adding the ordinary Linux/amd64 platform made that saved row valid. The final I1 log records the complete bundle test, including the added moving-hint case.
+
+## Round 1
+
 Run from the repository root. All selections below completed successfully and ran sequentially. The final logs are alongside this file. Compilation and successful earlier commit checks are recorded in `logs/builds.txt`; initial cleanup and recording logs are retained separately.
 
 ```sh

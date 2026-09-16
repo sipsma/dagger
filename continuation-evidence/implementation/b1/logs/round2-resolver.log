@@ -1,0 +1,40 @@
+=== RUN   TestProducerResolverCleanup
+=== RUN   TestProducerResolverCleanup/constructed_output_recording
+    producer_recording_fault_test.go:76: === RUN   TestProducerResolverCleanup
+        === RUN   TestProducerResolverCleanup/constructed_output_recording
+        === RUN   TestProducerResolverCleanup/constructed_output_recording/cleaned
+        2026/09/16 06:23:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+        === RUN   TestProducerResolverCleanup/constructed_output_recording/HTTP
+        2026/09/16 06:23:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+        === RUN   TestProducerResolverCleanup/constructed_output_recording/bundle
+        2026/09/16 06:23:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+        === RUN   TestProducerResolverCleanup/constructed_output_recording/schema_File
+        2026/09/16 06:23:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+        === RUN   TestProducerResolverCleanup/constructed_output_recording/builtin_Container
+        2026/09/16 06:23:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+        --- PASS: TestProducerResolverCleanup (0.17s)
+            --- PASS: TestProducerResolverCleanup/constructed_output_recording (0.17s)
+                --- PASS: TestProducerResolverCleanup/constructed_output_recording/cleaned (0.05s)
+                --- PASS: TestProducerResolverCleanup/constructed_output_recording/HTTP (0.01s)
+                --- PASS: TestProducerResolverCleanup/constructed_output_recording/bundle (0.06s)
+                --- PASS: TestProducerResolverCleanup/constructed_output_recording/schema_File (0.00s)
+                --- PASS: TestProducerResolverCleanup/constructed_output_recording/builtin_Container (0.05s)
+        PASS
+        ok  	github.com/dagger/dagger/core/schema	0.248s
+        
+=== RUN   TestProducerResolverCleanup/ref_wrapping
+=== RUN   TestProducerResolverCleanup/ref_digest
+=== RUN   TestProducerResolverCleanup/commit_wrapping
+2026/09/16 06:23:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestProducerResolverCleanup/ref_recording
+=== RUN   TestProducerResolverCleanup/commit_recording
+2026/09/16 06:23:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestProducerResolverCleanup (35.40s)
+    --- PASS: TestProducerResolverCleanup/constructed_output_recording (35.40s)
+    --- PASS: TestProducerResolverCleanup/ref_wrapping (0.00s)
+    --- PASS: TestProducerResolverCleanup/ref_digest (0.00s)
+    --- PASS: TestProducerResolverCleanup/commit_wrapping (0.00s)
+    --- PASS: TestProducerResolverCleanup/ref_recording (0.00s)
+    --- PASS: TestProducerResolverCleanup/commit_recording (0.00s)
+PASS
+ok  	github.com/dagger/dagger/core/schema	35.607s

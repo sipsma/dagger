@@ -1,0 +1,67 @@
+=== RUN   TestRecordCompletedProducer
+=== RUN   TestRecordCompletedProducer/Directory
+=== RUN   TestRecordCompletedProducer/Directory/#00
+=== RUN   TestRecordCompletedProducer/Directory/nil_value
+=== RUN   TestRecordCompletedProducer/Directory/nil_producer
+=== RUN   TestRecordCompletedProducer/Directory/typed_nil_producer
+=== RUN   TestRecordCompletedProducer/Directory/pending
+=== RUN   TestRecordCompletedProducer/Directory/recorded
+=== RUN   TestRecordCompletedProducer/Directory/kind
+=== RUN   TestRecordCompletedProducer/Directory/json
+=== RUN   TestRecordCompletedProducer/Directory/path_accessor
+=== RUN   TestRecordCompletedProducer/Directory/snapshot_accessor
+=== RUN   TestRecordCompletedProducer/Directory/path
+=== RUN   TestRecordCompletedProducer/Directory/snapshot
+=== RUN   TestRecordCompletedProducer/Directory/nil_snapshot
+=== RUN   TestRecordCompletedProducer/Directory/restore
+=== RUN   TestRecordCompletedProducer/File
+=== RUN   TestRecordCompletedProducer/File/#00
+=== RUN   TestRecordCompletedProducer/File/nil_value
+=== RUN   TestRecordCompletedProducer/File/nil_producer
+=== RUN   TestRecordCompletedProducer/File/typed_nil_producer
+=== RUN   TestRecordCompletedProducer/File/pending
+=== RUN   TestRecordCompletedProducer/File/recorded
+=== RUN   TestRecordCompletedProducer/File/kind
+=== RUN   TestRecordCompletedProducer/File/json
+=== RUN   TestRecordCompletedProducer/File/path_accessor
+=== RUN   TestRecordCompletedProducer/File/snapshot_accessor
+=== RUN   TestRecordCompletedProducer/File/path
+=== RUN   TestRecordCompletedProducer/File/snapshot
+=== RUN   TestRecordCompletedProducer/File/nil_snapshot
+=== RUN   TestRecordCompletedProducer/File/restore
+=== RUN   TestRecordCompletedProducer/existing_completed_kinds_attach
+2026/09/16 06:19:34 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestRecordCompletedProducer (0.02s)
+    --- PASS: TestRecordCompletedProducer/Directory (0.00s)
+        --- PASS: TestRecordCompletedProducer/Directory/#00 (0.00s)
+        --- PASS: TestRecordCompletedProducer/Directory/nil_value (0.00s)
+        --- PASS: TestRecordCompletedProducer/Directory/nil_producer (0.00s)
+        --- PASS: TestRecordCompletedProducer/Directory/typed_nil_producer (0.00s)
+        --- PASS: TestRecordCompletedProducer/Directory/pending (0.00s)
+        --- PASS: TestRecordCompletedProducer/Directory/recorded (0.00s)
+        --- PASS: TestRecordCompletedProducer/Directory/kind (0.00s)
+        --- PASS: TestRecordCompletedProducer/Directory/json (0.00s)
+        --- PASS: TestRecordCompletedProducer/Directory/path_accessor (0.00s)
+        --- PASS: TestRecordCompletedProducer/Directory/snapshot_accessor (0.00s)
+        --- PASS: TestRecordCompletedProducer/Directory/path (0.00s)
+        --- PASS: TestRecordCompletedProducer/Directory/snapshot (0.00s)
+        --- PASS: TestRecordCompletedProducer/Directory/nil_snapshot (0.00s)
+        --- PASS: TestRecordCompletedProducer/Directory/restore (0.00s)
+    --- PASS: TestRecordCompletedProducer/File (0.00s)
+        --- PASS: TestRecordCompletedProducer/File/#00 (0.00s)
+        --- PASS: TestRecordCompletedProducer/File/nil_value (0.00s)
+        --- PASS: TestRecordCompletedProducer/File/nil_producer (0.00s)
+        --- PASS: TestRecordCompletedProducer/File/typed_nil_producer (0.00s)
+        --- PASS: TestRecordCompletedProducer/File/pending (0.00s)
+        --- PASS: TestRecordCompletedProducer/File/recorded (0.00s)
+        --- PASS: TestRecordCompletedProducer/File/kind (0.00s)
+        --- PASS: TestRecordCompletedProducer/File/json (0.00s)
+        --- PASS: TestRecordCompletedProducer/File/path_accessor (0.00s)
+        --- PASS: TestRecordCompletedProducer/File/snapshot_accessor (0.00s)
+        --- PASS: TestRecordCompletedProducer/File/path (0.00s)
+        --- PASS: TestRecordCompletedProducer/File/snapshot (0.00s)
+        --- PASS: TestRecordCompletedProducer/File/nil_snapshot (0.00s)
+        --- PASS: TestRecordCompletedProducer/File/restore (0.00s)
+    --- PASS: TestRecordCompletedProducer/existing_completed_kinds_attach (0.02s)
+PASS
+ok  	github.com/dagger/dagger/core	0.089s

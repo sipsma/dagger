@@ -1,0 +1,38 @@
+=== RUN   TestGitBundleCompletedProducerEvaluate
+=== RUN   TestGitBundleCompletedProducerEvaluate/false
+2026/09/16 06:21:49 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 06:21:49 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=68.60297ms
+2026/09/16 06:21:49 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 06:21:49 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=32.477462ms err="git bundle header changed after parsing"
+=== RUN   TestGitBundleCompletedProducerEvaluate/false/ref_order
+2026/09/16 06:21:49 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 06:21:49 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=26.858089ms err="git bundle header changed after parsing"
+=== RUN   TestGitBundleCompletedProducerEvaluate/false/object_format
+2026/09/16 06:21:49 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 06:21:49 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=38.035916ms err="import git bundle prerequisites : git bundle object format is sha1, repository object format is sha256"
+=== RUN   TestGitBundleCompletedProducerEvaluate/false/malformed
+2026/09/16 06:21:49 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 06:21:49 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=31.086734ms err="invalid git bundle signature \"invalid bundle\""
+=== RUN   TestGitBundleCompletedProducerEvaluate/false/oversize
+2026/09/16 06:21:49 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 06:21:49 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=9.09525ms err="git bundle size 134217729 exceeds limit 134217728"
+=== RUN   TestGitBundleCompletedProducerEvaluate/true
+2026/09/16 06:21:49 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 06:21:49 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=88.121848ms
+=== RUN   TestGitBundleCompletedProducerEvaluate/true/advanced_prerequisite_hint_on_decoded_repository
+2026/09/16 06:21:49 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 06:21:50 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=183.888236ms
+2026/09/16 06:21:50 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 06:21:50 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=39.580894ms err="import git bundle prerequisites 93218368844da54bdf70a588d0f306c9cf275cfd: git bundle prerequisite 93218368844da54bdf70a588d0f306c9cf275cfd is not available from the repository"
+2026/09/16 06:21:50 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 06:21:50 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=22.556084ms err="git bundle header changed after parsing"
+2026/09/16 06:21:50 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestGitBundleCompletedProducerEvaluate (1.24s)
+    --- PASS: TestGitBundleCompletedProducerEvaluate/false (0.50s)
+        --- PASS: TestGitBundleCompletedProducerEvaluate/false/ref_order (0.05s)
+        --- PASS: TestGitBundleCompletedProducerEvaluate/false/object_format (0.09s)
+        --- PASS: TestGitBundleCompletedProducerEvaluate/false/malformed (0.07s)
+        --- PASS: TestGitBundleCompletedProducerEvaluate/false/oversize (0.03s)
+    --- PASS: TestGitBundleCompletedProducerEvaluate/true (0.65s)
+        --- PASS: TestGitBundleCompletedProducerEvaluate/true/advanced_prerequisite_hint_on_decoded_repository (0.30s)
+PASS
