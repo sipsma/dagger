@@ -23,6 +23,7 @@ import (
 
 	"github.com/dagger/dagger/core"
 	"github.com/dagger/dagger/dagql"
+	"github.com/dagger/dagger/dagql/call"
 	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/filesync"
 	bkcache "github.com/dagger/dagger/engine/snapshots"
@@ -359,7 +360,7 @@ func (s *hostSchema) directory(ctx context.Context, host dagql.ObjectResult[*cor
 		_ = dir.OnRelease(context.WithoutCancel(ctx))
 		return inst, fmt.Errorf("failed to create directory result: %w", err)
 	}
-	inst, err = inst.WithContentDigest(ctx, contentDgst)
+	inst, err = inst.WithContentDigest(ctx, contentDgst, call.ExtraDigestLabelRemoteCache)
 	if err != nil {
 		_ = dir.OnRelease(context.WithoutCancel(ctx))
 		return inst, err

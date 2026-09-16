@@ -2029,6 +2029,7 @@ func (src *ModuleSource) LoadContextGit(
 }
 
 type LocalModuleSource struct {
+	Foreign              bool `json:"foreign,omitempty"`
 	ContextDirectoryPath string
 }
 
