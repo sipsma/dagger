@@ -43,8 +43,8 @@ func TestAuditedEagerProducersEvaluate(t *testing.T) {
 	private.Lazy = decoded
 	require.NoError(t, decoded.Evaluate(ctx, private))
 	defer private.OnRelease(ctx)
-	require.Nil(t, private.Lazy)
-	require.Same(t, decoded, private.completedRecipe)
+	require.Same(t, decoded, private.Lazy)
+	require.True(t, private.Lazy.IsEvaluated())
 	require.Equal(t, eager.Platform, private.Platform)
 	require.Equal(t, eager.Config, private.Config)
 	eagerFS, _ := eager.FS.Peek()

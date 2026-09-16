@@ -1354,7 +1354,7 @@ func (p *persistedDirectoryGitTreeLazy) validate() error {
 }
 func (lazy *DirectoryGitTreeLazy) Evaluate(ctx context.Context, dir *Directory) error {
 	var unmoved *Directory
-	err := lazy.LazyState.Evaluate(ctx, "GitRef.tree", func(ctx context.Context) error {
+	err := dir.evaluateLazy(ctx, &lazy.LazyState, "GitRef.tree", func(ctx context.Context) error {
 		if err := validateProducedDirectoryReceiver(dir); err != nil {
 			return err
 		}
@@ -1443,7 +1443,7 @@ func (p *persistedDirectoryGitCommitTreeLazy) validate() error {
 }
 func (lazy *DirectoryGitCommitTreeLazy) Evaluate(ctx context.Context, dir *Directory) error {
 	var unmoved *Directory
-	err := lazy.LazyState.Evaluate(ctx, "GitCommit.tree", func(ctx context.Context) error {
+	err := dir.evaluateLazy(ctx, &lazy.LazyState, "GitCommit.tree", func(ctx context.Context) error {
 		if err := validateProducedDirectoryReceiver(dir); err != nil {
 			return err
 		}
