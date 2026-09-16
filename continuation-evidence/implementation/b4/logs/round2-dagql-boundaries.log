@@ -1,0 +1,26 @@
+=== RUN   TestPartReadyPreparationBoundaries
+=== RUN   TestPartReadyPreparationBoundaries/cancel-during-pin
+=== RUN   TestPartReadyPreparationBoundaries/missing-local-descriptor
+--- PASS: TestPartReadyPreparationBoundaries (0.28s)
+    --- PASS: TestPartReadyPreparationBoundaries/cancel-during-pin (0.19s)
+    --- PASS: TestPartReadyPreparationBoundaries/missing-local-descriptor (0.09s)
+=== RUN   TestPartDecisionPreparationArrival
+=== RUN   TestPartDecisionPreparationArrival/ready
+=== RUN   TestPartDecisionPreparationArrival/chain
+=== RUN   TestPartDecisionPreparationArrival/second-refusal
+--- PASS: TestPartDecisionPreparationArrival (0.61s)
+    --- PASS: TestPartDecisionPreparationArrival/ready (0.19s)
+    --- PASS: TestPartDecisionPreparationArrival/chain (0.23s)
+    --- PASS: TestPartDecisionPreparationArrival/second-refusal (0.19s)
+=== RUN   TestPartDecisionInlineAdmissionAndPendingSync
+--- PASS: TestPartDecisionInlineAdmissionAndPendingSync (0.04s)
+=== RUN   TestPartDecisionOfferAfterRunning
+--- PASS: TestPartDecisionOfferAfterRunning (0.05s)
+=== RUN   TestPartDecodeBeforeExternalFinish
+--- PASS: TestPartDecodeBeforeExternalFinish (0.08s)
+=== RUN   TestPartDecodeLosesToInstalledRevision
+--- PASS: TestPartDecodeLosesToInstalledRevision (0.12s)
+=== RUN   TestPartDecisionFinalSource
+--- PASS: TestPartDecisionFinalSource (0.05s)
+PASS
+ok      github.com/dagger/dagger/dagql  2.697s

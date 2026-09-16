@@ -1,0 +1,7 @@
+{
+  "command": "go test -race ./core -run '^TestModuleObjectAttachDependencyResultsPreservesInlineMap$' -count=1 -v -timeout=90s",
+  "exit": 1,
+  "seconds": 40.08199232094921,
+  "sourceOverlay": "core/object.go from e1443fff63; new regression and other files remain current",
+  "outcome": "expected inline-map regression failure"
+}

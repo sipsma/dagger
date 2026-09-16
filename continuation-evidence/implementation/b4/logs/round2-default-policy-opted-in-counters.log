@@ -1,0 +1,13 @@
+Source f04a91577bd4ddc574f3bc527cdffe9fec2179a1; trace 45ff862b676437da203f629e84dd71f0; CLI exit 0; selected test 132.22 s; no skips.
+    testctx.go:206: acquisition imported closure rows=226 cold=false order=after
+    testctx.go:206: acquisition route counters cold=false builtin=0 counts=map[installed-chain:1 owner-sync:6 provider-read:1 selected-chain:1 settled:1]
+    testctx.go:206: acquisition changed-argument control cold=false report-body-count=1
+    testctx.go:206: acquisition scratch cold=false ordinal=224 row=4695 address={"part":"snapshot"} group=whole platform=linux/amd64 producer-enter=0 provider-reads=0
+    testctx.go:206: acquisition scratch cold=false ordinal=224 row=4695 address={"part":"snapshot"} group=whole platform=linux/amd64 producer-enter=0 provider-reads=0
+    testctx.go:206: acquisition later controls cold=false noteFile=passed bound-tool=passed saved-row=4697 persisted=true
+    testctx.go:206: default policy pressure: minFree=99000000000 available=99742449664 temporaryBytes=2889933312 cap=8589934592
+    testctx.go:206: restart persistence diagnostics: {PersistenceResetReason: LocalCacheResetReason: RemovedPersistedRootCount:17 DiskPrunedResults:[dagql.result.4243 dagql.result.4245 dagql.result.4241 dagql.result.4240 dagql.result.4255 dagql.result.4261 dagql.result.4262 dagql.result.4248 dagql.result.4251 dagql.result.4694 dagql.result.4727 dagql.result.4726 dagql.result.4228 dagql.result.4746 dagql.result.4697 dagql.result.4962 dagql.result.4926]}
+    testctx.go:206: default policy saved report: resultID=4697 persisted=true beforeRemoved=0 afterRemoved=17
+--- PASS: TestRemoteCacheTransferSuite (132.23s)
+    --- PASS: TestRemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic (132.22s)
+        --- PASS: TestRemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic/after (71.60s)

@@ -1,0 +1,41 @@
+[dagger] 30.0s elapsed · 2 steps running
+[dagger] 1m0s elapsed · 89 steps running
+[dagger] 1m30s elapsed · 25 steps running
+[dagger] 2m0s elapsed · 17 steps running
+[dagger] 2m30s elapsed · 6 steps running
+[dagger] 3m0s elapsed · 6 steps running
+[dagger] 3m30s elapsed · 11 steps running
+[dagger] 4m0s elapsed · 6 steps running
+[dagger] 4m30s elapsed · 6 steps running
+[dagger] 5m0s elapsed · 25 steps running
+[dagger] 5m30s elapsed · 40 steps running
+[dagger] 6m0s elapsed · 11 steps running
+[dagger] 6m30s elapsed · 27 steps running
+[dagger] 7m0s elapsed · 13 steps running
+[dagger] 7m30s elapsed · 11 steps running
+== TRACE ==  ✔ PASSED
+engine-dev test --pkg ./core/integration --run=TestRemoteCacheTransferSuite/TestSchemaRecoveryCold$ --timeout=5m --test-verbose  7m31s
+
+✔ connect 0.3s
+✔ load workspace: . 9.6s
+  ✔ uploading /home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d 1.1s ████████████ 9.6 kB
+✔ parsing command line arguments 0.0s
+
+✔ engineDev(
+  ┆ ws: currentWorkspace: Workspace!
+  ): EngineDev! 32.7s ◆ Disk Read: 6.0 MB ◆ Disk Write: 0 B ◆ IO Pressure: 184µs ◆ CPU Pressure (some): 102.664ms ◆ CPU Pressure (full): 95.772ms ◆ Memory Bytes (current): 6.9 MB ◆ Memory Bytes (peak): 34 MB
+  ✔ uploading /home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d 3.0s ████████████ 844 kB
+✔ .test(run: "TestRemoteCacheTransferSuite/TestSchemaRecoveryCold$", pkg: "./core/integration", timeout: "5m", testVerbose: true): Void 6m48s ◆ Disk Read: 20 MB ◆ Disk Write: 0 B ◆ IO Pressure: 1.106195s ◆ CPU Pressure (some): 1.544275s ◆ CPU Pressure (full): 1.386692s ◆ Memory Bytes (current): 19 MB ◆ Memory Bytes (peak): 52 MB ◆ Network Tx: 4.4 kB
+  ✔ 10 pulls, 13 unpacks, 146 fetches, 10 uploads, 1 transfer 39.7s
+
+== SERVICES ==
+✔ rogct0dgr0vls.jgufblgh0s79s.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 4m5s EXITED span=41a80ddb63c2e7d9
+✔ h4avdn8nctrm4.jgufblgh0s79s.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 4m5s EXITED span=c1765738e41ae138
+✘ dp7kljgdle67u.jgufblgh0s79s.dagger.local exec dagger-entrypoint.sh --addr unix:///run/dagger-engine.sock --addr tcp://0.0.0.0:1234 --network-name dagger-dev --network-cidr 10.88.0.0/16 --debugaddr 0.0.0.0:6060 4m5s ERROR span=9935dddf24fe503d
+
+== TESTS ==
+  ✔ github.com/dagger/dagger/core/integration  1 passed
+
+  ✔ 1 passed
+
+Trace ID: d0b36d6dddc1270841e7847f6230c58f

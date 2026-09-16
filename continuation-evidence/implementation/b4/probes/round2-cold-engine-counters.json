@@ -1,0 +1,309 @@
+{
+  "trace": "d0b36d6dddc1270841e7847f6230c58f",
+  "source": "f04a91577bd4ddc574f3bc527cdffe9fec2179a1",
+  "scratch": [
+    {
+      "cold": true,
+      "ordinal": 223,
+      "resultID": 4449,
+      "address": {
+        "part": "snapshot"
+      },
+      "group": "whole",
+      "platform": "linux/amd64",
+      "producerEntries": 1,
+      "providerReads": 0
+    },
+    {
+      "cold": true,
+      "ordinal": 223,
+      "resultID": 4449,
+      "address": {
+        "part": "snapshot"
+      },
+      "group": "whole",
+      "platform": "linux/amd64",
+      "producerEntries": 1,
+      "providerReads": 0
+    }
+  ],
+  "closureValueCount": 226,
+  "delegations": [
+    {
+      "target": 4243,
+      "address": {
+        "part": "mount:/src"
+      },
+      "field": "withWorkdir",
+      "parent": 4242,
+      "source": {
+        "outputPath": [],
+        "part": "mount:/src"
+      }
+    },
+    {
+      "target": 4244,
+      "address": {
+        "part": "mount:/src"
+      },
+      "field": "withEnvVariable",
+      "parent": 4243,
+      "source": {
+        "outputPath": [],
+        "part": "mount:/src"
+      }
+    },
+    {
+      "target": 4245,
+      "address": {
+        "part": "mount:/src"
+      },
+      "field": "withoutDefaultArgs",
+      "parent": 4244,
+      "source": {
+        "outputPath": [],
+        "part": "mount:/src"
+      }
+    },
+    {
+      "target": 4243,
+      "address": {
+        "part": "mount:/schema.json"
+      },
+      "field": "withWorkdir",
+      "parent": 4242,
+      "source": {
+        "outputPath": [],
+        "part": "mount:/schema.json"
+      }
+    },
+    {
+      "target": 4244,
+      "address": {
+        "part": "mount:/schema.json"
+      },
+      "field": "withEnvVariable",
+      "parent": 4243,
+      "source": {
+        "outputPath": [],
+        "part": "mount:/schema.json"
+      }
+    },
+    {
+      "target": 4245,
+      "address": {
+        "part": "mount:/schema.json"
+      },
+      "field": "withoutDefaultArgs",
+      "parent": 4244,
+      "source": {
+        "outputPath": [],
+        "part": "mount:/schema.json"
+      }
+    },
+    {
+      "target": 4235,
+      "address": {
+        "part": "fs"
+      },
+      "field": "withMountedCache",
+      "parent": 4230,
+      "source": {
+        "outputPath": [],
+        "part": "fs"
+      }
+    },
+    {
+      "target": 4236,
+      "address": {
+        "part": "fs"
+      },
+      "field": "withMountedCache",
+      "parent": 4235,
+      "source": {
+        "outputPath": [],
+        "part": "fs"
+      }
+    },
+    {
+      "target": 4237,
+      "address": {
+        "part": "fs"
+      },
+      "field": "__withSystemEnvVariable",
+      "parent": 4236,
+      "source": {
+        "outputPath": [],
+        "part": "fs"
+      }
+    },
+    {
+      "target": 4238,
+      "address": {
+        "part": "fs"
+      },
+      "field": "__withSystemEnvVariable",
+      "parent": 4237,
+      "source": {
+        "outputPath": [],
+        "part": "fs"
+      }
+    },
+    {
+      "target": 4243,
+      "address": {
+        "part": "fs"
+      },
+      "field": "withWorkdir",
+      "parent": 4242,
+      "source": {
+        "outputPath": [],
+        "part": "fs"
+      }
+    },
+    {
+      "target": 4244,
+      "address": {
+        "part": "fs"
+      },
+      "field": "withEnvVariable",
+      "parent": 4243,
+      "source": {
+        "outputPath": [],
+        "part": "fs"
+      }
+    },
+    {
+      "target": 4245,
+      "address": {
+        "part": "fs"
+      },
+      "field": "withoutDefaultArgs",
+      "parent": 4244,
+      "source": {
+        "outputPath": [],
+        "part": "fs"
+      }
+    }
+  ],
+  "mountProducers": [
+    {
+      "observation": "route",
+      "resultID": 4242,
+      "address": {
+        "part": "fs"
+      },
+      "field": "withMountedDirectory",
+      "parent": 4240,
+      "entries": 1
+    },
+    {
+      "observation": "route",
+      "resultID": 4242,
+      "address": {
+        "part": "mount:/src"
+      },
+      "field": "withMountedDirectory",
+      "parent": 4240,
+      "entries": 1
+    },
+    {
+      "observation": "write",
+      "resultID": 4242,
+      "address": {
+        "part": "mount:/src"
+      },
+      "field": "withMountedDirectory",
+      "parent": null,
+      "entries": 1
+    },
+    {
+      "observation": "route",
+      "resultID": 4242,
+      "address": {
+        "part": "mount:/schema.json"
+      },
+      "field": "withMountedDirectory",
+      "parent": 4240,
+      "entries": 1
+    },
+    {
+      "observation": "route",
+      "resultID": 4240,
+      "address": {
+        "part": "fs"
+      },
+      "field": "withMountedFile",
+      "parent": 4238,
+      "entries": 1
+    },
+    {
+      "observation": "route",
+      "resultID": 4240,
+      "address": {
+        "part": "mount:/schema.json"
+      },
+      "field": "withMountedFile",
+      "parent": 4238,
+      "entries": 1
+    },
+    {
+      "observation": "write",
+      "resultID": 4240,
+      "address": {
+        "part": "mount:/schema.json"
+      },
+      "field": "withMountedFile",
+      "parent": null,
+      "entries": 1
+    }
+  ],
+  "beforeChangedArgument": {
+    "builtinRoutes": 1,
+    "counts": {
+      "installed-chain": 1,
+      "installed-delegation": 13,
+      "installed-producer": 24,
+      "installed-ready": 1,
+      "owner-sync": 139,
+      "producer-enter": 24,
+      "producer-ref-released": 11,
+      "provider-read": 1,
+      "selected-chain": 1,
+      "selected-delegation": 13,
+      "selected-ready": 1,
+      "settled": 48
+    }
+  },
+  "hostInput": {
+    "importedResultID": 4228,
+    "address": {
+      "outputPath": [],
+      "part": "snapshot"
+    },
+    "localResultID": 4457,
+    "snapshotObservation": "[{zxqy7260go46599ysat3sqtd1 snapshot }]"
+  },
+  "sdkInheritedFSHops": {
+    "__withSystemEnvVariable": 2,
+    "withEnvVariable": 1,
+    "withMountedCache": 2,
+    "withWorkdir": 1,
+    "withoutDefaultArgs": 1
+  },
+  "nativeRecordedModuleRow": 4942,
+  "controls": {
+    "matchingReportBodyCount": 0,
+    "changedReportBodyCount": 1,
+    "selectedArtifact": "passed",
+    "echo": "passed",
+    "noteFile": "passed",
+    "boundTool": "passed",
+    "cleanRestartSavedRow": 4452,
+    "cleanRestartPrunedRoots": 0,
+    "noteDirectoryAfterRestart": "passed",
+    "reportBodyCountAfterRestart": 1,
+    "nativeRecordedModule": "passed",
+    "foreignContext": "passed"
+  }
+}

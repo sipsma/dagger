@@ -1,0 +1,14 @@
+=== RUN   TestPartSessionlessOwnSubset
+=== RUN   TestPartSessionlessOwnSubset/offer-only
+=== RUN   TestPartSessionlessOwnSubset/own
+=== RUN   TestPartSessionlessOwnSubset/revoked-before-commit
+=== RUN   TestPartSessionlessOwnSubset/native-receiver
+--- PASS: TestPartSessionlessOwnSubset (0.19s)
+    --- PASS: TestPartSessionlessOwnSubset/offer-only (0.07s)
+    --- PASS: TestPartSessionlessOwnSubset/own (0.04s)
+    --- PASS: TestPartSessionlessOwnSubset/revoked-before-commit (0.04s)
+    --- PASS: TestPartSessionlessOwnSubset/native-receiver (0.03s)
+=== RUN   TestPartSessionlessRestoredDirectory
+--- PASS: TestPartSessionlessRestoredDirectory (0.17s)
+PASS
+ok      github.com/dagger/dagger/dagql  1.795s

@@ -1,0 +1,6 @@
+=== RUN   TestPartFixedProviderAndContentExhaustion
+--- PASS: TestPartFixedProviderAndContentExhaustion (0.04s)
+=== RUN   TestPartOfferReplacementNotExhausted
+--- PASS: TestPartOfferReplacementNotExhausted (0.05s)
+PASS
+ok      github.com/dagger/dagger/dagql  1.518s

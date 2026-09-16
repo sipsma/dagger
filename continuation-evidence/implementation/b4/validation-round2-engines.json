@@ -1,0 +1,39 @@
+[
+  {
+    "name": "cold-engine",
+    "command": "dagger -vv api call engine-dev test --pkg ./core/integration --run='TestRemoteCacheTransferSuite/TestSchemaRecoveryCold$' --timeout=5m --test-verbose",
+    "exit": 0,
+    "seconds": 451.179,
+    "trace": "d0b36d6dddc1270841e7847f6230c58f",
+    "selectedTestSeconds": 179.13,
+    "outcome": "passed, no skips"
+  },
+  {
+    "name": "warm-engine",
+    "command": "dagger -vv api call engine-dev test --pkg ./core/integration --run='TestRemoteCacheTransferSuite/TestSchemaRecovery$' --timeout=5m --test-verbose",
+    "exit": 0,
+    "seconds": 294.029,
+    "trace": "0a22a548c1ad35d8f605611e47fde4da",
+    "selectedTestSeconds": 249.14,
+    "outcome": "passed, no skips"
+  },
+  {
+    "name": "mixed-engine",
+    "command": "dagger -vv api call engine-dev test --pkg ./core/integration --run='TestRemoteCacheTransferSuite/TestPartMixedExecOutputs$' --timeout=5m --test-verbose",
+    "exit": 0,
+    "seconds": 136.196,
+    "trace": "937a5d528c9b7d49fa4e6fb4919b5477",
+    "selectedTestSeconds": 71.14,
+    "outcome": "passed, no skips"
+  },
+  {
+    "name": "default-policy-opted-in",
+    "command": "dagger -vv api call engine-dev test --pkg ./core/integration --run='TestRemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic$' --timeout=5m --test-verbose --env-file=file:/tmp/b4-r2-default.env",
+    "exit": 0,
+    "seconds": 212.751,
+    "runnerOverlay": "probes/default-policy-runner.patch",
+    "trace": "45ff862b676437da203f629e84dd71f0",
+    "selectedTestSeconds": 132.22,
+    "outcome": "passed, no skips"
+  }
+]

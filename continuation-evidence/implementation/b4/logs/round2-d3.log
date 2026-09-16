@@ -1,0 +1,16 @@
+=== RUN   TestCacheEvaluateSettlesBookkeepingBeforeReportingComplete
+--- PASS: TestCacheEvaluateSettlesBookkeepingBeforeReportingComplete (0.00s)
+=== RUN   TestCacheEvaluatePendingBookkeepingSkipsUnclearedCallback
+--- PASS: TestCacheEvaluatePendingBookkeepingSkipsUnclearedCallback (0.00s)
+=== RUN   TestPartSettlementRetiresReplacement
+--- PASS: TestPartSettlementRetiresReplacement (0.05s)
+=== RUN   TestPartNativeCompletionRetiresOffer
+--- PASS: TestPartNativeCompletionRetiresOffer (0.00s)
+=== RUN   TestEvaluatePartsSiblingGroupsRunConcurrently
+--- PASS: TestEvaluatePartsSiblingGroupsRunConcurrently (0.00s)
+=== RUN   TestEvaluatePartsOneCallRunsGroupsConcurrently
+--- PASS: TestEvaluatePartsOneCallRunsGroupsConcurrently (0.00s)
+=== RUN   TestEvaluatePartsSyncFailureRetriesOnlyBookkeepingPerGroup
+--- PASS: TestEvaluatePartsSyncFailureRetriesOnlyBookkeepingPerGroup (0.00s)
+PASS
+ok      github.com/dagger/dagger/dagql  1.488s

@@ -1,0 +1,83 @@
+=== RUN   TestPartAcquisitionRootRoutes
+=== RUN   TestPartAcquisitionRootRoutes/ready
+    part_acquisition_test.go:190: route=ready latency=11.122306ms pins=1 owner-sync-attempts=1 private-bodies=0
+2026/09/16 17:39:06 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 17:39:06 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestPartAcquisitionRootRoutes/chain
+2026/09/16 17:39:06 INFO start lazy evaluation field=File.blob
+2026/09/16 17:39:06 INFO end lazy evaluation field=File.blob duration=26.427057ms
+    part_acquisition_test.go:190: route=chain latency=57.026738ms pins=1 owner-sync-attempts=1 private-bodies=0
+2026/09/16 17:39:06 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 17:39:06 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestPartAcquisitionRootRoutes/chain-sync-retry
+2026/09/16 17:39:07 INFO start lazy evaluation field=File.blob
+2026/09/16 17:39:07 INFO end lazy evaluation field=File.blob duration=40.39593ms
+    part_acquisition_test.go:190: route=chain-sync-retry latency=63.316931ms pins=1 owner-sync-attempts=2 private-bodies=0
+2026/09/16 17:39:07 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 17:39:07 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestPartAcquisitionRootRoutes/chain-sync-restart
+2026/09/16 17:39:07 INFO start lazy evaluation field=File.blob
+2026/09/16 17:39:07 INFO end lazy evaluation field=File.blob duration=79.09927ms
+2026/09/16 17:39:07 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 17:39:07 INFO marking dagql cache clean shutdown
+2026/09/16 17:39:07 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 17:39:07 INFO completed dagql cache close successfully
+    part_acquisition_test.go:190: route=chain-sync-restart latency=168.164799ms pins=0 owner-sync-attempts=1 private-bodies=0
+2026/09/16 17:39:07 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 17:39:07 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestPartAcquisitionRootRoutes/chain-pin-release-retry
+2026/09/16 17:39:07 INFO start lazy evaluation field=File.blob
+2026/09/16 17:39:07 INFO end lazy evaluation field=File.blob duration=30.258212ms
+    part_acquisition_test.go:190: route=chain-pin-release-retry latency=58.831025ms pins=1 owner-sync-attempts=1 private-bodies=0
+2026/09/16 17:39:07 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 17:39:07 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestPartAcquisitionRootRoutes/chain-fallback
+2026/09/16 17:39:07 INFO start lazy evaluation field=File.blob
+2026/09/16 17:39:07 INFO end lazy evaluation field=File.blob duration=26.629636ms
+2026/09/16 17:39:07 INFO start lazy evaluation field=File.blob
+2026/09/16 17:39:07 INFO end lazy evaluation field=File.blob duration=29.375333ms
+    part_acquisition_test.go:190: route=chain-fallback latency=120.909708ms pins=1 owner-sync-attempts=1 private-bodies=1
+2026/09/16 17:39:08 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 17:39:08 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestPartAcquisitionRootRoutes/chain-fallback-producer-failure
+2026/09/16 17:39:08 INFO start lazy evaluation field=File.blob
+2026/09/16 17:39:08 INFO end lazy evaluation field=File.blob duration=29.490783ms
+2026/09/16 17:39:08 INFO start lazy evaluation field=File.blob
+2026/09/16 17:39:08 INFO end lazy evaluation field=File.blob duration=16.575029ms err="create blob snapshot: private producer failed"
+2026/09/16 17:39:08 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 17:39:08 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestPartAcquisitionRootRoutes/producer
+2026/09/16 17:39:08 INFO start lazy evaluation field=File.blob
+2026/09/16 17:39:08 INFO end lazy evaluation field=File.blob duration=32.989038ms
+    part_acquisition_test.go:190: route=producer latency=46.609641ms pins=1 owner-sync-attempts=1 private-bodies=1
+2026/09/16 17:39:08 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 17:39:08 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestPartAcquisitionRootRoutes (1.60s)
+    --- PASS: TestPartAcquisitionRootRoutes/ready (0.09s)
+    --- PASS: TestPartAcquisitionRootRoutes/chain (0.20s)
+    --- PASS: TestPartAcquisitionRootRoutes/chain-sync-retry (0.19s)
+    --- PASS: TestPartAcquisitionRootRoutes/chain-sync-restart (0.35s)
+    --- PASS: TestPartAcquisitionRootRoutes/chain-pin-release-retry (0.19s)
+    --- PASS: TestPartAcquisitionRootRoutes/chain-fallback (0.30s)
+    --- PASS: TestPartAcquisitionRootRoutes/chain-fallback-producer-failure (0.19s)
+    --- PASS: TestPartAcquisitionRootRoutes/producer (0.08s)
+=== RUN   TestPartScopeRootRekeyCost
+=== RUN   TestPartScopeRootRekeyCost/1
+2026/09/16 17:39:08 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 17:39:08 INFO marking dagql cache clean shutdown
+2026/09/16 17:39:08 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 17:39:08 INFO completed dagql cache close successfully
+    part_scope_boot_test.go:133: root_rekey roots=1 attaches=1 stale_scans=1 stale_removes=1 peak_owner_leases=2 elapsed=4.568985ms
+2026/09/16 17:39:08 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestPartScopeRootRekeyCost/32
+2026/09/16 17:39:08 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 17:39:08 INFO marking dagql cache clean shutdown
+2026/09/16 17:39:08 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 17:39:08 INFO completed dagql cache close successfully
+    part_scope_boot_test.go:133: root_rekey roots=32 attaches=32 stale_scans=1 stale_removes=32 peak_owner_leases=64 elapsed=135.15908ms
+2026/09/16 17:39:08 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestPartScopeRootRekeyCost (0.55s)
+    --- PASS: TestPartScopeRootRekeyCost/1 (0.06s)
+    --- PASS: TestPartScopeRootRekeyCost/32 (0.49s)
+PASS
+ok      github.com/dagger/dagger/core   2.456s

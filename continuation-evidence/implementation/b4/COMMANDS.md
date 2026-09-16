@@ -1,5 +1,7 @@
 # Focused commands and dispatch history
 
+The current council round 2 decisions and complete rerun are recorded in [COMMANDS-ROUND2.md](COMMANDS-ROUND2.md). Earlier ledgers below are historical.
+
 The final binding Addendum 3 implementation, complete verification rerun, cold/warm/mixed controls, reached default-policy pruning and runtime costs are recorded in [COMMANDS-ADDENDUM3.md](COMMANDS-ADDENDUM3.md). The earlier Addendum 2 checks and now-resolved scratch blocker remain in [COMMANDS-ADDENDUM2.md](COMMANDS-ADDENDUM2.md) and [BLOCKER-3.md](BLOCKER-3.md). The sections below preserve their original results.
 
 Implementation tree: `521b90d51d` (tests ran against the same source before committing). Parent: `77f6279559061fd1bb6b3b18e6b08582c7b013a3`. Go 1.26.6, Linux/amd64. Final selections below ran sequentially, with no recursive package selection. Real snapshot tests used the private privileged mount namespace and did not skip.

@@ -1,0 +1,36 @@
+Source f04a91577bd4ddc574f3bc527cdffe9fec2179a1; trace d0b36d6dddc1270841e7847f6230c58f; CLI exit 0; selected test 179.13 s; no skips.
+    testctx.go:206: acquisition imported closure rows=226 cold=true order=before
+    testctx.go:206: acquisition delegation target=4243 address={"part":"mount:/src"} field=withWorkdir parent=4242 source={OutputPath: Part:mount:/src}
+    testctx.go:206: acquisition delegation target=4244 address={"part":"mount:/src"} field=withEnvVariable parent=4243 source={OutputPath: Part:mount:/src}
+    testctx.go:206: acquisition delegation target=4245 address={"part":"mount:/src"} field=withoutDefaultArgs parent=4244 source={OutputPath: Part:mount:/src}
+    testctx.go:206: acquisition delegation target=4243 address={"part":"mount:/schema.json"} field=withWorkdir parent=4242 source={OutputPath: Part:mount:/schema.json}
+    testctx.go:206: acquisition delegation target=4244 address={"part":"mount:/schema.json"} field=withEnvVariable parent=4243 source={OutputPath: Part:mount:/schema.json}
+    testctx.go:206: acquisition delegation target=4245 address={"part":"mount:/schema.json"} field=withoutDefaultArgs parent=4244 source={OutputPath: Part:mount:/schema.json}
+    testctx.go:206: acquisition delegation target=4235 address={"part":"fs"} field=withMountedCache parent=4230 source={OutputPath: Part:fs}
+    testctx.go:206: acquisition delegation target=4236 address={"part":"fs"} field=withMountedCache parent=4235 source={OutputPath: Part:fs}
+    testctx.go:206: acquisition delegation target=4237 address={"part":"fs"} field=__withSystemEnvVariable parent=4236 source={OutputPath: Part:fs}
+    testctx.go:206: acquisition delegation target=4238 address={"part":"fs"} field=__withSystemEnvVariable parent=4237 source={OutputPath: Part:fs}
+    testctx.go:206: acquisition delegation target=4243 address={"part":"fs"} field=withWorkdir parent=4242 source={OutputPath: Part:fs}
+    testctx.go:206: acquisition delegation target=4244 address={"part":"fs"} field=withEnvVariable parent=4243 source={OutputPath: Part:fs}
+    testctx.go:206: acquisition delegation target=4245 address={"part":"fs"} field=withoutDefaultArgs parent=4244 source={OutputPath: Part:fs}
+    testctx.go:206: producer mount-route row=4242 address={"part":"fs"} field=withMountedDirectory parent=4240 entries=1
+    testctx.go:206: producer mount-route row=4242 address={"part":"mount:/src"} field=withMountedDirectory parent=4240 entries=1
+    testctx.go:206: producer mount-write row=4242 address={"part":"mount:/src"} field=withMountedDirectory entries=1
+    testctx.go:206: producer mount-route row=4242 address={"part":"mount:/schema.json"} field=withMountedDirectory parent=4240 entries=1
+    testctx.go:206: producer mount-route row=4240 address={"part":"fs"} field=withMountedFile parent=4238 entries=1
+    testctx.go:206: producer mount-route row=4240 address={"part":"mount:/schema.json"} field=withMountedFile parent=4238 entries=1
+    testctx.go:206: producer mount-write row=4240 address={"part":"mount:/schema.json"} field=withMountedFile entries=1
+    testctx.go:206: acquisition Host input imported=4228 address={OutputPath: Part:snapshot} local=4457 snapshot=[{zxqy7260go46599ysat3sqtd1 snapshot }]
+    testctx.go:206: acquisition SDK inherited-fs hops=map[__withSystemEnvVariable:2 withEnvVariable:1 withMountedCache:2 withWorkdir:1 withoutDefaultArgs:1]; producer mount-writer rows=map[withMountedDirectory:1 withMountedFile:1]
+    testctx.go:206: acquisition route counters cold=true builtin=1 counts=map[installed-chain:1 installed-delegation:13 installed-producer:24 installed-ready:1 owner-sync:139 producer-enter:24 producer-ref-released:11 provider-read:1 selected-chain:1 selected-delegation:13 selected-ready:1 settled:48]
+    testctx.go:206: acquisition changed-argument control cold=true report-body-count=1
+    testctx.go:206: acquisition scratch cold=true ordinal=223 row=4449 address={"part":"snapshot"} group=whole platform=linux/amd64 producer-enter=1 provider-reads=0
+    testctx.go:206: acquisition scratch cold=true ordinal=223 row=4449 address={"part":"snapshot"} group=whole platform=linux/amd64 producer-enter=1 provider-reads=0
+    testctx.go:206: acquisition later controls cold=true noteFile=passed bound-tool=passed saved-row=4452 persisted=true
+    testctx.go:206: restart persistence diagnostics: {PersistenceResetReason: LocalCacheResetReason: RemovedPersistedRootCount:0 DiskPrunedResults:[]}
+    testctx.go:206: acquisition clean-restart control cold=true saved-row=4452 noteDirectory=passed report-body-count=1
+    testctx.go:206: acquisition native-recorded-module control cold=true recorded-row=4942 lower-imported-equivalent=true passed
+--- PASS: TestRemoteCacheTransferSuite (179.13s)
+    --- PASS: TestRemoteCacheTransferSuite/TestSchemaRecoveryCold (179.13s)
+        --- PASS: TestRemoteCacheTransferSuite/TestSchemaRecoveryCold/before (72.03s)
+        --- PASS: TestRemoteCacheTransferSuite/TestSchemaRecoveryCold/foreign_context (46.30s)
