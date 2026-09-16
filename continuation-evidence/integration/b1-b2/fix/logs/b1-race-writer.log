@@ -1,0 +1,106 @@
+=== RUN   TestHTTPProducerWriter
+=== RUN   TestHTTPProducerWriter/data.txt/0
+2026/09/16 09:30:42 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:42 INFO end lazy evaluation field=HTTPState._resolve duration=9.412901ms
+=== RUN   TestHTTPProducerWriter/data.txt/600
+2026/09/16 09:30:42 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:42 INFO end lazy evaluation field=HTTPState._resolve duration=12.411558ms
+=== RUN   TestHTTPProducerWriter/data.txt/644
+2026/09/16 09:30:42 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:42 INFO end lazy evaluation field=HTTPState._resolve duration=13.502767ms
+=== RUN   TestHTTPProducerWriter/data.txt/755
+2026/09/16 09:30:42 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:42 INFO end lazy evaluation field=HTTPState._resolve duration=16.360425ms
+=== RUN   TestHTTPProducerWriter//data.txt/0
+2026/09/16 09:30:42 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:42 INFO end lazy evaluation field=HTTPState._resolve duration=14.114456ms
+=== RUN   TestHTTPProducerWriter//data.txt/600
+2026/09/16 09:30:42 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:42 INFO end lazy evaluation field=HTTPState._resolve duration=14.741916ms
+=== RUN   TestHTTPProducerWriter//data.txt/644
+2026/09/16 09:30:42 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:42 INFO end lazy evaluation field=HTTPState._resolve duration=13.802547ms
+=== RUN   TestHTTPProducerWriter//data.txt/755
+2026/09/16 09:30:42 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:42 INFO end lazy evaluation field=HTTPState._resolve duration=13.430007ms
+=== RUN   TestHTTPProducerWriter/../data.txt/0
+2026/09/16 09:30:42 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:42 INFO end lazy evaluation field=HTTPState._resolve duration=14.576855ms
+=== RUN   TestHTTPProducerWriter/../data.txt/600
+2026/09/16 09:30:42 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:42 INFO end lazy evaluation field=HTTPState._resolve duration=13.751237ms
+=== RUN   TestHTTPProducerWriter/../data.txt/644
+2026/09/16 09:30:42 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:42 INFO end lazy evaluation field=HTTPState._resolve duration=14.574956ms
+=== RUN   TestHTTPProducerWriter/../data.txt/755
+2026/09/16 09:30:42 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:42 INFO end lazy evaluation field=HTTPState._resolve duration=18.126762ms
+=== RUN   TestHTTPProducerWriter/a/../data.txt/0
+2026/09/16 09:30:42 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:42 INFO end lazy evaluation field=HTTPState._resolve duration=14.303537ms
+=== RUN   TestHTTPProducerWriter/a/../data.txt/600
+2026/09/16 09:30:42 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:42 INFO end lazy evaluation field=HTTPState._resolve duration=16.385304ms
+=== RUN   TestHTTPProducerWriter/a/../data.txt/644
+2026/09/16 09:30:43 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:43 INFO end lazy evaluation field=HTTPState._resolve duration=8.568032ms
+=== RUN   TestHTTPProducerWriter/a/../data.txt/755
+2026/09/16 09:30:43 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:43 INFO end lazy evaluation field=HTTPState._resolve duration=10.50326ms
+=== RUN   TestHTTPProducerWriter/./data.txt/0
+2026/09/16 09:30:43 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:43 INFO end lazy evaluation field=HTTPState._resolve duration=9.374561ms
+=== RUN   TestHTTPProducerWriter/./data.txt/600
+2026/09/16 09:30:43 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:43 INFO end lazy evaluation field=HTTPState._resolve duration=12.755458ms
+=== RUN   TestHTTPProducerWriter/./data.txt/644
+2026/09/16 09:30:43 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:43 INFO end lazy evaluation field=HTTPState._resolve duration=12.990507ms
+=== RUN   TestHTTPProducerWriter/./data.txt/755
+2026/09/16 09:30:43 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:43 INFO end lazy evaluation field=HTTPState._resolve duration=12.867028ms
+=== RUN   TestHTTPProducerWriter/sub/data.txt/0
+2026/09/16 09:30:43 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:43 INFO end lazy evaluation field=HTTPState._resolve duration=8.496922ms err="file write failed: open /sub/data.txt: no such file or directory"
+=== RUN   TestHTTPProducerWriter/sub/data.txt/600
+2026/09/16 09:30:43 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:43 INFO end lazy evaluation field=HTTPState._resolve duration=8.634532ms err="file write failed: open /sub/data.txt: no such file or directory"
+=== RUN   TestHTTPProducerWriter/sub/data.txt/644
+2026/09/16 09:30:43 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:43 INFO end lazy evaluation field=HTTPState._resolve duration=10.656769ms err="file write failed: open /sub/data.txt: no such file or directory"
+=== RUN   TestHTTPProducerWriter/sub/data.txt/755
+2026/09/16 09:30:43 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:43 INFO end lazy evaluation field=HTTPState._resolve duration=8.974991ms err="file write failed: open /sub/data.txt: no such file or directory"
+=== RUN   TestHTTPProducerWriter/restrictive_umask
+2026/09/16 09:30:43 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:43 INFO end lazy evaluation field=HTTPState._resolve duration=14.438395ms
+=== RUN   TestHTTPProducerWriter/public_eager_layout
+2026/09/16 09:30:43 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestHTTPProducerWriter (1.76s)
+    --- PASS: TestHTTPProducerWriter/data.txt/0 (0.07s)
+    --- PASS: TestHTTPProducerWriter/data.txt/600 (0.07s)
+    --- PASS: TestHTTPProducerWriter/data.txt/644 (0.08s)
+    --- PASS: TestHTTPProducerWriter/data.txt/755 (0.07s)
+    --- PASS: TestHTTPProducerWriter//data.txt/0 (0.08s)
+    --- PASS: TestHTTPProducerWriter//data.txt/600 (0.07s)
+    --- PASS: TestHTTPProducerWriter//data.txt/644 (0.07s)
+    --- PASS: TestHTTPProducerWriter//data.txt/755 (0.07s)
+    --- PASS: TestHTTPProducerWriter/../data.txt/0 (0.07s)
+    --- PASS: TestHTTPProducerWriter/../data.txt/600 (0.07s)
+    --- PASS: TestHTTPProducerWriter/../data.txt/644 (0.08s)
+    --- PASS: TestHTTPProducerWriter/../data.txt/755 (0.08s)
+    --- PASS: TestHTTPProducerWriter/a/../data.txt/0 (0.07s)
+    --- PASS: TestHTTPProducerWriter/a/../data.txt/600 (0.08s)
+    --- PASS: TestHTTPProducerWriter/a/../data.txt/644 (0.08s)
+    --- PASS: TestHTTPProducerWriter/a/../data.txt/755 (0.06s)
+    --- PASS: TestHTTPProducerWriter/./data.txt/0 (0.06s)
+    --- PASS: TestHTTPProducerWriter/./data.txt/600 (0.07s)
+    --- PASS: TestHTTPProducerWriter/./data.txt/644 (0.07s)
+    --- PASS: TestHTTPProducerWriter/./data.txt/755 (0.07s)
+    --- PASS: TestHTTPProducerWriter/sub/data.txt/0 (0.03s)
+    --- PASS: TestHTTPProducerWriter/sub/data.txt/600 (0.04s)
+    --- PASS: TestHTTPProducerWriter/sub/data.txt/644 (0.03s)
+    --- PASS: TestHTTPProducerWriter/sub/data.txt/755 (0.03s)
+    --- PASS: TestHTTPProducerWriter/restrictive_umask (0.03s)
+    --- PASS: TestHTTPProducerWriter/public_eager_layout (0.14s)
+PASS

@@ -1,5 +1,17 @@
 # Batch 1 + batch 2 integration
 
+## Fix
+
+Option A is implemented in signed-off commit `17384b793fe715006ffdbba4b1075354cd7733d8`, above the accepted follow-up head `f035d2c2a307cdf0ab66025aef147016a02d2e8a`. The Container publication hook now attaches the operational recipe's inputs or, after completion, the live completed recipe's inputs. The choice is captured under the operation mutex, which is released before graph callbacks; producer dependencies remain `Owned: false`.
+
+Verification on this new implementation head is **green under the commissioned criteria**: build, the unfiltered privileged `core` / `core/schema` / `dagql` run, both batches' named race selections, selected-chain peers, the real-store restart peer, and all four dev-engine selections passed. The new publication regression and both branches of the unchanged shutdown persistence test passed. Vet exited 1 with exactly the four permitted pre-existing `lostcancel` diagnostics and no copylocks findings. Existing skips remain documented; none was added.
+
+[Fix report, exact commands, statuses and complete logs](fix/REPORT.md). This supersedes the original verification verdict below. The original run's logs and the accepted diagnosis remain unchanged.
+
+## Original integration results
+
+The remaining sections record the initial integration at `5483cfc495f93d4777104bda7edede27e33607c9`, before the test-only follow-up and the production fix above.
+
 Integration replay is complete; verification is **not green**. All required commands ran. Build, both batches' race selections, all four dev-engine selections, selected-chain peers and the real-store restart peer passed. Vet and the unfiltered core package failed; details and unchanged logs follow. The additional whitespace check flags inherited batch 2 evidence logs.
 
 Branch: `remote-cache-integration-b1-b2-36d54e12`.

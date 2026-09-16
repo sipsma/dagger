@@ -1,0 +1,32 @@
+dagql/cache_test.go
+2284: 
+2285: 	t.Run("last waiter canceled fn returns value still releases", func(t *testing.T) {
+2286: 		t.Parallel()
+2287: 		// TODO: Re-enable this test once we define and implement the intended
+2288: 		// last-waiter cleanup semantics for canceled waiters when fn later returns.
+2289: 		t.Skip("TODO: re-enable after last-waiter canceled cleanup semantics are decided")
+2290: 		ctx := cacheTestContext(t.Context())
+2291: 		cacheIface, err := NewCache(ctx, "", nil, nil)
+2292: 		assert.NilError(t, err)
+2293: 
+2294: 		keyCall := cacheTestIntCall("cancel-last-waiter-release")
+2295: 		ctx1, cancel1 := context.WithCancel(ctx)
+2296: 		defer cancel1()
+core/integration/remote_cache_transfer_test.go
+103: 
+104: func (RemoteCacheTransferSuite) TestSchemaRecoveryCold(ctx context.Context, t *testctx.T) {
+105: 	t.Skip("addendum 2: fully cold import needs batch 4 acquisition through local-equivalent selection or the batch 1 builtin producer; batch 7 owns acceptance")
+106: 	runTransferSchemaRecovery(ctx, t, true, false)
+107: }
+108: 
+109: func runTransferSchemaRecovery(ctx context.Context, t *testctx.T, cold, defaultGC bool) {
+110: 	outer := connect(ctx, t)
+111: 	newCheckout := func(t *testctx.T) string {
+112: 		t.Helper()
+113: 		dir := t.TempDir()
+114: 		require.NoError(t, os.MkdirAll(filepath.Join(dir, ".dagger"), 0755))
+115: 		require.NoError(t, os.WriteFile(filepath.Join(dir, "dagger.json"), []byte(`{"name":"cache-probe","engineVersion":"latest","sdk":{"source":"go"},"source":".dagger"}`), 0644))
+$ git diff --exit-code f035d2c2a3 HEAD -- dagql/cache_test.go
+Exit status: 0
+$ git diff --exit-code f035d2c2a3 HEAD -- core/integration/remote_cache_transfer_test.go
+Exit status: 0

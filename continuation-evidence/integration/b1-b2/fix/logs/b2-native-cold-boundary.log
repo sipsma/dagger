@@ -1,0 +1,5 @@
+✔ TestSchemaRecoveryCold 0.0s
+
+
+    testctx.go:217: addendum 2: fully cold import needs batch 4 acquisition through local-equivalent selection or the batch 1 builtin producer; batch 7 owns acceptance
+full: dagger cloud logs acdf3cd08ed0e4715b5c31582fdc65e8 --test "TestRemoteCacheTransferSuite/TestSchemaRecoveryCold"

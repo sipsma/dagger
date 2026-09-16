@@ -1,0 +1,7 @@
+Head: 17384b793fe715006ffdbba4b1075354cd7733d8
+Command: dagger trace acdf3cd08ed0e4715b5c31582fdc65e8 --test TestRemoteCacheTransferSuite/TestSchemaRecovery
+Started: 2026-09-16T09:41:10.256177+00:00
+Finished: 2026-09-16T09:41:15.342631+00:00
+Elapsed seconds: 5.086
+Exit status: 0
+Log: logs/b2-native-schema-trace.log

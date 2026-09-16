@@ -1,0 +1,142 @@
+[
+  {
+    "name": "build",
+    "command": "go build ./...",
+    "started": "2026-09-16T09:27:37.192183+00:00",
+    "head": "17384b793fe715006ffdbba4b1075354cd7733d8",
+    "log": "logs/build.log",
+    "exit_status": 0,
+    "seconds": 42.213,
+    "finished": "2026-09-16T09:28:19.405019+00:00"
+  },
+  {
+    "name": "vet",
+    "command": "go vet ./core/... ./dagql/... ./engine/...",
+    "started": "2026-09-16T09:28:19.405615+00:00",
+    "head": "17384b793fe715006ffdbba4b1075354cd7733d8",
+    "log": "logs/vet.log",
+    "exit_status": 1,
+    "seconds": 15.206,
+    "finished": "2026-09-16T09:28:34.611213+00:00"
+  },
+  {
+    "name": "unfiltered",
+    "command": "env GOPATH=/home/exedev/go GOCACHE=/home/exedev/.cache/go-build go test -p=1 -exec='sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core ./core/schema ./dagql -count=1 -v",
+    "started": "2026-09-16T09:28:34.611835+00:00",
+    "head": "17384b793fe715006ffdbba4b1075354cd7733d8",
+    "log": "logs/unfiltered.log",
+    "exit_status": 0,
+    "seconds": 83.602,
+    "finished": "2026-09-16T09:29:58.214054+00:00"
+  },
+  {
+    "name": "b1-race-compile",
+    "command": "go test -race -c ./core -o /tmp/b1-b2-fix/core-race.test",
+    "started": "2026-09-16T09:29:58.214701+00:00",
+    "head": "17384b793fe715006ffdbba4b1075354cd7733d8",
+    "log": "logs/b1-race-compile.log",
+    "exit_status": 0,
+    "seconds": 41.635,
+    "finished": "2026-09-16T09:30:39.849281+00:00"
+  },
+  {
+    "name": "b1-race",
+    "command": "sudo -n unshare --mount --propagation private /tmp/b1-b2-fix/core-race.test -test.run '^(TestHTTPStateConcurrentResolveCapture|TestStatelessHTTPProducerIsolation|TestCompletedProducerConcurrentDemand)$' -test.count=1 -test.v",
+    "started": "2026-09-16T09:30:39.850064+00:00",
+    "head": "17384b793fe715006ffdbba4b1075354cd7733d8",
+    "log": "logs/b1-race.log",
+    "exit_status": 0,
+    "seconds": 1.688,
+    "finished": "2026-09-16T09:30:41.538109+00:00"
+  },
+  {
+    "name": "b1-race-writer",
+    "command": "sudo -n unshare --mount --propagation private /tmp/b1-b2-fix/core-race.test -test.run '^TestHTTPProducerWriter$' -test.count=1 -test.v",
+    "started": "2026-09-16T09:30:41.538808+00:00",
+    "head": "17384b793fe715006ffdbba4b1075354cd7733d8",
+    "log": "logs/b1-race-writer.log",
+    "exit_status": 0,
+    "seconds": 3.195,
+    "finished": "2026-09-16T09:30:44.734284+00:00"
+  },
+  {
+    "name": "b2-race",
+    "command": "go test -p=1 -race ./dagql -run '^(TestValueTransferCapture|TestValueTransferImportPublication|TestValueTransferOfferOwners|TestValueTransferOfferCopyFailure|TestSchemaModuleSelection.*)$' -count=1 -timeout=180s -v",
+    "started": "2026-09-16T09:30:44.735076+00:00",
+    "head": "17384b793fe715006ffdbba4b1075354cd7733d8",
+    "log": "logs/b2-race.log",
+    "exit_status": 0,
+    "seconds": 4.441,
+    "finished": "2026-09-16T09:30:49.175984+00:00"
+  },
+  {
+    "name": "b2-selected-chains",
+    "command": "env GOPATH=/home/exedev/go GOCACHE=/home/exedev/.cache/go-build go test -p=1 -exec='sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -run '^TestValueTransferParts' -count=1 -timeout=180s -v",
+    "started": "2026-09-16T09:30:49.176771+00:00",
+    "head": "17384b793fe715006ffdbba4b1075354cd7733d8",
+    "log": "logs/b2-selected-chains.log",
+    "exit_status": 0,
+    "seconds": 5.417,
+    "finished": "2026-09-16T09:30:54.593545+00:00"
+  },
+  {
+    "name": "b2-offer-restart",
+    "command": "env GOPATH=/home/exedev/go GOCACHE=/home/exedev/.cache/go-build go test -p=1 -exec='sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -run '^TestValueTransferPersistenceFinalOfferRestart$' -count=1 -timeout=120s -v",
+    "started": "2026-09-16T09:30:54.594008+00:00",
+    "head": "17384b793fe715006ffdbba4b1075354cd7733d8",
+    "log": "logs/b2-offer-restart.log",
+    "exit_status": 0,
+    "seconds": 4.854,
+    "finished": "2026-09-16T09:30:59.448475+00:00"
+  },
+  {
+    "name": "b1-native-git",
+    "command": "dagger api call engine-dev test --pkg ./core/integration --run='TestGit/(TestGitUncommittedLocal|TestGitUncommittedRemote|TestGitBundleRoundTripAndStockInterop|TestGitBundleImportAfterPrerequisiteRefAdvances|TestGitCommit|TestDiscardGitDir|TestGitDepth|TestGitTags)$'",
+    "started": "2026-09-16T09:30:59.449419+00:00",
+    "head": "17384b793fe715006ffdbba4b1075354cd7733d8",
+    "log": "logs/b1-native-git.log",
+    "exit_status": 0,
+    "seconds": 153.192,
+    "finished": "2026-09-16T09:33:32.641804+00:00"
+  },
+  {
+    "name": "b1-native-http",
+    "command": "dagger api call engine-dev test --pkg ./core/integration --run='TestHTTP/(TestHTTPName|TestHTTPPermissions|TestHTTPChecksum|TestHTTPChecksumMismatch|TestHTTPTimestamp|TestHTTPETag|TestHTTPCachePerSessions|TestHTTPAuth|TestHTTPService)$'",
+    "started": "2026-09-16T09:33:32.642602+00:00",
+    "head": "17384b793fe715006ffdbba4b1075354cd7733d8",
+    "log": "logs/b1-native-http.log",
+    "exit_status": 0,
+    "seconds": 59.781,
+    "finished": "2026-09-16T09:34:32.423431+00:00"
+  },
+  {
+    "name": "b1-native-restart",
+    "command": "dagger api call engine-dev test --pkg ./core/integration --run='TestCachePersistence/TestDiskPersistenceAcrossRestart/eager_producers_survive_restart$'",
+    "started": "2026-09-16T09:34:32.424354+00:00",
+    "head": "17384b793fe715006ffdbba4b1075354cd7733d8",
+    "log": "logs/b1-native-restart.log",
+    "exit_status": 0,
+    "seconds": 96.907,
+    "finished": "2026-09-16T09:36:09.331823+00:00"
+  },
+  {
+    "name": "b2-native-schema",
+    "command": "dagger api call engine-dev test --pkg ./core/integration --run='RemoteCacheTransferSuite/TestSchemaRecovery' --timeout=20m --test-verbose",
+    "started": "2026-09-16T09:36:09.332612+00:00",
+    "head": "17384b793fe715006ffdbba4b1075354cd7733d8",
+    "log": "logs/b2-native-schema.log",
+    "exit_status": 0,
+    "seconds": 282.331,
+    "finished": "2026-09-16T09:40:51.663857+00:00"
+  },
+  {
+    "name": "diff-check",
+    "command": "git diff --check f035d2c2a307cdf0ab66025aef147016a02d2e8a..17384b793fe715006ffdbba4b1075354cd7733d8",
+    "started": "2026-09-16T09:40:51.665004+00:00",
+    "head": "17384b793fe715006ffdbba4b1075354cd7733d8",
+    "log": "logs/diff-check.log",
+    "exit_status": 0,
+    "seconds": 0.018,
+    "finished": "2026-09-16T09:40:51.682802+00:00"
+  }
+]

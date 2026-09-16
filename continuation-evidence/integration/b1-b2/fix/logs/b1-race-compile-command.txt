@@ -1,0 +1,7 @@
+Head: 17384b793fe715006ffdbba4b1075354cd7733d8
+Command: go test -race -c ./core -o /tmp/b1-b2-fix/core-race.test
+Started: 2026-09-16T09:29:58.214701+00:00
+Finished: 2026-09-16T09:30:39.849281+00:00
+Elapsed seconds: 41.635
+Exit status: 0
+Log: logs/b1-race-compile.log

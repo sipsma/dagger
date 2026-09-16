@@ -1,0 +1,50 @@
+=== RUN   TestValueTransferOfferCopyFailure
+--- PASS: TestValueTransferOfferCopyFailure (0.05s)
+=== RUN   TestValueTransferOfferOwners
+--- PASS: TestValueTransferOfferOwners (0.00s)
+=== RUN   TestSchemaModuleSelectionFallback
+--- PASS: TestSchemaModuleSelectionFallback (0.04s)
+=== RUN   TestSchemaModuleSelectionSkipsInaccessibleInstalled
+=== RUN   TestSchemaModuleSelectionSkipsInaccessibleInstalled/operational
+=== RUN   TestSchemaModuleSelectionSkipsInaccessibleInstalled/scoped
+--- PASS: TestSchemaModuleSelectionSkipsInaccessibleInstalled (0.12s)
+    --- PASS: TestSchemaModuleSelectionSkipsInaccessibleInstalled/operational (0.06s)
+    --- PASS: TestSchemaModuleSelectionSkipsInaccessibleInstalled/scoped (0.07s)
+=== RUN   TestValueTransferCapture
+=== RUN   TestValueTransferCapture/concurrent_replacement_and_pruning
+=== RUN   TestValueTransferCapture/direct_and_offer_diamond
+=== RUN   TestValueTransferCapture/output
+=== RUN   TestValueTransferCapture/payload
+=== RUN   TestValueTransferCapture/offer
+=== RUN   TestValueTransferCapture/ownership
+=== RUN   TestValueTransferCapture/requirements
+=== RUN   TestValueTransferCapture/frame
+=== RUN   TestValueTransferCapture/busy
+=== RUN   TestValueTransferCapture/cancellation
+--- PASS: TestValueTransferCapture (0.36s)
+    --- PASS: TestValueTransferCapture/concurrent_replacement_and_pruning (0.03s)
+    --- PASS: TestValueTransferCapture/direct_and_offer_diamond (0.03s)
+    --- PASS: TestValueTransferCapture/output (0.04s)
+    --- PASS: TestValueTransferCapture/payload (0.04s)
+    --- PASS: TestValueTransferCapture/offer (0.03s)
+    --- PASS: TestValueTransferCapture/ownership (0.03s)
+    --- PASS: TestValueTransferCapture/requirements (0.05s)
+    --- PASS: TestValueTransferCapture/frame (0.03s)
+    --- PASS: TestValueTransferCapture/busy (0.03s)
+    --- PASS: TestValueTransferCapture/cancellation (0.04s)
+=== RUN   TestValueTransferImportPublication
+=== RUN   TestValueTransferImportPublication/lookup_at_commit_boundary
+=== RUN   TestValueTransferImportPublication/close_waits_for_admitted_import
+=== RUN   TestValueTransferImportPublication/preparation_failure
+=== RUN   TestValueTransferImportPublication/before_commit
+=== RUN   TestValueTransferImportPublication/after_commit
+=== RUN   TestValueTransferImportPublication/finite_root_expiry
+--- PASS: TestValueTransferImportPublication (0.38s)
+    --- PASS: TestValueTransferImportPublication/lookup_at_commit_boundary (0.08s)
+    --- PASS: TestValueTransferImportPublication/close_waits_for_admitted_import (0.09s)
+    --- PASS: TestValueTransferImportPublication/preparation_failure (0.05s)
+    --- PASS: TestValueTransferImportPublication/before_commit (0.05s)
+    --- PASS: TestValueTransferImportPublication/after_commit (0.04s)
+    --- PASS: TestValueTransferImportPublication/finite_root_expiry (0.03s)
+PASS
+ok  	github.com/dagger/dagger/dagql	2.000s

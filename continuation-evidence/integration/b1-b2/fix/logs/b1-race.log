@@ -1,0 +1,20 @@
+=== RUN   TestHTTPStateConcurrentResolveCapture
+2026/09/16 09:30:40 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestHTTPStateConcurrentResolveCapture (0.09s)
+=== RUN   TestStatelessHTTPProducerIsolation
+2026/09/16 09:30:40 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:40 INFO end lazy evaluation field=HTTPState._resolve duration=22.505339ms
+2026/09/16 09:30:40 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:40 INFO end lazy evaluation field=HTTPState._resolve duration=13.396366ms
+2026/09/16 09:30:40 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestStatelessHTTPProducerIsolation (0.11s)
+=== RUN   TestCompletedProducerConcurrentDemand
+2026/09/16 09:30:40 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:40 INFO end lazy evaluation field=HTTPState._resolve duration=21.812729ms
+2026/09/16 09:30:40 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:40 INFO end lazy evaluation field=HTTPState._resolve duration=12.295909ms
+2026/09/16 09:30:40 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 09:30:40 INFO end lazy evaluation field=HTTPState._resolve duration=12.007707ms
+2026/09/16 09:30:40 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestCompletedProducerConcurrentDemand (0.06s)
+PASS
