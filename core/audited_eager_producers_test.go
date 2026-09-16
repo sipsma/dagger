@@ -30,8 +30,11 @@ func TestAuditedEagerProducersEvaluate(t *testing.T) {
 	eager, err := BuiltInContainer(ctx, requested, desc.Digest.String())
 	require.NoError(t, err)
 	defer eager.OnRelease(ctx)
-	require.Nil(t, eager.Lazy)
-	producer := eager.completedRecipe.(*ContainerBuiltinLazy)
+	require.NotNil(t, eager.Lazy)
+	require.False(t, eager.Lazy.IsEvaluated())
+	require.Equal(t, requested, eager.Platform)
+	require.NoError(t, eager.Evaluate(ctx))
+	producer := eager.Lazy.(*ContainerBuiltinLazy)
 	require.Equal(t, requested, producer.Platform)
 	require.Equal(t, "amd64", eager.Platform.Architecture)
 	call := &dagql.ResultCall{Kind: dagql.ResultCallKindField, Field: "_builtinContainer", Type: dagql.NewResultCallType(eager.Type())}
@@ -72,7 +75,6 @@ func TestAuditedEagerProducersEvaluate(t *testing.T) {
 		body, _ := producedFileContents(t, ctx, patch)
 		require.Empty(t, body)
 		require.Nil(t, patch.Lazy)
-		require.Nil(t, patch.completedRecipe)
 		encoded, err := patch.EncodePersistedObject(ctx, dagql.NewPersistEncodeContext(cache, 0, nil))
 		require.NoError(t, err)
 		var saved persistedFilePayload
