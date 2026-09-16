@@ -1,0 +1,5 @@
+✔ TestDefaultGCPruneDiagnostic 0.0s
+
+
+    testctx.go:217: set _DAGGER_TEST_REMOTE_CACHE_PRUNE_DIAGNOSTIC=1 to opt in to the disk-pressure diagnostic (up to 8 GiB temporary allocation)
+full: dagger cloud logs 96e9ad15e8f5a157197f66894ae20475 --test "TestRemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic"

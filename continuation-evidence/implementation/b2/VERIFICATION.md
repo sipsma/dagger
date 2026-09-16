@@ -6,6 +6,49 @@ the documented engine-dev route and independent nested dev-engine state/clients.
 The current standalone acceptance follows addendum 2; the earlier checkpoint
 commands below remain historical evidence.
 
+## Round 3 verification
+
+R1 is implemented at `f985ac7887892f94d868aa8e8995a0e251dbf54c`, above the
+reviewed `5e1007a749887cb0ef975331739fed58413f251a`. The only code change is the
+explicit environment opt-in at the beginning of the diagnostic test. R2's
+journal notes are in [REPORT.md](REPORT.md). No production code changed.
+
+The following commands ran sequentially at that implementation tip and exited
+0; [round3-commands.txt](logs/round3-commands.txt) records their exact invocations.
+
+```sh
+go test -p=1 -c -o /tmp/b2-r3-integration.test ./core/integration
+env -u _DAGGER_TEST_REMOTE_CACHE_PRUNE_DIAGNOSTIC dagger api call engine-dev test --pkg ./core/integration --run='RemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic' --timeout=5m --test-verbose
+```
+
+The compile-only check produced the integration test binary with no compiler
+output. The default suite selection completed successfully and skipped the
+diagnostic in 0.0s, before `runTransferSchemaRecovery` or any scenario engines.
+The skip explains the opt-in and the allocation cap:
+
+> set _DAGGER_TEST_REMOTE_CACHE_PRUNE_DIAGNOSTIC=1 to opt in to the disk-pressure diagnostic (up to 8 GiB temporary allocation)
+
+[Native run](logs/round3-default-skip.log),
+[scoped trace](logs/round3-default-skip-trace.log),
+[test output](logs/round3-default-skip-test.log).
+Trace: <https://dagger.cloud/dagger/traces/96e9ad15e8f5a157197f66894ae20475>.
+The engine-dev harness starts its usual test infrastructure; the skipped test
+does not start its recovery scenario or allocate the pressure file.
+Pinned-bounds acceptance cases remain enabled by default and unchanged.
+
+For a future explicitly opted-in run, after preparing the persistent dev engine
+and local binaries with `./hack/dev`, the invocation is:
+
+```sh
+env _DAGGER_TEST_REMOTE_CACHE_PRUNE_DIAGNOSTIC=1 ./hack/with-dev go test -v -count=1 -run='RemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic' -timeout=15m ./core/integration
+```
+
+That command is documented only; the pressure diagnostic was not run in round 3.
+The separate fixture-root variable does not opt into the diagnostic. Existing
+measured-pressure assertions and cleanup remain unchanged. Round 2's measured
+run below remains the P2 evidence; neither it nor the pinned acceptance suite
+was repeated for this test-only guard.
+
 ## Round 2 verification
 
 Council decisions P1–P5 are implemented at `b76c6ccbff2f68f2ca6f52b5b89ef7ec6c6d2dbf`.

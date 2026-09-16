@@ -2,7 +2,7 @@
 
 Branch: `remote-cache-b2-transfer-implementer-26387947`.
 Base: `1ca9f28a60f1d9597c1b0df01e65a91707ce3b0f`.
-Implementation tip: `b76c6ccbff2f68f2ca6f52b5b89ef7ec6c6d2dbf`.
+Implementation tip: `f985ac7887892f94d868aa8e8995a0e251dbf54c`.
 
 Steps 1–5 are implemented under coordinator addenda 1 and 2. The full native
 standalone acceptance suite passes with B's runtime prepared through normal
@@ -10,6 +10,17 @@ standalone acceptance suite passes with B's runtime prepared through normal
 The isolated confirmation of the previously failing restart case also passes.
 The fully cold order remains an explicit skipped test naming addendum 2 and
 belongs to batch 4/7 acceptance. Batch 1 has not been merged; integration onto its head is pending.
+
+## Round 3 council decisions
+
+R1 adds a separate explicit opt-in, `_DAGGER_TEST_REMOTE_CACHE_PRUNE_DIAGNOSTIC=1`,
+at the start of `TestDefaultGCPruneDiagnostic`. Without it, the test skips before
+calling the recovery helper or starting its scenario engines. The fixture-root
+gate does not opt into this test. Its measured-pressure assertions and cleanup
+are unchanged, and pinned-bounds acceptance remains in the default suite.
+Round 3 changes no production code and does not rerun the pressure diagnostic.
+R2 clarifies the gated journal's error handling, cumulative counts and write cost
+below. Round 2's measured run remains the P2 evidence.
 
 ## Round 2 council decisions
 
@@ -86,10 +97,16 @@ Round 2 adds fixture-gated diagnostics outside the cache database. They preserve
 the current boot's `PersistenceResetReason` even when the engine replaces the
 cache instance after a reset, the engine-level reset reason, the cumulative
 count of persisted roots removed by automatic disk/metadata GC, and disk-pruned
-result IDs. The native suite reads them before loading any saved handle after
-restart, asserts no reset and zero removals with pinned bounds, then asserts the
-saved row still has its persisted edge. There are no fixture file operations
-when the gate is absent. The exported fixture APIs remain gated by convention.
+result IDs. The counters are cumulative across engine processes, so the
+diagnostic assertions compare before and after values and inspect only new
+prune decisions. The native suite reads the journal before loading any saved
+handle after restart, asserts no reset and zero removals with pinned bounds,
+then asserts the saved row still has its persisted edge. With the fixture gate
+enabled, a journal write failure is joined into the GC error or returned as a
+boot error. The journal is rewritten synchronously under `gcmu` only after a
+prune pass removes something, or during boot before concurrent GC; this cost is
+accepted for the gated test facility. There are no fixture file operations when
+the gate is absent. The exported fixture APIs remain gated by convention.
 
 The targeted default-policy reproduction resolved S1 as ordinary pruning of a
 pruneable imported root. In trace `a1363afb7a7c79639b0741cf7fbc4c05`, saved
@@ -143,10 +160,12 @@ reader and conversion, including the data-only exceptions.
 16. `09cc690a42bc5cd79a22b0e3acee891a929b493d` — P4, remove implementation-owned design copy.
 17. `8222830b0dd4795005d5cd4674ed7117436c5c23` — P2, restart diagnostics and measured default-policy reproduction.
 18. `b76c6ccbff2f68f2ca6f52b5b89ef7ec6c6d2dbf` — skip the environmental diagnostic when crossing the default target would exceed its allocation cap.
-19. This final separate round 2 evidence commit — report, ledger, logs and batch 2 manifest update.
+19. `5e1007a749887cb0ef975331739fed58413f251a` — round 2 report, ledger, logs and batch 2 manifest update.
+20. `f985ac7887892f94d868aa8e8995a0e251dbf54c` — R1, explicit opt-in before the default-policy pressure diagnostic starts.
+21. This final separate round 3 evidence commit — R2 journal notes, verification and default-skip evidence.
 
-The earlier three evidence-only commits remain intact, including the two
-interleaved blocker checkpoints. This round adds a fourth evidence-only commit;
+The earlier four evidence-only commits remain intact, including the two
+interleaved blocker checkpoints. This round adds a fifth evidence-only commit;
 integration must preserve implementation order when dropping evidence for publication.
 
 All reviewed commits were preserved. The initial requested hard reset and clean

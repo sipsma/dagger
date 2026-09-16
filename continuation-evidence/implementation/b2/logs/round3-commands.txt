@@ -1,0 +1,24 @@
+Implementation tip: f985ac7887892f94d868aa8e8995a0e251dbf54c
+Reviewed base: 5e1007a749887cb0ef975331739fed58413f251a
+
+Compile-only integration check:
+go test -p=1 -c -o /tmp/b2-r3-integration.test ./core/integration > /tmp/b2-r3-integration-build.log 2>&1
+Exit: 0. Compiler log empty; test binary produced. No tests executed.
+
+Default diagnostic selection, opt-in unset:
+env -u _DAGGER_TEST_REMOTE_CACHE_PRUNE_DIAGNOSTIC dagger api call engine-dev test --pkg ./core/integration --run='RemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic' --timeout=5m --test-verbose > /tmp/b2-r3-default-skip.log 2>&1
+Exit: 0. Diagnostic skipped at its entry guard; no pressure scenario executed.
+Trace: https://dagger.cloud/dagger/traces/96e9ad15e8f5a157197f66894ae20475
+
+Scoped trace retrieval (no test execution):
+dagger trace 96e9ad15e8f5a157197f66894ae20475 --test TestRemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic > /tmp/b2-r3-default-skip-trace.log 2>&1
+Exit: 0.
+dagger cloud logs 96e9ad15e8f5a157197f66894ae20475 --test 'TestRemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic' > /tmp/b2-r3-default-skip-test.log 2>&1
+Exit: 0.
+
+Future opt-in invocation, DOCUMENTED ONLY, NOT EXECUTED:
+Prerequisite: persistent dev engine and matching binaries prepared with ./hack/dev.
+env _DAGGER_TEST_REMOTE_CACHE_PRUNE_DIAGNOSTIC=1 ./hack/with-dev go test -v -count=1 -run='RemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic' -timeout=15m ./core/integration
+
+Round 2's measured trace a1363afb7a7c79639b0741cf7fbc4c05 remains the P2 evidence.
+No pressure diagnostic was run in round 3.
