@@ -1,0 +1,10 @@
+{
+  "name": "initial-package-full",
+  "exit": 1,
+  "seconds": 90.135,
+  "failures": [
+    "TestContainerPersistedUnsupportedTargetPreservesConsumedExecMeta: consumed execMeta expected before its group ran; reproduced at base",
+    "TestContainerPersistedDetachedFileAndDirectoryPaths: detached snapshot incorrectly expected to have Lazy"
+  ],
+  "finalEvidence": "package-full.log"
+}

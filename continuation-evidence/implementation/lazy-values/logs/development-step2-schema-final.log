@@ -1,0 +1,53 @@
+=== RUN   TestHTTPResolvedCall
+2026/09/16 20:23:01 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:23:01 INFO end lazy evaluation field=Query.__httpFile duration=15.990272ms
+2026/09/16 20:23:01 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:23:01 INFO end lazy evaluation field=Query.__httpFile duration=20.252472ms
+    http_lazy_test.go:94: HTTP requests: miss outer=1 operation=0; pending hit outer=1 operation=0; completed hit outer=1 operation=0
+2026/09/16 20:23:01 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestHTTPResolvedCall (0.17s)
+=== RUN   TestLazyOperationResolverOutputCleanup
+=== RUN   TestLazyOperationResolverOutputCleanup/scratch_wrapping
+2026/09/16 20:23:01 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverOutputCleanup/http_state_sync
+2026/09/16 20:23:01 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverOutputCleanup/schema_wrapping
+2026/09/16 20:23:01 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverOutputCleanup/builtin_wrapping
+2026/09/16 20:23:01 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverOutputCleanup/bundle_wrapping
+2026/09/16 20:23:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestLazyOperationResolverOutputCleanup (0.07s)
+    --- PASS: TestLazyOperationResolverOutputCleanup/scratch_wrapping (0.00s)
+    --- PASS: TestLazyOperationResolverOutputCleanup/http_state_sync (0.00s)
+    --- PASS: TestLazyOperationResolverOutputCleanup/schema_wrapping (0.01s)
+    --- PASS: TestLazyOperationResolverOutputCleanup/builtin_wrapping (0.01s)
+    --- PASS: TestLazyOperationResolverOutputCleanup/bundle_wrapping (0.04s)
+=== RUN   TestLazyOperationResolverCapture
+=== RUN   TestLazyOperationResolverCapture/scratch_wrapping
+2026/09/16 20:23:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverCapture/http_state_sync
+2026/09/16 20:23:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverCapture/schema_wrapping
+2026/09/16 20:23:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverCapture/builtin_wrapping
+2026/09/16 20:23:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverCapture/bundle_wrapping
+2026/09/16 20:23:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverCapture/gitCleaned
+2026/09/16 20:23:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverCapture/gitTree
+2026/09/16 20:23:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverCapture/gitCommitTree
+2026/09/16 20:23:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestLazyOperationResolverCapture (0.27s)
+    --- PASS: TestLazyOperationResolverCapture/scratch_wrapping (0.00s)
+    --- PASS: TestLazyOperationResolverCapture/http_state_sync (0.00s)
+    --- PASS: TestLazyOperationResolverCapture/schema_wrapping (0.01s)
+    --- PASS: TestLazyOperationResolverCapture/builtin_wrapping (0.02s)
+    --- PASS: TestLazyOperationResolverCapture/bundle_wrapping (0.04s)
+    --- PASS: TestLazyOperationResolverCapture/gitCleaned (0.03s)
+    --- PASS: TestLazyOperationResolverCapture/gitTree (0.08s)
+    --- PASS: TestLazyOperationResolverCapture/gitCommitTree (0.09s)
+PASS
+ok  	github.com/dagger/dagger/core/schema	1.907s

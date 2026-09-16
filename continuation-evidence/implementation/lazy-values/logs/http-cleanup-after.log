@@ -1,0 +1,47 @@
+=== RUN   TestHTTPLocalBodyFailures
+=== RUN   TestHTTPLocalBodyFailures/matching
+2026/09/16 21:45:54 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 21:45:54 INFO end lazy evaluation field=Query.__httpFile duration=20.8678ms
+=== RUN   TestHTTPLocalBodyFailures/absent
+2026/09/16 21:45:54 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 21:45:54 INFO end lazy evaluation field=Query.__httpFile duration=14.786355ms
+=== RUN   TestHTTPLocalBodyFailures/foreign
+2026/09/16 21:45:54 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 21:45:54 INFO end lazy evaluation field=Query.__httpFile duration=15.380195ms
+=== RUN   TestHTTPLocalBodyFailures/advanced
+2026/09/16 21:45:54 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 21:45:54 INFO end lazy evaluation field=Query.__httpFile duration=12.309848ms
+=== RUN   TestHTTPLocalBodyFailures/unavailable
+2026/09/16 21:45:54 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 21:45:54 INFO end lazy evaluation field=Query.__httpFile duration=11.699769ms
+=== RUN   TestHTTPLocalBodyFailures/pin_error
+2026/09/16 21:45:54 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 21:45:54 INFO end lazy evaluation field=Query.__httpFile duration=339.429µs err="injected pin or release failure"
+=== RUN   TestHTTPLocalBodyFailures/cancel
+2026/09/16 21:45:54 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 21:45:54 INFO end lazy evaluation field=Query.__httpFile duration=261.52µs err="context canceled"
+=== RUN   TestHTTPLocalBodyFailures/unavailable_plus_cleanup
+2026/09/16 21:45:54 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 21:45:54 INFO end lazy evaluation field=Query.__httpFile duration=330.199µs err="not found\ninjected pin or release failure"
+=== RUN   TestHTTPLocalBodyFailures/derivation_plus_cleanup
+2026/09/16 21:45:54 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 21:45:54 INFO end lazy evaluation field=Query.__httpFile duration=7.291123ms err="derive failure\ninjected pin or release failure"
+=== RUN   TestHTTPLocalBodyFailures/successful_derivation_cleanup
+2026/09/16 21:45:54 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 21:45:54 INFO end lazy evaluation field=Query.__httpFile duration=18.621631ms err="injected pin or release failure"
+2026/09/16 21:45:54 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 21:45:54 INFO end lazy evaluation field=Query.__httpFile duration=25.335646ms
+2026/09/16 21:45:54 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestHTTPLocalBodyFailures (0.45s)
+    --- PASS: TestHTTPLocalBodyFailures/matching (0.02s)
+    --- PASS: TestHTTPLocalBodyFailures/absent (0.02s)
+    --- PASS: TestHTTPLocalBodyFailures/foreign (0.02s)
+    --- PASS: TestHTTPLocalBodyFailures/advanced (0.01s)
+    --- PASS: TestHTTPLocalBodyFailures/unavailable (0.01s)
+    --- PASS: TestHTTPLocalBodyFailures/pin_error (0.00s)
+    --- PASS: TestHTTPLocalBodyFailures/cancel (0.00s)
+    --- PASS: TestHTTPLocalBodyFailures/unavailable_plus_cleanup (0.00s)
+    --- PASS: TestHTTPLocalBodyFailures/derivation_plus_cleanup (0.01s)
+    --- PASS: TestHTTPLocalBodyFailures/successful_derivation_cleanup (0.05s)
+PASS
+ok  	github.com/dagger/dagger/core	1.891s

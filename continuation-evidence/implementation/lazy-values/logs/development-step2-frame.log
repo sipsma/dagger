@@ -1,0 +1,8 @@
+=== RUN   TestHTTPResolvedCall
+2026/09/16 20:22:05 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:22:05 INFO end lazy evaluation field=Query.__httpFile duration=9.134657ms
+    http_lazy_test.go:87: HTTP requests: miss outer=1 operation=0; pending hit outer=1 operation=0; completed hit outer=1 operation=0
+2026/09/16 20:22:05 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestHTTPResolvedCall (0.07s)
+PASS
+ok  	github.com/dagger/dagger/core/schema	0.142s

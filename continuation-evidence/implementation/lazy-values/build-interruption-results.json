@@ -1,0 +1,29 @@
+[
+  {
+    "name": "remaining-engine",
+    "command": "dagger -vv api call engine-dev test --pkg ./core/integration '--run=^(TestRemoteCacheTransferSuite|TestGit|TestHTTP|TestCachePersistence)$/^(TestSchemaRecovery|TestPartMixedExecOutputs|TestGitUncommittedLocal|TestGitUncommittedRemote|TestGitBundleRoundTripAndStockInterop|TestGitBundleImportAfterPrerequisiteRefAdvances|TestGitCommit|TestDiscardGitDir|TestGitDepth|TestGitTags|TestGitLatest|TestGitLatestFallsBackToHead|TestGitCommitReleaseTags|TestGitCommitReleaseTagFreshness|TestHTTPName|TestHTTPPermissions|TestHTTPChecksum|TestHTTPChecksumMismatch|TestHTTPTimestamp|TestHTTPETag|TestHTTPCachePerSessions|TestHTTPAuth|TestHTTPService|TestDiskPersistenceAcrossRestart)$' '--skip=^TestCachePersistence$/^TestDiskPersistenceAcrossRestart$/^(changeset_merge_operation_survives_restart|directory_and_file_restore_without_opening|module_function_directory_list_survives_repeated_restarts|module_core_metadata_returns_survive_restart|container_parts_preserve_mutations_and_unopened_snapshots|local_cache_survives_restart|lazy_imported_snapshot_links_count_toward_local_cache_usage_and_max-used_prune|unclean_shutdown_discards_local_cache_state_and_recovers|container_withNewFile_hit_survives_restart|container_selector_lazy_dependencies_survive_restart|directory_search_result_list_survives_restart|changeset_diff_stat_list_survives_restart|service-bound_graph_does_not_break_disk_persistence|generator_group_graph_does_not_break_disk_persistence|private_field_handle_survives_restart|function_cache_control_survives_restart|typescript_function_cache_control_survives_restart|contextual_function_cache_survives_restart|container_withExec_output_on_host_mount_survives_restart|container_withExec_output_on_host_mounted_file_survives_restart|container_child_exec_during_concurrent_mounted_directory_parent_eval|git_repository_and_ref_survive_restart|engine-dev_container_build_survives_restart|cache_volume_survives_restart|source-backed_cache_volume_supports_concurrent_mounts_after_restart)$' --timeout=15m --parallel=2 --test-verbose",
+    "exit": -15,
+    "seconds": 768.655,
+    "startedUnix": 1789597182.5789328,
+    "finishedUnix": 1789597951.234099,
+    "outcome": "engine construction failed; selected tests not started; waiting CLI terminated after both server sessions ended",
+    "traceCandidates": [
+      "7fa0800d2717e7d7b98167649b157b6c",
+      "454c974016e6bbf109f25f1a10c80cf1"
+    ]
+  },
+  {
+    "name": "default-policy-opted-in",
+    "command": "dagger -vv api call engine-dev test --pkg ./core/integration '--run=TestRemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic$' --timeout=10m --parallel=2 --test-verbose --env-file=file:/tmp/lazy-values-default.env",
+    "exit": -15,
+    "seconds": 768.598,
+    "startedUnix": 1789597182.6371226,
+    "finishedUnix": 1789597951.2352793,
+    "runnerOverlay": "probes/default-policy-runner.patch",
+    "outcome": "engine construction failed; selected tests not started; waiting CLI terminated after both server sessions ended",
+    "traceCandidates": [
+      "7fa0800d2717e7d7b98167649b157b6c",
+      "454c974016e6bbf109f25f1a10c80cf1"
+    ]
+  }
+]

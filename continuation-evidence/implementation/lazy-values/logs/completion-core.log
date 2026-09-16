@@ -1,0 +1,20 @@
+=== RUN   TestLazyPersistenceCompletedBodyGuards
+=== RUN   TestLazyPersistenceCompletedBodyGuards/Container
+2026/09/16 23:09:52 INFO start lazy evaluation field=Container
+2026/09/16 23:09:52 INFO end lazy evaluation field=Container duration=242.231µs
+=== RUN   TestLazyPersistenceCompletedBodyGuards/File
+2026/09/16 23:09:52 INFO start lazy evaluation field=File
+2026/09/16 23:09:52 INFO end lazy evaluation field=File duration=70.08µs
+=== RUN   TestLazyPersistenceCompletedBodyGuards/Directory
+2026/09/16 23:09:52 INFO start lazy evaluation field=Directory
+2026/09/16 23:09:52 INFO end lazy evaluation field=Directory duration=48.88µs
+--- PASS: TestLazyPersistenceCompletedBodyGuards (0.00s)
+    --- PASS: TestLazyPersistenceCompletedBodyGuards/Container (0.00s)
+    --- PASS: TestLazyPersistenceCompletedBodyGuards/File (0.00s)
+    --- PASS: TestLazyPersistenceCompletedBodyGuards/Directory (0.00s)
+=== RUN   TestLazyPersistenceCompletedGroupGuards
+2026/09/16 23:09:52 INFO start lazy group evaluation field="image fs" group=write
+2026/09/16 23:09:52 INFO end lazy group evaluation field="image fs" group=write duration=108.83µs
+--- PASS: TestLazyPersistenceCompletedGroupGuards (0.00s)
+PASS
+ok  	github.com/dagger/dagger/core	1.419s

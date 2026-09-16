@@ -1,0 +1,273 @@
+=== RUN   TestHTTPStateUsageSizeUsesPersistedSnapshotID
+=== PAUSE TestHTTPStateUsageSizeUsesPersistedSnapshotID
+=== RUN   TestHTTPLazyOperationEvaluate
+=== RUN   TestHTTPLazyOperationEvaluate/equal
+2026/09/16 20:20:32 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:32 INFO end lazy evaluation field=Query.__httpFile duration=24.925753ms
+=== RUN   TestHTTPLazyOperationEvaluate/changed_timestamp
+2026/09/16 20:20:32 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:32 INFO end lazy evaluation field=Query.__httpFile duration=16.135556ms
+=== RUN   TestHTTPLazyOperationEvaluate/invalid_timestamp
+2026/09/16 20:20:32 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:32 INFO end lazy evaluation field=Query.__httpFile duration=15.107789ms
+=== RUN   TestHTTPLazyOperationEvaluate/empty_checksum
+2026/09/16 20:20:32 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:32 INFO end lazy evaluation field=Query.__httpFile duration=13.830893ms
+=== RUN   TestHTTPLazyOperationEvaluate/checksum
+2026/09/16 20:20:32 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:32 INFO end lazy evaluation field=Query.__httpFile duration=14.113752ms
+=== RUN   TestHTTPLazyOperationEvaluate/changed_body
+2026/09/16 20:20:32 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:32 INFO end lazy evaluation field=Query.__httpFile duration=15.892957ms err="HTTP File operation body mismatch: recorded sha256:d81c55f49c5bb0d36bc11e3966ec4efab66f8dfefbbc1761161ca9d230e5466a, fetched sha256:d67e2e944994496c8d8ec76eed0cf9f09679448d584b532bebf941852a37f5ed"
+=== RUN   TestHTTPLazyOperationEvaluate/checksum_mismatch
+2026/09/16 20:20:32 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:32 INFO end lazy evaluation field=Query.__httpFile duration=10.90732ms err="http checksum mismatch: expected sha256:d81c55f49c5bb0d36bc11e3966ec4efab66f8dfefbbc1761161ca9d230e5466a, got sha256:d67e2e944994496c8d8ec76eed0cf9f09679448d584b532bebf941852a37f5ed"
+=== RUN   TestHTTPLazyOperationEvaluate/bad_checksum
+2026/09/16 20:20:32 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:32 INFO end lazy evaluation field=Query.__httpFile duration=117.939µs err="invalid checksum \"invalid\": invalid checksum digest format"
+=== RUN   TestHTTPLazyOperationEvaluate/status
+2026/09/16 20:20:32 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:32 INFO end lazy evaluation field=Query.__httpFile duration=1.867695ms err="invalid response status 500 Internal Server Error"
+=== RUN   TestHTTPLazyOperationEvaluate/partial
+2026/09/16 20:20:32 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:32 INFO end lazy evaluation field=Query.__httpFile duration=16.970374ms
+=== RUN   TestHTTPLazyOperationEvaluate/not_modified
+2026/09/16 20:20:32 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:32 INFO end lazy evaluation field=Query.__httpFile duration=15.907607ms err="HTTP File operation body mismatch: recorded sha256:d81c55f49c5bb0d36bc11e3966ec4efab66f8dfefbbc1761161ca9d230e5466a, fetched sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+=== RUN   TestHTTPLazyOperationEvaluate/no_content
+2026/09/16 20:20:32 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:32 INFO end lazy evaluation field=Query.__httpFile duration=16.563156ms err="HTTP File operation body mismatch: recorded sha256:d81c55f49c5bb0d36bc11e3966ec4efab66f8dfefbbc1761161ca9d230e5466a, fetched sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+2026/09/16 20:20:32 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:32 INFO end lazy evaluation field=Query.__httpFile duration=13.388154ms
+2026/09/16 20:20:32 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:32 INFO end lazy evaluation field=Query.__httpFile duration=12.837196ms
+=== RUN   TestHTTPLazyOperationEvaluate/transport
+2026/09/16 20:20:32 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:32 INFO end lazy evaluation field=Query.__httpFile duration=1.065647ms err="Get \"http://127.0.0.1:1\": dial tcp 127.0.0.1:1: connect: connection refused"
+=== RUN   TestHTTPLazyOperationEvaluate/canceled
+2026/09/16 20:20:32 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:32 INFO end lazy evaluation field=Query.__httpFile duration=358.269µs err="context canceled"
+2026/09/16 20:20:32 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestHTTPLazyOperationEvaluate (0.34s)
+    --- PASS: TestHTTPLazyOperationEvaluate/equal (0.05s)
+    --- PASS: TestHTTPLazyOperationEvaluate/changed_timestamp (0.03s)
+    --- PASS: TestHTTPLazyOperationEvaluate/invalid_timestamp (0.03s)
+    --- PASS: TestHTTPLazyOperationEvaluate/empty_checksum (0.03s)
+    --- PASS: TestHTTPLazyOperationEvaluate/checksum (0.03s)
+    --- PASS: TestHTTPLazyOperationEvaluate/changed_body (0.02s)
+    --- PASS: TestHTTPLazyOperationEvaluate/checksum_mismatch (0.01s)
+    --- PASS: TestHTTPLazyOperationEvaluate/bad_checksum (0.00s)
+    --- PASS: TestHTTPLazyOperationEvaluate/status (0.00s)
+    --- PASS: TestHTTPLazyOperationEvaluate/partial (0.03s)
+    --- PASS: TestHTTPLazyOperationEvaluate/not_modified (0.02s)
+    --- PASS: TestHTTPLazyOperationEvaluate/no_content (0.02s)
+    --- PASS: TestHTTPLazyOperationEvaluate/transport (0.00s)
+    --- PASS: TestHTTPLazyOperationEvaluate/canceled (0.00s)
+=== RUN   TestHTTPLazyOperationWriter
+=== RUN   TestHTTPLazyOperationWriter/data.txt/0
+2026/09/16 20:20:32 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:32 INFO end lazy evaluation field=Query.__httpFile duration=15.128509ms
+=== RUN   TestHTTPLazyOperationWriter/data.txt/600
+2026/09/16 20:20:32 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:32 INFO end lazy evaluation field=Query.__httpFile duration=16.092317ms
+=== RUN   TestHTTPLazyOperationWriter/data.txt/644
+2026/09/16 20:20:32 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:32 INFO end lazy evaluation field=Query.__httpFile duration=11.621829ms
+=== RUN   TestHTTPLazyOperationWriter/data.txt/755
+2026/09/16 20:20:32 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:32 INFO end lazy evaluation field=Query.__httpFile duration=14.8075ms
+=== RUN   TestHTTPLazyOperationWriter//data.txt/0
+2026/09/16 20:20:32 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:32 INFO end lazy evaluation field=Query.__httpFile duration=15.772697ms
+=== RUN   TestHTTPLazyOperationWriter//data.txt/600
+2026/09/16 20:20:32 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:32 INFO end lazy evaluation field=Query.__httpFile duration=15.156979ms
+=== RUN   TestHTTPLazyOperationWriter//data.txt/644
+2026/09/16 20:20:32 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:32 INFO end lazy evaluation field=Query.__httpFile duration=14.360451ms
+=== RUN   TestHTTPLazyOperationWriter//data.txt/755
+2026/09/16 20:20:32 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:32 INFO end lazy evaluation field=Query.__httpFile duration=11.35602ms
+=== RUN   TestHTTPLazyOperationWriter/../data.txt/0
+2026/09/16 20:20:32 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:32 INFO end lazy evaluation field=Query.__httpFile duration=13.305924ms
+=== RUN   TestHTTPLazyOperationWriter/../data.txt/600
+2026/09/16 20:20:32 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:33 INFO end lazy evaluation field=Query.__httpFile duration=14.010843ms
+=== RUN   TestHTTPLazyOperationWriter/../data.txt/644
+2026/09/16 20:20:33 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:33 INFO end lazy evaluation field=Query.__httpFile duration=11.606499ms
+=== RUN   TestHTTPLazyOperationWriter/../data.txt/755
+2026/09/16 20:20:33 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:33 INFO end lazy evaluation field=Query.__httpFile duration=13.100465ms
+=== RUN   TestHTTPLazyOperationWriter/a/../data.txt/0
+2026/09/16 20:20:33 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:33 INFO end lazy evaluation field=Query.__httpFile duration=10.361862ms
+=== RUN   TestHTTPLazyOperationWriter/a/../data.txt/600
+2026/09/16 20:20:33 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:33 INFO end lazy evaluation field=Query.__httpFile duration=15.440569ms
+=== RUN   TestHTTPLazyOperationWriter/a/../data.txt/644
+2026/09/16 20:20:33 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:33 INFO end lazy evaluation field=Query.__httpFile duration=15.538028ms
+=== RUN   TestHTTPLazyOperationWriter/a/../data.txt/755
+2026/09/16 20:20:33 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:33 INFO end lazy evaluation field=Query.__httpFile duration=15.950567ms
+=== RUN   TestHTTPLazyOperationWriter/./data.txt/0
+2026/09/16 20:20:33 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:33 INFO end lazy evaluation field=Query.__httpFile duration=16.380347ms
+=== RUN   TestHTTPLazyOperationWriter/./data.txt/600
+2026/09/16 20:20:33 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:33 INFO end lazy evaluation field=Query.__httpFile duration=14.248352ms
+=== RUN   TestHTTPLazyOperationWriter/./data.txt/644
+2026/09/16 20:20:33 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:33 INFO end lazy evaluation field=Query.__httpFile duration=14.882331ms
+=== RUN   TestHTTPLazyOperationWriter/./data.txt/755
+2026/09/16 20:20:33 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:33 INFO end lazy evaluation field=Query.__httpFile duration=14.73457ms
+=== RUN   TestHTTPLazyOperationWriter/sub/data.txt/0
+2026/09/16 20:20:33 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:33 INFO end lazy evaluation field=Query.__httpFile duration=8.680087ms err="file write failed: open /sub/data.txt: no such file or directory"
+=== RUN   TestHTTPLazyOperationWriter/sub/data.txt/600
+2026/09/16 20:20:33 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:33 INFO end lazy evaluation field=Query.__httpFile duration=8.110839ms err="file write failed: open /sub/data.txt: no such file or directory"
+=== RUN   TestHTTPLazyOperationWriter/sub/data.txt/644
+2026/09/16 20:20:33 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:33 INFO end lazy evaluation field=Query.__httpFile duration=9.861593ms err="file write failed: open /sub/data.txt: no such file or directory"
+=== RUN   TestHTTPLazyOperationWriter/sub/data.txt/755
+2026/09/16 20:20:33 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:33 INFO end lazy evaluation field=Query.__httpFile duration=8.653437ms err="file write failed: open /sub/data.txt: no such file or directory"
+=== RUN   TestHTTPLazyOperationWriter/restrictive_umask
+2026/09/16 20:20:33 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:33 INFO end lazy evaluation field=Query.__httpFile duration=13.640943ms
+=== RUN   TestHTTPLazyOperationWriter/public_eager_layout
+2026/09/16 20:20:34 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestHTTPLazyOperationWriter (1.80s)
+    --- PASS: TestHTTPLazyOperationWriter/data.txt/0 (0.09s)
+    --- PASS: TestHTTPLazyOperationWriter/data.txt/600 (0.07s)
+    --- PASS: TestHTTPLazyOperationWriter/data.txt/644 (0.06s)
+    --- PASS: TestHTTPLazyOperationWriter/data.txt/755 (0.06s)
+    --- PASS: TestHTTPLazyOperationWriter//data.txt/0 (0.08s)
+    --- PASS: TestHTTPLazyOperationWriter//data.txt/600 (0.08s)
+    --- PASS: TestHTTPLazyOperationWriter//data.txt/644 (0.07s)
+    --- PASS: TestHTTPLazyOperationWriter//data.txt/755 (0.06s)
+    --- PASS: TestHTTPLazyOperationWriter/../data.txt/0 (0.07s)
+    --- PASS: TestHTTPLazyOperationWriter/../data.txt/600 (0.07s)
+    --- PASS: TestHTTPLazyOperationWriter/../data.txt/644 (0.07s)
+    --- PASS: TestHTTPLazyOperationWriter/../data.txt/755 (0.07s)
+    --- PASS: TestHTTPLazyOperationWriter/a/../data.txt/0 (0.06s)
+    --- PASS: TestHTTPLazyOperationWriter/a/../data.txt/600 (0.08s)
+    --- PASS: TestHTTPLazyOperationWriter/a/../data.txt/644 (0.08s)
+    --- PASS: TestHTTPLazyOperationWriter/a/../data.txt/755 (0.08s)
+    --- PASS: TestHTTPLazyOperationWriter/./data.txt/0 (0.08s)
+    --- PASS: TestHTTPLazyOperationWriter/./data.txt/600 (0.08s)
+    --- PASS: TestHTTPLazyOperationWriter/./data.txt/644 (0.08s)
+    --- PASS: TestHTTPLazyOperationWriter/./data.txt/755 (0.08s)
+    --- PASS: TestHTTPLazyOperationWriter/sub/data.txt/0 (0.04s)
+    --- PASS: TestHTTPLazyOperationWriter/sub/data.txt/600 (0.04s)
+    --- PASS: TestHTTPLazyOperationWriter/sub/data.txt/644 (0.04s)
+    --- PASS: TestHTTPLazyOperationWriter/sub/data.txt/755 (0.03s)
+    --- PASS: TestHTTPLazyOperationWriter/restrictive_umask (0.03s)
+    --- PASS: TestHTTPLazyOperationWriter/public_eager_layout (0.14s)
+=== RUN   TestHTTPLazyOperationCleanup
+=== RUN   TestHTTPLazyOperationCleanup/copy
+2026/09/16 20:20:34 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:34 INFO end lazy evaluation field=Query.__httpFile duration=16.463825ms err="file write failed: unexpected EOF"
+=== RUN   TestHTTPLazyOperationCleanup/close
+2026/09/16 20:20:34 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:34 INFO end lazy evaluation field=Query.__httpFile duration=11.30065ms err="file write failed: close /data: bad file descriptor"
+=== RUN   TestHTTPLazyOperationCleanup/chmod
+2026/09/16 20:20:34 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:34 INFO end lazy evaluation field=Query.__httpFile duration=9.171365ms err="file write failed: chmod /data: no such file or directory"
+=== RUN   TestHTTPLazyOperationCleanup/timestamp
+=== RUN   TestHTTPLazyOperationCleanup/checksum
+2026/09/16 20:20:35 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:35 INFO end lazy evaluation field=Query.__httpFile duration=168.529µs err="http checksum mismatch: expected sha256:d9298a10d1b0735837dc4bd85dac641b0f3cef27a47e5d53a54f2f3f5b2fcffa, recorded sha256:230d8358dc8e8890b4c58deeb62912ee2f20357ae92a5cc861b98e68fe31acb5"
+=== RUN   TestHTTPLazyOperationCleanup/commit
+2026/09/16 20:20:35 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:35 INFO end lazy evaluation field=Query.__httpFile duration=9.957743ms err="injected commit"
+=== RUN   TestHTTPLazyOperationCleanup/mount
+2026/09/16 20:20:35 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:35 INFO end lazy evaluation field=Query.__httpFile duration=10.596361ms err="file write failed: injected mount"
+=== RUN   TestHTTPLazyOperationCleanup/digest
+2026/09/16 20:20:35 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:35 INFO end lazy evaluation field=Query.__httpFile duration=14.393302ms err="HTTP File operation body mismatch: recorded sha256:d9298a10d1b0735837dc4bd85dac641b0f3cef27a47e5d53a54f2f3f5b2fcffa, fetched sha256:230d8358dc8e8890b4c58deeb62912ee2f20357ae92a5cc861b98e68fe31acb5"
+=== RUN   TestHTTPLazyOperationCleanup/move
+2026/09/16 20:20:35 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:35 INFO end lazy evaluation field=Query.__httpFile duration=14.579911ms err="operation receiver: File snapshot already installed"
+=== RUN   TestHTTPLazyOperationCleanup/success
+2026/09/16 20:20:35 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:35 INFO end lazy evaluation field=Query.__httpFile duration=18.094061ms
+2026/09/16 20:20:35 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestHTTPLazyOperationCleanup (1.68s)
+    --- PASS: TestHTTPLazyOperationCleanup/copy (0.02s)
+    --- PASS: TestHTTPLazyOperationCleanup/close (0.01s)
+    --- PASS: TestHTTPLazyOperationCleanup/chmod (0.01s)
+    --- PASS: TestHTTPLazyOperationCleanup/timestamp (1.56s)
+    --- PASS: TestHTTPLazyOperationCleanup/checksum (0.00s)
+    --- PASS: TestHTTPLazyOperationCleanup/commit (0.01s)
+    --- PASS: TestHTTPLazyOperationCleanup/mount (0.01s)
+    --- PASS: TestHTTPLazyOperationCleanup/digest (0.02s)
+    --- PASS: TestHTTPLazyOperationCleanup/move (0.02s)
+    --- PASS: TestHTTPLazyOperationCleanup/success (0.02s)
+=== RUN   TestHTTPStateConcurrentResolveCapture
+2026/09/16 20:20:35 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestHTTPStateConcurrentResolveCapture (0.07s)
+=== RUN   TestStatelessHTTPLazyOperationIsolation
+2026/09/16 20:20:35 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:35 INFO end lazy evaluation field=Query.__httpFile duration=25.477632ms
+2026/09/16 20:20:35 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:35 INFO end lazy evaluation field=Query.__httpFile duration=14.96086ms
+2026/09/16 20:20:35 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestStatelessHTTPLazyOperationIsolation (0.12s)
+=== RUN   TestHTTPLocalBodyOwnership
+2026/09/16 20:20:36 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:36 INFO end lazy evaluation field=Query.__httpFile duration=59.086042ms
+2026/09/16 20:20:36 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestHTTPLocalBodyOwnership (0.14s)
+=== RUN   TestHTTPLocalBodyFailures
+=== RUN   TestHTTPLocalBodyFailures/matching
+2026/09/16 20:20:36 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:36 INFO end lazy evaluation field=Query.__httpFile duration=17.201664ms
+=== RUN   TestHTTPLocalBodyFailures/absent
+2026/09/16 20:20:36 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:36 INFO end lazy evaluation field=Query.__httpFile duration=12.690876ms
+=== RUN   TestHTTPLocalBodyFailures/foreign
+2026/09/16 20:20:36 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:36 INFO end lazy evaluation field=Query.__httpFile duration=13.896113ms
+=== RUN   TestHTTPLocalBodyFailures/advanced
+2026/09/16 20:20:36 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:36 INFO end lazy evaluation field=Query.__httpFile duration=14.439792ms
+=== RUN   TestHTTPLocalBodyFailures/unavailable
+2026/09/16 20:20:36 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:36 INFO end lazy evaluation field=Query.__httpFile duration=13.464084ms
+=== RUN   TestHTTPLocalBodyFailures/pin_error
+2026/09/16 20:20:36 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:36 INFO end lazy evaluation field=Query.__httpFile duration=385.919µs err="injected pin or release failure"
+=== RUN   TestHTTPLocalBodyFailures/cancel
+2026/09/16 20:20:36 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:36 INFO end lazy evaluation field=Query.__httpFile duration=250.559µs err="context canceled"
+=== RUN   TestHTTPLocalBodyFailures/unavailable_plus_cleanup
+2026/09/16 20:20:36 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:36 INFO end lazy evaluation field=Query.__httpFile duration=248.05µs err="not found\ninjected pin or release failure"
+=== RUN   TestHTTPLocalBodyFailures/derivation_plus_cleanup
+2026/09/16 20:20:36 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:20:36 INFO end lazy evaluation field=Query.__httpFile duration=8.549457ms err="derive failure\ninjected pin or release failure"
+2026/09/16 20:20:36 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestHTTPLocalBodyFailures (0.12s)
+    --- PASS: TestHTTPLocalBodyFailures/matching (0.02s)
+    --- PASS: TestHTTPLocalBodyFailures/absent (0.01s)
+    --- PASS: TestHTTPLocalBodyFailures/foreign (0.01s)
+    --- PASS: TestHTTPLocalBodyFailures/advanced (0.01s)
+    --- PASS: TestHTTPLocalBodyFailures/unavailable (0.01s)
+    --- PASS: TestHTTPLocalBodyFailures/pin_error (0.00s)
+    --- PASS: TestHTTPLocalBodyFailures/cancel (0.00s)
+    --- PASS: TestHTTPLocalBodyFailures/unavailable_plus_cleanup (0.00s)
+    --- PASS: TestHTTPLocalBodyFailures/derivation_plus_cleanup (0.01s)
+=== RUN   TestHTTPPinLockCost
+    http_lazy_test.go:237: HTTP local pin average=4.723517ms; acquisition with a 20ms occupied state lock=28.856183ms
+2026/09/16 20:20:36 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestHTTPPinLockCost (0.20s)
+=== CONT  TestHTTPStateUsageSizeUsesPersistedSnapshotID
+--- PASS: TestHTTPStateUsageSizeUsesPersistedSnapshotID (0.00s)
+PASS
+ok  	github.com/dagger/dagger/core	5.933s

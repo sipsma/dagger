@@ -1,0 +1,198 @@
+{
+  "trace": "2b27f7c4d377ce0352658e5f370d6f32",
+  "source": "lazy-values-step7-worktree",
+  "scratch": [
+    {
+      "cold": true,
+      "ordinal": 224,
+      "resultID": 4450,
+      "address": {
+        "part": "snapshot"
+      },
+      "group": "whole",
+      "platform": "linux/amd64",
+      "lazyEntries": 1,
+      "providerReads": 0
+    },
+    {
+      "cold": true,
+      "ordinal": 224,
+      "resultID": 4450,
+      "address": {
+        "part": "snapshot"
+      },
+      "group": "whole",
+      "platform": "linux/amd64",
+      "lazyEntries": 1,
+      "providerReads": 0
+    }
+  ],
+  "closureValueCount": 226,
+  "delegations": [
+    {
+      "target": 4430,
+      "address": {
+        "part": "fs"
+      },
+      "field": "withMountedCache",
+      "parent": 4425,
+      "source": {
+        "outputPath": [],
+        "part": "fs"
+      }
+    },
+    {
+      "target": 4431,
+      "address": {
+        "part": "fs"
+      },
+      "field": "withMountedCache",
+      "parent": 4430,
+      "source": {
+        "outputPath": [],
+        "part": "fs"
+      }
+    },
+    {
+      "target": 4432,
+      "address": {
+        "part": "fs"
+      },
+      "field": "__withSystemEnvVariable",
+      "parent": 4431,
+      "source": {
+        "outputPath": [],
+        "part": "fs"
+      }
+    },
+    {
+      "target": 4433,
+      "address": {
+        "part": "fs"
+      },
+      "field": "__withSystemEnvVariable",
+      "parent": 4432,
+      "source": {
+        "outputPath": [],
+        "part": "fs"
+      }
+    }
+  ],
+  "mountOperations": [
+    {
+      "observation": "route",
+      "resultID": 4435,
+      "address": {
+        "part": "fs"
+      },
+      "field": "withMountedFile",
+      "parent": 4433,
+      "entries": 1
+    },
+    {
+      "observation": "route",
+      "resultID": 4437,
+      "address": {
+        "part": "mount:/src"
+      },
+      "field": "withMountedDirectory",
+      "parent": 4435,
+      "entries": 1
+    },
+    {
+      "observation": "write",
+      "resultID": 4437,
+      "address": {
+        "part": "mount:/src"
+      },
+      "field": "withMountedDirectory",
+      "parent": null,
+      "entries": 1
+    },
+    {
+      "observation": "route",
+      "resultID": 4437,
+      "address": {
+        "part": "mount:/schema.json"
+      },
+      "field": "withMountedDirectory",
+      "parent": 4435,
+      "entries": 1
+    },
+    {
+      "observation": "route",
+      "resultID": 4435,
+      "address": {
+        "part": "mount:/schema.json"
+      },
+      "field": "withMountedFile",
+      "parent": 4433,
+      "entries": 1
+    },
+    {
+      "observation": "write",
+      "resultID": 4435,
+      "address": {
+        "part": "mount:/schema.json"
+      },
+      "field": "withMountedFile",
+      "parent": null,
+      "entries": 1
+    },
+    {
+      "observation": "route",
+      "resultID": 4437,
+      "address": {
+        "part": "fs"
+      },
+      "field": "withMountedDirectory",
+      "parent": 4435,
+      "entries": 1
+    }
+  ],
+  "beforeChangedArgument": {
+    "builtinRoutes": 1,
+    "counts": {
+      "installed-chain": 1,
+      "installed-delegation": 4,
+      "installed-lazy": 33,
+      "installed-ready": 1,
+      "lazy-enter": 33,
+      "lazy-ref-released": 20,
+      "owner-sync": 169,
+      "provider-read": 1,
+      "selected-chain": 1,
+      "selected-delegation": 4,
+      "selected-ready": 1,
+      "settled": 48
+    }
+  },
+  "hostInput": {
+    "importedResultID": 4423,
+    "address": {
+      "outputPath": [],
+      "part": "snapshot"
+    },
+    "localResultID": 4457,
+    "snapshotObservation": "[{iem4mj35whklae8lamid1pbaa snapshot }]"
+  },
+  "sdkInheritedFSHops": {
+    "__withSystemEnvVariable": 2,
+    "withMountedCache": 2
+  },
+  "nativeRecordedModuleRow": 4942,
+  "controls": {
+    "matchingReportBodyCount": 0,
+    "changedReportBodyCount": 1,
+    "selectedArtifact": "passed",
+    "echo": "passed",
+    "noteFile": "passed",
+    "boundTool": "passed",
+    "cleanRestartSavedRow": 4452,
+    "cleanRestartPrunedRoots": 0,
+    "noteDirectoryAfterRestart": "passed",
+    "reportBodyCountAfterRestart": 1,
+    "nativeRecordedModule": "passed",
+    "foreignContext": "passed"
+  }
+}

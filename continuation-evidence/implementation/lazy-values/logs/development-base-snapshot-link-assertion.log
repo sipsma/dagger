@@ -1,0 +1,20 @@
+=== RUN   TestCachePersistenceWorkerUsesEncodedSnapshotLinks
+=== PAUSE TestCachePersistenceWorkerUsesEncodedSnapshotLinks
+=== CONT  TestCachePersistenceWorkerUsesEncodedSnapshotLinks
+    cache_snapshot_persistence_test.go:462: assertion failed: 
+        --- rows
+        +++ →
+          []persistdb.MirrorResultSnapshotLink{
+          	{
+        - 		OutputPath: "[]",
+        + 		OutputPath: "",
+          		ResultID:   1,
+          		RefKey:     "snapshot-after",
+          		Role:       "snapshot",
+          	},
+          }
+        
+--- FAIL: TestCachePersistenceWorkerUsesEncodedSnapshotLinks (0.09s)
+FAIL
+FAIL	github.com/dagger/dagger/dagql	0.195s
+FAIL

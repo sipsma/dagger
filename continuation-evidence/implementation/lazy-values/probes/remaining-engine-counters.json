@@ -1,0 +1,90 @@
+{
+  "trace": "124abeda8af965c452cf6c6b6094b9b5",
+  "scratch": [
+    {
+      "cold": false,
+      "ordinal": 223,
+      "resultID": 4691,
+      "address": {
+        "part": "snapshot"
+      },
+      "group": "whole",
+      "platform": "linux/amd64",
+      "lazyEntries": 0,
+      "providerReads": 0
+    },
+    {
+      "cold": false,
+      "ordinal": 223,
+      "resultID": 4691,
+      "address": {
+        "part": "snapshot"
+      },
+      "group": "whole",
+      "platform": "linux/amd64",
+      "lazyEntries": 0,
+      "providerReads": 0
+    },
+    {
+      "cold": false,
+      "ordinal": 223,
+      "resultID": 4694,
+      "address": {
+        "part": "snapshot"
+      },
+      "group": "whole",
+      "platform": "linux/amd64",
+      "lazyEntries": 0,
+      "providerReads": 0
+    },
+    {
+      "cold": false,
+      "ordinal": 223,
+      "resultID": 4694,
+      "address": {
+        "part": "snapshot"
+      },
+      "group": "whole",
+      "platform": "linux/amd64",
+      "lazyEntries": 0,
+      "providerReads": 0
+    }
+  ],
+  "warmDonors": [
+    {
+      "resultID": 4468,
+      "snapshotID": "dagger-scratch-rootfs-v1",
+      "order": "before"
+    },
+    {
+      "resultID": 4468,
+      "snapshotID": "dagger-scratch-rootfs-v1",
+      "order": "after"
+    }
+  ],
+  "cleanRestarts": [
+    4694,
+    4697
+  ],
+  "warmPassed": true,
+  "mixedPassed": true,
+  "warmControls": {
+    "before": "passed",
+    "after": "passed",
+    "matchingReportBodyCount": 0,
+    "changedReportBodyCount": 1,
+    "laterFileAndTool": "passed",
+    "reportBodyCountAtEachRestart": 1,
+    "nativeRecordedModule": "passed",
+    "foreignContext": "passed"
+  },
+  "mixed": {
+    "latency": "192.682972ms",
+    "originalFS": "kjexp69kwxew7pahppy4fqfnr",
+    "redundantFS": "umthygiduig1qqqmqeng66951",
+    "rootEvents": "[{lazy-enter 4229 withExec { execMeta}  <nil>}]",
+    "lazyEntries": 1,
+    "repeatReadLazyEntries": 1,
+    "redundantFSReleasedBeforeOwnerSync": true
+  }
+}

@@ -1,0 +1,44 @@
+[
+  {
+    "case": "miss-matching",
+    "outerRequests": 1,
+    "operationRequests": 0,
+    "result": "passed"
+  },
+  {
+    "case": "pending-matching",
+    "outerRequests": 1,
+    "operationRequests": 0,
+    "result": "passed"
+  },
+  {
+    "case": "completed-revalidated",
+    "outerRequests": 1,
+    "operationRequests": 0,
+    "result": "passed"
+  },
+  {
+    "case": "pending-absent",
+    "outerRequests": 0,
+    "operationRequests": 1,
+    "result": "passed"
+  },
+  {
+    "case": "pending-advanced",
+    "outerRequests": 1,
+    "operationRequests": 1,
+    "result": "passed"
+  },
+  {
+    "case": "pending-changed-body",
+    "outerRequests": 1,
+    "operationRequests": 1,
+    "result": "expected digest mismatch"
+  },
+  {
+    "case": "offered-chain-on-B",
+    "outerRequests": 0,
+    "operationRequests": 0,
+    "result": "passed"
+  }
+]

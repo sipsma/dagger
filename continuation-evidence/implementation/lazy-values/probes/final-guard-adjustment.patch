@@ -1,0 +1,24 @@
+--- a/core/container_persistence.go
++++ b/core/container_persistence.go
+@@ -107,9 +107,6 @@
+ 	state := provider.ContainerLazyState()
+ 	if state == nil || state.LazyMu == nil {
+ 		return nil, fmt.Errorf("encode persisted container: missing lazy mutex for %T", lazy)
+-	}
+-	if state.IsEvaluated() {
+-		return func() {}, nil
+ 	}
+ 	// Restore wrappers share their operation's state. Release lazyOpMu
+ 	// before taking the body latch; bodies can read the routing pointer.
+--- a/core/part_store.go
++++ b/core/part_store.go
+@@ -583,9 +583,6 @@
+ 		ctr.lazyOpMu.Unlock()
+ 		return nil, fmt.Errorf("Container publication: missing native latch")
+ 	}
+-	if state.IsEvaluated() {
+-		return ctr.lazyOpMu.Unlock, nil
+-	}
+ 	if !state.LazyMu.TryLock() {
+ 		ctr.lazyOpMu.Unlock()
+ 		return nil, fmt.Errorf("%w: Container %T state busy (evaluated=%t)", dagql.ErrPersistStateNotReady, lazy, state.IsEvaluated())

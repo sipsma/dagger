@@ -1,0 +1,9 @@
+Trace a3d813be26eb72979013bfb1ffe2f8b5; exit 0; invocation 230.097 seconds.
+=== RUN   TestHTTP
+=== PAUSE TestHTTP
+=== CONT  TestHTTP
+=== RUN   TestHTTP/TestHTTPPermissions
+=== PAUSE TestHTTP/TestHTTPPermissions
+=== CONT  TestHTTP/TestHTTPPermissions
+--- PASS: TestHTTP (0.00s)
+    --- PASS: TestHTTP/TestHTTPPermissions (4.31s)

@@ -1,0 +1,26 @@
+=== RUN   TestScopedCollectorConcurrentPublicationCost
+=== RUN   TestScopedCollectorConcurrentPublicationCost/width128_depth1
+    cache_snapshot_scope_bench_test.go:120: typed_collector outputs=128 depth=1 publications=8192 attempts=134 retries=6 accepted=128 elapsed=45.234463ms
+=== RUN   TestScopedCollectorConcurrentPublicationCost/width8_depth3
+    cache_snapshot_scope_bench_test.go:120: typed_collector outputs=512 depth=3 publications=8192 attempts=134 retries=6 accepted=128 elapsed=244.489302ms
+--- PASS: TestScopedCollectorConcurrentPublicationCost (0.30s)
+    --- PASS: TestScopedCollectorConcurrentPublicationCost/width128_depth1 (0.05s)
+    --- PASS: TestScopedCollectorConcurrentPublicationCost/width8_depth3 (0.25s)
+goos: linux
+goarch: amd64
+pkg: github.com/dagger/dagger/dagql
+cpu: AMD EPYC 9554P 64-Core Processor               
+BenchmarkPartNativeHostEntry
+BenchmarkPartNativeHostEntry/callback
+BenchmarkPartNativeHostEntry/callback-16         	335465697	         0.6230 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPartNativeHostEntry/activated-host
+BenchmarkPartNativeHostEntry/activated-host-16   	  125503	      1682 ns/op	     504 B/op	      13 allocs/op
+BenchmarkScopedSnapshotCollector
+BenchmarkScopedSnapshotCollector/width1_depth1
+BenchmarkScopedSnapshotCollector/width1_depth1-16         	   62046	      3228 ns/op	    1793 B/op	      17 allocs/op
+BenchmarkScopedSnapshotCollector/width128_depth1
+BenchmarkScopedSnapshotCollector/width128_depth1-16       	     760	    267524 ns/op	  133097 B/op	    1185 allocs/op
+BenchmarkScopedSnapshotCollector/width8_depth3
+BenchmarkScopedSnapshotCollector/width8_depth3-16         	     128	   1837168 ns/op	  882079 B/op	    5444 allocs/op
+PASS
+ok  	github.com/dagger/dagger/dagql	1.597s

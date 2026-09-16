@@ -1,0 +1,47 @@
+Trace 4e0c4d61ac58bf02fa76d726c8fd0c8f; invocation exit 1; 526.883 seconds; selected test 292.49 seconds.
+Both warm orders fail the zero-entry scratch assertion; subsequent controls were not reached.
+    testctx.go:206: acquisition imported closure rows=226 cold=false order=before
+    testctx.go:206: acquisition route counters cold=false builtin=0 counts=map[installed-chain:1 owner-sync:6 provider-read:1 selected-chain:1 settled:1]
+    testctx.go:206: acquisition changed-argument control cold=false report-body-count=1
+        	Error Trace:	/app/core/integration/remote_cache_transfer_test.go:546
+        	Error:      	Not equal: 
+        	            	expected: 0
+        	            	actual  : 1
+        	Messages:   	scratch saved-operation entries
+    testctx.go:206: acquisition imported closure rows=226 cold=false order=after
+    testctx.go:206: acquisition route counters cold=false builtin=0 counts=map[installed-chain:1 owner-sync:6 provider-read:1 selected-chain:1 settled:1]
+    testctx.go:206: acquisition changed-argument control cold=false report-body-count=1
+        	Error Trace:	/app/core/integration/remote_cache_transfer_test.go:546
+        	Error:      	Not equal: 
+        	            	expected: 0
+        	            	actual  : 1
+        	Messages:   	scratch saved-operation entries
+--- FAIL: TestRemoteCacheTransferSuite (292.50s)
+    --- FAIL: TestRemoteCacheTransferSuite/TestSchemaRecovery (292.49s)
+        --- FAIL: TestRemoteCacheTransferSuite/TestSchemaRecovery/before (50.35s)
+        --- FAIL: TestRemoteCacheTransferSuite/TestSchemaRecovery/after (58.02s)
+        --- PASS: TestRemoteCacheTransferSuite/TestSchemaRecovery/foreign_context (121.23s)
+Error: exit code: 1
+Error: exit code: 1
+Error: exit code: 1
+Error: exit code: 1
+--- FAIL: TestRemoteCacheTransferSuite (292.50s)
+    --- FAIL: TestRemoteCacheTransferSuite/TestSchemaRecovery (292.49s)
+        --- FAIL: TestRemoteCacheTransferSuite/TestSchemaRecovery/before (50.35s)
+        --- FAIL: TestRemoteCacheTransferSuite/TestSchemaRecovery/after (58.02s)
+        --- PASS: TestRemoteCacheTransferSuite/TestSchemaRecovery/foreign_context (121.23s)
+--- FAIL: TestRemoteCacheTransferSuite (292.50s)
+    --- FAIL: TestRemoteCacheTransferSuite/TestSchemaRecovery (292.49s)
+        --- FAIL: TestRemoteCacheTransferSuite/TestSchemaRecovery/before (50.35s)
+        --- FAIL: TestRemoteCacheTransferSuite/TestSchemaRecovery/after (58.02s)
+        --- PASS: TestRemoteCacheTransferSuite/TestSchemaRecovery/foreign_context (121.23s)
+--- FAIL: TestRemoteCacheTransferSuite (292.50s)
+    --- FAIL: TestRemoteCacheTransferSuite/TestSchemaRecovery (292.49s)
+        --- FAIL: TestRemoteCacheTransferSuite/TestSchemaRecovery/before (50.35s)
+        --- FAIL: TestRemoteCacheTransferSuite/TestSchemaRecovery/after (58.02s)
+        --- PASS: TestRemoteCacheTransferSuite/TestSchemaRecovery/foreign_context (121.23s)
+--- FAIL: TestRemoteCacheTransferSuite (292.50s)
+    --- FAIL: TestRemoteCacheTransferSuite/TestSchemaRecovery (292.49s)
+        --- FAIL: TestRemoteCacheTransferSuite/TestSchemaRecovery/before (50.35s)
+        --- FAIL: TestRemoteCacheTransferSuite/TestSchemaRecovery/after (58.02s)
+        --- PASS: TestRemoteCacheTransferSuite/TestSchemaRecovery/foreign_context (121.23s)

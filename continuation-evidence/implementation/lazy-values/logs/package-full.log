@@ -1,0 +1,3 @@
+ok  	github.com/dagger/dagger/core	24.877s
+ok  	github.com/dagger/dagger/core/schema	14.241s
+ok  	github.com/dagger/dagger/dagql	5.601s

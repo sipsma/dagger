@@ -1,0 +1,474 @@
+=== RUN   TestCloneContainerForSchemaChildDisablesFromContentDigest
+=== PAUSE TestCloneContainerForSchemaChildDisablesFromContentDigest
+=== RUN   TestEagerContainerMountMetadataResolvers
+=== RUN   TestEagerContainerMountMetadataResolvers/without_mount
+=== RUN   TestEagerContainerMountMetadataResolvers/mounted_temp
+=== RUN   TestEagerContainerMountMetadataResolvers/mounted_volume
+=== RUN   TestEagerContainerMountMetadataResolvers/mounted_secret_without_owner
+=== RUN   TestEagerContainerMountMetadataResolvers/unix_socket_without_owner
+=== RUN   TestEagerContainerMountMetadataResolvers/without_unix_socket
+2026/09/16 20:48:47 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestEagerContainerMountMetadataResolvers (0.00s)
+    --- PASS: TestEagerContainerMountMetadataResolvers/without_mount (0.00s)
+    --- PASS: TestEagerContainerMountMetadataResolvers/mounted_temp (0.00s)
+    --- PASS: TestEagerContainerMountMetadataResolvers/mounted_volume (0.00s)
+    --- PASS: TestEagerContainerMountMetadataResolvers/mounted_secret_without_owner (0.00s)
+    --- PASS: TestEagerContainerMountMetadataResolvers/unix_socket_without_owner (0.00s)
+    --- PASS: TestEagerContainerMountMetadataResolvers/without_unix_socket (0.00s)
+=== RUN   TestWithImageConfigMetadataMutatesContainerConfig
+=== PAUSE TestWithImageConfigMetadataMutatesContainerConfig
+=== RUN   TestWithImageConfigMetadataRejectsInvalidHealthcheckJSON
+=== PAUSE TestWithImageConfigMetadataRejectsInvalidHealthcheckJSON
+=== RUN   TestBuiltinMetadataSelectors
+=== RUN   TestBuiltinMetadataSelectors/Directory
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=585.059µs
+2026/09/16 20:48:48 INFO start lazy evaluation field=Container.directory
+2026/09/16 20:48:48 INFO end lazy evaluation field=Container.directory duration=51.93µs err="Select: Container has no such field: \"rootfs\""
+    container_lazy_test.go:108: 
+        	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/core/schema/container_lazy_test.go:108
+        	Error:      	Received unexpected error:
+        	            	Select: Container has no such field: "rootfs"
+        	Test:       	TestBuiltinMetadataSelectors/Directory
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataSelectors/File
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=466.689µs
+2026/09/16 20:48:48 INFO start lazy evaluation field=Container.file
+2026/09/16 20:48:48 INFO end lazy evaluation field=Container.file duration=43.73µs err="Select: Container has no such field: \"rootfs\""
+    container_lazy_test.go:95: 
+        	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/core/schema/container_lazy_test.go:95
+        	Error:      	Received unexpected error:
+        	            	Select: Container has no such field: "rootfs"
+        	Test:       	TestBuiltinMetadataSelectors/File
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataSelectors/relative_Directory
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=324.499µs
+2026/09/16 20:48:48 INFO start lazy evaluation field=Container.directory
+2026/09/16 20:48:48 INFO end lazy evaluation field=Container.directory duration=27.24µs err="Select: Container has no such field: \"rootfs\""
+    container_lazy_test.go:108: 
+        	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/core/schema/container_lazy_test.go:108
+        	Error:      	Received unexpected error:
+        	            	Select: Container has no such field: "rootfs"
+        	Test:       	TestBuiltinMetadataSelectors/relative_Directory
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataSelectors/relative_File
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=554.299µs
+2026/09/16 20:48:48 INFO start lazy evaluation field=Container.file
+2026/09/16 20:48:48 INFO end lazy evaluation field=Container.file duration=36.46µs err="Select: Container has no such field: \"rootfs\""
+    container_lazy_test.go:95: 
+        	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/core/schema/container_lazy_test.go:95
+        	Error:      	Received unexpected error:
+        	            	Select: Container has no such field: "rootfs"
+        	Test:       	TestBuiltinMetadataSelectors/relative_File
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataSelectors/platform_fallback
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=1.706038ms
+2026/09/16 20:48:48 INFO start lazy evaluation field=Container.directory
+2026/09/16 20:48:48 INFO end lazy evaluation field=Container.directory duration=26.59µs err="Select: Container has no such field: \"rootfs\""
+    container_lazy_test.go:108: 
+        	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/core/schema/container_lazy_test.go:108
+        	Error:      	Received unexpected error:
+        	            	Select: Container has no such field: "rootfs"
+        	Test:       	TestBuiltinMetadataSelectors/platform_fallback
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- FAIL: TestBuiltinMetadataSelectors (0.49s)
+    --- FAIL: TestBuiltinMetadataSelectors/Directory (0.39s)
+    --- FAIL: TestBuiltinMetadataSelectors/File (0.03s)
+    --- FAIL: TestBuiltinMetadataSelectors/relative_Directory (0.02s)
+    --- FAIL: TestBuiltinMetadataSelectors/relative_File (0.02s)
+    --- FAIL: TestBuiltinMetadataSelectors/platform_fallback (0.02s)
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/from
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=64.95µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withRootfs
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=39.86µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/rootfs
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=29.88µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/build
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=46.44µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withSymlink
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=29.69µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withWorkdir
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=30.36µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withMountedDirectory
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=25.31µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withMountedFile
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=28.35µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withMountedCache
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=27.84µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withMountedVolume
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=30.89µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withMountedTemp
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=31.64µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withoutMount
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=28.439µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/directory
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=27.52µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/file
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=27.58µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withMountedSecret
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=30.24µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withUnixSocket
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=37.22µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withoutUnixSocket
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=263.79µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withDirectory
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=45.01µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withFile
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=28.48µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withFiles
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=27.54µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withoutDirectory
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=38.91µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withoutFile
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=28.06µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withoutFiles
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=30.82µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withNewFile
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=30.42µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withUser
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=32.3µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withEnvVariable
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=31.35µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withAnnotation
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=30.27µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withLabel
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=31.25µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withExec
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=51.029µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/user
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=48.56µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/platform
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=40.79µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/healthcheck
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=34.94µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/cache_dynamic_input
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query._builtinContainer duration=30.71µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestBuiltinMetadataConsumersStopOnFailure (0.03s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/from (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withRootfs (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/rootfs (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/build (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withSymlink (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withWorkdir (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withMountedDirectory (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withMountedFile (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withMountedCache (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withMountedVolume (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withMountedTemp (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withoutMount (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/directory (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/file (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withMountedSecret (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withUnixSocket (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withoutUnixSocket (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withDirectory (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withFile (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withFiles (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withoutDirectory (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withoutFile (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withoutFiles (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withNewFile (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withUser (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withEnvVariable (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withAnnotation (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withLabel (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withExec (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/user (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/platform (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/healthcheck (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/cache_dynamic_input (0.00s)
+=== RUN   TestContainerTransferPendingChild
+2026/09/16 20:48:48 INFO start call field=Query.loadContainerFromID digest=xxh3:c055544e125af8eb
+2026/09/16 20:48:48 INFO end call field=Query.loadContainerFromID cached=false digest=xxh3:c055544e125af8eb
+2026/09/16 20:48:48 INFO start call field=Container.withEnvVariable digest=xxh3:facae2ef58910071
+2026/09/16 20:48:48 INFO end call field=Container.withEnvVariable cached=false digest=xxh3:facae2ef58910071
+2026/09/16 20:48:48 INFO start call field=Container.envVariable digest=xxh3:3ccb372165564256
+2026/09/16 20:48:48 INFO start lazy group evaluation field=Container.withEnvVariable group=metadata
+2026/09/16 20:48:48 INFO end lazy group evaluation field=Container.withEnvVariable group=metadata duration=103.75µs
+2026/09/16 20:48:48 INFO start lazy group evaluation field=Container.withEnvVariable group=execMeta
+2026/09/16 20:48:48 INFO start call field=Container.workdir digest=xxh3:5cd9839dec976b6b
+2026/09/16 20:48:48 INFO end lazy group evaluation field=Container.withEnvVariable group=execMeta duration=84.95µs
+2026/09/16 20:48:48 INFO end call field=Container.envVariable cached=false digest=xxh3:3ccb372165564256
+2026/09/16 20:48:48 INFO end call field=Container.workdir cached=false digest=xxh3:5cd9839dec976b6b
+2026/09/16 20:48:48 INFO start call field=Query.loadContainerFromID digest=xxh3:c055544e125af8eb
+2026/09/16 20:48:48 INFO end call field=Query.loadContainerFromID cached=true digest=xxh3:c055544e125af8eb
+2026/09/16 20:48:48 INFO start call field=Container.withEnvVariable digest=xxh3:facae2ef58910071
+2026/09/16 20:48:48 INFO end call field=Container.withEnvVariable cached=true digest=xxh3:facae2ef58910071
+2026/09/16 20:48:48 INFO start call field=Container.rootfs digest=xxh3:3b879439deabaa29
+2026/09/16 20:48:48 INFO end call field=Container.rootfs cached=false digest=xxh3:3b879439deabaa29
+2026/09/16 20:48:48 INFO start call field=Directory.entries digest=xxh3:7c070de203f4e5ec
+2026/09/16 20:48:48 INFO start lazy evaluation field=Container.rootfs
+2026/09/16 20:48:48 INFO start lazy group evaluation field=Container.withEnvVariable group=fs
+2026/09/16 20:48:48 INFO end lazy group evaluation field=Container.withEnvVariable group=fs duration=298.989µs err="imported filesystem part is unavailable: {\"part\":\"fs\"}"
+2026/09/16 20:48:48 INFO end lazy evaluation field=Container.rootfs duration=350.249µs err="imported filesystem part is unavailable: {\"part\":\"fs\"}"
+2026/09/16 20:48:48 INFO end call field=Directory.entries cached=false digest=xxh3:7c070de203f4e5ec
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestContainerTransferPendingChild (0.41s)
+=== RUN   TestScratchDirectoryoperation
+    directory_scratch_test.go:176: scratch recipe-json-bytes=2 native-payload-added-bytes=35 construction-scratch-calls=0
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query.directory
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query.directory duration=47.803611ms
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query.directory
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query.directory duration=23.6µs err="operation receiver: Directory snapshot already installed"
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query.directory
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query.directory duration=1.520699ms
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query.directory
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query.directory duration=1.129308ms
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query.directory
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query.directory duration=1.089139ms err="context canceled"
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestScratchDirectoryoperation (0.17s)
+=== RUN   TestScratchDirectoryAcquisition
+=== RUN   TestScratchDirectoryAcquisition/cold
+2026/09/16 20:48:48 INFO start lazy evaluation field=Query.directory
+2026/09/16 20:48:48 INFO end lazy evaluation field=Query.directory duration=19.880906ms
+    directory_scratch_test.go:339: scratch mode=cold acquisition=35.341987ms scratch-calls=1 provider-reads=0
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:48:48 INFO dagql pruned result resultID=1 call=Query.directory digest=xxh3:66b3e3c82e7ec924 args=[] description="dagql cache result 1" measuredSizeBytes=4096 reclaimedBytes=4096
+2026/09/16 20:48:48 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestScratchDirectoryAcquisition/canonical-only
+2026/09/16 20:48:49 INFO start lazy evaluation field=Query.directory
+2026/09/16 20:48:49 INFO end lazy evaluation field=Query.directory duration=1.429228ms
+    directory_scratch_test.go:339: scratch mode=canonical-only acquisition=17.447358ms scratch-calls=1 provider-reads=0
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:48:49 INFO dagql pruned result resultID=1 call=Query.directory digest=xxh3:66b3e3c82e7ec924 args=[] description="dagql cache result 1" measuredSizeBytes=4096 reclaimedBytes=4096
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestScratchDirectoryAcquisition/warm
+2026/09/16 20:48:49 INFO start lazy evaluation field=Query.directory
+2026/09/16 20:48:49 INFO end lazy evaluation field=Query.directory duration=32.708341ms
+    directory_scratch_test.go:339: scratch mode=warm acquisition=10.471016ms scratch-calls=0 provider-reads=0
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:48:49 INFO dagql pruned result resultID=2 call=Query.directory digest=xxh3:66b3e3c82e7ec924 args=[] description="dagql cache result 2" measuredSizeBytes=4096 reclaimedBytes=4096
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestScratchDirectoryAcquisition/pending-restart
+2026/09/16 20:48:49 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 20:48:49 INFO marking dagql cache clean shutdown
+2026/09/16 20:48:49 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 20:48:49 INFO completed dagql cache close successfully
+2026/09/16 20:48:49 INFO start lazy evaluation field=Query.directory
+2026/09/16 20:48:49 INFO end lazy evaluation field=Query.directory duration=35.757166ms
+    directory_scratch_test.go:339: scratch mode=pending-restart acquisition=44.045206ms scratch-calls=1 provider-reads=0
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:48:49 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 20:48:49 INFO marking dagql cache clean shutdown
+2026/09/16 20:48:49 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 20:48:49 INFO completed dagql cache close successfully
+2026/09/16 20:48:49 INFO dagql pruned result resultID=1 call=Query.directory digest=xxh3:66b3e3c82e7ec924 args=[] description="dagql cache result 1" measuredSizeBytes=4096 reclaimedBytes=4096
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestScratchDirectoryAcquisition/manager-failure
+2026/09/16 20:48:49 INFO start lazy evaluation field=Query.directory
+2026/09/16 20:48:49 INFO end lazy evaluation field=Query.directory duration=33.52µs err="injected scratch acquisition failure"
+2026/09/16 20:48:49 INFO start lazy evaluation field=Query.directory
+2026/09/16 20:48:49 INFO end lazy evaluation field=Query.directory duration=23.800482ms
+    directory_scratch_test.go:339: scratch mode=manager-failure acquisition=34.170329ms scratch-calls=2 provider-reads=0
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:48:49 INFO dagql pruned result resultID=1 call=Query.directory digest=xxh3:66b3e3c82e7ec924 args=[] description="dagql cache result 1" measuredSizeBytes=4096 reclaimedBytes=4096
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestScratchDirectoryAcquisition/manager-canceled
+2026/09/16 20:48:49 INFO start lazy evaluation field=Query.directory
+2026/09/16 20:48:49 INFO end lazy evaluation field=Query.directory duration=38.78µs err="context canceled"
+2026/09/16 20:48:49 INFO start lazy evaluation field=Query.directory
+2026/09/16 20:48:49 INFO end lazy evaluation field=Query.directory duration=25.061689ms
+    directory_scratch_test.go:339: scratch mode=manager-canceled acquisition=41.495139ms scratch-calls=2 provider-reads=0
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:48:49 INFO dagql pruned result resultID=1 call=Query.directory digest=xxh3:66b3e3c82e7ec924 args=[] description="dagql cache result 1" measuredSizeBytes=4096 reclaimedBytes=4096
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestScratchDirectoryAcquisition/prepare-failure
+2026/09/16 20:48:49 INFO start lazy evaluation field=Query.directory
+2026/09/16 20:48:49 INFO end lazy evaluation field=Query.directory duration=36.267596ms
+2026/09/16 20:48:49 INFO start lazy evaluation field=Query.directory
+2026/09/16 20:48:49 INFO end lazy evaluation field=Query.directory duration=1.820328ms
+    directory_scratch_test.go:339: scratch mode=prepare-failure acquisition=48.77669ms scratch-calls=2 provider-reads=0
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:48:49 INFO dagql pruned result resultID=1 call=Query.directory digest=xxh3:66b3e3c82e7ec924 args=[] description="dagql cache result 1" measuredSizeBytes=4096 reclaimedBytes=4096
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestScratchDirectoryAcquisition/sync-retry
+2026/09/16 20:48:49 INFO start lazy evaluation field=Query.directory
+2026/09/16 20:48:49 INFO end lazy evaluation field=Query.directory duration=45.550635ms
+    directory_scratch_test.go:339: scratch mode=sync-retry acquisition=60.377106ms scratch-calls=1 provider-reads=0
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:48:49 INFO dagql pruned result resultID=1 call=Query.directory digest=xxh3:66b3e3c82e7ec924 args=[] description="dagql cache result 1" measuredSizeBytes=4096 reclaimedBytes=4096
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestScratchDirectoryAcquisition (0.80s)
+    --- PASS: TestScratchDirectoryAcquisition/cold (0.10s)
+    --- PASS: TestScratchDirectoryAcquisition/canonical-only (0.12s)
+    --- PASS: TestScratchDirectoryAcquisition/warm (0.10s)
+    --- PASS: TestScratchDirectoryAcquisition/pending-restart (0.09s)
+    --- PASS: TestScratchDirectoryAcquisition/manager-failure (0.08s)
+    --- PASS: TestScratchDirectoryAcquisition/manager-canceled (0.09s)
+    --- PASS: TestScratchDirectoryAcquisition/prepare-failure (0.10s)
+    --- PASS: TestScratchDirectoryAcquisition/sync-retry (0.12s)
+=== RUN   TestScratchDirectoryNativeReopen
+2026/09/16 20:48:49 INFO start lazy evaluation field=Query.directory
+2026/09/16 20:48:49 INFO end lazy evaluation field=Query.directory duration=39.071873ms
+2026/09/16 20:48:49 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 20:48:49 INFO marking dagql cache clean shutdown
+2026/09/16 20:48:49 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 20:48:49 INFO completed dagql cache close successfully
+2026/09/16 20:48:49 INFO start lazy evaluation field=Directory.restore
+2026/09/16 20:48:49 INFO end lazy evaluation field=Directory.restore duration=102.169µs
+2026/09/16 20:48:49 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 20:48:49 INFO marking dagql cache clean shutdown
+2026/09/16 20:48:49 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 20:48:49 INFO completed dagql cache close successfully
+2026/09/16 20:48:49 INFO start lazy evaluation field=Directory.restore
+2026/09/16 20:48:49 INFO end lazy evaluation field=Directory.restore duration=169.37µs
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestScratchDirectoryNativeReopen (0.09s)
+=== RUN   TestHTTPResolvedCall
+2026/09/16 20:48:49 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:48:49 INFO end lazy evaluation field=Query.__httpFile duration=14.183852ms
+2026/09/16 20:48:49 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 20:48:49 INFO end lazy evaluation field=Query.__httpFile duration=16.29107ms
+    http_lazy_test.go:94: HTTP requests: miss outer=1 operation=0; pending hit outer=1 operation=0; completed hit outer=1 operation=0
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestHTTPResolvedCall (0.13s)
+=== RUN   TestLazyOperationResolverCleanup
+=== RUN   TestLazyOperationResolverCleanup/ref_wrapping
+=== RUN   TestLazyOperationResolverCleanup/ref_digest
+=== RUN   TestLazyOperationResolverCleanup/commit_wrapping
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestLazyOperationResolverCleanup (0.00s)
+    --- PASS: TestLazyOperationResolverCleanup/ref_wrapping (0.00s)
+    --- PASS: TestLazyOperationResolverCleanup/ref_digest (0.00s)
+    --- PASS: TestLazyOperationResolverCleanup/commit_wrapping (0.00s)
+=== RUN   TestLazyOperationResolverOutputCleanup
+=== RUN   TestLazyOperationResolverOutputCleanup/scratch_wrapping
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverOutputCleanup/http_state_sync
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverOutputCleanup/schema_wrapping
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverOutputCleanup/builtin_wrapping
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverOutputCleanup/bundle_wrapping
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestLazyOperationResolverOutputCleanup (0.03s)
+    --- PASS: TestLazyOperationResolverOutputCleanup/scratch_wrapping (0.00s)
+    --- PASS: TestLazyOperationResolverOutputCleanup/http_state_sync (0.00s)
+    --- PASS: TestLazyOperationResolverOutputCleanup/schema_wrapping (0.00s)
+    --- PASS: TestLazyOperationResolverOutputCleanup/builtin_wrapping (0.02s)
+    --- PASS: TestLazyOperationResolverOutputCleanup/bundle_wrapping (0.01s)
+=== RUN   TestLazyOperationResolverCapture
+=== RUN   TestLazyOperationResolverCapture/scratch_wrapping
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverCapture/http_state_sync
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverCapture/schema_wrapping
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverCapture/builtin_wrapping
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverCapture/bundle_wrapping
+2026/09/16 20:48:49 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverCapture/gitCleaned
+2026/09/16 20:48:50 INFO start lazy evaluation field=GitRepository.__cleaned
+2026/09/16 20:48:50 INFO end lazy evaluation field=GitRepository.__cleaned duration=9.234799ms
+2026/09/16 20:48:50 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverCapture/gitTree
+2026/09/16 20:48:50 INFO start lazy evaluation field=GitRef.tree
+2026/09/16 20:48:50 INFO end lazy evaluation field=GitRef.tree duration=74.2479ms
+2026/09/16 20:48:50 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverCapture/gitCommitTree
+2026/09/16 20:48:50 INFO start lazy evaluation field=GitCommit.tree
+2026/09/16 20:48:50 INFO end lazy evaluation field=GitCommit.tree duration=60.194767ms
+2026/09/16 20:48:50 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestLazyOperationResolverCapture (0.23s)
+    --- PASS: TestLazyOperationResolverCapture/scratch_wrapping (0.00s)
+    --- PASS: TestLazyOperationResolverCapture/http_state_sync (0.00s)
+    --- PASS: TestLazyOperationResolverCapture/schema_wrapping (0.00s)
+    --- PASS: TestLazyOperationResolverCapture/builtin_wrapping (0.01s)
+    --- PASS: TestLazyOperationResolverCapture/bundle_wrapping (0.01s)
+    --- PASS: TestLazyOperationResolverCapture/gitCleaned (0.02s)
+    --- PASS: TestLazyOperationResolverCapture/gitTree (0.09s)
+    --- PASS: TestLazyOperationResolverCapture/gitCommitTree (0.08s)
+=== RUN   TestSchemaFileLazy
+2026/09/16 20:48:50 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 20:48:50 INFO marking dagql cache clean shutdown
+2026/09/16 20:48:50 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 20:48:50 INFO completed dagql cache close successfully
+2026/09/16 20:48:50 INFO start lazy evaluation field=File.blob
+2026/09/16 20:48:50 INFO end lazy evaluation field=File.blob duration=29.659824ms
+    query_lazy_test.go:75: schema bytes=8120 pending payload bytes=10961 scratch calls before first use=0 after first use=1
+2026/09/16 20:48:50 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestSchemaFileLazy (0.21s)
+=== CONT  TestWithImageConfigMetadataRejectsInvalidHealthcheckJSON
+=== CONT  TestCloneContainerForSchemaChildDisablesFromContentDigest
+--- PASS: TestWithImageConfigMetadataRejectsInvalidHealthcheckJSON (0.00s)
+=== CONT  TestWithImageConfigMetadataMutatesContainerConfig
+2026/09/16 20:48:50 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestCloneContainerForSchemaChildDisablesFromContentDigest (0.00s)
+--- PASS: TestWithImageConfigMetadataMutatesContainerConfig (0.00s)
+FAIL
+FAIL	github.com/dagger/dagger/core/schema	2.713s
+FAIL

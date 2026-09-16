@@ -1,0 +1,22 @@
+[
+  {
+    "path": "core/directory.go",
+    "baseReferences": 9,
+    "currentReferences": 0
+  },
+  {
+    "path": "core/file.go",
+    "baseReferences": 9,
+    "currentReferences": 0
+  },
+  {
+    "path": "core/container.go",
+    "baseReferences": 4,
+    "currentReferences": 0
+  },
+  {
+    "path": "core/container_persistence.go",
+    "baseReferences": 6,
+    "currentReferences": 0
+  }
+]

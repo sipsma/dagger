@@ -1,0 +1,4339 @@
+{
+  "trace": "2b27f7c4d377ce0352658e5f370d6f32",
+  "source": "unchanged exported bundle in the passing cold run; complete metadata closure, operation bodies omitted except empty scratch",
+  "representation": "export-local ordinal references; B IDs validated by the gated fixture against reported non-root rows",
+  "valueCount": 226,
+  "roots": [
+    {
+      "ordinal": 226,
+      "expiresAtUnix": 1790200829
+    }
+  ],
+  "outputs": [
+    {
+      "ordinal": 225,
+      "address": {
+        "part": "snapshot"
+      },
+      "state": "completed",
+      "value": {
+        "kind": "directory",
+        "path": "/",
+        "platform": {
+          "architecture": "amd64",
+          "os": "linux"
+        }
+      },
+      "chain": {
+        "layers": [
+          {
+            "Descriptor": {
+              "mediaType": "application/vnd.oci.image.layer.v1.tar",
+              "digest": "sha256:dc1ed1ed490bbea96f0fe2107f6d316d6e2bc1847b5bf61a453c92b47b56f1a9",
+              "size": 2048,
+              "annotations": {
+                "containerd.io/uncompressed": "sha256:dc1ed1ed490bbea96f0fe2107f6d316d6e2bc1847b5bf61a453c92b47b56f1a9"
+              }
+            },
+            "Description": "withNewFile payload.txt (22 B)",
+            "CreatedAt": "2026-09-16T22:00:29.599971155Z"
+          }
+        ]
+      },
+      "owner": {}
+    }
+  ],
+  "values": [
+    {
+      "ordinal": 1,
+      "importedResultID": 4227,
+      "type": "TypeDef",
+      "callField": "typeDef",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 2,
+      "importedResultID": 4228,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 3,
+      "importedResultID": 4229,
+      "type": "ObjectTypeDef",
+      "callField": "__objectTypeDef",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [
+        2
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 4,
+      "importedResultID": 4230,
+      "type": "TypeDef",
+      "callField": "withObject",
+      "callReceiver": {
+        "resultID": 1
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        1,
+        2,
+        3
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 5,
+      "importedResultID": 4231,
+      "type": "InterfaceTypeDef",
+      "callField": "__interfaceTypeDef",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 6,
+      "importedResultID": 4232,
+      "type": "TypeDef",
+      "callField": "withInterface",
+      "callReceiver": {
+        "resultID": 1
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        1,
+        5
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 7,
+      "importedResultID": 4233,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 8,
+      "importedResultID": 4234,
+      "type": "FunctionArg",
+      "callField": "__functionArg",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [
+        6,
+        7
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 9,
+      "importedResultID": 4235,
+      "type": "Function",
+      "callField": "function",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [
+        6
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 10,
+      "importedResultID": 4236,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 11,
+      "importedResultID": 4237,
+      "type": "Function",
+      "callField": "withSourceMap",
+      "callReceiver": {
+        "resultID": 9
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        6,
+        10,
+        9
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 12,
+      "importedResultID": 4238,
+      "type": "Function",
+      "callField": "withArg",
+      "callReceiver": {
+        "resultID": 11
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        6,
+        10,
+        7,
+        11,
+        8
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 13,
+      "importedResultID": 4239,
+      "type": "ObjectTypeDef",
+      "callField": "__withFunction",
+      "callReceiver": {
+        "resultID": 3
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        2,
+        12,
+        3
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 14,
+      "importedResultID": 4240,
+      "type": "TypeDef",
+      "callField": "withFunction",
+      "callReceiver": {
+        "resultID": 4
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        12,
+        4,
+        13
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 15,
+      "importedResultID": 4241,
+      "type": "ObjectTypeDef",
+      "callField": "__objectTypeDef",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 16,
+      "importedResultID": 4242,
+      "type": "TypeDef",
+      "callField": "withObject",
+      "callReceiver": {
+        "resultID": 1
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        1,
+        15
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 17,
+      "importedResultID": 4243,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 18,
+      "importedResultID": 4244,
+      "type": "TypeDef",
+      "callField": "withKind",
+      "callReceiver": {
+        "resultID": 1
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        1
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 19,
+      "importedResultID": 4245,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 20,
+      "importedResultID": 4246,
+      "type": "FunctionArg",
+      "callField": "__functionArg",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [
+        18,
+        19
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 21,
+      "importedResultID": 4247,
+      "type": "Function",
+      "callField": "function",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [
+        16
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 22,
+      "importedResultID": 4248,
+      "type": "Function",
+      "callField": "withSourceMap",
+      "callReceiver": {
+        "resultID": 21
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        16,
+        17,
+        21
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 23,
+      "importedResultID": 4249,
+      "type": "Function",
+      "callField": "withArg",
+      "callReceiver": {
+        "resultID": 22
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        18,
+        16,
+        17,
+        19,
+        22,
+        20
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 24,
+      "importedResultID": 4250,
+      "type": "ObjectTypeDef",
+      "callField": "__withFunction",
+      "callReceiver": {
+        "resultID": 13
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        2,
+        23,
+        12,
+        13
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 25,
+      "importedResultID": 4251,
+      "type": "TypeDef",
+      "callField": "withFunction",
+      "callReceiver": {
+        "resultID": 14
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        23,
+        14,
+        24
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 26,
+      "importedResultID": 4252,
+      "type": "ObjectTypeDef",
+      "callField": "__withSourceModuleName",
+      "callReceiver": {
+        "resultID": 24
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        2,
+        23,
+        12,
+        24
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 27,
+      "importedResultID": 4253,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 28,
+      "importedResultID": 4254,
+      "type": "ObjectTypeDef",
+      "callField": "__withSourceMap",
+      "callReceiver": {
+        "resultID": 26
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        23,
+        12,
+        26,
+        27
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 29,
+      "importedResultID": 4255,
+      "type": "InterfaceTypeDef",
+      "callField": "__withName",
+      "callReceiver": {
+        "resultID": 5
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        5
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 30,
+      "importedResultID": 4256,
+      "type": "InterfaceTypeDef",
+      "callField": "__withSourceModuleName",
+      "callReceiver": {
+        "resultID": 29
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        29
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 31,
+      "importedResultID": 4257,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 32,
+      "importedResultID": 4258,
+      "type": "InterfaceTypeDef",
+      "callField": "__withSourceMap",
+      "callReceiver": {
+        "resultID": 30
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        30,
+        31
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 33,
+      "importedResultID": 4259,
+      "type": "TypeDef",
+      "callField": "__withInterfaceTypeDef",
+      "callReceiver": {
+        "resultID": 6
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        6,
+        32
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 34,
+      "importedResultID": 4260,
+      "type": "Function",
+      "callField": "__withReturnType",
+      "callReceiver": {
+        "resultID": 12
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        10,
+        8,
+        12,
+        33
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 35,
+      "importedResultID": 4261,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 36,
+      "importedResultID": 4262,
+      "type": "Function",
+      "callField": "__withSourceMap",
+      "callReceiver": {
+        "resultID": 34
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        8,
+        33,
+        34,
+        35
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 37,
+      "importedResultID": 4263,
+      "type": "FunctionArg",
+      "callField": "__withTypeDef",
+      "callReceiver": {
+        "resultID": 8
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        7,
+        8,
+        33
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 38,
+      "importedResultID": 4264,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 39,
+      "importedResultID": 4265,
+      "type": "FunctionArg",
+      "callField": "__withSourceMap",
+      "callReceiver": {
+        "resultID": 37
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        33,
+        37,
+        38
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 40,
+      "importedResultID": 4266,
+      "type": "Function",
+      "callField": "__withArg",
+      "callReceiver": {
+        "resultID": 36
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        33,
+        35,
+        36,
+        39
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 41,
+      "importedResultID": 4267,
+      "type": "ObjectTypeDef",
+      "callField": "__withFunction",
+      "callReceiver": {
+        "resultID": 28
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        23,
+        27,
+        28,
+        40
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 42,
+      "importedResultID": 4268,
+      "type": "ObjectTypeDef",
+      "callField": "__withName",
+      "callReceiver": {
+        "resultID": 15
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        15
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 43,
+      "importedResultID": 4269,
+      "type": "ObjectTypeDef",
+      "callField": "__withSourceModuleName",
+      "callReceiver": {
+        "resultID": 42
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        42
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 44,
+      "importedResultID": 4270,
+      "type": "ObjectTypeDef",
+      "callField": "__withSourceMap",
+      "callReceiver": {
+        "resultID": 43
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        31,
+        43
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 45,
+      "importedResultID": 4271,
+      "type": "TypeDef",
+      "callField": "__withObjectTypeDef",
+      "callReceiver": {
+        "resultID": 16
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        16,
+        44
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 46,
+      "importedResultID": 4272,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 47,
+      "importedResultID": 4273,
+      "type": "Function",
+      "callField": "__withReturnType",
+      "callReceiver": {
+        "resultID": 23
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        17,
+        20,
+        23,
+        45
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 48,
+      "importedResultID": 4274,
+      "type": "Function",
+      "callField": "__withSourceMap",
+      "callReceiver": {
+        "resultID": 47
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        20,
+        45,
+        47,
+        46
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 49,
+      "importedResultID": 4275,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 50,
+      "importedResultID": 4276,
+      "type": "FunctionArg",
+      "callField": "__withSourceMap",
+      "callReceiver": {
+        "resultID": 20
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        18,
+        20,
+        49
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 51,
+      "importedResultID": 4277,
+      "type": "Function",
+      "callField": "__withArg",
+      "callReceiver": {
+        "resultID": 48
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        45,
+        46,
+        48,
+        50
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 52,
+      "importedResultID": 4278,
+      "type": "ObjectTypeDef",
+      "callField": "__withFunction",
+      "callReceiver": {
+        "resultID": 41
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        27,
+        40,
+        41,
+        51
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 53,
+      "importedResultID": 4279,
+      "type": "TypeDef",
+      "callField": "__withObjectTypeDef",
+      "callReceiver": {
+        "resultID": 25
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        25,
+        52
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 54,
+      "importedResultID": 4280,
+      "type": "ObjectTypeDef",
+      "callField": "__objectTypeDef",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 55,
+      "importedResultID": 4281,
+      "type": "TypeDef",
+      "callField": "withObject",
+      "callReceiver": {
+        "resultID": 1
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        1,
+        54
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 56,
+      "importedResultID": 4282,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 57,
+      "importedResultID": 4283,
+      "type": "FieldTypeDef",
+      "callField": "__fieldTypeDef",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [
+        55,
+        56
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 58,
+      "importedResultID": 4284,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 59,
+      "importedResultID": 4285,
+      "type": "FieldTypeDef",
+      "callField": "__withSourceMap",
+      "callReceiver": {
+        "resultID": 57
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        55,
+        57,
+        58
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 60,
+      "importedResultID": 4286,
+      "type": "Function",
+      "callField": "function",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [
+        18
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 61,
+      "importedResultID": 4287,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 62,
+      "importedResultID": 4288,
+      "type": "Function",
+      "callField": "withSourceMap",
+      "callReceiver": {
+        "resultID": 60
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        18,
+        61,
+        60
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 63,
+      "importedResultID": 4289,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 64,
+      "importedResultID": 4290,
+      "type": "Function",
+      "callField": "__withSourceMap",
+      "callReceiver": {
+        "resultID": 62
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        18,
+        62,
+        63
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 65,
+      "importedResultID": 4291,
+      "type": "Function",
+      "callField": "function",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [
+        18
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 66,
+      "importedResultID": 4292,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 67,
+      "importedResultID": 4293,
+      "type": "Function",
+      "callField": "withSourceMap",
+      "callReceiver": {
+        "resultID": 65
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        18,
+        66,
+        65
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 68,
+      "importedResultID": 4294,
+      "type": "ObjectTypeDef",
+      "callField": "__objectTypeDef",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 69,
+      "importedResultID": 4295,
+      "type": "TypeDef",
+      "callField": "withObject",
+      "callReceiver": {
+        "resultID": 1
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        1,
+        68
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 70,
+      "importedResultID": 4296,
+      "type": "TypeDef",
+      "callField": "withOptional",
+      "callReceiver": {
+        "resultID": 69
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        68,
+        69
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 71,
+      "importedResultID": 4297,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 72,
+      "importedResultID": 4298,
+      "type": "TypeDef",
+      "callField": "withOptional",
+      "callReceiver": {
+        "resultID": 70
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        68,
+        70
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 73,
+      "importedResultID": 4299,
+      "type": "FunctionArg",
+      "callField": "__functionArg",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [
+        70,
+        71,
+        72
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 74,
+      "importedResultID": 4300,
+      "type": "Function",
+      "callField": "withArg",
+      "callReceiver": {
+        "resultID": 67
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        18,
+        70,
+        66,
+        71,
+        67,
+        73
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 75,
+      "importedResultID": 4301,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 76,
+      "importedResultID": 4302,
+      "type": "Function",
+      "callField": "__withSourceMap",
+      "callReceiver": {
+        "resultID": 74
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        18,
+        73,
+        74,
+        75
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 77,
+      "importedResultID": 4303,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 78,
+      "importedResultID": 4304,
+      "type": "FunctionArg",
+      "callField": "__withSourceMap",
+      "callReceiver": {
+        "resultID": 73
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        72,
+        73,
+        77
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 79,
+      "importedResultID": 4305,
+      "type": "Function",
+      "callField": "__withArg",
+      "callReceiver": {
+        "resultID": 76
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        18,
+        75,
+        76,
+        78
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 80,
+      "importedResultID": 4306,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 81,
+      "importedResultID": 4307,
+      "type": "FieldTypeDef",
+      "callField": "__fieldTypeDef",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [
+        18,
+        80
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 82,
+      "importedResultID": 4308,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 83,
+      "importedResultID": 4309,
+      "type": "FieldTypeDef",
+      "callField": "__withSourceMap",
+      "callReceiver": {
+        "resultID": 81
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        18,
+        81,
+        82
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 84,
+      "importedResultID": 4310,
+      "type": "EnumTypeDef",
+      "callField": "__enumTypeDef",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 85,
+      "importedResultID": 4311,
+      "type": "TypeDef",
+      "callField": "withEnum",
+      "callReceiver": {
+        "resultID": 1
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        1,
+        84
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 86,
+      "importedResultID": 4312,
+      "type": "EnumTypeDef",
+      "callField": "__withName",
+      "callReceiver": {
+        "resultID": 84
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        84
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 87,
+      "importedResultID": 4313,
+      "type": "EnumTypeDef",
+      "callField": "__withSourceModuleName",
+      "callReceiver": {
+        "resultID": 86
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        86
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 88,
+      "importedResultID": 4314,
+      "type": "EnumTypeDef",
+      "callField": "__withSourceMap",
+      "callReceiver": {
+        "resultID": 87
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        31,
+        87
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 89,
+      "importedResultID": 4315,
+      "type": "TypeDef",
+      "callField": "__withEnumTypeDef",
+      "callReceiver": {
+        "resultID": 85
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        85,
+        88
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 90,
+      "importedResultID": 4316,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 91,
+      "importedResultID": 4317,
+      "type": "FieldTypeDef",
+      "callField": "__fieldTypeDef",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [
+        90,
+        85
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 92,
+      "importedResultID": 4318,
+      "type": "FieldTypeDef",
+      "callField": "__withTypeDef",
+      "callReceiver": {
+        "resultID": 91
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        90,
+        91,
+        89
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 93,
+      "importedResultID": 4319,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 94,
+      "importedResultID": 4320,
+      "type": "FieldTypeDef",
+      "callField": "__withSourceMap",
+      "callReceiver": {
+        "resultID": 92
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        89,
+        92,
+        93
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 95,
+      "importedResultID": 4321,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 96,
+      "importedResultID": 4322,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 97,
+      "importedResultID": 4323,
+      "type": "FunctionArg",
+      "callField": "__functionArg",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [
+        18,
+        95
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 98,
+      "importedResultID": 4324,
+      "type": "Function",
+      "callField": "function",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [
+        16
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 99,
+      "importedResultID": 4325,
+      "type": "Function",
+      "callField": "withSourceMap",
+      "callReceiver": {
+        "resultID": 98
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        96,
+        16,
+        98
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 100,
+      "importedResultID": 4326,
+      "type": "Function",
+      "callField": "withArg",
+      "callReceiver": {
+        "resultID": 99
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        18,
+        96,
+        16,
+        95,
+        99,
+        97
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 101,
+      "importedResultID": 4327,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 102,
+      "importedResultID": 4328,
+      "type": "FieldTypeDef",
+      "callField": "__fieldTypeDef",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [
+        18,
+        101
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 103,
+      "importedResultID": 4329,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 104,
+      "importedResultID": 4330,
+      "type": "FieldTypeDef",
+      "callField": "__withSourceMap",
+      "callReceiver": {
+        "resultID": 102
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        18,
+        102,
+        103
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 105,
+      "importedResultID": 4331,
+      "type": "ScalarTypeDef",
+      "callField": "__scalarTypeDef",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 106,
+      "importedResultID": 4332,
+      "type": "TypeDef",
+      "callField": "withScalar",
+      "callReceiver": {
+        "resultID": 1
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        1,
+        105
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 107,
+      "importedResultID": 4333,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 108,
+      "importedResultID": 4334,
+      "type": "FieldTypeDef",
+      "callField": "__fieldTypeDef",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [
+        106,
+        107
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 109,
+      "importedResultID": 4335,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 110,
+      "importedResultID": 4336,
+      "type": "FieldTypeDef",
+      "callField": "__withSourceMap",
+      "callReceiver": {
+        "resultID": 108
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        106,
+        108,
+        109
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 111,
+      "importedResultID": 4337,
+      "type": "Function",
+      "callField": "function",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [
+        18
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 112,
+      "importedResultID": 4338,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 113,
+      "importedResultID": 4339,
+      "type": "Function",
+      "callField": "withSourceMap",
+      "callReceiver": {
+        "resultID": 111
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        18,
+        112,
+        111
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 114,
+      "importedResultID": 4340,
+      "type": "TypeDef",
+      "callField": "withOptional",
+      "callReceiver": {
+        "resultID": 55
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        54,
+        55
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 115,
+      "importedResultID": 4341,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 116,
+      "importedResultID": 4342,
+      "type": "TypeDef",
+      "callField": "withOptional",
+      "callReceiver": {
+        "resultID": 114
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        54,
+        114
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 117,
+      "importedResultID": 4343,
+      "type": "FunctionArg",
+      "callField": "__functionArg",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [
+        114,
+        115,
+        116
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 118,
+      "importedResultID": 4344,
+      "type": "Function",
+      "callField": "withArg",
+      "callReceiver": {
+        "resultID": 113
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        18,
+        114,
+        115,
+        112,
+        113,
+        117
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 119,
+      "importedResultID": 4345,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 120,
+      "importedResultID": 4346,
+      "type": "Function",
+      "callField": "__withSourceMap",
+      "callReceiver": {
+        "resultID": 118
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        18,
+        117,
+        118,
+        119
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 121,
+      "importedResultID": 4347,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 122,
+      "importedResultID": 4348,
+      "type": "FunctionArg",
+      "callField": "__withSourceMap",
+      "callReceiver": {
+        "resultID": 117
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        116,
+        117,
+        121
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 123,
+      "importedResultID": 4349,
+      "type": "Function",
+      "callField": "__withArg",
+      "callReceiver": {
+        "resultID": 120
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        18,
+        119,
+        120,
+        122
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 124,
+      "importedResultID": 4350,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 125,
+      "importedResultID": 4351,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 126,
+      "importedResultID": 4352,
+      "type": "ObjectTypeDef",
+      "callField": "__objectTypeDef",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [
+        125
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 127,
+      "importedResultID": 4353,
+      "type": "ObjectTypeDef",
+      "callField": "__withFunction",
+      "callReceiver": {
+        "resultID": 126
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        125,
+        62,
+        126
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 128,
+      "importedResultID": 4354,
+      "type": "ObjectTypeDef",
+      "callField": "__withFunction",
+      "callReceiver": {
+        "resultID": 127
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        125,
+        118,
+        62,
+        127
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 129,
+      "importedResultID": 4355,
+      "type": "ObjectTypeDef",
+      "callField": "__withFunction",
+      "callReceiver": {
+        "resultID": 128
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        125,
+        74,
+        118,
+        62,
+        128
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 130,
+      "importedResultID": 4356,
+      "type": "ObjectTypeDef",
+      "callField": "__withFunction",
+      "callReceiver": {
+        "resultID": 129
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        125,
+        74,
+        118,
+        100,
+        62,
+        129
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 131,
+      "importedResultID": 4357,
+      "type": "ObjectTypeDef",
+      "callField": "__withField",
+      "callReceiver": {
+        "resultID": 130
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        125,
+        74,
+        118,
+        100,
+        62,
+        130,
+        81
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 132,
+      "importedResultID": 4358,
+      "type": "ObjectTypeDef",
+      "callField": "__withField",
+      "callReceiver": {
+        "resultID": 131
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        125,
+        74,
+        118,
+        100,
+        62,
+        81,
+        131,
+        102
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 133,
+      "importedResultID": 4359,
+      "type": "ObjectTypeDef",
+      "callField": "__withField",
+      "callReceiver": {
+        "resultID": 132
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        125,
+        74,
+        118,
+        100,
+        62,
+        81,
+        102,
+        132,
+        91
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 134,
+      "importedResultID": 4360,
+      "type": "ObjectTypeDef",
+      "callField": "__withField",
+      "callReceiver": {
+        "resultID": 133
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        125,
+        74,
+        118,
+        100,
+        62,
+        81,
+        102,
+        91,
+        133,
+        108
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 135,
+      "importedResultID": 4361,
+      "type": "ObjectTypeDef",
+      "callField": "__withField",
+      "callReceiver": {
+        "resultID": 134
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        125,
+        74,
+        118,
+        100,
+        62,
+        81,
+        102,
+        91,
+        108,
+        134,
+        57
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 136,
+      "importedResultID": 4362,
+      "type": "ObjectTypeDef",
+      "callField": "__withName",
+      "callReceiver": {
+        "resultID": 135
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        125,
+        74,
+        118,
+        100,
+        62,
+        81,
+        102,
+        91,
+        108,
+        57,
+        135
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 137,
+      "importedResultID": 4363,
+      "type": "ObjectTypeDef",
+      "callField": "__withSourceModuleName",
+      "callReceiver": {
+        "resultID": 136
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        125,
+        74,
+        118,
+        100,
+        62,
+        81,
+        102,
+        91,
+        108,
+        57,
+        136
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 138,
+      "importedResultID": 4364,
+      "type": "ObjectTypeDef",
+      "callField": "__withSourceMap",
+      "callReceiver": {
+        "resultID": 137
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        74,
+        118,
+        100,
+        62,
+        81,
+        102,
+        91,
+        108,
+        57,
+        137,
+        124
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 139,
+      "importedResultID": 4365,
+      "type": "ObjectTypeDef",
+      "callField": "__withField",
+      "callReceiver": {
+        "resultID": 138
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        74,
+        118,
+        100,
+        62,
+        102,
+        91,
+        108,
+        57,
+        124,
+        138,
+        83
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 140,
+      "importedResultID": 4366,
+      "type": "ObjectTypeDef",
+      "callField": "__withField",
+      "callReceiver": {
+        "resultID": 139
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        74,
+        118,
+        100,
+        62,
+        91,
+        108,
+        57,
+        124,
+        83,
+        139,
+        104
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 141,
+      "importedResultID": 4367,
+      "type": "ObjectTypeDef",
+      "callField": "__withField",
+      "callReceiver": {
+        "resultID": 140
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        74,
+        118,
+        100,
+        62,
+        108,
+        57,
+        124,
+        83,
+        104,
+        140,
+        94
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 142,
+      "importedResultID": 4368,
+      "type": "ObjectTypeDef",
+      "callField": "__withField",
+      "callReceiver": {
+        "resultID": 141
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        74,
+        118,
+        100,
+        62,
+        57,
+        124,
+        83,
+        104,
+        94,
+        141,
+        110
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 143,
+      "importedResultID": 4369,
+      "type": "ObjectTypeDef",
+      "callField": "__withField",
+      "callReceiver": {
+        "resultID": 142
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        74,
+        118,
+        100,
+        62,
+        124,
+        83,
+        104,
+        94,
+        110,
+        142,
+        59
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 144,
+      "importedResultID": 4370,
+      "type": "ObjectTypeDef",
+      "callField": "__withFunction",
+      "callReceiver": {
+        "resultID": 143
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        74,
+        118,
+        100,
+        124,
+        83,
+        104,
+        94,
+        110,
+        59,
+        143,
+        64
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 145,
+      "importedResultID": 4371,
+      "type": "ObjectTypeDef",
+      "callField": "__withFunction",
+      "callReceiver": {
+        "resultID": 144
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        74,
+        100,
+        124,
+        83,
+        104,
+        94,
+        110,
+        59,
+        64,
+        144,
+        123
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 146,
+      "importedResultID": 4372,
+      "type": "ObjectTypeDef",
+      "callField": "__withFunction",
+      "callReceiver": {
+        "resultID": 145
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        100,
+        124,
+        83,
+        104,
+        94,
+        110,
+        59,
+        64,
+        123,
+        145,
+        79
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 147,
+      "importedResultID": 4373,
+      "type": "Function",
+      "callField": "__withReturnType",
+      "callReceiver": {
+        "resultID": 100
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        96,
+        97,
+        100,
+        45
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 148,
+      "importedResultID": 4374,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 149,
+      "importedResultID": 4375,
+      "type": "Function",
+      "callField": "__withSourceMap",
+      "callReceiver": {
+        "resultID": 147
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        97,
+        45,
+        147,
+        148
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 150,
+      "importedResultID": 4376,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 151,
+      "importedResultID": 4377,
+      "type": "FunctionArg",
+      "callField": "__withSourceMap",
+      "callReceiver": {
+        "resultID": 97
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        18,
+        97,
+        150
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 152,
+      "importedResultID": 4378,
+      "type": "Function",
+      "callField": "__withArg",
+      "callReceiver": {
+        "resultID": 149
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        45,
+        148,
+        149,
+        151
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 153,
+      "importedResultID": 4379,
+      "type": "ObjectTypeDef",
+      "callField": "__withFunction",
+      "callReceiver": {
+        "resultID": 146
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        124,
+        83,
+        104,
+        94,
+        110,
+        59,
+        64,
+        123,
+        79,
+        146,
+        152
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 154,
+      "importedResultID": 4380,
+      "type": "TypeDef",
+      "callField": "withObject",
+      "callReceiver": {
+        "resultID": 1
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        1,
+        125,
+        126
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 155,
+      "importedResultID": 4381,
+      "type": "TypeDef",
+      "callField": "withFunction",
+      "callReceiver": {
+        "resultID": 154
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        62,
+        154,
+        127
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 156,
+      "importedResultID": 4382,
+      "type": "TypeDef",
+      "callField": "withFunction",
+      "callReceiver": {
+        "resultID": 155
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        118,
+        155,
+        128
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 157,
+      "importedResultID": 4383,
+      "type": "TypeDef",
+      "callField": "withFunction",
+      "callReceiver": {
+        "resultID": 156
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        74,
+        156,
+        129
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 158,
+      "importedResultID": 4384,
+      "type": "TypeDef",
+      "callField": "withFunction",
+      "callReceiver": {
+        "resultID": 157
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        100,
+        157,
+        130
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 159,
+      "importedResultID": 4385,
+      "type": "TypeDef",
+      "callField": "withField",
+      "callReceiver": {
+        "resultID": 158
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        18,
+        80,
+        158,
+        131
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 160,
+      "importedResultID": 4386,
+      "type": "TypeDef",
+      "callField": "withField",
+      "callReceiver": {
+        "resultID": 159
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        18,
+        101,
+        159,
+        132
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 161,
+      "importedResultID": 4387,
+      "type": "TypeDef",
+      "callField": "withField",
+      "callReceiver": {
+        "resultID": 160
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        90,
+        85,
+        160,
+        133
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 162,
+      "importedResultID": 4388,
+      "type": "TypeDef",
+      "callField": "withField",
+      "callReceiver": {
+        "resultID": 161
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        106,
+        107,
+        161,
+        134
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 163,
+      "importedResultID": 4389,
+      "type": "TypeDef",
+      "callField": "withField",
+      "callReceiver": {
+        "resultID": 162
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        55,
+        56,
+        162,
+        135
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 164,
+      "importedResultID": 4390,
+      "type": "TypeDef",
+      "callField": "__withObjectTypeDef",
+      "callReceiver": {
+        "resultID": 163
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        163,
+        153
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 165,
+      "importedResultID": 4391,
+      "type": "Function",
+      "callField": "function",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [
+        18
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 166,
+      "importedResultID": 4392,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 167,
+      "importedResultID": 4393,
+      "type": "Function",
+      "callField": "withSourceMap",
+      "callReceiver": {
+        "resultID": 165
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        18,
+        166,
+        165
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 168,
+      "importedResultID": 4394,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 169,
+      "importedResultID": 4395,
+      "type": "InterfaceTypeDef",
+      "callField": "__interfaceTypeDef",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [
+        168
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 170,
+      "importedResultID": 4396,
+      "type": "InterfaceTypeDef",
+      "callField": "__withFunction",
+      "callReceiver": {
+        "resultID": 169
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        168,
+        167,
+        169
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 171,
+      "importedResultID": 4397,
+      "type": "TypeDef",
+      "callField": "withInterface",
+      "callReceiver": {
+        "resultID": 1
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        1,
+        168,
+        169
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 172,
+      "importedResultID": 4398,
+      "type": "TypeDef",
+      "callField": "withFunction",
+      "callReceiver": {
+        "resultID": 171
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        167,
+        171,
+        170
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 173,
+      "importedResultID": 4399,
+      "type": "InterfaceTypeDef",
+      "callField": "__withName",
+      "callReceiver": {
+        "resultID": 170
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        168,
+        167,
+        170
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 174,
+      "importedResultID": 4400,
+      "type": "InterfaceTypeDef",
+      "callField": "__withSourceModuleName",
+      "callReceiver": {
+        "resultID": 173
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        168,
+        167,
+        173
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 175,
+      "importedResultID": 4401,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 176,
+      "importedResultID": 4402,
+      "type": "InterfaceTypeDef",
+      "callField": "__withSourceMap",
+      "callReceiver": {
+        "resultID": 174
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        167,
+        174,
+        175
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 177,
+      "importedResultID": 4403,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 178,
+      "importedResultID": 4404,
+      "type": "Function",
+      "callField": "__withSourceMap",
+      "callReceiver": {
+        "resultID": 167
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        18,
+        167,
+        177
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 179,
+      "importedResultID": 4405,
+      "type": "InterfaceTypeDef",
+      "callField": "__withFunction",
+      "callReceiver": {
+        "resultID": 176
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        175,
+        176,
+        178
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 180,
+      "importedResultID": 4406,
+      "type": "TypeDef",
+      "callField": "__withInterfaceTypeDef",
+      "callReceiver": {
+        "resultID": 172
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        172,
+        179
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 181,
+      "importedResultID": 4407,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 182,
+      "importedResultID": 4408,
+      "type": "EnumTypeDef",
+      "callField": "__enumTypeDef",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [
+        181
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 183,
+      "importedResultID": 4409,
+      "type": "TypeDef",
+      "callField": "withEnum",
+      "callReceiver": {
+        "resultID": 1
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        1,
+        181,
+        182
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 184,
+      "importedResultID": 4410,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 185,
+      "importedResultID": 4411,
+      "type": "EnumValueTypeDef",
+      "callField": "__enumMemberTypeDef",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [
+        184
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 186,
+      "importedResultID": 4412,
+      "type": "EnumTypeDef",
+      "callField": "__withMember",
+      "callReceiver": {
+        "resultID": 182
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        181,
+        182,
+        185
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 187,
+      "importedResultID": 4413,
+      "type": "TypeDef",
+      "callField": "withEnumMember",
+      "callReceiver": {
+        "resultID": 183
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        184,
+        183,
+        186
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 188,
+      "importedResultID": 4414,
+      "type": "EnumTypeDef",
+      "callField": "__withName",
+      "callReceiver": {
+        "resultID": 186
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        181,
+        185,
+        186
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 189,
+      "importedResultID": 4415,
+      "type": "EnumTypeDef",
+      "callField": "__withSourceModuleName",
+      "callReceiver": {
+        "resultID": 188
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        181,
+        185,
+        188
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 190,
+      "importedResultID": 4416,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 191,
+      "importedResultID": 4417,
+      "type": "EnumTypeDef",
+      "callField": "__withSourceMap",
+      "callReceiver": {
+        "resultID": 189
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        185,
+        189,
+        190
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 192,
+      "importedResultID": 4418,
+      "type": "SourceMap",
+      "callField": "sourceMap",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 193,
+      "importedResultID": 4419,
+      "type": "EnumValueTypeDef",
+      "callField": "__withSourceMap",
+      "callReceiver": {
+        "resultID": 185
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        185,
+        192
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 194,
+      "importedResultID": 4420,
+      "type": "EnumTypeDef",
+      "callField": "__withMember",
+      "callReceiver": {
+        "resultID": 191
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        190,
+        191,
+        193
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 195,
+      "importedResultID": 4421,
+      "type": "TypeDef",
+      "callField": "__withEnumTypeDef",
+      "callReceiver": {
+        "resultID": 187
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        187,
+        194
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 196,
+      "importedResultID": 4422,
+      "type": "Host",
+      "callField": "host",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 197,
+      "importedResultID": 4423,
+      "type": "Directory",
+      "callField": "directory",
+      "callReceiver": {
+        "resultID": 196
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        196
+      ],
+      "payload": {
+        "form": "transfer_pending",
+        "operationState": "none",
+        "valueKnown": true,
+        "platform": "linux/amd64",
+        "dir": "/",
+        "operationPresent": false
+      },
+      "implicitInputs": [
+        {
+          "name": "cacheAsRequested:noCache",
+          "value": {
+            "kind": "string",
+            "stringValue": "d3n292krrm2w5n2xn309iw9gl"
+          }
+        }
+      ]
+    },
+    {
+      "ordinal": 198,
+      "importedResultID": 4424,
+      "type": "ModuleSource",
+      "callField": "moduleSource",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [
+        197
+      ],
+      "payload": {
+        "operationPresent": false
+      },
+      "implicitInputs": [
+        {
+          "name": "cachePerClient",
+          "value": {
+            "kind": "string",
+            "stringValue": "nuqi0dndnwh922kh2rsmbj9m7"
+          }
+        }
+      ]
+    },
+    {
+      "ordinal": 199,
+      "importedResultID": 4425,
+      "type": "Container",
+      "callField": "_builtinContainer",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "operationState": "evaluated",
+        "parts": {
+          "execMeta": {
+            "kind": "absent"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          }
+        },
+        "operationPresent": true,
+        "operationBytes": 117,
+        "operationSHA256": "1b098fb61d8a18122b63d40f69fedc96685d3a91fdae02fc3f6c51362d483fa6"
+      },
+      "implicitInputs": [
+        {
+          "name": "engineDefaultPlatform",
+          "value": {
+            "kind": "string",
+            "stringValue": "linux/amd64"
+          }
+        }
+      ]
+    },
+    {
+      "ordinal": 200,
+      "importedResultID": 4426,
+      "type": "Directory",
+      "callField": "directory",
+      "callReceiver": {
+        "resultID": 199
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        199
+      ],
+      "payload": {
+        "form": "transfer_pending",
+        "operationState": "evaluated",
+        "lazyKind": "container.directory",
+        "valueKnown": true,
+        "platform": "linux/amd64",
+        "dir": "/go/pkg/mod",
+        "operationPresent": true,
+        "operationBytes": 43,
+        "operationSHA256": "d44c619739365c0f0dc2eaa4d6994bbbe8239445073cd195b265ccf74499f529"
+      }
+    },
+    {
+      "ordinal": 201,
+      "importedResultID": 4427,
+      "type": "CacheVolume",
+      "callField": "cacheVolume",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [
+        200
+      ],
+      "payload": {
+        "form": "foreign_uninitialized",
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 202,
+      "importedResultID": 4428,
+      "type": "Directory",
+      "callField": "directory",
+      "callReceiver": {
+        "resultID": 199
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        199
+      ],
+      "payload": {
+        "form": "transfer_pending",
+        "operationState": "evaluated",
+        "lazyKind": "container.directory",
+        "valueKnown": true,
+        "platform": "linux/amd64",
+        "dir": "/root/.cache/go-build",
+        "operationPresent": true,
+        "operationBytes": 53,
+        "operationSHA256": "f599cfa67d1519467fced17a68c5f2f01610fab97c94c13928282aeffb9ad329"
+      }
+    },
+    {
+      "ordinal": 203,
+      "importedResultID": 4429,
+      "type": "CacheVolume",
+      "callField": "cacheVolume",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [
+        202
+      ],
+      "payload": {
+        "form": "foreign_uninitialized",
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 204,
+      "importedResultID": 4430,
+      "type": "Container",
+      "callField": "withMountedCache",
+      "callReceiver": {
+        "resultID": 199
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        199,
+        200,
+        201
+      ],
+      "payload": {
+        "operationState": "none",
+        "parts": {
+          "execMeta": {
+            "kind": "absent"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          }
+        },
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 205,
+      "importedResultID": 4431,
+      "type": "Container",
+      "callField": "withMountedCache",
+      "callReceiver": {
+        "resultID": 204
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        202,
+        201,
+        204,
+        203
+      ],
+      "payload": {
+        "operationState": "none",
+        "parts": {
+          "execMeta": {
+            "kind": "absent"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          }
+        },
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 206,
+      "importedResultID": 4432,
+      "type": "Container",
+      "callField": "__withSystemEnvVariable",
+      "callReceiver": {
+        "resultID": 205
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        201,
+        203,
+        205
+      ],
+      "payload": {
+        "operationState": "none",
+        "parts": {
+          "execMeta": {
+            "kind": "absent"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          }
+        },
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 207,
+      "importedResultID": 4433,
+      "type": "Container",
+      "callField": "__withSystemEnvVariable",
+      "callReceiver": {
+        "resultID": 206
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        201,
+        203,
+        206
+      ],
+      "payload": {
+        "operationState": "none",
+        "parts": {
+          "execMeta": {
+            "kind": "absent"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          }
+        },
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 208,
+      "importedResultID": 4434,
+      "type": "File",
+      "callField": "__schemaJSONFile",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "form": "transfer_pending",
+        "operationState": "evaluated",
+        "lazyKind": "file.blob",
+        "valueKnown": true,
+        "platform": "linux/amd64",
+        "file": "/schema.json",
+        "operationPresent": true,
+        "operationBytes": 610914,
+        "operationSHA256": "12bc88eb327f8c90d43b3aa5094986f47d6c39ddf8f8bdb5c9406e2b2e692041"
+      },
+      "implicitInputs": [
+        {
+          "name": "cachePerSchema",
+          "value": {
+            "kind": "string",
+            "stringValue": "xxh3:f570631da461b73b"
+          }
+        },
+        {
+          "name": "engineDefaultPlatform",
+          "value": {
+            "kind": "string",
+            "stringValue": "linux/amd64"
+          }
+        }
+      ]
+    },
+    {
+      "ordinal": 209,
+      "importedResultID": 4435,
+      "type": "Container",
+      "callField": "withMountedFile",
+      "callReceiver": {
+        "resultID": 207
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        208,
+        201,
+        203,
+        207
+      ],
+      "payload": {
+        "operationState": "evaluated",
+        "parts": {
+          "execMeta": {
+            "kind": "absent"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          },
+          "mount:/schema.json": {
+            "valueKind": "file",
+            "kind": "pending",
+            "role": "mount_file:2",
+            "path": "/schema.json",
+            "platform": "linux/amd64"
+          }
+        },
+        "operationPresent": true,
+        "operationBytes": 67,
+        "operationSHA256": "1371b20afb0d2624c5ab43ff3df4b0048beeac2b0b364dd839d0867f5710f0e1"
+      }
+    },
+    {
+      "ordinal": 210,
+      "importedResultID": 4436,
+      "type": "Directory",
+      "callField": "withoutFile",
+      "callReceiver": {
+        "resultID": 197
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        197
+      ],
+      "payload": {
+        "form": "transfer_pending",
+        "operationState": "evaluated",
+        "lazyKind": "directory.without",
+        "valueKnown": true,
+        "platform": "linux/amd64",
+        "dir": "/",
+        "operationPresent": true,
+        "operationBytes": 56,
+        "operationSHA256": "6caad99b67470cf934a5377f6d3992006a1a2c840e8568eaff23676a07fd9afe"
+      }
+    },
+    {
+      "ordinal": 211,
+      "importedResultID": 4437,
+      "type": "Container",
+      "callField": "withMountedDirectory",
+      "callReceiver": {
+        "resultID": 209
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        201,
+        203,
+        210,
+        209
+      ],
+      "payload": {
+        "operationState": "evaluated",
+        "parts": {
+          "execMeta": {
+            "kind": "absent"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          },
+          "mount:/schema.json": {
+            "valueKind": "file",
+            "kind": "pending",
+            "role": "mount_file:2",
+            "path": "/schema.json",
+            "platform": "linux/amd64"
+          },
+          "mount:/src": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "mount_dir:3",
+            "path": "/",
+            "platform": "linux/amd64"
+          }
+        },
+        "operationPresent": true,
+        "operationBytes": 59,
+        "operationSHA256": "e28d6eab955c9461c318219f55094fcb467e200795932c1b26c6c9131460b8c7"
+      }
+    },
+    {
+      "ordinal": 212,
+      "importedResultID": 4438,
+      "type": "Container",
+      "callField": "withWorkdir",
+      "callReceiver": {
+        "resultID": 211
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        201,
+        203,
+        211
+      ],
+      "payload": {
+        "operationState": "evaluated",
+        "parts": {
+          "execMeta": {
+            "kind": "absent"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          },
+          "mount:/schema.json": {
+            "valueKind": "file",
+            "kind": "pending",
+            "role": "mount_file:2",
+            "path": "/schema.json",
+            "platform": "linux/amd64"
+          },
+          "mount:/src": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "mount_dir:3",
+            "path": "/",
+            "platform": "linux/amd64"
+          }
+        },
+        "operationPresent": true,
+        "operationBytes": 44,
+        "operationSHA256": "9436aea47a7597bda54c1b038253288266eb91d5b5619107a9f64c2ffe840745"
+      }
+    },
+    {
+      "ordinal": 213,
+      "importedResultID": 4439,
+      "type": "Container",
+      "callField": "withEnvVariable",
+      "callReceiver": {
+        "resultID": 212
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        201,
+        203,
+        212
+      ],
+      "payload": {
+        "operationState": "evaluated",
+        "parts": {
+          "execMeta": {
+            "kind": "absent"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          },
+          "mount:/schema.json": {
+            "valueKind": "file",
+            "kind": "pending",
+            "role": "mount_file:2",
+            "path": "/schema.json",
+            "platform": "linux/amd64"
+          },
+          "mount:/src": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "mount_dir:3",
+            "path": "/",
+            "platform": "linux/amd64"
+          }
+        },
+        "operationPresent": true,
+        "operationBytes": 90,
+        "operationSHA256": "8c04314216d30e0f482833206947b62875503f8586e76c4650f2544625b7e514"
+      }
+    },
+    {
+      "ordinal": 214,
+      "importedResultID": 4440,
+      "type": "Container",
+      "callField": "withoutDefaultArgs",
+      "callReceiver": {
+        "resultID": 213
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        201,
+        203,
+        213
+      ],
+      "payload": {
+        "operationState": "evaluated",
+        "parts": {
+          "execMeta": {
+            "kind": "absent"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          },
+          "mount:/schema.json": {
+            "valueKind": "file",
+            "kind": "pending",
+            "role": "mount_file:2",
+            "path": "/schema.json",
+            "platform": "linux/amd64"
+          },
+          "mount:/src": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "mount_dir:3",
+            "path": "/",
+            "platform": "linux/amd64"
+          }
+        },
+        "operationPresent": true,
+        "operationBytes": 22,
+        "operationSHA256": "06fd4ac42829b62222297d443b6cb5c48172b5731bcac1ca3109094a35e4502b"
+      }
+    },
+    {
+      "ordinal": 215,
+      "importedResultID": 4441,
+      "type": "Container",
+      "callField": "withExec",
+      "callReceiver": {
+        "resultID": 214
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        201,
+        203,
+        214
+      ],
+      "payload": {
+        "operationState": "evaluated",
+        "parts": {
+          "execMeta": {
+            "valueKind": "snapshot",
+            "kind": "pending",
+            "role": "meta"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          },
+          "mount:/schema.json": {
+            "valueKind": "file",
+            "kind": "pending",
+            "role": "mount_file:2",
+            "path": "/schema.json",
+            "platform": "linux/amd64"
+          },
+          "mount:/src": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "mount_dir:3",
+            "path": "/",
+            "platform": "linux/amd64"
+          }
+        },
+        "operationPresent": true,
+        "operationBytes": 505,
+        "operationSHA256": "736012a517df05f7352af8b1489f51ed815af9a7d0168d672644ca2909f2e261"
+      }
+    },
+    {
+      "ordinal": 216,
+      "importedResultID": 4442,
+      "type": "Container",
+      "callField": "withExec",
+      "callReceiver": {
+        "resultID": 215
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        201,
+        203,
+        215
+      ],
+      "payload": {
+        "operationState": "evaluated",
+        "parts": {
+          "execMeta": {
+            "valueKind": "snapshot",
+            "kind": "pending",
+            "role": "meta"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          },
+          "mount:/schema.json": {
+            "valueKind": "file",
+            "kind": "pending",
+            "role": "mount_file:2",
+            "path": "/schema.json",
+            "platform": "linux/amd64"
+          },
+          "mount:/src": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "mount_dir:3",
+            "path": "/",
+            "platform": "linux/amd64"
+          }
+        },
+        "operationPresent": true,
+        "operationBytes": 342,
+        "operationSHA256": "6b0ba23a544e0b5cf12a2d12aebd446c4604b6956dce5afc1991fa9c3185c4d5"
+      }
+    },
+    {
+      "ordinal": 217,
+      "importedResultID": 4443,
+      "type": "Container",
+      "callField": "withEntrypoint",
+      "callReceiver": {
+        "resultID": 216
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        201,
+        203,
+        216
+      ],
+      "payload": {
+        "operationState": "evaluated",
+        "parts": {
+          "execMeta": {
+            "valueKind": "snapshot",
+            "kind": "pending",
+            "role": "meta"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          },
+          "mount:/schema.json": {
+            "valueKind": "file",
+            "kind": "pending",
+            "role": "mount_file:2",
+            "path": "/schema.json",
+            "platform": "linux/amd64"
+          },
+          "mount:/src": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "mount_dir:3",
+            "path": "/",
+            "platform": "linux/amd64"
+          }
+        },
+        "operationPresent": true,
+        "operationBytes": 42,
+        "operationSHA256": "9bb831af890d7ccdb9bd8f3c7de8b05e07f6a186dcb9b5a3a5d5ef456eb6d85e"
+      }
+    },
+    {
+      "ordinal": 218,
+      "importedResultID": 4444,
+      "type": "Container",
+      "callField": "withWorkdir",
+      "callReceiver": {
+        "resultID": 217
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        201,
+        203,
+        217
+      ],
+      "payload": {
+        "operationState": "evaluated",
+        "parts": {
+          "execMeta": {
+            "valueKind": "snapshot",
+            "kind": "pending",
+            "role": "meta"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          },
+          "mount:/schema.json": {
+            "valueKind": "file",
+            "kind": "pending",
+            "role": "mount_file:2",
+            "path": "/schema.json",
+            "platform": "linux/amd64"
+          },
+          "mount:/src": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "mount_dir:3",
+            "path": "/",
+            "platform": "linux/amd64"
+          }
+        },
+        "operationPresent": true,
+        "operationBytes": 40,
+        "operationSHA256": "16829d6912bc0e4cf5404e6ffb413149959b3acb98a8bb22ffd0762ab21ac562"
+      }
+    },
+    {
+      "ordinal": 219,
+      "importedResultID": 4445,
+      "type": "Container",
+      "callField": "withoutMount",
+      "callReceiver": {
+        "resultID": 218
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        203,
+        218
+      ],
+      "payload": {
+        "operationState": "evaluated",
+        "parts": {
+          "execMeta": {
+            "valueKind": "snapshot",
+            "kind": "pending",
+            "role": "meta"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          },
+          "mount:/schema.json": {
+            "valueKind": "file",
+            "kind": "pending",
+            "role": "mount_file:1",
+            "path": "/schema.json",
+            "platform": "linux/amd64"
+          },
+          "mount:/src": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "mount_dir:2",
+            "path": "/",
+            "platform": "linux/amd64"
+          }
+        },
+        "operationPresent": true,
+        "operationBytes": 45,
+        "operationSHA256": "65c56cf8ae73a0e3d6ac61bf8b3dc606e86e6333c3e76f541cd33a93d91cb3ec"
+      }
+    },
+    {
+      "ordinal": 220,
+      "importedResultID": 4446,
+      "type": "Container",
+      "callField": "withoutMount",
+      "callReceiver": {
+        "resultID": 219
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        219
+      ],
+      "payload": {
+        "operationState": "evaluated",
+        "parts": {
+          "execMeta": {
+            "valueKind": "snapshot",
+            "kind": "pending",
+            "role": "meta"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          },
+          "mount:/schema.json": {
+            "valueKind": "file",
+            "kind": "pending",
+            "role": "mount_file:0",
+            "path": "/schema.json",
+            "platform": "linux/amd64"
+          },
+          "mount:/src": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "mount_dir:1",
+            "path": "/",
+            "platform": "linux/amd64"
+          }
+        },
+        "operationPresent": true,
+        "operationBytes": 55,
+        "operationSHA256": "8a85baa633673990b7af1ffb0d73ec4c787eec59d23087a654ce2da3733f009f"
+      }
+    },
+    {
+      "ordinal": 221,
+      "importedResultID": 4447,
+      "type": "Module",
+      "callField": "asModule",
+      "callReceiver": {
+        "resultID": 198
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        198,
+        220,
+        53,
+        164,
+        180,
+        195
+      ],
+      "payload": {
+        "operationPresent": false
+      },
+      "implicitInputs": [
+        {
+          "name": "cachePerClient",
+          "value": {
+            "kind": "string",
+            "stringValue": "nuqi0dndnwh922kh2rsmbj9m7"
+          }
+        }
+      ]
+    },
+    {
+      "ordinal": 222,
+      "importedResultID": 4448,
+      "type": "Module",
+      "callField": "_implementationScoped",
+      "callReceiver": {
+        "resultID": 221
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        198,
+        220,
+        53,
+        164,
+        180,
+        195,
+        221
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 223,
+      "importedResultID": 4449,
+      "type": "CacheProbe",
+      "callField": "cacheProbe",
+      "callReceiver": null,
+      "callModule": {
+        "resultRef": {
+          "resultID": 222
+        },
+        "name": "cache-probe",
+        "ref": "/tmp/TestRemoteCacheTransferSuiteTestSchemaRecoveryCold3151301333/001"
+      },
+      "dependencyOrdinals": [
+        222
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    },
+    {
+      "ordinal": 224,
+      "importedResultID": 4450,
+      "type": "Directory",
+      "callField": "directory",
+      "callReceiver": null,
+      "callModule": null,
+      "dependencyOrdinals": [],
+      "payload": {
+        "form": "transfer_pending",
+        "operationState": "evaluated",
+        "lazyKind": "scratch",
+        "valueKnown": true,
+        "platform": "linux/amd64",
+        "dir": "/",
+        "operationPresent": true,
+        "operationBytes": 2,
+        "operationSHA256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "lazyJSON": {}
+      },
+      "implicitInputs": [
+        {
+          "name": "engineDefaultPlatform",
+          "value": {
+            "kind": "string",
+            "stringValue": "linux/amd64"
+          }
+        }
+      ]
+    },
+    {
+      "ordinal": 225,
+      "importedResultID": 4451,
+      "type": "Directory",
+      "callField": "withNewFile",
+      "callReceiver": {
+        "resultID": 224
+      },
+      "callModule": null,
+      "dependencyOrdinals": [
+        224
+      ],
+      "payload": {
+        "form": "transfer_pending",
+        "operationState": "evaluated",
+        "lazyKind": "directory.withNewFile",
+        "valueKnown": true,
+        "platform": "linux/amd64",
+        "dir": "/",
+        "operationPresent": true,
+        "operationBytes": 106,
+        "operationSHA256": "173949271f198dedcd2e6a6818833c1634ed44da91cceede15d8259922cd73f3"
+      }
+    },
+    {
+      "ordinal": 226,
+      "importedResultID": 4452,
+      "type": "CacheProbeReport",
+      "callField": "report",
+      "callReceiver": {
+        "resultID": 223
+      },
+      "callModule": {
+        "resultRef": {
+          "resultID": 222
+        },
+        "name": "cache-probe",
+        "ref": "/tmp/TestRemoteCacheTransferSuiteTestSchemaRecoveryCold3151301333/001"
+      },
+      "dependencyOrdinals": [
+        222,
+        223,
+        225
+      ],
+      "payload": {
+        "operationPresent": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,122 @@
+=== RUN   TestContainerShutdownPersistenceWaitsForReader
+=== RUN   TestContainerShutdownPersistenceWaitsForReader/pending
+2026/09/16 23:26:54 INFO start lazy group evaluation field=Container.withLabel group=metadata
+2026/09/16 23:26:54 INFO end lazy group evaluation field=Container.withLabel group=metadata duration=204.79µs
+2026/09/16 23:26:54 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+    container_shutdown_persistence_test.go:106: observed shutdown waiting for the read-only latch:
+        goroutine 102 [sync.Mutex.Lock]:
+        internal/sync.runtime_SemacquireMutex(0x7f5790040f08?, 0x98?, 0xa0?)
+        	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/runtime/sema.go:95 +0x25
+        internal/sync.(*Mutex).lockSlow(0xc00037cc48)
+        	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/internal/sync/mutex.go:149 +0x1f3
+        internal/sync.(*Mutex).Lock(0xc00037cc48)
+        	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/internal/sync/mutex.go:70 +0x45
+        sync.(*Mutex).Lock(0x89fae60?)
+        	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/sync/mutex.go:46 +0x15
+        github.com/dagger/dagger/core.(*Container).lockLazyForPersistence(0xc0003f7808?, {0x605ad68, 0xc0005b8be0}, 0x1)
+        	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/core/container_persistence.go:122 +0x133
+        github.com/dagger/dagger/core.(*Container).EncodePersistedObject(0xc0003f7808, {0x605cc08, 0xc0008f33b0}, 0xc0001f04c0)
+        	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/core/container_persistence.go:54 +0x1d3
+        github.com/dagger/dagger/dagql.encodePersistedResultEnvelope({0x605cc08, 0xc0008f33b0}, 0xc0001f04c0, {0x6092730, _}, _)
+        	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/dagql/cache_persistence_self.go:227 +0x90c
+        github.com/dagger/dagger/dagql.defaultPersistedSelfCodec.EncodeResult({}, {0x605cc08, 0xc0008f33b0}, {0x601fdc0, 0xc000472c08}, {_, _})
+        	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/dagql/cache_persistence_self.go:123 +0x309
+        github.com/dagger/dagger/dagql.(*Cache).persistResultEnvelope(0xc000472c08, {0x605cc08, 0xc00039d7a0}, 0xc0008de128)
+        	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/dagql/cache_persistence_worker.go:538 +0x87f
+        github.com/dagger/dagger/dagql.(*Cache).snapshotPersistState(_, {_, _})
+        	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/dagql/cache_persistence_worker.go:258 +0x3d89
+        github.com/dagger/dagger/dagql.(*Cache).persistCurrentState(0xc000472c08, {0x605cc08, 0xc00039d7a0})
+        	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/dagql/cache_persistence_worker.go:19 +0xe7
+        github.com/dagger/dagger/core.TestContainerShutdownPersistenceWaitsForReader.func1.4.(*Cache).Close.1()
+        	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/dagql/cache.go:4567 +0x6ad
+        sync.(*Once).doSlow(0xc000472ec8, 0xc00063e7a0)
+        	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/sync/once.go:78 +0xa2
+        sync.(*Once).Do(0xc000472ec8, 0xc00063e7a0)
+        	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/sync/once.go:69 +0x33
+        github.com/dagger/dagger/dagql.(*Cache).Close(...)
+        	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/dagql/cache.go:4552
+        github.com/dagger/dagger/core.TestContainerShutdownPersistenceWaitsForReader.func1.4()
+        	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/core/container_shutdown_persistence_test.go:105 +0xdd
+        created by github.com/dagger/dagger/core.TestContainerShutdownPersistenceWaitsForReader.func1 in goroutine 67
+        	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/core/container_shutdown_persistence_test.go:105 +0x156b
+2026/09/16 23:26:54 INFO marking dagql cache clean shutdown
+2026/09/16 23:26:54 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 23:26:54 INFO completed dagql cache close successfully
+2026/09/16 23:26:54 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestContainerShutdownPersistenceWaitsForReader/completed
+2026/09/16 23:26:54 INFO start lazy group evaluation field=Container.withLabel group=metadata
+2026/09/16 23:26:54 INFO end lazy group evaluation field=Container.withLabel group=metadata duration=98.31µs
+2026/09/16 23:26:54 INFO start lazy group evaluation field=Container.withLabel group=fs
+2026/09/16 23:26:54 INFO end lazy group evaluation field=Container.withLabel group=fs duration=34.02µs
+2026/09/16 23:26:54 INFO start lazy group evaluation field=Container.withLabel group=execMeta
+2026/09/16 23:26:54 INFO end lazy group evaluation field=Container.withLabel group=execMeta duration=24.09µs
+2026/09/16 23:26:54 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+    container_shutdown_persistence_test.go:106: observed shutdown waiting for the read-only latch:
+        goroutine 191 [sync.Mutex.Lock]:
+        internal/sync.runtime_SemacquireMutex(0x7f57e0d06000?, 0x0?, 0x0?)
+        	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/runtime/sema.go:95 +0x25
+        internal/sync.(*Mutex).lockSlow(0xc0000188b8)
+        	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/internal/sync/mutex.go:149 +0x1f3
+        internal/sync.(*Mutex).Lock(0xc0000188b8)
+        	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/internal/sync/mutex.go:70 +0x45
+        sync.(*Mutex).Lock(0x89fae60?)
+        	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/sync/mutex.go:46 +0x15
+        github.com/dagger/dagger/core.(*Container).lockLazyForPersistence(0xc000741508?, {0x605ad68, 0xc00090ebe0}, 0x1)
+        	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/core/container_persistence.go:122 +0x133
+        github.com/dagger/dagger/core.(*Container).EncodePersistedObject(0xc000741508, {0x605cc08, 0xc0009967e0}, 0xc00035e700)
+        	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/core/container_persistence.go:54 +0x1d3
+        github.com/dagger/dagger/dagql.encodePersistedResultEnvelope({0x605cc08, 0xc0009967e0}, 0xc00035e700, {0x6092730, _}, _)
+        	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/dagql/cache_persistence_self.go:227 +0x90c
+        github.com/dagger/dagger/dagql.defaultPersistedSelfCodec.EncodeResult({}, {0x605cc08, 0xc0009967e0}, {0x601fdc0, 0xc0009a4008}, {_, _})
+        	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/dagql/cache_persistence_self.go:123 +0x309
+        github.com/dagger/dagger/dagql.(*Cache).persistResultEnvelope(0xc0009a4008, {0x605cc08, 0xc000753bf0}, 0xc0009ba128)
+        	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/dagql/cache_persistence_worker.go:538 +0x87f
+        github.com/dagger/dagger/dagql.(*Cache).snapshotPersistState(_, {_, _})
+        	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/dagql/cache_persistence_worker.go:258 +0x3d89
+        github.com/dagger/dagger/dagql.(*Cache).persistCurrentState(0xc0009a4008, {0x605cc08, 0xc000753bf0})
+        	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/dagql/cache_persistence_worker.go:19 +0xe7
+        github.com/dagger/dagger/core.TestContainerShutdownPersistenceWaitsForReader.func1.4.(*Cache).Close.1()
+        	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/dagql/cache.go:4567 +0x6ad
+        sync.(*Once).doSlow(0xc0009a42c8, 0xc00076efa0)
+        	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/sync/once.go:78 +0xa2
+        sync.(*Once).Do(0xc0009a42c8, 0xc00076efa0)
+        	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/sync/once.go:69 +0x33
+        github.com/dagger/dagger/dagql.(*Cache).Close(...)
+        	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/dagql/cache.go:4552
+        github.com/dagger/dagger/core.TestContainerShutdownPersistenceWaitsForReader.func1.4()
+        	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/core/container_shutdown_persistence_test.go:105 +0xdd
+        created by github.com/dagger/dagger/core.TestContainerShutdownPersistenceWaitsForReader.func1 in goroutine 51
+        	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/core/container_shutdown_persistence_test.go:105 +0x156b
+2026/09/16 23:26:54 INFO marking dagql cache clean shutdown
+2026/09/16 23:26:54 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 23:26:54 INFO completed dagql cache close successfully
+2026/09/16 23:26:54 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestContainerShutdownPersistenceWaitsForReader (0.48s)
+    --- PASS: TestContainerShutdownPersistenceWaitsForReader/pending (0.40s)
+    --- PASS: TestContainerShutdownPersistenceWaitsForReader/completed (0.08s)
+=== RUN   TestSnapshotOwnerCompletedReaders
+=== RUN   TestSnapshotOwnerCompletedReaders/Container
+2026/09/16 23:26:54 INFO start lazy evaluation field=completed
+2026/09/16 23:26:54 INFO end lazy evaluation field=completed duration=62.12µs
+=== RUN   TestSnapshotOwnerCompletedReaders/File
+2026/09/16 23:26:54 INFO start lazy evaluation field=completed
+2026/09/16 23:26:54 INFO end lazy evaluation field=completed duration=237.06µs
+--- PASS: TestSnapshotOwnerCompletedReaders (0.00s)
+    --- PASS: TestSnapshotOwnerCompletedReaders/Container (0.00s)
+    --- PASS: TestSnapshotOwnerCompletedReaders/File (0.00s)
+=== RUN   TestSnapshotOwnerWaitsForBody
+=== RUN   TestSnapshotOwnerWaitsForBody/Container
+2026/09/16 23:26:54 INFO start lazy group evaluation field=fs group=write
+2026/09/16 23:26:54 INFO end lazy group evaluation field=fs group=write duration=1.93971ms
+=== RUN   TestSnapshotOwnerWaitsForBody/File
+2026/09/16 23:26:54 INFO start lazy evaluation field=file
+2026/09/16 23:26:54 INFO end lazy evaluation field=file duration=308.09µs
+--- PASS: TestSnapshotOwnerWaitsForBody (0.00s)
+    --- PASS: TestSnapshotOwnerWaitsForBody/Container (0.00s)
+    --- PASS: TestSnapshotOwnerWaitsForBody/File (0.00s)
+=== RUN   TestSnapshotOwnerWaitsForEncoder
+2026/09/16 23:26:54 INFO start lazy evaluation field=completed
+2026/09/16 23:26:54 INFO end lazy evaluation field=completed duration=61.87µs
+--- PASS: TestSnapshotOwnerWaitsForEncoder (0.00s)
+PASS
+ok  	github.com/dagger/dagger/core	1.900s

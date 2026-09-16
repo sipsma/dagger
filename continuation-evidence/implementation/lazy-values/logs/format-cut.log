@@ -1,0 +1,12 @@
+=== RUN   TestLazyOperationCompatibilityCut
+--- PASS: TestLazyOperationCompatibilityCut (0.00s)
+=== RUN   TestCachePersistenceSchemaMismatchWipesStore
+=== PAUSE TestCachePersistenceSchemaMismatchWipesStore
+=== RUN   TestCachePersistenceWorkerUsesEncodedSnapshotLinks
+=== PAUSE TestCachePersistenceWorkerUsesEncodedSnapshotLinks
+=== CONT  TestCachePersistenceSchemaMismatchWipesStore
+=== CONT  TestCachePersistenceWorkerUsesEncodedSnapshotLinks
+--- PASS: TestCachePersistenceWorkerUsesEncodedSnapshotLinks (0.29s)
+--- PASS: TestCachePersistenceSchemaMismatchWipesStore (0.37s)
+PASS
+ok  	github.com/dagger/dagger/dagql	1.830s

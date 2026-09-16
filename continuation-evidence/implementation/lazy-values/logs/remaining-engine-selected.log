@@ -1,0 +1,230 @@
+Trace 124abeda8af965c452cf6c6b6094b9b5; invocation exit 1; 1168.698 seconds.
+=== RUN   TestCachePersistence
+=== PAUSE TestCachePersistence
+=== RUN   TestGit
+=== PAUSE TestGit
+=== RUN   TestHTTP
+=== PAUSE TestHTTP
+=== RUN   TestRemoteCacheTransferSuite
+=== RUN   TestRemoteCacheTransferSuite/TestPartMixedExecOutputs
+    testctx.go:206: mixed private exec latency=192.682972ms originalFS=kjexp69kwxew7pahppy4fqfnr redundantFS=umthygiduig1qqqmqeng66951 rootEvents=[{lazy-enter 4229 withExec { execMeta}  <nil>}]
+=== RUN   TestRemoteCacheTransferSuite/TestSchemaRecovery
+=== RUN   TestRemoteCacheTransferSuite/TestSchemaRecovery/before
+    testctx.go:206: acquisition warm scratch donor row=4468 ref=dagger-scratch-rootfs-v1 order=before
+    testctx.go:206: acquisition imported closure rows=226 cold=false order=before
+    testctx.go:206: acquisition route counters cold=false builtin=0 counts=map[installed-chain:1 owner-sync:6 provider-read:1 selected-chain:1 settled:1]
+    testctx.go:206: acquisition changed-argument control cold=false report-body-count=1
+    testctx.go:206: acquisition scratch cold=false ordinal=223 row=4691 address={"part":"snapshot"} group=whole platform=linux/amd64 lazy-enter=0 provider-reads=0
+    testctx.go:206: acquisition scratch cold=false ordinal=223 row=4691 address={"part":"snapshot"} group=whole platform=linux/amd64 lazy-enter=0 provider-reads=0
+    testctx.go:206: acquisition later controls cold=false noteFile=passed bound-tool=passed saved-row=4694 persisted=true
+    testctx.go:206: restart persistence diagnostics: {PersistenceResetReason: LocalCacheResetReason: RemovedPersistedRootCount:0 DiskPrunedResults:[]}
+    testctx.go:206: acquisition clean-restart control cold=false saved-row=4694 noteDirectory=passed report-body-count=1
+    testctx.go:206: acquisition native-recorded-module control cold=false recorded-row=5152 lower-imported-equivalent=true passed
+=== RUN   TestRemoteCacheTransferSuite/TestSchemaRecovery/after
+    testctx.go:206: acquisition warm scratch donor row=4468 ref=dagger-scratch-rootfs-v1 order=after
+    testctx.go:206: acquisition imported closure rows=226 cold=false order=after
+    testctx.go:206: acquisition route counters cold=false builtin=0 counts=map[installed-chain:1 owner-sync:6 provider-read:1 selected-chain:1 settled:1]
+    testctx.go:206: acquisition changed-argument control cold=false report-body-count=1
+    testctx.go:206: acquisition scratch cold=false ordinal=223 row=4694 address={"part":"snapshot"} group=whole platform=linux/amd64 lazy-enter=0 provider-reads=0
+    testctx.go:206: acquisition scratch cold=false ordinal=223 row=4694 address={"part":"snapshot"} group=whole platform=linux/amd64 lazy-enter=0 provider-reads=0
+    testctx.go:206: acquisition later controls cold=false noteFile=passed bound-tool=passed saved-row=4697 persisted=true
+    testctx.go:206: restart persistence diagnostics: {PersistenceResetReason: LocalCacheResetReason: RemovedPersistedRootCount:0 DiskPrunedResults:[]}
+    testctx.go:206: acquisition clean-restart control cold=false saved-row=4697 noteDirectory=passed report-body-count=1
+    testctx.go:206: acquisition native-recorded-module control cold=false recorded-row=5152 lower-imported-equivalent=true passed
+=== RUN   TestRemoteCacheTransferSuite/TestSchemaRecovery/foreign_context
+--- PASS: TestRemoteCacheTransferSuite (406.04s)
+    --- PASS: TestRemoteCacheTransferSuite/TestPartMixedExecOutputs (77.78s)
+    --- PASS: TestRemoteCacheTransferSuite/TestSchemaRecovery (328.26s)
+        --- PASS: TestRemoteCacheTransferSuite/TestSchemaRecovery/before (158.32s)
+        --- PASS: TestRemoteCacheTransferSuite/TestSchemaRecovery/after (74.32s)
+        --- PASS: TestRemoteCacheTransferSuite/TestSchemaRecovery/foreign_context (50.13s)
+=== CONT  TestHTTP
+=== CONT  TestGit
+=== CONT  TestCachePersistence
+=== RUN   TestHTTP/TestHTTPAuth
+=== PAUSE TestHTTP/TestHTTPAuth
+=== RUN   TestCachePersistence/TestDiskPersistenceAcrossRestart
+=== PAUSE TestCachePersistence/TestDiskPersistenceAcrossRestart
+=== CONT  TestCachePersistence/TestDiskPersistenceAcrossRestart
+=== RUN   TestHTTP/TestHTTPCachePerSessions
+=== PAUSE TestHTTP/TestHTTPCachePerSessions
+=== RUN   TestGit/TestDiscardGitDir
+=== PAUSE TestGit/TestDiscardGitDir
+=== RUN   TestGit/TestGitBundleImportAfterPrerequisiteRefAdvances
+=== PAUSE TestGit/TestGitBundleImportAfterPrerequisiteRefAdvances
+=== RUN   TestHTTP/TestHTTPChecksum
+=== PAUSE TestHTTP/TestHTTPChecksum
+=== RUN   TestCachePersistence/TestDiskPersistenceAcrossRestart/lazy_values_survive_restart
+=== PAUSE TestCachePersistence/TestDiskPersistenceAcrossRestart/lazy_values_survive_restart
+=== RUN   TestHTTP/TestHTTPChecksumMismatch
+=== PAUSE TestHTTP/TestHTTPChecksumMismatch
+=== RUN   TestHTTP/TestHTTPETag
+=== PAUSE TestHTTP/TestHTTPETag
+=== RUN   TestGit/TestGitBundleRoundTripAndStockInterop
+=== PAUSE TestGit/TestGitBundleRoundTripAndStockInterop
+=== RUN   TestHTTP/TestHTTPName
+=== PAUSE TestHTTP/TestHTTPName
+=== RUN   TestHTTP/TestHTTPPermissions
+=== PAUSE TestHTTP/TestHTTPPermissions
+=== RUN   TestHTTP/TestHTTPService
+=== PAUSE TestHTTP/TestHTTPService
+=== RUN   TestGit/TestGitCommit
+=== PAUSE TestGit/TestGitCommit
+=== RUN   TestGit/TestGitCommitReleaseTagFreshness
+=== PAUSE TestGit/TestGitCommitReleaseTagFreshness
+=== RUN   TestHTTP/TestHTTPTimestamp
+=== PAUSE TestHTTP/TestHTTPTimestamp
+=== RUN   TestGit/TestGitCommitReleaseTags
+=== PAUSE TestGit/TestGitCommitReleaseTags
+=== CONT  TestCachePersistence/TestDiskPersistenceAcrossRestart/lazy_values_survive_restart
+=== CONT  TestHTTP/TestHTTPAuth
+=== CONT  TestHTTP/TestHTTPName
+=== CONT  TestHTTP/TestHTTPTimestamp
+=== CONT  TestHTTP/TestHTTPService
+=== CONT  TestHTTP/TestHTTPPermissions
+=== CONT  TestHTTP/TestHTTPChecksumMismatch
+=== CONT  TestHTTP/TestHTTPETag
+=== CONT  TestHTTP/TestHTTPCachePerSessions
+=== CONT  TestHTTP/TestHTTPChecksum
+=== RUN   TestGit/TestGitDepth
+=== PAUSE TestGit/TestGitDepth
+=== RUN   TestGit/TestGitLatest
+=== PAUSE TestGit/TestGitLatest
+=== RUN   TestGit/TestGitLatestFallsBackToHead
+=== PAUSE TestGit/TestGitLatestFallsBackToHead
+=== RUN   TestGit/TestGitTags
+=== PAUSE TestGit/TestGitTags
+=== RUN   TestGit/TestGitUncommittedLocal
+=== PAUSE TestGit/TestGitUncommittedLocal
+=== RUN   TestGit/TestGitUncommittedRemote
+=== PAUSE TestGit/TestGitUncommittedRemote
+=== CONT  TestGit/TestDiscardGitDir
+=== CONT  TestGit/TestGitDepth
+=== CONT  TestGit/TestGitCommit
+=== CONT  TestGit/TestGitCommitReleaseTags
+=== CONT  TestGit/TestGitCommitReleaseTagFreshness
+=== CONT  TestGit/TestGitBundleRoundTripAndStockInterop
+=== RUN   TestGit/TestDiscardGitDir/git_dir_is_present
+=== PAUSE TestGit/TestDiscardGitDir/git_dir_is_present
+=== RUN   TestGit/TestDiscardGitDir/git_dir_is_not_present
+=== PAUSE TestGit/TestDiscardGitDir/git_dir_is_not_present
+=== CONT  TestGit/TestGitBundleImportAfterPrerequisiteRefAdvances
+=== CONT  TestGit/TestGitTags
+=== RUN   TestGit/TestGitTags/remote
+=== PAUSE TestGit/TestGitTags/remote
+=== RUN   TestGit/TestGitTags/remote_(short)
+=== PAUSE TestGit/TestGitTags/remote_(short)
+=== RUN   TestGit/TestGitTags/local_worktree
+=== PAUSE TestGit/TestGitTags/local_worktree
+=== RUN   TestGit/TestGitTags/local_git
+=== PAUSE TestGit/TestGitTags/local_git
+=== CONT  TestGit/TestGitUncommittedRemote
+        	Error Trace:	/app/core/integration/http_test.go:372
+        	Error:      	Received unexpected error:
+        	Error Trace:	/app/core/integration/http_test.go:79
+        	Error:      	Received unexpected error:
+=== CONT  TestGit/TestGitUncommittedLocal
+=== CONT  TestGit/TestGitLatestFallsBackToHead
+=== CONT  TestGit/TestGitLatest
+        	Error Trace:	/app/core/integration/services_test.go:2010
+        	Error:      	Received unexpected error:
+=== CONT  TestGit/TestDiscardGitDir/git_dir_is_present
+        	Error Trace:	/app/core/integration/services_test.go:2010
+        	Error:      	Received unexpected error:
+=== CONT  TestGit/TestDiscardGitDir/git_dir_is_not_present
+=== CONT  TestGit/TestGitTags/remote
+=== RUN   TestGit/TestGitTags/remote/all_tags
+=== PAUSE TestGit/TestGitTags/remote/all_tags
+=== RUN   TestGit/TestGitTags/remote/tag_pattern
+=== PAUSE TestGit/TestGitTags/remote/tag_pattern
+=== RUN   TestGit/TestGitTags/remote/ref-qualified_tag_pattern
+=== PAUSE TestGit/TestGitTags/remote/ref-qualified_tag_pattern
+=== RUN   TestGit/TestGitTags/remote/prefix-qualified_tag_pattern
+=== PAUSE TestGit/TestGitTags/remote/prefix-qualified_tag_pattern
+=== RUN   TestGit/TestGitTags/remote/all_branches
+=== PAUSE TestGit/TestGitTags/remote/all_branches
+=== RUN   TestGit/TestGitTags/remote/branches_pattern
+=== PAUSE TestGit/TestGitTags/remote/branches_pattern
+=== CONT  TestGit/TestGitTags/local_git
+=== RUN   TestGit/TestGitTags/local_git/all_tags
+=== PAUSE TestGit/TestGitTags/local_git/all_tags
+=== RUN   TestGit/TestGitTags/local_git/tag_pattern
+=== PAUSE TestGit/TestGitTags/local_git/tag_pattern
+=== RUN   TestGit/TestGitTags/local_git/ref-qualified_tag_pattern
+=== PAUSE TestGit/TestGitTags/local_git/ref-qualified_tag_pattern
+=== RUN   TestGit/TestGitTags/local_git/prefix-qualified_tag_pattern
+=== PAUSE TestGit/TestGitTags/local_git/prefix-qualified_tag_pattern
+=== RUN   TestGit/TestGitTags/local_git/all_branches
+=== PAUSE TestGit/TestGitTags/local_git/all_branches
+=== RUN   TestGit/TestGitTags/local_git/branches_pattern
+=== PAUSE TestGit/TestGitTags/local_git/branches_pattern
+=== CONT  TestGit/TestGitTags/local_worktree
+=== RUN   TestGit/TestGitTags/local_worktree/all_tags
+=== PAUSE TestGit/TestGitTags/local_worktree/all_tags
+=== RUN   TestGit/TestGitTags/local_worktree/tag_pattern
+=== PAUSE TestGit/TestGitTags/local_worktree/tag_pattern
+=== RUN   TestGit/TestGitTags/local_worktree/ref-qualified_tag_pattern
+=== PAUSE TestGit/TestGitTags/local_worktree/ref-qualified_tag_pattern
+=== RUN   TestGit/TestGitTags/local_worktree/prefix-qualified_tag_pattern
+=== PAUSE TestGit/TestGitTags/local_worktree/prefix-qualified_tag_pattern
+=== RUN   TestGit/TestGitTags/local_worktree/all_branches
+=== PAUSE TestGit/TestGitTags/local_worktree/all_branches
+=== RUN   TestGit/TestGitTags/local_worktree/branches_pattern
+=== PAUSE TestGit/TestGitTags/local_worktree/branches_pattern
+=== CONT  TestGit/TestGitTags/remote_(short)
+=== RUN   TestGit/TestGitTags/remote_(short)/all_tags
+=== PAUSE TestGit/TestGitTags/remote_(short)/all_tags
+=== RUN   TestGit/TestGitTags/remote_(short)/tag_pattern
+=== PAUSE TestGit/TestGitTags/remote_(short)/tag_pattern
+=== RUN   TestGit/TestGitTags/remote_(short)/ref-qualified_tag_pattern
+=== PAUSE TestGit/TestGitTags/remote_(short)/ref-qualified_tag_pattern
+=== RUN   TestGit/TestGitTags/remote_(short)/prefix-qualified_tag_pattern
+=== PAUSE TestGit/TestGitTags/remote_(short)/prefix-qualified_tag_pattern
+=== RUN   TestGit/TestGitTags/remote_(short)/all_branches
+=== PAUSE TestGit/TestGitTags/remote_(short)/all_branches
+=== RUN   TestGit/TestGitTags/remote_(short)/branches_pattern
+=== PAUSE TestGit/TestGitTags/remote_(short)/branches_pattern
+=== CONT  TestGit/TestGitTags/remote/all_tags
+        	Error Trace:	/app/core/integration/services_test.go:2010
+        	Error:      	Received unexpected error:
+=== CONT  TestGit/TestGitTags/remote/prefix-qualified_tag_pattern
+        	Error Trace:	/app/core/integration/services_test.go:2010
+        	Error:      	Received unexpected error:
+=== CONT  TestGit/TestGitTags/remote/branches_pattern
+=== CONT  TestGit/TestGitTags/remote/all_branches
+=== CONT  TestGit/TestGitTags/remote/ref-qualified_tag_pattern
+=== CONT  TestGit/TestGitTags/remote/tag_pattern
+=== CONT  TestGit/TestGitTags/local_git/all_tags
+=== CONT  TestGit/TestGitTags/local_git/branches_pattern
+=== CONT  TestGit/TestGitTags/local_git/all_branches
+=== CONT  TestGit/TestGitTags/local_git/prefix-qualified_tag_pattern
+=== CONT  TestGit/TestGitTags/local_git/ref-qualified_tag_pattern
+=== CONT  TestGit/TestGitTags/local_git/tag_pattern
+=== CONT  TestGit/TestGitTags/local_worktree/all_tags
+=== CONT  TestGit/TestGitTags/local_worktree/prefix-qualified_tag_pattern
+=== CONT  TestGit/TestGitTags/local_worktree/branches_pattern
+=== CONT  TestGit/TestGitTags/local_worktree/all_branches
+=== CONT  TestGit/TestGitTags/local_worktree/ref-qualified_tag_pattern
+--- FAIL: TestHTTP (0.03s)
+    --- PASS: TestHTTP/TestHTTPName (0.76s)
+    --- FAIL: TestHTTP/TestHTTPPermissions (1.55s)
+    --- FAIL: TestHTTP/TestHTTPCachePerSessions (1.70s)
+    --- FAIL: TestHTTP/TestHTTPTimestamp (3.20s)
+    --- FAIL: TestHTTP/TestHTTPChecksum (3.37s)
+    --- PASS: TestHTTP/TestHTTPETag (3.42s)
+    --- FAIL: TestHTTP/TestHTTPService (3.46s)
+    --- FAIL: TestHTTP/TestHTTPChecksumMismatch (4.05s)
+    --- PASS: TestHTTP/TestHTTPAuth (11.69s)
+=== CONT  TestGit/TestGitTags/local_worktree/tag_pattern
+=== CONT  TestGit/TestGitTags/remote_(short)/all_tags
+=== CONT  TestGit/TestGitTags/remote_(short)/branches_pattern
+=== CONT  TestGit/TestGitTags/remote_(short)/tag_pattern
+=== CONT  TestGit/TestGitTags/remote_(short)/all_branches
+=== CONT  TestGit/TestGitTags/remote_(short)/ref-qualified_tag_pattern
+=== CONT  TestGit/TestGitTags/remote_(short)/prefix-qualified_tag_pattern
+--- PASS: TestCachePersistence (0.00s)
+    --- PASS: TestCachePersistence/TestDiskPersistenceAcrossRestart (0.03s)
+        --- PASS: TestCachePersistence/TestDiskPersistenceAcrossRestart/lazy_values_survive_restart (60.75s)
+Error: exit code: 1
+Error: exit code: 1
+Error: exit code: 1

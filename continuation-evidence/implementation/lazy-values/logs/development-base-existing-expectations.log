@@ -1,0 +1,72 @@
+2026/09/16 20:00:57 INFO start lazy group evaluation field="Container stored part" group=open:fs
+2026/09/16 20:00:57 INFO end lazy group evaluation field="Container stored part" group=open:fs duration=81.85µs
+2026/09/16 20:00:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- FAIL: TestContainerRestoreDirectMetadataSweep (0.00s)
+    container_persistence_test.go:257: 
+        	Error Trace:	/tmp/dagger-lazy-values-base-018a0e69/core/container_persistence_test.go:257
+        	Error:      	Should be true
+        	Test:       	TestContainerRestoreDirectMetadataSweep
+2026/09/16 20:00:57 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 20:00:57 INFO marking dagql cache clean shutdown
+2026/09/16 20:00:57 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 20:00:57 INFO completed dagql cache close successfully
+2026/09/16 20:00:57 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 20:00:57 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 20:00:57 INFO marking dagql cache clean shutdown
+2026/09/16 20:00:57 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 20:00:57 INFO completed dagql cache close successfully
+2026/09/16 20:00:57 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 20:00:57 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 20:00:57 INFO marking dagql cache clean shutdown
+2026/09/16 20:00:57 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 20:00:57 INFO completed dagql cache close successfully
+2026/09/16 20:00:57 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 20:00:57 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 20:00:57 INFO marking dagql cache clean shutdown
+2026/09/16 20:00:57 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 20:00:57 INFO completed dagql cache close successfully
+2026/09/16 20:00:57 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 20:00:57 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 20:00:57 INFO marking dagql cache clean shutdown
+2026/09/16 20:00:57 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 20:00:57 INFO completed dagql cache close successfully
+2026/09/16 20:00:57 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 20:00:57 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 20:00:57 INFO marking dagql cache clean shutdown
+2026/09/16 20:00:57 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 20:00:57 INFO completed dagql cache close successfully
+2026/09/16 20:00:57 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- FAIL: TestRestoredSnapshotRoundTrip (0.54s)
+    --- FAIL: TestRestoredSnapshotRoundTrip/Directory (0.45s)
+        stored_snapshot_test.go:112: 
+            	Error Trace:	/tmp/dagger-lazy-values-base-018a0e69/core/stored_snapshot_test.go:112
+            	Error:      	map[string]string{"dagql/result/1/%5B%5B%5D%2C%22snapshot%22%5D":"saved"} does not contain "dagql/result/1/snapshot"
+            	Test:       	TestRestoredSnapshotRoundTrip/Directory
+    --- FAIL: TestRestoredSnapshotRoundTrip/Directory/ (0.02s)
+        stored_snapshot_test.go:112: 
+            	Error Trace:	/tmp/dagger-lazy-values-base-018a0e69/core/stored_snapshot_test.go:112
+            	Error:      	map[string]string{"dagql/result/1/%5B%5B%5D%2C%22snapshot%22%5D":"saved"} does not contain "dagql/result/1/snapshot"
+            	Test:       	TestRestoredSnapshotRoundTrip/Directory/
+    --- FAIL: TestRestoredSnapshotRoundTrip/Directory/nested/name (0.02s)
+        stored_snapshot_test.go:112: 
+            	Error Trace:	/tmp/dagger-lazy-values-base-018a0e69/core/stored_snapshot_test.go:112
+            	Error:      	map[string]string{"dagql/result/1/%5B%5B%5D%2C%22snapshot%22%5D":"saved"} does not contain "dagql/result/1/snapshot"
+            	Test:       	TestRestoredSnapshotRoundTrip/Directory/nested/name
+    --- FAIL: TestRestoredSnapshotRoundTrip/File (0.02s)
+        stored_snapshot_test.go:112: 
+            	Error Trace:	/tmp/dagger-lazy-values-base-018a0e69/core/stored_snapshot_test.go:112
+            	Error:      	map[string]string{"dagql/result/1/%5B%5B%5D%2C%22snapshot%22%5D":"saved"} does not contain "dagql/result/1/snapshot"
+            	Test:       	TestRestoredSnapshotRoundTrip/File
+    --- FAIL: TestRestoredSnapshotRoundTrip/File/ (0.02s)
+        stored_snapshot_test.go:112: 
+            	Error Trace:	/tmp/dagger-lazy-values-base-018a0e69/core/stored_snapshot_test.go:112
+            	Error:      	map[string]string{"dagql/result/1/%5B%5B%5D%2C%22snapshot%22%5D":"saved"} does not contain "dagql/result/1/snapshot"
+            	Test:       	TestRestoredSnapshotRoundTrip/File/
+    --- FAIL: TestRestoredSnapshotRoundTrip/File/nested/name (0.02s)
+        stored_snapshot_test.go:112: 
+            	Error Trace:	/tmp/dagger-lazy-values-base-018a0e69/core/stored_snapshot_test.go:112
+            	Error:      	map[string]string{"dagql/result/1/%5B%5B%5D%2C%22snapshot%22%5D":"saved"} does not contain "dagql/result/1/snapshot"
+            	Test:       	TestRestoredSnapshotRoundTrip/File/nested/name
+FAIL
+FAIL	github.com/dagger/dagger/core	0.623s
+FAIL

@@ -1,0 +1,43 @@
+[
+  {
+    "name": "completion-core",
+    "command": "go test -race ./core -run '^TestLazyPersistenceCompleted(Body|Group)Guards$' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 52.702,
+    "startedUnix": 1789600141.3639414,
+    "finishedUnix": 1789600194.0658605
+  },
+  {
+    "name": "ownership-dagql",
+    "command": "go test -race ./dagql -run '^TestSnapshotOwnershipRetriesBusyOperation$' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 57.634,
+    "startedUnix": 1789600141.3645997,
+    "finishedUnix": 1789600198.9981287,
+    "outcome": "historical test of rejected retry; test removed"
+  },
+  {
+    "name": "completed-container-exclusion",
+    "command": "go test -race ./core -run '^TestLazyCompletedContainerPublicationExclusion$' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 40.786,
+    "startedUnix": 1789600325.5148633,
+    "finishedUnix": 1789600366.3011703
+  },
+  {
+    "name": "owner-read-core",
+    "command": "env GOPATH=/home/exedev/go GOCACHE=/home/exedev/.cache/go-build go test -race -exec 'sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -run '^(TestSnapshotOwnerCompletedReaders|TestSnapshotOwnerWaitsForBody|TestSnapshotOwnerWaitsForEncoder|TestContainerShutdownPersistenceWaitsForReader)$' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 52.205,
+    "startedUnix": 1789601163.2429209,
+    "finishedUnix": 1789601215.448424
+  },
+  {
+    "name": "owner-read-dagql",
+    "command": "go test -race ./dagql -run '^TestSnapshotOwnerSync(ReadSelection|InlineRead)$' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 57.1,
+    "startedUnix": 1789601163.243179,
+    "finishedUnix": 1789601220.3430984
+  }
+]
