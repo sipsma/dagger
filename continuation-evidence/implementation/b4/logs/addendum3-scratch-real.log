@@ -1,0 +1,107 @@
+=== RUN   TestScratchDirectoryProducer
+    directory_scratch_test.go:175: scratch recipe-json-bytes=2 native-payload-added-bytes=35 eager-scratch-calls=1
+2026/09/16 16:25:40 INFO start lazy evaluation field=Query.directory
+2026/09/16 16:25:40 INFO end lazy evaluation field=Query.directory duration=121.57µs err="producer receiver: Directory snapshot already installed"
+2026/09/16 16:25:40 INFO start lazy evaluation field=Query.directory
+2026/09/16 16:25:40 INFO end lazy evaluation field=Query.directory duration=5.116768ms
+2026/09/16 16:25:40 INFO start lazy evaluation field=Query.directory
+2026/09/16 16:25:40 INFO end lazy evaluation field=Query.directory duration=6.039248ms
+2026/09/16 16:25:40 INFO start lazy evaluation field=Query.directory
+2026/09/16 16:25:40 INFO end lazy evaluation field=Query.directory duration=5.152518ms err="context canceled"
+2026/09/16 16:25:40 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestScratchDirectoryProducer (0.10s)
+=== RUN   TestScratchDirectoryAcquisition
+=== RUN   TestScratchDirectoryAcquisition/cold
+2026/09/16 16:25:40 INFO start lazy evaluation field=Query.directory
+2026/09/16 16:25:40 INFO end lazy evaluation field=Query.directory duration=42.432344ms
+    directory_scratch_test.go:337: scratch mode=cold acquisition=79.413431ms scratch-calls=1 provider-reads=0
+2026/09/16 16:25:40 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 16:25:40 INFO dagql pruned result resultID=1 call=Query.directory digest=xxh3:66b3e3c82e7ec924 args=[] description="dagql cache result 1" measuredSizeBytes=4096 reclaimedBytes=4096
+2026/09/16 16:25:40 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestScratchDirectoryAcquisition/canonical-only
+2026/09/16 16:25:40 INFO start lazy evaluation field=Query.directory
+2026/09/16 16:25:40 INFO end lazy evaluation field=Query.directory duration=1.73876ms
+    directory_scratch_test.go:337: scratch mode=canonical-only acquisition=16.069874ms scratch-calls=1 provider-reads=0
+2026/09/16 16:25:40 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 16:25:40 INFO dagql pruned result resultID=1 call=Query.directory digest=xxh3:66b3e3c82e7ec924 args=[] description="dagql cache result 1" measuredSizeBytes=4096 reclaimedBytes=4096
+2026/09/16 16:25:40 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestScratchDirectoryAcquisition/warm
+    directory_scratch_test.go:337: scratch mode=warm acquisition=27.01605ms scratch-calls=0 provider-reads=0
+2026/09/16 16:25:41 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 16:25:41 INFO dagql pruned result resultID=2 call=Query.directory digest=xxh3:66b3e3c82e7ec924 args=[] description="dagql cache result 2" measuredSizeBytes=4096 reclaimedBytes=4096
+2026/09/16 16:25:41 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestScratchDirectoryAcquisition/pending-restart
+2026/09/16 16:25:41 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 16:25:41 INFO marking dagql cache clean shutdown
+2026/09/16 16:25:41 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 16:25:41 INFO completed dagql cache close successfully
+2026/09/16 16:25:41 INFO start lazy evaluation field=Query.directory
+2026/09/16 16:25:41 INFO end lazy evaluation field=Query.directory duration=24.128441ms
+    directory_scratch_test.go:337: scratch mode=pending-restart acquisition=45.860253ms scratch-calls=1 provider-reads=0
+2026/09/16 16:25:41 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 16:25:41 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 16:25:41 INFO marking dagql cache clean shutdown
+2026/09/16 16:25:41 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 16:25:41 INFO completed dagql cache close successfully
+2026/09/16 16:25:41 INFO dagql pruned result resultID=1 call=Query.directory digest=xxh3:66b3e3c82e7ec924 args=[] description="dagql cache result 1" measuredSizeBytes=4096 reclaimedBytes=4096
+2026/09/16 16:25:41 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestScratchDirectoryAcquisition/manager-failure
+2026/09/16 16:25:41 INFO start lazy evaluation field=Query.directory
+2026/09/16 16:25:41 INFO end lazy evaluation field=Query.directory duration=82.86µs err="injected scratch acquisition failure"
+2026/09/16 16:25:41 INFO start lazy evaluation field=Query.directory
+2026/09/16 16:25:41 INFO end lazy evaluation field=Query.directory duration=21.662743ms
+    directory_scratch_test.go:337: scratch mode=manager-failure acquisition=40.400395ms scratch-calls=2 provider-reads=0
+2026/09/16 16:25:41 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 16:25:41 INFO dagql pruned result resultID=1 call=Query.directory digest=xxh3:66b3e3c82e7ec924 args=[] description="dagql cache result 1" measuredSizeBytes=4096 reclaimedBytes=4096
+2026/09/16 16:25:41 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestScratchDirectoryAcquisition/manager-canceled
+2026/09/16 16:25:41 INFO start lazy evaluation field=Query.directory
+2026/09/16 16:25:41 INFO end lazy evaluation field=Query.directory duration=62.75µs err="context canceled"
+2026/09/16 16:25:41 INFO start lazy evaluation field=Query.directory
+2026/09/16 16:25:41 INFO end lazy evaluation field=Query.directory duration=26.98874ms
+    directory_scratch_test.go:337: scratch mode=manager-canceled acquisition=47.502503ms scratch-calls=2 provider-reads=0
+2026/09/16 16:25:41 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 16:25:41 INFO dagql pruned result resultID=1 call=Query.directory digest=xxh3:66b3e3c82e7ec924 args=[] description="dagql cache result 1" measuredSizeBytes=4096 reclaimedBytes=4096
+2026/09/16 16:25:41 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestScratchDirectoryAcquisition/prepare-failure
+2026/09/16 16:25:41 INFO start lazy evaluation field=Query.directory
+2026/09/16 16:25:41 INFO end lazy evaluation field=Query.directory duration=32.982337ms
+2026/09/16 16:25:41 INFO start lazy evaluation field=Query.directory
+2026/09/16 16:25:41 INFO end lazy evaluation field=Query.directory duration=3.248419ms
+    directory_scratch_test.go:337: scratch mode=prepare-failure acquisition=64.325446ms scratch-calls=2 provider-reads=0
+2026/09/16 16:25:41 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 16:25:41 INFO dagql pruned result resultID=1 call=Query.directory digest=xxh3:66b3e3c82e7ec924 args=[] description="dagql cache result 1" measuredSizeBytes=4096 reclaimedBytes=4096
+2026/09/16 16:25:41 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestScratchDirectoryAcquisition/sync-retry
+2026/09/16 16:25:42 INFO start lazy evaluation field=Query.directory
+2026/09/16 16:25:42 INFO end lazy evaluation field=Query.directory duration=33.338609ms
+    directory_scratch_test.go:337: scratch mode=sync-retry acquisition=53.821451ms scratch-calls=1 provider-reads=0
+2026/09/16 16:25:42 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 16:25:42 INFO dagql pruned result resultID=1 call=Query.directory digest=xxh3:66b3e3c82e7ec924 args=[] description="dagql cache result 1" measuredSizeBytes=4096 reclaimedBytes=4096
+2026/09/16 16:25:42 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestScratchDirectoryAcquisition (1.59s)
+    --- PASS: TestScratchDirectoryAcquisition/cold (0.28s)
+    --- PASS: TestScratchDirectoryAcquisition/canonical-only (0.17s)
+    --- PASS: TestScratchDirectoryAcquisition/warm (0.16s)
+    --- PASS: TestScratchDirectoryAcquisition/pending-restart (0.23s)
+    --- PASS: TestScratchDirectoryAcquisition/manager-failure (0.19s)
+    --- PASS: TestScratchDirectoryAcquisition/manager-canceled (0.18s)
+    --- PASS: TestScratchDirectoryAcquisition/prepare-failure (0.20s)
+    --- PASS: TestScratchDirectoryAcquisition/sync-retry (0.19s)
+=== RUN   TestScratchDirectoryNativeReopen
+2026/09/16 16:25:42 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 16:25:42 INFO marking dagql cache clean shutdown
+2026/09/16 16:25:42 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 16:25:42 INFO completed dagql cache close successfully
+2026/09/16 16:25:42 INFO start lazy evaluation field=Directory.restore
+2026/09/16 16:25:42 INFO end lazy evaluation field=Directory.restore duration=1.103999ms
+2026/09/16 16:25:42 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 16:25:42 INFO marking dagql cache clean shutdown
+2026/09/16 16:25:42 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 16:25:42 INFO completed dagql cache close successfully
+2026/09/16 16:25:42 INFO start lazy evaluation field=Directory.restore
+2026/09/16 16:25:42 INFO end lazy evaluation field=Directory.restore duration=232.539µs
+2026/09/16 16:25:42 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestScratchDirectoryNativeReopen (0.16s)
+PASS
+ok      github.com/dagger/dagger/core/schema    3.293s

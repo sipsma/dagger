@@ -1,0 +1,25 @@
+First scratch cold rerun: exit 1, trace f5d0f6b27f7a4277d350aef4215f1ddd. Changed report succeeds; fixture root-only mapping makes the new scratch lookup assertion fail.
+    testctx.go:206: acquisition delegation target=4243 address={"part":"mount:/src"} field=withWorkdir parent=4242 source={OutputPath: Part:mount:/src}
+    testctx.go:206: acquisition delegation target=4244 address={"part":"mount:/src"} field=withEnvVariable parent=4243 source={OutputPath: Part:mount:/src}
+    testctx.go:206: acquisition delegation target=4245 address={"part":"mount:/src"} field=withoutDefaultArgs parent=4244 source={OutputPath: Part:mount:/src}
+    testctx.go:206: acquisition delegation target=4243 address={"part":"mount:/schema.json"} field=withWorkdir parent=4242 source={OutputPath: Part:mount:/schema.json}
+    testctx.go:206: acquisition delegation target=4244 address={"part":"mount:/schema.json"} field=withEnvVariable parent=4243 source={OutputPath: Part:mount:/schema.json}
+    testctx.go:206: acquisition delegation target=4245 address={"part":"mount:/schema.json"} field=withoutDefaultArgs parent=4244 source={OutputPath: Part:mount:/schema.json}
+    testctx.go:206: acquisition delegation target=4236 address={"part":"fs"} field=withMountedCache parent=4230 source={OutputPath: Part:fs}
+    testctx.go:206: acquisition delegation target=4237 address={"part":"fs"} field=withMountedCache parent=4236 source={OutputPath: Part:fs}
+    testctx.go:206: acquisition delegation target=4238 address={"part":"fs"} field=__withSystemEnvVariable parent=4237 source={OutputPath: Part:fs}
+    testctx.go:206: acquisition delegation target=4239 address={"part":"fs"} field=__withSystemEnvVariable parent=4238 source={OutputPath: Part:fs}
+    testctx.go:206: acquisition delegation target=4243 address={"part":"fs"} field=withWorkdir parent=4242 source={OutputPath: Part:fs}
+    testctx.go:206: acquisition delegation target=4244 address={"part":"fs"} field=withEnvVariable parent=4243 source={OutputPath: Part:fs}
+    testctx.go:206: acquisition delegation target=4245 address={"part":"fs"} field=withoutDefaultArgs parent=4244 source={OutputPath: Part:fs}
+    testctx.go:206: acquisition Host input imported=4228 address={OutputPath: Part:snapshot} local=4457 snapshot=[{ar98purlzxe6cfnh3grmuhcei snapshot }]
+    testctx.go:206: acquisition SDK inherited-fs hops=map[__withSystemEnvVariable:2 withEnvVariable:1 withMountedCache:2 withWorkdir:1 withoutDefaultArgs:1]; producer mount-writer rows=map[withMountedDirectory:1 withMountedFile:1]
+    testctx.go:206: acquisition route counters cold=true builtin=1 counts=map[installed-chain:1 installed-delegation:13 installed-producer:24 installed-ready:1 owner-sync:134 producer-enter:24 producer-ref-released:14 provider-read:1 selected-chain:1 selected-delegation:13 selected-ready:1 settled:45]
+    testctx.go:198: 33  : CacheProbe.report(seed: "different"): CacheProbeReport!
+                Error Trace:    /app/core/integration/remote_cache_transfer_test.go:517
+                                                        /app/core/integration/remote_cache_transfer_test.go:290
+                Error:          Expected value not to be nil.
+--- FAIL: TestRemoteCacheTransferSuite (156.73s)
+    --- FAIL: TestRemoteCacheTransferSuite/TestSchemaRecoveryCold (156.73s)
+        --- FAIL: TestRemoteCacheTransferSuite/TestSchemaRecoveryCold/before (52.55s)
+        --- PASS: TestRemoteCacheTransferSuite/TestSchemaRecoveryCold/foreign_context (45.89s)

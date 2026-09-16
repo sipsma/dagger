@@ -1,0 +1,4 @@
+--- a/.dagger/modules/engine-dev/test.go
++++ b/.dagger/modules/engine-dev/test.go
+@@ -161,0 +162 @@
++		container = container.WithEnvVariable("_DAGGER_TEST_REMOTE_CACHE_PRUNE_DIAGNOSTIC", "1")

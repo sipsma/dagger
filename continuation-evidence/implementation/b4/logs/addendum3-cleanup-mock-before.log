@@ -1,0 +1,15 @@
+        === RUN   TestProducerResolverCleanup/constructed_output_recording/scratch
+                --- PASS: TestProducerResolverCleanup/constructed_output_recording/scratch (0.00s)
+=== RUN   TestProducerResolverOutputCleanup/scratch_wrapping
+    producer_resolver_cleanup_test.go:362:
+            Error Trace:    /home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/core/schema/producer_resolver_cleanup_test.go:362
+            Error:          Target error should be in err chain:
+                            expected: "scratch cleanup failure"
+            Test:           TestProducerResolverOutputCleanup/scratch_wrapping
+--- FAIL: TestProducerResolverOutputCleanup (0.08s)
+    --- FAIL: TestProducerResolverOutputCleanup/scratch_wrapping (0.00s)
+=== RUN   TestProducerResolverCapture/scratch_wrapping
+    --- PASS: TestProducerResolverCapture/scratch_wrapping (0.00s)
+FAIL
+FAIL    github.com/dagger/dagger/core/schema    32.435s
+FAIL

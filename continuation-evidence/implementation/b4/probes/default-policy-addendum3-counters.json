@@ -1,0 +1,23 @@
+{
+  "trace": "51c009ebcf25f7674d15a3e2a4e0d025",
+  "outcome": "passed, no skips",
+  "minFreeBytes": 99000000000,
+  "availableBytes": 100443578368,
+  "requestedPressureBytes": 3591062016,
+  "allocationCapBytes": 8589934592,
+  "savedReportResultID": 4697,
+  "beforeRemovedPersistedRoots": 0,
+  "afterRemovedPersistedRoots": 17,
+  "savedReportInPruneDecisions": true,
+  "savedReportAbsentAfterRestart": true,
+  "persistenceResetReason": "",
+  "localCacheResetReason": "",
+  "scratchResultID": 4695,
+  "scratchProducerEntries": 0,
+  "scratchProviderReads": 0,
+  "reportBodyCountBeforePressure": 1,
+  "noteFile": "passed",
+  "boundTool": "passed",
+  "runnerOverlay": "default-policy-runner.patch",
+  "runnerRestored": true
+}

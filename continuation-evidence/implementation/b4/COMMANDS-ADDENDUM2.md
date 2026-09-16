@@ -148,7 +148,7 @@ PASS, 35.368 s including Go invocation/build overhead. [Output](logs/addendum2-m
 
 The real resolver recording-rejection overlay additionally covers overwritten mount clones; [output](logs/addendum2-shadow-cleanup.log). Its fixture implements empty-store stale-lease reconciliation, which the earlier mock did not provide after Addendum 1. This is test infrastructure only.
 
-Initial test construction corrections: a private mount replay used the wrong method name before compilation, a pure route fixture omitted its platform, an overlay local variable collided with the real guard, and the negative mount-kind test initially edited the parent ordinal instead of the child. The parent-kind check initially compared the codec against `Container`; the actual registered name is `core.Container`, now checked correctly. No failing construction is counted as a passing check.
+Initial test construction corrections: a private mount invocation used the wrong method name before compilation, a pure route fixture omitted its platform, an overlay local variable collided with the real guard, and the negative mount-kind test initially edited the parent ordinal instead of the child. The parent-kind check initially compared the codec against `Container`; the actual registered name is `core.Container`, now checked correctly. No failing construction is counted as a passing check.
 
 ## Scratch gap probe
 

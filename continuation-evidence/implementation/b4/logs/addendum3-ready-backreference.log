@@ -1,0 +1,4 @@
+=== RUN   TestReadyPartDonorBackreferenceReleasedBeforeSync
+--- PASS: TestReadyPartDonorBackreferenceReleasedBeforeSync (0.08s)
+PASS
+ok      github.com/dagger/dagger/dagql  1.106s

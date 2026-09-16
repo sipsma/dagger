@@ -1,0 +1,3 @@
+    testctx.go:206: mixed private exec latency=174.837295ms originalFS=8gqqjqlrolecmdw99des9nnt3 redundantFS=hl335ys1ttzmfikljg8dux2yp rootEvents=[{producer-enter 4229 withExec { execMeta}  <nil>}]
+--- PASS: TestRemoteCacheTransferSuite (70.81s)
+    --- PASS: TestRemoteCacheTransferSuite/TestPartMixedExecOutputs (70.81s)

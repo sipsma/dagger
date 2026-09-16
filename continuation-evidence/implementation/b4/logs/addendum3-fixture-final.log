@@ -1,0 +1,5 @@
+=== RUN   TestRemoteCacheFixture
+2026/09/16 16:26:26 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestRemoteCacheFixture (0.02s)
+PASS
+ok      github.com/dagger/dagger/core/schema    0.101s
