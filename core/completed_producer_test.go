@@ -12,6 +12,19 @@ import (
 )
 
 func TestRecordCompletedProducer(t *testing.T) {
+	t.Run("scratch", func(t *testing.T) {
+		dir := containerPersistenceTestDirectory("scratch", "/")
+		path, snapshot := dir.Dir, dir.Snapshot
+		lazy := &DirectoryScratchLazy{LazyState: NewLazyState()}
+		require.NoError(t, RecordCompletedProducer(dir, lazy))
+		require.Nil(t, dir.Lazy)
+		require.Same(t, lazy, dir.completedRecipe)
+		require.Same(t, path, dir.Dir)
+		require.Same(t, snapshot, dir.Snapshot)
+		require.False(t, lazy.lazyInitComplete.Load())
+		require.Error(t, RecordCompletedProducer(dir, &DirectoryScratchLazy{LazyState: NewLazyState()}))
+		require.Same(t, lazy, dir.completedRecipe)
+	})
 	t.Run("Directory", func(t *testing.T) {
 		for _, invalid := range []string{"", "nil value", "nil producer", "typed nil producer", "pending", "recorded", "kind", "json", "path accessor", "snapshot accessor", "path", "snapshot", "nil snapshot", "restore"} {
 			t.Run(invalid, func(t *testing.T) {
