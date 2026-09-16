@@ -163,7 +163,12 @@ func TestGitCompletedProducersEvaluate(t *testing.T) {
 	bareRepo := producerLocalRepo(t, ctx, cache, srv, "bareRepo", bareDir)
 	invalid := decodeDirectoryProducer(t, ctx, cache, srv, &DirectoryGitCleanedLazy{LazyState: NewLazyState(), Repo: bareRepo})
 	empty := freshProducerDirectory()
-	require.EqualError(t, invalid.Evaluate(ctx, empty), "git cleaned producer: saved input has no worktree")
+	require.EqualError(t, invalid.Evaluate(ctx, empty), "git cleaned operation: saved input has no worktree")
+	alias, err := invalid.(*DirectoryGitCleanedLazy).EvaluateForCall(ctx, empty)
+	require.NoError(t, err)
+	require.True(t, alias)
+	require.False(t, invalid.IsEvaluated())
+
 	_, ready := empty.Snapshot.Peek()
 	require.False(t, ready)
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/dagger/dagger/dagql/call"
 	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/slog"
+	bkcache "github.com/dagger/dagger/engine/snapshots"
 	"github.com/dagger/dagger/engine/sources/netconfhttp"
 	"github.com/dagger/dagger/internal/buildkit/executor/oci"
 	telemetry "github.com/dagger/otel-go"
@@ -77,6 +78,10 @@ func (s *gitSchema) Install(srv *dagql.Server) {
 	}.Install(srv)
 
 	dagql.Fields[*core.GitRepository]{
+		dagql.NodeFunc("__resolvedRef", s.resolvedRef).
+			View(AllVersion).
+			IsPersistable().
+			Doc(`(Internal-only) Returns a Git ref identified by its resolved name and commit.`),
 		dagql.NodeFunc("head", s.head).
 			Doc(`Returns details for HEAD.`),
 		dagql.NodeFunc("ref", s.ref).
@@ -1271,17 +1276,15 @@ func (s *gitSchema) withBundleDirectory(
 	if err != nil {
 		return inst, fmt.Errorf("load git bundle: %w", err)
 	}
-	dir, err := core.ImportGitBundle(ctx, parent.Self(), bundle.Self(), args.PrerequisiteRef)
+	query, err := core.CurrentQuery(ctx)
 	if err != nil {
 		return inst, err
 	}
-	defer func() {
-		if rerr != nil {
-			rerr = errors.Join(rerr, dir.OnRelease(context.WithoutCancel(ctx)))
-		}
-	}()
-	if err := core.RecordCompletedProducer(dir, &core.DirectoryGitBundleImportLazy{LazyState: core.NewLazyState(), Repo: parent, Bundle: bundle, PrerequisiteRef: args.PrerequisiteRef}); err != nil {
-		return inst, err
+	dir := &core.Directory{
+		Platform: query.Platform(),
+		Dir:      new(core.LazyAccessor[string, *core.Directory]),
+		Snapshot: new(core.LazyAccessor[bkcache.ImmutableRef, *core.Directory]),
+		Lazy:     &core.DirectoryGitBundleImportLazy{LazyState: core.NewLazyState(), Repo: parent, Bundle: bundle, PrerequisiteRef: args.PrerequisiteRef},
 	}
 	return dagql.NewObjectResultForCurrentCall(ctx, srv, dir)
 }
@@ -1358,7 +1361,7 @@ func (s *gitSchema) ref(ctx context.Context, parent dagql.ObjectResult[*core.Git
 				Name: args.LockName,
 				SHA:  lockedSHA,
 			}
-			return s.gitRefResult(ctx, parent, ref)
+			return s.selectResolvedRef(ctx, parent, ref)
 		}
 	}
 
@@ -1396,7 +1399,32 @@ func (s *gitSchema) ref(ctx context.Context, parent dagql.ObjectResult[*core.Git
 		}
 	}
 
-	return s.gitRefResult(ctx, parent, ref)
+	return s.selectResolvedRef(ctx, parent, ref)
+}
+
+type resolvedRefArgs struct {
+	Name   string
+	Commit string
+}
+
+func (s *gitSchema) resolvedRef(ctx context.Context, parent dagql.ObjectResult[*core.GitRepository], args resolvedRefArgs) (dagql.Result[*core.GitRef], error) {
+	if !gitutil.IsCommitSHA(args.Commit) {
+		return dagql.Result[*core.GitRef]{}, fmt.Errorf("invalid commit SHA: %q", args.Commit)
+	}
+	return s.gitRefResult(ctx, parent, &gitutil.Ref{Name: args.Name, SHA: args.Commit})
+}
+
+func (s *gitSchema) selectResolvedRef(ctx context.Context, parent dagql.ObjectResult[*core.GitRepository], ref *gitutil.Ref) (dagql.Result[*core.GitRef], error) {
+	srv, err := core.CurrentDagqlServer(ctx)
+	if err != nil {
+		return dagql.Result[*core.GitRef]{}, err
+	}
+	var result dagql.ObjectResult[*core.GitRef]
+	err = srv.Select(ctx, parent, &result, dagql.Selector{Field: "__resolvedRef", Args: []dagql.NamedInput{
+		{Name: "name", Value: dagql.String(ref.Name)},
+		{Name: "commit", Value: dagql.String(ref.SHA)},
+	}})
+	return result.Result, err
 }
 
 func (s *gitSchema) gitRefResult(ctx context.Context, parent dagql.ObjectResult[*core.GitRepository], ref *gitutil.Ref) (inst dagql.Result[*core.GitRef], _ error) {
@@ -1556,17 +1584,44 @@ func (s *gitSchema) branches(ctx context.Context, parent *core.GitRepository, ar
 	return dagql.NewStringArray(remote.Filter(patterns).Branches().ShortNames()...), nil
 }
 
-func (s *gitSchema) cleaned(ctx context.Context, parent dagql.ObjectResult[*core.GitRepository], args struct{}) (inst dagql.ObjectResult[*core.Directory], _ error) {
-	dir, err := parent.Self().Backend.Cleaned(ctx)
+func (s *gitSchema) cleaned(ctx context.Context, parent dagql.ObjectResult[*core.GitRepository], args struct{}) (inst dagql.ObjectResult[*core.Directory], rerr error) {
+	local, ok := parent.Self().Backend.(*core.LocalGitRepository)
+	if !ok {
+		return parent.Self().Backend.Cleaned(ctx)
+	}
+	query, err := core.CurrentQuery(ctx)
 	if err != nil {
 		return inst, err
 	}
-	if local, ok := parent.Self().Backend.(*core.LocalGitRepository); ok && dir.Self() != local.Directory.Self() {
-		if err := core.RecordCompletedProducer(dir.Self(), &core.DirectoryGitCleanedLazy{LazyState: core.NewLazyState(), Repo: parent}); err != nil {
-			return inst, errors.Join(err, dir.Self().OnRelease(context.WithoutCancel(ctx)))
-		}
+	srv, err := core.CurrentDagqlServer(ctx)
+	if err != nil {
+		return inst, err
 	}
-	return dir, nil
+	dir := &core.Directory{
+		Platform: query.Platform(),
+		Dir:      new(core.LazyAccessor[string, *core.Directory]),
+		Snapshot: new(core.LazyAccessor[bkcache.ImmutableRef, *core.Directory]),
+		Lazy:     &core.DirectoryGitCleanedLazy{LazyState: core.NewLazyState(), Repo: parent},
+	}
+	handedOff := false
+	defer func() {
+		if !handedOff {
+			rerr = errors.Join(rerr, dir.OnRelease(context.WithoutCancel(ctx)))
+		}
+	}()
+	unchanged, err := dir.Lazy.(*core.DirectoryGitCleanedLazy).EvaluateForCall(ctx, dir)
+	if err != nil {
+		return inst, err
+	}
+	if unchanged {
+		return local.Directory, nil
+	}
+	inst, err = dagql.NewObjectResultForCurrentCall(ctx, srv, dir)
+	if err != nil {
+		return inst, err
+	}
+	handedOff = true
+	return inst, nil
 }
 
 func (s *gitSchema) uncommitted(ctx context.Context, parent dagql.ObjectResult[*core.GitRepository], args struct{}) (inst dagql.ObjectResult[*core.Changeset], _ error) {
@@ -1751,17 +1806,15 @@ func (s *gitSchema) tree(ctx context.Context, parent dagql.ObjectResult[*core.Gi
 		return inst, fmt.Errorf("sshAuthSocket is no longer supported on `tree`")
 	}
 
-	dir, err := parent.Self().Tree(ctx, srv, args.DiscardGitDir, args.Depth, args.IncludeTags)
+	query, err := core.CurrentQuery(ctx)
 	if err != nil {
 		return inst, err
 	}
-	defer func() {
-		if rerr != nil {
-			rerr = errors.Join(rerr, dir.OnRelease(context.WithoutCancel(ctx)))
-		}
-	}()
-	if err := core.RecordCompletedProducer(dir, &core.DirectoryGitTreeLazy{LazyState: core.NewLazyState(), Ref: parent, DiscardGitDir: args.DiscardGitDir, Depth: args.Depth, IncludeTags: args.IncludeTags}); err != nil {
-		return inst, err
+	dir := &core.Directory{
+		Platform: query.Platform(),
+		Dir:      new(core.LazyAccessor[string, *core.Directory]),
+		Snapshot: new(core.LazyAccessor[bkcache.ImmutableRef, *core.Directory]),
+		Lazy:     &core.DirectoryGitTreeLazy{LazyState: core.NewLazyState(), Ref: parent, DiscardGitDir: args.DiscardGitDir, Depth: args.Depth, IncludeTags: args.IncludeTags},
 	}
 	inst, err = dagql.NewObjectResultForCurrentCall(ctx, srv, dir)
 	if err != nil {
@@ -1853,17 +1906,15 @@ func (s *gitSchema) commitTree(ctx context.Context, parent dagql.ObjectResult[*c
 		return inst, fmt.Errorf("failed to get current dagql server: %w", err)
 	}
 
-	dir, err := parent.Self().Tree(ctx, srv, args.DiscardGitDir, args.Depth, args.IncludeTags)
+	query, err := core.CurrentQuery(ctx)
 	if err != nil {
 		return inst, err
 	}
-	defer func() {
-		if rerr != nil {
-			rerr = errors.Join(rerr, dir.OnRelease(context.WithoutCancel(ctx)))
-		}
-	}()
-	if err := core.RecordCompletedProducer(dir, &core.DirectoryGitCommitTreeLazy{LazyState: core.NewLazyState(), Commit: parent, DiscardGitDir: args.DiscardGitDir, Depth: args.Depth, IncludeTags: args.IncludeTags}); err != nil {
-		return inst, err
+	dir := &core.Directory{
+		Platform: query.Platform(),
+		Dir:      new(core.LazyAccessor[string, *core.Directory]),
+		Snapshot: new(core.LazyAccessor[bkcache.ImmutableRef, *core.Directory]),
+		Lazy:     &core.DirectoryGitCommitTreeLazy{LazyState: core.NewLazyState(), Commit: parent, DiscardGitDir: args.DiscardGitDir, Depth: args.Depth, IncludeTags: args.IncludeTags},
 	}
 	inst, err = dagql.NewObjectResultForCurrentCall(ctx, srv, dir)
 	if err != nil {
@@ -2035,7 +2086,7 @@ func (s *gitSchema) commitReleaseTag(
 		return none, nil
 	}
 
-	ref, err := s.gitRefResult(ctx, parent.Self().Repo, &gitutil.Ref{
+	ref, err := s.selectResolvedRef(ctx, parent.Self().Repo, &gitutil.Ref{
 		Name: tag.RefName,
 		SHA:  tag.SHA,
 	})
@@ -2403,7 +2454,7 @@ func (s *gitSchema) latest(
 		if err != nil {
 			return inst, err
 		}
-		return s.gitRefResult(ctx, parent, ref)
+		return s.selectResolvedRef(ctx, parent, ref)
 	}
 
 	var lockOptions []workspace.LookupOption
