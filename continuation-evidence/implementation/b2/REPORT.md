@@ -2,14 +2,36 @@
 
 Branch: `remote-cache-b2-transfer-implementer-26387947`.
 Base: `1ca9f28a60f1d9597c1b0df01e65a91707ce3b0f`.
-Implementation tip: `5316e2246885fc5e343c0a91df10fb9a2b712e80`.
+Implementation tip: `b76c6ccbff2f68f2ca6f52b5b89ef7ec6c6d2dbf`.
 
 Steps 1–5 are implemented under coordinator addenda 1 and 2. The full native
 standalone acceptance suite passes with B's runtime prepared through normal
 `AsModule` before import, without serving its schema or entering `report`.
 The isolated confirmation of the previously failing restart case also passes.
 The fully cold order remains an explicit skipped test naming addendum 2 and
-belongs to batch 4/7 acceptance. Batch 1 has not been merged into this branch.
+belongs to batch 4/7 acceptance. Batch 1 has not been merged; integration onto its head is pending.
+
+## Round 2 council decisions
+
+P1–P5 are addressed in new signed commits. P1 makes foreign pending Containers
+report pending evaluation, refuses direct filesystem evaluation, and treats only
+captured metadata / absent parts as final during delegation. Ordinary child
+producers now retain their pending parent dependency. The imported-Container
+schema regression verifies `withEnvVariable(...).rootfs().entries()` returns the
+unavailable-part error and that the metadata delegation sweep remains usable.
+
+P3's operational and scoped candidate accessibility checks were already present
+at the reviewed tip. The candidate filter is now explicit and permanent tests
+verify both inaccessible-candidate cases continue to the eligible recorded row,
+then to canonical selection when that row expires. The final check remains.
+P5 replaces offer-copy panics with not-ready errors throughout capture,
+persistence and reference visitors. An invalid layer timestamp exercises both
+capture APIs and verifies lock release and unchanged ownership counts.
+
+P4 removes the implementation branch's design copy. The authority is the
+designer's `2e75801259faf20df2c20a44076c19b027a541b1` commit, blob
+`ceb089285bd7d1f9938171c42c6d09d47310a141`, including the addendum 2 paragraph.
+P2's mechanism and measured evidence are recorded below.
 
 ## Result and verification
 
@@ -48,15 +70,46 @@ The privileged selected-chain peers all run and pass, with no skips. They cover
 real local and remote Git checkout backends, a nested Directory/File view over a
 real snapshot, whole-parent bytes, a selected Container mount, unopened sibling
 parts, and a broken completed local open. The remote Git peer uses a local file
-transport. A separate real-store restart peer verifies that completed local
-snapshot ownership survives restart, redundant offer retirement, transfer-pin
-removal and GC. Exact commands and outcomes are in [VERIFICATION.md](VERIFICATION.md).
+transport. A separate real-store restart peer installs the completed-output state directly
+(the batch has no acquisition), then verifies real snapshot ownership through
+restart, redundant offer retirement, transfer-pin removal and GC. Exact commands and outcomes are in [VERIFICATION.md](VERIFICATION.md).
 
-The native fixture now uses the same GC bounds as the existing persistence suite.
-An earlier run using default limits lost a saved row at restart; it is retained
-in the verification history, not silently treated as a pass. Its precise cause
-was not established; both runs with the final fixture bounds pass. No production
-lookup, acquisition or persistence behavior was changed during addendum 2.
+The engine prunes DagQL persisted roots under its default disk-derived GC
+policy: `gcLocked` calls `Cache.Prune` (`engine/server/gc.go`, formerly line 354),
+and `getDagqlGCPolicy` / `defaultGCPolicy` supply disk-derived space bounds and
+an `All: true` final policy (formerly lines 453–541). The existing persistence
+suite already pins the same high bounds for restart measurement. Batch 2's
+offer-owner traversal only adds retention; no prune eligibility or policy was
+relaxed, and imported roots retain ordinary pruneable persisted edges.
+
+Round 2 adds fixture-gated diagnostics outside the cache database. They preserve
+the current boot's `PersistenceResetReason` even when the engine replaces the
+cache instance after a reset, the engine-level reset reason, the cumulative
+count of persisted roots removed by automatic disk/metadata GC, and disk-pruned
+result IDs. The native suite reads them before loading any saved handle after
+restart, asserts no reset and zero removals with pinned bounds, then asserts the
+saved row still has its persisted edge. There are no fixture file operations
+when the gate is absent. The exported fixture APIs remain gated by convention.
+
+The targeted default-policy reproduction resolved S1 as ordinary pruning of a
+pruneable imported root. In trace `a1363afb7a7c79639b0741cf7fbc4c05`, saved
+`CacheProbe.report(seed: "same")` row **4681** had a persisted edge before shutdown.
+After clean restart, both reset reasons were empty and the removed-root count
+was **16**, with `dagql.result.4681` among the decisions. The engine logged the
+exact row's removal; the test asserted the row was absent. Pinned before/after
+acceptance cases both reported zero removed roots and no reset.
+
+The diagnostic keeps the default limits unchanged. It measured a 99,000,000,000
+byte minimum-free target and 103,559,827,456 available bytes, then created a
+6,397 MiB temporary file in the fixture volume (below its 8 GiB cap) to cross
+that target with room for the roughly 627 MB cache. Cleanup removed the file.
+Earlier attempts had no reclaim target and explicitly skipped the pruning
+assertion; they are not pruning evidence. The historical failure lacked these
+counters; this reproduction establishes the same saved-report removal mechanism,
+not a retroactive measurement of that earlier process. No reset or ownership
+failure was observed. See [restart diagnostics](logs/round2-restart-diagnostics.log)
+and [VERIFICATION.md](VERIFICATION.md).
+
 
 ## Writer and reader inventories
 
@@ -83,7 +136,18 @@ reader and conversion, including the data-only exceptions.
 9. `d6581335a9cd2ed6382b57a49e4a330fbf013bc6` — both Git selected-chain peers.
 10. `66e115a4a09d14fd045f394c9e45a1e93328f5d1` — real completed-offer restart peer.
 11. `5316e2246885fc5e343c0a91df10fb9a2b712e80` — full standalone native acceptance and design §10 addendum.
-12. This separate final evidence commit — report, verification, logs and stack manifest.
+12. `d0dfcd04c87be3c39c579b7aae70e0c381b868f7` — round 1 report, verification, logs and stack manifest.
+13. `1cdd67af3c8daccf520a85aff2584072533456a6` — P5, fallible offer copies.
+14. `090193930c3c7f14f405df5cd0a2af0700832d08` — P3, explicit accessibility filter and fallback regressions.
+15. `5500d91796402b51560a0a359cb73f2032ba1f82` — P1, pending Container evaluation and children.
+16. `09cc690a42bc5cd79a22b0e3acee891a929b493d` — P4, remove implementation-owned design copy.
+17. `8222830b0dd4795005d5cd4674ed7117436c5c23` — P2, restart diagnostics and measured default-policy reproduction.
+18. `b76c6ccbff2f68f2ca6f52b5b89ef7ec6c6d2dbf` — skip the environmental diagnostic when crossing the default target would exceed its allocation cap.
+19. This final separate round 2 evidence commit — report, ledger, logs and batch 2 manifest update.
+
+The earlier three evidence-only commits remain intact, including the two
+interleaved blocker checkpoints. This round adds a fourth evidence-only commit;
+integration must preserve implementation order when dropping evidence for publication.
 
 All reviewed commits were preserved. The initial requested hard reset and clean
 base confirmation were performed in the original turn; resumptions retained the

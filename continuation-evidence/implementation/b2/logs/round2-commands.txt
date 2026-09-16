@@ -1,0 +1,23 @@
+All commands completed with exit 0 unless explicitly listed as diagnostic skips in VERIFICATION.md.
+
+go test -p=1 ./dagql -run '^(TestSchemaModuleSelection.*|TestValueTransferOfferCopyFailure|TestValueTransferCapture|TestValueTransferImportPublication|TestValueTransferOfferOwners|TestValueTransferOwnerPersistence)$' -count=1 -timeout=180s
+
+go test -p=1 ./core -run '^(TestContainerMetadataChainLeavesSnapshotGroupsPending|TestContainerHasPendingFallbackRacesDirectClear|TestValueTransferParts)$' -count=1 -timeout=120s
+
+go test -p=1 ./core/schema -run '^(TestRemoteCacheFixture|TestContainerTransferPendingChild)$' -count=1 -timeout=120s -v
+
+go test -p=1 ./engine/server -run '^TestRemoteCacheFixturePruneReport$' -count=1 -timeout=120s
+
+go test -p=1 -race ./dagql -run '^(TestValueTransferCapture|TestValueTransferImportPublication|TestValueTransferOfferOwners|TestValueTransferOfferCopyFailure|TestSchemaModuleSelection.*)$' -count=1 -timeout=180s -v
+
+env GOPATH=/home/exedev/go GOCACHE=/home/exedev/.cache/go-build go test -p=1 -exec='sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -run '^(TestValueTransferParts.*|TestValueTransferPersistenceFinalOfferRestart|TestCapturePersistedFilesystemDirectEvaluation|TestCapturePersistedContainerDirectEvaluation|TestFilesystemOutputRevision|TestFilesystemPersistenceRetainsBodyLatch)$' -count=1 -timeout=180s -v
+
+dagger api call engine-dev test --pkg ./core/integration --run='RemoteCacheTransferSuite/(TestSchemaRecovery|TestDefaultGCPruneDiagnostic)' --timeout=20m --test-verbose
+
+dagger api call engine-dev test --pkg ./core/integration --run='RemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic' --timeout=15m --test-verbose
+
+Additional compile-only check before the measured-pressure diagnostic (no test execution):
+go test -p=1 -c -o /tmp/b2-r2-integration.test ./core/integration
+
+Final compile-only check after the allocation-cap skip change, exit 0 (no output):
+go test -p=1 -c -o /tmp/b2-r2-integration.test ./core/integration

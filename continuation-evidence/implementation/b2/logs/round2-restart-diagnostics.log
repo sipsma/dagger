@@ -1,0 +1,19 @@
+Pinned acceptance trace: 93fe691e87443f2482042f0f6961baf2
+
+TestRemoteCacheTransferSuite/TestSchemaRecovery/before
+    testctx.go:206: restart persistence diagnostics: {PersistenceResetReason: LocalCacheResetReason: RemovedPersistedRootCount:0 DiskPrunedResults:[]}
+
+TestRemoteCacheTransferSuite/TestSchemaRecovery/after
+    testctx.go:206: restart persistence diagnostics: {PersistenceResetReason: LocalCacheResetReason: RemovedPersistedRootCount:0 DiskPrunedResults:[]}
+
+Default-policy measured-pressure trace: a1363afb7a7c79639b0741cf7fbc4c05
+TestRemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic/after
+    testctx.go:206: default policy pressure: minFree=99000000000 available=103559827456 temporaryBytes=6707311104 cap=8589934592
+    testctx.go:206: restart persistence diagnostics: {PersistenceResetReason: LocalCacheResetReason: RemovedPersistedRootCount:16 DiskPrunedResults:[dagql.result.4240 dagql.result.4243 dagql.result.4245 dagql.result.4241 dagql.result.4255 dagql.result.4261 dagql.result.4262 dagql.result.4248 dagql.result.4251 dagql.result.4680 dagql.result.4708 dagql.result.4228 dagql.result.4724 dagql.result.4681 dagql.result.4940 dagql.result.4904]}
+    testctx.go:206: default policy saved report: resultID=4681 persisted=true beforeRemoved=0 afterRemoved=16
+
+Parent trace: row-specific prune decision and pressure file creation/removal
+    testctx.go:198: [95m54  : [0m[90;2m[0m[34mwithExec[0m dd if=/dev/zero of=/fixture/gc-pressure bs=1048576 count=6397 conv=fsync
+    testctx.go:198: [95m54  : [0m[90;2m[0m[34mwithExec[0m dd if=/dev/zero of=/fixture/gc-pressure bs=1048576 count=6397 conv=fsync
+time=2026-09-16T08:19:02.812Z level=INFO msg="dagql pruned result" resultID=4681 call=CacheProbe.report digest=xxh3:0f4ad8f65f6be1b7 args="[seed=\"same\"]" description=echo measuredSizeBytes=0 reclaimedBytes=0
+    testctx.go:198: [95m64  : [0m[90;2m[0m[34mwithExec[0m rm -f /fixture/gc-pressure

@@ -6,9 +6,57 @@ the documented engine-dev route and independent nested dev-engine state/clients.
 The current standalone acceptance follows addendum 2; the earlier checkpoint
 commands below remain historical evidence.
 
-## Addendum 2 verification
+## Round 2 verification
 
-Production code is unchanged from `4041385fc3`; the new commits add real-store
+Council decisions P1–P5 are implemented at `b76c6ccbff2f68f2ca6f52b5b89ef7ec6c6d2dbf`.
+All commands and selections are recorded exactly in
+[round2-commands.txt](logs/round2-commands.txt). Every acceptance command exited 0.
+
+| Evidence | Result |
+| --- | --- |
+| [DagQL](logs/round2-dagql.log), [race selection](logs/round2-race.log) | Capture, import publication, offer ownership and persistence pass. Invalid offer-copy regression returns not-ready without leaking a hold or lock. Both inaccessible installed-schema candidate cases fall through, including expiry fallback. Required concurrent capture/publication/owners controls pass under the race detector. |
+| [Schema](logs/round2-schema.log), [core](logs/round2-core.log) | Imported pending Container child returns unavailable for derived rootfs entries; direct evaluation refuses pending fs and metadata sweep succeeds. Existing metadata-chain and concurrent pending-query controls pass. Fixture exposes reset reason and prune count without a saved handle. |
+| [Server](logs/round2-server.log) | Real automatic disk and metadata prune passes update the gated fixture's count, which another server instance reads independently of cache state. Reset-reason fields survive that diagnostic update. |
+| [Privileged peers](logs/round2-privileged.log) | Both Git backends, nested Directory/File chain, Container mount, unopened sibling/broken-open controls, completed-offer restart, File/Directory body-latch and revision controls, and Container control execute and pass. No skips. Uses the authorized sudo/unshare mount namespace launcher. |
+| [Native acceptance](logs/round2-native.log), [scoped trace](logs/round2-native-acceptance-summary.log) | Both warmed-runtime import orders and all existing report/node/context/restart/interface/scalar/enum/tool/native/foreign-context assertions pass. Each pinned restart asserts no reset, zero removals and a retained persisted edge. |
+| [Default-policy diagnostic](logs/round2-default-prune.log), [row-specific evidence](logs/round2-restart-diagnostics.log), [trace](logs/round2-default-prune-summary.log) | Exact saved-report row 4681 is present and persisted before shutdown, then pruned under default policy and absent after restart. Removed roots: 0 → 16; no reset. The engine logs `CacheProbe.report` with `seed="same"` for the exact removed ID. The assertion ran; no diagnostic skip in this run. |
+
+Native acceptance trace: <https://dagger.cloud/dagger/traces/93fe691e87443f2482042f0f6961baf2>.
+Only the cold acceptance case is intentionally skipped under addendum 2:
+[cold boundary](logs/round2-native-cold.log). The default-policy diagnostic in
+that earlier combined run also skipped because there was no reclaim target;
+its later measured-pressure run is the evidence that closes P2.
+
+Measured-pressure trace: <https://dagger.cloud/dagger/traces/a1363afb7a7c79639b0741cf7fbc4c05>.
+The default minimum-free target was 99,000,000,000 bytes. The diagnostic measured
+103,559,827,456 available bytes, requested 6,707,311,104 temporary bytes and wrote
+6,397 MiB after rounding to its block size, below the 8 GiB cap. It removed the
+file in cleanup. The bound itself was not changed; imported roots remain
+pruneable. The fixture's journal records cumulative automatic disk/metadata GC
+removals, including the previous engine process, and the current boot's reset
+reason before any cache replacement can hide it.
+
+Development attempts: a small Container-only probe (trace
+`b1e3bfff46bc13b5cdab212df2469c3d`), the combined native run above, and a fixed
+2 GiB pressure attempt (`4766a5d3014096ebb8456b2dd6cb6167`) all completed with
+explicit no-pressure skips. They establish no row-removal claim. Measuring the
+actual target and available space made the final pressure test bounded and
+conclusive. Initial schema regression construction was corrected to use the
+registered codec family and the legacy ID view required by the exact council
+query. These setup attempts are superseded by the passing permanent regression.
+
+The final native diagnostic rebuilt the engine and integration tests. A separate
+compile-only integration check also completed successfully before that run.
+The default-pressure branch was the only behavioral test change after the full
+pinned acceptance run; production code and pinned acceptance behavior were
+unchanged. The final test-only change skips the diagnostic when the required
+allocation exceeds its 8 GiB cap; its measured passing branch is unchanged. A
+final integration compile-only check passes at the implementation tip. No broader
+suites were run.
+
+## Addendum 2 verification (historical)
+
+Before round 2, production code was unchanged from `4041385fc3`; those commits add real-store
 peers, complete the native fixture, and record the coordinator's acceptance
 boundary. The existing focused DagQL/core/schema/server checks and targeted race
 selection below therefore remain applicable.
@@ -39,8 +87,9 @@ both foreign cases but lost the second order's saved row across restart under th
 fixture's default GC limits. The final fixture uses the existing persistence
 suite's GC bounds and asserts raw saved-row presence immediately after restart.
 The full suite passes. An independent isolated confirmation of the second order
-also passes. The precise cause of the earlier default-GC run's row loss was not
-established; no claim that this earlier attempt passed is made.
+also passes. Those historical logs omitted reset and prune counters; round 2 above provides
+a measured reproduction of ordinary removal in the same saved-report scenario. The
+earlier failed attempt is not counted as a pass.
 [Earlier restart failure excerpt](logs/addendum2-native-default-gc-failure.log).
 The earlier full logs remain under `/tmp/b2-addendum2-native-{1,2,3,4}.log`; these are
 superseded attempts, not acceptance evidence.
