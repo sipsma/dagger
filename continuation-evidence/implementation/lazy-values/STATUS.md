@@ -1,45 +1,38 @@
-# Implementation status
+# Ownership guard decision required
 
-Recorded at 2026-09-16T22:58:55.754853+00:00. No test invocation is running. Verification is incomplete; the final implementation and evidence commits have not been made. This one-file status commit is the coordinator-requested checkpoint. No new selection is being started and no passing selection will be repeated.
+Recorded at 2026-09-16T23:17:31.068315+00:00. No test is running. The Human's binding correction rejects the one-millisecond ownership-guard timer retry; the added ownership retry and its test have been removed. `dagql/cache.go` is back to its committed implementation. No replacement synchronization mechanism has been added. The six implementation commits and status checkpoint remain unchanged; step 7 and the final evidence commit are not complete.
 
-## Commits and working tree
+## Exact remaining contention
 
-Implementation HEAD before this status commit: `daba57f3b74e98934108af1710db8649f58b3ecd`. The unchanged base is `018a0e695b96d0849118a510d359795812571e1b`. Six ordered signed-off implementation commits exist:
+The nonblocking guard is shared by ownership readers and part publication, so a busy guard does **not** necessarily mean an operation body is active:
 
-- `3cc02ac970` — core: retain evaluated Lazy operations
-- `782fc85d48` — http: select a File call with resolved content
-- `cfc26b0ade` — schema: construct the schema File with FileBlobLazy
-- `2d1086c5f7` — git: construct lazy outputs from resolved calls
-- `fc9e44605e` — core: make scratch mounts and builtin lazy on every path
-- `daba57f3b7` — cache: name and persist Lazy operation acquisition
+1. A Container has a retained completed whole operation, or completed refined groups. A read of `PersistedOutputRevision` takes `tryPartPublicationGuard`: first `lazyOpMu`, then `LazyMu`, then any unconsumed group latches. Reading checked snapshot links uses the same guard.
+2. While that read holds `lazyOpMu`, a second ownership read calls the same guard. Its first `TryLock` fails and returns `ErrPersistStateNotReady`. No operation body is running. This first branch precedes even the `Lazy == nil` check, so the same sequence is possible without an operation pointer.
+3. An encoder holding `LazyMu` produces another reader-only busy case. The completed-Container exclusion regression completed the whole operation, acquired its persistence guard, and observed not-ready from the publication guard; it then verified the publication guard still holds the state latch. The regression passed with `-race`: 40.786-second invocation, 1.439-second package execution.
+4. Simply skipping `LazyMu` for evaluated Containers removes exclusion between the encoder and acquisition publication: the encoder does not retain `lazyOpMu`. The final working change therefore preserves that shared state latch while skipping consumed group-body latches. File/Directory can skip a completed body latch because their separate output mutex still protects publication.
+5. `syncResultSnapshotLeases` returns the not-ready error. A native task sets `syncPending` after its successful body, but the current waiter still receives the error; only a subsequent demand retries the bookkeeping. Fresh result publication also calls the synchronizer and has no completed-task continuation to absorb that error. These call sites are outside the graph lock, but share a reader whose other callers must remain nonblocking.
 
-Step 7 changes are staged but not committed. The latest tested source tree is `a9861d95c7fa36a23c8f9a9bd5c6930e8dc62325`. The draft report, reader inventory, request counts, costs, command ledger, logs and manifests are present under this directory but remain uncommitted. Production source has not changed since the passing package set and cold proof, apart from an ownership comment. Later integration-fixture edits explicitly warm a scratch donor and adjust the resolved HTTP call and pending-builtin restart expectations.
+Code locations in the working tree: `core/part_store.go` (`PersistedOutputRevision`, `PersistedSnapshotRefLinksChecked`, `tryPartPublicationGuard`), `core/container_persistence.go` (`lockForPersistence`), `dagql/cache.go` (`syncResultSnapshotLeases`, native task completion and fresh publication), and `core/lazy_persistence_completion_test.go` (`TestLazyCompletedContainerPublicationExclusion`). The snapshot collector also serves boot/import paths, so changing it globally to block is not an established safe substitution.
 
-## Completed verification retained
+This is a concrete lock sequence supported by source and the completed-state exclusion regression. It is not a claim that the original engine log identified which of the three bare guard branches failed. The requested single-method isolation passed, so the original failure was not reproduced as an unconditional completed-operation rejection.
 
-- All 28 final package invocations passed: 498.506 seconds in aggregate; the separate base layout probe passed.
-- Native cold proof passed every control without skips: selected test 199.09 seconds, invocation 484.565 seconds, trace `2b27f7c4d377ce0352658e5f370d6f32`. Complete closure: 226 values; exact scratch row has one Lazy entry and zero provider reads, unchanged on later demand.
-- Combined invocation: both warm orders and foreign-context control passed (warm method 328.26 seconds); mixed exec passed (77.78 seconds); lazy-value restart passed (60.75 seconds). HTTP name, ETag and authentication cases passed.
-- Opted-in default-policy diagnostic passed without skips: selected test 161.87 seconds, invocation 429.524 seconds, trace `dc96140b4cfc0fb165575e120014be50`. Warm scratch entries remained zero. Temporary pressure was 2 GiB; removed persisted roots rose from zero to 17, including the saved report, without a persistence reset. Its isolated runner overlay was restored byte-for-byte.
+## Two bounded options
 
-## Last run and remaining failures
+1. **Separate the outside-graph-lock ownership read.** Let this caller wait on the existing reader/publication and body latches in their established order; keep capture and Commit nonblocking. The contract must cover contention from another reader as well as a body, and must not hold the pointer/state latch while waiting on a group body that can consult it. This requires a distinct ownership-read contract, beyond merely checking body completion.
+2. **Keep the read nonblocking and resume bookkeeping on guard release.** Extend the existing continuation to await an explicit guard-release notification, including reader/publication holders, and cover the initial-publication path. A body's completion signal alone cannot wake the reader-only case above. This is also an explicit synchronization-contract change; no timer or polling would be involved.
 
-The combined invocation ended with exit 1 after **1168.698 seconds**, trace `124abeda8af965c452cf6c6b6094b9b5`. It used one build, a combined run pattern, verbose output and harness-default parallelism. The package timeout was 15 minutes; build and setup account for the remaining invocation time.
+I have stopped before implementing either additional contract, as directed when the two body-only choices do not cover the observed contention. Neither option changes the retained-operation representation or removes publication exclusion.
 
-Six HTTP methods failed with `persist state not ready`: `TestHTTPPermissions`, `TestHTTPCachePerSessions`, `TestHTTPTimestamp`, `TestHTTPChecksum`, `TestHTTPService`, and `TestHTTPChecksumMismatch`. Several failures originated while setting up `Container.from`, before the HTTP assertions. The package timed out with `TestGit/TestGitCommit` listed as still running (8 minutes 14 seconds). No completed verdict for the Git suite is claimed from the incomplete package output.
+## Verification retained
 
-A read-only goroutine sample from the test engine showed repeated Git tree acquisition and 1,539 delayed service-detach goroutines. The final output repeatedly reports Git fetch cancellation with `context completed: persist state not ready`. The nonblocking Container ownership-read guard returns that sentinel; the exact triggering contention and the shared-context retry behavior still need isolation. This is an investigation finding, not a confirmed fix or a request to weaken Lazy retention.
+All previously accepted package, cold, warm, mixed, restart and opted-in default-policy results remain intact. No passing selection was restarted for evidence tidiness.
 
-The earlier combined attempt and concurrent diagnostic failed in engine construction with client-attachment timeouts before selected tests began. Both local clients were terminated after their server sessions had ended; neither run counts as a test pass. The retry preserved every prior successful selection.
+- Requested isolation: `TestHTTP/TestHTTPPermissions`, passed, 4.31 seconds selected and 230.097 seconds invocation; trace `a3d813be26eb72979013bfb1ffe2f8b5`.
+- Intermediate combined run: the six failed HTTP methods and twelve commissioned Git methods all passed without skips, 158.117 seconds invocation; trace `fd96be142f4e43783f9ace5ea4d087c5`. This build included the now-rejected ownership retry. Its output remains evidence of that intermediate implementation and is **not** acceptance of the current tree after removal.
+- Completed File/Directory body guards and refined-group guards passed with `-race`; the original intermediate log also contains a Container fast-path case that was removed to preserve publication exclusion.
+- The ownership polling regression was removed with the rejected mechanism; its passing log is historical only.
+- The final completed-Container publication-exclusion regression passed with `-race` and remains in the working tree.
 
-Remaining work: isolate and correct the ownership-read/cancellation failure, identify definitive Git method outcomes, verify only failed or unreached cases, then commit step 7 and the complete evidence separately. No new test was started after the status request.
+Logs and exact commands are retained in `/tmp/lazy-values-validation/`: `http-isolation-result.json`, `http-isolation-verbose.log`, `http-git-final-result.json`, `http-git-final-trace.log`, `completion-core.log`, and `completed-container-exclusion.log`. The draft command ledger and manifests also preserve them. The draft report explicitly marks the rejected run as intermediate. No new engine run was started after the binding correction.
 
-## Existing records
-
-- Package manifest: `/tmp/lazy-values-validation/package-results-with-base.json`.
-- Last combined command, exit and duration: `/tmp/lazy-values-validation/remaining-engine-result.json`.
-- Last combined CLI output: `/tmp/lazy-values-validation/remaining-engine.log`.
-- Retrieved combined trace output: `/tmp/lazy-values-validation/remaining-engine-trace.log` (221,966 messages).
-- Live goroutine sample: `/tmp/lazy-values-validation/combined-live-goroutines.log`.
-- Default-policy result and counters: `/tmp/lazy-values-validation/default-policy-opted-in-enriched.json` and `default-policy-opted-in-counters.json`.
-- All existing passing logs remain intact; bounded evidence excerpts record original log hashes.
+The draft evidence and staged step-7 code remain available for review; this commit changes only STATUS.md. The next implementation step requires the ownership-read/continuation contract decision above, then verification of the affected failed or unreached cases and the separate final evidence commit.
