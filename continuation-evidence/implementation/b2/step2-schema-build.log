@@ -1,0 +1,3 @@
+Command: go build ./core/schema
+Result: exit 0; no compiler output.
+Validated before implementation commit 85de1ed96d12d1b91589dfdba4368b7cbc512557.
