@@ -1,0 +1,8 @@
+=== RUN   TestHTTPProducerCleanup
+=== RUN   TestHTTPProducerCleanup/timestamp
+2026/09/16 05:14:40 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 05:14:40 INFO end lazy evaluation field=HTTPState._resolve duration=21.580116ms err="file write failed: chtimes /data: input/output error"
+2026/09/16 05:14:40 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestHTTPProducerCleanup (0.13s)
+    --- PASS: TestHTTPProducerCleanup/timestamp (0.03s)
+PASS

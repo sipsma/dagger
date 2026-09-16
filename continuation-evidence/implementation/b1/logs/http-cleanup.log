@@ -1,0 +1,42 @@
+=== RUN   TestHTTPProducerCleanup
+=== RUN   TestHTTPProducerCleanup/copy
+2026/09/16 05:33:51 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 05:33:51 INFO end lazy evaluation field=HTTPState._resolve duration=12.106726ms err="file write failed: unexpected EOF"
+=== RUN   TestHTTPProducerCleanup/close
+2026/09/16 05:33:51 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 05:33:51 INFO end lazy evaluation field=HTTPState._resolve duration=6.828908ms err="file write failed: close /data: bad file descriptor"
+=== RUN   TestHTTPProducerCleanup/chmod
+2026/09/16 05:33:51 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 05:33:51 INFO end lazy evaluation field=HTTPState._resolve duration=5.072949ms err="file write failed: chmod /data: no such file or directory"
+=== RUN   TestHTTPProducerCleanup/timestamp
+=== RUN   TestHTTPProducerCleanup/checksum
+2026/09/16 05:33:51 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 05:33:51 INFO end lazy evaluation field=HTTPState._resolve duration=4.932608ms err="http checksum mismatch: expected sha256:d9298a10d1b0735837dc4bd85dac641b0f3cef27a47e5d53a54f2f3f5b2fcffa, got sha256:230d8358dc8e8890b4c58deeb62912ee2f20357ae92a5cc861b98e68fe31acb5"
+=== RUN   TestHTTPProducerCleanup/commit
+2026/09/16 05:33:51 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 05:33:51 INFO end lazy evaluation field=HTTPState._resolve duration=4.726539ms err="injected commit"
+=== RUN   TestHTTPProducerCleanup/mount
+2026/09/16 05:33:51 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 05:33:51 INFO end lazy evaluation field=HTTPState._resolve duration=4.984528ms err="file write failed: injected mount"
+=== RUN   TestHTTPProducerCleanup/digest
+2026/09/16 05:33:51 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 05:33:51 INFO end lazy evaluation field=HTTPState._resolve duration=7.536418ms err="HTTP File producer body mismatch: recorded sha256:d9298a10d1b0735837dc4bd85dac641b0f3cef27a47e5d53a54f2f3f5b2fcffa, fetched sha256:230d8358dc8e8890b4c58deeb62912ee2f20357ae92a5cc861b98e68fe31acb5"
+=== RUN   TestHTTPProducerCleanup/move
+2026/09/16 05:33:51 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 05:33:51 INFO end lazy evaluation field=HTTPState._resolve duration=7.559077ms err="producer receiver: File snapshot already installed"
+=== RUN   TestHTTPProducerCleanup/success
+2026/09/16 05:33:51 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 05:33:51 INFO end lazy evaluation field=HTTPState._resolve duration=7.700558ms
+2026/09/16 05:33:51 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestHTTPProducerCleanup (0.27s)
+    --- PASS: TestHTTPProducerCleanup/copy (0.02s)
+    --- PASS: TestHTTPProducerCleanup/close (0.01s)
+    --- PASS: TestHTTPProducerCleanup/chmod (0.01s)
+    --- PASS: TestHTTPProducerCleanup/timestamp (0.18s)
+    --- PASS: TestHTTPProducerCleanup/checksum (0.01s)
+    --- PASS: TestHTTPProducerCleanup/commit (0.01s)
+    --- PASS: TestHTTPProducerCleanup/mount (0.01s)
+    --- PASS: TestHTTPProducerCleanup/digest (0.01s)
+    --- PASS: TestHTTPProducerCleanup/move (0.01s)
+    --- PASS: TestHTTPProducerCleanup/success (0.01s)
+PASS

@@ -1,0 +1,64 @@
+=== RUN   TestHTTPCompletedProducerEvaluate
+=== RUN   TestHTTPCompletedProducerEvaluate/equal
+2026/09/16 05:01:24 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 05:01:24 INFO end lazy evaluation field=HTTPState._resolve duration=36.27958ms
+=== RUN   TestHTTPCompletedProducerEvaluate/changed_timestamp
+2026/09/16 05:01:24 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 05:01:24 INFO end lazy evaluation field=HTTPState._resolve duration=12.116013ms
+=== RUN   TestHTTPCompletedProducerEvaluate/invalid_timestamp
+2026/09/16 05:01:24 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 05:01:24 INFO end lazy evaluation field=HTTPState._resolve duration=6.629901ms
+=== RUN   TestHTTPCompletedProducerEvaluate/empty_checksum
+2026/09/16 05:01:24 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 05:01:24 INFO end lazy evaluation field=HTTPState._resolve duration=6.078522ms
+=== RUN   TestHTTPCompletedProducerEvaluate/checksum
+2026/09/16 05:01:24 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 05:01:24 INFO end lazy evaluation field=HTTPState._resolve duration=7.45473ms
+=== RUN   TestHTTPCompletedProducerEvaluate/changed_body
+2026/09/16 05:01:24 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 05:01:24 INFO end lazy evaluation field=HTTPState._resolve duration=6.524741ms err="HTTP File producer body mismatch: recorded sha256:d81c55f49c5bb0d36bc11e3966ec4efab66f8dfefbbc1761161ca9d230e5466a, fetched sha256:d67e2e944994496c8d8ec76eed0cf9f09679448d584b532bebf941852a37f5ed"
+=== RUN   TestHTTPCompletedProducerEvaluate/checksum_mismatch
+2026/09/16 05:01:24 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 05:01:24 INFO end lazy evaluation field=HTTPState._resolve duration=4.323284ms err="http checksum mismatch: expected sha256:d81c55f49c5bb0d36bc11e3966ec4efab66f8dfefbbc1761161ca9d230e5466a, got sha256:d67e2e944994496c8d8ec76eed0cf9f09679448d584b532bebf941852a37f5ed"
+=== RUN   TestHTTPCompletedProducerEvaluate/bad_checksum
+2026/09/16 05:01:24 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 05:01:24 INFO end lazy evaluation field=HTTPState._resolve duration=35.48µs err="invalid checksum \"invalid\": invalid checksum digest format"
+=== RUN   TestHTTPCompletedProducerEvaluate/status
+2026/09/16 05:01:24 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 05:01:24 INFO end lazy evaluation field=HTTPState._resolve duration=535.779µs err="invalid response status 500 Internal Server Error"
+=== RUN   TestHTTPCompletedProducerEvaluate/partial
+2026/09/16 05:01:24 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 05:01:24 INFO end lazy evaluation field=HTTPState._resolve duration=6.162901ms
+=== RUN   TestHTTPCompletedProducerEvaluate/not_modified
+2026/09/16 05:01:24 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 05:01:24 INFO end lazy evaluation field=HTTPState._resolve duration=8.911018ms err="HTTP File producer body mismatch: recorded sha256:d81c55f49c5bb0d36bc11e3966ec4efab66f8dfefbbc1761161ca9d230e5466a, fetched sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+=== RUN   TestHTTPCompletedProducerEvaluate/no_content
+2026/09/16 05:01:24 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 05:01:24 INFO end lazy evaluation field=HTTPState._resolve duration=8.615738ms err="HTTP File producer body mismatch: recorded sha256:d81c55f49c5bb0d36bc11e3966ec4efab66f8dfefbbc1761161ca9d230e5466a, fetched sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+2026/09/16 05:01:24 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 05:01:24 INFO end lazy evaluation field=HTTPState._resolve duration=6.659811ms
+2026/09/16 05:01:24 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 05:01:24 INFO end lazy evaluation field=HTTPState._resolve duration=6.118221ms
+=== RUN   TestHTTPCompletedProducerEvaluate/transport
+2026/09/16 05:01:24 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 05:01:24 INFO end lazy evaluation field=HTTPState._resolve duration=201.92µs err="Get \"http://127.0.0.1:1\": dial tcp 127.0.0.1:1: connect: connection refused"
+=== RUN   TestHTTPCompletedProducerEvaluate/canceled
+2026/09/16 05:01:24 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 05:01:24 INFO end lazy evaluation field=HTTPState._resolve duration=52.709µs err="Get \"http://127.0.0.1:1\": context canceled"
+2026/09/16 05:01:24 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestHTTPCompletedProducerEvaluate (0.21s)
+    --- PASS: TestHTTPCompletedProducerEvaluate/equal (0.06s)
+    --- PASS: TestHTTPCompletedProducerEvaluate/changed_timestamp (0.03s)
+    --- PASS: TestHTTPCompletedProducerEvaluate/invalid_timestamp (0.02s)
+    --- PASS: TestHTTPCompletedProducerEvaluate/empty_checksum (0.02s)
+    --- PASS: TestHTTPCompletedProducerEvaluate/checksum (0.02s)
+    --- PASS: TestHTTPCompletedProducerEvaluate/changed_body (0.01s)
+    --- PASS: TestHTTPCompletedProducerEvaluate/checksum_mismatch (0.00s)
+    --- PASS: TestHTTPCompletedProducerEvaluate/bad_checksum (0.00s)
+    --- PASS: TestHTTPCompletedProducerEvaluate/status (0.00s)
+    --- PASS: TestHTTPCompletedProducerEvaluate/partial (0.02s)
+    --- PASS: TestHTTPCompletedProducerEvaluate/not_modified (0.01s)
+    --- PASS: TestHTTPCompletedProducerEvaluate/no_content (0.01s)
+    --- PASS: TestHTTPCompletedProducerEvaluate/transport (0.00s)
+    --- PASS: TestHTTPCompletedProducerEvaluate/canceled (0.00s)
+PASS

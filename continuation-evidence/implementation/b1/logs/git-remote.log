@@ -1,0 +1,8 @@
+=== RUN   TestGitCompletedProducersRemoteEvaluate
+2026/09/16 05:33:56 INFO start lazy evaluation field=GitRef.tree
+2026/09/16 05:33:56 INFO end lazy evaluation field=GitRef.tree duration=277.073736ms
+2026/09/16 05:33:56 INFO start lazy evaluation field=GitCommit.tree
+2026/09/16 05:33:56 INFO end lazy evaluation field=GitCommit.tree duration=206.467131ms
+2026/09/16 05:33:56 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestGitCompletedProducersRemoteEvaluate (0.81s)
+PASS

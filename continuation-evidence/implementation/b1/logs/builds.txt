@@ -1,0 +1,25 @@
+Build commands completed with exit status 0. Successful commands emitted no output.
+
+Supporting cleanup: go build ./core ./core/schema
+exit status: 0
+
+Cleaned and bundle producers: go build ./core ./core/schema
+exit status: 0
+
+Ref and commit tree producers: go build ./core ./core/schema
+exit status: 0
+
+HTTP producer: go build ./core ./core/schema
+exit status: 0
+
+Builtin and schema producers: go build ./core ./core/schema
+exit status: 0
+
+Integration package: go test -c ./core/integration -o /tmp/b1-integration.test
+exit status: 0
+
+Execution tests: go test -c ./core -o /tmp/b1-core.test
+exit status: 0
+
+Race tests: go test -race -c ./core -o /tmp/b1-core-race.test
+exit status: 0
