@@ -1,11 +1,11 @@
 {
   "base": "018a0e695b96d0849118a510d359795812571e1b",
-  "method": "Two textual searches, one occurrence per matching line per pattern, all tracked and new Go files. The base source line is hashed without its newline. Historical paths and symbols in the presentation use current vocabulary; hashes and base line numbers are unchanged. Deleted files are explicitly marked. Assignments and tests are included to make the inventory exhaustive, not counted as completion predicates.",
+  "method": "Two textual searches, one occurrence per matching line per pattern over every tracked Go file at each pinned revision. The base source line is hashed without its newline. Historical paths and symbols in the presentation use current vocabulary. The 495 current occurrences remain pinned to the reviewed implementation revision; subsequent review edits do not relabel those source positions.",
   "patterns": [
     "\\.Lazy\\b",
     "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence"
   ],
-  "baseCount": 375,
+  "baseCount": 436,
   "currentCount": 495,
   "baseOccurrences": [
     {
@@ -3756,6 +3756,616 @@
       "function": "func TestValueTransferParts(t *testing.T)",
       "normalizedSource": "require.ErrorIs(t, file.LazyEvalFunc()(t.Context()), dagql.ErrUnavailablePart)",
       "classification": "test fixture or assertion; completion uses state, retained pointers remain valid",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache.go",
+      "baseLine": 1069,
+      "baseSourceSHA256": "249dcdd6ffb60992b9649049cdb6aa97ff95c60ed678815458201fc61c021272",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func HasPendingLazyEvaluation(res AnyResult) bool",
+      "normalizedSource": "func HasPendingLazyEvaluation(res AnyResult) bool {",
+      "classification": "Pending/reporting query prioritizes active attempts and owed bookkeeping before typed body completion; executable ordering is unchanged.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache.go",
+      "baseLine": 1099,
+      "baseSourceSHA256": "b2131c003203ab1c660c1a730a7024ea17c4fbb0b258f4de545a5925e667bb54",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func HasPendingLazyComputation(res AnyResult) bool",
+      "normalizedSource": "// HasPendingLazyComputation is a reporting query. Local stored-part opening",
+      "classification": "Pending/reporting query prioritizes active attempts and owed bookkeeping before typed body completion; executable ordering is unchanged.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache.go",
+      "baseLine": 1101,
+      "baseSourceSHA256": "cb078696f58490215d57cac148ebf37ec999de73b365c3db8271e3da2e41be14",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func HasPendingLazyComputation(res AnyResult) bool",
+      "normalizedSource": "func HasPendingLazyComputation(res AnyResult) bool {",
+      "classification": "Pending/reporting query prioritizes active attempts and owed bookkeeping before typed body completion; executable ordering is unchanged.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache.go",
+      "baseLine": 1104,
+      "baseSourceSHA256": "da78c97119e4ec96d25e93f3dd920d03accd5c5bc9a6bbb4be68b02f3b63b57e",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func HasPendingLazyComputation(res AnyResult) bool",
+      "normalizedSource": "return HasPendingLazyEvaluation(res)",
+      "classification": "Pending/reporting query prioritizes active attempts and owed bookkeeping before typed body completion; executable ordering is unchanged.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache.go",
+      "baseLine": 1129,
+      "baseSourceSHA256": "25165b22047d852e8967e3eff28413ff33cf56b468d464a9302dd27a8da446b5",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func pendingLazyComputationLocked(shared *sharedResult, reporting HasLazyEvaluationReporting) bool",
+      "normalizedSource": "return reporting.HasPendingLazyComputation()",
+      "classification": "Pending/reporting query prioritizes active attempts and owed bookkeeping before typed body completion; executable ordering is unchanged.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache.go",
+      "baseLine": 2304,
+      "baseSourceSHA256": "9f2a0219afc450da594db3f60eea7fe56ef7108b6d2d1a51be784b011aac47b1",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "type lazyGroupState",
+      "normalizedSource": "eval LazyEvalFunc",
+      "classification": "DagQL lazy dispatch or group callback lookup; typed completion controls callback eligibility while the cache tracks bookkeeping independently.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache.go",
+      "baseLine": 3808,
+      "baseSourceSHA256": "3dcab5d038e15f26d8d7dc0363ef1e7e73e02bc1fcda2507e86060708ce594bf",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func lazyEvalFuncOfResult(val AnyResult) LazyEvalFunc",
+      "normalizedSource": "func lazyEvalFuncOfResult(val AnyResult) LazyEvalFunc {",
+      "classification": "DagQL lazy dispatch or group callback lookup; typed completion controls callback eligibility while the cache tracks bookkeeping independently.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache.go",
+      "baseLine": 3816,
+      "baseSourceSHA256": "6b357a5c07a3abf97efa321d2f18a8c95f06fa6e3b787fa59ede6d2a037371ee",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func lazyEvalFuncOfResult(val AnyResult) LazyEvalFunc",
+      "normalizedSource": "return lazy.LazyEvalFunc()",
+      "classification": "DagQL lazy dispatch or group callback lookup; typed completion controls callback eligibility while the cache tracks bookkeeping independently.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache.go",
+      "baseLine": 3831,
+      "baseSourceSHA256": "1e735b26ff087e172d71b1640a3db0fc0fa600ce0c5d04bb7e1b7204755356b7",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func (c *Cache) registerLazyEvaluation(shared *sharedResult, val AnyResult, resolver TypeResolver)",
+      "normalizedSource": "// whole callback would keep HasPendingLazyEvaluation true after every",
+      "classification": "Pending/reporting query prioritizes active attempts and owed bookkeeping before typed body completion; executable ordering is unchanged.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache.go",
+      "baseLine": 4200,
+      "baseSourceSHA256": "9a8bb3365ff8f638ff68c8b5878e8ca4ace5a9f9a616e8c5e9f2c6641d2a5dd7",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func prepareLazyGroupEvalLocked( res AnyResult, shared *sharedResult, g *lazyGroupState, group LazyGroupKey, partsVal HasLazyEvaluationParts, ) bool",
+      "normalizedSource": "var currentLazyEval LazyEvalFunc",
+      "classification": "DagQL lazy dispatch or group callback lookup; typed completion controls callback eligibility while the cache tracks bookkeeping independently.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache.go",
+      "baseLine": 4202,
+      "baseSourceSHA256": "6994b8f5618f651cc1720d56434134ddb732b26538bee058c3e0f2a8b3ea5eb2",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func prepareLazyGroupEvalLocked( res AnyResult, shared *sharedResult, g *lazyGroupState, group LazyGroupKey, partsVal HasLazyEvaluationParts, ) bool",
+      "normalizedSource": "currentLazyEval = partsVal.LazyEvalFuncForGroup(group)",
+      "classification": "DagQL lazy dispatch or group callback lookup; typed completion controls callback eligibility while the cache tracks bookkeeping independently.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_evidence_test.go",
+      "baseLine": 462,
+      "baseSourceSHA256": "2e786ddee3b6f81424f958e36a5a16510b53aa7bda47c8ac51caaaf4d07ce8ef",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestCacheEvidencePendingLazyHitIsHit(t *testing.T)",
+      "normalizedSource": "assert.Assert(t, HasPendingLazyEvaluation(res2))",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_lazy_retry_test.go",
+      "baseLine": 15,
+      "baseSourceSHA256": "605854710c4d682308d2e9fe3e9944271bc6b331805a23d0dbf4091419132237",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func newLazyRetryTestResult( t *testing.T, lazyEval LazyEvalFunc, ) (context.Context, *Cache, string, ObjectResult[*cacheTestObject])",
+      "normalizedSource": "lazyEval LazyEvalFunc,",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_lazy_retry_test.go",
+      "baseLine": 531,
+      "baseSourceSHA256": "cbc4f5b7b9722a5f5386828325a1b276ca2cb2aee428ea5da6c9fe1313190885",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestCacheEvaluateSettlesBookkeepingBeforeReportingComplete(t *testing.T)",
+      "normalizedSource": "if !HasPendingLazyEvaluation(res) {",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_lazy_retry_test.go",
+      "baseLine": 555,
+      "baseSourceSHA256": "3b6531d77e5b81a30f2505b019e6b9bac655bc6e5cd8f22c53aea070d40760ee",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestCacheEvaluateSettlesBookkeepingBeforeReportingComplete(t *testing.T)",
+      "normalizedSource": "if HasPendingLazyEvaluation(res) {",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_part_host.go",
+      "baseLine": 56,
+      "baseSourceSHA256": "8260ccb63634d6c7725bd4e9bf2ca6c6712accadd7661fd7bacec491543334a5",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func (host *PartHost) Evaluate(ctx context.Context, parts ...PartKey) error",
+      "normalizedSource": "var body LazyEvalFunc",
+      "classification": "DagQL lazy dispatch or group callback lookup; typed completion controls callback eligibility while the cache tracks bookkeeping independently.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_part_host.go",
+      "baseLine": 58,
+      "baseSourceSHA256": "8dd8cc53088e4d2c307558302b109d45bf44321c7e5477a401f995f8ca2d4f8c",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func (host *PartHost) Evaluate(ctx context.Context, parts ...PartKey) error",
+      "normalizedSource": "body = refined.LazyEvalFuncForGroup(group)",
+      "classification": "DagQL lazy dispatch or group callback lookup; typed completion controls callback eligibility while the cache tracks bookkeeping independently.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_part_source_test.go",
+      "baseLine": 274,
+      "baseSourceSHA256": "6249303acdf6b461a5dbeeb52515025d85b0fedc9c6121ee78c83bc62cf42f79",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestPartNativeCompletionRetiresOffer(t *testing.T)",
+      "normalizedSource": "obj.groupEval = map[LazyGroupKey]LazyEvalFunc{partsTestGroupOut: func(ctx context.Context) error {",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 44,
+      "baseSourceSHA256": "9942b36fd3e05991ec14bfc3f94d2b36c84aad76d3bc77535cb71b4f8d52d64c",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "type cacheTestPartsObject",
+      "normalizedSource": "groupEval map[LazyGroupKey]LazyEvalFunc",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 73,
+      "baseSourceSHA256": "f4102becf1b15d5578d5429d7b238276a02e909e094aaa6a492d1149184ea751",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func (obj *cacheTestPartsObject) LazyEvalFunc() LazyEvalFunc",
+      "normalizedSource": "func (obj *cacheTestPartsObject) LazyEvalFunc() LazyEvalFunc {",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 97,
+      "baseSourceSHA256": "37a25aaa0aa8b815ba578ba9c92edacabd12ebf7fec20ea165d520572cb768ad",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func (obj *cacheTestPartsObject) LazyEvalFuncForGroup(group LazyGroupKey) LazyEvalFunc",
+      "normalizedSource": "func (obj *cacheTestPartsObject) LazyEvalFuncForGroup(group LazyGroupKey) LazyEvalFunc {",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 217,
+      "baseSourceSHA256": "f8e9ac578ffc3c199c94b1889269e20620efa8908b11845faaccb18bef937a5d",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestEvaluatePartsMetadataLeavesSiblingGroupPending(t *testing.T)",
+      "normalizedSource": "obj.groupEval = map[LazyGroupKey]LazyEvalFunc{",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 238,
+      "baseSourceSHA256": "aa6594f9f87de76b3d8a595999ece9d0ab989f3e6b88bfb7b1b278e84074aa97",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestEvaluatePartsMetadataLeavesSiblingGroupPending(t *testing.T)",
+      "normalizedSource": "if !HasPendingLazyEvaluation(res) {",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 260,
+      "baseSourceSHA256": "7236d6449dc18d41fad5eeb077c8848afb7af2d7b41c4a59bd54ebaea04089b5",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestEvaluatePartsMetadataLeavesSiblingGroupPending(t *testing.T)",
+      "normalizedSource": "if HasPendingLazyEvaluation(res) {",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 276,
+      "baseSourceSHA256": "f8e9ac578ffc3c199c94b1889269e20620efa8908b11845faaccb18bef937a5d",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestEvaluatePartsResumeSpansMarkPartialCompletion(t *testing.T)",
+      "normalizedSource": "obj.groupEval = map[LazyGroupKey]LazyEvalFunc{",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 339,
+      "baseSourceSHA256": "f8e9ac578ffc3c199c94b1889269e20620efa8908b11845faaccb18bef937a5d",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestEvaluatePartsJointGroupFillsAllMembersOnce(t *testing.T)",
+      "normalizedSource": "obj.groupEval = map[LazyGroupKey]LazyEvalFunc{",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 364,
+      "baseSourceSHA256": "7236d6449dc18d41fad5eeb077c8848afb7af2d7b41c4a59bd54ebaea04089b5",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestEvaluatePartsJointGroupFillsAllMembersOnce(t *testing.T)",
+      "normalizedSource": "if HasPendingLazyEvaluation(res) {",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 381,
+      "baseSourceSHA256": "971071336e0e07761ab467e924c8d6384d134bb725325a16986ccab5b423d78b",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestEvaluatePartsSiblingGroupsRunConcurrently(t *testing.T)",
+      "normalizedSource": "obj.groupEval = map[LazyGroupKey]LazyEvalFunc{",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 430,
+      "baseSourceSHA256": "971071336e0e07761ab467e924c8d6384d134bb725325a16986ccab5b423d78b",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestEvaluatePartsOneCallRunsGroupsConcurrently(t *testing.T)",
+      "normalizedSource": "obj.groupEval = map[LazyGroupKey]LazyEvalFunc{",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 520,
+      "baseSourceSHA256": "971071336e0e07761ab467e924c8d6384d134bb725325a16986ccab5b423d78b",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestEvaluatePartsAbandonedSiblingMarksResumeBlocked(t *testing.T)",
+      "normalizedSource": "obj.groupEval = map[LazyGroupKey]LazyEvalFunc{",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 605,
+      "baseSourceSHA256": "f8e9ac578ffc3c199c94b1889269e20620efa8908b11845faaccb18bef937a5d",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestEvaluatePartsFailureIsolatedPerGroup(t *testing.T)",
+      "normalizedSource": "obj.groupEval = map[LazyGroupKey]LazyEvalFunc{",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 641,
+      "baseSourceSHA256": "7236d6449dc18d41fad5eeb077c8848afb7af2d7b41c4a59bd54ebaea04089b5",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestEvaluatePartsFailureIsolatedPerGroup(t *testing.T)",
+      "normalizedSource": "if HasPendingLazyEvaluation(res) {",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 663,
+      "baseSourceSHA256": "f8e9ac578ffc3c199c94b1889269e20620efa8908b11845faaccb18bef937a5d",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestEvaluateWholeResultOverGroups(t *testing.T)",
+      "normalizedSource": "obj.groupEval = map[LazyGroupKey]LazyEvalFunc{",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 684,
+      "baseSourceSHA256": "7236d6449dc18d41fad5eeb077c8848afb7af2d7b41c4a59bd54ebaea04089b5",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestEvaluateWholeResultOverGroups(t *testing.T)",
+      "normalizedSource": "if HasPendingLazyEvaluation(res) {",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 709,
+      "baseSourceSHA256": "f8e9ac578ffc3c199c94b1889269e20620efa8908b11845faaccb18bef937a5d",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestEvaluatePartsRecursionRefusedPerGroup(t *testing.T)",
+      "normalizedSource": "obj.groupEval = map[LazyGroupKey]LazyEvalFunc{",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 736,
+      "baseSourceSHA256": "971071336e0e07761ab467e924c8d6384d134bb725325a16986ccab5b423d78b",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestEvaluatePartsSyncFailureRetriesOnlyBookkeepingPerGroup(t *testing.T)",
+      "normalizedSource": "obj.groupEval = map[LazyGroupKey]LazyEvalFunc{",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 790,
+      "baseSourceSHA256": "3b6531d77e5b81a30f2505b019e6b9bac655bc6e5cd8f22c53aea070d40760ee",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestEvaluatePartsSyncFailureRetriesOnlyBookkeepingPerGroup(t *testing.T)",
+      "normalizedSource": "if HasPendingLazyEvaluation(res) {",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 808,
+      "baseSourceSHA256": "971071336e0e07761ab467e924c8d6384d134bb725325a16986ccab5b423d78b",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestEvaluatePartsForeignCancellationRetriesPerGroup(t *testing.T)",
+      "normalizedSource": "obj.groupEval = map[LazyGroupKey]LazyEvalFunc{",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 873,
+      "baseSourceSHA256": "ce7ca95e55bc247d86223765b7d32556c0a14b2a351545208d69be67170274a3",
+      "pattern": "\\.Lazy\\b",
+      "function": "func partsTestConsumptionAwareResolve(obj *cacheTestPartsObject) func(context.Context, AnyResult, []PartKey) ([]LazyGroupKey, error)",
+      "normalizedSource": "// container.Lazy == nil analog) it under-reports and returns zero",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 911,
+      "baseSourceSHA256": "971071336e0e07761ab467e924c8d6384d134bb725325a16986ccab5b423d78b",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestEvaluatePartsEmptyResolutionRetriesPendingBookkeeping(t *testing.T)",
+      "normalizedSource": "obj.groupEval = map[LazyGroupKey]LazyEvalFunc{",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 955,
+      "baseSourceSHA256": "cbc4f5b7b9722a5f5386828325a1b276ca2cb2aee428ea5da6c9fe1313190885",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestEvaluatePartsEmptyResolutionRetriesPendingBookkeeping(t *testing.T)",
+      "normalizedSource": "if !HasPendingLazyEvaluation(res) {",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 970,
+      "baseSourceSHA256": "3b6531d77e5b81a30f2505b019e6b9bac655bc6e5cd8f22c53aea070d40760ee",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestEvaluatePartsEmptyResolutionRetriesPendingBookkeeping(t *testing.T)",
+      "normalizedSource": "if HasPendingLazyEvaluation(res) {",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 984,
+      "baseSourceSHA256": "5b3a6bce4dcbc04ab487a68557037d11af749252083aee83713141e793e78cec",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func (v cacheTestWholeStoredOpen) HasPendingLazyComputation() bool",
+      "normalizedSource": "func (v cacheTestWholeStoredOpen) HasPendingLazyComputation() bool { return false }",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 1006,
+      "baseSourceSHA256": "023fce575b3d2987b1edf967e23b11afd785304466db0500d9444e6fa5bee2c9",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestPendingLazyComputationWholeGroupStoredOpen(t *testing.T)",
+      "normalizedSource": "if !HasPendingLazyEvaluation(res) {",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 1009,
+      "baseSourceSHA256": "9613781d6726eaf9be105641c288a6c0929201e21a147a8f66443c2f6061ecd4",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestPendingLazyComputationWholeGroupStoredOpen(t *testing.T)",
+      "normalizedSource": "if got := HasPendingLazyComputation(res); got != !stored {",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_parts_test.go",
+      "baseLine": 1013,
+      "baseSourceSHA256": "7d7954fcba76c6d9e6d2f8f363eae79375e3a042a8249fa4b9592faa46e249d6",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestPendingLazyComputationWholeGroupStoredOpen(t *testing.T)",
+      "normalizedSource": "if HasPendingLazyComputation(res) || HasPendingLazyEvaluation(res) {",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_persistence_capture_test.go",
+      "baseLine": 19,
+      "baseSourceSHA256": "b56774a5297dade91706f6efc434f0034c3ed9057a40ddd25d9c031a04956531",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "type captureTestValue",
+      "normalizedSource": "lazy        LazyEvalFunc",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_persistence_capture_test.go",
+      "baseLine": 30,
+      "baseSourceSHA256": "4644604857ccfc913851010ff7db12d647834803ade98afb94346a6c65458bd2",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func (v *captureTestValue) LazyEvalFunc() LazyEvalFunc",
+      "normalizedSource": "func (v *captureTestValue) LazyEvalFunc() LazyEvalFunc                            { return v.lazy }",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_persistence_capture_test.go",
+      "baseLine": 63,
+      "baseSourceSHA256": "af7684c5368565dcd1c957b049aa935b6a7150d3ec29f6ea84947f09e51e4980",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func (v *captureTestPartsValue) LazyEvalFuncForGroup(LazyGroupKey) LazyEvalFunc",
+      "normalizedSource": "func (v *captureTestPartsValue) LazyEvalFuncForGroup(LazyGroupKey) LazyEvalFunc { return v.lazy }",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_persistence_capture_test.go",
+      "baseLine": 170,
+      "baseSourceSHA256": "dac08e6eddcd9ef967945ad68a7a4253c56c45041450b058045a9cfe8f2cb4e2",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestCapturePersistedRecordLazyReadiness(t *testing.T)",
+      "normalizedSource": "require.True(t, HasPendingLazyEvaluation(res))",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_persistence_capture_test.go",
+      "baseLine": 182,
+      "baseSourceSHA256": "671e862ef7792bb34c05ffff9028c3cbbb126c58e4569a619f4175f130a1451a",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestCapturePersistedRecordLazyReadiness(t *testing.T)",
+      "normalizedSource": "require.False(t, HasPendingLazyEvaluation(res))",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_test.go",
+      "baseLine": 252,
+      "baseSourceSHA256": "63f46b4bedbe11729f3a1df3a387f824a4b0bad496b62e46ebb3567d521f869a",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "type cacheTestObject",
+      "normalizedSource": "lazyEval          LazyEvalFunc",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_test.go",
+      "baseLine": 631,
+      "baseSourceSHA256": "0b4d01a34217cd26d752a53d276d188f90fe3fb19caff64755d81687b2a034a1",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func TestEvaluateLazyUsesOriginalSpanForLogsAndNestedSpans(t *testing.T)",
+      "normalizedSource": "assert.Assert(t, HasPendingLazyEvaluation(res))",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/cache_test.go",
+      "baseLine": 863,
+      "baseSourceSHA256": "46b5556b756c1b12d0aa7b0fa4b8dcc8b6970d676dba81ac480c9b54eb4fb7e8",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "func (obj *cacheTestObject) LazyEvalFunc() LazyEvalFunc",
+      "normalizedSource": "func (obj *cacheTestObject) LazyEvalFunc() LazyEvalFunc {",
+      "classification": "Generic callback/part fixture or assertion; callback discard remains valid. Core completion uses retained state.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/types.go",
+      "baseLine": 165,
+      "baseSourceSHA256": "43797254473e55b0ba51164da510ef21f40ad377c9a7103f215fa62e8ec2eaec",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "type LazyEvalFunc",
+      "normalizedSource": "type LazyEvalFunc func(context.Context) error",
+      "classification": "Public lazy evaluation interface and reporting contract; comments now describe retained core operation completion.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/types.go",
+      "baseLine": 169,
+      "baseSourceSHA256": "9f7c2c9a9f43d1c48f306a9c914f268ba2998fdd995a91ea1654472dd198a2a4",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "type declaration",
+      "normalizedSource": "// deferred work; implementations should return nil from LazyEvalFunc",
+      "classification": "Public lazy evaluation interface and reporting contract; comments now describe retained core operation completion.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/types.go",
+      "baseLine": 176,
+      "baseSourceSHA256": "9ccb2d7563b1ea62809136bebbb19cf2d09b8682fcb9c6463a71ed6d73b823ab",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "type HasLazyEvaluation",
+      "normalizedSource": "LazyEvalFunc() LazyEvalFunc",
+      "classification": "Public lazy evaluation interface and reporting contract; comments now describe retained core operation completion.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/types.go",
+      "baseLine": 206,
+      "baseSourceSHA256": "67f39c138be98c30188b8538beb11817243e66d3da780bce09f3976552841c63",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "type HasLazyEvaluationParts",
+      "normalizedSource": "// LazyEvalFuncForGroup returns the group's remaining deferred work,",
+      "classification": "Public lazy evaluation interface and reporting contract; comments now describe retained core operation completion.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/types.go",
+      "baseLine": 207,
+      "baseSourceSHA256": "44df9ded4abf905e93ca10eef0728a89cbcf3c75485e9246b026820dbbda54e5",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "type HasLazyEvaluationParts",
+      "normalizedSource": "// nil when none remains. Same consumption contract as LazyEvalFunc,",
+      "classification": "Public lazy evaluation interface and reporting contract; comments now describe retained core operation completion.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/types.go",
+      "baseLine": 210,
+      "baseSourceSHA256": "d88d0b7777164d8cca04023b4804dc2ee439104b638720021a0306047f54d111",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "type HasLazyEvaluationParts",
+      "normalizedSource": "LazyEvalFuncForGroup(LazyGroupKey) LazyEvalFunc",
+      "classification": "Public lazy evaluation interface and reporting contract; comments now describe retained core operation completion.",
+      "currentFileExists": true
+    },
+    {
+      "currentPath": "dagql/types.go",
+      "baseLine": 217,
+      "baseSourceSHA256": "211a5020418b37e23b009a335c4612ff49b479b0408d13956886f1847d56674b",
+      "pattern": "LazyEvalFunc|HasPendingLazyEvaluation|HasPendingLazyComputation|cloneContainerForSchemaChild|tryPersistenceLocked|lazyOpForRouting|lazyOpsForPersistence",
+      "function": "type HasLazyEvaluationReporting",
+      "normalizedSource": "HasPendingLazyComputation() bool",
+      "classification": "Public lazy evaluation interface and reporting contract; comments now describe retained core operation completion.",
       "currentFileExists": true
     }
   ],
@@ -7720,5 +8330,12 @@
       "source": "HasPendingLazyComputation() bool",
       "classification": "body eligibility; evaluated latch or consumed groups determine pending work"
     }
-  ]
+  ],
+  "currentRevision": "f1b3ed3aa49ca250fff993c35345f8d3baa334ce",
+  "baseEnumerationCorrection": {
+    "previousCount": 375,
+    "omittedDagqlCount": 61,
+    "correctedCount": 436,
+    "note": "The previous base input omitted these DagQL occurrences; all original 375 source hashes were verified unchanged. This corrects enumeration scope, not 61 executable defects."
+  }
 }

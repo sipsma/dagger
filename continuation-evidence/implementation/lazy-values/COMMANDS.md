@@ -365,6 +365,8 @@ dagger -vv api call engine-dev test --pkg ./core/integration --run='^(TestHTTP|T
 
 Exit 0; invocation 158.117 s; trace `fd96be142f4e43783f9ace5ea4d087c5`. [Verbose selected output](logs/http-git-final-selected.log).
 
+R9 status: despite the filename, this is the superseded timer-retry run. It is historical evidence, not acceptance of the current implementation.
+
 | Test | Result | Seconds |
 |---|---|---:|
 | `TestHTTP` | PASS | 0.01 |
@@ -479,6 +481,8 @@ dagger -vv api call engine-dev test --pkg ./core/integration --run='^(TestHTTP|T
 
 Exit 0; invocation 165.832 s. Trace `6f03c497f3c291aad6eefd9e8134b7e1`. [Verbose selected output](logs/http-git-decision1-selected.log).
 
+R9 status: this is the accepted HTTP/Git run with Decision 1's real-latch ownership read. Its result and log remain unchanged.
+
 | Test | Result | Seconds |
 |---|---|---:|
 | `TestHTTP` | PASS | 0.01 |
@@ -533,3 +537,43 @@ Exit 0; invocation 165.832 s. Trace `6f03c497f3c291aad6eefd9e8134b7e1`. [Verbose
 | `TestGit/TestGitTags/local_worktree/tag_pattern` | PASS | 14.9 |
 
 Tested source/index tree: `f932ec69a60d9d74124fb7b4f48db691414cd9db`. Earlier successful cold/warm/mixed/restart/default-policy/package evidence stands under the no-repeat direction. The intermediate run with the rejected retry is retained above as history only.
+
+## Round-1 decisions R3 and R5
+
+Only the new whole-Container race regression and the expressly requested cold/mixed proof pair ran. All earlier passing results and their logs remain intact. The engine invocation uses one build, one combined pattern and the harness default parallelism. R6's timestamp edit was not used to repeat the cost sample. The amended Decision 1 record was read at coordinator commit `24686498fe5530bf9f45e40ee9c9bb3ef1967049`, blob `d9a887295d3bc69505867d2358ca90851a6a9173`.
+
+### round1-whole-container-race
+
+```sh
+env GOPATH=/home/exedev/go GOCACHE=/home/exedev/.cache/go-build go test -race -exec 'sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -run '^TestSnapshotOwnerWaitsForWholeContainer$' -count=1 -v -timeout=90s
+```
+
+Exit 0; invocation 49.03 s; source `4a77b4487ede06bdfda9c154a1db4a41a3b280b3`. The sole selected test passed in 0.08 s; package 1.481 s. [Output](logs/round1-whole-container-race.log).
+
+### round1-cold-mixed
+
+```sh
+dagger -vv api call engine-dev test --pkg ./core/integration --run='^TestRemoteCacheTransferSuite$/^(TestSchemaRecoveryCold|TestPartMixedExecOutputs)$' --timeout=10m --test-verbose
+```
+
+Exit 0; invocation 358.557 s; source `c01bbbb29b56a44e17eb4785229612f011f6b6ef`. Trace `45ee1c08f6b587ee1671a71d363a8179`. [Verbose selected output](logs/round1-cold-mixed-selected.log), [CLI output](logs/round1-cold-mixed.log), [counters](probes/round1-cold-mixed-counters.json), [complete closure](probes/round1-cold-closure.json). No skipped or unreached control is counted as passed.
+
+| Test | Result | Seconds |
+|---|---|---:|
+| `TestRemoteCacheTransferSuite` | PASS | 224.82 |
+| `TestRemoteCacheTransferSuite/TestPartMixedExecOutputs` | PASS | 68.1 |
+| `TestRemoteCacheTransferSuite/TestSchemaRecoveryCold` | PASS | 156.72 |
+| `TestRemoteCacheTransferSuite/TestSchemaRecoveryCold/before` | PASS | 69.94 |
+| `TestRemoteCacheTransferSuite/TestSchemaRecoveryCold/foreign_context` | PASS | 44.52 |
+
+The recorded trace was read with `dagger trace 45ee1c08f6b587ee1671a71d363a8179 --progress=logs`; this reads the saved run and does not execute tests. The log manifest hashes the original CLI, race and full trace files. Focused excerpts and both derived JSON probes identify the full trace as their source.
+
+### R8 compile check
+
+```sh
+go test ./dagql -run '^$' -count=1
+```
+
+Exit 0; invocation 23.760 s; package 0.063 s, explicitly no tests to run. This compiles the consolidated mode forwarding and every package test at `313a82e5a4132700415d86d24b5d21f8c8d1659a`; no passed selection is repeated. [Output](logs/round1-r8-dagql-compile.log). Call-site review confirms the sole blocking production call remains owner synchronization, while boot and import pass the nonblocking mode. Both aliases are absent; `snapshotOwnerVersion` still serves revision validation. R7 is comment-only. The R3 engine evidence predates these final comment and forwarding changes and postdates all guard and encoder changes.
+
+Final evidence checks pass: all JSON parses; local Markdown links resolve; the vocabulary scan covers every evidence file and added source/document lines; the 436 base matches are re-derived from all tracked Go files, with the original 375 entries and reviewed-tip 495 entries preserved exactly. All 108 earlier manifest artifacts match their committed bytes. All six new source/document commits have sign-offs, the reviewed base remains an ancestor, and source/document/JSON whitespace checks pass. These are static evidence checks, not test reruns.

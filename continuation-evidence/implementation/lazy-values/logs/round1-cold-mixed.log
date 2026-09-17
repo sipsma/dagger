@@ -1,0 +1,36 @@
+[dagger] 30.0s elapsed · 32 steps running
+[dagger] 1m0s elapsed · 6 steps running
+[dagger] 1m30s elapsed · 5 steps running
+[dagger] 2m0s elapsed · 6 steps running
+[dagger] 2m30s elapsed · 12 steps running
+[dagger] 3m0s elapsed · 9 steps running
+[dagger] 3m30s elapsed · 25 steps running
+[dagger] 4m0s elapsed · 45 steps running
+[dagger] 4m30s elapsed · 13 steps running
+[dagger] 5m0s elapsed · 28 steps running
+[dagger] 5m30s elapsed · 14 steps running
+== TRACE ==  ✔ PASSED
+engine-dev test --pkg ./core/integration --run=^TestRemoteCacheTransferSuite$/^(TestSchemaRecoveryCold|TestPartMixedExecOutputs)$ --timeout=10m --test-verbose  5m58s
+
+✔ connect 0.5s
+✔ load workspace: . 2.3s
+✔ parsing command line arguments 0.0s
+
+✔ engineDev(
+  ┆ ws: currentWorkspace: Workspace!
+  ): EngineDev! 24.9s ◆ CPU Pressure (some): 40.538ms ◆ CPU Pressure (full): 32.605ms ◆ Memory Bytes (current): 942 kB ◆ Memory Bytes (peak): 30 MB
+  ✔ uploading /home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d 1.5s ████████████ 484 kB
+✔ .test(run: "^TestRemoteCacheTransferSuite$/^(TestSchemaRecoveryCold|TestPartMixedExecOutputs)$", pkg: "./core/integration", timeout: "10m", testVerbose: true): Void 5m30s ◆ Disk Read: 12 MB ◆ Disk Write: 0 B ◆ IO Pressure: 1.007548s ◆ CPU Pressure (some): 894.422ms ◆ CPU Pressure (full): 735.588ms ◆ Memory Bytes (current): 13 MB ◆ Memory Bytes (peak): 47 MB ◆ Network Tx: 3.2 kB
+  ✔ 10 uploads, 6 unpacks, 2 pulls, 2 transfers 19.4s
+
+== SERVICES ==
+✔ rogct0dgr0vls.vlm6fv7kv8jua.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 4m29s EXITED span=ade0e1a186bdc7ca
+✔ h4avdn8nctrm4.vlm6fv7kv8jua.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 4m29s EXITED span=e682917183eabfc4
+✔ tj7a70thvirmc.vlm6fv7kv8jua.dagger.local exec dagger-entrypoint.sh --addr unix:///run/dagger-engine.sock --addr tcp://0.0.0.0:1234 --network-name dagger-dev --network-cidr 10.88.0.0/16 --debugaddr 0.0.0.0:6060 4m29s EXITED span=83ad5177b79689c0
+
+== TESTS ==
+  ✔ github.com/dagger/dagger/core/integration  1 passed
+
+  ✔ 1 passed
+
+Full trace at trace 45ee1c08f6b587ee1671a71d363a8179

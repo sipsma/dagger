@@ -1,0 +1,34 @@
+Source c01bbbb29b56a44e17eb4785229612f011f6b6ef; trace 45ee1c08f6b587ee1671a71d363a8179; exit 0; invocation 358.557 seconds; R3 after R5.
+=== RUN   TestRemoteCacheTransferSuite
+=== RUN   TestRemoteCacheTransferSuite/TestPartMixedExecOutputs
+    testctx.go:206: mixed private exec latency=146.733891ms originalFS=5ke7nh6y5e82vxbvjjgim8ipi redundantFS=4bmelpuhwy3hjpbdgb4ttmgl4 rootEvents=[{lazy-enter 4229 withExec { execMeta}  <nil>}]
+=== RUN   TestRemoteCacheTransferSuite/TestSchemaRecoveryCold
+=== RUN   TestRemoteCacheTransferSuite/TestSchemaRecoveryCold/before
+    testctx.go:206: acquisition imported closure rows=226 cold=true order=before
+    testctx.go:206: acquisition delegation target=4251 address={"part":"fs"} field=withMountedCache parent=4246 source={OutputPath: Part:fs}
+    testctx.go:206: acquisition delegation target=4252 address={"part":"fs"} field=withMountedCache parent=4251 source={OutputPath: Part:fs}
+    testctx.go:206: acquisition delegation target=4253 address={"part":"fs"} field=__withSystemEnvVariable parent=4252 source={OutputPath: Part:fs}
+    testctx.go:206: acquisition delegation target=4254 address={"part":"fs"} field=__withSystemEnvVariable parent=4253 source={OutputPath: Part:fs}
+    testctx.go:206: operation mount-route row=4256 address={"part":"mount:/schema.json"} field=withMountedFile parent=4254 entries=1
+    testctx.go:206: operation mount-write row=4256 address={"part":"mount:/schema.json"} field=withMountedFile entries=1
+    testctx.go:206: operation mount-route row=4258 address={"part":"mount:/src"} field=withMountedDirectory parent=4256 entries=1
+    testctx.go:206: operation mount-write row=4258 address={"part":"mount:/src"} field=withMountedDirectory entries=1
+    testctx.go:206: operation mount-route row=4258 address={"part":"fs"} field=withMountedDirectory parent=4256 entries=1
+    testctx.go:206: operation mount-route row=4256 address={"part":"fs"} field=withMountedFile parent=4254 entries=1
+    testctx.go:206: operation mount-route row=4258 address={"part":"mount:/schema.json"} field=withMountedDirectory parent=4256 entries=1
+    testctx.go:206: acquisition Host input imported=4244 address={OutputPath: Part:snapshot} local=4457 snapshot=[{2iwfs7ypa5qgccuanx2maaxqy snapshot }]
+    testctx.go:206: acquisition SDK inherited-fs hops=map[__withSystemEnvVariable:2 withMountedCache:2]; operation mount-writer rows=map[withMountedDirectory:1 withMountedFile:1]
+    testctx.go:206: acquisition route counters cold=true builtin=1 counts=map[installed-chain:1 installed-delegation:4 installed-lazy:33 installed-ready:1 lazy-enter:33 lazy-ref-released:14 owner-sync:165 provider-read:1 selected-chain:1 selected-delegation:4 selected-ready:1 settled:48]
+    testctx.go:206: acquisition changed-argument control cold=true report-body-count=1
+    testctx.go:206: acquisition scratch cold=true ordinal=223 row=4449 address={"part":"snapshot"} group=whole platform=linux/amd64 lazy-enter=1 provider-reads=0
+    testctx.go:206: acquisition scratch cold=true ordinal=223 row=4449 address={"part":"snapshot"} group=whole platform=linux/amd64 lazy-enter=1 provider-reads=0
+    testctx.go:206: acquisition later controls cold=true noteFile=passed bound-tool=passed saved-row=4452 persisted=true
+    testctx.go:206: restart persistence diagnostics: {PersistenceResetReason: LocalCacheResetReason: RemovedPersistedRootCount:0 DiskPrunedResults:[]}
+    testctx.go:206: acquisition clean-restart control cold=true saved-row=4452 noteDirectory=passed report-body-count=1
+    testctx.go:206: acquisition native-recorded-module control cold=true recorded-row=4942 lower-imported-equivalent=true passed
+=== RUN   TestRemoteCacheTransferSuite/TestSchemaRecoveryCold/foreign_context
+--- PASS: TestRemoteCacheTransferSuite (224.82s)
+    --- PASS: TestRemoteCacheTransferSuite/TestPartMixedExecOutputs (68.10s)
+    --- PASS: TestRemoteCacheTransferSuite/TestSchemaRecoveryCold (156.72s)
+        --- PASS: TestRemoteCacheTransferSuite/TestSchemaRecoveryCold/before (69.94s)
+        --- PASS: TestRemoteCacheTransferSuite/TestSchemaRecoveryCold/foreign_context (44.52s)

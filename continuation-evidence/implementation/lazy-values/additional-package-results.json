@@ -39,5 +39,20 @@
     "seconds": 57.1,
     "startedUnix": 1789601163.243179,
     "finishedUnix": 1789601220.3430984
+  },
+  {
+    "name": "round1-whole-container-race",
+    "command": "env GOPATH=/home/exedev/go GOCACHE=/home/exedev/.cache/go-build go test -race -exec 'sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -run '^TestSnapshotOwnerWaitsForWholeContainer$' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 49.03,
+    "sourceCommit": "4a77b4487ede06bdfda9c154a1db4a41a3b280b3"
+  },
+  {
+    "name": "round1-r8-dagql-compile",
+    "command": "go test ./dagql -run '^$' -count=1",
+    "exit": 0,
+    "seconds": 23.76,
+    "purpose": "Compile the R8 mode forwarding and all existing package tests without running any selection",
+    "sourceCommit": "313a82e5a4132700415d86d24b5d21f8c8d1659a"
   }
 ]

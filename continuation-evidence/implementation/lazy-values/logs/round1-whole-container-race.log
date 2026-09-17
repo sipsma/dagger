@@ -1,0 +1,7 @@
+=== RUN   TestSnapshotOwnerWaitsForWholeContainer
+2026/09/16 23:53:09 INFO start lazy evaluation field=Container.import
+2026/09/16 23:53:09 INFO end lazy evaluation field=Container.import duration=9.891188ms
+2026/09/16 23:53:09 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestSnapshotOwnerWaitsForWholeContainer (0.08s)
+PASS
+ok  	github.com/dagger/dagger/core	1.481s

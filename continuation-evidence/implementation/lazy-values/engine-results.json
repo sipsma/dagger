@@ -688,5 +688,43 @@
       }
     ],
     "outcome": "passed, no selected skips; Decision 1 implementation"
+  },
+  {
+    "name": "round1-cold-mixed",
+    "command": "dagger -vv api call engine-dev test --pkg ./core/integration --run='^TestRemoteCacheTransferSuite$/^(TestSchemaRecoveryCold|TestPartMixedExecOutputs)$' --timeout=10m --test-verbose",
+    "exit": 0,
+    "seconds": 358.557,
+    "startedUnix": 1789602827.7450728,
+    "finishedUnix": 1789603186.3021529,
+    "sourceCommit": "c01bbbb29b56a44e17eb4785229612f011f6b6ef",
+    "trace": "45ee1c08f6b587ee1671a71d363a8179",
+    "tests": [
+      {
+        "test": "TestRemoteCacheTransferSuite",
+        "result": "PASS",
+        "seconds": 224.82
+      },
+      {
+        "test": "TestRemoteCacheTransferSuite/TestPartMixedExecOutputs",
+        "result": "PASS",
+        "seconds": 68.1
+      },
+      {
+        "test": "TestRemoteCacheTransferSuite/TestSchemaRecoveryCold",
+        "result": "PASS",
+        "seconds": 156.72
+      },
+      {
+        "test": "TestRemoteCacheTransferSuite/TestSchemaRecoveryCold/before",
+        "result": "PASS",
+        "seconds": 69.94
+      },
+      {
+        "test": "TestRemoteCacheTransferSuite/TestSchemaRecoveryCold/foreign_context",
+        "result": "PASS",
+        "seconds": 44.52
+      }
+    ],
+    "outcome": "passed, every cold control and mixed output ownership; no skips; R3 after R5"
   }
 ]

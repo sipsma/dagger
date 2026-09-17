@@ -655,5 +655,47 @@
     "rawBytes": 238,
     "vocabularyNormalized": false,
     "excerpt": false
+  },
+  {
+    "file": "logs/round1-cold-mixed-selected.log",
+    "rawSHA256": "860c8f1c76b3a2c06b6f88bb4a5deceb82120bfd68c7f851d35f74be1e8ba752",
+    "rawBytes": 4571729,
+    "vocabularyNormalized": true,
+    "excerpt": true
+  },
+  {
+    "file": "logs/round1-cold-mixed.log",
+    "rawSHA256": "a927f5625706819e192bf124b8ac3c914eb508a9cad88cdbdd73cb75f074bda3",
+    "rawBytes": 2282,
+    "vocabularyNormalized": true,
+    "excerpt": false
+  },
+  {
+    "file": "probes/round1-cold-closure.json",
+    "rawSHA256": "860c8f1c76b3a2c06b6f88bb4a5deceb82120bfd68c7f851d35f74be1e8ba752",
+    "rawBytes": 4571729,
+    "vocabularyNormalized": true,
+    "excerpt": true
+  },
+  {
+    "file": "probes/round1-cold-mixed-counters.json",
+    "rawSHA256": "860c8f1c76b3a2c06b6f88bb4a5deceb82120bfd68c7f851d35f74be1e8ba752",
+    "rawBytes": 4571729,
+    "vocabularyNormalized": true,
+    "excerpt": true
+  },
+  {
+    "file": "logs/round1-whole-container-race.log",
+    "rawSHA256": "d8f2853c4f103438e555cae70f0934c5941c362a38588e3a4220e0031e7adf5b",
+    "rawBytes": 413,
+    "vocabularyNormalized": false,
+    "excerpt": false
+  },
+  {
+    "file": "logs/round1-r8-dagql-compile.log",
+    "rawSHA256": "df2bca26b3552be284cf3c5f75285b69e668111cc8c39dedaf87cbfad8e7e805",
+    "rawBytes": 61,
+    "vocabularyNormalized": false,
+    "excerpt": false
   }
 ]
