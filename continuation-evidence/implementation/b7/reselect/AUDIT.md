@@ -195,3 +195,7 @@ The tables above give file and line at the base. In the code each return carries
 ### Open item: `core/file.go:316` and `core/directory.go:338`
 
 Ruling: a named limit, no behavior change. The state is "a published File or Directory with neither a snapshot nor a Lazy operation", reported with the not-ready sentinel. `demandPart` maps it to a reselect at `demand: receiver probe not ready` and its outer loop retries it; the loop's warning now carries the message. The designer found no mechanism at the base by which that state becomes ready on its own, but did not audit every snapshot writer. To close it, two constraints from the designer apply: the change belongs in `demandPart`'s mapping of the receiver's probe, behind a distinct marker that still wraps `ErrPersistStateNotReady`, never in the encoder, because the sentinel is upstream's and the checkpoint worker relies on it meaning "skip and retry later"; and the proof it needs is a complete audit of the writers of both types' snapshot and `Lazy` fields showing the state cannot become ready. I have done neither.
+
+### A 57th site, added by the scan correction
+
+`scan: receiver not ready` (`cache_part_source.go`, `959054a2e0`): the receiver's own probe answered not ready. Class **B**: the holder is another capture or a sibling part's publication. It names no counters, so the rule never records it, and it carries the capture's message for the warning.
