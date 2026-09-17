@@ -12,17 +12,27 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"time"
 
 	"github.com/dagger/dagger/engine/server"
 )
 
-// The two environment variables cmd/engine reads. With EnvURL unset the
-// engine has no remote cache integration and nothing changes. With EnvURL
-// set, EnvToken must be set too, or startup fails.
+// The environment variables cmd/engine reads. With EnvURL unset the engine
+// has no remote cache integration and nothing changes. With EnvURL set,
+// EnvToken must be set too, or startup fails. EnvStartupWait, a Go
+// duration, bounds how long the engine delays opening its API listeners
+// for the first poll's imports; unset means DefaultStartupWait, "0" means
+// no delay, and anything else unparseable or negative fails startup.
 const (
-	EnvURL   = "_EXPERIMENTAL_DAGGER_REMOTE_CACHE_URL"
-	EnvToken = "_EXPERIMENTAL_DAGGER_REMOTE_CACHE_TOKEN"
+	EnvURL         = "_EXPERIMENTAL_DAGGER_REMOTE_CACHE_URL"
+	EnvToken       = "_EXPERIMENTAL_DAGGER_REMOTE_CACHE_TOKEN"
+	EnvStartupWait = "_EXPERIMENTAL_DAGGER_REMOTE_CACHE_STARTUP_WAIT"
 )
+
+// DefaultStartupWait is the listener delay when EnvStartupWait is unset:
+// long enough for one poll and a few bundle imports on a cold engine,
+// short enough that an unreachable service costs a pipeline little.
+const DefaultStartupWait = 10 * time.Second
 
 // Config is what the integration needs to reach the service.
 type Config struct {
@@ -33,6 +43,9 @@ type Config struct {
 	// EngineName and EngineVersion are reported in every poll.
 	EngineName    string
 	EngineVersion string
+	// StartupWait bounds the engine's listener delay for the first poll's
+	// imports. Zero means no delay.
+	StartupWait time.Duration
 }
 
 // IntegrationFromEnv builds the server option from the environment, read
@@ -42,7 +55,18 @@ func IntegrationFromEnv(getenv func(string) string, engineName, engineVersion st
 	if base == "" {
 		return nil, nil
 	}
-	return NewIntegration(Config{URL: base, Token: getenv(EnvToken), EngineName: engineName, EngineVersion: engineVersion})
+	startupWait := DefaultStartupWait
+	if raw := getenv(EnvStartupWait); raw != "" {
+		parsed, err := time.ParseDuration(raw)
+		if err != nil {
+			return nil, fmt.Errorf("remote cache: %s is not a duration: %w", EnvStartupWait, err)
+		}
+		if parsed < 0 {
+			return nil, fmt.Errorf("remote cache: %s must not be negative, got %s", EnvStartupWait, raw)
+		}
+		startupWait = parsed
+	}
+	return NewIntegration(Config{URL: base, Token: getenv(EnvToken), EngineName: engineName, EngineVersion: engineVersion, StartupWait: startupWait})
 }
 
 // NewIntegration validates cfg and returns the server option whose Run is
@@ -66,9 +90,15 @@ func NewIntegration(cfg Config) (*server.RemoteCacheIntegrationConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &server.RemoteCacheIntegrationConfig{Run: func(ctx context.Context, adapter *server.RemoteCacheAdapter) error {
-		return run(ctx, cfg, instanceID, adapter)
-	}}, nil
+	if cfg.StartupWait < 0 {
+		return nil, fmt.Errorf("remote cache: startup wait must not be negative, got %s", cfg.StartupWait)
+	}
+	return &server.RemoteCacheIntegrationConfig{
+		Run: func(ctx context.Context, adapter *server.RemoteCacheAdapter) error {
+			return run(ctx, cfg, instanceID, adapter)
+		},
+		StartupWait: cfg.StartupWait,
+	}, nil
 }
 
 func newEngineInstanceID() (string, error) {
@@ -83,6 +113,6 @@ func newEngineInstanceID() (string, error) {
 // lifetime context. It returns once that context ends and every loop and
 // upload has returned.
 func run(ctx context.Context, cfg Config, instanceID string, adapter *server.RemoteCacheAdapter) error {
-	slog.Info("remote cache integration starting", "url", cfg.URL, "engineInstance", instanceID, "engineName", cfg.EngineName, "engineVersion", cfg.EngineVersion)
+	slog.Info("remote cache integration starting", "url", cfg.URL, "engineInstance", instanceID, "engineName", cfg.EngineName, "engineVersion", cfg.EngineVersion, "startupWait", cfg.StartupWait)
 	return newClient(cfg, instanceID, nil, adapter).run(ctx)
 }

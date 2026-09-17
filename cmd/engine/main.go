@@ -537,6 +537,12 @@ func main() { //nolint:gocyclo
 			go logTraceMetrics(context.Background())
 		}
 
+		// With a remote cache integration, hold the listeners closed until
+		// its first poll's imports are in, or its bound has passed, so a
+		// client that connects the instant the port opens finds them. With
+		// no integration this returns at once.
+		srv.WaitRemoteCacheStartup(ctx)
+
 		// start serving on the listeners for actual clients
 		bklog.G(ctx).Debug("starting main engine api listeners")
 		srv.Register(grpcServer)

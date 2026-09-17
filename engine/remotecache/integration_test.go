@@ -2,6 +2,7 @@ package remotecache
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -41,6 +42,25 @@ func TestIntegrationFromEnv(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		require.NotNil(t, cfg.Run)
+		require.Equal(t, DefaultStartupWait, cfg.StartupWait)
+	})
+	t.Run("startup wait", func(t *testing.T) {
+		t.Parallel()
+		env := func(wait string) func(string) string {
+			return mapGetenv(map[string]string{EnvURL: "http://cache:8080", EnvToken: "secret", EnvStartupWait: wait})
+		}
+		cfg, err := IntegrationFromEnv(env("2s"), "engine-a", "v1")
+		require.NoError(t, err)
+		require.Equal(t, 2*time.Second, cfg.StartupWait)
+		cfg, err = IntegrationFromEnv(env("0"), "engine-a", "v1")
+		require.NoError(t, err)
+		require.Zero(t, cfg.StartupWait, "zero disables the delay")
+		_, err = IntegrationFromEnv(env("soon"), "engine-a", "v1")
+		require.ErrorContains(t, err, EnvStartupWait+" is not a duration")
+		_, err = IntegrationFromEnv(env("-1s"), "engine-a", "v1")
+		require.ErrorContains(t, err, EnvStartupWait+" must not be negative")
+		_, err = NewIntegration(Config{URL: "http://cache:8080", Token: "secret", StartupWait: -time.Second})
+		require.ErrorContains(t, err, "must not be negative")
 	})
 }
 

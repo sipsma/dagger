@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/engine/snapshots/config"
@@ -23,6 +24,10 @@ type RemoteCacheIntegrationConfig struct {
 	// for delivered requests' Done signals, and must not hold a cache operation
 	// while waiting for future requests.
 	Run func(context.Context, *RemoteCacheAdapter) error
+	// StartupWait bounds how long the engine delays opening its API
+	// listeners for the first poll's imports (WaitRemoteCacheStartup).
+	// Zero means no delay.
+	StartupWait time.Duration
 }
 
 var ErrRemoteCacheAdapterClosed = errors.New("remote cache adapter closed")
@@ -66,13 +71,17 @@ type RemoteCacheAdapter struct {
 	reportReady chan struct{}
 	stopCh      chan struct{}
 	stopChOnce  sync.Once
+	// startup is signaled by the client after the first poll's imports;
+	// startupWait is the server's bound on waiting for it.
+	startup     *RemoteCacheStartupGate
+	startupWait time.Duration
 	// testBeforeReportWait runs in TakeSessionReport right before it waits
 	// with an empty list.
 	testBeforeReportWait func()
 }
 
 func newRemoteCacheAdapter(cache *dagql.Cache, bridge *dagql.RemoteCacheBridge) *RemoteCacheAdapter {
-	return &RemoteCacheAdapter{cache: cache, bridge: bridge, cancel: func(error) {}, runDone: make(chan struct{}), reportReady: make(chan struct{}, 1), stopCh: make(chan struct{})}
+	return &RemoteCacheAdapter{cache: cache, bridge: bridge, cancel: func(error) {}, runDone: make(chan struct{}), reportReady: make(chan struct{}, 1), stopCh: make(chan struct{}), startup: NewRemoteCacheStartupGate()}
 }
 
 // queueSessionReport adds a report to the list, dropping the oldest when the
@@ -237,6 +246,7 @@ func (srv *Server) startRemoteCacheIntegration(cfg *RemoteCacheIntegrationConfig
 		return nil
 	}
 	adapter := newRemoteCacheAdapter(srv.engineCache, bridge)
+	adapter.startupWait = cfg.StartupWait
 	ctx, cancel := context.WithCancelCause(srv.shutdownCtx)
 	adapter.cancel = cancel
 	srv.remoteCacheAdapter = adapter
@@ -285,6 +295,9 @@ func (srv *Server) stopRemoteCacheIntegration(ctx context.Context) error {
 func validateRemoteCacheIntegration(cfg *RemoteCacheIntegrationConfig) error {
 	if cfg != nil && cfg.Run == nil {
 		return errors.New("remote cache integration requires Run")
+	}
+	if cfg != nil && cfg.StartupWait < 0 {
+		return fmt.Errorf("remote cache integration startup wait must not be negative, got %s", cfg.StartupWait)
 	}
 	return nil
 }

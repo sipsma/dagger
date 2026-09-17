@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dagger/dagger/dagql"
@@ -25,6 +26,9 @@ type engineAdapter interface {
 	TakeSessionReport(context.Context) (*server.SessionReport, error)
 	ImportValues(context.Context, dagql.ValueBundle) ([]dagql.ImportedValue, error)
 	ExportValues(context.Context, uint64, []uint64, func(context.Context, *dagql.ExportedValues) error) error
+	// StartupComplete is called once: when the first poll's import commands
+	// have all been answered, or at once when the first poll carried none.
+	StartupComplete(imports int)
 }
 
 var _ engineAdapter = (*server.RemoteCacheAdapter)(nil)
@@ -66,6 +70,12 @@ type client struct {
 	log           *slog.Logger
 
 	imports, exports *commandQueue
+
+	// startupImports is how many import commands the first poll carried;
+	// startupPending counts those not yet answered. The import worker
+	// signals the adapter when the last one is answered.
+	startupImports int
+	startupPending atomic.Int32
 
 	// testBeforeBodyWait runs in uploadBlob right before it waits for the
 	// transport to close the request body.
@@ -113,11 +123,18 @@ func (c *client) run(ctx context.Context) error {
 	return err
 }
 
+// queuedCommand is one command on a list. startup marks a command of the
+// first poll, whose completion the engine's startup waits for.
+type queuedCommand struct {
+	protocol.Command
+	startup bool
+}
+
 // commandQueue is an in-memory list with no size limit. A command is never
 // refused because the engine is busy.
 type commandQueue struct {
 	mu    sync.Mutex
-	items []protocol.Command
+	items []queuedCommand
 	wake  chan struct{}
 }
 
@@ -125,9 +142,9 @@ func newCommandQueue() *commandQueue {
 	return &commandQueue{wake: make(chan struct{}, 1)}
 }
 
-func (q *commandQueue) push(cmd protocol.Command) {
+func (q *commandQueue) push(cmd protocol.Command, startup bool) {
 	q.mu.Lock()
-	q.items = append(q.items, cmd)
+	q.items = append(q.items, queuedCommand{Command: cmd, startup: startup})
 	q.mu.Unlock()
 	select {
 	case q.wake <- struct{}{}:
@@ -136,12 +153,12 @@ func (q *commandQueue) push(cmd protocol.Command) {
 }
 
 // next returns the oldest command, waiting for one when the list is empty.
-func (q *commandQueue) next(ctx context.Context) (protocol.Command, error) {
+func (q *commandQueue) next(ctx context.Context) (queuedCommand, error) {
 	for {
 		q.mu.Lock()
 		if len(q.items) > 0 {
 			cmd := q.items[0]
-			q.items[0] = protocol.Command{}
+			q.items[0] = queuedCommand{}
 			q.items = q.items[1:]
 			q.mu.Unlock()
 			return cmd, nil
@@ -150,7 +167,7 @@ func (q *commandQueue) next(ctx context.Context) (protocol.Command, error) {
 		select {
 		case <-q.wake:
 		case <-ctx.Done():
-			return protocol.Command{}, context.Cause(ctx)
+			return queuedCommand{}, context.Cause(ctx)
 		}
 	}
 }
@@ -158,10 +175,14 @@ func (q *commandQueue) next(ctx context.Context) (protocol.Command, error) {
 // pollLoop keeps exactly one poll open. It executes nothing itself: each
 // command goes on the import or export list, and the next poll opens at
 // once. A failed poll is retried after a delay that starts at one second
-// and doubles up to thirty seconds. A refused token stops the client.
+// and doubles up to thirty seconds. A refused token stops the client. The
+// first answered poll's import commands are the ones the engine's startup
+// waits for: with none, the adapter is told at once; otherwise the import
+// worker tells it after answering the last of them.
 func (c *client) pollLoop(ctx context.Context) error {
 	backoff := pollBackoffMin
 	registered := false
+	first := true
 	for {
 		var response protocol.PollResponse
 		status, err := c.do(ctx, pollTimeout, http.MethodPost, protocol.PathPoll, protocol.PollRequest{EngineName: c.cfg.EngineName, EngineVersion: c.cfg.EngineVersion, WaitSeconds: pollWaitSeconds}, &response)
@@ -185,6 +206,20 @@ func (c *client) pollLoop(ctx context.Context) error {
 			registered = true
 			c.log.Info("registered with the remote cache service", "url", c.cfg.URL, "engineName", c.cfg.EngineName)
 		}
+		startup := first
+		first = false
+		imports := 0
+		if startup {
+			for _, cmd := range response.Commands {
+				if cmd.Type == protocol.CommandTypeImport && cmd.Import != nil {
+					imports++
+				}
+			}
+			// Set before any of them is queued, so the worker's last
+			// decrement sees the whole count.
+			c.startupImports = imports
+			c.startupPending.Store(int32(imports))
+		}
 		for _, cmd := range response.Commands {
 			switch cmd.Type {
 			case protocol.CommandTypeImport:
@@ -192,16 +227,20 @@ func (c *client) pollLoop(ctx context.Context) error {
 					c.log.Warn("remote cache import command without a body; ignored", "command", cmd.ID)
 					continue
 				}
-				c.imports.push(cmd)
+				c.imports.push(cmd, startup)
 			case protocol.CommandTypeExport:
 				if cmd.Export == nil {
 					c.log.Warn("remote cache export command without a body; ignored", "command", cmd.ID)
 					continue
 				}
-				c.exports.push(cmd)
+				c.exports.push(cmd, false)
 			default:
 				c.log.Warn("remote cache command of unknown type; ignored", "command", cmd.ID, "type", cmd.Type)
 			}
+		}
+		if startup && imports == 0 {
+			c.log.Info("remote cache first poll carried no imports")
+			c.adapter.StartupComplete(0)
 		}
 	}
 }
@@ -217,18 +256,24 @@ func sleepContext(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// importWorker takes import commands in order, one at a time.
+// importWorker takes import commands in order, one at a time. Answering
+// the last import of the first poll, whatever the answer, completes the
+// engine's startup wait.
 func (c *client) importWorker(ctx context.Context) error {
 	for {
 		cmd, err := c.imports.next(ctx)
 		if err != nil {
 			return err
 		}
-		result := c.runImport(ctx, cmd)
+		result := c.runImport(ctx, cmd.Command)
 		if ctx.Err() != nil {
 			return context.Cause(ctx)
 		}
 		c.sendResult(ctx, cmd.ID, result)
+		if cmd.startup && c.startupPending.Add(-1) == 0 {
+			c.log.Info("remote cache first poll's imports answered", "imports", c.startupImports)
+			c.adapter.StartupComplete(c.startupImports)
+		}
 	}
 }
 
@@ -252,7 +297,7 @@ func (c *client) exportWorker(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		result := c.runExport(ctx, cmd)
+		result := c.runExport(ctx, cmd.Command)
 		if ctx.Err() != nil {
 			return context.Cause(ctx)
 		}

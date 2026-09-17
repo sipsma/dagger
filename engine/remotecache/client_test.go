@@ -361,10 +361,23 @@ type fakeAdapter struct {
 	// exportGate, when set, holds the export there until closed.
 	exportStarted chan uint64
 	exportGate    chan struct{}
+	// importEntered is signaled when an import enters the adapter;
+	// importGate, when set, holds the import there until closed.
+	importEntered chan struct{}
+	importGate    chan struct{}
+	// startup is the real gate the engine's startup waits on; startupCalls
+	// counts the client's StartupComplete calls.
+	startup      *server.RemoteCacheStartupGate
+	startupCalls atomic.Int32
 }
 
 func newFakeAdapter() *fakeAdapter {
-	return &fakeAdapter{reports: make(chan *server.SessionReport, 10), exportStarted: make(chan uint64, 100)}
+	return &fakeAdapter{reports: make(chan *server.SessionReport, 10), exportStarted: make(chan uint64, 100), importEntered: make(chan struct{}, 100), startup: server.NewRemoteCacheStartupGate()}
+}
+
+func (a *fakeAdapter) StartupComplete(imports int) {
+	a.startupCalls.Add(1)
+	a.startup.Complete(imports)
 }
 
 func (a *fakeAdapter) TakeSessionReport(ctx context.Context) (*server.SessionReport, error) {
@@ -376,7 +389,15 @@ func (a *fakeAdapter) TakeSessionReport(ctx context.Context) (*server.SessionRep
 	}
 }
 
-func (a *fakeAdapter) ImportValues(_ context.Context, bundle dagql.ValueBundle) ([]dagql.ImportedValue, error) {
+func (a *fakeAdapter) ImportValues(ctx context.Context, bundle dagql.ValueBundle) ([]dagql.ImportedValue, error) {
+	a.importEntered <- struct{}{}
+	if a.importGate != nil {
+		select {
+		case <-a.importGate:
+		case <-ctx.Done():
+			return nil, context.Cause(ctx)
+		}
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.importErr != nil {
@@ -441,8 +462,18 @@ type harness struct {
 // start runs the client on its own goroutine. stop cancels it and waits.
 func start(t *testing.T) *harness {
 	t.Helper()
+	return startConfigured(t, nil)
+}
+
+// startConfigured is start with configure run on the fake service and
+// adapter before the client's first request can reach them.
+func startConfigured(t *testing.T, configure func(*harness)) *harness {
+	t.Helper()
 	h := &harness{svc: newFakeService(t), adapter: newFakeAdapter(), done: make(chan error, 1)}
 	h.client = newClient(Config{URL: testBaseURL + "/", Token: testToken, EngineName: "engine-a", EngineVersion: "v1"}, testInstance, h.svc, h.adapter)
+	if configure != nil {
+		configure(h)
+	}
 	ctx, cancel := context.WithCancelCause(context.Background())
 	h.cancel = cancel
 	go func() { h.done <- h.client.run(ctx) }()
