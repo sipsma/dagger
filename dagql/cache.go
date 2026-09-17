@@ -2045,6 +2045,7 @@ type Cache struct {
 	testAfterSessionReleaseRecord   func()
 	testAfterHandoffHoldAcquired    func(*ongoingCall)
 	testAfterLazyEvalFinish         func(*lazyEvalAttempt)
+	testAfterLazyEvalJoin           func(*lazyEvalAttempt)
 	testAfterCallbackWaiterCheck    func()
 	testAfterSessionOperationEnter  func(string)
 	testBeforeSessionOperationExit  func(string)
@@ -4305,6 +4306,9 @@ func (c *Cache) runLazyTask(ctx context.Context, res AnyResult, shared *sharedRe
 			lazyOpSpanCtx := attempt.spanCtx
 			attempt.waiters++
 			shared.lazyMu.Unlock()
+			if c.testAfterLazyEvalJoin != nil {
+				c.testAfterLazyEvalJoin(attempt)
+			}
 			// producerSkip drives ONLY the OTel joiner wait below; native is full
 			// detail and emits its wait unconditionally.
 			producerSkip := shared.profileSkip()
