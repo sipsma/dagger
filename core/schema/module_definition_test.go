@@ -33,11 +33,27 @@ func moduleDefinitionTestCache(t *testing.T, path, session string, stub *moduleD
 	return ctx, cache, srv
 }
 
+// moduleDefinitionTestServer is the root server with a settable current
+// module: what Query.currentModule answers with is the module the running
+// function belongs to, which for discovery is the operation-scoped module.
+type moduleDefinitionTestServer struct {
+	*currentTypeDefsTestServer
+	current atomic.Pointer[dagql.ObjectResult[*core.Module]]
+}
+
+func (s *moduleDefinitionTestServer) CurrentModule(context.Context) (dagql.ObjectResult[*core.Module], error) {
+	if mod := s.current.Load(); mod != nil {
+		return *mod, nil
+	}
+	return dagql.ObjectResult[*core.Module]{}, fmt.Errorf("no current module")
+}
+
 // moduleDefinitionTestEnv is moduleDefinitionTestCache plus the root
-// server, for a test that builds the core schema as a module's deps.
-func moduleDefinitionTestEnv(t *testing.T, path, session string, stub *moduleDefinitionTestResolver) (context.Context, *dagql.Cache, *dagql.Server, *currentTypeDefsTestServer) {
+// server, for a test that builds the core schema as a module's deps or
+// selects the current module.
+func moduleDefinitionTestEnv(t *testing.T, path, session string, stub *moduleDefinitionTestResolver) (context.Context, *dagql.Cache, *dagql.Server, *moduleDefinitionTestServer) {
 	t.Helper()
-	server := &currentTypeDefsTestServer{platform: core.Platform{OS: "linux", Architecture: "arm64"}}
+	server := &moduleDefinitionTestServer{currentTypeDefsTestServer: &currentTypeDefsTestServer{platform: core.Platform{OS: "linux", Architecture: "arm64"}}}
 	query := core.NewRoot(server)
 	ctx := core.ContextWithQuery(t.Context(), query)
 	ctx = engine.ContextWithClientMetadata(ctx, &engine.ClientMetadata{ClientID: session, SessionID: session})
@@ -65,6 +81,11 @@ func moduleDefinitionTestEnv(t *testing.T, path, session string, stub *moduleDef
 	}.Install(srv)
 	dagql.Fields[*core.Module]{dagql.NodeFunc("_implementationScoped", (&moduleSchema{}).moduleImplementationScoped)}.Install(srv)
 	dagql.Fields[*core.ModuleSource]{dagql.NodeFunc("_implementationScoped", (&moduleSourceSchema{}).moduleSourceImplementationScoped)}.Install(srv)
+	// The real currentModule: its dynamic input is the implementation-scoped
+	// current module, and its name is what an SDK reads before discovery.
+	srv.InstallObject(dagql.NewClass(srv, dagql.ClassOpts[*core.CurrentModule]{}))
+	dagql.Fields[*core.Query]{dagql.FuncWithDynamicInputs("currentModule", (&moduleSchema{}).currentModule, (&moduleSchema{}).currentModuleCacheKey)}.Install(srv)
+	dagql.Fields[*core.CurrentModule]{dagql.Func("name", (&moduleSchema{}).currentModuleName)}.Install(srv)
 	resolver := func(ctx context.Context, src dagql.ObjectResult[*core.ModuleSource], args moduleDefinitionArgs) (dagql.ObjectResult[*core.Module], error) {
 		stub.runs.Add(1)
 		runtime, err := args.Runtime.Load(ctx, srv)
@@ -184,14 +205,17 @@ func TestModuleDefinitionIdentity(t *testing.T) {
 // operation scope (ScopeModuleForSDKOperation, keyed on the operation name
 // and the source digest, whose attach returns an existing match) and the
 // current module's implementation scope (Module._implementationScoped,
-// keyed on the source digest and AsModuleVariantDigest), which is what
-// currentModule is keyed on. This runs both for real over the test cache:
-// equal inputs land on the same rows, and a changed runtime, schema file or
-// name lands on different ones.
+// keyed on the source digest and AsModuleVariantDigest), which is the
+// dynamic input Query.currentModule is cached on. This runs both for real
+// over the test cache, then selects currentModule.name the way an SDK does
+// with each discovery's scoped module as the current one: the same source
+// loaded as "demo" and as "renamed" answers with each name, and the
+// original selection still answers "demo" afterwards. A changed runtime or
+// schema file is a distinct current module too, carrying its own runtime.
 func TestModuleDefinitionScopeCoversInputs(t *testing.T) {
 	t.Parallel()
 	stub := &moduleDefinitionTestResolver{}
-	ctx, cache, srv := moduleDefinitionTestCache(t, "", "s1", stub)
+	ctx, cache, srv, server := moduleDefinitionTestEnv(t, "", "s1", stub)
 	scoped := digest.FromString("scoped source")
 	base := definitionTestInputsFor(t, ctx, cache, srv, "s1", "source", scoped, "runtime", "schema")
 	otherRuntime := definitionTestInputsFor(t, ctx, cache, srv, "s1", "source", scoped, "runtime-2", "schema")
@@ -203,17 +227,34 @@ func TestModuleDefinitionScopeCoversInputs(t *testing.T) {
 		currentModule uint64
 		runtime       uint64
 	}
-	scope := func(in definitionTestInputs, name string) scopes {
+	// discover builds the discovery module and its operation-scoped module,
+	// as moduleDefinitionFromRuntime does before it runs the runtime.
+	discover := func(in definitionTestInputs, name string) (dagql.ObjectResult[*core.Module], string) {
 		mod, op, err := s.moduleDefinitionDiscovery(ctx, in.source, in.runtime, in.schema, name)
 		require.NoError(t, err)
-		require.NotEmpty(t, mod.AsModuleVariantDigest)
 		operation, err := sdk.ScopeModuleForSDKOperation(ctx, mod, op, srv)
 		require.NoError(t, err)
+		return operation, op
+	}
+	scope := func(in definitionTestInputs, name string) scopes {
+		operation, op := discover(in, name)
 		current, err := core.ImplementationScopedModule(ctx, operation)
 		require.NoError(t, err)
 		require.True(t, current.Self().Runtime.Valid)
 		return scopes{op: op, operation: persistedID(t, cache, operation), currentModule: persistedID(t, cache, current), runtime: persistedID(t, cache, current.Self().Runtime.Value)}
 	}
+	// currentModule selects Query.currentModule and its name with operation
+	// as the running function's module, through the real dynamic-input key.
+	currentModule := func(operation dagql.ObjectResult[*core.Module]) (string, uint64) {
+		server.current.Store(&operation)
+		var current dagql.ObjectResult[*core.CurrentModule]
+		require.NoError(t, srv.Select(ctx, srv.Root(), &current, dagql.Selector{Field: "currentModule"}))
+		var name dagql.String
+		require.NoError(t, srv.Select(ctx, current, &name, dagql.Selector{Field: "name"}))
+		require.True(t, current.Self().Module.Self().Runtime.Valid)
+		return string(name), persistedID(t, cache, current.Self().Module.Self().Runtime.Value)
+	}
+
 	first := scope(base, "demo")
 	require.Equal(t, first, scope(base, "demo"), "equal inputs share the operation scope and the current module")
 	require.Equal(t, persistedID(t, cache, base.runtime), first.runtime)
@@ -231,6 +272,27 @@ func TestModuleDefinitionScopeCoversInputs(t *testing.T) {
 	viaOtherSchema := scope(otherSchema, "demo")
 	require.NotEqual(t, first.operation, viaOtherSchema.operation, "a different schema file is a different operation scope")
 	require.NotEqual(t, first.currentModule, viaOtherSchema.currentModule)
+
+	// The behavior an SDK sees: the same source loaded under two names
+	// answers currentModule.name with each name, in one session, and the
+	// first selection is unchanged after the second.
+	demoOperation, _ := discover(base, "demo")
+	renamedOperation, _ := discover(base, "renamed")
+	name, runtime := currentModule(demoOperation)
+	require.Equal(t, "demo", name)
+	require.Equal(t, persistedID(t, cache, base.runtime), runtime)
+	name, _ = currentModule(renamedOperation)
+	require.Equal(t, "renamed", name, "the renamed load's current module is not the first load's")
+	name, _ = currentModule(demoOperation)
+	require.Equal(t, "demo", name, "the original selection still answers its own name")
+	otherRuntimeOperation, _ := discover(otherRuntime, "demo")
+	name, runtime = currentModule(otherRuntimeOperation)
+	require.Equal(t, "demo", name)
+	require.Equal(t, persistedID(t, cache, otherRuntime.runtime), runtime, "the other runtime's current module carries that runtime")
+	otherSchemaOperation, _ := discover(otherSchema, "demo")
+	_, runtime = currentModule(otherSchemaOperation)
+	require.Equal(t, persistedID(t, cache, base.runtime), runtime)
+	require.NotEqual(t, persistedID(t, cache, otherSchemaOperation), persistedID(t, cache, demoOperation))
 
 	// The identity is portable: it is made of recipe digests, so a result
 	// referenced by a handle names the same definition.
