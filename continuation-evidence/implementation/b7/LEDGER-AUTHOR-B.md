@@ -145,3 +145,12 @@ Boot wipe investigation. All on the working tree of `770e9de2b5` plus the uncomm
 | 23 | the same with the lease sync disabled by a temporary edit, restored and diffed afterwards | same command | 90 / 210 s | FAIL as intended, all three kinds, at the first mount after the collection; `boot-wipe/test-without-sync.log` | 22 s with build |
 | 24 | working tree with the fix | `go test -timeout 90s -count=1 ./core ./core/schema` | 90 / 210 s | `core/schema` ok; `core` FAIL: `TestContainerMetadataOnlyMountMutationParts` mounts an initialised volume with no Query in the context and the helper looked the Query up first | 30 s |
 | 25 | the Query lookup made lazy; this is the tree committed as `16786b5fe3` | `go test -timeout 90s -count=1 ./core` | 90 / 210 s | ok. `core/schema` not rerun: its only change is the one call in `host.go`, vetted | 33 s |
+
+Slice 3, on the integrated tip `0fca47daa7` (merge of A's `3af661532a`), clean tree.
+
+| # | Tree | Command | Test / process | Result | Wall |
+| --- | --- | --- | --- | --- | --- |
+| 26 | `0fca47daa7` | `go test -json -timeout 90s ./dagql ./core ./core/schema ./engine/server ./engine/snapshots ./engine/engineutil ./engine/engineutil/imageexport` | 90 / 210 s | 3057 pass, 1 skip (the base's TODO), 0 fail; `logs-author-b/slice3/seven-packages.txt` | 47.2 |
+| 27 | `0fca47daa7` | `go test -race -timeout 180s -run '^(TestPartProgressRule\|TestPartVersionRefusal\|TestCommitReadyPartChangedRefusals\|TestPublishEvaluatedParts\|TestDemandPartStopsWithoutProgress\|TestInstallChainPart\|TestPartReselectWatch\|TestPartRefusalNamesItsSite\|TestPartSourceScan\|TestPartInlineAddress\|TestSnapshotSharing\|TestExportDuringAnActiveTask\|TestTransferFixture)' ./dagql` | 180 / 300 s | ok | 68.4 (6.0 t) |
+| 28 | `0fca47daa7` | `_EXPERIMENTAL_DAGGER_RUNNER_HOST=container://remote-cache-b7-engine timeout 1260 dagger api call engine-dev test --pkg ./core/integration --run='^TestRemoteCacheTransferSuite/(…sixteen names…)$' --test-verbose --timeout=15m --env-file=file:/tmp/b7/dump-5m.env` (full selection in the log) | 15 m / 1260 s | pass, exit 0; load 10.4, 24.4, 37.3 at start, 36.6, 53.8, 47.8 at end | 822 |
+| P7 | `b7-packaging/remote-cache/b7-verification` | none: not checked out; its tree is the tree of rows 26 to 28 without evidence, verified by `git diff` | – | tree equal | – |
