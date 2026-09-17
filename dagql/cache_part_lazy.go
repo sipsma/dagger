@@ -28,7 +28,7 @@ func (p *partCleanup) release(ctx context.Context) error {
 	p.done = true
 	return nil
 }
-func (c *Cache) publishEvaluatedParts(ctx context.Context, res AnyResult, demanded PersistedPartAddress, produced PersistedRecord, original *OriginalPermit, cleanup *partCleanup) error {
+func (c *Cache) publishEvaluatedParts(ctx context.Context, res AnyResult, demanded PersistedPartAddress, produced PersistedRecord, original *OriginalPermit, cleanup *partCleanup, demand *PartDemandState) error {
 	watch := partReselectWatch{loop: "publishEvaluatedParts"}
 	for {
 		if err := context.Cause(ctx); err != nil {
@@ -38,6 +38,9 @@ func (c *Cache) publishEvaluatedParts(ctx context.Context, res AnyResult, demand
 		prepared, err := c.prepareEvaluatedParts(ctx, res, demanded, produced, original, cleanup)
 		if partCanReselect(err) {
 			watch.refused(err)
+			if stuck := demand.refused(watch.loop, watch.n, demanded, err); stuck != nil {
+				return stuck
+			}
 			continue
 		}
 		if err != nil {
@@ -52,6 +55,9 @@ func (c *Cache) publishEvaluatedParts(ctx context.Context, res AnyResult, demand
 		}
 		if partCanReselect(err) {
 			watch.refused(err)
+			if stuck := demand.refused(watch.loop, watch.n, demanded, err); stuck != nil {
+				return stuck
+			}
 			continue
 		}
 		return err
@@ -81,7 +87,7 @@ func (c *Cache) prepareEvaluatedParts(ctx context.Context, res AnyResult, demand
 	if group == nil || group.phase != LazyEvaluationRunning || group.task != original.task {
 		original.gate.mu.Unlock()
 		c.egraphMu.Unlock()
-		return nil, ErrPartReselect
+		return nil, partRefused("publish: own group not running")
 	}
 	p.permit = original.gate.newPermit(original.task, demanded, true)
 	original.gate.mu.Unlock()

@@ -202,6 +202,10 @@ type partCandidate struct {
 	probe   *PartProbe
 	offer   *PersistedPartOffer
 	owner   *offerOwner
+	// unready is set when the row could not be captured in this scan. It has
+	// no validated record, so nothing about it may be selected, its offer
+	// included.
+	unready bool
 }
 type partSourceFacts struct {
 	payload, gate, offers, resources, ownership uint64
@@ -508,6 +512,14 @@ func (c *Cache) scanPartSources(ctx context.Context, receiver AnyResult, address
 		candidate := &candidates[i]
 		candidate.record, candidate.version, candidate.probe, err = c.probePart(ctx, candidate.row, address)
 		if errors.Is(err, ErrPersistStateNotReady) {
+			// What holds the receiver is another capture or a sibling part's
+			// publication, which concurrent demands of one row make ordinary
+			// and which ends soon: scan again. Another row can stay unready
+			// for as long as its own evaluation runs, so it is passed over.
+			if candidate.row == row {
+				return nil, nil, partRefusedBy("scan: receiver not ready", err)
+			}
+			candidate.record, candidate.version, candidate.probe, candidate.unready = PersistedRecord{}, capturedRowRevision{}, nil, true
 			continue
 		}
 		if err != nil {
@@ -519,6 +531,9 @@ func (c *Cache) scanPartSources(ctx context.Context, receiver AnyResult, address
 	rank := PartRunnable
 	for i := range candidates {
 		candidate := &candidates[i]
+		if candidate.unready {
+			continue
+		}
 		p := candidate.probe
 		r := PartRunnable
 		if p != nil && p.LocalComplete && !p.Busy {
@@ -528,7 +543,7 @@ func (c *Cache) scanPartSources(ctx context.Context, receiver AnyResult, address
 		}
 		if p != nil && candidate.row == row && p.LocalComplete {
 			if p.Busy {
-				return nil, candidates, ErrPartReselect
+				return nil, candidates, partRefused("scan: own part complete but busy")
 			}
 			best = i
 			rank = PartReady
@@ -543,7 +558,7 @@ func (c *Cache) scanPartSources(ctx context.Context, receiver AnyResult, address
 		candidate := &candidates[i]
 		if candidate.probe != nil {
 			if err := candidate.version.check(candidate.row); err != nil {
-				return nil, candidates, ErrPartReselect
+				return nil, candidates, candidate.version.changed("scan: candidate version", candidate.row)
 			}
 		}
 	}
@@ -552,7 +567,7 @@ func (c *Cache) scanPartSources(ctx context.Context, receiver AnyResult, address
 		candidate := &candidates[i]
 		if candidate.facts != c.partFactsLocked(candidate.row) || !c.sessionSatisfiesResourceRequirementsLocked(session, candidate.row) {
 			c.egraphMu.Unlock()
-			return nil, candidates, ErrPartReselect
+			return nil, candidates, partRefused("scan: candidate facts or session")
 		}
 	}
 	if best < 0 {
@@ -569,7 +584,7 @@ func (c *Cache) scanPartSources(ctx context.Context, receiver AnyResult, address
 	}
 	if !eligible {
 		c.egraphMu.Unlock()
-		return nil, candidates, ErrPartReselect
+		return nil, candidates, partRefused("scan: selected row no longer a candidate")
 	}
 	source = &PartSourceLease{cache: c, sourceID: uint64(selected.row.id), target: clonePartAddress(address), readiness: rank, route: selected.route, record: selected.record, version: selected.version, facts: selected.facts, lookup: lookup, sessionID: session, offerRev: selected.facts.offers}
 	if rank == PartReady {
@@ -582,7 +597,7 @@ func (c *Cache) scanPartSources(ctx context.Context, receiver AnyResult, address
 	} else {
 		if !c.offerAllowedLocked(session, selected.owner) {
 			c.egraphMu.Unlock()
-			return nil, candidates, ErrPartReselect
+			return nil, candidates, partRefused("scan: offer owner not allowed")
 		}
 		source.offerOwner = selected.owner
 		selected.owner = nil
@@ -617,6 +632,8 @@ type PartDemandState struct {
 	// revision changes only on exhaustion; SourceCheck treats a change as stale.
 	revision uint64
 	renewals map[renewalEpisodeKey]*renewalEpisode
+	// progress is what the progress rule has recorded for this demand.
+	progress map[partProgressKey]partProgressSeen
 }
 
 func partContentKey(id sharedResultID, address PersistedPartAddress, offer *PersistedPartOffer, revision uint64) string {
@@ -693,7 +710,7 @@ func (c *Cache) newSessionlessPartSourceLease(ctx context.Context, receiver, don
 		return nil, err
 	}
 	if probe.captured == nil {
-		return nil, ErrPartReselect
+		return nil, partRefused("sessionless source: probe without capture")
 	}
 	if err := probe.captured.version.check(donor); err != nil {
 		return nil, err
@@ -714,7 +731,7 @@ func (c *Cache) newSessionlessPartSourceLeaseLocked(ctx context.Context, receive
 	// which for an ordinary demand is also the first candidate.
 	now := time.Now().Unix()
 	if partRowExpired(receiver, now) || partRowExpired(donor, now) {
-		return nil, ErrPartReselect
+		return nil, partRefused("sessionless source: row expired")
 	}
 	if _, err := partAddressKey(target); err != nil {
 		return nil, err
@@ -725,14 +742,14 @@ func (c *Cache) newSessionlessPartSourceLeaseLocked(ctx context.Context, receive
 	}
 	probedKey, err := partAddressKey(probe.Descriptor.Address)
 	if err != nil || key != probedKey || !probe.LocalComplete || probe.Busy || probe.captured == nil || probe.captured.row != donor {
-		return nil, ErrPartReselect
+		return nil, partRefused("sessionless source: probe not usable")
 	}
 
 	// Resource filtering is performed below using only the receiver's current
 	// own set. The normal collector and foreground session filter stay intact.
 	route, eligible := c.sessionlessPartEquivalentLocked(receiver, donor, lookup)
 	if !eligible || !c.ownPartRequirementsFitLocked(receiver, donor) {
-		return nil, ErrPartReselect
+		return nil, partRefused("sessionless source: donor not eligible")
 	}
 	source := &PartSourceLease{cache: c, source: donor, sourceID: uint64(donor.id), descriptor: probe.Descriptor, target: clonePartAddress(target), readiness: PartReady, route: route, sessionlessShare: true, record: probe.captured.record, version: probe.captured.version, lookup: lookup, facts: c.partFactsLocked(donor)}
 	source.descriptor = source.Descriptor()
@@ -741,7 +758,7 @@ func (c *Cache) newSessionlessPartSourceLeaseLocked(ctx context.Context, receive
 	source.descriptor.DependencyIDs = slices.Compact(source.descriptor.DependencyIDs)
 	for _, id := range source.descriptor.DependencyIDs {
 		if !c.ownPartRequirementsFitLocked(receiver, c.resultsByID[sharedResultID(id)]) {
-			return nil, ErrPartReselect
+			return nil, partRefused("sessionless source: dependency exceeds receiver requirements")
 		}
 	}
 	source.offerRev = source.facts.offers
@@ -750,7 +767,7 @@ func (c *Cache) newSessionlessPartSourceLeaseLocked(ctx context.Context, receive
 	source.donated = c.partDonatedFactsLocked(donor, key, address, source.descriptor.SnapshotID)
 	// A donated snapshot must be owned by the donor now, not merely desired.
 	if source.descriptor.SnapshotID != "" && !source.donated.ownerLink {
-		return nil, ErrPartReselect
+		return nil, partRefused("sessionless source: donor does not own the snapshot")
 	}
 	c.incrementIncomingOwnershipLocked(ctx, donor)
 	return source, nil

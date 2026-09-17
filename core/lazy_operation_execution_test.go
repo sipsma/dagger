@@ -11,8 +11,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
+	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -28,7 +29,6 @@ import (
 	"github.com/moby/locker"
 	"github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/sys/unix"
 )
 
 type operationExecutionServer struct {
@@ -36,11 +36,9 @@ type operationExecutionServer struct {
 	srv     *dagql.Server
 	store   content.Store
 	builtin content.Store
-	mountNS *os.File
 	locker  *locker.Locker
 }
 
-func (s *operationExecutionServer) CleanMountNS() *os.File                        { return s.mountNS }
 func (s *operationExecutionServer) Locker() *locker.Locker                        { return s.locker }
 func (s *operationExecutionServer) DNS() *oci.DNSConfig                           { return &oci.DNSConfig{} }
 func (s *operationExecutionServer) Server(context.Context) (*dagql.Server, error) { return s.srv, nil }
@@ -49,6 +47,15 @@ func (s *operationExecutionServer) BuiltinOCIStore() content.Store              
 func (s *operationExecutionServer) Platform() Platform {
 	return Platform{OS: "linux", Architecture: "amd64"}
 }
+
+// foldedIntoNative marks a test whose production path mounts read-only or
+// enters a mount namespace, which no unit test may need. Its rows are owed by
+// the named case in core/integration, and the test is deleted when that case
+// lands. The skip is unconditional: it does not depend on who runs the test.
+func foldedIntoNative(t *testing.T, native string) {
+	t.Helper()
+	t.Skipf("folded into native %s; deleted when that case lands", native)
+}
 func executionFixture(t *testing.T) (context.Context, *testutil.Store, *dagql.Cache, *dagql.Server, *operationExecutionServer) {
 	t.Helper()
 	store := testutil.NewStore(t)
@@ -56,29 +63,6 @@ func executionFixture(t *testing.T) (context.Context, *testutil.Store, *dagql.Ca
 	query, err := CurrentQuery(ctx)
 	require.NoError(t, err)
 	server := &operationExecutionServer{cacheVolumeTestQueryServer: &cacheVolumeTestQueryServer{mockServer: &mockServer{}, cacheManager: store.Manager}, srv: srv, store: store.Content}
-	type namespaceResult struct {
-		file *os.File
-		err  error
-	}
-	created := make(chan namespaceResult, 1)
-	go func() {
-		runtime.LockOSThread()
-		// Exiting this goroutine retires the thread with its private mount namespace.
-		if err := unix.Unshare(unix.CLONE_NEWNS); err != nil {
-			created <- namespaceResult{err: err}
-			return
-		}
-		if err := unix.Mount("", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
-			created <- namespaceResult{err: err}
-			return
-		}
-		file, err := os.Open("/proc/thread-self/ns/mnt")
-		created <- namespaceResult{file: file, err: err}
-	}()
-	namespace := <-created
-	require.NoError(t, namespace.err)
-	server.mountNS = namespace.file
-	t.Cleanup(func() { require.NoError(t, server.mountNS.Close()) })
 	server.locker = locker.New()
 	query.Server = server
 	srv.InstallObject(dagql.NewClass[*HTTPState](srv))
@@ -86,6 +70,37 @@ func executionFixture(t *testing.T) (context.Context, *testutil.Store, *dagql.Ca
 		return &HTTPState{URL: args.URL}, nil
 	}).IsPersistable()}.Install(srv)
 	return ctx, store, cache, srv, server
+}
+
+// inUmaskChild lets a subtest run under a umask without changing the umask of
+// the test process, which every other test shares. In the test process it
+// re-executes the test binary for just this subtest, with a deadline, requires
+// the child to pass and returns false. In that child it sets the umask, which
+// dies with the process, and returns true, and the caller runs its body.
+func inUmaskChild(t *testing.T, mask int) bool {
+	t.Helper()
+	const marker = "DAGGER_TEST_UMASK_CHILD"
+	const ran = "umask child ran its body"
+	if os.Getenv(marker) == t.Name() {
+		syscall.Umask(mask)
+		// A pattern that matched no test would also exit zero.
+		t.Cleanup(func() { fmt.Println(ran) })
+		return true
+	}
+	var pattern []string
+	for _, name := range strings.Split(t.Name(), "/") {
+		pattern = append(pattern, "^"+regexp.QuoteMeta(name)+"$")
+	}
+	// The child's own timeout fires first, so a hung child prints its stacks
+	// before this deadline kills it.
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	child := exec.CommandContext(ctx, os.Args[0], "-test.run="+strings.Join(pattern, "/"), "-test.count=1", "-test.timeout=20s")
+	child.Env = append(os.Environ(), marker+"="+t.Name())
+	output, err := child.CombinedOutput()
+	require.NoError(t, err, "%s", output)
+	require.Contains(t, string(output), ran, "%s", output)
+	return false
 }
 func freshLazyOperationFile() *File {
 	return &File{Platform: Platform{OS: "linux", Architecture: "arm64"}, File: new(LazyAccessor[string, *File]), Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *File])}
@@ -101,24 +116,57 @@ func decodedHTTPLazyOperation(t *testing.T, ctx context.Context, lazy *FileHTTPR
 	require.NoError(t, err)
 	return decoded.(*FileHTTPResolveLazy)
 }
+
+// demandedFileContents demands a File's snapshot and path the way
+// File.Contents does, then reads the bytes in the test store's snapshot
+// directory. File.Contents itself reads through a read-only mount, which a
+// unit test must not need.
+func demandedFileContents(t *testing.T, ctx context.Context, result dagql.ObjectResult[*File]) []byte {
+	t.Helper()
+	snapshot, err := result.Self().Snapshot.GetOrEval(ctx, result.Result)
+	require.NoError(t, err)
+	name, err := result.Self().File.GetOrEval(ctx, result.Result)
+	require.NoError(t, err)
+	path, err := RootPathWithoutFinalSymlink(testutil.Root(t, snapshot), name)
+	require.NoError(t, err)
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return data
+}
+
+// demandedDirectoryEntries is the Directory.Entries counterpart.
+func demandedDirectoryEntries(t *testing.T, ctx context.Context, result dagql.ObjectResult[*Directory], sub string) []string {
+	t.Helper()
+	snapshot, err := result.Self().Snapshot.GetOrEval(ctx, result.Result)
+	require.NoError(t, err)
+	dir, err := result.Self().Dir.GetOrEval(ctx, result.Result)
+	require.NoError(t, err)
+	if snapshot == nil {
+		return nil
+	}
+	entries, err := os.ReadDir(filepath.Join(testutil.Root(t, snapshot), dir, sub))
+	require.NoError(t, err)
+	var names []string
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	return names
+}
 func producedFileContents(t *testing.T, ctx context.Context, file *File) ([]byte, os.FileInfo) {
 	t.Helper()
 	name, snapshot, err := fileOutput(file)
 	require.NoError(t, err)
+	path, err := RootPathWithoutFinalSymlink(testutil.Root(t, snapshot), name)
+	require.NoError(t, err)
+	info, err := os.Stat(path)
+	require.NoError(t, err)
 	var data []byte
-	var info os.FileInfo
-	require.NoError(t, MountRef(ctx, snapshot, func(root string, _ *mount.Mount) error {
-		path, err := RootPathWithoutFinalSymlink(root, name)
-		if err != nil {
-			return err
-		}
+	// Only root can read a file whose mode grants no read permission, so a
+	// mode-0 file is checked by its mode and time and not by its bytes.
+	if info.Mode().Perm()&0400 != 0 {
 		data, err = os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		info, err = os.Stat(path)
-		return err
-	}))
+		require.NoError(t, err)
+	}
 	return data, info
 }
 func TestHTTPLazyOperationEvaluate(t *testing.T) {
@@ -240,8 +288,9 @@ func TestHTTPLazyOperationWriter(t *testing.T) {
 		}
 	}
 	t.Run("restrictive umask", func(t *testing.T) {
-		old := syscall.Umask(0077)
-		defer syscall.Umask(old)
+		if !inUmaskChild(t, 0077) {
+			return
+		}
 		output := freshLazyOperationFile()
 		operation := &FileHTTPResolveLazy{LazyState: NewLazyState(), URL: origin.URL, Filename: "data", Permissions: 0755, BodyDigest: digest.FromString("saved")}
 		require.NoError(t, operation.Evaluate(ctx, output))
@@ -250,8 +299,9 @@ func TestHTTPLazyOperationWriter(t *testing.T) {
 		require.EqualValues(t, 0755, info.Mode().Perm())
 	})
 	t.Run("public eager layout", func(t *testing.T) {
-		old := syscall.Umask(0)
-		defer syscall.Umask(old)
+		if !inUmaskChild(t, 0) {
+			return
+		}
 		for _, name := range []string{"data", "/data", "../data", "a/../data", "./data"} {
 			output, err := FetchHTTPFile(ctx, query, FetchHTTPRequestOpts{URL: origin.URL, Filename: name, Permissions: 0644, AuthorizationHeader: "saved-auth"})
 			require.NoError(t, err)
@@ -260,16 +310,13 @@ func TestHTTPLazyOperationWriter(t *testing.T) {
 			path, snapshot, err := fileOutput(output.File)
 			require.NoError(t, err)
 			require.Equal(t, name, path)
-			require.NoError(t, MountRef(ctx, snapshot, func(root string, _ *mount.Mount) error {
-				data, err := os.ReadFile(filepath.Join(root, "data"))
-				if name == "../data" {
-					require.ErrorIs(t, err, os.ErrNotExist)
-				} else {
-					require.NoError(t, err)
-					require.Equal(t, "saved", string(data))
-				}
-				return nil
-			}))
+			data, err := os.ReadFile(filepath.Join(testutil.Root(t, snapshot), "data"))
+			if name == "../data" {
+				require.ErrorIs(t, err, os.ErrNotExist)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, "saved", string(data))
+			}
 			require.NoError(t, output.File.OnRelease(ctx))
 		}
 	})

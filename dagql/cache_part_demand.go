@@ -158,6 +158,13 @@ func (c *Cache) demandPart(ctx context.Context, res AnyResult, address Persisted
 		outer.again(ctx, res.cacheSharedResult(), address)
 		err := c.RunLazyTask(ctx, res, partTaskKey("acquire", address), LazyTaskSpec{Body: func(ctx context.Context) error {
 			watch := partReselectWatch{loop: "demandPart acquire"}
+			// retry notes a refusal in the reselect class that is about to be
+			// retried. It returns an error when the progress rule forbids the
+			// retry.
+			retry := func(err error) error {
+				watch.refused(err)
+				return demand.refused(watch.loop, watch.n, address, err)
+			}
 			for {
 				if err := context.Cause(ctx); err != nil {
 					return err
@@ -177,7 +184,7 @@ func (c *Cache) demandPart(ctx context.Context, res AnyResult, address Persisted
 				}
 				record, _, probe, err := c.probePart(ctx, row, address)
 				if errors.Is(err, ErrPersistStateNotReady) {
-					return ErrPartReselect
+					return partRefusedBy("demand: receiver probe not ready", err)
 				}
 				if err != nil {
 					return err
@@ -210,7 +217,9 @@ func (c *Cache) demandPart(ctx context.Context, res AnyResult, address Persisted
 				}
 				source, pendingParent, err := c.selectDemandPartSource(ctx, res, address, route)
 				if partCanReselect(err) {
-					watch.refused(err)
+					if stuck := retry(err); stuck != nil {
+						return stuck
+					}
 					continue
 				}
 				if err != nil {
@@ -233,7 +242,7 @@ func (c *Cache) demandPart(ctx context.Context, res AnyResult, address Persisted
 					var ownership atomic.Uint32 // 0 caller, 1 body, 2 caller released before body entry
 					err = c.RunLazyTask(ctx, res, partTaskKey("obtain", address), LazyTaskSpec{Body: func(ctx context.Context) (rerr error) {
 						if !ownership.CompareAndSwap(0, 1) {
-							return ErrPartReselect
+							return partRefused("obtain: source released before the body entered")
 						}
 						defer func() { rerr = errors.Join(rerr, source.Release(context.WithoutCancel(ctx))) }()
 						permit, outcome, err := c.TryAcquire(ctx, res, address, PartTaskFromContext(ctx))
@@ -244,7 +253,7 @@ func (c *Cache) demandPart(ctx context.Context, res AnyResult, address Persisted
 							return errLazyEvaluationBusy
 						}
 						if outcome != GateGranted {
-							return ErrPartReselect
+							return partRefused("obtain: already installed")
 						}
 						if source.readiness == PartDownloadable {
 							return c.installChainPart(ctx, res, source, permit, demand)
@@ -257,8 +266,13 @@ func (c *Cache) demandPart(ctx context.Context, res AnyResult, address Persisted
 					if errors.Is(err, errLazyEvaluationBusy) {
 						err = c.joinLazyEvaluation(ctx, res, address)
 					}
-					if err == nil || partCanReselect(err) {
-						watch.refused(err)
+					if err == nil {
+						continue
+					}
+					if partCanReselect(err) {
+						if stuck := retry(err); stuck != nil {
+							return stuck
+						}
 						continue
 					}
 					return err
@@ -266,7 +280,9 @@ func (c *Cache) demandPart(ctx context.Context, res AnyResult, address Persisted
 				if pendingParent != nil {
 					if err := c.demandDelegatedParent(ctx, pendingParent); err != nil {
 						if partCanReselect(err) {
-							watch.refused(err)
+							if stuck := retry(err); stuck != nil {
+								return stuck
+							}
 							continue
 						}
 						return errors.Join(demand.causes(), err)
@@ -278,7 +294,9 @@ func (c *Cache) demandPart(ctx context.Context, res AnyResult, address Persisted
 				}
 				err = c.runLazyOperationDecision(ctx, res, address, route, demand)
 				if partCanReselect(err) {
-					watch.refused(err)
+					if stuck := retry(err); stuck != nil {
+						return stuck
+					}
 					continue
 				}
 				if err != nil {
@@ -349,12 +367,12 @@ func (c *Cache) CheckPartSources(ctx context.Context, res AnyResult, address Per
 		return PartSourceScan{}, fmt.Errorf("source scan: wrong drain")
 	}
 	if !c.sourceCheckCurrentLocked(check) {
-		return PartSourceScan{}, ErrPartReselect
+		return PartSourceScan{}, partRefused("source check: candidates or demand changed")
 	}
 	drain.gate.mu.Lock()
 	defer drain.gate.mu.Unlock()
 	if !drain.currentLocked() || !drain.drainedLocked() {
-		return PartSourceScan{}, ErrPartReselect
+		return PartSourceScan{}, partRefused("source check: drain not current or not drained")
 	}
 	check.gateRevision = drain.gate.revision
 	return PartSourceScan{NoSource: check}, nil
@@ -396,7 +414,7 @@ func (c *Cache) runLazyOperationDecision(ctx context.Context, res AnyResult, add
 			return fmt.Errorf("operation consumed without required output %s", address.Part)
 		}
 		if outcome != GateGranted {
-			return ErrPartReselect
+			return partRefused("decision: another evaluation owns the write set")
 		}
 		if err := drain.Wait(ctx); err != nil {
 			return err
@@ -454,6 +472,11 @@ func (c *Cache) runLazyOperationDecision(ctx context.Context, res AnyResult, add
 					err = c.InstallReadyPart(ctx, res, scan.Source, permit)
 				}
 				if partCanReselect(err) {
+					// The second scan's refusal would otherwise reach the demand
+					// as this loop's own, which names no counters.
+					if stuck := demand.refused("runLazyOperationDecision", uint64(scanAttempt)+1, address, err); stuck != nil {
+						return stuck
+					}
 					continue
 				}
 				return err
@@ -473,7 +496,7 @@ func (c *Cache) runLazyOperationDecision(ctx context.Context, res AnyResult, add
 				return err
 			}
 			if outcome != GateGranted {
-				return ErrPartReselect
+				return partRefused("decision: final source check refused")
 			}
 			lazyEvent.Point = FixtureOriginalSealed
 			if err := c.fixtureReach(ctx, lazyEvent); err != nil {
@@ -501,9 +524,9 @@ func (c *Cache) runLazyOperationDecision(ctx context.Context, res AnyResult, add
 			if err != nil {
 				return err
 			}
-			return c.publishEvaluatedParts(ctx, res, address, produced, original, cleanup)
+			return c.publishEvaluatedParts(ctx, res, address, produced, original, cleanup, demand)
 		}
-		return ErrPartReselect
+		return partRefused("decision: both scans refused")
 	}})
 }
 
@@ -521,14 +544,14 @@ func (c *Cache) joinLazyEvaluation(ctx context.Context, res AnyResult, address P
 	}
 	gate.mu.Unlock()
 	if token == nil {
-		return ErrPartReselect
+		return partRefused("join: no running evaluation to join")
 	}
 	if !isPartTaskKey(token.key) {
 		return c.joinPartInstallation(ctx, res, token)
 	}
-	err := c.RunLazyTask(ctx, res, token.key, LazyTaskSpec{Body: func(context.Context) error { return ErrPartReselect }})
+	err := c.RunLazyTask(ctx, res, token.key, LazyTaskSpec{Body: func(context.Context) error { return partRefused("join: joined evaluation body") }})
 	if err != nil {
 		return err
 	}
-	return ErrPartReselect
+	return partRefused("join: joined evaluation finished")
 }

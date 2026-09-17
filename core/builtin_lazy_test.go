@@ -15,7 +15,7 @@ import (
 )
 
 func TestBuiltinLazyOperationEvaluate(t *testing.T) {
-	ctx, store, cache, srv, server := executionFixture(t)
+	ctx, store, cache, _, server := executionFixture(t)
 	packaged, err := local.NewStore(t.TempDir())
 	require.NoError(t, err)
 	server.builtin = packaged
@@ -61,17 +61,15 @@ func TestBuiltinLazyOperationEvaluate(t *testing.T) {
 	missing, err := decodeContainerBuiltinLazy(raw)
 	require.NoError(t, err)
 	require.ErrorContains(t, missing.Evaluate(ctx, NewContainer(requested)), "lookup builtin image manifest")
-	t.Run("empty patch without operation", func(t *testing.T) {
-		before, _ := store.Build(t, nil, "data", "before\n")
-		after, err := store.Manager.GetBySnapshotID(ctx, before.SnapshotID())
-		require.NoError(t, err)
-		change, err := NewChangeset(ctx,
-			operationDirectoryResult(t, ctx, cache, srv, "patchBefore", "/", before),
-			operationDirectoryResult(t, ctx, cache, srv, "patchAfter", "/", after))
-		require.NoError(t, err)
-		patch, err := change.AsPatch(ctx)
-		require.NoError(t, err)
-		defer patch.OnRelease(ctx)
+	t.Run("eager file without operation", func(t *testing.T) {
+		// Changeset.AsPatch returns an eager File like this one. It mounts both
+		// sides to run git, so its bytes belong to ChangesetSuite's
+		// TestChangesAsPatch; what stays here is that such a File is saved
+		// with no operation.
+		ref, _ := store.Build(t, nil, "changes.patch", "")
+		patch := freshLazyOperationFile()
+		patch.SetPath("/changes.patch")
+		patch.SetSnapshot(ref)
 		body, _ := producedFileContents(t, ctx, patch)
 		require.Empty(t, body)
 		require.Nil(t, patch.Lazy)
