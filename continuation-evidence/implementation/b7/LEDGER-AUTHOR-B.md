@@ -154,3 +154,13 @@ Slice 3, on the integrated tip `0fca47daa7` (merge of A's `3af661532a`), clean t
 | 27 | `0fca47daa7` | `go test -race -timeout 180s -run '^(TestPartProgressRule\|TestPartVersionRefusal\|TestCommitReadyPartChangedRefusals\|TestPublishEvaluatedParts\|TestDemandPartStopsWithoutProgress\|TestInstallChainPart\|TestPartReselectWatch\|TestPartRefusalNamesItsSite\|TestPartSourceScan\|TestPartInlineAddress\|TestSnapshotSharing\|TestExportDuringAnActiveTask\|TestTransferFixture)' ./dagql` | 180 / 300 s | ok | 68.4 (6.0 t) |
 | 28 | `0fca47daa7` | `_EXPERIMENTAL_DAGGER_RUNNER_HOST=container://remote-cache-b7-engine timeout 1260 dagger api call engine-dev test --pkg ./core/integration --run='^TestRemoteCacheTransferSuite/(…sixteen names…)$' --test-verbose --timeout=15m --env-file=file:/tmp/b7/dump-5m.env` (full selection in the log) | 15 m / 1260 s | pass, exit 0; load 10.4, 24.4, 37.3 at start, 36.6, 53.8, 47.8 at end | 822 |
 | P7 | `b7-packaging/remote-cache/b7-verification` | none: not checked out; its tree is the tree of rows 26 to 28 without evidence, verified by `git diff` | – | tree equal | – |
+
+Slice 3 generic review G1. Working tree on `001cfd02da` plus the fix.
+
+| # | Tree | Command | Test / process | Result | Wall |
+| --- | --- | --- | --- | --- | --- |
+| 29 | fix and new test | `go test ./core -run '^TestImportedBackingSnapshot' -timeout 60s -count=1` | 60 / 210 s | ok | 22.5 (0.65 t) |
+| 30 | the discard disabled by a temporary edit, restored and diffed afterwards | `go test ./core -run '^TestImportedBackingSnapshotIsDroppedWhenItsOwnerAttachFails$' -timeout 60s -count=1` | 60 / 210 s | FAIL as intended, all six schedules: the value still reports the link; `boot-wipe/test-without-discard.log` | 20.7 |
+| 31 | fix restored, assertion tightened to the fixture's fault text; this is `5d3ee071c7` | `go test ./core -run '^TestImportedBackingSnapshot' -timeout 60s -count=1` | 60 / 210 s | ok | 22.6 (1.4 t) |
+| 32 | `5d3ee071c7` | `go test -timeout 90s -count=1 ./core ./core/schema` | 90 / 210 s | ok, ok | 36.2 |
+| P7b | `b7-packaging/remote-cache/b7-verification` rebuilt at `5d3ee071c7` | `package_b7.py` | – | 88 kept, 27 omitted, head `2b34e9e3e7`, tree equal | – |

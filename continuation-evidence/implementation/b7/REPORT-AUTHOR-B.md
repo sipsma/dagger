@@ -296,3 +296,7 @@ Reproduced for all three kinds with real stores and real collection, same boot e
 ## Slice 3: integration, reruns, the native run, packaging and the manifest
 
 A's final tip `3af661532a` (implementation `9c376138c1`) merged as `0fca47daa7`, no conflicts; each of my three fixes is in the tree once (A's `-x` copies were identical); Commit's `beforeCommit` reach already wraps `testBeforePartCommit` at the one site `reachBeforeCommit`. Seven packages, the `-race` selection and the sixteen-test native run all pass at that tip (ledger 26 to 28; the native run at 822 s on a host at load 37 to 54 with two other engines working). Batch 7 is packaged as `b7-packaging/remote-cache/b7-verification` (`cd3b04e401`, 87 commits) by `manifest/package_b7.py`, a different method from batches 1 to 6 because of the five merges; `manifest/BATCH-7.md` is the record and lists the eight corrections to earlier batches for the Human's fold-back decision. A's report is now `REPORT-AUTHOR-A.md`; `REPORT.md` is the batch index.
+
+## Slice 3 generic review G1: fixed in `5d3ee071c7`
+
+The reviewer was right: a failed owner attach left the created snapshot in the value, unowned. Now the failed call drops it and the value is uninitialised again; six schedules in `TestImportedBackingSnapshotIsDroppedWhenItsOwnerAttachFails` fail without the drop. `core` and `core/schema` pass; the other five packages do not contain the change. Packaged branch rebuilt: `2b34e9e3e7`. Ledger 29 to 32.

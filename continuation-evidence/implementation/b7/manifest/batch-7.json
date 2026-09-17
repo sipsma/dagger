@@ -2,17 +2,17 @@
  "batch": "7",
  "title": "integrated verification",
  "integratedParent": "c5b299142ca672cbd2ef0a389492f11de85ff08b",
- "head": "0fca47daa774e64f05ca9aace55378ded38ea103",
- "headTree": "37aaef660b0184cf994bc62e2b973e30532fc97a",
+ "head": "5d3ee071c77fb930142c9a21809d575dd5154f4c",
+ "headTree": "806f18d2454a0f7f163fea3086bb31dac316f432",
  "packaged": {
   "branch": "b7-packaging/remote-cache/b7-verification",
   "onto": "38583498cff7f68147b701b16c5077732cf22b43",
-  "head": "cd3b04e40192251d5f3b46ccaacb817487394c1d",
-  "tree": "12370efce2e9e049719b1ea74d8266c9b129861e"
+  "head": "2b34e9e3e7c6b62f8c6fb15f245a291c8a8989be",
+  "tree": "7195f8a7a9ec4d7da63ec0677e887301f66fcd2a"
  },
  "counts": {
-  "kept": 87,
-  "evidence-only": 23,
+  "kept": 88,
+  "evidence-only": 24,
   "duplicate": 3
  },
  "merges": [
@@ -813,6 +813,20 @@
    "subject": "docs: record batch 7's final native run and the closed boot-wipe finding",
    "class": "evidence-only",
    "paths": 5
+  },
+  {
+   "commit": "001cfd02da6ae03de624b737fac711e8909b3383",
+   "packaged": null,
+   "subject": "docs: batch 7 slice 3 record: integrated runs, packaged branch, manifest and index",
+   "class": "evidence-only",
+   "paths": 12
+  },
+  {
+   "commit": "5d3ee071c77fb930142c9a21809d575dd5154f4c",
+   "packaged": "2b34e9e3e7c6b62f8c6fb15f245a291c8a8989be",
+   "subject": "core: drop a backing snapshot whose owner lease could not be attached",
+   "class": "kept",
+   "paths": 2
   }
  ]
 }
