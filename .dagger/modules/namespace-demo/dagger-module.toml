@@ -1,0 +1,5 @@
+name = "namespace-demo"
+engineVersion = "v1.0.0-beta.13"
+
+[runtime]
+  source = "go"

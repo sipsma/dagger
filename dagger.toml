@@ -276,3 +276,10 @@ is-module = true
 [sdks.go.scopes.".dagger/modules/go"]
 clients = ["./modules/wolfi"]
 is-module = true
+
+[modules.namespace-demo]
+source = ".dagger/modules/namespace-demo"
+
+[sdks.go.scopes.".dagger/modules/namespace-demo"]
+is-module = true
+name = "namespace-demo"
