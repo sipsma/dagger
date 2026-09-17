@@ -112,3 +112,51 @@ Skips in run 5, by name: `core` `TestGitLazyOperationsEvaluate`, `TestGitLazyOpe
 2. The empty-patch subtest's reduced claim: accept, or fold a row somewhere?
 3. The interim unconditional skip: accept until `TestGitTrees` lands?
 4. Should the hook list author A sends include `testBeforePartCommit`, so that one wraps the other at integration?
+
+# Slice 1 corrections and item 3, 17 September, later
+
+Implementation tip `af2ddb4e36`. Authority: the slice 1 consolidation at `c8ece27c7e`, the coordinator's answers to this report's four questions, and design section B6.
+
+## Rulings received
+
+Scan defect: option A stands, accepted by every seat. The empty-patch subtest's reduced claim is accepted permanently: that `Changeset.AsPatch` returns a File with no operation is not covered by any test, and `ChangesetSuite/TestChangesAsPatch` carries the patch bytes. The interim skip on the four folded git tests is accepted until slice 2 only; none may remain at slice 3. `testBeforePartCommit` stays because its tests need the preparation itself, and at integration author A's `beforeCommit` reach wraps it at one call site.
+
+## Corrections
+
+| Item | Commit | What changed |
+| --- | --- | --- |
+| C6 | `6e2d9a780c` | The umask child's `-test.timeout` is 20 s under the parent's 30 s deadline, so a hung child prints its stacks before it is killed. |
+| C7, the invariant | `af2ddb4e36` | The comment beside `PartDemandState.refused` states that a loop which records a refusal never returns it onward into another loop recording into the same demand state, and says which loop records what. I checked each: `publishEvaluatedParts` never returns the class; `installChainPart`'s loop returns only `chain: offer owner not allowed` or `chain: reacquire not granted`, both uncounted; the decision's two scans record what `InstallReadyPart` or `installChainPart` return and then return `decision: both scans refused`; a `CheckPartSources` refusal leaves the decision before the scans record anything and is recorded once by the acquire loop. |
+| C7, the test | `af2ddb4e36` | `TestInstallChainPartRecordsOnce`: a counted Commit refusal inside `installChainPart` inside an obtain Body over a real store leaves exactly one record, and the install then succeeds. `TestInstallChainPartStopsWithoutProgress`: the wrong-expectation shape through the same loop returns the hard error out of the Body with `Loop: installChainPart`. |
+| C8 | below | Every invocation now lists its process bound beside its test timeout. |
+
+**C7, the coordinator's question.** No: no recording site reachable from `installChainPart` compares a source-row counter, so a donor counter that moved once cannot produce `ErrPartNoProgress` there. The loop's rebuilt lease (`cache_part_content.go:628`) is downloadable and carries no source row, no `version` and no `facts`. Of the six recording sites, `commit: donor version` and `commit: donor facts changed` are both inside `source.readiness == PartReady`, `commit: delegation child version` needs a delegation, which the rebuilt lease does not have, and `scan: candidate version` is not in this loop. What remains is `commit: receiver version` and `commit: receiver representation`, which compare the receiver's payload revision captured afresh by each round's `PrepareReadyPart`. The reused `offerRev` is read only by the exhaustion key (`cache_part_content.go:558`), never by a recording site. `TestInstallChainPartRecordsOnce` moves the donor's payload, offer and ownership counters in the same step as the receiver's and asserts one record, keyed by the receiver, and a successful install.
+
+## C9: statements for the record
+
+- **Decision 6's two limits.** A real-store test proves no byte obligation that passes through the stand-in applier, differ or reader: export bytes stay with `TestHostInputs`, applied-layer bytes with `TestPipeline`. And F1 in `engine/snapshots/import_test.go` proves `ImportChain`'s staging of a failing apply or write, not the production applier's own failures, which `TestPipeline/FailedChain`'s malformed-archive subtest carries.
+- **The scan fix's cost.** Under contention on a row, a demand now rescans when the receiver itself could not be captured, and passes over another row that could not, which can run a Lazy operation where a download was possible a moment later. Before, the same contention failed the demand.
+- **The stand-in's size.** `engine/snapshots/testutil/inplace.go` is 253 lines, 40 of them the comment that states its limits. My table's "about 130" was the experiment before it followed containerd's applier and differ step for step.
+- **`scan: receiver not ready`** is an ordinary refusal: it names no counters, so the rule never records it.
+
+## Item 3
+
+| Commit | What it delivers |
+| --- | --- |
+| `6333323d56` | The four `Triggers` observations the designer listed as owed, in process on the batch 6 test family. Rollback inside the indexing interval, by a structural ref collected through the existing `testBeforePublicationIndex` point: the flush still queues the class, holding the survivors and never the removed row. Attachment failure after the early flush, by a value whose attachment hook fails: the cohort's hold is the row's only owner, the pass plans nothing, and releasing the cohort collects the row. Congruence repair: uniting two parents fills an imported child from its sibling. An import and a lookup each queue a class and return while the worker is parked in a pass; exactly two items wait behind it. No new hook: the fault points are an existing field and the test value's own method, and the pass barrier is batch 6's helper over `testBeforeSharePass`, which author A's `reachSharePassTaken` wraps. 20 of 20 repeated runs passed. |
+| `13cb401c51` | F2, the decoder closure: a Service whose Module has a source, a context source, a runtime Container, a dependency Module, and object, interface and enum type definitions, each a hand-attached row, restored encoded and decoded under the marker. No guard trips, the pure factory is asked once per Module (twice), every reference resolves to its exact persisted row. Batch 6's minimal test now shares the two-lives helper. Not covered, as decision 5 says: what only a real SDK load puts in those rows. |
+
+**F2's two leader orders are not delivered yet, and I need a decision.** The orders need a real signal that the second party has *joined* the first's shared decode attempt before the first is released. Without it a test passes vacuously: a joiner that arrives after the attempt finished takes the fast path and everything it can observe is identical. The kernel's join point is `testPersistDecodeJoined` (`dagql/cache_persistence_import.go:707`), an unexported field, and the test must live in `engine/server`, because `dagql` cannot import the Service and Module decoders. Author A's exported barrier mechanism is reachable from `engine/server` and already has `decodeCopied` and `decodeBeforePublish` on the leader's side, but no point on the joiner's. Options:
+1. **Recommended.** Add one point, `decodeJoined`, to A's mechanism at that line, wrapping the existing field as A's other points do. The test then arms `decodeCopied` on the leader and `decodeJoined` on the joiner by row, waits for each to be reached, and releases joiner then leader. I write the test on the integrated branch at slice 2. Either A adds the point or I do at integration; it is five lines in A's pattern.
+2. An exported setter for the join hook on my branch now. It would be a second mechanism beside A's and would be removed at integration. I advise against it.
+3. Deliver the orders only in `dagql`, with a test family standing in for the decoders. `dagql` already tests the shared attempt's join mechanics that way, so this adds nothing about the real decoders, which is the point of F2.
+
+## Ledger, continued
+
+Bounds: "test" is `-timeout`, "process" is the bound on the whole command, compile included. Runs 1 to 5 above were made with process bounds of 240, 300, 400, 400 and 400 s (3r: 600 s; 4a to 4d: 400 to 500 s), which is looser than the rule asks; from here the process bound is the test timeout plus at most 120 s for compilation.
+
+| # | Tree | Command | Test / process bound | Result | Wall |
+| --- | --- | --- | --- | --- | --- |
+| 6 | `af2ddb4e36` | `go test -json ./dagql ./core ./engine/server` | 60 s / 180 s | 2392 pass, 5 skips (4 folded, 1 TODO), 0 fail; slowest `core` 18.1 s | 59.5 s (rebuild) |
+
+Narrow development selections since run 5, each 60 s / 300 s, under 2 s of tests: the four trigger tests, once each while being written and once as `-count=20` (120 s / 300 s, 1.2 s); the two marked decode tests (90 s / 400 s); the two `installChainPart` tests; the writer test after C6. `engine/snapshots`, `engineutil`, `imageexport` and `core/schema` are untouched since run 5 and were not rerun.
