@@ -38,7 +38,8 @@ const (
 	pollBackoffMin = time.Second
 	pollBackoffMax = 30 * time.Second
 	// requestTimeout bounds every request except the poll and the blob
-	// uploads.
+	// uploads, and bounds an upload's wait for response headers once its
+	// whole request has been written.
 	requestTimeout = 30 * time.Second
 	// pollTimeout bounds a poll: the service's wait plus the same margin,
 	// so a dead connection cannot hold the poll loop forever.
@@ -56,22 +57,38 @@ type client struct {
 	cfg        Config
 	baseURL    string
 	instanceID string
-	http       *http.Client
-	adapter    engineAdapter
-	log        *slog.Logger
+	// http sends the JSON requests; each is bounded by its context. uploads
+	// sends the blob PUTs; its transport bounds the response headers at
+	// requestTimeout after the whole request has been written, and nothing
+	// bounds the transfer.
+	http, uploads *http.Client
+	adapter       engineAdapter
+	log           *slog.Logger
 
 	imports, exports *commandQueue
+
+	// testBeforeBodyWait runs in uploadBlob right before it waits for the
+	// transport to close the request body.
+	testBeforeBodyWait func()
 }
 
+// newClient builds the client. A nil transport selects the production
+// transports, clones of http.DefaultTransport; tests pass a scripted
+// RoundTripper, which both clients then share.
 func newClient(cfg Config, instanceID string, transport http.RoundTripper, adapter engineAdapter) *client {
+	api, uploads := transport, transport
 	if transport == nil {
-		transport = http.DefaultTransport
+		api = http.DefaultTransport.(*http.Transport).Clone()
+		uploadTransport := http.DefaultTransport.(*http.Transport).Clone()
+		uploadTransport.ResponseHeaderTimeout = requestTimeout
+		uploads = uploadTransport
 	}
 	return &client{
 		cfg:        cfg,
 		baseURL:    strings.TrimRight(cfg.URL, "/"),
 		instanceID: instanceID,
-		http:       &http.Client{Transport: transport},
+		http:       &http.Client{Transport: api},
+		uploads:    &http.Client{Transport: uploads},
 		adapter:    adapter,
 		log:        slog.With("component", "remote-cache", "engineInstance", instanceID),
 		imports:    newCommandQueue(),

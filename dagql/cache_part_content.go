@@ -624,17 +624,6 @@ func (c *Cache) installChainPart(ctx context.Context, receiver AnyResult, source
 	}
 	counted := &countingContentProvider{InfoReaderProvider: provider}
 	imported, err := c.snapshotManager.ImportChain(ctx, &snapshots.ExportChain{Layers: copied[0].Chain.Layers, Provider: counted})
-	if err == nil {
-		// One line per installed part that came from a download. Layers the
-		// engine already held are not opened on the provider, so the
-		// downloaded count is the layers actually fetched.
-		slog.Info("installed part from remote cache download",
-			"resultID", uint64(receiver.cacheSharedResult().id),
-			"part", partAddressString(source.target),
-			"layers", len(copied[0].Chain.Layers),
-			"layersDownloaded", counted.opened.Load(),
-			"bytesDownloaded", counted.bytes.Load())
-	}
 	if err != nil {
 		if cause := context.Cause(ctx); cause != nil {
 			return cause
@@ -673,7 +662,20 @@ func (c *Cache) installChainPart(ctx context.Context, receiver AnyResult, source
 			receipt, outcome, commitErr := c.CommitReadyPart(ctx, prepared)
 			err = commitErr
 			if outcome == PartInstalled {
-				return errors.Join(err, c.finishReadyPartInline(ctx, receipt))
+				err = errors.Join(err, c.finishReadyPartInline(ctx, receipt))
+				if err == nil {
+					// One line per installed part that came from a download,
+					// after the part is committed. Layers the engine already
+					// held are not opened on the provider, so the downloaded
+					// count is the layers actually fetched.
+					slog.Info("installed part from remote cache download",
+						"resultID", uint64(receiver.cacheSharedResult().id),
+						"part", partAddressString(source.target),
+						"layers", len(copied[0].Chain.Layers),
+						"layersDownloaded", counted.opened.Load(),
+						"bytesDownloaded", counted.bytes.Load())
+				}
+				return err
 			}
 			if outcome == PartInstallRefused && err == nil {
 				err = partRefused("chain: commit refused")

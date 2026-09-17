@@ -621,8 +621,16 @@ func TestClientPollBackoff(t *testing.T) {
 		// Five failures, five waits: 1s, 2s, 4s, 8s, 16s. The sixth poll
 		// passed the failure check and waits for its answer.
 		require.Equal(t, []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second}, gaps(attempts))
+		send := func() {
+			t.Helper()
+			select {
+			case svc.pollAnswers <- protocol.PollResponse{}:
+			case <-time.After(5 * time.Minute):
+				t.Fatal("no poll took the answer")
+			}
+		}
 		recv(svc.pollOpened)
-		svc.pollAnswers <- protocol.PollResponse{}
+		send()
 		// The next poll opens at once; it too waits for an answer. Only then
 		// is the counter changed, so the poll being answered stays a success
 		// and a new failure starts over at 1s.
@@ -630,7 +638,7 @@ func TestClientPollBackoff(t *testing.T) {
 		require.Equal(t, time.Duration(0), attempts[6].Sub(attempts[5]))
 		recv(svc.pollOpened)
 		svc.pollFailures.Store(7)
-		svc.pollAnswers <- protocol.PollResponse{}
+		send()
 		first := len(attempts)
 		for range 7 {
 			attempt()
@@ -771,25 +779,89 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
-func uploadTestLayer(data []byte) (exportLayer, *memReaderAt) {
-	layer := blobLayer(data)
-	reader := &memReaderAt{Reader: bytes.NewReader(data)}
-	provider := roundTripProvider{layer: layer, reader: reader}
-	return exportLayer{descriptor: layer.Descriptor, provider: provider}, reader
+// gatedReaderAt is an export reader whose reads can be held by the test,
+// and which refuses reads after Close.
+type gatedReaderAt struct {
+	*bytes.Reader
+	gate        chan struct{}
+	readStarted chan struct{}
+	closed      atomic.Bool
+	reads       atomic.Int32
 }
 
-// roundTripProvider hands out one fixed reader, so the test can watch it.
-type roundTripProvider struct {
+func (r *gatedReaderAt) ReadAt(p []byte, off int64) (int, error) {
+	if r.closed.Load() {
+		return 0, errors.New("read after close")
+	}
+	r.reads.Add(1)
+	select {
+	case r.readStarted <- struct{}{}:
+	default:
+	}
+	if r.gate != nil {
+		<-r.gate
+	}
+	return r.Reader.ReadAt(p, off)
+}
+
+func (r *gatedReaderAt) Close() error {
+	r.closed.Store(true)
+	return nil
+}
+
+type fixedProvider struct {
 	layer  snapshots.ExportLayer
-	reader *memReaderAt
+	reader *gatedReaderAt
 }
 
-func (p roundTripProvider) Info(context.Context, digest.Digest) (content.Info, error) {
+func (p fixedProvider) Info(context.Context, digest.Digest) (content.Info, error) {
 	return content.Info{Digest: p.layer.Descriptor.Digest, Size: p.layer.Descriptor.Size}, nil
 }
 
-func (p roundTripProvider) ReaderAt(context.Context, ocispecs.Descriptor) (content.ReaderAt, error) {
+func (p fixedProvider) ReaderAt(context.Context, ocispecs.Descriptor) (content.ReaderAt, error) {
 	return p.reader, nil
+}
+
+func uploadTestLayer(data []byte, gate chan struct{}) (exportLayer, *gatedReaderAt) {
+	layer := blobLayer(data)
+	reader := &gatedReaderAt{Reader: bytes.NewReader(data), gate: gate, readStarted: make(chan struct{}, 1)}
+	return exportLayer{descriptor: layer.Descriptor, provider: fixedProvider{layer: layer, reader: reader}}, reader
+}
+
+// recvWithin bounds a channel receive in the bubble's virtual time.
+func recvWithin[T any](t *testing.T, ch <-chan T) T {
+	t.Helper()
+	select {
+	case v := <-ch:
+		return v
+	case <-time.After(5 * time.Minute):
+		t.Fatal("timed out waiting")
+		var zero T
+		return zero
+	}
+}
+
+// A production client bounds an upload's response headers on its transport,
+// counted by Go from the moment the whole request has been written, and
+// leaves the API client's transport unbounded, since every API request is
+// bounded by its context. A scripted transport is shared by both.
+func TestNewClientTransports(t *testing.T) {
+	t.Parallel()
+	c := newClient(Config{URL: testBaseURL, Token: testToken}, testInstance, nil, newFakeAdapter())
+	uploads, ok := c.uploads.Transport.(*http.Transport)
+	require.True(t, ok)
+	require.Equal(t, requestTimeout, uploads.ResponseHeaderTimeout)
+	api, ok := c.http.Transport.(*http.Transport)
+	require.True(t, ok)
+	require.Zero(t, api.ResponseHeaderTimeout)
+	require.NotSame(t, http.DefaultTransport, uploads)
+	require.NotSame(t, http.DefaultTransport, api)
+	require.NotSame(t, api, uploads)
+
+	scripted := newFakeService(t)
+	c = newClient(Config{URL: testBaseURL, Token: testToken}, testInstance, scripted, newFakeAdapter())
+	require.Same(t, scripted, c.http.Transport)
+	require.Same(t, scripted, c.uploads.Transport)
 }
 
 // A transport may go on reading the request body, and close it, after Do
@@ -797,67 +869,107 @@ func (p roundTripProvider) ReaderAt(context.Context, ocispecs.Descriptor) (conte
 // before the transport has closed the body.
 func TestUploadBlobWaitsForTheTransportToCloseTheBody(t *testing.T) {
 	t.Parallel()
-	data := []byte("bytes the transport reads after Do returned")
-	layer, reader := uploadTestLayer(data)
-	bodyStarted, releaseBody, bodyClosed := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	var got []byte
-	var readErr error
-	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		go func() {
-			defer close(bodyClosed)
-			defer req.Body.Close()
-			close(bodyStarted)
-			<-releaseBody
-			got, readErr = io.ReadAll(req.Body)
-		}()
-		return emptyResponse(http.StatusOK), nil
-	})
-	c := newClient(Config{URL: testBaseURL, Token: testToken}, testInstance, transport, newFakeAdapter())
-	returned := make(chan error, 1)
-	go func() { returned <- c.uploadBlob(context.Background(), blobBaseURL+"x", layer) }()
-	within(t, bodyStarted)
-	select {
-	case err := <-returned:
-		t.Fatalf("uploadBlob returned before the transport closed the body: %v", err)
-	case <-time.After(50 * time.Millisecond):
-	}
-	require.False(t, reader.closed.Load(), "the export's reader is still open while the transport reads")
-	close(releaseBody)
-	within(t, bodyClosed)
-	require.NoError(t, within(t, returned))
-	require.NoError(t, readErr, "every read happened before the reader was closed")
-	require.Equal(t, data, got)
-	require.True(t, reader.closed.Load(), "the reader is closed once the transport is done")
-}
-
-// The body may take any time to transfer, but once the store has read it
-// in full it has requestTimeout to answer with headers.
-func TestUploadBlobHeaderTimeout(t *testing.T) {
-	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-		data := []byte("a blob the store swallows and never answers")
-		layer, _ := uploadTestLayer(data)
-		bodyRead := make(chan struct{})
+		data := []byte("bytes the transport reads after Do returned")
+		layer, reader := uploadTestLayer(data, nil)
+		releaseBody := make(chan struct{})
+		var releaseOnce sync.Once
+		release := func() { releaseOnce.Do(func() { close(releaseBody) }) }
+		defer release()
+		bodyClosed := make(chan struct{})
+		var got []byte
+		var readErr error
 		transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
-			defer req.Body.Close()
-			// A slow transfer, longer than the header bound, is fine.
-			time.Sleep(2 * requestTimeout)
-			if _, err := io.ReadAll(req.Body); err != nil {
-				return nil, err
-			}
-			close(bodyRead)
-			<-req.Context().Done()
-			return nil, req.Context().Err()
+			go func() {
+				defer close(bodyClosed)
+				defer req.Body.Close()
+				<-releaseBody
+				got, readErr = io.ReadAll(req.Body)
+			}()
+			return emptyResponse(http.StatusOK), nil
 		})
 		c := newClient(Config{URL: testBaseURL, Token: testToken}, testInstance, transport, newFakeAdapter())
-		started := time.Now()
-		err := c.uploadBlob(t.Context(), blobBaseURL+"x", layer)
-		require.ErrorIs(t, err, errNoResponseHeaders)
+		atBodyWait := make(chan struct{}, 1)
+		c.testBeforeBodyWait = func() { atBodyWait <- struct{}{} }
+		returned := make(chan error, 1)
+		go func() { returned <- c.uploadBlob(t.Context(), blobBaseURL+"x", layer) }()
+		recvWithin(t, atBodyWait)
+		// Do has returned and uploadBlob is at its body wait. Every
+		// goroutine is now durably blocked on the release, so the checks
+		// below are deterministic.
+		synctest.Wait()
 		select {
-		case <-bodyRead:
+		case err := <-returned:
+			t.Fatalf("uploadBlob returned before the transport closed the body: %v", err)
 		default:
-			t.Fatal("the body was not read in full before the bound fired")
 		}
-		require.Equal(t, 3*requestTimeout, time.Since(started), "transfer time plus the header bound")
+		require.False(t, reader.closed.Load(), "the export's reader is still open while the transport reads")
+		release()
+		recvWithin(t, bodyClosed)
+		require.NoError(t, recvWithin(t, returned))
+		require.NoError(t, readErr, "every read happened before the reader was closed")
+		require.Equal(t, data, got)
+		require.True(t, reader.closed.Load(), "the reader is closed once the transport is done")
+	})
+}
+
+// Close may run while a Read is in flight. It must wait for that read to
+// finish before the export's reader is closed, and refuse reads after it.
+func TestUploadBodyCloseWaitsForActiveRead(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		data := []byte("bytes read while the transport gives up")
+		gate := make(chan struct{})
+		var gateOnce sync.Once
+		open := func() { gateOnce.Do(func() { close(gate) }) }
+		defer open()
+		layer, reader := uploadTestLayer(data, gate)
+		closeReturned, readReturned := make(chan struct{}), make(chan struct{})
+		var n int
+		var readErr, laterErr error
+		transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			go func() {
+				defer close(readReturned)
+				buf := make([]byte, 8)
+				n, readErr = req.Body.Read(buf)
+				// After Close, the body refuses reads.
+				<-closeReturned
+				_, laterErr = req.Body.Read(buf)
+			}()
+			<-reader.readStarted
+			// The read is in flight, held at the gate. Close now, on the
+			// transport's own goroutine, and give up on the request.
+			go func() {
+				defer close(closeReturned)
+				req.Body.Close()
+			}()
+			return nil, errors.New("connection reset")
+		})
+		c := newClient(Config{URL: testBaseURL, Token: testToken}, testInstance, transport, newFakeAdapter())
+		atBodyWait := make(chan struct{}, 1)
+		c.testBeforeBodyWait = func() { atBodyWait <- struct{}{} }
+		returned := make(chan error, 1)
+		go func() { returned <- c.uploadBlob(t.Context(), blobBaseURL+"x", layer) }()
+		recvWithin(t, atBodyWait)
+		// Do returned its error; the read is still held at the gate, Close
+		// waits for it, and uploadBlob waits for Close.
+		synctest.Wait()
+		select {
+		case <-closeReturned:
+			t.Fatal("Close returned while a read was in flight")
+		case err := <-returned:
+			t.Fatalf("uploadBlob returned while a read was in flight: %v", err)
+		default:
+		}
+		require.False(t, reader.closed.Load())
+		open()
+		recvWithin(t, closeReturned)
+		recvWithin(t, readReturned)
+		require.ErrorContains(t, recvWithin(t, returned), "connection reset")
+		require.NoError(t, readErr, "the read in flight finished against an open reader")
+		require.Equal(t, 8, n)
+		require.ErrorContains(t, laterErr, "upload body closed")
+		require.Equal(t, int32(1), reader.reads.Load(), "no read reached the reader after Close")
+		require.True(t, reader.closed.Load())
 	})
 }
