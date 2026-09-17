@@ -1,16 +1,17 @@
 # Batch 5 implementation report: offers before execution and bounded renewal
 
-Implementer, 17 September 2026. Steps 1 to 5 of the commission (`git show 64a0137a5f:continuation-evidence/implementation-commissions/BATCH5-OFFERS-IMPL.md`) are implemented on the reworked batch 4 head. Every package invocation in the verification set passed, and so did the engine invocation (results below).
+Implementer, 17 September 2026. Steps 1 to 5 of the commission (`git show 64a0137a5f:continuation-evidence/implementation-commissions/BATCH5-OFFERS-IMPL.md`) are implemented on the reworked batch 4 head. The corrected verification set passed: the package, race and engine runs are below. It replaces the first set, which ran in a form the Human has since retired. The first set's results are kept, labeled, under `retired/`.
 
 | Identity | Commit |
 | --- | --- |
 | Branch | `offers-implementer-implementation-fb886a62` |
 | Base | `fd9cfd55a98b176bf82cf84ee1b4c3ae1257fde5` |
-| Implementation tip | `2b564d9c9c0e66a09dd041a4b3c3bcb7859593e4` |
+| Implementation tip | `e1adfa269457f8253aee6cb217e700876b8ef754` |
 | Evidence tip | the commit that adds this report |
-| Diff | `git diff fd9cfd55a9 2b564d9c9c -- . ':!continuation-evidence'` (24 files, +4184/−155) |
+| Diff | `git diff fd9cfd55a9 e1adfa2694 -- . ':!continuation-evidence'` |
+| Superseded evidence commit | `23b2787ac8` (the first report, committed before the correction arrived; this commit replaces its verification section) |
 
-Governing revisions: the design at `49b268a354`, read through its vocabulary table; the packet at `2daf4b4d9e` and `64a0137a5f`; decision 1 as answered in the binding start; the designer's readiness points a to e (`62809f73bc`); the verification time rule and the test timeout rule.
+Governing revisions: the design at `49b268a354`, read through its vocabulary table; the packet at `2daf4b4d9e` and `64a0137a5f`; decision 1 as answered in the binding start; the designer's readiness points a to e (`62809f73bc`); the verification time rule, the test timeout rule and the time-and-slop rule (`b3d805de10`).
 
 ## Commits
 
@@ -26,9 +27,11 @@ Governing revisions: the design at `49b268a354`, read through its vocabulary tab
 | `14c922ae49` | tests | Step 4, part 3: pending-offer restart and A→B→C forwarding; nil-config cost. No production code. |
 | `b723b1e105` | tests | Step 5: the remaining focused matrix. |
 | `2b564d9c9c` | docs | `internal-docs/cache_persistence.md`: the integration stop in the graceful-shutdown sequence. |
-| evidence tip | evidence | This report, the ledger data and the logs. |
+| `23b2787ac8` | evidence | First report (superseded). |
+| `e1adfa2694` | test fix | `TestRemoteCacheTransferSuite` runs its tests in parallel again (coordinator item A). `Middleware()[1:]` dropped `testctx.WithParallel()`; commit `12e20a25d0` added it on 16 September with no recorded reason. Each test already uses its own volumes, state keys and temp dirs. |
+| evidence tip | evidence | This corrected report, the ledger data and the logs. |
 
-The evidence commits `d49e309bcd`, `f7af21e6f1` and the evidence tip are to be dropped before publication. Every commit is signed off and has no attribution trailer. Before any check or report, the port commit was amended once: `fbf61b8d78` had captured the pre-rename index. The coordinator confirmed that amend. `1c21c17463` and every later commit are unamended.
+The evidence commits `d49e309bcd`, `f7af21e6f1`, `23b2787ac8` and the evidence tip are to be dropped before publication. Every commit is signed off and has no attribution trailer. Before any check or report, the port commit was amended once: `fbf61b8d78` had captured the pre-rename index. The coordinator confirmed that amend. `1c21c17463` and every later commit are unamended.
 
 ## Choices where the design is silent
 
@@ -73,82 +76,113 @@ The evidence commits `d49e309bcd`, `f7af21e6f1` and the evidence tip are to be d
 | Server lifetime | `TestRemoteCacheUnusedCost`, `TestPartUnusedHostAllocatesNoGate`, `TestRemoteCacheIntegrationConfig`, `TestRemoteCacheBridgeAttachment`, `TestRemoteCacheAdapterLifetime`, `TestRenewalShutdownDrainsOwnership` (delivered renewal and active reader), `TestRemoteCacheGracefulStop` (noncooperative Run: stop error returned, a later Close cannot mark clean, restart is unclean; cooperative control closes clean; the accumulator is returned), `TestCacheCloseWithShutdownError` (seeded cause with a live context, no clean marker). Old replies: `TestOfferPendingRestartAndForward`, `TestRemoteCacheBridgeAttachment`. |
 | Native pipeline | Batch 7. The existing gated suite ran as a regression (below). |
 
-## Verification ledger
+## Verification ledger (corrected form)
 
-All commands ran from the worktree root at `2b564d9c9c`. The privileged runner is `-exec 'sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private'`, written `$PRIV` below. `sudo -n true` exited 0 in the same set. The seven package invocations ran concurrently inside one shell bounded by `timeout 420s`, starting 02:34 UTC. The set took **117.2 s** of wall time (budget: 15 minutes). Per-test results and durations for every invocation are in [package-results.json](package-results.json); full verbose output is in [logs](logs/).
+This follows the time-and-slop rule (`git show b3d805de10:continuation-evidence/direction/TIME-AND-SLOP-RULE.md`), the test timeout rule and the verification time rule. Nothing ran as root, under `sudo`, under `unshare` or in a mount namespace. `-race` covered only the batch's in-process concurrency tests. All commands ran from the worktree root at `e1adfa2694`. The three Go invocations ran concurrently from 03:01:02 UTC, inside a shell bounded by `timeout 300s`, and the set took **21.4 s** of wall time. Per-test results and durations are in [package-results.json](package-results.json), every skip with its reason line is in [skipped.json](skipped.json), and the full output is in [logs](logs/).
 
 | Invocation | Command | Timeout | Exit | Wall | Go time | Results |
 | --- | --- | --- | --- | --- | --- | --- |
-| dagql-priv | `go test -exec "$PRIV" ./dagql -count=1 -v -timeout=300s` (whole package) | 300 s | 0 | 25.6 s | 17.895 s | 743 pass, 0 fail, 1 skip (see below), 0 races |
-| dagql-priv-race | `go test -race -exec "$PRIV" ./dagql '-run=^Test(Offer\|Renewal\|RemoteCache\|Part\|CacheCloseWithShutdownError\|ValueTransfer)' -count=1 -v -timeout=300s` | 300 s | 0 | 109.5 s | 42.849 s | 181 pass, 0 fail, 0 skip, 0 races |
-| core-priv | `go test -exec "$PRIV" ./core -count=1 -v -timeout=300s` (whole package) | 300 s | 0 | 35.1 s | 26.888 s | 1285 pass, 0 fail, 0 skip |
-| core-priv-race | `go test -race -exec "$PRIV" ./core '-run=^Test(OfferParts\|Part\|HTTP\|StatelessHTTP\|ValueTransfer\|SnapshotTransfer\|LazyOperation\|EvaluatedLazyOperation)' -count=1 -v -timeout=300s` | 300 s | 0 | 116.8 s | 55.754 s | 199 pass, 0 fail, 0 skip, 0 races |
-| schema-priv | `go test -exec "$PRIV" ./core/schema -count=1 -v -timeout=300s` (whole package) | 300 s | 0 | 38.2 s | 13.532 s | 516 pass, 0 fail, 0 skip |
-| server | `go test ./engine/server -count=1 -v -timeout=120s` (whole package) | 120 s | 0 | 12.8 s | 4.333 s | 281 pass, 0 fail, 0 skip |
-| server-race | `go test -race ./engine/server -count=1 -v -timeout=240s` (whole package) | 240 s | 0 | 117.2 s | 5.795 s | 281 pass, 0 fail, 0 skip, 0 races |
+| packages | `go test ./dagql ./core ./core/schema ./engine/server -count=1 -v -timeout=120s` | 120 s per package binary | 0 (four `ok` lines, no `FAIL`) | ≤21.4 s (see note) | dagql 8.613 s; core 7.037 s; core/schema 15.068 s; engine/server 6.287 s | 2593 pass, 0 fail, 112 skip (40 top-level tests skipped entirely or in part) |
+| dagql-race | `go test -race ./dagql '-run=^Test(Offer\|Renewal\|RemoteCache\|CacheCloseWithShutdownError)' -count=1 -v -timeout=120s` | 120 s | 0 | 13.7 s | 7.725 s | 33 pass, 0 fail, 10 skip, 0 races |
+| server-race | `go test -race ./engine/server -count=1 -v -timeout=60s` | 60 s | 0 | 14.0 s | 7.230 s | 281 pass, 0 fail, 0 skip, 0 races |
 
-In the table, `\|` stands for `|` inside the regular expression. Wall time includes compilation.
+In the table, `\|` stands for `|` inside the regular expression. Note on the packages row: my wrapper script named that invocation `packages`, so the set's own summary overwrote its status file. Its exit status is therefore taken from the log (four `ok` lines and no `FAIL`), and its wall time is bounded by the set's 21.4 s; the other two invocations finished at 13.7 s and 14.0 s.
 
-The one skip is `TestCacheContextCancel/last_waiter_canceled_fn_returns_value_still_releases`. It skips unconditionally ("TODO: re-enable after last-waiter canceled cleanup semantics are decided") and does so at the base as well. It is not counted as a pass.
+**Skips.** All 121 mount skips have the same reason: `real native snapshot transfer requires read-only bind mount privileges: … operation not permitted`, from `engine/snapshots/testutil.NewStore`. By package, the plain run skipped 65 in core, 25 in dagql and 22 in core/schema. One further skip is `dagql/TestCacheContextCancel/last_waiter_canceled_fn_returns_value_still_releases` ("TODO: re-enable after last-waiter canceled cleanup semantics are decided"), which skips unconditionally at the base too. The race run's 10 skips are all mount skips in this batch's tests. None is counted as a pass.
 
-Batch 5 test durations (plain / race), in seconds:
+**This batch's tests that skip unprivileged** (a finding against my own work under rule 6):
 
-| Test | Plain | Race |
-| --- | ---: | ---: |
-| `dagql/TestOfferPartsBeforeStart` | 0.08 | 0.23 |
-| `dagql/TestOfferPartsInvalidatesSourceCheck` | 0.03 | 0.04 |
-| `dagql/TestOfferPartsOwnership` | 0.02 | 0.09 |
-| `dagql/TestOfferPartsResourcesAndSettlement` | 0.01 | 0.08 |
-| `dagql/TestOfferPartsInlineAndReferencedRows` | 0.02 | 0.15 |
-| `dagql/TestOfferPartsClosesNativeAdmission` | 0.01 | 0.11 |
-| `dagql/TestOfferPartsAcceptedCleanupFailure` | 0.04 | 0.18 |
-| `dagql/TestOfferPartsPreparationWindow` | 1.60 | 0.18 |
-| `dagql/TestOfferSettlementReplacement` | 1.47 | 3.94 |
-| `dagql/TestOfferResourcesDoNotGateLookup` | 0.69 | 0.47 |
-| `dagql/TestOfferPendingRestartAndForward` | 0.53 | 0.94 |
-| `dagql/TestCacheCloseWithShutdownError` | 0.11 | 0.18 |
-| `dagql/TestRenewalMailbox` | 0.00 | 0.01 |
-| `dagql/TestRenewalEpisodeSet` | 0.00 | 0.00 |
-| `dagql/TestRenewalClaimKeepsSourceCheck` | 0.01 | 0.08 |
-| `dagql/TestRenewalChainControls` | 3.60 | 4.99 |
-| `dagql/TestRenewalExhaustion` | 1.03 | 4.50 |
-| `dagql/TestRenewalShutdownDrainsOwnership` | 0.31 | 0.58 |
-| `dagql/TestRemoteCacheBridgeAttachment` | 0.04 | 0.17 |
-| `dagql/TestRemoteCacheUnusedCost` | 0.41 | 1.00 |
-| `dagql/TestPartContentSourceAvailability` | 0.01 | 0.04 |
-| `dagql/TestPartContentIdleReader` | 0.00 | 0.00 |
-| `dagql/TestPartFixedProvider*` (3 tests) | ≤0.01 | ≤0.04 |
-| `dagql/TestPartUnusedHostAllocatesNoGate` | 0.00 | 0.00 |
-| `core/TestOfferPartsNativeAdmission` | 0.29 | 0.97 |
-| `engine/server/TestRemoteCacheIntegrationConfig` | 0.00 | 0.00 |
-| `engine/server/TestRemoteCacheAdapterLifetime` | 0.01 | 0.00 |
-| `engine/server/TestRemoteCacheGracefulStop` | 1.74 | 1.63 |
+| Test | Skipped subtests | Design row it carries |
+| --- | ---: | --- |
+| `dagql/TestRenewalChainControls` | whole test | real chain controls |
+| `dagql/TestRenewalExhaustion` | whole test | renewal exhaustion |
+| `dagql/TestOfferSettlementReplacement` | 4 of 4 | settlement and replacement |
+| `dagql/TestOfferResourcesDoNotGateLookup` | whole test | offer-only resources |
+| `dagql/TestRenewalShutdownDrainsOwnership` | whole test | server lifetime, drain |
+| `dagql/TestOfferPendingRestartAndForward` | whole test | restart and forward |
+| `dagql/TestRemoteCacheUnusedCost` | whole test | nil-config cost |
+| `core/TestOfferPartsNativeAdmission` | 2 of 2 | before-start admission on a real value |
 
-### Engine invocation
+These tests are unit tests that need real mounts only because they call `ImportChain` through `testutil.NewStore`. The rows they carry now have no passing evidence in the permitted form. What they last showed is in the retired privileged run below. The tests that do run unprivileged are:
+- the ported `TestOfferParts*` tests, `TestOfferPartsPreparationWindow`, `TestCacheCloseWithShutdownError`, `TestRenewalMailbox`, `TestRenewalEpisodeSet`, `TestRenewalClaimKeepsSourceCheck`, `TestRemoteCacheBridgeAttachment`, `TestPartContentSourceAvailability`, `TestPartContentIdleReader`, `TestPartFixedProvider*` and `TestPartUnusedHostAllocatesNoGate`;
+- in engine/server, `TestRemoteCacheIntegrationConfig`, `TestRemoteCacheAdapterLifetime` and `TestRemoteCacheGracefulStop`.
 
-One `dagger api call engine-dev test` invocation ran the whole gated transfer suite (all four methods, including the mixed-exec test and the opted-in default-policy diagnostic) at `2b564d9c9c`. It ran concurrently with the package set, using the rework's diagnostic runner overlay ([patch](logs/diagnostic-runner-overlay.patch)) and an env file containing `_DAGGER_TEST_REMOTE_CACHE_PRUNE_DIAGNOSTIC=1`. The overlay was applied to the working tree for this invocation only and restored afterwards; `git diff HEAD -- .dagger` is empty.
+### Engine regression
 
 ```sh
-timeout 1020s dagger -vv api call engine-dev test --pkg ./core/integration '--run=^TestRemoteCacheTransferSuite$/^(TestSchemaRecovery|TestSchemaRecoveryCold|TestPartMixedExecOutputs|TestDefaultGCPruneDiagnostic)$' --timeout=10m --test-verbose --env-file=file:/tmp/b5-verify/diagnostic.env
+timeout 540s dagger api call engine-dev test --pkg ./core/integration '--run=^TestRemoteCacheTransferSuite$/^TestPartMixedExecOutputs$' --timeout=5m --test-verbose
 ```
 
-Test timeout 10 minutes; outer bound 1020 s. **Exit 0; 818.4 s wall** (02:33:55 to 02:47:34 UTC; budget 15 minutes), including 37.8 s workspace load and the dev engine build. Trace `e2b788da678c718c1e0f987488bc99c7`. The results below come from `dagger trace` on that trace ([root](logs/engine-trace-root.log), [suite](logs/engine-trace-suite.log), one log per method in [logs](logs/)); the CLI output is [engine-cli.log](logs/engine-cli.log). No selected test was skipped: the diagnostic ran its `after` phase.
+Test timeout 5 minutes. The 540 s outer bound covers the measured build and setup (about 4 minutes in the first run) plus the test timeout. There was no diagnostic, env file or runner overlay; the working tree was clean at `e1adfa2694`. The run started at 03:00:57 UTC, concurrently with the Go set, and gave **exit 0 in 300.7 s wall** (budget about 5 minutes including the build). Of that, the workspace load took 32.7 s, the dev engine module 26.2 s and the `.test` step 4m1s, most of it the engine build and start. Trace `70d079daa2e707780e3fd22b64efe282`. Results come from `dagger trace --test` ([suite](logs/engine-trace-suite.log), [test](logs/engine-trace-TestPartMixedExecOutputs.log)); the CLI output is [engine-cli.log](logs/engine-cli.log); machine-readable form in [engine-results.json](engine-results.json).
 
 | Test | Result | Duration |
 | --- | --- | ---: |
-| `TestRemoteCacheTransferSuite` | PASS | 9m28s |
-| `TestRemoteCacheTransferSuite/TestSchemaRecovery` (both warm orders) | PASS | 3m46s |
-| `TestRemoteCacheTransferSuite/TestSchemaRecoveryCold` | PASS | 2m37s |
-| `TestRemoteCacheTransferSuite/TestPartMixedExecOutputs` | PASS | 1m0s |
-| `TestRemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic` | PASS | 2m5s |
-| `TestRemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic/after` | PASS | 1m8s |
+| `TestRemoteCacheTransferSuite` | PASS | 1m10s |
+| `TestRemoteCacheTransferSuite/TestPartMixedExecOutputs` | PASS | 1m10s |
 
-Machine-readable form: [engine-results.json](engine-results.json). Observations, neither of which failed the run:
+This test covers the batch's two engine-visible changes. The gated fixture's content source now goes through `PartContentOverride` with the `time.Time` signature, and the engines' shutdown path now goes through the integration stop (nil here) and `CloseWithShutdownError`. The dev engine service exited normally in this run.
 
-- **Reselect errors on a passing call.** In `TestSchemaRecoveryCold`, the span `CacheProbe.report(seed: "different")` is marked ERROR with "6x part sources changed; reselect". The test's `require.NoError` on that call and its later assertions passed, so these are internal dispatcher reselects recorded on the span. The suite never calls `OfferParts`, and its fixture uses the unchanged override path. The saved rework logs contain only selected output, so they neither show nor rule out the same span at the base. I did not rerun the base to compare.
-- **Dev engine service ERROR at teardown.** The trace's services list shows the dev engine service ✘ ERROR after 10m21s, while every test passed. It is most likely the stop at the end of the run; the trace did not show its cause.
-- The trace view keeps span trees and log tails but not the tests' `t.Logf` counter lines, so no counters are quoted here.
+### Earlier results under a retired practice
 
+On 17 September before the correction, at `2b564d9c9c`, the first set ran whole packages as root under `sudo -n … unshare --mount --propagation private`, and `-race` over broad selections. All seven invocations exited 0 in 117.2 s of wall time, and every real-store test above passed. The single engine invocation ran the whole transfer suite plus the opt-in diagnostic with its runner overlay: exit 0 in 818.4 s, trace `e2b788da678c718c1e0f987488bc99c7`, with the suite's four tests running serially because of the line fixed in `e1adfa2694`. The Human has retired both forms. The results are kept only as evidence of what those tests showed, in [retired/privileged-packages](retired/privileged-packages/) and [retired/full-suite-engine](retired/full-suite-engine/). Per-test durations for this batch's real-store tests in that run, plain / race:
+
+| Test | Plain | Race |
+| --- | ---: | ---: |
+| `dagql/TestRenewalChainControls` | 3.60 s | 4.99 s |
+| `dagql/TestRenewalExhaustion` | 1.03 s | 4.50 s |
+| `dagql/TestOfferSettlementReplacement` | 1.47 s | 3.94 s |
+| `dagql/TestOfferResourcesDoNotGateLookup` | 0.69 s | 0.47 s |
+| `dagql/TestRenewalShutdownDrainsOwnership` | 0.31 s | 0.58 s |
+| `dagql/TestOfferPendingRestartAndForward` | 0.53 s | 0.94 s |
+| `dagql/TestRemoteCacheUnusedCost` | 0.41 s | 1.00 s |
+| `core/TestOfferPartsNativeAdmission` | 0.29 s | 0.97 s |
+
+That run's observations still stand as observations: the cold test's `CacheProbe.report(seed: "different")` span recorded "6x part sources changed; reselect" on a call that succeeded, and the dev engine service showed ERROR at teardown.
+
+## Real-store test files (coordinator item C)
+
+These are the files whose tests call `engine/snapshots/testutil.NewStore` (directly or through a fixture), which skips without read-only bind-mount privileges. For the files in the packages run, the counts are the skipped top-level tests, with skipped subtests in parentheses, taken from [skipped.json](skipped.json). Columns 4 to 6 come from reading the test source and the existing integration tests; I have not run a comparison. "Batch 7 N" means the native gated-fixture tests designed in `12e776930d:hack/designs/remote-cache/focused/07-integrated-verification.md` §5. That design also has a "U" tier of these same in-process real-store peers, run with the privileged runner (its §6), and the new rule forbids that runner.
+
+| File | Origin | Tests (subtests) | What it proves that nothing else does | Existing core/integration coverage | Batch 7 N coverage |
+| --- | --- | --- | --- | --- | --- |
+| `core/builtin_lazy_test.go` | base | 1 | Builtin Container Lazy evaluation installs a real snapshot in process | Partial: `TestDiskPersistenceAcrossRestart/lazy_values_survive_restart` (pending builtin evaluates after restart) | Cold builtin route in `TestPipeline/Cold` |
+| `core/container_mount_lazy_test.go` | base | 1 (2) | Directory and File mount Lazy representations over real snapshots | Partial: `…/container_parts_preserve_mutations_and_unopened_snapshots` | `TestHostInputs` (mount aliases) |
+| `core/git_lazy_test.go` | base | 3 | Git bundle, local and remote Lazy operations evaluate into real snapshots | GitSuite (`TestGitBundle*`, `TestGit*`) and `…/git_repository_and_ref_survive_restart` exercise the public paths, not the saved operation directly | `TestGitTrees` |
+| `core/http_lazy_test.go` | base | 4 | HTTP chain avoids the operation; local-body failures, ownership and pin/lock cost | HTTPSuite for public behavior; `…/lazy_values_survive_restart` for restart | `TestHTTPRestore` |
+| `core/lazy_completion_test.go` | base | 1 | Evaluated filesystem clones keep correct snapshot ownership | None found | None named |
+| `core/lazy_operation_execution_test.go` | base | 6 | HTTP Lazy evaluate, writer modes, cleanup exits, concurrent demand, state/capture race and stateless isolation, with real stores | HTTPSuite (public paths only) | `TestHTTPRestore` (outcomes, writer layouts) |
+| `core/mount_lazy_ownership_test.go` | base | 1 (4) | Detached mount Lazy ownership with injected failures | None found | None named |
+| `core/part_acquisition_test.go` | base | 4 (11) | Root acquisition routes with fault injection (sync retry, pin-release retry, fallback), mixed Container restart, mount receiver roles, private whole builtin | `RemoteCacheTransferSuite/TestPartMixedExecOutputs` (mixed exec); schema recovery (chain route) | `TestPipeline/FailedChain`, output/task completion row |
+| `core/part_delegation_mount_test.go` | base | 1 (2) | Delegated mount role mismatches are refused | None found | Host/mounts row (partial) |
+| `core/part_delegation_test.go` | base | 1 (9) | Parent-part delegation modes, including sync retry and native restart at several depths | Cold schema recovery asserts delegation (`assertColdPartDelegation`) | `TestSchemaRecoveryCold` (partial) |
+| `core/part_filesystem_race_test.go` | base | 1 (2) | Filesystem publication role races | None found | None named |
+| `core/part_inline_test.go` | base | 1 (3) | Inline-address acquisition, sequential, concurrent and shared-snapshot sync retry | None found | Host/mounts row (full addresses; partial) |
+| `core/part_offer_admission_test.go` | **batch 5** | 1 (2) | Offer accepted before a real body starts installs with zero body entries; offer refused while the body runs | None | `TestOffers/BeforeStart`, `/Running` |
+| `core/part_publication_race_test.go` | base | 1 | Typed publication role race | None found | None named |
+| `core/part_scope_boot_test.go` | base | 3 (5) | Boot scan failure, empty boot and root rekey cost with scoped links | `…/unclean_shutdown_discards_local_cache_state_and_recovers` (reset path only) | Encoded restart row (partial) |
+| `core/part_whole_restart_test.go` | base | 3 | Mixed whole-Lazy restart, native pending Container recipe requirement, selective pending image metadata | `…/container_parts_preserve_mutations_and_unopened_snapshots`, `…/lazy_values_survive_restart` (partial) | `TestEncodedRestart` (partial) |
+| `core/schema/container_lazy_test.go` | base | 1 (5) | Builtin metadata selectors against real snapshots | None found | None named |
+| `core/schema/directory_scratch_test.go` | base | 3 (11) | Scratch Directory acquisition modes (cold, warm, restart, manager failure and cancel, prepare failure, sync retry), Lazy operation and native reopen | Cold schema recovery asserts scratch acquisition (`assertScratchAcquisition`) | `TestSchemaRecoveryCold` (partial) |
+| `core/schema/http_lazy_test.go` | base | 2 (4) | Pending internal HTTP hits (absent, advanced, changed body) and the resolved call | HTTPSuite (`TestHTTPETag`, `TestHTTPUsedInCache`; public paths) | `TestHTTPRestore` |
+| `core/schema/lazy_stored_results_test.go` | base | 1 | Stored results without backing bytes | Warm schema recovery (stored-result acceptance, per the rework report) | `TestSchemaRecovery` |
+| `core/schema/query_lazy_test.go` | base | 1 | Schema File Lazy evaluation | `…/lazy_values_survive_restart` (`__schemaJSONFile`) | None named |
+| `core/snapshot_transfer_test.go` | base | 1 | Typed adoption of an imported snapshot and restart | Schema recovery (transfer and restart) | `TestPendingOffersRestart`, encoded restart row |
+| `core/value_transfer_chain_test.go` | base | 3 (4) | Selected chain export and import, including the Container mount opening only the selected snapshot, and Git trees on both backends | Schema recovery (one selected chain) | `TestGitTrees`, `TestHostInputs` |
+| `core/value_transfer_restart_test.go` | base | 1 | Redundant offer retired only after lease restoration at restart | None found | `TestPendingOffersRestart` |
+| `dagql/cache_offer_matrix_test.go` | **batch 5** | 3 (6) | Settlement against replacement, commit and failed sync; offer-only resources through an actual install; drain with a delivered renewal and an active reader | None | `TestOffers/Replacement`, `/Resources`; restart/shutdown row |
+| `dagql/cache_offer_restart_test.go` | **batch 5** | 2 | Live offer through A→B→restart→C with renewal on demand only; nil-config fixed-address install and zero-allocation ranking | None | `TestPendingOffersRestart`, `TestRenewal` |
+| `dagql/cache_part_admission_external_test.go` | base | 1 | Sessionless share of a restored Directory | None found | Sharing rows (batch 6/7) |
+| `dagql/cache_part_boundary_test.go` | base | 2 (5) | Arrival during Lazy preparation (ready, chain, second refusal); pin-cancel and missing-descriptor boundaries | None found | Output/task completion row (partial) |
+| `dagql/cache_part_chain_lifetime_test.go` | base | 2 (6) | Admitted chain survives donor collection and slot replacement; back-reference sync failure; ImportChain ref cleanup handoff | None found | Two-offer-owner row, donor lifetime row |
+| `dagql/cache_part_content_test.go` | **batch 5** | 2 | Provider over real `ImportChain`: statuses on both attempts, truncation, digest, stall, local faults, one episode per chain; exhaustion across equivalent sources to the Lazy fallback | None | `TestRemoteCacheIntegratedContent` (U tier), `TestRenewal` (native success and timeout only) |
+| `dagql/cache_part_decode_test.go` | base | 2 | Typed decode before external Finish; decode loses to an installed revision | None found | Encoded decode row |
+| `engine/snapshots/import_test.go` | base | 16 (not run in this set) | ImportChain and ExportChain mechanics on real stores (prefix reuse, pins, cancellation, classification) | None; the engine uses these paths indirectly | `TestRemoteCacheIntegratedContent` (U tier) |
+| `engine/engineutil/containerimage_lifetime_test.go`, `engine/engineutil/imageexport/lifetime_test.go` | base | 2 + 1 (not run in this set) | Image export and container image lifetimes on real stores | Image export integration tests indirectly | None named |
+
+Summary facts for the Human's decision:
+- 31 of these files are in the four packages; 40 top-level tests skipped in this run.
+- Four files (8 tests) are batch 5's own.
+- Batch 7's native design names a counterpart for most offer and renewal rows. For the fault-injection, barrier and cost cases (sync retry, pin release, preparation and publication races, boot scans, rekey cost, local writer and lease faults), nothing native is named that would carry the same observation.
 
 ## Development checks (not verification)
 
@@ -160,29 +194,29 @@ These are the builds and runs made while writing the code; results come from the
 - **Incident.** The first run of `TestRemoteCacheBridgeAttachment` carried no `-timeout` and hung for about six minutes until the Human interrupted it. Its partial log was overwritten by the rerun; [step4a-dagql-hung.log](logs/dev/step4a-dagql-hung.log) is a transcription of what that log contained when it was read after the interruption. A goroutine started before the request was queued consumed that request, so a check failed. The failure aborted the test before it ended an open cache operation, while a concurrent `Close(context.Background())` waited for that operation. Cleanup then waited on `Close` through the shared run-once guard. The test now takes the request first, ends the operation in `defer` and closes with a deadline. Every new test's waits outside `synctest` are bounded, and every run since carries a timeout. This led to the Human's test timeout rule.
 - Development failures fixed in test code only: a layer comparison across time locations and a fixture that left the lower address usable (step 3); the close-cause test's shared cleanup asserting nil (step 5).
 
-## Measured cost against the budget
+## Measured cost against the budget (corrected set)
 
 | Set | Budget | Measured |
 | --- | --- | --- |
-| Package invocations (7, concurrent) | 15 min wall | 117.2 s wall |
-| Engine invocation (1) | 15 min wall | 818.4 s wall |
+| Package and race invocations (3, concurrent) | a few minutes | 21.4 s wall |
+| Engine regression (1) | about 5 min including build | 300.7 s wall (test 1m10s) |
 | Model runs | 0 | 0 |
-
-The two sets overlapped from 02:34:02 to 02:36:00 UTC; the whole verification took 13 min 39 s of wall time.
 
 ## Not run, and why
 
-- **`engine/snapshots`**: unchanged since the base, where it passed in the rework ledger. Its classification is exercised through `TestRenewalChainControls`.
-- **Whole-package `-race` for dagql and core**: the race variants cover the offer, renewal, part, transfer, HTTP and Lazy selections listed above instead.
-- **Model runs**: none authorized. Batch 7 owns the model extension.
-- **Native pipeline proof** (renewal, skipped report body, forced failure with Lazy evaluation in real engines): batch 7.
-- **`./...`**: not run.
+- **`engine/snapshots` and `engine/engineutil`**: unchanged by this batch and not in the coordinator's package list. Their real-store tests would skip unprivileged.
+- **Real-store tests**: skipped unprivileged, as listed; no privileged rerun (rule 2).
+- **The rest of the transfer suite and the opt-in diagnostic**: not needed for this batch's regression (rule 4). The mixed-exec test is the one that exercises the fixture seam and the shutdown change.
+- **Model runs, `./...`, the native pipeline proof (batch 7)**: not run.
 
-## Unrelated problems found (not changed)
+## Pre-existing slop that slows the work (rule 5)
 
-- `core/schema/foreign_module_context_test.go` is not gofmt-clean at the base.
-- `go vet ./engine/server` reports `session_attachables.go:211` (a discarded `context.WithTimeoutCause` cancel) at the base.
-- The unconditional skip in `dagql/TestCacheContextCancel` noted above.
+- **Serial suite.** `core/integration/remote_cache_transfer_test.go:28` dropped `testctx.WithParallel()`, which cost about 9.5 minutes of serial engine time in the first run. Fixed in `e1adfa2694`.
+- **Tests that skip without mount privileges.** 40 top-level unit tests in dagql, core and core/schema (table above), plus 19 in `engine/snapshots` and `engine/engineutil`, silently skip without mount privileges. Running them needs root and a mount namespace, and batch 7's design §6 prescribes exactly that runner. Batch 5 added 8 more tests of this kind; that is my own new slop, reported rather than hidden.
+- **Unconditional skip.** `dagql/cache_test.go:2289` skips unconditionally with a TODO.
+- **gofmt and vet at the base.** `core/schema/foreign_module_context_test.go` is not gofmt-clean, and `go vet ./engine/server` fails at the base on `engine/server/session_attachables.go:211` (a discarded cancel). Every vet run of that package reports it, so a clean vet cannot serve as a gate there.
+- **Build cost of an engine test.** A 70-second engine test costs about 5 minutes wall, because the `engine-dev test` step builds and starts a dev engine each time (4m1s of the 300.7 s run).
+- **Engine run output.** The dev-engine CLI output of a passing `--test-verbose` run contains only the top-level test count. Per-test results need a separate `dagger trace --test` query per test.
 
 ## Limits
 

@@ -1,25 +1,25 @@
-✔ TestPartMixedExecOutputs 1m0s
+✔ TestPartMixedExecOutputs 1m10s
 
-✔ .dagger-cli session --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a 59.9s
+✔ .dagger-cli session --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a 1m10s
 
 ✔ host: Host! 0.0s
-✔ .file(path: "/dagger-dev/engine.tar"): File! 0.0s
+✔ .file(path: "/dagger-dev/engine.tar"): File! 2.4s
 
-$ container(platform: "linux/amd64"): Container! 0.0s CACHED
+✔ container(platform: "linux/amd64"): Container! 0.0s
 ✔ .import(
   ┆ source: Host.file(path: "/dagger-dev/engine.tar"): File!
   ): Container! 8.2s
 ✔ .withMountedCache(
   ┆ path: "/transfer-fixture"
-  ┆ cache: cacheVolume(key: "b4-mixed-a-2b96rdayfncldk1thzb3c34pq", namespace: "mainClient"): CacheVolume!
+  ┆ cache: cacheVolume(key: "b4-mixed-a-y4hwvjycwtrb5vsa942hzje2h", namespace: "mainClient"): CacheVolume!
   ): Container! 0.0s
 ✔ withEnvVariable _DAGGER_TEST_REMOTE_CACHE_FIXTURE_ROOT=/transfer-fixture 0.0s
 ✔ .withMountedCache(
   ┆ path: "/var/lib/dagger"
-  ┆ cache: cacheVolume(key: "b4-mixed-state-goy76145f39vghhgexw3qi9gr", namespace: "mainClient"): CacheVolume!
+  ┆ cache: cacheVolume(key: "b4-mixed-state-4ie7ku5s0pco37srj4g187xiv", namespace: "mainClient"): CacheVolume!
   ): Container! 0.0s
 ✔ .withExposedPort(port: 1234, protocol: TCP): Container! 0.0s
-✔ .withDefaultArgs(args: ["--addr", "tcp://0.0.0.0:1234", "--network-name", "dagger3", "--network-cidr", "10.89.3.0/24"]): Container! 0.0s
+✔ .withDefaultArgs(args: ["--addr", "tcp://0.0.0.0:1234", "--network-name", "dagger0", "--network-cidr", "10.89.0.0/24"]): Container! 0.0s
 ✔ .directory(path: "/etc/dagger"): Directory! 0.0s
 ✔ .entries: [String!]! 0.0s
 
@@ -27,28 +27,28 @@ $ container(platform: "linux/amd64"): Container! 0.0s CACHED
 ✔ .contents: String! 0.0s
 
 ✔ withNewFile /etc/dagger/engine.json (contents: "{\"gc\":{\"enabled\":true,\"dagqlCache\":{},\"reservedSpace\":1000000000000000,\"maxUsedSpace\":1000000000000000,\"minFreeSpace\":0,\"sweepSize\":0},\"registries\":{\"docker.io\":{\"mirrors\":[\"mirror.gcr.io\"],\"http\":null,\"insecure\":null,\"ca\":null}}}\n") 0.0s
-✔ .asService(useEntrypoint: true, insecureRootCapabilities: true): Service! 51.4s
+✔ .asService(useEntrypoint: true, insecureRootCapabilities: true): Service! 58.3s
 
 ✔ Host.tunnel(
   ┆ service: Container.asService(useEntrypoint: true, insecureRootCapabilities: true): Service!
   ): Service! 0.0s
-✔ .start: ID! 2.2s
+✔ .start: ID! 4.7s
 
 ✔ Service.endpoint(scheme: "tcp"): String! 0.0s
 
-✔ .dagger-cli session --workdir /tmp/TestRemoteCacheTransferSuiteTestPartMixedExecOutputs1992868596/001 --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a 27.2s
+✔ .dagger-cli session --workdir /tmp/TestRemoteCacheTransferSuiteTestPartMixedExecOutputs526356760/001 --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a 31.1s
 
 ✔ Container.withMountedCache(
   ┆ path: "/transfer-fixture"
-  ┆ cache: cacheVolume(key: "b4-mixed-b-9mo4wlt26hner32jlyabmolp4", namespace: "mainClient"): CacheVolume!
+  ┆ cache: cacheVolume(key: "b4-mixed-b-z97aof03wt1meui9vovtiw68t", namespace: "mainClient"): CacheVolume!
   ): Container! 0.0s
 ✔ withEnvVariable _DAGGER_TEST_REMOTE_CACHE_FIXTURE_ROOT=/transfer-fixture 0.0s
 ✔ .withMountedCache(
   ┆ path: "/var/lib/dagger"
-  ┆ cache: cacheVolume(key: "b4-mixed-state-r0u0eo1fr1friwcm2hg6uj45n", namespace: "mainClient"): CacheVolume!
+  ┆ cache: cacheVolume(key: "b4-mixed-state-s60uv4vtk3pns6r7ecz83ankw", namespace: "mainClient"): CacheVolume!
   ): Container! 0.0s
 ✔ .withExposedPort(port: 1234, protocol: TCP): Container! 0.0s
-✔ .withDefaultArgs(args: ["--addr", "tcp://0.0.0.0:1234", "--network-name", "dagger4", "--network-cidr", "10.89.4.0/24"]): Container! 0.0s
+✔ .withDefaultArgs(args: ["--addr", "tcp://0.0.0.0:1234", "--network-name", "dagger1", "--network-cidr", "10.89.1.0/24"]): Container! 0.0s
 ✔ .directory(path: "/etc/dagger"): Directory! 0.0s
 ✔ .entries: [String!]! 0.0s
 
@@ -56,94 +56,85 @@ $ container(platform: "linux/amd64"): Container! 0.0s CACHED
 ✔ .contents: String! 0.0s
 
 ✔ withNewFile /etc/dagger/engine.json (contents: "{\"gc\":{\"enabled\":true,\"dagqlCache\":{},\"reservedSpace\":1000000000000000,\"maxUsedSpace\":1000000000000000,\"minFreeSpace\":0,\"sweepSize\":0},\"registries\":{\"docker.io\":{\"mirrors\":[\"mirror.gcr.io\"],\"http\":null,\"insecure\":null,\"ca\":null}}}\n") 0.0s
-✔ .asService(useEntrypoint: true, insecureRootCapabilities: true): Service! 27.0s
+✔ .asService(useEntrypoint: true, insecureRootCapabilities: true): Service! 30.9s
 
 ✔ Host.tunnel(
   ┆ service: Container.asService(useEntrypoint: true, insecureRootCapabilities: true): Service!
   ): Service! 0.0s
-✔ .start: ID! 0.7s
+✔ .start: ID! 0.6s
 
 ✔ Service.endpoint(scheme: "tcp"): String! 0.0s
 
-✔ .dagger-cli session --workdir /tmp/TestRemoteCacheTransferSuiteTestPartMixedExecOutputs1992868596/002 --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a 5.5s
+✔ .dagger-cli session --workdir /tmp/TestRemoteCacheTransferSuiteTestPartMixedExecOutputs526356760/002 --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a 8.1s
 
 ✔ container(platform: "linux/amd64"): Container! 0.0s
-✔ .from(address: "alpine:3.22.1"): Container! 2.0s
+✔ .from(address: "alpine:3.22.1"): Container! 2.1s
 ✔ withExec sh -ec 'printf '\''downloaded filesystem'\'' > /payload; printf '\''private exec metadata'\' 0.2s
 ✔ .stdout: String! 0.0s
 
-✔ Container.from(address: "alpine:3.22.1"): Container! 0.6s
+✔ Container.from(address: "alpine:3.22.1"): Container! 2.0s
 
 ✔ Container.withMountedCache(
   ┆ path: "/source"
-  ┆ cache: cacheVolume(key: "b4-mixed-a-2b96rdayfncldk1thzb3c34pq", namespace: "mainClient"): CacheVolume!
+  ┆ cache: cacheVolume(key: "b4-mixed-a-y4hwvjycwtrb5vsa942hzje2h", namespace: "mainClient"): CacheVolume!
   ): Container! 0.0s
 ✔ .withMountedCache(
   ┆ path: "/destination"
-  ┆ cache: cacheVolume(key: "b4-mixed-b-9mo4wlt26hner32jlyabmolp4", namespace: "mainClient"): CacheVolume!
+  ┆ cache: cacheVolume(key: "b4-mixed-b-z97aof03wt1meui9vovtiw68t", namespace: "mainClient"): CacheVolume!
   ): Container! 0.0s
-✔ withEnvVariable COPY=60cp7qdp84vinur44iugalm0x 0.0s
-✔ withExec sh -ec 'mkdir -p /destination/bundles; cp /source/bundles/mixed.json /destination/bundles/; cp -a /source/blobs /destination/' 0.1s
+✔ withEnvVariable COPY=b00ct2cakwcwi8zfrv622qd3b 0.0s
+✔ withExec sh -ec 'mkdir -p /destination/bundles; cp /source/bundles/mixed.json /destination/bundles/; cp -a /source/blobs /destination/' 0.2s
 
 ✔ Container.envVariables: [EnvVariable!]! 0.0s
 
-✔ Container.file(path: "/payload"): File! 0.2s
-✔ .contents: String! 0.2s
+✔ Container.file(path: "/payload"): File! 0.1s
+✔ .contents: String! 0.1s
 
 ✔ Container.stdout: String! 0.2s
 
-✔ Service.stop: ID! 20.7s
+✔ Service.stop: ID! 22.1s
 
 ✔ Service.stop(kill: true): ID! 0.0s
 
-✔ Service.stop: ID! 21.9s
+✔ Service.stop: ID! 22.5s
 
 ✔ Service.stop(kill: true): ID! 0.0s
 
-... 882 earlier log lines ...
+... 610 earlier log lines ...
+    testctx.go:198: 1   : .dagger-cli session --workdir /tmp/TestRemoteCacheTransferSuiteTestPartMixedExecOutputs526356760/001 --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a DONE [31.1s]
+time=2026-09-17T03:05:34.646Z level=DEBUG msg="released dagql cache refs for session" session=h5yhoe73g0gmrwv9af68asd2z beforeEntries=4230 afterEntries=4092 beforeRetainedCalls=126 afterRetainedCalls=126
     testctx.go:198: 
-    testctx.go:198: 
-time=2026-09-17T02:40:47.992Z level=DEBUG msg="released dagql cache refs for session" session=e590tnvcmk81cp0qftr8ogrce beforeEntries=4230 afterEntries=4092 beforeRetainedCalls=126 afterRetainedCalls=126
-time=2026-09-17T02:40:47.995Z level=DEBUG msg="session removed" session=e590tnvcmk81cp0qftr8ogrce
+time=2026-09-17T03:05:34.649Z level=DEBUG msg="session removed" session=h5yhoe73g0gmrwv9af68asd2z
 Received signal terminated, retries: 1/3
-time="2026-09-17T02:40:48Z" level=error msg="server context canceled" error="context canceled" spanID=b7e3a44de9bc1465 traceID=e2b788da678c718c1e0f987488bc99c7
-time="2026-09-17T02:40:48Z" level=info msg="stopping server" spanID=b7e3a44de9bc1465 traceID=e2b788da678c718c1e0f987488bc99c7
+time="2026-09-17T03:05:34Z" level=error msg="server context canceled" error="context canceled" spanID=56122dfdd64f61b8 traceID=70d079daa2e707780e3fd22b64efe282
+time="2026-09-17T03:05:34Z" level=info msg="stopping server" spanID=56122dfdd64f61b8 traceID=70d079daa2e707780e3fd22b64efe282
 dnsmasq exited: signal: killed
-    testctx.go:198: 50  : Service.stop DONE [20.7s]
-    testctx.go:198: 50  : Service.stop DONE [20.7s]
     testctx.go:198: 
+    testctx.go:198: 40  : Container.asService DONE [30.9s]
     testctx.go:198: 
-    testctx.go:198: 51  : Service.stop(kill: true): ID!
-    testctx.go:198: 51  : Service.stop(kill: true): ID!
-    testctx.go:198: 51  : Service.stop DONE [0.0s]
-    testctx.go:198: 51  : Service.stop DONE [0.0s]
+    testctx.go:198: 41  : Host.tunnel DONE [30.9s]
     testctx.go:198: 
+    testctx.go:198: 59  : Service.stop DONE [22.1s]
     testctx.go:198: 
-    testctx.go:198: 52  : Service.stop: ID!
-    testctx.go:198: 52  : Service.stop: ID!
-time=2026-09-17T02:40:49.072Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=0 usedBytes=12808841
-time=2026-09-17T02:40:49.083Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=1 usedBytes=12808841
-time=2026-09-17T02:40:49.094Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=2 usedBytes=12808841
-time=2026-09-17T02:40:49.094Z level=INFO msg="starting dagql cache close" hasSQLDB=true hasPersistDB=true
-time=2026-09-17T02:40:49.403Z level=INFO msg="marking dagql cache clean shutdown"
-time=2026-09-17T02:40:49.403Z level=WARN msg="successfully marked clean shutdown in persistence metadata"
-time=2026-09-17T02:40:49.407Z level=INFO msg="completed dagql cache close successfully"
+    testctx.go:198: 60  : Service.stop(kill: true): ID!
+    testctx.go:198: 60  : Service.stop DONE [0.0s]
+    testctx.go:198: 
+    testctx.go:198: 61  : Service.stop: ID!
+time=2026-09-17T03:05:35.752Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=0 usedBytes=12808841
+time=2026-09-17T03:05:35.768Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=1 usedBytes=12808841
+time=2026-09-17T03:05:35.775Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=2 usedBytes=12808841
+time=2026-09-17T03:05:35.775Z level=INFO msg="starting dagql cache close" hasSQLDB=true hasPersistDB=true
+time=2026-09-17T03:05:36.062Z level=INFO msg="marking dagql cache clean shutdown"
+time=2026-09-17T03:05:36.062Z level=WARN msg="successfully marked clean shutdown in persistence metadata"
+time=2026-09-17T03:05:36.065Z level=INFO msg="completed dagql cache close successfully"
 shutting down telemetry...
 telemetry shut down complete
     testctx.go:198: 
+    testctx.go:198: 1   : .dagger-cli session --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a DONE [1m10s]
     testctx.go:198: 
-    testctx.go:198: 1   : .dagger-cli session --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a DONE [59.9s]
-    testctx.go:198: 1   : .dagger-cli session --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a DONE [59.9s]
+    testctx.go:198: 61  : Service.stop DONE [22.5s]
     testctx.go:198: 
+    testctx.go:198: 62  : Service.stop(kill: true): ID!
+    testctx.go:198: 62  : Service.stop DONE [0.0s]
     testctx.go:198: 
-    testctx.go:198: 52  : Service.stop DONE [21.9s]
-    testctx.go:198: 52  : Service.stop DONE [21.9s]
-    testctx.go:198: 
-    testctx.go:198: 
-    testctx.go:198: 53  : Service.stop(kill: true): ID!
-    testctx.go:198: 53  : Service.stop(kill: true): ID!
-    testctx.go:198: 53  : Service.stop DONE [0.0s]
-    testctx.go:198: 53  : Service.stop DONE [0.0s]
-    testctx.go:198: 
-    testctx.go:198: 
-full: dagger cloud logs e2b788da678c718c1e0f987488bc99c7 --test "TestRemoteCacheTransferSuite/TestPartMixedExecOutputs"
+full: dagger cloud logs 70d079daa2e707780e3fd22b64efe282 --test "TestRemoteCacheTransferSuite/TestPartMixedExecOutputs"
