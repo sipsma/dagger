@@ -1,10 +1,7 @@
 package remotecache
 
 import (
-	"context"
-	"errors"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -55,33 +52,4 @@ func TestNewIntegrationInstanceIDs(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, a, 32)
 	require.NotEqual(t, a, b)
-}
-
-// Until the channel client exists, Run only waits for the engine to shut
-// down. It returns nil for a plain cancellation and the cause otherwise.
-func TestRunReturnsOnShutdown(t *testing.T) {
-	t.Parallel()
-	cfg, err := NewIntegration(Config{URL: "http://cache:8080", Token: "secret", EngineName: "engine-a", EngineVersion: "v1"})
-	require.NoError(t, err)
-	ctx, cancel := context.WithCancelCause(t.Context())
-	done := make(chan error, 1)
-	go func() { done <- cfg.Run(ctx, nil) }()
-	cancel(nil)
-	select {
-	case err := <-done:
-		require.NoError(t, err)
-	case <-time.After(10 * time.Second):
-		t.Fatal("Run did not return after cancellation")
-	}
-
-	cause := errors.New("engine shutting down")
-	ctx, cancel = context.WithCancelCause(t.Context())
-	go func() { done <- cfg.Run(ctx, nil) }()
-	cancel(cause)
-	select {
-	case err := <-done:
-		require.ErrorIs(t, err, cause)
-	case <-time.After(10 * time.Second):
-		t.Fatal("Run did not return after cancellation with a cause")
-	}
 }

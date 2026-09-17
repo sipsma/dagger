@@ -9,7 +9,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -80,15 +79,10 @@ func newEngineInstanceID() (string, error) {
 	return hex.EncodeToString(raw[:]), nil
 }
 
-// run is the integration's Run. Until the channel client exists it only
-// logs that the integration is configured and waits for the engine to shut
-// down. It holds no cache operation.
-func run(ctx context.Context, cfg Config, instanceID string, _ *server.RemoteCacheAdapter) error {
-	slog.Info("remote cache integration configured", "url", cfg.URL, "engineInstance", instanceID, "engineName", cfg.EngineName, "engineVersion", cfg.EngineVersion)
-	<-ctx.Done()
-	err := context.Cause(ctx)
-	if errors.Is(err, context.Canceled) {
-		return nil
-	}
-	return err
+// run is the integration's Run: the channel client, under the server's
+// lifetime context. It returns once that context ends and every loop and
+// upload has returned.
+func run(ctx context.Context, cfg Config, instanceID string, adapter *server.RemoteCacheAdapter) error {
+	slog.Info("remote cache integration starting", "url", cfg.URL, "engineInstance", instanceID, "engineName", cfg.EngineName, "engineVersion", cfg.EngineVersion)
+	return newClient(cfg, instanceID, nil, adapter).run(ctx)
 }
