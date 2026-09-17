@@ -95,3 +95,106 @@ Every subtest of `TestFixtureControls` has a recorded native pass, six in row 5 
 - `offer`, `takeRenewal`, `replyRenewal`, `armRenewalReply`, `gc`, `hold` and `dropRetainedRoots` are tested in process and wired, but only `hold`, the barriers, `exportSelected`, `transport`, `observe` and `report` have run on a real engine so far. The slice 2 cases are their first native use.
 - The renewal points are observations; nothing in slice 1 pauses at them natively.
 - A pause at `beforeOwnerAttach` or `afterOwnerAttach` holds the row's lease guard, because that is where the real attachment is. The design's list of locks a pause must not hold does not name that guard; I note it so the council can object.
+
+## Slice 1 corrections and slice 2 progress (interim, 17 September 2026)
+
+Conclusions first.
+
+- Every slice 1 finding assigned to me is fixed: C1 to C5 and C9 of the consolidation, and F1 to F4 and the harness finding of the confirmation round. Each production-side fix has an in-process test that fails before it, with two stated exceptions below.
+- Eleven native tests exist and pass, with two subtests that fail on production defects that are with the coordinator, not masked.
+- Two production defects were found by native cases. One is fixed by author B and cherry-picked here; the other is open.
+- One regression was mine and lasted five commits: `go test ./dagql` was red from `87d62517c2` to `d5d8deb18c`. Found by me, fixed in `96610fe471`. How it happened is below.
+- Twenty-eight nested engines ran in parallel at default parallelism without thrash. That is the F6 data so far; the one full-set measurement is still owed.
+
+### Corrections
+
+| Finding | Commit | Failing-before test |
+| --- | --- | --- |
+| C1 paused reply blocks Stop | `12f1b581fc` | `TestRemoteCacheFixtureStopReleasesPausedReply` |
+| C2 hold admission races Close | `0b59c27ac4` | `TestFixtureHoldAdmittedBeforeCloseLeavesNoToken` (race, 20 runs) |
+| C3 retired deliveries accumulate; C5 armed reply outcome dropped | `637b4b4d56` | `TestRemoteCacheFixtureRetiresUntakenDeliveries`; C5's assertions are in `TestRemoteCacheFixtureRenewal` |
+| C4 cleanup registered late, unbounded | `a8038f8450`, then `5b943119c3` | none: the path needs real services; it is the control flow the reviewer read |
+| C9 injected cause survives | `1fab495171` | native assertion in `TestFixtureControls/BarrierActions`; it does survive |
+| F1 cancellation alone cannot end a paused reply | `bc4618cbef` | `TestRemoteCacheFixtureLifetimeCancelReleasesPausedReply` |
+| F2 `decodeJoined` test hangs after a failed assertion | `0dbaedcd91` | the reviewer's injected-failure reproduction |
+| F3 `observe` keeps old reached points | `96610fe471` | `TestFixtureObserverOverflow` |
+| F4 armed-reply history unbounded | `5080ec1468` | `TestRemoteCacheFixtureArmedReplyHistoryIsBounded` cannot compile before the change; the reviewer's reproduction is the failing-before evidence |
+| C8 ledger bounds | this commit | slice 1 row 3 corrected below; every row here has both bounds |
+| `decodeJoined` for author B | `d05749ae19` | `TestFixtureBarrierDecodeJoined` |
+
+Slice 1 ledger row 3 correction: its process bound was not recorded. It ran under the tool's bound, at most 600 s; the exact value is unknown.
+
+### My regression
+
+`87d62517c2` journals every reached point and took the part events' mutex to do it. Batch 6's `TestSnapshotSharingCancelAfterPublicationDeliversReceipt` parks a Body at Commit's part event by holding that same mutex, so the Body parked at `prepareDone` instead and the test failed at "the slot never published". After that commit I ran only the fixture tests, not the package. I then chained a commit after `go test … | tail`, whose exit status is `tail`'s, so `d5d8deb18c` went in on a visibly failing run. `96610fe471` gives the journal its own lock and the package passes again, also with `-race` on the fixture and sharing tests. I now write the test result to a file and commit only on a grep of `^ok`.
+
+### Fixture additions in slice 2
+
+- `87d62517c2`, `96610fe471`: the report's `reached` list, every point of the closed barrier set the cache passed, on one sequence counter with the part events. This is the correlation section 3.2 asks for: task generation, pass, source route and exchange are already in a point's event.
+- `7356f6d6bc`, `fbf62dd48c`: the `storage` group: snapshot and blob counts, owner leases by ID, transient pins with what each holds.
+- `637b4b4d56`, `5080ec1468`: the `renewal` group.
+- `d5d8deb18c`: `share-skipped` part events with the cause.
+- `7133aa547e`: the fixture's content override now serves only an offer with no address and no renewal key. Any other offer goes to the real content source, so the real HTTP content path, the renewal mailbox and the transport dispatcher are reachable natively. Before this no native case could touch them.
+- `07fc672f1a`: my `gc` control lacked the containerd namespace and had never worked on an engine; slice 1's native test only called it with a bad argument. My miss.
+- `f9672bc95f`: the dispatcher returned an unobserved `http.NoBody`, so every error status looked unclosed. A fixture defect, found by the status cases.
+
+### Native tests
+
+All in `RemoteCacheTransferSuite`. Durations are the test's own, from the trace.
+
+| Test | State | Commit |
+| --- | --- | --- |
+| `TestFixtureControls` (7 subtests) | pass at the corrected tip, 222 s wall | `20a56c46f5`, `1fab495171` |
+| `TestSharingDonorRestart` both orders | pass, 84 to 86 s | `3fbdb3e7c0` |
+| `TestEncodedRestart/FailedAttachThenRestart`, `/LocalRestoreReset`, `/RetryOnlyBookkeeping` | pass, 81 to 88 s | `1828ecfee9`, `02ceab3911` |
+| `TestPendingOffersRestart` | pass, 2 m 11 s | `27a66ccda5` |
+| `TestHTTPRestore` three outcome classes (7 subtests) | pass, 75 to 80 s | `5c9d2f353d` |
+| `TestHostInputs` (2) | pass, 75 s | `2e452a72de` |
+| `TestSharingFinish/OnePass` | pass, 1 m 54 s | `fc75ba9a0c` |
+| `TestOffers/BeforeStart`, `/Preparing`, `/Running` | pass, 94 s | `549f64d12f` |
+| `TestGitTrees/RemoteDownload`, `/RemoteFallback` | pass, 2 m 25 s | `28dec66334` |
+| `TestRenewal/ArmedReplySucceeds`, `/ExpiredAddressesRenewed`, `/TimeoutThenFallback` | pass with B's fix; 81 to 94 s | `796f571ea1`, `397221fe5c` |
+| `TestPipeline/Warm`, `/Cold` | pass, 2 m 28 s and 2 m 14 s | `be5f48d0d8` |
+| `TestPipeline/FailedChain` content cases (9) | pass, 76 to 84 s | `be5f48d0d8` |
+| `TestPipeline/FailedChain/RetainedExec` | **fails: production finding 2** | `be5f48d0d8` |
+
+F4 is confirmed natively by `LocalRestoreReset`: one damaged `ref_key` in `result_snapshot_links` gives `import_failure` and `dagql_import_failure`, the engine boots, nothing is demanded and no fixture host is reached.
+
+Rows author B folded in, as named in the tests: `TestHostInputs/NestedViewExportsWholeChain` (from `TestValueTransferPartsSelectedChain`); `TestGitTrees/RemoteDownload` (from `TestValueTransferPartsGitTrees`, remote); `TestGitTrees/RemoteFallback` (from `TestGitLazyOperationsRemoteEvaluate` and the Ref, Commit, discard, depth and tags combinations of `TestGitLazyOperationsEvaluate`). Still owed: the local backend, the `cleaned` tree, bundles, and `TestPipeline/Cold`'s builtin selector row.
+
+### Production findings
+
+1. **Engine panic on the first accepted renewal of a key-only offer.** `assignment to entry in nil map` in `partContentProvider.renew`; `Provider` cloned a nil address map. Found by `TestRenewal/ArmedReplySucceeds`. Fixed by author B (`e844245c8b`, here `397221fe5c`); the native case passes unchanged.
+2. **The retained exec's fallback fails when the exec mounts an imported File.** `clone detached file for container result: file must be materialized, got lazy *core.FileRestoreLazy` (`core/container.go:921`). The File's output was installed by part acquisition, its Lazy operation never ran, and the clone guard tests the Lazy operation. Open, with the coordinator; the native case is committed as written and fails.
+3. Not a defect, ruled by the coordinator after author B reproduced it in process: while a complete equivalent local row is alive, an ordinary read of an imported row's handle is served by that row and never touches the imported one, so bookkeeping owed on it is paid only by an exact demand, a collection or a close. `RetryOnlyBookkeeping` was reshaped to end the donor's owner first. Measured natively: one transient pin is held in the owed state and released by the settlement.
+
+### What this means for cases still to write
+
+The same fact limits two of the designer's owed rows natively. A foreground read cannot race a pass on the receiver's own address, and cannot decode the receiver, while the donor is alive, and a pass needs a live donor. `TestSharingFinish/FailingPrefix` and `/ForegroundReadRacesPass` therefore use the fixture's exact selected export as the foreground operation. They are written and on the engine now. A Container receiver whose mount order differs from the donor's cannot be made congruent natively at all: a different mount order is a different recipe. Options: (a) keep it in process where `core/part_delegation_mount_test.go` already carries it; (b) a native Directory-level case, where equal content does unite rows. I propose (a) and will say so at the slice 2 review.
+
+### Verification ledger, slice 2 so far
+
+Unprivileged, default parallelism, one engine invocation at a time. Every engine row is `dagger api call engine-dev test --pkg ./core/integration --run=<selection> --test-verbose --timeout=<T> --env-file=file:/tmp/b7/dump-5m.env` under `timeout <outer>`.
+
+| # | Selection | Bounds (test, process) | Result | Wall |
+| --- | --- | --- | --- | --- |
+| 7 | `TestSharingDonorRestart` | 5 m, 640 s | fail: my `gc` control (namespace); donor-after-import resolved to R | 295 s |
+| 8 | donor, encoded restart, `TestFixtureControls/NoStale…` | 6 m, 680 s | gc fixed; 3 test-side expectation failures | 340 s |
+| 9 | same three failing subtests plus pending offers | 6 m, 680 s | **no result: the run was killed at 5 m 30 s when my session was interrupted** | unknown |
+| 10 | donor, encoded restart, pending offers | 6 m, 680 s | donor passes both orders; the rest test-side | 416 s |
+| 11 | encoded restart, pending offers | 6 m, 680 s | pass | 281 s |
+| 12 | `TestFixtureControls` at the corrected tip | 6 m, 680 s | pass | 222 s |
+| 13 | sharing finish, HTTP restore, host inputs | 7 m, 760 s | HTTP and host pass; finish failed on my pin expectation | 192 s |
+| 14 | sharing finish, renewal | 6 m, 680 s | **engine panic (finding 1)**; timeout case passes | 245 s |
+| 15 | finish, renewal (2), offers, Git, pipeline | 8 m, 810 s | all pass but pipeline (my GraphQL variable type) | 222 s |
+| 16 | pipeline, renewal success, retry subtest | 8 m, 810 s | renewal and retry pass; finding 2; five status cases on my dispatcher defect; Cold on my exec count | 370 s |
+| 17 | pipeline Cold and the five status cases | 8 m, 810 s | pass | 362 s |
+
+Two runs started with an edit of mine inside their first minute: run 16, a test file in `engine/server` at 41 s, and run 17, the F4 change to `core`, `core/schema` and `engine/server` at 48 s. Neither file set is in the selected test package, and both runs built and behaved as the tree before the edit would, but the rule is one minute and I broke it twice. The runs are recorded as they are.
+
+In-process runs for the corrections: `go test ./dagql -count=1 -timeout 400s` under a 560 s process bound, pass, 4.9 s; `go test -race ./dagql -run 'TestFixture|TestSnapshotSharing' -timeout 400s` under 560 s, pass, 5.7 s; `go test -race ./engine/server -run 'TestRemoteCacheFixture|TestRemoteCache' -count=2 -timeout 200s` under 320 s, pass, 3.7 s; `go test ./core/schema -run 'TestFixture|TestRemoteCacheFixture' -timeout 240s` under 600 s, pass, 0.9 s; `go test ./engine/fixturetransport -timeout 60s` under 150 s, pass.
+
+### Slop met since slice 1
+
+- A shell pipeline's exit status hides a failing test; see my regression above. Not the repository's slop, mine, but it cost a red package for five commits.
+- A passing native run prints no verdict lines at all, so "which subtests ran" has to be confirmed from the trace each time.
