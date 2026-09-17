@@ -1154,9 +1154,14 @@ func TestSnapshotSharingCancelAfterPublicationDeliversReceipt(t *testing.T) {
 	fixture.mu.Lock()
 	release := sync.OnceFunc(fixture.mu.Unlock)
 	defer release()
-	manager.afterPin = func() { c.partFixture.Store(fixture) }
+	// The fixture appears only once the typed store has published, so the
+	// barrier points before publication (prepareDone, beforeCommit) find none
+	// and Commit's own last event is the first to meet the held mutex.
 	published := make(chan struct{})
-	receiverValue.afterStoreUnlock = sync.OnceFunc(func() { close(published) })
+	receiverValue.afterStoreUnlock = sync.OnceFunc(func() {
+		c.partFixture.Store(fixture)
+		close(published)
+	})
 
 	shareTestUnite(t, ctx, c, "cancel-after-publication", donor, receiver)
 	select {
