@@ -205,7 +205,7 @@ whose closure's records go into every bundle that contains it
 (`dagql/cache_value_capture.go:94`). Whether the runtime's parts are
 uploaded is the policy's choice through `partsOf` and `OutputsOf`
 (`engine/server/remote_cache.go:152`), not a property of this row. The
-records are the same typedef and runtime rows the module-object leaf
-already carries today, so the added bundle size is one row's record; not
-measured. A definition that no leaf references stays a retained leaf and
-exports on its own, metadata only.
+added records depend on which dependencies are already in the leaf's
+closure; size is not measured. A definition that no leaf references stays a
+retained leaf and exports on its own, and that standalone export may
+include parts selected by policy.
