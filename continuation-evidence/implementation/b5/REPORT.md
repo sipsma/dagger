@@ -6,9 +6,9 @@ Implementer, 17 September 2026. Steps 1 to 5 of the commission (`git show 64a013
 | --- | --- |
 | Branch | `offers-implementer-implementation-fb886a62` |
 | Base | `fd9cfd55a98b176bf82cf84ee1b4c3ae1257fde5` |
-| Implementation tip | `33bd13ff3c17eea28e0a5913b43cbfe8636629e6` (after the round 1 corrections; round 1 reviewed `e1adfa2694`) |
+| Implementation tip | `c56971f1658b5b823153aee33e4a81437eb891a9` (after the round 2 correction; round 1 reviewed `e1adfa2694`, round 2 reviewed `33bd13ff3c`) |
 | Evidence tip | the commit that adds this report |
-| Diff | `git diff fd9cfd55a9 33bd13ff3c -- . ':!continuation-evidence'`; round 1 corrections: `git diff e1adfa2694 33bd13ff3c` |
+| Diff | `git diff fd9cfd55a9 c56971f165 -- . ':!continuation-evidence'`; round 1 corrections: `git diff e1adfa2694 33bd13ff3c`; round 2: `git diff 33bd13ff3c c56971f165` |
 | Superseded evidence commit | `23b2787ac8` (the first report, committed before the correction arrived; this commit replaces its verification section) |
 
 Governing revisions: the design at `49b268a354`, read through its vocabulary table; the packet at `2daf4b4d9e` and `64a0137a5f`; decision 1 as answered in the binding start; the designer's readiness points a to e (`62809f73bc`); the verification time rule, the test timeout rule and the time-and-slop rule (`b3d805de10`).
@@ -38,9 +38,11 @@ Governing revisions: the design at `49b268a354`, read through its vocabulary tab
 | `93334a4041` | round 1 R7 | Unused `delivered` flag removed; `Stop` checks for an exited Run first; a non-HTTP address has a plain unavailable cause. |
 | `0d43783959` | round 1 R7 | Inherited: `doneClosingCh` is buffered, so a `ctx.Done()` return no longer strands the closing goroutine. |
 | `33bd13ff3c` | round 1 R9 | `TestRemoteCacheUnusedRanking` checks nil-config ranking cost without a real store. |
-| evidence tip | evidence | This report after round 1, the ledgers and the logs. |
+| `361ef7f789` | evidence | Round 1 corrections record. |
+| `c56971f165` | round 2 R11a | `renewalResult` returns its error last. |
+| evidence tip | evidence | This report after round 2, the ledgers and the logs. |
 
-The evidence commits `d49e309bcd`, `f7af21e6f1`, `23b2787ac8`, `2d76465239` and the evidence tip are to be dropped before publication. Every commit is signed off and has no attribution trailer. Before any check or report, the port commit was amended once: `fbf61b8d78` had captured the pre-rename index. The coordinator confirmed that amend. `1c21c17463` and every later commit are unamended.
+The evidence commits `d49e309bcd`, `f7af21e6f1`, `23b2787ac8`, `2d76465239`, `361ef7f789` and the evidence tip are to be dropped before publication. Every commit is signed off and has no attribution trailer. Before any check or report, the port commit was amended once: `fbf61b8d78` had captured the pre-rename index. The coordinator confirmed that amend. `1c21c17463` and every later commit are unamended.
 
 ## Choices where the design is silent
 
@@ -67,6 +69,7 @@ The evidence commits `d49e309bcd`, `f7af21e6f1`, `23b2787ac8`, `2d76465239` and 
 
 - **`GracefulStop` returns its collected errors for every engine** (`f3934542da`). Errors from session teardown, client DB close, shutdown prune, cache close and executor option close were previously dropped. `cmd/engine` only logs the returned error.
 - **Fixed-address downloads without an integration.** The provider now uses the default transport clone with transparent decompression disabled, instead of `http.DefaultClient`. It keeps one response for contiguous reads instead of one bounded request per read. It accepts only HTTP(S) addresses, checks descriptors against the chain and applies the 30-second idle bound. Ranking treats non-HTTP or relative URLs as unavailable; previously any non-empty unexpired URL counted.
+- **`GracefulStop`'s closing goroutine can now always exit** (round 1, `0d43783959`, inherited). Its result channel is buffered, so when `GracefulStop` returns through `ctx.Done()` the goroutine finishes closing and syncing and then exits, instead of staying blocked for the life of the process. What `GracefulStop` returns is unchanged by this commit.
 - **Both cache close entries**, `Close`/`CloseWithShutdownError` and `CloseDiscardingPersistence`, now mark the cache closing and detach an attached bridge under M before draining. `CloseDiscardingPersistence` previously only set `closing`; it still does, and adds the detach. With no integration, nothing is attached and nothing changes beyond one uncontended mutex acquisition.
 - **A failed integration stop** leaves the checkpoint dirty, so the next start wipes DagQL persistence. The commission names this as an accepted cost.
 - **`NewServer`** rejects a non-nil `RemoteCacheIntegration` without `Run`. The option is new and nil by default.
@@ -104,7 +107,7 @@ In the table, `\|` stands for `|` inside the regular expression. Note on the pac
 
 They affect **60 top-level tests**, and the two kinds must be told apart:
 - **40 are wholly skipped** (27 core, 9 dagql, 4 core/schema).
-- **20 print PASS while some or all of their subtests skipped.** Among them, `TestOfferSettlementReplacement`, `TestOfferPartsNativeAdmission` and `TestPartAdmittedChainLifetime` skipped every subtest.
+- **20 print PASS although every one of their subtests skipped.** In all 20, no leaf subtest ran (checked in `package-results.json`); they include `TestOfferSettlementReplacement`, `TestOfferPartsNativeAdmission` and `TestPartAdmittedChainLifetime`. The only parent in the run with both skipped and passing subtests is `TestCacheContextCancel`, whose skip is the base TODO, not a mount skip.
 - **By package**, the 60 are 14 in dagql, 38 in core and 8 in core/schema.
 
 The per-file table below counts affected top-level tests. One further skip is `dagql/TestCacheContextCancel/last_waiter_canceled_fn_returns_value_still_releases` ("TODO: re-enable after last-waiter canceled cleanup semantics are decided"), which skips unconditionally at the base too. The race run's 10 skips are all mount skips in this batch's tests. None is counted as a pass.
@@ -135,9 +138,12 @@ These tests are unit tests that need real mounts only because they call `ImportC
 - **Also in part**, which the decision list did not name:
   - before-start admission on a real core value (`core/TestOfferPartsNativeAdmission` skipped; the dagql admission tests ran);
   - the ownership row's pruning case (`TestPartAdmittedChainLifetime`, all subtests skipped);
-  - nil-config fixed-address installation (`TestRemoteCacheUnusedCost` skipped; its ranking and ordinary-miss checks now run in `TestRemoteCacheUnusedRanking`). The tests that do run unprivileged are:
+  - nil-config fixed-address installation (`TestRemoteCacheUnusedCost` skipped; its ranking and ordinary-miss checks now run in `TestRemoteCacheUnusedRanking`).
+
+The batch's tests that do run unprivileged are:
 - the ported `TestOfferParts*` tests, `TestOfferPartsPreparationWindow`, `TestCacheCloseWithShutdownError`, `TestRenewalMailbox`, `TestRenewalEpisodeSet`, `TestRenewalClaimKeepsSourceCheck`, `TestRemoteCacheBridgeAttachment`, `TestPartContentSourceAvailability`, `TestPartContentIdleReader`, `TestPartFixedProvider*` and `TestPartUnusedHostAllocatesNoGate`;
-- in engine/server, `TestRemoteCacheIntegrationConfig`, `TestRemoteCacheAdapterLifetime` and `TestRemoteCacheGracefulStop`.
+- in engine/server, `TestRemoteCacheIntegrationConfig`, `TestRemoteCacheAdapterLifetime` and `TestRemoteCacheGracefulStop`;
+- from round 1, `TestRenewalSettledEpisodeAfterDeadline`, `TestPartContentBodyClosedOnce` and `TestRemoteCacheUnusedRanking`.
 
 ### Engine regression
 
@@ -232,6 +238,8 @@ These checks ran on `33bd13ff3c` from 03:42:37 UTC, unprivileged and concurrentl
 | core | `go test ./core '-run=^TestOfferParts' -count=1 -v -timeout=60s` | 60 s | 0 | 20.8 s | 0.112 s | 1 pass (parent), 2 subtests skipped (real store) |
 
 New round 1 tests, all unprivileged and passing: `TestRenewalSettledEpisodeAfterDeadline`, `TestRenewalMailbox/cancellation_seen_before_the_requester_runs`, `TestPartContentBodyClosedOnce` (4 subtests), `TestRemoteCacheAdapterLifetime/an_exited_run_has_stopped_under_an_expired_context`, `TestRemoteCacheUnusedRanking`, and the non-HTTP ReaderAt check in `TestPartContentSourceAvailability`. Before committing R2, R3, R4 and the `Stop` part of R7, I ran the new tests once against the previous code; each failed there and passed with the fix. Those development runs used `-timeout=60s`.
+
+**Round 2 correction (R11).** `c56971f165` reorders `renewalResult` to return `(addresses, settled, error)`, putting the error last as Go convention and staticcheck ST1008 require; its three callers follow, with no behavior change. Neither `golangci-lint` nor `staticcheck` is installed on this host, so no linter ran. At `c56971f165`, `go build ./dagql` and `go vet ./dagql` were clean, and `go test ./dagql '-run=^Test(Renewal|Offer|RemoteCache)' -count=1 -v -timeout=120s` (unprivileged; 120 s timeout) exited 0 in 8.8 s wall and 0.374 s Go time: 32 pass, 0 fail, 10 skip entries (the dagql real-store tests). Log: [logs/round2/dagql.log](logs/round2/dagql.log).
 
 **R10 records (no change).** The "6x part sources changed; reselect" span and the teardown ERROR from the retired full-suite run remain unattributed; there was no rerun, and batch 7's cold run will show whether the count persists. The corrected set's whole-package `engine/server -race` was broader than rule 3 allows; it is not repeated, and `-run=^TestRemoteCache` is used from round 1 on, as above. `SetPartContentSource` keeps its documented requirement of a cache from `NewCache`, with no nil guard.
 
