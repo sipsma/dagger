@@ -87,7 +87,7 @@ Between `e4b65210ea` and `9ea94cb1ef` the `core` package is red unprivileged by 
 
 ## Ledger
 
-All unprivileged, uid 1000, default parallelism, `-count=1`, one invocation per package per variant, packages of a variant in one command. Wall times include compilation; the `-timeout` bounds only each test binary. Per-test results: `logs/`. The four G5 measurement runs are in `g5/`.
+All unprivileged, uid 1000, default parallelism, `-count=1`, one invocation per package per variant, packages of a variant in one command. Wall times include compilation; the `-timeout` bounds only each test binary. Per-test results: `logs-author-b/`. The four G5 measurement runs are in `g5/`.
 
 | # | Tree | Command | Bound | Result | Wall |
 | --- | --- | --- | --- | --- | --- |
