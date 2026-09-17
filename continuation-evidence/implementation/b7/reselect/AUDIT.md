@@ -157,3 +157,41 @@ Optional, only if the council wants them, since each is a new wait: `demand.go:3
 1. Is busy-by-default accepted? The packet's outline reads the other way round (busy sites wait, the rest are changed). I think that outline is unsafe: 20 sites compare something no counter covers (set membership, authority, frames, a try-lock), three more mix both causes on one line, and only three of them have a signal to wait on.
 2. `core/file.go:316` and `core/directory.go:338`: hard error now, or a named limit?
 3. Do loops 1 to 3 get anything beyond the warning? I say no: they hold no demand state and only ever see the one-way route switch.
+
+## Addendum, 17 September, after the rulings, design section B6 and the implementation
+
+Authority: the coordinator's rulings on this audit, decision 5, and the designer's B6 at `9d5dfd9e8a`, which withdraws B4's "Stamp" and "Rule" paragraphs and adopts the site-local rule above. Code: `e094252906` (names and warnings, no behavior change) and `f9db98a420` (the rule).
+
+### What the code does differently from the tables above
+
+1. **Six sites record, not eight.** `prepare: receiver part already complete` (install 242) and `delegation: mapping changed` (delegation 122) stay ordinary refusals. Neither has the attempt's earlier observation of the receiver in reach: `demandPart` discards the version of its first probe (`cache_part_demand.go:178`), so these sites cannot evaluate "current equals expected", and without that clause a site is not safe by construction. Cost: coverage of two sites where I could not construct a deterministic refusal anyway. The six: `commit: receiver version`, `commit: delegation child version`, `commit: donor version`, `commit: donor facts changed`, `commit: receiver representation`, `scan: candidate version`.
+2. **`OutputRevision` is not shown to be monotonic, so no site records on it** (the designer's condition). For File and Directory it is: every writer is an increment (`core/filesystem_output.go:126,135,159,186,195,219`, `core/file.go:338`, `core/directory.go:360`, `core/part_store.go:209,267`). For Container it is reported from whichever of three sources is current: the acquired view's `Revision` (`core/part_store.go:293`, set to 1 at `core/container.go:1636` and to the previous value plus one at `core/part_store.go:483`), the operation state's counter (`core/lazy_state.go:101..171`), or zero when the operation has no state. I did not audit every writer of `acquiredOutput` and `Container.Lazy`, which is what monotonicity across a switch of source needs. So a failed `version.check` records only when the payload revision moved; a moved typed output, like a held core guard, leaves the payload revision equal and the refusal ordinary.
+3. **Four loops apply the rule, not three.** Besides loops 5, 6 and 7, the Lazy decision's two-scan loop records before it retries, because after the second scan it returns its own refusal, which names no counters.
+4. **The warning names the site.** All 56 returns go through `partRefusal`, which unwraps to the sentinel. `demand: receiver probe not ready` keeps the capture's message, so a spin on the open item below says "missing snapshot and lazy op" in the log.
+
+### Site names
+
+The tables above give file and line at the base. In the code each return carries a name; the prefix says where it is: `prepare:`, `commit:`, `install:` in `cache_part_install.go`; `scan:` and `sessionless source:` in `cache_part_source.go`; `demand:`, `obtain:`, `source check:`, `decision:`, `join:` in `cache_part_demand.go`; `native:` in `cache_part_host.go`; `delegation:`; `publish:` in `cache_part_lazy.go`; `chain:` in `cache_part_content.go`; `share:` in `cache_snapshot_sharing.go`. `grep -n 'partRefused\|partChanged\|\.changed(' dagql/*.go` lists all of them with their lines.
+
+### Counters against what the three validators check (B4's last table requirement)
+
+| Validator | Fact it validates | Covered by a recorded counter |
+| --- | --- | --- |
+| `CommitReadyPart` | receiver, child and donor representation unchanged since capture | yes, `payloadRevision`; typed output revision no (item 2) |
+| | donor facts | yes, `offers, resources, ownership, payload, gate`; `expires` no |
+| | receiver representation is the expected one | yes, `payloadRevision` |
+| | receiver registered, task active, own group running, own permit held | no: ended, not counted |
+| | donor registered and still an eligible equivalent | no: set membership |
+| | offer owner allowed; each dependency allowed and held | no: authority |
+| | part store lock | no: try-lock |
+| | sessionless: requirement generation, expiry, donated facts, predecessors | not applicable: no demand state |
+| `selectDemandPartSource` and `scanPartSources` | candidate representation unchanged since probe | yes, `payloadRevision` |
+| | own part complete but busy | no: holder is the installing task |
+| | candidate facts and session satisfaction (one line) | no: kept ordinary, because the receiver can be its own candidate and its gate revision is advanced by this demand's permits |
+| | selected row still a candidate; offer owner allowed | no |
+| | delegation mapping, proof, parent facts | no (item 1 for the mapping; the rest compares frames, deps and session) |
+| sessionless constructor | everything | not applicable: reached only from a sharing pass, which has no retry loop and no demand state |
+
+### Open item: `core/file.go:316` and `core/directory.go:338`
+
+Ruling: a named limit, no behavior change. The state is "a published File or Directory with neither a snapshot nor a Lazy operation", reported with the not-ready sentinel. `demandPart` maps it to a reselect at `demand: receiver probe not ready` and its outer loop retries it; the loop's warning now carries the message. The designer found no mechanism at the base by which that state becomes ready on its own, but did not audit every snapshot writer. To close it, two constraints from the designer apply: the change belongs in `demandPart`'s mapping of the receiver's probe, behind a distinct marker that still wraps `ErrPersistStateNotReady`, never in the encoder, because the sentinel is upstream's and the checkpoint worker relies on it meaning "skip and retry later"; and the proof it needs is a complete audit of the writers of both types' snapshot and `Lazy` fields showing the state cannot become ready. I have done neither.
