@@ -65,6 +65,7 @@ func readLazyOperationDirectoryFile(t *testing.T, ctx context.Context, dir *Dire
 	return data
 }
 func TestGitLazyOperationsEvaluate(t *testing.T) {
+	foldedIntoNative(t, "TestRemoteCacheTransferSuite/TestGitTrees")
 	ctx, store, cache, srv, _ := executionFixture(t)
 	var sha string
 	snapshot := operationGitSnapshot(t, ctx, store, func(root string) {
@@ -177,6 +178,7 @@ func boolName(b bool) string {
 }
 
 func TestGitLazyOperationsRemoteEvaluate(t *testing.T) {
+	foldedIntoNative(t, "TestRemoteCacheTransferSuite/TestGitTrees")
 	ctx, _, cache, srv, _ := executionFixture(t)
 	base := t.TempDir()
 	work := filepath.Join(base, "work")
@@ -235,6 +237,7 @@ func TestGitLazyOperationsRemoteEvaluate(t *testing.T) {
 }
 
 func TestGitBundleLazyOperationEvaluate(t *testing.T) {
+	foldedIntoNative(t, "TestRemoteCacheTransferSuite/TestGitTrees")
 	ctx, store, cache, srv, _ := executionFixture(t)
 	srv.InstallObject(dagql.NewClass(srv, dagql.ClassOpts[*GitBundle]{}))
 	var first, second string

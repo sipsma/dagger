@@ -34,6 +34,7 @@ func (s *transferGitServer) DNS() *oci.DNSConfig    { return &oci.DNSConfig{} }
 func (s *transferGitServer) CleanMountNS() *os.File { return s.ns }
 
 func TestValueTransferPartsGitTrees(t *testing.T) {
+	foldedIntoNative(t, "TestRemoteCacheTransferSuite/TestGitTrees")
 	for _, backend := range []string{"local", "remote"} {
 		t.Run(backend, func(t *testing.T) {
 			producer, consumer := testutil.NewStore(t), testutil.NewStore(t)
