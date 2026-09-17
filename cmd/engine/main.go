@@ -45,6 +45,7 @@ import (
 	"github.com/dagger/dagger/engine/ebpf/filetracer"
 	"github.com/dagger/dagger/engine/ebpf/ovltracer"
 	"github.com/dagger/dagger/engine/engineutil/cacerts"
+	"github.com/dagger/dagger/engine/remotecache"
 	"github.com/dagger/dagger/engine/server"
 	"github.com/dagger/dagger/engine/slog"
 	"github.com/dagger/dagger/engine/wcprof"
@@ -476,11 +477,17 @@ func main() { //nolint:gocyclo
 			os.RemoveAll(lockPath)
 		}()
 
+		remoteCache, err := remotecache.IntegrationFromEnv(os.Getenv, engineName, engine.Version)
+		if err != nil {
+			return err
+		}
+
 		bklog.G(ctx).Debug("creating engine server")
 		srv, err := server.NewServer(ctx, &server.NewServerOpts{
-			Name:           engineName,
-			Config:         &cfg,
-			BuildkitConfig: &bkcfg,
+			Name:                   engineName,
+			Config:                 &cfg,
+			BuildkitConfig:         &bkcfg,
+			RemoteCacheIntegration: remoteCache,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create engine: %w", err)
