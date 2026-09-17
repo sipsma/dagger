@@ -799,7 +799,11 @@ func (r *gatedReaderAt) ReadAt(p []byte, off int64) (int, error) {
 	default:
 	}
 	if r.gate != nil {
-		<-r.gate
+		select {
+		case <-r.gate:
+		case <-time.After(5 * time.Minute):
+			return 0, errors.New("gated read: gate never opened")
+		}
 	}
 	return r.Reader.ReadAt(p, off)
 }
@@ -826,6 +830,17 @@ func uploadTestLayer(data []byte, gate chan struct{}) (exportLayer, *gatedReader
 	layer := blobLayer(data)
 	reader := &gatedReaderAt{Reader: bytes.NewReader(data), gate: gate, readStarted: make(chan struct{}, 1)}
 	return exportLayer{descriptor: layer.Descriptor, provider: fixedProvider{layer: layer, reader: reader}}, reader
+}
+
+// waitFor bounds a wait inside a worker goroutine, where t.Fatal cannot be
+// used, and returns an error the test checks afterwards.
+func waitFor(ch <-chan struct{}, what string) error {
+	select {
+	case <-ch:
+		return nil
+	case <-time.After(5 * time.Minute):
+		return errors.New("timed out waiting for " + what)
+	}
 }
 
 // recvWithin bounds a channel receive in the bubble's virtual time.
@@ -883,7 +898,9 @@ func TestUploadBlobWaitsForTheTransportToCloseTheBody(t *testing.T) {
 			go func() {
 				defer close(bodyClosed)
 				defer req.Body.Close()
-				<-releaseBody
+				if readErr = waitFor(releaseBody, "the body release"); readErr != nil {
+					return
+				}
 				got, readErr = io.ReadAll(req.Body)
 			}()
 			return emptyResponse(http.StatusOK), nil
@@ -926,17 +943,24 @@ func TestUploadBodyCloseWaitsForActiveRead(t *testing.T) {
 		layer, reader := uploadTestLayer(data, gate)
 		closeReturned, readReturned := make(chan struct{}), make(chan struct{})
 		var n int
-		var readErr, laterErr error
+		var readErr, laterErr, transportErr error
 		transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			go func() {
 				defer close(readReturned)
 				buf := make([]byte, 8)
 				n, readErr = req.Body.Read(buf)
 				// After Close, the body refuses reads.
-				<-closeReturned
+				if laterErr = waitFor(closeReturned, "Close to return"); laterErr != nil {
+					return
+				}
 				_, laterErr = req.Body.Read(buf)
 			}()
-			<-reader.readStarted
+			if transportErr = waitFor(reader.readStarted, "the read to start"); transportErr != nil {
+				// Early exit: the transport still closes the body.
+				close(closeReturned)
+				req.Body.Close()
+				return nil, transportErr
+			}
 			// The read is in flight, held at the gate. Close now, on the
 			// transport's own goroutine, and give up on the request.
 			go func() {
@@ -966,6 +990,7 @@ func TestUploadBodyCloseWaitsForActiveRead(t *testing.T) {
 		recvWithin(t, closeReturned)
 		recvWithin(t, readReturned)
 		require.ErrorContains(t, recvWithin(t, returned), "connection reset")
+		require.NoError(t, transportErr)
 		require.NoError(t, readErr, "the read in flight finished against an open reader")
 		require.Equal(t, 8, n)
 		require.ErrorContains(t, laterErr, "upload body closed")
