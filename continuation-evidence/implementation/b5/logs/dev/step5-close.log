@@ -1,0 +1,10 @@
+=== RUN   TestCacheCloseWithShutdownError
+=== RUN   TestCacheCloseWithShutdownError/seeded_cause_keeps_the_checkpoint_dirty
+=== RUN   TestCacheCloseWithShutdownError/nil_cause_closes_cleanly
+=== RUN   TestCacheCloseWithShutdownError/discarded_cache_ignores_a_later_cause
+--- PASS: TestCacheCloseWithShutdownError (0.07s)
+    --- PASS: TestCacheCloseWithShutdownError/seeded_cause_keeps_the_checkpoint_dirty (0.04s)
+    --- PASS: TestCacheCloseWithShutdownError/nil_cause_closes_cleanly (0.01s)
+    --- PASS: TestCacheCloseWithShutdownError/discarded_cache_ignores_a_later_cause (0.01s)
+PASS
+ok  	github.com/dagger/dagger/dagql	0.160s

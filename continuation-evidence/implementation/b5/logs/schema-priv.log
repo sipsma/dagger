@@ -1,0 +1,2114 @@
+=== RUN   TestParseSSHFSVolumeAddress
+--- PASS: TestParseSSHFSVolumeAddress (0.00s)
+=== RUN   TestParseSSHFSVolumeAddressErrors
+--- PASS: TestParseSSHFSVolumeAddressErrors (0.00s)
+=== RUN   TestParseEngineVolumeAddress
+=== RUN   TestParseEngineVolumeAddress/engine-volume://datasets
+=== RUN   TestParseEngineVolumeAddress/engine-volume://datasets/models
+=== RUN   TestParseEngineVolumeAddress/engine-volume://datasets/models?subdir=llama%2Fweights
+=== RUN   TestParseEngineVolumeAddress/engine-volume://datasets/models?subdir=path%20with%20spaces
+--- PASS: TestParseEngineVolumeAddress (0.00s)
+    --- PASS: TestParseEngineVolumeAddress/engine-volume://datasets (0.00s)
+    --- PASS: TestParseEngineVolumeAddress/engine-volume://datasets/models (0.00s)
+    --- PASS: TestParseEngineVolumeAddress/engine-volume://datasets/models?subdir=llama%2Fweights (0.00s)
+    --- PASS: TestParseEngineVolumeAddress/engine-volume://datasets/models?subdir=path%20with%20spaces (0.00s)
+=== RUN   TestParseEngineVolumeAddressErrors
+=== RUN   TestParseEngineVolumeAddressErrors/sshfs://datasets/models
+=== RUN   TestParseEngineVolumeAddressErrors/engine-volume:datasets/models
+=== RUN   TestParseEngineVolumeAddressErrors/engine-volume:///datasets/models
+=== RUN   TestParseEngineVolumeAddressErrors/engine-volume://user@datasets/models
+=== RUN   TestParseEngineVolumeAddressErrors/engine-volume://datasets/models/
+=== RUN   TestParseEngineVolumeAddressErrors/engine-volume://datasets//models
+=== RUN   TestParseEngineVolumeAddressErrors/engine-volume://datasets/%6dodels
+=== RUN   TestParseEngineVolumeAddressErrors/engine-volume://datasets/fs
+=== RUN   TestParseEngineVolumeAddressErrors/engine-volume://datasets/models?
+=== RUN   TestParseEngineVolumeAddressErrors/engine-volume://datasets/models?subdir=
+=== RUN   TestParseEngineVolumeAddressErrors/engine-volume://datasets/models?subdir=one&subdir=two
+=== RUN   TestParseEngineVolumeAddressErrors/engine-volume://datasets/models?subdir=../escape
+=== RUN   TestParseEngineVolumeAddressErrors/engine-volume://datasets/models?unknown=x
+=== RUN   TestParseEngineVolumeAddressErrors/engine-volume://datasets/models#fragment
+--- PASS: TestParseEngineVolumeAddressErrors (0.00s)
+    --- PASS: TestParseEngineVolumeAddressErrors/sshfs://datasets/models (0.00s)
+    --- PASS: TestParseEngineVolumeAddressErrors/engine-volume:datasets/models (0.00s)
+    --- PASS: TestParseEngineVolumeAddressErrors/engine-volume:///datasets/models (0.00s)
+    --- PASS: TestParseEngineVolumeAddressErrors/engine-volume://user@datasets/models (0.00s)
+    --- PASS: TestParseEngineVolumeAddressErrors/engine-volume://datasets/models/ (0.00s)
+    --- PASS: TestParseEngineVolumeAddressErrors/engine-volume://datasets//models (0.00s)
+    --- PASS: TestParseEngineVolumeAddressErrors/engine-volume://datasets/%6dodels (0.00s)
+    --- PASS: TestParseEngineVolumeAddressErrors/engine-volume://datasets/fs (0.00s)
+    --- PASS: TestParseEngineVolumeAddressErrors/engine-volume://datasets/models? (0.00s)
+    --- PASS: TestParseEngineVolumeAddressErrors/engine-volume://datasets/models?subdir= (0.00s)
+    --- PASS: TestParseEngineVolumeAddressErrors/engine-volume://datasets/models?subdir=one&subdir=two (0.00s)
+    --- PASS: TestParseEngineVolumeAddressErrors/engine-volume://datasets/models?subdir=../escape (0.00s)
+    --- PASS: TestParseEngineVolumeAddressErrors/engine-volume://datasets/models?unknown=x (0.00s)
+    --- PASS: TestParseEngineVolumeAddressErrors/engine-volume://datasets/models#fragment (0.00s)
+=== RUN   TestEvaluateContainerImagePartsRunsContainersConcurrently
+2026/09/17 02:34:27 INFO start lazy group evaluation field=test.containerImagePartsConcurrency group=metadata
+2026/09/17 02:34:27 INFO end lazy group evaluation field=test.containerImagePartsConcurrency group=metadata duration=45.07µs
+2026/09/17 02:34:27 INFO start lazy group evaluation field=test.containerImagePartsConcurrency group=write
+2026/09/17 02:34:27 INFO start lazy group evaluation field=test.containerImagePartsConcurrency group=metadata
+2026/09/17 02:34:27 INFO end lazy group evaluation field=test.containerImagePartsConcurrency group=metadata duration=8.86µs
+2026/09/17 02:34:27 INFO start lazy group evaluation field=test.containerImagePartsConcurrency group=write
+2026/09/17 02:34:27 INFO end lazy group evaluation field=test.containerImagePartsConcurrency group=write duration=60.64µs
+2026/09/17 02:34:27 INFO end lazy group evaluation field=test.containerImagePartsConcurrency group=write duration=17.89µs
+2026/09/17 02:34:27 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestEvaluateContainerImagePartsRunsContainersConcurrently (0.00s)
+=== RUN   TestShouldSelectLatestImageRelease
+=== PAUSE TestShouldSelectLatestImageRelease
+=== RUN   TestContainerDefaultPlatformCacheIdentity
+2026/09/17 02:34:27 INFO start call field=Query.container digest=xxh3:fdd47f4fdaea0158
+2026/09/17 02:34:27 INFO end call field=Query.container cached=false digest=xxh3:fdd47f4fdaea0158
+2026/09/17 02:34:27 INFO start call field=Query.container digest=xxh3:fdd47f4fdaea0158
+2026/09/17 02:34:27 INFO end call field=Query.container cached=true digest=xxh3:fdd47f4fdaea0158
+2026/09/17 02:34:27 INFO start call field=Query.container digest=xxh3:fb076c76d0d54f31
+2026/09/17 02:34:27 INFO end call field=Query.container cached=false digest=xxh3:fb076c76d0d54f31
+2026/09/17 02:34:27 INFO start call field=Query.container digest=xxh3:fdd47f4fdaea0158
+2026/09/17 02:34:27 INFO end call field=Query.container cached=true digest=xxh3:fdd47f4fdaea0158
+2026/09/17 02:34:27 INFO start call field=Query.container digest=xxh3:fb076c76d0d54f31
+2026/09/17 02:34:27 INFO end call field=Query.container cached=true digest=xxh3:fb076c76d0d54f31
+2026/09/17 02:34:27 INFO starting dagql cache close hasSQLDB=false hasPersistDB=false
+2026/09/17 02:34:27 INFO completed dagql cache close successfully
+--- PASS: TestContainerDefaultPlatformCacheIdentity (0.46s)
+=== RUN   TestCloneContainerForSchemaChildDisablesFromContentDigest
+=== PAUSE TestCloneContainerForSchemaChildDisablesFromContentDigest
+=== RUN   TestEagerContainerMountMetadataResolvers
+=== RUN   TestEagerContainerMountMetadataResolvers/without_mount
+=== RUN   TestEagerContainerMountMetadataResolvers/mounted_temp
+=== RUN   TestEagerContainerMountMetadataResolvers/mounted_volume
+=== RUN   TestEagerContainerMountMetadataResolvers/mounted_secret_without_owner
+=== RUN   TestEagerContainerMountMetadataResolvers/unix_socket_without_owner
+=== RUN   TestEagerContainerMountMetadataResolvers/without_unix_socket
+2026/09/17 02:34:27 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestEagerContainerMountMetadataResolvers (0.00s)
+    --- PASS: TestEagerContainerMountMetadataResolvers/without_mount (0.00s)
+    --- PASS: TestEagerContainerMountMetadataResolvers/mounted_temp (0.00s)
+    --- PASS: TestEagerContainerMountMetadataResolvers/mounted_volume (0.00s)
+    --- PASS: TestEagerContainerMountMetadataResolvers/mounted_secret_without_owner (0.00s)
+    --- PASS: TestEagerContainerMountMetadataResolvers/unix_socket_without_owner (0.00s)
+    --- PASS: TestEagerContainerMountMetadataResolvers/without_unix_socket (0.00s)
+=== RUN   TestWithImageConfigMetadataMutatesContainerConfig
+=== PAUSE TestWithImageConfigMetadataMutatesContainerConfig
+=== RUN   TestWithImageConfigMetadataRejectsInvalidHealthcheckJSON
+=== PAUSE TestWithImageConfigMetadataRejectsInvalidHealthcheckJSON
+=== RUN   TestBuiltinMetadataSelectors
+=== RUN   TestBuiltinMetadataSelectors/Directory
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=421.95µs
+2026/09/17 02:34:28 INFO start lazy evaluation field=Container.directory
+2026/09/17 02:34:28 INFO start lazy evaluation field=Directory.directory
+2026/09/17 02:34:28 INFO start lazy evaluation field=Container.rootfs
+2026/09/17 02:34:28 INFO end lazy evaluation field=Container.rootfs duration=38.9µs
+2026/09/17 02:34:28 INFO end lazy evaluation field=Directory.directory duration=12.702151ms
+2026/09/17 02:34:28 INFO end lazy evaluation field=Container.directory duration=13.000471ms
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataSelectors/File
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=521.921µs
+2026/09/17 02:34:28 INFO start lazy evaluation field=Container.file
+2026/09/17 02:34:28 INFO start lazy evaluation field=File.file
+2026/09/17 02:34:28 INFO start lazy evaluation field=Container.rootfs
+2026/09/17 02:34:28 INFO end lazy evaluation field=Container.rootfs duration=19.29µs
+2026/09/17 02:34:28 INFO end lazy evaluation field=File.file duration=11.36576ms
+2026/09/17 02:34:28 INFO end lazy evaluation field=Container.file duration=23.00784ms
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataSelectors/relative_Directory
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=1.964222ms
+2026/09/17 02:34:28 INFO start lazy evaluation field=Container.directory
+2026/09/17 02:34:28 INFO start lazy evaluation field=Directory.directory
+2026/09/17 02:34:28 INFO start lazy evaluation field=Container.rootfs
+2026/09/17 02:34:28 INFO end lazy evaluation field=Container.rootfs duration=21.58µs
+2026/09/17 02:34:28 INFO end lazy evaluation field=Directory.directory duration=10.718329ms
+2026/09/17 02:34:28 INFO end lazy evaluation field=Container.directory duration=10.97332ms
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataSelectors/relative_File
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=260.681µs
+2026/09/17 02:34:28 INFO start lazy evaluation field=Container.file
+2026/09/17 02:34:28 INFO start lazy evaluation field=File.file
+2026/09/17 02:34:28 INFO start lazy evaluation field=Container.rootfs
+2026/09/17 02:34:28 INFO end lazy evaluation field=Container.rootfs duration=23.23µs
+2026/09/17 02:34:28 INFO end lazy evaluation field=File.file duration=12.682732ms
+2026/09/17 02:34:28 INFO end lazy evaluation field=Container.file duration=20.952429ms
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataSelectors/platform_fallback
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=258.29µs
+2026/09/17 02:34:28 INFO start lazy evaluation field=Container.directory
+2026/09/17 02:34:28 INFO start lazy evaluation field=Directory.directory
+2026/09/17 02:34:28 INFO start lazy evaluation field=Container.rootfs
+2026/09/17 02:34:28 INFO end lazy evaluation field=Container.rootfs duration=25.46µs
+2026/09/17 02:34:28 INFO end lazy evaluation field=Directory.directory duration=11.978771ms
+2026/09/17 02:34:28 INFO end lazy evaluation field=Container.directory duration=12.193841ms
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestBuiltinMetadataSelectors (0.58s)
+    --- PASS: TestBuiltinMetadataSelectors/Directory (0.12s)
+    --- PASS: TestBuiltinMetadataSelectors/File (0.12s)
+    --- PASS: TestBuiltinMetadataSelectors/relative_Directory (0.10s)
+    --- PASS: TestBuiltinMetadataSelectors/relative_File (0.15s)
+    --- PASS: TestBuiltinMetadataSelectors/platform_fallback (0.09s)
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/from
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=49.81µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withRootfs
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=24.86µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/rootfs
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=21.66µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/build
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=17.38µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withSymlink
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=18.17µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withWorkdir
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=24.17µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withMountedDirectory
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=18.63µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withMountedFile
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=18.72µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withMountedCache
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=21.26µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withMountedVolume
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=15.57µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withMountedTemp
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=22.96µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withoutMount
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=17.41µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/directory
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=17.07µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/file
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=18.06µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withMountedSecret
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=26.94µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withUnixSocket
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=18.27µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withoutUnixSocket
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=37.7µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withDirectory
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=31.31µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withFile
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=35.68µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withFiles
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=33µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withoutDirectory
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=47.08µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withoutFile
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=24.5µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withoutFiles
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=45.86µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withNewFile
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=74.03µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withUser
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=55.75µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withEnvVariable
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=21.51µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withAnnotation
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=23.64µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withLabel
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=23.49µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/withExec
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=30.07µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/user
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=66.37µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/platform
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=100.24µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/healthcheck
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=46µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinMetadataConsumersStopOnFailure/cache_dynamic_input
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=35.57µs err="lookup builtin image manifest sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: content sha256:656a2d58259ab3861f78e1bced0371f00d75e10e6891cb9d71efbd807dde7d6a: not found"
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestBuiltinMetadataConsumersStopOnFailure (0.04s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/from (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withRootfs (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/rootfs (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/build (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withSymlink (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withWorkdir (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withMountedDirectory (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withMountedFile (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withMountedCache (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withMountedVolume (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withMountedTemp (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withoutMount (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/directory (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/file (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withMountedSecret (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withUnixSocket (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withoutUnixSocket (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withDirectory (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withFile (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withFiles (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withoutDirectory (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withoutFile (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withoutFiles (0.01s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withNewFile (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withUser (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withEnvVariable (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withAnnotation (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withLabel (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/withExec (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/user (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/platform (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/healthcheck (0.00s)
+    --- PASS: TestBuiltinMetadataConsumersStopOnFailure/cache_dynamic_input (0.00s)
+=== RUN   TestBuiltinLegacyServiceMetadata
+=== RUN   TestBuiltinLegacyServiceMetadata/default_command
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=251.14µs
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestBuiltinLegacyServiceMetadata/saved_exec_expansion
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=303.48µs
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestBuiltinLegacyServiceMetadata (0.04s)
+    --- PASS: TestBuiltinLegacyServiceMetadata/default_command (0.02s)
+    --- PASS: TestBuiltinLegacyServiceMetadata/saved_exec_expansion (0.03s)
+=== RUN   TestBuiltinCacheOwnerDynamicInput
+2026/09/17 02:34:28 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/17 02:34:28 INFO end lazy evaluation field=Query._builtinContainer duration=768.581µs
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestBuiltinCacheOwnerDynamicInput (0.03s)
+=== RUN   TestMountConstructorsOwnNoRefs
+=== RUN   TestMountConstructorsOwnNoRefs/file=false/parentFirst=false
+2026/09/17 02:34:28 INFO start lazy group evaluation field=Container.withMountedDirectory group=metadata
+2026/09/17 02:34:28 INFO end lazy group evaluation field=Container.withMountedDirectory group=metadata duration=63.6µs
+2026/09/17 02:34:28 INFO start lazy group evaluation field=Container.withMountedDirectory group=fs
+2026/09/17 02:34:28 INFO end lazy group evaluation field=Container.withMountedDirectory group=fs duration=17.87µs
+2026/09/17 02:34:28 INFO start lazy group evaluation field=Container.withMountedDirectory group=execMeta
+2026/09/17 02:34:28 INFO end lazy group evaluation field=Container.withMountedDirectory group=execMeta duration=11.34µs
+2026/09/17 02:34:28 INFO start lazy group evaluation field=Container.withMountedDirectory group=mount:/kept
+2026/09/17 02:34:28 INFO end lazy group evaluation field=Container.withMountedDirectory group=mount:/kept duration=11.94µs
+2026/09/17 02:34:28 INFO start lazy group evaluation field=Container.withMountedDirectory group=write
+2026/09/17 02:34:28 INFO end lazy group evaluation field=Container.withMountedDirectory group=write duration=14.53µs
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestMountConstructorsOwnNoRefs/file=false/parentFirst=true
+2026/09/17 02:34:28 INFO start lazy group evaluation field=Container.withMountedDirectory group=metadata
+2026/09/17 02:34:28 INFO end lazy group evaluation field=Container.withMountedDirectory group=metadata duration=40.72µs
+2026/09/17 02:34:28 INFO start lazy group evaluation field=Container.withMountedDirectory group=fs
+2026/09/17 02:34:28 INFO end lazy group evaluation field=Container.withMountedDirectory group=fs duration=28.4µs
+2026/09/17 02:34:28 INFO start lazy group evaluation field=Container.withMountedDirectory group=execMeta
+2026/09/17 02:34:28 INFO end lazy group evaluation field=Container.withMountedDirectory group=execMeta duration=11.75µs
+2026/09/17 02:34:28 INFO start lazy group evaluation field=Container.withMountedDirectory group=mount:/kept
+2026/09/17 02:34:28 INFO end lazy group evaluation field=Container.withMountedDirectory group=mount:/kept duration=12.41µs
+2026/09/17 02:34:28 INFO start lazy group evaluation field=Container.withMountedDirectory group=write
+2026/09/17 02:34:28 INFO end lazy group evaluation field=Container.withMountedDirectory group=write duration=27.59µs
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestMountConstructorsOwnNoRefs/file=true/parentFirst=false
+2026/09/17 02:34:28 INFO start lazy group evaluation field=Container.withMountedFile group=metadata
+2026/09/17 02:34:28 INFO end lazy group evaluation field=Container.withMountedFile group=metadata duration=14.67µs
+2026/09/17 02:34:28 INFO start lazy group evaluation field=Container.withMountedFile group=fs
+2026/09/17 02:34:28 INFO end lazy group evaluation field=Container.withMountedFile group=fs duration=3.32µs
+2026/09/17 02:34:28 INFO start lazy group evaluation field=Container.withMountedFile group=execMeta
+2026/09/17 02:34:28 INFO end lazy group evaluation field=Container.withMountedFile group=execMeta duration=2.95µs
+2026/09/17 02:34:28 INFO start lazy group evaluation field=Container.withMountedFile group=mount:/kept
+2026/09/17 02:34:28 INFO end lazy group evaluation field=Container.withMountedFile group=mount:/kept duration=2.26µs
+2026/09/17 02:34:28 INFO start lazy group evaluation field=Container.withMountedFile group=write
+2026/09/17 02:34:28 INFO end lazy group evaluation field=Container.withMountedFile group=write duration=3.66µs
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestMountConstructorsOwnNoRefs/file=true/parentFirst=true
+2026/09/17 02:34:28 INFO start lazy group evaluation field=Container.withMountedFile group=metadata
+2026/09/17 02:34:28 INFO end lazy group evaluation field=Container.withMountedFile group=metadata duration=9.15µs
+2026/09/17 02:34:28 INFO start lazy group evaluation field=Container.withMountedFile group=fs
+2026/09/17 02:34:28 INFO end lazy group evaluation field=Container.withMountedFile group=fs duration=4.72µs
+2026/09/17 02:34:28 INFO start lazy group evaluation field=Container.withMountedFile group=execMeta
+2026/09/17 02:34:28 INFO end lazy group evaluation field=Container.withMountedFile group=execMeta duration=3.37µs
+2026/09/17 02:34:28 INFO start lazy group evaluation field=Container.withMountedFile group=mount:/kept
+2026/09/17 02:34:28 INFO end lazy group evaluation field=Container.withMountedFile group=mount:/kept duration=5.08µs
+2026/09/17 02:34:28 INFO start lazy group evaluation field=Container.withMountedFile group=write
+2026/09/17 02:34:28 INFO end lazy group evaluation field=Container.withMountedFile group=write duration=4.01µs
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestMountConstructorsOwnNoRefs (0.01s)
+    --- PASS: TestMountConstructorsOwnNoRefs/file=false/parentFirst=false (0.00s)
+    --- PASS: TestMountConstructorsOwnNoRefs/file=false/parentFirst=true (0.00s)
+    --- PASS: TestMountConstructorsOwnNoRefs/file=true/parentFirst=false (0.00s)
+    --- PASS: TestMountConstructorsOwnNoRefs/file=true/parentFirst=true (0.00s)
+=== RUN   TestMountConstructionLeavesParentBytesPending
+2026/09/17 02:34:28 INFO start lazy group evaluation field=test.containerImagePartsConcurrency group=metadata
+2026/09/17 02:34:28 INFO end lazy group evaluation field=test.containerImagePartsConcurrency group=metadata duration=41.52µs
+2026/09/17 02:34:28 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestMountConstructionLeavesParentBytesPending (0.00s)
+=== RUN   TestContainerTransferPendingChild
+2026/09/17 02:34:29 INFO start call field=Query.loadContainerFromID digest=xxh3:c055544e125af8eb
+2026/09/17 02:34:29 INFO end call field=Query.loadContainerFromID cached=false digest=xxh3:c055544e125af8eb
+2026/09/17 02:34:29 INFO start call field=Container.withEnvVariable digest=xxh3:facae2ef58910071
+2026/09/17 02:34:29 INFO end call field=Container.withEnvVariable cached=false digest=xxh3:facae2ef58910071
+2026/09/17 02:34:29 INFO start call field=Container.envVariable digest=xxh3:3ccb372165564256
+2026/09/17 02:34:29 INFO start lazy group evaluation field=Container.withEnvVariable group=metadata
+2026/09/17 02:34:29 INFO end lazy group evaluation field=Container.withEnvVariable group=metadata duration=165.26µs
+2026/09/17 02:34:29 INFO start lazy group evaluation field=Container.withEnvVariable group=execMeta
+2026/09/17 02:34:29 INFO end lazy group evaluation field=Container.withEnvVariable group=execMeta duration=112.35µs
+2026/09/17 02:34:29 INFO end call field=Container.envVariable cached=false digest=xxh3:3ccb372165564256
+2026/09/17 02:34:29 INFO start call field=Container.workdir digest=xxh3:5cd9839dec976b6b
+2026/09/17 02:34:29 INFO end call field=Container.workdir cached=false digest=xxh3:5cd9839dec976b6b
+2026/09/17 02:34:29 INFO start call field=Query.loadContainerFromID digest=xxh3:c055544e125af8eb
+2026/09/17 02:34:29 INFO end call field=Query.loadContainerFromID cached=true digest=xxh3:c055544e125af8eb
+2026/09/17 02:34:29 INFO start call field=Container.withEnvVariable digest=xxh3:facae2ef58910071
+2026/09/17 02:34:29 INFO end call field=Container.withEnvVariable cached=true digest=xxh3:facae2ef58910071
+2026/09/17 02:34:29 INFO start call field=Container.rootfs digest=xxh3:3b879439deabaa29
+2026/09/17 02:34:29 INFO end call field=Container.rootfs cached=false digest=xxh3:3b879439deabaa29
+2026/09/17 02:34:29 INFO start call field=Directory.entries digest=xxh3:7c070de203f4e5ec
+2026/09/17 02:34:29 INFO start lazy evaluation field=Container.rootfs
+2026/09/17 02:34:29 INFO start lazy group evaluation field=Container.withEnvVariable group=fs
+2026/09/17 02:34:29 INFO end lazy group evaluation field=Container.withEnvVariable group=fs duration=412.25µs err="imported filesystem part is unavailable: {\"part\":\"fs\"}"
+2026/09/17 02:34:29 INFO end lazy evaluation field=Container.rootfs duration=478.5µs err="imported filesystem part is unavailable: {\"part\":\"fs\"}"
+2026/09/17 02:34:29 INFO end call field=Directory.entries cached=false digest=xxh3:7c070de203f4e5ec
+2026/09/17 02:34:29 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestContainerTransferPendingChild (0.39s)
+=== RUN   TestScratchDirectoryLazyOperation
+    directory_scratch_test.go:176: scratch recipe-json-bytes=2 native-payload-added-bytes=35 construction-scratch-calls=0
+2026/09/17 02:34:29 INFO start lazy evaluation field=Query.directory
+2026/09/17 02:34:29 INFO end lazy evaluation field=Query.directory duration=20.389638ms
+2026/09/17 02:34:29 INFO start lazy evaluation field=Query.directory
+2026/09/17 02:34:29 INFO end lazy evaluation field=Query.directory duration=11.05µs err="operation receiver: Directory snapshot already installed"
+2026/09/17 02:34:29 INFO start lazy evaluation field=Query.directory
+2026/09/17 02:34:29 INFO end lazy evaluation field=Query.directory duration=1.696972ms
+2026/09/17 02:34:29 INFO start lazy evaluation field=Query.directory
+2026/09/17 02:34:29 INFO end lazy evaluation field=Query.directory duration=1.620031ms
+2026/09/17 02:34:29 INFO start lazy evaluation field=Query.directory
+2026/09/17 02:34:29 INFO end lazy evaluation field=Query.directory duration=1.412122ms err="context canceled"
+2026/09/17 02:34:29 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestScratchDirectoryLazyOperation (0.04s)
+=== RUN   TestScratchDirectoryAcquisition
+=== RUN   TestScratchDirectoryAcquisition/cold
+2026/09/17 02:34:29 INFO start lazy evaluation field=Query.directory
+2026/09/17 02:34:29 INFO end lazy evaluation field=Query.directory duration=38.990886ms
+    directory_scratch_test.go:339: scratch mode=cold acquisition=55.07651ms scratch-calls=1 provider-reads=0
+2026/09/17 02:34:29 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/17 02:34:29 INFO dagql pruned result resultID=1 call=Query.directory digest=xxh3:66b3e3c82e7ec924 args=[] description="dagql cache result 1" measuredSizeBytes=4096 reclaimedBytes=4096
+2026/09/17 02:34:29 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestScratchDirectoryAcquisition/canonical-only
+2026/09/17 02:34:29 INFO start lazy evaluation field=Query.directory
+2026/09/17 02:34:29 INFO end lazy evaluation field=Query.directory duration=1.079511ms
+    directory_scratch_test.go:339: scratch mode=canonical-only acquisition=11.60476ms scratch-calls=1 provider-reads=0
+2026/09/17 02:34:29 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/17 02:34:29 INFO dagql pruned result resultID=1 call=Query.directory digest=xxh3:66b3e3c82e7ec924 args=[] description="dagql cache result 1" measuredSizeBytes=4096 reclaimedBytes=4096
+2026/09/17 02:34:29 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestScratchDirectoryAcquisition/warm
+2026/09/17 02:34:29 INFO start lazy evaluation field=Query.directory
+2026/09/17 02:34:29 INFO end lazy evaluation field=Query.directory duration=24.527572ms
+    directory_scratch_test.go:339: scratch mode=warm acquisition=8.673838ms scratch-calls=0 provider-reads=0
+2026/09/17 02:34:29 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/17 02:34:29 INFO dagql pruned result resultID=2 call=Query.directory digest=xxh3:66b3e3c82e7ec924 args=[] description="dagql cache result 2" measuredSizeBytes=4096 reclaimedBytes=4096
+2026/09/17 02:34:29 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestScratchDirectoryAcquisition/pending-restart
+2026/09/17 02:34:29 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/17 02:34:29 INFO marking dagql cache clean shutdown
+2026/09/17 02:34:29 WARN successfully marked clean shutdown in persistence metadata
+2026/09/17 02:34:29 INFO completed dagql cache close successfully
+2026/09/17 02:34:29 INFO start lazy evaluation field=Query.directory
+2026/09/17 02:34:29 INFO end lazy evaluation field=Query.directory duration=25.437372ms
+    directory_scratch_test.go:339: scratch mode=pending-restart acquisition=36.904913ms scratch-calls=1 provider-reads=0
+2026/09/17 02:34:29 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/17 02:34:29 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/17 02:34:29 INFO marking dagql cache clean shutdown
+2026/09/17 02:34:29 WARN successfully marked clean shutdown in persistence metadata
+2026/09/17 02:34:29 INFO completed dagql cache close successfully
+2026/09/17 02:34:29 INFO dagql pruned result resultID=1 call=Query.directory digest=xxh3:66b3e3c82e7ec924 args=[] description="dagql cache result 1" measuredSizeBytes=4096 reclaimedBytes=4096
+2026/09/17 02:34:29 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestScratchDirectoryAcquisition/manager-failure
+2026/09/17 02:34:29 INFO start lazy evaluation field=Query.directory
+2026/09/17 02:34:29 INFO end lazy evaluation field=Query.directory duration=30.11µs err="injected scratch acquisition failure"
+2026/09/17 02:34:29 INFO start lazy evaluation field=Query.directory
+2026/09/17 02:34:29 INFO end lazy evaluation field=Query.directory duration=29.610537ms
+    directory_scratch_test.go:339: scratch mode=manager-failure acquisition=40.077897ms scratch-calls=2 provider-reads=0
+2026/09/17 02:34:29 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/17 02:34:29 INFO dagql pruned result resultID=1 call=Query.directory digest=xxh3:66b3e3c82e7ec924 args=[] description="dagql cache result 1" measuredSizeBytes=4096 reclaimedBytes=4096
+2026/09/17 02:34:29 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestScratchDirectoryAcquisition/manager-canceled
+2026/09/17 02:34:29 INFO start lazy evaluation field=Query.directory
+2026/09/17 02:34:29 INFO end lazy evaluation field=Query.directory duration=40.35µs err="context canceled"
+2026/09/17 02:34:29 INFO start lazy evaluation field=Query.directory
+2026/09/17 02:34:29 INFO end lazy evaluation field=Query.directory duration=26.322593ms
+    directory_scratch_test.go:339: scratch mode=manager-canceled acquisition=38.367055ms scratch-calls=2 provider-reads=0
+2026/09/17 02:34:29 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/17 02:34:29 INFO dagql pruned result resultID=1 call=Query.directory digest=xxh3:66b3e3c82e7ec924 args=[] description="dagql cache result 1" measuredSizeBytes=4096 reclaimedBytes=4096
+2026/09/17 02:34:29 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestScratchDirectoryAcquisition/prepare-failure
+2026/09/17 02:34:29 INFO start lazy evaluation field=Query.directory
+2026/09/17 02:34:29 INFO end lazy evaluation field=Query.directory duration=27.484355ms
+2026/09/17 02:34:29 INFO start lazy evaluation field=Query.directory
+2026/09/17 02:34:29 INFO end lazy evaluation field=Query.directory duration=1.965411ms
+    directory_scratch_test.go:339: scratch mode=prepare-failure acquisition=43.106609ms scratch-calls=2 provider-reads=0
+2026/09/17 02:34:29 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/17 02:34:29 INFO dagql pruned result resultID=1 call=Query.directory digest=xxh3:66b3e3c82e7ec924 args=[] description="dagql cache result 1" measuredSizeBytes=4096 reclaimedBytes=4096
+2026/09/17 02:34:29 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestScratchDirectoryAcquisition/sync-retry
+2026/09/17 02:34:29 INFO start lazy evaluation field=Query.directory
+2026/09/17 02:34:29 INFO end lazy evaluation field=Query.directory duration=47.369403ms
+    directory_scratch_test.go:339: scratch mode=sync-retry acquisition=58.709223ms scratch-calls=1 provider-reads=0
+2026/09/17 02:34:29 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/17 02:34:29 INFO dagql pruned result resultID=1 call=Query.directory digest=xxh3:66b3e3c82e7ec924 args=[] description="dagql cache result 1" measuredSizeBytes=4096 reclaimedBytes=4096
+2026/09/17 02:34:29 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestScratchDirectoryAcquisition (0.88s)
+    --- PASS: TestScratchDirectoryAcquisition/cold (0.10s)
+    --- PASS: TestScratchDirectoryAcquisition/canonical-only (0.14s)
+    --- PASS: TestScratchDirectoryAcquisition/warm (0.09s)
+    --- PASS: TestScratchDirectoryAcquisition/pending-restart (0.09s)
+    --- PASS: TestScratchDirectoryAcquisition/manager-failure (0.13s)
+    --- PASS: TestScratchDirectoryAcquisition/manager-canceled (0.11s)
+    --- PASS: TestScratchDirectoryAcquisition/prepare-failure (0.10s)
+    --- PASS: TestScratchDirectoryAcquisition/sync-retry (0.12s)
+=== RUN   TestScratchDirectoryNativeReopen
+=== RUN   TestScratchDirectoryNativeReopen/pending
+2026/09/17 02:34:29 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/17 02:34:29 INFO marking dagql cache clean shutdown
+2026/09/17 02:34:29 WARN successfully marked clean shutdown in persistence metadata
+2026/09/17 02:34:29 INFO completed dagql cache close successfully
+2026/09/17 02:34:29 INFO start lazy evaluation field=Query.directory
+2026/09/17 02:34:30 INFO end lazy evaluation field=Query.directory duration=27.311024ms
+2026/09/17 02:34:30 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/17 02:34:30 INFO marking dagql cache clean shutdown
+2026/09/17 02:34:30 WARN successfully marked clean shutdown in persistence metadata
+2026/09/17 02:34:30 INFO completed dagql cache close successfully
+2026/09/17 02:34:30 INFO start lazy evaluation field=Directory.restore
+2026/09/17 02:34:30 INFO end lazy evaluation field=Directory.restore duration=61.13µs
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestScratchDirectoryNativeReopen/evaluated
+2026/09/17 02:34:30 INFO start lazy evaluation field=Query.directory
+2026/09/17 02:34:30 INFO end lazy evaluation field=Query.directory duration=29.259396ms
+2026/09/17 02:34:30 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/17 02:34:30 INFO marking dagql cache clean shutdown
+2026/09/17 02:34:30 WARN successfully marked clean shutdown in persistence metadata
+2026/09/17 02:34:30 INFO completed dagql cache close successfully
+2026/09/17 02:34:30 INFO start lazy evaluation field=Directory.restore
+2026/09/17 02:34:30 INFO end lazy evaluation field=Directory.restore duration=64.85µs
+2026/09/17 02:34:30 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/17 02:34:30 INFO marking dagql cache clean shutdown
+2026/09/17 02:34:30 WARN successfully marked clean shutdown in persistence metadata
+2026/09/17 02:34:30 INFO completed dagql cache close successfully
+2026/09/17 02:34:30 INFO start lazy evaluation field=Directory.restore
+2026/09/17 02:34:30 INFO end lazy evaluation field=Directory.restore duration=60.29µs
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestScratchDirectoryNativeReopen (0.19s)
+    --- PASS: TestScratchDirectoryNativeReopen/pending (0.05s)
+    --- PASS: TestScratchDirectoryNativeReopen/evaluated (0.14s)
+=== RUN   TestForeignModuleContextReaders
+--- PASS: TestForeignModuleContextReaders (0.00s)
+=== RUN   TestForeignLocalItemRemoval
+--- PASS: TestForeignLocalItemRemoval (0.00s)
+=== RUN   TestForeignWithSourceSubpathWorkspace
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestForeignWithSourceSubpathWorkspace (0.01s)
+=== RUN   TestGitResolvedFrames
+=== RUN   TestGitResolvedFrames/head
+    git_lazy_test.go:70: Git head selection: retained rows before=2 after=3 delta=1
+    git_lazy_test.go:92: Git head tree: retained row delta=1
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestGitResolvedFrames/detached
+    git_lazy_test.go:70: Git detached selection: retained rows before=2 after=3 delta=1
+    git_lazy_test.go:92: Git detached tree: retained row delta=1
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestGitResolvedFrames/branch
+    git_lazy_test.go:70: Git branch selection: retained rows before=2 after=3 delta=1
+    git_lazy_test.go:92: Git branch tree: retained row delta=1
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestGitResolvedFrames/tag
+    git_lazy_test.go:70: Git tag selection: retained rows before=2 after=3 delta=1
+    git_lazy_test.go:92: Git tag tree: retained row delta=1
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestGitResolvedFrames/ref
+    git_lazy_test.go:70: Git ref selection: retained rows before=2 after=3 delta=1
+    git_lazy_test.go:92: Git ref tree: retained row delta=1
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestGitResolvedFrames/legacy
+    git_lazy_test.go:70: Git legacy selection: retained rows before=2 after=3 delta=1
+    git_lazy_test.go:92: Git legacy tree: retained row delta=1
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestGitResolvedFrames/latest
+    git_lazy_test.go:70: Git latest selection: retained rows before=2 after=3 delta=1
+    git_lazy_test.go:92: Git latest tree: retained row delta=1
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestGitResolvedFrames/override
+    git_lazy_test.go:70: Git override selection: retained rows before=2 after=3 delta=1
+    git_lazy_test.go:92: Git override tree: retained row delta=1
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestGitResolvedFrames/fixed
+    git_lazy_test.go:70: Git fixed selection: retained rows before=2 after=3 delta=1
+    git_lazy_test.go:92: Git fixed tree: retained row delta=1
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestGitResolvedFrames/internal
+    git_lazy_test.go:70: Git internal selection: retained rows before=2 after=3 delta=1
+    git_lazy_test.go:92: Git internal tree: retained row delta=1
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestGitResolvedFrames (0.01s)
+    --- PASS: TestGitResolvedFrames/head (0.00s)
+    --- PASS: TestGitResolvedFrames/detached (0.00s)
+    --- PASS: TestGitResolvedFrames/branch (0.00s)
+    --- PASS: TestGitResolvedFrames/tag (0.00s)
+    --- PASS: TestGitResolvedFrames/ref (0.00s)
+    --- PASS: TestGitResolvedFrames/legacy (0.00s)
+    --- PASS: TestGitResolvedFrames/latest (0.00s)
+    --- PASS: TestGitResolvedFrames/override (0.00s)
+    --- PASS: TestGitResolvedFrames/fixed (0.00s)
+    --- PASS: TestGitResolvedFrames/internal (0.00s)
+=== RUN   TestGitFixedCommitAndLockFrames
+=== RUN   TestGitFixedCommitAndLockFrames/commit
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestGitFixedCommitAndLockFrames/ref
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestGitFixedCommitAndLockFrames/locked_branch
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestGitFixedCommitAndLockFrames (0.00s)
+    --- PASS: TestGitFixedCommitAndLockFrames/commit (0.00s)
+    --- PASS: TestGitFixedCommitAndLockFrames/ref (0.00s)
+    --- PASS: TestGitFixedCommitAndLockFrames/locked_branch (0.00s)
+=== RUN   TestRemotePeeledTagRefs
+--- PASS: TestRemotePeeledTagRefs (0.00s)
+=== RUN   TestLocalPeeledTagRefs
+--- PASS: TestLocalPeeledTagRefs (0.02s)
+=== RUN   TestReconcileGitTagRefs
+--- PASS: TestReconcileGitTagRefs (0.00s)
+=== RUN   TestSemverReleaseTags
+--- PASS: TestSemverReleaseTags (0.00s)
+=== RUN   TestWorkspaceLockExcludePattern
+=== PAUSE TestWorkspaceLockExcludePattern
+=== RUN   TestHTTPResolvedCall
+    http_lazy_test.go:51: HTTP selection http-first: retained rows before=0 after=2 delta=2
+    http_lazy_test.go:51: HTTP selection http-pending: retained rows before=2 after=2 delta=0
+2026/09/17 02:34:30 INFO start lazy evaluation field=Query.__httpFile
+2026/09/17 02:34:30 INFO end lazy evaluation field=Query.__httpFile duration=24.606183ms
+    http_lazy_test.go:51: HTTP selection http-completed: retained rows before=2 after=2 delta=0
+    http_lazy_test.go:51: HTTP selection http-miss-first-use: retained rows before=2 after=3 delta=1
+2026/09/17 02:34:30 INFO start lazy evaluation field=Query.__httpFile
+2026/09/17 02:34:30 INFO end lazy evaluation field=Query.__httpFile duration=23.477701ms
+    http_lazy_test.go:97: HTTP requests: miss outer=1 operation=0; pending hit outer=1 operation=0; completed hit outer=1 operation=0
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestHTTPResolvedCall (0.21s)
+=== RUN   TestHTTPPendingInternalHits
+=== RUN   TestHTTPPendingInternalHits/absent
+2026/09/17 02:34:30 INFO start lazy evaluation field=Query.__httpFile
+2026/09/17 02:34:30 INFO end lazy evaluation field=Query.__httpFile duration=15.846155ms
+    http_lazy_test.go:170: HTTP pending hit absent: outer=0 operation=1; completed usable hit operation=0 when evaluation succeeds
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestHTTPPendingInternalHits/advanced
+2026/09/17 02:34:30 INFO start lazy evaluation field=Query.__httpFile
+2026/09/17 02:34:30 INFO end lazy evaluation field=Query.__httpFile duration=5.873596ms
+    http_lazy_test.go:170: HTTP pending hit advanced: outer=1 operation=1; completed usable hit operation=0 when evaluation succeeds
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestHTTPPendingInternalHits/changed-body
+2026/09/17 02:34:30 INFO start lazy evaluation field=Query.__httpFile
+2026/09/17 02:34:30 INFO end lazy evaluation field=Query.__httpFile duration=7.565447ms err="HTTP File operation body mismatch: recorded sha256:d81c55f49c5bb0d36bc11e3966ec4efab66f8dfefbbc1761161ca9d230e5466a, fetched sha256:d21f85ea38166303ce58e06134b5cc4a5c900c409ab2a500ff7c9225109a09bb"
+    http_lazy_test.go:170: HTTP pending hit changed-body: outer=1 operation=1; completed usable hit operation=0 when evaluation succeeds
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestHTTPPendingInternalHits (0.18s)
+    --- PASS: TestHTTPPendingInternalHits/absent (0.05s)
+    --- PASS: TestHTTPPendingInternalHits/advanced (0.08s)
+    --- PASS: TestHTTPPendingInternalHits/changed-body (0.06s)
+=== RUN   TestParseChecksumArg
+=== RUN   TestParseChecksumArg/nil
+=== RUN   TestParseChecksumArg/empty
+=== RUN   TestParseChecksumArg/valid
+=== RUN   TestParseChecksumArg/invalid
+--- PASS: TestParseChecksumArg (0.00s)
+    --- PASS: TestParseChecksumArg/nil (0.00s)
+    --- PASS: TestParseChecksumArg/empty (0.00s)
+    --- PASS: TestParseChecksumArg/valid (0.00s)
+    --- PASS: TestParseChecksumArg/invalid (0.00s)
+=== RUN   TestLazyOperationResolverCleanup
+=== RUN   TestLazyOperationResolverCleanup/ref_wrapping
+=== RUN   TestLazyOperationResolverCleanup/ref_digest
+=== RUN   TestLazyOperationResolverCleanup/commit_wrapping
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestLazyOperationResolverCleanup (0.00s)
+    --- PASS: TestLazyOperationResolverCleanup/ref_wrapping (0.00s)
+    --- PASS: TestLazyOperationResolverCleanup/ref_digest (0.00s)
+    --- PASS: TestLazyOperationResolverCleanup/commit_wrapping (0.00s)
+=== RUN   TestLazyOperationResolverOutputCleanup
+=== RUN   TestLazyOperationResolverOutputCleanup/scratch_wrapping
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverOutputCleanup/http_state_sync
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverOutputCleanup/schema_wrapping
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverOutputCleanup/builtin_wrapping
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverOutputCleanup/bundle_wrapping
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestLazyOperationResolverOutputCleanup (0.07s)
+    --- PASS: TestLazyOperationResolverOutputCleanup/scratch_wrapping (0.00s)
+    --- PASS: TestLazyOperationResolverOutputCleanup/http_state_sync (0.00s)
+    --- PASS: TestLazyOperationResolverOutputCleanup/schema_wrapping (0.00s)
+    --- PASS: TestLazyOperationResolverOutputCleanup/builtin_wrapping (0.04s)
+    --- PASS: TestLazyOperationResolverOutputCleanup/bundle_wrapping (0.03s)
+=== RUN   TestLazyOperationResolverCapture
+=== RUN   TestLazyOperationResolverCapture/scratch_wrapping
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverCapture/http_state_sync
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverCapture/schema_wrapping
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverCapture/builtin_wrapping
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverCapture/bundle_wrapping
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverCapture/gitCleaned
+2026/09/17 02:34:30 INFO start lazy evaluation field=GitRepository.__cleaned
+2026/09/17 02:34:30 INFO end lazy evaluation field=GitRepository.__cleaned duration=11.54731ms
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverCapture/gitTree
+2026/09/17 02:34:30 INFO start lazy evaluation field=GitRef.tree
+2026/09/17 02:34:30 INFO end lazy evaluation field=GitRef.tree duration=50.229195ms
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestLazyOperationResolverCapture/gitCommitTree
+2026/09/17 02:34:30 INFO start lazy evaluation field=GitCommit.tree
+2026/09/17 02:34:30 INFO end lazy evaluation field=GitCommit.tree duration=49.142454ms
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestLazyOperationResolverCapture (0.19s)
+    --- PASS: TestLazyOperationResolverCapture/scratch_wrapping (0.00s)
+    --- PASS: TestLazyOperationResolverCapture/http_state_sync (0.00s)
+    --- PASS: TestLazyOperationResolverCapture/schema_wrapping (0.00s)
+    --- PASS: TestLazyOperationResolverCapture/builtin_wrapping (0.02s)
+    --- PASS: TestLazyOperationResolverCapture/bundle_wrapping (0.01s)
+    --- PASS: TestLazyOperationResolverCapture/gitCleaned (0.02s)
+    --- PASS: TestLazyOperationResolverCapture/gitTree (0.07s)
+    --- PASS: TestLazyOperationResolverCapture/gitCommitTree (0.06s)
+=== RUN   TestLazyStoredResultsWithoutBacking
+    lazy_stored_results_test.go:110: stored contents/search/stdout hits returned saved values with no backing; absent calls demanded missing parts and failed
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/17 02:34:30 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestLazyStoredResultsWithoutBacking (0.12s)
+=== RUN   TestLLMCredentialReloadAfterRoutingCall
+=== RUN   TestLLMCredentialReloadAfterRoutingCall/nested=false
+2026/09/17 02:34:31 INFO start call field=Query.llm digest=xxh3:cf67b5ada816343f
+2026/09/17 02:34:31 INFO end call field=Query.llm cached=false digest=xxh3:cf67b5ada816343f
+2026/09/17 02:34:31 INFO start call field=LLM.provider digest=xxh3:6a067981c61866e9
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:36d4f0bafec59d81
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:36d4f0bafec59d81
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:822f4f3bc819aa29
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:822f4f3bc819aa29
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:bcbfb48e455bf6ec
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:39f1a22056dbd086
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:326568c1c1120ff4
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:9b9b304c53079697
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:a993367028b00f08
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:f26e5ca841ea6108
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:c23e3f5245b768ce
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:3c426f090ff952f8
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:51d0f22ca7b4c044
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:b60190d608dfd08d
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:b26f3c24835a86e6
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:c616cb752777b498
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:6fdbd1227c83d83e
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:9edd6c551d371f2e
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:c66b44abe21fd8a7
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:ae001590a3ded817
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:f3c050b5956c6641
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:16bfb38611922f01
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:32188c0ea3c416c8
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:ac8b082d12aacb7a
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:58510505284dbb32
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:b1a0c19644eaa297
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:6132e70e40a2a833
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:3d2ae6f6f3ce535e
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:6ce4ff76d069d57b
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:d7f2db093ce58b13
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:a993367028b00f08
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:fd69544e6fe1a4ca
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:fd69544e6fe1a4ca
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:9b9b304c53079697
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:bbb4c4adc2343a65
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:58510505284dbb32
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:f389d525c2f860e2
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:b26f3c24835a86e6
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:e23a4d7abaf9e49b
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:39f1a22056dbd086
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:8b13ebc090463323
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:b1a0c19644eaa297
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:5ca4022a6c0a6450
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:b60190d608dfd08d
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:bdacc5df8298a5af
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:c616cb752777b498
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:96f50673f93d7aed
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:f3c050b5956c6641
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:ddb0b709e271497e
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:96f50673f93d7aed
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:51d0f22ca7b4c044
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:bbb4c4adc2343a65
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:f389d525c2f860e2
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:e23a4d7abaf9e49b
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:e37c0b513a3f85d7
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:8b13ebc090463323
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:5ca4022a6c0a6450
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:bdacc5df8298a5af
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:ddb0b709e271497e
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:e37c0b513a3f85d7
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:6ce4ff76d069d57b
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:5e139094d1252ea9
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:5e139094d1252ea9
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:f26e5ca841ea6108
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:a85c6e192aa898d9
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:a85c6e192aa898d9
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:9edd6c551d371f2e
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:2a917dd042d64808
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:2a917dd042d64808
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:6132e70e40a2a833
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:d2644a0dca1a25ee
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:d2644a0dca1a25ee
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:3c426f090ff952f8
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:70f3fd8824a61934
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:70f3fd8824a61934
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:bcbfb48e455bf6ec
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:1469ce9c4e24ff3a
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:1469ce9c4e24ff3a
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:d7f2db093ce58b13
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:3a4320ce186af465
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:3a4320ce186af465
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:32188c0ea3c416c8
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:509d2e21d5e79da5
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:509d2e21d5e79da5
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:ac8b082d12aacb7a
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:daf861b6db3ab3f6
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:daf861b6db3ab3f6
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:326568c1c1120ff4
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:417bbe2c1931ebdf
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:417bbe2c1931ebdf
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:c66b44abe21fd8a7
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:4a93c70def3942f1
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:4a93c70def3942f1
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:16bfb38611922f01
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:c4394627ef3648be
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:c4394627ef3648be
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:c23e3f5245b768ce
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:750f579449496df6
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:750f579449496df6
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:ae001590a3ded817
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:1332e8561f1efcf0
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:1332e8561f1efcf0
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:3d2ae6f6f3ce535e
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:a47d38e1442b62ac
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:a47d38e1442b62ac
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:6fdbd1227c83d83e
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:99aee425617e9003
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:99aee425617e9003
+2026/09/17 02:34:31 INFO end call field=LLM.provider cached=false digest=xxh3:6a067981c61866e9
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:2483ae62244c6fc7
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:2483ae62244c6fc7
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:85af94727b84e2bb
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:85af94727b84e2bb
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:261fb77481b3cc59
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:261fb77481b3cc59
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:a0a5a073dcf5fe0e
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:a0a5a073dcf5fe0e
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:53f1beaffa61d70b
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:53f1beaffa61d70b
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:e7db57b5a0ea4b47
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:e7db57b5a0ea4b47
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:f9e1f187caaa1a29
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:f9e1f187caaa1a29
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:62eaf21cdb51fe40
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:62eaf21cdb51fe40
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:6c4550958db75164
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:6c4550958db75164
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:903c5409d92dd945
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:903c5409d92dd945
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:845480e5eb73d007
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:845480e5eb73d007
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:a5433f7b8bb438ee
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:a5433f7b8bb438ee
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:30037f2b37f63d4a
+2026/09/17 02:34:31 WARN failed to get secret plaintext, falling back to random cache key uri=env://ANTHROPIC_AUTH_TOKEN error="rpc error: code = Unknown desc = client credential lookup unavailable"
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:30037f2b37f63d4a
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:7936ff6381cbf3b9
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:7936ff6381cbf3b9
+=== RUN   TestLLMCredentialReloadAfterRoutingCall/nested=true
+2026/09/17 02:34:31 INFO start call field=Query.llm digest=xxh3:cf67b5ada816343f
+2026/09/17 02:34:31 INFO end call field=Query.llm cached=false digest=xxh3:cf67b5ada816343f
+2026/09/17 02:34:31 INFO start call field=LLM.provider digest=xxh3:6a067981c61866e9
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:53af1a22c6acda05
+2026/09/17 02:34:31 INFO end call field=Query.secret cached=false digest=xxh3:53af1a22c6acda05
+2026/09/17 02:34:31 INFO start call field=Secret.plaintext digest=xxh3:dc9b63bc7b3e6ce0
+2026/09/17 02:34:31 INFO end call field=Secret.plaintext cached=false digest=xxh3:dc9b63bc7b3e6ce0
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:e437bb3d54f7e362
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:bb4a8dc3ac0b5956
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:a1cf802a6c1a45c4
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:b5023016f0f77d77
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:3ffc4ae45457f74b
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:9e36172035948621
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:3bb47c23cca6bdfb
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:46b5202df59afc5b
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:6bf2913989e9a48f
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:54acad8ef71886b0
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:9552a146fa178b69
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:ad5a5e3d089c06f8
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:42ded2d8ee7832ca
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:40847851232f885f
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:2b8e577da249922e
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:aa3f65e6c845f366
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:e94dc71bd4eb7138
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:03ae98a02df2e2ab
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:86cd9d4156e36589
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:e6df6aedbd1d4dfa
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:71d1e795448d74d2
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:500c2e2d67c2f253
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:aee6dcfe09fb0b89
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:cfdc352b695551bc
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:b7ce10d0d02d87c9
+2026/09/17 02:34:31 INFO start call field=Query.secret digest=xxh3:dfe0033580c91780
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:a1cf802a6c1a45c4
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:b4f8208332cc4410
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:9e36172035948621
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:342de70ef052e922
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:b4f8208332cc4410
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:342de70ef052e922
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:3bb47c23cca6bdfb
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:8757a19eacaec5f9
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:aa3f65e6c845f366
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:6452fa20de650947
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:6452fa20de650947
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:6bf2913989e9a48f
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:d1a3ec8c33afcacd
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:8757a19eacaec5f9
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:03ae98a02df2e2ab
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:71249a4f603ef0f9
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:d1a3ec8c33afcacd
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:71249a4f603ef0f9
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:9552a146fa178b69
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:f62b98fc625a1e40
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:b5023016f0f77d77
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:4b31b911410db0ce
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:f62b98fc625a1e40
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:4b31b911410db0ce
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:cfdc352b695551bc
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:4a95e7f124785d36
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:4a95e7f124785d36
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:2b8e577da249922e
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:d83bb6b00cdedc10
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:d83bb6b00cdedc10
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:54acad8ef71886b0
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:cccc854a39dc562b
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:cccc854a39dc562b
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:86cd9d4156e36589
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:9009fbb532e5bf5d
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:dfe0033580c91780
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:e66b9fe6f5c5d31d
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:42ded2d8ee7832ca
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:762c8fb54188fb03
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:762c8fb54188fb03
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:9009fbb532e5bf5d
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:e66b9fe6f5c5d31d
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:bb4a8dc3ac0b5956
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:049d73b991500255
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:049d73b991500255
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:e6df6aedbd1d4dfa
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:f22c3d35f43a3726
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:f22c3d35f43a3726
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:500c2e2d67c2f253
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:d4eaa9a224ed74ca
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:d4eaa9a224ed74ca
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:b7ce10d0d02d87c9
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:41824db30f426296
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:41824db30f426296
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:71d1e795448d74d2
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:3398dd92da40402e
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:3398dd92da40402e
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:aee6dcfe09fb0b89
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:3ffc4ae45457f74b
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:b261888b6bb83c45
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:b261888b6bb83c45
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:e437bb3d54f7e362
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:bea41f354f33ebfd
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:532c987cc01d595c
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:532c987cc01d595c
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:bea41f354f33ebfd
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:40847851232f885f
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:39fccd2b8c292219
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:39fccd2b8c292219
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:e94dc71bd4eb7138
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:3e99d733b61bbd17
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:3e99d733b61bbd17
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:ad5a5e3d089c06f8
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:adba890b08673e68
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:46b5202df59afc5b
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:b74a4c787e375fd6
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:adba890b08673e68
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:b74a4c787e375fd6
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:71a764b37b3be1e5
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:71a764b37b3be1e5
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:2c663a4de989c575
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:2c663a4de989c575
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:d87f4f30d1b64ac3
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:4eb04e098120c3b9
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:aa316f690abfb917
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:87617dc14a236e23
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:1993b8974665ae29
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:7872f9e3a11ec2cb
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:cb886e956cf40382
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:c9f1299e6c78aac5
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:5a7d5162e2898ff1
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:8bd0833983ff5869
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:e5ba3b56b69068da
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:cce05fd141d58ffb
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:7b385a76fba66c51
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:be9941a0295b6b1e
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:bd748c081ebb2b14
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:490d7238a5175b86
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:4a02e42019cb02be
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:ee148ee5c036d7c7
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:783ee028751204ce
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:2bea519dd8fdba73
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:d3eabe5b564319a2
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:5729d6fc02383ca5
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:a4d2a2bcfd04af1f
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:750c39a50c900abc
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:fb9a549fee3fe68b
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:72b4943eceab1e01
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:72b4943eceab1e01
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:4a4ce22f58544ea4
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:4a4ce22f58544ea4
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:4a02e42019cb02be
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:0e5df1a17ff3ea71
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:fb9a549fee3fe68b
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:47d91ca2cba9ba6c
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:d87f4f30d1b64ac3
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:48aa2d363323eb3f
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:cb886e956cf40382
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:10a29ad02e25be69
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:1993b8974665ae29
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:9f38babc1a02e208
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:783ee028751204ce
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:2e54510b514cedd4
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:7872f9e3a11ec2cb
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:77aa7b24a89bb105
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:4eb04e098120c3b9
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:105aa18d2cf1a3bd
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:48aa2d363323eb3f
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:77aa7b24a89bb105
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:cce05fd141d58ffb
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:528ee7bd9513b043
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:105aa18d2cf1a3bd
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:9f38babc1a02e208
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:2e54510b514cedd4
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:528ee7bd9513b043
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:be9941a0295b6b1e
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:7de056eccdbfb451
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:7de056eccdbfb451
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:0e5df1a17ff3ea71
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:10a29ad02e25be69
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:47d91ca2cba9ba6c
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:c9f1299e6c78aac5
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:2de4080d19077083
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:2de4080d19077083
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:bd748c081ebb2b14
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:348f58e5048635ef
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:348f58e5048635ef
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:2bea519dd8fdba73
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:e24dd1055df56374
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:e24dd1055df56374
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:750c39a50c900abc
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:4e2b9aee576ae1d0
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:4e2b9aee576ae1d0
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:5a7d5162e2898ff1
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:866f0753e4303fcf
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:866f0753e4303fcf
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:ee148ee5c036d7c7
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:f5a41d2dbd231736
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:f5a41d2dbd231736
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:490d7238a5175b86
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:2e006336f52d555f
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:2e006336f52d555f
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:8bd0833983ff5869
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:2df36e4dcc7a8ad2
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:2df36e4dcc7a8ad2
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:87617dc14a236e23
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:fae7d0cd920ae52b
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:fae7d0cd920ae52b
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:7b385a76fba66c51
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:9b90b90de39de17f
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:9b90b90de39de17f
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:5729d6fc02383ca5
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:ee64326bba9b705c
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:ee64326bba9b705c
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:a4d2a2bcfd04af1f
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:a05fa03103c6f5c3
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:a05fa03103c6f5c3
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:aa316f690abfb917
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:755eaf1a5b633d5a
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:755eaf1a5b633d5a
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:e5ba3b56b69068da
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:36b9891dd424a88f
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:36b9891dd424a88f
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:d3eabe5b564319a2
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:cc39964cdef439ce
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:cc39964cdef439ce
+2026/09/17 02:34:32 INFO end call field=LLM.provider cached=false digest=xxh3:6a067981c61866e9
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:0d59839774775eb7
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:0d59839774775eb7
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:55e400e3bfd15423
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:55e400e3bfd15423
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:0f11941872969e1c
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:0f11941872969e1c
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:6c04ab7166170dd8
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:6c04ab7166170dd8
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:9bf5e1dd46b64823
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:9bf5e1dd46b64823
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:f0c6eabc87f6e595
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:f0c6eabc87f6e595
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:3b1a2c307c169ffd
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:3b1a2c307c169ffd
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:966dc3b89a96b654
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:966dc3b89a96b654
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:b191c70ba63b0929
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:b191c70ba63b0929
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:95e1b3cd6053049c
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:95e1b3cd6053049c
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:b83b5f485992a9a0
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:b83b5f485992a9a0
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:8584deeb197ff094
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:8584deeb197ff094
+2026/09/17 02:34:32 INFO start call field=Query.secret digest=xxh3:0713759259c34712
+2026/09/17 02:34:32 WARN failed to get secret plaintext, falling back to random cache key uri=env://ANTHROPIC_AUTH_TOKEN error="rpc error: code = Unknown desc = client credential lookup unavailable"
+2026/09/17 02:34:32 INFO end call field=Query.secret cached=false digest=xxh3:0713759259c34712
+2026/09/17 02:34:32 INFO start call field=Secret.plaintext digest=xxh3:17c985cdc37f8760
+2026/09/17 02:34:32 INFO end call field=Secret.plaintext cached=false digest=xxh3:17c985cdc37f8760
+--- PASS: TestLLMCredentialReloadAfterRoutingCall (1.37s)
+    --- PASS: TestLLMCredentialReloadAfterRoutingCall/nested=false (0.59s)
+    --- PASS: TestLLMCredentialReloadAfterRoutingCall/nested=true (0.79s)
+=== RUN   TestResolveLookupFromLock
+=== PAUSE TestResolveLookupFromLock
+=== RUN   TestLookupLockForAPI
+=== PAUSE TestLookupLockForAPI
+=== RUN   TestModuleImplementationScopedDoesNotLeaveStaleSelfDependency
+--- PASS: TestModuleImplementationScopedDoesNotLeaveStaleSelfDependency (0.00s)
+=== RUN   TestModuleLocaLSource
+=== RUN   TestModuleLocaLSource/Local_module_source_commit
+=== RUN   TestModuleLocaLSource/Local_module_source_html_repo_url
+=== RUN   TestModuleLocaLSource/Local_module_source_version
+--- PASS: TestModuleLocaLSource (0.00s)
+    --- PASS: TestModuleLocaLSource/Local_module_source_commit (0.00s)
+    --- PASS: TestModuleLocaLSource/Local_module_source_html_repo_url (0.00s)
+    --- PASS: TestModuleLocaLSource/Local_module_source_version (0.00s)
+=== RUN   TestLegacyWorkspaceFieldHandling
+=== PAUSE TestLegacyWorkspaceFieldHandling
+=== RUN   TestLoadCurrentModuleSourceConfigPreservesGitDependencySourceAndPin
+=== PAUSE TestLoadCurrentModuleSourceConfigPreservesGitDependencySourceAndPin
+=== RUN   TestCoreSchemaObjectsHavePersistedFamilies
+2026/09/17 02:34:32 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestCoreSchemaObjectsHavePersistedFamilies (0.31s)
+=== RUN   TestCoreSchemaModuleReturnDispatchSurvivesRestart
+2026/09/17 02:34:32 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/17 02:34:33 INFO marking dagql cache clean shutdown
+2026/09/17 02:34:33 WARN successfully marked clean shutdown in persistence metadata
+2026/09/17 02:34:33 INFO completed dagql cache close successfully
+=== RUN   TestCoreSchemaModuleReturnDispatchSurvivesRestart/first-restart/env
+2026/09/17 02:34:33 INFO start call field=EnvVariable.value digest=xxh3:5669b3632751fda2
+2026/09/17 02:34:33 INFO end call field=EnvVariable.value cached=false digest=xxh3:5669b3632751fda2
+=== RUN   TestCoreSchemaModuleReturnDispatchSurvivesRestart/first-restart/port
+2026/09/17 02:34:33 INFO start call field=Port.port digest=xxh3:7ef764a9b1c5a855
+2026/09/17 02:34:33 INFO end call field=Port.port cached=false digest=xxh3:7ef764a9b1c5a855
+2026/09/17 02:34:33 INFO start call field=Port.description digest=xxh3:60dcd979a7c6be6f
+2026/09/17 02:34:33 INFO end call field=Port.description cached=false digest=xxh3:60dcd979a7c6be6f
+=== RUN   TestCoreSchemaModuleReturnDispatchSurvivesRestart/first-restart/label
+2026/09/17 02:34:33 INFO start call field=Label.value digest=xxh3:90bd676fa8e1f30d
+2026/09/17 02:34:33 INFO end call field=Label.value cached=false digest=xxh3:90bd676fa8e1f30d
+=== RUN   TestCoreSchemaModuleReturnDispatchSurvivesRestart/first-restart/health
+2026/09/17 02:34:33 INFO start call field=HealthcheckConfig.retries digest=xxh3:71c0846bcf9015ec
+2026/09/17 02:34:33 INFO end call field=HealthcheckConfig.retries cached=false digest=xxh3:71c0846bcf9015ec
+2026/09/17 02:34:33 INFO start call field=HealthcheckConfig.args digest=xxh3:f73bb37f631be226
+2026/09/17 02:34:33 INFO end call field=HealthcheckConfig.args cached=false digest=xxh3:f73bb37f631be226
+2026/09/17 02:34:33 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/17 02:34:33 INFO marking dagql cache clean shutdown
+2026/09/17 02:34:33 WARN successfully marked clean shutdown in persistence metadata
+2026/09/17 02:34:33 INFO completed dagql cache close successfully
+2026/09/17 02:34:34 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/17 02:34:34 INFO marking dagql cache clean shutdown
+2026/09/17 02:34:34 WARN successfully marked clean shutdown in persistence metadata
+2026/09/17 02:34:34 INFO completed dagql cache close successfully
+=== RUN   TestCoreSchemaModuleReturnDispatchSurvivesRestart/after-untouched-save/env
+2026/09/17 02:34:34 INFO start call field=EnvVariable.value digest=xxh3:5669b3632751fda2
+2026/09/17 02:34:34 INFO end call field=EnvVariable.value cached=false digest=xxh3:5669b3632751fda2
+=== RUN   TestCoreSchemaModuleReturnDispatchSurvivesRestart/after-untouched-save/port
+2026/09/17 02:34:34 INFO start call field=Port.port digest=xxh3:7ef764a9b1c5a855
+2026/09/17 02:34:34 INFO end call field=Port.port cached=false digest=xxh3:7ef764a9b1c5a855
+2026/09/17 02:34:34 INFO start call field=Port.description digest=xxh3:60dcd979a7c6be6f
+2026/09/17 02:34:34 INFO end call field=Port.description cached=false digest=xxh3:60dcd979a7c6be6f
+=== RUN   TestCoreSchemaModuleReturnDispatchSurvivesRestart/after-untouched-save/label
+2026/09/17 02:34:34 INFO start call field=Label.value digest=xxh3:90bd676fa8e1f30d
+2026/09/17 02:34:34 INFO end call field=Label.value cached=false digest=xxh3:90bd676fa8e1f30d
+=== RUN   TestCoreSchemaModuleReturnDispatchSurvivesRestart/after-untouched-save/health
+2026/09/17 02:34:34 INFO start call field=HealthcheckConfig.retries digest=xxh3:71c0846bcf9015ec
+2026/09/17 02:34:34 INFO end call field=HealthcheckConfig.retries cached=false digest=xxh3:71c0846bcf9015ec
+2026/09/17 02:34:34 INFO start call field=HealthcheckConfig.args digest=xxh3:f73bb37f631be226
+2026/09/17 02:34:34 INFO end call field=HealthcheckConfig.args cached=false digest=xxh3:f73bb37f631be226
+=== RUN   TestCoreSchemaModuleReturnDispatchSurvivesRestart/label_and_healthcheck_payloads_are_lossless
+2026/09/17 02:34:34 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestCoreSchemaModuleReturnDispatchSurvivesRestart (2.18s)
+    --- PASS: TestCoreSchemaModuleReturnDispatchSurvivesRestart/first-restart/env (0.00s)
+    --- PASS: TestCoreSchemaModuleReturnDispatchSurvivesRestart/first-restart/port (0.00s)
+    --- PASS: TestCoreSchemaModuleReturnDispatchSurvivesRestart/first-restart/label (0.00s)
+    --- PASS: TestCoreSchemaModuleReturnDispatchSurvivesRestart/first-restart/health (0.00s)
+    --- PASS: TestCoreSchemaModuleReturnDispatchSurvivesRestart/after-untouched-save/env (0.00s)
+    --- PASS: TestCoreSchemaModuleReturnDispatchSurvivesRestart/after-untouched-save/port (0.00s)
+    --- PASS: TestCoreSchemaModuleReturnDispatchSurvivesRestart/after-untouched-save/label (0.00s)
+    --- PASS: TestCoreSchemaModuleReturnDispatchSurvivesRestart/after-untouched-save/health (0.00s)
+    --- PASS: TestCoreSchemaModuleReturnDispatchSurvivesRestart/label_and_healthcheck_payloads_are_lossless (0.00s)
+=== RUN   TestEngineDefaultPlatformCacheIdentity
+2026/09/17 02:34:35 INFO start call field=Query.defaultPlatform digest=xxh3:85e9f43266c69036
+2026/09/17 02:34:35 INFO end call field=Query.defaultPlatform cached=false digest=xxh3:85e9f43266c69036
+2026/09/17 02:34:35 INFO start call field=Query.defaultPlatform digest=xxh3:60894d9b40c785ec
+2026/09/17 02:34:35 INFO end call field=Query.defaultPlatform cached=false digest=xxh3:60894d9b40c785ec
+2026/09/17 02:34:35 INFO starting dagql cache close hasSQLDB=false hasPersistDB=false
+2026/09/17 02:34:35 INFO completed dagql cache close successfully
+--- PASS: TestEngineDefaultPlatformCacheIdentity (0.32s)
+=== RUN   TestSchemaFileLazy
+2026/09/17 02:34:35 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/17 02:34:35 INFO marking dagql cache clean shutdown
+2026/09/17 02:34:35 WARN successfully marked clean shutdown in persistence metadata
+2026/09/17 02:34:35 INFO completed dagql cache close successfully
+2026/09/17 02:34:35 INFO start lazy evaluation field=File.blob
+2026/09/17 02:34:35 INFO end lazy evaluation field=File.blob duration=26.760274ms
+    query_lazy_test.go:75: schema bytes=8120 pending payload bytes=10961 scratch calls before first use=0 after first use=1
+2026/09/17 02:34:35 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestSchemaFileLazy (0.07s)
+=== RUN   TestRemoteCacheFixture
+2026/09/17 02:34:35 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestRemoteCacheFixture (0.02s)
+=== RUN   TestBaseSchemaAllowlist
+--- PASS: TestBaseSchemaAllowlist (0.42s)
+=== RUN   TestGitBundleSchema
+--- PASS: TestGitBundleSchema (0.32s)
+=== RUN   TestWorkspaceClientSDKSchema
+--- PASS: TestWorkspaceClientSDKSchema (0.50s)
+=== RUN   TestSchemaJSONScrubbing
+=== RUN   TestSchemaJSONScrubbing/module_and_client_policies
+=== RUN   TestSchemaJSONScrubbing/individual_field
+=== RUN   TestSchemaJSONScrubbing/different_fields
+=== RUN   TestSchemaJSONScrubbing/whole_type
+=== RUN   TestSchemaJSONScrubbing/invalid_field
+--- PASS: TestSchemaJSONScrubbing (0.36s)
+    --- PASS: TestSchemaJSONScrubbing/module_and_client_policies (0.02s)
+    --- PASS: TestSchemaJSONScrubbing/individual_field (0.01s)
+    --- PASS: TestSchemaJSONScrubbing/different_fields (0.01s)
+    --- PASS: TestSchemaJSONScrubbing/whole_type (0.01s)
+    --- PASS: TestSchemaJSONScrubbing/invalid_field (0.00s)
+=== RUN   TestCoreModTypeDefs
+--- PASS: TestCoreModTypeDefs (0.28s)
+=== RUN   TestVolumeConstructorsHiddenFromModuleSchema
+--- PASS: TestVolumeConstructorsHiddenFromModuleSchema (0.33s)
+=== RUN   TestSchemaJSONRejectsInvalidHiddenFields
+--- PASS: TestSchemaJSONRejectsInvalidHiddenFields (0.33s)
+=== RUN   TestCurrentTypeDefsReturnAllTypes
+--- PASS: TestCurrentTypeDefsReturnAllTypes (0.36s)
+=== RUN   TestCurrentTypeDefsReturnAllTypesAfterSessionRelease
+--- PASS: TestCurrentTypeDefsReturnAllTypesAfterSessionRelease (0.44s)
+=== RUN   TestParseSSHFSVolumeEndpoint
+--- PASS: TestParseSSHFSVolumeEndpoint (0.00s)
+=== RUN   TestVolumeContentDigestFromCacheKey
+--- PASS: TestVolumeContentDigestFromCacheKey (0.00s)
+=== RUN   TestEngineVolumeRequiresMainClient
+2026/09/17 02:34:38 INFO start call field=Query.engineVolume digest=xxh3:847bd60b899b54ff
+2026/09/17 02:34:38 INFO end call field=Query.engineVolume cached=false digest=xxh3:847bd60b899b54ff
+--- PASS: TestEngineVolumeRequiresMainClient (0.36s)
+=== RUN   TestEngineVolumeConstructsStableLogicalConfig
+2026/09/17 02:34:39 INFO start call field=Query.engineVolume digest=xxh3:7ac626e124a1cb31
+2026/09/17 02:34:39 INFO end call field=Query.engineVolume cached=false digest=xxh3:7ac626e124a1cb31
+2026/09/17 02:34:39 INFO start call field=Query.engineVolume digest=xxh3:7ac626e124a1cb31
+2026/09/17 02:34:39 INFO end call field=Query.engineVolume cached=true digest=xxh3:7ac626e124a1cb31
+--- PASS: TestEngineVolumeConstructsStableLogicalConfig (0.30s)
+=== RUN   TestEngineVolumeRejectsInvalidPaths
+2026/09/17 02:34:39 INFO start call field=Query.engineVolume digest=xxh3:1f9fd73e4b304d0d
+2026/09/17 02:34:39 INFO end call field=Query.engineVolume cached=false digest=xxh3:1f9fd73e4b304d0d
+2026/09/17 02:34:39 INFO start call field=Query.engineVolume digest=xxh3:1b2b94b5ef4e2f95
+2026/09/17 02:34:39 INFO end call field=Query.engineVolume cached=false digest=xxh3:1b2b94b5ef4e2f95
+2026/09/17 02:34:39 INFO start call field=Query.engineVolume digest=xxh3:8f702aee817c340f
+2026/09/17 02:34:39 INFO end call field=Query.engineVolume cached=false digest=xxh3:8f702aee817c340f
+2026/09/17 02:34:39 INFO start call field=Query.engineVolume digest=xxh3:6527468657cd07c5
+2026/09/17 02:34:39 INFO end call field=Query.engineVolume cached=false digest=xxh3:6527468657cd07c5
+--- PASS: TestEngineVolumeRejectsInvalidPaths (0.36s)
+=== RUN   TestSSHFSVolumeRequiresMainClient
+2026/09/17 02:34:39 INFO start call field=Query.setSecret digest=xxh3:9f74e32d9259f358
+2026/09/17 02:34:39 INFO end call field=Query.setSecret cached=false digest=xxh3:9f74e32d9259f358
+2026/09/17 02:34:39 INFO start call field=Query.sshfsVolume digest=xxh3:e0b70916510dabf6
+2026/09/17 02:34:39 INFO end call field=Query.sshfsVolume cached=false digest=xxh3:e0b70916510dabf6
+--- PASS: TestSSHFSVolumeRequiresMainClient (0.30s)
+=== RUN   TestAddressVolumeRequiresMainClient
+2026/09/17 02:34:40 INFO start call field=Query.address digest=xxh3:fca5c307deff0390
+2026/09/17 02:34:40 INFO end call field=Query.address cached=false digest=xxh3:fca5c307deff0390
+2026/09/17 02:34:40 INFO start call field=Address.volume digest=xxh3:eae35cbe44632458
+2026/09/17 02:34:40 INFO end call field=Address.volume cached=false digest=xxh3:eae35cbe44632458
+--- PASS: TestAddressVolumeRequiresMainClient (0.33s)
+=== RUN   TestAddressConstructsEngineVolume
+2026/09/17 02:34:40 INFO start call field=Query.address digest=xxh3:8ffc8614c8189a83
+2026/09/17 02:34:40 INFO end call field=Query.address cached=false digest=xxh3:8ffc8614c8189a83
+2026/09/17 02:34:40 INFO start call field=Address.volume digest=xxh3:344ea134c4608266
+2026/09/17 02:34:40 INFO start call field=Query.engineVolume digest=xxh3:7ac626e124a1cb31
+2026/09/17 02:34:40 INFO end call field=Query.engineVolume cached=false digest=xxh3:7ac626e124a1cb31
+2026/09/17 02:34:40 INFO end call field=Address.volume cached=false digest=xxh3:344ea134c4608266
+--- PASS: TestAddressConstructsEngineVolume (0.31s)
+=== RUN   TestSSHFSVolumeRequiresKnownHostsUnlessInsecure
+2026/09/17 02:34:40 INFO start call field=Query.setSecret digest=xxh3:29415bceaf38f4d9
+2026/09/17 02:34:40 INFO end call field=Query.setSecret cached=false digest=xxh3:29415bceaf38f4d9
+2026/09/17 02:34:40 INFO start call field=Query.sshfsVolume digest=xxh3:e1816545dc37f8e9
+2026/09/17 02:34:40 INFO end call field=Query.sshfsVolume cached=false digest=xxh3:e1816545dc37f8e9
+--- PASS: TestSSHFSVolumeRequiresKnownHostsUnlessInsecure (0.34s)
+=== RUN   TestEntrypointChangePreservesSDKModuleName
+=== RUN   TestEntrypointChangePreservesSDKModuleName/entrypoint=
+=== RUN   TestEntrypointChangePreservesSDKModuleName/entrypoint=other
+--- PASS: TestEntrypointChangePreservesSDKModuleName (0.00s)
+    --- PASS: TestEntrypointChangePreservesSDKModuleName/entrypoint= (0.00s)
+    --- PASS: TestEntrypointChangePreservesSDKModuleName/entrypoint=other (0.00s)
+=== RUN   TestModuleMigrationUsesInstalledSDK
+=== RUN   TestModuleMigrationUsesInstalledSDK/versioned_provider
+=== RUN   TestModuleMigrationUsesInstalledSDK/versioned_provider/native=false
+=== RUN   TestModuleMigrationUsesInstalledSDK/versioned_provider/native=true
+=== RUN   TestModuleMigrationUsesInstalledSDK/vanity_provider
+=== RUN   TestModuleMigrationUsesInstalledSDK/vanity_provider/native=false
+=== RUN   TestModuleMigrationUsesInstalledSDK/vanity_provider/native=true
+=== RUN   TestModuleMigrationUsesInstalledSDK/pinned_provider
+=== RUN   TestModuleMigrationUsesInstalledSDK/pinned_provider/native=false
+=== RUN   TestModuleMigrationUsesInstalledSDK/pinned_provider/native=true
+=== RUN   TestModuleMigrationUsesInstalledSDK/custom_named_SDK
+=== RUN   TestModuleMigrationUsesInstalledSDK/custom_named_SDK/native=false
+=== RUN   TestModuleMigrationUsesInstalledSDK/custom_named_SDK/native=true
+=== RUN   TestModuleMigrationUsesInstalledSDK/explicit_version_conflicts
+=== RUN   TestModuleMigrationUsesInstalledSDK/explicit_version_conflicts/native=false
+=== RUN   TestModuleMigrationUsesInstalledSDK/explicit_version_conflicts/native=true
+=== RUN   TestModuleMigrationUsesInstalledSDK/different_owner_conflicts
+=== RUN   TestModuleMigrationUsesInstalledSDK/different_owner_conflicts/native=false
+=== RUN   TestModuleMigrationUsesInstalledSDK/different_owner_conflicts/native=true
+--- PASS: TestModuleMigrationUsesInstalledSDK (0.00s)
+    --- PASS: TestModuleMigrationUsesInstalledSDK/versioned_provider (0.00s)
+        --- PASS: TestModuleMigrationUsesInstalledSDK/versioned_provider/native=false (0.00s)
+        --- PASS: TestModuleMigrationUsesInstalledSDK/versioned_provider/native=true (0.00s)
+    --- PASS: TestModuleMigrationUsesInstalledSDK/vanity_provider (0.00s)
+        --- PASS: TestModuleMigrationUsesInstalledSDK/vanity_provider/native=false (0.00s)
+        --- PASS: TestModuleMigrationUsesInstalledSDK/vanity_provider/native=true (0.00s)
+    --- PASS: TestModuleMigrationUsesInstalledSDK/pinned_provider (0.00s)
+        --- PASS: TestModuleMigrationUsesInstalledSDK/pinned_provider/native=false (0.00s)
+        --- PASS: TestModuleMigrationUsesInstalledSDK/pinned_provider/native=true (0.00s)
+    --- PASS: TestModuleMigrationUsesInstalledSDK/custom_named_SDK (0.00s)
+        --- PASS: TestModuleMigrationUsesInstalledSDK/custom_named_SDK/native=false (0.00s)
+        --- PASS: TestModuleMigrationUsesInstalledSDK/custom_named_SDK/native=true (0.00s)
+    --- PASS: TestModuleMigrationUsesInstalledSDK/explicit_version_conflicts (0.00s)
+        --- PASS: TestModuleMigrationUsesInstalledSDK/explicit_version_conflicts/native=false (0.00s)
+        --- PASS: TestModuleMigrationUsesInstalledSDK/explicit_version_conflicts/native=true (0.00s)
+    --- PASS: TestModuleMigrationUsesInstalledSDK/different_owner_conflicts (0.00s)
+        --- PASS: TestModuleMigrationUsesInstalledSDK/different_owner_conflicts/native=false (0.00s)
+        --- PASS: TestModuleMigrationUsesInstalledSDK/different_owner_conflicts/native=true (0.00s)
+=== RUN   TestModuleMigrationGraph
+--- PASS: TestModuleMigrationGraph (0.00s)
+=== RUN   TestStandaloneModuleMigrationKeepsDependenciesAndNativeWorkspace
+--- PASS: TestStandaloneModuleMigrationKeepsDependenciesAndNativeWorkspace (0.00s)
+=== RUN   TestStandaloneModuleMigrationWithoutWorkspace
+--- PASS: TestStandaloneModuleMigrationWithoutWorkspace (0.00s)
+=== RUN   TestModuleMigrationNativeDependenciesWithoutWorkspace
+--- PASS: TestModuleMigrationNativeDependenciesWithoutWorkspace (0.00s)
+=== RUN   TestModuleMigrationConflictsPreserveFiles
+--- PASS: TestModuleMigrationConflictsPreserveFiles (0.00s)
+=== RUN   TestModuleMigrationStopsAtNestedWorkspace
+--- PASS: TestModuleMigrationStopsAtNestedWorkspace (0.00s)
+=== RUN   TestModuleMigrationKeepsNativeWorkspaceBoundary
+--- PASS: TestModuleMigrationKeepsNativeWorkspaceBoundary (0.00s)
+=== RUN   TestModuleMigrationRequiredFailures
+=== RUN   TestModuleMigrationRequiredFailures/unsupported_SDK
+=== RUN   TestModuleMigrationRequiredFailures/unsupported_dependency
+=== RUN   TestModuleMigrationRequiredFailures/missing_dependency
+=== RUN   TestModuleMigrationRequiredFailures/absolute_dependency
+=== RUN   TestModuleMigrationRequiredFailures/escaping_dependency
+--- PASS: TestModuleMigrationRequiredFailures (0.00s)
+    --- PASS: TestModuleMigrationRequiredFailures/unsupported_SDK (0.00s)
+    --- PASS: TestModuleMigrationRequiredFailures/unsupported_dependency (0.00s)
+    --- PASS: TestModuleMigrationRequiredFailures/missing_dependency (0.00s)
+    --- PASS: TestModuleMigrationRequiredFailures/absolute_dependency (0.00s)
+    --- PASS: TestModuleMigrationRequiredFailures/escaping_dependency (0.00s)
+=== RUN   TestOptionalModuleCandidates
+--- PASS: TestOptionalModuleCandidates (0.00s)
+=== RUN   TestMigrationModulePath
+--- PASS: TestMigrationModulePath (0.00s)
+=== RUN   TestMigrationScopeRejectsUnnormalizedPaths
+--- PASS: TestMigrationScopeRejectsUnnormalizedPaths (0.00s)
+=== RUN   TestMigrationSDKUpdatesOnlyChangedConfigs
+--- PASS: TestMigrationSDKUpdatesOnlyChangedConfigs (0.00s)
+=== RUN   TestMigrationNoopPreservesConfigBytes
+--- PASS: TestMigrationNoopPreservesConfigBytes (0.00s)
+=== RUN   TestMigrationConfigSelectionUsesOwnership
+--- PASS: TestMigrationConfigSelectionUsesOwnership (0.00s)
+=== RUN   TestModuleMigrationCleanupFailurePreservesPlan
+--- PASS: TestModuleMigrationCleanupFailurePreservesPlan (0.00s)
+=== RUN   TestModuleMigrationCleansEveryConvertedModule
+--- PASS: TestModuleMigrationCleansEveryConvertedModule (0.00s)
+=== RUN   TestPlanMigratedSDKFixups
+--- PASS: TestPlanMigratedSDKFixups (0.00s)
+=== RUN   TestApplyMigratedSDKFixupsPreservesScopes
+--- PASS: TestApplyMigratedSDKFixupsPreservesScopes (0.00s)
+=== RUN   TestWorkspaceModuleResolutionLine
+--- PASS: TestWorkspaceModuleResolutionLine (0.00s)
+=== RUN   TestMergeSearchResults
+=== RUN   TestMergeSearchResults/overlay_replaces_host_results_per_file
+=== RUN   TestMergeSearchResults/touched_file_with_no_overlay_matches_disappears
+=== RUN   TestMergeSearchResults/sorted_by_file_then_line
+=== RUN   TestMergeSearchResults/limit_caps_the_merged_set
+=== RUN   TestMergeSearchResults/mount_points_shadow_source_results_beneath_them
+--- PASS: TestMergeSearchResults (0.00s)
+    --- PASS: TestMergeSearchResults/overlay_replaces_host_results_per_file (0.00s)
+    --- PASS: TestMergeSearchResults/touched_file_with_no_overlay_matches_disappears (0.00s)
+    --- PASS: TestMergeSearchResults/sorted_by_file_then_line (0.00s)
+    --- PASS: TestMergeSearchResults/limit_caps_the_merged_set (0.00s)
+    --- PASS: TestMergeSearchResults/mount_points_shadow_source_results_beneath_them (0.00s)
+=== RUN   TestSearchPathInScopes
+--- PASS: TestSearchPathInScopes (0.00s)
+=== RUN   TestSearchSourcePaths
+=== RUN   TestSearchSourcePaths/no_explicit_paths_pass_through
+=== RUN   TestSearchSourcePaths/mount-covered_paths_are_dropped_from_source_operands
+=== RUN   TestSearchSourcePaths/all_paths_mount-covered_skips_the_source_side
+=== RUN   TestSearchSourcePaths/mount_ancestor_absent_from_the_source_is_dropped
+=== RUN   TestSearchSourcePaths/paths_uninvolved_with_mounts_are_kept_verbatim
+--- PASS: TestSearchSourcePaths (0.00s)
+    --- PASS: TestSearchSourcePaths/no_explicit_paths_pass_through (0.00s)
+    --- PASS: TestSearchSourcePaths/mount-covered_paths_are_dropped_from_source_operands (0.00s)
+    --- PASS: TestSearchSourcePaths/all_paths_mount-covered_skips_the_source_side (0.00s)
+    --- PASS: TestSearchSourcePaths/mount_ancestor_absent_from_the_source_is_dropped (0.00s)
+    --- PASS: TestSearchSourcePaths/paths_uninvolved_with_mounts_are_kept_verbatim (0.00s)
+=== RUN   TestMergeGlobMatches
+=== RUN   TestMergeGlobMatches/overlay_replaces_host_matches_per_path
+=== RUN   TestMergeGlobMatches/shared_parent_directories_dedup_across_trees
+=== RUN   TestMergeGlobMatches/removed_path_with_no_overlay_match_disappears
+=== RUN   TestMergeGlobMatches/mount_points_shadow_source_matches_beneath_them
+--- PASS: TestMergeGlobMatches (0.00s)
+    --- PASS: TestMergeGlobMatches/overlay_replaces_host_matches_per_path (0.00s)
+    --- PASS: TestMergeGlobMatches/shared_parent_directories_dedup_across_trees (0.00s)
+    --- PASS: TestMergeGlobMatches/removed_path_with_no_overlay_match_disappears (0.00s)
+    --- PASS: TestMergeGlobMatches/mount_points_shadow_source_matches_beneath_them (0.00s)
+=== RUN   TestTouchedParentDirs
+=== RUN   TestTouchedParentDirs/empty
+=== RUN   TestTouchedParentDirs/root-level_files_only
+=== RUN   TestTouchedParentDirs/nested_file
+=== RUN   TestTouchedParentDirs/deep_file_seeds_every_ancestor,_outermost_first
+=== RUN   TestTouchedParentDirs/ancestors_shared_by_siblings_are_seeded_once
+=== RUN   TestTouchedParentDirs/de-duplicates_parents
+=== RUN   TestTouchedParentDirs/touched_directory_itself_has_no_parent_seeded
+=== RUN   TestTouchedParentDirs/paths_under_a_touched_directory_are_covered_by_it
+=== RUN   TestTouchedParentDirs/sibling_of_a_touched_directory_still_seeds
+=== RUN   TestTouchedParentDirs/cleans_trailing_slash_and_dot_segments
+--- PASS: TestTouchedParentDirs (0.00s)
+    --- PASS: TestTouchedParentDirs/empty (0.00s)
+    --- PASS: TestTouchedParentDirs/root-level_files_only (0.00s)
+    --- PASS: TestTouchedParentDirs/nested_file (0.00s)
+    --- PASS: TestTouchedParentDirs/deep_file_seeds_every_ancestor,_outermost_first (0.00s)
+    --- PASS: TestTouchedParentDirs/ancestors_shared_by_siblings_are_seeded_once (0.00s)
+    --- PASS: TestTouchedParentDirs/de-duplicates_parents (0.00s)
+    --- PASS: TestTouchedParentDirs/touched_directory_itself_has_no_parent_seeded (0.00s)
+    --- PASS: TestTouchedParentDirs/paths_under_a_touched_directory_are_covered_by_it (0.00s)
+    --- PASS: TestTouchedParentDirs/sibling_of_a_touched_directory_still_seeds (0.00s)
+    --- PASS: TestTouchedParentDirs/cleans_trailing_slash_and_dot_segments (0.00s)
+=== RUN   TestTouchedParentDirPatterns
+=== RUN   TestTouchedParentDirPatterns/root-level_files_need_no_directory_read
+=== RUN   TestTouchedParentDirPatterns/deepest_directory_of_a_chain_only
+=== RUN   TestTouchedParentDirPatterns/separate_chains_each_contribute
+=== RUN   TestTouchedParentDirPatterns/a_shallower_ancestor_of_another_chain_is_dropped
+--- PASS: TestTouchedParentDirPatterns (0.00s)
+    --- PASS: TestTouchedParentDirPatterns/root-level_files_need_no_directory_read (0.00s)
+    --- PASS: TestTouchedParentDirPatterns/deepest_directory_of_a_chain_only (0.00s)
+    --- PASS: TestTouchedParentDirPatterns/separate_chains_each_contribute (0.00s)
+    --- PASS: TestTouchedParentDirPatterns/a_shallower_ancestor_of_another_chain_is_dropped (0.00s)
+=== RUN   TestSelectSDKModuleClients
+=== PAUSE TestSelectSDKModuleClients
+=== RUN   TestSelectSDKModuleClientsSkipsEmptyScopes
+=== PAUSE TestSelectSDKModuleClientsSkipsEmptyScopes
+=== RUN   TestSelectSDKModuleClientsForModuleSources
+=== PAUSE TestSelectSDKModuleClientsForModuleSources
+=== RUN   TestOrderSDKModuleClientSelections
+=== PAUSE TestOrderSDKModuleClientSelections
+=== RUN   TestResolveSDKModuleInit
+=== PAUSE TestResolveSDKModuleInit
+=== RUN   TestResolveSDKModuleName
+=== RUN   TestResolveSDKModuleName/SDK-selected_path_retains_the_entrypoint_name
+=== RUN   TestResolveSDKModuleName/explicit_name_wins_over_entrypoint_and_path
+=== RUN   TestResolveSDKModuleName/explicit_path_without_installation_supplies_the_name
+=== RUN   TestResolveSDKModuleName/aliases_and_unrelated_entrypoints_do_not_supply_the_name
+=== RUN   TestResolveSDKModuleName/root-relative_installation_matches
+=== RUN   TestResolveSDKModuleName/ambiguous_entrypoints_require_an_override
+--- PASS: TestResolveSDKModuleName (0.00s)
+    --- PASS: TestResolveSDKModuleName/SDK-selected_path_retains_the_entrypoint_name (0.00s)
+    --- PASS: TestResolveSDKModuleName/explicit_name_wins_over_entrypoint_and_path (0.00s)
+    --- PASS: TestResolveSDKModuleName/explicit_path_without_installation_supplies_the_name (0.00s)
+    --- PASS: TestResolveSDKModuleName/aliases_and_unrelated_entrypoints_do_not_supply_the_name (0.00s)
+    --- PASS: TestResolveSDKModuleName/root-relative_installation_matches (0.00s)
+    --- PASS: TestResolveSDKModuleName/ambiguous_entrypoints_require_an_override (0.00s)
+=== RUN   TestPlanSDKModuleInitInstall
+=== RUN   TestPlanSDKModuleInitInstall/default_name_and_path_install_an_entrypoint
+=== RUN   TestPlanSDKModuleInitInstall/explicit_name_installs_a_namespaced_module
+=== RUN   TestPlanSDKModuleInitInstall/custom_path
+=== RUN   TestPlanSDKModuleInitInstall/repeated_default_init_promotes_and_preserves_its_entrypoint
+=== RUN   TestPlanSDKModuleInitInstall/explicit_init_does_not_demote_an_entrypoint
+=== RUN   TestPlanSDKModuleInitInstall/different_entrypoint_requires_an_explicit_name
+--- PASS: TestPlanSDKModuleInitInstall (0.00s)
+    --- PASS: TestPlanSDKModuleInitInstall/default_name_and_path_install_an_entrypoint (0.00s)
+    --- PASS: TestPlanSDKModuleInitInstall/explicit_name_installs_a_namespaced_module (0.00s)
+    --- PASS: TestPlanSDKModuleInitInstall/custom_path (0.00s)
+    --- PASS: TestPlanSDKModuleInitInstall/repeated_default_init_promotes_and_preserves_its_entrypoint (0.00s)
+    --- PASS: TestPlanSDKModuleInitInstall/explicit_init_does_not_demote_an_entrypoint (0.00s)
+    --- PASS: TestPlanSDKModuleInitInstall/different_entrypoint_requires_an_explicit_name (0.00s)
+=== RUN   TestInstalledSDKSource
+=== PAUSE TestInstalledSDKSource
+=== RUN   TestInstalledSDKSourceRejectsMultipleNamesForProvider
+=== PAUSE TestInstalledSDKSourceRejectsMultipleNamesForProvider
+=== RUN   TestSelectSDKModuleRequiresName
+--- PASS: TestSelectSDKModuleRequiresName (0.00s)
+=== RUN   TestDeepestRecordedSDKModuleScope
+--- PASS: TestDeepestRecordedSDKModuleScope (0.00s)
+=== RUN   TestDeeperSDKModuleScope
+=== RUN   TestDeeperSDKModuleScope/none
+=== RUN   TestDeeperSDKModuleScope/first_only
+=== RUN   TestDeeperSDKModuleScope/second_only
+=== RUN   TestDeeperSDKModuleScope/second_is_deeper
+=== RUN   TestDeeperSDKModuleScope/first_is_deeper
+=== RUN   TestDeeperSDKModuleScope/equal
+--- PASS: TestDeeperSDKModuleScope (0.00s)
+    --- PASS: TestDeeperSDKModuleScope/none (0.00s)
+    --- PASS: TestDeeperSDKModuleScope/first_only (0.00s)
+    --- PASS: TestDeeperSDKModuleScope/second_only (0.00s)
+    --- PASS: TestDeeperSDKModuleScope/second_is_deeper (0.00s)
+    --- PASS: TestDeeperSDKModuleScope/first_is_deeper (0.00s)
+    --- PASS: TestDeeperSDKModuleScope/equal (0.00s)
+=== RUN   TestSelectDeepestSDKModuleScope
+=== RUN   TestSelectDeepestSDKModuleScope/none
+=== RUN   TestSelectDeepestSDKModuleScope/one
+=== RUN   TestSelectDeepestSDKModuleScope/deeper_SDK
+=== RUN   TestSelectDeepestSDKModuleScope/deeper_SDK_first
+=== RUN   TestSelectDeepestSDKModuleScope/one_character_directory
+=== RUN   TestSelectDeepestSDKModuleScope/shallower_tie
+=== RUN   TestSelectDeepestSDKModuleScope/same_SDK_nested_records
+=== RUN   TestSelectDeepestSDKModuleScope/deepest_tie
+--- PASS: TestSelectDeepestSDKModuleScope (0.00s)
+    --- PASS: TestSelectDeepestSDKModuleScope/none (0.00s)
+    --- PASS: TestSelectDeepestSDKModuleScope/one (0.00s)
+    --- PASS: TestSelectDeepestSDKModuleScope/deeper_SDK (0.00s)
+    --- PASS: TestSelectDeepestSDKModuleScope/deeper_SDK_first (0.00s)
+    --- PASS: TestSelectDeepestSDKModuleScope/one_character_directory (0.00s)
+    --- PASS: TestSelectDeepestSDKModuleScope/shallower_tie (0.00s)
+    --- PASS: TestSelectDeepestSDKModuleScope/same_SDK_nested_records (0.00s)
+    --- PASS: TestSelectDeepestSDKModuleScope/deepest_tie (0.00s)
+=== RUN   TestWorkspaceSDKEntryPaths
+=== PAUSE TestWorkspaceSDKEntryPaths
+=== RUN   TestModuleEntrySourceWithPinRelativeToLeavesGitRefsCanonical
+=== PAUSE TestModuleEntrySourceWithPinRelativeToLeavesGitRefsCanonical
+=== RUN   TestValidateSDKModuleGenerationGraph
+=== PAUSE TestValidateSDKModuleGenerationGraph
+=== RUN   TestPlanSDKModuleScopes
+=== PAUSE TestPlanSDKModuleScopes
+=== RUN   TestResolveWorkspaceClientModuleInput
+=== PAUSE TestResolveWorkspaceClientModuleInput
+=== RUN   TestRootAnchoredSDKScopeIsMatched
+=== RUN   TestRootAnchoredSDKScopeIsMatched/uninstall_removes_the_module_scope
+=== RUN   TestRootAnchoredSDKScopeIsMatched/sdk_listing_resolves_it
+--- PASS: TestRootAnchoredSDKScopeIsMatched (0.00s)
+    --- PASS: TestRootAnchoredSDKScopeIsMatched/uninstall_removes_the_module_scope (0.00s)
+    --- PASS: TestRootAnchoredSDKScopeIsMatched/sdk_listing_resolves_it (0.00s)
+=== RUN   TestValidateSDKModuleDestination
+=== PAUSE TestValidateSDKModuleDestination
+=== RUN   TestPlanSDKModuleInitInstallControls
+=== RUN   TestPlanSDKModuleInitInstallControls/custom_path_explicit_install
+=== RUN   TestPlanSDKModuleInitInstallControls/custom_path_explicit_entrypoint
+=== RUN   TestPlanSDKModuleInitInstallControls/no_install
+=== RUN   TestPlanSDKModuleInitInstallControls/no_entrypoint
+=== RUN   TestPlanSDKModuleInitInstallControls/explicit_replacement
+=== RUN   TestPlanSDKModuleInitInstallControls/explicit_install_keeps_implicit_conflict
+=== RUN   TestPlanSDKModuleInitInstallControls/contradictory_controls
+=== RUN   TestPlanSDKModuleInitInstallControls/failed_install_leaves_old_entrypoint_selected
+--- PASS: TestPlanSDKModuleInitInstallControls (0.00s)
+    --- PASS: TestPlanSDKModuleInitInstallControls/custom_path_explicit_install (0.00s)
+    --- PASS: TestPlanSDKModuleInitInstallControls/custom_path_explicit_entrypoint (0.00s)
+    --- PASS: TestPlanSDKModuleInitInstallControls/no_install (0.00s)
+    --- PASS: TestPlanSDKModuleInitInstallControls/no_entrypoint (0.00s)
+    --- PASS: TestPlanSDKModuleInitInstallControls/explicit_replacement (0.00s)
+    --- PASS: TestPlanSDKModuleInitInstallControls/explicit_install_keeps_implicit_conflict (0.00s)
+    --- PASS: TestPlanSDKModuleInitInstallControls/contradictory_controls (0.00s)
+    --- PASS: TestPlanSDKModuleInitInstallControls/failed_install_leaves_old_entrypoint_selected (0.00s)
+=== RUN   TestSDKModuleInitRejectsContradictoryControlsBeforeWorkspaceLoad
+--- PASS: TestSDKModuleInitRejectsContradictoryControlsBeforeWorkspaceLoad (0.00s)
+=== RUN   TestWorkspaceSettingHintTypeInfo
+=== PAUSE TestWorkspaceSettingHintTypeInfo
+=== RUN   TestWorkspacePrivateSourceFieldsAreNotGraphQLFields
+--- PASS: TestWorkspacePrivateSourceFieldsAreNotGraphQLFields (0.00s)
+=== RUN   TestEffectiveWorkspaceConfigBytesAppliesUserOverlay
+=== PAUSE TestEffectiveWorkspaceConfigBytesAppliesUserOverlay
+=== RUN   TestWorkspaceMountedPath
+=== RUN   TestWorkspaceMountedPath/at_or_under_a_mount_point
+=== RUN   TestWorkspaceMountedPath/at_or_under_a_mount_point/.refs/notes.txt
+=== RUN   TestWorkspaceMountedPath/at_or_under_a_mount_point/deps/vendored
+=== RUN   TestWorkspaceMountedPath/at_or_under_a_mount_point/deps/vendored/lib/util.go
+=== RUN   TestWorkspaceMountedPath/at_or_under_a_mount_point/.refs
+=== RUN   TestWorkspaceMountedPath/at_or_under_a_mount_point/deps
+=== RUN   TestWorkspaceMountedPath/at_or_under_a_mount_point/.
+=== RUN   TestWorkspaceMountedPath/at_or_under_a_mount_point/deps/vendored-extra
+=== RUN   TestWorkspaceMountedPath/at_or_under_a_mount_point/.refs/notes.txt.bak
+=== RUN   TestWorkspaceMountedPath/at_or_under_a_mount_point/src/main.go
+=== RUN   TestWorkspaceMountedPath/mounts_under
+=== RUN   TestWorkspaceMountedPath/mounts_under/.
+=== RUN   TestWorkspaceMountedPath/mounts_under/.refs
+=== RUN   TestWorkspaceMountedPath/mounts_under/deps
+=== RUN   TestWorkspaceMountedPath/mounts_under/deps/vendored
+=== RUN   TestWorkspaceMountedPath/mounts_under/src
+=== RUN   TestWorkspaceMountedPath/mounts_under/deps/vendored-extra
+=== RUN   TestWorkspaceMountedPath/no_mounts
+--- PASS: TestWorkspaceMountedPath (0.00s)
+    --- PASS: TestWorkspaceMountedPath/at_or_under_a_mount_point (0.00s)
+        --- PASS: TestWorkspaceMountedPath/at_or_under_a_mount_point/.refs/notes.txt (0.00s)
+        --- PASS: TestWorkspaceMountedPath/at_or_under_a_mount_point/deps/vendored (0.00s)
+        --- PASS: TestWorkspaceMountedPath/at_or_under_a_mount_point/deps/vendored/lib/util.go (0.00s)
+        --- PASS: TestWorkspaceMountedPath/at_or_under_a_mount_point/.refs (0.00s)
+        --- PASS: TestWorkspaceMountedPath/at_or_under_a_mount_point/deps (0.00s)
+        --- PASS: TestWorkspaceMountedPath/at_or_under_a_mount_point/. (0.00s)
+        --- PASS: TestWorkspaceMountedPath/at_or_under_a_mount_point/deps/vendored-extra (0.00s)
+        --- PASS: TestWorkspaceMountedPath/at_or_under_a_mount_point/.refs/notes.txt.bak (0.00s)
+        --- PASS: TestWorkspaceMountedPath/at_or_under_a_mount_point/src/main.go (0.00s)
+    --- PASS: TestWorkspaceMountedPath/mounts_under (0.00s)
+        --- PASS: TestWorkspaceMountedPath/mounts_under/. (0.00s)
+        --- PASS: TestWorkspaceMountedPath/mounts_under/.refs (0.00s)
+        --- PASS: TestWorkspaceMountedPath/mounts_under/deps (0.00s)
+        --- PASS: TestWorkspaceMountedPath/mounts_under/deps/vendored (0.00s)
+        --- PASS: TestWorkspaceMountedPath/mounts_under/src (0.00s)
+        --- PASS: TestWorkspaceMountedPath/mounts_under/deps/vendored-extra (0.00s)
+    --- PASS: TestWorkspaceMountedPath/no_mounts (0.00s)
+=== RUN   TestInitialWorkspaceConfigOmitsCheckGenerated
+=== PAUSE TestInitialWorkspaceConfigOmitsCheckGenerated
+=== RUN   TestMatchWorkspaceInclude
+=== RUN   TestMatchWorkspaceInclude/empty_include_matches_everything
+=== RUN   TestMatchWorkspaceInclude/module-prefixed_pattern_matches
+=== RUN   TestMatchWorkspaceInclude/wildcard_module_pattern_matches
+=== RUN   TestMatchWorkspaceInclude/other_module_does_not_match
+--- PASS: TestMatchWorkspaceInclude (0.00s)
+    --- PASS: TestMatchWorkspaceInclude/empty_include_matches_everything (0.00s)
+    --- PASS: TestMatchWorkspaceInclude/module-prefixed_pattern_matches (0.00s)
+    --- PASS: TestMatchWorkspaceInclude/wildcard_module_pattern_matches (0.00s)
+    --- PASS: TestMatchWorkspaceInclude/other_module_does_not_match (0.00s)
+=== RUN   TestWorkspaceConfigWithCompatFallback
+=== RUN   TestWorkspaceConfigWithCompatFallback/no_config_and_no_compat_returns_empty_config
+=== RUN   TestWorkspaceConfigWithCompatFallback/compat_workspace_projects_skips_and_port_mappings
+--- PASS: TestWorkspaceConfigWithCompatFallback (0.00s)
+    --- PASS: TestWorkspaceConfigWithCompatFallback/no_config_and_no_compat_returns_empty_config (0.00s)
+    --- PASS: TestWorkspaceConfigWithCompatFallback/compat_workspace_projects_skips_and_port_mappings (0.00s)
+=== RUN   TestWorkspaceConfigSkipPatterns
+=== RUN   TestWorkspaceConfigSkipPatterns/missing_config_has_no_skips
+=== RUN   TestWorkspaceConfigSkipPatterns/compat_workspace_uses_projected_skips
+--- PASS: TestWorkspaceConfigSkipPatterns (0.00s)
+    --- PASS: TestWorkspaceConfigSkipPatterns/missing_config_has_no_skips (0.00s)
+    --- PASS: TestWorkspaceConfigSkipPatterns/compat_workspace_uses_projected_skips (0.00s)
+=== RUN   TestFilterGeneratorsByInclude
+=== RUN   TestFilterGeneratorsByInclude/qualified
+=== RUN   TestFilterGeneratorsByInclude/entrypoint
+=== RUN   TestFilterGeneratorsByInclude/entrypoint_qualified_alias
+=== RUN   TestFilterGeneratorsByInclude/single_ordinary_module_requires_prefix
+--- PASS: TestFilterGeneratorsByInclude (0.00s)
+    --- PASS: TestFilterGeneratorsByInclude/qualified (0.00s)
+    --- PASS: TestFilterGeneratorsByInclude/entrypoint (0.00s)
+    --- PASS: TestFilterGeneratorsByInclude/entrypoint_qualified_alias (0.00s)
+    --- PASS: TestFilterGeneratorsByInclude/single_ordinary_module_requires_prefix (0.00s)
+=== RUN   TestWorkspaceTargetSkipNames
+=== RUN   TestWorkspaceTargetSkipNames/short_skip_only_excludes_entrypoint
+=== RUN   TestWorkspaceTargetSkipNames/qualified_skip
+=== RUN   TestWorkspaceTargetSkipNames/skip_other_module
+=== RUN   TestWorkspaceTargetSkipNames/explicit_wildcard
+=== RUN   TestWorkspaceTargetSkipNames/module_settings_use_local_names
+--- PASS: TestWorkspaceTargetSkipNames (0.00s)
+    --- PASS: TestWorkspaceTargetSkipNames/short_skip_only_excludes_entrypoint (0.00s)
+    --- PASS: TestWorkspaceTargetSkipNames/qualified_skip (0.00s)
+    --- PASS: TestWorkspaceTargetSkipNames/skip_other_module (0.00s)
+    --- PASS: TestWorkspaceTargetSkipNames/explicit_wildcard (0.00s)
+    --- PASS: TestWorkspaceTargetSkipNames/module_settings_use_local_names (0.00s)
+=== RUN   TestSelectVisibleGeneratorModules
+=== RUN   TestSelectVisibleGeneratorModules/wrapper_hides_raw_blueprint_alias
+=== RUN   TestSelectVisibleGeneratorModules/single_raw_module_remains_visible
+=== RUN   TestSelectVisibleGeneratorModules/multiple_wrappers_sharing_one_implementation_remain_visible
+--- PASS: TestSelectVisibleGeneratorModules (0.00s)
+    --- PASS: TestSelectVisibleGeneratorModules/wrapper_hides_raw_blueprint_alias (0.00s)
+    --- PASS: TestSelectVisibleGeneratorModules/single_raw_module_remains_visible (0.00s)
+    --- PASS: TestSelectVisibleGeneratorModules/multiple_wrappers_sharing_one_implementation_remain_visible (0.00s)
+=== RUN   TestResolveWorkspacePath
+=== RUN   TestResolveWorkspacePath/relative_path_resolves_from_workspace_cwd
+=== RUN   TestResolveWorkspacePath/dot_resolves_to_workspace_cwd
+=== RUN   TestResolveWorkspacePath/absolute_path_resolves_from_workspace_root
+=== RUN   TestResolveWorkspacePath/root_absolute_path_resolves_to_workspace_root
+=== RUN   TestResolveWorkspacePath/relative_path_cannot_escape_workspace_root
+=== RUN   TestResolveWorkspacePath/windows_separators
+--- PASS: TestResolveWorkspacePath (0.00s)
+    --- PASS: TestResolveWorkspacePath/relative_path_resolves_from_workspace_cwd (0.00s)
+    --- PASS: TestResolveWorkspacePath/dot_resolves_to_workspace_cwd (0.00s)
+    --- PASS: TestResolveWorkspacePath/absolute_path_resolves_from_workspace_root (0.00s)
+    --- PASS: TestResolveWorkspacePath/root_absolute_path_resolves_to_workspace_root (0.00s)
+    --- PASS: TestResolveWorkspacePath/relative_path_cannot_escape_workspace_root (0.00s)
+    --- PASS: TestResolveWorkspacePath/windows_separators (0.00s)
+=== RUN   TestWorkspacePathInOrLeadingToCwd
+--- PASS: TestWorkspacePathInOrLeadingToCwd (0.00s)
+=== RUN   TestWorkspaceAPIPath
+=== RUN   TestWorkspaceAPIPath/boundary_root_is_slash
+=== RUN   TestWorkspaceAPIPath/nested_path_is_absolute_from_boundary
+--- PASS: TestWorkspaceAPIPath (0.00s)
+    --- PASS: TestWorkspaceAPIPath/boundary_root_is_slash (0.00s)
+    --- PASS: TestWorkspaceAPIPath/nested_path_is_absolute_from_boundary (0.00s)
+=== RUN   TestWorkspacePathRelativeToCwd
+=== RUN   TestWorkspacePathRelativeToCwd/root_cwd
+=== RUN   TestWorkspacePathRelativeToCwd/nested_cwd
+=== RUN   TestWorkspacePathRelativeToCwd/selected_workspace_cwd
+=== RUN   TestWorkspacePathRelativeToCwd/no_path
+--- PASS: TestWorkspacePathRelativeToCwd (0.00s)
+    --- PASS: TestWorkspacePathRelativeToCwd/root_cwd (0.00s)
+    --- PASS: TestWorkspacePathRelativeToCwd/nested_cwd (0.00s)
+    --- PASS: TestWorkspacePathRelativeToCwd/selected_workspace_cwd (0.00s)
+    --- PASS: TestWorkspacePathRelativeToCwd/no_path (0.00s)
+=== RUN   TestWorkspaceRootfsRequiresDirectory
+--- PASS: TestWorkspaceRootfsRequiresDirectory (0.00s)
+=== RUN   TestWorkspaceMigrationWarningsKeepsGapWarningsAggregated
+--- PASS: TestWorkspaceMigrationWarningsKeepsGapWarningsAggregated (0.00s)
+=== RUN   TestWorkspaceMigrationRootPath
+--- PASS: TestWorkspaceMigrationRootPath (0.00s)
+=== RUN   TestWorkspaceMigrationParentPlans
+=== RUN   TestWorkspaceMigrationParentPlans/plain_module_in_a_subdirectory_gets_no_parent_workspace
+=== RUN   TestWorkspaceMigrationParentPlans/plain_root_module_creates_root_parent_with_SDK_module
+=== RUN   TestWorkspaceMigrationParentPlans/subdirectory_toolchains_config_installs_SDK_in_the_hoisted_root_plan
+=== RUN   TestWorkspaceMigrationParentPlans/project-style_module_at_the_root_is_not_assigned_a_runtime_pin
+=== RUN   TestWorkspaceMigrationParentPlans/subdirectory_module_without_toolchains_gets_no_runtime_pin
+=== RUN   TestWorkspaceMigrationParentPlans/subdirectory_module-only_migration_leaves_discovered_dependency_SDKs_unrecorded
+=== RUN   TestWorkspaceMigrationParentPlans/parent_SDK_module_name_conflicts_get_a_stable_alternate_name
+=== RUN   TestWorkspaceMigrationParentPlans/module_repo_runtime_pin_and_discovered_dependency_share_one_SDK_install
+--- PASS: TestWorkspaceMigrationParentPlans (0.00s)
+    --- PASS: TestWorkspaceMigrationParentPlans/plain_module_in_a_subdirectory_gets_no_parent_workspace (0.00s)
+    --- PASS: TestWorkspaceMigrationParentPlans/plain_root_module_creates_root_parent_with_SDK_module (0.00s)
+    --- PASS: TestWorkspaceMigrationParentPlans/subdirectory_toolchains_config_installs_SDK_in_the_hoisted_root_plan (0.00s)
+    --- PASS: TestWorkspaceMigrationParentPlans/project-style_module_at_the_root_is_not_assigned_a_runtime_pin (0.00s)
+    --- PASS: TestWorkspaceMigrationParentPlans/subdirectory_module_without_toolchains_gets_no_runtime_pin (0.00s)
+    --- PASS: TestWorkspaceMigrationParentPlans/subdirectory_module-only_migration_leaves_discovered_dependency_SDKs_unrecorded (0.00s)
+    --- PASS: TestWorkspaceMigrationParentPlans/parent_SDK_module_name_conflicts_get_a_stable_alternate_name (0.00s)
+    --- PASS: TestWorkspaceMigrationParentPlans/module_repo_runtime_pin_and_discovered_dependency_share_one_SDK_install (0.00s)
+=== RUN   TestWorkspaceMigrationModuleConfigConversions
+--- PASS: TestWorkspaceMigrationModuleConfigConversions (0.00s)
+=== RUN   TestWorkspaceMigrationJoinRelPathAndScope
+=== RUN   TestWorkspaceMigrationJoinRelPathAndScope/child_from_root
+=== RUN   TestWorkspaceMigrationJoinRelPathAndScope/nested_child
+=== RUN   TestWorkspaceMigrationJoinRelPathAndScope/sibling_within_project_dir
+=== RUN   TestWorkspaceMigrationJoinRelPathAndScope/self
+=== RUN   TestWorkspaceMigrationJoinRelPathAndScope/escapes_workspace_root
+=== RUN   TestWorkspaceMigrationJoinRelPathAndScope/sibling_outside_project
+--- PASS: TestWorkspaceMigrationJoinRelPathAndScope (0.00s)
+    --- PASS: TestWorkspaceMigrationJoinRelPathAndScope/child_from_root (0.00s)
+    --- PASS: TestWorkspaceMigrationJoinRelPathAndScope/nested_child (0.00s)
+    --- PASS: TestWorkspaceMigrationJoinRelPathAndScope/sibling_within_project_dir (0.00s)
+    --- PASS: TestWorkspaceMigrationJoinRelPathAndScope/self (0.00s)
+    --- PASS: TestWorkspaceMigrationJoinRelPathAndScope/escapes_workspace_root (0.00s)
+    --- PASS: TestWorkspaceMigrationJoinRelPathAndScope/sibling_outside_project (0.00s)
+=== RUN   TestWorkspaceMigrationDiscoveredLocalModuleConversions
+--- PASS: TestWorkspaceMigrationDiscoveredLocalModuleConversions (0.00s)
+=== RUN   TestWorkspaceMigrationLegacyLockProjectRootsIncludesModuleConfigConversions
+--- PASS: TestWorkspaceMigrationLegacyLockProjectRootsIncludesModuleConfigConversions (0.00s)
+=== RUN   TestEnvScopedConfigKeyQuotesDynamicSegments
+--- PASS: TestEnvScopedConfigKeyQuotesDynamicSegments (0.00s)
+=== RUN   TestPlanWorkspaceEnvInstallConfig
+=== RUN   TestPlanWorkspaceEnvInstallConfig/creates_the_env_and_records_the_module_in_its_overlay
+=== RUN   TestPlanWorkspaceEnvInstallConfig/reinstall_with_the_same_source_is_a_no-op
+=== RUN   TestPlanWorkspaceEnvInstallConfig/conflicting_source_in_the_same_env_is_rejected
+=== RUN   TestPlanWorkspaceEnvInstallConfig/base_module_with_another_source_is_overridden,_not_rejected
+=== RUN   TestPlanWorkspaceEnvInstallConfig/redundant_overlay_of_a_base_module_carries_the_base_pin
+=== RUN   TestPlanWorkspaceEnvInstallConfig/settings-only_overlay_entry_is_upgraded_in_place
+=== RUN   TestPlanWorkspaceEnvInstallConfig/SDK_installs_are_rejected_under_an_env_selection
+=== RUN   TestPlanWorkspaceEnvInstallConfig/re-sourcing_a_base_SDK_entry_is_rejected
+--- PASS: TestPlanWorkspaceEnvInstallConfig (0.00s)
+    --- PASS: TestPlanWorkspaceEnvInstallConfig/creates_the_env_and_records_the_module_in_its_overlay (0.00s)
+    --- PASS: TestPlanWorkspaceEnvInstallConfig/reinstall_with_the_same_source_is_a_no-op (0.00s)
+    --- PASS: TestPlanWorkspaceEnvInstallConfig/conflicting_source_in_the_same_env_is_rejected (0.00s)
+    --- PASS: TestPlanWorkspaceEnvInstallConfig/base_module_with_another_source_is_overridden,_not_rejected (0.00s)
+    --- PASS: TestPlanWorkspaceEnvInstallConfig/redundant_overlay_of_a_base_module_carries_the_base_pin (0.00s)
+    --- PASS: TestPlanWorkspaceEnvInstallConfig/settings-only_overlay_entry_is_upgraded_in_place (0.00s)
+    --- PASS: TestPlanWorkspaceEnvInstallConfig/SDK_installs_are_rejected_under_an_env_selection (0.00s)
+    --- PASS: TestPlanWorkspaceEnvInstallConfig/re-sourcing_a_base_SDK_entry_is_rejected (0.00s)
+=== RUN   TestPlanWorkspaceInstallConfigSDKNames
+=== PAUSE TestPlanWorkspaceInstallConfigSDKNames
+=== RUN   TestEnvScopedConfigKeyMissingEnv
+--- PASS: TestEnvScopedConfigKeyMissingEnv (0.00s)
+=== RUN   TestWorkspaceSettingConfigKeyQuotesDynamicSegments
+--- PASS: TestWorkspaceSettingConfigKeyQuotesDynamicSegments (0.00s)
+=== RUN   TestWorkspaceMigrationRootTargetPathsRejectsDuplicates
+--- PASS: TestWorkspaceMigrationRootTargetPathsRejectsDuplicates (0.00s)
+=== RUN   TestWorkspaceMigrationHiddenPath
+--- PASS: TestWorkspaceMigrationHiddenPath (0.00s)
+=== RUN   TestWorkspaceMigrationFilterLegacyLockDataRemovesModuleResolve
+--- PASS: TestWorkspaceMigrationFilterLegacyLockDataRemovesModuleResolve (0.00s)
+=== RUN   TestWorkspaceMigrationUniqueSortedPaths
+--- PASS: TestWorkspaceMigrationUniqueSortedPaths (0.00s)
+=== RUN   TestWorkspaceMigrationHasExplicitConfigAncestor
+--- PASS: TestWorkspaceMigrationHasExplicitConfigAncestor (0.00s)
+=== RUN   TestWorkspaceFilterWithDirectoryArgs
+--- PASS: TestWorkspaceFilterWithDirectoryArgs (0.00s)
+=== CONT  TestShouldSelectLatestImageRelease
+=== RUN   TestShouldSelectLatestImageRelease/legacy_bare_address
+=== PAUSE TestShouldSelectLatestImageRelease/legacy_bare_address
+=== RUN   TestShouldSelectLatestImageRelease/locking_without_latest_release
+=== PAUSE TestShouldSelectLatestImageRelease/locking_without_latest_release
+=== RUN   TestShouldSelectLatestImageRelease/new_bare_address
+=== PAUSE TestShouldSelectLatestImageRelease/new_bare_address
+=== RUN   TestShouldSelectLatestImageRelease/explicit_latest
+=== PAUSE TestShouldSelectLatestImageRelease/explicit_latest
+=== CONT  TestShouldSelectLatestImageRelease/legacy_bare_address
+=== CONT  TestPlanWorkspaceInstallConfigSDKNames
+--- PASS: TestPlanWorkspaceInstallConfigSDKNames (0.00s)
+=== CONT  TestInitialWorkspaceConfigOmitsCheckGenerated
+--- PASS: TestInitialWorkspaceConfigOmitsCheckGenerated (0.00s)
+=== CONT  TestEffectiveWorkspaceConfigBytesAppliesUserOverlay
+=== RUN   TestEffectiveWorkspaceConfigBytesAppliesUserOverlay/without_env
+=== PAUSE TestEffectiveWorkspaceConfigBytesAppliesUserOverlay/without_env
+=== RUN   TestEffectiveWorkspaceConfigBytesAppliesUserOverlay/with_user-defined_env
+=== PAUSE TestEffectiveWorkspaceConfigBytesAppliesUserOverlay/with_user-defined_env
+=== RUN   TestEffectiveWorkspaceConfigBytesAppliesUserOverlay/no_overlay_leaves_config_unchanged
+=== PAUSE TestEffectiveWorkspaceConfigBytesAppliesUserOverlay/no_overlay_leaves_config_unchanged
+=== CONT  TestEffectiveWorkspaceConfigBytesAppliesUserOverlay/without_env
+=== CONT  TestWorkspaceSettingHintTypeInfo
+=== RUN   TestWorkspaceSettingHintTypeInfo/primitive
+=== PAUSE TestWorkspaceSettingHintTypeInfo/primitive
+=== RUN   TestWorkspaceSettingHintTypeInfo/address_backed_object
+=== PAUSE TestWorkspaceSettingHintTypeInfo/address_backed_object
+=== RUN   TestWorkspaceSettingHintTypeInfo/volume
+=== PAUSE TestWorkspaceSettingHintTypeInfo/volume
+=== RUN   TestWorkspaceSettingHintTypeInfo/workspace_object
+=== PAUSE TestWorkspaceSettingHintTypeInfo/workspace_object
+=== RUN   TestWorkspaceSettingHintTypeInfo/non_address_backed_object
+=== PAUSE TestWorkspaceSettingHintTypeInfo/non_address_backed_object
+=== RUN   TestWorkspaceSettingHintTypeInfo/primitive_list
+=== PAUSE TestWorkspaceSettingHintTypeInfo/primitive_list
+=== RUN   TestWorkspaceSettingHintTypeInfo/object_list
+=== PAUSE TestWorkspaceSettingHintTypeInfo/object_list
+=== CONT  TestWorkspaceSettingHintTypeInfo/primitive
+=== CONT  TestResolveLookupFromLock
+=== CONT  TestLookupLockForAPI
+=== CONT  TestCloneContainerForSchemaChildDisablesFromContentDigest
+=== CONT  TestValidateSDKModuleDestination
+=== CONT  TestResolveWorkspaceClientModuleInput
+=== RUN   TestResolveWorkspaceClientModuleInput/./sdk.v1/api_from_.
+=== CONT  TestModuleEntrySourceWithPinRelativeToLeavesGitRefsCanonical
+=== RUN   TestValidateSDKModuleDestination/empty_declines_and_keeps_the_engine_default
+=== CONT  TestPlanSDKModuleScopes
+--- PASS: TestModuleEntrySourceWithPinRelativeToLeavesGitRefsCanonical (0.00s)
+=== CONT  TestValidateSDKModuleGenerationGraph
+=== CONT  TestOrderSDKModuleClientSelections
+=== CONT  TestWorkspaceSettingHintTypeInfo/object_list
+--- PASS: TestValidateSDKModuleGenerationGraph (0.00s)
+=== RUN   TestLookupLockForAPI/older_API_view_disables_locking
+=== PAUSE TestLookupLockForAPI/older_API_view_disables_locking
+=== CONT  TestShouldSelectLatestImageRelease/new_bare_address
+=== RUN   TestLookupLockForAPI/current_API_view_uses_available_workspace_lock
+=== RUN   TestResolveLookupFromLock/disabled_without_a_lock
+2026/09/17 02:34:40 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== CONT  TestShouldSelectLatestImageRelease/explicit_latest
+=== CONT  TestInstalledSDKSource
+=== CONT  TestWorkspaceSettingHintTypeInfo/workspace_object
+=== RUN   TestPlanSDKModuleScopes/root_dependency_runs_once_and_first
+=== CONT  TestWorkspaceSettingHintTypeInfo/address_backed_object
+=== CONT  TestEffectiveWorkspaceConfigBytesAppliesUserOverlay/no_overlay_leaves_config_unchanged
+=== PAUSE TestPlanSDKModuleScopes/root_dependency_runs_once_and_first
+=== RUN   TestPlanSDKModuleScopes/diamond_visits_the_shared_dependency_once
+=== RUN   TestResolveWorkspaceClientModuleInput/./modules/api_from_.
+=== CONT  TestShouldSelectLatestImageRelease/locking_without_latest_release
+=== CONT  TestWorkspaceSettingHintTypeInfo/volume
+=== CONT  TestWithImageConfigMetadataRejectsInvalidHealthcheckJSON
+=== CONT  TestWithImageConfigMetadataMutatesContainerConfig
+=== CONT  TestSelectSDKModuleClientsForModuleSources
+=== RUN   TestSelectSDKModuleClientsForModuleSources/remote_module
+=== PAUSE TestSelectSDKModuleClientsForModuleSources/remote_module
+=== RUN   TestSelectSDKModuleClientsForModuleSources/local_module
+=== PAUSE TestSelectSDKModuleClientsForModuleSources/local_module
+=== CONT  TestWorkspaceLockExcludePattern
+=== CONT  TestInstalledSDKSourceRejectsMultipleNamesForProvider
+=== PAUSE TestValidateSDKModuleDestination/empty_declines_and_keeps_the_engine_default
+=== CONT  TestResolveSDKModuleInit
+=== PAUSE TestResolveLookupFromLock/disabled_without_a_lock
+=== PAUSE TestLookupLockForAPI/current_API_view_uses_available_workspace_lock
+--- PASS: TestOrderSDKModuleClientSelections (0.00s)
+=== RUN   TestSelectSDKModuleClientsForModuleSources/module_without_a_client
+--- PASS: TestCloneContainerForSchemaChildDisablesFromContentDigest (0.00s)
+--- PASS: TestInstalledSDKSource (0.00s)
+=== CONT  TestWorkspaceSDKEntryPaths
+--- PASS: TestShouldSelectLatestImageRelease (0.00s)
+    --- PASS: TestShouldSelectLatestImageRelease/legacy_bare_address (0.00s)
+    --- PASS: TestShouldSelectLatestImageRelease/new_bare_address (0.00s)
+    --- PASS: TestShouldSelectLatestImageRelease/explicit_latest (0.00s)
+    --- PASS: TestShouldSelectLatestImageRelease/locking_without_latest_release (0.00s)
+=== CONT  TestWorkspaceSettingHintTypeInfo/primitive_list
+=== RUN   TestResolveSDKModuleInit/explicit_name_wins
+=== PAUSE TestResolveSDKModuleInit/explicit_name_wins
+=== PAUSE TestPlanSDKModuleScopes/diamond_visits_the_shared_dependency_once
+=== CONT  TestEffectiveWorkspaceConfigBytesAppliesUserOverlay/with_user-defined_env
+=== CONT  TestPlanSDKModuleScopes/root_dependency_runs_once_and_first
+=== CONT  TestPlanSDKModuleScopes/diamond_visits_the_shared_dependency_once
+--- PASS: TestWithImageConfigMetadataRejectsInvalidHealthcheckJSON (0.00s)
+=== RUN   TestWorkspaceLockExcludePattern/exact_workspace_path
+--- PASS: TestWithImageConfigMetadataMutatesContainerConfig (0.00s)
+=== RUN   TestResolveSDKModuleInit/path_supplies_name
+=== CONT  TestLegacyWorkspaceFieldHandling
+=== PAUSE TestResolveSDKModuleInit/path_supplies_name
+=== RUN   TestResolveSDKModuleInit/absolute_workspace_path_supplies_name
+=== PAUSE TestResolveSDKModuleInit/absolute_workspace_path_supplies_name
+=== RUN   TestResolveSDKModuleInit/active_config_directory_supplies_name
+=== PAUSE TestResolveSDKModuleInit/active_config_directory_supplies_name
+=== PAUSE TestSelectSDKModuleClientsForModuleSources/module_without_a_client
+=== CONT  TestWorkspaceSettingHintTypeInfo/non_address_backed_object
+=== RUN   TestLookupLockForAPI/private_context_disables_locking
+=== PAUSE TestLookupLockForAPI/private_context_disables_locking
+=== RUN   TestLookupLockForAPI/uses_an_in-memory_overlay_lock_without_a_host_binding
+=== PAUSE TestLookupLockForAPI/uses_an_in-memory_overlay_lock_without_a_host_binding
+=== CONT  TestLookupLockForAPI/older_API_view_disables_locking
+=== CONT  TestSelectSDKModuleClients
+=== RUN   TestSelectSDKModuleClients/cwd_selects_only_the_scopes_containing_it
+=== PAUSE TestSelectSDKModuleClients/cwd_selects_only_the_scopes_containing_it
+=== CONT  TestLookupLockForAPI/current_API_view_uses_available_workspace_lock
+=== CONT  TestLookupLockForAPI/private_context_disables_locking
+=== RUN   TestResolveLookupFromLock/existing_pin_entry
+=== PAUSE TestResolveLookupFromLock/existing_pin_entry
+=== CONT  TestLoadCurrentModuleSourceConfigPreservesGitDependencySourceAndPin
+=== RUN   TestValidateSDKModuleDestination/relative_path_is_kept
+=== CONT  TestSelectSDKModuleClientsSkipsEmptyScopes
+=== PAUSE TestWorkspaceLockExcludePattern/exact_workspace_path
+--- PASS: TestWorkspaceSDKEntryPaths (0.00s)
+=== RUN   TestResolveWorkspaceClientModuleInput/./.dagger/modules/api_from_.
+=== RUN   TestResolveSDKModuleInit/explicit_name_uses_managed_path_beside_active_config
+=== PAUSE TestResolveSDKModuleInit/explicit_name_uses_managed_path_beside_active_config
+=== RUN   TestResolveSDKModuleInit/workspace_root_supplies_local_name
+=== PAUSE TestResolveSDKModuleInit/workspace_root_supplies_local_name
+=== RUN   TestResolveSDKModuleInit/managed_path_ignores_cwd_below_workspace_root
+=== PAUSE TestResolveSDKModuleInit/managed_path_ignores_cwd_below_workspace_root
+=== RUN   TestResolveSDKModuleInit/workspace_root_supplies_path_without_active_config
+=== PAUSE TestResolveSDKModuleInit/workspace_root_supplies_path_without_active_config
+=== RUN   TestResolveSDKModuleInit/root_path_uses_local_workspace_name
+=== PAUSE TestResolveSDKModuleInit/root_path_uses_local_workspace_name
+=== CONT  TestSelectSDKModuleClientsForModuleSources/remote_module
+=== RUN   TestResolveSDKModuleInit/workspace_root_supplies_remote_name
+=== PAUSE TestResolveSDKModuleInit/workspace_root_supplies_remote_name
+=== RUN   TestResolveSDKModuleInit/remote_version_can_contain_slashes
+=== CONT  TestSelectSDKModuleClientsForModuleSources/module_without_a_client
+=== PAUSE TestResolveSDKModuleInit/remote_version_can_contain_slashes
+=== RUN   TestResolveSDKModuleInit/unidentifiable_root_requires_name
+=== PAUSE TestResolveSDKModuleInit/unidentifiable_root_requires_name
+=== CONT  TestSelectSDKModuleClientsForModuleSources/local_module
+=== CONT  TestResolveSDKModuleInit/explicit_name_wins
+=== CONT  TestLookupLockForAPI/uses_an_in-memory_overlay_lock_without_a_host_binding
+=== CONT  TestResolveSDKModuleInit/workspace_root_supplies_local_name
+--- PASS: TestInstalledSDKSourceRejectsMultipleNamesForProvider (0.00s)
+--- PASS: TestPlanSDKModuleScopes (0.00s)
+    --- PASS: TestPlanSDKModuleScopes/root_dependency_runs_once_and_first (0.00s)
+    --- PASS: TestPlanSDKModuleScopes/diamond_visits_the_shared_dependency_once (0.00s)
+=== CONT  TestResolveSDKModuleInit/explicit_name_uses_managed_path_beside_active_config
+=== CONT  TestResolveSDKModuleInit/active_config_directory_supplies_name
+=== RUN   TestSelectSDKModuleClients/all_selects_every_scope
+=== CONT  TestResolveSDKModuleInit/absolute_workspace_path_supplies_name
+=== PAUSE TestValidateSDKModuleDestination/relative_path_is_kept
+=== PAUSE TestSelectSDKModuleClients/all_selects_every_scope
+=== RUN   TestSelectSDKModuleClients/sdk_filters_by_provider
+=== PAUSE TestSelectSDKModuleClients/sdk_filters_by_provider
+=== CONT  TestResolveSDKModuleInit/path_supplies_name
+=== RUN   TestSelectSDKModuleClients/modules_filter_selects_recorded_targets_across_sdks
+=== PAUSE TestSelectSDKModuleClients/modules_filter_selects_recorded_targets_across_sdks
+=== RUN   TestValidateSDKModuleDestination/leading_dot_slash_is_cleaned
+=== RUN   TestSelectSDKModuleClients/nested_cwd_selects_the_parent_scope_too
+=== CONT  TestResolveSDKModuleInit/remote_version_can_contain_slashes
+--- PASS: TestEffectiveWorkspaceConfigBytesAppliesUserOverlay (0.00s)
+    --- PASS: TestEffectiveWorkspaceConfigBytesAppliesUserOverlay/without_env (0.00s)
+    --- PASS: TestEffectiveWorkspaceConfigBytesAppliesUserOverlay/no_overlay_leaves_config_unchanged (0.00s)
+    --- PASS: TestEffectiveWorkspaceConfigBytesAppliesUserOverlay/with_user-defined_env (0.00s)
+=== PAUSE TestValidateSDKModuleDestination/leading_dot_slash_is_cleaned
+--- PASS: TestWorkspaceSettingHintTypeInfo (0.00s)
+    --- PASS: TestWorkspaceSettingHintTypeInfo/primitive (0.00s)
+    --- PASS: TestWorkspaceSettingHintTypeInfo/object_list (0.00s)
+    --- PASS: TestWorkspaceSettingHintTypeInfo/workspace_object (0.00s)
+    --- PASS: TestWorkspaceSettingHintTypeInfo/address_backed_object (0.00s)
+    --- PASS: TestWorkspaceSettingHintTypeInfo/volume (0.00s)
+    --- PASS: TestWorkspaceSettingHintTypeInfo/primitive_list (0.00s)
+    --- PASS: TestWorkspaceSettingHintTypeInfo/non_address_backed_object (0.00s)
+=== RUN   TestValidateSDKModuleDestination/workspace_root_is_allowed
+=== PAUSE TestValidateSDKModuleDestination/workspace_root_is_allowed
+=== CONT  TestResolveSDKModuleInit/workspace_root_supplies_remote_name
+=== RUN   TestValidateSDKModuleDestination/windows_separators_are_read_as_paths
+=== PAUSE TestValidateSDKModuleDestination/windows_separators_are_read_as_paths
+=== CONT  TestResolveSDKModuleInit/root_path_uses_local_workspace_name
+--- PASS: TestLookupLockForAPI (0.00s)
+    --- PASS: TestLookupLockForAPI/older_API_view_disables_locking (0.00s)
+    --- PASS: TestLookupLockForAPI/current_API_view_uses_available_workspace_lock (0.00s)
+    --- PASS: TestLookupLockForAPI/private_context_disables_locking (0.00s)
+    --- PASS: TestLookupLockForAPI/uses_an_in-memory_overlay_lock_without_a_host_binding (0.00s)
+=== RUN   TestResolveWorkspaceClientModuleInput/../../modules/api_from_apps/client
+=== CONT  TestResolveSDKModuleInit/workspace_root_supplies_path_without_active_config
+=== RUN   TestResolveWorkspaceClientModuleInput/../api_from_apps/client
+--- PASS: TestSelectSDKModuleClientsSkipsEmptyScopes (0.00s)
+--- PASS: TestLoadCurrentModuleSourceConfigPreservesGitDependencySourceAndPin (0.00s)
+=== CONT  TestResolveSDKModuleInit/managed_path_ignores_cwd_below_workspace_root
+--- PASS: TestSelectSDKModuleClientsForModuleSources (0.00s)
+    --- PASS: TestSelectSDKModuleClientsForModuleSources/remote_module (0.00s)
+    --- PASS: TestSelectSDKModuleClientsForModuleSources/module_without_a_client (0.00s)
+    --- PASS: TestSelectSDKModuleClientsForModuleSources/local_module (0.00s)
+=== RUN   TestResolveWorkspaceClientModuleInput//modules/api_from_apps/client
+=== RUN   TestWorkspaceLockExcludePattern/rebased_snapshot_root
+=== RUN   TestResolveLookupFromLock/missing_entry_is_written
+=== CONT  TestResolveSDKModuleInit/unidentifiable_root_requires_name
+--- PASS: TestLegacyWorkspaceFieldHandling (0.00s)
+=== RUN   TestValidateSDKModuleDestination/path_need_not_contain_the_invocation_cwd
+=== PAUSE TestWorkspaceLockExcludePattern/rebased_snapshot_root
+=== PAUSE TestValidateSDKModuleDestination/path_need_not_contain_the_invocation_cwd
+--- PASS: TestResolveSDKModuleInit (0.00s)
+    --- PASS: TestResolveSDKModuleInit/explicit_name_wins (0.00s)
+    --- PASS: TestResolveSDKModuleInit/workspace_root_supplies_local_name (0.00s)
+    --- PASS: TestResolveSDKModuleInit/explicit_name_uses_managed_path_beside_active_config (0.00s)
+    --- PASS: TestResolveSDKModuleInit/active_config_directory_supplies_name (0.00s)
+    --- PASS: TestResolveSDKModuleInit/absolute_workspace_path_supplies_name (0.00s)
+    --- PASS: TestResolveSDKModuleInit/path_supplies_name (0.00s)
+    --- PASS: TestResolveSDKModuleInit/remote_version_can_contain_slashes (0.00s)
+    --- PASS: TestResolveSDKModuleInit/workspace_root_supplies_remote_name (0.00s)
+    --- PASS: TestResolveSDKModuleInit/root_path_uses_local_workspace_name (0.00s)
+    --- PASS: TestResolveSDKModuleInit/workspace_root_supplies_path_without_active_config (0.00s)
+    --- PASS: TestResolveSDKModuleInit/managed_path_ignores_cwd_below_workspace_root (0.00s)
+    --- PASS: TestResolveSDKModuleInit/unidentifiable_root_requires_name (0.00s)
+=== RUN   TestResolveWorkspaceClientModuleInput/._from_apps
+=== RUN   TestResolveWorkspaceClientModuleInput/.._from_apps
+=== PAUSE TestResolveLookupFromLock/missing_entry_is_written
+=== RUN   TestResolveLookupFromLock/refresh_ignores_existing_pin_without_writing
+=== PAUSE TestResolveLookupFromLock/refresh_ignores_existing_pin_without_writing
+=== CONT  TestResolveLookupFromLock/disabled_without_a_lock
+=== CONT  TestResolveLookupFromLock/refresh_ignores_existing_pin_without_writing
+=== CONT  TestResolveLookupFromLock/existing_pin_entry
+=== RUN   TestValidateSDKModuleDestination/absolute_path_is_rejected
+=== CONT  TestResolveLookupFromLock/missing_entry_is_written
+=== PAUSE TestValidateSDKModuleDestination/absolute_path_is_rejected
+=== RUN   TestWorkspaceLockExcludePattern/ancestor_snapshot
+=== PAUSE TestWorkspaceLockExcludePattern/ancestor_snapshot
+=== RUN   TestWorkspaceLockExcludePattern/descendant_path
+=== PAUSE TestWorkspaceLockExcludePattern/descendant_path
+=== RUN   TestWorkspaceLockExcludePattern/different_path
+=== PAUSE TestWorkspaceLockExcludePattern/different_path
+=== RUN   TestWorkspaceLockExcludePattern/different_client
+=== PAUSE TestWorkspaceLockExcludePattern/different_client
+=== RUN   TestWorkspaceLockExcludePattern/remote_workspace
+=== PAUSE TestWorkspaceLockExcludePattern/remote_workspace
+=== RUN   TestWorkspaceLockExcludePattern/no_lockfile_selected
+=== PAUSE TestWorkspaceLockExcludePattern/no_lockfile_selected
+=== CONT  TestWorkspaceLockExcludePattern/exact_workspace_path
+--- PASS: TestResolveLookupFromLock (0.01s)
+    --- PASS: TestResolveLookupFromLock/disabled_without_a_lock (0.00s)
+    --- PASS: TestResolveLookupFromLock/refresh_ignores_existing_pin_without_writing (0.00s)
+    --- PASS: TestResolveLookupFromLock/existing_pin_entry (0.00s)
+    --- PASS: TestResolveLookupFromLock/missing_entry_is_written (0.00s)
+=== CONT  TestWorkspaceLockExcludePattern/no_lockfile_selected
+=== CONT  TestWorkspaceLockExcludePattern/remote_workspace
+=== CONT  TestWorkspaceLockExcludePattern/different_client
+=== CONT  TestWorkspaceLockExcludePattern/different_path
+=== CONT  TestWorkspaceLockExcludePattern/descendant_path
+=== CONT  TestWorkspaceLockExcludePattern/ancestor_snapshot
+=== CONT  TestWorkspaceLockExcludePattern/rebased_snapshot_root
+--- PASS: TestWorkspaceLockExcludePattern (0.00s)
+    --- PASS: TestWorkspaceLockExcludePattern/exact_workspace_path (0.00s)
+    --- PASS: TestWorkspaceLockExcludePattern/no_lockfile_selected (0.00s)
+    --- PASS: TestWorkspaceLockExcludePattern/remote_workspace (0.00s)
+    --- PASS: TestWorkspaceLockExcludePattern/different_client (0.00s)
+    --- PASS: TestWorkspaceLockExcludePattern/different_path (0.00s)
+    --- PASS: TestWorkspaceLockExcludePattern/descendant_path (0.00s)
+    --- PASS: TestWorkspaceLockExcludePattern/ancestor_snapshot (0.00s)
+    --- PASS: TestWorkspaceLockExcludePattern/rebased_snapshot_root (0.00s)
+=== RUN   TestValidateSDKModuleDestination/escaping_the_workspace_is_rejected
+=== PAUSE TestValidateSDKModuleDestination/escaping_the_workspace_is_rejected
+=== CONT  TestValidateSDKModuleDestination/empty_declines_and_keeps_the_engine_default
+=== PAUSE TestSelectSDKModuleClients/nested_cwd_selects_the_parent_scope_too
+=== RUN   TestSelectSDKModuleClients/unknown_target_is_an_error
+=== PAUSE TestSelectSDKModuleClients/unknown_target_is_an_error
+=== RUN   TestSelectSDKModuleClients/target_outside_the_selected_scope_is_an_error
+=== PAUSE TestSelectSDKModuleClients/target_outside_the_selected_scope_is_an_error
+=== CONT  TestSelectSDKModuleClients/cwd_selects_only_the_scopes_containing_it
+=== CONT  TestValidateSDKModuleDestination/escaping_the_workspace_is_rejected
+=== CONT  TestValidateSDKModuleDestination/absolute_path_is_rejected
+=== CONT  TestValidateSDKModuleDestination/path_need_not_contain_the_invocation_cwd
+=== CONT  TestValidateSDKModuleDestination/windows_separators_are_read_as_paths
+=== CONT  TestValidateSDKModuleDestination/workspace_root_is_allowed
+=== CONT  TestValidateSDKModuleDestination/leading_dot_slash_is_cleaned
+=== CONT  TestValidateSDKModuleDestination/relative_path_is_kept
+--- PASS: TestValidateSDKModuleDestination (0.01s)
+    --- PASS: TestValidateSDKModuleDestination/empty_declines_and_keeps_the_engine_default (0.00s)
+    --- PASS: TestValidateSDKModuleDestination/escaping_the_workspace_is_rejected (0.00s)
+    --- PASS: TestValidateSDKModuleDestination/absolute_path_is_rejected (0.00s)
+    --- PASS: TestValidateSDKModuleDestination/path_need_not_contain_the_invocation_cwd (0.00s)
+    --- PASS: TestValidateSDKModuleDestination/windows_separators_are_read_as_paths (0.00s)
+    --- PASS: TestValidateSDKModuleDestination/workspace_root_is_allowed (0.00s)
+    --- PASS: TestValidateSDKModuleDestination/leading_dot_slash_is_cleaned (0.00s)
+    --- PASS: TestValidateSDKModuleDestination/relative_path_is_kept (0.00s)
+=== RUN   TestResolveWorkspaceClientModuleInput/github.com/acme/sdk@v1.2.3_from_apps/client
+--- PASS: TestResolveWorkspaceClientModuleInput (0.01s)
+    --- PASS: TestResolveWorkspaceClientModuleInput/./sdk.v1/api_from_. (0.00s)
+    --- PASS: TestResolveWorkspaceClientModuleInput/./modules/api_from_. (0.00s)
+    --- PASS: TestResolveWorkspaceClientModuleInput/./.dagger/modules/api_from_. (0.00s)
+    --- PASS: TestResolveWorkspaceClientModuleInput/../../modules/api_from_apps/client (0.00s)
+    --- PASS: TestResolveWorkspaceClientModuleInput/../api_from_apps/client (0.00s)
+    --- PASS: TestResolveWorkspaceClientModuleInput//modules/api_from_apps/client (0.00s)
+    --- PASS: TestResolveWorkspaceClientModuleInput/._from_apps (0.00s)
+    --- PASS: TestResolveWorkspaceClientModuleInput/.._from_apps (0.00s)
+    --- PASS: TestResolveWorkspaceClientModuleInput/github.com/acme/sdk@v1.2.3_from_apps/client (0.00s)
+=== CONT  TestSelectSDKModuleClients/target_outside_the_selected_scope_is_an_error
+=== CONT  TestSelectSDKModuleClients/unknown_target_is_an_error
+=== CONT  TestSelectSDKModuleClients/nested_cwd_selects_the_parent_scope_too
+=== CONT  TestSelectSDKModuleClients/modules_filter_selects_recorded_targets_across_sdks
+=== CONT  TestSelectSDKModuleClients/sdk_filters_by_provider
+=== CONT  TestSelectSDKModuleClients/all_selects_every_scope
+--- PASS: TestSelectSDKModuleClients (0.00s)
+    --- PASS: TestSelectSDKModuleClients/cwd_selects_only_the_scopes_containing_it (0.00s)
+    --- PASS: TestSelectSDKModuleClients/target_outside_the_selected_scope_is_an_error (0.00s)
+    --- PASS: TestSelectSDKModuleClients/unknown_target_is_an_error (0.00s)
+    --- PASS: TestSelectSDKModuleClients/nested_cwd_selects_the_parent_scope_too (0.00s)
+    --- PASS: TestSelectSDKModuleClients/modules_filter_selects_recorded_targets_across_sdks (0.00s)
+    --- PASS: TestSelectSDKModuleClients/sdk_filters_by_provider (0.00s)
+    --- PASS: TestSelectSDKModuleClients/all_selects_every_scope (0.00s)
+PASS
+ok  	github.com/dagger/dagger/core/schema	13.532s

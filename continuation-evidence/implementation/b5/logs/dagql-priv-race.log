@@ -1,0 +1,366 @@
+=== RUN   TestRemoteCacheExtraDigestMetadata
+=== RUN   TestRemoteCacheExtraDigestMetadata/unmarked
+=== RUN   TestRemoteCacheExtraDigestMetadata/detached
+=== RUN   TestRemoteCacheExtraDigestMetadata/attached
+--- PASS: TestRemoteCacheExtraDigestMetadata (0.51s)
+    --- PASS: TestRemoteCacheExtraDigestMetadata/unmarked (0.25s)
+    --- PASS: TestRemoteCacheExtraDigestMetadata/detached (0.16s)
+    --- PASS: TestRemoteCacheExtraDigestMetadata/attached (0.10s)
+=== RUN   TestOfferPartsPreparationWindow
+=== RUN   TestOfferPartsPreparationWindow/preparation_holds_references_across_collection
+=== RUN   TestOfferPartsPreparationWindow/new_offer_refused_after_preparation
+=== RUN   TestOfferPartsPreparationWindow/same-owner_refresh_refused_after_preparation
+=== RUN   TestOfferPartsPreparationWindow/different-owner_replacement_refused_after_preparation
+--- PASS: TestOfferPartsPreparationWindow (0.18s)
+    --- PASS: TestOfferPartsPreparationWindow/preparation_holds_references_across_collection (0.05s)
+    --- PASS: TestOfferPartsPreparationWindow/new_offer_refused_after_preparation (0.05s)
+    --- PASS: TestOfferPartsPreparationWindow/same-owner_refresh_refused_after_preparation (0.04s)
+    --- PASS: TestOfferPartsPreparationWindow/different-owner_replacement_refused_after_preparation (0.04s)
+=== RUN   TestOfferSettlementReplacement
+=== RUN   TestOfferSettlementReplacement/replacement_during_the_winning_acquisition_is_retired
+=== RUN   TestOfferSettlementReplacement/acceptance_after_commit_is_already_complete
+=== RUN   TestOfferSettlementReplacement/failed_sync_keeps_the_output,_not_the_acquisition_hold
+=== RUN   TestOfferSettlementReplacement/failed_sync_keeps_the_output,_not_the_acquisition_hold,_with_a_back-reference_to_the_receiver
+--- PASS: TestOfferSettlementReplacement (3.94s)
+    --- PASS: TestOfferSettlementReplacement/replacement_during_the_winning_acquisition_is_retired (0.37s)
+    --- PASS: TestOfferSettlementReplacement/acceptance_after_commit_is_already_complete (0.34s)
+    --- PASS: TestOfferSettlementReplacement/failed_sync_keeps_the_output,_not_the_acquisition_hold (0.87s)
+    --- PASS: TestOfferSettlementReplacement/failed_sync_keeps_the_output,_not_the_acquisition_hold,_with_a_back-reference_to_the_receiver (2.35s)
+=== RUN   TestOfferResourcesDoNotGateLookup
+--- PASS: TestOfferResourcesDoNotGateLookup (0.47s)
+=== RUN   TestCacheCloseWithShutdownError
+=== RUN   TestCacheCloseWithShutdownError/seeded_cause_keeps_the_checkpoint_dirty
+=== RUN   TestCacheCloseWithShutdownError/nil_cause_closes_cleanly
+=== RUN   TestCacheCloseWithShutdownError/discarded_cache_ignores_a_later_cause
+--- PASS: TestCacheCloseWithShutdownError (0.18s)
+    --- PASS: TestCacheCloseWithShutdownError/seeded_cause_keeps_the_checkpoint_dirty (0.09s)
+    --- PASS: TestCacheCloseWithShutdownError/nil_cause_closes_cleanly (0.05s)
+    --- PASS: TestCacheCloseWithShutdownError/discarded_cache_ignores_a_later_cause (0.04s)
+=== RUN   TestRenewalShutdownDrainsOwnership
+=== RUN   TestRenewalShutdownDrainsOwnership/delivered_renewal
+=== RUN   TestRenewalShutdownDrainsOwnership/active_reader
+--- PASS: TestRenewalShutdownDrainsOwnership (0.58s)
+    --- PASS: TestRenewalShutdownDrainsOwnership/delivered_renewal (0.11s)
+    --- PASS: TestRenewalShutdownDrainsOwnership/active_reader (0.14s)
+=== RUN   TestValueTransferOfferCopyFailure
+--- PASS: TestValueTransferOfferCopyFailure (0.11s)
+=== RUN   TestValueTransferOfferOwners
+--- PASS: TestValueTransferOfferOwners (0.00s)
+=== RUN   TestValueTransferOwnerPersistence
+--- PASS: TestValueTransferOwnerPersistence (0.14s)
+=== RUN   TestOfferPendingRestartAndForward
+--- PASS: TestOfferPendingRestartAndForward (0.94s)
+=== RUN   TestRemoteCacheUnusedCost
+--- PASS: TestRemoteCacheUnusedCost (1.00s)
+=== RUN   TestOfferPartsBeforeStart
+=== RUN   TestOfferPartsBeforeStart/open
+=== RUN   TestOfferPartsBeforeStart/preparing
+=== RUN   TestOfferPartsBeforeStart/running
+=== RUN   TestOfferPartsBeforeStart/evaluated
+--- PASS: TestOfferPartsBeforeStart (0.23s)
+    --- PASS: TestOfferPartsBeforeStart/open (0.05s)
+    --- PASS: TestOfferPartsBeforeStart/preparing (0.04s)
+    --- PASS: TestOfferPartsBeforeStart/running (0.03s)
+    --- PASS: TestOfferPartsBeforeStart/evaluated (0.04s)
+=== RUN   TestOfferPartsInvalidatesSourceCheck
+--- PASS: TestOfferPartsInvalidatesSourceCheck (0.04s)
+=== RUN   TestOfferPartsOwnership
+--- PASS: TestOfferPartsOwnership (0.09s)
+=== RUN   TestOfferPartsResourcesAndSettlement
+--- PASS: TestOfferPartsResourcesAndSettlement (0.08s)
+=== RUN   TestOfferPartsInlineAndReferencedRows
+--- PASS: TestOfferPartsInlineAndReferencedRows (0.15s)
+=== RUN   TestOfferPartsClosesNativeAdmission
+--- PASS: TestOfferPartsClosesNativeAdmission (0.11s)
+=== RUN   TestOfferPartsAcceptedCleanupFailure
+--- PASS: TestOfferPartsAcceptedCleanupFailure (0.18s)
+=== RUN   TestPartSourceSelectionLaterRoute
+--- PASS: TestPartSourceSelectionLaterRoute (0.11s)
+=== RUN   TestPartSessionlessOwnSubset
+=== RUN   TestPartSessionlessOwnSubset/offer-only
+=== RUN   TestPartSessionlessOwnSubset/own
+=== RUN   TestPartSessionlessOwnSubset/revoked-before-commit
+=== RUN   TestPartSessionlessOwnSubset/native-receiver
+--- PASS: TestPartSessionlessOwnSubset (0.74s)
+    --- PASS: TestPartSessionlessOwnSubset/offer-only (0.07s)
+    --- PASS: TestPartSessionlessOwnSubset/own (0.52s)
+    --- PASS: TestPartSessionlessOwnSubset/revoked-before-commit (0.07s)
+    --- PASS: TestPartSessionlessOwnSubset/native-receiver (0.08s)
+=== RUN   TestPartReadyRevalidationAndCanceledFinish
+=== RUN   TestPartReadyRevalidationAndCanceledFinish/stale-donor
+=== RUN   TestPartReadyRevalidationAndCanceledFinish/cancel-commit
+=== RUN   TestPartReadyRevalidationAndCanceledFinish/cancel-finish
+--- PASS: TestPartReadyRevalidationAndCanceledFinish (0.35s)
+    --- PASS: TestPartReadyRevalidationAndCanceledFinish/stale-donor (0.15s)
+    --- PASS: TestPartReadyRevalidationAndCanceledFinish/cancel-commit (0.12s)
+    --- PASS: TestPartReadyRevalidationAndCanceledFinish/cancel-finish (0.07s)
+=== RUN   TestPartLazyOperationMissingOutputStopsOnce
+--- PASS: TestPartLazyOperationMissingOutputStopsOnce (0.17s)
+=== RUN   TestPartReadyPreparationBoundaries
+=== RUN   TestPartReadyPreparationBoundaries/cancel-during-pin
+=== RUN   TestPartReadyPreparationBoundaries/missing-local-descriptor
+--- PASS: TestPartReadyPreparationBoundaries (2.84s)
+    --- PASS: TestPartReadyPreparationBoundaries/cancel-during-pin (2.36s)
+    --- PASS: TestPartReadyPreparationBoundaries/missing-local-descriptor (0.48s)
+=== RUN   TestPartDecisionPreparationArrival
+=== RUN   TestPartDecisionPreparationArrival/ready
+=== RUN   TestPartDecisionPreparationArrival/chain
+=== RUN   TestPartDecisionPreparationArrival/second-refusal
+--- PASS: TestPartDecisionPreparationArrival (2.16s)
+    --- PASS: TestPartDecisionPreparationArrival/ready (1.52s)
+    --- PASS: TestPartDecisionPreparationArrival/chain (0.29s)
+    --- PASS: TestPartDecisionPreparationArrival/second-refusal (0.35s)
+=== RUN   TestPartDecisionInlineAdmissionAndPendingSync
+--- PASS: TestPartDecisionInlineAdmissionAndPendingSync (0.05s)
+=== RUN   TestPartDecisionOfferAfterRunning
+--- PASS: TestPartDecisionOfferAfterRunning (0.05s)
+=== RUN   TestPartAdmittedChainLifetime
+=== RUN   TestPartAdmittedChainLifetime/donor-collected
+=== RUN   TestPartAdmittedChainLifetime/slot-replaced
+=== RUN   TestPartAdmittedChainLifetime/owner-backref-sync-failure
+=== RUN   TestPartAdmittedChainLifetime/output-backref-rejected
+--- PASS: TestPartAdmittedChainLifetime (1.48s)
+    --- PASS: TestPartAdmittedChainLifetime/donor-collected (0.25s)
+    --- PASS: TestPartAdmittedChainLifetime/slot-replaced (0.28s)
+    --- PASS: TestPartAdmittedChainLifetime/owner-backref-sync-failure (0.35s)
+    --- PASS: TestPartAdmittedChainLifetime/output-backref-rejected (0.60s)
+=== RUN   TestPartImportChainRefCleanupHandoff
+=== RUN   TestPartImportChainRefCleanupHandoff/retry
+=== RUN   TestPartImportChainRefCleanupHandoff/collect
+--- PASS: TestPartImportChainRefCleanupHandoff (0.45s)
+    --- PASS: TestPartImportChainRefCleanupHandoff/retry (0.24s)
+    --- PASS: TestPartImportChainRefCleanupHandoff/collect (0.21s)
+=== RUN   TestPartContentSourceAvailability
+=== RUN   TestPartContentSourceAvailability/empty_chain_is_scratch
+=== RUN   TestPartContentSourceAvailability/fixed_address
+=== RUN   TestPartContentSourceAvailability/unexpired_address
+=== RUN   TestPartContentSourceAvailability/expired_address
+=== RUN   TestPartContentSourceAvailability/missing_address
+=== RUN   TestPartContentSourceAvailability/non-HTTP_address
+=== RUN   TestPartContentSourceAvailability/relative_address
+=== RUN   TestPartContentSourceAvailability/renewal_key_needs_a_bridge
+=== RUN   TestPartContentSourceAvailability/renewal_key_with_non-HTTP_address
+--- PASS: TestPartContentSourceAvailability (0.04s)
+    --- PASS: TestPartContentSourceAvailability/empty_chain_is_scratch (0.00s)
+    --- PASS: TestPartContentSourceAvailability/fixed_address (0.00s)
+    --- PASS: TestPartContentSourceAvailability/unexpired_address (0.00s)
+    --- PASS: TestPartContentSourceAvailability/expired_address (0.00s)
+    --- PASS: TestPartContentSourceAvailability/missing_address (0.00s)
+    --- PASS: TestPartContentSourceAvailability/non-HTTP_address (0.00s)
+    --- PASS: TestPartContentSourceAvailability/relative_address (0.00s)
+    --- PASS: TestPartContentSourceAvailability/renewal_key_needs_a_bridge (0.00s)
+    --- PASS: TestPartContentSourceAvailability/renewal_key_with_non-HTTP_address (0.00s)
+=== RUN   TestPartContentIdleReader
+=== RUN   TestPartContentIdleReader/header_stall
+=== RUN   TestPartContentIdleReader/blocked_read_and_progress
+=== RUN   TestPartContentIdleReader/close_unblocks_read
+=== RUN   TestPartContentIdleReader/caller_cancellation
+=== RUN   TestPartContentIdleReader/descriptor_checks
+=== RUN   TestPartContentIdleReader/ranges
+--- PASS: TestPartContentIdleReader (0.00s)
+    --- PASS: TestPartContentIdleReader/header_stall (0.00s)
+    --- PASS: TestPartContentIdleReader/blocked_read_and_progress (0.00s)
+    --- PASS: TestPartContentIdleReader/close_unblocks_read (0.00s)
+    --- PASS: TestPartContentIdleReader/caller_cancellation (0.00s)
+    --- PASS: TestPartContentIdleReader/descriptor_checks (0.00s)
+    --- PASS: TestPartContentIdleReader/ranges (0.00s)
+=== RUN   TestRenewalChainControls
+=== RUN   TestRenewalChainControls/expired_address_renews_once
+=== RUN   TestRenewalChainControls/all_local_layers_need_no_address
+=== RUN   TestRenewalChainControls/one_episode_covers_the_chain
+=== RUN   TestRenewalChainControls/a_later_unusable_layer_cannot_renew_again
+=== RUN   TestRenewalChainControls/initial_401_renews
+=== RUN   TestRenewalChainControls/renewed_401_exhausts
+=== RUN   TestRenewalChainControls/initial_403_renews
+=== RUN   TestRenewalChainControls/renewed_403_exhausts
+=== RUN   TestRenewalChainControls/initial_404_renews
+=== RUN   TestRenewalChainControls/renewed_404_exhausts
+=== RUN   TestRenewalChainControls/initial_410_renews
+=== RUN   TestRenewalChainControls/renewed_410_exhausts
+=== RUN   TestRenewalChainControls/same_address_in_reply_is_not_a_new_opportunity
+=== RUN   TestRenewalChainControls/transport_error_does_not_renew
+=== RUN   TestRenewalChainControls/server_error_does_not_renew
+=== RUN   TestRenewalChainControls/non-HTTP_address_is_unavailable
+=== RUN   TestRenewalChainControls/truncated
+=== RUN   TestRenewalChainControls/wrong_digest
+=== RUN   TestRenewalChainControls/stalled_stream
+=== RUN   TestRenewalChainControls/local_lease_fault
+=== RUN   TestRenewalChainControls/local_writer_fault
+=== RUN   TestRenewalChainControls/no_bridge
+=== RUN   TestRenewalChainControls/no_renewal_key
+=== RUN   TestRenewalChainControls/negative_reply
+=== RUN   TestRenewalChainControls/expired_reply
+=== RUN   TestRenewalChainControls/non-HTTP_reply
+=== RUN   TestRenewalChainControls/reply_for_another_blob
+--- PASS: TestRenewalChainControls (4.99s)
+    --- PASS: TestRenewalChainControls/expired_address_renews_once (0.18s)
+    --- PASS: TestRenewalChainControls/all_local_layers_need_no_address (0.22s)
+    --- PASS: TestRenewalChainControls/one_episode_covers_the_chain (0.18s)
+    --- PASS: TestRenewalChainControls/a_later_unusable_layer_cannot_renew_again (0.08s)
+    --- PASS: TestRenewalChainControls/initial_401_renews (0.16s)
+    --- PASS: TestRenewalChainControls/renewed_401_exhausts (0.13s)
+    --- PASS: TestRenewalChainControls/initial_403_renews (0.20s)
+    --- PASS: TestRenewalChainControls/renewed_403_exhausts (0.11s)
+    --- PASS: TestRenewalChainControls/initial_404_renews (0.20s)
+    --- PASS: TestRenewalChainControls/renewed_404_exhausts (0.09s)
+    --- PASS: TestRenewalChainControls/initial_410_renews (0.20s)
+    --- PASS: TestRenewalChainControls/renewed_410_exhausts (0.12s)
+    --- PASS: TestRenewalChainControls/same_address_in_reply_is_not_a_new_opportunity (0.10s)
+    --- PASS: TestRenewalChainControls/transport_error_does_not_renew (0.11s)
+    --- PASS: TestRenewalChainControls/server_error_does_not_renew (0.12s)
+    --- PASS: TestRenewalChainControls/non-HTTP_address_is_unavailable (0.18s)
+    --- PASS: TestRenewalChainControls/truncated (0.22s)
+    --- PASS: TestRenewalChainControls/wrong_digest (0.14s)
+    --- PASS: TestRenewalChainControls/stalled_stream (0.19s)
+    --- PASS: TestRenewalChainControls/local_lease_fault (0.25s)
+    --- PASS: TestRenewalChainControls/local_writer_fault (0.23s)
+    --- PASS: TestRenewalChainControls/no_bridge (0.26s)
+    --- PASS: TestRenewalChainControls/no_renewal_key (0.27s)
+    --- PASS: TestRenewalChainControls/negative_reply (0.20s)
+    --- PASS: TestRenewalChainControls/expired_reply (0.20s)
+    --- PASS: TestRenewalChainControls/non-HTTP_reply (0.21s)
+    --- PASS: TestRenewalChainControls/reply_for_another_blob (0.24s)
+=== RUN   TestRenewalExhaustion
+=== RUN   TestRenewalExhaustion/equivalent_donor_fixed_address_still_works
+=== RUN   TestRenewalExhaustion/equivalent_donor_key_does_not_reset_the_episode
+=== RUN   TestRenewalExhaustion/distinct_chain_can_still_renew
+=== RUN   TestRenewalExhaustion/slot_replacement_with_rotated_key
+=== RUN   TestRenewalExhaustion/slot_replacement_with_refreshed_expiry
+=== RUN   TestRenewalExhaustion/no_bridge
+=== RUN   TestRenewalExhaustion/no_renewal_key
+=== RUN   TestRenewalExhaustion/full_mailbox
+--- PASS: TestRenewalExhaustion (4.50s)
+    --- PASS: TestRenewalExhaustion/equivalent_donor_fixed_address_still_works (0.52s)
+    --- PASS: TestRenewalExhaustion/equivalent_donor_key_does_not_reset_the_episode (0.17s)
+    --- PASS: TestRenewalExhaustion/distinct_chain_can_still_renew (1.25s)
+    --- PASS: TestRenewalExhaustion/slot_replacement_with_rotated_key (0.18s)
+    --- PASS: TestRenewalExhaustion/slot_replacement_with_refreshed_expiry (0.41s)
+    --- PASS: TestRenewalExhaustion/no_bridge (0.15s)
+    --- PASS: TestRenewalExhaustion/no_renewal_key (0.12s)
+    --- PASS: TestRenewalExhaustion/full_mailbox (0.19s)
+=== RUN   TestPartDecodeBeforeExternalFinish
+--- PASS: TestPartDecodeBeforeExternalFinish (0.27s)
+=== RUN   TestPartDecodeLosesToInstalledRevision
+--- PASS: TestPartDecodeLosesToInstalledRevision (0.35s)
+=== RUN   TestPartDelegationPath
+--- PASS: TestPartDelegationPath (0.00s)
+=== RUN   TestPartDelegationProofAdmission
+--- PASS: TestPartDelegationProofAdmission (0.06s)
+=== RUN   TestPartUnusedHostAllocatesNoGate
+--- PASS: TestPartUnusedHostAllocatesNoGate (0.00s)
+=== RUN   TestPartFixedProviderAndContentExhaustion
+--- PASS: TestPartFixedProviderAndContentExhaustion (0.04s)
+=== RUN   TestPartOfferReplacementNotExhausted
+--- PASS: TestPartOfferReplacementNotExhausted (0.08s)
+=== RUN   TestPartFixedProviderMultiBuffer
+=== RUN   TestPartFixedProviderMultiBuffer/ranges
+    cache_part_provider_test.go:163: bytes=320000 buffer=16384 reads=20 requests=3 initial-path-requests=1
+=== RUN   TestPartFixedProviderMultiBuffer/full-body
+    cache_part_provider_test.go:163: bytes=320000 buffer=16384 reads=20 requests=3 initial-path-requests=1
+--- PASS: TestPartFixedProviderMultiBuffer (0.02s)
+    --- PASS: TestPartFixedProviderMultiBuffer/ranges (0.01s)
+    --- PASS: TestPartFixedProviderMultiBuffer/full-body (0.01s)
+=== RUN   TestPartFixedProviderCancellationClosesStream
+--- PASS: TestPartFixedProviderCancellationClosesStream (0.00s)
+=== RUN   TestRenewalMailbox
+=== RUN   TestRenewalMailbox/capacity_and_deadline
+=== RUN   TestRenewalMailbox/cancellation
+=== RUN   TestRenewalMailbox/replies
+=== RUN   TestRenewalMailbox/detach
+--- PASS: TestRenewalMailbox (0.01s)
+    --- PASS: TestRenewalMailbox/capacity_and_deadline (0.01s)
+    --- PASS: TestRenewalMailbox/cancellation (0.00s)
+    --- PASS: TestRenewalMailbox/replies (0.00s)
+    --- PASS: TestRenewalMailbox/detach (0.00s)
+=== RUN   TestRenewalEpisodeSet
+--- PASS: TestRenewalEpisodeSet (0.00s)
+=== RUN   TestRenewalClaimKeepsSourceCheck
+--- PASS: TestRenewalClaimKeepsSourceCheck (0.08s)
+=== RUN   TestRemoteCacheBridgeAttachment
+--- PASS: TestRemoteCacheBridgeAttachment (0.17s)
+=== RUN   TestPartSourceSelection
+--- PASS: TestPartSourceSelection (0.16s)
+=== RUN   TestPartOfferSessionAdmission
+--- PASS: TestPartOfferSessionAdmission (0.06s)
+=== RUN   TestPartSettlementRetiresReplacement
+--- PASS: TestPartSettlementRetiresReplacement (0.05s)
+=== RUN   TestPartDecisionFinalSource
+--- PASS: TestPartDecisionFinalSource (0.11s)
+=== RUN   TestPartSourceScanFailureReleasesWinner
+=== RUN   TestPartSourceScanFailureReleasesWinner/ready
+=== RUN   TestPartSourceScanFailureReleasesWinner/chain
+--- PASS: TestPartSourceScanFailureReleasesWinner (0.21s)
+    --- PASS: TestPartSourceScanFailureReleasesWinner/ready (0.14s)
+    --- PASS: TestPartSourceScanFailureReleasesWinner/chain (0.07s)
+=== RUN   TestPartNativeCompletionRetiresOffer
+--- PASS: TestPartNativeCompletionRetiresOffer (0.00s)
+=== RUN   TestPartTaskBodyIsolation
+--- PASS: TestPartTaskBodyIsolation (0.00s)
+=== RUN   TestPartTaskContinuation
+--- PASS: TestPartTaskContinuation (0.00s)
+=== RUN   TestPartTaskNoJoinBarrier
+--- PASS: TestPartTaskNoJoinBarrier (0.00s)
+=== RUN   TestPartGateFiniteDrain
+--- PASS: TestPartGateFiniteDrain (0.00s)
+=== RUN   TestValueTransferFixtureExactRoots
+--- PASS: TestValueTransferFixtureExactRoots (0.58s)
+=== RUN   TestValueTransferPersistence
+--- PASS: TestValueTransferPersistence (0.43s)
+=== RUN   TestValueTransferCapture
+=== RUN   TestValueTransferCapture/concurrent_replacement_and_pruning
+=== RUN   TestValueTransferCapture/direct_and_offer_diamond
+=== RUN   TestValueTransferCapture/output
+=== RUN   TestValueTransferCapture/payload
+=== RUN   TestValueTransferCapture/offer
+=== RUN   TestValueTransferCapture/ownership
+=== RUN   TestValueTransferCapture/requirements
+=== RUN   TestValueTransferCapture/frame
+=== RUN   TestValueTransferCapture/busy
+=== RUN   TestValueTransferCapture/cancellation
+--- PASS: TestValueTransferCapture (5.33s)
+    --- PASS: TestValueTransferCapture/concurrent_replacement_and_pruning (0.09s)
+    --- PASS: TestValueTransferCapture/direct_and_offer_diamond (0.12s)
+    --- PASS: TestValueTransferCapture/output (0.06s)
+    --- PASS: TestValueTransferCapture/payload (0.08s)
+    --- PASS: TestValueTransferCapture/offer (0.27s)
+    --- PASS: TestValueTransferCapture/ownership (0.10s)
+    --- PASS: TestValueTransferCapture/requirements (0.52s)
+    --- PASS: TestValueTransferCapture/frame (0.47s)
+    --- PASS: TestValueTransferCapture/busy (0.10s)
+    --- PASS: TestValueTransferCapture/cancellation (3.52s)
+=== RUN   TestValueTransferReferences
+=== RUN   TestValueTransferReferences/dangling
+=== RUN   TestValueTransferReferences/cycle
+=== RUN   TestValueTransferReferences/root
+=== RUN   TestValueTransferReferences/extra
+=== RUN   TestValueTransferReferences/body
+=== RUN   TestValueTransferReferences/unreachable
+--- PASS: TestValueTransferReferences (1.81s)
+    --- PASS: TestValueTransferReferences/dangling (0.00s)
+    --- PASS: TestValueTransferReferences/cycle (0.00s)
+    --- PASS: TestValueTransferReferences/root (0.00s)
+    --- PASS: TestValueTransferReferences/extra (0.00s)
+    --- PASS: TestValueTransferReferences/body (0.00s)
+    --- PASS: TestValueTransferReferences/unreachable (0.00s)
+=== RUN   TestValueTransferImportPublication
+=== RUN   TestValueTransferImportPublication/lookup_at_commit_boundary
+=== RUN   TestValueTransferImportPublication/close_waits_for_admitted_import
+=== RUN   TestValueTransferImportPublication/preparation_failure
+=== RUN   TestValueTransferImportPublication/before_commit
+=== RUN   TestValueTransferImportPublication/after_commit
+=== RUN   TestValueTransferImportPublication/finite_root_expiry
+--- PASS: TestValueTransferImportPublication (3.58s)
+    --- PASS: TestValueTransferImportPublication/lookup_at_commit_boundary (2.19s)
+    --- PASS: TestValueTransferImportPublication/close_waits_for_admitted_import (0.48s)
+    --- PASS: TestValueTransferImportPublication/preparation_failure (0.05s)
+    --- PASS: TestValueTransferImportPublication/before_commit (0.04s)
+    --- PASS: TestValueTransferImportPublication/after_commit (0.04s)
+    --- PASS: TestValueTransferImportPublication/finite_root_expiry (0.05s)
+=== RUN   TestValueTransferReferencesExtras
+--- PASS: TestValueTransferReferencesExtras (0.09s)
+=== RUN   TestValueTransferPersistenceDecodePublication
+--- PASS: TestValueTransferPersistenceDecodePublication (0.08s)
+=== RUN   TestPartSessionlessRestoredDirectory
+--- PASS: TestPartSessionlessRestoredDirectory (0.93s)
+PASS
+ok  	github.com/dagger/dagger/dagql	42.849s

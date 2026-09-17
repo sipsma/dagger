@@ -1,0 +1,15 @@
+=== RUN   TestRemoteCacheIntegrationConfig
+--- PASS: TestRemoteCacheIntegrationConfig (0.00s)
+=== RUN   TestRemoteCacheAdapterLifetime
+=== RUN   TestRemoteCacheAdapterLifetime/stop_cancels_a_cooperative_run
+=== RUN   TestRemoteCacheAdapterLifetime/shutdown_context_cancels_run
+=== RUN   TestRemoteCacheAdapterLifetime/run_exit_detaches_without_failing_ordinary_work
+2026/09/17 02:18:30 ERROR remote cache integration exited error="integration channel closed"
+=== RUN   TestRemoteCacheAdapterLifetime/noncooperative_run_is_reported
+--- PASS: TestRemoteCacheAdapterLifetime (0.00s)
+    --- PASS: TestRemoteCacheAdapterLifetime/stop_cancels_a_cooperative_run (0.00s)
+    --- PASS: TestRemoteCacheAdapterLifetime/shutdown_context_cancels_run (0.00s)
+    --- PASS: TestRemoteCacheAdapterLifetime/run_exit_detaches_without_failing_ordinary_work (0.00s)
+    --- PASS: TestRemoteCacheAdapterLifetime/noncooperative_run_is_reported (0.00s)
+PASS
+ok  	github.com/dagger/dagger/engine/server	0.108s

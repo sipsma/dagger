@@ -1,0 +1,4 @@
+=== RUN   TestRemoteCacheBridgeAttachment
+--- PASS: TestRemoteCacheBridgeAttachment (0.36s)
+PASS
+ok  	github.com/dagger/dagger/dagql	0.416s

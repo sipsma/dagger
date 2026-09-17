@@ -1,0 +1,62 @@
+[dagger] 30.0s elapsed · 8 steps running
+[dagger] 1m0s elapsed · 2 steps running
+[dagger] 1m30s elapsed · 12 steps running
+[dagger] 2m0s elapsed · 31 steps running
+[dagger] 2m30s elapsed · 6 steps running
+[dagger] 3m0s elapsed · 9 steps running
+[dagger] 3m30s elapsed · 5 steps running
+[dagger] 4m0s elapsed · 6 steps running
+[dagger] 4m30s elapsed · 24 steps running
+[dagger] 5m0s elapsed · 27 steps running
+[dagger] 5m30s elapsed · 12 steps running
+[dagger] 6m0s elapsed · 10 steps running
+[dagger] 6m30s elapsed · 13 steps running
+[dagger] 7m0s elapsed · 10 steps running
+[dagger] 7m30s elapsed · 25 steps running
+[dagger] 8m0s elapsed · 14 steps running
+[dagger] 8m30s elapsed · 14 steps running
+[dagger] 9m0s elapsed · 30 steps running
+[dagger] 9m30s elapsed · 15 steps running
+[dagger] 10m0s elapsed · 30 steps running
+[dagger] 10m30s elapsed · 16 steps running
+[dagger] 11m0s elapsed · 12 steps running
+[dagger] 11m30s elapsed · 65 steps running
+[dagger] 12m0s elapsed · 17 steps running
+[dagger] 12m30s elapsed · 17 steps running
+[dagger] 13m0s elapsed · 18 steps running
+[dagger] 13m30s elapsed · 16 steps running
+== TRACE ==  ✔ PASSED
+engine-dev test --pkg ./core/integration --run=^TestRemoteCacheTransferSuite$/^(TestSchemaRecovery|TestSchemaRecoveryCold|TestPartMixedExecOutputs|TestDefaultGCPruneDiagnostic)$ --timeout=10m --test-verbose --env-file=file:/tmp/b5-verify/diagnostic.env  13m38s
+
+✔ connect 0.3s
+✔ load workspace: . 37.8s
+  ✔ 12 uploads 0.1s
+✔ parsing command line arguments 0.0s
+
+✔ address(value: "file:/tmp/b5-verify/diagnostic.env"): Address! 0.0s
+✔ .secret: Secret! 0.0s
+
+✔ engineDev(
+  ┆ ws: currentWorkspace: Workspace!
+  ): EngineDev! 27.5s ◆ CPU Pressure (some): 114.206ms ◆ CPU Pressure (full): 93.083ms ◆ Memory Bytes (current): 1.0 MB ◆ Memory Bytes (peak): 30 MB ◆ Network Tx: 210 B
+  ✔ uploading /home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/offers-implementer-implementation-fb886a62-b340004e 3.0s ████████████ 57 MB
+✔ .test(
+  ┆ run: "^TestRemoteCacheTransferSuite$/^(TestSchemaRecovery|TestSchemaRecoveryCold|TestPartMixedExecOutputs|TestDefaultGCPruneDiagnostic)$"
+  ┆ pkg: "./core/integration"
+  ┆ timeout: "10m"
+  ┆ envFile: Address.secret: Secret!
+  ┆ testVerbose: true
+  ): Void 12m32s ◆ Disk Read: 10 MB ◆ Disk Write: 0 B ◆ IO Pressure: 245.68ms ◆ CPU Pressure (some): 2.117585s ◆ CPU Pressure (full): 1.896436s ◆ Memory Bytes (current): 11 MB ◆ Memory Bytes (peak): 45 MB ◆ Network Tx: 5.6 kB
+  ✔ 13 pulls, 23 unpacks, 146 fetches, 30 uploads, 5 transfers 1m1s
+
+== SERVICES ==
+✔ rogct0dgr0vls.6va393epurpaq.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 10m22s EXITED span=e8d5f64f17cb8ae9
+✔ h4avdn8nctrm4.6va393epurpaq.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 10m22s EXITED span=aed81a4833d7d3b2
+✘ n83osi49b4e0g.6va393epurpaq.dagger.local exec dagger-entrypoint.sh --addr unix:///run/dagger-engine.sock --addr tcp://0.0.0.0:1234 --network-name dagger-dev --network-cidr 10.88.0.0/16 --debugaddr 0.0.0.0:6060 10m21s ERROR span=fbc65d3aff92fc2e
+
+== TESTS ==
+  ✔ github.com/dagger/dagger/core/integration  1 passed
+
+  ✔ 1 passed
+
+Full trace at https://dagger.cloud/dagger/traces/e2b788da678c718c1e0f987488bc99c7

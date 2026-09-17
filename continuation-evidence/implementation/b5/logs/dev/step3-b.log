@@ -1,0 +1,191 @@
+=== RUN   TestPartContentSourceAvailability
+=== RUN   TestPartContentSourceAvailability/empty_chain_is_scratch
+=== RUN   TestPartContentSourceAvailability/fixed_address
+=== RUN   TestPartContentSourceAvailability/unexpired_address
+=== RUN   TestPartContentSourceAvailability/expired_address
+=== RUN   TestPartContentSourceAvailability/missing_address
+=== RUN   TestPartContentSourceAvailability/non-HTTP_address
+=== RUN   TestPartContentSourceAvailability/relative_address
+=== RUN   TestPartContentSourceAvailability/renewal_key_needs_a_bridge
+=== RUN   TestPartContentSourceAvailability/renewal_key_with_non-HTTP_address
+--- PASS: TestPartContentSourceAvailability (0.02s)
+    --- PASS: TestPartContentSourceAvailability/empty_chain_is_scratch (0.00s)
+    --- PASS: TestPartContentSourceAvailability/fixed_address (0.00s)
+    --- PASS: TestPartContentSourceAvailability/unexpired_address (0.00s)
+    --- PASS: TestPartContentSourceAvailability/expired_address (0.00s)
+    --- PASS: TestPartContentSourceAvailability/missing_address (0.00s)
+    --- PASS: TestPartContentSourceAvailability/non-HTTP_address (0.00s)
+    --- PASS: TestPartContentSourceAvailability/relative_address (0.00s)
+    --- PASS: TestPartContentSourceAvailability/renewal_key_needs_a_bridge (0.00s)
+    --- PASS: TestPartContentSourceAvailability/renewal_key_with_non-HTTP_address (0.00s)
+=== RUN   TestPartContentIdleReader
+=== RUN   TestPartContentIdleReader/header_stall
+=== RUN   TestPartContentIdleReader/blocked_read_and_progress
+=== RUN   TestPartContentIdleReader/close_unblocks_read
+=== RUN   TestPartContentIdleReader/caller_cancellation
+=== RUN   TestPartContentIdleReader/ranges
+--- PASS: TestPartContentIdleReader (0.00s)
+    --- PASS: TestPartContentIdleReader/header_stall (0.00s)
+    --- PASS: TestPartContentIdleReader/blocked_read_and_progress (0.00s)
+    --- PASS: TestPartContentIdleReader/close_unblocks_read (0.00s)
+    --- PASS: TestPartContentIdleReader/caller_cancellation (0.00s)
+    --- PASS: TestPartContentIdleReader/ranges (0.00s)
+=== RUN   TestRenewalChainControls
+=== RUN   TestRenewalChainControls/expired_address_renews_once
+    cache_part_content_test.go:585: 
+        	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/offers-implementer-implementation-fb886a62-b340004e/dagql/cache_part_content_test.go:585
+        	Error:      	Not equal: 
+        	            	expected: []snapshots.ExportLayer{snapshots.ExportLayer{Descriptor:v1.Descriptor{MediaType:"application/vnd.oci.image.layer.v1.tar", Digest:"sha256:0c7e3b6a6ae10bf5bc6c098669f3b4943f2116eb55287d6b786053767c0efb13", Size:2048, URLs:[]string(nil), Annotations:map[string]string{"containerd.io/uncompressed":"sha256:0c7e3b6a6ae10bf5bc6c098669f3b4943f2116eb55287d6b786053767c0efb13"}, Data:[]uint8(nil), Platform:(*v1.Platform)(nil), ArtifactType:""}, Description:"", CreatedAt:time.Date(2026, time.September, 17, 2, 2, 26, 609092978, time.Local)}, snapshots.ExportLayer{Descriptor:v1.Descriptor{MediaType:"application/vnd.oci.image.layer.v1.tar", Digest:"sha256:3a85bf988dd7a00c38ce30b0aa105b22817d2d1343a98608ee57666bf84d17d9", Size:2048, URLs:[]string(nil), Annotations:map[string]string{"containerd.io/uncompressed":"sha256:3a85bf988dd7a00c38ce30b0aa105b22817d2d1343a98608ee57666bf84d17d9"}, Data:[]uint8(nil), Platform:(*v1.Platform)(nil), ArtifactType:""}, Description:"", CreatedAt:time.Date(2026, time.September, 17, 2, 2, 26, 620576539, time.Local)}}
+        	            	actual  : []snapshots.ExportLayer{snapshots.ExportLayer{Descriptor:v1.Descriptor{MediaType:"application/vnd.oci.image.layer.v1.tar", Digest:"sha256:0c7e3b6a6ae10bf5bc6c098669f3b4943f2116eb55287d6b786053767c0efb13", Size:2048, URLs:[]string(nil), Annotations:map[string]string{"containerd.io/uncompressed":"sha256:0c7e3b6a6ae10bf5bc6c098669f3b4943f2116eb55287d6b786053767c0efb13"}, Data:[]uint8(nil), Platform:(*v1.Platform)(nil), ArtifactType:""}, Description:"", CreatedAt:time.Date(2026, time.September, 17, 2, 2, 26, 609092978, time.UTC)}, snapshots.ExportLayer{Descriptor:v1.Descriptor{MediaType:"application/vnd.oci.image.layer.v1.tar", Digest:"sha256:3a85bf988dd7a00c38ce30b0aa105b22817d2d1343a98608ee57666bf84d17d9", Size:2048, URLs:[]string(nil), Annotations:map[string]string{"containerd.io/uncompressed":"sha256:3a85bf988dd7a00c38ce30b0aa105b22817d2d1343a98608ee57666bf84d17d9"}, Data:[]uint8(nil), Platform:(*v1.Platform)(nil), ArtifactType:""}, Description:"", CreatedAt:time.Date(2026, time.September, 17, 2, 2, 26, 620576539, time.UTC)}}
+        	            	
+        	            	Diff:
+        	            	--- Expected
+        	            	+++ Actual
+        	            	@@ -18,28 +18,3 @@
+        	            	    ext: (int64) 63925207346,
+        	            	-   loc: (*time.Location)({
+        	            	-    name: (string) (len=5) "Local",
+        	            	-    zone: ([]time.zone) (len=1) {
+        	            	-     (time.zone) {
+        	            	-      name: (string) (len=3) "UTC",
+        	            	-      offset: (int) 0,
+        	            	-      isDST: (bool) false
+        	            	-     }
+        	            	-    },
+        	            	-    tx: ([]time.zoneTrans) (len=1) {
+        	            	-     (time.zoneTrans) {
+        	            	-      when: (int64) -9223372036854775808,
+        	            	-      index: (uint8) 0,
+        	            	-      isstd: (bool) false,
+        	            	-      isutc: (bool) false
+        	            	-     }
+        	            	-    },
+        	            	-    extend: (string) (len=4) "UTC0",
+        	            	-    cacheStart: (int64) -9223372036854775808,
+        	            	-    cacheEnd: (int64) 9223372036854775807,
+        	            	-    cacheZone: (*time.zone)({
+        	            	-     name: (string) (len=3) "UTC",
+        	            	-     offset: (int) 0,
+        	            	-     isDST: (bool) false
+        	            	-    })
+        	            	-   })
+        	            	+   loc: (*time.Location)(<nil>)
+        	            	   })
+        	            	@@ -63,28 +38,3 @@
+        	            	    ext: (int64) 63925207346,
+        	            	-   loc: (*time.Location)({
+        	            	-    name: (string) (len=5) "Local",
+        	            	-    zone: ([]time.zone) (len=1) {
+        	            	-     (time.zone) {
+        	            	-      name: (string) (len=3) "UTC",
+        	            	-      offset: (int) 0,
+        	            	-      isDST: (bool) false
+        	            	-     }
+        	            	-    },
+        	            	-    tx: ([]time.zoneTrans) (len=1) {
+        	            	-     (time.zoneTrans) {
+        	            	-      when: (int64) -9223372036854775808,
+        	            	-      index: (uint8) 0,
+        	            	-      isstd: (bool) false,
+        	            	-      isutc: (bool) false
+        	            	-     }
+        	            	-    },
+        	            	-    extend: (string) (len=4) "UTC0",
+        	            	-    cacheStart: (int64) -9223372036854775808,
+        	            	-    cacheEnd: (int64) 9223372036854775807,
+        	            	-    cacheZone: (*time.zone)({
+        	            	-     name: (string) (len=3) "UTC",
+        	            	-     offset: (int) 0,
+        	            	-     isDST: (bool) false
+        	            	-    })
+        	            	-   })
+        	            	+   loc: (*time.Location)(<nil>)
+        	            	   })
+        	Test:       	TestRenewalChainControls/expired_address_renews_once
+=== RUN   TestRenewalChainControls/all_local_layers_need_no_address
+=== RUN   TestRenewalChainControls/one_episode_covers_the_chain
+    cache_part_content_test.go:614: 
+        	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/offers-implementer-implementation-fb886a62-b340004e/dagql/cache_part_content_test.go:614
+        	Error:      	Not equal: 
+        	            	expected: "sha256:0c7e3b6a6ae10bf5bc6c098669f3b4943f2116eb55287d6b786053767c0efb13"
+        	            	actual  : "sha256:3a85bf988dd7a00c38ce30b0aa105b22817d2d1343a98608ee57666bf84d17d9"
+        	            	
+        	            	Diff:
+        	            	--- Expected
+        	            	+++ Actual
+        	            	@@ -1,2 +1,2 @@
+        	            	-(digest.Digest) (len=71) "sha256:0c7e3b6a6ae10bf5bc6c098669f3b4943f2116eb55287d6b786053767c0efb13"
+        	            	+(digest.Digest) (len=71) "sha256:3a85bf988dd7a00c38ce30b0aa105b22817d2d1343a98608ee57666bf84d17d9"
+        	            	 
+        	Test:       	TestRenewalChainControls/one_episode_covers_the_chain
+=== RUN   TestRenewalChainControls/a_later_unusable_layer_cannot_renew_again
+=== RUN   TestRenewalChainControls/initial_401_renews
+=== RUN   TestRenewalChainControls/renewed_401_exhausts
+=== RUN   TestRenewalChainControls/initial_403_renews
+=== RUN   TestRenewalChainControls/renewed_403_exhausts
+=== RUN   TestRenewalChainControls/initial_404_renews
+=== RUN   TestRenewalChainControls/renewed_404_exhausts
+=== RUN   TestRenewalChainControls/initial_410_renews
+=== RUN   TestRenewalChainControls/renewed_410_exhausts
+=== RUN   TestRenewalChainControls/same_address_in_reply_is_not_a_new_opportunity
+=== RUN   TestRenewalChainControls/server_error_does_not_renew
+=== RUN   TestRenewalChainControls/non-HTTP_address_is_unavailable
+=== RUN   TestRenewalChainControls/truncated
+=== RUN   TestRenewalChainControls/wrong_digest
+=== RUN   TestRenewalChainControls/stalled_stream
+=== RUN   TestRenewalChainControls/local_writer_fault
+=== RUN   TestRenewalChainControls/local_lease_fault
+=== RUN   TestRenewalChainControls/expired_reply
+=== RUN   TestRenewalChainControls/non-HTTP_reply
+=== RUN   TestRenewalChainControls/reply_for_another_blob
+=== RUN   TestRenewalChainControls/no_bridge
+=== RUN   TestRenewalChainControls/no_renewal_key
+=== RUN   TestRenewalChainControls/negative_reply
+--- FAIL: TestRenewalChainControls (1.90s)
+    --- FAIL: TestRenewalChainControls/expired_address_renews_once (0.10s)
+    --- PASS: TestRenewalChainControls/all_local_layers_need_no_address (0.08s)
+    --- FAIL: TestRenewalChainControls/one_episode_covers_the_chain (0.09s)
+    --- PASS: TestRenewalChainControls/a_later_unusable_layer_cannot_renew_again (0.05s)
+    --- PASS: TestRenewalChainControls/initial_401_renews (0.11s)
+    --- PASS: TestRenewalChainControls/renewed_401_exhausts (0.06s)
+    --- PASS: TestRenewalChainControls/initial_403_renews (0.09s)
+    --- PASS: TestRenewalChainControls/renewed_403_exhausts (0.06s)
+    --- PASS: TestRenewalChainControls/initial_404_renews (0.10s)
+    --- PASS: TestRenewalChainControls/renewed_404_exhausts (0.07s)
+    --- PASS: TestRenewalChainControls/initial_410_renews (0.10s)
+    --- PASS: TestRenewalChainControls/renewed_410_exhausts (0.06s)
+    --- PASS: TestRenewalChainControls/same_address_in_reply_is_not_a_new_opportunity (0.06s)
+    --- PASS: TestRenewalChainControls/server_error_does_not_renew (0.06s)
+    --- PASS: TestRenewalChainControls/non-HTTP_address_is_unavailable (0.06s)
+    --- PASS: TestRenewalChainControls/truncated (0.06s)
+    --- PASS: TestRenewalChainControls/wrong_digest (0.05s)
+    --- PASS: TestRenewalChainControls/stalled_stream (0.06s)
+    --- PASS: TestRenewalChainControls/local_writer_fault (0.06s)
+    --- PASS: TestRenewalChainControls/local_lease_fault (0.05s)
+    --- PASS: TestRenewalChainControls/expired_reply (0.07s)
+    --- PASS: TestRenewalChainControls/non-HTTP_reply (0.06s)
+    --- PASS: TestRenewalChainControls/reply_for_another_blob (0.06s)
+    --- PASS: TestRenewalChainControls/no_bridge (0.06s)
+    --- PASS: TestRenewalChainControls/no_renewal_key (0.06s)
+    --- PASS: TestRenewalChainControls/negative_reply (0.06s)
+=== RUN   TestRenewalExhaustion
+=== RUN   TestRenewalExhaustion/equivalent_donor_fixed_address_still_works
+=== RUN   TestRenewalExhaustion/equivalent_donor_key_does_not_reset_the_episode
+=== RUN   TestRenewalExhaustion/distinct_chain_can_still_renew
+=== RUN   TestRenewalExhaustion/slot_replacement_with_rotated_key
+=== RUN   TestRenewalExhaustion/slot_replacement_with_refreshed_expiry
+=== RUN   TestRenewalExhaustion/no_bridge
+=== RUN   TestRenewalExhaustion/no_renewal_key
+=== RUN   TestRenewalExhaustion/full_mailbox
+--- PASS: TestRenewalExhaustion (0.66s)
+    --- PASS: TestRenewalExhaustion/equivalent_donor_fixed_address_still_works (0.10s)
+    --- PASS: TestRenewalExhaustion/equivalent_donor_key_does_not_reset_the_episode (0.05s)
+    --- PASS: TestRenewalExhaustion/distinct_chain_can_still_renew (0.10s)
+    --- PASS: TestRenewalExhaustion/slot_replacement_with_rotated_key (0.04s)
+    --- PASS: TestRenewalExhaustion/slot_replacement_with_refreshed_expiry (0.05s)
+    --- PASS: TestRenewalExhaustion/no_bridge (0.03s)
+    --- PASS: TestRenewalExhaustion/no_renewal_key (0.03s)
+    --- PASS: TestRenewalExhaustion/full_mailbox (0.03s)
+FAIL
+FAIL	github.com/dagger/dagger/dagql	2.690s
+FAIL

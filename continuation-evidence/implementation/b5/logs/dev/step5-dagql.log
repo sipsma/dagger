@@ -1,0 +1,69 @@
+=== RUN   TestOfferPartsPreparationWindow
+=== RUN   TestOfferPartsPreparationWindow/preparation_holds_references_across_collection
+=== RUN   TestOfferPartsPreparationWindow/new_offer_refused_after_preparation
+=== RUN   TestOfferPartsPreparationWindow/same-owner_refresh_refused_after_preparation
+=== RUN   TestOfferPartsPreparationWindow/different-owner_replacement_refused_after_preparation
+--- PASS: TestOfferPartsPreparationWindow (0.04s)
+    --- PASS: TestOfferPartsPreparationWindow/preparation_holds_references_across_collection (0.01s)
+    --- PASS: TestOfferPartsPreparationWindow/new_offer_refused_after_preparation (0.01s)
+    --- PASS: TestOfferPartsPreparationWindow/same-owner_refresh_refused_after_preparation (0.01s)
+    --- PASS: TestOfferPartsPreparationWindow/different-owner_replacement_refused_after_preparation (0.01s)
+=== RUN   TestOfferSettlementReplacement
+=== RUN   TestOfferSettlementReplacement/replacement_during_the_winning_acquisition_is_retired
+=== RUN   TestOfferSettlementReplacement/acceptance_after_commit_is_already_complete
+=== RUN   TestOfferSettlementReplacement/failed_sync_keeps_the_output,_not_the_acquisition_hold
+=== RUN   TestOfferSettlementReplacement/failed_sync_keeps_the_output,_not_the_acquisition_hold,_with_a_back-reference_to_the_receiver
+--- PASS: TestOfferSettlementReplacement (0.73s)
+    --- PASS: TestOfferSettlementReplacement/replacement_during_the_winning_acquisition_is_retired (0.18s)
+    --- PASS: TestOfferSettlementReplacement/acceptance_after_commit_is_already_complete (0.18s)
+    --- PASS: TestOfferSettlementReplacement/failed_sync_keeps_the_output,_not_the_acquisition_hold (0.19s)
+    --- PASS: TestOfferSettlementReplacement/failed_sync_keeps_the_output,_not_the_acquisition_hold,_with_a_back-reference_to_the_receiver (0.17s)
+=== RUN   TestOfferResourcesDoNotGateLookup
+--- PASS: TestOfferResourcesDoNotGateLookup (0.19s)
+=== RUN   TestCacheCloseWithShutdownError
+=== RUN   TestCacheCloseWithShutdownError/seeded_cause_keeps_the_checkpoint_dirty
+    cache_persistence_list_test.go:18: 
+        	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/offers-implementer-implementation-fb886a62-b340004e/dagql/cache_persistence_list_test.go:18
+        	            				/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/testing/testing.go:1317
+        	            				/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/testing/testing.go:1667
+        	            				/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/testing/testing.go:2030
+        	Error:      	Received unexpected error:
+        	            	remote cache integration did not stop
+        	Test:       	TestCacheCloseWithShutdownError/seeded_cause_keeps_the_checkpoint_dirty
+=== RUN   TestCacheCloseWithShutdownError/nil_cause_closes_cleanly
+=== RUN   TestCacheCloseWithShutdownError/discarded_cache_ignores_a_later_cause
+--- FAIL: TestCacheCloseWithShutdownError (0.04s)
+    --- FAIL: TestCacheCloseWithShutdownError/seeded_cause_keeps_the_checkpoint_dirty (0.02s)
+    --- PASS: TestCacheCloseWithShutdownError/nil_cause_closes_cleanly (0.01s)
+    --- PASS: TestCacheCloseWithShutdownError/discarded_cache_ignores_a_later_cause (0.01s)
+=== RUN   TestRenewalShutdownDrainsOwnership
+=== RUN   TestRenewalShutdownDrainsOwnership/delivered_renewal
+=== RUN   TestRenewalShutdownDrainsOwnership/active_reader
+--- PASS: TestRenewalShutdownDrainsOwnership (0.25s)
+    --- PASS: TestRenewalShutdownDrainsOwnership/delivered_renewal (0.03s)
+    --- PASS: TestRenewalShutdownDrainsOwnership/active_reader (0.04s)
+=== RUN   TestOfferPendingRestartAndForward
+--- PASS: TestOfferPendingRestartAndForward (0.24s)
+=== RUN   TestRemoteCacheUnusedCost
+--- PASS: TestRemoteCacheUnusedCost (0.22s)
+=== RUN   TestRenewalExhaustion
+=== RUN   TestRenewalExhaustion/equivalent_donor_fixed_address_still_works
+=== RUN   TestRenewalExhaustion/equivalent_donor_key_does_not_reset_the_episode
+=== RUN   TestRenewalExhaustion/distinct_chain_can_still_renew
+=== RUN   TestRenewalExhaustion/slot_replacement_with_rotated_key
+=== RUN   TestRenewalExhaustion/slot_replacement_with_refreshed_expiry
+=== RUN   TestRenewalExhaustion/no_bridge
+=== RUN   TestRenewalExhaustion/no_renewal_key
+=== RUN   TestRenewalExhaustion/full_mailbox
+--- PASS: TestRenewalExhaustion (0.74s)
+    --- PASS: TestRenewalExhaustion/equivalent_donor_fixed_address_still_works (0.12s)
+    --- PASS: TestRenewalExhaustion/equivalent_donor_key_does_not_reset_the_episode (0.05s)
+    --- PASS: TestRenewalExhaustion/distinct_chain_can_still_renew (0.11s)
+    --- PASS: TestRenewalExhaustion/slot_replacement_with_rotated_key (0.05s)
+    --- PASS: TestRenewalExhaustion/slot_replacement_with_refreshed_expiry (0.05s)
+    --- PASS: TestRenewalExhaustion/no_bridge (0.04s)
+    --- PASS: TestRenewalExhaustion/no_renewal_key (0.03s)
+    --- PASS: TestRenewalExhaustion/full_mailbox (0.04s)
+FAIL
+FAIL	github.com/dagger/dagger/dagql	2.555s
+FAIL

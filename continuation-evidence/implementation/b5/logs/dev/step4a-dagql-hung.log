@@ -1,0 +1,10 @@
+# Transcription. The original partial log of the hung development run
+# (go test ./dagql -run '^TestRemoteCacheBridgeAttachment$' -count=1 -v, no -timeout;
+# started about 02:09 UTC, interrupted by the Human about 02:15 UTC) was
+# overwritten when the fixed test was rerun. This is its content as read at
+# about 02:15 UTC, with the absolute worktree path unchanged.
+=== RUN   TestRemoteCacheBridgeAttachment
+    cache_part_renewal_test.go:389: 
+        	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/offers-implementer-implementation-fb886a62-b340004e/dagql/cache_part_renewal_test.go:389
+        	Error:      	Expected error with "remote cache bridge closed" in chain but got nil.
+        	Test:       	TestRemoteCacheBridgeAttachment
