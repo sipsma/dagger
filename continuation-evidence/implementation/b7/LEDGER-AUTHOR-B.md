@@ -116,3 +116,10 @@ Model runs. All local: `timeout <T>s java -Xmx8g -XX:+UseParallelGC -cp ~/tla/to
 | M14 | all 33 registered configurations against `expectedOutcome` | 60 s each, 600 s process | 0 mismatches | 49 s total |
 | M15 | `remote_parts` and the two new progress-rule configurations | 120 s each | pass 26,270; `NoProgressIsUnreachable` violated; pass 47,466 | about 2 to 3 s each |
 | M16 | all 35 configurations against their expectations, after the B7 edits | 60 s each, 600 s process | 0 mismatches | 40 s total |
+
+## Packaging and the export check
+
+| # | Tree | Command | Test / process | Result | Wall |
+| --- | --- | --- | --- | --- | --- |
+| P1 | each of the six `b7-packaging/remote-cache/*` heads, detached | `go build ./...` then `go vet ./dagql ./core ./core/schema ./engine/snapshots` | no tests / 540 s and 300 s | all six ok | 54 to 101 s each |
+| 12 | working tree on `ad32ac7066` | `go test -count=10 -timeout 120s -run '^TestExportDuringAnActiveTaskIsNotReady$' ./dagql` | 120 / 300 s | ok | 0.3 t |
