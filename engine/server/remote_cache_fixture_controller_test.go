@@ -187,3 +187,99 @@ func TestRemoteCacheFixtureRetiresUntakenDeliveries(t *testing.T) {
 		await("a request whose Done closed was not retired", func() bool { return len(controller.delivered) == 0 })
 	}
 }
+
+// Run's contract is to return once its lifetime context is canceled. A reply
+// paused at renewalReplied is inside Run's own goroutine and only a
+// detachment ends that pause, while the server's wrapper detaches only after
+// Run returns. The fixture's Run therefore detaches its adapter itself when
+// its lifetime ends; cancellation alone, with no Stop, must let Run return.
+func TestRemoteCacheFixtureLifetimeCancelReleasesPausedReply(t *testing.T) {
+	t.Setenv(core.RemoteCacheFixtureRootEnv, t.TempDir())
+	cache := newGCTestCache(t)
+	cache.EnableTransferFixtureParts()
+	lifetime, cancelLifetime := context.WithCancel(t.Context())
+	defer cancelLifetime()
+	srv := &Server{engineCache: cache, shutdownCtx: lifetime}
+	require.NoError(t, srv.startRemoteCacheIntegration(srv.remoteCacheFixtureIntegration(nil)))
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = cache.ReleaseTransferFixtureBarrier("replied", 0)
+		require.NoError(t, srv.stopRemoteCacheIntegration(ctx))
+		require.NoError(t, cache.Close(ctx))
+	})
+
+	armed, err := cache.ArmTransferFixtureBarrier(dagql.FixtureBarrierRequest{Key: "replied", Point: dagql.FixtureRenewalReplied, Action: dagql.FixturePause})
+	require.NoError(t, err)
+	offer := renewalOnlyOffer()
+	require.NoError(t, srv.RemoteCacheFixtureArmRenewalReply(core.RemoteCacheFixtureRenewalReply{Layers: offer.Chain.Layers, Unavailable: true}))
+	done := make(chan error, 1)
+	go func() {
+		provider := cache.PartContentSource().Provider(boundedContext(t), offer, &dagql.PartDemandState{})
+		_, err := provider.ReaderAt(boundedContext(t), offer.Chain.Layers[0].Descriptor)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, dagql.ErrRenewalUnavailable)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the armed reply was never sent")
+	}
+	_, err = cache.WaitTransferFixtureBarrier(boundedContext(t), "replied", armed.Generation)
+	require.NoError(t, err)
+
+	cancelLifetime()
+	select {
+	case <-srv.remoteCacheAdapter.runDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after its lifetime was canceled")
+	}
+	renewals, err := srv.RemoteCacheFixtureRenewals()
+	require.NoError(t, err)
+	require.Len(t, renewals.ArmedReplies, 1)
+	require.Equal(t, "accepted", renewals.ArmedReplies[0].Disposition, "the published reply keeps its disposition")
+}
+
+// The armed-reply history is an observation like any other: bounded by the
+// scenario's cap, an overflow is reported instead of dropping a record
+// silently, and a new observation scope starts it empty.
+func TestRemoteCacheFixtureArmedReplyHistoryIsBounded(t *testing.T) {
+	t.Setenv(core.RemoteCacheFixtureRootEnv, t.TempDir())
+	cache := newGCTestCache(t)
+	srv := &Server{engineCache: cache, shutdownCtx: t.Context()}
+	require.NoError(t, srv.startRemoteCacheIntegration(srv.remoteCacheFixtureIntegration(nil)))
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		require.NoError(t, srv.stopRemoteCacheIntegration(ctx))
+		require.NoError(t, cache.Close(ctx))
+	})
+	offer := renewalOnlyOffer()
+	reply := func() {
+		t.Helper()
+		require.NoError(t, srv.RemoteCacheFixtureArmRenewalReply(core.RemoteCacheFixtureRenewalReply{Layers: offer.Chain.Layers, Unavailable: true}))
+		provider := cache.PartContentSource().Provider(boundedContext(t), offer, &dagql.PartDemandState{})
+		_, err := provider.ReaderAt(boundedContext(t), offer.Chain.Layers[0].Descriptor)
+		require.ErrorIs(t, err, dagql.ErrRenewalUnavailable)
+	}
+
+	require.NoError(t, srv.RemoteCacheFixtureObserve(1))
+	reply()
+	renewals, err := srv.RemoteCacheFixtureRenewals()
+	require.NoError(t, err)
+	require.Len(t, renewals.ArmedReplies, 1)
+	require.False(t, renewals.Overflowed)
+	reply()
+	reply()
+	renewals, err = srv.RemoteCacheFixtureRenewals()
+	require.NoError(t, err)
+	require.Len(t, renewals.ArmedReplies, 1, "the history never grows past the scenario's bound")
+	require.True(t, renewals.Overflowed, "and says so, instead of dropping records silently")
+
+	require.NoError(t, srv.RemoteCacheFixtureObserve(8))
+	renewals, err = srv.RemoteCacheFixtureRenewals()
+	require.NoError(t, err)
+	require.Empty(t, renewals.ArmedReplies, "a new observation scope starts empty")
+	require.False(t, renewals.Overflowed)
+	require.Zero(t, renewals.Delivered+renewals.Taken+renewals.Retired)
+}

@@ -47,6 +47,9 @@ type RemoteCacheFixtureControls interface {
 	RemoteCacheFixtureArmRenewalReply(RemoteCacheFixtureRenewalReply) error
 	// RemoteCacheFixtureRenewals reads the report's renewal group.
 	RemoteCacheFixtureRenewals() (RemoteCacheFixtureRenewals, error)
+	// RemoteCacheFixtureObserve starts a new observation scope for the
+	// renewal group with the scenario's bound.
+	RemoteCacheFixtureObserve(limit int) error
 }
 
 // RemoteCacheFixtureRenewals is the report's renewal group: what the
@@ -69,6 +72,9 @@ type RemoteCacheFixtureRenewals struct {
 	// RepliesAccepted and RepliesDiscarded count replyRenewal calls.
 	RepliesAccepted  uint64 `json:"repliesAccepted"`
 	RepliesDiscarded uint64 `json:"repliesDiscarded"`
+	// Overflowed is set when a staged reply's record did not fit the
+	// scenario's observation bound. The report then fails.
+	Overflowed bool `json:"overflowed"`
 }
 
 // RemoteCacheFixtureArmedReply is one staged reply the consumer loop sent.
@@ -99,7 +105,10 @@ type RemoteCacheFixtureStorage struct {
 	Blobs         uint64   `json:"blobs"`
 	OwnerLeases   []string `json:"ownerLeases"`
 	TransientPins uint64   `json:"transientPins"`
-	OtherLeases   uint64   `json:"otherLeases"`
+	// TransientPinResources names what each transient pin holds, as
+	// "lease: type/id ...", so a leftover pin can be traced to its snapshot.
+	TransientPinResources []string `json:"transientPinResources,omitempty"`
+	OtherLeases           uint64   `json:"otherLeases"`
 }
 
 // RemoteCacheFixtureRenewal is the serializable part of a delivered renewal
