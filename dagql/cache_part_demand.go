@@ -153,13 +153,17 @@ func (c *Cache) demandPart(ctx context.Context, res AnyResult, address Persisted
 	}
 	demand := &PartDemandState{target: clonePartAddress(address)}
 	ctx = context.WithValue(ctx, partDemandContextKey{}, demand)
+	outer := partReselectWatch{loop: "demandPart"}
 	for {
+		outer.again(ctx, res.cacheSharedResult(), address)
 		err := c.RunLazyTask(ctx, res, partTaskKey("acquire", address), LazyTaskSpec{Body: func(ctx context.Context) error {
+			watch := partReselectWatch{loop: "demandPart acquire"}
 			for {
 				if err := context.Cause(ctx); err != nil {
 					return err
 				}
 				row := res.cacheSharedResult()
+				watch.again(ctx, row, address)
 				gate := row.partGate.loadOrCreate()
 				key, _ := partAddressKey(address)
 				gate.mu.Lock()
@@ -206,6 +210,7 @@ func (c *Cache) demandPart(ctx context.Context, res AnyResult, address Persisted
 				}
 				source, pendingParent, err := c.selectDemandPartSource(ctx, res, address, route)
 				if partCanReselect(err) {
+					watch.refused(err)
 					continue
 				}
 				if err != nil {
@@ -249,6 +254,7 @@ func (c *Cache) demandPart(ctx context.Context, res AnyResult, address Persisted
 						err = c.joinLazyEvaluation(ctx, res, address)
 					}
 					if err == nil || partCanReselect(err) {
+						watch.refused(err)
 						continue
 					}
 					return err
@@ -256,6 +262,7 @@ func (c *Cache) demandPart(ctx context.Context, res AnyResult, address Persisted
 				if pendingParent != nil {
 					if err := c.demandDelegatedParent(ctx, pendingParent); err != nil {
 						if partCanReselect(err) {
+							watch.refused(err)
 							continue
 						}
 						return errors.Join(demand.causes(), err)
@@ -267,6 +274,7 @@ func (c *Cache) demandPart(ctx context.Context, res AnyResult, address Persisted
 				}
 				err = c.runLazyOperationDecision(ctx, res, address, route, demand)
 				if partCanReselect(err) {
+					watch.refused(err)
 					continue
 				}
 				if err != nil {
@@ -275,6 +283,7 @@ func (c *Cache) demandPart(ctx context.Context, res AnyResult, address Persisted
 			}
 		}})
 		if partCanReselect(err) {
+			outer.refused(err)
 			continue
 		}
 		return err
