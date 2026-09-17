@@ -19,7 +19,13 @@ import (
 // moduleDefinitionTestCache is a cache and server with no snapshot store
 // and the real _moduleDefinition declaration installed over a counting
 // resolver, so what the tests check is the field's identity as installed.
-func moduleDefinitionTestCache(t *testing.T, path, session string, runs *atomic.Int32) (context.Context, *dagql.Cache, *dagql.Server) {
+type moduleDefinitionTestResolver struct {
+	runs atomic.Int32
+	// typedefs, when set, supplies the definition's object typedefs.
+	typedefs func() dagql.ObjectResultArray[*core.TypeDef]
+}
+
+func moduleDefinitionTestCache(t *testing.T, path, session string, stub *moduleDefinitionTestResolver) (context.Context, *dagql.Cache, *dagql.Server) {
 	t.Helper()
 	server := &currentTypeDefsTestServer{platform: core.Platform{OS: "linux", Architecture: "arm64"}}
 	query := core.NewRoot(server)
@@ -38,13 +44,17 @@ func moduleDefinitionTestCache(t *testing.T, path, session string, runs *atomic.
 	srv.InstallObject(dagql.NewClass(srv, dagql.ClassOpts[*core.File]{}))
 	srv.InstallObject(dagql.NewClass(srv, dagql.ClassOpts[*core.TypeDef]{}))
 	srv.InstallObject(dagql.NewClass(srv, dagql.ClassOpts[*core.ObjectTypeDef]{}))
+	srv.InstallObject(dagql.NewClass(srv, dagql.ClassOpts[*core.SourceMap]{}))
 	resolver := func(ctx context.Context, src dagql.ObjectResult[*core.ModuleSource], args moduleDefinitionArgs) (dagql.ObjectResult[*core.Module], error) {
-		runs.Add(1)
+		stub.runs.Add(1)
 		runtime, err := args.Runtime.Load(ctx, srv)
 		if err != nil {
 			return dagql.ObjectResult[*core.Module]{}, err
 		}
 		def := &core.Module{NameField: args.ModuleName, Description: "definition of " + args.ModuleName, Runtime: dagql.NonNull(runtime)}
+		if stub.typedefs != nil {
+			def.ObjectDefs = stub.typedefs()
+		}
 		return dagql.NewObjectResultForCurrentCall(ctx, srv, def)
 	}
 	dagql.Fields[*core.ModuleSource]{moduleDefinitionField(resolver)}.Install(srv)
@@ -103,11 +113,12 @@ func selectDefinition(t *testing.T, ctx context.Context, srv *dagql.Server, in d
 }
 
 // The definition is keyed on the scoped source, the runtime, the schema
-// file and the loaded name, and on nothing per client.
+// file and the loaded name, with no additional per-client input.
 func TestModuleDefinitionIdentity(t *testing.T) {
 	t.Parallel()
-	var runs atomic.Int32
-	ctx, cache, srv := moduleDefinitionTestCache(t, "", "s1", &runs)
+	stub := &moduleDefinitionTestResolver{}
+	runs := &stub.runs
+	ctx, cache, srv := moduleDefinitionTestCache(t, "", "s1", stub)
 	scoped := digest.FromString("scoped source")
 	in := definitionTestInputsFor(t, ctx, cache, srv, "s1", "source", scoped, "runtime", "schema")
 
@@ -147,31 +158,75 @@ func TestModuleDefinitionIdentity(t *testing.T) {
 	require.Same(t, first.Unwrap(), same.Unwrap())
 }
 
-// A definition exported through a module-object leaf and imported into a
+// The discovery scope of a definition covers the definition's inputs, so
+// two definitions of one source that differ in runtime, schema file or
+// name never share a scoped module. ScopeModuleForSDKOperation keys the
+// attached module on the operation name and the source digest only
+// (core/sdk/utils.go), and attachment returns an existing match; the name
+// is where the inputs must go.
+func TestModuleDefinitionScopeCoversInputs(t *testing.T) {
+	t.Parallel()
+	stub := &moduleDefinitionTestResolver{}
+	ctx, cache, srv := moduleDefinitionTestCache(t, "", "s1", stub)
+	scoped := digest.FromString("scoped source")
+	base := definitionTestInputsFor(t, ctx, cache, srv, "s1", "source", scoped, "runtime", "schema")
+	otherRuntime := definitionTestInputsFor(t, ctx, cache, srv, "s1", "source", scoped, "runtime-2", "schema")
+	otherSchema := definitionTestInputsFor(t, ctx, cache, srv, "s1", "source", scoped, "runtime", "schema-2")
+	op := func(in definitionTestInputs, name string) string {
+		op, err := moduleDefinitionScopeOp(ctx, in.runtime, in.schema, name)
+		require.NoError(t, err)
+		return op
+	}
+	require.Equal(t, op(base, "demo"), op(base, "demo"), "the same inputs name the same scope")
+	require.NotEqual(t, op(base, "demo"), op(otherRuntime, "demo"), "a different runtime names a different scope")
+	require.NotEqual(t, op(base, "demo"), op(otherSchema, "demo"), "a different schema file names a different scope")
+	require.NotEqual(t, op(base, "demo"), op(base, "renamed"), "a different name names a different scope")
+	require.NotEqual(t, "getModDef", op(base, "demo"), "the cached path never uses the bare operation name")
+}
+
+// A definition exported inside a module-object leaf and imported into a
 // cache with different row numbers is hit there by equivalent inputs
 // reconstructed under that cache's own recipes, with the definition's
-// typedefs and runtime reference intact.
+// typedef, its SourceMap and its runtime reference relocated.
 func TestModuleDefinitionImportedHit(t *testing.T) {
 	t.Parallel()
-	var runsA, runsB atomic.Int32
-	ctx, a, srvA := moduleDefinitionTestCache(t, filepath.Join(t.TempDir(), "a.db"), "a", &runsA)
+	stubA := &moduleDefinitionTestResolver{}
+	ctx, a, srvA := moduleDefinitionTestCache(t, filepath.Join(t.TempDir(), "a.db"), "a", stubA)
 	scoped := digest.FromString("scoped source")
 	inA := definitionTestInputsFor(t, ctx, a, srvA, "a", "source", scoped, "runtime", "schema")
-	defA := selectDefinition(t, ctx, srvA, inA, "demo")
-	require.EqualValues(t, 1, runsA.Load())
-	// The definition's typedef, attached after the fact as the runtime's
-	// answer would be, and the module-object leaf that references the
-	// definition, as asModule's result does.
-	objDef := attachDefinitionTestResult(t, ctx, a, srvA, "a", "definition-object", core.NewObjectTypeDef("Holder", "a holder", nil))
+	// The definition's typedef and its SourceMap exist before the
+	// definition is attached, as the runtime's answer does.
+	sourceMap := attachDefinitionTestResult(t, ctx, a, srvA, "a", "definition-sourcemap", &core.SourceMap{Module: "demo", Filename: "main.go", Line: 3, Column: 1})
+	objDef := attachDefinitionTestResult(t, ctx, a, srvA, "a", "definition-object", core.NewObjectTypeDef("Holder", "a holder", nil).WithSourceMap(sourceMap))
 	typeDef := attachDefinitionTestResult(t, ctx, a, srvA, "a", "definition-typedef", (&core.TypeDef{}).WithObject(objDef))
-	leaf := attachDefinitionTestResult(t, ctx, a, srvA, "a", "module", &core.Module{NameField: "demo", Definition: dagql.NonNull(defA), ObjectDefs: dagql.ObjectResultArray[*core.TypeDef]{typeDef}})
+	stubA.typedefs = func() dagql.ObjectResultArray[*core.TypeDef] { return dagql.ObjectResultArray[*core.TypeDef]{typeDef} }
+	defA := selectDefinition(t, ctx, srvA, inA, "demo")
+	require.EqualValues(t, 1, stubA.runs.Load())
+	require.Len(t, defA.Self().ObjectDefs, 1)
+
+	// The defining module owns the definition, as asModule's result does,
+	// and a module object of that module is the leaf that gets exported.
+	modA := attachDefinitionTestResult(t, ctx, a, srvA, "a", "module", &core.Module{NameField: "demo", Definition: dagql.NonNull(defA), ObjectDefs: dagql.ObjectResultArray[*core.TypeDef]{typeDef}})
+	shapeA := &core.ModuleObject{Module: modA, TypeDef: objDef.Self()}
+	srvA.InstallObject(dagql.NewClass(srvA, dagql.ClassOpts[*core.ModuleObject]{Typed: shapeA}))
+	holderA := &core.ModuleObject{Module: modA, TypeDef: objDef.Self(), Fields: map[string]any{"label": "x"}}
+	// The leaf's call frame names its module by row, as a module function's
+	// call does (Module.ResultCallModule), which is what puts the module and
+	// its definition in the leaf's exported closure.
+	leafFrame := &dagql.ResultCall{Kind: dagql.ResultCallKindField, Field: "holder", Type: dagql.NewResultCallType(holderA.Type()), Module: &dagql.ResultCallModule{Name: "demo", ResultRef: &dagql.ResultCallRef{ResultID: persistedID(t, a, modA)}}}
+	leaf, err := a.GetOrInitCall(ctx, "a", srvA, &dagql.CallRequest{ResultCall: leafFrame, IsPersistable: true}, func(context.Context) (dagql.AnyResult, error) {
+		return dagql.NewObjectResultForCall(holderA, srvA, leafFrame)
+	})
+	require.NoError(t, err)
 	var bundle dagql.ValueBundle
 	require.NoError(t, a.WithExportedValues(ctx, dagql.ValueSelection{Roots: []dagql.AnyResult{leaf}}, config.RefConfig{}, func(_ context.Context, values *dagql.ExportedValues) error {
 		bundle = values.Bundle
 		return nil
 	}))
+	require.Len(t, bundle.Values, 9, "leaf, module, definition, typedef, object typedef, source map, source, runtime, schema")
 
-	bctx, b, srvB := moduleDefinitionTestCache(t, filepath.Join(t.TempDir(), "b.db"), "b", &runsB)
+	stubB := &moduleDefinitionTestResolver{}
+	bctx, b, srvB := moduleDefinitionTestCache(t, filepath.Join(t.TempDir(), "b.db"), "b", stubB)
 	for i := range 7 {
 		attachDefinitionTestResult(t, bctx, b, srvB, "b", "padding", &core.Module{NameField: string(rune('p' + i))})
 	}
@@ -184,22 +239,48 @@ func TestModuleDefinitionImportedHit(t *testing.T) {
 	// under the same recipes, as a cold engine does.
 	inB := definitionTestInputsFor(t, bctx, b, srvB, "b", "source-on-b", scoped, "runtime", "schema")
 	defB := selectDefinition(t, bctx, srvB, inB, "demo")
-	require.Zero(t, runsB.Load(), "B hits the imported definition without running the resolver")
+	require.Zero(t, stubB.runs.Load(), "B hits the imported definition without running the resolver")
 	require.True(t, dagql.IsImportedResult(defB))
 	require.NotEqual(t, persistedID(t, a, defA), persistedID(t, b, defB), "B's row number differs")
 	require.Equal(t, "definition of demo", defB.Self().Description)
+	require.Len(t, defB.Self().ObjectDefs, 1, "the definition's typedef travelled")
+	objB := defB.Self().ObjectDefs[0].Self().AsObject.Value.Self()
+	require.Equal(t, "Holder", objB.Name)
+	require.Equal(t, "a holder", objB.Description)
+	require.True(t, objB.SourceMap.Valid, "the typedef's SourceMap travelled")
+	require.Equal(t, &core.SourceMap{Module: "demo", Filename: "main.go", Line: 3, Column: 1}, objB.SourceMap.Value.Self())
+	require.True(t, dagql.IsImportedResult(objB.SourceMap.Value))
 	require.True(t, defB.Self().Runtime.Valid, "the runtime reference relocated with the definition")
 	require.True(t, dagql.IsImportedResult(defB.Self().Runtime.Value))
+	require.NotEqual(t, persistedID(t, a, inA.runtime), persistedID(t, b, defB.Self().Runtime.Value))
+	require.Equal(t, persistedID(t, b, inB.runtime), persistedID(t, b, defB.Self().Runtime.Value), "B's own runtime lookup is the imported runtime row")
 
-	// The leaf that carried it references B's definition row, with the
-	// typedef relocated.
+	// The leaf decodes through its module, resolved from the leaf's call
+	// frame as the engine does for module-defined results, and that module
+	// is B's imported row whose definition is B's definition row.
+	var resolvedModules []uint64
+	srvB.SetResultServerForCall(func(ctx context.Context, call *dagql.ResultCall) (*dagql.Server, error) {
+		if call.Module == nil || call.Module.ResultRef == nil {
+			return srvB, nil
+		}
+		modAny, err := b.LoadResultByResultID(ctx, "b", srvB, call.Module.ResultRef.ResultID)
+		if err != nil {
+			return nil, err
+		}
+		modB := modAny.(dagql.ObjectResult[*core.Module])
+		resolvedModules = append(resolvedModules, call.Module.ResultRef.ResultID)
+		srvB.InstallObject(dagql.NewClass(srvB, dagql.ClassOpts[*core.ModuleObject]{Typed: &core.ModuleObject{Module: modB, TypeDef: modB.Self().ObjectDefs[0].Self().AsObject.Value.Self()}}))
+		return srvB, nil
+	})
 	loaded, err := b.LoadResultByResultID(bctx, "b", srvB, mapping[0].ResultID)
 	require.NoError(t, err)
-	mod := loaded.Unwrap().(*core.Module)
-	require.True(t, mod.Definition.Valid)
-	require.Same(t, defB.Unwrap(), mod.Definition.Value.Unwrap())
-	require.Len(t, mod.ObjectDefs, 1)
-	require.Equal(t, "Holder", mod.ObjectDefs[0].Self().AsObject.Value.Self().Name)
+	holder := loaded.Unwrap().(*core.ModuleObject)
+	require.Equal(t, map[string]any{"label": "x"}, holder.Fields)
+	require.Len(t, resolvedModules, 1, "the leaf's frame named its module by row")
+	require.NotEqual(t, persistedID(t, a, modA), resolvedModules[0], "the module row was relocated")
+	require.True(t, dagql.IsImportedResult(holder.Module))
+	require.True(t, holder.Module.Self().Definition.Valid)
+	require.Equal(t, persistedID(t, b, defB), persistedID(t, b, holder.Module.Self().Definition.Value), "the leaf's module references B's definition row")
 }
 
 func persistedID(t *testing.T, cache *dagql.Cache, res dagql.AnyResult) uint64 {

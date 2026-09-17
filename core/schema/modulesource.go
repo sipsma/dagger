@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/dagger/dagger/core"
@@ -3254,32 +3255,37 @@ func (s *moduleSourceSchema) runModuleDefInSDK(ctx context.Context, mod *core.Mo
 		return nil, fmt.Errorf("failed to get client metadata: %w", err)
 	}
 
-	if clientMetadata.EagerRuntime && !mod.Runtime.Valid {
-		runtimeDeps := mod.Deps
-		if mod.IncludeSelfInDeps {
-			// This eager runtime path happens before the final asModule result exists,
-			// so we localize the self-call special case to just this runtime load by
-			// using a temporary attached synthetic self module. The final returned
-			// module gets its real attached self dep later during AttachDependencyResults.
-			selfInst, err := sdk.ScopeModuleForSDKOperation(ctx, mod, "eagerRuntimeSelfDeps", dag)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create temporary self module for eager runtime: %w", err)
+	if clientMetadata.EagerRuntime {
+		if !mod.Runtime.Valid {
+			runtimeDeps := mod.Deps
+			if mod.IncludeSelfInDeps {
+				// This eager runtime path happens before the final asModule result exists,
+				// so we localize the self-call special case to just this runtime load by
+				// using a temporary attached synthetic self module. The final returned
+				// module gets its real attached self dep later during AttachDependencyResults.
+				selfInst, err := sdk.ScopeModuleForSDKOperation(ctx, mod, "eagerRuntimeSelfDeps", dag)
+				if err != nil {
+					return nil, fmt.Errorf("failed to create temporary self module for eager runtime: %w", err)
+				}
+				runtimeDeps = runtimeDeps.Append(core.NewUserMod(selfInst))
 			}
-			runtimeDeps = runtimeDeps.Append(core.NewUserMod(selfInst))
+			runtime, err := runtimeImpl.Runtime(ctx, runtimeDeps, src)
+			if err != nil {
+				return nil, err
+			}
+			ctr, ok := runtime.AsContainer()
+			if !ok {
+				return mod, nil
+			}
+			mod.Runtime = dagql.NonNull(ctr)
 		}
-		runtime, err := runtimeImpl.Runtime(ctx, runtimeDeps, src)
-		if err != nil {
-			return nil, err
-		}
-		ctr, ok := runtime.AsContainer()
-		if !ok {
-			return mod, nil
-		}
-		mod.Runtime = dagql.NonNull(ctr)
 
-		// Force load the runtime to fill the cache (only for container-based runtimes)
+		// Force load the runtime to fill the cache (only for container-based
+		// runtimes). This also covers a runtime selected before a cached
+		// definition: the definition hit skipped the exec that used to
+		// evaluate the runtime, and an eager client still wants it filled.
 		var runtimeRes dagql.ID[*core.Container]
-		if err = dag.Select(ctx, ctr, &runtimeRes, dagql.Selector{
+		if err = dag.Select(ctx, mod.Runtime.Value, &runtimeRes, dagql.Selector{
 			Field: "sync",
 		}); err != nil {
 			return nil, err
@@ -3293,9 +3299,11 @@ func (s *moduleSourceSchema) runModuleDefInSDK(ctx context.Context, mod *core.Mo
 // runtime container that reports it, the introspection schema that runtime
 // was built with, and the module's name as loaded (LegacyNameOverride can
 // change it after the source was scoped). Together with the receiver, the
-// implementation-scoped source, they name the definition without anything
-// client-specific, so equivalent loads on different clients and engines
-// share one result.
+// implementation-scoped source, they name the definition with no
+// additional per-client input, so equivalent loads on different clients
+// and engines share one result. The receiver's own digest still expands
+// the source's user defaults, which can read the client's environment;
+// that is an existing property of every SDK operation, not changed here.
 type moduleDefinitionArgs struct {
 	Runtime           core.ContainerID
 	IntrospectionJSON core.FileID `name:"introspectionJson"`
@@ -3335,6 +3343,14 @@ func (s *moduleSourceSchema) moduleSourceModuleDefinition(
 	if err != nil {
 		return inst, fmt.Errorf("failed to load module runtime for module definition: %w", err)
 	}
+	schema, err := args.IntrospectionJSON.Load(ctx, dag)
+	if err != nil {
+		return inst, fmt.Errorf("failed to load schema introspection json for module definition: %w", err)
+	}
+	opScope, err := moduleDefinitionScopeOp(ctx, runtime, schema, args.ModuleName)
+	if err != nil {
+		return inst, err
+	}
 	deps, err := s.loadDependencyModules(ctx, src, src)
 	if err != nil {
 		return inst, fmt.Errorf("failed to load dependencies for module definition: %w", err)
@@ -3351,7 +3367,7 @@ func (s *moduleSourceSchema) moduleSourceModuleDefinition(
 	if mod.SDKConfig == nil {
 		mod.SDKConfig = &core.SDKConfig{}
 	}
-	initialized, err := s.moduleDefinitionFromRuntime(ctx, dag, mod)
+	initialized, err := s.moduleDefinitionFromRuntime(ctx, dag, mod, opScope)
 	if err != nil {
 		return inst, err
 	}
@@ -3394,7 +3410,7 @@ func (s *moduleSourceSchema) moduleDefViaRuntime(
 	}
 	ctr, isContainer := runtime.AsContainer()
 	if !isContainer {
-		return s.moduleDefinitionFromRuntime(ctx, dag, mod)
+		return s.moduleDefinitionFromRuntime(ctx, dag, mod, "getModDef")
 	}
 	mod.Runtime = dagql.NonNull(ctr)
 
@@ -3429,22 +3445,50 @@ func (s *moduleSourceSchema) moduleDefViaRuntime(
 	return def.Self(), nil
 }
 
+// moduleDefinitionScopeOp names the SDK-operation scope of one definition's
+// discovery. ScopeModuleForSDKOperation keys the attached module on the
+// operation name and the source implementation digest only, and attachment
+// returns an existing match, so two definitions of one source that differ
+// in runtime, schema file or name would otherwise share one scoped module
+// and the first one's runtime. Folding the definition's inputs into the
+// operation name puts them in the scoped module's call frame and content
+// digest. The runtime and the schema file are named by their cache row
+// numbers, which identify a result whether it was referenced by a recipe
+// or by a handle; the scope only has to be distinct within one engine.
+func moduleDefinitionScopeOp(ctx context.Context, runtime dagql.ObjectResult[*core.Container], schema dagql.ObjectResult[*core.File], moduleName string) (string, error) {
+	cache, err := dagql.EngineCache(ctx)
+	if err != nil {
+		return "", fmt.Errorf("module definition scope: %w", err)
+	}
+	runtimeRow, err := cache.PersistedResultID(runtime)
+	if err != nil {
+		return "", fmt.Errorf("module definition scope: runtime: %w", err)
+	}
+	schemaRow, err := cache.PersistedResultID(schema)
+	if err != nil {
+		return "", fmt.Errorf("module definition scope: introspection json: %w", err)
+	}
+	return "getModDef:" + hashutil.HashStrings(strconv.FormatUint(runtimeRow, 10), strconv.FormatUint(schemaRow, 10), moduleName).String(), nil
+}
+
 // moduleDefinitionFromRuntime runs the module's runtime once with no object
 // or function name, which tells the SDK to return the module's definition
 // (in terms of objects, fields and functions). It is the uncached step:
 // _moduleDefinition's resolver on a miss, and the whole path for a runtime
-// that is not a container.
+// that is not a container. opScope names the SDK-operation scope the
+// discovery runs under; a cached definition passes one that covers its
+// inputs.
 func (s *moduleSourceSchema) moduleDefinitionFromRuntime(
 	ctx context.Context,
 	dag *dagql.Server,
 	mod *core.Module,
+	opScope string,
 ) (_ *core.Module, rerr error) {
 	modName := mod.NameField
 
 	ctx, span := core.Tracer(ctx).Start(ctx, "asModule getModDef", telemetry.Internal())
 	defer telemetry.EndWithCause(span, &rerr)
 
-	opScope := "getModDef"
 	scopedMod, err := sdk.ScopeModuleForSDKOperation(ctx, mod, opScope, dag)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create scoped module for getModDef: %w", err)
