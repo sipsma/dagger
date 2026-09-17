@@ -180,9 +180,7 @@ func TestSessionReportListDropsOldest(t *testing.T) {
 	for i := range maxQueuedSessionReports + 1 {
 		require.True(t, adapter.queueSessionReport(&SessionReport{SessionID: string(rune('a' + i))}))
 	}
-	adapter.reportsMu.Lock()
-	require.Len(t, adapter.reports, maxQueuedSessionReports)
-	adapter.reportsMu.Unlock()
+	require.Equal(t, maxQueuedSessionReports, queuedReports(adapter))
 	first := takeNow(t, adapter)
 	require.NotNil(t, first)
 	require.Equal(t, "b", first.SessionID, "the 17th report dropped the oldest")
@@ -199,7 +197,7 @@ func TestSessionReportAfterStop(t *testing.T) {
 	// A consumer waits on an empty list. The hook fires after the consumer
 	// found the list empty and right before it waits, so the stop below is
 	// what wakes it: the result must be the closed error, unconditionally.
-	waiting := make(chan struct{})
+	waiting := make(chan struct{}, 1)
 	adapter.testBeforeReportWait = func() {
 		select {
 		case waiting <- struct{}{}:
@@ -239,15 +237,20 @@ func TestSessionReportQueuedBeforeStopIsDropped(t *testing.T) {
 	t.Parallel()
 	srv, adapter := newReportTestServer(t)
 	require.True(t, adapter.queueSessionReport(&SessionReport{SessionID: "queued"}))
-	adapter.reportsMu.Lock()
-	require.Len(t, adapter.reports, 1)
-	adapter.reportsMu.Unlock()
+	require.Equal(t, 1, queuedReports(adapter))
 	require.NoError(t, srv.stopRemoteCacheIntegration(boundedContext(t)))
-	adapter.reportsMu.Lock()
-	require.Empty(t, adapter.reports, "stop drops the list")
-	adapter.reportsMu.Unlock()
+	require.Zero(t, queuedReports(adapter), "stop drops the list")
 	_, err := adapter.TakeSessionReport(t.Context())
 	require.ErrorIs(t, err, ErrRemoteCacheAdapterClosed, "nothing is left for a later consumer")
+}
+
+// queuedReports reads the list length under its mutex and releases it
+// before the caller asserts, so a failed assertion cannot block the
+// cleanup's Stop on the mutex.
+func queuedReports(adapter *RemoteCacheAdapter) int {
+	adapter.reportsMu.Lock()
+	defer adapter.reportsMu.Unlock()
+	return len(adapter.reports)
 }
 
 func TestAdapterExportValues(t *testing.T) {
