@@ -1,0 +1,126 @@
+{
+  "commands": [
+    {
+      "id": "c-0001",
+      "type": "import",
+      "import": {
+        "bundleId": "sha256:8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4",
+        "bundle": {
+          "version": 2,
+          "roots": [
+            {
+              "ordinal": 2
+            }
+          ],
+          "values": [
+            {
+              "ordinal": 1,
+              "record": {
+                "resultID": 1,
+                "envelope": {
+                  "version": 5,
+                  "kind": "object_self",
+                  "typeName": "Container",
+                  "objectCodec": "core.Container",
+                  "resultID": 1,
+                  "objectJSON": {
+                    "example": "the encoded Container value, opaque to the service"
+                  }
+                },
+                "call": {
+                  "kind": "field",
+                  "type": {
+                    "namedType": "Container",
+                    "nonNull": true
+                  },
+                  "field": "from"
+                }
+              }
+            },
+            {
+              "ordinal": 2,
+              "record": {
+                "resultID": 2,
+                "envelope": {
+                  "version": 5,
+                  "kind": "object_self",
+                  "typeName": "Directory",
+                  "objectCodec": "core.Directory",
+                  "resultID": 2,
+                  "objectJSON": {
+                    "example": "the encoded Directory value, opaque to the service"
+                  }
+                },
+                "call": {
+                  "kind": "field",
+                  "type": {
+                    "namedType": "Directory",
+                    "nonNull": true
+                  },
+                  "field": "directory"
+                }
+              },
+              "dependencyIDs": [
+                1
+              ]
+            }
+          ],
+          "outputs": [
+            {
+              "ordinal": 2,
+              "address": {
+                "part": "snapshot"
+              },
+              "state": "completed",
+              "value": {
+                "kind": "directory",
+                "path": "/out"
+              },
+              "chain": {
+                "layers": [
+                  {
+                    "Descriptor": {
+                      "mediaType": "application/vnd.oci.image.layer.v1.tar",
+                      "digest": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                      "size": 1048576
+                    },
+                    "Description": "layer 1 of 2",
+                    "CreatedAt": null
+                  },
+                  {
+                    "Descriptor": {
+                      "mediaType": "application/vnd.oci.image.layer.v1.tar",
+                      "digest": "sha256:60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752",
+                      "size": 2048
+                    },
+                    "Description": "layer 2 of 2",
+                    "CreatedAt": null
+                  }
+                ],
+                "addresses": {
+                  "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08": {
+                    "url": "http://blobs:5000/remote-cache/blobs/sha256/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=example"
+                  },
+                  "sha256:60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752": {
+                    "url": "http://blobs:5000/remote-cache/blobs/sha256/60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=example"
+                  }
+                }
+              },
+              "owner": {}
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c-0002",
+      "type": "export",
+      "export": {
+        "root": 58,
+        "partsOf": [
+          58
+        ]
+      }
+    }
+  ]
+}
