@@ -1,0 +1,114 @@
+=== RUN   TestPartSessionlessOwnSubset
+=== RUN   TestPartSessionlessOwnSubset/offer-only
+=== RUN   TestPartSessionlessOwnSubset/own
+=== RUN   TestPartSessionlessOwnSubset/revoked-before-commit
+=== RUN   TestPartSessionlessOwnSubset/native-receiver
+--- PASS: TestPartSessionlessOwnSubset (0.15s)
+    --- PASS: TestPartSessionlessOwnSubset/offer-only (0.05s)
+    --- PASS: TestPartSessionlessOwnSubset/own (0.04s)
+    --- PASS: TestPartSessionlessOwnSubset/revoked-before-commit (0.04s)
+    --- PASS: TestPartSessionlessOwnSubset/native-receiver (0.03s)
+=== RUN   TestPartReadyRevalidationAndCanceledFinish
+=== RUN   TestPartReadyRevalidationAndCanceledFinish/stale-donor
+=== RUN   TestPartReadyRevalidationAndCanceledFinish/cancel-commit
+=== RUN   TestPartReadyRevalidationAndCanceledFinish/cancel-finish
+--- PASS: TestPartReadyRevalidationAndCanceledFinish (0.10s)
+    --- PASS: TestPartReadyRevalidationAndCanceledFinish/stale-donor (0.03s)
+    --- PASS: TestPartReadyRevalidationAndCanceledFinish/cancel-commit (0.03s)
+    --- PASS: TestPartReadyRevalidationAndCanceledFinish/cancel-finish (0.04s)
+=== RUN   TestReadyPartReceipt
+--- PASS: TestReadyPartReceipt (0.03s)
+=== RUN   TestSnapshotSharingTriggers
+--- PASS: TestSnapshotSharingTriggers (0.04s)
+=== RUN   TestSnapshotSharingInstallsFromEquivalent
+--- PASS: TestSnapshotSharingInstallsFromEquivalent (0.06s)
+=== RUN   TestSnapshotSharingPreparedSequence
+--- PASS: TestSnapshotSharingPreparedSequence (0.04s)
+=== RUN   TestSnapshotSharingPreparedSequenceThreeParts
+--- PASS: TestSnapshotSharingPreparedSequenceThreeParts (0.04s)
+=== RUN   TestSnapshotSharingIndependentParts
+--- PASS: TestSnapshotSharingIndependentParts (0.06s)
+=== RUN   TestSnapshotSharingDonorReceivesSibling
+--- PASS: TestSnapshotSharingDonorReceivesSibling (0.06s)
+=== RUN   TestSnapshotSharingTriggerSites
+=== RUN   TestSnapshotSharingTriggerSites/new_membership_without_a_union
+=== RUN   TestSnapshotSharingTriggerSites/no_enqueue_for_an_unregistered_row
+=== RUN   TestSnapshotSharingTriggerSites/lazy_completion_notifies_after_a_successful_share
+=== RUN   TestSnapshotSharingTriggerSites/admission_off_enqueues_nothing
+--- PASS: TestSnapshotSharingTriggerSites (0.19s)
+    --- PASS: TestSnapshotSharingTriggerSites/new_membership_without_a_union (0.04s)
+    --- PASS: TestSnapshotSharingTriggerSites/no_enqueue_for_an_unregistered_row (0.04s)
+    --- PASS: TestSnapshotSharingTriggerSites/lazy_completion_notifies_after_a_successful_share (0.05s)
+    --- PASS: TestSnapshotSharingTriggerSites/admission_off_enqueues_nothing (0.05s)
+=== RUN   TestSnapshotSharingCoalescing
+--- PASS: TestSnapshotSharingCoalescing (0.03s)
+=== RUN   TestSnapshotSharingNoJoinRefusal
+--- PASS: TestSnapshotSharingNoJoinRefusal (0.04s)
+=== RUN   TestSnapshotSharingReadinessAndExpiry
+=== RUN   TestSnapshotSharingReadinessAndExpiry/a_desired-only_role_is_not_an_applied_role
+=== RUN   TestSnapshotSharingReadinessAndExpiry/an_expired_receiver_is_skipped
+=== RUN   TestSnapshotSharingReadinessAndExpiry/an_expired_donor_is_skipped
+=== RUN   TestSnapshotSharingReadinessAndExpiry/a_native_receiver_is_never_filled
+--- PASS: TestSnapshotSharingReadinessAndExpiry (0.15s)
+    --- PASS: TestSnapshotSharingReadinessAndExpiry/a_desired-only_role_is_not_an_applied_role (0.04s)
+    --- PASS: TestSnapshotSharingReadinessAndExpiry/an_expired_receiver_is_skipped (0.03s)
+    --- PASS: TestSnapshotSharingReadinessAndExpiry/an_expired_donor_is_skipped (0.03s)
+    --- PASS: TestSnapshotSharingReadinessAndExpiry/a_native_receiver_is_never_filled (0.05s)
+=== RUN   TestSnapshotSharingStructuralRequirements
+=== RUN   TestSnapshotSharingStructuralRequirements/own
+=== RUN   TestSnapshotSharingStructuralRequirements/offer-only
+=== RUN   TestSnapshotSharingStructuralRequirements/missing
+--- PASS: TestSnapshotSharingStructuralRequirements (0.14s)
+    --- PASS: TestSnapshotSharingStructuralRequirements/own (0.05s)
+    --- PASS: TestSnapshotSharingStructuralRequirements/offer-only (0.05s)
+    --- PASS: TestSnapshotSharingStructuralRequirements/missing (0.05s)
+=== RUN   TestSnapshotSharingReleaseThenExternalFinish
+--- PASS: TestSnapshotSharingReleaseThenExternalFinish (0.06s)
+=== RUN   TestSnapshotSharingPreparationContextGuards
+--- PASS: TestSnapshotSharingPreparationContextGuards (0.05s)
+=== RUN   TestSnapshotSharingWorkerBaseIsMarked
+--- PASS: TestSnapshotSharingWorkerBaseIsMarked (0.03s)
+=== RUN   TestSnapshotSharingDecodeWhileFinishPaused
+--- PASS: TestSnapshotSharingDecodeWhileFinishPaused (0.05s)
+=== RUN   TestSnapshotSharingShutdown
+--- PASS: TestSnapshotSharingShutdown (0.14s)
+=== RUN   TestSnapshotSharingFailedFinishAndRetry
+--- PASS: TestSnapshotSharingFailedFinishAndRetry (0.04s)
+=== RUN   TestSnapshotSharingCompletionRegistrationRace
+--- PASS: TestSnapshotSharingCompletionRegistrationRace (0.03s)
+=== RUN   TestSnapshotSharingTypedServiceReceiverNeedsRegistration
+--- PASS: TestSnapshotSharingTypedServiceReceiverNeedsRegistration (0.04s)
+=== RUN   TestPartSessionlessRestoredDirectory
+    cache_part_admission_external_test.go:19: real native snapshot transfer requires read-only bind mount privileges: mount source: "/tmp/TestPartSessionlessRestoredDirectory532905385/001", target: "/tmp/snapshot-transfer-mount224101061", fstype: bind, flags: 20481, data: "", err: operation not permitted
+--- SKIP: TestPartSessionlessRestoredDirectory (0.00s)
+PASS
+ok  	github.com/dagger/dagger/dagql	3.182s
+=== RUN   TestPersistedDecodeDefaultDeps
+=== RUN   TestPersistedDecodeDefaultDeps/marked_without_a_registered_factory_is_refused
+=== RUN   TestPersistedDecodeDefaultDeps/marked_with_the_registered_root_returns_a_fresh_builder
+=== RUN   TestPersistedDecodeDefaultDeps/a_decoding_server_with_another_root_is_refused
+=== RUN   TestPersistedDecodeDefaultDeps/an_unmarked_context_keeps_the_ordinary_path
+--- PASS: TestPersistedDecodeDefaultDeps (0.00s)
+    --- PASS: TestPersistedDecodeDefaultDeps/marked_without_a_registered_factory_is_refused (0.00s)
+    --- PASS: TestPersistedDecodeDefaultDeps/marked_with_the_registered_root_returns_a_fresh_builder (0.00s)
+    --- PASS: TestPersistedDecodeDefaultDeps/a_decoding_server_with_another_root_is_refused (0.00s)
+    --- PASS: TestPersistedDecodeDefaultDeps/an_unmarked_context_keeps_the_ordinary_path (0.00s)
+=== RUN   TestSnapshotSharePreparationCoreGuards
+2026/09/17 06:00:14 INFO start lazy evaluation field=TestValue
+2026/09/17 06:00:14 INFO end lazy evaluation field=TestValue duration=108.41µs
+--- PASS: TestSnapshotSharePreparationCoreGuards (0.00s)
+PASS
+ok  	github.com/dagger/dagger/core	1.610s
+=== RUN   TestSnapshotSharingReceivesImports
+--- PASS: TestSnapshotSharingReceivesImports (0.00s)
+=== RUN   TestSnapshotSharingSkipsOrdinaryEngine
+--- PASS: TestSnapshotSharingSkipsOrdinaryEngine (0.00s)
+=== RUN   TestSnapshotSharingPreparationContext
+    snapshot_sharing_test.go:50: static core schema base construction: 45.868219ms
+--- PASS: TestSnapshotSharingPreparationContext (0.05s)
+PASS
+ok  	github.com/dagger/dagger/engine/server	1.491s
+
+real	1m1.539s
+user	1m41.622s
+sys	0m8.213s
