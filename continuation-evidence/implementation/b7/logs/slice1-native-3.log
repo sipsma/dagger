@@ -1,0 +1,47 @@
+[dagger] 30.0s elapsed · 8 steps running
+[dagger] 1m0s elapsed · 24 steps running
+[dagger] 1m30s elapsed · 91 steps running
+[dagger] 2m0s elapsed · 6 steps running
+[dagger] 2m30s elapsed · 6 steps running
+[dagger] 3m0s elapsed · 7 steps running
+[dagger] 3m30s elapsed · 6 steps running
+[dagger] 4m0s elapsed · 11 steps running
+[dagger] 4m30s elapsed · 13 steps running
+== TRACE ==  ✔ PASSED
+engine-dev test --pkg ./core/integration --run=^TestRemoteCacheTransferSuite/TestFixtureControls/BarrierActions$ --test-verbose --timeout=5m --env-file=file:/tmp/b7/dump-5m.env  4m59s
+
+✔ connect 0.4s
+✔ load workspace: . 31.5s
+  ✔ 12 uploads, 1 unpack 3.7s
+✔ parsing command line arguments 0.0s
+
+✔ address(value: "file:/tmp/b7/dump-5m.env"): Address! 0.0s
+✔ .secret: Secret! 0.0s
+
+✔ engineDev(
+  ┆ ws: currentWorkspace: Workspace!
+  ): EngineDev! 26.0s
+  ✔ uploading /home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/cl-1bc62433d5e6050624a14d087cadcbdf-b7-tests-a26ba67d-2d6ae69a 2.4s ████████████ 57 MB
+✔ .test(
+  ┆ run: "^TestRemoteCacheTransferSuite/TestFixtureControls/BarrierActions$"
+  ┆ pkg: "./core/integration"
+  ┆ timeout: "5m"
+  ┆ envFile: Address.secret: Secret!
+  ┆ testVerbose: true
+  ): Void 4m1s
+  ✘ Host.directory 0.0s ████████████ 2.0 kB ERROR
+  ✘ Host.directory 0.0s ████████████ 2.0 kB ERROR
+  ✔ 10 pulls, 10 unpacks, 146 fetches, 7 uploads, 3 transfers 21.5s
+
+== SERVICES ==
+✔ rogct0dgr0vls.0lj9cqe13b3to.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 2m2s EXITED span=cad50781bc65d824
+✔ h4avdn8nctrm4.0lj9cqe13b3to.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 2m2s EXITED span=6200881b08964d56
+✘ kee1qkj5btfs6.0lj9cqe13b3to.dagger.local exec dagger-entrypoint.sh --addr unix:///run/dagger-engine.sock --addr tcp://0.0.0.0:1234 --network-name dagger-dev --network-cidr 10.88.0.0/16 --debugaddr 0.0.0.0:6060 2m2s ERROR span=b1e056708c2f6d92
+
+== TESTS ==
+  ✔ github.com/dagger/dagger/core/integration  1 passed
+
+  ✔ 1 passed
+
+Full trace at https://dagger.cloud/dagger/traces/a21f6e9b9c636ea156af9a086b160683
+exit=0 wall=299s

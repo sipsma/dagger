@@ -1,0 +1,61 @@
+# Excerpt of /tmp/b7/fc1.log (native run 1, failed on the debug-port order). Verdicts, one Connect failure, and the dump markers.
+1295:NESTED-ENGINE-DUMP test process still running after 1m40s; test-process goroutines:
+3012:NESTED-ENGINE-DUMP-BEGIN TestRemoteCacheTransferSuite/TestFixtureControls/GitVisibility git
+3357:NESTED-ENGINE-DUMP-END TestRemoteCacheTransferSuite/TestFixtureControls/GitVisibility git
+3359:NESTED-ENGINE-DUMP-BEGIN TestRemoteCacheTransferSuite/TestFixtureControls/TransportShape transport
+3704:NESTED-ENGINE-DUMP-END TestRemoteCacheTransferSuite/TestFixtureControls/TransportShape transport
+3719:NESTED-ENGINE-DUMP-BEGIN TestRemoteCacheTransferSuite/TestFixtureControls/BarrierActions faults-a
+4052:NESTED-ENGINE-DUMP-END TestRemoteCacheTransferSuite/TestFixtureControls/BarrierActions faults-a
+4054:NESTED-ENGINE-DUMP-BEGIN TestRemoteCacheTransferSuite/TestFixtureControls/ObserverOverflow overflow-a
+4387:NESTED-ENGINE-DUMP-END TestRemoteCacheTransferSuite/TestFixtureControls/ObserverOverflow overflow-a
+4389:NESTED-ENGINE-DUMP-BEGIN TestRemoteCacheTransferSuite/TestFixtureControls/NoStaleBarrierOrHoldAfterRestart restart
+4732:NESTED-ENGINE-DUMP-END TestRemoteCacheTransferSuite/TestFixtureControls/NoStaleBarrierOrHoldAfterRestart restart
+4734:NESTED-ENGINE-DUMP-BEGIN TestRemoteCacheTransferSuite/TestFixtureControls/MalformedRecords malformed
+5077:NESTED-ENGINE-DUMP-END TestRemoteCacheTransferSuite/TestFixtureControls/MalformedRecords malformed
+5084:NESTED-ENGINE-DUMP-BEGIN TestRemoteCacheTransferSuite/TestFixtureControls/AbsentGate plain
+5415:NESTED-ENGINE-DUMP-END TestRemoteCacheTransferSuite/TestFixtureControls/AbsentGate plain
+5417:NESTED-ENGINE-DUMP all dumps written
+8114:--- FAIL: TestRemoteCacheTransferSuite (0.00s)
+8115:    --- FAIL: TestRemoteCacheTransferSuite/TestFixtureControls (0.00s)
+8116:        --- FAIL: TestRemoteCacheTransferSuite/TestFixtureControls/NoStaleBarrierOrHoldAfterRestart (323.81s)
+8117:        --- FAIL: TestRemoteCacheTransferSuite/TestFixtureControls/TransportShape (323.93s)
+8118:        --- FAIL: TestRemoteCacheTransferSuite/TestFixtureControls/BarrierActions (324.39s)
+8119:        --- FAIL: TestRemoteCacheTransferSuite/TestFixtureControls/AbsentGate (324.40s)
+8120:        --- FAIL: TestRemoteCacheTransferSuite/TestFixtureControls/ObserverOverflow (324.55s)
+8121:        --- FAIL: TestRemoteCacheTransferSuite/TestFixtureControls/MalformedRecords (325.08s)
+8122:        --- FAIL: TestRemoteCacheTransferSuite/TestFixtureControls/GitVisibility (327.03s)
+8138:exit=1 wall=570s
+# first failure
+    testctx.go:174: 
+                Error Trace:    /app/core/integration/remote_cache_harness_test.go:76
+                                                        /app/core/integration/remote_cache_harness_test.go:52
+                                                        /app/core/integration/remote_cache_fixture_controls_test.go:153
+                                                        /go/pkg/mod/github.com/dagger/testctx@v0.1.2/testctx.go:296
+                                                        /go/pkg/mod/github.com/dagger/otel-go@v1.43.1-0.20260810200237-752a39ce1610/oteltestctx/trace.go:74
+                                                        /go/pkg/mod/github.com/dagger/testctx@v0.1.2/middleware.go:25
+                                                        /go/pkg/mod/github.com/dagger/testctx@v0.1.2/testctx.go:150
+                Error:          Received unexpected error:
+                                timed out waiting for session params: 1   : connect
+                                1   : [0.0s] | cloud url=https://dagger.cloud/traces/setup
+                                2   : ┆ starting engine
+                                2   : ┆ starting engine DONE [0.0s]
+                                3   : ┆ connecting to engine
+                Test:           TestRemoteCacheTransferSuite/TestFixtureControls/NoStaleBarrierOrHoldAfterRestart
+# the fixture controller's consumer loop in one gated engine's dump
+
+goroutine 146 [chan receive]:
+github.com/dagger/dagger/engine/server.(*Server).gcClientDBs(0x871e28cc708)
+        /app/engine/server/server.go:1072 +0x4e
+created by github.com/dagger/dagger/engine/server.NewServer in goroutine 1
+        /app/engine/server/server.go:474 +0x2b59
+
+goroutine 122 [select, 1 minutes]:
+github.com/dagger/dagger/dagql.(*RemoteCacheBridge).TakeRenewalRequest(0x871e2ad1980, {0x48efc70, 0x871e2e80aa0})
+        /app/dagql/cache_part_renewal.go:229 +0x20d
+github.com/dagger/dagger/engine/server.(*RemoteCacheAdapter).TakeRenewalRequest(0x4b4e99?, {0x48efc70?, 0x871e2e80aa0?})
+        /app/engine/server/remote_cache.go:66 +0x33
+github.com/dagger/dagger/engine/server.(*remoteCacheFixtureController).run(0x871e2e80a00, {0x48efc70, 0x871e2e80aa0}, 0x871e2e80a50)
+        /app/engine/server/remote_cache_fixture_controller.go:86 +0x115
+github.com/dagger/dagger/engine/server.(*Server).startRemoteCacheIntegration.func1()
+        /app/engine/server/remote_cache.go:128 +0x82
+created by github.com/dagger/dagger/engine/server.(*Server).startRemoteCacheIntegration in goroutine 1

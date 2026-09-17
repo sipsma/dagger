@@ -1,0 +1,160 @@
+=== RUN   TestFixtureBarrierActionsAreClosed
+--- PASS: TestFixtureBarrierActionsAreClosed (0.06s)
+=== RUN   TestFixtureBarrierPauseAndRelease
+--- PASS: TestFixtureBarrierPauseAndRelease (0.27s)
+=== RUN   TestFixtureBarrierCloseReleasesPausedOperation
+--- PASS: TestFixtureBarrierCloseReleasesPausedOperation (0.07s)
+=== RUN   TestFixtureBarrierOwnerAttachFaults
+=== RUN   TestFixtureBarrierOwnerAttachFaults/failOwnerAttachBefore
+=== RUN   TestFixtureBarrierOwnerAttachFaults/failOwnerAttachAfter
+--- PASS: TestFixtureBarrierOwnerAttachFaults (0.12s)
+    --- PASS: TestFixtureBarrierOwnerAttachFaults/failOwnerAttachBefore (0.06s)
+    --- PASS: TestFixtureBarrierOwnerAttachFaults/failOwnerAttachAfter (0.05s)
+=== RUN   TestFixtureHoldTokens
+--- PASS: TestFixtureHoldTokens (0.03s)
+=== RUN   TestFixtureHoldTokensEndAtClose
+--- PASS: TestFixtureHoldTokensEndAtClose (0.03s)
+=== RUN   TestFixtureObserverOverflow
+--- PASS: TestFixtureObserverOverflow (0.05s)
+=== RUN   TestSnapshotSharingTriggers
+--- PASS: TestSnapshotSharingTriggers (0.04s)
+=== RUN   TestSnapshotSharingInstallsFromEquivalent
+--- PASS: TestSnapshotSharingInstallsFromEquivalent (0.06s)
+=== RUN   TestSnapshotSharingPreparedSequence
+--- PASS: TestSnapshotSharingPreparedSequence (0.04s)
+=== RUN   TestSnapshotSharingPreparedSequenceThreeParts
+--- PASS: TestSnapshotSharingPreparedSequenceThreeParts (0.05s)
+=== RUN   TestSnapshotSharingIndependentParts
+--- PASS: TestSnapshotSharingIndependentParts (0.03s)
+=== RUN   TestSnapshotSharingDonorReceivesSibling
+--- PASS: TestSnapshotSharingDonorReceivesSibling (0.04s)
+=== RUN   TestSnapshotSharingTriggerSites
+=== RUN   TestSnapshotSharingTriggerSites/new_membership_without_a_union
+=== RUN   TestSnapshotSharingTriggerSites/no_enqueue_for_an_unregistered_row
+=== RUN   TestSnapshotSharingTriggerSites/lazy_completion_notifies_after_a_successful_share
+=== RUN   TestSnapshotSharingTriggerSites/admission_off_enqueues_nothing
+--- PASS: TestSnapshotSharingTriggerSites (0.18s)
+    --- PASS: TestSnapshotSharingTriggerSites/new_membership_without_a_union (0.06s)
+    --- PASS: TestSnapshotSharingTriggerSites/no_enqueue_for_an_unregistered_row (0.04s)
+    --- PASS: TestSnapshotSharingTriggerSites/lazy_completion_notifies_after_a_successful_share (0.03s)
+    --- PASS: TestSnapshotSharingTriggerSites/admission_off_enqueues_nothing (0.05s)
+=== RUN   TestSnapshotSharingCoalescing
+--- PASS: TestSnapshotSharingCoalescing (0.06s)
+=== RUN   TestSnapshotSharingNoJoinRefusal
+--- PASS: TestSnapshotSharingNoJoinRefusal (0.03s)
+=== RUN   TestSnapshotSharingReadinessAndExpiry
+=== RUN   TestSnapshotSharingReadinessAndExpiry/a_desired-only_role_is_not_an_applied_role
+=== RUN   TestSnapshotSharingReadinessAndExpiry/an_expired_receiver_is_skipped
+=== RUN   TestSnapshotSharingReadinessAndExpiry/an_expired_donor_is_skipped
+=== RUN   TestSnapshotSharingReadinessAndExpiry/a_native_receiver_is_never_filled
+--- PASS: TestSnapshotSharingReadinessAndExpiry (0.16s)
+    --- PASS: TestSnapshotSharingReadinessAndExpiry/a_desired-only_role_is_not_an_applied_role (0.04s)
+    --- PASS: TestSnapshotSharingReadinessAndExpiry/an_expired_receiver_is_skipped (0.06s)
+    --- PASS: TestSnapshotSharingReadinessAndExpiry/an_expired_donor_is_skipped (0.03s)
+    --- PASS: TestSnapshotSharingReadinessAndExpiry/a_native_receiver_is_never_filled (0.04s)
+=== RUN   TestSnapshotSharingStructuralRequirements
+=== RUN   TestSnapshotSharingStructuralRequirements/own
+=== RUN   TestSnapshotSharingStructuralRequirements/offer-only
+=== RUN   TestSnapshotSharingStructuralRequirements/missing
+--- PASS: TestSnapshotSharingStructuralRequirements (0.14s)
+    --- PASS: TestSnapshotSharingStructuralRequirements/own (0.05s)
+    --- PASS: TestSnapshotSharingStructuralRequirements/offer-only (0.06s)
+    --- PASS: TestSnapshotSharingStructuralRequirements/missing (0.03s)
+=== RUN   TestSnapshotSharingReleaseThenExternalFinish
+--- PASS: TestSnapshotSharingReleaseThenExternalFinish (0.06s)
+=== RUN   TestSnapshotSharingPreparationContextGuards
+--- PASS: TestSnapshotSharingPreparationContextGuards (0.04s)
+=== RUN   TestSnapshotSharingWorkerBaseIsMarked
+--- PASS: TestSnapshotSharingWorkerBaseIsMarked (0.04s)
+=== RUN   TestSnapshotSharingDecodeWhileFinishPaused
+--- PASS: TestSnapshotSharingDecodeWhileFinishPaused (0.06s)
+=== RUN   TestSnapshotSharingShutdown
+--- PASS: TestSnapshotSharingShutdown (0.16s)
+=== RUN   TestSnapshotSharingFailedFinishAndRetry
+--- PASS: TestSnapshotSharingFailedFinishAndRetry (0.06s)
+=== RUN   TestSnapshotSharingCompletionRegistrationRace
+--- PASS: TestSnapshotSharingCompletionRegistrationRace (0.06s)
+=== RUN   TestSnapshotSharingTypedServiceReceiverNeedsRegistration
+--- PASS: TestSnapshotSharingTypedServiceReceiverNeedsRegistration (0.04s)
+=== RUN   TestSnapshotSharingTypedReceiverFillsOnePartPerPass
+--- PASS: TestSnapshotSharingTypedReceiverFillsOnePartPerPass (0.03s)
+=== RUN   TestSnapshotSharingSelectsRestoredFrame
+--- PASS: TestSnapshotSharingSelectsRestoredFrame (0.03s)
+=== RUN   TestSnapshotSharingRefusedSlotReselectsJoinedDemand
+--- PASS: TestSnapshotSharingRefusedSlotReselectsJoinedDemand (0.05s)
+=== RUN   TestSnapshotSharingCancelDuringPreparation
+--- PASS: TestSnapshotSharingCancelDuringPreparation (0.24s)
+=== RUN   TestSnapshotSharingAbortReportsAfterCleanup
+--- PASS: TestSnapshotSharingAbortReportsAfterCleanup (0.26s)
+=== RUN   TestSnapshotSharingCancelAfterPublicationDeliversReceipt
+--- PASS: TestSnapshotSharingCancelAfterPublicationDeliversReceipt (0.26s)
+=== RUN   TestSnapshotSharingFailedFinishLastOwner
+--- PASS: TestSnapshotSharingFailedFinishLastOwner (0.06s)
+=== RUN   TestSnapshotSharingEncodedInstallRetryAfterDecode
+=== RUN   TestSnapshotSharingEncodedInstallRetryAfterDecode/failed_attachment
+=== RUN   TestSnapshotSharingEncodedInstallRetryAfterDecode/partial_attachment
+--- PASS: TestSnapshotSharingEncodedInstallRetryAfterDecode (0.12s)
+    --- PASS: TestSnapshotSharingEncodedInstallRetryAfterDecode/failed_attachment (0.06s)
+    --- PASS: TestSnapshotSharingEncodedInstallRetryAfterDecode/partial_attachment (0.06s)
+=== RUN   TestSnapshotSharingImportTriggers
+=== RUN   TestSnapshotSharingImportTriggers/live_import_queues_the_imported_classes
+=== RUN   TestSnapshotSharingImportTriggers/a_failed_root_validation_queues_nothing
+=== RUN   TestSnapshotSharingImportTriggers/a_failed_identity_plan_queues_nothing
+--- PASS: TestSnapshotSharingImportTriggers (0.19s)
+    --- PASS: TestSnapshotSharingImportTriggers/live_import_queues_the_imported_classes (0.06s)
+    --- PASS: TestSnapshotSharingImportTriggers/a_failed_root_validation_queues_nothing (0.05s)
+    --- PASS: TestSnapshotSharingImportTriggers/a_failed_identity_plan_queues_nothing (0.03s)
+=== RUN   TestSnapshotSharingPrefixCarriedOverRefusedAddress
+--- PASS: TestSnapshotSharingPrefixCarriedOverRefusedAddress (0.16s)
+=== RUN   TestSnapshotSharingTypedIneligibleFirstAddress
+--- PASS: TestSnapshotSharingTypedIneligibleFirstAddress (0.07s)
+=== RUN   TestSnapshotSharingTypedSuccessorHoldsTheDonor
+--- PASS: TestSnapshotSharingTypedSuccessorHoldsTheDonor (0.06s)
+=== RUN   TestSnapshotSharingDecodePreflight
+--- PASS: TestSnapshotSharingDecodePreflight (0.06s)
+=== RUN   TestSnapshotSharingDonorLeaseReconciliationIsBusy
+--- PASS: TestSnapshotSharingDonorLeaseReconciliationIsBusy (0.06s)
+=== RUN   TestSnapshotSharingPreparationContextIsSetOnce
+--- PASS: TestSnapshotSharingPreparationContextIsSetOnce (0.15s)
+PASS
+ok  	github.com/dagger/dagger/dagql	5.290s
+=== RUN   TestRemoteCacheFixtureRenewal
+=== RUN   TestRemoteCacheFixtureRenewal/off-gate_there_is_no_controller
+=== RUN   TestRemoteCacheFixtureRenewal/a_delivered_request_is_taken_and_answered_once
+=== RUN   TestRemoteCacheFixtureRenewal/an_armed_reply_is_sent_by_the_consumer_loop_itself
+--- PASS: TestRemoteCacheFixtureRenewal (0.10s)
+    --- PASS: TestRemoteCacheFixtureRenewal/off-gate_there_is_no_controller (0.00s)
+    --- PASS: TestRemoteCacheFixtureRenewal/a_delivered_request_is_taken_and_answered_once (0.00s)
+    --- PASS: TestRemoteCacheFixtureRenewal/an_armed_reply_is_sent_by_the_consumer_loop_itself (0.10s)
+=== RUN   TestRemoteCacheFixturePruneReport
+=== RUN   TestRemoteCacheFixturePruneReport/disk
+2026/09/17 15:35:57 INFO dagql pruned result resultID=1 call=Query.fixtureRoot digest=xxh3:aaf9fb7989491a72 args=[] description=fixtureRoot measuredSizeBytes=0 reclaimedBytes=0
+=== RUN   TestRemoteCacheFixturePruneReport/metadata
+2026/09/17 15:35:57 INFO dagql metadata prune finished triggered=true maximumEstimatedBytes=4351 targetEstimatedBytes=1 beforeEstimatedBytes=4352 beforeResults=1 beforeTerms=1 beforeClassSlots=1 afterInitialCompactionEstimatedBytes=4352 afterInitialCompactionResults=1 afterInitialCompactionTerms=1 afterInitialCompactionClassSlots=1 afterPruneEstimatedBytes=0 afterPruneResults=0 afterPruneTerms=0 afterPruneClassSlots=0 initialCompactionOldClassSlots=1 initialCompactionNewClassSlots=1 finalCompactionOldClassSlots=0 finalCompactionNewClassSlots=0 candidateCount=1 plannedRootCount=1 simulatedCollectedResultCount=1 simulatedStructuralBytes=4352 removedPersistedRootCount=1 candidatesExhausted=false snapshotGCAttempted=false snapshotGCSucceeded=false duration=24.399µs
+--- PASS: TestRemoteCacheFixturePruneReport (0.01s)
+    --- PASS: TestRemoteCacheFixturePruneReport/disk (0.00s)
+    --- PASS: TestRemoteCacheFixturePruneReport/metadata (0.00s)
+=== RUN   TestSnapshotSharingMarkedDecodeOfEncodedService
+2026/09/17 15:35:57 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/17 15:35:57 INFO marking dagql cache clean shutdown
+2026/09/17 15:35:57 WARN successfully marked clean shutdown in persistence metadata
+2026/09/17 15:35:57 INFO completed dagql cache close successfully
+2026/09/17 15:35:57 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/17 15:35:57 INFO marking dagql cache clean shutdown
+2026/09/17 15:35:57 WARN successfully marked clean shutdown in persistence metadata
+2026/09/17 15:35:57 INFO completed dagql cache close successfully
+--- PASS: TestSnapshotSharingMarkedDecodeOfEncodedService (0.22s)
+=== RUN   TestSnapshotSharingReceivesImports
+--- PASS: TestSnapshotSharingReceivesImports (0.00s)
+=== RUN   TestSnapshotSharingSkipsOrdinaryEngine
+--- PASS: TestSnapshotSharingSkipsOrdinaryEngine (0.00s)
+=== RUN   TestSnapshotSharingPreparationContext
+    snapshot_sharing_test.go:53: static core schema base construction: 27.201905ms
+--- PASS: TestSnapshotSharingPreparationContext (0.03s)
+PASS
+ok  	github.com/dagger/dagger/engine/server	1.798s
+=== RUN   TestFixtureTransport
+--- PASS: TestFixtureTransport (0.00s)
+PASS
+ok  	github.com/dagger/dagger/engine/fixturetransport	1.022s
+exit=0 wall=92s
