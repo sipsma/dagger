@@ -147,6 +147,18 @@ measured.
   run the exec, and the second result merges by identity afterwards. No
   change to singleflight is proposed.
 
+Two facts from the Namespace track that bound the export of any retained
+row, the definition included (coordinator, 17 September): a managed engine
+is suspended by the API about a minute after its last client disconnects
+and then receives SIGTERM with a 60-second grace, so A's export after
+session end must start promptly, and it does, because the service queues
+the export when it processes the report and the engine's open long-poll
+returns at once (`engine/remotecache/client.go`, the poll loop); and a
+SIGTERM in the middle of an export must leave nothing half-posted, and it
+does not, because the bundle is posted last and a canceled upload fails
+the export before P5 (`engine/remotecache/upload.go`). The demo API will
+use a 15-minute window.
+
 ## How it is tested
 
 - In-process, `core/schema`, with a scripted resolver counter: (1) two
