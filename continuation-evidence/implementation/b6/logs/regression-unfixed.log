@@ -1,0 +1,107 @@
+panic: test timed out after 30s
+	running tests:
+		TestSnapshotSharingSelectsRestoredFrame (30s)
+
+goroutine 114 [running]:
+testing.(*M).startAlarm.func1()
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/testing/testing.go:2802 +0x354
+created by time.goFunc
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/time/sleep.go:215 +0x2d
+
+goroutine 1 [chan receive, locked to thread]:
+testing.(*T).Run(0x2b61360f6fc8, {0x3be2197?, 0x0?}, 0x3ec4e40)
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/testing/testing.go:2109 +0x4e5
+testing.runTests.func1(0x2b61360f6fc8)
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/testing/testing.go:2585 +0x3e
+testing.tRunner(0x2b61360f6fc8, 0x2b6136705c58)
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/testing/testing.go:2036 +0xea
+testing.runTests({0x3b9c64a, 0x18}, {0x3bb847e, 0x1e}, 0x2b613621cea0, {0x64d3800, 0x1dc, 0x1dc}, {0xc2a300de314c65e8, 0x6ff82f9fa, ...})
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/testing/testing.go:2583 +0x505
+testing.(*M).Run(0x2b61365f3a40)
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/testing/testing.go:2443 +0x6ac
+main.main()
+	_testmain.go:1016 +0x9b
+
+goroutine 40 [sync.Mutex.Lock]:
+internal/sync.runtime_SemacquireMutex(0x4b05207?, 0x20?, 0x49425c?)
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/runtime/sema.go:95 +0x25
+internal/sync.(*Mutex).lockSlow(0x2b6136846050)
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/internal/sync/mutex.go:149 +0x15d
+internal/sync.(*Mutex).Lock(...)
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/internal/sync/mutex.go:70
+sync.(*Mutex).Lock(...)
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/sync/mutex.go:46
+sync.(*RWMutex).Lock(0x0?)
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/sync/rwmutex.go:150 +0x32
+github.com/dagger/dagger/dagql.(*Cache).closeSnapshotSharing(0x2b6136846008, {0x56b031?, 0x56afc0?})
+	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/sharing-implementer-fable-impl-07b90299-afea3c83/dagql/cache_snapshot_sharing.go:472 +0x2e
+github.com/dagger/dagger/dagql.(*Cache).CloseDiscardingPersistence.func1()
+	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/sharing-implementer-fable-impl-07b90299-afea3c83/dagql/cache.go:4657 +0x49
+sync.(*Once).doSlow(0x4b05207?, 0x5f?)
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/sync/once.go:78 +0xac
+sync.(*Once).Do(...)
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/sync/once.go:69
+github.com/dagger/dagger/dagql.(*Cache).CloseDiscardingPersistence(0x2b6136846008)
+	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/sharing-implementer-fable-impl-07b90299-afea3c83/dagql/cache.go:4653 +0x45
+github.com/dagger/dagger/dagql.transferTestCache.func1()
+	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/sharing-implementer-fable-impl-07b90299-afea3c83/dagql/cache_value_transfer_test.go:98 +0x25
+testing.(*common).Cleanup.func1()
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/testing/testing.go:1317 +0x109
+testing.(*common).runCleanup(0x2b613664e008, 0x2b61365774a0?)
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/testing/testing.go:1667 +0xea
+testing.tRunner.func2()
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/testing/testing.go:2030 +0x25
+runtime.Goexit()
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/runtime/panic.go:694 +0x5e
+testing.(*common).FailNow(0x2b613664e008)
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/testing/testing.go:1022 +0x4a
+testing.(*common).Fatal(0x2b613664e008, {0x2b6136661d78?, 0x8?, 0x0?})
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/testing/testing.go:1221 +0x4f
+github.com/dagger/dagger/dagql.(*sharePassBarrier).awaitPass(0x2b61362dcaa0, 0x2b613664e008)
+	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/sharing-implementer-fable-impl-07b90299-afea3c83/dagql/cache_snapshot_sharing_test.go:200 +0xca
+github.com/dagger/dagger/dagql.TestSnapshotSharingSelectsRestoredFrame(0x2b613664e008)
+	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/sharing-implementer-fable-impl-07b90299-afea3c83/dagql/cache_snapshot_sharing_test.go:974 +0x651
+testing.tRunner(0x2b613664e008, 0x3ec4e40)
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/testing/testing.go:2036 +0xea
+created by testing.(*T).Run in goroutine 1
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/testing/testing.go:2101 +0x4c5
+
+goroutine 53 [select]:
+database/sql.(*DB).connectionOpener(0x2b613683a0d0, {0x3f2da00, 0x2b61360bea50})
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/database/sql/sql.go:1261 +0x89
+created by database/sql.OpenDB in goroutine 40
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/database/sql/sql.go:841 +0x130
+
+goroutine 106 [sync.RWMutex.RLock]:
+sync.runtime_SemacquireRWMutexR(0x427cb4?, 0x90?, 0x2b61361ebb88?)
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/runtime/sema.go:100 +0x25
+sync.(*RWMutex).RLock(...)
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/sync/rwmutex.go:74
+github.com/dagger/dagger/dagql.recipeDigestForCachedResult(0x2b6136846008, 0x1, 0x2b6135f850b0)
+	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/sharing-implementer-fable-impl-07b90299-afea3c83/dagql/result_call_frame.go:1103 +0xa5
+github.com/dagger/dagger/dagql.recipeDigestForResultCallRef(0x2b6136846008, 0x2b613621dc98, 0x2b6135f850b0)
+	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/sharing-implementer-fable-impl-07b90299-afea3c83/dagql/result_call_frame.go:1130 +0x7f
+github.com/dagger/dagger/dagql.(*ResultCall).recipeDigestWithVisiting.func1()
+	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/sharing-implementer-fable-impl-07b90299-afea3c83/dagql/result_call_frame.go:704 +0xe5
+sync.(*Once).doSlow(0x18d608993d3dbcc6?, 0x18d608993d3ddc74?)
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/sync/once.go:78 +0xac
+sync.(*Once).Do(...)
+	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/sync/once.go:69
+github.com/dagger/dagger/dagql.(*ResultCall).recipeDigestWithVisiting(0x2b613678d680, 0x0?, 0x1?)
+	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/sharing-implementer-fable-impl-07b90299-afea3c83/dagql/result_call_frame.go:690 +0x51
+github.com/dagger/dagger/dagql.(*ResultCall).deriveRecipeDigest(...)
+	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/sharing-implementer-fable-impl-07b90299-afea3c83/dagql/result_call_frame.go:318
+github.com/dagger/dagger/dagql.(*Cache).partLookupFor(0x2b6136846008, 0x2b61361ebb88?)
+	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/sharing-implementer-fable-impl-07b90299-afea3c83/dagql/cache_part_source.go:176 +0x119
+github.com/dagger/dagger/dagql.(*Cache).selectShareSlots(0x2b6136846008, {0x3f2da00, 0x2b613650ba90}, 0x0?)
+	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/sharing-implementer-fable-impl-07b90299-afea3c83/dagql/cache_snapshot_sharing.go:714 +0x328
+github.com/dagger/dagger/dagql.(*Cache).planSharePass(0x2b6136846008, {0x3f2da00, 0x2b613650ba90}, 0x2b61362c3ec0?)
+	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/sharing-implementer-fable-impl-07b90299-afea3c83/dagql/cache_snapshot_sharing.go:1188 +0x3a
+github.com/dagger/dagger/dagql.(*Cache).runSnapshotSharePass(0x2b6136846008, {0x3f2da00, 0x2b613650ba90}, 0x2b613650d020)
+	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/sharing-implementer-fable-impl-07b90299-afea3c83/dagql/cache_snapshot_sharing.go:1014 +0x53
+github.com/dagger/dagger/dagql.(*Cache).runSnapshotShareWorker(0x2b6136846008, {0x3f2da00, 0x2b613650ba90})
+	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/sharing-implementer-fable-impl-07b90299-afea3c83/dagql/cache_snapshot_sharing.go:403 +0x24f
+created by github.com/dagger/dagger/dagql.(*Cache).ensureSnapshotShareWorkerLocked in goroutine 40
+	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/sharing-implementer-fable-impl-07b90299-afea3c83/dagql/cache_snapshot_sharing.go:342 +0x152
+FAIL	github.com/dagger/dagger/dagql	30.075s
+FAIL

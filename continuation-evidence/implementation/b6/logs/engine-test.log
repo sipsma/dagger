@@ -1,0 +1,1093 @@
+    testctx.go:198: Creating new Engine session... OK!
+    testctx.go:198: Establishing connection to Engine... OK!
+    testctx.go:198: [95m1   : [0m[90;2m[0m.dagger-cli session --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a
+    testctx.go:198: [95m2   : [0m[90;2m┆ [0mconnect
+    testctx.go:198: [95m2   : [0m[90;2m┆ [0m[90m[0.0s] [0m[90m|[0m cloud [2murl=[0mhttps://dagger.cloud/traces/setup
+    testctx.go:198: [95m3   : [0m[90;2m┆ ┆ [0mstarting engine
+    testctx.go:198: [95m3   : [0m[90;2m┆ ┆ [0mstarting engine[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: [95m4   : [0m[90;2m┆ ┆ [0mconnecting to engine
+    testctx.go:198: [95m4   : [0m[90;2m┆ ┆ [0m[90m[0.0s] [0m[90m|[0m [2m06:56:40[0m [92mINF[0m connected [2mname=[0m4mm1gtkjshipe.jlrv6e42n73ni.dagger.local [2mclient-version=[0mv1.0.0-beta.14 [2mserver-version=[0mv1.0.0-beta.14+5ce25b68
+    testctx.go:198: [95m4   : [0m[90;2m┆ ┆ [0mconnecting to engine[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: [95m5   : [0m[90;2m┆ ┆ [0mstarting session
+    testctx.go:198: [95m5   : [0m[90;2m┆ ┆ [0mstarting session[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: [95m2   : [0m[90;2m┆ [0mconnect[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m6   : [0m[90;2m[0mconsuming /v1/traces
+    testctx.go:198: [95m6   : [0m[90;2m[0mconsuming /v1/traces[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m7   : [0m[90;2m[0mconsuming /v1/logs
+    testctx.go:198: [95m7   : [0m[90;2m[0mconsuming /v1/logs[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m8   : [0m[90;2m[0mconsuming /v1/metrics
+    testctx.go:198: [95m8   : [0m[90;2m[0mconsuming /v1/metrics[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m9   : [0m[90;2m[0m[1mhost[0m[2m: Host![0m
+    testctx.go:198: [95m9   : [0m[90;2m[0m[1mhost[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m10  : [0m[90;2m[0mHost.[1mfile[0m([36mpath: [0m[33m"/dagger-dev/engine.tar"[0m)[2m: File![0m
+    testctx.go:198: 
+    testctx.go:198: [95m11  : [0m[90;2m[0muploading /dagger-dev
+    testctx.go:198: 
+    testctx.go:198: [95m10  : [0m[90;2m[0mHost.[1mfile[0m[32m DONE[0m[90m [2.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m12  : [0m[90;2m[0m[1mcontainer[0m([36mplatform: [0m[33m"linux/amd64"[0m)[2m: Container![0m
+    testctx.go:198: [95m12  : [0m[90;2m[0m[1mcontainer[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m13  : [0m[90;2m[0mContainer.[1mimport[0m(
+    testctx.go:198: [95m13  : [0m[90;2m┆ [0m[36msource:[0m Host.[1mfile[0m([36mpath: [0m[33m"/dagger-dev/engine.tar"[0m)[2m: File![0m
+    testctx.go:198: [95m13  : [0m[90;2m[0m)[2m: Container![0m
+    testctx.go:198: 
+    testctx.go:198: [95m11  : [0m[90;2m[0muploading /dagger-dev[32m DONE[0m[90m [2.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m13  : [0m[90;2m[0mContainer.[1mimport[0m(
+    testctx.go:198: [95m13  : [0m[90;2m┆ [0m[36msource:[0m Host.[1mfile[0m([36mpath: [0m[33m"/dagger-dev/engine.tar"[0m)[2m: File![0m
+    testctx.go:198: [95m13  : [0m[90;2m[0m)[2m: Container![0m
+    testctx.go:198: [95m14  : [0m[90;2m┆ [0munpacking 
+    testctx.go:198: [95m14  : [0m[90;2m┆ [0munpacking [32m DONE[0m[90m [5.3s][0m
+    testctx.go:198: [95m13  : [0m[90;2m[0mContainer.[1mimport[0m[32m DONE[0m[90m [9.5s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m15  : [0m[90;2m[0mContainer.[1mwithMountedCache[0m(
+    testctx.go:198: [95m15  : [0m[90;2m┆ [0m[36mpath:[0m [33m"/transfer-fixture"[0m
+    testctx.go:198: [95m15  : [0m[90;2m┆ [0m[36mcache:[0m [1mcacheVolume[0m([36mkey: [0m[33m"b6-share-a-u1qncyb3sqmnomojckhtmq0l7"[0m, [36mnamespace: [0m[33m"mainClient"[0m)[2m: CacheVolume![0m
+    testctx.go:198: [95m15  : [0m[90;2m[0m)[2m: Container![0m
+    testctx.go:198: [95m15  : [0m[90;2m[0mContainer.[1mwithMountedCache[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m16  : [0m[90;2m[0m[34mwithEnvVariable[0m _DAGGER_TEST_REMOTE_CACHE_FIXTURE_ROOT=/transfer-fixture
+    testctx.go:198: [95m16  : [0m[90;2m[0mContainer.[1mwithEnvVariable[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m17  : [0m[90;2m[0mContainer.[1mwithMountedCache[0m(
+    testctx.go:198: [95m17  : [0m[90;2m┆ [0m[36mpath:[0m [33m"/var/lib/dagger"[0m
+    testctx.go:198: [95m17  : [0m[90;2m┆ [0m[36mcache:[0m [1mcacheVolume[0m([36mkey: [0m[33m"b6-share-a-state-dwz4zsr439tx29y8ho3vkiqy8"[0m, [36mnamespace: [0m[33m"mainClient"[0m)[2m: CacheVolume![0m
+    testctx.go:198: [95m17  : [0m[90;2m[0m)[2m: Container![0m
+    testctx.go:198: [95m17  : [0m[90;2m[0mContainer.[1mwithMountedCache[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m18  : [0m[90;2m[0mContainer.[1mwithExposedPort[0m([36mport: [0m[31m1234[0m, [36mprotocol: [0m[33mTCP[0m)[2m: Container![0m
+    testctx.go:198: [95m18  : [0m[90;2m[0mContainer.[1mwithExposedPort[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m19  : [0m[90;2m[0mContainer.[1mwithDefaultArgs[0m([36margs: [0m[[33m"--addr"[0m, [33m"tcp://0.0.0.0:1234"[0m, [33m"--network-name"[0m, [33m"dagger0"[0m, [33m"--network-cidr"[0m, [33m"10.89.0.0/24"[0m])[2m: Container![0m
+    testctx.go:198: [95m19  : [0m[90;2m[0mContainer.[1mwithDefaultArgs[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m20  : [0m[90;2m[0mContainer.[1mdirectory[0m([36mpath: [0m[33m"/etc/dagger"[0m)[2m: Directory![0m
+    testctx.go:198: [95m20  : [0m[90;2m[0mContainer.[1mdirectory[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m21  : [0m[90;2m[0mDirectory.[1mentries[0m[2m: [String!]![0m
+    testctx.go:198: [95m21  : [0m[90;2m[0mDirectory.[1mentries[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m22  : [0m[90;2m[0mContainer.[1mfile[0m([36mpath: [0m[33m"/etc/dagger/engine.json"[0m)[2m: File![0m
+    testctx.go:198: 
+    testctx.go:198: [95m23  : [0m[90;2m[0mFile.[1mcontents[0m[2m: String![0m
+[2m06:56:52[0m [93mWRN[0m port not ready [2mhost=[0mbvlmtj8sn8k7o.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.130:1234: connect: connection refused" [2melapsed=[0m1.396947ms
+    testctx.go:198: 
+    testctx.go:198: [95m22  : [0m[90;2m[0mContainer.[1mfile[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m23  : [0m[90;2m[0mFile.[1mcontents[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m24  : [0m[90;2m[0m[34mwithNewFile[0m /etc/dagger/engine.json (
+    testctx.go:198: [95m24  : [0m[90;2m┆ [0m[36mcontents:[0m [33m"{\"gc\":{\"enabled\":true,\"dagqlCache\":{},\"reservedSpace\":1000000000000000,\"maxUsedSpace\":1000000000000000,\"minFreeSpace\":0,\"sweepSize\":0},\"registries\":{\"docker.io\":{\"mirrors\":[\"mirror.gcr.io\"],\"http\":null,\"insecure\":null,\"ca\":null}}}\n"[0m
+    testctx.go:198: [95m24  : [0m[90;2m[0m)
+    testctx.go:198: [95m24  : [0m[90;2m[0mContainer.[1mwithNewFile[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m25  : [0m[90;2m[0mContainer.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+#!/bin/sh
+set -e
+
+cat $0
+
+# cgroup v2: enable nesting
+# see https://github.com/moby/moby/blob/38805f20f9bcc5e87869d6c79d432b166e1c88b4/hack/dind#L28
+if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
+	# move the processes from the root group to the /init group,
+	# otherwise writing subtree_control fails with EBUSY.
+	# An error during moving non-existent process (i.e., "cat") is ignored.
+	mkdir -p /sys/fs/cgroup/init
+	xargs -rn1 < /sys/fs/cgroup/cgroup.procs > /sys/fs/cgroup/init/cgroup.procs || :
+	# enable controllers
+	sed -e 's/ / +/g' -e 's/^/+/' < /sys/fs/cgroup/cgroup.controllers \
+		> /sys/fs/cgroup/cgroup.subtree_control
+fi
+
+# expect more open files due to per-client SQLite databases
+# many systems default to 1024 which is far too low
+ulimit -n 1048576 || echo "cannot increase open FDs with ulimit, ignoring"
+
+exec tini -- /usr/local/bin/dagger-engine --config /etc/dagger/engine.toml "$@"
+    testctx.go:198: 
+    testctx.go:198: [95m26  : [0m[90;2m[0mHost.[1mtunnel[0m(
+    testctx.go:198: [95m26  : [0m[90;2m┆ [0m[36mservice:[0m Container.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+    testctx.go:198: [95m26  : [0m[90;2m[0m)[2m: Service![0m
+[2m06:56:52[0m [93mWRN[0m port not ready [2mhost=[0mbvlmtj8sn8k7o.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.130:1234: connect: connection refused" [2melapsed=[0m117.042674ms
+[WARN  tini (18)] Tini is not running as PID 1 and isn't registered as a child subreaper.
+Zombie processes will not be re-parented to Tini, so zombie reaping won't work.
+To fix the problem, use the -s option or set the environment variable TINI_SUBREAPER to register Tini as a child subreaper, or run Tini as PID 1.
+    testctx.go:198: 
+    testctx.go:198: [95m25  : [0m[90;2m[0mContainer.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+    testctx.go:198: [95m27  : [0m[90;2m┆ [0m1234/tcp
+    testctx.go:198: 
+    testctx.go:198: [95m28  : [0m[90;2m[0mService.[1mstart[0m[2m: ID![0m
+[2m06:56:52[0m [93mWRN[0m port not ready [2mhost=[0mbvlmtj8sn8k7o.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.130:1234: connect: connection refused" [2melapsed=[0m223.593854ms
+time="2026-09-17T06:56:52Z" level=info msg="starting dagger engine version:v1.0.0-beta.14 v1.0.0-beta.14 linux/amd64"
+time="2026-09-17T06:56:52Z" level=info msg="configuring iptables backend: legacy"
+time="2026-09-17T06:56:52Z" level=info msg="set /usr/bin/iptables -> /usr/bin/xtables-legacy-multi"
+time="2026-09-17T06:56:52Z" level=info msg="set /usr/bin/iptables-save -> /usr/bin/xtables-legacy-multi"
+time="2026-09-17T06:56:52Z" level=info msg="set /usr/bin/iptables-restore -> /usr/bin/xtables-legacy-multi"
+time="2026-09-17T06:56:52Z" level=info msg="set /usr/bin/ip6tables -> /usr/bin/xtables-legacy-multi"
+time="2026-09-17T06:56:52Z" level=info msg="set /usr/bin/ip6tables-save -> /usr/bin/xtables-legacy-multi"
+time="2026-09-17T06:56:52Z" level=info msg="set /usr/bin/ip6tables-restore -> /usr/bin/xtables-legacy-multi"
+time="2026-09-17T06:56:52Z" level=info msg="using ipMasqBackend: iptables"
+time="2026-09-17T06:56:52Z" level=info msg="detected mtu 1500 via interface eth1"
+time="2026-09-17T06:56:52Z" level=info msg="engine name: bvlmtj8sn8k7o.4o1bnhb5t7ni0.dagger.local"
+time="2026-09-17T06:56:52Z" level=debug msg="creating engine GRPC server" spanID=0ca6628390a79af7 traceID=b8756e2261b12d4c4e2cbf365022628b
+time="2026-09-17T06:56:52Z" level=debug msg="creating engine lockfile" spanID=0ca6628390a79af7 traceID=b8756e2261b12d4c4e2cbf365022628b
+time="2026-09-17T06:56:52Z" level=debug msg="creating engine server" spanID=0ca6628390a79af7 traceID=b8756e2261b12d4c4e2cbf365022628b
+    testctx.go:198: 
+    testctx.go:198: [95m25  : [0m[90;2m[0mContainer.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+    testctx.go:198: [95m27  : [0m[90;2m┆ [0m1234/tcp
+    testctx.go:198: [95m27  : [0m[90;2m┆ [0m[90m[0.0s] [0m[90m|[0m [2m06:56:52[0m [93mWRN[0m port not ready [2mhost=[0mbvlmtj8sn8k7o.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.130:1234: connect: connection refused" [2melapsed=[0m1.396947ms
+    testctx.go:198: [95m27  : [0m[90;2m┆ [0m[90m[0.1s] [0m[90m|[0m [2m06:56:52[0m [93mWRN[0m port not ready [2mhost=[0mbvlmtj8sn8k7o.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.130:1234: connect: connection refused" [2melapsed=[0m117.042674ms
+[2m06:56:52[0m [93mWRN[0m port not ready [2mhost=[0mbvlmtj8sn8k7o.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.130:1234: connect: connection refused" [2melapsed=[0m426.148088ms
+    testctx.go:198: [95m25  : [0m[90;2m[0mContainer.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m #!/bin/sh
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m set -e
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m cat $0
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m # cgroup v2: enable nesting
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m # see https://github.com/moby/moby/blob/38805f20f9bcc5e87869d6c79d432b166e1c88b4/hack/dind#L28
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 	# move the processes from the root group to the /init group,
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 	# otherwise writing subtree_control fails with EBUSY.
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 	# An error during moving non-existent process (i.e., "cat") is ignored.
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 	mkdir -p /sys/fs/cgroup/init
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 	xargs -rn1 < /sys/fs/cgroup/cgroup.procs > /sys/fs/cgroup/init/cgroup.procs || :
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 	# enable controllers
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 	sed -e 's/ / +/g' -e 's/^/+/' < /sys/fs/cgroup/cgroup.controllers \
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 		> /sys/fs/cgroup/cgroup.subtree_control
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m fi
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m # expect more open files due to per-client SQLite databases
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m # many systems default to 1024 which is far too low
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m ulimit -n 1048576 || echo "cannot increase open FDs with ulimit, ignoring"
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m exec tini -- /usr/local/bin/dagger-engine --config /etc/dagger/engine.toml "$@"
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m [WARN  tini (18)] Tini is not running as PID 1 and isn't registered as a child subreaper.
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m Zombie processes will not be re-parented to Tini, so zombie reaping won't work.
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m To fix the problem, use the -s option or set the environment variable TINI_SUBREAPER to register Tini as a child subreaper, or run Tini as PID 1.
+    testctx.go:198: [95m27  : [0m[90;2m┆ [0m1234/tcp
+    testctx.go:198: [95m27  : [0m[90;2m┆ [0m[90m[0.2s] [0m[90m|[0m [2m06:56:52[0m [93mWRN[0m port not ready [2mhost=[0mbvlmtj8sn8k7o.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.130:1234: connect: connection refused" [2melapsed=[0m223.593854ms
+    testctx.go:198: [95m25  : [0m[90;2m[0mContainer.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:56:52Z" level=info msg="starting dagger engine version:v1.0.0-beta.14 v1.0.0-beta.14 linux/amd64"
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:56:52Z" level=info msg="configuring iptables backend: legacy"
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:56:52Z" level=info msg="set /usr/bin/iptables -> /usr/bin/xtables-legacy-multi"
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:56:52Z" level=info msg="set /usr/bin/iptables-save -> /usr/bin/xtables-legacy-multi"
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:56:52Z" level=info msg="set /usr/bin/iptables-restore -> /usr/bin/xtables-legacy-multi"
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:56:52Z" level=info msg="set /usr/bin/ip6tables -> /usr/bin/xtables-legacy-multi"
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:56:52Z" level=info msg="set /usr/bin/ip6tables-save -> /usr/bin/xtables-legacy-multi"
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:56:52Z" level=info msg="set /usr/bin/ip6tables-restore -> /usr/bin/xtables-legacy-multi"
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:56:52Z" level=info msg="using ipMasqBackend: iptables"
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:56:52Z" level=info msg="detected mtu 1500 via interface eth1"
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:56:52Z" level=info msg="engine name: bvlmtj8sn8k7o.4o1bnhb5t7ni0.dagger.local"
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:56:52Z" level=debug msg="creating engine GRPC server" spanID=0ca6628390a79af7 traceID=b8756e2261b12d4c4e2cbf365022628b
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:56:52Z" level=debug msg="creating engine lockfile" spanID=0ca6628390a79af7 traceID=b8756e2261b12d4c4e2cbf365022628b
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:56:52Z" level=debug msg="creating engine server" spanID=0ca6628390a79af7 traceID=b8756e2261b12d4c4e2cbf365022628b
+[2m06:56:53[0m [93mWRN[0m port not ready [2mhost=[0mbvlmtj8sn8k7o.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.130:1234: connect: connection refused" [2melapsed=[0m682.468492ms
+    testctx.go:198: [95m27  : [0m[90;2m┆ [0m1234/tcp
+    testctx.go:198: [95m27  : [0m[90;2m┆ [0m[90m[0.4s] [0m[90m|[0m [2m06:56:52[0m [93mWRN[0m port not ready [2mhost=[0mbvlmtj8sn8k7o.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.130:1234: connect: connection refused" [2melapsed=[0m426.148088ms
+    testctx.go:198: [95m27  : [0m[90;2m┆ [0m[90m[0.7s] [0m[90m|[0m [2m06:56:53[0m [93mWRN[0m port not ready [2mhost=[0mbvlmtj8sn8k7o.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.130:1234: connect: connection refused" [2melapsed=[0m682.468492ms
+[2m06:56:53[0m [93mWRN[0m port not ready [2mhost=[0mbvlmtj8sn8k7o.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.130:1234: connect: connection refused" [2melapsed=[0m1.114602495s
+    testctx.go:198: [95m27  : [0m[90;2m┆ [0m[90m[1.1s] [0m[90m|[0m [2m06:56:53[0m [93mWRN[0m port not ready [2mhost=[0mbvlmtj8sn8k7o.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.130:1234: connect: connection refused" [2melapsed=[0m1.114602495s
+[2m06:56:54[0m [93mWRN[0m port not ready [2mhost=[0mbvlmtj8sn8k7o.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.130:1234: connect: connection refused" [2melapsed=[0m2.16379879s
+    testctx.go:198: [95m27  : [0m[90;2m┆ [0m[90m[2.2s] [0m[90m|[0m [2m06:56:54[0m [93mWRN[0m port not ready [2mhost=[0mbvlmtj8sn8k7o.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.130:1234: connect: connection refused" [2melapsed=[0m2.16379879s
+[2m06:56:56[0m [93mWRN[0m port not ready [2mhost=[0mbvlmtj8sn8k7o.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.130:1234: connect: connection refused" [2melapsed=[0m3.693390842s
+    testctx.go:198: [95m27  : [0m[90;2m┆ [0m[90m[3.7s] [0m[90m|[0m [2m06:56:56[0m [93mWRN[0m port not ready [2mhost=[0mbvlmtj8sn8k7o.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.130:1234: connect: connection refused" [2melapsed=[0m3.693390842s
+[2m06:56:57[0m [93mWRN[0m port not ready [2mhost=[0mbvlmtj8sn8k7o.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.130:1234: connect: connection refused" [2melapsed=[0m4.729965299s
+time="2026-09-17T06:56:57Z" level=info msg="auto snapshotter: using overlayfs"
+time="2026-09-17T06:56:57Z" level=debug msg="could not read \"/var/lib/dagger/net/cni\" for cleanup: open /var/lib/dagger/net/cni: no such file or directory"
+    testctx.go:198: [95m27  : [0m[90;2m┆ [0m[90m[4.7s] [0m[90m|[0m [2m06:56:57[0m [93mWRN[0m port not ready [2mhost=[0mbvlmtj8sn8k7o.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.130:1234: connect: connection refused" [2melapsed=[0m4.729965299s
+time="2026-09-17T06:56:57Z" level=debug msg="starting main engine api listeners" spanID=0ca6628390a79af7 traceID=b8756e2261b12d4c4e2cbf365022628b
+time="2026-09-17T06:56:57Z" level=warning msg="TLS is not enabled for tcp://0.0.0.0:1234. enabling mutual TLS authentication is highly recommended"
+time="2026-09-17T06:56:57Z" level=info msg="running server on /run/buildkit/buildkitd.sock"
+time="2026-09-17T06:56:57Z" level=info msg="running server on [::]:1234"
+time="2026-09-17T06:56:57Z" level=info msg="running server on /run/dagger/engine.sock"
+    testctx.go:198: [95m25  : [0m[90;2m[0mContainer.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[5.1s] [0m[90m|[0m time="2026-09-17T06:56:57Z" level=info msg="auto snapshotter: using overlayfs"
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[5.1s] [0m[90m|[0m time="2026-09-17T06:56:57Z" level=debug msg="could not read \"/var/lib/dagger/net/cni\" for cleanup: open /var/lib/dagger/net/cni: no such file or directory"
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[5.2s] [0m[90m|[0m time="2026-09-17T06:56:57Z" level=debug msg="starting main engine api listeners" spanID=0ca6628390a79af7 traceID=b8756e2261b12d4c4e2cbf365022628b
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[5.2s] [0m[90m|[0m time="2026-09-17T06:56:57Z" level=warning msg="TLS is not enabled for tcp://0.0.0.0:1234. enabling mutual TLS authentication is highly recommended"
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[5.2s] [0m[90m|[0m time="2026-09-17T06:56:57Z" level=info msg="running server on /run/buildkit/buildkitd.sock"
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[5.2s] [0m[90m|[0m time="2026-09-17T06:56:57Z" level=info msg="running server on [::]:1234"
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[5.2s] [0m[90m|[0m time="2026-09-17T06:56:57Z" level=info msg="running server on /run/dagger/engine.sock"
+time=2026-09-17T06:56:58.625Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=0 usedBytes=0
+time=2026-09-17T06:56:58.625Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=1 usedBytes=0
+time=2026-09-17T06:56:58.625Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=2 usedBytes=0
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[6.2s] [0m[90m|[0m time=2026-09-17T06:56:58.625Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=0 usedBytes=0
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[6.2s] [0m[90m|[0m time=2026-09-17T06:56:58.625Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=1 usedBytes=0
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[6.2s] [0m[90m|[0m time=2026-09-17T06:56:58.625Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=2 usedBytes=0
+[2m06:56:59[0m [92mINF[0m port is healthy [2mhost=[0mbvlmtj8sn8k7o.4o1bnhb5t7ni0.dagger.local [2mendpoint=[0m10.88.0.130:1234
+    testctx.go:198: Creating new Engine session... OK!
+time="2026-09-17T06:56:59Z" level=debug msg="handling http request" client_hostname=dagger client_id=kgeteafbgw0ur38842by0zrq0 contentType= method=GET path=/sessionAttachables session_id=82q5c490q8tw332jkw3818hkf span=19cc3a7e7722791c spanID=19cc3a7e7722791c trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+time=2026-09-17T06:56:59.431Z level=INFO msg="initializing new session" session=82q5c490q8tw332jkw3818hkf
+time=2026-09-17T06:56:59.432Z level=DEBUG msg="initialized new session" session=82q5c490q8tw332jkw3818hkf
+time=2026-09-17T06:56:59.432Z level=DEBUG msg="session attachables handling conn" client_id=kgeteafbgw0ur38842by0zrq0 client_hostname=dagger session_id=82q5c490q8tw332jkw3818hkf trace=b8756e2261b12d4c4e2cbf365022628b span=19cc3a7e7722791c clientID=kgeteafbgw0ur38842by0zrq0
+time="2026-09-17T06:56:59Z" level=debug msg="handling http request" client_hostname=dagger client_id=kgeteafbgw0ur38842by0zrq0 contentType= method=GET path=/v1/traces session_id=82q5c490q8tw332jkw3818hkf span=2862e15133e72fa2 spanID=2862e15133e72fa2 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+time="2026-09-17T06:56:59Z" level=debug msg="handling http request" client_hostname=dagger client_id=kgeteafbgw0ur38842by0zrq0 contentType= method=GET path=/v1/logs session_id=82q5c490q8tw332jkw3818hkf span=48825733fb3a638f spanID=48825733fb3a638f trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+time="2026-09-17T06:56:59Z" level=debug msg="handling http request" client_hostname=dagger client_id=kgeteafbgw0ur38842by0zrq0 contentType= method=GET path=/v1/metrics session_id=82q5c490q8tw332jkw3818hkf span=59c6bcb4e5b0cf94 spanID=59c6bcb4e5b0cf94 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: Establishing connection to Engine... OK!
+    testctx.go:198: [95m27  : [0m[90;2m┆ [0m1234/tcp
+    testctx.go:198: [95m27  : [0m[90;2m┆ [0m[90m[6.8s] [0m[90m|[0m [2m06:56:59[0m [92mINF[0m port is healthy [2mhost=[0mbvlmtj8sn8k7o.4o1bnhb5t7ni0.dagger.local [2mendpoint=[0m10.88.0.130:1234
+    testctx.go:198: [95m27  : [0m[90;2m┆ [0m1234/tcp[32m DONE[0m[90m [6.8s][0m
+    testctx.go:198: [95m25  : [0m[90;2m[0mContainer.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[7.0s] [0m[90m|[0m time="2026-09-17T06:56:59Z" level=debug msg="handling http request" client_hostname=dagger client_id=kgeteafbgw0ur38842by0zrq0 contentType= method=GET path=/sessionAttachables session_id=82q5c490q8tw332jkw3818hkf span=19cc3a7e7722791c spanID=19cc3a7e7722791c trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[7.0s] [0m[90m|[0m time=2026-09-17T06:56:59.431Z level=INFO msg="initializing new session" session=82q5c490q8tw332jkw3818hkf
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[7.0s] [0m[90m|[0m time=2026-09-17T06:56:59.432Z level=DEBUG msg="initialized new session" session=82q5c490q8tw332jkw3818hkf
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[7.0s] [0m[90m|[0m time=2026-09-17T06:56:59.432Z level=DEBUG msg="session attachables handling conn" client_id=kgeteafbgw0ur38842by0zrq0 client_hostname=dagger session_id=82q5c490q8tw332jkw3818hkf trace=b8756e2261b12d4c4e2cbf365022628b span=19cc3a7e7722791c clientID=kgeteafbgw0ur38842by0zrq0
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[7.0s] [0m[90m|[0m time="2026-09-17T06:56:59Z" level=debug msg="handling http request" client_hostname=dagger client_id=kgeteafbgw0ur38842by0zrq0 contentType= method=GET path=/v1/traces session_id=82q5c490q8tw332jkw3818hkf span=2862e15133e72fa2 spanID=2862e15133e72fa2 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: [95m1   : [0m[90;2m[0m.dagger-cli session --workdir /tmp/TestRemoteCacheTransferSuiteTestSharedHostDirectoryLifetime1134801000/001 --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a
+    testctx.go:198: [95m2   : [0m[90;2m┆ [0mconnect
+    testctx.go:198: [95m2   : [0m[90;2m┆ [0m[90m[0.0s] [0m[90m|[0m cloud [2murl=[0mhttps://dagger.cloud/traces/setup
+    testctx.go:198: [95m3   : [0m[90;2m┆ ┆ [0mstarting engine
+    testctx.go:198: [95m3   : [0m[90;2m┆ ┆ [0mstarting engine[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: [95m4   : [0m[90;2m┆ ┆ [0mconnecting to engine
+    testctx.go:198: [95m4   : [0m[90;2m┆ ┆ [0m[90m[0.0s] [0m[90m|[0m [2m06:56:59[0m [92mINF[0m connected [2mname=[0mbvlmtj8sn8k7o.4o1bnhb5t7ni0.dagger.local [2mclient-version=[0mv1.0.0-beta.14 [2mserver-version=[0mv1.0.0-beta.14+5ce25b68
+    testctx.go:198: [95m4   : [0m[90;2m┆ ┆ [0mconnecting to engine[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: [95m5   : [0m[90;2m┆ ┆ [0mstarting session
+    testctx.go:198: [95m5   : [0m[90;2m┆ ┆ [0mstarting session[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: [95m2   : [0m[90;2m┆ [0mconnect[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m28  : [0m[90;2m[0mService.[1mstart[0m[32m DONE[0m[90m [6.9s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m29  : [0m[90;2m[0mService.[1mendpoint[0m([36mscheme: [0m[33m"tcp"[0m)[2m: String![0m
+    testctx.go:198: [95m29  : [0m[90;2m[0mService.[1mendpoint[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m6   : [0m[90;2m[0mconsuming /v1/traces
+    testctx.go:198: [95m6   : [0m[90;2m[0mconsuming /v1/traces[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m7   : [0m[90;2m[0mconsuming /v1/logs
+    testctx.go:198: [95m7   : [0m[90;2m[0mconsuming /v1/logs[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m8   : [0m[90;2m[0mconsuming /v1/metrics
+    testctx.go:198: [95m8   : [0m[90;2m[0mconsuming /v1/metrics[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m30  : [0m[90;2m[0mContainer.[1mwithMountedCache[0m(
+    testctx.go:198: [95m30  : [0m[90;2m┆ [0m[36mpath:[0m [33m"/transfer-fixture"[0m
+    testctx.go:198: [95m30  : [0m[90;2m┆ [0m[36mcache:[0m [1mcacheVolume[0m([36mkey: [0m[33m"b6-share-b-rq1yzogt7296eg2kk6psg4slo"[0m, [36mnamespace: [0m[33m"mainClient"[0m)[2m: CacheVolume![0m
+    testctx.go:198: [95m30  : [0m[90;2m[0m)[2m: Container![0m
+    testctx.go:198: [95m30  : [0m[90;2m[0mContainer.[1mwithMountedCache[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m31  : [0m[90;2m[0m[34mwithEnvVariable[0m _DAGGER_TEST_REMOTE_CACHE_FIXTURE_ROOT=/transfer-fixture
+    testctx.go:198: [95m31  : [0m[90;2m[0mContainer.[1mwithEnvVariable[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m32  : [0m[90;2m[0mContainer.[1mwithMountedCache[0m(
+    testctx.go:198: [95m32  : [0m[90;2m┆ [0m[36mpath:[0m [33m"/var/lib/dagger"[0m
+    testctx.go:198: [95m32  : [0m[90;2m┆ [0m[36mcache:[0m [1mcacheVolume[0m([36mkey: [0m[33m"b6-share-b-state-azlskvh9j9by0xnck1jb78mg8"[0m, [36mnamespace: [0m[33m"mainClient"[0m)[2m: CacheVolume![0m
+    testctx.go:198: [95m32  : [0m[90;2m[0m)[2m: Container![0m
+    testctx.go:198: [95m32  : [0m[90;2m[0mContainer.[1mwithMountedCache[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m33  : [0m[90;2m[0mContainer.[1mwithExposedPort[0m([36mport: [0m[31m1234[0m, [36mprotocol: [0m[33mTCP[0m)[2m: Container![0m
+    testctx.go:198: [95m33  : [0m[90;2m[0mContainer.[1mwithExposedPort[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m34  : [0m[90;2m[0mContainer.[1mwithDefaultArgs[0m([36margs: [0m[[33m"--addr"[0m, [33m"tcp://0.0.0.0:1234"[0m, [33m"--network-name"[0m, [33m"dagger1"[0m, [33m"--network-cidr"[0m, [33m"10.89.1.0/24"[0m])[2m: Container![0m
+    testctx.go:198: [95m34  : [0m[90;2m[0mContainer.[1mwithDefaultArgs[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m35  : [0m[90;2m[0mContainer.[1mdirectory[0m([36mpath: [0m[33m"/etc/dagger"[0m)[2m: Directory![0m
+    testctx.go:198: [95m35  : [0m[90;2m[0mContainer.[1mdirectory[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m36  : [0m[90;2m[0mDirectory.[1mentries[0m[2m: [String!]![0m
+    testctx.go:198: [95m36  : [0m[90;2m[0mDirectory.[1mentries[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m37  : [0m[90;2m[0mContainer.[1mfile[0m([36mpath: [0m[33m"/etc/dagger/engine.json"[0m)[2m: File![0m
+    testctx.go:198: [95m37  : [0m[90;2m[0mContainer.[1mfile[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m38  : [0m[90;2m[0mFile.[1mcontents[0m[2m: String![0m
+    testctx.go:198: [95m38  : [0m[90;2m[0mFile.[1mcontents[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m39  : [0m[90;2m[0m[34mwithNewFile[0m /etc/dagger/engine.json (
+    testctx.go:198: [95m39  : [0m[90;2m┆ [0m[36mcontents:[0m [33m"{\"gc\":{\"enabled\":true,\"dagqlCache\":{},\"reservedSpace\":1000000000000000,\"maxUsedSpace\":1000000000000000,\"minFreeSpace\":0,\"sweepSize\":0},\"registries\":{\"docker.io\":{\"mirrors\":[\"mirror.gcr.io\"],\"http\":null,\"insecure\":null,\"ca\":null}}}\n"[0m
+    testctx.go:198: [95m39  : [0m[90;2m[0m)
+    testctx.go:198: [95m39  : [0m[90;2m[0mContainer.[1mwithNewFile[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m40  : [0m[90;2m[0mContainer.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+    testctx.go:198: [95m40  : [0m[90;2m[0mContainer.[1masService[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m41  : [0m[90;2m[0mHost.[1mtunnel[0m(
+    testctx.go:198: [95m41  : [0m[90;2m┆ [0m[36mservice:[0m Container.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+    testctx.go:198: [95m41  : [0m[90;2m[0m)[2m: Service![0m
+    testctx.go:198: [95m41  : [0m[90;2m[0mHost.[1mtunnel[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m42  : [0m[90;2m[0mService.[1mstart[0m[2m: ID![0m
+[2m06:56:59[0m [93mWRN[0m port not ready [2mhost=[0m8ipboj5c42sqe.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.131:1234: connect: connection refused" [2melapsed=[0m4.572339ms
+    testctx.go:198: 
+    testctx.go:198: [95m25  : [0m[90;2m[0mContainer.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[7.0s] [0m[90m|[0m time="2026-09-17T06:56:59Z" level=debug msg="handling http request" client_hostname=dagger client_id=kgeteafbgw0ur38842by0zrq0 contentType= method=GET path=/v1/logs session_id=82q5c490q8tw332jkw3818hkf span=48825733fb3a638f spanID=48825733fb3a638f trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[7.0s] [0m[90m|[0m time="2026-09-17T06:56:59Z" level=debug msg="handling http request" client_hostname=dagger client_id=kgeteafbgw0ur38842by0zrq0 contentType= method=GET path=/v1/metrics session_id=82q5c490q8tw332jkw3818hkf span=59c6bcb4e5b0cf94 spanID=59c6bcb4e5b0cf94 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+#!/bin/sh
+set -e
+
+cat $0
+
+# cgroup v2: enable nesting
+# see https://github.com/moby/moby/blob/38805f20f9bcc5e87869d6c79d432b166e1c88b4/hack/dind#L28
+if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
+	# move the processes from the root group to the /init group,
+	# otherwise writing subtree_control fails with EBUSY.
+	# An error during moving non-existent process (i.e., "cat") is ignored.
+	mkdir -p /sys/fs/cgroup/init
+	xargs -rn1 < /sys/fs/cgroup/cgroup.procs > /sys/fs/cgroup/init/cgroup.procs || :
+	# enable controllers
+	sed -e 's/ / +/g' -e 's/^/+/' < /sys/fs/cgroup/cgroup.controllers \
+		> /sys/fs/cgroup/cgroup.subtree_control
+fi
+
+# expect more open files due to per-client SQLite databases
+# many systems default to 1024 which is far too low
+ulimit -n 1048576 || echo "cannot increase open FDs with ulimit, ignoring"
+
+exec tini -- /usr/local/bin/dagger-engine --config /etc/dagger/engine.toml "$@"
+[WARN  tini (16)] Tini is not running as PID 1 and isn't registered as a child subreaper.
+Zombie processes will not be re-parented to Tini, so zombie reaping won't work.
+To fix the problem, use the -s option or set the environment variable TINI_SUBREAPER to register Tini as a child subreaper, or run Tini as PID 1.
+    testctx.go:198: 
+    testctx.go:198: [95m40  : [0m[90;2m[0mContainer.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+    testctx.go:198: [95m43  : [0m[90;2m┆ [0m1234/tcp
+[2m06:56:59[0m [93mWRN[0m port not ready [2mhost=[0m8ipboj5c42sqe.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.131:1234: connect: connection refused" [2melapsed=[0m144.380237ms
+time="2026-09-17T06:56:59Z" level=info msg="starting dagger engine version:v1.0.0-beta.14 v1.0.0-beta.14 linux/amd64"
+time="2026-09-17T06:56:59Z" level=info msg="configuring iptables backend: legacy"
+time="2026-09-17T06:56:59Z" level=info msg="set /usr/bin/iptables -> /usr/bin/xtables-legacy-multi"
+time="2026-09-17T06:56:59Z" level=info msg="set /usr/bin/iptables-save -> /usr/bin/xtables-legacy-multi"
+time="2026-09-17T06:56:59Z" level=info msg="set /usr/bin/iptables-restore -> /usr/bin/xtables-legacy-multi"
+time="2026-09-17T06:56:59Z" level=info msg="set /usr/bin/ip6tables -> /usr/bin/xtables-legacy-multi"
+time="2026-09-17T06:56:59Z" level=info msg="set /usr/bin/ip6tables-save -> /usr/bin/xtables-legacy-multi"
+time="2026-09-17T06:56:59Z" level=info msg="set /usr/bin/ip6tables-restore -> /usr/bin/xtables-legacy-multi"
+time="2026-09-17T06:56:59Z" level=info msg="using ipMasqBackend: iptables"
+time="2026-09-17T06:56:59Z" level=info msg="detected mtu 1500 via interface eth1"
+time="2026-09-17T06:56:59Z" level=info msg="engine name: 8ipboj5c42sqe.4o1bnhb5t7ni0.dagger.local"
+time="2026-09-17T06:56:59Z" level=debug msg="creating engine GRPC server" spanID=7f4b41ddb7b15363 traceID=b8756e2261b12d4c4e2cbf365022628b
+time="2026-09-17T06:56:59Z" level=debug msg="creating engine lockfile" spanID=7f4b41ddb7b15363 traceID=b8756e2261b12d4c4e2cbf365022628b
+time="2026-09-17T06:56:59Z" level=debug msg="creating engine server" spanID=7f4b41ddb7b15363 traceID=b8756e2261b12d4c4e2cbf365022628b
+    testctx.go:198: [95m43  : [0m[90;2m┆ [0m[90m[0.0s] [0m[90m|[0m [2m06:56:59[0m [93mWRN[0m port not ready [2mhost=[0m8ipboj5c42sqe.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.131:1234: connect: connection refused" [2melapsed=[0m4.572339ms
+    testctx.go:198: [95m43  : [0m[90;2m┆ [0m[90m[0.1s] [0m[90m|[0m [2m06:56:59[0m [93mWRN[0m port not ready [2mhost=[0m8ipboj5c42sqe.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.131:1234: connect: connection refused" [2melapsed=[0m144.380237ms
+[2m06:57:00[0m [93mWRN[0m port not ready [2mhost=[0m8ipboj5c42sqe.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.131:1234: connect: connection refused" [2melapsed=[0m314.380072ms
+    testctx.go:198: [95m40  : [0m[90;2m[0mContainer.[1masService[0m[32m DONE[0m[90m [0.4s][0m
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m #!/bin/sh
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m set -e
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m cat $0
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m # cgroup v2: enable nesting
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m # see https://github.com/moby/moby/blob/38805f20f9bcc5e87869d6c79d432b166e1c88b4/hack/dind#L28
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 	# move the processes from the root group to the /init group,
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 	# otherwise writing subtree_control fails with EBUSY.
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 	# An error during moving non-existent process (i.e., "cat") is ignored.
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 	mkdir -p /sys/fs/cgroup/init
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 	xargs -rn1 < /sys/fs/cgroup/cgroup.procs > /sys/fs/cgroup/init/cgroup.procs || :
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 	# enable controllers
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 	sed -e 's/ / +/g' -e 's/^/+/' < /sys/fs/cgroup/cgroup.controllers \
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 		> /sys/fs/cgroup/cgroup.subtree_control
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m fi
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m # expect more open files due to per-client SQLite databases
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m # many systems default to 1024 which is far too low
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m ulimit -n 1048576 || echo "cannot increase open FDs with ulimit, ignoring"
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m exec tini -- /usr/local/bin/dagger-engine --config /etc/dagger/engine.toml "$@"
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m [WARN  tini (16)] Tini is not running as PID 1 and isn't registered as a child subreaper.
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m Zombie processes will not be re-parented to Tini, so zombie reaping won't work.
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m To fix the problem, use the -s option or set the environment variable TINI_SUBREAPER to register Tini as a child subreaper, or run Tini as PID 1.
+time="2026-09-17T06:57:00Z" level=info msg="auto snapshotter: using overlayfs"
+time="2026-09-17T06:57:00Z" level=debug msg="could not read \"/var/lib/dagger/net/cni\" for cleanup: open /var/lib/dagger/net/cni: no such file or directory"
+[2m06:57:00[0m [93mWRN[0m port not ready [2mhost=[0m8ipboj5c42sqe.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.131:1234: connect: connection refused" [2melapsed=[0m581.986989ms
+    testctx.go:198: [95m43  : [0m[90;2m┆ [0m1234/tcp
+    testctx.go:198: [95m43  : [0m[90;2m┆ [0m[90m[0.3s] [0m[90m|[0m [2m06:57:00[0m [93mWRN[0m port not ready [2mhost=[0m8ipboj5c42sqe.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.131:1234: connect: connection refused" [2melapsed=[0m314.380072ms
+time="2026-09-17T06:57:00Z" level=debug msg="starting main engine api listeners" spanID=7f4b41ddb7b15363 traceID=b8756e2261b12d4c4e2cbf365022628b
+time="2026-09-17T06:57:00Z" level=warning msg="TLS is not enabled for tcp://0.0.0.0:1234. enabling mutual TLS authentication is highly recommended"
+time="2026-09-17T06:57:00Z" level=info msg="running server on /run/buildkit/buildkitd.sock"
+time="2026-09-17T06:57:00Z" level=info msg="running server on [::]:1234"
+time="2026-09-17T06:57:00Z" level=info msg="running server on /run/dagger/engine.sock"
+    testctx.go:198: [95m40  : [0m[90;2m[0mContainer.[1masService[0m[32m DONE[0m[90m [0.7s][0m
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.4s] [0m[90m|[0m time="2026-09-17T06:56:59Z" level=info msg="starting dagger engine version:v1.0.0-beta.14 v1.0.0-beta.14 linux/amd64"
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.4s] [0m[90m|[0m time="2026-09-17T06:56:59Z" level=info msg="configuring iptables backend: legacy"
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.4s] [0m[90m|[0m time="2026-09-17T06:56:59Z" level=info msg="set /usr/bin/iptables -> /usr/bin/xtables-legacy-multi"
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.4s] [0m[90m|[0m time="2026-09-17T06:56:59Z" level=info msg="set /usr/bin/iptables-save -> /usr/bin/xtables-legacy-multi"
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.4s] [0m[90m|[0m time="2026-09-17T06:56:59Z" level=info msg="set /usr/bin/iptables-restore -> /usr/bin/xtables-legacy-multi"
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.4s] [0m[90m|[0m time="2026-09-17T06:56:59Z" level=info msg="set /usr/bin/ip6tables -> /usr/bin/xtables-legacy-multi"
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.4s] [0m[90m|[0m time="2026-09-17T06:56:59Z" level=info msg="set /usr/bin/ip6tables-save -> /usr/bin/xtables-legacy-multi"
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.4s] [0m[90m|[0m time="2026-09-17T06:56:59Z" level=info msg="set /usr/bin/ip6tables-restore -> /usr/bin/xtables-legacy-multi"
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.4s] [0m[90m|[0m time="2026-09-17T06:56:59Z" level=info msg="using ipMasqBackend: iptables"
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.4s] [0m[90m|[0m time="2026-09-17T06:56:59Z" level=info msg="detected mtu 1500 via interface eth1"
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.4s] [0m[90m|[0m time="2026-09-17T06:56:59Z" level=info msg="engine name: 8ipboj5c42sqe.4o1bnhb5t7ni0.dagger.local"
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.4s] [0m[90m|[0m time="2026-09-17T06:56:59Z" level=debug msg="creating engine GRPC server" spanID=7f4b41ddb7b15363 traceID=b8756e2261b12d4c4e2cbf365022628b
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.4s] [0m[90m|[0m time="2026-09-17T06:56:59Z" level=debug msg="creating engine lockfile" spanID=7f4b41ddb7b15363 traceID=b8756e2261b12d4c4e2cbf365022628b
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.4s] [0m[90m|[0m time="2026-09-17T06:56:59Z" level=debug msg="creating engine server" spanID=7f4b41ddb7b15363 traceID=b8756e2261b12d4c4e2cbf365022628b
+    testctx.go:198: [95m43  : [0m[90;2m┆ [0m1234/tcp
+    testctx.go:198: [95m43  : [0m[90;2m┆ [0m[90m[0.6s] [0m[90m|[0m [2m06:57:00[0m [93mWRN[0m port not ready [2mhost=[0m8ipboj5c42sqe.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.131:1234: connect: connection refused" [2melapsed=[0m581.986989ms
+[2m06:57:00[0m [92mINF[0m port is healthy [2mhost=[0m8ipboj5c42sqe.4o1bnhb5t7ni0.dagger.local [2mendpoint=[0m10.88.0.131:1234
+    testctx.go:198: Creating new Engine session... OK!
+    testctx.go:198: [95m40  : [0m[90;2m[0mContainer.[1masService[0m[32m DONE[0m[90m [0.9s][0m
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.6s] [0m[90m|[0m time="2026-09-17T06:57:00Z" level=info msg="auto snapshotter: using overlayfs"
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.7s] [0m[90m|[0m time="2026-09-17T06:57:00Z" level=debug msg="could not read \"/var/lib/dagger/net/cni\" for cleanup: open /var/lib/dagger/net/cni: no such file or directory"
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.8s] [0m[90m|[0m time="2026-09-17T06:57:00Z" level=debug msg="starting main engine api listeners" spanID=7f4b41ddb7b15363 traceID=b8756e2261b12d4c4e2cbf365022628b
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.8s] [0m[90m|[0m time="2026-09-17T06:57:00Z" level=warning msg="TLS is not enabled for tcp://0.0.0.0:1234. enabling mutual TLS authentication is highly recommended"
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.8s] [0m[90m|[0m time="2026-09-17T06:57:00Z" level=info msg="running server on /run/buildkit/buildkitd.sock"
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.8s] [0m[90m|[0m time="2026-09-17T06:57:00Z" level=info msg="running server on [::]:1234"
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[0.8s] [0m[90m|[0m time="2026-09-17T06:57:00Z" level=info msg="running server on /run/dagger/engine.sock"
+time="2026-09-17T06:57:00Z" level=debug msg="handling http request" client_hostname=dagger client_id=r8hoy8syvhy36o2yk6l9kzflz contentType= method=GET path=/sessionAttachables session_id=g9g5uksxd5baxr767u9qh1zxg span=a400e4b8881d513c spanID=a400e4b8881d513c trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+time=2026-09-17T06:57:00.644Z level=INFO msg="initializing new session" session=g9g5uksxd5baxr767u9qh1zxg
+time=2026-09-17T06:57:00.645Z level=DEBUG msg="initialized new session" session=g9g5uksxd5baxr767u9qh1zxg
+time=2026-09-17T06:57:00.645Z level=DEBUG msg="session attachables handling conn" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=a400e4b8881d513c clientID=r8hoy8syvhy36o2yk6l9kzflz
+time="2026-09-17T06:57:00Z" level=debug msg="handling http request" client_hostname=dagger client_id=r8hoy8syvhy36o2yk6l9kzflz contentType= method=GET path=/v1/traces session_id=g9g5uksxd5baxr767u9qh1zxg span=f205cd630bff567f spanID=f205cd630bff567f trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+time="2026-09-17T06:57:00Z" level=debug msg="handling http request" client_hostname=dagger client_id=r8hoy8syvhy36o2yk6l9kzflz contentType= method=GET path=/v1/logs session_id=g9g5uksxd5baxr767u9qh1zxg span=023c818abfc254c0 spanID=023c818abfc254c0 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+time="2026-09-17T06:57:00Z" level=debug msg="handling http request" client_hostname=dagger client_id=r8hoy8syvhy36o2yk6l9kzflz contentType= method=GET path=/v1/metrics session_id=g9g5uksxd5baxr767u9qh1zxg span=e30f9873f714957f spanID=e30f9873f714957f trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: Establishing connection to Engine... OK!
+time="2026-09-17T06:57:00Z" level=debug msg="handling http request" client_hostname=dagger client_id=kgeteafbgw0ur38842by0zrq0 contentType=application/json method=POST path=/query session_id=82q5c490q8tw332jkw3818hkf span=0f37b3f3cd35b4c6 spanID=0f37b3f3cd35b4c6 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+time=2026-09-17T06:57:00.655Z level=INFO msg="initializing new client" isMainClient=true sessionID=82q5c490q8tw332jkw3818hkf clientID=kgeteafbgw0ur38842by0zrq0 mainClientID=kgeteafbgw0ur38842by0zrq0
+    testctx.go:198: [95m43  : [0m[90;2m┆ [0m1234/tcp[32m DONE[0m[90m [0.8s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m42  : [0m[90;2m[0mService.[1mstart[0m[32m DONE[0m[90m [1.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m44  : [0m[90;2m[0mService.[1mendpoint[0m([36mscheme: [0m[33m"tcp"[0m)[2m: String![0m
+    testctx.go:198: [95m44  : [0m[90;2m[0mService.[1mendpoint[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: [95m1   : [0m[90;2m[0m.dagger-cli session --workdir /tmp/TestRemoteCacheTransferSuiteTestSharedHostDirectoryLifetime1134801000/002 --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a
+    testctx.go:198: [95m2   : [0m[90;2m┆ [0mconnect
+    testctx.go:198: [95m2   : [0m[90;2m┆ [0m[90m[0.0s] [0m[90m|[0m cloud [2murl=[0mhttps://dagger.cloud/traces/setup
+    testctx.go:198: [95m3   : [0m[90;2m┆ ┆ [0mstarting engine
+    testctx.go:198: [95m3   : [0m[90;2m┆ ┆ [0mstarting engine[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: [95m4   : [0m[90;2m┆ ┆ [0mconnecting to engine
+    testctx.go:198: [95m4   : [0m[90;2m┆ ┆ [0m[90m[0.0s] [0m[90m|[0m [2m06:57:00[0m [92mINF[0m connected [2mname=[0m8ipboj5c42sqe.4o1bnhb5t7ni0.dagger.local [2mclient-version=[0mv1.0.0-beta.14 [2mserver-version=[0mv1.0.0-beta.14+5ce25b68
+    testctx.go:198: [95m4   : [0m[90;2m┆ ┆ [0mconnecting to engine[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: [95m5   : [0m[90;2m┆ ┆ [0mstarting session
+    testctx.go:198: [95m5   : [0m[90;2m┆ ┆ [0mstarting session[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: [95m2   : [0m[90;2m┆ [0mconnect[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m25  : [0m[90;2m[0mContainer.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[8.2s] [0m[90m|[0m time="2026-09-17T06:57:00Z" level=debug msg="handling http request" client_hostname=dagger client_id=kgeteafbgw0ur38842by0zrq0 contentType=application/json method=POST path=/query session_id=82q5c490q8tw332jkw3818hkf span=0f37b3f3cd35b4c6 spanID=0f37b3f3cd35b4c6 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[8.2s] [0m[90m|[0m time=2026-09-17T06:57:00.655Z level=INFO msg="initializing new client" isMainClient=true sessionID=82q5c490q8tw332jkw3818hkf clientID=kgeteafbgw0ur38842by0zrq0 mainClientID=kgeteafbgw0ur38842by0zrq0
+    testctx.go:198: 
+    testctx.go:198: [95m6   : [0m[90;2m[0mconsuming /v1/traces
+    testctx.go:198: [95m6   : [0m[90;2m[0mconsuming /v1/traces[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m7   : [0m[90;2m[0mconsuming /v1/logs
+    testctx.go:198: [95m7   : [0m[90;2m[0mconsuming /v1/logs[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m8   : [0m[90;2m[0mconsuming /v1/metrics
+    testctx.go:198: [95m8   : [0m[90;2m[0mconsuming /v1/metrics[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m40  : [0m[90;2m[0mContainer.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+    testctx.go:198: [95m43  : [0m[90;2m┆ [0m1234/tcp[32m DONE[0m[90m [0.8s][0m
+    testctx.go:198: [95m43  : [0m[90;2m┆ [0m[90m[0.8s] [0m[90m|[0m [2m06:57:00[0m [92mINF[0m port is healthy [2mhost=[0m8ipboj5c42sqe.4o1bnhb5t7ni0.dagger.local [2mendpoint=[0m10.88.0.131:1234
+    testctx.go:198: [95m40  : [0m[90;2m[0mContainer.[1masService[0m[32m DONE[0m[90m [1.3s][0m
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[1.0s] [0m[90m|[0m time="2026-09-17T06:57:00Z" level=debug msg="handling http request" client_hostname=dagger client_id=r8hoy8syvhy36o2yk6l9kzflz contentType= method=GET path=/sessionAttachables session_id=g9g5uksxd5baxr767u9qh1zxg span=a400e4b8881d513c spanID=a400e4b8881d513c trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[1.0s] [0m[90m|[0m time=2026-09-17T06:57:00.644Z level=INFO msg="initializing new session" session=g9g5uksxd5baxr767u9qh1zxg
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[1.0s] [0m[90m|[0m time=2026-09-17T06:57:00.645Z level=DEBUG msg="initialized new session" session=g9g5uksxd5baxr767u9qh1zxg
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[1.0s] [0m[90m|[0m time=2026-09-17T06:57:00.645Z level=DEBUG msg="session attachables handling conn" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=a400e4b8881d513c clientID=r8hoy8syvhy36o2yk6l9kzflz
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[1.1s] [0m[90m|[0m time="2026-09-17T06:57:00Z" level=debug msg="handling http request" client_hostname=dagger client_id=r8hoy8syvhy36o2yk6l9kzflz contentType= method=GET path=/v1/traces session_id=g9g5uksxd5baxr767u9qh1zxg span=f205cd630bff567f spanID=f205cd630bff567f trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[1.1s] [0m[90m|[0m time="2026-09-17T06:57:00Z" level=debug msg="handling http request" client_hostname=dagger client_id=r8hoy8syvhy36o2yk6l9kzflz contentType= method=GET path=/v1/logs session_id=g9g5uksxd5baxr767u9qh1zxg span=023c818abfc254c0 spanID=023c818abfc254c0 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[1.1s] [0m[90m|[0m time="2026-09-17T06:57:00Z" level=debug msg="handling http request" client_hostname=dagger client_id=r8hoy8syvhy36o2yk6l9kzflz contentType= method=GET path=/v1/metrics session_id=g9g5uksxd5baxr767u9qh1zxg span=e30f9873f714957f spanID=e30f9873f714957f trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+time=2026-09-17T06:57:01.019Z level=INFO msg="start call" client_id=kgeteafbgw0ur38842by0zrq0 client_hostname=dagger session_id=82q5c490q8tw332jkw3818hkf trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query.host digest=xxh3:37b977856265b79a
+time=2026-09-17T06:57:01.019Z level=INFO msg="end call" client_id=kgeteafbgw0ur38842by0zrq0 client_hostname=dagger session_id=82q5c490q8tw332jkw3818hkf trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query.host cached=false digest=xxh3:37b977856265b79a
+time=2026-09-17T06:57:01.019Z level=INFO msg="start call" client_id=kgeteafbgw0ur38842by0zrq0 client_hostname=dagger session_id=82q5c490q8tw332jkw3818hkf trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Host.directory digest=xxh3:0afb861deb7cf850
+time=2026-09-17T06:57:01.022Z level=INFO msg="start call" client_id=kgeteafbgw0ur38842by0zrq0 client_hostname=dagger session_id=82q5c490q8tw332jkw3818hkf trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._clientFilesyncMirror digest=xxh3:2e0d3c8f46dcdb2e
+time=2026-09-17T06:57:01.035Z level=INFO msg="end call" client_id=kgeteafbgw0ur38842by0zrq0 client_hostname=dagger session_id=82q5c490q8tw332jkw3818hkf trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._clientFilesyncMirror cached=false digest=xxh3:2e0d3c8f46dcdb2e
+time=2026-09-17T06:57:01.044Z level=INFO msg="end call" client_id=kgeteafbgw0ur38842by0zrq0 client_hostname=dagger session_id=82q5c490q8tw332jkw3818hkf trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Host.directory cached=false digest=xxh3:0afb861deb7cf850
+time="2026-09-17T06:57:01Z" level=debug msg="handling http request" client_hostname=dagger client_id=kgeteafbgw0ur38842by0zrq0 contentType=application/json method=POST path=/query session_id=82q5c490q8tw332jkw3818hkf span=0f37b3f3cd35b4c6 spanID=0f37b3f3cd35b4c6 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+time="2026-09-17T06:57:01Z" level=debug msg="handling http request" client_hostname=dagger client_id=kgeteafbgw0ur38842by0zrq0 contentType=application/json method=POST path=/query session_id=82q5c490q8tw332jkw3818hkf span=0f37b3f3cd35b4c6 spanID=0f37b3f3cd35b4c6 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+time=2026-09-17T06:57:01.049Z level=INFO msg="start call" client_id=kgeteafbgw0ur38842by0zrq0 client_hostname=dagger session_id=82q5c490q8tw332jkw3818hkf trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._remoteCacheFixture digest=xxh3:70124bfff7b1837d
+time=2026-09-17T06:57:01.058Z level=INFO msg="end call" client_id=kgeteafbgw0ur38842by0zrq0 client_hostname=dagger session_id=82q5c490q8tw332jkw3818hkf trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._remoteCacheFixture cached=false digest=xxh3:70124bfff7b1837d
+time="2026-09-17T06:57:01Z" level=debug msg="handling http request" client_hostname=dagger client_id=r8hoy8syvhy36o2yk6l9kzflz contentType=application/json method=POST path=/query session_id=g9g5uksxd5baxr767u9qh1zxg span=0f37b3f3cd35b4c6 spanID=0f37b3f3cd35b4c6 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+time=2026-09-17T06:57:01.061Z level=INFO msg="initializing new client" isMainClient=true sessionID=g9g5uksxd5baxr767u9qh1zxg clientID=r8hoy8syvhy36o2yk6l9kzflz mainClientID=r8hoy8syvhy36o2yk6l9kzflz
+    testctx.go:198: 
+    testctx.go:198: [95m9   : [0m[90;2m[0m[1mhost[0m[2m: Host![0m
+    testctx.go:198: [95m9   : [0m[90;2m[0m[1mhost[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m10  : [0m[90;2m[0mHost.[1mdirectory[0m([36mpath: [0m[33m"."[0m)[2m: Directory![0m
+    testctx.go:198: [95m10  : [0m[90;2m[0mHost.[1mdirectory[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m25  : [0m[90;2m[0mContainer.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[8.6s] [0m[90m|[0m time=2026-09-17T06:57:01.019Z level=INFO msg="start call" client_id=kgeteafbgw0ur38842by0zrq0 client_hostname=dagger session_id=82q5c490q8tw332jkw3818hkf trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query.host digest=xxh3:37b977856265b79a
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[8.6s] [0m[90m|[0m time=2026-09-17T06:57:01.019Z level=INFO msg="end call" client_id=kgeteafbgw0ur38842by0zrq0 client_hostname=dagger session_id=82q5c490q8tw332jkw3818hkf trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query.host cached=false digest=xxh3:37b977856265b79a
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[8.6s] [0m[90m|[0m time=2026-09-17T06:57:01.019Z level=INFO msg="start call" client_id=kgeteafbgw0ur38842by0zrq0 client_hostname=dagger session_id=82q5c490q8tw332jkw3818hkf trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Host.directory digest=xxh3:0afb861deb7cf850
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[8.6s] [0m[90m|[0m time=2026-09-17T06:57:01.022Z level=INFO msg="start call" client_id=kgeteafbgw0ur38842by0zrq0 client_hostname=dagger session_id=82q5c490q8tw332jkw3818hkf trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._clientFilesyncMirror digest=xxh3:2e0d3c8f46dcdb2e
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[8.6s] [0m[90m|[0m time=2026-09-17T06:57:01.035Z level=INFO msg="end call" client_id=kgeteafbgw0ur38842by0zrq0 client_hostname=dagger session_id=82q5c490q8tw332jkw3818hkf trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._clientFilesyncMirror cached=false digest=xxh3:2e0d3c8f46dcdb2e
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[8.6s] [0m[90m|[0m time=2026-09-17T06:57:01.044Z level=INFO msg="end call" client_id=kgeteafbgw0ur38842by0zrq0 client_hostname=dagger session_id=82q5c490q8tw332jkw3818hkf trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Host.directory cached=false digest=xxh3:0afb861deb7cf850
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[8.6s] [0m[90m|[0m time="2026-09-17T06:57:01Z" level=debug msg="handling http request" client_hostname=dagger client_id=kgeteafbgw0ur38842by0zrq0 contentType=application/json method=POST path=/query session_id=82q5c490q8tw332jkw3818hkf span=0f37b3f3cd35b4c6 spanID=0f37b3f3cd35b4c6 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[8.6s] [0m[90m|[0m time="2026-09-17T06:57:01Z" level=debug msg="handling http request" client_hostname=dagger client_id=kgeteafbgw0ur38842by0zrq0 contentType=application/json method=POST path=/query session_id=82q5c490q8tw332jkw3818hkf span=0f37b3f3cd35b4c6 spanID=0f37b3f3cd35b4c6 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[8.6s] [0m[90m|[0m time=2026-09-17T06:57:01.049Z level=INFO msg="start call" client_id=kgeteafbgw0ur38842by0zrq0 client_hostname=dagger session_id=82q5c490q8tw332jkw3818hkf trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._remoteCacheFixture digest=xxh3:70124bfff7b1837d
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[8.6s] [0m[90m|[0m time=2026-09-17T06:57:01.058Z level=INFO msg="end call" client_id=kgeteafbgw0ur38842by0zrq0 client_hostname=dagger session_id=82q5c490q8tw332jkw3818hkf trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._remoteCacheFixture cached=false digest=xxh3:70124bfff7b1837d
+    testctx.go:198: [95m11  : [0m[90;2m┆ [0muploading /tmp/TestRemoteCacheTransferSuiteTestSharedHostDirectoryLifetime1134801000/001
+    testctx.go:198: [95m11  : [0m[90;2m┆ [0muploading /tmp/TestRemoteCacheTransferSuiteTestSharedHostDirectoryLifetime1134801000/001[32m DONE[0m[90m [0.0s][0m
+time=2026-09-17T06:57:01.356Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=0 usedBytes=0
+time=2026-09-17T06:57:01.360Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=1 usedBytes=0
+time=2026-09-17T06:57:01.364Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=2 usedBytes=0
+    testctx.go:198: 
+    testctx.go:198: [95m40  : [0m[90;2m[0mContainer.[1masService[0m[32m DONE[0m[90m [1.7s][0m
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[1.5s] [0m[90m|[0m time="2026-09-17T06:57:01Z" level=debug msg="handling http request" client_hostname=dagger client_id=r8hoy8syvhy36o2yk6l9kzflz contentType=application/json method=POST path=/query session_id=g9g5uksxd5baxr767u9qh1zxg span=0f37b3f3cd35b4c6 spanID=0f37b3f3cd35b4c6 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[1.5s] [0m[90m|[0m time=2026-09-17T06:57:01.061Z level=INFO msg="initializing new client" isMainClient=true sessionID=g9g5uksxd5baxr767u9qh1zxg clientID=r8hoy8syvhy36o2yk6l9kzflz mainClientID=r8hoy8syvhy36o2yk6l9kzflz
+time=2026-09-17T06:57:01.463Z level=INFO msg="start call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query.host digest=xxh3:37b977856265b79a
+time=2026-09-17T06:57:01.463Z level=INFO msg="end call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query.host cached=false digest=xxh3:37b977856265b79a
+time=2026-09-17T06:57:01.463Z level=INFO msg="start call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Host.directory digest=xxh3:6f3d99ee182aae85
+time=2026-09-17T06:57:01.465Z level=INFO msg="start call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._clientFilesyncMirror digest=xxh3:2e0d3c8f46dcdb2e
+time=2026-09-17T06:57:01.471Z level=INFO msg="end call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._clientFilesyncMirror cached=false digest=xxh3:2e0d3c8f46dcdb2e
+time=2026-09-17T06:57:01.478Z level=INFO msg="end call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Host.directory cached=false digest=xxh3:6f3d99ee182aae85
+time="2026-09-17T06:57:01Z" level=debug msg="handling http request" client_hostname=dagger client_id=r8hoy8syvhy36o2yk6l9kzflz contentType=application/json method=POST path=/query session_id=g9g5uksxd5baxr767u9qh1zxg span=0f37b3f3cd35b4c6 spanID=0f37b3f3cd35b4c6 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+time="2026-09-17T06:57:01Z" level=debug msg="handling http request" client_hostname=dagger client_id=r8hoy8syvhy36o2yk6l9kzflz contentType=application/json method=POST path=/query session_id=g9g5uksxd5baxr767u9qh1zxg span=0f37b3f3cd35b4c6 spanID=0f37b3f3cd35b4c6 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+time=2026-09-17T06:57:01.484Z level=INFO msg="start call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._remoteCacheFixture digest=xxh3:e737bbbd1676855e
+time=2026-09-17T06:57:01.485Z level=INFO msg="end call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._remoteCacheFixture cached=false digest=xxh3:e737bbbd1676855e
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[1.8s] [0m[90m|[0m time=2026-09-17T06:57:01.356Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=0 usedBytes=0
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[1.8s] [0m[90m|[0m time=2026-09-17T06:57:01.360Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=1 usedBytes=0
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[1.8s] [0m[90m|[0m time=2026-09-17T06:57:01.364Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=2 usedBytes=0
+    testctx.go:198: 
+    testctx.go:198: [95m45  : [0m[90;2m[0mContainer.[1mfrom[0m([36maddress: [0m[33m"alpine:3.22.1"[0m)[2m: Container![0m
+    testctx.go:198: 
+    testctx.go:198: [95m46  : [0m[90;2m[0mHTTP HEAD
+    testctx.go:198: 
+    testctx.go:198: [95m9   : [0m[90;2m[0m[1mhost[0m[2m: Host![0m
+    testctx.go:198: [95m9   : [0m[90;2m[0m[1mhost[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m10  : [0m[90;2m[0mHost.[1mdirectory[0m([36mpath: [0m[33m"."[0m)[2m: Directory![0m
+    testctx.go:198: [95m10  : [0m[90;2m[0mHost.[1mdirectory[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: [95m11  : [0m[90;2m┆ [0muploading /tmp/TestRemoteCacheTransferSuiteTestSharedHostDirectoryLifetime1134801000/002
+    testctx.go:198: [95m11  : [0m[90;2m┆ [0muploading /tmp/TestRemoteCacheTransferSuiteTestSharedHostDirectoryLifetime1134801000/002[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m40  : [0m[90;2m[0mContainer.[1masService[0m[32m DONE[0m[90m [2.2s][0m
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[1.9s] [0m[90m|[0m time=2026-09-17T06:57:01.463Z level=INFO msg="start call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query.host digest=xxh3:37b977856265b79a
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[1.9s] [0m[90m|[0m time=2026-09-17T06:57:01.463Z level=INFO msg="end call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query.host cached=false digest=xxh3:37b977856265b79a
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[1.9s] [0m[90m|[0m time=2026-09-17T06:57:01.463Z level=INFO msg="start call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Host.directory digest=xxh3:6f3d99ee182aae85
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[1.9s] [0m[90m|[0m time=2026-09-17T06:57:01.465Z level=INFO msg="start call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._clientFilesyncMirror digest=xxh3:2e0d3c8f46dcdb2e
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[1.9s] [0m[90m|[0m time=2026-09-17T06:57:01.471Z level=INFO msg="end call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._clientFilesyncMirror cached=false digest=xxh3:2e0d3c8f46dcdb2e
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[1.9s] [0m[90m|[0m time=2026-09-17T06:57:01.478Z level=INFO msg="end call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Host.directory cached=false digest=xxh3:6f3d99ee182aae85
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[1.9s] [0m[90m|[0m time="2026-09-17T06:57:01Z" level=debug msg="handling http request" client_hostname=dagger client_id=r8hoy8syvhy36o2yk6l9kzflz contentType=application/json method=POST path=/query session_id=g9g5uksxd5baxr767u9qh1zxg span=0f37b3f3cd35b4c6 spanID=0f37b3f3cd35b4c6 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[1.9s] [0m[90m|[0m time="2026-09-17T06:57:01Z" level=debug msg="handling http request" client_hostname=dagger client_id=r8hoy8syvhy36o2yk6l9kzflz contentType=application/json method=POST path=/query session_id=g9g5uksxd5baxr767u9qh1zxg span=0f37b3f3cd35b4c6 spanID=0f37b3f3cd35b4c6 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[1.9s] [0m[90m|[0m time=2026-09-17T06:57:01.484Z level=INFO msg="start call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._remoteCacheFixture digest=xxh3:e737bbbd1676855e
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[1.9s] [0m[90m|[0m time=2026-09-17T06:57:01.485Z level=INFO msg="end call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._remoteCacheFixture cached=false digest=xxh3:e737bbbd1676855e
+    testctx.go:198: 
+    testctx.go:198: [95m46  : [0m[90;2m[0mHTTP HEAD[32m DONE[0m[90m [0.6s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m47  : [0m[90;2m[0mHTTP GET
+    testctx.go:198: [95m47  : [0m[90;2m[0mHTTP GET[32m DONE[0m[90m [0.5s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m48  : [0m[90;2m[0mHTTP GET
+    testctx.go:198: [95m48  : [0m[90;2m[0mHTTP GET[32m DONE[0m[90m [0.4s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m49  : [0m[90;2m[0mHTTP GET
+    testctx.go:198: 
+    testctx.go:198: [95m50  : [0m[90;2m[0mContainer.[1mwithMountedCache[0m(
+    testctx.go:198: [95m50  : [0m[90;2m┆ [0m[36mpath:[0m [33m"/source"[0m
+    testctx.go:198: [95m50  : [0m[90;2m┆ [0m[36mcache:[0m [1mcacheVolume[0m([36mkey: [0m[33m"b6-share-a-u1qncyb3sqmnomojckhtmq0l7"[0m, [36mnamespace: [0m[33m"mainClient"[0m)[2m: CacheVolume![0m
+    testctx.go:198: [95m50  : [0m[90;2m[0m)[2m: Container![0m
+    testctx.go:198: 
+    testctx.go:198: [95m51  : [0m[90;2m[0mContainer.[1mwithMountedCache[0m(
+    testctx.go:198: [95m51  : [0m[90;2m┆ [0m[36mpath:[0m [33m"/destination"[0m
+    testctx.go:198: [95m51  : [0m[90;2m┆ [0m[36mcache:[0m [1mcacheVolume[0m([36mkey: [0m[33m"b6-share-b-rq1yzogt7296eg2kk6psg4slo"[0m, [36mnamespace: [0m[33m"mainClient"[0m)[2m: CacheVolume![0m
+    testctx.go:198: [95m51  : [0m[90;2m[0m)[2m: Container![0m
+    testctx.go:198: 
+    testctx.go:198: [95m52  : [0m[90;2m[0m[34mwithEnvVariable[0m COPY=ts29evf7p9bysca9n001lkohm
+    testctx.go:198: 
+    testctx.go:198: [95m53  : [0m[90;2m[0m[34mwithExec[0m sh -ec 'mkdir -p /destination/bundles; cp /source/bundles/share.json /destination/bundles/; cp -a /source/blobs /destination/'
+    testctx.go:198: 
+    testctx.go:198: [95m49  : [0m[90;2m[0mHTTP GET[32m DONE[0m[90m [0.4s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m54  : [0m[90;2m[0mHTTP HEAD
+    testctx.go:198: [95m54  : [0m[90;2m[0mHTTP HEAD[32m DONE[0m[90m [0.3s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m55  : [0m[90;2m[0mHTTP GET
+    testctx.go:198: 
+    testctx.go:198: [95m56  : [0m[90;2m[0mpulling alpine:3.22.1
+    testctx.go:198: 
+    testctx.go:198: [95m55  : [0m[90;2m[0mHTTP GET[32m DONE[0m[90m [0.4s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m57  : [0m[90;2m[0mHTTP GET
+    testctx.go:198: 
+    testctx.go:198: [95m56  : [0m[90;2m[0mpulling alpine:3.22.1[32m DONE[0m[90m [1.1s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m57  : [0m[90;2m[0mHTTP GET[32m DONE[0m[90m [0.3s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m45  : [0m[90;2m[0mContainer.[1mfrom[0m[32m DONE[0m[90m [3.2s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m50  : [0m[90;2m[0mContainer.[1mwithMountedCache[0m[32m DONE[0m[90m [0.0s, waited on Container.from][0m
+    testctx.go:198: 
+    testctx.go:198: [95m51  : [0m[90;2m[0mContainer.[1mwithMountedCache[0m[32m DONE[0m[90m [0.0s, waited on Container.from][0m
+    testctx.go:198: 
+    testctx.go:198: [95m52  : [0m[90;2m[0mContainer.[1mwithEnvVariable[0m[32m DONE[0m[90m [0.0s, waited on Container.from][0m
+    testctx.go:198: 
+    testctx.go:198: [95m58  : [0m[90;2m[0munpacking alpine:3.22.1
+    testctx.go:198: [95m58  : [0m[90;2m[0munpacking alpine:3.22.1[32m DONE[0m[90m [0.1s][0m
+time="2026-09-17T06:57:04Z" level=debug msg="handling http request" client_hostname=dagger client_id=r8hoy8syvhy36o2yk6l9kzflz contentType=application/json method=POST path=/query session_id=g9g5uksxd5baxr767u9qh1zxg span=0f37b3f3cd35b4c6 spanID=0f37b3f3cd35b4c6 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+time=2026-09-17T06:57:04.847Z level=INFO msg="start call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._remoteCacheFixture digest=xxh3:fb6d8906016b1240
+time=2026-09-17T06:57:04.863Z level=INFO msg="end call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._remoteCacheFixture cached=false digest=xxh3:fb6d8906016b1240
+time="2026-09-17T06:57:04Z" level=debug msg="handling http request" client_hostname=dagger client_id=r8hoy8syvhy36o2yk6l9kzflz contentType=application/json method=POST path=/query session_id=g9g5uksxd5baxr767u9qh1zxg span=0f37b3f3cd35b4c6 spanID=0f37b3f3cd35b4c6 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+time=2026-09-17T06:57:04.868Z level=INFO msg="start call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Directory.entries digest=xxh3:fa5f337bb95abc55
+time=2026-09-17T06:57:04.869Z level=INFO msg="end call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Directory.entries cached=false digest=xxh3:fa5f337bb95abc55
+time="2026-09-17T06:57:04Z" level=debug msg="handling http request" client_hostname=dagger client_id=r8hoy8syvhy36o2yk6l9kzflz contentType=application/json method=POST path=/query session_id=g9g5uksxd5baxr767u9qh1zxg span=0f37b3f3cd35b4c6 spanID=0f37b3f3cd35b4c6 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+time=2026-09-17T06:57:04.871Z level=INFO msg="start call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._remoteCacheFixture digest=xxh3:074915b36d036663
+time=2026-09-17T06:57:04.894Z level=INFO msg="end call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._remoteCacheFixture cached=false digest=xxh3:074915b36d036663
+    testctx.go:198: 
+    testctx.go:198: [95m53  : [0m[90;2m[0mContainer.[1mwithExec[0m[32m DONE[0m[90m [0.2s, waited on Container.from][0m
+    testctx.go:198: 
+    testctx.go:198: [95m12  : [0m[90;2m[0mDirectory.[1mentries[0m[2m: [String!]![0m
+    testctx.go:206: shared host directory row=4231 selected-ready-before-install=false counts=map[installed-ready:1 settled:1]
+time="2026-09-17T06:57:05Z" level=debug msg="handling http request" client_hostname=dagger client_id=r8hoy8syvhy36o2yk6l9kzflz contentType= method=POST path=/shutdown session_id=g9g5uksxd5baxr767u9qh1zxg span=faf8c0a778886b12 spanID=faf8c0a778886b12 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+time=2026-09-17T06:57:05.029Z level=INFO msg="client shutdown" isMainClient=true sessionID=g9g5uksxd5baxr767u9qh1zxg clientID=r8hoy8syvhy36o2yk6l9kzflz mainClientID=r8hoy8syvhy36o2yk6l9kzflz
+time=2026-09-17T06:57:05.029Z level=INFO msg="main client is shutting down" isMainClient=true sessionID=g9g5uksxd5baxr767u9qh1zxg clientID=r8hoy8syvhy36o2yk6l9kzflz mainClientID=r8hoy8syvhy36o2yk6l9kzflz
+time=2026-09-17T06:57:05.029Z level=DEBUG msg="shutdown drain phase starting" isMainClient=true sessionID=g9g5uksxd5baxr767u9qh1zxg clientID=r8hoy8syvhy36o2yk6l9kzflz mainClientID=r8hoy8syvhy36o2yk6l9kzflz phase="flush workspace locks"
+time=2026-09-17T06:57:05.029Z level=INFO msg="shutdown drain phase done" isMainClient=true sessionID=g9g5uksxd5baxr767u9qh1zxg clientID=r8hoy8syvhy36o2yk6l9kzflz mainClientID=r8hoy8syvhy36o2yk6l9kzflz phase="flush workspace locks" duration=1.59µs error=<nil>
+time=2026-09-17T06:57:05.029Z level=DEBUG msg="shutdown drain phase starting" isMainClient=true sessionID=g9g5uksxd5baxr767u9qh1zxg clientID=r8hoy8syvhy36o2yk6l9kzflz mainClientID=r8hoy8syvhy36o2yk6l9kzflz phase="stop session services"
+time=2026-09-17T06:57:05.029Z level=INFO msg="shutdown drain phase done" isMainClient=true sessionID=g9g5uksxd5baxr767u9qh1zxg clientID=r8hoy8syvhy36o2yk6l9kzflz mainClientID=r8hoy8syvhy36o2yk6l9kzflz phase="stop session services" duration=1.58µs error=<nil>
+time=2026-09-17T06:57:05.029Z level=DEBUG msg="shutdown drain phase starting" isMainClient=true sessionID=g9g5uksxd5baxr767u9qh1zxg clientID=r8hoy8syvhy36o2yk6l9kzflz mainClientID=r8hoy8syvhy36o2yk6l9kzflz phase="flush session telemetry"
+time=2026-09-17T06:57:05.029Z level=DEBUG msg="flushing session telemetry" sessionID=g9g5uksxd5baxr767u9qh1zxg reason="client shutdown" clients=1 inflightSessionFlushes=1
+time=2026-09-17T06:57:05.030Z level=DEBUG msg="session attachables handle conn done" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=a400e4b8881d513c err=<nil> ctxErr="context canceled" clientID=r8hoy8syvhy36o2yk6l9kzflz
+time=2026-09-17T06:57:05.031Z level=INFO msg="shutdown drain phase done" isMainClient=true sessionID=g9g5uksxd5baxr767u9qh1zxg clientID=r8hoy8syvhy36o2yk6l9kzflz mainClientID=r8hoy8syvhy36o2yk6l9kzflz phase="flush session telemetry" duration=1.956285ms error=<nil>
+time=2026-09-17T06:57:05.031Z level=INFO msg="client shutdown done" isMainClient=true sessionID=g9g5uksxd5baxr767u9qh1zxg clientID=r8hoy8syvhy36o2yk6l9kzflz mainClientID=r8hoy8syvhy36o2yk6l9kzflz duration=2.007515ms error=<nil>
+time=2026-09-17T06:57:05.031Z level=INFO msg="all client connections closed" sessionID=g9g5uksxd5baxr767u9qh1zxg clientID=r8hoy8syvhy36o2yk6l9kzflz
+time=2026-09-17T06:57:05.031Z level=INFO msg="removing session; stopping client services and flushing" session=g9g5uksxd5baxr767u9qh1zxg
+time=2026-09-17T06:57:05.031Z level=DEBUG msg="stopped services" session=g9g5uksxd5baxr767u9qh1zxg
+time=2026-09-17T06:57:05.034Z level=DEBUG msg="released dagql cache refs for session" session=g9g5uksxd5baxr767u9qh1zxg beforeEntries=4233 afterEntries=4092 beforeRetainedCalls=126 afterRetainedCalls=126
+time=2026-09-17T06:57:05.035Z level=DEBUG msg="session removed" session=g9g5uksxd5baxr767u9qh1zxg
+    testctx.go:198: [95m12  : [0m[90;2m[0mDirectory.[1mentries[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m1   : [0m[90;2m[0m.dagger-cli session --workdir /tmp/TestRemoteCacheTransferSuiteTestSharedHostDirectoryLifetime1134801000/002 --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a[32m DONE[0m[90m [4.5s][0m
+    testctx.go:198: 
+    testctx.go:198: 
+    testctx.go:198: [95m40  : [0m[90;2m[0mContainer.[1masService[0m[32m DONE[0m[90m [5.5s][0m
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.2s] [0m[90m|[0m time="2026-09-17T06:57:04Z" level=debug msg="handling http request" client_hostname=dagger client_id=r8hoy8syvhy36o2yk6l9kzflz contentType=application/json method=POST path=/query session_id=g9g5uksxd5baxr767u9qh1zxg span=0f37b3f3cd35b4c6 spanID=0f37b3f3cd35b4c6 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.3s] [0m[90m|[0m time=2026-09-17T06:57:04.847Z level=INFO msg="start call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._remoteCacheFixture digest=xxh3:fb6d8906016b1240
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.3s] [0m[90m|[0m time=2026-09-17T06:57:04.863Z level=INFO msg="end call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._remoteCacheFixture cached=false digest=xxh3:fb6d8906016b1240
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.3s] [0m[90m|[0m time="2026-09-17T06:57:04Z" level=debug msg="handling http request" client_hostname=dagger client_id=r8hoy8syvhy36o2yk6l9kzflz contentType=application/json method=POST path=/query session_id=g9g5uksxd5baxr767u9qh1zxg span=0f37b3f3cd35b4c6 spanID=0f37b3f3cd35b4c6 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.3s] [0m[90m|[0m time=2026-09-17T06:57:04.868Z level=INFO msg="start call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Directory.entries digest=xxh3:fa5f337bb95abc55
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.3s] [0m[90m|[0m time=2026-09-17T06:57:04.869Z level=INFO msg="end call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Directory.entries cached=false digest=xxh3:fa5f337bb95abc55
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.3s] [0m[90m|[0m time="2026-09-17T06:57:04Z" level=debug msg="handling http request" client_hostname=dagger client_id=r8hoy8syvhy36o2yk6l9kzflz contentType=application/json method=POST path=/query session_id=g9g5uksxd5baxr767u9qh1zxg span=0f37b3f3cd35b4c6 spanID=0f37b3f3cd35b4c6 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.3s] [0m[90m|[0m time=2026-09-17T06:57:04.871Z level=INFO msg="start call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._remoteCacheFixture digest=xxh3:074915b36d036663
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.3s] [0m[90m|[0m time=2026-09-17T06:57:04.894Z level=INFO msg="end call" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._remoteCacheFixture cached=false digest=xxh3:074915b36d036663
+time="2026-09-17T06:57:05Z" level=error msg="server context canceled" error="context canceled" spanID=7f4b41ddb7b15363 traceID=b8756e2261b12d4c4e2cbf365022628b
+time="2026-09-17T06:57:05Z" level=info msg="stopping server" spanID=7f4b41ddb7b15363 traceID=b8756e2261b12d4c4e2cbf365022628b
+Received signal terminated, retries: 1/3
+dnsmasq exited: signal: killed
+    testctx.go:198: 
+    testctx.go:198: [95m59  : [0m[90;2m[0mService.[1mstop[0m[2m: ID![0m
+    testctx.go:198: 
+    testctx.go:198: [95m40  : [0m[90;2m[0mContainer.[1masService[0m[32m DONE[0m[90m [5.7s][0m
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.4s] [0m[90m|[0m time="2026-09-17T06:57:05Z" level=debug msg="handling http request" client_hostname=dagger client_id=r8hoy8syvhy36o2yk6l9kzflz contentType= method=POST path=/shutdown session_id=g9g5uksxd5baxr767u9qh1zxg span=faf8c0a778886b12 spanID=faf8c0a778886b12 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.4s] [0m[90m|[0m time=2026-09-17T06:57:05.029Z level=INFO msg="client shutdown" isMainClient=true sessionID=g9g5uksxd5baxr767u9qh1zxg clientID=r8hoy8syvhy36o2yk6l9kzflz mainClientID=r8hoy8syvhy36o2yk6l9kzflz
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.4s] [0m[90m|[0m time=2026-09-17T06:57:05.029Z level=INFO msg="main client is shutting down" isMainClient=true sessionID=g9g5uksxd5baxr767u9qh1zxg clientID=r8hoy8syvhy36o2yk6l9kzflz mainClientID=r8hoy8syvhy36o2yk6l9kzflz
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.4s] [0m[90m|[0m time=2026-09-17T06:57:05.029Z level=DEBUG msg="shutdown drain phase starting" isMainClient=true sessionID=g9g5uksxd5baxr767u9qh1zxg clientID=r8hoy8syvhy36o2yk6l9kzflz mainClientID=r8hoy8syvhy36o2yk6l9kzflz phase="flush workspace locks"
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.4s] [0m[90m|[0m time=2026-09-17T06:57:05.029Z level=INFO msg="shutdown drain phase done" isMainClient=true sessionID=g9g5uksxd5baxr767u9qh1zxg clientID=r8hoy8syvhy36o2yk6l9kzflz mainClientID=r8hoy8syvhy36o2yk6l9kzflz phase="flush workspace locks" duration=1.59µs error=<nil>
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.4s] [0m[90m|[0m time=2026-09-17T06:57:05.029Z level=DEBUG msg="shutdown drain phase starting" isMainClient=true sessionID=g9g5uksxd5baxr767u9qh1zxg clientID=r8hoy8syvhy36o2yk6l9kzflz mainClientID=r8hoy8syvhy36o2yk6l9kzflz phase="stop session services"
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.4s] [0m[90m|[0m time=2026-09-17T06:57:05.029Z level=INFO msg="shutdown drain phase done" isMainClient=true sessionID=g9g5uksxd5baxr767u9qh1zxg clientID=r8hoy8syvhy36o2yk6l9kzflz mainClientID=r8hoy8syvhy36o2yk6l9kzflz phase="stop session services" duration=1.58µs error=<nil>
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.4s] [0m[90m|[0m time=2026-09-17T06:57:05.029Z level=DEBUG msg="shutdown drain phase starting" isMainClient=true sessionID=g9g5uksxd5baxr767u9qh1zxg clientID=r8hoy8syvhy36o2yk6l9kzflz mainClientID=r8hoy8syvhy36o2yk6l9kzflz phase="flush session telemetry"
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.4s] [0m[90m|[0m time=2026-09-17T06:57:05.029Z level=DEBUG msg="flushing session telemetry" sessionID=g9g5uksxd5baxr767u9qh1zxg reason="client shutdown" clients=1 inflightSessionFlushes=1
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.4s] [0m[90m|[0m time=2026-09-17T06:57:05.030Z level=DEBUG msg="session attachables handle conn done" client_id=r8hoy8syvhy36o2yk6l9kzflz client_hostname=dagger session_id=g9g5uksxd5baxr767u9qh1zxg trace=b8756e2261b12d4c4e2cbf365022628b span=a400e4b8881d513c err=<nil> ctxErr="context canceled" clientID=r8hoy8syvhy36o2yk6l9kzflz
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.4s] [0m[90m|[0m time=2026-09-17T06:57:05.031Z level=INFO msg="shutdown drain phase done" isMainClient=true sessionID=g9g5uksxd5baxr767u9qh1zxg clientID=r8hoy8syvhy36o2yk6l9kzflz mainClientID=r8hoy8syvhy36o2yk6l9kzflz phase="flush session telemetry" duration=1.956285ms error=<nil>
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.4s] [0m[90m|[0m time=2026-09-17T06:57:05.031Z level=INFO msg="client shutdown done" isMainClient=true sessionID=g9g5uksxd5baxr767u9qh1zxg clientID=r8hoy8syvhy36o2yk6l9kzflz mainClientID=r8hoy8syvhy36o2yk6l9kzflz duration=2.007515ms error=<nil>
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.4s] [0m[90m|[0m time=2026-09-17T06:57:05.031Z level=INFO msg="all client connections closed" sessionID=g9g5uksxd5baxr767u9qh1zxg clientID=r8hoy8syvhy36o2yk6l9kzflz
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.4s] [0m[90m|[0m time=2026-09-17T06:57:05.031Z level=INFO msg="removing session; stopping client services and flushing" session=g9g5uksxd5baxr767u9qh1zxg
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.4s] [0m[90m|[0m time=2026-09-17T06:57:05.031Z level=DEBUG msg="stopped services" session=g9g5uksxd5baxr767u9qh1zxg
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.4s] [0m[90m|[0m time=2026-09-17T06:57:05.034Z level=DEBUG msg="released dagql cache refs for session" session=g9g5uksxd5baxr767u9qh1zxg beforeEntries=4233 afterEntries=4092 beforeRetainedCalls=126 afterRetainedCalls=126
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.4s] [0m[90m|[0m time=2026-09-17T06:57:05.035Z level=DEBUG msg="session removed" session=g9g5uksxd5baxr767u9qh1zxg
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.5s] [0m[90m|[0m time="2026-09-17T06:57:05Z" level=error msg="server context canceled" error="context canceled" spanID=7f4b41ddb7b15363 traceID=b8756e2261b12d4c4e2cbf365022628b
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.5s] [0m[90m|[0m time="2026-09-17T06:57:05Z" level=info msg="stopping server" spanID=7f4b41ddb7b15363 traceID=b8756e2261b12d4c4e2cbf365022628b
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.5s] [0m[90m|[0m Received signal terminated, retries: 1/3
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[5.5s] [0m[90m|[0m dnsmasq exited: signal: killed
+time=2026-09-17T06:57:06.194Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=0 usedBytes=28672
+time=2026-09-17T06:57:06.206Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=1 usedBytes=28672
+time=2026-09-17T06:57:06.217Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=2 usedBytes=28672
+time=2026-09-17T06:57:06.217Z level=INFO msg="starting dagql cache close" hasSQLDB=true hasPersistDB=true
+time=2026-09-17T06:57:06.541Z level=INFO msg="marking dagql cache clean shutdown"
+time=2026-09-17T06:57:06.541Z level=WARN msg="successfully marked clean shutdown in persistence metadata"
+time=2026-09-17T06:57:06.544Z level=INFO msg="completed dagql cache close successfully"
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[6.6s] [0m[90m|[0m time=2026-09-17T06:57:06.194Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=0 usedBytes=28672
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[6.6s] [0m[90m|[0m time=2026-09-17T06:57:06.206Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=1 usedBytes=28672
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[6.6s] [0m[90m|[0m time=2026-09-17T06:57:06.217Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=2 usedBytes=28672
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[6.6s] [0m[90m|[0m time=2026-09-17T06:57:06.217Z level=INFO msg="starting dagql cache close" hasSQLDB=true hasPersistDB=true
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[6.9s] [0m[90m|[0m time=2026-09-17T06:57:06.541Z level=INFO msg="marking dagql cache clean shutdown"
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[6.9s] [0m[90m|[0m time=2026-09-17T06:57:06.541Z level=WARN msg="successfully marked clean shutdown in persistence metadata"
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[6.9s] [0m[90m|[0m time=2026-09-17T06:57:06.544Z level=INFO msg="completed dagql cache close successfully"
+time="2026-09-17T06:57:24Z" level=error msg="failed to create new network namespace while prefilling pool: cni pool is closed"
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[25.1s] [0m[90m|[0m time="2026-09-17T06:57:24Z" level=error msg="failed to create new network namespace while prefilling pool: cni pool is closed"
+shutting down telemetry...
+telemetry shut down complete
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[26.6s] [0m[90m|[0m shutting down telemetry...
+    testctx.go:198: [95m40  : [0m[90;2m[0m[90m[26.6s] [0m[90m|[0m telemetry shut down complete
+    testctx.go:198: 
+    testctx.go:198: [95m59  : [0m[90;2m[0mService.[1mstop[0m[32m DONE[0m[90m [21.2s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m60  : [0m[90;2m[0mService.[1mstop[0m([36mkill: [0m[31mtrue[0m)[2m: ID![0m
+[2m06:57:26[0m [93mWRN[0m port not ready [2mhost=[0m74cjid060gf8g.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.132:1234: connect: connection refused" [2melapsed=[0m697.778µs
+    testctx.go:198: [95m60  : [0m[90;2m[0mService.[1mstop[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m61  : [0m[90;2m[0mContainer.[1mwithDefaultArgs[0m([36margs: [0m[[33m"--addr"[0m, [33m"tcp://0.0.0.0:1234"[0m, [33m"--network-name"[0m, [33m"dagger2"[0m, [33m"--network-cidr"[0m, [33m"10.89.2.0/24"[0m])[2m: Container![0m
+    testctx.go:198: [95m61  : [0m[90;2m[0mContainer.[1mwithDefaultArgs[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m62  : [0m[90;2m[0mContainer.[1mdirectory[0m([36mpath: [0m[33m"/etc/dagger"[0m)[2m: Directory![0m
+    testctx.go:198: [95m62  : [0m[90;2m[0mContainer.[1mdirectory[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m63  : [0m[90;2m[0mDirectory.[1mentries[0m[2m: [String!]![0m
+    testctx.go:198: [95m63  : [0m[90;2m[0mDirectory.[1mentries[0m[32m DONE[0m[90m [0.1s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m64  : [0m[90;2m[0mContainer.[1mfile[0m([36mpath: [0m[33m"/etc/dagger/engine.json"[0m)[2m: File![0m
+    testctx.go:198: 
+    testctx.go:198: [95m65  : [0m[90;2m[0mFile.[1mcontents[0m[2m: String![0m
+[2m06:57:26[0m [93mWRN[0m port not ready [2mhost=[0m74cjid060gf8g.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.132:1234: connect: connection refused" [2melapsed=[0m105.332603ms
+#!/bin/sh
+set -e
+
+cat $0
+
+# cgroup v2: enable nesting
+# see https://github.com/moby/moby/blob/38805f20f9bcc5e87869d6c79d432b166e1c88b4/hack/dind#L28
+if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
+	# move the processes from the root group to the /init group,
+	# otherwise writing subtree_control fails with EBUSY.
+	# An error during moving non-existent process (i.e., "cat") is ignored.
+	mkdir -p /sys/fs/cgroup/init
+	xargs -rn1 < /sys/fs/cgroup/cgroup.procs > /sys/fs/cgroup/init/cgroup.procs || :
+	# enable controllers
+	sed -e 's/ / +/g' -e 's/^/+/' < /sys/fs/cgroup/cgroup.controllers \
+		> /sys/fs/cgroup/cgroup.subtree_control
+fi
+
+# expect more open files due to per-client SQLite databases
+# many systems default to 1024 which is far too low
+ulimit -n 1048576 || echo "cannot increase open FDs with ulimit, ignoring"
+
+exec tini -- /usr/local/bin/dagger-engine --config /etc/dagger/engine.toml "$@"
+[WARN  tini (16)] Tini is not running as PID 1 and isn't registered as a child subreaper.
+Zombie processes will not be re-parented to Tini, so zombie reaping won't work.
+To fix the problem, use the -s option or set the environment variable TINI_SUBREAPER to register Tini as a child subreaper, or run Tini as PID 1.
+    testctx.go:198: 
+    testctx.go:198: [95m64  : [0m[90;2m[0mContainer.[1mfile[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m65  : [0m[90;2m[0mFile.[1mcontents[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m66  : [0m[90;2m[0m[34mwithNewFile[0m /etc/dagger/engine.json (
+    testctx.go:198: [95m66  : [0m[90;2m┆ [0m[36mcontents:[0m [33m"{\"gc\":{\"enabled\":true,\"dagqlCache\":{},\"reservedSpace\":1000000000000000,\"maxUsedSpace\":1000000000000000,\"minFreeSpace\":0,\"sweepSize\":0},\"registries\":{\"docker.io\":{\"mirrors\":[\"mirror.gcr.io\"],\"http\":null,\"insecure\":null,\"ca\":null}}}\n"[0m
+    testctx.go:198: [95m66  : [0m[90;2m[0m)
+    testctx.go:198: [95m66  : [0m[90;2m[0mContainer.[1mwithNewFile[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m67  : [0m[90;2m[0mContainer.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+    testctx.go:198: 
+    testctx.go:198: [95m68  : [0m[90;2m[0mHost.[1mtunnel[0m(
+    testctx.go:198: [95m68  : [0m[90;2m┆ [0m[36mservice:[0m Container.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+    testctx.go:198: [95m68  : [0m[90;2m[0m)[2m: Service![0m
+time="2026-09-17T06:57:26Z" level=info msg="starting dagger engine version:v1.0.0-beta.14 v1.0.0-beta.14 linux/amd64"
+time="2026-09-17T06:57:26Z" level=info msg="configuring iptables backend: legacy"
+time="2026-09-17T06:57:26Z" level=info msg="set /usr/bin/iptables -> /usr/bin/xtables-legacy-multi"
+time="2026-09-17T06:57:26Z" level=info msg="set /usr/bin/iptables-save -> /usr/bin/xtables-legacy-multi"
+time="2026-09-17T06:57:26Z" level=info msg="set /usr/bin/iptables-restore -> /usr/bin/xtables-legacy-multi"
+time="2026-09-17T06:57:26Z" level=info msg="set /usr/bin/ip6tables -> /usr/bin/xtables-legacy-multi"
+time="2026-09-17T06:57:26Z" level=info msg="set /usr/bin/ip6tables-save -> /usr/bin/xtables-legacy-multi"
+time="2026-09-17T06:57:26Z" level=info msg="set /usr/bin/ip6tables-restore -> /usr/bin/xtables-legacy-multi"
+time="2026-09-17T06:57:26Z" level=info msg="using ipMasqBackend: iptables"
+time="2026-09-17T06:57:26Z" level=info msg="detected mtu 1500 via interface eth1"
+time="2026-09-17T06:57:26Z" level=info msg="engine name: 74cjid060gf8g.4o1bnhb5t7ni0.dagger.local"
+time="2026-09-17T06:57:26Z" level=debug msg="creating engine GRPC server" spanID=194e627b31194612 traceID=b8756e2261b12d4c4e2cbf365022628b
+time="2026-09-17T06:57:26Z" level=debug msg="creating engine lockfile" spanID=194e627b31194612 traceID=b8756e2261b12d4c4e2cbf365022628b
+time="2026-09-17T06:57:26Z" level=debug msg="creating engine server" spanID=194e627b31194612 traceID=b8756e2261b12d4c4e2cbf365022628b
+[2m06:57:26[0m [93mWRN[0m port not ready [2mhost=[0m74cjid060gf8g.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.132:1234: connect: connection refused" [2melapsed=[0m255.330887ms
+    testctx.go:198: 
+    testctx.go:198: [95m67  : [0m[90;2m[0mContainer.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+    testctx.go:198: [95m69  : [0m[90;2m┆ [0m1234/tcp
+    testctx.go:198: 
+    testctx.go:198: [95m70  : [0m[90;2m[0mService.[1mstart[0m[2m: ID![0m
+    testctx.go:198: 
+    testctx.go:198: [95m67  : [0m[90;2m[0mContainer.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+    testctx.go:198: [95m69  : [0m[90;2m┆ [0m1234/tcp
+    testctx.go:198: [95m69  : [0m[90;2m┆ [0m[90m[0.0s] [0m[90m|[0m [2m06:57:26[0m [93mWRN[0m port not ready [2mhost=[0m74cjid060gf8g.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.132:1234: connect: connection refused" [2melapsed=[0m697.778µs
+    testctx.go:198: [95m69  : [0m[90;2m┆ [0m[90m[0.1s] [0m[90m|[0m [2m06:57:26[0m [93mWRN[0m port not ready [2mhost=[0m74cjid060gf8g.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.132:1234: connect: connection refused" [2melapsed=[0m105.332603ms
+    testctx.go:198: [95m67  : [0m[90;2m[0mContainer.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m #!/bin/sh
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m set -e
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m cat $0
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m # cgroup v2: enable nesting
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m # see https://github.com/moby/moby/blob/38805f20f9bcc5e87869d6c79d432b166e1c88b4/hack/dind#L28
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 	# move the processes from the root group to the /init group,
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 	# otherwise writing subtree_control fails with EBUSY.
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 	# An error during moving non-existent process (i.e., "cat") is ignored.
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 	mkdir -p /sys/fs/cgroup/init
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 	xargs -rn1 < /sys/fs/cgroup/cgroup.procs > /sys/fs/cgroup/init/cgroup.procs || :
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 	# enable controllers
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 	sed -e 's/ / +/g' -e 's/^/+/' < /sys/fs/cgroup/cgroup.controllers \
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 		> /sys/fs/cgroup/cgroup.subtree_control
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m fi
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m # expect more open files due to per-client SQLite databases
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m # many systems default to 1024 which is far too low
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m ulimit -n 1048576 || echo "cannot increase open FDs with ulimit, ignoring"
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m 
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m exec tini -- /usr/local/bin/dagger-engine --config /etc/dagger/engine.toml "$@"
+time="2026-09-17T06:57:26Z" level=info msg="auto snapshotter: using overlayfs"
+[2m06:57:26[0m [93mWRN[0m port not ready [2mhost=[0m74cjid060gf8g.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.132:1234: connect: connection refused" [2melapsed=[0m415.166748ms
+    testctx.go:198: [95m69  : [0m[90;2m┆ [0m1234/tcp
+    testctx.go:198: [95m69  : [0m[90;2m┆ [0m[90m[0.3s] [0m[90m|[0m [2m06:57:26[0m [93mWRN[0m port not ready [2mhost=[0m74cjid060gf8g.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.132:1234: connect: connection refused" [2melapsed=[0m255.330887ms
+[2m06:57:27[0m [93mWRN[0m port not ready [2mhost=[0m74cjid060gf8g.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.132:1234: connect: connection refused" [2melapsed=[0m600.227407ms
+    testctx.go:198: [95m67  : [0m[90;2m[0mContainer.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m [WARN  tini (16)] Tini is not running as PID 1 and isn't registered as a child subreaper.
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m Zombie processes will not be re-parented to Tini, so zombie reaping won't work.
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.2s] [0m[90m|[0m To fix the problem, use the -s option or set the environment variable TINI_SUBREAPER to register Tini as a child subreaper, or run Tini as PID 1.
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:57:26Z" level=info msg="starting dagger engine version:v1.0.0-beta.14 v1.0.0-beta.14 linux/amd64"
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:57:26Z" level=info msg="configuring iptables backend: legacy"
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:57:26Z" level=info msg="set /usr/bin/iptables -> /usr/bin/xtables-legacy-multi"
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:57:26Z" level=info msg="set /usr/bin/iptables-save -> /usr/bin/xtables-legacy-multi"
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:57:26Z" level=info msg="set /usr/bin/iptables-restore -> /usr/bin/xtables-legacy-multi"
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:57:26Z" level=info msg="set /usr/bin/ip6tables -> /usr/bin/xtables-legacy-multi"
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:57:26Z" level=info msg="set /usr/bin/ip6tables-save -> /usr/bin/xtables-legacy-multi"
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:57:26Z" level=info msg="set /usr/bin/ip6tables-restore -> /usr/bin/xtables-legacy-multi"
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:57:26Z" level=info msg="using ipMasqBackend: iptables"
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:57:26Z" level=info msg="detected mtu 1500 via interface eth1"
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:57:26Z" level=info msg="engine name: 74cjid060gf8g.4o1bnhb5t7ni0.dagger.local"
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:57:26Z" level=debug msg="creating engine GRPC server" spanID=194e627b31194612 traceID=b8756e2261b12d4c4e2cbf365022628b
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:57:26Z" level=debug msg="creating engine lockfile" spanID=194e627b31194612 traceID=b8756e2261b12d4c4e2cbf365022628b
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.3s] [0m[90m|[0m time="2026-09-17T06:57:26Z" level=debug msg="creating engine server" spanID=194e627b31194612 traceID=b8756e2261b12d4c4e2cbf365022628b
+time="2026-09-17T06:57:27Z" level=warning msg="failed to release network namespace \"pc3h1ui068ttu65rsz8dtrlfc\" left over from previous run: plugin type=\"loopback\" failed (delete): unknown FS magic on \"/var/lib/dagger/net/cni/pc3h1ui068ttu65rsz8dtrlfc\": ef53"
+time="2026-09-17T06:57:27Z" level=debug msg="starting main engine api listeners" spanID=194e627b31194612 traceID=b8756e2261b12d4c4e2cbf365022628b
+time="2026-09-17T06:57:27Z" level=warning msg="TLS is not enabled for tcp://0.0.0.0:1234. enabling mutual TLS authentication is highly recommended"
+time="2026-09-17T06:57:27Z" level=info msg="running server on /run/dagger/engine.sock"
+time="2026-09-17T06:57:27Z" level=info msg="running server on [::]:1234"
+time="2026-09-17T06:57:27Z" level=info msg="running server on /run/buildkit/buildkitd.sock"
+    testctx.go:198: [95m69  : [0m[90;2m┆ [0m1234/tcp
+    testctx.go:198: [95m69  : [0m[90;2m┆ [0m[90m[0.4s] [0m[90m|[0m [2m06:57:26[0m [93mWRN[0m port not ready [2mhost=[0m74cjid060gf8g.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.132:1234: connect: connection refused" [2melapsed=[0m415.166748ms
+    testctx.go:198: [95m69  : [0m[90;2m┆ [0m[90m[0.6s] [0m[90m|[0m [2m06:57:27[0m [93mWRN[0m port not ready [2mhost=[0m74cjid060gf8g.4o1bnhb5t7ni0.dagger.local [2merror=[0m"dial tcp 10.88.0.132:1234: connect: connection refused" [2melapsed=[0m600.227407ms
+    testctx.go:198: [95m67  : [0m[90;2m[0mContainer.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.5s] [0m[90m|[0m time="2026-09-17T06:57:26Z" level=info msg="auto snapshotter: using overlayfs"
+[2m06:57:27[0m [92mINF[0m port is healthy [2mhost=[0m74cjid060gf8g.4o1bnhb5t7ni0.dagger.local [2mendpoint=[0m10.88.0.132:1234
+    testctx.go:198: Creating new Engine session... OK!
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.7s] [0m[90m|[0m time="2026-09-17T06:57:27Z" level=warning msg="failed to release network namespace \"pc3h1ui068ttu65rsz8dtrlfc\" left over from previous run: plugin type=\"loopback\" failed (delete): unknown FS magic on \"/var/lib/dagger/net/cni/pc3h1ui068ttu65rsz8dtrlfc\": ef53"
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.8s] [0m[90m|[0m time="2026-09-17T06:57:27Z" level=debug msg="starting main engine api listeners" spanID=194e627b31194612 traceID=b8756e2261b12d4c4e2cbf365022628b
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.8s] [0m[90m|[0m time="2026-09-17T06:57:27Z" level=warning msg="TLS is not enabled for tcp://0.0.0.0:1234. enabling mutual TLS authentication is highly recommended"
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.8s] [0m[90m|[0m time="2026-09-17T06:57:27Z" level=info msg="running server on /run/dagger/engine.sock"
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.8s] [0m[90m|[0m time="2026-09-17T06:57:27Z" level=info msg="running server on [::]:1234"
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[0.8s] [0m[90m|[0m time="2026-09-17T06:57:27Z" level=info msg="running server on /run/buildkit/buildkitd.sock"
+time="2026-09-17T06:57:27Z" level=debug msg="handling http request" client_hostname=dagger client_id=ud7bsgx98ul42ueh7zv46tsn8 contentType= method=GET path=/sessionAttachables session_id=fvig55i9wnex4jh6r13w7eygl span=2e40614db23afd43 spanID=2e40614db23afd43 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+time=2026-09-17T06:57:27.639Z level=INFO msg="initializing new session" session=fvig55i9wnex4jh6r13w7eygl
+time=2026-09-17T06:57:27.639Z level=DEBUG msg="initialized new session" session=fvig55i9wnex4jh6r13w7eygl
+time=2026-09-17T06:57:27.639Z level=DEBUG msg="session attachables handling conn" client_id=ud7bsgx98ul42ueh7zv46tsn8 client_hostname=dagger session_id=fvig55i9wnex4jh6r13w7eygl trace=b8756e2261b12d4c4e2cbf365022628b span=2e40614db23afd43 clientID=ud7bsgx98ul42ueh7zv46tsn8
+time="2026-09-17T06:57:27Z" level=debug msg="handling http request" client_hostname=dagger client_id=ud7bsgx98ul42ueh7zv46tsn8 contentType= method=GET path=/v1/traces session_id=fvig55i9wnex4jh6r13w7eygl span=6d52a349b8015063 spanID=6d52a349b8015063 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+time="2026-09-17T06:57:27Z" level=debug msg="handling http request" client_hostname=dagger client_id=ud7bsgx98ul42ueh7zv46tsn8 contentType= method=GET path=/v1/logs session_id=fvig55i9wnex4jh6r13w7eygl span=a2b1cfee9c889d2b spanID=a2b1cfee9c889d2b trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+time="2026-09-17T06:57:27Z" level=debug msg="handling http request" client_hostname=dagger client_id=ud7bsgx98ul42ueh7zv46tsn8 contentType= method=GET path=/v1/metrics session_id=fvig55i9wnex4jh6r13w7eygl span=56fd31b0e4951754 spanID=56fd31b0e4951754 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: Establishing connection to Engine... OK!
+time="2026-09-17T06:57:27Z" level=debug msg="handling http request" client_hostname=dagger client_id=ud7bsgx98ul42ueh7zv46tsn8 contentType=application/json method=POST path=/query session_id=fvig55i9wnex4jh6r13w7eygl span=0f37b3f3cd35b4c6 spanID=0f37b3f3cd35b4c6 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+time=2026-09-17T06:57:27.647Z level=INFO msg="initializing new client" isMainClient=true sessionID=fvig55i9wnex4jh6r13w7eygl clientID=ud7bsgx98ul42ueh7zv46tsn8 mainClientID=ud7bsgx98ul42ueh7zv46tsn8
+    testctx.go:198: [95m1   : [0m[90;2m[0m.dagger-cli session --workdir /tmp/TestRemoteCacheTransferSuiteTestSharedHostDirectoryLifetime1134801000/002 --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a
+    testctx.go:198: [95m2   : [0m[90;2m┆ [0mconnect
+    testctx.go:198: [95m2   : [0m[90;2m┆ [0m[90m[0.0s] [0m[90m|[0m cloud [2murl=[0mhttps://dagger.cloud/traces/setup
+    testctx.go:198: [95m3   : [0m[90;2m┆ ┆ [0mstarting engine
+    testctx.go:198: [95m3   : [0m[90;2m┆ ┆ [0mstarting engine[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: [95m4   : [0m[90;2m┆ ┆ [0mconnecting to engine
+    testctx.go:198: [95m4   : [0m[90;2m┆ ┆ [0m[90m[0.0s] [0m[90m|[0m [2m06:57:27[0m [92mINF[0m connected [2mname=[0m74cjid060gf8g.4o1bnhb5t7ni0.dagger.local [2mclient-version=[0mv1.0.0-beta.14 [2mserver-version=[0mv1.0.0-beta.14+5ce25b68
+    testctx.go:198: [95m4   : [0m[90;2m┆ ┆ [0mconnecting to engine[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: [95m5   : [0m[90;2m┆ ┆ [0mstarting session
+    testctx.go:198: [95m5   : [0m[90;2m┆ ┆ [0mstarting session[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: [95m2   : [0m[90;2m┆ [0mconnect[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m6   : [0m[90;2m[0mconsuming /v1/traces
+    testctx.go:198: [95m6   : [0m[90;2m[0mconsuming /v1/traces[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m7   : [0m[90;2m[0mconsuming /v1/logs
+    testctx.go:198: [95m7   : [0m[90;2m[0mconsuming /v1/logs[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m8   : [0m[90;2m[0mconsuming /v1/metrics
+    testctx.go:198: [95m8   : [0m[90;2m[0mconsuming /v1/metrics[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: [95m69  : [0m[90;2m┆ [0m1234/tcp[32m DONE[0m[90m [1.0s][0m
+time=2026-09-17T06:57:27.842Z level=INFO msg="start call" client_id=ud7bsgx98ul42ueh7zv46tsn8 client_hostname=dagger session_id=fvig55i9wnex4jh6r13w7eygl trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._remoteCacheFixture digest=xxh3:b5a104c3e70738f5
+time=2026-09-17T06:57:27.843Z level=INFO msg="end call" client_id=ud7bsgx98ul42ueh7zv46tsn8 client_hostname=dagger session_id=fvig55i9wnex4jh6r13w7eygl trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._remoteCacheFixture cached=false digest=xxh3:b5a104c3e70738f5
+time="2026-09-17T06:57:27Z" level=debug msg="handling http request" client_hostname=dagger client_id=ud7bsgx98ul42ueh7zv46tsn8 contentType=application/json method=POST path=/query session_id=fvig55i9wnex4jh6r13w7eygl span=0f37b3f3cd35b4c6 spanID=0f37b3f3cd35b4c6 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+time=2026-09-17T06:57:27.846Z level=INFO msg="start call" client_id=ud7bsgx98ul42ueh7zv46tsn8 client_hostname=dagger session_id=fvig55i9wnex4jh6r13w7eygl trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Directory.entries digest=xxh3:5f9a2d045ea451cd
+time=2026-09-17T06:57:27.847Z level=INFO msg="end call" client_id=ud7bsgx98ul42ueh7zv46tsn8 client_hostname=dagger session_id=fvig55i9wnex4jh6r13w7eygl trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Directory.entries cached=false digest=xxh3:5f9a2d045ea451cd
+time="2026-09-17T06:57:27Z" level=debug msg="handling http request" client_hostname=dagger client_id=ud7bsgx98ul42ueh7zv46tsn8 contentType=application/json method=POST path=/query session_id=fvig55i9wnex4jh6r13w7eygl span=0f37b3f3cd35b4c6 spanID=0f37b3f3cd35b4c6 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+time=2026-09-17T06:57:27.849Z level=INFO msg="start call" client_id=ud7bsgx98ul42ueh7zv46tsn8 client_hostname=dagger session_id=fvig55i9wnex4jh6r13w7eygl trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._remoteCacheFixture digest=xxh3:074915b36d036663
+    testctx.go:198: 
+    testctx.go:198: [95m70  : [0m[90;2m[0mService.[1mstart[0m[32m DONE[0m[90m [1.1s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m71  : [0m[90;2m[0mService.[1mendpoint[0m([36mscheme: [0m[33m"tcp"[0m)[2m: String![0m
+    testctx.go:198: [95m71  : [0m[90;2m[0mService.[1mendpoint[0m[32m DONE[0m[90m [0.0s][0m
+time=2026-09-17T06:57:27.872Z level=INFO msg="end call" client_id=ud7bsgx98ul42ueh7zv46tsn8 client_hostname=dagger session_id=fvig55i9wnex4jh6r13w7eygl trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._remoteCacheFixture cached=false digest=xxh3:074915b36d036663
+    testctx.go:198: 
+    testctx.go:198: [95m67  : [0m[90;2m[0mContainer.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+    testctx.go:198: [95m69  : [0m[90;2m┆ [0m1234/tcp[32m DONE[0m[90m [1.0s][0m
+    testctx.go:198: [95m69  : [0m[90;2m┆ [0m[90m[1.0s] [0m[90m|[0m [2m06:57:27[0m [92mINF[0m port is healthy [2mhost=[0m74cjid060gf8g.4o1bnhb5t7ni0.dagger.local [2mendpoint=[0m10.88.0.132:1234
+    testctx.go:198: [95m67  : [0m[90;2m[0mContainer.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.2s] [0m[90m|[0m time="2026-09-17T06:57:27Z" level=debug msg="handling http request" client_hostname=dagger client_id=ud7bsgx98ul42ueh7zv46tsn8 contentType= method=GET path=/sessionAttachables session_id=fvig55i9wnex4jh6r13w7eygl span=2e40614db23afd43 spanID=2e40614db23afd43 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.2s] [0m[90m|[0m time=2026-09-17T06:57:27.639Z level=INFO msg="initializing new session" session=fvig55i9wnex4jh6r13w7eygl
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.2s] [0m[90m|[0m time=2026-09-17T06:57:27.639Z level=DEBUG msg="initialized new session" session=fvig55i9wnex4jh6r13w7eygl
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.2s] [0m[90m|[0m time=2026-09-17T06:57:27.639Z level=DEBUG msg="session attachables handling conn" client_id=ud7bsgx98ul42ueh7zv46tsn8 client_hostname=dagger session_id=fvig55i9wnex4jh6r13w7eygl trace=b8756e2261b12d4c4e2cbf365022628b span=2e40614db23afd43 clientID=ud7bsgx98ul42ueh7zv46tsn8
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.2s] [0m[90m|[0m time="2026-09-17T06:57:27Z" level=debug msg="handling http request" client_hostname=dagger client_id=ud7bsgx98ul42ueh7zv46tsn8 contentType= method=GET path=/v1/traces session_id=fvig55i9wnex4jh6r13w7eygl span=6d52a349b8015063 spanID=6d52a349b8015063 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.2s] [0m[90m|[0m time="2026-09-17T06:57:27Z" level=debug msg="handling http request" client_hostname=dagger client_id=ud7bsgx98ul42ueh7zv46tsn8 contentType= method=GET path=/v1/logs session_id=fvig55i9wnex4jh6r13w7eygl span=a2b1cfee9c889d2b spanID=a2b1cfee9c889d2b trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.2s] [0m[90m|[0m time="2026-09-17T06:57:27Z" level=debug msg="handling http request" client_hostname=dagger client_id=ud7bsgx98ul42ueh7zv46tsn8 contentType= method=GET path=/v1/metrics session_id=fvig55i9wnex4jh6r13w7eygl span=56fd31b0e4951754 spanID=56fd31b0e4951754 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.2s] [0m[90m|[0m time="2026-09-17T06:57:27Z" level=debug msg="handling http request" client_hostname=dagger client_id=ud7bsgx98ul42ueh7zv46tsn8 contentType=application/json method=POST path=/query session_id=fvig55i9wnex4jh6r13w7eygl span=0f37b3f3cd35b4c6 spanID=0f37b3f3cd35b4c6 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.2s] [0m[90m|[0m time=2026-09-17T06:57:27.647Z level=INFO msg="initializing new client" isMainClient=true sessionID=fvig55i9wnex4jh6r13w7eygl clientID=ud7bsgx98ul42ueh7zv46tsn8 mainClientID=ud7bsgx98ul42ueh7zv46tsn8
+    testctx.go:206: restored read event for row=4231: {Kind:owner-sync ResultID:4231 Field:directory Address:{OutputPath: Part:} SnapshotID: Source:<nil>}
+    testctx.go:206: restored read event for row=4231: {Kind:owner-sync ResultID:4231 Field:directory Address:{OutputPath: Part:} SnapshotID: Source:<nil>}
+time="2026-09-17T06:57:27Z" level=debug msg="handling http request" client_hostname=dagger client_id=ud7bsgx98ul42ueh7zv46tsn8 contentType= method=POST path=/shutdown session_id=fvig55i9wnex4jh6r13w7eygl span=b01e8c6af3542172 spanID=b01e8c6af3542172 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+time=2026-09-17T06:57:27.993Z level=INFO msg="client shutdown" isMainClient=true sessionID=fvig55i9wnex4jh6r13w7eygl clientID=ud7bsgx98ul42ueh7zv46tsn8 mainClientID=ud7bsgx98ul42ueh7zv46tsn8
+time=2026-09-17T06:57:27.993Z level=INFO msg="main client is shutting down" isMainClient=true sessionID=fvig55i9wnex4jh6r13w7eygl clientID=ud7bsgx98ul42ueh7zv46tsn8 mainClientID=ud7bsgx98ul42ueh7zv46tsn8
+time=2026-09-17T06:57:27.993Z level=DEBUG msg="shutdown drain phase starting" isMainClient=true sessionID=fvig55i9wnex4jh6r13w7eygl clientID=ud7bsgx98ul42ueh7zv46tsn8 mainClientID=ud7bsgx98ul42ueh7zv46tsn8 phase="flush workspace locks"
+time=2026-09-17T06:57:27.993Z level=INFO msg="shutdown drain phase done" isMainClient=true sessionID=fvig55i9wnex4jh6r13w7eygl clientID=ud7bsgx98ul42ueh7zv46tsn8 mainClientID=ud7bsgx98ul42ueh7zv46tsn8 phase="flush workspace locks" duration=1.48µs error=<nil>
+time=2026-09-17T06:57:27.993Z level=DEBUG msg="shutdown drain phase starting" isMainClient=true sessionID=fvig55i9wnex4jh6r13w7eygl clientID=ud7bsgx98ul42ueh7zv46tsn8 mainClientID=ud7bsgx98ul42ueh7zv46tsn8 phase="stop session services"
+time=2026-09-17T06:57:27.993Z level=INFO msg="shutdown drain phase done" isMainClient=true sessionID=fvig55i9wnex4jh6r13w7eygl clientID=ud7bsgx98ul42ueh7zv46tsn8 mainClientID=ud7bsgx98ul42ueh7zv46tsn8 phase="stop session services" duration=1.82µs error=<nil>
+time=2026-09-17T06:57:27.993Z level=DEBUG msg="shutdown drain phase starting" isMainClient=true sessionID=fvig55i9wnex4jh6r13w7eygl clientID=ud7bsgx98ul42ueh7zv46tsn8 mainClientID=ud7bsgx98ul42ueh7zv46tsn8 phase="flush session telemetry"
+time=2026-09-17T06:57:27.993Z level=DEBUG msg="flushing session telemetry" sessionID=fvig55i9wnex4jh6r13w7eygl reason="client shutdown" clients=1 inflightSessionFlushes=1
+time=2026-09-17T06:57:27.993Z level=INFO msg="shutdown drain phase done" isMainClient=true sessionID=fvig55i9wnex4jh6r13w7eygl clientID=ud7bsgx98ul42ueh7zv46tsn8 mainClientID=ud7bsgx98ul42ueh7zv46tsn8 phase="flush session telemetry" duration=101.16µs error=<nil>
+time=2026-09-17T06:57:27.993Z level=INFO msg="client shutdown done" isMainClient=true sessionID=fvig55i9wnex4jh6r13w7eygl clientID=ud7bsgx98ul42ueh7zv46tsn8 mainClientID=ud7bsgx98ul42ueh7zv46tsn8 duration=146.48µs error=<nil>
+time=2026-09-17T06:57:27.993Z level=DEBUG msg="session attachables handle conn done" client_id=ud7bsgx98ul42ueh7zv46tsn8 client_hostname=dagger session_id=fvig55i9wnex4jh6r13w7eygl trace=b8756e2261b12d4c4e2cbf365022628b span=2e40614db23afd43 err=<nil> ctxErr="context canceled" clientID=ud7bsgx98ul42ueh7zv46tsn8
+time=2026-09-17T06:57:27.993Z level=INFO msg="all client connections closed" sessionID=fvig55i9wnex4jh6r13w7eygl clientID=ud7bsgx98ul42ueh7zv46tsn8
+time=2026-09-17T06:57:27.993Z level=INFO msg="removing session; stopping client services and flushing" session=fvig55i9wnex4jh6r13w7eygl
+time=2026-09-17T06:57:27.994Z level=DEBUG msg="stopped services" session=fvig55i9wnex4jh6r13w7eygl
+time=2026-09-17T06:57:27.999Z level=DEBUG msg="released dagql cache refs for session" session=fvig55i9wnex4jh6r13w7eygl beforeEntries=4231 afterEntries=4092 beforeRetainedCalls=126 afterRetainedCalls=126
+    testctx.go:198: 
+    testctx.go:198: [95m1   : [0m[90;2m[0m.dagger-cli session --workdir /tmp/TestRemoteCacheTransferSuiteTestSharedHostDirectoryLifetime1134801000/002 --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a[32m DONE[0m[90m [0.4s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m9   : [0m[90;2m[0mMissing.[1mentries[0m[2m: [String!]![0m
+    testctx.go:198: [95m9   : [0m[90;2m[0mMissing.[1mentries[0m[32m DONE[0m[90m [0.0s][0m
+time=2026-09-17T06:57:28.002Z level=DEBUG msg="session removed" session=fvig55i9wnex4jh6r13w7eygl
+    testctx.go:198: 
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.4s] [0m[90m|[0m time=2026-09-17T06:57:27.842Z level=INFO msg="start call" client_id=ud7bsgx98ul42ueh7zv46tsn8 client_hostname=dagger session_id=fvig55i9wnex4jh6r13w7eygl trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._remoteCacheFixture digest=xxh3:b5a104c3e70738f5
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.4s] [0m[90m|[0m time=2026-09-17T06:57:27.843Z level=INFO msg="end call" client_id=ud7bsgx98ul42ueh7zv46tsn8 client_hostname=dagger session_id=fvig55i9wnex4jh6r13w7eygl trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._remoteCacheFixture cached=false digest=xxh3:b5a104c3e70738f5
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.4s] [0m[90m|[0m time="2026-09-17T06:57:27Z" level=debug msg="handling http request" client_hostname=dagger client_id=ud7bsgx98ul42ueh7zv46tsn8 contentType=application/json method=POST path=/query session_id=fvig55i9wnex4jh6r13w7eygl span=0f37b3f3cd35b4c6 spanID=0f37b3f3cd35b4c6 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.4s] [0m[90m|[0m time=2026-09-17T06:57:27.846Z level=INFO msg="start call" client_id=ud7bsgx98ul42ueh7zv46tsn8 client_hostname=dagger session_id=fvig55i9wnex4jh6r13w7eygl trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Directory.entries digest=xxh3:5f9a2d045ea451cd
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.4s] [0m[90m|[0m time=2026-09-17T06:57:27.847Z level=INFO msg="end call" client_id=ud7bsgx98ul42ueh7zv46tsn8 client_hostname=dagger session_id=fvig55i9wnex4jh6r13w7eygl trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Directory.entries cached=false digest=xxh3:5f9a2d045ea451cd
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.4s] [0m[90m|[0m time="2026-09-17T06:57:27Z" level=debug msg="handling http request" client_hostname=dagger client_id=ud7bsgx98ul42ueh7zv46tsn8 contentType=application/json method=POST path=/query session_id=fvig55i9wnex4jh6r13w7eygl span=0f37b3f3cd35b4c6 spanID=0f37b3f3cd35b4c6 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.4s] [0m[90m|[0m time=2026-09-17T06:57:27.849Z level=INFO msg="start call" client_id=ud7bsgx98ul42ueh7zv46tsn8 client_hostname=dagger session_id=fvig55i9wnex4jh6r13w7eygl trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._remoteCacheFixture digest=xxh3:074915b36d036663
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.4s] [0m[90m|[0m time=2026-09-17T06:57:27.872Z level=INFO msg="end call" client_id=ud7bsgx98ul42ueh7zv46tsn8 client_hostname=dagger session_id=fvig55i9wnex4jh6r13w7eygl trace=b8756e2261b12d4c4e2cbf365022628b span=0f37b3f3cd35b4c6 field=Query._remoteCacheFixture cached=false digest=xxh3:074915b36d036663
+Received signal terminated, retries: 1/3
+time="2026-09-17T06:57:28Z" level=error msg="server context canceled" error="context canceled" spanID=194e627b31194612 traceID=b8756e2261b12d4c4e2cbf365022628b
+time="2026-09-17T06:57:28Z" level=info msg="stopping server" spanID=194e627b31194612 traceID=b8756e2261b12d4c4e2cbf365022628b
+dnsmasq exited: signal: killed
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.5s] [0m[90m|[0m time="2026-09-17T06:57:27Z" level=debug msg="handling http request" client_hostname=dagger client_id=ud7bsgx98ul42ueh7zv46tsn8 contentType= method=POST path=/shutdown session_id=fvig55i9wnex4jh6r13w7eygl span=b01e8c6af3542172 spanID=b01e8c6af3542172 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.5s] [0m[90m|[0m time=2026-09-17T06:57:27.993Z level=INFO msg="client shutdown" isMainClient=true sessionID=fvig55i9wnex4jh6r13w7eygl clientID=ud7bsgx98ul42ueh7zv46tsn8 mainClientID=ud7bsgx98ul42ueh7zv46tsn8
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.5s] [0m[90m|[0m time=2026-09-17T06:57:27.993Z level=INFO msg="main client is shutting down" isMainClient=true sessionID=fvig55i9wnex4jh6r13w7eygl clientID=ud7bsgx98ul42ueh7zv46tsn8 mainClientID=ud7bsgx98ul42ueh7zv46tsn8
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.5s] [0m[90m|[0m time=2026-09-17T06:57:27.993Z level=DEBUG msg="shutdown drain phase starting" isMainClient=true sessionID=fvig55i9wnex4jh6r13w7eygl clientID=ud7bsgx98ul42ueh7zv46tsn8 mainClientID=ud7bsgx98ul42ueh7zv46tsn8 phase="flush workspace locks"
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.5s] [0m[90m|[0m time=2026-09-17T06:57:27.993Z level=INFO msg="shutdown drain phase done" isMainClient=true sessionID=fvig55i9wnex4jh6r13w7eygl clientID=ud7bsgx98ul42ueh7zv46tsn8 mainClientID=ud7bsgx98ul42ueh7zv46tsn8 phase="flush workspace locks" duration=1.48µs error=<nil>
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.5s] [0m[90m|[0m time=2026-09-17T06:57:27.993Z level=DEBUG msg="shutdown drain phase starting" isMainClient=true sessionID=fvig55i9wnex4jh6r13w7eygl clientID=ud7bsgx98ul42ueh7zv46tsn8 mainClientID=ud7bsgx98ul42ueh7zv46tsn8 phase="stop session services"
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.5s] [0m[90m|[0m time=2026-09-17T06:57:27.993Z level=INFO msg="shutdown drain phase done" isMainClient=true sessionID=fvig55i9wnex4jh6r13w7eygl clientID=ud7bsgx98ul42ueh7zv46tsn8 mainClientID=ud7bsgx98ul42ueh7zv46tsn8 phase="stop session services" duration=1.82µs error=<nil>
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.5s] [0m[90m|[0m time=2026-09-17T06:57:27.993Z level=DEBUG msg="shutdown drain phase starting" isMainClient=true sessionID=fvig55i9wnex4jh6r13w7eygl clientID=ud7bsgx98ul42ueh7zv46tsn8 mainClientID=ud7bsgx98ul42ueh7zv46tsn8 phase="flush session telemetry"
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.5s] [0m[90m|[0m time=2026-09-17T06:57:27.993Z level=DEBUG msg="flushing session telemetry" sessionID=fvig55i9wnex4jh6r13w7eygl reason="client shutdown" clients=1 inflightSessionFlushes=1
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.5s] [0m[90m|[0m time=2026-09-17T06:57:27.993Z level=INFO msg="shutdown drain phase done" isMainClient=true sessionID=fvig55i9wnex4jh6r13w7eygl clientID=ud7bsgx98ul42ueh7zv46tsn8 mainClientID=ud7bsgx98ul42ueh7zv46tsn8 phase="flush session telemetry" duration=101.16µs error=<nil>
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.5s] [0m[90m|[0m time=2026-09-17T06:57:27.993Z level=INFO msg="client shutdown done" isMainClient=true sessionID=fvig55i9wnex4jh6r13w7eygl clientID=ud7bsgx98ul42ueh7zv46tsn8 mainClientID=ud7bsgx98ul42ueh7zv46tsn8 duration=146.48µs error=<nil>
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.5s] [0m[90m|[0m time=2026-09-17T06:57:27.993Z level=DEBUG msg="session attachables handle conn done" client_id=ud7bsgx98ul42ueh7zv46tsn8 client_hostname=dagger session_id=fvig55i9wnex4jh6r13w7eygl trace=b8756e2261b12d4c4e2cbf365022628b span=2e40614db23afd43 err=<nil> ctxErr="context canceled" clientID=ud7bsgx98ul42ueh7zv46tsn8
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.5s] [0m[90m|[0m time=2026-09-17T06:57:27.993Z level=INFO msg="all client connections closed" sessionID=fvig55i9wnex4jh6r13w7eygl clientID=ud7bsgx98ul42ueh7zv46tsn8
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.5s] [0m[90m|[0m time=2026-09-17T06:57:27.993Z level=INFO msg="removing session; stopping client services and flushing" session=fvig55i9wnex4jh6r13w7eygl
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.5s] [0m[90m|[0m time=2026-09-17T06:57:27.994Z level=DEBUG msg="stopped services" session=fvig55i9wnex4jh6r13w7eygl
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.5s] [0m[90m|[0m time=2026-09-17T06:57:27.999Z level=DEBUG msg="released dagql cache refs for session" session=fvig55i9wnex4jh6r13w7eygl beforeEntries=4231 afterEntries=4092 beforeRetainedCalls=126 afterRetainedCalls=126
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.5s] [0m[90m|[0m time=2026-09-17T06:57:28.002Z level=DEBUG msg="session removed" session=fvig55i9wnex4jh6r13w7eygl
+    testctx.go:198: 
+    testctx.go:198: [95m72  : [0m[90;2m[0mService.[1mstop[0m[2m: ID![0m
+    testctx.go:198: 
+    testctx.go:198: [95m67  : [0m[90;2m[0mContainer.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.8s] [0m[90m|[0m Received signal terminated, retries: 1/3
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.8s] [0m[90m|[0m time="2026-09-17T06:57:28Z" level=error msg="server context canceled" error="context canceled" spanID=194e627b31194612 traceID=b8756e2261b12d4c4e2cbf365022628b
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.8s] [0m[90m|[0m time="2026-09-17T06:57:28Z" level=info msg="stopping server" spanID=194e627b31194612 traceID=b8756e2261b12d4c4e2cbf365022628b
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[1.8s] [0m[90m|[0m dnsmasq exited: signal: killed
+time=2026-09-17T06:57:29.303Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=0 usedBytes=28672
+time=2026-09-17T06:57:29.317Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=1 usedBytes=28672
+time=2026-09-17T06:57:29.323Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=2 usedBytes=28672
+time=2026-09-17T06:57:29.323Z level=INFO msg="starting dagql cache close" hasSQLDB=true hasPersistDB=true
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[2.8s] [0m[90m|[0m time=2026-09-17T06:57:29.303Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=0 usedBytes=28672
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[2.9s] [0m[90m|[0m time=2026-09-17T06:57:29.317Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=1 usedBytes=28672
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[2.9s] [0m[90m|[0m time=2026-09-17T06:57:29.323Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=2 usedBytes=28672
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[2.9s] [0m[90m|[0m time=2026-09-17T06:57:29.323Z level=INFO msg="starting dagql cache close" hasSQLDB=true hasPersistDB=true
+time=2026-09-17T06:57:29.645Z level=INFO msg="marking dagql cache clean shutdown"
+time=2026-09-17T06:57:29.645Z level=WARN msg="successfully marked clean shutdown in persistence metadata"
+time=2026-09-17T06:57:29.648Z level=INFO msg="completed dagql cache close successfully"
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[3.2s] [0m[90m|[0m time=2026-09-17T06:57:29.645Z level=INFO msg="marking dagql cache clean shutdown"
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[3.2s] [0m[90m|[0m time=2026-09-17T06:57:29.645Z level=WARN msg="successfully marked clean shutdown in persistence metadata"
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[3.2s] [0m[90m|[0m time=2026-09-17T06:57:29.648Z level=INFO msg="completed dagql cache close successfully"
+time="2026-09-17T06:57:38Z" level=error msg="failed to create new network namespace while prefilling pool: cni pool is closed"
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[11.6s] [0m[90m|[0m time="2026-09-17T06:57:38Z" level=error msg="failed to create new network namespace while prefilling pool: cni pool is closed"
+shutting down telemetry...
+telemetry shut down complete
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[15.2s] [0m[90m|[0m shutting down telemetry...
+    testctx.go:198: [95m67  : [0m[90;2m[0m[90m[15.2s] [0m[90m|[0m telemetry shut down complete
+time="2026-09-17T06:57:41Z" level=debug msg="handling http request" client_hostname=dagger client_id=kgeteafbgw0ur38842by0zrq0 contentType= method=POST path=/shutdown session_id=82q5c490q8tw332jkw3818hkf span=226bc32cfaa55d17 spanID=226bc32cfaa55d17 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+time=2026-09-17T06:57:41.887Z level=INFO msg="client shutdown" isMainClient=true sessionID=82q5c490q8tw332jkw3818hkf clientID=kgeteafbgw0ur38842by0zrq0 mainClientID=kgeteafbgw0ur38842by0zrq0
+time=2026-09-17T06:57:41.887Z level=INFO msg="main client is shutting down" isMainClient=true sessionID=82q5c490q8tw332jkw3818hkf clientID=kgeteafbgw0ur38842by0zrq0 mainClientID=kgeteafbgw0ur38842by0zrq0
+time=2026-09-17T06:57:41.887Z level=DEBUG msg="shutdown drain phase starting" isMainClient=true sessionID=82q5c490q8tw332jkw3818hkf clientID=kgeteafbgw0ur38842by0zrq0 mainClientID=kgeteafbgw0ur38842by0zrq0 phase="flush workspace locks"
+time=2026-09-17T06:57:41.887Z level=INFO msg="shutdown drain phase done" isMainClient=true sessionID=82q5c490q8tw332jkw3818hkf clientID=kgeteafbgw0ur38842by0zrq0 mainClientID=kgeteafbgw0ur38842by0zrq0 phase="flush workspace locks" duration=1.66µs error=<nil>
+time=2026-09-17T06:57:41.887Z level=DEBUG msg="shutdown drain phase starting" isMainClient=true sessionID=82q5c490q8tw332jkw3818hkf clientID=kgeteafbgw0ur38842by0zrq0 mainClientID=kgeteafbgw0ur38842by0zrq0 phase="stop session services"
+time=2026-09-17T06:57:41.887Z level=INFO msg="shutdown drain phase done" isMainClient=true sessionID=82q5c490q8tw332jkw3818hkf clientID=kgeteafbgw0ur38842by0zrq0 mainClientID=kgeteafbgw0ur38842by0zrq0 phase="stop session services" duration=2.43µs error=<nil>
+time=2026-09-17T06:57:41.887Z level=DEBUG msg="shutdown drain phase starting" isMainClient=true sessionID=82q5c490q8tw332jkw3818hkf clientID=kgeteafbgw0ur38842by0zrq0 mainClientID=kgeteafbgw0ur38842by0zrq0 phase="flush session telemetry"
+time=2026-09-17T06:57:41.887Z level=DEBUG msg="flushing session telemetry" sessionID=82q5c490q8tw332jkw3818hkf reason="client shutdown" clients=1 inflightSessionFlushes=1
+time=2026-09-17T06:57:41.887Z level=INFO msg="shutdown drain phase done" isMainClient=true sessionID=82q5c490q8tw332jkw3818hkf clientID=kgeteafbgw0ur38842by0zrq0 mainClientID=kgeteafbgw0ur38842by0zrq0 phase="flush session telemetry" duration=78.96µs error=<nil>
+time=2026-09-17T06:57:41.887Z level=INFO msg="client shutdown done" isMainClient=true sessionID=82q5c490q8tw332jkw3818hkf clientID=kgeteafbgw0ur38842by0zrq0 mainClientID=kgeteafbgw0ur38842by0zrq0 duration=119.689µs error=<nil>
+time=2026-09-17T06:57:41.887Z level=DEBUG msg="session attachables handle conn done" client_id=kgeteafbgw0ur38842by0zrq0 client_hostname=dagger session_id=82q5c490q8tw332jkw3818hkf trace=b8756e2261b12d4c4e2cbf365022628b span=19cc3a7e7722791c err=<nil> ctxErr="context canceled" clientID=kgeteafbgw0ur38842by0zrq0
+time=2026-09-17T06:57:41.887Z level=INFO msg="all client connections closed" sessionID=82q5c490q8tw332jkw3818hkf clientID=kgeteafbgw0ur38842by0zrq0
+time=2026-09-17T06:57:41.887Z level=INFO msg="removing session; stopping client services and flushing" session=82q5c490q8tw332jkw3818hkf
+time=2026-09-17T06:57:41.887Z level=DEBUG msg="stopped services" session=82q5c490q8tw332jkw3818hkf
+time=2026-09-17T06:57:41.889Z level=DEBUG msg="released dagql cache refs for session" session=82q5c490q8tw332jkw3818hkf beforeEntries=4229 afterEntries=4090 beforeRetainedCalls=125 afterRetainedCalls=125
+time=2026-09-17T06:57:41.894Z level=DEBUG msg="session removed" session=82q5c490q8tw332jkw3818hkf
+    testctx.go:198: 
+    testctx.go:198: [95m1   : [0m[90;2m[0m.dagger-cli session --workdir /tmp/TestRemoteCacheTransferSuiteTestSharedHostDirectoryLifetime1134801000/001 --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a[32m DONE[0m[90m [42.5s][0m
+    testctx.go:198: 
+Received signal terminated, retries: 1/3
+time="2026-09-17T06:57:41Z" level=error msg="server context canceled" error="context canceled" spanID=0ca6628390a79af7 traceID=b8756e2261b12d4c4e2cbf365022628b
+time="2026-09-17T06:57:41Z" level=info msg="stopping server" spanID=0ca6628390a79af7 traceID=b8756e2261b12d4c4e2cbf365022628b
+dnsmasq exited: signal: killed
+    testctx.go:198: 
+    testctx.go:198: [95m25  : [0m[90;2m[0mContainer.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[49.5s] [0m[90m|[0m time="2026-09-17T06:57:41Z" level=debug msg="handling http request" client_hostname=dagger client_id=kgeteafbgw0ur38842by0zrq0 contentType= method=POST path=/shutdown session_id=82q5c490q8tw332jkw3818hkf span=226bc32cfaa55d17 spanID=226bc32cfaa55d17 trace=b8756e2261b12d4c4e2cbf365022628b traceID=b8756e2261b12d4c4e2cbf365022628b upgradeHeader=
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[49.5s] [0m[90m|[0m time=2026-09-17T06:57:41.887Z level=INFO msg="client shutdown" isMainClient=true sessionID=82q5c490q8tw332jkw3818hkf clientID=kgeteafbgw0ur38842by0zrq0 mainClientID=kgeteafbgw0ur38842by0zrq0
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[49.5s] [0m[90m|[0m time=2026-09-17T06:57:41.887Z level=INFO msg="main client is shutting down" isMainClient=true sessionID=82q5c490q8tw332jkw3818hkf clientID=kgeteafbgw0ur38842by0zrq0 mainClientID=kgeteafbgw0ur38842by0zrq0
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[49.5s] [0m[90m|[0m time=2026-09-17T06:57:41.887Z level=DEBUG msg="shutdown drain phase starting" isMainClient=true sessionID=82q5c490q8tw332jkw3818hkf clientID=kgeteafbgw0ur38842by0zrq0 mainClientID=kgeteafbgw0ur38842by0zrq0 phase="flush workspace locks"
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[49.5s] [0m[90m|[0m time=2026-09-17T06:57:41.887Z level=INFO msg="shutdown drain phase done" isMainClient=true sessionID=82q5c490q8tw332jkw3818hkf clientID=kgeteafbgw0ur38842by0zrq0 mainClientID=kgeteafbgw0ur38842by0zrq0 phase="flush workspace locks" duration=1.66µs error=<nil>
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[49.5s] [0m[90m|[0m time=2026-09-17T06:57:41.887Z level=DEBUG msg="shutdown drain phase starting" isMainClient=true sessionID=82q5c490q8tw332jkw3818hkf clientID=kgeteafbgw0ur38842by0zrq0 mainClientID=kgeteafbgw0ur38842by0zrq0 phase="stop session services"
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[49.5s] [0m[90m|[0m time=2026-09-17T06:57:41.887Z level=INFO msg="shutdown drain phase done" isMainClient=true sessionID=82q5c490q8tw332jkw3818hkf clientID=kgeteafbgw0ur38842by0zrq0 mainClientID=kgeteafbgw0ur38842by0zrq0 phase="stop session services" duration=2.43µs error=<nil>
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[49.5s] [0m[90m|[0m time=2026-09-17T06:57:41.887Z level=DEBUG msg="shutdown drain phase starting" isMainClient=true sessionID=82q5c490q8tw332jkw3818hkf clientID=kgeteafbgw0ur38842by0zrq0 mainClientID=kgeteafbgw0ur38842by0zrq0 phase="flush session telemetry"
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[49.5s] [0m[90m|[0m time=2026-09-17T06:57:41.887Z level=DEBUG msg="flushing session telemetry" sessionID=82q5c490q8tw332jkw3818hkf reason="client shutdown" clients=1 inflightSessionFlushes=1
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[49.5s] [0m[90m|[0m time=2026-09-17T06:57:41.887Z level=INFO msg="shutdown drain phase done" isMainClient=true sessionID=82q5c490q8tw332jkw3818hkf clientID=kgeteafbgw0ur38842by0zrq0 mainClientID=kgeteafbgw0ur38842by0zrq0 phase="flush session telemetry" duration=78.96µs error=<nil>
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[49.5s] [0m[90m|[0m time=2026-09-17T06:57:41.887Z level=INFO msg="client shutdown done" isMainClient=true sessionID=82q5c490q8tw332jkw3818hkf clientID=kgeteafbgw0ur38842by0zrq0 mainClientID=kgeteafbgw0ur38842by0zrq0 duration=119.689µs error=<nil>
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[49.5s] [0m[90m|[0m time=2026-09-17T06:57:41.887Z level=DEBUG msg="session attachables handle conn done" client_id=kgeteafbgw0ur38842by0zrq0 client_hostname=dagger session_id=82q5c490q8tw332jkw3818hkf trace=b8756e2261b12d4c4e2cbf365022628b span=19cc3a7e7722791c err=<nil> ctxErr="context canceled" clientID=kgeteafbgw0ur38842by0zrq0
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[49.5s] [0m[90m|[0m time=2026-09-17T06:57:41.887Z level=INFO msg="all client connections closed" sessionID=82q5c490q8tw332jkw3818hkf clientID=kgeteafbgw0ur38842by0zrq0
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[49.5s] [0m[90m|[0m time=2026-09-17T06:57:41.887Z level=INFO msg="removing session; stopping client services and flushing" session=82q5c490q8tw332jkw3818hkf
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[49.5s] [0m[90m|[0m time=2026-09-17T06:57:41.887Z level=DEBUG msg="stopped services" session=82q5c490q8tw332jkw3818hkf
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[49.5s] [0m[90m|[0m time=2026-09-17T06:57:41.889Z level=DEBUG msg="released dagql cache refs for session" session=82q5c490q8tw332jkw3818hkf beforeEntries=4229 afterEntries=4090 beforeRetainedCalls=125 afterRetainedCalls=125
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[49.5s] [0m[90m|[0m time=2026-09-17T06:57:41.894Z level=DEBUG msg="session removed" session=82q5c490q8tw332jkw3818hkf
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[49.5s] [0m[90m|[0m Received signal terminated, retries: 1/3
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[49.5s] [0m[90m|[0m time="2026-09-17T06:57:41Z" level=error msg="server context canceled" error="context canceled" spanID=0ca6628390a79af7 traceID=b8756e2261b12d4c4e2cbf365022628b
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[49.5s] [0m[90m|[0m time="2026-09-17T06:57:41Z" level=info msg="stopping server" spanID=0ca6628390a79af7 traceID=b8756e2261b12d4c4e2cbf365022628b
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[49.5s] [0m[90m|[0m dnsmasq exited: signal: killed
+    testctx.go:198: 
+    testctx.go:198: [95m67  : [0m[90;2m[0mContainer.[1masService[0m[32m DONE[0m[90m [15.4s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m68  : [0m[90;2m[0mHost.[1mtunnel[0m[32m DONE[0m[90m [15.4s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m72  : [0m[90;2m[0mService.[1mstop[0m[32m DONE[0m[90m [13.7s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m73  : [0m[90;2m[0mService.[1mstop[0m([36mkill: [0m[31mtrue[0m)[2m: ID![0m
+    testctx.go:198: [95m73  : [0m[90;2m[0mService.[1mstop[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m74  : [0m[90;2m[0mService.[1mstop[0m[2m: ID![0m
+time=2026-09-17T06:57:42.970Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=0 usedBytes=20480
+time=2026-09-17T06:57:42.984Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=1 usedBytes=20480
+time=2026-09-17T06:57:42.995Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=2 usedBytes=20480
+time=2026-09-17T06:57:42.995Z level=INFO msg="starting dagql cache close" hasSQLDB=true hasPersistDB=true
+    testctx.go:198: 
+    testctx.go:198: [95m25  : [0m[90;2m[0mContainer.[1masService[0m([36museEntrypoint: [0m[31mtrue[0m, [36minsecureRootCapabilities: [0m[31mtrue[0m)[2m: Service![0m
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[50.5s] [0m[90m|[0m time=2026-09-17T06:57:42.970Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=0 usedBytes=20480
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[50.6s] [0m[90m|[0m time=2026-09-17T06:57:42.984Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=1 usedBytes=20480
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[50.6s] [0m[90m|[0m time=2026-09-17T06:57:42.995Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=2 usedBytes=20480
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[50.6s] [0m[90m|[0m time=2026-09-17T06:57:42.995Z level=INFO msg="starting dagql cache close" hasSQLDB=true hasPersistDB=true
+time=2026-09-17T06:57:43.344Z level=INFO msg="marking dagql cache clean shutdown"
+time=2026-09-17T06:57:43.344Z level=WARN msg="successfully marked clean shutdown in persistence metadata"
+time=2026-09-17T06:57:43.347Z level=INFO msg="completed dagql cache close successfully"
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[50.9s] [0m[90m|[0m time=2026-09-17T06:57:43.344Z level=INFO msg="marking dagql cache clean shutdown"
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[50.9s] [0m[90m|[0m time=2026-09-17T06:57:43.344Z level=WARN msg="successfully marked clean shutdown in persistence metadata"
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[50.9s] [0m[90m|[0m time=2026-09-17T06:57:43.347Z level=INFO msg="completed dagql cache close successfully"
+time="2026-09-17T06:57:57Z" level=info msg="engine metrics" cpu-count=16 cpu-idle=1171168705 cpu-iowait=3091102 cpu-irq=0 cpu-nice=9 cpu-softirq=8733056 cpu-steal=4234706 cpu-system=24946891 cpu-total=1329290525 cpu-user=117116056 dagger-session-count=0 dagql-cache-size=4090 disk-available-/=51956690944 disk-available-/var/lib/dagger=51956690944 disk-free-/=73726967808 disk-free-/var/lib/dagger=73726967808 disk-size-/=528306708480 disk-size-/var/lib/dagger=528306708480 goroutine-count=13 loadavg-1=16.75 loadavg-15=13.52 loadavg-5=15.42 mem-active=28600356864 mem-available=48529027072 mem-buffers=8481845248 mem-cached=37751951360 mem-committed=34172686336 mem-free=628867072 mem-inactive=31813148672 mem-mapped=1150410752 mem-page-tables=118988800 mem-shmem=2014433280 mem-slab=5024219136 mem-swap-cached=0 mem-swap-free=0 mem-swap-total=0 mem-total=67419242496 mem-vmalloc-used=139988992 proc-self-mem-anonymous=97337344 proc-self-mem-private-clean=82583552 proc-self-mem-private-dirty=97337344 proc-self-mem-pss=179920896 proc-self-mem-referenced=179929088 proc-self-mem-rss=179929088 proc-self-mem-shared-clean=8192 proc-self-mem-shared-dirty=0 proc-self-mem-swap=0 proc-self-mem-swap-pss=0 uptime=230h56m11s
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[1m5s] [0m[90m|[0m time="2026-09-17T06:57:57Z" level=info msg="engine metrics" cpu-count=16 cpu-idle=1171168705 cpu-iowait=3091102 cpu-irq=0 cpu-nice=9 cpu-softirq=8733056 cpu-steal=4234706 cpu-system=24946891 cpu-total=1329290525 cpu-user=117116056 dagger-session-count=0 dagql-cache-size=4090 disk-available-/=51956690944 disk-available-/var/lib/dagger=51956690944 disk-free-/=73726967808 disk-free-/var/lib/dagger=73726967808 disk-size-/=528306708480 disk-size-/var/lib/dagger=528306708480 goroutine-count=13 loadavg-1=16.75 loadavg-15=13.52 loadavg-5=15.42 mem-active=28600356864 mem-available=48529027072 mem-buffers=8481845248 mem-cached=37751951360 mem-committed=34172686336 mem-free=628867072 mem-inactive=31813148672 mem-mapped=1150410752 mem-page-tables=118988800 mem-shmem=2014433280 mem-slab=5024219136 mem-swap-cached=0 mem-swap-free=0 mem-swap-total=0 mem-total=67419242496 mem-vmalloc-used=139988992 proc-self-mem-anonymous=97337344 proc-self-mem-private-clean=82583552 proc-self-mem-private-dirty=97337344 proc-self-mem-pss=179920896 proc-self-mem-referenced=179929088 proc-self-mem-rss=179929088 proc-self-mem-shared-clean=8192 proc-self-mem-shared-dirty=0 proc-self-mem-swap=0 proc-self-mem-swap-pss=0 uptime=230h56m11s
+shutting down telemetry...
+telemetry shut down complete
+    testctx.go:198: 
+    testctx.go:198: [95m1   : [0m[90;2m[0m.dagger-cli session --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a[32m DONE[0m[90m [1m27s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m25  : [0m[90;2m[0mContainer.[1masService[0m[32m DONE[0m[90m [1m15s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m26  : [0m[90;2m[0mHost.[1mtunnel[0m[32m DONE[0m[90m [1m15s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m74  : [0m[90;2m[0mService.[1mstop[0m[32m DONE[0m[90m [25.4s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m75  : [0m[90;2m[0mService.[1mstop[0m([36mkill: [0m[31mtrue[0m)[2m: ID![0m
+    testctx.go:198: [95m75  : [0m[90;2m[0mService.[1mstop[0m[32m DONE[0m[90m [0.0s][0m
+    testctx.go:198: 
+    testctx.go:198: [95m25  : [0m[90;2m[0mContainer.[1masService[0m[32m DONE[0m[90m [1m15s][0m
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[1m15s] [0m[90m|[0m shutting down telemetry...
+    testctx.go:198: [95m25  : [0m[90;2m[0m[90m[1m15s] [0m[90m|[0m telemetry shut down complete
+    testctx.go:198: 

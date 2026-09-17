@@ -1,0 +1,126 @@
+# Excerpt of the previous implementer's first engine run (/tmp/b6/engine-run.log, at 0a7c5c0c89, --timeout=10m): the test-process goroutines of the four selected tests when the package timeout fired.
+3942:panic: test timed out after 10m0s
+# --- goroutine at log line 4009
+goroutine 29 [select, 9 minutes]:
+net/http.(*persistConn).roundTrip(0x3caa9184cb40, 0x3caa91460870)
+        /usr/lib/go/src/net/http/transport.go:2911 +0x83d
+net/http.(*Transport).roundTrip(0x3caa911f8340, 0x3caa9141e140)
+        /usr/lib/go/src/net/http/transport.go:704 +0xaba
+net/http.(*Transport).RoundTrip(0x3caa90eb1b80?, 0x432e428?)
+        /usr/lib/go/src/net/http/roundtrip.go:33 +0x18
+dagger.io/dagger/engineconn.startCLISession.defaultHTTPClient.func5(0x3caa90eb1b80)
+        /app/sdk/go/engineconn/engineconn.go:131 +0x9b
+dagger.io/dagger/engineconn.RoundTripperFunc.RoundTrip(0x5000003b32a01?, 0x42faa40?)
+        /app/sdk/go/engineconn/engineconn.go:139 +0x19
+net/http.send(0x3caa90eb1b80, {0x42faa40, 0x3caa90c466d8}, {0x3caa914d4398?, 0x490046?, 0x0?})
+        /usr/lib/go/src/net/http/client.go:264 +0x64b
+net/http.(*Client).send(0x3caa91538f60, 0x3caa90eb1b80, {0x500aa9174ee10?, 0x7fd61ede7588?, 0x0?})
+        /usr/lib/go/src/net/http/client.go:185 +0x258
+net/http.(*Client).do(0x3caa91538f60, 0x3caa90eb1b80)
+        /usr/lib/go/src/net/http/client.go:733 +0x9d7
+net/http.(*Client).Do(...)
+        /usr/lib/go/src/net/http/client.go:592
+github.com/Khan/genqlient/graphql.(*client).MakeRequest(0x3caa91538fc0, {0x432e428, 0x3caa91456090}, 0x3caa9174edb0?, 0x3caa9174edb0)
+        /go/pkg/mod/github.com/!khan/genqlient@v0.8.1/graphql/client.go:256 +0x25e
+dagger.io/dagger.errorWrappedClient.MakeRequest({{0x42f64c0?, 0x3caa91538fc0?}}, {0x432e428?, 0x3caa91456090?}, 0x3a74740?, 0x1?)
+        /app/sdk/go/client.go:217 +0x37
+github.com/dagger/querybuilder.(*QueryBuilder).Execute(0x3caa9182af30, {0x432e428, 0x3caa91456090})
+        /go/pkg/mod/github.com/dagger/querybuilder@v0.0.0-20260402040506-574a5e81cb59/querybuilder.go:330 +0x1d5
+dagger.io/dagger.(*Container).Stdout(0x430bcf0?, {0x432e428, 0x3caa91456090})
+        /app/sdk/go/dagger.gen.go:2859 +0x19b
+github.com/dagger/dagger/core/integration.RemoteCacheTransferSuite.TestPartMixedExecOutputs({}, {0x432e428, 0x3caa91456090}, 0x3caa91210000)
+        /app/core/integration/remote_cache_mixed_exec_test.go:105 +0x1bd3
+reflect.Value.call({0x3caa90e10be0?, 0x3caa91082a70?, 0x7fd61eefa0d0?}, {0x3ec4c23, 0x4}, {0x3caa9129b9a8, 0x3, 0x3caa9129b998?})
+# --- goroutine at log line 4065
+goroutine 31 [select, 9 minutes]:
+net/http.(*persistConn).roundTrip(0x3caa9141f400, 0x3caa91346fa0)
+        /usr/lib/go/src/net/http/transport.go:2911 +0x83d
+net/http.(*Transport).roundTrip(0x3caa91376d00, 0x3caa91212c80)
+        /usr/lib/go/src/net/http/transport.go:704 +0xaba
+net/http.(*Transport).RoundTrip(0x3caa91212b40?, 0x432e428?)
+        /usr/lib/go/src/net/http/roundtrip.go:33 +0x18
+dagger.io/dagger/engineconn.startCLISession.defaultHTTPClient.func5(0x3caa91212b40)
+        /app/sdk/go/engineconn/engineconn.go:131 +0x9b
+dagger.io/dagger/engineconn.RoundTripperFunc.RoundTrip(0x50000035ffd01?, 0x42faa40?)
+        /app/sdk/go/engineconn/engineconn.go:139 +0x19
+net/http.send(0x3caa91212b40, {0x42faa40, 0x3caa90ed7938}, {0x3caa910caa60?, 0x490046?, 0x0?})
+        /usr/lib/go/src/net/http/client.go:264 +0x64b
+net/http.(*Client).send(0x3caa91292e70, 0x3caa91212b40, {0x500aa9174f650?, 0x7fd61ede7588?, 0x0?})
+        /usr/lib/go/src/net/http/client.go:185 +0x258
+net/http.(*Client).do(0x3caa91292e70, 0x3caa91212b40)
+        /usr/lib/go/src/net/http/client.go:733 +0x9d7
+net/http.(*Client).Do(...)
+        /usr/lib/go/src/net/http/client.go:592
+github.com/Khan/genqlient/graphql.(*client).MakeRequest(0x3caa91292ed0, {0x432e428, 0x3caa91456480}, 0x3caa9174f5f0?, 0x3caa9174f5f0)
+        /go/pkg/mod/github.com/!khan/genqlient@v0.8.1/graphql/client.go:256 +0x25e
+dagger.io/dagger.errorWrappedClient.MakeRequest({{0x42f64c0?, 0x3caa91292ed0?}}, {0x432e428?, 0x3caa91456480?}, 0x3a74740?, 0x1?)
+        /app/sdk/go/client.go:217 +0x37
+github.com/dagger/querybuilder.(*QueryBuilder).Execute(0x3caa9137bd40, {0x432e428, 0x3caa91456480})
+        /go/pkg/mod/github.com/dagger/querybuilder@v0.0.0-20260402040506-574a5e81cb59/querybuilder.go:330 +0x1d5
+dagger.io/dagger.(*Directory).Entries(0x42eabf0?, {0x432e428, 0x3caa91456480}, {0x0, 0x0, 0x3caa90d936a0?})
+        /app/sdk/go/dagger.gen.go:4779 +0x386
+github.com/dagger/dagger/core/integration.RemoteCacheTransferSuite.TestSharedHostDirectoryLifetime({}, {0x432e428, 0x3caa91456480}, 0x3caa91210ae0)
+        /app/core/integration/remote_cache_sharing_test.go:163 +0x19e9
+reflect.Value.call({0x3caa90e10be0?, 0x3caa91082ac0?, 0x3caa91460140?}, {0x3ec4c23, 0x4}, {0x3caa9129d9a8, 0x3, 0x3caa9129d998?})
+# --- goroutine at log line 4751
+goroutine 442 [select, 7 minutes]:
+net/http.(*persistConn).roundTrip(0x3caa90eb0dc0, 0x3caa912884b0)
+        /usr/lib/go/src/net/http/transport.go:2911 +0x83d
+net/http.(*Transport).roundTrip(0x3caa914c91e0, 0x3caa90eb1680)
+        /usr/lib/go/src/net/http/transport.go:704 +0xaba
+net/http.(*Transport).RoundTrip(0x3caa90eb12c0?, 0x432e428?)
+        /usr/lib/go/src/net/http/roundtrip.go:33 +0x18
+dagger.io/dagger/engineconn.startCLISession.defaultHTTPClient.func5(0x3caa90eb12c0)
+        /app/sdk/go/engineconn/engineconn.go:131 +0x9b
+dagger.io/dagger/engineconn.RoundTripperFunc.RoundTrip(0x500aa91796b01?, 0x42faa40?)
+        /app/sdk/go/engineconn/engineconn.go:139 +0x19
+net/http.send(0x3caa90eb12c0, {0x42faa40, 0x3caa91e64258}, {0x3caa91796d60?, 0x490046?, 0x0?})
+        /usr/lib/go/src/net/http/client.go:264 +0x64b
+net/http.(*Client).send(0x3caa912939b0, 0x3caa90eb12c0, {0x500aa919845a0?, 0x7fd61ebc0a48?, 0x0?})
+        /usr/lib/go/src/net/http/client.go:185 +0x258
+net/http.(*Client).do(0x3caa912939b0, 0x3caa90eb12c0)
+        /usr/lib/go/src/net/http/client.go:733 +0x9d7
+net/http.(*Client).Do(...)
+        /usr/lib/go/src/net/http/client.go:592
+github.com/Khan/genqlient/graphql.(*client).MakeRequest(0x3caa91293a10, {0x432e428, 0x3caa9174e810}, 0x3caa91984540?, 0x3caa91984540)
+        /go/pkg/mod/github.com/!khan/genqlient@v0.8.1/graphql/client.go:256 +0x25e
+dagger.io/dagger.errorWrappedClient.MakeRequest({{0x42f64c0?, 0x3caa91293a10?}}, {0x432e428?, 0x3caa9174e810?}, 0x3a74740?, 0x1?)
+        /app/sdk/go/client.go:217 +0x37
+github.com/dagger/querybuilder.(*QueryBuilder).Execute(0x3caa9156acf0, {0x432e428, 0x3caa9174e810})
+        /go/pkg/mod/github.com/dagger/querybuilder@v0.0.0-20260402040506-574a5e81cb59/querybuilder.go:330 +0x1d5
+dagger.io/dagger.(*Module).Serve(0x430bcf0?, {0x432e428, 0x3caa9174e810}, {0x0, 0x0, 0x0?})
+        /app/sdk/go/dagger.gen.go:12612 +0x485
+github.com/dagger/dagger/core/integration.runTransferSchemaRecovery.func6({0x432e428, 0x3caa9174e810}, 0x3caa91118000)
+        /app/core/integration/remote_cache_transfer_test.go:398 +0x2c59
+github.com/dagger/testctx.(*W[...]).wrapWithMiddleware.func1(0x3caa90e008a0)
+# --- goroutine at log line 4927
+goroutine 443 [select, 7 minutes]:
+net/http.(*persistConn).roundTrip(0x3caa91656a00, 0x3caa91288190)
+        /usr/lib/go/src/net/http/transport.go:2911 +0x83d
+net/http.(*Transport).roundTrip(0x3caa913769c0, 0x3caa90eb08c0)
+        /usr/lib/go/src/net/http/transport.go:704 +0xaba
+net/http.(*Transport).RoundTrip(0x3caa90eb0780?, 0x432e428?)
+        /usr/lib/go/src/net/http/roundtrip.go:33 +0x18
+dagger.io/dagger/engineconn.startCLISession.defaultHTTPClient.func5(0x3caa90eb0780)
+        /app/sdk/go/engineconn/engineconn.go:131 +0x9b
+dagger.io/dagger/engineconn.RoundTripperFunc.RoundTrip(0x5000000000001?, 0x42faa40?)
+        /app/sdk/go/engineconn/engineconn.go:139 +0x19
+net/http.send(0x3caa90eb0780, {0x42faa40, 0x3caa9157cd50}, {0x3caa917aad60?, 0x490046?, 0x0?})
+        /usr/lib/go/src/net/http/client.go:264 +0x64b
+net/http.(*Client).send(0x3caa91292c00, 0x3caa90eb0780, {0x500aa912929c0?, 0x7fd61eee58c8?, 0x0?})
+        /usr/lib/go/src/net/http/client.go:185 +0x258
+net/http.(*Client).do(0x3caa91292c00, 0x3caa90eb0780)
+        /usr/lib/go/src/net/http/client.go:733 +0x9d7
+net/http.(*Client).Do(...)
+        /usr/lib/go/src/net/http/client.go:592
+github.com/Khan/genqlient/graphql.(*client).MakeRequest(0x3caa91292d80, {0x432e428, 0x3caa912784e0}, 0x3caa91292900?, 0x3caa91292900)
+        /go/pkg/mod/github.com/!khan/genqlient@v0.8.1/graphql/client.go:256 +0x25e
+dagger.io/dagger.errorWrappedClient.MakeRequest({{0x42f64c0?, 0x3caa91292d80?}}, {0x432e428?, 0x3caa912784e0?}, 0x3a74740?, 0x1?)
+        /app/sdk/go/client.go:217 +0x37
+github.com/dagger/querybuilder.(*QueryBuilder).Execute(0x3caa9156a6c0, {0x432e428, 0x3caa912784e0})
+        /go/pkg/mod/github.com/dagger/querybuilder@v0.0.0-20260402040506-574a5e81cb59/querybuilder.go:330 +0x1d5
+dagger.io/dagger.(*Module).Serve(0x430bcf0?, {0x432e428, 0x3caa912784e0}, {0x0, 0x0, 0x0?})
+        /app/sdk/go/dagger.gen.go:12612 +0x485
+github.com/dagger/dagger/core/integration.runTransferSchemaRecovery.func6({0x432e428, 0x3caa912784e0}, 0x3caa90c3c060)
+        /app/core/integration/remote_cache_transfer_test.go:398 +0x2c59
+github.com/dagger/testctx.(*W[...]).wrapWithMiddleware.func1(0x3caa90e00960)
