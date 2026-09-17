@@ -83,3 +83,36 @@ This replaces the ledger tables in `REPORT-AUTHOR-B.md`, which abbreviated comma
 The five skips in every whole-package run: `core` `TestGitLazyOperationsEvaluate`, `TestGitLazyOperationsRemoteEvaluate`, `TestGitBundleLazyOperationEvaluate`, `TestValueTransferPartsGitTrees` (folded into `TestGitTrees`, interim); `dagql` `TestCacheContextCancel/last_waiter_canceled_fn_returns_value_still_releases` (a TODO at the base).
 
 Process bounds before run 6 were looser than the rule asks; from run 6 on they are the test timeout plus at most 120 s for whole-package runs. Narrow selections kept a 300 s process bound because a cold `core` or `engine/server` test build alone can take over a minute; I should have tightened those to the same form and will.
+
+## After the renewal fix: integration again, the clone defect, the models
+
+| # | Tree | Command | Test / process | Result | Wall |
+| --- | --- | --- | --- | --- | --- |
+| 10a | merge of A's `5080ec1468` with my test repair reverted (`0b934532bc`) | `go test -count=10 -timeout 120s -run '^TestSnapshotSharingCancelAfterPublicationDeliversReceipt$' ./dagql`, twice: the first time my revert had not applied, the second it had | 120 / 300 s each | ok both; the second is the one that counts: batch 6's test unchanged, on A's fix `96610fe471` alone | 2.2 t |
+| 10b | scratch test, never committed | `go test -timeout 60s -run '^TestB7CloneRepro$' -v ./core` | 60 / 200 s | reproduced: `file must be materialized, got lazy *core.FileRestoreLazy` | 0.2 t |
+| 10c | working tree, before the fix | `go test -timeout 60s -run '^TestPartAcquiredValuesCloneForContainers$' ./core` | 60 / 200 s | FAIL as intended, File and Directory | 0.3 t |
+| 10d | working tree, after the fix | same | 60 / 300 s | ok | 0.3 t |
+| 10 | working tree with the fix | `go test -json -timeout 90s ./dagql ./core ./core/schema ./engine/server` | 90 / 210 s | FAILED: my own `TestSharingOwedBookkeepingIsPaidByAnExactDemand`, on A's new `share-skipped` event; 2943 pass | 40.3 |
+| 10e | working tree | `go test -count=20 -timeout 120s -run '^(TestSharingOwedBookkeepingIsPaidByAnExactDemand\|TestPartAcquiredValuesCloneForContainers)$' ./core` | 120 / 300 s | ok | 5.5 t |
+| 11 | `a4fb30b4dd` | `go test -timeout 90s ./core` | 90 / 210 s | ok | 14.5 t |
+
+Model runs. All local: `timeout <T>s java -Xmx8g -XX:+UseParallelGC -cp ~/tla/tools/tla2tools.jar tlc2.TLC -workers auto -deadlock -metadir <scratch> -config <cfg> <module>.tla`, the jar byte-identical to the runner's pinned TLC 1.7.4. The process bound of each was the `timeout` plus 20 to 40 s. No engine.
+
+| # | What | Timeout | Result | Wall |
+| --- | --- | --- | --- | --- |
+| M1 | `remote_parts`, first run | 180 s | pass, 24,742 states | 2.3 s |
+| M2 | its two faults and three probes | 60 s each | four as named; **`fault_certify_sibling` passed, which proves nothing**: the fault could only fire on a finished operation | 1 to 2.4 s each |
+| M3 | `remote_parts` and `fault_certify_sibling` after the fault was made to fire on any successful group ending | 120 s each | pass, 26,270 states; `ServedOutputIsComplete` violated | 2.2 s, about 2 s |
+| M4 | `remote_owners`, first run | 180 s | **`OwnRequirementIsDirectClosure` violated**: the model did not cascade requirement growth to dependants, the code does | under 2 s |
+| M5 | `remote_owners` after the cascade | 180 s | pass, 3,092 states | 1.7 s |
+| M6 | its three faults and three probes | 60 s each | all as named | about 1 s each |
+| M7 | the two `remote_parts` faults again after the last edit | 60 s each | as named | about 2 s each |
+| M8 | sizing probe, not kept: `remote_parts` with three tasks and two cancellations | 180 s | pass, 855,547 states | 6.6 s |
+| M9 | `remote_sharing`, `remote_sharing_decoded` | 180 s each | pass, 1,293 and 672 states | 1.1 s, 1.2 s |
+| M10 | sharing's five faults and five probes | 60 s each | all as named | about 1 s each |
+| M11 | `remote_checkpoint`, first run | 180 s | **`DesiredRolesStayProtected` violated**: a modeling error, the restart restored a checkpoint older than the receiver's collection; the checkpoint is now the clean shutdown's | under 2 s |
+| M12 | `remote_checkpoint` after that | 180 s | pass, 2,134 states | 1.5 s |
+| M13 | its three faults and four probes | 60 s each | all as named | about 1 s each |
+| M14 | all 33 registered configurations against `expectedOutcome` | 60 s each, 600 s process | 0 mismatches | 49 s total |
+| M15 | `remote_parts` and the two new progress-rule configurations | 120 s each | pass 26,270; `NoProgressIsUnreachable` violated; pass 47,466 | about 2 to 3 s each |
+| M16 | all 35 configurations against their expectations, after the B7 edits | 60 s each, 600 s process | 0 mismatches | 40 s total |

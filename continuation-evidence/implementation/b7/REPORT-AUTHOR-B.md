@@ -196,3 +196,40 @@ Narrow selections, each 60 to 120 s / 300 to 400 s: the leader-order test once a
 - **Renewal panic, batch 5, fixed in `e844245c8b`** on the integration branch. `Provider` cloned `offer.Chain.Addresses`; a clone of nil is nil, and the first successful renewal of a key-only offer assigned into it (`cache_part_content.go:330`). `Provider` now always makes the map. `TestRenewalChainControls/a key-only offer renews into its first addresses` panics at that line without the fix. I looked for the pattern elsewhere: it is the only `maps.Clone` in `cache_part_content.go` and `cache_part_renewal.go`; every other map those files assign into is made at construction or guarded (`renewed`, `exhaustedContent`, `renewals`, `exchanges`). The four other `maps.Clone` calls in `dagql` are read-only copies or clones of maps that `NewClass` makes non-nil.
 - **Generic F2, "the decode-join test hangs in cleanup after an assertion fails", is author A's test** (`dagql/cache_fixture_control_test.go`). My leader-order test does not have the shape: both releases are idempotent and deferred before either load starts, both barriers are armed before the first load, test defers run before the `t.Cleanup` that closes the cache, and that Close has a fresh 10 s context.
 - **Simplification S4: fixed.** `LEDGER-AUTHOR-B.md` lists every invocation of this batch with its exact command, both bounds, result and wall time, from the session record, with `unknown` where a time was not captured. Nothing was rerun for it.
+
+# The models, the clone defect, and the test that was green for me
+
+Integration branch tip `7fff2db12f` plus this evidence commit.
+
+## `TestSnapshotSharingCancelAfterPublicationDeliversReceipt`: it ran, and it was green because I had repaired it
+
+It is neither flaky nor skipped. It **failed** in my run 7 (`5f7537bfce`, the first merge of A's `7356f6d6bc`, which already contains `87d62517c2`), and 5 of 5 on A's tip alone; I reported that then. I repaired the *test* in `1e20b211c6` (install its fixture after publication), and run 8, the 3041-pass run, includes that repair: the ledger's per-test record shows it passing in 0.7 s. A later fixed the *cause* in `96610fe471`. With A's tip `5080ec1468` merged I reverted my repair (`0b934532bc`) and batch 6's test passes unchanged, 10 of 10. One failure, two fixes, A's is the right one and is the only one left.
+
+## `file must be materialized, got lazy *core.FileRestoreLazy`: reproduced, clearly (a), fixed in `1bfece3b77`
+
+**Reproduction, in process.** An imported File row on B with a complete local equivalent; a sharing pass installs its snapshot while it is encoded; the exact row is loaded and `Evaluate` succeeds. The value then has its snapshot set, `Lazy = *FileRestoreLazy`, and `IsEvaluated() == false`, and `cloneDetachedFileForContainerResult` refuses it with A's exact message. The Directory clone refuses a `*DirectoryRestoreLazy` the same way.
+
+**Cause.** A is right about the guard and the mechanism is wider than the fallback. A File or Directory decoded from a record in snapshot form carries its `stored` descriptor and a restore operation. On a row that uses part acquisition, `Evaluate` goes to `demandPart`, finds the part complete and calls `OpenPart` (`core/part_open.go:12`), which sets the snapshot accessor directly. The restore operation never runs, so it is never marked evaluated. Any Container operation that clones such a value fails, chain failure or not; the retained-exec fallback is simply the first thing that mounts an imported File into a Container on B.
+
+**Audit of every `IsEvaluated` reader in `core`** (none in `core/schema`, `dagql`, `engine`):
+
+| Site | What it decides | Affected |
+| --- | --- | --- |
+| `container.go:878`, `:920` the two clones | hard error "must be materialized" | **yes**, fixed |
+| `directory.go:2424` `materializedDirectorySnapshotAndPath` | hard error "still lazy" | **yes**, same shape, fixed |
+| `stored_snapshot.go:78,94` `HasPendingLazyComputation` | `stored == nil && Lazy != nil && !IsEvaluated()` | no: it already exempts a value with a stored descriptor. This is the definition the three sites above should have used |
+| `file.go:147`, `directory.go:158`, `container.go:1118`, `container_parts.go:490`, `container_persistence.go:221` `LazyEvalFunc` and routing | whether to return an evaluation function | no: they route to the part host, which opens the part; never an error |
+| `filesystem_output.go:39,66`, `part_store.go:374,665` | whether the persistence guard must try-lock the body latch | no: a try-lock more, never an error |
+| `container_persistence_debug.go:82`, `container_exec.go:134` | a debug field; a delegating accessor | no |
+
+**Why (a) and not (b).** The three sites ask "has the operation run" when they mean "is computation still pending", and `core` already defines the second: `HasPendingLazyComputation`. The fix is that one call at three sites; each still requires the path and snapshot accessors to be set, so an unmaterialized value is refused as before. (b), marking the restore operation evaluated when a part is opened, would write `LazyState` from `OpenPart` without the body latch and change what the persistence guards lock; more reach for the same result.
+
+Test: `TestPartAcquiredValuesCloneForContainers`, File and Directory, fails before with A's message. A's native `RetainedExec` should now pass unchanged; I have not run it.
+
+## Models against the designer's B7
+
+- Each header now lists its assumptions beside the `CacheLifecycle` invariant that discharges each (`OwnershipExact`, `NoUnderflow`, `NoResurrection`, `LazyMutualExclusion`, `LazySuccessPermanent`, `RequiredExact`, `FlushCleanCapture`, `FlushReferentialIntegrity`; I checked each name exists). Two named gaps with no such invariant: batch 6's A2 (one reporter per slot, a pass does not end while a Body owns a preparation), carried by batch 6's three cancellation tests; and "a process that dies without its checkpoint boots into a reset", carried by Go's reset tests and native `TestEncodedRestart/LocalRestoreReset`.
+- B7's new fault, release members before queueing the successor: already `remote_sharing_fault_decrement_before_successor`. B7's new probe, a decoded receiver filled over two passes with no ordinary donor owner: my probe did not require the donor to be unowned; it now requires the owner to have gone during the first pass, and it is reachable.
+- B7 asks for the progress rule in `remote_parts`, which I had left out. It is in: the invariant `NoProgressIsUnreachable` on the code as it is, the fault `WrongExpectation` that must violate it, and a second configuration showing that under the fault the hard error comes only on the second refusal. **One limit, stated in the header:** in these bounds no other actor can move the receiver's revision between a preparation and its Commit, because one operation publishes every pending part at once, so a legitimate counted refusal is unreachable and the invariant is not tested by real contention here. Go's `TestPublishEvaluatedPartsSurvivesContention` is what shows that.
+- B7's ownership core lists a task generation, joiners, `NoJoin` and a Body outliving a cancelled wait. The modules model joiners and cancellation at waits; they do not model generations, `NoJoin` or an abandoned Body that keeps running. Those stay with batch 4's task tests.
+- 35 configurations now; all match `expectedOutcome` (run M16).
