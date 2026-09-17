@@ -1,0 +1,83 @@
+  ): EngineDev! 26.3s
+  ✔ uploading /home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/sharing-implementer-implementation-7d93905c-b205e9e4 2.1s ████████████ 57 MB
+✘ .test(run: "TestRemoteCacheTransferSuite/(TestPartMixedExecOutputs|TestSchemaRecovery|TestSharedHostDirectoryLifetime)$", pkg: "./core/integration", timeout: "10m", testVerbose: true): Void 12m57s ERROR (1.23% dropped)
+  ✔ 11 pulls, 15 unpacks, 146 fetches, 17 uploads, 3 transfers 35.5s
+✘ withExec otelgotest -v -timeout=10m -ldflags '-X '\''github.com/dagger/dagger/internal/version/buildinfo.InjectedVCS=git'\'' -X '\''github.com/dagger/dagger/internal/version/buildinfo.InjectedVCSRevision=0a7c5c0c89127daef0240ce8394b0d11cf765c24'\'' -X '\''github.com/dagger/dagger/internal/version/buildinfo.InjectedVCSModified=false'\' -count=1 -run 'TestRemoteCacheTransferSuite/(TestPartMixedExecOutputs|TestSchemaRecovery|TestSharedHostDirectoryLifetime)$' ./core/integration 10m26s ERROR (0.00326% dropped)
+go: downloading github.com/Netflix/go-expect v0.0.0-20220104043353-73e0943537d2
+go: downloading github.com/dagger/testctx v0.1.2
+go: downloading github.com/creack/pty v1.1.24
+go: downloading github.com/MakeNowJust/heredoc/v2 v2.0.1
+go: downloading github.com/goproxy/goproxy v0.26.0
+go: downloading github.com/koron-go/prefixw v1.0.2
+go: downloading github.com/aofei/backoff v1.2.0
+=== RUN   TestRemoteCacheTransferSuite
+=== PAUSE TestRemoteCacheTransferSuite
+=== CONT  TestRemoteCacheTransferSuite
+=== RUN   TestRemoteCacheTransferSuite/TestPartMixedExecOutputs
+=== PAUSE TestRemoteCacheTransferSuite/TestPartMixedExecOutputs
+=== RUN   TestRemoteCacheTransferSuite/TestSchemaRecovery
+=== PAUSE TestRemoteCacheTransferSuite/TestSchemaRecovery
+=== RUN   TestRemoteCacheTransferSuite/TestSharedHostDirectoryLifetime
+=== PAUSE TestRemoteCacheTransferSuite/TestSharedHostDirectoryLifetime
+=== CONT  TestRemoteCacheTransferSuite/TestPartMixedExecOutputs
+=== CONT  TestRemoteCacheTransferSuite/TestSharedHostDirectoryLifetime
+=== CONT  TestRemoteCacheTransferSuite/TestSchemaRecovery
+    testctx.go:198: Creating new Engine session... OK!
+    testctx.go:198: Creating new Engine session... OK!
+    testctx.go:198: Creating new Engine session... OK!
+    testctx.go:198: Establishing connection to Engine... OK!
+    testctx.go:198: Establishing connection to Engine... OK!
+    testctx.go:198: Establishing connection to Engine... OK!
+    testctx.go:198: 1   : connecting to engine
+    testctx.go:198: 
+    testctx.go:198: 51  : Container.withMountedCache DONE [0.0s, waited on Container.from]
+    testctx.go:198: 
+    testctx.go:198: 52  : Container.withEnvVariable DONE [0.0s, waited on Container.from]
+    testctx.go:198: 
+    testctx.go:198: 58  : unpacking alpine:3.22.1
+    testctx.go:198: 58  : unpacking alpine:3.22.1 DONE [0.1s]
+    testctx.go:198: 
+    testctx.go:198: 53  : Container.withExec DONE [0.2s, waited on Container.from]
+    testctx.go:206: shared host directory row=4231 selected-ready-before-install=false counts=map[installed-ready:1 settled:1]
+    testctx.go:198: 
+    testctx.go:198: 12  : Directory.entries: [String!]!
+    testctx.go:198: 12  : Directory.entries DONE [0.0s]
+    testctx.go:198: 
+    testctx.go:198: 2   : .dagger-cli session --workdir /tmp/TestRemoteCacheTransferSuiteTestSharedHostDirectoryLifetime1194376462/002 --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a DONE [5.3s]
+    testctx.go:198: 
+    testctx.go:198: 25  : [8m4s] | time="2026-09-17T05:55:03Z" level=info msg="engine metrics" cpu-count=16 cpu-idle=1167319862 cpu-iowait=3018367 cpu-irq=0 cpu-nice=9 cpu-softirq=8658650 cpu-steal=4177608 cpu-system=24618661 cpu-total=1323252146 cpu-user=115458989 dagger-session-count=1 dagql-cache-size=4229 disk-available-/=50532499456 disk-available-/var/lib/dagger=50532499456 disk-free-/=72302776320 disk-free-/var/lib/dagger=72302776320 disk-size-/=528306708480 disk-size-/var/lib/dagger=528306708480 goroutine-count=49 loadavg-1=10.62 loadavg-15=8.29 loadavg-5=9.69 mem-active=31040651264 mem-available=46603853824 mem-buffers=8860925952 mem-cached=35527565312 mem-committed=39114604544 mem-free=452829184 mem-inactive=29159243776 mem-mapped=1099472896 mem-page-tables=122253312 mem-shmem=2014433280 mem-slab=5465108480 mem-swap-cached=0 mem-swap-free=0 mem-swap-total=0 mem-total=67419242496 mem-vmalloc-used=152616960 proc-self-mem-anonymous=100044800 proc-self-mem-private-clean=446464 proc-self-mem-private-dirty=100044800 proc-self-mem-pss=114499584 proc-self-mem-referenced=181891072 proc-self-mem-rss=181891072 proc-self-mem-shared-clean=81399808 proc-self-mem-shared-dirty=0 proc-self-mem-swap=0 proc-self-mem-swap-pss=0 uptime=229h53m18s
+    testctx.go:198: 25  : [9m4s] | time="2026-09-17T05:56:03Z" level=info msg="engine metrics" cpu-count=16 cpu-idle=1167367230 cpu-iowait=3019131 cpu-irq=0 cpu-nice=9 cpu-softirq=8660236 cpu-steal=4178634 cpu-system=24623710 cpu-total=1323348578 cpu-user=115499628 dagger-session-count=1 dagql-cache-size=4229 disk-available-/=49071579136 disk-available-/var/lib/dagger=49071579136 disk-free-/=70841856000 disk-free-/var/lib/dagger=70841856000 disk-size-/=528306708480 disk-size-/var/lib/dagger=528306708480 goroutine-count=49 loadavg-1=11.02 loadavg-15=8.44 loadavg-5=9.88 mem-active=30150553600 mem-available=45960777728 mem-buffers=8769236992 mem-cached=34905214976 mem-committed=39094345728 mem-free=543014912 mem-inactive=30029832192 mem-mapped=1132568576 mem-page-tables=157425664 mem-shmem=2014433280 mem-slab=5445341184 mem-swap-cached=0 mem-swap-free=0 mem-swap-total=0 mem-total=67419242496 mem-vmalloc-used=151896064 proc-self-mem-anonymous=100044800 proc-self-mem-private-clean=376832 proc-self-mem-private-dirty=100044800 proc-self-mem-pss=114426880 proc-self-mem-referenced=181821440 proc-self-mem-rss=181821440 proc-self-mem-shared-clean=81399808 proc-self-mem-shared-dirty=0 proc-self-mem-swap=0 proc-self-mem-swap-pss=0 uptime=229h54m18s
+panic: test timed out after 10m0s
+        running tests:
+                TestRemoteCacheTransferSuite/TestPartMixedExecOutputs (10m0s)
+                TestRemoteCacheTransferSuite/TestSchemaRecovery/after (8m58s)
+                TestRemoteCacheTransferSuite/TestSchemaRecovery/before (8m58s)
+                TestRemoteCacheTransferSuite/TestSharedHostDirectoryLifetime (10m0s)
+
+goroutine 1194 [running]:
+testing.(*M).startAlarm.func1()
+bufio.(*Reader).Peek(0x3caa91211200, 0x1)
+        /usr/lib/go/src/bufio/bufio.go:152 +0x53
+net/http.(*persistConn).readLoop(0x3caa91656a00)
+        /usr/lib/go/src/net/http/transport.go:2330 +0x172
+created by net/http.(*Transport).dialConn in goroutine 629
+        /usr/lib/go/src/net/http/transport.go:1994 +0x16ac
+FAIL    github.com/dagger/dagger/core/integration       600.103s
+! exit code: 1
+
+== SERVICES ==
+✔ rogct0dgr0vls.npr4v11o9uv5g.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 10m53s EXITED span=23abbc521685efa1
+✔ h4avdn8nctrm4.npr4v11o9uv5g.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 10m53s EXITED span=49417d6d86aa4243
+✔ ijv71tjcb4n6s.npr4v11o9uv5g.dagger.local exec dagger-entrypoint.sh --addr unix:///run/dagger-engine.sock --addr tcp://0.0.0.0:1234 --network-name dagger-dev --network-cidr 10.88.0.0/16 --debugaddr 0.0.0.0:6060 10m52s EXITED span=74d6fae44eb90182
+
+== TESTS ==
+  ✔ github.com/dagger/dagger/core/integration  1 passed
+
+  ✔ 1 passed
+
+Full trace at https://dagger.cloud/dagger/traces/4adb308353f33ab6a2f34aa0ae648fbf
+
+real	13m55.289s
+user	0m35.701s
+sys	0m6.969s
+EXIT=1
