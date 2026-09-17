@@ -5,3 +5,5 @@ Round-1 decisions R1–R9 and their notes are applied above the earlier implemen
 Ownership reads release the pointer latch before waiting on a busy whole body, then revalidate. Capture, Commit, boot and import keep their nonblocking behavior. The base reader inventory includes all 436 matches and the reviewed-tip enumeration remains 495. All earlier passing logs and results remain intact; no reviewed commit was amended.
 
 See [REPORT.md](REPORT.md), [COMMITS.md](COMMITS.md) and [COMMANDS.md](COMMANDS.md) for the review changes, measured costs and preserved evidence.
+
+The post-R8 ownership race selection passes at `f0a18735d7a02b01c66395c9fc463857064dedd7`: one DagQL invocation, three selected tests, no skips or race reports. This final follow-up changes evidence only.

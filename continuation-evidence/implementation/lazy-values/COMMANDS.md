@@ -577,3 +577,21 @@ go test ./dagql -run '^$' -count=1
 Exit 0; invocation 23.760 s; package 0.063 s, explicitly no tests to run. This compiles the consolidated mode forwarding and every package test at `313a82e5a4132700415d86d24b5d21f8c8d1659a`; no passed selection is repeated. [Output](logs/round1-r8-dagql-compile.log). Call-site review confirms the sole blocking production call remains owner synchronization, while boot and import pass the nonblocking mode. Both aliases are absent; `snapshotOwnerVersion` still serves revision validation. R7 is comment-only. The R3 engine evidence predates these final comment and forwarding changes and postdates all guard and encoder changes.
 
 Final evidence checks pass: all JSON parses; local Markdown links resolve; the vocabulary scan covers every evidence file and added source/document lines; the 436 base matches are re-derived from all tracked Go files, with the original 375 entries and reviewed-tip 495 entries preserved exactly. All 108 earlier manifest artifacts match their committed bytes. All six new source/document commits have sign-offs, the reviewed base remains an ancestor, and source/document/JSON whitespace checks pass. These are static evidence checks, not test reruns.
+
+## Post-R8 ownership race verification
+
+The requested follow-up runs at tip `f0a18735d7a02b01c66395c9fc463857064dedd7`, after the R8 collector collapse. R8 changed only DagQL, so one combined invocation covers its owner-sync cleanup and both Decision 1 snapshot-owner reader cases. Core is unchanged by R8 and is not rerun. No engine or other package selection is repeated.
+
+```sh
+go test -race ./dagql -run '^(TestSnapshotOwnerSync(ReadSelection|InlineRead)|TestCacheSnapshotOwnerLeaseSyncDefersSessionCleanup)$' -count=1 -v -timeout=90s
+```
+
+Exit 0; invocation **53.835 s**; package **1.415 s**. Every selected case passes under the race detector, without skips. [Full output](logs/round1-r8-owner-sync-race.log).
+
+| Test | Result | Seconds |
+|---|---|---:|
+| `TestSnapshotOwnerSyncReadSelection` | PASS | 0.00 |
+| `TestSnapshotOwnerSyncInlineRead` | PASS | 0.00 |
+| `TestCacheSnapshotOwnerLeaseSyncDefersSessionCleanup` | PASS | 0.00 |
+
+The root reader case verifies fresh publication and explicit owner sync select the blocking reader, repeat it for revision validation, retain real read errors, and keep the nonblocking path for boot/import. The inline reader case verifies the same mode distinction with scoped output links. The cleanup case holds a lease attachment while session cleanup runs and verifies the result stays alive until synchronization finishes.

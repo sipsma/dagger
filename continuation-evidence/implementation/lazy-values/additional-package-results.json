@@ -54,5 +54,33 @@
     "seconds": 23.76,
     "purpose": "Compile the R8 mode forwarding and all existing package tests without running any selection",
     "sourceCommit": "313a82e5a4132700415d86d24b5d21f8c8d1659a"
+  },
+  {
+    "name": "round1-r8-owner-sync-race",
+    "command": "go test -race ./dagql -run '^(TestSnapshotOwnerSync(ReadSelection|InlineRead)|TestCacheSnapshotOwnerLeaseSyncDefersSessionCleanup)$' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 53.835,
+    "startedUnix": 1789603942.4099727,
+    "finishedUnix": 1789603996.244877,
+    "sourceCommit": "f0a18735d7a02b01c66395c9fc463857064dedd7",
+    "tests": [
+      {
+        "test": "TestSnapshotOwnerSyncReadSelection",
+        "result": "PASS",
+        "seconds": 0.0
+      },
+      {
+        "test": "TestSnapshotOwnerSyncInlineRead",
+        "result": "PASS",
+        "seconds": 0.0
+      },
+      {
+        "test": "TestCacheSnapshotOwnerLeaseSyncDefersSessionCleanup",
+        "result": "PASS",
+        "seconds": 0.0
+      }
+    ],
+    "outcome": "passed under the race detector at the post-R8 tip; no skips",
+    "packageSeconds": 1.415
   }
 ]
