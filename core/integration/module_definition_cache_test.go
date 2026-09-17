@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -332,7 +333,8 @@ func (ModuleDefinitionSuite) TestCachedAcrossClients(ctx context.Context, t *tes
 	t.Logf("engine B part downloads:\n%s", strings.Join(downloaded, "\n"))
 	require.Len(t, downloaded, 1, "the eager client installed one part from the download")
 	require.Contains(t, downloaded[0], " resultID="+jsonNumber(importedDef.runtime.ResultID)+" ", "the installed part is the runtime row's")
-	require.NotContains(t, downloaded[0], "bytesDownloaded=0 ", "the filesystem's layers were fetched, not rebuilt")
+	require.Positive(t, logFieldInt(t, downloaded[0], "bytesDownloaded"), "the filesystem's layers were fetched, not rebuilt")
+	require.Positive(t, logFieldInt(t, downloaded[0], "layersDownloaded"))
 
 	// A plain client on B then runs a function in that runtime: the call was
 	// not exported, so its body runs, in the downloaded filesystem, with no
@@ -368,4 +370,18 @@ func (ModuleDefinitionSuite) TestCachedAcrossClients(ctx context.Context, t *tes
 func jsonNumber(n uint64) string {
 	raw, _ := json.Marshal(n)
 	return string(raw)
+}
+
+// logFieldInt reads one key=value integer field of a slog text line.
+func logFieldInt(t *testctx.T, line, key string) int64 {
+	t.Helper()
+	for _, field := range strings.Fields(line) {
+		if value, ok := strings.CutPrefix(field, key+"="); ok {
+			n, err := strconv.ParseInt(value, 10, 64)
+			require.NoError(t, err, "field %s of %q", key, line)
+			return n
+		}
+	}
+	require.Failf(t, "log field missing", "no %s= in %q", key, line)
+	return 0
 }

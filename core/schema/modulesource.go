@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/dagger/dagger/core"
@@ -26,6 +25,7 @@ import (
 	"github.com/dagger/dagger/engine/engineutil"
 	"github.com/dagger/dagger/engine/slog"
 	"github.com/dagger/dagger/util/hashutil"
+	"github.com/opencontainers/go-digest"
 	telemetry "github.com/dagger/otel-go"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/codes"
@@ -3347,25 +3347,9 @@ func (s *moduleSourceSchema) moduleSourceModuleDefinition(
 	if err != nil {
 		return inst, fmt.Errorf("failed to load schema introspection json for module definition: %w", err)
 	}
-	opScope, err := moduleDefinitionScopeOp(ctx, runtime, schema, args.ModuleName)
+	mod, opScope, err := s.moduleDefinitionDiscovery(ctx, src, runtime, schema, args.ModuleName)
 	if err != nil {
 		return inst, err
-	}
-	deps, err := s.loadDependencyModules(ctx, src, src)
-	if err != nil {
-		return inst, fmt.Errorf("failed to load dependencies for module definition: %w", err)
-	}
-	mod := &core.Module{
-		Source:        dagql.NonNull(src),
-		ContextSource: dagql.NonNull(src),
-		NameField:     args.ModuleName,
-		OriginalName:  src.Self().ModuleOriginalName,
-		SDKConfig:     src.Self().SDK,
-		Deps:          deps,
-		Runtime:       dagql.NonNull(runtime),
-	}
-	if mod.SDKConfig == nil {
-		mod.SDKConfig = &core.SDKConfig{}
 	}
 	initialized, err := s.moduleDefinitionFromRuntime(ctx, dag, mod, opScope)
 	if err != nil {
@@ -3445,30 +3429,65 @@ func (s *moduleSourceSchema) moduleDefViaRuntime(
 	return def.Self(), nil
 }
 
-// moduleDefinitionScopeOp names the SDK-operation scope of one definition's
-// discovery. ScopeModuleForSDKOperation keys the attached module on the
-// operation name and the source implementation digest only, and attachment
-// returns an existing match, so two definitions of one source that differ
-// in runtime, schema file or name would otherwise share one scoped module
-// and the first one's runtime. Folding the definition's inputs into the
-// operation name puts them in the scoped module's call frame and content
-// digest. The runtime and the schema file are named by their cache row
-// numbers, which identify a result whether it was referenced by a recipe
-// or by a handle; the scope only has to be distinct within one engine.
-func moduleDefinitionScopeOp(ctx context.Context, runtime dagql.ObjectResult[*core.Container], schema dagql.ObjectResult[*core.File], moduleName string) (string, error) {
-	cache, err := dagql.EngineCache(ctx)
+// moduleDefinitionIdentity names one definition by its inputs: the recipe
+// digests of the runtime and of the introspection file, and the module
+// name. Recipe digests are portable: an imported row keeps them, and a
+// result referenced by a handle derives them from its stored call frame.
+// Engine-local numbers would not do: a scope that carries them can reach
+// an exported closure through CurrentModule, and on the importing engine
+// the same numbers can name different results.
+func moduleDefinitionIdentity(ctx context.Context, runtime dagql.ObjectResult[*core.Container], schema dagql.ObjectResult[*core.File], moduleName string) (digest.Digest, error) {
+	runtimeDigest, err := runtime.RecipeDigest(ctx)
 	if err != nil {
-		return "", fmt.Errorf("module definition scope: %w", err)
+		return "", fmt.Errorf("module definition identity: runtime: %w", err)
 	}
-	runtimeRow, err := cache.PersistedResultID(runtime)
+	schemaDigest, err := schema.RecipeDigest(ctx)
 	if err != nil {
-		return "", fmt.Errorf("module definition scope: runtime: %w", err)
+		return "", fmt.Errorf("module definition identity: introspection json: %w", err)
 	}
-	schemaRow, err := cache.PersistedResultID(schema)
+	return hashutil.HashStrings("ModuleSource._moduleDefinition", runtimeDigest.String(), schemaDigest.String(), moduleName), nil
+}
+
+// moduleDefinitionDiscovery builds the module that one definition's
+// discovery runs under, and the name of the SDK-operation scope it runs
+// in. Both carry the definition's identity, because the two scopes the
+// runtime sees key on the source alone otherwise: ScopeModuleForSDKOperation
+// keys the attached module on the operation name and the source
+// implementation digest, and currentModule then scopes that module again
+// through Module._implementationScoped, which hashes the source digest and
+// AsModuleVariantDigest. Without the identity in both, two definitions of
+// one source that differ in runtime, schema file or name would share one
+// scoped module, one runtime, and one currentModule answer, whose name the
+// SDK reads before discovery.
+func (s *moduleSourceSchema) moduleDefinitionDiscovery(
+	ctx context.Context,
+	src dagql.ObjectResult[*core.ModuleSource],
+	runtime dagql.ObjectResult[*core.Container],
+	schema dagql.ObjectResult[*core.File],
+	moduleName string,
+) (*core.Module, string, error) {
+	identity, err := moduleDefinitionIdentity(ctx, runtime, schema, moduleName)
 	if err != nil {
-		return "", fmt.Errorf("module definition scope: introspection json: %w", err)
+		return nil, "", err
 	}
-	return "getModDef:" + hashutil.HashStrings(strconv.FormatUint(runtimeRow, 10), strconv.FormatUint(schemaRow, 10), moduleName).String(), nil
+	deps, err := s.loadDependencyModules(ctx, src, src)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to load dependencies for module definition: %w", err)
+	}
+	mod := &core.Module{
+		Source:                dagql.NonNull(src),
+		ContextSource:         dagql.NonNull(src),
+		NameField:             moduleName,
+		OriginalName:          src.Self().ModuleOriginalName,
+		SDKConfig:             src.Self().SDK,
+		Deps:                  deps,
+		Runtime:               dagql.NonNull(runtime),
+		AsModuleVariantDigest: identity.String(),
+	}
+	if mod.SDKConfig == nil {
+		mod.SDKConfig = &core.SDKConfig{}
+	}
+	return mod, "getModDef:" + identity.String(), nil
 }
 
 // moduleDefinitionFromRuntime runs the module's runtime once with no object
