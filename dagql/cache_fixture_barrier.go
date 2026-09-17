@@ -42,8 +42,11 @@ const (
 	FixtureRenewalEnqueued      FixtureBarrierPoint = "renewalEnqueued"
 	FixtureRenewalDelivered     FixtureBarrierPoint = "renewalDelivered"
 	FixtureRenewalReplied       FixtureBarrierPoint = "renewalReplied"
-	FixtureDecodeCopied         FixtureBarrierPoint = "decodeCopied"
-	FixtureDecodeBeforePublish  FixtureBarrierPoint = "decodeBeforePublish"
+	// FixtureDecodeJoined is a joiner parked on another demand's persisted
+	// decode, after it captured the leader's channel and outside every lock.
+	FixtureDecodeJoined        FixtureBarrierPoint = "decodeJoined"
+	FixtureDecodeCopied        FixtureBarrierPoint = "decodeCopied"
+	FixtureDecodeBeforePublish FixtureBarrierPoint = "decodeBeforePublish"
 )
 
 // FixtureBarrierAction is one of the closed set of actions. A fault may fail
@@ -75,7 +78,7 @@ var fixtureBarrierPoints = []FixtureBarrierPoint{
 	FixtureBeforeBeginOriginal, FixtureOriginalSealed, FixtureLazyEntry,
 	FixtureChainReaderOpen, FixtureChainRead, FixtureChainClose,
 	FixtureRenewalEnqueued, FixtureRenewalDelivered, FixtureRenewalReplied,
-	FixtureDecodeCopied, FixtureDecodeBeforePublish,
+	FixtureDecodeJoined, FixtureDecodeCopied, FixtureDecodeBeforePublish,
 }
 
 // fixtureBarrierFaults is the one legal point of each error action.
@@ -332,6 +335,16 @@ func (s FixtureBarrierSelector) matches(e FixtureBarrierEvent) bool {
 // at this exact occurrence; a pause returns nil after its release, or the
 // operation's own cancellation cause.
 func (c *Cache) fixtureReach(ctx context.Context, event FixtureBarrierEvent) error {
+	return c.fixtureReachUntil(ctx, event, nil)
+}
+
+// errFixtureBarrierOwnerEnded ends a pause whose owner went away first.
+var errFixtureBarrierOwnerEnded = errors.New("fixture barrier: the paused operation's owner ended")
+
+// fixtureReachUntil is fixtureReach for a point whose operation has an owner
+// that can end before the cache closes. A pause there also ends when ended
+// closes, so the owner's shutdown never waits for a test to release it.
+func (c *Cache) fixtureReachUntil(ctx context.Context, event FixtureBarrierEvent, ended <-chan struct{}) error {
 	state := c.partFixture.Load()
 	if state == nil {
 		return nil
@@ -372,6 +385,11 @@ func (c *Cache) fixtureReach(ctx context.Context, event FixtureBarrierEvent) err
 	select {
 	case <-hit.release:
 		return nil
+	case <-ended:
+		b.mu.Lock()
+		hit.releaseLocked()
+		b.mu.Unlock()
+		return errFixtureBarrierOwnerEnded
 	case <-ctx.Done():
 		b.mu.Lock()
 		hit.releaseLocked()

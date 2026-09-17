@@ -3,8 +3,11 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"dagger.io/dagger"
 	"github.com/dagger/dagger/internal/buildkit/identity"
@@ -29,6 +32,7 @@ type fixtureEngine struct {
 	gated   bool
 
 	upstream, tunnel *dagger.Service
+	endpoint         string
 	client           *dagger.Client
 	unwatch          func()
 }
@@ -49,8 +53,14 @@ func newFixtureEngine(ctx context.Context, t *testctx.T, outer *dagger.Client, n
 		workdir: t.TempDir(),
 		gated:   gated,
 	}
+	// Registered before the first fallible startup step, so a failed start
+	// still stops whatever it had started.
+	t.Cleanup(func() {
+		if err := e.shutdown(); err != nil {
+			t.Errorf("stop fixture engine %s: %v", e.name, err)
+		}
+	})
 	e.start()
-	t.Cleanup(e.stop)
 	return e
 }
 
@@ -67,34 +77,71 @@ func (e *fixtureEngine) start() {
 	ctr = engineWithConfig(e.ctx, e.t, engineConfigWithEnabled(true), engineConfigWithGC("1000000000000000", "0", "1000000000000000", "0"))(ctr)
 	e.upstream = devEngineContainerAsService(ctr)
 	e.unwatch = watchNestedEngine(e.t, e.outer, e.upstream, e.t.Name()+" "+e.name)
-	var err error
-	e.tunnel, err = e.outer.Host().Tunnel(e.upstream).Start(e.ctx)
+	tunnel, err := e.outer.Host().Tunnel(e.upstream).Start(e.ctx)
 	require.NoError(e.t, err)
-	endpoint, err := e.tunnel.Endpoint(e.ctx, dagger.ServiceEndpointOpts{Scheme: "tcp"})
+	e.tunnel = tunnel
+	e.endpoint, err = e.tunnel.Endpoint(e.ctx, dagger.ServiceEndpointOpts{Scheme: "tcp"})
 	require.NoError(e.t, err)
-	e.client, err = dagger.Connect(e.ctx, dagger.WithRunnerHost(endpoint), dagger.WithWorkdir(e.workdir), dagger.WithLogOutput(testutil.NewTWriter(e.t)))
-	require.NoError(e.t, err)
+	e.client = e.connect()
 }
 
-// stop is idempotent; it is also the engine's cleanup.
+// connect opens one more client session on the running engine.
+func (e *fixtureEngine) connect() *dagger.Client {
+	e.t.Helper()
+	client, err := dagger.Connect(e.ctx, dagger.WithRunnerHost(e.endpoint), dagger.WithWorkdir(e.workdir), dagger.WithLogOutput(testutil.NewTWriter(e.t)))
+	require.NoError(e.t, err)
+	return client
+}
+
+// reconnect closes the engine's client session, ending everything that
+// session owned, and opens a fresh one that has loaded nothing.
+func (e *fixtureEngine) reconnect() {
+	e.t.Helper()
+	require.NoError(e.t, e.client.Close())
+	e.client = e.connect()
+}
+
+// fixtureEngineStopTimeout bounds one whole shutdown. It never inherits the
+// test's context, which is usually already canceled when cleanup runs.
+const fixtureEngineStopTimeout = 90 * time.Second
+
+// shutdown is idempotent. It attempts every step under one fresh deadline and
+// reports every failure, so one failed step never strands the rest.
+func (e *fixtureEngine) shutdown() error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(e.ctx), fixtureEngineStopTimeout)
+	defer cancel()
+	var errs error
+	if client := e.client; client != nil {
+		e.client = nil
+		// Close takes no context; join it under the deadline.
+		closed := make(chan error, 1)
+		go func() { closed <- client.Close() }()
+		select {
+		case err := <-closed:
+			errs = errors.Join(errs, err)
+		case <-ctx.Done():
+			errs = errors.Join(errs, fmt.Errorf("client close did not return: %w", context.Cause(ctx)))
+		}
+	}
+	if upstream := e.upstream; upstream != nil {
+		e.upstream = nil
+		e.unwatch()
+		_, err := upstream.Stop(ctx)
+		errs = errors.Join(errs, err)
+	}
+	if tunnel := e.tunnel; tunnel != nil {
+		e.tunnel = nil
+		_, err := tunnel.Stop(ctx, dagger.ServiceStopOpts{Kill: true})
+		errs = errors.Join(errs, err)
+	}
+	return errs
+}
+
+// stop is a clean stop that the scenario depends on: a restart or an offline
+// edit of saved state must not proceed after a failed one.
 func (e *fixtureEngine) stop() {
 	e.t.Helper()
-	ctx := context.WithoutCancel(e.ctx)
-	if e.client != nil {
-		require.NoError(e.t, e.client.Close())
-		e.client = nil
-	}
-	if e.upstream != nil {
-		e.unwatch()
-		_, err := e.upstream.Stop(ctx)
-		require.NoError(e.t, err)
-		e.upstream = nil
-	}
-	if e.tunnel != nil {
-		_, err := e.tunnel.Stop(ctx, dagger.ServiceStopOpts{Kill: true})
-		require.NoError(e.t, err)
-		e.tunnel = nil
-	}
+	require.NoError(e.t, e.shutdown())
 }
 
 // restart stops the engine cleanly and starts it again on the same state and
@@ -127,6 +174,26 @@ func (e *fixtureEngine) volumeExec(script string, env map[string]string, mounts 
 	for path, volume := range mounts {
 		ctr = ctr.WithMountedCache(path, volume)
 	}
+	for key, value := range env {
+		ctr = ctr.WithEnvVariable(key, value)
+	}
+	out, err := ctr.WithExec([]string{"sh", "-ec", script}).Stdout(e.ctx)
+	require.NoError(e.t, err)
+	return out
+}
+
+// stateExec runs a shell script in an outer container with this engine's
+// state volume at /state. The engine must be stopped: cache state volumes
+// never share storage with a running engine. It is for damaging saved state
+// on purpose, never for moving state between engines.
+func (e *fixtureEngine) stateExec(packages []string, script string, env map[string]string) string {
+	e.t.Helper()
+	require.Nil(e.t, e.upstream, "the engine must be stopped before its state volume is opened")
+	ctr := e.outer.Container().From(alpineImage)
+	if len(packages) > 0 {
+		ctr = ctr.WithExec(append([]string{"apk", "add", "--no-cache"}, packages...))
+	}
+	ctr = ctr.WithMountedCache("/state", e.outer.CacheVolume(e.state)).WithEnvVariable("CACHEBUST", identity.NewID())
 	for key, value := range env {
 		ctr = ctr.WithEnvVariable(key, value)
 	}
@@ -178,4 +245,26 @@ func partEventsOf(report transferFixtureReport, rowID uint64, kind string) []int
 		}
 	}
 	return indexes
+}
+
+// partKindsOf returns the row's part event kinds in order, for failure logs.
+func partKindsOf(report transferFixtureReport, rowID uint64) []string {
+	var kinds []string
+	for _, event := range report.Parts {
+		if event.ResultID == rowID {
+			kinds = append(kinds, event.Kind)
+		}
+	}
+	return kinds
+}
+
+// reachedOf returns the row's journalled points in order, for failure logs.
+func reachedOf(report fixtureControlsReport, rowID uint64) []string {
+	var points []string
+	for _, o := range report.Reached {
+		if o.ResultID == rowID {
+			points = append(points, string(o.Point)+"("+o.Detail+")")
+		}
+	}
+	return points
 }

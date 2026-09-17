@@ -2,10 +2,13 @@ package dagql
 
 import (
 	"context"
+	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/dagger/dagger/dagql/call"
+	"github.com/dagger/dagger/engine"
 	"github.com/stretchr/testify/require"
 )
 
@@ -234,6 +237,70 @@ func TestFixtureHoldTokensEndAtClose(t *testing.T) {
 	require.Zero(t, c.TransferFixtureHoldCount(), "no token survives the cache")
 }
 
+// A hold admitted before Close but resumed after Close swept the tokens must
+// not publish one: Close would then succeed with a fixture owner outstanding,
+// and closeOnce means nothing would ever release it. The late hold is refused
+// and the ownership it had already taken is released through the ordinary
+// path, so the row is as collectable as if the hold had never been asked for.
+func TestFixtureHoldAdmittedBeforeCloseLeavesNoToken(t *testing.T) {
+	ctx, c, srv := transferTestCache(t)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	held := persistedListTestResult(t, ctx, c, srv, "held-across-close", String("held"))
+	id := fixtureTestHandle(t, c, held)
+	row := held.cacheSharedResult()
+	c.egraphMu.RLock()
+	before := row.incomingOwnershipCount
+	c.egraphMu.RUnlock()
+
+	entered, resume, swept := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	c.testAfterSessionOperationEnter = func(string) {
+		close(entered)
+		select {
+		case <-resume:
+		case <-ctx.Done():
+		}
+	}
+	// Close calls this after it swept the tokens, as it starts to drain the
+	// admitted operations.
+	c.testAfterCacheClosing = func() { close(swept) }
+	holdErr := make(chan error, 1)
+	go func() {
+		_, err := c.HoldTransferFixtureRoots(ctx, "test-session", []*call.ID{id})
+		holdErr <- err
+	}()
+	select {
+	case <-entered:
+	case <-ctx.Done():
+		t.Fatal("the hold was never admitted")
+	}
+	closed := make(chan error, 1)
+	go func() { closed <- c.Close(ctx) }()
+	select {
+	case <-swept:
+	case <-ctx.Done():
+		t.Fatal("close never reached its drain")
+	}
+	close(resume)
+	select {
+	case err := <-holdErr:
+		require.ErrorIs(t, err, ErrCacheClosed, "a hold that lost the race with Close is refused")
+	case <-ctx.Done():
+		t.Fatal("the hold never returned")
+	}
+	select {
+	case err := <-closed:
+		require.NoError(t, err)
+	case <-ctx.Done():
+		t.Fatal("close never returned")
+	}
+	require.Zero(t, c.TransferFixtureHoldCount(), "no token was published after the sweep")
+	c.egraphMu.RLock()
+	after := row.incomingOwnershipCount
+	c.egraphMu.RUnlock()
+	require.LessOrEqual(t, after, before, "the refused hold's ownership was rolled back")
+}
+
 // The observation bound: a report whose bound was exceeded fails instead of
 // returning a silently shortened event list, and a new bound starts a new
 // scenario.
@@ -257,4 +324,74 @@ func TestFixtureObserverOverflow(t *testing.T) {
 	require.Empty(t, report.Parts, "the new bound cleared the old scenario's events")
 	require.Zero(t, report.Controls.HoldTokens)
 	require.Zero(t, report.Controls.ArmedBarriers)
+}
+
+// decodeJoined is the joiner's side of a shared persisted decode: a second
+// demand that parks on the leader's channel reaches it, by row, while the
+// leader is still inside the decode.
+func TestFixtureBarrierDecodeJoined(t *testing.T) {
+	ctx := cacheTestContext(t.Context())
+	dbPath := filepath.Join(t.TempDir(), "cache.db")
+	persistRetryDecodeSnapshotID.Store("")
+	resultID := persistRetryDecodeSeed(t, ctx, dbPath, nil)
+	c, err := NewCache(ctx, dbPath, nil, nil)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, c.Close(context.Background())) }()
+	c.EnableTransferFixtureParts()
+	srv := newPersistRetryDecodeTestServer()
+
+	leaderEntered, releaseLeader := make(chan struct{}), make(chan struct{})
+	var entries atomic.Int32
+	persistRetryDecodeHooks.Store(resultID, func(hookCtx context.Context) error {
+		if entries.Add(1) == 1 {
+			close(leaderEntered)
+			select {
+			case <-releaseLeader:
+			case <-hookCtx.Done():
+				return hookCtx.Err()
+			}
+		}
+		return nil
+	})
+	defer persistRetryDecodeHooks.Delete(resultID)
+	armed, err := c.ArmTransferFixtureBarrier(FixtureBarrierRequest{Key: "joined", Point: FixtureDecodeJoined, Selector: FixtureBarrierSelector{ResultID: resultID}, Action: FixturePause})
+	require.NoError(t, err)
+
+	load := func(sessionID string) <-chan error {
+		loadCtx := engine.ContextWithClientMetadata(ctx, &engine.ClientMetadata{ClientID: sessionID + "-client", SessionID: sessionID})
+		loadCtx = srvToContext(ContextWithCache(loadCtx, c), srv)
+		done := make(chan error, 1)
+		go func() {
+			_, err := c.LoadResultByResultID(loadCtx, sessionID, srv, resultID)
+			done <- err
+		}()
+		t.Cleanup(func() { _ = c.ReleaseSession(loadCtx, sessionID) })
+		return done
+	}
+	leader := load("decode-joined-leader")
+	select {
+	case <-leaderEntered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the leader never entered the decode")
+	}
+	joiner := load("decode-joined-joiner")
+	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	reached, err := c.WaitTransferFixtureBarrier(waitCtx, "joined", armed.Generation)
+	require.NoError(t, err, "the joiner never parked")
+	require.Equal(t, FixtureDecodeJoined, reached.Event.Point)
+	require.Equal(t, resultID, reached.Event.ResultID)
+	require.EqualValues(t, 1, entries.Load(), "the joiner did not start a decode of its own")
+
+	require.NoError(t, c.ReleaseTransferFixtureBarrier("joined", armed.Generation))
+	close(releaseLeader)
+	for _, done := range []<-chan error{leader, joiner} {
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+		case <-time.After(10 * time.Second):
+			t.Fatal("a load never returned")
+		}
+	}
+	require.EqualValues(t, 1, entries.Load(), "one decode served both")
 }

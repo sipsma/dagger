@@ -94,3 +94,96 @@ func TestRemoteCacheFixtureRenewal(t *testing.T) {
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 	})
 }
+
+// A reply paused at renewalReplied is inside the consumer's own Run
+// goroutine. Stopping the adapter detaches the bridge and joins Run before
+// the cache closes and releases barriers, so the pause must end at the
+// detachment; otherwise Stop waits out its whole deadline and the engine
+// cannot shut down cleanly.
+func TestRemoteCacheFixtureStopReleasesPausedReply(t *testing.T) {
+	t.Setenv(core.RemoteCacheFixtureRootEnv, t.TempDir())
+	cache := newGCTestCache(t)
+	cache.EnableTransferFixtureParts()
+	srv := &Server{engineCache: cache, shutdownCtx: t.Context()}
+	require.NoError(t, srv.startRemoteCacheIntegration(srv.remoteCacheFixtureIntegration(nil)))
+
+	armed, err := cache.ArmTransferFixtureBarrier(dagql.FixtureBarrierRequest{Key: "replied", Point: dagql.FixtureRenewalReplied, Action: dagql.FixturePause})
+	require.NoError(t, err)
+	offer := renewalOnlyOffer()
+	require.NoError(t, srv.RemoteCacheFixtureArmRenewalReply(core.RemoteCacheFixtureRenewalReply{Layers: offer.Chain.Layers, Unavailable: true}))
+	done := make(chan error, 1)
+	go func() {
+		provider := cache.PartContentSource().Provider(boundedContext(t), offer, &dagql.PartDemandState{})
+		_, err := provider.ReaderAt(boundedContext(t), offer.Chain.Layers[0].Descriptor)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, dagql.ErrRenewalUnavailable, "the reply was published before the pause")
+	case <-time.After(10 * time.Second):
+		t.Fatal("the armed reply was never sent")
+	}
+	reached, err := cache.WaitTransferFixtureBarrier(boundedContext(t), "replied", armed.Generation)
+	require.NoError(t, err)
+	require.False(t, reached.Released, "the consumer is paused inside ReplyRenewal")
+
+	stopCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, srv.stopRemoteCacheIntegration(stopCtx), "detaching the bridge ends a pause at its points")
+	require.NoError(t, cache.Close(boundedContext(t)))
+}
+
+// A delivered request nobody takes is dropped when its own Done closes, so the
+// controller's records never outnumber the bridge's live exchanges. 65
+// sequential requests, each canceled after its real delivery and never taken,
+// leave nothing behind.
+func TestRemoteCacheFixtureRetiresUntakenDeliveries(t *testing.T) {
+	t.Setenv(core.RemoteCacheFixtureRootEnv, t.TempDir())
+	cache := newGCTestCache(t)
+	srv := &Server{engineCache: cache, shutdownCtx: t.Context()}
+	require.NoError(t, srv.startRemoteCacheIntegration(srv.remoteCacheFixtureIntegration(nil)))
+	t.Cleanup(func() {
+		// The test's own context is already canceled here.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		require.NoError(t, srv.stopRemoteCacheIntegration(ctx), "Run joined its watchers")
+		require.NoError(t, cache.Close(ctx))
+	})
+	ctx := boundedContext(t)
+	offer := renewalOnlyOffer()
+	controller := srv.remoteCacheFixture
+	// await blocks on the controller's own change signal until cond holds.
+	await := func(what string, cond func() bool) {
+		t.Helper()
+		for {
+			controller.mu.Lock()
+			ok, changed := cond(), controller.ready
+			controller.mu.Unlock()
+			if ok {
+				return
+			}
+			select {
+			case <-changed:
+			case <-ctx.Done():
+				t.Fatalf("%s: %d delivered records remain", what, len(controller.delivered))
+			}
+		}
+	}
+	for i := 0; i < 65; i++ {
+		requestCtx, cancelRequest := context.WithCancel(ctx)
+		done := make(chan error, 1)
+		go func() {
+			provider := cache.PartContentSource().Provider(requestCtx, offer, &dagql.PartDemandState{})
+			_, err := provider.ReaderAt(requestCtx, offer.Chain.Layers[0].Descriptor)
+			done <- err
+		}()
+		await("the request was never delivered", func() bool { return len(controller.delivered) == 1 })
+		cancelRequest()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			t.Fatal("the canceled requester never returned")
+		}
+		await("a request whose Done closed was not retired", func() bool { return len(controller.delivered) == 0 })
+	}
+}
