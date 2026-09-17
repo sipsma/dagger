@@ -1,0 +1,10 @@
+=== RUN   TestOfferPartsNativeAdmission
+=== RUN   TestOfferPartsNativeAdmission/accepted_before_start
+    part_offer_admission_test.go:85: real native snapshot transfer requires read-only bind mount privileges: mount source: "/tmp/TestOfferPartsNativeAdmissionaccepted_before_start1282562216/001", target: "/tmp/snapshot-transfer-mount3359110852", fstype: bind, flags: 20481, data: "", err: operation not permitted
+=== RUN   TestOfferPartsNativeAdmission/refused_after_start
+    part_offer_admission_test.go:104: real native snapshot transfer requires read-only bind mount privileges: mount source: "/tmp/TestOfferPartsNativeAdmissionrefused_after_start3977686768/001", target: "/tmp/snapshot-transfer-mount733054004", fstype: bind, flags: 20481, data: "", err: operation not permitted
+--- PASS: TestOfferPartsNativeAdmission (0.00s)
+    --- SKIP: TestOfferPartsNativeAdmission/accepted_before_start (0.00s)
+    --- SKIP: TestOfferPartsNativeAdmission/refused_after_start (0.00s)
+PASS
+ok  	github.com/dagger/dagger/core	0.112s
