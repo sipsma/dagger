@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/containerd/containerd/v2/core/content"
 	"github.com/dagger/dagger/dagql"
@@ -110,8 +112,46 @@ func collectLayers(values *dagql.ExportedValues) []exportLayer {
 	return layers
 }
 
-// uploadBlob sends one blob with one PUT of exactly the layer's size. It has
-// no time limit of its own; only ctx ends it.
+// errNoResponseHeaders is the cause when a store took the whole body and
+// then sent no response headers within requestTimeout.
+var errNoResponseHeaders = errors.New("no response headers within the header timeout")
+
+// uploadBody is a PUT's request body. It reports when the transport has
+// read it to the end, which starts the response-header bound, and when the
+// transport has closed it, which is when the export's reader may go.
+type uploadBody struct {
+	reader    io.Reader
+	written   chan struct{}
+	closed    chan struct{}
+	writeOnce sync.Once
+	closeOnce sync.Once
+}
+
+func newUploadBody(reader io.Reader) *uploadBody {
+	return &uploadBody{reader: reader, written: make(chan struct{}), closed: make(chan struct{})}
+}
+
+func (b *uploadBody) Read(p []byte) (int, error) {
+	n, err := b.reader.Read(p)
+	if errors.Is(err, io.EOF) {
+		b.writeOnce.Do(func() { close(b.written) })
+	}
+	return n, err
+}
+
+func (b *uploadBody) Close() error {
+	b.closeOnce.Do(func() { close(b.closed) })
+	return nil
+}
+
+// uploadBlob sends one blob with one PUT of exactly the layer's size. The
+// transfer itself has no time limit; only ctx ends it. Once the body has
+// been written in full, the store has requestTimeout to answer with headers.
+//
+// The transport may keep reading and then close the request body after Do
+// has returned, on errors too (the http.Client contract). The export's
+// reader is valid only inside the export callback, so this waits for the
+// transport to close the body before closing the reader and returning.
 func (c *client) uploadBlob(ctx context.Context, url string, layer exportLayer) error {
 	readerAt, err := layer.provider.ReaderAt(ctx, layer.descriptor)
 	if err != nil {
@@ -121,14 +161,43 @@ func (c *client) uploadBlob(ctx context.Context, url string, layer exportLayer) 
 	if readerAt.Size() != layer.descriptor.Size {
 		return fmt.Errorf("blob is %d bytes, descriptor says %d", readerAt.Size(), layer.descriptor.Size)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, content.NewReader(readerAt))
+	body := newUploadBody(content.NewReader(readerAt))
+	// Every transport closes the body, so this wait is bounded by the
+	// transport's own completion, which ctx bounds.
+	defer func() { <-body.closed }()
+	reqCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPut, url, body)
 	if err != nil {
+		body.Close()
 		return err
 	}
 	req.ContentLength = layer.descriptor.Size
 	req.Header.Set("Content-Type", "application/octet-stream")
+	answered := make(chan struct{})
+	defer close(answered)
+	go func() {
+		select {
+		case <-body.written:
+		case <-answered:
+			return
+		case <-reqCtx.Done():
+			return
+		}
+		timer := time.NewTimer(requestTimeout)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			cancel(fmt.Errorf("%w: %s", errNoResponseHeaders, requestTimeout))
+		case <-answered:
+		case <-reqCtx.Done():
+		}
+	}()
 	resp, err := c.http.Do(req)
 	if err != nil {
+		if cause := context.Cause(reqCtx); cause != nil && ctx.Err() == nil {
+			return cause
+		}
 		return err
 	}
 	defer resp.Body.Close()

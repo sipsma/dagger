@@ -44,10 +44,12 @@ type fakeService struct {
 	reports  []protocol.SessionReport
 	blobs    map[digest.Digest][]byte
 	bundles  []protocol.BundleUploadRequest
-	// pollAnswers feeds poll responses; pollOpened is signaled once per poll
-	// request that reached the service.
-	pollAnswers chan protocol.PollResponse
-	pollOpened  chan struct{}
+	// pollAnswers feeds poll responses. pollAttempted is signaled once per
+	// poll request that reached the service, before the failure check;
+	// pollOpened once per poll that passed it and is waiting for its answer.
+	pollAnswers   chan protocol.PollResponse
+	pollAttempted chan struct{}
+	pollOpened    chan struct{}
 	// pollFailures is how many polls fail with a transport error before one
 	// succeeds; pollStatus, when set, answers every poll with that status.
 	// pollKick wakes an open poll so it re-reads pollStatus.
@@ -78,6 +80,7 @@ func newFakeService(t *testing.T) *fakeService {
 		results:         map[string]protocol.CommandResult{},
 		blobs:           map[digest.Digest][]byte{},
 		pollAnswers:     make(chan protocol.PollResponse),
+		pollAttempted:   make(chan struct{}, 100),
 		pollOpened:      make(chan struct{}, 100),
 		pollKick:        make(chan struct{}, 1),
 		reportAttempted: make(chan string, 100),
@@ -234,7 +237,7 @@ func (s *fakeService) poll(req *http.Request) (*http.Response, error) {
 	if body.WaitSeconds <= 0 || body.WaitSeconds > protocol.MaxPollWaitSeconds || body.EngineName == "" {
 		return jsonResponse(http.StatusBadRequest, protocol.ErrorResponse{Error: "bad poll body"}), nil
 	}
-	s.pollOpened <- struct{}{}
+	s.pollAttempted <- struct{}{}
 	if s.pollFailures.Load() > 0 {
 		s.pollFailures.Add(-1)
 		return nil, errors.New("connection refused")
@@ -242,6 +245,7 @@ func (s *fakeService) poll(req *http.Request) (*http.Response, error) {
 	if status := s.pollStatus.Load(); status != 0 {
 		return jsonResponse(int(status), protocol.ErrorResponse{Error: "unknown token"}), nil
 	}
+	s.pollOpened <- struct{}{}
 	select {
 	case answer := <-s.pollAnswers:
 		return jsonResponse(http.StatusOK, answer), nil
@@ -259,6 +263,9 @@ func (s *fakeService) refuseToken(status int) {
 }
 
 func (s *fakeService) putBlob(req *http.Request) (*http.Response, error) {
+	// A RoundTripper closes the request body on every path, as
+	// http.Transport does; the client waits for that close.
+	defer req.Body.Close()
 	s.record(req)
 	s.uploadsInFlight.Add(1)
 	defer s.uploadsInFlight.Add(-1)
@@ -294,9 +301,28 @@ func (s *fakeService) putBlob(req *http.Request) (*http.Response, error) {
 // export's chains.
 type memProvider map[digest.Digest][]byte
 
-type memReaderAt struct{ *bytes.Reader }
+// memReaderAt refuses reads after Close, so a transport that touches the
+// export's reader after the callback released it is caught.
+type memReaderAt struct {
+	*bytes.Reader
+	closed  atomic.Bool
+	onClose func()
+}
 
-func (memReaderAt) Close() error { return nil }
+func (r *memReaderAt) ReadAt(p []byte, off int64) (int, error) {
+	if r.closed.Load() {
+		return 0, errors.New("read after close")
+	}
+	return r.Reader.ReadAt(p, off)
+}
+
+func (r *memReaderAt) Close() error {
+	r.closed.Store(true)
+	if r.onClose != nil {
+		r.onClose()
+	}
+	return nil
+}
 
 func (p memProvider) Info(_ context.Context, dgst digest.Digest) (content.Info, error) {
 	data, ok := p[dgst]
@@ -311,7 +337,7 @@ func (p memProvider) ReaderAt(_ context.Context, desc ocispecs.Descriptor) (cont
 	if !ok {
 		return nil, fmt.Errorf("no blob %s", desc.Digest)
 	}
-	return memReaderAt{bytes.NewReader(data)}, nil
+	return &memReaderAt{Reader: bytes.NewReader(data)}, nil
 }
 
 func blobLayer(data []byte) snapshots.ExportLayer {
@@ -357,7 +383,8 @@ func (a *fakeAdapter) ImportValues(_ context.Context, bundle dagql.ValueBundle) 
 		return nil, a.importErr
 	}
 	a.imported = append(a.imported, bundle)
-	return make([]dagql.ImportedValue, len(bundle.Values)), nil
+	// Cache.ImportValues returns one mapping per root, not per value.
+	return make([]dagql.ImportedValue, len(bundle.Roots)), nil
 }
 
 func (a *fakeAdapter) calls() (imported []dagql.ValueBundle, exported []uint64) {
@@ -460,14 +487,16 @@ func (h *harness) answerPoll(t *testing.T, commands ...protocol.Command) {
 	}
 }
 
+// result returns the answer to one command, waiting for it when it has
+// not arrived. The stored results are checked before every wait, so a
+// notification consumed for another command is never a loss.
 func (h *harness) result(t *testing.T, id string) protocol.CommandResult {
 	t.Helper()
 	for {
-		got := within(t, h.svc.resultDelivered)
-		if got != id {
-			continue
+		if result, ok := h.svc.storedResults()[id]; ok {
+			return result
 		}
-		return h.svc.storedResults()[id]
+		within(t, h.svc.resultDelivered)
 	}
 }
 
@@ -567,35 +596,53 @@ func TestClientTwentyExportsInOrder(t *testing.T) {
 func TestClientPollBackoff(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
+		// recv bounds a wait in virtual time, generously above the 30-second
+		// backoff cap, so a stuck loop fails the test instead of hanging it.
+		recv := func(ch <-chan struct{}) {
+			t.Helper()
+			select {
+			case <-ch:
+			case <-time.After(5 * time.Minute):
+				t.Fatal("timed out waiting")
+			}
+		}
 		svc, adapter := newFakeService(t), newFakeAdapter()
 		svc.pollFailures.Store(5)
 		c := newClient(Config{URL: testBaseURL, Token: testToken, EngineName: "engine-a", EngineVersion: "v1"}, testInstance, svc, adapter)
 		ctx, cancel := context.WithCancelCause(t.Context())
+		defer cancel(nil)
 		done := make(chan error, 1)
 		go func() { done <- c.run(ctx) }()
-		var opened []time.Time
+		var attempts []time.Time
+		attempt := func() { recv(svc.pollAttempted); attempts = append(attempts, time.Now()) }
 		for range 6 {
-			<-svc.pollOpened
-			opened = append(opened, time.Now())
+			attempt()
 		}
-		// Five failures, five waits: 1s, 2s, 4s, 8s, 16s. The sixth poll is
-		// the one that will succeed.
-		require.Equal(t, []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second}, gaps(opened))
+		// Five failures, five waits: 1s, 2s, 4s, 8s, 16s. The sixth poll
+		// passed the failure check and waits for its answer.
+		require.Equal(t, []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second}, gaps(attempts))
+		recv(svc.pollOpened)
 		svc.pollAnswers <- protocol.PollResponse{}
-		// The next poll opens at once, and a new failure starts over at 1s.
-		<-svc.pollOpened
-		opened = append(opened, time.Now())
-		require.Equal(t, time.Duration(0), opened[6].Sub(opened[5]))
+		// The next poll opens at once; it too waits for an answer. Only then
+		// is the counter changed, so the poll being answered stays a success
+		// and a new failure starts over at 1s.
+		attempt()
+		require.Equal(t, time.Duration(0), attempts[6].Sub(attempts[5]))
+		recv(svc.pollOpened)
 		svc.pollFailures.Store(7)
 		svc.pollAnswers <- protocol.PollResponse{}
-		start := len(opened)
+		first := len(attempts)
 		for range 7 {
-			<-svc.pollOpened
-			opened = append(opened, time.Now())
+			attempt()
 		}
-		require.Equal(t, []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second, 30 * time.Second}, gaps(opened[start:]), "doubles up to thirty seconds")
+		require.Equal(t, []time.Duration{0, time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second, 30 * time.Second}, gaps(attempts[first-1:]), "doubles up to thirty seconds")
 		cancel(nil)
-		require.NoError(t, <-done)
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+		case <-time.After(5 * time.Minute):
+			t.Fatal("run did not return")
+		}
 	})
 }
 
@@ -718,4 +765,99 @@ func TestClientSessionReports(t *testing.T) {
 	raw, err := json.Marshal(sessionReportBody(&server.SessionReport{SessionID: "s", Results: []dagql.SessionResultEntry{{ResultID: 1}}}))
 	require.NoError(t, err)
 	require.Contains(t, string(raw), `"dependsOn":[]`, "an empty dependency list is an array, not null")
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+func uploadTestLayer(data []byte) (exportLayer, *memReaderAt) {
+	layer := blobLayer(data)
+	reader := &memReaderAt{Reader: bytes.NewReader(data)}
+	provider := roundTripProvider{layer: layer, reader: reader}
+	return exportLayer{descriptor: layer.Descriptor, provider: provider}, reader
+}
+
+// roundTripProvider hands out one fixed reader, so the test can watch it.
+type roundTripProvider struct {
+	layer  snapshots.ExportLayer
+	reader *memReaderAt
+}
+
+func (p roundTripProvider) Info(context.Context, digest.Digest) (content.Info, error) {
+	return content.Info{Digest: p.layer.Descriptor.Digest, Size: p.layer.Descriptor.Size}, nil
+}
+
+func (p roundTripProvider) ReaderAt(context.Context, ocispecs.Descriptor) (content.ReaderAt, error) {
+	return p.reader, nil
+}
+
+// A transport may go on reading the request body, and close it, after Do
+// has returned. uploadBlob must not return, nor close the export's reader,
+// before the transport has closed the body.
+func TestUploadBlobWaitsForTheTransportToCloseTheBody(t *testing.T) {
+	t.Parallel()
+	data := []byte("bytes the transport reads after Do returned")
+	layer, reader := uploadTestLayer(data)
+	bodyStarted, releaseBody, bodyClosed := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var got []byte
+	var readErr error
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		go func() {
+			defer close(bodyClosed)
+			defer req.Body.Close()
+			close(bodyStarted)
+			<-releaseBody
+			got, readErr = io.ReadAll(req.Body)
+		}()
+		return emptyResponse(http.StatusOK), nil
+	})
+	c := newClient(Config{URL: testBaseURL, Token: testToken}, testInstance, transport, newFakeAdapter())
+	returned := make(chan error, 1)
+	go func() { returned <- c.uploadBlob(context.Background(), blobBaseURL+"x", layer) }()
+	within(t, bodyStarted)
+	select {
+	case err := <-returned:
+		t.Fatalf("uploadBlob returned before the transport closed the body: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	require.False(t, reader.closed.Load(), "the export's reader is still open while the transport reads")
+	close(releaseBody)
+	within(t, bodyClosed)
+	require.NoError(t, within(t, returned))
+	require.NoError(t, readErr, "every read happened before the reader was closed")
+	require.Equal(t, data, got)
+	require.True(t, reader.closed.Load(), "the reader is closed once the transport is done")
+}
+
+// The body may take any time to transfer, but once the store has read it
+// in full it has requestTimeout to answer with headers.
+func TestUploadBlobHeaderTimeout(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		data := []byte("a blob the store swallows and never answers")
+		layer, _ := uploadTestLayer(data)
+		bodyRead := make(chan struct{})
+		transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			defer req.Body.Close()
+			// A slow transfer, longer than the header bound, is fine.
+			time.Sleep(2 * requestTimeout)
+			if _, err := io.ReadAll(req.Body); err != nil {
+				return nil, err
+			}
+			close(bodyRead)
+			<-req.Context().Done()
+			return nil, req.Context().Err()
+		})
+		c := newClient(Config{URL: testBaseURL, Token: testToken}, testInstance, transport, newFakeAdapter())
+		started := time.Now()
+		err := c.uploadBlob(t.Context(), blobBaseURL+"x", layer)
+		require.ErrorIs(t, err, errNoResponseHeaders)
+		select {
+		case <-bodyRead:
+		default:
+			t.Fatal("the body was not read in full before the bound fired")
+		}
+		require.Equal(t, 3*requestTimeout, time.Since(started), "transfer time plus the header bound")
+	})
 }

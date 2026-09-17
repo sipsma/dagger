@@ -221,7 +221,9 @@ func (c *client) runImport(ctx context.Context, cmd protocol.Command) protocol.C
 		c.log.Error("remote cache import failed", "command", cmd.ID, "bundle", cmd.Import.BundleID, "error", err)
 		return protocol.CommandResult{OK: false, Error: err.Error()}
 	}
-	c.log.Info("imported remote cache bundle", "command", cmd.ID, "bundle", cmd.Import.BundleID, "results", len(mapping))
+	// The mapping covers the bundle's roots only; the bundle's values are
+	// every imported result.
+	c.log.Info("imported remote cache bundle", "command", cmd.ID, "bundle", cmd.Import.BundleID, "results", len(cmd.Import.Bundle.Values), "roots", len(mapping))
 	return protocol.CommandResult{OK: true}
 }
 
