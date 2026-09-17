@@ -139,3 +139,4 @@ Boot wipe investigation. All on the working tree of `770e9de2b5` plus the uncomm
 | 17 | scratch rewritten: imported `CacheVolume`, snapshot initialised on B | same command | 90 / 300 s | FAIL as intended: `import_failure`, `attach imported result 1 owner lease "snapshot": … not found` | 27 s with build, test 0.08 s |
 | 18 | scratch, three kinds (cache volume, git mirror, filesync mirror) | same command | 90 / 300 s | FAIL as intended, all three; log `boot-wipe/repro-three-kinds.log` | 20 s, tests 0.27 s |
 | 19 | scratch, only the collection before `Close` | same command | 90 / 300 s | FAIL as intended, all three: the running engine's collection takes the snapshot | unknown, tests 0.59 s |
+| 20 | scratch, cache volume case driven through the production `Container.WithMountedCache` | `go test ./core -run 'TestB7WipeRepro$/cache-volume' -timeout 90s -count=1` | 90 / 210 s | FAIL as intended, same boot error | 29 s with build, test 0.46 s |
