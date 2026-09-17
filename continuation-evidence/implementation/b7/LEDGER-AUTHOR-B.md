@@ -130,3 +130,12 @@ Model runs. All local: `timeout <T>s java -Xmx8g -XX:+UseParallelGC -cp ~/tla/to
 | 14 | working tree | `go test -timeout 60s -run '^TestTransferConstructorContentUnitesDownstreamCall$' ./dagql` | 60 / 300 s | ok | 0.3 t |
 | 15 | working tree on `f6d17a03d5` | `go test -count=20 -timeout 120s -run '^TestSnapshotSharingPrefixCarriedOverRefusedAddress$' ./dagql` | 120 / 300 s | ok | 0.5 t |
 | M17 | the 21 `remote_sharing*` and `remote_checkpoint*` configurations after the D11 edits | `timeout 60s` each, 600 s process | 0 mismatches; `remote_checkpoint` 2,134 states, the new `fault_drop_operation` violates `OperationRetained` | 34 s total |
+
+Boot wipe investigation. All on the working tree of `770e9de2b5` plus the uncommitted scratch file `core/zz_b7_wipe_repro_test.go`.
+
+| # | Tree | Command | Test / process | Result | Wall |
+| --- | --- | --- | --- | --- | --- |
+| 16 | scratch, shared imported Directory, four variants (encoded, evaluated, owner attach fails, the same with collection after close) | `go test ./core -run 'TestB7WipeRepro$' -timeout 90s -count=1`, several invocations while the variants were written | 90 / 300 s | ok every time: no reset, so the sharing and owed paths do not cause the wipe | unknown |
+| 17 | scratch rewritten: imported `CacheVolume`, snapshot initialised on B | same command | 90 / 300 s | FAIL as intended: `import_failure`, `attach imported result 1 owner lease "snapshot": … not found` | 27 s with build, test 0.08 s |
+| 18 | scratch, three kinds (cache volume, git mirror, filesync mirror) | same command | 90 / 300 s | FAIL as intended, all three; log `boot-wipe/repro-three-kinds.log` | 20 s, tests 0.27 s |
+| 19 | scratch, only the collection before `Close` | same command | 90 / 300 s | FAIL as intended, all three: the running engine's collection takes the snapshot | unknown, tests 0.59 s |

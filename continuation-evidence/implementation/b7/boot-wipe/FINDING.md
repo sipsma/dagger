@@ -1,0 +1,48 @@
+# Boot wipe: a late-created backing snapshot never gets its owner lease
+
+Author B, 17 September 2026. Dispatch `bfb1abc8fe`, diagnostic `149be4bf59`. No production code changed yet.
+
+## Cause
+
+Four backing types are exported as `foreign_uninitialized` and arrive on the receiver with no snapshot: `CacheVolume`, `RemoteGitMirror`, `ClientFilesyncMirror`, `HTTPState`. On first use each one creates a fresh local snapshot. Only `HTTPState` then attaches the owner lease (`core/schema/http.go:173`, `SyncResultSnapshotOwnerLeases`). The other three create the snapshot and tell nobody.
+
+For a locally created row this never shows, because the creating resolver makes the snapshot before it returns (`core/schema/cache.go:93`, `core/schema/query.go:132,146`) and the lease sync at publication sees the link. An imported row was published, and synced, with no link; the snapshot comes later.
+
+## Call sequence (cache volume, as in A's run)
+
+1. B imports the SDK runtime's Container ancestry. The `CacheVolume` row decodes with `foreignUninitialized` and an empty `snapshotID`. Import's lease sync sees no links. Correct so far.
+2. B serves the module. `Container.WithMountedCache` (`core/container.go:6219`) or the exec mount path (`core/container_exec.go:978`, `:1819`) finds `getSnapshot() == nil` and calls `InitializeSnapshot`. `SnapshotManager().New` prepares the snapshot under the lease in the calling context (`EnsureLease`), which is the session's. No owner lease `result/<id>/snapshot` is created, and `snapshotOwnerLinks` on the row stays empty. This is why A's in-memory report shows no link for the row.
+3. The session ends. The context lease goes. The value still holds the `MutableRef`, but a held ref is not a lease.
+4. Collection removes the snapshot. (In my reproduction the collection before `Close` is enough.) A running engine is already wrong at this point: the row's value points at a removed snapshot, so the next exec that mounts this cache volume would fail, restart or no restart.
+5. Clean shutdown. The checkpoint derives a typed row's links from the value (`desiredSnapshotLinksForResult` to `collectSnapshotOwnerLinks` to `CacheVolume.PersistedSnapshotRefLinks`), which now reports the snapshot. A `result_snapshot_links` row with role `snapshot` is saved. This is why A sees the link in the mirror and not in memory.
+6. Boot: `AttachLease(result/<id>/snapshot, <snapshot>)` returns not found, `cache_persistence_import.go:567-590` treats it as damage and wipes everything.
+
+`TestPipeline/DonorReleased/AfterRestart` passes because there B loads the module before it imports, so the runtime's cache volume row is B's own.
+
+## Reproduction
+
+`boot-wipe/repro_test.go.txt` (scratch, uncommitted, in `core`). Real stores, real collection, no engine. A exports the row; B imports, loads the row, does what the production site does (`InitializeSnapshot`, `RemoteGitMirror.acquire`, `ClientFilesyncMirror.EnsureCreated`), releases the session, collects, closes, reloads, reopens.
+
+Failed assertion, all three kinds: `PersistenceResetReason()` is `import_failure`, expected none. Boot log, same text as A's:
+
+- `attach imported result 1 owner lease "snapshot": …: not found` (cache volume)
+- `attach imported result 1 owner lease "bare_repo": …: not found` (git mirror)
+- `attach imported result 1 owner lease "snapshot": …: not found` (filesync mirror)
+
+Log: `boot-wipe/repro-three-kinds.log`. A's extra six-minute run is not needed.
+
+## Options
+
+**(a) Sync the row's owner leases at each late-creation site, as `HTTPState` already does.** One helper in `core` that takes the row, creates the snapshot if missing and calls `SyncResultSnapshotOwnerLeases`. Five call sites, and every one already holds the row as an `ObjectResult`: `container.go:6219`, `container_exec.go:978` and `:1819` (`cacheSrc.Volume`), `git_remote.go:527` (`repo.Mirror`), `schema/host.go:331` (`persistedMirror`). Between `New` and the sync the snapshot is covered by the context lease, the same window `HTTPState` has today. Cost: a future sixth site can forget; the helper and a comment on the three `foreignUninitialized` fields are the guard. Small. The reproduction becomes the failing-before test, driven through the production entry points where they need no mount.
+
+**(b) Make it generic in dagql.** When a call completes, re-sync the leases of its dependency rows whose value declares that its links can appear late (a marker interface, or reuse `CacheUsageMayChange`). Nothing to remember per site. But the dependency is not always direct (a git tree call reaches the mirror through the repository), it puts a value lock and a link comparison on the completion path of every `withExec`, and it is new mechanism in batch 4 code for three call sites. I do not recommend it.
+
+**(c) Create the snapshot at import.** Import would initialise every foreign-uninitialized backing row and its own lease sync would cover it. It makes snapshots for volumes nobody mounts, and a cache volume with a source and an owner needs a server `Select` for the chown, which import does not have. No.
+
+**(d) Boot drops the one row instead of wiping.** Separate question. Treating a dangling owner link as damage is the base's deliberate policy, and (d) alone leaves step 4's live fault. Named only; not for this batch unless the Human wants it.
+
+Recommendation: **(a)**. It is the existing pattern, it fixes the live fault as well as the wipe, and it is five lines at five sites plus the helper.
+
+## Separate observation, no action proposed
+
+The checkpoint saves a typed row's links from the value's current state, not from the links whose leases were attached. That is what turned a missing lease into a whole-cache wipe rather than a row that persists as uninitialised. Saving only leased links is not sound on its own, because the encoder writes the payload's `Form` from the value too, so form and links would disagree. I mention it because any future late-created snapshot fails the same loud way.

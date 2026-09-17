@@ -1,0 +1,80 @@
+2026/09/17 22:24:34 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/17 22:24:34 INFO marking dagql cache clean shutdown
+2026/09/17 22:24:34 WARN successfully marked clean shutdown in persistence metadata
+2026/09/17 22:24:34 INFO completed dagql cache close successfully
+2026/09/17 22:24:34 WARN dagql persistence import failed; wiping and cold-starting err="attach imported result 1 owner lease \"snapshot\": 7dmkqle6railtf1h2rc5nv42p: not found"
+2026/09/17 22:24:34 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/17 22:24:34 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/17 22:24:34 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/17 22:24:34 INFO marking dagql cache clean shutdown
+2026/09/17 22:24:34 WARN successfully marked clean shutdown in persistence metadata
+2026/09/17 22:24:34 INFO completed dagql cache close successfully
+2026/09/17 22:24:34 WARN dagql persistence import failed; wiping and cold-starting err="attach imported result 1 owner lease \"bare_repo\": iq0bpanegis5gvdu3uisj4k65: not found"
+2026/09/17 22:24:34 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/17 22:24:34 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/17 22:24:34 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/17 22:24:34 INFO marking dagql cache clean shutdown
+2026/09/17 22:24:34 WARN successfully marked clean shutdown in persistence metadata
+2026/09/17 22:24:34 INFO completed dagql cache close successfully
+2026/09/17 22:24:34 WARN dagql persistence import failed; wiping and cold-starting err="attach imported result 1 owner lease \"snapshot\": 47b1ix34c6gqlgg3u35obpzdi: not found"
+2026/09/17 22:24:34 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/17 22:24:34 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- FAIL: TestB7WipeRepro (0.27s)
+    --- FAIL: TestB7WipeRepro/cache-volume (0.15s)
+        zz_b7_wipe_repro_test.go:66: links after init: [{7dmkqle6railtf1h2rc5nv42p snapshot }]
+        zz_b7_wipe_repro_test.go:87: 
+            	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/verification-implementer-implementation-128fdcd9-2b7fea30/core/zz_b7_wipe_repro_test.go:87
+            	            				/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/verification-implementer-implementation-128fdcd9-2b7fea30/core/zz_b7_wipe_repro_test.go:16
+            	Error:      	Not equal: 
+            	            	expected: ""
+            	            	actual  : "import_failure"
+            	            	
+            	            	Diff:
+            	            	--- Expected
+            	            	+++ Actual
+            	            	@@ -1,2 +1,2 @@
+            	            	-(dagql.CachePersistenceResetReason) ""
+            	            	+(dagql.CachePersistenceResetReason) (len=14) "import_failure"
+            	            	 
+            	Test:       	TestB7WipeRepro/cache-volume
+    --- FAIL: TestB7WipeRepro/git-mirror (0.05s)
+        zz_b7_wipe_repro_test.go:72: links after init: [{iq0bpanegis5gvdu3uisj4k65 bare_repo }]
+        zz_b7_wipe_repro_test.go:87: 
+            	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/verification-implementer-implementation-128fdcd9-2b7fea30/core/zz_b7_wipe_repro_test.go:87
+            	            				/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/verification-implementer-implementation-128fdcd9-2b7fea30/core/zz_b7_wipe_repro_test.go:16
+            	Error:      	Not equal: 
+            	            	expected: ""
+            	            	actual  : "import_failure"
+            	            	
+            	            	Diff:
+            	            	--- Expected
+            	            	+++ Actual
+            	            	@@ -1,2 +1,2 @@
+            	            	-(dagql.CachePersistenceResetReason) ""
+            	            	+(dagql.CachePersistenceResetReason) (len=14) "import_failure"
+            	            	 
+            	Test:       	TestB7WipeRepro/git-mirror
+    --- FAIL: TestB7WipeRepro/filesync-mirror (0.06s)
+        zz_b7_wipe_repro_test.go:76: links after init: [{47b1ix34c6gqlgg3u35obpzdi snapshot }]
+        zz_b7_wipe_repro_test.go:87: 
+            	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/verification-implementer-implementation-128fdcd9-2b7fea30/core/zz_b7_wipe_repro_test.go:87
+            	            				/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/verification-implementer-implementation-128fdcd9-2b7fea30/core/zz_b7_wipe_repro_test.go:16
+            	Error:      	Not equal: 
+            	            	expected: ""
+            	            	actual  : "import_failure"
+            	            	
+            	            	Diff:
+            	            	--- Expected
+            	            	+++ Actual
+            	            	@@ -1,2 +1,2 @@
+            	            	-(dagql.CachePersistenceResetReason) ""
+            	            	+(dagql.CachePersistenceResetReason) (len=14) "import_failure"
+            	            	 
+            	Test:       	TestB7WipeRepro/filesync-mirror
+FAIL
+FAIL	github.com/dagger/dagger/core	0.344s
+FAIL
+
+real	0m20.293s
+user	0m57.163s
+sys	0m5.155s

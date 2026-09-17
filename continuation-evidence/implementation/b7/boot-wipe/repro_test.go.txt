@@ -1,0 +1,87 @@
+package core
+
+import (
+	"context"
+	"path/filepath"
+	"testing"
+
+	"github.com/dagger/dagger/dagql"
+	"github.com/dagger/dagger/engine/snapshots/config"
+	"github.com/dagger/dagger/engine/snapshots/testutil"
+	"github.com/stretchr/testify/require"
+)
+
+func TestB7WipeRepro(t *testing.T) {
+	for _, kind := range []string{"cache-volume", "git-mirror", "filesync-mirror"} {
+		t.Run(kind, func(t *testing.T) { b7WipeRepro(t, kind) })
+	}
+}
+
+func b7WipeRepro(t *testing.T, kind string) {
+	aStore, bStore := testutil.NewStore(t), testutil.NewStore(t)
+	aCtx, a, aSrv := transferCache(t, aStore, "", "a")
+	aSrv.InstallObject(dagql.NewClass(aSrv, dagql.ClassOpts[*CacheVolume]{}))
+	aSrv.InstallObject(dagql.NewClass(aSrv, dagql.ClassOpts[*RemoteGitMirror]{}))
+	aSrv.InstallObject(dagql.NewClass(aSrv, dagql.ClassOpts[*ClientFilesyncMirror]{}))
+	aQuery, err := CurrentQuery(aCtx)
+	require.NoError(t, err)
+	var root dagql.AnyResult
+	switch kind {
+	case "cache-volume":
+		vol := NewCache("k", "ns", dagql.Null[dagql.ObjectResult[*Directory]](), CacheSharingModeShared, "")
+		require.NoError(t, vol.InitializeSnapshot(aCtx))
+		root = attachTransferObject(t, aCtx, a, aSrv, "a", "vol", vol)
+	case "git-mirror":
+		m := NewRemoteGitMirror("https://example.invalid/repo.git")
+		require.NoError(t, m.EnsureCreated(aCtx, aQuery))
+		root = attachTransferObject(t, aCtx, a, aSrv, "a", "mirror", m)
+	case "filesync-mirror":
+		m := &ClientFilesyncMirror{StableClientID: "stable", Drive: ""}
+		require.NoError(t, m.EnsureCreated(aCtx, aQuery))
+		root = attachTransferObject(t, aCtx, a, aSrv, "a", "fsmirror", m)
+	}
+	var bundle dagql.ValueBundle
+	require.NoError(t, a.WithExportedValues(aCtx, dagql.ValueSelection{Roots: []dagql.AnyResult{root}}, config.RefConfig{}, func(_ context.Context, v *dagql.ExportedValues) error {
+		bundle = v.Bundle
+		return nil
+	}))
+
+	path := filepath.Join(t.TempDir(), "b.db")
+	bCtx, b, bSrv := transferCache(t, bStore, path, "b")
+	bSrv.InstallObject(dagql.NewClass(bSrv, dagql.ClassOpts[*CacheVolume]{}))
+	bSrv.InstallObject(dagql.NewClass(bSrv, dagql.ClassOpts[*RemoteGitMirror]{}))
+	bSrv.InstallObject(dagql.NewClass(bSrv, dagql.ClassOpts[*ClientFilesyncMirror]{}))
+	bQuery, err := CurrentQuery(bCtx)
+	require.NoError(t, err)
+	imported, err := b.ImportValues(bCtx, bundle)
+	require.NoError(t, err)
+	rID := imported[len(imported)-1].ResultID
+	loaded, err := b.LoadResultByResultID(bCtx, "b", bSrv, rID)
+	require.NoError(t, err)
+	switch got := loaded.Unwrap().(type) {
+	case *CacheVolume:
+		require.Nil(t, got.getSnapshot())
+		// what withMountedCache and the exec mount path do with the imported row
+		require.NoError(t, got.InitializeSnapshot(bCtx))
+		t.Logf("links after init: %v", got.PersistedSnapshotRefLinks())
+	case *RemoteGitMirror:
+		require.Empty(t, got.PersistedSnapshotRefLinks())
+		_, release, err := got.acquire(bCtx, bQuery)
+		require.NoError(t, err)
+		release()
+		t.Logf("links after init: %v", got.PersistedSnapshotRefLinks())
+	case *ClientFilesyncMirror:
+		require.Empty(t, got.PersistedSnapshotRefLinks())
+		require.NoError(t, got.EnsureCreated(bCtx, bQuery))
+		t.Logf("links after init: %v", got.PersistedSnapshotRefLinks())
+	default:
+		t.Fatalf("unexpected %T", got)
+	}
+
+	require.NoError(t, b.ReleaseSession(bCtx, "b"))
+	bStore.GC(t)
+	require.NoError(t, b.Close(bCtx))
+	bStore.Reload(t)
+	_, b2, _ := transferCache(t, bStore, path, "restarted")
+	require.Equal(t, dagql.CachePersistenceResetNone, b2.PersistenceResetReason())
+}
