@@ -123,3 +123,8 @@ Model runs. All local: `timeout <T>s java -Xmx8g -XX:+UseParallelGC -cp ~/tla/to
 | --- | --- | --- | --- | --- | --- |
 | P1 | each of the six `b7-packaging/remote-cache/*` heads, detached | `go build ./...` then `go vet ./dagql ./core ./core/schema ./engine/snapshots` | no tests / 540 s and 300 s | all six ok | 54 to 101 s each |
 | 12 | working tree on `ad32ac7066` | `go test -count=10 -timeout 120s -run '^TestExportDuringAnActiveTaskIsNotReady$' ./dagql` | 120 / 300 s | ok | 0.3 t |
+
+| # | Tree | Command | Test / process | Result | Wall |
+| --- | --- | --- | --- | --- | --- |
+| 13 | `ee7d756b85` plus the deletion of the folded git tests | `go test -json -timeout 90s ./dagql ./core ./core/schema ./engine/server ./engine/snapshots ./engine/engineutil ./engine/engineutil/imageexport` | 90 / 210 s | 3050 pass, 1 skip (the base's TODO), 0 fail | 85.0 |
+| 14 | working tree | `go test -timeout 60s -run '^TestTransferConstructorContentUnitesDownstreamCall$' ./dagql` | 60 / 300 s | ok | 0.3 t |

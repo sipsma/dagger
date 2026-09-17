@@ -248,3 +248,26 @@ Test: `TestPartAcquiredValuesCloneForContainers`, File and Directory, fails befo
 1. **Recommended: a documented transient that the caller retries**, which is what the two existing consumers of this sentinel already do. The test's exact operation should retry on `ErrPersistStateNotReady` until the pass is released, or take its export before the hold. I would also state the contract on `WithExportedValues`' own comment, which today says nothing about it; that is a one-line documentation change I have not made without your word.
 2. Make the export wait for the row's tasks as a demand does. I advise against it: the capture is deliberately non-blocking (`captureHeldPersistedRecord` holds `lazyMu`; `core/container_persistence.go:120` says why a live capture must not wait for a body that may need the cache), it would make an export block for the length of any exec on any row of its closure, and it is the kind of new wait on converged code that B4 ruled out.
 3. Have the fixture's `exportSelected` retry internally. It hides the contract from the test that should know it.
+
+# Folded git tests deleted; the Workspace constructor question (dispatch `162d4fe1dc`)
+
+**Folded tests.** A's `d70534a46a` merged (`ee7d756b85`). `TestGitTrees` names `Local`, `LocalCleaned`, `LocalBundle`, `RemoteDownload` and `RemoteFallback`, so `core/git_lazy_test.go`, `TestValueTransferPartsGitTrees`, the git server stub and `foldedIntoNative` are deleted. Seven packages: 3050 pass, 0 fail, one skip, the base's TODO. No test skips for a folded row or for privilege.
+
+**Workspace: no production finding. A's test exports the wrong root, and its expectation for the constructor should be "runs".**
+
+What a Workspace contributes to identity, from the code:
+- `currentWorkspace` is registered `WithInput(dagql.PerCallInput)` (`core/schema/workspace.go:32`), and `PerCallInput` mixes `identity.NewID()` into the call (`dagql/cache_inputs.go:72`). A Workspace result's identity is unique per invocation: not per client, not per host path, not content. Any call that takes it as an argument has a recipe that never matches another call's, on one engine or two.
+- `Workspace.directory` is `WithInput(dagql.PerClientInput)` on that per-call receiver (`workspace.go:89`), so its recipe is per call as well. The Directory it returns is a host load and carries a content digest.
+- The design's mechanism for exactly this is in `core/modfunc.go:947`: a module function that has Workspace arguments and returns a module object gets, on its result, a content digest over everything the object holds (`CollectContent`, each field by its `ContentPreferredDigest`), labelled `ExtraDigestLabelRemoteCache`, so it survives export (`transferExtras` keeps digests marked with that label).
+
+So the constructor always re-runs on B. Its result then unites with A's imported Project by that content digest, if the two are content-identical, and a downstream call on B's Project has the same recipe as A's, because a receiver contributes its content-preferred digest.
+
+Why A's case gets no hit regardless: it exports `made.ID`, the **Project** (`remote_cache_workspace_test.go.withheld:96`). An export's closure follows dependencies (`holdTransferClosure` walks `res.deps`). `describe`'s result depends on the Project, not the reverse, so it is not in the bundle, and B has nothing of `describe` to hit. `TestPipeline` hits because it exports `built.ID`, the result of the method whose body it expects skipped.
+
+In process, `TestTransferConstructorContentUnitesDownstreamCall` (`dagql`, committed) shows both shapes with two constructors whose recipes never match and whose results share a remote-cache content digest: exporting the method's result, the method's body runs 0 times on B; exporting only the constructor's result, it runs once.
+
+**The true statement for §5's row:** the constructor re-runs on B (its body entry on B is 1, not 0); its result unites with the imported aggregate by the remote-cache content digest of what it holds; a downstream method **whose result was exported** is skipped; the fields' owner links are the receiver's own after install. "Ordinary B constructor aggregate matches" holds in that sense and only if the aggregate's content is identical.
+
+**What A should change.** Export the downstream method's result. `describe` returns a String, which has no ID to export by handle, so make the skipped method return an object (a File with the description, or a small module object) and export that; keep a changed-argument control. Expect `New` to run on B.
+
+**What I could not check without the engine, and A should log:** whether `Project`'s content digest is really equal on A and B. `Source` is a host directory and contributes its content digest; `Built` is an exec result with no content digest, so it contributes its recipe digest, which is content-based only if every input on its chain is (the mounted `Source` is; a base image by digest is). If the two checkouts differ in file modes, or the module's exec chain takes anything per-client, the digests differ and nothing downstream can hit. A can read the `remote-cache` extra digest of `project`'s ID on both engines before asserting anything else. If they differ with identical bytes and modes, that would be a production finding and I would want the two IDs.
