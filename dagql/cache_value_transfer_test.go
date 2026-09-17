@@ -25,6 +25,8 @@ type transferTestValue struct {
 	rev     atomic.Uint64
 	release OnReleaseFunc
 	links   []PersistedSnapshotRefLink
+	// revisionHook runs on each output revision read, in the reader's goroutine.
+	revisionHook func()
 }
 
 func (*transferTestValue) Type() *ast.Type {
@@ -35,6 +37,9 @@ func (v *transferTestValue) EncodePersistedObject(context.Context, *PersistEncod
 	return PersistedObjectEncoding{JSON: raw, SnapshotLinks: cloneSnapshotRefLinks(v.links)}, err
 }
 func (v *transferTestValue) PersistedOutputRevision() (OutputRevision, error) {
+	if v.revisionHook != nil {
+		v.revisionHook()
+	}
 	return OutputRevision(v.rev.Load()), nil
 }
 func (*transferTestValue) DecodePersistedObject(ctx context.Context, dec *PersistDecodeContext, raw json.RawMessage) (Typed, error) {
