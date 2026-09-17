@@ -15,6 +15,7 @@ import (
 	"github.com/containerd/containerd/v2/core/content"
 	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/fixturetransport"
+	"github.com/dagger/dagger/engine/slog"
 	"github.com/dagger/dagger/engine/snapshots"
 	"github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
@@ -621,7 +622,19 @@ func (c *Cache) installChainPart(ctx context.Context, receiver AnyResult, source
 	if c.partFixture.Load() != nil {
 		provider = partFixtureProvider{InfoReaderProvider: provider, cache: c, row: receiver.cacheSharedResult(), address: source.target}
 	}
-	imported, err := c.snapshotManager.ImportChain(ctx, &snapshots.ExportChain{Layers: copied[0].Chain.Layers, Provider: provider})
+	counted := &countingContentProvider{InfoReaderProvider: provider}
+	imported, err := c.snapshotManager.ImportChain(ctx, &snapshots.ExportChain{Layers: copied[0].Chain.Layers, Provider: counted})
+	if err == nil {
+		// One line per installed part that came from a download. Layers the
+		// engine already held are not opened on the provider, so the
+		// downloaded count is the layers actually fetched.
+		slog.Info("installed part from remote cache download",
+			"resultID", uint64(receiver.cacheSharedResult().id),
+			"part", partAddressString(source.target),
+			"layers", len(copied[0].Chain.Layers),
+			"layersDownloaded", counted.opened.Load(),
+			"bytesDownloaded", counted.bytes.Load())
+	}
 	if err != nil {
 		if cause := context.Cause(ctx); cause != nil {
 			return cause
@@ -749,4 +762,41 @@ func (refusingContentProvider) Info(context.Context, digest.Digest) (content.Inf
 
 func (refusingContentProvider) ReaderAt(context.Context, ocispecs.Descriptor) (content.ReaderAt, error) {
 	return nil, engine.ErrSnapshotShareEvaluation
+}
+
+// countingContentProvider counts what a chain import reads from its
+// provider: one open per layer that was not already held locally, and the
+// bytes read, including bytes read again after a retried range.
+type countingContentProvider struct {
+	content.InfoReaderProvider
+	opened atomic.Int64
+	bytes  atomic.Int64
+}
+
+func (p *countingContentProvider) ReaderAt(ctx context.Context, desc ocispecs.Descriptor) (content.ReaderAt, error) {
+	reader, err := p.InfoReaderProvider.ReaderAt(ctx, desc)
+	if err != nil {
+		return nil, err
+	}
+	p.opened.Add(1)
+	return &countingReaderAt{ReaderAt: reader, bytes: &p.bytes}, nil
+}
+
+type countingReaderAt struct {
+	content.ReaderAt
+	bytes *atomic.Int64
+}
+
+func (r *countingReaderAt) ReadAt(b []byte, off int64) (int, error) {
+	n, err := r.ReaderAt.ReadAt(b, off)
+	r.bytes.Add(int64(n))
+	return n, err
+}
+
+func partAddressString(address PersistedPartAddress) string {
+	key, err := partAddressKey(address)
+	if err != nil {
+		return string(address.Part)
+	}
+	return key
 }
