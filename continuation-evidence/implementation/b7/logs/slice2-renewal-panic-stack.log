@@ -1,0 +1,29 @@
+    testctx.go:198: 41  : [8.7s] | panic: assignment to entry in nil map
+    testctx.go:198: 41  : [8.7s] | 
+    testctx.go:198: 41  : [8.7s] | goroutine 6204 [running]:
+    testctx.go:198: 41  : [8.7s] | github.com/dagger/dagger/dagql.(*partContentProvider).renew(0xc0326de0e40, {0x48f3ad8, 0xc0326120ae0}, {0xc03295a4410, 0x47})
+    testctx.go:198: 41  : [8.7s] |      /app/dagql/cache_part_content.go:330 +0x7d6
+    testctx.go:198: 41  : [8.7s] | github.com/dagger/dagger/dagql.(*partContentProvider).address(0xc0326de0e40, {0x48f3ad8, 0xc0326120ae0}, {0xc03295a4410, 0x47}, {0x0, 0x0})
+    testctx.go:198: 41  : [8.7s] |      /app/dagql/cache_part_content.go:275 +0x2a9
+    testctx.go:198: 41  : [8.7s] | github.com/dagger/dagger/dagql.(*partContentProvider).ReaderAt(0xc0326de0e40, {0x48f3ad8, 0xc0326120ae0}, {{0xc032676b170, 0x26}, {0xc03295a4410, 0x47}, 0x800, {0x0, 0x0, ...}, ...})
+    testctx.go:198: 41  : [8.7s] |      /app/dagql/cache_part_content.go:250 +0x565
+    testctx.go:198: 41  : [8.7s] | github.com/dagger/dagger/dagql.partFixtureProvider.ReaderAt({{0x48d0af0, 0xc0326de0e40}, 0xc032609e408, 0xc03290c0f08, {{0x0, 0x0, 0x0}, {0x44d77da, 0x8}}}, {0x48f3ad8, ...}, ...)
+    testctx.go:198: 41  : [8.7s] |      /app/dagql/cache_part_fixture.go:207 +0x2e7
+    testctx.go:198: 41  : [8.7s] | github.com/dagger/dagger/engine/snapshots.(*snapshotManager).importLayerContent(0xc03263845b0, {0x48f3ad8, 0xc0326120ae0}, {{0xc032676b170, 0x26}, {0xc03295a4410, 0x47}, 0x800, {0x0, 0x0, ...}, ...}, ...)
+    testctx.go:198: 41  : [8.7s] |      /app/engine/snapshots/pull.go:433 +0x5b4
+    testctx.go:198: 41  : [8.7s] | github.com/dagger/dagger/engine/snapshots.(*snapshotManager).importLayer(0xc03263845b0, {0x48f3ad8, 0xc0326120ae0}, {{0xc032676b170, 0x26}, {0xc03295a4410, 0x47}, 0x800, {0x0, 0x0, ...}, ...}, ...)
+    testctx.go:198: 41  : [8.7s] |      /app/engine/snapshots/pull.go:211 +0xa31
+    testctx.go:198: 41  : [8.7s] | github.com/dagger/dagger/engine/snapshots.(*snapshotManager).ImportChain(0xc03263845b0, {0x48f3ad8?, 0xc03258e95f0?}, 0xc03261201b0)
+    testctx.go:198: 41  : [8.7s] |      /app/engine/snapshots/import.go:32 +0x3b3
+    testctx.go:198: 41  : [8.7s] | github.com/dagger/dagger/dagql.(*Cache).installChainPart(0xc032609e408, {0x48f3ad8, 0xc03258e95f0}, {0x494d000, 0xc0326de0540}, 0xc0328478708, 0xc0329546320, 0xc0326de0780)
+    testctx.go:198: 41  : [8.7s] |      /app/dagql/cache_part_content.go:618 +0x4bf
+    testctx.go:198: 41  : [8.7s] | github.com/dagger/dagger/dagql.(*Cache).demandPart.func1.1({0x48f3ad8?, 0xc03258e95f0})
+    testctx.go:198: 41  : [8.7s] |      /app/dagql/cache_part_demand.go:250 +0x1d1
+    testctx.go:198: 41  : [8.7s] | github.com/dagger/dagger/dagql.(*Cache).runLazyTask.func1.2(...)
+    testctx.go:198: 41  : [8.7s] |      /app/dagql/cache.go:4518
+    testctx.go:198: 41  : [8.7s] | github.com/dagger/dagger/dagql.(*Cache).runLazyTask.func1()
+    testctx.go:198: 41  : [8.7s] |      /app/dagql/cache.go:4536 +0x31c
+    testctx.go:198: 41  : [8.7s] | created by github.com/dagger/dagger/dagql.(*Cache).runLazyTask in goroutine 6203
+    testctx.go:198: 41  : [8.7s] |      /app/dagql/cache.go:4484 +0x13c5
+    testctx.go:198: 16  : HTTP HEAD DONE [0.6s]
+    testctx.go:198: 
