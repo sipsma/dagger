@@ -137,22 +137,19 @@ func TestValueTransferPartsSelectedChain(t *testing.T) {
 	observed := &transferObservedSnapshots{SnapshotManager: producer.Manager}
 	producer.Manager = observed
 	ctx, cache, srv := transferCache(t, producer, filepath.Join(t.TempDir(), "a.db"), "a")
-	root := &Directory{Dir: new(LazyAccessor[string, *Directory]), Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]), Platform: Platform{OS: "linux", Architecture: "amd64"}}
-	root.SetPath("/")
-	root.SetSnapshot(tree)
-	rootResult := attachTransferObject(t, ctx, cache, srv, "a", "hostCapture", root)
-	view, err := root.Subdirectory(ctx, rootResult, "visible")
-	require.NoError(t, err)
-	viewResult := attachTransferObject(t, ctx, cache, srv, "a", "view", view)
-	require.NoError(t, cache.Evaluate(ctx, viewResult))
-	file, err := view.Subfile(ctx, viewResult, "value.txt")
-	require.NoError(t, err)
+	// The nested view is built already evaluated: Directory.directory and
+	// Directory.file evaluate through a read-only mount, so the real view is
+	// native TestHostInputs' to prove. What is exported for a file deep inside
+	// a larger snapshot is the same either way.
+	file := &File{File: new(LazyAccessor[string, *File]), Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *File]), Platform: Platform{OS: "linux", Architecture: "amd64"}}
+	file.SetPath("/visible/value.txt")
+	file.SetSnapshot(tree)
 	fileResult := attachTransferObject(t, ctx, cache, srv, "a", "nestedFile", file)
 	require.NoError(t, cache.Evaluate(ctx, fileResult))
 	observed.opens = nil
 	var bundle dagql.ValueBundle
 	var borrowed *dagql.SelectedChains
-	err = cache.WithExportedValues(ctx, dagql.ValueSelection{Roots: []dagql.AnyResult{fileResult}, Outputs: []dagql.SelectedValueOutput{{Result: fileResult, Address: dagql.PersistedPartAddress{Part: "snapshot"}}}}, config.RefConfig{Compression: compression.New(compression.Uncompressed)}, func(ctx context.Context, values *dagql.ExportedValues) error {
+	err := cache.WithExportedValues(ctx, dagql.ValueSelection{Roots: []dagql.AnyResult{fileResult}, Outputs: []dagql.SelectedValueOutput{{Result: fileResult, Address: dagql.PersistedPartAddress{Part: "snapshot"}}}}, config.RefConfig{Compression: compression.New(compression.Uncompressed)}, func(ctx context.Context, values *dagql.ExportedValues) error {
 		bundle, borrowed = values.Bundle, values.Chains
 		require.Len(t, values.Chains.Entries, 1)
 		entry := values.Chains.Entries[0]
