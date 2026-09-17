@@ -52,6 +52,7 @@ func exampleBundle() dagql.ValueBundle {
 }
 
 func TestTypesRoundTrip(t *testing.T) {
+	t.Parallel()
 	bundle := exampleBundle()
 	bundleJSON, err := json.Marshal(bundle)
 	require.NoError(t, err)
@@ -87,6 +88,7 @@ func TestTypesRoundTrip(t *testing.T) {
 // sender put there, so BundleID over it on the receiving side equals
 // BundleID over the encoded bundle on the sending side.
 func TestBundleUploadRequestKeepsBundleBytes(t *testing.T) {
+	t.Parallel()
 	bundleJSON, err := json.Marshal(exampleBundle())
 	require.NoError(t, err)
 	body, err := json.Marshal(BundleUploadRequest{CommandID: "c-0002", Bundle: bundleJSON})
@@ -102,6 +104,7 @@ func TestBundleUploadRequestKeepsBundleBytes(t *testing.T) {
 }
 
 func TestCommandResultPath(t *testing.T) {
+	t.Parallel()
 	require.Equal(t, "/v1/commands/c-0002/result", CommandResultPath("c-0002"))
 }
 
@@ -110,6 +113,7 @@ func TestCommandResultPath(t *testing.T) {
 // equal the file. This keeps the example messages and the Go types the same
 // contract.
 func TestExamplesRoundTrip(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		file string
 		into func() any
@@ -131,8 +135,9 @@ func TestExamplesRoundTrip(t *testing.T) {
 	}
 	seen := map[string]bool{}
 	for _, tc := range cases {
+		seen[tc.file] = true
 		t.Run(tc.file, func(t *testing.T) {
-			seen[tc.file] = true
+			t.Parallel()
 			raw, err := os.ReadFile(filepath.Join("examples", tc.file))
 			require.NoError(t, err)
 			value := tc.into()
@@ -147,6 +152,7 @@ func TestExamplesRoundTrip(t *testing.T) {
 	// The P5 request's bundle must decode as a ValueBundle with unknown
 	// fields refused, and the P1 import command carries it typed already.
 	t.Run("p5 bundle decodes as a ValueBundle", func(t *testing.T) {
+		t.Parallel()
 		raw, err := os.ReadFile(filepath.Join("examples", "p5-bundle-upload-request.json"))
 		require.NoError(t, err)
 		var req BundleUploadRequest
@@ -161,6 +167,7 @@ func TestExamplesRoundTrip(t *testing.T) {
 		require.Equal(t, "sha256:"+digest.FromBytes(req.Bundle).Encoded(), BundleID(req.Bundle))
 	})
 	t.Run("p1 import bundle has one address per layer", func(t *testing.T) {
+		t.Parallel()
 		raw, err := os.ReadFile(filepath.Join("examples", "p1-poll-response.json"))
 		require.NoError(t, err)
 		var resp PollResponse
@@ -175,7 +182,8 @@ func TestExamplesRoundTrip(t *testing.T) {
 		require.Equal(t, CommandTypeExport, resp.Commands[1].Type)
 		require.Equal(t, uint64(58), resp.Commands[1].Export.Root)
 	})
-	// Every example file is covered by a case.
+	// Every example file is covered by a case. seen was filled before the
+	// parallel subtests started, so this needs no wait on them.
 	entries, err := os.ReadDir("examples")
 	require.NoError(t, err)
 	for _, entry := range entries {
