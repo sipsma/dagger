@@ -6,9 +6,9 @@ Replacement implementer `cl-1bc62433d5e6050624a14d087cadcbdf`, 17 September 2026
 | --- | --- |
 | Branch | `sharing-implementer-fable-impl-07b90299` (fork of `sharing-implementer-implementation-7d93905c` at `aecadc5261`) |
 | Base | `a26dc93750e42daf2de76678b0e54f51454cea33` |
-| Implementation tip | `98f954c91e` (round 1 candidate was `5ce25b685e`) |
+| Implementation tip | `0044a0c479` (round 1 candidate `5ce25b685e`; round 2 candidate `98f954c91e`) |
 | Evidence tip | the commit that adds this report |
-| Production diff | `git diff a26dc93750 98f954c91e -- . ':!continuation-evidence'` |
+| Production diff | `git diff a26dc93750 0044a0c479 -- . ':!continuation-evidence'` |
 
 ## The result in short
 
@@ -19,7 +19,7 @@ The batch's five commits follow the design and decision 4, and they carried **fo
 3. A refused sharing slot could fail a user's demand that had joined its task (R2: `2be7281914`).
 4. Under cancellation a slot's launching call could report a refusal while its Body still ran, losing an installed receipt, a pin and a receiver hold (R3: `0a08aa1cc9`).
 
-Round 1 found 2 (the generic reviewer by reading, I from an engine dump), 3 and 4. All are fixed with tests that fail on the previous code. At the final tip the four packages pass unprivileged, the race selection passes, and one engine invocation of the batch's integration test together with the packet's regression pair passes (ledger). The previous implementer's report had called the first of these "not a hang".
+Round 1 found 2 (the generic reviewer by reading, I from an engine dump), 3 and 4. All are fixed with tests that fail on the previous code. At the round 2 candidate `98f954c91e` the four packages pass unprivileged, the race selection passes, and one engine invocation of the batch's integration test together with the packet's regression pair passes (ledger rows 9 to 11). Round 2 found nothing blocking; its two small commits change one log level, one comment and one test file, so that engine evidence stands for the final tip `0044a0c479`, whose `engine/server` and `dagql` packages pass (row 12). The previous implementer's report had called the first of these "not a hang".
 
 ## The blocked read: cause, evidence, fix
 
@@ -81,6 +81,15 @@ Round 1 corrections, all mine, in order:
 | `06abb874e3` | R10 | The small cuts: `closeSnapshotSharing` without context or error, no duplicated release, dead fields removed, set-once registration, the fixture's non-empty test, the Module decoder's query error wrapper restored. |
 | `98f954c91e` | R12 | A behavior-neutral warning when a reselect loop passes 16384 iterations, repeating at doublings. |
 
+Round 2 (no blocking finding; three seats approved at `98f954c91e`):
+
+| Commit | Decision | What it does |
+| --- | --- | --- |
+| `35577cba8a` | R13 | Test only. The marked-decode test registers cleanup right after each successful `NewCache`, closes on a fresh ten-second context, and gives its checkpoint Close a ten-second deadline. |
+| `0044a0c479` | R14 | A slot that ends on a guard trip (`engine.ErrSnapshotShareEvaluation`) is logged as a warning, an invariant diagnostic, instead of at debug level with ordinary skips; one comment loses the retired word for a retained Lazy operation. |
+
+Not taken, by the coordinator's decision: removing the two per-slot `sync.Once` fields. With one reporter per outcome they no longer arbitrate, but removing them edits a protocol two seats verified under `-race` for no behavior change, and today a mistaken second report is swallowed where a bare send would block a goroutine forever. An optional cut for a later batch.
+
 Every commit is signed off with no attribution trailer; nothing was amended. Evidence-only commits to drop before publication: `a0ce9c123d`, `3277121605`, `37631180d3`, `490c386592` and the evidence tip. `167630f0b7` + `e509c41964` net to test changes only and are not droppable as a pair. `aecadc5261` likewise carries test content (the typed test store and one test) beside an edit to the old `REPORT.md`; keep the tests, drop the evidence directory part.
 
 ## Review of commits 4 and 5, and what it missed
@@ -121,7 +130,7 @@ Unchanged from the previous implementer's choices, which I read against the code
 
 ## Ordinary behavior changes
 
-1. An engine that can receive imports (integration configured, or the fixture variable set) builds its core schema base at startup instead of on its first client, and a construction failure fails `NewServer`. Every other engine builds, registers and enables nothing.
+1. An engine that can receive imports (integration configured, or the fixture's root variable set to a non-empty value) builds its core schema base at startup instead of on its first client, and a construction failure fails `NewServer`. Every other engine builds, registers and enables nothing.
 2. An engine that imported earlier and restarts with neither has restored Imported rows with sharing off. They lose only early sharing.
 3. Close and discard close sharing admission and cancel the worker right after the bridge detach, before the quiescence wait.
 4. `CommitReadyPart` validates the expected representation, predecessor identities and revision overflow. For a public single-demand preparation the expectation is the observed representation and the list is empty: unchanged.
@@ -130,10 +139,11 @@ Unchanged from the previous implementer's choices, which I read against the code
 7. The persisted Module decoder's default dependencies go through `persistedDecodeDefaultDeps`; unmarked, that is `query.DefaultDeps(ctx)` verbatim.
 8. Guarded boundaries return `ErrSnapshotShareEvaluation` under the marker only.
 9. **The notification hooks run on every engine.** Each eager publication and each successful lazy completion reads the admission flag under `egraphMu.RLock()`, and the lookup, identity-teaching, import and publication intervals that already hold E read it as a plain field. With admission off that is all they do.
-10. **Every part preparation is sealed and Commit refuses a broken one with an error** (`2831250c3b`). For the two existing constructors nothing changes; a preparation that violates a construction invariant used to be answered with a reselect.
-11. **A row whose lease guard is held is busy for a sharing pass** (`b194ad3204`). Only the multi-address sharing probe looks; the demand-side probe is unchanged.
+10. **Every part preparation is sealed and Commit refuses a broken one with an error** (`2831250c3b`). For the two existing constructors nothing changes; a preparation that violates a construction invariant used to be answered with a reselect. `seal` also adds one hard error that did not exist: a typed receiver's store preparer (`PartStorePreparer`, `PartBatchStorePreparer`) that returns a nil store with no error now fails the preparation by name, where it used to reach Commit and be treated as an encoded install.
+11. **A row whose lease guard is held is busy for a sharing pass** (`b194ad3204`), as a donor and as a receiver: every part of that row is busy, so a reconciling receiver's pending parts are not selected in that pass either and wait for a later trigger or an ordinary demand. Only the multi-address sharing probe looks; the demand-side probe is unchanged.
 12. **The two unbounded reselect loops log a warning** after 16384 iterations and at each doubling (`98f954c91e`). Nothing else about them changes.
 13. `SetPartPreparationContext` refuses a nil callback, a replacement, a first registration after admission and any registration after close. The engine registers once before enabling, so it is unaffected.
+14. **A guard trip inside a sharing slot is logged as a warning** (`0044a0c479`); the slot's handling is unchanged.
 
 ## Decision 4 costs
 
@@ -160,7 +170,7 @@ No. `gcmu` is taken in four places, all in `engine/server` (`gc.go:87`, `:307`, 
 
 ## Verification ledger
 
-All unprivileged, no root, default parallelism; every engine invocation ran alone. Rows 1 to 5 are the round 1 candidate's (`5ce25b685e`; row 3 on the unfixed code); rows 6 to 8 are the pair reruns that found and then cleared the publication spin; **rows 9 to 11 are the final tip `98f954c91e`**. Rows 1 and 2 ran concurrently with each other, and so did rows 9 and 10.
+All unprivileged, no root, default parallelism; every engine invocation ran alone. Rows 1 to 5 are the round 1 candidate's (`5ce25b685e`; row 3 on the unfixed code); rows 6 to 8 are the pair reruns that found and then cleared the publication spin; **rows 9 to 11 are the round 2 candidate `98f954c91e`**, whose engine evidence stands for the final tip because round 2's production delta is one log level and one comment; row 12 is that delta's package run. Rows 1 and 2 ran concurrently with each other, and so did rows 9 and 10.
 
 **Engine invocations are an exception, not the normal form.** The time and slop rule allows one cheap engine test per batch. This batch's replacement ran seven: the diagnostic (3), the round 1 single test (4), and five the coordinator authorized one by one because the packet's own regression had only ever deadlocked on batch 6 code (5 to 8 and 11; 7 was stopped seconds after launch). Each is recorded for what it was.
 
@@ -177,6 +187,7 @@ All unprivileged, no root, default parallelism; every engine invocation ran alon
 | 9 | Final: `go test ./dagql ./core ./core/schema ./engine/server -timeout 120s -count=1 -v` at `98f954c91e` | `-timeout 120s`, harness 500 s | pass | dagql 5.0 s, core 2.4 s, core/schema 13.8 s, engine/server 5.1 s; 61 s wall ([logs/final-packages.log](logs/final-packages.log)) |
 | 10 | Final: `go test -race ./dagql ./core ./engine/server -run 'TestSnapshotSharing\|TestPartSessionless\|TestReadyPartReceipt\|TestPartReadyRevalidation\|TestPartLazyOperation\|TestCommitReadyPart\|TestPartReselectWatch\|TestPersistedDecodeDefaultDeps\|TestCheckPersistedDecodeDefaults\|TestSnapshotSharePreparationCoreGuards' -timeout 180s -count=1 -v` | `-timeout 180s`, harness 500 s | pass, no race reported | dagql 5.0 s, core 1.6 s, engine/server 1.6 s; 91 s wall with the race build ([logs/final-race.log](logs/final-race.log)) |
 | 11 | Final, one invocation and one build at `98f954c91e` with the uncommitted watchdog: `dagger api call engine-dev test --pkg ./core/integration --run='TestRemoteCacheTransferSuite/(TestSharedHostDirectoryLifetime\|TestPartMixedExecOutputs\|TestSchemaRecovery)$' --test-verbose --timeout=7m` | `--timeout=7m`, outer 780 s | **pass**, every test with a recorded verdict: `TestSharedHostDirectoryLifetime` 1 m 24 s, `TestPartMixedExecOutputs` 1 m 16 s, `TestSchemaRecovery` 2 m 16 s (before 1 m 14 s, after 1 m 15 s, foreign_context 50.6 s); the watchdog never fired | 370 s wall ([logs/final-engine.log](logs/final-engine.log); the sharing test's own output is [logs/final-engine-sharing-test.log](logs/final-engine-sharing-test.log); verdicts from trace `d0dcde49df2870e51f08f020b72e93d5`) |
+| 12 | Round 2 delta at `0044a0c479` (one log level, one comment, one test file): `go test ./engine/server ./dagql -timeout 120s -count=1 -v` | `-timeout 120s`, harness 300 s | pass | engine/server 3.3 s, dagql 6.1 s; 44 s wall ([logs/round2-packages.log](logs/round2-packages.log)) |
 
 Rows 4 and 11 logged the same observations (log lines by intent, not assertions: an ordinary demand may legitimately win the install, so the test requires only what holds on both routes): `shared host directory row=4231 selected-ready-before-install=false counts=map[installed-ready:1 settled:1]`, so on a real engine the early sharing pass installed the part and no demand selected a source; and after the restart exactly two events for the row, both `owner-sync` with an empty address.
 
@@ -189,6 +200,8 @@ Earlier engine runs by the previous implementer, all on unfixed code. None is ev
 | A | mixed-exec, schema-recovery and the sharing test, at `0a7c5c0c89` | `--timeout=10m` | **Hung.** Package timeout after 10 m 26 s of test time, 13 m 55 s wall. All four tests parked in one call each for 7 to 9 minutes. Three were the deadlock; mixed-exec, which has no restart and sat in the `Stdout` call row 6 later showed spinning, was most probably the publication spin. A test-process dump cannot tell them apart ([logs/previous-engine-run-excerpt.log](logs/previous-engine-run-excerpt.log)). Reported at the time as "not a hang". |
 | B | the sharing test alone, at `490c386592` | `--timeout=10m` | **Deadlocked.** Package timeout at 600 s, 13 m 12 s wall; the test parked in `Entries` after the restart for 9 minutes (`/tmp/b6/engine-single.log`, not committed). |
 | C | the sharing test alone with the 30 s bounded read (`aecadc5261`) | not recorded | **Terminated by the coordinator** after 11 minutes with no result (`/tmp/b6/engine-single2.log`, not committed). |
+
+`TestPartReselectWatch` checks the watch's threshold, doubling and last-cause state only; it does not capture the emitted log line, and nothing tests that a spinning loop stays live, which is what the diagnostic is for.
 
 Row 9 covers every case of the batch: 34 `TestSnapshotSharing*` tests and the three part tests (`TestPartLazyOperationPublishesOverObservedRepresentation`, `TestCommitReadyPartRejectsBrokenPreparation`, `TestPartReselectWatch`) in `dagql`, 3 in `core`, 4 in `engine/server`; none skips. 112 subtests skip in those packages, 111 with "operation not permitted": the pre-existing real-store tests (decision 2), **which is why no package run could see the publication spin**. Development-loop runs of single tests (each with `-timeout` 30 to 180 s) are not listed; rows 9 and 10 supersede them. Every correction's test was also run against the code before its fix and failed there; the commit messages say how.
 
@@ -205,9 +218,9 @@ Row 9 covers every case of the batch: 34 `TestSnapshotSharing*` tests and the th
 ## Limits and open items
 
 - The in-process cases use a fake snapshot manager: they prove ownership, ordering, holds and lock discipline, not bytes.
-- **The preflight is still conservative for an encoded row in a completed form** (R7): batch 2's visitors are not form-aware, so such a row also reports the references of the operation it retains raw, and the walk follows them. That can only make a slot ineligible and enlarge the walk; it cannot admit an unsafe decode. Making the visitors form-aware changes every core family's visitor. I did not attempt it and say so rather than claim R7's sentence in full.
-- The marked-decode test does not reach the two leader orders or the SDK-built ancestry (batch 7, with G4).
+- **The preflight is still conservative for an encoded row in a completed form** (R7): batch 2's visitors are not form-aware, so such a row also reports the references of the operation it retains raw, and the walk follows them. That can only make a slot ineligible and enlarge the walk; it cannot admit an unsafe decode. Making the visitors form-aware changes every core family's visitor. I did not attempt it and say so rather than claim R7's sentence in full. Accepted by all four seats as a named limitation; **owner: batch 7** (on its amendment list, with the simplification seat's caution that a decode-specific traversal must keep the raw references capture still needs, and a measurement of how many slots the preflight makes ineligible for service-backed decoded receivers).
+- **The marked-decode test does not reach the two leader orders** (the worker's Prepare leading a shared decode that a foreground load joins, and the reverse). To reach them a test must hold a shared persisted-decode attempt of the Service row open while the second party joins it. The only things that test can wrap are the preparation callback, which runs before any attempt exists, and the defaults factory, which runs inside the nested Module decode and cannot hold the Service row's attempt at its join point. The cache's pause-and-join hooks for a persisted decode are unexported `dagql` test hooks, and `dagql`'s tests cannot import `core`'s native decoders or the engine's callback; a sharing pass over a core typed receiver with a service binding would also need a snapshot manager fake usable from `engine/server`. The residual risk is small: the worker-first order's product is exactly what the test shows to be a correct native value, and the foreground-first order is the unchanged ordinary path. **Owner: batch 7**, with the SDK-built ancestry (G4).
 - A refused typed preparation leaves its receiver to a later trigger or an ordinary demand (R5, above).
 - The deadlock's regression test wedges the graph lock when it fails, so on a regression it ends at the package `-timeout` with every stack printed rather than at its own bounded wait.
-- `Triggers` and its companions now cover a union, a membership insertion with no union, a live import, a failed identity plan, a failed root validation, eager and lazy completion, a collected row and admission off. Still not forced: a publication rollback inside the indexing interval, and an attachment failure after the early publication flush. Both need fault injection that does not exist at this base, and both are one-pass retention behaviors, not ownership invariants.
+- `Triggers` and its companions now cover a union, a membership insertion with no union, a live import, a failed identity plan, a failed root validation, eager and lazy completion, a collected row and admission off. Still not forced: a publication rollback inside the indexing interval, and an attachment failure after the early publication flush. Both need fault injection that does not exist at this base, and both are one-pass retention behaviors, not ownership invariants. **Owner: batch 7** (on its amendment list).
 - The engine runs used uncommitted instrumentation in `core/integration` (a watchdog that dumps the test process and every nested engine if the package is still running at 5 m 30 s, and the nested engines' debug endpoint). It is not part of the candidate.
