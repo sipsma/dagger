@@ -245,6 +245,7 @@ func (s *moduleSourceSchema) Install(dag *dagql.Server) {
 			Doc(`Load the source as a module. If this is a local source, the parent directory must have been provided during module source creation`),
 		dagql.NodeFunc("_implementationScoped", s.moduleSourceImplementationScoped).
 			Doc(`The module source scoped to implementation identity only, i.e. source code and dependency content rather than client-specific provenance.`),
+		moduleDefinitionField(s.moduleSourceModuleDefinition),
 		dagql.NodeFunc("introspectionSchemaJSON", s.moduleSourceIntrospectionSchemaJSON).
 			Doc(`The introspection schema JSON file for this module source.`,
 				`This file represents the schema visible to the module's source code, including all core types and those from the dependencies.`,
@@ -3288,27 +3289,157 @@ func (s *moduleSourceSchema) runModuleDefInSDK(ctx context.Context, mod *core.Mo
 	return mod, nil
 }
 
+// moduleDefinitionArgs are the identity of a cached module definition: the
+// runtime container that reports it, the introspection schema that runtime
+// was built with, and the module's name as loaded (LegacyNameOverride can
+// change it after the source was scoped). Together with the receiver, the
+// implementation-scoped source, they name the definition without anything
+// client-specific, so equivalent loads on different clients and engines
+// share one result.
+type moduleDefinitionArgs struct {
+	Runtime           core.ContainerID
+	IntrospectionJSON core.FileID `name:"introspectionJson"`
+	ModuleName        string
+}
+
+// moduleDefinitionField declares ModuleSource._moduleDefinition. The
+// declaration is shared with tests so that what they check is the field's
+// identity as installed: persistable, no per-client input, these arguments.
+func moduleDefinitionField(resolver dagql.NodeFuncHandler[*core.ModuleSource, moduleDefinitionArgs, dagql.ObjectResult[*core.Module]]) dagql.Field[*core.ModuleSource] {
+	return dagql.NodeFunc("_moduleDefinition", resolver).
+		IsPersistable().
+		Doc(`The module's type definitions as its container runtime reports them.`,
+			`Keyed on the implementation-scoped source, the runtime container, the dependencies' introspection schema and the loaded module name, so equivalent loads on different clients and engines share one result.`).
+		Args(
+			dagql.Arg("runtime").Doc(`The module's runtime container.`),
+			dagql.Arg("introspectionJson").Doc(`The introspection schema JSON file the runtime was built with.`),
+			dagql.Arg("moduleName").Doc(`The module's name as loaded.`),
+		)
+}
+
+// moduleSourceModuleDefinition is the resolver of _moduleDefinition: on a
+// miss it runs the runtime once with an empty function name, as the
+// uncached path does, and returns a fresh definition-only module whose
+// recorded call is this one. The introspection file argument is identity
+// only; the runtime container was built with it.
+func (s *moduleSourceSchema) moduleSourceModuleDefinition(
+	ctx context.Context,
+	src dagql.ObjectResult[*core.ModuleSource],
+	args moduleDefinitionArgs,
+) (inst dagql.ObjectResult[*core.Module], rerr error) {
+	dag, err := core.CurrentDagqlServer(ctx)
+	if err != nil {
+		return inst, fmt.Errorf("failed to get dag server: %w", err)
+	}
+	runtime, err := args.Runtime.Load(ctx, dag)
+	if err != nil {
+		return inst, fmt.Errorf("failed to load module runtime for module definition: %w", err)
+	}
+	deps, err := s.loadDependencyModules(ctx, src, src)
+	if err != nil {
+		return inst, fmt.Errorf("failed to load dependencies for module definition: %w", err)
+	}
+	mod := &core.Module{
+		Source:        dagql.NonNull(src),
+		ContextSource: dagql.NonNull(src),
+		NameField:     args.ModuleName,
+		OriginalName:  src.Self().ModuleOriginalName,
+		SDKConfig:     src.Self().SDK,
+		Deps:          deps,
+		Runtime:       dagql.NonNull(runtime),
+	}
+	if mod.SDKConfig == nil {
+		mod.SDKConfig = &core.SDKConfig{}
+	}
+	initialized, err := s.moduleDefinitionFromRuntime(ctx, dag, mod)
+	if err != nil {
+		return inst, err
+	}
+	def := &core.Module{
+		NameField:     args.ModuleName,
+		OriginalName:  src.Self().ModuleOriginalName,
+		SDKConfig:     mod.SDKConfig.Clone(),
+		Description:   initialized.Description,
+		ObjectDefs:    append(dagql.ObjectResultArray[*core.TypeDef](nil), initialized.ObjectDefs...),
+		InterfaceDefs: append(dagql.ObjectResultArray[*core.TypeDef](nil), initialized.InterfaceDefs...),
+		EnumDefs:      append(dagql.ObjectResultArray[*core.TypeDef](nil), initialized.EnumDefs...),
+		Runtime:       dagql.NonNull(runtime),
+	}
+	inst, err = dagql.NewObjectResultForCurrentCall(ctx, dag, def)
+	if err != nil {
+		return inst, fmt.Errorf("failed to create module definition result for module %q: %w", args.ModuleName, err)
+	}
+	slog.Info("module definition computed", "module", args.ModuleName, "objects", len(def.ObjectDefs), "interfaces", len(def.InterfaceDefs), "enums", len(def.EnumDefs))
+	return inst, nil
+}
+
 // moduleDefViaRuntime obtains the module definition through the module's
 // runtime: it loads the runtime (setting mod.Runtime as a side effect), then
-// calls a special function with no object or function name, which tells the
-// SDK to return the module's definition (in terms of objects, fields and
-// functions).
+// obtains the definition. For a container runtime the definition is the
+// cached _moduleDefinition result, keyed on the implementation-scoped
+// source, the runtime and the dependencies' schema, so a second client or a
+// cold engine that imported it does not run the runtime. Any other runtime
+// runs the runtime here, uncached, as before.
 func (s *moduleSourceSchema) moduleDefViaRuntime(
 	ctx context.Context,
 	dag *dagql.Server,
 	mod *core.Module,
 	runtimeImpl core.Runtime,
-) (_ *core.Module, rerr error) {
+) (*core.Module, error) {
 	src := mod.Source.Value
-	modName := src.Self().ModuleName
 
 	runtime, err := runtimeImpl.Runtime(ctx, mod.Deps, src)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get module runtime: %w", err)
 	}
-	if ctr, ok := runtime.AsContainer(); ok {
-		mod.Runtime = dagql.NonNull(ctr)
+	ctr, isContainer := runtime.AsContainer()
+	if !isContainer {
+		return s.moduleDefinitionFromRuntime(ctx, dag, mod)
 	}
+	mod.Runtime = dagql.NonNull(ctr)
+
+	scopedSrc, err := core.ImplementationScopedModuleSource(ctx, src)
+	if err != nil {
+		return nil, fmt.Errorf("failed to scope module source for module definition: %w", err)
+	}
+	schemaJSONFile, err := mod.Deps.SchemaIntrospectionJSONFileForModule(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get schema introspection json for module definition: %w", err)
+	}
+	ctrID, err := ctr.ID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get module runtime ID for module definition: %w", err)
+	}
+	schemaJSONFileID, err := schemaJSONFile.ID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get schema introspection json ID for module definition: %w", err)
+	}
+	var def dagql.ObjectResult[*core.Module]
+	if err := dag.Select(ctx, scopedSrc, &def, dagql.Selector{
+		Field: "_moduleDefinition",
+		Args: []dagql.NamedInput{
+			{Name: "runtime", Value: dagql.NewID[*core.Container](ctrID)},
+			{Name: "introspectionJson", Value: dagql.NewID[*core.File](schemaJSONFileID)},
+			{Name: "moduleName", Value: dagql.String(mod.NameField)},
+		},
+	}); err != nil {
+		return nil, fmt.Errorf("failed to get module definition for module %q: %w", mod.NameField, err)
+	}
+	mod.Definition = dagql.NonNull(def)
+	return def.Self(), nil
+}
+
+// moduleDefinitionFromRuntime runs the module's runtime once with no object
+// or function name, which tells the SDK to return the module's definition
+// (in terms of objects, fields and functions). It is the uncached step:
+// _moduleDefinition's resolver on a miss, and the whole path for a runtime
+// that is not a container.
+func (s *moduleSourceSchema) moduleDefinitionFromRuntime(
+	ctx context.Context,
+	dag *dagql.Server,
+	mod *core.Module,
+) (_ *core.Module, rerr error) {
+	modName := mod.NameField
 
 	ctx, span := core.Tracer(ctx).Start(ctx, "asModule getModDef", telemetry.Internal())
 	defer telemetry.EndWithCause(span, &rerr)
