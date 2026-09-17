@@ -128,3 +128,5 @@ Model runs. All local: `timeout <T>s java -Xmx8g -XX:+UseParallelGC -cp ~/tla/to
 | --- | --- | --- | --- | --- | --- |
 | 13 | `ee7d756b85` plus the deletion of the folded git tests | `go test -json -timeout 90s ./dagql ./core ./core/schema ./engine/server ./engine/snapshots ./engine/engineutil ./engine/engineutil/imageexport` | 90 / 210 s | 3050 pass, 1 skip (the base's TODO), 0 fail | 85.0 |
 | 14 | working tree | `go test -timeout 60s -run '^TestTransferConstructorContentUnitesDownstreamCall$' ./dagql` | 60 / 300 s | ok | 0.3 t |
+| 15 | working tree on `f6d17a03d5` | `go test -count=20 -timeout 120s -run '^TestSnapshotSharingPrefixCarriedOverRefusedAddress$' ./dagql` | 120 / 300 s | ok | 0.5 t |
+| M17 | the 21 `remote_sharing*` and `remote_checkpoint*` configurations after the D11 edits | `timeout 60s` each, 600 s process | 0 mismatches; `remote_checkpoint` 2,134 states, the new `fault_drop_operation` violates `OperationRetained` | 34 s total |
