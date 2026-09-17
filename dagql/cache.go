@@ -4034,9 +4034,12 @@ func (c *Cache) evaluateOne(ctx context.Context, res AnyResult) (rerr error) {
 		}
 	}()
 
+	watch := partReselectWatch{loop: "evaluateOne"}
 	for {
+		watch.again(ctx, shared, PersistedPartAddress{})
 		err := c.evaluateResolved(ctx, res, shared, nil)
 		if partCanReselect(err) {
+			watch.refused(err)
 			continue
 		}
 		return err
@@ -4064,9 +4067,12 @@ func (c *Cache) EvaluateParts(ctx context.Context, res AnyResult, parts ...PartK
 		}
 	}()
 
+	watch := partReselectWatch{loop: "EvaluateParts"}
 	for {
+		watch.again(ctx, shared, PersistedPartAddress{})
 		err := c.evaluateResolved(ctx, res, shared, parts)
 		if partCanReselect(err) {
+			watch.refused(err)
 			continue
 		}
 		return err

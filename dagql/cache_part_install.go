@@ -220,7 +220,7 @@ func (c *Cache) prepareReadyPartFromBase(ctx context.Context, receiver AnyResult
 	c.egraphMu.Lock()
 	row, err := c.validatePartTaskLocked(receiver, permit.task)
 	if err == nil && source.delegation != nil && !source.delegation.currentLocked(c, source, row) {
-		err = ErrPartReselect
+		err = partRefused("prepare: delegation proof not current")
 	}
 	if err == nil {
 		c.incrementIncomingOwnershipLocked(ctx, row)
@@ -239,7 +239,7 @@ func (c *Cache) prepareReadyPartFromBase(ctx context.Context, receiver AnyResult
 		return nil, fmt.Errorf("prepare part: undeclared output")
 	}
 	if probe.LocalComplete {
-		return nil, ErrPartReselect
+		return nil, partRefused("prepare: receiver part already complete")
 	}
 	if base != nil {
 		if base.receiver != row || base.expected.receiver != row {
@@ -251,7 +251,7 @@ func (c *Cache) prepareReadyPartFromBase(ctx context.Context, receiver AnyResult
 		if version.payload.payloadRevision != base.original.payloadRevision ||
 			version.payload.persistedEnvelope != base.original.persistedEnvelope ||
 			version.payload.hasValue != base.original.hasValue {
-			return nil, ErrPartReselect
+			return nil, partRefused("prepare: prefix base no longer matches the receiver")
 		}
 		// Build the next representation from the validated prefix, not from
 		// the real record, so this envelope contains every earlier role.
@@ -467,13 +467,13 @@ func (c *Cache) CommitReadyPart(ctx context.Context, p *PreparedReadyPart) (_ *R
 	// validated below, which is a stricter check than the original stamp.
 	if len(p.expectedPredecessors) == 0 {
 		if err := p.version.check(p.receiver); err != nil {
-			return nil, PartInstallRefused, ErrPartReselect
+			return nil, PartInstallRefused, partRefused("commit: receiver version")
 		}
 	}
 	source := p.source
 	if source.delegation != nil {
 		if err := source.delegation.childVersion.check(p.receiver); err != nil {
-			return nil, PartInstallRefused, ErrPartReselect
+			return nil, PartInstallRefused, partRefused("commit: delegation child version")
 		}
 	}
 	if p.original == nil && source.readiness == PartReady && !source.sessionlessShare {
@@ -481,14 +481,14 @@ func (c *Cache) CommitReadyPart(ctx context.Context, p *PreparedReadyPart) (_ *R
 		// donor's whole-row capture would refuse an unchanged donated part
 		// whenever a sibling of the donor published in the same pass.
 		if err := source.version.check(source.source); err != nil {
-			return nil, PartInstallRefused, ErrPartReselect
+			return nil, PartInstallRefused, partRefused("commit: donor version")
 		}
 	}
 	c.egraphMu.Lock()
 	defer c.egraphMu.Unlock()
 	row := p.receiver
 	if c.resultsByID[row.id] != row || !p.permit.task.active.Load() {
-		return nil, PartInstallRefused, ErrPartReselect
+		return nil, PartInstallRefused, partRefused("commit: receiver unregistered or task inactive")
 	}
 	if source.sessionlessShare {
 		// The receiver's original structural admission must still hold. The
@@ -496,15 +496,15 @@ func (c *Cache) CommitReadyPart(ctx context.Context, p *PreparedReadyPart) (_ *R
 		// changes, so an earlier same-pass install that added edges already
 		// inside Own(R) does not refuse this slot.
 		if row.id != source.receiverID || row.requiredSessionResourcesGen.Load() != source.receiverOwnGen {
-			return nil, PartInstallRefused, ErrPartReselect
+			return nil, PartInstallRefused, partRefused("commit: sessionless receiver requirements changed")
 		}
 		if partRowExpired(row, time.Now().Unix()) {
-			return nil, PartInstallRefused, ErrPartReselect
+			return nil, PartInstallRefused, partRefused("commit: sessionless receiver expired")
 		}
 	}
 	if p.original == nil && source.readiness == PartReady {
 		if source.source == nil || c.resultsByID[source.source.id] != source.source {
-			return nil, PartInstallRefused, ErrPartReselect
+			return nil, PartInstallRefused, partRefused("commit: donor unregistered")
 		}
 		if source.sessionlessShare {
 			key, err := partAddressKey(source.descriptor.Address)
@@ -512,10 +512,10 @@ func (c *Cache) CommitReadyPart(ctx context.Context, p *PreparedReadyPart) (_ *R
 				return nil, PartInstallRefused, err
 			}
 			if c.partDonatedFactsLocked(source.source, key, source.descriptor.Address, source.descriptor.SnapshotID) != source.donated {
-				return nil, PartInstallRefused, ErrPartReselect
+				return nil, PartInstallRefused, partRefused("commit: donated facts changed")
 			}
 		} else if source.facts != c.partFactsLocked(source.source) {
-			return nil, PartInstallRefused, ErrPartReselect
+			return nil, PartInstallRefused, partRefused("commit: donor facts changed")
 		}
 		found := false
 		if source.delegation != nil {
@@ -532,14 +532,14 @@ func (c *Cache) CommitReadyPart(ctx context.Context, p *PreparedReadyPart) (_ *R
 			}
 		}
 		if !found {
-			return nil, PartInstallRefused, ErrPartReselect
+			return nil, PartInstallRefused, partRefused("commit: donor no longer eligible")
 		}
 	} else if p.original == nil && !c.offerAllowedLocked(source.sessionID, source.offerOwner) {
-		return nil, PartInstallRefused, ErrPartReselect
+		return nil, PartInstallRefused, partRefused("commit: offer owner not allowed")
 	}
 	for _, dep := range p.deps {
 		if !c.partSourceReferenceAllowedLocked(row, source, dep) {
-			return nil, PartInstallRefused, ErrPartReselect
+			return nil, PartInstallRefused, partRefused("commit: dependency not allowed")
 		}
 	}
 	if p.original == nil {
@@ -552,7 +552,7 @@ func (c *Cache) CommitReadyPart(ctx context.Context, p *PreparedReadyPart) (_ *R
 				}
 			}
 			if !found {
-				return nil, PartInstallRefused, ErrPartReselect
+				return nil, PartInstallRefused, partRefused("commit: dependency not held")
 			}
 		}
 	}
@@ -576,11 +576,11 @@ func (c *Cache) CommitReadyPart(ctx context.Context, p *PreparedReadyPart) (_ *R
 	if p.original != nil {
 		group := gate.groups[lazyGroupAddressKey(p.original.group)]
 		if group == nil || group.phase != LazyEvaluationRunning || group.task != p.permit.task {
-			return nil, PartInstallRefused, ErrPartReselect
+			return nil, PartInstallRefused, partRefused("commit: own group not running")
 		}
 	}
 	if gate.writers[p.permit.ticket] != p.permit {
-		return nil, PartInstallRefused, ErrPartReselect
+		return nil, PartInstallRefused, partRefused("commit: own permit gone")
 	}
 	// Every recorded predecessor must have published under exactly the
 	// installation identity reserved for it. A matching numeric revision
@@ -592,10 +592,10 @@ func (c *Cache) CommitReadyPart(ctx context.Context, p *PreparedReadyPart) (_ *R
 		}
 		state := gate.outputs[key]
 		if state.phase == PartPending || state.task == nil {
-			return nil, PartInstallRefused, ErrPartReselect
+			return nil, PartInstallRefused, partRefused("commit: predecessor not installed")
 		}
 		if state.task.row != pred.receiver || state.task.key != pred.key || state.task.generation != pred.generation {
-			return nil, PartInstallRefused, ErrPartReselect
+			return nil, PartInstallRefused, partRefused("commit: predecessor installed by another task")
 		}
 	}
 	if gate.revision == math.MaxUint64 {
@@ -603,7 +603,7 @@ func (c *Cache) CommitReadyPart(ctx context.Context, p *PreparedReadyPart) (_ *R
 	}
 	if p.store != nil {
 		if !p.store.TryLock() {
-			return nil, PartInstallRefused, ErrPartReselect
+			return nil, PartInstallRefused, partRefused("commit: part store busy")
 		}
 		defer p.store.Unlock()
 	}
@@ -611,7 +611,7 @@ func (c *Cache) CommitReadyPart(ctx context.Context, p *PreparedReadyPart) (_ *R
 	defer row.payloadMu.Unlock()
 	expected := p.expectedRepresentation
 	if row.payloadRevision != expected.payloadRevision || row.hasValue != expected.hasValue || row.persistedEnvelope != expected.envelope {
-		return nil, PartInstallRefused, ErrPartReselect
+		return nil, PartInstallRefused, partRefused("commit: receiver representation")
 	}
 	if row.payloadRevision == math.MaxUint64 {
 		return nil, PartInstallRefused, fmt.Errorf("commit part: payload revision overflow")
@@ -702,7 +702,7 @@ func (c *Cache) InstallReadyPart(ctx context.Context, receiver AnyResult, source
 		return err
 	}
 	if outcome == PartInstallRefused {
-		return ErrPartReselect
+		return partRefused("install: commit refused")
 	}
 	return nil
 }

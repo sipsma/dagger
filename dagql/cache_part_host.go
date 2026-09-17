@@ -39,7 +39,9 @@ func (host *PartHost) Evaluate(ctx context.Context, parts ...PartKey) error {
 	if err != nil {
 		return err
 	}
+	watch := partReselectWatch{loop: "PartHost.Evaluate"}
 	for {
+		watch.again(ctx, host.row, PersistedPartAddress{OutputPath: host.path})
 		if host.cache.usesPartAcquisition(value, host.row) {
 			return host.cache.evaluateAcquiredScope(ctx, root, host.row, host.path, parts)
 		}
@@ -74,6 +76,7 @@ func (host *PartHost) Evaluate(ctx context.Context, parts ...PartKey) error {
 		if !partCanReselect(err) {
 			return err
 		}
+		watch.refused(err)
 	}
 }
 func (host *PartHost) Admitted(ctx context.Context) bool {
@@ -100,7 +103,7 @@ func (host *PartHost) RunNative(ctx context.Context, group LazyGroupKey, parts [
 	if gate.managed {
 		gate.mu.Unlock()
 		c.egraphMu.Unlock()
-		return ErrPartReselect
+		return partRefused("native: gate is managed")
 	}
 	writes := make([]PersistedPartAddress, len(parts))
 	for i, part := range parts {
