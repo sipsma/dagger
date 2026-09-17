@@ -6,9 +6,9 @@ Implementer, 17 September 2026. Commits 1 to 5 of the [continuation packet](../.
 | --- | --- |
 | Branch | `sharing-implementer-implementation-7d93905c` |
 | Base | `a26dc93750e42daf2de76678b0e54f51454cea33` |
-| Implementation tip | `0a7c5c0c89127daef0240ce8394b0d11cf765c24` |
+| Implementation tip | `e509c419648d3b6b0a90cdb9ff6a1a4fad8b3dcf` (commits 1 to 5 are `bf0f5151cc` to `0a7c5c0c89`; `167630f0b7` and `e509c41964` add only the three later test changes) |
 | Evidence tip | the commit that adds this report |
-| Diff | `git diff a26dc93750 0a7c5c0c89 -- . ':!continuation-evidence'` |
+| Diff | `git diff a26dc93750 e509c41964 -- . ':!continuation-evidence'` |
 
 ## Commits
 
@@ -118,7 +118,7 @@ Every invocation carries an explicit timeout. Selections are grouped one invocat
 | # | Command | Timeout | Result | Duration |
 | --- | --- | --- | --- | --- |
 | 1 | `go build ./dagql ./core ./core/schema ./engine/server` at `3277121605` | harness 600 s | pass, exit 0 | 38.2 s (cold) |
-| 2 | `go test ./dagql ./core ./core/schema ./engine/server -timeout 300s -count=1 -v` at `0a7c5c0c89` plus this report's test additions | `-timeout 300s`, harness 420 s | pass | dagql 6.09 s, core 5.51 s, core/schema 11.33 s, engine/server 2.84 s; 17 s wall warm ([logs/packages.log](logs/packages.log)) |
+| 2 | `go test ./dagql ./core ./core/schema ./engine/server -timeout 300s -count=1 -v` at the implementation tip | `-timeout 300s`, harness 420 s | pass | dagql 6.09 s, core 5.51 s, core/schema 11.33 s, engine/server 2.84 s; 17 s wall warm ([logs/packages.log](logs/packages.log)) |
 | 3 | `go test -race ./dagql ./core ./engine/server -run 'TestSnapshotSharing\|TestPartSessionless\|TestReadyPartReceipt\|TestPartReadyRevalidation\|TestPersistedDecodeDefaultDeps\|TestSnapshotSharePreparationCoreGuards' -timeout 180s -count=1 -v` | `-timeout 180s`, harness 420 s | pass | dagql 3.18 s, core 1.61 s, engine/server 1.49 s; 62 s wall including the race build ([logs/race.log](logs/race.log)) |
 | 4 | `dagger api call engine-dev test --pkg ./core/integration --run='TestRemoteCacheTransferSuite/(TestPartMixedExecOutputs\|TestSchemaRecovery\|TestSharedHostDirectoryLifetime)$' --test-verbose --timeout=10m` at `0a7c5c0c89` | `--timeout=10m`, harness 900 s | **failed: the package hit its 10-minute test timeout with all four selected subtests still running** | 13 m 55 s wall ([logs/engine-run.log](logs/engine-run.log)) |
 
