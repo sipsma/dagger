@@ -66,6 +66,9 @@ type RemoteCacheAdapter struct {
 	reportReady chan struct{}
 	stopCh      chan struct{}
 	stopChOnce  sync.Once
+	// testBeforeReportWait runs in TakeSessionReport right before it waits
+	// with an empty list.
+	testBeforeReportWait func()
 }
 
 func newRemoteCacheAdapter(cache *dagql.Cache, bridge *dagql.RemoteCacheBridge) *RemoteCacheAdapter {
@@ -106,6 +109,9 @@ func (a *RemoteCacheAdapter) TakeSessionReport(ctx context.Context) (*SessionRep
 			return report, nil
 		}
 		a.reportsMu.Unlock()
+		if hook := a.testBeforeReportWait; hook != nil {
+			hook()
+		}
 		select {
 		case <-a.reportReady:
 		case <-a.stopCh:

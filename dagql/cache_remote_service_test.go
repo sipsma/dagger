@@ -7,6 +7,7 @@ import (
 	"maps"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/dagger/dagger/engine/snapshots"
 	"github.com/dagger/dagger/engine/snapshots/config"
@@ -112,7 +113,7 @@ func TestSessionResults(t *testing.T) {
 	// A result whose row left the cache between the snapshot and the walk is
 	// skipped, not reported.
 	require.NoError(t, c.ReleaseSession(ctx, "test-session"))
-	require.NoError(t, c.WaitSessionRelease(ctx, "test-session"))
+	waitSessionRelease(t, ctx, c, "test-session")
 	entries, err = c.SessionResults(ctx, "test-session")
 	require.NoError(t, err)
 	require.Empty(t, entries, "a released session has no set")
@@ -140,7 +141,7 @@ func TestSessionResultsHoldsSurviveRelease(t *testing.T) {
 	c.testAfterSessionResultsHeld = func() {
 		hookRan = true
 		require.NoError(t, c.ReleaseSession(ctx, "test-session"))
-		require.NoError(t, c.WaitSessionRelease(ctx, "test-session"))
+		waitSessionRelease(t, ctx, c, "test-session")
 		removed, err := c.removePersistedEdge(ctx, rootID)
 		require.NoError(t, err)
 		require.True(t, removed)
@@ -157,11 +158,28 @@ func TestSessionResultsHoldsSurviveRelease(t *testing.T) {
 	require.Equal(t, uint64(rootID), entries[1].ResultID)
 	require.True(t, entries[1].Retained, "retained at the time of the walk")
 	require.Equal(t, expected, entries[1].RecipeDigest)
-	c.egraphMu.RLock()
-	require.Nil(t, c.resultsByID[rootID], "released and collected after the digests")
-	require.Nil(t, c.resultsByID[depID])
-	c.egraphMu.RUnlock()
+	rootRow, depRow := rowsByID(c, rootID, depID)
+	require.Nil(t, rootRow, "released and collected after the digests")
+	require.Nil(t, depRow)
 	require.Zero(t, c.activeGlobalOperations.Load())
+}
+
+// rowsByID reads two rows under the graph lock and returns them, so the
+// caller asserts with no lock held: a failed assertion must not leave the
+// lock taken, because the test's cleanup closes the cache under it.
+func rowsByID(c *Cache, a, b sharedResultID) (*sharedResult, *sharedResult) {
+	c.egraphMu.RLock()
+	defer c.egraphMu.RUnlock()
+	return c.resultsByID[a], c.resultsByID[b]
+}
+
+// waitSessionRelease waits for a release with a short deadline, so a
+// release regression fails this test instead of holding the package.
+func waitSessionRelease(t *testing.T, ctx context.Context, c *Cache, sessionID string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	require.NoError(t, c.WaitSessionRelease(ctx, sessionID))
 }
 
 func TestWithResultsByNumber(t *testing.T) {
@@ -189,7 +207,7 @@ func TestWithResultsByNumber(t *testing.T) {
 		// The session ends while the result is held: it survives until fn
 		// returns.
 		require.NoError(t, c.ReleaseSession(ctx, "test-session"))
-		require.NoError(t, c.WaitSessionRelease(ctx, "test-session"))
+		waitSessionRelease(t, ctx, c, "test-session")
 		c.egraphMu.RLock()
 		defer c.egraphMu.RUnlock()
 		require.Same(t, heldShared, c.resultsByID[sharedResultID(heldID)])
@@ -198,10 +216,9 @@ func TestWithResultsByNumber(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, calls)
-	c.egraphMu.RLock()
-	require.Nil(t, c.resultsByID[sharedResultID(heldID)], "released after fn and collected")
-	require.NotNil(t, c.resultsByID[sharedResultID(retainedID)])
-	c.egraphMu.RUnlock()
+	heldRow, retainedRow := rowsByID(c, sharedResultID(heldID), sharedResultID(retainedID))
+	require.Nil(t, heldRow, "released after fn and collected")
+	require.NotNil(t, retainedRow)
 	require.Equal(t, int64(1), ownershipCount(c, retained), "the retention edge is the only owner left")
 	require.Zero(t, c.activeGlobalOperations.Load())
 

@@ -196,29 +196,26 @@ func TestSessionReportListDropsOldest(t *testing.T) {
 func TestSessionReportAfterStop(t *testing.T) {
 	t.Parallel()
 	srv, adapter := newReportTestServer(t)
+	// A consumer waits on an empty list. The hook fires after the consumer
+	// found the list empty and right before it waits, so the stop below is
+	// what wakes it: the result must be the closed error, unconditionally.
 	waiting := make(chan struct{})
+	adapter.testBeforeReportWait = func() {
+		select {
+		case waiting <- struct{}{}:
+		default:
+		}
+	}
 	taken := make(chan error, 1)
 	go func() {
-		close(waiting)
 		_, err := adapter.TakeSessionReport(boundedContext(t))
 		taken <- err
 	}()
 	within(t, waiting)
-	require.True(t, adapter.queueSessionReport(&SessionReport{SessionID: "before"}))
-	// The waiter took that one. Queue another, then stop: the list is
-	// dropped, the next waiter returns closed, and every new method refuses.
-	within(t, taken)
-	require.True(t, adapter.queueSessionReport(&SessionReport{SessionID: "dropped"}))
-	go func() {
-		_, err := adapter.TakeSessionReport(boundedContext(t))
-		taken <- err
-	}()
 	require.NoError(t, srv.stopRemoteCacheIntegration(boundedContext(t)))
 	select {
 	case err := <-taken:
-		if err != nil {
-			require.ErrorIs(t, err, ErrRemoteCacheAdapterClosed)
-		}
+		require.ErrorIs(t, err, ErrRemoteCacheAdapterClosed)
 	case <-boundedContext(t).Done():
 		t.Fatal("waiting TakeSessionReport did not return after stop")
 	}
@@ -236,6 +233,21 @@ func TestSessionReportAfterStop(t *testing.T) {
 	require.NoError(t, srv.removeDaggerSession(t.Context(), sess))
 	_, err = adapter.TakeSessionReport(t.Context())
 	require.ErrorIs(t, err, ErrRemoteCacheAdapterClosed)
+}
+
+func TestSessionReportQueuedBeforeStopIsDropped(t *testing.T) {
+	t.Parallel()
+	srv, adapter := newReportTestServer(t)
+	require.True(t, adapter.queueSessionReport(&SessionReport{SessionID: "queued"}))
+	adapter.reportsMu.Lock()
+	require.Len(t, adapter.reports, 1)
+	adapter.reportsMu.Unlock()
+	require.NoError(t, srv.stopRemoteCacheIntegration(boundedContext(t)))
+	adapter.reportsMu.Lock()
+	require.Empty(t, adapter.reports, "stop drops the list")
+	adapter.reportsMu.Unlock()
+	_, err := adapter.TakeSessionReport(t.Context())
+	require.ErrorIs(t, err, ErrRemoteCacheAdapterClosed, "nothing is left for a later consumer")
 }
 
 func TestAdapterExportValues(t *testing.T) {
