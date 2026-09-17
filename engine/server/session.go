@@ -1025,6 +1025,10 @@ func (srv *Server) removeDaggerSession(ctx context.Context, sess *daggerSession)
 	// logs, or metrics.
 	beforeDagqlEntries := srv.engineCache.Size()
 	beforeDagqlStats := srv.engineCache.EntryStats()
+	// The session report describes the set before release drops the
+	// session's holds. Late detached work may still add to the set; what it
+	// adds after this point is missing from the report and breaks nothing.
+	srv.reportSessionResults(ctx, sess.sessionID)
 	cacheReleaseErr := srv.engineCache.ReleaseSession(ctx, sess.sessionID)
 	if cacheReleaseErr != nil {
 		slog.Error("error releasing dagql cache", "error", cacheReleaseErr)
