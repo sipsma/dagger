@@ -1901,6 +1901,10 @@ type Cache struct {
 	testTransferPlanPrepared func(int) error
 	testBeforeTransferCommit func()
 	testAfterTransferCommit  func()
+	// testAfterSessionResultsHeld runs in SessionResults after the retained
+	// entries are held and the graph lock is released, before their recipe
+	// digests are derived.
+	testAfterSessionResultsHeld func()
 
 	offerOwners      map[offerOwnerID]*offerOwner
 	nextOfferOwnerID offerOwnerID

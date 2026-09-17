@@ -14,6 +14,11 @@ type TransferOrdinal uint64
 type ValueSelection struct {
 	Roots   []AnyResult
 	Outputs []SelectedValueOutput
+	// OutputsOf selects every completed part that each named result's own
+	// record owns, in addition to Outputs. Each result must lie inside the
+	// captured closure, as an Outputs entry must. A part that Outputs already
+	// names is not selected twice.
+	OutputsOf []AnyResult
 }
 type SelectedValueOutput struct {
 	Result  AnyResult

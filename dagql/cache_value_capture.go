@@ -166,6 +166,11 @@ func (c *Cache) holdTransferClosure(ctx context.Context, selection ValueSelectio
 			err = fmt.Errorf("selected output lies outside captured closure")
 		}
 	}
+	for _, res := range selection.OutputsOf {
+		if err == nil && (res == nil || res.cacheSharedResult() == nil || capture.rows[res.cacheSharedResult().id] == nil || capture.rows[res.cacheSharedResult().id].shared != res.cacheSharedResult()) {
+			err = fmt.Errorf("selected outputs-of result lies outside captured closure")
+		}
+	}
 	c.egraphMu.Unlock()
 	if err != nil {
 		return nil, errors.Join(err, capture.Release(ctx))
@@ -227,6 +232,48 @@ func (capture *HeldCapturedClosure) copy(ctx context.Context) error {
 		}
 	}
 	return context.Cause(ctx)
+}
+
+// selectedOutputs is the selection's Outputs followed by one entry per
+// completed part that each OutputsOf result's own record owns, skipping any
+// part Outputs already names. It runs after copy, which computed each row's
+// parts and their states.
+func (capture *HeldCapturedClosure) selectedOutputs(selection ValueSelection) ([]SelectedValueOutput, error) {
+	outputs := slices.Clone(selection.Outputs)
+	named := map[string]bool{}
+	for _, selected := range selection.Outputs {
+		row, out, err := selectedCapturedOutput(capture, selected)
+		if err != nil {
+			return nil, err
+		}
+		key, _ := partAddressKey(out.Address)
+		named[fmt.Sprintf("%d:%s", row.ordinal, key)] = true
+	}
+	for _, res := range selection.OutputsOf {
+		if res == nil || res.cacheSharedResult() == nil {
+			return nil, fmt.Errorf("detached outputs-of result")
+		}
+		row := capture.rows[res.cacheSharedResult().id]
+		if row == nil {
+			return nil, fmt.Errorf("outputs-of result not captured")
+		}
+		for _, out := range row.outputs {
+			if out.State != "completed" {
+				continue
+			}
+			key, err := partAddressKey(out.Address)
+			if err != nil {
+				return nil, err
+			}
+			key = fmt.Sprintf("%d:%s", row.ordinal, key)
+			if named[key] {
+				continue
+			}
+			named[key] = true
+			outputs = append(outputs, SelectedValueOutput{Result: res, Address: out.Address})
+		}
+	}
+	return outputs, nil
 }
 
 type SelectedChain struct {
@@ -400,12 +447,16 @@ func (c *Cache) WithExportedValues(ctx context.Context, selection ValueSelection
 	if _, err := validateValueBundle(bundle); err != nil {
 		return err
 	}
-	chains, err := OpenSelectedChains(ctx, capture, selection.Outputs, cfg)
+	outputs, err := capture.selectedOutputs(selection)
+	if err != nil {
+		return err
+	}
+	chains, err := OpenSelectedChains(ctx, capture, outputs, cfg)
 	if err != nil {
 		return err
 	}
 	defer func() { rerr = errors.Join(rerr, chains.Release(ctx)) }()
-	for _, selected := range selection.Outputs {
+	for _, selected := range outputs {
 		row, out, err := selectedCapturedOutput(capture, selected)
 		if err != nil {
 			return err
