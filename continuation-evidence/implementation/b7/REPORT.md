@@ -389,3 +389,43 @@ All registered names are subtests of `TestRemoteCacheTransferSuite` in `core/int
 | `TestOffers/BeforeStart`, `/Preparing`, `/Running`, `/Replacement`, `/Resources` | same; `/Resources/{SessionWithoutResource, SessionWithResource}` | |
 | `TestRenewal` | `/ArmedReplySucceeds`, `/ExpiredAddressesRenewed`, `/TimeoutThenFallback` | |
 | the seven `TestRemoteCacheIntegrated…` peers | not written | amendment B1 |
+
+## Final state for slice 3
+
+### The boot-wipe finding, closed
+
+`TestWorkspaceCapture` found it; the diagnostic runs (ledger rows 26 to 28) pinned it: the failing row was an imported `CacheVolume` (`field=cacheVolume`, imported, persisted, no in-memory snapshot link at any stage), the persisted mirror held `result_snapshot_links` row `<id>|<ref>|snapshot|[]` for it, no `dagql/result/<id>/…` lease existed in the engine's lease store at any stage, and of 58 saved links exactly two had no lease, both the SDK runtime's imported cache volumes. Author B's root cause: four backing types are exported without a snapshot and create one on the receiver at first use (`CacheVolume`, `RemoteGitMirror`, `ClientFilesyncMirror`, `HTTPState`); only `HTTPState` then attached the row's owner lease, so for the others the snapshot lived on the session's lease only. The session ends, a collection takes it (a live fault: the next mount fails, with no restart needed), the clean-shutdown checkpoint saves the link, and the next boot treats it as damage and wipes the cache. Fixed by author B in `16786b5fe3`, here `f51ac7f796` (`core.EnsureBackingSnapshot`). `TestWorkspaceCapture` (`888378e4ed`) passes unchanged with it and asserts both halves: after the session's end and a real collection a second ordinary call that mounts the runtime's cache volumes works, and after a clean restart there is no persistence reset, the imported fields keep their owner links and read, and the original call still skips the downstream body. `TestPipeline/DonorReleased/AfterRestart` never met it because there B serves the Module before importing, so the cache volume rows are B's own.
+
+This is the third production defect native cases found (after the key-only renewal panic and the part-acquired clone failure), all fixed by author B and cherry-picked here.
+
+### The full native set at the final tip
+
+Same command and bounds as F6 (`--timeout=15m`, process bound 1260 s), now sixteen tests with `TestWorkspaceCapture`, on `remote-cache-b7-engine` with `_EXPERIMENTAL_DAGGER_RUNNER_HOST=container://remote-cache-b7-engine`, clean committed tree each time.
+
+| # | Tip | Host load average (1, 5, 15 min) | Result | Wall |
+| --- | --- | --- | --- | --- |
+| 22 (F6) | `d70534a46a`, fifteen tests | not recorded; the host was otherwise idle | pass | 526 s |
+| 30 | `888378e4ed` | about 29, 62, 51 just after the run | **fail, in cleanup only**: 66 subtests pass, no test body fails; ten `stop fixture engine <name>: Post "http://dagger/query": context deadline exceeded`, a nested engine's clean stop exceeding the 45 s per-step bound of `5b943119c3` | 905 s |
+| 31 | **`9c376138c1`** (per-step stop bound two minutes, accepted by the coordinator) | 18, 56, 49 at the start; 61, 58, 51 at the end | **pass**, exit 0, no cleanup failure | **674 s** |
+
+Two other workstreams' engines (`remote-cache-engine`, `namespace-prep-engine`) were running work on the same host during rows 30 and 31; the coordinator could not give me a quiet window and ruled that I run and report the load. So: 526 s is the quiet-host figure. On a host oversubscribed about four times the same set takes 674 to 905 s, every test body still passes at default parallelism, and the only thing that gave way was my own 45 s cleanup bound, because a nested engine's clean stop writes its checkpoint and that was slow under load. No change to parallelism is needed and none was made.
+
+Per-test times of row 31, trace `77a6fa3dab2d1c096eceecaf70420873`: MixedExec 1m19, HostInputs 7m8, SharedHostDirectoryLifetime 1m23, SchemaRecovery 4m18, SchemaRecoveryCold 4m2, WorkspaceCapture 3m41, GitTrees 3m13, SharingDonorRestart 1m10, EncodedRestart 7m8, PendingOffersRestart 2m33, FixtureControls 2m8, Pipeline 5m49, Offers 5m45, Renewal 7m8, HTTPRestore 5m31, SharingFinish 7m8. The parents at 7m8 are the whole test process: their last subtests waited for one of the runner's 16 slots.
+
+### Ledger, continued
+
+| # | Selection | Tree | Bounds (test, process) | Result | Wall |
+| --- | --- | --- | --- | --- | --- |
+| 28 | `TestWorkspaceCapture` with full row, lease and saved-link dumps | `2036dcac4d` + the uncommitted test | 5 m, 640 s | the failing row is an imported `CacheVolume`; its saved link and missing lease shown | 477 s |
+| 29 | `TestWorkspaceCapture` with author B's fix and the live half | `f51ac7f796` + the uncommitted test, committed unchanged as `888378e4ed` | 5 m, 640 s | **pass**, 3 m 41 s class; no persistence reset | 447 s |
+| 30, 31 | the full native set | as in the table above | 15 m, 1260 s | above | above |
+
+In-process, gated on `go test`'s own exit status: `go test ./core -count=1 -timeout 120s` under 450 s after cherry-picking `f51ac7f796`, exit 0, 2.9 s; `go vet ./core/integration` before every engine run, exit 0.
+
+### Name table: the one change
+
+`TestWorkspaceCapture` is now registered (`888378e4ed`). `TestHTTPRestore/AuthBacked` stays unregistered, in process by ruling.
+
+### Tips
+
+Implementation `9c376138c1`. It carries three cherry-picks of author B's production fixes: `397221fe5c` (key-only renewal), `624b48d8dc` (part-acquired clone), `f51ac7f796` (backing snapshot ownership).
