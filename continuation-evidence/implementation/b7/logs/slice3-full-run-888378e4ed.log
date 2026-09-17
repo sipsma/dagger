@@ -1,0 +1,26 @@
+exit=1 wall=905s
+    testctx.go:174: stop fixture engine pipeline-cold-a: Post "http://dagger/query": context deadline exceeded
+    testctx.go:174: stop fixture engine http-status-a: Post "http://dagger/query": context deadline exceeded
+    testctx.go:174: stop fixture engine git-local-b: Post "http://dagger/query": context deadline exceeded
+    testctx.go:174: stop fixture engine content-status404-a: Post "http://dagger/query": context deadline exceeded
+    testctx.go:174: stop fixture engine content-status410-a: Post "http://dagger/query": context deadline exceeded
+    testctx.go:174: stop fixture engine content-status401-a: Post "http://dagger/query": context deadline exceeded
+    testctx.go:174: stop fixture engine content-served-a: Post "http://dagger/query": context deadline exceeded
+    testctx.go:174: stop fixture engine http-differs-b: Post "http://dagger/query": context deadline exceeded
+    testctx.go:174: stop fixture engine http-differs-a: Post "http://dagger/query": context deadline exceeded
+    testctx.go:174: stop fixture engine http-differs-a: Post "http://dagger/query": context deadline exceeded
+--- FAIL: TestRemoteCacheTransferSuite (0.01s)
+    --- FAIL: TestRemoteCacheTransferSuite/TestGitTrees (0.03s)
+        --- FAIL: TestRemoteCacheTransferSuite/TestGitTrees/Local (176.74s)
+    --- FAIL: TestRemoteCacheTransferSuite/TestHTTPRestore (0.03s)
+        --- FAIL: TestRemoteCacheTransferSuite/TestHTTPRestore/StatusTable (86.40s)
+        --- FAIL: TestRemoteCacheTransferSuite/TestHTTPRestore/ChainFailsOriginDiffers (0.00s)
+            --- FAIL: TestRemoteCacheTransferSuite/TestHTTPRestore/ChainFailsOriginDiffers/changed_body (126.80s)
+            --- FAIL: TestRemoteCacheTransferSuite/TestHTTPRestore/ChainFailsOriginDiffers/truncated_body (127.16s)
+    --- FAIL: TestRemoteCacheTransferSuite/TestPipeline (0.00s)
+        --- FAIL: TestRemoteCacheTransferSuite/TestPipeline/Cold (191.56s)
+        --- FAIL: TestRemoteCacheTransferSuite/TestPipeline/FailedChain (0.00s)
+            --- FAIL: TestRemoteCacheTransferSuite/TestPipeline/FailedChain/Status404 (75.85s)
+            --- FAIL: TestRemoteCacheTransferSuite/TestPipeline/FailedChain/Status410 (78.19s)
+            --- FAIL: TestRemoteCacheTransferSuite/TestPipeline/FailedChain/Status401 (74.09s)
+            --- FAIL: TestRemoteCacheTransferSuite/TestPipeline/FailedChain/Served (76.85s)

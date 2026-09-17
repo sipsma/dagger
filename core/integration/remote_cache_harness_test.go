@@ -98,14 +98,48 @@ func (e *fixtureEngine) connect() *dagger.Client {
 // session owned, and opens a fresh one that has loaded nothing.
 func (e *fixtureEngine) reconnect() {
 	e.t.Helper()
-	require.NoError(e.t, e.client.Close())
+	client := e.client
+	e.client = nil
+	require.NoError(e.t, closeClientBounded(e.ctx, client))
 	e.client = e.connect()
+}
+
+// closeClientBounded joins a client's Close, which takes no context, under a
+// fresh deadline that does not inherit the test's cancellation.
+func closeClientBounded(ctx context.Context, client *dagger.Client) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), fixtureEngineStopTimeout)
+	defer cancel()
+	closed := make(chan error, 1)
+	go func() { closed <- client.Close() }()
+	select {
+	case err := <-closed:
+		return err
+	case <-ctx.Done():
+		return fmt.Errorf("client close did not return: %w", context.Cause(ctx))
+	}
+}
+
+// joinBounded waits for one result of a demand started on its own goroutine.
+// A demand that never returns fails here, not at the native test timeout.
+func joinBounded(t *testctx.T, done <-chan error, what string) error {
+	t.Helper()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(3 * time.Minute):
+		t.Fatalf("%s never returned", what)
+		return nil
+	}
 }
 
 // fixtureEngineStopTimeout bounds each step of a shutdown. A step never
 // inherits the test's context, which is usually already canceled when
-// cleanup runs, nor the remains of an earlier step's deadline.
-const fixtureEngineStopTimeout = 45 * time.Second
+// cleanup runs, nor the remains of an earlier step's deadline. A clean stop
+// of a nested engine writes its checkpoint; with the whole native set running
+// on a host that other engines were also loading (load average 60 on 16
+// CPUs) ten of some 120 stops took longer than 45 seconds, so the bound is two
+// minutes. It is a bound on a failure, not a wait.
+const fixtureEngineStopTimeout = 2 * time.Minute
 
 // shutdown is idempotent. Every step gets its own fresh deadline, so one that
 // times out cannot hand the next an already-canceled context, and every
@@ -119,17 +153,7 @@ func (e *fixtureEngine) shutdown() error {
 	}
 	var errs error
 	if client := e.client; client != nil {
-		err := step(func(ctx context.Context) error {
-			// Close takes no context; join it under the deadline.
-			closed := make(chan error, 1)
-			go func() { closed <- client.Close() }()
-			select {
-			case err := <-closed:
-				return err
-			case <-ctx.Done():
-				return fmt.Errorf("client close did not return: %w", context.Cause(ctx))
-			}
-		})
+		err := closeClientBounded(e.ctx, client)
 		// A client is closed at most once, whatever it answered.
 		e.client = nil
 		errs = errors.Join(errs, err)

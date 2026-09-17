@@ -198,3 +198,234 @@ In-process runs for the corrections: `go test ./dagql -count=1 -timeout 400s` un
 
 - A shell pipeline's exit status hides a failing test; see my regression above. Not the repository's slop, mine, but it cost a red package for five commits.
 - A passing native run prints no verdict lines at all, so "which subtests ran" has to be confirmed from the trace each time.
+
+## Slice 2: native cases, the full-set measurement and what is not native
+
+Conclusions first.
+
+- The full native set ran together once, at default parallelism, unprivileged: fifteen tests, 116 nested engines in all, exit 0, **526 s wall** including the build. No thrash: every subtest took as long as it does alone or less. F6 needs no change to parallelism and no sharing of engines between scenarios.
+- Every native row of amendment B1 is delivered, or is listed below as in process by ruling with its carrier. Nothing is skipped for privilege.
+- Native cases found two production defects, both fixed by author B and cherry-picked here, and one regression of mine (recorded above).
+- All of author B's folded rows are named in the tests that carry them.
+
+### F6: the full native set, run once
+
+`timeout 1260 dagger api call engine-dev test --pkg ./core/integration --run='^TestRemoteCacheTransferSuite/(TestPartMixedExecOutputs|TestHostInputs|TestSharedHostDirectoryLifetime|TestSchemaRecovery|TestSchemaRecoveryCold|TestGitTrees|TestSharingDonorRestart|TestEncodedRestart|TestPendingOffersRestart|TestFixtureControls|TestPipeline|TestOffers|TestRenewal|TestHTTPRestore|TestSharingFinish)$' --test-verbose --timeout=15m --env-file=file:/tmp/b7/dump-5m.env`, at `d70534a46a`, clean tree. Test timeout 15 m, process bound 1260 s, approved by the coordinator beforehand. Result: exit 0, 526 s wall, trace `d85a79e82ecc506d2ee49e5d5d04cd86`. The opt-in prune diagnostic is outside every verification set and was not selected. `TestWorkspaceCapture` was withheld at the time and ran alone afterwards (ledger).
+
+| Test | In the full run | Alone or in a small batch |
+| --- | --- | --- |
+| `TestPartMixedExecOutputs` | 1 m 24 s | not run alone by me |
+| `TestHostInputs` | 1 m 23 s | 1 m 15 s |
+| `TestSharedHostDirectoryLifetime` | 1 m 29 s | not run alone by me |
+| `TestSchemaRecovery` | 3 m 39 s | not run alone by me |
+| `TestSchemaRecoveryCold` | 3 m 28 s | not run alone by me |
+| `TestGitTrees` | 2 m 40 s | 2 m 30 s |
+| `TestSharingDonorRestart` | 1 m 41 s | 1 m 26 s |
+| `TestEncodedRestart` | 1 m 38 s | 1 m 28 s |
+| `TestPendingOffersRestart` | 2 m 37 s | 2 m 11 s |
+| `TestFixtureControls` | 1 m 15 s | its longest subtest alone: 1 m 10 s |
+| `TestPipeline` | 5 m 31 s | its longest subtest, `DonorReleased/AfterRestart`: 3 m 2 s here, 3 m 9 s in a batch |
+| `TestOffers` | 5 m 12 s | subtests 52 to 57 s here, 85 to 94 s in a batch |
+| `TestRenewal` | 1 m 29 s | 1 m 34 s |
+| `TestHTTPRestore` | 6 m 53 s | subtests 53 s to 1 m 34 s here, 75 to 100 s in a batch |
+| `TestSharingFinish` | 1 m 25 s | 1 m 54 s |
+
+The three long parents are not slow work. Their subtests are queued by the test runner's default parallelism, which is the 16 CPUs of this host, so a parent with fifteen subtests waits for slots while each subtest runs at full speed. **Peak parallel engines:** I did not instrument it. With 16 parallel leaves and one to three engines a leaf, the peak is between 30 and 40; the earlier batches ran 20 and 28 engines at once at the same per-subtest times. Host: 16 CPUs, 62 GiB, about 20 GiB in use before the run. The 5 minute opt-in dump did not produce output in the log; a passing run prints nothing.
+
+### Measurement report
+
+| What | Value | From |
+| --- | --- | --- |
+| Sharing passes after importing one executed Container's closure (8 rows) | 6 passes that prepared slots: 1, 1, 1, 2, 3 and 4 slots; R's own pass prepared all 4 (metadata, filesystem, written mount, unchanged sibling mount) | `TestSharingFinish/OnePass`, reached-point journal |
+| Import to R's first external Finish, with every earlier Finish paused and released through the harness | 6.0 s, of which almost all is the harness's nine control round trips | same |
+| Slots a pass left alone for a service-backed receiver, with causes | 0 | `TestSharingFinish/ServiceBackedReceiver`, `share-skipped` events |
+| Provider bytes on the real HTTP content path | one 2048 byte layer, read fully in one ranged request (`bytes=0-2047`), body closed | `TestPipeline/FailedChain/Served` |
+| Permanent status (401, 403, 404, 410) | requested once, body closed, one fallback into the saved producer | `TestPipeline/FailedChain/Status4xx` |
+| Renewal with nobody answering | the demand took 2.06 s, one exchange, one fallback; the controller's untaken record retired with it | `TestRenewal/TimeoutThenFallback` |
+| Transient pins added by sharing passes and the reads after them | 0, before and after a real collection | `OnePass`, `ForegroundReadRacesPass`, `ServiceBackedReceiver` |
+| Transient pins in the owed-bookkeeping state | 1, held for the retry; released by the settlement an exact demand causes | `TestEncodedRestart/RetryOnlyBookkeeping` |
+| Transient pins of a live `Container.from` | 1 (three content blobs and the rootfs snapshot), for as long as that ref is held; not a pass's | `OnePass`, storage group |
+| Fixture hold tokens and armed barriers left by any case | 0 | `Controls` in every report that asserts it |
+| Storage after `OnePass`'s passes | 17 snapshots, 4 blobs, 32 owner leases | storage group |
+| Retained after a donor's release and a real collection | snapshots 3 to 2: the donor's own row and lease go, the shared snapshot stays under the receiver's lease | `TestSharingDonorRestart` |
+| Exported chain of a nested Host view | the whole parent chain, bytes copied, one provider open per layer on B | `TestHostInputs/NestedViewExportsWholeChain` |
+
+Retained bytes are counts, not bytes: the storage group reports snapshot, blob and lease counts. A byte figure needs the snapshotter's usage walk, which I did not add.
+
+### Production findings from native cases
+
+1. Engine panic on the first accepted renewal of a key-only offer (`partContentProvider.renew`, nil address map). Fixed by author B, here `397221fe5c`. Found by `TestRenewal/ArmedReplySucceeds`, which passes unchanged.
+2. A Container operation that clones a part-acquired imported File or Directory failed (`file must be materialized, got lazy *core.FileRestoreLazy`). Fixed by author B, here `624b48d8dc`. Found by `TestPipeline/FailedChain/RetainedExec`, which passes unchanged.
+3. Author B's scan defect (`scanPartSources` ranking a not-ready candidate) was not met by any native case here.
+4. Ruled not defects, after author B reproduced each in process: an ordinary read of an imported row's handle is served by a complete equivalent local row while one lives; an export of a row with an attempt in flight answers not ready (batch 2's contract); a call taking a `Workspace` never matches by recipe, and a Workspace-taking constructor's object unites by content instead.
+
+### Not delivered natively
+
+| Row | State | Carrier and reason |
+| --- | --- | --- |
+| G2, the failing prefix (pause at `beforeCommit` plus a concurrent decode) | in process by ruling | batch 6's `PrefixCarriedOverRefusedAddress` and `DecodeWhileFinishPaused`. No ordinary native operation demands or decodes the receiver exactly while its donor lives, and a pass needs a live donor. `TestSharingFinish/FailingPrefix` was written, met the not-ready export answer, and is dropped for that reason. |
+| A Container receiver whose mount order differs from the donor's | in process by ruling | `core/part_delegation_mount_test.go`. A different mount order is a different recipe, so the two rows are never congruent natively. |
+| A decoded multi-part receiver filled over two passes with the donor's last owner gone | in process by ruling | batch 6's in-process test and author B's `RemoteSharing` model probe. |
+| The SDK-built Service and Module ancestry with both leader orders (F2) | in process, author B | natively only the smoke and the measurement: `TestSharingFinish/ServiceBackedReceiver`. |
+| Auth-backed http File: no saved producer, refusal, unavailability | in process by ruling | `core/http_lazy_test.go` and the offer-resource tests; natively `TestOffers/Resources`. The import succeeds, but every non-root row needs A's Secret, B's session cannot hold it, and the fixture's batch 2 consistency check rightly sees no row it is entitled to. The check is not relaxed. |
+| Restrictive umask control of the HTTP writer (F3) | not native | author B's unprivileged subprocess test. |
+| A local writer or storage failure during chain installation stays a local error (F1) | not native | per B2's option; the closed action set has only the two owner-attach faults, which `TestFixtureControls/BarrierActions` and `TestEncodedRestart` use. |
+| `TestHTTPRestore/StatusTable`, 304 over an empty saved body | not run | two empty Files are one row and a bundle cannot name a root twice; 204 over an empty body is the one empty case. |
+
+### Verification ledger, slice 2 continued
+
+Same form as rows 7 to 17: `dagger api call engine-dev test --pkg ./core/integration --run=<selection> --test-verbose --timeout=<T> --env-file=file:/tmp/b7/dump-5m.env` under `timeout <outer>`.
+
+| # | Selection | Bounds (test, process) | Result | Wall |
+| --- | --- | --- | --- | --- |
+| 18 | `TestSharingFinish/FailingPrefix`, `/ForegroundReadRacesPass`, `TestHTTPRestore/StateResolveLayout` | 7 m, 760 s | layout table passes; both sharing subtests armed their barrier too late (my test) | 420 s |
+| 19 | sharing finish (3), Git local (3), workspace, offers (2), pipeline Cold | 8 m, 810 s | OnePass, the racing read's first form, Resources, Local, LocalCleaned, Cold pass; four test-side or ruled failures | 238 s |
+| 20 | service-backed, bundle, replacement, donor released, status table, workspace, RetainedExec, with B's clone fix | 8 m, 810 s | RetainedExec, Replacement, LocalBundle pass; four test-side failures | 301 s |
+| 21 | service-backed, donor released, status table, auth-backed, workspace | 8 m, 810 s | service-backed, donor released (both), status table pass; auth-backed and workspace as ruled | 362 s |
+| 22 | **F6: the full native set** | 15 m, 1260 s | **pass** | **526 s** |
+| 23 | `TestWorkspaceCapture`, reshaped | 5 m, 640 s | **no result.** The run stalled with no test output and was killed by the process bound, exit 124, no stacks. The shared `dagger-engine-v1.0.0-beta.13` container no longer existed afterwards. I did not remove it; reported to the coordinator, and no engine run was started after it. | 640 s |
+
+In-process runs since the interim section: `go test ./engine/server -race -run 'TestRemoteCacheFixture' -count=2 -timeout 200s` under 320 s, pass, 1.7 s; `go test ./core/schema -run 'TestFixture|TestRemoteCacheFixture' -timeout 240s` under 600 s, pass; `go test ./core -run 'TestPartRestoredClone|TestRestored' -timeout 300s` under 450 s after cherry-picking `624b48d8dc`, pass; `go vet ./core/integration` before every engine run.
+
+### Still owed for slice 2
+
+One valid native run of the reshaped `TestWorkspaceCapture` (uncommitted in the worktree), blocked on the engine container above.
+
+### Proposed names and what is registered
+
+All registered names are subtests of `TestRemoteCacheTransferSuite` in `core/integration`.
+
+| Design name (§5 as amended by B1) | Registered | Note |
+| --- | --- | --- |
+| `TestFixtureControls` | same; `AbsentGate`, `MalformedRecords`, `BarrierActions`, `NoStaleBarrierOrHoldAfterRestart`, `ObserverOverflow`, `TransportShape`, `GitVisibility` | |
+| `TestPipeline/Warm`, `/Cold` | same | the module function is `build(input, variant)` returning `Build{variant, dirs}`; the design's `report(input, variant)` would have changed the existing `report(seed)` that `TestSchemaRecovery` uses |
+| `TestPipeline/FailedChain` | `TestPipeline/FailedChain/RetainedExec` | the retained exec on the private receiver |
+| content classification, "subtests of `TestPipeline/FailedChain`" | `TestPipeline/FailedChain/Served`, `/Status401`, `/Status403`, `/Status404`, `/Status410`, `/Status500`, `/TransportFault`, `/TruncatedBody`, `/DigestMismatch` | on the real HTTP content path with addressed offers |
+| design §2 step 5 | `TestPipeline/DonorReleased/BeforeRestart`, `/AfterRestart` | |
+| `TestHTTPRestore` | `/ChainSucceeds`, `/ChainFailsOriginSame`, `/ChainFailsOriginDiffers/{changed body, server error, not found, truncated body, no response}`, `/StateResolveLayout`, `/StatusTable`, `/AuthBacked/{ChainSucceeds, ChainFails}` | |
+| `TestGitTrees` | `/RemoteDownload`, `/RemoteFallback`, `/Local`, `/LocalCleaned`, `/LocalBundle` | |
+| `TestHostInputs` | `/NestedViewExportsWholeChain`, `/UnselectedSiblingNeverOpened` | |
+| `TestWorkspaceCapture` | same | |
+| `TestSharingDonorRestart` | `/DonorBeforeImport`, `/DonorAfterImport` | |
+| `TestSharingFinish` | `/OnePass`, `/ForegroundReadRacesPass`, `/ServiceBackedReceiver` | G2's failing prefix, the differing mount order and the two-pass decoded receiver are not registered; see the limits |
+| `TestEncodedRestart` | `/FailedAttachThenRestart`, `/RetryOnlyBookkeeping`, `/LocalRestoreReset` | `LocalRestoreReset` is G3 and F4 |
+| `TestPendingOffersRestart` | same | includes the A to B to C forward |
+| `TestOffers/BeforeStart`, `/Preparing`, `/Running`, `/Replacement`, `/Resources` | same; `/Resources/{SessionWithoutResource, SessionWithResource}` | |
+| `TestRenewal` | `/ArmedReplySucceeds`, `/ExpiredAddressesRenewed`, `/TimeoutThenFallback` | |
+| the seven `TestRemoteCacheIntegrated…` peers | not written | amendment B1 |
+
+## Slice 2 review corrections and the final native run
+
+### Host event: the engine container, and the form every run now uses
+
+Something on this host kills containers named `dagger-engine-*` about 25 seconds after they are created (19:44 in the other workstream, 21:23 and 21:35 here; unattributed, Docker keeps no events; the other workstream logs them to `/tmp/docker-events-attribution.log`). Two of my invocations were lost to it and are **host events, not test results**:
+
+- Ledger row 23, `TestWorkspaceCapture`, 21:23: stalled with no test output, killed by its 640 s process bound, exit 124.
+- A second attempt at 21:35 under a 960 s cold-cache bound: the container the CLI recreated was killed 25 seconds later; I stopped the hung run on the coordinator's instruction.
+
+Since then every invocation of mine uses a container no cleanup matches, started once with
+`docker run -d --name remote-cache-b7-engine --privileged -v remote-cache-b7-engine-state:/var/lib/dagger registry.dagger.io/engine:v1.0.0-beta.13`
+and selected with `_EXPERIMENTAL_DAGGER_RUNNER_HOST=container://remote-cache-b7-engine` in front of the same `dagger api call engine-dev test …` command, with the beta.13 CLI. Author B and any later run should use the same form. The nested dev engines the tests start are unaffected: they are services inside that engine, unprivileged from the test's point of view, as before. I touched no other container.
+
+### Corrections (slice 2 consolidation)
+
+| Finding | Commit | What changed |
+| --- | --- | --- |
+| D1 malformed archive | `0a41a82675` | `TestPipeline/FailedChain/MalformedArchive`: a well-addressed, digest-valid blob of random bytes reaches the production applier; nothing installed from the chain, one fallback |
+| D2 racing read accepts zero installs | `789333715d` | all four addresses of R installed exactly once, read after the pass is held again at R's first Finish |
+| D3 content faults not proven exercised | `0a41a82675` | a request must have reached the affected blob and ended as scripted |
+| D4 shared Git handle | `2283951b62` | `transferWithRepo` returns the handle |
+| D5 unbounded waits | `2283951b62` | one bounded client-close helper (shutdown, `reconnect`, the offers test's second session); bounded joins; the pause's release registered on every exit |
+| D6 permissive `StatusTable` | `03f97e2c04` | an expected result per status, exactly one origin request with that status |
+| D7 exit status, short bounds | process | see below |
+| D8 `Build.summary`, name table | `66dc91d01d`, this commit | `summary` deleted, step 6's carriers named; the table below replaces the earlier one |
+| D9 report | this commit | below |
+| D13 ledger | this commit | below |
+
+**D7.** My "commit only on a grep of `^ok`" gate was still wrong: a multi-package run can print an `ok` line and fail another package. I now save the output and gate on `go test`'s own exit status. My in-process rows used `-timeout` values of 200 to 400 s for runs that take one to six seconds; that does not meet the short-timeout instruction. From here in-process checks use a per-test bound of 60 s or less, with the compilation allowed for in the separate process bound.
+
+**D9.**
+- *The decoded receiver's second accessor on a real manager* is **not observed natively**. The row that would show it, a decoded multi-part receiver filled over two passes, is in process by ruling; `TestSharingFinish/ServiceBackedReceiver` and `/OnePass` share into encoded receivers only.
+- *Storage measurements are counts, not bytes*: snapshots, blobs and leases. No byte figure is reported anywhere in this report.
+- *D and H* are now compared explicitly in `TestPipeline`'s `hit` (Module source digest and resolved http File digest of A's and B's own setups), in every subtest that uses it.
+- *Mount order*, stated exactly: nothing unites two Container rows whose mount orders differ, natively or otherwise, because the order is part of the recipe. The obligation that remains is the reduced one: a receiver's own positional role names (`mount_dir:0`, `mount_dir:1`) are its own and are what it is installed under, which `TestSharingFinish/OnePass` and `TestPendingOffersRestart` assert natively for equal orders; the full-address mapping across different orders stays with `core/part_delegation_mount_test.go`.
+
+**D13, ledger accounting.** Rows 7 to 23 give the test timeout and the process bound of every engine invocation and its measured wall time. Trees: rows 7 to 21 ran the then-current tip plus uncommitted test files of the selected package; only row 22 (F6, `d70534a46a`) and the final run below ran a clean committed tree. Exact selections of the abbreviated rows, from my retained command records: row 13 `(TestSharingFinish|TestHTTPRestore|TestHostInputs)`; row 15 `(TestSharingFinish|TestRenewal|TestOffers|TestGitTrees|TestPipeline)` with subtests `(OnePass|ExpiredAddressesRenewed|TimeoutThenFallback|BeforeStart|Preparing|Running|RemoteDownload|RemoteFallback|Warm|Cold|FailedChain)`; row 19 `(TestSharingFinish|TestGitTrees|TestWorkspaceCapture|TestOffers|TestPipeline)` with `(OnePass|FailingPrefix|ForegroundReadRacesPass|Local|LocalCleaned|LocalBundle|Replacement|Resources|Cold)`; row 20 the same five tests plus `TestHTTPRestore` with `(ServiceBackedReceiver|LocalBundle|Replacement|DonorReleased|FailedChain|StatusTable)` and third level `(BeforeRestart|AfterRestart|RetainedExec)`; row 21 `(TestSharingFinish|TestWorkspaceCapture|TestPipeline|TestHTTPRestore)` with `(ServiceBackedReceiver|DonorReleased|StatusTable|AuthBacked)`. Process bounds of in-process runs before the interim section were the tool's, at most 600 s; exact values unknown.
+
+### Open production finding: a clean restart wipes B's cache after a module-loading import, a session end and a real collection
+
+Found by `TestWorkspaceCapture` (uncommitted, unchanged). Its first half passes every time: A's and B's Project rows carry the same `content` and `remote-cache` digest, B's `describe` result is the imported row, its body is not entered, and the imported `source` and `built` fields each own a B-local snapshot link. Then B's session ends, the engine's real collection runs, B restarts cleanly, and boot fails with `attach imported result <N> owner lease "snapshot": <ref>: not found`, resets with `import_failure` / `dagql_import_failure`, and every row is gone. In the diagnostic run the row is never reported with an in-memory link at any stage, sits where an argument of the SDK runtime's `withMountedCache` is allocated, every reported linked row has its owner lease, and the named snapshot was removed by the collection after the session ended. With the coordinator and author B; logs `logs/slice3-workspace-bootwipe.log`.
+
+### Ledger, runs on `remote-cache-b7-engine`
+
+All with `_EXPERIMENTAL_DAGGER_RUNNER_HOST=container://remote-cache-b7-engine`, otherwise the same command form.
+
+| # | Selection | Tree | Bounds (test, process) | Result | Wall |
+| --- | --- | --- | --- | --- | --- |
+| 24 | `TestWorkspaceCapture` | `d70534a46a` + the uncommitted test | 5 m, 960 s (cold-cache exception, approved) | content match passes; fails after the restart | 427 s |
+| 25 | `(TestWorkspaceCapture\|TestPipeline\|TestSharingFinish\|TestHTTPRestore\|TestOffers\|TestGitTrees)` with `(FailedChain\|Warm\|ForegroundReadRacesPass\|StatusTable\|BeforeStart\|Preparing\|Running\|Replacement\|Resources\|LocalCleaned)` | the same + the uncommitted D1 to D9 edits, committed unchanged afterwards | 8 m, 810 s | 28 subtests pass, all corrections; Workspace fails as above | 408 s |
+| 26 | `TestWorkspaceCapture`, stage tracking | `66dc91d01d` + the uncommitted test | 5 m, 640 s | the boot wipe seen: all tracked rows present until the restart, missing after | 395 s |
+| 27 | `TestWorkspaceCapture`, lease tracking | the same | 5 m, 640 s | the failing row and the removed snapshot identified | 404 s |
+
+### Proposed names and what is registered (replaces the earlier table)
+
+All registered names are subtests of `TestRemoteCacheTransferSuite` in `core/integration`.
+
+| Design name (§5 as amended by B1) | Registered | Note |
+| --- | --- | --- |
+| `TestFixtureControls` | same; `AbsentGate`, `MalformedRecords`, `BarrierActions`, `NoStaleBarrierOrHoldAfterRestart`, `ObserverOverflow`, `TransportShape`, `GitVisibility` | |
+| `TestPipeline/Warm`, `/Cold` | same | the module function is `build(input, variant)` returning `Build{variant, dirs}`, with no `summary` (step 6 is carried by `TestSchemaRecovery` and `TestSchemaRecoveryCold`); the design's `report(input, variant)` would have changed the existing `report(seed)` that `TestSchemaRecovery` uses |
+| `TestPipeline/FailedChain` | `TestPipeline/FailedChain/RetainedExec` | the retained exec on the private receiver |
+| content classification, "subtests of `TestPipeline/FailedChain`" | `TestPipeline/FailedChain/Served`, `/MalformedArchive`, `/Status401`, `/Status403`, `/Status404`, `/Status410`, `/Status500`, `/TransportFault`, `/TruncatedBody`, `/DigestMismatch` | on the real HTTP content path with addressed offers |
+| design §2 step 5 | `TestPipeline/DonorReleased/BeforeRestart`, `/AfterRestart` | |
+| `TestHTTPRestore` | `/ChainSucceeds`, `/ChainFailsOriginSame`, `/ChainFailsOriginDiffers/{changed body, server error, not found, truncated body, no response}`, `/StateResolveLayout`, `/StatusTable` | `AuthBacked` is not registered: in process by ruling |
+| `TestGitTrees` | `/RemoteDownload`, `/RemoteFallback`, `/Local`, `/LocalCleaned`, `/LocalBundle` | |
+| `TestHostInputs` | `/NestedViewExportsWholeChain`, `/UnselectedSiblingNeverOpened` | |
+| `TestWorkspaceCapture` | **not registered yet**: written, uncommitted; its content match passes, its restart half meets the boot-wipe finding below | |
+| `TestSharingDonorRestart` | `/DonorBeforeImport`, `/DonorAfterImport` | |
+| `TestSharingFinish` | `/OnePass`, `/ForegroundReadRacesPass`, `/ServiceBackedReceiver` | G2's failing prefix, the differing mount order and the two-pass decoded receiver are not registered; see the limits |
+| `TestEncodedRestart` | `/FailedAttachThenRestart`, `/RetryOnlyBookkeeping`, `/LocalRestoreReset` | `LocalRestoreReset` is G3 and F4 |
+| `TestPendingOffersRestart` | same | includes the A to B to C forward |
+| `TestOffers/BeforeStart`, `/Preparing`, `/Running`, `/Replacement`, `/Resources` | same; `/Resources/{SessionWithoutResource, SessionWithResource}` | |
+| `TestRenewal` | `/ArmedReplySucceeds`, `/ExpiredAddressesRenewed`, `/TimeoutThenFallback` | |
+| the seven `TestRemoteCacheIntegrated…` peers | not written | amendment B1 |
+
+## Final state for slice 3
+
+### The boot-wipe finding, closed
+
+`TestWorkspaceCapture` found it; the diagnostic runs (ledger rows 26 to 28) pinned it: the failing row was an imported `CacheVolume` (`field=cacheVolume`, imported, persisted, no in-memory snapshot link at any stage), the persisted mirror held `result_snapshot_links` row `<id>|<ref>|snapshot|[]` for it, no `dagql/result/<id>/…` lease existed in the engine's lease store at any stage, and of 58 saved links exactly two had no lease, both the SDK runtime's imported cache volumes. Author B's root cause: four backing types are exported without a snapshot and create one on the receiver at first use (`CacheVolume`, `RemoteGitMirror`, `ClientFilesyncMirror`, `HTTPState`); only `HTTPState` then attached the row's owner lease, so for the others the snapshot lived on the session's lease only. The session ends, a collection takes it (a live fault: the next mount fails, with no restart needed), the clean-shutdown checkpoint saves the link, and the next boot treats it as damage and wipes the cache. Fixed by author B in `16786b5fe3`, here `f51ac7f796` (`core.EnsureBackingSnapshot`). `TestWorkspaceCapture` (`888378e4ed`) passes unchanged with it and asserts both halves: after the session's end and a real collection a second ordinary call that mounts the runtime's cache volumes works, and after a clean restart there is no persistence reset, the imported fields keep their owner links and read, and the original call still skips the downstream body. `TestPipeline/DonorReleased/AfterRestart` never met it because there B serves the Module before importing, so the cache volume rows are B's own.
+
+This is the third production defect native cases found (after the key-only renewal panic and the part-acquired clone failure), all fixed by author B and cherry-picked here.
+
+### The full native set at the final tip
+
+Same command and bounds as F6 (`--timeout=15m`, process bound 1260 s), now sixteen tests with `TestWorkspaceCapture`, on `remote-cache-b7-engine` with `_EXPERIMENTAL_DAGGER_RUNNER_HOST=container://remote-cache-b7-engine`, clean committed tree each time.
+
+| # | Tip | Host load average (1, 5, 15 min) | Result | Wall |
+| --- | --- | --- | --- | --- |
+| 22 (F6) | `d70534a46a`, fifteen tests | not recorded; the host was otherwise idle | pass | 526 s |
+| 30 | `888378e4ed` | about 29, 62, 51 just after the run | **fail, in cleanup only**: 66 subtests pass, no test body fails; ten `stop fixture engine <name>: Post "http://dagger/query": context deadline exceeded`, a nested engine's clean stop exceeding the 45 s per-step bound of `5b943119c3` | 905 s |
+| 31 | **`9c376138c1`** (per-step stop bound two minutes, accepted by the coordinator) | 18, 56, 49 at the start; 61, 58, 51 at the end | **pass**, exit 0, no cleanup failure | **674 s** |
+
+Two other workstreams' engines (`remote-cache-engine`, `namespace-prep-engine`) were running work on the same host during rows 30 and 31; the coordinator could not give me a quiet window and ruled that I run and report the load. So: 526 s is the quiet-host figure. On a host oversubscribed about four times the same set takes 674 to 905 s, every test body still passes at default parallelism, and the only thing that gave way was my own 45 s cleanup bound, because a nested engine's clean stop writes its checkpoint and that was slow under load. No change to parallelism is needed and none was made.
+
+Per-test times of row 31, trace `77a6fa3dab2d1c096eceecaf70420873`: MixedExec 1m19, HostInputs 7m8, SharedHostDirectoryLifetime 1m23, SchemaRecovery 4m18, SchemaRecoveryCold 4m2, WorkspaceCapture 3m41, GitTrees 3m13, SharingDonorRestart 1m10, EncodedRestart 7m8, PendingOffersRestart 2m33, FixtureControls 2m8, Pipeline 5m49, Offers 5m45, Renewal 7m8, HTTPRestore 5m31, SharingFinish 7m8. The parents at 7m8 are the whole test process: their last subtests waited for one of the runner's 16 slots.
+
+### Ledger, continued
+
+| # | Selection | Tree | Bounds (test, process) | Result | Wall |
+| --- | --- | --- | --- | --- | --- |
+| 28 | `TestWorkspaceCapture` with full row, lease and saved-link dumps | `2036dcac4d` + the uncommitted test | 5 m, 640 s | the failing row is an imported `CacheVolume`; its saved link and missing lease shown | 477 s |
+| 29 | `TestWorkspaceCapture` with author B's fix and the live half | `f51ac7f796` + the uncommitted test, committed unchanged as `888378e4ed` | 5 m, 640 s | **pass**, 3 m 41 s class; no persistence reset | 447 s |
+| 30, 31 | the full native set | as in the table above | 15 m, 1260 s | above | above |
+
+In-process, gated on `go test`'s own exit status: `go test ./core -count=1 -timeout 120s` under 450 s after cherry-picking `f51ac7f796`, exit 0, 2.9 s; `go vet ./core/integration` before every engine run, exit 0.
+
+### Name table: the one change
+
+`TestWorkspaceCapture` is now registered (`888378e4ed`). `TestHTTPRestore/AuthBacked` stays unregistered, in process by ruling.
+
+### Tips
+
+Implementation `9c376138c1`. It carries three cherry-picks of author B's production fixes: `397221fe5c` (key-only renewal), `624b48d8dc` (part-acquired clone), `f51ac7f796` (backing snapshot ownership).
