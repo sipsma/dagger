@@ -176,8 +176,7 @@ func TestValueTransferPartsSelectedChain(t *testing.T) {
 	pending := loaded.(dagql.ObjectResult[*File])
 	require.Equal(t, "/visible/value.txt", mustTransferPath(t, bctx, pending))
 	require.NoError(t, b.Evaluate(bctx, pending))
-	contents, err := pending.Self().Contents(bctx, pending, nil, nil)
-	require.NoError(t, err)
+	contents := demandedFileContents(t, bctx, pending)
 	require.Equal(t, "selected bytes", string(contents))
 	require.NoError(t, b.WithExportedValues(bctx, dagql.ValueSelection{Roots: []dagql.AnyResult{pending}}, config.RefConfig{}, func(_ context.Context, forward *dagql.ExportedValues) error {
 		require.Empty(t, forward.Chains.Entries)

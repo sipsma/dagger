@@ -60,11 +60,8 @@ func readLazyOperationDirectoryFile(t *testing.T, ctx context.Context, dir *Dire
 	t.Helper()
 	path, snapshot, err := directoryOutput(dir)
 	require.NoError(t, err)
-	var data []byte
-	require.NoError(t, MountRef(ctx, snapshot, func(root string, _ *mount.Mount) error {
-		data, err = os.ReadFile(filepath.Join(root, path, name))
-		return err
-	}))
+	data, err := os.ReadFile(filepath.Join(testutil.Root(t, snapshot), path, name))
+	require.NoError(t, err)
 	return data
 }
 func TestGitLazyOperationsEvaluate(t *testing.T) {
