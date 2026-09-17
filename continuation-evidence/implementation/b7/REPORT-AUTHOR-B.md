@@ -288,3 +288,7 @@ In process, `TestTransferConstructorContentUnitesDownstreamCall` (`dagql`, commi
 Full text in `boot-wipe/FINDING.md`. An imported `CacheVolume`, `RemoteGitMirror` or `ClientFilesyncMirror` row arrives with no snapshot and creates one at first use. Nothing attaches the row's owner lease then; only `HTTPState` does (`core/schema/http.go:173`). The session's context lease is the snapshot's only protection, so after the session ends collection removes it, the checkpoint still saves the link because it reads links from the value, and boot wipes the cache. The running engine is already wrong after the collection: the next mount of that cache volume would fail.
 
 Reproduced for all three kinds with real stores and real collection, same boot error text as A's run. Recommendation: option (a), sync the row's owner leases at the five late-creation sites through one helper, the pattern `HTTPState` already uses. Ledger rows 16 to 19.
+
+## Boot wipe: fixed in `16786b5fe3`, option (a)
+
+`core.EnsureBackingSnapshot` at all five sites; a failed sync fails the call as `HTTPState`'s does and is retried at the next use. `TestImportedBackingSnapshotIsOwnedByItsRow` covers the three kinds, asserts the live fault is gone without a restart and that the restart keeps the cache; it fails for all three with the sync removed. The scratch file is deleted. The commit applies cleanly onto A's `2036dcac4d` (`git merge-tree`). Option (d) is recorded in `boot-wipe/FINDING.md` as a named item for the Human, not done. Ledger rows 21 to 25.

@@ -46,3 +46,13 @@ Recommendation: **(a)**. It is the existing pattern, it fixes the live fault as 
 ## Separate observation, no action proposed
 
 The checkpoint saves a typed row's links from the value's current state, not from the links whose leases were attached. That is what turned a missing lease into a whole-cache wipe rather than a row that persists as uninitialised. Saving only leased links is not sound on its own, because the encoder writes the payload's `Form` from the value too, so form and links would disagree. I mention it because any future late-created snapshot fails the same loud way.
+
+## Outcome (17 September 2026)
+
+The Coordinator chose option (a). Fixed in `16786b5fe3`: `core.EnsureBackingSnapshot` creates the snapshot and syncs the row's owner leases, used at all five sites. Policy on a failed sync: the call fails, as `HTTPState`'s does; a foreign row syncs again at its next use, so the failure is retried rather than left as a snapshot with no owner. The scratch reproduction is deleted; `core/backing_snapshot_test.go` (`TestImportedBackingSnapshotIsOwnedByItsRow`) replaces it for all three kinds, the cache volume through the production `WithMountedCache`. It asserts the live fault is gone (after the session ends and a collection runs, the row mounts the same snapshot and a write through it succeeds, no restart), then that a clean restart keeps the cache and reopens the same snapshot. With the sync removed all three kinds fail at the first mount after the collection: `boot-wipe/test-without-sync.log`. The wipe itself without the fix is in `boot-wipe/repro-three-kinds.log`.
+
+The two mirror kinds are driven through the helper, not through `initRemote` and `host.directory`, because those need git over the network and a client filesync connection. Their call sites are one line each.
+
+## Named item for the Human: option (d), not done here
+
+Boot treats one row whose saved owner link points at a missing snapshot as damage to the whole store and wipes everything. This fix removes the one known way to reach that by ordinary operations; it does not change the policy. Whether boot should instead drop that row and its dependants and keep the rest is a decision about the base's persistence contract, with its own risks (a dropped row that other saved rows reference, and hiding real corruption). It is recorded here as an open item for the Human and nothing in batch 7 implements it. The related observation above stands with it: the checkpoint saves a typed row's links from the value, not from the leases actually attached, which is why any future late-created snapshot that misses `EnsureBackingSnapshot` would fail in the same loud way.
