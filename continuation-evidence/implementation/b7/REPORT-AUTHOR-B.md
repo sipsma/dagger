@@ -160,3 +160,33 @@ Bounds: "test" is `-timeout`, "process" is the bound on the whole command, compi
 | 6 | `af2ddb4e36` | `go test -json ./dagql ./core ./engine/server` | 60 s / 180 s | 2392 pass, 5 skips (4 folded, 1 TODO), 0 fail; slowest `core` 18.1 s | 59.5 s (rebuild) |
 
 Narrow development selections since run 5, each 60 s / 300 s, under 2 s of tests: the four trigger tests, once each while being written and once as `-count=20` (120 s / 300 s, 1.2 s); the two marked decode tests (90 s / 400 s); the two `installChainPart` tests; the writer test after C6. `engine/snapshots`, `engineutil`, `imageexport` and `core/schema` are untouched since run 5 and were not rerun.
+
+# Integration, the leader orders and the owed-bookkeeping finding, 17 September, later still
+
+Branch `b7-integration-author-b`, author B's branch merged onto author A's `2e452a72de`. Commits: `9c21c9798b` and a second merge (no textual conflicts either time); `5f7537bfce` `reachBeforeCommit`, one site for `testBeforePartCommit` and A's `beforeCommit` barrier; `1e20b211c6` repair of batch 6's `TestSnapshotSharingCancelAfterPublicationDeliversReceipt`, which failed 5 of 5 on A's tip alone because A's `prepareDone` and `beforeCommit` points now meet the fixture mutex that test holds; `5a7b7d1cce` F2's two leader orders in `engine/server` on A's `decodeCopied` and `decodeJoined` points, 20 of 20; `37518e0769` the test below.
+
+## A's finding: a read after a failed sharing sync retries no bookkeeping
+
+**Not a production gap in the read path. The read is served by another row.** Reproduced in process (`core`, real store, A's `failOwnerAttachAfter` fault): after the failed sync R's events are `[installed-ready owner-sync]`. Then:
+- `LoadResultByResultID(ctx, "b", srv, R)`, which is what a client's `Ref[Directory](R)` does, returns **row 1, the local donor**, not R. A session load of a handle is an ordinary lookup, the donor is a complete equivalent, and equivalent results are interchangeable (G8). `Evaluate`, `file("notes.txt")` and the bytes all come from the donor. `evaluateResolved` is never called for R; R's events do not change.
+- `LoadResultByResultID(ctx, "", srv, R)`, the exact load, returns R. `Evaluate(R)` goes `evaluateOne`, `usesPartAcquisition` true, `evaluateAcquiredScope`, `demandPart(R, snapshot)`, sees `PartOutputInstalled`, `joinPartInstallation`, and the owning continuation retries: events become `[installed-ready owner-sync owner-sync settled owner-sync]`, with no selection, read, evaluation or second install.
+
+That also explains the contrast A saw: a demand-owned chain install has no local equivalent, so the next read is served by R itself and pays the debt.
+
+**What stays held meanwhile.** The installed part's protection (one transient snapshot pin) and the task's continuation are retained until the bookkeeping succeeds (`cache_part_task.go:76..90`: protections are released only after `synced`). Batch 6's `TestSnapshotSharingFailedFinishAndRetry` asserts exactly that retention, and `FailedFinishLastOwner` that collection of R releases it once. So while a complete local equivalent serves every session read, nothing retries R's bookkeeping, and one pin per failed slot stays until R is demanded exactly, R is collected, the cache closes, or the engine restarts (A observed the restart recovering it). A later sharing pass does not retry it either: it sees the part Busy and skips it.
+
+**Options.**
+1. **Recommended: no production change; reshape the native subtest.** Release the donor's owners before the read (session end and edge drop, as `TestSharingDonorRestart` already does), so R serves the read, and assert the bookkeeping-only retry then. Name the retention as a limit: bounded to one pin and one continuation per slot whose sync failed, on a storage-failure path, ended by exact demand, collection, close or restart.
+2. Let the sharing worker retry owed bookkeeping when a later pass meets a part that is Installed and not settled, by joining its installation as a demand does. It would end the retention without a demand, but it gives sharing a retry of its own, which the design's section 4 refuses ("no continuation state"); a design decision, not a correction.
+3. Make a session load that resolves a handle to an equivalent also wake the exact row's owed bookkeeping. I advise against: it makes an ordinary lookup do work for a row it did not select, against G8 and "ordinary engine behavior unchanged".
+
+## Ledger, continued
+
+| # | Tree | Command | Test / process bound | Result | Wall |
+| --- | --- | --- | --- | --- | --- |
+| 7 | `5f7537bfce` contents | the seven packages | 90 s / 210 s | **FAILED**: `dagql` `TestSnapshotSharingCancelAfterPublicationDeliversReceipt`; 3031 pass | 89.1 s |
+| 7a | A's tip `7356f6d6bc`, detached | `-count=5 -run` that test, `./dagql` | 120 s / 300 s | diagnostic: 5 of 5 fail, so it is A's | 52 s |
+| 7b | `1e20b211c6` | `./dagql` | 90 s / 210 s | ok | 18.3 s |
+| 8 | `37518e0769` | the seven packages | 90 s / 210 s | **3041 pass, 5 skips (4 folded, 1 TODO), 0 fail**; slowest `core` 40.8 s, about twice its usual time, the host being busy | 90.5 s |
+
+Narrow selections, each 60 to 120 s / 300 to 400 s: the leader-order test once and `-count=20`; the owed-bookkeeping reproduction several times while tracing, twice with temporary prints in `dagql` that were restored, and `-count=10` in its final form.
