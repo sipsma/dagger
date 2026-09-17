@@ -429,3 +429,9 @@ In-process, gated on `go test`'s own exit status: `go test ./core -count=1 -time
 ### Tips
 
 Implementation `9c376138c1`. It carries three cherry-picks of author B's production fixes: `397221fe5c` (key-only renewal), `624b48d8dc` (part-acquired clone), `f51ac7f796` (backing snapshot ownership).
+
+## Slice 3 review: the remaining D5 paths
+
+The simplification seat found the inherited cleanup paths D5 had not reached: `TestPartMixedExecOutputs`, `TestSharedHostDirectoryLifetime` and the two `TestSchemaRecovery` tests still closed their clients directly and stopped their services with no deadline, aborting at the first failed step, and two extra sessions deferred an unbounded `Close` whose error was discarded. One helper, `stopNestedEngine`, now gives those tests the same shutdown as `fixtureEngine`: each step under its own fresh deadline, every step attempted, errors joined, a handle forgotten only once its step succeeded; the two extra sessions use `closeClientBounded`. No scenario changed.
+
+On the D7 prose: I had promised in-process bounds of 60 s or less and then recorded a 120 s one for the whole `core` package. The recorded values stand as recorded; from this entry on the promise is kept: this correction's checks were `go test -c ./core/integration` (compilation only, under a 400 s process bound, exit 0) and `go test ./core/integration -run '^TestNestedEngineDump' -timeout 60s` (engine-free, under 200 s, exit 0). The package's other tests need an engine and were not run here; author B integrates this commit and does the final runs.
