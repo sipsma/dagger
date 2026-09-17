@@ -133,12 +133,16 @@ func TestLazyWholeContainerRetainsOperation(t *testing.T) {
 func TestLazyEvaluatedFilesystemClones(t *testing.T) {
 	ctx, store, cache, srv, _ := executionFixture(t)
 	ref, _ := store.Build(t, nil, "nested/file", "saved bytes")
+	// The two operations evaluated here read nothing through a mount: a rootfs
+	// view takes its container's snapshot, and a blob writes a fresh one.
 	source := &Directory{Dir: new(LazyAccessor[string, *Directory]), Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory])}
-	source.SetPath("/")
+	source.SetPath("/nested")
 	source.SetSnapshot(ref)
-	parent := attachTransferObject(t, ctx, cache, srv, "evaluated-clones", "source", source)
-	dir, err := source.Subdirectory(ctx, parent, "nested")
-	require.NoError(t, err)
+	container := NewContainer(Platform{OS: "linux", Architecture: "amd64"})
+	container.FS.setValue(source)
+	parent := attachTransferObject(t, ctx, cache, srv, "evaluated-clones", "source", container)
+	dir := &Directory{Dir: new(LazyAccessor[string, *Directory]), Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
+		Lazy: &ContainerRootFSLazy{LazyState: NewLazyState(), Parent: parent}}
 	dirOp := dir.Lazy
 	require.NoError(t, dir.LazyEvalFunc()(ctx))
 	require.Same(t, dirOp, dir.Lazy)
@@ -158,8 +162,8 @@ func TestLazyEvaluatedFilesystemClones(t *testing.T) {
 	require.NoError(t, clone.OnRelease(ctx))
 	require.NoError(t, dir.OnRelease(ctx))
 
-	file, err := source.Subfile(ctx, parent, "nested/file")
-	require.NoError(t, err)
+	file := freshLazyOperationFile()
+	file.Lazy = &FileBlobLazy{LazyState: NewLazyState(), Filename: "file", Contents: []byte("saved bytes"), Permissions: 0644}
 	fileOp := file.Lazy
 	require.NoError(t, file.LazyEvalFunc()(ctx))
 	require.Same(t, fileOp, file.Lazy)
