@@ -1352,13 +1352,13 @@ under the one-hour rule with the others (earliest 21:10 UTC).
 
 ### A1 candidate `90f6cd5039` (`pkg/a1`, worktree /tmp/pkg-a1)
 
-25 commits on A0's pushed `f97c446e23`? No: on A0's `e4e18ce47d` (A0's
-lint follow-up `f97c446e23` came after; A1 moves onto it before push).
+25 commits on A0's `e4e18ce47d` (A0's lint follow-up `f97c446e23` came
+after; A1 moves onto it before push).
 The 20 originals (`a7d4bad229..42a57419de`) all paired (map below) plus
 five adaptation commits, all Erik-authored and signed off, no trailers,
 no evidence files, no TLA or generated-file changes:
 
-- `4cfc63146b` "core: run the eager producer tests without privileges"
+- `577900a239` "core: run the eager producer tests without privileges"
   (above the fixture file's introducing commit): the A1-context part of
   `397168d119`, seven hunks by hand, helpers not duplicated.
 - `a8e7d01a6b` "core/schema: list main's two new objects among the
