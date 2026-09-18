@@ -2017,3 +2017,38 @@ CommitReadyPart, demandPart, scanPartSources, selectDemandPartSource.
 Local gocyclo tool after the commit lists none of the flagged functions
 under 30 except the five with directives. Lint-all on `9958d1caba` running
 (/tmp/pkg-a3-lint3.log).
+
+#### A3 lint result, tip check, and an intermittent failure in the series
+
+Lint-all on `9958d1caba` (/tmp/pkg-a3-lint3.log): `golangci-lint:lint-all
+ERROR [1m32s]`, 3 findings, all from the lint commit itself (receiver name
+of the new `LazyState.awaitUnlocked`, two ineffectual `persistDB`
+assignments in NewCache). Fixed and the unreviewed, unpushed lint commit
+amended → `d67442f45a`. Lint-all on `d67442f45a`
+(/tmp/pkg-a3-lint4.log): `golangci-lint:lint-all DONE [1m32s]`, 0 findings.
+
+Tip check on `d67442f45a` (one invocation per package, 60 s, core/schema
+120 s; /tmp/pkg-a3-tests5.log, /tmp/pkg-a3-tests5-schema.log): `ok dagql
+4.781s`, `ok engine/snapshots 5.546s`, `ok core/schema 13.743s`;
+`FAIL core 18.633s`: `--- FAIL: TestPartInlineAddress/concurrent (0.25s)`,
+"snapshot path does not name a declared inline envelope"
+(part_inline_test.go:115, from dagql/cache_snapshot_scope.go:72). 1181
+top-level PASS, 1 FAIL, 4 SKIP.
+
+This failure is intermittent and predates every adaptation here: it was in
+A3's first run at the original content (/tmp/pkg-a3-tests.log) and absent
+from runs 2–4; a focused `go test -count=20 -run 'TestPartInlineAddress$'
+./core/` on `d67442f45a` failed 1 of 20. Batch 7's own record
+(implementation/b7/REPORT-AUTHOR-B.md:14, manifest/BATCH-7.md:33) names it:
+a race in batch 4's source scan when two parts of one imported row are
+demanded concurrently, about one run in twenty, "on the unchanged batch 6
+tree as well"; its fix is `959054a2e0` "dagql: do not select a part source
+from a row that could not be captured" (dagql/cache_part_source.go +15,
+cache_part_source_test.go +59, cache_value_transfer_test.go +6), authored on
+`b7-integration-author-b`, and it is not in the packaged `b4-acquisition`
+branch nor in A3 (subject absent; see below for the code check). Reported to
+the coordinator for a ruling (Erik's rule points at A3, the PR whose commit
+introduced the defect).
+
+Hash map for the series: /tmp/pkg-map-a3.txt (44 originals mapped, 7 new:
+two demanded-bytes commits, four ruling commits, the lint commit).
