@@ -57,10 +57,14 @@ type fakeService struct {
 	pollWaits     []int
 	// pollFailures is how many polls fail with a transport error before one
 	// succeeds; pollStatus, when set, answers every poll with that status.
-	// pollKick wakes an open poll so it re-reads pollStatus.
-	pollFailures atomic.Int32
-	pollStatus   atomic.Int32
-	pollKick     chan struct{}
+	// pollKick wakes an open poll so it re-reads pollStatus. pollBusy is
+	// how many polls, after the failures, are answered 503 with the
+	// Retry-After header pollRetryAfter when it is set.
+	pollFailures   atomic.Int32
+	pollStatus     atomic.Int32
+	pollKick       chan struct{}
+	pollBusy       atomic.Int32
+	pollRetryAfter string
 	// claimAllBlobs makes the blob check answer that nothing needs
 	// uploading, whatever the store holds.
 	claimAllBlobs atomic.Bool
@@ -256,6 +260,14 @@ func (s *fakeService) poll(req *http.Request) (*http.Response, error) {
 	if s.pollFailures.Load() > 0 {
 		s.pollFailures.Add(-1)
 		return nil, errors.New("connection refused")
+	}
+	if s.pollBusy.Load() > 0 {
+		s.pollBusy.Add(-1)
+		resp := jsonResponse(http.StatusServiceUnavailable, protocol.ErrorResponse{Error: "poll again"})
+		if s.pollRetryAfter != "" {
+			resp.Header.Set("Retry-After", s.pollRetryAfter)
+		}
+		return resp, nil
 	}
 	if status := s.pollStatus.Load(); status != 0 {
 		return jsonResponse(int(status), protocol.ErrorResponse{Error: "unknown token"}), nil

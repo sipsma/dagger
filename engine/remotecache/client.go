@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -208,6 +209,23 @@ func (c *client) pollLoop(ctx context.Context) error {
 			if status == http.StatusUnauthorized {
 				c.log.Error("remote cache service refused the engine's token; stopping the client", "error", err)
 				return fmt.Errorf("%w: %w", errUnrecoverable, err)
+			}
+			// A 503 is the service asking for another poll, in or after
+			// the startup phase (it answers a zero-wait poll so while an
+			// import is still being prepared): wait what its Retry-After
+			// says, or the current backoff when it says nothing, and leave
+			// the doubling where it is. Any other failure doubles.
+			var serviceErr *serviceError
+			if errors.As(err, &serviceErr) && serviceErr.status == http.StatusServiceUnavailable {
+				retryIn := backoff
+				if serviceErr.retryAfter > 0 {
+					retryIn = serviceErr.retryAfter
+				}
+				c.log.Info("remote cache service asked for another poll", "retryIn", retryIn, "error", err)
+				if err := sleepContext(ctx, retryIn); err != nil {
+					return err
+				}
+				continue
 			}
 			c.log.Warn("remote cache poll failed; retrying", "error", err, "retryIn", backoff)
 			if err := sleepContext(ctx, backoff); err != nil {
@@ -416,6 +434,22 @@ func sessionReportBody(report *server.SessionReport) protocol.SessionReport {
 type serviceError struct {
 	status int
 	body   protocol.ErrorResponse
+	// retryAfter is the answer's Retry-After in seconds, bounded to
+	// retryAfterMax, or zero when absent or unusable.
+	retryAfter time.Duration
+}
+
+// retryAfterMax bounds a Retry-After the service asks for.
+const retryAfterMax = 30 * time.Second
+
+// parseRetryAfter reads a Retry-After header in seconds; anything else,
+// including the HTTP-date form, is zero.
+func parseRetryAfter(value string) time.Duration {
+	seconds, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || seconds <= 0 {
+		return 0
+	}
+	return min(time.Duration(seconds)*time.Second, retryAfterMax)
 }
 
 func (e *serviceError) Error() string {
@@ -457,7 +491,7 @@ func (c *client) do(ctx context.Context, timeout time.Duration, method, path str
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		serviceErr := &serviceError{status: resp.StatusCode}
+		serviceErr := &serviceError{status: resp.StatusCode, retryAfter: parseRetryAfter(resp.Header.Get("Retry-After"))}
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		if json.Unmarshal(raw, &serviceErr.body) != nil && len(raw) > 0 {
 			serviceErr.body.Error = strings.TrimSpace(string(raw))

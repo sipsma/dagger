@@ -246,3 +246,86 @@ func TestStartupRefusedToken(t *testing.T) {
 	require.Zero(t, h.adapter.startupCalls.Load())
 	require.Empty(t, h.svc.pollOpened, "no poll got past the refusal")
 }
+
+// attempts collects the virtual times of poll attempts.
+func (h *virtualHarness) attempts(t *testing.T, n int) []time.Time {
+	t.Helper()
+	var out []time.Time
+	for range n {
+		select {
+		case <-h.svc.pollAttempted:
+			out = append(out, time.Now())
+		case <-time.After(5 * time.Minute):
+			t.Fatal("timed out waiting for a poll attempt")
+		}
+	}
+	return out
+}
+
+// A 503 with Retry-After is the service asking for another poll while it
+// prepares an import: during the startup phase the client polls again
+// after that many seconds, keeps the phase open, and releases imports-done
+// when the page arrives.
+func TestStartupServiceBusyHonorsRetryAfter(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		h := startVirtual(t, func(svc *fakeService, _ *fakeAdapter) {
+			svc.pollBusy.Store(3)
+			svc.pollRetryAfter = "1"
+			svc.zeroWaitPages <- importPage("p", 1)
+		})
+		start := time.Now()
+		outcome, imports := h.adapter.startup.Wait(h.ctx, DefaultStartupWait, nil)
+		require.Equal(t, server.RemoteCacheStartupImportsDone, outcome)
+		require.Equal(t, 1, imports)
+		require.Equal(t, 3*time.Second, time.Since(start), "three retries, one second each")
+		h.awaitLongPoll(t)
+		require.Equal(t, []int{0, 0, 0, 0, 0, pollWaitSeconds}, h.svc.recordedPollWaits(), "three busy answers, the page, the empty page, then the long wait")
+	})
+}
+
+// A 503 without Retry-After waits the current backoff and does not advance
+// it: two in a row cost the minimum backoff twice, not once and twice.
+func TestServiceBusyWithoutRetryAfterTakesTheCurrentBackoff(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		h := startVirtual(t, func(svc *fakeService, _ *fakeAdapter) {
+			svc.pollBusy.Store(2)
+		})
+		attempts := h.attempts(t, 3)
+		require.Equal(t, []time.Duration{pollBackoffMin, pollBackoffMin}, gaps(attempts))
+	})
+}
+
+// A series of 503s neither resets nor advances the doubling backoff: after
+// two transport failures (1 s, 2 s) the backoff is 4 s; two busy answers
+// with Retry-After 1 cost 1 s each; the next transport failure still waits
+// 4 s.
+func TestServiceBusyDoesNotMoveTheBackoff(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		h := startVirtual(t, func(svc *fakeService, _ *fakeAdapter) {
+			svc.pollFailures.Store(2)
+			svc.pollBusy.Store(2)
+			svc.pollRetryAfter = "1"
+		})
+		attempts := h.attempts(t, 4)
+		// The fourth attempt was the second busy answer; the fifth poll
+		// fails on the transport and waits the backoff as it stood.
+		h.svc.pollFailures.Store(1)
+		attempts = append(attempts, h.attempts(t, 2)...)
+		require.Equal(t, []time.Duration{time.Second, 2 * time.Second, time.Second, time.Second, 4 * time.Second}, gaps(attempts))
+	})
+}
+
+// Retry-After is seconds, positive, bounded to thirty; anything else is
+// zero and means the current backoff.
+func TestParseRetryAfter(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, time.Second, parseRetryAfter("1"))
+	require.Equal(t, 7*time.Second, parseRetryAfter(" 7 "))
+	require.Equal(t, retryAfterMax, parseRetryAfter("600"))
+	for _, bad := range []string{"", "0", "-1", "1.5", "Wed, 21 Oct 2015 07:28:00 GMT"} {
+		require.Zero(t, parseRetryAfter(bad), bad)
+	}
+}
