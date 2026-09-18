@@ -1348,3 +1348,91 @@ core/integration, whose summary never appears, no `--- FAIL`, no panic
 `timeout-minutes: 30` and #14093's same check took 23m49s. Job-timeout
 cut on a slow runner in the registry window; infrastructure; rerun
 under the one-hour rule with the others (earliest 21:10 UTC).
+
+
+### A1 candidate `90f6cd5039` (`pkg/a1`, worktree /tmp/pkg-a1)
+
+25 commits on A0's pushed `f97c446e23`? No: on A0's `e4e18ce47d` (A0's
+lint follow-up `f97c446e23` came after; A1 moves onto it before push).
+The 20 originals (`a7d4bad229..42a57419de`) all paired (map below) plus
+five adaptation commits, all Erik-authored and signed off, no trailers,
+no evidence files, no TLA or generated-file changes:
+
+- `4cfc63146b` "core: run the eager producer tests without privileges"
+  (above the fixture file's introducing commit): the A1-context part of
+  `397168d119`, seven hunks by hand, helpers not duplicated.
+- `a8e7d01a6b` "core/schema: list main's two new objects among the
+  persisted-family exceptions" (after the last commit editing the list).
+- `d25ee382cb` "core/schema: give the workspace checkout stub's
+  directories their accessors" (above the tree-recording commit).
+- `013addb8d0` "core/schema: exercise the tree-building branch in the
+  producer resolver tests" (Erik's (3): depth 1; `fullCheckout` not
+  producer-recorded, A3 replaces producer recording with lazy outputs).
+- `90f6cd5039` "core: drop the four producer-era tests that no
+  environment can run" (tip; Erik's option 1): core/git_completed_producers_test.go
+  and core/audited_eager_producers_test.go removed whole (every helper in
+  them was used only by the four tests; no other file references them);
+  the earlier in-lineage read-helper adaptation for that file was
+  dropped from the series as moot.
+
+Hand-adapted conflict resolutions in core/schema/git.go (two commits)
+as recorded above; test-signature folds as recorded above.
+
+Corrections table: `397168d119`/`bbbe792279` split by file: A0 (helpers +
+snapshot_transfer_test.go, done in #14220), A1 (eager_producer_execution_test.go,
+done here; the git_lazy_test.go hunk is void since A1 drops that file),
+A2 (value_transfer_chain_test.go, value_transfer_restart_test.go), A3
+(http_lazy_test.go, part_acquisition_test.go; the
+lazy_operation_execution_test.go hunk is A1's, and its helper-adding part
+is A0's), A4 (part_offer_admission_test.go). Four producer-era tests
+dropped from A1 per Erik (need mount privileges no environment grants;
+never made unprivileged by batch 7; superseded by A3's native tree tests,
+`dfe2076ee4`, `76311056c7`). The A1 and A2 PR descriptions open with the
+sentence that A3 supersedes producer recording with the lazy-outputs
+design, and A1's adds that the four tests were dropped for that reason.
+Standing rule from Erik: the next time producers cost anything, stop;
+the answer then is collapse.
+
+Tests on `90f6cd5039`, clean tree (/tmp/pkg-a1-tests5.head): `go build
+./...` ok; `go test -v -count=1 -timeout 60s ./core/ ./core/modules/
+./core/schema/ ./dagql/ ./dagql/call/` (the packages A1 touches outside
+the engine suite), log /tmp/pkg-a1-tests5.log, exit 0: all five ok (core
+11.172 s, core/modules 0.023 s, core/schema 17.342 s, dagql 2.392 s,
+dagql/call 0.004 s); 1070 top-level PASS, 0 FAIL, 0 top-level SKIP, one
+inherited nested SKIP (`TestCacheContextCancel/last_waiter_canceled_fn_returns_value_still_releases`).
+Earlier runs on the way (for provenance): /tmp/pkg-a1-tests.log (14 FAIL,
+before adaptation), /tmp/pkg-a1-tests2.log (8), /tmp/pkg-a1-tests3.log (6),
+/tmp/pkg-a1-schema-tests4.log (core/schema green). The engine-suite
+change (one core/integration file and the persisted-core-returns
+testdata module) is CI-only. LLM rule: no LLM file touched. Local lint:
+LINTA1
+
+Hash map (`a7d4bad229..42a57419de`, 20 commits, to `e4e18ce47d..90f6cd5039`, 25):
+
+```
+397e02758e -> 32098ffb40  dagql: preserve typed values and references across cache saves
+7463ac2ec9 -> 40514e6b1b  docs: restrict remote-cache work to the requested foundations
+55d420a9d7 -> 7d9f95116c  core: record ordinary producers for merged changeset directories
+d58f806664 -> d07c7b658e  core: preserve supplied exec metadata when persisting inputs
+dfed2f750e -> e9310b73b8  core: retain completed container producer inputs
+17c8d52177 -> e0058a5f5d  core: retain completed file and directory producers
+d7223c6c8d -> a3dc348036  cache: label extra digests for remote transfer
+e3a0437432 -> 4e1a644795  cache: capture live persisted records without evaluation
+fa388f1962 -> 81a0c4c3d6  fix(cache): exclude attachment and direct evaluation from capture
+93ee3e933b -> 2e15c686bd  fix: preserve quiescent container persistence during reader contention
+d54f0748ce -> df5e9285d0  fix: release eager output resources on failed construction
+5e01d645c3 -> f0be6172f8  core: record completed filesystem producers before publication
+38013d0d20 -> 13d97565d9  core: retain producers for cleaned and imported Git directories
+39136200f6 -> da72febda6  core: retain exact Git ref and commit tree producers
+0dcd81d970 -> 4fed892ea5  core: retain stateless HTTP File producers
+f6d063060f -> d5d5805675  core: retain builtin Container and generated schema producers
+e60bf15c79 -> 2af675b970  test: verify eager producer persistence and execution
+967a17eafa -> 37ebf13094  test: cover advanced bundle hints on decoded repositories
+ca869972d8 -> 39281a4b35  test: cover recording rejection at every eager producer site
+42a57419de -> 9f65ee1c8b  docs: state completed recipe publication ownership
+(new) -> a8e7d01a6b  core/schema: list main's two new objects among the persisted-family exceptions
+(new) -> d25ee382cb  core/schema: give the workspace checkout stub's directories their accessors
+(new) -> 013addb8d0  core/schema: exercise the tree-building branch in the producer resolver tests
+(new) -> 577900a239  core: run the eager producer tests without privileges
+(new) -> 90f6cd5039  core: drop the four producer-era tests that no environment can run
+```
