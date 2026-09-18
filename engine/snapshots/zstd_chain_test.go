@@ -40,10 +40,20 @@ func TestZstdExportChainImports(t *testing.T) {
 	testutil.CheckFile(t, imported, "dir/top.txt", "top layer, compressed with zstd")
 	require.NoError(t, imported.Release(ctx))
 
-	diffsBefore := producer.Diffs.Load()
+	// The zstd path diffs through its own walking differ, so the observed
+	// differ's counter does not see it; content writes do. The first export
+	// wrote both layers' blobs; the second writes nothing.
+	writes := 0
+	producer.BeforeWrite = func([]byte) error { writes++; return nil }
+	third, _ := producer.Build(t, top, "third.txt", "a third layer, to see the writes")
+	first, err := third.ExportChain(ctx, config.RefConfig{Compression: compression.New(compression.Zstd)})
+	require.NoError(t, err)
+	require.Positive(t, writes, "a fresh zstd diff writes its blob through the observed store")
+	require.NoError(t, first.Release(ctx))
+	writes = 0
 	again, err := top.ExportChain(ctx, config.RefConfig{Compression: compression.New(compression.Zstd)})
 	require.NoError(t, err)
 	require.Equal(t, chain.Layers[1].Descriptor.Digest, again.Layers[1].Descriptor.Digest, "the zstd blob is reused")
-	require.Equal(t, diffsBefore, producer.Diffs.Load())
+	require.Zero(t, writes, "and nothing was written for it")
 	require.NoError(t, again.Release(ctx))
 }
