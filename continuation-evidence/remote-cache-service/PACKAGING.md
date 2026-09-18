@@ -1203,8 +1203,11 @@ yet (REVIEW_REQUIRED).
 
 Reviewer approved `13830a571b`; moved onto #14093's post-merge head
 `21f73b7a33` as `e4e18ce47d` (`git range-diff 1f5fc77117..13830a571b
-21f73b7a33..e4e18ce47d` all equal; commits now `f69225af99` store,
-`e4e18ce47d` core). Pushed as `sipsma/remote-cache-test-store` (new
+21f73b7a33..e4e18ce47d` all equal: an equal A0 patch series and unchanged
+tested packages, not identical full trees; the base moved by main's
+`577d0a04f5`, nine lines in internal/cmd/dagger/shell.go, the separately
+merged debug-listener fix; commits now `f69225af99` store, `e4e18ce47d`
+core). Pushed as `sipsma/remote-cache-test-store` (new
 branch, no prior remote branch or PR). PR
 https://github.com/dagger/dagger/pull/14220, base
 `sipsma/remote-cache-deferred-filesystem-restoration`, head
