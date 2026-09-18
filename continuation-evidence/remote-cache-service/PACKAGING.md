@@ -2220,3 +2220,29 @@ members, #14229 at position 15 above #14228 (14). Read back: head
 `e8846990e9`, base `sipsma/remote-cache-value-transfer`, head repo
 dagger/dagger, draft false, body verbatim (trailing newline only;
 /tmp/pkg-a3-pr-body.live.md). CI watch re-armed with #14229.
+
+### #14228 follow-ups: the three A2 code corrections and the docs line
+
+Coordinator's ruling: the three code corrections as follow-up commits at
+#14228's tip in manifest order, then the docs-only one; of
+core/backing_snapshot_test.go, cases needing the gated fixture go to A6
+with the fixture, cases that run without it stay. Split (checked on a
+scratch copy with all three fixes): TestImportedBackingSnapshotIsOwnedByItsRow
+(16786b5fe3) needs no fixture, stays; TestImportedBackingSnapshotIsDroppedWhenItsOwnerAttachFails
+(5d3ee071c7) and TestImportedBackingSnapshotConcurrentFirstUses
+(cfa148371c) arm `ArmTransferFixtureBarrier` after
+`EnableTransferFixtureParts`, go to A6; the file's shared helpers stay.
+
+Commits on `pkg/a2` above the published `c7dc73fbf7` (tag
+`pkg/a2-published`): `2266f481a1` (16786b5fe3 whole), `95a320301e`
+(5d3ee071c7 minus its fixture case), `a4ea34dcec` (cfa148371c minus its
+fixture case; test file taken as cfa148371c's version minus the two
+fixture functions after a context conflict), `dca16de409` (87c099a615,
+the four doc lines placed above the lint commit's gocyclo directive with
+gofmt's `//` separator, hence 5 insertions vs the original's 4). Code
+files identical to the originals by diffstat (94/12, 83/23, 26/3). Each
+message kept plus a provenance paragraph; author and signoff Erik; no
+attribution. Running on `dca16de409`: core, dagql (60 s) and core/schema
+(120 s) once (/tmp/pkg-a2-followups-tests.head written first;
+/tmp/pkg-a2-followups-tests.log, -schema.log) and lint-all
+(/tmp/pkg-a2-followups-lint.head, .log).
