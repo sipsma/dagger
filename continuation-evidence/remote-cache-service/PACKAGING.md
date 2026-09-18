@@ -1068,3 +1068,7 @@ last-waiter skip; all unexecuted. Six PASS parents contain only skipped
 fixture children and so prove no physical behavior. This run supplies
 no physical-store proof; that proof stays with an in-place-store run (A0
 and above) or the top-PR CI job, per the coordinator's ruling.
+Force-pushed with lease on the original tip `62d62bd0c3`:
+`sipsma/remote-cache-snapshot-chains` = `d709b706bd`; GitHub shows base
+`sipsma/remote-cache-container-part-persistence`, 17 commits. Fresh check
+runs watched.
