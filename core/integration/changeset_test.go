@@ -7,9 +7,13 @@ package core
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"dagger.io/dagger"
+	"github.com/dagger/dagger/internal/testutil"
 	"github.com/dagger/testctx"
 	"github.com/stretchr/testify/require"
 )
@@ -848,6 +852,68 @@ func (s ChangesetSuite) TestWithChanges(ctx context.Context, t *testctx.T) {
 	s.testWithChangesSymlinks(t)
 }
 
+// Regression test for a snapshot use-after-release: Directory.withChanges with
+// an empty changeset used to store the parent's snapshot ref instance on the
+// derived directory instead of opening its own handle. Once the derived cache
+// entry was collected (session close plus cache prune), releasing its snapshot
+// handle invalidated the parent's still-cached snapshot, and every later use
+// of the parent from any session failed with "invalid immutable ref". A
+// dedicated nested engine is used because the repro requires an unrestricted
+// prune of the engine-wide cache.
+func (ChangesetSuite) TestWithChangesEmptyChangesetKeepsParentSnapshot(ctx context.Context, t *testctx.T) {
+	c := connect(ctx, t)
+
+	engineSvc, err := c.Host().Tunnel(devEngineContainerAsService(devEngineContainer(c))).Start(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { engineSvc.Stop(ctx) })
+	endpoint, err := engineSvc.Endpoint(ctx, dagger.ServiceEndpointOpts{Scheme: "tcp"})
+	require.NoError(t, err)
+
+	keeper, err := dagger.Connect(ctx,
+		dagger.WithRunnerHost(endpoint),
+		dagger.WithLogOutput(testutil.NewTWriter(t)))
+	require.NoError(t, err)
+	t.Cleanup(func() { keeper.Close() })
+
+	parentOf := func(cl *dagger.Client) *dagger.Directory {
+		return cl.Directory().WithNewFile("marker.txt", "shared parent")
+	}
+
+	// keeper takes shared ownership of the parent's cache entry so it outlives
+	// the second session below.
+	_, err = parentOf(keeper).Sync(ctx)
+	require.NoError(t, err)
+
+	// A second session derives a directory from the same parent by applying an
+	// empty changeset, evaluates it, and disconnects.
+	secondSession, err := dagger.Connect(ctx,
+		dagger.WithRunnerHost(endpoint),
+		dagger.WithLogOutput(testutil.NewTWriter(t)))
+	require.NoError(t, err)
+	_, err = parentOf(secondSession).WithChanges(secondSession.Changeset()).Sync(ctx)
+	require.NoError(t, err)
+	require.NoError(t, secondSession.Close())
+
+	// The closed session's cache refs release asynchronously, and the derived
+	// entry is only collected once a prune removes its persisted edge. Keep
+	// pruning and re-mounting the parent long enough to cover both; with the
+	// shared-handle bug the glob fails with "invalid immutable ref" as soon as
+	// the derived entry is collected.
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		require.NoError(t, keeper.Engine().LocalCache().Prune(ctx))
+		// Vary the pattern so each call is a fresh (uncached) evaluation that
+		// has to mount the parent snapshot.
+		pattern := fmt.Sprintf("*%d*", time.Now().UnixNano())
+		_, err := parentOf(keeper).Glob(ctx, pattern)
+		require.NoError(t, err)
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+}
+
 func (s ChangesetSuite) TestChangesAsPatch(ctx context.Context, t *testctx.T) {
 	s.testChangeApplying(t, func(dest *dagger.Directory, source *dagger.Changeset) *dagger.Directory {
 		return dest.WithPatchFile(source.AsPatch())
@@ -922,6 +988,41 @@ func (ChangesetSuite) testChangeApplying(t *testctx.T, apply func(*dagger.Direct
 		newInSubdirContent, err := resultDir.File("subdir/new.txt").Contents(ctx)
 		require.NoError(t, err)
 		require.Equal(t, "new in subdir", newInSubdirContent)
+	})
+
+	t.Run("renamed file", func(ctx context.Context, t *testctx.T) {
+		c := connect(ctx, t)
+
+		// A file whose identical content moves to a new path reads as a
+		// rename to git. AsPatch shells out to `git diff --no-prefix
+		// --no-index` between the a/ and b/ mount dirs; git detects the
+		// rename and used to emit a rename entry whose "rename from"/"rename
+		// to" lines still carried the a/ b/ dirs (unlike the stripped ---/+++
+		// lines), producing a patch git apply rejected with "inconsistent old
+		// filename". Applying such a changeset must still land the rename.
+		baseDir := c.Directory().
+			WithNewFile("keep.txt", "unchanged").
+			WithNewFile("old-name.txt", "same content across the rename\n")
+
+		beforeDir := baseDir
+
+		afterDir := c.Directory().
+			WithNewFile("keep.txt", "unchanged").
+			WithNewFile("new-name.txt", "same content across the rename\n")
+
+		changes := afterDir.Changes(beforeDir)
+
+		resultDir := apply(baseDir, changes)
+
+		entries, err := resultDir.Entries(ctx)
+		require.NoError(t, err)
+		require.Contains(t, entries, "keep.txt")
+		require.Contains(t, entries, "new-name.txt")
+		require.NotContains(t, entries, "old-name.txt")
+
+		renamedContent, err := resultDir.File("new-name.txt").Contents(ctx)
+		require.NoError(t, err)
+		require.Equal(t, "same content across the rename\n", renamedContent)
 	})
 
 	t.Run("only added files", func(ctx context.Context, t *testctx.T) {
@@ -1341,9 +1442,12 @@ func (ChangesetSuite) testChangeApplying(t *testctx.T, apply func(*dagger.Direct
 
 		resultDir := beforeDir.WithChanges(changes)
 
-		fileType, err := resultDir.Stat("node", dagger.DirectoryStatOpts{
+		stat, err := resultDir.Stat(ctx, "node", dagger.DirectoryStatOpts{
 			DoNotFollowSymlinks: true,
-		}).FileType(ctx)
+		})
+		require.NoError(t, err)
+		require.NotNil(t, stat)
+		fileType, err := stat.FileType(ctx)
 		require.NoError(t, err)
 		require.Equal(t, dagger.FileTypeRegularType, fileType)
 
@@ -1382,9 +1486,12 @@ func (ChangesetSuite) testWithChangesSymlinks(t *testctx.T) {
 		resultDir := beforeDir.WithChanges(afterDir.Changes(beforeDir))
 
 		assertFileType := func(p string, expected dagger.FileType) {
-			fileType, err := resultDir.Stat(p, dagger.DirectoryStatOpts{
+			stat, err := resultDir.Stat(ctx, p, dagger.DirectoryStatOpts{
 				DoNotFollowSymlinks: true,
-			}).FileType(ctx)
+			})
+			require.NoError(t, err)
+			require.NotNil(t, stat)
+			fileType, err := stat.FileType(ctx)
 			require.NoError(t, err)
 			require.Equal(t, expected, fileType, p)
 		}
@@ -2018,4 +2125,140 @@ func (ChangesetSuite) TestWithChangesets(ctx context.Context, t *testctx.T) {
 			require.Equal(t, fmt.Sprintf("content from changeset %d", i), content)
 		}
 	})
+}
+
+// Changesets that modify different regions of the same file must all survive
+// a merge. Merge branches are populated with full-file content, but git
+// re-derives line-level hunks against the merge base, so the content overlay
+// must not coarsen merging to whole-file granularity.
+func (ChangesetSuite) TestSameFileRegionMerge(ctx context.Context, t *testctx.T) {
+	c := connect(ctx, t)
+
+	lines := make([]string, 30)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line%d", i+1)
+	}
+	base := c.Directory().WithNewFile("f.txt", strings.Join(lines, "\n")+"\n")
+
+	withLine := func(in []string, n int, text string) []string {
+		out := slices.Clone(in)
+		out[n-1] = text
+		return out
+	}
+	fileContent := func(in []string) string {
+		return strings.Join(in, "\n") + "\n"
+	}
+	edit := func(n int, text string) *dagger.Changeset {
+		return base.
+			WithNewFile("f.txt", fileContent(withLine(lines, n, text))).
+			Changes(base)
+	}
+
+	top := edit(1, "TOP-EDIT")
+	mid := edit(15, "MID-EDIT")
+	bot := edit(30, "BOT-EDIT")
+
+	t.Run("two-way", func(ctx context.Context, t *testctx.T) {
+		merged, err := top.WithChangeset(mid).Sync(ctx)
+		require.NoError(t, err)
+		content, err := merged.After().File("f.txt").Contents(ctx)
+		require.NoError(t, err)
+		require.Equal(t,
+			fileContent(withLine(withLine(lines, 1, "TOP-EDIT"), 15, "MID-EDIT")),
+			content)
+	})
+
+	t.Run("octopus", func(ctx context.Context, t *testctx.T) {
+		merged, err := c.Changeset().
+			WithChangesets([]*dagger.Changeset{top, mid, bot}).
+			Sync(ctx)
+		require.NoError(t, err)
+		content, err := merged.After().File("f.txt").Contents(ctx)
+		require.NoError(t, err)
+		require.Equal(t,
+			fileContent(withLine(withLine(withLine(lines, 1, "TOP-EDIT"), 15, "MID-EDIT"), 30, "BOT-EDIT")),
+			content)
+	})
+
+	// Overlapping edits still conflict; only separate regions compose. (Where
+	// exactly nearby-but-disjoint edits stop composing is git's merge
+	// heuristics, deliberately not pinned here.)
+	t.Run("overlapping edits conflict", func(ctx context.Context, t *testctx.T) {
+		_, err := edit(10, "A-EDIT").WithChangeset(edit(10, "B-EDIT")).Sync(ctx)
+		require.Error(t, err)
+	})
+}
+
+// TestMergePhantomStatOnlyChanges pins that stat-only differences between
+// content-identical snapshots cannot corrupt the git-backed changeset merge.
+//
+// A changeset's declared paths come from a content comparison, but its
+// materialized diff comes from the stat-sensitive snapshot differ, so a file
+// whose content is identical yet whose timestamps diverge (as happens when
+// content-addressed caching pairs physically different materializations of
+// the same tree) rides along in the diff without ever being declared. When
+// the changeset's before directory carries a .git directory, that phantom
+// used to include .git/HEAD, and applying it mid-merge clobbered the
+// temporary repository's HEAD: the ours commit landed on the wrong branch
+// and the merge silently resolved to the other side. This was the root cause
+// of flaky workspace module inits under concurrent identical initializations.
+func (ChangesetSuite) TestMergePhantomStatOnlyChanges(ctx context.Context, t *testctx.T) {
+	c := connect(ctx, t)
+
+	baseDir := c.Directory().
+		WithNewFile(".git/HEAD", "ref: refs/heads/master\n").
+		WithNewFile("app.txt", "original app content").
+		WithNewFile("other.txt", "untouched content")
+
+	// Restamping changes every file's mtime while leaving content identical,
+	// standing in for dedup handing Before and After physically different but
+	// content-equal snapshots.
+	restamped := baseDir.WithTimestamps(1700000000)
+
+	// Precondition: the snapshot differ flags stat-only changes, so the
+	// phantom entries exist for the merge to defend against. If this ever
+	// fails, diffs became content-defined and this scenario is obsolete.
+	diffEntries, err := baseDir.Diff(restamped).Entries(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, diffEntries)
+
+	ours := restamped.
+		WithNewFile("app.txt", "app edited in ours").
+		Changes(baseDir)
+
+	// The declared paths stay clean: content comparison sees only the real
+	// edit, none of the phantom entries.
+	modified, err := ours.ModifiedPaths(ctx)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"app.txt"}, modified)
+	added, err := ours.AddedPaths(ctx)
+	require.NoError(t, err)
+	require.Empty(t, added)
+
+	theirs := baseDir.
+		WithNewFile("added.txt", "added in theirs").
+		Changes(baseDir)
+
+	merged := ours.WithChangeset(theirs)
+
+	modified, err = merged.ModifiedPaths(ctx)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"app.txt"}, modified)
+	added, err = merged.AddedPaths(ctx)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"added.txt"}, added)
+
+	result := baseDir.WithChanges(merged)
+	appContent, err := result.File("app.txt").Contents(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "app edited in ours", appContent)
+	addedContent, err := result.File("added.txt").Contents(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "added in theirs", addedContent)
+	otherContent, err := result.File("other.txt").Contents(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "untouched content", otherContent)
+	headContent, err := result.File(".git/HEAD").Contents(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "ref: refs/heads/master\n", headContent)
 }

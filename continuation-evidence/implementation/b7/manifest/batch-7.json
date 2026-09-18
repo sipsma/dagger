@@ -1,0 +1,920 @@
+{
+ "batch": "7",
+ "title": "integrated verification",
+ "integratedParent": "c5b299142ca672cbd2ef0a389492f11de85ff08b",
+ "head": "aaef58c1e4f500e0fe2e5c09bf2fbdca2380ba83",
+ "headTree": "1eb458bed4a1507a0ad64d6bc491b34e07a48689",
+ "packaged": {
+  "branch": "b7-packaging/remote-cache/b7-verification",
+  "onto": "38583498cff7f68147b701b16c5077732cf22b43",
+  "head": "71188af8c6a647d02dc176ae7a0ab7435050ac85",
+  "tree": "368f151dfbc5c643e043169d82efe6cb5462b4c9"
+ },
+ "counts": {
+  "kept": 94,
+  "evidence-only": 29,
+  "duplicate": 3,
+  "mixed": 1
+ },
+ "merges": [
+  "aaef58c1e4f500e0fe2e5c09bf2fbdca2380ba83",
+  "b2031428c36b71127d9a38ead5a0d26afd169ad3",
+  "90e34e09a3f2bf8a22a00c73b5223fe4b3fb795f",
+  "0fca47daa774e64f05ca9aace55378ded38ea103",
+  "ee7d756b855a986cfbedf401fca989a928cfb256",
+  "931493df04b70ecae9bd9f39b75b936c8f39a861",
+  "11c7004cf1789959cbe163450525fb8954dc6794",
+  "9c21c9798bad9e1d77781facb800a6e08da97b3f"
+ ],
+ "commits": [
+  {
+   "commit": "4ba19a566cd20a7267593905d8d6b859b1aa42c2",
+   "packaged": "4c4a988ede79ecbbd8eae9183de971c252d4f4b2",
+   "subject": "core/integration: add an opt-in nested engine goroutine dump",
+   "class": "kept",
+   "paths": 6
+  },
+  {
+   "commit": "7dcb4e9f9c3957322917682197b456b7f21f2b1a",
+   "packaged": "c4414ebecba5a946503a530e5e5a511ac183952d",
+   "subject": "dagql: add the gated fixture's cache controls and barriers",
+   "class": "kept",
+   "paths": 11
+  },
+  {
+   "commit": "368aa733f1915a1de038415a3a9c5f7f86ed3c7c",
+   "packaged": "005d2080d0a2ae1f3c075fc61190a0b9bed8a537",
+   "subject": "core, engine: add the gated fixture's protocol and engine controller",
+   "class": "kept",
+   "paths": 8
+  },
+  {
+   "commit": "42921315ce3bcd9db6fadf597d81f4a01126280d",
+   "packaged": "87b6230a3d354cb312d96631b0ddf60d1e495ece",
+   "subject": "core, dagql, engine: add the gated fixture's in-process transport",
+   "class": "kept",
+   "paths": 15
+  },
+  {
+   "commit": "1bbde2fb2aadfaa53739f3b5bfcd28fc98852303",
+   "packaged": "4a4ccd9f37dfd1c9c3bcd767fa9841cc04113ff3",
+   "subject": "core/integration: expose a nested engine's debug port after its own",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "20a56c46f5bd219d872f37e5dbbd251469d690f4",
+   "packaged": "8ac96fedda0dcd56fd40155a62386d0033de2fbb",
+   "subject": "core/integration: add the native fixture controls test and its harness",
+   "class": "kept",
+   "paths": 2
+  },
+  {
+   "commit": "c9256f3b4d7d19ce6975bec4eb6553068d232ed0",
+   "packaged": null,
+   "subject": "docs: record batch 7 slice 1, the dump facility and the fixture controller",
+   "class": "evidence-only",
+   "paths": 8
+  },
+  {
+   "commit": "07fc672f1a62080477140b222fa19e69513b51aa",
+   "packaged": "70c59cbbc89da0f8af96a0742446699d38f3568f",
+   "subject": "engine/server: count the fixture's storage in the engine's namespace",
+   "class": "kept",
+   "paths": 2
+  },
+  {
+   "commit": "87d62517c252f11328914d4f198bbbe7d07a3fa4",
+   "packaged": "f07c9bbf2be579f644dcd34527bd805756abc97b",
+   "subject": "dagql: journal every reached fixture point in the report",
+   "class": "kept",
+   "paths": 4
+  },
+  {
+   "commit": "7356f6d6bc67073de967f4791e4f0d57f09847b5",
+   "packaged": "61b778260a404dccbaf49a55a860bac7c47a9379",
+   "subject": "fixture: report the storage group",
+   "class": "kept",
+   "paths": 5
+  },
+  {
+   "commit": "12fac103f43082a550fef589d025141cf05e86ad",
+   "packaged": null,
+   "subject": "docs: record the G5 measurement and the real-store conversion table",
+   "class": "evidence-only",
+   "paths": 6
+  },
+  {
+   "commit": "d92e8f1c8795b6de08d31d90505d0f40a811f74f",
+   "packaged": null,
+   "subject": "docs: record the audit of the reselect class",
+   "class": "evidence-only",
+   "paths": 1
+  },
+  {
+   "commit": "e4b65210ead95c8e93129add9bd21ced1a870ba1",
+   "packaged": "2e432360770af58402ee744b57a6de10238274df",
+   "subject": "engine/snapshots/testutil: run the real test store without privileges",
+   "class": "kept",
+   "paths": 2
+  },
+  {
+   "commit": "397168d1194196551d01503f60067f47c1aec83a",
+   "packaged": "bbbe7922795e1a2ba62197053fb18aadc7a59759",
+   "subject": "core: run the real-store tests without privileges",
+   "class": "kept",
+   "paths": 8
+  },
+  {
+   "commit": "b073363f0742f2cab9102190aa7d67bdb15ecac1",
+   "packaged": "05134879680287c17cec521fa4220890895851c9",
+   "subject": "core/schema: read demanded bytes in the test store's directory",
+   "class": "kept",
+   "paths": 4
+  },
+  {
+   "commit": "186de94c3bda9a6ef7f5e9db766b827ad4466828",
+   "packaged": "452ea0067331921b0e79af6b7d7f591d288ccff3",
+   "subject": "core: evaluate the cloned values without a read-only mount",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "a25e63fe310465ad4176778e73f008a164fd343c",
+   "packaged": "49278440371264de9b4fcede3f2b52c7ce760853",
+   "subject": "core: assert the operation-free File encoding without Changeset.AsPatch",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "9d9fb9d6fbb827e1d788a9766bdfb0237a40aeb3",
+   "packaged": "3636d8acb6c23c552239beeb227c67662a65bdf1",
+   "subject": "core: build the selected-chain test's nested view already evaluated",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "50a5d00814ed711fd89a43c5311f4a1dfafdb10d",
+   "packaged": "10279e7758d4abb2ae0f5586d7717a36d28a6be0",
+   "subject": "core/schema: keep the builtin selectors' metadata, leave their bytes to native",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "43986a201d15f46cf1101d2e6d3655009d1d0368",
+   "packaged": "110a3db4e825f419e01ae8df831f1ce7f84b2423",
+   "subject": "core/schema: compute the stored results on the producer without a mount",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "9ea94cb1efe8f55911944e4a0fdd717509a89f2a",
+   "packaged": "e8277963a52122526b25b50fe0beddf68db5df58",
+   "subject": "core: mark the four git tests that are folded into native TestGitTrees",
+   "class": "kept",
+   "paths": 3
+  },
+  {
+   "commit": "e09425290615e7dcff02a3ec84df1ebec222f93b",
+   "packaged": "51d24c1f09aae07eed17d5e867d8981f7070e32e",
+   "subject": "dagql: name every reselect refusal, and watch all seven loops",
+   "class": "kept",
+   "paths": 12
+  },
+  {
+   "commit": "f9db98a420b7b59c71a8b2256e98c62e5cd5d79d",
+   "packaged": "777e484881ea2747eeae7216ad2a81bae3606a99",
+   "subject": "dagql: fail a reselect loop that is refused twice without progress",
+   "class": "kept",
+   "paths": 9
+  },
+  {
+   "commit": "29b836c4e3b8176627d11b23da4839f3ceb2d7de",
+   "packaged": "73a7917e05d705a1d020f10cf22cbbe15b146ab5",
+   "subject": "core: run the HTTP writer's umask controls in a child process",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "6b7c8fae91157af8e0e5cdb136432026461e9da0",
+   "packaged": null,
+   "subject": "docs: reconcile the reselect audit with the rulings, B6 and the code",
+   "class": "evidence-only",
+   "paths": 1
+  },
+  {
+   "commit": "959054a2e0215df553edf382180177ca502bd6ad",
+   "packaged": "dcd36f6c9638127cd87ca91f067e7041015bde10",
+   "subject": "dagql: do not select a part source from a row that could not be captured",
+   "class": "kept",
+   "paths": 3
+  },
+  {
+   "commit": "3e16fbbb9228bd451927e95c7d993da3b788a8fc",
+   "packaged": null,
+   "subject": "docs: record author B's slice 1 report and ledger",
+   "class": "evidence-only",
+   "paths": 6
+  },
+  {
+   "commit": "6333323d562116be315966720edf556fe477b073",
+   "packaged": "abae010961a9d72ff676f175e0b58302c7eb7b3c",
+   "subject": "dagql: observe the four sharing triggers batch 6 left unobserved",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "13cb401c5161542cc6ba8ce320471ec7678913e6",
+   "packaged": "4767b31208706be4de8866cc15f03db9b11d4b23",
+   "subject": "engine/server: decode a Module's whole closure under the sharing marker",
+   "class": "kept",
+   "paths": 2
+  },
+  {
+   "commit": "6e2d9a780c445fac38937dceceee9da2dac6acb4",
+   "packaged": "c591ea43ac0e074509242d70c2a2fd742811d84b",
+   "subject": "core: let the umask child time out before its parent's deadline",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "af2ddb4e36f890dd860ee6c9157e9b83e921bf5e",
+   "packaged": "af0a3b200f8a779e98187a911b237ed1148a54ea",
+   "subject": "dagql: state and test that one refusal is one progress record",
+   "class": "kept",
+   "paths": 2
+  },
+  {
+   "commit": "7f5753af5dbebfce04ef1d23edee7b0f7981f28a",
+   "packaged": null,
+   "subject": "docs: record the slice 1 corrections, item 3 and the leader-order question",
+   "class": "evidence-only",
+   "paths": 2
+  },
+  {
+   "commit": "faeebc165f5e0d603175de9a546f6171f8dd63b7",
+   "packaged": null,
+   "subject": "docs: list the scan correction's refusal in the reselect audit",
+   "class": "evidence-only",
+   "paths": 1
+  },
+  {
+   "commit": "d92cd8297861e69be1ba3327b3546f5c3ede6241",
+   "packaged": null,
+   "subject": "docs: rename author B's report and logs so they merge beside author A's",
+   "class": "evidence-only",
+   "paths": 14
+  },
+  {
+   "commit": "5f7537bfcebaed3dbe3f9706c9ab5265cc3b93f1",
+   "packaged": "710609554dc988cf0822d31a1db7f9dcb9086e1c",
+   "subject": "dagql: reach Commit's test field and fixture barrier at one site",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "1e20b211c6172a05be1dd49d7bfc53f33b8e8aae",
+   "packaged": "c68022468cbee467b141bd87a6f04fba1626a9f9",
+   "subject": "dagql: park the cancel-after-publication test at Commit's last event again",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "0b59c27ac49ca25933e01a0915434a1c6e1cb3db",
+   "packaged": "a9a9677417156481c16547d77cd0589699d49e39",
+   "subject": "dagql: refuse a fixture hold that publishes after close's sweep",
+   "class": "kept",
+   "paths": 2
+  },
+  {
+   "commit": "d05749ae1903f99c529f05aecffc6f563d042faa",
+   "packaged": "f2577832a8092dbbbb789d8a524ebc8d31af5576",
+   "subject": "dagql: add the decodeJoined fixture point at the persisted-decode join",
+   "class": "kept",
+   "paths": 3
+  },
+  {
+   "commit": "12f1b581fc76c5a8350a65470346a72fbf67ca24",
+   "packaged": "4b83b2df10b6cf80f77fc3d77409e7ffeff64b73",
+   "subject": "dagql: end a fixture pause at a renewal point when the bridge detaches",
+   "class": "kept",
+   "paths": 3
+  },
+  {
+   "commit": "a8038f845039605c507a02231c9e0809b1c10faa",
+   "packaged": "a2bd50de8b8fad6281b214caf3779c0d13d6feeb",
+   "subject": "core/integration: register fixture engine cleanup first and bound it",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "3fbdb3e7c039c74377bca47dfa495b2dd2887f41",
+   "packaged": "b582e0b757898bc1571e7a244a664031a174b72f",
+   "subject": "core/integration: add TestSharingDonorRestart",
+   "class": "kept",
+   "paths": 2
+  },
+  {
+   "commit": "637b4b4d5646dc40329929a9813bbefd29ce4e48",
+   "packaged": "d7a3a708a24ef601804e09a03beaaef3868458a2",
+   "subject": "engine/server: retire untaken renewal deliveries and record armed replies",
+   "class": "kept",
+   "paths": 4
+  },
+  {
+   "commit": "1828ecfee9eb021011f0642ffdaeacf5d2c6898a",
+   "packaged": "0b00737941dfc051a75c3ae41d36051ef8a2fd7e",
+   "subject": "core/integration: add TestEncodedRestart",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "27a66ccda56bce45c7da54723cdc56612ef0488b",
+   "packaged": "06d6748b0664dd6c8a4d6ad64cf75c1e9bb006e8",
+   "subject": "core/integration: add TestPendingOffersRestart",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "1fab495171d2574283c98a9ce60f3103e25ff3d3",
+   "packaged": "2971205e775f35ec6d8897460a03414a052e4b50",
+   "subject": "core/integration: assert a chain fault's cause survives to the caller",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "7133aa547ecb2845c4c045cda8904b7ed7cd3a99",
+   "packaged": "226d67ee56aba0d7139a482b476f1832e62c6a89",
+   "subject": "fixture: leave addressed offers to the real content source",
+   "class": "kept",
+   "paths": 3
+  },
+  {
+   "commit": "5c9d2f353d1e945a9295074d7c274bfe70f2174e",
+   "packaged": "2322b54950d3e63c0975c606684b278636635767",
+   "subject": "core/integration: add TestHTTPRestore's three outcome classes",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "2e452a72de31602c0c02f4685ed515b165a394ce",
+   "packaged": "198719375a0c2cdc896004d466b49e9c0c8f07ae",
+   "subject": "core/integration: add TestHostInputs",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "5a7b7d1cce551542cbbe1bf831a02a688001cf4d",
+   "packaged": "74cc5fad7b99ebe5d4b2e64a58117e3abc5e182d",
+   "subject": "engine/server: meet one shared Service decode in both leader orders",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "37518e07695d660ba7d4cbc9bdf985d2e39f191d",
+   "packaged": "b8aa3bfe96b0a8c9ba2f5b849024ec58c73b4da1",
+   "subject": "core: show which read pays a sharing pass's owed bookkeeping",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "dd246e04700f875f3e81eaf6d696544f3b0ea453",
+   "packaged": null,
+   "subject": "docs: record the integration, the leader orders and the owed-bookkeeping finding",
+   "class": "evidence-only",
+   "paths": 1
+  },
+  {
+   "commit": "e844245c8b2a68181f4bf1f36bf8361a453d778c",
+   "packaged": "3e0a06bca5e1abbc6afe3abd995ac0dd6a3a0092",
+   "subject": "dagql: let a key-only offer's first renewal write its addresses",
+   "class": "kept",
+   "paths": 2
+  },
+  {
+   "commit": "2edde4655f23a722c2821e811062a786768002e5",
+   "packaged": null,
+   "subject": "docs: record every invocation, the renewal fix and the confirmation findings",
+   "class": "evidence-only",
+   "paths": 2
+  },
+  {
+   "commit": "4d454e5bdea4d942bc26fccbecb4fa5111484785",
+   "packaged": null,
+   "subject": "docs: generate the stack manifest completion records for batches 1 to 6",
+   "class": "evidence-only",
+   "paths": 2
+  },
+  {
+   "commit": "b8a71045cff49b472988cca456addfc6ed9eb6ad",
+   "packaged": "78e993a8126cb48aec884ddd4d1b58947fffd2f5",
+   "subject": "dagql/tla: model remote part acquisition in a module of its own",
+   "class": "kept",
+   "paths": 7
+  },
+  {
+   "commit": "466beae46757e5df0b817849bbe00d3a396aa617",
+   "packaged": "e073135b1a169772b69649b71bf1bf13c92e0c9c",
+   "subject": "dagql/tla: model offer owners and the ownership they give and take",
+   "class": "kept",
+   "paths": 8
+  },
+  {
+   "commit": "d8c5a667344abfd31760f38d3dd55a6af1715d5a",
+   "packaged": "96dda196ee55e05a7bb92c416c2ca7f63177f334",
+   "subject": "tla-check: register the remote part and owner configurations",
+   "class": "kept",
+   "paths": 2
+  },
+  {
+   "commit": "aa89b28c105b0c6125d1831102fe1f6a46af19b4",
+   "packaged": "b5aac256416682b9b3933b98d6dd6d3969ebfcf6",
+   "subject": "dagql/tla: model a snapshot sharing pass and its successor",
+   "class": "kept",
+   "paths": 13
+  },
+  {
+   "commit": "c0066fad24866072ade0545da408123b8b4983da",
+   "packaged": "b1694d0f4fa8ea41f8a077edabfcb95379168a53",
+   "subject": "dagql/tla: model an imported receiver across a checkpoint and a restart",
+   "class": "kept",
+   "paths": 9
+  },
+  {
+   "commit": "2afa25280314a73433540df5cbd8138bf6cb8c0d",
+   "packaged": "c57e5ddc30f0162b370e88177e35322b4bd8191e",
+   "subject": "tla-check: register the sharing and checkpoint configurations",
+   "class": "kept",
+   "paths": 2
+  },
+  {
+   "commit": "d5d8deb18cc3c41e96100ff663d68933e0144cb9",
+   "packaged": "1af01b8dc70a05cf378942a3a5683c8cd1015652",
+   "subject": "dagql: record a sharing pass's skipped slots in the fixture report",
+   "class": "kept",
+   "paths": 3
+  },
+  {
+   "commit": "96610fe4710ce9eaa07c4253af8396b34f057b19",
+   "packaged": "04609c1ab1b9462a00a01f5fc3592974c0a31a44",
+   "subject": "dagql: give the reached-point journal its own lock and reset it with the cap",
+   "class": "kept",
+   "paths": 2
+  },
+  {
+   "commit": "fbf62dd48c29935644e7c2d5c94b0e8785e919b1",
+   "packaged": "47aaa194da6d6820343a63217e05ea9e302cb52b",
+   "subject": "engine/server: name what each transient pin holds in the storage group",
+   "class": "kept",
+   "paths": 2
+  },
+  {
+   "commit": "fc75ba9a0c88584d9ffb4bdb0db17cc426ce44fa",
+   "packaged": "d5d3ffbeec803650dece8efe1d4bc07bc43b443e",
+   "subject": "core/integration: add TestSharingFinish/OnePass",
+   "class": "kept",
+   "paths": 3
+  },
+  {
+   "commit": "549f64d12f8071b002653ae78064b54624fcbf7a",
+   "packaged": "34146de21b0040a18b04f1816bf5797f1165ba30",
+   "subject": "core/integration: add TestOffers at three moments of a demand",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "28dec66334ef9c34dd40153f9e479ddbf2eea54f",
+   "packaged": "7b543daab3a9d7516c1302bf272019c5228aa66a",
+   "subject": "core/integration: add TestGitTrees for the remote backend",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "796f571ea16ad99ad87d0330991e40d5aba518f8",
+   "packaged": "03f156782ebd36055d1e02f74cedb628fe2b90f3",
+   "subject": "core/integration: add TestRenewal",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "397221fe5ccbf3d9e9cb93cb1249c7ab2c3a302d",
+   "packaged": null,
+   "subject": "dagql: let a key-only offer's first renewal write its addresses",
+   "class": "duplicate",
+   "paths": 2
+  },
+  {
+   "commit": "bc4618cbefa93a50d18a7025200777e650fc9f8a",
+   "packaged": "97c9df4d146726b8dd4dc92bf940d70599ea81d0",
+   "subject": "engine/server: let the fixture's Run return on cancellation alone",
+   "class": "kept",
+   "paths": 2
+  },
+  {
+   "commit": "0dbaedcd9181549b31dd35d36090cbd2f3de89ff",
+   "packaged": "8fc475700f1304ed3d7b9afeccbc768876bbe2ab",
+   "subject": "dagql: make the decodeJoined test's cleanup survive a failed assertion",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "02ceab3911faf160216866b6a22264532916f78c",
+   "packaged": "76cc0e01a67373b2bd50fd417152035f83a7ea6a",
+   "subject": "core/integration: add TestEncodedRestart/RetryOnlyBookkeeping",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "f9672bc95f2717a7aa93693af5041155ca96a37d",
+   "packaged": "7d4f2c38440bd1a4dab46c1583a18940c56079ed",
+   "subject": "engine/fixturetransport: observe the Close of a response with no body",
+   "class": "kept",
+   "paths": 2
+  },
+  {
+   "commit": "5b943119c31d141932afa3e36e457fd92a080abe",
+   "packaged": "79b434de3a40afd32e32ebce2203366eeba26384",
+   "subject": "core/integration: give every fixture engine shutdown step its own deadline",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "5080ec1468c72290c38ad74d17d89f637ac67c14",
+   "packaged": "1ca64cb4bc5aec52b0674b0aefa631775b558e2e",
+   "subject": "engine/server: bound the fixture's armed-reply history and reset it with observe",
+   "class": "kept",
+   "paths": 5
+  },
+  {
+   "commit": "0b934532bc1129533b48793d5b65697ce8510a6d",
+   "packaged": "2bf9621abfcf7790f67165420f18ce788e25aaf6",
+   "subject": "Revert \"dagql: park the cancel-after-publication test at Commit's last event again\"",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "1bfece3b779c2ab2180a851bb9b691ee74e24311",
+   "packaged": "6c6cdfd8ac37c95fcbdac5d1d0bcb07b8c95def1",
+   "subject": "core: clone a part-acquired File or Directory for a Container",
+   "class": "kept",
+   "paths": 3
+  },
+  {
+   "commit": "a4fb30b4dd29031f2e9210152a9d764acb2ce488",
+   "packaged": "d1f1f80768123cce499b03cb173e349447d86ffe",
+   "subject": "core: ignore the share-skipped observation in the owed-bookkeeping test",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "7fff2db12f2c2c00f59c9a85fc4b1a75d6b07ea2",
+   "packaged": "c1f2fd5cdee8becb48d5bbd827e87f4c1cd46f1c",
+   "subject": "dagql/tla: state the models' assumptions and model the progress rule",
+   "class": "kept",
+   "paths": 9
+  },
+  {
+   "commit": "14131f9c65065ae10eebd57664aaa7ebe3c5225a",
+   "packaged": null,
+   "subject": "docs: record the models, the clone defect and the ledger since the renewal fix",
+   "class": "evidence-only",
+   "paths": 2
+  },
+  {
+   "commit": "ad32ac7066f22f1ca8b735c6449b8fb088f3d685",
+   "packaged": null,
+   "subject": "docs: record the locally packaged branches for the foundations and batches 1 to 6",
+   "class": "evidence-only",
+   "paths": 3
+  },
+  {
+   "commit": "fdcb491e715d3a0b163c8adf81719ba480f22864",
+   "packaged": "21c04232f0543e2459857fa612f2ede04187bd38",
+   "subject": "dagql: show an export answers not-ready for any task in flight on its row",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "91f9fb3875a3350763351cd9190ea07d1c96af12",
+   "packaged": null,
+   "subject": "docs: record the export-during-pass check and the packaging builds",
+   "class": "evidence-only",
+   "paths": 2
+  },
+  {
+   "commit": "87c099a615b259cf14b0c96334508727a485baa5",
+   "packaged": "f2c36a337f3619c30fb72c00ae5cd1cbac8b45eb",
+   "subject": "dagql: say on WithExportedValues that a busy row is a transient refusal",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "be5f48d0d8e3336dbdbc69580e17ea2221485020",
+   "packaged": "b630ab45baacd55ab823148a5878f48656ac23c7",
+   "subject": "core/integration: add TestPipeline, the ordinary two-engine proof",
+   "class": "kept",
+   "paths": 2
+  },
+  {
+   "commit": "69c65f22d5fbddd8f9ede4a1c8d043a5854ea9c2",
+   "packaged": null,
+   "subject": "docs: record batch 7 slice 1 corrections and slice 2 progress",
+   "class": "evidence-only",
+   "paths": 4
+  },
+  {
+   "commit": "dd939ccd802ee4423fb542953f3e4a43ae9d885f",
+   "packaged": "cacd54c6d383e35b07403c7d0e502b6c6c957b93",
+   "subject": "core/integration: add TestHTTPRestore/StateResolveLayout",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "624b48d8dc10499b41a0b08e75c7aa798e742961",
+   "packaged": null,
+   "subject": "core: clone a part-acquired File or Directory for a Container",
+   "class": "duplicate",
+   "paths": 3
+  },
+  {
+   "commit": "0974a1cc31f1f371d5b7ae23a4c9e5e1b9fd3e31",
+   "packaged": "1bbf94cbef06efd466f3af5ea506f980d7c9dc6c",
+   "subject": "core/integration: add TestOffers/Replacement and /Resources",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "b5bd8792e594882da194b44e4bce40e6367cd9bc",
+   "packaged": "550015c6372e29fd1569426f4e9aea2982f45bb2",
+   "subject": "core/integration: add TestGitTrees for the local backend, cleaned tree and bundles",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "53560b58b349bceed15f19058f28555bfa440b5b",
+   "packaged": "3af032098f5e90d8967231f26fdc75974ff8dc25",
+   "subject": "core/integration: add TestSharingFinish's racing read and service-backed receiver",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "3caee9c5be68fa43e5b0c21cfe3c31d8f2eb3ff6",
+   "packaged": "2baa41ae967575535c30be7193bcfac83a5fd2bd",
+   "subject": "core/integration: add TestPipeline/DonorReleased and the builtin selector row",
+   "class": "kept",
+   "paths": 2
+  },
+  {
+   "commit": "d70534a46af5eebdaf1210f319264683ac527e0b",
+   "packaged": "bb958b27998c789c60c67294f3283af0d3a85f6f",
+   "subject": "core/integration: add TestHTTPRestore/StatusTable",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "e9b8f1a86d42dadcc0b45d503b7cfddc5200d998",
+   "packaged": "76311056c7fc6e493bd350379293103e84bcf6b3",
+   "subject": "core: delete the four git tests that native TestGitTrees now carries",
+   "class": "kept",
+   "paths": 3
+  },
+  {
+   "commit": "204f4a2cc1678060d9a8b7d07a2e06236f61c9aa",
+   "packaged": "43a131c1a79e015e52a4176e4bb87d8fe8ca8b56",
+   "subject": "dagql: show which export lets a downstream method hit after a fresh constructor",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "f6d17a03d51b0a32fd9c306b82b0a0cb818696c7",
+   "packaged": null,
+   "subject": "docs: record the folded-test deletion and the Workspace constructor answer",
+   "class": "evidence-only",
+   "paths": 2
+  },
+  {
+   "commit": "54ed02f94cfc41965ff51d0ad9a65d61a43c7cd1",
+   "packaged": "cbea2f664f1c94771baeadf2b891d5baf36743ca",
+   "subject": "dagql: assert zero transient pins after a pass with a refused address",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "44b97f57e6ca4b5dc1de2918eaded9ac506cff4b",
+   "packaged": "73f113213357263d3f45190d31ea30922b205f0b",
+   "subject": "dagql/tla: model the retained operation, and narrow the stale-role fault",
+   "class": "kept",
+   "paths": 6
+  },
+  {
+   "commit": "770e9de2b5721e627aef6f8bfae6b03213f44d6b",
+   "packaged": null,
+   "subject": "docs: record the slice 2 corrections",
+   "class": "evidence-only",
+   "paths": 3
+  },
+  {
+   "commit": "bb19ce5fb2fc65accc9ad81a7d2d1ff0abf23652",
+   "packaged": null,
+   "subject": "docs: record the boot wipe cause, reproduction and options",
+   "class": "evidence-only",
+   "paths": 5
+  },
+  {
+   "commit": "bab02520683cae1f3b2bf8ee37534a7aad48edfb",
+   "packaged": null,
+   "subject": "docs: ledger row for the boot wipe through WithMountedCache",
+   "class": "evidence-only",
+   "paths": 1
+  },
+  {
+   "commit": "16786b5fe37207f4ce66125a0ad64b9a0d96479c",
+   "packaged": "fbd8ca8f17ed7ace024ea56c29d068183323df60",
+   "subject": "core: own a backing snapshot created after its row was imported",
+   "class": "kept",
+   "paths": 6
+  },
+  {
+   "commit": "c6a7a1271c250cb3a2b6cd1161adf715022031ed",
+   "packaged": null,
+   "subject": "docs: record the boot wipe fix and name option (d) for the Human",
+   "class": "evidence-only",
+   "paths": 5
+  },
+  {
+   "commit": "981d3a05d986dda3c78e1b36415f2364001986d5",
+   "packaged": null,
+   "subject": "docs: record batch 7 slice 2, the full native set and the measurement report",
+   "class": "evidence-only",
+   "paths": 3
+  },
+  {
+   "commit": "0a41a826756e4b476bdf88c8c915ea41938bb8cb",
+   "packaged": "759a031720a9918e08c4dda3df87bea9943cfae7",
+   "subject": "core/integration: add a malformed-archive case and prove each content fault",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "789333715d6d478cb69d89ef84307653ced0525d",
+   "packaged": "39503f6f2c0cc9570d04da09cec64f055b5a8a1b",
+   "subject": "core/integration: require every address installed once after a racing read",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "2283951b62233461c4b1b79c824372014b9a2b96",
+   "packaged": "8759a3fb8a1ae5242f56d0232e1b242e2a700b02",
+   "subject": "core/integration: return the Git repository handle and bound the remaining waits",
+   "class": "kept",
+   "paths": 3
+  },
+  {
+   "commit": "03f97e2c04b8a1c14816c3ba0835d29eb9625952",
+   "packaged": "3326366ad2d8cbd4c560001fdf3d2ecdfd735a03",
+   "subject": "core/integration: give every StatusTable case its expected result",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "66dc91d01d84962987ec8aa624ea08d6be2f6abd",
+   "packaged": "ba73fc78929644cf1a00863a5abcd9a02c3f146d",
+   "subject": "core/integration: compare D and H explicitly and drop Build.summary",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "2036dcac4d823fe4dd574c0cb475fe9a72675d7c",
+   "packaged": null,
+   "subject": "docs: record batch 7 slice 2 review corrections, the host event and the open finding",
+   "class": "evidence-only",
+   "paths": 2
+  },
+  {
+   "commit": "f51ac7f796cb460675ff5ff404b05544a0990e27",
+   "packaged": null,
+   "subject": "core: own a backing snapshot created after its row was imported",
+   "class": "duplicate",
+   "paths": 6
+  },
+  {
+   "commit": "888378e4ede49d0e9e9f910e1ee31d959c927bfa",
+   "packaged": "a79d46e4505f74cb37cb921a08c5859fba46b1d5",
+   "subject": "core/integration: add TestWorkspaceCapture",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "9c376138c159f650c49877fcf50a3e43e908a3a5",
+   "packaged": "cd3b04e40192251d5f3b46ccaacb817487394c1d",
+   "subject": "core/integration: allow a loaded host two minutes for a nested engine's clean stop",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "3af661532a03ee21dd9b57544b66d4121e53a5ec",
+   "packaged": null,
+   "subject": "docs: record batch 7's final native run and the closed boot-wipe finding",
+   "class": "evidence-only",
+   "paths": 5
+  },
+  {
+   "commit": "001cfd02da6ae03de624b737fac711e8909b3383",
+   "packaged": null,
+   "subject": "docs: batch 7 slice 3 record: integrated runs, packaged branch, manifest and index",
+   "class": "evidence-only",
+   "paths": 12
+  },
+  {
+   "commit": "5d3ee071c77fb930142c9a21809d575dd5154f4c",
+   "packaged": "2b34e9e3e7c6b62f8c6fb15f245a291c8a8989be",
+   "subject": "core: drop a backing snapshot whose owner lease could not be attached",
+   "class": "kept",
+   "paths": 2
+  },
+  {
+   "commit": "38b1f893899a42a8eb74c34705f70e3c89e63ae8",
+   "packaged": null,
+   "subject": "docs: record the slice 3 generic review fix, the rebuilt packaged branch and the ledger rows",
+   "class": "evidence-only",
+   "paths": 7
+  },
+  {
+   "commit": "cfa148371c93bae62a6c885c0ca9a0647ffa288c",
+   "packaged": "3238e5c94cbdf2a5857c1e4e053513d5ac762cf7",
+   "subject": "core: make a backing snapshot's creation, sync and discard one step per value",
+   "class": "kept",
+   "paths": 5
+  },
+  {
+   "commit": "9abe5072d5b31c5956e628921a85de81952d00d2",
+   "packaged": "bc905aed166e28d13fc0b3f2e380cb74bb3c0b96",
+   "subject": "core/integration: bound the inherited tests' engine cleanup too",
+   "class": "mixed",
+   "paths": 5
+  },
+  {
+   "commit": "71ae09d79b1f2e4e31d9d793a2613d10f94a1ea5",
+   "packaged": null,
+   "subject": "docs: record the one-step lock, the final merge, the seven packages and the failed native run",
+   "class": "evidence-only",
+   "paths": 12
+  },
+  {
+   "commit": "76a99de0d01275c21cbd3874c8d88491183022e2",
+   "packaged": null,
+   "subject": "docs: name the one mixed commit in the batch 7 record",
+   "class": "evidence-only",
+   "paths": 1
+  },
+  {
+   "commit": "92b805791261d720a547028799ee61cf3df16a5e",
+   "packaged": "110ec17723260fd4533aa779460c227f394d2095",
+   "subject": "core/integration: show what a nested engine wrote when its start fails",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "e636ea054a65fd4b880a6b8c047e83c7544928ac",
+   "packaged": null,
+   "subject": "docs: record the passing rerun and the final tips",
+   "class": "evidence-only",
+   "paths": 7
+  },
+  {
+   "commit": "10d3288e32a4f11bcf488e718537403a89a1b8b1",
+   "packaged": null,
+   "subject": "docs: correct the batch 7 commit counts",
+   "class": "evidence-only",
+   "paths": 1
+  },
+  {
+   "commit": "fe963009bf32036a3623fda13a3a4d1b83bd6a91",
+   "packaged": "404936e21ce53020dd3e576953449eff49736727",
+   "subject": "dagql: count ownership after the attempt's release, and never hold the lock across an assertion",
+   "class": "kept",
+   "paths": 3
+  },
+  {
+   "commit": "d168c733ac26074246470938fd0ce00f17695c01",
+   "packaged": "95f81caac945ff7cf211fab3bd844c3b2f219e76",
+   "subject": "dagql: pin the schedule in TestFixtureBarrierOwnerAttachFaults",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "5272f3d4543da205470654e0e96e450f3eaab3cc",
+   "packaged": "cbc3e8f9544e635d3ac255cab91798aaae224e5f",
+   "subject": "fixture: report without the storage group on an engine that has no controller",
+   "class": "kept",
+   "paths": 4
+  },
+  {
+   "commit": "e77b89c743f82c568d7147875886fdae5d71f022",
+   "packaged": "71188af8c6a647d02dc176ae7a0ab7435050ac85",
+   "subject": "dagql: test the Finish-led retry of a failed owner attachment",
+   "class": "kept",
+   "paths": 1
+  }
+ ]
+}

@@ -1,0 +1,5 @@
+=== RUN   TestLazyStorageLayout
+    lazy_storage_cost_test.go:9: bytes LazyState=32 Directory=264 File=264 Container=736 scratch operation=32 mount Directory operation=248 mount File operation=248 builtin operation=136
+--- PASS: TestLazyStorageLayout (0.00s)
+PASS
+ok  	github.com/dagger/dagger/core	0.064s

@@ -1,0 +1,14 @@
+=== RUN   TestPartSourceSelectionLaterRoute
+--- PASS: TestPartSourceSelectionLaterRoute (0.10s)
+=== RUN   TestPartSourceSelection
+--- PASS: TestPartSourceSelection (0.07s)
+=== RUN   TestPartDecisionFinalSource
+--- PASS: TestPartDecisionFinalSource (0.03s)
+=== RUN   TestPartSourceScanFailureReleasesWinner
+=== RUN   TestPartSourceScanFailureReleasesWinner/ready
+=== RUN   TestPartSourceScanFailureReleasesWinner/chain
+--- PASS: TestPartSourceScanFailureReleasesWinner (0.11s)
+    --- PASS: TestPartSourceScanFailureReleasesWinner/ready (0.05s)
+    --- PASS: TestPartSourceScanFailureReleasesWinner/chain (0.05s)
+PASS
+ok      github.com/dagger/dagger/dagql  1.738s

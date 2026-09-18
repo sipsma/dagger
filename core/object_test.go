@@ -187,7 +187,7 @@ func TestDecodePersistedModuleObjectValueResultRefLoadsResult(t *testing.T) {
 	resultID, err := sc.PersistedResultID(res)
 	assert.NilError(t, err)
 
-	decoded, err := decodePersistedModuleObjectValue(ctx, dag, persistedModuleObjectValue{
+	decoded, err := decodePersistedModuleObjectValue(ctx, dagql.NewPersistDecodeContext(dag, 0, nil), persistedModuleObjectValue{
 		Kind:     persistedModuleObjectValueKindResultRef,
 		ResultID: resultID,
 	})
@@ -256,10 +256,10 @@ func TestModulePersistedTypeDefsRoundTripPreservesNullableValidity(t *testing.T)
 		EnumDefs:      dagql.ObjectResultArray[*TypeDef]{enumTypeDefTop},
 	}
 
-	payload, err := mod.EncodePersistedObject(ctx, sc)
+	payload, err := mod.EncodePersistedObject(ctx, dagql.NewPersistEncodeContext(sc, 0, nil))
 	assert.NilError(t, err)
 
-	decodedTyped, err := (&Module{}).DecodePersistedObject(ctx, dag, 0, nil, payload.JSON)
+	decodedTyped, err := (&Module{}).DecodePersistedObject(ctx, dagql.NewPersistDecodeContext(dag, 0, nil), payload.JSON)
 	assert.NilError(t, err)
 	decoded, ok := decodedTyped.(*Module)
 	assert.Assert(t, ok)
@@ -511,14 +511,14 @@ func TestModuleObjectPersistedResultRefsRoundTrip(t *testing.T) {
 			"child": child,
 		},
 	}
-	payload, err := obj.EncodePersistedObject(ctx, sc)
+	payload, err := obj.EncodePersistedObject(ctx, dagql.NewPersistEncodeContext(sc, 0, nil))
 	assert.NilError(t, err)
 
 	var persisted persistedModuleObjectPayload
 	assert.NilError(t, json.Unmarshal(payload.JSON, &persisted))
 	assert.Equal(t, persistedModuleObjectValueKindResultRef, persisted.Fields["child"].Kind)
 
-	decodedTyped, err := obj.DecodePersistedObject(ctx, dag, 0, nil, payload.JSON)
+	decodedTyped, err := obj.DecodePersistedObject(ctx, dagql.NewPersistDecodeContext(dag, 0, nil), payload.JSON)
 	assert.NilError(t, err)
 	decoded, ok := decodedTyped.(*ModuleObject)
 	assert.Assert(t, ok)
@@ -553,7 +553,7 @@ func TestModuleObjectEncodeRejectsRawCallIDInSemanticField(t *testing.T) {
 		},
 	}
 
-	_, err := obj.EncodePersistedObject(ctx, nil)
+	_, err := obj.EncodePersistedObject(ctx, dagql.NewPersistEncodeContext(nil, 0, nil))
 	assert.ErrorContains(t, err, "unexpected raw call ID in semantic field")
 }
 
@@ -571,7 +571,7 @@ func TestModuleObjectEncodeAllowsRawCallIDInPrivateField(t *testing.T) {
 		},
 	}
 
-	payload, err := obj.EncodePersistedObject(ctx, nil)
+	payload, err := obj.EncodePersistedObject(ctx, dagql.NewPersistEncodeContext(nil, 0, nil))
 	assert.NilError(t, err)
 
 	var persisted persistedModuleObjectPayload
@@ -579,7 +579,15 @@ func TestModuleObjectEncodeAllowsRawCallIDInPrivateField(t *testing.T) {
 	assert.Equal(t, persistedModuleObjectValueKindCallID, persisted.Fields["private"].Kind)
 }
 
-func TestModuleObjectRawHandleFieldBecomesStaleAfterProducerSessionClose(t *testing.T) {
+// A module object can store another result's encoded handle in a private
+// (undeclared) field: SDKs serialize stored objects as ID strings, and the
+// field is absent from the typedef. Attachment must decode the handle,
+// attach the referenced result, and record a real dependency edge so the
+// result stays retained for as long as the owning object's cached state is
+// reusable, even after the producing session closes. Previously the handle
+// stayed a raw string invisible to retention, and later sessions loading
+// cached state failed with "missing shared result".
+func TestModuleObjectPrivateHandleFieldRetainedAcrossProducerSessionClose(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
@@ -623,19 +631,40 @@ func TestModuleObjectRawHandleFieldBecomesStaleAfterProducerSessionClose(t *test
 	childEnc, err := childID.Encode()
 	assert.NilError(t, err)
 
-	obj := &ModuleObject{
+	// The parent typedef does not declare the "child" field, modeling a
+	// private field carried only in object state.
+	parentObjDef := NewObjectTypeDef("Parent", "", nil)
+	parentObj := &ModuleObject{
+		TypeDef: parentObjDef,
 		Fields: map[string]any{
 			"child": childEnc,
 		},
 	}
-	deps, err := obj.AttachDependencyResults(ctx, nil, func(res dagql.AnyResult) (dagql.AnyResult, error) {
-		t.Fatalf("unexpected attach of %T", res)
-		return nil, nil
-	})
+	parentCall := moduleObjectTestSyntheticCall("module_object_handle_parent", parentObj)
+	parentDetached, err := dagql.NewResultForCall(parentObj, parentCall)
 	assert.NilError(t, err)
-	assert.Equal(t, 0, len(deps))
-	_, stillRawString := obj.Fields["child"].(string)
-	assert.Assert(t, stillRawString)
+	_, err = producerCache.GetOrInitCall(
+		producerCtx,
+		"module-object-producer-session",
+		producerDag,
+		&dagql.CallRequest{
+			ResultCall:    parentCall,
+			IsPersistable: true,
+		},
+		dagql.ValueFunc(parentDetached),
+	)
+	assert.NilError(t, err)
+
+	// Attachment rewrote the raw handle string to the attached result.
+	_, isResult := parentObj.Fields["child"].(dagql.AnyResult)
+	assert.Assert(t, isResult)
+
+	// The rewritten value persists as a real result ref, not an opaque scalar.
+	encoded, err := parentObj.EncodePersistedObject(ctx, dagql.NewPersistEncodeContext(producerCache, 0, nil))
+	assert.NilError(t, err)
+	var persisted persistedModuleObjectPayload
+	assert.NilError(t, json.Unmarshal(encoded.JSON, &persisted))
+	assert.Equal(t, persistedModuleObjectValueKindResultRef, persisted.Fields["child"].Kind)
 
 	assert.NilError(t, producerCache.ReleaseSession(producerCtx, "module-object-producer-session"))
 
@@ -656,10 +685,215 @@ func TestModuleObjectRawHandleFieldBecomesStaleAfterProducerSessionClose(t *test
 	})
 	consumerCtx = dagql.ContextWithCache(consumerCtx, consumerCache)
 
-	var staleID call.ID
-	assert.NilError(t, staleID.Decode(childEnc))
-	_, err = consumerDag.Load(consumerCtx, &staleID)
-	assert.ErrorContains(t, err, "missing shared result")
+	var retainedID call.ID
+	assert.NilError(t, retainedID.Decode(childEnc))
+	loadedAny, err := consumerDag.Load(consumerCtx, &retainedID)
+	assert.NilError(t, err)
+	loaded, ok := dagql.UnwrapAs[*moduleObjectHandleTestObj](loadedAny)
+	assert.Assert(t, ok)
+	assert.Equal(t, "hello", loaded.Value)
+}
+
+// Handle references can also appear as *call.ID / call.ID values (e.g. from
+// persisted decode) or nested inside lists and maps; all of them must be
+// attached and rewritten just like top-level handle strings.
+func TestModuleObjectAttachDependencyResultsRewritesHandleVariants(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	cache, err := dagql.NewCache(ctx, "", nil, nil)
+	assert.NilError(t, err)
+
+	root := &Query{}
+	srv := &moduleObjectTestServer{
+		mockServer: &mockServer{},
+		cache:      cache,
+		root:       root,
+	}
+	root.Server = srv
+	dag := newCoreDagqlServerForTest(t, root)
+	srv.dag = dag
+	installModuleObjectHandleTestObjClass(dag)
+	testCtx := engine.ContextWithClientMetadata(ContextWithQuery(ctx, root), &engine.ClientMetadata{
+		ClientID:  "module-object-variants-client",
+		SessionID: "module-object-variants-session",
+	})
+	testCtx = dagql.ContextWithCache(testCtx, cache)
+
+	childDetached, err := dagql.NewObjectResultForCall(
+		&moduleObjectHandleTestObj{Value: "variant"},
+		dag,
+		&dagql.ResultCall{
+			Kind:        dagql.ResultCallKindSynthetic,
+			SyntheticOp: "module_object_handle_variant_child",
+			Type:        dagql.NewResultCallType((&moduleObjectHandleTestObj{}).Type()),
+		},
+	)
+	assert.NilError(t, err)
+	childAttachedAny, err := cache.AttachResult(testCtx, "module-object-variants-session", dag, childDetached)
+	assert.NilError(t, err)
+	childID, err := childAttachedAny.ID()
+	assert.NilError(t, err)
+	childEnc, err := childID.Encode()
+	assert.NilError(t, err)
+
+	recipeID := call.New().Append((&moduleObjectHandleTestObj{}).Type(), "moduleObjectVariantRecipe")
+	recipeEnc, err := recipeID.Encode()
+	assert.NilError(t, err)
+
+	obj := &ModuleObject{
+		Fields: map[string]any{
+			"ptr":       childID,
+			"val":       *childID,
+			"idable":    dagql.NewAnyID(childID),
+			"nested":    map[string]any{"inner": []any{childEnc}},
+			"nilPtr":    (*call.ID)(nil),
+			"recipe":    recipeEnc,
+			"recipePtr": recipeID,
+		},
+	}
+	deps, err := obj.AttachDependencyResults(testCtx, nil, func(res dagql.AnyResult) (dagql.AnyResult, error) {
+		return res, nil
+	})
+	assert.NilError(t, err)
+	assert.Equal(t, 4, len(deps))
+
+	_, ok := obj.Fields["ptr"].(dagql.AnyResult)
+	assert.Assert(t, ok)
+	_, ok = obj.Fields["val"].(dagql.AnyResult)
+	assert.Assert(t, ok)
+	_, ok = obj.Fields["idable"].(dagql.AnyResult)
+	assert.Assert(t, ok)
+	nested, ok := obj.Fields["nested"].(map[string]any)
+	assert.Assert(t, ok)
+	inner, ok := nested["inner"].([]any)
+	assert.Assert(t, ok)
+	_, ok = inner[0].(dagql.AnyResult)
+	assert.Assert(t, ok)
+
+	// Nil and recipe-form values pass through unchanged: recipe IDs are
+	// self-contained and loadable, so they need no dependency edge.
+	nilPtr, ok := obj.Fields["nilPtr"].(*call.ID)
+	assert.Assert(t, ok)
+	assert.Assert(t, nilPtr == nil)
+	assert.Equal(t, recipeEnc, obj.Fields["recipe"])
+	assert.Equal(t, recipeID, obj.Fields["recipePtr"])
+}
+
+// A value that decodes as a live handle must not be silently kept as an
+// opaque scalar when no server is reachable: that would recreate the
+// dangling-reference bug, so attachment fails loudly instead.
+func TestModuleObjectAttachHandleErrorsWithoutServer(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	cache, err := dagql.NewCache(ctx, "", nil, nil)
+	assert.NilError(t, err)
+
+	root := &Query{}
+	srv := &moduleObjectTestServer{
+		mockServer: &mockServer{},
+		cache:      cache,
+		root:       root,
+	}
+	root.Server = srv
+	dag := newCoreDagqlServerForTest(t, root)
+	srv.dag = dag
+	installModuleObjectHandleTestObjClass(dag)
+	setupCtx := engine.ContextWithClientMetadata(ContextWithQuery(ctx, root), &engine.ClientMetadata{
+		ClientID:  "module-object-no-server-client",
+		SessionID: "module-object-no-server-session",
+	})
+	setupCtx = dagql.ContextWithCache(setupCtx, cache)
+
+	childDetached, err := dagql.NewObjectResultForCall(
+		&moduleObjectHandleTestObj{Value: "no-server"},
+		dag,
+		&dagql.ResultCall{
+			Kind:        dagql.ResultCallKindSynthetic,
+			SyntheticOp: "module_object_handle_no_server_child",
+			Type:        dagql.NewResultCallType((&moduleObjectHandleTestObj{}).Type()),
+		},
+	)
+	assert.NilError(t, err)
+	childAttachedAny, err := cache.AttachResult(setupCtx, "module-object-no-server-session", dag, childDetached)
+	assert.NilError(t, err)
+	childID, err := childAttachedAny.ID()
+	assert.NilError(t, err)
+	childEnc, err := childID.Encode()
+	assert.NilError(t, err)
+
+	obj := &ModuleObject{
+		Fields: map[string]any{
+			"child": childEnc,
+		},
+	}
+	// Bare context: no query, no ambient server, no attachment resolver hint.
+	_, err = obj.AttachDependencyResults(ctx, nil, func(res dagql.AnyResult) (dagql.AnyResult, error) {
+		return res, nil
+	})
+	assert.ErrorContains(t, err, "no dagql server")
+}
+
+// Attachment hooks can run without an ambient dagql server in context (e.g.
+// direct AttachResult users); the cache falls back to stamping the resolver
+// so stored handles still load and gain dependency edges.
+func TestModuleObjectAttachHandleWithoutAmbientServer(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	cache, err := dagql.NewCache(ctx, "", nil, nil)
+	assert.NilError(t, err)
+
+	root := &Query{}
+	srv := &moduleObjectTestServer{
+		mockServer: &mockServer{},
+		cache:      cache,
+		root:       root,
+	}
+	root.Server = srv
+	dag := newCoreDagqlServerForTest(t, root)
+	srv.dag = dag
+	installModuleObjectHandleTestObjClass(dag)
+	// No ContextWithQuery: only client metadata and the cache, so the hook
+	// can only find a server through the resolver fallback.
+	testCtx := engine.ContextWithClientMetadata(ctx, &engine.ClientMetadata{
+		ClientID:  "module-object-no-ambient-client",
+		SessionID: "module-object-no-ambient-session",
+	})
+	testCtx = dagql.ContextWithCache(testCtx, cache)
+
+	childDetached, err := dagql.NewObjectResultForCall(
+		&moduleObjectHandleTestObj{Value: "no-ambient"},
+		dag,
+		&dagql.ResultCall{
+			Kind:        dagql.ResultCallKindSynthetic,
+			SyntheticOp: "module_object_handle_no_ambient_child",
+			Type:        dagql.NewResultCallType((&moduleObjectHandleTestObj{}).Type()),
+		},
+	)
+	assert.NilError(t, err)
+	childAttachedAny, err := cache.AttachResult(testCtx, "module-object-no-ambient-session", dag, childDetached)
+	assert.NilError(t, err)
+	childID, err := childAttachedAny.ID()
+	assert.NilError(t, err)
+	childEnc, err := childID.Encode()
+	assert.NilError(t, err)
+
+	parentObjDef := NewObjectTypeDef("Parent", "", nil)
+	parentObj := &ModuleObject{
+		TypeDef: parentObjDef,
+		Fields: map[string]any{
+			"child": childEnc,
+		},
+	}
+	parentDetached, err := dagql.NewResultForCall(parentObj, moduleObjectTestSyntheticCall("module_object_handle_no_ambient_parent", parentObj))
+	assert.NilError(t, err)
+	_, err = cache.AttachResult(testCtx, "module-object-no-ambient-session", dag, parentDetached)
+	assert.NilError(t, err)
+
+	_, isResult := parentObj.Fields["child"].(dagql.AnyResult)
+	assert.Assert(t, isResult)
 }
 
 func TestModuleObjectAttachDependencyResultsRetainsSemanticInterfaceHandleField(t *testing.T) {
@@ -754,7 +988,7 @@ func TestModuleObjectAttachDependencyResultsRetainsSemanticInterfaceHandleField(
 		},
 	}, parentCall)
 	assert.NilError(t, err)
-	_, err = producerCache.GetOrInitCall(
+	parentAttached, err := producerCache.GetOrInitCall(
 		producerCtx,
 		"semantic-producer-session",
 		producerDepDag,
@@ -765,6 +999,24 @@ func TestModuleObjectAttachDependencyResultsRetainsSemanticInterfaceHandleField(
 		dagql.ValueFunc(parentDetached),
 	)
 	assert.NilError(t, err)
+
+	// A declared SDK handle must enter the persisted reference grammar too.
+	// Keeping its original string retains liveness but bypasses relocation.
+	record := coreRelocationRecord(t, producerCtx, producerCache, parentAttached)
+	var payload persistedModuleObjectPayload
+	assert.NilError(t, json.Unmarshal(record.Envelope.ObjectJSON, &payload))
+	assert.Equal(t, persistedModuleObjectValueKindResultRef, payload.Fields["child"].Kind)
+	assert.Equal(t, childID.EngineResultID(), payload.Fields["child"].ResultID)
+	relocated := childID.EngineResultID() + 1000
+	out, err := dagql.VisitEncodedReferences(record, func(ref *dagql.PersistedRef) error {
+		if ref.ResultID == childID.EngineResultID() {
+			ref.ResultID = relocated
+		}
+		return nil
+	})
+	assert.NilError(t, err)
+	assert.NilError(t, json.Unmarshal(out.Envelope.ObjectJSON, &payload))
+	assert.Equal(t, relocated, payload.Fields["child"].ResultID)
 
 	assert.NilError(t, producerCache.ReleaseSession(producerCtx, "semantic-producer-session"))
 
@@ -807,4 +1059,207 @@ func TestModuleObjectAttachDependencyResultsRetainsSemanticInterfaceHandleField(
 	assert.NilError(t, retainedID.Decode(childEnc))
 	_, err = consumerDepDag.Load(consumerCtx, &retainedID)
 	assert.NilError(t, err)
+}
+
+// TestModuleObjectNestedNumbersSurvivePersistenceAndSDKConversion saves a
+// module object whose private state holds numbers nested inside maps and
+// arrays, restores it from the persisted payload twice, and converts it back
+// to SDK input. A module receives its own state back through that conversion,
+// so a number that rounds through float64 anywhere on the path hands the next
+// call a different value than the one it returned.
+func TestModuleObjectNestedNumbersSurvivePersistenceAndSDKConversion(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	sc, err := dagql.NewCache(ctx, "", nil, nil)
+	assert.NilError(t, err)
+
+	root := &Query{}
+	testSrv := &moduleObjectTestServer{mockServer: &mockServer{}, cache: sc, root: root}
+	root.Server = testSrv
+	dag := newCoreDagqlServerForTest(t, root)
+	testSrv.dag = dag
+	ctx = dagql.ContextWithCache(ctx, sc)
+	ctx = ContextWithQuery(ctx, root)
+	ctx = engine.ContextWithClientMetadata(ctx, &engine.ClientMetadata{
+		ClientID:  "module-object-numbers-client",
+		SessionID: "module-object-numbers-session",
+	})
+	installModuleObjectTestModuleClass(dag)
+	installTypeDefTestClasses(dag)
+
+	// Counter declares `counts: [Int!]!`; "state" below is private data the
+	// module kept for itself, so the two conversion routes are both exercised.
+	intTypeDef := newTypeDefAttachedResult(t, ctx, sc, dag, "moduleObjectNumbersInt", (&TypeDef{}).WithKind(TypeDefKindInteger))
+	listTypeDef := newTypeDefAttachedResult(t, ctx, sc, dag, "moduleObjectNumbersList", (&TypeDef{}).WithListOf(
+		newTypeDefAttachedResult(t, ctx, sc, dag, "moduleObjectNumbersListDef", &ListTypeDef{ElementTypeDef: intTypeDef}),
+	))
+	objDef := NewObjectTypeDef("Counter", "", nil)
+	objDef.Fields = append(objDef.Fields, newTypeDefDetachedResult(t, dag, "moduleObjectNumbersCountsField", NewFieldTypeDef("counts", listTypeDef, "", nil)))
+	objDefRes := newTypeDefDetachedResult(t, dag, "moduleObjectNumbersObj", objDef)
+	mod := &Module{
+		NameField:  "test",
+		Deps:       NewSchemaBuilder(nil, nil),
+		ObjectDefs: dagql.ObjectResultArray[*TypeDef]{newTypeDefDetachedResult(t, dag, "moduleObjectNumbersTopTypeDef", (&TypeDef{}).WithObjectTypeDef(objDefRes))},
+	}
+	modRes, err := dagql.NewObjectResultForCall(mod, dag, moduleObjectTestSyntheticCall("moduleObjectNumbersModule", mod))
+	assert.NilError(t, err)
+	objType := &ModuleObjectType{typeDef: objDef, mod: modRes}
+	ctx = dagql.ContextWithCall(ctx, moduleObjectTestSyntheticCall("moduleObjectNumbersParent", &ModuleObject{TypeDef: objDef}))
+
+	// The shape an SDK hands back: private state the module kept for itself,
+	// decoded with UseNumber, with numbers nested inside a map and a list.
+	// "state" is not a declared field of Counter, so it travels through the
+	// private-field conversion.
+	const bigInt = "9007199254740993" // 2^53+1: the first integer float64 cannot hold
+	const maxInt64 = "9223372036854775807"
+	const minInt64 = "-9223372036854775808"
+	freshState := map[string]any{
+		"ids": []any{json.Number(bigInt), json.Number(maxInt64), json.Number(minInt64)},
+		"limits": map[string]any{
+			"ratio":  json.Number("0.1"),
+			"nested": map[string]any{"deep": json.Number(bigInt)},
+		},
+	}
+	declaredCounts := []any{json.Number(bigInt), json.Number(maxInt64), json.Number(minInt64)}
+	obj := &ModuleObject{Module: modRes, TypeDef: objDef, Fields: map[string]any{
+		"counts": declaredCounts,
+		"state":  freshState,
+	}}
+
+	freshInput, err := objType.ConvertToSDKInput(ctx, obj)
+	assert.NilError(t, err)
+	freshJSON, err := json.Marshal(freshInput)
+	assert.NilError(t, err)
+
+	enc := dagql.NewPersistEncodeContext(sc, 0, nil)
+	dec := dagql.NewPersistDecodeContext(dag, 0, nil)
+	payload, err := obj.EncodePersistedObject(ctx, enc)
+	assert.NilError(t, err)
+
+	var persisted persistedModuleObjectPayload
+	assert.NilError(t, json.Unmarshal(payload.JSON, &persisted))
+	deep := persisted.Fields["state"].Fields["limits"].Fields["nested"].Fields["deep"]
+	assert.Equal(t, persistedModuleObjectValueKindScalar, deep.Kind)
+	assert.Equal(t, bigInt, string(deep.ScalarJSON), "the saved token is the exact integer, not a float")
+
+	current := obj
+	currentPayload := payload.JSON
+	for round := 1; round <= 2; round++ {
+		decodedTyped, err := current.DecodePersistedObject(ctx, dec, currentPayload)
+		assert.NilError(t, err)
+		decoded, ok := decodedTyped.(*ModuleObject)
+		assert.Assert(t, ok)
+
+		state, ok := decoded.Fields["state"].(map[string]any)
+		assert.Assert(t, ok, "round %d", round)
+		ids, ok := state["ids"].([]any)
+		assert.Assert(t, ok, "round %d", round)
+		assert.Equal(t, json.Number(bigInt), ids[0], "round %d: the large integer is exact inside a list", round)
+		assert.Equal(t, json.Number(maxInt64), ids[1], "round %d", round)
+		assert.Equal(t, json.Number(minInt64), ids[2], "round %d", round)
+		counts, ok := decoded.Fields["counts"].([]any)
+		assert.Assert(t, ok, "round %d", round)
+		assert.Equal(t, json.Number(bigInt), counts[0], "round %d: a declared Int list stays exact too", round)
+		assert.Equal(t, json.Number(maxInt64), counts[1], "round %d", round)
+		assert.Equal(t, json.Number(minInt64), counts[2], "round %d", round)
+		limits, ok := state["limits"].(map[string]any)
+		assert.Assert(t, ok, "round %d", round)
+		assert.Equal(t, json.Number("0.1"), limits["ratio"], "round %d", round)
+		nested, ok := limits["nested"].(map[string]any)
+		assert.Assert(t, ok, "round %d", round)
+		assert.Equal(t, json.Number(bigInt), nested["deep"], "round %d: nesting depth does not lose precision", round)
+
+		converted, err := objType.ConvertToSDKInput(ctx, decoded)
+		assert.NilError(t, err)
+		convertedJSON, err := json.Marshal(converted)
+		assert.NilError(t, err)
+		assert.Equal(t, string(freshJSON), string(convertedJSON), "round %d: SDK input matches what the module returned", round)
+
+		// Second save: the restored object re-encodes to the same bytes.
+		reencoded, err := decoded.EncodePersistedObject(ctx, enc)
+		assert.NilError(t, err)
+		assert.Equal(t, string(currentPayload), string(reencoded.JSON), "round %d: the second save preserves the tokens", round)
+		current, currentPayload = decoded, reencoded.JSON
+	}
+
+	// Deliberate control: reading the same saved bytes through an untyped
+	// json.Unmarshal, as the payload decoder did before it used a lossless
+	// reader, rounds the nested integer.
+	var lossy persistedModuleObjectPayload
+	assert.NilError(t, json.Unmarshal(payload.JSON, &lossy))
+	var rounded any
+	assert.NilError(t, json.Unmarshal(lossy.Fields["state"].Fields["limits"].Fields["nested"].Fields["deep"].ScalarJSON, &rounded))
+	roundedJSON, err := json.Marshal(rounded)
+	assert.NilError(t, err)
+	assert.Assert(t, string(roundedJSON) != bigInt, "untyped decoding must lose the large integer; got %s", string(roundedJSON))
+}
+
+func TestModuleObjectAttachDependencyResultsPreservesInlineMap(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	cacheIface, err := dagql.NewCache(ctx, "", nil, nil)
+	assert.NilError(t, err)
+	sc := cacheIface
+	root := &Query{}
+	testSrv := &moduleObjectTestServer{
+		mockServer: &mockServer{},
+		cache:      sc,
+		root:       root,
+	}
+	root.Server = testSrv
+	dag := newCoreDagqlServerForTest(t, root)
+	testSrv.dag = dag
+	ctx = dagql.ContextWithCache(ctx, sc)
+	ctx = ContextWithQuery(ctx, root)
+	ctx = engine.ContextWithClientMetadata(ctx, &engine.ClientMetadata{
+		ClientID:  "module-object-rewrite-client",
+		SessionID: "module-object-rewrite-session",
+	})
+	installModuleObjectTestModuleClass(dag)
+	installTypeDefTestClasses(dag)
+
+	childObjDef := NewObjectTypeDef("Child", "", nil)
+	childObjDefRes := newTypeDefDetachedResult(t, dag, "moduleObjectRewriteChildObj", childObjDef)
+	parentObjDef := NewObjectTypeDef("Parent", "", nil)
+	childTypeDef := newTypeDefDetachedResult(t, dag, "moduleObjectRewriteChildTypeDef", (&TypeDef{}).WithObjectTypeDef(childObjDefRes))
+	parentObjDef.Fields = append(parentObjDef.Fields, newTypeDefDetachedResult(t, dag, "moduleObjectRewriteChildField", NewFieldTypeDef("child", childTypeDef, "", nil)))
+	parentObjDefRes := newTypeDefDetachedResult(t, dag, "moduleObjectRewriteParentObj", parentObjDef)
+	mod := &Module{
+		NameField: "test",
+		Deps:      NewSchemaBuilder(nil, nil),
+		ObjectDefs: dagql.ObjectResultArray[*TypeDef]{
+			newTypeDefDetachedResult(t, dag, "moduleObjectRewriteChildTopTypeDef", (&TypeDef{}).WithObjectTypeDef(childObjDefRes)),
+			newTypeDefDetachedResult(t, dag, "moduleObjectRewriteParentTopTypeDef", (&TypeDef{}).WithObjectTypeDef(parentObjDefRes)),
+		},
+	}
+	modRes, err := dagql.NewObjectResultForCall(mod, dag, moduleObjectTestSyntheticCall("moduleObjectRewriteStoredResultsModule", mod))
+	assert.NilError(t, err)
+	parentCall := moduleObjectTestSyntheticCall("moduleObjectParent", &ModuleObject{TypeDef: parentObjDef})
+	ctx = dagql.ContextWithCall(ctx, parentCall)
+
+	inline := map[string]any{"name": "child"}
+	obj := &ModuleObject{Module: modRes, TypeDef: parentObjDef, Fields: map[string]any{"child": inline}}
+	parent, err := dagql.NewResultForCall(obj, parentCall)
+	assert.NilError(t, err)
+	before, err := json.Marshal(obj.Fields)
+	assert.NilError(t, err)
+	deps, err := obj.AttachDependencyResults(ctx, parent, func(value dagql.AnyResult) (dagql.AnyResult, error) {
+		// Use an independent child call: this test invokes the attachment
+		// hook directly rather than from the cache's parent-registration phase.
+		detached, err := dagql.NewResultForCall(value.Unwrap(), moduleObjectTestSyntheticCall("inlineChild", value.Unwrap()))
+		if err != nil {
+			return nil, err
+		}
+		return sc.AttachResult(ctx, "test-session", dag, detached)
+	})
+	assert.NilError(t, err)
+	assert.Equal(t, len(deps), 1)
+	assert.DeepEqual(t, obj.Fields["child"], inline)
+	// ParentFields is sent as raw JSON to the SDK function. It must remain
+	// an inline object, even though attachment created a dependency result.
+	after, err := json.Marshal(obj.Fields)
+	assert.NilError(t, err)
+	assert.Equal(t, string(after), string(before))
 }

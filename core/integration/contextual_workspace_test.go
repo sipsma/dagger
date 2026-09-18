@@ -66,6 +66,7 @@ func (ContextualWorkspaceSuite) TestContextualWorkspaceSelection(ctx context.Con
 
 		ctr := legacyWorkspaceBase(t, c, `{
   "name": "myapp",
+  "engineVersion": "v1.0.0",
   "sdk": {"source": "dang"},
   "source": "ci"
 }`, func(ctr *dagger.Container) *dagger.Container {
@@ -122,6 +123,7 @@ type Myapp {
 
 		ctr := legacyWorkspaceBase(t, c, `{
   "name": "standalone",
+  "engineVersion": "v1.0.0",
   "sdk": {"source": "dang"}
 }`, func(ctr *dagger.Container) *dagger.Container {
 			return ctr.WithNewFile("main.dang", `
@@ -277,8 +279,9 @@ func (ContextualWorkspaceSuite) TestContextualWorkspaceCaching(ctx context.Conte
 }
 
 // TestContextualWorkspaceCLIExposure covers user-visible behavior that is
-// specific to Workspace being injected from context rather than passed
-// explicitly.
+// specific to Workspace being defaulted from context rather than passed
+// explicitly. The greeter fixture's constructor declares `source: Workspace!`,
+// so it also pins that a required Workspace stays callable without a flag.
 func (ContextualWorkspaceSuite) TestContextualWorkspaceCLIExposure(ctx context.Context, t *testctx.T) {
 	c := connect(ctx, t)
 
@@ -291,9 +294,31 @@ func (ContextualWorkspaceSuite) TestContextualWorkspaceCLIExposure(ctx context.C
 		require.Equal(t, "hello from workspace", strings.TrimSpace(out))
 	})
 
-	t.Run("workspace arg is not exposed as a CLI flag", func(ctx context.Context, t *testctx.T) {
+	t.Run("workspace arg is an optional CLI flag", func(ctx context.Context, t *testctx.T) {
 		help, err := ctr.With(daggerReportCall("greeter", "--help")).Stdout(ctx)
 		require.NoError(t, err)
-		require.NotContains(t, help, "--source")
+		// Offered, so a caller can aim the function at another workspace.
+		require.Contains(t, help, "--source")
+		// Never required, even though it's declared Workspace!: the CLI defaults
+		// it to the current workspace, which the subtest above exercises.
+		require.NotRegexp(t, `--source[^\n]*\[required\]`, help)
 	})
+}
+
+// TestContextualWorkspaceModuleSourceLocalDeps is the regression test for
+// https://github.com/dagger/dagger/issues/13139: loading a module that has a
+// local dependency from module code used to fail while resolving the
+// dependency — user-defaults loading ran the outer .env find-up against the
+// caller's host with the module's client metadata, which can only time out
+// ("failed to get requester session: context deadline exceeded"). The
+// outerEnvFile module-context guard fixed it; this pins the repro from the
+// issue: a module loading a sibling module that depends on "../dep".
+func (ContextualWorkspaceSuite) TestContextualWorkspaceModuleSourceLocalDeps(ctx context.Context, t *testctx.T) {
+	c := connect(ctx, t)
+
+	out, err := workspaceFixture(t, c, "module-source-local-deps").
+		With(daggerReportCall("direct")).
+		Stdout(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "main", strings.TrimSpace(out))
 }

@@ -9,6 +9,28 @@ import (
 	"github.com/dagger/dagger/engine"
 )
 
+type perClientCacheScopeKey struct{}
+
+// WithPerClientCacheScope gives PerClientInput calls made with ctx a fresh
+// cache namespace while preserving the real client metadata used by resolvers.
+// Use it when a resolution must be re-evaluated against request-scoped state.
+func WithPerClientCacheScope(ctx context.Context) context.Context {
+	return WithNamedPerClientCacheScope(ctx, identity.NewID())
+}
+
+// WithNamedPerClientCacheScope is like WithPerClientCacheScope but pins the
+// cache namespace to a caller-provided value instead of a random one. Calls
+// made under the same scope value share a cache namespace, while a changed
+// value invalidates it — use it to bust a client's cached reads at a
+// controlled boundary (e.g. a bumped generation counter) rather than on every
+// call. An empty scope leaves the client's default namespace untouched.
+func WithNamedPerClientCacheScope(ctx context.Context, scope string) context.Context {
+	if scope == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, perClientCacheScopeKey{}, scope)
+}
+
 // PerClientInput scopes a call ID per client by mixing in the client ID as
 // an implicit call input.
 var PerClientInput = ImplicitInput{
@@ -21,7 +43,11 @@ var PerClientInput = ImplicitInput{
 		if clientMD.ClientID == "" {
 			return nil, fmt.Errorf("client ID not found in context")
 		}
-		return NewString(clientMD.ClientID), nil
+		cacheKey := clientMD.ClientID
+		if scope, ok := ctx.Value(perClientCacheScopeKey{}).(string); ok && scope != "" {
+			cacheKey += ":" + scope
+		}
+		return NewString(cacheKey), nil
 	},
 }
 

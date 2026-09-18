@@ -1,0 +1,86 @@
+[
+  {
+    "name": "completion-core",
+    "command": "go test -race ./core -run '^TestLazyPersistenceCompleted(Body|Group)Guards$' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 52.702,
+    "startedUnix": 1789600141.3639414,
+    "finishedUnix": 1789600194.0658605
+  },
+  {
+    "name": "ownership-dagql",
+    "command": "go test -race ./dagql -run '^TestSnapshotOwnershipRetriesBusyOperation$' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 57.634,
+    "startedUnix": 1789600141.3645997,
+    "finishedUnix": 1789600198.9981287,
+    "outcome": "historical test of rejected retry; test removed"
+  },
+  {
+    "name": "completed-container-exclusion",
+    "command": "go test -race ./core -run '^TestLazyCompletedContainerPublicationExclusion$' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 40.786,
+    "startedUnix": 1789600325.5148633,
+    "finishedUnix": 1789600366.3011703
+  },
+  {
+    "name": "owner-read-core",
+    "command": "env GOPATH=/home/exedev/go GOCACHE=/home/exedev/.cache/go-build go test -race -exec 'sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -run '^(TestSnapshotOwnerCompletedReaders|TestSnapshotOwnerWaitsForBody|TestSnapshotOwnerWaitsForEncoder|TestContainerShutdownPersistenceWaitsForReader)$' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 52.205,
+    "startedUnix": 1789601163.2429209,
+    "finishedUnix": 1789601215.448424
+  },
+  {
+    "name": "owner-read-dagql",
+    "command": "go test -race ./dagql -run '^TestSnapshotOwnerSync(ReadSelection|InlineRead)$' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 57.1,
+    "startedUnix": 1789601163.243179,
+    "finishedUnix": 1789601220.3430984
+  },
+  {
+    "name": "round1-whole-container-race",
+    "command": "env GOPATH=/home/exedev/go GOCACHE=/home/exedev/.cache/go-build go test -race -exec 'sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -run '^TestSnapshotOwnerWaitsForWholeContainer$' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 49.03,
+    "sourceCommit": "4a77b4487ede06bdfda9c154a1db4a41a3b280b3"
+  },
+  {
+    "name": "round1-r8-dagql-compile",
+    "command": "go test ./dagql -run '^$' -count=1",
+    "exit": 0,
+    "seconds": 23.76,
+    "purpose": "Compile the R8 mode forwarding and all existing package tests without running any selection",
+    "sourceCommit": "313a82e5a4132700415d86d24b5d21f8c8d1659a"
+  },
+  {
+    "name": "round1-r8-owner-sync-race",
+    "command": "go test -race ./dagql -run '^(TestSnapshotOwnerSync(ReadSelection|InlineRead)|TestCacheSnapshotOwnerLeaseSyncDefersSessionCleanup)$' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 53.835,
+    "startedUnix": 1789603942.4099727,
+    "finishedUnix": 1789603996.244877,
+    "sourceCommit": "f0a18735d7a02b01c66395c9fc463857064dedd7",
+    "tests": [
+      {
+        "test": "TestSnapshotOwnerSyncReadSelection",
+        "result": "PASS",
+        "seconds": 0.0
+      },
+      {
+        "test": "TestSnapshotOwnerSyncInlineRead",
+        "result": "PASS",
+        "seconds": 0.0
+      },
+      {
+        "test": "TestCacheSnapshotOwnerLeaseSyncDefersSessionCleanup",
+        "result": "PASS",
+        "seconds": 0.0
+      }
+    ],
+    "outcome": "passed under the race detector at the post-R8 tip; no skips",
+    "packageSeconds": 1.415
+  }
+]

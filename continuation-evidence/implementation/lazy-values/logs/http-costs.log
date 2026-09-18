@@ -1,0 +1,6 @@
+=== RUN   TestHTTPPinLockCost
+    http_lazy_test.go:260: HTTP local pin average=3.275514ms; acquisition with a 20ms occupied state lock=28.208861ms
+2026/09/16 21:54:37 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestHTTPPinLockCost (0.37s)
+PASS
+ok  	github.com/dagger/dagger/core	0.497s

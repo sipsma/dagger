@@ -28,6 +28,7 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 	var snapshot persistStateSnapshot
 
 	c.egraphMu.RLock()
+	selectedResultIDs, persistedRootIDs := c.snapshotPersistedRootClosureLocked()
 
 	addEqClassID := func(eqClassIDs map[eqClassID]struct{}, eqID eqClassID) {
 		eqID = c.findEqClassLocked(eqID)
@@ -38,12 +39,85 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 	}
 
 	eqClassIDs := make(map[eqClassID]struct{})
+	retainedOutputEqClassIDs := make(map[eqClassID]struct{})
 
-	for eqID := range c.eqClassToDigests {
-		addEqClassID(eqClassIDs, eqID)
+	resultIDs := make([]sharedResultID, 0, len(selectedResultIDs))
+	for resultID := range selectedResultIDs {
+		resultIDs = append(resultIDs, resultID)
 	}
-	for eqID := range c.eqClassExtraDigests {
-		addEqClassID(eqClassIDs, eqID)
+	slices.Sort(resultIDs)
+	for _, resultID := range resultIDs {
+		res := c.resultsByID[resultID]
+		if res == nil {
+			continue
+		}
+
+		depIDs := make([]sharedResultID, 0, len(res.deps))
+		for depID := range res.deps {
+			depIDs = append(depIDs, depID)
+		}
+		slices.Sort(depIDs)
+		resultDeps := make([]persistdb.MirrorResultDep, 0, len(depIDs))
+		for _, depID := range depIDs {
+			if _, selected := selectedResultIDs[depID]; !selected {
+				c.egraphMu.RUnlock()
+				return persistStateSnapshot{}, fmt.Errorf("persist result %d: dependency %d is outside persisted root closure", resultID, depID)
+			}
+			resultDeps = append(resultDeps, persistdb.MirrorResultDep{
+				ParentResultID: int64(resultID),
+				DepResultID:    int64(depID),
+			})
+		}
+
+		outputEqClasses := c.outputEqClassesForResultLocked(resultID)
+		outputEqIDs := make([]eqClassID, 0, len(outputEqClasses))
+		for outputEqID := range outputEqClasses {
+			outputEqID = c.findEqClassLocked(outputEqID)
+			if outputEqID == 0 {
+				continue
+			}
+			retainedOutputEqClassIDs[outputEqID] = struct{}{}
+			addEqClassID(eqClassIDs, outputEqID)
+			outputEqIDs = append(outputEqIDs, outputEqID)
+		}
+		slices.Sort(outputEqIDs)
+		for _, outputEqID := range outputEqIDs {
+			snapshot.resultOutputEqClasses = append(snapshot.resultOutputEqClasses, persistdb.MirrorResultOutputEqClass{
+				ResultID:  int64(resultID),
+				EqClassID: int64(outputEqID),
+			})
+		}
+
+		offers, err := res.pendingOffersLocked()
+		if err != nil {
+			c.egraphMu.RUnlock()
+			return persistStateSnapshot{}, err
+		}
+		payload := res.loadPayloadState()
+		if payload.snapshotLinkIntent != nil {
+			payload.snapshotOwnerLinks = cloneSnapshotRefLinks(payload.snapshotLinkIntent.Links)
+		}
+		snapshot.results = append(snapshot.results, persistResultSnapshot{
+			resultID:              resultID,
+			imported:              res.imported,
+			pendingOffers:         offers,
+			frame:                 res.loadResultCall().clone(),
+			self:                  payload.self,
+			isObject:              payload.isObject,
+			hasValue:              payload.hasValue,
+			sessionResourceHandle: res.sessionResourceHandle,
+			persistedEnvelope:     payload.persistedEnvelope,
+			snapshotOwnerLinks:    payload.snapshotOwnerLinks,
+			row: persistdb.MirrorResult{
+				ID:                 int64(resultID),
+				ExpiresAtUnix:      res.expiresAtUnix,
+				CreatedAtUnixNano:  payload.createdAtUnixNano,
+				LastUsedAtUnixNano: payload.lastUsedAtUnixNano,
+				RecordType:         res.recordType,
+				Description:        res.description,
+			},
+			resultDeps: resultDeps,
+		})
 	}
 
 	termIDs := make([]egraphTermID, 0, len(c.egraphTerms))
@@ -57,6 +131,9 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 			continue
 		}
 		outputEqID := c.findEqClassLocked(term.outputEqID)
+		if _, retained := retainedOutputEqClassIDs[outputEqID]; !retained {
+			continue
+		}
 		addEqClassID(eqClassIDs, outputEqID)
 		inputProvenance := c.termInputProvenance[termID]
 		if len(inputProvenance) != len(term.inputEqIDs) {
@@ -84,68 +161,8 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 		})
 	}
 
-	resultIDs := make([]sharedResultID, 0, len(c.resultsByID))
-	for resultID := range c.resultsByID {
-		resultIDs = append(resultIDs, resultID)
-	}
-	slices.Sort(resultIDs)
-	for _, resultID := range resultIDs {
-		res := c.resultsByID[resultID]
-		if res == nil {
-			continue
-		}
-
-		depIDs := make([]sharedResultID, 0, len(res.deps))
-		for depID := range res.deps {
-			depIDs = append(depIDs, depID)
-		}
-		slices.Sort(depIDs)
-		resultDeps := make([]persistdb.MirrorResultDep, 0, len(depIDs))
-		for _, depID := range depIDs {
-			resultDeps = append(resultDeps, persistdb.MirrorResultDep{
-				ParentResultID: int64(resultID),
-				DepResultID:    int64(depID),
-			})
-		}
-
-		outputEqClasses := c.outputEqClassesForResultLocked(resultID)
-		outputEqIDs := make([]eqClassID, 0, len(outputEqClasses))
-		for outputEqID := range outputEqClasses {
-			addEqClassID(eqClassIDs, outputEqID)
-			outputEqIDs = append(outputEqIDs, outputEqID)
-		}
-		slices.Sort(outputEqIDs)
-		for _, outputEqID := range outputEqIDs {
-			snapshot.resultOutputEqClasses = append(snapshot.resultOutputEqClasses, persistdb.MirrorResultOutputEqClass{
-				ResultID:  int64(resultID),
-				EqClassID: int64(outputEqID),
-			})
-		}
-
-		payload := res.loadPayloadState()
-		snapshot.results = append(snapshot.results, persistResultSnapshot{
-			resultID:              resultID,
-			frame:                 res.loadResultCall().clone(),
-			self:                  payload.self,
-			isObject:              payload.isObject,
-			hasValue:              payload.hasValue,
-			sessionResourceHandle: res.sessionResourceHandle,
-			persistedEnvelope:     payload.persistedEnvelope,
-			snapshotOwnerLinks:    payload.snapshotOwnerLinks,
-			row: persistdb.MirrorResult{
-				ID:                 int64(resultID),
-				ExpiresAtUnix:      res.expiresAtUnix,
-				CreatedAtUnixNano:  payload.createdAtUnixNano,
-				LastUsedAtUnixNano: payload.lastUsedAtUnixNano,
-				RecordType:         res.recordType,
-				Description:        res.description,
-			},
-			resultDeps: resultDeps,
-		})
-	}
-
-	persistedResultIDs := make([]sharedResultID, 0, len(c.persistedEdgesByResult))
-	for resultID := range c.persistedEdgesByResult {
+	persistedResultIDs := make([]sharedResultID, 0, len(persistedRootIDs))
+	for resultID := range persistedRootIDs {
 		persistedResultIDs = append(persistedResultIDs, resultID)
 	}
 	slices.Sort(persistedResultIDs)
@@ -245,7 +262,6 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 		case err != nil:
 			return persistStateSnapshot{}, fmt.Errorf("persist result %d envelope: %w", resultSnapshot.resultID, err)
 		}
-
 		payload, err := json.Marshal(encoding.Envelope)
 		if err != nil {
 			return persistStateSnapshot{}, fmt.Errorf("persist result %d payload JSON: %w", resultSnapshot.resultID, err)
@@ -258,9 +274,84 @@ func (c *Cache) snapshotPersistState(ctx context.Context) (persistStateSnapshot,
 			resultSnapshot.row.CallFrameJSON = string(callFrameJSON)
 		}
 		resultSnapshot.row.SelfPayload = payload
-		resultSnapshot.resultSnapshotLinks = resultSnapshotLinkRows(resultSnapshot.resultID, encoding.SnapshotLinks)
+		resultSnapshot.resultSnapshotLinks, err = resultSnapshotLinkRows(resultSnapshot.resultID, encoding.SnapshotLinks)
+		if err != nil {
+			return persistStateSnapshot{}, err
+		}
 	}
 	return snapshot, nil
+}
+
+// snapshotPersistedRootClosureLocked returns every clean result reachable from
+// a persisted root whose full dependency closure is clean and registered. It
+// requires egraphMu for reading.
+func (c *Cache) snapshotPersistedRootClosureLocked() (map[sharedResultID]struct{}, map[sharedResultID]struct{}) {
+	invalid := make(map[sharedResultID]struct{})
+	parentsByDependency := make(map[sharedResultID][]sharedResultID)
+	invalidQueue := make([]sharedResultID, 0)
+	markInvalid := func(resultID sharedResultID) {
+		if _, found := invalid[resultID]; found {
+			return
+		}
+		invalid[resultID] = struct{}{}
+		invalidQueue = append(invalidQueue, resultID)
+	}
+
+	for resultID, res := range c.resultsByID {
+		if res == nil {
+			continue
+		}
+		if res.attachmentState() != resultAttachmentClean {
+			markInvalid(resultID)
+		}
+		for depID := range c.ownedResultIDsLocked(res) {
+			parentsByDependency[depID] = append(parentsByDependency[depID], resultID)
+			if c.resultsByID[depID] == nil {
+				markInvalid(resultID)
+			}
+		}
+	}
+	for len(invalidQueue) > 0 {
+		resultID := invalidQueue[len(invalidQueue)-1]
+		invalidQueue = invalidQueue[:len(invalidQueue)-1]
+		for _, parentID := range parentsByDependency[resultID] {
+			markInvalid(parentID)
+		}
+	}
+
+	persistedRoots := make(map[sharedResultID]struct{}, len(c.persistedEdgesByResult))
+	stack := make([]sharedResultID, 0, len(c.persistedEdgesByResult))
+	for resultID := range c.persistedEdgesByResult {
+		if c.resultsByID[resultID] == nil {
+			continue
+		}
+		if _, rejected := invalid[resultID]; rejected {
+			continue
+		}
+		persistedRoots[resultID] = struct{}{}
+		stack = append(stack, resultID)
+	}
+
+	selected := make(map[sharedResultID]struct{})
+	for len(stack) > 0 {
+		resultID := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if _, found := selected[resultID]; found {
+			continue
+		}
+		res := c.resultsByID[resultID]
+		if res == nil {
+			continue
+		}
+		if _, rejected := invalid[resultID]; rejected {
+			continue
+		}
+		selected[resultID] = struct{}{}
+		for depID := range c.ownedResultIDsLocked(res) {
+			stack = append(stack, depID)
+		}
+	}
+	return selected, persistedRoots
 }
 
 //nolint:gocyclo // intrinsically long state machine; refactoring would hurt clarity
@@ -359,60 +450,67 @@ func (c *Cache) applyPersistStateSnapshot(ctx context.Context, snapshot persistS
 	return nil
 }
 
-func resultSnapshotLinkRows(resultID sharedResultID, links []PersistedSnapshotRefLink) []persistdb.MirrorResultSnapshotLink {
-	if len(links) == 0 {
-		return nil
-	}
-	links = slices.Clone(links)
-	slices.SortFunc(links, func(a, b PersistedSnapshotRefLink) int {
-		switch {
-		case a.RefKey < b.RefKey:
-			return -1
-		case a.RefKey > b.RefKey:
-			return 1
-		case a.Role < b.Role:
-			return -1
-		case a.Role > b.Role:
-			return 1
-		default:
-			return 0
-		}
-	})
+func resultSnapshotLinkRows(resultID sharedResultID, links []PersistedSnapshotRefLink) ([]persistdb.MirrorResultSnapshotLink, error) {
 	rows := make([]persistdb.MirrorResultSnapshotLink, 0, len(links))
 	for _, link := range links {
-		rows = append(rows, persistdb.MirrorResultSnapshotLink{
-			ResultID: int64(resultID),
-			RefKey:   link.RefKey,
-			Role:     link.Role,
-		})
+		key, err := snapshotLinkKey(link)
+		if err != nil {
+			return nil, err
+		}
+		if link.RefKey == "" {
+			return nil, fmt.Errorf("empty snapshot key")
+		}
+		rows = append(rows, persistdb.MirrorResultSnapshotLink{ResultID: int64(resultID), RefKey: link.RefKey, Role: key.Role, OutputPath: key.Path})
 	}
-	return rows
+	slices.SortFunc(rows, func(a, b persistdb.MirrorResultSnapshotLink) int {
+		if a.OutputPath < b.OutputPath {
+			return -1
+		}
+		if a.OutputPath > b.OutputPath {
+			return 1
+		}
+		if a.Role < b.Role {
+			return -1
+		}
+		if a.Role > b.Role {
+			return 1
+		}
+		return 0
+	})
+	return rows, nil
 }
 
-func (c *Cache) persistResultEnvelope(ctx context.Context, snapshot *persistResultSnapshot) (PersistedResultEncoding, error) {
+func (c *Cache) persistResultEnvelope(ctx context.Context, snapshot *persistResultSnapshot) (encoding PersistedResultEncoding, rerr error) {
+	defer func() {
+		if rerr == nil && snapshot != nil {
+			encoding.Envelope.Imported = snapshot.imported
+			encoding.Envelope.PendingOffers, rerr = clonePartOffers(snapshot.pendingOffers)
+		}
+	}()
 	if snapshot != nil && snapshot.persistedEnvelope != nil {
 		return PersistedResultEncoding{
 			Envelope:      *snapshot.persistedEnvelope,
 			SnapshotLinks: snapshot.snapshotOwnerLinks,
 		}, nil
 	}
-	if snapshot == nil || !snapshot.hasValue {
-		return PersistedResultEncoding{
-			Envelope: PersistedResultEnvelope{
-				Version: 1,
-				Kind:    persistedResultKindNull,
-			},
-		}, nil
+	if snapshot == nil {
+		return PersistedResultEncoding{}, fmt.Errorf("persist result envelope: nil snapshot")
 	}
-	if snapshot.self == nil {
-		return PersistedResultEncoding{
-			Envelope: PersistedResultEnvelope{
-				Version:               2,
-				Kind:                  persistedResultKindNull,
-				ResultID:              uint64(snapshot.resultID),
-				SessionResourceHandle: snapshot.sessionResourceHandle,
-			},
-		}, nil
+	// Shutdown has drained cache operations, but diagnostic readers can still
+	// briefly hold object latches. This permission belongs only to the persister,
+	// never to live capture through the same codec.
+	ctx = context.WithValue(ctx, quiescentPersistKey{}, true)
+	if !snapshot.hasValue || snapshot.self == nil {
+		// A row without a value is an attached absent value: it keeps its
+		// identity and recorded call so restart restores the same row. The
+		// declaration is checked here, at capture, so a contradictory row
+		// fails this save by name instead of wiping the store on import.
+		return encodePersistedAbsentValue(
+			NewPersistEncodeContext(c, uint64(snapshot.resultID), snapshot.frame),
+			uint64(snapshot.resultID),
+			snapshot.sessionResourceHandle,
+			true,
+		)
 	}
 	if snapshot.frame == nil {
 		if snapshot.self == nil || snapshot.self.Type() == nil || snapshot.self.Type().Name() != "Query" {

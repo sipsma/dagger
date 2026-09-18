@@ -10,6 +10,7 @@ import (
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/dagql/call"
 	dagqlintrospection "github.com/dagger/dagger/dagql/introspection"
+	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/slog"
 )
 
@@ -77,7 +78,35 @@ func (base *CoreSchemaBase) Fork(ctx context.Context, root *core.Query, view cal
 	return forked, nil
 }
 
+// ForkForPersistedDecode returns a schema-only server for a background
+// persisted decode: the already-installed base forked onto the given root,
+// with the core view set and the ordinary core loaders installed. It
+// deliberately bypasses viewState, which builds cache-backed type
+// definitions; the native Service, Container and Module decoder classes this
+// needs are already installed on the base. It installs no user module and
+// builds no dynamic schema.
+func (base *CoreSchemaBase) ForkForPersistedDecode(ctx context.Context, root *core.Query, view call.View) (*dagql.Server, error) {
+	if base == nil {
+		return nil, fmt.Errorf("fork core schema for persisted decode: no core schema base")
+	}
+	if root == nil {
+		return nil, fmt.Errorf("fork core schema for persisted decode: no root")
+	}
+	forked, err := base.base.Fork(ctx, root)
+	if err != nil {
+		return nil, fmt.Errorf("fork core schema for persisted decode: %w", err)
+	}
+	forked.View = view
+	core.InstallCoreSchemaLoaders(forked)
+	return forked, nil
+}
+
 func (base *CoreSchemaBase) viewState(ctx context.Context, view call.View) (*coreSchemaViewState, error) {
+	// The schema-only fork used by a share's persisted decode bypasses this
+	// cache-backed type-definition build entirely.
+	if err := engine.CheckSnapshotSharePreparation(ctx, "build core schema view"); err != nil {
+		return nil, err
+	}
 	base.mu.Lock()
 	defer base.mu.Unlock()
 
@@ -175,12 +204,12 @@ func (m *CoreMod) WithView(view call.View) *CoreMod {
 func (m *CoreMod) Install(ctx context.Context, dag *dagql.Server, _ ...core.InstallOpts) error {
 	for _, schema := range []SchemaResolvers{
 		&querySchema{},
-		&environmentSchema{}, // install environment middleware first
 		&directorySchema{},
 		&fileSchema{},
 		&gitSchema{},
 		&containerSchema{},
 		&cacheSchema{},
+		&volumeSchema{},
 		&secretSchema{},
 		&serviceSchema{},
 		&hostSchema{},
@@ -193,18 +222,22 @@ func (m *CoreMod) Install(ctx context.Context, dag *dagql.Server, _ ...core.Inst
 		&engineSchema{},
 		&cloudSchema{},
 		&llmSchema{},
+		&agentSchema{},
 		&jsonvalueSchema{},
+		&schemaToolsSchema{},
 		&envfileSchema{},
 		&addressSchema{},
 		&checksSchema{},
 		&generatorsSchema{},
 		&upSchema{},
+		&terminalsSchema{},
+		&agentsSchema{},
 		&workspaceSchema{},
 	} {
 		schema.Install(dag)
 	}
 
-	return nil
+	return installRemoteCacheFixture(dag)
 }
 
 func (m *CoreMod) ModTypeFor(ctx context.Context, typeDef *core.TypeDef, checkDirectDeps bool) (core.ModType, bool, error) {

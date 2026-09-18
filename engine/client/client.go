@@ -135,18 +135,25 @@ type Params struct {
 
 	SuppressCompatWorkspaceWarning bool
 
-	// LockMode controls lockfile behavior for lookup resolution.
-	// Valid values: "disabled", "strict", "auto", "update".
-	LockMode string
-
 	// Workspace explicitly declares workspace binding for this client.
 	Workspace *string
 
 	// WorkspaceEnv explicitly selects the workspace environment overlay for this client.
 	WorkspaceEnv *string
 
+	// UserConfigPath is the caller-host path to the user-level Dagger config
+	// file, read by the engine for user-level workspace overrides.
+	UserConfigPath string
+
+	// WorkspaceModuleScope hints at the workspace module this client's first
+	// schema introspection targets (the leading CLI command token, unresolved).
+	WorkspaceModuleScope string
+
 	CloudAuth           *auth.Cloud
 	EnableCloudScaleOut bool
+
+	// Profile enables engine wall-clock profiling (wcprof) for this session.
+	Profile bool
 }
 
 type Client struct {
@@ -523,7 +530,29 @@ func (c *Client) startEngine(ctx context.Context, params Params) (rerr error) {
 	return nil
 }
 
+func (c *Client) telemetryContext(ctx context.Context) (context.Context, context.CancelCauseFunc) {
+	ctx, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
+	go func() {
+		select {
+		case <-c.internalCtx.Done():
+			cancel(context.Cause(c.internalCtx))
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, cancel
+}
+
 func (c *Client) subscribeTelemetry(ctx context.Context) (rerr error) {
+	// Keep telemetry alive across the caller's cancellation and the server's
+	// shutdown drain, but tie it to the client-owned internal lifetime so a
+	// failed initialization or rejected /shutdown cannot strand SSE streams.
+	ctx, cancel := c.telemetryContext(ctx)
+	defer func() {
+		if rerr != nil {
+			cancel(rerr)
+		}
+	}()
+
 	ctx, span := Tracer(ctx).Start(ctx, "subscribing to telemetry",
 		telemetry.Encapsulated())
 	defer telemetry.EndWithCause(span, &rerr)
@@ -810,8 +839,18 @@ func (c *Client) daggerConnect(ctx context.Context) error {
 
 func (c *Client) Close() (rerr error) {
 	// shutdown happens outside of c.closeMu, since it requires a connection
-	if err := c.shutdownServer(); err != nil {
-		rerr = errors.Join(rerr, fmt.Errorf("shutdown: %w", err))
+	shutdownErr := c.shutdownServer()
+	if shutdownErr != nil {
+		rerr = errors.Join(rerr, fmt.Errorf("shutdown: %w", shutdownErr))
+	} else if c.telemetry != nil {
+		// A successful /shutdown has flushed the session's telemetry and
+		// marked this client's streams as terminating; the server ends them
+		// once it has sent everything. Drain them now, before internalCancel
+		// closes the connections from our side, or the final spans (including
+		// the error that ended the run) never reach the frontend.
+		if err := c.telemetry.Wait(); err != nil {
+			rerr = errors.Join(rerr, fmt.Errorf("wait for telemetry: %w", err))
+		}
 	}
 
 	c.closeMu.Lock()
@@ -906,13 +945,26 @@ func (c *otlpConsumer) Consume(ctx context.Context, cb func([]byte) error) (rerr
 		return fmt.Errorf("connect to SSE: %w", err)
 	}
 
+	var closeOnce sync.Once
+	closeSSE := func() {
+		closeOnce.Do(func() {
+			_ = sseConn.Close()
+		})
+	}
+	stopClose := context.AfterFunc(ctx, closeSSE)
+
 	c.eg.Go(func() error {
-		defer sseConn.Close()
+		defer func() {
+			stopClose()
+			closeSSE()
+		}()
 
 		for {
 			event, err := sseConn.Next()
 			if err != nil {
-				if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
+				if errors.Is(err, io.EOF) ||
+					errors.Is(err, context.Canceled) ||
+					errors.Is(err, sse.ErrSourceClosed) {
 					return nil
 				}
 				return fmt.Errorf("decode: %w", err)
@@ -945,10 +997,6 @@ func (c *otlpConsumer) Consume(ctx context.Context, cb func([]byte) error) (rerr
 }
 
 func (c *Client) exportTraces(ctx context.Context, httpClient *httpClient) error {
-	// NB: we never actually want to interrupt this, since it's relied upon for
-	// seeing what's going on, even during shutdown
-	ctx = context.WithoutCancel(ctx)
-
 	exp := &otlpConsumer{
 		path:       "/v1/traces",
 		traceID:    trace.SpanContextFromContext(ctx).TraceID(),
@@ -980,10 +1028,6 @@ func (c *Client) exportTraces(ctx context.Context, httpClient *httpClient) error
 }
 
 func (c *Client) exportLogs(ctx context.Context, httpClient *httpClient) error {
-	// NB: we never actually want to interrupt this, since it's relied upon for
-	// seeing what's going on, even during shutdown
-	ctx = context.WithoutCancel(ctx)
-
 	exp := &otlpConsumer{
 		path:       "/v1/logs",
 		traceID:    trace.SpanContextFromContext(ctx).TraceID(),
@@ -1005,10 +1049,6 @@ func (c *Client) exportLogs(ctx context.Context, httpClient *httpClient) error {
 }
 
 func (c *Client) exportMetrics(ctx context.Context, httpClient *httpClient) error {
-	// NB: we never actually want to interrupt this, since it's relied upon for
-	// seeing what's going on, even during shutdown
-	ctx = context.WithoutCancel(ctx)
-
 	exp := &otlpConsumer{
 		path:       "/v1/metrics",
 		traceID:    trace.SpanContextFromContext(ctx).TraceID(),
@@ -1435,6 +1475,7 @@ func (c *Client) clientMetadata() engine.ClientMetadata {
 		UpstreamCacheExportConfig:      c.upstreamCacheExportOptions,
 		Labels:                         c.labels.AsMap(),
 		CloudOrg:                       cloudOrg,
+		CloudEngine:                    strings.HasPrefix(c.RunnerHost, engine.CloudRunnerHostPrefix),
 		DoNotTrack:                     analytics.DoNotTrack(),
 		Interactive:                    c.Interactive,
 		InteractiveCommand:             c.InteractiveCommand,
@@ -1446,7 +1487,7 @@ func (c *Client) clientMetadata() engine.ClientMetadata {
 		CloudAuth:                      c.CloudAuth,
 		EnableCloudScaleOut:            c.EnableCloudScaleOut,
 		CloudScaleOutEngineID:          remoteEngineID,
-		LockMode:                       c.LockMode,
+		Profile:                        c.Profile,
 	}
 
 	if c.Module != "" {
@@ -1455,14 +1496,19 @@ func (c *Client) clientMetadata() engine.ClientMetadata {
 	if c.Module == "" && c.LoadWorkspaceModules {
 		md.LoadWorkspaceModules = true
 	}
-	if c.LockMode != "" {
-		md.LockMode = c.LockMode
+	// The scope only narrows workspace module loading, so it travels only
+	// when this client asks for it.
+	if md.LoadWorkspaceModules {
+		md.WorkspaceModuleScope = c.WorkspaceModuleScope
 	}
 	if c.Workspace != nil {
 		md.Workspace = c.Workspace
 	}
 	if c.WorkspaceEnv != nil {
 		md.WorkspaceEnv = c.WorkspaceEnv
+	}
+	if c.UserConfigPath != "" {
+		md.UserConfigPath = c.UserConfigPath
 	}
 
 	return md
@@ -1516,6 +1562,9 @@ func (c *httpClient) Do(req *http.Request) (*http.Response, error) {
 		req.Header[k] = v
 	}
 	telemetry.Propagator.Inject(req.Context(), propagation.HeaderCarrier(req.Header))
+	if engine.TelemetrySuppressedFromContext(req.Context()) {
+		req.Header.Set(engine.SuppressTelemetryHeader, "true")
+	}
 	req.SetBasicAuth(c.secretToken, "")
 
 	// We're making a request to the engine HTTP/2 server, but these headers are not

@@ -1,0 +1,262 @@
+✔ TestSchemaRecovery 3m44s
+
+✔ .dagger-cli session --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a 3m44s
+
+✔ host: Host! 0.0s
+✔ .file(path: "/dagger-dev/engine.tar"): File! 0.0s
+
+$ container(platform: "linux/amd64"): Container! 0.0s CACHED
+✔ .import(
+  ┆ source: Host.file(path: "/dagger-dev/engine.tar"): File!
+  ): Container! 3.1s
+✔ .withMountedCache(
+  ┆ path: "/transfer-fixture"
+  ┆ cache: cacheVolume(key: "b2-transfer-a-rndwtwn4cpdtz66v03xx71fvz", namespace: "mainClient"): CacheVolume!
+  ): Container! 0.0s
+✔ withEnvVariable _DAGGER_TEST_REMOTE_CACHE_FIXTURE_ROOT=/transfer-fixture 0.0s
+✔ .withMountedCache(
+  ┆ path: "/var/lib/dagger"
+  ┆ cache: cacheVolume(key: "b2-transfer-a-state-t4l2emqqq96nhq38ikl5iripr", namespace: "mainClient"): CacheVolume!
+  ): Container! 0.0s
+✔ .withExposedPort(port: 1234, protocol: TCP): Container! 0.0s
+✔ .withDefaultArgs(args: ["--addr", "tcp://0.0.0.0:1234", "--network-name", "dagger3", "--network-cidr", "10.89.3.0/24"]): Container! 0.0s
+✔ .directory(path: "/etc/dagger"): Directory! 0.1s
+✔ .entries: [String!]! 0.0s
+
+✔ Container.file(path: "/etc/dagger/engine.json"): File! 0.0s
+✔ .contents: String! 0.0s
+
+✔ withNewFile /etc/dagger/engine.json (contents: "{\"gc\":{\"enabled\":true,\"dagqlCache\":{},\"reservedSpace\":1000000000000000,\"maxUsedSpace\":1000000000000000,\"minFreeSpace\":0,\"sweepSize\":0},\"registries\":{\"docker.io\":{\"mirrors\":[\"mirror.gcr.io\"],\"http\":null,\"insecure\":null,\"ca\":null}}}\n") 0.0s
+✔ .asService(useEntrypoint: true, insecureRootCapabilities: true): Service! 3m41s
+
+✔ Host.tunnel(
+  ┆ service: Container.asService(useEntrypoint: true, insecureRootCapabilities: true): Service!
+  ): Service! 0.0s
+✔ .start: ID! 0.6s
+
+✔ Service.endpoint(scheme: "tcp"): String! 0.0s
+
+✔ .dagger-cli session --workdir /tmp/TestRemoteCacheTransferSuiteTestSchemaRecovery1252138919/001 --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a 3m18s
+
+✔ moduleSource(refString: "."): ModuleSource! 0.1s
+✔ .asModule: Module! 17.4s
+✔ .serve: Void 0.0s
+
+✔ cacheProbe: CacheProbe! 0.0s
+✔ .report(seed: "same"): CacheProbeReport! 0.3s
+✔ .noteFile(
+  ┆ file: Host.file(path: "/tmp/TestRemoteCacheTransferSuiteTestSchemaRecovery1252138919/001/notes.txt", noCache: true): File!
+  ): String! 0.2s
+
+✔ before 1m10s
+
+✔ Container.withMountedCache(
+  ┆ path: "/transfer-fixture"
+  ┆ cache: cacheVolume(key: "b2-transfer-b-aodx0xg5fce5vq3myqzyn89s5", namespace: "mainClient"): CacheVolume!
+  ): Container! 0.0s
+✔ withEnvVariable _DAGGER_TEST_REMOTE_CACHE_FIXTURE_ROOT=/transfer-fixture 0.0s
+✔ .withMountedCache(
+  ┆ path: "/var/lib/dagger"
+  ┆ cache: cacheVolume(key: "b2-transfer-b-state-oppsak8bxi4q7drxsu3nh0n07", namespace: "mainClient"): CacheVolume!
+  ): Container! 0.0s
+✔ .withExposedPort(port: 1234, protocol: TCP): Container! 0.0s
+✔ .withDefaultArgs(args: ["--addr", "tcp://0.0.0.0:1234", "--network-name", "dagger4", "--network-cidr", "10.89.4.0/24"]): Container! 0.0s
+✔ .directory(path: "/etc/dagger"): Directory! 0.1s
+✔ .entries: [String!]! 0.1s
+
+✔ Container.file(path: "/etc/dagger/engine.json"): File! 0.0s
+✔ .contents: String! 0.0s
+
+✔ withNewFile /etc/dagger/engine.json (contents: "{\"gc\":{\"enabled\":true,\"dagqlCache\":{},\"reservedSpace\":1000000000000000,\"maxUsedSpace\":1000000000000000,\"minFreeSpace\":0,\"sweepSize\":0},\"registries\":{\"docker.io\":{\"mirrors\":[\"mirror.gcr.io\"],\"http\":null,\"insecure\":null,\"ca\":null}}}\n") 0.0s
+✔ .asService(useEntrypoint: true, insecureRootCapabilities: true): Service! 49.6s
+
+✔ Host.tunnel(
+  ┆ service: Container.asService(useEntrypoint: true, insecureRootCapabilities: true): Service!
+  ): Service! 0.0s
+✔ .start: ID! 3.7s
+
+✔ Service.endpoint(scheme: "tcp"): String! 0.0s
+
+✔ .dagger-cli session --workdir /tmp/TestRemoteCacheTransferSuiteTestSchemaRecoverybefore2860166482/001 --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a 21.4s
+
+$ cacheProbe: CacheProbe! 0.0s CACHED
+$ .report(seed: "same"): CacheProbeReport! 0.0s CACHED
+
+✔ CacheProbe.report(seed: "different"): CacheProbeReport! 0.2s
+
+✔ Service.stop: ID! 24.3s
+
+✔ Service.stop(kill: true): ID! 0.0s
+
+✔ Container.withDefaultArgs(args: ["--addr", "tcp://0.0.0.0:1234", "--network-name", "dagger5", "--network-cidr", "10.89.5.0/24"]): Container! 0.0s
+✔ .directory(path: "/etc/dagger"): Directory! 0.0s
+✔ .entries: [String!]! 0.0s
+
+✔ Container.file(path: "/etc/dagger/engine.json"): File! 0.0s
+✔ .contents: String! 0.1s
+
+✔ withNewFile /etc/dagger/engine.json (contents: "{\"gc\":{\"enabled\":true,\"dagqlCache\":{},\"reservedSpace\":1000000000000000,\"maxUsedSpace\":1000000000000000,\"minFreeSpace\":0,\"sweepSize\":0},\"registries\":{\"docker.io\":{\"mirrors\":[\"mirror.gcr.io\"],\"http\":null,\"insecure\":null,\"ca\":null}}}\n") 0.0s
+✔ .asService(useEntrypoint: true, insecureRootCapabilities: true): Service! 20.4s
+
+✔ Host.tunnel(
+  ┆ service: Container.asService(useEntrypoint: true, insecureRootCapabilities: true): Service!
+  ): Service! 0.0s
+✔ .start: ID! 1.0s
+
+✔ Service.endpoint(scheme: "tcp"): String! 0.0s
+
+✔ .dagger-cli session --workdir /tmp/TestRemoteCacheTransferSuiteTestSchemaRecoverybefore2860166482/001 --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a 3.0s
+
+$ cacheProbe: CacheProbe! 0.0s CACHED
+✔ .report(seed: "native recorded control"): CacheProbeReport! 0.2s
+
+✔ Service.stop: ID! 16.3s
+
+✔ Service.stop(kill: true): ID! 0.0s
+
+✔ after 1m5s
+
+✔ Container.withMountedCache(
+  ┆ path: "/transfer-fixture"
+  ┆ cache: cacheVolume(key: "b2-transfer-b-2r13x9tlkulwlxmgnat37nzal", namespace: "mainClient"): CacheVolume!
+  ): Container! 0.0s
+✔ withEnvVariable _DAGGER_TEST_REMOTE_CACHE_FIXTURE_ROOT=/transfer-fixture 0.0s
+✔ .withMountedCache(
+  ┆ path: "/var/lib/dagger"
+  ┆ cache: cacheVolume(key: "b2-transfer-b-state-kdpog80kjcr4b54nno2bugpg1", namespace: "mainClient"): CacheVolume!
+  ): Container! 0.0s
+✔ .withExposedPort(port: 1234, protocol: TCP): Container! 0.0s
+✔ .withDefaultArgs(args: ["--addr", "tcp://0.0.0.0:1234", "--network-name", "dagger6", "--network-cidr", "10.89.6.0/24"]): Container! 0.0s
+✔ .directory(path: "/etc/dagger"): Directory! 0.0s
+✔ .entries: [String!]! 0.0s
+
+✔ Container.file(path: "/etc/dagger/engine.json"): File! 0.0s
+✔ .contents: String! 0.0s
+
+✔ withNewFile /etc/dagger/engine.json (contents: "{\"gc\":{\"enabled\":true,\"dagqlCache\":{},\"reservedSpace\":1000000000000000,\"maxUsedSpace\":1000000000000000,\"minFreeSpace\":0,\"sweepSize\":0},\"registries\":{\"docker.io\":{\"mirrors\":[\"mirror.gcr.io\"],\"http\":null,\"insecure\":null,\"ca\":null}}}\n") 0.0s
+✔ .asService(useEntrypoint: true, insecureRootCapabilities: true): Service! 44.6s
+
+✔ Host.tunnel(
+  ┆ service: Container.asService(useEntrypoint: true, insecureRootCapabilities: true): Service!
+  ): Service! 0.0s
+✔ .start: ID! 0.7s
+
+✔ Service.endpoint(scheme: "tcp"): String! 0.0s
+
+✔ .dagger-cli session --workdir /tmp/TestRemoteCacheTransferSuiteTestSchemaRecoveryafter2046537371/001 --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a 19.7s
+
+$ cacheProbe: CacheProbe! 0.0s CACHED
+$ .report(seed: "same"): CacheProbeReport! 0.0s CACHED
+
+✔ CacheProbe.report(seed: "different"): CacheProbeReport! 0.2s
+
+✔ Service.stop: ID! 24.1s
+
+✔ Service.stop(kill: true): ID! 0.0s
+
+✔ Container.withDefaultArgs(args: ["--addr", "tcp://0.0.0.0:1234", "--network-name", "dagger7", "--network-cidr", "10.89.7.0/24"]): Container! 0.0s
+✔ .directory(path: "/etc/dagger"): Directory! 0.1s
+✔ .entries: [String!]! 0.1s
+
+✔ Container.file(path: "/etc/dagger/engine.json"): File! 0.0s
+✔ .contents: String! 0.0s
+
+✔ withNewFile /etc/dagger/engine.json (contents: "{\"gc\":{\"enabled\":true,\"dagqlCache\":{},\"reservedSpace\":1000000000000000,\"maxUsedSpace\":1000000000000000,\"minFreeSpace\":0,\"sweepSize\":0},\"registries\":{\"docker.io\":{\"mirrors\":[\"mirror.gcr.io\"],\"http\":null,\"insecure\":null,\"ca\":null}}}\n") 0.0s
+✔ .asService(useEntrypoint: true, insecureRootCapabilities: true): Service! 20.2s
+
+✔ Host.tunnel(
+  ┆ service: Container.asService(useEntrypoint: true, insecureRootCapabilities: true): Service!
+  ): Service! 0.0s
+✔ .start: ID! 0.9s
+
+✔ Service.endpoint(scheme: "tcp"): String! 0.0s
+
+✔ .dagger-cli session --workdir /tmp/TestRemoteCacheTransferSuiteTestSchemaRecoveryafter2046537371/001 --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a 3.2s
+
+$ cacheProbe: CacheProbe! 0.0s CACHED
+✔ .report(seed: "native recorded control"): CacheProbeReport! 0.3s
+
+✔ Service.stop: ID! 16.1s
+
+✔ Service.stop(kill: true): ID! 0.0s
+
+✔ foreign_context 43.5s
+
+✔ Container.withMountedCache(
+  ┆ path: "/transfer-fixture"
+  ┆ cache: cacheVolume(key: "b2-transfer-foreign-w8bw8kafs6md6n5nyge2pgtcw", namespace: "mainClient"): CacheVolume!
+  ): Container! 0.0s
+✔ withEnvVariable _DAGGER_TEST_REMOTE_CACHE_FIXTURE_ROOT=/transfer-fixture 0.0s
+✔ .withMountedCache(
+  ┆ path: "/var/lib/dagger"
+  ┆ cache: cacheVolume(key: "b2-transfer-foreign-state-lkj7zp80k3385w5gs7n8lxoat", namespace: "mainClient"): CacheVolume!
+  ): Container! 0.0s
+✔ .withExposedPort(port: 1234, protocol: TCP): Container! 0.0s
+✔ .withDefaultArgs(args: ["--addr", "tcp://0.0.0.0:1234", "--network-name", "dagger8", "--network-cidr", "10.89.8.0/24"]): Container! 0.0s
+✔ .directory(path: "/etc/dagger"): Directory! 0.0s
+✔ .entries: [String!]! 0.0s
+
+✔ Container.file(path: "/etc/dagger/engine.json"): File! 0.0s
+✔ .contents: String! 0.0s
+
+✔ withNewFile /etc/dagger/engine.json (contents: "{\"gc\":{\"enabled\":true,\"dagqlCache\":{},\"reservedSpace\":1000000000000000,\"maxUsedSpace\":1000000000000000,\"minFreeSpace\":0,\"sweepSize\":0},\"registries\":{\"docker.io\":{\"mirrors\":[\"mirror.gcr.io\"],\"http\":null,\"insecure\":null,\"ca\":null}}}\n") 0.0s
+✔ .asService(useEntrypoint: true, insecureRootCapabilities: true): Service! 43.3s
+
+✔ Host.tunnel(
+  ┆ service: Container.asService(useEntrypoint: true, insecureRootCapabilities: true): Service!
+  ): Service! 0.0s
+✔ .start: ID! 0.6s
+
+✔ Service.endpoint(scheme: "tcp"): String! 0.0s
+
+✔ .dagger-cli session --workdir /tmp/TestRemoteCacheTransferSuiteTestSchemaRecoveryforeign_context708586918/001 --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a 19.1s
+
+✔ Service.stop: ID! 23.4s
+
+✔ Service.stop(kill: true): ID! 0.0s
+
+✔ Service.stop: ID! 22.5s
+
+✔ Service.stop(kill: true): ID! 0.0s
+
+... 11556 earlier log lines ...
+    testctx.go:198: 23  : [3m18s] | time=2026-09-16T08:06:47.655Z level=INFO msg="all client connections closed" sessionID=hdf1xi49x0oi6onqogw53gq4z clientID=2exutpe365a0phv7akkvlk890
+    testctx.go:198: 23  : [3m18s] | time=2026-09-16T08:06:47.656Z level=INFO msg="removing session; stopping client services and flushing" session=hdf1xi49x0oi6onqogw53gq4z
+    testctx.go:198: 23  : [3m18s] | time=2026-09-16T08:06:47.656Z level=DEBUG msg="stopped services" session=hdf1xi49x0oi6onqogw53gq4z
+    testctx.go:198: 23  : [3m18s] | time=2026-09-16T08:06:47.662Z level=DEBUG msg="released dagql cache refs for session" session=hdf1xi49x0oi6onqogw53gq4z beforeEntries=4492 afterEntries=4303 beforeRetainedCalls=137 afterRetainedCalls=137
+    testctx.go:198: 23  : [3m18s] | Received signal terminated, retries: 1/3
+    testctx.go:198: 23  : [3m18s] | time="2026-09-16T08:06:47Z" level=error msg="server context canceled" error="context canceled" spanID=e94923e1c7144a2d traceID=93fe691e87443f2482042f0f6961baf2
+    testctx.go:198: 23  : [3m18s] | time="2026-09-16T08:06:47Z" level=info msg="stopping server" spanID=e94923e1c7144a2d traceID=93fe691e87443f2482042f0f6961baf2
+    testctx.go:198: 23  : [3m18s] | dnsmasq exited: signal: killed
+    testctx.go:198: 23  : [3m18s] | time=2026-09-16T08:06:47.683Z level=DEBUG msg="session removed" session=hdf1xi49x0oi6onqogw53gq4z
+time=2026-09-16T08:06:48.825Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=1 usedBytes=579248128
+time=2026-09-16T08:06:48.834Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=2 usedBytes=579248128
+time=2026-09-16T08:06:48.834Z level=INFO msg="starting dagql cache close" hasSQLDB=true hasPersistDB=true
+    testctx.go:198: 23  : [3m20s] | time=2026-09-16T08:06:48.825Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=1 usedBytes=579248128
+    testctx.go:198: 23  : [3m20s] | time=2026-09-16T08:06:48.834Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=2 usedBytes=579248128
+    testctx.go:198: 23  : [3m20s] | time=2026-09-16T08:06:48.834Z level=INFO msg="starting dagql cache close" hasSQLDB=true hasPersistDB=true
+time=2026-09-16T08:06:49.134Z level=INFO msg="marking dagql cache clean shutdown"
+time=2026-09-16T08:06:49.134Z level=WARN msg="successfully marked clean shutdown in persistence metadata"
+time=2026-09-16T08:06:49.138Z level=INFO msg="completed dagql cache close successfully"
+    testctx.go:198: 23  : [3m20s] | time=2026-09-16T08:06:49.134Z level=INFO msg="marking dagql cache clean shutdown"
+    testctx.go:198: 23  : [3m20s] | time=2026-09-16T08:06:49.134Z level=WARN msg="successfully marked clean shutdown in persistence metadata"
+    testctx.go:198: 23  : [3m20s] | time=2026-09-16T08:06:49.138Z level=INFO msg="completed dagql cache close successfully"
+shutting down telemetry...
+telemetry shut down complete
+    testctx.go:198: 
+    testctx.go:198: 1   : .dagger-cli session --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a DONE [3m44s]
+    testctx.go:198: 
+    testctx.go:198: 23  : Container.asService DONE [3m41s]
+    testctx.go:198: 
+    testctx.go:198: 24  : Host.tunnel DONE [3m41s]
+    testctx.go:198: 
+    testctx.go:198: 124 : Service.stop DONE [22.5s]
+    testctx.go:198: 
+    testctx.go:198: 125 : Service.stop(kill: true): ID!
+    testctx.go:198: 125 : Service.stop DONE [0.0s]
+    testctx.go:198: 
+    testctx.go:198: 23  : Container.asService DONE [3m41s]
+    testctx.go:198: 23  : [3m41s] | shutting down telemetry...
+    testctx.go:198: 23  : [3m41s] | telemetry shut down complete
+    testctx.go:198: 
+full: dagger cloud logs 93fe691e87443f2482042f0f6961baf2 --test "TestRemoteCacheTransferSuite/TestSchemaRecovery"

@@ -1,0 +1,7 @@
+{
+  "Replace": {
+    "/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-cleanup-implementer-2f409eb3-1d445bb7/dagql/cache_persistence_capture.go": "/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-cleanup-implementer-2f409eb3-1d445bb7/cleanup-evidence/baseline-dagql-cache_persistence_capture.go.txt",
+    "/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-cleanup-implementer-2f409eb3-1d445bb7/core/container_persistence.go": "/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-cleanup-implementer-2f409eb3-1d445bb7/cleanup-evidence/baseline-core-container_persistence.go.txt",
+    "/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-cleanup-implementer-2f409eb3-1d445bb7/core/container_persistence_test.go": "/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-cleanup-implementer-2f409eb3-1d445bb7/cleanup-evidence/baseline-core-container_persistence_test.go.txt"
+  }
+}

@@ -132,6 +132,14 @@ func NewPlain(w io.Writer) Frontend {
 
 func (fe *frontendPlain) SetSidebarContent(SidebarSection) {}
 
+func (fe *frontendPlain) SetStatusLine(StatusLineData) {}
+
+func (fe *frontendPlain) GetLLMTokenMetrics() *dagui.LLMTokenMetrics {
+	fe.mu.Lock()
+	defer fe.mu.Unlock()
+	return fe.db.LLMTokenMetrics
+}
+
 func (fe *frontendPlain) Shell(ctx context.Context, handler ShellHandler) {
 	fmt.Fprintln(fe.output.Writer(), "Shell not supported in plain mode")
 }
@@ -228,7 +236,7 @@ func (fe *frontendPlain) HandlePrompt(ctx context.Context, _, prompt string, des
 }
 
 func (fe *frontendPlain) HandleForm(ctx context.Context, form *huh.Form) error {
-	return form.RunWithContext(ctx)
+	return form.WithTheme(huh.ThemeBase16()).RunWithContext(ctx)
 }
 
 func (fe *frontendPlain) Opts() *dagui.FrontendOpts {
@@ -328,17 +336,14 @@ func (fe plainLogExporter) Export(ctx context.Context, logs []sdklog.Record) err
 	fe.mu.Lock()
 	defer fe.mu.Unlock()
 
-	err := fe.db.LogExporter().Export(ctx, logs)
-	if err != nil {
-		return err
-	}
+	logs = fe.db.IngestLogs(logs)
 	for _, record := range logs {
 		// Check if this log is marked as verbose
 		isVerbose := false
 		record.WalkAttributes(func(kv log.KeyValue) bool {
-			if kv.Key == telemetry.LogsVerboseAttr && kv.Value.AsBool() {
-				isVerbose = true
-				return false // stop walking
+			if kv.Key == telemetry.LogsVerboseAttr {
+				isVerbose, _ = dagui.LogValueBool(kv.Value)
+				return !isVerbose
 			}
 			return true // continue walking
 		})
@@ -368,8 +373,8 @@ func (fe *frontendPlain) appendLogs(spanID dagui.SpanID, records []sdklog.Record
 	}
 
 	for _, record := range records {
-		body := record.Body().AsString()
-		if body == "" {
+		body, ok := dagui.LogBodyString(record)
+		if !ok || body == "" {
 			// NOTE: likely just indicates EOF (stdio.eof=true attr); either way we
 			// want to avoid giving it its own line.
 			continue
@@ -475,6 +480,7 @@ func (fe *frontendPlain) renderFinalTests() bool {
 	}
 	tv := &TestView{
 		Profile:         fe.profile,
+		AgentStyle:      agentStyle(fe.Opts()),
 		Logs:            fe.testLogs,
 		SummaryLogLines: -1,
 	}
@@ -611,8 +617,19 @@ func (fe *frontendPlain) renderStep(span *dagui.Span, depth int, done bool) {
 		} else {
 			fmt.Fprint(fe.output, fe.output.String(" DONE").Foreground(termenv.ANSIGreen))
 		}
-		duration := dagui.FormatDuration(span.Activity.Duration(time.Now()))
-		fmt.Fprint(fe.output, fe.output.String(fmt.Sprintf(" [%s]", duration)).Foreground(termenv.ANSIBrightBlack))
+		hb := span.TimeBreakdown(time.Now())
+		var durText string
+		if hb.Material {
+			// the time the op actually spent executing; note where the
+			// rest went since a log line can't be hovered
+			durText = dagui.FormatDuration(hb.Self)
+			if hb.DominantLabel != "" {
+				durText += ", waited on " + hb.DominantLabel
+			}
+		} else {
+			durText = dagui.FormatDuration(span.Activity.Duration(time.Now()))
+		}
+		fmt.Fprint(fe.output, fe.output.String(fmt.Sprintf(" [%s]", durText)).Foreground(termenv.ANSIBrightBlack))
 		r.renderMetrics(fe.output, span)
 
 		if span.IsFailed() && span.Status.Description != "" {

@@ -1,0 +1,22 @@
+diff --cc core/http.go
+index 8942fe8144,0668a85994..0000000000
+--- a/core/http.go
++++ b/core/http.go
+@@@ -183,7 -183,13 +185,17 @@@ func (state *HTTPState) EncodePersisted
+  			Role:   "snapshot",
+  		}}
+  	}
+++<<<<<<< HEAD
+ +	payload, err := json.Marshal(saved)
+++=======
++ 	payload, err := json.Marshal(persistedHTTPStatePayload{
++ 		Form:          persistedBackingForm(state.foreignUninitialized, len(links) != 0),
++ 		URL:           state.URL,
++ 		ETag:          state.ETag,
++ 		LastModified:  state.LastModified,
++ 		ContentDigest: state.ContentDigest.String(),
++ 	})
+++>>>>>>> 85de1ed96d (core: encode foreign values as validated pending shells)
+  	if err != nil {
+  		return dagql.PersistedObjectEncoding{}, err
+  	}

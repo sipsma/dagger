@@ -1,0 +1,82 @@
+=== RUN   TestRecordCompletedContainerMountProducer
+=== RUN   TestRecordCompletedContainerMountProducer/Directory
+=== RUN   TestRecordCompletedContainerMountProducer/Directory/nil
+=== RUN   TestRecordCompletedContainerMountProducer/Directory/typed-nil
+=== RUN   TestRecordCompletedContainerMountProducer/Directory/wrong-kind
+=== RUN   TestRecordCompletedContainerMountProducer/Directory/missing-parent
+=== RUN   TestRecordCompletedContainerMountProducer/Directory/missing-source
+=== RUN   TestRecordCompletedContainerMountProducer/Directory/missing-target
+=== RUN   TestRecordCompletedContainerMountProducer/Directory/pending
+=== RUN   TestRecordCompletedContainerMountProducer/Directory/imported
+=== RUN   TestRecordCompletedContainerMountProducer/Directory/encoded
+=== RUN   TestRecordCompletedContainerMountProducer/Directory/success
+2026/09/16 15:06:22 INFO start lazy group evaluation field=Container.withMountedDirectory group=metadata
+2026/09/16 15:06:22 INFO end lazy group evaluation field=Container.withMountedDirectory group=metadata duration=230.019µs
+2026/09/16 15:06:22 INFO start lazy group evaluation field=Container.withMountedDirectory group=fs
+2026/09/16 15:06:22 INFO end lazy group evaluation field=Container.withMountedDirectory group=fs duration=59.89µs
+2026/09/16 15:06:22 INFO start lazy group evaluation field=Container.withMountedDirectory group=execMeta
+2026/09/16 15:06:22 INFO end lazy group evaluation field=Container.withMountedDirectory group=execMeta duration=58.859µs
+2026/09/16 15:06:22 INFO start lazy group evaluation field=Container.withMountedDirectory group=write
+2026/09/16 15:06:22 INFO end lazy group evaluation field=Container.withMountedDirectory group=write duration=464.898µs
+2026/09/16 15:06:22 INFO start lazy group evaluation field=Container.withMountedDirectory group=metadata
+2026/09/16 15:06:22 INFO end lazy group evaluation field=Container.withMountedDirectory group=metadata duration=104.939µs
+2026/09/16 15:06:22 INFO start lazy group evaluation field=Container.withMountedDirectory group=fs
+2026/09/16 15:06:22 INFO end lazy group evaluation field=Container.withMountedDirectory group=fs duration=67.7µs
+2026/09/16 15:06:22 INFO start lazy group evaluation field=Container.withMountedDirectory group=execMeta
+2026/09/16 15:06:22 INFO end lazy group evaluation field=Container.withMountedDirectory group=execMeta duration=47.01µs
+2026/09/16 15:06:22 INFO start lazy group evaluation field=Container.withMountedDirectory group=write
+2026/09/16 15:06:22 INFO end lazy group evaluation field=Container.withMountedDirectory group=write duration=270.809µs
+2026/09/16 15:06:22 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestRecordCompletedContainerMountProducer/File
+=== RUN   TestRecordCompletedContainerMountProducer/File/nil
+=== RUN   TestRecordCompletedContainerMountProducer/File/typed-nil
+=== RUN   TestRecordCompletedContainerMountProducer/File/wrong-kind
+=== RUN   TestRecordCompletedContainerMountProducer/File/missing-parent
+=== RUN   TestRecordCompletedContainerMountProducer/File/missing-source
+=== RUN   TestRecordCompletedContainerMountProducer/File/missing-target
+=== RUN   TestRecordCompletedContainerMountProducer/File/pending
+=== RUN   TestRecordCompletedContainerMountProducer/File/imported
+=== RUN   TestRecordCompletedContainerMountProducer/File/encoded
+=== RUN   TestRecordCompletedContainerMountProducer/File/success
+2026/09/16 15:06:22 INFO start lazy group evaluation field=Container.withMountedFile group=metadata
+2026/09/16 15:06:22 INFO end lazy group evaluation field=Container.withMountedFile group=metadata duration=117.24µs
+2026/09/16 15:06:22 INFO start lazy group evaluation field=Container.withMountedFile group=fs
+2026/09/16 15:06:22 INFO end lazy group evaluation field=Container.withMountedFile group=fs duration=53.53µs
+2026/09/16 15:06:22 INFO start lazy group evaluation field=Container.withMountedFile group=execMeta
+2026/09/16 15:06:22 INFO end lazy group evaluation field=Container.withMountedFile group=execMeta duration=48.73µs
+2026/09/16 15:06:22 INFO start lazy group evaluation field=Container.withMountedFile group=write
+2026/09/16 15:06:22 INFO end lazy group evaluation field=Container.withMountedFile group=write duration=377.198µs
+2026/09/16 15:06:22 INFO start lazy group evaluation field=Container.withMountedFile group=metadata
+2026/09/16 15:06:22 INFO end lazy group evaluation field=Container.withMountedFile group=metadata duration=105.229µs
+2026/09/16 15:06:22 INFO start lazy group evaluation field=Container.withMountedFile group=fs
+2026/09/16 15:06:22 INFO end lazy group evaluation field=Container.withMountedFile group=fs duration=49.6µs
+2026/09/16 15:06:22 INFO start lazy group evaluation field=Container.withMountedFile group=execMeta
+2026/09/16 15:06:22 INFO end lazy group evaluation field=Container.withMountedFile group=execMeta duration=42.569µs
+2026/09/16 15:06:22 INFO start lazy group evaluation field=Container.withMountedFile group=write
+2026/09/16 15:06:22 INFO end lazy group evaluation field=Container.withMountedFile group=write duration=286.229µs
+2026/09/16 15:06:22 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestRecordCompletedContainerMountProducer (0.24s)
+    --- PASS: TestRecordCompletedContainerMountProducer/Directory (0.14s)
+        --- PASS: TestRecordCompletedContainerMountProducer/Directory/nil (0.00s)
+        --- PASS: TestRecordCompletedContainerMountProducer/Directory/typed-nil (0.00s)
+        --- PASS: TestRecordCompletedContainerMountProducer/Directory/wrong-kind (0.00s)
+        --- PASS: TestRecordCompletedContainerMountProducer/Directory/missing-parent (0.00s)
+        --- PASS: TestRecordCompletedContainerMountProducer/Directory/missing-source (0.00s)
+        --- PASS: TestRecordCompletedContainerMountProducer/Directory/missing-target (0.00s)
+        --- PASS: TestRecordCompletedContainerMountProducer/Directory/pending (0.00s)
+        --- PASS: TestRecordCompletedContainerMountProducer/Directory/imported (0.00s)
+        --- PASS: TestRecordCompletedContainerMountProducer/Directory/encoded (0.00s)
+        --- PASS: TestRecordCompletedContainerMountProducer/Directory/success (0.04s)
+    --- PASS: TestRecordCompletedContainerMountProducer/File (0.09s)
+        --- PASS: TestRecordCompletedContainerMountProducer/File/nil (0.00s)
+        --- PASS: TestRecordCompletedContainerMountProducer/File/typed-nil (0.00s)
+        --- PASS: TestRecordCompletedContainerMountProducer/File/wrong-kind (0.00s)
+        --- PASS: TestRecordCompletedContainerMountProducer/File/missing-parent (0.00s)
+        --- PASS: TestRecordCompletedContainerMountProducer/File/missing-source (0.00s)
+        --- PASS: TestRecordCompletedContainerMountProducer/File/missing-target (0.00s)
+        --- PASS: TestRecordCompletedContainerMountProducer/File/pending (0.00s)
+        --- PASS: TestRecordCompletedContainerMountProducer/File/imported (0.00s)
+        --- PASS: TestRecordCompletedContainerMountProducer/File/encoded (0.00s)
+        --- PASS: TestRecordCompletedContainerMountProducer/File/success (0.04s)
+PASS
+ok  	github.com/dagger/dagger/core	1.673s

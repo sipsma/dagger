@@ -11,6 +11,7 @@ import jakarta.json.stream.JsonParser;
 import java.nio.charset.Charset;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.function.UnaryOperator;
 import javax.lang.model.element.Modifier;
@@ -201,8 +202,8 @@ class ObjectVisitor extends AbstractVisitor {
       return field.getTypeRef().formatOutput();
     }
     if (Helpers.isIdToConvert(field)) {
-      // sync-like fields: return the parent object type
-      return ClassName.bestGuess(Helpers.formatName(field.getParentObject()));
+      // ID handle: return the object the ID resolves to
+      return ClassName.bestGuess(Helpers.idHandleType(field));
     }
     String expectedType = field.getExpectedType();
     return field.getTypeRef().formatInput(expectedType);
@@ -213,6 +214,12 @@ class ObjectVisitor extends AbstractVisitor {
     MethodSpec.Builder fieldMethodBuilder =
         MethodSpec.methodBuilder(Helpers.formatName(field)).addModifiers(Modifier.PUBLIC);
     TypeName returnType = resolveReturnType(field);
+    TypeName objectReturnType = returnType;
+    if (getSchema().supportsNullableObjects()
+        && field.getTypeRef().isOptional()
+        && field.getTypeRef().isObjectOrInterface()) {
+      returnType = ParameterizedTypeName.get(ClassName.get(Optional.class), returnType);
+    }
     fieldMethodBuilder.returns(returnType);
     List<ParameterSpec> mandatoryParams =
         field.getRequiredArgs().stream()
@@ -288,8 +295,36 @@ class ObjectVisitor extends AbstractVisitor {
           .addException(ExecutionException.class)
           .addException(ClassName.get("io.dagger.client.exception", "DaggerQueryException"));
     } else if (Helpers.isIdToConvert(field)) {
-      fieldMethodBuilder.addStatement("nextQueryBuilder.executeQuery()");
-      fieldMethodBuilder.addStatement("return this");
+      // Resolve the ID, then address the object it names through node(id:)
+      fieldMethodBuilder.addStatement(
+          "$T objectID = nextQueryBuilder.executeQuery($T.class)",
+          ClassName.bestGuess("ID"),
+          ClassName.bestGuess("ID"));
+      // Interfaces are instantiated through their client class, like object returns
+      String handleType = Helpers.idHandleType(field);
+      String handleClass = getSchema().isInterface(handleType) ? handleType + "Client" : handleType;
+      fieldMethodBuilder.addStatement(
+          "return new $T(this.queryBuilder.chainNode($S, objectID))",
+          ClassName.bestGuess(handleClass),
+          handleType);
+      fieldMethodBuilder
+          .addException(InterruptedException.class)
+          .addException(ExecutionException.class)
+          .addException(ClassName.get("io.dagger.client.exception", "DaggerQueryException"));
+    } else if (getSchema().supportsNullableObjects()
+        && field.getTypeRef().isOptional()
+        && field.getTypeRef().isObjectOrInterface()) {
+      String graphqlTypeName = field.getTypeRef().getTypeName();
+      String clientClassName =
+          field.getTypeRef().isInterface()
+              ? graphqlTypeName + "Client"
+              : objectReturnType.toString();
+      fieldMethodBuilder.addStatement(
+          "QueryBuilder objectQueryBuilder = nextQueryBuilder.executeNullableObjectQuery($S)",
+          graphqlTypeName);
+      fieldMethodBuilder.addStatement(
+          "return Optional.ofNullable(objectQueryBuilder).map(qb -> new $L(qb))",
+          ClassName.bestGuess(clientClassName));
       fieldMethodBuilder
           .addException(InterruptedException.class)
           .addException(ExecutionException.class)

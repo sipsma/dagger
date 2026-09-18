@@ -155,9 +155,6 @@ type AddressID string
 type AlpineID string
 
 // A unique identifier for an object.
-type BindingID string
-
-// A unique identifier for an object.
 type CacheVolumeID string
 
 // A unique identifier for an object.
@@ -195,9 +192,6 @@ type EnumValueTypeDefID string
 
 // A unique identifier for an object.
 type EnvFileID string
-
-// A unique identifier for an object.
-type EnvID string
 
 // A unique identifier for an object.
 type EnvVariableID string
@@ -589,415 +583,6 @@ func (r *Address) Value(ctx context.Context) (string, error) {
 // AsNode returns this Address as a Node.
 // This is a local type conversion — no GraphQL call.
 func (r *Address) AsNode() Node {
-	return &NodeClient{
-		query: r.query,
-	}
-}
-
-type Binding struct {
-	query *querybuilder.Selection
-
-	asString *string
-	digest   *string
-	id       *ID
-	isNull   *bool
-	name     *string
-	typeName *string
-}
-
-func (r *Binding) WithGraphQLQuery(q *querybuilder.Selection) *Binding {
-	return &Binding{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type Address
-func (r *Binding) AsAddress() *Address {
-	q := r.query.Select("asAddress")
-
-	return &Address{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type CacheVolume
-func (r *Binding) AsCacheVolume() *CacheVolume {
-	q := r.query.Select("asCacheVolume")
-
-	return &CacheVolume{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type Changeset
-func (r *Binding) AsChangeset() *Changeset {
-	q := r.query.Select("asChangeset")
-
-	return &Changeset{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type Check
-func (r *Binding) AsCheck() *Check {
-	q := r.query.Select("asCheck")
-
-	return &Check{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type CheckGroup
-func (r *Binding) AsCheckGroup() *CheckGroup {
-	q := r.query.Select("asCheckGroup")
-
-	return &CheckGroup{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type Cloud
-func (r *Binding) AsCloud() *Cloud {
-	q := r.query.Select("asCloud")
-
-	return &Cloud{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type Container
-func (r *Binding) AsContainer() *Container {
-	q := r.query.Select("asContainer")
-
-	return &Container{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type DiffStat
-func (r *Binding) AsDiffStat() *DiffStat {
-	q := r.query.Select("asDiffStat")
-
-	return &DiffStat{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type Directory
-func (r *Binding) AsDirectory() *Directory {
-	q := r.query.Select("asDirectory")
-
-	return &Directory{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type Env
-func (r *Binding) AsEnv() *Env {
-	q := r.query.Select("asEnv")
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type EnvFile
-func (r *Binding) AsEnvFile() *EnvFile {
-	q := r.query.Select("asEnvFile")
-
-	return &EnvFile{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type File
-func (r *Binding) AsFile() *File {
-	q := r.query.Select("asFile")
-
-	return &File{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type Generator
-func (r *Binding) AsGenerator() *Generator {
-	q := r.query.Select("asGenerator")
-
-	return &Generator{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type GeneratorGroup
-func (r *Binding) AsGeneratorGroup() *GeneratorGroup {
-	q := r.query.Select("asGeneratorGroup")
-
-	return &GeneratorGroup{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type GitRef
-func (r *Binding) AsGitRef() *GitRef {
-	q := r.query.Select("asGitRef")
-
-	return &GitRef{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type GitRepository
-func (r *Binding) AsGitRepository() *GitRepository {
-	q := r.query.Select("asGitRepository")
-
-	return &GitRepository{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type HTTPState
-func (r *Binding) AsHTTPState() *HTTPState {
-	q := r.query.Select("asHTTPState")
-
-	return &HTTPState{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type JSONValue
-func (r *Binding) AsJSONValue() *JSONValue {
-	q := r.query.Select("asJSONValue")
-
-	return &JSONValue{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type Module
-func (r *Binding) AsModule() *Module {
-	q := r.query.Select("asModule")
-
-	return &Module{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type ModuleConfigClient
-func (r *Binding) AsModuleConfigClient() *ModuleConfigClient {
-	q := r.query.Select("asModuleConfigClient")
-
-	return &ModuleConfigClient{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type ModuleSource
-func (r *Binding) AsModuleSource() *ModuleSource {
-	q := r.query.Select("asModuleSource")
-
-	return &ModuleSource{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type SearchResult
-func (r *Binding) AsSearchResult() *SearchResult {
-	q := r.query.Select("asSearchResult")
-
-	return &SearchResult{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type SearchSubmatch
-func (r *Binding) AsSearchSubmatch() *SearchSubmatch {
-	q := r.query.Select("asSearchSubmatch")
-
-	return &SearchSubmatch{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type Secret
-func (r *Binding) AsSecret() *Secret {
-	q := r.query.Select("asSecret")
-
-	return &Secret{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type Service
-func (r *Binding) AsService() *Service {
-	q := r.query.Select("asService")
-
-	return &Service{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type Socket
-func (r *Binding) AsSocket() *Socket {
-	q := r.query.Select("asSocket")
-
-	return &Socket{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type Stat
-func (r *Binding) AsStat() *Stat {
-	q := r.query.Select("asStat")
-
-	return &Stat{
-		query: q,
-	}
-}
-
-// Returns the binding's string value
-func (r *Binding) AsString(ctx context.Context) (string, error) {
-	if r.asString != nil {
-		return *r.asString, nil
-	}
-	q := r.query.Select("asString")
-
-	var response string
-
-	q = q.Bind(&response)
-	return response, q.Execute(ctx)
-}
-
-// Retrieve the binding value, as type Up
-func (r *Binding) AsUp() *Up {
-	q := r.query.Select("asUp")
-
-	return &Up{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type UpGroup
-func (r *Binding) AsUpGroup() *UpGroup {
-	q := r.query.Select("asUpGroup")
-
-	return &UpGroup{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type Workspace
-func (r *Binding) AsWorkspace() *Workspace {
-	q := r.query.Select("asWorkspace")
-
-	return &Workspace{
-		query: q,
-	}
-}
-
-// Returns the digest of the binding value
-func (r *Binding) Digest(ctx context.Context) (string, error) {
-	if r.digest != nil {
-		return *r.digest, nil
-	}
-	q := r.query.Select("digest")
-
-	var response string
-
-	q = q.Bind(&response)
-	return response, q.Execute(ctx)
-}
-
-// A unique identifier for this Binding.
-func (r *Binding) ID(ctx context.Context) (ID, error) {
-	if r.id != nil {
-		return *r.id, nil
-	}
-	q := r.query.Select("id")
-
-	var response ID
-
-	q = q.Bind(&response)
-	return response, q.Execute(ctx)
-}
-
-// XXX_GraphQLType is an internal function. It returns the native GraphQL type name
-func (r *Binding) XXX_GraphQLType() string {
-	return "Binding"
-}
-
-// XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
-func (r *Binding) XXX_GraphQLIDType() string {
-	return "ID"
-}
-
-// XXX_GraphQLID is an internal function. It returns the underlying type ID
-func (r *Binding) XXX_GraphQLID(ctx context.Context) (string, error) {
-	id, err := r.ID(ctx)
-	if err != nil {
-		return "", err
-	}
-	return string(id), nil
-}
-
-func (r *Binding) MarshalJSON() ([]byte, error) {
-	id, err := r.ID(marshalCtx)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(id)
-}
-func (r *Binding) UnmarshalJSON(bs []byte) error {
-	var id string
-	err := json.Unmarshal(bs, &id)
-	if err != nil {
-		return err
-	}
-	*r = Binding{query: selectNode(dag.query, id, "Binding")}
-	return nil
-}
-
-// Returns true if the binding is null
-func (r *Binding) IsNull(ctx context.Context) (bool, error) {
-	if r.isNull != nil {
-		return *r.isNull, nil
-	}
-	q := r.query.Select("isNull")
-
-	var response bool
-
-	q = q.Bind(&response)
-	return response, q.Execute(ctx)
-}
-
-// Returns the binding name
-func (r *Binding) Name(ctx context.Context) (string, error) {
-	if r.name != nil {
-		return *r.name, nil
-	}
-	q := r.query.Select("name")
-
-	var response string
-
-	q = q.Bind(&response)
-	return response, q.Execute(ctx)
-}
-
-// Returns the binding type
-func (r *Binding) TypeName(ctx context.Context) (string, error) {
-	if r.typeName != nil {
-		return *r.typeName, nil
-	}
-	q := r.query.Select("typeName")
-
-	var response string
-
-	q = q.Bind(&response)
-	return response, q.Execute(ctx)
-}
-
-// AsNode returns this Binding as a Node.
-// This is a local type conversion — no GraphQL call.
-func (r *Binding) AsNode() Node {
 	return &NodeClient{
 		query: r.query,
 	}
@@ -1487,7 +1072,7 @@ func (r *Check) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-// Return the fully qualified name of the check
+// Return the command name of the check. Entrypoint targets omit the module prefix.
 func (r *Check) Name(ctx context.Context) (string, error) {
 	if r.name != nil {
 		return *r.name, nil
@@ -5437,1043 +5022,6 @@ func (r *EnumValueTypeDef) AsNode() Node {
 	}
 }
 
-type Env struct {
-	query *querybuilder.Selection
-
-	id *ID
-}
-type WithEnvFunc func(r *Env) *Env
-
-// With calls the provided function with current Env.
-//
-// This is useful for reusability and readability by not breaking the calling chain.
-func (r *Env) With(f WithEnvFunc) *Env {
-	return f(r)
-}
-
-func (r *Env) WithGraphQLQuery(q *querybuilder.Selection) *Env {
-	return &Env{
-		query: q,
-	}
-}
-
-// Return the check with the given name from the installed modules. Must match exactly one check.
-//
-// Experimental: Checks API is highly experimental and may be removed or replaced entirely.
-func (r *Env) Check(name string) *Check {
-	q := r.query.Select("check")
-	q = q.Arg("name", name)
-
-	return &Check{
-		query: q,
-	}
-}
-
-// EnvChecksOpts contains options for Env.Checks
-type EnvChecksOpts struct {
-	// Only include checks matching the specified patterns
-	Include []string
-	// When true, only return annotated check functions; exclude generate-as-checks
-	NoGenerate bool
-}
-
-// Return all checks defined by the installed modules
-//
-// Experimental: Checks API is highly experimental and may be removed or replaced entirely.
-func (r *Env) Checks(opts ...EnvChecksOpts) *CheckGroup {
-	q := r.query.Select("checks")
-	for i := len(opts) - 1; i >= 0; i-- {
-		// `include` optional argument
-		if !querybuilder.IsZeroValue(opts[i].Include) {
-			q = q.Arg("include", opts[i].Include)
-		}
-		// `noGenerate` optional argument
-		if !querybuilder.IsZeroValue(opts[i].NoGenerate) {
-			q = q.Arg("noGenerate", opts[i].NoGenerate)
-		}
-	}
-
-	return &CheckGroup{
-		query: q,
-	}
-}
-
-// A unique identifier for this Env.
-func (r *Env) ID(ctx context.Context) (ID, error) {
-	if r.id != nil {
-		return *r.id, nil
-	}
-	q := r.query.Select("id")
-
-	var response ID
-
-	q = q.Bind(&response)
-	return response, q.Execute(ctx)
-}
-
-// XXX_GraphQLType is an internal function. It returns the native GraphQL type name
-func (r *Env) XXX_GraphQLType() string {
-	return "Env"
-}
-
-// XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
-func (r *Env) XXX_GraphQLIDType() string {
-	return "ID"
-}
-
-// XXX_GraphQLID is an internal function. It returns the underlying type ID
-func (r *Env) XXX_GraphQLID(ctx context.Context) (string, error) {
-	id, err := r.ID(ctx)
-	if err != nil {
-		return "", err
-	}
-	return string(id), nil
-}
-
-func (r *Env) MarshalJSON() ([]byte, error) {
-	id, err := r.ID(marshalCtx)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(id)
-}
-func (r *Env) UnmarshalJSON(bs []byte) error {
-	var id string
-	err := json.Unmarshal(bs, &id)
-	if err != nil {
-		return err
-	}
-	*r = Env{query: selectNode(dag.query, id, "Env")}
-	return nil
-}
-
-// Retrieves an input binding by name
-func (r *Env) Input(name string) *Binding {
-	q := r.query.Select("input")
-	q = q.Arg("name", name)
-
-	return &Binding{
-		query: q,
-	}
-}
-
-// Returns all input bindings provided to the environment
-func (r *Env) Inputs(ctx context.Context) ([]Binding, error) {
-	q := r.query.Select("inputs")
-
-	q = q.Select("id")
-
-	type inputs struct {
-		Id ID
-	}
-
-	convert := func(fields []inputs) []Binding {
-		out := []Binding{}
-
-		for i := range fields {
-			val := Binding{id: &fields[i].Id}
-			val.query = selectNode(q.Root(), fields[i].Id, "Binding")
-			out = append(out, val)
-		}
-
-		return out
-	}
-	var response []inputs
-
-	q = q.Bind(&response)
-
-	err := q.Execute(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return convert(response), nil
-}
-
-// Retrieves an output binding by name
-func (r *Env) Output(name string) *Binding {
-	q := r.query.Select("output")
-	q = q.Arg("name", name)
-
-	return &Binding{
-		query: q,
-	}
-}
-
-// Returns all declared output bindings for the environment
-func (r *Env) Outputs(ctx context.Context) ([]Binding, error) {
-	q := r.query.Select("outputs")
-
-	q = q.Select("id")
-
-	type outputs struct {
-		Id ID
-	}
-
-	convert := func(fields []outputs) []Binding {
-		out := []Binding{}
-
-		for i := range fields {
-			val := Binding{id: &fields[i].Id}
-			val.query = selectNode(q.Root(), fields[i].Id, "Binding")
-			out = append(out, val)
-		}
-
-		return out
-	}
-	var response []outputs
-
-	q = q.Bind(&response)
-
-	err := q.Execute(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return convert(response), nil
-}
-
-// EnvServicesOpts contains options for Env.Services
-type EnvServicesOpts struct {
-	// Only include services matching the specified patterns
-	Include []string
-}
-
-// Return all services defined by the installed modules
-//
-// Experimental: Services API is highly experimental and may be removed or replaced entirely.
-func (r *Env) Services(opts ...EnvServicesOpts) *UpGroup {
-	q := r.query.Select("services")
-	for i := len(opts) - 1; i >= 0; i-- {
-		// `include` optional argument
-		if !querybuilder.IsZeroValue(opts[i].Include) {
-			q = q.Arg("include", opts[i].Include)
-		}
-	}
-
-	return &UpGroup{
-		query: q,
-	}
-}
-
-// Create or update a binding of type Address in the environment
-func (r *Env) WithAddressInput(name string, value *Address, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withAddressInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired Address output to be assigned in the environment
-func (r *Env) WithAddressOutput(name string, description string) *Env {
-	q := r.query.Select("withAddressOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type CacheVolume in the environment
-func (r *Env) WithCacheVolumeInput(name string, value *CacheVolume, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withCacheVolumeInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired CacheVolume output to be assigned in the environment
-func (r *Env) WithCacheVolumeOutput(name string, description string) *Env {
-	q := r.query.Select("withCacheVolumeOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type Changeset in the environment
-func (r *Env) WithChangesetInput(name string, value *Changeset, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withChangesetInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired Changeset output to be assigned in the environment
-func (r *Env) WithChangesetOutput(name string, description string) *Env {
-	q := r.query.Select("withChangesetOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type CheckGroup in the environment
-func (r *Env) WithCheckGroupInput(name string, value *CheckGroup, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withCheckGroupInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired CheckGroup output to be assigned in the environment
-func (r *Env) WithCheckGroupOutput(name string, description string) *Env {
-	q := r.query.Select("withCheckGroupOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type Check in the environment
-func (r *Env) WithCheckInput(name string, value *Check, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withCheckInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired Check output to be assigned in the environment
-func (r *Env) WithCheckOutput(name string, description string) *Env {
-	q := r.query.Select("withCheckOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type Cloud in the environment
-func (r *Env) WithCloudInput(name string, value *Cloud, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withCloudInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired Cloud output to be assigned in the environment
-func (r *Env) WithCloudOutput(name string, description string) *Env {
-	q := r.query.Select("withCloudOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type Container in the environment
-func (r *Env) WithContainerInput(name string, value *Container, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withContainerInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired Container output to be assigned in the environment
-func (r *Env) WithContainerOutput(name string, description string) *Env {
-	q := r.query.Select("withContainerOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Installs the current module into the environment, exposing its functions to the model
-//
-// Contextual path arguments will be populated using the environment's workspace.
-func (r *Env) WithCurrentModule() *Env {
-	q := r.query.Select("withCurrentModule")
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type DiffStat in the environment
-func (r *Env) WithDiffStatInput(name string, value *DiffStat, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withDiffStatInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired DiffStat output to be assigned in the environment
-func (r *Env) WithDiffStatOutput(name string, description string) *Env {
-	q := r.query.Select("withDiffStatOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type Directory in the environment
-func (r *Env) WithDirectoryInput(name string, value *Directory, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withDirectoryInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired Directory output to be assigned in the environment
-func (r *Env) WithDirectoryOutput(name string, description string) *Env {
-	q := r.query.Select("withDirectoryOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type EnvFile in the environment
-func (r *Env) WithEnvFileInput(name string, value *EnvFile, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withEnvFileInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired EnvFile output to be assigned in the environment
-func (r *Env) WithEnvFileOutput(name string, description string) *Env {
-	q := r.query.Select("withEnvFileOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type Env in the environment
-func (r *Env) WithEnvInput(name string, value *Env, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withEnvInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired Env output to be assigned in the environment
-func (r *Env) WithEnvOutput(name string, description string) *Env {
-	q := r.query.Select("withEnvOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type File in the environment
-func (r *Env) WithFileInput(name string, value *File, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withFileInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired File output to be assigned in the environment
-func (r *Env) WithFileOutput(name string, description string) *Env {
-	q := r.query.Select("withFileOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type GeneratorGroup in the environment
-func (r *Env) WithGeneratorGroupInput(name string, value *GeneratorGroup, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withGeneratorGroupInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired GeneratorGroup output to be assigned in the environment
-func (r *Env) WithGeneratorGroupOutput(name string, description string) *Env {
-	q := r.query.Select("withGeneratorGroupOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type Generator in the environment
-func (r *Env) WithGeneratorInput(name string, value *Generator, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withGeneratorInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired Generator output to be assigned in the environment
-func (r *Env) WithGeneratorOutput(name string, description string) *Env {
-	q := r.query.Select("withGeneratorOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type GitRef in the environment
-func (r *Env) WithGitRefInput(name string, value *GitRef, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withGitRefInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired GitRef output to be assigned in the environment
-func (r *Env) WithGitRefOutput(name string, description string) *Env {
-	q := r.query.Select("withGitRefOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type GitRepository in the environment
-func (r *Env) WithGitRepositoryInput(name string, value *GitRepository, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withGitRepositoryInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired GitRepository output to be assigned in the environment
-func (r *Env) WithGitRepositoryOutput(name string, description string) *Env {
-	q := r.query.Select("withGitRepositoryOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type HTTPState in the environment
-func (r *Env) WithHTTPStateInput(name string, value *HTTPState, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withHTTPStateInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired HTTPState output to be assigned in the environment
-func (r *Env) WithHTTPStateOutput(name string, description string) *Env {
-	q := r.query.Select("withHTTPStateOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type JSONValue in the environment
-func (r *Env) WithJSONValueInput(name string, value *JSONValue, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withJSONValueInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired JSONValue output to be assigned in the environment
-func (r *Env) WithJSONValueOutput(name string, description string) *Env {
-	q := r.query.Select("withJSONValueOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Sets the main module for this environment (the project being worked on)
-//
-// Contextual path arguments will be populated using the environment's workspace.
-func (r *Env) WithMainModule(module *Module) *Env {
-	assertNotNil("module", module)
-	q := r.query.Select("withMainModule")
-	q = q.Arg("module", module)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Installs a module into the environment, exposing its functions to the model
-//
-// Contextual path arguments will be populated using the environment's workspace.
-//
-// Deprecated: Use withMainModule instead
-func (r *Env) WithModule(module *Module) *Env {
-	assertNotNil("module", module)
-	q := r.query.Select("withModule")
-	q = q.Arg("module", module)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type ModuleConfigClient in the environment
-func (r *Env) WithModuleConfigClientInput(name string, value *ModuleConfigClient, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withModuleConfigClientInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired ModuleConfigClient output to be assigned in the environment
-func (r *Env) WithModuleConfigClientOutput(name string, description string) *Env {
-	q := r.query.Select("withModuleConfigClientOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type Module in the environment
-func (r *Env) WithModuleInput(name string, value *Module, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withModuleInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired Module output to be assigned in the environment
-func (r *Env) WithModuleOutput(name string, description string) *Env {
-	q := r.query.Select("withModuleOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type ModuleSource in the environment
-func (r *Env) WithModuleSourceInput(name string, value *ModuleSource, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withModuleSourceInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired ModuleSource output to be assigned in the environment
-func (r *Env) WithModuleSourceOutput(name string, description string) *Env {
-	q := r.query.Select("withModuleSourceOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type SearchResult in the environment
-func (r *Env) WithSearchResultInput(name string, value *SearchResult, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withSearchResultInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired SearchResult output to be assigned in the environment
-func (r *Env) WithSearchResultOutput(name string, description string) *Env {
-	q := r.query.Select("withSearchResultOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type SearchSubmatch in the environment
-func (r *Env) WithSearchSubmatchInput(name string, value *SearchSubmatch, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withSearchSubmatchInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired SearchSubmatch output to be assigned in the environment
-func (r *Env) WithSearchSubmatchOutput(name string, description string) *Env {
-	q := r.query.Select("withSearchSubmatchOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type Secret in the environment
-func (r *Env) WithSecretInput(name string, value *Secret, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withSecretInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired Secret output to be assigned in the environment
-func (r *Env) WithSecretOutput(name string, description string) *Env {
-	q := r.query.Select("withSecretOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type Service in the environment
-func (r *Env) WithServiceInput(name string, value *Service, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withServiceInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired Service output to be assigned in the environment
-func (r *Env) WithServiceOutput(name string, description string) *Env {
-	q := r.query.Select("withServiceOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type Socket in the environment
-func (r *Env) WithSocketInput(name string, value *Socket, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withSocketInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired Socket output to be assigned in the environment
-func (r *Env) WithSocketOutput(name string, description string) *Env {
-	q := r.query.Select("withSocketOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type Stat in the environment
-func (r *Env) WithStatInput(name string, value *Stat, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withStatInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired Stat output to be assigned in the environment
-func (r *Env) WithStatOutput(name string, description string) *Env {
-	q := r.query.Select("withStatOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Provides a string input binding to the environment
-func (r *Env) WithStringInput(name string, value string, description string) *Env {
-	q := r.query.Select("withStringInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declares a desired string output binding
-func (r *Env) WithStringOutput(name string, description string) *Env {
-	q := r.query.Select("withStringOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type UpGroup in the environment
-func (r *Env) WithUpGroupInput(name string, value *UpGroup, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withUpGroupInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired UpGroup output to be assigned in the environment
-func (r *Env) WithUpGroupOutput(name string, description string) *Env {
-	q := r.query.Select("withUpGroupOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type Up in the environment
-func (r *Env) WithUpInput(name string, value *Up, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withUpInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired Up output to be assigned in the environment
-func (r *Env) WithUpOutput(name string, description string) *Env {
-	q := r.query.Select("withUpOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Returns a new environment with the provided workspace
-func (r *Env) WithWorkspace(workspace *Directory) *Env {
-	assertNotNil("workspace", workspace)
-	q := r.query.Select("withWorkspace")
-	q = q.Arg("workspace", workspace)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type Workspace in the environment
-func (r *Env) WithWorkspaceInput(name string, value *Workspace, description string) *Env {
-	assertNotNil("value", value)
-	q := r.query.Select("withWorkspaceInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired Workspace output to be assigned in the environment
-func (r *Env) WithWorkspaceOutput(name string, description string) *Env {
-	q := r.query.Select("withWorkspaceOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Returns a new environment without any outputs
-func (r *Env) WithoutOutputs() *Env {
-	q := r.query.Select("withoutOutputs")
-
-	return &Env{
-		query: q,
-	}
-}
-
-func (r *Env) Workspace() *Directory {
-	q := r.query.Select("workspace")
-
-	return &Directory{
-		query: q,
-	}
-}
-
-// AsNode returns this Env as a Node.
-// This is a local type conversion — no GraphQL call.
-func (r *Env) AsNode() Node {
-	return &NodeClient{
-		query: r.query,
-	}
-}
-
 // A collection of environment variables.
 type EnvFile struct {
 	query *querybuilder.Selection
@@ -8609,7 +7157,7 @@ func (r *Generator) IsEmpty(ctx context.Context) (bool, error) {
 	return response, q.Execute(ctx)
 }
 
-// Return the fully qualified name of the generator
+// Return the command name of the generator. Entrypoint targets omit the module prefix.
 func (r *Generator) Name(ctx context.Context) (string, error) {
 	if r.name != nil {
 		return *r.name, nil
@@ -8622,7 +7170,7 @@ func (r *Generator) Name(ctx context.Context) (string, error) {
 	return response, q.Execute(ctx)
 }
 
-// The original module in which the generator has been defined
+// The module that defined the generator, or null for an engine-defined generator
 func (r *Generator) OriginalModule() *Module {
 	q := r.query.Select("originalModule")
 
@@ -9082,15 +7630,6 @@ func (r *GitRepository) UnmarshalJSON(bs []byte) error {
 	}
 	*r = GitRepository{query: selectNode(dag.query, id, "GitRepository")}
 	return nil
-}
-
-// Returns details for the latest semver tag.
-func (r *GitRepository) LatestVersion() *GitRef {
-	q := r.query.Select("latestVersion")
-
-	return &GitRef{
-		query: q,
-	}
 }
 
 // Returns details of a ref.
@@ -9931,18 +8470,16 @@ func (r *JSONValue) AsNode() Node {
 	}
 }
 
+// A conversation with a large language model (LLM): queue prompts, expose tools, and step the model until it completes its turn.
 type LLM struct {
 	query *querybuilder.Selection
 
-	hasPrompt   *bool
-	historyJSON *JSON
-	id          *ID
-	lastReply   *string
-	model       *string
-	provider    *string
-	step        *ID
-	sync        *ID
-	tools       *string
+	id        *ID
+	lastReply *string
+	model     *string
+	provider  *string
+	sync      *ID
+	tools     *string
 }
 type WithLLMFunc func(r *LLM) *LLM
 
@@ -9967,61 +8504,6 @@ func (r *LLM) Attempt(number int) *LLM {
 	return &LLM{
 		query: q,
 	}
-}
-
-// returns the type of the current state
-func (r *LLM) BindResult(name string) *Binding {
-	q := r.query.Select("bindResult")
-	q = q.Arg("name", name)
-
-	return &Binding{
-		query: q,
-	}
-}
-
-// return the LLM's current environment
-func (r *LLM) Env() *Env {
-	q := r.query.Select("env")
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Indicates whether there are any queued prompts or tool results to send to the model
-func (r *LLM) HasPrompt(ctx context.Context) (bool, error) {
-	if r.hasPrompt != nil {
-		return *r.hasPrompt, nil
-	}
-	q := r.query.Select("hasPrompt")
-
-	var response bool
-
-	q = q.Bind(&response)
-	return response, q.Execute(ctx)
-}
-
-// return the llm message history
-func (r *LLM) History(ctx context.Context) ([]string, error) {
-	q := r.query.Select("history")
-
-	var response []string
-
-	q = q.Bind(&response)
-	return response, q.Execute(ctx)
-}
-
-// return the raw llm message history as json
-func (r *LLM) HistoryJSON(ctx context.Context) (JSON, error) {
-	if r.historyJSON != nil {
-		return *r.historyJSON, nil
-	}
-	q := r.query.Select("historyJSON")
-
-	var response JSON
-
-	q = q.Bind(&response)
-	return response, q.Execute(ctx)
 }
 
 // A unique identifier for this LLM.
@@ -10073,7 +8555,7 @@ func (r *LLM) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-// return the last llm reply from the history
+// The text of the model's most recent reply.
 func (r *LLM) LastReply(ctx context.Context) (string, error) {
 	if r.lastReply != nil {
 		return *r.lastReply, nil
@@ -10086,7 +8568,7 @@ func (r *LLM) LastReply(ctx context.Context) (string, error) {
 	return response, q.Execute(ctx)
 }
 
-// Submit the queued prompt, evaluate any tool calls, queue their results, and keep going until the model ends its turn
+// Send the queued prompt and step the model against the available tools, until it ends its turn: a reply with no tool calls and nothing left queued.
 func (r *LLM) Loop() *LLM {
 	q := r.query.Select("loop")
 
@@ -10095,7 +8577,7 @@ func (r *LLM) Loop() *LLM {
 	}
 }
 
-// return the model used by the llm
+// The model the conversation is running against, after resolving any configured default.
 func (r *LLM) Model(ctx context.Context) (string, error) {
 	if r.model != nil {
 		return *r.model, nil
@@ -10108,7 +8590,7 @@ func (r *LLM) Model(ctx context.Context) (string, error) {
 	return response, q.Execute(ctx)
 }
 
-// return the provider used by the llm
+// The provider serving the model, e.g. "anthropic", "openai", "google", or "local".
 func (r *LLM) Provider(ctx context.Context) (string, error) {
 	if r.provider != nil {
 		return *r.provider, nil
@@ -10121,20 +8603,16 @@ func (r *LLM) Provider(ctx context.Context) (string, error) {
 	return response, q.Execute(ctx)
 }
 
-// Submit the queued prompt or tool call results, evaluate any tool calls, and queue their results
-func (r *LLM) Step(ctx context.Context) (*LLM, error) {
+// Advance the conversation by a single step: send the queued prompt or tool results to the model, evaluate any tool calls it makes, and queue their results. Use loop to step until the model ends its turn.
+func (r *LLM) Step() *LLM {
 	q := r.query.Select("step")
 
-	var id ID
-	if err := q.Bind(&id).Execute(ctx); err != nil {
-		return nil, err
-	}
 	return &LLM{
-		query: selectNode(q.Root(), id, "LLM"),
-	}, nil
+		query: q,
+	}
 }
 
-// synchronize LLM state
+// Force evaluation of the conversation's pending operations (prompts, steps, loops) in the engine.
 func (r *LLM) Sync(ctx context.Context) (*LLM, error) {
 	q := r.query.Select("sync")
 
@@ -10147,7 +8625,7 @@ func (r *LLM) Sync(ctx context.Context) (*LLM, error) {
 	}, nil
 }
 
-// returns the token usage of the current state
+// The cumulative token usage, summed across every API call in the conversation.
 func (r *LLM) TokenUsage() *LLMTokenUsage {
 	q := r.query.Select("tokenUsage")
 
@@ -10156,7 +8634,7 @@ func (r *LLM) TokenUsage() *LLMTokenUsage {
 	}
 }
 
-// print documentation for available tools
+// Render documentation for the tools currently exposed to the model.
 func (r *LLM) Tools(ctx context.Context) (string, error) {
 	if r.tools != nil {
 		return *r.tools, nil
@@ -10167,28 +8645,6 @@ func (r *LLM) Tools(ctx context.Context) (string, error) {
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
-}
-
-// Return a new LLM with the specified function no longer exposed as a tool
-func (r *LLM) WithBlockedFunction(typeName string, function string) *LLM {
-	q := r.query.Select("withBlockedFunction")
-	q = q.Arg("typeName", typeName)
-	q = q.Arg("function", function)
-
-	return &LLM{
-		query: q,
-	}
-}
-
-// allow the LLM to interact with an environment via MCP
-func (r *LLM) WithEnv(env *Env) *LLM {
-	assertNotNil("env", env)
-	q := r.query.Select("withEnv")
-	q = q.Arg("env", env)
-
-	return &LLM{
-		query: q,
-	}
 }
 
 // Add an external MCP server to the LLM
@@ -10203,7 +8659,7 @@ func (r *LLM) WithMCPServer(name string, service *Service) *LLM {
 	}
 }
 
-// swap out the llm model
+// Change the model for the rest of the conversation. The message history is preserved; the new model takes effect on the next step.
 func (r *LLM) WithModel(model string) *LLM {
 	q := r.query.Select("withModel")
 	q = q.Arg("model", model)
@@ -10213,7 +8669,7 @@ func (r *LLM) WithModel(model string) *LLM {
 	}
 }
 
-// append a prompt to the llm context
+// Queue a user prompt, to be sent to the model on the next step or loop.
 func (r *LLM) WithPrompt(prompt string) *LLM {
 	q := r.query.Select("withPrompt")
 	q = q.Arg("prompt", prompt)
@@ -10223,7 +8679,7 @@ func (r *LLM) WithPrompt(prompt string) *LLM {
 	}
 }
 
-// append the contents of a file to the llm context
+// Queue a file's contents as a user prompt, like withPrompt.
 func (r *LLM) WithPromptFile(file *File) *LLM {
 	assertNotNil("file", file)
 	q := r.query.Select("withPromptFile")
@@ -10234,16 +8690,7 @@ func (r *LLM) WithPromptFile(file *File) *LLM {
 	}
 }
 
-// Use a static set of tools for method calls, e.g. for MCP clients that do not support dynamic tool registration
-func (r *LLM) WithStaticTools() *LLM {
-	q := r.query.Select("withStaticTools")
-
-	return &LLM{
-		query: q,
-	}
-}
-
-// Add a system prompt to the LLM's environment
+// Add a system prompt, instructing the model across the whole conversation.
 func (r *LLM) WithSystemPrompt(prompt string) *LLM {
 	q := r.query.Select("withSystemPrompt")
 	q = q.Arg("prompt", prompt)
@@ -10262,7 +8709,7 @@ func (r *LLM) WithoutDefaultSystemPrompt() *LLM {
 	}
 }
 
-// Clear the message history, leaving only the system prompts
+// Clear the message history, keeping only the system prompts.
 func (r *LLM) WithoutMessageHistory() *LLM {
 	q := r.query.Select("withoutMessageHistory")
 
@@ -10271,7 +8718,7 @@ func (r *LLM) WithoutMessageHistory() *LLM {
 	}
 }
 
-// Clear the system prompts, leaving only the default system prompt
+// Clear the user-added system prompts, keeping only the default system prompt.
 func (r *LLM) WithoutSystemPrompts() *LLM {
 	q := r.query.Select("withoutSystemPrompts")
 
@@ -10296,6 +8743,7 @@ func (r *LLM) AsSyncer() Syncer {
 	}
 }
 
+// A count of tokens consumed by LLM API calls.
 type LLMTokenUsage struct {
 	query *querybuilder.Selection
 
@@ -10313,6 +8761,7 @@ func (r *LLMTokenUsage) WithGraphQLQuery(q *querybuilder.Selection) *LLMTokenUsa
 	}
 }
 
+// Input tokens served from the provider's prompt cache.
 func (r *LLMTokenUsage) CachedTokenReads(ctx context.Context) (int, error) {
 	if r.cachedTokenReads != nil {
 		return *r.cachedTokenReads, nil
@@ -10325,6 +8774,7 @@ func (r *LLMTokenUsage) CachedTokenReads(ctx context.Context) (int, error) {
 	return response, q.Execute(ctx)
 }
 
+// Input tokens written to the provider's prompt cache.
 func (r *LLMTokenUsage) CachedTokenWrites(ctx context.Context) (int, error) {
 	if r.cachedTokenWrites != nil {
 		return *r.cachedTokenWrites, nil
@@ -10386,6 +8836,7 @@ func (r *LLMTokenUsage) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+// Uncached input tokens sent to the model.
 func (r *LLMTokenUsage) InputTokens(ctx context.Context) (int, error) {
 	if r.inputTokens != nil {
 		return *r.inputTokens, nil
@@ -10398,6 +8849,7 @@ func (r *LLMTokenUsage) InputTokens(ctx context.Context) (int, error) {
 	return response, q.Execute(ctx)
 }
 
+// Tokens received from the model, including text and tool calls.
 func (r *LLMTokenUsage) OutputTokens(ctx context.Context) (int, error) {
 	if r.outputTokens != nil {
 		return *r.outputTokens, nil
@@ -10410,6 +8862,7 @@ func (r *LLMTokenUsage) OutputTokens(ctx context.Context) (int, error) {
 	return response, q.Execute(ctx)
 }
 
+// Total tokens consumed, as reported by the provider.
 func (r *LLMTokenUsage) TotalTokens(ctx context.Context) (int, error) {
 	if r.totalTokens != nil {
 		return *r.totalTokens, nil
@@ -11259,6 +9712,8 @@ func (r *ModuleSource) AsString(ctx context.Context) (string, error) {
 }
 
 // The blueprint referenced by the module source.
+//
+// Deprecated: Legacy dagger.json field. Generic module loading no longer honors it; use workspace modules in dagger.toml instead.
 func (r *ModuleSource) Blueprint() *ModuleSource {
 	q := r.query.Select("blueprint")
 
@@ -11326,7 +9781,7 @@ func (r *ModuleSource) ConfigClients(ctx context.Context) ([]ModuleConfigClient,
 	return convert(response), nil
 }
 
-// Whether an existing dagger.json for the module was found.
+// Whether an existing module config file was found.
 func (r *ModuleSource) ConfigExists(ctx context.Context) (bool, error) {
 	if r.configExists != nil {
 		return *r.configExists, nil
@@ -11562,7 +10017,7 @@ func (r *ModuleSource) ModuleName(ctx context.Context) (string, error) {
 	return response, q.Execute(ctx)
 }
 
-// The original name of the module as read from the module's dagger.json (or set for the first time with the withName API).
+// The original name of the module as read from the module config file (or set for the first time with the withName API).
 func (r *ModuleSource) ModuleOriginalName(ctx context.Context) (string, error) {
 	if r.moduleOriginalName != nil {
 		return *r.moduleOriginalName, nil
@@ -11623,7 +10078,7 @@ func (r *ModuleSource) SDK() *SDKConfig {
 	}
 }
 
-// The path, relative to the context directory, that contains the module's dagger.json.
+// The path, relative to the context directory, that contains the module config.
 func (r *ModuleSource) SourceRootSubpath(ctx context.Context) (string, error) {
 	if r.sourceRootSubpath != nil {
 		return *r.sourceRootSubpath, nil
@@ -11663,6 +10118,8 @@ func (r *ModuleSource) Sync(ctx context.Context) (*ModuleSource, error) {
 }
 
 // The toolchains referenced by the module source.
+//
+// Deprecated: Legacy dagger.json field. Generic module loading no longer honors it; use workspace modules in dagger.toml instead.
 func (r *ModuleSource) Toolchains(ctx context.Context) ([]ModuleSource, error) {
 	q := r.query.Select("toolchains")
 
@@ -11718,6 +10175,8 @@ func (r *ModuleSource) Version(ctx context.Context) (string, error) {
 }
 
 // Set a blueprint for the module source.
+//
+// Deprecated: Legacy dagger.json field. Generic module loading no longer honors it; use workspace modules in `dagger.toml` instead.
 func (r *ModuleSource) WithBlueprint(blueprint *ModuleSource) *ModuleSource {
 	assertNotNil("blueprint", blueprint)
 	q := r.query.Select("withBlueprint")
@@ -11810,6 +10269,8 @@ func (r *ModuleSource) WithSourceSubpath(path string) *ModuleSource {
 }
 
 // Add toolchains to the module source.
+//
+// Deprecated: Legacy dagger.json field. Generic module loading no longer honors it; use workspace modules in `dagger.toml` instead.
 func (r *ModuleSource) WithToolchains(toolchains []*ModuleSource) *ModuleSource {
 	q := r.query.Select("withToolchains")
 	q = q.Arg("toolchains", toolchains)
@@ -11820,6 +10281,8 @@ func (r *ModuleSource) WithToolchains(toolchains []*ModuleSource) *ModuleSource 
 }
 
 // Update the blueprint module to the latest version.
+//
+// Deprecated: Legacy dagger.json field. Generic module loading no longer honors it; use workspace modules in `dagger.toml` instead.
 func (r *ModuleSource) WithUpdateBlueprint() *ModuleSource {
 	q := r.query.Select("withUpdateBlueprint")
 
@@ -11839,6 +10302,8 @@ func (r *ModuleSource) WithUpdateDependencies(dependencies []string) *ModuleSour
 }
 
 // Update one or more toolchains.
+//
+// Deprecated: Legacy dagger.json field. Generic module loading no longer honors it; use workspace modules in `dagger.toml` instead.
 func (r *ModuleSource) WithUpdateToolchains(toolchains []string) *ModuleSource {
 	q := r.query.Select("withUpdateToolchains")
 	q = q.Arg("toolchains", toolchains)
@@ -11859,6 +10324,8 @@ func (r *ModuleSource) WithUpdatedClients(clients []string) *ModuleSource {
 }
 
 // Remove the current blueprint from the module source.
+//
+// Deprecated: Legacy dagger.json field. Generic module loading no longer honors it; use workspace modules in `dagger.toml` instead.
 func (r *ModuleSource) WithoutBlueprint() *ModuleSource {
 	q := r.query.Select("withoutBlueprint")
 
@@ -11898,6 +10365,8 @@ func (r *ModuleSource) WithoutExperimentalFeatures(features []ModuleSourceExperi
 }
 
 // Remove the provided toolchains from the module source.
+//
+// Deprecated: Legacy dagger.json field. Generic module loading no longer honors it; use workspace modules in `dagger.toml` instead.
 func (r *ModuleSource) WithoutToolchains(toolchains []string) *ModuleSource {
 	q := r.query.Select("withoutToolchains")
 	q = q.Arg("toolchains", toolchains)
@@ -12365,21 +10834,6 @@ func (r *Query) Container(opts ...ContainerOpts) *Container {
 	}
 }
 
-// Returns the current environment
-//
-// When called from a function invoked via an LLM tool call, this will be the LLM's current environment, including any modifications made through calling tools. Env values returned by functions become the new environment for subsequent calls, and Changeset values returned by functions are applied to the environment's workspace.
-//
-// When called from a module function outside of an LLM, this returns an Env with the current module installed, and with the current module's source directory as its workspace.
-//
-// Experimental: Programmatic env access is speculative and might be replaced.
-func (r *Query) CurrentEnv() *Env {
-	q := r.query.Select("currentEnv")
-
-	return &Env{
-		query: q,
-	}
-}
-
 // The FunctionCall context that the SDK caller is currently executing in.
 //
 // If the caller is not currently executing in a function, this will return an error.
@@ -12453,17 +10907,6 @@ func (r *Query) CurrentTypeDefs(ctx context.Context, opts ...CurrentTypeDefsOpts
 	return convert(response), nil
 }
 
-// Detect and return the current workspace.
-//
-// Experimental: Highly experimental API extracted from a more ambitious workspace implementation.
-func (r *Query) CurrentWorkspace() *Workspace {
-	q := r.query.Select("currentWorkspace")
-
-	return &Workspace{
-		query: q,
-	}
-}
-
 // The default platform of the engine.
 func (r *Query) DefaultPlatform(ctx context.Context) (Platform, error) {
 	q := r.query.Select("defaultPlatform")
@@ -12479,35 +10922,6 @@ func (r *Query) Directory() *Directory {
 	q := r.query.Select("directory")
 
 	return &Directory{
-		query: q,
-	}
-}
-
-// EnvOpts contains options for Query.Env
-type EnvOpts struct {
-	// Give the environment the same privileges as the caller: core API including host access, current module, and dependencies
-	Privileged bool
-	// Allow new outputs to be declared and saved in the environment
-	Writable bool
-}
-
-// Initializes a new environment
-//
-// Experimental: Environments are not yet stabilized
-func (r *Query) Env(opts ...EnvOpts) *Env {
-	q := r.query.Select("env")
-	for i := len(opts) - 1; i >= 0; i-- {
-		// `privileged` optional argument
-		if !querybuilder.IsZeroValue(opts[i].Privileged) {
-			q = q.Arg("privileged", opts[i].Privileged)
-		}
-		// `writable` optional argument
-		if !querybuilder.IsZeroValue(opts[i].Writable) {
-			q = q.Arg("writable", opts[i].Writable)
-		}
-	}
-
-	return &Env{
 		query: q,
 	}
 }
@@ -12756,13 +11170,13 @@ func (r *Query) JSON() *JSONValue {
 
 // LLMOpts contains options for Query.LLM
 type LLMOpts struct {
-	// Model to use
+	// The model to converse with, e.g. "claude-sonnet-4-5" or "gpt-5.4". Defaults to the configured default model.
 	Model string
 	// Cap the number of API calls for this LLM
 	MaxAPICalls int
 }
 
-// Initialize a Large Language Model (LLM)
+// Initialize a new LLM conversation.
 //
 // Experimental: LLM support is not yet stabilized
 func (r *Query) LLM(opts ...LLMOpts) *LLM {
@@ -12799,16 +11213,6 @@ func (r *Query) LoadAlpineFromID(id AlpineID) *Alpine {
 	q = q.Arg("id", id)
 
 	return &Alpine{
-		query: q,
-	}
-}
-
-// Load a Binding from its ID.
-func (r *Query) LoadBindingFromID(id BindingID) *Binding {
-	q := r.query.Select("loadBindingFromID")
-	q = q.Arg("id", id)
-
-	return &Binding{
 		query: q,
 	}
 }
@@ -12939,16 +11343,6 @@ func (r *Query) LoadEnvFileFromID(id EnvFileID) *EnvFile {
 	q = q.Arg("id", id)
 
 	return &EnvFile{
-		query: q,
-	}
-}
-
-// Load a Env from its ID.
-func (r *Query) LoadEnvFromID(id EnvID) *Env {
-	q := r.query.Select("loadEnvFromID")
-	q = q.Arg("id", id)
-
-	return &Env{
 		query: q,
 	}
 }
@@ -13414,7 +11808,7 @@ func (r *Query) Module() *Module {
 type ModuleSourceOpts struct {
 	// The pinned version of the module source
 	RefPin string
-	// If true, do not attempt to find dagger.json in a parent directory of the provided path. Only relevant for local module sources.
+	// If true, do not attempt to find a module config file in a parent directory of the provided path. Only relevant for local module sources.
 	DisableFindUp bool
 	// If true, do not error out if the provided ref string is a local path and does not exist yet. Useful when initializing new modules in directories that don't exist yet.
 	AllowNotExists bool
@@ -15449,7 +13843,7 @@ func (r *Up) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-// Return the fully qualified name of the service
+// Return the command name of the service. Entrypoint targets omit the module prefix.
 func (r *Up) Name(ctx context.Context) (string, error) {
 	if r.name != nil {
 		return *r.name, nil
@@ -15617,12 +14011,11 @@ func (r *UpGroup) AsNode() Node {
 	}
 }
 
-// A Dagger workspace detected from the current working directory.
+// A Dagger workspace detected from the current working directory or constructed from a Directory.
 type Workspace struct {
 	query *querybuilder.Selection
 
 	address     *string
-	clientId    *string
 	configPath  *string
 	findUp      *string
 	hasConfig   *bool
@@ -15637,7 +14030,7 @@ func (r *Workspace) WithGraphQLQuery(q *querybuilder.Selection) *Workspace {
 	}
 }
 
-// Canonical Dagger address of the workspace directory.
+// Canonical Dagger address of the workspace location, or an opaque identity for synthetic workspaces.
 func (r *Workspace) Address(ctx context.Context) (string, error) {
 	if r.address != nil {
 		return *r.address, nil
@@ -15683,19 +14076,6 @@ func (r *Workspace) Checks(opts ...WorkspaceChecksOpts) *CheckGroup {
 	}
 }
 
-// The client ID that owns this workspace's host filesystem.
-func (r *Workspace) ClientID(ctx context.Context) (string, error) {
-	if r.clientId != nil {
-		return *r.clientId, nil
-	}
-	q := r.query.Select("clientId")
-
-	var response string
-
-	q = q.Bind(&response)
-	return response, q.Execute(ctx)
-}
-
 // Path to config.toml relative to the workspace boundary (empty if not initialized).
 func (r *Workspace) ConfigPath(ctx context.Context) (string, error) {
 	if r.configPath != nil {
@@ -15721,7 +14101,7 @@ type WorkspaceDirectoryOpts struct {
 
 // Returns a Directory from the workspace.
 //
-// Relative paths resolve from the workspace directory. Absolute paths resolve from the workspace boundary.
+// Relative paths resolve from the workspace cwd. Absolute paths resolve from the workspace root.
 func (r *Workspace) Directory(path string, opts ...WorkspaceDirectoryOpts) *Directory {
 	q := r.query.Select("directory")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -15747,7 +14127,7 @@ func (r *Workspace) Directory(path string, opts ...WorkspaceDirectoryOpts) *Dire
 
 // Returns a File from the workspace.
 //
-// Relative paths resolve from the workspace directory. Absolute paths resolve from the workspace boundary.
+// Relative paths resolve from the workspace cwd. Absolute paths resolve from the workspace root.
 func (r *Workspace) File(path string) *File {
 	q := r.query.Select("file")
 	q = q.Arg("path", path)
@@ -15759,7 +14139,7 @@ func (r *Workspace) File(path string) *File {
 
 // WorkspaceFindUpOpts contains options for Workspace.FindUp
 type WorkspaceFindUpOpts struct {
-	// Path to start the search from. Relative paths resolve from the workspace directory; absolute paths resolve from the workspace boundary.
+	// Path to start the search from. Relative paths resolve from the workspace cwd; absolute paths resolve from the workspace root.
 	//
 	// Default: "."
 	From string
@@ -15769,9 +14149,9 @@ type WorkspaceFindUpOpts struct {
 //
 // Returns the absolute workspace path if found, or null if not found.
 //
-// Relative start paths resolve from the workspace directory.
+// Relative start paths resolve from the workspace cwd.
 //
-// The search stops at the workspace boundary and will not traverse above it.
+// The search stops at the workspace root and will not traverse above it.
 func (r *Workspace) FindUp(ctx context.Context, name string, opts ...WorkspaceFindUpOpts) (string, error) {
 	if r.findUp != nil {
 		return *r.findUp, nil
@@ -15917,19 +14297,6 @@ func (r *Workspace) Services(opts ...WorkspaceServicesOpts) *UpGroup {
 	}
 
 	return &UpGroup{
-		query: q,
-	}
-}
-
-// Refresh workspace-managed state and return the resulting changeset.
-//
-// Currently this refreshes existing lockfile entries only.
-//
-// Experimental: Experimental workspace update API currently refreshes existing lockfile entries only.
-func (r *Workspace) Update() *Changeset {
-	q := r.query.Select("update")
-
-	return &Changeset{
 		query: q,
 	}
 }

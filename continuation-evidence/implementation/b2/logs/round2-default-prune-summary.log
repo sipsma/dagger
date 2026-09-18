@@ -1,0 +1,150 @@
+✔ TestDefaultGCPruneDiagnostic 2m4s
+
+✔ .dagger-cli session --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a 2m4s
+
+✔ host: Host! 0.0s
+✔ .file(path: "/dagger-dev/engine.tar"): File! 2.1s
+
+✔ container(platform: "linux/amd64"): Container! 0.0s
+✔ .import(
+  ┆ source: Host.file(path: "/dagger-dev/engine.tar"): File!
+  ): Container! 7.2s
+✔ .withMountedCache(
+  ┆ path: "/transfer-fixture"
+  ┆ cache: cacheVolume(key: "b2-transfer-a-mzyumevhirkc8y9ts0cso2zue", namespace: "mainClient"): CacheVolume!
+  ): Container! 0.0s
+✔ withEnvVariable _DAGGER_TEST_REMOTE_CACHE_FIXTURE_ROOT=/transfer-fixture 0.0s
+✔ .withMountedCache(
+  ┆ path: "/var/lib/dagger"
+  ┆ cache: cacheVolume(key: "b2-transfer-a-state-ltnrg2p6x54bd42zdoxbwqizu", namespace: "mainClient"): CacheVolume!
+  ): Container! 0.0s
+✔ .withExposedPort(port: 1234, protocol: TCP): Container! 0.0s
+✔ .withDefaultArgs(args: ["--addr", "tcp://0.0.0.0:1234", "--network-name", "dagger0", "--network-cidr", "10.89.0.0/24"]): Container! 0.0s
+✔ .asService(useEntrypoint: true, insecureRootCapabilities: true): Service! 2m1s
+
+✔ Host.tunnel(
+  ┆ service: Container.asService(useEntrypoint: true, insecureRootCapabilities: true): Service!
+  ): Service! 0.0s
+✔ .start: ID! 2.2s
+
+✔ Service.endpoint(scheme: "tcp"): String! 0.0s
+
+✔ .dagger-cli session --workdir /tmp/TestRemoteCacheTransferSuiteTestDefaultGCPruneDiagnostic2238186224/001 --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a 1m29s
+
+✔ moduleSource(refString: "."): ModuleSource! 0.0s
+✔ .asModule: Module! 17.0s
+✔ .serve: Void 0.0s
+
+✔ cacheProbe: CacheProbe! 0.0s
+✔ .report(seed: "same"): CacheProbeReport! 0.3s
+✔ .noteFile(
+  ┆ file: Host.file(path: "/tmp/TestRemoteCacheTransferSuiteTestDefaultGCPruneDiagnostic2238186224/001/notes.txt", noCache: true): File!
+  ): String! 0.2s
+
+✔ after 1m11s
+
+✔ Container.withMountedCache(
+  ┆ path: "/transfer-fixture"
+  ┆ cache: cacheVolume(key: "b2-transfer-b-ici5iy1l61pbexb32ur3309dw", namespace: "mainClient"): CacheVolume!
+  ): Container! 0.0s
+✔ withEnvVariable _DAGGER_TEST_REMOTE_CACHE_FIXTURE_ROOT=/transfer-fixture 0.0s
+✔ .withMountedCache(
+  ┆ path: "/var/lib/dagger"
+  ┆ cache: cacheVolume(key: "b2-transfer-b-state-b15b92ukxnioqpq1gu144tnbe", namespace: "mainClient"): CacheVolume!
+  ): Container! 0.0s
+✔ .withExposedPort(port: 1234, protocol: TCP): Container! 0.0s
+✔ .withDefaultArgs(args: ["--addr", "tcp://0.0.0.0:1234", "--network-name", "dagger1", "--network-cidr", "10.89.1.0/24"]): Container! 0.0s
+✔ .asService(useEntrypoint: true, insecureRootCapabilities: true): Service! 58.2s
+
+✔ Host.tunnel(
+  ┆ service: Container.asService(useEntrypoint: true, insecureRootCapabilities: true): Service!
+  ): Service! 0.0s
+✔ .start: ID! 1.6s
+
+✔ Service.endpoint(scheme: "tcp"): String! 0.0s
+
+✔ .dagger-cli session --workdir /tmp/TestRemoteCacheTransferSuiteTestDefaultGCPruneDiagnosticafter1037706276/001 --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a 33.0s
+
+$ cacheProbe: CacheProbe! 0.0s CACHED
+$ .report(seed: "same"): CacheProbeReport! 0.0s CACHED
+
+✔ CacheProbe.report(seed: "different"): CacheProbeReport! 0.3s
+
+✔ Service.stop: ID! 23.5s
+
+✔ Service.stop(kill: true): ID! 0.0s
+
+✔ Container.withDefaultArgs(args: ["--addr", "tcp://0.0.0.0:1234", "--network-name", "dagger2", "--network-cidr", "10.89.2.0/24"]): Container! 0.0s
+✔ .asService(useEntrypoint: true, insecureRootCapabilities: true): Service! 12.5s
+
+✔ Host.tunnel(
+  ┆ service: Container.asService(useEntrypoint: true, insecureRootCapabilities: true): Service!
+  ): Service! 0.0s
+✔ .start: ID! 0.7s
+
+✔ Service.endpoint(scheme: "tcp"): String! 0.0s
+
+✔ .dagger-cli session --workdir /tmp/TestRemoteCacheTransferSuiteTestDefaultGCPruneDiagnosticafter1037706276/001 --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a 1.3s
+
+✔ Service.stop: ID! 10.3s
+
+✔ Service.stop(kill: true): ID! 0.0s
+
+✔ Service.stop: ID! 22.7s
+
+✔ Service.stop(kill: true): ID! 0.0s
+
+... 2827 earlier log lines ...
+    testctx.go:198: 19  : Container.asService(useEntrypoint: true, insecureRootCapabilities: true): Service!
+    testctx.go:198: 19  : [1m39s] | time="2026-09-16T08:19:37Z" level=debug msg="handling http request" client_hostname=dagger client_id=d1dddc1ivbfjyruuiiqh854hy contentType= method=POST path=/shutdown session_id=m2fdqswc2645bnqoeqa17817q span=444f225f478e5ac9 spanID=444f225f478e5ac9 trace=a1363afb7a7c79639b0741cf7fbc4c05 traceID=a1363afb7a7c79639b0741cf7fbc4c05 upgradeHeader=
+    testctx.go:198: 19  : [1m39s] | time=2026-09-16T08:19:37.680Z level=INFO msg="client shutdown" isMainClient=true sessionID=m2fdqswc2645bnqoeqa17817q clientID=d1dddc1ivbfjyruuiiqh854hy mainClientID=d1dddc1ivbfjyruuiiqh854hy
+    testctx.go:198: 19  : [1m39s] | time=2026-09-16T08:19:37.680Z level=INFO msg="main client is shutting down" isMainClient=true sessionID=m2fdqswc2645bnqoeqa17817q clientID=d1dddc1ivbfjyruuiiqh854hy mainClientID=d1dddc1ivbfjyruuiiqh854hy
+    testctx.go:198: 19  : [1m39s] | time=2026-09-16T08:19:37.680Z level=DEBUG msg="shutdown drain phase starting" isMainClient=true sessionID=m2fdqswc2645bnqoeqa17817q clientID=d1dddc1ivbfjyruuiiqh854hy mainClientID=d1dddc1ivbfjyruuiiqh854hy phase="flush workspace locks"
+    testctx.go:198: 19  : [1m39s] | time=2026-09-16T08:19:37.680Z level=INFO msg="shutdown drain phase done" isMainClient=true sessionID=m2fdqswc2645bnqoeqa17817q clientID=d1dddc1ivbfjyruuiiqh854hy mainClientID=d1dddc1ivbfjyruuiiqh854hy phase="flush workspace locks" duration=2.7µs error=<nil>
+    testctx.go:198: 19  : [1m39s] | time=2026-09-16T08:19:37.680Z level=DEBUG msg="shutdown drain phase starting" isMainClient=true sessionID=m2fdqswc2645bnqoeqa17817q clientID=d1dddc1ivbfjyruuiiqh854hy mainClientID=d1dddc1ivbfjyruuiiqh854hy phase="stop session services"
+    testctx.go:198: 19  : [1m39s] | time=2026-09-16T08:19:37.680Z level=INFO msg="shutdown drain phase done" isMainClient=true sessionID=m2fdqswc2645bnqoeqa17817q clientID=d1dddc1ivbfjyruuiiqh854hy mainClientID=d1dddc1ivbfjyruuiiqh854hy phase="stop session services" duration=3.34µs error=<nil>
+    testctx.go:198: 19  : [1m39s] | time=2026-09-16T08:19:37.680Z level=DEBUG msg="shutdown drain phase starting" isMainClient=true sessionID=m2fdqswc2645bnqoeqa17817q clientID=d1dddc1ivbfjyruuiiqh854hy mainClientID=d1dddc1ivbfjyruuiiqh854hy phase="flush session telemetry"
+    testctx.go:198: 19  : [1m39s] | time=2026-09-16T08:19:37.680Z level=DEBUG msg="flushing session telemetry" sessionID=m2fdqswc2645bnqoeqa17817q reason="client shutdown" clients=5 inflightSessionFlushes=1
+    testctx.go:198: 19  : [1m39s] | time=2026-09-16T08:19:37.680Z level=DEBUG msg="session attachables handle conn done" client_id=d1dddc1ivbfjyruuiiqh854hy client_hostname=dagger session_id=m2fdqswc2645bnqoeqa17817q trace=a1363afb7a7c79639b0741cf7fbc4c05 span=56686b8b7ba85590 err=<nil> ctxErr="context canceled" clientID=d1dddc1ivbfjyruuiiqh854hy
+    testctx.go:198: 19  : [1m39s] | time=2026-09-16T08:19:37.680Z level=INFO msg="shutdown drain phase done" isMainClient=true sessionID=m2fdqswc2645bnqoeqa17817q clientID=d1dddc1ivbfjyruuiiqh854hy mainClientID=d1dddc1ivbfjyruuiiqh854hy phase="flush session telemetry" duration=332.599µs error=<nil>
+    testctx.go:198: 19  : [1m39s] | time=2026-09-16T08:19:37.680Z level=INFO msg="client shutdown done" isMainClient=true sessionID=m2fdqswc2645bnqoeqa17817q clientID=d1dddc1ivbfjyruuiiqh854hy mainClientID=d1dddc1ivbfjyruuiiqh854hy duration=399.189µs error=<nil>
+    testctx.go:198: 19  : [1m39s] | time=2026-09-16T08:19:37.680Z level=INFO msg="all client connections closed" sessionID=m2fdqswc2645bnqoeqa17817q clientID=d1dddc1ivbfjyruuiiqh854hy
+    testctx.go:198: 19  : [1m39s] | time=2026-09-16T08:19:37.680Z level=INFO msg="removing session; stopping client services and flushing" session=m2fdqswc2645bnqoeqa17817q
+    testctx.go:198: 19  : [1m39s] | time=2026-09-16T08:19:37.680Z level=DEBUG msg="stopped services" session=m2fdqswc2645bnqoeqa17817q
+    testctx.go:198: 19  : [1m39s] | time=2026-09-16T08:19:37.687Z level=DEBUG msg="released dagql cache refs for session" session=m2fdqswc2645bnqoeqa17817q beforeEntries=4492 afterEntries=4303 beforeRetainedCalls=137 afterRetainedCalls=137
+    testctx.go:198: 19  : [1m39s] | Received signal terminated, retries: 1/3
+    testctx.go:198: 19  : [1m39s] | time="2026-09-16T08:19:37Z" level=error msg="server context canceled" error="context canceled" spanID=d285d744517b5c7f traceID=a1363afb7a7c79639b0741cf7fbc4c05
+    testctx.go:198: 19  : [1m39s] | time="2026-09-16T08:19:37Z" level=info msg="stopping server" spanID=d285d744517b5c7f traceID=a1363afb7a7c79639b0741cf7fbc4c05
+    testctx.go:198: 19  : [1m39s] | dnsmasq exited: signal: killed
+    testctx.go:198: 19  : [1m39s] | time=2026-09-16T08:19:37.719Z level=DEBUG msg="session removed" session=m2fdqswc2645bnqoeqa17817q
+time=2026-09-16T08:19:38.826Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=1 usedBytes=579268608
+time=2026-09-16T08:19:38.838Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=2 usedBytes=579268608
+time=2026-09-16T08:19:38.838Z level=INFO msg="starting dagql cache close" hasSQLDB=true hasPersistDB=true
+    testctx.go:198: 19  : [1m40s] | time=2026-09-16T08:19:38.826Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=1 usedBytes=579268608
+    testctx.go:198: 19  : [1m40s] | time=2026-09-16T08:19:38.838Z level=DEBUG msg="dagql prune skip policy: no reclaim target" policyIndex=2 usedBytes=579268608
+    testctx.go:198: 19  : [1m40s] | time=2026-09-16T08:19:38.838Z level=INFO msg="starting dagql cache close" hasSQLDB=true hasPersistDB=true
+time=2026-09-16T08:19:39.196Z level=INFO msg="marking dagql cache clean shutdown"
+time=2026-09-16T08:19:39.196Z level=WARN msg="successfully marked clean shutdown in persistence metadata"
+time=2026-09-16T08:19:39.199Z level=INFO msg="completed dagql cache close successfully"
+    testctx.go:198: 19  : [1m40s] | time=2026-09-16T08:19:39.196Z level=INFO msg="marking dagql cache clean shutdown"
+    testctx.go:198: 19  : [1m40s] | time=2026-09-16T08:19:39.196Z level=WARN msg="successfully marked clean shutdown in persistence metadata"
+    testctx.go:198: 19  : [1m40s] | time=2026-09-16T08:19:39.199Z level=INFO msg="completed dagql cache close successfully"
+shutting down telemetry...
+telemetry shut down complete
+    testctx.go:198: 
+    testctx.go:198: 1   : .dagger-cli session --label dagger.io/sdk.name:go --label dagger.io/sdk.version:n/a DONE [2m4s]
+    testctx.go:198: 
+    testctx.go:198: 19  : Container.asService DONE [2m1s]
+    testctx.go:198: 
+    testctx.go:198: 21  : Host.tunnel DONE [1m54s]
+    testctx.go:198: 
+    testctx.go:198: 67  : Service.stop DONE [22.7s]
+    testctx.go:198: 
+    testctx.go:198: 68  : Service.stop(kill: true): ID!
+    testctx.go:198: 68  : Service.stop DONE [0.0s]
+    testctx.go:198: 
+    testctx.go:198: 19  : Container.asService DONE [2m1s]
+    testctx.go:198: 19  : [2m1s] | shutting down telemetry...
+    testctx.go:198: 19  : [2m1s] | telemetry shut down complete
+    testctx.go:198: 
+full: dagger cloud logs a1363afb7a7c79639b0741cf7fbc4c05 --test "TestRemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic"

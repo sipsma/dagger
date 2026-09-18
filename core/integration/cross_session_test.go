@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"dagger.io/dagger"
@@ -232,6 +233,55 @@ func (ModuleSuite) TestCrossSessionFunctionCaching(ctx context.Context, t *testc
 	})
 }
 
+// A module object can store another object in a private (undeclared) field.
+// The stored value is an engine-result handle, and the cached parent object
+// state can be reused by later sessions through default function caching, so
+// the handle must keep the referenced result retained for as long as the
+// parent result lives. Previously private-field handles were invisible to
+// dagql dependency tracking: once the referenced result's owning session
+// closed, a later session's function call loaded the dangling handle from
+// cached state and failed with "missing shared result". The referenced
+// credential result here is produced and read only by never-cached functions,
+// so nothing else retains it across sessions.
+func (ModuleSuite) TestCrossSessionPrivateFieldResultRetention(ctx context.Context, t *testctx.T) {
+	// The same seed in both sessions makes the second holder call a cache hit
+	// while keeping this test run isolated from any earlier engine state.
+	seed := identity.NewID()
+	callMod := func(c *dagger.Client, salt string) (string, error) {
+		return moduleFixture(t, c, "go/cross-session-private-field").
+			With(withModuleFixture(t, c, "cred", "go/cross-session-private-field-cred")).
+			WithEnvVariable("CACHEBUSTER", identity.NewID()).
+			With(daggerCall("holder", "--seed", seed, "use", "--salt", salt)).
+			Stdout(ctx)
+	}
+
+	c1 := connect(ctx, t)
+	salt1 := identity.NewID()
+	out1, err := callMod(c1, salt1)
+	require.NoError(t, err)
+	gotSalt1, token1, ok := strings.Cut(strings.TrimSpace(out1), ":")
+	require.True(t, ok, "unexpected output %q", out1)
+	require.Equal(t, salt1, gotSalt1)
+	require.NotEmpty(t, token1)
+
+	// Close the first session so the credential result loses its session
+	// ownership; only the cached holder result's dependency edge can keep it
+	// alive now.
+	require.NoError(t, c1.Close())
+
+	c2 := connect(ctx, t)
+	salt2 := identity.NewID()
+	out2, err := callMod(c2, salt2)
+	require.NoError(t, err)
+	gotSalt2, token2, ok := strings.Cut(strings.TrimSpace(out2), ":")
+	require.True(t, ok, "unexpected output %q", out2)
+	require.Equal(t, salt2, gotSalt2)
+
+	// Same token proves the second session reused the cached holder state and
+	// the private-field credential result was still resolvable.
+	require.Equal(t, token1, token2)
+}
+
 func ptr[T any](v T) *T {
 	return &v
 }
@@ -311,7 +361,42 @@ func (ModuleSuite) TestCrossSessionContextDirectoryDefaultPath(ctx context.Conte
 	require.Contains(t, entries2, "foo.txt")
 }
 
-func (SecretSuite) TestCrossSessionGitAuthLeak(ctx context.Context, t *testctx.T) {
+// TestCrossSessionWorkspaceDockerfileRecipe covers a host-directory recipe
+// crossing a session boundary through module wiring. The first CLI session
+// persists the provider's host-backed Workspace.directory result. The second
+// session resolves a different provider function through settings and passes
+// a fresh, content-equivalent directory through the Dockerfile converter.
+// Loading that converted Container ID must not reuse the first session's
+// Host.directory call in the provider module's client context, which has no
+// host filesync attachable.
+func (ModuleSuite) TestCrossSessionWorkspaceDockerfileRecipe(ctx context.Context, t *testctx.T) {
+	root := t.TempDir()
+	initGitRepo(ctx, t, root)
+	copyTestdataFixture(ctx, t, filepath.Join(root, "workspace-container-provider"), "services", "workspace-container-provider")
+	copyTestdataFixture(ctx, t, filepath.Join(root, "service-ref-consumer"), "services", "service-ref-consumer")
+	app := filepath.Join(root, "app")
+	require.NoError(t, os.MkdirAll(filepath.Join(app, "context"), 0o755))
+	unique := identity.NewID()
+	require.NoError(t, os.WriteFile(filepath.Join(app, "marker.txt"), []byte(unique), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(app, "context", "Dockerfile"), []byte("FROM scratch\nCOPY marker.txt /marker.txt\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(app, "context", "marker.txt"), []byte(unique), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(app, "dagger.toml"), []byte(`[modules.workspace-container-provider]
+source = "../workspace-container-provider"
+
+[modules.service-ref-consumer]
+source = "../service-ref-consumer"
+settings.base = "workspace-container-provider:dockerfile-image"
+`), 0o644))
+
+	prime, err := hostDaggerExecRaw(ctx, t, app, "--silent", "call", "workspace-container-provider", "context-directory", "entries")
+	require.NoError(t, err, string(prime))
+
+	out, err := hostDaggerExecRaw(ctx, t, app, "--silent", "call", "service-ref-consumer", "container-provided-by")
+	require.NoError(t, err, string(out))
+	require.Equal(t, "workspace-container-provider:dockerfile", strings.TrimSpace(string(out)))
+}
+
+func (SecretSuite) TestCrossSessionGitAuthScoping(ctx context.Context, t *testctx.T) {
 	t.Run("core git", func(ctx context.Context, t *testctx.T) {
 		authTokenTestCase := getVCSTestCase(t, "https://gitlab.com/dagger-modules/private/test/more/dagger-test-modules-private.git")
 		require.NotEmpty(t, authTokenTestCase.encodedToken)
@@ -670,6 +755,7 @@ func (ModuleSuite) TestCrossSessionSecrets(ctx context.Context, t *testctx.T) {
 				With(daggerCall(
 					"fn",
 					"--cache-bust", cacheBust,
+					"--username", authTokenTestCase.httpAuthUsername,
 					"--token-plaintext", authTokenTestCase.token(),
 					"stdout",
 				)).
@@ -1172,7 +1258,7 @@ func (ModuleSuite) TestPrivateGitRepoArgCaching(ctx context.Context, t *testctx.
 	gitConfigFile1 := filepath.Join(gitConfigDir1, "config")
 	err := os.WriteFile(
 		gitConfigFile1,
-		[]byte(makeGitCredentials("https://"+tc.expectedHost, "git", decodedGitToken(tc.encodedToken))),
+		[]byte(makeGitCredentials("https://"+tc.expectedHost, tc.httpAuthUsername, decodedGitToken(tc.encodedToken))),
 		0644,
 	)
 	require.NoError(t, err)
@@ -1196,7 +1282,7 @@ func (ModuleSuite) TestPrivateGitRepoArgCaching(ctx context.Context, t *testctx.
 	gitConfigFile2 := filepath.Join(gitConfigDir2, "config")
 	err = os.WriteFile(
 		gitConfigFile2,
-		[]byte(makeGitCredentials("https://"+tc.expectedHost, "git", decodedGitToken(tc.encodedToken2))),
+		[]byte(makeGitCredentials("https://"+tc.expectedHost, tc.httpAuthUsername2, decodedGitToken(tc.encodedToken2))),
 		0644,
 	)
 	require.NoError(t, err)
@@ -1346,7 +1432,7 @@ func (ModuleSuite) TestCrossSessionGitSockets(ctx context.Context, t *testctx.T)
 
 	agentSockPath1, cleanup1 := setupPrivateRepoSSHAgent(t)
 	c1 := connect(ctx, t, dagger.WithEnvironmentVariable("SSH_AUTH_SOCK", agentSockPath1))
-	ref1ID, err := c1.Git(url).Commit(ref).ID(ctx)
+	ref1ID, err := c1.Git(url).Ref(ref).ID(ctx)
 	require.NoError(t, err)
 	var id1 call.ID
 	err = id1.Decode(string(ref1ID))
@@ -1354,7 +1440,7 @@ func (ModuleSuite) TestCrossSessionGitSockets(ctx context.Context, t *testctx.T)
 
 	agentSockPath2, _ := setupPrivateRepoSSHAgent(t)
 	c2 := connect(ctx, t, dagger.WithEnvironmentVariable("SSH_AUTH_SOCK", agentSockPath2))
-	ref2ID, err := c2.Git(url).Commit(ref).ID(ctx)
+	ref2ID, err := c2.Git(url).Ref(ref).ID(ctx)
 	require.NoError(t, err)
 	var id2 call.ID
 	err = id2.Decode(string(ref2ID))

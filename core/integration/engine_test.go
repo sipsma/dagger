@@ -1,7 +1,7 @@
 package core
 
 // These tests cover the Dagger engine process and the client/engine contract.
-// They verify signal handling, engine naming, `dagger run`, version
+// They verify signal handling, engine naming, `dagger api with-session`, version
 // compatibility, cancellation, Prometheus metrics, DagQL cache cleanup, and
 // client metadata reuse.
 //
@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -38,9 +39,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type EngineSuite struct{}
-type CachePersistenceSuite struct{}
-type LocalCacheSuite struct{}
+type (
+	EngineSuite           struct{}
+	CachePersistenceSuite struct{}
+	LocalCacheSuite       struct{}
+)
 
 func TestEngine(t *testing.T) {
 	testctx.New(t, Middleware()...).RunTests(EngineSuite{})
@@ -84,15 +87,20 @@ func devEngineContainerWithStateKey(c *dagger.Client, stateCacheKey string, with
 	}
 
 	deviceName, cidr := testutil.GetUniqueNestedEngineNetwork()
-	return ctr.
+	ctr = ctr.
 		WithMountedCache("/var/lib/dagger", c.CacheVolume(stateCacheKey)).
-		WithExposedPort(1234, dagger.ContainerWithExposedPortOpts{Protocol: dagger.NetworkProtocolTcp}).
-		WithDefaultArgs([]string{
-			"--addr", "tcp://0.0.0.0:1234",
-			// avoid network conflicts with other tests
-			"--network-name", deviceName,
-			"--network-cidr", cidr,
-		})
+		WithExposedPort(1234, dagger.ContainerWithExposedPortOpts{Protocol: dagger.NetworkProtocolTcp})
+	// With the opt-in hang diagnostic on, every nested engine also serves its
+	// debug endpoint; off, this returns both arguments unchanged. The debug
+	// port is exposed after 1234: a tunnel's default endpoint is the first
+	// exposed port, and that must stay the engine's own.
+	ctr, args := withNestedEngineDebugEndpoint(ctr, []string{
+		"--addr", "tcp://0.0.0.0:1234",
+		// avoid network conflicts with other tests
+		"--network-name", deviceName,
+		"--network-cidr", cidr,
+	})
+	return ctr.WithDefaultArgs(args)
 }
 
 func engineWithConfig(ctx context.Context, t *testctx.T, cfgFns ...func(context.Context, *testctx.T, config.Config) config.Config) func(*dagger.Container) *dagger.Container {
@@ -223,7 +231,12 @@ func (EngineSuite) TestSetsNameFromEnv(ctx context.Context, t *testctx.T) {
 
 	clientCtr := engineClientContainer(ctx, t, c, devEngineSvc)
 
-	clientCtr = clientCtr.WithExec([]string{"dagger", "core", "version"})
+	// The engine name reaches the user via the client's "connected" INFO log,
+	// which only the streaming plain frontend prints (the report frontend, the
+	// non-TTY default, doesn't render passing-span logs).
+	clientCtr = clientCtr.
+		WithEnvVariable("DAGGER_PROGRESS", "plain").
+		WithExec([]string{"dagger", "core", "version"})
 
 	// version call
 	stdout, err := clientCtr.Stdout(ctx)
@@ -244,38 +257,54 @@ func (EngineSuite) TestSetsNameFromEnv(ctx context.Context, t *testctx.T) {
 	require.Equal(t, engineName, strings.TrimSpace(stdout))
 }
 
-func (EngineSuite) TestDaggerRun(ctx context.Context, t *testctx.T) {
+func (EngineSuite) TestDaggerExec(ctx context.Context, t *testctx.T) {
 	c := connect(ctx, t)
 
-	devEngine := devEngineContainerAsService(devEngineContainer(c))
+	for _, tc := range []struct {
+		name string
+		cmd  string
+	}{
+		{"with-session", "dagger api with-session"},
+		{"compat", "dagger run"},
+	} {
+		t.Run(tc.name, func(ctx context.Context, t *testctx.W[*testing.T]) {
+			devEngine := devEngineContainerAsService(devEngineContainer(c))
 
-	clientCtr := engineClientContainer(ctx, t, c, devEngine)
+			clientCtr := engineClientContainer(ctx, t, c, devEngine)
 
-	command := fmt.Sprintf(`
-		export NO_COLOR=1
-		jq -n '{query:"{container{from(address: \"%s\"){file(path: \"/etc/alpine-release\"){contents}}}}"}' | \
-		dagger run sh -c 'curl -s \
-			-u $DAGGER_SESSION_TOKEN: \
-			--max-time 30 \
-			-H "content-type:application/json" \
-			-d @- \
-			http://127.0.0.1:$DAGGER_SESSION_PORT/query'`,
-		alpineImage,
-	)
+			command := fmt.Sprintf(`
+				export NO_COLOR=1
+				jq -n '{query:"{container{from(address: \"%s\"){file(path: \"/etc/alpine-release\"){contents}}}}"}' | \
+				%s sh -c 'curl -s \
+					-u $DAGGER_SESSION_TOKEN: \
+					--max-time 30 \
+					-H "content-type:application/json" \
+					-d @- \
+					http://127.0.0.1:$DAGGER_SESSION_PORT/query'`,
+				alpineImage,
+				tc.cmd,
+			)
 
-	clientCtr = clientCtr.
-		WithExec([]string{"apk", "add", "jq", "curl"}).
-		WithExec([]string{"sh", "-c", command})
+			clientCtr = clientCtr.
+				// The stderr assertion below checks the plain frontend's live
+				// span stream ("Container.from"); the report frontend (the
+				// non-TTY default) renders the tree once at exit with
+				// call-chain naming instead.
+				WithEnvVariable("DAGGER_PROGRESS", "plain").
+				WithExec([]string{"apk", "add", "jq", "curl"}).
+				WithExec([]string{"sh", "-c", command})
 
-	stdout, err := clientCtr.Stdout(ctx)
-	require.NoError(t, err)
-	require.Contains(t, stdout, distconsts.AlpineVersion)
-	require.JSONEq(t, `{"data": {"container": {"from": {"file": {"contents": "`+distconsts.AlpineVersion+`\n"}}}}}`, stdout)
+			stdout, err := clientCtr.Stdout(ctx)
+			require.NoError(t, err)
+			require.Contains(t, stdout, distconsts.AlpineVersion)
+			require.JSONEq(t, `{"data": {"container": {"from": {"file": {"contents": "`+distconsts.AlpineVersion+`\n"}}}}}`, stdout)
 
-	stderr, err := clientCtr.Stderr(ctx)
-	require.NoError(t, err)
-	// verify we got some progress output
-	require.Contains(t, stderr, "Container.from")
+			stderr, err := clientCtr.Stderr(ctx)
+			require.NoError(t, err)
+			// verify we got some progress output
+			require.Contains(t, stderr, "Container.from")
+		})
+	}
 }
 
 func (EngineSuite) TestVersionCompat(ctx context.Context, t *testctx.T) {
@@ -349,15 +378,15 @@ func (EngineSuite) TestVersionCompat(ctx context.Context, t *testctx.T) {
 			clientMinVersion: "v2.0.0",
 		},
 		{
-			// v2.0.1-foobar > v2.0.0 for both client and engine
-			name:             "old dev version",
+			// a prerelease of v2.0.0 shares base v2.0.0, so it satisfies a
+			// ">= v2.0.0" gate under base-version comparison (previously this
+			// was rejected because strict semver ranks a prerelease below its
+			// release)
+			name:             "prerelease of the required version",
 			engineVersion:    "v2.0.0-foobar",
 			engineMinVersion: "v2.0.0",
 			clientVersion:    "v2.0.0-foobar",
 			clientMinVersion: "v2.0.0",
-			errs: []string{
-				"incompatible engine version v2.0.0-foobar",
-			},
 		},
 
 		{
@@ -390,15 +419,14 @@ func (EngineSuite) TestVersionCompat(ctx context.Context, t *testctx.T) {
 			clientMinVersion: "v2.0.0-foo-123",
 		},
 		{
-			// but can't not be a perfect match (unlike dev versions)
-			name:             "incompatible prereleases",
+			// differing prerelease suffixes still share base v2.0.0, so they
+			// are compatible too: base-version comparison ignores the suffix
+			// (this used to require an exact match)
+			name:             "prereleases of the same base",
 			engineVersion:    "v2.0.0-foo-123",
 			engineMinVersion: "v2.0.0-foo-456",
 			clientVersion:    "v2.0.0-foo-456",
 			clientMinVersion: "v2.0.0-foo-123",
-			errs: []string{
-				"incompatible engine version v2.0.0-foo-123",
-			},
 		},
 
 		// empty clients/engines can happen with manual builds
@@ -639,7 +667,8 @@ func (EngineSuite) TestConcurrentCallContextCanceled(ctx context.Context, t *tes
 		WithEnvVariable("CACHEBUSTER", identity.NewID()).
 		Sync(ctx)
 	require.NoError(t, err)
-	ctr = ctr.WithExec([]string{"sh", "-c",
+	ctr = ctr.WithExec([]string{
+		"sh", "-c",
 		// request http://srv:$PORT/ in a loop until it returns "done"
 		"until [ \"$(curl -s http://srv:$PORT/)\" = \"done\" ]; do sleep 1; done",
 	})
@@ -746,12 +775,13 @@ func (EngineSuite) TestPrometheusMetrics(ctx context.Context, t *testctx.T) {
 
 		// find the lines with metrics we care about testing
 		soughtMetrics := map[string]struct{}{
-			"dagger_connected_clients":                 {},
-			"dagger_dagql_cache_entries":               {},
-			"dagger_local_cache_total_disk_size_bytes": {},
-			"dagger_local_cache_entries":               {},
+			"dagger_connected_clients":                    {},
+			"dagger_dagql_cache_entries":                  {},
+			"dagger_dagql_cache_metadata_estimated_bytes": {},
+			"dagger_local_cache_total_disk_size_bytes":    {},
+			"dagger_local_cache_entries":                  {},
 		}
-		foundMetrics := map[string]int{}
+		foundMetrics := map[string]float64{}
 		for _, line := range strings.Split(out, "\n") {
 			line = strings.TrimSpace(line)
 
@@ -760,7 +790,7 @@ func (EngineSuite) TestPrometheusMetrics(ctx context.Context, t *testctx.T) {
 				if !found {
 					continue
 				}
-				num, err := strconv.Atoi(numStr)
+				num, err := strconv.ParseFloat(strings.TrimSpace(numStr), 64)
 				require.NoError(t, err)
 
 				delete(soughtMetrics, metricName)
@@ -784,22 +814,27 @@ func (EngineSuite) TestPrometheusMetrics(ctx context.Context, t *testctx.T) {
 			switch metricName {
 			case "dagger_connected_clients":
 				if num != 1 {
-					t.Logf("expected dagger_connected_clients = 1, got %d", num)
+					t.Logf("expected dagger_connected_clients = 1, got %v", num)
 					validatedAll = false
 				}
 			case "dagger_dagql_cache_entries":
 				if num < 0 {
-					t.Logf("expected dagger_dagql_cache_entries >= 0, got %d", num)
+					t.Logf("expected dagger_dagql_cache_entries >= 0, got %v", num)
+					validatedAll = false
+				}
+			case "dagger_dagql_cache_metadata_estimated_bytes":
+				if num < 0 {
+					t.Logf("expected dagger_dagql_cache_metadata_estimated_bytes >= 0, got %v", num)
 					validatedAll = false
 				}
 			case "dagger_local_cache_total_disk_size_bytes":
 				if num <= 0 {
-					t.Logf("expected dagger_local_cache_total_disk_size_bytes > 0, got %d", num)
+					t.Logf("expected dagger_local_cache_total_disk_size_bytes > 0, got %v", num)
 					validatedAll = false
 				}
 			case "dagger_local_cache_entries":
 				if num <= 0 {
-					t.Logf("expected dagger_local_cache_entries >= 0, got %d", num)
+					t.Logf("expected dagger_local_cache_entries >= 0, got %v", num)
 					validatedAll = false
 				}
 			default:
@@ -819,6 +854,132 @@ func (EngineSuite) TestPrometheusMetrics(ctx context.Context, t *testctx.T) {
 
 	clientCancel()
 	require.NoError(t, eg.Wait(), "error from client exec")
+}
+
+// TestSessionTeardownSurvivesNestedClientStartup kills the CLI while module
+// calls are starting their nested SDK clients, then requires every session to
+// finish teardown and the engine to keep serving. Teardown waits for every
+// client scope lease without a deadline, so a registration that blocks behind
+// teardown, or a lease stranded by a registration racing it, leaves a removed
+// session in the lifecycle snapshot forever.
+func (EngineSuite) TestSessionTeardownSurvivesNestedClientStartup(ctx context.Context, t *testctx.T) {
+	c := connect(ctx, t)
+
+	devEngine := devEngineContainerAsService(devEngineContainer(c,
+		engineWithBkConfig(ctx, t, func(_ context.Context, _ *testctx.T, cfg bkconfig.Config) bkconfig.Config {
+			cfg.GRPC.DebugAddress = "0.0.0.0:6060"
+			return cfg
+		}),
+		func(ctr *dagger.Container) *dagger.Container {
+			return ctr.WithExposedPort(6060, dagger.ContainerWithExposedPortOpts{
+				Protocol: dagger.NetworkProtocolTcp,
+			})
+		},
+	))
+
+	// The function runs an uncached exec that outlives every kill delay below,
+	// so a kill lands while the nested SDK client is starting, registering, or
+	// running rather than after the call has already completed.
+	workloadDir := c.Directory().
+		WithNewFile("dagger.json", `{"name":"main","engineVersion":"latest","sdk":{"source":"go"}}`).
+		WithNewFile("main.go", `package main
+
+import "context"
+
+type Main struct{}
+
+func (m *Main) Hello(ctx context.Context, seed string) (string, error) {
+	return dag.Container().
+		From("`+alpineImage+`").
+		WithEnvVariable("SEED", seed).
+		WithExec([]string{"sh", "-c", "sleep 3; echo hi"}).
+		Stdout(ctx)
+}
+`)
+
+	client := engineClientContainer(ctx, t, c, devEngine).
+		WithMountedDirectory("/tmp/main", workloadDir).
+		WithWorkdir("/tmp/main")
+
+	callHello := func(seed string) (string, error) {
+		return client.
+			WithEnvVariable("CACHEBUST", rand.Text()).
+			WithExec([]string{"dagger", "call", "hello", "--seed=" + seed}).
+			Stdout(ctx)
+	}
+
+	// Warm the module so the timed calls below are bounded by nested client
+	// startup rather than SDK builds.
+	out, err := callHello("warmup")
+	require.NoError(t, err)
+	require.Contains(t, out, "hi")
+
+	// Kill the CLI at staggered points during module calls. Each kill drops
+	// the main client's connections, which reaps the session while the
+	// module's SDK runtime may still be starting, registering its nested
+	// client, or running its exec. The exit codes are irrelevant; what
+	// matters is what the engine does with the disconnects.
+	_, err = client.
+		WithEnvVariable("CACHEBUST", rand.Text()).
+		WithExec([]string{"sh", "-c", `
+i=0
+for delay in 0.2 0.25 0.3 0.35 0.4 0.45 0.5 0.55 0.6 0.7 0.85 1 1.5 2.5; do
+  i=$((i+1))
+  dagger call hello --seed="kill-$i" >/dev/null 2>&1 &
+  pid=$!
+  sleep "$delay"
+  kill -9 "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+done
+`}).Sync(ctx)
+	require.NoError(t, err)
+
+	type lifecycleSnapshot struct {
+		Runtimes int `json:"runtimes"`
+		Sessions []struct {
+			SessionID string `json:"session_id"`
+			State     string `json:"state"`
+		} `json:"sessions"`
+	}
+	debugCtr := c.Container().From(alpineImage).WithServiceBinding("dev-engine", devEngine)
+	var lastSnapshot string
+	settled := false
+	for attempt := 0; attempt < 60; attempt++ {
+		raw, err := debugCtr.
+			WithEnvVariable("CACHEBUST", rand.Text()).
+			WithExec([]string{"wget", "-qO-", "http://dev-engine:6060/debug/client-lifecycle"}).
+			Stdout(ctx)
+		if err != nil {
+			lastSnapshot = err.Error()
+			time.Sleep(time.Second)
+			continue
+		}
+		lastSnapshot = raw
+		var snapshot lifecycleSnapshot
+		require.NoError(t, json.Unmarshal([]byte(raw), &snapshot))
+		if len(snapshot.Sessions) == 0 && snapshot.Runtimes == 0 {
+			settled = true
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	if !settled {
+		// A stuck teardown is waiting on something; the goroutine dump says what.
+		dump, err := debugCtr.
+			WithEnvVariable("CACHEBUST", rand.Text()).
+			WithExec([]string{"wget", "-qO-", "http://dev-engine:6060/debug/pprof/goroutine?debug=2"}).
+			Stdout(ctx)
+		if err != nil {
+			dump = err.Error()
+		}
+		t.Logf("engine goroutines while teardown is stuck:\n%s", dump)
+	}
+	require.True(t, settled, "sessions did not finish teardown after client disconnects: %s", lastSnapshot)
+
+	// The engine must still serve a fresh session afterwards.
+	out, err = callHello("final")
+	require.NoError(t, err)
+	require.Contains(t, out, "hi")
 }
 
 func (EngineSuite) TestDagqlCacheEntriesNoLeak(ctx context.Context, t *testctx.T) {
@@ -923,7 +1084,7 @@ class Dep:
 set -eu
 # Load module + dependency schema a few times to exercise cache lifecycle.
 for i in $(seq 1 4); do
-  dagger functions >/dev/null
+  dagger api functions >/dev/null
 done
 			`}).Sync(ctx)
 		return err

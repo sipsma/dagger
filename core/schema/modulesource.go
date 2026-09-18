@@ -8,13 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"os"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 
 	"github.com/dagger/dagger/core"
+	"github.com/dagger/dagger/core/gitref"
 	"github.com/dagger/dagger/core/modules"
 	"github.com/dagger/dagger/core/sdk"
 	"github.com/dagger/dagger/core/workspace"
@@ -26,6 +26,7 @@ import (
 	"github.com/dagger/dagger/engine/slog"
 	"github.com/dagger/dagger/util/hashutil"
 	telemetry "github.com/dagger/otel-go"
+	"github.com/opencontainers/go-digest"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -66,6 +67,9 @@ func (s *moduleSourceSchema) Install(dag *dagql.Server) {
 			Doc(`Create a new module source instance from a source ref string`).
 			Args(
 				dagql.Arg("refString").Doc(`The string ref representation of the module source`),
+				dagql.Arg("version").
+					Doc(`Version query for a Git module source.`).
+					View(AfterVersion(workspace.VersionQueriesVersion)),
 				dagql.Arg("refPin").Doc(`The pinned version of the module source`),
 				dagql.Arg("disableFindUp").Doc(`If true, do not attempt to find a module config file in a parent directory of the provided path. Only relevant for local module sources.`),
 				dagql.Arg("allowNotExists").Doc(`If true, do not error out if the provided ref string is a local path and does not exist yet. Useful when initializing new modules in directories that don't exist yet.`),
@@ -82,6 +86,7 @@ func (s *moduleSourceSchema) Install(dag *dagql.Server) {
 					`If not set, the module source code is loaded from the root of the directory.`),
 			),
 		dagql.NodeFunc("asModuleSource", s.directoryAsModuleSource).
+			WithInput(dagql.PerClientInput).
 			Doc(`Load the directory as a Dagger module source`).
 			Args(
 				dagql.Arg("sourceRootPath").Doc(
@@ -211,8 +216,21 @@ func (s *moduleSourceSchema) Install(dag *dagql.Server) {
 		dagql.NodeFunc("generatedContextDirectory", s.moduleSourceGeneratedContextDirectory).
 			Doc(`The generated files and directories made on top of the module source's context directory.`),
 
+		dagql.NodeFunc("updatedConfigDirectory", s.moduleSourceUpdatedConfigDirectory).
+			View(AfterVersion("v1.0.0-0")).
+			Doc(`The module's dagger.json with any in-memory edits from with* APIs applied, as a diff relative to the source's context directory.`,
+				`Unlike generatedContextDirectory, this does not run codegen and does not validate the engine version against the running engine, so it can be used to declare an engine requirement newer than the running engine. Loading or serving such a module still fails at moduleSource.asModule.`),
+
 		dagql.NodeFunc("generatedContextChangeset", s.moduleSourceGeneratedContextChangeset).
 			Doc(`The generated files and directories made on top of the module source's context directory, returned as a Changeset.`),
+
+		dagql.NodeFunc("generate", s.moduleSourceGenerate).
+			View(AfterVersion("v1.0.0-0")).
+			Doc(`Return the supplied workspace with this module's generated context applied.`,
+				`The workspace change baseline is preserved, so a later Workspace.changes call includes this generation together with any other edits made by the caller.`).
+			Args(
+				dagql.Arg("workspace").Doc(`The workspace to apply generated files to.`),
+			),
 
 		dagql.Func("asString", s.moduleSourceAsString).
 			Doc(`A human readable ref string representation of this module source.`),
@@ -228,10 +246,15 @@ func (s *moduleSourceSchema) Install(dag *dagql.Server) {
 			Doc(`Load the source as a module. If this is a local source, the parent directory must have been provided during module source creation`),
 		dagql.NodeFunc("_implementationScoped", s.moduleSourceImplementationScoped).
 			Doc(`The module source scoped to implementation identity only, i.e. source code and dependency content rather than client-specific provenance.`),
+		moduleDefinitionField(s.moduleSourceModuleDefinition),
 		dagql.NodeFunc("introspectionSchemaJSON", s.moduleSourceIntrospectionSchemaJSON).
 			Doc(`The introspection schema JSON file for this module source.`,
 				`This file represents the schema visible to the module's source code, including all core types and those from the dependencies.`,
 				`Note: this is in the context of a module, so some core types may be hidden.`),
+		dagql.NodeFunc("clientSchemaIntrospectionJSON", s.moduleSourceClientSchemaIntrospectionJSON).
+			View(AfterVersion("v1.0.0-0")).
+			Doc(`The client-facing introspection schema JSON file for this module source.`,
+				`This is the schema consumed by client codegen: unlike introspectionSchemaJSON (the module-facing schema), it hides no core types and installs this module (reached via dag.<moduleName>) so a generated client can bind it. The module's dependencies are excluded: a client is generated for a single module plus core, not its dependency graph.`),
 
 		dagql.NodeFunc("directory", s.moduleSourceDirectory).
 			Doc(`The directory containing the module configuration and source code (source code may be in a subdir).`).
@@ -296,6 +319,7 @@ func (s *moduleSourceSchema) Install(dag *dagql.Server) {
 type moduleSourceArgs struct {
 	// avoiding name "ref" due to that being a reserved word in some SDKs (e.g. Rust)
 	RefString      string
+	Version        string `default:""`
 	RefPin         string `default:""`
 	DisableFindUp  bool   `default:"false"`
 	AllowNotExists bool   `default:"false"`
@@ -311,9 +335,32 @@ func (s *moduleSourceSchema) moduleSource(
 	if err != nil {
 		return inst, fmt.Errorf("failed to get engine client: %w", err)
 	}
-	parsedRef, err := core.ParseRefString(ctx, core.NewCallerStatFS(bk), args.RefString, args.RefPin)
+	var parsedRef *core.ParsedRefString
+	if args.RequireKind.Valid && args.RequireKind.Value == core.ModuleSourceKindGit {
+		// An explicitly requested Git source must not become a local source
+		// because a directory exists or its remote endpoint cannot be reached.
+		ref, err := core.ResolveDaggerGetRedirect(ctx, args.RefString)
+		if err != nil {
+			return inst, err
+		}
+		gitRef, err := core.ParseGitRefString(ctx, ref)
+		if err != nil {
+			return inst, err
+		}
+		parsedRef = &core.ParsedRefString{Kind: core.ModuleSourceKindGit, Git: &gitRef}
+	} else {
+		parsedRef, err = core.ParseRefString(ctx, core.NewCallerStatFS(bk), args.RefString, args.RefPin)
+	}
 	if err != nil {
 		return inst, err
+	}
+	if args.Version != "" {
+		if parsedRef.Kind != core.ModuleSourceKindGit {
+			return inst, errors.New("version query requires a Git module source")
+		}
+		if err := parsedRef.Git.SetVersion(args.Version); err != nil {
+			return inst, err
+		}
 	}
 
 	if args.RequireKind.Valid && parsedRef.Kind != args.RequireKind.Value {
@@ -327,9 +374,9 @@ func (s *moduleSourceSchema) moduleSource(
 			return inst, err
 		}
 	case core.ModuleSourceKindGit:
-		inst, err = s.gitModuleSource(ctx, query, parsedRef.Git, args.RefPin, !args.DisableFindUp)
+		inst, err = s.gitModuleSource(ctx, query, parsedRef.Git, args.RefPin, !args.DisableFindUp, args.AllowNotExists)
 		if err != nil {
-			return inst, err
+			return inst, fmt.Errorf("resolve remote module %q: %w", gitref.DisplayRef(args.RefString), err)
 		}
 	default:
 		return inst, fmt.Errorf("unknown module source kind: %s", parsedRef.Kind)
@@ -385,6 +432,65 @@ func moduleConfigInDir(ctx context.Context, statFS core.StatFS, dir string) (fil
 		}
 	}
 	return "", false, nil
+}
+
+// workspaceModuleSourceByName resolves name as a module installed in the
+// workspace config (dagger.toml) of the workspace detected from the caller's
+// cwd. Returns found=false when there is no workspace config or no module
+// with that name.
+func (s *moduleSourceSchema) workspaceModuleSourceByName(
+	ctx context.Context,
+	query dagql.ObjectResult[*core.Query],
+	bk *engineutil.Client,
+	name string,
+	allowNotExists bool,
+) (inst dagql.Result[*core.ModuleSource], found bool, err error) {
+	cwd, err := bk.AbsPath(ctx, ".")
+	if err != nil {
+		return inst, false, fmt.Errorf("failed to get cwd: %w", err)
+	}
+	statFS := core.NewCallerStatFS(bk)
+	ws, err := workspace.Detect(ctx, func(ctx context.Context, path string) (string, bool, error) {
+		return core.StatFSExists(ctx, statFS, path)
+	}, cwd)
+	if err != nil {
+		return inst, false, fmt.Errorf("failed to detect workspace: %w", err)
+	}
+	if ws == nil || ws.ConfigFile == "" {
+		return inst, false, nil
+	}
+	configPath := filepath.Join(ws.Root, ws.ConfigFile)
+	contents, err := bk.ReadCallerHostFile(ctx, configPath)
+	if err != nil {
+		return inst, false, fmt.Errorf("failed to read workspace config file: %w", err)
+	}
+	cfg, err := workspace.ParseConfigAt(ctx, contents, filepath.Dir(ws.ConfigFile))
+	if err != nil {
+		return inst, false, fmt.Errorf("failed to parse workspace config: %w", err)
+	}
+	entry, ok := cfg.Modules[name]
+	if !ok || entry.Source == "" {
+		return inst, false, nil
+	}
+	if filepath.IsAbs(entry.Source) {
+		return inst, false, fmt.Errorf("workspace module %q source path %q is absolute", name, entry.Source)
+	}
+
+	source := workspace.ResolveModuleEntrySource(filepath.Dir(configPath), entry.Source)
+	parsedRef, err := core.ParseRefString(ctx, statFS, source, entry.Pin)
+	if err != nil {
+		return inst, false, fmt.Errorf("failed to parse workspace module ref string: %w", err)
+	}
+	switch parsedRef.Kind {
+	case core.ModuleSourceKindLocal:
+		inst, err = s.localModuleSource(ctx, query, bk, source, false, allowNotExists)
+		return inst, true, err
+	case core.ModuleSourceKindGit:
+		inst, err = s.gitModuleSource(ctx, query, parsedRef.Git, entry.Pin, false, false)
+		return inst, true, err
+	default:
+		return inst, false, fmt.Errorf("unsupported workspace module %q source kind %q", name, parsedRef.Kind)
+	}
 }
 
 //nolint:gocyclo
@@ -468,9 +574,19 @@ func (s *moduleSourceSchema) localModuleSource(
 					depModPath := filepath.Join(defaultFindUpSourceRootDir, namedDep.Source)
 					return s.localModuleSource(ctx, query, bk, depModPath, false, allowNotExists)
 				case core.ModuleSourceKindGit:
-					return s.gitModuleSource(ctx, query, parsedRef.Git, namedDep.Pin, false)
+					return s.gitModuleSource(ctx, query, parsedRef.Git, namedDep.Pin, false, false)
 				}
 			}
+		}
+
+		// similarly, check if it's the name of a module installed in the workspace
+		// config (dagger.toml) found-up from the cwd
+		inst, found, err := s.workspaceModuleSourceByName(ctx, query, bk, localPath, allowNotExists)
+		if err != nil {
+			return inst, err
+		}
+		if found {
+			return inst, nil
 		}
 	}
 
@@ -578,56 +694,71 @@ func (s *moduleSourceSchema) localModuleSource(
 		if err != nil {
 			return inst, err
 		}
-	} else {
-		// we found a module config, load the module source using its values
-		configPath := filepath.Join(sourceRootPath, configFilename)
-		contents, err := bk.ReadCallerHostFile(ctx, configPath)
-		if err != nil {
-			return inst, fmt.Errorf("failed to read module config file: %w", err)
-		}
-		if err := s.initFromModConfig(contents, localSrc); err != nil {
-			return inst, err
-		}
-
-		// load this module source's context directory, ignore patterns, sdk and deps in parallel
-		var eg errgroup.Group
-		eg.Go(func() error {
-			if err := s.loadModuleSourceContext(ctx, localSrc); err != nil {
-				return fmt.Errorf("failed to load local module source context: %w", err)
-			}
-
-			if localSrc.SDK != nil {
-				localSrc.SDKImpl, err = sdk.NewLoader().SDKForModule(ctx, query.Self(), localSrc.SDK, localSrc)
-				if err != nil {
-					return fmt.Errorf("failed to load sdk for local module source: %w", err)
-				}
-			}
-
-			return nil
-		})
-
-		localSrc.Dependencies = make([]dagql.ObjectResult[*core.ModuleSource], len(localSrc.ConfigDependencies))
-		for i, depCfg := range localSrc.ConfigDependencies {
-			eg.Go(func() error {
-				var err error
-				localSrc.Dependencies[i], err = core.ResolveDepToSource(ctx, bk, dag, localSrc, depCfg.Source, depCfg.Pin, depCfg.Name)
-				if err != nil {
-					return fmt.Errorf("failed to resolve dep to source: %w", err)
-				}
-				return nil
-			})
-		}
-
-		if err := eg.Wait(); err != nil {
-			return inst, err
-		}
+	} else if err := s.loadConfiguredModuleSource(ctx, localSrc); err != nil {
+		return inst, fmt.Errorf("load local module source: %w", err)
 	}
 
-	if err := localSrc.LoadUserDefaults(ctx); err != nil {
-		return inst, fmt.Errorf("load user defaults: %w", err)
+	if !daggerCfgFound {
+		if err := localSrc.LoadUserDefaults(ctx); err != nil {
+			return inst, fmt.Errorf("load user defaults: %w", err)
+		}
 	}
 
 	return dagql.NewResultForCurrentCall(ctx, localSrc)
+}
+
+// findGitModuleConfig locates the dagger config file for a git module source,
+// mutating gitSrc's ConfigFilename and SourceRootSubpath as needed. It returns
+// the path to the config file within the context directory and whether one was
+// found. When no config is found and allowNotExists is true it returns
+// ("", false, nil); otherwise a missing config is an error.
+func (s *moduleSourceSchema) findGitModuleConfig(
+	ctx context.Context,
+	gitSrc *core.ModuleSource,
+	doFindUp bool,
+	allowNotExists bool,
+) (configPath string, configFound bool, err error) {
+	statFS := &core.DirectoryStatFS{Dir: gitSrc.ContextDirectory}
+
+	if !doFindUp {
+		configFilename, found, err := moduleConfigInDir(ctx, statFS, filepath.Join("/", gitSrc.SourceRootSubpath))
+		if err != nil {
+			return "", false, fmt.Errorf("failed to find module config: %w", err)
+		}
+		if !found {
+			if !allowNotExists {
+				return "", false, fmt.Errorf("git module source %q does not contain a dagger config file", gitSrc.AsString())
+			}
+			return "", false, nil
+		}
+		gitSrc.ConfigFilename = configFilename
+		return filepath.Join(gitSrc.SourceRootSubpath, configFilename), true, nil
+	}
+
+	// first validate the given path exists at all, otherwise weird things like
+	// `dagger -m github.com/dagger/dagger/not/a/real/dir` can succeed because
+	// they find-up to a real module config file
+	if gitSrc.SourceRootSubpath != "" {
+		if _, exists, err := core.StatFSExists(ctx, statFS, gitSrc.SourceRootSubpath); err != nil {
+			return "", false, fmt.Errorf("failed to stat git module source: %w", err)
+		} else if !exists {
+			return "", false, fmt.Errorf("path %q does not exist in git repo", gitSrc.SourceRootSubpath)
+		}
+	}
+
+	configDir, configFilename, found, err := findUpModuleConfig(ctx, statFS, filepath.Join("/", gitSrc.SourceRootSubpath))
+	if err != nil {
+		return "", false, fmt.Errorf("failed to find-up module config: %w", err)
+	}
+	if !found {
+		if !allowNotExists {
+			return "", false, fmt.Errorf("git module source %q does not contain a dagger config file", gitSrc.AsString())
+		}
+		return "", false, nil
+	}
+	gitSrc.ConfigFilename = configFilename
+	gitSrc.SourceRootSubpath = strings.TrimPrefix(configDir, "/")
+	return filepath.Join(configDir, configFilename), true, nil
 }
 
 func (s *moduleSourceSchema) gitModuleSource(
@@ -637,6 +768,12 @@ func (s *moduleSourceSchema) gitModuleSource(
 	refPin string,
 	// whether to search up the directory tree for a module config file
 	doFindUp bool,
+	// whether to tolerate a git ref that has no dagger config file, returning a
+	// context-only source (ConfigExists=false) instead of erroring. Used when
+	// the ref is needed only as a +defaultPath context directory, e.g. a
+	// migrated workspace root that is a Workspace (dagger.toml), not a Module
+	// (dagger.json). Mirrors localModuleSource's allowNotExists behavior.
+	allowNotExists bool,
 ) (inst dagql.Result[*core.ModuleSource], err error) {
 	dag, err := query.Self().Server.Server(ctx)
 	if err != nil {
@@ -647,24 +784,26 @@ func (s *moduleSourceSchema) gitModuleSource(
 	if err != nil {
 		return inst, fmt.Errorf("failed to resolve git src: %w", err)
 	}
+	versionQuery := ""
+	if parsed.Selector == gitref.ModuleVersionSelector && core.Supports(ctx, workspace.VersionQueriesVersion) && core.IsReleaseVersionQuery(parsed.ModVersion) {
+		versionQuery = parsed.ModVersion
+	}
 
 	gitSrc := &core.ModuleSource{
 		ConfigExists:   true, // we can't load uninitialized git modules, we'll error out later if it's not there
 		ConfigFilename: modules.Filename,
 		Kind:           core.ModuleSourceKindGit,
 		Git: &core.GitModuleSource{
-			HTMLRepoURL:  parsed.RepoRoot.Repo,
-			RepoRootPath: parsed.RepoRoot.Root,
-			Version:      cmp.Or(gitRef.Self().Ref.ShortName(), gitRef.Self().Ref.SHA),
-			Commit:       gitRef.Self().Ref.SHA,
-			Ref:          gitRef.Self().Ref.Name,
-			CloneRef:     parsed.SourceCloneRef,
+			HTMLRepoURL:      parsed.RepoRoot.Repo,
+			RepoRootPath:     parsed.RepoRoot.Root,
+			Version:          cmp.Or(gitRef.Self().Ref.ShortName(), gitRef.Self().Ref.SHA),
+			VersionQuery:     versionQuery,
+			Selector:         parsed.Selector,
+			Commit:           gitRef.Self().Ref.SHA,
+			Ref:              gitRef.Self().Ref.Name,
+			CloneRef:         parsed.SourceCloneRef,
+			ResolvedCloneRef: gitRef.Self().Repo.Self().URL.Value.String(),
 		},
-	}
-
-	bk, err := query.Self().Engine(ctx)
-	if err != nil {
-		return inst, fmt.Errorf("failed to get engine client: %w", err)
 	}
 
 	// TODO:(sipsma) support sparse loading of git repos similar to how local dirs are loaded.
@@ -680,42 +819,9 @@ func (s *moduleSourceSchema) gitModuleSource(
 	gitSrc.SourceRootSubpath = strings.TrimPrefix(parsed.RepoRootSubdir, "/")
 	gitSrc.OriginalSubpath = gitSrc.SourceRootSubpath
 
-	var configPath string
-	if !doFindUp {
-		statFS := &core.DirectoryStatFS{Dir: gitSrc.ContextDirectory}
-		configFilename, found, err := moduleConfigInDir(ctx, statFS, filepath.Join("/", gitSrc.SourceRootSubpath))
-		if err != nil {
-			return inst, fmt.Errorf("failed to find module config: %w", err)
-		}
-		if !found {
-			return inst, fmt.Errorf("git module source %q does not contain a dagger config file", gitSrc.AsString())
-		}
-		gitSrc.ConfigFilename = configFilename
-		configPath = filepath.Join(gitSrc.SourceRootSubpath, configFilename)
-	} else {
-		// first validate the given path exists at all, otherwise weird things like
-		// `dagger -m github.com/dagger/dagger/not/a/real/dir` can succeed because
-		// they find-up to a real module config file
-		statFS := &core.DirectoryStatFS{Dir: gitSrc.ContextDirectory}
-
-		if gitSrc.SourceRootSubpath != "" {
-			if _, exists, err := core.StatFSExists(ctx, statFS, gitSrc.SourceRootSubpath); err != nil {
-				return inst, fmt.Errorf("failed to stat git module source: %w", err)
-			} else if !exists {
-				return inst, fmt.Errorf("path %q does not exist in git repo", gitSrc.SourceRootSubpath)
-			}
-		}
-
-		configDir, configFilename, found, err := findUpModuleConfig(ctx, statFS, filepath.Join("/", gitSrc.SourceRootSubpath))
-		if err != nil {
-			return inst, fmt.Errorf("failed to find-up module config: %w", err)
-		}
-		if !found {
-			return inst, fmt.Errorf("git module source %q does not contain a dagger config file", gitSrc.AsString())
-		}
-		gitSrc.ConfigFilename = configFilename
-		configPath = filepath.Join(configDir, configFilename)
-		gitSrc.SourceRootSubpath = strings.TrimPrefix(configDir, "/")
+	_, configFound, err := s.findGitModuleConfig(ctx, gitSrc, doFindUp, allowNotExists)
+	if err != nil {
+		return inst, err
 	}
 	if gitSrc.SourceRootSubpath == "" {
 		gitSrc.SourceRootSubpath = "."
@@ -731,60 +837,23 @@ func (s *moduleSourceSchema) gitModuleSource(
 		return inst, fmt.Errorf("failed to get git module source HTML URL: %w", err)
 	}
 
-	var configContents string
-	err = dag.Select(ctx, gitSrc.ContextDirectory, &configContents,
-		dagql.Selector{
-			Field: "file",
-			Args: []dagql.NamedInput{
-				{Name: "path", Value: dagql.String(configPath)},
-			},
-		},
-		dagql.Selector{Field: "contents"},
-	)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return inst, fmt.Errorf("git module source %q does not contain a dagger config file", gitSrc.AsString())
+	if !configFound {
+		// The git ref has no dagger config file and the caller tolerates that
+		// (allowNotExists). It is being loaded purely as a +defaultPath context
+		// directory, so return a context-only source: the full git tree is
+		// already loaded into ContextDirectory/UnfilteredContextDir above, and
+		// LoadContext{Dir,File,Git} only need that plus SourceRootSubpath. Skip
+		// module config parsing, SDK loading, and dependency resolution.
+		gitSrc.ConfigExists = false
+		inst, err = dagql.NewResultForCurrentCall(ctx, gitSrc)
+		if err != nil {
+			return inst, fmt.Errorf("failed to create instance: %w", err)
 		}
-		return inst, fmt.Errorf("failed to load git module dagger config: %w", err)
-	}
-	if err := s.initFromModConfig([]byte(configContents), gitSrc); err != nil {
-		return inst, err
+		return inst, nil
 	}
 
-	// load this module source's context directory and deps in parallel
-	var eg errgroup.Group
-	eg.Go(func() error {
-		if err := s.loadModuleSourceContext(ctx, gitSrc); err != nil {
-			return fmt.Errorf("failed to load git module source context: %w", err)
-		}
-
-		if gitSrc.SDK != nil {
-			gitSrc.SDKImpl, err = sdk.NewLoader().SDKForModule(ctx, query.Self(), gitSrc.SDK, gitSrc)
-			if err != nil {
-				return fmt.Errorf("failed to load sdk for git module source: %w", err)
-			}
-		}
-
-		return nil
-	})
-
-	gitSrc.Dependencies = make([]dagql.ObjectResult[*core.ModuleSource], len(gitSrc.ConfigDependencies))
-	for i, depCfg := range gitSrc.ConfigDependencies {
-		eg.Go(func() error {
-			var err error
-			gitSrc.Dependencies[i], err = core.ResolveDepToSource(ctx, bk, dag, gitSrc, depCfg.Source, depCfg.Pin, depCfg.Name)
-			if err != nil {
-				return fmt.Errorf("failed to resolve dep to source: %w", err)
-			}
-			return nil
-		})
-	}
-	if err := eg.Wait(); err != nil {
-		return inst, err
-	}
-
-	if err := gitSrc.LoadUserDefaults(ctx); err != nil {
-		return inst, fmt.Errorf("load user defaults: %w", err)
+	if err := s.loadConfiguredModuleSource(ctx, gitSrc); err != nil {
+		return inst, fmt.Errorf("load Git module source: %w", err)
 	}
 
 	inst, err = dagql.NewResultForCurrentCall(ctx, gitSrc)
@@ -797,6 +866,18 @@ func (s *moduleSourceSchema) gitModuleSource(
 
 type directoryAsModuleArgs struct {
 	SourceRootPath string `default:"."`
+}
+
+type directoryAsModuleSourceArgs struct {
+	SourceRootPath string `default:"."`
+
+	// AllowNotExists tolerates a directory holding no dagger config file at
+	// the source root, returning a context-only source (ConfigExists=false)
+	// instead of erroring. Used when the directory is needed purely as a
+	// +defaultPath context, e.g. a value workspace root that is a Workspace
+	// (dagger.toml), not a Module (dagger.json). Mirrors the tolerance local
+	// and git module sources already have.
+	AllowNotExists bool `internal:"true" default:"false"`
 }
 
 func (s *moduleSourceSchema) directoryAsModule(
@@ -826,17 +907,8 @@ func (s *moduleSourceSchema) directoryAsModule(
 func (s *moduleSourceSchema) directoryAsModuleSource(
 	ctx context.Context,
 	contextDir dagql.ObjectResult[*core.Directory],
-	args directoryAsModuleArgs,
+	args directoryAsModuleSourceArgs,
 ) (inst dagql.Result[*core.ModuleSource], err error) {
-	query, err := core.CurrentQuery(ctx)
-	if err != nil {
-		return inst, err
-	}
-	dag, err := query.Server.Server(ctx)
-	if err != nil {
-		return inst, fmt.Errorf("failed to get dag server: %w", err)
-	}
-
 	sourceRootSubpath := args.SourceRootPath
 	if sourceRootSubpath == "" {
 		sourceRootSubpath = "."
@@ -862,64 +934,15 @@ func (s *moduleSourceSchema) directoryAsModuleSource(
 		return inst, fmt.Errorf("failed to find dir module config: %w", err)
 	}
 	if !found {
-		return inst, fmt.Errorf("dir module source does not contain a dagger config file")
+		if !args.AllowNotExists {
+			return inst, fmt.Errorf("dir module source does not contain a dagger config file")
+		}
+		dirSrc.ConfigExists = false
+		return dagql.NewResultForCurrentCall(ctx, dirSrc)
 	}
 	dirSrc.ConfigFilename = configFilename
-	configPath := filepath.Join(dirSrc.SourceRootSubpath, configFilename)
-	var configContents string
-	err = dag.Select(ctx, contextDir, &configContents,
-		dagql.Selector{
-			Field: "file",
-			Args: []dagql.NamedInput{
-				{Name: "path", Value: dagql.String(configPath)},
-			},
-		},
-		dagql.Selector{Field: "contents"},
-	)
-	if err != nil {
-		return inst, fmt.Errorf("failed to load dir module dagger config: %w", err)
-	}
-	if err := s.initFromModConfig([]byte(configContents), dirSrc); err != nil {
-		return inst, err
-	}
-
-	// load this module source's deps in parallel
-	bk, err := query.Engine(ctx)
-	if err != nil {
-		return inst, fmt.Errorf("failed to get engine client: %w", err)
-	}
-
-	var eg errgroup.Group
-
-	if dirSrc.SDK != nil {
-		eg.Go(func() error {
-			if err := s.loadModuleSourceContext(ctx, dirSrc); err != nil {
-				return err
-			}
-
-			var err error
-			dirSrc.SDKImpl, err = sdk.NewLoader().SDKForModule(ctx, query, dirSrc.SDK, dirSrc)
-			if err != nil {
-				return fmt.Errorf("failed to load sdk for dir module source: %w", err)
-			}
-
-			return nil
-		})
-	}
-
-	dirSrc.Dependencies = make([]dagql.ObjectResult[*core.ModuleSource], len(dirSrc.ConfigDependencies))
-	for i, depCfg := range dirSrc.ConfigDependencies {
-		eg.Go(func() error {
-			var err error
-			dirSrc.Dependencies[i], err = core.ResolveDepToSource(ctx, bk, dag, dirSrc, depCfg.Source, depCfg.Pin, depCfg.Name)
-			if err != nil {
-				return fmt.Errorf("failed to resolve dep to source: %w", err)
-			}
-			return nil
-		})
-	}
-	if err := eg.Wait(); err != nil {
-		return inst, err
+	if err := s.loadConfiguredModuleSource(ctx, dirSrc); err != nil {
+		return inst, fmt.Errorf("load directory module source: %w", err)
 	}
 
 	inst, err = dagql.NewResultForCurrentCall(ctx, dirSrc)
@@ -927,10 +950,82 @@ func (s *moduleSourceSchema) directoryAsModuleSource(
 		return inst, fmt.Errorf("failed to create instance: %w", err)
 	}
 
-	if err := dirSrc.LoadUserDefaults(ctx); err != nil {
-		return inst, fmt.Errorf("load user defaults: %w", err)
-	}
 	return inst, nil
+}
+
+// workspaceModuleSource loads a module without flattening its workspace into a
+// Directory. Local and Git workspaces retain their native source kind while
+// filesystem reads continue through the workspace, preserving staged changes
+// and the workspace owner's host route.
+func (s *moduleSourceSchema) workspaceModuleSource(
+	ctx context.Context,
+	workspaceResult dagql.ObjectResult[*core.Workspace],
+	sourceRootPath string,
+) (inst dagql.ObjectResult[*core.ModuleSource], err error) {
+	ws := workspaceResult.Self()
+	if ws == nil {
+		return inst, fmt.Errorf("workspace module source: workspace is required")
+	}
+
+	sourceRootPath = filepath.Clean(sourceRootPath)
+	if sourceRootPath == "" {
+		sourceRootPath = "."
+	}
+	src := &core.ModuleSource{
+		ConfigExists:      true,
+		ConfigFilename:    modules.Filename,
+		SourceRootSubpath: sourceRootPath,
+		OriginalSubpath:   sourceRootPath,
+		Workspace:         workspaceResult,
+	}
+
+	switch base := ws.BaseSource().(type) {
+	case *core.WorkspaceSourceClientLocal:
+		src.Kind = core.ModuleSourceKindLocal
+		src.Local = &core.LocalModuleSource{ContextDirectoryPath: base.HostPath}
+	case *core.WorkspaceSourceGitRef:
+		ref := base.Ref.Self()
+		if ref == nil || ref.Repo.Self() == nil || !ref.Repo.Self().URL.Valid {
+			return inst, fmt.Errorf("workspace module source: Git workspace has no repository URL")
+		}
+		cloneRef := ref.Repo.Self().URL.Value.String()
+		src.Kind = core.ModuleSourceKindGit
+		src.Git = &core.GitModuleSource{
+			CloneRef:         cloneRef,
+			ResolvedCloneRef: cloneRef,
+			HTMLRepoURL:      cloneRef,
+			Version:          cmp.Or(ref.Ref.ShortName(), ref.Ref.SHA),
+			Commit:           ref.Ref.SHA,
+			Ref:              ref.Ref.Name,
+		}
+		src.Git.Symbolic = cloneRef
+		if sourceRootPath != "." {
+			src.Git.Symbolic += "/" + filepath.ToSlash(sourceRootPath)
+		}
+		src.Git.HTMLURL, err = src.Git.Link(sourceRootPath, -1, -1)
+		if err != nil {
+			return inst, fmt.Errorf("workspace module source URL: %w", err)
+		}
+	default:
+		return inst, fmt.Errorf("workspace module source: unsupported workspace backing %T", base)
+	}
+
+	configFilename, found, err := moduleConfigInDir(ctx, core.NewModuleSourceFS(nil, src), ".")
+	if err != nil {
+		return inst, fmt.Errorf("workspace module source %q: find module config: %w", sourceRootPath, err)
+	}
+	if !found {
+		return inst, fmt.Errorf("workspace module source %q does not contain a dagger config file", sourceRootPath)
+	}
+	src.ConfigFilename = configFilename
+	if err := s.loadConfiguredModuleSource(ctx, src); err != nil {
+		return inst, fmt.Errorf("load workspace module source: %w", err)
+	}
+	dag, err := core.CurrentDagqlServer(ctx)
+	if err != nil {
+		return inst, err
+	}
+	return dagql.NewObjectResultForCurrentCall(ctx, dag, src)
 }
 
 // set values in the given src using values read from the module config file provided as bytes
@@ -1001,9 +1096,9 @@ func (s *moduleSourceSchema) initFromModConfig(configBytes []byte, src *core.Mod
 	if modCfg.SDK != nil {
 		src.SDK = &core.SDKConfig{
 			Source:       modCfg.SDK.Source,
-			Debug:        modCfg.SDK.Debug,
-			Config:       modCfg.SDK.Config,
-			Experimental: modCfg.SDK.Experimental,
+			Debug:        modCfg.SDK.Debug,        //nolint:staticcheck // deprecated; read for legacy JSON config compat
+			Config:       modCfg.SDK.Config,       //nolint:staticcheck // deprecated; read for legacy JSON config compat
+			Experimental: modCfg.SDK.Experimental, //nolint:staticcheck // deprecated; read for legacy JSON config compat
 		}
 	}
 
@@ -1050,16 +1145,73 @@ func moduleSourceConfigFilename(src *core.ModuleSource) string {
 	return modules.Filename
 }
 
+// loadConfiguredModuleSource performs the source-independent half of module
+// loading after the source kind, root, and config filename have been resolved.
+// All filesystem access goes through ModuleSourceFS, so callers do not need to
+// know whether the source is backed by the host, Git, a Directory, or a
+// Workspace.
+func (s *moduleSourceSchema) loadConfiguredModuleSource(ctx context.Context, src *core.ModuleSource) error {
+	query, err := core.CurrentQuery(ctx)
+	if err != nil {
+		return err
+	}
+	dag, err := core.CurrentDagqlServer(ctx)
+	if err != nil {
+		return err
+	}
+	bk, err := query.Engine(ctx)
+	if err != nil {
+		return fmt.Errorf("module source engine client: %w", err)
+	}
+
+	configContents, err := core.NewModuleSourceFS(bk, src).ReadFile(ctx, moduleSourceConfigFilename(src))
+	if err != nil {
+		return fmt.Errorf("read module config: %w", err)
+	}
+	if err := s.initFromModConfig(configContents, src); err != nil {
+		return err
+	}
+
+	var eg errgroup.Group
+	eg.Go(func() error {
+		if err := s.loadModuleSourceContext(ctx, src); err != nil {
+			return fmt.Errorf("load module source context: %w", err)
+		}
+		if src.SDK != nil {
+			loaded, err := sdk.NewLoader().SDKForModule(ctx, query, src.SDK, src)
+			if err != nil {
+				return fmt.Errorf("load module source SDK: %w", err)
+			}
+			src.SDKImpl = loaded
+		}
+		return nil
+	})
+
+	src.Dependencies = make([]dagql.ObjectResult[*core.ModuleSource], len(src.ConfigDependencies))
+	for i, depCfg := range src.ConfigDependencies {
+		eg.Go(func() error {
+			dep, err := core.ResolveDepToSource(ctx, bk, dag, src, depCfg.Source, depCfg.Pin, depCfg.Name)
+			if err != nil {
+				return fmt.Errorf("resolve module dependency: %w", err)
+			}
+			src.Dependencies[i] = dep
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return err
+	}
+	if err := src.LoadUserDefaults(ctx); err != nil {
+		return fmt.Errorf("load module source user defaults: %w", err)
+	}
+	return nil
+}
+
 // load (or re-load) the context directory for the given module source
 func (s *moduleSourceSchema) loadModuleSourceContext(
 	ctx context.Context,
 	src *core.ModuleSource,
 ) error {
-	dag, err := core.CurrentDagqlServer(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get dag server: %w", err)
-	}
-
 	// we load the includes specified by the user in the module config (if any) plus a few
 	// prepended paths that are always loaded
 	fullIncludePaths := []string{
@@ -1079,48 +1231,20 @@ func (s *moduleSourceSchema) loadModuleSourceContext(
 		fullIncludePaths = append(fullIncludePaths, src.SourceRootSubpath)
 	}
 
-	switch src.Kind {
-	case core.ModuleSourceKindLocal:
-		fullIncludePaths = append(fullIncludePaths, src.RebasedIncludePaths...)
-
-		err = dag.Select(ctx, dag.Root(), &src.ContextDirectory,
-			dagql.Selector{Field: "host"},
-			dagql.Selector{
-				Field: "directory",
-				Args: []dagql.NamedInput{
-					{Name: "path", Value: dagql.String(src.Local.ContextDirectoryPath)},
-					{Name: "include", Value: dagql.ArrayInput[dagql.String](dagql.NewStringArray(fullIncludePaths...))},
-					{Name: "gitignore", Value: dagql.NewBoolean(true)},
-				},
-			},
-		)
-		if err != nil {
-			return err
-		}
-
-	case core.ModuleSourceKindGit:
-		fullIncludePaths = append(fullIncludePaths, src.RebasedIncludePaths...)
-		unfilteredContextDirID, err := src.Git.UnfilteredContextDir.ID()
-		if err != nil {
-			return fmt.Errorf("failed to get git unfiltered context directory ID: %w", err)
-		}
-
-		err = dag.Select(ctx, dag.Root(), &src.ContextDirectory,
-			dagql.Selector{Field: "directory"},
-			dagql.Selector{
-				Field: "withDirectory",
-				Args: []dagql.NamedInput{
-					{Name: "path", Value: dagql.String("/")},
-					{Name: "source", Value: dagql.NewID[*core.Directory](unfilteredContextDirID)},
-					{Name: "include", Value: dagql.ArrayInput[dagql.String](dagql.NewStringArray(fullIncludePaths...))},
-				},
-			},
-		)
-		if err != nil {
-			return err
-		}
+	if src.Kind == core.ModuleSourceKindDir && src.Workspace.Self() == nil {
+		// Directory sources already carry their complete in-engine context.
+		return nil
 	}
 
+	fullIncludePaths = append(fullIncludePaths, src.RebasedIncludePaths...)
+	contextDir, err := core.NewModuleSourceFS(nil, src).ContextDirectory(ctx, core.CopyFilter{
+		Include:   fullIncludePaths,
+		Gitignore: src.Workspace.Self() != nil || src.Kind == core.ModuleSourceKindLocal,
+	})
+	if err != nil {
+		return err
+	}
+	src.ContextDirectory = contextDir
 	return nil
 }
 
@@ -1552,6 +1676,14 @@ func (s *moduleSourceSchema) validateAndCollectRelatedModules(
 				return nil, fmt.Errorf("unhandled module source kind: %s", newRelatedModule.Self().Kind)
 			}
 
+		case core.ModuleSourceKindDir:
+			switch newRelatedModule.Self().Kind {
+			case core.ModuleSourceKindDir, core.ModuleSourceKindGit:
+				allRelatedModules = append(allRelatedModules, newRelatedModule)
+			default:
+				return nil, fmt.Errorf("unhandled module source kind: %s", newRelatedModule.Self().Kind)
+			}
+
 		default:
 			return nil, fmt.Errorf("unhandled module source kind: %s", parentSrc.Kind)
 		}
@@ -1587,6 +1719,19 @@ func (s *moduleSourceSchema) deduplicateAndSortItems(
 					symbolicItemStr += "@" + item.Self().Git.Commit
 				}
 			}
+		case core.ModuleSourceKindDir:
+			if item.Self().DirSrc == nil || item.Self().DirSrc.OriginalContextDir.Self() == nil {
+				return nil, fmt.Errorf("directory module source %q has no original context", item.Self().ModuleName)
+			}
+			contextID, err := item.Self().DirSrc.OriginalContextDir.ID()
+			if err != nil {
+				return nil, fmt.Errorf("directory module source %q context ID: %w", item.Self().ModuleName, err)
+			}
+			encodedContextID, err := contextID.Encode()
+			if err != nil {
+				return nil, fmt.Errorf("encode directory module source %q context ID: %w", item.Self().ModuleName, err)
+			}
+			symbolicItemStr = encodedContextID + "\x00" + filepath.Clean(item.Self().SourceRootSubpath)
 		}
 
 		if _, isDuplicateSymbolic := symbolicItems[symbolicItemStr]; isDuplicateSymbolic {
@@ -1623,6 +1768,10 @@ func (s *moduleSourceSchema) moduleSourceUpdateItems(
 	if err != nil {
 		return nil, fmt.Errorf("failed to get dag server: %w", err)
 	}
+	// Updating a module dependency is an explicit request to resolve it live.
+	// Do not let the consuming workspace's lock reuse the old resolution or
+	// record this module-authoring operation back into that workspace's lock.
+	updateCtx := withoutWorkspaceLookupLock(ctx)
 
 	type updateReq struct {
 		symbolic string
@@ -1643,11 +1792,11 @@ func (s *moduleSourceSchema) moduleSourceUpdateItems(
 			}
 
 			var updatedItem dagql.ObjectResult[*core.ModuleSource]
-			err := dag.Select(ctx, dag.Root(), &updatedItem,
+			err := dag.Select(updateCtx, dag.Root(), &updatedItem,
 				dagql.Selector{
 					Field: "moduleSource",
 					Args: []dagql.NamedInput{
-						{Name: "refString", Value: dagql.String(existingItem.Self().AsString())},
+						{Name: "refString", Value: dagql.String(moduleSourceDeclaredRef(existingItem.Self()))},
 					},
 				},
 			)
@@ -1694,7 +1843,6 @@ func (s *moduleSourceSchema) moduleSourceUpdateItems(
 		}
 
 		existingName := existingItem.Self().ModuleName
-		existingVersion := existingItem.Self().Git.Version
 		existingSymbolic := existingItem.Self().Git.CloneRef
 		if itemSrcRoot := existingItem.Self().SourceRootSubpath; itemSrcRoot != "" {
 			existingSymbolic += "/" + strings.TrimPrefix(itemSrcRoot, "/")
@@ -1714,17 +1862,13 @@ func (s *moduleSourceSchema) moduleSourceUpdateItems(
 			matched = true
 			delete(updateReqs, updateReq)
 
-			updateVersion := updateReq.version
-			if updateVersion == "" {
-				updateVersion = existingVersion
-			}
-			updateRef := existingSymbolic
-			if updateVersion != "" {
-				updateRef += "@" + updateVersion
+			updateRef := moduleSourceDeclaredRef(existingItem.Self())
+			if updateReq.version != "" {
+				updateRef = replaceModuleRefVersion(updateRef, updateReq.version)
 			}
 
 			var updatedItem dagql.ObjectResult[*core.ModuleSource]
-			err := dag.Select(ctx, dag.Root(), &updatedItem,
+			err := dag.Select(updateCtx, dag.Root(), &updatedItem,
 				dagql.Selector{
 					Field: "moduleSource",
 					Args: []dagql.NamedInput{
@@ -1800,6 +1944,18 @@ func (s *moduleSourceSchema) moduleSourceRemoveItems(
 				existingSymbolic += "/" + strings.TrimPrefix(existingItem.Self().SourceRootSubpath, "/")
 			}
 			existingVersion = existingItem.Self().Git.Version
+
+		case core.ModuleSourceKindDir:
+			if parentSrc.Kind != core.ModuleSourceKindDir {
+				return nil, fmt.Errorf("cannot remove directory %s from module source kind %s", accessor.typ, parentSrc.Kind)
+			}
+			parentSrcRoot := filepath.Join("/", parentSrc.SourceRootSubpath)
+			itemSrcRoot := filepath.Join("/", existingItem.Self().SourceRootSubpath)
+			var err error
+			existingSymbolic, err = pathutil.LexicalRelativePath(parentSrcRoot, itemSrcRoot)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get relative path: %w", err)
+			}
 
 		default:
 			return nil, fmt.Errorf("unhandled %s kind: %s", accessor.typ, existingItem.Self().Kind)
@@ -1914,16 +2070,23 @@ func (s *moduleSourceSchema) moduleConfigDependencyForRelatedSource(
 	case core.ModuleSourceKindLocal:
 		switch relatedSrc.Kind {
 		case core.ModuleSourceKindLocal:
-			parentSrcRoot := filepath.Join(parentSrc.Local.ContextDirectoryPath, parentSrc.SourceRootSubpath)
-			relatedSrcRoot := filepath.Join(relatedSrc.Local.ContextDirectoryPath, relatedSrc.SourceRootSubpath)
+			parentPath, err := parentSrc.LocalContextDirectoryPath()
+			if err != nil {
+				return nil, err
+			}
+			relatedPath, err := relatedSrc.LocalContextDirectoryPath()
+			if err != nil {
+				return nil, err
+			}
+			parentSrcRoot := filepath.Join(parentPath, parentSrc.SourceRootSubpath)
+			relatedSrcRoot := filepath.Join(relatedPath, relatedSrc.SourceRootSubpath)
 			rel, err := pathutil.LexicalRelativePath(parentSrcRoot, relatedSrcRoot)
 			if err != nil {
 				return nil, fmt.Errorf("failed to get relative path: %w", err)
 			}
 			depCfg.Source = rel
 		case core.ModuleSourceKindGit:
-			depCfg.Source = relatedSrc.AsString()
-			depCfg.Pin = relatedSrc.Git.Commit
+			setModuleConfigDependencyGitSource(depCfg, relatedSrc)
 		default:
 			return nil, fmt.Errorf("unhandled module source kind: %s", relatedSrc.Kind.HumanString())
 		}
@@ -1941,8 +2104,7 @@ func (s *moduleSourceSchema) moduleConfigDependencyForRelatedSource(
 				}
 				depCfg.Source = rel
 			} else {
-				depCfg.Source = relatedSrc.AsString()
-				depCfg.Pin = relatedSrc.Git.Commit
+				setModuleConfigDependencyGitSource(depCfg, relatedSrc)
 			}
 		default:
 			return nil, fmt.Errorf("unhandled module source kind: %s", relatedSrc.Kind.HumanString())
@@ -1958,8 +2120,7 @@ func (s *moduleSourceSchema) moduleConfigDependencyForRelatedSource(
 			}
 			depCfg.Source = rel
 		case core.ModuleSourceKindGit:
-			depCfg.Source = relatedSrc.AsString()
-			depCfg.Pin = relatedSrc.Git.Commit
+			setModuleConfigDependencyGitSource(depCfg, relatedSrc)
 		default:
 			return nil, fmt.Errorf(
 				"parent module source kind %s cannot reference module source kind %s",
@@ -1974,14 +2135,19 @@ func (s *moduleSourceSchema) moduleConfigDependencyForRelatedSource(
 	return depCfg, nil
 }
 
-func isLocalLegacyModuleRef(source, pin string) bool {
-	if pin != "" {
-		return false
+func setModuleConfigDependencyGitSource(depCfg *modules.ModuleConfigDependency, src *core.ModuleSource) {
+	depCfg.Source = moduleSourceDeclaredRef(src)
+	if src.Git.VersionQuery != "" {
+		depCfg.Source = replaceModuleRefVersion(depCfg.Source, src.Git.VersionQuery)
 	}
-	if len(source) > 0 && (source[0] == '/' || source[0] == '.') {
-		return true
+	depCfg.Pin = src.Git.Commit
+}
+
+func moduleSourceDeclaredRef(src *core.ModuleSource) string {
+	if src.OriginalRefString != "" {
+		return src.OriginalRefString
 	}
-	return !strings.Contains(source, ".")
+	return src.AsString()
 }
 
 func replaceModuleRefVersion(refString, version string) string {
@@ -2095,7 +2261,7 @@ func (s *moduleSourceSchema) moduleSourceWithUpdateToolchains(
 			}
 			matched = true
 			delete(updateReqs, req)
-			if !isLocalLegacyModuleRef(cfg.Source, cfg.Pin) {
+			if !workspace.IsLocalRef(cfg.Source, cfg.Pin) {
 				refString := cfg.Source
 				if req.version != "" {
 					refString = replaceModuleRefVersion(refString, req.version)
@@ -2224,7 +2390,7 @@ func (s *moduleSourceSchema) moduleSourceWithUpdateBlueprint(
 	}
 
 	cfg := parentSrc.Self().ConfigBlueprint
-	if isLocalLegacyModuleRef(cfg.Source, cfg.Pin) {
+	if workspace.IsLocalRef(cfg.Source, cfg.Pin) {
 		return parentSrc.Result, nil
 	}
 
@@ -2345,7 +2511,37 @@ func (s *moduleSourceSchema) moduleSourceWithoutDependencies(
 	return s.moduleSourceRemoveItems(ctx, parentSrc, args.Dependencies, accessor)
 }
 
+// loadModuleSourceConfig builds the module config from the in-memory
+// ModuleSource and validates that the resulting engine version is loadable by
+// the running engine. Use buildModuleConfig directly to obtain the config
+// without that validation (e.g. when only persisting a declared engine version
+// requirement via updatedConfigDirectory).
 func (s *moduleSourceSchema) loadModuleSourceConfig(
+	src *core.ModuleSource,
+) (*modules.ModuleConfigWithUserFields, error) {
+	modCfg, err := s.buildModuleConfig(src)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check version compatibility.
+	if !engine.CheckVersionCompatibility(modCfg.EngineVersion, engine.MinimumModuleVersion) {
+		return nil, fmt.Errorf("module requires dagger %s, but support for that version has been removed", modCfg.EngineVersion)
+	}
+	if !engine.CheckMaxVersionCompatibility(modCfg.EngineVersion, engine.BaseVersion(engine.Version)) {
+		return nil, fmt.Errorf("module requires dagger %s, but you have %s", modCfg.EngineVersion, engine.Version)
+	}
+
+	return modCfg, nil
+}
+
+// buildModuleConfig converts the in-memory ModuleSource into a serializable
+// ModuleConfigWithUserFields. It does NOT validate the engine version against
+// the running engine — callers that need to write the config without loading
+// the module (e.g. declaring a required engine version newer than what they
+// currently run) use this directly. loadModuleSourceConfig is the validating
+// wrapper used by runGeneratedContext and other load/serve paths.
+func (s *moduleSourceSchema) buildModuleConfig(
 	src *core.ModuleSource,
 ) (*modules.ModuleConfigWithUserFields, error) {
 	// construct the module config based on any config read during load and any settings changed via with* APIs
@@ -2379,14 +2575,6 @@ func (s *moduleSourceSchema) loadModuleSourceConfig(
 	}
 	if format == modules.ConfigFormatLegacy {
 		modCfg.Toolchains = src.ConfigToolchains
-	}
-
-	// Check version compatibility.
-	if !engine.CheckVersionCompatibility(modCfg.EngineVersion, engine.MinimumModuleVersion) {
-		return nil, fmt.Errorf("module requires dagger %s, but support for that version has been removed", modCfg.EngineVersion)
-	}
-	if !engine.CheckMaxVersionCompatibility(modCfg.EngineVersion, engine.BaseVersion(engine.Version)) {
-		return nil, fmt.Errorf("module requires dagger %s, but you have %s", modCfg.EngineVersion, engine.Version)
 	}
 
 	// Load the module config source based on sourcePath.
@@ -2425,6 +2613,41 @@ func isSelfCallsEnabled(src dagql.ObjectResult[*core.ModuleSource]) bool {
 	return src.Self().SelfCallsEnabled()
 }
 
+// ignoresGeneratedPath reports whether an ignore entry points at or inside a
+// VCS-generated path, e.g. ignore "/sdk" against generated "sdk/**".
+func ignoresGeneratedPath(ignore string, generated []string) bool {
+	ignore = strings.TrimPrefix(ignore, "/")
+	for _, gen := range generated {
+		gen = strings.TrimPrefix(gen, "/")
+		gen = strings.TrimSuffix(gen, "/**")
+		if ignore == gen || strings.HasPrefix(ignore, gen+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *moduleSourceSchema) runSDKCodegen(
+	ctx context.Context,
+	srcInst dagql.ObjectResult[*core.ModuleSource],
+) (*core.GeneratedCode, error) {
+	deps, err := s.loadDependencyModules(ctx, srcInst, srcInst)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load dependencies as modules: %w", err)
+	}
+
+	generatedCodeImpl, ok := srcInst.Self().SDKImpl.AsCodeGenerator()
+	if !ok {
+		return nil, ErrSDKCodegenNotImplemented{SDK: srcInst.Self().SDK.Source}
+	}
+
+	generatedCode, err := generatedCodeImpl.Codegen(ctx, deps, srcInst)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate code: %w", err)
+	}
+	return generatedCode, nil
+}
+
 func (s *moduleSourceSchema) runCodegen(
 	ctx context.Context,
 	srcInst dagql.ObjectResult[*core.ModuleSource],
@@ -2434,55 +2657,14 @@ func (s *moduleSourceSchema) runCodegen(
 		return res, fmt.Errorf("failed to get current dag: %w", err)
 	}
 
-	// load the deps as actual Modules
-	deps, err := s.loadDependencyModules(ctx, srcInst, srcInst)
-	if err != nil {
-		return res, fmt.Errorf("failed to load dependencies as modules: %w", err)
-	}
-
-	generatedCodeImpl, ok := srcInst.Self().SDKImpl.AsCodeGenerator()
-	if !ok {
-		return res, ErrSDKCodegenNotImplemented{SDK: srcInst.Self().SDK.Source}
-	}
-
-	// If possible, add the types defined by the module itself to the "deps" so that they can be
-	// part of the code generation.
-	// This is not really a dependency as it's the module itself, but that will allow to generate
-	// the types.
-	//
-	// This is gated on the explicit SELF_CALLS flag rather than SelfCallsEnabled:
-	// it transforms the source into a module (eagerly type-checking it) purely to
-	// feed code generation, so it only applies to SDKs that opt in for codegen.
-	// SDKs that always enable self calls only for their runtime (e.g. Dang, whose
-	// codegen is a no-op) must not pay this cost — doing so would fail when the
-	// source is uninitialized or references not-yet-installed dependencies.
-	if srcInst.Self().SDK != nil {
-		// Only if the SDK implements a specific function to get module type definitions.
-		// If not, we will have circular dependency issues.
-		if _, ok := srcInst.Self().SDKImpl.AsModuleTypes(); ok &&
-			srcInst.Self().SDK.ExperimentalFeatureEnabled(core.ModuleSourceExperimentalFeatureSelfCalls) {
-			var mod dagql.ObjectResult[*core.Module]
-			err = dag.Select(ctx, srcInst, &mod, dagql.Selector{
-				Field: "asModule",
-			})
-			if err != nil {
-				return res, fmt.Errorf("failed to transform module source into module: %w", err)
-			}
-
-			deps = mod.Self().Deps.Append(core.NewUserMod(mod))
-		}
-	}
-
 	// run codegen to get the generated context directory
-	generatedCode, err := generatedCodeImpl.Codegen(ctx, deps, srcInst)
+	generatedCode, err := s.runSDKCodegen(ctx, srcInst)
 	if err != nil {
-		return res, fmt.Errorf("failed to generate code: %w", err)
+		return res, err
 	}
 	genDirInst := generatedCode.Code
 
 	// update .gitattributes in the generated context directory
-	// (linter thinks this chunk of code is too similar to the below, but not clear abstraction is worth it)
-	//nolint:dupl
 	if len(generatedCode.VCSGeneratedPaths) > 0 {
 		gitAttrsPath := filepath.Join(srcInst.Self().SourceSubpath, ".gitattributes")
 		var gitAttrsContents []byte
@@ -2535,9 +2717,15 @@ func (s *moduleSourceSchema) runCodegen(
 	if srcInst.Self().CodegenConfig != nil && srcInst.Self().CodegenConfig.AutomaticGitignore != nil {
 		writeGitignore = *srcInst.Self().CodegenConfig.AutomaticGitignore
 	}
-	// (linter thinks this chunk of code is too similar to the above, but not clear abstraction is worth it)
-	//nolint:dupl
-	if writeGitignore && len(generatedCode.VCSIgnoredPaths) > 0 {
+	vcsIgnoredPaths := generatedCode.VCSIgnoredPaths
+	if srcInst.Self().ConfigFilename == modules.Filename {
+		// toml modules build from committed generated files: gitignoring them
+		// would filter them out of the local module context.
+		vcsIgnoredPaths = slices.DeleteFunc(slices.Clone(vcsIgnoredPaths), func(ignore string) bool {
+			return ignoresGeneratedPath(ignore, generatedCode.VCSGeneratedPaths)
+		})
+	}
+	if writeGitignore && len(vcsIgnoredPaths) > 0 {
 		gitIgnorePath := filepath.Join(srcInst.Self().SourceSubpath, ".gitignore")
 		var gitIgnoreContents []byte
 		var gitIgnoreFile dagql.ObjectResult[*core.File]
@@ -2558,7 +2746,7 @@ func (s *moduleSourceSchema) runCodegen(
 				gitIgnoreContents = append(gitIgnoreContents, []byte("\n")...)
 			}
 		}
-		for _, fileName := range generatedCode.VCSIgnoredPaths {
+		for _, fileName := range vcsIgnoredPaths {
 			if bytes.Contains(gitIgnoreContents, []byte(fileName)) {
 				continue
 			}
@@ -2643,34 +2831,19 @@ func (s *moduleSourceSchema) runClientGenerator(
 		return genDirInst, fmt.Errorf("failed to add module source required files: %w", err)
 	}
 
-	deps, err := s.loadDependencyModules(ctx, srcInst, srcInst)
+	// The client's schema comes from loading the module, which for a
+	// dagger-module.toml module means building it from its committed generated
+	// files. Those are exactly what the codegen step just wrote into genDirInst
+	// — and, on a first `dagger generate`, exactly what the original source
+	// still lacks. Load the module from the generated context, not the
+	// original one, so client generation follows codegen instead of failing
+	// with "generated file is missing; run `dagger generate`" from inside
+	// `dagger generate` itself.
+	schemaSrc, err := s.generatedModuleSource(ctx, dag, srcInst, genDirInst)
 	if err != nil {
-		return genDirInst, fmt.Errorf("failed to load dependencies of this modules: %w", err)
+		return genDirInst, fmt.Errorf("failed to load generated module source for client generation: %w", err)
 	}
-
-	// Build the client-facing schema. Dependencies get normal installation;
-	// the self module (when present) is installed as an entrypoint so its
-	// methods are promoted to Query.
-	codegenDeps := deps
-
-	// If the current module source has sources and its SDK implements the `Runtime` interface,
-	// we can transform it into a module to generate self bindings.
-	if srcInst.Self().SDK != nil {
-		// We must make sure to first check SDK to avoid checking a nil pointer on `SDKImpl`.
-		if _, ok := srcInst.Self().SDKImpl.AsRuntime(); ok {
-			var mod dagql.ObjectResult[*core.Module]
-			err = dag.Select(ctx, srcInst, &mod, dagql.Selector{
-				Field: "asModule",
-			})
-			if err != nil {
-				return genDirInst, fmt.Errorf("failed to transform module source into module: %w", err)
-			}
-
-			codegenDeps = codegenDeps.With(core.NewUserMod(mod), core.InstallOpts{Entrypoint: true})
-		}
-	}
-
-	schemaJSONFile, err := codegenDeps.SchemaIntrospectionJSONFileForClient(ctx)
+	schemaJSONFile, err := s.clientSchemaIntrospectionJSONFile(ctx, dag, schemaSrc)
 	if err != nil {
 		return genDirInst, fmt.Errorf("failed to get schema for client generation: %w", err)
 	}
@@ -2709,6 +2882,33 @@ func (s *moduleSourceSchema) runClientGenerator(
 	}
 
 	return genDirInst, nil
+}
+
+// generatedModuleSource re-loads srcInst from genDirInst — its context
+// directory with the run's generated files applied — at the same source root,
+// so consumers that need the module built (client schema introspection) see
+// the freshly generated code. A source without an SDK has no codegen output to
+// pick up and is returned as-is.
+func (s *moduleSourceSchema) generatedModuleSource(
+	ctx context.Context,
+	dag *dagql.Server,
+	srcInst dagql.ObjectResult[*core.ModuleSource],
+	genDirInst dagql.ObjectResult[*core.Directory],
+) (dagql.ObjectResult[*core.ModuleSource], error) {
+	src := srcInst.Self()
+	if src.SDK == nil || src.SDK.Source == "" {
+		return srcInst, nil
+	}
+	var generatedSrc dagql.ObjectResult[*core.ModuleSource]
+	if err := dag.Select(ctx, genDirInst, &generatedSrc, dagql.Selector{
+		Field: "asModuleSource",
+		Args: []dagql.NamedInput{
+			{Name: "sourceRootPath", Value: dagql.String(filepath.ToSlash(src.SourceRootSubpath))},
+		},
+	}); err != nil {
+		return srcInst, err
+	}
+	return generatedSrc, nil
 }
 
 // runGeneratedContext runs codegen, client generation, and module config writing for the given
@@ -2752,13 +2952,37 @@ func (s *moduleSourceSchema) runGeneratedContext(
 	}
 
 	// write the module config to the generated context directory
-	configFilename := moduleSourceConfigFilename(srcInst.Self())
+	genDirInst, err = writeModuleConfigToContextDir(ctx, dag, srcInst.Self(), genDirInst, modCfg)
+	if err != nil {
+		return originalCtxDir, genDirInst, fmt.Errorf("failed to add updated module config to context dir: %w", err)
+	}
+
+	return originalCtxDir, genDirInst, nil
+}
+
+// writeModuleConfigToContextDir adds the module's config file to ctxDir, using
+// the source's declared on-disk filename (dagger-module.toml or legacy
+// dagger.json) and the matching encoding. Single helper so both the codegen
+// and updated-config write paths agree on filename + format and route through
+// the same marshaller (modules.MarshalModuleConfigForFilename). When format
+// preservation is added for module configs, hook it in here — the same way
+// workspace.UpdateConfigBytes layers neontoml-based preservation on top of a
+// plain marshal in the workspace path.
+func writeModuleConfigToContextDir(
+	ctx context.Context,
+	dag *dagql.Server,
+	src *core.ModuleSource,
+	ctxDir dagql.ObjectResult[*core.Directory],
+	modCfg *modules.ModuleConfigWithUserFields,
+) (dagql.ObjectResult[*core.Directory], error) {
+	configFilename := moduleSourceConfigFilename(src)
 	modCfgBytes, err := modules.MarshalModuleConfigForFilename(modCfg, configFilename)
 	if err != nil {
-		return originalCtxDir, genDirInst, fmt.Errorf("failed to encode module config: %w", err)
+		return ctxDir, fmt.Errorf("encode module config: %w", err)
 	}
-	modCfgPath := filepath.Join(srcInst.Self().SourceRootSubpath, configFilename)
-	err = dag.Select(ctx, genDirInst, &genDirInst,
+	modCfgPath := filepath.Join(src.SourceRootSubpath, configFilename)
+	var updated dagql.ObjectResult[*core.Directory]
+	err = dag.Select(ctx, ctxDir, &updated,
 		dagql.Selector{
 			Field: "withNewFile",
 			Args: []dagql.NamedInput{
@@ -2769,10 +2993,9 @@ func (s *moduleSourceSchema) runGeneratedContext(
 		},
 	)
 	if err != nil {
-		return originalCtxDir, genDirInst, fmt.Errorf("failed to add updated module config to context dir: %w", err)
+		return ctxDir, fmt.Errorf("write module config %q: %w", modCfgPath, err)
 	}
-
-	return originalCtxDir, genDirInst, nil
+	return updated, nil
 }
 
 func (s *moduleSourceSchema) moduleSourceGeneratedContextDirectory(
@@ -2810,11 +3033,63 @@ func (s *moduleSourceSchema) moduleSourceGeneratedContextDirectory(
 	return res, nil
 }
 
+// moduleSourceUpdatedConfigDirectory returns the source's context directory
+// with an updated dagger.json reflecting any in-memory edits applied via with*
+// APIs, as a diff relative to the original context directory. Unlike
+// generatedContextDirectory it does NOT run codegen and does NOT validate the
+// engine version against the running engine, so it can be used to declare an
+// engine version newer than the running engine (the load/serve check at
+// moduleSourceAsModule still validates the use of such a module).
+func (s *moduleSourceSchema) moduleSourceUpdatedConfigDirectory(
+	ctx context.Context,
+	srcInst dagql.ObjectResult[*core.ModuleSource],
+	args struct{},
+) (res dagql.ObjectResult[*core.Directory], _ error) {
+	dag, err := core.CurrentDagqlServer(ctx)
+	if err != nil {
+		return res, fmt.Errorf("failed to get dag server: %w", err)
+	}
+
+	modCfg, err := s.buildModuleConfig(srcInst.Self())
+	if err != nil {
+		return res, fmt.Errorf("failed to build module source config: %w", err)
+	}
+
+	originalCtxDir := srcInst.Self().ContextDirectory
+	updatedCtxDir, err := writeModuleConfigToContextDir(ctx, dag, srcInst.Self(), originalCtxDir, modCfg)
+	if err != nil {
+		return res, fmt.Errorf("failed to apply updated module config: %w", err)
+	}
+
+	updatedCtxDirID, err := updatedCtxDir.ID()
+	if err != nil {
+		return res, fmt.Errorf("failed to get updated context directory ID: %w", err)
+	}
+
+	// Return just the diff so the caller's Export only writes dagger.json.
+	err = dag.Select(ctx, originalCtxDir, &res,
+		dagql.Selector{
+			Field: "diff",
+			Args: []dagql.NamedInput{
+				{Name: "other", Value: dagql.NewID[*core.Directory](updatedCtxDirID)},
+			},
+		},
+	)
+	if err != nil {
+		return res, fmt.Errorf("failed to get context dir diff: %w", err)
+	}
+
+	return res, nil
+}
+
 func (s *moduleSourceSchema) moduleSourceGeneratedContextChangeset(
 	ctx context.Context,
 	srcInst dagql.ObjectResult[*core.ModuleSource],
 	args struct{},
 ) (res dagql.ObjectResult[*core.Changeset], _ error) {
+	// ModuleSource has no workspace cwd of its own. Callers that need paths
+	// relative to a cwd apply these generated files to a Workspace, then call
+	// Workspace.changes with the workspace they started from.
 	dag, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
 		return res, fmt.Errorf("failed to get dag server: %w", err)
@@ -2829,8 +3104,46 @@ func (s *moduleSourceSchema) moduleSourceGeneratedContextChangeset(
 		return res, fmt.Errorf("failed to get original context directory ID: %w", err)
 	}
 
-	// Build the changeset: genDirInst.Changes(originalCtxDir).
-	if err := dag.Select(ctx, genDirInst, &res,
+	// Codegen may return a filtered context containing only the module and its
+	// dependencies. Compute its directory diff first, then apply that diff to
+	// the original context before constructing the Changeset. Diffing the
+	// filtered context directly against the original would incorrectly report
+	// every unrelated workspace path as removed.
+	var generatedDiff dagql.ObjectResult[*core.Directory]
+	genDirInstID, err := genDirInst.ID()
+	if err != nil {
+		return res, fmt.Errorf("failed to get generated context directory ID: %w", err)
+	}
+	if err := dag.Select(ctx, originalCtxDir, &generatedDiff,
+		dagql.Selector{
+			Field: "diff",
+			Args: []dagql.NamedInput{
+				{Name: "other", Value: dagql.NewID[*core.Directory](genDirInstID)},
+			},
+		},
+	); err != nil {
+		return res, fmt.Errorf("failed to compute generated context diff: %w", err)
+	}
+	generatedDiffID, err := generatedDiff.ID()
+	if err != nil {
+		return res, fmt.Errorf("failed to get generated context diff ID: %w", err)
+	}
+	var updatedCtxDir dagql.ObjectResult[*core.Directory]
+	if err := dag.Select(ctx, originalCtxDir, &updatedCtxDir,
+		dagql.Selector{
+			Field: "withDirectory",
+			Args: []dagql.NamedInput{
+				{Name: "path", Value: dagql.String("/")},
+				{Name: "source", Value: dagql.NewID[*core.Directory](generatedDiffID)},
+			},
+		},
+	); err != nil {
+		return res, fmt.Errorf("failed to apply generated context diff: %w", err)
+	}
+
+	// Build the changeset from the full original context to the context with
+	// only the generated diff applied.
+	if err := dag.Select(ctx, updatedCtxDir, &res,
 		dagql.Selector{
 			Field: "changes",
 			Args: []dagql.NamedInput{
@@ -2840,8 +3153,30 @@ func (s *moduleSourceSchema) moduleSourceGeneratedContextChangeset(
 	); err != nil {
 		return res, fmt.Errorf("failed to compute changeset: %w", err)
 	}
-
 	return res, nil
+}
+
+func (s *moduleSourceSchema) moduleSourceGenerate(
+	ctx context.Context,
+	srcInst dagql.ObjectResult[*core.ModuleSource],
+	args struct {
+		Workspace dagql.ID[*core.Workspace]
+	},
+) (res dagql.ObjectResult[*core.Workspace], _ error) {
+	dag, err := core.CurrentDagqlServer(ctx)
+	if err != nil {
+		return res, err
+	}
+	workspace, err := args.Workspace.Load(ctx, dag)
+	if err != nil {
+		return res, fmt.Errorf("load generation workspace: %w", err)
+	}
+
+	generated, err := s.moduleSourceGeneratedContextChangeset(ctx, srcInst, struct{}{})
+	if err != nil {
+		return res, err
+	}
+	return (&workspaceSchema{}).workspaceWithChangeset(ctx, workspace, generated)
 }
 
 func (s *moduleSourceSchema) runModuleDefInSDK(ctx context.Context, mod *core.Module) (*core.Module, error) {
@@ -2864,64 +3199,21 @@ func (s *moduleSourceSchema) runModuleDefInSDK(ctx context.Context, mod *core.Mo
 
 	typeDefsImpl, typeDefsEnabled := src.Self().SDKImpl.AsModuleTypes()
 	if typeDefsEnabled {
-		var resultInst dagql.ObjectResult[*core.Module]
-		resultInst, err = typeDefsImpl.ModuleTypes(ctx, mod.Deps, src, mod)
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize module: %w", err)
-		}
-		initialized = resultInst.Self()
-	} else {
-		runtime, err := runtimeImpl.Runtime(ctx, mod.Deps, src)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get module runtime: %w", err)
-		}
-		if ctr, ok := runtime.AsContainer(); ok {
-			mod.Runtime = dagql.NonNull(ctr)
-		}
-
-		// construct a special function with no object or function name, which tells
-		// the SDK to return the module's definition (in terms of objects, fields and
-		// functions)
-
-		err = (func() (rerr error) {
-			ctx, span := core.Tracer(ctx).Start(ctx, "asModule getModDef", telemetry.Internal())
-			defer telemetry.EndWithCause(span, &rerr)
-
-			opScope := "getModDef"
-			scopedMod, err := sdk.ScopeModuleForSDKOperation(ctx, mod, opScope, dag)
-			if err != nil {
-				return fmt.Errorf("failed to create scoped module for getModDef: %w", err)
-			}
-			returnType, err := core.SelectTypeDefWithServer(ctx, dag, dagql.Selector{
-				Field: "withObject",
-				Args:  []dagql.NamedInput{{Name: "name", Value: dagql.String("Module")}},
-			})
-			if err != nil {
-				return fmt.Errorf("failed to create module definition return type for module %q: %w", modName, err)
-			}
-
-			getModDefFn, err := core.NewModFunction(
-				ctx,
-				scopedMod,
-				nil,
-				core.NewFunction("", returnType))
-			if err != nil {
-				return fmt.Errorf("failed to create module definition function for module %q: %w", modName, err)
-			}
-			result, err := getModDefFn.Call(ctx, &core.CallOpts{
-				SkipSelfSchema: true,
-				Server:         dag,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to call module %q to get functions: %w", modName, err)
-			}
-			resultInst, ok := result.(dagql.ObjectResult[*core.Module])
-			if !ok {
-				return fmt.Errorf("expected Module result, got %T", result)
-			}
+		resultInst, terr := typeDefsImpl.ModuleTypes(ctx, mod.Deps, src, mod)
+		switch {
+		case errors.Is(terr, core.ErrStaleSDKCapability):
+			// The source was persisted before its SDK dropped moduleTypes (the
+			// Go SDK now discovers types via its runtime); take the runtime
+			// path the capability-less SDK would have taken.
+			typeDefsEnabled = false
+		case terr != nil:
+			return nil, terr
+		default:
 			initialized = resultInst.Self()
-			return nil
-		})()
+		}
+	}
+	if !typeDefsEnabled {
+		initialized, err = s.moduleDefViaRuntime(ctx, dag, mod, runtimeImpl)
 		if err != nil {
 			return nil, err
 		}
@@ -2963,32 +3255,37 @@ func (s *moduleSourceSchema) runModuleDefInSDK(ctx context.Context, mod *core.Mo
 		return nil, fmt.Errorf("failed to get client metadata: %w", err)
 	}
 
-	if clientMetadata.EagerRuntime && !mod.Runtime.Valid {
-		runtimeDeps := mod.Deps
-		if mod.IncludeSelfInDeps {
-			// This eager runtime path happens before the final asModule result exists,
-			// so we localize the self-call special case to just this runtime load by
-			// using a temporary attached synthetic self module. The final returned
-			// module gets its real attached self dep later during AttachDependencyResults.
-			selfInst, err := sdk.ScopeModuleForSDKOperation(ctx, mod, "eagerRuntimeSelfDeps", dag)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create temporary self module for eager runtime: %w", err)
+	if clientMetadata.EagerRuntime {
+		if !mod.Runtime.Valid {
+			runtimeDeps := mod.Deps
+			if mod.IncludeSelfInDeps {
+				// This eager runtime path happens before the final asModule result exists,
+				// so we localize the self-call special case to just this runtime load by
+				// using a temporary attached synthetic self module. The final returned
+				// module gets its real attached self dep later during AttachDependencyResults.
+				selfInst, err := sdk.ScopeModuleForSDKOperation(ctx, mod, "eagerRuntimeSelfDeps", dag)
+				if err != nil {
+					return nil, fmt.Errorf("failed to create temporary self module for eager runtime: %w", err)
+				}
+				runtimeDeps = runtimeDeps.Append(core.NewUserMod(selfInst))
 			}
-			runtimeDeps = runtimeDeps.Append(core.NewUserMod(selfInst))
+			runtime, err := runtimeImpl.Runtime(ctx, runtimeDeps, src)
+			if err != nil {
+				return nil, err
+			}
+			ctr, ok := runtime.AsContainer()
+			if !ok {
+				return mod, nil
+			}
+			mod.Runtime = dagql.NonNull(ctr)
 		}
-		runtime, err := runtimeImpl.Runtime(ctx, runtimeDeps, src)
-		if err != nil {
-			return nil, err
-		}
-		ctr, ok := runtime.AsContainer()
-		if !ok {
-			return mod, nil
-		}
-		mod.Runtime = dagql.NonNull(ctr)
 
-		// Force load the runtime to fill the cache (only for container-based runtimes)
+		// Force load the runtime to fill the cache (only for container-based
+		// runtimes). This also covers a runtime selected before a cached
+		// definition: the definition hit skipped the exec that used to
+		// evaluate the runtime, and an eager client still wants it filled.
 		var runtimeRes dagql.ID[*core.Container]
-		if err = dag.Select(ctx, ctr, &runtimeRes, dagql.Selector{
+		if err = dag.Select(ctx, mod.Runtime.Value, &runtimeRes, dagql.Selector{
 			Field: "sync",
 		}); err != nil {
 			return nil, err
@@ -2996,6 +3293,266 @@ func (s *moduleSourceSchema) runModuleDefInSDK(ctx context.Context, mod *core.Mo
 	}
 
 	return mod, nil
+}
+
+// moduleDefinitionArgs are the identity of a cached module definition: the
+// runtime container that reports it, the introspection schema that runtime
+// was built with, and the module's name as loaded (LegacyNameOverride can
+// change it after the source was scoped). Together with the receiver, the
+// implementation-scoped source, they name the definition with no
+// additional per-client input, so equivalent loads on different clients
+// and engines share one result. The receiver's own digest still expands
+// the source's user defaults, which can read the client's environment;
+// that is an existing property of every SDK operation, not changed here.
+type moduleDefinitionArgs struct {
+	Runtime           core.ContainerID
+	IntrospectionJSON core.FileID `name:"introspectionJson"`
+	ModuleName        string
+}
+
+// moduleDefinitionField declares ModuleSource._moduleDefinition. The
+// declaration is shared with tests so that what they check is the field's
+// identity as installed: persistable, no per-client input, these arguments.
+func moduleDefinitionField(resolver dagql.NodeFuncHandler[*core.ModuleSource, moduleDefinitionArgs, dagql.ObjectResult[*core.Module]]) dagql.Field[*core.ModuleSource] {
+	return dagql.NodeFunc("_moduleDefinition", resolver).
+		IsPersistable().
+		Doc(`The module's type definitions as its container runtime reports them.`,
+			`Keyed on the implementation-scoped source, the runtime container, the dependencies' introspection schema and the loaded module name, so equivalent loads on different clients and engines share one result.`).
+		Args(
+			dagql.Arg("runtime").Doc(`The module's runtime container.`),
+			dagql.Arg("introspectionJson").Doc(`The introspection schema JSON file the runtime was built with.`),
+			dagql.Arg("moduleName").Doc(`The module's name as loaded.`),
+		)
+}
+
+// moduleSourceModuleDefinition is the resolver of _moduleDefinition: on a
+// miss it runs the runtime once with an empty function name, as the
+// uncached path does, and returns a fresh definition-only module whose
+// recorded call is this one. The introspection file argument is identity
+// only; the runtime container was built with it.
+func (s *moduleSourceSchema) moduleSourceModuleDefinition(
+	ctx context.Context,
+	src dagql.ObjectResult[*core.ModuleSource],
+	args moduleDefinitionArgs,
+) (inst dagql.ObjectResult[*core.Module], rerr error) {
+	dag, err := core.CurrentDagqlServer(ctx)
+	if err != nil {
+		return inst, fmt.Errorf("failed to get dag server: %w", err)
+	}
+	runtime, err := args.Runtime.Load(ctx, dag)
+	if err != nil {
+		return inst, fmt.Errorf("failed to load module runtime for module definition: %w", err)
+	}
+	schema, err := args.IntrospectionJSON.Load(ctx, dag)
+	if err != nil {
+		return inst, fmt.Errorf("failed to load schema introspection json for module definition: %w", err)
+	}
+	mod, opScope, err := s.moduleDefinitionDiscovery(ctx, src, runtime, schema, args.ModuleName)
+	if err != nil {
+		return inst, err
+	}
+	initialized, err := s.moduleDefinitionFromRuntime(ctx, dag, mod, opScope)
+	if err != nil {
+		return inst, err
+	}
+	def := &core.Module{
+		NameField:     args.ModuleName,
+		OriginalName:  src.Self().ModuleOriginalName,
+		SDKConfig:     mod.SDKConfig.Clone(),
+		Description:   initialized.Description,
+		ObjectDefs:    append(dagql.ObjectResultArray[*core.TypeDef](nil), initialized.ObjectDefs...),
+		InterfaceDefs: append(dagql.ObjectResultArray[*core.TypeDef](nil), initialized.InterfaceDefs...),
+		EnumDefs:      append(dagql.ObjectResultArray[*core.TypeDef](nil), initialized.EnumDefs...),
+		Runtime:       dagql.NonNull(runtime),
+	}
+	inst, err = dagql.NewObjectResultForCurrentCall(ctx, dag, def)
+	if err != nil {
+		return inst, fmt.Errorf("failed to create module definition result for module %q: %w", args.ModuleName, err)
+	}
+	runtimeRecipe, _ := runtime.RecipeDigest(ctx)
+	schemaRecipe, _ := schema.RecipeDigest(ctx)
+	scopedSourceDigest, _ := src.ContentPreferredDigest(ctx)
+	slog.Info("module definition computed", "module", args.ModuleName, "objects", len(def.ObjectDefs), "interfaces", len(def.InterfaceDefs), "enums", len(def.EnumDefs), "runtimeRecipe", runtimeRecipe, "schemaRecipe", schemaRecipe, "scopedSourceDigest", scopedSourceDigest)
+	return inst, nil
+}
+
+// moduleDefViaRuntime obtains the module definition through the module's
+// runtime: it loads the runtime (setting mod.Runtime as a side effect), then
+// obtains the definition. For a container runtime the definition is the
+// cached _moduleDefinition result, keyed on the implementation-scoped
+// source, the runtime and the dependencies' schema, so a second client or a
+// cold engine that imported it does not run the runtime. Any other runtime
+// runs the runtime here, uncached, as before.
+func (s *moduleSourceSchema) moduleDefViaRuntime(
+	ctx context.Context,
+	dag *dagql.Server,
+	mod *core.Module,
+	runtimeImpl core.Runtime,
+) (*core.Module, error) {
+	src := mod.Source.Value
+
+	runtime, err := runtimeImpl.Runtime(ctx, mod.Deps, src)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get module runtime: %w", err)
+	}
+	ctr, isContainer := runtime.AsContainer()
+	if !isContainer {
+		return s.moduleDefinitionFromRuntime(ctx, dag, mod, "getModDef")
+	}
+	mod.Runtime = dagql.NonNull(ctr)
+
+	scopedSrc, err := core.ImplementationScopedModuleSource(ctx, src)
+	if err != nil {
+		return nil, fmt.Errorf("failed to scope module source for module definition: %w", err)
+	}
+	schemaJSONFile, err := mod.Deps.SchemaIntrospectionJSONFileForModule(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get schema introspection json for module definition: %w", err)
+	}
+	ctrID, err := ctr.ID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get module runtime ID for module definition: %w", err)
+	}
+	schemaJSONFileID, err := schemaJSONFile.ID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get schema introspection json ID for module definition: %w", err)
+	}
+	var def dagql.ObjectResult[*core.Module]
+	if err := dag.Select(ctx, scopedSrc, &def, dagql.Selector{
+		Field: "_moduleDefinition",
+		Args: []dagql.NamedInput{
+			{Name: "runtime", Value: dagql.NewID[*core.Container](ctrID)},
+			{Name: "introspectionJson", Value: dagql.NewID[*core.File](schemaJSONFileID)},
+			{Name: "moduleName", Value: dagql.String(mod.NameField)},
+		},
+	}); err != nil {
+		return nil, fmt.Errorf("failed to get module definition for module %q: %w", mod.NameField, err)
+	}
+	mod.Definition = dagql.NonNull(def)
+	// One line per lookup naming the identity's inputs, so two engines'
+	// logs say whether a miss came from the runtime, the schema file or
+	// the source.
+	// The scoped source's recorded content digest is the identity the
+	// lookup used; it is read, not recomputed, so a debug-mode source's
+	// fresh randomness cannot make the two lines disagree.
+	runtimeRecipe, _ := ctr.RecipeDigest(ctx)
+	schemaRecipe, _ := schemaJSONFile.RecipeDigest(ctx)
+	scopedSourceDigest, _ := scopedSrc.ContentPreferredDigest(ctx)
+	slog.Info("module definition lookup", "module", mod.NameField, "hit", def.HitCache(), "runtimeRecipe", runtimeRecipe, "schemaRecipe", schemaRecipe, "scopedSourceDigest", scopedSourceDigest)
+	return def.Self(), nil
+}
+
+// moduleDefinitionIdentity names one definition by its inputs: the recipe
+// digests of the runtime and of the introspection file, and the module
+// name. Recipe digests are portable: an imported row keeps them, and a
+// result referenced by a handle derives them from its stored call frame.
+// Engine-local numbers would not do: a scope that carries them can reach
+// an exported closure through CurrentModule, and on the importing engine
+// the same numbers can name different results.
+func moduleDefinitionIdentity(ctx context.Context, runtime dagql.ObjectResult[*core.Container], schema dagql.ObjectResult[*core.File], moduleName string) (digest.Digest, error) {
+	runtimeDigest, err := runtime.RecipeDigest(ctx)
+	if err != nil {
+		return "", fmt.Errorf("module definition identity: runtime: %w", err)
+	}
+	schemaDigest, err := schema.RecipeDigest(ctx)
+	if err != nil {
+		return "", fmt.Errorf("module definition identity: introspection json: %w", err)
+	}
+	return hashutil.HashStrings("ModuleSource._moduleDefinition", runtimeDigest.String(), schemaDigest.String(), moduleName), nil
+}
+
+// moduleDefinitionDiscovery builds the module that one definition's
+// discovery runs under, and the name of the SDK-operation scope it runs
+// in. Both carry the definition's identity, because the two scopes the
+// runtime sees key on the source alone otherwise: ScopeModuleForSDKOperation
+// keys the attached module on the operation name and the source
+// implementation digest, and currentModule then scopes that module again
+// through Module._implementationScoped, which hashes the source digest and
+// AsModuleVariantDigest. Without the identity in both, two definitions of
+// one source that differ in runtime, schema file or name would share one
+// scoped module, one runtime, and one currentModule answer, whose name the
+// SDK reads before discovery.
+func (s *moduleSourceSchema) moduleDefinitionDiscovery(
+	ctx context.Context,
+	src dagql.ObjectResult[*core.ModuleSource],
+	runtime dagql.ObjectResult[*core.Container],
+	schema dagql.ObjectResult[*core.File],
+	moduleName string,
+) (*core.Module, string, error) {
+	identity, err := moduleDefinitionIdentity(ctx, runtime, schema, moduleName)
+	if err != nil {
+		return nil, "", err
+	}
+	deps, err := s.loadDependencyModules(ctx, src, src)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to load dependencies for module definition: %w", err)
+	}
+	mod := &core.Module{
+		Source:                dagql.NonNull(src),
+		ContextSource:         dagql.NonNull(src),
+		NameField:             moduleName,
+		OriginalName:          src.Self().ModuleOriginalName,
+		SDKConfig:             src.Self().SDK,
+		Deps:                  deps,
+		Runtime:               dagql.NonNull(runtime),
+		AsModuleVariantDigest: identity.String(),
+	}
+	if mod.SDKConfig == nil {
+		mod.SDKConfig = &core.SDKConfig{}
+	}
+	return mod, "getModDef:" + identity.String(), nil
+}
+
+// moduleDefinitionFromRuntime runs the module's runtime once with no object
+// or function name, which tells the SDK to return the module's definition
+// (in terms of objects, fields and functions). It is the uncached step:
+// _moduleDefinition's resolver on a miss, and the whole path for a runtime
+// that is not a container. opScope names the SDK-operation scope the
+// discovery runs under; a cached definition passes one that covers its
+// inputs.
+func (s *moduleSourceSchema) moduleDefinitionFromRuntime(
+	ctx context.Context,
+	dag *dagql.Server,
+	mod *core.Module,
+	opScope string,
+) (_ *core.Module, rerr error) {
+	modName := mod.NameField
+
+	ctx, span := core.Tracer(ctx).Start(ctx, "asModule getModDef", telemetry.Internal())
+	defer telemetry.EndWithCause(span, &rerr)
+
+	scopedMod, err := sdk.ScopeModuleForSDKOperation(ctx, mod, opScope, dag)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create scoped module for getModDef: %w", err)
+	}
+	returnType, err := core.SelectTypeDefWithServer(ctx, dag, dagql.Selector{
+		Field: "withObject",
+		Args:  []dagql.NamedInput{{Name: "name", Value: dagql.String("Module")}},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create module definition return type for module %q: %w", modName, err)
+	}
+
+	getModDefFn, err := core.NewModFunction(
+		ctx,
+		scopedMod,
+		nil,
+		core.NewFunction("", returnType))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create module definition function for module %q: %w", modName, err)
+	}
+	result, err := getModDefFn.Call(ctx, &core.CallOpts{
+		SkipSelfSchema: true,
+		Server:         dag,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to call module %q to get functions: %w", modName, err)
+	}
+	resultInst, ok := result.(dagql.ObjectResult[*core.Module])
+	if !ok {
+		return nil, fmt.Errorf("expected Module result, got %T", result)
+	}
+	return resultInst.Self(), nil
 }
 
 func (s *moduleSourceSchema) moduleSourceIntrospectionSchemaJSON(
@@ -3012,6 +3569,63 @@ func (s *moduleSourceSchema) moduleSourceIntrospectionSchemaJSON(
 		return inst, err
 	}
 	return file, nil
+}
+
+func (s *moduleSourceSchema) moduleSourceClientSchemaIntrospectionJSON(
+	ctx context.Context,
+	src dagql.ObjectResult[*core.ModuleSource],
+	args struct{},
+) (inst dagql.Result[*core.File], rerr error) {
+	query, err := core.CurrentQuery(ctx)
+	if err != nil {
+		return inst, err
+	}
+	dag, err := query.Server.Server(ctx)
+	if err != nil {
+		return inst, fmt.Errorf("failed to get dag server: %w", err)
+	}
+	return s.clientSchemaIntrospectionJSONFile(ctx, dag, src)
+}
+
+// clientSchemaIntrospectionJSONFile builds the client-facing introspection
+// schema for srcInst: only the bound module is installed, as a normal
+// namespaced module, so a generated client reaches its functions via
+// `dag.<moduleName>` and never through a promoted Query root. The module's own
+// dependencies are deliberately excluded -- a client is generated for a single
+// module plus core, not for its whole dependency graph. Unlike the
+// module-facing schema, it hides no core types. This is the schema client
+// codegen consumes.
+func (s *moduleSourceSchema) clientSchemaIntrospectionJSONFile(
+	ctx context.Context,
+	dag *dagql.Server,
+	srcInst dagql.ObjectResult[*core.ModuleSource],
+) (dagql.Result[*core.File], error) {
+	var inst dagql.Result[*core.File]
+
+	// Start from only the default (core) deps: the module's own dependencies
+	// must not leak into the client schema.
+	codegenDeps, err := s.loadDefaultSchemaBuilder(ctx, srcInst)
+	if err != nil {
+		return inst, fmt.Errorf("failed to load default dependencies: %w", err)
+	}
+
+	// Install the bound module like any dependency: namespaced under its own
+	// name, NOT as an entrypoint. Clients must never promote a module's
+	// functions to the Query root -- they are always reached via dag.<name>.
+	// Transforming the source into a module requires a runtime SDK.
+	if srcInst.Self().SDK != nil {
+		// We must make sure to first check SDK to avoid checking a nil pointer on `SDKImpl`.
+		if _, ok := srcInst.Self().SDKImpl.AsRuntime(); ok {
+			var mod dagql.ObjectResult[*core.Module]
+			if err := dag.Select(ctx, srcInst, &mod, dagql.Selector{Field: "asModule"}); err != nil {
+				return inst, fmt.Errorf("failed to transform module source into module: %w", err)
+			}
+
+			codegenDeps = codegenDeps.With(core.NewUserMod(mod), core.InstallOpts{})
+		}
+	}
+
+	return codegenDeps.SchemaIntrospectionJSONFileForClient(ctx)
 }
 
 // createStubModule creates an empty module definition (no SDK, no blueprints)
@@ -3049,8 +3663,81 @@ func (s *moduleSourceSchema) moduleSourceImplementationScoped(
 	if err != nil {
 		return inst, err
 	}
-	return inst.WithContentDigest(ctx, scopedDigest)
+	return inst.WithContentDigest(ctx, scopedDigest, call.ExtraDigestLabelRemoteCache)
 }
+
+// resolveDefaultPathContextSource selects the context for legacy default paths
+// and its module cache variant. Value contexts take precedence over refs.
+func resolveDefaultPathContextSource(
+	ctx context.Context,
+	dag *dagql.Server,
+	src dagql.ObjectResult[*core.ModuleSource],
+	contextSource dagql.Optional[core.ModuleSourceID],
+	contextRef, contextPin string,
+) (dagql.ObjectResult[*core.ModuleSource], string, error) {
+	var err error
+	defaultPathContextSrc := src
+	switch {
+	case contextSource.Valid:
+		defaultPathContextSrc, err = contextSource.Value.Load(ctx, dag)
+		if err != nil {
+			return defaultPathContextSrc, "", fmt.Errorf("failed to load defaultPath context source: %w", err)
+		}
+	case contextRef != "":
+		contextSourceArgs := []dagql.NamedInput{
+			{Name: "refString", Value: dagql.String(contextRef)},
+			// The context source is used only as a +defaultPath context
+			// directory, never served as a module, so tolerate a ref with no
+			// dagger config file. A migrated workspace root is a Workspace
+			// (dagger.toml), not a Module (dagger.json); without this, a remote
+			// (git) workspace fails to resolve legacy-default-path modules while
+			// a local one succeeds (local module sources already tolerate this).
+			{Name: "allowNotExists", Value: dagql.Boolean(true)},
+		}
+		if contextPin != "" {
+			contextSourceArgs = append(contextSourceArgs, dagql.NamedInput{
+				Name: "refPin", Value: dagql.String(contextPin),
+			})
+		}
+		err = dag.Select(ctx, dag.Root(), &defaultPathContextSrc, dagql.Selector{
+			Field: "moduleSource",
+			Args:  contextSourceArgs,
+		})
+		if err != nil {
+			return defaultPathContextSrc, "", fmt.Errorf("failed to load defaultPath context source: %w", err)
+		}
+	}
+	defaultPathContextSourceVariant := ""
+	switch {
+	case contextSource.Valid:
+		// A source passed by ID may not carry a recipe digest (handle-form
+		// IDs), and a Dir source has no ref string, so key the variant on the
+		// context tree's content instead.
+		if contextDir := defaultPathContextSrc.Self().ContextDirectory; contextDir.Self() != nil {
+			var contextDirDigest string
+			if err := dag.Select(ctx, contextDir, &contextDirDigest, dagql.Selector{Field: "digest"}); err != nil {
+				return defaultPathContextSrc, "", fmt.Errorf("defaultPath context source digest: %w", err)
+			}
+			defaultPathContextSourceVariant = hashutil.HashStrings(
+				"defaultPathContextSource",
+				contextDirDigest,
+			).String()
+		} else {
+			defaultPathContextSourceVariant = hashutil.HashStrings(
+				"defaultPathContextSource",
+				defaultPathContextSrc.Self().AsString(),
+				defaultPathContextSrc.Self().Pin(),
+			).String()
+		}
+	case contextRef != "":
+		defaultPathContextSourceVariant = hashutil.HashStrings(
+			contextRef,
+			contextPin,
+		).String()
+	}
+	return defaultPathContextSrc, defaultPathContextSourceVariant, nil
+}
+
 func (s *moduleSourceSchema) moduleSourceAsModule(
 	ctx context.Context,
 	src dagql.ObjectResult[*core.ModuleSource],
@@ -3089,6 +3776,14 @@ func (s *moduleSourceSchema) moduleSourceAsModule(
 
 		// DefaultPathContextSourcePin pins DefaultPathContextSourceRef when set.
 		DefaultPathContextSourcePin string `internal:"true" default:""`
+
+		// DefaultPathContextSource supplies an already-resolved source whose
+		// tree +defaultPath inputs resolve from, taking precedence over
+		// DefaultPathContextSourceRef. Value workspaces pass their own
+		// (possibly overlaid) root tree this way: no ref string names it, and
+		// a frozen workspace's commits may exist nowhere a ref could fetch
+		// from.
+		DefaultPathContextSource dagql.Optional[core.ModuleSourceID] `internal:"true"`
 	},
 ) (inst dagql.ObjectResult[*core.Module], err error) {
 	dag, err := core.CurrentDagqlServer(ctx)
@@ -3113,23 +3808,12 @@ func (s *moduleSourceSchema) moduleSourceAsModule(
 
 	originalSrc := src
 	execSrc := src
-	defaultPathContextSrc := src
-	if args.DefaultPathContextSourceRef != "" {
-		contextSourceArgs := []dagql.NamedInput{
-			{Name: "refString", Value: dagql.String(args.DefaultPathContextSourceRef)},
-		}
-		if args.DefaultPathContextSourcePin != "" {
-			contextSourceArgs = append(contextSourceArgs, dagql.NamedInput{
-				Name: "refPin", Value: dagql.String(args.DefaultPathContextSourcePin),
-			})
-		}
-		err = dag.Select(ctx, dag.Root(), &defaultPathContextSrc, dagql.Selector{
-			Field: "moduleSource",
-			Args:  contextSourceArgs,
-		})
-		if err != nil {
-			return inst, fmt.Errorf("failed to load defaultPath context source: %w", err)
-		}
+	defaultPathContextSrc, defaultPathContextSourceVariant, err := resolveDefaultPathContextSource(
+		ctx, dag, src, args.DefaultPathContextSource,
+		args.DefaultPathContextSourceRef, args.DefaultPathContextSourcePin,
+	)
+	if err != nil {
+		return inst, err
 	}
 	if src.Self().Blueprint.Self() != nil {
 		execSrc = src.Self().Blueprint
@@ -3176,13 +3860,6 @@ func (s *moduleSourceSchema) moduleSourceAsModule(
 	// apply ForceDefaultFunctionCaching if requested
 	if args.ForceDefaultFunctionCaching {
 		mod.DisableDefaultFunctionCaching = false
-	}
-	defaultPathContextSourceVariant := ""
-	if args.DefaultPathContextSourceRef != "" {
-		defaultPathContextSourceVariant = hashutil.HashStrings(
-			args.DefaultPathContextSourceRef,
-			args.DefaultPathContextSourcePin,
-		).String()
 	}
 	// Keep the per-session content cache distinct for module variants produced
 	// from the same source with different internal asModule options.
@@ -3357,6 +4034,11 @@ func (s *moduleSourceSchema) loadDependencyModules(
 			}
 			var dpRef, dpPin string
 			if defaultPathContextSrc.Self() != nil {
+				if defaultPathContextSrc.Self().Kind == core.ModuleSourceKindLocal {
+					if _, err := defaultPathContextSrc.Self().LocalContextDirectoryPath(); err != nil {
+						return err
+					}
+				}
 				dpRef = defaultPathContextSrc.Self().AsString()
 				dpPin = defaultPathContextSrc.Self().Pin()
 			}
@@ -3382,6 +4064,28 @@ func (s *moduleSourceSchema) loadDependencyModules(
 		return nil, fmt.Errorf("failed to load module dependencies: %w", err)
 	}
 
+	deps, err := s.loadDefaultSchemaBuilder(ctx, src)
+	if err != nil {
+		return nil, err
+	}
+	for _, depMod := range depMods {
+		deps = deps.Append(core.NewUserMod(depMod))
+	}
+
+	return deps, nil
+}
+
+// loadDefaultSchemaBuilder returns a SchemaBuilder seeded with only the default
+// (core) dependencies, with the core module pinned to src's engine version
+// view. Callers append the user modules they want to expose.
+func (s *moduleSourceSchema) loadDefaultSchemaBuilder(
+	ctx context.Context,
+	src dagql.ObjectResult[*core.ModuleSource],
+) (*core.SchemaBuilder, error) {
+	query, err := core.CurrentQuery(ctx)
+	if err != nil {
+		return nil, err
+	}
 	defaultDeps, err := query.DefaultDeps(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get default dependencies: %w", err)
@@ -3392,12 +4096,7 @@ func (s *moduleSourceSchema) loadDependencyModules(
 			baseMods[i] = coreMod.WithView(call.View(engine.BaseVersion(engine.NormalizeVersion(src.Self().EngineVersion))))
 		}
 	}
-	deps := core.NewSchemaBuilder(query, baseMods)
-	for _, depMod := range depMods {
-		deps = deps.Append(core.NewUserMod(depMod))
-	}
-
-	return deps, nil
+	return core.NewSchemaBuilder(query, baseMods), nil
 }
 
 func (s *moduleSourceSchema) moduleSourceWithClient(

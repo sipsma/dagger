@@ -1,0 +1,43 @@
+{
+  "source_commit": "193fb7c24a36e546bc87e72f9f838a9db4c0a75c",
+  "source_tree": "3813552225a0d3c020c8d6bb3e327acab5a5531f",
+  "base_commit": "1ba150a79b8a3f7568e27a22cee492f578ffa538",
+  "free_bytes_after_validation": 7227232256,
+  "files": [
+    {
+      "path": "core/container_capture_test.go",
+      "blob": "728a5f77af177af2732fd264cfe1c5e92ef77595",
+      "sha256": "c1e54a644dfaa7083941244a39560ef0c36e56969fc54760612bb4c43e844971"
+    },
+    {
+      "path": "core/container_persistence.go",
+      "blob": "469143c5717eb572ad6a3e68d35a0d20697e9ab0",
+      "sha256": "d5fb29621a7a3985266f656897b3be9f7444524f973a0b0264d2c7e05c826c3a"
+    },
+    {
+      "path": "core/container_persistence_test.go",
+      "blob": "e3f100ef6831aa04cea7489250ec07eb16807699",
+      "sha256": "4ae2733e205944a639680a1e62288391e2ec9f025ece4cc9cab983f77793749f"
+    },
+    {
+      "path": "dagql/cache_persistence_capture.go",
+      "blob": "150652f44d54889d9e2c72798e70678f01ec51da",
+      "sha256": "2b417a775bee1115cb4a70be65362a8c89fec0d811168fb5cb1623fbc40a204c"
+    },
+    {
+      "path": "dagql/cache_persistence_capture_test.go",
+      "blob": "4dfc4b8bc2e4754e3048f0784f3ad5114a936537",
+      "sha256": "dc7aed9dd6f09997e3a285b32dece802d291631aa044aada64d72ea7d07100d7"
+    },
+    {
+      "path": "internal-docs/cache_persistence.md",
+      "blob": "94ed6e7e42fbd0ebaad249cdb9be9e507f1d09d6",
+      "sha256": "d8125751338310a03a3c7034fbc93ad5cd3cd5682cb6d4defc69d41b939fe9fd"
+    },
+    {
+      "path": "internal-docs/lazy_evaluation.md",
+      "blob": "6a748a9c96d32b7d5a38e822fb748ceef1b79f1b",
+      "sha256": "e5f4d32af3b0b647c7afe8e08b0de127ea50449caa0545723a9bb8042e2bcc1d"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+diff --git a/.dagger/modules/engine-dev/test.go b/.dagger/modules/engine-dev/test.go
+index 0d759867f4..ffb9b8fe1b 100644
+--- a/.dagger/modules/engine-dev/test.go
++++ b/.dagger/modules/engine-dev/test.go
+@@ -161,0 +162 @@ func (dev *EngineDev) test(
++		container = container.WithEnvVariable("_DAGGER_TEST_REMOTE_CACHE_PRUNE_DIAGNOSTIC", "1")

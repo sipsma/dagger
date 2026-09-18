@@ -2,7 +2,10 @@ package dagql
 
 import (
 	"context"
+	"errors"
 	"fmt"
+
+	"github.com/dagger/dagger/engine"
 )
 
 func ArbitraryValueFunc(v any) func(context.Context) (any, error) {
@@ -18,6 +21,10 @@ type ArbitraryCachedResult interface {
 
 // sharedArbitraryResult is the in-memory-only cache entry for GetOrInitArbitrary values.
 type sharedArbitraryResult struct {
+	// id is the engine-lifetime-unique identity of this entry. A call key can
+	// be legitimately reused after its entry is removed, so removal paths
+	// compare ids to confirm a map entry is the one they hold.
+	id      uint64
 	callKey string
 
 	value any
@@ -25,7 +32,10 @@ type sharedArbitraryResult struct {
 
 	onRelease OnReleaseFunc
 
-	waitCh  chan struct{}
+	waitCh chan struct{}
+	// cancel is live only while the initializer callback is running. It must be
+	// cleared at callback completion because the cancel closure retains the
+	// detached context and all of its Query/server/engine capabilities.
 	cancel  context.CancelCauseFunc
 	waiters int
 
@@ -63,6 +73,23 @@ func (c *Cache) GetOrInitArbitrary(
 	if sessionID == "" {
 		return nil, fmt.Errorf("get or init arbitrary %q: empty session ID", callKey)
 	}
+	op, err := c.beginSessionOperation(sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("get or init arbitrary %q: %w", callKey, err)
+	}
+	res, callErr := c.getOrInitArbitrary(ctx, sessionID, callKey, fn)
+	if op.finish(callErr == nil && res != nil) {
+		return nil, fmt.Errorf("get or init arbitrary %q: %w: %q", callKey, ErrCacheSessionReleased, sessionID)
+	}
+	return res, callErr
+}
+
+func (c *Cache) getOrInitArbitrary(
+	ctx context.Context,
+	sessionID string,
+	callKey string,
+	fn func(context.Context) (any, error),
+) (ArbitraryCachedResult, error) {
 	if callKey == "" {
 		return nil, fmt.Errorf("cache call key is empty")
 	}
@@ -80,12 +107,19 @@ func (c *Cache) GetOrInitArbitrary(
 	}
 
 	if res := c.completedArbitraryCalls[callKey]; res != nil {
-		c.callsMu.Unlock()
 		ret := arbitraryResult{
 			shared:   res,
 			hitCache: true,
 		}
-		c.trackSessionArbitrary(sessionID, ret)
+		err := c.acquireSessionArbitraryLocked(sessionID, res)
+		var onRelease OnReleaseFunc
+		if err != nil {
+			onRelease = c.removeUnownedArbitraryLocked(res)
+		}
+		c.callsMu.Unlock()
+		if err != nil {
+			return nil, errors.Join(err, runArbitraryOnRelease(ctx, onRelease))
+		}
 		return ret, nil
 	}
 
@@ -95,9 +129,34 @@ func (c *Cache) GetOrInitArbitrary(
 		return c.waitArbitrary(ctx, sessionID, res, false)
 	}
 
+	// Arbitrary initializers are detached executable callbacks. Production
+	// callers capture runtime-backed Query and engine capabilities, so one
+	// shared-work scope must cover the callback regardless of how many waiters
+	// join it. DetachClientScope preserves the existing last-waiter cancellation
+	// semantics by removing caller cancellation before cancel is installed below.
 	callCtx := context.WithValue(ctx, arbitraryCacheContextKey{callKey: callKey}, struct{}{})
-	callCtx, cancel := context.WithCancelCause(context.WithoutCancel(callCtx))
+	sharedWorkCtx, clientScopeLease, err := engine.DetachClientScope(
+		callCtx,
+		engine.ClientLeaseSharedWork,
+		"arbitrary/"+callKey,
+	)
+	if err != nil {
+		c.callsMu.Unlock()
+		return nil, fmt.Errorf("acquire arbitrary client scope: %w", err)
+	}
+	callCtx, cancel := context.WithCancelCause(sharedWorkCtx)
+	// The initializer can finish after every waiter leaves. Keep its value
+	// handoff and any late release visible to Close independently of waiters.
+	callbackOp, err := c.beginCacheOperation()
+	if err != nil {
+		cancel(err)
+		c.callsMu.Unlock()
+		clientScopeLease.Release()
+		return nil, err
+	}
+	c.nextArbitraryResultID++
 	res := &sharedArbitraryResult{
+		id:      c.nextArbitraryResultID,
 		callKey: callKey,
 
 		waitCh:  make(chan struct{}),
@@ -107,14 +166,33 @@ func (c *Cache) GetOrInitArbitrary(
 	c.ongoingArbitraryCalls[callKey] = res
 
 	go func() {
-		defer close(res.waitCh)
+		defer callbackOp.finish(false)
+		defer func() {
+			// Release lifecycle ownership before publishing callback completion so
+			// every waiter observes the terminal lease transition on return.
+			clientScopeLease.Release()
+			c.callsMu.Lock()
+			close(res.waitCh)
+			c.callsMu.Unlock()
+		}()
 		val, err := fn(callCtx)
+		c.callsMu.Lock()
 		res.err = err
 		if err == nil {
 			res.value = val
 			if onReleaser, ok := val.(OnReleaser); ok {
 				res.onRelease = onReleaser.OnRelease
 			}
+		}
+
+		// The callback no longer needs cancellation. Drop the cancel closure
+		// before this result can become a completed cache entry so the cache does
+		// not turn its detached runtime context into a cold capability.
+		res.cancel = nil
+		onRelease := c.removeUnownedArbitraryLocked(res)
+		c.callsMu.Unlock()
+		if err := runArbitraryOnRelease(callCtx, onRelease); err != nil {
+			c.recordReleaseCleanupError(sessionID, true, err)
 		}
 	}()
 
@@ -141,7 +219,7 @@ func (c *Cache) waitArbitrary(ctx context.Context, sessionID string, res *shared
 
 	c.callsMu.Lock()
 	res.waiters--
-	if res.waiters == 0 {
+	if res.waiters == 0 && res.cancel != nil {
 		res.cancel(err)
 	}
 
@@ -152,7 +230,6 @@ func (c *Cache) waitArbitrary(ctx context.Context, sessionID string, res *shared
 		} else {
 			c.completedArbitraryCalls[res.callKey] = res
 		}
-		c.callsMu.Unlock()
 
 		if isFirstCaller {
 			hitCache = false
@@ -161,19 +238,47 @@ func (c *Cache) waitArbitrary(ctx context.Context, sessionID string, res *shared
 			shared:   res,
 			hitCache: hitCache,
 		}
-		c.trackSessionArbitrary(sessionID, ret)
+		claimErr := c.acquireSessionArbitraryLocked(sessionID, res)
+		var onRelease OnReleaseFunc
+		if claimErr != nil {
+			onRelease = c.removeUnownedArbitraryLocked(res)
+		}
+		c.callsMu.Unlock()
+		if claimErr != nil {
+			return nil, errors.Join(claimErr, runArbitraryOnRelease(ctx, onRelease))
+		}
 		return ret, nil
 	}
 
-	if res.ownerSessionCount == 0 && res.waiters == 0 {
-		if existing := c.ongoingArbitraryCalls[res.callKey]; existing == res {
-			delete(c.ongoingArbitraryCalls, res.callKey)
-		}
-		if existing := c.completedArbitraryCalls[res.callKey]; existing == res {
-			delete(c.completedArbitraryCalls, res.callKey)
-		}
-	}
+	onRelease := c.removeUnownedArbitraryLocked(res)
 
 	c.callsMu.Unlock()
-	return nil, err
+	return nil, errors.Join(err, runArbitraryOnRelease(ctx, onRelease))
+}
+
+// removeUnownedArbitraryLocked drops an arbitrary value that has neither a
+// session owner nor an active waiter. The caller must hold callsMu.
+func (c *Cache) removeUnownedArbitraryLocked(res *sharedArbitraryResult) OnReleaseFunc {
+	if res == nil || res.ownerSessionCount != 0 || res.waiters != 0 {
+		return nil
+	}
+	if existing := c.ongoingArbitraryCalls[res.callKey]; existing != nil && existing.id == res.id {
+		delete(c.ongoingArbitraryCalls, res.callKey)
+	}
+	if existing := c.completedArbitraryCalls[res.callKey]; existing != nil && existing.id == res.id {
+		delete(c.completedArbitraryCalls, res.callKey)
+	}
+	// Cancellation may have removed the entry before its value arrived.
+	// Taking the callback once also covers that late completion without
+	// touching a newer entry with the same call key.
+	onRelease := res.onRelease
+	res.onRelease = nil
+	return onRelease
+}
+
+func runArbitraryOnRelease(ctx context.Context, onRelease OnReleaseFunc) error {
+	if onRelease == nil {
+		return nil
+	}
+	return onRelease(context.WithoutCancel(ctx))
 }

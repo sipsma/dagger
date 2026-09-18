@@ -54,11 +54,11 @@ func (CallSuite) TestHelp(ctx context.Context, t *testctx.T) {
 		require.Contains(t, out, "dagger call container directory [arguments] <function>")
 	})
 
-	t.Run("flag conflict", func(ctx context.Context, t *testctx.T) {
-		// The function's --mod argument shadows the parent's persistent
-		// --mod/-m flag. Cobra/pflag allows this — the child's local flag
-		// takes precedence. Verify the command works (shows help) rather
-		// than erroring.
+	t.Run("function arg named mod", func(ctx context.Context, t *testctx.T) {
+		// A function may declare an argument named `mod` even though the
+		// global module-loading flag uses `--load-module`/`-m`. Verify
+		// the command works (shows help) and the function's --mod flag
+		// is visible.
 		out, err := modGen.With(daggerCallAt(".", "conflict", "--help")).Stdout(ctx)
 		require.NoError(t, err)
 		require.Contains(t, out, "--mod")
@@ -1267,6 +1267,8 @@ func (CallSuite) TestGitMod(ctx context.Context, t *testctx.T) {
 						Source: testGitModuleRef(tc, "top-level"),
 					}},
 				})).
+				// materialize generated files first: toml modules don't regenerate at runtime
+				With(daggerQuery(`{moduleSource(refString:"."){generatedContextDirectory{export(path:".")}}}`)).
 				With(daggerCallAt(".", "fn")).
 				Stdout(ctx)
 			require.NoError(t, err)
@@ -1304,6 +1306,8 @@ func (CallSuite) TestGitMod(ctx context.Context, t *testctx.T) {
 						Source: testGitModuleRef(tc, "ts"),
 					}},
 				})).
+				// materialize generated files first: toml modules don't regenerate at runtime
+				With(daggerQuery(`{moduleSource(refString:"."){generatedContextDirectory{export(path:".")}}}`)).
 				With(daggerCallAt(".", "fn")).
 				Stdout(ctx)
 			require.NoError(t, err)
@@ -1341,6 +1345,8 @@ func (CallSuite) TestGitMod(ctx context.Context, t *testctx.T) {
 						Source: testGitModuleRef(tc, "py"),
 					}},
 				})).
+				// materialize generated files first: toml modules don't regenerate at runtime
+				With(daggerQuery(`{moduleSource(refString:"."){generatedContextDirectory{export(path:".")}}}`)).
 				With(daggerCallAt(".", "fn")).
 				Stdout(ctx)
 			require.NoError(t, err)

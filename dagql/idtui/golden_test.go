@@ -31,6 +31,7 @@ import (
 	telemetry "github.com/dagger/otel-go"
 
 	"github.com/dagger/dagger/dagql/dagui"
+	"github.com/dagger/dagger/dagql/idtui"
 	"github.com/dagger/dagger/engine/slog"
 	"github.com/dagger/dagger/internal/testutil"
 	"github.com/dagger/dagger/util/scrub"
@@ -39,6 +40,15 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	// The frontend adjusts its output when driven by an AI coding agent
+	// (RunningInAgent): plain "== X ==" headings, the report on stdout, ANSI
+	// stripped. The tests and goldens assert the human form, and the golden
+	// suite passes os.Environ() to the CLIs it spawns -- so running the suite
+	// from inside an agent session would silently flip the output under test.
+	// Scrub the detection variables up front for the whole test binary.
+	for _, name := range idtui.AgentEnvVars {
+		os.Unsetenv(name)
+	}
 	os.Exit(oteltestctx.Main(m))
 }
 
@@ -62,7 +72,67 @@ func TestTelemetry(t *testing.T) {
 	})
 }
 
+func TestNormalizeTelemetryNativePlatform(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		native    string
+		nonNative string
+	}{
+		{name: "amd64", native: "linux/amd64", nonNative: "linux/arm64"},
+		{name: "arm64", native: "linux/arm64", nonNative: "linux/amd64"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			input := fmt.Sprintf(`
+$ container(platform: %q): Container!
+$ .dockerBuild(platform: %q): Container!
+$ container(platform: %q): Container!
+$ .dockerBuild(platform: %q): Container!
+$ other(platform: %q): Other!
+`, tc.native, tc.native, tc.nonNative, tc.nonNative, tc.native)
+			expected := fmt.Sprintf(`
+$ container(platform: "linux/ARCH"): Container!
+$ .dockerBuild(platform: "linux/ARCH"): Container!
+$ container(platform: %q): Container!
+$ .dockerBuild(platform: %q): Container!
+$ other(platform: %q): Other!
+`, tc.nonNative, tc.nonNative, tc.native)
+
+			require.Equal(t, expected, normalizeTelemetryNativePlatform(input, tc.native))
+		})
+	}
+}
+
+func normalizeTelemetryNativePlatform(out, nativePlatform string) string {
+	if nativePlatform == "" {
+		return out
+	}
+
+	// Dynamic argument canonicalization makes the engine's resolved platform
+	// visible for these two calls. Normalize only their exact native value so
+	// the rendering goldens stay architecture-independent while explicit
+	// non-native platforms and other platform-bearing calls remain meaningful.
+	return strings.NewReplacer(
+		fmt.Sprintf(`container(platform: %q)`, nativePlatform), `container(platform: "linux/ARCH")`,
+		fmt.Sprintf(`dockerBuild(platform: %q)`, nativePlatform), `dockerBuild(platform: "linux/ARCH")`,
+	).Replace(out)
+}
+
+const daggerBinEnv = "_EXPERIMENTAL_DAGGER_CLI_BIN"
+
+var daggerBin = os.Getenv(daggerBinEnv)
+
 func (s TelemetrySuite) TestGolden(ctx context.Context, t *testctx.T) {
+	if daggerBin == "" {
+		t.Log(daggerBinEnv + "not set - skipping")
+		t.Log()
+		t.Logf(`NOTE: this test is explicitly opt-in because it takes quite a long
+time to run. It's more intended as a CI gate to catch regressions across
+the whole stack TUI/Telemetry stack, not for typical local iteration,
+so in most cases you should just let it skip.`)
+		t.SkipNow()
+		return
+	}
+
 	// setup a git repo so function call tests can pick up the right metadata
 
 	// Remove test-owned workspace files if they exist now too, since Cleanup
@@ -146,6 +216,11 @@ entrypoint = true
 		}},
 		{Function: "revealed-spans"},
 		{Function: "partial-progress"},
+
+		// a generator whose changeset fails lazily during `dagger generate`'s
+		// merge must surface the underlying exec error -- the failed command and
+		// its stderr -- not a bare "exit code: N" (dagger/dagger#13606).
+		{Name: "generate-fail", Function: "generate-fail", Generate: true, Fail: true},
 
 		{Function: "git-readme", Args: []string{
 			"--remote", "https://github.com/dagger/dagger",
@@ -317,6 +392,7 @@ type Example struct {
 	Function string
 	Args     []string
 	Check    bool
+	Generate bool
 	// verbosities 3 and higher do not work well with golden, they're not very deterministic atm
 	Verbosity int
 	Fail      bool
@@ -340,18 +416,19 @@ func (ex Example) Run(ctx context.Context, t *testctx.T, s TelemetrySuite) (stri
 		ex.Module = "./viztest"
 	}
 
-	daggerBin := "dagger" // $PATH
-	if bin := os.Getenv("_EXPERIMENTAL_DAGGER_CLI_BIN"); bin != "" {
-		daggerBin = bin
-	}
-
 	var daggerArgs []string
-	if ex.Check {
+	switch {
+	case ex.Check:
 		daggerArgs = []string{"--progress=report", "-v", "--workdir", ex.Module, "check"}
 		if ex.Function != "" {
 			daggerArgs = append(daggerArgs, ex.Function)
 		}
-	} else {
+	case ex.Generate:
+		daggerArgs = []string{"--progress=report", "-v", "--workdir", ex.Module, "generate", "-y"}
+		if ex.Function != "" {
+			daggerArgs = append(daggerArgs, ex.Function)
+		}
+	default:
 		daggerArgs = []string{"--progress=report", "-v", "call", "-m", ex.Module, ex.Function}
 	}
 	daggerArgs = append(daggerArgs, ex.Args...)
@@ -369,6 +446,9 @@ func (ex Example) Run(ctx context.Context, t *testctx.T, s TelemetrySuite) (stri
 	if ex.RevealNoisySpans {
 		ex.Env = append(ex.Env, "DAGGER_REVEAL=1")
 	}
+
+	// Compare final reports without timer-dependent heartbeat lines in either run.
+	ex.Env = append(ex.Env, "DAGGER_REPORT_HEARTBEAT=0")
 
 	realHome, _ := os.UserHomeDir()
 
@@ -448,7 +528,10 @@ func (ex Example) Run(ctx context.Context, t *testctx.T, s TelemetrySuite) (stri
 		expected += "Expected stderr:\n\n" + errBuf.String()
 	}
 
-	return scrub.Stabilize(expected), db
+	return normalizeTelemetryNativePlatform(
+		scrub.Stabilize(expected),
+		os.Getenv("_DAGGER_TESTS_ENGINE_PLATFORM"),
+	), db
 }
 
 func testDB(t *testctx.T) (*dagui.DB, net.Listener) {

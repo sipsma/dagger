@@ -1,0 +1,10 @@
+=== RUN   TestPartPendingImageMetadataStaysSelective
+2026/09/16 14:03:34 INFO start lazy group evaluation field=Container.from group=metadata
+2026/09/16 14:03:34 INFO end lazy group evaluation field=Container.from group=metadata duration=1.715448ms
+2026/09/16 14:03:34 INFO start lazy group evaluation field=Container.from group=execMeta
+2026/09/16 14:03:34 INFO end lazy group evaluation field=Container.from group=execMeta duration=1.382139ms
+2026/09/16 14:03:34 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 14:03:34 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestPartPendingImageMetadataStaysSelective (0.06s)
+PASS
+ok  	github.com/dagger/dagger/core	1.513s

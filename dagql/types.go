@@ -2,10 +2,12 @@ package dagql
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -123,7 +125,7 @@ type AnyResult interface {
 	NullableWrapped() AnyResult
 
 	// WithContentDigest returns a new AnyResult with the given content digest.
-	WithContentDigestAny(context.Context, digest.Digest) (AnyResult, error)
+	WithContentDigestAny(context.Context, digest.Digest, ...string) (AnyResult, error)
 	// WithSessionResourceHandle returns a new AnyResult with the given session resource handle.
 	WithSessionResourceHandleAny(context.Context, SessionResourceHandle) (AnyResult, error)
 
@@ -162,8 +164,63 @@ type OnReleaser interface {
 
 type LazyEvalFunc func(context.Context) error
 
+// HasLazyEvaluation is implemented by values carrying deferred work that
+// Cache.Evaluate forces. A successful callback run consumes the value's
+// deferred work; implementations should return nil from LazyEvalFunc
+// afterwards. Core types retain their Lazy operation and report completion
+// through its state before cache-side bookkeeping finishes.
+// The cache enforces the consumption independently: once a callback body has
+// succeeded, later attempts retry only cache-side bookkeeping and never
+// re-read the value's callback, so an implementation that keeps returning a
+// non-nil function cannot cause the body to run twice.
 type HasLazyEvaluation interface {
 	LazyEvalFunc() LazyEvalFunc
+}
+
+// PartKey identifies one separately evaluable piece of a result's value.
+// Keys are defined by the value's package; dagql treats them as opaque.
+type PartKey string
+
+// LazyGroupKey identifies one evaluation group of a result. Every part
+// maps to exactly one group; a group's single body fills all its parts.
+type LazyGroupKey string
+
+// LazyGroupWhole is the implicit group of values that do not split their
+// deferred work. It fills every part.
+const LazyGroupWhole LazyGroupKey = "whole"
+
+// HasLazyEvaluationParts is implemented by values whose deferred work is
+// split into independently evaluable groups. Values that implement only
+// HasLazyEvaluation have exactly one group, LazyGroupWhole.
+type HasLazyEvaluationParts interface {
+	HasLazyEvaluation
+
+	// ResolveLazyEvalGroups maps the requested parts to the groups that
+	// fill them, in the order they should be evaluated. nil parts means
+	// "every group that currently has deferred work". self is the
+	// attached result wrapping this value. Resolution may evaluate the
+	// value's own metadata part (via the cache) to settle positional
+	// parts; it must never evaluate snapshot content. The mapping must be
+	// deterministic and stable once metadata is settled.
+	ResolveLazyEvalGroups(ctx context.Context, self AnyResult, parts []PartKey) ([]LazyGroupKey, error)
+
+	// LazyEvalFuncForGroup returns the group's remaining deferred work,
+	// nil when none remains. Same consumption contract as LazyEvalFunc,
+	// per group: a successful body run consumes the group's work, and the
+	// cache independently guarantees the body never runs twice.
+	LazyEvalFuncForGroup(LazyGroupKey) LazyEvalFunc
+}
+
+// HasLazyEvaluationReporting distinguishes remaining computation from opening
+// an already computed local part. Operational evaluation and child construction
+// still use HasLazyEvaluation. These methods must not perform I/O or evaluation.
+type HasLazyEvaluationReporting interface {
+	HasPendingLazyComputation() bool
+
+	// LazyGroupStoredPart returns the saved part opened by this group, or the
+	// empty key for ordinary computation. The answer remains stable after body
+	// consumption and operation clearing, including bookkeeping-only retries.
+	LazyGroupStoredPart(LazyGroupKey) PartKey
 }
 
 // HasDependencyResults is implemented by resolver-returned values that embed
@@ -620,6 +677,94 @@ func (s String) SetField(v reflect.Value) error {
 		return nil
 	default:
 		return fmt.Errorf("cannot set field of type %T with %T", v.Interface(), s)
+	}
+}
+
+// Bytes is a binary-safe GraphQL scalar. It is base64-encoded at GraphQL and
+// JSON boundaries and retained as raw bytes in DagQL inputs and call recipes.
+type Bytes []byte
+
+func NewBytes(val []byte) Bytes {
+	return Bytes(slices.Clone(val))
+}
+
+var _ ScalarType = Bytes(nil)
+
+func (Bytes) TypeName() string {
+	return "Bytes"
+}
+
+func (Bytes) TypeDefinition(_ call.View) *ast.Definition {
+	return &ast.Definition{
+		Kind:        ast.Scalar,
+		Name:        "Bytes",
+		Description: "Arbitrary binary data, represented as a base64-encoded string.",
+	}
+}
+
+func (Bytes) DecodeInput(val any) (Input, error) {
+	switch x := val.(type) {
+	case string:
+		decoded, err := base64.StdEncoding.DecodeString(x)
+		if err != nil {
+			return nil, fmt.Errorf("cannot decode Bytes from base64: %w", err)
+		}
+		return NewBytes(decoded), nil
+	case []byte:
+		return NewBytes(x), nil
+	case Bytes:
+		return NewBytes(x), nil
+	default:
+		return nil, fmt.Errorf("cannot create Bytes from %T", x)
+	}
+}
+
+func (b Bytes) Decoder() InputDecoder {
+	return Bytes(nil)
+}
+
+func (b Bytes) ToLiteral() call.Literal {
+	return call.NewLiteralBytes(b)
+}
+
+func (Bytes) Type() *ast.Type {
+	return &ast.Type{
+		NamedType: "Bytes",
+		NonNull:   true,
+	}
+}
+
+func (b Bytes) MarshalJSON() ([]byte, error) {
+	return json.Marshal(base64.StdEncoding.EncodeToString(b))
+}
+
+func (b *Bytes) UnmarshalJSON(payload []byte) error {
+	var encoded string
+	if err := json.Unmarshal(payload, &encoded); err != nil {
+		return err
+	}
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return fmt.Errorf("cannot decode Bytes from base64: %w", err)
+	}
+	*b = NewBytes(decoded)
+	return nil
+}
+
+func (b Bytes) Bytes() []byte {
+	return slices.Clone(b)
+}
+
+func (b Bytes) SetField(v reflect.Value) error {
+	switch v.Interface().(type) {
+	case Bytes:
+		v.Set(reflect.ValueOf(NewBytes(b)))
+		return nil
+	case []byte:
+		v.SetBytes(slices.Clone(b))
+		return nil
+	default:
+		return fmt.Errorf("cannot set field of type %T with %T", v.Interface(), b)
 	}
 }
 
@@ -1647,9 +1792,8 @@ func (e *EnumValues[T]) AliasView(val T, target T, view ViewFilter) T {
 	panic(fmt.Sprintf("cannot find enum %q", target))
 }
 
-func (e *EnumValues[T]) Install(srv *Server) {
-	var zero T
-	srv.scalars[zero.Type().Name()] = e
+func (e *EnumValues[T]) Install(srv *Server, filter ...ViewFilter) {
+	srv.InstallScalar(e, filter...)
 }
 
 type EnumValueName struct {
@@ -1725,8 +1869,8 @@ type InputObjectSpec struct {
 	Fields      InputSpecs
 }
 
-func (spec InputObjectSpec) Install(srv *Server) {
-	srv.InstallTypeDef(spec)
+func (spec InputObjectSpec) Install(srv *Server, filter ...ViewFilter) {
+	srv.InstallTypeDef(spec, filter...)
 }
 
 func (spec InputObjectSpec) Type() *ast.Type {

@@ -1,0 +1,7 @@
+=== RUN   TestNestedEngineDumpOptIn
+--- PASS: TestNestedEngineDumpOptIn (0.00s)
+=== RUN   TestNestedEngineDumpWritesEveryWatchedEngineOnce
+--- PASS: TestNestedEngineDumpWritesEveryWatchedEngineOnce (0.00s)
+PASS
+ok  	github.com/dagger/dagger/core/integration	0.085s
+exit=0 wall=14s

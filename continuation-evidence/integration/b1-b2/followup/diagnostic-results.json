@@ -1,0 +1,11 @@
+{
+  "name": "diagnostic-unfiltered",
+  "command": "env GOPATH=/home/exedev/go GOCACHE=/home/exedev/.cache/go-build go test -overlay=/tmp/b1-b2-followup/diagnostic-overlay.json -p=1 -exec='sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -count=1 -v",
+  "head": "8d99a010afc875466c999d44c174a5a0c95f3504",
+  "exit_status": 1,
+  "seconds": 28.663,
+  "started": "2026-09-16T09:15:29.939892+00:00",
+  "finished": "2026-09-16T09:15:58.603393+00:00",
+  "log": "diagnostic-unfiltered.log",
+  "overlay": "logging only; no assertions or branches removed"
+}

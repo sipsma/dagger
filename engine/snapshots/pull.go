@@ -3,11 +3,15 @@ package snapshots
 import (
 	"context"
 	"fmt"
+	"io"
 
+	"github.com/containerd/containerd/v2/core/content"
 	"github.com/containerd/containerd/v2/core/diff"
 	"github.com/containerd/containerd/v2/core/leases"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/dagger/dagger/internal/buildkit/client"
+	"github.com/dagger/dagger/internal/buildkit/identity"
+	"github.com/dagger/dagger/internal/buildkit/util/bklog"
 	"github.com/dagger/dagger/internal/buildkit/util/tracing"
 	telemetry "github.com/dagger/otel-go"
 	digest "github.com/opencontainers/go-digest"
@@ -23,16 +27,24 @@ func (cm *snapshotManager) ImportImage(
 	ctx context.Context,
 	img *ImportedImage,
 	opts ImportImageOpts,
-) (current ImmutableRef, rerr error) {
+) (_ ImmutableRef, rerr error) {
 	if img == nil {
 		return nil, errors.New("import image: nil image")
 	}
 	if opts.RecordType == "" {
 		opts.RecordType = client.UsageRecordTypeRegular
 	}
+	pin, ctx, err := cm.newResourcePin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var current ImmutableRef
 	defer func() {
-		if rerr != nil && current != nil {
-			_ = current.Release(context.WithoutCancel(ctx))
+		if rerr != nil {
+			if current != nil {
+				_ = current.Release(context.WithoutCancel(ctx))
+			}
+			_ = pin.release(ctx)
 		}
 	}()
 
@@ -49,7 +61,7 @@ func (cm *snapshotManager) ImportImage(
 	}()
 
 	for _, layer := range img.Layers {
-		next, err := cm.importImageLayer(ctx, layer, current, opts)
+		next, err := cm.importLayer(ctx, layer, current, nil, opts, false)
 		if err != nil {
 			return nil, err
 		}
@@ -119,15 +131,21 @@ func (cm *snapshotManager) ImportImage(
 		}
 	}
 
+	if err := cm.AttachLease(ctx, pin.id, current.SnapshotID()); err != nil {
+		return nil, err
+	}
+	current.(*immutableRef).pin = pin
 	return current, nil
 }
 
-//nolint:gocyclo,dupl // the blob-key and diff-key dedupe blocks are intentionally parallel; sharing hides the cache lookup/delete asymmetry
-func (cm *snapshotManager) importImageLayer(
+//nolint:gocyclo // Keep snapshot reuse, content ownership, and apply cleanup in one import flow.
+func (cm *snapshotManager) importLayer(
 	ctx context.Context,
 	desc ocispecs.Descriptor,
 	parent ImmutableRef,
+	provider content.Provider,
 	opts ImportImageOpts,
+	chainMode bool,
 ) (ImmutableRef, error) {
 	diffID, err := diffIDFromDescriptor(desc)
 	if err != nil {
@@ -140,8 +158,12 @@ func (cm *snapshotManager) importImageLayer(
 	}
 
 	lockKey := importedLayerDiffLockKey(parentSnapshotID, diffID)
-	cm.importLayerLocker.Lock(lockKey)
-	defer cm.importLayerLocker.Unlock(lockKey)
+	unlock, err := cm.importLayerLocker.acquire(ctx, lockKey)
+	if err != nil {
+		return nil, err
+	}
+
+	defer unlock()
 
 	blobKey := ImportedLayerBlobKey{
 		ParentSnapshotID: parentSnapshotID,
@@ -152,63 +174,25 @@ func (cm *snapshotManager) importImageLayer(
 		DiffID:           diffID,
 	}
 
-	if desc.Digest != "" {
-		cm.mu.Lock()
-		existingSnapshotID, ok := cm.importedLayerByBlob[blobKey]
-		cm.mu.Unlock()
-		if ok {
-			ref, err := cm.GetBySnapshotID(ctx, existingSnapshotID, NoUpdateLastUsed)
-			if err == nil {
-				imported, ok := ref.(*immutableRef)
-				if !ok {
-					_ = ref.Release(context.WithoutCancel(ctx))
-					return nil, fmt.Errorf("import image dedupe by blob: unexpected ref type %T", ref)
-				}
-				if opts.RecordType != "" {
-					if err := imported.SetRecordType(opts.RecordType); err != nil {
-						_ = ref.Release(context.WithoutCancel(ctx))
-						return nil, err
-					}
-				}
-				if opts.ImageRef != "" {
-					if err := setImageRefMetadata(imported.md, WithImageRef(opts.ImageRef)); err != nil {
-						_ = ref.Release(context.WithoutCancel(ctx))
-						return nil, err
-					}
-				}
-				return ref, nil
-			}
-			if !IsNotFound(err) {
+	cm.mu.Lock()
+	byBlob := cm.importedLayerByBlob[blobKey]
+	byDiff := cm.importedLayerByDiff[diffKey]
+	cm.mu.Unlock()
+	leaseID, _ := leases.FromContext(ctx)
+	for _, snapshotID := range []string{byBlob, byDiff} {
+		if snapshotID == "" {
+			continue
+		}
+		err := cm.AttachLease(ctx, leaseID, snapshotID)
+		if err == nil {
+			ref, err := cm.GetBySnapshotID(ctx, snapshotID, NoUpdateLastUsed)
+			if err != nil {
 				return nil, err
 			}
-			cm.mu.Lock()
-			delete(cm.importedLayerByBlob, blobKey)
-			cm.mu.Unlock()
-		}
-	}
-
-	cm.mu.Lock()
-	existingSnapshotID, ok := cm.importedLayerByDiff[diffKey]
-	cm.mu.Unlock()
-	if ok {
-		ref, err := cm.GetBySnapshotID(ctx, existingSnapshotID, NoUpdateLastUsed)
-		if err == nil {
-			imported, ok := ref.(*immutableRef)
-			if !ok {
+			imported := ref.(*immutableRef)
+			if err := setImportedImageMetadata(imported, opts); err != nil {
 				_ = ref.Release(context.WithoutCancel(ctx))
-				return nil, fmt.Errorf("import image dedupe by diff: unexpected ref type %T", ref)
-			}
-			if opts.RecordType != "" {
-				if err := imported.SetRecordType(opts.RecordType); err != nil {
-					_ = ref.Release(context.WithoutCancel(ctx))
-					return nil, err
-				}
-			}
-			if opts.ImageRef != "" {
-				if err := setImageRefMetadata(imported.md, WithImageRef(opts.ImageRef)); err != nil {
-					_ = ref.Release(context.WithoutCancel(ctx))
-					return nil, err
-				}
+				return nil, err
 			}
 			return ref, nil
 		}
@@ -216,8 +200,22 @@ func (cm *snapshotManager) importImageLayer(
 			return nil, err
 		}
 		cm.mu.Lock()
-		delete(cm.importedLayerByDiff, diffKey)
+		if cm.importedLayerByBlob[blobKey] == snapshotID {
+			delete(cm.importedLayerByBlob, blobKey)
+		}
+		if cm.importedLayerByDiff[diffKey] == snapshotID {
+			delete(cm.importedLayerByDiff, diffKey)
+		}
 		cm.mu.Unlock()
+	}
+
+	if err := cm.importLayerContent(ctx, desc, provider, chainMode); err != nil {
+		return nil, err
+	}
+	if parent != nil {
+		if err := cm.AttachLease(ctx, leaseID, parent.SnapshotID()); err != nil {
+			return nil, err
+		}
 	}
 
 	mut, err := cm.New(
@@ -225,7 +223,7 @@ func (cm *snapshotManager) importImageLayer(
 		parent,
 		nil,
 		WithRecordType(opts.RecordType),
-		WithDescription(fmt.Sprintf("import image layer %s", desc.Digest)),
+		WithDescription(fmt.Sprintf("import snapshot layer %s", desc.Digest)),
 		WithImageRef(opts.ImageRef),
 	)
 	if err != nil {
@@ -255,7 +253,7 @@ func (cm *snapshotManager) importImageLayer(
 	}
 	if _, err := cm.Applier.Apply(ctx, desc, mounts, applyOpts...); err != nil {
 		_ = unmount()
-		return nil, err
+		return nil, chainError(ctx, chainMode, desc, "apply", err)
 	}
 	if unpack != nil {
 		// a successful apply consumed the whole blob even if the
@@ -279,6 +277,12 @@ func (cm *snapshotManager) importImageLayer(
 		return nil, fmt.Errorf("import image layer %s: unexpected ref type %T", desc.Digest, ref)
 	}
 
+	// Before the blob metadata: a failed label leaves no reusable blob
+	// record behind.
+	if err := cm.labelSnapshotBlob(ctx, ref.SnapshotID(), desc.Digest); err != nil {
+		_ = ref.Release(context.WithoutCancel(ctx))
+		return nil, err
+	}
 	if err := imported.md.queueDiffID(diffID); err != nil {
 		_ = ref.Release(context.WithoutCancel(ctx))
 		return nil, err
@@ -336,6 +340,10 @@ func (cm *snapshotManager) importImageLayer(
 		return nil, err
 	}
 
+	if err := cm.AttachLease(ctx, leaseID, ref.SnapshotID()); err != nil {
+		_ = ref.Release(context.WithoutCancel(ctx))
+		return nil, err
+	}
 	cm.mu.Lock()
 	cm.importedLayerByBlob[blobKey] = ref.SnapshotID()
 	cm.importedLayerByDiff[diffKey] = ref.SnapshotID()
@@ -390,4 +398,136 @@ func (cm *snapshotManager) recordSnapshotContent(snapshotID string, desc ocispec
 		}
 	}
 	return nil
+}
+
+func setImportedImageMetadata(ref *immutableRef, opts ImportImageOpts) error {
+	if opts.RecordType != "" {
+		if err := ref.SetRecordType(opts.RecordType); err != nil {
+			return err
+		}
+	}
+	if opts.ImageRef != "" {
+		return setImageRefMetadata(ref.md, WithImageRef(opts.ImageRef))
+	}
+	return nil
+}
+
+// BuiltinLayersLeaseID is the persistent lease holding the blobs a chain
+// import copied from the builtin image store: builtin blobs, so engine
+// lifetime like the rest of the builtin images' content.
+const BuiltinLayersLeaseID = "dagger/builtin-image/layers"
+
+// importLayerContent pins local bytes before asking the supplied provider.
+// Writer acquisition checks again, before ReaderAt, if another key supplied
+// the same blob since our first lookup. A chain import consults the builtin
+// image store between the two: a layer of a builtin image is then copied
+// from the engine's own files, with no network, and held for the engine's
+// lifetime under BuiltinLayersLeaseID.
+func (cm *snapshotManager) importLayerContent(ctx context.Context, desc ocispecs.Descriptor, provider content.Provider, chainMode bool) (rerr error) {
+	present, err := cm.pinContent(ctx, desc)
+	if err != nil || present {
+		return err
+	}
+	if chainMode {
+		copied, err := cm.copyBuiltinLayer(ctx, desc)
+		if err != nil {
+			// The provider is the fallback, as a service outage never
+			// blocks an import: log and download as today.
+			bklog.G(ctx).WithError(err).Warnf("builtin image store could not supply layer %s; downloading it", desc.Digest)
+		} else if copied {
+			return nil
+		}
+	}
+	if provider == nil {
+		return chainError(ctx, chainMode, desc, "provider", errors.Wrapf(cerrdefs.ErrNotFound, "missing local layer %s", desc.Digest))
+	}
+	ref := "snapshot-import-" + identity.NewID()
+	writer, err := content.OpenWriter(ctx, cm.ContentStore, content.WithRef(ref), content.WithDescriptor(desc))
+	if cerrdefs.IsAlreadyExists(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = writer.Close()
+		if rerr != nil {
+			_ = cm.ContentStore.Abort(context.WithoutCancel(ctx), ref)
+		}
+	}()
+	reader, err := provider.ReaderAt(ctx, desc)
+	if err != nil {
+		return chainError(ctx, chainMode, desc, "provider", err)
+	}
+	defer reader.Close()
+	if chainMode {
+		return copyChainContent(ctx, writer, reader, desc)
+	}
+	return content.Copy(ctx, writer, io.NewSectionReader(reader, 0, reader.Size()), desc.Size, desc.Digest)
+}
+
+// copyBuiltinLayer copies the blob desc names from the builtin image store
+// into the content store when that store has exactly that digest with the
+// same size, binds it to the context lease and to the builtin layers lease,
+// and reports whether it did. A store without the digest reports false with
+// no error; a failure to read or write is an error for the caller to fall
+// through on. Nothing but the exact digest matches: a re-diffed form of a
+// builtin layer has another digest and is not found here.
+func (cm *snapshotManager) copyBuiltinLayer(ctx context.Context, desc ocispecs.Descriptor) (copied bool, rerr error) {
+	if cm.builtinContent == nil || desc.Digest == "" {
+		return false, nil
+	}
+	info, err := cm.builtinContent.Info(ctx, desc.Digest)
+	if cerrdefs.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, errors.Wrapf(err, "look up %s in the builtin image store", desc.Digest)
+	}
+	// Exact digest and exact size, always: a layer that says another size,
+	// zero included, is not this blob.
+	if info.Size != desc.Size {
+		return false, errors.Errorf("builtin image store has %s with size %d, the layer says %d", desc.Digest, info.Size, desc.Size)
+	}
+	ref := "builtin-layer-" + identity.NewID()
+	writer, err := content.OpenWriter(ctx, cm.ContentStore, content.WithRef(ref), content.WithDescriptor(desc))
+	if cerrdefs.IsAlreadyExists(err) {
+		return cm.pinBuiltinLayer(ctx, desc)
+	}
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		_ = writer.Close()
+		if rerr != nil {
+			_ = cm.ContentStore.Abort(context.WithoutCancel(ctx), ref)
+		}
+	}()
+	reader, err := cm.builtinContent.ReaderAt(ctx, ocispecs.Descriptor{Digest: desc.Digest, Size: info.Size})
+	if err != nil {
+		return false, errors.Wrapf(err, "read %s from the builtin image store", desc.Digest)
+	}
+	defer reader.Close()
+	if err := content.Copy(ctx, writer, io.NewSectionReader(reader, 0, reader.Size()), info.Size, desc.Digest); err != nil {
+		return false, errors.Wrapf(err, "copy %s from the builtin image store", desc.Digest)
+	}
+	return cm.pinBuiltinLayer(ctx, desc)
+}
+
+// pinBuiltinLayer binds a blob the builtin store supplied to the context
+// lease, so the import's own protection covers it, and to the persistent
+// builtin layers lease.
+func (cm *snapshotManager) pinBuiltinLayer(ctx context.Context, desc ocispecs.Descriptor) (bool, error) {
+	present, err := cm.pinContent(ctx, desc)
+	if err != nil {
+		return false, err
+	}
+	if !present {
+		return false, errors.Errorf("builtin layer %s is missing after its copy", desc.Digest)
+	}
+	if err := cm.PinContent(ctx, BuiltinLayersLeaseID, []ocispecs.Descriptor{desc}); err != nil {
+		return false, err
+	}
+	bklog.G(ctx).Debugf("layer %s copied from the builtin image store", desc.Digest)
+	return true, nil
 }

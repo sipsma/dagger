@@ -1,0 +1,730 @@
+[
+  {
+    "name": "cold-engine",
+    "command": "dagger -vv api call engine-dev test --pkg ./core/integration --run='TestRemoteCacheTransferSuite/TestSchemaRecoveryCold$' --timeout=5m --test-verbose",
+    "exit": 0,
+    "seconds": 484.565,
+    "trace": "2b27f7c4d377ce0352658e5f370d6f32",
+    "selectedTestSeconds": 199.09,
+    "outcome": "passed, no skips"
+  },
+  {
+    "name": "remaining-engine",
+    "command": "dagger -vv api call engine-dev test --pkg ./core/integration '--run=^(TestRemoteCacheTransferSuite|TestGit|TestHTTP|TestCachePersistence)$/^(TestSchemaRecovery|TestPartMixedExecOutputs|TestGitUncommittedLocal|TestGitUncommittedRemote|TestGitBundleRoundTripAndStockInterop|TestGitBundleImportAfterPrerequisiteRefAdvances|TestGitCommit|TestDiscardGitDir|TestGitDepth|TestGitTags|TestGitLatest|TestGitLatestFallsBackToHead|TestGitCommitReleaseTags|TestGitCommitReleaseTagFreshness|TestHTTPName|TestHTTPPermissions|TestHTTPChecksum|TestHTTPChecksumMismatch|TestHTTPTimestamp|TestHTTPETag|TestHTTPCachePerSessions|TestHTTPAuth|TestHTTPService|TestDiskPersistenceAcrossRestart)$' '--skip=^TestCachePersistence$/^TestDiskPersistenceAcrossRestart$/^(changeset_merge_operation_survives_restart|directory_and_file_restore_without_opening|module_function_directory_list_survives_repeated_restarts|module_core_metadata_returns_survive_restart|container_parts_preserve_mutations_and_unopened_snapshots|local_cache_survives_restart|lazy_imported_snapshot_links_count_toward_local_cache_usage_and_max-used_prune|unclean_shutdown_discards_local_cache_state_and_recovers|container_withNewFile_hit_survives_restart|container_selector_lazy_dependencies_survive_restart|directory_search_result_list_survives_restart|changeset_diff_stat_list_survives_restart|service-bound_graph_does_not_break_disk_persistence|generator_group_graph_does_not_break_disk_persistence|private_field_handle_survives_restart|function_cache_control_survives_restart|typescript_function_cache_control_survives_restart|contextual_function_cache_survives_restart|container_withExec_output_on_host_mount_survives_restart|container_withExec_output_on_host_mounted_file_survives_restart|container_child_exec_during_concurrent_mounted_directory_parent_eval|git_repository_and_ref_survive_restart|engine-dev_container_build_survives_restart|cache_volume_survives_restart|source-backed_cache_volume_supports_concurrent_mounts_after_restart)$' --timeout=15m --test-verbose",
+    "exit": 1,
+    "seconds": 1168.698,
+    "startedUnix": 1789598008.7502434,
+    "finishedUnix": 1789599177.4487116,
+    "trace": "124abeda8af965c452cf6c6b6094b9b5",
+    "tests": [
+      {
+        "test": "TestRemoteCacheTransferSuite",
+        "result": "PASS",
+        "seconds": 406.04
+      },
+      {
+        "test": "TestRemoteCacheTransferSuite/TestPartMixedExecOutputs",
+        "result": "PASS",
+        "seconds": 77.78
+      },
+      {
+        "test": "TestRemoteCacheTransferSuite/TestSchemaRecovery",
+        "result": "PASS",
+        "seconds": 328.26
+      },
+      {
+        "test": "TestRemoteCacheTransferSuite/TestSchemaRecovery/before",
+        "result": "PASS",
+        "seconds": 158.32
+      },
+      {
+        "test": "TestRemoteCacheTransferSuite/TestSchemaRecovery/after",
+        "result": "PASS",
+        "seconds": 74.32
+      },
+      {
+        "test": "TestRemoteCacheTransferSuite/TestSchemaRecovery/foreign_context",
+        "result": "PASS",
+        "seconds": 50.13
+      },
+      {
+        "test": "TestHTTP",
+        "result": "FAIL",
+        "seconds": 0.03
+      },
+      {
+        "test": "TestHTTP/TestHTTPName",
+        "result": "PASS",
+        "seconds": 0.76
+      },
+      {
+        "test": "TestHTTP/TestHTTPPermissions",
+        "result": "FAIL",
+        "seconds": 1.55
+      },
+      {
+        "test": "TestHTTP/TestHTTPCachePerSessions",
+        "result": "FAIL",
+        "seconds": 1.7
+      },
+      {
+        "test": "TestHTTP/TestHTTPTimestamp",
+        "result": "FAIL",
+        "seconds": 3.2
+      },
+      {
+        "test": "TestHTTP/TestHTTPChecksum",
+        "result": "FAIL",
+        "seconds": 3.37
+      },
+      {
+        "test": "TestHTTP/TestHTTPETag",
+        "result": "PASS",
+        "seconds": 3.42
+      },
+      {
+        "test": "TestHTTP/TestHTTPService",
+        "result": "FAIL",
+        "seconds": 3.46
+      },
+      {
+        "test": "TestHTTP/TestHTTPChecksumMismatch",
+        "result": "FAIL",
+        "seconds": 4.05
+      },
+      {
+        "test": "TestHTTP/TestHTTPAuth",
+        "result": "PASS",
+        "seconds": 11.69
+      },
+      {
+        "test": "TestCachePersistence",
+        "result": "PASS",
+        "seconds": 0.0
+      },
+      {
+        "test": "TestCachePersistence/TestDiskPersistenceAcrossRestart",
+        "result": "PASS",
+        "seconds": 0.03
+      },
+      {
+        "test": "TestCachePersistence/TestDiskPersistenceAcrossRestart/lazy_values_survive_restart",
+        "result": "PASS",
+        "seconds": 60.75
+      }
+    ],
+    "outcome": "see per-test results"
+  },
+  {
+    "name": "default-policy-opted-in",
+    "command": "dagger -vv api call engine-dev test --pkg ./core/integration '--run=TestRemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic$' --timeout=10m --test-verbose --env-file=file:/tmp/lazy-values-default.env",
+    "exit": 0,
+    "seconds": 429.524,
+    "startedUnix": 1789598008.748452,
+    "finishedUnix": 1789598438.2722619,
+    "runnerOverlay": "probes/default-policy-runner.patch",
+    "trace": "dc96140b4cfc0fb165575e120014be50",
+    "tests": [
+      {
+        "test": "TestRemoteCacheTransferSuite",
+        "result": "PASS",
+        "seconds": 161.87
+      },
+      {
+        "test": "TestRemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic",
+        "result": "PASS",
+        "seconds": 161.87
+      },
+      {
+        "test": "TestRemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic/after",
+        "result": "PASS",
+        "seconds": 77.2
+      }
+    ],
+    "outcome": "passed, no selected skips"
+  },
+  {
+    "name": "http-isolation",
+    "command": "dagger -vv api call engine-dev test --pkg ./core/integration --run='^TestHTTP$/^TestHTTPPermissions$' --timeout=3m --test-verbose",
+    "exit": 0,
+    "seconds": 230.097,
+    "startedUnix": 1789599707.3250227,
+    "finishedUnix": 1789599937.4216156,
+    "trace": "a3d813be26eb72979013bfb1ffe2f8b5",
+    "tests": [
+      {
+        "test": "TestHTTP",
+        "result": "PASS",
+        "seconds": 0.0
+      },
+      {
+        "test": "TestHTTP/TestHTTPPermissions",
+        "result": "PASS",
+        "seconds": 4.31
+      }
+    ],
+    "outcome": "passed, no selected skips"
+  },
+  {
+    "name": "http-git-final",
+    "command": "dagger -vv api call engine-dev test --pkg ./core/integration --run='^(TestHTTP|TestGit)$/^(TestHTTPPermissions|TestHTTPCachePerSessions|TestHTTPTimestamp|TestHTTPChecksum|TestHTTPService|TestHTTPChecksumMismatch|TestGitUncommittedLocal|TestGitUncommittedRemote|TestGitBundleRoundTripAndStockInterop|TestGitBundleImportAfterPrerequisiteRefAdvances|TestGitCommit|TestDiscardGitDir|TestGitDepth|TestGitTags|TestGitLatest|TestGitLatestFallsBackToHead|TestGitCommitReleaseTags|TestGitCommitReleaseTagFreshness)$' --timeout=15m --test-verbose",
+    "exit": 0,
+    "seconds": 158.117,
+    "startedUnix": 1789600141.3654006,
+    "finishedUnix": 1789600299.4827054,
+    "trace": "fd96be142f4e43783f9ace5ea4d087c5",
+    "tests": [
+      {
+        "test": "TestHTTP",
+        "result": "PASS",
+        "seconds": 0.01
+      },
+      {
+        "test": "TestHTTP/TestHTTPPermissions",
+        "result": "PASS",
+        "seconds": 13.02
+      },
+      {
+        "test": "TestHTTP/TestHTTPChecksumMismatch",
+        "result": "PASS",
+        "seconds": 13.31
+      },
+      {
+        "test": "TestHTTP/TestHTTPService",
+        "result": "PASS",
+        "seconds": 13.4
+      },
+      {
+        "test": "TestHTTP/TestHTTPChecksum",
+        "result": "PASS",
+        "seconds": 13.41
+      },
+      {
+        "test": "TestHTTP/TestHTTPTimestamp",
+        "result": "PASS",
+        "seconds": 13.95
+      },
+      {
+        "test": "TestHTTP/TestHTTPCachePerSessions",
+        "result": "PASS",
+        "seconds": 19.31
+      },
+      {
+        "test": "TestGit",
+        "result": "PASS",
+        "seconds": 0.01
+      },
+      {
+        "test": "TestGit/TestGitUncommittedRemote",
+        "result": "PASS",
+        "seconds": 1.59
+      },
+      {
+        "test": "TestGit/TestDiscardGitDir",
+        "result": "PASS",
+        "seconds": 0.28
+      },
+      {
+        "test": "TestGit/TestDiscardGitDir/git_dir_is_present",
+        "result": "PASS",
+        "seconds": 6.72
+      },
+      {
+        "test": "TestGit/TestDiscardGitDir/git_dir_is_not_present",
+        "result": "PASS",
+        "seconds": 3.79
+      },
+      {
+        "test": "TestGit/TestGitCommit",
+        "result": "PASS",
+        "seconds": 13.95
+      },
+      {
+        "test": "TestGit/TestGitLatest",
+        "result": "PASS",
+        "seconds": 14.57
+      },
+      {
+        "test": "TestGit/TestGitLatestFallsBackToHead",
+        "result": "PASS",
+        "seconds": 14.76
+      },
+      {
+        "test": "TestGit/TestGitCommitReleaseTags",
+        "result": "PASS",
+        "seconds": 15.26
+      },
+      {
+        "test": "TestGit/TestGitUncommittedLocal",
+        "result": "PASS",
+        "seconds": 15.27
+      },
+      {
+        "test": "TestGit/TestGitBundleImportAfterPrerequisiteRefAdvances",
+        "result": "PASS",
+        "seconds": 15.61
+      },
+      {
+        "test": "TestGit/TestGitBundleRoundTripAndStockInterop",
+        "result": "PASS",
+        "seconds": 16.17
+      },
+      {
+        "test": "TestGit/TestGitCommitReleaseTagFreshness",
+        "result": "PASS",
+        "seconds": 16.59
+      },
+      {
+        "test": "TestGit/TestGitDepth",
+        "result": "PASS",
+        "seconds": 16.96
+      },
+      {
+        "test": "TestGit/TestGitTags",
+        "result": "PASS",
+        "seconds": 1.69
+      },
+      {
+        "test": "TestGit/TestGitTags/remote",
+        "result": "PASS",
+        "seconds": 0.01
+      },
+      {
+        "test": "TestGit/TestGitTags/remote/prefix-qualified_tag_pattern",
+        "result": "PASS",
+        "seconds": 0.03
+      },
+      {
+        "test": "TestGit/TestGitTags/remote/branches_pattern",
+        "result": "PASS",
+        "seconds": 0.01
+      },
+      {
+        "test": "TestGit/TestGitTags/remote/all_branches",
+        "result": "PASS",
+        "seconds": 0.02
+      },
+      {
+        "test": "TestGit/TestGitTags/remote/all_tags",
+        "result": "PASS",
+        "seconds": 1.01
+      },
+      {
+        "test": "TestGit/TestGitTags/remote/ref-qualified_tag_pattern",
+        "result": "PASS",
+        "seconds": 0.04
+      },
+      {
+        "test": "TestGit/TestGitTags/remote/tag_pattern",
+        "result": "PASS",
+        "seconds": 0.08
+      },
+      {
+        "test": "TestGit/TestGitTags/remote_(short)",
+        "result": "PASS",
+        "seconds": 0.0
+      },
+      {
+        "test": "TestGit/TestGitTags/remote_(short)/all_tags",
+        "result": "PASS",
+        "seconds": 0.61
+      },
+      {
+        "test": "TestGit/TestGitTags/remote_(short)/prefix-qualified_tag_pattern",
+        "result": "PASS",
+        "seconds": 0.02
+      },
+      {
+        "test": "TestGit/TestGitTags/remote_(short)/branches_pattern",
+        "result": "PASS",
+        "seconds": 0.01
+      },
+      {
+        "test": "TestGit/TestGitTags/remote_(short)/all_branches",
+        "result": "PASS",
+        "seconds": 0.01
+      },
+      {
+        "test": "TestGit/TestGitTags/remote_(short)/ref-qualified_tag_pattern",
+        "result": "PASS",
+        "seconds": 0.04
+      },
+      {
+        "test": "TestGit/TestGitTags/remote_(short)/tag_pattern",
+        "result": "PASS",
+        "seconds": 0.13
+      },
+      {
+        "test": "TestGit/TestGitTags/local_worktree",
+        "result": "PASS",
+        "seconds": 0.0
+      },
+      {
+        "test": "TestGit/TestGitTags/local_worktree/branches_pattern",
+        "result": "PASS",
+        "seconds": 14.7
+      },
+      {
+        "test": "TestGit/TestGitTags/local_worktree/all_branches",
+        "result": "PASS",
+        "seconds": 14.61
+      },
+      {
+        "test": "TestGit/TestGitTags/local_worktree/prefix-qualified_tag_pattern",
+        "result": "PASS",
+        "seconds": 14.86
+      },
+      {
+        "test": "TestGit/TestGitTags/local_worktree/ref-qualified_tag_pattern",
+        "result": "PASS",
+        "seconds": 14.7
+      },
+      {
+        "test": "TestGit/TestGitTags/local_worktree/all_tags",
+        "result": "PASS",
+        "seconds": 15.3
+      },
+      {
+        "test": "TestGit/TestGitTags/local_worktree/tag_pattern",
+        "result": "PASS",
+        "seconds": 14.5
+      },
+      {
+        "test": "TestGit/TestGitTags/local_git",
+        "result": "PASS",
+        "seconds": 0.0
+      },
+      {
+        "test": "TestGit/TestGitTags/local_git/all_branches",
+        "result": "PASS",
+        "seconds": 13.06
+      },
+      {
+        "test": "TestGit/TestGitTags/local_git/branches_pattern",
+        "result": "PASS",
+        "seconds": 12.76
+      },
+      {
+        "test": "TestGit/TestGitTags/local_git/prefix-qualified_tag_pattern",
+        "result": "PASS",
+        "seconds": 13.28
+      },
+      {
+        "test": "TestGit/TestGitTags/local_git/ref-qualified_tag_pattern",
+        "result": "PASS",
+        "seconds": 12.86
+      },
+      {
+        "test": "TestGit/TestGitTags/local_git/tag_pattern",
+        "result": "PASS",
+        "seconds": 12.83
+      },
+      {
+        "test": "TestGit/TestGitTags/local_git/all_tags",
+        "result": "PASS",
+        "seconds": 13.71
+      }
+    ],
+    "outcome": "historical intermediate pass with subsequently rejected ownership retry; not final acceptance"
+  },
+  {
+    "name": "http-git-decision1",
+    "command": "dagger -vv api call engine-dev test --pkg ./core/integration --run='^(TestHTTP|TestGit)$/^(TestHTTPPermissions|TestHTTPCachePerSessions|TestHTTPTimestamp|TestHTTPChecksum|TestHTTPService|TestHTTPChecksumMismatch|TestGitUncommittedLocal|TestGitUncommittedRemote|TestGitBundleRoundTripAndStockInterop|TestGitBundleImportAfterPrerequisiteRefAdvances|TestGitCommit|TestDiscardGitDir|TestGitDepth|TestGitTags|TestGitLatest|TestGitLatestFallsBackToHead|TestGitCommitReleaseTags|TestGitCommitReleaseTagFreshness)$' --timeout=15m --test-verbose",
+    "exit": 0,
+    "seconds": 165.832,
+    "startedUnix": 1789601163.243712,
+    "finishedUnix": 1789601329.0752468,
+    "trace": "6f03c497f3c291aad6eefd9e8134b7e1",
+    "tests": [
+      {
+        "test": "TestHTTP",
+        "result": "PASS",
+        "seconds": 0.01
+      },
+      {
+        "test": "TestHTTP/TestHTTPPermissions",
+        "result": "PASS",
+        "seconds": 13.4
+      },
+      {
+        "test": "TestHTTP/TestHTTPChecksum",
+        "result": "PASS",
+        "seconds": 13.72
+      },
+      {
+        "test": "TestHTTP/TestHTTPService",
+        "result": "PASS",
+        "seconds": 13.72
+      },
+      {
+        "test": "TestHTTP/TestHTTPChecksumMismatch",
+        "result": "PASS",
+        "seconds": 13.8
+      },
+      {
+        "test": "TestHTTP/TestHTTPTimestamp",
+        "result": "PASS",
+        "seconds": 14.16
+      },
+      {
+        "test": "TestHTTP/TestHTTPCachePerSessions",
+        "result": "PASS",
+        "seconds": 19.57
+      },
+      {
+        "test": "TestGit",
+        "result": "PASS",
+        "seconds": 0.02
+      },
+      {
+        "test": "TestGit/TestGitUncommittedRemote",
+        "result": "PASS",
+        "seconds": 1.36
+      },
+      {
+        "test": "TestGit/TestDiscardGitDir",
+        "result": "PASS",
+        "seconds": 0.24
+      },
+      {
+        "test": "TestGit/TestDiscardGitDir/git_dir_is_present",
+        "result": "PASS",
+        "seconds": 8.07
+      },
+      {
+        "test": "TestGit/TestDiscardGitDir/git_dir_is_not_present",
+        "result": "PASS",
+        "seconds": 3.6
+      },
+      {
+        "test": "TestGit/TestGitCommit",
+        "result": "PASS",
+        "seconds": 14.39
+      },
+      {
+        "test": "TestGit/TestGitLatest",
+        "result": "PASS",
+        "seconds": 15.15
+      },
+      {
+        "test": "TestGit/TestGitLatestFallsBackToHead",
+        "result": "PASS",
+        "seconds": 15.36
+      },
+      {
+        "test": "TestGit/TestGitUncommittedLocal",
+        "result": "PASS",
+        "seconds": 15.68
+      },
+      {
+        "test": "TestGit/TestGitCommitReleaseTags",
+        "result": "PASS",
+        "seconds": 15.83
+      },
+      {
+        "test": "TestGit/TestGitBundleImportAfterPrerequisiteRefAdvances",
+        "result": "PASS",
+        "seconds": 15.77
+      },
+      {
+        "test": "TestGit/TestGitBundleRoundTripAndStockInterop",
+        "result": "PASS",
+        "seconds": 16.67
+      },
+      {
+        "test": "TestGit/TestGitDepth",
+        "result": "PASS",
+        "seconds": 17.23
+      },
+      {
+        "test": "TestGit/TestGitCommitReleaseTagFreshness",
+        "result": "PASS",
+        "seconds": 17.33
+      },
+      {
+        "test": "TestGit/TestGitTags",
+        "result": "PASS",
+        "seconds": 1.5
+      },
+      {
+        "test": "TestGit/TestGitTags/remote",
+        "result": "PASS",
+        "seconds": 0.0
+      },
+      {
+        "test": "TestGit/TestGitTags/remote/branches_pattern",
+        "result": "PASS",
+        "seconds": 0.03
+      },
+      {
+        "test": "TestGit/TestGitTags/remote/all_branches",
+        "result": "PASS",
+        "seconds": 0.04
+      },
+      {
+        "test": "TestGit/TestGitTags/remote/prefix-qualified_tag_pattern",
+        "result": "PASS",
+        "seconds": 0.39
+      },
+      {
+        "test": "TestGit/TestGitTags/remote/ref-qualified_tag_pattern",
+        "result": "PASS",
+        "seconds": 0.09
+      },
+      {
+        "test": "TestGit/TestGitTags/remote/all_tags",
+        "result": "PASS",
+        "seconds": 0.83
+      },
+      {
+        "test": "TestGit/TestGitTags/remote/tag_pattern",
+        "result": "PASS",
+        "seconds": 0.13
+      },
+      {
+        "test": "TestGit/TestGitTags/remote_(short)",
+        "result": "PASS",
+        "seconds": 0.0
+      },
+      {
+        "test": "TestGit/TestGitTags/remote_(short)/branches_pattern",
+        "result": "PASS",
+        "seconds": 0.15
+      },
+      {
+        "test": "TestGit/TestGitTags/remote_(short)/prefix-qualified_tag_pattern",
+        "result": "PASS",
+        "seconds": 0.28
+      },
+      {
+        "test": "TestGit/TestGitTags/remote_(short)/ref-qualified_tag_pattern",
+        "result": "PASS",
+        "seconds": 0.07
+      },
+      {
+        "test": "TestGit/TestGitTags/remote_(short)/all_branches",
+        "result": "PASS",
+        "seconds": 0.03
+      },
+      {
+        "test": "TestGit/TestGitTags/remote_(short)/all_tags",
+        "result": "PASS",
+        "seconds": 0.83
+      },
+      {
+        "test": "TestGit/TestGitTags/remote_(short)/tag_pattern",
+        "result": "PASS",
+        "seconds": 0.14
+      },
+      {
+        "test": "TestGit/TestGitTags/local_git",
+        "result": "PASS",
+        "seconds": 0.0
+      },
+      {
+        "test": "TestGit/TestGitTags/local_git/all_branches",
+        "result": "PASS",
+        "seconds": 13.06
+      },
+      {
+        "test": "TestGit/TestGitTags/local_git/branches_pattern",
+        "result": "PASS",
+        "seconds": 13.38
+      },
+      {
+        "test": "TestGit/TestGitTags/local_git/prefix-qualified_tag_pattern",
+        "result": "PASS",
+        "seconds": 13.68
+      },
+      {
+        "test": "TestGit/TestGitTags/local_git/ref-qualified_tag_pattern",
+        "result": "PASS",
+        "seconds": 13.02
+      },
+      {
+        "test": "TestGit/TestGitTags/local_git/tag_pattern",
+        "result": "PASS",
+        "seconds": 13.09
+      },
+      {
+        "test": "TestGit/TestGitTags/local_git/all_tags",
+        "result": "PASS",
+        "seconds": 14.65
+      },
+      {
+        "test": "TestGit/TestGitTags/local_worktree",
+        "result": "PASS",
+        "seconds": 0.0
+      },
+      {
+        "test": "TestGit/TestGitTags/local_worktree/all_branches",
+        "result": "PASS",
+        "seconds": 14.86
+      },
+      {
+        "test": "TestGit/TestGitTags/local_worktree/branches_pattern",
+        "result": "PASS",
+        "seconds": 14.91
+      },
+      {
+        "test": "TestGit/TestGitTags/local_worktree/prefix-qualified_tag_pattern",
+        "result": "PASS",
+        "seconds": 15.03
+      },
+      {
+        "test": "TestGit/TestGitTags/local_worktree/ref-qualified_tag_pattern",
+        "result": "PASS",
+        "seconds": 15.0
+      },
+      {
+        "test": "TestGit/TestGitTags/local_worktree/all_tags",
+        "result": "PASS",
+        "seconds": 15.27
+      },
+      {
+        "test": "TestGit/TestGitTags/local_worktree/tag_pattern",
+        "result": "PASS",
+        "seconds": 14.9
+      }
+    ],
+    "outcome": "passed, no selected skips; Decision 1 implementation"
+  },
+  {
+    "name": "round1-cold-mixed",
+    "command": "dagger -vv api call engine-dev test --pkg ./core/integration --run='^TestRemoteCacheTransferSuite$/^(TestSchemaRecoveryCold|TestPartMixedExecOutputs)$' --timeout=10m --test-verbose",
+    "exit": 0,
+    "seconds": 358.557,
+    "startedUnix": 1789602827.7450728,
+    "finishedUnix": 1789603186.3021529,
+    "sourceCommit": "c01bbbb29b56a44e17eb4785229612f011f6b6ef",
+    "trace": "45ee1c08f6b587ee1671a71d363a8179",
+    "tests": [
+      {
+        "test": "TestRemoteCacheTransferSuite",
+        "result": "PASS",
+        "seconds": 224.82
+      },
+      {
+        "test": "TestRemoteCacheTransferSuite/TestPartMixedExecOutputs",
+        "result": "PASS",
+        "seconds": 68.1
+      },
+      {
+        "test": "TestRemoteCacheTransferSuite/TestSchemaRecoveryCold",
+        "result": "PASS",
+        "seconds": 156.72
+      },
+      {
+        "test": "TestRemoteCacheTransferSuite/TestSchemaRecoveryCold/before",
+        "result": "PASS",
+        "seconds": 69.94
+      },
+      {
+        "test": "TestRemoteCacheTransferSuite/TestSchemaRecoveryCold/foreign_context",
+        "result": "PASS",
+        "seconds": 44.52
+      }
+    ],
+    "outcome": "passed, every cold control and mixed output ownership; no skips; R3 after R5"
+  }
+]

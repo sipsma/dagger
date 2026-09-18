@@ -1,0 +1,96 @@
+=== RUN   TestRemoteCacheExtraDigestMetadata
+=== RUN   TestRemoteCacheExtraDigestMetadata/unmarked
+=== RUN   TestRemoteCacheExtraDigestMetadata/detached
+=== RUN   TestRemoteCacheExtraDigestMetadata/attached
+--- PASS: TestRemoteCacheExtraDigestMetadata (0.07s)
+    --- PASS: TestRemoteCacheExtraDigestMetadata/unmarked (0.04s)
+    --- PASS: TestRemoteCacheExtraDigestMetadata/detached (0.02s)
+    --- PASS: TestRemoteCacheExtraDigestMetadata/attached (0.01s)
+=== RUN   TestOfferPartsPreparationWindow
+=== RUN   TestOfferPartsPreparationWindow/preparation_holds_references_across_collection
+=== RUN   TestOfferPartsPreparationWindow/new_offer_refused_after_preparation
+=== RUN   TestOfferPartsPreparationWindow/same-owner_refresh_refused_after_preparation
+=== RUN   TestOfferPartsPreparationWindow/different-owner_replacement_refused_after_preparation
+--- PASS: TestOfferPartsPreparationWindow (0.04s)
+    --- PASS: TestOfferPartsPreparationWindow/preparation_holds_references_across_collection (0.01s)
+    --- PASS: TestOfferPartsPreparationWindow/new_offer_refused_after_preparation (0.01s)
+    --- PASS: TestOfferPartsPreparationWindow/same-owner_refresh_refused_after_preparation (0.01s)
+    --- PASS: TestOfferPartsPreparationWindow/different-owner_replacement_refused_after_preparation (0.01s)
+=== RUN   TestOfferSettlementReplacement
+=== RUN   TestOfferSettlementReplacement/replacement_during_the_winning_acquisition_is_retired
+    cache_offer_matrix_test.go:239: real native snapshot transfer requires read-only bind mount privileges: mount source: "/tmp/TestOfferSettlementReplacementreplacement_during_the_winning_ac214095083/001", target: "/tmp/snapshot-transfer-mount2753708077", fstype: bind, flags: 20481, data: "", err: operation not permitted
+=== RUN   TestOfferSettlementReplacement/acceptance_after_commit_is_already_complete
+    cache_offer_matrix_test.go:262: real native snapshot transfer requires read-only bind mount privileges: mount source: "/tmp/TestOfferSettlementReplacementacceptance_after_commit_is_alread3953161387/001", target: "/tmp/snapshot-transfer-mount3514065545", fstype: bind, flags: 20481, data: "", err: operation not permitted
+=== RUN   TestOfferSettlementReplacement/failed_sync_keeps_the_output,_not_the_acquisition_hold
+    cache_offer_matrix_test.go:286: real native snapshot transfer requires read-only bind mount privileges: mount source: "/tmp/TestOfferSettlementReplacementfailed_sync_keeps_the_output,_not3001594831/001", target: "/tmp/snapshot-transfer-mount364520711", fstype: bind, flags: 20481, data: "", err: operation not permitted
+=== RUN   TestOfferSettlementReplacement/failed_sync_keeps_the_output,_not_the_acquisition_hold,_with_a_back-reference_to_the_receiver
+    cache_offer_matrix_test.go:286: real native snapshot transfer requires read-only bind mount privileges: mount source: "/tmp/TestOfferSettlementReplacementfailed_sync_keeps_the_output,_not2271502818/001", target: "/tmp/snapshot-transfer-mount2661998646", fstype: bind, flags: 20481, data: "", err: operation not permitted
+--- PASS: TestOfferSettlementReplacement (0.00s)
+    --- SKIP: TestOfferSettlementReplacement/replacement_during_the_winning_acquisition_is_retired (0.00s)
+    --- SKIP: TestOfferSettlementReplacement/acceptance_after_commit_is_already_complete (0.00s)
+    --- SKIP: TestOfferSettlementReplacement/failed_sync_keeps_the_output,_not_the_acquisition_hold (0.00s)
+    --- SKIP: TestOfferSettlementReplacement/failed_sync_keeps_the_output,_not_the_acquisition_hold,_with_a_back-reference_to_the_receiver (0.00s)
+=== RUN   TestOfferResourcesDoNotGateLookup
+    cache_offer_matrix_test.go:331: real native snapshot transfer requires read-only bind mount privileges: mount source: "/tmp/TestOfferResourcesDoNotGateLookup2516512580/001", target: "/tmp/snapshot-transfer-mount3361349423", fstype: bind, flags: 20481, data: "", err: operation not permitted
+--- SKIP: TestOfferResourcesDoNotGateLookup (0.00s)
+=== RUN   TestRenewalShutdownDrainsOwnership
+    cache_offer_matrix_test.go:434: real native snapshot transfer requires read-only bind mount privileges: mount source: "/tmp/TestRenewalShutdownDrainsOwnership3259697280/001", target: "/tmp/snapshot-transfer-mount2967222903", fstype: bind, flags: 20481, data: "", err: operation not permitted
+--- SKIP: TestRenewalShutdownDrainsOwnership (0.00s)
+=== RUN   TestOfferPendingRestartAndForward
+    cache_offer_restart_test.go:58: real native snapshot transfer requires read-only bind mount privileges: mount source: "/tmp/TestOfferPendingRestartAndForward84893510/001", target: "/tmp/snapshot-transfer-mount704569575", fstype: bind, flags: 20481, data: "", err: operation not permitted
+--- SKIP: TestOfferPendingRestartAndForward (0.00s)
+=== RUN   TestRemoteCacheUnusedRanking
+--- PASS: TestRemoteCacheUnusedRanking (0.01s)
+=== RUN   TestRemoteCacheUnusedCost
+    cache_offer_restart_test.go:169: real native snapshot transfer requires read-only bind mount privileges: mount source: "/tmp/TestRemoteCacheUnusedCost3601847861/001", target: "/tmp/snapshot-transfer-mount2939507438", fstype: bind, flags: 20481, data: "", err: operation not permitted
+--- SKIP: TestRemoteCacheUnusedCost (0.00s)
+=== RUN   TestOfferPartsBeforeStart
+=== RUN   TestOfferPartsBeforeStart/open
+=== RUN   TestOfferPartsBeforeStart/preparing
+=== RUN   TestOfferPartsBeforeStart/running
+=== RUN   TestOfferPartsBeforeStart/evaluated
+--- PASS: TestOfferPartsBeforeStart (0.06s)
+    --- PASS: TestOfferPartsBeforeStart/open (0.01s)
+    --- PASS: TestOfferPartsBeforeStart/preparing (0.01s)
+    --- PASS: TestOfferPartsBeforeStart/running (0.01s)
+    --- PASS: TestOfferPartsBeforeStart/evaluated (0.01s)
+=== RUN   TestOfferPartsInvalidatesSourceCheck
+--- PASS: TestOfferPartsInvalidatesSourceCheck (0.01s)
+=== RUN   TestOfferPartsOwnership
+--- PASS: TestOfferPartsOwnership (0.01s)
+=== RUN   TestOfferPartsResourcesAndSettlement
+--- PASS: TestOfferPartsResourcesAndSettlement (0.01s)
+=== RUN   TestOfferPartsInlineAndReferencedRows
+--- PASS: TestOfferPartsInlineAndReferencedRows (0.02s)
+=== RUN   TestOfferPartsClosesNativeAdmission
+--- PASS: TestOfferPartsClosesNativeAdmission (0.01s)
+=== RUN   TestOfferPartsAcceptedCleanupFailure
+--- PASS: TestOfferPartsAcceptedCleanupFailure (0.01s)
+=== RUN   TestRenewalChainControls
+    cache_part_content_test.go:699: real native snapshot transfer requires read-only bind mount privileges: mount source: "/tmp/TestRenewalChainControls1088196999/001", target: "/tmp/snapshot-transfer-mount3776399023", fstype: bind, flags: 20481, data: "", err: operation not permitted
+--- SKIP: TestRenewalChainControls (0.00s)
+=== RUN   TestRenewalExhaustion
+    cache_part_content_test.go:962: real native snapshot transfer requires read-only bind mount privileges: mount source: "/tmp/TestRenewalExhaustion433037565/001", target: "/tmp/snapshot-transfer-mount1795738713", fstype: bind, flags: 20481, data: "", err: operation not permitted
+--- SKIP: TestRenewalExhaustion (0.00s)
+=== RUN   TestRenewalMailbox
+=== RUN   TestRenewalMailbox/capacity_and_deadline
+=== RUN   TestRenewalMailbox/cancellation
+=== RUN   TestRenewalMailbox/cancellation_seen_before_the_requester_runs
+=== RUN   TestRenewalMailbox/replies
+=== RUN   TestRenewalMailbox/detach
+--- PASS: TestRenewalMailbox (0.00s)
+    --- PASS: TestRenewalMailbox/capacity_and_deadline (0.00s)
+    --- PASS: TestRenewalMailbox/cancellation (0.00s)
+    --- PASS: TestRenewalMailbox/cancellation_seen_before_the_requester_runs (0.00s)
+    --- PASS: TestRenewalMailbox/replies (0.00s)
+    --- PASS: TestRenewalMailbox/detach (0.00s)
+=== RUN   TestRenewalEpisodeSet
+--- PASS: TestRenewalEpisodeSet (0.00s)
+=== RUN   TestRenewalSettledEpisodeAfterDeadline
+--- PASS: TestRenewalSettledEpisodeAfterDeadline (0.00s)
+=== RUN   TestRenewalClaimKeepsSourceCheck
+--- PASS: TestRenewalClaimKeepsSourceCheck (0.01s)
+=== RUN   TestRemoteCacheBridgeAttachment
+--- PASS: TestRemoteCacheBridgeAttachment (0.01s)
+PASS
+ok  	github.com/dagger/dagger/dagql	0.374s

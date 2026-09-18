@@ -74,7 +74,7 @@ defmodule Dagger.Generator do
   end
 
   @doc """
-  Return the fully qualified name of the generator
+  Return the command name of the generator. Entrypoint targets omit the module prefix.
   """
   @spec name(t()) :: {:ok, String.t()} | {:error, term()}
   def name(%__MODULE__{} = generator) do
@@ -85,17 +85,31 @@ defmodule Dagger.Generator do
   end
 
   @doc """
-  The original module in which the generator has been defined
+  The module that defined the generator, or null for an engine-defined generator
   """
-  @spec original_module(t()) :: Dagger.Module.t()
+  @spec original_module(t()) :: {:ok, Dagger.Module.t() | nil} | {:error, term()}
   def original_module(%__MODULE__{} = generator) do
     query_builder =
-      generator.query_builder |> QB.select("originalModule")
+      generator.query_builder |> QB.select("originalModule") |> QB.select("id")
 
-    %Dagger.Module{
-      query_builder: query_builder,
-      client: generator.client
-    }
+    case Client.execute(generator.client, query_builder) do
+      {:ok, nil} ->
+        {:ok, nil}
+
+      {:ok, id} ->
+        {:ok,
+         %Dagger.Module{
+           query_builder:
+             QB.query()
+             |> QB.select("node")
+             |> QB.put_arg("id", id)
+             |> QB.inline_fragment("Module"),
+           client: generator.client
+         }}
+
+      error ->
+        error
+    end
   end
 
   @doc """

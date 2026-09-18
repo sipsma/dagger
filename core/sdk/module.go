@@ -69,6 +69,24 @@ func (sdk *module) CloneForModuleSource(*core.ModuleSource) core.SDK {
 	return &cp
 }
 
+// RuntimeTrustsCommittedFiles reports whether the SDK runtime can build the
+// module from committed generated files, without the introspection JSON. An
+// SDK declares it by making moduleRuntime's introspectionJson arg optional.
+func (sdk *module) RuntimeTrustsCommittedFiles() bool {
+	fn, ok := sdk.funcs["moduleRuntime"]
+	if !ok {
+		return false
+	}
+	for _, arg := range fn.Args {
+		if arg.Self() == nil || arg.Self().Name != introspectionJSONArgName {
+			continue
+		}
+		typeDef := arg.Self().TypeDef
+		return typeDef.Self() != nil && typeDef.Self().Optional
+	}
+	return false
+}
+
 func (sdk *module) instantiate(ctx context.Context) (*moduleInstance, error) {
 	dag, err := dagql.NewServer(ctx, sdk.root)
 	if err != nil {
@@ -276,6 +294,52 @@ func (sdk *module) AsClientGenerator() (core.ClientGenerator, bool) {
 	return &clientGeneratorModule{mod: sdk, funcs: sdk.funcs}, true
 }
 
+func (sdk *module) AsModuleInitializer() (core.ModuleInitializer, bool) {
+	if _, ok := sdk.funcs["initModule"]; !ok {
+		return nil, false
+	}
+
+	return &moduleInitializerModule{mod: sdk, funcs: sdk.funcs}, true
+}
+
+func (sdk *module) AsClientInitializer() (core.ClientInitializer, bool) {
+	if _, ok := sdk.funcs["initClient"]; !ok {
+		return nil, false
+	}
+
+	return &clientInitializerModule{mod: sdk, funcs: sdk.funcs}, true
+}
+
+func (sdk *module) AsModule() (dagql.ObjectResult[*core.Module], bool) {
+	return sdk.mod, true
+}
+
+func (sdk *module) AsRuntimeTarget() (core.RuntimeTarget, bool) {
+	if _, ok := sdk.funcs["targetRuntime"]; !ok {
+		return nil, false
+	}
+	return sdk, true
+}
+
+// TargetRuntime invokes the SDK module's `targetRuntime` field. The field
+// takes no arguments — it advertises which engine runtime the SDK's emitted
+// code targets. Called once at `dagger module init <SDK>` time; the returned
+// value is written into the new module's dagger-module.toml `[runtime]
+// source`.
+func (sdk *module) TargetRuntime(ctx context.Context) (string, error) {
+	sdkInst, err := sdk.instantiate(ctx)
+	if err != nil {
+		return "", fmt.Errorf("initialize sdk module %s targetRuntime: %w", sdk.mod.Self().Name(), err)
+	}
+	var out dagql.String
+	if err := sdkInst.dag.Select(ctx, sdkInst.sdk, &out, dagql.Selector{
+		Field: "targetRuntime",
+	}); err != nil {
+		return "", fmt.Errorf("call sdk %s targetRuntime: %w", sdk.mod.Self().Name(), err)
+	}
+	return out.String(), nil
+}
+
 func gqlFieldName(name string) string {
 	// gql field name is uncapitalized camel case
 	return strcase.ToLowerCamel(name)
@@ -313,4 +377,10 @@ func listImplementedFunctions(sdkMod *core.Module) map[string]*core.Function {
 	}
 
 	return result
+}
+
+// HasInitializer reports whether a module implements either SDK initializer.
+func HasInitializer(sdkMod *core.Module) bool {
+	functions := listImplementedFunctions(sdkMod)
+	return functions["initModule"] != nil || functions["initClient"] != nil
 }

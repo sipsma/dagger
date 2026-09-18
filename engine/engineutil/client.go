@@ -46,6 +46,7 @@ import (
 	"github.com/dagger/dagger/engine/session/store"
 	"github.com/dagger/dagger/engine/session/terminal"
 	"github.com/dagger/dagger/engine/slog"
+	"github.com/dagger/dagger/util/gitutil"
 )
 
 type SessionCaller interface {
@@ -61,6 +62,7 @@ type Opts struct {
 	Platforms        []ocispecs.Platform
 	NetworkProviders map[pb.NetMode]network.Provider
 	Snapshotter      bkcache.Snapshotter
+	LeaseManager     leases.Manager
 	ContentStore     *containerdsnapshot.Store
 	Applier          diff.Applier
 	Differ           diff.Comparer
@@ -105,13 +107,15 @@ type Client struct {
 }
 
 type sessionHandler interface {
-	ServeHTTPToNestedClient(http.ResponseWriter, *http.Request, *engine.ClientMetadata, string, bool, dagql.AnyObjectResult, dagql.Typed, dagql.AnyObjectResult)
+	RegisterNestedClientTransportForExec(context.Context, *engine.ClientMetadata, string, string) (*engine.NestedClientTransport, error)
+	ServeHTTPToNestedClient(w http.ResponseWriter, r *http.Request, transport *engine.NestedClientTransport, metadata *engine.ClientMetadata, callerClientID string, inertAttachables bool, moduleContext dagql.AnyObjectResult, functionCall dagql.Typed)
 }
 
 func NewOpts(opts Opts) (*Opts, error) {
 	imageWriter, err := imageexport.NewWriter(imageexport.WriterOpt{
 		Snapshotter:  opts.Snapshotter,
 		ContentStore: opts.ContentStore,
+		LeaseManager: opts.LeaseManager,
 		Applier:      opts.Applier,
 		Differ:       opts.Differ,
 	})
@@ -130,6 +134,7 @@ func NewClient(ctx context.Context, opts *Opts) (*Client, error) {
 		imageWriter, err := imageexport.NewWriter(imageexport.WriterOpt{
 			Snapshotter:  opts.Snapshotter,
 			ContentStore: opts.ContentStore,
+			LeaseManager: opts.LeaseManager,
 			Applier:      opts.Applier,
 			Differ:       opts.Differ,
 		})
@@ -289,13 +294,28 @@ func (c *Client) ListenHostToContainer(
 	sendL := &sync.Mutex{}
 
 	wg := new(sync.WaitGroup)
-	wg.Add(1)
+	wg.Add(2)
 	go func() {
 		defer wg.Done()
+		<-ctx.Done()
+		// Cancellation must close sockets before waiting for readers or
+		// writers: either can be blocked on a peer that stopped making progress.
+		connsL.Lock()
+		for _, conn := range conns {
+			conn.Close()
+		}
+		clear(conns)
+		connsL.Unlock()
+	}()
+	go func() {
+		defer wg.Done()
+		defer cancel(errors.New("tunnel receive loop stopped"))
 		for {
 			res, err := listener.Recv()
 			if err != nil {
-				slog.WarnContext(ctx, "listener recv err", "err", err)
+				if ctx.Err() == nil && !errors.Is(err, io.EOF) {
+					slog.WarnContext(ctx, "listener recv err", "err", err)
+				}
 				return
 			}
 
@@ -308,8 +328,21 @@ func (c *Client) ListenHostToContainer(
 			conn, found := conns[connID]
 			connsL.Unlock()
 
+			if res.GetClose() {
+				if found {
+					conn.Close()
+				}
+				continue
+			}
+
 			if !found {
-				conn, err = c.Dialer.Dial(proto, upstream)
+				// Only the initial, empty announcement opens a connection.
+				// Data can still arrive after its upstream has closed; it must
+				// not resurrect the retired socket.
+				if len(res.Data) != 0 {
+					continue
+				}
+				conn, err = c.Dialer.DialContext(ctx, proto, upstream)
 				if err != nil {
 					slog.WarnContext(ctx, "failed to dial", "proto", proto, "upstream", upstream, "err", err)
 					sendL.Lock()
@@ -325,64 +358,69 @@ func (c *Client) ListenHostToContainer(
 				}
 
 				connsL.Lock()
+				if ctx.Err() != nil {
+					connsL.Unlock()
+					conn.Close()
+					return
+				}
 				conns[connID] = conn
 				connsL.Unlock()
 
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
+					defer func() {
+						conn.Close()
+						connsL.Lock()
+						if conns[connID] != conn {
+							connsL.Unlock()
+							return
+						}
+						delete(conns, connID)
+						connsL.Unlock()
+
+						sendL.Lock()
+						err := listener.Send(&h2c.ListenRequest{ConnId: connID, Close: true})
+						sendL.Unlock()
+						if err != nil {
+							cancel(fmt.Errorf("send tunnel close: %w", err))
+						}
+					}()
 
 					data := make([]byte, 32*1024)
 					for {
-						n, err := conn.Read(data)
-						if err != nil {
-							break
+						n, readErr := conn.Read(data)
+						if n > 0 {
+							sendL.Lock()
+							err := listener.Send(&h2c.ListenRequest{ConnId: connID, Data: data[:n]})
+							sendL.Unlock()
+							if err != nil {
+								cancel(fmt.Errorf("send tunnel data: %w", err))
+								return
+							}
 						}
-
-						sendL.Lock()
-						err = listener.Send(&h2c.ListenRequest{
-							ConnId: connID,
-							Data:   data[:n],
-						})
-						sendL.Unlock()
-						if err != nil {
-							break
+						if readErr != nil {
+							return
 						}
 					}
-
-					sendL.Lock()
-					_ = listener.Send(&h2c.ListenRequest{
-						ConnId: connID,
-						Close:  true,
-					})
-					sendL.Unlock()
 				}()
 			}
 
 			if res.Data != nil {
 				_, err = conn.Write(res.Data)
 				if err != nil {
-					return
+					// The reader retires this socket and notifies the listener.
+					// One failed connection must not stop the whole tunnel.
+					conn.Close()
 				}
 			}
 		}
 	}()
 
 	return listenRes, func() error {
-		defer cancel(errors.New("listen host to container done"))
-		sendL.Lock()
-		err := listener.CloseSend()
-		sendL.Unlock()
-		connsL.Lock()
-		for _, conn := range conns {
-			conn.Close()
-		}
-		clear(conns)
-		connsL.Unlock()
-		if err == nil {
-			wg.Wait()
-		}
-		return err
+		cancel(errors.New("listen host to container done"))
+		wg.Wait()
+		return nil
 	}, nil
 }
 
@@ -486,6 +524,364 @@ func (c *Client) GetGitConfig(ctx context.Context) ([]*git.GitConfigEntry, error
 	default:
 		return nil, fmt.Errorf("unexpected response type")
 	}
+}
+
+// checkoutStateMethod and packCheckoutMethod are the RPCs' fully qualified
+// names, used to detect clients too old to know about them.
+const (
+	checkoutStateMethod   = "/dagger.git.Git/CheckoutState"
+	packCheckoutMethod    = "/dagger.git.Git/PackCheckout"
+	packUncommittedMethod = "/dagger.git.Git/PackUncommitted"
+)
+
+// ErrGitPackUnsupported reports that the client cannot pack a checkout with
+// its own git: either the client predates the PackCheckout RPC or it has no
+// git binary. Callers may degrade to whatever git state the synced tree
+// itself carries.
+var ErrGitPackUnsupported = errors.New("client cannot pack git checkouts")
+
+// ErrGitCheckoutStateChanged reports that a checkout moved while the engine
+// was selecting or receiving its pack. The caller should read its state again
+// and retry under the new cache key.
+var ErrGitCheckoutStateChanged = errors.New("git checkout state changed")
+
+// ErrGitUncommittedUnsupported reports that the client cannot provide a packed
+// working-tree delta. Callers may fall back to syncing the checkout directory.
+var ErrGitUncommittedUnsupported = errors.New("client cannot pack git worktrees")
+
+// GitCheckoutState asks the client for a digest of a local checkout's current
+// git state (HEAD, symbolic HEAD, branch and tag refs), resolved by the
+// client's own git so every checkout layout works. The digest changes exactly
+// when the checkout's refs move, making it the cache key for PackGitCheckout.
+//
+// A checkout that is not a git repository reports gitutil.ErrGitNoRepo.
+func (c *Client) GitCheckoutState(ctx context.Context, checkoutPath string) (string, error) {
+	md, err := engine.ClientMetadataFromContext(ctx)
+	if err != nil {
+		return "", err
+	}
+	caller, err := c.GetHostServiceCaller(ctx, md.ClientID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get client caller for %q: %w", md.ClientID, err)
+	}
+	if !caller.Supports(checkoutStateMethod) {
+		return "", ErrGitPackUnsupported
+	}
+
+	response, err := git.NewGitClient(caller.Conn()).CheckoutState(ctx, &git.CheckoutStateRequest{
+		CheckoutPath: checkoutPath,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to query git checkout state: %w", err)
+	}
+
+	switch result := response.Result.(type) {
+	case *git.CheckoutStateResponse_StateDigest:
+		return result.StateDigest, nil
+	case *git.CheckoutStateResponse_Error:
+		switch result.Error.Type {
+		case git.NOT_A_REPO:
+			return "", fmt.Errorf("%s: %w", result.Error.Message, gitutil.ErrGitNoRepo)
+		case git.NOT_FOUND:
+			return "", fmt.Errorf("%s: %w", result.Error.Message, ErrGitPackUnsupported)
+		default:
+			return "", errors.New(result.Error.Message)
+		}
+	default:
+		return "", fmt.Errorf("unexpected response type")
+	}
+}
+
+// GitCheckoutPack is a client checkout's repository, packed by the client's
+// own git: a bundle of HEAD plus all branches and tags, with the metadata
+// needed to reconstruct a standalone repository from it. A repository with no
+// commits yet (unborn HEAD) has an empty HeadSHA and no BundlePath. The caller
+// must call Close to release the owned bundle file.
+type GitCheckoutPack struct {
+	HeadSHA      string
+	HeadRef      string
+	ObjectFormat string
+	StateDigest  string
+	BundlePath   string
+}
+
+// Close releases the checkout bundle owned by pack.
+func (pack *GitCheckoutPack) Close() error {
+	if pack == nil || pack.BundlePath == "" {
+		return nil
+	}
+	err := os.Remove(pack.BundlePath)
+	pack.BundlePath = ""
+	return err
+}
+
+// PackGitCheckout asks the client to pack a local checkout's repository with
+// its own git. See GitCheckoutPack. A checkout that is not a git repository
+// reports gitutil.ErrGitNoRepo.
+func (c *Client) PackGitCheckout(ctx context.Context, checkoutPath, expectedStateDigest string) (_ *GitCheckoutPack, rerr error) {
+	md, err := engine.ClientMetadataFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	caller, err := c.GetHostServiceCaller(ctx, md.ClientID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get client caller for %q: %w", md.ClientID, err)
+	}
+	if !caller.Supports(packCheckoutMethod) {
+		return nil, ErrGitPackUnsupported
+	}
+
+	stream, err := git.NewGitClient(caller.Conn()).PackCheckout(ctx, &git.PackCheckoutRequest{
+		CheckoutPath:        checkoutPath,
+		ExpectedStateDigest: expectedStateDigest,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to open pack stream: %w", err)
+	}
+
+	var (
+		pack  *GitCheckoutPack
+		spool *gitPackSpool
+	)
+	defer func() {
+		if rerr != nil && spool != nil {
+			_ = spool.remove()
+		}
+	}()
+	for {
+		resp, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to receive checkout pack: %w", err)
+		}
+		switch msg := resp.Msg.(type) {
+		case *git.PackCheckoutResponse_Metadata:
+			if pack != nil {
+				return nil, fmt.Errorf("received more than one pack metadata message")
+			}
+			if errInfo := msg.Metadata.GetError(); errInfo != nil {
+				switch errInfo.Type {
+				case git.NOT_A_REPO:
+					return nil, fmt.Errorf("%s: %w", errInfo.Message, gitutil.ErrGitNoRepo)
+				case git.NOT_FOUND:
+					return nil, fmt.Errorf("%s: %w", errInfo.Message, ErrGitPackUnsupported)
+				case git.CHECKOUT_STATE_MISMATCH:
+					return nil, fmt.Errorf("%s: %w", errInfo.Message, ErrGitCheckoutStateChanged)
+				default:
+					return nil, errors.New(errInfo.Message)
+				}
+			}
+			pack = &GitCheckoutPack{
+				HeadSHA:      msg.Metadata.HeadSha,
+				HeadRef:      msg.Metadata.HeadRef,
+				ObjectFormat: msg.Metadata.ObjectFormat,
+				StateDigest:  msg.Metadata.StateDigest,
+			}
+		case *git.PackCheckoutResponse_Chunk:
+			if pack == nil {
+				return nil, fmt.Errorf("received bundle data before pack metadata")
+			}
+			if spool == nil {
+				spool, err = newGitPackSpool("dagger-checkout-pack-*", git.MaxGitPackBytes)
+				if err != nil {
+					return nil, fmt.Errorf("create checkout pack spool: %w", err)
+				}
+			}
+			if err := spool.write(msg.Chunk); err != nil {
+				return nil, fmt.Errorf("receive checkout pack: %w", err)
+			}
+		}
+	}
+	if pack == nil {
+		return nil, fmt.Errorf("missing pack metadata message")
+	}
+	if pack.StateDigest == "" {
+		return nil, fmt.Errorf("checkout pack is missing its state digest")
+	}
+	if expectedStateDigest != "" && pack.StateDigest != expectedStateDigest {
+		return nil, fmt.Errorf("checkout pack state %s does not match expected %s: %w", pack.StateDigest, expectedStateDigest, ErrGitCheckoutStateChanged)
+	}
+	if pack.HeadSHA != "" && (spool == nil || spool.size == 0) {
+		return nil, fmt.Errorf("missing bundle for checkout at %s", pack.HeadSHA)
+	}
+	if spool != nil {
+		pack.BundlePath, err = spool.finish()
+		if err != nil {
+			return nil, fmt.Errorf("finish checkout pack spool: %w", err)
+		}
+	}
+	return pack, nil
+}
+
+// GitUncommittedPack is a checkout's git-visible working-tree delta relative to
+// HeadSHA. PatchPath names an owned binary git patch. NestedRepositories are
+// omitted from the patch but retain their boundaries when it is materialized
+// engine-side. The caller must call Close to release the patch file.
+type GitUncommittedPack struct {
+	HeadSHA            string
+	NestedRepositories []string
+	PatchPath          string
+}
+
+// Close releases the uncommitted patch owned by pack.
+func (pack *GitUncommittedPack) Close() error {
+	if pack == nil || pack.PatchPath == "" {
+		return nil
+	}
+	err := os.Remove(pack.PatchPath)
+	pack.PatchPath = ""
+	return err
+}
+
+// PackGitUncommitted asks the client to stream the working-tree delta relative to
+// expectedHeadSHA. Older clients and checkout states without a canonical HEAD
+// report ErrGitUncommittedUnsupported so callers can retain the directory-sync
+// fallback.
+func (c *Client) PackGitUncommitted(ctx context.Context, checkoutPath, expectedHeadSHA string) (_ *GitUncommittedPack, rerr error) {
+	md, err := engine.ClientMetadataFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	caller, err := c.GetHostServiceCaller(ctx, md.ClientID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get client caller for %q: %w", md.ClientID, err)
+	}
+	if !caller.Supports(packUncommittedMethod) {
+		return nil, ErrGitUncommittedUnsupported
+	}
+
+	stream, err := git.NewGitClient(caller.Conn()).PackUncommitted(ctx, &git.PackUncommittedRequest{
+		CheckoutPath:    checkoutPath,
+		ExpectedHeadSha: expectedHeadSHA,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to open uncommitted pack stream: %w", err)
+	}
+
+	var (
+		pack  *GitUncommittedPack
+		spool *gitPackSpool
+	)
+	defer func() {
+		if rerr != nil && spool != nil {
+			_ = spool.remove()
+		}
+	}()
+	for {
+		resp, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to receive uncommitted pack: %w", err)
+		}
+		switch msg := resp.Msg.(type) {
+		case *git.PackUncommittedResponse_Metadata:
+			if pack != nil {
+				return nil, fmt.Errorf("received more than one uncommitted metadata message")
+			}
+			if errInfo := msg.Metadata.GetError(); errInfo != nil {
+				switch errInfo.Type {
+				case git.NOT_A_REPO:
+					return nil, fmt.Errorf("%s: %w", errInfo.Message, gitutil.ErrGitNoRepo)
+				case git.NOT_FOUND, git.UNCOMMITTED_UNSUPPORTED:
+					return nil, fmt.Errorf("%s: %w", errInfo.Message, ErrGitUncommittedUnsupported)
+				default:
+					return nil, errors.New(errInfo.Message)
+				}
+			}
+			pack = &GitUncommittedPack{
+				HeadSHA:            msg.Metadata.HeadSha,
+				NestedRepositories: append([]string(nil), msg.Metadata.NestedRepositories...),
+			}
+		case *git.PackUncommittedResponse_Chunk:
+			if pack == nil {
+				return nil, fmt.Errorf("received uncommitted patch before metadata")
+			}
+			if spool == nil {
+				spool, err = newGitPackSpool("dagger-uncommitted-pack-*", git.MaxGitPackBytes)
+				if err != nil {
+					return nil, fmt.Errorf("create uncommitted pack spool: %w", err)
+				}
+			}
+			if err := spool.write(msg.Chunk); err != nil {
+				return nil, fmt.Errorf("receive uncommitted pack: %w", err)
+			}
+		}
+	}
+	if pack == nil {
+		return nil, fmt.Errorf("missing uncommitted pack metadata message")
+	}
+	if pack.HeadSHA != expectedHeadSHA {
+		return nil, fmt.Errorf("uncommitted pack HEAD %s does not match expected %s", pack.HeadSHA, expectedHeadSHA)
+	}
+	if spool != nil {
+		pack.PatchPath, err = spool.finish()
+		if err != nil {
+			return nil, fmt.Errorf("finish uncommitted pack spool: %w", err)
+		}
+	}
+	return pack, nil
+}
+
+type gitPackSpool struct {
+	file  *os.File
+	path  string
+	size  int64
+	limit int64
+}
+
+func newGitPackSpool(pattern string, limit int64) (*gitPackSpool, error) {
+	file, err := os.CreateTemp("", pattern)
+	if err != nil {
+		return nil, err
+	}
+	return &gitPackSpool{
+		file:  file,
+		path:  file.Name(),
+		limit: limit,
+	}, nil
+}
+
+func (spool *gitPackSpool) write(chunk []byte) error {
+	if int64(len(chunk)) > spool.limit-spool.size {
+		return fmt.Errorf("git pack exceeds limit %d", spool.limit)
+	}
+	n, err := spool.file.Write(chunk)
+	spool.size += int64(n)
+	if err != nil {
+		return err
+	}
+	if n != len(chunk) {
+		return io.ErrShortWrite
+	}
+	return nil
+}
+
+func (spool *gitPackSpool) finish() (string, error) {
+	if spool.file == nil {
+		return spool.path, nil
+	}
+	if err := spool.file.Close(); err != nil {
+		return "", err
+	}
+	spool.file = nil
+	return spool.path, nil
+}
+
+func (spool *gitPackSpool) remove() error {
+	if spool.file != nil {
+		_ = spool.file.Close()
+		spool.file = nil
+	}
+	if spool.path == "" {
+		return nil
+	}
+	err := os.Remove(spool.path)
+	spool.path = ""
+	return err
 }
 
 type TerminalClient struct {

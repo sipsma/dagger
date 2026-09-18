@@ -178,8 +178,11 @@ func TestTestHierarchyCountsAndSuites(t *testing.T) {
 	if parentNode == nil {
 		t.Fatal("missing parent test node")
 	}
-	if got := parentNode.Counts.Total(); got != 3 {
-		t.Fatalf("expected parent plus two subtests to count as 3 tests, got %d", got)
+	if got := parentNode.Counts.Total(); got != 2 {
+		t.Fatalf("expected only the two leaf subtests to count, got %d", got)
+	}
+	if got := parentNode.Counts.Passing; got != 2 {
+		t.Fatalf("expected two passing leaves, got %d", got)
 	}
 
 	db = NewDB()
@@ -196,8 +199,17 @@ func TestTestHierarchyCountsAndSuites(t *testing.T) {
 	failingChild := testSnapshot(2, "child", passingParent.ID, TestStatusFailure)
 	db.ImportSnapshots([]SpanSnapshot{passingParent, failingChild})
 	parentNode = db.TestView().FindCaseByName("parent")
-	if parentNode.Counts.Failing != 1 || parentNode.Counts.Passing != 1 || parentNode.Category != TestCategoryFailing {
-		t.Fatalf("expected passing parent + failing child aggregate failure, got counts=%+v category=%s", parentNode.Counts, parentNode.Category)
+	if parentNode.Counts.Failing != 1 || parentNode.Counts.Passing != 0 || parentNode.Category != TestCategoryFailing {
+		t.Fatalf("expected only the failing child to count, got counts=%+v category=%s", parentNode.Counts, parentNode.Category)
+	}
+
+	db = NewDB()
+	failedParent = testSnapshot(1, "parent", SpanID{}, TestStatusFailure)
+	failingChild = testSnapshot(2, "child", failedParent.ID, TestStatusFailure)
+	db.ImportSnapshots([]SpanSnapshot{failedParent, failingChild})
+	parentNode = db.TestView().FindCaseByName("parent")
+	if parentNode.Counts.Failing != 1 || parentNode.Counts.Total() != 1 {
+		t.Fatalf("expected a failing parent not to double-count its failing child, got counts=%+v", parentNode.Counts)
 	}
 
 	db = NewDB()
@@ -329,6 +341,104 @@ func TestTestViewForSpanScopesVirtualSuites(t *testing.T) {
 	}
 }
 
+func TestTestViewsRespectRootRelativeContainment(t *testing.T) {
+	const missingParentID byte = 99
+
+	root := testSnapshot(1, "root metadata ignored", SpanID{}, TestStatusSuccess)
+	root.TestCaseName = ""
+	visible := testSnapshot(2, "visible", root.ID, TestStatusSuccess)
+	boundary := boundarySnapshot(3, 1)
+	direct := testSnapshot(4, "direct boundary test", boundary.ID, TestStatusFailure)
+	nestedBarrier := SpanSnapshot{
+		ID:          testID(5),
+		TraceID:     TraceID{TraceID: trace.TraceID{1}},
+		Name:        "nested encapsulation",
+		ParentID:    boundary.ID,
+		Encapsulate: true,
+	}
+	nested := testSnapshot(6, "nested contained test", nestedBarrier.ID, TestStatusFailure)
+	severed := testSnapshot(7, "severed orphan", testID(missingParentID), TestStatusSkipped)
+	importedRoot := SpanSnapshot{ID: testID(8), TraceID: TraceID{TraceID: trace.TraceID{2}}, Name: "imported root"}
+	imported := testSnapshot(9, "imported test", importedRoot.ID, TestStatusSuccess)
+	imported.TraceID = importedRoot.TraceID
+
+	db := NewDB()
+	db.ImportSnapshots([]SpanSnapshot{root, visible, boundary, direct, nestedBarrier, nested, severed, importedRoot, imported})
+
+	global := db.TestView()
+	for _, name := range []string{"visible", "severed orphan", "imported test"} {
+		if global.FindCaseByName(name) == nil {
+			t.Errorf("global all-traces view lost %q", name)
+		}
+	}
+	for _, name := range []string{"direct boundary test", "nested contained test"} {
+		if global.FindCaseByName(name) != nil {
+			t.Errorf("global all-traces view let boundary-owned %q escape", name)
+		}
+	}
+
+	boundarySpan := db.Spans.Map[boundary.ID]
+	scoped := db.TestViewForSpan(boundarySpan)
+	if scoped.FindCaseByName("direct boundary test") == nil {
+		t.Fatal("a root's own Boundary must not hide its direct test")
+	}
+	for _, name := range []string{"nested contained test", "visible", "severed orphan", "imported test"} {
+		if scoped.FindCaseByName(name) != nil {
+			t.Errorf("boundary-scoped view unexpectedly included %q", name)
+		}
+	}
+	if again := db.TestViewForSpan(boundarySpan); again != scoped {
+		t.Fatal("repeated scoped reads must keep using the per-root memo")
+	}
+}
+
+func TestTestViewRebuildsWhenAncestorBecomesBoundary(t *testing.T) {
+	db := NewDB()
+	root := SpanSnapshot{ID: testID(1), TraceID: TraceID{TraceID: trace.TraceID{1}}, Name: "root"}
+	orphan := testSnapshot(2, "temporarily orphaned", testID(3), TestStatusSuccess)
+	db.ImportSnapshots([]SpanSnapshot{root, orphan})
+
+	before := db.TestView()
+	if before.FindCaseByName("temporarily orphaned") == nil {
+		t.Fatal("nil-root view must preserve a test whose loaded chain has no boundary")
+	}
+
+	boundary := boundarySnapshot(3, 1)
+	db.ImportSnapshots([]SpanSnapshot{boundary})
+	after := db.TestView()
+	if after == before {
+		t.Fatal("loading a containing boundary must invalidate the global test view")
+	}
+	if after.FindCaseByName("temporarily orphaned") != nil {
+		t.Fatal("test escaped after its previously missing ancestor became a boundary")
+	}
+	if scoped := db.TestViewForSpan(db.Spans.Map[boundary.ID]); scoped.FindCaseByName("temporarily orphaned") == nil {
+		t.Fatal("the same test must remain visible relative to its owning boundary")
+	}
+}
+
+func TestContainedTestDiscoveryKeepsGlobalViewIncremental(t *testing.T) {
+	db := NewDB()
+	root := SpanSnapshot{ID: testID(1), TraceID: TraceID{TraceID: trace.TraceID{1}}, Name: "root"}
+	boundary := boundarySnapshot(2, 1)
+	db.ImportSnapshots([]SpanSnapshot{root, boundary})
+
+	global := db.TestView()
+	rebuilds := db.testIndex.structuralRebuildCount
+	contained := testSnapshot(3, "tool-owned", boundary.ID, TestStatusSuccess)
+	db.ImportSnapshots([]SpanSnapshot{contained})
+
+	if after := db.TestView(); after != global {
+		t.Fatal("discovering a contained test must preserve the unchanged global view")
+	}
+	if db.testIndex.structuralRebuildCount != rebuilds {
+		t.Fatalf("contained test triggered a global rebuild: %d -> %d", rebuilds, db.testIndex.structuralRebuildCount)
+	}
+	if scoped := db.TestViewForSpan(db.Spans.Map[boundary.ID]); scoped.FindCaseByName("tool-owned") == nil {
+		t.Fatal("contained test was not retained for its boundary-scoped view")
+	}
+}
+
 func TestPartitionTests(t *testing.T) {
 	db := NewDB()
 	failing := testSnapshot(1, "failing", SpanID{}, TestStatusFailure)
@@ -427,5 +537,89 @@ func TestTestIndexIncrementalBehavior(t *testing.T) {
 	}
 	if got := newView.Counts.Total(); got != 2 {
 		t.Fatalf("expected two tests after adding second test, got %d", got)
+	}
+}
+
+func TestFilterCasesKeepsCaselessFailingSuite(t *testing.T) {
+	db := NewDB()
+	start := time.Unix(100, 0)
+	suite := func(id byte, name string, status TestStatus, code codes.Code) SpanSnapshot {
+		return SpanSnapshot{
+			ID:            testID(id),
+			TraceID:       TraceID{TraceID: trace.TraceID{1}},
+			Name:          name,
+			StartTime:     start,
+			EndTime:       start.Add(time.Second),
+			TestSuiteName: name,
+			TestStatus:    status,
+			Status:        sdktrace.Status{Code: code},
+			Final:         true,
+		}
+	}
+	db.ImportSnapshots([]SpanSnapshot{
+		// A test package that failed with no cases, e.g. a compile failure.
+		suite(1, "broken/pkg", TestStatusFailure, codes.Error),
+		// A package with no test files: case-less but only skipped.
+		suite(2, "empty/pkg", TestStatusSkipped, codes.Ok),
+	})
+	view := db.TestView()
+
+	filtered := view.FilterCases(func(*TestNode) bool { return true })
+	node := filtered.FindSuiteByName("broken/pkg")
+	if node == nil {
+		t.Fatal("case-less failing suite must survive FilterCases")
+	}
+	if node.Span == nil {
+		t.Fatal("case-less failing suite must keep its span (summaries render from it)")
+	}
+	if node.Category != TestCategoryFailing {
+		t.Fatalf("case-less failing suite must stay failing, got %v", node.Category)
+	}
+	if filtered.FindSuiteByName("empty/pkg") != nil {
+		t.Fatal("case-less skipped suite is noise and must stay pruned")
+	}
+
+	// A claimed (keep=false) case-less failing suite is dropped, so a check's
+	// own test report doesn't repeat into the global section.
+	claimed := view.FilterCases(func(*TestNode) bool { return false })
+	if claimed.FindSuiteByName("broken/pkg") != nil {
+		t.Fatal("claimed case-less suite must be dropped")
+	}
+}
+
+func TestViewForSpanMemoizedPerFrame(t *testing.T) {
+	db := NewDB()
+	db.ImportSnapshots([]SpanSnapshot{
+		{
+			ID:        testID(1),
+			TraceID:   TraceID{TraceID: trace.TraceID{1}},
+			Name:      "check root",
+			StartTime: time.Unix(1, 0),
+			EndTime:   time.Unix(5, 0),
+			Status:    sdktrace.Status{Code: codes.Ok},
+		},
+		testSnapshot(2, "case-a", testID(1), TestStatusSuccess),
+	})
+	root := db.Spans.Map[testID(1)]
+
+	first := db.TestViewForSpan(root)
+	if first == nil || !first.HasTests() {
+		t.Fatal("expected a test view for the root")
+	}
+	if again := db.TestViewForSpan(root); again != first {
+		t.Fatal("repeated same-frame reads must hit the memo")
+	}
+
+	// New span data must invalidate the memo -- even data arriving through a
+	// plain DB mutation rather than a test-index change.
+	db.ImportSnapshots([]SpanSnapshot{
+		testSnapshot(3, "case-b", testID(1), TestStatusFailure),
+	})
+	fresh := db.TestViewForSpan(root)
+	if fresh == first {
+		t.Fatal("memo must be invalidated by new span data")
+	}
+	if fresh.Counts.Failing != 1 {
+		t.Fatalf("fresh view must include the new failing case, got %+v", fresh.Counts)
 	}
 }

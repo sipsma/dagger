@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "updated": "2026-09-17",
+  "publication": "held",
+  "base": {
+    "branch": "remote-cache-rebased-foundations",
+    "commit": "1ca9f28a60f1d9597c1b0df01e65a91707ce3b0f",
+    "upstreamMain": "dfe204d216a579657e00604494ef3268f1062113",
+    "report": "continuation-evidence/rebase/REBASE-REPORT.md (on remote-cache-rebase-author-f46541d1)",
+    "rewrittenPRHeads": {
+      "13962": "25a8d17d5524f6551959c5c8a2fbfa647c1b1f37",
+      "13969": "a8d98baa548d7d531f7dc0335e63974061867c83",
+      "14043": "ae33fc236e61bb62e19af12aee35d0cfcdd10645",
+      "14049": "c46fac8787b8a107f750ae4b79fd12a87e9a2dda",
+      "14050": "10035385a6f693a3d1cb47c525809e956ed1a26e",
+      "14051": "401735185c88011e2eba2affaa3c98df1d3aecaa",
+      "14093": "a7d4bad2290b8a32e4fde16fb7d940a78c46d0b2"
+    }
+  },
+  "batches": [
+    {
+      "batch": 1,
+      "name": "producers",
+      "design": {
+        "commit": "860cc5c8b6bb3ad4a59d690573c5f2fcf0377f38",
+        "blob": "84024f2bbe53e3cbde873c6bccc5ab6c787c7b80",
+        "converged": "2026-09-17"
+      },
+      "implementation": {
+        "author": "tc-08a95cfa9429fdc7b8616eaf9899051d",
+        "branch": "remote-cache-b1-producers-implementer-9ed2d98f",
+        "parent": "1ca9f28a60f1d9597c1b0df01e65a91707ce3b0f",
+        "commission": "continuation-evidence/implementation-commissions/BATCH1-PRODUCERS-IMPL.md",
+        "status": "council review round 1",
+        "tip": "7eb998467e3649da4a9928e436d67988b88863d0",
+        "commits": [
+          "c9f908e771",
+          "aa1e1db818",
+          "760062120e",
+          "0b6b47e33c",
+          "52d4131a79",
+          "06724072c7",
+          "c35802efe6",
+          "7eb998467e (evidence only)"
+        ]
+      },
+      "plannedPR": {
+        "title": "core: record saved producers for eager Git and HTTP outputs",
+        "body": "to be written at publication from the design and report"
+      },
+      "evidence": "continuation-evidence/implementation/b1/ (final evidence-only commit, dropped before publication)"
+    },
+    {
+      "batch": 2,
+      "name": "value transfer, schema recovery and foreign paths",
+      "design": {
+        "commit": "7a998854cc3b2efc7f221ffb9ec6debf5ab3d44e",
+        "blob": "0e93a876c4e18de099d3a507ff83e2b0fb7c7105",
+        "converged": "2026-09-17",
+        "amended": {
+          "commit": "7e1c3f7ac1f46484c0986cf7a0b6a00259f88a51",
+          "blob": "3e90e230765a385c64b57f99307ca2b0a71a247e",
+          "reason": "addendum 1: File/Directory capture guards and OutputRev in batch 2"
+        },
+        "standaloneAcceptanceAmendment": {
+          "authority": "39a664f7383f5f80223df100b6870c6d16f41ea0",
+          "path": "hack/designs/remote-cache/focused/02-value-transfer.md",
+          "section": 10,
+          "designerCommit": "2e75801259faf20df2c20a44076c19b027a541b1",
+          "designerBlob": "ceb089285bd7d1f9938171c42c6d09d47310a141"
+        }
+      },
+      "implementation": {
+        "author": "tc-37b4be2a0ea9f57c7472311575d1b266",
+        "branch": "remote-cache-b2-transfer-implementer-26387947",
+        "parent": "1ca9f28a60f1d9597c1b0df01e65a91707ce3b0f (rebased onto the batch 1 head by the integration author)",
+        "commission": "continuation-evidence/implementation-commissions/BATCH2-TRANSFER-IMPL.md",
+        "status": "round 2 P1–P5 addressed; standalone acceptance and measured default-policy pruning passed; ready for council confirmation",
+        "tip": "b76c6ccbff2f68f2ca6f52b5b89ef7ec6c6d2dbf",
+        "report": "continuation-evidence/implementation/b2/REPORT.md",
+        "verification": "continuation-evidence/implementation/b2/VERIFICATION.md",
+        "commits": [
+          "de126ebe775d078a4c6e240d4d697d3bfdc6834c",
+          "85de1ed96d12d1b91589dfdba4368b7cbc512557",
+          "a9112444f626464590af400205bd39baf2cc00a6",
+          "f72572cb9a264a23d56791185a60765213412d33",
+          "336de2cdb379323827f1be90ec32c9f548447bd4",
+          "74b24a43784c4e6e52ec5cbe599c3fc78ac36695",
+          "ee7ccb765a3fb9b4d45f8f2efe5ba31952116ac7",
+          "4041385fc3eff39c22e2617c96f8bcb30fe036ba",
+          "d6581335a9cd2ed6382b57a49e4a330fbf013bc6",
+          "66e115a4a09d14fd045f394c9e45a1e93328f5d1",
+          "5316e2246885fc5e343c0a91df10fb9a2b712e80",
+          "d0dfcd04c87be3c39c579b7aae70e0c381b868f7",
+          "1cdd67af3c8daccf520a85aff2584072533456a6",
+          "090193930c3c7f14f405df5cd0a2af0700832d08",
+          "5500d91796402b51560a0a359cb73f2032ba1f82",
+          "09cc690a42bc5cd79a22b0e3acee891a929b493d",
+          "8222830b0dd4795005d5cd4674ed7117436c5c23",
+          "b76c6ccbff2f68f2ca6f52b5b89ef7ec6c6d2dbf"
+        ]
+      },
+      "plannedPR": {
+        "title": "dagql, core: export and import selected cache values; recover schemas for saved calls from installed or recorded Modules",
+        "body": "to be written at publication from the design and report"
+      },
+      "evidence": "continuation-evidence/implementation/b2/ (three earlier evidence-only commits, including two interleaved checkpoints, plus final round 2 evidence; dropped before publication)",
+      "acceptanceNotes": [
+        "Standalone batch 2 prepares B through normal AsModule before import without serving its schema or executing report; import then precedes serving B's operational Module. Import after schema installation also passes.",
+        "The fully cold order (import before any B runtime rows) remains an explicit addendum 2 skip and is a batch 4/7 acceptance case requiring acquisition through local-equivalent selection or batch 1's builtin producer.",
+        "The selected-chain peers execute through the privileged mount-namespace launcher with no skips; batch 1 changes were not merged into this branch.",
+        "Round 2 default-policy diagnostic measured pruning of saved report row 4681: 16 roots removed, no reset. Pinned restart cases assert zero removals and no reset. Imported roots remain pruneable."
+      ]
+    }
+  ]
+}

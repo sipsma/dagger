@@ -1,0 +1,15 @@
+{
+  "candidate": "e1adfa2694",
+  "command": "timeout 540s dagger api call engine-dev test --pkg ./core/integration '--run=^TestRemoteCacheTransferSuite$/^TestPartMixedExecOutputs$' --timeout=5m --test-verbose",
+  "test_timeout": "5m",
+  "harness_timeout_seconds": 540,
+  "start": "2026-09-17T03:00:57Z",
+  "end": "2026-09-17T03:05:58Z",
+  "exit": 0,
+  "wall_seconds": 300.7,
+  "trace": "70d079daa2e707780e3fd22b64efe282",
+  "tests": [
+    {"test": "TestRemoteCacheTransferSuite", "result": "PASS", "duration": "1m10s"},
+    {"test": "TestRemoteCacheTransferSuite/TestPartMixedExecOutputs", "result": "PASS", "duration": "1m10s"}
+  ]
+}

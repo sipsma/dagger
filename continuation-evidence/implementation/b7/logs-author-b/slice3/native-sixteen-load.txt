@@ -1,0 +1,3 @@
+ 23:19:07 up 10 days,  7:17,  0 user,  load average: 10.42, 24.43, 37.25
+exit 0
+ 23:32:49 up 10 days,  7:31,  0 user,  load average: 36.61, 53.82, 47.78

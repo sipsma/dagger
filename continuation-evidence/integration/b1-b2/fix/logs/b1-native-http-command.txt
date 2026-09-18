@@ -1,0 +1,7 @@
+Head: 17384b793fe715006ffdbba4b1075354cd7733d8
+Command: dagger api call engine-dev test --pkg ./core/integration --run='TestHTTP/(TestHTTPName|TestHTTPPermissions|TestHTTPChecksum|TestHTTPChecksumMismatch|TestHTTPTimestamp|TestHTTPETag|TestHTTPCachePerSessions|TestHTTPAuth|TestHTTPService)$'
+Started: 2026-09-16T09:33:32.642602+00:00
+Finished: 2026-09-16T09:34:32.423431+00:00
+Elapsed seconds: 59.781
+Exit status: 0
+Log: logs/b1-native-http.log

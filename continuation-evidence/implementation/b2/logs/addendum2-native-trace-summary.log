@@ -1,0 +1,13 @@
+Selected lines from: dagger trace 99a85ab411411db41ec44b04eef30c16 --test TestRemoteCacheTransferSuite/TestSchemaRecovery
+
+✔ TestSchemaRecovery 4m16s
+✔ .report(seed: "same"): CacheProbeReport! 0.3s
+✔ before 1m9s
+$ .report(seed: "same"): CacheProbeReport! 0.0s CACHED
+✔ CacheProbe.report(seed: "different"): CacheProbeReport! 0.2s
+✔ .report(seed: "native recorded control"): CacheProbeReport! 0.3s
+✔ after 1m13s
+$ .report(seed: "same"): CacheProbeReport! 0.0s CACHED
+✔ CacheProbe.report(seed: "different"): CacheProbeReport! 0.2s
+✔ .report(seed: "native recorded control"): CacheProbeReport! 0.3s
+✔ foreign_context 54.1s

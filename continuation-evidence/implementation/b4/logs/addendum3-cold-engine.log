@@ -1,0 +1,35 @@
+[dagger] 30.0s elapsed · 27 steps running
+[dagger] 1m0s elapsed · 3 steps running
+[dagger] 1m30s elapsed · 6 steps running
+[dagger] 2m0s elapsed · 10 steps running
+[dagger] 2m30s elapsed · 44 steps running
+[dagger] 3m0s elapsed · 12 steps running
+[dagger] 3m30s elapsed · 12 steps running
+[dagger] 4m0s elapsed · 28 steps running
+[dagger] 4m30s elapsed · 13 steps running
+[dagger] 5m0s elapsed · 11 steps running
+== TRACE ==  ✔ PASSED
+engine-dev test --pkg ./core/integration --run=TestRemoteCacheTransferSuite/TestSchemaRecoveryCold$ --timeout=5m --test-verbose  5m15s
+
+✔ connect 0.3s
+✔ load workspace: . 2.3s
+✔ parsing command line arguments 0.0s
+
+✔ engineDev(
+  ┆ ws: currentWorkspace: Workspace!
+  ): EngineDev! 24.3s ◆ CPU Pressure (some): 54.276ms ◆ CPU Pressure (full): 45.564ms ◆ Memory Bytes (current): 954 kB ◆ Memory Bytes (peak): 30 MB
+  ✔ uploading /home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d 1.5s ████████████ 72 kB
+✔ .test(run: "TestRemoteCacheTransferSuite/TestSchemaRecoveryCold$", pkg: "./core/integration", timeout: "5m", testVerbose: true): Void 4m48s ◆ Disk Read: 28 MB ◆ Disk Write: 0 B ◆ IO Pressure: 1.481497s ◆ CPU Pressure (some): 1.258725s ◆ CPU Pressure (full): 1.132284s ◆ Memory Bytes (current): 28 MB ◆ Memory Bytes (peak): 61 MB ◆ Network Tx: 4.0 kB
+  ✔ 10 uploads, 5 unpacks, 1 pull, 1 transfer 18.3s
+
+== SERVICES ==
+✔ rogct0dgr0vls.pr8f0mid489ru.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 4m9s EXITED span=ce7ce4564f8cdbcc
+✔ h4avdn8nctrm4.pr8f0mid489ru.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 4m9s EXITED span=72830f3bf98539ed
+✘ 67ptu8fjp67dc.pr8f0mid489ru.dagger.local exec dagger-entrypoint.sh --addr unix:///run/dagger-engine.sock --addr tcp://0.0.0.0:1234 --network-name dagger-dev --network-cidr 10.88.0.0/16 --debugaddr 0.0.0.0:6060 4m8s ERROR span=3cadaf621bd49c9c
+
+== TESTS ==
+  ✔ github.com/dagger/dagger/core/integration  1 passed
+
+  ✔ 1 passed
+
+Trace ID: 3df9e6ae55a1d589249c550bb46a3bb4

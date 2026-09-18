@@ -330,6 +330,9 @@ func (udp *UserDefaultPrimitive) Value() (any, error) {
 	case TypeDefKindString:
 		return udp.UserInput, nil
 	case TypeDefKindList:
+		if list, ok := jsonListElements(udp.UserInput); ok {
+			return list, nil
+		}
 		return strings.Split(udp.UserInput, ","), nil
 	case TypeDefKindInteger:
 		v, err := strconv.Atoi(udp.UserInput)
@@ -452,8 +455,20 @@ func (ud *UserDefault) Value(ctx context.Context) (any, error) {
 		return nil, fmt.Errorf("access main client: %w", err)
 	}
 	mainCtx := engine.ContextWithClientMetadata(ctx, mainClient)
-	// Resolve object from user-supplied "address"
-	srv := dagql.CurrentDagqlServer(mainCtx)
+	// Resolve object from user-supplied "address" against the schema served to
+	// the main client, which carries the workspace's installed modules as root
+	// fields. The context-stamped server (dagql.CurrentDagqlServer) may be a
+	// standalone per-module server — e.g. under `dagger check`'s ModTree path —
+	// whose root lacks sibling workspace modules, so module refs like
+	// "pulse:serve" would silently fall through to legacy address decoding.
+	servedDeps, err := query.Server.CurrentServedDeps(mainCtx)
+	if err != nil {
+		return nil, fmt.Errorf("get main client served deps: %w", err)
+	}
+	srv, err := servedDeps.Schema(mainCtx)
+	if err != nil {
+		return nil, fmt.Errorf("get main client schema: %w", err)
+	}
 
 	resolveOne := func(userInput, typename string) (any, error) {
 		var result dagql.AnyObjectResult
@@ -484,7 +499,14 @@ func (ud *UserDefault) Value(ctx context.Context) (any, error) {
 	if ud.IsList() {
 		// "Secret" -> "secret", "GitRef" -> "gitRef", etc (from the element type)
 		typename := ud.Arg.TypeDef.Self().AsList.Value.Self().ElementTypeDef.Self().ToType().Name()
-		elements := strings.Split(ud.UserInput, ",")
+		var elements []string
+		if list, ok := jsonListElements(ud.UserInput); ok {
+			for _, item := range list {
+				elements = append(elements, fmt.Sprint(item))
+			}
+		} else {
+			elements = strings.Split(ud.UserInput, ",")
+		}
 		ids := make([]any, 0, len(elements))
 		for _, elem := range elements {
 			id, err := resolveOne(strings.TrimSpace(elem), typename)
@@ -557,7 +579,7 @@ func (fn *ModuleFunction) UserDefault(ctx context.Context, argName string) (*Use
 	// - NO cascading: $FOO always means the system env var FOO, never another config key
 	// - Resolution should go through the Workspace type (gateway for client context access)
 	// - The Workspace type should expose a method for resolving system env vars,
-	//   which can later be gated by interactive prompts, allow/deny policies, value injection
+	//   which can later require approval through interactive prompts, allow/deny policies, value injection
 	// - Consider docker-compose's variable substitution spec as reference for syntax
 	// - For now, string values pass through as-is (no expansion)
 
@@ -655,11 +677,6 @@ func (fn *ModuleFunction) DynamicInputsForCall(
 			//  3) "workspace args" that are automatically injected
 			continue
 		}
-		// Check for Workspace arguments first - they're always injected
-		if argMetadata.IsWorkspace() {
-			workspaceArgs = append(workspaceArgs, argMetadata)
-			continue
-		}
 		userDefault, hasUserDefault, err := fn.UserDefault(ctx, argMetadata.Name)
 		if err != nil {
 			return fmt.Errorf("%s.%s(%s=): load user default: %w",
@@ -671,6 +688,12 @@ func (fn *ModuleFunction) DynamicInputsForCall(
 		}
 		if hasUserDefault {
 			userDefaults = append(userDefaults, userDefault)
+		} else if argMetadata.IsWorkspace() {
+			// Workspace args inherit the workspace in scope only when the user
+			// did not configure one explicitly. A settings value may itself be
+			// a module reference, so it must go through the ordinary object
+			// default resolver above instead of being shadowed by injection.
+			workspaceArgs = append(workspaceArgs, argMetadata)
 		} else if argMetadata.isContextual() {
 			ctxArgs = append(ctxArgs, argMetadata)
 		}
@@ -692,6 +715,11 @@ func (fn *ModuleFunction) DynamicInputsForCall(
 				ctxVal, err := fn.loadContextualArg(ctx, srv, arg)
 				if err != nil {
 					return fmt.Errorf("load contextual arg %q: %w", arg.Name, err)
+				}
+				if ctxVal == nil {
+					// The contextual value is unavailable and the arg is
+					// optional: leave it unset.
+					return nil
 				}
 
 				ctxArgVals[i] = &argInput{
@@ -855,12 +883,21 @@ func (fn *ModuleFunction) Call(ctx context.Context, opts *CallOpts) (t dagql.Any
 	if fn.objDef != nil {
 		fnCall.ParentName = fn.objDef.OriginalName
 	}
-
-	var envContext dagql.ObjectResult[*Env]
-	if env, ok, err := EnvFromContext(ctx); err != nil {
-		return nil, fmt.Errorf("resolve function env context: %w", err)
-	} else if ok {
-		envContext = env
+	// Carry the receiver object (with its dagql ID) engine-side so the module can
+	// reach it via Query.currentNode. It rides the fnCall by reference into the
+	// nested client session (ServeHTTPToNestedClient) for both in-process and
+	// containerized runtimes. Nil for top-level / constructor calls.
+	if obj, ok := opts.ParentTyped.(dagql.AnyObjectResult); ok {
+		fnCall.parentTyped = obj
+	}
+	// Stamp the agent whose turn dispatched this call, so the function's own
+	// nested API calls can resolve it (core.CallerAgent): message provenance
+	// and the waits-for deadlock guard read it at the engine's central
+	// enqueue/await paths. CallerAgent rather than AgentFromContext, so a
+	// module function calling another module function propagates the agent
+	// through arbitrary nesting.
+	if caller, ok := CallerAgent(ctx); ok {
+		fnCall.SetCallerAgent(caller)
 	}
 
 	// hide all this internal plumbing making up the call
@@ -872,7 +909,7 @@ func (fn *ModuleFunction) Call(ctx context.Context, opts *CallOpts) (t dagql.Any
 	}
 
 	// Delegate the actual function execution to the runtime
-	err = runtime.Call(ctx, &execMD, fnCall, fn.mod, envContext)
+	err = runtime.Call(ctx, &execMD, fnCall, fn.mod)
 	returned, returnedSet, returnStateErr := fnCall.returnResult()
 	if returnStateErr != nil {
 		return nil, returnStateErr
@@ -923,7 +960,7 @@ func (fn *ModuleFunction) Call(ctx context.Context, opts *CallOpts) (t dagql.Any
 			// it returned. This ensures downstream calls that reference this
 			// result get a different cache key when the underlying content
 			// changes.
-			returnValue, err = returnValue.WithContentDigestAny(ctx, returnedContent.Digest())
+			returnValue, err = returnValue.WithContentDigestAny(ctx, returnedContent.Digest(), call.ExtraDigestLabelRemoteCache)
 			if err != nil {
 				return nil, fmt.Errorf("set content digest on module function return value: %w", err)
 			}
@@ -1063,7 +1100,25 @@ func (fn *ModuleFunction) loadContextualArg(
 		return dagql.NewID[*File](fileID), nil
 
 	case "GitRepository", "GitRef":
-		return fn.loadContextualGitArg(ctx, dag, arg)
+		id, err := fn.loadContextualGitArg(ctx, dag, arg)
+		if err != nil && arg.TypeDef.Self().Optional && errors.Is(err, ErrNoGitContext) {
+			// The context simply isn't a git checkout (`dagger init` before
+			// `git init`, an exported source tree). That's a legitimate
+			// environment, not an error, so resolve a nullable arg to null
+			// and let the function proceed without git info. SDK codegen
+			// marks every defaultPath arg optional in the schema, so in
+			// practice this covers all contextual git args; modules decide
+			// how strictly to treat a null. A .git that exists but is
+			// unusable -- a dead submodule/worktree pointer, a corrupt repo
+			// -- is a broken environment and fails the call instead (see
+			// ModuleSource.LoadContextGit / MaterializeHostGitCheckout).
+			slog.Warn("skipping contextual git argument: module context has no git checkout",
+				"function", fn.metadata.Name,
+				"arg", arg.OriginalName,
+				"defaultPath", arg.DefaultPath)
+			return nil, nil
+		}
+		return id, err
 	}
 
 	return nil, fmt.Errorf("unknown contextual argument type %q", arg.TypeDef.Self().AsObject.Value.Self().Name)
@@ -1164,6 +1219,27 @@ func (fn *ModuleFunction) loadContextualGitArg(
 	}
 }
 
+// callerInModuleFunction reports whether ctx is executing inside a module
+// function body. It keys off an active function call, not merely a module in
+// context: a direct client (CLI/SDK) and schema-walking flows like `dagger
+// generate` load a module but run no function, and must still be allowed to
+// auto-inject a Workspace. ErrNoCurrentModule is the direct-client signal and is
+// swallowed; any other error is a real lookup failure.
+func callerInModuleFunction(ctx context.Context) (bool, error) {
+	query, err := CurrentQuery(ctx)
+	if err != nil {
+		return false, fmt.Errorf("get current query: %w", err)
+	}
+	fnCall, err := query.CurrentFunctionCall(ctx)
+	if errors.Is(err, ErrNoCurrentModule) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("get current function call: %w", err)
+	}
+	return fnCall != nil, nil
+}
+
 // loadWorkspaceArg loads a workspace argument by resolving it through the
 // currentWorkspace query. The workspace is automatically injected into
 // module functions that declare a Workspace parameter when the ambient context
@@ -1174,6 +1250,37 @@ func (fn *ModuleFunction) loadWorkspaceArg(
 ) (dagql.IDType, error) {
 	if dag == nil {
 		return nil, fmt.Errorf("dagql server is nil but required for workspace argument")
+	}
+
+	// Prefer a Workspace explicitly bound into the context (an LLM bound via
+	// withWorkspace, or a generator/check group threading the workspace it was
+	// rolled up from) over the ambient currentWorkspace, so every leaf in the
+	// group resolves the same workspace under the same ID.
+	//
+	// This bound-workspace preference MUST be checked before the
+	// callerInModuleFunction guard below: a generator/check leaf's
+	// auto-injected Workspace! is resolved while running inside the module
+	// runtime, so checking callerInModuleFunction first would reject the
+	// seeded workspace and leave the leaf reading stale source. The workspace
+	// is still explicit here — the group threaded it via WorkspaceToContext —
+	// so this does not silently inherit a caller's workspace across modules.
+	if boundWS, ok := WorkspaceFromContext(ctx); ok {
+		wsID, err := boundWS.ID()
+		if err != nil {
+			return nil, fmt.Errorf("get bound workspace ID: %w", err)
+		}
+		return dagql.NewID[*Workspace](wsID), nil
+	}
+
+	// Otherwise a Workspace is auto-injected only for calls originating outside a
+	// module function (a direct CLI/SDK client, or a schema-walking flow like
+	// `dagger generate`). A running module function must pass a Workspace to its
+	// dependencies explicitly, so a dependency does not silently inherit its
+	// caller's workspace.
+	if inModuleFunction, err := callerInModuleFunction(ctx); err != nil {
+		return nil, err
+	} else if inModuleFunction {
+		return nil, fmt.Errorf("%w: workspace arguments are not inherited by module runtime calls; pass a Workspace explicitly", ErrNoCurrentWorkspace)
 	}
 
 	var ws dagql.ObjectResult[*Workspace]
@@ -1278,6 +1385,21 @@ func (fn *ModuleFunction) applyIgnoreOnDir(ctx context.Context, dag *dagql.Serve
 	default:
 		return nil, fmt.Errorf("argument %q must be of type Directory to apply ignore pattern ([%s]) but type is %#v", arg.OriginalName, strings.Join(arg.Ignore, ", "), value)
 	}
+}
+
+// jsonListElements parses a JSON array default value into its elements. TOML
+// array settings arrive JSON-encoded (see configValueToString); ok is false
+// for plain strings, which callers split on commas instead.
+func jsonListElements(userInput string) ([]any, bool) {
+	trimmed := strings.TrimSpace(userInput)
+	if !strings.HasPrefix(trimmed, "[") {
+		return nil, false
+	}
+	var list []any
+	if err := json.Unmarshal([]byte(trimmed), &list); err != nil {
+		return nil, false
+	}
+	return list, true
 }
 
 // lookupConfigCaseInsensitive performs a case-insensitive lookup in a workspace

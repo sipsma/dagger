@@ -34,7 +34,7 @@ defmodule Mix.Tasks.Dagger.Codegen do
   end
 
   def handle_generate(%{outdir: outdir, introspection: introspection}) do
-    %{"__schema" => schema} = introspection |> File.read!() |> JSON.decode!()
+    schema = introspection |> File.read!() |> JSON.decode!()
 
     IO.puts("Generate code to #{outdir}")
 
@@ -49,7 +49,8 @@ defmodule Mix.Tasks.Dagger.Codegen do
         Path.join(outdir, file)
         |> File.write!(code)
       end,
-      ordered: false
+      ordered: false,
+      timeout: :infinity
     )
     |> Stream.run()
   end

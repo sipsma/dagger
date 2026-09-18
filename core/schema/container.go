@@ -23,10 +23,12 @@ import (
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	"github.com/opencontainers/go-digest"
 	"github.com/vektah/gqlparser/v2/ast"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/dagger/dagger/core"
 	"github.com/dagger/dagger/core/workspace"
 	"github.com/dagger/dagger/dagql"
+	"github.com/dagger/dagger/dagql/call"
 	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/engineutil"
 	serverresolver "github.com/dagger/dagger/engine/server/resolver"
@@ -40,7 +42,7 @@ var _ SchemaResolvers = &containerSchema{}
 
 func (s *containerSchema) Install(srv *dagql.Server) {
 	dagql.Fields[*core.Query]{
-		dagql.Func("container", s.container).
+		dagql.FuncWithDynamicInputs("container", s.container, s.containerDynamicInputs).
 			Doc(`Creates a scratch container, with no image or metadata.`,
 				`To pull an image, follow up with the "from" function.`).
 			Args(
@@ -69,15 +71,22 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 			Doc(`Download a container image, and apply it to the container state. All previous state will be lost.`).
 			Args(
 				dagql.Arg("address").Doc(
-					`Address of the container image to download, in standard OCI ref format. Example:"registry.dagger.io/engine:latest"`,
+					`Address of the container image to download, in standard OCI ref format. Example: "registry.dagger.io/engine:latest".`,
+					`An address without a tag or digest selects the greatest stable release tag, falling back to the literal "latest" tag when no eligible release exists.`,
 				),
+				dagql.Arg("version").
+					Doc(`Version query used to select an image tag. The address must not contain a tag or digest.`).
+					View(AfterVersion(workspace.VersionQueriesVersion)),
 				dagql.Arg("registryService").Doc(
 					`Service to use as the registry endpoint for the image address.`,
-					`The service will be started only for this pull.`),
+					`The service will be started only for this pull.`).
+					View(AfterVersion("v0.21.6")),
 				dagql.Arg("protocol").Doc(
 					`Protocol to use for registry communication.`,
-					`Defaults to "HTTPS". Use "HTTP" only for plain HTTP registries.`),
-				dagql.Arg("insecureSkipTLSVerify").Doc(`Allow HTTPS registry communication without verifying the server certificate.`),
+					`Defaults to "HTTPS". Use "HTTP" only for plain HTTP registries.`).
+					View(AfterVersion("v1.0.0-0")),
+				dagql.Arg("insecureSkipTLSVerify").Doc(`Allow HTTPS registry communication without verifying the server certificate.`).
+					View(AfterVersion("v1.0.0-0")),
 			),
 		dagql.NodeFunc("build", s.build).
 			View(BeforeVersion("v0.19.0")).
@@ -236,6 +245,7 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 			),
 
 		dagql.NodeFunc("withVolatileVariable", s.withVolatileVariable).
+			View(AfterVersion("v0.21.4")).
 			WithInput(dagql.PerSessionInput).
 			Doc(`Set a new non-secret environment variable for future execs without invalidating exec cache when only its value changes.`,
 				`This is an expert-only escape hatch. If a volatile value affects observable exec results, stale cached results may be reused.`).
@@ -257,6 +267,7 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 			),
 
 		dagql.NodeFunc("withoutVolatileVariable", s.withoutVolatileVariable).
+			View(AfterVersion("v0.21.4")).
 			Doc(`Retrieves this container minus the given volatile environment variable.`).
 			Args(
 				dagql.Arg("name").Doc(`The name of the volatile environment variable (e.g., "CI_RUN_ID").`),
@@ -376,7 +387,9 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 				dagql.Arg("owner").Doc(`A user:group to set for the mounted directory and its contents.`,
 					`The user and group can either be an ID (1000:1000) or a name (foo:bar).`,
 					`If the group is omitted, it defaults to the same as the user.`),
-				dagql.Arg("readOnly").Doc(`Mount the directory read-only.`),
+				dagql.Arg("inheritOwner").Doc(`Set the owner to the container's current user.`).View(AfterVersion("v1.0.0-0")),
+				dagql.Arg("readOnly").Doc(`Mount the directory read-only.`).
+					View(AfterVersion("v0.21.0")),
 				dagql.Arg("expand").Doc(`Replace "${VAR}" or "$VAR" in the value of path according to the current `+
 					`environment variables defined in the container (e.g. "/$VAR/foo").`),
 			),
@@ -389,6 +402,7 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 				dagql.Arg("owner").Doc(`A user or user:group to set for the mounted file.`,
 					`The user and group can either be an ID (1000:1000) or a name (foo:bar).`,
 					`If the group is omitted, it defaults to the same as the user.`),
+				dagql.Arg("inheritOwner").Doc(`Set the owner to the container's current user.`).View(AfterVersion("v1.0.0-0")),
 				dagql.Arg("expand").Doc(`Replace "${VAR}" or "$VAR" in the value of path according to the current `+
 					`environment variables defined in the container (e.g. "/$VAR/foo.txt").`),
 			),
@@ -424,6 +438,18 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 					any effect if/when the cache has already been created.`,
 					`The user and group can either be an ID (1000:1000) or a name (foo:bar).`,
 					`If the group is omitted, it defaults to the same as the user.`),
+				dagql.Arg("inheritOwner").Doc(`Set the owner to the container's current user.`).View(AfterVersion("v1.0.0-0")),
+				dagql.Arg("expand").Doc(`Replace "${VAR}" or "$VAR" in the value of path according to the current `+
+					`environment variables defined in the container (e.g. "/$VAR/foo").`),
+			),
+
+		dagql.NodeFunc("withMountedVolume", s.withMountedVolume).
+			View(AfterVersion("v1.0.0-0")).
+			Doc(`Retrieves this container plus a volume mounted at the given path.`).
+			Args(
+				dagql.Arg("path").Doc(`Location of the volume mount (e.g., "/mnt/volume").`),
+				dagql.Arg("volume").Doc(`Identifier of the volume to mount.`),
+				dagql.Arg("readOnly").Doc(`Mount the volume read-only.`),
 				dagql.Arg("expand").Doc(`Replace "${VAR}" or "$VAR" in the value of path according to the current `+
 					`environment variables defined in the container (e.g. "/$VAR/foo").`),
 			),
@@ -436,6 +462,7 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 				dagql.Arg("owner").Doc(`A user:group to set for the mounted secret.`,
 					`The user and group can either be an ID (1000:1000) or a name (foo:bar).`,
 					`If the group is omitted, it defaults to the same as the user.`),
+				dagql.Arg("inheritOwner").Doc(`Set the owner to the container's current user.`).View(AfterVersion("v1.0.0-0")),
 				dagql.Arg("mode").Doc(`Permission given to the mounted secret (e.g., 0600).`,
 					`This option requires an owner to be set to be active.`),
 				dagql.Arg("expand").Doc(`Replace "${VAR}" or "$VAR" in the value of path according to the current `+
@@ -450,6 +477,7 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 				dagql.Arg("owner").Doc(`A user:group to set for the mounted socket.`,
 					`The user and group can either be an ID (1000:1000) or a name (foo:bar).`,
 					`If the group is omitted, it defaults to the same as the user.`),
+				dagql.Arg("inheritOwner").Doc(`Set the owner to the container's current user.`).View(AfterVersion("v1.0.0-0")),
 				dagql.Arg("expand").Doc(`Replace "${VAR}" or "$VAR" in the value of path according to the current `+
 					`environment variables defined in the container (e.g. "/$VAR/foo").`),
 			),
@@ -480,6 +508,7 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 				dagql.Arg("owner").Doc(`A user:group to set for the file.`,
 					`The user and group can either be an ID (1000:1000) or a name (foo:bar).`,
 					`If the group is omitted, it defaults to the same as the user.`),
+				dagql.Arg("inheritOwner").Doc(`Set the owner to the container's current user.`).View(AfterVersion("v1.0.0-0")),
 				dagql.Arg("expand").Doc(`Replace "${VAR}" or "$VAR" in the value of path according to the current `+
 					`environment variables defined in the container (e.g. "/$VAR/foo.txt").`),
 			),
@@ -512,6 +541,7 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 				dagql.Arg("owner").Doc(`A user:group to set for the files.`,
 					`The user and group can either be an ID (1000:1000) or a name (foo:bar).`,
 					`If the group is omitted, it defaults to the same as the user.`),
+				dagql.Arg("inheritOwner").Doc(`Set the owner to the container's current user.`).View(AfterVersion("v1.0.0-0")),
 				dagql.Arg("expand").Doc(`Replace "${VAR}" or "$VAR" in the value of path according to the current `+
 					`environment variables defined in the container (e.g. "/$VAR/foo.txt").`),
 			),
@@ -528,6 +558,7 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 					`A user:group to set for the file.`,
 					`The user and group can either be an ID (1000:1000) or a name (foo:bar).`,
 					`If the group is omitted, it defaults to the same as the user.`),
+				dagql.Arg("inheritOwner").Doc(`Set the owner to the container's current user.`).View(AfterVersion("v1.0.0-0")),
 				dagql.Arg("expand").Doc(
 					`Replace "${VAR}" or "$VAR" in the value of path according to the current `+
 						`environment variables defined in the container (e.g. "/$VAR/foo.txt").`),
@@ -558,8 +589,10 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 				dagql.Arg("owner").Doc(`A user:group to set for the directory and its contents.`,
 					`The user and group can either be an ID (1000:1000) or a name (foo:bar).`,
 					`If the group is omitted, it defaults to the same as the user.`),
+				dagql.Arg("inheritOwner").Doc(`Set the owner to the container's current user.`).View(AfterVersion("v1.0.0-0")),
 				dagql.Arg("expand").Doc(`Replace "${VAR}" or "$VAR" in the value of path according to the current `+
 					`environment variables defined in the container (e.g. "/$VAR/foo").`),
+				dagql.Arg("permissions").View(AfterVersion("v0.21.0")),
 			),
 
 		dagql.NodeFunc("withoutDirectory", s.withoutDirectory).
@@ -578,7 +611,8 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 				dagql.Arg("expectedType").Doc(`If specified, also validate the type of file (e.g. "REGULAR_TYPE", "DIRECTORY_TYPE", or "SYMLINK_TYPE").`),
 				dagql.Arg("doNotFollowSymlinks").Doc(`If specified, do not follow symlinks.`),
 				dagql.Arg("expand").Doc(`Replace "${VAR}" or "$VAR" in the value of path according to the current `+
-					`environment variables defined in the container (e.g. "/$VAR/foo").`),
+					`environment variables defined in the container (e.g. "/$VAR/foo").`).
+					View(AfterVersion("v0.21.5")),
 			),
 
 		dagql.NodeFunc("stat", s.stat).
@@ -714,11 +748,14 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 				support.`),
 				dagql.Arg("registryService").Doc(
 					`Service to use as the registry endpoint for the image address.`,
-					`The service will be started only for this push.`),
+					`The service will be started only for this push.`).
+					View(AfterVersion("v0.21.6")),
 				dagql.Arg("protocol").Doc(
 					`Protocol to use for registry communication.`,
-					`Defaults to "HTTPS". Use "HTTP" only for plain HTTP registries.`),
-				dagql.Arg("insecureSkipTLSVerify").Doc(`Allow HTTPS registry communication without verifying the server certificate.`),
+					`Defaults to "HTTPS". Use "HTTP" only for plain HTTP registries.`).
+					View(AfterVersion("v1.0.0-0")),
+				dagql.Arg("insecureSkipTLSVerify").Doc(`Allow HTTPS registry communication without verifying the server certificate.`).
+					View(AfterVersion("v1.0.0-0")),
 			),
 
 		dagql.NodeFunc("platform", s.platform).
@@ -807,7 +844,7 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 				dagql.Arg("tag").Doc(`Identifies the tag to import from the archive, if the archive bundles multiple tags.`),
 			),
 
-		dagql.Func("withRegistryAuth", s.withRegistryAuth).
+		dagql.NodeFunc("withRegistryAuth", s.withRegistryAuth).
 			WithInput(dagql.PerSessionInput).
 			Doc(`Attach credentials for future publishing to a registry. Use in combination with publish`).
 			Args(
@@ -816,7 +853,7 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 				dagql.Arg("secret").Doc(`The API key, password or token to authenticate to this registry`),
 			),
 
-		dagql.Func("withoutRegistryAuth", s.withoutRegistryAuth).
+		dagql.NodeFunc("withoutRegistryAuth", s.withoutRegistryAuth).
 			WithInput(dagql.PerSessionInput).
 			Doc(`Retrieves this container without the registry authentication of a given address.`).
 			Args(
@@ -826,6 +863,35 @@ func (s *containerSchema) Install(srv *dagql.Server) {
 
 		dagql.Func("imageRef", s.imageRef).
 			Doc(`The unique image reference which can only be retrieved immediately after the 'Container.From' call.`),
+
+		dagql.NodeFunc("manifest", s.manifest).
+			View(AfterVersion("v1.0.0-0")).
+			Doc(`Computes and returns the manifest for this container as a File.`).
+			Args(
+				dagql.Arg("forcedCompression").Doc(
+					`Force each layer of the image to use the specified compression algorithm.`,
+					`If this is unset, then if a layer already has a compressed blob in the
+						engine's cache, that will be used (this can result in a mix of
+						compression algorithms for different layers). If this is unset and a
+						layer has no compressed blob in the engine's cache, then it will be
+						compressed using Gzip.`),
+				dagql.Arg("mediaTypes").Doc(`Media types to use for image layers. Defaults to OCI.`),
+			),
+
+		dagql.NodeFunc("layer", s.layer).
+			View(AfterVersion("v1.0.0-0")).
+			Doc(`Returns the image layer or configuration blob with the given digest as a File.`).
+			Args(
+				dagql.Arg("id").Doc(`Digest of the layer or configuration blob (e.g. "sha256:abc123...").`),
+				dagql.Arg("forcedCompression").Doc(
+					`Force each layer of the image to use the specified compression algorithm.`,
+					`If this is unset, then if a layer already has a compressed blob in the
+						engine's cache, that will be used (this can result in a mix of
+						compression algorithms for different layers). If this is unset and a
+						layer has no compressed blob in the engine's cache, then it will be
+						compressed using Gzip.`),
+				dagql.Arg("mediaTypes").Doc(`Media types to use for image layers. Defaults to OCI.`),
+			),
 
 		dagql.NodeFunc("withExposedPort", s.withExposedPort).
 			Doc(`Expose a network port. Like EXPOSE in Dockerfile (but with healthcheck support)`,
@@ -944,6 +1010,18 @@ type containerArgs struct {
 	Platform dagql.Optional[core.Platform]
 }
 
+func (s *containerSchema) containerDynamicInputs(
+	ctx context.Context,
+	parent dagql.ObjectResult[*core.Query],
+	args containerArgs,
+	req *dagql.CallRequest,
+) error {
+	if args.Platform.Valid {
+		return nil
+	}
+	return req.SetArgInput(ctx, "platform", parent.Self().Platform(), false)
+}
+
 func (s *containerSchema) container(ctx context.Context, parent *core.Query, args containerArgs) (_ *core.Container, rerr error) {
 	var platform core.Platform
 	if args.Platform.Valid {
@@ -956,6 +1034,7 @@ func (s *containerSchema) container(ctx context.Context, parent *core.Query, arg
 
 type containerFromArgs struct {
 	Address               string
+	Version               string `default:""`
 	RegistryService       dagql.Optional[core.ServiceID]
 	Protocol              dagql.Optional[core.RegistryProtocol]
 	InsecureSkipTLSVerify bool `name:"insecureSkipTLSVerify" default:"false"`
@@ -991,7 +1070,12 @@ func registryTransportFromArgs(protocol dagql.Optional[core.RegistryProtocol], i
 	}
 }
 
-const lockContainerFromOperation = "container.from"
+func shouldSelectLatestImageRelease(
+	ctx context.Context,
+	ref reference.Named,
+) bool {
+	return reference.IsNameOnly(ref) && core.Supports(ctx, workspace.LatestReleaseVersion)
+}
 
 // if the image ref has a digest, then it's immutable and we don't need to scope it to the session. If it's just a tag, then
 // we scope to the session so that resolution of a tag->digest is cached within the session but not across.
@@ -1031,6 +1115,9 @@ var fromSessionScopeInput = dagql.ImplicitInput{
 
 //nolint:gocyclo
 func (s *containerSchema) from(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerFromArgs) (inst dagql.ObjectResult[*core.Container], _ error) {
+	if err := evaluateContainerMetadata(ctx, parent); err != nil {
+		return inst, err
+	}
 	srv, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
 		return inst, fmt.Errorf("failed to get dagql server: %w", err)
@@ -1054,8 +1141,21 @@ func (s *containerSchema) from(ctx context.Context, parent dagql.ObjectResult[*c
 	if err != nil {
 		return inst, fmt.Errorf("failed to parse image address %s: %w", args.Address, err)
 	}
-	// add a default :latest if no tag or digest, otherwise this is a no-op
-	refName = reference.TagNameOnly(refName)
+	if args.Version != "" && !reference.IsNameOnly(refName) {
+		return inst, fmt.Errorf(
+			"version query %q cannot be used with image address %q because it contains a tag or digest",
+			args.Version,
+			args.Address,
+		)
+	}
+	latestRelease := args.Version != "" || shouldSelectLatestImageRelease(ctx, refName)
+	if latestRelease {
+		refName = reference.TrimNamed(refName)
+	} else {
+		// TagNameOnly is deliberately called after testing IsNameOnly so an
+		// implicit tag remains distinguishable from an explicit latest tag.
+		refName = reference.TagNameOnly(refName)
+	}
 	if args.RegistryService.Valid {
 		service, err := args.RegistryService.Value.Load(ctx, srv)
 		if err != nil {
@@ -1137,19 +1237,17 @@ func (s *containerSchema) from(ctx context.Context, parent dagql.ObjectResult[*c
 			return inst, err
 		}
 
-		// detach identity from the :tag, make the result purely content-addressed based on the digest, but
-		// only when we are starting from scratch (as opposed to the weird case of calling from later in a chain)
-		parentCall, err := parent.ResultCall()
-		if err != nil {
-			return inst, fmt.Errorf("failed to get parent call: %w", err)
-		}
-		if parentCall.Field == "container" {
+		// Detach identity from the :tag and make the result purely
+		// content-addressed when From is operating on an otherwise untouched
+		// scratch container. Derived containers may carry state that From
+		// preserves, so they must retain their call identity.
+		if parent.Self().CanUseFromContentDigest() {
 			var err error
 			inst, err = inst.WithContentDigest(ctx, hashutil.HashStrings(
 				"container.from",
 				refName.Digest().String(),
 				ctr.Platform.Format(),
-			))
+			), call.ExtraDigestLabelRemoteCache)
 			if err != nil {
 				return inst, fmt.Errorf("failed to set content digest: %w", err)
 			}
@@ -1159,52 +1257,123 @@ func (s *containerSchema) from(ctx context.Context, parent dagql.ObjectResult[*c
 	}
 
 	var lookupLock *workspaceLookupLock
-	var rawLock *workspace.Lock
-	lockMode := workspace.LockModeDisabled
 	// A ref like "registry:5000/app:latest" can point to different images
 	// depending on registryService, so disable workspace lock entries when
 	// registryService is set.
 	if len(registryServices) == 0 {
-		lockMode, lookupLock, err = lookupLockForMode(ctx, query, lockContainerFromOperation)
+		lookupLock, err = lookupLockForAPI(ctx, query, workspace.LockOperationOCISHA)
 		if err != nil {
 			return inst, err
 		}
-		if lockMode != workspace.LockModeDisabled {
-			rawLock = lookupLock.lock
+	}
+
+	registryLockOptions := func() []workspace.LookupOption {
+		var options []workspace.LookupOption
+		if registryTransport.Protocol != "" {
+			options = append(options, workspace.LookupOption{
+				Name:  "protocol",
+				Value: string(registryTransport.Protocol),
+			})
+		}
+		if registryTransport.InsecureSkipTLSVerify {
+			options = append(options, workspace.LookupOption{
+				Name:  "insecureSkipTLSVerify",
+				Value: true,
+			})
+		}
+		return options
+	}
+
+	if latestRelease {
+		latestOptions := registryLockOptions()
+		if args.Version != "" {
+			latestOptions = append(latestOptions, workspace.LookupOption{
+				Name:  "version",
+				Value: args.Version,
+			})
+		}
+		latestInputs := workspace.LookupInputs(
+			[]any{refName.String()},
+			latestOptions...,
+		)
+		latestResolution := resolveLookupFromLoadedLock(
+			lookupLock,
+			workspace.LockOperationOCILatest,
+			latestInputs,
+		)
+
+		var selectedTag string
+		if latestResolution.Pin != "" {
+			selectedTag = latestResolution.Pin
+			if err := core.ValidateContainerTag(selectedTag, args.Version); err != nil {
+				return inst, fmt.Errorf("%s lock value: %w", workspace.LockOperationOCILatest, err)
+			}
+		} else {
+			rslvr, err := query.RegistryResolver(ctx)
+			if err != nil {
+				return inst, fmt.Errorf("failed to get registry resolver: %w", err)
+			}
+			network, detach, err := core.ContainerRegistryNetwork(ctx, registryServices)
+			if err != nil {
+				return inst, err
+			}
+			defer detach()
+
+			listCtx, span := core.Tracer(ctx).Start(
+				ctx,
+				fmt.Sprintf("select latest release for %s", refName.String()),
+				telemetry.Internal(),
+				telemetry.Encapsulate(),
+			)
+			tags, err := rslvr.ListImageTags(listCtx, refName.String(), serverresolver.ListImageTagsOpts{
+				Network:           network,
+				RegistryTransport: registryTransport,
+			})
+			telemetry.EndWithCause(span, &err)
+			if err != nil {
+				return inst, fmt.Errorf("failed to list image tags for %q: %w", refName.String(), err)
+			}
+			selectedTag, err = core.SelectContainerTag(tags, args.Version)
+			if err != nil {
+				return inst, fmt.Errorf("select latest image tag for %q: %w", refName.String(), err)
+			}
+			if latestResolution.ShouldWrite && lookupLock != nil {
+				if err := lookupLock.SetLookup(
+					workspace.CoreLockNamespace,
+					workspace.LockOperationOCILatest,
+					latestInputs,
+					selectedTag,
+				); err != nil {
+					return inst, fmt.Errorf("set lock entry for %s: %w", workspace.LockOperationOCILatest, err)
+				}
+			}
+		}
+		refName, err = reference.WithTag(refName, selectedTag)
+		if err != nil {
+			return inst, fmt.Errorf("apply selected image tag %q: %w", selectedTag, err)
 		}
 	}
 
-	lockInputs := []any{refName.String(), platform.Format()}
-	if registryTransport.Protocol != "" {
-		lockInputs = append(lockInputs, registryTransport.Protocol)
-	}
-	if registryTransport.InsecureSkipTLSVerify {
-		lockInputs = append(lockInputs, "insecureSkipTLSVerify")
-	}
-	lockResolution, err := resolveLookupFromLock(
-		lockMode,
-		rawLock,
-		lockContainerFromOperation,
-		lockInputs,
-		workspace.PolicyPin,
+	shaInputs := workspace.LookupInputs(
+		[]any{refName.String()},
+		registryLockOptions()...,
 	)
-	if err != nil {
-		return inst, fmt.Errorf("container.from lock resolution: %w", err)
-	}
-
-	if lockResolution.Pin != "" {
-		resolvedDigest, err := digest.Parse(lockResolution.Pin)
+	shaResolution := resolveLookupFromLoadedLock(
+		lookupLock,
+		workspace.LockOperationOCISHA,
+		shaInputs,
+	)
+	if shaResolution.Pin != "" {
+		pin := shaResolution.Pin
+		resolvedDigest, err := digest.Parse(pin)
 		if err != nil {
-			return inst, fmt.Errorf("invalid lock digest %q for image %q: %w", lockResolution.Pin, refName.String(), err)
+			return inst, fmt.Errorf("invalid lock digest %q for image %q: %w", pin, refName.String(), err)
 		}
 		refName, err = reference.WithDigest(refName, resolvedDigest)
 		if err != nil {
 			return inst, fmt.Errorf("failed to apply lock digest on image %s: %w", refName.String(), err)
 		}
 	} else {
-		// Doesn't have a digest, resolve that now and re-call this field using the canonical
-		// digested ref instead. This ensures the ID returned here is always stable w/ the
-		// digested image ref.
 		rslvr, err := query.RegistryResolver(ctx)
 		if err != nil {
 			return inst, fmt.Errorf("failed to get registry resolver: %w", err)
@@ -1229,17 +1398,14 @@ func (s *containerSchema) from(ctx context.Context, parent dagql.ObjectResult[*c
 			return inst, fmt.Errorf("failed to set digest on image %s: %w", refName.String(), err)
 		}
 
-		if lockResolution.ShouldWrite && lookupLock != nil {
+		if shaResolution.ShouldWrite && lookupLock != nil {
 			if err := lookupLock.SetLookup(
-				lockCoreNamespace,
-				lockContainerFromOperation,
-				lockInputs,
-				workspace.LookupResult{
-					Value:  resolvedDigest.String(),
-					Policy: lockResolution.Policy,
-				},
+				workspace.CoreLockNamespace,
+				workspace.LockOperationOCISHA,
+				shaInputs,
+				resolvedDigest.String(),
 			); err != nil {
-				return inst, fmt.Errorf("set lock entry for container.from: %w", err)
+				return inst, fmt.Errorf("set lock entry for %s: %w", workspace.LockOperationOCISHA, err)
 			}
 		}
 	}
@@ -1304,6 +1470,9 @@ func (s *containerSchema) build(
 	parent dagql.ObjectResult[*core.Container],
 	args containerBuildArgs,
 ) (*core.Container, error) {
+	if err := evaluateContainerMetadata(ctx, parent); err != nil {
+		return nil, err
+	}
 	query, err := core.CurrentQuery(ctx)
 	if err != nil {
 		return nil, err
@@ -1350,6 +1519,9 @@ type containerWithRootFSArgs struct {
 }
 
 func (s *containerSchema) withRootfs(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithRootFSArgs) (*core.Container, error) {
+	if err := evaluateContainerMetadata(ctx, parent); err != nil {
+		return nil, err
+	}
 	srv, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get server: %w", err)
@@ -1405,6 +1577,9 @@ func (s *containerSchema) pipeline(ctx context.Context, parent *core.Container, 
 }
 
 func (s *containerSchema) rootfs(ctx context.Context, parent dagql.ObjectResult[*core.Container], args struct{}) (dagql.ObjectResult[*core.Directory], error) {
+	if err := evaluateContainerMetadata(ctx, parent); err != nil {
+		return dagql.ObjectResult[*core.Directory]{}, err
+	}
 	srv, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
 		return dagql.ObjectResult[*core.Directory]{}, err
@@ -1420,7 +1595,7 @@ func (s *containerSchema) rootfs(ctx context.Context, parent dagql.ObjectResult[
 		Dir:      new(core.LazyAccessor[string, *core.Directory]),
 		Snapshot: new(core.LazyAccessor[bkcache.ImmutableRef, *core.Directory]),
 	}
-	dir.Dir.SetValue("/")
+	dir.SetPath("/")
 	return dagql.NewObjectResultForCurrentCall(ctx, srv, dir)
 }
 
@@ -1487,7 +1662,7 @@ func (s *containerSchema) stdout(ctx context.Context, parent dagql.ObjectResult[
 	if err != nil {
 		return "", err
 	}
-	if err := cache.Evaluate(ctx, parent); err != nil {
+	if err := cache.EvaluateParts(ctx, parent, core.ContainerPartExecMeta); err != nil {
 		return "", err
 	}
 	return parent.Self().Stdout(ctx)
@@ -1528,7 +1703,7 @@ func (s *containerSchema) stderr(ctx context.Context, parent dagql.ObjectResult[
 	if err != nil {
 		return "", err
 	}
-	if err := cache.Evaluate(ctx, parent); err != nil {
+	if err := cache.EvaluateParts(ctx, parent, core.ContainerPartExecMeta); err != nil {
 		return "", err
 	}
 	return parent.Self().Stderr(ctx)
@@ -1569,7 +1744,7 @@ func (s *containerSchema) combinedOutput(ctx context.Context, parent dagql.Objec
 	if err != nil {
 		return "", err
 	}
-	if err := cache.Evaluate(ctx, parent); err != nil {
+	if err := cache.EvaluateParts(ctx, parent, core.ContainerPartExecMeta); err != nil {
 		return "", err
 	}
 	return parent.Self().CombinedOutput(ctx)
@@ -1580,7 +1755,7 @@ func (s *containerSchema) exitCode(ctx context.Context, parent dagql.ObjectResul
 	if err != nil {
 		return 0, err
 	}
-	if err := cache.Evaluate(ctx, parent); err != nil {
+	if err := cache.EvaluateParts(ctx, parent, core.ContainerPartExecMeta); err != nil {
 		return 0, err
 	}
 	return parent.Self().ExitCode(ctx)
@@ -1593,6 +1768,9 @@ type containerWithSymlinkArgs struct {
 }
 
 func (s *containerSchema) withSymlink(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithSymlinkArgs) (inst dagql.ObjectResult[*core.Container], _ error) {
+	if err := evaluateContainerMetadata(ctx, parent); err != nil {
+		return inst, err
+	}
 	srv, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
 		return inst, fmt.Errorf("failed to get server: %w", err)
@@ -1608,41 +1786,19 @@ func (s *containerSchema) withSymlink(ctx context.Context, parent dagql.ObjectRe
 		return inst, err
 	}
 
-	clonedFS, err := core.CloneContainerDirectoryAccessor(ctx, parent.Self().FS)
+	ctr, parentPendingLazy, err := cloneContainerForSchemaChild(ctx, parent)
 	if err != nil {
 		return inst, err
 	}
-	clonedMounts, err := core.CloneContainerMounts(ctx, parent.Self().Mounts)
-	if err != nil {
-		return inst, err
-	}
-	clonedMeta, err := core.CloneContainerMetaSnapshot(ctx, parent.Self().MetaSnapshot)
-	if err != nil {
-		return inst, err
-	}
-	ctr := &core.Container{
-		FS:                 clonedFS,
-		MetaSnapshot:       clonedMeta,
-		Config:             core.CloneContainerImageConfig(parent.Self().Config),
-		EnabledGPUs:        slices.Clone(parent.Self().EnabledGPUs),
-		Mounts:             clonedMounts,
-		Platform:           parent.Self().Platform,
-		Annotations:        slices.Clone(parent.Self().Annotations),
-		Secrets:            slices.Clone(parent.Self().Secrets),
-		Sockets:            slices.Clone(parent.Self().Sockets),
-		ImageRef:           parent.Self().ImageRef,
-		Ports:              slices.Clone(parent.Self().Ports),
-		Services:           slices.Clone(parent.Self().Services),
-		DefaultTerminalCmd: parent.Self().DefaultTerminalCmd,
-		SystemEnvNames:     slices.Clone(parent.Self().SystemEnvNames),
-		VolatileEnv:        slices.Clone(parent.Self().VolatileEnv),
-		DefaultArgs:        parent.Self().DefaultArgs,
-		Lazy: &core.ContainerWithSymlinkLazy{
+	if parentPendingLazy {
+		ctr.Lazy = &core.ContainerWithSymlinkLazy{
 			LazyState: core.NewLazyState(),
 			Parent:    parent,
 			Target:    target,
 			LinkPath:  linkName,
-		},
+		}
+	} else if _, err := ctr.WithSymlink(ctx, parent, target, linkName); err != nil {
+		return inst, err
 	}
 	return dagql.NewObjectResultForCurrentCall(ctx, srv, ctr)
 }
@@ -1755,7 +1911,7 @@ func (s *containerSchema) entrypoint(ctx context.Context, parent dagql.ObjectRes
 	if err != nil {
 		return nil, err
 	}
-	if err := cache.Evaluate(ctx, parent); err != nil {
+	if err := cache.EvaluateParts(ctx, parent, core.ContainerPartMetadata); err != nil {
 		return nil, err
 	}
 	return slices.Clone(parent.Self().Config.Entrypoint), nil
@@ -1820,7 +1976,7 @@ func (s *containerSchema) defaultArgs(ctx context.Context, parent dagql.ObjectRe
 	if err != nil {
 		return nil, err
 	}
-	if err := cache.Evaluate(ctx, parent); err != nil {
+	if err := cache.EvaluateParts(ctx, parent, core.ContainerPartMetadata); err != nil {
 		return nil, err
 	}
 	return slices.Clone(parent.Self().Config.Cmd), nil
@@ -1878,7 +2034,7 @@ func (s *containerSchema) user(ctx context.Context, parent dagql.ObjectResult[*c
 	if err != nil {
 		return "", err
 	}
-	if err := cache.Evaluate(ctx, parent); err != nil {
+	if err := cache.EvaluateParts(ctx, parent, core.ContainerPartMetadata); err != nil {
 		return "", err
 	}
 	return parent.Self().Config.User, nil
@@ -1890,6 +2046,9 @@ type containerWithWorkdirArgs struct {
 }
 
 func (s *containerSchema) withWorkdir(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithWorkdirArgs) (*core.Container, error) {
+	if err := evaluateContainerMetadata(ctx, parent); err != nil {
+		return nil, err
+	}
 	path, err := expandEnvVar(ctx, parent.Self(), args.Path, args.Expand)
 	if err != nil {
 		return nil, err
@@ -1943,7 +2102,7 @@ func (s *containerSchema) workdir(ctx context.Context, parent dagql.ObjectResult
 	if err != nil {
 		return "", err
 	}
-	if err := cache.Evaluate(ctx, parent); err != nil {
+	if err := cache.EvaluateParts(ctx, parent, core.ContainerPartMetadata); err != nil {
 		return "", err
 	}
 	return parent.Self().Config.WorkingDir, nil
@@ -2090,7 +2249,9 @@ func (s *containerSchema) withVolatileVariable(ctx context.Context, parent dagql
 	if err != nil {
 		return inst, fmt.Errorf("resolve volatile variable %q: current dagql cache: %w", args.Name, err)
 	}
-	cache.SetVolatileVars(ctx, clientMetadata.SessionID, args.Name, args.Value)
+	if err := cache.SetVolatileVars(ctx, clientMetadata.SessionID, args.Name, args.Value); err != nil {
+		return inst, fmt.Errorf("record volatile variable %q: %w", args.Name, err)
+	}
 
 	parentDig, err := parent.ContentPreferredDigest(ctx)
 	if err != nil {
@@ -2208,7 +2369,7 @@ func (s *containerSchema) envVariables(ctx context.Context, parent dagql.ObjectR
 	if err != nil {
 		return nil, err
 	}
-	if err := cache.Evaluate(ctx, parent); err != nil {
+	if err := cache.EvaluateParts(ctx, parent, core.ContainerPartMetadata); err != nil {
 		return nil, err
 	}
 
@@ -2231,7 +2392,7 @@ func (s *containerSchema) envVariable(ctx context.Context, parent dagql.ObjectRe
 	if err != nil {
 		return none, err
 	}
-	if err := cache.Evaluate(ctx, parent); err != nil {
+	if err := cache.EvaluateParts(ctx, parent, core.ContainerPartMetadata); err != nil {
 		return none, err
 	}
 
@@ -2263,7 +2424,7 @@ func (s *containerSchema) labels(ctx context.Context, parent dagql.ObjectResult[
 	if err != nil {
 		return nil, err
 	}
-	if err := cache.Evaluate(ctx, parent); err != nil {
+	if err := cache.EvaluateParts(ctx, parent, core.ContainerPartMetadata); err != nil {
 		return nil, err
 	}
 
@@ -2292,7 +2453,7 @@ func (s *containerSchema) label(ctx context.Context, parent dagql.ObjectResult[*
 	if err != nil {
 		return none, err
 	}
-	if err := cache.Evaluate(ctx, parent); err != nil {
+	if err := cache.EvaluateParts(ctx, parent, core.ContainerPartMetadata); err != nil {
 		return none, err
 	}
 
@@ -2304,14 +2465,18 @@ func (s *containerSchema) label(ctx context.Context, parent dagql.ObjectResult[*
 }
 
 type containerWithMountedDirectoryArgs struct {
-	Path     string
-	Source   core.DirectoryID
-	Owner    string `default:""`
-	ReadOnly bool   `default:"false"`
-	Expand   bool   `default:"false"`
+	Path         string
+	Source       core.DirectoryID
+	Owner        string `default:""`
+	InheritOwner bool   `default:"false"`
+	ReadOnly     bool   `default:"false"`
+	Expand       bool   `default:"false"`
 }
 
-func (s *containerSchema) withMountedDirectory(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithMountedDirectoryArgs) (*core.Container, error) {
+func (s *containerSchema) withMountedDirectory(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithMountedDirectoryArgs) (_ *core.Container, rerr error) {
+	if err := evaluateContainerMetadata(ctx, parent); err != nil {
+		return nil, err
+	}
 	srv, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get server: %w", err)
@@ -2327,46 +2492,26 @@ func (s *containerSchema) withMountedDirectory(ctx context.Context, parent dagql
 		return nil, err
 	}
 
-	clonedFS, err := core.CloneContainerDirectoryAccessor(ctx, parent.Self().FS)
-	if err != nil {
-		return nil, err
-	}
-	clonedMounts, err := core.CloneContainerMounts(ctx, parent.Self().Mounts)
-	if err != nil {
-		return nil, err
-	}
-	clonedMeta, err := core.CloneContainerMetaSnapshot(ctx, parent.Self().MetaSnapshot)
-	if err != nil {
-		return nil, err
-	}
 	ctr := &core.Container{
-		FS:                 clonedFS,
-		MetaSnapshot:       clonedMeta,
-		Config:             core.CloneContainerImageConfig(parent.Self().Config),
-		EnabledGPUs:        slices.Clone(parent.Self().EnabledGPUs),
-		Mounts:             clonedMounts,
-		Platform:           parent.Self().Platform,
-		Annotations:        slices.Clone(parent.Self().Annotations),
-		Secrets:            slices.Clone(parent.Self().Secrets),
-		Sockets:            slices.Clone(parent.Self().Sockets),
-		ImageRef:           "",
-		Ports:              slices.Clone(parent.Self().Ports),
-		Services:           slices.Clone(parent.Self().Services),
-		DefaultTerminalCmd: parent.Self().DefaultTerminalCmd,
-		SystemEnvNames:     slices.Clone(parent.Self().SystemEnvNames),
-		VolatileEnv:        slices.Clone(parent.Self().VolatileEnv),
-		DefaultArgs:        parent.Self().DefaultArgs,
-		Lazy: &core.ContainerWithMountedDirectoryLazy{
-			LazyState: core.NewLazyState(),
-			Parent:    parent,
-			Target:    absPath(parent.Self().Config.WorkingDir, path),
-			Source:    dir,
-			Owner:     args.Owner,
-			Readonly:  args.ReadOnly,
-		},
+		FS:           new(core.LazyAccessor[*core.Directory, *core.Container]),
+		MetaSnapshot: new(core.LazyAccessor[bkcache.ImmutableRef, *core.Container]),
+	}
+	core.CopyContainerMetadata(ctr, parent.Self())
+	owner, err := inheritedOwner(parent, args.Owner, args.InheritOwner)
+	if err != nil {
+		return nil, err
+	}
+	target := absPath(parent.Self().Config.WorkingDir, path)
+	ctr.Lazy = &core.ContainerWithMountedDirectoryLazy{
+		LazyState: core.NewLazyState(),
+		Parent:    parent,
+		Target:    target,
+		Source:    dir,
+		Owner:     owner,
+		Readonly:  args.ReadOnly,
 	}
 	ctr.Mounts = ctr.Mounts.With(core.ContainerMount{
-		Target:          absPath(parent.Self().Config.WorkingDir, path),
+		Target:          target,
 		Readonly:        args.ReadOnly,
 		DirectorySource: new(core.LazyAccessor[*core.Directory, *core.Container]),
 	})
@@ -2475,6 +2620,24 @@ type containerPublishArgs struct {
 	InsecureSkipTLSVerify bool `name:"insecureSkipTLSVerify" default:"false"`
 }
 
+func evaluateContainerImageParts(
+	ctx context.Context,
+	cache *dagql.Cache,
+	containers ...dagql.ObjectResult[*core.Container],
+) error {
+	eg, egctx := errgroup.WithContext(ctx)
+	for _, container := range containers {
+		if container.Self() == nil {
+			continue
+		}
+		container := container
+		eg.Go(func() error {
+			return cache.EvaluateParts(egctx, container, core.ContainerPartMetadata, core.ContainerPartFS)
+		})
+	}
+	return eg.Wait()
+}
+
 func (s *containerSchema) publish(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerPublishArgs) (dagql.String, error) {
 	srv, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
@@ -2488,14 +2651,7 @@ func (s *containerSchema) publish(ctx context.Context, parent dagql.ObjectResult
 	if err != nil {
 		return "", err
 	}
-	evals := make([]dagql.AnyResult, 0, 1+len(variantResults))
-	evals = append(evals, parent)
-	for _, variant := range variantResults {
-		if variant.Self() != nil {
-			evals = append(evals, variant)
-		}
-	}
-	if err := cache.Evaluate(ctx, evals...); err != nil {
+	if err := evaluateContainerImageParts(ctx, cache, append([]dagql.ObjectResult[*core.Container]{parent}, variantResults...)...); err != nil {
 		return "", err
 	}
 	registryTransport, err := registryTransportFromArgs(args.Protocol, args.InsecureSkipTLSVerify)
@@ -2535,13 +2691,17 @@ func (s *containerSchema) publish(ctx context.Context, parent dagql.ObjectResult
 }
 
 type containerWithMountedFileArgs struct {
-	Path   string
-	Source core.FileID
-	Owner  string `default:""`
-	Expand bool   `default:"false"`
+	Path         string
+	Source       core.FileID
+	Owner        string `default:""`
+	InheritOwner bool   `default:"false"`
+	Expand       bool   `default:"false"`
 }
 
-func (s *containerSchema) withMountedFile(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithMountedFileArgs) (*core.Container, error) {
+func (s *containerSchema) withMountedFile(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithMountedFileArgs) (_ *core.Container, rerr error) {
+	if err := evaluateContainerMetadata(ctx, parent); err != nil {
+		return nil, err
+	}
 	srv, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get server: %w", err)
@@ -2557,7 +2717,12 @@ func (s *containerSchema) withMountedFile(ctx context.Context, parent dagql.Obje
 		return nil, err
 	}
 
-	ctr, _, err := cloneContainerForSchemaChild(ctx, parent)
+	ctr := &core.Container{
+		FS:           new(core.LazyAccessor[*core.Directory, *core.Container]),
+		MetaSnapshot: new(core.LazyAccessor[bkcache.ImmutableRef, *core.Container]),
+	}
+	core.CopyContainerMetadata(ctr, parent.Self())
+	owner, err := inheritedOwner(parent, args.Owner, args.InheritOwner)
 	if err != nil {
 		return nil, err
 	}
@@ -2567,7 +2732,7 @@ func (s *containerSchema) withMountedFile(ctx context.Context, parent dagql.Obje
 		Parent:    parent,
 		Target:    target,
 		Source:    file,
-		Owner:     args.Owner,
+		Owner:     owner,
 		Readonly:  false,
 	}
 	ctr.Mounts = ctr.Mounts.With(core.ContainerMount{
@@ -2585,46 +2750,105 @@ type containerWithMountedPathDockerfileCompatArgs struct {
 	ReadOnly   bool   `default:"false"`
 }
 
-func (s *containerSchema) withMountedPathDockerfileCompat(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithMountedPathDockerfileCompatArgs) (*core.Container, error) {
+func (s *containerSchema) withMountedPathDockerfileCompat(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithMountedPathDockerfileCompatArgs) (inst dagql.ObjectResult[*core.Container], err error) {
 	srv, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get server: %w", err)
+		return inst, fmt.Errorf("failed to get server: %w", err)
 	}
 
 	dir, err := args.Source.Load(ctx, srv)
 	if err != nil {
-		return nil, err
+		return inst, err
 	}
-
-	ctr, _, err := cloneContainerForSchemaChild(ctx, parent)
+	dagqlCache, err := dagql.EngineCache(ctx)
 	if err != nil {
-		return nil, err
+		return inst, err
+	}
+	if err := dagqlCache.Evaluate(ctx, dir); err != nil {
+		return inst, fmt.Errorf("failed to content hash dockerfile bind mount: evaluate source: %w", err)
+	}
+	ctr, parentPendingLazy, err := cloneContainerForSchemaChild(ctx, parent)
+	if err != nil {
+		return inst, err
 	}
 
 	target := absPath(parent.Self().Config.WorkingDir, args.Path)
-	ctr.Lazy = &core.ContainerWithMountedPathDockerfileCompatLazy{
-		LazyState:  core.NewLazyState(),
-		Parent:     parent,
-		Target:     target,
-		Source:     dir,
-		SourcePath: args.SourcePath,
-		Readonly:   args.ReadOnly,
+	if !parentPendingLazy {
+		if _, err := ctr.WithMountedPathDockerfileCompat(ctx, target, dir, args.SourcePath, args.ReadOnly); err != nil {
+			return inst, err
+		}
+	} else {
+		sourceIsFile, err := core.DockerfileCompatMountSourceIsFile(ctx, dir, srv, args.SourcePath)
+		if err != nil {
+			return inst, err
+		}
+		ctr.Lazy = &core.ContainerWithMountedPathDockerfileCompatLazy{
+			LazyState:  core.NewLazyState(),
+			Parent:     parent,
+			Target:     target,
+			Source:     dir,
+			SourcePath: args.SourcePath,
+			Readonly:   args.ReadOnly,
+		}
+		mount := core.ContainerMount{
+			Target:   target,
+			Readonly: args.ReadOnly,
+		}
+		if sourceIsFile {
+			mount.FileSource = new(core.LazyAccessor[*core.File, *core.Container])
+		} else {
+			mount.DirectorySource = new(core.LazyAccessor[*core.Directory, *core.Container])
+		}
+		ctr.Mounts = ctr.Mounts.With(mount)
 	}
-	ctr.Mounts = ctr.Mounts.With(core.ContainerMount{
-		Target:          target,
-		Readonly:        args.ReadOnly,
-		DirectorySource: new(core.LazyAccessor[*core.Directory, *core.Container]),
-	})
-	return ctr, nil
+
+	inst, err = dagql.NewObjectResultForCurrentCall(ctx, srv, ctr)
+	if err != nil {
+		return inst, err
+	}
+
+	// Key the result on the mounted content rather than the source directory's
+	// recipe, mirroring BuildKit's content-checksummed bind-mount cache keys.
+	// A taught content digest is a global alias for the result's cache identity,
+	// so it must still include everything that distinguishes this container:
+	// the parent it was built from and the target/readOnly mount config.
+	parentDgst, err := parent.ContentPreferredDigest(ctx)
+	if err != nil {
+		return inst, fmt.Errorf("failed to content hash dockerfile bind mount: parent digest: %w", err)
+	}
+	srcSnapshot, err := dir.Self().Snapshot.GetOrEval(ctx, dir.Result)
+	if err != nil {
+		return inst, fmt.Errorf("failed to content hash dockerfile bind mount: source snapshot: %w", err)
+	}
+	srcRoot, err := dir.Self().Dir.GetOrEval(ctx, dir.Result)
+	if err != nil {
+		return inst, fmt.Errorf("failed to content hash dockerfile bind mount: source path: %w", err)
+	}
+	srcHash := "empty"
+	if srcSnapshot != nil {
+		dgst, err := core.GetContentHashFromFile(ctx, srcSnapshot, path.Join(srcRoot, args.SourcePath))
+		if err != nil {
+			return inst, fmt.Errorf("failed to content hash dockerfile bind mount at %q: %w", args.SourcePath, err)
+		}
+		srcHash = string(dgst)
+	}
+	return inst.WithContentDigest(ctx, hashutil.HashStrings(
+		"__withMountedPathDockerfileCompat",
+		string(parentDgst),
+		target,
+		strconv.FormatBool(args.ReadOnly),
+		srcHash,
+	))
 }
 
 type containerWithMountedCacheArgs struct {
-	Path    string
-	Cache   core.CacheVolumeID
-	Source  dagql.Optional[core.DirectoryID]
-	Sharing core.CacheSharingMode `default:"SHARED"`
-	Owner   string                `default:""`
-	Expand  bool                  `default:"false"`
+	Path         string
+	Cache        core.CacheVolumeID
+	Source       dagql.Optional[core.DirectoryID]
+	Sharing      core.CacheSharingMode `default:"SHARED"`
+	Owner        string                `default:""`
+	InheritOwner bool                  `default:"false"`
+	Expand       bool                  `default:"false"`
 }
 
 func (s *containerSchema) withMountedCacheDynamicInputs(
@@ -2633,9 +2857,13 @@ func (s *containerSchema) withMountedCacheDynamicInputs(
 	args containerWithMountedCacheArgs,
 	req *dagql.CallRequest,
 ) error {
+	if err := evaluateContainerMetadata(ctx, parent); err != nil {
+		return err
+	}
 	hasSourceArg := req.HasArg("source")
 	hasSharingArg := req.HasArg("sharing")
 	hasOwnerArg := req.HasArg("owner")
+	hasInheritOwnerArg := req.HasArg("inheritOwner")
 	srv, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
 		return err
@@ -2662,6 +2890,15 @@ func (s *containerSchema) withMountedCacheDynamicInputs(
 	owner := cacheSelf.Owner
 	if hasOwnerArg {
 		owner = args.Owner
+	}
+	if args.InheritOwner {
+		if hasOwnerArg && args.Owner != "" {
+			return errors.New("cannot set both owner and inheritOwner")
+		}
+		owner = parent.Self().Config.User
+	}
+	if hasInheritOwnerArg {
+		needsRewrite = true
 	}
 	if ownerNeedsLookup(owner) {
 		cache, err := dagql.EngineCache(ctx)
@@ -2726,6 +2963,9 @@ func (s *containerSchema) withMountedCacheDynamicInputs(
 }
 
 func (s *containerSchema) withMountedCache(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithMountedCacheArgs) (*core.Container, error) {
+	if err := evaluateContainerMetadata(ctx, parent); err != nil {
+		return nil, err
+	}
 	srv, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get server: %w", err)
@@ -2744,11 +2984,15 @@ func (s *containerSchema) withMountedCache(ctx context.Context, parent dagql.Obj
 		return nil, err
 	}
 
-	ctr, _, err := cloneContainerForSchemaChild(ctx, parent)
+	ctr, parentPendingLazy, err := cloneContainerForSchemaChild(ctx, parent)
 	if err != nil {
 		return nil, err
 	}
 	target := absPath(parent.Self().Config.WorkingDir, path)
+	if !parentPendingLazy {
+		_, err := ctr.WithMountedCache(ctx, target, cache)
+		return ctr, err
+	}
 	ctr.Lazy = &core.ContainerWithMountedCacheLazy{
 		LazyState: core.NewLazyState(),
 		Parent:    parent,
@@ -2764,6 +3008,61 @@ func (s *containerSchema) withMountedCache(ctx context.Context, parent dagql.Obj
 	return ctr, nil
 }
 
+type containerWithMountedVolumeArgs struct {
+	Path     string
+	Volume   core.VolumeID
+	ReadOnly bool `default:"false"`
+	Expand   bool `default:"false"`
+}
+
+func (s *containerSchema) withMountedVolume(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithMountedVolumeArgs) (*core.Container, error) {
+	if err := evaluateContainerMetadata(ctx, parent); err != nil {
+		return nil, err
+	}
+	srv, err := core.CurrentDagqlServer(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get server: %w", err)
+	}
+
+	volume, err := args.Volume.Load(ctx, srv)
+	if err != nil {
+		return nil, err
+	}
+	if volume.Self() == nil {
+		return nil, errors.New("volume is nil")
+	}
+
+	path, err := expandEnvVar(ctx, parent.Self(), args.Path, args.Expand)
+	if err != nil {
+		return nil, err
+	}
+
+	ctr, parentPendingLazy, err := cloneContainerForSchemaChild(ctx, parent)
+	if err != nil {
+		return nil, err
+	}
+	target := absPath(parent.Self().Config.WorkingDir, path)
+	if !parentPendingLazy {
+		_, err := ctr.WithMountedVolume(ctx, target, volume, args.ReadOnly)
+		return ctr, err
+	}
+	ctr.Lazy = &core.ContainerWithMountedVolumeLazy{
+		LazyState: core.NewLazyState(),
+		Parent:    parent,
+		Target:    target,
+		Volume:    volume,
+		Readonly:  args.ReadOnly,
+	}
+	ctr.Mounts = ctr.Mounts.With(core.ContainerMount{
+		Target:   target,
+		Readonly: args.ReadOnly,
+		VolumeSource: &core.VolumeMountSource{
+			Volume: volume,
+		},
+	})
+	return ctr, nil
+}
+
 type containerWithMountedTempArgs struct {
 	Path   string
 	Size   dagql.Optional[dagql.Int]
@@ -2771,16 +3070,23 @@ type containerWithMountedTempArgs struct {
 }
 
 func (s *containerSchema) withMountedTemp(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithMountedTempArgs) (*core.Container, error) {
+	if err := evaluateContainerMetadata(ctx, parent); err != nil {
+		return nil, err
+	}
 	path, err := expandEnvVar(ctx, parent.Self(), args.Path, args.Expand)
 	if err != nil {
 		return nil, err
 	}
 
-	ctr, _, err := cloneContainerForSchemaChild(ctx, parent)
+	ctr, parentPendingLazy, err := cloneContainerForSchemaChild(ctx, parent)
 	if err != nil {
 		return nil, err
 	}
 	target := absPath(parent.Self().Config.WorkingDir, path)
+	if !parentPendingLazy {
+		_, err := ctr.WithMountedTemp(ctx, target, args.Size.Value.Int())
+		return ctr, err
+	}
 	ctr.Lazy = &core.ContainerWithMountedTempLazy{
 		LazyState: core.NewLazyState(),
 		Parent:    parent,
@@ -2802,12 +3108,15 @@ type containerWithoutMountArgs struct {
 }
 
 func (s *containerSchema) withoutMount(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithoutMountArgs) (*core.Container, error) {
+	if err := evaluateContainerMetadata(ctx, parent); err != nil {
+		return nil, err
+	}
 	path, err := expandEnvVar(ctx, parent.Self(), args.Path, args.Expand)
 	if err != nil {
 		return nil, err
 	}
 
-	ctr, _, err := cloneContainerForSchemaChild(ctx, parent)
+	ctr, parentPendingLazy, err := cloneContainerForSchemaChild(ctx, parent)
 	if err != nil {
 		return nil, err
 	}
@@ -2815,10 +3124,12 @@ func (s *containerSchema) withoutMount(ctx context.Context, parent dagql.ObjectR
 	if _, err := ctr.WithoutMount(ctx, target); err != nil {
 		return nil, err
 	}
-	ctr.Lazy = &core.ContainerWithoutMountLazy{
-		LazyState: core.NewLazyState(),
-		Parent:    parent,
-		Target:    target,
+	if parentPendingLazy {
+		ctr.Lazy = &core.ContainerWithoutMountLazy{
+			LazyState: core.NewLazyState(),
+			Parent:    parent,
+			Target:    target,
+		}
 	}
 	return ctr, nil
 }
@@ -2828,7 +3139,7 @@ func (s *containerSchema) mounts(ctx context.Context, parent dagql.ObjectResult[
 	if err != nil {
 		return nil, err
 	}
-	if err := cache.Evaluate(ctx, parent); err != nil {
+	if err := cache.EvaluateParts(ctx, parent, core.ContainerPartMetadata); err != nil {
 		return nil, err
 	}
 
@@ -2989,7 +3300,7 @@ func (s *containerSchema) healthcheck(ctx context.Context, parent dagql.ObjectRe
 	if err != nil {
 		return inst, err
 	}
-	if err := cache.Evaluate(ctx, parent); err != nil {
+	if err := cache.EvaluateParts(ctx, parent, core.ContainerPartMetadata); err != nil {
 		return inst, err
 	}
 	if parent.Self().Config.Healthcheck == nil || len(parent.Self().Config.Healthcheck.Test) == 0 || parent.Self().Config.Healthcheck.Test[0] == "NONE" {
@@ -3030,6 +3341,9 @@ type containerDirectoryArgs struct {
 
 //nolint:dupl // symmetric with (*containerSchema).file; sharing hides Directory vs File specifics
 func (s *containerSchema) directory(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerDirectoryArgs) (dagql.ObjectResult[*core.Directory], error) {
+	if err := evaluateContainerMetadata(ctx, parent); err != nil {
+		return dagql.ObjectResult[*core.Directory]{}, err
+	}
 	srv, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
 		return dagql.ObjectResult[*core.Directory]{}, err
@@ -3052,7 +3366,7 @@ func (s *containerSchema) directory(ctx context.Context, parent dagql.ObjectResu
 		Dir:      new(core.LazyAccessor[string, *core.Directory]),
 		Snapshot: new(core.LazyAccessor[bkcache.ImmutableRef, *core.Directory]),
 	}
-	dir.Dir.SetValue(resolvedPath)
+	dir.SetPath(resolvedPath)
 	return dagql.NewObjectResultForCurrentCall(ctx, srv, dir)
 }
 
@@ -3063,6 +3377,9 @@ type containerFileArgs struct {
 
 //nolint:dupl // symmetric with (*containerSchema).directory; sharing hides File vs Directory specifics
 func (s *containerSchema) file(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerFileArgs) (dagql.ObjectResult[*core.File], error) {
+	if err := evaluateContainerMetadata(ctx, parent); err != nil {
+		return dagql.ObjectResult[*core.File]{}, err
+	}
 	srv, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
 		return dagql.ObjectResult[*core.File]{}, err
@@ -3085,7 +3402,7 @@ func (s *containerSchema) file(ctx context.Context, parent dagql.ObjectResult[*c
 		File:     new(core.LazyAccessor[string, *core.File]),
 		Snapshot: new(core.LazyAccessor[bkcache.ImmutableRef, *core.File]),
 	}
-	file.File.SetValue(resolvedPath)
+	file.SetPath(resolvedPath)
 	return dagql.NewObjectResultForCurrentCall(ctx, srv, file)
 }
 
@@ -3118,7 +3435,31 @@ func ownerNeedsLookup(owner string) bool {
 	return false
 }
 
+func inheritedOwner(parent dagql.ObjectResult[*core.Container], owner string, inheritOwner bool) (string, error) {
+	if !inheritOwner {
+		return owner, nil
+	}
+	if owner != "" {
+		return "", errors.New("cannot set both owner and inheritOwner")
+	}
+	return parent.Self().Config.User, nil
+}
+
+// Demand metadata before reading Container configuration, platform or mount shape.
+func evaluateContainerMetadata(ctx context.Context, parent dagql.ObjectResult[*core.Container]) error {
+	cache, err := dagql.EngineCache(ctx)
+	if err != nil {
+		return err
+	}
+	return cache.EvaluateParts(ctx, parent, core.ContainerPartMetadata)
+}
+
 func cloneContainerForSchemaChild(ctx context.Context, parent dagql.ObjectResult[*core.Container]) (*core.Container, bool, error) {
+	if err := evaluateContainerMetadata(ctx, parent); err != nil {
+		return nil, false, err
+	}
+	// Foreign shells report pending work here too, so the child's ordinary
+	// operation keeps its parent dependency and delegates unresolved parts.
 	parentPendingLazy := dagql.HasPendingLazyEvaluation(parent)
 
 	clonedFS, err := core.CloneContainerDirectoryAccessor(ctx, parent.Self().FS)
@@ -3134,6 +3475,8 @@ func cloneContainerForSchemaChild(ctx context.Context, parent dagql.ObjectResult
 		return nil, false, err
 	}
 	ctr := &core.Container{
+		// CanUseFromContentDigest intentionally defaults to false for schema
+		// children: any container transformation may carry state through From.
 		FS:                 clonedFS,
 		MetaSnapshot:       clonedMeta,
 		Config:             core.CloneContainerImageConfig(parent.Self().Config),
@@ -3254,14 +3597,18 @@ func (s *containerSchema) withoutSecretVariable(ctx context.Context, parent dagq
 }
 
 type containerWithMountedSecretArgs struct {
-	Path   string
-	Source core.SecretID
-	Owner  string `default:""`
-	Mode   int    `default:"0400"` // FIXME(vito): verify octal
-	Expand bool   `default:"false"`
+	Path         string
+	Source       core.SecretID
+	Owner        string `default:""`
+	InheritOwner bool   `default:"false"`
+	Mode         int    `default:"0400"` // FIXME(vito): verify octal
+	Expand       bool   `default:"false"`
 }
 
 func (s *containerSchema) withMountedSecret(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithMountedSecretArgs) (*core.Container, error) {
+	if err := evaluateContainerMetadata(ctx, parent); err != nil {
+		return nil, err
+	}
 	srv, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get server: %w", err)
@@ -3277,14 +3624,22 @@ func (s *containerSchema) withMountedSecret(ctx context.Context, parent dagql.Ob
 		return nil, err
 	}
 
-	ctr, _, err := cloneContainerForSchemaChild(ctx, parent)
+	ctr, parentPendingLazy, err := cloneContainerForSchemaChild(ctx, parent)
 	if err != nil {
 		return nil, err
 	}
 	target := absPath(parent.Self().Config.WorkingDir, path)
+	owner, err := inheritedOwner(parent, args.Owner, args.InheritOwner)
+	if err != nil {
+		return nil, err
+	}
+	if !parentPendingLazy {
+		_, err := ctr.WithMountedSecret(ctx, parent, target, secret, owner, fs.FileMode(args.Mode))
+		return ctr, err
+	}
 	var secretOwner *core.Ownership
-	if args.Owner != "" {
-		ownership, err := ctr.ResolveOwnership(ctx, parent, args.Owner)
+	if owner != "" {
+		ownership, err := ctr.ResolveOwnership(ctx, parent, owner)
 		if err != nil {
 			return nil, err
 		}
@@ -3310,7 +3665,7 @@ func (s *containerSchema) withMountedSecret(ctx context.Context, parent dagql.Ob
 		Parent:    parent,
 		Target:    target,
 		Source:    secret,
-		Owner:     args.Owner,
+		Owner:     owner,
 		Mode:      fs.FileMode(args.Mode),
 	}
 	return ctr, nil
@@ -3318,11 +3673,15 @@ func (s *containerSchema) withMountedSecret(ctx context.Context, parent dagql.Ob
 
 type containerWithDirectoryArgs struct {
 	WithDirectoryArgs
-	Owner  string `default:""`
-	Expand bool   `default:"false"`
+	Owner        string `default:""`
+	InheritOwner bool   `default:"false"`
+	Expand       bool   `default:"false"`
 }
 
 func (s *containerSchema) withDirectory(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithDirectoryArgs) (*core.Container, error) {
+	if err := evaluateContainerMetadata(ctx, parent); err != nil {
+		return nil, err
+	}
 	srv, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get server: %w", err)
@@ -3338,28 +3697,40 @@ func (s *containerSchema) withDirectory(ctx context.Context, parent dagql.Object
 		return nil, err
 	}
 
-	ctr, _, err := cloneContainerForSchemaChild(ctx, parent)
+	ctr, parentPendingLazy, err := cloneContainerForSchemaChild(ctx, parent)
 	if err != nil {
 		return nil, err
 	}
-	ctr.Lazy = &core.ContainerWithDirectoryLazy{
-		LazyState: core.NewLazyState(),
-		Parent:    parent,
-		Path:      path,
-		Source:    dir,
-		Filter:    args.CopyFilter,
-		Owner:     args.Owner,
+	owner, err := inheritedOwner(parent, args.Owner, args.InheritOwner)
+	if err != nil {
+		return nil, err
+	}
+	if parentPendingLazy {
+		ctr.Lazy = &core.ContainerWithDirectoryLazy{
+			LazyState: core.NewLazyState(),
+			Parent:    parent,
+			Path:      path,
+			Source:    dir,
+			Filter:    args.CopyFilter,
+			Owner:     owner,
+		}
+	} else if _, err := ctr.WithDirectory(ctx, parent, path, dir, args.CopyFilter, owner); err != nil {
+		return nil, err
 	}
 	return ctr, nil
 }
 
 type containerWithFileArgs struct {
 	WithFileArgs
-	Owner  string `default:""`
-	Expand bool   `default:"false"`
+	Owner        string `default:""`
+	InheritOwner bool   `default:"false"`
+	Expand       bool   `default:"false"`
 }
 
 func (s *containerSchema) withFile(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithFileArgs) (inst dagql.ObjectResult[*core.Container], err error) {
+	if err := evaluateContainerMetadata(ctx, parent); err != nil {
+		return inst, err
+	}
 	srv, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
 		return inst, fmt.Errorf("failed to get server: %w", err)
@@ -3381,17 +3752,25 @@ func (s *containerSchema) withFile(ctx context.Context, parent dagql.ObjectResul
 		return inst, err
 	}
 
-	ctr, _, err := cloneContainerForSchemaChild(ctx, parent)
+	ctr, parentPendingLazy, err := cloneContainerForSchemaChild(ctx, parent)
 	if err != nil {
 		return inst, err
 	}
-	ctr.Lazy = &core.ContainerWithFileLazy{
-		LazyState:   core.NewLazyState(),
-		Parent:      parent,
-		Path:        path,
-		Source:      file,
-		Permissions: perms,
-		Owner:       args.Owner,
+	owner, err := inheritedOwner(parent, args.Owner, args.InheritOwner)
+	if err != nil {
+		return inst, err
+	}
+	if parentPendingLazy {
+		ctr.Lazy = &core.ContainerWithFileLazy{
+			LazyState:   core.NewLazyState(),
+			Parent:      parent,
+			Path:        path,
+			Source:      file,
+			Permissions: perms,
+			Owner:       owner,
+		}
+	} else if _, err := ctr.WithFile(ctx, parent, path, file, perms, owner); err != nil {
+		return inst, err
 	}
 
 	inst, err = dagql.NewObjectResultForCurrentCall(ctx, srv, ctr)
@@ -3400,11 +3779,15 @@ func (s *containerSchema) withFile(ctx context.Context, parent dagql.ObjectResul
 
 type containerWithFilesArgs struct {
 	WithFilesArgs
-	Owner  string `default:""`
-	Expand bool   `default:"false"`
+	Owner        string `default:""`
+	InheritOwner bool   `default:"false"`
+	Expand       bool   `default:"false"`
 }
 
 func (s *containerSchema) withFiles(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithFilesArgs) (inst dagql.ObjectResult[*core.Container], err error) {
+	if err := evaluateContainerMetadata(ctx, parent); err != nil {
+		return inst, err
+	}
 	srv, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
 		return inst, fmt.Errorf("failed to get server: %w", err)
@@ -3415,15 +3798,8 @@ func (s *containerSchema) withFiles(ctx context.Context, parent dagql.ObjectResu
 		return inst, err
 	}
 
-	cache, err := dagql.EngineCache(ctx)
+	paths, err := core.SourceFilePaths(ctx, files)
 	if err != nil {
-		return inst, err
-	}
-	evals := make([]dagql.AnyResult, len(files))
-	for i, file := range files {
-		evals[i] = file
-	}
-	if err := cache.Evaluate(ctx, evals...); err != nil {
 		return inst, err
 	}
 
@@ -3437,12 +3813,13 @@ func (s *containerSchema) withFiles(ctx context.Context, parent dagql.ObjectResu
 		p := int(args.Permissions.Value)
 		perms = &p
 	}
+	owner, err := inheritedOwner(parent, args.Owner, args.InheritOwner)
+	if err != nil {
+		return inst, err
+	}
 	current := parent
-	for _, file := range files {
-		filePath, err := file.Self().File.GetOrEval(ctx, file.Result)
-		if err != nil {
-			return inst, err
-		}
+	for i, file := range files {
+		filePath := paths[i]
 		fileID, err := file.ID()
 		if err != nil {
 			return inst, err
@@ -3455,8 +3832,8 @@ func (s *containerSchema) withFiles(ctx context.Context, parent dagql.ObjectResu
 		if perms != nil {
 			selectArgs = append(selectArgs, dagql.NamedInput{Name: "permissions", Value: dagql.Opt(dagql.Int(*perms))})
 		}
-		if args.Owner != "" {
-			selectArgs = append(selectArgs, dagql.NamedInput{Name: "owner", Value: dagql.String(args.Owner)})
+		if owner != "" {
+			selectArgs = append(selectArgs, dagql.NamedInput{Name: "owner", Value: dagql.String(owner)})
 		}
 		var next dagql.ObjectResult[*core.Container]
 		if err := srv.Select(ctx, current, &next, dagql.Selector{
@@ -3475,7 +3852,11 @@ type containerWithoutDirectoryArgs struct {
 	Expand bool `default:"false"`
 }
 
+//nolint:dupl // symmetric with withoutFile; the distinct argument types preserve the schema operations
 func (s *containerSchema) withoutDirectory(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithoutDirectoryArgs) (inst dagql.ObjectResult[*core.Container], err error) {
+	if err := evaluateContainerMetadata(ctx, parent); err != nil {
+		return inst, err
+	}
 	srv, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
 		return inst, fmt.Errorf("failed to get server: %w", err)
@@ -3486,14 +3867,18 @@ func (s *containerSchema) withoutDirectory(ctx context.Context, parent dagql.Obj
 		return inst, err
 	}
 
-	ctr, _, err := cloneContainerForSchemaChild(ctx, parent)
+	ctr, parentPendingLazy, err := cloneContainerForSchemaChild(ctx, parent)
 	if err != nil {
 		return inst, err
 	}
-	ctr.Lazy = &core.ContainerWithoutPathLazy{
-		LazyState: core.NewLazyState(),
-		Parent:    parent,
-		Path:      path,
+	if parentPendingLazy {
+		ctr.Lazy = &core.ContainerWithoutPathLazy{
+			LazyState: core.NewLazyState(),
+			Parent:    parent,
+			Path:      path,
+		}
+	} else if _, err := ctr.WithoutPaths(ctx, parent, path); err != nil {
+		return inst, err
 	}
 	return dagql.NewObjectResultForCurrentCall(ctx, srv, ctr)
 }
@@ -3503,7 +3888,11 @@ type containerWithoutFileArgs struct {
 	Expand bool `default:"false"`
 }
 
+//nolint:dupl // symmetric with withoutDirectory; the distinct argument types preserve the schema operations
 func (s *containerSchema) withoutFile(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithoutFileArgs) (inst dagql.ObjectResult[*core.Container], err error) {
+	if err := evaluateContainerMetadata(ctx, parent); err != nil {
+		return inst, err
+	}
 	srv, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
 		return inst, fmt.Errorf("failed to get server: %w", err)
@@ -3514,14 +3903,18 @@ func (s *containerSchema) withoutFile(ctx context.Context, parent dagql.ObjectRe
 		return inst, err
 	}
 
-	ctr, _, err := cloneContainerForSchemaChild(ctx, parent)
+	ctr, parentPendingLazy, err := cloneContainerForSchemaChild(ctx, parent)
 	if err != nil {
 		return inst, err
 	}
-	ctr.Lazy = &core.ContainerWithoutPathLazy{
-		LazyState: core.NewLazyState(),
-		Parent:    parent,
-		Path:      path,
+	if parentPendingLazy {
+		ctr.Lazy = &core.ContainerWithoutPathLazy{
+			LazyState: core.NewLazyState(),
+			Parent:    parent,
+			Path:      path,
+		}
+	} else if _, err := ctr.WithoutPaths(ctx, parent, path); err != nil {
+		return inst, err
 	}
 	return dagql.NewObjectResultForCurrentCall(ctx, srv, ctr)
 }
@@ -3532,6 +3925,9 @@ type containerWithoutFilesArgs struct {
 }
 
 func (s *containerSchema) withoutFiles(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithoutFilesArgs) (inst dagql.ObjectResult[*core.Container], err error) {
+	if err := evaluateContainerMetadata(ctx, parent); err != nil {
+		return inst, err
+	}
 	srv, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
 		return inst, fmt.Errorf("failed to get server: %w", err)
@@ -3562,14 +3958,18 @@ func (s *containerSchema) withoutFiles(ctx context.Context, parent dagql.ObjectR
 }
 
 type containerWithNewFileArgs struct {
-	Path        string
-	Contents    string
-	Permissions int    `default:"0644"`
-	Owner       string `default:""`
-	Expand      bool   `default:"false"`
+	Path         string
+	Contents     string
+	Permissions  int    `default:"0644"`
+	Owner        string `default:""`
+	InheritOwner bool   `default:"false"`
+	Expand       bool   `default:"false"`
 }
 
 func (s *containerSchema) withNewFile(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithNewFileArgs) (inst dagql.ObjectResult[*core.Container], err error) {
+	if err := evaluateContainerMetadata(ctx, parent); err != nil {
+		return inst, err
+	}
 	srv, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
 		return inst, fmt.Errorf("failed to get server: %w", err)
@@ -3599,16 +3999,24 @@ func (s *containerSchema) withNewFile(ctx context.Context, parent dagql.ObjectRe
 		return inst, fmt.Errorf("failed to create new file %s: %w", path, err)
 	}
 
-	ctr, _, err := cloneContainerForSchemaChild(ctx, parent)
+	ctr, parentPendingLazy, err := cloneContainerForSchemaChild(ctx, parent)
 	if err != nil {
 		return inst, err
 	}
-	ctr.Lazy = &core.ContainerWithFileLazy{
-		LazyState: core.NewLazyState(),
-		Parent:    parent,
-		Path:      path,
-		Source:    newFile,
-		Owner:     args.Owner,
+	owner, err := inheritedOwner(parent, args.Owner, args.InheritOwner)
+	if err != nil {
+		return inst, err
+	}
+	if parentPendingLazy {
+		ctr.Lazy = &core.ContainerWithFileLazy{
+			LazyState: core.NewLazyState(),
+			Parent:    parent,
+			Path:      path,
+			Source:    newFile,
+			Owner:     owner,
+		}
+	} else if _, err := ctr.WithFile(ctx, parent, path, newFile, nil, owner); err != nil {
+		return inst, err
 	}
 
 	return dagql.NewObjectResultForCurrentCall(ctx, srv, ctr)
@@ -3646,29 +4054,37 @@ func (s *containerSchema) withNewFileLegacy(ctx context.Context, parent dagql.Ob
 		return inst, fmt.Errorf("failed to create new file %s: %w", args.Path, err)
 	}
 
-	ctr, _, err := cloneContainerForSchemaChild(ctx, parent)
+	ctr, parentPendingLazy, err := cloneContainerForSchemaChild(ctx, parent)
 	if err != nil {
 		return inst, err
 	}
-	ctr.Lazy = &core.ContainerWithFileLazy{
-		LazyState: core.NewLazyState(),
-		Parent:    parent,
-		Path:      args.Path,
-		Source:    newFile,
-		Owner:     args.Owner,
+	if parentPendingLazy {
+		ctr.Lazy = &core.ContainerWithFileLazy{
+			LazyState: core.NewLazyState(),
+			Parent:    parent,
+			Path:      args.Path,
+			Source:    newFile,
+			Owner:     args.Owner,
+		}
+	} else if _, err := ctr.WithFile(ctx, parent, args.Path, newFile, nil, args.Owner); err != nil {
+		return inst, err
 	}
 
 	return dagql.NewObjectResultForCurrentCall(ctx, srv, ctr)
 }
 
 type containerWithUnixSocketArgs struct {
-	Path   string
-	Source core.SocketID
-	Owner  string `default:""`
-	Expand bool   `default:"false"`
+	Path         string
+	Source       core.SocketID
+	Owner        string `default:""`
+	InheritOwner bool   `default:"false"`
+	Expand       bool   `default:"false"`
 }
 
 func (s *containerSchema) withUnixSocket(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithUnixSocketArgs) (*core.Container, error) {
+	if err := evaluateContainerMetadata(ctx, parent); err != nil {
+		return nil, err
+	}
 	srv, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get server: %w", err)
@@ -3684,14 +4100,22 @@ func (s *containerSchema) withUnixSocket(ctx context.Context, parent dagql.Objec
 		return nil, err
 	}
 
-	ctr, _, err := cloneContainerForSchemaChild(ctx, parent)
+	ctr, parentPendingLazy, err := cloneContainerForSchemaChild(ctx, parent)
 	if err != nil {
 		return nil, err
 	}
 	target := absPath(parent.Self().Config.WorkingDir, path)
+	owner, err := inheritedOwner(parent, args.Owner, args.InheritOwner)
+	if err != nil {
+		return nil, err
+	}
+	if !parentPendingLazy {
+		_, err := ctr.WithUnixSocketFromParent(ctx, parent, target, socket, owner)
+		return ctr, err
+	}
 	var socketOwner *core.Ownership
-	if args.Owner != "" {
-		ownership, err := ctr.ResolveOwnership(ctx, parent, args.Owner)
+	if owner != "" {
+		ownership, err := ctr.ResolveOwnership(ctx, parent, owner)
 		if err != nil {
 			return nil, err
 		}
@@ -3731,7 +4155,7 @@ func (s *containerSchema) withUnixSocket(ctx context.Context, parent dagql.Objec
 		Parent:    parent,
 		Target:    target,
 		Source:    socket,
-		Owner:     args.Owner,
+		Owner:     owner,
 	}
 	return ctr, nil
 }
@@ -3742,16 +4166,23 @@ type containerWithoutUnixSocketArgs struct {
 }
 
 func (s *containerSchema) withoutUnixSocket(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithoutUnixSocketArgs) (*core.Container, error) {
+	if err := evaluateContainerMetadata(ctx, parent); err != nil {
+		return nil, err
+	}
 	path, err := expandEnvVar(ctx, parent.Self(), args.Path, args.Expand)
 	if err != nil {
 		return nil, err
 	}
 
-	ctr, _, err := cloneContainerForSchemaChild(ctx, parent)
+	ctr, parentPendingLazy, err := cloneContainerForSchemaChild(ctx, parent)
 	if err != nil {
 		return nil, err
 	}
 	target := absPath(parent.Self().Config.WorkingDir, path)
+	if !parentPendingLazy {
+		_, err := ctr.WithoutUnixSocket(ctx, target)
+		return ctr, err
+	}
 	for i, sock := range ctr.Sockets {
 		if sock.ContainerPath != target {
 			continue
@@ -3772,7 +4203,7 @@ func (s *containerSchema) platform(ctx context.Context, parent dagql.ObjectResul
 	if err != nil {
 		return core.Platform{}, err
 	}
-	if err := cache.Evaluate(ctx, parent); err != nil {
+	if err := cache.EvaluateParts(ctx, parent, core.ContainerPartMetadata); err != nil {
 		return core.Platform{}, err
 	}
 	return parent.Self().Platform, nil
@@ -3803,14 +4234,7 @@ func (s *containerSchema) export(ctx context.Context, parent dagql.ObjectResult[
 	if err != nil {
 		return "", err
 	}
-	evals := make([]dagql.AnyResult, 0, 1+len(variantResults))
-	evals = append(evals, parent)
-	for _, variant := range variantResults {
-		if variant.Self() != nil {
-			evals = append(evals, variant)
-		}
-	}
-	if err := cache.Evaluate(ctx, evals...); err != nil {
+	if err := evaluateContainerImageParts(ctx, cache, append([]dagql.ObjectResult[*core.Container]{parent}, variantResults...)...); err != nil {
 		return "", err
 	}
 	variants := make([]*core.Container, 0, len(variantResults))
@@ -3884,14 +4308,7 @@ func (s *containerSchema) asTarball(
 	if err != nil {
 		return inst, err
 	}
-	evals := make([]dagql.AnyResult, 0, 1+len(platformVariantResults))
-	evals = append(evals, parent)
-	for _, variant := range platformVariantResults {
-		if variant.Self() != nil {
-			evals = append(evals, variant)
-		}
-	}
-	if err := cache.Evaluate(ctx, evals...); err != nil {
+	if err := evaluateContainerImageParts(ctx, cache, append([]dagql.ObjectResult[*core.Container]{parent}, platformVariantResults...)...); err != nil {
 		return inst, err
 	}
 	platformVariants := make([]*core.Container, 0, len(platformVariantResults))
@@ -3951,14 +4368,7 @@ func (s *containerSchema) exportImage(
 	if err != nil {
 		return core.Void{}, err
 	}
-	evals := make([]dagql.AnyResult, 0, 1+len(platformVariantResults))
-	evals = append(evals, parent)
-	for _, variant := range platformVariantResults {
-		if variant.Self() != nil {
-			evals = append(evals, variant)
-		}
-	}
-	if err := cache.Evaluate(ctx, evals...); err != nil {
+	if err := evaluateContainerImageParts(ctx, cache, append([]dagql.ObjectResult[*core.Container]{parent}, platformVariantResults...)...); err != nil {
 		return core.Void{}, err
 	}
 	platformVariants := make([]*core.Container, 0, len(platformVariantResults))
@@ -4021,34 +4431,35 @@ type containerWithRegistryAuthArgs struct {
 	Secret   core.SecretID
 }
 
-func (s *containerSchema) withRegistryAuth(ctx context.Context, parent *core.Container, args containerWithRegistryAuthArgs) (*core.Container, error) {
+func (s *containerSchema) withRegistryAuth(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithRegistryAuthArgs) (dagql.ObjectResult[*core.Container], error) {
 	query, err := core.CurrentQuery(ctx)
 	if err != nil {
-		return nil, err
+		return parent, err
 	}
 	srv, err := query.Server.Server(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get server: %w", err)
+		return parent, fmt.Errorf("failed to get server: %w", err)
 	}
 
 	secret, err := args.Secret.Load(ctx, srv)
 	if err != nil {
-		return nil, err
+		return parent, err
 	}
 
 	secretBytes, err := secret.Self().Plaintext(ctx)
 	if err != nil {
-		return nil, err
+		return parent, err
 	}
 
 	auth, err := query.Auth(ctx)
 	if err != nil {
-		return nil, err
+		return parent, err
 	}
 	if err := auth.AddCredential(args.Address, args.Username, string(secretBytes)); err != nil {
-		return nil, err
+		return parent, err
 	}
 
+	// Registry credentials belong to the session, not the container.
 	return parent, nil
 }
 
@@ -4056,24 +4467,98 @@ type containerWithoutRegistryAuthArgs struct {
 	Address string
 }
 
-func (s *containerSchema) withoutRegistryAuth(ctx context.Context, parent *core.Container, args containerWithoutRegistryAuthArgs) (*core.Container, error) {
+func (s *containerSchema) withoutRegistryAuth(ctx context.Context, parent dagql.ObjectResult[*core.Container], args containerWithoutRegistryAuthArgs) (dagql.ObjectResult[*core.Container], error) {
 	query, err := core.CurrentQuery(ctx)
 	if err != nil {
-		return nil, err
+		return parent, err
 	}
 	auth, err := query.Auth(ctx)
 	if err != nil {
-		return nil, err
+		return parent, err
 	}
 	if err := auth.RemoveCredential(args.Address); err != nil {
-		return nil, err
+		return parent, err
 	}
 
+	// Registry credentials belong to the session, not the container.
 	return parent, nil
 }
 
 func (s *containerSchema) imageRef(ctx context.Context, parent *core.Container, args struct{}) (string, error) {
 	return parent.ImageRefOrErr(ctx)
+}
+
+type containerManifestArgs struct {
+	ForcedCompression dagql.Optional[core.ImageLayerCompression]
+	MediaTypes        core.ImageMediaTypes `default:"OCI"`
+}
+
+func (s *containerSchema) manifest(
+	ctx context.Context,
+	parent dagql.ObjectResult[*core.Container],
+	args containerManifestArgs,
+) (inst dagql.ObjectResult[*core.File], err error) {
+	query, err := core.CurrentQuery(ctx)
+	if err != nil {
+		return inst, err
+	}
+	srv, err := query.Server.Server(ctx)
+	if err != nil {
+		return inst, fmt.Errorf("failed to get server: %w", err)
+	}
+	cache, err := dagql.EngineCache(ctx)
+	if err != nil {
+		return inst, err
+	}
+	if err := evaluateContainerImageParts(ctx, cache, parent); err != nil {
+		return inst, err
+	}
+	parentDigest, err := parent.RecipeDigest(ctx)
+	if err != nil {
+		return inst, err
+	}
+	f, err := parent.Self().Manifest(ctx, parentDigest, args.ForcedCompression.Value, args.MediaTypes)
+	if err != nil {
+		return inst, err
+	}
+	return dagql.NewObjectResultForCurrentCall(ctx, srv, f)
+}
+
+type containerLayerArgs struct {
+	ID                string
+	ForcedCompression dagql.Optional[core.ImageLayerCompression]
+	MediaTypes        core.ImageMediaTypes `default:"OCI"`
+}
+
+func (s *containerSchema) layer(
+	ctx context.Context,
+	parent dagql.ObjectResult[*core.Container],
+	args containerLayerArgs,
+) (inst dagql.ObjectResult[*core.File], err error) {
+	query, err := core.CurrentQuery(ctx)
+	if err != nil {
+		return inst, err
+	}
+	srv, err := query.Server.Server(ctx)
+	if err != nil {
+		return inst, fmt.Errorf("failed to get server: %w", err)
+	}
+	cache, err := dagql.EngineCache(ctx)
+	if err != nil {
+		return inst, err
+	}
+	if err := evaluateContainerImageParts(ctx, cache, parent); err != nil {
+		return inst, err
+	}
+	parentDigest, err := parent.RecipeDigest(ctx)
+	if err != nil {
+		return inst, err
+	}
+	f, err := parent.Self().Layer(ctx, parentDigest, args.ForcedCompression.Value, args.MediaTypes, args.ID)
+	if err != nil {
+		return inst, err
+	}
+	return dagql.NewObjectResultForCurrentCall(ctx, srv, f)
 }
 
 type containerWithServiceBindingArgs struct {
@@ -4173,7 +4658,7 @@ func (s *containerSchema) exposedPorts(ctx context.Context, parent dagql.ObjectR
 	if err != nil {
 		return nil, err
 	}
-	if err := cache.Evaluate(ctx, parent); err != nil {
+	if err := cache.EvaluateParts(ctx, parent, core.ContainerPartMetadata); err != nil {
 		return nil, err
 	}
 

@@ -1,0 +1,6 @@
+=== RUN   TestSnapshotOwnerSyncReadSelection
+--- PASS: TestSnapshotOwnerSyncReadSelection (0.00s)
+=== RUN   TestSnapshotOwnerSyncInlineRead
+--- PASS: TestSnapshotOwnerSyncInlineRead (0.00s)
+PASS
+ok  	github.com/dagger/dagger/dagql	1.418s

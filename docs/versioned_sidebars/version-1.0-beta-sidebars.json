@@ -1,52 +1,20 @@
 {
   "current": [
-    "index",
-    "getting-started/installation",
     {
       "type": "category",
-      "label": "Adopting Dagger",
+      "label": "Getting Started",
       "collapsible": true,
       "collapsed": false,
       "items": [
-        "getting-started/quickstart",
-        "adopting/workspace-setup",
-        "adopting/secrets",
-        "adopting/observability",
+        "getting-started/introduction",
         {
-          "type": "category",
-          "label": "Triggers",
-          "link": {
-            "type": "doc",
-            "id": "adopting/triggers/index"
-          },
-          "collapsible": true,
-          "collapsed": true,
-          "items": [
-            "adopting/triggers/github-actions",
-            "adopting/triggers/gitlab",
-            "adopting/triggers/circleci",
-            "adopting/triggers/jenkins",
-            "adopting/triggers/azure-pipelines",
-            "adopting/triggers/aws-codebuild",
-            "adopting/triggers/argo-workflows",
-            "adopting/triggers/tekton",
-            "adopting/triggers/teamcity"
-          ]
+          "type": "doc",
+          "id": "getting-started/install",
+          "label": "Install"
         },
-        {
-          "type": "category",
-          "label": "Scaling",
-          "link": {
-            "type": "doc",
-            "id": "adopting/scaling/index"
-          },
-          "collapsible": true,
-          "collapsed": true,
-          "items": [
-            "adopting/scaling/kubernetes",
-            "adopting/scaling/openshift"
-          ]
-        }
+        "getting-started/try-dagger",
+        "getting-started/quickstart",
+        "getting-started/cloud-checks"
       ]
     },
     {
@@ -55,82 +23,92 @@
       "collapsible": true,
       "collapsed": false,
       "items": [
-        "using-dagger/checking",
-        "using-dagger/generating",
-        "using-dagger/changesets",
-        "using-dagger/services",
-        "using-dagger/calling-functions",
-        "using-dagger/environments"
+        "using/checking",
+        "using/generating",
+        "using/services",
+        "using/calling-functions"
       ]
     },
     {
       "type": "category",
-      "label": "Modules",
+      "label": "Configuring your Workspace",
       "link": {
         "type": "doc",
-        "id": "modules/index"
+        "id": "config/index"
       },
       "collapsible": true,
       "collapsed": true,
       "items": [
-        "modules/go",
-        "modules/pytest",
-        "modules/jest",
-        "modules/vitest",
-        "modules/eslint",
-        "modules/prettier",
-        "modules/biomejs",
-        "modules/shellcheck",
-        "modules/psscriptanalyzer",
-        "modules/helm"
+        "config/user",
+        "config/module-wiring",
+        "config/migrate-dagger-json"
       ]
     },
     {
       "type": "category",
-      "label": "Module Developer Guide",
-      "link": {
-        "type": "doc",
-        "id": "extending/index"
-      },
+      "label": "Reference",
       "collapsible": true,
       "collapsed": true,
       "items": [
         {
-          "type": "category",
-          "label": "How Dagger Works",
-          "link": {
-            "type": "doc",
-            "id": "extending/how-dagger-works/index"
-          },
-          "collapsible": true,
-          "collapsed": true,
-          "items": [
-            "extending/how-dagger-works/workspaces",
-            "extending/how-dagger-works/modules",
-            "extending/how-dagger-works/functions",
-            "extending/how-dagger-works/checks",
-            "extending/how-dagger-works/cache",
-            "extending/how-dagger-works/execution"
-          ]
+          "type": "doc",
+          "id": "reference/cli/index",
+          "label": "CLI"
         },
         {
           "type": "category",
-          "label": "Type System",
+          "label": "Modules",
           "link": {
             "type": "doc",
-            "id": "extending/type-system/index"
+            "id": "reference/modules/index"
           },
           "collapsible": true,
           "collapsed": true,
           "items": [
-            "extending/type-system/scalars-lists-nullability-defaults",
-            "extending/type-system/core-types",
-            "extending/type-system/user-defined-object-types",
-            "extending/type-system/constructors-fields-methods",
-            "extending/type-system/arguments-and-return-values",
-            "extending/type-system/enums-and-validation",
-            "extending/type-system/designing-for-composability",
-            "extending/type-system/type-design-clinics"
+            "reference/modules/go",
+            {
+              "type": "category",
+              "label": "JavaScript",
+              "collapsible": true,
+              "collapsed": true,
+              "items": [
+                "reference/modules/js/deno",
+                "reference/modules/js/jest",
+                "reference/modules/js/vitest",
+                "reference/modules/js/playwright",
+                "reference/modules/js/eslint",
+                "reference/modules/js/prettier",
+                "reference/modules/js/biome"
+              ]
+            },
+            {
+              "type": "category",
+              "label": "Python",
+              "collapsible": true,
+              "collapsed": true,
+              "items": [
+                "reference/modules/python/pytest"
+              ]
+            },
+            "reference/modules/shellcheck",
+            {
+              "type": "category",
+              "label": ".NET",
+              "collapsible": true,
+              "collapsed": true,
+              "items": [
+                "reference/modules/dotnet/PsScriptAnalyzer"
+              ]
+            },
+            {
+              "type": "category",
+              "label": "Kubernetes",
+              "collapsible": true,
+              "collapsed": true,
+              "items": [
+                "reference/modules/kubernetes/helm"
+              ]
+            }
           ]
         },
         {
@@ -138,68 +116,156 @@
           "label": "SDKs",
           "link": {
             "type": "doc",
-            "id": "extending/sdks/index"
+            "id": "reference/sdks/index"
           },
           "collapsible": true,
           "collapsed": true,
           "items": [
-            "extending/sdks/dang",
-            "extending/sdks/go",
-            "extending/sdks/typescript",
-            "extending/sdks/python"
+            "reference/sdks/dang",
+            "reference/sdks/go",
+            "reference/sdks/typescript",
+            "reference/sdks/python",
+            "reference/sdks/java",
+            "reference/sdks/php",
+            "reference/sdks/elixir"
           ]
         },
         {
           "type": "category",
-          "label": "Types Reference",
+          "label": "API",
+          "link": {
+            "type": "doc",
+            "id": "reference/api/index"
+          },
           "collapsible": true,
           "collapsed": true,
           "items": [
-            "extending/types/index",
-            "extending/types/container",
-            "extending/types/directory",
-            "extending/types/file",
-            "extending/types/secret",
-            "extending/types/service",
-            "extending/types/cache-volume",
-            "extending/types/git-repository",
-            "extending/types/env",
-            "extending/types/llm"
+            {
+              "type": "doc",
+              "id": "reference/api/query",
+              "label": "Query (top-level)"
+            },
+            "reference/api/container",
+            "reference/api/directory",
+            "reference/api/file",
+            "reference/api/service",
+            "reference/api/secret",
+            "reference/api/cache-volume",
+            "reference/api/git-repository",
+            "reference/api/llm",
+            "reference/api/changeset",
+            "reference/api/workspace",
+            {
+              "type": "category",
+              "label": "Other types",
+              "collapsible": true,
+              "collapsed": true,
+              "items": [
+                "reference/api/address",
+                "reference/api/agent",
+                "reference/api/agent-message",
+                "reference/api/agent-middleware",
+                "reference/api/agent-middleware-group",
+                "reference/api/check",
+                "reference/api/check-group",
+                "reference/api/client-filesync-mirror",
+                "reference/api/cloud",
+                "reference/api/current-module",
+                "reference/api/diff-stat",
+                "reference/api/engine",
+                "reference/api/engine-cache",
+                "reference/api/engine-cache-entry",
+                "reference/api/engine-cache-entry-set",
+                "reference/api/enum-type-def",
+                "reference/api/enum-value-type-def",
+                "reference/api/env-file",
+                "reference/api/env-variable",
+                "reference/api/error",
+                "reference/api/error-value",
+                "reference/api/exportable",
+                "reference/api/field-type-def",
+                "reference/api/function",
+                "reference/api/function-arg",
+                "reference/api/function-call",
+                "reference/api/function-call-arg-value",
+                "reference/api/generated-code",
+                "reference/api/generator",
+                "reference/api/generator-group",
+                "reference/api/git-bundle",
+                "reference/api/git-bundle-ref",
+                "reference/api/git-commit",
+                "reference/api/git-ref",
+                "reference/api/healthcheck-config",
+                "reference/api/host",
+                "reference/api/http-state",
+                "reference/api/input-type-def",
+                "reference/api/interface-type-def",
+                "reference/api/json-value",
+                "reference/api/label",
+                "reference/api/list-type-def",
+                "reference/api/llm-content-block",
+                "reference/api/llm-message",
+                "reference/api/llm-message-origin",
+                "reference/api/llm-skill",
+                "reference/api/llm-token-usage",
+                "reference/api/module",
+                "reference/api/module-config-client",
+                "reference/api/module-source",
+                "reference/api/node",
+                "reference/api/object-type-def",
+                "reference/api/port",
+                "reference/api/remote-git-mirror",
+                "reference/api/scalar-type-def",
+                "reference/api/schema",
+                "reference/api/sdk-config",
+                "reference/api/search-result",
+                "reference/api/search-submatch",
+                "reference/api/socket",
+                "reference/api/source-map",
+                "reference/api/stat",
+                "reference/api/syncer",
+                "reference/api/terminal",
+                "reference/api/terminal-group",
+                "reference/api/terminal-target",
+                "reference/api/type-def",
+                "reference/api/up",
+                "reference/api/up-group",
+                "reference/api/volume",
+                "reference/api/workspace-git",
+                "reference/api/workspace-migration",
+                "reference/api/workspace-migration-step",
+                "reference/api/workspace-module",
+                "reference/api/workspace-module-setting",
+                "reference/api/workspace-sdk"
+              ]
+            },
+            "reference/api/all"
+          ]
+        },
+        {
+          "type": "doc",
+          "id": "reference/client-libraries/index",
+          "label": "Client libraries"
+        },
+        {
+          "type": "category",
+          "label": "Configuration files",
+          "link": {
+            "type": "doc",
+            "id": "reference/config-files/index"
+          },
+          "collapsible": true,
+          "collapsed": true,
+          "items": [
+            "reference/config-files/dagger-toml"
           ]
         }
       ]
     },
     {
-      "type": "category",
-      "label": "Reference",
-      "link": {
-        "type": "doc",
-        "id": "reference/index"
-      },
-      "collapsible": true,
-      "collapsed": true,
-      "items": [
-        {
-          "type": "category",
-          "label": "CLI",
-          "collapsible": true,
-          "collapsed": true,
-          "items": [
-            "reference/cli/index",
-            "reference/cli/lockfiles"
-          ]
-        },
-        "reference/configuration/workspace",
-        "reference/configuration/modules",
-        "reference/configuration/engine",
-        "reference/configuration/cloud",
-        "reference/configuration/cache",
-        "reference/configuration/llm",
-        "reference/configuration/custom-runner",
-        "reference/configuration/custom-ca",
-        "reference/configuration/proxy",
-        "reference/upgrade-to-workspaces"
-      ]
+      "type": "doc",
+      "id": "self-hosting/index",
+      "label": "Self-hosting"
     }
   ]
 }

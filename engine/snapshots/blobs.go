@@ -2,28 +2,24 @@ package snapshots
 
 import (
 	"context"
-	"fmt"
 	"maps"
 	"os"
 	"strconv"
 
 	"github.com/containerd/containerd/v2/core/diff"
-	"github.com/containerd/containerd/v2/core/leases"
 	"github.com/containerd/containerd/v2/core/mount"
+	"github.com/containerd/containerd/v2/core/snapshots"
 	"github.com/containerd/containerd/v2/pkg/labels"
 	"github.com/containerd/containerd/v2/plugins/diff/walking"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/dagger/dagger/internal/buildkit/util/bklog"
 	"github.com/dagger/dagger/internal/buildkit/util/compression"
 	"github.com/dagger/dagger/internal/buildkit/util/converter"
-	"github.com/dagger/dagger/internal/buildkit/util/flightcontrol"
 	"github.com/dagger/dagger/internal/buildkit/util/winlayers"
+	"github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 )
-
-var g flightcontrol.Group[*LeaseRef]
-var gEnsureExportBlob flightcontrol.Group[ensureExportBlobResult]
 
 var ErrNoBlobs = errors.Errorf("no blobs for snapshot")
 
@@ -32,7 +28,84 @@ type ensureExportBlobResult struct {
 	hasLayer bool
 }
 
-//nolint:gocyclo // intrinsically long state machine; refactoring would hurt clarity
+// snapshotBlobGCLabel is the label on a layer snapshot that names the blob
+// its content was applied from, or was last diffed into. It is the durable
+// record of which blob belongs to a snapshot: AttachLease reads it when a
+// lease takes a snapshot chain, and adds the blob as a content resource of
+// that lease, so every lease that names a snapshot names its blob too,
+// including after a restart. The label alone protects the blob only from a
+// non-flat lease, since containerd's collector skips label references of
+// snapshots held by flat leases, which the engine's owner leases and pins
+// are; that is why the content resource is added. A snapshot has one blob
+// at a time; a new diff replaces the label.
+const snapshotBlobGCLabel = "containerd.io/gc.ref.content.blob"
+
+// labelSnapshotBlob binds blob to the snapshot for garbage collection.
+func (cm *snapshotManager) labelSnapshotBlob(ctx context.Context, snapshotID string, blob digest.Digest) error {
+	if snapshotID == "" || blob == "" {
+		return nil
+	}
+	_, err := cm.Snapshotter.Update(ctx, snapshots.Info{
+		Name:   snapshotID,
+		Labels: map[string]string{snapshotBlobGCLabel: blob.String()},
+	}, "labels."+snapshotBlobGCLabel)
+	if err != nil {
+		return errors.Wrapf(err, "label snapshot %s with blob %s", snapshotID, blob)
+	}
+	return nil
+}
+
+// restoreRecordedBlobFromLabel reads the snapshot's blob label and, when
+// the blob is still in the content store with its stored descriptor,
+// re-queues the ref's blob metadata from it and returns the digest. An
+// unlabeled snapshot, or one whose blob is gone, returns "" so the caller
+// diffs as before.
+func (cm *snapshotManager) restoreRecordedBlobFromLabel(ctx context.Context, ref *immutableRef) (digest.Digest, error) {
+	info, err := cm.Snapshotter.Stat(ctx, ref.SnapshotID())
+	if err != nil {
+		if cerrdefs.IsNotFound(err) {
+			return "", nil
+		}
+		return "", errors.Wrapf(err, "stat snapshot %s for its blob label", ref.SnapshotID())
+	}
+	labeled := info.Labels[snapshotBlobGCLabel]
+	if labeled == "" {
+		return "", nil
+	}
+	blob := digest.Digest(labeled)
+	if err := blob.Validate(); err != nil {
+		return "", errors.Wrapf(err, "blob label of snapshot %s", ref.SnapshotID())
+	}
+	desc, err := getBlobDesc(ctx, cm.ContentStore, blob)
+	if cerrdefs.IsNotFound(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	diffID, err := diffIDFromDescriptor(desc)
+	if err != nil {
+		return "", err
+	}
+	ref.mu.Lock()
+	defer ref.mu.Unlock()
+	for _, queue := range []error{
+		ref.md.queueDiffID(diffID),
+		ref.md.queueBlob(desc.Digest),
+		ref.md.queueMediaType(desc.MediaType),
+		ref.md.queueBlobSize(desc.Size),
+		ref.md.queueBlobOnly(false),
+		ref.md.appendURLs(desc.URLs),
+		ref.md.commitMetadata(),
+	} {
+		if queue != nil {
+			return "", queue
+		}
+	}
+	return desc.Digest, nil
+}
+
+//nolint:gocyclo // Keep blob reuse, diff computation and metadata commit in one export flow.
 func (cm *snapshotManager) ensureExportBlob(
 	ctx context.Context,
 	parentSnapshotID string,
@@ -43,64 +116,55 @@ func (cm *snapshotManager) ensureExportBlob(
 		return ocispecs.Descriptor{}, false, errors.New("ensure export blob: nil ref")
 	}
 
-	if blobDigest := ref.md.getBlob(); blobDigest != "" {
-		desc, err := ref.ociDesc(ctx, false)
-		if err != nil {
-			return ocispecs.Descriptor{}, false, err
-		}
-		if refCfg.Force {
-			blobDesc, err := getBlobWithCompressionWithRetry(ctx, ref, refCfg)
-			if err != nil {
-				return ocispecs.Descriptor{}, false, err
-			}
-			desc.MediaType = blobDesc.MediaType
-			desc.Digest = blobDesc.Digest
-			desc.Size = blobDesc.Size
-			desc.URLs = blobDesc.URLs
-			desc.Annotations = maps.Clone(blobDesc.Annotations)
-		}
-		if err := cm.recordSnapshotContent(ref.SnapshotID(), desc); err != nil {
-			return ocispecs.Descriptor{}, false, err
-		}
-		return desc, true, nil
+	// A caller owns its own pins while waiting and doing I/O. Serializing by
+	// snapshot avoids sharing a canceled caller's ref or lease with waiters.
+	unlock, err := cm.exportLayerLocker.acquire(ctx, ref.SnapshotID())
+	if err != nil {
+		return ocispecs.Descriptor{}, false, err
 	}
-
-	level := ""
-	if refCfg.Level != nil {
-		level = strconv.Itoa(*refCfg.Level)
-	}
-	key := fmt.Sprintf(
-		"ensureExportBlob-%s-%s-%s-%t-%s",
-		ref.SnapshotID(),
-		parentSnapshotID,
-		refCfg.Type.String(),
-		refCfg.Force,
-		level,
-	)
-	result, err := gEnsureExportBlob.Do(ctx, key, func(ctx context.Context) (_ ensureExportBlobResult, err error) {
-		if blobDigest := ref.md.getBlob(); blobDigest != "" {
-			desc, err := ref.ociDesc(ctx, false)
+	defer unlock()
+	result, err := func() (_ ensureExportBlobResult, err error) {
+		blobDigest := ref.md.getBlob()
+		if blobDigest == "" {
+			// A ref reopened after a restart is rehydrated with no blob
+			// record; the snapshot's label is the durable record. Restore
+			// the metadata from it and the blob's stored descriptor.
+			restored, err := cm.restoreRecordedBlobFromLabel(ctx, ref)
 			if err != nil {
 				return ensureExportBlobResult{}, err
 			}
-			if refCfg.Force {
-				blobDesc, err := getBlobWithCompressionWithRetry(ctx, ref, refCfg)
+			blobDigest = restored
+		}
+		if blobDigest != "" {
+			present, err := cm.pinContent(ctx, ocispecs.Descriptor{Digest: blobDigest})
+			if err != nil {
+				return ensureExportBlobResult{}, err
+			}
+			if present {
+				desc, err := ref.ociDesc(ctx, false)
 				if err != nil {
 					return ensureExportBlobResult{}, err
 				}
-				desc.MediaType = blobDesc.MediaType
-				desc.Digest = blobDesc.Digest
-				desc.Size = blobDesc.Size
-				desc.URLs = blobDesc.URLs
-				desc.Annotations = maps.Clone(blobDesc.Annotations)
+				if refCfg.Force {
+					desc, err = getBlobWithCompressionWithRetry(ctx, ref, refCfg)
+					if err != nil {
+						return ensureExportBlobResult{}, err
+					}
+				}
+				// Reuse repairs the label, so an update that failed after the
+				// metadata was committed is not left missing. The label names
+				// the recorded blob, not the compression variant a forced
+				// export may have returned: the variant is a separate blob
+				// linked to the recorded one, and the next ordinary export
+				// asks for the recorded one.
+				if err := cm.labelSnapshotBlob(ctx, ref.SnapshotID(), blobDigest); err != nil {
+					return ensureExportBlobResult{}, err
+				}
+				if err := cm.recordSnapshotContent(ref.SnapshotID(), desc); err != nil {
+					return ensureExportBlobResult{}, err
+				}
+				return ensureExportBlobResult{desc: desc, hasLayer: true}, nil
 			}
-			if err := cm.recordSnapshotContent(ref.SnapshotID(), desc); err != nil {
-				return ensureExportBlobResult{}, err
-			}
-			return ensureExportBlobResult{
-				desc:     desc,
-				hasLayer: true,
-			}, nil
 		}
 
 		usage, err := cm.Snapshotter.Usage(ctx, ref.SnapshotID())
@@ -109,22 +173,6 @@ func (cm *snapshotManager) ensureExportBlob(
 		}
 		if parentSnapshotID == "" && usage.Size == 0 && usage.Inodes == 0 {
 			return ensureExportBlobResult{}, nil
-		}
-
-		if leaseID, ok := leases.FromContext(ctx); !ok || leaseID == "" {
-			leaseCtx, err := EnsureLease(ctx)
-			if err != nil {
-				return ensureExportBlobResult{}, err
-			}
-			ctx = leaseCtx
-		}
-		if leaseID, ok := leases.FromContext(ctx); !ok || leaseID == "" {
-			leaseCtx, done, err := WithLease(ctx, cm.LeaseManager, MakeTemporary)
-			if err != nil {
-				return ensureExportBlobResult{}, err
-			}
-			defer done(context.WithoutCancel(leaseCtx))
-			ctx = leaseCtx
 		}
 
 		if isTypeWindows(ref) {
@@ -256,6 +304,11 @@ func (cm *snapshotManager) ensureExportBlob(
 		if err != nil {
 			return ensureExportBlobResult{}, err
 		}
+		// Before the blob metadata is committed: a failed label leaves no
+		// reusable blob behind, and the next export diffs again.
+		if err := cm.labelSnapshotBlob(ctx, ref.SnapshotID(), desc.Digest); err != nil {
+			return ensureExportBlobResult{}, err
+		}
 		ref.mu.Lock()
 		if err := ref.md.queueDiffID(diffID); err != nil {
 			ref.mu.Unlock()
@@ -293,7 +346,7 @@ func (cm *snapshotManager) ensureExportBlob(
 			desc:     desc,
 			hasLayer: true,
 		}, nil
-	})
+	}()
 	if err != nil {
 		return ocispecs.Descriptor{}, false, err
 	}
@@ -305,69 +358,23 @@ func isTypeWindows(sr *immutableRef) bool {
 }
 
 // ensureCompression ensures the specified ref has the blob of the specified compression Type.
+// The caller holds exportLayerLocker and a private resource lease. Both the
+// source blob and the result remain pinned through later provider consumption.
 func ensureCompression(ctx context.Context, ref *immutableRef, comp compression.Config) error {
-	l, err := g.Do(ctx, fmt.Sprintf("ensureComp-%s-%s", ref.ID(), comp.Type), func(ctx context.Context) (_ *LeaseRef, err error) {
-		desc, err := ref.ociDesc(ctx, true)
-		if err != nil {
-			return nil, err
-		}
-
-		l, ctx, err := NewLease(ctx, ref.cm.LeaseManager, MakeTemporary)
-		if err != nil {
-			return nil, err
-		}
-		defer func() {
-			if err != nil {
-				l.Discard()
-			}
-		}()
-
-		// Resolve converters
-		layerConvertFunc, err := converter.New(ctx, ref.cm.ContentStore, desc, comp)
-		if err != nil {
-			return nil, err
-		} else if layerConvertFunc == nil {
-			if err := ref.linkBlob(ctx, desc); err != nil {
-				return nil, err
-			}
-			return l, nil
-		}
-
-		// First, lookup local content store
-		if _, err := ref.getBlobWithCompression(ctx, comp.Type); err == nil {
-			return l, nil // found the compression variant. no need to convert.
-		}
-
-		if _, err := ref.cm.ContentStore.Info(ctx, desc.Digest); err != nil {
-			if cerrdefs.IsNotFound(err) {
-				return nil, errors.New("missing local content blob")
-			}
-			return l, err
-		}
-
-		// Convert layer compression type.
-		newDesc, err := layerConvertFunc(ctx, ref.cm.ContentStore, desc)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to convert")
-		}
-
-		// Start to track converted layer
-		if err := ref.linkBlob(ctx, *newDesc); err != nil {
-			return nil, errors.Wrapf(err, "failed to add compression blob")
-		}
-		return l, nil
-	})
+	desc, err := ref.ociDesc(ctx, true)
 	if err != nil {
 		return err
 	}
-	if l != nil {
-		ctx, err = EnsureLease(ctx)
-		if err != nil {
-			return err
-		}
-		if err := l.Adopt(ctx); err != nil {
-			return err
-		}
+	layerConvertFunc, err := converter.New(ctx, ref.cm.ContentStore, desc, comp)
+	if err != nil {
+		return err
 	}
-	return nil
+	if layerConvertFunc == nil {
+		return ref.linkBlob(ctx, desc)
+	}
+	newDesc, err := layerConvertFunc(ctx, ref.cm.ContentStore, desc)
+	if err != nil {
+		return errors.Wrapf(err, "failed to convert")
+	}
+	return ref.linkBlob(ctx, *newDesc)
 }

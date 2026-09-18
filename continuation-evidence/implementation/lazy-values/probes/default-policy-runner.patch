@@ -1,0 +1,12 @@
+diff --git a/.dagger/modules/engine-dev/test.go b/.dagger/modules/engine-dev/test.go
+index 0d759867f4..ffb9b8fe1b 100644
+--- a/.dagger/modules/engine-dev/test.go
++++ b/.dagger/modules/engine-dev/test.go
+@@ -159,6 +159,7 @@ func (dev *EngineDev) test(
+ ) *dagger.Container {
+ 	if opts.envs != nil {
+ 		container = container.WithMountedSecret("/dagger.env", opts.envs)
++		container = container.WithEnvVariable("_DAGGER_TEST_REMOTE_CACHE_PRUNE_DIAGNOSTIC", "1")
+ 	}
+ 
+ 	cgoEnabledEnv := "0"

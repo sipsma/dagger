@@ -1,0 +1,1311 @@
+{
+ "generated": "from Git by author B; classification is by changed paths, never by commit message",
+ "integratedLine": "c5b299142ca672cbd2ef0a389492f11de85ff08b",
+ "batches": [
+  {
+   "batch": "1",
+   "title": "producers",
+   "integratedParent": "1ca9f28a60f1d9597c1b0df01e65a91707ce3b0f",
+   "head": "a88e0e0cdde5383d085347c55288ff84651239e2",
+   "headTree": "e9f805672be8effba712ea963307bfc61b5b2e51",
+   "counts": {
+    "kept": 10,
+    "evidence-only": 2,
+    "mixed": 0
+   },
+   "packagedDiff": "git diff 1ca9f28a60 a88e0e0cdd -- . ':!continuation-evidence' ':!cleanup-evidence' ':!cleanup-review-evidence'",
+   "commits": [
+    {
+     "commit": "c9f908e771aa6c9a58c35d5f218954c51dc0d316",
+     "tree": "96b3b31e08079996ea99b8ef80576d0792c2b110",
+     "parent": "1ca9f28a60f1d9597c1b0df01e65a91707ce3b0f",
+     "subject": "fix: release eager output resources on failed construction",
+     "class": "kept",
+     "paths": 9
+    },
+    {
+     "commit": "aa1e1db818078693351585f44b0c55498caf9953",
+     "tree": "53cc265f5bc991f980508b88ff32111e61ae7ff1",
+     "parent": "c9f908e771aa6c9a58c35d5f218954c51dc0d316",
+     "subject": "core: record completed filesystem producers before publication",
+     "class": "kept",
+     "paths": 4
+    },
+    {
+     "commit": "760062120e92977fd2afd5ca5f0cbb45af8ae53d",
+     "tree": "9cd184ab53c676e3952ad38d6acb89832ee6d677",
+     "parent": "aa1e1db818078693351585f44b0c55498caf9953",
+     "subject": "core: retain producers for cleaned and imported Git directories",
+     "class": "kept",
+     "paths": 6
+    },
+    {
+     "commit": "0b6b47e33ce28355bd94640136536c1928686e66",
+     "tree": "66cac5a0ee602e352ae84e22c1daf8c415e90a77",
+     "parent": "760062120e92977fd2afd5ca5f0cbb45af8ae53d",
+     "subject": "core: retain exact Git ref and commit tree producers",
+     "class": "kept",
+     "paths": 4
+    },
+    {
+     "commit": "52d4131a79853039be300626b383e67b4927d374",
+     "tree": "149f9bb20b9b8ed452bd2582f7239e6c03008968",
+     "parent": "0b6b47e33ce28355bd94640136536c1928686e66",
+     "subject": "core: retain stateless HTTP File producers",
+     "class": "kept",
+     "paths": 4
+    },
+    {
+     "commit": "06724072c740aad2206690ac52e60c06b52a20cc",
+     "tree": "834f03ae55346bf381fb5474702d015327eb9b8b",
+     "parent": "52d4131a79853039be300626b383e67b4927d374",
+     "subject": "core: retain builtin Container and generated schema producers",
+     "class": "kept",
+     "paths": 4
+    },
+    {
+     "commit": "c35802efe6bab4bb1090d3a7b85e927635eac169",
+     "tree": "63f385070d763c80c41383fb1d39c58daec8a21f",
+     "parent": "06724072c740aad2206690ac52e60c06b52a20cc",
+     "subject": "test: verify eager producer persistence and execution",
+     "class": "kept",
+     "paths": 12
+    },
+    {
+     "commit": "7eb998467e3649da4a9928e436d67988b88863d0",
+     "tree": "2b913d815812632f152fafb66de926a061d9fd08",
+     "parent": "c35802efe6bab4bb1090d3a7b85e927635eac169",
+     "subject": "docs: record batch 1 implementation evidence",
+     "class": "evidence-only",
+     "paths": 21
+    },
+    {
+     "commit": "1b366cf8417e08aa7b0b40e1ee9ae5c2694a5d9b",
+     "tree": "2abea613433cdba2fa785a073ab5d754037f2d64",
+     "parent": "7eb998467e3649da4a9928e436d67988b88863d0",
+     "subject": "test: cover advanced bundle hints on decoded repositories",
+     "class": "kept",
+     "paths": 1
+    },
+    {
+     "commit": "a144bd1718ebbaf7d51676c0a0547c308c85493b",
+     "tree": "040bfb415642244c289cec6a5302ce9cd93b3dc2",
+     "parent": "1b366cf8417e08aa7b0b40e1ee9ae5c2694a5d9b",
+     "subject": "test: cover recording rejection at every eager producer site",
+     "class": "kept",
+     "paths": 3
+    },
+    {
+     "commit": "688bef3408e77da2313916907575bf628a0e9a67",
+     "tree": "504875afa1f32a892aa35a5b08287e36e544ee4c",
+     "parent": "a144bd1718ebbaf7d51676c0a0547c308c85493b",
+     "subject": "docs: state completed recipe publication ownership",
+     "class": "kept",
+     "paths": 2
+    },
+    {
+     "commit": "a88e0e0cdde5383d085347c55288ff84651239e2",
+     "tree": "e9f805672be8effba712ea963307bfc61b5b2e51",
+     "parent": "688bef3408e77da2313916907575bf628a0e9a67",
+     "subject": "docs: record batch 1 round 2 verification",
+     "class": "evidence-only",
+     "paths": 8
+    }
+   ]
+  },
+  {
+   "batch": "2 and the b1-b2 integration",
+   "title": "value transfer, schema recovery, foreign paths",
+   "integratedParent": "a88e0e0cdde5383d085347c55288ff84651239e2",
+   "head": "77f6279559061fd1bb6b3b18e6b08582c7b013a3",
+   "headTree": "04908f3ab099f2a94a5452802c5855770900636f",
+   "counts": {
+    "kept": 19,
+    "evidence-only": 8,
+    "mixed": 0
+   },
+   "packagedDiff": "git diff a88e0e0cdd 77f6279559 -- . ':!continuation-evidence' ':!cleanup-evidence' ':!cleanup-review-evidence'",
+   "commits": [
+    {
+     "commit": "afe2e0a2b2db7d074f7abc2a86f714c89dac907e",
+     "tree": "3cd069007c31e682d14c4078c35dfeca99d59f80",
+     "parent": "a88e0e0cdde5383d085347c55288ff84651239e2",
+     "subject": "dagql: retain transfer offers through independent owners",
+     "class": "kept",
+     "paths": 12
+    },
+    {
+     "commit": "936a1db75918a3232fe33dceaa99d1cc648987ce",
+     "tree": "09671dea70ef93120bf02148063ec0822c52ec87",
+     "parent": "afe2e0a2b2db7d074f7abc2a86f714c89dac907e",
+     "subject": "core: encode foreign values as validated pending shells",
+     "class": "kept",
+     "paths": 23
+    },
+    {
+     "commit": "ba657b2f1e4dbae4a374bb24ffa8c1b5028a994d",
+     "tree": "c3612052c388f629098f5305bc8a5eb08334c69e",
+     "parent": "936a1db75918a3232fe33dceaa99d1cc648987ce",
+     "subject": "docs: record batch 2 progress and capture foundation blocker",
+     "class": "evidence-only",
+     "paths": 8
+    },
+    {
+     "commit": "cab50e7ff92cfe0e98b46083121eb7b110542e5e",
+     "tree": "24984b04b0a9efed7ed05501ad79f19860d330da",
+     "parent": "ba657b2f1e4dbae4a374bb24ffa8c1b5028a994d",
+     "subject": "core: guard filesystem persistence and version output publication",
+     "class": "kept",
+     "paths": 24
+    },
+    {
+     "commit": "0c095160b100dc04c63f1eb54e72541a0dea71da",
+     "tree": "23139e36db9969d29f8dc9f9b7943aa93f5138ff",
+     "parent": "cab50e7ff92cfe0e98b46083121eb7b110542e5e",
+     "subject": "dagql: transfer held value graphs with atomic import publication",
+     "class": "kept",
+     "paths": 21
+    },
+    {
+     "commit": "a3dc5bf42af7248911283376b9441c4a10157adc",
+     "tree": "bde9c05bd40ce35f8dec748d9023028e3d56383b",
+     "parent": "0c095160b100dc04c63f1eb54e72541a0dea71da",
+     "subject": "core: recover schemas with installed modules and guard foreign host paths",
+     "class": "kept",
+     "paths": 12
+    },
+    {
+     "commit": "c73d498eac77bda84eaa7258356aa12415b59f1f",
+     "tree": "90e27d1ee0ab1939f7ed8181394a8bee020eb5d1",
+     "parent": "a3dc5bf42af7248911283376b9441c4a10157adc",
+     "subject": "test: add gated transfer fixture and preserve cold runtime blocker",
+     "class": "kept",
+     "paths": 18
+    },
+    {
+     "commit": "26f6f719702a6045148ee0dca67de7c6d3a32e8c",
+     "tree": "fb63d398614a19c5a6c0fb1de1d1f90356c25219",
+     "parent": "c73d498eac77bda84eaa7258356aa12415b59f1f",
+     "subject": "docs: record batch 2 verification and cold runtime blocker",
+     "class": "evidence-only",
+     "paths": 19
+    },
+    {
+     "commit": "b31b345107210253b8c2669e4c824fb8f12f47a1",
+     "tree": "0d1e1c188cb3ad541a837723a11a1b8c209cb80d",
+     "parent": "26f6f719702a6045148ee0dca67de7c6d3a32e8c",
+     "subject": "test: verify selected chains from both Git backends",
+     "class": "kept",
+     "paths": 1
+    },
+    {
+     "commit": "d62430bb3dba766bd9e36a967f7b76e6462ff689",
+     "tree": "4a80e5d61b9c2c4e7a70635f6b3250ba8bbf46bd",
+     "parent": "b31b345107210253b8c2669e4c824fb8f12f47a1",
+     "subject": "test: retire redundant snapshot offers after local restart",
+     "class": "kept",
+     "paths": 1
+    },
+    {
+     "commit": "12e20a25d0da27169f3ba0c187bd2be2161e41ff",
+     "tree": "c7fc901ef55a2df33a49a97e3ccacb2c4bae6e37",
+     "parent": "d62430bb3dba766bd9e36a967f7b76e6462ff689",
+     "subject": "test: accept standalone schema recovery with prepared runtimes",
+     "class": "kept",
+     "paths": 2
+    },
+    {
+     "commit": "24f2a9cc66f558e102a2a0332eb730b7c6c8d9c8",
+     "tree": "0740383603147b57aa252e41ea347f28328240ac",
+     "parent": "12e20a25d0da27169f3ba0c187bd2be2161e41ff",
+     "subject": "docs: record standalone batch 2 acceptance and verification",
+     "class": "evidence-only",
+     "paths": 14
+    },
+    {
+     "commit": "33b08ce3c19ba41cb891112e72ba4be1fb1eb998",
+     "tree": "46d685c87d03f9b793e464c5c88cdb18becc4d4b",
+     "parent": "24f2a9cc66f558e102a2a0332eb730b7c6c8d9c8",
+     "subject": "dagql: return not-ready when pending offer copies fail",
+     "class": "kept",
+     "paths": 9
+    },
+    {
+     "commit": "a642330cfdc93232f7e54b119312db5964dfa55e",
+     "tree": "88323997ab60cd3136170f7323d2a0e2797f36c0",
+     "parent": "33b08ce3c19ba41cb891112e72ba4be1fb1eb998",
+     "subject": "dagql: verify inaccessible installed schema candidates fall through",
+     "class": "kept",
+     "paths": 2
+    },
+    {
+     "commit": "27e82e949db8814ed5389692fb63e97ff1865425",
+     "tree": "62a1e65f30653eb446e9165aaf9c562b6b39ae57",
+     "parent": "a642330cfdc93232f7e54b119312db5964dfa55e",
+     "subject": "core: preserve pending Container parts in derived values",
+     "class": "kept",
+     "paths": 5
+    },
+    {
+     "commit": "56e40116ee9243de753a10f295948f61bd505a78",
+     "tree": "36344acb28c6c6c520d01d3fc76d867d14228de7",
+     "parent": "27e82e949db8814ed5389692fb63e97ff1865425",
+     "subject": "docs: leave value transfer design authority on the designer branch",
+     "class": "kept",
+     "paths": 1
+    },
+    {
+     "commit": "1cb7d3963ab8d79887fce1c0bbc9e9eede08cf6a",
+     "tree": "5063495c8c1019ff11387b1b68d796995fb5c5dc",
+     "parent": "56e40116ee9243de753a10f295948f61bd505a78",
+     "subject": "test: distinguish transfer root pruning from persistence resets",
+     "class": "kept",
+     "paths": 10
+    },
+    {
+     "commit": "d3eb1b5f8fe6167fd886bff5e1da65120ec4c0d2",
+     "tree": "ddab5e140112955b4bdbcceb313b3fe4e7f0c6ed",
+     "parent": "1cb7d3963ab8d79887fce1c0bbc9e9eede08cf6a",
+     "subject": "test: skip GC diagnostic outside its allocation bound",
+     "class": "kept",
+     "paths": 1
+    },
+    {
+     "commit": "410dc674c4dd68b62203aeab44d19debf72d5441",
+     "tree": "3a709a88f4d7bc2f5c1607cb5fa41c772bac13ed",
+     "parent": "d3eb1b5f8fe6167fd886bff5e1da65120ec4c0d2",
+     "subject": "docs: record batch 2 round 2 fixes and pruning evidence",
+     "class": "evidence-only",
+     "paths": 16
+    },
+    {
+     "commit": "3a61ae15037284ba9f1837658d60f340d4fa0764",
+     "tree": "3b39e1c25897d425536d7ed4e55304a080cd9f7b",
+     "parent": "410dc674c4dd68b62203aeab44d19debf72d5441",
+     "subject": "test: require opt-in for default GC pressure diagnostic",
+     "class": "kept",
+     "paths": 1
+    },
+    {
+     "commit": "5483cfc495f93d4777104bda7edede27e33607c9",
+     "tree": "9211f9fbd3d3678320e28aee6314e63745edc3db",
+     "parent": "3a61ae15037284ba9f1837658d60f340d4fa0764",
+     "subject": "docs: record batch 2 round 3 verification and journal notes",
+     "class": "evidence-only",
+     "paths": 6
+    },
+    {
+     "commit": "97ee3385fdfdb502638922d329e9775e0d040e67",
+     "tree": "abb89138cd220b7a04e4ef3851495263a79a29a9",
+     "parent": "5483cfc495f93d4777104bda7edede27e33607c9",
+     "subject": "docs: record batch 1 and 2 integration verification",
+     "class": "evidence-only",
+     "paths": 47
+    },
+    {
+     "commit": "8d99a010afc875466c999d44c174a5a0c95f3504",
+     "tree": "5889c3cc230465caa14043cbc5bd2610263c9370",
+     "parent": "97ee3385fdfdb502638922d329e9775e0d040e67",
+     "subject": "test: snapshot completed producers without copying mutexes",
+     "class": "kept",
+     "paths": 1
+    },
+    {
+     "commit": "f035d2c2a307cdf0ab66025aef147016a02d2e8a",
+     "tree": "2b4eeeb9f92ad3e268d1097f157597f8bab76b60",
+     "parent": "8d99a010afc875466c999d44c174a5a0c95f3504",
+     "subject": "docs: diagnose completed Container dependency omission",
+     "class": "evidence-only",
+     "paths": 24
+    },
+    {
+     "commit": "17384b793fe715006ffdbba4b1075354cd7733d8",
+     "tree": "dcff420e6779e63ec40503276310dd2c500fc5dc",
+     "parent": "f035d2c2a307cdf0ab66025aef147016a02d2e8a",
+     "subject": "core: attach the completed Container recipe's inputs at publication",
+     "class": "kept",
+     "paths": 2
+    },
+    {
+     "commit": "cd06753d8f4b8ba7c5ccaa9d65f1963301e0d250",
+     "tree": "893175e2e5dcd10885090797fdf3acf965ac10f8",
+     "parent": "17384b793fe715006ffdbba4b1075354cd7733d8",
+     "subject": "docs: record completed Container publication fix verification",
+     "class": "evidence-only",
+     "paths": 45
+    },
+    {
+     "commit": "77f6279559061fd1bb6b3b18e6b08582c7b013a3",
+     "tree": "04908f3ab099f2a94a5452802c5855770900636f",
+     "parent": "cd06753d8f4b8ba7c5ccaa9d65f1963301e0d250",
+     "subject": "core: publish produced outputs through the versioned writers",
+     "class": "kept",
+     "paths": 2
+    }
+   ]
+  },
+  {
+   "batch": "4",
+   "title": "per-part acquisition, including the lazy-values rework",
+   "integratedParent": "77f6279559061fd1bb6b3b18e6b08582c7b013a3",
+   "head": "fd9cfd55a98b176bf82cf84ee1b4c3ae1257fde5",
+   "headTree": "6c35b11d5fc89e2d2f0232caa7841d9bc33b9eee",
+   "counts": {
+    "kept": 43,
+    "evidence-only": 12,
+    "mixed": 1
+   },
+   "packagedDiff": "git diff 77f6279559 fd9cfd55a9 -- . ':!continuation-evidence' ':!cleanup-evidence' ':!cleanup-review-evidence'",
+   "commits": [
+    {
+     "commit": "e307838a698b7845e0bf743225281d90b01b01e1",
+     "tree": "ed024763f76d372d3c6af9bd5f35882a01eff7b8",
+     "parent": "77f6279559061fd1bb6b3b18e6b08582c7b013a3",
+     "subject": "dagql: add per-part writer gates and supplied lazy tasks",
+     "class": "kept",
+     "paths": 13
+    },
+    {
+     "commit": "21234ff01904820a1c3669e0a8f4b273062e61f9",
+     "tree": "47fb53618eb0c23a541637a16317bfdb948c83d5",
+     "parent": "e307838a698b7845e0bf743225281d90b01b01e1",
+     "subject": "docs: record batch 4 progress and inline snapshot ownership blocker",
+     "class": "evidence-only",
+     "paths": 7
+    },
+    {
+     "commit": "1ccf619f43d0710b1eefe92fec238ade8397eaaf",
+     "tree": "f2a4178101544d2247a9a2627d7ceb3fc1251800",
+     "parent": "21234ff01904820a1c3669e0a8f4b273062e61f9",
+     "subject": "dagql: prepare and publish acquired root outputs with owned receipts",
+     "class": "kept",
+     "paths": 19
+    },
+    {
+     "commit": "f19717d0a067d8f33c18fc94695dabc2bceb76ff",
+     "tree": "5f16284dc4d9e3d51563923927aadd372a40f408",
+     "parent": "1ccf619f43d0710b1eefe92fec238ade8397eaaf",
+     "subject": "cache: import selected chains and settle acquired output ownership",
+     "class": "kept",
+     "paths": 11
+    },
+    {
+     "commit": "df39d040c56f31cce8edf47855d205bb9dcfe909",
+     "tree": "01f20352f20b91532dc243301322321c834ebf87",
+     "parent": "f19717d0a067d8f33c18fc94695dabc2bceb76ff",
+     "subject": "cache: acquire root outputs with fresh private producers and raw restore views",
+     "class": "kept",
+     "paths": 28
+    },
+    {
+     "commit": "521b90d51d0ac66771aea0da460549e6b0592e63",
+     "tree": "1500710e54dc6697d6338211eb370c196714ead1",
+     "parent": "df39d040c56f31cce8edf47855d205bb9dcfe909",
+     "subject": "cache: preserve scoped inline acquisition and exercise native transfer paths",
+     "class": "kept",
+     "paths": 54
+    },
+    {
+     "commit": "b4b84f5c60ea9b814b6b404e108cfb38bedb80d1",
+     "tree": "0ebec3cef13072f50f7367da66cddda9e7a50b5c",
+     "parent": "521b90d51d0ac66771aea0da460549e6b0592e63",
+     "subject": "docs: record batch 4 verification costs and cold module blocker",
+     "class": "evidence-only",
+     "paths": 20
+    },
+    {
+     "commit": "8e0e2198d8900f105e6b37e8378690f173d782e0",
+     "tree": "6bbe42cf556bea5ad3ae07d743b2c02c420464f1",
+     "parent": "b4b84f5c60ea9b814b6b404e108cfb38bedb80d1",
+     "subject": "core: extract declared object retention for separate review",
+     "class": "kept",
+     "paths": 2
+    },
+    {
+     "commit": "5b73480d43aaf86aeacf591888f1a7c27d97c611",
+     "tree": "0ebec3cef13072f50f7367da66cddda9e7a50b5c",
+     "parent": "8e0e2198d8900f105e6b37e8378690f173d782e0",
+     "subject": "core: retain attached declared SDK object fields for relocation",
+     "class": "kept",
+     "paths": 2
+    },
+    {
+     "commit": "506649d04a36c41d0b9a676645efdc524eca0beb",
+     "tree": "ee2cf0c7047611866a99fc3eeb9332cfbdf480eb",
+     "parent": "5b73480d43aaf86aeacf591888f1a7c27d97c611",
+     "subject": "cache: prove downloaded filesystem and private exec metadata coexist",
+     "class": "kept",
+     "paths": 6
+    },
+    {
+     "commit": "2777bb534d8bcd37d5b40e6dab48186b7f43cc36",
+     "tree": "8a6bd13d52f82f5de947bbe5d65fab64a0e78726",
+     "parent": "506649d04a36c41d0b9a676645efdc524eca0beb",
+     "subject": "cache: cover acquisition decision and publication boundaries",
+     "class": "kept",
+     "paths": 4
+    },
+    {
+     "commit": "c4d58da56bd9d676a80f8ebf66d176389518172c",
+     "tree": "2627cf33d85275b72cd28799aada8b3121bf32c6",
+     "parent": "2777bb534d8bcd37d5b40e6dab48186b7f43cc36",
+     "subject": "cache: verify whole-producer restart and pre-sync donor release",
+     "class": "kept",
+     "paths": 2
+    },
+    {
+     "commit": "fbd4013309a71247a1f68f78dc46e9afa6ee5e7c",
+     "tree": "d8deb2dc77acf667f0732b262e2dd6e185d3ae2e",
+     "parent": "c4d58da56bd9d676a80f8ebf66d176389518172c",
+     "subject": "docs: record mixed exec proof and blocker-two follow-up evidence",
+     "class": "evidence-only",
+     "paths": 13
+    },
+    {
+     "commit": "f134133fc807218ed8007b2d70f505b9ab2a2598",
+     "tree": "d822c7a462d7b2523acf996b742692892726ae05",
+     "parent": "fbd4013309a71247a1f68f78dc46e9afa6ee5e7c",
+     "subject": "core: record completed eager Container mount producers",
+     "class": "kept",
+     "paths": 3
+    },
+    {
+     "commit": "c02411efad0b5e3f1bbb6c23d1cc3152fc2af1b2",
+     "tree": "60d72838a0c39d6405baf0c8c3b28140602a4e0d",
+     "parent": "f134133fc807218ed8007b2d70f505b9ab2a2598",
+     "subject": "cache: acquire unchanged Container parts from their exact recorded parent",
+     "class": "kept",
+     "paths": 12
+    },
+    {
+     "commit": "21d0da8c86db12af34d0911a2119297be9bdd0c8",
+     "tree": "0f34910085b601b05f69aee40bf9d782303efff5",
+     "parent": "c02411efad0b5e3f1bbb6c23d1cc3152fc2af1b2",
+     "subject": "core: verify eager mount recording rejection releases owned clones",
+     "class": "kept",
+     "paths": 3
+    },
+    {
+     "commit": "3d90f1f724fec32ab27dd91a2d047c1def8e8768",
+     "tree": "5da13e8496d0cd8c2afa57b4df01eca69ddd17c2",
+     "parent": "21d0da8c86db12af34d0911a2119297be9bdd0c8",
+     "subject": "core: release shadowed mount clones when eager recording fails",
+     "class": "kept",
+     "paths": 2
+    },
+    {
+     "commit": "ff0879dfcbec2309847ffb04e1615e831454bb3e",
+     "tree": "ee89fa82ce0b2f25a03e3d5879580cae6428d561",
+     "parent": "3d90f1f724fec32ab27dd91a2d047c1def8e8768",
+     "subject": "cache: verify delegation ordering, waiter lifetime, forwarding and restart",
+     "class": "kept",
+     "paths": 5
+    },
+    {
+     "commit": "3337963558b7178156d228e6b3e38136beb919e0",
+     "tree": "2204e3f35c4cbbf03b7290ce6ac3fcb5fdcd5998",
+     "parent": "ff0879dfcbec2309847ffb04e1615e831454bb3e",
+     "subject": "test: count exact acquisition hops through the cold SDK chain",
+     "class": "kept",
+     "paths": 1
+    },
+    {
+     "commit": "4ccf106dd4a2b6a9d7cfcd5a2d03bb2cb9fdb996",
+     "tree": "d472a6f506ec67cc388ccd2b1e96bceb052de5f6",
+     "parent": "3337963558b7178156d228e6b3e38136beb919e0",
+     "subject": "test: report inherited mount producer routes by exact source row",
+     "class": "kept",
+     "paths": 1
+    },
+    {
+     "commit": "6d5cbe20a42c3c82a74209eeed5901cd149dfd52",
+     "tree": "f74284ec165737c42b290b95be00b6044ddb310b",
+     "parent": "4ccf106dd4a2b6a9d7cfcd5a2d03bb2cb9fdb996",
+     "subject": "docs: record binding addendum implementation and scratch acquisition blocker",
+     "class": "evidence-only",
+     "paths": 34
+    },
+    {
+     "commit": "8d4b99c0116bae44439055fe73d325bf882b6691",
+     "tree": "3fb0a28db86d8fa690b9d5db0f6d3ca53f41e2a2",
+     "parent": "6d5cbe20a42c3c82a74209eeed5901cd149dfd52",
+     "subject": "docs: inventory producer-less pending values in the full cold closure",
+     "class": "evidence-only",
+     "paths": 1
+    },
+    {
+     "commit": "f9158c2ba2735be974770246a2449daee0b106c2",
+     "tree": "da180dbb9b329326e5e09d8ceb05f0de8a1dbced",
+     "parent": "8d4b99c0116bae44439055fe73d325bf882b6691",
+     "subject": "core: record and restore the eager scratch Directory with an empty recipe",
+     "class": "kept",
+     "paths": 8
+    },
+    {
+     "commit": "b404de7252b0b023692ae11ac62a0991925de3b6",
+     "tree": "5d9dafdb9c31778266b07d88444c8b97ea619c01",
+     "parent": "f9158c2ba2735be974770246a2449daee0b106c2",
+     "subject": "core: verify scratch producer acquisition, restart and independent ownership",
+     "class": "kept",
+     "paths": 2
+    },
+    {
+     "commit": "78eab473803a5f5405bf0d315359bed4b0aa1270",
+     "tree": "f9e23de1739047cd99edc2a2973b77a0273b7be5",
+     "parent": "b404de7252b0b023692ae11ac62a0991925de3b6",
+     "subject": "test: observe exact scratch rows through cold and warm recovery controls",
+     "class": "kept",
+     "paths": 3
+    },
+    {
+     "commit": "e1443fff63896b9f274e75874a377e1df4799862",
+     "tree": "b593eff00eafdb21a687e8e1db2054075b34da87",
+     "parent": "78eab473803a5f5405bf0d315359bed4b0aa1270",
+     "subject": "docs: complete batch 4 acquisition evidence and cold controls",
+     "class": "evidence-only",
+     "paths": 51
+    },
+    {
+     "commit": "733cec2bb0afd2e2455858890a5ce457a0837f96",
+     "tree": "6d708aea35893e6a12b308dbe7e8958481db5e79",
+     "parent": "e1443fff63896b9f274e75874a377e1df4799862",
+     "subject": "fix(core): retain only ID-shaped module object fields (B4-D1)",
+     "class": "mixed",
+     "paths": 3,
+     "nonEvidencePaths": [
+      "core/object.go",
+      "core/object_test.go"
+     ]
+    },
+    {
+     "commit": "c62429de3f615aef81f35c31244d8b31a5a9d1cd",
+     "tree": "5e9b399fccc7a14850d8af387c2d462273fff733",
+     "parent": "733cec2bb0afd2e2455858890a5ce457a0837f96",
+     "subject": "fix(dagql): prepare sessionless lookups outside graph lock (B4-D10)",
+     "class": "kept",
+     "paths": 3
+    },
+    {
+     "commit": "855004e49fb7845495881ab261738c3a7bb7b57c",
+     "tree": "a96fb541b3036193907f36632655a4e7fd4c33b9",
+     "parent": "c62429de3f615aef81f35c31244d8b31a5a9d1cd",
+     "subject": "fix(dagql): release selected sources on scan failure (B4-D7)",
+     "class": "kept",
+     "paths": 3
+    },
+    {
+     "commit": "3b3a076e1fbeb07229a8deae39ca996c190ed1a1",
+     "tree": "789ff09fd3581b4957e53d5fd6e661d31ea0c72f",
+     "parent": "855004e49fb7845495881ab261738c3a7bb7b57c",
+     "subject": "fix(dagql): retain imported ref cleanup through publication (B4-D5)",
+     "class": "kept",
+     "paths": 4
+    },
+    {
+     "commit": "ded91500c9ad0ce45c7842eefd840078ead6c56a",
+     "tree": "45d65435811052f976e771d66a7a3b5b4307f66c",
+     "parent": "3b3a076e1fbeb07229a8deae39ca996c190ed1a1",
+     "subject": "fix(dagql): preserve acquisition causes at final fallback (B4-D6)",
+     "class": "kept",
+     "paths": 3
+    },
+    {
+     "commit": "66a1822fa6be3c79a9815f1b19ae56b9b4381494",
+     "tree": "b6aabf0d9e10d311016da39d81a0c16f55056a29",
+     "parent": "ded91500c9ad0ce45c7842eefd840078ead6c56a",
+     "subject": "fix(dagql): key exhausted content by offer revision (B4-D2)",
+     "class": "kept",
+     "paths": 3
+    },
+    {
+     "commit": "68535753642d916582c3775147ff4911f7357d64",
+     "tree": "7c410c1eb996b7518e9f52669ac9fc414ecae637",
+     "parent": "66a1822fa6be3c79a9815f1b19ae56b9b4381494",
+     "subject": "fix(dagql): settle native parts through offer retirement (B4-D3)",
+     "class": "kept",
+     "paths": 3
+    },
+    {
+     "commit": "0829066c7e8223f4662e48a46010ec3c05faa920",
+     "tree": "dfc13c09b7b1188f4fe1e03a1e2eff64ad7ca4d0",
+     "parent": "68535753642d916582c3775147ff4911f7357d64",
+     "subject": "fix(dagql): stream blobs when endpoints ignore Range (B4-D8)",
+     "class": "kept",
+     "paths": 2
+    },
+    {
+     "commit": "9f71286d8c8f78d59094fe0811494851054f203a",
+     "tree": "370d664e8bf4d7b141d4fb27a8e80730c3d6ec0c",
+     "parent": "0829066c7e8223f4662e48a46010ec3c05faa920",
+     "subject": "refactor(core): remove dead Container pending carrier (B4-D4)",
+     "class": "kept",
+     "paths": 5
+    },
+    {
+     "commit": "edd08565fc8069c9a7471a17fa5e27613295cba0",
+     "tree": "37a0ecb852f23367d7b22bdc6140d6f434e6fafe",
+     "parent": "9f71286d8c8f78d59094fe0811494851054f203a",
+     "subject": "refactor(dagql): simplify part lookup and address checks (B4-D9)",
+     "class": "kept",
+     "paths": 2
+    },
+    {
+     "commit": "f04a91577bd4ddc574f3bc527cdffe9fec2179a1",
+     "tree": "6d824bbb49be289de3f0a97543f8b7d49ea265b2",
+     "parent": "edd08565fc8069c9a7471a17fa5e27613295cba0",
+     "subject": "test(cache): validate import mappings and private FS observation",
+     "class": "kept",
+     "paths": 4
+    },
+    {
+     "commit": "018a0e695b96d0849118a510d359795812571e1b",
+     "tree": "5f5006a18be3a03034b388d42ba9144add12252c",
+     "parent": "f04a91577bd4ddc574f3bc527cdffe9fec2179a1",
+     "subject": "docs: record batch 4 council revisions and final proofs",
+     "class": "evidence-only",
+     "paths": 58
+    },
+    {
+     "commit": "3cc02ac9701620d0d795751c31698554a7549a94",
+     "tree": "791ffc174ea0fb01711730f7158c2f0493795b9c",
+     "parent": "018a0e695b96d0849118a510d359795812571e1b",
+     "subject": "core: retain evaluated Lazy operations",
+     "class": "kept",
+     "paths": 29
+    },
+    {
+     "commit": "782fc85d483905120932d237458fafa89c7f1fea",
+     "tree": "30f2d5517ceeea7f724958875c3031123cd2fa7b",
+     "parent": "3cc02ac9701620d0d795751c31698554a7549a94",
+     "subject": "http: select a File call with resolved content",
+     "class": "kept",
+     "paths": 6
+    },
+    {
+     "commit": "cfc26b0adee7643bf0b2027168a698ce97213680",
+     "tree": "851c1e3e77ae6e2ffd65946af18beb970de65b0e",
+     "parent": "782fc85d483905120932d237458fafa89c7f1fea",
+     "subject": "schema: construct the schema File with FileBlobLazy",
+     "class": "kept",
+     "paths": 4
+    },
+    {
+     "commit": "2d1086c5f743e4ed3e0a6ea7d256391e92fa6212",
+     "tree": "1b5fe809b0cac11c32059311903ab904fddae503",
+     "parent": "cfc26b0adee7643bf0b2027168a698ce97213680",
+     "subject": "git: construct lazy outputs from resolved calls",
+     "class": "kept",
+     "paths": 5
+    },
+    {
+     "commit": "fc9e44605ec91526b9d4c25aa503c7939567a524",
+     "tree": "5f1fb957d92b800e2165e3d6284b6a9230ebb7d5",
+     "parent": "2d1086c5f743e4ed3e0a6ea7d256391e92fa6212",
+     "subject": "core: make scratch mounts and builtin lazy on every path",
+     "class": "kept",
+     "paths": 28
+    },
+    {
+     "commit": "daba57f3b74e98934108af1710db8649f58b3ecd",
+     "tree": "1d3055691f3a91d443f5016fd0dd467f0248f989",
+     "parent": "fc9e44605ec91526b9d4c25aa503c7939567a524",
+     "subject": "cache: name and persist Lazy operation acquisition",
+     "class": "kept",
+     "paths": 90
+    },
+    {
+     "commit": "73e31042d3cb103496f6fb967e64fc76ecacd58b",
+     "tree": "13fca01cac5f8aaffcb678c672e11633f6174560",
+     "parent": "daba57f3b74e98934108af1710db8649f58b3ecd",
+     "subject": "docs: checkpoint lazy values verification status",
+     "class": "evidence-only",
+     "paths": 1
+    },
+    {
+     "commit": "7ae017d77f84a64114d53374d04494a01a2da429",
+     "tree": "ace8ef46be9148b64a4686165a2fc4cb1aefe41c",
+     "parent": "73e31042d3cb103496f6fb967e64fc76ecacd58b",
+     "subject": "docs: record ownership guard contention and decision options",
+     "class": "evidence-only",
+     "paths": 1
+    },
+    {
+     "commit": "f1b3ed3aa49ca250fff993c35345f8d3baa334ce",
+     "tree": "f932ec69a60d9d74124fb7b4f48db691414cd9db",
+     "parent": "7ae017d77f84a64114d53374d04494a01a2da429",
+     "subject": "cache: verify retained Lazy values and block ownership reads on real latches",
+     "class": "kept",
+     "paths": 22
+    },
+    {
+     "commit": "378e0322c3955e6cc2d626e6bcfccb0764c5ee07",
+     "tree": "7bb468f265d29949834c9eade9f1f7e63336f8a5",
+     "parent": "f1b3ed3aa49ca250fff993c35345f8d3baa334ce",
+     "subject": "docs: record lazy values implementation and verification evidence",
+     "class": "evidence-only",
+     "paths": 126
+    },
+    {
+     "commit": "4a77b4487ede06bdfda9c154a1db4a41a3b280b3",
+     "tree": "99bc7a98a7022a8daa8a74bcdcd3a5259c1cc414",
+     "parent": "378e0322c3955e6cc2d626e6bcfccb0764c5ee07",
+     "subject": "cache: release the pointer latch while waiting for whole Container bodies",
+     "class": "kept",
+     "paths": 2
+    },
+    {
+     "commit": "d5aaf3e251a5535227952ebf5870c3b03d989cb0",
+     "tree": "47e4d680e2de44bbc3dc4b582e60bc8ad836b556",
+     "parent": "4a77b4487ede06bdfda9c154a1db4a41a3b280b3",
+     "subject": "docs: describe retained operation completion at DagQL readers",
+     "class": "kept",
+     "paths": 5
+    },
+    {
+     "commit": "9ad8cbfb8785ecd4eb773d3a244d966465b7aba8",
+     "tree": "598b8f1b7afd29015042083f30af1f372481f7fa",
+     "parent": "d5aaf3e251a5535227952ebf5870c3b03d989cb0",
+     "subject": "docs: describe persisted Lazy operation inputs",
+     "class": "kept",
+     "paths": 2
+    },
+    {
+     "commit": "c01bbbb29b56a44e17eb4785229612f011f6b6ef",
+     "tree": "cab1ec9d339878644b029dd3400aa4f5fc80b9f4",
+     "parent": "9ad8cbfb8785ecd4eb773d3a244d966465b7aba8",
+     "subject": "docs: mark acquisition summary as a restatement of converged designs",
+     "class": "kept",
+     "paths": 1
+    },
+    {
+     "commit": "f30f4ab780de7ee72832d4c3c176a6608baf1e46",
+     "tree": "ee662e2e1210c45c6ba89f229f5c4c4507b406bc",
+     "parent": "c01bbbb29b56a44e17eb4785229612f011f6b6ef",
+     "subject": "docs: describe group body completion in the cache model",
+     "class": "kept",
+     "paths": 2
+    },
+    {
+     "commit": "313a82e5a4132700415d86d24b5d21f8c8d1659a",
+     "tree": "09985245f48713a5fe2c7816d339b4624df7b3c3",
+     "parent": "f30f4ab780de7ee72832d4c3c176a6608baf1e46",
+     "subject": "cache: pass owner read mode directly to the snapshot collector",
+     "class": "kept",
+     "paths": 5
+    },
+    {
+     "commit": "f0a18735d7a02b01c66395c9fc463857064dedd7",
+     "tree": "75fb600c7c8439033867980174bfcc5dfe1198dc",
+     "parent": "313a82e5a4132700415d86d24b5d21f8c8d1659a",
+     "subject": "docs: record lazy values round one decisions and proof results",
+     "class": "evidence-only",
+     "paths": 17
+    },
+    {
+     "commit": "fd9cfd55a98b176bf82cf84ee1b4c3ae1257fde5",
+     "tree": "6c35b11d5fc89e2d2f0232caa7841d9bc33b9eee",
+     "parent": "f0a18735d7a02b01c66395c9fc463857064dedd7",
+     "subject": "docs: record post-R8 ownership race verification",
+     "class": "evidence-only",
+     "paths": 7
+    }
+   ]
+  },
+  {
+   "batch": "5",
+   "title": "offers, renewal, offer ownership",
+   "integratedParent": "fd9cfd55a98b176bf82cf84ee1b4c3ae1257fde5",
+   "head": "a26dc93750e42daf2de76678b0e54f51454cea33",
+   "headTree": "d4865a0e749a94d7f2b3966665ed22b2dcd0b7c0",
+   "counts": {
+    "kept": 18,
+    "evidence-only": 6,
+    "mixed": 0
+   },
+   "packagedDiff": "git diff fd9cfd55a9 a26dc93750 -- . ':!continuation-evidence' ':!cleanup-evidence' ':!cleanup-review-evidence'",
+   "commits": [
+    {
+     "commit": "d49e309bcd54a065b14513699c9126fce025e630",
+     "tree": "9a921154984e56738974177e6e7735162156fccd",
+     "parent": "fd9cfd55a98b176bf82cf84ee1b4c3ae1257fde5",
+     "subject": "docs: record batch 5 interface readiness",
+     "class": "evidence-only",
+     "paths": 1
+    },
+    {
+     "commit": "1c21c1746300f7e59c15b567d3f66f2dd2ca6e27",
+     "tree": "be4abde665e70b37800238a3c0b7b6072e13db6e",
+     "parent": "d49e309bcd54a065b14513699c9126fce025e630",
+     "subject": "dagql: accept live part offers before execution",
+     "class": "kept",
+     "paths": 2
+    },
+    {
+     "commit": "f7af21e6f1a13f606269fdab4a9962bd5878ef6a",
+     "tree": "2951a5b139b539e46b45a49179b0b033ffa88686",
+     "parent": "1c21c1746300f7e59c15b567d3f66f2dd2ca6e27",
+     "subject": "docs: plan batch 5 Lazy interface rework",
+     "class": "evidence-only",
+     "paths": 1
+    },
+    {
+     "commit": "136db370b86581ce9ab9e5c0350e4ff8b8259640",
+     "tree": "cdd9c3ff29d56f00545248dfcd4e4ab76d3b4733",
+     "parent": "f7af21e6f1a13f606269fdab4a9962bd5878ef6a",
+     "subject": "dagql: add renewal episodes and the bounded renewal mailbox",
+     "class": "kept",
+     "paths": 5
+    },
+    {
+     "commit": "d5fef064a3defcb67759e391b833c791eb942a24",
+     "tree": "a43f7153691eb8e21d7b096052700eedb4a8b342",
+     "parent": "136db370b86581ce9ab9e5c0350e4ff8b8259640",
+     "subject": "dagql: fetch offered chains through one content source with renewal",
+     "class": "kept",
+     "paths": 11
+    },
+    {
+     "commit": "e24aa3d0b94838d5c71686952d29aebc75015234",
+     "tree": "dbe92efcdb10b694052a8f265771b3af82f46a92",
+     "parent": "d5fef064a3defcb67759e391b833c791eb942a24",
+     "subject": "server: attach an optional remote cache integration to the cache",
+     "class": "kept",
+     "paths": 7
+    },
+    {
+     "commit": "f3934542dabd1c0cf2eddc81f143f90172d9858b",
+     "tree": "d6f9392354b82430dbf4ad563f573a1036bb067e",
+     "parent": "e24aa3d0b94838d5c71686952d29aebc75015234",
+     "subject": "server: return shutdown errors from GracefulStop",
+     "class": "kept",
+     "paths": 2
+    },
+    {
+     "commit": "14c922ae49c35957d5c863d9df4e456335fecc31",
+     "tree": "3967e1c0b17600b772f3367d2d05f26074913ba8",
+     "parent": "f3934542dabd1c0cf2eddc81f143f90172d9858b",
+     "subject": "dagql: test pending offers across restart, forwarding and nil config",
+     "class": "kept",
+     "paths": 2
+    },
+    {
+     "commit": "b723b1e105a8abfaa94cbafb36f4c290dfe080d4",
+     "tree": "c5bf9453dfe638972e8135bab86ca983b4018077",
+     "parent": "14c922ae49c35957d5c863d9df4e456335fecc31",
+     "subject": "test: cover offer admission, settlement, resources and shutdown",
+     "class": "kept",
+     "paths": 5
+    },
+    {
+     "commit": "2b564d9c9c0e66a09dd041a4b3c3bcb7859593e4",
+     "tree": "467bb924f47dc23f287a9d042729f4305aced9cf",
+     "parent": "b723b1e105a8abfaa94cbafb36f4c290dfe080d4",
+     "subject": "docs: describe the integration stop in graceful shutdown",
+     "class": "kept",
+     "paths": 1
+    },
+    {
+     "commit": "23b2787ac8e66fc6b3613f817789d3d7bbc96176",
+     "tree": "44813da8840ddda952c21aacdc18ad3776d7e265",
+     "parent": "2b564d9c9c0e66a09dd041a4b3c3bcb7859593e4",
+     "subject": "docs: record batch 5 implementation report and verification",
+     "class": "evidence-only",
+     "paths": 33
+    },
+    {
+     "commit": "e1adfa269457f8253aee6cb217e700876b8ef754",
+     "tree": "681e7585d21a717575a40417d20bc079445addcf",
+     "parent": "23b2787ac8e66fc6b3613f817789d3d7bbc96176",
+     "subject": "test: run the remote cache transfer suite in parallel",
+     "class": "kept",
+     "paths": 1
+    },
+    {
+     "commit": "2d7646523918e45fd55b69d81f81e19167a1ced7",
+     "tree": "636abc51567b1f9433d533f93390979e1a952947",
+     "parent": "e1adfa269457f8253aee6cb217e700876b8ef754",
+     "subject": "docs: correct the batch 5 verification record",
+     "class": "evidence-only",
+     "paths": 40
+    },
+    {
+     "commit": "3b285443abf13e273e41d6a5ed8e7ab6329ba88d",
+     "tree": "1c1c88a5fb3e0e4df122c79355e94802ee7ede76",
+     "parent": "2d7646523918e45fd55b69d81f81e19167a1ced7",
+     "subject": "dagql: validate an offer attachment once",
+     "class": "kept",
+     "paths": 1
+    },
+    {
+     "commit": "80c07ba028b40401d03c62f442ebc1d0b5127985",
+     "tree": "b4a7f1015d311e71d8168d73d9cc0aa21f882242",
+     "parent": "3b285443abf13e273e41d6a5ed8e7ab6329ba88d",
+     "subject": "dagql: return a settled renewal result regardless of its deadline",
+     "class": "kept",
+     "paths": 2
+    },
+    {
+     "commit": "06692b241844a29d9cac42bff3d4299b2241626e",
+     "tree": "5d8e23200cf775a8711810200b56fe1384d667c5",
+     "parent": "80c07ba028b40401d03c62f442ebc1d0b5127985",
+     "subject": "dagql: let Take and Reply see a canceled renewal requester",
+     "class": "kept",
+     "paths": 2
+    },
+    {
+     "commit": "70bbacba27070df1ec688daf1bcc028a02dad080",
+     "tree": "c0262f573f3489772966146b55d0d6f3c7567229",
+     "parent": "06692b241844a29d9cac42bff3d4299b2241626e",
+     "subject": "dagql: close each offered-content response body once",
+     "class": "kept",
+     "paths": 2
+    },
+    {
+     "commit": "606006e1c1b10254cff62c11885b6a7b0022571f",
+     "tree": "900271be2b97d97b66e18fbacac5c196e7b6ee6d",
+     "parent": "70bbacba27070df1ec688daf1bcc028a02dad080",
+     "subject": "server: bound the noncooperative shutdown test by its own deadline",
+     "class": "kept",
+     "paths": 1
+    },
+    {
+     "commit": "93334a40411391a8a4640c6e2938973fbbd0d061",
+     "tree": "e6efccee0e774e69afcdbf4829970a31917aa147",
+     "parent": "606006e1c1b10254cff62c11885b6a7b0022571f",
+     "subject": "dagql, server: small renewal and adapter corrections",
+     "class": "kept",
+     "paths": 5
+    },
+    {
+     "commit": "0d43783959ad9b4bf8d62346606c054a5c47daff",
+     "tree": "6d47e55b368dd5b3df7cbfe896e6dab60aa3544a",
+     "parent": "93334a40411391a8a4640c6e2938973fbbd0d061",
+     "subject": "server: let the shutdown closing goroutine finish after a timeout",
+     "class": "kept",
+     "paths": 1
+    },
+    {
+     "commit": "33bd13ff3c17eea28e0a5913b43cbfe8636629e6",
+     "tree": "3bf58f4eb70218b19abbefe127f97d8876b23e7a",
+     "parent": "0d43783959ad9b4bf8d62346606c054a5c47daff",
+     "subject": "dagql: check nil-config ranking cost without a real store",
+     "class": "kept",
+     "paths": 1
+    },
+    {
+     "commit": "361ef7f7896480607a9c96f61e9047427449b810",
+     "tree": "dc04b25e77e3c60735ea064ba48e23e8c235fc52",
+     "parent": "33bd13ff3c17eea28e0a5913b43cbfe8636629e6",
+     "subject": "docs: record batch 5 round 1 corrections and their verification",
+     "class": "evidence-only",
+     "paths": 9
+    },
+    {
+     "commit": "c56971f1658b5b823153aee33e4a81437eb891a9",
+     "tree": "ba8c6ad1960286ec2300333141b183337997f5f3",
+     "parent": "361ef7f7896480607a9c96f61e9047427449b810",
+     "subject": "dagql: return the renewal result's error last",
+     "class": "kept",
+     "paths": 1
+    },
+    {
+     "commit": "a26dc93750e42daf2de76678b0e54f51454cea33",
+     "tree": "d4865a0e749a94d7f2b3966665ed22b2dcd0b7c0",
+     "parent": "c56971f1658b5b823153aee33e4a81437eb891a9",
+     "subject": "docs: record batch 5 round 2 correction",
+     "class": "evidence-only",
+     "paths": 2
+    }
+   ]
+  },
+  {
+   "batch": "6",
+   "title": "early snapshot sharing",
+   "integratedParent": "a26dc93750e42daf2de76678b0e54f51454cea33",
+   "head": "c5b299142ca672cbd2ef0a389492f11de85ff08b",
+   "headTree": "9e4eb60b7bd9136a404ec1d8eeff753ccfc40757",
+   "counts": {
+    "kept": 23,
+    "evidence-only": 8,
+    "mixed": 2
+   },
+   "packagedDiff": "git diff a26dc93750 c5b299142c -- . ':!continuation-evidence' ':!cleanup-evidence' ':!cleanup-review-evidence'",
+   "commits": [
+    {
+     "commit": "a0ce9c123dcd2515eed1ea49980e73db04cd25fc",
+     "tree": "5d434d59e4d8ffc261dc65d5700c58d6cafa3e22",
+     "parent": "a26dc93750e42daf2de76678b0e54f51454cea33",
+     "subject": "docs: record batch 6 sharing readiness",
+     "class": "evidence-only",
+     "paths": 1
+    },
+    {
+     "commit": "327712160551c537b2fb71d4b5e7385ee6b0f40b",
+     "tree": "39a1fd32c0cac00ba5e88f5f3394e4088dccdd1c",
+     "parent": "a0ce9c123dcd2515eed1ea49980e73db04cd25fc",
+     "subject": "docs: map batch 6 plan to lazy value interfaces",
+     "class": "evidence-only",
+     "paths": 1
+    },
+    {
+     "commit": "bf0f5151cc60f27f0c0d2774861a326b659ffb84",
+     "tree": "cf98e31da71dc40a76ee1b7fbdc5ae86258ba2c7",
+     "parent": "327712160551c537b2fb71d4b5e7385ee6b0f40b",
+     "subject": "dagql: validate a sessionless share per donated address",
+     "class": "kept",
+     "paths": 2
+    },
+    {
+     "commit": "d342205f2024dcb7d736b676ddc777cd091990e6",
+     "tree": "134c4886d83c5417ff7b2026072e787511197991",
+     "parent": "bf0f5151cc60f27f0c0d2774861a326b659ffb84",
+     "subject": "dagql: add the snapshot sharing queue, triggers and close admission",
+     "class": "kept",
+     "paths": 4
+    },
+    {
+     "commit": "d71c8ef9b1bf3fd3364ae91f463ecbe80f793e92",
+     "tree": "1295f0f892b19daef51a821343541056bee65b55",
+     "parent": "d342205f2024dcb7d736b676ddc777cd091990e6",
+     "subject": "dagql, core, engine: probe, select and bound a sharing preparation",
+     "class": "kept",
+     "paths": 19
+    },
+    {
+     "commit": "14b1222e0d712ad570e33f4ffda483239b4cbab5",
+     "tree": "0c1d1671dca1ae14a07efd757804ba85ac3fd89f",
+     "parent": "d71c8ef9b1bf3fd3364ae91f463ecbe80f793e92",
+     "subject": "dagql: install a share through ordered preparation and a release barrier",
+     "class": "kept",
+     "paths": 3
+    },
+    {
+     "commit": "0a7c5c0c89127daef0240ce8394b0d11cf765c24",
+     "tree": "910c5a24fa973f089641b6f8667d71432173e5a8",
+     "parent": "14b1222e0d712ad570e33f4ffda483239b4cbab5",
+     "subject": "dagql, core, engine: verify snapshot sharing in process",
+     "class": "kept",
+     "paths": 10
+    },
+    {
+     "commit": "167630f0b7fee9db0b8796192aa7aa76c3f11241",
+     "tree": "911cfac609b89ad82602e8ad660750f800d07e6c",
+     "parent": "0a7c5c0c89127daef0240ce8394b0d11cf765c24",
+     "subject": "docs: record the batch 6 implementation and its verification",
+     "class": "mixed",
+     "paths": 7,
+     "nonEvidencePaths": [
+      "dagql/cache_snapshot_sharing_family_test.go",
+      "dagql/cache_snapshot_sharing_test.go",
+      "engine/server/snapshot_sharing_test.go"
+     ]
+    },
+    {
+     "commit": "e509c419648c6a0a61decab23ead4c534523c0f9",
+     "tree": "77058d72965313c2367827574681b3e9988bab6c",
+     "parent": "167630f0b7fee9db0b8796192aa7aa76c3f11241",
+     "subject": "dagql, core, engine: keep the batch 6 report out of the test commit",
+     "class": "evidence-only",
+     "paths": 4
+    },
+    {
+     "commit": "37631180d37dd26efb146c866bc1306e49e15b9c",
+     "tree": "bea35575fc660e0e0c90a73ee822c62a89c2d71a",
+     "parent": "e509c419648c6a0a61decab23ead4c534523c0f9",
+     "subject": "docs: record the batch 6 implementation and its verification",
+     "class": "evidence-only",
+     "paths": 4
+    },
+    {
+     "commit": "490c386592870f8e607221364dfc452a5f1fb224",
+     "tree": "67eca8e624ff5004f87777bbb89f8883a43e4e01",
+     "parent": "37631180d37dd26efb146c866bc1306e49e15b9c",
+     "subject": "docs: correct the batch 6 implementation tip",
+     "class": "evidence-only",
+     "paths": 1
+    },
+    {
+     "commit": "aecadc5261ccfabe35f91430f6d5a8c8892ee899",
+     "tree": "face6c235673bbcd3fe5b7dfc4069781b2817879",
+     "parent": "490c386592870f8e607221364dfc452a5f1fb224",
+     "subject": "core/integration: bound the restarted read and prove its attribution",
+     "class": "mixed",
+     "paths": 4,
+     "nonEvidencePaths": [
+      "core/integration/remote_cache_sharing_test.go",
+      "dagql/cache_snapshot_sharing_family_test.go",
+      "dagql/cache_snapshot_sharing_test.go"
+     ]
+    },
+    {
+     "commit": "e02185abccf4266876eb11d687e4d58dccced6ee",
+     "tree": "3411ec20545a48436ec393d594b173b1a4eca889",
+     "parent": "aecadc5261ccfabe35f91430f6d5a8c8892ee899",
+     "subject": "dagql: prepare sharing lookups before the graph lock",
+     "class": "kept",
+     "paths": 3
+    },
+    {
+     "commit": "ebef15dae10b46e60b97f2f66f06c2e4a6a338cf",
+     "tree": "13629700f5d1a537d1843acd1da107f509470412",
+     "parent": "e02185abccf4266876eb11d687e4d58dccced6ee",
+     "subject": "dagql: drop the sharing slot's dead stop latch",
+     "class": "kept",
+     "paths": 1
+    },
+    {
+     "commit": "e81a971147f456f0c5b71cb2c90e32e13dca13d6",
+     "tree": "5a714690ad723022847b594b78cfed37d1b1cdaa",
+     "parent": "ebef15dae10b46e60b97f2f66f06c2e4a6a338cf",
+     "subject": "dagql: release sharing test barriers on every exit",
+     "class": "kept",
+     "paths": 1
+    },
+    {
+     "commit": "5ce25b685ede989c15cfbd8efaf16b06a376a409",
+     "tree": "6339562ac63e668aacc19ca08b5c4bcb604da8ea",
+     "parent": "e81a971147f456f0c5b71cb2c90e32e13dca13d6",
+     "subject": "core/integration: state the restored read's observation exactly",
+     "class": "kept",
+     "paths": 1
+    },
+    {
+     "commit": "e1755079db06e8850aa729c56d07e66191966bb5",
+     "tree": "9fb131e71185e55c37e3e8b9cd9d2a264b785b58",
+     "parent": "5ce25b685ede989c15cfbd8efaf16b06a376a409",
+     "subject": "docs: replace the batch 6 report with the verified state",
+     "class": "evidence-only",
+     "paths": 10
+    },
+    {
+     "commit": "da4e91cf0324922b525e3ec3288bfd7ec66468f7",
+     "tree": "b8cc070d4e160618f9a25b53c969219661c7e19a",
+     "parent": "e1755079db06e8850aa729c56d07e66191966bb5",
+     "subject": "dagql: hold a prefix-less Commit to its own observation",
+     "class": "kept",
+     "paths": 2
+    },
+    {
+     "commit": "2831250c3baf1cf4334883db1b658a8aec077937",
+     "tree": "f1271531a3a70cc5a126dca732f56e51d40b9ccd",
+     "parent": "da4e91cf0324922b525e3ec3288bfd7ec66468f7",
+     "subject": "dagql: seal every part preparation and refuse a broken one outright",
+     "class": "kept",
+     "paths": 3
+    },
+    {
+     "commit": "2be7281914c0a19b3639ffa95ec848bb302ce704",
+     "tree": "8b0c7b20a8a5da0daa73e116b735b99c86bde9d6",
+     "parent": "2831250c3baf1cf4334883db1b658a8aec077937",
+     "subject": "dagql: give a demand that joined a refused slot a reselect",
+     "class": "kept",
+     "paths": 4
+    },
+    {
+     "commit": "0a08aa1cc9eb57ebccf4f6efd821f4c01e980587",
+     "tree": "f8dba0449cdeddb5485316538a1da381f9539cd7",
+     "parent": "2be7281914c0a19b3639ffa95ec848bb302ce704",
+     "subject": "dagql: give each sharing slot outcome one reporter",
+     "class": "kept",
+     "paths": 3
+    },
+    {
+     "commit": "6d5e2951be444fb284cf878205986468c9ecdcb9",
+     "tree": "ac4721d9ddf326e633989ae367e783a8a0f54429",
+     "parent": "0a08aa1cc9eb57ebccf4f6efd821f4c01e980587",
+     "subject": "dagql: add the in-process sharing cases nobody owned",
+     "class": "kept",
+     "paths": 1
+    },
+    {
+     "commit": "5de3fef067e77d5c4ed9b4f4bdf9de0e7cd454b7",
+     "tree": "79631d2aa7368137c83eaa98956f306baf9d46c9",
+     "parent": "6d5e2951be444fb284cf878205986468c9ecdcb9",
+     "subject": "dagql: carry a receiver's prepared prefix over a refused address",
+     "class": "kept",
+     "paths": 2
+    },
+    {
+     "commit": "3a5b5fcd809c56e54ab85c7737d5e95b9c915851",
+     "tree": "2fd35ac7931f02ffd8fb8de00301a69294e47199",
+     "parent": "5de3fef067e77d5c4ed9b4f4bdf9de0e7cd454b7",
+     "subject": "dagql: keep the donor held between a decoded receiver's passes",
+     "class": "kept",
+     "paths": 2
+    },
+    {
+     "commit": "e5369037ef509850f15334ffe1d7c6be79b15c60",
+     "tree": "f9d61a6d70ea929c7505a105f6b4cf5eb074348c",
+     "parent": "3a5b5fcd809c56e54ab85c7737d5e95b9c915851",
+     "subject": "dagql: collect a sharing receiver's equivalents once per selection",
+     "class": "kept",
+     "paths": 2
+    },
+    {
+     "commit": "dd1efd8937c1c6383f2e11dbc6872079dd509ffa",
+     "tree": "ea3b7506a7950f51ec2cb8cc146964e5d11431af",
+     "parent": "e5369037ef509850f15334ffe1d7c6be79b15c60",
+     "subject": "dagql, core, engine: execute a marked decode and tighten its preflight",
+     "class": "kept",
+     "paths": 6
+    },
+    {
+     "commit": "b194ad3204b9857ee44a35d55002f02fc880bdff",
+     "tree": "2a217e3a3049e575167c90388953d0c7fb0a293c",
+     "parent": "dd1efd8937c1c6383f2e11dbc6872079dd509ffa",
+     "subject": "dagql: treat a reconciling row as busy in the sharing probe",
+     "class": "kept",
+     "paths": 2
+    },
+    {
+     "commit": "06abb874e31f0657546f56c8276c30f6d4422fe1",
+     "tree": "4eab26a178b4d0c9fdae5513a208a9b89debf0bb",
+     "parent": "b194ad3204b9857ee44a35d55002f02fc880bdff",
+     "subject": "dagql, core, engine: make the small sharing cuts from round 1",
+     "class": "kept",
+     "paths": 8
+    },
+    {
+     "commit": "98f954c91e93d93bb570b5c1ced67bdfc80408c1",
+     "tree": "b067d20ce3df2513990c79554e052cc7d8444ea7",
+     "parent": "06abb874e31f0657546f56c8276c30f6d4422fe1",
+     "subject": "dagql: warn when a part reselect loop stops making progress",
+     "class": "kept",
+     "paths": 4
+    },
+    {
+     "commit": "fff95b21a0a8e70ef1c4479c2e174c3959ff8ab1",
+     "tree": "cc83baa153d0392bef7e628e03c8313576ebc091",
+     "parent": "98f954c91e93d93bb570b5c1ced67bdfc80408c1",
+     "subject": "docs: record batch 6 round 1 corrections and their verification",
+     "class": "evidence-only",
+     "paths": 8
+    },
+    {
+     "commit": "35577cba8a1bf86103728f993054dbc09eb7c8d2",
+     "tree": "e184be50825faf6030cb08480ffba7e04ac9d969",
+     "parent": "fff95b21a0a8e70ef1c4479c2e174c3959ff8ab1",
+     "subject": "engine/server: bound the marked-decode test's cache lifetimes",
+     "class": "kept",
+     "paths": 1
+    },
+    {
+     "commit": "0044a0c479af9c79879b70aa9499711e5b9de144",
+     "tree": "540dd6c5f1d3a40d67c02f8002b3022a0b59dd38",
+     "parent": "35577cba8a1bf86103728f993054dbc09eb7c8d2",
+     "subject": "dagql: log a sharing guard trip as a warning",
+     "class": "kept",
+     "paths": 1
+    },
+    {
+     "commit": "c5b299142ca672cbd2ef0a389492f11de85ff08b",
+     "tree": "9e4eb60b7bd9136a404ec1d8eeff753ccfc40757",
+     "parent": "0044a0c479af9c79879b70aa9499711e5b9de144",
+     "subject": "docs: record batch 6 round 2 corrections",
+     "class": "evidence-only",
+     "paths": 2
+    }
+   ]
+  }
+ ]
+}

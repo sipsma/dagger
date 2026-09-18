@@ -1,0 +1,307 @@
+2026/09/16 20:03:02 INFO start lazy evaluation field=Directory.directory
+2026/09/16 20:03:02 INFO end lazy evaluation field=Directory.directory duration=288.739µs
+2026/09/16 20:03:02 INFO start lazy evaluation field=File.file
+2026/09/16 20:03:02 INFO end lazy evaluation field=File.file duration=82.06µs
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedTemp group=metadata
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=metadata duration=96.9µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedCache group=metadata
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=metadata duration=70.91µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedCache group=metadata duration=656.639µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedVolume group=metadata
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedTemp group=metadata duration=1.477478ms
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withUnixSocket group=metadata
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=metadata duration=98.78µs
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withoutMount group=metadata
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=metadata duration=111.209µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedSecret group=metadata
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedCache group=metadata
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedVolume group=metadata duration=1.874208ms
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withoutUnixSocket group=metadata
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=metadata duration=89.36µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=metadata duration=55.62µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withUnixSocket group=metadata duration=1.081939ms
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedCache group=metadata duration=462.51µs
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=metadata duration=56.15µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=metadata duration=126.11µs
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedSecret group=metadata duration=794.079µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedCache group=fs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withoutUnixSocket group=metadata duration=1.263979ms
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedCache group=execMeta
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withoutMount group=metadata duration=1.786458ms
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=fs duration=84.799µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedCache group=fs duration=938.559µs
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=execMeta
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=execMeta duration=59.98µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedCache group=execMeta duration=1.509488ms
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- FAIL: TestContainerMetadataOnlyMountMutationParts (0.00s)
+    --- FAIL: TestContainerMetadataOnlyMountMutationParts/mounted_cache_shadows_snapshot_mount (0.01s)
+        container_parts_test.go:470: 
+            	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/core/container_parts_test.go:470
+            	Error:      	Expected nil, but got: &core.ContainerWithMountedCacheLazy{LazyState:core.LazyState{outputRevision:atomic.Uint64{_:atomic.noCopy{}, _:atomic.align64{}, v:0x3}, LazyMu:(*sync.Mutex)(0xc000354088), lazyInitComplete:atomic.Bool{_:atomic.noCopy{}, v:0x0}, groups:map[dagql.LazyGroupKey]*core.lazyGroupOnce{"execMeta":(*core.lazyGroupOnce)(0xc0003c2ab4), "fs":(*core.lazyGroupOnce)(0xc000130234), "metadata":(*core.lazyGroupOnce)(0xc000214374)}}, Parent:dagql.ObjectResult[*github.com/dagger/dagger/core.Container]{Result:dagql.Result[*github.com/dagger/dagger/core.Container]{shared:(*dagql.sharedResult)(0xc000ca0008), hitCache:false, derefView:false, nullableWrapped:false}, class:dagql.Class[*github.com/dagger/dagger/core.Container]{inner:(*core.Container)(nil), idable:true, fields:map[string][]*dagql.Field[*github.com/dagger/dagger/core.Container]{"id":[]*dagql.Field[*github.com/dagger/dagger/core.Container]{(*dagql.Field[*github.com/dagger/dagger/core.Container])(0xc000a80090)}}, fieldsL:(*sync.RWMutex)(0xc000a8c078), view:dagql.ViewFilter(nil), interfaces:map[string]*dagql.Interface{"Node":(*dagql.Interface)(0xc00013a070)}, invalidateSchemaCache:(func())(0x2110760), sourceMap:(*ast.Directive)(nil)}}, Target:"/old", Cache:dagql.ObjectResult[*github.com/dagger/dagger/core.CacheVolume]{Result:dagql.Result[*github.com/dagger/dagger/core.CacheVolume]{shared:(*dagql.sharedResult)(0xc000aa0788), hitCache:false, derefView:false, nullableWrapped:false}, class:dagql.Class[*github.com/dagger/dagger/core.CacheVolume]{inner:(*core.CacheVolume)(nil), idable:true, fields:map[string][]*dagql.Field[*github.com/dagger/dagger/core.CacheVolume]{"id":[]*dagql.Field[*github.com/dagger/dagger/core.CacheVolume]{(*dagql.Field[*github.com/dagger/dagger/core.CacheVolume])(0xc000a800d0)}}, fieldsL:(*sync.RWMutex)(0xc000a8c090), view:dagql.ViewFilter(nil), interfaces:map[string]*dagql.Interface{"Node":(*dagql.Interface)(0xc00013a070)}, invalidateSchemaCache:(func())(0x2110760), sourceMap:(*ast.Directive)(nil)}}}
+            	Test:       	TestContainerMetadataOnlyMountMutationParts/mounted_cache_shadows_snapshot_mount
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedSecret group=metadata
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=metadata duration=33.71µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedSecret group=metadata duration=408.279µs err="open /etc/passwd: failed to get server: current query: no query in context"
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withUnixSocket group=metadata
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=metadata duration=49.66µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withUnixSocket group=metadata duration=477.959µs err="open /etc/passwd: failed to get server: current query: no query in context"
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedDirectory group=metadata
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedFile group=metadata
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=metadata duration=44.95µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=metadata duration=73.41µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedDirectory group=metadata duration=396.469µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedFile group=metadata duration=779.419µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedDirectory group=write
+2026/09/16 20:03:02 INFO start lazy evaluation field=test.directorySource
+2026/09/16 20:03:02 INFO end lazy evaluation field=test.directorySource duration=49.97µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedPathDockerfileCompat group=metadata
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedFile group=write
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedDirectory group=write duration=327.959µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=metadata duration=44.17µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedDirectory group=mount:/existing
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedPathDockerfileCompat group=metadata duration=448.25µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=mount:/existing
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=mount:/existing duration=48.62µs
+2026/09/16 20:03:02 INFO start lazy evaluation field=test.fileSource
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedDirectory group=mount:/existing duration=337.77µs
+2026/09/16 20:03:02 INFO end lazy evaluation field=test.fileSource duration=181.33µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedPathDockerfileCompat group=write
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedDirectory group=fs
+2026/09/16 20:03:02 INFO start lazy evaluation field=test.directorySource
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedFile group=write duration=1.119829ms
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedDirectory group=execMeta
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 20:03:02 INFO end lazy evaluation field=test.directorySource duration=81.06µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=fs duration=28.95µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedPathDockerfileCompat group=write duration=554.279µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedDirectory group=fs duration=384.08µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=execMeta
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=execMeta duration=65.92µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedPathDockerfileCompat group=mount:/existing
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedDirectory group=execMeta duration=588.359µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=mount:/existing
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=mount:/existing duration=45.21µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedFile group=mount:/existing
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedPathDockerfileCompat group=mount:/existing duration=408.599µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=mount:/existing
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=mount:/existing duration=31.67µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedFile group=mount:/existing duration=509.71µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedPathDockerfileCompat group=execMeta
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedFile group=fs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedPathDockerfileCompat group=fs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedFile group=execMeta
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=fs duration=29.63µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=execMeta
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=execMeta duration=57.27µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=fs duration=42.02µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=execMeta
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedFile group=fs duration=337.879µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=execMeta duration=34.6µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedPathDockerfileCompat group=execMeta duration=518.779µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedFile group=execMeta duration=383.439µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedPathDockerfileCompat group=fs duration=488.049µs
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- FAIL: TestContainerMountedSourceWriterParts (0.00s)
+    --- FAIL: TestContainerMountedSourceWriterParts/directory (0.01s)
+        container_parts_test.go:659: 
+            	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/core/container_parts_test.go:659
+            	Error:      	Expected nil, but got: &core.ContainerWithMountedDirectoryLazy{LazyState:core.LazyState{outputRevision:atomic.Uint64{_:atomic.noCopy{}, _:atomic.align64{}, v:0x5}, LazyMu:(*sync.Mutex)(0xc0003c6bc8), lazyInitComplete:atomic.Bool{_:atomic.noCopy{}, v:0x0}, groups:map[dagql.LazyGroupKey]*core.lazyGroupOnce{"execMeta":(*core.lazyGroupOnce)(0xc0003a0df4), "fs":(*core.lazyGroupOnce)(0xc0003a8084), "metadata":(*core.lazyGroupOnce)(0xc0003c3014), "mount:/existing":(*core.lazyGroupOnce)(0xc0003c34c4), "write":(*core.lazyGroupOnce)(0xc0003c32b4)}}, Parent:dagql.ObjectResult[*github.com/dagger/dagger/core.Container]{Result:dagql.Result[*github.com/dagger/dagger/core.Container]{shared:(*dagql.sharedResult)(0xc000937688), hitCache:false, derefView:false, nullableWrapped:false}, class:dagql.Class[*github.com/dagger/dagger/core.Container]{inner:(*core.Container)(nil), idable:true, fields:map[string][]*dagql.Field[*github.com/dagger/dagger/core.Container]{"id":[]*dagql.Field[*github.com/dagger/dagger/core.Container]{(*dagql.Field[*github.com/dagger/dagger/core.Container])(0xc000906e30)}}, fieldsL:(*sync.RWMutex)(0xc00052b3e0), view:dagql.ViewFilter(nil), interfaces:map[string]*dagql.Interface{"Node":(*dagql.Interface)(0xc0000e8d90)}, invalidateSchemaCache:(func())(0x2110760), sourceMap:(*ast.Directive)(nil)}}, Target:"/new", Source:dagql.ObjectResult[*github.com/dagger/dagger/core.Directory]{Result:dagql.Result[*github.com/dagger/dagger/core.Directory]{shared:(*dagql.sharedResult)(0xc000937b88), hitCache:false, derefView:false, nullableWrapped:false}, class:dagql.Class[*github.com/dagger/dagger/core.Directory]{inner:(*core.Directory)(nil), idable:true, fields:map[string][]*dagql.Field[*github.com/dagger/dagger/core.Directory]{"id":[]*dagql.Field[*github.com/dagger/dagger/core.Directory]{(*dagql.Field[*github.com/dagger/dagger/core.Directory])(0xc000906f70)}}, fieldsL:(*sync.RWMutex)(0xc00052b458), view:dagql.ViewFilter(nil), interfaces:map[string]*dagql.Interface{"Node":(*dagql.Interface)(0xc0000e8d90)}, invalidateSchemaCache:(func())(0x2110760), sourceMap:(*ast.Directive)(nil)}}, Owner:"", Readonly:true}
+            	Test:       	TestContainerMountedSourceWriterParts/directory
+    --- FAIL: TestContainerMountedSourceWriterParts/file (0.01s)
+        container_parts_test.go:659: 
+            	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/core/container_parts_test.go:659
+            	Error:      	Expected nil, but got: &core.ContainerWithMountedFileLazy{LazyState:core.LazyState{outputRevision:atomic.Uint64{_:atomic.noCopy{}, _:atomic.align64{}, v:0x5}, LazyMu:(*sync.Mutex)(0xc0003a07d8), lazyInitComplete:atomic.Bool{_:atomic.noCopy{}, v:0x0}, groups:map[dagql.LazyGroupKey]*core.lazyGroupOnce{"execMeta":(*core.lazyGroupOnce)(0xc0003c6e24), "fs":(*core.lazyGroupOnce)(0xc0003a91d4), "metadata":(*core.lazyGroupOnce)(0xc0003a0814), "mount:/existing":(*core.lazyGroupOnce)(0xc00047a5d4), "write":(*core.lazyGroupOnce)(0xc0003a0d54)}}, Parent:dagql.ObjectResult[*github.com/dagger/dagger/core.Container]{Result:dagql.Result[*github.com/dagger/dagger/core.Container]{shared:(*dagql.sharedResult)(0xc000f82788), hitCache:false, derefView:false, nullableWrapped:false}, class:dagql.Class[*github.com/dagger/dagger/core.Container]{inner:(*core.Container)(nil), idable:true, fields:map[string][]*dagql.Field[*github.com/dagger/dagger/core.Container]{"id":[]*dagql.Field[*github.com/dagger/dagger/core.Container]{(*dagql.Field[*github.com/dagger/dagger/core.Container])(0xc0004ceb10)}}, fieldsL:(*sync.RWMutex)(0xc000f223a8), view:dagql.ViewFilter(nil), interfaces:map[string]*dagql.Interface{"Node":(*dagql.Interface)(0xc000144230)}, invalidateSchemaCache:(func())(0x2110760), sourceMap:(*ast.Directive)(nil)}}, Target:"/new", Source:dagql.ObjectResult[*github.com/dagger/dagger/core.File]{Result:dagql.Result[*github.com/dagger/dagger/core.File]{shared:(*dagql.sharedResult)(0xc000f82c88), hitCache:false, derefView:false, nullableWrapped:false}, class:dagql.Class[*github.com/dagger/dagger/core.File]{inner:(*core.File)(nil), idable:true, fields:map[string][]*dagql.Field[*github.com/dagger/dagger/core.File]{"id":[]*dagql.Field[*github.com/dagger/dagger/core.File]{(*dagql.Field[*github.com/dagger/dagger/core.File])(0xc0004cec90)}}, fieldsL:(*sync.RWMutex)(0xc000f22438), view:dagql.ViewFilter(nil), interfaces:map[string]*dagql.Interface{"Node":(*dagql.Interface)(0xc000144230)}, invalidateSchemaCache:(func())(0x2110760), sourceMap:(*ast.Directive)(nil)}}, Owner:"", Readonly:false}
+            	Test:       	TestContainerMountedSourceWriterParts/file
+    --- FAIL: TestContainerMountedSourceWriterParts/dockerfile_compatible_directory (0.01s)
+        container_parts_test.go:659: 
+            	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/core/container_parts_test.go:659
+            	Error:      	Expected nil, but got: &core.ContainerWithMountedPathDockerfileCompatLazy{LazyState:core.LazyState{outputRevision:atomic.Uint64{_:atomic.noCopy{}, _:atomic.align64{}, v:0x5}, LazyMu:(*sync.Mutex)(0xc0003e64b8), lazyInitComplete:atomic.Bool{_:atomic.noCopy{}, v:0x0}, groups:map[dagql.LazyGroupKey]*core.lazyGroupOnce{"execMeta":(*core.lazyGroupOnce)(0xc0003a1174), "fs":(*core.lazyGroupOnce)(0xc00047a684), "metadata":(*core.lazyGroupOnce)(0xc0003e64e4), "mount:/existing":(*core.lazyGroupOnce)(0xc0003e6bc4), "write":(*core.lazyGroupOnce)(0xc0003e6894)}}, Parent:dagql.ObjectResult[*github.com/dagger/dagger/core.Container]{Result:dagql.Result[*github.com/dagger/dagger/core.Container]{shared:(*dagql.sharedResult)(0xc00081cc88), hitCache:false, derefView:false, nullableWrapped:false}, class:dagql.Class[*github.com/dagger/dagger/core.Container]{inner:(*core.Container)(nil), idable:true, fields:map[string][]*dagql.Field[*github.com/dagger/dagger/core.Container]{"id":[]*dagql.Field[*github.com/dagger/dagger/core.Container]{(*dagql.Field[*github.com/dagger/dagger/core.Container])(0xc000960620)}}, fieldsL:(*sync.RWMutex)(0xc000f8e210), view:dagql.ViewFilter(nil), interfaces:map[string]*dagql.Interface{"Node":(*dagql.Interface)(0xc000160310)}, invalidateSchemaCache:(func())(0x2110760), sourceMap:(*ast.Directive)(nil)}}, Target:"/new", Source:dagql.ObjectResult[*github.com/dagger/dagger/core.Directory]{Result:dagql.Result[*github.com/dagger/dagger/core.Directory]{shared:(*dagql.sharedResult)(0xc00081d188), hitCache:false, derefView:false, nullableWrapped:false}, class:dagql.Class[*github.com/dagger/dagger/core.Directory]{inner:(*core.Directory)(nil), idable:true, fields:map[string][]*dagql.Field[*github.com/dagger/dagger/core.Directory]{"id":[]*dagql.Field[*github.com/dagger/dagger/core.Directory]{(*dagql.Field[*github.com/dagger/dagger/core.Directory])(0xc000960760)}}, fieldsL:(*sync.RWMutex)(0xc000f8e288), view:dagql.ViewFilter(nil), interfaces:map[string]*dagql.Interface{"Node":(*dagql.Interface)(0xc000160310)}, invalidateSchemaCache:(func())(0x2110760), sourceMap:(*ast.Directive)(nil)}}, SourcePath:"/", Readonly:true}
+            	Test:       	TestContainerMountedSourceWriterParts/dockerfile_compatible_directory
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedFile group=metadata
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=metadata duration=48.44µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedFile group=metadata duration=330.909µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedDirectory group=metadata
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedFile group=write
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=metadata duration=32.49µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedFile group=write duration=81.88µs err="open /etc/passwd: failed to get server: current query: no query in context"
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedDirectory group=metadata duration=309.56µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedDirectory group=write
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedDirectory group=write duration=64.779µs err="open /etc/passwd: failed to get server: current query: no query in context"
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedDirectory group=metadata
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=metadata duration=17.97µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedDirectory group=metadata duration=179.64µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedDirectory group=write
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedDirectory group=fs
+2026/09/16 20:03:02 INFO start lazy evaluation field=test.directorySource
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=fs duration=40.79µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withMountedDirectory group=execMeta
+2026/09/16 20:03:02 INFO end lazy evaluation field=test.directorySource duration=177.949µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedDirectory group=fs duration=513.229µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=execMeta
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=execMeta duration=35.43µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedDirectory group=write duration=860.299µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withMountedDirectory group=execMeta duration=551.889µs
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- FAIL: TestContainerMountedSourceWriterShadowsNestedMount (0.00s)
+    container_parts_test.go:774: 
+        	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/core/container_parts_test.go:774
+        	Error:      	Expected nil, but got: &core.ContainerWithMountedDirectoryLazy{LazyState:core.LazyState{outputRevision:atomic.Uint64{_:atomic.noCopy{}, _:atomic.align64{}, v:0x4}, LazyMu:(*sync.Mutex)(0xc0002150d8), lazyInitComplete:atomic.Bool{_:atomic.noCopy{}, v:0x0}, groups:map[dagql.LazyGroupKey]*core.lazyGroupOnce{"execMeta":(*core.lazyGroupOnce)(0xc0002154e4), "fs":(*core.lazyGroupOnce)(0xc00039ad64), "metadata":(*core.lazyGroupOnce)(0xc000215134), "write":(*core.lazyGroupOnce)(0xc0002154c4)}}, Parent:dagql.ObjectResult[*github.com/dagger/dagger/core.Container]{Result:dagql.Result[*github.com/dagger/dagger/core.Container]{shared:(*dagql.sharedResult)(0xc000f16a08), hitCache:false, derefView:false, nullableWrapped:false}, class:dagql.Class[*github.com/dagger/dagger/core.Container]{inner:(*core.Container)(nil), idable:true, fields:map[string][]*dagql.Field[*github.com/dagger/dagger/core.Container]{"id":[]*dagql.Field[*github.com/dagger/dagger/core.Container]{(*dagql.Field[*github.com/dagger/dagger/core.Container])(0xc000baaf90)}}, fieldsL:(*sync.RWMutex)(0xc000a8c750), view:dagql.ViewFilter(nil), interfaces:map[string]*dagql.Interface{"Node":(*dagql.Interface)(0xc00059e770)}, invalidateSchemaCache:(func())(0x2110760), sourceMap:(*ast.Directive)(nil)}}, Target:"/new", Source:dagql.ObjectResult[*github.com/dagger/dagger/core.Directory]{Result:dagql.Result[*github.com/dagger/dagger/core.Directory]{shared:(*dagql.sharedResult)(0xc000f16f08), hitCache:false, derefView:false, nullableWrapped:false}, class:dagql.Class[*github.com/dagger/dagger/core.Directory]{inner:(*core.Directory)(nil), idable:true, fields:map[string][]*dagql.Field[*github.com/dagger/dagger/core.Directory]{"id":[]*dagql.Field[*github.com/dagger/dagger/core.Directory]{(*dagql.Field[*github.com/dagger/dagger/core.Directory])(0xc000bab0d0)}}, fieldsL:(*sync.RWMutex)(0xc000a8c7c8), view:dagql.ViewFilter(nil), interfaces:map[string]*dagql.Interface{"Node":(*dagql.Interface)(0xc00059e770)}, invalidateSchemaCache:(func())(0x2110760), sourceMap:(*ast.Directive)(nil)}}, Owner:"", Readonly:false}
+        	Test:       	TestContainerMountedSourceWriterShadowsNestedMount
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withDirectory group=metadata
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=metadata duration=18µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withDirectory group=metadata duration=202.89µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withDirectory group=write
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=mount:/m
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=mount:/m duration=49.98µs
+2026/09/16 20:03:02 INFO start lazy evaluation field=test.directorySource
+2026/09/16 20:03:02 INFO end lazy evaluation field=test.directorySource duration=51.74µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withDirectory group=write duration=357.54µs err="failed to get dagql server: current query: no query in context"
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withDirectory group=metadata
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=metadata duration=17.99µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withDirectory group=metadata duration=180.48µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withDirectory group=write
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=fs duration=23.2µs
+2026/09/16 20:03:02 INFO start lazy evaluation field=test.directorySource
+2026/09/16 20:03:02 INFO end lazy evaluation field=test.directorySource duration=76.91µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withDirectory group=write duration=389.11µs err="failed to get dagql server: current query: no query in context"
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withDirectory group=metadata
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=metadata duration=54.4µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withDirectory group=metadata duration=568.139µs
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withFile group=metadata
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=metadata duration=30.98µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withFile group=metadata duration=375.219µs
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withoutPath group=metadata
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withoutPath group=metadata duration=81.98µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withoutPath group=execMeta
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withoutPath group=execMeta duration=42.929µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withoutPath group=write
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withoutPath group=write duration=103.14µs
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- FAIL: TestContainerWithoutPathFullEvaluationWithEmptyRootFS (0.00s)
+    container_parts_test.go:1003: 
+        	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/core/container_parts_test.go:1003
+        	Error:      	Expected nil, but got: &core.ContainerWithoutPathLazy{LazyState:core.LazyState{outputRevision:atomic.Uint64{_:atomic.noCopy{}, _:atomic.align64{}, v:0x3}, LazyMu:(*sync.Mutex)(0xc0004503e8), lazyInitComplete:atomic.Bool{_:atomic.noCopy{}, v:0x0}, groups:map[dagql.LazyGroupKey]*core.lazyGroupOnce{"execMeta":(*core.lazyGroupOnce)(0xc000450444), "metadata":(*core.lazyGroupOnce)(0xc000450404), "write":(*core.lazyGroupOnce)(0xc000450594)}}, Parent:dagql.ObjectResult[*github.com/dagger/dagger/core.Container]{Result:dagql.Result[*github.com/dagger/dagger/core.Container]{shared:(*dagql.sharedResult)(0xc000e88788), hitCache:false, derefView:false, nullableWrapped:false}, class:dagql.Class[*github.com/dagger/dagger/core.Container]{inner:(*core.Container)(nil), idable:true, fields:map[string][]*dagql.Field[*github.com/dagger/dagger/core.Container]{"id":[]*dagql.Field[*github.com/dagger/dagger/core.Container]{(*dagql.Field[*github.com/dagger/dagger/core.Container])(0xc0006ffa00)}}, fieldsL:(*sync.RWMutex)(0xc000a08708), view:dagql.ViewFilter(nil), interfaces:map[string]*dagql.Interface{"Node":(*dagql.Interface)(0xc000272540)}, invalidateSchemaCache:(func())(0x2110760), sourceMap:(*ast.Directive)(nil)}}, Path:"/missing"}
+        	Test:       	TestContainerWithoutPathFullEvaluationWithEmptyRootFS
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=metadata duration=52.95µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=fs duration=30.86µs
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:03:02 INFO start lazy evaluation field=Directory.directory
+2026/09/16 20:03:02 INFO end lazy evaluation field=Directory.directory duration=214.999µs
+2026/09/16 20:03:02 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 20:03:02 INFO marking dagql cache clean shutdown
+2026/09/16 20:03:02 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 20:03:02 INFO completed dagql cache close successfully
+2026/09/16 20:03:02 INFO start lazy evaluation field=Directory.restore
+2026/09/16 20:03:02 INFO end lazy evaluation field=Directory.restore duration=49.01µs err="local snapshot unavailable"
+2026/09/16 20:03:02 INFO start lazy evaluation field=Directory.restore
+2026/09/16 20:03:02 INFO end lazy evaluation field=Directory.restore duration=35.67µs
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 20:03:02 INFO start lazy evaluation field=File.file
+2026/09/16 20:03:02 INFO end lazy evaluation field=File.file duration=473.69µs
+2026/09/16 20:03:02 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 20:03:02 INFO marking dagql cache clean shutdown
+2026/09/16 20:03:02 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 20:03:02 INFO completed dagql cache close successfully
+2026/09/16 20:03:02 INFO start lazy evaluation field=File.restore
+2026/09/16 20:03:02 INFO end lazy evaluation field=File.restore duration=51.79µs err="local snapshot unavailable"
+2026/09/16 20:03:02 INFO start lazy evaluation field=File.restore
+2026/09/16 20:03:02 INFO end lazy evaluation field=File.restore duration=24.05µs
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 20:03:02 INFO start lazy evaluation field=Container.rootfs
+2026/09/16 20:03:02 INFO end lazy evaluation field=Container.rootfs duration=80.46µs
+2026/09/16 20:03:02 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 20:03:02 INFO marking dagql cache clean shutdown
+2026/09/16 20:03:02 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 20:03:02 INFO completed dagql cache close successfully
+2026/09/16 20:03:02 INFO start lazy evaluation field=Directory.restore
+2026/09/16 20:03:02 INFO end lazy evaluation field=Directory.restore duration=66.73µs err="local snapshot unavailable"
+2026/09/16 20:03:02 INFO start lazy evaluation field=Directory.restore
+2026/09/16 20:03:02 INFO end lazy evaluation field=Directory.restore duration=73.56µs
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 20:03:02 INFO start lazy evaluation field=test
+2026/09/16 20:03:02 INFO end lazy evaluation field=test duration=99.17µs
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:03:02 INFO start lazy evaluation field=test
+2026/09/16 20:03:02 INFO end lazy evaluation field=test duration=59.38µs err="fresh source failed"
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=metadata duration=69.49µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withWorkdir group=metadata
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withEnvVariable group=metadata
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=metadata duration=17.11µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withWorkdir group=metadata duration=214.909µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=execMeta
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=execMeta duration=94.2µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withWorkdir group=fs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=metadata duration=58.05µs
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=fs duration=19.04µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withEnvVariable group=metadata duration=483.819µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withWorkdir group=fs duration=185.82µs
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- FAIL: TestContainerDelegationOverwritesStalePreCopiedAccessor (0.00s)
+    container_parts_test.go:1234: 
+        	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d/core/container_parts_test.go:1234
+        	Error:      	Received unexpected error:
+        	            	clone detached directory: output is not installed
+        	Test:       	TestContainerDelegationOverwritesStalePreCopiedAccessor
+2026/09/16 20:03:02 INFO start lazy group evaluation field=Container.withWorkdir group=execMeta
+2026/09/16 20:03:02 INFO start lazy group evaluation field=test.base group=execMeta
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=execMeta duration=70.29µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=test.base group=fs duration=594.579µs
+2026/09/16 20:03:02 INFO end lazy group evaluation field=Container.withWorkdir group=execMeta duration=671.489µs
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 20:03:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+FAIL
+FAIL	github.com/dagger/dagger/core	1.412s
+FAIL

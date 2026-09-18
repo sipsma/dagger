@@ -1,0 +1,56 @@
+=== RUN   TestRenewalChainControls
+=== RUN   TestRenewalChainControls/expired_address_renews_once
+=== RUN   TestRenewalChainControls/all_local_layers_need_no_address
+=== RUN   TestRenewalChainControls/one_episode_covers_the_chain
+=== RUN   TestRenewalChainControls/a_later_unusable_layer_cannot_renew_again
+=== RUN   TestRenewalChainControls/initial_401_renews
+=== RUN   TestRenewalChainControls/renewed_401_exhausts
+=== RUN   TestRenewalChainControls/initial_403_renews
+=== RUN   TestRenewalChainControls/renewed_403_exhausts
+=== RUN   TestRenewalChainControls/initial_404_renews
+=== RUN   TestRenewalChainControls/renewed_404_exhausts
+=== RUN   TestRenewalChainControls/initial_410_renews
+=== RUN   TestRenewalChainControls/renewed_410_exhausts
+=== RUN   TestRenewalChainControls/same_address_in_reply_is_not_a_new_opportunity
+=== RUN   TestRenewalChainControls/server_error_does_not_renew
+=== RUN   TestRenewalChainControls/non-HTTP_address_is_unavailable
+=== RUN   TestRenewalChainControls/truncated
+=== RUN   TestRenewalChainControls/wrong_digest
+=== RUN   TestRenewalChainControls/stalled_stream
+=== RUN   TestRenewalChainControls/local_writer_fault
+=== RUN   TestRenewalChainControls/local_lease_fault
+=== RUN   TestRenewalChainControls/no_renewal_key
+=== RUN   TestRenewalChainControls/negative_reply
+=== RUN   TestRenewalChainControls/expired_reply
+=== RUN   TestRenewalChainControls/non-HTTP_reply
+=== RUN   TestRenewalChainControls/reply_for_another_blob
+=== RUN   TestRenewalChainControls/no_bridge
+--- PASS: TestRenewalChainControls (1.97s)
+    --- PASS: TestRenewalChainControls/expired_address_renews_once (0.11s)
+    --- PASS: TestRenewalChainControls/all_local_layers_need_no_address (0.08s)
+    --- PASS: TestRenewalChainControls/one_episode_covers_the_chain (0.09s)
+    --- PASS: TestRenewalChainControls/a_later_unusable_layer_cannot_renew_again (0.05s)
+    --- PASS: TestRenewalChainControls/initial_401_renews (0.10s)
+    --- PASS: TestRenewalChainControls/renewed_401_exhausts (0.06s)
+    --- PASS: TestRenewalChainControls/initial_403_renews (0.10s)
+    --- PASS: TestRenewalChainControls/renewed_403_exhausts (0.06s)
+    --- PASS: TestRenewalChainControls/initial_404_renews (0.09s)
+    --- PASS: TestRenewalChainControls/renewed_404_exhausts (0.06s)
+    --- PASS: TestRenewalChainControls/initial_410_renews (0.10s)
+    --- PASS: TestRenewalChainControls/renewed_410_exhausts (0.06s)
+    --- PASS: TestRenewalChainControls/same_address_in_reply_is_not_a_new_opportunity (0.06s)
+    --- PASS: TestRenewalChainControls/server_error_does_not_renew (0.06s)
+    --- PASS: TestRenewalChainControls/non-HTTP_address_is_unavailable (0.06s)
+    --- PASS: TestRenewalChainControls/truncated (0.06s)
+    --- PASS: TestRenewalChainControls/wrong_digest (0.09s)
+    --- PASS: TestRenewalChainControls/stalled_stream (0.06s)
+    --- PASS: TestRenewalChainControls/local_writer_fault (0.05s)
+    --- PASS: TestRenewalChainControls/local_lease_fault (0.04s)
+    --- PASS: TestRenewalChainControls/no_renewal_key (0.07s)
+    --- PASS: TestRenewalChainControls/negative_reply (0.05s)
+    --- PASS: TestRenewalChainControls/expired_reply (0.06s)
+    --- PASS: TestRenewalChainControls/non-HTTP_reply (0.06s)
+    --- PASS: TestRenewalChainControls/reply_for_another_blob (0.06s)
+    --- PASS: TestRenewalChainControls/no_bridge (0.06s)
+PASS
+ok  	github.com/dagger/dagger/dagql	2.061s

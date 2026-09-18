@@ -1,0 +1,6 @@
+✔ TestRemoteCacheTransferSuite 9m28s
+
+✔ TestDefaultGCPruneDiagnostic 2m5s
+✔ TestPartMixedExecOutputs 1m0s
+✔ TestSchemaRecovery 3m46s
+✔ TestSchemaRecoveryCold 2m37s

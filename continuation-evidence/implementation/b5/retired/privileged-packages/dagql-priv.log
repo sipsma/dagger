@@ -1,0 +1,2008 @@
+=== RUN   TestCacheArbitraryLateCleanupBlocksClose
+=== RUN   TestCacheArbitraryLateCleanupBlocksClose/success
+=== RUN   TestCacheArbitraryLateCleanupBlocksClose/release_error
+--- PASS: TestCacheArbitraryLateCleanupBlocksClose (0.00s)
+    --- PASS: TestCacheArbitraryLateCleanupBlocksClose/success (0.00s)
+    --- PASS: TestCacheArbitraryLateCleanupBlocksClose/release_error (0.00s)
+=== RUN   TestCacheArbitraryCancellationKeepsOtherWaiter
+--- PASS: TestCacheArbitraryCancellationKeepsOtherWaiter (0.00s)
+=== RUN   TestCacheArbitraryLateCleanupKeepsReplacement
+--- PASS: TestCacheArbitraryLateCleanupKeepsReplacement (0.00s)
+=== RUN   TestCacheArbitraryCanceledWaiterTakesPublishedCleanup
+--- PASS: TestCacheArbitraryCanceledWaiterTakesPublishedCleanup (0.00s)
+=== RUN   TestCacheCanonicalEquivalentSwapRacesSessionRelease
+    cache_canonical_race_test.go:51: attempt 0: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 1: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 2: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 3: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 4: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 5: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 6: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 7: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 8: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 9: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 10: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 11: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 12: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 13: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 14: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 15: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 16: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 17: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 18: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 19: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 20: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 21: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 22: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 23: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 24: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 25: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 26: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 27: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 28: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 29: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 30: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 31: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 32: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 33: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 34: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 35: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 36: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 37: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 38: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 39: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 40: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 41: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 42: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 43: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 44: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 45: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 46: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 47: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 48: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:51: attempt 49: call C adopted result A (id=1): payloadReleased=false reRegistered=true ownership=1
+    cache_canonical_race_test.go:67: no reproduction in 50 attempts (0 benign release-first orderings, 50 adopted-alive orderings)
+--- PASS: TestCacheCanonicalEquivalentSwapRacesSessionRelease (0.85s)
+=== RUN   TestDebugCacheSnapshotWithQueuedWriter
+=== RUN   TestDebugCacheSnapshotWithQueuedWriter/without-writer
+=== RUN   TestDebugCacheSnapshotWithQueuedWriter/with-writer
+--- PASS: TestDebugCacheSnapshotWithQueuedWriter (0.01s)
+    --- PASS: TestDebugCacheSnapshotWithQueuedWriter/without-writer (0.01s)
+    --- PASS: TestDebugCacheSnapshotWithQueuedWriter/with-writer (0.00s)
+=== RUN   TestDebugCacheSnapshotIncludesResultMetadata
+--- PASS: TestDebugCacheSnapshotIncludesResultMetadata (0.00s)
+=== RUN   TestDebugCacheSnapshotIncludesCompletedArbitraryCalls
+--- PASS: TestDebugCacheSnapshotIncludesCompletedArbitraryCalls (0.00s)
+=== RUN   TestCacheOutputEqClassInverseMixedSurvivor
+--- PASS: TestCacheOutputEqClassInverseMixedSurvivor (0.00s)
+=== RUN   TestCacheOutputEqClassInverseExpiredOnlyDoesNotSurvive
+--- PASS: TestCacheOutputEqClassInverseExpiredOnlyDoesNotSurvive (0.00s)
+=== RUN   TestCacheOutputEqClassInverseMergeThenRemoval
+--- PASS: TestCacheOutputEqClassInverseMergeThenRemoval (0.00s)
+=== RUN   TestCacheOutputEqClassInverseForcedCompactionAndReset
+--- PASS: TestCacheOutputEqClassInverseForcedCompactionAndReset (0.00s)
+=== RUN   TestCacheReleaseCascadePreservesCallbacksAndCleansDerivedIndexes
+--- PASS: TestCacheReleaseCascadePreservesCallbacksAndCleansDerivedIndexes (0.00s)
+=== RUN   TestCacheExactDigestPostingRemoval
+--- PASS: TestCacheExactDigestPostingRemoval (0.00s)
+=== RUN   TestCacheBroadImportedPostingRemoval
+--- PASS: TestCacheBroadImportedPostingRemoval (1.24s)
+=== RUN   TestCachePersistedFreshPruneCleansDerivedIndexes
+--- PASS: TestCachePersistedFreshPruneCleansDerivedIndexes (0.00s)
+=== RUN   TestCacheEvidenceExecutedFreshCall
+=== PAUSE TestCacheEvidenceExecutedFreshCall
+=== RUN   TestCacheEvidenceRecipeHit
+=== PAUSE TestCacheEvidenceRecipeHit
+=== RUN   TestCacheEvidenceDigestRouteHit
+=== PAUSE TestCacheEvidenceDigestRouteHit
+=== RUN   TestCacheEvidenceStructuralRouteHit
+=== PAUSE TestCacheEvidenceStructuralRouteHit
+=== RUN   TestCacheEvidenceMissSawExpired
+=== PAUSE TestCacheEvidenceMissSawExpired
+=== RUN   TestCacheEvidenceSawExpiredThroughEqClassExpansion
+=== PAUSE TestCacheEvidenceSawExpiredThroughEqClassExpansion
+=== RUN   TestCacheEvidenceMissIncompatibleCandidates
+=== PAUSE TestCacheEvidenceMissIncompatibleCandidates
+=== RUN   TestCacheEvidenceJoinedAndExecutedCarriers
+=== PAUSE TestCacheEvidenceJoinedAndExecutedCarriers
+=== RUN   TestCacheEvidenceDoNotCacheUncached
+=== PAUSE TestCacheEvidenceDoNotCacheUncached
+=== RUN   TestCacheEvidencePendingLazyHitIsHit
+=== PAUSE TestCacheEvidencePendingLazyHitIsHit
+=== RUN   TestCacheEvidenceUnknownInputIndex
+=== PAUSE TestCacheEvidenceUnknownInputIndex
+=== RUN   TestCacheEvidencePairingDigestExcludesImplicitInputs
+=== PAUSE TestCacheEvidencePairingDigestExcludesImplicitInputs
+=== RUN   TestCacheEvidenceCloneDropsCarrier
+=== PAUSE TestCacheEvidenceCloneDropsCarrier
+=== RUN   TestCacheEvidenceNilCarrierIsNoop
+=== PAUSE TestCacheEvidenceNilCarrierIsNoop
+=== RUN   TestRemoteCacheExtraDigestMetadata
+=== RUN   TestRemoteCacheExtraDigestMetadata/unmarked
+=== RUN   TestRemoteCacheExtraDigestMetadata/detached
+=== RUN   TestRemoteCacheExtraDigestMetadata/attached
+--- PASS: TestRemoteCacheExtraDigestMetadata (0.06s)
+    --- PASS: TestRemoteCacheExtraDigestMetadata/unmarked (0.03s)
+    --- PASS: TestRemoteCacheExtraDigestMetadata/detached (0.02s)
+    --- PASS: TestRemoteCacheExtraDigestMetadata/attached (0.02s)
+=== RUN   TestLazyOperationCompatibilityCut
+--- PASS: TestLazyOperationCompatibilityCut (0.00s)
+=== RUN   TestCacheEvaluateRetriesForeignCancellation
+--- PASS: TestCacheEvaluateRetriesForeignCancellation (0.00s)
+=== RUN   TestCacheEvaluateRetiresFinishedAttemptBeforeWaitersDrain
+--- PASS: TestCacheEvaluateRetiresFinishedAttemptBeforeWaitersDrain (0.00s)
+=== RUN   TestCacheLazyAttemptDefersSessionCleanupUntilCallbackExit
+--- PASS: TestCacheLazyAttemptDefersSessionCleanupUntilCallbackExit (0.00s)
+=== RUN   TestCacheEvaluateOwnCancellationOnlyCancelsOwnWait
+--- PASS: TestCacheEvaluateOwnCancellationOnlyCancelsOwnWait (0.00s)
+=== RUN   TestCacheEvaluatePropagatesCallbackFailure
+--- PASS: TestCacheEvaluatePropagatesCallbackFailure (0.00s)
+=== RUN   TestCacheEvaluateSettlesBookkeepingBeforeReportingComplete
+--- PASS: TestCacheEvaluateSettlesBookkeepingBeforeReportingComplete (0.00s)
+=== RUN   TestCacheEvaluatePendingBookkeepingSkipsUnclearedCallback
+--- PASS: TestCacheEvaluatePendingBookkeepingSkipsUnclearedCallback (0.00s)
+=== RUN   TestCacheHitRegistrationDoesNotRaceLazyCallback
+=== PAUSE TestCacheHitRegistrationDoesNotRaceLazyCallback
+=== RUN   TestCacheMetadataEstimateFormula
+=== PAUSE TestCacheMetadataEstimateFormula
+=== RUN   TestCacheMetadataDirectResultBytesUsesCeiling
+=== PAUSE TestCacheMetadataDirectResultBytesUsesCeiling
+=== RUN   TestCachePruneMetadataEstimateLogsOnlyAfterTrigger
+--- PASS: TestCachePruneMetadataEstimateLogsOnlyAfterTrigger (0.00s)
+=== RUN   TestCacheMetadataPruneCandidateOrder
+=== PAUSE TestCacheMetadataPruneCandidateOrder
+=== RUN   TestCacheMetadataPruneCandidateSortCancellation
+=== PAUSE TestCacheMetadataPruneCandidateSortCancellation
+=== RUN   TestCacheMetadataPruneDependencySortCancellation
+=== PAUSE TestCacheMetadataPruneDependencySortCancellation
+=== RUN   TestCachePruneMetadataEstimateSkipsPhysicalMeasurementAndUsesColdOrder
+=== PAUSE TestCachePruneMetadataEstimateSkipsPhysicalMeasurementAndUsesColdOrder
+=== RUN   TestCachePruneMetadataEstimateCreditsCollectedDependencyClosure
+=== PAUSE TestCachePruneMetadataEstimateCreditsCollectedDependencyClosure
+=== RUN   TestCachePruneMetadataEstimateProtectsActiveAndUnpruneableResults
+=== PAUSE TestCachePruneMetadataEstimateProtectsActiveAndUnpruneableResults
+=== RUN   TestCachePruneMetadataEstimateCompactionCanRestoreMaximumWithoutEviction
+=== PAUSE TestCachePruneMetadataEstimateCompactionCanRestoreMaximumWithoutEviction
+=== RUN   TestCachePruneMetadataEstimateMarksReleaseAndSnapshotGCContext
+=== PAUSE TestCachePruneMetadataEstimateMarksReleaseAndSnapshotGCContext
+=== RUN   TestRemovePersistedEdgeRechecksUnpruneableAfterPlanning
+=== RUN   TestRemovePersistedEdgeRechecksUnpruneableAfterPlanning/mode-0
+=== RUN   TestRemovePersistedEdgeRechecksUnpruneableAfterPlanning/mode-1
+--- PASS: TestRemovePersistedEdgeRechecksUnpruneableAfterPlanning (0.00s)
+    --- PASS: TestRemovePersistedEdgeRechecksUnpruneableAfterPlanning/mode-0 (0.00s)
+    --- PASS: TestRemovePersistedEdgeRechecksUnpruneableAfterPlanning/mode-1 (0.00s)
+=== RUN   TestCachePruneMetadataEstimateCancellationDoesNotMutate
+=== PAUSE TestCachePruneMetadataEstimateCancellationDoesNotMutate
+=== RUN   TestCachePruneMetadataEstimateCancellationDuringPlanningDoesNotMutate
+=== PAUSE TestCachePruneMetadataEstimateCancellationDuringPlanningDoesNotMutate
+=== RUN   TestOfferPartsPreparationWindow
+=== RUN   TestOfferPartsPreparationWindow/preparation_holds_references_across_collection
+=== RUN   TestOfferPartsPreparationWindow/new_offer_refused_after_preparation
+=== RUN   TestOfferPartsPreparationWindow/same-owner_refresh_refused_after_preparation
+=== RUN   TestOfferPartsPreparationWindow/different-owner_replacement_refused_after_preparation
+--- PASS: TestOfferPartsPreparationWindow (1.60s)
+    --- PASS: TestOfferPartsPreparationWindow/preparation_holds_references_across_collection (0.18s)
+    --- PASS: TestOfferPartsPreparationWindow/new_offer_refused_after_preparation (1.37s)
+    --- PASS: TestOfferPartsPreparationWindow/same-owner_refresh_refused_after_preparation (0.03s)
+    --- PASS: TestOfferPartsPreparationWindow/different-owner_replacement_refused_after_preparation (0.01s)
+=== RUN   TestOfferSettlementReplacement
+=== RUN   TestOfferSettlementReplacement/replacement_during_the_winning_acquisition_is_retired
+=== RUN   TestOfferSettlementReplacement/acceptance_after_commit_is_already_complete
+=== RUN   TestOfferSettlementReplacement/failed_sync_keeps_the_output,_not_the_acquisition_hold
+=== RUN   TestOfferSettlementReplacement/failed_sync_keeps_the_output,_not_the_acquisition_hold,_with_a_back-reference_to_the_receiver
+--- PASS: TestOfferSettlementReplacement (1.47s)
+    --- PASS: TestOfferSettlementReplacement/replacement_during_the_winning_acquisition_is_retired (0.58s)
+    --- PASS: TestOfferSettlementReplacement/acceptance_after_commit_is_already_complete (0.27s)
+    --- PASS: TestOfferSettlementReplacement/failed_sync_keeps_the_output,_not_the_acquisition_hold (0.30s)
+    --- PASS: TestOfferSettlementReplacement/failed_sync_keeps_the_output,_not_the_acquisition_hold,_with_a_back-reference_to_the_receiver (0.31s)
+=== RUN   TestOfferResourcesDoNotGateLookup
+--- PASS: TestOfferResourcesDoNotGateLookup (0.69s)
+=== RUN   TestCacheCloseWithShutdownError
+=== RUN   TestCacheCloseWithShutdownError/seeded_cause_keeps_the_checkpoint_dirty
+=== RUN   TestCacheCloseWithShutdownError/nil_cause_closes_cleanly
+=== RUN   TestCacheCloseWithShutdownError/discarded_cache_ignores_a_later_cause
+--- PASS: TestCacheCloseWithShutdownError (0.11s)
+    --- PASS: TestCacheCloseWithShutdownError/seeded_cause_keeps_the_checkpoint_dirty (0.05s)
+    --- PASS: TestCacheCloseWithShutdownError/nil_cause_closes_cleanly (0.04s)
+    --- PASS: TestCacheCloseWithShutdownError/discarded_cache_ignores_a_later_cause (0.02s)
+=== RUN   TestRenewalShutdownDrainsOwnership
+=== RUN   TestRenewalShutdownDrainsOwnership/delivered_renewal
+=== RUN   TestRenewalShutdownDrainsOwnership/active_reader
+--- PASS: TestRenewalShutdownDrainsOwnership (0.31s)
+    --- PASS: TestRenewalShutdownDrainsOwnership/delivered_renewal (0.06s)
+    --- PASS: TestRenewalShutdownDrainsOwnership/active_reader (0.08s)
+=== RUN   TestValueTransferOfferCopyFailure
+--- PASS: TestValueTransferOfferCopyFailure (0.04s)
+=== RUN   TestValueTransferOfferOwners
+--- PASS: TestValueTransferOfferOwners (0.00s)
+=== RUN   TestValueTransferOwnerPersistence
+--- PASS: TestValueTransferOwnerPersistence (0.02s)
+=== RUN   TestOfferPendingRestartAndForward
+--- PASS: TestOfferPendingRestartAndForward (0.53s)
+=== RUN   TestRemoteCacheUnusedCost
+--- PASS: TestRemoteCacheUnusedCost (0.41s)
+=== RUN   TestOfferPartsBeforeStart
+=== RUN   TestOfferPartsBeforeStart/open
+=== RUN   TestOfferPartsBeforeStart/preparing
+=== RUN   TestOfferPartsBeforeStart/running
+=== RUN   TestOfferPartsBeforeStart/evaluated
+--- PASS: TestOfferPartsBeforeStart (0.08s)
+    --- PASS: TestOfferPartsBeforeStart/open (0.02s)
+    --- PASS: TestOfferPartsBeforeStart/preparing (0.01s)
+    --- PASS: TestOfferPartsBeforeStart/running (0.01s)
+    --- PASS: TestOfferPartsBeforeStart/evaluated (0.01s)
+=== RUN   TestOfferPartsInvalidatesSourceCheck
+--- PASS: TestOfferPartsInvalidatesSourceCheck (0.03s)
+=== RUN   TestOfferPartsOwnership
+--- PASS: TestOfferPartsOwnership (0.02s)
+=== RUN   TestOfferPartsResourcesAndSettlement
+--- PASS: TestOfferPartsResourcesAndSettlement (0.01s)
+=== RUN   TestOfferPartsInlineAndReferencedRows
+--- PASS: TestOfferPartsInlineAndReferencedRows (0.02s)
+=== RUN   TestOfferPartsClosesNativeAdmission
+--- PASS: TestOfferPartsClosesNativeAdmission (0.01s)
+=== RUN   TestOfferPartsAcceptedCleanupFailure
+--- PASS: TestOfferPartsAcceptedCleanupFailure (0.04s)
+=== RUN   TestPartSourceSelectionLaterRoute
+--- PASS: TestPartSourceSelectionLaterRoute (0.02s)
+=== RUN   TestPartSessionlessOwnSubset
+=== RUN   TestPartSessionlessOwnSubset/offer-only
+=== RUN   TestPartSessionlessOwnSubset/own
+=== RUN   TestPartSessionlessOwnSubset/revoked-before-commit
+=== RUN   TestPartSessionlessOwnSubset/native-receiver
+--- PASS: TestPartSessionlessOwnSubset (0.04s)
+    --- PASS: TestPartSessionlessOwnSubset/offer-only (0.01s)
+    --- PASS: TestPartSessionlessOwnSubset/own (0.01s)
+    --- PASS: TestPartSessionlessOwnSubset/revoked-before-commit (0.01s)
+    --- PASS: TestPartSessionlessOwnSubset/native-receiver (0.01s)
+=== RUN   TestPartReadyRevalidationAndCanceledFinish
+=== RUN   TestPartReadyRevalidationAndCanceledFinish/stale-donor
+=== RUN   TestPartReadyRevalidationAndCanceledFinish/cancel-commit
+=== RUN   TestPartReadyRevalidationAndCanceledFinish/cancel-finish
+--- PASS: TestPartReadyRevalidationAndCanceledFinish (0.05s)
+    --- PASS: TestPartReadyRevalidationAndCanceledFinish/stale-donor (0.01s)
+    --- PASS: TestPartReadyRevalidationAndCanceledFinish/cancel-commit (0.02s)
+    --- PASS: TestPartReadyRevalidationAndCanceledFinish/cancel-finish (0.02s)
+=== RUN   TestPartLazyOperationMissingOutputStopsOnce
+--- PASS: TestPartLazyOperationMissingOutputStopsOnce (0.01s)
+=== RUN   TestPartReadyPreparationBoundaries
+=== RUN   TestPartReadyPreparationBoundaries/cancel-during-pin
+=== RUN   TestPartReadyPreparationBoundaries/missing-local-descriptor
+--- PASS: TestPartReadyPreparationBoundaries (0.12s)
+    --- PASS: TestPartReadyPreparationBoundaries/cancel-during-pin (0.06s)
+    --- PASS: TestPartReadyPreparationBoundaries/missing-local-descriptor (0.06s)
+=== RUN   TestPartDecisionPreparationArrival
+=== RUN   TestPartDecisionPreparationArrival/ready
+=== RUN   TestPartDecisionPreparationArrival/chain
+=== RUN   TestPartDecisionPreparationArrival/second-refusal
+--- PASS: TestPartDecisionPreparationArrival (0.62s)
+    --- PASS: TestPartDecisionPreparationArrival/ready (0.23s)
+    --- PASS: TestPartDecisionPreparationArrival/chain (0.24s)
+    --- PASS: TestPartDecisionPreparationArrival/second-refusal (0.16s)
+=== RUN   TestPartDecisionInlineAdmissionAndPendingSync
+--- PASS: TestPartDecisionInlineAdmissionAndPendingSync (0.05s)
+=== RUN   TestPartDecisionOfferAfterRunning
+--- PASS: TestPartDecisionOfferAfterRunning (0.01s)
+=== RUN   TestPartAdmittedChainLifetime
+=== RUN   TestPartAdmittedChainLifetime/donor-collected
+=== RUN   TestPartAdmittedChainLifetime/slot-replaced
+=== RUN   TestPartAdmittedChainLifetime/owner-backref-sync-failure
+=== RUN   TestPartAdmittedChainLifetime/output-backref-rejected
+--- PASS: TestPartAdmittedChainLifetime (1.50s)
+    --- PASS: TestPartAdmittedChainLifetime/donor-collected (0.33s)
+    --- PASS: TestPartAdmittedChainLifetime/slot-replaced (0.25s)
+    --- PASS: TestPartAdmittedChainLifetime/owner-backref-sync-failure (0.62s)
+    --- PASS: TestPartAdmittedChainLifetime/output-backref-rejected (0.30s)
+=== RUN   TestPartImportChainRefCleanupHandoff
+=== RUN   TestPartImportChainRefCleanupHandoff/retry
+=== RUN   TestPartImportChainRefCleanupHandoff/collect
+--- PASS: TestPartImportChainRefCleanupHandoff (0.37s)
+    --- PASS: TestPartImportChainRefCleanupHandoff/retry (0.23s)
+    --- PASS: TestPartImportChainRefCleanupHandoff/collect (0.14s)
+=== RUN   TestPartContentSourceAvailability
+=== RUN   TestPartContentSourceAvailability/empty_chain_is_scratch
+=== RUN   TestPartContentSourceAvailability/fixed_address
+=== RUN   TestPartContentSourceAvailability/unexpired_address
+=== RUN   TestPartContentSourceAvailability/expired_address
+=== RUN   TestPartContentSourceAvailability/missing_address
+=== RUN   TestPartContentSourceAvailability/non-HTTP_address
+=== RUN   TestPartContentSourceAvailability/relative_address
+=== RUN   TestPartContentSourceAvailability/renewal_key_needs_a_bridge
+=== RUN   TestPartContentSourceAvailability/renewal_key_with_non-HTTP_address
+--- PASS: TestPartContentSourceAvailability (0.01s)
+    --- PASS: TestPartContentSourceAvailability/empty_chain_is_scratch (0.00s)
+    --- PASS: TestPartContentSourceAvailability/fixed_address (0.00s)
+    --- PASS: TestPartContentSourceAvailability/unexpired_address (0.00s)
+    --- PASS: TestPartContentSourceAvailability/expired_address (0.00s)
+    --- PASS: TestPartContentSourceAvailability/missing_address (0.00s)
+    --- PASS: TestPartContentSourceAvailability/non-HTTP_address (0.00s)
+    --- PASS: TestPartContentSourceAvailability/relative_address (0.00s)
+    --- PASS: TestPartContentSourceAvailability/renewal_key_needs_a_bridge (0.00s)
+    --- PASS: TestPartContentSourceAvailability/renewal_key_with_non-HTTP_address (0.00s)
+=== RUN   TestPartContentIdleReader
+=== RUN   TestPartContentIdleReader/header_stall
+=== RUN   TestPartContentIdleReader/blocked_read_and_progress
+=== RUN   TestPartContentIdleReader/close_unblocks_read
+=== RUN   TestPartContentIdleReader/caller_cancellation
+=== RUN   TestPartContentIdleReader/descriptor_checks
+=== RUN   TestPartContentIdleReader/ranges
+--- PASS: TestPartContentIdleReader (0.00s)
+    --- PASS: TestPartContentIdleReader/header_stall (0.00s)
+    --- PASS: TestPartContentIdleReader/blocked_read_and_progress (0.00s)
+    --- PASS: TestPartContentIdleReader/close_unblocks_read (0.00s)
+    --- PASS: TestPartContentIdleReader/caller_cancellation (0.00s)
+    --- PASS: TestPartContentIdleReader/descriptor_checks (0.00s)
+    --- PASS: TestPartContentIdleReader/ranges (0.00s)
+=== RUN   TestRenewalChainControls
+=== RUN   TestRenewalChainControls/expired_address_renews_once
+=== RUN   TestRenewalChainControls/all_local_layers_need_no_address
+=== RUN   TestRenewalChainControls/one_episode_covers_the_chain
+=== RUN   TestRenewalChainControls/a_later_unusable_layer_cannot_renew_again
+=== RUN   TestRenewalChainControls/initial_401_renews
+=== RUN   TestRenewalChainControls/renewed_401_exhausts
+=== RUN   TestRenewalChainControls/initial_403_renews
+=== RUN   TestRenewalChainControls/renewed_403_exhausts
+=== RUN   TestRenewalChainControls/initial_404_renews
+=== RUN   TestRenewalChainControls/renewed_404_exhausts
+=== RUN   TestRenewalChainControls/initial_410_renews
+=== RUN   TestRenewalChainControls/renewed_410_exhausts
+=== RUN   TestRenewalChainControls/same_address_in_reply_is_not_a_new_opportunity
+=== RUN   TestRenewalChainControls/transport_error_does_not_renew
+=== RUN   TestRenewalChainControls/server_error_does_not_renew
+=== RUN   TestRenewalChainControls/non-HTTP_address_is_unavailable
+=== RUN   TestRenewalChainControls/truncated
+=== RUN   TestRenewalChainControls/wrong_digest
+=== RUN   TestRenewalChainControls/stalled_stream
+=== RUN   TestRenewalChainControls/local_writer_fault
+=== RUN   TestRenewalChainControls/local_lease_fault
+=== RUN   TestRenewalChainControls/no_bridge
+=== RUN   TestRenewalChainControls/no_renewal_key
+=== RUN   TestRenewalChainControls/negative_reply
+=== RUN   TestRenewalChainControls/expired_reply
+=== RUN   TestRenewalChainControls/non-HTTP_reply
+=== RUN   TestRenewalChainControls/reply_for_another_blob
+--- PASS: TestRenewalChainControls (3.60s)
+    --- PASS: TestRenewalChainControls/expired_address_renews_once (0.27s)
+    --- PASS: TestRenewalChainControls/all_local_layers_need_no_address (0.15s)
+    --- PASS: TestRenewalChainControls/one_episode_covers_the_chain (0.12s)
+    --- PASS: TestRenewalChainControls/a_later_unusable_layer_cannot_renew_again (0.26s)
+    --- PASS: TestRenewalChainControls/initial_401_renews (0.27s)
+    --- PASS: TestRenewalChainControls/renewed_401_exhausts (0.07s)
+    --- PASS: TestRenewalChainControls/initial_403_renews (0.15s)
+    --- PASS: TestRenewalChainControls/renewed_403_exhausts (0.09s)
+    --- PASS: TestRenewalChainControls/initial_404_renews (0.14s)
+    --- PASS: TestRenewalChainControls/renewed_404_exhausts (0.07s)
+    --- PASS: TestRenewalChainControls/initial_410_renews (0.14s)
+    --- PASS: TestRenewalChainControls/renewed_410_exhausts (0.12s)
+    --- PASS: TestRenewalChainControls/same_address_in_reply_is_not_a_new_opportunity (0.11s)
+    --- PASS: TestRenewalChainControls/transport_error_does_not_renew (0.24s)
+    --- PASS: TestRenewalChainControls/server_error_does_not_renew (0.07s)
+    --- PASS: TestRenewalChainControls/non-HTTP_address_is_unavailable (0.12s)
+    --- PASS: TestRenewalChainControls/truncated (0.08s)
+    --- PASS: TestRenewalChainControls/wrong_digest (0.08s)
+    --- PASS: TestRenewalChainControls/stalled_stream (0.12s)
+    --- PASS: TestRenewalChainControls/local_writer_fault (0.08s)
+    --- PASS: TestRenewalChainControls/local_lease_fault (0.05s)
+    --- PASS: TestRenewalChainControls/no_bridge (0.10s)
+    --- PASS: TestRenewalChainControls/no_renewal_key (0.10s)
+    --- PASS: TestRenewalChainControls/negative_reply (0.14s)
+    --- PASS: TestRenewalChainControls/expired_reply (0.10s)
+    --- PASS: TestRenewalChainControls/non-HTTP_reply (0.09s)
+    --- PASS: TestRenewalChainControls/reply_for_another_blob (0.09s)
+=== RUN   TestRenewalExhaustion
+=== RUN   TestRenewalExhaustion/equivalent_donor_fixed_address_still_works
+=== RUN   TestRenewalExhaustion/equivalent_donor_key_does_not_reset_the_episode
+=== RUN   TestRenewalExhaustion/distinct_chain_can_still_renew
+=== RUN   TestRenewalExhaustion/slot_replacement_with_rotated_key
+=== RUN   TestRenewalExhaustion/slot_replacement_with_refreshed_expiry
+=== RUN   TestRenewalExhaustion/no_bridge
+=== RUN   TestRenewalExhaustion/no_renewal_key
+=== RUN   TestRenewalExhaustion/full_mailbox
+--- PASS: TestRenewalExhaustion (1.03s)
+    --- PASS: TestRenewalExhaustion/equivalent_donor_fixed_address_still_works (0.12s)
+    --- PASS: TestRenewalExhaustion/equivalent_donor_key_does_not_reset_the_episode (0.06s)
+    --- PASS: TestRenewalExhaustion/distinct_chain_can_still_renew (0.13s)
+    --- PASS: TestRenewalExhaustion/slot_replacement_with_rotated_key (0.13s)
+    --- PASS: TestRenewalExhaustion/slot_replacement_with_refreshed_expiry (0.06s)
+    --- PASS: TestRenewalExhaustion/no_bridge (0.04s)
+    --- PASS: TestRenewalExhaustion/no_renewal_key (0.06s)
+    --- PASS: TestRenewalExhaustion/full_mailbox (0.06s)
+=== RUN   TestPartDecodeBeforeExternalFinish
+--- PASS: TestPartDecodeBeforeExternalFinish (0.06s)
+=== RUN   TestReadyPartDonorBackreferenceReleasedBeforeSync
+--- PASS: TestReadyPartDonorBackreferenceReleasedBeforeSync (0.01s)
+=== RUN   TestPartDecodeLosesToInstalledRevision
+--- PASS: TestPartDecodeLosesToInstalledRevision (0.06s)
+=== RUN   TestPartDelegationPath
+--- PASS: TestPartDelegationPath (0.00s)
+=== RUN   TestPartDelegationProofAdmission
+--- PASS: TestPartDelegationProofAdmission (0.01s)
+=== RUN   TestPartUnusedHostAllocatesNoGate
+--- PASS: TestPartUnusedHostAllocatesNoGate (0.00s)
+=== RUN   TestPartFixedProviderAndContentExhaustion
+--- PASS: TestPartFixedProviderAndContentExhaustion (0.01s)
+=== RUN   TestPartOfferReplacementNotExhausted
+--- PASS: TestPartOfferReplacementNotExhausted (0.01s)
+=== RUN   TestPartFixedProviderMultiBuffer
+=== RUN   TestPartFixedProviderMultiBuffer/ranges
+    cache_part_provider_test.go:163: bytes=320000 buffer=16384 reads=20 requests=3 initial-path-requests=1
+=== RUN   TestPartFixedProviderMultiBuffer/full-body
+    cache_part_provider_test.go:163: bytes=320000 buffer=16384 reads=20 requests=3 initial-path-requests=1
+--- PASS: TestPartFixedProviderMultiBuffer (0.01s)
+    --- PASS: TestPartFixedProviderMultiBuffer/ranges (0.01s)
+    --- PASS: TestPartFixedProviderMultiBuffer/full-body (0.00s)
+=== RUN   TestPartFixedProviderCancellationClosesStream
+--- PASS: TestPartFixedProviderCancellationClosesStream (0.00s)
+=== RUN   TestRenewalMailbox
+=== RUN   TestRenewalMailbox/capacity_and_deadline
+=== RUN   TestRenewalMailbox/cancellation
+=== RUN   TestRenewalMailbox/replies
+=== RUN   TestRenewalMailbox/detach
+--- PASS: TestRenewalMailbox (0.00s)
+    --- PASS: TestRenewalMailbox/capacity_and_deadline (0.00s)
+    --- PASS: TestRenewalMailbox/cancellation (0.00s)
+    --- PASS: TestRenewalMailbox/replies (0.00s)
+    --- PASS: TestRenewalMailbox/detach (0.00s)
+=== RUN   TestRenewalEpisodeSet
+--- PASS: TestRenewalEpisodeSet (0.00s)
+=== RUN   TestRenewalClaimKeepsSourceCheck
+--- PASS: TestRenewalClaimKeepsSourceCheck (0.01s)
+=== RUN   TestRemoteCacheBridgeAttachment
+--- PASS: TestRemoteCacheBridgeAttachment (0.04s)
+=== RUN   TestPartSourceSelection
+--- PASS: TestPartSourceSelection (0.04s)
+=== RUN   TestPartOfferSessionAdmission
+--- PASS: TestPartOfferSessionAdmission (0.02s)
+=== RUN   TestReadyPartReceipt
+--- PASS: TestReadyPartReceipt (0.02s)
+=== RUN   TestPartSettlementRetiresReplacement
+--- PASS: TestPartSettlementRetiresReplacement (0.01s)
+=== RUN   TestPartDecisionFinalSource
+--- PASS: TestPartDecisionFinalSource (0.02s)
+=== RUN   TestPartSourceScanFailureReleasesWinner
+=== RUN   TestPartSourceScanFailureReleasesWinner/ready
+=== RUN   TestPartSourceScanFailureReleasesWinner/chain
+--- PASS: TestPartSourceScanFailureReleasesWinner (0.02s)
+    --- PASS: TestPartSourceScanFailureReleasesWinner/ready (0.01s)
+    --- PASS: TestPartSourceScanFailureReleasesWinner/chain (0.01s)
+=== RUN   TestPartNativeCompletionRetiresOffer
+--- PASS: TestPartNativeCompletionRetiresOffer (0.00s)
+=== RUN   TestPartTaskBodyIsolation
+--- PASS: TestPartTaskBodyIsolation (0.01s)
+=== RUN   TestPartTaskContinuation
+--- PASS: TestPartTaskContinuation (0.00s)
+=== RUN   TestPartTaskNoJoinBarrier
+--- PASS: TestPartTaskNoJoinBarrier (0.00s)
+=== RUN   TestPartGateFiniteDrain
+--- PASS: TestPartGateFiniteDrain (0.00s)
+=== RUN   TestEvaluatePartsMetadataLeavesSiblingGroupPending
+=== PAUSE TestEvaluatePartsMetadataLeavesSiblingGroupPending
+=== RUN   TestEvaluatePartsResumeSpansMarkPartialCompletion
+=== PAUSE TestEvaluatePartsResumeSpansMarkPartialCompletion
+=== RUN   TestEvaluatePartsJointGroupFillsAllMembersOnce
+=== PAUSE TestEvaluatePartsJointGroupFillsAllMembersOnce
+=== RUN   TestEvaluatePartsSiblingGroupsRunConcurrently
+--- PASS: TestEvaluatePartsSiblingGroupsRunConcurrently (0.00s)
+=== RUN   TestEvaluatePartsOneCallRunsGroupsConcurrently
+--- PASS: TestEvaluatePartsOneCallRunsGroupsConcurrently (0.00s)
+=== RUN   TestEvaluatePartsAbandonedSiblingMarksResumeBlocked
+--- PASS: TestEvaluatePartsAbandonedSiblingMarksResumeBlocked (0.00s)
+=== RUN   TestEvaluatePartsFailureIsolatedPerGroup
+=== PAUSE TestEvaluatePartsFailureIsolatedPerGroup
+=== RUN   TestEvaluateWholeResultOverGroups
+=== PAUSE TestEvaluateWholeResultOverGroups
+=== RUN   TestEvaluatePartsRecursionRefusedPerGroup
+=== PAUSE TestEvaluatePartsRecursionRefusedPerGroup
+=== RUN   TestEvaluatePartsSyncFailureRetriesOnlyBookkeepingPerGroup
+--- PASS: TestEvaluatePartsSyncFailureRetriesOnlyBookkeepingPerGroup (0.00s)
+=== RUN   TestEvaluatePartsForeignCancellationRetriesPerGroup
+--- PASS: TestEvaluatePartsForeignCancellationRetriesPerGroup (0.00s)
+=== RUN   TestEvaluatePartsEmptyResolutionRetriesPendingBookkeeping
+--- PASS: TestEvaluatePartsEmptyResolutionRetriesPendingBookkeeping (0.00s)
+=== RUN   TestPendingLazyComputationWholeGroupStoredOpen
+=== RUN   TestPendingLazyComputationWholeGroupStoredOpen/bookkeeping
+=== RUN   TestPendingLazyComputationWholeGroupStoredOpen/armed
+=== RUN   TestPendingLazyComputationWholeGroupStoredOpen/in_flight
+--- PASS: TestPendingLazyComputationWholeGroupStoredOpen (0.00s)
+    --- PASS: TestPendingLazyComputationWholeGroupStoredOpen/bookkeeping (0.00s)
+    --- PASS: TestPendingLazyComputationWholeGroupStoredOpen/armed (0.00s)
+    --- PASS: TestPendingLazyComputationWholeGroupStoredOpen/in_flight (0.00s)
+=== RUN   TestCapturePersistedRecordValuesAndColdCopies
+--- PASS: TestCapturePersistedRecordValuesAndColdCopies (0.02s)
+=== RUN   TestCapturePersistedRecordLazyReadiness
+=== RUN   TestCapturePersistedRecordLazyReadiness/whole
+=== RUN   TestCapturePersistedRecordLazyReadiness/parts
+--- PASS: TestCapturePersistedRecordLazyReadiness (0.00s)
+    --- PASS: TestCapturePersistedRecordLazyReadiness/whole (0.00s)
+    --- PASS: TestCapturePersistedRecordLazyReadiness/parts (0.00s)
+=== RUN   TestCapturePersistedRecordPendingBookkeeping
+--- PASS: TestCapturePersistedRecordPendingBookkeeping (0.00s)
+=== RUN   TestCapturePersistedRecordBlocksOnlyItsUnstartedEvaluation
+--- PASS: TestCapturePersistedRecordBlocksOnlyItsUnstartedEvaluation (0.00s)
+=== RUN   TestCapturePersistedRecordOwnershipAndCancellation
+=== RUN   TestCapturePersistedRecordOwnershipAndCancellation/success
+=== RUN   TestCapturePersistedRecordOwnershipAndCancellation/cancellation
+--- PASS: TestCapturePersistedRecordOwnershipAndCancellation (0.00s)
+    --- PASS: TestCapturePersistedRecordOwnershipAndCancellation/success (0.00s)
+    --- PASS: TestCapturePersistedRecordOwnershipAndCancellation/cancellation (0.00s)
+=== RUN   TestCapturePersistedRecordErrorsAndClose
+--- PASS: TestCapturePersistedRecordErrorsAndClose (0.00s)
+=== RUN   TestCapturePersistedRecordInitialAttachment
+=== RUN   TestCapturePersistedRecordInitialAttachment/clean
+=== RUN   TestCapturePersistedRecordInitialAttachment/failed
+--- PASS: TestCapturePersistedRecordInitialAttachment (0.00s)
+    --- PASS: TestCapturePersistedRecordInitialAttachment/clean (0.00s)
+    --- PASS: TestCapturePersistedRecordInitialAttachment/failed (0.00s)
+=== RUN   TestPersistDecodeChildLoadBorrowsAdmittedOperation
+=== RUN   TestPersistDecodeChildLoadBorrowsAdmittedOperation/decode_context_child_load_completes
+=== RUN   TestPersistDecodeChildLoadBorrowsAdmittedOperation/public_loader_child_load_is_rejected_(control)
+--- PASS: TestPersistDecodeChildLoadBorrowsAdmittedOperation (0.14s)
+    --- PASS: TestPersistDecodeChildLoadBorrowsAdmittedOperation/decode_context_child_load_completes (0.07s)
+    --- PASS: TestPersistDecodeChildLoadBorrowsAdmittedOperation/public_loader_child_load_is_rejected_(control) (0.07s)
+=== RUN   TestVisitPersistedCallIDPreservesRecursiveWrapper
+=== RUN   TestVisitPersistedCallIDPreservesRecursiveWrapper/[[String!]!]!
+=== RUN   TestVisitPersistedCallIDPreservesRecursiveWrapper/[[PersistCodecObj]]
+=== RUN   TestVisitPersistedCallIDPreservesRecursiveWrapper/[Int!]
+--- PASS: TestVisitPersistedCallIDPreservesRecursiveWrapper (0.00s)
+    --- PASS: TestVisitPersistedCallIDPreservesRecursiveWrapper/[[String!]!]! (0.00s)
+    --- PASS: TestVisitPersistedCallIDPreservesRecursiveWrapper/[[PersistCodecObj]] (0.00s)
+    --- PASS: TestVisitPersistedCallIDPreservesRecursiveWrapper/[Int!] (0.00s)
+=== RUN   TestPersistedInterfaceListUsesInstalledInterface
+=== RUN   TestPersistedInterfaceListUsesInstalledInterface/without_the_installed_interface_the_declared_type_cannot_be_read_by_the_concrete_class
+--- PASS: TestPersistedInterfaceListUsesInstalledInterface (0.03s)
+    --- PASS: TestPersistedInterfaceListUsesInstalledInterface/without_the_installed_interface_the_declared_type_cannot_be_read_by_the_concrete_class (0.00s)
+=== RUN   TestPersistedAttachedNullKeepsOwnedDependencyAndResource
+--- PASS: TestPersistedAttachedNullKeepsOwnedDependencyAndResource (0.02s)
+=== RUN   TestPersistedAttachedNullKeepsRowIdentity
+=== RUN   TestPersistedAttachedNullKeepsRowIdentity/scalar_null_encoding_fails_to_decode
+=== RUN   TestPersistedAttachedNullKeepsRowIdentity/absence_without_a_row_ID_decodes_to_nothing
+=== RUN   TestPersistedAttachedNullKeepsRowIdentity/absence_declared_non-null_is_rejected
+--- PASS: TestPersistedAttachedNullKeepsRowIdentity (0.01s)
+    --- PASS: TestPersistedAttachedNullKeepsRowIdentity/scalar_null_encoding_fails_to_decode (0.00s)
+    --- PASS: TestPersistedAttachedNullKeepsRowIdentity/absence_without_a_row_ID_decodes_to_nothing (0.00s)
+    --- PASS: TestPersistedAttachedNullKeepsRowIdentity/absence_declared_non-null_is_rejected (0.00s)
+=== RUN   TestPersistedScalarNumbersAreExact
+=== RUN   TestPersistedScalarNumbersAreExact/above_float_mantissa
+=== RUN   TestPersistedScalarNumbersAreExact/max_int64
+=== RUN   TestPersistedScalarNumbersAreExact/min_int64
+=== RUN   TestPersistedScalarNumbersAreExact/ordinary_float
+=== RUN   TestPersistedScalarNumbersAreExact/large_float
+=== RUN   TestPersistedScalarNumbersAreExact/string
+=== RUN   TestPersistedScalarNumbersAreExact/untyped_float_decoding_loses_the_large_integer
+=== RUN   TestPersistedScalarNumbersAreExact/trailing_data_is_an_error
+=== RUN   TestPersistedScalarNumbersAreExact/out_of_range_stays_an_error
+--- PASS: TestPersistedScalarNumbersAreExact (0.00s)
+    --- PASS: TestPersistedScalarNumbersAreExact/above_float_mantissa (0.00s)
+    --- PASS: TestPersistedScalarNumbersAreExact/max_int64 (0.00s)
+    --- PASS: TestPersistedScalarNumbersAreExact/min_int64 (0.00s)
+    --- PASS: TestPersistedScalarNumbersAreExact/ordinary_float (0.00s)
+    --- PASS: TestPersistedScalarNumbersAreExact/large_float (0.00s)
+    --- PASS: TestPersistedScalarNumbersAreExact/string (0.00s)
+    --- PASS: TestPersistedScalarNumbersAreExact/untyped_float_decoding_loses_the_large_integer (0.00s)
+    --- PASS: TestPersistedScalarNumbersAreExact/trailing_data_is_an_error (0.00s)
+    --- PASS: TestPersistedScalarNumbersAreExact/out_of_range_stays_an_error (0.00s)
+=== RUN   TestPersistedListsRebuildDeclaredTypes
+=== RUN   TestPersistedListsRebuildDeclaredTypes/empty_nested_non-null
+=== RUN   TestPersistedListsRebuildDeclaredTypes/all-null_nested
+=== RUN   TestPersistedListsRebuildDeclaredTypes/optional_elements
+=== RUN   TestPersistedListsRebuildDeclaredTypes/interface_elements
+=== RUN   TestPersistedListsRebuildDeclaredTypes/raw_nested_arrays
+=== RUN   TestPersistedListsRebuildDeclaredTypes/custom_scalar_elements
+=== RUN   TestPersistedListsRebuildDeclaredTypes/nullable_declaration_is_presented_like_a_fresh_nullable_result
+=== RUN   TestPersistedListsRebuildDeclaredTypes/a_call_without_a_declared_list_type_is_rejected
+--- PASS: TestPersistedListsRebuildDeclaredTypes (0.00s)
+    --- PASS: TestPersistedListsRebuildDeclaredTypes/empty_nested_non-null (0.00s)
+    --- PASS: TestPersistedListsRebuildDeclaredTypes/all-null_nested (0.00s)
+    --- PASS: TestPersistedListsRebuildDeclaredTypes/optional_elements (0.00s)
+    --- PASS: TestPersistedListsRebuildDeclaredTypes/interface_elements (0.00s)
+    --- PASS: TestPersistedListsRebuildDeclaredTypes/raw_nested_arrays (0.00s)
+    --- PASS: TestPersistedListsRebuildDeclaredTypes/custom_scalar_elements (0.00s)
+    --- PASS: TestPersistedListsRebuildDeclaredTypes/nullable_declaration_is_presented_like_a_fresh_nullable_result (0.00s)
+    --- PASS: TestPersistedListsRebuildDeclaredTypes/a_call_without_a_declared_list_type_is_rejected (0.00s)
+=== RUN   TestPersistedScalarDecodeResolvesDefiningServer
+--- PASS: TestPersistedScalarDecodeResolvesDefiningServer (0.01s)
+=== RUN   TestPersistedObjectFamilyDispatch
+=== RUN   TestPersistedObjectFamilyDispatch/unregistered_codec_cannot_encode
+=== RUN   TestPersistedObjectFamilyDispatch/unknown_family_is_rejected
+=== RUN   TestPersistedObjectFamilyDispatch/family_must_match_the_decoding_type
+=== RUN   TestPersistedObjectFamilyDispatch/old_envelope_versions_are_rejected
+=== RUN   TestPersistedObjectFamilyDispatch/every_registered_family_names_a_distinct_Go_type
+--- PASS: TestPersistedObjectFamilyDispatch (0.00s)
+    --- PASS: TestPersistedObjectFamilyDispatch/unregistered_codec_cannot_encode (0.00s)
+    --- PASS: TestPersistedObjectFamilyDispatch/unknown_family_is_rejected (0.00s)
+    --- PASS: TestPersistedObjectFamilyDispatch/family_must_match_the_decoding_type (0.00s)
+    --- PASS: TestPersistedObjectFamilyDispatch/old_envelope_versions_are_rejected (0.00s)
+    --- PASS: TestPersistedObjectFamilyDispatch/every_registered_family_names_a_distinct_Go_type (0.00s)
+=== RUN   TestVisitEncodedReferencesRelocatesDeclaredPositions
+=== RUN   TestVisitEncodedReferencesRelocatesDeclaredPositions/a_missing_mapping_fails_without_partial_writes
+=== RUN   TestVisitEncodedReferencesRelocatesDeclaredPositions/a_mismatched_envelope_identity_is_rejected
+=== RUN   TestVisitEncodedReferencesRelocatesDeclaredPositions/a_root_reference_envelope_is_rejected
+--- PASS: TestVisitEncodedReferencesRelocatesDeclaredPositions (0.00s)
+    --- PASS: TestVisitEncodedReferencesRelocatesDeclaredPositions/a_missing_mapping_fails_without_partial_writes (0.00s)
+    --- PASS: TestVisitEncodedReferencesRelocatesDeclaredPositions/a_mismatched_envelope_identity_is_rejected (0.00s)
+    --- PASS: TestVisitEncodedReferencesRelocatesDeclaredPositions/a_root_reference_envelope_is_rejected (0.00s)
+=== RUN   TestVisitEncodedReferencesClassifiesStorageRoles
+=== RUN   TestVisitEncodedReferencesClassifiesStorageRoles/a_family_declaring_no_references_rejects_storage_links
+--- PASS: TestVisitEncodedReferencesClassifiesStorageRoles (0.00s)
+    --- PASS: TestVisitEncodedReferencesClassifiesStorageRoles/a_family_declaring_no_references_rejects_storage_links (0.00s)
+=== RUN   TestVisitPersistedCallIDTranslatesHandlesOnly
+--- PASS: TestVisitPersistedCallIDTranslatesHandlesOnly (0.00s)
+=== RUN   TestPersistedSecondSaveThroughRestart
+--- PASS: TestPersistedSecondSaveThroughRestart (0.02s)
+=== RUN   TestVisitEncodedReferencesRequiresEveryRoleOnce
+=== RUN   TestVisitEncodedReferencesRequiresEveryRoleOnce/a_null_root_cannot_declare_storage_roles
+=== RUN   TestVisitEncodedReferencesRequiresEveryRoleOnce/a_scalar_json_root_cannot_declare_storage_roles
+=== RUN   TestVisitEncodedReferencesRequiresEveryRoleOnce/a_list_root_cannot_declare_storage_roles
+--- PASS: TestVisitEncodedReferencesRequiresEveryRoleOnce (0.00s)
+    --- PASS: TestVisitEncodedReferencesRequiresEveryRoleOnce/a_null_root_cannot_declare_storage_roles (0.00s)
+    --- PASS: TestVisitEncodedReferencesRequiresEveryRoleOnce/a_scalar_json_root_cannot_declare_storage_roles (0.00s)
+    --- PASS: TestVisitEncodedReferencesRequiresEveryRoleOnce/a_list_root_cannot_declare_storage_roles (0.00s)
+=== RUN   TestPersistAbsentRowValidatedAtCapture
+--- PASS: TestPersistAbsentRowValidatedAtCapture (0.00s)
+=== RUN   TestPersistInputProvenanceValidateResult
+--- PASS: TestPersistInputProvenanceValidateResult (0.00s)
+=== RUN   TestPersistInputProvenanceRejectsMissingPayload
+--- PASS: TestPersistInputProvenanceRejectsMissingPayload (0.00s)
+=== RUN   TestPersistInputProvenanceRejectsUnknownKind
+--- PASS: TestPersistInputProvenanceRejectsUnknownKind (0.00s)
+=== RUN   TestCachePersistenceImportRoundTripAcrossRestart
+=== PAUSE TestCachePersistenceImportRoundTripAcrossRestart
+=== RUN   TestCachePersistenceImportRoundTripObjectResult
+=== PAUSE TestCachePersistenceImportRoundTripObjectResult
+=== RUN   TestCachePersistenceImportedObjectHitWithoutServerErrors
+=== PAUSE TestCachePersistenceImportedObjectHitWithoutServerErrors
+=== RUN   TestCachePersistenceImportedObjectAliasSupportsChainedSelect
+=== PAUSE TestCachePersistenceImportedObjectAliasSupportsChainedSelect
+=== RUN   TestCachePersistenceImportedObjectLoadSerializesPersistedDecode
+--- PASS: TestCachePersistenceImportedObjectLoadSerializesPersistedDecode (0.06s)
+=== RUN   TestCachePersistenceUncleanMarkerWipesStore
+=== PAUSE TestCachePersistenceUncleanMarkerWipesStore
+=== RUN   TestCachePersistenceSchemaMismatchWipesStore
+=== PAUSE TestCachePersistenceSchemaMismatchWipesStore
+=== RUN   TestCacheCloseDiscardingPersistenceDoesNotMarkClean
+=== PAUSE TestCacheCloseDiscardingPersistenceDoesNotMarkClean
+=== RUN   TestCachePersistenceImportFailureWipesStore
+=== PAUSE TestCachePersistenceImportFailureWipesStore
+=== RUN   TestCachePersistenceImportedDecodeLeaderCancelRetriesJoiner
+--- PASS: TestCachePersistenceImportedDecodeLeaderCancelRetriesJoiner (0.02s)
+=== RUN   TestCachePersistenceImportedDecodeLeaseSyncCancelRetriesSync
+--- PASS: TestCachePersistenceImportedDecodeLeaseSyncCancelRetriesSync (0.02s)
+=== RUN   TestCachePersistenceImportedDecodeJoinerOwnCancelReturnsOwnCause
+--- PASS: TestCachePersistenceImportedDecodeJoinerOwnCancelReturnsOwnCause (0.02s)
+=== RUN   TestCachePersistenceImportedDecodeFailurePropagatesToJoiners
+--- PASS: TestCachePersistenceImportedDecodeFailurePropagatesToJoiners (0.01s)
+=== RUN   TestCachePersistenceImportedDecodeStaleReaderDoesNotLeadAfterSuccess
+--- PASS: TestCachePersistenceImportedDecodeStaleReaderDoesNotLeadAfterSuccess (0.01s)
+=== RUN   TestCachePersistenceImportRecomputesRequiredDepsFirst
+=== PAUSE TestCachePersistenceImportRecomputesRequiredDepsFirst
+=== RUN   TestCachePersistenceDecodeInstallPreservesRequiredSessionResources
+=== PAUSE TestCachePersistenceDecodeInstallPreservesRequiredSessionResources
+=== RUN   TestCacheLoadResultByResultIDRefusesUnboundSession
+=== PAUSE TestCacheLoadResultByResultIDRefusesUnboundSession
+=== RUN   TestPersistedScalarListSurvivesRepeatedRestore
+--- PASS: TestPersistedScalarListSurvivesRepeatedRestore (0.03s)
+=== RUN   TestPersistedNestedListSurvivesRepeatedRestore
+--- PASS: TestPersistedNestedListSurvivesRepeatedRestore (0.02s)
+=== RUN   TestPersistedListDefersReferencedChildrenWithoutServer
+--- PASS: TestPersistedListDefersReferencedChildrenWithoutServer (0.00s)
+=== RUN   TestPersistedListPrepassUsesChildCall
+--- PASS: TestPersistedListPrepassUsesChildCall (0.02s)
+=== RUN   TestPersistedSelfCodecInlineListForms
+=== RUN   TestPersistedSelfCodecInlineListForms/[Int!]!
+=== RUN   TestPersistedSelfCodecInlineListForms/[String!]!
+=== RUN   TestPersistedSelfCodecInlineListForms/[Int!]!#01
+=== RUN   TestPersistedSelfCodecInlineListForms/[[Int!]!]!
+--- PASS: TestPersistedSelfCodecInlineListForms (0.00s)
+    --- PASS: TestPersistedSelfCodecInlineListForms/[Int!]! (0.00s)
+    --- PASS: TestPersistedSelfCodecInlineListForms/[String!]! (0.00s)
+    --- PASS: TestPersistedSelfCodecInlineListForms/[Int!]!#01 (0.00s)
+    --- PASS: TestPersistedSelfCodecInlineListForms/[[Int!]!]! (0.00s)
+=== RUN   TestPersistedEncodingQuiescenceReachesInlineObjects
+=== RUN   TestPersistedEncodingQuiescenceReachesInlineObjects/object
+=== RUN   TestPersistedEncodingQuiescenceReachesInlineObjects/nested-inline-list
+--- PASS: TestPersistedEncodingQuiescenceReachesInlineObjects (0.00s)
+    --- PASS: TestPersistedEncodingQuiescenceReachesInlineObjects/object (0.00s)
+    --- PASS: TestPersistedEncodingQuiescenceReachesInlineObjects/nested-inline-list (0.00s)
+=== RUN   TestPersistedSelfCodecScalarRoundTrip
+=== PAUSE TestPersistedSelfCodecScalarRoundTrip
+=== RUN   TestPersistedSelfCodecObjectIDRoundTrip
+=== PAUSE TestPersistedSelfCodecObjectIDRoundTrip
+=== RUN   TestPersistedSelfCodecUsesSharedObjectClassification
+=== PAUSE TestPersistedSelfCodecUsesSharedObjectClassification
+=== RUN   TestObjectCacheHitPreservesObjectResultShape
+=== PAUSE TestObjectCacheHitPreservesObjectResultShape
+=== RUN   TestPersistedSelfCodecNestedListRoundTrip
+=== PAUSE TestPersistedSelfCodecNestedListRoundTrip
+=== RUN   TestPersistedSelfCodecRawObjectArrayRoundTrip
+=== PAUSE TestPersistedSelfCodecRawObjectArrayRoundTrip
+=== RUN   TestPersistedSelfCodecRejectsNonPersistedObjectLikeScalar
+=== PAUSE TestPersistedSelfCodecRejectsNonPersistedObjectLikeScalar
+=== RUN   TestCachePersistenceWorkerMirrorsRetainedPersistableResult
+=== PAUSE TestCachePersistenceWorkerMirrorsRetainedPersistableResult
+=== RUN   TestCachePersistenceWorkerMirrorsUnpruneablePersistedEdge
+=== PAUSE TestCachePersistenceWorkerMirrorsUnpruneablePersistedEdge
+=== RUN   TestCachePersistenceDoesNotWriteDuringRuntime
+=== PAUSE TestCachePersistenceDoesNotWriteDuringRuntime
+=== RUN   TestCachePersistenceWorkerMirrorsPrunedStateAfterRelease
+=== PAUSE TestCachePersistenceWorkerMirrorsPrunedStateAfterRelease
+=== RUN   TestCachePersistenceWorkerMirrorsAuthoritativeEgraphState
+=== PAUSE TestCachePersistenceWorkerMirrorsAuthoritativeEgraphState
+=== RUN   TestCachePersistenceSnapshotOmitsSessionOnlyResult
+=== PAUSE TestCachePersistenceSnapshotOmitsSessionOnlyResult
+=== RUN   TestCachePersistenceSnapshotKeepsOnlyCompletePersistedRootClosures
+--- PASS: TestCachePersistenceSnapshotKeepsOnlyCompletePersistedRootClosures (0.03s)
+=== RUN   TestCachePersistenceCleanShutdownToggleOnClose
+=== PAUSE TestCachePersistenceCleanShutdownToggleOnClose
+=== RUN   TestProfileSkipControlsSingleflightEmit
+--- PASS: TestProfileSkipControlsSingleflightEmit (0.01s)
+=== RUN   TestProfileSkipStaticCutSingleflightJoiner
+--- PASS: TestProfileSkipStaticCutSingleflightJoiner (0.00s)
+=== RUN   TestProfileSkipControlsLazyEmit
+=== RUN   TestProfileSkipControlsLazyEmit/skipped_producer_emits_no_lazy_OTel_span
+=== RUN   TestProfileSkipControlsLazyEmit/kept_producer_emits_a_lazy_OTel_span
+--- PASS: TestProfileSkipControlsLazyEmit (0.00s)
+    --- PASS: TestProfileSkipControlsLazyEmit/skipped_producer_emits_no_lazy_OTel_span (0.00s)
+    --- PASS: TestProfileSkipControlsLazyEmit/kept_producer_emits_a_lazy_OTel_span (0.00s)
+=== RUN   TestProfileSkipLazyCrossRecipeForcerStaysClean
+--- PASS: TestProfileSkipLazyCrossRecipeForcerStaysClean (0.00s)
+=== RUN   TestProfileSkipDoesNotBlindInvalidTargetDetector
+--- PASS: TestProfileSkipDoesNotBlindInvalidTargetDetector (0.00s)
+=== RUN   TestCachePrunePolicyMatchesLegacyRecordTypeListFilter
+--- PASS: TestCachePrunePolicyMatchesLegacyRecordTypeListFilter (0.00s)
+=== RUN   TestCachePrunePolicyMatchesExistingScalarFilters
+--- PASS: TestCachePrunePolicyMatchesExistingScalarFilters (0.00s)
+=== RUN   TestPruneLogLiteralValueRendersBytesOpaque
+--- PASS: TestPruneLogLiteralValueRendersBytesOpaque (0.00s)
+=== RUN   TestCachePersistableAttachmentFailureDoesNotRetain
+--- PASS: TestCachePersistableAttachmentFailureDoesNotRetain (0.00s)
+=== RUN   TestCachePersistableHitWaitsForCleanAttachmentBeforePersisting
+--- PASS: TestCachePersistableHitWaitsForCleanAttachmentBeforePersisting (0.00s)
+=== RUN   TestCacheErroredAttachmentIsSkippedAndReexecuted
+--- PASS: TestCacheErroredAttachmentIsSkippedAndReexecuted (0.00s)
+=== RUN   TestCacheAdoptionSkipsOpenAttachmentSibling
+--- PASS: TestCacheAdoptionSkipsOpenAttachmentSibling (0.00s)
+=== RUN   TestCachePersistedEdgeInstallRejectsCollectedResult
+--- PASS: TestCachePersistedEdgeInstallRejectsCollectedResult (0.00s)
+=== RUN   TestCacheOperationLeaseFailureCancelsSharedContext
+--- PASS: TestCacheOperationLeaseFailureCancelsSharedContext (0.00s)
+=== RUN   TestCacheSessionResultClaimAndReleaseAreAtomic
+=== RUN   TestCacheSessionResultClaimAndReleaseAreAtomic/claim_wins
+=== RUN   TestCacheSessionResultClaimAndReleaseAreAtomic/release_wins
+--- PASS: TestCacheSessionResultClaimAndReleaseAreAtomic (0.00s)
+    --- PASS: TestCacheSessionResultClaimAndReleaseAreAtomic/claim_wins (0.00s)
+    --- PASS: TestCacheSessionResultClaimAndReleaseAreAtomic/release_wins (0.00s)
+=== RUN   TestCacheRefusedFinalWaiterCommitsPersistenceBeforeHandoffRelease
+--- PASS: TestCacheRefusedFinalWaiterCommitsPersistenceBeforeHandoffRelease (0.00s)
+=== RUN   TestCacheArbitrarySessionClaimAndReleaseAreAtomic
+=== RUN   TestCacheArbitrarySessionClaimAndReleaseAreAtomic/claim_wins
+=== RUN   TestCacheArbitrarySessionClaimAndReleaseAreAtomic/release_wins
+--- PASS: TestCacheArbitrarySessionClaimAndReleaseAreAtomic (0.00s)
+    --- PASS: TestCacheArbitrarySessionClaimAndReleaseAreAtomic/claim_wins (0.00s)
+    --- PASS: TestCacheArbitrarySessionClaimAndReleaseAreAtomic/release_wins (0.00s)
+=== RUN   TestCacheArbitraryReleasedSessionDoesNotInitializeValue
+--- PASS: TestCacheArbitraryReleasedSessionDoesNotInitializeValue (0.00s)
+=== RUN   TestCacheReleasedSessionErrorIncludesSessionID
+--- PASS: TestCacheReleasedSessionErrorIncludesSessionID (0.00s)
+=== RUN   TestCacheSessionReleaseRefusesClaimedResultAtOperationExit
+--- PASS: TestCacheSessionReleaseRefusesClaimedResultAtOperationExit (0.00s)
+=== RUN   TestCacheArbitraryReleaseRefusesValueAtOperationExit
+--- PASS: TestCacheArbitraryReleaseRefusesValueAtOperationExit (0.00s)
+=== RUN   TestCacheWaitSessionReleaseWaitsForDeferredCleanup
+--- PASS: TestCacheWaitSessionReleaseWaitsForDeferredCleanup (0.00s)
+=== RUN   TestCacheWaitSessionReleaseCancellation
+--- PASS: TestCacheWaitSessionReleaseCancellation (0.00s)
+=== RUN   TestCacheWaitSessionReleaseRequiresRelease
+--- PASS: TestCacheWaitSessionReleaseRequiresRelease (0.00s)
+=== RUN   TestCacheDeferredReleaseErrorSurfacesFromClose
+--- PASS: TestCacheDeferredReleaseErrorSurfacesFromClose (0.00s)
+=== RUN   TestCacheSynchronousReleaseErrorFailsCloseDirty
+--- PASS: TestCacheSynchronousReleaseErrorFailsCloseDirty (0.00s)
+=== RUN   TestCacheCloseCancellationFailsDirtyWhileOperationActive
+--- PASS: TestCacheCloseCancellationFailsDirtyWhileOperationActive (0.04s)
+=== RUN   TestCacheReleasedSessionDoesNotRecreateSpanMaps
+--- PASS: TestCacheReleasedSessionDoesNotRecreateSpanMaps (0.00s)
+=== RUN   TestSnapshotOwnerSyncReadSelection
+--- PASS: TestSnapshotOwnerSyncReadSelection (0.00s)
+=== RUN   TestSnapshotOwnerSyncInlineRead
+--- PASS: TestSnapshotOwnerSyncInlineRead (0.00s)
+=== RUN   TestCacheSnapshotOwnerLeaseSyncDefersSessionCleanup
+--- PASS: TestCacheSnapshotOwnerLeaseSyncDefersSessionCleanup (0.00s)
+=== RUN   TestCachePersistenceWorkerMirrorsSnapshotManagerMetadataRows
+=== PAUSE TestCachePersistenceWorkerMirrorsSnapshotManagerMetadataRows
+=== RUN   TestCachePersistenceImportHydratesSnapshotMetadataAndSyncsOwnerLeases
+=== PAUSE TestCachePersistenceImportHydratesSnapshotMetadataAndSyncsOwnerLeases
+=== RUN   TestCachePersistenceImportedSnapshotLinksContributeUsageBeforeDecode
+=== PAUSE TestCachePersistenceImportedSnapshotLinksContributeUsageBeforeDecode
+=== RUN   TestCachePruneThresholdUsesImportedSnapshotLinkUsage
+=== PAUSE TestCachePruneThresholdUsesImportedSnapshotLinkUsage
+=== RUN   TestCachePersistenceWorkerUsesEncodedSnapshotLinks
+=== PAUSE TestCachePersistenceWorkerUsesEncodedSnapshotLinks
+=== RUN   TestScopedCollectorConcurrentPublicationCost
+=== RUN   TestScopedCollectorConcurrentPublicationCost/width128_depth1
+    cache_snapshot_scope_bench_test.go:120: typed_collector outputs=128 depth=1 publications=8192 attempts=308 retries=180 accepted=128 elapsed=54.54842ms
+=== RUN   TestScopedCollectorConcurrentPublicationCost/width8_depth3
+    cache_snapshot_scope_bench_test.go:120: typed_collector outputs=512 depth=3 publications=8192 attempts=134 retries=6 accepted=128 elapsed=166.216123ms
+--- PASS: TestScopedCollectorConcurrentPublicationCost (0.23s)
+    --- PASS: TestScopedCollectorConcurrentPublicationCost/width128_depth1 (0.05s)
+    --- PASS: TestScopedCollectorConcurrentPublicationCost/width8_depth3 (0.18s)
+=== RUN   TestScopedSnapshotVisitor
+--- PASS: TestScopedSnapshotVisitor (0.00s)
+=== RUN   TestScopedSnapshotDecodeCarrier
+--- PASS: TestScopedSnapshotDecodeCarrier (0.00s)
+=== RUN   TestScopedSnapshotCanonicalKeys
+--- PASS: TestScopedSnapshotCanonicalKeys (0.00s)
+=== RUN   TestScopedSnapshotSQLConflict
+--- PASS: TestScopedSnapshotSQLConflict (0.18s)
+=== RUN   TestScopedDecodeRejectsMismatchedCarrierBeforeCodec
+--- PASS: TestScopedDecodeRejectsMismatchedCarrierBeforeCodec (0.00s)
+=== RUN   TestCacheRejectsNilTypeResolver
+=== PAUSE TestCacheRejectsNilTypeResolver
+=== RUN   TestCacheRejectsEmptySessionIDForOwningEntrypoints
+=== PAUSE TestCacheRejectsEmptySessionIDForOwningEntrypoints
+=== RUN   TestSharedCallUsesOneClientScopeLeaseForAllWaiters
+=== PAUSE TestSharedCallUsesOneClientScopeLeaseForAllWaiters
+=== RUN   TestSharedCallReleasesLeaseWhenLastWaiterCancelsAfterCompletion
+=== PAUSE TestSharedCallReleasesLeaseWhenLastWaiterCancelsAfterCompletion
+=== RUN   TestAttachResultAllowsAlreadyAttachedResultWithoutFrame
+=== PAUSE TestAttachResultAllowsAlreadyAttachedResultWithoutFrame
+=== RUN   TestCaptureSessionLazySpanContextFirstWriterWinsAndRelease
+=== PAUSE TestCaptureSessionLazySpanContextFirstWriterWinsAndRelease
+=== RUN   TestSessionResultInstallSpanContextsSorted
+=== PAUSE TestSessionResultInstallSpanContextsSorted
+=== RUN   TestInstallSpanLookupWalksClosureOwnersUpward
+=== PAUSE TestInstallSpanLookupWalksClosureOwnersUpward
+=== RUN   TestEvaluateLazyUsesOriginalSpanForLogsAndNestedSpans
+=== PAUSE TestEvaluateLazyUsesOriginalSpanForLogsAndNestedSpans
+=== RUN   TestEvaluateLazyPrerequisiteFailureMarksResumeBlocked
+=== PAUSE TestEvaluateLazyPrerequisiteFailureMarksResumeBlocked
+=== RUN   TestEvaluateLazyOwnFailureNotMarkedBlocked
+=== PAUSE TestEvaluateLazyOwnFailureNotMarkedBlocked
+=== RUN   TestCacheVolatileSessionResourceInvariants
+=== PAUSE TestCacheVolatileSessionResourceInvariants
+=== RUN   TestCacheVolatileConcurrentSessionsDivergentValues
+=== PAUSE TestCacheVolatileConcurrentSessionsDivergentValues
+=== RUN   TestCacheVolatileNestedWithNonVolatile
+=== PAUSE TestCacheVolatileNestedWithNonVolatile
+=== RUN   TestCacheConcurrent
+=== PAUSE TestCacheConcurrent
+=== RUN   TestCacheEvaluate
+=== PAUSE TestCacheEvaluate
+=== RUN   TestCacheErrors
+=== PAUSE TestCacheErrors
+=== RUN   TestCacheRecursiveCall
+=== PAUSE TestCacheRecursiveCall
+=== RUN   TestCacheContextCancel
+=== RUN   TestCacheContextCancel/cancels_after_all_are_canceled
+=== PAUSE TestCacheContextCancel/cancels_after_all_are_canceled
+=== RUN   TestCacheContextCancel/succeeds_if_others_are_canceled
+=== PAUSE TestCacheContextCancel/succeeds_if_others_are_canceled
+=== RUN   TestCacheContextCancel/shared_call_keeps_dedicated_lease_across_completion
+=== PAUSE TestCacheContextCancel/shared_call_keeps_dedicated_lease_across_completion
+=== RUN   TestCacheContextCancel/last_waiter_canceled_fn_returns_value_still_releases
+=== PAUSE TestCacheContextCancel/last_waiter_canceled_fn_returns_value_still_releases
+=== CONT  TestCacheContextCancel/cancels_after_all_are_canceled
+=== CONT  TestCacheContextCancel/shared_call_keeps_dedicated_lease_across_completion
+=== CONT  TestCacheContextCancel/succeeds_if_others_are_canceled
+=== CONT  TestCacheContextCancel/last_waiter_canceled_fn_returns_value_still_releases
+    cache_test.go:2289: TODO: re-enable after last-waiter canceled cleanup semantics are decided
+--- PASS: TestCacheContextCancel (0.00s)
+    --- SKIP: TestCacheContextCancel/last_waiter_canceled_fn_returns_value_still_releases (0.00s)
+    --- PASS: TestCacheContextCancel/succeeds_if_others_are_canceled (0.00s)
+    --- PASS: TestCacheContextCancel/cancels_after_all_are_canceled (0.00s)
+    --- PASS: TestCacheContextCancel/shared_call_keeps_dedicated_lease_across_completion (0.01s)
+=== RUN   TestSkipDedupe
+=== PAUSE TestSkipDedupe
+=== RUN   TestCacheNilKeyIDRejected
+=== PAUSE TestCacheNilKeyIDRejected
+=== RUN   TestCacheDifferentConcurrencyKeysDoNotDedupe
+=== PAUSE TestCacheDifferentConcurrencyKeysDoNotDedupe
+=== RUN   TestCacheNilResultIsCached
+=== PAUSE TestCacheNilResultIsCached
+=== RUN   TestEquivalencySetCacheHits
+=== PAUSE TestEquivalencySetCacheHits
+=== RUN   TestDirectDigestLookupHitsWithoutTermIndex
+=== RUN   TestDirectDigestLookupHitsWithoutTermIndex/exact_recipe_digest_hit_without_term_index
+=== RUN   TestDirectDigestLookupHitsWithoutTermIndex/extra_digest_hit_without_term_index
+--- PASS: TestDirectDigestLookupHitsWithoutTermIndex (0.00s)
+    --- PASS: TestDirectDigestLookupHitsWithoutTermIndex/exact_recipe_digest_hit_without_term_index (0.00s)
+    --- PASS: TestDirectDigestLookupHitsWithoutTermIndex/extra_digest_hit_without_term_index (0.00s)
+=== RUN   TestIndexResultDigestsUsesExplicitRequestAndResponseIDs
+=== PAUSE TestIndexResultDigestsUsesExplicitRequestAndResponseIDs
+=== RUN   TestStructuralHitCanReuseResultFromSameOutputEqClass
+--- PASS: TestStructuralHitCanReuseResultFromSameOutputEqClass (0.00s)
+=== RUN   TestTeachCallEquivalentToResult
+=== PAUSE TestTeachCallEquivalentToResult
+=== RUN   TestPendingResultCallRefRecipeID
+=== PAUSE TestPendingResultCallRefRecipeID
+=== RUN   TestAttachResultNormalizesPendingResultCallRef
+=== PAUSE TestAttachResultNormalizesPendingResultCallRef
+=== RUN   TestObjectResultResultCallAndReceiver
+=== PAUSE TestObjectResultResultCallAndReceiver
+=== RUN   TestCacheHitRewrapsObjectResultForCurrentServer
+=== PAUSE TestCacheHitRewrapsObjectResultForCurrentServer
+=== RUN   TestClassNewRewrapsObjectResult
+=== PAUSE TestClassNewRewrapsObjectResult
+=== RUN   TestClassNewRewrapPreservesModuleCacheIsolation
+=== PAUSE TestClassNewRewrapPreservesModuleCacheIsolation
+=== RUN   TestInputSpecsInputsFromResultCallArgs
+=== PAUSE TestInputSpecsInputsFromResultCallArgs
+=== RUN   TestResultContentPreferredDigestUsesContentDigest
+=== PAUSE TestResultContentPreferredDigestUsesContentDigest
+=== RUN   TestLookupCacheForIDExtraDigestFallback
+=== PAUSE TestLookupCacheForIDExtraDigestFallback
+=== RUN   TestHitTeachesReturnedRequestIDToCache
+=== PAUSE TestHitTeachesReturnedRequestIDToCache
+=== RUN   TestExtraDigestLabelIsolation
+=== PAUSE TestExtraDigestLabelIsolation
+=== RUN   TestCacheHitReturnIDGetsContentDigestFromEqClassMetadata
+=== PAUSE TestCacheHitReturnIDGetsContentDigestFromEqClassMetadata
+=== RUN   TestCacheFreshReturnIDGetsContentDigestFromEqClassMetadata
+=== PAUSE TestCacheFreshReturnIDGetsContentDigestFromEqClassMetadata
+=== RUN   TestCacheTeachContentDigestPreservesAttachment
+=== PAUSE TestCacheTeachContentDigestPreservesAttachment
+=== RUN   TestCacheTeachContentDigestWithResultRefs
+=== PAUSE TestCacheTeachContentDigestWithResultRefs
+=== RUN   TestDerefValueForNullables
+=== PAUSE TestDerefValueForNullables
+=== RUN   TestCacheDoNotCacheNormalizesNestedHitMetadata
+=== PAUSE TestCacheDoNotCacheNormalizesNestedHitMetadata
+=== RUN   TestCacheDoNotCachePreservesAttachedReturnedObject
+=== PAUSE TestCacheDoNotCachePreservesAttachedReturnedObject
+=== RUN   TestCacheSecondaryIndexesCleanedOnRelease
+=== PAUSE TestCacheSecondaryIndexesCleanedOnRelease
+=== RUN   TestCacheReleaseRemovesRecordedDigestPostingAfterOutputClassMerge
+=== PAUSE TestCacheReleaseRemovesRecordedDigestPostingAfterOutputClassMerge
+=== RUN   TestCacheArrayResultRoundTrip
+=== PAUSE TestCacheArrayResultRoundTrip
+=== RUN   TestCacheArrayResultsRetainChildResultsAcrossProducerSessionRelease
+=== PAUSE TestCacheArrayResultsRetainChildResultsAcrossProducerSessionRelease
+=== RUN   TestCacheArrayResultStressDoesNotReturnHitWithoutCallFrame
+=== PAUSE TestCacheArrayResultStressDoesNotReturnHitWithoutCallFrame
+=== RUN   TestCacheArrayResultStressDoesNotRaceExplicitDependencyAttachment
+=== PAUSE TestCacheArrayResultStressDoesNotRaceExplicitDependencyAttachment
+=== RUN   TestCacheMixedSessionWaitersCancelDoNotLeak
+=== PAUSE TestCacheMixedSessionWaitersCancelDoNotLeak
+=== RUN   TestCacheLoadResultByResultIDDoesNotReturnHitWithoutCallFrame
+=== PAUSE TestCacheLoadResultByResultIDDoesNotReturnHitWithoutCallFrame
+=== RUN   TestCacheObjectResultRoundTripAndRelease
+=== PAUSE TestCacheObjectResultRoundTripAndRelease
+=== RUN   TestCacheTTLWithDBUsesStorageAndCallIndexes
+=== PAUSE TestCacheTTLWithDBUsesStorageAndCallIndexes
+=== RUN   TestCachePersistableRetainedAcrossSessionClose
+=== PAUSE TestCachePersistableRetainedAcrossSessionClose
+=== RUN   TestCacheLatePersistableJoinCommitsBeforeHandoffRelease
+=== RUN   TestCacheLatePersistableJoinCommitsBeforeHandoffRelease/successful_final_waiter
+=== RUN   TestCacheLatePersistableJoinCommitsBeforeHandoffRelease/canceled_final_waiter
+--- PASS: TestCacheLatePersistableJoinCommitsBeforeHandoffRelease (0.00s)
+    --- PASS: TestCacheLatePersistableJoinCommitsBeforeHandoffRelease/successful_final_waiter (0.00s)
+    --- PASS: TestCacheLatePersistableJoinCommitsBeforeHandoffRelease/canceled_final_waiter (0.00s)
+=== RUN   TestOngoingCallPersistableIntentConcurrentAccess
+=== PAUSE TestOngoingCallPersistableIntentConcurrentAccess
+=== RUN   TestCacheNonPersistableDropsWhenRefsDrain
+=== PAUSE TestCacheNonPersistableDropsWhenRefsDrain
+=== RUN   TestCachePersistableHitUpgradesExistingResultToRetained
+=== PAUSE TestCachePersistableHitUpgradesExistingResultToRetained
+=== RUN   TestCacheMakeResultUnpruneableRetainsAcrossSessionClose
+=== PAUSE TestCacheMakeResultUnpruneableRetainsAcrossSessionClose
+=== RUN   TestCacheMakeResultUnpruneableSkipsPrune
+=== PAUSE TestCacheMakeResultUnpruneableSkipsPrune
+=== RUN   TestCacheMakeResultUnpruneableClearsPersistedExpiry
+=== PAUSE TestCacheMakeResultUnpruneableClearsPersistedExpiry
+=== RUN   TestCacheUsageEntriesAllReportsSessionAndRetainedState
+=== PAUSE TestCacheUsageEntriesAllReportsSessionAndRetainedState
+=== RUN   TestCacheUsageEntriesAllDedupesByUsageIdentity
+=== PAUSE TestCacheUsageEntriesAllDedupesByUsageIdentity
+=== RUN   TestCacheUsageEntriesAllSumsOwnedUsageIdentities
+=== PAUSE TestCacheUsageEntriesAllSumsOwnedUsageIdentities
+=== RUN   TestCacheUsageEntriesAllMutableUsageRemeasuresAfterSizeChange
+=== PAUSE TestCacheUsageEntriesAllMutableUsageRemeasuresAfterSizeChange
+=== RUN   TestCachePruneKeepDuration
+=== PAUSE TestCachePruneKeepDuration
+=== RUN   TestCachePruneThresholdTargetSpace
+=== PAUSE TestCachePruneThresholdTargetSpace
+=== RUN   TestCachePruneMinFreeSpaceUsesCurrentFreeSpace
+=== PAUSE TestCachePruneMinFreeSpaceUsesCurrentFreeSpace
+=== RUN   TestCachePruneSessionOwnedEntriesAreNeverPruned
+=== PAUSE TestCachePruneSessionOwnedEntriesAreNeverPruned
+=== RUN   TestCacheDoNotCacheRejectsOnReleaser
+=== PAUSE TestCacheDoNotCacheRejectsOnReleaser
+=== RUN   TestCachePruneOrderedSimulationKeepsZeroDeltaPrerequisites
+=== PAUSE TestCachePruneOrderedSimulationKeepsZeroDeltaPrerequisites
+=== RUN   TestCompactEqClassesSkipsWhenBelowThreshold
+=== PAUSE TestCompactEqClassesSkipsWhenBelowThreshold
+=== RUN   TestCachePruneCompactsEqClassesAndPreservesLookup
+=== PAUSE TestCachePruneCompactsEqClassesAndPreservesLookup
+=== RUN   TestCachePruneProtectsExactDependencyOfActiveResult
+=== PAUSE TestCachePruneProtectsExactDependencyOfActiveResult
+=== RUN   TestCachePruneDoesNotProtectTermProvenanceOnlyResultFromActiveResult
+=== PAUSE TestCachePruneDoesNotProtectTermProvenanceOnlyResultFromActiveResult
+=== RUN   TestCacheAttachDependencyResults
+=== PAUSE TestCacheAttachDependencyResults
+=== RUN   TestCacheAttachDependencyResultsAlreadyAttachedChild
+=== PAUSE TestCacheAttachDependencyResultsAlreadyAttachedChild
+=== RUN   TestCacheAddExplicitDependency
+=== PAUSE TestCacheAddExplicitDependency
+=== RUN   TestCacheResultCallDerivedFromRequestID
+=== PAUSE TestCacheResultCallDerivedFromRequestID
+=== RUN   TestCacheResultCallFirstWriterWins
+=== PAUSE TestCacheResultCallFirstWriterWins
+=== RUN   TestCacheArbitraryCallbackUsesOneClientScopeLease
+=== PAUSE TestCacheArbitraryCallbackUsesOneClientScopeLease
+=== RUN   TestCacheArbitraryCallbackCancelsAfterLastWaiter
+=== PAUSE TestCacheArbitraryCallbackCancelsAfterLastWaiter
+=== RUN   TestCacheArbitraryRoundTripAndRelease
+=== PAUSE TestCacheArbitraryRoundTripAndRelease
+=== RUN   TestCacheArbitraryConcurrent
+=== PAUSE TestCacheArbitraryConcurrent
+=== RUN   TestCacheArbitraryRecursiveCall
+=== PAUSE TestCacheArbitraryRecursiveCall
+=== RUN   TestResolveSessionResourceCandidatesOrdering
+--- PASS: TestResolveSessionResourceCandidatesOrdering (0.00s)
+=== RUN   TestCacheAddExplicitDependencyAcceptsSessionResourceDepsAndRecomputesAncestors
+=== PAUSE TestCacheAddExplicitDependencyAcceptsSessionResourceDepsAndRecomputesAncestors
+=== RUN   TestCacheHitRechecksSessionResourcesAfterAttachBarrier
+=== PAUSE TestCacheHitRechecksSessionResourcesAfterAttachBarrier
+=== RUN   TestCacheLoadResultByResultIDRechecksAfterAttachBarrier
+=== PAUSE TestCacheLoadResultByResultIDRechecksAfterAttachBarrier
+=== RUN   TestCacheLoadResultByResultIDIgnoresUncleanCanonicalSiblings
+=== PAUSE TestCacheLoadResultByResultIDIgnoresUncleanCanonicalSiblings
+=== RUN   TestCacheDigestLookupRechecksSessionResourcesAfterAttachBarrier
+=== PAUSE TestCacheDigestLookupRechecksSessionResourcesAfterAttachBarrier
+=== RUN   TestCacheHitRechecksSessionResourcesAfterLateExplicitDependency
+=== PAUSE TestCacheHitRechecksSessionResourcesAfterLateExplicitDependency
+=== RUN   TestCacheLoadResultByResultIDRechecksAfterLateExplicitDependency
+=== PAUSE TestCacheLoadResultByResultIDRechecksAfterLateExplicitDependency
+=== RUN   TestCacheDigestLookupRechecksSessionResourcesAfterLateExplicitDependency
+=== PAUSE TestCacheDigestLookupRechecksSessionResourcesAfterLateExplicitDependency
+=== RUN   TestCacheHitConvertsToMissWhenProducerReleaseFailsAttachment
+=== PAUSE TestCacheHitConvertsToMissWhenProducerReleaseFailsAttachment
+=== RUN   TestCacheDigestLookupConvertsToMissWhenProducerReleaseFailsAttachment
+=== PAUSE TestCacheDigestLookupConvertsToMissWhenProducerReleaseFailsAttachment
+=== RUN   TestCacheLoadResultByResultIDStillFailsWhenProducerReleaseFailsAttachment
+=== PAUSE TestCacheLoadResultByResultIDStillFailsWhenProducerReleaseFailsAttachment
+=== RUN   TestCacheHitKeepsGenuineAttachmentFailure
+=== PAUSE TestCacheHitKeepsGenuineAttachmentFailure
+=== RUN   TestCachePublicationRollsBackWhenStructuralDepMissing
+=== PAUSE TestCachePublicationRollsBackWhenStructuralDepMissing
+=== RUN   TestCacheAttachmentClaimPinsTargetAgainstForeignRelease
+=== PAUSE TestCacheAttachmentClaimPinsTargetAgainstForeignRelease
+=== RUN   TestCacheWithSessionResourceHandleRefusesAttachedMutation
+=== PAUSE TestCacheWithSessionResourceHandleRefusesAttachedMutation
+=== RUN   TestValueTransferFixtureExactRoots
+--- PASS: TestValueTransferFixtureExactRoots (0.01s)
+=== RUN   TestSchemaModuleSelectionFallback
+--- PASS: TestSchemaModuleSelectionFallback (0.01s)
+=== RUN   TestSchemaModuleSelectionSkipsInaccessibleInstalled
+=== RUN   TestSchemaModuleSelectionSkipsInaccessibleInstalled/operational
+=== RUN   TestSchemaModuleSelectionSkipsInaccessibleInstalled/scoped
+--- PASS: TestSchemaModuleSelectionSkipsInaccessibleInstalled (0.02s)
+    --- PASS: TestSchemaModuleSelectionSkipsInaccessibleInstalled/operational (0.01s)
+    --- PASS: TestSchemaModuleSelectionSkipsInaccessibleInstalled/scoped (0.01s)
+=== RUN   TestValueTransferPersistence
+--- PASS: TestValueTransferPersistence (0.02s)
+=== RUN   TestValueTransferCapture
+=== RUN   TestValueTransferCapture/concurrent_replacement_and_pruning
+=== RUN   TestValueTransferCapture/direct_and_offer_diamond
+=== RUN   TestValueTransferCapture/output
+=== RUN   TestValueTransferCapture/payload
+=== RUN   TestValueTransferCapture/offer
+=== RUN   TestValueTransferCapture/ownership
+=== RUN   TestValueTransferCapture/requirements
+=== RUN   TestValueTransferCapture/frame
+=== RUN   TestValueTransferCapture/busy
+=== RUN   TestValueTransferCapture/cancellation
+--- PASS: TestValueTransferCapture (0.10s)
+    --- PASS: TestValueTransferCapture/concurrent_replacement_and_pruning (0.01s)
+    --- PASS: TestValueTransferCapture/direct_and_offer_diamond (0.01s)
+    --- PASS: TestValueTransferCapture/output (0.01s)
+    --- PASS: TestValueTransferCapture/payload (0.01s)
+    --- PASS: TestValueTransferCapture/offer (0.01s)
+    --- PASS: TestValueTransferCapture/ownership (0.01s)
+    --- PASS: TestValueTransferCapture/requirements (0.02s)
+    --- PASS: TestValueTransferCapture/frame (0.01s)
+    --- PASS: TestValueTransferCapture/busy (0.01s)
+    --- PASS: TestValueTransferCapture/cancellation (0.01s)
+=== RUN   TestValueTransferReferences
+=== RUN   TestValueTransferReferences/dangling
+=== RUN   TestValueTransferReferences/cycle
+=== RUN   TestValueTransferReferences/root
+=== RUN   TestValueTransferReferences/extra
+=== RUN   TestValueTransferReferences/body
+=== RUN   TestValueTransferReferences/unreachable
+--- PASS: TestValueTransferReferences (0.03s)
+    --- PASS: TestValueTransferReferences/dangling (0.00s)
+    --- PASS: TestValueTransferReferences/cycle (0.00s)
+    --- PASS: TestValueTransferReferences/root (0.00s)
+    --- PASS: TestValueTransferReferences/extra (0.00s)
+    --- PASS: TestValueTransferReferences/body (0.00s)
+    --- PASS: TestValueTransferReferences/unreachable (0.00s)
+=== RUN   TestValueTransferImportPublication
+=== RUN   TestValueTransferImportPublication/lookup_at_commit_boundary
+=== RUN   TestValueTransferImportPublication/close_waits_for_admitted_import
+=== RUN   TestValueTransferImportPublication/preparation_failure
+=== RUN   TestValueTransferImportPublication/before_commit
+=== RUN   TestValueTransferImportPublication/after_commit
+=== RUN   TestValueTransferImportPublication/finite_root_expiry
+--- PASS: TestValueTransferImportPublication (0.11s)
+    --- PASS: TestValueTransferImportPublication/lookup_at_commit_boundary (0.02s)
+    --- PASS: TestValueTransferImportPublication/close_waits_for_admitted_import (0.03s)
+    --- PASS: TestValueTransferImportPublication/preparation_failure (0.02s)
+    --- PASS: TestValueTransferImportPublication/before_commit (0.01s)
+    --- PASS: TestValueTransferImportPublication/after_commit (0.01s)
+    --- PASS: TestValueTransferImportPublication/finite_root_expiry (0.01s)
+=== RUN   TestValueTransferReferencesExtras
+--- PASS: TestValueTransferReferencesExtras (0.01s)
+=== RUN   TestValueTransferPersistenceDecodePublication
+--- PASS: TestValueTransferPersistenceDecodePublication (0.04s)
+=== RUN   TestRecipeMemoDedupesSharedNode
+=== PAUSE TestRecipeMemoDedupesSharedNode
+=== RUN   TestRecipeMemoKeepsDistinctNodesDistinct
+=== PAUSE TestRecipeMemoKeepsDistinctNodesDistinct
+=== RUN   TestRecipeMemoSharesAcrossReceiverChain
+=== PAUSE TestRecipeMemoSharesAcrossReceiverChain
+=== RUN   TestDetachedReceiverSelectionPreservesReceiverLineage
+=== PAUSE TestDetachedReceiverSelectionPreservesReceiverLineage
+=== RUN   TestNthValuePreservesAttachmentLineage
+=== PAUSE TestNthValuePreservesAttachmentLineage
+=== RUN   TestNthValueAttachedObjectResultArrayReturnsCanonicalChild
+=== PAUSE TestNthValueAttachedObjectResultArrayReturnsCanonicalChild
+=== RUN   TestNthValueAttachedDynamicResultArrayReturnsCanonicalChild
+=== PAUSE TestNthValueAttachedDynamicResultArrayReturnsCanonicalChild
+=== RUN   TestNullableDerefUsesSameSharedResult
+=== PAUSE TestNullableDerefUsesSameSharedResult
+=== RUN   TestNullableWrappedUsesSameSharedResult
+=== PAUSE TestNullableWrappedUsesSameSharedResult
+=== RUN   TestNullableDerefCacheHitsReconstructObjectView
+=== PAUSE TestNullableDerefCacheHitsReconstructObjectView
+=== RUN   TestFieldsInstallMarksReflectedAccessorsTrivial
+--- PASS: TestFieldsInstallMarksReflectedAccessorsTrivial (0.00s)
+=== RUN   TestFieldSpecResolveImplicitInputCallArgsResolvesDeterministicImplicitInputs
+--- PASS: TestFieldSpecResolveImplicitInputCallArgsResolvesDeterministicImplicitInputs (0.00s)
+=== RUN   TestFieldSpecResolveImplicitInputCallArgsPropagatesResolverErrors
+--- PASS: TestFieldSpecResolveImplicitInputCallArgsPropagatesResolverErrors (0.00s)
+=== RUN   TestFieldSpecResolveImplicitInputCallArgsRejectsNilResolvedInput
+--- PASS: TestFieldSpecResolveImplicitInputCallArgsRejectsNilResolvedInput (0.00s)
+=== RUN   TestObjectPreselectAppliesFieldModule
+--- PASS: TestObjectPreselectAppliesFieldModule (0.00s)
+=== RUN   TestOptionalJSONRoundTripSetsValid
+=== PAUSE TestOptionalJSONRoundTripSetsValid
+=== RUN   TestNullableJSONRoundTripSetsValid
+=== PAUSE TestNullableJSONRoundTripSetsValid
+=== RUN   TestDynamicOptionalJSONRoundTripSetsValid
+=== PAUSE TestDynamicOptionalJSONRoundTripSetsValid
+=== RUN   TestDynamicNullableJSONRoundTripSetsValid
+=== PAUSE TestDynamicNullableJSONRoundTripSetsValid
+=== RUN   TestEmitHooksProduceLoaderShape
+--- PASS: TestEmitHooksProduceLoaderShape (0.00s)
+=== RUN   TestEmitWaitVisibleToValidationOnMissingTarget
+--- PASS: TestEmitWaitVisibleToValidationOnMissingTarget (0.00s)
+=== RUN   TestEmitWaitNonRecordingWaiterDrops
+--- PASS: TestEmitWaitNonRecordingWaiterDrops (0.00s)
+=== RUN   TestLazyTriggeredExecComposesUnderLazyOp
+--- PASS: TestLazyTriggeredExecComposesUnderLazyOp (0.00s)
+=== RUN   TestLazyEmitRetryDoesNotLeakStaleWaitTarget
+=== PAUSE TestLazyEmitRetryDoesNotLeakStaleWaitTarget
+=== RUN   TestLazyEmitNestedOverrideNoCrossStamping
+--- PASS: TestLazyEmitNestedOverrideNoCrossStamping (0.00s)
+=== RUN   TestLazyEmitProducerRepointStampsDirectChildrenOnly
+--- PASS: TestLazyEmitProducerRepointStampsDirectChildrenOnly (0.00s)
+=== RUN   TestLazyEmitNoProducerNestsUnderHiddenLazyOp
+--- PASS: TestLazyEmitNoProducerNestsUnderHiddenLazyOp (0.00s)
+=== RUN   TestWcprofLazyParentProcessorStampsAllExports
+--- PASS: TestWcprofLazyParentProcessorStampsAllExports (0.00s)
+=== RUN   TestRecipeIDMemoDedupesSharedInlineFrame
+=== PAUSE TestRecipeIDMemoDedupesSharedInlineFrame
+=== RUN   TestRecipeIDMemoKeepsDistinctFramesDistinct
+=== PAUSE TestRecipeIDMemoKeepsDistinctFramesDistinct
+=== RUN   TestCloneDedupesSharedFrame
+=== PAUSE TestCloneDedupesSharedFrame
+=== RUN   TestCloneKeepsDistinctFramesDistinct
+=== PAUSE TestCloneKeepsDistinctFramesDistinct
+=== RUN   TestCloneSharedDAGIsLinearAndIndependent
+=== PAUSE TestCloneSharedDAGIsLinearAndIndependent
+=== RUN   TestResultCallProfileSkipTravelsThroughCloneAndFork
+=== PAUSE TestResultCallProfileSkipTravelsThroughCloneAndFork
+=== RUN   TestResultCallProfileSkipExcludedFromDigests
+=== PAUSE TestResultCallProfileSkipExcludedFromDigests
+=== RUN   TestResultCallProfileSkipRoundTripsThroughJSON
+=== PAUSE TestResultCallProfileSkipRoundTripsThroughJSON
+=== RUN   TestFrameProfileSkipNilSafe
+=== PAUSE TestFrameProfileSkipNilSafe
+=== RUN   TestResultCallDigestErrorsDoNotPanic
+=== PAUSE TestResultCallDigestErrorsDoNotPanic
+=== RUN   TestResultCallSelfDigestAndInputRefsPreserveInputKinds
+=== PAUSE TestResultCallSelfDigestAndInputRefsPreserveInputKinds
+=== RUN   TestResultCallModuleMetadataDoesNotAffectStructuralIdentity
+=== PAUSE TestResultCallModuleMetadataDoesNotAffectStructuralIdentity
+=== RUN   TestResultCallModuleIdentityIsStructuralInputOnly
+=== PAUSE TestResultCallModuleIdentityIsStructuralInputOnly
+=== RUN   TestResultCallSelfDigestUsesRecipeDigestsForResultInputs
+=== PAUSE TestResultCallSelfDigestUsesRecipeDigestsForResultInputs
+=== RUN   TestResultCallDigestedStringUsesAttachedDigestForStructuralIdentity
+=== PAUSE TestResultCallDigestedStringUsesAttachedDigestForStructuralIdentity
+=== RUN   TestResultCallBytesPersistAndRebuildRaw
+=== PAUSE TestResultCallBytesPersistAndRebuildRaw
+=== RUN   TestResultCallForkClonesTopLevelMutableState
+=== PAUSE TestResultCallForkClonesTopLevelMutableState
+=== RUN   TestCacheRecipeDigestForCallMemoizesOnOriginalFrame
+=== PAUSE TestCacheRecipeDigestForCallMemoizesOnOriginalFrame
+=== RUN   TestDetachedResultMetadataReuseAndCallMutationFork
+=== PAUSE TestDetachedResultMetadataReuseAndCallMutationFork
+=== RUN   TestResultCallRefReceiverUsesSharedFastPath
+=== PAUSE TestResultCallRefReceiverUsesSharedFastPath
+=== RUN   TestResultCallRefContentPreferredDigestUsesLatestSharedFrame
+=== PAUSE TestResultCallRefContentPreferredDigestUsesLatestSharedFrame
+=== RUN   TestResultCallRefRecipeIDUsesLatestSharedFrame
+=== PAUSE TestResultCallRefRecipeIDUsesLatestSharedFrame
+=== RUN   TestResultCallRefSharedFastPathDoesNotSurviveRemoval
+=== PAUSE TestResultCallRefSharedFastPathDoesNotSurviveRemoval
+=== RUN   TestResultCallRefResultIDFallbackStillWorks
+=== PAUSE TestResultCallRefResultIDFallbackStillWorks
+=== RUN   TestResultCallArgPBRedactsSensitive
+=== PAUSE TestResultCallArgPBRedactsSensitive
+=== RUN   TestResultCallPBRedactsSensitiveArg
+=== PAUSE TestResultCallPBRedactsSensitiveArg
+=== RUN   TestShouldEmitCallPayloadIsOncePerStore
+--- PASS: TestShouldEmitCallPayloadIsOncePerStore (0.00s)
+=== RUN   TestCallPayloadDedupeCannotSuppressSpans
+--- PASS: TestCallPayloadDedupeCannotSuppressSpans (0.00s)
+=== RUN   TestPerClientCacheScope
+=== PAUSE TestPerClientCacheScope
+=== RUN   TestPartSessionlessRestoredDirectory
+--- PASS: TestPartSessionlessRestoredDirectory (0.11s)
+=== RUN   TestBasic
+--- PASS: TestBasic (0.00s)
+=== RUN   TestForkedNodeUsesCurrentServerLoader
+--- PASS: TestForkedNodeUsesCurrentServerLoader (0.00s)
+=== RUN   TestSelectArray
+=== RUN   TestSelectArray/select_all_as_array
+=== RUN   TestSelectArray/select_all_as_instance_array
+=== RUN   TestSelectArray/select_all_individual_instances
+=== RUN   TestSelectArray/select_all_array_as_Typed
+=== RUN   TestSelectArray/select_all_children
+=== RUN   TestSelectArray/select_nth
+=== RUN   TestSelectArray/select_nth_caching
+=== RUN   TestSelectArray/nth_promotion_creates_cache-backed_receiver_results
+=== RUN   TestSelectArray/deref_promotion_creates_cache-backed_receiver_results
+--- PASS: TestSelectArray (0.00s)
+    --- PASS: TestSelectArray/select_all_as_array (0.00s)
+    --- PASS: TestSelectArray/select_all_as_instance_array (0.00s)
+    --- PASS: TestSelectArray/select_all_individual_instances (0.00s)
+    --- PASS: TestSelectArray/select_all_array_as_Typed (0.00s)
+    --- PASS: TestSelectArray/select_all_children (0.00s)
+    --- PASS: TestSelectArray/select_nth (0.00s)
+    --- PASS: TestSelectArray/select_nth_caching (0.00s)
+    --- PASS: TestSelectArray/nth_promotion_creates_cache-backed_receiver_results (0.00s)
+    --- PASS: TestSelectArray/deref_promotion_creates_cache-backed_receiver_results (0.00s)
+=== RUN   TestNullableResults
+=== RUN   TestNullableResults/nullable_scalars
+=== RUN   TestNullableResults/nullable_objects
+=== RUN   TestNullableResults/nullable_arrays_of_scalars
+=== RUN   TestNullableResults/non-null_arrays_with_nullable_scalars
+=== RUN   TestNullableResults/nullable_arrays_with_nullable_elements
+=== RUN   TestNullableResults/nullable_arrays_with_nullable_elements/from_ID
+--- PASS: TestNullableResults (0.00s)
+    --- PASS: TestNullableResults/nullable_scalars (0.00s)
+    --- PASS: TestNullableResults/nullable_objects (0.00s)
+    --- PASS: TestNullableResults/nullable_arrays_of_scalars (0.00s)
+    --- PASS: TestNullableResults/non-null_arrays_with_nullable_scalars (0.00s)
+    --- PASS: TestNullableResults/nullable_arrays_with_nullable_elements (0.00s)
+        --- PASS: TestNullableResults/nullable_arrays_with_nullable_elements/from_ID (0.00s)
+=== RUN   TestListResults
+--- PASS: TestListResults (0.00s)
+=== RUN   TestLoadingFromID
+--- PASS: TestLoadingFromID (0.00s)
+=== RUN   TestIDsReflectQuery
+    dagql_test.go:2358: actual  : point(x: 6, y: 7).shiftLeft: Point!
+    dagql_test.go:2358: expected: point(x: 6, y: 7).shiftLeft: Point!
+--- PASS: TestIDsReflectQuery (0.00s)
+=== RUN   TestIDsDoNotContainSensitiveValues
+    dagql_test.go:2358: actual  : point(x: 6, y: 7).loginTag(password: "***"): Point!
+    dagql_test.go:2358: expected: point(x: 6, y: 7).loginTag(password: "***"): Point!
+    dagql_test.go:2358: actual  : point(x: 6, y: 7).loginChain(password: "***"): Point!
+    dagql_test.go:2358: expected: point(x: 6, y: 7).loginChain(password: "***"): Point!
+    dagql_test.go:2358: actual  : point(x: 6, y: 7).loginTagFalse(password: "hunter2"): Point!
+    dagql_test.go:2358: expected: point(x: 6, y: 7).loginTagFalse(password: "hunter2"): Point!
+--- PASS: TestIDsDoNotContainSensitiveValues (0.00s)
+=== RUN   TestEmptyID
+--- PASS: TestEmptyID (0.00s)
+=== RUN   TestPureIDsDoNotReEvaluate
+--- PASS: TestPureIDsDoNotReEvaluate (0.00s)
+=== RUN   TestPassingObjectsAround
+--- PASS: TestPassingObjectsAround (0.00s)
+=== RUN   TestEnums
+=== RUN   TestEnums/outputs
+=== RUN   TestEnums/inputs
+=== RUN   TestEnums/invalid_inputs
+=== RUN   TestEnums/invalid_defaults
+--- PASS: TestEnums (0.00s)
+    --- PASS: TestEnums/outputs (0.00s)
+    --- PASS: TestEnums/inputs (0.00s)
+    --- PASS: TestEnums/invalid_inputs (0.00s)
+    --- PASS: TestEnums/invalid_defaults (0.00s)
+=== RUN   TestInputObjects
+=== RUN   TestInputObjects/inputs_and_defaults
+=== RUN   TestInputObjects/inputs_with_embedded_structs_in_IDs
+    dagql_test.go:1579: id1: engineResult(4): Defaults!
+    dagql_test.go:1580: id2: engineResult(17): Defaults!
+=== RUN   TestInputObjects/inputs_with_builtins_and_defaults
+=== RUN   TestInputObjects/nullable_inputs
+=== RUN   TestInputObjects/arrays_of_inputs
+--- PASS: TestInputObjects (0.00s)
+    --- PASS: TestInputObjects/inputs_and_defaults (0.00s)
+    --- PASS: TestInputObjects/inputs_with_embedded_structs_in_IDs (0.00s)
+    --- PASS: TestInputObjects/inputs_with_builtins_and_defaults (0.00s)
+    --- PASS: TestInputObjects/nullable_inputs (0.00s)
+    --- PASS: TestInputObjects/arrays_of_inputs (0.00s)
+=== RUN   TestDefaults
+=== RUN   TestDefaults/builtin_scalar_types
+=== RUN   TestDefaults/invalid_defaults
+    dagql_test.go:1781: error (expected): [{"message":"convert default value \"yessir\" for arg \"boolean\": strconv.ParseBool: parsing \"yessir\": invalid syntax","path":["badBool"]},{"message":"convert default value \"float on\" for arg \"float\": strconv.ParseFloat: parsing \"float on\": invalid syntax","path":["badFloat"]},{"message":"convert default value \"forty-two\" for arg \"int\": strconv.ParseInt: parsing \"forty-two\": invalid syntax","path":["badInt"]}]
+--- PASS: TestDefaults (0.00s)
+    --- PASS: TestDefaults/builtin_scalar_types (0.00s)
+    --- PASS: TestDefaults/invalid_defaults (0.00s)
+=== RUN   TestParallelism
+=== RUN   TestParallelism/simple_synchronous_case
+=== RUN   TestParallelism/parallel_at_each_level
+--- PASS: TestParallelism (0.00s)
+    --- PASS: TestParallelism/simple_synchronous_case (0.00s)
+    --- PASS: TestParallelism/parallel_at_each_level (0.00s)
+=== RUN   TestArrayParallelism
+--- PASS: TestArrayParallelism (0.00s)
+=== RUN   TestBuiltins
+=== RUN   TestBuiltins/builtin_scalar_types
+=== RUN   TestBuiltins/with_defaults
+=== RUN   TestBuiltins/invalid_defaults_for_builtins
+    dagql_test.go:2090: error (expected): [{"message":"convert default value \"yessir\" for arg \"boolean\": strconv.ParseBool: parsing \"yessir\": invalid syntax","path":["badBool"]},{"message":"convert default value \"float on\" for arg \"float\": strconv.ParseFloat: parsing \"float on\": invalid syntax","path":["badFloat"]},{"message":"convert default value \"forty-two\" for arg \"int\": strconv.ParseInt: parsing \"forty-two\": invalid syntax","path":["badInt"]},{"message":"convert default value \"pizza\" for arg \"slice\": decode \"pizza\": invalid character 'p' looking for beginning of value","path":["badSlice"]}]
+--- PASS: TestBuiltins (0.00s)
+    --- PASS: TestBuiltins/builtin_scalar_types (0.00s)
+    --- PASS: TestBuiltins/with_defaults (0.00s)
+    --- PASS: TestBuiltins/invalid_defaults_for_builtins (0.00s)
+=== RUN   TestIntrospection
+--- PASS: TestIntrospection (0.03s)
+=== RUN   TestIDFormat
+--- PASS: TestIDFormat (0.00s)
+=== RUN   TestIDAdditionalDigestsMergeOnSameRecipeCallInDAG
+--- PASS: TestIDAdditionalDigestsMergeOnSameRecipeCallInDAG (0.00s)
+=== RUN   TestIDWithContentDigestAddsKnownDigest
+--- PASS: TestIDWithContentDigestAddsKnownDigest (0.00s)
+=== RUN   TestViews
+=== RUN   TestViews/in_default_view
+=== RUN   TestViews/in_unknown_view
+=== RUN   TestViews/in_first_view
+=== RUN   TestViews/in_second_view
+--- PASS: TestViews (0.00s)
+    --- PASS: TestViews/in_default_view (0.00s)
+    --- PASS: TestViews/in_unknown_view (0.00s)
+    --- PASS: TestViews/in_first_view (0.00s)
+    --- PASS: TestViews/in_second_view (0.00s)
+=== RUN   TestIDRecipeArgIsInternal
+--- PASS: TestIDRecipeArgIsInternal (0.00s)
+=== RUN   TestIDRecipeDefault
+--- PASS: TestIDRecipeDefault (0.00s)
+=== RUN   TestViewsCaching
+--- PASS: TestViewsCaching (0.00s)
+=== RUN   TestViewsIntrospection
+=== RUN   TestViewsIntrospection/in_default_view
+=== RUN   TestViewsIntrospection/in_unknown_view
+=== RUN   TestViewsIntrospection/in_first_view
+=== RUN   TestViewsIntrospection/in_second_view
+--- PASS: TestViewsIntrospection (0.06s)
+    --- PASS: TestViewsIntrospection/in_default_view (0.02s)
+    --- PASS: TestViewsIntrospection/in_unknown_view (0.01s)
+    --- PASS: TestViewsIntrospection/in_first_view (0.01s)
+    --- PASS: TestViewsIntrospection/in_second_view (0.02s)
+=== RUN   TestViewsFilterNonObjectTypes
+--- PASS: TestViewsFilterNonObjectTypes (0.00s)
+=== RUN   TestNodeFuncResultZeroValueTypeInference
+--- PASS: TestNodeFuncResultZeroValueTypeInference (0.00s)
+=== RUN   TestNullResultCachePathDoesNotPanic
+--- PASS: TestNullResultCachePathDoesNotPanic (0.00s)
+=== RUN   TestCacheConfigReturnedIDRewritesExecutionArgs
+--- PASS: TestCacheConfigReturnedIDRewritesExecutionArgs (0.00s)
+=== RUN   TestImplicitInputCachePerClient
+--- PASS: TestImplicitInputCachePerClient (0.00s)
+=== RUN   TestDefaultConcurrencyKeyUsesSessionID
+--- PASS: TestDefaultConcurrencyKeyUsesSessionID (0.00s)
+=== RUN   TestImplicitInputCachePerSession
+--- PASS: TestImplicitInputCachePerSession (0.00s)
+=== RUN   TestImplicitInputCachePerCall
+--- PASS: TestImplicitInputCachePerCall (0.00s)
+=== RUN   TestRecipeLoadBytesLiteral
+--- PASS: TestRecipeLoadBytesLiteral (0.00s)
+=== RUN   TestImplicitInputCachePerSchema
+--- PASS: TestImplicitInputCachePerSchema (0.00s)
+=== RUN   TestImplicitInputCachePerClientSchema
+--- PASS: TestImplicitInputCachePerClientSchema (0.00s)
+=== RUN   TestImplicitInputCacheAsRequested
+--- PASS: TestImplicitInputCacheAsRequested (0.00s)
+=== RUN   TestImplicitInputRecomputedAfterCacheConfigIDRewrite
+--- PASS: TestImplicitInputRecomputedAfterCacheConfigIDRewrite (0.00s)
+=== RUN   TestServerSelect
+=== RUN   TestServerSelect/basic_selection
+=== RUN   TestServerSelect/chained_selection
+=== RUN   TestServerSelect/null_result
+=== RUN   TestServerSelect/array_selection
+=== RUN   TestServerSelect/array_selection_into_[]int
+=== RUN   TestServerSelect/array_selection_into_[]string
+=== RUN   TestServerSelect/error_cases
+=== RUN   TestServerSelect/null_result_handling
+--- PASS: TestServerSelect (0.00s)
+    --- PASS: TestServerSelect/basic_selection (0.00s)
+    --- PASS: TestServerSelect/chained_selection (0.00s)
+    --- PASS: TestServerSelect/null_result (0.00s)
+    --- PASS: TestServerSelect/array_selection (0.00s)
+    --- PASS: TestServerSelect/array_selection_into_[]int (0.00s)
+    --- PASS: TestServerSelect/array_selection_into_[]string (0.00s)
+    --- PASS: TestServerSelect/error_cases (0.00s)
+    --- PASS: TestServerSelect/null_result_handling (0.00s)
+=== RUN   TestInstallHooks
+--- PASS: TestInstallHooks (0.00s)
+=== RUN   TestInterfaces
+=== RUN   TestInterfaces/install_and_introspect
+=== RUN   TestInterfaces/recursive_covariant_return_types_are_inferred
+=== RUN   TestInterfaces/interface-to-interface_relationships_are_inferred
+=== RUN   TestInterfaces/object_must_have_every_field_required_by_the_interface
+=== RUN   TestInterfaces/object_method_args_must_match_the_interface_method
+=== RUN   TestInterfaces/object_method_cannot_require_an_arg_missing_from_the_interface
+=== RUN   TestInterfaces/interface_method_args_must_match_the_interface_it_claims_to_support
+=== RUN   TestInterfaces/nullable_list_result_cannot_replace_non-null_list_result
+=== RUN   TestInterfaces/method_cannot_require_non-null_list_when_interface_allows_null
+=== RUN   TestInterfaces/auto_Node_interface
+=== RUN   TestInterfaces/fields_added_after_install_are_inferred
+=== RUN   TestInterfaces/inline_fragments
+=== RUN   TestInterfaces/fragment_spreads_with_type_condition
+=== RUN   TestInterfaces/node_applies_fragment_type_conditions_at_runtime
+=== RUN   TestInterfaces/resolve_applies_fragment_type_conditions_using_loaded_object_schema
+=== RUN   TestInterfaces/inline_fragment_with_interface_type_condition
+=== RUN   TestInterfaces/__typename
+=== RUN   TestInterfaces/concurrent_implementation_registration_and_fragment_parsing
+=== RUN   TestInterfaces/duplicate_InstallInterface_returns_existing
+--- PASS: TestInterfaces (0.02s)
+    --- PASS: TestInterfaces/install_and_introspect (0.00s)
+    --- PASS: TestInterfaces/recursive_covariant_return_types_are_inferred (0.00s)
+    --- PASS: TestInterfaces/interface-to-interface_relationships_are_inferred (0.00s)
+    --- PASS: TestInterfaces/object_must_have_every_field_required_by_the_interface (0.00s)
+    --- PASS: TestInterfaces/object_method_args_must_match_the_interface_method (0.00s)
+    --- PASS: TestInterfaces/object_method_cannot_require_an_arg_missing_from_the_interface (0.00s)
+    --- PASS: TestInterfaces/interface_method_args_must_match_the_interface_it_claims_to_support (0.00s)
+    --- PASS: TestInterfaces/nullable_list_result_cannot_replace_non-null_list_result (0.00s)
+    --- PASS: TestInterfaces/method_cannot_require_non-null_list_when_interface_allows_null (0.00s)
+    --- PASS: TestInterfaces/auto_Node_interface (0.00s)
+    --- PASS: TestInterfaces/fields_added_after_install_are_inferred (0.00s)
+    --- PASS: TestInterfaces/inline_fragments (0.00s)
+    --- PASS: TestInterfaces/fragment_spreads_with_type_condition (0.00s)
+    --- PASS: TestInterfaces/node_applies_fragment_type_conditions_at_runtime (0.00s)
+    --- PASS: TestInterfaces/resolve_applies_fragment_type_conditions_using_loaded_object_schema (0.00s)
+    --- PASS: TestInterfaces/inline_fragment_with_interface_type_condition (0.00s)
+    --- PASS: TestInterfaces/__typename (0.00s)
+    --- PASS: TestInterfaces/concurrent_implementation_registration_and_fragment_parsing (0.01s)
+    --- PASS: TestInterfaces/duplicate_InstallInterface_returns_existing (0.00s)
+=== RUN   TestObjectTypeForIDUsesModuleProvenance
+--- PASS: TestObjectTypeForIDUsesModuleProvenance (0.00s)
+=== RUN   TestLoadRecipeUsesModuleProvenance
+=== RUN   TestLoadRecipeUsesModuleProvenance/missing_constructor
+=== RUN   TestLoadRecipeUsesModuleProvenance/shadowed_constructor
+--- PASS: TestLoadRecipeUsesModuleProvenance (0.00s)
+    --- PASS: TestLoadRecipeUsesModuleProvenance/missing_constructor (0.00s)
+    --- PASS: TestLoadRecipeUsesModuleProvenance/shadowed_constructor (0.00s)
+=== RUN   TestLoadRecipeModuleCoreCallsAndLazyRefs
+--- PASS: TestLoadRecipeModuleCoreCallsAndLazyRefs (0.00s)
+=== RUN   TestLazyRefArgNotEvaluatedOnLoad
+--- PASS: TestLazyRefArgNotEvaluatedOnLoad (0.00s)
+=== RUN   TestLazyRefArgPreservesCallIdentity
+--- PASS: TestLazyRefArgPreservesCallIdentity (0.00s)
+=== RUN   TestSelectIntoNullableDestination
+=== RUN   TestSelectIntoNullableDestination/non-null
+=== RUN   TestSelectIntoNullableDestination/null
+--- PASS: TestSelectIntoNullableDestination (0.00s)
+    --- PASS: TestSelectIntoNullableDestination/non-null (0.00s)
+    --- PASS: TestSelectIntoNullableDestination/null (0.00s)
+=== RUN   TestPeekRootFieldsPOSTJSON
+=== PAUSE TestPeekRootFieldsPOSTJSON
+=== RUN   TestPeekRootFieldsGET
+=== PAUSE TestPeekRootFieldsGET
+=== RUN   TestPeekRootFieldsAmbiguousOperation
+=== PAUSE TestPeekRootFieldsAmbiguousOperation
+=== RUN   TestPeekRootFieldsRejectsBatch
+=== PAUSE TestPeekRootFieldsRejectsBatch
+=== RUN   TestPeekRootFieldsRecoversSingleOperation
+=== PAUSE TestPeekRootFieldsRecoversSingleOperation
+=== CONT  TestCacheDoNotCachePreservesAttachedReturnedObject
+--- PASS: TestCacheDoNotCachePreservesAttachedReturnedObject (0.00s)
+=== CONT  TestPeekRootFieldsRecoversSingleOperation
+--- PASS: TestPeekRootFieldsRecoversSingleOperation (0.00s)
+=== CONT  TestPeekRootFieldsRejectsBatch
+--- PASS: TestPeekRootFieldsRejectsBatch (0.00s)
+=== CONT  TestPeekRootFieldsAmbiguousOperation
+--- PASS: TestPeekRootFieldsAmbiguousOperation (0.00s)
+=== CONT  TestCachePersistenceDoesNotWriteDuringRuntime
+=== CONT  TestResultCallArgPBRedactsSensitive
+=== CONT  TestCacheErrors
+=== CONT  TestResultCallRefRecipeIDUsesLatestSharedFrame
+=== CONT  TestResultCallRefContentPreferredDigestUsesLatestSharedFrame
+=== CONT  TestCacheDoNotCacheNormalizesNestedHitMetadata
+=== CONT  TestResultCallRefReceiverUsesSharedFastPath
+=== CONT  TestDerefValueForNullables
+=== CONT  TestDetachedResultMetadataReuseAndCallMutationFork
+=== RUN   TestDerefValueForNullables/dynamic-nullable
+=== CONT  TestCacheRecipeDigestForCallMemoizesOnOriginalFrame
+=== CONT  TestResultCallForkClonesTopLevelMutableState
+=== CONT  TestCacheTeachContentDigestWithResultRefs
+=== CONT  TestResultCallBytesPersistAndRebuildRaw
+=== CONT  TestResultCallDigestedStringUsesAttachedDigestForStructuralIdentity
+=== CONT  TestResultCallSelfDigestUsesRecipeDigestsForResultInputs
+=== CONT  TestResultCallModuleIdentityIsStructuralInputOnly
+=== CONT  TestResultCallModuleMetadataDoesNotAffectStructuralIdentity
+=== CONT  TestCacheTeachContentDigestPreservesAttachment
+=== CONT  TestResultCallSelfDigestAndInputRefsPreserveInputKinds
+=== CONT  TestResultCallDigestErrorsDoNotPanic
+=== CONT  TestCacheFreshReturnIDGetsContentDigestFromEqClassMetadata
+=== CONT  TestAttachResultNormalizesPendingResultCallRef
+=== CONT  TestPendingResultCallRefRecipeID
+=== CONT  TestTeachCallEquivalentToResult
+=== CONT  TestCacheHitReturnIDGetsContentDigestFromEqClassMetadata
+=== CONT  TestInputSpecsInputsFromResultCallArgs
+=== CONT  TestIndexResultDigestsUsesExplicitRequestAndResponseIDs
+=== CONT  TestExtraDigestLabelIsolation
+=== CONT  TestClassNewRewrapPreservesModuleCacheIsolation
+=== CONT  TestEvaluatePartsMetadataLeavesSiblingGroupPending
+=== CONT  TestEquivalencySetCacheHits
+=== RUN   TestEquivalencySetCacheHits/basic
+=== CONT  TestSharedCallReleasesLeaseWhenLastWaiterCancelsAfterCompletion
+=== CONT  TestCacheArbitraryRecursiveCall
+=== CONT  TestFrameProfileSkipNilSafe
+=== CONT  TestResultCallProfileSkipRoundTripsThroughJSON
+=== CONT  TestCachePersistenceWorkerMirrorsUnpruneablePersistedEdge
+--- PASS: TestResultCallArgPBRedactsSensitive (0.00s)
+--- PASS: TestResultCallRefRecipeIDUsesLatestSharedFrame (0.00s)
+--- PASS: TestCacheErrors (0.00s)
+--- PASS: TestResultCallRefContentPreferredDigestUsesLatestSharedFrame (0.00s)
+--- PASS: TestCacheDoNotCacheNormalizesNestedHitMetadata (0.00s)
+--- PASS: TestResultCallRefReceiverUsesSharedFastPath (0.00s)
+--- PASS: TestDetachedResultMetadataReuseAndCallMutationFork (0.00s)
+--- PASS: TestCacheRecipeDigestForCallMemoizesOnOriginalFrame (0.00s)
+=== RUN   TestDerefValueForNullables/nullable-generic
+=== CONT  TestCacheNilResultIsCached
+=== CONT  TestPeekRootFieldsPOSTJSON
+=== CONT  TestPerClientCacheScope
+=== CONT  TestCacheNilKeyIDRejected
+=== CONT  TestSkipDedupe
+=== CONT  TestCacheRecursiveCall
+=== CONT  TestResultCallRefResultIDFallbackStillWorks
+=== CONT  TestPeekRootFieldsGET
+=== CONT  TestResultCallProfileSkipExcludedFromDigests
+=== CONT  TestResultCallProfileSkipTravelsThroughCloneAndFork
+=== CONT  TestCloneSharedDAGIsLinearAndIndependent
+=== CONT  TestCloneKeepsDistinctFramesDistinct
+=== CONT  TestCloneDedupesSharedFrame
+=== CONT  TestRecipeIDMemoKeepsDistinctFramesDistinct
+=== CONT  TestRecipeIDMemoDedupesSharedInlineFrame
+=== CONT  TestLookupCacheForIDExtraDigestFallback
+=== CONT  TestDynamicNullableJSONRoundTripSetsValid
+=== RUN   TestLookupCacheForIDExtraDigestFallback/hit_on_exact_output_digest_match
+=== CONT  TestHitTeachesReturnedRequestIDToCache
+=== CONT  TestResultCallRefSharedFastPathDoesNotSurviveRemoval
+=== CONT  TestDynamicOptionalJSONRoundTripSetsValid
+=== CONT  TestCacheHitRewrapsObjectResultForCurrentServer
+=== CONT  TestNullableJSONRoundTripSetsValid
+=== CONT  TestClassNewRewrapsObjectResult
+=== CONT  TestOptionalJSONRoundTripSetsValid
+=== CONT  TestResultCallPBRedactsSensitiveArg
+=== CONT  TestNullableDerefCacheHitsReconstructObjectView
+=== CONT  TestCacheDifferentConcurrencyKeysDoNotDedupe
+=== CONT  TestLazyEmitRetryDoesNotLeakStaleWaitTarget
+=== CONT  TestCacheCloseDiscardingPersistenceDoesNotMarkClean
+=== CONT  TestNullableWrappedUsesSameSharedResult
+=== CONT  TestCachePersistenceWorkerMirrorsRetainedPersistableResult
+=== CONT  TestNullableDerefUsesSameSharedResult
+=== CONT  TestNthValueAttachedDynamicResultArrayReturnsCanonicalChild
+=== CONT  TestNthValueAttachedObjectResultArrayReturnsCanonicalChild
+=== CONT  TestPersistedSelfCodecRejectsNonPersistedObjectLikeScalar
+--- PASS: TestDerefValueForNullables (0.00s)
+    --- PASS: TestDerefValueForNullables/dynamic-nullable (0.00s)
+    --- PASS: TestDerefValueForNullables/nullable-generic (0.00s)
+--- PASS: TestResultCallForkClonesTopLevelMutableState (0.00s)
+--- PASS: TestResultCallBytesPersistAndRebuildRaw (0.00s)
+--- PASS: TestResultCallDigestedStringUsesAttachedDigestForStructuralIdentity (0.00s)
+--- PASS: TestResultCallSelfDigestUsesRecipeDigestsForResultInputs (0.00s)
+--- PASS: TestResultCallModuleIdentityIsStructuralInputOnly (0.00s)
+--- PASS: TestCacheTeachContentDigestWithResultRefs (0.00s)
+=== CONT  TestPersistedSelfCodecRawObjectArrayRoundTrip
+--- PASS: TestResultCallModuleMetadataDoesNotAffectStructuralIdentity (0.00s)
+--- PASS: TestNthValueAttachedDynamicResultArrayReturnsCanonicalChild (0.00s)
+--- PASS: TestCacheTeachContentDigestPreservesAttachment (0.00s)
+--- PASS: TestCacheFreshReturnIDGetsContentDigestFromEqClassMetadata (0.00s)
+--- PASS: TestPendingResultCallRefRecipeID (0.00s)
+--- PASS: TestAttachResultNormalizesPendingResultCallRef (0.00s)
+--- PASS: TestCacheDifferentConcurrencyKeysDoNotDedupe (0.00s)
+=== CONT  TestNthValuePreservesAttachmentLineage
+--- PASS: TestNthValueAttachedObjectResultArrayReturnsCanonicalChild (0.00s)
+--- PASS: TestInputSpecsInputsFromResultCallArgs (0.00s)
+=== CONT  TestRecipeMemoSharesAcrossReceiverChain
+--- PASS: TestIndexResultDigestsUsesExplicitRequestAndResponseIDs (0.00s)
+--- PASS: TestCacheArbitraryRecursiveCall (0.00s)
+--- PASS: TestFrameProfileSkipNilSafe (0.00s)
+--- PASS: TestResultCallProfileSkipRoundTripsThroughJSON (0.00s)
+--- PASS: TestCacheNilResultIsCached (0.00s)
+--- PASS: TestPerClientCacheScope (0.00s)
+--- PASS: TestCacheNilKeyIDRejected (0.00s)
+--- PASS: TestPeekRootFieldsPOSTJSON (0.00s)
+--- PASS: TestCacheRecursiveCall (0.00s)
+--- PASS: TestResultCallProfileSkipExcludedFromDigests (0.00s)
+--- PASS: TestResultCallProfileSkipTravelsThroughCloneAndFork (0.00s)
+--- PASS: TestCloneKeepsDistinctFramesDistinct (0.00s)
+=== CONT  TestPersistedSelfCodecNestedListRoundTrip
+=== CONT  TestDetachedReceiverSelectionPreservesReceiverLineage
+=== CONT  TestRecipeMemoKeepsDistinctNodesDistinct
+=== RUN   TestEquivalencySetCacheHits/deep_chain
+=== CONT  TestObjectCacheHitPreservesObjectResultShape
+=== CONT  TestPersistedSelfCodecUsesSharedObjectClassification
+=== CONT  TestCacheAttachmentClaimPinsTargetAgainstForeignRelease
+=== CONT  TestPersistedSelfCodecObjectIDRoundTrip
+=== CONT  TestCacheWithSessionResourceHandleRefusesAttachedMutation
+--- PASS: TestCloneDedupesSharedFrame (0.00s)
+--- PASS: TestPeekRootFieldsGET (0.00s)
+=== CONT  TestRecipeMemoDedupesSharedNode
+=== CONT  TestPersistedSelfCodecScalarRoundTrip
+--- PASS: TestResultCallRefResultIDFallbackStillWorks (0.00s)
+--- PASS: TestClassNewRewrapPreservesModuleCacheIsolation (0.00s)
+--- PASS: TestRecipeIDMemoKeepsDistinctFramesDistinct (0.00s)
+--- PASS: TestRecipeIDMemoDedupesSharedInlineFrame (0.00s)
+--- PASS: TestSharedCallReleasesLeaseWhenLastWaiterCancelsAfterCompletion (0.00s)
+--- PASS: TestDynamicNullableJSONRoundTripSetsValid (0.00s)
+--- PASS: TestResultCallRefSharedFastPathDoesNotSurviveRemoval (0.00s)
+--- PASS: TestDynamicOptionalJSONRoundTripSetsValid (0.00s)
+=== CONT  TestCachePublicationRollsBackWhenStructuralDepMissing
+--- PASS: TestNullableJSONRoundTripSetsValid (0.00s)
+--- PASS: TestOptionalJSONRoundTripSetsValid (0.00s)
+--- PASS: TestHitTeachesReturnedRequestIDToCache (0.00s)
+--- PASS: TestResultCallDigestErrorsDoNotPanic (0.00s)
+--- PASS: TestExtraDigestLabelIsolation (0.00s)
+--- PASS: TestNullableWrappedUsesSameSharedResult (0.00s)
+--- PASS: TestResultCallPBRedactsSensitiveArg (0.00s)
+--- PASS: TestEvaluatePartsMetadataLeavesSiblingGroupPending (0.00s)
+--- PASS: TestNullableDerefUsesSameSharedResult (0.00s)
+--- PASS: TestPersistedSelfCodecRejectsNonPersistedObjectLikeScalar (0.00s)
+--- PASS: TestResultCallSelfDigestAndInputRefsPreserveInputKinds (0.00s)
+--- PASS: TestTeachCallEquivalentToResult (0.00s)
+--- PASS: TestCacheHitReturnIDGetsContentDigestFromEqClassMetadata (0.00s)
+--- PASS: TestNullableDerefCacheHitsReconstructObjectView (0.00s)
+--- PASS: TestPersistedSelfCodecRawObjectArrayRoundTrip (0.00s)
+--- PASS: TestNthValuePreservesAttachmentLineage (0.00s)
+--- PASS: TestRecipeMemoKeepsDistinctNodesDistinct (0.00s)
+--- PASS: TestDetachedReceiverSelectionPreservesReceiverLineage (0.00s)
+--- PASS: TestPersistedSelfCodecNestedListRoundTrip (0.00s)
+--- PASS: TestObjectCacheHitPreservesObjectResultShape (0.00s)
+--- PASS: TestCacheHitRewrapsObjectResultForCurrentServer (0.00s)
+--- PASS: TestRecipeMemoDedupesSharedNode (0.00s)
+--- PASS: TestPersistedSelfCodecScalarRoundTrip (0.00s)
+--- PASS: TestLazyEmitRetryDoesNotLeakStaleWaitTarget (0.00s)
+=== RUN   TestLookupCacheForIDExtraDigestFallback/miss_without_exact_output_digest_match
+--- PASS: TestPersistedSelfCodecUsesSharedObjectClassification (0.00s)
+--- PASS: TestLookupCacheForIDExtraDigestFallback (0.00s)
+    --- PASS: TestLookupCacheForIDExtraDigestFallback/hit_on_exact_output_digest_match (0.00s)
+    --- PASS: TestLookupCacheForIDExtraDigestFallback/miss_without_exact_output_digest_match (0.00s)
+=== CONT  TestCacheLoadResultByResultIDStillFailsWhenProducerReleaseFailsAttachment
+--- PASS: TestCacheAttachmentClaimPinsTargetAgainstForeignRelease (0.00s)
+=== CONT  TestCachePersistenceDecodeInstallPreservesRequiredSessionResources
+=== CONT  TestCacheLoadResultByResultIDRefusesUnboundSession
+=== RUN   TestEquivalencySetCacheHits/late_extra_digests_at_h
+--- PASS: TestPersistedSelfCodecObjectIDRoundTrip (0.00s)
+=== CONT  TestCacheDigestLookupConvertsToMissWhenProducerReleaseFailsAttachment
+=== CONT  TestCacheHitKeepsGenuineAttachmentFailure
+--- PASS: TestClassNewRewrapsObjectResult (0.01s)
+--- PASS: TestSkipDedupe (0.01s)
+=== CONT  TestCacheHitConvertsToMissWhenProducerReleaseFailsAttachment
+--- PASS: TestCacheLoadResultByResultIDStillFailsWhenProducerReleaseFailsAttachment (0.00s)
+=== CONT  TestCachePersistenceImportFailureWipesStore
+=== CONT  TestCachePersistenceImportRecomputesRequiredDepsFirst
+--- PASS: TestRecipeMemoSharesAcrossReceiverChain (0.00s)
+--- PASS: TestCacheWithSessionResourceHandleRefusesAttachedMutation (0.00s)
+=== CONT  TestCacheDigestLookupRechecksSessionResourcesAfterLateExplicitDependency
+=== RUN   TestEquivalencySetCacheHits/multi_input_all_inputs_equivalent_hit
+--- PASS: TestCloneSharedDAGIsLinearAndIndependent (0.01s)
+--- PASS: TestCacheDigestLookupConvertsToMissWhenProducerReleaseFailsAttachment (0.00s)
+=== CONT  TestCacheHitRechecksSessionResourcesAfterAttachBarrier
+=== CONT  TestCacheLoadResultByResultIDRechecksAfterAttachBarrier
+--- PASS: TestCacheDigestLookupRechecksSessionResourcesAfterLateExplicitDependency (0.00s)
+=== CONT  TestCacheLoadResultByResultIDRechecksAfterLateExplicitDependency
+=== CONT  TestCacheLoadResultByResultIDIgnoresUncleanCanonicalSiblings
+--- PASS: TestCacheLoadResultByResultIDIgnoresUncleanCanonicalSiblings (0.00s)
+=== CONT  TestCacheAddExplicitDependencyAcceptsSessionResourceDepsAndRecomputesAncestors
+--- PASS: TestCachePublicationRollsBackWhenStructuralDepMissing (0.00s)
+=== CONT  TestCacheHitRechecksSessionResourcesAfterLateExplicitDependency
+--- PASS: TestCacheHitRechecksSessionResourcesAfterLateExplicitDependency (0.00s)
+=== CONT  TestCacheDigestLookupRechecksSessionResourcesAfterAttachBarrier
+=== RUN   TestEquivalencySetCacheHits/multi_input_partial_equivalence_miss
+--- PASS: TestCacheHitConvertsToMissWhenProducerReleaseFailsAttachment (0.00s)
+=== CONT  TestResultContentPreferredDigestUsesContentDigest
+--- PASS: TestResultContentPreferredDigestUsesContentDigest (0.00s)
+=== CONT  TestObjectResultResultCallAndReceiver
+--- PASS: TestCacheLoadResultByResultIDRechecksAfterLateExplicitDependency (0.00s)
+=== CONT  TestCacheUsageEntriesAllMutableUsageRemeasuresAfterSizeChange
+--- PASS: TestObjectResultResultCallAndReceiver (0.00s)
+=== CONT  TestCacheArbitraryConcurrent
+--- PASS: TestCacheUsageEntriesAllMutableUsageRemeasuresAfterSizeChange (0.00s)
+=== CONT  TestCacheArbitraryRoundTripAndRelease
+--- PASS: TestCacheArbitraryRoundTripAndRelease (0.00s)
+=== CONT  TestCacheArbitraryCallbackCancelsAfterLastWaiter
+--- PASS: TestCacheAddExplicitDependencyAcceptsSessionResourceDepsAndRecomputesAncestors (0.00s)
+=== CONT  TestCacheArbitraryCallbackUsesOneClientScopeLease
+=== RUN   TestEquivalencySetCacheHits/transitive_extra_digest_merge_bridge_hit
+--- PASS: TestCacheHitRechecksSessionResourcesAfterAttachBarrier (0.00s)
+=== CONT  TestCacheResultCallFirstWriterWins
+--- PASS: TestCacheResultCallFirstWriterWins (0.00s)
+=== CONT  TestCacheResultCallDerivedFromRequestID
+--- PASS: TestCacheResultCallDerivedFromRequestID (0.00s)
+=== CONT  TestCacheAddExplicitDependency
+--- PASS: TestCacheLoadResultByResultIDRechecksAfterAttachBarrier (0.00s)
+=== CONT  TestCacheAttachDependencyResultsAlreadyAttachedChild
+--- PASS: TestCacheAttachDependencyResultsAlreadyAttachedChild (0.00s)
+=== CONT  TestCacheAttachDependencyResults
+--- PASS: TestCacheDigestLookupRechecksSessionResourcesAfterAttachBarrier (0.00s)
+=== CONT  TestCachePruneDoesNotProtectTermProvenanceOnlyResultFromActiveResult
+--- PASS: TestCacheArbitraryCallbackUsesOneClientScopeLease (0.00s)
+=== CONT  TestCachePruneProtectsExactDependencyOfActiveResult
+--- PASS: TestCachePruneProtectsExactDependencyOfActiveResult (0.00s)
+=== CONT  TestCachePruneCompactsEqClassesAndPreservesLookup
+=== RUN   TestEquivalencySetCacheHits/transitive_bridge_no_bridge_no_hit
+--- PASS: TestCacheAddExplicitDependency (0.00s)
+=== CONT  TestCompactEqClassesSkipsWhenBelowThreshold
+--- PASS: TestCompactEqClassesSkipsWhenBelowThreshold (0.00s)
+=== CONT  TestCachePruneOrderedSimulationKeepsZeroDeltaPrerequisites
+--- PASS: TestCachePruneOrderedSimulationKeepsZeroDeltaPrerequisites (0.00s)
+=== CONT  TestCacheDoNotCacheRejectsOnReleaser
+--- PASS: TestCacheDoNotCacheRejectsOnReleaser (0.00s)
+=== CONT  TestCachePruneSessionOwnedEntriesAreNeverPruned
+--- PASS: TestCachePruneDoesNotProtectTermProvenanceOnlyResultFromActiveResult (0.00s)
+=== CONT  TestCachePruneMinFreeSpaceUsesCurrentFreeSpace
+--- PASS: TestCachePruneMinFreeSpaceUsesCurrentFreeSpace (0.00s)
+=== CONT  TestCachePruneThresholdTargetSpace
+--- PASS: TestCacheAttachDependencyResults (0.00s)
+=== CONT  TestCachePruneKeepDuration
+--- PASS: TestCachePruneThresholdTargetSpace (0.00s)
+=== CONT  TestCachePersistableRetainedAcrossSessionClose
+--- PASS: TestCachePersistableRetainedAcrossSessionClose (0.00s)
+--- PASS: TestCachePruneKeepDuration (0.00s)
+=== CONT  TestCacheUsageEntriesAllSumsOwnedUsageIdentities
+=== CONT  TestCacheUsageEntriesAllDedupesByUsageIdentity
+=== RUN   TestEquivalencySetCacheHits/fanout_fanin_join_hit_after_repair
+--- PASS: TestCacheUsageEntriesAllSumsOwnedUsageIdentities (0.00s)
+=== CONT  TestCacheUsageEntriesAllReportsSessionAndRetainedState
+--- PASS: TestCacheUsageEntriesAllDedupesByUsageIdentity (0.00s)
+=== CONT  TestCacheMakeResultUnpruneableClearsPersistedExpiry
+--- PASS: TestCacheUsageEntriesAllReportsSessionAndRetainedState (0.00s)
+=== CONT  TestCacheMakeResultUnpruneableSkipsPrune
+--- PASS: TestCacheMakeResultUnpruneableClearsPersistedExpiry (0.00s)
+=== CONT  TestCacheMakeResultUnpruneableRetainsAcrossSessionClose
+--- PASS: TestCacheMakeResultUnpruneableSkipsPrune (0.00s)
+=== CONT  TestCachePersistableHitUpgradesExistingResultToRetained
+--- PASS: TestCacheMakeResultUnpruneableRetainsAcrossSessionClose (0.00s)
+=== CONT  TestCacheNonPersistableDropsWhenRefsDrain
+--- PASS: TestCachePersistableHitUpgradesExistingResultToRetained (0.00s)
+=== CONT  TestOngoingCallPersistableIntentConcurrentAccess
+--- PASS: TestCacheNonPersistableDropsWhenRefsDrain (0.00s)
+=== CONT  TestCachePersistenceImportRoundTripAcrossRestart
+--- PASS: TestOngoingCallPersistableIntentConcurrentAccess (0.00s)
+=== CONT  TestCachePersistenceSchemaMismatchWipesStore
+=== RUN   TestEquivalencySetCacheHits/fanout_fanin_late_merge_enables_downstream_join_input_hit
+--- PASS: TestCacheArbitraryCallbackCancelsAfterLastWaiter (0.00s)
+=== CONT  TestCachePersistenceUncleanMarkerWipesStore
+--- PASS: TestEquivalencySetCacheHits (0.01s)
+    --- PASS: TestEquivalencySetCacheHits/basic (0.00s)
+    --- PASS: TestEquivalencySetCacheHits/deep_chain (0.00s)
+    --- PASS: TestEquivalencySetCacheHits/late_extra_digests_at_h (0.00s)
+    --- PASS: TestEquivalencySetCacheHits/multi_input_all_inputs_equivalent_hit (0.00s)
+    --- PASS: TestEquivalencySetCacheHits/multi_input_partial_equivalence_miss (0.00s)
+    --- PASS: TestEquivalencySetCacheHits/transitive_extra_digest_merge_bridge_hit (0.00s)
+    --- PASS: TestEquivalencySetCacheHits/transitive_bridge_no_bridge_no_hit (0.00s)
+    --- PASS: TestEquivalencySetCacheHits/fanout_fanin_join_hit_after_repair (0.00s)
+    --- PASS: TestEquivalencySetCacheHits/fanout_fanin_late_merge_enables_downstream_join_input_hit (0.00s)
+=== CONT  TestCachePersistenceImportedObjectAliasSupportsChainedSelect
+--- PASS: TestCacheHitKeepsGenuineAttachmentFailure (0.01s)
+=== CONT  TestCachePersistenceImportedObjectHitWithoutServerErrors
+--- PASS: TestCachePruneSessionOwnedEntriesAreNeverPruned (0.00s)
+=== CONT  TestCachePersistenceImportRoundTripObjectResult
+--- PASS: TestCachePruneCompactsEqClassesAndPreservesLookup (0.00s)
+=== CONT  TestCacheArrayResultStressDoesNotRaceExplicitDependencyAttachment
+--- PASS: TestCachePersistenceDoesNotWriteDuringRuntime (0.02s)
+=== CONT  TestCacheTTLWithDBUsesStorageAndCallIndexes
+--- PASS: TestCacheArbitraryConcurrent (0.02s)
+=== CONT  TestCacheObjectResultRoundTripAndRelease
+--- PASS: TestCachePersistenceWorkerMirrorsUnpruneablePersistedEdge (0.03s)
+=== CONT  TestCacheLoadResultByResultIDDoesNotReturnHitWithoutCallFrame
+--- PASS: TestCacheObjectResultRoundTripAndRelease (0.00s)
+=== CONT  TestCacheMixedSessionWaitersCancelDoNotLeak
+--- PASS: TestCacheCloseDiscardingPersistenceDoesNotMarkClean (0.04s)
+=== CONT  TestCachePersistenceImportHydratesSnapshotMetadataAndSyncsOwnerLeases
+--- PASS: TestCachePersistenceWorkerMirrorsRetainedPersistableResult (0.04s)
+=== CONT  TestSharedCallUsesOneClientScopeLeaseForAllWaiters
+--- PASS: TestSharedCallUsesOneClientScopeLeaseForAllWaiters (0.00s)
+=== CONT  TestCacheRejectsEmptySessionIDForOwningEntrypoints
+--- PASS: TestCacheRejectsEmptySessionIDForOwningEntrypoints (0.00s)
+=== CONT  TestCacheRejectsNilTypeResolver
+--- PASS: TestCacheRejectsNilTypeResolver (0.00s)
+=== CONT  TestCachePersistenceWorkerUsesEncodedSnapshotLinks
+--- PASS: TestCachePersistenceDecodeInstallPreservesRequiredSessionResources (0.07s)
+=== CONT  TestCachePruneThresholdUsesImportedSnapshotLinkUsage
+--- PASS: TestCacheTTLWithDBUsesStorageAndCallIndexes (0.08s)
+=== CONT  TestCachePersistenceImportedSnapshotLinksContributeUsageBeforeDecode
+=== RUN   TestCachePersistenceImportedObjectHitWithoutServerErrors/request_lookup
+=== RUN   TestCachePersistenceImportedObjectHitWithoutServerErrors/digest_lookup
+=== RUN   TestCachePersistenceImportedObjectHitWithoutServerErrors/result_ID_lookup
+--- PASS: TestCacheLoadResultByResultIDRefusesUnboundSession (0.09s)
+=== CONT  TestEvaluateLazyOwnFailureNotMarkedBlocked
+--- PASS: TestCachePersistenceImportedObjectHitWithoutServerErrors (0.08s)
+    --- PASS: TestCachePersistenceImportedObjectHitWithoutServerErrors/request_lookup (0.00s)
+    --- PASS: TestCachePersistenceImportedObjectHitWithoutServerErrors/digest_lookup (0.00s)
+    --- PASS: TestCachePersistenceImportedObjectHitWithoutServerErrors/result_ID_lookup (0.00s)
+=== CONT  TestCacheEvaluate
+=== RUN   TestCacheEvaluate/singleflight
+--- PASS: TestEvaluateLazyOwnFailureNotMarkedBlocked (0.00s)
+=== CONT  TestCacheConcurrent
+--- PASS: TestCachePersistenceImportRecomputesRequiredDepsFirst (0.09s)
+=== CONT  TestCacheVolatileNestedWithNonVolatile
+=== PAUSE TestCacheEvaluate/singleflight
+=== RUN   TestCacheEvaluate/reacquires_dedicated_lease_instead_of_reusing_request_lease
+=== PAUSE TestCacheEvaluate/reacquires_dedicated_lease_instead_of_reusing_request_lease
+=== RUN   TestCacheEvaluate/lazy_evaluation_without_lease-sensitive_work_does_not_acquire_lease
+=== PAUSE TestCacheEvaluate/lazy_evaluation_without_lease-sensitive_work_does_not_acquire_lease
+=== RUN   TestCacheEvaluate/declared_dependency
+=== PAUSE TestCacheEvaluate/declared_dependency
+=== RUN   TestCacheEvaluate/parallel_multi-result
+=== PAUSE TestCacheEvaluate/parallel_multi-result
+=== RUN   TestCacheEvaluate/non_dependency_allowed_while_attached
+=== PAUSE TestCacheEvaluate/non_dependency_allowed_while_attached
+=== RUN   TestCacheEvaluate/recursive
+=== PAUSE TestCacheEvaluate/recursive
+=== RUN   TestCacheEvaluate/rejects_do-not-cache_lazy_result
+=== PAUSE TestCacheEvaluate/rejects_do-not-cache_lazy_result
+=== RUN   TestCacheEvaluate/allows_already_attached_lazy_result_from_do-not-cache_field
+=== PAUSE TestCacheEvaluate/allows_already_attached_lazy_result_from_do-not-cache_field
+=== CONT  TestCacheVolatileConcurrentSessionsDivergentValues
+--- PASS: TestCacheVolatileConcurrentSessionsDivergentValues (0.00s)
+=== CONT  TestCacheVolatileSessionResourceInvariants
+--- PASS: TestCacheVolatileSessionResourceInvariants (0.00s)
+=== CONT  TestEvaluatePartsFailureIsolatedPerGroup
+--- PASS: TestCacheVolatileNestedWithNonVolatile (0.00s)
+=== CONT  TestEvaluatePartsRecursionRefusedPerGroup
+--- PASS: TestEvaluatePartsFailureIsolatedPerGroup (0.00s)
+=== CONT  TestEvaluateWholeResultOverGroups
+--- PASS: TestEvaluatePartsRecursionRefusedPerGroup (0.00s)
+=== CONT  TestEvaluatePartsResumeSpansMarkPartialCompletion
+--- PASS: TestEvaluateWholeResultOverGroups (0.00s)
+=== CONT  TestEvaluatePartsJointGroupFillsAllMembersOnce
+--- PASS: TestEvaluatePartsJointGroupFillsAllMembersOnce (0.00s)
+=== CONT  TestCachePersistenceSnapshotOmitsSessionOnlyResult
+--- PASS: TestEvaluatePartsResumeSpansMarkPartialCompletion (0.00s)
+=== CONT  TestCachePersistenceWorkerMirrorsSnapshotManagerMetadataRows
+--- PASS: TestCachePersistenceImportedObjectAliasSupportsChainedSelect (0.09s)
+=== CONT  TestCachePersistenceCleanShutdownToggleOnClose
+--- PASS: TestCachePersistenceImportHydratesSnapshotMetadataAndSyncsOwnerLeases (0.07s)
+=== CONT  TestCachePersistenceWorkerMirrorsPrunedStateAfterRelease
+--- PASS: TestCachePersistenceSchemaMismatchWipesStore (0.09s)
+=== CONT  TestCachePersistenceWorkerMirrorsAuthoritativeEgraphState
+--- PASS: TestCachePersistenceImportRoundTripAcrossRestart (0.10s)
+=== CONT  TestCacheHitRegistrationDoesNotRaceLazyCallback
+--- PASS: TestCachePersistenceImportRoundTripObjectResult (0.09s)
+=== CONT  TestCachePruneMetadataEstimateCancellationDuringPlanningDoesNotMutate
+--- PASS: TestCacheHitRegistrationDoesNotRaceLazyCallback (0.00s)
+=== CONT  TestCachePruneMetadataEstimateCancellationDoesNotMutate
+--- PASS: TestCachePruneMetadataEstimateCancellationDoesNotMutate (0.00s)
+=== CONT  TestCachePruneMetadataEstimateMarksReleaseAndSnapshotGCContext
+--- PASS: TestCachePruneMetadataEstimateMarksReleaseAndSnapshotGCContext (0.00s)
+=== CONT  TestCachePruneMetadataEstimateCompactionCanRestoreMaximumWithoutEviction
+--- PASS: TestCachePruneMetadataEstimateCompactionCanRestoreMaximumWithoutEviction (0.00s)
+=== CONT  TestCachePruneMetadataEstimateProtectsActiveAndUnpruneableResults
+--- PASS: TestCachePruneMetadataEstimateProtectsActiveAndUnpruneableResults (0.00s)
+=== CONT  TestCachePruneMetadataEstimateCreditsCollectedDependencyClosure
+--- PASS: TestCachePruneMetadataEstimateCreditsCollectedDependencyClosure (0.00s)
+=== CONT  TestCachePruneMetadataEstimateSkipsPhysicalMeasurementAndUsesColdOrder
+--- PASS: TestCachePruneMetadataEstimateSkipsPhysicalMeasurementAndUsesColdOrder (0.00s)
+=== CONT  TestCacheMetadataPruneDependencySortCancellation
+--- PASS: TestCacheMetadataPruneDependencySortCancellation (0.00s)
+--- PASS: TestCachePersistenceWorkerUsesEncodedSnapshotLinks (0.07s)
+=== CONT  TestCacheMetadataPruneCandidateSortCancellation
+--- PASS: TestCacheMetadataPruneCandidateSortCancellation (0.00s)
+=== CONT  TestCacheMetadataDirectResultBytesUsesCeiling
+--- PASS: TestCacheMetadataDirectResultBytesUsesCeiling (0.00s)
+=== CONT  TestCacheMetadataEstimateFormula
+--- PASS: TestCacheMetadataEstimateFormula (0.00s)
+=== CONT  TestEvaluateLazyPrerequisiteFailureMarksResumeBlocked
+=== CONT  TestCacheMetadataPruneCandidateOrder
+--- PASS: TestCacheMetadataPruneCandidateOrder (0.00s)
+=== CONT  TestEvaluateLazyUsesOriginalSpanForLogsAndNestedSpans
+--- PASS: TestEvaluateLazyPrerequisiteFailureMarksResumeBlocked (0.00s)
+--- PASS: TestEvaluateLazyUsesOriginalSpanForLogsAndNestedSpans (0.00s)
+=== CONT  TestInstallSpanLookupWalksClosureOwnersUpward
+=== CONT  TestSessionResultInstallSpanContextsSorted
+--- PASS: TestSessionResultInstallSpanContextsSorted (0.00s)
+=== CONT  TestCaptureSessionLazySpanContextFirstWriterWinsAndRelease
+--- PASS: TestInstallSpanLookupWalksClosureOwnersUpward (0.00s)
+=== CONT  TestAttachResultAllowsAlreadyAttachedResultWithoutFrame
+--- PASS: TestCaptureSessionLazySpanContextFirstWriterWinsAndRelease (0.00s)
+=== CONT  TestCacheEvidenceJoinedAndExecutedCarriers
+--- PASS: TestAttachResultAllowsAlreadyAttachedResultWithoutFrame (0.00s)
+=== CONT  TestCacheEvidenceNilCarrierIsNoop
+--- PASS: TestCacheEvidenceNilCarrierIsNoop (0.00s)
+=== CONT  TestCacheEvidenceUnknownInputIndex
+--- PASS: TestCacheEvidenceUnknownInputIndex (0.00s)
+=== CONT  TestCacheEvidenceCloneDropsCarrier
+--- PASS: TestCacheEvidenceCloneDropsCarrier (0.00s)
+=== CONT  TestCacheEvidencePendingLazyHitIsHit
+--- PASS: TestCacheEvidencePendingLazyHitIsHit (0.00s)
+=== CONT  TestCacheEvidencePairingDigestExcludesImplicitInputs
+--- PASS: TestCacheEvidencePairingDigestExcludesImplicitInputs (0.00s)
+=== CONT  TestCacheEvidenceDoNotCacheUncached
+--- PASS: TestCacheEvidenceDoNotCacheUncached (0.00s)
+=== CONT  TestCacheEvidenceExecutedFreshCall
+--- PASS: TestCacheEvidenceExecutedFreshCall (0.00s)
+=== CONT  TestCacheEvidenceMissIncompatibleCandidates
+--- PASS: TestCacheEvidenceMissIncompatibleCandidates (0.00s)
+=== CONT  TestCacheEvidenceSawExpiredThroughEqClassExpansion
+--- PASS: TestCacheEvidenceSawExpiredThroughEqClassExpansion (0.00s)
+=== CONT  TestCacheEvidenceMissSawExpired
+--- PASS: TestCacheEvidenceMissSawExpired (0.00s)
+=== CONT  TestCacheEvidenceStructuralRouteHit
+--- PASS: TestCacheEvidenceStructuralRouteHit (0.00s)
+=== CONT  TestCacheEvidenceDigestRouteHit
+--- PASS: TestCacheEvidenceDigestRouteHit (0.00s)
+=== CONT  TestCacheEvidenceRecipeHit
+--- PASS: TestCacheEvidenceRecipeHit (0.00s)
+=== CONT  TestCacheArrayResultRoundTrip
+--- PASS: TestCacheArrayResultRoundTrip (0.00s)
+=== CONT  TestCacheArrayResultStressDoesNotReturnHitWithoutCallFrame
+--- PASS: TestCacheEvidenceJoinedAndExecutedCarriers (0.00s)
+=== CONT  TestCacheArrayResultsRetainChildResultsAcrossProducerSessionRelease
+=== RUN   TestCacheArrayResultsRetainChildResultsAcrossProducerSessionRelease/ObjectResultArray
+=== RUN   TestCacheArrayResultsRetainChildResultsAcrossProducerSessionRelease/DynamicResultArrayOutput
+--- PASS: TestCacheArrayResultsRetainChildResultsAcrossProducerSessionRelease (0.00s)
+    --- PASS: TestCacheArrayResultsRetainChildResultsAcrossProducerSessionRelease/ObjectResultArray (0.00s)
+    --- PASS: TestCacheArrayResultsRetainChildResultsAcrossProducerSessionRelease/DynamicResultArrayOutput (0.00s)
+=== CONT  TestCacheReleaseRemovesRecordedDigestPostingAfterOutputClassMerge
+--- PASS: TestCacheReleaseRemovesRecordedDigestPostingAfterOutputClassMerge (0.00s)
+=== CONT  TestCacheSecondaryIndexesCleanedOnRelease
+--- PASS: TestCacheSecondaryIndexesCleanedOnRelease (0.00s)
+=== CONT  TestCacheEvaluate/singleflight
+=== CONT  TestCacheEvaluate/non_dependency_allowed_while_attached
+--- PASS: TestCacheConcurrent (0.02s)
+=== CONT  TestCacheEvaluate/rejects_do-not-cache_lazy_result
+=== CONT  TestCacheEvaluate/allows_already_attached_lazy_result_from_do-not-cache_field
+=== CONT  TestCacheEvaluate/parallel_multi-result
+=== CONT  TestCacheEvaluate/declared_dependency
+=== CONT  TestCacheEvaluate/lazy_evaluation_without_lease-sensitive_work_does_not_acquire_lease
+=== CONT  TestCacheEvaluate/reacquires_dedicated_lease_instead_of_reusing_request_lease
+=== CONT  TestCacheEvaluate/recursive
+--- PASS: TestCacheEvaluate (0.00s)
+    --- PASS: TestCacheEvaluate/singleflight (0.00s)
+    --- PASS: TestCacheEvaluate/rejects_do-not-cache_lazy_result (0.00s)
+    --- PASS: TestCacheEvaluate/non_dependency_allowed_while_attached (0.00s)
+    --- PASS: TestCacheEvaluate/allows_already_attached_lazy_result_from_do-not-cache_field (0.00s)
+    --- PASS: TestCacheEvaluate/parallel_multi-result (0.00s)
+    --- PASS: TestCacheEvaluate/declared_dependency (0.00s)
+    --- PASS: TestCacheEvaluate/lazy_evaluation_without_lease-sensitive_work_does_not_acquire_lease (0.00s)
+    --- PASS: TestCacheEvaluate/reacquires_dedicated_lease_instead_of_reusing_request_lease (0.00s)
+    --- PASS: TestCacheEvaluate/recursive (0.00s)
+--- PASS: TestCachePruneMetadataEstimateCancellationDuringPlanningDoesNotMutate (0.01s)
+--- PASS: TestCachePersistenceWorkerMirrorsSnapshotManagerMetadataRows (0.02s)
+--- PASS: TestCachePersistenceSnapshotOmitsSessionOnlyResult (0.03s)
+--- PASS: TestCachePruneThresholdUsesImportedSnapshotLinkUsage (0.05s)
+--- PASS: TestCachePersistenceImportFailureWipesStore (0.12s)
+--- PASS: TestCachePersistenceImportedSnapshotLinksContributeUsageBeforeDecode (0.03s)
+--- PASS: TestCachePersistenceUncleanMarkerWipesStore (0.12s)
+=== NAME  TestCacheArrayResultStressDoesNotRaceExplicitDependencyAttachment
+    cache_test.go:5201: completed 9600 attempts and 9516 cache hits without reproducing the explicit dependency attachment race
+--- PASS: TestCacheArrayResultStressDoesNotRaceExplicitDependencyAttachment (0.12s)
+--- PASS: TestCachePersistenceWorkerMirrorsPrunedStateAfterRelease (0.02s)
+--- PASS: TestCachePersistenceCleanShutdownToggleOnClose (0.02s)
+--- PASS: TestCachePersistenceWorkerMirrorsAuthoritativeEgraphState (0.02s)
+=== NAME  TestCacheLoadResultByResultIDDoesNotReturnHitWithoutCallFrame
+    cache_test.go:5664: completed 24000 attempts and 24000 successful loads without reproducing the LoadResultByResultID call-frame race
+--- PASS: TestCacheLoadResultByResultIDDoesNotReturnHitWithoutCallFrame (0.26s)
+=== NAME  TestCacheArrayResultStressDoesNotReturnHitWithoutCallFrame
+    cache_test.go:5082: completed 24000 attempts and 24000 cache hits without reproducing the array hit call-frame race
+--- PASS: TestCacheArrayResultStressDoesNotReturnHitWithoutCallFrame (0.20s)
+--- PASS: TestCacheMixedSessionWaitersCancelDoNotLeak (0.72s)
+PASS
+ok  	github.com/dagger/dagger/dagql	17.895s

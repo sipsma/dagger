@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -104,6 +105,12 @@ type Span struct {
 	// render it.
 	ProgressSpans SpanSet `json:"-"`
 
+	// A span name can change while the span is live. The OTel SDK's start
+	// snapshot cannot carry that later mutation, so a semantic log record keeps
+	// the latest name authoritative over repeated frozen live snapshots.
+	nameFromLog    string
+	hasNameFromLog bool
+
 	callCache *callpbv1.Call
 	baseCache *callpbv1.Call
 
@@ -151,29 +158,14 @@ func (span *Span) Call() *callpbv1.Call {
 	return span.callCache
 }
 
+// CallID rebuilds the ID of the call this span reports on. It is the DB-level
+// walk (DB.CallIDForDigest) narrowed to a span's own digest: the span is where
+// most callers start, but nothing about the rebuild needs one.
 func (span *Span) CallID() (*call.ID, error) {
-	spanCall := span.Call()
-	if spanCall == nil {
+	if span.CallDigest == "" {
 		return nil, fmt.Errorf("no call for span")
 	}
-
-	recipe := &callpbv1.RecipeDAG{
-		RootDigest:    spanCall.Digest,
-		CallsByDigest: map[string]*callpbv1.Call{},
-	}
-	extractIntoDAG(recipe, span.db, spanCall.Digest)
-	dag := &callpbv1.DAG{
-		Value: &callpbv1.DAG_Recipe{
-			Recipe: recipe,
-		},
-	}
-
-	var id call.ID
-	err := id.FromProto(dag)
-	if err != nil {
-		return nil, err
-	}
-	return &id, nil
+	return span.db.CallIDForDigest(span.CallDigest)
 }
 
 func (span *Span) Base() *callpbv1.Call {
@@ -270,6 +262,11 @@ type SpanSnapshot struct {
 	// propagates failure to it.
 	Blocked bool `json:",omitempty"`
 
+	// Partial marks a successful lazy-evaluation resume span that completed
+	// one part while the result still had deferred work. It does not resolve
+	// the owning span's pending state.
+	Partial bool `json:",omitempty"`
+
 	// An extra flag to indicate that a span was canceled because the root span
 	// completed while the span was still running.
 	LeftRunning bool `json:",omitempty"`
@@ -298,25 +295,103 @@ type SpanSnapshot struct {
 	// Generator name
 	GeneratorName string `json:",omitempty"`
 
+	// Set on a span reporting a workspace module that best-effort generate
+	// skipped because it could not be loaded.
+	GenerateSkipped bool `json:",omitempty"`
+	// GenerateRegenerated marks the span `dagger generate` emits when its
+	// changes touch a module it skipped, so the report can show it as
+	// regenerated instead of failed.
+	GenerateRegenerated bool `json:",omitempty"`
+
+	// Service marks the long-lived exec span of a started service instance
+	// (running exactly while the service is up; cause-links to the API spans
+	// that installed the Service value).
+	Service bool `json:",omitempty"`
+
 	// Service name
 	ServiceName string `json:",omitempty"`
+
+	// ServiceURLs marks a service-readiness marker span: the local URLs at
+	// which a just-started service is reachable (`dagger up`'s `ready <url>`
+	// span). Also stamped on the service's display span itself, so its
+	// collapsed row can show where to point a browser (see idtui's
+	// renderServiceURLs).
+	ServiceURLs []string `json:",omitempty"`
+
+	// Agent marks the long-lived loop span of a started agent runtime
+	// (running exactly while the loop does; its subtree carries the agent's
+	// turns). AgentID is the spawn-minted runtime handle that identifies the
+	// agent ACROSS loop spans — a resume-retry relaunches the loop, so one
+	// agent can own several. AgentCallDigest is the digest of the call that
+	// produced the agent value, from which a client can reconstruct a
+	// sendable handle.
+	Agent           bool   `json:",omitempty"`
+	AgentID         string `json:",omitempty"`
+	AgentName       string `json:",omitempty"`
+	AgentCallDigest string `json:",omitempty"`
+
+	// AgentState is the agent's lifecycle state as of the most recent state
+	// record folded into this span, and AgentWaitingOn what it is parked on
+	// when that state is WAITING_INPUT. AgentStopReason says who ended a
+	// STOPPED one — a caller (EXPLICIT) or session teardown (SESSION) — which
+	// is the only thing distinguishing a dismissal from a clean exit.
+	// AgentSnapshotDigest is the portable recipe digest of the agent's last
+	// conversation, the anchor a client re-hydrates the instance from.
+	//
+	// AgentPreTeardownState is the one piece of record HISTORY kept here: the
+	// last state that was not a session-teardown stop. Session close stops
+	// every surviving runtime, so latest-wins alone loses the state the user
+	// actually left the agent in — which is what a restore has to put back
+	// (DB.RestorePlan).
+	//
+	// Unlike the fields above these arrive on log records rather than span
+	// attributes, because they change over the span's life and a live span's
+	// attributes are frozen at start (see the dagger.io/agent.* block in
+	// engine/telemetryattrs).
+	AgentState            string `json:",omitempty"`
+	AgentWaitingOn        string `json:",omitempty"`
+	AgentStopReason       string `json:",omitempty"`
+	AgentSnapshotDigest   string `json:",omitempty"`
+	AgentPreTeardownState string `json:",omitempty"`
 
 	ActorEmoji  string `json:",omitempty"`
 	Message     string `json:",omitempty"`
 	ContentType string `json:",omitempty"`
 
 	LLMRole          string   `json:",omitempty"`
+	LLMThinking      bool     `json:",omitempty"`
 	LLMTool          string   `json:",omitempty"`
 	LLMToolServer    string   `json:",omitempty"`
 	LLMToolArgNames  []string `json:",omitempty"`
 	LLMToolArgValues []string `json:",omitempty"`
+	LLMCallDigest    string   `json:",omitempty"`
+
+	// LLM message origin: recorded provenance for a user-role message that
+	// arrived through an agent mailbox (engine/telemetryattrs' llm.origin.*
+	// vocabulary). Kind is USER, AGENT, or EVENT; AgentName names the
+	// sending (AGENT) or observed (EVENT) agent; Ref is the message's
+	// short ref (e.g. "#3") and ReplyTo the ref of the message it answers.
+	// All empty for the user's own prompts, the unmarked common case.
+	LLMOriginKind      string `json:",omitempty"`
+	LLMOriginAgentName string `json:",omitempty"`
+	LLMOriginRef       string `json:",omitempty"`
+	LLMOriginReplyTo   string `json:",omitempty"`
+
+	// LLMToolResultTokens is an estimate of the token size of a tool call's
+	// result (the output it fed back into the model's context). The TUI shows
+	// it on the tool-call row so an outsized, context-bloating result is easy
+	// to spot.
+	LLMToolResultTokens int64 `json:",omitempty"`
 
 	Inputs []string `json:",omitempty"`
 	Output string   `json:",omitempty"`
 
 	ResumeOutput string `json:",omitempty"`
 
-	CallDigest  string `json:",omitempty"`
+	CallDigest string `json:",omitempty"`
+	// CallPayload carries the legacy span-embedded call payload
+	// (dagger.io/dag.call) still written for older consumers; newer engines
+	// deliver calls over the log channel instead.
 	CallPayload string `json:",omitempty"`
 	CallScope   string `json:",omitempty"`
 
@@ -325,7 +400,7 @@ type SpanSnapshot struct {
 
 	// Progress holds streaming-progress items attributed directly to this
 	// span, folded from progress log records. It lives in the snapshot so
-	// remote frontends receive it without replaying the raw records.
+	// remote frontends receive it without reprocessing the raw records.
 	Progress *SpanProgress `json:",omitempty"`
 
 	ExtraAttributes map[string]json.RawMessage `json:",omitempty"`
@@ -334,6 +409,58 @@ type SpanSnapshot struct {
 type SpanLink struct {
 	SpanContext SpanContext
 	Purpose     string
+
+	// Wait-edge metadata, present when Purpose is LinkPurposeWait: the window
+	// during which the linking span was provably blocked on the link target,
+	// and why.
+	WaitReason string    `json:",omitempty"`
+	WaitStart  time.Time `json:",omitempty"`
+	WaitEnd    time.Time `json:",omitempty"`
+}
+
+// ProcessAttribute ingests one OTel link attribute. Wait timestamps are
+// absolute Unix nanoseconds encoded as decimal strings (chosen so they
+// round-trip bit-exact through JSON attribute maps).
+func (link *SpanLink) ProcessAttribute(name string, val any) {
+	str, ok := val.(string)
+	if !ok {
+		return
+	}
+	switch name {
+	case telemetry.LinkPurposeAttr:
+		link.Purpose = str
+	case telemetryattrs.WcprofWaitReasonAttr:
+		link.WaitReason = str
+	case telemetryattrs.WcprofWaitStartUnixNanoAttr:
+		if ns, err := strconv.ParseInt(str, 10, 64); err == nil {
+			link.WaitStart = time.Unix(0, ns)
+		}
+	case telemetryattrs.WcprofWaitEndUnixNanoAttr:
+		if ns, err := strconv.ParseInt(str, 10, 64); err == nil {
+			link.WaitEnd = time.Unix(0, ns)
+		}
+	}
+}
+
+// IsWait reports whether the link is a well-formed wait edge.
+func (link *SpanLink) IsWait() bool {
+	return link.Purpose == telemetryattrs.LinkPurposeWait && link.WaitEnd.After(link.WaitStart)
+}
+
+// LLMAgentOriginMessage reports whether this span is a conversation message
+// recorded with AGENT provenance: another agent's words, delivered through a
+// mailbox, rather than a prompt the user typed. Frontends render these
+// sender-attributed instead of user-styled.
+func (snapshot *SpanSnapshot) LLMAgentOriginMessage() bool {
+	return snapshot.LLMOriginKind == telemetryattrs.LLMMessageOriginKindAgent
+}
+
+// LLMEventOriginMessage reports whether this span is a conversation message
+// recorded with EVENT provenance: the engine reporting a subscribed agent's
+// lifecycle transition. Frontends render these as compact one-liners rather
+// than prompt bubbles.
+func (snapshot *SpanSnapshot) LLMEventOriginMessage() bool {
+	return snapshot.LLMOriginKind == telemetryattrs.LLMMessageOriginKindEvent
 }
 
 func (snapshot *SpanSnapshot) ProcessAttribute(name string, val any) { //nolint: gocyclo
@@ -367,6 +494,12 @@ func (snapshot *SpanSnapshot) ProcessAttribute(name string, val any) { //nolint:
 
 	case telemetryattrs.DagBlockedAttr:
 		snapshot.Blocked = val.(bool)
+
+	case telemetryattrs.DagLeftRunningAttr:
+		snapshot.LeftRunning = val.(bool)
+
+	case telemetryattrs.DagPartialAttr:
+		snapshot.Partial = val.(bool)
 
 	case telemetry.UIEncapsulateAttr:
 		snapshot.Encapsulate = val.(bool)
@@ -408,11 +541,38 @@ func (snapshot *SpanSnapshot) ProcessAttribute(name string, val any) { //nolint:
 	case telemetry.GeneratorNameAttr:
 		snapshot.GeneratorName = val.(string)
 
-	case "dagger.io/service.name":
+	case telemetryattrs.GenerateSkippedAttr:
+		snapshot.GenerateSkipped = val.(bool)
+
+	case telemetryattrs.GenerateRegeneratedAttr:
+		snapshot.GenerateRegenerated = val.(bool)
+
+	case telemetryattrs.ServiceAttr:
+		snapshot.Service = val.(bool)
+
+	case telemetryattrs.ServiceNameAttr:
 		snapshot.ServiceName = val.(string)
+
+	case telemetryattrs.ServiceURLsAttr:
+		snapshot.ServiceURLs = sliceOf[string](val)
+
+	case telemetryattrs.AgentAttr:
+		snapshot.Agent = val.(bool)
+
+	case telemetryattrs.AgentIDAttr:
+		snapshot.AgentID = val.(string)
+
+	case telemetryattrs.AgentNameAttr:
+		snapshot.AgentName = val.(string)
+
+	case telemetryattrs.AgentCallDigestAttr:
+		snapshot.AgentCallDigest = val.(string)
 
 	case telemetry.LLMRoleAttr:
 		snapshot.LLMRole = val.(string)
+
+	case "llm.thinking":
+		snapshot.LLMThinking = val.(bool)
 
 	case telemetry.LLMToolAttr:
 		snapshot.LLMTool = val.(string)
@@ -425,6 +585,24 @@ func (snapshot *SpanSnapshot) ProcessAttribute(name string, val any) { //nolint:
 
 	case telemetry.LLMToolArgValuesAttr:
 		snapshot.LLMToolArgValues = sliceOf[string](val)
+
+	case telemetryattrs.LLMCallDigestAttr:
+		snapshot.LLMCallDigest = val.(string)
+
+	case telemetryattrs.LLMMessageOriginKindAttr:
+		snapshot.LLMOriginKind = val.(string)
+
+	case telemetryattrs.LLMMessageOriginAgentNameAttr:
+		snapshot.LLMOriginAgentName = val.(string)
+
+	case telemetryattrs.LLMMessageOriginRefAttr:
+		snapshot.LLMOriginRef = val.(string)
+
+	case telemetryattrs.LLMMessageOriginReplyToAttr:
+		snapshot.LLMOriginReplyTo = val.(string)
+
+	case telemetryattrs.LLMToolResultTokensAttr:
+		snapshot.LLMToolResultTokens = asInt64(val)
 
 	case telemetry.DagInputsAttr:
 		snapshot.Inputs = sliceOf[string](val)
@@ -475,6 +653,22 @@ func sliceOf[T any](val any) []T {
 		ts[i] = v.(T)
 	}
 	return ts
+}
+
+// asInt64 coerces an OTel attribute value to int64. The live SDK path yields an
+// int64 directly; the defensive float64 case covers values that round-tripped
+// through a JSON number.
+func asInt64(val any) int64 {
+	switch v := val.(type) {
+	case int64:
+		return v
+	case int:
+		return int64(v)
+	case float64:
+		return int64(v)
+	default:
+		return 0
+	}
 }
 
 // PropagateStatusToParentsAndLinks updates the running and failed state of all
@@ -786,6 +980,24 @@ func (span *Span) Parents(f func(*Span) bool) {
 	}
 }
 
+// FirstMissingAncestor returns the nearest ancestor span that was referenced
+// (as a parent) but never exported to the database -- i.e. a placeholder
+// allocated only to satisfy a child's ParentID. It returns nil when the whole
+// ancestor chain was received. This is the signal that a test case dangles
+// because intermediate spans are genuinely absent from the trace data, not
+// merely unfetched.
+func (span *Span) FirstMissingAncestor() *Span {
+	if span == nil {
+		return nil
+	}
+	for cur := span.ParentSpan; cur != nil; cur = cur.ParentSpan {
+		if !cur.Received {
+			return cur
+		}
+	}
+	return nil
+}
+
 func (span *Span) Hidden(opts FrontendOpts) bool {
 	verbosity := opts.Verbosity
 	if v, ok := opts.SpanVerbosity[span.ID]; ok {
@@ -877,11 +1089,13 @@ func (span *Span) IsPending() bool {
 }
 
 // hasResolvedEffects reports whether any causal continuation of this span
-// actually ran its deferred work. Blocked resumptions (aborted because a
-// prerequisite failed) don't count: the work is still pending.
+// actually finished all deferred work. Blocked resumptions and successful
+// partial resumptions do not count: the work is still pending.
 func (span *Span) hasResolvedEffects() bool {
 	for _, effect := range span.effectsViaLinks.Order {
-		if !effect.Blocked {
+		// This remains an any test. A partial effect may remain recorded after
+		// a sibling finishes, but that later non-partial effect resolves pending.
+		if !effect.Blocked && !effect.Partial {
 			return true
 		}
 	}
@@ -904,7 +1118,7 @@ func (span *Span) PendingReason() (bool, []string) {
 			return false, []string{"span has resumed via causal continuation"}
 		}
 		if len(span.effectsViaLinks.Order) > 0 {
-			return true, []string{"span only has blocked resumptions; work is still pending"}
+			return true, []string{"span only has incomplete resumptions; work is still pending"}
 		}
 		return true, []string{"span says it is pending"}
 	}

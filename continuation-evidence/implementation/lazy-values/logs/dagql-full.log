@@ -1,0 +1,164 @@
+=== RUN   TestCacheEvaluateRetiresFinishedAttemptBeforeWaitersDrain
+--- PASS: TestCacheEvaluateRetiresFinishedAttemptBeforeWaitersDrain (0.00s)
+=== RUN   TestCacheEvaluateOwnCancellationOnlyCancelsOwnWait
+--- PASS: TestCacheEvaluateOwnCancellationOnlyCancelsOwnWait (0.00s)
+=== RUN   TestCacheEvaluateSettlesBookkeepingBeforeReportingComplete
+--- PASS: TestCacheEvaluateSettlesBookkeepingBeforeReportingComplete (0.00s)
+=== RUN   TestCacheEvaluatePendingBookkeepingSkipsUnclearedCallback
+--- PASS: TestCacheEvaluatePendingBookkeepingSkipsUnclearedCallback (0.00s)
+=== RUN   TestPartSourceSelectionLaterRoute
+--- PASS: TestPartSourceSelectionLaterRoute (0.09s)
+=== RUN   TestPartSessionlessOwnSubset
+=== RUN   TestPartSessionlessOwnSubset/offer-only
+=== RUN   TestPartSessionlessOwnSubset/own
+=== RUN   TestPartSessionlessOwnSubset/revoked-before-commit
+=== RUN   TestPartSessionlessOwnSubset/native-receiver
+--- PASS: TestPartSessionlessOwnSubset (0.14s)
+    --- PASS: TestPartSessionlessOwnSubset/offer-only (0.05s)
+    --- PASS: TestPartSessionlessOwnSubset/own (0.03s)
+    --- PASS: TestPartSessionlessOwnSubset/revoked-before-commit (0.03s)
+    --- PASS: TestPartSessionlessOwnSubset/native-receiver (0.03s)
+=== RUN   TestPartReadyRevalidationAndCanceledFinish
+=== RUN   TestPartReadyRevalidationAndCanceledFinish/stale-donor
+=== RUN   TestPartReadyRevalidationAndCanceledFinish/cancel-commit
+=== RUN   TestPartReadyRevalidationAndCanceledFinish/cancel-finish
+--- PASS: TestPartReadyRevalidationAndCanceledFinish (0.11s)
+    --- PASS: TestPartReadyRevalidationAndCanceledFinish/stale-donor (0.04s)
+    --- PASS: TestPartReadyRevalidationAndCanceledFinish/cancel-commit (0.03s)
+    --- PASS: TestPartReadyRevalidationAndCanceledFinish/cancel-finish (0.04s)
+=== RUN   TestPartLazyOperationMissingOutputStopsOnce
+--- PASS: TestPartLazyOperationMissingOutputStopsOnce (0.04s)
+=== RUN   TestPartReadyPreparationBoundaries
+=== RUN   TestPartReadyPreparationBoundaries/cancel-during-pin
+=== RUN   TestPartReadyPreparationBoundaries/missing-local-descriptor
+--- PASS: TestPartReadyPreparationBoundaries (0.21s)
+    --- PASS: TestPartReadyPreparationBoundaries/cancel-during-pin (0.10s)
+    --- PASS: TestPartReadyPreparationBoundaries/missing-local-descriptor (0.10s)
+=== RUN   TestPartDecisionPreparationArrival
+=== RUN   TestPartDecisionPreparationArrival/ready
+=== RUN   TestPartDecisionPreparationArrival/chain
+=== RUN   TestPartDecisionPreparationArrival/second-refusal
+--- PASS: TestPartDecisionPreparationArrival (0.66s)
+    --- PASS: TestPartDecisionPreparationArrival/ready (0.22s)
+    --- PASS: TestPartDecisionPreparationArrival/chain (0.24s)
+    --- PASS: TestPartDecisionPreparationArrival/second-refusal (0.20s)
+=== RUN   TestPartDecisionInlineAdmissionAndPendingSync
+--- PASS: TestPartDecisionInlineAdmissionAndPendingSync (0.06s)
+=== RUN   TestPartDecisionOfferAfterRunning
+--- PASS: TestPartDecisionOfferAfterRunning (0.05s)
+=== RUN   TestPartAdmittedChainLifetime
+=== RUN   TestPartAdmittedChainLifetime/donor-collected
+=== RUN   TestPartAdmittedChainLifetime/slot-replaced
+=== RUN   TestPartAdmittedChainLifetime/owner-backref-sync-failure
+=== RUN   TestPartAdmittedChainLifetime/output-backref-rejected
+--- PASS: TestPartAdmittedChainLifetime (1.05s)
+    --- PASS: TestPartAdmittedChainLifetime/donor-collected (0.29s)
+    --- PASS: TestPartAdmittedChainLifetime/slot-replaced (0.25s)
+    --- PASS: TestPartAdmittedChainLifetime/owner-backref-sync-failure (0.28s)
+    --- PASS: TestPartAdmittedChainLifetime/output-backref-rejected (0.23s)
+=== RUN   TestPartImportChainRefCleanupHandoff
+=== RUN   TestPartImportChainRefCleanupHandoff/retry
+=== RUN   TestPartImportChainRefCleanupHandoff/collect
+--- PASS: TestPartImportChainRefCleanupHandoff (0.43s)
+    --- PASS: TestPartImportChainRefCleanupHandoff/retry (0.23s)
+    --- PASS: TestPartImportChainRefCleanupHandoff/collect (0.20s)
+=== RUN   TestPartDecodeBeforeExternalFinish
+--- PASS: TestPartDecodeBeforeExternalFinish (0.09s)
+=== RUN   TestPartDecodeLosesToInstalledRevision
+--- PASS: TestPartDecodeLosesToInstalledRevision (0.12s)
+=== RUN   TestPartDelegationPath
+--- PASS: TestPartDelegationPath (0.00s)
+=== RUN   TestPartDelegationProofAdmission
+--- PASS: TestPartDelegationProofAdmission (0.06s)
+=== RUN   TestPartUnusedHostAllocatesNoGate
+--- PASS: TestPartUnusedHostAllocatesNoGate (0.00s)
+=== RUN   TestPartFixedProviderAndContentExhaustion
+--- PASS: TestPartFixedProviderAndContentExhaustion (0.02s)
+=== RUN   TestPartOfferReplacementNotExhausted
+--- PASS: TestPartOfferReplacementNotExhausted (0.06s)
+=== RUN   TestPartFixedProviderMultiBuffer
+=== RUN   TestPartFixedProviderMultiBuffer/ranges
+    cache_part_provider_test.go:167: bytes=320000 buffer=16384 reads=20 requests=23 initial-path-requests=20
+=== RUN   TestPartFixedProviderMultiBuffer/full-body
+    cache_part_provider_test.go:167: bytes=320000 buffer=16384 reads=20 requests=3 initial-path-requests=1
+--- PASS: TestPartFixedProviderMultiBuffer (0.03s)
+    --- PASS: TestPartFixedProviderMultiBuffer/ranges (0.02s)
+    --- PASS: TestPartFixedProviderMultiBuffer/full-body (0.01s)
+=== RUN   TestPartFixedProviderCancellationClosesStream
+--- PASS: TestPartFixedProviderCancellationClosesStream (0.00s)
+=== RUN   TestPartSourceSelection
+--- PASS: TestPartSourceSelection (0.05s)
+=== RUN   TestPartOfferSessionAdmission
+--- PASS: TestPartOfferSessionAdmission (0.03s)
+=== RUN   TestReadyPartReceipt
+--- PASS: TestReadyPartReceipt (0.04s)
+=== RUN   TestPartSettlementRetiresReplacement
+--- PASS: TestPartSettlementRetiresReplacement (0.04s)
+=== RUN   TestPartDecisionFinalSource
+--- PASS: TestPartDecisionFinalSource (0.04s)
+=== RUN   TestPartSourceScanFailureReleasesWinner
+=== RUN   TestPartSourceScanFailureReleasesWinner/ready
+=== RUN   TestPartSourceScanFailureReleasesWinner/chain
+--- PASS: TestPartSourceScanFailureReleasesWinner (0.13s)
+    --- PASS: TestPartSourceScanFailureReleasesWinner/ready (0.07s)
+    --- PASS: TestPartSourceScanFailureReleasesWinner/chain (0.06s)
+=== RUN   TestPartNativeCompletionRetiresOffer
+--- PASS: TestPartNativeCompletionRetiresOffer (0.00s)
+=== RUN   TestPartTaskBodyIsolation
+--- PASS: TestPartTaskBodyIsolation (0.00s)
+=== RUN   TestPartTaskContinuation
+--- PASS: TestPartTaskContinuation (0.00s)
+=== RUN   TestPartTaskNoJoinBarrier
+--- PASS: TestPartTaskNoJoinBarrier (0.00s)
+=== RUN   TestPartGateFiniteDrain
+--- PASS: TestPartGateFiniteDrain (0.00s)
+=== RUN   TestEvaluatePartsSiblingGroupsRunConcurrently
+--- PASS: TestEvaluatePartsSiblingGroupsRunConcurrently (0.00s)
+=== RUN   TestEvaluatePartsOneCallRunsGroupsConcurrently
+--- PASS: TestEvaluatePartsOneCallRunsGroupsConcurrently (0.00s)
+=== RUN   TestEvaluatePartsSyncFailureRetriesOnlyBookkeepingPerGroup
+--- PASS: TestEvaluatePartsSyncFailureRetriesOnlyBookkeepingPerGroup (0.00s)
+=== RUN   TestVisitEncodedReferencesRelocatesDeclaredPositions
+=== RUN   TestVisitEncodedReferencesRelocatesDeclaredPositions/a_missing_mapping_fails_without_partial_writes
+=== RUN   TestVisitEncodedReferencesRelocatesDeclaredPositions/a_mismatched_envelope_identity_is_rejected
+=== RUN   TestVisitEncodedReferencesRelocatesDeclaredPositions/a_root_reference_envelope_is_rejected
+--- PASS: TestVisitEncodedReferencesRelocatesDeclaredPositions (0.00s)
+    --- PASS: TestVisitEncodedReferencesRelocatesDeclaredPositions/a_missing_mapping_fails_without_partial_writes (0.00s)
+    --- PASS: TestVisitEncodedReferencesRelocatesDeclaredPositions/a_mismatched_envelope_identity_is_rejected (0.00s)
+    --- PASS: TestVisitEncodedReferencesRelocatesDeclaredPositions/a_root_reference_envelope_is_rejected (0.00s)
+=== RUN   TestVisitEncodedReferencesClassifiesStorageRoles
+=== RUN   TestVisitEncodedReferencesClassifiesStorageRoles/a_family_declaring_no_references_rejects_storage_links
+--- PASS: TestVisitEncodedReferencesClassifiesStorageRoles (0.00s)
+    --- PASS: TestVisitEncodedReferencesClassifiesStorageRoles/a_family_declaring_no_references_rejects_storage_links (0.00s)
+=== RUN   TestVisitEncodedReferencesRequiresEveryRoleOnce
+=== RUN   TestVisitEncodedReferencesRequiresEveryRoleOnce/a_null_root_cannot_declare_storage_roles
+=== RUN   TestVisitEncodedReferencesRequiresEveryRoleOnce/a_scalar_json_root_cannot_declare_storage_roles
+=== RUN   TestVisitEncodedReferencesRequiresEveryRoleOnce/a_list_root_cannot_declare_storage_roles
+--- PASS: TestVisitEncodedReferencesRequiresEveryRoleOnce (0.00s)
+    --- PASS: TestVisitEncodedReferencesRequiresEveryRoleOnce/a_null_root_cannot_declare_storage_roles (0.00s)
+    --- PASS: TestVisitEncodedReferencesRequiresEveryRoleOnce/a_scalar_json_root_cannot_declare_storage_roles (0.00s)
+    --- PASS: TestVisitEncodedReferencesRequiresEveryRoleOnce/a_list_root_cannot_declare_storage_roles (0.00s)
+=== RUN   TestScopedCollectorConcurrentPublicationCost
+=== RUN   TestScopedCollectorConcurrentPublicationCost/width128_depth1
+    cache_snapshot_scope_bench_test.go:120: typed_collector outputs=128 depth=1 publications=8192 attempts=197 retries=69 accepted=128 elapsed=246.598631ms
+=== RUN   TestScopedCollectorConcurrentPublicationCost/width8_depth3
+    cache_snapshot_scope_bench_test.go:120: typed_collector outputs=512 depth=3 publications=8192 attempts=140 retries=12 accepted=128 elapsed=1.376905548s
+--- PASS: TestScopedCollectorConcurrentPublicationCost (1.63s)
+    --- PASS: TestScopedCollectorConcurrentPublicationCost/width128_depth1 (0.25s)
+    --- PASS: TestScopedCollectorConcurrentPublicationCost/width8_depth3 (1.38s)
+=== RUN   TestScopedSnapshotVisitor
+--- PASS: TestScopedSnapshotVisitor (0.00s)
+=== RUN   TestScopedSnapshotDecodeCarrier
+--- PASS: TestScopedSnapshotDecodeCarrier (0.00s)
+=== RUN   TestScopedSnapshotCanonicalKeys
+--- PASS: TestScopedSnapshotCanonicalKeys (0.00s)
+=== RUN   TestScopedSnapshotSQLConflict
+--- PASS: TestScopedSnapshotSQLConflict (0.05s)
+=== RUN   TestScopedDecodeRejectsMismatchedCarrierBeforeCodec
+--- PASS: TestScopedDecodeRejectsMismatchedCarrierBeforeCodec (0.00s)
+=== RUN   TestValueTransferPersistenceDecodePublication
+--- PASS: TestValueTransferPersistenceDecodePublication (0.08s)
+=== RUN   TestPartSessionlessRestoredDirectory
+--- PASS: TestPartSessionlessRestoredDirectory (0.24s)
+PASS
+ok  	github.com/dagger/dagger/dagql	7.031s

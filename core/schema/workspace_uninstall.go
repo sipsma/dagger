@@ -1,11 +1,10 @@
 package schema
 
 import (
-	"context"
 	"fmt"
+	"path/filepath"
 
-	"github.com/dagger/dagger/core"
-	"github.com/dagger/dagger/dagql"
+	"github.com/dagger/dagger/core/workspace"
 )
 
 type workspaceUninstallArgs struct {
@@ -13,36 +12,60 @@ type workspaceUninstallArgs struct {
 	Here bool `default:"false"`
 }
 
-func (s *workspaceSchema) uninstall(
-	ctx context.Context,
-	parent *core.Workspace,
-	args workspaceUninstallArgs,
-) (dagql.String, error) {
-	if parent.CompatWorkspace() != nil {
-		return "", fmt.Errorf("workspace is using legacy dagger.json config; run dagger migrate first")
+// removeSDKManagedModuleReference clears the installed module's SDK scope. It
+// returns a workspace-relative path only when the matched source is safe to
+// delete from the overlay. An SDK scope that cannot be resolved is invalid,
+// so this function returns the error instead of treating it as a miss.
+func removeSDKManagedModuleReference(cfg *workspace.Config, configDir, moduleName string, entry workspace.ModuleEntry) (string, bool, error) {
+	if cfg == nil || !workspace.IsLocalRef(entry.Source, entry.Pin) {
+		return "", false, nil
 	}
-	if args.Name == "" {
-		return "", fmt.Errorf("module name is required")
-	}
-
-	cfg, _, err := loadWorkspaceConfigForMutation(ctx, parent, workspaceConfigMustExist, args.Here)
-	if err != nil {
-		return "", err
+	if _, isSDK := workspace.SDKNameForModule(cfg, moduleName); isSDK {
+		return "", false, nil
 	}
 
-	if _, ok := cfg.Modules[args.Name]; !ok {
-		return "", fmt.Errorf("module %q is not installed in the workspace", args.Name)
+	resolvedSource := workspace.ResolveModuleEntrySource(configDir, entry.Source)
+	sourcePath := filepath.ToSlash(resolvedSource)
+	removed := false
+	for sdkName, sdk := range cfg.SDKs {
+		if len(sdk.Scopes) == 0 {
+			continue
+		}
+
+		for modulePath, scope := range sdk.Scopes {
+			if !scope.IsModule {
+				continue
+			}
+			managed, err := workspace.ResolveSDKManagedPath(configDir, modulePath)
+			if err != nil {
+				return "", false, fmt.Errorf("module managed by %q: %w", sdkName, err)
+			}
+			if managed == sourcePath {
+				removed = true
+				if len(scope.Clients) == 0 {
+					delete(sdk.Scopes, modulePath)
+				} else {
+					scope.IsModule = false
+					scope.Name = ""
+					sdk.Scopes[modulePath] = scope
+				}
+			}
+		}
+		cfg.SDKs[sdkName] = sdk
+	}
+	if !removed {
+		return "", false, nil
 	}
 
-	delete(cfg.Modules, args.Name)
-	if err := writeWorkspaceConfig(ctx, parent, cfg); err != nil {
-		return "", err
+	// Local installed modules can point outside the workspace (for example,
+	// "../dep"). Clean up the TOML reference above, but only delete authored
+	// SDK module directories that resolve inside the workspace.
+	if filepath.IsAbs(resolvedSource) {
+		return "", false, nil
 	}
-
-	cfgPath, err := configHostPath(parent)
-	if err != nil {
-		return "", err
+	deletePath := filepath.Clean(filepath.FromSlash(sourcePath))
+	if deletePath == "." || !filepath.IsLocal(deletePath) {
+		return "", false, nil
 	}
-
-	return dagql.String(fmt.Sprintf("Uninstalled module %q from %s", args.Name, cfgPath)), nil
+	return filepath.ToSlash(deletePath), true, nil
 }

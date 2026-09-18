@@ -1,0 +1,32 @@
+=== RUN   TestContainerTransferPendingChild
+2026/09/16 07:55:58 INFO start call field=Query.loadContainerFromID digest=xxh3:c055544e125af8eb
+2026/09/16 07:55:58 INFO end call field=Query.loadContainerFromID cached=false digest=xxh3:c055544e125af8eb
+2026/09/16 07:55:58 INFO start call field=Container.withEnvVariable digest=xxh3:facae2ef58910071
+2026/09/16 07:55:58 INFO end call field=Container.withEnvVariable cached=false digest=xxh3:facae2ef58910071
+2026/09/16 07:55:58 INFO start call field=Container.envVariable digest=xxh3:3ccb372165564256
+2026/09/16 07:55:58 INFO start call field=Container.workdir digest=xxh3:5cd9839dec976b6b
+2026/09/16 07:55:58 INFO start lazy group evaluation field=Container.withEnvVariable group=metadata
+2026/09/16 07:55:58 INFO end lazy group evaluation field=Container.withEnvVariable group=metadata duration=31.55µs
+2026/09/16 07:55:58 INFO start lazy group evaluation field=Container.withEnvVariable group=execMeta
+2026/09/16 07:55:58 INFO end lazy group evaluation field=Container.withEnvVariable group=execMeta duration=14.55µs
+2026/09/16 07:55:58 INFO end call field=Container.envVariable cached=false digest=xxh3:3ccb372165564256
+2026/09/16 07:55:58 INFO end call field=Container.workdir cached=false digest=xxh3:5cd9839dec976b6b
+2026/09/16 07:55:58 INFO start call field=Query.loadContainerFromID digest=xxh3:c055544e125af8eb
+2026/09/16 07:55:58 INFO end call field=Query.loadContainerFromID cached=true digest=xxh3:c055544e125af8eb
+2026/09/16 07:55:58 INFO start call field=Container.withEnvVariable digest=xxh3:facae2ef58910071
+2026/09/16 07:55:58 INFO end call field=Container.withEnvVariable cached=true digest=xxh3:facae2ef58910071
+2026/09/16 07:55:58 INFO start call field=Container.rootfs digest=xxh3:3b879439deabaa29
+2026/09/16 07:55:58 INFO end call field=Container.rootfs cached=false digest=xxh3:3b879439deabaa29
+2026/09/16 07:55:58 INFO start call field=Directory.entries digest=xxh3:7c070de203f4e5ec
+2026/09/16 07:55:58 INFO start lazy evaluation field=Container.rootfs
+2026/09/16 07:55:58 INFO start lazy group evaluation field=Container.withEnvVariable group=fs
+2026/09/16 07:55:58 INFO end lazy group evaluation field=Container.withEnvVariable group=fs duration=21.47µs err="imported filesystem part is unavailable: Container.fs"
+2026/09/16 07:55:58 INFO end lazy evaluation field=Container.rootfs duration=105.38µs err="imported filesystem part is unavailable: Container.fs"
+2026/09/16 07:55:58 INFO end call field=Directory.entries cached=false digest=xxh3:7c070de203f4e5ec
+2026/09/16 07:55:58 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestContainerTransferPendingChild (0.38s)
+=== RUN   TestRemoteCacheFixture
+2026/09/16 07:55:58 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestRemoteCacheFixture (0.03s)
+PASS
+ok  	github.com/dagger/dagger/core/schema	0.521s

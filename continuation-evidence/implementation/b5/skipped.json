@@ -1,0 +1,734 @@
+[
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestOfferSettlementReplacement/replacement_during_the_winning_acquisition_is_retired",
+  "reason": "cache_offer_matrix_test.go:239: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestOfferSettlementReplacementreplacement_during_the_winning_ac1010373313/001\", target: \"/tmp/snapshot-transfer-mount3991214824\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestOfferSettlementReplacement/acceptance_after_commit_is_already_complete",
+  "reason": "cache_offer_matrix_test.go:262: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestOfferSettlementReplacementacceptance_after_commit_is_alread3585603547/001\", target: \"/tmp/snapshot-transfer-mount3319020034\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestOfferSettlementReplacement/failed_sync_keeps_the_output,_not_the_acquisition_hold",
+  "reason": "cache_offer_matrix_test.go:286: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestOfferSettlementReplacementfailed_sync_keeps_the_output,_not71478374/001\", target: \"/tmp/snapshot-transfer-mount2326638475\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestOfferSettlementReplacement/failed_sync_keeps_the_output,_not_the_acquisition_hold,_with_a_back-reference_to_the_receiver",
+  "reason": "cache_offer_matrix_test.go:286: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestOfferSettlementReplacementfailed_sync_keeps_the_output,_not1997091025/001\", target: \"/tmp/snapshot-transfer-mount533875109\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestOfferResourcesDoNotGateLookup",
+  "reason": "cache_offer_matrix_test.go:331: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestOfferResourcesDoNotGateLookup3068520216/001\", target: \"/tmp/snapshot-transfer-mount3899800534\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestRenewalShutdownDrainsOwnership",
+  "reason": "cache_offer_matrix_test.go:434: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestRenewalShutdownDrainsOwnership4013210407/001\", target: \"/tmp/snapshot-transfer-mount333286205\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestOfferPendingRestartAndForward",
+  "reason": "cache_offer_restart_test.go:57: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestOfferPendingRestartAndForward3203395453/001\", target: \"/tmp/snapshot-transfer-mount248692832\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestRemoteCacheUnusedCost",
+  "reason": "cache_offer_restart_test.go:145: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestRemoteCacheUnusedCost3883946683/001\", target: \"/tmp/snapshot-transfer-mount2673950274\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestPartReadyPreparationBoundaries/cancel-during-pin",
+  "reason": "cache_part_boundary_test.go:85: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartReadyPreparationBoundariescancel-during-pin90900872/001\", target: \"/tmp/snapshot-transfer-mount1182039788\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestPartReadyPreparationBoundaries/missing-local-descriptor",
+  "reason": "cache_part_boundary_test.go:85: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartReadyPreparationBoundariesmissing-local-descriptor1287587464/001\", target: \"/tmp/snapshot-transfer-mount3709781502\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestPartDecisionPreparationArrival/ready",
+  "reason": "cache_part_boundary_test.go:144: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartDecisionPreparationArrivalready1870487662/001\", target: \"/tmp/snapshot-transfer-mount2501411222\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestPartDecisionPreparationArrival/chain",
+  "reason": "cache_part_boundary_test.go:144: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartDecisionPreparationArrivalchain2416793059/001\", target: \"/tmp/snapshot-transfer-mount1235955306\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestPartDecisionPreparationArrival/second-refusal",
+  "reason": "cache_part_boundary_test.go:144: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartDecisionPreparationArrivalsecond-refusal2472637686/001\", target: \"/tmp/snapshot-transfer-mount112105049\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestPartAdmittedChainLifetime/donor-collected",
+  "reason": "cache_part_chain_lifetime_test.go:46: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartAdmittedChainLifetimedonor-collected2777441503/001\", target: \"/tmp/snapshot-transfer-mount3933153014\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestPartAdmittedChainLifetime/slot-replaced",
+  "reason": "cache_part_chain_lifetime_test.go:46: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartAdmittedChainLifetimeslot-replaced1504270983/001\", target: \"/tmp/snapshot-transfer-mount3392847218\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestPartAdmittedChainLifetime/owner-backref-sync-failure",
+  "reason": "cache_part_chain_lifetime_test.go:46: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartAdmittedChainLifetimeowner-backref-sync-failure660538113/001\", target: \"/tmp/snapshot-transfer-mount1597958504\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestPartAdmittedChainLifetime/output-backref-rejected",
+  "reason": "cache_part_chain_lifetime_test.go:46: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartAdmittedChainLifetimeoutput-backref-rejected2851350142/001\", target: \"/tmp/snapshot-transfer-mount311401193\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestPartImportChainRefCleanupHandoff/retry",
+  "reason": "cache_part_chain_lifetime_test.go:225: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartImportChainRefCleanupHandoffretry624840365/001\", target: \"/tmp/snapshot-transfer-mount3444043932\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestPartImportChainRefCleanupHandoff/collect",
+  "reason": "cache_part_chain_lifetime_test.go:225: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartImportChainRefCleanupHandoffcollect899061849/001\", target: \"/tmp/snapshot-transfer-mount1873826610\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestRenewalChainControls",
+  "reason": "cache_part_content_test.go:603: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestRenewalChainControls4085827073/001\", target: \"/tmp/snapshot-transfer-mount1520377286\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestRenewalExhaustion",
+  "reason": "cache_part_content_test.go:865: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestRenewalExhaustion835520468/001\", target: \"/tmp/snapshot-transfer-mount73515924\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestPartDecodeBeforeExternalFinish",
+  "reason": "cache_part_decode_test.go:15: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartDecodeBeforeExternalFinish760022351/001\", target: \"/tmp/snapshot-transfer-mount1205350437\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestPartDecodeLosesToInstalledRevision",
+  "reason": "cache_part_decode_test.go:156: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartDecodeLosesToInstalledRevision2215757035/001\", target: \"/tmp/snapshot-transfer-mount1780067312\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestCacheContextCancel/last_waiter_canceled_fn_returns_value_still_releases",
+  "reason": "cache_test.go:2289: TODO: re-enable after last-waiter canceled cleanup semantics are decided"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestPartSessionlessRestoredDirectory",
+  "reason": "cache_part_admission_external_test.go:19: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartSessionlessRestoredDirectory351434502/001\", target: \"/tmp/snapshot-transfer-mount1507080697\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestBuiltinLazyOperationEvaluate",
+  "reason": "builtin_lazy_test.go:18: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestBuiltinLazyOperationEvaluate3128429974/001\", target: \"/tmp/snapshot-transfer-mount1751724399\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestMountedLazyRepresentations/Directory",
+  "reason": "container_mount_lazy_test.go:17: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestMountedLazyRepresentationsDirectory4972345/001\", target: \"/tmp/snapshot-transfer-mount3118146290\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestMountedLazyRepresentations/File",
+  "reason": "container_mount_lazy_test.go:17: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestMountedLazyRepresentationsFile4047680207/001\", target: \"/tmp/snapshot-transfer-mount1019789053\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestGitLazyOperationsEvaluate",
+  "reason": "git_lazy_test.go:71: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestGitLazyOperationsEvaluate1032629992/001\", target: \"/tmp/snapshot-transfer-mount3646521181\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestGitLazyOperationsRemoteEvaluate",
+  "reason": "git_lazy_test.go:183: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestGitLazyOperationsRemoteEvaluate269357516/001\", target: \"/tmp/snapshot-transfer-mount4101128473\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestGitBundleLazyOperationEvaluate",
+  "reason": "git_lazy_test.go:241: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestGitBundleLazyOperationEvaluate2486849852/001\", target: \"/tmp/snapshot-transfer-mount3425798412\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestHTTPLocalBodyOwnership",
+  "reason": "http_lazy_test.go:66: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestHTTPLocalBodyOwnership2375896890/001\", target: \"/tmp/snapshot-transfer-mount1313617859\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestHTTPLocalBodyFailures",
+  "reason": "http_lazy_test.go:141: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestHTTPLocalBodyFailures3249255122/001\", target: \"/tmp/snapshot-transfer-mount2311075421\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestHTTPPinLockCost",
+  "reason": "http_lazy_test.go:233: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestHTTPPinLockCost4116010384/001\", target: \"/tmp/snapshot-transfer-mount593098794\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestHTTPChainAvoidsOperation",
+  "reason": "http_lazy_test.go:264: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestHTTPChainAvoidsOperation4041881748/001\", target: \"/tmp/snapshot-transfer-mount811133083\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestLazyEvaluatedFilesystemClones",
+  "reason": "lazy_completion_test.go:134: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestLazyEvaluatedFilesystemClones3715853804/001\", target: \"/tmp/snapshot-transfer-mount2625735521\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestHTTPLazyOperationEvaluate",
+  "reason": "lazy_operation_execution_test.go:125: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestHTTPLazyOperationEvaluate3191280483/001\", target: \"/tmp/snapshot-transfer-mount1264289869\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestHTTPLazyOperationWriter",
+  "reason": "lazy_operation_execution_test.go:198: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestHTTPLazyOperationWriter3870329914/001\", target: \"/tmp/snapshot-transfer-mount1014873686\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestHTTPLazyOperationCleanup",
+  "reason": "lazy_operation_execution_test.go:397: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestHTTPLazyOperationCleanup2928824466/001\", target: \"/tmp/snapshot-transfer-mount4219806595\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestHTTPStateConcurrentResolveCapture",
+  "reason": "lazy_operation_execution_test.go:506: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestHTTPStateConcurrentResolveCapture1670330147/001\", target: \"/tmp/snapshot-transfer-mount2339804860\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestStatelessHTTPLazyOperationIsolation",
+  "reason": "lazy_operation_execution_test.go:550: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestStatelessHTTPLazyOperationIsolation1715133867/001\", target: \"/tmp/snapshot-transfer-mount315471116\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestEvaluatedLazyOperationConcurrentDemand",
+  "reason": "lazy_operation_execution_test.go:629: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestEvaluatedLazyOperationConcurrentDemand2146190522/001\", target: \"/tmp/snapshot-transfer-mount1461954725\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestMountLazyDetachedOwnership/file=false/failure=false",
+  "reason": "mount_lazy_ownership_test.go:51: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestMountLazyDetachedOwnershipfile=falsefailure=false2242349073/001\", target: \"/tmp/snapshot-transfer-mount561020492\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestMountLazyDetachedOwnership/file=false/failure=true",
+  "reason": "mount_lazy_ownership_test.go:51: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestMountLazyDetachedOwnershipfile=falsefailure=true3810900371/001\", target: \"/tmp/snapshot-transfer-mount2789691110\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestMountLazyDetachedOwnership/file=true/failure=false",
+  "reason": "mount_lazy_ownership_test.go:51: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestMountLazyDetachedOwnershipfile=truefailure=false2099383694/001\", target: \"/tmp/snapshot-transfer-mount2803255791\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestMountLazyDetachedOwnership/file=true/failure=true",
+  "reason": "mount_lazy_ownership_test.go:51: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestMountLazyDetachedOwnershipfile=truefailure=true2920548438/001\", target: \"/tmp/snapshot-transfer-mount3030434924\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartAcquisitionRootRoutes/ready",
+  "reason": "part_acquisition_test.go:100: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartAcquisitionRootRoutesready240727083/001\", target: \"/tmp/snapshot-transfer-mount973776455\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartAcquisitionRootRoutes/chain",
+  "reason": "part_acquisition_test.go:100: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartAcquisitionRootRouteschain649688655/001\", target: \"/tmp/snapshot-transfer-mount1932160829\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartAcquisitionRootRoutes/chain-sync-retry",
+  "reason": "part_acquisition_test.go:100: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartAcquisitionRootRouteschain-sync-retry1364155029/001\", target: \"/tmp/snapshot-transfer-mount2977552788\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartAcquisitionRootRoutes/chain-sync-restart",
+  "reason": "part_acquisition_test.go:100: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartAcquisitionRootRouteschain-sync-restart2590307977/001\", target: \"/tmp/snapshot-transfer-mount3993655334\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartAcquisitionRootRoutes/chain-pin-release-retry",
+  "reason": "part_acquisition_test.go:100: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartAcquisitionRootRouteschain-pin-release-retry2774874128/001\", target: \"/tmp/snapshot-transfer-mount1621354950\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartAcquisitionRootRoutes/chain-fallback",
+  "reason": "part_acquisition_test.go:100: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartAcquisitionRootRouteschain-fallback80741292/001\", target: \"/tmp/snapshot-transfer-mount300681701\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartAcquisitionRootRoutes/chain-fallback-operation-failure",
+  "reason": "part_acquisition_test.go:100: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartAcquisitionRootRouteschain-fallback-operation-failure425608815/001\", target: \"/tmp/snapshot-transfer-mount940050309\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartAcquisitionRootRoutes/operation",
+  "reason": "part_acquisition_test.go:100: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartAcquisitionRootRoutesoperation2516096594/001\", target: \"/tmp/snapshot-transfer-mount3322668118\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartContainerMixedRestart",
+  "reason": "part_acquisition_test.go:232: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartContainerMixedRestart4028819621/001\", target: \"/tmp/snapshot-transfer-mount489563646\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartMountReceiverRoles",
+  "reason": "part_acquisition_test.go:306: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartMountReceiverRoles810560792/001\", target: \"/tmp/snapshot-transfer-mount830123680\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartPrivateWholeBuiltin",
+  "reason": "part_acquisition_test.go:340: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartPrivateWholeBuiltin3249619752/001\", target: \"/tmp/snapshot-transfer-mount3602222770\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartDelegationMountRoles/shifted-role",
+  "reason": "part_delegation_mount_test.go:19: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartDelegationMountRolesshifted-role4074968039/001\", target: \"/tmp/snapshot-transfer-mount288733750\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartDelegationMountRoles/wrong-kind",
+  "reason": "part_delegation_mount_test.go:19: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartDelegationMountRoleswrong-kind1303232180/001\", target: \"/tmp/snapshot-transfer-mount3051847903\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartDelegationRealStore/ready-parent",
+  "reason": "part_delegation_test.go:84: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartDelegationRealStoreready-parent247733008/001\", target: \"/tmp/snapshot-transfer-mount3775165326\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartDelegationRealStore/pending-parent",
+  "reason": "part_delegation_test.go:84: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartDelegationRealStorepending-parent1850196690/001\", target: \"/tmp/snapshot-transfer-mount1963697756\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartDelegationRealStore/sync-retry",
+  "reason": "part_delegation_test.go:84: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartDelegationRealStoresync-retry2543861109/001\", target: \"/tmp/snapshot-transfer-mount3178255243\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartDelegationRealStore/native-restart",
+  "reason": "part_delegation_test.go:84: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartDelegationRealStorenative-restart2652563470/001\", target: \"/tmp/snapshot-transfer-mount759743138\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartDelegationRealStore/ready-parent-over-chain",
+  "reason": "part_delegation_test.go:84: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartDelegationRealStoreready-parent-over-chain2566112464/001\", target: \"/tmp/snapshot-transfer-mount2341620230\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartDelegationRealStore/ordinary-ready-tie",
+  "reason": "part_delegation_test.go:84: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartDelegationRealStoreordinary-ready-tie3340525038/001\", target: \"/tmp/snapshot-transfer-mount2347202466\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartDelegationRealStore/child-chain-first",
+  "reason": "part_delegation_test.go:84: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartDelegationRealStorechild-chain-first3066780955/001\", target: \"/tmp/snapshot-transfer-mount2935191999\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartDelegationRealStore/late-child",
+  "reason": "part_delegation_test.go:84: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartDelegationRealStorelate-child188707637/001\", target: \"/tmp/snapshot-transfer-mount2468386257\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartDelegationRealStore/child-and-parent-failure",
+  "reason": "part_delegation_test.go:84: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartDelegationRealStorechild-and-parent-failure724797669/001\", target: \"/tmp/snapshot-transfer-mount1397275414\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartFilesystemPublicationRoles/File",
+  "reason": "part_filesystem_race_test.go:21: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartFilesystemPublicationRolesFile2472746004/001\", target: \"/tmp/snapshot-transfer-mount428293800\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartFilesystemPublicationRoles/Directory",
+  "reason": "part_filesystem_race_test.go:21: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartFilesystemPublicationRolesDirectory1505085151/001\", target: \"/tmp/snapshot-transfer-mount3189311730\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartInlineAddress/sequential",
+  "reason": "part_inline_test.go:54: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartInlineAddresssequential2488461451/001\", target: \"/tmp/snapshot-transfer-mount2244100009\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartInlineAddress/concurrent",
+  "reason": "part_inline_test.go:54: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartInlineAddressconcurrent1692496846/001\", target: \"/tmp/snapshot-transfer-mount88814678\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartInlineAddress/shared-snapshot-sync-retry",
+  "reason": "part_inline_test.go:54: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartInlineAddressshared-snapshot-sync-retry182632489/001\", target: \"/tmp/snapshot-transfer-mount380659031\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestOfferPartsNativeAdmission/accepted_before_start",
+  "reason": "part_offer_admission_test.go:85: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestOfferPartsNativeAdmissionaccepted_before_start404194485/001\", target: \"/tmp/snapshot-transfer-mount946975479\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestOfferPartsNativeAdmission/refused_after_start",
+  "reason": "part_offer_admission_test.go:104: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestOfferPartsNativeAdmissionrefused_after_start371840380/001\", target: \"/tmp/snapshot-transfer-mount2651964246\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartTypedPublicationRoles",
+  "reason": "part_publication_race_test.go:20: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartTypedPublicationRoles2931888079/001\", target: \"/tmp/snapshot-transfer-mount3197336303\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartScopeEmptyBoot/old_schema_false",
+  "reason": "part_scope_boot_test.go:23: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartScopeEmptyBootold_schema_false2749874471/001\", target: \"/tmp/snapshot-transfer-mount661378919\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartScopeEmptyBoot/old_schema_true",
+  "reason": "part_scope_boot_test.go:23: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartScopeEmptyBootold_schema_true2534216242/001\", target: \"/tmp/snapshot-transfer-mount2847638587\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartScopeRootRekeyCost/1",
+  "reason": "part_scope_boot_test.go:94: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartScopeRootRekeyCost1869136085/001\", target: \"/tmp/snapshot-transfer-mount2050368766\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartScopeRootRekeyCost/32",
+  "reason": "part_scope_boot_test.go:94: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartScopeRootRekeyCost321369676929/001\", target: \"/tmp/snapshot-transfer-mount363956088\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartScopeBootScanFailure",
+  "reason": "part_scope_boot_test.go:147: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartScopeBootScanFailure3604197522/001\", target: \"/tmp/snapshot-transfer-mount1095995598\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartWholeLazyOperationMixedRestart",
+  "reason": "part_whole_restart_test.go:24: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartWholeLazyOperationMixedRestart2904631906/001\", target: \"/tmp/snapshot-transfer-mount1034589614\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartPendingImageMetadataStaysSelective",
+  "reason": "part_whole_restart_test.go:124: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartPendingImageMetadataStaysSelective522560523/001\", target: \"/tmp/snapshot-transfer-mount3862046055\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestPartNativePendingContainerRequiresRecipe",
+  "reason": "part_whole_restart_test.go:166: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestPartNativePendingContainerRequiresRecipe70591594/001\", target: \"/tmp/snapshot-transfer-mount501994560\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestSnapshotTransferTypedAdoptionAndRestart",
+  "reason": "snapshot_transfer_test.go:45: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestSnapshotTransferTypedAdoptionAndRestart2003573439/001\", target: \"/tmp/snapshot-transfer-mount2485490993\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestValueTransferPartsGitTrees/local",
+  "reason": "value_transfer_chain_test.go:39: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestValueTransferPartsGitTreeslocal1099044693/001\", target: \"/tmp/snapshot-transfer-mount734865876\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestValueTransferPartsGitTrees/remote",
+  "reason": "value_transfer_chain_test.go:39: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestValueTransferPartsGitTreesremote877934361/001\", target: \"/tmp/snapshot-transfer-mount1922628445\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestValueTransferPartsSelectedChain",
+  "reason": "value_transfer_chain_test.go:134: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestValueTransferPartsSelectedChain3645743507/001\", target: \"/tmp/snapshot-transfer-mount3265944245\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestValueTransferPartsContainerMount",
+  "reason": "value_transfer_chain_test.go:197: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestValueTransferPartsContainerMount1129508648/001\", target: \"/tmp/snapshot-transfer-mount2220363131\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core",
+  "test": "TestValueTransferPersistenceFinalOfferRestart",
+  "reason": "value_transfer_restart_test.go:17: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestValueTransferPersistenceFinalOfferRestart1582209245/001\", target: \"/tmp/snapshot-transfer-mount4120514854\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core/schema",
+  "test": "TestBuiltinMetadataSelectors/Directory",
+  "reason": "container_lazy_test.go:64: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestBuiltinMetadataSelectorsDirectory2156761792/002\", target: \"/tmp/snapshot-transfer-mount3304586498\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core/schema",
+  "test": "TestBuiltinMetadataSelectors/File",
+  "reason": "container_lazy_test.go:64: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestBuiltinMetadataSelectorsFile1847879564/002\", target: \"/tmp/snapshot-transfer-mount1042980809\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core/schema",
+  "test": "TestBuiltinMetadataSelectors/relative_Directory",
+  "reason": "container_lazy_test.go:64: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestBuiltinMetadataSelectorsrelative_Directory38670741/002\", target: \"/tmp/snapshot-transfer-mount3802139867\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core/schema",
+  "test": "TestBuiltinMetadataSelectors/relative_File",
+  "reason": "container_lazy_test.go:64: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestBuiltinMetadataSelectorsrelative_File3544088607/002\", target: \"/tmp/snapshot-transfer-mount2757912595\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core/schema",
+  "test": "TestBuiltinMetadataSelectors/platform_fallback",
+  "reason": "container_lazy_test.go:64: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestBuiltinMetadataSelectorsplatform_fallback2929994770/002\", target: \"/tmp/snapshot-transfer-mount2867139249\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core/schema",
+  "test": "TestScratchDirectoryLazyOperation",
+  "reason": "directory_scratch_test.go:151: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestScratchDirectoryLazyOperation1067261430/001\", target: \"/tmp/snapshot-transfer-mount2081470529\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core/schema",
+  "test": "TestScratchDirectoryAcquisition/cold",
+  "reason": "directory_scratch_test.go:236: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestScratchDirectoryAcquisitioncold3596408074/001\", target: \"/tmp/snapshot-transfer-mount1971153908\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core/schema",
+  "test": "TestScratchDirectoryAcquisition/canonical-only",
+  "reason": "directory_scratch_test.go:236: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestScratchDirectoryAcquisitioncanonical-only1886485796/001\", target: \"/tmp/snapshot-transfer-mount2632395059\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core/schema",
+  "test": "TestScratchDirectoryAcquisition/warm",
+  "reason": "directory_scratch_test.go:236: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestScratchDirectoryAcquisitionwarm3638724633/001\", target: \"/tmp/snapshot-transfer-mount4082533239\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core/schema",
+  "test": "TestScratchDirectoryAcquisition/pending-restart",
+  "reason": "directory_scratch_test.go:236: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestScratchDirectoryAcquisitionpending-restart3359893090/001\", target: \"/tmp/snapshot-transfer-mount1093742264\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core/schema",
+  "test": "TestScratchDirectoryAcquisition/manager-failure",
+  "reason": "directory_scratch_test.go:236: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestScratchDirectoryAcquisitionmanager-failure459057359/001\", target: \"/tmp/snapshot-transfer-mount101791034\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core/schema",
+  "test": "TestScratchDirectoryAcquisition/manager-canceled",
+  "reason": "directory_scratch_test.go:236: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestScratchDirectoryAcquisitionmanager-canceled1090486760/001\", target: \"/tmp/snapshot-transfer-mount483680689\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core/schema",
+  "test": "TestScratchDirectoryAcquisition/prepare-failure",
+  "reason": "directory_scratch_test.go:236: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestScratchDirectoryAcquisitionprepare-failure2362575139/001\", target: \"/tmp/snapshot-transfer-mount1624758442\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core/schema",
+  "test": "TestScratchDirectoryAcquisition/sync-retry",
+  "reason": "directory_scratch_test.go:236: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestScratchDirectoryAcquisitionsync-retry3322664982/001\", target: \"/tmp/snapshot-transfer-mount1506114694\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core/schema",
+  "test": "TestScratchDirectoryNativeReopen/pending",
+  "reason": "directory_scratch_test.go:410: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestScratchDirectoryNativeReopenpending3491832360/001\", target: \"/tmp/snapshot-transfer-mount519367611\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core/schema",
+  "test": "TestScratchDirectoryNativeReopen/evaluated",
+  "reason": "directory_scratch_test.go:410: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestScratchDirectoryNativeReopenevaluated299571485/001\", target: \"/tmp/snapshot-transfer-mount372187880\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core/schema",
+  "test": "TestHTTPResolvedCall",
+  "reason": "http_lazy_test.go:24: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestHTTPResolvedCall1895878750/001\", target: \"/tmp/snapshot-transfer-mount243693504\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core/schema",
+  "test": "TestHTTPPendingInternalHits/absent",
+  "reason": "http_lazy_test.go:103: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestHTTPPendingInternalHitsabsent1847967075/001\", target: \"/tmp/snapshot-transfer-mount633894431\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core/schema",
+  "test": "TestHTTPPendingInternalHits/advanced",
+  "reason": "http_lazy_test.go:103: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestHTTPPendingInternalHitsadvanced1540035376/001\", target: \"/tmp/snapshot-transfer-mount255529341\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core/schema",
+  "test": "TestHTTPPendingInternalHits/changed-body",
+  "reason": "http_lazy_test.go:103: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestHTTPPendingInternalHitschanged-body3509482567/001\", target: \"/tmp/snapshot-transfer-mount1603051693\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core/schema",
+  "test": "TestLazyStoredResultsWithoutBacking",
+  "reason": "lazy_stored_results_test.go:17: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestLazyStoredResultsWithoutBacking52342966/001\", target: \"/tmp/snapshot-transfer-mount2324202624\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "packages",
+  "package": "github.com/dagger/dagger/core/schema",
+  "test": "TestSchemaFileLazy",
+  "reason": "query_lazy_test.go:16: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestSchemaFileLazy2994889471/001\", target: \"/tmp/snapshot-transfer-mount2401777889\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "dagql-race",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestOfferSettlementReplacement/replacement_during_the_winning_acquisition_is_retired",
+  "reason": "cache_offer_matrix_test.go:239: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestOfferSettlementReplacementreplacement_during_the_winning_ac743218572/001\", target: \"/tmp/snapshot-transfer-mount3386936455\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "dagql-race",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestOfferSettlementReplacement/acceptance_after_commit_is_already_complete",
+  "reason": "cache_offer_matrix_test.go:262: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestOfferSettlementReplacementacceptance_after_commit_is_alread139956372/001\", target: \"/tmp/snapshot-transfer-mount1664290854\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "dagql-race",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestOfferSettlementReplacement/failed_sync_keeps_the_output,_not_the_acquisition_hold",
+  "reason": "cache_offer_matrix_test.go:286: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestOfferSettlementReplacementfailed_sync_keeps_the_output,_not4052571915/001\", target: \"/tmp/snapshot-transfer-mount3730852479\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "dagql-race",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestOfferSettlementReplacement/failed_sync_keeps_the_output,_not_the_acquisition_hold,_with_a_back-reference_to_the_receiver",
+  "reason": "cache_offer_matrix_test.go:286: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestOfferSettlementReplacementfailed_sync_keeps_the_output,_not864503055/001\", target: \"/tmp/snapshot-transfer-mount4046637696\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "dagql-race",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestOfferResourcesDoNotGateLookup",
+  "reason": "cache_offer_matrix_test.go:331: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestOfferResourcesDoNotGateLookup144662789/001\", target: \"/tmp/snapshot-transfer-mount274416770\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "dagql-race",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestRenewalShutdownDrainsOwnership",
+  "reason": "cache_offer_matrix_test.go:434: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestRenewalShutdownDrainsOwnership141476159/001\", target: \"/tmp/snapshot-transfer-mount943349503\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "dagql-race",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestOfferPendingRestartAndForward",
+  "reason": "cache_offer_restart_test.go:57: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestOfferPendingRestartAndForward318098300/001\", target: \"/tmp/snapshot-transfer-mount1896753919\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "dagql-race",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestRemoteCacheUnusedCost",
+  "reason": "cache_offer_restart_test.go:145: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestRemoteCacheUnusedCost4023203728/001\", target: \"/tmp/snapshot-transfer-mount731973051\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "dagql-race",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestRenewalChainControls",
+  "reason": "cache_part_content_test.go:603: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestRenewalChainControls1820940268/001\", target: \"/tmp/snapshot-transfer-mount3536463765\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ },
+ {
+  "invocation": "dagql-race",
+  "package": "github.com/dagger/dagger/dagql",
+  "test": "TestRenewalExhaustion",
+  "reason": "cache_part_content_test.go:865: real native snapshot transfer requires read-only bind mount privileges: mount source: \"/tmp/TestRenewalExhaustion637081241/001\", target: \"/tmp/snapshot-transfer-mount2116607688\", fstype: bind, flags: 20481, data: \"\", err: operation not permitted"
+ }
+]

@@ -1,0 +1,28 @@
+[dagger] 30.0s elapsed · 5 steps running
+[dagger] 1m0s elapsed · 5 steps running
+[dagger] 1m30s elapsed · 9 steps running
+[dagger] 2m0s elapsed · 11 steps running
+== TRACE ==  ✔ PASSED
+engine-dev test --pkg ./core/integration --run=TestRemoteCacheTransferSuite/TestPartMixedExecOutputs$ --timeout=5m --test-verbose  2m26s
+
+✔ connect 0.4s
+✔ load workspace: . 2.0s
+✔ parsing command line arguments 0.0s
+
+✔ engineDev(
+  ┆ ws: currentWorkspace: Workspace!
+  ): EngineDev! 23.9s ◆ CPU Pressure (some): 49.064ms ◆ CPU Pressure (full): 37.646ms ◆ Memory Bytes (current): 1.1 MB ◆ Memory Bytes (peak): 31 MB ◆ Network Tx: 420 B
+✔ .test(run: "TestRemoteCacheTransferSuite/TestPartMixedExecOutputs$", pkg: "./core/integration", timeout: "5m", testVerbose: true): Void 1m60s ◆ CPU Pressure (some): 251.394ms ◆ CPU Pressure (full): 193.006ms ◆ Memory Bytes (current): 860 kB ◆ Memory Bytes (peak): 33 MB ◆ Network Tx: 2.6 kB
+  ✔ 1 upload, 3 unpacks, 2 pulls, 1 transfer 10.1s
+
+== SERVICES ==
+✔ rogct0dgr0vls.ok3ucr056uspq.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 1m37s EXITED span=5ef024ce6de6498b
+✔ h4avdn8nctrm4.ok3ucr056uspq.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 1m37s EXITED span=38b43fac52bf57ec
+✔ kjq9lrk77c5f0.ok3ucr056uspq.dagger.local exec dagger-entrypoint.sh --addr unix:///run/dagger-engine.sock --addr tcp://0.0.0.0:1234 --network-name dagger-dev --network-cidr 10.88.0.0/16 --debugaddr 0.0.0.0:6060 1m37s EXITED span=04ed5130f40f7db4
+
+== TESTS ==
+  ✔ github.com/dagger/dagger/core/integration  1 passed
+
+  ✔ 1 passed
+
+Trace ID: d5215ba69b99ccefb25e1cf482b1356a

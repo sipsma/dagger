@@ -1,0 +1,100 @@
+package core
+
+import (
+	"bytes"
+	"encoding/json"
+	"testing"
+
+	"github.com/containerd/containerd/v2/core/content"
+	"github.com/containerd/containerd/v2/plugins/content/local"
+	"github.com/dagger/dagger/dagql"
+	"github.com/opencontainers/go-digest"
+	"github.com/opencontainers/image-spec/specs-go"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/stretchr/testify/require"
+)
+
+func TestBuiltinLazyOperationEvaluate(t *testing.T) {
+	ctx, store, cache, _, server := executionFixture(t)
+	packaged, err := local.NewStore(t.TempDir())
+	require.NoError(t, err)
+	server.builtin = packaged
+	config := []byte(`{"architecture":"amd64","os":"linux","rootfs":{"type":"layers","diff_ids":[]},"config":{"Env":["SAVED=true"],"WorkingDir":"/saved"}}`)
+	configDesc := ocispec.Descriptor{MediaType: ocispec.MediaTypeImageConfig, Digest: digest.FromBytes(config), Size: int64(len(config))}
+	require.NoError(t, content.WriteBlob(ctx, packaged, "config", bytes.NewReader(config), configDesc))
+	manifest, err := json.Marshal(ocispec.Manifest{Versioned: specs.Versioned{SchemaVersion: 2}, MediaType: ocispec.MediaTypeImageManifest, Config: configDesc, Layers: []ocispec.Descriptor{}})
+	require.NoError(t, err)
+	desc := ocispec.Descriptor{MediaType: ocispec.MediaTypeImageManifest, Digest: digest.FromBytes(manifest), Size: int64(len(manifest))}
+	require.NoError(t, content.WriteBlob(ctx, packaged, "manifest", bytes.NewReader(manifest), desc))
+	requested := Platform{OS: "linux", Architecture: "arm64"}
+	eager, err := BuiltInContainer(ctx, requested, desc.Digest.String())
+	require.NoError(t, err)
+	defer eager.OnRelease(ctx)
+	require.NotNil(t, eager.Lazy)
+	require.False(t, eager.Lazy.IsEvaluated())
+	require.Equal(t, requested, eager.Platform)
+	require.NoError(t, eager.Evaluate(ctx))
+	operation := eager.Lazy.(*ContainerBuiltinLazy)
+	require.Equal(t, requested, operation.Platform)
+	require.Equal(t, "amd64", eager.Platform.Architecture)
+	call := &dagql.ResultCall{Kind: dagql.ResultCallKindField, Field: "_builtinContainer", Type: dagql.NewResultCallType(eager.Type())}
+	raw, err := operation.EncodePersisted(ctx, dagql.NewPersistEncodeContext(cache, 0, call))
+	require.NoError(t, err)
+	decoded, err := decodeContainerBuiltinLazy(raw)
+	require.NoError(t, err)
+	private := NewContainer(requested)
+	private.Lazy = decoded
+	require.NoError(t, decoded.Evaluate(ctx, private))
+	defer private.OnRelease(ctx)
+	require.Same(t, decoded, private.Lazy)
+	require.True(t, private.Lazy.IsEvaluated())
+	require.Equal(t, eager.Platform, private.Platform)
+	require.Equal(t, eager.Config, private.Config)
+	eagerFS, _ := eager.FS.Peek()
+	privateFS, _ := private.FS.Peek()
+	eagerPath, _, err := directoryOutput(eagerFS)
+	require.NoError(t, err)
+	privatePath, _, err := directoryOutput(privateFS)
+	require.NoError(t, err)
+	require.Equal(t, eagerPath, privatePath)
+	require.NoError(t, packaged.Delete(ctx, desc.Digest))
+	missing, err := decodeContainerBuiltinLazy(raw)
+	require.NoError(t, err)
+	require.ErrorContains(t, missing.Evaluate(ctx, NewContainer(requested)), "lookup builtin image manifest")
+	t.Run("eager file without operation", func(t *testing.T) {
+		// Changeset.AsPatch returns an eager File like this one. It mounts both
+		// sides to run git, so its bytes belong to ChangesetSuite's
+		// TestChangesAsPatch; what stays here is that such a File is saved
+		// with no operation.
+		ref, _ := store.Build(t, nil, "changes.patch", "")
+		patch := freshLazyOperationFile()
+		patch.SetPath("/changes.patch")
+		patch.SetSnapshot(ref)
+		body, _ := producedFileContents(t, ctx, patch)
+		require.Empty(t, body)
+		require.Nil(t, patch.Lazy)
+		encoded, err := patch.EncodePersistedObject(ctx, dagql.NewPersistEncodeContext(cache, 0, nil))
+		require.NoError(t, err)
+		var saved persistedFilePayload
+		require.NoError(t, json.Unmarshal(encoded.JSON, &saved))
+		require.Empty(t, saved.LazyKind)
+		require.Empty(t, saved.LazyJSON)
+	})
+	t.Run("saved schema bytes", func(t *testing.T) {
+		data := bytes.Repeat([]byte(`{"saved":"schema"}`), 25000)
+		saved := &FileBlobLazy{LazyState: NewLazyState(), Filename: "schema.json", Contents: data, Permissions: 0644}
+		raw, err := saved.EncodePersisted(ctx, nil)
+		require.NoError(t, err)
+		decoded, err := decodePersistedFileLazy(ctx, nil, persistedFileLazyKindBlob, raw)
+		require.NoError(t, err)
+		server.srv = nil
+		output := freshLazyOperationFile()
+		require.NoError(t, decoded.Evaluate(ctx, output))
+		defer output.OnRelease(ctx)
+		body, info := producedFileContents(t, ctx, output)
+		require.Equal(t, data, body)
+		require.EqualValues(t, 0644, info.Mode().Perm())
+		path, _ := output.File.Peek()
+		require.Equal(t, "/schema.json", path)
+	})
+}

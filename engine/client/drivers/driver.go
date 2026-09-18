@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strings"
 
 	"github.com/dagger/dagger/engine/client/imageload"
 	"github.com/dagger/dagger/internal/cloud/auth"
@@ -59,7 +60,10 @@ func register(scheme string, driver ...Driver) {
 func GetDriver(ctx context.Context, name string) (Driver, error) {
 	drivers, ok := drivers[name]
 	if !ok {
-		return nil, fmt.Errorf("no driver for scheme %q found", name)
+		// Teach the usable values here: an engine selector is often the first
+		// thing a user gets wrong, and the message is the only help they see.
+		return nil, fmt.Errorf("no driver for scheme %q found; supported schemes: %s",
+			name, strings.Join(RegisteredSchemes(), ", "))
 	}
 	for _, driver := range drivers {
 		available, err := driver.Available(ctx)
@@ -70,5 +74,10 @@ func GetDriver(ctx context.Context, name string) (Driver, error) {
 			return driver, nil
 		}
 	}
-	return nil, fmt.Errorf("driver for scheme %q was not available", name)
+	return nil, &runtimeUnavailableError{
+		err: fmt.Errorf("no container runtime is available for engine scheme %q", name),
+		message: "Dagger needs a container runtime to start the local engine.\n\n" +
+			"Install a compatible container runtime and make sure its command is in PATH.\n" +
+			"To choose a local or remote engine, run `dagger help engine`.",
+	}
 }

@@ -1,0 +1,24 @@
+[
+  {
+    "name": "followup-vet",
+    "command": "go vet ./core/... ./dagql/... ./engine/...",
+    "cwd": "/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-integration-b1-b2-36d54e12-c4fb4f07",
+    "head": "8d99a010afc875466c999d44c174a5a0c95f3504",
+    "exit_status": 1,
+    "seconds": 13.545,
+    "started": "2026-09-16T09:14:33.485672+00:00",
+    "finished": "2026-09-16T09:14:47.030750+00:00",
+    "log": "followup-vet.log"
+  },
+  {
+    "name": "followup-unfiltered",
+    "command": "env GOPATH=/home/exedev/go GOCACHE=/home/exedev/.cache/go-build go test -p=1 -exec='sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -count=1 -v",
+    "cwd": "/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-integration-b1-b2-36d54e12-c4fb4f07",
+    "head": "8d99a010afc875466c999d44c174a5a0c95f3504",
+    "exit_status": 1,
+    "seconds": 17.648,
+    "started": "2026-09-16T09:14:47.031191+00:00",
+    "finished": "2026-09-16T09:15:04.679690+00:00",
+    "log": "followup-unfiltered.log"
+  }
+]

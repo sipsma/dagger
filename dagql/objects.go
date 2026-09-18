@@ -27,6 +27,7 @@ type Class[T Typed] struct {
 	idable  bool
 	fields  map[string][]*Field[T]
 	fieldsL *sync.RWMutex
+	view    ViewFilter
 
 	// interfaces records the interfaces this class implements.
 	// Uses a map (reference type) so it's shared across value copies of Class.
@@ -86,6 +87,9 @@ type ClassOpts[T Typed] struct {
 	// The inner type sourceMap directive so additional type
 	// registered by the engine can store also store its origin.
 	SourceMap *ast.Directive
+
+	// View limits the object type and its generated ID/load fields to a schema view.
+	View ViewFilter
 }
 
 // NewClass returns a new empty class for a given type.
@@ -104,6 +108,10 @@ func NewClass[T Typed](srv *Server, opts_ ...ClassOpts[T]) Class[T] {
 		if o.SourceMap != nil {
 			opts.SourceMap = o.SourceMap
 		}
+
+		if o.View != nil {
+			opts.View = o.View
+		}
 	}
 
 	class := Class[T]{
@@ -112,6 +120,7 @@ func NewClass[T Typed](srv *Server, opts_ ...ClassOpts[T]) Class[T] {
 		fieldsL:    new(sync.RWMutex),
 		interfaces: map[string]*Interface{},
 		sourceMap:  opts.SourceMap,
+		view:       opts.View,
 
 		invalidateSchemaCache: srv.invalidateSchemaCache,
 	}
@@ -189,6 +198,15 @@ func (class Class[T]) IDType() (IDType, bool) {
 	} else {
 		return nil, false
 	}
+}
+
+func (class Class[T]) View(view ViewFilter) Class[T] {
+	class.view = view
+	return class
+}
+
+func (class Class[T]) ViewFilter() ViewFilter {
+	return class.view
 }
 
 func (class Class[T]) Field(name string, view call.View) (Field[T], bool) {
@@ -358,7 +376,10 @@ func (class Class[T]) TypeDefinition(view call.View) *ast.Definition {
 		return def.Fields[i].Name < def.Fields[j].Name
 	})
 	// Populate interface names on the definition.
-	for name := range class.interfaces {
+	for name, iface := range class.interfaces {
+		if !typeVisibleInView(iface, view) {
+			continue
+		}
 		def.Interfaces = append(def.Interfaces, name)
 	}
 	sort.Strings(def.Interfaces)
@@ -410,6 +431,11 @@ func (class Class[T]) ParseField(ctx context.Context, view call.View, astField *
 // New returns a new instance of the class.
 func (class Class[T]) New(val AnyResult) (AnyObjectResult, error) {
 	if objResult, ok := val.(ObjectResult[T]); ok {
+		// T alone does not identify the schema: two revisions of a module
+		// share the same Go value type. Honor the explicitly requested class on
+		// this wrapper even when the value is already wrapped as an object; the
+		// shared result keeps the class it was first observed with.
+		objResult.class = class
 		return objResult, nil
 	}
 	if inst, ok := val.(Result[T]); ok {
@@ -575,6 +601,10 @@ func (r ObjectResult[T]) preselect(ctx context.Context, sel Selector) (ObjectRes
 		DoNotCache:           field.Spec.DoNotCache != "",
 		IsPersistable:        field.Spec.IsPersistable,
 		PassthroughTelemetry: field.Spec.PassthroughTelemetry,
+		// The immediate receiver's type name is free here (r is the receiver);
+		// core.AroundFunc reads it to make the static profile-skip decision without
+		// an egraphMu receiver-resolution lookup per call.
+		ReceiverTypeName: r.class.inner.Type().Name(),
 	}
 	if clientMD, err := engine.ClientMetadataFromContext(ctx); err != nil {
 		slog.Warn("failed to get client metadata from context for call", "err", err)
@@ -616,7 +646,13 @@ func (r ObjectResult[T]) call(
 	s *Server,
 	req *CallRequest,
 	inputArgs map[string]Input,
-) (AnyResult, error) {
+) (res AnyResult, err error) {
+	// NOTE: named returns are load-bearing: the telemetry done callback
+	// (core.AroundFunc -> telemetry.EndWithCause) stamps the error with the
+	// span's origin marker by writing through the error pointer, and only a
+	// named return makes that mutation visible to the caller. With the marker
+	// propagated, ancestor spans link to the origin instead of repeating the
+	// same message, and frontends collapse the duplicates.
 	ctx = ContextWithCall(ctx, req.ResultCall)
 	fieldName := req.Field
 	view := req.View
@@ -627,10 +663,6 @@ func (r ObjectResult[T]) call(
 	if field.Spec.Trivial {
 		ctx = ContextWithTrivialField(ctx)
 	}
-	var (
-		res AnyResult
-		err error
-	)
 	if s.telemetry != nil && !field.Spec.NoTelemetry {
 		telemetryCtx, done := s.telemetry(ctx, req)
 		defer func() {
@@ -898,9 +930,9 @@ type FieldSpec struct {
 	NoTelemetry bool
 
 	// Trivial marks fields that only unwrap data from their receiver rather
-	// than performing meaningful work. Used to suppress install-span capture
-	// for synthetic accessors (e.g. auto-generated module object field
-	// accessors) so they don't claim ownership of values they merely return.
+	// than performing meaningful work. Their telemetry spans are internal, and
+	// they skip install-span capture so they don't claim ownership of values
+	// they merely return.
 	Trivial bool
 
 	// PassthroughTelemetry keeps this field's telemetry span available for call
@@ -1001,6 +1033,20 @@ type InputSpec struct {
 	// clients, but can't be set in new graphql queries.
 	// This argument will not be exposed in the introspection schema.
 	Internal bool
+
+	// LazyRef marks an ID-typed argument whose value is not needed to
+	// reconstruct the receiver's state when an ID is loaded from its recipe.
+	// The recipe loader carries such an argument through as a lazy reference
+	// instead of eagerly evaluating it (and everything it depends on). The
+	// field's resolver is responsible for loading the referenced object
+	// lazily, only if and when it actually needs the value.
+	//
+	// This exists so that persisted state referencing an object whose
+	// construction has side effects (or has since become impossible to
+	// reproduce) can still be restored: e.g. LLM.withTools records the bound
+	// object only to expose its type's methods as tools, so restoring the
+	// conversation must not re-run the call that produced that object.
+	LazyRef bool
 }
 
 func (spec *InputSpec) merge(other *InputSpec) {
@@ -1032,6 +1078,9 @@ func (spec *InputSpec) merge(other *InputSpec) {
 	if other.Internal {
 		spec.Internal = other.Internal
 	}
+	if other.LazyRef {
+		spec.LazyRef = other.LazyRef
+	}
 }
 
 type Argument struct {
@@ -1061,6 +1110,14 @@ func (arg Argument) Internal() Argument {
 	return arg
 }
 
+// LazyRef marks an ID-typed argument as carried by reference (not evaluated)
+// when the receiver's ID is reconstructed from its recipe. See
+// InputSpec.LazyRef.
+func (arg Argument) LazyRef() Argument {
+	arg.Spec.LazyRef = true
+	return arg
+}
+
 func (arg Argument) Default(input Input) Argument {
 	arg.Spec.Default = input
 	return arg
@@ -1068,6 +1125,14 @@ func (arg Argument) Default(input Input) Argument {
 
 func (arg Argument) View(view ViewFilter) Argument {
 	arg.Spec.ViewFilter = view
+	return arg
+}
+
+// Directive attaches a GraphQL directive to the argument, e.g.
+// ExpectedTypeDirective("Node") to convey that an ID-typed argument accepts any
+// object (via the universal Node interface).
+func (arg Argument) Directive(dir *ast.Directive) Argument {
+	arg.Spec.Directives = append(slices.Clone(arg.Spec.Directives), dir)
 	return arg
 }
 
@@ -1306,6 +1371,9 @@ func (fields Fields[T]) Install(server *Server) {
 			Description:        field.Field.Tag.Get("doc"),
 			ExperimentalReason: field.Field.Tag.Get("experimental"),
 			DoNotCache:         field.Field.Tag.Get("doNotCache"),
+			// Reflected struct fields are pure getter accessors. Keep their spans
+			// available as internal trace detail without presenting them as work.
+			Trivial: true,
 		}
 		if dep, ok := field.Field.Tag.Lookup("deprecated"); ok {
 			reason := dep // keep "" if that’s what the module author wrote: @deprecated("") != @deprecated()
@@ -1813,6 +1881,8 @@ func assign(field reflect.Value, val any) error {
 	if reflect.TypeOf(val).AssignableTo(field.Type()) {
 		field.Set(reflect.ValueOf(val))
 		return nil
+	} else if dest, ok := nullableDestination(field); ok {
+		return dest.setFromValue(val)
 	} else if setter, ok := val.(Setter); ok {
 		err := setter.SetField(field)
 		if err != nil {

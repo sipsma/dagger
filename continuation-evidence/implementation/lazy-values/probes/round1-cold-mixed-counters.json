@@ -1,0 +1,210 @@
+{
+  "trace": "45ee1c08f6b587ee1671a71d363a8179",
+  "sourceCommit": "c01bbbb29b56a44e17eb4785229612f011f6b6ef",
+  "closureValueCount": 226,
+  "scratch": [
+    {
+      "cold": true,
+      "ordinal": 223,
+      "resultID": 4449,
+      "address": {
+        "part": "snapshot"
+      },
+      "group": "whole",
+      "platform": "linux/amd64",
+      "lazyEntries": 1,
+      "providerReads": 0
+    },
+    {
+      "cold": true,
+      "ordinal": 223,
+      "resultID": 4449,
+      "address": {
+        "part": "snapshot"
+      },
+      "group": "whole",
+      "platform": "linux/amd64",
+      "lazyEntries": 1,
+      "providerReads": 0
+    }
+  ],
+  "delegations": [
+    {
+      "target": 4251,
+      "address": {
+        "part": "fs"
+      },
+      "field": "withMountedCache",
+      "parent": 4246,
+      "source": {
+        "outputPath": [],
+        "part": "fs"
+      }
+    },
+    {
+      "target": 4252,
+      "address": {
+        "part": "fs"
+      },
+      "field": "withMountedCache",
+      "parent": 4251,
+      "source": {
+        "outputPath": [],
+        "part": "fs"
+      }
+    },
+    {
+      "target": 4253,
+      "address": {
+        "part": "fs"
+      },
+      "field": "__withSystemEnvVariable",
+      "parent": 4252,
+      "source": {
+        "outputPath": [],
+        "part": "fs"
+      }
+    },
+    {
+      "target": 4254,
+      "address": {
+        "part": "fs"
+      },
+      "field": "__withSystemEnvVariable",
+      "parent": 4253,
+      "source": {
+        "outputPath": [],
+        "part": "fs"
+      }
+    }
+  ],
+  "mountOperations": [
+    {
+      "observation": "route",
+      "resultID": 4256,
+      "address": {
+        "part": "mount:/schema.json"
+      },
+      "field": "withMountedFile",
+      "parent": 4254,
+      "entries": 1
+    },
+    {
+      "observation": "write",
+      "resultID": 4256,
+      "address": {
+        "part": "mount:/schema.json"
+      },
+      "field": "withMountedFile",
+      "parent": null,
+      "entries": 1
+    },
+    {
+      "observation": "route",
+      "resultID": 4258,
+      "address": {
+        "part": "mount:/src"
+      },
+      "field": "withMountedDirectory",
+      "parent": 4256,
+      "entries": 1
+    },
+    {
+      "observation": "write",
+      "resultID": 4258,
+      "address": {
+        "part": "mount:/src"
+      },
+      "field": "withMountedDirectory",
+      "parent": null,
+      "entries": 1
+    },
+    {
+      "observation": "route",
+      "resultID": 4258,
+      "address": {
+        "part": "fs"
+      },
+      "field": "withMountedDirectory",
+      "parent": 4256,
+      "entries": 1
+    },
+    {
+      "observation": "route",
+      "resultID": 4256,
+      "address": {
+        "part": "fs"
+      },
+      "field": "withMountedFile",
+      "parent": 4254,
+      "entries": 1
+    },
+    {
+      "observation": "route",
+      "resultID": 4258,
+      "address": {
+        "part": "mount:/schema.json"
+      },
+      "field": "withMountedDirectory",
+      "parent": 4256,
+      "entries": 1
+    }
+  ],
+  "beforeChangedArgument": {
+    "builtinRoutes": 1,
+    "counts": {
+      "installed-chain": 1,
+      "installed-delegation": 4,
+      "installed-lazy": 33,
+      "installed-ready": 1,
+      "lazy-enter": 33,
+      "lazy-ref-released": 14,
+      "owner-sync": 165,
+      "provider-read": 1,
+      "selected-chain": 1,
+      "selected-delegation": 4,
+      "selected-ready": 1,
+      "settled": 48
+    }
+  },
+  "hostInput": {
+    "importedResultID": 4244,
+    "address": {
+      "outputPath": [],
+      "part": "snapshot"
+    },
+    "localResultID": 4457,
+    "snapshotObservation": "[{2iwfs7ypa5qgccuanx2maaxqy snapshot }]"
+  },
+  "sdkInheritedFSHops": {
+    "__withSystemEnvVariable": 2,
+    "withMountedCache": 2
+  },
+  "nativeRecordedModuleRow": 4942,
+  "controls": {
+    "matchingReportBodyCount": 0,
+    "changedReportBodyCount": 1,
+    "selectedArtifact": "passed",
+    "echo": "passed",
+    "noteFile": "passed",
+    "boundTool": "passed",
+    "cleanRestartSavedRow": 4452,
+    "cleanRestartPrunedRoots": 0,
+    "persistenceResetReason": "",
+    "localCacheResetReason": "",
+    "noteDirectoryAfterRestart": "passed",
+    "reportBodyCountAfterRestart": 1,
+    "nativeRecordedModule": "passed",
+    "foreignContext": "passed"
+  },
+  "mixed": {
+    "latency": "146.733891ms",
+    "originalFS": "5ke7nh6y5e82vxbvjjgim8ipi",
+    "redundantFS": "4bmelpuhwy3hjpbdgb4ttmgl4",
+    "rootEvents": "[{lazy-enter 4229 withExec { execMeta}  <nil>}]",
+    "lazyEntries": 1,
+    "repeatReadLazyEntries": 1,
+    "redundantFSReleasedBeforeOwnerSync": true
+  },
+  "assertionProvenance": "Controls without a dedicated log line are assertions in the selected test bodies at sourceCommit; both methods and every selected nested control passed."
+}

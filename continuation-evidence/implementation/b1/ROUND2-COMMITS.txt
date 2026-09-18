@@ -1,0 +1,3 @@
+1b366cf8417e08aa7b0b40e1ee9ae5c2694a5d9b test: cover advanced bundle hints on decoded repositories
+a144bd1718ebbaf7d51676c0a0547c308c85493b test: cover recording rejection at every eager producer site
+688bef3408e77da2313916907575bf628a0e9a67 docs: state completed recipe publication ownership

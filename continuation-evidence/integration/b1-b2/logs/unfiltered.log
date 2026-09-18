@@ -1,0 +1,1257 @@
+2026/09/16 08:52:57 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 08:52:57 INFO end lazy evaluation field=Query._builtinContainer duration=19.060799ms
+2026/09/16 08:52:57 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 08:52:57 INFO end lazy evaluation field=Query._builtinContainer duration=46.64µs err="lookup builtin image manifest sha256:90c48b875b1caba8ee7f40a7cc62d7934555e6366aac5f07e5d542b1d0fc32c9: content sha256:90c48b875b1caba8ee7f40a7cc62d7934555e6366aac5f07e5d542b1d0fc32c9: not found"
+2026/09/16 08:52:57 INFO start lazy evaluation field=File.blob
+2026/09/16 08:52:57 INFO end lazy evaluation field=File.blob duration=17.565601ms
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:57 INFO start lazy evaluation field=Directory.directory
+2026/09/16 08:52:57 INFO end lazy evaluation field=Directory.directory duration=72.11µs
+2026/09/16 08:52:57 INFO start lazy evaluation field=File.file
+2026/09/16 08:52:57 INFO end lazy evaluation field=File.file duration=34.32µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:57 INFO start lazy group evaluation field=capture-test group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=capture-test group=metadata duration=247.84µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field=capture-test group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=capture-test group=metadata duration=23.13µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=capture-test group=fs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=capture-test group=execMeta
+2026/09/16 08:52:57 INFO end lazy group evaluation field=capture-test group=execMeta duration=10.72µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=capture-test group=fs duration=72.339µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field=capture-test group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=capture-test group=metadata duration=54.59µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=capture-test group=fs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=capture-test group=fs duration=3.5µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=capture-test group=execMeta
+2026/09/16 08:52:57 INFO end lazy group evaluation field=capture-test group=execMeta duration=11.43µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field=capture-test group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=capture-test group=metadata duration=37.84µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy evaluation field=capture-whole-test
+2026/09/16 08:52:57 INFO end lazy evaluation field=capture-whole-test duration=81.82µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy evaluation field=capture-whole-test
+2026/09/16 08:52:57 INFO end lazy evaluation field=capture-whole-test duration=55.39µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field=capture-test group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=capture-test group=metadata duration=26.23µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=capture-test group=fs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=capture-test group=fs duration=8.43µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=capture-test group=execMeta
+2026/09/16 08:52:57 INFO end lazy group evaluation field=capture-test group=execMeta duration=8.92µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withExec group=metadata
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=metadata duration=9.76µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withExec group=metadata duration=73.36µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.containerExec group=execOutputs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=mount:/ro
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=mount:/ro duration=12.51µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=fs duration=14.82µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.containerExec group=execOutputs duration=110.23µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withExec group=mount:/ro
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withExec group=mount:/ro duration=11.65µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.from group=metadata
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=metadata duration=22.44µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.from group=metadata duration=189.9µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.from group=execMeta
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=execMeta
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=execMeta duration=11.57µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.from group=execMeta duration=98.89µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.from group=mount:/parent-mount
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=mount:/parent-mount
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=mount:/parent-mount duration=20.22µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.from group=mount:/parent-mount duration=78.03µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedCache group=metadata
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=metadata duration=13.64µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedCache group=metadata duration=93.92µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedCache group=metadata
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=metadata duration=18.43µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedCache group=metadata duration=98.689µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedCache group=execMeta
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=execMeta
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=execMeta duration=11.46µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedCache group=execMeta duration=54.16µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedSecret group=metadata
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=metadata duration=14.27µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedSecret group=metadata duration=59.03µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withoutUnixSocket group=metadata
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=metadata duration=10.27µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withoutUnixSocket group=metadata duration=60.29µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedVolume group=metadata
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=metadata duration=13.87µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedVolume group=metadata duration=54.71µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withUnixSocket group=metadata
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=metadata duration=9.45µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedTemp group=metadata
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=metadata duration=12.85µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedTemp group=metadata duration=52.3µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withUnixSocket group=metadata duration=54.849µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedCache group=fs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=fs duration=16.08µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedCache group=fs duration=54.61µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withoutMount group=metadata
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=metadata duration=12.83µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withoutMount group=metadata duration=50.02µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedSecret group=metadata
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=metadata duration=18.97µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withUnixSocket group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedSecret group=metadata duration=101.98µs err="open /etc/passwd: failed to get server: current query: no query in context"
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=metadata duration=16.04µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withUnixSocket group=metadata duration=90.78µs err="open /etc/passwd: failed to get server: current query: no query in context"
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedPathDockerfileCompat group=metadata
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=metadata duration=47.18µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedPathDockerfileCompat group=metadata duration=100.389µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedFile group=metadata
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedDirectory group=metadata
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=metadata duration=18.64µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedPathDockerfileCompat group=write
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=metadata duration=16.03µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedFile group=metadata duration=78.61µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedDirectory group=metadata duration=83.97µs
+2026/09/16 08:52:57 INFO start lazy evaluation field=test.directorySource
+2026/09/16 08:52:57 INFO end lazy evaluation field=test.directorySource duration=22.95µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedPathDockerfileCompat group=write duration=76.54µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedFile group=write
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedDirectory group=write
+2026/09/16 08:52:57 INFO start lazy evaluation field=test.fileSource
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedPathDockerfileCompat group=mount:/existing
+2026/09/16 08:52:57 INFO start lazy evaluation field=test.directorySource
+2026/09/16 08:52:57 INFO end lazy evaluation field=test.fileSource duration=28.9µs
+2026/09/16 08:52:57 INFO end lazy evaluation field=test.directorySource duration=20.8µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedDirectory group=write duration=56.24µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedFile group=write duration=68.61µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=mount:/existing
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=mount:/existing duration=11.22µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedPathDockerfileCompat group=mount:/existing duration=61.36µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedDirectory group=mount:/existing
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedFile group=mount:/existing
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=mount:/existing
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=mount:/existing
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=mount:/existing duration=23.21µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=mount:/existing duration=11.84µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedDirectory group=mount:/existing duration=53.44µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedFile group=mount:/existing duration=55.15µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedPathDockerfileCompat group=fs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedDirectory group=fs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedPathDockerfileCompat group=execMeta
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=fs duration=15.12µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedFile group=fs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedPathDockerfileCompat group=fs duration=63.75µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=execMeta
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=fs duration=10.33µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=execMeta duration=8.71µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedDirectory group=fs duration=44.69µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedPathDockerfileCompat group=execMeta duration=55.7µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=fs duration=14.72µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedFile group=fs duration=51.43µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedFile group=execMeta
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=execMeta
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=execMeta duration=17.02µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedDirectory group=execMeta
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedFile group=execMeta duration=66.03µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=execMeta
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=execMeta duration=16.79µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedDirectory group=execMeta duration=123.2µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedDirectory group=metadata
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedFile group=metadata
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=metadata duration=10.14µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=metadata duration=16.81µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedDirectory group=metadata duration=68.14µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedFile group=metadata duration=64.68µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedDirectory group=write
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedFile group=write
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedDirectory group=write duration=29.24µs err="open /etc/passwd: failed to get server: current query: no query in context"
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedFile group=write duration=26.41µs err="open /etc/passwd: failed to get server: current query: no query in context"
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedDirectory group=metadata
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=metadata duration=13.29µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedDirectory group=metadata duration=74.57µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedDirectory group=execMeta
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedDirectory group=write
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=execMeta
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=execMeta duration=9.41µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedDirectory group=execMeta duration=46.499µs
+2026/09/16 08:52:57 INFO start lazy evaluation field=test.directorySource
+2026/09/16 08:52:57 INFO end lazy evaluation field=test.directorySource duration=17.18µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedDirectory group=write duration=53.17µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withMountedDirectory group=fs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=fs duration=17.51µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withMountedDirectory group=fs duration=83.54µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withDirectory group=metadata
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=metadata duration=13.92µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withDirectory group=metadata duration=71.18µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withDirectory group=write
+2026/09/16 08:52:57 INFO start lazy evaluation field=test.directorySource
+2026/09/16 08:52:57 INFO end lazy evaluation field=test.directorySource duration=18.75µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withDirectory group=metadata
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=fs duration=14.08µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=metadata duration=12.09µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withDirectory group=metadata duration=86.36µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withDirectory group=write duration=127.379µs err="failed to get dagql server: current query: no query in context"
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withDirectory group=write
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy evaluation field=test.directorySource
+2026/09/16 08:52:57 INFO end lazy evaluation field=test.directorySource duration=23.46µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=mount:/m
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=mount:/m duration=18.86µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withDirectory group=write duration=142.43µs err="failed to get dagql server: current query: no query in context"
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withDirectory group=metadata
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=metadata duration=22.86µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withDirectory group=metadata duration=122.27µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withFile group=metadata
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=metadata duration=10.84µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withFile group=metadata duration=77.86µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withoutPath group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withoutPath group=metadata duration=31.31µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withoutPath group=execMeta
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withoutPath group=execMeta duration=5.53µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withoutPath group=write
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withoutPath group=write duration=58.66µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=metadata duration=13.47µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=fs duration=17.53µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withDirectory group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withDirectory group=metadata duration=41.07µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withDirectory group=execMeta
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withDirectory group=execMeta duration=13.62µs
+2026/09/16 08:52:57 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:57 INFO marking dagql cache clean shutdown
+2026/09/16 08:52:57 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:52:57 INFO completed dagql cache close successfully
+2026/09/16 08:52:57 INFO start lazy group evaluation field="Container stored part" group=open:execMeta
+2026/09/16 08:52:57 INFO end lazy group evaluation field="Container stored part" group=open:execMeta duration=49.88µs
+2026/09/16 08:52:57 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:57 INFO marking dagql cache clean shutdown
+2026/09/16 08:52:57 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:52:57 INFO completed dagql cache close successfully
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withDirectory group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withDirectory group=metadata duration=43.259µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withDirectory group=execMeta
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withDirectory group=execMeta duration=23.89µs
+2026/09/16 08:52:57 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:57 INFO marking dagql cache clean shutdown
+2026/09/16 08:52:57 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:52:57 INFO completed dagql cache close successfully
+2026/09/16 08:52:57 WARN dagql persistence import failed; wiping and cold-starting err="result 4: visit persisted core.Container payload at \"\": reference objectJSON.metadata.value.mounts[0].cacheSourceResultID to 1 is not a direct dependency"
+2026/09/16 08:52:57 INFO start lazy group evaluation field="Container stored part" group=open:execMeta
+2026/09/16 08:52:57 INFO end lazy group evaluation field="Container stored part" group=open:execMeta duration=47.25µs
+2026/09/16 08:52:57 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:57 INFO marking dagql cache clean shutdown
+2026/09/16 08:52:57 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:52:57 INFO completed dagql cache close successfully
+2026/09/16 08:52:57 INFO start lazy group evaluation field="Container stored part" group=open:fs
+2026/09/16 08:52:57 INFO end lazy group evaluation field="Container stored part" group=open:fs duration=35.69µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field="Container stored part" group=open:execMeta
+2026/09/16 08:52:57 INFO end lazy group evaluation field="Container stored part" group=open:execMeta duration=15.9µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withLabel group=execMeta
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withLabel group=execMeta duration=30.9µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field="Container stored part" group=open:fs
+2026/09/16 08:52:57 INFO end lazy group evaluation field="Container stored part" group=open:fs duration=21.78µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withLabel group=fs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withLabel group=fs duration=11.97µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field="Container stored part" group=open:fs
+2026/09/16 08:52:57 INFO start lazy group evaluation field="Container stored part" group=open:execMeta
+2026/09/16 08:52:57 INFO end lazy group evaluation field="Container stored part" group=open:execMeta duration=14.17µs
+2026/09/16 08:52:57 INFO end lazy group evaluation field="Container stored part" group=open:fs duration=80.43µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field="Container stored part" group=open:fs
+2026/09/16 08:52:57 INFO end lazy group evaluation field="Container stored part" group=open:fs duration=32.61µs err="open stored container part \"fs\": stored snapshot temporarily unavailable"
+2026/09/16 08:52:57 INFO start lazy group evaluation field="Container stored part" group=open:fs
+2026/09/16 08:52:57 INFO end lazy group evaluation field="Container stored part" group=open:fs duration=22.96µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=execMeta
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=execMeta duration=13.84µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=metadata duration=17.18µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field="Container stored part" group=open:execMeta
+2026/09/16 08:52:57 INFO end lazy group evaluation field="Container stored part" group=open:execMeta duration=79.42µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field="Container stored part" group=open:fs
+2026/09/16 08:52:57 INFO end lazy group evaluation field="Container stored part" group=open:fs duration=23.17µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field="Container stored part" group=open:fs
+2026/09/16 08:52:57 INFO end lazy group evaluation field="Container stored part" group=open:fs duration=31.11µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field="Container stored part" group=open:fs
+2026/09/16 08:52:57 INFO end lazy group evaluation field="Container stored part" group=open:fs duration=24.58µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=test.base group=execMeta
+2026/09/16 08:52:57 INFO end lazy group evaluation field=test.base group=execMeta duration=18.88µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2000/01/01 00:00:00 INFO start lazy group evaluation field="Container stored part" group=open:fs
+2000/01/01 00:00:00 INFO end lazy group evaluation field="Container stored part" group=open:fs duration=0s
+2000/01/01 00:00:00 INFO start lazy group evaluation field="Container stored part" group=open:fs
+2000/01/01 00:00:00 INFO end lazy group evaluation field="Container stored part" group=open:fs duration=0s
+2000/01/01 00:00:00 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:57 INFO marking dagql cache clean shutdown
+2026/09/16 08:52:57 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:52:57 INFO completed dagql cache close successfully
+2026/09/16 08:52:57 INFO start lazy group evaluation field="Container stored part" group=open:mount:/file
+2026/09/16 08:52:57 INFO end lazy group evaluation field="Container stored part" group=open:mount:/file duration=40.19µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field="Container stored part" group=open:mount:/dir
+2026/09/16 08:52:57 INFO end lazy group evaluation field="Container stored part" group=open:mount:/dir duration=26.33µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field="Container stored part" group=open:fs
+2026/09/16 08:52:57 INFO end lazy group evaluation field="Container stored part" group=open:fs duration=74.24µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2000/01/01 00:00:00 INFO start lazy group evaluation field="Container stored part" group=open:fs
+2000/01/01 00:00:00 INFO end lazy group evaluation field="Container stored part" group=open:fs duration=0s
+2000/01/01 00:00:00 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2000/01/01 00:00:00 INFO start lazy group evaluation field="Container stored part" group=open:fs
+2000/01/01 00:00:00 INFO end lazy group evaluation field="Container stored part" group=open:fs duration=0s
+2000/01/01 00:00:00 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withLabel group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withLabel group=metadata duration=40.21µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withLabel group=fs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withLabel group=fs duration=9.25µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withLabel group=execMeta
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withLabel group=execMeta duration=5.18µs
+2026/09/16 08:52:57 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:57 INFO marking dagql cache clean shutdown
+2026/09/16 08:52:57 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:52:57 INFO completed dagql cache close successfully
+2026/09/16 08:52:57 INFO start lazy group evaluation field="Container stored part" group=open:fs
+2026/09/16 08:52:57 INFO end lazy group evaluation field="Container stored part" group=open:fs duration=72.93µs err="open stored container part \"fs\": local snapshot unavailable"
+2026/09/16 08:52:57 INFO start lazy group evaluation field="Container stored part" group=open:execMeta
+2026/09/16 08:52:57 INFO end lazy group evaluation field="Container stored part" group=open:execMeta duration=20.76µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field="Container stored part" group=open:fs
+2026/09/16 08:52:57 INFO end lazy group evaluation field="Container stored part" group=open:fs duration=23.37µs
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withLabel group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withLabel group=metadata duration=18.93µs
+2026/09/16 08:52:57 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:57 INFO marking dagql cache clean shutdown
+2026/09/16 08:52:57 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:52:57 INFO completed dagql cache close successfully
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withLabel group=metadata
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withLabel group=metadata duration=53.53µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withLabel group=fs
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withLabel group=fs duration=3.19µs
+2026/09/16 08:52:57 INFO start lazy group evaluation field=Container.withLabel group=execMeta
+2026/09/16 08:52:57 INFO end lazy group evaluation field=Container.withLabel group=execMeta duration=2.03µs
+2026/09/16 08:52:57 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:57 INFO marking dagql cache clean shutdown
+2026/09/16 08:52:57 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:52:57 INFO completed dagql cache close successfully
+2026/09/16 08:52:57 WARN dagql persistence import failed; wiping and cold-starting err="result 2: visit persisted core.Container payload at \"\": reference objectJSON.lazyJSON.parentResultID to 1 is not a direct dependency"
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- FAIL: TestContainerShutdownPersistenceWaitsForReader (0.04s)
+    --- FAIL: TestContainerShutdownPersistenceWaitsForReader/completed (0.02s)
+        container_shutdown_persistence_test.go:105: observed shutdown waiting for the read-only latch:
+            goroutine 1651 [sync.Mutex.Lock]:
+            internal/sync.runtime_SemacquireMutex(0x3fc496e8d100?, 0x3f?, 0x324a300?)
+            	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/runtime/sema.go:95 +0x25
+            internal/sync.(*Mutex).lockSlow(0x3fc497b02af8)
+            	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/internal/sync/mutex.go:149 +0x15d
+            internal/sync.(*Mutex).Lock(...)
+            	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/internal/sync/mutex.go:70
+            sync.(*Mutex).Lock(...)
+            	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/sync/mutex.go:46
+            github.com/dagger/dagger/core.(*Container).lockForPersistence(0x35c2ca0?, 0x1)
+            	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-integration-b1-b2-36d54e12-c4fb4f07/core/container_persistence.go:124 +0x106
+            github.com/dagger/dagger/core.(*Container).EncodePersistedObject(0x3fc4977ce848, {0x3d35288, 0x3fc49848e750}, 0x3fc49723c140)
+            	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-integration-b1-b2-36d54e12-c4fb4f07/core/container_persistence.go:50 +0xa9
+            github.com/dagger/dagger/dagql.encodePersistedResultEnvelope({0x3d35288, 0x3fc49848e750}, 0x3fc49723c140, {0x3d696d0, _}, _)
+            	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-integration-b1-b2-36d54e12-c4fb4f07/dagql/cache_persistence_self.go:200 +0x6ff
+            github.com/dagger/dagger/dagql.defaultPersistedSelfCodec.EncodeResult({}, {0x3d35288, 0x3fc49848e750}, {0x3cfbb80, 0x3fc497714608}, {_, _})
+            	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-integration-b1-b2-36d54e12-c4fb4f07/dagql/cache_persistence_self.go:122 +0x234
+            github.com/dagger/dagger/dagql.(*Cache).persistResultEnvelope(0x3fc497714608, {0x3d35288?, 0x3fc49708a180?}, 0x3fc4977548a8)
+            	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-integration-b1-b2-36d54e12-c4fb4f07/dagql/cache_persistence_worker.go:535 +0x30f
+            github.com/dagger/dagger/dagql.(*Cache).snapshotPersistState(_, {_, _})
+            	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-integration-b1-b2-36d54e12-c4fb4f07/dagql/cache_persistence_worker.go:258 +0x216b
+            github.com/dagger/dagger/dagql.(*Cache).persistCurrentState(0x3fc497714608, {0x3d35288, 0x3fc49708a180})
+            	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-integration-b1-b2-36d54e12-c4fb4f07/dagql/cache_persistence_worker.go:19 +0x9c
+            github.com/dagger/dagger/dagql.(*Cache).Close.func1()
+            	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-integration-b1-b2-36d54e12-c4fb4f07/dagql/cache.go:4398 +0x372
+            sync.(*Once).doSlow(0x3fc49783bf88?, 0x0?)
+            	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/sync/once.go:78 +0xac
+            sync.(*Once).Do(...)
+            	/home/exedev/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.6.linux-amd64/src/sync/once.go:69
+            github.com/dagger/dagger/dagql.(*Cache).Close(0x3fc497714608, {0x3d35288?, 0x3fc49708a180?})
+            	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-integration-b1-b2-36d54e12-c4fb4f07/dagql/cache.go:4383 +0x54
+            github.com/dagger/dagger/core.TestContainerShutdownPersistenceWaitsForReader.func1.4()
+            	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-integration-b1-b2-36d54e12-c4fb4f07/core/container_shutdown_persistence_test.go:104 +0x2e
+            created by github.com/dagger/dagger/core.TestContainerShutdownPersistenceWaitsForReader.func1 in goroutine 1609
+            	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-integration-b1-b2-36d54e12-c4fb4f07/core/container_shutdown_persistence_test.go:104 +0xd9f
+        container_shutdown_persistence_test.go:127: 
+            	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-integration-b1-b2-36d54e12-c4fb4f07/core/persisted_families_test.go:69
+            	            				/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-integration-b1-b2-36d54e12-c4fb4f07/core/container_shutdown_persistence_test.go:127
+            	Error:      	Not equal: 
+            	            	expected: ""
+            	            	actual  : "import_failure"
+            	            	
+            	            	Diff:
+            	            	--- Expected
+            	            	+++ Actual
+            	            	@@ -1,2 +1,2 @@
+            	            	-(dagql.CachePersistenceResetReason) ""
+            	            	+(dagql.CachePersistenceResetReason) (len=14) "import_failure"
+            	            	 
+            	Test:       	TestContainerShutdownPersistenceWaitsForReader/completed
+            	Messages:   	the saved store reopens cleanly
+2026/09/16 08:52:57 INFO start call field=Void.agent digest=xxh3:61c2befaf9462852
+2026/09/16 08:52:57 INFO end call field=Void.agent cached=false digest=xxh3:61c2befaf9462852
+2026/09/16 08:52:57 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:57 INFO end lazy evaluation field=HTTPState._resolve duration=19.002509ms
+2026/09/16 08:52:57 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:57 INFO end lazy evaluation field=HTTPState._resolve duration=7.217273ms
+2026/09/16 08:52:57 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:57 INFO end lazy evaluation field=HTTPState._resolve duration=7.229182ms
+2026/09/16 08:52:57 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:57 INFO end lazy evaluation field=HTTPState._resolve duration=8.96249ms
+2026/09/16 08:52:57 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:57 INFO end lazy evaluation field=HTTPState._resolve duration=7.742922ms
+2026/09/16 08:52:57 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:57 INFO end lazy evaluation field=HTTPState._resolve duration=8.399601ms err="HTTP File producer body mismatch: recorded sha256:d81c55f49c5bb0d36bc11e3966ec4efab66f8dfefbbc1761161ca9d230e5466a, fetched sha256:d67e2e944994496c8d8ec76eed0cf9f09679448d584b532bebf941852a37f5ed"
+2026/09/16 08:52:57 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:57 INFO end lazy evaluation field=HTTPState._resolve duration=4.845724ms err="http checksum mismatch: expected sha256:d81c55f49c5bb0d36bc11e3966ec4efab66f8dfefbbc1761161ca9d230e5466a, got sha256:d67e2e944994496c8d8ec76eed0cf9f09679448d584b532bebf941852a37f5ed"
+2026/09/16 08:52:57 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:57 INFO end lazy evaluation field=HTTPState._resolve duration=36.94µs err="invalid checksum \"invalid\": invalid checksum digest format"
+2026/09/16 08:52:57 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:57 INFO end lazy evaluation field=HTTPState._resolve duration=633.609µs err="invalid response status 500 Internal Server Error"
+2026/09/16 08:52:57 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:57 INFO end lazy evaluation field=HTTPState._resolve duration=7.214852ms
+2026/09/16 08:52:57 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:57 INFO end lazy evaluation field=HTTPState._resolve duration=8.9005ms err="HTTP File producer body mismatch: recorded sha256:d81c55f49c5bb0d36bc11e3966ec4efab66f8dfefbbc1761161ca9d230e5466a, fetched sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+2026/09/16 08:52:57 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:57 INFO end lazy evaluation field=HTTPState._resolve duration=8.503001ms err="HTTP File producer body mismatch: recorded sha256:d81c55f49c5bb0d36bc11e3966ec4efab66f8dfefbbc1761161ca9d230e5466a, fetched sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+2026/09/16 08:52:57 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:57 INFO end lazy evaluation field=HTTPState._resolve duration=6.963743ms
+2026/09/16 08:52:57 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:57 INFO end lazy evaluation field=HTTPState._resolve duration=7.938521ms
+2026/09/16 08:52:57 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:57 INFO end lazy evaluation field=HTTPState._resolve duration=313.779µs err="Get \"http://127.0.0.1:1\": dial tcp 127.0.0.1:1: connect: connection refused"
+2026/09/16 08:52:57 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:57 INFO end lazy evaluation field=HTTPState._resolve duration=57.88µs err="Get \"http://127.0.0.1:1\": context canceled"
+2026/09/16 08:52:57 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:57 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:57 INFO end lazy evaluation field=HTTPState._resolve duration=8.92146ms
+2026/09/16 08:52:57 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:57 INFO end lazy evaluation field=HTTPState._resolve duration=7.411702ms
+2026/09/16 08:52:57 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:57 INFO end lazy evaluation field=HTTPState._resolve duration=8.193461ms
+2026/09/16 08:52:57 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:57 INFO end lazy evaluation field=HTTPState._resolve duration=7.247662ms
+2026/09/16 08:52:58 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:58 INFO end lazy evaluation field=HTTPState._resolve duration=7.403232ms
+2026/09/16 08:52:58 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:58 INFO end lazy evaluation field=HTTPState._resolve duration=8.417391ms
+2026/09/16 08:52:58 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:58 INFO end lazy evaluation field=HTTPState._resolve duration=7.390632ms
+2026/09/16 08:52:58 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:58 INFO end lazy evaluation field=HTTPState._resolve duration=7.282522ms
+2026/09/16 08:52:58 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:58 INFO end lazy evaluation field=HTTPState._resolve duration=7.600382ms
+2026/09/16 08:52:58 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:58 INFO end lazy evaluation field=HTTPState._resolve duration=7.498422ms
+2026/09/16 08:52:58 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:58 INFO end lazy evaluation field=HTTPState._resolve duration=8.022931ms
+2026/09/16 08:52:58 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:58 INFO end lazy evaluation field=HTTPState._resolve duration=7.207413ms
+2026/09/16 08:52:58 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:58 INFO end lazy evaluation field=HTTPState._resolve duration=7.163972ms
+2026/09/16 08:52:58 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:58 INFO end lazy evaluation field=HTTPState._resolve duration=7.453842ms
+2026/09/16 08:52:58 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:58 INFO end lazy evaluation field=HTTPState._resolve duration=7.146512ms
+2026/09/16 08:52:58 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:58 INFO end lazy evaluation field=HTTPState._resolve duration=7.568892ms
+2026/09/16 08:52:58 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:58 INFO end lazy evaluation field=HTTPState._resolve duration=7.599272ms
+2026/09/16 08:52:58 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:58 INFO end lazy evaluation field=HTTPState._resolve duration=8.430861ms
+2026/09/16 08:52:58 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:58 INFO end lazy evaluation field=HTTPState._resolve duration=7.368082ms
+2026/09/16 08:52:58 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:58 INFO end lazy evaluation field=HTTPState._resolve duration=7.315242ms
+2026/09/16 08:52:58 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:58 INFO end lazy evaluation field=HTTPState._resolve duration=4.940155ms err="file write failed: open /sub/data.txt: no such file or directory"
+2026/09/16 08:52:58 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:58 INFO end lazy evaluation field=HTTPState._resolve duration=4.740104ms err="file write failed: open /sub/data.txt: no such file or directory"
+2026/09/16 08:52:58 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:58 INFO end lazy evaluation field=HTTPState._resolve duration=4.517645ms err="file write failed: open /sub/data.txt: no such file or directory"
+2026/09/16 08:52:58 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:58 INFO end lazy evaluation field=HTTPState._resolve duration=4.362575ms err="file write failed: open /sub/data.txt: no such file or directory"
+2026/09/16 08:52:58 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:58 INFO end lazy evaluation field=HTTPState._resolve duration=8.999411ms
+2026/09/16 08:52:58 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:58 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:58 INFO end lazy evaluation field=HTTPState._resolve duration=12.291566ms err="file write failed: unexpected EOF"
+2026/09/16 08:52:58 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:58 INFO end lazy evaluation field=HTTPState._resolve duration=8.630731ms err="file write failed: close /data: bad file descriptor"
+2026/09/16 08:52:58 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:58 INFO end lazy evaluation field=HTTPState._resolve duration=4.709705ms err="file write failed: chmod /data: no such file or directory"
+2026/09/16 08:52:59 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:59 INFO end lazy evaluation field=HTTPState._resolve duration=6.510354ms err="http checksum mismatch: expected sha256:d9298a10d1b0735837dc4bd85dac641b0f3cef27a47e5d53a54f2f3f5b2fcffa, got sha256:230d8358dc8e8890b4c58deeb62912ee2f20357ae92a5cc861b98e68fe31acb5"
+2026/09/16 08:52:59 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:59 INFO end lazy evaluation field=HTTPState._resolve duration=7.188873ms err="injected commit"
+2026/09/16 08:52:59 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:59 INFO end lazy evaluation field=HTTPState._resolve duration=4.941915ms err="file write failed: injected mount"
+2026/09/16 08:52:59 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:59 INFO end lazy evaluation field=HTTPState._resolve duration=7.684002ms err="HTTP File producer body mismatch: recorded sha256:d9298a10d1b0735837dc4bd85dac641b0f3cef27a47e5d53a54f2f3f5b2fcffa, fetched sha256:230d8358dc8e8890b4c58deeb62912ee2f20357ae92a5cc861b98e68fe31acb5"
+2026/09/16 08:52:59 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:59 INFO end lazy evaluation field=HTTPState._resolve duration=7.590922ms err="producer receiver: File snapshot already installed"
+2026/09/16 08:52:59 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:59 INFO end lazy evaluation field=HTTPState._resolve duration=7.386321ms
+2026/09/16 08:52:59 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:59 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:59 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:59 INFO end lazy evaluation field=HTTPState._resolve duration=15.094244ms
+2026/09/16 08:52:59 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:59 INFO end lazy evaluation field=HTTPState._resolve duration=7.028073ms
+2026/09/16 08:52:59 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:59 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:59 INFO end lazy evaluation field=HTTPState._resolve duration=16.510652ms
+2026/09/16 08:52:59 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:59 INFO end lazy evaluation field=HTTPState._resolve duration=7.082533ms
+2026/09/16 08:52:59 INFO start lazy evaluation field=HTTPState._resolve
+2026/09/16 08:52:59 INFO end lazy evaluation field=HTTPState._resolve duration=7.331262ms
+2026/09/16 08:52:59 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:52:59 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:59 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:59 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:59 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:59 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:59 INFO marking dagql cache clean shutdown
+2026/09/16 08:52:59 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:52:59 INFO completed dagql cache close successfully
+2026/09/16 08:52:59 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:59 INFO marking dagql cache clean shutdown
+2026/09/16 08:52:59 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:52:59 INFO completed dagql cache close successfully
+2026/09/16 08:52:59 WARN failed to determine cache usage size resultID=3 usageIdentity=bundle-snapshot err="context canceled"
+2026/09/16 08:52:59 WARN failed to determine cache usage size resultID=7 usageIdentity=saved-0 err="context canceled"
+2026/09/16 08:52:59 WARN failed to determine cache usage size resultID=8 usageIdentity=saved-1 err="context canceled"
+2026/09/16 08:52:59 WARN failed to determine cache usage size resultID=9 usageIdentity=saved-2 err="context canceled"
+2026/09/16 08:52:59 WARN failed to determine cache usage size resultID=10 usageIdentity=saved-3 err="context canceled"
+2026/09/16 08:52:59 WARN failed to determine cache usage size resultID=14 usageIdentity=saved-builtin err="context canceled"
+2026/09/16 08:52:59 WARN failed to determine cache usage size resultID=12 usageIdentity=saved-http err="context canceled"
+2026/09/16 08:52:59 WARN failed to determine cache usage size resultID=13 usageIdentity=saved-schema err="context canceled"
+2026/09/16 08:52:59 WARN failed to determine cache usage size resultID=1 usageIdentity=source-snapshot err="context canceled"
+2026/09/16 08:52:59 INFO dagql pruned result resultID=1 call=Query.source digest=xxh3:3c2e226aa6c269bf args=[] description=source measuredSizeBytes=0 reclaimedBytes=0
+2026/09/16 08:52:59 INFO dagql pruned result resultID=3 call=Query.bundle-file digest=xxh3:1b1051a7f010896c args=[] description=bundle-file measuredSizeBytes=0 reclaimedBytes=0
+2026/09/16 08:52:59 INFO dagql pruned result resultID=7 call=GitRepository.__cleaned digest=xxh3:b7e1bbcd4c596cf6 args=[] description=__cleaned measuredSizeBytes=0 reclaimedBytes=0
+2026/09/16 08:52:59 INFO dagql pruned result resultID=2 call=Query.repo digest=xxh3:16dc6903e3f06350 args=[] description=repo measuredSizeBytes=0 reclaimedBytes=0
+2026/09/16 08:52:59 INFO dagql pruned result resultID=4 call=Query.bundle digest=xxh3:3b4c0ba878b9d6c5 args=[] description=bundle measuredSizeBytes=0 reclaimedBytes=0
+2026/09/16 08:52:59 INFO dagql pruned result resultID=8 call=GitRepository.__withBundleDirectory digest="" args="[bundle=result:4]" description=__withBundleDirectory measuredSizeBytes=0 reclaimedBytes=0
+2026/09/16 08:52:59 INFO dagql pruned result resultID=5 call=Query.ref digest=xxh3:06409b9402fa5e16 args=[] description=ref measuredSizeBytes=0 reclaimedBytes=0
+2026/09/16 08:52:59 INFO dagql pruned result resultID=9 call=GitRef.tree digest="" args=[] description=tree measuredSizeBytes=0 reclaimedBytes=0
+2026/09/16 08:52:59 INFO dagql pruned result resultID=6 call=Query.commit digest=xxh3:87af3ded0e7b27f5 args=[] description=commit measuredSizeBytes=0 reclaimedBytes=0
+2026/09/16 08:52:59 INFO dagql pruned result resultID=10 call=GitCommit.tree digest="" args=[] description=tree measuredSizeBytes=0 reclaimedBytes=0
+2026/09/16 08:52:59 INFO dagql pruned result resultID=11 call=Query.saved-state digest=xxh3:13241ec1fd5393af args=[] description=saved-state measuredSizeBytes=0 reclaimedBytes=0
+2026/09/16 08:52:59 INFO dagql pruned result resultID=12 call=HTTPState._resolve digest="" args=[] description=_resolve measuredSizeBytes=0 reclaimedBytes=0
+2026/09/16 08:52:59 INFO dagql pruned result resultID=13 call=Query.saved-schema digest=xxh3:efe5f42da6ab32d9 args=[] description=saved-schema measuredSizeBytes=0 reclaimedBytes=0
+2026/09/16 08:52:59 INFO dagql pruned result resultID=14 call=Query._builtinContainer digest=xxh3:60f5e1aac6746f44 args=[] description=_builtinContainer measuredSizeBytes=0 reclaimedBytes=0
+2026/09/16 08:52:59 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:59 INFO start lazy evaluation field=File
+2026/09/16 08:52:59 INFO end lazy evaluation field=File duration=94.01µs
+2026/09/16 08:52:59 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:59 INFO start lazy evaluation field=Directory
+2026/09/16 08:52:59 INFO end lazy evaluation field=Directory duration=75.29µs
+2026/09/16 08:52:59 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:59 INFO start lazy evaluation field=Directory.directory
+2026/09/16 08:52:59 INFO end lazy evaluation field=Directory.directory duration=94.81µs
+2026/09/16 08:52:59 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:59 INFO marking dagql cache clean shutdown
+2026/09/16 08:52:59 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:52:59 INFO completed dagql cache close successfully
+2026/09/16 08:52:59 INFO start lazy evaluation field=Directory.restore
+2026/09/16 08:52:59 INFO end lazy evaluation field=Directory.restore duration=48.56µs err="local snapshot unavailable"
+2026/09/16 08:52:59 INFO start lazy evaluation field=Directory.restore
+2026/09/16 08:52:59 INFO end lazy evaluation field=Directory.restore duration=21.25µs
+2026/09/16 08:52:59 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:59 INFO start lazy evaluation field=File.file
+2026/09/16 08:52:59 INFO end lazy evaluation field=File.file duration=88.76µs
+2026/09/16 08:52:59 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:59 INFO marking dagql cache clean shutdown
+2026/09/16 08:52:59 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:52:59 INFO completed dagql cache close successfully
+2026/09/16 08:52:59 INFO start lazy evaluation field=File.restore
+2026/09/16 08:52:59 INFO end lazy evaluation field=File.restore duration=48.34µs err="local snapshot unavailable"
+2026/09/16 08:52:59 INFO start lazy evaluation field=File.restore
+2026/09/16 08:52:59 INFO end lazy evaluation field=File.restore duration=19.76µs
+2026/09/16 08:52:59 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:59 INFO start lazy evaluation field=Container.rootfs
+2026/09/16 08:52:59 INFO end lazy evaluation field=Container.rootfs duration=51.19µs
+2026/09/16 08:52:59 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:59 INFO marking dagql cache clean shutdown
+2026/09/16 08:52:59 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:52:59 INFO completed dagql cache close successfully
+2026/09/16 08:52:59 INFO start lazy evaluation field=Directory.restore
+2026/09/16 08:52:59 INFO end lazy evaluation field=Directory.restore duration=46.52µs err="local snapshot unavailable"
+2026/09/16 08:52:59 INFO start lazy evaluation field=Directory.restore
+2026/09/16 08:52:59 INFO end lazy evaluation field=Directory.restore duration=21.14µs
+2026/09/16 08:52:59 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:59 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:52:59 INFO start lazy evaluation field=GitRepository.__cleaned
+2026/09/16 08:52:59 INFO end lazy evaluation field=GitRepository.__cleaned duration=24.856363ms
+2026/09/16 08:52:59 INFO start lazy evaluation field=GitRef.tree
+2026/09/16 08:52:59 INFO end lazy evaluation field=GitRef.tree duration=96.094147ms
+2026/09/16 08:53:00 INFO start lazy evaluation field=GitCommit.tree
+2026/09/16 08:53:00 INFO end lazy evaluation field=GitCommit.tree duration=95.059628ms
+2026/09/16 08:53:00 INFO start lazy evaluation field=GitRef.tree
+2026/09/16 08:53:00 INFO end lazy evaluation field=GitRef.tree duration=98.151635ms
+2026/09/16 08:53:00 INFO start lazy evaluation field=GitCommit.tree
+2026/09/16 08:53:00 INFO end lazy evaluation field=GitCommit.tree duration=94.783048ms
+2026/09/16 08:53:00 INFO start lazy evaluation field=GitRef.tree
+2026/09/16 08:53:00 INFO end lazy evaluation field=GitRef.tree duration=92.98634ms
+2026/09/16 08:53:00 INFO start lazy evaluation field=GitCommit.tree
+2026/09/16 08:53:01 INFO end lazy evaluation field=GitCommit.tree duration=100.883742ms
+2026/09/16 08:53:01 INFO start lazy evaluation field=GitRef.tree
+2026/09/16 08:53:01 INFO end lazy evaluation field=GitRef.tree duration=306.982281ms
+2026/09/16 08:53:01 INFO start lazy evaluation field=GitCommit.tree
+2026/09/16 08:53:01 INFO end lazy evaluation field=GitCommit.tree duration=65.10267ms
+2026/09/16 08:53:01 INFO start lazy evaluation field=GitRepository.__cleaned
+2026/09/16 08:53:01 INFO end lazy evaluation field=GitRepository.__cleaned duration=8.685511ms err="git cleaned producer: saved input has no worktree"
+2026/09/16 08:53:01 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:02 INFO start lazy evaluation field=GitRef.tree
+2026/09/16 08:53:02 INFO end lazy evaluation field=GitRef.tree duration=239.420984ms
+2026/09/16 08:53:02 INFO start lazy evaluation field=GitCommit.tree
+2026/09/16 08:53:02 INFO end lazy evaluation field=GitCommit.tree duration=190.440216ms
+2026/09/16 08:53:02 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:02 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 08:53:02 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=54.080992ms
+2026/09/16 08:53:02 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 08:53:02 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=19.03823ms err="git bundle header changed after parsing"
+2026/09/16 08:53:02 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 08:53:02 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=21.337466ms err="git bundle header changed after parsing"
+2026/09/16 08:53:02 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 08:53:02 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=32.045495ms err="import git bundle prerequisites : git bundle object format is sha1, repository object format is sha256"
+2026/09/16 08:53:02 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 08:53:02 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=18.06943ms err="invalid git bundle signature \"invalid bundle\""
+2026/09/16 08:53:02 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 08:53:02 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=7.639142ms err="git bundle size 134217729 exceeds limit 134217728"
+2026/09/16 08:53:03 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 08:53:03 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=85.891159ms
+2026/09/16 08:53:03 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 08:53:03 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=128.115523ms
+2026/09/16 08:53:03 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 08:53:03 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=32.249146ms err="import git bundle prerequisites d0aa3e58879feaaad03d746b95113365bff1a5ea: git bundle prerequisite d0aa3e58879feaaad03d746b95113365bff1a5ea is not available from the repository"
+2026/09/16 08:53:03 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 08:53:03 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=17.497851ms err="git bundle header changed after parsing"
+2026/09/16 08:53:03 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 WARN failed to determine cache usage size resultID=2 usageIdentity=shared-root err="context canceled"
+2026/09/16 08:53:04 INFO dagql pruned result resultID=5 call=Query.check-group digest=xxh3:466d3b9fbbec833a args=[] description=check-group measuredSizeBytes=0 reclaimedBytes=0
+2026/09/16 08:53:04 INFO dagql pruned result resultID=6 call=Query.up-group digest=xxh3:e7f0e31446c535f2 args=[] description=up-group measuredSizeBytes=0 reclaimedBytes=0
+2026/09/16 08:53:04 INFO dagql pruned result resultID=3 call=Query.bound-workspace digest=xxh3:4570f3b669b39f25 args=[] description=bound-workspace measuredSizeBytes=0 reclaimedBytes=0
+2026/09/16 08:53:04 INFO dagql pruned result resultID=7 call=Query.terminal-group digest=xxh3:3fc2e3239508c392 args=[] description=terminal-group measuredSizeBytes=0 reclaimedBytes=0
+2026/09/16 08:53:04 INFO dagql pruned result resultID=4 call=Query.check-error digest=xxh3:5a751198be548a57 args=[] description=check-error measuredSizeBytes=0 reclaimedBytes=0
+2026/09/16 08:53:04 INFO dagql pruned result resultID=8 call=Query.single-check digest=xxh3:d10fb0aab46b1183 args=[] description=single-check measuredSizeBytes=0 reclaimedBytes=0
+2026/09/16 08:53:04 INFO dagql pruned result resultID=9 call=Query.single-up digest=xxh3:f3e431e215213f5f args=[] description=single-up measuredSizeBytes=0 reclaimedBytes=0
+2026/09/16 08:53:04 INFO dagql pruned result resultID=1 call=Query.cold-module digest=xxh3:c166dd3b4d32acad args=[] description=cold-module measuredSizeBytes=0 reclaimedBytes=0
+2026/09/16 08:53:04 INFO dagql pruned result resultID=10 call=Query.single-terminal digest=xxh3:2ce8f822ef4c2af0 args=[] description=single-terminal measuredSizeBytes=0 reclaimedBytes=0
+2026/09/16 08:53:04 INFO dagql pruned result resultID=2 call=Query.shared-root digest=xxh3:5e092ba673ef28c5 args=[] description=shared-root measuredSizeBytes=0 reclaimedBytes=0
+2026/09/16 08:53:04 INFO dagql pruned result resultID=11 call=Query.holder digest=xxh3:c494792c17243ad5 args=[] description=holder measuredSizeBytes=0 reclaimedBytes=0
+2026/09/16 08:53:04 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO start lazy evaluation field=File.blob
+2026/09/16 08:53:04 INFO end lazy evaluation field=File.blob duration=41.73µs err="injected path failure"
+2026/09/16 08:53:04 INFO start lazy evaluation field=File.blob
+2026/09/16 08:53:04 INFO end lazy evaluation field=File.blob duration=30.87µs err="open /tmp/TestProducerPathCleanupblobwrite1171044807/001/data: is a directory"
+2026/09/16 08:53:04 INFO start lazy evaluation field=File.blob
+2026/09/16 08:53:04 INFO end lazy evaluation field=File.blob duration=75.78µs err="commit blob snapshot: injected path failure"
+2026/09/16 08:53:04 INFO start lazy evaluation field=File.blob
+2026/09/16 08:53:04 INFO end lazy evaluation field=File.blob duration=53.56µs
+2026/09/16 08:53:04 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:04 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO start lazy evaluation field=Container.rootfs
+2026/09/16 08:53:04 INFO end lazy evaluation field=Container.rootfs duration=94.01µs
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO start lazy group evaluation field="Container stored part" group=open:fs
+2026/09/16 08:53:04 INFO end lazy group evaluation field="Container stored part" group=open:fs duration=125.73µs
+2026/09/16 08:53:04 INFO start lazy evaluation field=Directory.restore
+2026/09/16 08:53:04 INFO end lazy evaluation field=Directory.restore duration=82.7µs
+2026/09/16 08:53:04 INFO start lazy evaluation field=File.restore
+2026/09/16 08:53:04 INFO end lazy evaluation field=File.restore duration=73.02µs
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO start lazy evaluation field=Directory.restore
+2026/09/16 08:53:04 INFO end lazy evaluation field=Directory.restore duration=52.44µs
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO start lazy evaluation field=Directory.restore
+2026/09/16 08:53:04 INFO end lazy evaluation field=Directory.restore duration=49.82µs
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO start lazy evaluation field=Directory.without
+2026/09/16 08:53:04 INFO start lazy evaluation field=Directory.restore
+2026/09/16 08:53:04 INFO end lazy evaluation field=Directory.restore duration=21.55µs
+2026/09/16 08:53:04 INFO end lazy evaluation field=Directory.without duration=110.92µs err="context canceled"
+2026/09/16 08:53:04 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO start lazy evaluation field=File.withName
+2026/09/16 08:53:04 INFO start lazy evaluation field=File.restore
+2026/09/16 08:53:04 INFO end lazy evaluation field=File.restore duration=17.5µs
+2026/09/16 08:53:04 INFO end lazy evaluation field=File.withName duration=101.729µs err="context canceled"
+2026/09/16 08:53:04 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO start lazy group evaluation field=Container.withDirectory group=metadata
+2026/09/16 08:53:04 INFO end lazy group evaluation field=Container.withDirectory group=metadata duration=44.97µs
+2026/09/16 08:53:04 INFO start lazy group evaluation field=Container.withDirectory group=execMeta
+2026/09/16 08:53:04 INFO end lazy group evaluation field=Container.withDirectory group=execMeta duration=7.62µs
+2026/09/16 08:53:04 INFO start lazy group evaluation field=Container.withDirectory group=write
+2026/09/16 08:53:04 INFO start lazy evaluation field=Directory.restore
+2026/09/16 08:53:04 INFO end lazy evaluation field=Directory.restore duration=34.95µs
+2026/09/16 08:53:04 INFO start lazy group evaluation field="Container stored part" group=open:fs
+2026/09/16 08:53:04 INFO end lazy group evaluation field="Container stored part" group=open:fs duration=43.65µs
+2026/09/16 08:53:04 INFO start lazy evaluation field=Container.rootfs
+2026/09/16 08:53:04 INFO end lazy evaluation field=Container.rootfs duration=49.46µs
+2026/09/16 08:53:04 INFO end lazy group evaluation field=Container.withDirectory group=write duration=535.099µs err="snapshotmanager.New failed: context canceled"
+2026/09/16 08:53:04 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO start lazy evaluation field=Directory.restore
+2026/09/16 08:53:04 INFO end lazy evaluation field=Directory.restore duration=48.64µs
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO start lazy evaluation field=Directory.restore
+2026/09/16 08:53:04 INFO end lazy evaluation field=Directory.restore duration=38.16µs
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO start lazy evaluation field=Directory.restore
+2026/09/16 08:53:04 INFO end lazy evaluation field=Directory.restore duration=35.13µs
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO start lazy evaluation field=File.restore
+2026/09/16 08:53:04 INFO end lazy evaluation field=File.restore duration=32.76µs
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO start lazy evaluation field=File.restore
+2026/09/16 08:53:04 INFO end lazy evaluation field=File.restore duration=30.75µs
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2026/09/16 08:53:04 INFO start lazy evaluation field=File.restore
+2026/09/16 08:53:04 INFO end lazy evaluation field=File.restore duration=21.52µs
+2026/09/16 08:53:04 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:04 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:04 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:04 INFO completed dagql cache close successfully
+2000/01/01 00:00:00 INFO start lazy evaluation field=Directory.restore
+2000/01/01 00:00:00 INFO end lazy evaluation field=Directory.restore duration=0s err="snapshot unavailable"
+2000/01/01 00:00:00 INFO start lazy evaluation field=Directory.restore
+2000/01/01 00:00:00 INFO end lazy evaluation field=Directory.restore duration=0s err="snapshot unavailable"
+2000/01/01 00:00:00 INFO start lazy evaluation field=Directory.restore
+2000/01/01 00:00:00 INFO end lazy evaluation field=Directory.restore duration=0s
+2000/01/01 00:00:00 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2000/01/01 00:00:00 INFO start lazy evaluation field=File.restore
+2000/01/01 00:00:00 INFO end lazy evaluation field=File.restore duration=0s err="snapshot unavailable"
+2000/01/01 00:00:00 INFO start lazy evaluation field=File.restore
+2000/01/01 00:00:00 INFO end lazy evaluation field=File.restore duration=0s err="snapshot unavailable"
+2000/01/01 00:00:00 INFO start lazy evaluation field=File.restore
+2000/01/01 00:00:00 INFO end lazy evaluation field=File.restore duration=0s
+2000/01/01 00:00:00 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2000/01/01 00:00:00 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2000/01/01 00:00:00 INFO start lazy evaluation field=Directory.restore
+2000/01/01 00:00:00 INFO end lazy evaluation field=Directory.restore duration=0s
+2000/01/01 00:00:00 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2000/01/01 00:00:00 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2000/01/01 00:00:00 INFO start lazy evaluation field=File.restore
+2000/01/01 00:00:00 INFO end lazy evaluation field=File.restore duration=0s
+2000/01/01 00:00:00 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:04 INFO start lazy evaluation field=Directory.restore
+2026/09/16 08:53:04 INFO end lazy evaluation field=Directory.restore duration=16.42µs
+2026/09/16 08:53:04 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:04 INFO start lazy evaluation field=File.restore
+2026/09/16 08:53:04 INFO end lazy evaluation field=File.restore duration=15.59µs
+2026/09/16 08:53:04 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:04 INFO start lazy evaluation field=test
+2026/09/16 08:53:04 INFO end lazy evaluation field=test duration=14.11µs
+2026/09/16 08:53:04 INFO start lazy evaluation field=test
+2026/09/16 08:53:04 INFO end lazy evaluation field=test duration=9.19µs
+2026/09/16 08:53:04 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:04 INFO start lazy evaluation field=test
+2026/09/16 08:53:04 INFO end lazy evaluation field=test duration=29.96µs
+2026/09/16 08:53:04 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2000/01/01 00:00:00 INFO start lazy evaluation field=Directory.restore
+2000/01/01 00:00:00 INFO end lazy evaluation field=Directory.restore duration=0s
+2000/01/01 00:00:00 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2000/01/01 00:00:00 INFO start lazy evaluation field=Directory.restore
+2000/01/01 00:00:00 INFO end lazy evaluation field=Directory.restore duration=0s
+2000/01/01 00:00:00 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2000/01/01 00:00:00 INFO start lazy evaluation field=File.restore
+2000/01/01 00:00:00 INFO end lazy evaluation field=File.restore duration=0s
+2000/01/01 00:00:00 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2000/01/01 00:00:00 INFO start lazy evaluation field=File.restore
+2000/01/01 00:00:00 INFO end lazy evaluation field=File.restore duration=0s
+2000/01/01 00:00:00 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:05 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:05 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:05 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:05 INFO completed dagql cache close successfully
+2026/09/16 08:53:05 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:05 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:05 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:05 INFO completed dagql cache close successfully
+2026/09/16 08:53:05 INFO start lazy evaluation field=Directory.restore
+2026/09/16 08:53:05 INFO end lazy evaluation field=Directory.restore duration=22.18µs
+2026/09/16 08:53:05 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:05 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:05 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:05 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:05 INFO completed dagql cache close successfully
+2026/09/16 08:53:05 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:05 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:05 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:05 INFO completed dagql cache close successfully
+2026/09/16 08:53:05 INFO start lazy evaluation field=File.restore
+2026/09/16 08:53:05 INFO end lazy evaluation field=File.restore duration=22.15µs
+2026/09/16 08:53:05 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:05 INFO start lazy evaluation field=test
+2026/09/16 08:53:05 INFO end lazy evaluation field=test duration=15.95µs err="fresh source failed"
+2026/09/16 08:53:05 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:05 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:05 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:05 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:05 INFO completed dagql cache close successfully
+2026/09/16 08:53:05 INFO start lazy evaluation field=Directory.restore
+2026/09/16 08:53:05 INFO end lazy evaluation field=Directory.restore duration=45.549µs
+2026/09/16 08:53:05 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:05 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:05 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:05 INFO completed dagql cache close successfully
+2026/09/16 08:53:05 INFO start lazy evaluation field=File.restore
+2026/09/16 08:53:05 INFO end lazy evaluation field=File.restore duration=46.49µs
+2026/09/16 08:53:05 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:05 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:05 INFO start call field=Query.value digest=xxh3:fce6d35ae467f0f2
+2026/09/16 08:53:05 INFO end call field=Query.value cached=false digest=xxh3:fce6d35ae467f0f2
+2026/09/16 08:53:05 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:05 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:05 INFO start lazy evaluation field=Directory.directory
+2026/09/16 08:53:05 INFO end lazy evaluation field=Directory.directory duration=9.14189ms
+2026/09/16 08:53:05 INFO start lazy evaluation field=File.file
+2026/09/16 08:53:05 INFO end lazy evaluation field=File.file duration=10.279319ms
+2026/09/16 08:53:05 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:05 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:05 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:05 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:05 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:06 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:06 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:06 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:06 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:06 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:06 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:06 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:06 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:06 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:06 INFO completed dagql cache close successfully
+2026/09/16 08:53:06 INFO start lazy evaluation field=File.restore
+2026/09/16 08:53:06 INFO end lazy evaluation field=File.restore duration=67.54µs
+2026/09/16 08:53:06 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:06 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:06 WARN failed to derive call digest field=Query.withExec err="no dagql cache in context"
+2026/09/16 08:53:06 INFO starting dagql cache close hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:06 INFO completed dagql cache close successfully
+2026/09/16 08:53:06 INFO start call field=Query.evidenceLifecycle digest=xxh3:76e7e4afdde6f05f
+2026/09/16 08:53:06 INFO end call field=Query.evidenceLifecycle cached=false digest=xxh3:76e7e4afdde6f05f
+2026/09/16 08:53:06 INFO start call field=Query.load digest=xxh3:4108ee038f21f3fe
+2026/09/16 08:53:06 INFO end call field=Query.load cached=false digest=xxh3:4108ee038f21f3fe
+2026/09/16 08:53:06 INFO start lazy group evaluation field=Container.from group=metadata
+2026/09/16 08:53:06 INFO end lazy group evaluation field=Container.from group=metadata duration=184.889µs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=Container.from group=execMeta
+2026/09/16 08:53:06 INFO end lazy group evaluation field=Container.from group=execMeta duration=47.67µs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.containerFrom group=write
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.containerFrom group=write duration=61.77µs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=Container.from group=metadata
+2026/09/16 08:53:06 INFO end lazy group evaluation field=Container.from group=metadata duration=190.64µs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=Container.from group=execMeta
+2026/09/16 08:53:06 INFO end lazy group evaluation field=Container.from group=execMeta duration=9.07µs
+2026/09/16 08:53:06 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:06 INFO start lazy group evaluation field=Container.from group=write
+2026/09/16 08:53:06 INFO end lazy group evaluation field=Container.from group=write duration=48.32µs err="no query in context"
+2026/09/16 08:53:06 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=metadata duration=40.59µs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=execMeta
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=execMeta duration=6.48µs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 08:53:06 INFO start lazy evaluation field=Container.directory
+2026/09/16 08:53:06 INFO start lazy evaluation field=Container.rootfs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=metadata duration=14.28µs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=Container.withExec group=metadata
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=mount:/a
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=mount:/a duration=13.37µs
+2026/09/16 08:53:06 INFO end lazy evaluation field=Container.directory duration=118.89µs
+2026/09/16 08:53:06 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=metadata duration=62.31µs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=Container.withExec group=metadata duration=154.53µs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=Container.withExec group=execOutputs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=mount:/ro
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=mount:/ro duration=13.48µs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=metadata duration=408.989µs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=fs duration=9.99µs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=fs duration=884.249µs
+2026/09/16 08:53:06 INFO start lazy evaluation field=Container.directory
+2026/09/16 08:53:06 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=metadata duration=14.13µs
+2026/09/16 08:53:06 INFO end lazy evaluation field=Container.rootfs duration=605.949µs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=fs duration=23.71µs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=fs duration=15.42µs err="injected rootfs failure"
+2026/09/16 08:53:06 INFO end lazy evaluation field=Container.directory duration=109.37µs err="injected rootfs failure"
+2026/09/16 08:53:06 INFO end lazy group evaluation field=Container.withExec group=execOutputs duration=458.119µs err="get current query: no query in context"
+2026/09/16 08:53:06 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:06 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:06 INFO start lazy group evaluation field=Container.withExec group=metadata
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=metadata duration=8.7µs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=Container.withExec group=metadata duration=46.55µs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=Container.withExec group=mount:/ro
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=mount:/ro
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=mount:/ro duration=11.24µs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=Container.withExec group=mount:/ro duration=39.91µs
+2026/09/16 08:53:06 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:06 INFO start lazy group evaluation field=Container.withExec group=metadata
+2026/09/16 08:53:06 INFO start lazy group evaluation field=Container.withExec group=metadata
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=metadata duration=12.11µs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:53:06 INFO end lazy group evaluation field=Container.withExec group=metadata duration=85.16µs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=metadata duration=15.79µs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=Container.withExec group=metadata duration=92.97µs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=Container.withExec group=execOutputs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=Container.withExec group=metadata
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=metadata duration=8.65µs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=Container.withExec group=metadata duration=39.009µs
+2026/09/16 08:53:06 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=mount:/two
+2026/09/16 08:53:06 INFO start lazy group evaluation field=Container.withExec group=execOutputs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=fs duration=9.3µs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=mount:/one
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=fs duration=10.72µs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=mount:/two duration=65.22µs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=mount:/one duration=19.41µs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=Container.withExec group=execOutputs duration=54.16µs err="get current query: no query in context"
+2026/09/16 08:53:06 INFO end lazy group evaluation field=Container.withExec group=execOutputs duration=138.219µs err="get current query: no query in context"
+2026/09/16 08:53:06 INFO start lazy group evaluation field=Container.withExec group=execOutputs
+2026/09/16 08:53:06 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:06 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:06 INFO end lazy group evaluation field=Container.withExec group=execOutputs duration=19.41µs err="get current query: no query in context"
+2026/09/16 08:53:06 INFO start lazy group evaluation field=Container.withExec group=execOutputs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=Container.withExec group=execOutputs duration=20.42µs err="get current query: no query in context"
+2026/09/16 08:53:06 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:06 INFO start lazy group evaluation field=Container.withEnvVariable group=metadata
+2026/09/16 08:53:06 INFO start lazy evaluation field=test.unrefinedWriter
+2026/09/16 08:53:06 INFO end lazy evaluation field=test.unrefinedWriter duration=15.53µs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=Container.withEnvVariable group=metadata duration=102.72µs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=Container.withEnvVariable group=fs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=Container.withEnvVariable group=fs duration=8.85µs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=Container.withEnvVariable group=execMeta
+2026/09/16 08:53:06 INFO end lazy group evaluation field=Container.withEnvVariable group=execMeta duration=4.14µs
+2026/09/16 08:53:06 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=metadata duration=45.83µs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=Container.withWorkdir group=metadata
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=metadata duration=21.45µs
+2026/09/16 08:53:06 INFO start lazy evaluation field=test.unrefinedWriter
+2026/09/16 08:53:06 INFO end lazy group evaluation field=Container.withWorkdir group=metadata duration=70.95µs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=fs duration=26.03µs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=Container.withWorkdir group=fs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=execMeta
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=execMeta duration=18.39µs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=fs duration=20.29µs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=Container.withWorkdir group=fs duration=72.51µs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=mount:/b
+2026/09/16 08:53:06 INFO start lazy group evaluation field=Container.withWorkdir group=execMeta
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=mount:/a
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=execMeta
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=mount:/b duration=100µs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=execMeta duration=21.37µs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=mount:/a duration=36.44µs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=Container.withWorkdir group=execMeta duration=72.11µs
+2026/09/16 08:53:06 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:06 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:06 INFO start lazy group evaluation field=Container.withUser group=metadata
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=metadata duration=17.46µs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=Container.withUser group=metadata duration=90.01µs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=Container.withUser group=fs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=Container.withEnvVariable group=metadata
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=fs duration=16.17µs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=Container.withUser group=fs duration=51.05µs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=Container.withUser group=execMeta
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=execMeta
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=execMeta duration=12.51µs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=metadata duration=20.8µs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=Container.withUser group=execMeta duration=32.32µs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=Container.withEnvVariable group=metadata duration=104.88µs
+2026/09/16 08:53:06 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:06 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:06 INFO end lazy evaluation field=test.unrefinedWriter duration=717.41µs
+2026/09/16 08:53:06 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=metadata
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=metadata duration=31.27µs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=execMeta
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=execMeta duration=8.88µs
+2026/09/16 08:53:06 INFO start lazy group evaluation field=test.base group=fs
+2026/09/16 08:53:06 INFO end lazy group evaluation field=test.base group=fs duration=578.85µs
+2026/09/16 08:53:06 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 08:53:06 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:06 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:06 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:06 INFO completed dagql cache close successfully
+2026/09/16 08:53:06 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 08:53:06 INFO marking dagql cache clean shutdown
+2026/09/16 08:53:06 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 08:53:06 INFO completed dagql cache close successfully
+FAIL
+FAIL	github.com/dagger/dagger/core	9.478s
+ok  	github.com/dagger/dagger/core/schema	42.086s
+ok  	github.com/dagger/dagger/dagql	2.719s
+FAIL

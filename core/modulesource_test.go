@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/dagger/dagger/core/gitref"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagger/dagger/dagql"
@@ -43,6 +45,22 @@ func (sdk *moduleSourceAttachTestSDK) CloneForModuleSource(*ModuleSource) SDK {
 	}
 	cp := *sdk
 	return &cp
+}
+
+func (sdk *moduleSourceAttachTestSDK) AsModuleInitializer() (ModuleInitializer, bool) {
+	return nil, false
+}
+
+func (sdk *moduleSourceAttachTestSDK) AsClientInitializer() (ClientInitializer, bool) {
+	return nil, false
+}
+
+func (sdk *moduleSourceAttachTestSDK) AsModule() (dagql.ObjectResult[*Module], bool) {
+	return dagql.ObjectResult[*Module]{}, false
+}
+
+func (sdk *moduleSourceAttachTestSDK) AsRuntimeTarget() (RuntimeTarget, bool) {
+	return nil, false
 }
 
 func (sdk *moduleSourceAttachTestSDK) AttachDependencyResults(
@@ -96,10 +114,10 @@ func TestModuleSourcePersistenceRetainsSelfCallsCapability(t *testing.T) {
 	}
 	require.True(t, src.SelfCallsEnabled())
 
-	encoded, err := src.EncodePersistedObject(ctx, nil)
+	encoded, err := src.EncodePersistedObject(ctx, dagql.NewPersistEncodeContext(nil, 0, nil))
 	require.NoError(t, err)
 
-	decoded, err := (&ModuleSource{}).DecodePersistedObject(ctx, nil, 0, nil, encoded.JSON)
+	decoded, err := (&ModuleSource{}).DecodePersistedObject(ctx, dagql.NewPersistDecodeContext(nil, 0, nil), encoded.JSON)
 	require.NoError(t, err)
 	decodedSrc, ok := decoded.(*ModuleSource)
 	require.True(t, ok)
@@ -108,10 +126,13 @@ func TestModuleSourcePersistenceRetainsSelfCallsCapability(t *testing.T) {
 
 func TestGitModuleSourceSymbolic(t *testing.T) {
 	testCases := []struct {
-		name        string
-		cloneRef    string
-		rootSubpath string
-		expected    string
+		name         string
+		cloneRef     string
+		rootSubpath  string
+		versionQuery string
+		version      string
+		selector     gitref.SelectorType
+		expected     string
 	}{
 		{
 			name:        "Go-style URL",
@@ -131,6 +152,36 @@ func TestGitModuleSourceSymbolic(t *testing.T) {
 			rootSubpath: "",
 			expected:    "git@github.com:user/repo.git",
 		},
+		{
+			name:         "version query",
+			cloneRef:     "https://github.com/user/repo.git",
+			rootSubpath:  "subdir",
+			versionQuery: "v1.2",
+			expected:     "https://github.com/user/repo.git/subdir@v1.2",
+		},
+		{
+			name:        "literal Git ref",
+			cloneRef:    "https://github.com/user/repo.git",
+			rootSubpath: "subdir",
+			version:     "v1.2",
+			selector:    gitref.GitRefSelector,
+			expected:    "https://github.com/user/repo.git#v1.2:subdir",
+		},
+		{
+			name:     "literal Git ref at repository root",
+			cloneRef: "https://github.com/user/repo.git",
+			version:  "v1.2",
+			selector: gitref.GitRefSelector,
+			expected: "https://github.com/user/repo.git#v1.2",
+		},
+		{
+			name:        "literal Git ref with explicit dot subpath",
+			cloneRef:    "https://github.com/user/repo.git",
+			rootSubpath: ".",
+			version:     "v1.2",
+			selector:    gitref.GitRefSelector,
+			expected:    "https://github.com/user/repo.git#v1.2",
+		},
 	}
 
 	for _, tc := range testCases {
@@ -138,12 +189,95 @@ func TestGitModuleSourceSymbolic(t *testing.T) {
 			src := &ModuleSource{
 				Kind: ModuleSourceKindGit,
 				Git: &GitModuleSource{
-					CloneRef: tc.cloneRef,
+					CloneRef:     tc.cloneRef,
+					VersionQuery: tc.versionQuery,
+					Version:      tc.version,
+					Selector:     tc.selector,
 				},
 				SourceRootSubpath: tc.rootSubpath,
 			}
 			result := src.AsString()
 			require.Equal(t, tc.expected, result, "AsString() returned unexpected result")
+		})
+	}
+}
+
+func TestWorkspaceContextDirPath(t *testing.T) {
+	t.Parallel()
+
+	// Workspace.directory resolves relative paths against the workspace cwd but
+	// absolute paths against the workspace root. A module's contextual
+	// (+defaultPath) path is always root-relative, so the helper must always
+	// return an absolute, root-anchored path (relative defaultPath joined onto
+	// the module root subpath first).
+	testCases := []struct {
+		name              string
+		sourceRootSubpath string
+		defaultPath       string
+		expected          string
+	}{
+		{
+			name:              "relative path joins module root subpath and anchors to root",
+			sourceRootSubpath: "mod",
+			defaultPath:       "sub",
+			expected:          "/mod/sub",
+		},
+		{
+			name:              "relative dot resolves to the module root subpath",
+			sourceRootSubpath: "mod",
+			defaultPath:       ".",
+			expected:          "/mod",
+		},
+		{
+			name:              "absolute path ignores the module root subpath",
+			sourceRootSubpath: "mod",
+			defaultPath:       "/etc",
+			expected:          "/etc",
+		},
+		{
+			name:              "empty subpath with dot resolves to the workspace root",
+			sourceRootSubpath: "",
+			defaultPath:       ".",
+			expected:          "/",
+		},
+		{
+			name:              "empty subpath with relative path anchors to root",
+			sourceRootSubpath: "",
+			defaultPath:       "foo",
+			expected:          "/foo",
+		},
+		{
+			name:              "parent traversal stays within the workspace tree",
+			sourceRootSubpath: "a/b",
+			defaultPath:       "..",
+			expected:          "/a",
+		},
+		{
+			name:              "sibling traversal stays within the workspace root",
+			sourceRootSubpath: "mod",
+			defaultPath:       "../sibling",
+			expected:          "/sibling",
+		},
+		{
+			// Root-anchoring clamps any traversal above the workspace root, so
+			// the resulting path is always "..-free" and never trips
+			// Workspace.directory's escape-the-root rejection.
+			name:              "over-escaping traversal clamps to the workspace root",
+			sourceRootSubpath: "mod",
+			defaultPath:       "../../..",
+			expected:          "/",
+		},
+		{
+			name:              "unclean relative path is normalized",
+			sourceRootSubpath: "mod",
+			defaultPath:       "./sub/./x",
+			expected:          "/mod/sub/x",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.expected, workspaceContextDirPath(tc.sourceRootSubpath, tc.defaultPath))
 		})
 	}
 }

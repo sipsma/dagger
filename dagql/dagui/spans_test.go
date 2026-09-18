@@ -11,9 +11,12 @@ import (
 	otellog "go.opentelemetry.io/otel/log"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 
 	telemetry "github.com/dagger/otel-go"
+
+	"github.com/dagger/dagger/engine/telemetryattrs"
 )
 
 func newTestLogRecord(traceID trace.TraceID, spanID trace.SpanID, body string, attrs ...otellog.KeyValue) sdklog.Record {
@@ -34,6 +37,147 @@ func newTestLogRecord(traceID trace.TraceID, spanID trace.SpanID, body string, a
 	r.SetAttributes(attrs...)
 
 	return *r
+}
+
+func TestProcessAttributeLLMToolResultTokens(t *testing.T) {
+	// The live SDK path delivers an int64.
+	var snapshot SpanSnapshot
+	snapshot.ProcessAttribute(telemetryattrs.LLMToolResultTokensAttr, int64(12345))
+	if snapshot.LLMToolResultTokens != 12345 {
+		t.Fatalf("LLMToolResultTokens = %d, want 12345", snapshot.LLMToolResultTokens)
+	}
+
+	// A value that round-tripped through a JSON number arrives as float64.
+	var fromJSON SpanSnapshot
+	fromJSON.ProcessAttribute(telemetryattrs.LLMToolResultTokensAttr, float64(678))
+	if fromJSON.LLMToolResultTokens != 678 {
+		t.Fatalf("LLMToolResultTokens (float64) = %d, want 678", fromJSON.LLMToolResultTokens)
+	}
+}
+
+// TestProcessAttributeLLMMessageOrigin covers the ingestion of the
+// dagger.io/llm.origin.* vocabulary: the recorded provenance of a message
+// that arrived through an agent mailbox lands on the snapshot's LLMOrigin*
+// fields, and the kind predicates read it back.
+func TestProcessAttributeLLMMessageOrigin(t *testing.T) {
+	var snapshot SpanSnapshot
+	snapshot.ProcessAttribute(telemetryattrs.LLMMessageOriginKindAttr, telemetryattrs.LLMMessageOriginKindAgent)
+	snapshot.ProcessAttribute(telemetryattrs.LLMMessageOriginAgentNameAttr, "scout")
+	snapshot.ProcessAttribute(telemetryattrs.LLMMessageOriginRefAttr, "#3")
+	snapshot.ProcessAttribute(telemetryattrs.LLMMessageOriginReplyToAttr, "#2")
+
+	if snapshot.LLMOriginKind != "AGENT" ||
+		snapshot.LLMOriginAgentName != "scout" ||
+		snapshot.LLMOriginRef != "#3" ||
+		snapshot.LLMOriginReplyTo != "#2" {
+		t.Fatalf("origin attrs not ingested: %+v", snapshot)
+	}
+	if !snapshot.LLMAgentOriginMessage() || snapshot.LLMEventOriginMessage() {
+		t.Fatal("kind predicates disagree with an AGENT origin")
+	}
+
+	var event SpanSnapshot
+	event.ProcessAttribute(telemetryattrs.LLMMessageOriginKindAttr, telemetryattrs.LLMMessageOriginKindEvent)
+	if !event.LLMEventOriginMessage() || event.LLMAgentOriginMessage() {
+		t.Fatal("kind predicates disagree with an EVENT origin")
+	}
+
+	var plain SpanSnapshot
+	if plain.LLMAgentOriginMessage() || plain.LLMEventOriginMessage() {
+		t.Fatal("an unmarked message must not read as origin-carrying")
+	}
+}
+
+func TestSpanNameLogUpdatesLiveSpan(t *testing.T) {
+	db := NewDB()
+	spanID := SpanID{SpanID: trace.SpanID{1}}
+	start := time.Unix(100, 0)
+	db.ImportSnapshots([]SpanSnapshot{
+		{ID: spanID, Name: "starting name", StartTime: start, EndTime: start.Add(-time.Second)},
+	})
+	db.SetPrimarySpan(spanID)
+
+	record := newTestLogRecord(
+		trace.TraceID{1},
+		spanID.SpanID,
+		"live name",
+		otellog.String(telemetryattrs.LogRoleAttr, telemetryattrs.LogRoleSpanName),
+	)
+	if err := db.LogExporter().Export(context.Background(), []sdklog.Record{record}); err != nil {
+		t.Fatalf("export name record: %v", err)
+	}
+
+	span := db.Spans.Map[spanID]
+	if span.Name != "live name" {
+		t.Fatalf("span name = %q, want %q", span.Name, "live name")
+	}
+	if span.HasLogs {
+		t.Fatal("span-name metadata was marked as ordinary log output")
+	}
+	if len(db.PrimaryLogs[spanID]) != 0 {
+		t.Fatal("span-name metadata was buffered as primary output")
+	}
+
+	// A repeated in-flight ExportSpans heartbeat still carries the name captured
+	// at span start. It must not roll back the newer log-carried name.
+	heartbeat := tracetest.SpanStub{
+		Name: "starting name",
+		SpanContext: trace.NewSpanContext(trace.SpanContextConfig{
+			TraceID: trace.TraceID{1},
+			SpanID:  spanID.SpanID,
+		}),
+		StartTime: start,
+		EndTime:   start.Add(-time.Second),
+	}.Snapshot()
+	if err := db.ExportSpans(context.Background(), []sdktrace.ReadOnlySpan{heartbeat}); err != nil {
+		t.Fatalf("export frozen span heartbeat: %v", err)
+	}
+	if span.Name != "live name" {
+		t.Fatalf("frozen heartbeat rolled span name back to %q", span.Name)
+	}
+
+	// Snapshot imports use the same protection for recorded/live trace loading.
+	db.ImportSnapshots([]SpanSnapshot{
+		{ID: spanID, Name: "starting name", StartTime: start, EndTime: start.Add(-time.Second)},
+	})
+	if span.Name != "live name" {
+		t.Fatalf("frozen snapshot rolled span name back to %q", span.Name)
+	}
+
+	final := tracetest.SpanStub{
+		Name:        "final name",
+		SpanContext: heartbeat.SpanContext(),
+		StartTime:   start,
+		EndTime:     start.Add(time.Second),
+	}.Snapshot()
+	if err := db.ExportSpans(context.Background(), []sdktrace.ReadOnlySpan{final}); err != nil {
+		t.Fatalf("export final span: %v", err)
+	}
+	if span.Name != "final name" {
+		t.Fatalf("final span name = %q, want final name", span.Name)
+	}
+}
+
+func TestSpanNameLogBeforeSpanSnapshot(t *testing.T) {
+	db := NewDB()
+	spanID := SpanID{SpanID: trace.SpanID{1}}
+	record := newTestLogRecord(
+		trace.TraceID{1},
+		spanID.SpanID,
+		"early name",
+		otellog.String(telemetryattrs.LogRoleAttr, telemetryattrs.LogRoleSpanName),
+	)
+	if err := db.LogExporter().Export(context.Background(), []sdklog.Record{record}); err != nil {
+		t.Fatalf("export name record: %v", err)
+	}
+
+	start := time.Unix(100, 0)
+	db.ImportSnapshots([]SpanSnapshot{
+		{ID: spanID, Name: "starting name", StartTime: start, EndTime: start.Add(-time.Second)},
+	})
+	if got := db.Spans.Map[spanID].Name; got != "early name" {
+		t.Fatalf("span name = %q, want early log-carried name", got)
+	}
 }
 
 // TestRollUpStateIncremental verifies that rollup state updates are incremental
@@ -252,6 +396,143 @@ func TestLogTargetSpanIDWaitsForMatchingTraceCreator(t *testing.T) {
 	}
 }
 
+// TestLogTargetSpanIDFallsBackToServiceSpan covers the warm-trace routing
+// gap: a running service's stdio names the call that created it (its
+// DagDigestAttr), but a fully cached trace never emits that call's span, so
+// no creator would ever arrive to claim parked lines. When the record's own
+// span is the service's long-lived exec span, the stream attaches there
+// instead of parking forever; a non-service span still parks awaiting its
+// creator.
+func TestLogTargetSpanIDFallsBackToServiceSpan(t *testing.T) {
+	db := NewDB()
+
+	traceID := trace.TraceID{2}
+	execID := trace.SpanID{9}
+	plainID := trace.SpanID{10}
+	db.ImportSnapshots([]SpanSnapshot{
+		{
+			ID:          SpanID{SpanID: execID},
+			TraceID:     TraceID{TraceID: traceID},
+			Name:        "exec nginx",
+			Service:     true,
+			ServiceName: "web.dagger.local",
+			Passthrough: true,
+			StartTime:   time.Unix(1, 0),
+		},
+		{
+			ID:        SpanID{SpanID: plainID},
+			TraceID:   TraceID{TraceID: traceID},
+			Name:      "exec build",
+			StartTime: time.Unix(1, 0),
+		},
+	})
+
+	record := newTestLogRecord(
+		traceID,
+		execID,
+		"nginx: ready",
+		otellog.String(telemetry.DagDigestAttr, "xxh3:never-created"),
+	)
+	if got := db.LogTargetSpanID(record); got != (SpanID{SpanID: execID}) {
+		t.Fatalf("expected the service exec span fallback, got %s", got)
+	}
+
+	other := newTestLogRecord(
+		traceID,
+		plainID,
+		"hello",
+		otellog.String(telemetry.DagDigestAttr, "xxh3:never-created"),
+	)
+	if got := db.LogTargetSpanID(other); got.IsValid() {
+		t.Fatalf("expected unresolved target for non-service span, got %s", got)
+	}
+}
+
+// TestPendingDigestLogsResolveWhenServiceSpanArrives covers the other half
+// of the warm-trace routing gap: the service's stdio can arrive BEFORE its
+// exec span snapshot does. routeLog then finds neither a creator span nor a
+// known Service span, so the record parks under its digest — and on a fully
+// cached trace no creator will ever arrive to claim it. When the exec span
+// shows up flagged as a Service, it must claim its own parked records.
+func TestPendingDigestLogsResolveWhenServiceSpanArrives(t *testing.T) {
+	db := NewDB()
+
+	traceID := trace.TraceID{2}
+	execID := SpanID{SpanID: trace.SpanID{9}}
+	otherID := trace.SpanID{10}
+	outputDig := "xxh3:never-created"
+
+	record := newTestLogRecord(
+		traceID,
+		execID.SpanID,
+		"nginx: ready",
+		otellog.String(telemetry.DagDigestAttr, outputDig),
+	)
+	// a record from a different span sharing the digest must stay parked
+	other := newTestLogRecord(
+		traceID,
+		otherID,
+		"unrelated",
+		otellog.String(telemetry.DagDigestAttr, outputDig),
+	)
+
+	if err := db.LogExporter().Export(context.Background(), []sdklog.Record{record, other}); err != nil {
+		t.Fatalf("export logs: %v", err)
+	}
+
+	if got := db.DrainResolvedLogs(execID); len(got) != 0 {
+		t.Fatalf("expected no resolved logs before exec span, got %d", len(got))
+	}
+
+	db.ImportSnapshots([]SpanSnapshot{
+		{
+			ID:          execID,
+			TraceID:     TraceID{TraceID: traceID},
+			Name:        "exec nginx",
+			Service:     true,
+			ServiceName: "web.dagger.local",
+			Passthrough: true,
+			StartTime:   time.Unix(1, 0),
+		},
+	})
+
+	resolved := db.DrainResolvedLogs(execID)
+	if len(resolved) != 1 {
+		t.Fatalf("expected 1 resolved log, got %d", len(resolved))
+	}
+	if resolved[0].Body().AsString() != "nginx: ready" {
+		t.Fatalf("expected resolved log body %q, got %q", "nginx: ready", resolved[0].Body().AsString())
+	}
+
+	exec := db.Spans.Map[execID]
+	if exec == nil {
+		t.Fatal("expected exec span")
+	}
+	if !exec.HasLogs {
+		t.Fatal("expected exec span to have logs")
+	}
+
+	// the other span's record still awaits its creator
+	creatorID := SpanID{SpanID: trace.SpanID{3}}
+	db.ImportSnapshots([]SpanSnapshot{
+		{
+			ID:         creatorID,
+			TraceID:    TraceID{TraceID: traceID},
+			StartTime:  time.Unix(3, 0),
+			EndTime:    time.Unix(4, 0),
+			CallDigest: "xxh3:live-call",
+			Output:     outputDig,
+		},
+	})
+	remaining := db.DrainResolvedLogs(creatorID)
+	if len(remaining) != 1 {
+		t.Fatalf("expected 1 log resolved to creator, got %d", len(remaining))
+	}
+	if remaining[0].Body().AsString() != "unrelated" {
+		t.Fatalf("expected creator-resolved log body %q, got %q", "unrelated", remaining[0].Body().AsString())
+	}
+}
+
 func TestPendingDigestLogsResolveWhenCreatorArrives(t *testing.T) {
 	db := NewDB()
 
@@ -414,6 +695,60 @@ func TestPendingClearsAndPropagatesThroughCausalContinuation(t *testing.T) {
 
 	if !orig.IsFailedOrCausedFailure() {
 		t.Fatal("expected original span to inherit failure from continuation")
+	}
+}
+
+func TestPartialCausalContinuationKeepsPending(t *testing.T) {
+	db := NewDB()
+
+	origID := SpanID{trace.SpanID{1}}
+	orig := db.newSpan(origID)
+	orig.Received = true
+	orig.Name = "original"
+	orig.Pending = true
+	orig.StartTime = time.Now()
+	orig.EndTime = orig.StartTime.Add(time.Millisecond)
+	db.Spans.Add(orig)
+	db.integrateSpan(orig)
+	orig.PropagateStatusToParentsAndLinks()
+
+	partialID := SpanID{trace.SpanID{2}}
+	partial := db.newSpan(partialID)
+	partial.Received = true
+	partial.Name = "partial resume"
+	partial.Partial = true
+	partial.StartTime = time.Now()
+	partial.EndTime = partial.StartTime.Add(time.Millisecond)
+	partial.Status = sdktrace.Status{Code: codes.Ok}
+	partial.Links = []SpanLink{{SpanContext: SpanContext{SpanID: origID}}}
+	db.Spans.Add(partial)
+	db.integrateSpan(partial)
+	partial.PropagateStatusToParentsAndLinks()
+
+	if !orig.IsPending() {
+		t.Fatal("completed partial continuation must leave the original span pending")
+	}
+	if pending, _ := orig.PendingReason(); !pending {
+		t.Fatal("pending reason must agree after a partial continuation")
+	}
+
+	completeID := SpanID{trace.SpanID{3}}
+	complete := db.newSpan(completeID)
+	complete.Received = true
+	complete.Name = "complete resume"
+	complete.StartTime = time.Now()
+	complete.EndTime = complete.StartTime.Add(time.Millisecond)
+	complete.Status = sdktrace.Status{Code: codes.Ok}
+	complete.Links = []SpanLink{{SpanContext: SpanContext{SpanID: origID}}}
+	db.Spans.Add(complete)
+	db.integrateSpan(complete)
+	complete.PropagateStatusToParentsAndLinks()
+
+	if orig.IsPending() {
+		t.Fatal("completed final continuation must clear pending state")
+	}
+	if pending, _ := orig.PendingReason(); pending {
+		t.Fatal("pending reason must agree after a final continuation")
 	}
 }
 

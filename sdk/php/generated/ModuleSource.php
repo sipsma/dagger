@@ -41,6 +41,17 @@ class ModuleSource extends Client\AbstractObject implements Client\IdAble, Node,
     }
 
     /**
+     * The client-facing introspection schema JSON file for this module source.
+     *
+     * This is the schema consumed by client codegen: unlike introspectionSchemaJSON (the module-facing schema), it hides no core types and installs this module (reached via dag.<moduleName>) so a generated client can bind it. The module's dependencies are excluded: a client is generated for a single module plus core, not its dependency graph.
+     */
+    public function clientSchemaIntrospectionJSON(): File
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('clientSchemaIntrospectionJSON');
+        return new \Dagger\File($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
      * The ref to clone the root of the git repo from. Only valid for git sources.
      */
     public function cloneRef(): string
@@ -120,6 +131,18 @@ class ModuleSource extends Client\AbstractObject implements Client\IdAble, Node,
     {
         $leafQueryBuilder = new \Dagger\Client\QueryBuilder('engineVersion');
         return (string)$this->queryLeaf($leafQueryBuilder, 'engineVersion');
+    }
+
+    /**
+     * Return the supplied workspace with this module's generated context applied.
+     *
+     * The workspace change baseline is preserved, so a later Workspace.changes call includes this generation together with any other edits made by the caller.
+     */
+    public function generate(Workspace $workspace): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('generate');
+        $innerQueryBuilder->setArgument('workspace', $workspace);
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
     }
 
     /**
@@ -246,10 +269,15 @@ class ModuleSource extends Client\AbstractObject implements Client\IdAble, Node,
     /**
      * The SDK configuration of the module.
      */
-    public function sdk(): SDKConfig
+    public function sdk(): ?SDKConfig
     {
-        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('sdk');
-        return new \Dagger\SDKConfig($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+        $objectQueryBuilder = new \Dagger\Client\QueryBuilder('sdk');
+        $objectQueryBuilder->selectField('id');
+        $id = $this->queryLeaf($objectQueryBuilder, 'id');
+        if ($id === null) {
+            return null;
+        }
+        return $this->client->loadObjectFromId(\Dagger\SDKConfig::class, new \Dagger\Id((string)$id), 'SDKConfig');
     }
 
     /**
@@ -276,8 +304,8 @@ class ModuleSource extends Client\AbstractObject implements Client\IdAble, Node,
     public function sync(): ModuleSource
     {
         $leafQueryBuilder = new \Dagger\Client\QueryBuilder('sync');
-        $this->queryLeaf($leafQueryBuilder, 'sync');
-        return $this;
+        $id = $this->queryLeaf($leafQueryBuilder, 'sync');
+        return $this->client->loadObjectFromId(\Dagger\ModuleSource::class, new \Dagger\Id((string)$id), 'ModuleSource');
     }
 
     /**
@@ -287,6 +315,17 @@ class ModuleSource extends Client\AbstractObject implements Client\IdAble, Node,
     {
         $leafQueryBuilder = new \Dagger\Client\QueryBuilder('toolchains');
         return (array)$this->queryLeaf($leafQueryBuilder, 'toolchains');
+    }
+
+    /**
+     * The module's dagger.json with any in-memory edits from with* APIs applied, as a diff relative to the source's context directory.
+     *
+     * Unlike generatedContextDirectory, this does not run codegen and does not validate the engine version against the running engine, so it can be used to declare an engine requirement newer than the running engine. Loading or serving such a module still fails at moduleSource.asModule.
+     */
+    public function updatedConfigDirectory(): Directory
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('updatedConfigDirectory');
+        return new \Dagger\Directory($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
     }
 
     /**

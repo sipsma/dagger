@@ -1,0 +1,12 @@
+=== RUN   TestOfferPartsNativeAdmission
+=== RUN   TestOfferPartsNativeAdmission/accepted_before_start
+2026/09/17 02:27:20 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestOfferPartsNativeAdmission/refused_after_start
+2026/09/17 02:27:20 INFO start lazy evaluation field=File.blob
+2026/09/17 02:27:20 INFO end lazy evaluation field=File.blob duration=30.998146ms
+2026/09/17 02:27:20 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestOfferPartsNativeAdmission (0.33s)
+    --- PASS: TestOfferPartsNativeAdmission/accepted_before_start (0.20s)
+    --- PASS: TestOfferPartsNativeAdmission/refused_after_start (0.13s)
+PASS
+ok  	github.com/dagger/dagger/core	0.418s

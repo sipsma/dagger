@@ -1,0 +1,13 @@
+{
+  "command": "go test -p 1 -overlay cleanup-evidence/baseline-overlay.json ./dagql ./core -run '^(TestCapturePersistedRecordInitialAttachment|TestCapturePersistedContainer)' -count=1 -timeout=90s -v",
+  "cwd": "/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-cleanup-implementer-2f409eb3-1d445bb7",
+  "started_utc": "2026-09-13T19:56:04.309776+00:00",
+  "head": "1ba150a79b8a3f7568e27a22cee492f578ffa538",
+  "source_tree": "3813552225a0d3c020c8d6bb3e327acab5a5531f",
+  "free_bytes_before": 7398436864,
+  "patch_sha256": "e7c8645ac9bd64fb0e05eb7905e1adcca49a83f1f045ae77134949e41b866ac4",
+  "exit_code": 1,
+  "finished_utc": "2026-09-13T19:56:23.596448+00:00",
+  "free_bytes_after": 7229407232,
+  "log_sha256": "8635a6701ab5b4c5589d854baa8ef0deae2cc1122348a9b888c1adb61d94db80"
+}

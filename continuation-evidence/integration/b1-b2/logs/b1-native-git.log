@@ -1,0 +1,31 @@
+[dagger] 30.3s elapsed · 27 steps running
+[dagger] 1m0s elapsed · 6 steps running
+[dagger] 1m30s elapsed · 5 steps running
+[dagger] 2m0s elapsed · 6 steps running
+[dagger] 2m30s elapsed · 24 steps running
+== TRACE ==  ✔ PASSED
+engine-dev test --pkg ./core/integration --run=TestGit/(TestGitUncommittedLocal|TestGitUncommittedRemote|TestGitBundleRoundTripAndStockInterop|TestGitBundleImportAfterPrerequisiteRefAdvances|TestGitCommit|TestDiscardGitDir|TestGitDepth|TestGitTags)$  2m33s
+
+✔ connect 0.4s
+✔ load workspace: . 2.1s
+  ✔ 12 uploads 0.2s
+✔ parsing command line arguments 0.0s
+
+✔ engineDev(
+  ┆ ws: currentWorkspace: Workspace!
+  ): EngineDev! 24.4s
+  ✔ uploading /home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-integration-b1-b2-36d54e12-c4fb4f07 2.1s ████████████ 56 MB
+✔ .test(run: "TestGit/(TestGitUncommittedLocal|TestGitUncommittedRemote|TestGitBundleRoundTripAndStockInterop|TestGitBundleImportAfterPrerequisiteRefAdvances|TestGitCommit|TestDiscardGitDir|TestGitDepth|TestGitTags)$", pkg: "./core/integration"): Void 2m6s
+  ✔ 1 upload, 2 fetches, 1 pull, 1 unpack 5.1s
+
+== SERVICES ==
+✔ rogct0dgr0vls.71eaulkn285be.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 1m10s EXITED span=55e82dc5e749791b
+✔ h4avdn8nctrm4.71eaulkn285be.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 1m10s EXITED span=a481f958e0540570
+✘ qfarckacu70f2.71eaulkn285be.dagger.local exec dagger-entrypoint.sh --addr unix:///run/dagger-engine.sock --addr tcp://0.0.0.0:1234 --network-name dagger-dev --network-cidr 10.88.0.0/16 --debugaddr 0.0.0.0:6060 1m10s ERROR span=fad5aaa2c51bcf60
+
+== TESTS ==
+  ✔ github.com/dagger/dagger/core/integration  2 passed
+
+  ✔ 2 passed
+
+Full trace at https://dagger.cloud/dagger/traces/96971ff4bdccb02cadf7c8bfb57099a9

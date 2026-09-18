@@ -26,6 +26,15 @@ class File extends Client\AbstractObject implements Client\IdAble, Exportable, N
     }
 
     /**
+     * Interpret this file as a Git bundle by lazily parsing its header.
+     */
+    public function asGitBundle(): GitBundle
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('asGitBundle');
+        return new \Dagger\GitBundle($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
      * Parse the file contents as JSON.
      */
     public function asJSON(): JsonValue
@@ -167,10 +176,15 @@ class File extends Client\AbstractObject implements Client\IdAble, Exportable, N
     /**
      * Return file status
      */
-    public function stat(): Stat
+    public function stat(): ?Stat
     {
-        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('stat');
-        return new \Dagger\Stat($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+        $objectQueryBuilder = new \Dagger\Client\QueryBuilder('stat');
+        $objectQueryBuilder->selectField('id');
+        $id = $this->queryLeaf($objectQueryBuilder, 'id');
+        if ($id === null) {
+            return null;
+        }
+        return $this->client->loadObjectFromId(\Dagger\Stat::class, new \Dagger\Id((string)$id), 'Stat');
     }
 
     /**
@@ -179,8 +193,8 @@ class File extends Client\AbstractObject implements Client\IdAble, Exportable, N
     public function sync(): File
     {
         $leafQueryBuilder = new \Dagger\Client\QueryBuilder('sync');
-        $this->queryLeaf($leafQueryBuilder, 'sync');
-        return $this;
+        $id = $this->queryLeaf($leafQueryBuilder, 'sync');
+        return $this->client->loadObjectFromId(\Dagger\File::class, new \Dagger\Id((string)$id), 'File');
     }
 
     /**

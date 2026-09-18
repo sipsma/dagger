@@ -1,0 +1,7 @@
+Head: 8d99a010afc875466c999d44c174a5a0c95f3504
+Working directory: /home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-integration-b1-b2-36d54e12-c4fb4f07
+Command: env GOPATH=/home/exedev/go GOCACHE=/home/exedev/.cache/go-build go test -overlay=/tmp/b1-b2-followup/diagnostic-overlay.json -p=1 -exec='sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -count=1 -v
+Started: 2026-09-16T09:15:29.939892+00:00
+Finished: 2026-09-16T09:15:58.603393+00:00
+Exit status: 1
+Log: diagnostic-unfiltered.log

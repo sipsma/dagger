@@ -1,0 +1,1183 @@
+{
+  "valueCount": 226,
+  "roots": [
+    {
+      "ordinal": 226,
+      "expiresAtUnix": 1790175310
+    }
+  ],
+  "rows": [
+    {
+      "ordinal": 4,
+      "call": {
+        "kind": "field",
+        "type": {
+          "namedType": "Container",
+          "nonNull": true
+        },
+        "field": "_builtinContainer",
+        "args": [
+          {
+            "name": "digest",
+            "value": {
+              "kind": "string",
+              "stringValue": "sha256:18123dd3983e95e9984eb0acf9e0d8cebb5bef7c102807eab5ab0e115f2ccaa9"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "producerState": "completed",
+        "metadata": {
+          "consumed": true,
+          "value": {
+            "config": {
+              "Env": [
+                "PATH=/go/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "GOLANG_VERSION=1.26.8",
+                "GOTOOLCHAIN=auto",
+                "GOPATH=/go",
+                "GOOS=linux",
+                "GOARCH=amd64"
+              ],
+              "Cmd": [
+                "/bin/sh"
+              ],
+              "WorkingDir": "/go"
+            },
+            "platform": "linux/amd64",
+            "defaultTerminalCmd": {
+              "Args": null,
+              "ExperimentalPrivilegedNesting": null,
+              "InsecureRootCapabilities": null
+            }
+          }
+        },
+        "parts": {
+          "execMeta": {
+            "kind": "absent"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          }
+        },
+        "lazyJSON": {
+          "platform": "linux/amd64",
+          "manifestDigest": "sha256:18123dd3983e95e9984eb0acf9e0d8cebb5bef7c102807eab5ab0e115f2ccaa9"
+        }
+      },
+      "outputs": []
+    },
+    {
+      "ordinal": 10,
+      "call": {
+        "kind": "field",
+        "type": {
+          "namedType": "Container",
+          "nonNull": true
+        },
+        "field": "withMountedCache",
+        "receiver": {
+          "resultID": 4
+        },
+        "args": [
+          {
+            "name": "path",
+            "value": {
+              "kind": "string",
+              "stringValue": "/go/pkg/mod"
+            }
+          },
+          {
+            "name": "cache",
+            "value": {
+              "kind": "result_ref",
+              "resultRef": {
+                "resultID": 6
+              }
+            }
+          },
+          {
+            "name": "source",
+            "value": {
+              "kind": "result_ref",
+              "resultRef": {
+                "resultID": 5
+              }
+            }
+          },
+          {
+            "name": "sharing",
+            "value": {
+              "kind": "enum",
+              "enumValue": "SHARED"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "producerState": "none",
+        "metadata": {
+          "consumed": true,
+          "value": {
+            "config": {
+              "Env": [
+                "PATH=/go/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "GOLANG_VERSION=1.26.8",
+                "GOTOOLCHAIN=auto",
+                "GOPATH=/go",
+                "GOOS=linux",
+                "GOARCH=amd64"
+              ],
+              "Cmd": [
+                "/bin/sh"
+              ],
+              "WorkingDir": "/go"
+            },
+            "mounts": [
+              {
+                "target": "/go/pkg/mod",
+                "kind": "cache",
+                "cacheSourceResultID": 6
+              }
+            ],
+            "platform": "linux/amd64",
+            "defaultTerminalCmd": {
+              "Args": null,
+              "ExperimentalPrivilegedNesting": null,
+              "InsecureRootCapabilities": null
+            }
+          }
+        },
+        "parts": {
+          "execMeta": {
+            "kind": "absent"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          }
+        }
+      },
+      "outputs": []
+    },
+    {
+      "ordinal": 11,
+      "call": {
+        "kind": "field",
+        "type": {
+          "namedType": "Container",
+          "nonNull": true
+        },
+        "field": "withMountedCache",
+        "receiver": {
+          "resultID": 10
+        },
+        "args": [
+          {
+            "name": "path",
+            "value": {
+              "kind": "string",
+              "stringValue": "/root/.cache/go-build"
+            }
+          },
+          {
+            "name": "cache",
+            "value": {
+              "kind": "result_ref",
+              "resultRef": {
+                "resultID": 8
+              }
+            }
+          },
+          {
+            "name": "source",
+            "value": {
+              "kind": "result_ref",
+              "resultRef": {
+                "resultID": 7
+              }
+            }
+          },
+          {
+            "name": "sharing",
+            "value": {
+              "kind": "enum",
+              "enumValue": "SHARED"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "producerState": "none",
+        "metadata": {
+          "consumed": true,
+          "value": {
+            "config": {
+              "Env": [
+                "PATH=/go/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "GOLANG_VERSION=1.26.8",
+                "GOTOOLCHAIN=auto",
+                "GOPATH=/go",
+                "GOOS=linux",
+                "GOARCH=amd64"
+              ],
+              "Cmd": [
+                "/bin/sh"
+              ],
+              "WorkingDir": "/go"
+            },
+            "mounts": [
+              {
+                "target": "/go/pkg/mod",
+                "kind": "cache",
+                "cacheSourceResultID": 6
+              },
+              {
+                "target": "/root/.cache/go-build",
+                "kind": "cache",
+                "cacheSourceResultID": 8
+              }
+            ],
+            "platform": "linux/amd64",
+            "defaultTerminalCmd": {
+              "Args": null,
+              "ExperimentalPrivilegedNesting": null,
+              "InsecureRootCapabilities": null
+            }
+          }
+        },
+        "parts": {
+          "execMeta": {
+            "kind": "absent"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          }
+        }
+      },
+      "outputs": []
+    },
+    {
+      "ordinal": 12,
+      "call": {
+        "kind": "field",
+        "type": {
+          "namedType": "Container",
+          "nonNull": true
+        },
+        "field": "__withSystemEnvVariable",
+        "receiver": {
+          "resultID": 11
+        },
+        "args": [
+          {
+            "name": "name",
+            "value": {
+              "kind": "string",
+              "stringValue": "GOPROXY"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "producerState": "none",
+        "metadata": {
+          "consumed": true,
+          "value": {
+            "config": {
+              "Env": [
+                "PATH=/go/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "GOLANG_VERSION=1.26.8",
+                "GOTOOLCHAIN=auto",
+                "GOPATH=/go",
+                "GOOS=linux",
+                "GOARCH=amd64"
+              ],
+              "Cmd": [
+                "/bin/sh"
+              ],
+              "WorkingDir": "/go"
+            },
+            "mounts": [
+              {
+                "target": "/go/pkg/mod",
+                "kind": "cache",
+                "cacheSourceResultID": 6
+              },
+              {
+                "target": "/root/.cache/go-build",
+                "kind": "cache",
+                "cacheSourceResultID": 8
+              }
+            ],
+            "platform": "linux/amd64",
+            "defaultTerminalCmd": {
+              "Args": null,
+              "ExperimentalPrivilegedNesting": null,
+              "InsecureRootCapabilities": null
+            },
+            "systemEnvNames": [
+              "GOPROXY"
+            ]
+          }
+        },
+        "parts": {
+          "execMeta": {
+            "kind": "absent"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          }
+        }
+      },
+      "outputs": []
+    },
+    {
+      "ordinal": 13,
+      "call": {
+        "kind": "field",
+        "type": {
+          "namedType": "Container",
+          "nonNull": true
+        },
+        "field": "__withSystemEnvVariable",
+        "receiver": {
+          "resultID": 12
+        },
+        "args": [
+          {
+            "name": "name",
+            "value": {
+              "kind": "string",
+              "stringValue": "GODEBUG"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "producerState": "none",
+        "metadata": {
+          "consumed": true,
+          "value": {
+            "config": {
+              "Env": [
+                "PATH=/go/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "GOLANG_VERSION=1.26.8",
+                "GOTOOLCHAIN=auto",
+                "GOPATH=/go",
+                "GOOS=linux",
+                "GOARCH=amd64"
+              ],
+              "Cmd": [
+                "/bin/sh"
+              ],
+              "WorkingDir": "/go"
+            },
+            "mounts": [
+              {
+                "target": "/go/pkg/mod",
+                "kind": "cache",
+                "cacheSourceResultID": 6
+              },
+              {
+                "target": "/root/.cache/go-build",
+                "kind": "cache",
+                "cacheSourceResultID": 8
+              }
+            ],
+            "platform": "linux/amd64",
+            "defaultTerminalCmd": {
+              "Args": null,
+              "ExperimentalPrivilegedNesting": null,
+              "InsecureRootCapabilities": null
+            },
+            "systemEnvNames": [
+              "GOPROXY",
+              "GODEBUG"
+            ]
+          }
+        },
+        "parts": {
+          "execMeta": {
+            "kind": "absent"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          }
+        }
+      },
+      "outputs": []
+    },
+    {
+      "ordinal": 15,
+      "call": {
+        "kind": "field",
+        "type": {
+          "namedType": "Container",
+          "nonNull": true
+        },
+        "field": "withMountedFile",
+        "receiver": {
+          "resultID": 13
+        },
+        "args": [
+          {
+            "name": "path",
+            "value": {
+              "kind": "string",
+              "stringValue": "/schema.json"
+            }
+          },
+          {
+            "name": "source",
+            "value": {
+              "kind": "result_ref",
+              "resultRef": {
+                "resultID": 14
+              }
+            }
+          }
+        ]
+      },
+      "payload": {
+        "producerState": "completed",
+        "metadata": {
+          "consumed": true,
+          "value": {
+            "config": {
+              "Env": [
+                "PATH=/go/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "GOLANG_VERSION=1.26.8",
+                "GOTOOLCHAIN=auto",
+                "GOPATH=/go",
+                "GOOS=linux",
+                "GOARCH=amd64"
+              ],
+              "Cmd": [
+                "/bin/sh"
+              ],
+              "WorkingDir": "/go"
+            },
+            "mounts": [
+              {
+                "target": "/go/pkg/mod",
+                "kind": "cache",
+                "cacheSourceResultID": 6
+              },
+              {
+                "target": "/root/.cache/go-build",
+                "kind": "cache",
+                "cacheSourceResultID": 8
+              },
+              {
+                "target": "/schema.json",
+                "kind": "file"
+              }
+            ],
+            "platform": "linux/amd64",
+            "defaultTerminalCmd": {
+              "Args": null,
+              "ExperimentalPrivilegedNesting": null,
+              "InsecureRootCapabilities": null
+            },
+            "systemEnvNames": [
+              "GOPROXY",
+              "GODEBUG"
+            ]
+          }
+        },
+        "parts": {
+          "execMeta": {
+            "kind": "absent"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          },
+          "mount:/schema.json": {
+            "valueKind": "file",
+            "kind": "pending",
+            "role": "mount_file:2",
+            "path": "schema.json",
+            "platform": "linux/amd64"
+          }
+        },
+        "lazyJSON": {
+          "parentResultID": 13,
+          "target": "/schema.json",
+          "sourceResultID": 14
+        }
+      },
+      "outputs": []
+    },
+    {
+      "ordinal": 16,
+      "call": {
+        "kind": "field",
+        "type": {
+          "namedType": "Container",
+          "nonNull": true
+        },
+        "field": "withMountedDirectory",
+        "receiver": {
+          "resultID": 15
+        },
+        "args": [
+          {
+            "name": "path",
+            "value": {
+              "kind": "string",
+              "stringValue": "/src"
+            }
+          },
+          {
+            "name": "source",
+            "value": {
+              "kind": "result_ref",
+              "resultRef": {
+                "resultID": 9
+              }
+            }
+          }
+        ]
+      },
+      "payload": {
+        "producerState": "completed",
+        "metadata": {
+          "consumed": true,
+          "value": {
+            "config": {
+              "Env": [
+                "PATH=/go/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "GOLANG_VERSION=1.26.8",
+                "GOTOOLCHAIN=auto",
+                "GOPATH=/go",
+                "GOOS=linux",
+                "GOARCH=amd64"
+              ],
+              "Cmd": [
+                "/bin/sh"
+              ],
+              "WorkingDir": "/go"
+            },
+            "mounts": [
+              {
+                "target": "/go/pkg/mod",
+                "kind": "cache",
+                "cacheSourceResultID": 6
+              },
+              {
+                "target": "/root/.cache/go-build",
+                "kind": "cache",
+                "cacheSourceResultID": 8
+              },
+              {
+                "target": "/schema.json",
+                "kind": "file"
+              },
+              {
+                "target": "/src",
+                "kind": "directory"
+              }
+            ],
+            "platform": "linux/amd64",
+            "defaultTerminalCmd": {
+              "Args": null,
+              "ExperimentalPrivilegedNesting": null,
+              "InsecureRootCapabilities": null
+            },
+            "systemEnvNames": [
+              "GOPROXY",
+              "GODEBUG"
+            ]
+          }
+        },
+        "parts": {
+          "execMeta": {
+            "kind": "absent"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          },
+          "mount:/schema.json": {
+            "valueKind": "file",
+            "kind": "pending",
+            "role": "mount_file:2",
+            "path": "schema.json",
+            "platform": "linux/amd64"
+          },
+          "mount:/src": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "mount_dir:3",
+            "path": "/",
+            "platform": "linux/amd64"
+          }
+        },
+        "lazyJSON": {
+          "parentResultID": 15,
+          "target": "/src",
+          "sourceResultID": 9
+        }
+      },
+      "outputs": []
+    },
+    {
+      "ordinal": 17,
+      "call": {
+        "kind": "field",
+        "type": {
+          "namedType": "Container",
+          "nonNull": true
+        },
+        "field": "withWorkdir",
+        "receiver": {
+          "resultID": 16
+        },
+        "args": [
+          {
+            "name": "path",
+            "value": {
+              "kind": "string",
+              "stringValue": "/src/.dagger"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "producerState": "none",
+        "metadata": {
+          "consumed": true,
+          "value": {
+            "config": {
+              "Env": [
+                "PATH=/go/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "GOLANG_VERSION=1.26.8",
+                "GOTOOLCHAIN=auto",
+                "GOPATH=/go",
+                "GOOS=linux",
+                "GOARCH=amd64"
+              ],
+              "Cmd": [
+                "/bin/sh"
+              ],
+              "WorkingDir": "/src/.dagger"
+            },
+            "mounts": [
+              {
+                "target": "/go/pkg/mod",
+                "kind": "cache",
+                "cacheSourceResultID": 6
+              },
+              {
+                "target": "/root/.cache/go-build",
+                "kind": "cache",
+                "cacheSourceResultID": 8
+              },
+              {
+                "target": "/schema.json",
+                "kind": "file"
+              },
+              {
+                "target": "/src",
+                "kind": "directory"
+              }
+            ],
+            "platform": "linux/amd64",
+            "defaultTerminalCmd": {
+              "Args": null,
+              "ExperimentalPrivilegedNesting": null,
+              "InsecureRootCapabilities": null
+            },
+            "systemEnvNames": [
+              "GOPROXY",
+              "GODEBUG"
+            ]
+          }
+        },
+        "parts": {
+          "execMeta": {
+            "kind": "absent"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          },
+          "mount:/schema.json": {
+            "valueKind": "file",
+            "kind": "pending",
+            "role": "mount_file:2",
+            "path": "schema.json",
+            "platform": "linux/amd64"
+          },
+          "mount:/src": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "mount_dir:3",
+            "path": "/",
+            "platform": "linux/amd64"
+          }
+        }
+      },
+      "outputs": []
+    },
+    {
+      "ordinal": 18,
+      "call": {
+        "kind": "field",
+        "type": {
+          "namedType": "Container",
+          "nonNull": true
+        },
+        "field": "withEnvVariable",
+        "receiver": {
+          "resultID": 17
+        },
+        "args": [
+          {
+            "name": "name",
+            "value": {
+              "kind": "string",
+              "stringValue": "GIT_SSH_COMMAND"
+            }
+          },
+          {
+            "name": "value",
+            "value": {
+              "kind": "string",
+              "stringValue": "ssh -o StrictHostKeyChecking=no "
+            }
+          }
+        ]
+      },
+      "payload": {
+        "producerState": "none",
+        "metadata": {
+          "consumed": true,
+          "value": {
+            "config": {
+              "Env": [
+                "PATH=/go/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "GOLANG_VERSION=1.26.8",
+                "GOTOOLCHAIN=auto",
+                "GOPATH=/go",
+                "GOOS=linux",
+                "GOARCH=amd64",
+                "GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=no "
+              ],
+              "Cmd": [
+                "/bin/sh"
+              ],
+              "WorkingDir": "/src/.dagger"
+            },
+            "mounts": [
+              {
+                "target": "/go/pkg/mod",
+                "kind": "cache",
+                "cacheSourceResultID": 6
+              },
+              {
+                "target": "/root/.cache/go-build",
+                "kind": "cache",
+                "cacheSourceResultID": 8
+              },
+              {
+                "target": "/schema.json",
+                "kind": "file"
+              },
+              {
+                "target": "/src",
+                "kind": "directory"
+              }
+            ],
+            "platform": "linux/amd64",
+            "defaultTerminalCmd": {
+              "Args": null,
+              "ExperimentalPrivilegedNesting": null,
+              "InsecureRootCapabilities": null
+            },
+            "systemEnvNames": [
+              "GOPROXY",
+              "GODEBUG"
+            ]
+          }
+        },
+        "parts": {
+          "execMeta": {
+            "kind": "absent"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          },
+          "mount:/schema.json": {
+            "valueKind": "file",
+            "kind": "pending",
+            "role": "mount_file:2",
+            "path": "schema.json",
+            "platform": "linux/amd64"
+          },
+          "mount:/src": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "mount_dir:3",
+            "path": "/",
+            "platform": "linux/amd64"
+          }
+        }
+      },
+      "outputs": []
+    },
+    {
+      "ordinal": 19,
+      "call": {
+        "kind": "field",
+        "type": {
+          "namedType": "Container",
+          "nonNull": true
+        },
+        "field": "withoutDefaultArgs",
+        "receiver": {
+          "resultID": 18
+        }
+      },
+      "payload": {
+        "producerState": "none",
+        "metadata": {
+          "consumed": true,
+          "value": {
+            "config": {
+              "Env": [
+                "PATH=/go/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "GOLANG_VERSION=1.26.8",
+                "GOTOOLCHAIN=auto",
+                "GOPATH=/go",
+                "GOOS=linux",
+                "GOARCH=amd64",
+                "GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=no "
+              ],
+              "WorkingDir": "/src/.dagger"
+            },
+            "mounts": [
+              {
+                "target": "/go/pkg/mod",
+                "kind": "cache",
+                "cacheSourceResultID": 6
+              },
+              {
+                "target": "/root/.cache/go-build",
+                "kind": "cache",
+                "cacheSourceResultID": 8
+              },
+              {
+                "target": "/schema.json",
+                "kind": "file"
+              },
+              {
+                "target": "/src",
+                "kind": "directory"
+              }
+            ],
+            "platform": "linux/amd64",
+            "defaultTerminalCmd": {
+              "Args": null,
+              "ExperimentalPrivilegedNesting": null,
+              "InsecureRootCapabilities": null
+            },
+            "systemEnvNames": [
+              "GOPROXY",
+              "GODEBUG"
+            ]
+          }
+        },
+        "parts": {
+          "execMeta": {
+            "kind": "absent"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          },
+          "mount:/schema.json": {
+            "valueKind": "file",
+            "kind": "pending",
+            "role": "mount_file:2",
+            "path": "schema.json",
+            "platform": "linux/amd64"
+          },
+          "mount:/src": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "mount_dir:3",
+            "path": "/",
+            "platform": "linux/amd64"
+          }
+        }
+      },
+      "outputs": []
+    },
+    {
+      "ordinal": 23,
+      "call": {
+        "kind": "field",
+        "type": {
+          "namedType": "Container",
+          "nonNull": true
+        },
+        "field": "withWorkdir",
+        "receiver": {
+          "resultID": 22
+        },
+        "args": [
+          {
+            "name": "path",
+            "value": {
+              "kind": "string",
+              "stringValue": "/scratch"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "producerState": "completed",
+        "metadata": {
+          "consumed": true,
+          "value": {
+            "config": {
+              "Env": [
+                "PATH=/go/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "GOLANG_VERSION=1.26.8",
+                "GOTOOLCHAIN=auto",
+                "GOPATH=/go",
+                "GOOS=linux",
+                "GOARCH=amd64",
+                "GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=no "
+              ],
+              "Entrypoint": [
+                "/runtime"
+              ],
+              "WorkingDir": "/scratch"
+            },
+            "mounts": [
+              {
+                "target": "/go/pkg/mod",
+                "kind": "cache",
+                "cacheSourceResultID": 6
+              },
+              {
+                "target": "/root/.cache/go-build",
+                "kind": "cache",
+                "cacheSourceResultID": 8
+              },
+              {
+                "target": "/schema.json",
+                "kind": "file"
+              },
+              {
+                "target": "/src",
+                "kind": "directory"
+              }
+            ],
+            "platform": "linux/amd64",
+            "defaultTerminalCmd": {
+              "Args": null,
+              "ExperimentalPrivilegedNesting": null,
+              "InsecureRootCapabilities": null
+            },
+            "systemEnvNames": [
+              "GOPROXY",
+              "GODEBUG"
+            ]
+          }
+        },
+        "parts": {
+          "execMeta": {
+            "valueKind": "snapshot",
+            "kind": "pending",
+            "role": "meta"
+          },
+          "fs": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "fs",
+            "path": "/",
+            "platform": "linux/amd64"
+          },
+          "mount:/schema.json": {
+            "valueKind": "file",
+            "kind": "pending",
+            "role": "mount_file:2",
+            "path": "schema.json",
+            "platform": "linux/amd64"
+          },
+          "mount:/src": {
+            "valueKind": "directory",
+            "kind": "pending",
+            "role": "mount_dir:3",
+            "path": "/",
+            "platform": "linux/amd64"
+          }
+        },
+        "lazyJSON": {
+          "parentResultID": 22,
+          "path": "/scratch"
+        }
+      },
+      "outputs": []
+    },
+    {
+      "ordinal": 224,
+      "call": {
+        "kind": "field",
+        "type": {
+          "namedType": "Directory",
+          "nonNull": true
+        },
+        "field": "directory",
+        "implicitInputs": [
+          {
+            "name": "engineDefaultPlatform",
+            "value": {
+              "kind": "string",
+              "stringValue": "linux/amd64"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "valueKnown": true,
+        "producerState": "none",
+        "form": "transfer_pending",
+        "dir": "/",
+        "platform": "linux/amd64"
+      },
+      "outputs": []
+    },
+    {
+      "ordinal": 226,
+      "call": {
+        "kind": "field",
+        "type": {
+          "namedType": "CacheProbeReport",
+          "nonNull": true
+        },
+        "field": "report",
+        "receiver": {
+          "resultID": 223
+        },
+        "module": {
+          "resultRef": {
+            "resultID": 222
+          },
+          "name": "cache-probe",
+          "ref": "/tmp/TestRemoteCacheTransferSuiteTestSchemaRecoveryCold2063543429/001"
+        },
+        "args": [
+          {
+            "name": "seed",
+            "value": {
+              "kind": "string",
+              "stringValue": "same"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "fields": {
+          "Artifact": {
+            "kind": "result_id",
+            "resultID": 225
+          },
+          "Code": {
+            "kind": "scalar_json",
+            "scalarJSON": "same"
+          },
+          "Platform": {
+            "kind": "scalar_json",
+            "scalarJSON": "linux/amd64"
+          },
+          "Seed": {
+            "kind": "scalar_json",
+            "scalarJSON": "same"
+          },
+          "Status": {
+            "kind": "scalar_json",
+            "scalarJSON": "Ready"
+          }
+        }
+      },
+      "outputs": []
+    }
+  ],
+  "version": 1,
+  "outputs": [
+    {
+      "ordinal": 225,
+      "address": {
+        "part": "snapshot"
+      },
+      "state": "completed",
+      "value": {
+        "kind": "directory",
+        "path": "/",
+        "platform": {
+          "architecture": "amd64",
+          "os": "linux"
+        }
+      },
+      "chain": {
+        "layers": [
+          {
+            "Descriptor": {
+              "mediaType": "application/vnd.oci.image.layer.v1.tar",
+              "digest": "sha256:54bedf165ffad0b6cceba4157d5f95b61ed497c23aa9ca4935ade2bbd098d867",
+              "size": 2048,
+              "annotations": {
+                "containerd.io/uncompressed": "sha256:54bedf165ffad0b6cceba4157d5f95b61ed497c23aa9ca4935ade2bbd098d867"
+              }
+            },
+            "Description": "withNewFile payload.txt (22 B)",
+            "CreatedAt": "2026-09-16T14:55:10.604050703Z"
+          }
+        ]
+      },
+      "owner": {}
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+commit 17384b793fe715006ffdbba4b1075354cd7733d8
+Author:     Erik Sipsma <erik@sipsma.dev>
+AuthorDate: Wed Sep 16 09:27:25 2026 +0000
+Commit:     Erik Sipsma <erik@sipsma.dev>
+CommitDate: Wed Sep 16 09:27:25 2026 +0000
+
+    core: attach the completed Container recipe's inputs at publication
+    
+    Select the operational Lazy recipe when present, otherwise the live
+    completedRecipe, under the operation mutex. Release the mutex before
+    attaching exactly one recipe's dependencies and retain Owned: false.
+    
+    The omission predates both batches in foundation commit c3491f00ad and
+    was exposed by batch 2's boot validator. Retained completed recipes must
+    keep their direct inputs under batch 1 section 10 and batch 2 section 5.1.
+    
+    Add a regression that completes a Container before publication and checks
+    that its saved producer's parent becomes an explicit direct dependency.
+    The existing shutdown persistence test and Container encoder are unchanged.
+    
+    Signed-off-by: Erik Sipsma <erik@sipsma.dev>
+
+diff --git a/core/container.go b/core/container.go
+index 0c86bf7dd3..58ccf423a5 100644
+--- a/core/container.go
++++ b/core/container.go
+@@ -1147,7 +1147,13 @@ func (container *Container) AttachDependencyResultsKinds(
+ 		return nil, nil
+ 	}
+ 
+-	lazy := container.lazyOpForRouting()
++	container.lazyOpMu.Lock()
++	lazy := container.Lazy
++	if lazy == nil {
++		// Completed live recipes retain their inputs as direct dependencies.
++		lazy = container.completedRecipe
++	}
++	container.lazyOpMu.Unlock()
+ 	owned := make([]dagql.DependencyResult, 0, len(container.Mounts)+len(container.Secrets)+len(container.Sockets)+len(container.Services))
+ 	for i := range container.Mounts {
+ 		mnt := &container.Mounts[i]
+diff --git a/core/container_producer_persistence_test.go b/core/container_producer_persistence_test.go
+index 3c2142afab..3fbdb0a871 100644
+--- a/core/container_producer_persistence_test.go
++++ b/core/container_producer_persistence_test.go
+@@ -10,6 +10,32 @@ import (
+ 	"github.com/stretchr/testify/require"
+ )
+ 
++func TestContainerCompletedProducerAttachesParentAtPublication(t *testing.T) {
++	env := newPersistedFamiliesTestEnv(t, "completed-container-publication")
++	ctx, cache, srv := env.open(t)
++	platform := Platform{OS: "linux", Architecture: "amd64"}
++	parentRes := env.attach(t, ctx, cache, srv, "producer-parent", NewContainer(platform)).(dagql.ObjectResult[*Container])
++	parentID := persistedRowID(t, cache, parentRes)
++	child := NewContainer(platform)
++	recipe := &ContainerWithLabelLazy{LazyState: NewLazyState(), Parent: parentRes, Name: "retained", Value: "yes"}
++	child.Lazy = recipe
++	require.NoError(t, child.Evaluate(ctx))
++	require.Nil(t, child.lazyOpForRouting())
++	require.Same(t, recipe, child.completedRecipe)
++
++	// This synthetic call has no receiver or arguments, so only the retained
++	// recipe can supply the parent's direct dependency at publication.
++	childRes := env.attach(t, ctx, cache, srv, "withLabel", child)
++	childID := persistedRowID(t, cache, childRes)
++	for _, row := range cache.DebugEGraphSnapshot().Results {
++		if row.SharedResultID == childID {
++			require.Equal(t, []uint64{parentID}, row.ExplicitDeps)
++			return
++		}
++	}
++	t.Fatal("published child missing from cache graph")
++}
++
+ func TestContainerCompletedProducerPersistsWithoutLoadingParents(t *testing.T) {
+ 	env := newPersistedFamiliesTestEnv(t, "completed-container")
+ 	ctx, cache, srv := env.open(t)

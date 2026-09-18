@@ -1,0 +1,24 @@
+=== RUN   TestOfferPartsBeforeStart
+=== RUN   TestOfferPartsBeforeStart/open
+=== RUN   TestOfferPartsBeforeStart/preparing
+=== RUN   TestOfferPartsBeforeStart/running
+=== RUN   TestOfferPartsBeforeStart/evaluated
+--- PASS: TestOfferPartsBeforeStart (0.51s)
+    --- PASS: TestOfferPartsBeforeStart/open (0.33s)
+    --- PASS: TestOfferPartsBeforeStart/preparing (0.05s)
+    --- PASS: TestOfferPartsBeforeStart/running (0.03s)
+    --- PASS: TestOfferPartsBeforeStart/evaluated (0.03s)
+=== RUN   TestOfferPartsInvalidatesSourceCheck
+--- PASS: TestOfferPartsInvalidatesSourceCheck (0.05s)
+=== RUN   TestOfferPartsOwnership
+--- PASS: TestOfferPartsOwnership (0.05s)
+=== RUN   TestOfferPartsResourcesAndSettlement
+--- PASS: TestOfferPartsResourcesAndSettlement (0.05s)
+=== RUN   TestOfferPartsInlineAndReferencedRows
+--- PASS: TestOfferPartsInlineAndReferencedRows (0.07s)
+=== RUN   TestOfferPartsClosesNativeAdmission
+--- PASS: TestOfferPartsClosesNativeAdmission (0.03s)
+=== RUN   TestOfferPartsAcceptedCleanupFailure
+--- PASS: TestOfferPartsAcceptedCleanupFailure (0.03s)
+PASS
+ok  	github.com/dagger/dagger/dagql	2.227s

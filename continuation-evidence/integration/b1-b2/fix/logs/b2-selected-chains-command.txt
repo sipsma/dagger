@@ -1,0 +1,7 @@
+Head: 17384b793fe715006ffdbba4b1075354cd7733d8
+Command: env GOPATH=/home/exedev/go GOCACHE=/home/exedev/.cache/go-build go test -p=1 -exec='sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -run '^TestValueTransferParts' -count=1 -timeout=180s -v
+Started: 2026-09-16T09:30:49.176771+00:00
+Finished: 2026-09-16T09:30:54.593545+00:00
+Elapsed seconds: 5.417
+Exit status: 0
+Log: logs/b2-selected-chains.log

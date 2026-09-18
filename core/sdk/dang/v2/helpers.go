@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 
 	"github.com/Khan/genqlient/graphql"
+	"github.com/iancoleman/strcase"
+
 	"github.com/dagger/dagger/core"
 	dangshared "github.com/dagger/dagger/core/sdk/dang/shared"
 	"github.com/dagger/dagger/dagql"
@@ -21,6 +24,7 @@ import (
 	"github.com/vito/dang/v2/pkg/introspection"
 	"github.com/vito/dang/v2/pkg/ioctx"
 	"github.com/vito/dang/v2/pkg/querybuilder"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type dangSourceRunner func(context.Context, string) (dang.ValueScope, error)
@@ -39,13 +43,11 @@ func (r *runtime) eval(
 	query *core.Query,
 	schemaFile dagql.Result[*core.File],
 	nestedClientMetadata *engine.ClientMetadata,
-	callerClientID string,
-	hostServiceProxyToCaller bool,
+	inertAttachables bool,
 	fnCall *core.FunctionCall,
 	moduleContext dagql.ObjectResult[*core.Module],
-	envContext dagql.ObjectResult[*core.Env],
 ) ([]byte, error) {
-	return evalDangSource(ctx, query, r.modSource, schemaFile, nestedClientMetadata, callerClientID, hostServiceProxyToCaller, fnCall, moduleContext, envContext, func(ctx context.Context, modSrcDir string) (dang.ValueScope, error) {
+	return evalDangSource(ctx, query, r.modSource, schemaFile, nestedClientMetadata, inertAttachables, fnCall, moduleContext, func(ctx context.Context, modSrcDir string) (dang.ValueScope, error) {
 		return dang.RunDir(ctx, modSrcDir, false)
 	}, func(ctx context.Context, env dang.ValueScope) ([]byte, error) {
 		if fnCall.ParentName == "" {
@@ -55,7 +57,7 @@ func (r *runtime) eval(
 			}
 			dagMod, err := initDangModule(ctx, srv, env)
 			if err != nil {
-				return nil, fmt.Errorf("init module: %w", err)
+				return nil, err
 			}
 			return json.Marshal(dagMod)
 		}
@@ -82,15 +84,13 @@ func evalDangSource(
 	modSource dagql.ObjectResult[*core.ModuleSource],
 	schemaFile dagql.Result[*core.File],
 	nestedClientMetadata *engine.ClientMetadata,
-	callerClientID string,
-	hostServiceProxyToCaller bool,
+	inertAttachables bool,
 	fnCall *core.FunctionCall,
 	moduleContext dagql.ObjectResult[*core.Module],
-	envContext dagql.ObjectResult[*core.Env],
 	runSource dangSourceRunner,
 	withEnv func(context.Context, dang.ValueScope) ([]byte, error),
 ) ([]byte, error) {
-	return dangshared.WithNestedClientServer(ctx, query, nestedClientMetadata, callerClientID, hostServiceProxyToCaller, fnCall, moduleContext, envContext, func(ctx context.Context, gqlClient graphql.Client) ([]byte, error) {
+	return dangshared.WithNestedClientServer(ctx, query, nestedClientMetadata, inertAttachables, fnCall, moduleContext, func(ctx context.Context, gqlClient graphql.Client) ([]byte, error) {
 		var intro introspection.Response
 		f, err := schemaFile.Self().Open(ctx, dagql.ObjectResult[*core.File]{Result: schemaFile})
 		if err != nil {
@@ -108,7 +108,19 @@ func evalDangSource(
 			AutoImport: true,
 		})
 
-		stdio := telemetry.SpanStdio(ctx, core.InstrumentationLibrary)
+		// Route the program's stdout/stderr to the USER-FACING span, not
+		// whatever span happens to be current. A module function call runs
+		// under dagql's call_exec profiling span (dagql/otelprof_hooks.go
+		// beginOTelCallExec), which is telemetry.Passthrough() — no frontend
+		// renders it as a row, and log capture treats it as nested work. Logs
+		// parented there vanish from the row that should show them: a Dang
+		// `print` would land one hop deeper than the function call the user
+		// sees. Containerized SDKs get this right by construction, since the
+		// executor injects the same user-facing span context as the
+		// container's traceparent (engineutil executor_spec.go); an in-engine
+		// runtime has to ask for it explicitly.
+		stdioCtx := trace.ContextWithSpanContext(ctx, dagql.UserFacingSpanContext(ctx))
+		stdio := telemetry.SpanStdio(stdioCtx, core.InstrumentationLibrary)
 		ctx = ioctx.StdoutToContext(ctx, stdio.Stdout)
 		ctx = ioctx.StderrToContext(ctx, stdio.Stderr)
 
@@ -116,6 +128,19 @@ func evalDangSource(
 		var env dang.ValueScope
 		err = modCtx.Self().Mount(ctx, modCtx, func(path string) error {
 			modSrcDir := filepath.Join(path, modSource.Self().SourceSubpath)
+
+			// During the typedef/declaration phase (ModuleTypes) the schema
+			// handed to us is deps-only: it does not yet carry the module's own
+			// object/interface/enum types, because those are exactly what this
+			// pass produces. Self-call fields annotate their return as
+			// Dagger.<T> — the module's own type as it lives in the runtime
+			// schema, carrying a GraphQL id + Node, not the bare local type — so
+			// make every such name resolvable here by parsing the module source
+			// for its declared types. At runtime the served schema already
+			// includes the module's own types (Module.IncludeSelfInDeps), so
+			// this is a no-op then.
+			ensureModuleSelfTypes(intro.Schema, modSource.Self(), modSrcDir)
+
 			env, err = runSource(ctx, modSrcDir)
 			if err != nil {
 				return fmt.Errorf("run dir: %w", err)
@@ -128,6 +153,134 @@ func evalDangSource(
 
 		return withEnv(ctx, env)
 	})
+}
+
+// ensureModuleSelfTypes makes each of the module's own declared object,
+// interface, enum and scalar types resolvable as Dagger.<T> during the
+// deps-only declaration phase (ModuleTypes), where the schema does not yet
+// carry the module's own installed types — those are exactly what that pass
+// produces. Self-call fields declare their return as Dagger.<T> because a
+// self-call (e.g. `tuiQa`, or `test.fresh` returning the module's own type)
+// yields the type as it lives in the runtime schema (carrying a GraphQL id,
+// implementing Node), not the bare local type.
+//
+// The names are namespaced (via core.NamespaceObject) to match what the engine
+// installs and what the runtime schema exposes once Module.IncludeSelfInDeps is
+// in effect: the main object keeps the module's final name, secondary types are
+// module-prefixed (a `type Widget` in module `Test` becomes `TestWidget`).
+//
+// The synthesized types are only ever used for name resolution and typedef
+// references (via `withObject(name:)` / `withInterface(name:)`, which core then
+// namespaces consistently); they are never emitted as TypeDefs, so a minimal
+// shape suffices. Once the served runtime schema already carries the types
+// (Module.IncludeSelfInDeps), this is a no-op.
+func ensureModuleSelfTypes(schema *introspection.Schema, src *core.ModuleSource, modSrcDir string) {
+	if schema == nil || src == nil {
+		return
+	}
+	moduleName := src.ModuleName
+	if moduleName == "" {
+		moduleName = src.ModuleOriginalName
+	}
+	if moduleName == "" {
+		return
+	}
+
+	for _, localName := range moduleDeclaredTypeNames(modSrcDir, moduleName) {
+		schemaName := core.NamespaceObject(localName, moduleName, src.ModuleOriginalName)
+		if schema.Types.Get(schemaName) != nil {
+			continue
+		}
+		schema.Types = append(schema.Types, &introspection.Type{
+			Kind: introspection.TypeKindObject,
+			Name: schemaName,
+			Fields: []*introspection.Field{
+				{
+					Name: "id",
+					TypeRef: &introspection.TypeRef{
+						Kind: introspection.TypeKindNonNull,
+						OfType: &introspection.TypeRef{
+							Kind: introspection.TypeKindScalar,
+							Name: "ID",
+						},
+					},
+				},
+			},
+		})
+	}
+}
+
+// moduleDeclaredTypeNames parses the module's .dang source files and returns the
+// local names of every public top-level type declaration (object, interface,
+// enum, scalar). Only top-level declarations become module types in the schema,
+// so types nested inside a body are intentionally ignored. The main object type
+// — whose local name matches the module name — is always included even if the
+// source can't be parsed, so the common case keeps working. Parsing here is
+// best-effort: it drives name resolution only, and any genuine syntax error
+// surfaces later when the source is actually declared/run.
+func moduleDeclaredTypeNames(modSrcDir, moduleName string) []string {
+	seen := map[string]struct{}{}
+	var names []string
+	add := func(name string) {
+		if name == "" {
+			return
+		}
+		if _, ok := seen[name]; ok {
+			return
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+
+	// The main object's local name matches the module name (capitalized camel
+	// case); NamespaceObject collapses it to the module's final name. Seed it
+	// unconditionally so a self-call returning the main type resolves even if
+	// the rest of the source fails to parse.
+	add(strcase.ToCamel(moduleName))
+
+	entries, err := os.ReadDir(modSrcDir)
+	if err != nil {
+		slog.Debug("ensureModuleSelfTypes: read module dir", "dir", modSrcDir, "error", err)
+		return names
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".dang" {
+			continue
+		}
+		root, err := dang.ParseFile(filepath.Join(modSrcDir, entry.Name()))
+		if err != nil {
+			slog.Debug("ensureModuleSelfTypes: parse module file", "file", entry.Name(), "error", err)
+			continue
+		}
+		file, ok := root.(*dang.FileBlock)
+		if !ok {
+			continue
+		}
+		// Only top-level type declarations become module types in the schema;
+		// types declared inside a body are not hoisted, so iterate the file's
+		// own forms rather than walking the AST recursively.
+		for _, form := range file.Forms {
+			switch decl := form.(type) {
+			case *dang.ObjectDecl:
+				if decl.Visibility >= dang.PublicVisibility && decl.Name != nil {
+					add(decl.Name.Name)
+				}
+			case *dang.InterfaceDecl:
+				if decl.Visibility >= dang.PublicVisibility && decl.Name != nil {
+					add(decl.Name.Name)
+				}
+			case *dang.EnumDecl:
+				if decl.Visibility >= dang.PublicVisibility && decl.Name != nil {
+					add(decl.Name.Name)
+				}
+			case *dang.ScalarDecl:
+				if decl.Visibility >= dang.PublicVisibility && decl.Name != nil {
+					add(decl.Name.Name)
+				}
+			}
+		}
+	}
+	return names
 }
 
 func runDangDirForModuleTypes(ctx context.Context, dirPath string) (dang.ValueScope, error) {
@@ -371,11 +524,11 @@ func initDangModule(ctx context.Context, srv *dagql.Server, env dang.ValueScope)
 		}
 		switch val := binding.Value.(type) {
 		case *dang.ConstructorFunction:
-			objDef, err := createObjectTypeDef(ctx, srv, binding.Key, val, env, localTypes)
+			objDef, err := createObjectTypeDef(ctx, srv, binding.Key, val, localTypes)
 			if err != nil {
 				return res, fmt.Errorf("failed to create object %s: %w", binding.Key, err)
 			}
-			fnDef, err := createFunction(ctx, srv, val.ObjectType, binding.Key, val.FnType, env, localTypes)
+			fnDef, err := createFunction(ctx, srv, val.ObjectType, binding.Key, val.FnType, val.Closure, localTypes)
 			if err != nil {
 				return res, fmt.Errorf("failed to create constructor for %s: %w", binding.Key, err)
 			}
@@ -446,13 +599,18 @@ func initDangModule(ctx context.Context, srv *dagql.Server, env dang.ValueScope)
 	}
 
 	if err := srv.Select(ctx, srv.Root(), &res, sels...); err != nil {
-		return res, fmt.Errorf("failed to select module: %w", err)
+		return res, err
 	}
 
 	return res, nil
 }
 
-func createFunction(ctx context.Context, srv *dagql.Server, mod *dang.Type, name string, fn *hm.FunctionType, env dang.ValueScope, localTypes dangLocalTypes) (dagql.ObjectResult[*core.Function], error) {
+// createFunction builds a core.Function for the named slot. directiveScope is the
+// file-local scope used to evaluate directive arguments; it must be the owning
+// type's captured closure (ConstructorFunction.Closure) so that directive args
+// referencing imported symbols (e.g. @cache(policy: FunctionCachePolicy.Never))
+// resolve the same way the type's own source does. See issue #13440.
+func createFunction(ctx context.Context, srv *dagql.Server, mod *dang.Type, name string, fn *hm.FunctionType, directiveScope dang.ValueScope, localTypes dangLocalTypes) (dagql.ObjectResult[*core.Function], error) {
 	var res dagql.ObjectResult[*core.Function]
 
 	retTypeDef, err := dangTypeToTypeDef(ctx, srv, fn.Ret(false), localTypes)
@@ -481,7 +639,7 @@ func createFunction(ctx context.Context, srv *dagql.Server, mod *dang.Type, name
 		})
 	}
 
-	dirSels, err := functionDirectiveSelectors(ctx, env, mod.GetDirectives(name))
+	dirSels, err := functionDirectiveSelectors(ctx, directiveScope, mod.GetDirectives(name))
 	if err != nil {
 		return res, fmt.Errorf("directives for %s: %w", name, err)
 	}
@@ -522,7 +680,7 @@ func createFunction(ctx context.Context, srv *dagql.Server, mod *dang.Type, name
 			argArgs = append(argArgs, dagql.NamedInput{Name: "description", Value: dagql.String(doc)})
 		}
 
-		argArgs, err = applyArgDirectives(ctx, env, argArgs, arg.Key, args.Directives)
+		argArgs, err = applyArgDirectives(ctx, directiveScope, argArgs, arg.Key, args.Directives)
 		if err != nil {
 			return res, err
 		}
@@ -541,7 +699,7 @@ func createFunction(ctx context.Context, srv *dagql.Server, mod *dang.Type, name
 }
 
 // functionDirectiveSelectors converts function-level directives (@check,
-// @generate, @up, @cache) into dagql selectors.
+// @generate, @up, @agent, @cache) into dagql selectors.
 func functionDirectiveSelectors(ctx context.Context, env dang.ValueScope, directives []*dang.DirectiveApplication) ([]dagql.Selector, error) {
 	var sels []dagql.Selector
 	for _, directive := range directives {
@@ -552,6 +710,8 @@ func functionDirectiveSelectors(ctx context.Context, env dang.ValueScope, direct
 			sels = append(sels, dagql.Selector{Field: "withGenerator"})
 		case "up":
 			sels = append(sels, dagql.Selector{Field: "withUp"})
+		case "agent":
+			sels = append(sels, dagql.Selector{Field: "withAgent"})
 		case "cache":
 			sel, err := cacheDirectiveSelector(ctx, env, directive)
 			if err != nil {
@@ -684,7 +844,7 @@ func dangValToGo(val dang.Value) (any, error) {
 	}
 }
 
-func createObjectTypeDef(ctx context.Context, srv *dagql.Server, name string, module *dang.ConstructorFunction, env dang.ValueScope, localTypes dangLocalTypes) (dagql.ObjectResult[*core.TypeDef], error) {
+func createObjectTypeDef(ctx context.Context, srv *dagql.Server, name string, module *dang.ConstructorFunction, localTypes dangLocalTypes) (dagql.ObjectResult[*core.TypeDef], error) {
 	var res dagql.ObjectResult[*core.TypeDef]
 
 	classMod := module.ObjectType
@@ -719,7 +879,7 @@ func createObjectTypeDef(ctx context.Context, srv *dagql.Server, name string, mo
 		}
 		switch x := slotType.(type) {
 		case *hm.FunctionType:
-			fnDef, err := createFunction(ctx, srv, classMod, bindingName, x, env, localTypes)
+			fnDef, err := createFunction(ctx, srv, classMod, bindingName, x, module.Closure, localTypes)
 			if err != nil {
 				return res, fmt.Errorf("failed to create method %s for %s: %w", bindingName, name, err)
 			}

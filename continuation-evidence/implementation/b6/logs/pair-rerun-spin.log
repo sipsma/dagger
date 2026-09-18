@@ -1,0 +1,118 @@
+# Excerpts of /tmp/b6/final/pair2.log: pair rerun at 5ce25b685e with uncommitted dump code, --timeout=7m, outer 810 s, 656 s wall, exit 1.
+# 1. The package timeout: only mixed-exec was still running.
+panic: test timed out after 7m0s
+        running tests:
+                TestRemoteCacheTransferSuite/TestPartMixedExecOutputs (7m0s)
+
+
+# 2. Test process at 5m30s: mixed-exec parked in loaded.Stdout (remote_cache_mixed_exec_test.go:106).
+goroutine 54 [select, 5 minutes]:
+net/http.(*persistConn).roundTrip(0x12d22f11e8c0, 0x12d22f1557c0)
+        /usr/lib/go/src/net/http/transport.go:2911 +0x83d
+net/http.(*Transport).roundTrip(0x12d22f798340, 0x12d22f06edc0)
+        /usr/lib/go/src/net/http/transport.go:704 +0xaba
+net/http.(*Transport).RoundTrip(0x12d22f06ec80?, 0x432ff28?)
+        /usr/lib/go/src/net/http/roundtrip.go:33 +0x18
+dagger.io/dagger/engineconn.startCLISession.defaultHTTPClient.func5(0x12d22f06ec80)
+        /app/sdk/go/engineconn/engineconn.go:131 +0x9b
+dagger.io/dagger/engineconn.RoundTripperFunc.RoundTrip(0x5000003b34201?, 0x42fc540?)
+        /app/sdk/go/engineconn/engineconn.go:139 +0x19
+net/http.send(0x12d22f06ec80, {0x42fc540, 0x12d22f1a80a8}, {0x12d22f5b8398?, 0x490046?, 0x0?})
+        /usr/lib/go/src/net/http/client.go:264 +0x64b
+net/http.(*Client).send(0x12d22f0a03c0, 0x12d22f06ec80, {0x500d22f47c060?, 0x7f5d40b4a320?, 0x0?})
+        /usr/lib/go/src/net/http/client.go:185 +0x258
+net/http.(*Client).do(0x12d22f0a03c0, 0x12d22f06ec80)
+        /usr/lib/go/src/net/http/client.go:733 +0x9d7
+net/http.(*Client).Do(...)
+        /usr/lib/go/src/net/http/client.go:592
+github.com/Khan/genqlient/graphql.(*client).MakeRequest(0x12d22f0a0480, {0x432ff28, 0x12d22f192390}, 0x12d22f47c000?, 0x12d22f47c000)
+        /go/pkg/mod/github.com/!khan/genqlient@v0.8.1/graphql/client.go:256 +0x25e
+dagger.io/dagger.errorWrappedClient.MakeRequest({{0x42f7fc0?, 0x12d22f0a0480?}}, {0x432ff28?, 0x12d22f192390?}, 0x3a76020?, 0x1?)
+        /app/sdk/go/client.go:217 +0x37
+github.com/dagger/querybuilder.(*QueryBuilder).Execute(0x12d22f4a9830, {0x432ff28, 0x12d22f192390})
+        /go/pkg/mod/github.com/dagger/querybuilder@v0.0.0-20260402040506-574a5e81cb59/querybuilder.go:330 +0x1d5
+dagger.io/dagger.(*Container).Stdout(0x430d7f0?, {0x432ff28, 0x12d22f192390})
+        /app/sdk/go/dagger.gen.go:2859 +0x19b
+github.com/dagger/dagger/core/integration.RemoteCacheTransferSuite.TestPartMixedExecOutputs({}, {0x432ff28, 0x12d22f192390}, 0x12d22ee161e0)
+        /app/core/integration/remote_cache_mixed_exec_test.go:106 +0x1bd3
+
+# 3. Nested engine B at 5m30s: the lazy operation's Body is RUNNABLE inside publishEvaluatedParts' retry loop.
+goroutine 6476 [runnable]:
+encoding/json.stateEndValue(0x10d763015df8, 0x3a?)
+        /usr/lib/go/src/encoding/json/scanner.go:281 +0x5a5
+encoding/json.(*decodeState).skip(0x10d763015dd0)
+        /usr/lib/go/src/encoding/json/decode.go:275 +0x7b
+encoding/json.(*decodeState).object(0x10d763015dd0, {0x3b7b1c0?, 0x10d7666b73e0?, 0x3ee?})
+        /usr/lib/go/src/encoding/json/decode.go:609 +0x62b
+encoding/json.(*decodeState).value(0x10d763015dd0, {0x3b7b1c0?, 0x10d7666b73e0?, 0x0?})
+        /usr/lib/go/src/encoding/json/decode.go:380 +0x3e
+encoding/json.(*decodeState).object(0x10d763015dd0, {0x3902300?, 0x10d7666b7188?, 0x0?})
+        /usr/lib/go/src/encoding/json/decode.go:767 +0xd65
+encoding/json.(*decodeState).value(0x10d763015dd0, {0x3902300?, 0x10d7666b7188?, 0x48b8e5?})
+        /usr/lib/go/src/encoding/json/decode.go:380 +0x3e
+encoding/json.(*decodeState).unmarshal(0x10d763015dd0, {0x3902300?, 0x10d7666b7188?})
+        /usr/lib/go/src/encoding/json/decode.go:183 +0x11e
+encoding/json.Unmarshal({0x10d766c1a800, 0x3d7, 0x400}, {0x3902300, 0x10d7666b7188})
+        /usr/lib/go/src/encoding/json/decode.go:113 +0xf9
+github.com/dagger/dagger/core.foreignFamilyCodec.RouteParts({0x44c06d4?, 0x7f64f60?}, {0x5, 0x10d762f7ab40, {0x0, 0x0, 0x0}, {0x10d766c1a800, 0x3d7, 0x400}, ...}, ...)
+        /app/core/part_routes.go:94 +0x6c8
+github.com/dagger/dagger/core.foreignFamilyCodec.DescribeParts({0x44c06d4, 0x9}, {0x5, 0x10d762f7ab40, {0x0, 0x0, 0x0}, {0x10d766c1a800, 0x3d7, 0x400}, ...})
+        /app/core/part_probe.go:15 +0x26b
+github.com/dagger/dagger/dagql.describePartRecord.func1({{0x44d7c7e, 0xe}, {0x48986c0, 0x0}, {0x489c540, 0x48677b8}, {0x48c6d60, 0x7e384c0}, 0x1}, {0x5, ...})
+        /app/dagql/cache_part_scope.go:89 +0xe9
+github.com/dagger/dagger/dagql.walkScopedTransferPayloads(0x10d766c3a510, 0x10d762f7ab40, 0x10d764099220, {0x0, 0x0, 0x0}, 0x10d766c3a6f0)
+        /app/dagql/cache_value_codec.go:119 +0x2f6
+github.com/dagger/dagger/dagql.walkTransferPayloads(0x10d766c3a718, 0x10d762f7ab40, {0x10d762616e80?, 0x3ccf600?, 0x10d7654eafa8?}, {0x0, 0x0, 0x0}, 0x10d766c3a6f0)
+        /app/dagql/cache_value_codec.go:106 +0x4a5
+github.com/dagger/dagger/dagql.describePartRecord({0x1085, {0x1, {0x0, 0x0, 0x0}, 0x5, {0x44c984e, 0xb}, {0x44c06d4, 0x9}, ...}, ...})
+        /app/dagql/cache_part_scope.go:87 +0x72
+github.com/dagger/dagger/dagql.(*Cache).prepareEvaluatedParts(_, {_, _}, {_, _}, {{0x0, 0x0, 0x0}, {0x44bbba3, 0x8}}, ...)
+        /app/dagql/cache_part_lazy.go:102 +0xddf
+github.com/dagger/dagger/dagql.(*Cache).publishEvaluatedParts(_, {_, _}, {_, _}, {{0x0, 0x0, 0x0}, {0x44bbba3, 0x8}}, ...)
+        /app/dagql/cache_part_lazy.go:36 +0x137
+github.com/dagger/dagger/dagql.(*Cache).runLazyOperationDecision.func1({0x48d70b8, 0x10d7635515f0})
+        /app/dagql/cache_part_demand.go:472 +0x1366
+github.com/dagger/dagger/dagql.(*Cache).runLazyTask.func1.2(...)
+        /app/dagql/cache.go:4484
+github.com/dagger/dagger/dagql.(*Cache).runLazyTask.func1()
+        /app/dagql/cache.go:4502 +0x31c
+created by github.com/dagger/dagger/dagql.(*Cache).runLazyTask in goroutine 6475
+        /app/dagql/cache.go:4450 +0x1345
+
+
+# 4. Nested engine B: a demand waiter, 5 minutes in waitForLazyEvaluation.
+goroutine 6474 [select, 5 minutes]:
+github.com/dagger/dagger/dagql.(*Cache).waitForLazyEvaluation(0x48d70b8?, {0x48d70b8, 0x10d762b7f2c0}, 0x10d76674ec88, 0x10d7633df800)
+        /app/dagql/cache.go:3925 +0x99
+github.com/dagger/dagger/dagql.(*Cache).runLazyTask(0x10d762b7a708, {0x48d70b8, 0x10d762b7f260}, {0x492fdf0, 0x10d764d57bc0}, 0x10d76674ec88, {0x10d766a25b70, 0x10}, {0x0, 0x0}, ...)
+        /app/dagql/cache.go:4567 +0x13f8
+github.com/dagger/dagger/dagql.(*Cache).RunLazyTask(0x10d762b7a708, {0x48d70b8, 0x10d762b7f260}, {0x492fdf0, 0x10d764d57bc0}, {0x10d766a25b70, 0x10}, {0x10d7637122d0, 0x0, 0x0, ...})
+        /app/dagql/cache_part_task.go:140 +0x3da
+github.com/dagger/dagger/dagql.(*Cache).demandPart(0x10d762b7a708, {0x48d70f0, 0x10d763712230}, {0x492fdf0, 0x10d764d57bc0}, {{0x0, 0x0, 0x0}, {0x44bbba3, 0x8}})
+        /app/dagql/cache_part_demand.go:157 +0x45c
+github.com/dagger/dagger/dagql.(*Cache).evaluateAcquiredScope.func2()
+        /app/dagql/cache_part_demand.go:116 +0x7b
+golang.org/x/sync/errgroup.(*Group).Go.func1()
+        /go/pkg/mod/golang.org/x/sync@v0.22.0/errgroup/errgroup.go:93 +0x50
+created by golang.org/x/sync/errgroup.(*Group).Go in goroutine 6473
+        /go/pkg/mod/golang.org/x/sync@v0.22.0/errgroup/errgroup.go:78 +0x95
+
+goroutine 5670 [runnable]:
+
+# 5. Nested engine B: the sharing worker is idle at its wake select, not wedged.
+goroutine 5578 [select, 5 minutes]:
+github.com/dagger/dagger/dagql.(*Cache).runSnapshotShareWorker(0x10d762b7a708, {0x48d70f0, 0x10d763dd63c0})
+        /app/dagql/cache_snapshot_sharing.go:391 +0x2d4
+created by github.com/dagger/dagger/dagql.(*Cache).ensureSnapshotShareWorkerLocked in goroutine 2146
+        /app/dagql/cache_snapshot_sharing.go:342 +0x152
+
+B6-DIAG-DUMP-END mixed-exec TestRemoteCacheTransferSuite/TestPartMixedExecOutputs
+
+# 6. Invocation summary.
+== TESTS ==
+  ✔ github.com/dagger/dagger/core/integration  1 passed
+
+  ✔ 1 passed
+
+Full trace at https://dagger.cloud/dagger/traces/a29ee964d8d7774ac5fa8da97dc76c30
+exit=1 wall=656s

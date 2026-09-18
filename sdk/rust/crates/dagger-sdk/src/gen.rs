@@ -10,44 +10,23 @@ use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-pub type AddressId = Id;
-pub type BindingId = Id;
-pub type CacheVolumeId = Id;
-pub type ChangesetId = Id;
-pub type CheckGroupId = Id;
-pub type CheckId = Id;
-pub type ClientFilesyncMirrorId = Id;
-pub type CloudId = Id;
-pub type ContainerId = Id;
-pub type CurrentModuleId = Id;
-pub type DiffStatId = Id;
-pub type DirectoryId = Id;
-pub type EngineCacheEntryId = Id;
-pub type EngineCacheEntrySetId = Id;
-pub type EngineCacheId = Id;
-pub type EngineId = Id;
-pub type EnumTypeDefId = Id;
-pub type EnumValueTypeDefId = Id;
-pub type EnvFileId = Id;
-pub type EnvId = Id;
-pub type EnvVariableId = Id;
-pub type ErrorId = Id;
-pub type ErrorValueId = Id;
-pub type ExportableId = Id;
-pub type FieldTypeDefId = Id;
-pub type FileId = Id;
-pub type FunctionArgId = Id;
-pub type FunctionCallArgValueId = Id;
-pub type FunctionCallId = Id;
-pub type FunctionId = Id;
-pub type GeneratedCodeId = Id;
-pub type GeneratorGroupId = Id;
-pub type GeneratorId = Id;
-pub type GitRefId = Id;
-pub type GitRepositoryId = Id;
-pub type HttpStateId = Id;
-pub type HealthcheckConfigId = Id;
-pub type HostId = Id;
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub struct Bytes(pub String);
+impl From<&str> for Bytes {
+    fn from(value: &str) -> Self {
+        Self(value.to_string())
+    }
+}
+impl From<String> for Bytes {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+impl Bytes {
+    fn quote(&self) -> String {
+        format!("\"{}\"", self.0.clone())
+    }
+}
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct Id(pub String);
 impl From<&str> for Id {
@@ -72,8 +51,6 @@ impl Id {
         format!("\"{}\"", self.0.clone())
     }
 }
-pub type InputTypeDefId = Id;
-pub type InterfaceTypeDefId = Id;
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct Json(pub String);
 impl From<&str> for Json {
@@ -91,15 +68,6 @@ impl Json {
         format!("\"{}\"", self.0.clone())
     }
 }
-pub type JsonValueId = Id;
-pub type Llmid = Id;
-pub type LlmTokenUsageId = Id;
-pub type LabelId = Id;
-pub type ListTypeDefId = Id;
-pub type ModuleConfigClientId = Id;
-pub type ModuleId = Id;
-pub type ModuleSourceId = Id;
-pub type ObjectTypeDefId = Id;
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct Platform(pub String);
 impl From<&str> for Platform {
@@ -117,22 +85,6 @@ impl Platform {
         format!("\"{}\"", self.0.clone())
     }
 }
-pub type PortId = Id;
-pub type RemoteGitMirrorId = Id;
-pub type SdkConfigId = Id;
-pub type ScalarTypeDefId = Id;
-pub type SearchResultId = Id;
-pub type SearchSubmatchId = Id;
-pub type SecretId = Id;
-pub type ServiceId = Id;
-pub type SocketId = Id;
-pub type SourceMapId = Id;
-pub type StatId = Id;
-pub type SyncerId = Id;
-pub type TerminalId = Id;
-pub type TypeDefId = Id;
-pub type UpGroupId = Id;
-pub type UpId = Id;
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct Void(pub String);
 impl From<&str> for Void {
@@ -150,16 +102,27 @@ impl Void {
         format!("\"{}\"", self.0.clone())
     }
 }
-pub type WorkspaceGitId = Id;
-pub type WorkspaceId = Id;
-pub type WorkspaceMigrationId = Id;
-pub type WorkspaceMigrationStepId = Id;
-pub type WorkspaceModuleId = Id;
-pub type WorkspaceModuleSettingId = Id;
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct BuildArg {
     pub name: String,
     pub value: String,
+}
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct LlmContentBlockInput {
+    pub arguments: Json,
+    pub call_id: String,
+    pub errored: bool,
+    pub kind: LlmContentBlockKind,
+    pub signature: String,
+    pub text: String,
+    pub tool_name: String,
+}
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct LlmMessageOriginInput {
+    pub agent_name: String,
+    pub kind: LlmMessageOriginKind,
+    pub r#ref: String,
+    pub reply_to: String,
 }
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct PipelineLabel {
@@ -287,7 +250,9 @@ impl Node for NodeClient {
 /// Calling sync ensures that the object's entire dependency DAG has been evaluated, returning the object's ID once complete.
 pub trait Syncer {
     fn id(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send;
-    fn sync(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send;
+    fn sync(&self) -> impl core::future::Future<Output = Result<Self, DaggerError>> + Send
+    where
+        Self: Sized;
 }
 #[derive(Clone)]
 pub struct SyncerClient {
@@ -307,9 +272,18 @@ impl SyncerClient {
         let query = self.selection.select("id");
         query.execute(self.graphql_client.clone()).await
     }
-    pub async fn sync(&self) -> Result<Id, DaggerError> {
+    pub async fn sync(&self) -> Result<SyncerClient, DaggerError> {
         let query = self.selection.select("sync");
-        query.execute(self.graphql_client.clone()).await
+        let id: Id = query.execute(self.graphql_client.clone()).await?;
+        Ok(SyncerClient {
+            proc: self.proc.clone(),
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("Syncer"),
+            graphql_client: self.graphql_client.clone(),
+        })
     }
 }
 impl Loadable for SyncerClient {
@@ -334,10 +308,22 @@ impl Syncer for SyncerClient {
         let graphql_client = self.graphql_client.clone();
         async move { query.execute(graphql_client).await }
     }
-    fn sync(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
+    fn sync(&self) -> impl core::future::Future<Output = Result<Self, DaggerError>> + Send {
         let query = self.selection.select("sync");
+        let proc = self.proc.clone();
         let graphql_client = self.graphql_client.clone();
-        async move { query.execute(graphql_client).await }
+        async move {
+            let id: Id = query.execute(graphql_client.clone()).await?;
+            Ok(Self {
+                proc,
+                selection: query
+                    .root()
+                    .select("node")
+                    .arg("id", &id.0)
+                    .inline_fragment("Syncer"),
+                graphql_client,
+            })
+        }
     }
 }
 #[derive(Clone)]
@@ -532,6 +518,24 @@ impl Address {
         let query = self.selection.select("value");
         query.execute(self.graphql_client.clone()).await
     }
+    /// Load a volume from the address.
+    pub fn volume(&self) -> Volume {
+        let query = self.selection.select("volume");
+        Volume {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Load a workspace from a module reference.
+    pub fn workspace(&self) -> Workspace {
+        let query = self.selection.select("workspace");
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
 }
 impl Node for Address {
     fn id(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
@@ -541,21 +545,45 @@ impl Node for Address {
     }
 }
 #[derive(Clone)]
-pub struct Binding {
+pub struct Agent {
     pub proc: Option<Arc<DaggerSessionProc>>,
     pub selection: Selection,
     pub graphql_client: DynGraphQLClient,
 }
-impl IntoID<Id> for Binding {
+#[derive(Builder, Debug, PartialEq)]
+pub struct AgentNotifyOpts {
+    /// The lifecycle states that fire an event. IDLE events carry the turn's final reply; FAILED events carry the loop error.
+    #[builder(setter(into, strip_option), default)]
+    pub on: Option<Vec<AgentState>>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct AgentPauseOpts {
+    /// Preempt the in-flight step instead of letting it finish. All completed steps are kept and the interrupted turn stays open: messages it consumed remain pending, while unconsumed mailbox messages are discarded. Resume continues the turn from the last committed step. On an idle, never-started, or failed agent there is nothing to preempt, so this is a plain pause.
+    #[builder(setter(into, strip_option), default)]
+    pub interrupt: Option<bool>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct AgentSendOpts<'a> {
+    /// The ref of a message in the SENDER's own mailbox this send answers (e.g. "#3", from its attribution header). The recipient sees the two paired, and awaiters of the replied-to message resolve with this reply immediately instead of at the sender's turn end.
+    #[builder(setter(into, strip_option), default)]
+    pub reply_to: Option<&'a str>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct AgentStopOpts {
+    /// Cancel the loop immediately instead of letting an in-flight step finish. Either way the completed steps are preserved in the snapshot.
+    #[builder(setter(into, strip_option), default)]
+    pub kill: Option<bool>,
+}
+impl IntoID<Id> for Agent {
     fn into_id(
         self,
     ) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<Id, DaggerError>> + Send>> {
         Box::pin(async move { self.id().await })
     }
 }
-impl Loadable for Binding {
+impl Loadable for Agent {
     fn graphql_type() -> &'static str {
-        "Binding"
+        "Agent"
     }
     fn from_query(
         proc: Option<Arc<DaggerSessionProc>>,
@@ -569,354 +597,548 @@ impl Loadable for Binding {
         }
     }
 }
-impl Binding {
-    /// Retrieve the binding value, as type Address
-    pub fn as_address(&self) -> Address {
-        let query = self.selection.select("asAddress");
-        Address {
+impl Agent {
+    /// Why the loop failed, for a FAILED agent; empty otherwise.
+    /// The snapshot holds the completed prefix — send or resume retries from it.
+    pub async fn error(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("error");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// The opaque runtime handle minted by the spawn that created this agent.
+    /// It is the same value the agent's loop span publishes as dagger.io/agent.id, so a client can correlate the agent with what it discovers in the trace. Two spawns of an identical composition have different handles; a display name is shared freely.
+    pub async fn handle(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("handle");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// A unique identifier for this Agent.
+    pub async fn id(&self) -> Result<Id, DaggerError> {
+        let query = self.selection.select("id");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Look up a previously sent message by its ref.
+    /// This is the lookup send pins its result's identity through: the returned handle's ID is an honest, replayable chain, addressable from any request in the session (the cancel-and-request-again contract).
+    /// Fails if the agent has no runtime entry in this session, or no record of the given ref.
+    ///
+    /// # Arguments
+    ///
+    /// * `r#ref` - The message's short ref within this agent's runtime, e.g. "#3": the token its attribution header shows and a reply's replyTo names. A bare ordinal ("3") is accepted too.
+    pub fn message(&self, r#ref: impl Into<String>) -> AgentMessage {
+        let mut query = self.selection.select("message");
+        query = query.arg("ref", r#ref.into());
+        AgentMessage {
             proc: self.proc.clone(),
             selection: query,
             graphql_client: self.graphql_client.clone(),
         }
     }
-    /// Retrieve the binding value, as type CacheVolume
-    pub fn as_cache_volume(&self) -> CacheVolume {
-        let query = self.selection.select("asCacheVolume");
-        CacheVolume {
+    /// Display label for the agent; carries no identity.
+    pub async fn name(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("name");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Subscribe another agent to this agent's lifecycle: each transition into one of the given states enqueues an event message to the subscriber — steering its open turn, or waking it if idle, like any other message.
+    /// This is how a supervisor hears every completion and failure without polling or blocking: subscribe at spawn time, keep working, and events arrive as attributed messages.
+    /// Events never relaunch a stopped subscriber, and an already-reached state fires immediately at subscribe time, so a fast agent settling before the subscription lands is not missed.
+    /// Idempotent per subscriber; re-subscribing replaces the state set.
+    ///
+    /// # Arguments
+    ///
+    /// * `subscriber` - The agent to deliver event messages to. You must hold its handle: subscriptions are capability-based like everything else.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub async fn notify(&self, subscriber: impl IntoID<Id>) -> Result<Agent, DaggerError> {
+        let mut query = self.selection.select("notify");
+        query = query.arg_lazy(
+            "subscriber",
+            Box::new(move || {
+                let subscriber = subscriber.clone();
+                Box::pin(async move { subscriber.into_id().await.unwrap().quote() })
+            }),
+        );
+        let id: Id = query.execute(self.graphql_client.clone()).await?;
+        Ok(Agent {
+            proc: self.proc.clone(),
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("Agent"),
+            graphql_client: self.graphql_client.clone(),
+        })
+    }
+    /// Subscribe another agent to this agent's lifecycle: each transition into one of the given states enqueues an event message to the subscriber — steering its open turn, or waking it if idle, like any other message.
+    /// This is how a supervisor hears every completion and failure without polling or blocking: subscribe at spawn time, keep working, and events arrive as attributed messages.
+    /// Events never relaunch a stopped subscriber, and an already-reached state fires immediately at subscribe time, so a fast agent settling before the subscription lands is not missed.
+    /// Idempotent per subscriber; re-subscribing replaces the state set.
+    ///
+    /// # Arguments
+    ///
+    /// * `subscriber` - The agent to deliver event messages to. You must hold its handle: subscriptions are capability-based like everything else.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub async fn notify_opts(
+        &self,
+        subscriber: impl IntoID<Id>,
+        opts: AgentNotifyOpts,
+    ) -> Result<Agent, DaggerError> {
+        let mut query = self.selection.select("notify");
+        query = query.arg_lazy(
+            "subscriber",
+            Box::new(move || {
+                let subscriber = subscriber.clone();
+                Box::pin(async move { subscriber.into_id().await.unwrap().quote() })
+            }),
+        );
+        if let Some(on) = opts.on {
+            query = query.arg("on", on);
+        }
+        let id: Id = query.execute(self.graphql_client.clone()).await?;
+        Ok(Agent {
+            proc: self.proc.clone(),
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("Agent"),
+            graphql_client: self.graphql_client.clone(),
+        })
+    }
+    /// Stop draining the mailbox once the in-flight step completes, or immediately with interrupt.
+    /// Pause takes priority over pending work: a mid-turn pause suspends the turn, which resume continues. Messages sent while paused enqueue with QUEUED delivery until a resume.
+    /// Pausing a never-started agent leaves it paused for its eventual resume; pausing a failed agent is allowed (resume decides the retry); pausing a stopped agent fails.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub async fn pause(&self) -> Result<Agent, DaggerError> {
+        let query = self.selection.select("pause");
+        let id: Id = query.execute(self.graphql_client.clone()).await?;
+        Ok(Agent {
+            proc: self.proc.clone(),
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("Agent"),
+            graphql_client: self.graphql_client.clone(),
+        })
+    }
+    /// Stop draining the mailbox once the in-flight step completes, or immediately with interrupt.
+    /// Pause takes priority over pending work: a mid-turn pause suspends the turn, which resume continues. Messages sent while paused enqueue with QUEUED delivery until a resume.
+    /// Pausing a never-started agent leaves it paused for its eventual resume; pausing a failed agent is allowed (resume decides the retry); pausing a stopped agent fails.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub async fn pause_opts(&self, opts: AgentPauseOpts) -> Result<Agent, DaggerError> {
+        let mut query = self.selection.select("pause");
+        if let Some(interrupt) = opts.interrupt {
+            query = query.arg("interrupt", interrupt);
+        }
+        let id: Id = query.execute(self.graphql_client.clone()).await?;
+        Ok(Agent {
+            proc: self.proc.clone(),
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("Agent"),
+            graphql_client: self.graphql_client.clone(),
+        })
+    }
+    /// Replace this instance's committed conversation with the given one, keeping the entry: identity, mailbox, and lifecycle state are untouched. A paused suspended turn is abandoned and its consumed messages are resolved before replacement.
+    /// This is the continuity verb. Compaction, a workspace rebind, a model change, or rewinding an interrupted prompt produce a new conversation value for the SAME agent; reseed swaps it in place, where a stop-and-respawn would mint a successor instance and split the agent across two roster entries. It is the client-facing form of what a continuation tool already does mid-turn: the agent adopts a new conversation without changing who it is.
+    /// The next turn continues from the reseeded conversation, and queued messages drain onto it. A FAILED agent keeps its error — resume retries from the new conversation.
+    /// Fails if the instance has no runtime entry in this session (only a spawned or re-hydrated instance holds a conversation to replace), if a step is in flight, or if the agent is stopped.
+    ///
+    /// # Arguments
+    ///
+    /// * `conversation` - The conversation that becomes the agent's committed history, replacing the current one.
+    pub async fn reseed(&self, conversation: impl IntoID<Id>) -> Result<Agent, DaggerError> {
+        let mut query = self.selection.select("reseed");
+        query = query.arg_lazy(
+            "conversation",
+            Box::new(move || {
+                let conversation = conversation.clone();
+                Box::pin(async move { conversation.into_id().await.unwrap().quote() })
+            }),
+        );
+        let id: Id = query.execute(self.graphql_client.clone()).await?;
+        Ok(Agent {
+            proc: self.proc.clone(),
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("Agent"),
+            graphql_client: self.graphql_client.clone(),
+        })
+    }
+    /// Resume draining the mailbox: a suspended turn continues from the last committed step, and queued messages drain.
+    /// Resuming a never-started agent starts its evaluation loop, detached from the calling request: it steps the conversation while input is pending, then idles awaiting further lifecycle operations. Resuming a FAILED agent retries its pending step. Resuming a STOPPED agent relaunches the same instance from its last committed snapshot.
+    /// No-op on a running or idle agent.
+    pub async fn resume(&self) -> Result<Agent, DaggerError> {
+        let query = self.selection.select("resume");
+        let id: Id = query.execute(self.graphql_client.clone()).await?;
+        Ok(Agent {
+            proc: self.proc.clone(),
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("Agent"),
+            graphql_client: self.graphql_client.clone(),
+        })
+    }
+    /// Enqueue a message, on the record: it is consumed at a step boundary, appends to the agent's history, and steers the running turn or opens a new one.
+    /// Never blocks, never drops; concurrent sends queue in order.
+    /// The returned message is pinned through the message lookup field, so its handle is re-addressable from any request in the session: cancel a response request and request it again freely.
+    /// Sending to a never-started agent starts it (signal-with-start). Sending to a stopped agent restarts the same instance from its last committed snapshot. Sending to a paused or failed agent enqueues with QUEUED delivery, to be drained by a resume.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - The message text, appended to the agent's history as a prompt when a turn consumes it.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub async fn send(&self, message: impl Into<String>) -> Result<AgentMessage, DaggerError> {
+        let mut query = self.selection.select("send");
+        query = query.arg("message", message.into());
+        let id: Id = query.execute(self.graphql_client.clone()).await?;
+        Ok(AgentMessage {
+            proc: self.proc.clone(),
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("AgentMessage"),
+            graphql_client: self.graphql_client.clone(),
+        })
+    }
+    /// Enqueue a message, on the record: it is consumed at a step boundary, appends to the agent's history, and steers the running turn or opens a new one.
+    /// Never blocks, never drops; concurrent sends queue in order.
+    /// The returned message is pinned through the message lookup field, so its handle is re-addressable from any request in the session: cancel a response request and request it again freely.
+    /// Sending to a never-started agent starts it (signal-with-start). Sending to a stopped agent restarts the same instance from its last committed snapshot. Sending to a paused or failed agent enqueues with QUEUED delivery, to be drained by a resume.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - The message text, appended to the agent's history as a prompt when a turn consumes it.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub async fn send_opts<'a>(
+        &self,
+        message: impl Into<String>,
+        opts: AgentSendOpts<'a>,
+    ) -> Result<AgentMessage, DaggerError> {
+        let mut query = self.selection.select("send");
+        query = query.arg("message", message.into());
+        if let Some(reply_to) = opts.reply_to {
+            query = query.arg("replyTo", reply_to);
+        }
+        let id: Id = query.execute(self.graphql_client.clone()).await?;
+        Ok(AgentMessage {
+            proc: self.proc.clone(),
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("AgentMessage"),
+            graphql_client: self.graphql_client.clone(),
+        })
+    }
+    /// The conversation as of the last committed step: immutable, branchable, persistable.
+    /// The seed conversation if the agent never stepped.
+    /// Branching from it does not affect the agent.
+    pub fn snapshot(&self) -> Llm {
+        let query = self.selection.select("snapshot");
+        Llm {
             proc: self.proc.clone(),
             selection: query,
             graphql_client: self.graphql_client.clone(),
         }
     }
-    /// Retrieve the binding value, as type Changeset
-    pub fn as_changeset(&self) -> Changeset {
-        let query = self.selection.select("asChangeset");
-        Changeset {
+    /// Computed lifecycle state; never stored.
+    /// An agent that was never started reports IDLE: its mailbox is empty and no turn is open.
+    pub async fn state(&self) -> Result<AgentState, DaggerError> {
+        let query = self.selection.select("state");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Release the agent's runtime. The tombstone (state, snapshot) stays readable for the rest of the session.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub async fn stop(&self) -> Result<Agent, DaggerError> {
+        let query = self.selection.select("stop");
+        let id: Id = query.execute(self.graphql_client.clone()).await?;
+        Ok(Agent {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("Agent"),
             graphql_client: self.graphql_client.clone(),
+        })
+    }
+    /// Release the agent's runtime. The tombstone (state, snapshot) stays readable for the rest of the session.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub async fn stop_opts(&self, opts: AgentStopOpts) -> Result<Agent, DaggerError> {
+        let mut query = self.selection.select("stop");
+        if let Some(kill) = opts.kill {
+            query = query.arg("kill", kill);
+        }
+        let id: Id = query.execute(self.graphql_client.clone()).await?;
+        Ok(Agent {
+            proc: self.proc.clone(),
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("Agent"),
+            graphql_client: self.graphql_client.clone(),
+        })
+    }
+    /// Block until the agent settles: IDLE, FAILED, or STOPPED. Read which from state afterwards.
+    /// Unlike waiting for one exact state, this cannot hang merely because the agent settled in a different outcome.
+    pub async fn wait(&self) -> Result<Agent, DaggerError> {
+        let query = self.selection.select("wait");
+        let id: Id = query.execute(self.graphql_client.clone()).await?;
+        Ok(Agent {
+            proc: self.proc.clone(),
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("Agent"),
+            graphql_client: self.graphql_client.clone(),
+        })
+    }
+}
+impl Node for Agent {
+    fn id(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
+        let query = self.selection.select("id");
+        let graphql_client = self.graphql_client.clone();
+        async move { query.execute(graphql_client).await }
+    }
+}
+#[derive(Clone)]
+pub struct AgentMessage {
+    pub proc: Option<Arc<DaggerSessionProc>>,
+    pub selection: Selection,
+    pub graphql_client: DynGraphQLClient,
+}
+impl IntoID<Id> for AgentMessage {
+    fn into_id(
+        self,
+    ) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<Id, DaggerError>> + Send>> {
+        Box::pin(async move { self.id().await })
+    }
+}
+impl Loadable for AgentMessage {
+    fn graphql_type() -> &'static str {
+        "AgentMessage"
+    }
+    fn from_query(
+        proc: Option<Arc<DaggerSessionProc>>,
+        selection: Selection,
+        graphql_client: DynGraphQLClient,
+    ) -> Self {
+        Self {
+            proc,
+            selection,
+            graphql_client,
         }
     }
-    /// Retrieve the binding value, as type Check
-    pub fn as_check(&self) -> Check {
-        let query = self.selection.select("asCheck");
-        Check {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
+}
+impl AgentMessage {
+    /// How the message conclusively landed: opened a new turn (STARTED), was absorbed into the running turn at a step boundary (STEERED), or queued behind it (QUEUED).
+    /// Blocks until provider or native lifecycle evidence is conclusive. Once recorded, the result or cancellation error is immutable.
+    pub async fn delivery(&self) -> Result<AgentMessageDelivery, DaggerError> {
+        let query = self.selection.select("delivery");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// A unique identifier for this AgentMessage.
+    pub async fn id(&self) -> Result<Id, DaggerError> {
+        let query = self.selection.select("id");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// The message's short ref within the receiving agent's runtime, e.g. "#3".
+    /// This is the deterministic token the recipient's attribution header shows and a reply's replyTo names — quote it when telling the recipient what to answer.
+    pub async fn r#ref(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("ref");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Block until this message is answered, and return the answer: an explicit reply (a send whose replyTo names this message), or the final reply of the turn that consumed it, whichever comes first.
+    /// Idempotent: cancel and request the response again freely; concurrent waiters share the result.
+    /// Fails if the agent stops before the message resolves. On a failed agent it projects the failure — but the message stays pending, so after a resume consumes it, requesting the response again returns the real reply.
+    /// Refused when called from inside an agent turn whose wait would deadlock: turns should not block on other agents — send without awaiting, and the reply arrives as a message.
+    pub async fn response(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("response");
+        query.execute(self.graphql_client.clone()).await
+    }
+}
+impl Node for AgentMessage {
+    fn id(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
+        let query = self.selection.select("id");
+        let graphql_client = self.graphql_client.clone();
+        async move { query.execute(graphql_client).await }
+    }
+}
+#[derive(Clone)]
+pub struct AgentMiddleware {
+    pub proc: Option<Arc<DaggerSessionProc>>,
+    pub selection: Selection,
+    pub graphql_client: DynGraphQLClient,
+}
+impl IntoID<Id> for AgentMiddleware {
+    fn into_id(
+        self,
+    ) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<Id, DaggerError>> + Send>> {
+        Box::pin(async move { self.id().await })
+    }
+}
+impl Loadable for AgentMiddleware {
+    fn graphql_type() -> &'static str {
+        "AgentMiddleware"
+    }
+    fn from_query(
+        proc: Option<Arc<DaggerSessionProc>>,
+        selection: Selection,
+        graphql_client: DynGraphQLClient,
+    ) -> Self {
+        Self {
+            proc,
+            selection,
+            graphql_client,
         }
     }
-    /// Retrieve the binding value, as type CheckGroup
-    pub fn as_check_group(&self) -> CheckGroup {
-        let query = self.selection.select("asCheckGroup");
-        CheckGroup {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
+}
+impl AgentMiddleware {
+    /// The description of the agent
+    pub async fn description(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("description");
+        query.execute(self.graphql_client.clone()).await
     }
-    /// Retrieve the binding value, as type Cloud
-    pub fn as_cloud(&self) -> Cloud {
-        let query = self.selection.select("asCloud");
-        Cloud {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
+    /// A unique identifier for this AgentMiddleware.
+    pub async fn id(&self) -> Result<Id, DaggerError> {
+        let query = self.selection.select("id");
+        query.execute(self.graphql_client.clone()).await
     }
-    /// Retrieve the binding value, as type Container
-    pub fn as_container(&self) -> Container {
-        let query = self.selection.select("asContainer");
-        Container {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
+    /// Return the command name of the agent. Entrypoint targets omit the module prefix.
+    pub async fn name(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("name");
+        query.execute(self.graphql_client.clone()).await
     }
-    /// Retrieve the binding value, as type DiffStat
-    pub fn as_diff_stat(&self) -> DiffStat {
-        let query = self.selection.select("asDiffStat");
-        DiffStat {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Retrieve the binding value, as type Directory
-    pub fn as_directory(&self) -> Directory {
-        let query = self.selection.select("asDirectory");
-        Directory {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Retrieve the binding value, as type Env
-    pub fn as_env(&self) -> Env {
-        let query = self.selection.select("asEnv");
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Retrieve the binding value, as type EnvFile
-    pub fn as_env_file(&self) -> EnvFile {
-        let query = self.selection.select("asEnvFile");
-        EnvFile {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Retrieve the binding value, as type File
-    pub fn as_file(&self) -> File {
-        let query = self.selection.select("asFile");
-        File {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Retrieve the binding value, as type Generator
-    pub fn as_generator(&self) -> Generator {
-        let query = self.selection.select("asGenerator");
-        Generator {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Retrieve the binding value, as type GeneratorGroup
-    pub fn as_generator_group(&self) -> GeneratorGroup {
-        let query = self.selection.select("asGeneratorGroup");
-        GeneratorGroup {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Retrieve the binding value, as type GitRef
-    pub fn as_git_ref(&self) -> GitRef {
-        let query = self.selection.select("asGitRef");
-        GitRef {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Retrieve the binding value, as type GitRepository
-    pub fn as_git_repository(&self) -> GitRepository {
-        let query = self.selection.select("asGitRepository");
-        GitRepository {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Retrieve the binding value, as type HTTPState
-    pub fn as_http_state(&self) -> HttpState {
-        let query = self.selection.select("asHTTPState");
-        HttpState {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Retrieve the binding value, as type JSONValue
-    pub fn as_json_value(&self) -> JsonValue {
-        let query = self.selection.select("asJSONValue");
-        JsonValue {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Retrieve the binding value, as type Module
-    pub fn as_module(&self) -> Module {
-        let query = self.selection.select("asModule");
+    /// The original module in which the agent has been defined
+    pub fn original_module(&self) -> Module {
+        let query = self.selection.select("originalModule");
         Module {
             proc: self.proc.clone(),
             selection: query,
             graphql_client: self.graphql_client.clone(),
         }
     }
-    /// Retrieve the binding value, as type ModuleConfigClient
-    pub fn as_module_config_client(&self) -> ModuleConfigClient {
-        let query = self.selection.select("asModuleConfigClient");
-        ModuleConfigClient {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Retrieve the binding value, as type ModuleSource
-    pub fn as_module_source(&self) -> ModuleSource {
-        let query = self.selection.select("asModuleSource");
-        ModuleSource {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Retrieve the binding value, as type SearchResult
-    pub fn as_search_result(&self) -> SearchResult {
-        let query = self.selection.select("asSearchResult");
-        SearchResult {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Retrieve the binding value, as type SearchSubmatch
-    pub fn as_search_submatch(&self) -> SearchSubmatch {
-        let query = self.selection.select("asSearchSubmatch");
-        SearchSubmatch {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Retrieve the binding value, as type Secret
-    pub fn as_secret(&self) -> Secret {
-        let query = self.selection.select("asSecret");
-        Secret {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Retrieve the binding value, as type Service
-    pub fn as_service(&self) -> Service {
-        let query = self.selection.select("asService");
-        Service {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Retrieve the binding value, as type Socket
-    pub fn as_socket(&self) -> Socket {
-        let query = self.selection.select("asSocket");
-        Socket {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Retrieve the binding value, as type Stat
-    pub fn as_stat(&self) -> Stat {
-        let query = self.selection.select("asStat");
-        Stat {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Returns the binding's string value
-    pub async fn as_string(&self) -> Result<String, DaggerError> {
-        let query = self.selection.select("asString");
+    /// The path of the agent within its module
+    pub async fn path(&self) -> Result<Vec<String>, DaggerError> {
+        let query = self.selection.select("path");
         query.execute(self.graphql_client.clone()).await
     }
-    /// Retrieve the binding value, as type Up
-    pub fn as_up(&self) -> Up {
-        let query = self.selection.select("asUp");
-        Up {
+}
+impl Node for AgentMiddleware {
+    fn id(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
+        let query = self.selection.select("id");
+        let graphql_client = self.graphql_client.clone();
+        async move { query.execute(graphql_client).await }
+    }
+}
+#[derive(Clone)]
+pub struct AgentMiddlewareGroup {
+    pub proc: Option<Arc<DaggerSessionProc>>,
+    pub selection: Selection,
+    pub graphql_client: DynGraphQLClient,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct AgentMiddlewareGroupComposeOpts {
+    /// The base LLM to compose onto. Defaults to a fresh workspace-bound LLM.
+    #[builder(setter(into, strip_option), default)]
+    pub base: Option<Id>,
+}
+impl IntoID<Id> for AgentMiddlewareGroup {
+    fn into_id(
+        self,
+    ) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<Id, DaggerError>> + Send>> {
+        Box::pin(async move { self.id().await })
+    }
+}
+impl Loadable for AgentMiddlewareGroup {
+    fn graphql_type() -> &'static str {
+        "AgentMiddlewareGroup"
+    }
+    fn from_query(
+        proc: Option<Arc<DaggerSessionProc>>,
+        selection: Selection,
+        graphql_client: DynGraphQLClient,
+    ) -> Self {
+        Self {
+            proc,
+            selection,
+            graphql_client,
+        }
+    }
+}
+impl AgentMiddlewareGroup {
+    /// Compose all selected agent middlewares onto a base LLM, in alphabetical module:fn order, and return the composed LLM.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn compose(&self) -> Llm {
+        let query = self.selection.select("compose");
+        Llm {
             proc: self.proc.clone(),
             selection: query,
             graphql_client: self.graphql_client.clone(),
         }
     }
-    /// Retrieve the binding value, as type UpGroup
-    pub fn as_up_group(&self) -> UpGroup {
-        let query = self.selection.select("asUpGroup");
-        UpGroup {
+    /// Compose all selected agent middlewares onto a base LLM, in alphabetical module:fn order, and return the composed LLM.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn compose_opts(&self, opts: AgentMiddlewareGroupComposeOpts) -> Llm {
+        let mut query = self.selection.select("compose");
+        if let Some(base) = opts.base {
+            query = query.arg("base", base);
+        }
+        Llm {
             proc: self.proc.clone(),
             selection: query,
             graphql_client: self.graphql_client.clone(),
         }
     }
-    /// Retrieve the binding value, as type Workspace
-    pub fn as_workspace(&self) -> Workspace {
-        let query = self.selection.select("asWorkspace");
-        Workspace {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Retrieve the binding value, as type WorkspaceGit
-    pub fn as_workspace_git(&self) -> WorkspaceGit {
-        let query = self.selection.select("asWorkspaceGit");
-        WorkspaceGit {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Retrieve the binding value, as type WorkspaceMigration
-    pub fn as_workspace_migration(&self) -> WorkspaceMigration {
-        let query = self.selection.select("asWorkspaceMigration");
-        WorkspaceMigration {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Retrieve the binding value, as type WorkspaceMigrationStep
-    pub fn as_workspace_migration_step(&self) -> WorkspaceMigrationStep {
-        let query = self.selection.select("asWorkspaceMigrationStep");
-        WorkspaceMigrationStep {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Retrieve the binding value, as type WorkspaceModule
-    pub fn as_workspace_module(&self) -> WorkspaceModule {
-        let query = self.selection.select("asWorkspaceModule");
-        WorkspaceModule {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Retrieve the binding value, as type WorkspaceModuleSetting
-    pub fn as_workspace_module_setting(&self) -> WorkspaceModuleSetting {
-        let query = self.selection.select("asWorkspaceModuleSetting");
-        WorkspaceModuleSetting {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Returns the digest of the binding value
-    pub async fn digest(&self) -> Result<String, DaggerError> {
-        let query = self.selection.select("digest");
-        query.execute(self.graphql_client.clone()).await
-    }
-    /// A unique identifier for this Binding.
+    /// A unique identifier for this AgentMiddlewareGroup.
     pub async fn id(&self) -> Result<Id, DaggerError> {
         let query = self.selection.select("id");
         query.execute(self.graphql_client.clone()).await
     }
-    /// Returns true if the binding is null
-    pub async fn is_null(&self) -> Result<bool, DaggerError> {
-        let query = self.selection.select("isNull");
-        query.execute(self.graphql_client.clone()).await
-    }
-    /// Returns the binding name
-    pub async fn name(&self) -> Result<String, DaggerError> {
-        let query = self.selection.select("name");
-        query.execute(self.graphql_client.clone()).await
-    }
-    /// Returns the binding type
-    pub async fn type_name(&self) -> Result<String, DaggerError> {
-        let query = self.selection.select("typeName");
-        query.execute(self.graphql_client.clone()).await
+    /// Return a list of individual agents and their details
+    pub async fn list(&self) -> Result<Vec<AgentMiddleware>, DaggerError> {
+        let query = self.selection.select("list");
+        let query = query.select("id");
+        let ids: Vec<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(ids
+            .into_iter()
+            .map(|id| AgentMiddleware {
+                proc: self.proc.clone(),
+                selection: crate::querybuilder::query()
+                    .select("node")
+                    .arg("id", &id.0)
+                    .inline_fragment("AgentMiddleware"),
+                graphql_client: self.graphql_client.clone(),
+            })
+            .collect())
     }
 }
-impl Node for Binding {
+impl Node for AgentMiddlewareGroup {
     fn id(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
         let query = self.selection.select("id");
         let graphql_client = self.graphql_client.clone();
@@ -1232,10 +1454,22 @@ impl Syncer for Changeset {
         let graphql_client = self.graphql_client.clone();
         async move { query.execute(graphql_client).await }
     }
-    fn sync(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
+    fn sync(&self) -> impl core::future::Future<Output = Result<Self, DaggerError>> + Send {
         let query = self.selection.select("sync");
+        let proc = self.proc.clone();
         let graphql_client = self.graphql_client.clone();
-        async move { query.execute(graphql_client).await }
+        async move {
+            let id: Id = query.execute(graphql_client.clone()).await?;
+            Ok(Self {
+                proc,
+                selection: query
+                    .root()
+                    .select("node")
+                    .arg("id", &id.0)
+                    .inline_fragment("Changeset"),
+                graphql_client,
+            })
+        }
     }
 }
 #[derive(Clone)]
@@ -1284,20 +1518,26 @@ impl Check {
         query.execute(self.graphql_client.clone()).await
     }
     /// If the check failed, this is the error
-    pub fn error(&self) -> Error {
+    pub async fn error(&self) -> Result<Option<Error>, DaggerError> {
         let query = self.selection.select("error");
-        Error {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| Error {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("Error"),
             graphql_client: self.graphql_client.clone(),
-        }
+        }))
     }
     /// A unique identifier for this Check.
     pub async fn id(&self) -> Result<Id, DaggerError> {
         let query = self.selection.select("id");
         query.execute(self.graphql_client.clone()).await
     }
-    /// Return the fully qualified name of the check
+    /// Return the command name of the check. Entrypoint targets omit the module prefix.
     pub async fn name(&self) -> Result<String, DaggerError> {
         let query = self.selection.select("name");
         query.execute(self.graphql_client.clone()).await
@@ -1640,7 +1880,7 @@ pub struct ContainerFileOpts {
     pub expand: Option<bool>,
 }
 #[derive(Builder, Debug, PartialEq)]
-pub struct ContainerFromOpts {
+pub struct ContainerFromOpts<'a> {
     /// Allow HTTPS registry communication without verifying the server certificate.
     #[builder(setter(into, strip_option), default)]
     pub insecure_skip_tls_verify: Option<bool>,
@@ -1652,12 +1892,35 @@ pub struct ContainerFromOpts {
     /// The service will be started only for this pull.
     #[builder(setter(into, strip_option), default)]
     pub registry_service: Option<Id>,
+    /// Version query used to select an image tag. The address must not contain a tag or digest.
+    #[builder(setter(into, strip_option), default)]
+    pub version: Option<&'a str>,
 }
 #[derive(Builder, Debug, PartialEq)]
 pub struct ContainerImportOpts<'a> {
     /// Identifies the tag to import from the archive, if the archive bundles multiple tags.
     #[builder(setter(into, strip_option), default)]
     pub tag: Option<&'a str>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct ContainerLayerOpts {
+    /// Force each layer of the image to use the specified compression algorithm.
+    /// If this is unset, then if a layer already has a compressed blob in the engine's cache, that will be used (this can result in a mix of compression algorithms for different layers). If this is unset and a layer has no compressed blob in the engine's cache, then it will be compressed using Gzip.
+    #[builder(setter(into, strip_option), default)]
+    pub forced_compression: Option<ImageLayerCompression>,
+    /// Media types to use for image layers. Defaults to OCI.
+    #[builder(setter(into, strip_option), default)]
+    pub media_types: Option<ImageMediaTypes>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct ContainerManifestOpts {
+    /// Force each layer of the image to use the specified compression algorithm.
+    /// If this is unset, then if a layer already has a compressed blob in the engine's cache, that will be used (this can result in a mix of compression algorithms for different layers). If this is unset and a layer has no compressed blob in the engine's cache, then it will be compressed using Gzip.
+    #[builder(setter(into, strip_option), default)]
+    pub forced_compression: Option<ImageLayerCompression>,
+    /// Media types to use for image layers. Defaults to OCI.
+    #[builder(setter(into, strip_option), default)]
+    pub media_types: Option<ImageMediaTypes>,
 }
 #[derive(Builder, Debug, PartialEq)]
 pub struct ContainerPublishOpts {
@@ -1756,6 +2019,9 @@ pub struct ContainerWithDirectoryOpts<'a> {
     /// Patterns to include in the written directory (e.g. ["*.go", "go.mod", "go.sum"]).
     #[builder(setter(into, strip_option), default)]
     pub include: Option<Vec<&'a str>>,
+    /// Set the owner to the container's current user.
+    #[builder(setter(into, strip_option), default)]
+    pub inherit_owner: Option<bool>,
     /// A user:group to set for the directory and its contents.
     /// The user and group can either be an ID (1000:1000) or a name (foo:bar).
     /// If the group is omitted, it defaults to the same as the user.
@@ -1849,6 +2115,9 @@ pub struct ContainerWithFileOpts<'a> {
     /// Replace "${VAR}" or "$VAR" in the value of path according to the current environment variables defined in the container (e.g. "/$VAR/foo.txt").
     #[builder(setter(into, strip_option), default)]
     pub expand: Option<bool>,
+    /// Set the owner to the container's current user.
+    #[builder(setter(into, strip_option), default)]
+    pub inherit_owner: Option<bool>,
     /// A user:group to set for the file.
     /// The user and group can either be an ID (1000:1000) or a name (foo:bar).
     /// If the group is omitted, it defaults to the same as the user.
@@ -1863,6 +2132,9 @@ pub struct ContainerWithFilesOpts<'a> {
     /// Replace "${VAR}" or "$VAR" in the value of path according to the current environment variables defined in the container (e.g. "/$VAR/foo.txt").
     #[builder(setter(into, strip_option), default)]
     pub expand: Option<bool>,
+    /// Set the owner to the container's current user.
+    #[builder(setter(into, strip_option), default)]
+    pub inherit_owner: Option<bool>,
     /// A user:group to set for the files.
     /// The user and group can either be an ID (1000:1000) or a name (foo:bar).
     /// If the group is omitted, it defaults to the same as the user.
@@ -1877,6 +2149,9 @@ pub struct ContainerWithMountedCacheOpts<'a> {
     /// Replace "${VAR}" or "$VAR" in the value of path according to the current environment variables defined in the container (e.g. "/$VAR/foo").
     #[builder(setter(into, strip_option), default)]
     pub expand: Option<bool>,
+    /// Set the owner to the container's current user.
+    #[builder(setter(into, strip_option), default)]
+    pub inherit_owner: Option<bool>,
     /// A user:group to set for the mounted cache directory.
     /// Note that this changes the ownership of the specified mount along with the initial filesystem provided by source (if any). It does not have any effect if/when the cache has already been created.
     /// The user and group can either be an ID (1000:1000) or a name (foo:bar).
@@ -1895,6 +2170,9 @@ pub struct ContainerWithMountedDirectoryOpts<'a> {
     /// Replace "${VAR}" or "$VAR" in the value of path according to the current environment variables defined in the container (e.g. "/$VAR/foo").
     #[builder(setter(into, strip_option), default)]
     pub expand: Option<bool>,
+    /// Set the owner to the container's current user.
+    #[builder(setter(into, strip_option), default)]
+    pub inherit_owner: Option<bool>,
     /// A user:group to set for the mounted directory and its contents.
     /// The user and group can either be an ID (1000:1000) or a name (foo:bar).
     /// If the group is omitted, it defaults to the same as the user.
@@ -1909,6 +2187,9 @@ pub struct ContainerWithMountedFileOpts<'a> {
     /// Replace "${VAR}" or "$VAR" in the value of path according to the current environment variables defined in the container (e.g. "/$VAR/foo.txt").
     #[builder(setter(into, strip_option), default)]
     pub expand: Option<bool>,
+    /// Set the owner to the container's current user.
+    #[builder(setter(into, strip_option), default)]
+    pub inherit_owner: Option<bool>,
     /// A user or user:group to set for the mounted file.
     /// The user and group can either be an ID (1000:1000) or a name (foo:bar).
     /// If the group is omitted, it defaults to the same as the user.
@@ -1920,6 +2201,9 @@ pub struct ContainerWithMountedSecretOpts<'a> {
     /// Replace "${VAR}" or "$VAR" in the value of path according to the current environment variables defined in the container (e.g. "/$VAR/foo").
     #[builder(setter(into, strip_option), default)]
     pub expand: Option<bool>,
+    /// Set the owner to the container's current user.
+    #[builder(setter(into, strip_option), default)]
+    pub inherit_owner: Option<bool>,
     /// Permission given to the mounted secret (e.g., 0600).
     /// This option requires an owner to be set to be active.
     #[builder(setter(into, strip_option), default)]
@@ -1940,10 +2224,22 @@ pub struct ContainerWithMountedTempOpts {
     pub size: Option<isize>,
 }
 #[derive(Builder, Debug, PartialEq)]
+pub struct ContainerWithMountedVolumeOpts {
+    /// Replace "${VAR}" or "$VAR" in the value of path according to the current environment variables defined in the container (e.g. "/$VAR/foo").
+    #[builder(setter(into, strip_option), default)]
+    pub expand: Option<bool>,
+    /// Mount the volume read-only.
+    #[builder(setter(into, strip_option), default)]
+    pub read_only: Option<bool>,
+}
+#[derive(Builder, Debug, PartialEq)]
 pub struct ContainerWithNewFileOpts<'a> {
     /// Replace "${VAR}" or "$VAR" in the value of path according to the current environment variables defined in the container (e.g. "/$VAR/foo.txt").
     #[builder(setter(into, strip_option), default)]
     pub expand: Option<bool>,
+    /// Set the owner to the container's current user.
+    #[builder(setter(into, strip_option), default)]
+    pub inherit_owner: Option<bool>,
     /// A user:group to set for the file.
     /// The user and group can either be an ID (1000:1000) or a name (foo:bar).
     /// If the group is omitted, it defaults to the same as the user.
@@ -1964,6 +2260,9 @@ pub struct ContainerWithUnixSocketOpts<'a> {
     /// Replace "${VAR}" or "$VAR" in the value of path according to the current environment variables defined in the container (e.g. "/$VAR/foo").
     #[builder(setter(into, strip_option), default)]
     pub expand: Option<bool>,
+    /// Set the owner to the container's current user.
+    #[builder(setter(into, strip_option), default)]
+    pub inherit_owner: Option<bool>,
     /// A user:group to set for the mounted socket.
     /// The user and group can either be an ID (1000:1000) or a name (foo:bar).
     /// If the group is omitted, it defaults to the same as the user.
@@ -2177,13 +2476,19 @@ impl Container {
         }
     }
     /// Retrieves this container's configured docker healthcheck.
-    pub fn docker_healthcheck(&self) -> HealthcheckConfig {
+    pub async fn docker_healthcheck(&self) -> Result<Option<HealthcheckConfig>, DaggerError> {
         let query = self.selection.select("dockerHealthcheck");
-        HealthcheckConfig {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| HealthcheckConfig {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("HealthcheckConfig"),
             graphql_client: self.graphql_client.clone(),
-        }
+        }))
     }
     /// Return the container's OCI entrypoint.
     pub async fn entrypoint(&self) -> Result<Vec<String>, DaggerError> {
@@ -2427,7 +2732,9 @@ impl Container {
     ///
     /// # Arguments
     ///
-    /// * `address` - Address of the container image to download, in standard OCI ref format. Example:"registry.dagger.io/engine:latest"
+    /// * `address` - Address of the container image to download, in standard OCI ref format. Example: "registry.dagger.io/engine:latest".
+    ///
+    /// An address without a tag or digest selects the greatest stable release tag, falling back to the literal "latest" tag when no eligible release exists.
     /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
     pub fn from(&self, address: impl Into<String>) -> Container {
         let mut query = self.selection.select("from");
@@ -2442,11 +2749,20 @@ impl Container {
     ///
     /// # Arguments
     ///
-    /// * `address` - Address of the container image to download, in standard OCI ref format. Example:"registry.dagger.io/engine:latest"
+    /// * `address` - Address of the container image to download, in standard OCI ref format. Example: "registry.dagger.io/engine:latest".
+    ///
+    /// An address without a tag or digest selects the greatest stable release tag, falling back to the literal "latest" tag when no eligible release exists.
     /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub fn from_opts(&self, address: impl Into<String>, opts: ContainerFromOpts) -> Container {
+    pub fn from_opts<'a>(
+        &self,
+        address: impl Into<String>,
+        opts: ContainerFromOpts<'a>,
+    ) -> Container {
         let mut query = self.selection.select("from");
         query = query.arg("address", address.into());
+        if let Some(version) = opts.version {
+            query = query.arg("version", version);
+        }
         if let Some(registry_service) = opts.registry_service {
             query = query.arg("registryService", registry_service);
         }
@@ -2548,6 +2864,74 @@ impl Container {
             })
             .collect())
     }
+    /// Returns the image layer or configuration blob with the given digest as a File.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Digest of the layer or configuration blob (e.g. "sha256:abc123...").
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn layer(&self, id: impl Into<String>) -> File {
+        let mut query = self.selection.select("layer");
+        query = query.arg("id", id.into());
+        File {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Returns the image layer or configuration blob with the given digest as a File.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Digest of the layer or configuration blob (e.g. "sha256:abc123...").
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn layer_opts(&self, id: impl Into<String>, opts: ContainerLayerOpts) -> File {
+        let mut query = self.selection.select("layer");
+        query = query.arg("id", id.into());
+        if let Some(forced_compression) = opts.forced_compression {
+            query = query.arg("forcedCompression", forced_compression);
+        }
+        if let Some(media_types) = opts.media_types {
+            query = query.arg("mediaTypes", media_types);
+        }
+        File {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Computes and returns the manifest for this container as a File.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn manifest(&self) -> File {
+        let query = self.selection.select("manifest");
+        File {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Computes and returns the manifest for this container as a File.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn manifest_opts(&self, opts: ContainerManifestOpts) -> File {
+        let mut query = self.selection.select("manifest");
+        if let Some(forced_compression) = opts.forced_compression {
+            query = query.arg("forcedCompression", forced_compression);
+        }
+        if let Some(media_types) = opts.media_types {
+            query = query.arg("mediaTypes", media_types);
+        }
+        File {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
     /// Retrieves the list of paths where a directory is mounted.
     pub async fn mounts(&self) -> Result<Vec<String>, DaggerError> {
         let query = self.selection.select("mounts");
@@ -2623,14 +3007,20 @@ impl Container {
     ///
     /// * `path` - Path to check (e.g., "/file.txt").
     /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub fn stat(&self, path: impl Into<String>) -> Stat {
+    pub async fn stat(&self, path: impl Into<String>) -> Result<Option<Stat>, DaggerError> {
         let mut query = self.selection.select("stat");
         query = query.arg("path", path.into());
-        Stat {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| Stat {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("Stat"),
             graphql_client: self.graphql_client.clone(),
-        }
+        }))
     }
     /// Return file status
     ///
@@ -2638,17 +3028,27 @@ impl Container {
     ///
     /// * `path` - Path to check (e.g., "/file.txt").
     /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub fn stat_opts(&self, path: impl Into<String>, opts: ContainerStatOpts) -> Stat {
+    pub async fn stat_opts(
+        &self,
+        path: impl Into<String>,
+        opts: ContainerStatOpts,
+    ) -> Result<Option<Stat>, DaggerError> {
         let mut query = self.selection.select("stat");
         query = query.arg("path", path.into());
         if let Some(do_not_follow_symlinks) = opts.do_not_follow_symlinks {
             query = query.arg("doNotFollowSymlinks", do_not_follow_symlinks);
         }
-        Stat {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| Stat {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("Stat"),
             graphql_client: self.graphql_client.clone(),
-        }
+        }))
     }
     /// The buffered standard error stream of the last executed command
     /// Returns an error if no command was executed
@@ -2905,6 +3305,9 @@ impl Container {
         }
         if let Some(owner) = opts.owner {
             query = query.arg("owner", owner);
+        }
+        if let Some(inherit_owner) = opts.inherit_owner {
+            query = query.arg("inheritOwner", inherit_owner);
         }
         if let Some(expand) = opts.expand {
             query = query.arg("expand", expand);
@@ -3280,6 +3683,9 @@ impl Container {
         if let Some(owner) = opts.owner {
             query = query.arg("owner", owner);
         }
+        if let Some(inherit_owner) = opts.inherit_owner {
+            query = query.arg("inheritOwner", inherit_owner);
+        }
         if let Some(expand) = opts.expand {
             query = query.arg("expand", expand);
         }
@@ -3327,6 +3733,9 @@ impl Container {
         }
         if let Some(owner) = opts.owner {
             query = query.arg("owner", owner);
+        }
+        if let Some(inherit_owner) = opts.inherit_owner {
+            query = query.arg("inheritOwner", inherit_owner);
         }
         if let Some(expand) = opts.expand {
             query = query.arg("expand", expand);
@@ -3407,6 +3816,9 @@ impl Container {
         if let Some(owner) = opts.owner {
             query = query.arg("owner", owner);
         }
+        if let Some(inherit_owner) = opts.inherit_owner {
+            query = query.arg("inheritOwner", inherit_owner);
+        }
         if let Some(expand) = opts.expand {
             query = query.arg("expand", expand);
         }
@@ -3468,6 +3880,9 @@ impl Container {
         if let Some(owner) = opts.owner {
             query = query.arg("owner", owner);
         }
+        if let Some(inherit_owner) = opts.inherit_owner {
+            query = query.arg("inheritOwner", inherit_owner);
+        }
         if let Some(read_only) = opts.read_only {
             query = query.arg("readOnly", read_only);
         }
@@ -3527,6 +3942,9 @@ impl Container {
         );
         if let Some(owner) = opts.owner {
             query = query.arg("owner", owner);
+        }
+        if let Some(inherit_owner) = opts.inherit_owner {
+            query = query.arg("inheritOwner", inherit_owner);
         }
         if let Some(expand) = opts.expand {
             query = query.arg("expand", expand);
@@ -3589,6 +4007,9 @@ impl Container {
         if let Some(owner) = opts.owner {
             query = query.arg("owner", owner);
         }
+        if let Some(inherit_owner) = opts.inherit_owner {
+            query = query.arg("inheritOwner", inherit_owner);
+        }
         if let Some(mode) = opts.mode {
             query = query.arg("mode", mode);
         }
@@ -3641,6 +4062,67 @@ impl Container {
             graphql_client: self.graphql_client.clone(),
         }
     }
+    /// Retrieves this container plus a volume mounted at the given path.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Location of the volume mount (e.g., "/mnt/volume").
+    /// * `volume` - Identifier of the volume to mount.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_mounted_volume(
+        &self,
+        path: impl Into<String>,
+        volume: impl IntoID<Id>,
+    ) -> Container {
+        let mut query = self.selection.select("withMountedVolume");
+        query = query.arg("path", path.into());
+        query = query.arg_lazy(
+            "volume",
+            Box::new(move || {
+                let volume = volume.clone();
+                Box::pin(async move { volume.into_id().await.unwrap().quote() })
+            }),
+        );
+        Container {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Retrieves this container plus a volume mounted at the given path.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Location of the volume mount (e.g., "/mnt/volume").
+    /// * `volume` - Identifier of the volume to mount.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_mounted_volume_opts(
+        &self,
+        path: impl Into<String>,
+        volume: impl IntoID<Id>,
+        opts: ContainerWithMountedVolumeOpts,
+    ) -> Container {
+        let mut query = self.selection.select("withMountedVolume");
+        query = query.arg("path", path.into());
+        query = query.arg_lazy(
+            "volume",
+            Box::new(move || {
+                let volume = volume.clone();
+                Box::pin(async move { volume.into_id().await.unwrap().quote() })
+            }),
+        );
+        if let Some(read_only) = opts.read_only {
+            query = query.arg("readOnly", read_only);
+        }
+        if let Some(expand) = opts.expand {
+            query = query.arg("expand", expand);
+        }
+        Container {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
     /// Return a new container snapshot, with a file added to its filesystem with text content
     ///
     /// # Arguments
@@ -3679,6 +4161,9 @@ impl Container {
         }
         if let Some(owner) = opts.owner {
             query = query.arg("owner", owner);
+        }
+        if let Some(inherit_owner) = opts.inherit_owner {
+            query = query.arg("inheritOwner", inherit_owner);
         }
         if let Some(expand) = opts.expand {
             query = query.arg("expand", expand);
@@ -3886,6 +4371,9 @@ impl Container {
         );
         if let Some(owner) = opts.owner {
             query = query.arg("owner", owner);
+        }
+        if let Some(inherit_owner) = opts.inherit_owner {
+            query = query.arg("inheritOwner", inherit_owner);
         }
         if let Some(expand) = opts.expand {
             query = query.arg("expand", expand);
@@ -4384,10 +4872,22 @@ impl Syncer for Container {
         let graphql_client = self.graphql_client.clone();
         async move { query.execute(graphql_client).await }
     }
-    fn sync(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
+    fn sync(&self) -> impl core::future::Future<Output = Result<Self, DaggerError>> + Send {
         let query = self.selection.select("sync");
+        let proc = self.proc.clone();
         let graphql_client = self.graphql_client.clone();
-        async move { query.execute(graphql_client).await }
+        async move {
+            let id: Id = query.execute(graphql_client.clone()).await?;
+            Ok(Self {
+                proc,
+                selection: query
+                    .root()
+                    .select("node")
+                    .arg("id", &id.0)
+                    .inline_fragment("Container"),
+                graphql_client,
+            })
+        }
     }
 }
 #[derive(Clone)]
@@ -4834,6 +5334,18 @@ pub struct DirectoryWithNewFileOpts {
     /// Permissions of the new file. Example: 0600
     #[builder(setter(into, strip_option), default)]
     pub permissions: Option<isize>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct DirectoryWithPatchOpts {
+    /// How to handle hunks that no longer apply to the target content: fail (default), or apply what fits and leave git-style conflict markers where it doesn't.
+    #[builder(setter(into, strip_option), default)]
+    pub on_conflict: Option<PatchConflict>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct DirectoryWithPatchFileOpts {
+    /// How to handle hunks that no longer apply to the target content: fail (default), or apply what fits and leave git-style conflict markers where it doesn't.
+    #[builder(setter(into, strip_option), default)]
+    pub on_conflict: Option<PatchConflict>,
 }
 impl IntoID<Id> for Directory {
     fn into_id(
@@ -5343,14 +5855,20 @@ impl Directory {
     ///
     /// * `path` - Path to stat (e.g., "/file.txt").
     /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub fn stat(&self, path: impl Into<String>) -> Stat {
+    pub async fn stat(&self, path: impl Into<String>) -> Result<Option<Stat>, DaggerError> {
         let mut query = self.selection.select("stat");
         query = query.arg("path", path.into());
-        Stat {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| Stat {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("Stat"),
             graphql_client: self.graphql_client.clone(),
-        }
+        }))
     }
     /// Return file status
     ///
@@ -5358,17 +5876,27 @@ impl Directory {
     ///
     /// * `path` - Path to stat (e.g., "/file.txt").
     /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub fn stat_opts(&self, path: impl Into<String>, opts: DirectoryStatOpts) -> Stat {
+    pub async fn stat_opts(
+        &self,
+        path: impl Into<String>,
+        opts: DirectoryStatOpts,
+    ) -> Result<Option<Stat>, DaggerError> {
         let mut query = self.selection.select("stat");
         query = query.arg("path", path.into());
         if let Some(do_not_follow_symlinks) = opts.do_not_follow_symlinks {
             query = query.arg("doNotFollowSymlinks", do_not_follow_symlinks);
         }
-        Stat {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| Stat {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("Stat"),
             graphql_client: self.graphql_client.clone(),
-        }
+        }))
     }
     /// Force evaluation in the engine.
     pub async fn sync(&self) -> Result<Directory, DaggerError> {
@@ -5708,9 +6236,32 @@ impl Directory {
     /// # Arguments
     ///
     /// * `patch` - Patch to apply (e.g., "diff --git a/file.txt b/file.txt\nindex 1234567..abcdef8 100644\n--- a/file.txt\n+++ b/file.txt\n@@ -1,1 +1,1 @@\n-Hello\n+World\n").
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
     pub fn with_patch(&self, patch: impl Into<String>) -> Directory {
         let mut query = self.selection.select("withPatch");
         query = query.arg("patch", patch.into());
+        Directory {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Retrieves this directory with the given Git-compatible patch applied.
+    ///
+    /// # Arguments
+    ///
+    /// * `patch` - Patch to apply (e.g., "diff --git a/file.txt b/file.txt\nindex 1234567..abcdef8 100644\n--- a/file.txt\n+++ b/file.txt\n@@ -1,1 +1,1 @@\n-Hello\n+World\n").
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_patch_opts(
+        &self,
+        patch: impl Into<String>,
+        opts: DirectoryWithPatchOpts,
+    ) -> Directory {
+        let mut query = self.selection.select("withPatch");
+        query = query.arg("patch", patch.into());
+        if let Some(on_conflict) = opts.on_conflict {
+            query = query.arg("onConflict", on_conflict);
+        }
         Directory {
             proc: self.proc.clone(),
             selection: query,
@@ -5722,6 +6273,7 @@ impl Directory {
     /// # Arguments
     ///
     /// * `patch` - File containing the patch to apply
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
     pub fn with_patch_file(&self, patch: impl IntoID<Id>) -> Directory {
         let mut query = self.selection.select("withPatchFile");
         query = query.arg_lazy(
@@ -5731,6 +6283,34 @@ impl Directory {
                 Box::pin(async move { patch.into_id().await.unwrap().quote() })
             }),
         );
+        Directory {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Retrieves this directory with the given Git-compatible patch file applied.
+    ///
+    /// # Arguments
+    ///
+    /// * `patch` - File containing the patch to apply
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_patch_file_opts(
+        &self,
+        patch: impl IntoID<Id>,
+        opts: DirectoryWithPatchFileOpts,
+    ) -> Directory {
+        let mut query = self.selection.select("withPatchFile");
+        query = query.arg_lazy(
+            "patch",
+            Box::new(move || {
+                let patch = patch.clone();
+                Box::pin(async move { patch.into_id().await.unwrap().quote() })
+            }),
+        );
+        if let Some(on_conflict) = opts.on_conflict {
+            query = query.arg("onConflict", on_conflict);
+        }
         Directory {
             proc: self.proc.clone(),
             selection: query,
@@ -5848,10 +6428,22 @@ impl Syncer for Directory {
         let graphql_client = self.graphql_client.clone();
         async move { query.execute(graphql_client).await }
     }
-    fn sync(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
+    fn sync(&self) -> impl core::future::Future<Output = Result<Self, DaggerError>> + Send {
         let query = self.selection.select("sync");
+        let proc = self.proc.clone();
         let graphql_client = self.graphql_client.clone();
-        async move { query.execute(graphql_client).await }
+        async move {
+            let id: Id = query.execute(graphql_client.clone()).await?;
+            Ok(Self {
+                proc,
+                selection: query
+                    .root()
+                    .select("node")
+                    .arg("id", &id.0)
+                    .inline_fragment("Directory"),
+                graphql_client,
+            })
+        }
     }
 }
 #[derive(Clone)]
@@ -5929,6 +6521,9 @@ pub struct EngineCacheEntrySetOpts<'a> {
 }
 #[derive(Builder, Debug, PartialEq)]
 pub struct EngineCachePruneOpts<'a> {
+    /// Override the maximum structural metadata estimate in absolute bytes. Explicit values must be positive; the configured/default value is used when omitted.
+    #[builder(setter(into, strip_option), default)]
+    pub max_estimated_bytes: Option<isize>,
     /// Override the maximum disk space to keep before pruning (e.g. "200GB" or "80%").
     #[builder(setter(into, strip_option), default)]
     pub max_used_space: Option<&'a str>,
@@ -5938,10 +6533,13 @@ pub struct EngineCachePruneOpts<'a> {
     /// Override the minimum disk space to retain during pruning (e.g. "500GB" or "10%").
     #[builder(setter(into, strip_option), default)]
     pub reserved_space: Option<&'a str>,
+    /// Override the structural metadata estimate to target in absolute bytes. Explicit values must be positive and lower than the resolved maximum; the configured/default value is used when omitted.
+    #[builder(setter(into, strip_option), default)]
+    pub target_estimated_bytes: Option<isize>,
     /// Override the target disk space to keep after pruning (e.g. "200GB" or "50%").
     #[builder(setter(into, strip_option), default)]
     pub target_space: Option<&'a str>,
-    /// Use the engine-wide default pruning policy if true, otherwise prune the whole cache of any releasable entries.
+    /// Use enabled engine-wide default disk and structural policies. If no default disk policy is enabled, the disk stage falls back to pruning all releasable disk-cache entries. If false, explicit options select stages; with no options, all releasable disk-cache entries are pruned.
     #[builder(setter(into, strip_option), default)]
     pub use_default_policy: Option<bool>,
 }
@@ -6046,6 +6644,12 @@ impl EngineCache {
         }
         if let Some(target_space) = opts.target_space {
             query = query.arg("targetSpace", target_space);
+        }
+        if let Some(max_estimated_bytes) = opts.max_estimated_bytes {
+            query = query.arg("maxEstimatedBytes", max_estimated_bytes);
+        }
+        if let Some(target_estimated_bytes) = opts.target_estimated_bytes {
+            query = query.arg("targetEstimatedBytes", target_estimated_bytes);
         }
         query.execute(self.graphql_client.clone()).await
     }
@@ -6283,13 +6887,19 @@ impl EnumTypeDef {
         query.execute(self.graphql_client.clone()).await
     }
     /// The location of this enum declaration.
-    pub fn source_map(&self) -> SourceMap {
+    pub async fn source_map(&self) -> Result<Option<SourceMap>, DaggerError> {
         let query = self.selection.select("sourceMap");
-        SourceMap {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| SourceMap {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("SourceMap"),
             graphql_client: self.graphql_client.clone(),
-        }
+        }))
     }
     /// If this EnumTypeDef is associated with a Module, the name of the module. Unset otherwise.
     pub async fn source_module_name(&self) -> Result<String, DaggerError> {
@@ -6372,13 +6982,19 @@ impl EnumValueTypeDef {
         query.execute(self.graphql_client.clone()).await
     }
     /// The location of this enum member declaration.
-    pub fn source_map(&self) -> SourceMap {
+    pub async fn source_map(&self) -> Result<Option<SourceMap>, DaggerError> {
         let query = self.selection.select("sourceMap");
-        SourceMap {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| SourceMap {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("SourceMap"),
             graphql_client: self.graphql_client.clone(),
-        }
+        }))
     }
     /// The value of the enum member
     pub async fn value(&self) -> Result<String, DaggerError> {
@@ -6387,2016 +7003,6 @@ impl EnumValueTypeDef {
     }
 }
 impl Node for EnumValueTypeDef {
-    fn id(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
-        let query = self.selection.select("id");
-        let graphql_client = self.graphql_client.clone();
-        async move { query.execute(graphql_client).await }
-    }
-}
-#[derive(Clone)]
-pub struct Env {
-    pub proc: Option<Arc<DaggerSessionProc>>,
-    pub selection: Selection,
-    pub graphql_client: DynGraphQLClient,
-}
-#[derive(Builder, Debug, PartialEq)]
-pub struct EnvChecksOpts<'a> {
-    /// Only include checks matching the specified patterns
-    #[builder(setter(into, strip_option), default)]
-    pub include: Option<Vec<&'a str>>,
-    /// When true, only return annotated check functions; exclude generate-as-checks
-    #[builder(setter(into, strip_option), default)]
-    pub no_generate: Option<bool>,
-}
-#[derive(Builder, Debug, PartialEq)]
-pub struct EnvServicesOpts<'a> {
-    /// Only include services matching the specified patterns
-    #[builder(setter(into, strip_option), default)]
-    pub include: Option<Vec<&'a str>>,
-}
-impl IntoID<Id> for Env {
-    fn into_id(
-        self,
-    ) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<Id, DaggerError>> + Send>> {
-        Box::pin(async move { self.id().await })
-    }
-}
-impl Loadable for Env {
-    fn graphql_type() -> &'static str {
-        "Env"
-    }
-    fn from_query(
-        proc: Option<Arc<DaggerSessionProc>>,
-        selection: Selection,
-        graphql_client: DynGraphQLClient,
-    ) -> Self {
-        Self {
-            proc,
-            selection,
-            graphql_client,
-        }
-    }
-}
-impl Env {
-    /// Return the check with the given name from the installed modules. Must match exactly one check.
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the check to retrieve
-    pub fn check(&self, name: impl Into<String>) -> Check {
-        let mut query = self.selection.select("check");
-        query = query.arg("name", name.into());
-        Check {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Return all checks defined by the installed modules
-    ///
-    /// # Arguments
-    ///
-    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub fn checks(&self) -> CheckGroup {
-        let query = self.selection.select("checks");
-        CheckGroup {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Return all checks defined by the installed modules
-    ///
-    /// # Arguments
-    ///
-    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub fn checks_opts<'a>(&self, opts: EnvChecksOpts<'a>) -> CheckGroup {
-        let mut query = self.selection.select("checks");
-        if let Some(include) = opts.include {
-            query = query.arg("include", include);
-        }
-        if let Some(no_generate) = opts.no_generate {
-            query = query.arg("noGenerate", no_generate);
-        }
-        CheckGroup {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// A unique identifier for this Env.
-    pub async fn id(&self) -> Result<Id, DaggerError> {
-        let query = self.selection.select("id");
-        query.execute(self.graphql_client.clone()).await
-    }
-    /// Retrieves an input binding by name
-    pub fn input(&self, name: impl Into<String>) -> Binding {
-        let mut query = self.selection.select("input");
-        query = query.arg("name", name.into());
-        Binding {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Returns all input bindings provided to the environment
-    pub async fn inputs(&self) -> Result<Vec<Binding>, DaggerError> {
-        let query = self.selection.select("inputs");
-        let query = query.select("id");
-        let ids: Vec<Id> = query.execute(self.graphql_client.clone()).await?;
-        Ok(ids
-            .into_iter()
-            .map(|id| Binding {
-                proc: self.proc.clone(),
-                selection: crate::querybuilder::query()
-                    .select("node")
-                    .arg("id", &id.0)
-                    .inline_fragment("Binding"),
-                graphql_client: self.graphql_client.clone(),
-            })
-            .collect())
-    }
-    /// Retrieves an output binding by name
-    pub fn output(&self, name: impl Into<String>) -> Binding {
-        let mut query = self.selection.select("output");
-        query = query.arg("name", name.into());
-        Binding {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Returns all declared output bindings for the environment
-    pub async fn outputs(&self) -> Result<Vec<Binding>, DaggerError> {
-        let query = self.selection.select("outputs");
-        let query = query.select("id");
-        let ids: Vec<Id> = query.execute(self.graphql_client.clone()).await?;
-        Ok(ids
-            .into_iter()
-            .map(|id| Binding {
-                proc: self.proc.clone(),
-                selection: crate::querybuilder::query()
-                    .select("node")
-                    .arg("id", &id.0)
-                    .inline_fragment("Binding"),
-                graphql_client: self.graphql_client.clone(),
-            })
-            .collect())
-    }
-    /// Return all services defined by the installed modules
-    ///
-    /// # Arguments
-    ///
-    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub fn services(&self) -> UpGroup {
-        let query = self.selection.select("services");
-        UpGroup {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Return all services defined by the installed modules
-    ///
-    /// # Arguments
-    ///
-    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub fn services_opts<'a>(&self, opts: EnvServicesOpts<'a>) -> UpGroup {
-        let mut query = self.selection.select("services");
-        if let Some(include) = opts.include {
-            query = query.arg("include", include);
-        }
-        UpGroup {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type Address in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The Address value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_address_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withAddressInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired Address output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_address_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withAddressOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type CacheVolume in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The CacheVolume value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_cache_volume_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withCacheVolumeInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired CacheVolume output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_cache_volume_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withCacheVolumeOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type Changeset in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The Changeset value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_changeset_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withChangesetInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired Changeset output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_changeset_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withChangesetOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type CheckGroup in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The CheckGroup value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_check_group_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withCheckGroupInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired CheckGroup output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_check_group_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withCheckGroupOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type Check in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The Check value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_check_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withCheckInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired Check output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_check_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withCheckOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type Cloud in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The Cloud value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_cloud_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withCloudInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired Cloud output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_cloud_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withCloudOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type Container in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The Container value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_container_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withContainerInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired Container output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_container_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withContainerOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Installs the current module into the environment, exposing its functions to the model
-    /// Contextual path arguments will be populated using the environment's workspace.
-    pub fn with_current_module(&self) -> Env {
-        let query = self.selection.select("withCurrentModule");
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type DiffStat in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The DiffStat value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_diff_stat_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withDiffStatInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired DiffStat output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_diff_stat_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withDiffStatOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type Directory in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The Directory value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_directory_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withDirectoryInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired Directory output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_directory_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withDirectoryOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type EnvFile in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The EnvFile value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_env_file_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withEnvFileInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired EnvFile output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_env_file_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withEnvFileOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type Env in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The Env value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_env_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withEnvInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired Env output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_env_output(&self, name: impl Into<String>, description: impl Into<String>) -> Env {
-        let mut query = self.selection.select("withEnvOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type File in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The File value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_file_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withFileInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired File output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_file_output(&self, name: impl Into<String>, description: impl Into<String>) -> Env {
-        let mut query = self.selection.select("withFileOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type GeneratorGroup in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The GeneratorGroup value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_generator_group_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withGeneratorGroupInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired GeneratorGroup output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_generator_group_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withGeneratorGroupOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type Generator in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The Generator value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_generator_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withGeneratorInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired Generator output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_generator_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withGeneratorOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type GitRef in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The GitRef value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_git_ref_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withGitRefInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired GitRef output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_git_ref_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withGitRefOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type GitRepository in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The GitRepository value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_git_repository_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withGitRepositoryInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired GitRepository output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_git_repository_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withGitRepositoryOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type HTTPState in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The HTTPState value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_http_state_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withHTTPStateInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired HTTPState output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_http_state_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withHTTPStateOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type JSONValue in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The JSONValue value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_json_value_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withJSONValueInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired JSONValue output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_json_value_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withJSONValueOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Sets the main module for this environment (the project being worked on)
-    /// Contextual path arguments will be populated using the environment's workspace.
-    pub fn with_main_module(&self, module: impl IntoID<Id>) -> Env {
-        let mut query = self.selection.select("withMainModule");
-        query = query.arg_lazy(
-            "module",
-            Box::new(move || {
-                let module = module.clone();
-                Box::pin(async move { module.into_id().await.unwrap().quote() })
-            }),
-        );
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Installs a module into the environment, exposing its functions to the model
-    /// Contextual path arguments will be populated using the environment's workspace.
-    pub fn with_module(&self, module: impl IntoID<Id>) -> Env {
-        let mut query = self.selection.select("withModule");
-        query = query.arg_lazy(
-            "module",
-            Box::new(move || {
-                let module = module.clone();
-                Box::pin(async move { module.into_id().await.unwrap().quote() })
-            }),
-        );
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type ModuleConfigClient in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The ModuleConfigClient value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_module_config_client_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withModuleConfigClientInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired ModuleConfigClient output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_module_config_client_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withModuleConfigClientOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type Module in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The Module value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_module_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withModuleInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired Module output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_module_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withModuleOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type ModuleSource in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The ModuleSource value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_module_source_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withModuleSourceInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired ModuleSource output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_module_source_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withModuleSourceOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type SearchResult in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The SearchResult value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_search_result_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withSearchResultInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired SearchResult output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_search_result_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withSearchResultOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type SearchSubmatch in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The SearchSubmatch value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_search_submatch_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withSearchSubmatchInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired SearchSubmatch output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_search_submatch_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withSearchSubmatchOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type Secret in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The Secret value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_secret_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withSecretInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired Secret output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_secret_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withSecretOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type Service in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The Service value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_service_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withServiceInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired Service output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_service_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withServiceOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type Socket in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The Socket value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_socket_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withSocketInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired Socket output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_socket_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withSocketOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type Stat in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The Stat value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_stat_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withStatInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired Stat output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_stat_output(&self, name: impl Into<String>, description: impl Into<String>) -> Env {
-        let mut query = self.selection.select("withStatOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Provides a string input binding to the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The string value to assign to the binding
-    /// * `description` - The description of the input
-    pub fn with_string_input(
-        &self,
-        name: impl Into<String>,
-        value: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withStringInput");
-        query = query.arg("name", name.into());
-        query = query.arg("value", value.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declares a desired string output binding
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - The description of the output
-    pub fn with_string_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withStringOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type UpGroup in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The UpGroup value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_up_group_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withUpGroupInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired UpGroup output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_up_group_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withUpGroupOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type Up in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The Up value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_up_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withUpInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired Up output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_up_output(&self, name: impl Into<String>, description: impl Into<String>) -> Env {
-        let mut query = self.selection.select("withUpOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Returns a new environment with the provided workspace
-    ///
-    /// # Arguments
-    ///
-    /// * `workspace` - The directory to set as the host filesystem
-    pub fn with_workspace(&self, workspace: impl IntoID<Id>) -> Env {
-        let mut query = self.selection.select("withWorkspace");
-        query = query.arg_lazy(
-            "workspace",
-            Box::new(move || {
-                let workspace = workspace.clone();
-                Box::pin(async move { workspace.into_id().await.unwrap().quote() })
-            }),
-        );
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type WorkspaceGit in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The WorkspaceGit value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_workspace_git_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withWorkspaceGitInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired WorkspaceGit output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_workspace_git_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withWorkspaceGitOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type Workspace in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The Workspace value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_workspace_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withWorkspaceInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type WorkspaceMigration in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The WorkspaceMigration value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_workspace_migration_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withWorkspaceMigrationInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired WorkspaceMigration output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_workspace_migration_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withWorkspaceMigrationOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type WorkspaceMigrationStep in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The WorkspaceMigrationStep value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_workspace_migration_step_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withWorkspaceMigrationStepInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired WorkspaceMigrationStep output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_workspace_migration_step_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withWorkspaceMigrationStepOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type WorkspaceModule in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The WorkspaceModule value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_workspace_module_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withWorkspaceModuleInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired WorkspaceModule output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_workspace_module_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withWorkspaceModuleOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Create or update a binding of type WorkspaceModuleSetting in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `value` - The WorkspaceModuleSetting value to assign to the binding
-    /// * `description` - The purpose of the input
-    pub fn with_workspace_module_setting_input(
-        &self,
-        name: impl Into<String>,
-        value: impl IntoID<Id>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withWorkspaceModuleSettingInput");
-        query = query.arg("name", name.into());
-        query = query.arg_lazy(
-            "value",
-            Box::new(move || {
-                let value = value.clone();
-                Box::pin(async move { value.into_id().await.unwrap().quote() })
-            }),
-        );
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired WorkspaceModuleSetting output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_workspace_module_setting_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withWorkspaceModuleSettingOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Declare a desired Workspace output to be assigned in the environment
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the binding
-    /// * `description` - A description of the desired value of the binding
-    pub fn with_workspace_output(
-        &self,
-        name: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Env {
-        let mut query = self.selection.select("withWorkspaceOutput");
-        query = query.arg("name", name.into());
-        query = query.arg("description", description.into());
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Returns a new environment without any outputs
-    pub fn without_outputs(&self) -> Env {
-        let query = self.selection.select("withoutOutputs");
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    pub fn workspace(&self) -> Directory {
-        let query = self.selection.select("workspace");
-        Directory {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-}
-impl Node for Env {
     fn id(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
         let query = self.selection.select("id");
         let graphql_client = self.graphql_client.clone();
@@ -8836,13 +7442,19 @@ impl FieldTypeDef {
         query.execute(self.graphql_client.clone()).await
     }
     /// The location of this field declaration.
-    pub fn source_map(&self) -> SourceMap {
+    pub async fn source_map(&self) -> Result<Option<SourceMap>, DaggerError> {
         let query = self.selection.select("sourceMap");
-        SourceMap {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| SourceMap {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("SourceMap"),
             graphql_client: self.graphql_client.clone(),
-        }
+        }))
     }
     /// The type of the field.
     pub fn type_def(&self) -> TypeDef {
@@ -8982,6 +7594,15 @@ impl File {
             query = query.arg("expand", expand);
         }
         EnvFile {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Interpret this file as a Git bundle by lazily parsing its header.
+    pub fn as_git_bundle(&self) -> GitBundle {
+        let query = self.selection.select("asGitBundle");
+        GitBundle {
             proc: self.proc.clone(),
             selection: query,
             graphql_client: self.graphql_client.clone(),
@@ -9189,13 +7810,19 @@ impl File {
         query.execute(self.graphql_client.clone()).await
     }
     /// Return file status
-    pub fn stat(&self) -> Stat {
+    pub async fn stat(&self) -> Result<Option<Stat>, DaggerError> {
         let query = self.selection.select("stat");
-        Stat {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| Stat {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("Stat"),
             graphql_client: self.graphql_client.clone(),
-        }
+        }))
     }
     /// Force evaluation in the engine.
     pub async fn sync(&self) -> Result<File, DaggerError> {
@@ -9324,10 +7951,22 @@ impl Syncer for File {
         let graphql_client = self.graphql_client.clone();
         async move { query.execute(graphql_client).await }
     }
-    fn sync(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
+    fn sync(&self) -> impl core::future::Future<Output = Result<Self, DaggerError>> + Send {
         let query = self.selection.select("sync");
+        let proc = self.proc.clone();
         let graphql_client = self.graphql_client.clone();
-        async move { query.execute(graphql_client).await }
+        async move {
+            let id: Id = query.execute(graphql_client.clone()).await?;
+            Ok(Self {
+                proc,
+                selection: query
+                    .root()
+                    .select("node")
+                    .arg("id", &id.0)
+                    .inline_fragment("File"),
+                graphql_client,
+            })
+        }
     }
 }
 #[derive(Clone)]
@@ -9442,18 +8081,33 @@ impl Function {
         }
     }
     /// The location of this function declaration.
-    pub fn source_map(&self) -> SourceMap {
+    pub async fn source_map(&self) -> Result<Option<SourceMap>, DaggerError> {
         let query = self.selection.select("sourceMap");
-        SourceMap {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| SourceMap {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("SourceMap"),
             graphql_client: self.graphql_client.clone(),
-        }
+        }))
     }
     /// If this function is provided by a module, the name of the module. Unset otherwise.
     pub async fn source_module_name(&self) -> Result<String, DaggerError> {
         let query = self.selection.select("sourceModuleName");
         query.execute(self.graphql_client.clone()).await
+    }
+    /// Returns the function with a flag indicating it is an agent middleware.
+    pub fn with_agent(&self) -> Function {
+        let query = self.selection.select("withAgent");
+        Function {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
     }
     /// Returns the function with the provided argument
     ///
@@ -9733,13 +8387,19 @@ impl FunctionArg {
         query.execute(self.graphql_client.clone()).await
     }
     /// The location of this arg declaration.
-    pub fn source_map(&self) -> SourceMap {
+    pub async fn source_map(&self) -> Result<Option<SourceMap>, DaggerError> {
         let query = self.selection.select("sourceMap");
-        SourceMap {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| SourceMap {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("SourceMap"),
             graphql_client: self.graphql_client.clone(),
-        }
+        }))
     }
     /// The type of the argument.
     pub fn type_def(&self) -> TypeDef {
@@ -10059,19 +8719,25 @@ impl Generator {
         let query = self.selection.select("isEmpty");
         query.execute(self.graphql_client.clone()).await
     }
-    /// Return the fully qualified name of the generator
+    /// Return the command name of the generator. Entrypoint targets omit the module prefix.
     pub async fn name(&self) -> Result<String, DaggerError> {
         let query = self.selection.select("name");
         query.execute(self.graphql_client.clone()).await
     }
-    /// The original module in which the generator has been defined
-    pub fn original_module(&self) -> Module {
+    /// The module that defined the generator, or null for an engine-defined generator
+    pub async fn original_module(&self) -> Result<Option<Module>, DaggerError> {
         let query = self.selection.select("originalModule");
-        Module {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| Module {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("Module"),
             graphql_client: self.graphql_client.clone(),
-        }
+        }))
     }
     /// The path of the generator within its module
     pub async fn path(&self) -> Result<Vec<String>, DaggerError> {
@@ -10103,6 +8769,12 @@ pub struct GeneratorGroup {
 }
 #[derive(Builder, Debug, PartialEq)]
 pub struct GeneratorGroupChangesOpts {
+    /// Strategy to apply on conflicts between generators
+    #[builder(setter(into, strip_option), default)]
+    pub on_conflict: Option<ChangesetsMergeConflict>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct GeneratorGroupWorkspaceOpts {
     /// Strategy to apply on conflicts between generators
     #[builder(setter(into, strip_option), default)]
     pub on_conflict: Option<ChangesetsMergeConflict>,
@@ -10191,10 +8863,45 @@ impl GeneratorGroup {
             })
             .collect())
     }
+    /// Load failures tolerated while collecting the generators.
+    /// Empty unless a workspace module could not be loaded during an unscoped 'dagger generate' (no selector), where load failures are tolerated so the modules that do load still generate. Each entry is a human-readable error message. An explicit selector keeps failing hard instead.
+    pub async fn load_failures(&self) -> Result<Vec<String>, DaggerError> {
+        let query = self.selection.select("loadFailures");
+        query.execute(self.graphql_client.clone()).await
+    }
     /// Execute all selected generators
     pub fn run(&self) -> GeneratorGroup {
         let query = self.selection.select("run");
         GeneratorGroup {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// The workspace with the combined output from the last generator run
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn workspace(&self) -> Workspace {
+        let query = self.selection.select("workspace");
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// The workspace with the combined output from the last generator run
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn workspace_opts(&self, opts: GeneratorGroupWorkspaceOpts) -> Workspace {
+        let mut query = self.selection.select("workspace");
+        if let Some(on_conflict) = opts.on_conflict {
+            query = query.arg("onConflict", on_conflict);
+        }
+        Workspace {
             proc: self.proc.clone(),
             selection: query,
             graphql_client: self.graphql_client.clone(),
@@ -10209,10 +8916,424 @@ impl Node for GeneratorGroup {
     }
 }
 #[derive(Clone)]
+pub struct GitBundle {
+    pub proc: Option<Arc<DaggerSessionProc>>,
+    pub selection: Selection,
+    pub graphql_client: DynGraphQLClient,
+}
+impl IntoID<Id> for GitBundle {
+    fn into_id(
+        self,
+    ) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<Id, DaggerError>> + Send>> {
+        Box::pin(async move { self.id().await })
+    }
+}
+impl Loadable for GitBundle {
+    fn graphql_type() -> &'static str {
+        "GitBundle"
+    }
+    fn from_query(
+        proc: Option<Arc<DaggerSessionProc>>,
+        selection: Selection,
+        graphql_client: DynGraphQLClient,
+    ) -> Self {
+        Self {
+            proc,
+            selection,
+            graphql_client,
+        }
+    }
+}
+impl GitBundle {
+    /// Return the bundle bytes as a File.
+    pub fn as_file(&self) -> File {
+        let query = self.selection.select("asFile");
+        File {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// A unique identifier for this GitBundle.
+    pub async fn id(&self) -> Result<Id, DaggerError> {
+        let query = self.selection.select("id");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Object format capability: sha1 or sha256.
+    pub async fn object_format(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("objectFormat");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Commits that must already exist wherever this bundle is applied.
+    pub async fn prerequisite_sh_as(&self) -> Result<Vec<String>, DaggerError> {
+        let query = self.selection.select("prerequisiteSHAs");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Refs advertised by the bundle and the object IDs they resolve to.
+    pub async fn refs(&self) -> Result<Vec<GitBundleRef>, DaggerError> {
+        let query = self.selection.select("refs");
+        let query = query.select("id");
+        let ids: Vec<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(ids
+            .into_iter()
+            .map(|id| GitBundleRef {
+                proc: self.proc.clone(),
+                selection: crate::querybuilder::query()
+                    .select("node")
+                    .arg("id", &id.0)
+                    .inline_fragment("GitBundleRef"),
+                graphql_client: self.graphql_client.clone(),
+            })
+            .collect())
+    }
+    /// Perform full structural verification of the bundle and error if it is malformed.
+    pub fn validate(&self) -> GitBundle {
+        let query = self.selection.select("validate");
+        GitBundle {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Bundle format version (2 or 3).
+    pub async fn version(&self) -> Result<isize, DaggerError> {
+        let query = self.selection.select("version");
+        query.execute(self.graphql_client.clone()).await
+    }
+}
+impl Node for GitBundle {
+    fn id(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
+        let query = self.selection.select("id");
+        let graphql_client = self.graphql_client.clone();
+        async move { query.execute(graphql_client).await }
+    }
+}
+#[derive(Clone)]
+pub struct GitBundleRef {
+    pub proc: Option<Arc<DaggerSessionProc>>,
+    pub selection: Selection,
+    pub graphql_client: DynGraphQLClient,
+}
+impl IntoID<Id> for GitBundleRef {
+    fn into_id(
+        self,
+    ) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<Id, DaggerError>> + Send>> {
+        Box::pin(async move { self.id().await })
+    }
+}
+impl Loadable for GitBundleRef {
+    fn graphql_type() -> &'static str {
+        "GitBundleRef"
+    }
+    fn from_query(
+        proc: Option<Arc<DaggerSessionProc>>,
+        selection: Selection,
+        graphql_client: DynGraphQLClient,
+    ) -> Self {
+        Self {
+            proc,
+            selection,
+            graphql_client,
+        }
+    }
+}
+impl GitBundleRef {
+    /// A unique identifier for this GitBundleRef.
+    pub async fn id(&self) -> Result<Id, DaggerError> {
+        let query = self.selection.select("id");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// The advertised ref name.
+    pub async fn name(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("name");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// The object ID the advertised ref resolves to.
+    pub async fn sha(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("sha");
+        query.execute(self.graphql_client.clone()).await
+    }
+}
+impl Node for GitBundleRef {
+    fn id(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
+        let query = self.selection.select("id");
+        let graphql_client = self.graphql_client.clone();
+        async move { query.execute(graphql_client).await }
+    }
+}
+#[derive(Clone)]
+pub struct GitCommit {
+    pub proc: Option<Arc<DaggerSessionProc>>,
+    pub selection: Selection,
+    pub graphql_client: DynGraphQLClient,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct GitCommitAncestorReleaseTagOpts {
+    /// Include pre-release tags when choosing the latest tag.
+    #[builder(setter(into, strip_option), default)]
+    pub include_pre_release: Option<bool>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct GitCommitReleaseTagOpts {
+    /// Include pre-release tags when choosing the latest tag.
+    #[builder(setter(into, strip_option), default)]
+    pub include_pre_release: Option<bool>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct GitCommitTreeOpts {
+    /// The depth of the tree to fetch.
+    #[builder(setter(into, strip_option), default)]
+    pub depth: Option<isize>,
+    /// Set to true to discard .git directory.
+    #[builder(setter(into, strip_option), default)]
+    pub discard_git_dir: Option<bool>,
+    /// Set to true to populate tag refs in the local checkout .git.
+    #[builder(setter(into, strip_option), default)]
+    pub include_tags: Option<bool>,
+}
+impl IntoID<Id> for GitCommit {
+    fn into_id(
+        self,
+    ) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<Id, DaggerError>> + Send>> {
+        Box::pin(async move { self.id().await })
+    }
+}
+impl Loadable for GitCommit {
+    fn graphql_type() -> &'static str {
+        "GitCommit"
+    }
+    fn from_query(
+        proc: Option<Arc<DaggerSessionProc>>,
+        selection: Selection,
+        graphql_client: DynGraphQLClient,
+    ) -> Self {
+        Self {
+            proc,
+            selection,
+            graphql_client,
+        }
+    }
+}
+impl GitCommit {
+    /// The latest semver release tag reachable from this commit.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub async fn ancestor_release_tag(&self) -> Result<Option<GitRef>, DaggerError> {
+        let query = self.selection.select("ancestorReleaseTag");
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| GitRef {
+            proc: self.proc.clone(),
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("GitRef"),
+            graphql_client: self.graphql_client.clone(),
+        }))
+    }
+    /// The latest semver release tag reachable from this commit.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub async fn ancestor_release_tag_opts(
+        &self,
+        opts: GitCommitAncestorReleaseTagOpts,
+    ) -> Result<Option<GitRef>, DaggerError> {
+        let mut query = self.selection.select("ancestorReleaseTag");
+        if let Some(include_pre_release) = opts.include_pre_release {
+            query = query.arg("includePreRelease", include_pre_release);
+        }
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| GitRef {
+            proc: self.proc.clone(),
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("GitRef"),
+            graphql_client: self.graphql_client.clone(),
+        }))
+    }
+    /// Git author email.
+    pub async fn author_email(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("authorEmail");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Git author name.
+    pub async fn author_name(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("authorName");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Git author date, in RFC3339 format.
+    pub async fn authored_date(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("authoredDate");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Git committer date, in RFC3339 format.
+    pub async fn committed_date(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("committedDate");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Git committer email.
+    pub async fn committer_email(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("committerEmail");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Git committer name.
+    pub async fn committer_name(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("committerName");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// A unique identifier for this GitCommit.
+    pub async fn id(&self) -> Result<Id, DaggerError> {
+        let query = self.selection.select("id");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Full commit message.
+    pub async fn message(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("message");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Commit message body, excluding the headline.
+    pub async fn message_body(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("messageBody");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// First line of the commit message.
+    pub async fn message_headline(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("messageHeadline");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Parent commit SHAs.
+    pub async fn parent_shas(&self) -> Result<Vec<String>, DaggerError> {
+        let query = self.selection.select("parentShas");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// The latest semver release tag that points directly at this commit.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub async fn release_tag(&self) -> Result<Option<GitRef>, DaggerError> {
+        let query = self.selection.select("releaseTag");
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| GitRef {
+            proc: self.proc.clone(),
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("GitRef"),
+            graphql_client: self.graphql_client.clone(),
+        }))
+    }
+    /// The latest semver release tag that points directly at this commit.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub async fn release_tag_opts(
+        &self,
+        opts: GitCommitReleaseTagOpts,
+    ) -> Result<Option<GitRef>, DaggerError> {
+        let mut query = self.selection.select("releaseTag");
+        if let Some(include_pre_release) = opts.include_pre_release {
+            query = query.arg("includePreRelease", include_pre_release);
+        }
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| GitRef {
+            proc: self.proc.clone(),
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("GitRef"),
+            graphql_client: self.graphql_client.clone(),
+        }))
+    }
+    /// The full commit SHA.
+    pub async fn sha(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("sha");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// The abbreviated commit SHA.
+    pub async fn short_sha(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("shortSha");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// The filesystem tree at this commit.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn tree(&self) -> Directory {
+        let query = self.selection.select("tree");
+        Directory {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// The filesystem tree at this commit.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn tree_opts(&self, opts: GitCommitTreeOpts) -> Directory {
+        let mut query = self.selection.select("tree");
+        if let Some(discard_git_dir) = opts.discard_git_dir {
+            query = query.arg("discardGitDir", discard_git_dir);
+        }
+        if let Some(depth) = opts.depth {
+            query = query.arg("depth", depth);
+        }
+        if let Some(include_tags) = opts.include_tags {
+            query = query.arg("includeTags", include_tags);
+        }
+        Directory {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+}
+impl Node for GitCommit {
+    fn id(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
+        let query = self.selection.select("id");
+        let graphql_client = self.graphql_client.clone();
+        async move { query.execute(graphql_client).await }
+    }
+}
+#[derive(Clone)]
 pub struct GitRef {
     pub proc: Option<Arc<DaggerSessionProc>>,
     pub selection: Selection,
     pub graphql_client: DynGraphQLClient,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct GitRefAsWorkspaceOpts<'a> {
+    /// Current working directory inside the workspace root. Defaults to the workspace root.
+    #[builder(setter(into, strip_option), default)]
+    pub cwd: Option<&'a str>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct GitRefLogOpts<'a> {
+    /// Exclude commits reachable from this ref, i.e. only list commits added on top of it.
+    #[builder(setter(into, strip_option), default)]
+    pub base: Option<Id>,
+    /// Maximum number of commits to return.
+    #[builder(setter(into, strip_option), default)]
+    pub limit: Option<isize>,
+    /// Only include commits touching these paths, relative to the root of the repository.
+    #[builder(setter(into, strip_option), default)]
+    pub paths: Option<Vec<&'a str>>,
 }
 #[derive(Builder, Debug, PartialEq)]
 pub struct GitRefTreeOpts {
@@ -10250,9 +9371,43 @@ impl Loadable for GitRef {
     }
 }
 impl GitRef {
+    /// Creates a synthetic workspace from this git ref.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn as_workspace(&self) -> Workspace {
+        let query = self.selection.select("asWorkspace");
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Creates a synthetic workspace from this git ref.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn as_workspace_opts<'a>(&self, opts: GitRefAsWorkspaceOpts<'a>) -> Workspace {
+        let mut query = self.selection.select("asWorkspace");
+        if let Some(cwd) = opts.cwd {
+            query = query.arg("cwd", cwd);
+        }
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
     /// The resolved commit id at this ref.
     pub async fn commit(&self) -> Result<String, DaggerError> {
         let query = self.selection.select("commit");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// The resolved commit SHA at this ref.
+    pub async fn commit_sha(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("commitSHA");
         query.execute(self.graphql_client.clone()).await
     }
     /// Find the best common ancestor between this ref and another ref.
@@ -10280,10 +9435,78 @@ impl GitRef {
         let query = self.selection.select("id");
         query.execute(self.graphql_client.clone()).await
     }
+    /// Commits reachable from this ref, newest first, starting with the commit this ref resolves to.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub async fn log(&self) -> Result<Vec<GitCommit>, DaggerError> {
+        let query = self.selection.select("log");
+        let query = query.select("id");
+        let ids: Vec<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(ids
+            .into_iter()
+            .map(|id| GitCommit {
+                proc: self.proc.clone(),
+                selection: crate::querybuilder::query()
+                    .select("node")
+                    .arg("id", &id.0)
+                    .inline_fragment("GitCommit"),
+                graphql_client: self.graphql_client.clone(),
+            })
+            .collect())
+    }
+    /// Commits reachable from this ref, newest first, starting with the commit this ref resolves to.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub async fn log_opts<'a>(
+        &self,
+        opts: GitRefLogOpts<'a>,
+    ) -> Result<Vec<GitCommit>, DaggerError> {
+        let mut query = self.selection.select("log");
+        if let Some(limit) = opts.limit {
+            query = query.arg("limit", limit);
+        }
+        if let Some(paths) = opts.paths {
+            query = query.arg("paths", paths);
+        }
+        if let Some(base) = opts.base {
+            query = query.arg("base", base);
+        }
+        let query = query.select("id");
+        let ids: Vec<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(ids
+            .into_iter()
+            .map(|id| GitCommit {
+                proc: self.proc.clone(),
+                selection: crate::querybuilder::query()
+                    .select("node")
+                    .arg("id", &id.0)
+                    .inline_fragment("GitCommit"),
+                graphql_client: self.graphql_client.clone(),
+            })
+            .collect())
+    }
+    /// The resolved name of this ref.
+    pub async fn name(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("name");
+        query.execute(self.graphql_client.clone()).await
+    }
     /// The resolved ref name at this ref.
     pub async fn r#ref(&self) -> Result<String, DaggerError> {
         let query = self.selection.select("ref");
         query.execute(self.graphql_client.clone()).await
+    }
+    /// The commit this ref resolves to.
+    pub fn target_commit(&self) -> GitCommit {
+        let query = self.selection.select("targetCommit");
+        GitCommit {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
     }
     /// The filesystem tree at this ref.
     ///
@@ -10347,10 +9570,28 @@ pub struct GitRepositoryBranchesOpts<'a> {
     pub patterns: Option<Vec<&'a str>>,
 }
 #[derive(Builder, Debug, PartialEq)]
+pub struct GitRepositoryBundleOpts {
+    /// A Git ref whose reachable objects are omitted and recorded as a prerequisite.
+    #[builder(setter(into, strip_option), default)]
+    pub base: Option<Id>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct GitRepositoryLatestOpts<'a> {
+    /// Version query used to select the greatest matching release ref.
+    #[builder(setter(into, strip_option), default)]
+    pub version: Option<&'a str>,
+}
+#[derive(Builder, Debug, PartialEq)]
 pub struct GitRepositoryTagsOpts<'a> {
     /// Glob patterns (e.g., "refs/tags/v*").
     #[builder(setter(into, strip_option), default)]
     pub patterns: Option<Vec<&'a str>>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct GitRepositoryWithBundleOpts<'a> {
+    /// An optional remote ref hint for fetching a prerequisite when the remote does not allow fetches by object ID.
+    #[builder(setter(into, strip_option), default)]
+    pub prerequisite_ref: Option<&'a str>,
 }
 impl IntoID<Id> for GitRepository {
     fn into_id(
@@ -10443,15 +9684,58 @@ impl GitRepository {
         }
         query.execute(self.graphql_client.clone()).await
     }
+    /// Pack the given refs and the objects needed to reconstruct them into a Git bundle.
+    ///
+    /// # Arguments
+    ///
+    /// * `refs` - Refs to advertise in the bundle. At least one named ref is required.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn bundle(&self, refs: Vec<impl Into<String>>) -> GitBundle {
+        let mut query = self.selection.select("bundle");
+        query = query.arg(
+            "refs",
+            refs.into_iter().map(|i| i.into()).collect::<Vec<String>>(),
+        );
+        GitBundle {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Pack the given refs and the objects needed to reconstruct them into a Git bundle.
+    ///
+    /// # Arguments
+    ///
+    /// * `refs` - Refs to advertise in the bundle. At least one named ref is required.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn bundle_opts(
+        &self,
+        refs: Vec<impl Into<String>>,
+        opts: GitRepositoryBundleOpts,
+    ) -> GitBundle {
+        let mut query = self.selection.select("bundle");
+        query = query.arg(
+            "refs",
+            refs.into_iter().map(|i| i.into()).collect::<Vec<String>>(),
+        );
+        if let Some(base) = opts.base {
+            query = query.arg("base", base);
+        }
+        GitBundle {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
     /// Returns details of a commit.
     ///
     /// # Arguments
     ///
     /// * `id` - Identifier of the commit (e.g., "b6315d8f2810962c601af73f86831f6866ea798b").
-    pub fn commit(&self, id: impl Into<String>) -> GitRef {
+    pub fn commit(&self, id: impl Into<String>) -> GitCommit {
         let mut query = self.selection.select("commit");
         query = query.arg("id", id.into());
-        GitRef {
+        GitCommit {
             proc: self.proc.clone(),
             selection: query,
             graphql_client: self.graphql_client.clone(),
@@ -10471,9 +9755,31 @@ impl GitRepository {
         let query = self.selection.select("id");
         query.execute(self.graphql_client.clone()).await
     }
-    /// Returns details for the latest semver tag.
-    pub fn latest_version(&self) -> GitRef {
-        let query = self.selection.select("latestVersion");
+    /// Return the latest stable release tag, falling back to HEAD when no release exists.
+    /// Release selection accepts an optional "v" prefix, incomplete versions, and zero-padded numeric components. This operation is pinned.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn latest(&self) -> GitRef {
+        let query = self.selection.select("latest");
+        GitRef {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return the latest stable release tag, falling back to HEAD when no release exists.
+    /// Release selection accepts an optional "v" prefix, incomplete versions, and zero-padded numeric components. This operation is pinned.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn latest_opts<'a>(&self, opts: GitRepositoryLatestOpts<'a>) -> GitRef {
+        let mut query = self.selection.select("latest");
+        if let Some(version) = opts.version {
+            query = query.arg("version", version);
+        }
         GitRef {
             proc: self.proc.clone(),
             selection: query,
@@ -10545,6 +9851,55 @@ impl GitRepository {
     pub async fn url(&self) -> Result<String, DaggerError> {
         let query = self.selection.select("url");
         query.execute(self.graphql_client.clone()).await
+    }
+    /// Import a Git bundle after fetching and verifying all of its prerequisites.
+    ///
+    /// # Arguments
+    ///
+    /// * `bundle` - The Git bundle to import.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_bundle(&self, bundle: impl IntoID<Id>) -> GitRepository {
+        let mut query = self.selection.select("withBundle");
+        query = query.arg_lazy(
+            "bundle",
+            Box::new(move || {
+                let bundle = bundle.clone();
+                Box::pin(async move { bundle.into_id().await.unwrap().quote() })
+            }),
+        );
+        GitRepository {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Import a Git bundle after fetching and verifying all of its prerequisites.
+    ///
+    /// # Arguments
+    ///
+    /// * `bundle` - The Git bundle to import.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_bundle_opts<'a>(
+        &self,
+        bundle: impl IntoID<Id>,
+        opts: GitRepositoryWithBundleOpts<'a>,
+    ) -> GitRepository {
+        let mut query = self.selection.select("withBundle");
+        query = query.arg_lazy(
+            "bundle",
+            Box::new(move || {
+                let bundle = bundle.clone();
+                Box::pin(async move { bundle.into_id().await.unwrap().quote() })
+            }),
+        );
+        if let Some(prerequisite_ref) = opts.prerequisite_ref {
+            query = query.arg("prerequisiteRef", prerequisite_ref);
+        }
+        GitRepository {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
     }
 }
 impl Node for GitRepository {
@@ -11116,13 +10471,19 @@ impl InterfaceTypeDef {
         query.execute(self.graphql_client.clone()).await
     }
     /// The location of this interface declaration.
-    pub fn source_map(&self) -> SourceMap {
+    pub async fn source_map(&self) -> Result<Option<SourceMap>, DaggerError> {
         let query = self.selection.select("sourceMap");
-        SourceMap {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| SourceMap {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("SourceMap"),
             graphql_client: self.graphql_client.clone(),
-        }
+        }))
     }
     /// If this InterfaceTypeDef is associated with a Module, the name of the module. Unset otherwise.
     pub async fn source_module_name(&self) -> Result<String, DaggerError> {
@@ -11357,6 +10718,73 @@ pub struct Llm {
     pub selection: Selection,
     pub graphql_client: DynGraphQLClient,
 }
+#[derive(Builder, Debug, PartialEq)]
+pub struct LlmLoopOpts {
+    /// Cap the number of steps. The loop fails if the cap is reached before the model ends its turn.
+    #[builder(setter(into, strip_option), default)]
+    pub max_steps: Option<isize>,
+    /// Cap the model's output tokens on each step. Defaults to the model's maximum.
+    #[builder(setter(into, strip_option), default)]
+    pub max_tokens: Option<isize>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct LlmSpawnOpts<'a> {
+    /// The loop error to create the agent with, for state FAILED. Refused with any other state.
+    #[builder(setter(into, strip_option), default)]
+    pub error: Option<&'a str>,
+    /// The runtime handle to restore the instance under, as published on its loop span as dagger.io/agent.id. Omit to mint a fresh instance.
+    #[builder(setter(into, strip_option), default)]
+    pub handle: Option<&'a str>,
+    /// Display label for the agent — telemetry and error messages; carries no identity. Defaults to a short name derived from the conversation.
+    #[builder(setter(into, strip_option), default)]
+    pub name: Option<&'a str>,
+    /// The lifecycle state to create the agent in, as facts on the entry: IDLE is ready to be prompted, PAUSED parks it, FAILED holds an error a resume retries past, STOPPED preserves a dormant snapshot that send or resume can relaunch.
+    /// RUNNING and WAITING_INPUT are refused: they describe a loop, and a restored loop died with the session that published it — restore such an agent as IDLE, its interrupted turn's input still pending on the conversation.
+    #[builder(setter(into, strip_option), default)]
+    pub state: Option<AgentState>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct LlmStepOpts {
+    /// Cap the model's output tokens for this step. Defaults to the model's maximum.
+    #[builder(setter(into, strip_option), default)]
+    pub max_tokens: Option<isize>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct LlmWithModelOpts<'a> {
+    /// The provider serving the model, e.g. "openai". Overrides the provider otherwise inferred from the model name — useful when the name matches no known pattern (e.g. a fine-tune), or matches the wrong one.
+    #[builder(setter(into, strip_option), default)]
+    pub provider: Option<&'a str>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct LlmWithPromptOpts {
+    /// The message's recorded provenance, when it arrived through an agent mailbox rather than from the user. Rendered to the model as an attribution header at request-build time.
+    #[builder(setter(into, strip_option), default)]
+    pub origin: Option<LlmMessageOriginInput>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct LlmWithResponseOpts {
+    /// Cached input tokens read
+    #[builder(setter(into, strip_option), default)]
+    pub cached_token_reads: Option<isize>,
+    /// Cached input tokens written
+    #[builder(setter(into, strip_option), default)]
+    pub cached_token_writes: Option<isize>,
+    /// Uncached input tokens sent
+    #[builder(setter(into, strip_option), default)]
+    pub input_tokens: Option<isize>,
+    /// Tokens received from the model, including text and tool calls
+    #[builder(setter(into, strip_option), default)]
+    pub output_tokens: Option<isize>,
+    /// Total tokens consumed by this response
+    #[builder(setter(into, strip_option), default)]
+    pub total_tokens: Option<isize>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct LlmWithToolsOpts<'a> {
+    /// Method names to exclude from the toolset (e.g. constructors, entrypoints).
+    #[builder(setter(into, strip_option), default)]
+    pub except: Option<Vec<&'a str>>,
+}
 impl IntoID<Id> for Llm {
     fn into_id(
         self,
@@ -11381,82 +10809,36 @@ impl Loadable for Llm {
     }
 }
 impl Llm {
-    /// create a branch in the LLM's history
-    pub fn attempt(&self, number: isize) -> Llm {
-        let mut query = self.selection.select("attempt");
-        query = query.arg("number", number);
-        Llm {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// returns the type of the current state
-    pub fn bind_result(&self, name: impl Into<String>) -> Binding {
-        let mut query = self.selection.select("bindResult");
+    /// Reconstruct a spawned agent from its runtime handle.
+    /// This is the lookup spawn pins its result's identity through: the returned handle's ID is an honest, replayable chain denoting the one instance the spawn minted. It never creates an instance itself.
+    ///
+    /// # Arguments
+    ///
+    /// * `handle` - The opaque runtime handle minted by the spawn that created the agent.
+    /// * `name` - The agent's display name, as recorded by the spawn.
+    pub fn agent(&self, handle: impl Into<String>, name: impl Into<String>) -> Agent {
+        let mut query = self.selection.select("agent");
+        query = query.arg("handle", handle.into());
         query = query.arg("name", name.into());
-        Binding {
+        Agent {
             proc: self.proc.clone(),
             selection: query,
             graphql_client: self.graphql_client.clone(),
         }
     }
-    /// return the LLM's current environment
-    pub fn env(&self) -> Env {
-        let query = self.selection.select("env");
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Indicates whether there are any queued prompts or tool results to send to the model
-    pub async fn has_prompt(&self) -> Result<bool, DaggerError> {
-        let query = self.selection.select("hasPrompt");
+    /// estimated number of tokens currently occupying the context window; unlike tokenUsage this is not cumulative over the session
+    pub async fn context_tokens(&self) -> Result<isize, DaggerError> {
+        let query = self.selection.select("contextTokens");
         query.execute(self.graphql_client.clone()).await
     }
-    /// return the llm message history
-    pub async fn history(&self) -> Result<Vec<String>, DaggerError> {
-        let query = self.selection.select("history");
+    /// The model's total context window in tokens, or null if unknown (e.g. a local or uncatalogued model).
+    pub async fn context_window(&self) -> Result<isize, DaggerError> {
+        let query = self.selection.select("contextWindow");
         query.execute(self.graphql_client.clone()).await
     }
-    /// return the raw llm message history as json
-    pub async fn history_json(&self) -> Result<Json, DaggerError> {
-        let query = self.selection.select("historyJSON");
-        query.execute(self.graphql_client.clone()).await
-    }
-    /// A unique identifier for this LLM.
-    pub async fn id(&self) -> Result<Id, DaggerError> {
-        let query = self.selection.select("id");
-        query.execute(self.graphql_client.clone()).await
-    }
-    /// return the last llm reply from the history
-    pub async fn last_reply(&self) -> Result<String, DaggerError> {
-        let query = self.selection.select("lastReply");
-        query.execute(self.graphql_client.clone()).await
-    }
-    /// Submit the queued prompt, evaluate any tool calls, queue their results, and keep going until the model ends its turn
-    pub fn r#loop(&self) -> Llm {
-        let query = self.selection.select("loop");
-        Llm {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// return the model used by the llm
-    pub async fn model(&self) -> Result<String, DaggerError> {
-        let query = self.selection.select("model");
-        query.execute(self.graphql_client.clone()).await
-    }
-    /// return the provider used by the llm
-    pub async fn provider(&self) -> Result<String, DaggerError> {
-        let query = self.selection.select("provider");
-        query.execute(self.graphql_client.clone()).await
-    }
-    /// Submit the queued prompt or tool call results, evaluate any tool calls, and queue their results
-    pub async fn step(&self) -> Result<Llm, DaggerError> {
-        let query = self.selection.select("step");
+    /// Re-emit telemetry spans for the full message history, so a loaded conversation displays in the TUI.
+    pub async fn emit_history(&self) -> Result<Llm, DaggerError> {
+        let query = self.selection.select("emitHistory");
         let id: Id = query.execute(self.graphql_client.clone()).await?;
         Ok(Llm {
             proc: self.proc.clone(),
@@ -11468,7 +10850,205 @@ impl Llm {
             graphql_client: self.graphql_client.clone(),
         })
     }
-    /// synchronize LLM state
+    /// Fork the conversation, so that otherwise-identical follow-ups evaluate independently instead of deduplicating to a single cached result.
+    ///
+    /// # Arguments
+    ///
+    /// * `label` - A label distinguishing this fork from its siblings, e.g. "attempt-2" when retrying a flaky evaluation.
+    pub fn fork(&self, label: impl Into<String>) -> Llm {
+        let mut query = self.selection.select("fork");
+        query = query.arg("label", label.into());
+        Llm {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Report whether anything is queued to send to the model: an unsent prompt or unevaluated tool results. When true, another step will do work; when false, the turn is complete.
+    pub async fn has_pending(&self) -> Result<bool, DaggerError> {
+        let query = self.selection.select("hasPending");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// A unique identifier for this LLM.
+    pub async fn id(&self) -> Result<Id, DaggerError> {
+        let query = self.selection.select("id");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// The text of the model's most recent reply.
+    pub async fn last_reply(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("lastReply");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Send the queued prompt and step the model against the available tools, until it ends its turn: a reply with no tool calls and nothing left queued.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn r#loop(&self) -> Llm {
+        let query = self.selection.select("loop");
+        Llm {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Send the queued prompt and step the model against the available tools, until it ends its turn: a reply with no tool calls and nothing left queued.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn r#loop_opts(&self, opts: LlmLoopOpts) -> Llm {
+        let mut query = self.selection.select("loop");
+        if let Some(max_steps) = opts.max_steps {
+            query = query.arg("maxSteps", max_steps);
+        }
+        if let Some(max_tokens) = opts.max_tokens {
+            query = query.arg("maxTokens", max_tokens);
+        }
+        Llm {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// The full message history, as structured messages.
+    pub async fn messages(&self) -> Result<Vec<LlmMessage>, DaggerError> {
+        let query = self.selection.select("messages");
+        let query = query.select("id");
+        let ids: Vec<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(ids
+            .into_iter()
+            .map(|id| LlmMessage {
+                proc: self.proc.clone(),
+                selection: crate::querybuilder::query()
+                    .select("node")
+                    .arg("id", &id.0)
+                    .inline_fragment("LLMMessage"),
+                graphql_client: self.graphql_client.clone(),
+            })
+            .collect())
+    }
+    /// The model the conversation is running against, after resolving any configured default.
+    pub async fn model(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("model");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// A portable, self-contained ID for the conversation that node() can resolve in any session. Unlike id, which may return an engine-local runtime handle valid only within the current session, this returns the recipe form suitable for persisting and later restoring the conversation. The recipe is flattened: bindings superseded during the session (workspace overlays recorded by each mutating tool call, and re-bound toolsets) are dropped, while the current workspace binding — including any pending, un-exported edits — is preserved.
+    pub async fn portable_id(&self) -> Result<Id, DaggerError> {
+        let query = self.selection.select("portableID");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// The provider serving the model, e.g. "anthropic", "openai", "google", or "local".
+    pub async fn provider(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("provider");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// The reasoning effort in use, e.g. "low", "medium", or "high". Empty or "none" when reasoning is disabled.
+    pub async fn reasoning_effort(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("reasoningEffort");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// The skills visible to the model, exactly as the ListSkills tool serves them: engine-embedded skills, skills installed with withSkills, and skills discovered in the workspace.
+    pub async fn skills(&self) -> Result<Vec<LlmSkill>, DaggerError> {
+        let query = self.selection.select("skills");
+        let query = query.select("id");
+        let ids: Vec<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(ids
+            .into_iter()
+            .map(|id| LlmSkill {
+                proc: self.proc.clone(),
+                selection: crate::querybuilder::query()
+                    .select("node")
+                    .arg("id", &id.0)
+                    .inline_fragment("LLMSkill"),
+                graphql_client: self.graphql_client.clone(),
+            })
+            .collect())
+    }
+    /// Spawn the conversation as an agent: a startable, addressable evaluation loop seeded with this conversation's state, tools, and workspace.
+    /// Every spawn mints a unique agent instance — two spawns of an identical conversation are two distinct agents, like two calls to a process spawn. The result is pinned to the instance (via the agent lookup field), so re-loading its ID re-addresses the same agent from any request in the session.
+    /// The loop is not started: the agent spends nothing until it is prompted or resumed, and any input pending on the conversation is stepped then.
+    /// With a handle, spawn restores an instance instead of minting one: this conversation becomes the committed history of the agent that handle names, so prompting it continues where it left off — rebuild a conversation's ID from a trace, load it, and spawn it under the handle it belonged to. Fails if that instance already has a runtime entry in this session: a restore must happen before anything else addresses the instance, since by then it may have stepped.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub async fn spawn(&self) -> Result<Agent, DaggerError> {
+        let query = self.selection.select("spawn");
+        let id: Id = query.execute(self.graphql_client.clone()).await?;
+        Ok(Agent {
+            proc: self.proc.clone(),
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("Agent"),
+            graphql_client: self.graphql_client.clone(),
+        })
+    }
+    /// Spawn the conversation as an agent: a startable, addressable evaluation loop seeded with this conversation's state, tools, and workspace.
+    /// Every spawn mints a unique agent instance — two spawns of an identical conversation are two distinct agents, like two calls to a process spawn. The result is pinned to the instance (via the agent lookup field), so re-loading its ID re-addresses the same agent from any request in the session.
+    /// The loop is not started: the agent spends nothing until it is prompted or resumed, and any input pending on the conversation is stepped then.
+    /// With a handle, spawn restores an instance instead of minting one: this conversation becomes the committed history of the agent that handle names, so prompting it continues where it left off — rebuild a conversation's ID from a trace, load it, and spawn it under the handle it belonged to. Fails if that instance already has a runtime entry in this session: a restore must happen before anything else addresses the instance, since by then it may have stepped.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub async fn spawn_opts<'a>(&self, opts: LlmSpawnOpts<'a>) -> Result<Agent, DaggerError> {
+        let mut query = self.selection.select("spawn");
+        if let Some(name) = opts.name {
+            query = query.arg("name", name);
+        }
+        if let Some(handle) = opts.handle {
+            query = query.arg("handle", handle);
+        }
+        if let Some(state) = opts.state {
+            query = query.arg("state", state);
+        }
+        if let Some(error) = opts.error {
+            query = query.arg("error", error);
+        }
+        let id: Id = query.execute(self.graphql_client.clone()).await?;
+        Ok(Agent {
+            proc: self.proc.clone(),
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("Agent"),
+            graphql_client: self.graphql_client.clone(),
+        })
+    }
+    /// Advance the conversation by a single step: send the queued prompt or tool results to the model, evaluate any tool calls it makes, and queue their results. Use loop to step until the model ends its turn.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn step(&self) -> Llm {
+        let query = self.selection.select("step");
+        Llm {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Advance the conversation by a single step: send the queued prompt or tool results to the model, evaluate any tool calls it makes, and queue their results. Use loop to step until the model ends its turn.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn step_opts(&self, opts: LlmStepOpts) -> Llm {
+        let mut query = self.selection.select("step");
+        if let Some(max_tokens) = opts.max_tokens {
+            query = query.arg("maxTokens", max_tokens);
+        }
+        Llm {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Force evaluation of the conversation's pending operations (prompts, steps, loops) in the engine.
     pub async fn sync(&self) -> Result<Llm, DaggerError> {
         let query = self.selection.select("sync");
         let id: Id = query.execute(self.graphql_client.clone()).await?;
@@ -11482,7 +11062,7 @@ impl Llm {
             graphql_client: self.graphql_client.clone(),
         })
     }
-    /// returns the token usage of the current state
+    /// The cumulative token usage, summed across every API call in the conversation.
     pub fn token_usage(&self) -> LlmTokenUsage {
         let query = self.selection.select("tokenUsage");
         LlmTokenUsage {
@@ -11491,48 +11071,15 @@ impl Llm {
             graphql_client: self.graphql_client.clone(),
         }
     }
-    /// print documentation for available tools
+    /// Render documentation for the tools currently exposed to the model.
     pub async fn tools(&self) -> Result<String, DaggerError> {
         let query = self.selection.select("tools");
         query.execute(self.graphql_client.clone()).await
     }
-    /// Return a new LLM with the specified function no longer exposed as a tool
-    ///
-    /// # Arguments
-    ///
-    /// * `type_name` - The type name whose function will be blocked
-    /// * `function` - The function to block
-    ///
-    /// Will be converted to lowerCamelCase if necessary.
-    pub fn with_blocked_function(
-        &self,
-        type_name: impl Into<String>,
-        function: impl Into<String>,
-    ) -> Llm {
-        let mut query = self.selection.select("withBlockedFunction");
-        query = query.arg("typeName", type_name.into());
-        query = query.arg("function", function.into());
-        Llm {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// allow the LLM to interact with an environment via MCP
-    pub fn with_env(&self, env: impl IntoID<Id>) -> Llm {
-        let mut query = self.selection.select("withEnv");
-        query = query.arg_lazy(
-            "env",
-            Box::new(move || {
-                let env = env.clone();
-                Box::pin(async move { env.into_id().await.unwrap().quote() })
-            }),
-        );
-        Llm {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
+    /// The message history rendered as a plain-text transcript, suitable for feeding back to an LLM (e.g. for summarization).
+    pub async fn transcript(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("transcript");
+        query.execute(self.graphql_client.clone()).await
     }
     /// Add an external MCP server to the LLM
     ///
@@ -11556,11 +11103,12 @@ impl Llm {
             graphql_client: self.graphql_client.clone(),
         }
     }
-    /// swap out the llm model
+    /// Change the model for the rest of the conversation. The message history is preserved; the new model takes effect on the next step.
     ///
     /// # Arguments
     ///
-    /// * `model` - The model to use
+    /// * `model` - The model to use, e.g. "claude-sonnet-4-5" or "gpt-5.4".
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
     pub fn with_model(&self, model: impl Into<String>) -> Llm {
         let mut query = self.selection.select("withModel");
         query = query.arg("model", model.into());
@@ -11570,11 +11118,30 @@ impl Llm {
             graphql_client: self.graphql_client.clone(),
         }
     }
-    /// append a prompt to the llm context
+    /// Change the model for the rest of the conversation. The message history is preserved; the new model takes effect on the next step.
+    ///
+    /// # Arguments
+    ///
+    /// * `model` - The model to use, e.g. "claude-sonnet-4-5" or "gpt-5.4".
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_model_opts<'a>(&self, model: impl Into<String>, opts: LlmWithModelOpts<'a>) -> Llm {
+        let mut query = self.selection.select("withModel");
+        query = query.arg("model", model.into());
+        if let Some(provider) = opts.provider {
+            query = query.arg("provider", provider);
+        }
+        Llm {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Queue a user prompt, to be sent to the model on the next step or loop.
     ///
     /// # Arguments
     ///
     /// * `prompt` - The prompt to send
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
     pub fn with_prompt(&self, prompt: impl Into<String>) -> Llm {
         let mut query = self.selection.select("withPrompt");
         query = query.arg("prompt", prompt.into());
@@ -11584,7 +11151,25 @@ impl Llm {
             graphql_client: self.graphql_client.clone(),
         }
     }
-    /// append the contents of a file to the llm context
+    /// Queue a user prompt, to be sent to the model on the next step or loop.
+    ///
+    /// # Arguments
+    ///
+    /// * `prompt` - The prompt to send
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_prompt_opts(&self, prompt: impl Into<String>, opts: LlmWithPromptOpts) -> Llm {
+        let mut query = self.selection.select("withPrompt");
+        query = query.arg("prompt", prompt.into());
+        if let Some(origin) = opts.origin {
+            query = query.arg("origin", origin);
+        }
+        Llm {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Queue a file's contents as a user prompt, like withPrompt.
     ///
     /// # Arguments
     ///
@@ -11604,16 +11189,99 @@ impl Llm {
             graphql_client: self.graphql_client.clone(),
         }
     }
-    /// Use a static set of tools for method calls, e.g. for MCP clients that do not support dynamic tool registration
-    pub fn with_static_tools(&self) -> Llm {
-        let query = self.selection.select("withStaticTools");
+    /// Change the reasoning effort for the rest of the conversation, overriding any configured default. The message history is preserved; the new effort takes effect on the next step.
+    ///
+    /// # Arguments
+    ///
+    /// * `effort` - The reasoning effort, e.g. "low", "medium", or "high"; "none" disables reasoning. Supported levels are model-specific — some models also accept e.g. "minimal", "xhigh", or "max".
+    pub fn with_reasoning_effort(&self, effort: impl Into<String>) -> Llm {
+        let mut query = self.selection.select("withReasoningEffort");
+        query = query.arg("effort", effort.into());
         Llm {
             proc: self.proc.clone(),
             selection: query,
             graphql_client: self.graphql_client.clone(),
         }
     }
-    /// Add a system prompt to the LLM's environment
+    /// Append an assistant response to the message history without calling the model, e.g. to reconstruct a conversation from another source.
+    ///
+    /// # Arguments
+    ///
+    /// * `content` - The response content
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_response(&self, content: Vec<LlmContentBlockInput>) -> Llm {
+        let mut query = self.selection.select("withResponse");
+        query = query.arg("content", content);
+        Llm {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Append an assistant response to the message history without calling the model, e.g. to reconstruct a conversation from another source.
+    ///
+    /// # Arguments
+    ///
+    /// * `content` - The response content
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_response_opts(
+        &self,
+        content: Vec<LlmContentBlockInput>,
+        opts: LlmWithResponseOpts,
+    ) -> Llm {
+        let mut query = self.selection.select("withResponse");
+        query = query.arg("content", content);
+        if let Some(input_tokens) = opts.input_tokens {
+            query = query.arg("inputTokens", input_tokens);
+        }
+        if let Some(output_tokens) = opts.output_tokens {
+            query = query.arg("outputTokens", output_tokens);
+        }
+        if let Some(cached_token_reads) = opts.cached_token_reads {
+            query = query.arg("cachedTokenReads", cached_token_reads);
+        }
+        if let Some(cached_token_writes) = opts.cached_token_writes {
+            query = query.arg("cachedTokenWrites", cached_token_writes);
+        }
+        if let Some(total_tokens) = opts.total_tokens {
+            query = query.arg("totalTokens", total_tokens);
+        }
+        Llm {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Install skills from a directory, adding them to the skills the model discovers with ListSkills and reads with ReadSkill. Each skill is a directory containing a SKILL.md with name and description frontmatter, discovered anywhere in the tree. Installed skills take precedence over skills discovered in the workspace, but cannot shadow the engine's built-in skills.
+    ///
+    /// # Arguments
+    ///
+    /// * `directory` - A directory containing skills, each a subdirectory holding a SKILL.md.
+    pub fn with_skills(&self, directory: impl IntoID<Id>) -> Llm {
+        let mut query = self.selection.select("withSkills");
+        query = query.arg_lazy(
+            "directory",
+            Box::new(move || {
+                let directory = directory.clone();
+                Box::pin(async move { directory.into_id().await.unwrap().quote() })
+            }),
+        );
+        Llm {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Switch to the configured small model for the current provider, or that provider's recommended default. The message history is preserved; unknown providers without a small-model configuration keep their current model.
+    pub fn with_small_model(&self) -> Llm {
+        let query = self.selection.select("withSmallModel");
+        Llm {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Add a system prompt, instructing the model across the whole conversation.
     ///
     /// # Arguments
     ///
@@ -11621,6 +11289,94 @@ impl Llm {
     pub fn with_system_prompt(&self, prompt: impl Into<String>) -> Llm {
         let mut query = self.selection.select("withSystemPrompt");
         query = query.arg("prompt", prompt.into());
+        Llm {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Append the result of a tool call to the message history.
+    ///
+    /// # Arguments
+    ///
+    /// * `call_id` - The ID of the tool call this result responds to
+    /// * `content` - The content returned by the tool
+    /// * `errored` - Whether the tool call resulted in an error
+    pub fn with_tool_result(
+        &self,
+        call_id: impl Into<String>,
+        content: impl Into<String>,
+        errored: bool,
+    ) -> Llm {
+        let mut query = self.selection.select("withToolResult");
+        query = query.arg("callId", call_id.into());
+        query = query.arg("content", content.into());
+        query = query.arg("errored", errored);
+        Llm {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Expose an object's methods as tools. Every eligible method of the bound object becomes a tool; a tool that returns this object's own type replaces it as the new state. Repeatable to bind several objects.
+    ///
+    /// # Arguments
+    ///
+    /// * `object` - The object whose methods become tools.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_tools(&self, object: impl IntoID<Id>) -> Llm {
+        let mut query = self.selection.select("withTools");
+        query = query.arg_lazy(
+            "object",
+            Box::new(move || {
+                let object = object.clone();
+                Box::pin(async move { object.into_id().await.unwrap().quote() })
+            }),
+        );
+        Llm {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Expose an object's methods as tools. Every eligible method of the bound object becomes a tool; a tool that returns this object's own type replaces it as the new state. Repeatable to bind several objects.
+    ///
+    /// # Arguments
+    ///
+    /// * `object` - The object whose methods become tools.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_tools_opts<'a>(&self, object: impl IntoID<Id>, opts: LlmWithToolsOpts<'a>) -> Llm {
+        let mut query = self.selection.select("withTools");
+        query = query.arg_lazy(
+            "object",
+            Box::new(move || {
+                let object = object.clone();
+                Box::pin(async move { object.into_id().await.unwrap().quote() })
+            }),
+        );
+        if let Some(except) = opts.except {
+            query = query.arg("except", except);
+        }
+        Llm {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Bind the LLM to a workspace, exposing its modules as tools exactly as the Dagger CLI would serve them for that workspace.
+    ///
+    /// # Arguments
+    ///
+    /// * `workspace` - The workspace to work in.
+    pub fn with_workspace(&self, workspace: impl IntoID<Id>) -> Llm {
+        let mut query = self.selection.select("withWorkspace");
+        query = query.arg_lazy(
+            "workspace",
+            Box::new(move || {
+                let workspace = workspace.clone();
+                Box::pin(async move { workspace.into_id().await.unwrap().quote() })
+            }),
+        );
         Llm {
             proc: self.proc.clone(),
             selection: query,
@@ -11636,7 +11392,7 @@ impl Llm {
             graphql_client: self.graphql_client.clone(),
         }
     }
-    /// Clear the message history, leaving only the system prompts
+    /// Clear the message history, keeping only the system prompts.
     pub fn without_message_history(&self) -> Llm {
         let query = self.selection.select("withoutMessageHistory");
         Llm {
@@ -11645,10 +11401,19 @@ impl Llm {
             graphql_client: self.graphql_client.clone(),
         }
     }
-    /// Clear the system prompts, leaving only the default system prompt
+    /// Clear the user-added system prompts, keeping only the default system prompt.
     pub fn without_system_prompts(&self) -> Llm {
         let query = self.selection.select("withoutSystemPrompts");
         Llm {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return the workspace the LLM is bound to.
+    pub fn workspace(&self) -> Workspace {
+        let query = self.selection.select("workspace");
+        Workspace {
             proc: self.proc.clone(),
             selection: query,
             graphql_client: self.graphql_client.clone(),
@@ -11668,8 +11433,304 @@ impl Syncer for Llm {
         let graphql_client = self.graphql_client.clone();
         async move { query.execute(graphql_client).await }
     }
-    fn sync(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
+    fn sync(&self) -> impl core::future::Future<Output = Result<Self, DaggerError>> + Send {
         let query = self.selection.select("sync");
+        let proc = self.proc.clone();
+        let graphql_client = self.graphql_client.clone();
+        async move {
+            let id: Id = query.execute(graphql_client.clone()).await?;
+            Ok(Self {
+                proc,
+                selection: query
+                    .root()
+                    .select("node")
+                    .arg("id", &id.0)
+                    .inline_fragment("LLM"),
+                graphql_client,
+            })
+        }
+    }
+}
+#[derive(Clone)]
+pub struct LlmContentBlock {
+    pub proc: Option<Arc<DaggerSessionProc>>,
+    pub selection: Selection,
+    pub graphql_client: DynGraphQLClient,
+}
+impl IntoID<Id> for LlmContentBlock {
+    fn into_id(
+        self,
+    ) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<Id, DaggerError>> + Send>> {
+        Box::pin(async move { self.id().await })
+    }
+}
+impl Loadable for LlmContentBlock {
+    fn graphql_type() -> &'static str {
+        "LLMContentBlock"
+    }
+    fn from_query(
+        proc: Option<Arc<DaggerSessionProc>>,
+        selection: Selection,
+        graphql_client: DynGraphQLClient,
+    ) -> Self {
+        Self {
+            proc,
+            selection,
+            graphql_client,
+        }
+    }
+}
+impl LlmContentBlock {
+    /// The arguments passed to the tool, JSON-encoded (for TOOL_CALL kind).
+    pub async fn arguments(&self) -> Result<Json, DaggerError> {
+        let query = self.selection.select("arguments");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// The unique ID of a tool call (for TOOL_CALL or TOOL_RESULT kinds).
+    pub async fn call_id(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("callId");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Whether the tool call resulted in an error (for TOOL_RESULT kind).
+    pub async fn errored(&self) -> Result<bool, DaggerError> {
+        let query = self.selection.select("errored");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// A unique identifier for this LLMContentBlock.
+    pub async fn id(&self) -> Result<Id, DaggerError> {
+        let query = self.selection.select("id");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// The kind of content block, which determines the other populated fields.
+    pub async fn kind(&self) -> Result<LlmContentBlockKind, DaggerError> {
+        let query = self.selection.select("kind");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Provider-specific opaque data (e.g. Anthropic thinking signature). Preserve it when reconstructing a conversation.
+    pub async fn signature(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("signature");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Text content (for TEXT, THINKING, or TOOL_RESULT kinds).
+    pub async fn text(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("text");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// The name of the tool called (for TOOL_CALL kind).
+    pub async fn tool_name(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("toolName");
+        query.execute(self.graphql_client.clone()).await
+    }
+}
+impl Node for LlmContentBlock {
+    fn id(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
+        let query = self.selection.select("id");
+        let graphql_client = self.graphql_client.clone();
+        async move { query.execute(graphql_client).await }
+    }
+}
+#[derive(Clone)]
+pub struct LlmMessage {
+    pub proc: Option<Arc<DaggerSessionProc>>,
+    pub selection: Selection,
+    pub graphql_client: DynGraphQLClient,
+}
+impl IntoID<Id> for LlmMessage {
+    fn into_id(
+        self,
+    ) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<Id, DaggerError>> + Send>> {
+        Box::pin(async move { self.id().await })
+    }
+}
+impl Loadable for LlmMessage {
+    fn graphql_type() -> &'static str {
+        "LLMMessage"
+    }
+    fn from_query(
+        proc: Option<Arc<DaggerSessionProc>>,
+        selection: Selection,
+        graphql_client: DynGraphQLClient,
+    ) -> Self {
+        Self {
+            proc,
+            selection,
+            graphql_client,
+        }
+    }
+}
+impl LlmMessage {
+    /// The message's content blocks, in the order the model produced them.
+    pub async fn content(&self) -> Result<Vec<LlmContentBlock>, DaggerError> {
+        let query = self.selection.select("content");
+        let query = query.select("id");
+        let ids: Vec<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(ids
+            .into_iter()
+            .map(|id| LlmContentBlock {
+                proc: self.proc.clone(),
+                selection: crate::querybuilder::query()
+                    .select("node")
+                    .arg("id", &id.0)
+                    .inline_fragment("LLMContentBlock"),
+                graphql_client: self.graphql_client.clone(),
+            })
+            .collect())
+    }
+    /// A unique identifier for this LLMMessage.
+    pub async fn id(&self) -> Result<Id, DaggerError> {
+        let query = self.selection.select("id");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Who put this message on the record, when it arrived through an agent mailbox.
+    /// Null for the user's own prompts and for everything the model or tools produced.
+    pub async fn origin(&self) -> Result<Option<LlmMessageOrigin>, DaggerError> {
+        let query = self.selection.select("origin");
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| LlmMessageOrigin {
+            proc: self.proc.clone(),
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("LLMMessageOrigin"),
+            graphql_client: self.graphql_client.clone(),
+        }))
+    }
+    /// The role that produced this message.
+    pub async fn role(&self) -> Result<LlmMessageRole, DaggerError> {
+        let query = self.selection.select("role");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Token usage reported by the provider for the API call that produced this message; all zeros except on assistant responses.
+    pub fn token_usage(&self) -> LlmTokenUsage {
+        let query = self.selection.select("tokenUsage");
+        LlmTokenUsage {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+}
+impl Node for LlmMessage {
+    fn id(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
+        let query = self.selection.select("id");
+        let graphql_client = self.graphql_client.clone();
+        async move { query.execute(graphql_client).await }
+    }
+}
+#[derive(Clone)]
+pub struct LlmMessageOrigin {
+    pub proc: Option<Arc<DaggerSessionProc>>,
+    pub selection: Selection,
+    pub graphql_client: DynGraphQLClient,
+}
+impl IntoID<Id> for LlmMessageOrigin {
+    fn into_id(
+        self,
+    ) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<Id, DaggerError>> + Send>> {
+        Box::pin(async move { self.id().await })
+    }
+}
+impl Loadable for LlmMessageOrigin {
+    fn graphql_type() -> &'static str {
+        "LLMMessageOrigin"
+    }
+    fn from_query(
+        proc: Option<Arc<DaggerSessionProc>>,
+        selection: Selection,
+        graphql_client: DynGraphQLClient,
+    ) -> Self {
+        Self {
+            proc,
+            selection,
+            graphql_client,
+        }
+    }
+}
+impl LlmMessageOrigin {
+    /// The display name of the sending agent (for AGENT origins) or the observed agent (for EVENT origins).
+    pub async fn agent_name(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("agentName");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// A unique identifier for this LLMMessageOrigin.
+    pub async fn id(&self) -> Result<Id, DaggerError> {
+        let query = self.selection.select("id");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Who put this message on the record.
+    pub async fn kind(&self) -> Result<LlmMessageOriginKind, DaggerError> {
+        let query = self.selection.select("kind");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// The message's short ref within the receiving agent's runtime, e.g. "#3": the deterministic token replies name (send's replyTo) and the message lookup takes.
+    pub async fn r#ref(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("ref");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// The ref of the message this one answers, in the sender's own runtime, if any.
+    pub async fn reply_to(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("replyTo");
+        query.execute(self.graphql_client.clone()).await
+    }
+}
+impl Node for LlmMessageOrigin {
+    fn id(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
+        let query = self.selection.select("id");
+        let graphql_client = self.graphql_client.clone();
+        async move { query.execute(graphql_client).await }
+    }
+}
+#[derive(Clone)]
+pub struct LlmSkill {
+    pub proc: Option<Arc<DaggerSessionProc>>,
+    pub selection: Selection,
+    pub graphql_client: DynGraphQLClient,
+}
+impl IntoID<Id> for LlmSkill {
+    fn into_id(
+        self,
+    ) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<Id, DaggerError>> + Send>> {
+        Box::pin(async move { self.id().await })
+    }
+}
+impl Loadable for LlmSkill {
+    fn graphql_type() -> &'static str {
+        "LLMSkill"
+    }
+    fn from_query(
+        proc: Option<Arc<DaggerSessionProc>>,
+        selection: Selection,
+        graphql_client: DynGraphQLClient,
+    ) -> Self {
+        Self {
+            proc,
+            selection,
+            graphql_client,
+        }
+    }
+}
+impl LlmSkill {
+    /// The one-line description from the SKILL.md frontmatter.
+    pub async fn description(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("description");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// A unique identifier for this LLMSkill.
+    pub async fn id(&self) -> Result<Id, DaggerError> {
+        let query = self.selection.select("id");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// The skill name, as passed to ReadSkill.
+    pub async fn name(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("name");
+        query.execute(self.graphql_client.clone()).await
+    }
+}
+impl Node for LlmSkill {
+    fn id(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
+        let query = self.selection.select("id");
         let graphql_client = self.graphql_client.clone();
         async move { query.execute(graphql_client).await }
     }
@@ -11704,10 +11765,12 @@ impl Loadable for LlmTokenUsage {
     }
 }
 impl LlmTokenUsage {
+    /// Input tokens served from the provider's prompt cache.
     pub async fn cached_token_reads(&self) -> Result<isize, DaggerError> {
         let query = self.selection.select("cachedTokenReads");
         query.execute(self.graphql_client.clone()).await
     }
+    /// Input tokens written to the provider's prompt cache.
     pub async fn cached_token_writes(&self) -> Result<isize, DaggerError> {
         let query = self.selection.select("cachedTokenWrites");
         query.execute(self.graphql_client.clone()).await
@@ -11717,14 +11780,17 @@ impl LlmTokenUsage {
         let query = self.selection.select("id");
         query.execute(self.graphql_client.clone()).await
     }
+    /// Uncached input tokens sent to the model.
     pub async fn input_tokens(&self) -> Result<isize, DaggerError> {
         let query = self.selection.select("inputTokens");
         query.execute(self.graphql_client.clone()).await
     }
+    /// Tokens received from the model, including text and tool calls.
     pub async fn output_tokens(&self) -> Result<isize, DaggerError> {
         let query = self.selection.select("outputTokens");
         query.execute(self.graphql_client.clone()).await
     }
+    /// Total tokens consumed, as reported by the provider.
     pub async fn total_tokens(&self) -> Result<isize, DaggerError> {
         let query = self.selection.select("totalTokens");
         query.execute(self.graphql_client.clone()).await
@@ -12095,22 +12161,34 @@ impl Module {
             .collect())
     }
     /// The container that runs the module's entrypoint. It will fail to execute if the module doesn't compile.
-    pub fn runtime(&self) -> Container {
+    pub async fn runtime(&self) -> Result<Option<Container>, DaggerError> {
         let query = self.selection.select("runtime");
-        Container {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| Container {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("Container"),
             graphql_client: self.graphql_client.clone(),
-        }
+        }))
     }
     /// The SDK config used by this module.
-    pub fn sdk(&self) -> SdkConfig {
+    pub async fn sdk(&self) -> Result<Option<SdkConfig>, DaggerError> {
         let query = self.selection.select("sdk");
-        SdkConfig {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| SdkConfig {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("SDKConfig"),
             graphql_client: self.graphql_client.clone(),
-        }
+        }))
     }
     /// Serve a module's API in the current session.
     /// Note: this can only be called once per session. In the future, it could return a stream or service to remove the side effect.
@@ -12168,13 +12246,19 @@ impl Module {
         }
     }
     /// The source for the module.
-    pub fn source(&self) -> ModuleSource {
+    pub async fn source(&self) -> Result<Option<ModuleSource>, DaggerError> {
         let query = self.selection.select("source");
-        ModuleSource {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| ModuleSource {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("ModuleSource"),
             graphql_client: self.graphql_client.clone(),
-        }
+        }))
     }
     /// Forces evaluation of the module, including any loading into the engine and associated validation.
     pub async fn sync(&self) -> Result<Module, DaggerError> {
@@ -12275,10 +12359,22 @@ impl Syncer for Module {
         let graphql_client = self.graphql_client.clone();
         async move { query.execute(graphql_client).await }
     }
-    fn sync(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
+    fn sync(&self) -> impl core::future::Future<Output = Result<Self, DaggerError>> + Send {
         let query = self.selection.select("sync");
+        let proc = self.proc.clone();
         let graphql_client = self.graphql_client.clone();
-        async move { query.execute(graphql_client).await }
+        async move {
+            let id: Id = query.execute(graphql_client.clone()).await?;
+            Ok(Self {
+                proc,
+                selection: query
+                    .root()
+                    .select("node")
+                    .arg("id", &id.0)
+                    .inline_fragment("Module"),
+                graphql_client,
+            })
+        }
     }
 }
 #[derive(Clone)]
@@ -12387,6 +12483,16 @@ impl ModuleSource {
             graphql_client: self.graphql_client.clone(),
         }
     }
+    /// The client-facing introspection schema JSON file for this module source.
+    /// This is the schema consumed by client codegen: unlike introspectionSchemaJSON (the module-facing schema), it hides no core types and installs this module (reached via dag.<moduleName>) so a generated client can bind it. The module's dependencies are excluded: a client is generated for a single module plus core, not its dependency graph.
+    pub fn client_schema_introspection_json(&self) -> File {
+        let query = self.selection.select("clientSchemaIntrospectionJSON");
+        File {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
     /// The ref to clone the root of the git repo from. Only valid for git sources.
     pub async fn clone_ref(&self) -> Result<String, DaggerError> {
         let query = self.selection.select("cloneRef");
@@ -12469,6 +12575,27 @@ impl ModuleSource {
         let query = self.selection.select("engineVersion");
         query.execute(self.graphql_client.clone()).await
     }
+    /// Return the supplied workspace with this module's generated context applied.
+    /// The workspace change baseline is preserved, so a later Workspace.changes call includes this generation together with any other edits made by the caller.
+    ///
+    /// # Arguments
+    ///
+    /// * `workspace` - The workspace to apply generated files to.
+    pub fn generate(&self, workspace: impl IntoID<Id>) -> Workspace {
+        let mut query = self.selection.select("generate");
+        query = query.arg_lazy(
+            "workspace",
+            Box::new(move || {
+                let workspace = workspace.clone();
+                Box::pin(async move { workspace.into_id().await.unwrap().quote() })
+            }),
+        );
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
     /// The generated files and directories made on top of the module source's context directory, returned as a Changeset.
     pub fn generated_context_changeset(&self) -> Changeset {
         let query = self.selection.select("generatedContextChangeset");
@@ -12549,13 +12676,19 @@ impl ModuleSource {
         query.execute(self.graphql_client.clone()).await
     }
     /// The SDK configuration of the module.
-    pub fn sdk(&self) -> SdkConfig {
+    pub async fn sdk(&self) -> Result<Option<SdkConfig>, DaggerError> {
         let query = self.selection.select("sdk");
-        SdkConfig {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| SdkConfig {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("SDKConfig"),
             graphql_client: self.graphql_client.clone(),
-        }
+        }))
     }
     /// The path, relative to the context directory, that contains the module config.
     pub async fn source_root_subpath(&self) -> Result<String, DaggerError> {
@@ -12597,6 +12730,16 @@ impl ModuleSource {
                 graphql_client: self.graphql_client.clone(),
             })
             .collect())
+    }
+    /// The module's dagger.json with any in-memory edits from with* APIs applied, as a diff relative to the source's context directory.
+    /// Unlike generatedContextDirectory, this does not run codegen and does not validate the engine version against the running engine, so it can be used to declare an engine requirement newer than the running engine. Loading or serving such a module still fails at moduleSource.asModule.
+    pub fn updated_config_directory(&self) -> Directory {
+        let query = self.selection.select("updatedConfigDirectory");
+        Directory {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
     }
     /// User-defined defaults read from local .env files
     pub fn user_defaults(&self) -> EnvFile {
@@ -12936,10 +13079,22 @@ impl Syncer for ModuleSource {
         let graphql_client = self.graphql_client.clone();
         async move { query.execute(graphql_client).await }
     }
-    fn sync(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
+    fn sync(&self) -> impl core::future::Future<Output = Result<Self, DaggerError>> + Send {
         let query = self.selection.select("sync");
+        let proc = self.proc.clone();
         let graphql_client = self.graphql_client.clone();
-        async move { query.execute(graphql_client).await }
+        async move {
+            let id: Id = query.execute(graphql_client.clone()).await?;
+            Ok(Self {
+                proc,
+                selection: query
+                    .root()
+                    .select("node")
+                    .arg("id", &id.0)
+                    .inline_fragment("ModuleSource"),
+                graphql_client,
+            })
+        }
     }
 }
 #[derive(Clone)]
@@ -12973,13 +13128,19 @@ impl Loadable for ObjectTypeDef {
 }
 impl ObjectTypeDef {
     /// The function used to construct new instances of this object, if any.
-    pub fn constructor(&self) -> Function {
+    pub async fn constructor(&self) -> Result<Option<Function>, DaggerError> {
         let query = self.selection.select("constructor");
-        Function {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| Function {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("Function"),
             graphql_client: self.graphql_client.clone(),
-        }
+        }))
     }
     /// The reason this enum member is deprecated, if any.
     pub async fn deprecated(&self) -> Result<String, DaggerError> {
@@ -13036,13 +13197,19 @@ impl ObjectTypeDef {
         query.execute(self.graphql_client.clone()).await
     }
     /// The location of this object declaration.
-    pub fn source_map(&self) -> SourceMap {
+    pub async fn source_map(&self) -> Result<Option<SourceMap>, DaggerError> {
         let query = self.selection.select("sourceMap");
-        SourceMap {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| SourceMap {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("SourceMap"),
             graphql_client: self.graphql_client.clone(),
-        }
+        }))
     }
     /// If this ObjectTypeDef is associated with a Module, the name of the module. Unset otherwise.
     pub async fn source_module_name(&self) -> Result<String, DaggerError> {
@@ -13127,6 +13294,12 @@ pub struct Query {
     pub graphql_client: DynGraphQLClient,
 }
 #[derive(Builder, Debug, PartialEq)]
+pub struct QueryBlobOpts {
+    /// Permissions of the new file. Example: 0600
+    #[builder(setter(into, strip_option), default)]
+    pub permissions: Option<isize>,
+}
+#[derive(Builder, Debug, PartialEq)]
 pub struct QueryCacheVolumeOpts<'a> {
     /// A user:group to set for the cache volume root.
     /// The user and group can either be an ID (1000:1000) or a name (foo:bar).
@@ -13157,13 +13330,10 @@ pub struct QueryCurrentTypeDefsOpts {
     pub return_all_types: Option<bool>,
 }
 #[derive(Builder, Debug, PartialEq)]
-pub struct QueryEnvOpts {
-    /// Give the environment the same privileges as the caller: core API including host access, current module, and dependencies
+pub struct QueryEngineVolumeOpts<'a> {
+    /// Optional existing subdirectory within the volume payload to mount.
     #[builder(setter(into, strip_option), default)]
-    pub privileged: Option<bool>,
-    /// Allow new outputs to be declared and saved in the environment
-    #[builder(setter(into, strip_option), default)]
-    pub writable: Option<bool>,
+    pub subdir: Option<&'a str>,
 }
 #[derive(Builder, Debug, PartialEq)]
 pub struct QueryEnvFileOpts {
@@ -13221,12 +13391,12 @@ pub struct QueryHttpOpts<'a> {
 }
 #[derive(Builder, Debug, PartialEq)]
 pub struct QueryLlmOpts<'a> {
-    /// Cap the number of API calls for this LLM
-    #[builder(setter(into, strip_option), default)]
-    pub max_api_calls: Option<isize>,
-    /// Model to use
+    /// The model to converse with, e.g. "claude-sonnet-4-5" or "gpt-5.4". Defaults to the configured default model.
     #[builder(setter(into, strip_option), default)]
     pub model: Option<&'a str>,
+    /// The provider serving the model, e.g. "openai". Overrides the provider otherwise inferred from the model name — useful when the name matches no known pattern (e.g. a fine-tune), or matches the wrong one.
+    #[builder(setter(into, strip_option), default)]
+    pub provider: Option<&'a str>,
 }
 #[derive(Builder, Debug, PartialEq)]
 pub struct QueryModuleSourceOpts<'a> {
@@ -13242,6 +13412,9 @@ pub struct QueryModuleSourceOpts<'a> {
     /// If set, error out if the ref string is not of the provided requireKind.
     #[builder(setter(into, strip_option), default)]
     pub require_kind: Option<ModuleSourceKind>,
+    /// Version query for a Git module source.
+    #[builder(setter(into, strip_option), default)]
+    pub version: Option<&'a str>,
 }
 #[derive(Builder, Debug, PartialEq)]
 pub struct QuerySecretOpts<'a> {
@@ -13250,6 +13423,21 @@ pub struct QuerySecretOpts<'a> {
     /// If not set, the cache key for the secret will be derived from its plaintext value as looked up when the secret is constructed.
     #[builder(setter(into, strip_option), default)]
     pub cache_key: Option<&'a str>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct QuerySshfsVolumeOpts<'a> {
+    /// Optional cache equivalence key. If set, volumes with the same cacheKey may be considered equivalent for cache lookups, still subject to their resource dependencies.
+    #[builder(setter(into, strip_option), default)]
+    pub cache_key: Option<&'a str>,
+    /// Service to use as the SSHFS network endpoint while verifying the original host key.
+    #[builder(setter(into, strip_option), default)]
+    pub experimental_service_host: Option<Id>,
+    /// Disable SSH host key verification. This is insecure and must be explicitly opted into.
+    #[builder(setter(into, strip_option), default)]
+    pub insecure_skip_host_key_check: Option<bool>,
+    /// known_hosts material used to verify the remote host key. Required unless insecureSkipHostKeyCheck is true.
+    #[builder(setter(into, strip_option), default)]
+    pub known_hosts: Option<Id>,
 }
 impl IntoID<Id> for Query {
     fn into_id(
@@ -13280,6 +13468,43 @@ impl Query {
         let mut query = self.selection.select("address");
         query = query.arg("value", value.into());
         Address {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Creates a file from arbitrary binary contents.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Name of the new file. Example: "archive.tar"
+    /// * `contents` - Binary contents of the new file, encoded as base64 at the GraphQL boundary.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn blob(&self, name: impl Into<String>, contents: Bytes) -> File {
+        let mut query = self.selection.select("blob");
+        query = query.arg("name", name.into());
+        query = query.arg("contents", contents);
+        File {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Creates a file from arbitrary binary contents.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Name of the new file. Example: "archive.tar"
+    /// * `contents` - Binary contents of the new file, encoded as base64 at the GraphQL boundary.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn blob_opts(&self, name: impl Into<String>, contents: Bytes, opts: QueryBlobOpts) -> File {
+        let mut query = self.selection.select("blob");
+        query = query.arg("name", name.into());
+        query = query.arg("contents", contents);
+        if let Some(permissions) = opts.permissions {
+            query = query.arg("permissions", permissions);
+        }
+        File {
             proc: self.proc.clone(),
             selection: query,
             graphql_client: self.graphql_client.clone(),
@@ -13377,17 +13602,6 @@ impl Query {
             graphql_client: self.graphql_client.clone(),
         }
     }
-    /// Returns the current environment
-    /// When called from a function invoked via an LLM tool call, this will be the LLM's current environment, including any modifications made through calling tools. Env values returned by functions become the new environment for subsequent calls, and Changeset values returned by functions are applied to the environment's workspace.
-    /// When called from a module function outside of an LLM, this returns an Env with the current module installed, and with the current module's source directory as its workspace.
-    pub fn current_env(&self) -> Env {
-        let query = self.selection.select("currentEnv");
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
     /// The FunctionCall context that the SDK caller is currently executing in.
     /// If the caller is not currently executing in a function, this will return an error.
     pub fn current_function_call(&self) -> FunctionCall {
@@ -13402,6 +13616,15 @@ impl Query {
     pub fn current_module(&self) -> CurrentModule {
         let query = self.selection.select("currentModule");
         CurrentModule {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// The object that received the current module function call, as a Node. Errors when there is no current call, or the call is top-level (e.g. a module constructor).
+    pub fn current_node(&self) -> NodeClient {
+        let query = self.selection.select("currentNode");
+        NodeClient {
             proc: self.proc.clone(),
             selection: query,
             graphql_client: self.graphql_client.clone(),
@@ -13490,33 +13713,38 @@ impl Query {
             graphql_client: self.graphql_client.clone(),
         }
     }
-    /// Initializes a new environment
+    /// Constructs an engine-managed volume backed by operator-provided storage beneath the configured engine state root.
     ///
     /// # Arguments
     ///
+    /// * `name` - Canonical slash-separated volume name beneath the engine volume namespace.
     /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub fn env(&self) -> Env {
-        let query = self.selection.select("env");
-        Env {
+    pub fn engine_volume(&self, name: impl Into<String>) -> Volume {
+        let mut query = self.selection.select("engineVolume");
+        query = query.arg("name", name.into());
+        Volume {
             proc: self.proc.clone(),
             selection: query,
             graphql_client: self.graphql_client.clone(),
         }
     }
-    /// Initializes a new environment
+    /// Constructs an engine-managed volume backed by operator-provided storage beneath the configured engine state root.
     ///
     /// # Arguments
     ///
+    /// * `name` - Canonical slash-separated volume name beneath the engine volume namespace.
     /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub fn env_opts(&self, opts: QueryEnvOpts) -> Env {
-        let mut query = self.selection.select("env");
-        if let Some(privileged) = opts.privileged {
-            query = query.arg("privileged", privileged);
+    pub fn engine_volume_opts<'a>(
+        &self,
+        name: impl Into<String>,
+        opts: QueryEngineVolumeOpts<'a>,
+    ) -> Volume {
+        let mut query = self.selection.select("engineVolume");
+        query = query.arg("name", name.into());
+        if let Some(subdir) = opts.subdir {
+            query = query.arg("subdir", subdir);
         }
-        if let Some(writable) = opts.writable {
-            query = query.arg("writable", writable);
-        }
-        Env {
+        Volume {
             proc: self.proc.clone(),
             selection: query,
             graphql_client: self.graphql_client.clone(),
@@ -13772,7 +14000,7 @@ impl Query {
             graphql_client: self.graphql_client.clone(),
         }
     }
-    /// Initialize a Large Language Model (LLM)
+    /// Initialize a new LLM conversation.
     ///
     /// # Arguments
     ///
@@ -13785,7 +14013,7 @@ impl Query {
             graphql_client: self.graphql_client.clone(),
         }
     }
-    /// Initialize a Large Language Model (LLM)
+    /// Initialize a new LLM conversation.
     ///
     /// # Arguments
     ///
@@ -13795,1191 +14023,10 @@ impl Query {
         if let Some(model) = opts.model {
             query = query.arg("model", model);
         }
-        if let Some(max_api_calls) = opts.max_api_calls {
-            query = query.arg("maxAPICalls", max_api_calls);
+        if let Some(provider) = opts.provider {
+            query = query.arg("provider", provider);
         }
         Llm {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a Address from its ID.
-    pub fn load_address_from_id(&self, id: impl IntoID<AddressId>) -> Address {
-        let mut query = self.selection.select("loadAddressFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        Address {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a Binding from its ID.
-    pub fn load_binding_from_id(&self, id: impl IntoID<BindingId>) -> Binding {
-        let mut query = self.selection.select("loadBindingFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        Binding {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a CacheVolume from its ID.
-    pub fn load_cache_volume_from_id(&self, id: impl IntoID<CacheVolumeId>) -> CacheVolume {
-        let mut query = self.selection.select("loadCacheVolumeFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        CacheVolume {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a Changeset from its ID.
-    pub fn load_changeset_from_id(&self, id: impl IntoID<ChangesetId>) -> Changeset {
-        let mut query = self.selection.select("loadChangesetFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        Changeset {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a Check from its ID.
-    pub fn load_check_from_id(&self, id: impl IntoID<CheckId>) -> Check {
-        let mut query = self.selection.select("loadCheckFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        Check {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a CheckGroup from its ID.
-    pub fn load_check_group_from_id(&self, id: impl IntoID<CheckGroupId>) -> CheckGroup {
-        let mut query = self.selection.select("loadCheckGroupFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        CheckGroup {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a ClientFilesyncMirror from its ID.
-    pub fn load_client_filesync_mirror_from_id(
-        &self,
-        id: impl IntoID<ClientFilesyncMirrorId>,
-    ) -> ClientFilesyncMirror {
-        let mut query = self.selection.select("loadClientFilesyncMirrorFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        ClientFilesyncMirror {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a Cloud from its ID.
-    pub fn load_cloud_from_id(&self, id: impl IntoID<CloudId>) -> Cloud {
-        let mut query = self.selection.select("loadCloudFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        Cloud {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a Container from its ID.
-    pub fn load_container_from_id(&self, id: impl IntoID<ContainerId>) -> Container {
-        let mut query = self.selection.select("loadContainerFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        Container {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a CurrentModule from its ID.
-    pub fn load_current_module_from_id(&self, id: impl IntoID<CurrentModuleId>) -> CurrentModule {
-        let mut query = self.selection.select("loadCurrentModuleFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        CurrentModule {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a DiffStat from its ID.
-    pub fn load_diff_stat_from_id(&self, id: impl IntoID<DiffStatId>) -> DiffStat {
-        let mut query = self.selection.select("loadDiffStatFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        DiffStat {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a Directory from its ID.
-    pub fn load_directory_from_id(&self, id: impl IntoID<DirectoryId>) -> Directory {
-        let mut query = self.selection.select("loadDirectoryFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        Directory {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a EngineCacheEntry from its ID.
-    pub fn load_engine_cache_entry_from_id(
-        &self,
-        id: impl IntoID<EngineCacheEntryId>,
-    ) -> EngineCacheEntry {
-        let mut query = self.selection.select("loadEngineCacheEntryFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        EngineCacheEntry {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a EngineCacheEntrySet from its ID.
-    pub fn load_engine_cache_entry_set_from_id(
-        &self,
-        id: impl IntoID<EngineCacheEntrySetId>,
-    ) -> EngineCacheEntrySet {
-        let mut query = self.selection.select("loadEngineCacheEntrySetFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        EngineCacheEntrySet {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a EngineCache from its ID.
-    pub fn load_engine_cache_from_id(&self, id: impl IntoID<EngineCacheId>) -> EngineCache {
-        let mut query = self.selection.select("loadEngineCacheFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        EngineCache {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a Engine from its ID.
-    pub fn load_engine_from_id(&self, id: impl IntoID<EngineId>) -> Engine {
-        let mut query = self.selection.select("loadEngineFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        Engine {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a EnumTypeDef from its ID.
-    pub fn load_enum_type_def_from_id(&self, id: impl IntoID<EnumTypeDefId>) -> EnumTypeDef {
-        let mut query = self.selection.select("loadEnumTypeDefFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        EnumTypeDef {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a EnumValueTypeDef from its ID.
-    pub fn load_enum_value_type_def_from_id(
-        &self,
-        id: impl IntoID<EnumValueTypeDefId>,
-    ) -> EnumValueTypeDef {
-        let mut query = self.selection.select("loadEnumValueTypeDefFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        EnumValueTypeDef {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a EnvFile from its ID.
-    pub fn load_env_file_from_id(&self, id: impl IntoID<EnvFileId>) -> EnvFile {
-        let mut query = self.selection.select("loadEnvFileFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        EnvFile {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a Env from its ID.
-    pub fn load_env_from_id(&self, id: impl IntoID<EnvId>) -> Env {
-        let mut query = self.selection.select("loadEnvFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        Env {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a EnvVariable from its ID.
-    pub fn load_env_variable_from_id(&self, id: impl IntoID<EnvVariableId>) -> EnvVariable {
-        let mut query = self.selection.select("loadEnvVariableFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        EnvVariable {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a Error from its ID.
-    pub fn load_error_from_id(&self, id: impl IntoID<ErrorId>) -> Error {
-        let mut query = self.selection.select("loadErrorFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        Error {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a ErrorValue from its ID.
-    pub fn load_error_value_from_id(&self, id: impl IntoID<ErrorValueId>) -> ErrorValue {
-        let mut query = self.selection.select("loadErrorValueFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        ErrorValue {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a Exportable from its ID.
-    pub fn load_exportable_from_id(&self, id: impl IntoID<ExportableId>) -> ExportableClient {
-        let mut query = self.selection.select("loadExportableFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        ExportableClient {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a FieldTypeDef from its ID.
-    pub fn load_field_type_def_from_id(&self, id: impl IntoID<FieldTypeDefId>) -> FieldTypeDef {
-        let mut query = self.selection.select("loadFieldTypeDefFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        FieldTypeDef {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a File from its ID.
-    pub fn load_file_from_id(&self, id: impl IntoID<FileId>) -> File {
-        let mut query = self.selection.select("loadFileFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        File {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a FunctionArg from its ID.
-    pub fn load_function_arg_from_id(&self, id: impl IntoID<FunctionArgId>) -> FunctionArg {
-        let mut query = self.selection.select("loadFunctionArgFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        FunctionArg {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a FunctionCallArgValue from its ID.
-    pub fn load_function_call_arg_value_from_id(
-        &self,
-        id: impl IntoID<FunctionCallArgValueId>,
-    ) -> FunctionCallArgValue {
-        let mut query = self.selection.select("loadFunctionCallArgValueFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        FunctionCallArgValue {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a FunctionCall from its ID.
-    pub fn load_function_call_from_id(&self, id: impl IntoID<FunctionCallId>) -> FunctionCall {
-        let mut query = self.selection.select("loadFunctionCallFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        FunctionCall {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a Function from its ID.
-    pub fn load_function_from_id(&self, id: impl IntoID<FunctionId>) -> Function {
-        let mut query = self.selection.select("loadFunctionFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        Function {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a GeneratedCode from its ID.
-    pub fn load_generated_code_from_id(&self, id: impl IntoID<GeneratedCodeId>) -> GeneratedCode {
-        let mut query = self.selection.select("loadGeneratedCodeFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        GeneratedCode {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a Generator from its ID.
-    pub fn load_generator_from_id(&self, id: impl IntoID<GeneratorId>) -> Generator {
-        let mut query = self.selection.select("loadGeneratorFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        Generator {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a GeneratorGroup from its ID.
-    pub fn load_generator_group_from_id(
-        &self,
-        id: impl IntoID<GeneratorGroupId>,
-    ) -> GeneratorGroup {
-        let mut query = self.selection.select("loadGeneratorGroupFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        GeneratorGroup {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a GitRef from its ID.
-    pub fn load_git_ref_from_id(&self, id: impl IntoID<GitRefId>) -> GitRef {
-        let mut query = self.selection.select("loadGitRefFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        GitRef {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a GitRepository from its ID.
-    pub fn load_git_repository_from_id(&self, id: impl IntoID<GitRepositoryId>) -> GitRepository {
-        let mut query = self.selection.select("loadGitRepositoryFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        GitRepository {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a HTTPState from its ID.
-    pub fn load_http_state_from_id(&self, id: impl IntoID<HttpStateId>) -> HttpState {
-        let mut query = self.selection.select("loadHTTPStateFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        HttpState {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a HealthcheckConfig from its ID.
-    pub fn load_healthcheck_config_from_id(
-        &self,
-        id: impl IntoID<HealthcheckConfigId>,
-    ) -> HealthcheckConfig {
-        let mut query = self.selection.select("loadHealthcheckConfigFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        HealthcheckConfig {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a Host from its ID.
-    pub fn load_host_from_id(&self, id: impl IntoID<HostId>) -> Host {
-        let mut query = self.selection.select("loadHostFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        Host {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a InputTypeDef from its ID.
-    pub fn load_input_type_def_from_id(&self, id: impl IntoID<InputTypeDefId>) -> InputTypeDef {
-        let mut query = self.selection.select("loadInputTypeDefFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        InputTypeDef {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a InterfaceTypeDef from its ID.
-    pub fn load_interface_type_def_from_id(
-        &self,
-        id: impl IntoID<InterfaceTypeDefId>,
-    ) -> InterfaceTypeDef {
-        let mut query = self.selection.select("loadInterfaceTypeDefFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        InterfaceTypeDef {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a JSONValue from its ID.
-    pub fn load_json_value_from_id(&self, id: impl IntoID<JsonValueId>) -> JsonValue {
-        let mut query = self.selection.select("loadJSONValueFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        JsonValue {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a LLM from its ID.
-    pub fn load_llm_from_id(&self, id: impl IntoID<Llmid>) -> Llm {
-        let mut query = self.selection.select("loadLLMFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        Llm {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a LLMTokenUsage from its ID.
-    pub fn load_llm_token_usage_from_id(&self, id: impl IntoID<LlmTokenUsageId>) -> LlmTokenUsage {
-        let mut query = self.selection.select("loadLLMTokenUsageFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        LlmTokenUsage {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a Label from its ID.
-    pub fn load_label_from_id(&self, id: impl IntoID<LabelId>) -> Label {
-        let mut query = self.selection.select("loadLabelFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        Label {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a ListTypeDef from its ID.
-    pub fn load_list_type_def_from_id(&self, id: impl IntoID<ListTypeDefId>) -> ListTypeDef {
-        let mut query = self.selection.select("loadListTypeDefFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        ListTypeDef {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a ModuleConfigClient from its ID.
-    pub fn load_module_config_client_from_id(
-        &self,
-        id: impl IntoID<ModuleConfigClientId>,
-    ) -> ModuleConfigClient {
-        let mut query = self.selection.select("loadModuleConfigClientFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        ModuleConfigClient {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a Module from its ID.
-    pub fn load_module_from_id(&self, id: impl IntoID<ModuleId>) -> Module {
-        let mut query = self.selection.select("loadModuleFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        Module {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a ModuleSource from its ID.
-    pub fn load_module_source_from_id(&self, id: impl IntoID<ModuleSourceId>) -> ModuleSource {
-        let mut query = self.selection.select("loadModuleSourceFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        ModuleSource {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a ObjectTypeDef from its ID.
-    pub fn load_object_type_def_from_id(&self, id: impl IntoID<ObjectTypeDefId>) -> ObjectTypeDef {
-        let mut query = self.selection.select("loadObjectTypeDefFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        ObjectTypeDef {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a Port from its ID.
-    pub fn load_port_from_id(&self, id: impl IntoID<PortId>) -> Port {
-        let mut query = self.selection.select("loadPortFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        Port {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a RemoteGitMirror from its ID.
-    pub fn load_remote_git_mirror_from_id(
-        &self,
-        id: impl IntoID<RemoteGitMirrorId>,
-    ) -> RemoteGitMirror {
-        let mut query = self.selection.select("loadRemoteGitMirrorFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        RemoteGitMirror {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a SDKConfig from its ID.
-    pub fn load_sdk_config_from_id(&self, id: impl IntoID<SdkConfigId>) -> SdkConfig {
-        let mut query = self.selection.select("loadSDKConfigFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        SdkConfig {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a ScalarTypeDef from its ID.
-    pub fn load_scalar_type_def_from_id(&self, id: impl IntoID<ScalarTypeDefId>) -> ScalarTypeDef {
-        let mut query = self.selection.select("loadScalarTypeDefFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        ScalarTypeDef {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a SearchResult from its ID.
-    pub fn load_search_result_from_id(&self, id: impl IntoID<SearchResultId>) -> SearchResult {
-        let mut query = self.selection.select("loadSearchResultFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        SearchResult {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a SearchSubmatch from its ID.
-    pub fn load_search_submatch_from_id(
-        &self,
-        id: impl IntoID<SearchSubmatchId>,
-    ) -> SearchSubmatch {
-        let mut query = self.selection.select("loadSearchSubmatchFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        SearchSubmatch {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a Secret from its ID.
-    pub fn load_secret_from_id(&self, id: impl IntoID<SecretId>) -> Secret {
-        let mut query = self.selection.select("loadSecretFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        Secret {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a Service from its ID.
-    pub fn load_service_from_id(&self, id: impl IntoID<ServiceId>) -> Service {
-        let mut query = self.selection.select("loadServiceFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        Service {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a Socket from its ID.
-    pub fn load_socket_from_id(&self, id: impl IntoID<SocketId>) -> Socket {
-        let mut query = self.selection.select("loadSocketFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        Socket {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a SourceMap from its ID.
-    pub fn load_source_map_from_id(&self, id: impl IntoID<SourceMapId>) -> SourceMap {
-        let mut query = self.selection.select("loadSourceMapFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        SourceMap {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a Stat from its ID.
-    pub fn load_stat_from_id(&self, id: impl IntoID<StatId>) -> Stat {
-        let mut query = self.selection.select("loadStatFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        Stat {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a Syncer from its ID.
-    pub fn load_syncer_from_id(&self, id: impl IntoID<SyncerId>) -> SyncerClient {
-        let mut query = self.selection.select("loadSyncerFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        SyncerClient {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a Terminal from its ID.
-    pub fn load_terminal_from_id(&self, id: impl IntoID<TerminalId>) -> Terminal {
-        let mut query = self.selection.select("loadTerminalFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        Terminal {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a TypeDef from its ID.
-    pub fn load_type_def_from_id(&self, id: impl IntoID<TypeDefId>) -> TypeDef {
-        let mut query = self.selection.select("loadTypeDefFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        TypeDef {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a Up from its ID.
-    pub fn load_up_from_id(&self, id: impl IntoID<UpId>) -> Up {
-        let mut query = self.selection.select("loadUpFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        Up {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a UpGroup from its ID.
-    pub fn load_up_group_from_id(&self, id: impl IntoID<UpGroupId>) -> UpGroup {
-        let mut query = self.selection.select("loadUpGroupFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        UpGroup {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a Workspace from its ID.
-    pub fn load_workspace_from_id(&self, id: impl IntoID<WorkspaceId>) -> Workspace {
-        let mut query = self.selection.select("loadWorkspaceFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        Workspace {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a WorkspaceGit from its ID.
-    pub fn load_workspace_git_from_id(&self, id: impl IntoID<WorkspaceGitId>) -> WorkspaceGit {
-        let mut query = self.selection.select("loadWorkspaceGitFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        WorkspaceGit {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a WorkspaceMigration from its ID.
-    pub fn load_workspace_migration_from_id(
-        &self,
-        id: impl IntoID<WorkspaceMigrationId>,
-    ) -> WorkspaceMigration {
-        let mut query = self.selection.select("loadWorkspaceMigrationFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        WorkspaceMigration {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a WorkspaceMigrationStep from its ID.
-    pub fn load_workspace_migration_step_from_id(
-        &self,
-        id: impl IntoID<WorkspaceMigrationStepId>,
-    ) -> WorkspaceMigrationStep {
-        let mut query = self.selection.select("loadWorkspaceMigrationStepFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        WorkspaceMigrationStep {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a WorkspaceModule from its ID.
-    pub fn load_workspace_module_from_id(
-        &self,
-        id: impl IntoID<WorkspaceModuleId>,
-    ) -> WorkspaceModule {
-        let mut query = self.selection.select("loadWorkspaceModuleFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        WorkspaceModule {
-            proc: self.proc.clone(),
-            selection: query,
-            graphql_client: self.graphql_client.clone(),
-        }
-    }
-    /// Load a WorkspaceModuleSetting from its ID.
-    pub fn load_workspace_module_setting_from_id(
-        &self,
-        id: impl IntoID<WorkspaceModuleSettingId>,
-    ) -> WorkspaceModuleSetting {
-        let mut query = self.selection.select("loadWorkspaceModuleSettingFromID");
-        query = query.arg_lazy(
-            "id",
-            Box::new(move || {
-                let id = id.clone();
-                Box::pin(async move { id.into_id().await.unwrap().quote() })
-            }),
-        );
-        WorkspaceModuleSetting {
             proc: self.proc.clone(),
             selection: query,
             graphql_client: self.graphql_client.clone(),
@@ -15022,6 +14069,9 @@ impl Query {
     ) -> ModuleSource {
         let mut query = self.selection.select("moduleSource");
         query = query.arg("refString", ref_string.into());
+        if let Some(version) = opts.version {
+            query = query.arg("version", version);
+        }
         if let Some(ref_pin) = opts.ref_pin {
             query = query.arg("refPin", ref_pin);
         }
@@ -15041,7 +14091,7 @@ impl Query {
         }
     }
     /// Load any object by its ID.
-    pub fn node(&self, id: impl IntoID<Id>) -> NodeClient {
+    pub async fn node(&self, id: impl IntoID<Id>) -> Result<Option<NodeClient>, DaggerError> {
         let mut query = self.selection.select("node");
         query = query.arg_lazy(
             "id",
@@ -15050,7 +14100,27 @@ impl Query {
                 Box::pin(async move { id.into_id().await.unwrap().quote() })
             }),
         );
-        NodeClient {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| NodeClient {
+            proc: self.proc.clone(),
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("Node"),
+            graphql_client: self.graphql_client.clone(),
+        }))
+    }
+    /// Load a GraphQL introspection schema for merging.
+    ///
+    /// # Arguments
+    ///
+    /// * `json` - The introspection schema JSON to load.
+    pub fn schema(&self, json: Json) -> Schema {
+        let mut query = self.selection.select("schema");
+        query = query.arg("json", json);
+        Schema {
             proc: self.proc.clone(),
             selection: query,
             graphql_client: self.graphql_client.clone(),
@@ -15119,6 +14189,73 @@ impl Query {
         query = query.arg("line", line);
         query = query.arg("column", column);
         SourceMap {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Constructs an SSHFS volume.
+    ///
+    /// # Arguments
+    ///
+    /// * `endpoint` - SSHFS endpoint URL in the form sshfs://user@host[:port]/absolute/path.
+    /// * `private_key` - Private key secret used to authenticate to the remote host.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn sshfs_volume(
+        &self,
+        endpoint: impl Into<String>,
+        private_key: impl IntoID<Id>,
+    ) -> Volume {
+        let mut query = self.selection.select("sshfsVolume");
+        query = query.arg("endpoint", endpoint.into());
+        query = query.arg_lazy(
+            "privateKey",
+            Box::new(move || {
+                let private_key = private_key.clone();
+                Box::pin(async move { private_key.into_id().await.unwrap().quote() })
+            }),
+        );
+        Volume {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Constructs an SSHFS volume.
+    ///
+    /// # Arguments
+    ///
+    /// * `endpoint` - SSHFS endpoint URL in the form sshfs://user@host[:port]/absolute/path.
+    /// * `private_key` - Private key secret used to authenticate to the remote host.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn sshfs_volume_opts<'a>(
+        &self,
+        endpoint: impl Into<String>,
+        private_key: impl IntoID<Id>,
+        opts: QuerySshfsVolumeOpts<'a>,
+    ) -> Volume {
+        let mut query = self.selection.select("sshfsVolume");
+        query = query.arg("endpoint", endpoint.into());
+        query = query.arg_lazy(
+            "privateKey",
+            Box::new(move || {
+                let private_key = private_key.clone();
+                Box::pin(async move { private_key.into_id().await.unwrap().quote() })
+            }),
+        );
+        if let Some(known_hosts) = opts.known_hosts {
+            query = query.arg("knownHosts", known_hosts);
+        }
+        if let Some(cache_key) = opts.cache_key {
+            query = query.arg("cacheKey", cache_key);
+        }
+        if let Some(insecure_skip_host_key_check) = opts.insecure_skip_host_key_check {
+            query = query.arg("insecureSkipHostKeyCheck", insecure_skip_host_key_check);
+        }
+        if let Some(experimental_service_host) = opts.experimental_service_host {
+            query = query.arg("experimentalServiceHost", experimental_service_host);
+        }
+        Volume {
             proc: self.proc.clone(),
             selection: query,
             graphql_client: self.graphql_client.clone(),
@@ -15294,6 +14431,70 @@ impl ScalarTypeDef {
     }
 }
 impl Node for ScalarTypeDef {
+    fn id(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
+        let query = self.selection.select("id");
+        let graphql_client = self.graphql_client.clone();
+        async move { query.execute(graphql_client).await }
+    }
+}
+#[derive(Clone)]
+pub struct Schema {
+    pub proc: Option<Arc<DaggerSessionProc>>,
+    pub selection: Selection,
+    pub graphql_client: DynGraphQLClient,
+}
+impl IntoID<Id> for Schema {
+    fn into_id(
+        self,
+    ) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<Id, DaggerError>> + Send>> {
+        Box::pin(async move { self.id().await })
+    }
+}
+impl Loadable for Schema {
+    fn graphql_type() -> &'static str {
+        "Schema"
+    }
+    fn from_query(
+        proc: Option<Arc<DaggerSessionProc>>,
+        selection: Selection,
+        graphql_client: DynGraphQLClient,
+    ) -> Self {
+        Self {
+            proc,
+            selection,
+            graphql_client,
+        }
+    }
+}
+impl Schema {
+    /// Serialize the schema back to introspection JSON.
+    pub async fn contents(&self) -> Result<Json, DaggerError> {
+        let query = self.selection.select("contents");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// A unique identifier for this Schema.
+    pub async fn id(&self) -> Result<Id, DaggerError> {
+        let query = self.selection.select("id");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Merge a module's introspection-shaped type definitions into the schema, returning the combined schema.
+    ///
+    /// # Arguments
+    ///
+    /// * `module_types` - Introspection JSON describing the types the module defines. Object, interface and enum types are appended to the schema, and a constructor field for the module is added to the Query type.
+    /// * `module_name` - The name of the module whose types are being merged. Used to stamp the @sourceMap directive and to derive the module's constructor field.
+    pub fn merge(&self, module_types: Json, module_name: impl Into<String>) -> Schema {
+        let mut query = self.selection.select("merge");
+        query = query.arg("moduleTypes", module_types);
+        query = query.arg("moduleName", module_name.into());
+        Schema {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+}
+impl Node for Schema {
     fn id(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
         let query = self.selection.select("id");
         let graphql_client = self.graphql_client.clone();
@@ -15761,10 +14962,22 @@ impl Syncer for Service {
         let graphql_client = self.graphql_client.clone();
         async move { query.execute(graphql_client).await }
     }
-    fn sync(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
+    fn sync(&self) -> impl core::future::Future<Output = Result<Self, DaggerError>> + Send {
         let query = self.selection.select("sync");
+        let proc = self.proc.clone();
         let graphql_client = self.graphql_client.clone();
-        async move { query.execute(graphql_client).await }
+        async move {
+            let id: Id = query.execute(graphql_client.clone()).await?;
+            Ok(Self {
+                proc,
+                selection: query
+                    .root()
+                    .select("node")
+                    .arg("id", &id.0)
+                    .inline_fragment("Service"),
+                graphql_client,
+            })
+        }
     }
 }
 #[derive(Clone)]
@@ -16005,8 +15218,156 @@ impl Syncer for Terminal {
         let graphql_client = self.graphql_client.clone();
         async move { query.execute(graphql_client).await }
     }
-    fn sync(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
+    fn sync(&self) -> impl core::future::Future<Output = Result<Self, DaggerError>> + Send {
         let query = self.selection.select("sync");
+        let proc = self.proc.clone();
+        let graphql_client = self.graphql_client.clone();
+        async move {
+            let id: Id = query.execute(graphql_client.clone()).await?;
+            Ok(Self {
+                proc,
+                selection: query
+                    .root()
+                    .select("node")
+                    .arg("id", &id.0)
+                    .inline_fragment("Terminal"),
+                graphql_client,
+            })
+        }
+    }
+}
+#[derive(Clone)]
+pub struct TerminalGroup {
+    pub proc: Option<Arc<DaggerSessionProc>>,
+    pub selection: Selection,
+    pub graphql_client: DynGraphQLClient,
+}
+impl IntoID<Id> for TerminalGroup {
+    fn into_id(
+        self,
+    ) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<Id, DaggerError>> + Send>> {
+        Box::pin(async move { self.id().await })
+    }
+}
+impl Loadable for TerminalGroup {
+    fn graphql_type() -> &'static str {
+        "TerminalGroup"
+    }
+    fn from_query(
+        proc: Option<Arc<DaggerSessionProc>>,
+        selection: Selection,
+        graphql_client: DynGraphQLClient,
+    ) -> Self {
+        Self {
+            proc,
+            selection,
+            graphql_client,
+        }
+    }
+}
+impl TerminalGroup {
+    /// A unique identifier for this TerminalGroup.
+    pub async fn id(&self) -> Result<Id, DaggerError> {
+        let query = self.selection.select("id");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Return the selected terminal targets and their details
+    pub async fn list(&self) -> Result<Vec<TerminalTarget>, DaggerError> {
+        let query = self.selection.select("list");
+        let query = query.select("id");
+        let ids: Vec<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(ids
+            .into_iter()
+            .map(|id| TerminalTarget {
+                proc: self.proc.clone(),
+                selection: crate::querybuilder::query()
+                    .select("node")
+                    .arg("id", &id.0)
+                    .inline_fragment("TerminalTarget"),
+                graphql_client: self.graphql_client.clone(),
+            })
+            .collect())
+    }
+    /// Open the selected terminal target
+    pub fn run(&self) -> TerminalGroup {
+        let query = self.selection.select("run");
+        TerminalGroup {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+}
+impl Node for TerminalGroup {
+    fn id(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
+        let query = self.selection.select("id");
+        let graphql_client = self.graphql_client.clone();
+        async move { query.execute(graphql_client).await }
+    }
+}
+#[derive(Clone)]
+pub struct TerminalTarget {
+    pub proc: Option<Arc<DaggerSessionProc>>,
+    pub selection: Selection,
+    pub graphql_client: DynGraphQLClient,
+}
+impl IntoID<Id> for TerminalTarget {
+    fn into_id(
+        self,
+    ) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<Id, DaggerError>> + Send>> {
+        Box::pin(async move { self.id().await })
+    }
+}
+impl Loadable for TerminalTarget {
+    fn graphql_type() -> &'static str {
+        "TerminalTarget"
+    }
+    fn from_query(
+        proc: Option<Arc<DaggerSessionProc>>,
+        selection: Selection,
+        graphql_client: DynGraphQLClient,
+    ) -> Self {
+        Self {
+            proc,
+            selection,
+            graphql_client,
+        }
+    }
+}
+impl TerminalTarget {
+    /// The description of the terminal target
+    pub async fn description(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("description");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// A unique identifier for this TerminalTarget.
+    pub async fn id(&self) -> Result<Id, DaggerError> {
+        let query = self.selection.select("id");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Return the command name of the terminal target. Entrypoint targets omit the module prefix.
+    pub async fn name(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("name");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// The module in which the terminal target is defined
+    pub fn original_module(&self) -> Module {
+        let query = self.selection.select("originalModule");
+        Module {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// The path of the terminal target within its module
+    pub async fn path(&self) -> Result<Vec<String>, DaggerError> {
+        let query = self.selection.select("path");
+        query.execute(self.graphql_client.clone()).await
+    }
+}
+impl Node for TerminalTarget {
+    fn id(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
+        let query = self.selection.select("id");
         let graphql_client = self.graphql_client.clone();
         async move { query.execute(graphql_client).await }
     }
@@ -16111,58 +15472,94 @@ impl Loadable for TypeDef {
 }
 impl TypeDef {
     /// If kind is ENUM, the enum-specific type definition. If kind is not ENUM, this will be null.
-    pub fn as_enum(&self) -> EnumTypeDef {
+    pub async fn as_enum(&self) -> Result<Option<EnumTypeDef>, DaggerError> {
         let query = self.selection.select("asEnum");
-        EnumTypeDef {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| EnumTypeDef {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("EnumTypeDef"),
             graphql_client: self.graphql_client.clone(),
-        }
+        }))
     }
     /// If kind is INPUT, the input-specific type definition. If kind is not INPUT, this will be null.
-    pub fn as_input(&self) -> InputTypeDef {
+    pub async fn as_input(&self) -> Result<Option<InputTypeDef>, DaggerError> {
         let query = self.selection.select("asInput");
-        InputTypeDef {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| InputTypeDef {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("InputTypeDef"),
             graphql_client: self.graphql_client.clone(),
-        }
+        }))
     }
     /// If kind is INTERFACE, the interface-specific type definition. If kind is not INTERFACE, this will be null.
-    pub fn as_interface(&self) -> InterfaceTypeDef {
+    pub async fn as_interface(&self) -> Result<Option<InterfaceTypeDef>, DaggerError> {
         let query = self.selection.select("asInterface");
-        InterfaceTypeDef {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| InterfaceTypeDef {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("InterfaceTypeDef"),
             graphql_client: self.graphql_client.clone(),
-        }
+        }))
     }
     /// If kind is LIST, the list-specific type definition. If kind is not LIST, this will be null.
-    pub fn as_list(&self) -> ListTypeDef {
+    pub async fn as_list(&self) -> Result<Option<ListTypeDef>, DaggerError> {
         let query = self.selection.select("asList");
-        ListTypeDef {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| ListTypeDef {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("ListTypeDef"),
             graphql_client: self.graphql_client.clone(),
-        }
+        }))
     }
     /// If kind is OBJECT, the object-specific type definition. If kind is not OBJECT, this will be null.
-    pub fn as_object(&self) -> ObjectTypeDef {
+    pub async fn as_object(&self) -> Result<Option<ObjectTypeDef>, DaggerError> {
         let query = self.selection.select("asObject");
-        ObjectTypeDef {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| ObjectTypeDef {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("ObjectTypeDef"),
             graphql_client: self.graphql_client.clone(),
-        }
+        }))
     }
     /// If kind is SCALAR, the scalar-specific type definition. If kind is not SCALAR, this will be null.
-    pub fn as_scalar(&self) -> ScalarTypeDef {
+    pub async fn as_scalar(&self) -> Result<Option<ScalarTypeDef>, DaggerError> {
         let query = self.selection.select("asScalar");
-        ScalarTypeDef {
+        let query = query.select("id");
+        let id: Option<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(id.map(|id| ScalarTypeDef {
             proc: self.proc.clone(),
-            selection: query,
+            selection: query
+                .root()
+                .select("node")
+                .arg("id", &id.0)
+                .inline_fragment("ScalarTypeDef"),
             graphql_client: self.graphql_client.clone(),
-        }
+        }))
     }
     /// A unique identifier for this TypeDef.
     pub async fn id(&self) -> Result<Id, DaggerError> {
@@ -16607,7 +16004,7 @@ impl Up {
         let query = self.selection.select("id");
         query.execute(self.graphql_client.clone()).await
     }
-    /// Return the fully qualified name of the service
+    /// Return the command name of the service. Entrypoint targets omit the module prefix.
     pub async fn name(&self) -> Result<String, DaggerError> {
         let query = self.selection.select("name");
         query.execute(self.graphql_client.clone()).await
@@ -16713,10 +16110,68 @@ impl Node for UpGroup {
     }
 }
 #[derive(Clone)]
+pub struct Volume {
+    pub proc: Option<Arc<DaggerSessionProc>>,
+    pub selection: Selection,
+    pub graphql_client: DynGraphQLClient,
+}
+impl IntoID<Id> for Volume {
+    fn into_id(
+        self,
+    ) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<Id, DaggerError>> + Send>> {
+        Box::pin(async move { self.id().await })
+    }
+}
+impl Loadable for Volume {
+    fn graphql_type() -> &'static str {
+        "Volume"
+    }
+    fn from_query(
+        proc: Option<Arc<DaggerSessionProc>>,
+        selection: Selection,
+        graphql_client: DynGraphQLClient,
+    ) -> Self {
+        Self {
+            proc,
+            selection,
+            graphql_client,
+        }
+    }
+}
+impl Volume {
+    /// A unique identifier for this Volume.
+    pub async fn id(&self) -> Result<Id, DaggerError> {
+        let query = self.selection.select("id");
+        query.execute(self.graphql_client.clone()).await
+    }
+}
+impl Node for Volume {
+    fn id(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
+        let query = self.selection.select("id");
+        let graphql_client = self.graphql_client.clone();
+        async move { query.execute(graphql_client).await }
+    }
+}
+#[derive(Clone)]
 pub struct Workspace {
     pub proc: Option<Arc<DaggerSessionProc>>,
     pub selection: Selection,
     pub graphql_client: DynGraphQLClient,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct WorkspaceAgentsOpts<'a> {
+    /// Exclude agents matching the specified patterns
+    #[builder(setter(into, strip_option), default)]
+    pub exclude: Option<Vec<&'a str>>,
+    /// Only include agents matching the specified patterns
+    #[builder(setter(into, strip_option), default)]
+    pub include: Option<Vec<&'a str>>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct WorkspaceChangesOpts {
+    /// An earlier workspace state to compare against.
+    #[builder(setter(into, strip_option), default)]
+    pub from: Option<Id>,
 }
 #[derive(Builder, Debug, PartialEq)]
 pub struct WorkspaceChecksOpts<'a> {
@@ -16729,18 +16184,15 @@ pub struct WorkspaceChecksOpts<'a> {
     /// When true, only return generate-as-checks; exclude annotated check functions
     #[builder(setter(into, strip_option), default)]
     pub only_generate: Option<bool>,
+    /// Skip checks matching the specified patterns
+    #[builder(setter(into, strip_option), default)]
+    pub skip: Option<Vec<&'a str>>,
 }
 #[derive(Builder, Debug, PartialEq)]
 pub struct WorkspaceConfigReadOpts<'a> {
     /// Dotted key path (e.g. modules.greeter.source). Empty for full config.
     #[builder(setter(into, strip_option), default)]
     pub key: Option<&'a str>,
-}
-#[derive(Builder, Debug, PartialEq)]
-pub struct WorkspaceConfigWriteOpts {
-    /// Write to the workspace config directory at the workspace cwd.
-    #[builder(setter(into, strip_option), default)]
-    pub here: Option<bool>,
 }
 #[derive(Builder, Debug, PartialEq)]
 pub struct WorkspaceDirectoryOpts<'a> {
@@ -16755,16 +16207,13 @@ pub struct WorkspaceDirectoryOpts<'a> {
     pub include: Option<Vec<&'a str>>,
 }
 #[derive(Builder, Debug, PartialEq)]
-pub struct WorkspaceEnvCreateOpts {
-    /// Write to the workspace config directory at the workspace cwd.
+pub struct WorkspaceFindRootsOpts<'a> {
+    /// Glob patterns pruning the walk below start (e.g. ["**/node_modules/**"]).
     #[builder(setter(into, strip_option), default)]
-    pub here: Option<bool>,
-}
-#[derive(Builder, Debug, PartialEq)]
-pub struct WorkspaceEnvRemoveOpts {
-    /// Write to the workspace config directory at the workspace cwd.
+    pub exclude: Option<Vec<&'a str>>,
+    /// Directory to start from. Relative paths resolve from the workspace cwd.
     #[builder(setter(into, strip_option), default)]
-    pub here: Option<bool>,
+    pub start: Option<&'a str>,
 }
 #[derive(Builder, Debug, PartialEq)]
 pub struct WorkspaceFindUpOpts<'a> {
@@ -16779,48 +16228,49 @@ pub struct WorkspaceGeneratorsOpts<'a> {
     pub include: Option<Vec<&'a str>>,
 }
 #[derive(Builder, Debug, PartialEq)]
-pub struct WorkspaceInitOpts {
-    /// Create the workspace config directory at the workspace cwd instead of using the default write target.
+pub struct WorkspaceMigrateOpts<'a> {
+    /// Additional local modules to migrate. Relative paths start at the workspace cwd; absolute paths start at the workspace root.
     #[builder(setter(into, strip_option), default)]
-    pub here: Option<bool>,
+    pub modules: Option<Vec<&'a str>>,
 }
 #[derive(Builder, Debug, PartialEq)]
-pub struct WorkspaceInstallOpts<'a> {
-    /// Write to the workspace config directory at the workspace cwd.
+pub struct WorkspaceMigrateModuleOpts<'a> {
+    /// Module directory. Relative paths start at the workspace cwd; absolute paths start at the workspace root.
     #[builder(setter(into, strip_option), default)]
-    pub here: Option<bool>,
-    /// Override name for the installed module entry.
-    #[builder(setter(into, strip_option), default)]
-    pub name: Option<&'a str>,
+    pub path: Option<&'a str>,
 }
 #[derive(Builder, Debug, PartialEq)]
-pub struct WorkspaceMigrateOpts {
+pub struct WorkspaceSearchOpts<'a> {
+    /// Allow the . pattern to match newlines in multiline mode.
     #[builder(setter(into, strip_option), default)]
-    pub force: Option<bool>,
-}
-#[derive(Builder, Debug, PartialEq)]
-pub struct WorkspaceModuleInitOpts<'a> {
-    /// Write to the workspace config directory at the workspace cwd.
+    pub dotall: Option<bool>,
+    /// Only return matching files, not lines and content
     #[builder(setter(into, strip_option), default)]
-    pub here: Option<bool>,
-    /// Additional include patterns for the module.
+    pub files_only: Option<bool>,
+    /// Glob patterns to match (e.g., "*.md")
     #[builder(setter(into, strip_option), default)]
-    pub include: Option<Vec<&'a str>>,
-    /// SDK to use for the new module.
+    pub globs: Option<Vec<&'a str>>,
+    /// Enable case-insensitive matching.
     #[builder(setter(into, strip_option), default)]
-    pub sdk: Option<&'a str>,
-    /// Enable the self-calls experimental feature for the new module.
+    pub insensitive: Option<bool>,
+    /// Limit the number of results to return
     #[builder(setter(into, strip_option), default)]
-    pub self_calls: Option<bool>,
-    /// Source subpath within the new module.
+    pub limit: Option<isize>,
+    /// Interpret the pattern as a literal string instead of a regular expression.
     #[builder(setter(into, strip_option), default)]
-    pub source: Option<&'a str>,
-}
-#[derive(Builder, Debug, PartialEq)]
-pub struct WorkspaceModuleListOpts<'a> {
-    /// Optional module alias to inspect.
+    pub literal: Option<bool>,
+    /// Enable searching across multiple lines.
     #[builder(setter(into, strip_option), default)]
-    pub module: Option<&'a str>,
+    pub multiline: Option<bool>,
+    /// Directory or file paths to search
+    #[builder(setter(into, strip_option), default)]
+    pub paths: Option<Vec<&'a str>>,
+    /// Skip hidden files (files starting with .).
+    #[builder(setter(into, strip_option), default)]
+    pub skip_hidden: Option<bool>,
+    /// Honor .gitignore, .ignore, and .rgignore files.
+    #[builder(setter(into, strip_option), default)]
+    pub skip_ignored: Option<bool>,
 }
 #[derive(Builder, Debug, PartialEq)]
 pub struct WorkspaceServicesOpts<'a> {
@@ -16829,7 +16279,139 @@ pub struct WorkspaceServicesOpts<'a> {
     pub include: Option<Vec<&'a str>>,
 }
 #[derive(Builder, Debug, PartialEq)]
-pub struct WorkspaceUninstallOpts {
+pub struct WorkspaceTerminalsOpts<'a> {
+    /// Only include terminal targets matching the specified patterns
+    #[builder(setter(into, strip_option), default)]
+    pub include: Option<Vec<&'a str>>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct WorkspaceWithClientOpts<'a> {
+    /// Optional SDK name. Inspect all installed SDKs when omitted.
+    #[builder(setter(into, strip_option), default)]
+    pub sdk: Option<&'a str>,
+    /// Explicit SDK-module constructor setting overrides for this scope. Requires an explicit SDK name.
+    #[builder(setter(into, strip_option), default)]
+    pub settings: Option<Json>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct WorkspaceWithConfigEnvOpts {
+    /// Write to the workspace config directory at the workspace cwd.
+    #[builder(setter(into, strip_option), default)]
+    pub here: Option<bool>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct WorkspaceWithConfigValueOpts<'a> {
+    /// Write to the workspace config directory at the workspace cwd.
+    #[builder(setter(into, strip_option), default)]
+    pub here: Option<bool>,
+    /// List value to set. Elements are stored verbatim, with no auto-detection. Mutually exclusive with value.
+    #[builder(setter(into, strip_option), default)]
+    pub values: Option<Vec<&'a str>>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct WorkspaceWithFileOpts {
+    /// Permissions of the added file. Defaults to the source file permissions.
+    #[builder(setter(into, strip_option), default)]
+    pub permissions: Option<isize>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct WorkspaceWithInitModuleOpts<'a> {
+    /// Select this module as the entrypoint and install it. False prevents automatic selection. When omitted, select only if both path and name are omitted and the module is installed.
+    #[builder(setter(into, strip_option), default)]
+    pub entrypoint: Option<bool>,
+    /// Install the module. When omitted, install only if path is omitted.
+    #[builder(setter(into, strip_option), default)]
+    pub install: Option<bool>,
+    /// Module name. The engine infers it from path, the active config file, or the workspace root when omitted.
+    #[builder(setter(into, strip_option), default)]
+    pub name: Option<&'a str>,
+    /// Module path relative to the workspace cwd, or an absolute workspace path. Defaults to .dagger/modules/<name> beside the active workspace config.
+    #[builder(setter(into, strip_option), default)]
+    pub path: Option<&'a str>,
+    /// Explicit SDK-module constructor setting overrides for this scope.
+    #[builder(setter(into, strip_option), default)]
+    pub settings: Option<Json>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct WorkspaceWithModuleOpts<'a> {
+    /// Write to the workspace config directory at the workspace cwd.
+    #[builder(setter(into, strip_option), default)]
+    pub here: Option<bool>,
+    /// Override name for the installed module entry.
+    #[builder(setter(into, strip_option), default)]
+    pub name: Option<&'a str>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct WorkspaceWithNewFileOpts {
+    /// Permissions of the new file.
+    #[builder(setter(into, strip_option), default)]
+    pub permissions: Option<isize>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct WorkspaceWithSdkOpts<'a> {
+    /// Optional override for the SDK name conventionally derived from the installed module name.
+    #[builder(setter(into, strip_option), default)]
+    pub as_sdk_name: Option<&'a str>,
+    /// Write to the workspace config directory at the workspace cwd.
+    #[builder(setter(into, strip_option), default)]
+    pub here: Option<bool>,
+    /// Override name for the installed SDK entry.
+    #[builder(setter(into, strip_option), default)]
+    pub name: Option<&'a str>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct WorkspaceWithUpdatedClientsOpts<'a> {
+    /// Select clients in every scope instead of only the scopes containing the workspace cwd.
+    #[builder(setter(into, strip_option), default)]
+    pub all: Option<bool>,
+    /// Recorded client targets to update. All targets in the selected scopes are updated when omitted.
+    #[builder(setter(into, strip_option), default)]
+    pub modules: Option<Vec<&'a str>>,
+    /// Optional SDK name. All installed SDK modules are selected when omitted.
+    #[builder(setter(into, strip_option), default)]
+    pub sdk: Option<&'a str>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct WorkspaceWithUpdatedLockOpts {
+    /// Do not regenerate SDK client scopes.
+    #[builder(setter(into, strip_option), default)]
+    pub no_generate: Option<bool>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct WorkspaceWithUpdatedModulesOpts<'a> {
+    /// Installed module names or sources. A version suffix sets a new request. An empty list refreshes all installed modules.
+    #[builder(setter(into, strip_option), default)]
+    pub names: Option<Vec<&'a str>>,
+    /// New version request for exactly one selected module. Cannot be combined with a version suffix.
+    #[builder(setter(into, strip_option), default)]
+    pub version: Option<&'a str>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct WorkspaceWithoutClientOpts<'a> {
+    /// Optional SDK name. Search all installed SDKs when omitted.
+    #[builder(setter(into, strip_option), default)]
+    pub sdk: Option<&'a str>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct WorkspaceWithoutConfigEnvOpts {
+    /// Write to the workspace config directory at the workspace cwd.
+    #[builder(setter(into, strip_option), default)]
+    pub here: Option<bool>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct WorkspaceWithoutConfigValueOpts {
+    /// Write to the workspace config directory at the workspace cwd.
+    #[builder(setter(into, strip_option), default)]
+    pub here: Option<bool>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct WorkspaceWithoutModuleOpts {
+    /// Write to the workspace config directory at the workspace cwd.
+    #[builder(setter(into, strip_option), default)]
+    pub here: Option<bool>,
+}
+#[derive(Builder, Debug, PartialEq)]
+pub struct WorkspaceWithoutSdkOpts {
     /// Write to the workspace config directory at the workspace cwd.
     #[builder(setter(into, strip_option), default)]
     pub here: Option<bool>,
@@ -16863,6 +16445,69 @@ impl Workspace {
         let query = self.selection.select("address");
         query.execute(self.graphql_client.clone()).await
     }
+    /// Return all agent middlewares from modules loaded in the workspace.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn agents(&self) -> AgentMiddlewareGroup {
+        let query = self.selection.select("agents");
+        AgentMiddlewareGroup {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return all agent middlewares from modules loaded in the workspace.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn agents_opts<'a>(&self, opts: WorkspaceAgentsOpts<'a>) -> AgentMiddlewareGroup {
+        let mut query = self.selection.select("agents");
+        if let Some(include) = opts.include {
+            query = query.arg("include", include);
+        }
+        if let Some(exclude) = opts.exclude {
+            query = query.arg("exclude", exclude);
+        }
+        AgentMiddlewareGroup {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace's changes, with paths relative to its working directory.
+    /// Pass from to compare against an earlier workspace state. Omitting it preserves the cumulative behavior used by clients from before this argument was added.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn changes(&self) -> Changeset {
+        let query = self.selection.select("changes");
+        Changeset {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace's changes, with paths relative to its working directory.
+    /// Pass from to compare against an earlier workspace state. Omitting it preserves the cumulative behavior used by clients from before this argument was added.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn changes_opts(&self, opts: WorkspaceChangesOpts) -> Changeset {
+        let mut query = self.selection.select("changes");
+        if let Some(from) = opts.from {
+            query = query.arg("from", from);
+        }
+        Changeset {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
     /// Return all checks from modules loaded in the workspace.
     ///
     /// # Arguments
@@ -16886,6 +16531,9 @@ impl Workspace {
         if let Some(include) = opts.include {
             query = query.arg("include", include);
         }
+        if let Some(skip) = opts.skip {
+            query = query.arg("skip", skip);
+        }
         if let Some(no_generate) = opts.no_generate {
             query = query.arg("noGenerate", no_generate);
         }
@@ -16898,12 +16546,7 @@ impl Workspace {
             graphql_client: self.graphql_client.clone(),
         }
     }
-    /// The client ID that owns this workspace's host filesystem.
-    pub async fn client_id(&self) -> Result<String, DaggerError> {
-        let query = self.selection.select("clientId");
-        query.execute(self.graphql_client.clone()).await
-    }
-    /// Selected native workspace config file relative to the workspace root, if any.
+    /// Selected native workspace config file relative to the workspace cwd, if any.
     pub async fn config_file(&self) -> Result<String, DaggerError> {
         let query = self.selection.select("configFile");
         query.execute(self.graphql_client.clone()).await
@@ -16938,49 +16581,21 @@ impl Workspace {
         }
         query.execute(self.graphql_client.clone()).await
     }
-    /// Write a configuration value to dagger.toml.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - Dotted key path (e.g. modules.greeter.source).
-    /// * `value` - Value to set. Bools, integers, and comma-separated arrays are auto-detected.
-    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub async fn config_write(
-        &self,
-        key: impl Into<String>,
-        value: impl Into<String>,
-    ) -> Result<String, DaggerError> {
-        let mut query = self.selection.select("configWrite");
-        query = query.arg("key", key.into());
-        query = query.arg("value", value.into());
-        query.execute(self.graphql_client.clone()).await
-    }
-    /// Write a configuration value to dagger.toml.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - Dotted key path (e.g. modules.greeter.source).
-    /// * `value` - Value to set. Bools, integers, and comma-separated arrays are auto-detected.
-    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub async fn config_write_opts(
-        &self,
-        key: impl Into<String>,
-        value: impl Into<String>,
-        opts: WorkspaceConfigWriteOpts,
-    ) -> Result<String, DaggerError> {
-        let mut query = self.selection.select("configWrite");
-        query = query.arg("key", key.into());
-        query = query.arg("value", value.into());
-        if let Some(here) = opts.here {
-            query = query.arg("here", here);
-        }
-        query.execute(self.graphql_client.clone()).await
-    }
     /// Current location within the workspace root.
     /// The workspace root is returned as "/".
     /// Relative paths in workspace APIs resolve from here.
     pub async fn cwd(&self) -> Result<String, DaggerError> {
         let query = self.selection.select("cwd");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Return the selected SDK module's current scope at this workspace location.
+    ///
+    /// # Arguments
+    ///
+    /// * `sdk` - SDK name to probe. Required.
+    pub async fn detect_scope(&self, sdk: impl Into<String>) -> Result<String, DaggerError> {
+        let mut query = self.selection.select("detectScope");
+        query = query.arg("sdk", sdk.into());
         query.execute(self.graphql_client.clone()).await
     }
     /// Returns a Directory from the workspace.
@@ -17028,33 +16643,10 @@ impl Workspace {
             graphql_client: self.graphql_client.clone(),
         }
     }
-    /// Create a named workspace environment if it does not already exist.
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - Environment name.
-    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub async fn env_create(&self, name: impl Into<String>) -> Result<String, DaggerError> {
-        let mut query = self.selection.select("envCreate");
-        query = query.arg("name", name.into());
-        query.execute(self.graphql_client.clone()).await
-    }
-    /// Create a named workspace environment if it does not already exist.
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - Environment name.
-    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub async fn env_create_opts(
-        &self,
-        name: impl Into<String>,
-        opts: WorkspaceEnvCreateOpts,
-    ) -> Result<String, DaggerError> {
-        let mut query = self.selection.select("envCreate");
-        query = query.arg("name", name.into());
-        if let Some(here) = opts.here {
-            query = query.arg("here", here);
-        }
+    /// Installed name of the module selected as the workspace entrypoint, or an empty string when none is selected.
+    /// Reflects the selected env's effective view. Fails if several modules are selected.
+    pub async fn entrypoint(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("entrypoint");
         query.execute(self.graphql_client.clone()).await
     }
     /// List named environments defined in the workspace configuration.
@@ -17062,33 +16654,10 @@ impl Workspace {
         let query = self.selection.select("envList");
         query.execute(self.graphql_client.clone()).await
     }
-    /// Remove a named workspace environment.
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - Environment name.
-    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub async fn env_remove(&self, name: impl Into<String>) -> Result<String, DaggerError> {
-        let mut query = self.selection.select("envRemove");
-        query = query.arg("name", name.into());
-        query.execute(self.graphql_client.clone()).await
-    }
-    /// Remove a named workspace environment.
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - Environment name.
-    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub async fn env_remove_opts(
-        &self,
-        name: impl Into<String>,
-        opts: WorkspaceEnvRemoveOpts,
-    ) -> Result<String, DaggerError> {
-        let mut query = self.selection.select("envRemove");
-        query = query.arg("name", name.into());
-        if let Some(here) = opts.here {
-            query = query.arg("here", here);
-        }
+    /// Write this workspace's pending changes to its local Git workspace on the current client's host.
+    /// Like Directory.export, the write is a side effect on the client that makes the call — never on the client that created the workspace. Inside a module, this cannot reach the caller's host.
+    pub async fn export(&self) -> Result<Void, DaggerError> {
+        let query = self.selection.select("export");
         query.execute(self.graphql_client.clone()).await
     }
     /// Returns a File from the workspace.
@@ -17105,6 +16674,57 @@ impl Workspace {
             selection: query,
             graphql_client: self.graphql_client.clone(),
         }
+    }
+    /// Find project roots marked by any of the given filenames, starting from a path relative to the workspace cwd.
+    /// Returns cwd-relative directory paths for every marked directory at or below start, plus the nearest marked ancestor when start itself is not marked.
+    /// Each returned path is usable as-is with other workspace APIs, e.g. directory(path).
+    ///
+    /// # Arguments
+    ///
+    /// * `markers` - File basenames that mark a project root (e.g. ["go.mod"] or ["deno.json", "deno.jsonc"]).
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub async fn find_roots(
+        &self,
+        markers: Vec<impl Into<String>>,
+    ) -> Result<Vec<String>, DaggerError> {
+        let mut query = self.selection.select("findRoots");
+        query = query.arg(
+            "markers",
+            markers
+                .into_iter()
+                .map(|i| i.into())
+                .collect::<Vec<String>>(),
+        );
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Find project roots marked by any of the given filenames, starting from a path relative to the workspace cwd.
+    /// Returns cwd-relative directory paths for every marked directory at or below start, plus the nearest marked ancestor when start itself is not marked.
+    /// Each returned path is usable as-is with other workspace APIs, e.g. directory(path).
+    ///
+    /// # Arguments
+    ///
+    /// * `markers` - File basenames that mark a project root (e.g. ["go.mod"] or ["deno.json", "deno.jsonc"]).
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub async fn find_roots_opts<'a>(
+        &self,
+        markers: Vec<impl Into<String>>,
+        opts: WorkspaceFindRootsOpts<'a>,
+    ) -> Result<Vec<String>, DaggerError> {
+        let mut query = self.selection.select("findRoots");
+        query = query.arg(
+            "markers",
+            markers
+                .into_iter()
+                .map(|i| i.into())
+                .collect::<Vec<String>>(),
+        );
+        if let Some(start) = opts.start {
+            query = query.arg("start", start);
+        }
+        if let Some(exclude) = opts.exclude {
+            query = query.arg("exclude", exclude);
+        }
+        query.execute(self.graphql_client.clone()).await
     }
     /// Search for a file or directory by walking up from the start path within the workspace.
     /// Returns the absolute workspace path if found, or null if not found.
@@ -17179,65 +16799,24 @@ impl Workspace {
             graphql_client: self.graphql_client.clone(),
         }
     }
+    /// Returns a list of files and directories that match the given pattern.
+    /// Patterns match paths relative to the workspace root.
+    ///
+    /// # Arguments
+    ///
+    /// * `pattern` - Pattern to match (e.g., "*.md").
+    pub async fn glob(&self, pattern: impl Into<String>) -> Result<Vec<String>, DaggerError> {
+        let mut query = self.selection.select("glob");
+        query = query.arg("pattern", pattern.into());
+        query.execute(self.graphql_client.clone()).await
+    }
     /// A unique identifier for this Workspace.
     pub async fn id(&self) -> Result<Id, DaggerError> {
         let query = self.selection.select("id");
         query.execute(self.graphql_client.clone()).await
     }
-    /// Initialize workspace config, creating dagger.toml.
-    ///
-    /// # Arguments
-    ///
-    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub async fn init(&self) -> Result<String, DaggerError> {
-        let query = self.selection.select("init");
-        query.execute(self.graphql_client.clone()).await
-    }
-    /// Initialize workspace config, creating dagger.toml.
-    ///
-    /// # Arguments
-    ///
-    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub async fn init_opts(&self, opts: WorkspaceInitOpts) -> Result<String, DaggerError> {
-        let mut query = self.selection.select("init");
-        if let Some(here) = opts.here {
-            query = query.arg("here", here);
-        }
-        query.execute(self.graphql_client.clone()).await
-    }
-    /// Install a module into the workspace, writing dagger.toml to the host.
-    ///
-    /// # Arguments
-    ///
-    /// * `r#ref` - Module reference to install.
-    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub async fn install(&self, r#ref: impl Into<String>) -> Result<String, DaggerError> {
-        let mut query = self.selection.select("install");
-        query = query.arg("ref", r#ref.into());
-        query.execute(self.graphql_client.clone()).await
-    }
-    /// Install a module into the workspace, writing dagger.toml to the host.
-    ///
-    /// # Arguments
-    ///
-    /// * `r#ref` - Module reference to install.
-    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub async fn install_opts<'a>(
-        &self,
-        r#ref: impl Into<String>,
-        opts: WorkspaceInstallOpts<'a>,
-    ) -> Result<String, DaggerError> {
-        let mut query = self.selection.select("install");
-        query = query.arg("ref", r#ref.into());
-        if let Some(name) = opts.name {
-            query = query.arg("name", name);
-        }
-        if let Some(here) = opts.here {
-            query = query.arg("here", here);
-        }
-        query.execute(self.graphql_client.clone()).await
-    }
     /// Plan the explicit migration needed for the current workspace.
+    /// Include installed local modules and their local dependencies. Other module candidates remain unchanged unless selected.
     /// The returned plan has an empty changeset and no steps when no migration is needed.
     ///
     /// # Arguments
@@ -17252,15 +16831,16 @@ impl Workspace {
         }
     }
     /// Plan the explicit migration needed for the current workspace.
+    /// Include installed local modules and their local dependencies. Other module candidates remain unchanged unless selected.
     /// The returned plan has an empty changeset and no steps when no migration is needed.
     ///
     /// # Arguments
     ///
     /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub fn migrate_opts(&self, opts: WorkspaceMigrateOpts) -> WorkspaceMigration {
+    pub fn migrate_opts<'a>(&self, opts: WorkspaceMigrateOpts<'a>) -> WorkspaceMigration {
         let mut query = self.selection.select("migrate");
-        if let Some(force) = opts.force {
-            query = query.arg("force", force);
+        if let Some(modules) = opts.modules {
+            query = query.arg("modules", modules);
         }
         WorkspaceMigration {
             proc: self.proc.clone(),
@@ -17268,54 +16848,75 @@ impl Workspace {
             graphql_client: self.graphql_client.clone(),
         }
     }
-    /// Create a new module owned by the workspace and auto-install it in dagger.toml.
+    /// Plan migration of one local module without migrating its dependencies or creating a workspace configuration.
+    /// Include SDK registration when a workspace configuration exists and remove obsolete generated-file ignore rules.
     ///
     /// # Arguments
     ///
-    /// * `name` - Name of the new module.
     /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub async fn module_init(&self, name: impl Into<String>) -> Result<String, DaggerError> {
-        let mut query = self.selection.select("moduleInit");
-        query = query.arg("name", name.into());
-        query.execute(self.graphql_client.clone()).await
+    pub fn migrate_module(&self) -> WorkspaceMigration {
+        let query = self.selection.select("migrateModule");
+        WorkspaceMigration {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
     }
-    /// Create a new module owned by the workspace and auto-install it in dagger.toml.
+    /// Plan migration of one local module without migrating its dependencies or creating a workspace configuration.
+    /// Include SDK registration when a workspace configuration exists and remove obsolete generated-file ignore rules.
     ///
     /// # Arguments
     ///
-    /// * `name` - Name of the new module.
     /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub async fn module_init_opts<'a>(
+    pub fn migrate_module_opts<'a>(
         &self,
-        name: impl Into<String>,
-        opts: WorkspaceModuleInitOpts<'a>,
-    ) -> Result<String, DaggerError> {
-        let mut query = self.selection.select("moduleInit");
+        opts: WorkspaceMigrateModuleOpts<'a>,
+    ) -> WorkspaceMigration {
+        let mut query = self.selection.select("migrateModule");
+        if let Some(path) = opts.path {
+            query = query.arg("path", path);
+        }
+        WorkspaceMigration {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return a module defined in the workspace configuration.
+    /// Reflects the selected env's effective view.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Module name to inspect.
+    pub fn module(&self, name: impl Into<String>) -> WorkspaceModule {
+        let mut query = self.selection.select("module");
         query = query.arg("name", name.into());
-        if let Some(sdk) = opts.sdk {
-            query = query.arg("sdk", sdk);
+        WorkspaceModule {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
         }
-        if let Some(source) = opts.source {
-            query = query.arg("source", source);
+    }
+    /// Load a module source from a path within the workspace.
+    /// Relative paths (e.g., "foo") resolve from the workspace cwd; absolute paths (e.g., "/foo") resolve from the workspace root.
+    /// Fails if the path does not point to an initialized module.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Location of the module source to load, relative to the workspace cwd or absolute from the workspace root.
+    pub fn module_source(&self, path: impl Into<String>) -> ModuleSource {
+        let mut query = self.selection.select("moduleSource");
+        query = query.arg("path", path.into());
+        ModuleSource {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
         }
-        if let Some(include) = opts.include {
-            query = query.arg("include", include);
-        }
-        if let Some(self_calls) = opts.self_calls {
-            query = query.arg("selfCalls", self_calls);
-        }
-        if let Some(here) = opts.here {
-            query = query.arg("here", here);
-        }
-        query.execute(self.graphql_client.clone()).await
     }
     /// List modules defined in the workspace configuration.
-    ///
-    /// # Arguments
-    ///
-    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub async fn module_list(&self) -> Result<Vec<WorkspaceModule>, DaggerError> {
-        let query = self.selection.select("moduleList");
+    /// Reflects the selected env's effective view.
+    pub async fn modules(&self) -> Result<Vec<WorkspaceModule>, DaggerError> {
+        let query = self.selection.select("modules");
         let query = query.select("id");
         let ids: Vec<Id> = query.execute(self.graphql_client.clone()).await?;
         Ok(ids
@@ -17330,29 +16931,129 @@ impl Workspace {
             })
             .collect())
     }
-    /// List modules defined in the workspace configuration.
+    /// Return this workspace with its cached host reads invalidated, so subsequent file and directory reads re-read the live host instead of a snapshot cached earlier in the session.
+    pub fn reloaded(&self) -> Workspace {
+        let query = self.selection.select("reloaded");
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// An installed SDK, by name.
     ///
     /// # Arguments
     ///
+    /// * `name` - SDK name to look up.
+    pub fn sdk(&self, name: impl Into<String>) -> WorkspaceSdk {
+        let mut query = self.selection.select("sdk");
+        query = query.arg("name", name.into());
+        WorkspaceSdk {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Installed SDKs.
+    pub async fn sdks(&self) -> Result<Vec<WorkspaceSdk>, DaggerError> {
+        let query = self.selection.select("sdks");
+        let query = query.select("id");
+        let ids: Vec<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(ids
+            .into_iter()
+            .map(|id| WorkspaceSdk {
+                proc: self.proc.clone(),
+                selection: crate::querybuilder::query()
+                    .select("node")
+                    .arg("id", &id.0)
+                    .inline_fragment("WorkspaceSDK"),
+                graphql_client: self.graphql_client.clone(),
+            })
+            .collect())
+    }
+    /// Searches for content matching the given regular expression or literal string.
+    /// Uses Rust regex syntax; escape literal ., [, ], {, }, | with backslashes.
+    /// Runs ripgrep on the client host, falling back to grep if unavailable.
+    ///
+    /// # Arguments
+    ///
+    /// * `pattern` - The text to match.
     /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub async fn module_list_opts<'a>(
+    pub async fn search(
         &self,
-        opts: WorkspaceModuleListOpts<'a>,
-    ) -> Result<Vec<WorkspaceModule>, DaggerError> {
-        let mut query = self.selection.select("moduleList");
-        if let Some(module) = opts.module {
-            query = query.arg("module", module);
+        pattern: impl Into<String>,
+    ) -> Result<Vec<SearchResult>, DaggerError> {
+        let mut query = self.selection.select("search");
+        query = query.arg("pattern", pattern.into());
+        let query = query.select("id");
+        let ids: Vec<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(ids
+            .into_iter()
+            .map(|id| SearchResult {
+                proc: self.proc.clone(),
+                selection: crate::querybuilder::query()
+                    .select("node")
+                    .arg("id", &id.0)
+                    .inline_fragment("SearchResult"),
+                graphql_client: self.graphql_client.clone(),
+            })
+            .collect())
+    }
+    /// Searches for content matching the given regular expression or literal string.
+    /// Uses Rust regex syntax; escape literal ., [, ], {, }, | with backslashes.
+    /// Runs ripgrep on the client host, falling back to grep if unavailable.
+    ///
+    /// # Arguments
+    ///
+    /// * `pattern` - The text to match.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub async fn search_opts<'a>(
+        &self,
+        pattern: impl Into<String>,
+        opts: WorkspaceSearchOpts<'a>,
+    ) -> Result<Vec<SearchResult>, DaggerError> {
+        let mut query = self.selection.select("search");
+        query = query.arg("pattern", pattern.into());
+        if let Some(paths) = opts.paths {
+            query = query.arg("paths", paths);
+        }
+        if let Some(globs) = opts.globs {
+            query = query.arg("globs", globs);
+        }
+        if let Some(literal) = opts.literal {
+            query = query.arg("literal", literal);
+        }
+        if let Some(multiline) = opts.multiline {
+            query = query.arg("multiline", multiline);
+        }
+        if let Some(dotall) = opts.dotall {
+            query = query.arg("dotall", dotall);
+        }
+        if let Some(insensitive) = opts.insensitive {
+            query = query.arg("insensitive", insensitive);
+        }
+        if let Some(skip_ignored) = opts.skip_ignored {
+            query = query.arg("skipIgnored", skip_ignored);
+        }
+        if let Some(skip_hidden) = opts.skip_hidden {
+            query = query.arg("skipHidden", skip_hidden);
+        }
+        if let Some(files_only) = opts.files_only {
+            query = query.arg("filesOnly", files_only);
+        }
+        if let Some(limit) = opts.limit {
+            query = query.arg("limit", limit);
         }
         let query = query.select("id");
         let ids: Vec<Id> = query.execute(self.graphql_client.clone()).await?;
         Ok(ids
             .into_iter()
-            .map(|id| WorkspaceModule {
+            .map(|id| SearchResult {
                 proc: self.proc.clone(),
                 selection: crate::querybuilder::query()
                     .select("node")
                     .arg("id", &id.0)
-                    .inline_fragment("WorkspaceModule"),
+                    .inline_fragment("SearchResult"),
                 graphql_client: self.graphql_client.clone(),
             })
             .collect())
@@ -17386,40 +17087,904 @@ impl Workspace {
             graphql_client: self.graphql_client.clone(),
         }
     }
-    /// Uninstall a module from the workspace, writing dagger.toml to the host.
+    /// Return all terminal targets from modules loaded in the workspace.
     ///
     /// # Arguments
     ///
-    /// * `name` - Name of the installed module entry to remove.
     /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub async fn uninstall(&self, name: impl Into<String>) -> Result<String, DaggerError> {
-        let mut query = self.selection.select("uninstall");
-        query = query.arg("name", name.into());
-        query.execute(self.graphql_client.clone()).await
+    pub fn terminals(&self) -> TerminalGroup {
+        let query = self.selection.select("terminals");
+        TerminalGroup {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
     }
-    /// Uninstall a module from the workspace, writing dagger.toml to the host.
+    /// Return all terminal targets from modules loaded in the workspace.
     ///
     /// # Arguments
     ///
-    /// * `name` - Name of the installed module entry to remove.
     /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
-    pub async fn uninstall_opts(
+    pub fn terminals_opts<'a>(&self, opts: WorkspaceTerminalsOpts<'a>) -> TerminalGroup {
+        let mut query = self.selection.select("terminals");
+        if let Some(include) = opts.include {
+            query = query.arg("include", include);
+        }
+        TerminalGroup {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a changeset applied, without mutating the source.
+    ///
+    /// # Arguments
+    ///
+    /// * `changes` - Changes to apply.
+    pub fn with_changes(&self, changes: impl IntoID<Id>) -> Workspace {
+        let mut query = self.selection.select("withChanges");
+        query = query.arg_lazy(
+            "changes",
+            Box::new(move || {
+                let changes = changes.clone();
+                Box::pin(async move { changes.into_id().await.unwrap().quote() })
+            }),
+        );
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a generated module client added to one SDK scope.
+    /// Select the deepest detected or registered scope. Fail if several SDKs have that deepest scope.
+    ///
+    /// # Arguments
+    ///
+    /// * `module` - Explicit local path or module address to generate a client for. Installed module names are not supported.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_client(&self, module: impl Into<String>) -> Workspace {
+        let mut query = self.selection.select("withClient");
+        query = query.arg("module", module.into());
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a generated module client added to one SDK scope.
+    /// Select the deepest detected or registered scope. Fail if several SDKs have that deepest scope.
+    ///
+    /// # Arguments
+    ///
+    /// * `module` - Explicit local path or module address to generate a client for. Installed module names are not supported.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_client_opts<'a>(
+        &self,
+        module: impl Into<String>,
+        opts: WorkspaceWithClientOpts<'a>,
+    ) -> Workspace {
+        let mut query = self.selection.select("withClient");
+        query = query.arg("module", module.into());
+        if let Some(sdk) = opts.sdk {
+            query = query.arg("sdk", sdk);
+        }
+        if let Some(settings) = opts.settings {
+            query = query.arg("settings", settings);
+        }
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a named config environment created.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Environment name.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_config_env(&self, name: impl Into<String>) -> Workspace {
+        let mut query = self.selection.select("withConfigEnv");
+        query = query.arg("name", name.into());
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a named config environment created.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Environment name.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_config_env_opts(
         &self,
         name: impl Into<String>,
-        opts: WorkspaceUninstallOpts,
-    ) -> Result<String, DaggerError> {
-        let mut query = self.selection.select("uninstall");
+        opts: WorkspaceWithConfigEnvOpts,
+    ) -> Workspace {
+        let mut query = self.selection.select("withConfigEnv");
         query = query.arg("name", name.into());
         if let Some(here) = opts.here {
             query = query.arg("here", here);
         }
-        query.execute(self.graphql_client.clone()).await
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
     }
-    /// Refresh workspace-managed state and return the resulting changeset.
-    /// Currently this refreshes existing lockfile entries only.
-    pub fn update(&self) -> Changeset {
-        let query = self.selection.select("update");
-        Changeset {
+    /// Return this workspace with a configuration value written.
+    /// When the session selects an env, the key is scoped to that env's overlay and the env is created if missing.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - Dotted key path.
+    /// * `value` - Value to set. Bools, integers, and comma-separated arrays are auto-detected.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_config_value(&self, key: impl Into<String>, value: impl Into<String>) -> Workspace {
+        let mut query = self.selection.select("withConfigValue");
+        query = query.arg("key", key.into());
+        query = query.arg("value", value.into());
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a configuration value written.
+    /// When the session selects an env, the key is scoped to that env's overlay and the env is created if missing.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - Dotted key path.
+    /// * `value` - Value to set. Bools, integers, and comma-separated arrays are auto-detected.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_config_value_opts<'a>(
+        &self,
+        key: impl Into<String>,
+        value: impl Into<String>,
+        opts: WorkspaceWithConfigValueOpts<'a>,
+    ) -> Workspace {
+        let mut query = self.selection.select("withConfigValue");
+        query = query.arg("key", key.into());
+        query = query.arg("value", value.into());
+        if let Some(values) = opts.values {
+            query = query.arg("values", values);
+        }
+        if let Some(here) = opts.here {
+            query = query.arg("here", here);
+        }
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a directory merged into the given path, without mutating the source.
+    /// Anything already at the path stays, and files the source carries win, as with Directory.withDirectory. Use withNewDirectory to replace the path instead.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to merge into. Relative paths resolve from the workspace cwd.
+    /// * `source` - Directory to merge there.
+    pub fn with_directory(&self, path: impl Into<String>, source: impl IntoID<Id>) -> Workspace {
+        let mut query = self.selection.select("withDirectory");
+        query = query.arg("path", path.into());
+        query = query.arg_lazy(
+            "source",
+            Box::new(move || {
+                let source = source.clone();
+                Box::pin(async move { source.into_id().await.unwrap().quote() })
+            }),
+        );
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with an installed module selected as its entrypoint.
+    /// Every other entrypoint selection is cleared. Entrypoints live in the base workspace config.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Exact installed module name.
+    pub fn with_entrypoint(&self, name: impl Into<String>) -> Workspace {
+        let mut query = self.selection.select("withEntrypoint");
+        query = query.arg("name", name.into());
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a file added or replaced, without mutating the source.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Destination path. Relative paths resolve from the workspace cwd.
+    /// * `source` - File to add.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_file(&self, path: impl Into<String>, source: impl IntoID<Id>) -> Workspace {
+        let mut query = self.selection.select("withFile");
+        query = query.arg("path", path.into());
+        query = query.arg_lazy(
+            "source",
+            Box::new(move || {
+                let source = source.clone();
+                Box::pin(async move { source.into_id().await.unwrap().quote() })
+            }),
+        );
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a file added or replaced, without mutating the source.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Destination path. Relative paths resolve from the workspace cwd.
+    /// * `source` - File to add.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_file_opts(
+        &self,
+        path: impl Into<String>,
+        source: impl IntoID<Id>,
+        opts: WorkspaceWithFileOpts,
+    ) -> Workspace {
+        let mut query = self.selection.select("withFile");
+        query = query.arg("path", path.into());
+        query = query.arg_lazy(
+            "source",
+            Box::new(move || {
+                let source = source.clone();
+                Box::pin(async move { source.into_id().await.unwrap().quote() })
+            }),
+        );
+        if let Some(permissions) = opts.permissions {
+            query = query.arg("permissions", permissions);
+        }
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a location initialized as a module scope.
+    /// The selected SDK module records the scope and generates the module source.
+    ///
+    /// # Arguments
+    ///
+    /// * `sdk` - Workspace SDK name or module entry name to use. Required.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_init_module(&self, sdk: impl Into<String>) -> Workspace {
+        let mut query = self.selection.select("withInitModule");
+        query = query.arg("sdk", sdk.into());
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a location initialized as a module scope.
+    /// The selected SDK module records the scope and generates the module source.
+    ///
+    /// # Arguments
+    ///
+    /// * `sdk` - Workspace SDK name or module entry name to use. Required.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_init_module_opts<'a>(
+        &self,
+        sdk: impl Into<String>,
+        opts: WorkspaceWithInitModuleOpts<'a>,
+    ) -> Workspace {
+        let mut query = self.selection.select("withInitModule");
+        query = query.arg("sdk", sdk.into());
+        if let Some(name) = opts.name {
+            query = query.arg("name", name);
+        }
+        if let Some(path) = opts.path {
+            query = query.arg("path", path);
+        }
+        if let Some(install) = opts.install {
+            query = query.arg("install", install);
+        }
+        if let Some(entrypoint) = opts.entrypoint {
+            query = query.arg("entrypoint", entrypoint);
+        }
+        if let Some(settings) = opts.settings {
+            query = query.arg("settings", settings);
+        }
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a native configuration, without changing an existing configuration.
+    /// Fail if legacy configuration needs workspace migration.
+    pub fn with_initialized(&self) -> Workspace {
+        let query = self.selection.select("withInitialized");
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a module installed in its config.
+    /// When the session selects an env, the module is recorded in that env's overlay and the env is created if missing.
+    ///
+    /// # Arguments
+    ///
+    /// * `r#ref` - Module reference to install.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_module(&self, r#ref: impl Into<String>) -> Workspace {
+        let mut query = self.selection.select("withModule");
+        query = query.arg("ref", r#ref.into());
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a module installed in its config.
+    /// When the session selects an env, the module is recorded in that env's overlay and the env is created if missing.
+    ///
+    /// # Arguments
+    ///
+    /// * `r#ref` - Module reference to install.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_module_opts<'a>(
+        &self,
+        r#ref: impl Into<String>,
+        opts: WorkspaceWithModuleOpts<'a>,
+    ) -> Workspace {
+        let mut query = self.selection.select("withModule");
+        query = query.arg("ref", r#ref.into());
+        if let Some(name) = opts.name {
+            query = query.arg("name", name);
+        }
+        if let Some(here) = opts.here {
+            query = query.arg("here", here);
+        }
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a directory mounted read-only at the given path, without mutating the source.
+    /// Mounted content is readable through the normal workspace file tools but shadows the source at the mount path and stays out of the pending changeset: it never appears in changes, is never exported, and cannot be modified.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Location of the mounted directory. Relative paths resolve from the workspace cwd.
+    /// * `source` - Directory to mount.
+    pub fn with_mounted_directory(
+        &self,
+        path: impl Into<String>,
+        source: impl IntoID<Id>,
+    ) -> Workspace {
+        let mut query = self.selection.select("withMountedDirectory");
+        query = query.arg("path", path.into());
+        query = query.arg_lazy(
+            "source",
+            Box::new(move || {
+                let source = source.clone();
+                Box::pin(async move { source.into_id().await.unwrap().quote() })
+            }),
+        );
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a file mounted read-only at the given path, without mutating the source.
+    /// Mounted content is readable through the normal workspace file tools but shadows the source at the mount path and stays out of the pending changeset: it never appears in changes, is never exported, and cannot be modified.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Location of the mounted file. Relative paths resolve from the workspace cwd.
+    /// * `source` - File to mount.
+    pub fn with_mounted_file(&self, path: impl Into<String>, source: impl IntoID<Id>) -> Workspace {
+        let mut query = self.selection.select("withMountedFile");
+        query = query.arg("path", path.into());
+        query = query.arg_lazy(
+            "source",
+            Box::new(move || {
+                let source = source.clone();
+                Box::pin(async move { source.into_id().await.unwrap().quote() })
+            }),
+        );
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with the given path replaced by a directory, without mutating the source.
+    /// The source becomes the entire contents of the path: anything already there that the source does not carry is removed. Use withDirectory to keep it instead.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to replace. Relative paths resolve from the workspace cwd.
+    /// * `source` - Directory to write there.
+    pub fn with_new_directory(
+        &self,
+        path: impl Into<String>,
+        source: impl IntoID<Id>,
+    ) -> Workspace {
+        let mut query = self.selection.select("withNewDirectory");
+        query = query.arg("path", path.into());
+        query = query.arg_lazy(
+            "source",
+            Box::new(move || {
+                let source = source.clone();
+                Box::pin(async move { source.into_id().await.unwrap().quote() })
+            }),
+        );
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a new or replaced file, without mutating the source.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path of the new file. Relative paths resolve from the workspace cwd.
+    /// * `contents` - Contents of the new file.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_new_file(&self, path: impl Into<String>, contents: impl Into<String>) -> Workspace {
+        let mut query = self.selection.select("withNewFile");
+        query = query.arg("path", path.into());
+        query = query.arg("contents", contents.into());
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a new or replaced file, without mutating the source.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path of the new file. Relative paths resolve from the workspace cwd.
+    /// * `contents` - Contents of the new file.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_new_file_opts(
+        &self,
+        path: impl Into<String>,
+        contents: impl Into<String>,
+        opts: WorkspaceWithNewFileOpts,
+    ) -> Workspace {
+        let mut query = self.selection.select("withNewFile");
+        query = query.arg("path", path.into());
+        query = query.arg("contents", contents.into());
+        if let Some(permissions) = opts.permissions {
+            query = query.arg("permissions", permissions);
+        }
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with an SDK installed in its config.
+    ///
+    /// # Arguments
+    ///
+    /// * `r#ref` - SDK module reference to install.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_sdk(&self, r#ref: impl Into<String>) -> Workspace {
+        let mut query = self.selection.select("withSDK");
+        query = query.arg("ref", r#ref.into());
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with an SDK installed in its config.
+    ///
+    /// # Arguments
+    ///
+    /// * `r#ref` - SDK module reference to install.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_sdk_opts<'a>(
+        &self,
+        r#ref: impl Into<String>,
+        opts: WorkspaceWithSdkOpts<'a>,
+    ) -> Workspace {
+        let mut query = self.selection.select("withSDK");
+        query = query.arg("ref", r#ref.into());
+        if let Some(name) = opts.name {
+            query = query.arg("name", name);
+        }
+        if let Some(here) = opts.here {
+            query = query.arg("here", here);
+        }
+        if let Some(as_sdk_name) = opts.as_sdk_name {
+            query = query.arg("asSdkName", as_sdk_name);
+        }
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with the selected module clients updated.
+    /// The engine re-reads the source of each selected client target and writes the lock entries that those targets reach.
+    /// The selected SDK module then regenerates every scope that owns one of the targets.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_updated_clients(&self) -> Workspace {
+        let query = self.selection.select("withUpdatedClients");
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with the selected module clients updated.
+    /// The engine re-reads the source of each selected client target and writes the lock entries that those targets reach.
+    /// The selected SDK module then regenerates every scope that owns one of the targets.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_updated_clients_opts<'a>(
+        &self,
+        opts: WorkspaceWithUpdatedClientsOpts<'a>,
+    ) -> Workspace {
+        let mut query = self.selection.select("withUpdatedClients");
+        if let Some(modules) = opts.modules {
+            query = query.arg("modules", modules);
+        }
+        if let Some(all) = opts.all {
+            query = query.arg("all", all);
+        }
+        if let Some(sdk) = opts.sdk {
+            query = query.arg("sdk", sdk);
+        }
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with refreshed lockfile state.
+    /// SDK client scopes are regenerated unless noGenerate is true.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_updated_lock(&self) -> Workspace {
+        let query = self.selection.select("withUpdatedLock");
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with refreshed lockfile state.
+    /// SDK client scopes are regenerated unless noGenerate is true.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_updated_lock_opts(&self, opts: WorkspaceWithUpdatedLockOpts) -> Workspace {
+        let mut query = self.selection.select("withUpdatedLock");
+        if let Some(no_generate) = opts.no_generate {
+            query = query.arg("noGenerate", no_generate);
+        }
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with updated module versions and lockfile state.
+    /// An SDK client scope is regenerated when it targets an updated module.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_updated_modules(&self) -> Workspace {
+        let query = self.selection.select("withUpdatedModules");
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with updated module versions and lockfile state.
+    /// An SDK client scope is regenerated when it targets an updated module.
+    ///
+    /// # Arguments
+    ///
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn with_updated_modules_opts<'a>(
+        &self,
+        opts: WorkspaceWithUpdatedModulesOpts<'a>,
+    ) -> Workspace {
+        let mut query = self.selection.select("withUpdatedModules");
+        if let Some(names) = opts.names {
+            query = query.arg("names", names);
+        }
+        if let Some(version) = opts.version {
+            query = query.arg("version", version);
+        }
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with its working directory pointed at the given workspace-relative path.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Workspace-relative path to use as the working directory.
+    pub fn with_workdir(&self, path: impl Into<String>) -> Workspace {
+        let mut query = self.selection.select("withWorkdir");
+        query = query.arg("path", path.into());
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a module client removed from the deepest matching recorded scope.
+    /// Fail if several SDKs have that deepest scope. The selected SDK module regenerates the complete scope.
+    /// If invalid client targets remain, save the removal and skip generation until those targets are corrected or removed.
+    ///
+    /// # Arguments
+    ///
+    /// * `module` - The recorded target to remove.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn without_client(&self, module: impl Into<String>) -> Workspace {
+        let mut query = self.selection.select("withoutClient");
+        query = query.arg("module", module.into());
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a module client removed from the deepest matching recorded scope.
+    /// Fail if several SDKs have that deepest scope. The selected SDK module regenerates the complete scope.
+    /// If invalid client targets remain, save the removal and skip generation until those targets are corrected or removed.
+    ///
+    /// # Arguments
+    ///
+    /// * `module` - The recorded target to remove.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn without_client_opts<'a>(
+        &self,
+        module: impl Into<String>,
+        opts: WorkspaceWithoutClientOpts<'a>,
+    ) -> Workspace {
+        let mut query = self.selection.select("withoutClient");
+        query = query.arg("module", module.into());
+        if let Some(sdk) = opts.sdk {
+            query = query.arg("sdk", sdk);
+        }
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a named config environment removed.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Environment name.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn without_config_env(&self, name: impl Into<String>) -> Workspace {
+        let mut query = self.selection.select("withoutConfigEnv");
+        query = query.arg("name", name.into());
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a named config environment removed.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Environment name.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn without_config_env_opts(
+        &self,
+        name: impl Into<String>,
+        opts: WorkspaceWithoutConfigEnvOpts,
+    ) -> Workspace {
+        let mut query = self.selection.select("withoutConfigEnv");
+        query = query.arg("name", name.into());
+        if let Some(here) = opts.here {
+            query = query.arg("here", here);
+        }
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a configuration value removed.
+    /// Errors when the key is not currently set.
+    /// When the session selects an env, the key is scoped to that env's overlay.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - Dotted key path (e.g. modules.greeter.settings.greeting).
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn without_config_value(&self, key: impl Into<String>) -> Workspace {
+        let mut query = self.selection.select("withoutConfigValue");
+        query = query.arg("key", key.into());
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a configuration value removed.
+    /// Errors when the key is not currently set.
+    /// When the session selects an env, the key is scoped to that env's overlay.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - Dotted key path (e.g. modules.greeter.settings.greeting).
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn without_config_value_opts(
+        &self,
+        key: impl Into<String>,
+        opts: WorkspaceWithoutConfigValueOpts,
+    ) -> Workspace {
+        let mut query = self.selection.select("withoutConfigValue");
+        query = query.arg("key", key.into());
+        if let Some(here) = opts.here {
+            query = query.arg("here", here);
+        }
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a directory removed, without mutating the source.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path of the directory to remove. Relative paths resolve from the workspace cwd.
+    pub fn without_directory(&self, path: impl Into<String>) -> Workspace {
+        let mut query = self.selection.select("withoutDirectory");
+        query = query.arg("path", path.into());
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with no module selected as its entrypoint.
+    pub fn without_entrypoint(&self) -> Workspace {
+        let query = self.selection.select("withoutEntrypoint");
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a file removed, without mutating the source.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path of the file to remove. Relative paths resolve from the workspace cwd.
+    pub fn without_file(&self, path: impl Into<String>) -> Workspace {
+        let mut query = self.selection.select("withoutFile");
+        query = query.arg("path", path.into());
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a module removed from its config.
+    /// When the session selects an env, only that env's overlay entry is removed.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Installed module name or source to remove. Version selectors are not accepted.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn without_module(&self, name: impl Into<String>) -> Workspace {
+        let mut query = self.selection.select("withoutModule");
+        query = query.arg("name", name.into());
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with a module removed from its config.
+    /// When the session selects an env, only that env's overlay entry is removed.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Installed module name or source to remove. Version selectors are not accepted.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn without_module_opts(
+        &self,
+        name: impl Into<String>,
+        opts: WorkspaceWithoutModuleOpts,
+    ) -> Workspace {
+        let mut query = self.selection.select("withoutModule");
+        query = query.arg("name", name.into());
+        if let Some(here) = opts.here {
+            query = query.arg("here", here);
+        }
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with the content mounted at the given path unmounted.
+    /// Removes directory and file mounts at or below the path, revealing the underlying workspace content. Other mounts and pending changes are preserved.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Location of the mount to remove. Relative paths resolve from the workspace cwd. Use / to remove all mounts.
+    pub fn without_mount(&self, path: impl Into<String>) -> Workspace {
+        let mut query = self.selection.select("withoutMount");
+        query = query.arg("path", path.into());
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with an SDK removed from its config.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Name of the installed SDK entry to remove.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn without_sdk(&self, name: impl Into<String>) -> Workspace {
+        let mut query = self.selection.select("withoutSDK");
+        query = query.arg("name", name.into());
+        Workspace {
+            proc: self.proc.clone(),
+            selection: query,
+            graphql_client: self.graphql_client.clone(),
+        }
+    }
+    /// Return this workspace with an SDK removed from its config.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Name of the installed SDK entry to remove.
+    /// * `opt` - optional argument, see inner type for documentation, use <func>_opts to use
+    pub fn without_sdk_opts(
+        &self,
+        name: impl Into<String>,
+        opts: WorkspaceWithoutSdkOpts,
+    ) -> Workspace {
+        let mut query = self.selection.select("withoutSDK");
+        query = query.arg("name", name.into());
+        if let Some(here) = opts.here {
+            query = query.arg("here", here);
+        }
+        Workspace {
             proc: self.proc.clone(),
             selection: query,
             graphql_client: self.graphql_client.clone(),
@@ -17533,9 +18098,19 @@ impl WorkspaceMigration {
             graphql_client: self.graphql_client.clone(),
         }
     }
+    /// Native workspace config path after migration, relative to the workspace root. Empty if no workspace config exists.
+    pub async fn config_file(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("configFile");
+        query.execute(self.graphql_client.clone()).await
+    }
     /// A unique identifier for this WorkspaceMigration.
     pub async fn id(&self) -> Result<Id, DaggerError> {
         let query = self.selection.select("id");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Unselected legacy module directories relative to the workspace root. Candidates can include fixtures.
+    pub async fn module_candidates(&self) -> Result<Vec<String>, DaggerError> {
+        let query = self.selection.select("moduleCandidates");
         query.execute(self.graphql_client.clone()).await
     }
     /// Logical migration steps, each identified by a stable code.
@@ -17665,6 +18240,11 @@ impl WorkspaceModule {
         let query = self.selection.select("entrypoint");
         query.execute(self.graphql_client.clone()).await
     }
+    /// List the functions of this module's main object, in GraphQL field form.
+    pub async fn functions(&self) -> Result<Vec<String>, DaggerError> {
+        let query = self.selection.select("functions");
+        query.execute(self.graphql_client.clone()).await
+    }
     /// A unique identifier for this WorkspaceModule.
     pub async fn id(&self) -> Result<Id, DaggerError> {
         let query = self.selection.select("id");
@@ -17745,6 +18325,16 @@ impl WorkspaceModuleSetting {
         let query = self.selection.select("id");
         query.execute(self.graphql_client.clone()).await
     }
+    /// Whether the setting accepts a list of values.
+    pub async fn is_list(&self) -> Result<bool, DaggerError> {
+        let query = self.selection.select("isList");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Whether the setting is an object type resolved from an address string (Container, Directory, File, Secret, Service, ...), which may be a module reference.
+    pub async fn is_object(&self) -> Result<bool, DaggerError> {
+        let query = self.selection.select("isObject");
+        query.execute(self.graphql_client.clone()).await
+    }
     /// The setting key.
     pub async fn key(&self) -> Result<String, DaggerError> {
         let query = self.selection.select("key");
@@ -17762,6 +18352,117 @@ impl Node for WorkspaceModuleSetting {
         let graphql_client = self.graphql_client.clone();
         async move { query.execute(graphql_client).await }
     }
+}
+#[derive(Clone)]
+pub struct WorkspaceSdk {
+    pub proc: Option<Arc<DaggerSessionProc>>,
+    pub selection: Selection,
+    pub graphql_client: DynGraphQLClient,
+}
+impl IntoID<Id> for WorkspaceSdk {
+    fn into_id(
+        self,
+    ) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<Id, DaggerError>> + Send>> {
+        Box::pin(async move { self.id().await })
+    }
+}
+impl Loadable for WorkspaceSdk {
+    fn graphql_type() -> &'static str {
+        "WorkspaceSDK"
+    }
+    fn from_query(
+        proc: Option<Arc<DaggerSessionProc>>,
+        selection: Selection,
+        graphql_client: DynGraphQLClient,
+    ) -> Self {
+        Self {
+            proc,
+            selection,
+            graphql_client,
+        }
+    }
+}
+impl WorkspaceSdk {
+    /// Clients generated with this SDK.
+    pub async fn clients(&self) -> Result<Vec<WorkspaceModule>, DaggerError> {
+        let query = self.selection.select("clients");
+        let query = query.select("id");
+        let ids: Vec<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(ids
+            .into_iter()
+            .map(|id| WorkspaceModule {
+                proc: self.proc.clone(),
+                selection: crate::querybuilder::query()
+                    .select("node")
+                    .arg("id", &id.0)
+                    .inline_fragment("WorkspaceModule"),
+                graphql_client: self.graphql_client.clone(),
+            })
+            .collect())
+    }
+    /// A unique identifier for this WorkspaceSDK.
+    pub async fn id(&self) -> Result<Id, DaggerError> {
+        let query = self.selection.select("id");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// Modules authored with this SDK.
+    pub async fn modules(&self) -> Result<Vec<WorkspaceModule>, DaggerError> {
+        let query = self.selection.select("modules");
+        let query = query.select("id");
+        let ids: Vec<Id> = query.execute(self.graphql_client.clone()).await?;
+        Ok(ids
+            .into_iter()
+            .map(|id| WorkspaceModule {
+                proc: self.proc.clone(),
+                selection: crate::querybuilder::query()
+                    .select("node")
+                    .arg("id", &id.0)
+                    .inline_fragment("WorkspaceModule"),
+                graphql_client: self.graphql_client.clone(),
+            })
+            .collect())
+    }
+    /// The user-facing SDK name.
+    pub async fn name(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("name");
+        query.execute(self.graphql_client.clone()).await
+    }
+    /// The module reference this SDK was installed from.
+    pub async fn r#ref(&self) -> Result<String, DaggerError> {
+        let query = self.selection.select("ref");
+        query.execute(self.graphql_client.clone()).await
+    }
+}
+impl Node for WorkspaceSdk {
+    fn id(&self) -> impl core::future::Future<Output = Result<Id, DaggerError>> + Send {
+        let query = self.selection.select("id");
+        let graphql_client = self.graphql_client.clone();
+        async move { query.execute(graphql_client).await }
+    }
+}
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub enum AgentMessageDelivery {
+    #[serde(rename = "QUEUED")]
+    Queued,
+    #[serde(rename = "STARTED")]
+    Started,
+    #[serde(rename = "STEERED")]
+    Steered,
+}
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub enum AgentState {
+    #[serde(rename = "FAILED")]
+    Failed,
+    #[serde(rename = "IDLE")]
+    Idle,
+    #[serde(rename = "PAUSED")]
+    Paused,
+    #[serde(rename = "RUNNING")]
+    Running,
+    #[serde(rename = "STOPPED")]
+    Stopped,
+    #[serde(rename = "WAITING_INPUT")]
+    WaitingInput,
 }
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub enum CacheSharingMode {
@@ -17863,6 +18564,35 @@ pub enum ImageMediaTypes {
     OciMediaTypes,
 }
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub enum LlmContentBlockKind {
+    #[serde(rename = "TEXT")]
+    Text,
+    #[serde(rename = "THINKING")]
+    Thinking,
+    #[serde(rename = "TOOL_CALL")]
+    ToolCall,
+    #[serde(rename = "TOOL_RESULT")]
+    ToolResult,
+}
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub enum LlmMessageOriginKind {
+    #[serde(rename = "AGENT")]
+    Agent,
+    #[serde(rename = "EVENT")]
+    Event,
+    #[serde(rename = "USER")]
+    User,
+}
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub enum LlmMessageRole {
+    #[serde(rename = "ASSISTANT")]
+    Assistant,
+    #[serde(rename = "SYSTEM")]
+    System,
+    #[serde(rename = "USER")]
+    User,
+}
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub enum ModuleSourceExperimentalFeature {
     #[serde(rename = "SELF_CALLS")]
     SelfCalls,
@@ -17888,6 +18618,13 @@ pub enum NetworkProtocol {
     Tcp,
     #[serde(rename = "UDP")]
     Udp,
+}
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub enum PatchConflict {
+    #[serde(rename = "FAIL")]
+    Fail,
+    #[serde(rename = "LEAVE_CONFLICT_MARKERS")]
+    LeaveConflictMarkers,
 }
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub enum RegistryProtocol {

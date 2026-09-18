@@ -90,12 +90,7 @@ func (g *GoGenerator) GenerateClient(ctx context.Context, schema *introspection.
 			return nil, fmt.Errorf("generate code: %w", err)
 		}
 
-		return &generator.GeneratedState{
-			Overlay: layerfs.New(layers...),
-			PostCommands: []*exec.Cmd{
-				exec.Command("go", "mod", "tidy"),
-			},
-		}, nil
+		return g.generatedClientState(layerfs.New(layers...), exec.Command("go", "mod", "tidy"))
 	}
 
 	// New behavior: create separate go.mod for client in subdirectory
@@ -133,7 +128,7 @@ func (g *GoGenerator) GenerateClient(ctx context.Context, schema *introspection.
 		// Only for released versions (not dev, not empty) - go mod tidy will fail for unreleased versions
 		// (replace directives added by tests/users will override this)
 		engineVersion := g.Config.ClientConfig.EngineVersion
-		if engineVersion != "" && !strings.Contains(engineVersion, "-dev") {
+		if engineVersion != "" {
 			clientGoMod.AddRequire("dagger.io/dagger", engineVersion)
 		}
 
@@ -153,7 +148,6 @@ func (g *GoGenerator) GenerateClient(ctx context.Context, schema *introspection.
 
 	// Post commands
 	var postCmds []*exec.Cmd
-	clientAbsPath := filepath.Join(g.Config.OutputDir, g.Config.ClientConfig.ClientDir)
 
 	// On install (first time), update parent's go.mod with require + replace
 	if isInstall && goModFile != nil {
@@ -184,23 +178,35 @@ func (g *GoGenerator) GenerateClient(ctx context.Context, schema *introspection.
 		// The user will need to manually add require/replace directives
 	}
 
-	// Always run `go mod tidy` in the client directory so that newly-generated
-	// imports (e.g. from a freshly-added dependency file) are resolved and
-	// recorded in go.mod / go.sum, and stale entries are pruned.
-	tidyCmd := exec.Command("go", "mod", "tidy")
-	tidyCmd.Dir = clientAbsPath
-	postCmds = append(postCmds, tidyCmd)
+	// We intentionally do not run `go mod tidy` here. The client go.mod pins
+	// `dagger.io/dagger` at the engine version, which in a dev environment is
+	// not yet published, so tidy would fail resolving it against the module
+	// proxy before a replace directive is in place. Tidy is left to the caller
+	// (who supplies the replace, or resolves against a real proxy once the
+	// version is released / served by the dev harness).
+	//
+	// Note: We also don't run go mod tidy on the parent here because it would
+	// remove the require directive if the parent doesn't actually import the
+	// client yet. The user should run go mod tidy on the parent when ready.
 
-	// Note: We don't run go mod tidy on the parent here because it would remove
-	// the require directive if the parent doesn't actually import the client yet.
-	// The user should run go mod tidy on the parent when they're ready.
+	return g.generatedClientState(layerfs.New(layers...), postCmds...)
+}
 
-	genSt := &generator.GeneratedState{
-		Overlay:      layerfs.New(layers...),
-		PostCommands: postCmds,
+func (g *GoGenerator) generatedClientState(overlay fs.FS, postCommands ...*exec.Cmd) (*generator.GeneratedState, error) {
+	staleBindings, err := findStaleDependencyBindings(
+		g.Config.OutputDir,
+		g.Config.ClientConfig.ClientDir,
+		overlay,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("find stale dependency bindings: %w", err)
 	}
 
-	return genSt, nil
+	return &generator.GeneratedState{
+		Overlay:      overlay,
+		RemovePaths:  staleBindings,
+		PostCommands: postCommands,
+	}, nil
 }
 
 func (g *GoGenerator) writeClientGoMod(mfs *memfs.FS, clientGoModFilePath string, existingClientGoModData []byte) error {
@@ -213,7 +219,7 @@ func (g *GoGenerator) writeClientGoMod(mfs *memfs.FS, clientGoModFilePath string
 	}
 
 	engineVersion := g.Config.ClientConfig.EngineVersion
-	if engineVersion != "" && !strings.Contains(engineVersion, "-dev") && !isDaggerPkgCustomReplaced(existingGoMod.Replace) {
+	if engineVersion != "" && !isDaggerPkgCustomReplaced(existingGoMod.Replace) {
 		existingGoMod.AddRequire("dagger.io/dagger", engineVersion)
 	}
 

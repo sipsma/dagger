@@ -1,0 +1,48 @@
+continuation-evidence/implementation/b2/capture-guard-gap.log:6: trailing whitespace.
++    b2_capture_guard_probe_test.go:46: 
+continuation-evidence/implementation/b2/capture-guard-gap.log:7: space before tab in indent.
++        	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b2-transfer-implementer-26387947-ab517fbe/core/b2_capture_guard_probe_test.go:46
+continuation-evidence/implementation/b2/capture-guard-gap.log:8: space before tab in indent.
++        	Error:      	Expected error with "persist state not ready" in chain but got nil.
+continuation-evidence/implementation/b2/capture-guard-gap.log:9: space before tab in indent.
++        	Test:       	TestB2CaptureGuardGap/File
+continuation-evidence/implementation/b2/capture-guard-gap.log:10: space before tab in indent.
++        	Messages:   	live capture must refuse an active direct producer body
+continuation-evidence/implementation/b2/capture-guard-gap.log:16: trailing whitespace.
++    b2_capture_guard_probe_test.go:46: 
+continuation-evidence/implementation/b2/capture-guard-gap.log:17: space before tab in indent.
++        	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b2-transfer-implementer-26387947-ab517fbe/core/b2_capture_guard_probe_test.go:46
+continuation-evidence/implementation/b2/capture-guard-gap.log:18: space before tab in indent.
++        	Error:      	Expected error with "persist state not ready" in chain but got nil.
+continuation-evidence/implementation/b2/capture-guard-gap.log:19: space before tab in indent.
++        	Test:       	TestB2CaptureGuardGap/Directory
+continuation-evidence/implementation/b2/capture-guard-gap.log:20: space before tab in indent.
++        	Messages:   	live capture must refuse an active direct producer body
+continuation-evidence/implementation/b2/logs/round2-default-prune-summary.log:134: trailing whitespace.
++    testctx.go:198: 
+continuation-evidence/implementation/b2/logs/round2-default-prune-summary.log:136: trailing whitespace.
++    testctx.go:198: 
+continuation-evidence/implementation/b2/logs/round2-default-prune-summary.log:138: trailing whitespace.
++    testctx.go:198: 
+continuation-evidence/implementation/b2/logs/round2-default-prune-summary.log:140: trailing whitespace.
++    testctx.go:198: 
+continuation-evidence/implementation/b2/logs/round2-default-prune-summary.log:142: trailing whitespace.
++    testctx.go:198: 
+continuation-evidence/implementation/b2/logs/round2-default-prune-summary.log:145: trailing whitespace.
++    testctx.go:198: 
+continuation-evidence/implementation/b2/logs/round2-default-prune-summary.log:149: trailing whitespace.
++    testctx.go:198: 
+continuation-evidence/implementation/b2/logs/round2-native-acceptance-summary.log:246: trailing whitespace.
++    testctx.go:198: 
+continuation-evidence/implementation/b2/logs/round2-native-acceptance-summary.log:248: trailing whitespace.
++    testctx.go:198: 
+continuation-evidence/implementation/b2/logs/round2-native-acceptance-summary.log:250: trailing whitespace.
++    testctx.go:198: 
+continuation-evidence/implementation/b2/logs/round2-native-acceptance-summary.log:252: trailing whitespace.
++    testctx.go:198: 
+continuation-evidence/implementation/b2/logs/round2-native-acceptance-summary.log:254: trailing whitespace.
++    testctx.go:198: 
+continuation-evidence/implementation/b2/logs/round2-native-acceptance-summary.log:257: trailing whitespace.
++    testctx.go:198: 
+continuation-evidence/implementation/b2/logs/round2-native-acceptance-summary.log:261: trailing whitespace.
++    testctx.go:198: 

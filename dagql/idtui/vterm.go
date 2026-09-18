@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/styles"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 	"github.com/vito/midterm"
 )
@@ -71,6 +72,32 @@ func (term *Vterm) WriteMarkdown(p []byte) (int, error) {
 
 	term.needsRedraw = true
 	return n, nil
+}
+
+// WriteDiff syntax-highlights an authoritative unified diff while retaining its
+// original bytes for raw output and agent-facing reports.
+func (term *Vterm) WriteDiff(p []byte) (int, error) {
+	term.mu.Lock()
+	defer term.mu.Unlock()
+
+	atBottom := term.Offset+term.Height >= term.vt.UsedHeight()
+	if term.Height == 0 {
+		atBottom = true
+	}
+
+	highlighted := highlightDiff(term.Profile, string(p))
+	if _, err := term.vt.Write([]byte(highlighted)); err != nil {
+		return 0, err
+	}
+	if _, err := term.rawBuf.Write(p); err != nil {
+		return 0, err
+	}
+
+	if atBottom {
+		term.Offset = max(0, term.vt.UsedHeight()-term.Height)
+	}
+	term.needsRedraw = true
+	return len(p), nil
 }
 
 func (term *Vterm) Write(p []byte) (int, error) {
@@ -323,6 +350,10 @@ func init() {
 
 	// No real point setting a custom foreground, it just looks weird.
 	MarkdownStyle.Document.Color = nil
+
+	// Render inline code without the default padding spaces on either side.
+	MarkdownStyle.Code.Prefix = ""
+	MarkdownStyle.Code.Suffix = ""
 }
 
 func (term *Vterm) redraw() {
@@ -333,6 +364,9 @@ func (term *Vterm) redraw() {
 		renderer, _ := glamour.NewTermRenderer(
 			glamour.WithWordWrap(term.Width-lipgloss.Width(term.Prefix)),
 			glamour.WithStyles(MarkdownStyle),
+			// Constrain rendering to the 16-color ANSI palette.
+			glamour.WithColorProfile(termenv.ANSI),
+			glamour.WithChromaFormatter("terminal16"),
 			glamour.WithPreservedNewLines(),
 			glamour.WithEmoji(),
 		)
@@ -356,6 +390,16 @@ func (term *Vterm) redraw() {
 
 	// Then render regular terminal content
 	term.Render(term.viewBuf, term.Offset, term.Height)
+
+	// In agent / NO_COLOR mode (Ascii profile), escape codes are pure noise to a
+	// text consumer. midterm still emits SGR resets even with colour disabled, so
+	// strip them from the rendered view. ansi.Strip only removes escape
+	// sequences; the log text itself is left untouched.
+	if term.Profile == termenv.Ascii {
+		stripped := ansi.Strip(term.viewBuf.String())
+		term.viewBuf.Reset()
+		term.viewBuf.WriteString(stripped)
+	}
 }
 
 type Markdown struct {
@@ -392,12 +436,17 @@ func (m *Markdown) View() string {
 	}
 	glamourOpts := []glamour.TermRendererOption{
 		glamour.WithStyles(st),
+		// Constrain rendering to the 16-color ANSI palette.
+		glamour.WithColorProfile(termenv.ANSI),
+		glamour.WithChromaFormatter("terminal16"),
 		glamour.WithPreservedNewLines(),
 		glamour.WithEmoji(),
 	}
 	if m.Width != 0 {
+		// Subtract 2 for a margin on the right edge, matching the prefix
+		// margin on the left.
 		glamourOpts = append(glamourOpts,
-			glamour.WithWordWrap(m.Width-lipgloss.Width(m.Prefix)))
+			glamour.WithWordWrap(m.Width-lipgloss.Width(m.Prefix)-2))
 	}
 	renderer, err := glamour.NewTermRenderer(glamourOpts...)
 	if err != nil {
@@ -499,6 +548,12 @@ func (term *Vterm) Print(w io.Writer) error {
 func (term *Vterm) PrintRaw(w io.Writer) error {
 	term.mu.Lock()
 	defer term.mu.Unlock()
+	if term.Profile == termenv.Ascii {
+		// Agent / NO_COLOR mode: drop the user stream's own escape codes so the
+		// report is clean text. Only escape sequences are removed.
+		_, err := io.WriteString(w, ansi.Strip(term.rawBuf.String()))
+		return err
+	}
 	_, err := w.Write(term.rawBuf.Bytes())
 	return err
 }

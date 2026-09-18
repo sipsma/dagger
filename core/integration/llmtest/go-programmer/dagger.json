@@ -1,17 +1,6 @@
 {
   "name": "go-programmer",
-  "engineVersion": "v0.20.6",
-  "sdk": {
-    "source": "go"
-  },
-  "dependencies": [
-    {
-      "name": "toy-workspace",
-      "source": "toy-workspace"
-    }
-  ],
-  "codegen": {
-    "automaticGitignore": false
-  },
+  "engineVersion": "v1.0.0",
+  "sdk": "dang",
   "disableDefaultFunctionCaching": true
 }

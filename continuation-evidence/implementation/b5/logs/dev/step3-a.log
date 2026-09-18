@@ -1,0 +1,18 @@
+=== RUN   TestPartUnusedHostAllocatesNoGate
+--- PASS: TestPartUnusedHostAllocatesNoGate (0.00s)
+=== RUN   TestPartFixedProviderAndContentExhaustion
+--- PASS: TestPartFixedProviderAndContentExhaustion (0.01s)
+=== RUN   TestPartOfferReplacementNotExhausted
+--- PASS: TestPartOfferReplacementNotExhausted (0.03s)
+=== RUN   TestPartFixedProviderMultiBuffer
+=== RUN   TestPartFixedProviderMultiBuffer/ranges
+    cache_part_provider_test.go:163: bytes=320000 buffer=16384 reads=20 requests=3 initial-path-requests=1
+=== RUN   TestPartFixedProviderMultiBuffer/full-body
+    cache_part_provider_test.go:163: bytes=320000 buffer=16384 reads=20 requests=3 initial-path-requests=1
+--- PASS: TestPartFixedProviderMultiBuffer (0.01s)
+    --- PASS: TestPartFixedProviderMultiBuffer/ranges (0.00s)
+    --- PASS: TestPartFixedProviderMultiBuffer/full-body (0.00s)
+=== RUN   TestPartFixedProviderCancellationClosesStream
+--- PASS: TestPartFixedProviderCancellationClosesStream (0.00s)
+PASS
+ok  	github.com/dagger/dagger/dagql	0.124s

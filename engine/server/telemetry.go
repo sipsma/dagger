@@ -9,10 +9,12 @@ import (
 	"time"
 
 	telemetry "github.com/dagger/otel-go"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/log"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	sdkresource "go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
@@ -23,9 +25,11 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/clientdb"
 	"github.com/dagger/dagger/engine/slog"
 	enginetel "github.com/dagger/dagger/engine/telemetry"
+	"github.com/dagger/dagger/engine/telemetryattrs"
 	"github.com/vito/go-sse/sse"
 )
 
@@ -37,6 +41,240 @@ type Topic struct {
 func (t Topic) String() string {
 	return fmt.Sprintf("Topic{traceID=%s, clientID=%s}", t.TraceID, t.ClientID)
 }
+
+func telemetryOriginClientID(ctx context.Context, sessionID string) string {
+	// Host routing may rebind metadata to an ancestor while the operation
+	// still belongs to the scoped client. Identity also survives lease release
+	// so final telemetry can be emitted without acquiring execution authority.
+	if scope, ok := engine.ClientScopeFromContext(ctx); ok {
+		if scope.SessionID() != sessionID {
+			return ""
+		}
+		return scope.ClientID()
+	}
+	md, err := engine.ClientMetadataFromContext(ctx)
+	if err != nil || md.SessionID != sessionID {
+		return ""
+	}
+	return md.ClientID
+}
+
+type telemetryOriginSpanProcessor struct {
+	sessionID string
+}
+
+func (p telemetryOriginSpanProcessor) OnStart(ctx context.Context, span sdktrace.ReadWriteSpan) {
+	if origin := telemetryOriginClientID(ctx, p.sessionID); origin != "" {
+		span.SetAttributes(attribute.String(telemetryattrs.TelemetryOriginClientIDAttr, origin))
+	}
+}
+func (telemetryOriginSpanProcessor) OnEnd(sdktrace.ReadOnlySpan)      {}
+func (telemetryOriginSpanProcessor) Shutdown(context.Context) error   { return nil }
+func (telemetryOriginSpanProcessor) ForceFlush(context.Context) error { return nil }
+
+func cloudEngineTelemetryResource() (*sdkresource.Resource, error) {
+	return sdkresource.Merge(
+		sdkresource.Default(),
+		sdkresource.NewSchemaless(attribute.Bool(telemetryattrs.CloudEngineAttr, true)),
+	)
+}
+
+type telemetryOriginLogProcessor struct {
+	sessionID string
+}
+
+func (p telemetryOriginLogProcessor) OnEmit(ctx context.Context, rec *sdklog.Record) error {
+	if origin := telemetryOriginClientID(ctx, p.sessionID); origin != "" {
+		rec.AddAttributes(log.String(telemetryattrs.TelemetryOriginClientIDAttr, origin))
+	}
+	return nil
+}
+func (telemetryOriginLogProcessor) Shutdown(context.Context) error   { return nil }
+func (telemetryOriginLogProcessor) ForceFlush(context.Context) error { return nil }
+func (telemetryOriginLogProcessor) Enabled(context.Context, sdklog.EnabledParameters) bool {
+	return true
+}
+
+func spanOriginClientID(span sdktrace.ReadOnlySpan) string {
+	for _, attr := range span.Attributes() {
+		if string(attr.Key) == telemetryattrs.TelemetryOriginClientIDAttr && attr.Value.Type() == attribute.STRING {
+			return attr.Value.AsString()
+		}
+	}
+	return ""
+}
+
+func logOriginClientID(rec sdklog.Record) string {
+	var origin string
+	rec.WalkAttributes(func(attr log.KeyValue) bool {
+		if attr.Key == telemetryattrs.TelemetryOriginClientIDAttr && attr.Value.Kind() == log.KindString {
+			origin = attr.Value.AsString()
+			return false
+		}
+		return true
+	})
+	return origin
+}
+
+type sessionSpanExporter struct {
+	sess *daggerSession
+	ps   *PubSub
+}
+
+func (exp sessionSpanExporter) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnlySpan) error {
+	byTarget := map[string][]sdktrace.ReadOnlySpan{}
+	for _, span := range spans {
+		origin := spanOriginClientID(span)
+		if origin == "" {
+			return fmt.Errorf("span %s is missing telemetry origin client ID", span.SpanContext().SpanID())
+		}
+		route, err := exp.sess.telemetryRouteOriginClientID(origin)
+		if err != nil {
+			return err
+		}
+		for _, target := range route {
+			byTarget[target] = append(byTarget[target], span)
+		}
+	}
+	var eg errgroup.Group
+	for target, targetSpans := range byTarget {
+		eg.Go(func() error {
+			if err := exp.ps.Spans(target).ExportSpans(ctx, targetSpans); err != nil {
+				return fmt.Errorf("export spans to %s: %w", target, err)
+			}
+			return nil
+		})
+	}
+	return eg.Wait()
+}
+func (sessionSpanExporter) ForceFlush(context.Context) error { return nil }
+func (sessionSpanExporter) Shutdown(context.Context) error   { return nil }
+
+type sessionLogExporter struct {
+	sess *daggerSession
+	ps   *PubSub
+}
+
+func (exp sessionLogExporter) Export(ctx context.Context, records []sdklog.Record) error {
+	byTarget := map[string][]sdklog.Record{}
+	for _, rec := range records {
+		origin := logOriginClientID(rec)
+		if origin == "" {
+			return fmt.Errorf("log record is missing telemetry origin client ID")
+		}
+		route, err := exp.sess.telemetryRouteOriginClientID(origin)
+		if err != nil {
+			return err
+		}
+		for _, target := range route {
+			byTarget[target] = append(byTarget[target], rec)
+		}
+	}
+	var eg errgroup.Group
+	for target, targetRecords := range byTarget {
+		eg.Go(func() error {
+			if err := exp.ps.Logs(target).Export(ctx, targetRecords); err != nil {
+				return fmt.Errorf("export logs to %s: %w", target, err)
+			}
+			return nil
+		})
+	}
+	return eg.Wait()
+}
+func (sessionLogExporter) ForceFlush(context.Context) error { return nil }
+func (sessionLogExporter) Shutdown(context.Context) error   { return nil }
+
+// clientMetricExporter binds one live client's metric stream to its immutable
+// record. Measurements therefore need no routing attribute: each provider
+// aggregates one client's work, and export resolves that record's current
+// origin-to-ancestor route without retaining any ancestor runtime.
+type clientMetricExporter struct {
+	record *clientRecord
+	ps     *PubSub
+}
+
+func (exp clientMetricExporter) Temporality(sdkmetric.InstrumentKind) metricdata.Temporality {
+	return metricdata.DeltaTemporality
+}
+
+func (exp clientMetricExporter) Aggregation(sdkmetric.InstrumentKind) sdkmetric.Aggregation {
+	return sdkmetric.AggregationDefault{}
+}
+
+func (exp clientMetricExporter) Export(ctx context.Context, metrics *metricdata.ResourceMetrics) error {
+	if metrics == nil || len(metrics.ScopeMetrics) == 0 {
+		return nil
+	}
+	route, err := exp.record.daggerSession.telemetryRouteClientIDs(exp.record)
+	if err != nil {
+		return err
+	}
+	var eg errgroup.Group
+	for _, target := range route {
+		eg.Go(func() error {
+			if err := exp.ps.Metrics(target).Export(ctx, metrics); err != nil {
+				return fmt.Errorf("export metrics to %s: %w", target, err)
+			}
+			return nil
+		})
+	}
+	return eg.Wait()
+}
+
+func (clientMetricExporter) ForceFlush(context.Context) error { return nil }
+func (clientMetricExporter) Shutdown(context.Context) error   { return nil }
+
+// originSpanExporter and originLogExporter adapt telemetry delivered without an
+// emission context (incoming OTLP and cloud scale-out) into the same stamped,
+// session-owned routing path.
+type originSpanExporter struct {
+	origin string
+	next   sdktrace.SpanExporter
+}
+
+type originReadOnlySpan struct {
+	sdktrace.ReadOnlySpan
+	attrs []attribute.KeyValue
+}
+
+func (span originReadOnlySpan) Attributes() []attribute.KeyValue { return span.attrs }
+
+func withSpanOrigin(span sdktrace.ReadOnlySpan, origin string) sdktrace.ReadOnlySpan {
+	attrs := make([]attribute.KeyValue, 0, len(span.Attributes())+1)
+	for _, attr := range span.Attributes() {
+		if string(attr.Key) != telemetryattrs.TelemetryOriginClientIDAttr {
+			attrs = append(attrs, attr)
+		}
+	}
+	attrs = append(attrs, attribute.String(telemetryattrs.TelemetryOriginClientIDAttr, origin))
+	return originReadOnlySpan{ReadOnlySpan: span, attrs: attrs}
+}
+
+func (exp originSpanExporter) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnlySpan) error {
+	stamped := make([]sdktrace.ReadOnlySpan, len(spans))
+	for i, span := range spans {
+		stamped[i] = withSpanOrigin(span, exp.origin)
+	}
+	return exp.next.ExportSpans(ctx, stamped)
+}
+func (originSpanExporter) ForceFlush(context.Context) error       { return nil }
+func (exp originSpanExporter) Shutdown(ctx context.Context) error { return exp.next.Shutdown(ctx) }
+
+type originLogExporter struct {
+	origin string
+	next   sdklog.Exporter
+}
+
+func (exp originLogExporter) Export(ctx context.Context, records []sdklog.Record) error {
+	stamped := make([]sdklog.Record, len(records))
+	for i := range records {
+		stamped[i] = records[i].Clone()
+		stamped[i].AddAttributes(log.String(telemetryattrs.TelemetryOriginClientIDAttr, exp.origin))
+	}
+	return exp.next.Export(ctx, stamped)
+}
+func (exp originLogExporter) ForceFlush(ctx context.Context) error { return exp.next.ForceFlush(ctx) }
+func (exp originLogExporter) Shutdown(ctx context.Context) error   { return exp.next.Shutdown(ctx) }
 
 type PubSub struct {
 	srv *Server
@@ -62,7 +300,7 @@ func (ps *PubSub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (ps *PubSub) TracesHandler(rw http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Dagger-Session-ID")
 	clientID := r.Header.Get("X-Dagger-Client-ID")
-	client, err := ps.srv.clientFromIDs(sessionID, clientID)
+	record, err := ps.srv.clientRecordFromIDs(sessionID, clientID)
 	if err != nil {
 		slog.Warn("error getting client", "err", err)
 		http.Error(rw, err.Error(), http.StatusBadRequest)
@@ -84,21 +322,17 @@ func (ps *PubSub) TracesHandler(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	spans := telemetry.SpansFromPB(req.ResourceSpans)
-	slog.Debug("exporting spans to clients", "spans", len(spans), "clients", len(client.parents)+1)
+	slog.Debug("exporting spans", "spans", len(spans), "origin", clientID)
 
-	eg := new(errgroup.Group)
-	for _, c := range append([]*daggerClient{client}, client.parents...) {
-		eg.Go(func() error {
-			if err := ps.Spans(c).ExportSpans(r.Context(), spans); err != nil {
-				return fmt.Errorf("export to %s: %w", c.clientID, err)
-			}
-			return nil
-		})
-	}
-	if err := eg.Wait(); err != nil {
-		slog.Error("error exporting spans", "err", err)
+	start := time.Now()
+	exporter := originSpanExporter{origin: clientID, next: record.daggerSession.spanExporter}
+	if err := exporter.ExportSpans(r.Context(), spans); err != nil {
+		slog.Error("error exporting spans", "err", err, "duration", time.Since(start))
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if elapsed := time.Since(start); elapsed > slowTelemetryOp {
+		slog.Warn("slow span fan-out", "from", record.clientID, "spans", len(spans), "duration", elapsed)
 	}
 
 	rw.WriteHeader(http.StatusCreated)
@@ -107,7 +341,7 @@ func (ps *PubSub) TracesHandler(rw http.ResponseWriter, r *http.Request) {
 func (ps *PubSub) LogsHandler(rw http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Dagger-Session-ID")
 	clientID := r.Header.Get("X-Dagger-Client-ID")
-	client, err := ps.srv.clientFromIDs(sessionID, clientID)
+	record, err := ps.srv.clientRecordFromIDs(sessionID, clientID)
 	if err != nil {
 		slog.Warn("error getting client", "err", err)
 		http.Error(rw, err.Error(), http.StatusBadRequest)
@@ -128,21 +362,17 @@ func (ps *PubSub) LogsHandler(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Debug("exporting logs to clients", "clients", len(client.parents)+1)
+	slog.Debug("exporting logs", "origin", clientID)
 
-	eg := new(errgroup.Group)
-	for _, c := range append([]*daggerClient{client}, client.parents...) {
-		eg.Go(func() error {
-			if err := telemetry.ReexportLogsFromPB(r.Context(), ps.Logs(c), &req); err != nil {
-				return fmt.Errorf("export to %s: %w", c.clientID, err)
-			}
-			return nil
-		})
-	}
-	if err := eg.Wait(); err != nil {
-		slog.Error("error exporting logs", "err", err)
+	start := time.Now()
+	exporter := originLogExporter{origin: clientID, next: record.daggerSession.logExporter}
+	if err := telemetry.ReexportLogsFromPB(r.Context(), exporter, &req); err != nil {
+		slog.Error("error exporting logs", "err", err, "duration", time.Since(start))
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if elapsed := time.Since(start); elapsed > slowTelemetryOp {
+		slog.Warn("slow log fan-out", "from", record.clientID, "duration", elapsed)
 	}
 
 	rw.WriteHeader(http.StatusCreated)
@@ -151,7 +381,7 @@ func (ps *PubSub) LogsHandler(rw http.ResponseWriter, r *http.Request) {
 func (ps *PubSub) MetricsHandler(rw http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Dagger-Session-ID")
 	clientID := r.Header.Get("X-Dagger-Client-ID")
-	client, err := ps.srv.clientFromIDs(sessionID, clientID)
+	record, err := ps.srv.clientRecordFromIDs(sessionID, clientID)
 	if err != nil {
 		slog.Warn("error getting client", "err", err)
 		http.Error(rw, err.Error(), http.StatusBadRequest)
@@ -172,21 +402,17 @@ func (ps *PubSub) MetricsHandler(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Debug("exporting metrics to clients", "clients", len(client.parents)+1)
+	slog.Debug("exporting metrics", "origin", clientID)
 
-	eg := new(errgroup.Group)
-	for _, c := range append([]*daggerClient{client}, client.parents...) {
-		eg.Go(func() error {
-			if err := enginetel.ReexportMetricsFromPB(r.Context(), []sdkmetric.Exporter{ps.Metrics(c)}, &req); err != nil {
-				return fmt.Errorf("export to %s: %w", c.clientID, err)
-			}
-			return nil
-		})
-	}
-	if err := eg.Wait(); err != nil {
-		slog.Error("error exporting metrics", "err", err)
+	start := time.Now()
+	exporter := clientMetricExporter{record: record, ps: ps}
+	if err := enginetel.ReexportMetricsFromPB(r.Context(), []sdkmetric.Exporter{exporter}, &req); err != nil {
+		slog.Error("error exporting metrics", "err", err, "duration", time.Since(start))
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if elapsed := time.Since(start); elapsed > slowTelemetryOp {
+		slog.Warn("slow metric fan-out", "from", record.clientID, "duration", elapsed)
 	}
 
 	rw.WriteHeader(http.StatusCreated)
@@ -194,8 +420,40 @@ func (ps *PubSub) MetricsHandler(rw http.ResponseWriter, r *http.Request) {
 
 const otlpBatchSize = 1000
 
-func (ps *PubSub) TracesSubscribeHandler(w http.ResponseWriter, r *http.Request, client *daggerClient) error {
-	return ps.sseHandler(w, r, client, func(ctx context.Context, db *clientdb.DB, lastID string) (*sse.Event, bool, error) {
+// slowTelemetryOp flags telemetry DB operations slow enough to threaten a
+// client's shutdown budget (the CLI allows 10s for the whole shutdown drain).
+const slowTelemetryOp = 1 * time.Second
+
+// logTelemetryWrite records how a client-DB write batch of N rows spent its
+// time. appendDuration is the in-memory append including any hard-cap wait;
+// capWaitDuration isolates that backpressure, while spillLag reports the tail
+// waiting for the background spiller when Append returned.
+func logTelemetryWrite(clientID, what string, rows int, totalStart, appendStart time.Time, stats clientdb.AppendStats, err error) {
+	total := time.Since(totalStart)
+	lg := slog.With(
+		"client", clientID,
+		"what", what,
+		"rows", rows,
+		"duration", total,
+		"appendDuration", time.Since(appendStart),
+		"capWaitDuration", stats.CapWaitDuration,
+		"capWaitEngaged", stats.CapWaitDuration > 0,
+		"spillLagRows", stats.SpillLagRows,
+		"spillLagBytes", stats.SpillLagBytes,
+		"error", err,
+	)
+	switch {
+	case total > slowTelemetryOp:
+		lg.Warn("slow client DB telemetry write")
+	case total > 100*time.Millisecond || rows >= 100:
+		lg.Debug("client DB telemetry write")
+	default:
+		lg.ExtraDebug("client DB telemetry write")
+	}
+}
+
+func (ps *PubSub) TracesSubscribeHandler(w http.ResponseWriter, r *http.Request, record *clientRecord) error {
+	return ps.sseHandler(w, r, record, func(ctx context.Context, db *clientdb.DB, lastID string) (*sse.Event, bool, error) {
 		var since int64
 		if lastID != "" {
 			_, err := fmt.Sscanf(lastID, "%d", &since)
@@ -203,7 +461,7 @@ func (ps *PubSub) TracesSubscribeHandler(w http.ResponseWriter, r *http.Request,
 				return nil, false, fmt.Errorf("invalid last ID: %w", err)
 			}
 		}
-		spans, err := db.SelectSpansSince(ctx, clientdb.SelectSpansSinceParams{
+		spans, err := db.Read().SelectSpansSince(ctx, clientdb.SelectSpansSinceParams{
 			ID:    since,
 			Limit: otlpBatchSize,
 		})
@@ -234,8 +492,8 @@ func (ps *PubSub) TracesSubscribeHandler(w http.ResponseWriter, r *http.Request,
 }
 
 //nolint:dupl
-func (ps *PubSub) LogsSubscribeHandler(w http.ResponseWriter, r *http.Request, client *daggerClient) error {
-	return ps.sseHandler(w, r, client, func(ctx context.Context, db *clientdb.DB, lastID string) (*sse.Event, bool, error) {
+func (ps *PubSub) LogsSubscribeHandler(w http.ResponseWriter, r *http.Request, record *clientRecord) error {
+	return ps.sseHandler(w, r, record, func(ctx context.Context, db *clientdb.DB, lastID string) (*sse.Event, bool, error) {
 		var since int64
 		if lastID != "" {
 			_, err := fmt.Sscanf(lastID, "%d", &since)
@@ -243,7 +501,7 @@ func (ps *PubSub) LogsSubscribeHandler(w http.ResponseWriter, r *http.Request, c
 				return nil, false, fmt.Errorf("invalid last ID: %w", err)
 			}
 		}
-		logs, err := db.SelectLogsSince(ctx, clientdb.SelectLogsSinceParams{
+		logs, err := db.Read().SelectLogsSince(ctx, clientdb.SelectLogsSinceParams{
 			ID:    since,
 			Limit: otlpBatchSize,
 		})
@@ -270,8 +528,8 @@ func (ps *PubSub) LogsSubscribeHandler(w http.ResponseWriter, r *http.Request, c
 }
 
 //nolint:dupl
-func (ps *PubSub) MetricsSubscribeHandler(w http.ResponseWriter, r *http.Request, client *daggerClient) error {
-	return ps.sseHandler(w, r, client, func(ctx context.Context, db *clientdb.DB, lastID string) (*sse.Event, bool, error) {
+func (ps *PubSub) MetricsSubscribeHandler(w http.ResponseWriter, r *http.Request, record *clientRecord) error {
+	return ps.sseHandler(w, r, record, func(ctx context.Context, db *clientdb.DB, lastID string) (*sse.Event, bool, error) {
 		var since int64
 		if lastID != "" {
 			_, err := fmt.Sscanf(lastID, "%d", &since)
@@ -279,7 +537,7 @@ func (ps *PubSub) MetricsSubscribeHandler(w http.ResponseWriter, r *http.Request
 				return nil, false, fmt.Errorf("invalid last ID: %w", err)
 			}
 		}
-		metrics, err := db.SelectMetricsSince(ctx, clientdb.SelectMetricsSinceParams{
+		metrics, err := db.Read().SelectMetricsSince(ctx, clientdb.SelectMetricsSinceParams{
 			ID:    since,
 			Limit: otlpBatchSize,
 		})
@@ -308,20 +566,21 @@ func (ps *PubSub) MetricsSubscribeHandler(w http.ResponseWriter, r *http.Request
 
 type clientSpans struct {
 	*PubSub
-	client *daggerClient
+	clientID string
 }
 
-func (ps *PubSub) Spans(client *daggerClient) sdktrace.SpanExporter {
+func (ps *PubSub) Spans(clientID string) sdktrace.SpanExporter {
 	return clientSpans{
-		PubSub: ps,
-		client: client,
+		PubSub:   ps,
+		clientID: clientID,
 	}
 }
 
 func (ps clientSpans) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnlySpan) error {
-	slog.ExtraDebug("pubsub exporting spans", "client", ps.client.clientID, "count", len(spans))
+	slog.ExtraDebug("pubsub exporting spans", "client", ps.clientID, "count", len(spans))
+	start := time.Now()
 
-	var inserts []*clientdb.InsertSpanParams
+	var inserts []clientdb.Span
 	for _, span := range spans {
 		traceID := span.SpanContext().TraceID().String()
 		spanID := span.SpanContext().SpanID().String()
@@ -370,7 +629,7 @@ func (ps clientSpans) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnly
 			continue
 		}
 
-		inserts = append(inserts, &clientdb.InsertSpanParams{
+		inserts = append(inserts, clientdb.Span{
 			TraceID:    traceID,
 			SpanID:     spanID,
 			TraceState: traceState,
@@ -396,17 +655,17 @@ func (ps clientSpans) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnly
 		})
 	}
 
-	db, err := ps.client.TelemetryDB(ctx)
+	db, err := ps.srv.clientDBs.Open(ctx, ps.clientID)
 	if err != nil {
 		return fmt.Errorf("get telemetry db: %w", err)
 	}
 	defer db.Close()
 
-	for _, insert := range inserts {
-		_, err = db.InsertSpan(ctx, *insert)
-		if err != nil {
-			return fmt.Errorf("insert span: %w", err)
-		}
+	appendStart := time.Now()
+	stats, appendErr := db.AppendSpans(inserts)
+	logTelemetryWrite(ps.clientID, "spans", len(inserts), start, appendStart, stats, appendErr)
+	if appendErr != nil {
+		return appendErr
 	}
 
 	return nil
@@ -415,71 +674,55 @@ func (ps clientSpans) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnly
 func (ps clientSpans) ForceFlush(ctx context.Context) error { return nil }
 func (ps clientSpans) Shutdown(context.Context) error       { return nil }
 
-func (ps *PubSub) Logs(client *daggerClient) interface {
-	sdklog.Exporter
-	sdklog.Processor
-} {
+func (ps *PubSub) Logs(clientID string) sdklog.Exporter {
 	return clientLogs{
-		client: client,
+		PubSub:   ps,
+		clientID: clientID,
 	}
 }
 
 type clientLogs struct {
-	client *daggerClient
-}
-
-var _ sdklog.Processor = clientLogs{}
-
-func (ps clientLogs) OnEmit(ctx context.Context, rec *sdklog.Record) error {
-	insert, err := insertLogRecordParam(rec)
-	if err != nil {
-		return fmt.Errorf("prepare log record %v: %w", rec, err)
-	}
-
-	db, err := ps.client.TelemetryDB(ctx)
-	if err != nil {
-		return fmt.Errorf("get telemetry db: %w", err)
-	}
-	defer db.Close()
-	_, err = db.InsertLog(ctx, *insert)
-	return err
+	*PubSub
+	clientID string
 }
 
 var _ sdklog.Exporter = clientLogs{}
 
 func (ps clientLogs) Export(ctx context.Context, logs []sdklog.Record) error {
-	slog.ExtraDebug("pubsub exporting logs", "client", ps.client.clientID, "count", len(logs))
+	slog.ExtraDebug("pubsub exporting logs", "client", ps.clientID, "count", len(logs))
+	start := time.Now()
 
-	var inserts []*clientdb.InsertLogParams
+	var inserts []clientdb.Log
 	for _, rec := range logs {
-		insert, err := insertLogRecordParam(&rec)
+		insert, err := logRecordRow(&rec)
 		if err != nil {
 			return fmt.Errorf("prepare log record %v: %w", rec, err)
 		}
 		inserts = append(inserts, insert)
 	}
 
-	db, err := ps.client.TelemetryDB(ctx)
+	db, err := ps.srv.clientDBs.Open(ctx, ps.clientID)
 	if err != nil {
 		return fmt.Errorf("get telemetry db: %w", err)
 	}
 	defer db.Close()
 
-	for _, insert := range inserts {
-		if _, err := db.InsertLog(ctx, *insert); err != nil {
-			slog.Warn("failed to insert log record", "error", err)
-			continue
-		}
+	appendStart := time.Now()
+	stats, appendErr := db.AppendLogs(inserts)
+	logTelemetryWrite(ps.clientID, "logs", len(inserts), start, appendStart, stats, appendErr)
+	if appendErr != nil {
+		// Log export remains best-effort, but the append-only store's I/O
+		// failures apply to the entire batch rather than an individual row.
+		slog.Warn("failed to append log records", "error", appendErr)
 	}
 
 	return nil
 }
 
-func (ps clientLogs) Enabled(context.Context, sdklog.EnabledParameters) bool { return true }
-func (ps clientLogs) ForceFlush(ctx context.Context) error                   { return nil }
-func (ps clientLogs) Shutdown(context.Context) error                         { return nil }
+func (ps clientLogs) ForceFlush(ctx context.Context) error { return nil }
+func (ps clientLogs) Shutdown(context.Context) error       { return nil }
 
-func insertLogRecordParam(rec *sdklog.Record) (*clientdb.InsertLogParams, error) {
+func logRecordRow(rec *sdklog.Record) (clientdb.Log, error) {
 	traceID := rec.TraceID().String()
 	spanID := rec.SpanID().String()
 	timestamp := rec.Timestamp().UnixNano()
@@ -490,7 +733,7 @@ func insertLogRecordParam(rec *sdklog.Record) (*clientdb.InsertLogParams, error)
 		var err error
 		body, err = proto.Marshal(telemetry.LogValueToPB(rec.Body()))
 		if err != nil {
-			return nil, fmt.Errorf("marshal log record body: %w", err)
+			return clientdb.Log{}, fmt.Errorf("marshal log record body: %w", err)
 		}
 	}
 
@@ -504,21 +747,21 @@ func insertLogRecordParam(rec *sdklog.Record) (*clientdb.InsertLogParams, error)
 	})
 	attributes, err := clientdb.MarshalProtoJSONs(attrs)
 	if err != nil {
-		return nil, fmt.Errorf("marshal log record attributes: %w", err)
+		return clientdb.Log{}, fmt.Errorf("marshal log record attributes: %w", err)
 	}
 
 	scope, err := protojson.Marshal(telemetry.InstrumentationScopeToPB(rec.InstrumentationScope()))
 	if err != nil {
-		return nil, fmt.Errorf("marshal log record instrumentation scope: %w", err)
+		return clientdb.Log{}, fmt.Errorf("marshal log record instrumentation scope: %w", err)
 	}
 
 	res := rec.Resource()
 	resource, err := protojson.Marshal(telemetry.ResourcePtrToPB(res))
 	if err != nil {
-		return nil, fmt.Errorf("marshal log record resource: %w", err)
+		return clientdb.Log{}, fmt.Errorf("marshal log record resource: %w", err)
 	}
 
-	return &clientdb.InsertLogParams{
+	return clientdb.Log{
 		TraceID: sql.NullString{
 			String: traceID,
 			Valid:  rec.TraceID().IsValid(),
@@ -534,20 +777,20 @@ func insertLogRecordParam(rec *sdklog.Record) (*clientdb.InsertLogParams, error)
 		Attributes:           attributes,
 		InstrumentationScope: scope,
 		Resource:             resource,
-		ResourceSchemaUrl:    res.SchemaURL(),
+		ResourceSchemaURL:    res.SchemaURL(),
 	}, nil
 }
 
-func (ps *PubSub) Metrics(client *daggerClient) sdkmetric.Exporter {
+func (ps *PubSub) Metrics(clientID string) sdkmetric.Exporter {
 	return clientMetrics{
-		PubSub: ps,
-		client: client,
+		PubSub:   ps,
+		clientID: clientID,
 	}
 }
 
 type clientMetrics struct {
 	*PubSub
-	client *daggerClient
+	clientID string
 }
 
 func (ps clientMetrics) Export(ctx context.Context, metrics *metricdata.ResourceMetrics) error {
@@ -555,7 +798,8 @@ func (ps clientMetrics) Export(ctx context.Context, metrics *metricdata.Resource
 		return nil
 	}
 
-	slog.ExtraDebug("pubsub exporting metrics", "client", ps.client.clientID, "count", len(metrics.ScopeMetrics))
+	slog.ExtraDebug("pubsub exporting metrics", "client", ps.clientID, "count", len(metrics.ScopeMetrics))
+	start := time.Now()
 
 	pbMetrics, err := telemetry.ResourceMetricsToPB(metrics)
 	if err != nil {
@@ -567,15 +811,17 @@ func (ps clientMetrics) Export(ctx context.Context, metrics *metricdata.Resource
 		return fmt.Errorf("marshal metrics to pb: %w", err)
 	}
 
-	db, err := ps.client.TelemetryDB(ctx)
+	db, err := ps.srv.clientDBs.Open(ctx, ps.clientID)
 	if err != nil {
 		return fmt.Errorf("get telemetry db: %w", err)
 	}
 	defer db.Close()
 
-	_, err = db.InsertMetric(ctx, metricsPBBytes)
+	appendStart := time.Now()
+	stats, err := db.AppendMetrics([]clientdb.Metric{{Data: metricsPBBytes}})
+	logTelemetryWrite(ps.clientID, "metrics", 1, start, appendStart, stats, err)
 	if err != nil {
-		return fmt.Errorf("insert metrics: %w", err)
+		return fmt.Errorf("append metrics: %w", err)
 	}
 
 	return nil
@@ -594,8 +840,8 @@ func (ps clientMetrics) Shutdown(context.Context) error       { return nil }
 
 type Fetcher func(ctx context.Context, db *clientdb.DB, since string) (*sse.Event, bool, error)
 
-func (ps *PubSub) sseHandler(w http.ResponseWriter, r *http.Request, client *daggerClient, fetcher Fetcher) error {
-	slog := slog.With("client", client.clientID, "path", r.URL.Path)
+func (ps *PubSub) sseHandler(w http.ResponseWriter, r *http.Request, record *clientRecord, fetcher Fetcher) error {
+	slog := slog.With("client", record.clientID, "path", r.URL.Path)
 
 	flush := func() {
 		slog.Warn("flush not supported?")
@@ -610,7 +856,7 @@ func (ps *PubSub) sseHandler(w http.ResponseWriter, r *http.Request, client *dag
 
 	since := r.Header.Get("X-Last-Event-ID")
 
-	db, err := client.TelemetryDB(r.Context())
+	db, err := record.TelemetryDB(r.Context())
 	if err != nil {
 		return fmt.Errorf("open client db: %w", err)
 	}
@@ -628,7 +874,13 @@ func (ps *PubSub) sseHandler(w http.ResponseWriter, r *http.Request, client *dag
 
 	var terminating bool
 	for {
+		fetchStart := time.Now()
 		event, hasData, err := fetcher(r.Context(), db, since)
+		if elapsed := time.Since(fetchStart); elapsed > slowTelemetryOp {
+			// A slow historical file scan does not hold the stream mutex, but it
+			// can still threaten the terminating subscriber's drain budget.
+			slog.Warn("slow SSE fetch", "duration", elapsed, "hasData", hasData, "error", err)
+		}
 		if err != nil {
 			slog.Warn("error fetching event", "err", err)
 			return fmt.Errorf("fetch: %w", err)
@@ -641,11 +893,11 @@ func (ps *PubSub) sseHandler(w http.ResponseWriter, r *http.Request, client *dag
 			select {
 			case <-time.After(telemetry.NearlyImmediate):
 				// Poll for more data at the same frequency that it's batched and saved.
-				// SQLite should be able to handle aggressive polling just fine.
+				// Tail reads are cheap enough for aggressive polling.
 				// Synchronizing with writes isn't worth the accompanying risk of hangs.
 				//
 				// NB: logging here is a bit too crazy
-			case <-client.shutdownCh:
+			case <-record.shutdownCh:
 				// Client is shutting down; next time we receive no data, we'll exit.
 				slog.ExtraDebug("shutting down")
 				terminating = true

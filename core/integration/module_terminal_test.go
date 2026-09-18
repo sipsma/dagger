@@ -50,9 +50,51 @@ func cacheTerminalModule(ctx context.Context, t *testctx.T, modDir string, args 
 }
 
 func (ModuleSuite) TestDaggerTerminal(ctx context.Context, t *testctx.T) {
+	t.Run("top-level command", func(ctx context.Context, t *testctx.T) {
+		modDir := terminalFixtureMod(ctx, t, "terminal-default")
+		cacheTerminalModule(ctx, t, modDir, "-m", ".", "api", "functions")
+
+		out, err := hostDaggerExecRaw(ctx, t, modDir, "shell", "-l")
+		require.NoError(t, err)
+		require.Contains(t, string(out), "# select with 'dagger shell <NAME>'\n")
+		require.Contains(t, string(out), "\nctr")
+		require.NotContains(t, string(out), "test:ctr")
+
+		console, err := newTUIConsole(t, 60*time.Second)
+		require.NoError(t, err)
+		defer console.Close()
+
+		tty := console.Tty()
+		err = pty.Setsize(tty, &pty.Winsize{Rows: 6, Cols: 20})
+		require.NoError(t, err)
+
+		cmd := hostDaggerCommandRaw(ctx, t, modDir, "shell", "ctr")
+		cmd.Stdin = tty
+		cmd.Stdout = tty
+		cmd.Stderr = tty
+
+		err = cmd.Start()
+		require.NoError(t, err)
+
+		prompt := fmt.Sprintf("/coolworkdir%s $ ", resetSeq)
+		_, err = console.ExpectString(prompt)
+		require.NoError(t, err)
+
+		_, err = console.SendLine("pwd")
+		require.NoError(t, err)
+		_, err = console.ExpectString("/coolworkdir\r\n")
+		require.NoError(t, err)
+
+		_, err = console.SendLine("exit")
+		require.NoError(t, err)
+
+		go console.ExpectEOF()
+		require.NoError(t, cmd.Wait())
+	})
+
 	t.Run("default arg /bin/sh", func(ctx context.Context, t *testctx.T) {
 		modDir := terminalFixtureMod(ctx, t, "terminal-default")
-		cacheTerminalModule(ctx, t, modDir, "-m", ".", "functions")
+		cacheTerminalModule(ctx, t, modDir, "-m", ".", "api", "functions")
 
 		// timeout for waiting for each expected line is very generous in case CI is under heavy load or something
 		console, err := newTUIConsole(t, 60*time.Second)
@@ -109,7 +151,7 @@ func (ModuleSuite) TestDaggerTerminal(ctx context.Context, t *testctx.T) {
 
 	t.Run("bound service crash keeps terminal open", func(ctx context.Context, t *testctx.T) {
 		modDir := terminalFixtureMod(ctx, t, "terminal-bound-service-crash")
-		cacheTerminalModule(ctx, t, modDir, "-m", ".", "functions")
+		cacheTerminalModule(ctx, t, modDir, "-m", ".", "api", "functions")
 
 		console, err := newTUIConsole(t, 60*time.Second)
 		require.NoError(t, err)
@@ -154,7 +196,7 @@ func (ModuleSuite) TestDaggerTerminal(ctx context.Context, t *testctx.T) {
 
 	t.Run("basic", func(ctx context.Context, t *testctx.T) {
 		modDir := terminalFixtureMod(ctx, t, "terminal-basic")
-		cacheTerminalModule(ctx, t, modDir, "-m", ".", "functions")
+		cacheTerminalModule(ctx, t, modDir, "-m", ".", "api", "functions")
 
 		// timeout for waiting for each expected line is very generous in case CI is under heavy load or something
 		console, err := newTUIConsole(t, 60*time.Second)
@@ -238,7 +280,7 @@ func (ModuleSuite) TestDaggerTerminal(ctx context.Context, t *testctx.T) {
 
 	t.Run("attachable", func(ctx context.Context, t *testctx.T) {
 		modDir := terminalFixtureMod(ctx, t, "terminal-attachable")
-		cacheTerminalModule(ctx, t, modDir, "-m", ".", "functions")
+		cacheTerminalModule(ctx, t, modDir, "-m", ".", "api", "functions")
 
 		// timeout for waiting for each expected line is very generous in case CI is under heavy load or something
 		console, err := newTUIConsole(t, 60*time.Second)
@@ -343,7 +385,7 @@ func (ModuleSuite) TestDaggerTerminal(ctx context.Context, t *testctx.T) {
 
 	t.Run("nested client", func(ctx context.Context, t *testctx.T) {
 		modDir := terminalFixtureMod(ctx, t, "terminal-nested-client")
-		cacheTerminalModule(ctx, t, modDir, "-m", ".", "functions")
+		cacheTerminalModule(ctx, t, modDir, "-m", ".", "api", "functions")
 
 		thisRepoPath, err := filepath.Abs("../..")
 		require.NoError(t, err)
@@ -408,7 +450,13 @@ func (ModuleSuite) TestDaggerTerminal(ctx context.Context, t *testctx.T) {
 
 	t.Run("directory", func(ctx context.Context, t *testctx.T) {
 		modDir := terminalFixtureMod(ctx, t, "terminal-directory")
-		cacheTerminalModule(ctx, t, modDir, "-m", ".", "functions")
+		cacheTerminalModule(ctx, t, modDir, "-m", ".", "api", "functions")
+
+		out, err := hostDaggerExecRaw(ctx, t, modDir, "sh", "-l")
+		require.NoError(t, err)
+		require.Contains(t, string(out), "# select with 'dagger shell <NAME>'\n")
+		require.Contains(t, string(out), "\ndir")
+		require.NotContains(t, string(out), "test:dir")
 
 		// timeout for waiting for each expected line is very generous in case CI is under heavy load or something
 		console, err := newTUIConsole(t, 60*time.Second)
@@ -423,7 +471,7 @@ func (ModuleSuite) TestDaggerTerminal(ctx context.Context, t *testctx.T) {
 		err = pty.Setsize(tty, &pty.Winsize{Rows: 6, Cols: 16})
 		require.NoError(t, err)
 
-		cmd := hostDaggerCommandRaw(ctx, t, modDir, "-m", ".", "call", "dir", "terminal")
+		cmd := hostDaggerCommandRaw(ctx, t, modDir, "sh", "dir")
 		cmd.Stdin = tty
 		cmd.Stdout = tty
 		cmd.Stderr = tty
@@ -456,7 +504,7 @@ func (ModuleSuite) TestDaggerTerminal(ctx context.Context, t *testctx.T) {
 
 	t.Run("on failure", func(ctx context.Context, t *testctx.T) {
 		modDir := terminalFixtureMod(ctx, t, "terminal-on-failure")
-		cacheTerminalModule(ctx, t, modDir, "-m", ".", "functions")
+		cacheTerminalModule(ctx, t, modDir, "-m", ".", "api", "functions")
 
 		// timeout for waiting for each expected line is very generous in case CI is under heavy load or something
 		console, err := newTUIConsole(t, 60*time.Second)
@@ -471,7 +519,7 @@ func (ModuleSuite) TestDaggerTerminal(ctx context.Context, t *testctx.T) {
 		err = pty.Setsize(tty, &pty.Winsize{Rows: 6, Cols: 16})
 		require.NoError(t, err)
 
-		cmd := hostDaggerCommandRaw(ctx, t, modDir, "-m", ".", "--interactive", "call", "ctr")
+		cmd := hostDaggerCommandRaw(ctx, t, modDir, "-m", ".", "--shell-on-error", "call", "ctr")
 		cmd.Stdin = tty
 		cmd.Stdout = tty
 		cmd.Stderr = tty
@@ -528,8 +576,8 @@ func (ModuleSuite) TestDaggerTerminal(ctx context.Context, t *testctx.T) {
 		err = cmd.Wait()
 		require.Error(t, err)
 
-		// We try again with an invalid shell to confirm we replaced the default command
-		// We have to set a TTY though or else the error will just be that the --interactive flag doesn't work without a terminal
+		// Try again with an invalid shell to confirm that the command was replaced.
+		// Keep the old flag here to test the deprecated compatibility alias.
 		console, err = newTUIConsole(t, 60*time.Second)
 		require.NoError(t, err)
 		defer console.Close()

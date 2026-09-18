@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/dagger/dagger/dagql"
+	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/slog"
 	telemetry "github.com/dagger/otel-go"
 	"github.com/vektah/gqlparser/v2/ast"
@@ -44,7 +45,7 @@ type persistedSearchResult struct {
 	Submatches     []*persistedSearchSubmatch `json:"submatches,omitempty"`
 }
 
-func (r *SearchResult) EncodePersistedObject(context.Context, dagql.PersistedObjectCache) (dagql.PersistedObjectEncoding, error) {
+func (r *SearchResult) EncodePersistedObject(context.Context, *dagql.PersistEncodeContext) (dagql.PersistedObjectEncoding, error) {
 	if r == nil {
 		return dagql.PersistedObjectEncoding{}, fmt.Errorf("encode persisted search result: nil search result")
 	}
@@ -68,7 +69,7 @@ func (r *SearchResult) EncodePersistedObject(context.Context, dagql.PersistedObj
 	return encodePersistedObjectPayload(payload)
 }
 
-func (*SearchResult) DecodePersistedObject(_ context.Context, _ *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*SearchResult) DecodePersistedObject(_ context.Context, _ *dagql.PersistDecodeContext, payload json.RawMessage) (dagql.Typed, error) {
 	var persisted persistedSearchResult
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted search result payload: %w", err)
@@ -115,7 +116,7 @@ type persistedSearchSubmatch struct {
 	End   int    `json:"end"`
 }
 
-func (m *SearchSubmatch) EncodePersistedObject(context.Context, dagql.PersistedObjectCache) (dagql.PersistedObjectEncoding, error) {
+func (m *SearchSubmatch) EncodePersistedObject(context.Context, *dagql.PersistEncodeContext) (dagql.PersistedObjectEncoding, error) {
 	if m == nil {
 		return dagql.PersistedObjectEncoding{}, fmt.Errorf("encode persisted search submatch: nil search submatch")
 	}
@@ -126,7 +127,7 @@ func (m *SearchSubmatch) EncodePersistedObject(context.Context, dagql.PersistedO
 	})
 }
 
-func (*SearchSubmatch) DecodePersistedObject(_ context.Context, _ *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*SearchSubmatch) DecodePersistedObject(_ context.Context, _ *dagql.PersistDecodeContext, payload json.RawMessage) (dagql.Typed, error) {
 	var persisted persistedSearchSubmatch
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted search submatch payload: %w", err)
@@ -241,7 +242,7 @@ func (opts *SearchOpts) RunRipgrep(ctx context.Context, rg *exec.Cmd, verbose bo
 			return []*SearchResult{}, nil
 		}
 		if errBuf.Len() > 0 {
-			if strings.Contains(errBuf.String(), "No files were searched") {
+			if engine.RipgrepNoFilesSearched(errBuf.String()) {
 				if errs == nil {
 					return []*SearchResult{}, nil
 				}

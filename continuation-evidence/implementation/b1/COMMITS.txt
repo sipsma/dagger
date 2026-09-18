@@ -1,0 +1,7 @@
+c9f908e771aa6c9a58c35d5f218954c51dc0d316 fix: release eager output resources on failed construction
+aa1e1db818078693351585f44b0c55498caf9953 core: record completed filesystem producers before publication
+760062120e92977fd2afd5ca5f0cbb45af8ae53d core: retain producers for cleaned and imported Git directories
+0b6b47e33ce28355bd94640136536c1928686e66 core: retain exact Git ref and commit tree producers
+52d4131a79853039be300626b383e67b4927d374 core: retain stateless HTTP File producers
+06724072c740aad2206690ac52e60c06b52a20cc core: retain builtin Container and generated schema producers
+c35802efe6bab4bb1090d3a7b85e927635eac169 test: verify eager producer persistence and execution

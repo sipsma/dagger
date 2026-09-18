@@ -1,0 +1,57 @@
+[
+  {
+    "path": "core/container.go",
+    "function": "func (container *Container) AttachDependencyResultsKinds(",
+    "identical_at": {
+      "foundation": "1ca9f28a60f1d9597c1b0df01e65a91707ce3b0f",
+      "batch1": "a88e0e0cdde5383d085347c55288ff84651239e2",
+      "batch2": "aa7f3fa330faf7ac95217665a61edcb95b633768",
+      "integrated": "97ee3385fdfdb502638922d329e9775e0d040e67"
+    },
+    "sha256": "dc039aa98bb31c4f5f94ab1e7ea2bc4343a9b43686bf0b2f31ff1868ad352c46"
+  },
+  {
+    "path": "core/container_parts.go",
+    "function": "func (container *Container) consumeLazyOp(",
+    "identical_at": {
+      "foundation": "1ca9f28a60f1d9597c1b0df01e65a91707ce3b0f",
+      "batch1": "a88e0e0cdde5383d085347c55288ff84651239e2",
+      "batch2": "aa7f3fa330faf7ac95217665a61edcb95b633768",
+      "integrated": "97ee3385fdfdb502638922d329e9775e0d040e67"
+    },
+    "sha256": "fc2a4f1c2e65ffbfc9be0637acab382b4c41ca60fc39a1da8e11fa992dc3cafd"
+  },
+  {
+    "path": "core/container.go",
+    "function": "func (lazy *ContainerWithLabelLazy) EncodePersisted(",
+    "identical_at": {
+      "foundation": "1ca9f28a60f1d9597c1b0df01e65a91707ce3b0f",
+      "batch1": "a88e0e0cdde5383d085347c55288ff84651239e2",
+      "batch2": "aa7f3fa330faf7ac95217665a61edcb95b633768",
+      "integrated": "97ee3385fdfdb502638922d329e9775e0d040e67"
+    },
+    "sha256": "c2df9c168579b33d3a87c909bd25388b9acd10e4d5912d9cae4f8c23432cdbf5"
+  },
+  {
+    "path": "core/container_shutdown_persistence_test.go",
+    "function": null,
+    "identical_at": {
+      "foundation": "1ca9f28a60f1d9597c1b0df01e65a91707ce3b0f",
+      "batch1": "a88e0e0cdde5383d085347c55288ff84651239e2",
+      "batch2": "aa7f3fa330faf7ac95217665a61edcb95b633768",
+      "integrated": "97ee3385fdfdb502638922d329e9775e0d040e67"
+    },
+    "sha256": "db62a2fd578a95a3628df757b0d2a5a469614300ee7f8fba9d6e6a26f5402113"
+  },
+  {
+    "path": "core/persisted_families_test.go",
+    "function": null,
+    "identical_at": {
+      "foundation": "1ca9f28a60f1d9597c1b0df01e65a91707ce3b0f",
+      "batch1": "a88e0e0cdde5383d085347c55288ff84651239e2",
+      "batch2": "aa7f3fa330faf7ac95217665a61edcb95b633768",
+      "integrated": "97ee3385fdfdb502638922d329e9775e0d040e67"
+    },
+    "sha256": "17faad6461124424b2c205eb226faea9a09752dc13d206b14c55c359402161b9"
+  }
+]

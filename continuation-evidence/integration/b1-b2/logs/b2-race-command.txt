@@ -1,0 +1,7 @@
+Head: 5483cfc495f93d4777104bda7edede27e33607c9
+Command: go test -p=1 -race ./dagql -run '^(TestValueTransferCapture|TestValueTransferImportPublication|TestValueTransferOfferOwners|TestValueTransferOfferCopyFailure|TestSchemaModuleSelection.*)$' -count=1 -timeout=180s -v
+Started: 2026-09-16T08:55:12.589681+00:00
+Finished: 2026-09-16T08:55:39.435757+00:00
+Elapsed seconds: 26.846
+Exit status: 0
+Log: logs/b2-race.log

@@ -58,6 +58,22 @@ defmodule Dagger.ModuleSource do
   end
 
   @doc """
+  The client-facing introspection schema JSON file for this module source.
+
+  This is the schema consumed by client codegen: unlike introspectionSchemaJSON (the module-facing schema), it hides no core types and installs this module (reached via dag.<moduleName>) so a generated client can bind it. The module's dependencies are excluded: a client is generated for a single module plus core, not its dependency graph.
+  """
+  @spec client_schema_introspection_json(t()) :: Dagger.File.t()
+  def client_schema_introspection_json(%__MODULE__{} = module_source) do
+    query_builder =
+      module_source.query_builder |> QB.select("clientSchemaIntrospectionJSON")
+
+    %Dagger.File{
+      query_builder: query_builder,
+      client: module_source.client
+    }
+  end
+
+  @doc """
   The ref to clone the root of the git repo from. Only valid for git sources.
   """
   @spec clone_ref(t()) :: {:ok, String.t()} | {:error, term()}
@@ -184,6 +200,24 @@ defmodule Dagger.ModuleSource do
       module_source.query_builder |> QB.select("engineVersion")
 
     Client.execute(module_source.client, query_builder)
+  end
+
+  @doc """
+  Return the supplied workspace with this module's generated context applied.
+
+  The workspace change baseline is preserved, so a later Workspace.changes call includes this generation together with any other edits made by the caller.
+  """
+  @spec generate(t(), Dagger.Workspace.t()) :: Dagger.Workspace.t()
+  def generate(%__MODULE__{} = module_source, workspace) do
+    query_builder =
+      module_source.query_builder
+      |> QB.select("generate")
+      |> QB.put_arg("workspace", Dagger.ID.id!(workspace))
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: module_source.client
+    }
   end
 
   @doc """
@@ -348,15 +382,29 @@ defmodule Dagger.ModuleSource do
   @doc """
   The SDK configuration of the module.
   """
-  @spec sdk(t()) :: Dagger.SDKConfig.t() | nil
+  @spec sdk(t()) :: {:ok, Dagger.SDKConfig.t() | nil} | {:error, term()}
   def sdk(%__MODULE__{} = module_source) do
     query_builder =
-      module_source.query_builder |> QB.select("sdk")
+      module_source.query_builder |> QB.select("sdk") |> QB.select("id")
 
-    %Dagger.SDKConfig{
-      query_builder: query_builder,
-      client: module_source.client
-    }
+    case Client.execute(module_source.client, query_builder) do
+      {:ok, nil} ->
+        {:ok, nil}
+
+      {:ok, id} ->
+        {:ok,
+         %Dagger.SDKConfig{
+           query_builder:
+             QB.query()
+             |> QB.select("node")
+             |> QB.put_arg("id", id)
+             |> QB.inline_fragment("SDKConfig"),
+           client: module_source.client
+         }}
+
+      error ->
+        error
+    end
   end
 
   @doc """
@@ -426,6 +474,22 @@ defmodule Dagger.ModuleSource do
          }
        end}
     end
+  end
+
+  @doc """
+  The module's dagger.json with any in-memory edits from with* APIs applied, as a diff relative to the source's context directory.
+
+  Unlike generatedContextDirectory, this does not run codegen and does not validate the engine version against the running engine, so it can be used to declare an engine requirement newer than the running engine. Loading or serving such a module still fails at moduleSource.asModule.
+  """
+  @spec updated_config_directory(t()) :: Dagger.Directory.t()
+  def updated_config_directory(%__MODULE__{} = module_source) do
+    query_builder =
+      module_source.query_builder |> QB.select("updatedConfigDirectory")
+
+    %Dagger.Directory{
+      query_builder: query_builder,
+      client: module_source.client
+    }
   end
 
   @doc """

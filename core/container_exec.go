@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -35,6 +36,7 @@ import (
 	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/engineutil"
 	"github.com/dagger/dagger/engine/slog"
+	"github.com/dagger/dagger/engine/wcprof"
 	"github.com/dagger/dagger/network"
 	telemetry "github.com/dagger/otel-go"
 	"go.opentelemetry.io/otel/trace"
@@ -94,6 +96,9 @@ type ContainerExecState struct {
 	ExecMD        *engineutil.ExecutionMetadata
 	ModuleContext dagql.ObjectResult[*Module]
 	FunctionCall  *FunctionCall
+
+	// ExecMD changes during execution and retries. Persist the supplied input.
+	originalExecMD *engineutil.ExecutionMetadata
 }
 
 type ContainerExecLazy struct {
@@ -123,7 +128,89 @@ func (lazy *ContainerExecLazy) Evaluate(ctx context.Context, ctr *Container) err
 	if lazy == nil || lazy.State == nil {
 		return nil
 	}
-	return lazy.State.Evaluate(ctx, ctr)
+	return ctr.evaluateAllLazyGroups(ctx, lazy)
+}
+
+func (lazy *ContainerExecLazy) IsEvaluated() bool {
+	return lazy != nil && lazy.State != nil && lazy.State.IsEvaluated()
+}
+
+func (lazy *ContainerExecLazy) ContainerLazyState() *LazyState {
+	return &lazy.State.LazyState
+}
+
+// ContainerLazyGroups implements the exec's part mapping: metadata and
+// each read-only mount delegate from the parent (the run does not change
+// or produce them); fs, execMeta, and every writable mount are filled
+// jointly by the one process run (execOutputs).
+func (lazy *ContainerExecLazy) ContainerLazyGroups(_ context.Context, ctr *Container, parts []dagql.PartKey) ([]dagql.LazyGroupKey, error) {
+	groupOf := func(part dagql.PartKey) (dagql.LazyGroupKey, error) {
+		switch part {
+		case ContainerPartMetadata:
+			return ContainerLazyGroupMetadata, nil
+		case ContainerPartFS, ContainerPartExecMeta:
+			return ContainerLazyGroupExecOutputs, nil
+		}
+		if target, ok := strings.CutPrefix(string(part), containerPartMountPrefix); ok {
+			mnt := ctr.mountAt(target)
+			if mnt == nil {
+				return "", fmt.Errorf("container withExec: no mount at target %q", target)
+			}
+			if mnt.Readonly {
+				return containerDelegationGroup(part), nil
+			}
+			return ContainerLazyGroupExecOutputs, nil
+		}
+		return "", fmt.Errorf("container withExec: unknown part %q", part)
+	}
+	if parts == nil {
+		groups := []dagql.LazyGroupKey{ContainerLazyGroupMetadata, ContainerLazyGroupExecOutputs}
+		for i := range ctr.Mounts {
+			mnt := &ctr.Mounts[i]
+			if mnt.Readonly && (mnt.DirectorySource != nil || mnt.FileSource != nil) {
+				groups = append(groups, containerDelegationGroup(ContainerPartMount(mnt.Target)))
+			}
+		}
+		return groups, nil
+	}
+	var groups []dagql.LazyGroupKey
+	seen := make(map[dagql.LazyGroupKey]struct{}, len(parts))
+	for _, part := range parts {
+		group, err := groupOf(part)
+		if err != nil {
+			return nil, err
+		}
+		if _, dup := seen[group]; dup {
+			continue
+		}
+		seen[group] = struct{}{}
+		groups = append(groups, group)
+	}
+	return groups, nil
+}
+
+func (lazy *ContainerExecLazy) EvaluateContainerGroup(ctx context.Context, ctr *Container, group dagql.LazyGroupKey) error {
+	if lazy == nil || lazy.State == nil {
+		return nil
+	}
+	switch group {
+	case ContainerLazyGroupMetadata:
+		return lazy.State.LazyState.EvaluateGroup(ctx, "Container.withExec", group, func(ctx context.Context) error {
+			// The exec changes no metadata: the child's plain fields are
+			// the parent's, settled without running anything. (This
+			// preserves the previously evaluated-state behavior for
+			// ImageRef too: WithExec clears it on the shell but the
+			// parent copy restores it, exactly as the old whole-body
+			// parent-state copy did.)
+			return materializeContainerMetadataFromParent(ctx, ctr, lazy.State.Parent)
+		})
+	case ContainerLazyGroupExecOutputs:
+		return lazy.State.evaluateOutputs(ctx, ctr)
+	default:
+		return lazy.State.LazyState.EvaluateGroup(ctx, "Container.withExec", group, func(ctx context.Context) error {
+			return delegateContainerPart(ctx, ctr, lazy.State.Parent, dagql.PartKey(group))
+		})
+	}
 }
 
 func (lazy *ContainerExecLazy) AttachDependencies(ctx context.Context, attach func(dagql.AnyResult) (dagql.AnyResult, error)) ([]dagql.AnyResult, error) {
@@ -153,20 +240,20 @@ func (lazy *ContainerExecLazy) AttachDependencies(ctx context.Context, attach fu
 	return deps, nil
 }
 
-func (lazy *ContainerExecLazy) EncodePersisted(ctx context.Context, cache dagql.PersistedObjectCache) (json.RawMessage, error) {
+func (lazy *ContainerExecLazy) EncodePersisted(ctx context.Context, enc *dagql.PersistEncodeContext) (json.RawMessage, error) {
 	if lazy == nil || lazy.State == nil {
 		return nil, fmt.Errorf("encode persisted container withExec lazy: nil state")
 	}
 	if lazy.State.FunctionCall != nil {
 		return nil, fmt.Errorf("cannot persist container exec with active function call")
 	}
-	parentID, err := encodePersistedObjectRef(cache, lazy.State.Parent, "container withExec parent")
+	parentID, err := encodePersistedObjectRef(enc, lazy.State.Parent, "container withExec parent")
 	if err != nil {
 		return nil, err
 	}
 	var moduleContextID uint64
 	if lazy.State.ModuleContext.Self() != nil {
-		moduleContextID, err = encodePersistedObjectRef(cache, lazy.State.ModuleContext, "container withExec module context")
+		moduleContextID, err = encodePersistedObjectRef(enc, lazy.State.ModuleContext, "container withExec module context")
 		if err != nil {
 			return nil, err
 		}
@@ -175,20 +262,37 @@ func (lazy *ContainerExecLazy) EncodePersisted(ctx context.Context, cache dagql.
 		ParentResultID:        parentID,
 		ModuleContextResultID: moduleContextID,
 		Opts:                  lazy.State.Opts,
-		ExecMD:                lazy.State.ExecMD,
+		ExecMD:                lazy.State.originalExecMD,
 	})
+}
+
+// execMeta copies the metadata by value, but mutates HostAliases in place.
+func copyExecInputMetadata(input *engineutil.ExecutionMetadata) *engineutil.ExecutionMetadata {
+	if input == nil {
+		return nil
+	}
+	copy := *input
+	copy.HostAliases = maps.Clone(input.HostAliases)
+	for host, aliases := range copy.HostAliases {
+		copy.HostAliases[host] = slices.Clone(aliases)
+	}
+	return &copy
 }
 
 func (lazy *ContainerVolatileExecCacheHitLazy) Evaluate(ctx context.Context, container *Container) error {
 	if lazy == nil {
 		return nil
 	}
-	return lazy.LazyState.Evaluate(ctx, "Container.withExec.cacheHit", func(ctx context.Context) error {
-		if err := materializeContainerStateFromParent(ctx, container, lazy.Parent); err != nil {
-			return err
-		}
+	return container.evaluateAllLazyGroups(ctx, lazy)
+}
+
+func (lazy *ContainerVolatileExecCacheHitLazy) ContainerLazyGroups(_ context.Context, ctr *Container, parts []dagql.PartKey) ([]dagql.LazyGroupKey, error) {
+	return templateAContainerGroups(ctr, parts)
+}
+
+func (lazy *ContainerVolatileExecCacheHitLazy) EvaluateContainerGroup(ctx context.Context, container *Container, group dagql.LazyGroupKey) error {
+	return evaluateTemplateAContainerGroup(ctx, lazy, "Container.withExec.cacheHit", container, lazy.Parent, group, func(ctx context.Context) error {
 		container.VolatileEnv = slices.Clone(lazy.VolatileEnv)
-		container.Lazy = nil
 		return nil
 	})
 }
@@ -205,11 +309,11 @@ func (lazy *ContainerVolatileExecCacheHitLazy) AttachDependencies(ctx context.Co
 	return []dagql.AnyResult{parent}, nil
 }
 
-func (lazy *ContainerVolatileExecCacheHitLazy) EncodePersisted(ctx context.Context, cache dagql.PersistedObjectCache) (json.RawMessage, error) {
+func (lazy *ContainerVolatileExecCacheHitLazy) EncodePersisted(ctx context.Context, enc *dagql.PersistEncodeContext) (json.RawMessage, error) {
 	if lazy == nil {
 		return nil, fmt.Errorf("encode persisted container volatile exec cache hit lazy: nil lazy")
 	}
-	parentID, err := encodePersistedObjectRef(cache, lazy.Parent, "container volatile exec cache hit parent")
+	parentID, err := encodePersistedObjectRef(enc, lazy.Parent, "container volatile exec cache hit parent")
 	if err != nil {
 		return nil, err
 	}
@@ -312,7 +416,7 @@ func (container *Container) execMeta(
 	return &execMD, nil
 }
 
-func (container *Container) metaSpec(ctx context.Context, opts ContainerExecOpts, includeVolatileEnv bool) (*executor.Meta, error) {
+func (container *Container) metaSpec(ctx context.Context, opts ContainerExecOpts, volatileEnv []string) (*executor.Meta, error) {
 	query, err := CurrentQuery(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get current query: %w", err)
@@ -347,9 +451,7 @@ func (container *Container) metaSpec(ctx context.Context, opts ContainerExecOpts
 	}
 
 	metaSpec.Env = addDefaultEnvvar(metaSpec.Env, "PATH", utilsystem.DefaultPathEnv(platform.OS))
-	if includeVolatileEnv {
-		metaSpec.Env = mergeEnv(metaSpec.Env, container.VolatileEnv)
-	}
+	metaSpec.Env = mergeEnv(metaSpec.Env, volatileEnv)
 
 	if opts.Expect != ReturnSuccess {
 		metaSpec.ValidExitCodes = opts.Expect.ReturnCodes()
@@ -530,6 +632,10 @@ type execSSHMountConfig struct {
 	Mode   fs.FileMode
 }
 
+type execVolumeMountConfig struct {
+	Volume dagql.ObjectResult[*Volume]
+}
+
 type execMountState struct {
 	Dest      string
 	Selector  string
@@ -541,6 +647,7 @@ type execMountState struct {
 	TmpfsOpt *pb.TmpfsOpt
 	Secret   *execSecretMountConfig
 	SSH      *execSSHMountConfig
+	Volume   *execVolumeMountConfig
 
 	ApplyOutput func(bkcache.ImmutableRef) error
 
@@ -589,8 +696,14 @@ func lockMountedCaches(ctx context.Context, mounts []ContainerMount) (func(), er
 		lockKeys = append(lockKeys, lockKey)
 	}
 	sort.Strings(lockKeys)
+	profiling := wcprof.Enabled(ctx)
 	for _, lockKey := range lockKeys {
+		var profWait *wcprof.Wait
+		if profiling {
+			profWait = wcprof.BeginWaitIdent(ctx, "cachelock:"+lockKey, wcprof.WaitReasonLock)
+		}
 		locker.Lock(lockKey)
+		profWait.End()
 	}
 	return func() {
 		for i := len(lockKeys) - 1; i >= 0; i-- {
@@ -659,37 +772,60 @@ func prepareMounts(
 			mountable = state.SourceRef
 		}
 
-		switch state.MountType {
-		case pb.MountType_BIND:
-			if state.ApplyOutput != nil {
-				if state.Readonly && state.SourceRef != nil && state.Dest != pb.RootMount {
-					iref, ok := state.SourceRef.(bkcache.ImmutableRef)
-					if !ok {
-						return fmt.Errorf("mount %s readonly output needs immutable input, got %T", state.Dest, state.SourceRef)
-					}
-					reopened, err := cache.GetBySnapshotID(ctx, iref.SnapshotID(), bkcache.NoUpdateLastUsed)
-					if err != nil {
-						return err
-					}
-					state.OutputImmutable = reopened
-				} else {
-					iref, ok := state.SourceRef.(bkcache.ImmutableRef)
-					if state.SourceRef != nil && !ok {
-						return fmt.Errorf("mount %s writable output needs immutable input, got %T", state.Dest, state.SourceRef)
-					}
-					active, err := makeMutable(state.Dest, iref)
-					if err != nil {
-						return err
-					}
-					mountable = active
-					state.OutputMutable = active
-				}
-			} else {
-				if !state.Readonly && state.SourceRef != nil {
-					if mutable, ok := state.SourceRef.(bkcache.MutableRef); ok {
-						mountable = mutable
+		if state.Volume != nil {
+			var err error
+			mountable, err = prepareExecVolumeMount(ctx, state.Volume)
+			if err != nil {
+				return err
+			}
+		} else {
+			switch state.MountType {
+			case pb.MountType_BIND:
+				if state.ApplyOutput != nil {
+					if state.Readonly && state.SourceRef != nil && state.Dest != pb.RootMount {
+						iref, ok := state.SourceRef.(bkcache.ImmutableRef)
+						if !ok {
+							return fmt.Errorf("mount %s readonly output needs immutable input, got %T", state.Dest, state.SourceRef)
+						}
+						reopened, err := cache.GetBySnapshotID(ctx, iref.SnapshotID(), bkcache.NoUpdateLastUsed)
+						if err != nil {
+							return err
+						}
+						state.OutputImmutable = reopened
 					} else {
-						iref := state.SourceRef.(bkcache.ImmutableRef)
+						iref, ok := state.SourceRef.(bkcache.ImmutableRef)
+						if state.SourceRef != nil && !ok {
+							return fmt.Errorf("mount %s writable output needs immutable input, got %T", state.Dest, state.SourceRef)
+						}
+						active, err := makeMutable(state.Dest, iref)
+						if err != nil {
+							return err
+						}
+						mountable = active
+						state.OutputMutable = active
+					}
+				} else {
+					if !state.Readonly && state.SourceRef != nil {
+						if mutable, ok := state.SourceRef.(bkcache.MutableRef); ok {
+							mountable = mutable
+						} else {
+							iref := state.SourceRef.(bkcache.ImmutableRef)
+							active, err := makeMutable(state.Dest, iref)
+							if err != nil {
+								return err
+							}
+							mountable = active
+							state.ActiveRef = active
+						}
+					} else if !state.Readonly || state.SourceRef == nil {
+						var iref bkcache.ImmutableRef
+						if state.SourceRef != nil {
+							parsed, ok := state.SourceRef.(bkcache.ImmutableRef)
+							if !ok {
+								return fmt.Errorf("mount %s writable bind needs immutable or mutable input, got %T", state.Dest, state.SourceRef)
+							}
+							iref = parsed
+						}
 						active, err := makeMutable(state.Dest, iref)
 						if err != nil {
 							return err
@@ -697,41 +833,26 @@ func prepareMounts(
 						mountable = active
 						state.ActiveRef = active
 					}
-				} else if !state.Readonly || state.SourceRef == nil {
-					var iref bkcache.ImmutableRef
-					if state.SourceRef != nil {
-						parsed, ok := state.SourceRef.(bkcache.ImmutableRef)
-						if !ok {
-							return fmt.Errorf("mount %s writable bind needs immutable or mutable input, got %T", state.Dest, state.SourceRef)
-						}
-						iref = parsed
-					}
-					active, err := makeMutable(state.Dest, iref)
-					if err != nil {
-						return err
-					}
-					mountable = active
-					state.ActiveRef = active
 				}
+
+			case pb.MountType_TMPFS:
+				mountable = execTmpFSMountable(state.TmpfsOpt)
+
+			case pb.MountType_SECRET:
+				mountable, err = prepareExecSecretMount(ctx, state.Secret)
+				if err != nil {
+					return err
+				}
+
+			case pb.MountType_SSH:
+				mountable, err = prepareExecSSHMount(state.SSH)
+				if err != nil {
+					return err
+				}
+
+			default:
+				return fmt.Errorf("mount type %s not implemented", state.MountType)
 			}
-
-		case pb.MountType_TMPFS:
-			mountable = execTmpFSMountable(state.TmpfsOpt)
-
-		case pb.MountType_SECRET:
-			mountable, err = prepareExecSecretMount(ctx, state.Secret)
-			if err != nil {
-				return err
-			}
-
-		case pb.MountType_SSH:
-			mountable, err = prepareExecSSHMount(state.SSH)
-			if err != nil {
-				return err
-			}
-
-		default:
-			return fmt.Errorf("mount type %s not implemented", state.MountType)
 		}
 
 		if state.Dest == pb.RootMount && state.Readonly && state.ApplyOutput == nil {
@@ -853,10 +974,8 @@ func prepareMounts(
 			if cacheSrc.Volume.Self() == nil {
 				return materialized, fmt.Errorf("mount %d has nil cache volume source", i)
 			}
-			if cacheSrc.Volume.Self().getSnapshot() == nil {
-				if err := cacheSrc.Volume.Self().InitializeSnapshot(ctx); err != nil {
-					return materialized, fmt.Errorf("initialize cache volume snapshot for mount %d: %w", i, err)
-				}
+			if err := EnsureBackingSnapshot(ctx, cacheSrc.Volume); err != nil {
+				return materialized, fmt.Errorf("initialize cache volume snapshot for mount %d: %w", i, err)
 			}
 			cacheSnapshot := cacheSrc.Volume.Self().getSnapshot()
 			if cacheSnapshot == nil {
@@ -864,6 +983,14 @@ func prepareMounts(
 			}
 			mountState.SourceRef = cacheSnapshot
 			mountState.Selector = cacheSrc.Volume.Self().getSnapshotSelector()
+
+		case ctrMount.VolumeSource != nil:
+			if ctrMount.VolumeSource.Volume.Self() == nil {
+				return materialized, fmt.Errorf("mount %d has nil volume source", i)
+			}
+			mountState.Volume = &execVolumeMountConfig{
+				Volume: ctrMount.VolumeSource.Volume,
+			}
 
 		case ctrMount.TmpfsSource != nil:
 			mountState.MountType = pb.MountType_TMPFS
@@ -1159,12 +1286,13 @@ func (container *Container) WithExec(
 	functionCall *FunctionCall,
 ) error {
 	state := &ContainerExecState{
-		LazyState:     NewLazyState(),
-		Parent:        parent,
-		Opts:          opts,
-		ExecMD:        execMD,
-		ModuleContext: moduleContext,
-		FunctionCall:  functionCall,
+		LazyState:      NewLazyState(),
+		Parent:         parent,
+		Opts:           opts,
+		ExecMD:         execMD,
+		ModuleContext:  moduleContext,
+		FunctionCall:   functionCall,
+		originalExecMD: copyExecInputMetadata(execMD),
 	}
 	container.Lazy = &ContainerExecLazy{State: state}
 	container.ImageRef = ""
@@ -1187,21 +1315,37 @@ func (container *Container) WithExec(
 	return nil
 }
 
+// evaluateOutputs runs the exec's joint output group: the one process
+// run fills fs, execMeta, and every writable mount at once.
+//
 //nolint:dupl,gocyclo // symmetric with prepareMounts; sharing hurts readability of each phase
-func (state *ContainerExecState) Evaluate(ctx context.Context, container *Container) (rerr error) {
+func (state *ContainerExecState) evaluateOutputs(ctx context.Context, container *Container) (rerr error) {
 	if state == nil {
 		return nil
 	}
 
-	return state.LazyState.Evaluate(ctx, "Container.withExec", func(ctx context.Context) (rerr error) {
+	return state.LazyState.EvaluateGroup(ctx, "Container.withExec", ContainerLazyGroupExecOutputs, func(ctx context.Context) (rerr error) {
 		dagCache, err := dagql.EngineCache(ctx)
 		if err != nil {
 			return err
 		}
-		if err := dagCache.Evaluate(ctx, state.Parent); err != nil {
-			return err
+		if container == nil {
+			return fmt.Errorf("exec output container is nil")
 		}
-		if err := materializeContainerStateFromParent(ctx, container, state.Parent); err != nil {
+		// The run needs the parent's rootfs and every directory/file
+		// mount materialized so they can be mounted; the parent's own
+		// exec metadata is not among them and stays pending. This
+		// container's metadata (args/env expansion, working directory,
+		// secrets, sockets, services) is already settled by the
+		// resolution phase before this body starts.
+		runParts := []dagql.PartKey{ContainerPartFS}
+		for i := range container.Mounts {
+			mnt := &container.Mounts[i]
+			if mnt.DirectorySource != nil || mnt.FileSource != nil {
+				runParts = append(runParts, ContainerPartMount(mnt.Target))
+			}
+		}
+		if err := dagCache.EvaluateParts(ctx, state.Parent, runParts...); err != nil {
 			return err
 		}
 
@@ -1209,11 +1353,16 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 		if parent == nil {
 			return fmt.Errorf("exec parent is nil")
 		}
-		if container == nil {
-			return fmt.Errorf("exec output container is nil")
+		// Run inputs are the parent's settled parts; outputs land in this
+		// container's own accessors through the bindings below. The mount
+		// list shape is this container's settled metadata (the exec does
+		// not change it), with each snapshot source read from the
+		// parent's mount at the same target.
+		inputRootFS := parent.FS
+		inputMounts, err := execInputMounts(container.Mounts, parent)
+		if err != nil {
+			return err
 		}
-		inputRootFS := container.FS
-		inputMounts := slices.Clone(container.Mounts)
 
 		query, err := CurrentQuery(ctx)
 		if err != nil {
@@ -1229,6 +1378,11 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 		}
 		defer releaseLockedCaches()
 
+		// The resolved values stay local to this run (they feed
+		// metaSpec.Env below). VolatileEnv itself is metadata delegated
+		// from the parent: every downstream consumer reads names and
+		// re-resolves against its own session, so the body writes only
+		// its own group's parts.
 		volatileEnvsFromSession := dagCache.ResolveVolatileVars(ctx, clientMetadata.SessionID)
 		var volatileEnvs []string
 		for _, k := range container.VolatileEnv {
@@ -1237,7 +1391,6 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 				volatileEnvs = append(volatileEnvs, fmt.Sprintf("%s=%s", k, v))
 			}
 		}
-		container.VolatileEnv = volatileEnvs
 
 		secretEnv, err := container.secretEnvValues(ctx)
 		if err != nil {
@@ -1285,7 +1438,7 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 
 		cache := query.SnapshotManager()
 
-		metaSpec, err := container.metaSpec(ctx, opts, true)
+		metaSpec, err := container.metaSpec(ctx, opts, volatileEnvs)
 		if err != nil {
 			return err
 		}
@@ -1294,7 +1447,9 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 		if err != nil {
 			return fmt.Errorf("failed to get engine client: %w", err)
 		}
-		causeCtx := trace.SpanContextFromContext(ctx)
+		// User-facing cause: the resolver runs on the call_exec twin's context, but
+		// exec-error attribution must name a span frontends render.
+		causeCtx := dagql.UserFacingSpanContext(ctx)
 
 		rootOutputBinding := func(ref bkcache.ImmutableRef) error {
 			dirPath := "/"
@@ -1315,8 +1470,8 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 				Dir:      new(LazyAccessor[string, *Directory]),
 				Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
 			}
-			output.Dir.setValue(dirPath)
-			output.Snapshot.setValue(ref)
+			output.SetPath(dirPath)
+			output.SetSnapshot(ref)
 			if container.FS == nil {
 				container.FS = new(LazyAccessor[*Directory, *Container])
 			}
@@ -1352,8 +1507,8 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 						Dir:      new(LazyAccessor[string, *Directory]),
 						Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
 					}
-					output.Dir.setValue(dirPath)
-					output.Snapshot.setValue(ref)
+					output.SetPath(dirPath)
+					output.SetSnapshot(ref)
 					if container.Mounts[idx].DirectorySource == nil {
 						container.Mounts[idx].DirectorySource = new(LazyAccessor[*Directory, *Container])
 					}
@@ -1376,8 +1531,8 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 						File:     new(LazyAccessor[string, *File]),
 						Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *File]),
 					}
-					output.File.setValue(filePath)
-					output.Snapshot.setValue(ref)
+					output.SetPath(filePath)
+					output.SetSnapshot(ref)
 					if container.Mounts[idx].FileSource == nil {
 						container.Mounts[idx].FileSource = new(LazyAccessor[*File, *Container])
 					}
@@ -1453,37 +1608,59 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 				mountable = state.SourceRef
 			}
 
-			switch state.MountType {
-			case pb.MountType_BIND:
-				if state.ApplyOutput != nil {
-					if state.Readonly && state.SourceRef != nil && state.Dest != pb.RootMount {
-						iref, ok := state.SourceRef.(bkcache.ImmutableRef)
-						if !ok {
-							return fmt.Errorf("mount %s readonly output needs immutable input, got %T", state.Dest, state.SourceRef)
-						}
-						reopened, err := cache.GetBySnapshotID(ctx, iref.SnapshotID(), bkcache.NoUpdateLastUsed)
-						if err != nil {
-							return err
-						}
-						state.OutputImmutable = reopened
-					} else {
-						iref, ok := state.SourceRef.(bkcache.ImmutableRef)
-						if state.SourceRef != nil && !ok {
-							return fmt.Errorf("mount %s writable output needs immutable input, got %T", state.Dest, state.SourceRef)
-						}
-						active, err := makeMutable(state.Dest, iref)
-						if err != nil {
-							return err
-						}
-						mountable = active
-						state.OutputMutable = active
-					}
-				} else {
-					if !state.Readonly && state.SourceRef != nil {
-						if mutable, ok := state.SourceRef.(bkcache.MutableRef); ok {
-							mountable = mutable
+			if state.Volume != nil {
+				mountable, err = prepareExecVolumeMount(ctx, state.Volume)
+				if err != nil {
+					return err
+				}
+			} else {
+				switch state.MountType {
+				case pb.MountType_BIND:
+					if state.ApplyOutput != nil {
+						if state.Readonly && state.SourceRef != nil && state.Dest != pb.RootMount {
+							iref, ok := state.SourceRef.(bkcache.ImmutableRef)
+							if !ok {
+								return fmt.Errorf("mount %s readonly output needs immutable input, got %T", state.Dest, state.SourceRef)
+							}
+							reopened, err := cache.GetBySnapshotID(ctx, iref.SnapshotID(), bkcache.NoUpdateLastUsed)
+							if err != nil {
+								return err
+							}
+							state.OutputImmutable = reopened
 						} else {
-							iref := state.SourceRef.(bkcache.ImmutableRef)
+							iref, ok := state.SourceRef.(bkcache.ImmutableRef)
+							if state.SourceRef != nil && !ok {
+								return fmt.Errorf("mount %s writable output needs immutable input, got %T", state.Dest, state.SourceRef)
+							}
+							active, err := makeMutable(state.Dest, iref)
+							if err != nil {
+								return err
+							}
+							mountable = active
+							state.OutputMutable = active
+						}
+					} else {
+						if !state.Readonly && state.SourceRef != nil {
+							if mutable, ok := state.SourceRef.(bkcache.MutableRef); ok {
+								mountable = mutable
+							} else {
+								iref := state.SourceRef.(bkcache.ImmutableRef)
+								active, err := makeMutable(state.Dest, iref)
+								if err != nil {
+									return err
+								}
+								mountable = active
+								state.ActiveRef = active
+							}
+						} else if !state.Readonly || state.SourceRef == nil {
+							var iref bkcache.ImmutableRef
+							if state.SourceRef != nil {
+								parsed, ok := state.SourceRef.(bkcache.ImmutableRef)
+								if !ok {
+									return fmt.Errorf("mount %s writable bind needs immutable or mutable input, got %T", state.Dest, state.SourceRef)
+								}
+								iref = parsed
+							}
 							active, err := makeMutable(state.Dest, iref)
 							if err != nil {
 								return err
@@ -1491,41 +1668,26 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 							mountable = active
 							state.ActiveRef = active
 						}
-					} else if !state.Readonly || state.SourceRef == nil {
-						var iref bkcache.ImmutableRef
-						if state.SourceRef != nil {
-							parsed, ok := state.SourceRef.(bkcache.ImmutableRef)
-							if !ok {
-								return fmt.Errorf("mount %s writable bind needs immutable or mutable input, got %T", state.Dest, state.SourceRef)
-							}
-							iref = parsed
-						}
-						active, err := makeMutable(state.Dest, iref)
-						if err != nil {
-							return err
-						}
-						mountable = active
-						state.ActiveRef = active
 					}
+
+				case pb.MountType_TMPFS:
+					mountable = execTmpFSMountable(state.TmpfsOpt)
+
+				case pb.MountType_SECRET:
+					mountable, err = prepareExecSecretMount(ctx, state.Secret)
+					if err != nil {
+						return err
+					}
+
+				case pb.MountType_SSH:
+					mountable, err = prepareExecSSHMount(state.SSH)
+					if err != nil {
+						return err
+					}
+
+				default:
+					return fmt.Errorf("mount type %s not implemented", state.MountType)
 				}
-
-			case pb.MountType_TMPFS:
-				mountable = execTmpFSMountable(state.TmpfsOpt)
-
-			case pb.MountType_SECRET:
-				mountable, err = prepareExecSecretMount(ctx, state.Secret)
-				if err != nil {
-					return err
-				}
-
-			case pb.MountType_SSH:
-				mountable, err = prepareExecSSHMount(state.SSH)
-				if err != nil {
-					return err
-				}
-
-			default:
-				return fmt.Errorf("mount type %s not implemented", state.MountType)
 			}
 
 			if state.Dest == pb.RootMount && state.Readonly && state.ApplyOutput == nil {
@@ -1575,6 +1737,8 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 			_ = releaseOutputRefs()
 			return fmt.Errorf("failed to prepare mounts: %w", err)
 		}
+
+		profPrepareStartNS := wcprof.NowNS()
 
 		rootState := &execMountState{
 			Dest:        pb.RootMount,
@@ -1649,10 +1813,8 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 				if cacheSrc.Volume.Self() == nil {
 					return failPrepare(fmt.Errorf("mount %d has nil cache volume source", i))
 				}
-				if cacheSrc.Volume.Self().getSnapshot() == nil {
-					if err := cacheSrc.Volume.Self().InitializeSnapshot(ctx); err != nil {
-						return failPrepare(fmt.Errorf("initialize cache volume snapshot for mount %d: %w", i, err))
-					}
+				if err := EnsureBackingSnapshot(ctx, cacheSrc.Volume); err != nil {
+					return failPrepare(fmt.Errorf("initialize cache volume snapshot for mount %d: %w", i, err))
 				}
 				cacheSnapshot := cacheSrc.Volume.Self().getSnapshot()
 				if cacheSnapshot == nil {
@@ -1660,6 +1822,14 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 				}
 				mountState.SourceRef = cacheSnapshot
 				mountState.Selector = cacheSrc.Volume.Self().getSnapshotSelector()
+
+			case ctrMount.VolumeSource != nil:
+				if ctrMount.VolumeSource.Volume.Self() == nil {
+					return failPrepare(fmt.Errorf("mount %d has nil volume source", i))
+				}
+				mountState.Volume = &execVolumeMountConfig{
+					Volume: ctrMount.VolumeSource.Volume,
+				}
 
 			case ctrMount.TmpfsSource != nil:
 				mountState.MountType = pb.MountType_TMPFS
@@ -1728,6 +1898,10 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 		sort.Slice(execMounts, func(i, j int) bool {
 			return execMounts[i].Dest < execMounts[j].Dest
 		})
+
+		if wcprof.Enabled(ctx) {
+			wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "withExec.prepareMounts", wcprof.OpOpts{}, profPrepareStartNS, wcprof.NowNS(), wcprof.OutcomeOK)
+		}
 
 		defer func() {
 			_ = releaseActives()
@@ -1923,8 +2097,8 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 							Dir:      new(LazyAccessor[string, *Directory]),
 							Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
 						}
-						rootDir.Dir.setValue(rootDirPath)
-						rootDir.Snapshot.setValue(rootRef)
+						rootDir.SetPath(rootDirPath)
+						rootDir.SetSnapshot(rootRef)
 						untrackResolvedRef(rootRef)
 						if terminalContainer.FS == nil {
 							terminalContainer.FS = new(LazyAccessor[*Directory, *Container])
@@ -1959,8 +2133,8 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 							Dir:      new(LazyAccessor[string, *Directory]),
 							Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
 						}
-						outputDir.Dir.setValue(dirPath)
-						outputDir.Snapshot.setValue(mountRef)
+						outputDir.SetPath(dirPath)
+						outputDir.SetSnapshot(mountRef)
 						untrackResolvedRef(mountRef)
 						if ctrMount.DirectorySource == nil {
 							ctrMount.DirectorySource = new(LazyAccessor[*Directory, *Container])
@@ -1980,8 +2154,8 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 							File:     new(LazyAccessor[string, *File]),
 							Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *File]),
 						}
-						outputFile.File.setValue(filePath)
-						outputFile.Snapshot.setValue(mountRef)
+						outputFile.SetPath(filePath)
+						outputFile.SetSnapshot(mountRef)
 						untrackResolvedRef(mountRef)
 						if ctrMount.FileSource == nil {
 							ctrMount.FileSource = new(LazyAccessor[*File, *Container])
@@ -2026,6 +2200,25 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 		if err != nil {
 			return err
 		}
+		// Capture the resolved user command for wall-clock profiling here, BEFORE
+		// any engine shim wraps it: the QEMU emulator prepended just below for
+		// emulated execs, and the executor's /.init prepended later. A capture below
+		// either shim would headline the shim instead of the user's real program
+		// (e.g. "go build"), exactly backwards on the slowest, highest-value
+		// (emulated) execs. This is unconditional and must stay OUTSIDE the
+		// `if emu != nil` block so the common non-emulated withExec is captured too.
+		// metaSpec.Args is the fully-resolved command (entrypoint + args); execMD is
+		// the same in-process pointer the executor reads, so both profile sources see
+		// one identical value. ProfArgs is json:"-", so this cannot perturb a cache key.
+		if execMD != nil {
+			execMD.ProfArgs = slices.Clone(metaSpec.Args)
+			// Same in-process pattern: the executor needs the user-facing span
+			// for the container's traceparent injection, and only core still
+			// knows it here — the executor runs on a detached execution
+			// context that does not carry this ctx's mark (see
+			// ExecutionMetadata.UserFacingSpanCtx).
+			execMD.UserFacingSpanCtx = dagql.UserFacingSpanContext(ctx)
+		}
 		if emu != nil {
 			metaSpec.Args = append([]string{engineutil.DaggerQemuEmulatorMountPoint}, metaSpec.Args...)
 			execMounts = append(execMounts, executor.Mount{
@@ -2049,6 +2242,13 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 		}
 		defer detach()
 
+		// Same in-process pattern as ProfArgs above: the FQDN a bound service
+		// actually registered under is only known once it is running, which is
+		// after every execMD digest is computed. execMD is the same pointer the
+		// executor reads, so recording it here reaches the hosts-file setup
+		// without perturbing a cache key.
+		recordBoundServiceFQDNs(execMD, container.Services, runningSvcs)
+
 		execCtx := ctx
 		var cancelExec context.CancelCauseFunc
 		var serviceErrCh <-chan error
@@ -2067,7 +2267,6 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 				ClientVersion:         engine.Version,
 				SessionID:             clientMetadata.SessionID,
 				AllowedLLMModules:     slices.Clone(clientMetadata.AllowedLLMModules),
-				LockMode:              clientMetadata.LockMode,
 				UseRecipeIDsByDefault: execMD != nil && execMD.UseRecipeIDsByDefault,
 			}
 		}
@@ -2076,20 +2275,10 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 		if opts.Stdin != "" {
 			procInfo.Stdin = io.NopCloser(strings.NewReader(opts.Stdin))
 		}
-		// Env is runtime/session context, so keep it off persisted exec state.
-		var envContext dagql.ObjectResult[*Env]
-		if state.FunctionCall != nil {
-			env, ok, err := EnvFromContext(ctx)
-			if err != nil {
-				return fmt.Errorf("resolve exec env context: %w", err)
-			}
-			if ok {
-				envContext = env
-			}
-		}
 
 		execErrCh := make(chan error, 1)
 		go func() {
+			container.recordPartDiagnostic("execRun", "")
 			execErrCh <- engineClient.Run(
 				execCtx,
 				"",
@@ -2104,10 +2293,14 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 				nestedClientMetadata,
 				state.ModuleContext,
 				state.FunctionCall,
-				envContext,
 			)
 		}()
 
+		// NB: no explicit wcprof wait is recorded for the exec itself: the
+		// executor's exec.run op is a child of the current op (ctx flows into
+		// the goroutine), which both subtracts it from self-time and gives
+		// the simulation an exact join. Ident-based waits were tried first and
+		// can mis-resolve when call digests are shared across execs.
 		var execErr error
 		select {
 		case execErr = <-execErrCh:
@@ -2154,72 +2347,79 @@ func (state *ContainerExecState) Evaluate(ctx context.Context, container *Contai
 		if invalidateErr != nil {
 			return invalidateErr
 		}
-		if err := applyOutputs(); err != nil {
-			return err
+		profApplyStartNS := wcprof.NowNS()
+		applyErr := applyOutputs()
+		if wcprof.Enabled(ctx) {
+			outcome := wcprof.OutcomeOK
+			if applyErr != nil {
+				outcome = wcprof.OutcomeError
+			}
+			wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "withExec.applyOutputs", wcprof.OpOpts{}, profApplyStartNS, wcprof.NowNS(), outcome)
 		}
-
-		container.Lazy = nil
+		if applyErr != nil {
+			return applyErr
+		}
 		return nil
 	})
 }
 
+// execInputMounts pairs this container's settled mount list shape with
+// the parent's snapshot source accessors: the run mounts the parent's
+// parts, while output bindings write this container's own accessors.
+func execInputMounts(mounts ContainerMounts, parent *Container) (ContainerMounts, error) {
+	inputs := make(ContainerMounts, len(mounts))
+	for i, mnt := range mounts {
+		in := mnt
+		if mnt.DirectorySource != nil || mnt.FileSource != nil {
+			parentMnt := parent.mountAt(mnt.Target)
+			if parentMnt == nil {
+				return nil, fmt.Errorf("exec input mount %q has no parent mount", mnt.Target)
+			}
+			in.DirectorySource = parentMnt.DirectorySource
+			in.FileSource = parentMnt.FileSource
+		}
+		inputs[i] = in
+	}
+	return inputs, nil
+}
+
 func decodePersistedContainerExecLazy(
 	ctx context.Context,
-	dag *dagql.Server,
-	container *Container,
+	dec *dagql.PersistDecodeContext,
 	payload json.RawMessage,
-	decodedRootFS decodedContainerDirectoryValue,
-	decodedMounts []decodedContainerMount,
-) error {
+) (Lazy[*Container], error) {
 	var persisted persistedContainerExecLazy
 	if err := json.Unmarshal(payload, &persisted); err != nil {
-		return fmt.Errorf("decode persisted container withExec lazy payload: %w", err)
+		return nil, fmt.Errorf("decode persisted container withExec lazy payload: %w", err)
 	}
 	if persisted.VolatileCacheHitParentResultID != 0 {
-		parent, err := loadPersistedObjectResultByResultID[*Container](ctx, dag, persisted.VolatileCacheHitParentResultID, "container volatile exec cache hit parent")
+		parent, err := loadPersistedObjectResultByResultID[*Container](ctx, dec, persisted.VolatileCacheHitParentResultID, "container volatile exec cache hit parent")
 		if err != nil {
-			return err
+			return nil, err
 		}
-		container.Lazy = &ContainerVolatileExecCacheHitLazy{
+		return &ContainerVolatileExecCacheHitLazy{
 			LazyState:   NewLazyState(),
 			Parent:      parent,
 			VolatileEnv: slices.Clone(persisted.VolatileCacheHitVolatileEnv),
-		}
-		return nil
+		}, nil
 	}
-	parent, err := loadPersistedObjectResultByResultID[*Container](ctx, dag, persisted.ParentResultID, "container exec parent")
+	parent, err := loadPersistedObjectResultByResultID[*Container](ctx, dec, persisted.ParentResultID, "container exec parent")
 	if err != nil {
-		return err
+		return nil, err
 	}
-	moduleContext, err := loadPersistedObjectResultByResultID[*Module](ctx, dag, persisted.ModuleContextResultID, "container exec module context")
+	moduleContext, err := loadPersistedObjectResultByResultID[*Module](ctx, dec, persisted.ModuleContextResultID, "container exec module context")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	state := &ContainerExecState{
-		LazyState:     NewLazyState(),
-		Parent:        parent,
-		Opts:          persisted.Opts,
-		ExecMD:        persisted.ExecMD,
-		ModuleContext: moduleContext,
+		LazyState:      NewLazyState(),
+		Parent:         parent,
+		Opts:           persisted.Opts,
+		ExecMD:         persisted.ExecMD,
+		ModuleContext:  moduleContext,
+		originalExecMD: copyExecInputMetadata(persisted.ExecMD),
 	}
-	container.Lazy = &ContainerExecLazy{State: state}
-	container.ImageRef = ""
-	container.MetaSnapshot = new(LazyAccessor[bkcache.ImmutableRef, *Container])
-	if decodedRootFS.Kind == persistedContainerValueFormPending {
-		container.FS = new(LazyAccessor[*Directory, *Container])
-	}
-	for i, decodedMount := range decodedMounts {
-		if container.Mounts[i].Readonly || decodedMount.Kind != persistedContainerValueFormPending {
-			continue
-		}
-		switch {
-		case container.Mounts[i].DirectorySource != nil:
-			container.Mounts[i].DirectorySource = new(LazyAccessor[*Directory, *Container])
-		case container.Mounts[i].FileSource != nil:
-			container.Mounts[i].FileSource = new(LazyAccessor[*File, *Container])
-		}
-	}
-	return nil
+	return &ContainerExecLazy{State: state}, nil
 }
 
 func addDefaultEnvvar(env []string, k, v string) []string {
@@ -2259,7 +2459,7 @@ func (container *Container) ExitCode(ctx context.Context) (int, error) {
 }
 
 func (container *Container) metaFileContents(ctx context.Context, filePath string) (string, error) {
-	if err := container.Evaluate(ctx); err != nil {
+	if err := container.evaluatePartsDirect(ctx, ContainerPartExecMeta); err != nil {
 		return "", err
 	}
 

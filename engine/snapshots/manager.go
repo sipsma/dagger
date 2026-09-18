@@ -33,6 +33,10 @@ type SnapshotManagerOpt struct {
 	Applier       diff.Applier
 	Differ        diff.Comparer
 	MountPoolRoot string
+	// BuiltinContent is the engine's builtin image store, consulted by
+	// chain imports for a layer blob before the chain's provider. Nil means
+	// no such store.
+	BuiltinContent content.InfoReaderProvider
 }
 
 type ImportedImage struct {
@@ -41,6 +45,24 @@ type ImportedImage struct {
 	ConfigDesc   ocispecs.Descriptor
 	Layers       []ocispecs.Descriptor
 	Nonlayers    []ocispecs.Descriptor
+}
+
+// BuiltinContent is the builtin image store chain imports consult, nil
+// when there is none.
+func (cm *snapshotManager) BuiltinContent() content.InfoReaderProvider {
+	return cm.builtinContent
+}
+
+// Blobs lists every blob of the image: manifest, config, layers and the
+// non-layer descriptors.
+func (img *ImportedImage) Blobs() []ocispecs.Descriptor {
+	if img == nil {
+		return nil
+	}
+	blobs := []ocispecs.Descriptor{img.ManifestDesc, img.ConfigDesc}
+	blobs = append(blobs, img.Layers...)
+	blobs = append(blobs, img.Nonlayers...)
+	return blobs
 }
 
 type ImportImageOpts struct {
@@ -59,16 +81,19 @@ type Accessor interface {
 	GetMutable(ctx context.Context, id string, opts ...RefOption) (MutableRef, error) // Rebase?
 	GetMutableBySnapshotID(ctx context.Context, snapshotID string, opts ...RefOption) (MutableRef, error)
 	ImportImage(ctx context.Context, img *ImportedImage, opts ImportImageOpts) (ImmutableRef, error)
+	ImportChain(ctx context.Context, chain *ExportChain) (ImmutableRef, error)
 	ApplySnapshotDiff(ctx context.Context, lower, upper ImmutableRef, opts ...RefOption) (ImmutableRef, error)
 	Merge(ctx context.Context, parents []ImmutableRef, opts ...RefOption) (ImmutableRef, error)
 }
 
 type SnapshotManager interface {
 	Accessor
+	PinSnapshot(context.Context, string) (ImmutableRef, error)
 	SnapshotSize(ctx context.Context, snapshotID string) (int64, error)
 	SnapshotRecordMetadata(ctx context.Context, snapshotID string) (SnapshotRecordMetadata, bool, error)
 	AttachLease(ctx context.Context, leaseID, snapshotID string) error
 	RemoveLease(ctx context.Context, leaseID string) error
+	PinContent(ctx context.Context, leaseID string, descs []ocispecs.Descriptor) error
 	LoadPersistentMetadata(rows PersistentMetadataRows) error
 	PersistentMetadataRows() PersistentMetadataRows
 	DeleteStaleDaggerOwnerLeases(ctx context.Context, keep map[string]struct{}) error
@@ -90,12 +115,15 @@ type snapshotManager struct {
 	Applier       diff.Applier
 	Differ        diff.Comparer
 	metadataStore *metadataStore
+	// builtinContent is SnapshotManagerOpt.BuiltinContent.
+	builtinContent content.InfoReaderProvider
 
 	snapshotContentDigests map[string]map[digest.Digest]struct{}
 	importedLayerByBlob    map[ImportedLayerBlobKey]string
 	importedLayerByDiff    map[ImportedLayerDiffKey]string
 	snapshotOwnerLeases    map[string]map[string]struct{}
-	importLayerLocker      *locker.Locker
+	importLayerLocker      keyedLocker
+	exportLayerLocker      keyedLocker
 	ownerLeaseLocker       *locker.Locker
 
 	mountPool sharableMountPool
@@ -108,13 +136,13 @@ func NewSnapshotManager(opt SnapshotManagerOpt) (SnapshotManager, error) {
 		LeaseManager:           opt.LeaseManager,
 		Applier:                opt.Applier,
 		Differ:                 opt.Differ,
+		builtinContent:         opt.BuiltinContent,
 		metadataStore:          newMetadataStore(),
 		records:                make(map[string]*cacheRecord),
 		snapshotContentDigests: make(map[string]map[digest.Digest]struct{}),
 		importedLayerByBlob:    make(map[ImportedLayerBlobKey]string),
 		importedLayerByDiff:    make(map[ImportedLayerDiffKey]string),
 		snapshotOwnerLeases:    make(map[string]map[string]struct{}),
-		importLayerLocker:      locker.New(),
 		ownerLeaseLocker:       locker.New(),
 	}
 

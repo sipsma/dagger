@@ -1,0 +1,4 @@
+Source f04a91577bd4ddc574f3bc527cdffe9fec2179a1; trace 937a5d528c9b7d49fa4e6fb4919b5477; CLI exit 0; selected test 71.14 s; no skips.
+    testctx.go:206: mixed private exec latency=183.632064ms originalFS=p6bxegj7oe64pcuoxqakd20x0 redundantFS=nqgayzraq93v8colnes48pb1b rootEvents=[{producer-enter 4229 withExec { execMeta}  <nil>}]
+--- PASS: TestRemoteCacheTransferSuite (71.14s)
+    --- PASS: TestRemoteCacheTransferSuite/TestPartMixedExecOutputs (71.14s)

@@ -1,0 +1,120 @@
+=== RUN   TestMountedLazyRepresentations
+=== RUN   TestMountedLazyRepresentations/Directory
+=== RUN   TestMountedLazyRepresentations/Directory/pending
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedDirectory group=metadata
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedDirectory group=metadata duration=254.04µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedDirectory group=fs
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedDirectory group=fs duration=57.24µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedDirectory group=execMeta
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedDirectory group=execMeta duration=75.109µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedDirectory group=write
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedDirectory group=write duration=328.28µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedDirectory group=metadata
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedDirectory group=metadata duration=113.34µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedDirectory group=fs
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedDirectory group=fs duration=66.2µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedDirectory group=execMeta
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedDirectory group=execMeta duration=75.62µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedDirectory group=write
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedDirectory group=write duration=271.91µs
+=== RUN   TestMountedLazyRepresentations/Directory/evaluated
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedDirectory group=metadata
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedDirectory group=metadata duration=176.12µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedDirectory group=fs
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedDirectory group=fs duration=50.09µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedDirectory group=execMeta
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedDirectory group=execMeta duration=47.85µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedDirectory group=write
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedDirectory group=write duration=272.199µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedDirectory group=metadata
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedDirectory group=metadata duration=86.63µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedDirectory group=fs
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedDirectory group=fs duration=57.13µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedDirectory group=execMeta
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedDirectory group=execMeta duration=49.19µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedDirectory group=write
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedDirectory group=write duration=239.819µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedDirectory group=metadata
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedDirectory group=metadata duration=163.81µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedDirectory group=fs
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedDirectory group=fs duration=68.09µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedDirectory group=execMeta
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedDirectory group=execMeta duration=39.73µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedDirectory group=write
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedDirectory group=write duration=285.29µs
+2026/09/16 21:52:11 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestMountedLazyRepresentations/File
+=== RUN   TestMountedLazyRepresentations/File/pending
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedFile group=metadata
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedFile group=metadata duration=116.09µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedFile group=fs
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedFile group=fs duration=51.249µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedFile group=execMeta
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedFile group=execMeta duration=46.7µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedFile group=write
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedFile group=write duration=327.25µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedFile group=metadata
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedFile group=metadata duration=155.4µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedFile group=fs
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedFile group=fs duration=67.57µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedFile group=execMeta
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedFile group=execMeta duration=90.55µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedFile group=write
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedFile group=write duration=293.47µs
+=== RUN   TestMountedLazyRepresentations/File/evaluated
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedFile group=metadata
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedFile group=metadata duration=136.22µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedFile group=fs
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedFile group=fs duration=65.35µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedFile group=execMeta
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedFile group=execMeta duration=58.37µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedFile group=write
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedFile group=write duration=306.47µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedFile group=metadata
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedFile group=metadata duration=112.13µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedFile group=fs
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedFile group=fs duration=73.42µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedFile group=execMeta
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedFile group=execMeta duration=48.42µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedFile group=write
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedFile group=write duration=289.689µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedFile group=metadata
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedFile group=metadata duration=142.38µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedFile group=fs
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedFile group=fs duration=67.14µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedFile group=execMeta
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedFile group=execMeta duration=83.38µs
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedFile group=write
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedFile group=write duration=333.249µs
+2026/09/16 21:52:11 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestMountedLazyRepresentations (0.31s)
+    --- PASS: TestMountedLazyRepresentations/Directory (0.19s)
+        --- PASS: TestMountedLazyRepresentations/Directory/pending (0.04s)
+        --- PASS: TestMountedLazyRepresentations/Directory/evaluated (0.03s)
+    --- PASS: TestMountedLazyRepresentations/File (0.12s)
+        --- PASS: TestMountedLazyRepresentations/File/pending (0.03s)
+        --- PASS: TestMountedLazyRepresentations/File/evaluated (0.03s)
+=== RUN   TestMountLazyDetachedOwnership
+=== RUN   TestMountLazyDetachedOwnership/file=false/failure=false
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedDirectory group=write
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedDirectory group=write duration=385.39µs
+2026/09/16 21:52:11 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestMountLazyDetachedOwnership/file=false/failure=true
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedDirectory group=write
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedDirectory group=write duration=405.55µs err="container withMountedDirectory: no directory mount at target \"/target\"\ninjected detached release failure"
+2026/09/16 21:52:11 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestMountLazyDetachedOwnership/file=true/failure=false
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedFile group=write
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedFile group=write duration=336.309µs
+2026/09/16 21:52:11 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestMountLazyDetachedOwnership/file=true/failure=true
+2026/09/16 21:52:11 INFO start lazy group evaluation field=Container.withMountedFile group=write
+2026/09/16 21:52:11 INFO end lazy group evaluation field=Container.withMountedFile group=write duration=388.619µs err="container withMountedFile: no file mount at target \"/target\"\ninjected detached release failure"
+2026/09/16 21:52:11 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestMountLazyDetachedOwnership (0.28s)
+    --- PASS: TestMountLazyDetachedOwnership/file=false/failure=false (0.08s)
+    --- PASS: TestMountLazyDetachedOwnership/file=false/failure=true (0.06s)
+    --- PASS: TestMountLazyDetachedOwnership/file=true/failure=false (0.08s)
+    --- PASS: TestMountLazyDetachedOwnership/file=true/failure=true (0.06s)
+PASS
+ok  	github.com/dagger/dagger/core	2.041s

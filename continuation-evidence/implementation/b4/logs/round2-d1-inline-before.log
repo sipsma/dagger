@@ -1,0 +1,15 @@
+=== RUN   TestModuleObjectAttachDependencyResultsPreservesInlineMap
+=== PAUSE TestModuleObjectAttachDependencyResultsPreservesInlineMap
+=== CONT  TestModuleObjectAttachDependencyResultsPreservesInlineMap
+    object_test.go:1259: assertion failed:
+        --- obj.Fields["child"]
+        +++ inline
+          any(
+        -   s"Child@Eg0IBBIJCgVDaGlsZBgB",
+        +   map[string]any{"name": string("child")},
+          )
+
+--- FAIL: TestModuleObjectAttachDependencyResultsPreservesInlineMap (0.04s)
+FAIL
+FAIL    github.com/dagger/dagger/core   0.442s
+FAIL

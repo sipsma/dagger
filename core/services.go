@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	stderrors "errors"
 	"fmt"
@@ -13,6 +14,9 @@ import (
 	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/slog"
 	bkcache "github.com/dagger/dagger/engine/snapshots"
+	"github.com/dagger/dagger/engine/telemetryattrs"
+	"github.com/dagger/dagger/engine/wcprof"
+	gwpb "github.com/dagger/dagger/internal/buildkit/frontend/gateway/pb"
 	"github.com/dagger/dagger/internal/buildkit/identity"
 	"github.com/dagger/dagger/internal/buildkit/util/bklog"
 	"github.com/dagger/dagger/network"
@@ -32,6 +36,10 @@ const (
 	// TerminateGracePeriod is an arbitrary amount of time between when a service is
 	// sent a graceful stop (SIGTERM) and when it is sent an immediate stop (SIGKILL).
 	TerminateGracePeriod = 10 * time.Second
+
+	// MaxExitedServicesPerSession bounds the exited-service tombstones retained
+	// per session; beyond it the oldest tombstones are dropped.
+	MaxExitedServicesPerSession = 100
 )
 
 // Services manages the lifecycle of services, ensuring the same service only
@@ -40,7 +48,13 @@ type Services struct {
 	starting map[ServiceKey]*startingService
 	running  map[ServiceKey]*RunningService
 	bindings map[ServiceKey]int
-	l        sync.Mutex
+	// exited retains tombstones for services that ran and have since exited,
+	// keyed by session ID. They keep a session's exited services listable
+	// (e.g. by the ListServices builtin) so their telemetry handles stay
+	// usable after a crash; entries are dropped when the session's services
+	// are stopped, and capped at MaxExitedServicesPerSession.
+	exited map[string][]*ExitedService
+	l      sync.Mutex
 }
 
 type startingService struct {
@@ -51,6 +65,22 @@ type startingService struct {
 
 	done chan struct{}
 	err  error
+
+	// profOpID is the wcprof op for this service start, when profiling is
+	// enabled. Waiters record wait events against it.
+	profOpID uint64
+
+	// otelStartSpanCtx is the OTel service.start span for this start — the OTel
+	// analog of profOpID. Minted under ss.l before this startingService is
+	// published to ss.starting (target-before-primitive) so every installer that
+	// blocks on the start has a valid wait target. Zero when OTel telemetry was not
+	// active at start time; a recording joiner then emits a gate-observable
+	// targetless wait (the cross-session case, where a recording caller joins a
+	// start begun by an untraced session), exactly
+	// as for call_exec/lazy. No per-attempt reset is needed (unlike lazy): each
+	// start gets a fresh startingService, deleted from ss.starting when it
+	// completes, so a joiner never reads a stale target.
+	otelStartSpanCtx trace.SpanContext
 }
 
 // RunningService represents a service that is actively running.
@@ -92,6 +122,7 @@ type RunningService struct {
 	refs                  []bkcache.Ref
 	resourceSnapshotCache bkcache.SnapshotManager
 	resourceLeaseID       string
+	clientScopeLease      *engine.ClientLifecycleLease
 
 	workspaceMu sync.Mutex
 
@@ -138,7 +169,80 @@ func NewServices() *Services {
 		starting: map[ServiceKey]*startingService{},
 		running:  map[ServiceKey]*RunningService{},
 		bindings: map[ServiceKey]int{},
+		exited:   map[string][]*ExitedService{},
 	}
+}
+
+// ExitedService is a tombstone for a service that ran and has since exited.
+// It snapshots the listing-relevant state of the RunningService at the moment
+// the registry observed its exit — hostname, ports, and telemetry span
+// contexts — so the service stays discoverable and its logs stay reachable
+// after a crash, when they matter most.
+type ExitedService struct {
+	// Key is the unique identifier the service ran under.
+	Key ServiceKey
+
+	// Host is the hostname the service was reachable at.
+	Host string
+
+	// Ports lists the ports the service had bound while running.
+	Ports []Port
+
+	// ExitedAt records when the registry observed the exit.
+	ExitedAt time.Time
+
+	// ExitErr is the error the service's Wait returned, if any. Nil means
+	// the runtime reported a clean exit.
+	ExitErr error
+
+	// ExitCode is the exit code carried by ExitErr when one was cheaply
+	// available, or -1 when unknown.
+	ExitCode int
+
+	serviceSpanCtx  trace.SpanContext
+	installSpanCtxs []trace.SpanContext
+}
+
+// ServiceSpanContext returns the span context the service's long-lived exec
+// span had at exit time, mirroring RunningService.ServiceSpanContext.
+func (svc *ExitedService) ServiceSpanContext() trace.SpanContext {
+	if svc == nil {
+		return trace.SpanContext{}
+	}
+	return svc.serviceSpanCtx
+}
+
+// InstallSpanContexts returns the span contexts of the API spans that
+// returned/owned this service, mirroring RunningService.InstallSpanContexts.
+func (svc *ExitedService) InstallSpanContexts() []trace.SpanContext {
+	if svc == nil {
+		return nil
+	}
+	return slices.Clone(svc.installSpanCtxs)
+}
+
+// exitTombstone snapshots svc for the exited-services listing, capturing
+// whatever exit information waitErr cheaply carries.
+func (svc *RunningService) exitTombstone(waitErr error) *ExitedService {
+	exited := &ExitedService{
+		Key:             svc.Key,
+		Host:            svc.Host,
+		Ports:           slices.Clone(svc.Ports),
+		ExitedAt:        time.Now(),
+		ExitErr:         waitErr,
+		ExitCode:        -1,
+		serviceSpanCtx:  svc.ServiceSpanContext(),
+		installSpanCtxs: svc.originSpanContextsSnapshot(),
+	}
+	var execErr *ExecError
+	var gwErr *gwpb.ExitError
+	switch {
+	case stderrors.As(waitErr, &execErr):
+		exited.ExitCode = execErr.ExitCode
+	case stderrors.As(waitErr, &gwErr):
+		exited.ExitCode = int(gwErr.ExitCode)
+	}
+	return exited
 }
 
 func compareSpanContexts(a, b trace.SpanContext) int {
@@ -184,6 +288,36 @@ func serviceOriginLink(originCtx trace.SpanContext) trace.Link {
 			attribute.String(telemetry.LinkPurposeAttr, telemetry.LinkPurposeCause),
 		},
 	}
+}
+
+// beginOTelServiceStart mints the OTel service.start span — the
+// self-time-bearing op for a service start + health check, the OTel analog of
+// native's OpKindServiceStart op. It scopes the *start* window only; the
+// long-lived `exec <args>` service span (service.go) stays a passthrough
+// availability marker whose own self-time is just the modest setup gap (its
+// child exec.run absorbs the daemon's idle run), so the idle daemon does not
+// rank. Marked ui.passthrough so dagui keeps showing that service span, not this
+// internal one. Gated only on telemetry being active, independent of wcprof, so
+// the OTel source is reconstructable from a Cloud trace alone.
+func beginOTelServiceStart(ctx context.Context, ident string) (context.Context, trace.Span) {
+	prev := trace.SpanContextFromContext(ctx)
+	startCtx, span := Tracer(ctx).Start(ctx, "service.start",
+		telemetry.Passthrough(),
+		trace.WithAttributes(
+			attribute.String(telemetryattrs.WcprofOpKindAttr, wcprof.OpKindServiceStart.String()),
+			attribute.String(telemetry.DagDigestAttr, ident),
+		),
+	)
+	return dagql.MarkProfilingSpan(startCtx, prev), span
+}
+
+// endOTelServiceStart ends the service.start span (nil-safe), charging any start
+// error as its status — mirroring native's profOp.End at each start exit. Via
+// dagql.EndProfSpan, never telemetry.EndWithCause: stamping this unrendered
+// passthrough span as the error's origin would preempt the install spans'
+// origin tracking (trackServiceOrigin) with a span no frontend shows.
+func endOTelServiceStart(span trace.Span, errPtr *error) {
+	dagql.EndProfSpan(span, errPtr)
 }
 
 func (svc *RunningService) addOriginSpanContexts(origins []trace.SpanContext) {
@@ -240,6 +374,87 @@ func (svc *RunningService) originSpanContextsSnapshot() []trace.SpanContext {
 	svc.originMu.Lock()
 	defer svc.originMu.Unlock()
 	return slices.Clone(svc.originSpanContexts)
+}
+
+// ServiceSpanContext returns the span context of the service's long-lived
+// exec span — the span whose subtree carries the service's stdout/stderr —
+// or an invalid SpanContext when the runtime did not record one (e.g.
+// tunnels, or a start that predates telemetry).
+func (svc *RunningService) ServiceSpanContext() trace.SpanContext {
+	if svc == nil {
+		return trace.SpanContext{}
+	}
+	svc.originMu.Lock()
+	defer svc.originMu.Unlock()
+	if svc.serviceSpan == nil {
+		return trace.SpanContext{}
+	}
+	return svc.serviceSpan.SpanContext()
+}
+
+// InstallSpanContexts returns the span contexts of the API spans that
+// returned/own this service in the current session (e.g. Container.asService)
+// — the spans a UI attributes the service to, and valid roots for reading the
+// service's logs beneath.
+func (svc *RunningService) InstallSpanContexts() []trace.SpanContext {
+	return svc.originSpanContextsSnapshot()
+}
+
+// RunningServices returns a snapshot of the currently running services for
+// the given session, or for every session when sessionID is empty. The
+// listing is ordered by hostname, then by the rest of the service key, so
+// repeated calls are deterministic — including across sessions, where the
+// same service (same hostname and digest) can run once per session.
+func (ss *Services) RunningServices(sessionID string) []*RunningService {
+	ss.l.Lock()
+	defer ss.l.Unlock()
+	var out []*RunningService
+	for key, svc := range ss.running {
+		if sessionID != "" && key.SessionID != sessionID {
+			continue
+		}
+		out = append(out, svc)
+	}
+	slices.SortFunc(out, func(a, b *RunningService) int {
+		return cmp.Or(
+			cmp.Compare(a.Host, b.Host),
+			cmp.Compare(a.Key.Digest, b.Key.Digest),
+			cmp.Compare(a.Key.SessionID, b.Key.SessionID),
+			cmp.Compare(a.Key.ClientID, b.Key.ClientID),
+			cmp.Compare(a.Key.Kind, b.Key.Kind),
+			cmp.Compare(a.Key.InstanceID, b.Key.InstanceID),
+		)
+	})
+	return out
+}
+
+// ExitedServices returns a snapshot of the exited-service tombstones recorded
+// for the given session, or for every session when sessionID is empty. The
+// listing is ordered by exit time (oldest first), breaking ties with the
+// hostname and the rest of the service key so repeated calls are
+// deterministic.
+func (ss *Services) ExitedServices(sessionID string) []*ExitedService {
+	ss.l.Lock()
+	defer ss.l.Unlock()
+	var out []*ExitedService
+	for exitedSessionID, svcs := range ss.exited {
+		if sessionID != "" && exitedSessionID != sessionID {
+			continue
+		}
+		out = append(out, svcs...)
+	}
+	slices.SortFunc(out, func(a, b *ExitedService) int {
+		return cmp.Or(
+			a.ExitedAt.Compare(b.ExitedAt),
+			cmp.Compare(a.Host, b.Host),
+			cmp.Compare(a.Key.Digest, b.Key.Digest),
+			cmp.Compare(a.Key.SessionID, b.Key.SessionID),
+			cmp.Compare(a.Key.ClientID, b.Key.ClientID),
+			cmp.Compare(a.Key.Kind, b.Key.Kind),
+			cmp.Compare(a.Key.InstanceID, b.Key.InstanceID),
+		)
+	})
+	return out
 }
 
 func (svc *RunningService) setServiceSpan(span trace.Span, alreadyLinked []trace.SpanContext) {
@@ -328,10 +543,22 @@ func (ss *Services) Get(ctx context.Context, dig digest.Digest, clientSpecific b
 		case isRunning:
 			return running, nil
 		case isStarting:
+			profWait := wcprof.BeginWait(ctx, starting.profOpID, wcprof.WaitReasonService)
+			// OTel installer wait edge: a Get caller that blocks on the
+			// in-flight start credits its blocked interval to the service.start span,
+			// the analog of native's BeginWait above (mirrors startWithKey's isStarting
+			// branch). dagql.EmitOTelWait self-gates on a recording waiter and emits a
+			// gate-observable targetless wait if the start ran untraced (the
+			// cross-session case) rather than dropping the edge.
+			otelWaitStartNS := time.Now().UnixNano()
 			select {
 			case <-ctx.Done():
+				profWait.End()
+				dagql.EmitOTelWait(ctx, starting.otelStartSpanCtx, wcprof.WaitReasonService, otelWaitStartNS, time.Now().UnixNano())
 				return nil, context.Cause(ctx)
 			case <-starting.done:
+				profWait.End()
+				dagql.EmitOTelWait(ctx, starting.otelStartSpanCtx, wcprof.WaitReasonService, otelWaitStartNS, time.Now().UnixNano())
 			}
 		default:
 			return nil, notRunningErr
@@ -365,6 +592,9 @@ type ServiceStartOpts struct {
 // already starting, it waits for it to finish and returns the running service.
 // If the service failed to start, it tries again.
 func (ss *Services) Start(ctx context.Context, dig digest.Digest, svc Startable, clientSpecific bool) (*RunningService, error) {
+	if err := engine.CheckSnapshotSharePreparation(ctx, "start service"); err != nil {
+		return nil, err
+	}
 	return ss.StartWithOpts(ctx, dig, svc, ServiceStartOpts{
 		ClientSpecific: clientSpecific,
 	})
@@ -520,6 +750,9 @@ func (ss *Services) StartInteractive(
 // StartBindings starts each of the bound services in parallel and returns a
 // function that will detach from all of them after 10 seconds.
 func (ss *Services) StartBindings(ctx context.Context, bindings ServiceBindings) (_ func(), _ []*RunningService, err error) {
+	if err := engine.CheckSnapshotSharePreparation(ctx, "start service bindings"); err != nil {
+		return nil, nil, err
+	}
 	running := make([]*RunningService, len(bindings))
 	detachOnce := sync.Once{}
 	detach := func() {
@@ -655,7 +888,17 @@ func (ss *Services) StopSessionServices(ctx context.Context, sessionID string) e
 		})
 	}
 
-	return eg.Wait()
+	err := eg.Wait()
+
+	// The session is closing: nothing can list its exited-service tombstones
+	// anymore, so drop them rather than accrete an entry per session for the
+	// life of the engine. An exit observed after this leaves at most a capped
+	// remnant.
+	ss.l.Lock()
+	delete(ss.exited, sessionID)
+	ss.l.Unlock()
+
+	return err
 }
 
 // Detach detaches from the given service. If the service is not running, it is
@@ -804,6 +1047,8 @@ func (svc *RunningService) ReleaseTrackedRefs(ctx context.Context) error {
 	svc.resourceSnapshotCache = nil
 	leaseID := svc.resourceLeaseID
 	svc.resourceLeaseID = ""
+	clientScopeLease := svc.clientScopeLease
+	svc.clientScopeLease = nil
 	svc.refsMu.Unlock()
 
 	var errs error
@@ -813,6 +1058,10 @@ func (svc *RunningService) ReleaseTrackedRefs(ctx context.Context) error {
 	if snapshotManager != nil && leaseID != "" {
 		errs = stderrors.Join(errs, snapshotManager.RemoveLease(context.WithoutCancel(ctx), leaseID))
 	}
+	// Keep executable ownership through resource cleanup: releasing the service
+	// lease is the terminal transition and may immediately reclaim a closed
+	// client runtime.
+	clientScopeLease.Release()
 	return errs
 }
 
@@ -867,7 +1116,8 @@ func (ss *Services) stopGraceful(ctx context.Context, running *RunningService, t
 
 	// attempt to gentle stop within a timeout
 	cause := stderrors.New("service did not terminate")
-	ctx2, _ := context.WithTimeoutCause(ctx, timeout, cause)
+	ctx2, cancel := context.WithTimeoutCause(ctx, timeout, cause)
+	defer cancel()
 	err := running.stopFromManager(ctx2, false)
 	if context.Cause(ctx2) == cause {
 		// service didn't terminate within timeout, so force it to stop
@@ -876,10 +1126,12 @@ func (ss *Services) stopGraceful(ctx context.Context, running *RunningService, t
 	return err
 }
 
-func (ss *Services) handleExit(running *RunningService, _ error) {
+func (ss *Services) handleExit(running *RunningService, waitErr error) {
 	if running == nil {
 		return
 	}
+
+	exited := running.exitTombstone(waitErr)
 
 	ss.l.Lock()
 	current, found := ss.running[running.Key]
@@ -887,6 +1139,15 @@ func (ss *Services) handleExit(running *RunningService, _ error) {
 		delete(ss.running, running.Key)
 		delete(ss.bindings, running.Key)
 	}
+	// Record the tombstone even for a replaced entry: the service ran in the
+	// session either way, and its logs remain worth finding.
+	sessionID := running.Key.SessionID
+	tombstones := ss.exited[sessionID]
+	tombstones = append(tombstones, exited)
+	if len(tombstones) > MaxExitedServicesPerSession {
+		tombstones = tombstones[len(tombstones)-MaxExitedServicesPerSession:]
+	}
+	ss.exited[sessionID] = tombstones
 	ss.l.Unlock()
 
 	_ = running.releaseAfterExit(context.Background())
@@ -944,11 +1205,23 @@ func (ss *Services) startWithKey(
 			suppress(starting.running)
 			ss.l.Unlock()
 			starting.running.addOriginSpanContexts(opts.OriginSpanContexts)
+			profWait := wcprof.BeginWait(ctx, starting.profOpID, wcprof.WaitReasonService)
+			// OTel installer wait edge: this installer blocks on the
+			// in-flight service start, so credit its blocked interval to the
+			// service.start span (the analog of native's BeginWait above).
+			// dagql.EmitOTelWait self-gates on a recording waiter and emits a
+			// gate-observable targetless wait if the start ran
+			// untraced (the cross-session case) rather than dropping the edge.
+			otelWaitStartNS := time.Now().UnixNano()
 			select {
 			case <-ctx.Done():
+				profWait.End()
+				dagql.EmitOTelWait(ctx, starting.otelStartSpanCtx, wcprof.WaitReasonService, otelWaitStartNS, time.Now().UnixNano())
 				releaseSuppression()
 				return nil, nil, context.Cause(ctx)
 			case <-starting.done:
+				profWait.End()
+				dagql.EmitOTelWait(ctx, starting.otelStartSpanCtx, wcprof.WaitReasonService, otelWaitStartNS, time.Now().UnixNano())
 			}
 		default:
 			running := &RunningService{
@@ -957,12 +1230,42 @@ func (ss *Services) startWithKey(
 			}
 			running.addOriginSpanContexts(opts.OriginSpanContexts)
 			suppress(running)
-			svcCtx, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
+			svcBase, clientScopeLease, scopeErr := engine.DetachClientScope(
+				ctx,
+				engine.ClientLeaseService,
+				fmt.Sprintf("%s/%s/%s", key.Digest, key.Kind, key.InstanceID),
+			)
+			if scopeErr != nil {
+				ss.l.Unlock()
+				releaseSuppression()
+				return nil, nil, fmt.Errorf("acquire service client scope: %w", scopeErr)
+			}
+			running.clientScopeLease = clientScopeLease
+			svcCtx, cancel := context.WithCancelCause(svcBase)
+			var profOp *wcprof.Op
+			if wcprof.Enabled(svcCtx) {
+				svcCtx, profOp = wcprof.BeginOp(svcCtx, wcprof.OpKindServiceStart, "service.start", wcprof.OpOpts{
+					Ident: key.Digest.String(),
+				})
+			}
+			// OTel service.start span: minted here, under ss.l and
+			// before the ss.starting publish below (target-before-primitive), so every
+			// installer that joins this start has a valid wait target. svc.Start runs
+			// synchronously under svcCtx, so the span brackets the start + health
+			// check; ended at each start exit below mirroring profOp.End.
+			var startSpan trace.Span
+			if dagql.OTelProfActive(svcCtx) {
+				svcCtx, startSpan = beginOTelServiceStart(svcCtx, key.Digest.String())
+			}
 			start := &startingService{
-				running: running,
-				ctx:     svcCtx,
-				cancel:  cancel,
-				done:    make(chan struct{}),
+				running:  running,
+				ctx:      svcCtx,
+				cancel:   cancel,
+				done:     make(chan struct{}),
+				profOpID: profOp.ID(),
+			}
+			if startSpan != nil {
+				start.otelStartSpanCtx = startSpan.SpanContext()
 			}
 			ss.starting[key] = start
 			ss.l.Unlock()
@@ -971,6 +1274,8 @@ func (ss *Services) startWithKey(
 
 			if err := svc.Start(svcCtx, running, key.Digest, opts); err != nil {
 				start.err = err
+				profOp.End(wcprof.OutcomeError)
+				endOTelServiceStart(startSpan, &err)
 				releaseSuppression()
 				_ = running.releaseTrackedRefsOnce(context.WithoutCancel(ctx))
 				ss.l.Lock()
@@ -982,6 +1287,8 @@ func (ss *Services) startWithKey(
 			if running.Wait == nil {
 				err := fmt.Errorf("service %s started without Wait callback", network.HostHash(key.Digest))
 				start.err = err
+				profOp.End(wcprof.OutcomeError)
+				endOTelServiceStart(startSpan, &err)
 				releaseSuppression()
 				_ = running.stopFromManager(context.WithoutCancel(ctx), true)
 				ss.l.Lock()
@@ -995,6 +1302,9 @@ func (ss *Services) startWithKey(
 			delete(ss.starting, key)
 			if context.Cause(svcCtx) != nil {
 				ss.l.Unlock()
+				profOp.End(wcprof.OutcomeCanceled)
+				cause := context.Cause(svcCtx)
+				endOTelServiceStart(startSpan, &cause)
 				releaseSuppression()
 				_ = running.stopFromManager(context.WithoutCancel(ctx), true)
 				return nil, nil, context.Cause(svcCtx)
@@ -1002,6 +1312,8 @@ func (ss *Services) startWithKey(
 			ss.running[key] = running
 			ss.bindings[key] = 1
 			ss.l.Unlock()
+			profOp.End(wcprof.OutcomeOK)
+			endOTelServiceStart(startSpan, nil)
 
 			go func() {
 				if running.Wait == nil {

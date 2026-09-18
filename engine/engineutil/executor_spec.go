@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/containerd/containerd/v2/core/mount"
@@ -49,13 +50,13 @@ import (
 	"github.com/dagger/dagger/engine/distconsts"
 	"github.com/dagger/dagger/engine/engineutil/cacerts"
 	"github.com/dagger/dagger/engine/engineutil/containerfs"
+	"github.com/dagger/dagger/engine/wcprof"
 	"github.com/dagger/dagger/network"
 	telemetry "github.com/dagger/otel-go"
 )
 
 const (
 	DaggerSessionIDEnv       = "_DAGGER_SESSION_ID"
-	DaggerClientIDEnv        = "_DAGGER_NESTED_CLIENT_ID"
 	DaggerCallDigestEnv      = "_DAGGER_CALL_DIGEST"
 	DaggerEngineVersionEnv   = "_DAGGER_ENGINE_VERSION"
 	DaggerRedirectStdinEnv   = "_DAGGER_REDIRECT_STDIN"
@@ -107,6 +108,10 @@ type execState struct {
 	exitCodePath     string
 	metaMountDirPath string
 	origEnvMap       map[string]string
+	// profSecretFilePaths is the resolved, stat-filtered secret file path list
+	// stashed by setupSecretScrubbing, so the profile-argv scrubber at the emit
+	// site reuses the exact same secret set as the stdout/stderr scrubbers.
+	profSecretFilePaths []string
 
 	startedOnce *sync.Once
 	startedCh   chan<- struct{}
@@ -118,7 +123,6 @@ type execState struct {
 	nestedClientMetadata     *engine.ClientMetadata
 	nestedClientModule       dagql.AnyObjectResult
 	nestedClientFunctionCall dagql.Typed
-	nestedClientEnv          dagql.AnyObjectResult
 
 	doneErr error
 	done    chan struct{}
@@ -137,7 +141,6 @@ func newExecState(
 	nestedClientMetadata *engine.ClientMetadata,
 	nestedClientModule dagql.AnyObjectResult,
 	nestedClientFunctionCall dagql.Typed,
-	nestedClientEnv dagql.AnyObjectResult,
 ) *execState {
 	execMDCopy := &ExecutionMetadata{}
 	if execMD != nil {
@@ -159,7 +162,6 @@ func newExecState(
 		nestedClientMetadata:     nestedClientMetadata,
 		nestedClientModule:       nestedClientModule,
 		nestedClientFunctionCall: nestedClientFunctionCall,
-		nestedClientEnv:          nestedClientEnv,
 		done:                     make(chan struct{}),
 	}
 }
@@ -303,12 +305,23 @@ func (c *Client) setupNetwork(ctx context.Context, state *execState) error {
 	for target, aliases := range state.execMD.HostAliases {
 		var ips []net.IP
 		var errs error
+		// The FQDN the running service actually registered under, when core
+		// knew it (see ExecutionMetadata.HostAliasFQDNs). It is tried first
+		// because a service scoped to another module's domain is unreachable
+		// via the search domains installed for this exec.
+		candidates := []string{}
+		if fqdn := state.execMD.HostAliasFQDNs[target]; fqdn != "" {
+			candidates = append(candidates, fqdn)
+		}
 		for _, domain := range append([]string{""}, extraSearchDomains...) {
 			qualified := target
 			if domain != "" {
 				qualified += "." + domain
 			}
+			candidates = append(candidates, qualified)
+		}
 
+		for _, qualified := range candidates {
 			var err error
 			ips, err = net.LookupIP(qualified)
 			if err == nil {
@@ -538,6 +551,7 @@ func (c *Client) setupRootfs(ctx context.Context, state *execState) error {
 	)))
 
 	for _, mnt := range state.nonRootMounts {
+		mnt, recursiveReadOnly := consumeRecursiveReadOnlyOption(mnt)
 		dstPath, err := fs.RootPath(state.spec.Root.Path, mnt.Target)
 		if err != nil {
 			return fmt.Errorf("mount %s points to invalid target: %w", mnt.Target, err)
@@ -585,7 +599,13 @@ func (c *Client) setupRootfs(ctx context.Context, state *execState) error {
 		overlayIncompatDir := overlay.VolatileIncompatDir(mnt)
 
 		state.cleanups.Add("unmount from rootfs "+mnt.Target, func() error {
-			if err := mount.Unmount(dstPath, 0); err != nil {
+			var err error
+			if slices.Contains(mnt.Options, "rbind") {
+				err = mount.UnmountRecursive(dstPath, 0)
+			} else {
+				err = mount.Unmount(dstPath, 0)
+			}
+			if err != nil {
 				return err
 			}
 			if overlayIncompatDir != "" {
@@ -595,9 +615,36 @@ func (c *Client) setupRootfs(ctx context.Context, state *execState) error {
 			}
 			return nil
 		})
+
+		if recursiveReadOnly {
+			if err := unix.MountSetattr(unix.AT_FDCWD, dstPath, unix.AT_RECURSIVE, &unix.MountAttr{
+				Attr_set: unix.MOUNT_ATTR_RDONLY,
+			}); err != nil {
+				return fmt.Errorf("make mount %s recursively read-only: %w", mnt.Target, err)
+			}
+		}
 	}
 
 	return nil
+}
+
+// consumeRecursiveReadOnlyOption handles the OCI rro option for mounts Dagger
+// materializes before runc. containerd's mount helper does not interpret rro,
+// so leaving it in Options would pass it to mount(2) as filesystem data.
+func consumeRecursiveReadOnlyOption(mnt mount.Mount) (mount.Mount, bool) {
+	var recursiveReadOnly bool
+	options := make([]string, 0, len(mnt.Options))
+	for _, option := range mnt.Options {
+		if option == "rro" {
+			recursiveReadOnly = true
+			continue
+		}
+		options = append(options, option)
+	}
+	if recursiveReadOnly {
+		mnt.Options = options
+	}
+	return mnt, recursiveReadOnly
 }
 
 func (c *Client) setUserGroup(_ context.Context, state *execState) error {
@@ -830,9 +877,22 @@ func (c *Client) setupOTel(ctx context.Context, state *execState) error {
 		engine.OTelMetricsEndpointEnv+"="+otelEndpoint+"/v1/metrics",
 	)
 
-	// Telemetry propagation (traceparent, tracestate, baggage, etc)
+	// Telemetry propagation (traceparent, tracestate, baggage, etc). The
+	// injected traceparent parents everything the container emits — the nested
+	// SDK client's spans and the user process's logs — so it must name the
+	// user-facing span (the withExec / function call), not the exec.run
+	// profiling span this ctx currently carries: telemetry parented to an
+	// unrendered passthrough span vanishes from the row that should show it.
+	propSpanCtx := dagql.UserFacingSpanContext(ctx)
+	if state.execMD != nil && state.execMD.UserFacingSpanCtx.IsValid() {
+		// The in-process value from core is authoritative: the exec runs on a
+		// detached execution context that does not carry the caller's context
+		// mark, so resolving from this ctx alone still lands on a profiling
+		// span (see ExecutionMetadata.UserFacingSpanCtx).
+		propSpanCtx = state.execMD.UserFacingSpanCtx
+	}
 	state.spec.Process.Env = append(state.spec.Process.Env,
-		telemetry.PropagationEnv(ctx)...)
+		telemetry.PropagationEnv(trace.ContextWithSpanContext(ctx, propSpanCtx))...)
 
 	return nil
 }
@@ -869,6 +929,8 @@ func (c *Client) setupSecretScrubbing(ctx context.Context, state *execState) err
 			bklog.G(ctx).Warnf("failed to stat secret file path %s: %v", filePath, err)
 		}
 	}
+	// Stash the resolved set so the profile-argv scrubber (emit site) reuses it.
+	state.profSecretFilePaths = secretFilePaths
 
 	stdoutR, stdoutW := io.Pipe()
 	stdoutScrubReader, err := NewSecretScrubReader(stdoutR, state.spec.Process.Env, state.execMD.SecretEnvNames, secretFilePaths)
@@ -1012,8 +1074,14 @@ func (c *Client) setupNestedClient(ctx context.Context, state *execState) (rerr 
 	ctx = trace.ContextWithSpanContext(ctx, state.causeCtx)
 
 	state.spec.Process.Env = append(state.spec.Process.Env, DaggerSessionTokenEnv+"="+state.nestedClientMetadata.ClientSecretToken)
+	state.spec.Process.Env = append(state.spec.Process.Env, engine.NestedClientIDEnv+"="+state.nestedClientMetadata.ClientID)
 
 	state.nestedClientMetadata.ClientStableID = randid.NewID()
+
+	parentClientID, err := engine.NestedClientParentID(ctx, state.nestedClientMetadata.SessionID)
+	if err != nil {
+		return err
+	}
 
 	// include SSH_AUTH_SOCK if it's set in the exec's env vars
 	if sockPath, ok := state.origEnvMap["SSH_AUTH_SOCK"]; ok {
@@ -1036,6 +1104,14 @@ func (c *Client) setupNestedClient(ctx context.Context, state *execState) (rerr 
 	if version, ok := state.origEnvMap["_EXPERIMENTAL_DAGGER_VERSION"]; ok {
 		state.nestedClientMetadata.ClientVersion = version
 	}
+
+	transports := newNestedClientTransportManager(
+		ctx,
+		c.SessionHandler,
+		state.nestedClientMetadata,
+		parentClientID,
+	)
+	state.cleanups.Add("close nested client transports", cleanups.Infallible(transports.Close))
 
 	srvCtx, srvCancel := context.WithCancelCause(ctx)
 	state.cleanups.Add("cancel session server", cleanups.Infallible(func() {
@@ -1062,9 +1138,17 @@ func (c *Client) setupNestedClient(ctx context.Context, state *execState) (rerr 
 	protocols.SetHTTP1(true)
 	protocols.SetUnencryptedHTTP2(true)
 	httpSrv := &http.Server{
-		ReadHeaderTimeout: 10 * time.Second,
+		// NOTE: no ReadHeaderTimeout (gosec G112) — see cmd/engine/main.go. On
+		// Go >= 1.26.6 it becomes a hard lifetime cap on unencrypted HTTP/2
+		// connections, which would kill every module function call that runs
+		// longer than it.
 		Handler: http.HandlerFunc(func(resp http.ResponseWriter, req *http.Request) {
-			c.SessionHandler.ServeHTTPToNestedClient(resp, req, state.nestedClientMetadata, state.callerClientID, false, state.nestedClientModule, state.nestedClientFunctionCall, state.nestedClientEnv)
+			transport, metadata, status, err := transports.transportForRequest(req)
+			if err != nil {
+				http.Error(resp, err.Error(), status)
+				return
+			}
+			c.SessionHandler.ServeHTTPToNestedClient(resp, req, transport, metadata, transports.parentClientID, false, state.nestedClientModule, state.nestedClientFunctionCall)
 		}),
 		Protocols: protocols,
 	}
@@ -1085,6 +1169,161 @@ func (c *Client) setupNestedClient(ctx context.Context, state *execState) (rerr 
 	}))
 
 	return nil
+}
+
+// nestedClientTransportManager is the process-level proxy capability for one
+// exec. A nested process may create more than one sequential engine client, so
+// each exact header-aware client ID gets its own registered, one-shot transport;
+// headerless SDK calls use the exec's explicitly delegated base ID. Closed IDs
+// remain cached and can never be rebound to a new transport.
+type nestedClientTransportManager struct {
+	mu sync.Mutex
+
+	registrationCtx context.Context
+	sessionHandler  sessionHandler
+	baseMetadata    *engine.ClientMetadata
+	parentClientID  string
+
+	closed     bool
+	transports map[string]*nestedClientTransport
+}
+
+type nestedClientTransport struct {
+	metadata *engine.ClientMetadata
+
+	// ready is closed once the registration for this ID has finished, after
+	// which exactly one of transport or err is set.
+	ready     chan struct{}
+	transport *engine.NestedClientTransport
+	err       error
+}
+
+func newNestedClientTransportManager(
+	ctx context.Context,
+	handler sessionHandler,
+	baseMetadata *engine.ClientMetadata,
+	parentClientID string,
+) *nestedClientTransportManager {
+	return &nestedClientTransportManager{
+		registrationCtx: ctx,
+		sessionHandler:  handler,
+		baseMetadata:    baseMetadata,
+		parentClientID:  parentClientID,
+		transports:      map[string]*nestedClientTransport{},
+	}
+}
+
+func (manager *nestedClientTransportManager) transportForRequest(req *http.Request) (*engine.NestedClientTransport, *engine.ClientMetadata, int, error) {
+	// Headerless SDK calls use the one identity explicitly delegated to this
+	// exec's proxy. Header-aware clients name their own logical lifetime. The
+	// distinction is syntactic: a malformed or explicitly empty identity never
+	// falls through to the proxy identity.
+	clientID := manager.baseMetadata.ClientID
+	if req.Header.Get(engine.ClientMetadataMetaKey) != "" {
+		requestMetadata, err := engine.ClientMetadataFromHTTPHeaders(req.Header)
+		if err != nil {
+			return nil, nil, http.StatusBadRequest, fmt.Errorf("invalid nested client metadata: %w", err)
+		}
+		if requestMetadata.ClientID == "" {
+			return nil, nil, http.StatusBadRequest, errors.New("nested client metadata is missing client ID")
+		}
+		clientID = requestMetadata.ClientID
+	}
+
+	manager.mu.Lock()
+	if manager.closed {
+		manager.mu.Unlock()
+		return nil, nil, http.StatusGone, errors.New("nested client proxy is closed")
+	}
+	if client, ok := manager.transports[clientID]; ok {
+		manager.mu.Unlock()
+		return client.await()
+	}
+
+	// The request chooses only its fresh logical client ID. Session identity,
+	// authentication, ancestry, and inherited capabilities are all sealed by
+	// the exec-created proxy metadata.
+	metadata := *manager.baseMetadata
+	metadata.ClientID = clientID
+	client := &nestedClientTransport{
+		metadata: &metadata,
+		ready:    make(chan struct{}),
+	}
+	manager.transports[clientID] = client
+	manager.mu.Unlock()
+
+	// Register without holding manager.mu. Close runs from exec cleanup, which
+	// can itself be waited on by the session that serves this registration, so
+	// the server call must never be able to block Close. Concurrent requests
+	// for the same ID wait on the pending entry instead of racing a second
+	// registration.
+	transport, err := manager.sessionHandler.RegisterNestedClientTransportForExec(
+		manager.registrationCtx,
+		&metadata,
+		manager.parentClientID,
+		manager.baseMetadata.ClientID,
+	)
+
+	manager.mu.Lock()
+	if err != nil {
+		// Registration is an exact, one-time binding. A failure must not send an
+		// SSE client into a retry loop or fall through to any other client, and
+		// it is not cached: a later request for the same ID registers again.
+		if manager.transports[clientID] == client {
+			delete(manager.transports, clientID)
+		}
+		client.err = fmt.Errorf("register nested client transport: %w", err)
+		close(client.ready)
+		manager.mu.Unlock()
+		return nil, nil, http.StatusConflict, client.err
+	}
+	client.transport = transport
+	closedMeanwhile := manager.closed
+	close(client.ready)
+	manager.mu.Unlock()
+
+	if closedMeanwhile {
+		// Close could not see this transport while the registration was in
+		// flight, so the registering request completes the cleanup.
+		transport.Close()
+	}
+	if wcprof.Enabled(manager.registrationCtx) {
+		// The analyzer stitches each logical nested client's ops under this exec.
+		wcprof.Link(manager.registrationCtx, wcprof.LinkKindNestedClient, 0, 0, metadata.ClientID, 0)
+	}
+	return transport, &metadata, 0, nil
+}
+
+// await returns the outcome of the registration that created this entry,
+// waiting for it if it is still in flight.
+func (client *nestedClientTransport) await() (*engine.NestedClientTransport, *engine.ClientMetadata, int, error) {
+	<-client.ready
+	if client.err != nil {
+		return nil, nil, http.StatusConflict, client.err
+	}
+	return client.transport, client.metadata, 0, nil
+}
+
+func (manager *nestedClientTransportManager) Close() {
+	manager.mu.Lock()
+	if manager.closed {
+		manager.mu.Unlock()
+		return
+	}
+	manager.closed = true
+	transports := make([]*engine.NestedClientTransport, 0, len(manager.transports))
+	for _, client := range manager.transports {
+		// A registration still in flight closes its own transport once it
+		// observes the closed manager.
+		if client.transport != nil {
+			transports = append(transports, client.transport)
+		}
+	}
+	manager.mu.Unlock()
+
+	for _, transport := range transports {
+		transport.Close()
+	}
 }
 
 func (c *Client) installCACerts(ctx context.Context, state *execState) error {
@@ -1134,7 +1373,7 @@ func (c *Client) installCACerts(ctx context.Context, state *execState) error {
 		caExecState.spec.Process.Cwd = "/"
 		caExecState.spec.Process.Terminal = false
 
-		if err := c.run(ctx, caExecState, c.runContainer); err != nil {
+		if err := c.run(ctx, caExecState, namedSetupFunc{"runContainer", c.runContainer}); err != nil {
 			return fmt.Errorf("installer command failed: %w, output: %s", err, output.String())
 		}
 		return nil
@@ -1265,9 +1504,21 @@ func (c *Client) runContainer(ctx context.Context, state *execState) (rerr error
 		})
 	}
 
+	profStartNS := wcprof.NowNS()
+	profStartWall := time.Now()
+	var profStartedNS atomic.Int64
+	// wall-clock counterpart of profStartedNS for the OTel exec split: the OTel
+	// spans carry absolute wall-clock intervals, captured at the
+	// same started-callback boundary native records. Stored unconditionally (one
+	// cheap atomic per container run); only read when OTel emit is active.
+	var profStartedWall atomic.Int64
 	startedCallback := func() {
 		state.startedOnce.Do(func() {
 			trace.SpanFromContext(ctx).AddEvent("Container started")
+			if wcprof.Enabled(ctx) {
+				profStartedNS.Store(wcprof.NowNS())
+			}
+			profStartedWall.Store(time.Now().UnixNano())
 			if state.startedCh != nil {
 				close(state.startedCh)
 			}
@@ -1388,5 +1639,39 @@ func (c *Client) runContainer(ctx context.Context, state *execState) (rerr error
 		return eg.Wait()
 	}
 
-	return exitError(ctx, state.exitCodePath, c.callWithIO(ctx, state.procInfo, startedCallback, killer, runcCall), state.procInfo.Meta.ValidExitCodes)
+	runErr := c.callWithIO(ctx, state.procInfo, startedCallback, killer, runcCall)
+	endWall := time.Now()
+	// Scrub + bound the captured user command ONCE, only when a profile source is
+	// active, and feed the SAME slice to both sinks below so native and OTel carry
+	// a byte-identical argv. It rides only on the user processRun phase (where the
+	// scalable self-time lives); a never-started exec emits no processRun and no argv.
+	var profArgv []string
+	if wcprof.Enabled(ctx) || dagql.OTelProfActive(ctx) {
+		profArgv = execProfArgv(state)
+	}
+	if wcprof.Enabled(ctx) {
+		// split engine overhead (creating/starting the container) from the
+		// user's process runtime
+		endNS := wcprof.NowNS()
+		outcome := wcprof.OutcomeOK
+		if runErr != nil {
+			outcome = wcprof.OutcomeError
+		}
+		if startedNS := profStartedNS.Load(); startedNS > 0 {
+			wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "exec.containerStart", wcprof.OpOpts{Ident: state.id}, profStartNS, startedNS, wcprof.OutcomeOK)
+			wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "exec.processRun", wcprof.OpOpts{Ident: state.id, WorkType: wcprof.WorkTypeUser, Argv: profArgv}, startedNS, endNS, outcome)
+		} else {
+			wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "exec.containerStart", wcprof.OpOpts{Ident: state.id}, profStartNS, endNS, outcome)
+		}
+	}
+	// OTel exec split: the same containerStart/processRun boundary,
+	// emitted as backdated children of the exec.run span so a slow user process
+	// headlines as user work (work_type=user) rather than engine overhead.
+	// emitOTelExecSplit self-gates on telemetry being active.
+	var profStartedWallTime time.Time
+	if ns := profStartedWall.Load(); ns > 0 {
+		profStartedWallTime = time.Unix(0, ns)
+	}
+	emitOTelExecSplit(ctx, state.id, profStartWall, profStartedWallTime, endWall, runErr, profArgv)
+	return exitError(ctx, state.exitCodePath, runErr, state.procInfo.Meta.ValidExitCodes)
 }

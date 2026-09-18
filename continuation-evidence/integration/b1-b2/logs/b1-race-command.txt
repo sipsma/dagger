@@ -1,0 +1,7 @@
+Head: 5483cfc495f93d4777104bda7edede27e33607c9
+Command: sudo -n unshare --mount --propagation private /tmp/b1-b2-integration/core-race.test -test.run '^(TestHTTPStateConcurrentResolveCapture|TestStatelessHTTPProducerIsolation|TestCompletedProducerConcurrentDemand)$' -test.count=1 -test.v
+Started: 2026-09-16T08:55:07.697772+00:00
+Finished: 2026-09-16T08:55:09.359572+00:00
+Elapsed seconds: 1.662
+Exit status: 0
+Log: logs/b1-race.log

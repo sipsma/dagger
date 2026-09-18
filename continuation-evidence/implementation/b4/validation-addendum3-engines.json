@@ -1,0 +1,48 @@
+[
+  {
+    "name": "cold-engine",
+    "command": "dagger -vv api call engine-dev test --pkg ./core/integration --run='TestRemoteCacheTransferSuite/TestSchemaRecoveryCold$' --timeout=5m --test-verbose",
+    "exit": 0,
+    "seconds": 316.715,
+    "trace": "3df9e6ae55a1d589249c550bb46a3bb4",
+    "selectedTestSeconds": 212.04,
+    "outcome": "passed, no skips"
+  },
+  {
+    "name": "warm-engine",
+    "command": "dagger -vv api call engine-dev test --pkg ./core/integration --run='TestRemoteCacheTransferSuite/TestSchemaRecovery$' --timeout=5m --test-verbose",
+    "exit": 0,
+    "seconds": 524.731,
+    "trace": "47888a25c79c32647da1c39d700064ba",
+    "selectedTestSeconds": 270.93,
+    "outcome": "passed, no skips"
+  },
+  {
+    "name": "mixed-engine",
+    "command": "dagger -vv api call engine-dev test --pkg ./core/integration --run='TestRemoteCacheTransferSuite/TestPartMixedExecOutputs$' --timeout=5m --test-verbose",
+    "exit": 0,
+    "seconds": 146.698,
+    "trace": "d5215ba69b99ccefb25e1cf482b1356a",
+    "selectedTestSeconds": 70.81,
+    "outcome": "passed, no skips"
+  },
+  {
+    "name": "default-policy",
+    "command": "dagger -vv api call engine-dev test --pkg ./core/integration --run='TestRemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic$' --timeout=5m --test-verbose --env-file=file:/tmp/b4-a3-default.env",
+    "exit": 0,
+    "seconds": 41.479,
+    "outcome": "skipped: runner env-file is mounted, not exported; opt-in gate was not passed",
+    "trace": "bca5fc872f5762ffda79f87d0a601c10",
+    "selectedTestSeconds": 0.0
+  },
+  {
+    "name": "default-policy-opted-in",
+    "command": "dagger -vv api call engine-dev test --pkg ./core/integration --run='TestRemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic$' --timeout=5m --test-verbose --env-file=file:/tmp/b4-a3-default.env",
+    "exit": 0,
+    "seconds": 202.641,
+    "runnerOverlay": "probes/default-policy-runner.patch",
+    "trace": "51c009ebcf25f7674d15a3e2a4e0d025",
+    "selectedTestSeconds": 128.4,
+    "outcome": "passed, no skips"
+  }
+]

@@ -2699,6 +2699,105 @@ func TestViewsIntrospection(t *testing.T) {
 	})
 }
 
+type viewFilteredEnum string
+
+var viewFilteredEnums = dagql.NewEnum[viewFilteredEnum]()
+
+var _ = viewFilteredEnums.Register("VISIBLE")
+
+var _ dagql.Input = viewFilteredEnum("")
+
+func (viewFilteredEnum) Decoder() dagql.InputDecoder {
+	return viewFilteredEnums
+}
+
+func (v viewFilteredEnum) ToLiteral() call.Literal {
+	return viewFilteredEnums.Literal(v)
+}
+
+func (viewFilteredEnum) Type() *ast.Type {
+	return &ast.Type{
+		NamedType: "ViewFilteredEnum",
+		NonNull:   true,
+	}
+}
+
+type viewFilteredInput struct {
+	Value string
+}
+
+func (viewFilteredInput) Type() *ast.Type {
+	return &ast.Type{
+		NamedType: "ViewFilteredInput",
+		NonNull:   true,
+	}
+}
+
+func (viewFilteredInput) TypeName() string {
+	return "ViewFilteredInput"
+}
+
+type viewFilteredInterfaceObject struct{}
+
+func (viewFilteredInterfaceObject) Type() *ast.Type {
+	return &ast.Type{
+		NamedType: "ViewFilteredInterfaceObject",
+		NonNull:   true,
+	}
+}
+
+func TestViewsFilterNonObjectTypes(t *testing.T) {
+	srv := newExternalDagqlServerForTest(t, Query{})
+
+	viewFilteredEnums.Install(srv, dagql.ExactView("future"))
+	dagql.MustInputSpec(viewFilteredInput{}).Install(srv, dagql.ExactView("future"))
+
+	iface := dagql.NewInterface("ViewFilteredInterface", "future interface").
+		View(dagql.ExactView("future"))
+	iface.AddField(dagql.InterfaceFieldSpec{
+		FieldSpec: dagql.FieldSpec{
+			Name: "value",
+			Type: dagql.String(""),
+		},
+	})
+	srv.InstallInterface(iface)
+
+	class := dagql.NewClass[viewFilteredInterfaceObject](srv)
+	class.Install(dagql.Field[viewFilteredInterfaceObject]{
+		Spec: &dagql.FieldSpec{
+			Name: "value",
+			Type: dagql.String(""),
+		},
+		Func: func(ctx context.Context, self dagql.ObjectResult[viewFilteredInterfaceObject], args map[string]dagql.Input, view call.View) (dagql.AnyResult, error) {
+			return dagql.NewResultForCurrentCall(ctx, dagql.String("value"))
+		},
+	})
+	class.Implements(iface)
+	srv.InstallObject(class)
+
+	srv.InstallDirective(dagql.DirectiveSpec{
+		Name:        "viewFilteredDirective",
+		Description: "future directive",
+		Locations: []dagql.DirectiveLocation{
+			dagql.DirectiveLocationFieldDefinition,
+		},
+	}.View(dagql.ExactView("future")))
+
+	oldSchema := srv.SchemaForView("old")
+	require.NotContains(t, oldSchema.Types, "ViewFilteredEnum")
+	require.NotContains(t, oldSchema.Types, "ViewFilteredInput")
+	require.NotContains(t, oldSchema.Types, "ViewFilteredInterface")
+	require.NotContains(t, oldSchema.Types["ViewFilteredInterfaceObject"].Interfaces, "ViewFilteredInterface")
+	require.NotContains(t, oldSchema.Directives, "viewFilteredDirective")
+
+	futureSchema := srv.SchemaForView("future")
+	require.Equal(t, ast.Enum, futureSchema.Types["ViewFilteredEnum"].Kind)
+	require.Equal(t, ast.InputObject, futureSchema.Types["ViewFilteredInput"].Kind)
+	require.Equal(t, ast.Interface, futureSchema.Types["ViewFilteredInterface"].Kind)
+	require.Contains(t, futureSchema.Types["ViewFilteredInterfaceObject"].Interfaces, "ViewFilteredInterface")
+	require.Contains(t, futureSchema.Directives, "viewFilteredDirective")
+}
+
 type CoolInt struct {
 	Val int `field:"true"`
 }
@@ -2907,6 +3006,39 @@ func TestImplicitInputCachePerCall(t *testing.T) {
 	var third int
 	require.NoError(t, srv.Select(ctx, srv.Root(), &third, dagql.Selector{Field: "perCallCounter"}))
 	assert.Equal(t, third, 3)
+}
+
+func TestRecipeLoadBytesLiteral(t *testing.T) {
+	srv := newExternalDagqlServerForTest(t, Query{})
+	srv.InstallScalar(dagql.Bytes(nil))
+	points.Install[Query](srv)
+
+	var gotContents []byte
+	dagql.Fields[Query]{
+		dagql.Func("pointFromBytes", func(_ context.Context, _ Query, args struct {
+			Contents dagql.Bytes
+		}) (*points.Point, error) {
+			gotContents = args.Contents.Bytes()
+			return &points.Point{X: len(args.Contents)}, nil
+		}),
+	}.Install(srv)
+
+	contents := []byte{0x00, 0xff, 0xfe, 0x80, 'b', 'l', 'o', 'b'}
+	recipe := call.New().Append(
+		(&points.Point{}).Type(),
+		"pointFromBytes",
+		call.WithArgs(call.NewArgument("contents", call.NewLiteralBytes(contents), false)),
+	)
+	require.False(t, recipe.IsHandle())
+
+	ctx := dagql.ContextWithCache(testContext(), newCache(t))
+	loaded, err := srv.Load(ctx, recipe)
+	require.NoError(t, err)
+	require.Equal(t, contents, gotContents)
+
+	var gotLen int
+	require.NoError(t, srv.Select(ctx, loaded, &gotLen, dagql.Selector{Field: "x"}))
+	require.Equal(t, len(contents), gotLen)
 }
 
 func TestImplicitInputCachePerSchema(t *testing.T) {

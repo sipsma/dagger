@@ -1,0 +1,31 @@
+[dagger] 30.0s elapsed · 27 steps running
+[dagger] 1m0s elapsed · 6 steps running
+[dagger] 1m30s elapsed · 5 steps running
+[dagger] 2m0s elapsed · 6 steps running
+[dagger] 2m30s elapsed · 65 steps running
+== TRACE ==  ✔ PASSED
+engine-dev test --pkg ./core/integration --run=^(TestHTTP|TestGit)$/^(TestHTTPPermissions|TestHTTPCachePerSessions|TestHTTPTimestamp|TestHTTPChecksum|TestHTTPService|TestHTTPChecksumMismatch|TestGitUncommittedLocal|TestGitUncommittedRemote|TestGitBundleRoundTripAndStockInterop|TestGitBundleImportAfterPrerequisiteRefAdvances|TestGitCommit|TestDiscardGitDir|TestGitDepth|TestGitTags|TestGitLatest|TestGitLatestFallsBackToHead|TestGitCommitReleaseTags|TestGitCommitReleaseTagFreshness)$ --timeout=15m --test-verbose  2m44s
+
+✔ connect 0.3s
+✔ load workspace: . 2.3s
+✔ parsing command line arguments 0.0s
+
+✔ engineDev(
+  ┆ ws: currentWorkspace: Workspace!
+  ): EngineDev! 24.8s ◆ IO Pressure: 84µs ◆ CPU Pressure (some): 82.449ms ◆ CPU Pressure (full): 67.029ms ◆ Memory Bytes (current): 946 kB ◆ Memory Bytes (peak): 28 MB
+  ✔ uploading /home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d 1.4s ████████████ 283 kB
+✔ .test(run: "^(TestHTTP|TestGit)$/^(TestHTTPPermissions|TestHTTPCachePerSessions|TestHTTPTimestamp|TestHTTPChecksum|TestHTTPService|TestHTTPChecksumMismatch|TestGitUncommittedLocal|TestGitUncommittedRemote|TestGitBundleRoundTripAndStockInterop|TestGitBundleImportAfterPrerequisiteRefAdvances|TestGitCommit|TestDiscardGitDir|TestGitDepth|TestGitTags|TestGitLatest|TestGitLatestFallsBackToHead|TestGitCommitReleaseTags|TestGitCommitReleaseTagFreshness)$", pkg: "./core/integration", timeout: "15m", testVerbose: true): Void 2m17s ◆ Disk Read: 1.7 MB ◆ Disk Write: 0 B ◆ IO Pressure: 2µs ◆ CPU Pressure (some): 466.151ms ◆ CPU Pressure (full): 403.088ms ◆ Memory Bytes (current): 2.7 MB ◆ Memory Bytes (peak): 36 MB ◆ Network Tx: 2.8 kB
+  ✘ fetching http://37vrbodo8mll4 0.0s ████████████ 22 B ERROR
+  ✔ 8 fetches, 2 pulls, 2 unpacks 8.3s
+
+== SERVICES ==
+✔ h4avdn8nctrm4.imjqv4u1s4hra.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 1m14s EXITED span=b463deaf6b09e1fa
+✔ rogct0dgr0vls.imjqv4u1s4hra.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 1m14s EXITED span=03b18f874c9fd0f5
+✘ kl10jokd1n2d8.imjqv4u1s4hra.dagger.local exec dagger-entrypoint.sh --addr unix:///run/dagger-engine.sock --addr tcp://0.0.0.0:1234 --network-name dagger-dev --network-cidr 10.88.0.0/16 --debugaddr 0.0.0.0:6060 1m14s ERROR span=e07f97c4621c6a68
+
+== TESTS ==
+  ✔ github.com/dagger/dagger/core/integration  2 passed
+
+  ✔ 2 passed
+
+Full trace at trace 6f03c497f3c291aad6eefd9e8134b7e1

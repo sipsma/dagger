@@ -1,0 +1,49 @@
+[dagger] 30.0s elapsed · 2 steps running
+[dagger] 1m0s elapsed · 11 steps running
+[dagger] 1m30s elapsed · 40 steps running
+[dagger] 2m0s elapsed · 20 steps running
+[dagger] 2m30s elapsed · 6 steps running
+[dagger] 3m0s elapsed · 6 steps running
+[dagger] 3m30s elapsed · 6 steps running
+[dagger] 4m0s elapsed · 6 steps running
+[dagger] 4m30s elapsed · 8 steps running
+[dagger] 5m0s elapsed · 25 steps running
+[dagger] 5m30s elapsed · 12 steps running
+[dagger] 6m0s elapsed · 12 steps running
+[dagger] 6m30s elapsed · 10 steps running
+[dagger] 7m0s elapsed · 10 steps running
+== TRACE ==  ✔ PASSED
+engine-dev test --pkg ./core/integration --run=TestRemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic$ --timeout=10m --test-verbose --env-file=file:/tmp/lazy-values-default.env  7m9s
+
+✔ connect 0.3s
+✔ load workspace: . 7.6s
+  ✔ uploading /tmp/dagger-lazy-values-default 0.6s ████████████ 9.7 kB
+✔ parsing command line arguments 0.0s
+
+✔ address(value: "file:/tmp/lazy-values-default.env"): Address! 0.0s
+✔ .secret: Secret! 0.0s
+
+✔ engineDev(
+  ┆ ws: currentWorkspace: Workspace!
+  ): EngineDev! 26.6s ◆ CPU Pressure (some): 58.892ms ◆ CPU Pressure (full): 53.473ms ◆ Memory Bytes (current): 889 kB ◆ Memory Bytes (peak): 29 MB
+  ✔ uploading /tmp/dagger-lazy-values-default 2.5s ████████████ 244 kB
+✔ .test(
+  ┆ run: "TestRemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic$"
+  ┆ pkg: "./core/integration"
+  ┆ timeout: "10m"
+  ┆ envFile: Address.secret: Secret!
+  ┆ testVerbose: true
+  ): Void 6m35s ◆ Disk Read: 643 kB ◆ Disk Write: 0 B ◆ IO Pressure: 793.442ms ◆ CPU Pressure (some): 6.661856s ◆ CPU Pressure (full): 6.519531s ◆ Memory Bytes (current): 1.5 MB ◆ Memory Bytes (peak): 36 MB ◆ Network Rx: 70 B ◆ Network Tx: 7.4 kB (0.917% dropped)
+  ✔ 24 fetches, 4 pulls, 7 unpacks, 8 uploads, 1 transfer 25.4s
+
+== SERVICES ==
+✔ rogct0dgr0vls.8ogh19eo99o66.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 3m42s EXITED span=49ff4c0715728cf0
+✔ h4avdn8nctrm4.8ogh19eo99o66.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 3m42s EXITED span=a51c0cbd7ca5bcff
+✘ g7rmeqoatbggk.8ogh19eo99o66.dagger.local exec dagger-entrypoint.sh --addr unix:///run/dagger-engine.sock --addr tcp://0.0.0.0:1234 --network-name dagger-dev --network-cidr 10.88.0.0/16 --debugaddr 0.0.0.0:6060 3m42s ERROR span=49b79b1bb68dc3b7
+
+== TESTS ==
+  ✔ github.com/dagger/dagger/core/integration  1 passed
+
+  ✔ 1 passed
+
+Full trace at trace dc96140b4cfc0fb165575e120014be50

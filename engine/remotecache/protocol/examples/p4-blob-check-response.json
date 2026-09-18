@@ -1,0 +1,7 @@
+{
+  "upload": {
+    "sha256:60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752": {
+      "url": "http://blobs:5000/remote-cache/blobs/sha256/60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=example"
+    }
+  }
+}

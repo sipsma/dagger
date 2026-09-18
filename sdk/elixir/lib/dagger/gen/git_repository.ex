@@ -17,10 +17,6 @@ defmodule Dagger.GitRepository do
 
   @doc """
   Creates a synthetic workspace from this git repository.
-
-  > #### Experimental {: .warning}
-  >
-  > "Synthetic workspaces currently support filesystem APIs only."
   """
   @spec as_workspace(t(), [{:cwd, String.t() | nil}]) :: Dagger.Workspace.t()
   def as_workspace(%__MODULE__{} = git_repository, optional_args \\ []) do
@@ -63,14 +59,34 @@ defmodule Dagger.GitRepository do
   end
 
   @doc """
+  Pack the given refs and the objects needed to reconstruct them into a Git bundle.
+  """
+  @spec bundle(t(), [String.t()], [{:base, Dagger.GitRef.t() | nil}]) :: Dagger.GitBundle.t()
+  def bundle(%__MODULE__{} = git_repository, refs, optional_args \\ []) do
+    query_builder =
+      git_repository.query_builder
+      |> QB.select("bundle")
+      |> QB.put_arg("refs", refs)
+      |> QB.maybe_put_arg(
+        "base",
+        if(optional_args[:base], do: Dagger.ID.id!(optional_args[:base]), else: nil)
+      )
+
+    %Dagger.GitBundle{
+      query_builder: query_builder,
+      client: git_repository.client
+    }
+  end
+
+  @doc """
   Returns details of a commit.
   """
-  @spec commit(t(), String.t()) :: Dagger.GitRef.t()
+  @spec commit(t(), String.t()) :: Dagger.GitCommit.t()
   def commit(%__MODULE__{} = git_repository, id) do
     query_builder =
       git_repository.query_builder |> QB.select("commit") |> QB.put_arg("id", id)
 
-    %Dagger.GitRef{
+    %Dagger.GitCommit{
       query_builder: query_builder,
       client: git_repository.client
     }
@@ -102,12 +118,16 @@ defmodule Dagger.GitRepository do
   end
 
   @doc """
-  Returns details for the latest semver tag.
+  Return the latest stable release tag, falling back to HEAD when no release exists.
+
+  Release selection accepts an optional "v" prefix, incomplete versions, and zero-padded numeric components. This operation is pinned.
   """
-  @spec latest_version(t()) :: Dagger.GitRef.t()
-  def latest_version(%__MODULE__{} = git_repository) do
+  @spec latest(t(), [{:version, String.t() | nil}]) :: Dagger.GitRef.t()
+  def latest(%__MODULE__{} = git_repository, optional_args \\ []) do
     query_builder =
-      git_repository.query_builder |> QB.select("latestVersion")
+      git_repository.query_builder
+      |> QB.select("latest")
+      |> QB.maybe_put_arg("version", optional_args[:version])
 
     %Dagger.GitRef{
       query_builder: query_builder,
@@ -179,6 +199,24 @@ defmodule Dagger.GitRepository do
       git_repository.query_builder |> QB.select("url")
 
     Client.execute(git_repository.client, query_builder)
+  end
+
+  @doc """
+  Import a Git bundle after fetching and verifying all of its prerequisites.
+  """
+  @spec with_bundle(t(), Dagger.GitBundle.t(), [{:prerequisite_ref, String.t() | nil}]) ::
+          Dagger.GitRepository.t()
+  def with_bundle(%__MODULE__{} = git_repository, bundle, optional_args \\ []) do
+    query_builder =
+      git_repository.query_builder
+      |> QB.select("withBundle")
+      |> QB.put_arg("bundle", Dagger.ID.id!(bundle))
+      |> QB.maybe_put_arg("prerequisiteRef", optional_args[:prerequisite_ref])
+
+    %Dagger.GitRepository{
+      query_builder: query_builder,
+      client: git_repository.client
+    }
   end
 end
 

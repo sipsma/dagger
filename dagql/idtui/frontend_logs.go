@@ -68,6 +68,14 @@ func (fe *frontendLogs) SetClient(client *dagger.Client) {}
 
 func (fe *frontendLogs) SetSidebarContent(SidebarSection) {}
 
+func (fe *frontendLogs) SetStatusLine(StatusLineData) {}
+
+func (fe *frontendLogs) GetLLMTokenMetrics() *dagui.LLMTokenMetrics {
+	fe.mu.Lock()
+	defer fe.mu.Unlock()
+	return fe.db.LLMTokenMetrics
+}
+
 func (fe *frontendLogs) Run(ctx context.Context, opts dagui.FrontendOpts, f func(context.Context) (cleanups.CleanupF, error)) error {
 	fe.opts = opts
 	cleanup, runErr := f(ctx)
@@ -80,7 +88,7 @@ func (fe *frontendLogs) Run(ctx context.Context, opts dagui.FrontendOpts, f func
 	if !opts.Silent && fe.renderFinalTests() {
 		fmt.Fprintln(fe.out)
 	}
-	// Replay the primary output log to stdout/stderr.
+	// Write the primary output log to stdout/stderr.
 	if writeErr := renderPrimaryOutput(fe.out, fe.db); writeErr != nil {
 		runErr = errors.Join(runErr, writeErr)
 	}
@@ -97,6 +105,7 @@ func (fe *frontendLogs) renderFinalTests() bool {
 	}
 	tv := &TestView{
 		Profile:         fe.profile,
+		AgentStyle:      agentStyle(fe.Opts()),
 		Logs:            fe.logs.testLogs,
 		SummaryLogLines: -1,
 	}
@@ -181,7 +190,7 @@ func (fe *frontendLogs) HandlePrompt(ctx context.Context, _, prompt string, dest
 }
 
 func (fe *frontendLogs) HandleForm(ctx context.Context, form *huh.Form) error {
-	return form.RunWithContext(ctx)
+	return form.WithTheme(huh.ThemeBase16()).RunWithContext(ctx)
 }
 
 // logsSpanExporter implements trace.SpanExporter for the logs frontend

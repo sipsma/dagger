@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import javax.lang.model.element.Modifier;
 
@@ -36,6 +37,14 @@ class InterfaceVisitor extends AbstractVisitor {
             .addJavadoc(Helpers.escapeJavadoc(type.getDescription()))
             .addModifiers(Modifier.PUBLIC);
 
+    // With unified IDs, an interface exposing an id field is IDAble like any
+    // object, so interface-typed values (e.g. Node args) marshal by ID through
+    // the existing Arguments.Builder overloads.
+    if (type.providesId()) {
+      interfaceBuilder.addSuperinterface(
+          ParameterizedTypeName.get(ClassName.bestGuess("IDAble"), ClassName.bestGuess("ID")));
+    }
+
     if (type.getFields() != null) {
       for (Field field : type.getFields()) {
         MethodSpec.Builder methodBuilder =
@@ -43,6 +52,11 @@ class InterfaceVisitor extends AbstractVisitor {
                 .addModifiers(Modifier.PUBLIC, Modifier.ABSTRACT);
 
         TypeName returnType = resolveReturnType(field);
+        if (getSchema().supportsNullableObjects()
+            && field.getTypeRef().isOptional()
+            && field.getTypeRef().isObjectOrInterface()) {
+          returnType = ParameterizedTypeName.get(ClassName.get(Optional.class), returnType);
+        }
         methodBuilder.returns(returnType);
 
         // Add parameters for required args
@@ -120,6 +134,12 @@ class InterfaceVisitor extends AbstractVisitor {
             .addAnnotation(Override.class);
 
     TypeName returnType = resolveReturnType(field);
+    TypeName objectReturnType = returnType;
+    if (getSchema().supportsNullableObjects()
+        && field.getTypeRef().isOptional()
+        && field.getTypeRef().isObjectOrInterface()) {
+      returnType = ParameterizedTypeName.get(ClassName.get(Optional.class), returnType);
+    }
     fieldMethodBuilder.returns(returnType);
 
     List<ParameterSpec> mandatoryParams =
@@ -178,14 +198,42 @@ class InterfaceVisitor extends AbstractVisitor {
           .addException(ExecutionException.class)
           .addException(ClassName.get("io.dagger.client.exception", "DaggerQueryException"));
     } else if (Helpers.isIdToConvert(field)) {
-      fieldMethodBuilder.addStatement("nextQueryBuilder.executeQuery()");
-      fieldMethodBuilder.addStatement("return this");
+      // Resolve the ID, then address the object it names through node(id:)
+      fieldMethodBuilder.addStatement(
+          "$T objectID = nextQueryBuilder.executeQuery($T.class)",
+          ClassName.bestGuess("ID"),
+          ClassName.bestGuess("ID"));
+      // Interfaces are instantiated through their client class, like object returns
+      String handleType = Helpers.idHandleType(field);
+      String handleClass = getSchema().isInterface(handleType) ? handleType + "Client" : handleType;
+      fieldMethodBuilder.addStatement(
+          "return new $T(this.queryBuilder.chainNode($S, objectID))",
+          ClassName.bestGuess(handleClass),
+          handleType);
+      fieldMethodBuilder
+          .addException(InterruptedException.class)
+          .addException(ExecutionException.class)
+          .addException(ClassName.get("io.dagger.client.exception", "DaggerQueryException"));
+    } else if (getSchema().supportsNullableObjects()
+        && field.getTypeRef().isOptional()
+        && field.getTypeRef().isObjectOrInterface()) {
+      String graphqlTypeName = field.getTypeRef().getTypeName();
+      String clientClassName =
+          field.getTypeRef().isInterface()
+              ? graphqlTypeName + "Client"
+              : objectReturnType.toString();
+      fieldMethodBuilder.addStatement(
+          "QueryBuilder objectQueryBuilder = nextQueryBuilder.executeNullableObjectQuery($S)",
+          graphqlTypeName);
+      fieldMethodBuilder.addStatement(
+          "return Optional.ofNullable(objectQueryBuilder).map(qb -> new $L(qb))",
+          ClassName.bestGuess(clientClassName));
       fieldMethodBuilder
           .addException(InterruptedException.class)
           .addException(ExecutionException.class)
           .addException(ClassName.get("io.dagger.client.exception", "DaggerQueryException"));
     } else if (field.getTypeRef().isObjectOrInterface()) {
-      TypeName objectType = resolveReturnType(field);
+      TypeName objectType = objectReturnType;
       // For interface return types, instantiate the client class
       if (field.getTypeRef().isInterface()) {
         fieldMethodBuilder.addStatement(
@@ -213,8 +261,8 @@ class InterfaceVisitor extends AbstractVisitor {
       return field.getTypeRef().formatOutput();
     }
     if (Helpers.isIdToConvert(field)) {
-      // sync-like: return the parent object type
-      return ClassName.bestGuess(Helpers.formatName(field.getParentObject()));
+      // ID handle: return the object the ID resolves to
+      return ClassName.bestGuess(Helpers.idHandleType(field));
     }
     String expectedType = field.getExpectedType();
     return field.getTypeRef().formatInput(expectedType);
@@ -233,7 +281,7 @@ class InterfaceVisitor extends AbstractVisitor {
       return true;
     }
     if (field.getTypeRef().isObjectOrInterface()) {
-      return false;
+      return getSchema().supportsNullableObjects() && field.getTypeRef().isOptional();
     }
     return true; // scalar fields need exceptions
   }

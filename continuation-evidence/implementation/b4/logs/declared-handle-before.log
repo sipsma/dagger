@@ -1,0 +1,5 @@
+--- FAIL: TestModuleObjectAttachDependencyResultsRetainsSemanticInterfaceHandleField (0.01s)
+    object_test.go:1008: assertion failed: result_id (persistedModuleObjectValueKindResultRef string) != scalar_json (payload.Fields["child"].Kind string)
+FAIL
+FAIL	github.com/dagger/dagger/core	0.101s
+FAIL

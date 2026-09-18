@@ -1,0 +1,18 @@
+=== RUN   TestPartAdmittedChainLifetime
+=== RUN   TestPartAdmittedChainLifetime/donor-collected
+=== RUN   TestPartAdmittedChainLifetime/slot-replaced
+=== RUN   TestPartAdmittedChainLifetime/owner-backref-sync-failure
+=== RUN   TestPartAdmittedChainLifetime/output-backref-rejected
+--- PASS: TestPartAdmittedChainLifetime (0.94s)
+    --- PASS: TestPartAdmittedChainLifetime/donor-collected (0.22s)
+    --- PASS: TestPartAdmittedChainLifetime/slot-replaced (0.23s)
+    --- PASS: TestPartAdmittedChainLifetime/owner-backref-sync-failure (0.26s)
+    --- PASS: TestPartAdmittedChainLifetime/output-backref-rejected (0.23s)
+=== RUN   TestPartImportChainRefCleanupHandoff
+=== RUN   TestPartImportChainRefCleanupHandoff/retry
+=== RUN   TestPartImportChainRefCleanupHandoff/collect
+--- PASS: TestPartImportChainRefCleanupHandoff (0.41s)
+    --- PASS: TestPartImportChainRefCleanupHandoff/retry (0.20s)
+    --- PASS: TestPartImportChainRefCleanupHandoff/collect (0.22s)
+PASS
+ok      github.com/dagger/dagger/dagql  2.820s

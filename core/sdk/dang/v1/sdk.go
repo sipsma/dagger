@@ -42,7 +42,7 @@ func (Impl) ModuleTypes(
 		return inst, fmt.Errorf("current query: %w", err)
 	}
 
-	clientMetadata, nestedClientMetadata, err := dangshared.NewNestedClientMetadata(ctx)
+	nestedClientMetadata, err := dangshared.NewNestedClientMetadata(ctx)
 	if err != nil {
 		return inst, err
 	}
@@ -54,10 +54,10 @@ func (Impl) ModuleTypes(
 		runner = runDangDirForModuleTypes
 	}
 
-	_, err = evalDangSource(ctx, query, src, schemaJSONFile, nestedClientMetadata, clientMetadata.ClientID, true, nil, scopedMod, dagql.ObjectResult[*core.Env]{}, runner, func(ctx context.Context, env dang.ValueScope) ([]byte, error) {
+	_, err = evalDangSource(ctx, query, src, schemaJSONFile, nestedClientMetadata, true /* inert attachables */, nil, scopedMod, runner, func(ctx context.Context, env dang.ValueScope) ([]byte, error) {
 		inst, err = initDangModule(ctx, dag, env)
 		if err != nil {
-			return nil, fmt.Errorf("init module: %w", err)
+			return nil, err
 		}
 		return nil, nil
 	})
@@ -94,7 +94,6 @@ func (r *runtime) Call(
 	_ *engineutil.ExecutionMetadata,
 	fnCall *core.FunctionCall,
 	moduleContext dagql.ObjectResult[*core.Module],
-	envContext dagql.ObjectResult[*core.Env],
 ) (rerr error) {
 	defer func() {
 		if rerr != nil {
@@ -102,7 +101,7 @@ func (r *runtime) Call(
 		}
 	}()
 
-	clientMetadata, nestedClientMetadata, err := dangshared.NewNestedClientMetadata(ctx)
+	nestedClientMetadata, err := dangshared.NewNestedClientMetadata(ctx)
 	if err != nil {
 		return err
 	}
@@ -115,7 +114,7 @@ func (r *runtime) Call(
 	if err != nil {
 		return fmt.Errorf("get schema introspection: %w", err)
 	}
-	outputBytes, err := r.eval(ctx, query, schemaJSONFile, nestedClientMetadata, clientMetadata.ClientID, true, fnCall, moduleContext, envContext)
+	outputBytes, err := r.eval(ctx, query, schemaJSONFile, nestedClientMetadata, true /* inert attachables */, fnCall, moduleContext)
 	if err != nil {
 		return err
 	}

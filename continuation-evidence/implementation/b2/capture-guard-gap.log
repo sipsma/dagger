@@ -1,0 +1,52 @@
+=== RUN   TestB2CaptureGuardGap
+=== RUN   TestB2CaptureGuardGap/File
+2026/09/16 05:12:06 INFO start lazy evaluation field=File
+2026/09/16 05:12:06 INFO end lazy evaluation field=File duration=346.629µs
+    b2_capture_guard_probe_test.go:45: capture while File producer body latch held: err=<nil> payload={"valueKnown":true,"form":"lazy","file":"/file","platform":"linux/amd64","lazyKind":"directory.file","lazyJSON":{"parentResultID":1,"path":"file"}}
+    b2_capture_guard_probe_test.go:46: 
+        	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b2-transfer-implementer-26387947-ab517fbe/core/b2_capture_guard_probe_test.go:46
+        	Error:      	Expected error with "persist state not ready" in chain but got nil.
+        	Test:       	TestB2CaptureGuardGap/File
+        	Messages:   	live capture must refuse an active direct producer body
+2026/09/16 05:12:06 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestB2CaptureGuardGap/Directory
+2026/09/16 05:12:06 INFO start lazy evaluation field=Directory
+2026/09/16 05:12:06 INFO end lazy evaluation field=Directory duration=119.26µs
+    b2_capture_guard_probe_test.go:45: capture while Directory producer body latch held: err=<nil> payload={"form":"lazy","platform":"linux/amd64","lazyKind":"directory.directory","lazyJSON":{"parentResultID":1,"subdir":"subdir"}}
+    b2_capture_guard_probe_test.go:46: 
+        	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b2-transfer-implementer-26387947-ab517fbe/core/b2_capture_guard_probe_test.go:46
+        	Error:      	Expected error with "persist state not ready" in chain but got nil.
+        	Test:       	TestB2CaptureGuardGap/Directory
+        	Messages:   	live capture must refuse an active direct producer body
+2026/09/16 05:12:06 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- FAIL: TestB2CaptureGuardGap (0.06s)
+    --- FAIL: TestB2CaptureGuardGap/File (0.05s)
+    --- FAIL: TestB2CaptureGuardGap/Directory (0.02s)
+=== RUN   TestCapturePersistedContainerDirectEvaluation
+=== RUN   TestCapturePersistedContainerDirectEvaluation/metadata
+2026/09/16 05:12:06 INFO start lazy group evaluation field=capture-test group=metadata
+2026/09/16 05:12:06 INFO end lazy group evaluation field=capture-test group=metadata duration=65.34µs
+2026/09/16 05:12:06 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestCapturePersistedContainerDirectEvaluation/snapshot
+2026/09/16 05:12:06 INFO start lazy group evaluation field=capture-test group=metadata
+2026/09/16 05:12:06 INFO end lazy group evaluation field=capture-test group=metadata duration=765.699µs
+2026/09/16 05:12:06 INFO start lazy group evaluation field=capture-test group=fs
+2026/09/16 05:12:06 INFO start lazy group evaluation field=capture-test group=execMeta
+2026/09/16 05:12:06 INFO end lazy group evaluation field=capture-test group=execMeta duration=12.37µs
+2026/09/16 05:12:06 INFO end lazy group evaluation field=capture-test group=fs duration=121.31µs
+2026/09/16 05:12:06 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestCapturePersistedContainerDirectEvaluation/whole
+2026/09/16 05:12:06 INFO start lazy group evaluation field=capture-test group=metadata
+2026/09/16 05:12:06 INFO end lazy group evaluation field=capture-test group=metadata duration=134.35µs
+2026/09/16 05:12:06 INFO start lazy group evaluation field=capture-test group=fs
+2026/09/16 05:12:06 INFO end lazy group evaluation field=capture-test group=fs duration=8.93µs
+2026/09/16 05:12:06 INFO start lazy group evaluation field=capture-test group=execMeta
+2026/09/16 05:12:06 INFO end lazy group evaluation field=capture-test group=execMeta duration=18.13µs
+2026/09/16 05:12:06 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestCapturePersistedContainerDirectEvaluation (0.00s)
+    --- PASS: TestCapturePersistedContainerDirectEvaluation/metadata (0.00s)
+    --- PASS: TestCapturePersistedContainerDirectEvaluation/snapshot (0.00s)
+    --- PASS: TestCapturePersistedContainerDirectEvaluation/whole (0.00s)
+FAIL
+FAIL	github.com/dagger/dagger/core	0.146s
+FAIL

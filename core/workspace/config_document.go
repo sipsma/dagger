@@ -1,88 +1,132 @@
 package workspace
 
 import (
-	"bytes"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
-
-	"github.com/creachadair/tomledit"
-	neontoml "github.com/neongreen/mono/lib/toml"
 )
 
-// ConstructorArgHint captures a constructor-backed setting hint for a module.
-type ConstructorArgHint struct {
-	Name         string
-	TypeLabel    string
-	Description  string
-	ExampleValue string
-}
-
-// UpdateConfigBytes rewrites config bytes while preserving existing comments
-// and formatting when a prior file exists.
+// UpdateConfigBytes applies the differences between the old and new typed
+// config to the original document. Fields absent from both typed configs are
+// left alone, including unknown fields and explicitly written defaults.
 func UpdateConfigBytes(existingData []byte, cfg *Config) ([]byte, error) {
-	return UpdateConfigBytesWithHints(existingData, cfg, nil)
-}
-
-// UpdateConfigBytesWithHints rewrites config bytes while preserving existing
-// comments and formatting, then injects commented-out setting hints for the
-// specified modules.
-func UpdateConfigBytesWithHints(
-	existingData []byte,
-	cfg *Config,
-	hints map[string][]ConstructorArgHint,
-) ([]byte, error) {
 	if cfg == nil {
 		cfg = &Config{}
 	}
-
+	if err := ValidateSDKs(cfg); err != nil {
+		return nil, err
+	}
 	if len(existingData) == 0 {
-		out := SerializeConfig(cfg)
-		if len(hints) == 0 {
-			return out, nil
+		return SerializeConfig(cfg), nil
+	}
+	existing, err := ParseConfig(existingData)
+	if err != nil {
+		return nil, err
+	}
+	updated, err := updateConfigTable(existingData, nil, configDocumentMap(existing), configDocumentMap(cfg))
+	if err != nil {
+		return nil, err
+	}
+	if _, err := ParseConfig(updated); err != nil {
+		return nil, fmt.Errorf("validate edited config: %w", err)
+	}
+	return updated, nil
+}
+
+func updateConfigTable(data []byte, prefix []string, before, after map[string]any) ([]byte, error) {
+	keys := make([]string, 0, len(before)+len(after))
+	for key := range before {
+		keys = append(keys, key)
+	}
+	for key := range after {
+		if _, ok := before[key]; !ok {
+			keys = append(keys, key)
 		}
-		return insertWorkspaceSettingHintComments(out, cfg, hints), nil
 	}
-	if configRequiresQuotedPathSegments(cfg) {
-		out := SerializeConfig(cfg)
-		if len(hints) == 0 {
-			return out, nil
+	sort.Strings(keys)
+	for _, key := range keys {
+		old, had := before[key]
+		value, has := after[key]
+		if had == has && configValuesEqual(old, value) {
+			continue
 		}
-		return insertWorkspaceSettingHintComments(out, cfg, hints), nil
+		parts := append(slices.Clone(prefix), key)
+		var err error
+		oldMap, oldTable := old.(map[string]any)
+		newMap, newTable := value.(map[string]any)
+		if oldTable && !has && !configEntryPath(parts) && !configSettingsPath(parts) {
+			// Removing the last known field does not remove unknown siblings
+			// in schema-owned tables. Whole-entry removal is explicit, and
+			// arbitrary settings include every key, so both can be removed whole.
+			data, err = updateConfigTable(data, parts, oldMap, nil)
+		} else if newTable && (!had || oldTable) {
+			data, err = updateConfigTable(data, parts, oldMap, newMap)
+			if err == nil && len(newMap) == 0 {
+				var doc *configText
+				doc, err = parseConfigText(data)
+				if err == nil {
+					data, err = doc.ensureTable(parts)
+				}
+			}
+		} else {
+			var doc *configText
+			doc, err = parseConfigText(data)
+			if err == nil {
+				if !has {
+					data, err = doc.remove(parts)
+				} else {
+					data, err = doc.set(parts, value)
+				}
+			}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("edit config %q: %w", JoinConfigPath(parts...), err)
+		}
 	}
+	return data, nil
+}
 
-	doc, err := neontoml.Parse(existingData)
+func configEntryPath(parts []string) bool {
+	if len(parts) == 2 {
+		return parts[0] == "modules" || parts[0] == "sdks" || parts[0] == "env" || parts[0] == "ports"
+	}
+	return len(parts) == 4 && (parts[0] == "sdks" && parts[2] == "scopes" || parts[0] == "env" && parts[2] == "modules")
+}
+
+// Settings maps include every user key, so absent tables within them must be
+// deleted rather than retained for potentially unknown schema fields.
+func configSettingsPath(parts []string) bool {
+	if len(parts) >= 3 && parts[0] == "modules" && parts[2] == "settings" {
+		return true
+	}
+	return len(parts) >= 5 && parts[4] == "settings" &&
+		(parts[0] == "sdks" && parts[2] == "scopes" || parts[0] == "env" && parts[2] == "modules")
+}
+
+func deleteConfigDocumentPath(data []byte, parts, collapsed []string) ([]byte, error) {
+	doc, err := parseConfigText(data)
 	if err != nil {
-		return nil, fmt.Errorf("parse existing config: %w", err)
-	}
-
-	existingCfg, err := ParseConfig(existingData)
-	if err != nil {
-		return nil, fmt.Errorf("parse existing config state: %w", err)
-	}
-
-	desiredValues := configDocumentMap(cfg)
-	if err := deleteRemovedManagedConfigPaths(doc, configDocumentMap(existingCfg), desiredValues); err != nil {
 		return nil, err
 	}
-	if err := deleteRemovedConfigRoots(doc, existingCfg, cfg); err != nil {
-		return nil, err
-	}
-	if err := doc.ApplyMap(desiredValues); err != nil {
-		return nil, fmt.Errorf("rewrite config document: %w", err)
-	}
-	if err := ensureEmptyEnvSections(doc, cfg.Env); err != nil {
-		return nil, err
-	}
-
-	out, err := pruneUnwantedEmptySections(doc.Bytes(), keepEmptyConfigSectionHeaders(cfg))
+	data, err = doc.remove(collapsed)
 	if err != nil {
 		return nil, err
 	}
-	if len(hints) == 0 {
-		return out, nil
+	if parts[0] == "env" {
+		doc, err = parseConfigText(data)
+		if err != nil {
+			return nil, err
+		}
+		data, err = doc.ensureTable(parts[:2])
+		if err != nil {
+			return nil, err
+		}
 	}
-	return insertWorkspaceSettingHintComments(out, cfg, hints), nil
+	if _, err := ParseConfig(data); err != nil {
+		return nil, fmt.Errorf("validate edited config: %w", err)
+	}
+	return data, nil
 }
 
 func configDocumentMap(cfg *Config) map[string]any {
@@ -94,11 +138,17 @@ func configDocumentMap(cfg *Config) map[string]any {
 	if cfg.DefaultsFromDotEnv {
 		values["defaults_from_dotenv"] = true
 	}
+	if cfg.CheckGenerated != nil {
+		values["check-generated"] = *cfg.CheckGenerated
+	}
 	if len(cfg.Modules) > 0 {
 		modules := make(map[string]any, len(cfg.Modules))
 		for name, entry := range cfg.Modules {
 			module := map[string]any{
 				"source": entry.Source,
+			}
+			if entry.Pin != "" {
+				module["pin"] = entry.Pin
 			}
 			if entry.Entrypoint {
 				module["entrypoint"] = true
@@ -130,6 +180,12 @@ func configDocumentMap(cfg *Config) map[string]any {
 				modules := make(map[string]any, len(env.Modules))
 				for moduleName, overlay := range env.Modules {
 					module := map[string]any{}
+					if overlay.Source != "" {
+						module["source"] = overlay.Source
+					}
+					if overlay.Pin != "" {
+						module["pin"] = overlay.Pin
+					}
 					if len(overlay.Settings) > 0 {
 						module["settings"] = cloneConfigMap(overlay.Settings)
 					}
@@ -151,266 +207,35 @@ func configDocumentMap(cfg *Config) map[string]any {
 		}
 		values["ports"] = ports
 	}
-
+	if len(cfg.SDKs) > 0 {
+		sdks := make(map[string]any, len(cfg.SDKs))
+		for name, entry := range cfg.SDKs {
+			sdk := map[string]any{"module": entry.Module}
+			if len(entry.Scopes) > 0 {
+				scopes := make(map[string]any, len(entry.Scopes))
+				for name, entry := range entry.Scopes {
+					scope := map[string]any{}
+					if entry.IsModule {
+						scope["is-module"] = true
+					}
+					if entry.Name != "" {
+						scope["name"] = entry.Name
+					}
+					if len(entry.Clients) > 0 {
+						scope["clients"] = slices.Clone(entry.Clients)
+					}
+					if len(entry.Settings) > 0 {
+						scope["settings"] = cloneConfigMap(entry.Settings)
+					}
+					scopes[name] = scope
+				}
+				sdk["scopes"] = scopes
+			}
+			sdks[name] = sdk
+		}
+		values["sdks"] = sdks
+	}
 	return values
-}
-
-func configRequiresQuotedPathSegments(cfg *Config) bool {
-	if cfg == nil {
-		return false
-	}
-	for moduleName, module := range cfg.Modules {
-		if !isBareConfigPathSegment(moduleName) || configMapRequiresQuotedPathSegments(module.Settings) {
-			return true
-		}
-	}
-	for envName, env := range cfg.Env {
-		if !isBareConfigPathSegment(envName) {
-			return true
-		}
-		for moduleName, module := range env.Modules {
-			if !isBareConfigPathSegment(moduleName) || configMapRequiresQuotedPathSegments(module.Settings) {
-				return true
-			}
-		}
-	}
-	for host := range cfg.Ports {
-		if !isBareConfigPathSegment(host) {
-			return true
-		}
-	}
-	return false
-}
-
-func configMapRequiresQuotedPathSegments(values map[string]any) bool {
-	for key := range values {
-		if !isBareConfigPathSegment(key) {
-			return true
-		}
-	}
-	return false
-}
-
-func deleteRemovedManagedConfigPaths(doc *neontoml.Document, existingValues, desiredValues map[string]any) error {
-	existingFlat := flattenConfigValues(existingValues)
-	desiredFlat := flattenConfigValues(desiredValues)
-
-	for path := range existingFlat {
-		if _, ok := desiredFlat[path]; ok {
-			continue
-		}
-		if err := doc.Delete(path); err != nil {
-			return fmt.Errorf("delete config path %q: %w", path, err)
-		}
-	}
-
-	return nil
-}
-
-func flattenConfigValues(values map[string]any) map[string]any {
-	flat := map[string]any{}
-	flattenConfigValuesInto(flat, "", values)
-	return flat
-}
-
-func flattenConfigValuesInto(flat map[string]any, prefix string, values map[string]any) {
-	for key, value := range values {
-		fullKey := formatConfigPathSegment(key)
-		if prefix != "" {
-			fullKey = prefix + "." + fullKey
-		}
-
-		nested, ok := value.(map[string]any)
-		if ok {
-			flattenConfigValuesInto(flat, fullKey, nested)
-			continue
-		}
-
-		flat[fullKey] = value
-	}
-}
-
-func deleteRemovedConfigRoots(doc *neontoml.Document, existingCfg, desiredCfg *Config) error {
-	for name := range existingCfg.Modules {
-		if _, ok := desiredCfg.Modules[name]; ok {
-			continue
-		}
-		if err := doc.Delete("modules." + formatConfigPathSegment(name)); err != nil {
-			return fmt.Errorf("delete module %q: %w", name, err)
-		}
-	}
-
-	for envName := range existingCfg.Env {
-		if _, ok := desiredCfg.Env[envName]; ok {
-			continue
-		}
-		if err := doc.Delete("env." + formatConfigPathSegment(envName)); err != nil {
-			return fmt.Errorf("delete env %q: %w", envName, err)
-		}
-	}
-
-	for host := range existingCfg.Ports {
-		if _, ok := desiredCfg.Ports[host]; ok {
-			continue
-		}
-		if err := doc.Delete("ports." + formatConfigPathSegment(host)); err != nil {
-			return fmt.Errorf("delete port %q: %w", host, err)
-		}
-	}
-
-	return nil
-}
-
-func ensureEmptyEnvSections(doc *neontoml.Document, envs map[string]EnvOverlay) error {
-	for envName, env := range envs {
-		if len(env.Modules) > 0 {
-			continue
-		}
-
-		placeholderPath := "env." + formatConfigPathSegment(envName) + ".__dagger_empty_section__"
-		if err := doc.Set(placeholderPath, true); err != nil {
-			return fmt.Errorf("create env %q section: %w", envName, err)
-		}
-		if err := doc.Delete(placeholderPath); err != nil {
-			return fmt.Errorf("finalize env %q section: %w", envName, err)
-		}
-	}
-
-	return nil
-}
-
-func keepEmptyConfigSectionHeaders(cfg *Config) map[string]bool {
-	keep := map[string]bool{}
-	for envName, env := range cfg.Env {
-		if len(env.Modules) > 0 {
-			continue
-		}
-		keep["[env."+formatConfigPathSegment(envName)+"]"] = true
-	}
-	return keep
-}
-
-func pruneUnwantedEmptySections(data []byte, keepEmptySections map[string]bool) ([]byte, error) {
-	doc, err := tomledit.Parse(bytes.NewReader(data))
-	if err != nil {
-		return nil, fmt.Errorf("parse rewritten config document: %w", err)
-	}
-
-	sections := doc.Sections[:0]
-	for _, section := range doc.Sections {
-		if len(section.Items) == 0 && !keepEmptySections[section.Heading.String()] {
-			continue
-		}
-		sections = append(sections, section)
-	}
-	doc.Sections = sections
-
-	var buf bytes.Buffer
-	var formatter tomledit.Formatter
-	if err := formatter.Format(&buf, doc); err != nil {
-		return nil, fmt.Errorf("format pruned config document: %w", err)
-	}
-	return buf.Bytes(), nil
-}
-
-func insertWorkspaceSettingHintComments(data []byte, cfg *Config, hints map[string][]ConstructorArgHint) []byte {
-	moduleNames := make([]string, 0, len(hints))
-	for name := range hints {
-		moduleNames = append(moduleNames, name)
-	}
-	sort.Strings(moduleNames)
-
-	lines := strings.Split(string(data), "\n")
-	for _, moduleName := range moduleNames {
-		moduleHints := hints[moduleName]
-		if len(moduleHints) == 0 {
-			continue
-		}
-
-		insertAfter, hintPrefix := findModuleHintInsertionPoint(lines, moduleName)
-		if insertAfter == -1 {
-			continue
-		}
-
-		existingSettings := map[string]bool{}
-		if entry, ok := cfg.Modules[moduleName]; ok {
-			for key := range entry.Settings {
-				existingSettings[strings.ToLower(key)] = true
-			}
-		}
-
-		commentLines := make([]string, 0, len(moduleHints)*2)
-		for _, hint := range moduleHints {
-			if existingSettings[strings.ToLower(hint.Name)] {
-				continue
-			}
-			if desc := hintDescriptionLine(hint.Description); desc != "" {
-				commentLines = append(commentLines, "# "+desc)
-			}
-			commentLines = append(commentLines, fmt.Sprintf("# %s%s = %s", hintPrefix, formatConfigPathSegment(hint.Name), hint.ExampleValue))
-		}
-		if len(commentLines) == 0 {
-			continue
-		}
-
-		updated := make([]string, 0, len(lines)+len(commentLines))
-		updated = append(updated, lines[:insertAfter+1]...)
-		updated = append(updated, commentLines...)
-		updated = append(updated, lines[insertAfter+1:]...)
-		lines = updated
-	}
-
-	return []byte(strings.Join(lines, "\n"))
-}
-
-func hintDescriptionLine(description string) string {
-	for _, line := range strings.Split(description, "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			return line
-		}
-	}
-	return ""
-}
-
-func findModuleHintInsertionPoint(lines []string, moduleName string) (insertAfter int, hintPrefix string) {
-	formattedModuleName := formatConfigPathSegment(moduleName)
-	settingsSection := "[modules." + formattedModuleName + ".settings]"
-	if idx := findSectionInsertionPoint(lines, settingsSection); idx != -1 {
-		return idx, ""
-	}
-
-	moduleSection := "[modules." + formattedModuleName + "]"
-	if idx := findSectionInsertionPoint(lines, moduleSection); idx != -1 {
-		return idx, "settings."
-	}
-
-	return -1, ""
-}
-
-func findSectionInsertionPoint(lines []string, sectionHeader string) int {
-	inSection := false
-	lastLine := -1
-
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == sectionHeader {
-			inSection = true
-			lastLine = i
-			continue
-		}
-		if !inSection {
-			continue
-		}
-		if strings.HasPrefix(trimmed, "[") {
-			break
-		}
-		if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
-			lastLine = i
-		}
-	}
-
-	return lastLine
 }
 
 // FormatConfigPathSegment formats one TOML dotted-key path segment.

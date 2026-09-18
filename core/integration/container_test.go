@@ -12,11 +12,13 @@ import (
 	"context"
 	"crypto/md5"
 	"crypto/rand"
+	"crypto/sha256"
 	_ "embed"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -37,6 +39,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
 	"gopkg.in/yaml.v3"
 
 	"dagger.io/dagger"
@@ -2042,6 +2045,21 @@ func (ContainerSuite) TestWithFiles(ctx context.Context, t *testctx.T) {
 			WithFiles("myfiles/", files)
 		check(ctx, t, ctr)
 	})
+
+	t.Run("inherit owner", func(ctx context.Context, t *testctx.T) {
+		ctr := c.Container().From(alpineImage).
+			WithExec([]string{"adduser", "-u", "1234", "-D", "auser"}).
+			WithExec([]string{"addgroup", "-g", "4321", "agroup"}).
+			WithUser("auser:agroup").
+			WithFiles("/myfiles", files, dagger.ContainerWithFilesOpts{InheritOwner: true})
+
+		out, err := ctr.
+			WithUser("root").
+			WithExec([]string{"stat", "-c", "%U %G", "/myfiles/first-file", "/myfiles/second-file"}).
+			Stdout(ctx)
+		require.NoError(t, err)
+		require.Equal(t, "auser agroup\nauser agroup\n", out)
+	})
 }
 
 func (ContainerSuite) TestWithFilesAbsolute(ctx context.Context, t *testctx.T) {
@@ -2882,6 +2900,11 @@ func (ContainerSuite) TestRelativePaths(ctx context.Context, t *testctx.T) {
 
 func (ContainerSuite) TestMultiFrom(ctx context.Context, t *testctx.T) {
 	c := connect(ctx, t)
+
+	// Ensure the bare second image is already cached. The later From must not
+	// merge with it because the mounted directory is preserved across From.
+	_, err := c.Container().From("golang:1.18.2-alpine").Sync(ctx)
+	require.NoError(t, err)
 
 	dirRes, err := testutil.QueryWithClient[struct {
 		Directory struct {
@@ -3838,6 +3861,49 @@ func (ContainerSuite) TestWithRegistryAuth(ctx context.Context, t *testctx.T) {
 	}
 }
 
+func (ContainerSuite) TestWithRegistryAuthDoesNotInvalidateCache(ctx context.Context, t *testctx.T) {
+	for _, tc := range []struct {
+		name           string
+		authBeforeFrom bool
+	}{
+		{name: "before from", authBeforeFrom: true},
+		{name: "after from"},
+	} {
+		t.Run(tc.name, func(ctx context.Context, t *testctx.T) {
+			cacheKey := identity.NewID()
+			run := func() string {
+				c := connect(ctx, t)
+				ctr := c.Container()
+				withAuth := func() {
+					ctr = ctr.WithRegistryAuth(
+						"registry.example.com",
+						"anyuser",
+						c.SetSecret("registry-auth-cache-"+cacheKey, "dummy"),
+					)
+				}
+				if tc.authBeforeFrom {
+					withAuth()
+				}
+				ctr = ctr.From(alpineImage)
+				if !tc.authBeforeFrom {
+					withAuth()
+				}
+
+				out, err := ctr.
+					WithEnvVariable("REGISTRY_AUTH_CACHE_KEY", cacheKey).
+					WithExec([]string{"cat", "/proc/sys/kernel/random/uuid"}).
+					Stdout(ctx)
+				require.NoError(t, err)
+				return strings.TrimSpace(out)
+			}
+
+			out1 := run()
+			out2 := run()
+			require.Equal(t, out1, out2, "registry auth invalidated the execution cache")
+		})
+	}
+}
+
 func (ContainerSuite) TestWithRegistryAuthAfterAnonymousBearerPull(ctx context.Context, t *testctx.T) {
 	c := connect(ctx, t)
 
@@ -4484,6 +4550,11 @@ func (ContainerSuite) TestWithMountedFileOwner(ctx context.Context, t *testctx.T
 				Owner: owner,
 			})
 		})
+		testInheritOwnership(ctx, t, c, func(ctr *dagger.Container, name string) *dagger.Container {
+			return ctr.WithMountedFile(name, file, dagger.ContainerWithMountedFileOpts{
+				InheritOwner: true,
+			})
+		})
 	})
 
 	t.Run("file from subdirectory", func(ctx context.Context, t *testctx.T) {
@@ -4519,6 +4590,11 @@ func (ContainerSuite) TestWithMountedDirectoryOwner(ctx context.Context, t *test
 		testOwnership(t, c, func(ctr *dagger.Container, name string, owner string) *dagger.Container {
 			return ctr.WithMountedDirectory(name, dir, dagger.ContainerWithMountedDirectoryOpts{
 				Owner: owner,
+			})
+		})
+		testInheritOwnership(ctx, t, c, func(ctr *dagger.Container, name string) *dagger.Container {
+			return ctr.WithMountedDirectory(name, dir, dagger.ContainerWithMountedDirectoryOpts{
+				InheritOwner: true,
 			})
 		})
 	})
@@ -4586,6 +4662,11 @@ func (ContainerSuite) TestWithFileOwner(ctx context.Context, t *testctx.T) {
 				Owner: owner,
 			})
 		})
+		testInheritOwnership(ctx, t, c, func(ctr *dagger.Container, name string) *dagger.Container {
+			return ctr.WithFile(name, file, dagger.ContainerWithFileOpts{
+				InheritOwner: true,
+			})
+		})
 	})
 
 	t.Run("file from subdirectory", func(ctx context.Context, t *testctx.T) {
@@ -4623,6 +4704,11 @@ func (ContainerSuite) TestWithDirectoryOwner(ctx context.Context, t *testctx.T) 
 				Owner: owner,
 			})
 		})
+		testInheritOwnership(ctx, t, c, func(ctr *dagger.Container, name string) *dagger.Container {
+			return ctr.WithDirectory(name, dir, dagger.ContainerWithDirectoryOpts{
+				InheritOwner: true,
+			})
+		})
 	})
 
 	t.Run("subdirectory", func(ctx context.Context, t *testctx.T) {
@@ -4650,6 +4736,9 @@ func (ContainerSuite) TestWithNewFileOwner(ctx context.Context, t *testctx.T) {
 	testOwnership(t, c, func(ctr *dagger.Container, name string, owner string) *dagger.Container {
 		return ctr.WithNewFile(name, "", dagger.ContainerWithNewFileOpts{Owner: owner})
 	})
+	testInheritOwnership(ctx, t, c, func(ctr *dagger.Container, name string) *dagger.Container {
+		return ctr.WithNewFile(name, "", dagger.ContainerWithNewFileOpts{InheritOwner: true})
+	})
 }
 
 func (ContainerSuite) TestWithMountedCacheOwner(ctx context.Context, t *testctx.T) {
@@ -4660,6 +4749,11 @@ func (ContainerSuite) TestWithMountedCacheOwner(ctx context.Context, t *testctx.
 	testOwnership(t, c, func(ctr *dagger.Container, name string, owner string) *dagger.Container {
 		return ctr.WithMountedCache(name, cache, dagger.ContainerWithMountedCacheOpts{
 			Owner: owner,
+		})
+	})
+	testInheritOwnership(ctx, t, c, func(ctr *dagger.Container, name string) *dagger.Container {
+		return ctr.WithMountedCache(name, cache, dagger.ContainerWithMountedCacheOpts{
+			InheritOwner: true,
 		})
 	})
 
@@ -4716,6 +4810,11 @@ func (ContainerSuite) TestWithMountedSecretOwner(ctx context.Context, t *testctx
 	testOwnership(t, c, func(ctr *dagger.Container, name string, owner string) *dagger.Container {
 		return ctr.WithMountedSecret(name, secret, dagger.ContainerWithMountedSecretOpts{
 			Owner: owner,
+		})
+	})
+	testInheritOwnership(ctx, t, c, func(ctr *dagger.Container, name string) *dagger.Container {
+		return ctr.WithMountedSecret(name, secret, dagger.ContainerWithMountedSecretOpts{
+			InheritOwner: true,
 		})
 	})
 }
@@ -5943,7 +6042,7 @@ func (ContainerSuite) TestSaveHostDocker(ctx context.Context, t *testctx.T) {
 
 	t.Run("docker-image driver", func(ctx context.Context, t *testctx.T) {
 		imageName := "foobar:" + identity.NewID()
-		_, err := dockerc.WithExec([]string{"dagger", "shell", "-c", `container | from "alpine" | with-exec touch,foo | export-image "` + imageName + `"`}).Sync(ctx)
+		_, err := dockerc.WithExec([]string{"dagger", "script", "-c", `container | from "alpine" | with-exec touch,foo | export-image "` + imageName + `"`}).Sync(ctx)
 		require.NoError(t, err)
 
 		_, err = dockerc.WithExec([]string{"docker", "inspect", imageName}).Sync(ctx)
@@ -5959,7 +6058,7 @@ func (ContainerSuite) TestSaveHostDocker(ctx context.Context, t *testctx.T) {
 			WithEnvVariable("_EXPERIMENTAL_DAGGER_RUNNER_HOST", "docker-container://dagger.test")
 
 		imageName := "foobar:" + identity.NewID()
-		_, err := alt.WithExec([]string{"dagger", "shell", "-c", `container | from "alpine" | with-exec touch,foo | export-image "` + imageName + `"`}).Sync(ctx)
+		_, err := alt.WithExec([]string{"dagger", "script", "-c", `container | from "alpine" | with-exec touch,foo | export-image "` + imageName + `"`}).Sync(ctx)
 		require.NoError(t, err)
 
 		_, err = alt.WithExec([]string{"docker", "inspect", imageName}).Sync(ctx)
@@ -5977,7 +6076,7 @@ func (ContainerSuite) TestSaveHostDocker(ctx context.Context, t *testctx.T) {
 		imageName := "foobar:" + identity.NewID()
 		_, err := alt.
 			WithEnvVariable("_EXPERIMENTAL_DAGGER_RUNNER_IMAGESTORE", "docker-image").
-			WithExec([]string{"dagger", "shell", "-c", `container | from "alpine" | with-exec touch,foo | export-image "` + imageName + `"`}).
+			WithExec([]string{"dagger", "script", "-c", `container | from "alpine" | with-exec touch,foo | export-image "` + imageName + `"`}).
 			Sync(ctx)
 		require.NoError(t, err)
 
@@ -6008,7 +6107,7 @@ func (ContainerSuite) TestSaveHostContainerd(ctx context.Context, t *testctx.T) 
 		imageName := "foobar:" + identity.NewID()
 		_, err := alt.
 			WithEnvVariable("_EXPERIMENTAL_DAGGER_RUNNER_IMAGESTORE", "containerd").
-			WithExec([]string{"dagger", "shell", "-c", `container | from "alpine" | with-exec touch,foo | export-image "` + imageName + `"`}).
+			WithExec([]string{"dagger", "script", "-c", `container | from "alpine" | with-exec touch,foo | export-image "` + imageName + `"`}).
 			Sync(ctx)
 		require.NoError(t, err)
 
@@ -6039,7 +6138,7 @@ func (ContainerSuite) TestLoadHostDocker(ctx context.Context, t *testctx.T) {
 		_, err := dockerc.WithExec([]string{"docker", "build", "-t", imageName, "-"}, dagger.ContainerWithExecOpts{Stdin: "FROM alpine\nRUN touch /foo\n"}).Sync(ctx)
 		require.NoError(t, err)
 
-		out, err := dockerc.WithExec([]string{"dagger", "shell", "-c", `host | container-image ` + imageName + ` | with-exec ls,/foo | stdout`}).Stdout(ctx)
+		out, err := dockerc.WithExec([]string{"dagger", "script", "-c", `host | container-image ` + imageName + ` | with-exec ls,/foo | stdout`}).Stdout(ctx)
 		require.NoError(t, err)
 		require.Equal(t, "/foo\n", out)
 	})
@@ -6052,7 +6151,7 @@ func (ContainerSuite) TestLoadHostDocker(ctx context.Context, t *testctx.T) {
 		_, err := dockerc.WithExec([]string{"docker", "build", "-t", imageName, "-"}, dagger.ContainerWithExecOpts{Stdin: "FROM alpine\nRUN touch /foo\n"}).Sync(ctx)
 		require.NoError(t, err)
 
-		out, err := alt.WithExec([]string{"dagger", "shell", "-c", `host | container-image ` + imageName + ` | with-exec ls,/foo | stdout`}).Stdout(ctx)
+		out, err := alt.WithExec([]string{"dagger", "script", "-c", `host | container-image ` + imageName + ` | with-exec ls,/foo | stdout`}).Stdout(ctx)
 		require.NoError(t, err)
 		require.Equal(t, "/foo\n", out)
 	})
@@ -6067,7 +6166,7 @@ func (ContainerSuite) TestLoadHostDocker(ctx context.Context, t *testctx.T) {
 
 		out, err := alt.
 			WithEnvVariable("_EXPERIMENTAL_DAGGER_RUNNER_IMAGESTORE", "docker-image").
-			WithExec([]string{"dagger", "shell", "-c", `host | container-image ` + imageName + ` | with-exec ls,/foo | stdout`}).
+			WithExec([]string{"dagger", "script", "-c", `host | container-image ` + imageName + ` | with-exec ls,/foo | stdout`}).
 			Stdout(ctx)
 		require.NoError(t, err)
 		require.Equal(t, "/foo\n", out)
@@ -6106,7 +6205,7 @@ func (ContainerSuite) TestLoadHostContainerd(ctx context.Context, t *testctx.T) 
 
 		out, err := alt.
 			WithEnvVariable("_EXPERIMENTAL_DAGGER_RUNNER_IMAGESTORE", "containerd").
-			WithExec([]string{"dagger", "shell", "-c", `host | container-image ` + imageName + ` | with-exec ls,/etc/fstab | stdout`}, dagger.ContainerWithExecOpts{
+			WithExec([]string{"dagger", "script", "-c", `host | container-image ` + imageName + ` | with-exec ls,/etc/fstab | stdout`}, dagger.ContainerWithExecOpts{
 				InsecureRootCapabilities: true,
 			}).Stdout(ctx)
 		require.NoError(t, err)
@@ -6130,7 +6229,7 @@ func (ContainerSuite) TestLoadSaveNone(ctx context.Context, t *testctx.T) {
 
 	imageName := "foobar:" + identity.NewID()
 	out, err := alt.WithExec([]string{
-		"dagger", "shell", "-c",
+		"dagger", "script", "-c",
 		`container | from "alpine" | with-exec touch,foo | export-image "` + imageName + `"`,
 	}, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeFailure}).
 		Stderr(ctx)
@@ -6142,7 +6241,7 @@ func (ContainerSuite) TestLoadSaveNone(ctx context.Context, t *testctx.T) {
 	require.Contains(t, strings.ToLower(out), "no such object")
 
 	out, err = alt.WithExec([]string{
-		"dagger", "shell", "-c",
+		"dagger", "script", "-c",
 		`host | container-image ` + imageName + ` | with-exec echo,foo | stdout`,
 	}, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeFailure}).
 		Stderr(ctx)
@@ -6191,7 +6290,9 @@ func (ContainerSuite) TestStat(ctx context.Context, t *testctx.T) {
 		From(alpineImage).
 		WithWorkdir("/sub").
 		WithNewFile("subdir/data", "contents")
-	stat := ctr.Stat("subdir/data")
+	stat, err := ctr.Stat(ctx, "subdir/data")
+	require.NoError(t, err)
+	require.NotNil(t, stat)
 
 	fileType, err := stat.FileType(ctx)
 	require.NoError(t, err)
@@ -6208,7 +6309,9 @@ func (ContainerSuite) TestStatWithMountedDir(ctx context.Context, t *testctx.T) 
 	ctr := c.Container().
 		From(alpineImage).
 		WithMountedDirectory("/mnt", d)
-	stat := ctr.Stat("/mnt/the-file")
+	stat, err := ctr.Stat(ctx, "/mnt/the-file")
+	require.NoError(t, err)
+	require.NotNil(t, stat)
 
 	fileType, err := stat.FileType(ctx)
 	require.NoError(t, err)
@@ -6225,7 +6328,9 @@ func (ContainerSuite) TestStatWithMountedFile(ctx context.Context, t *testctx.T)
 	ctr := c.Container().
 		From(alpineImage).
 		WithMountedFile("/mnt-file", f)
-	stat := ctr.Stat("/mnt-file")
+	stat, err := ctr.Stat(ctx, "/mnt-file")
+	require.NoError(t, err)
+	require.NotNil(t, stat)
 
 	fileType, err := stat.FileType(ctx)
 	require.NoError(t, err)
@@ -6453,7 +6558,9 @@ func (ContainerSuite) TestHealthcheckIsPublished(ctx context.Context, t *testctx
 	require.Contains(t, pushedRef, "@sha256:")
 
 	pulledCtr := c.Container().From(pushedRef)
-	configuredHealthcheck := pulledCtr.DockerHealthcheck()
+	configuredHealthcheck, err := pulledCtr.DockerHealthcheck(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, configuredHealthcheck)
 
 	healthcheckArgs, err := configuredHealthcheck.Args(ctx)
 	require.NoError(t, err)
@@ -6487,7 +6594,9 @@ func (ContainerSuite) TestHealthcheckDefaults(ctx context.Context, t *testctx.T)
 		From(alpineImage).
 		WithDockerHealthcheck([]string{"/this-will-fail-and-thats-ok"})
 
-	configuredHealthcheck := ctr.DockerHealthcheck()
+	configuredHealthcheck, err := ctr.DockerHealthcheck(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, configuredHealthcheck)
 
 	healthcheckArgs, err := configuredHealthcheck.Args(ctx)
 	require.NoError(t, err)
@@ -6558,9 +6667,249 @@ func (ContainerSuite) TestWithoutHealthcheck(ctx context.Context, t *testctx.T) 
 		WithDockerHealthcheck([]string{"/waiter-check-please"}).
 		WithoutDockerHealthcheck()
 
-	configuredHealthcheck := ctr.DockerHealthcheck()
-
-	healthcheckArgs, err := configuredHealthcheck.Args(ctx)
+	configuredHealthcheck, err := ctr.DockerHealthcheck(ctx)
 	require.NoError(t, err)
-	require.Empty(t, healthcheckArgs)
+	require.Nil(t, configuredHealthcheck)
+}
+
+func (ContainerSuite) TestManifest(ctx context.Context, t *testctx.T) {
+	c := connect(ctx, t)
+
+	ctr := c.Container().
+		From(alpineImage)
+
+	// Assert that the manifest can be exported.
+	manifestFile := ctr.Manifest()
+	require.NotEmpty(t, manifestFile)
+
+	manifestContent, err := manifestFile.Contents(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, manifestContent)
+
+	// Assert that the manifest is valid.
+	var manifest ocispecs.Manifest
+	require.NoError(t, json.Unmarshal([]byte(manifestContent), &manifest))
+
+	// Assert that the manifest matches that of the full export, indicating parity.
+	tarPath := filepath.Join(t.TempDir(), "export.tar")
+	_, err = ctr.Export(ctx, tarPath)
+	require.NoError(t, err)
+
+	dockerManifestBytes := readTarFile(t, tarPath, "manifest.json")
+	require.NotNil(t, dockerManifestBytes)
+
+	indexBytes := readTarFile(t, tarPath, "index.json")
+	var index ocispecs.Index
+	require.NoError(t, json.Unmarshal(indexBytes, &index))
+	require.NotEmpty(t, index.Manifests)
+
+	exportedManifestDigest := index.Manifests[0].Digest
+	exportedManifestBytes := readTarFile(t, tarPath, "blobs/sha256/"+exportedManifestDigest.Encoded())
+	var exportedManifest ocispecs.Manifest
+	require.NoError(t, json.Unmarshal(exportedManifestBytes, &exportedManifest))
+
+	require.Equal(t, exportedManifest, manifest)
+}
+
+func (ContainerSuite) TestLayer(ctx context.Context, t *testctx.T) {
+	c := connect(ctx, t)
+
+	ctr := c.Container().
+		From(alpineImage)
+
+	// Note that the manifest's ForcedCompression must match the layer's,
+	// else the layer will not be found in the Container nor in its export.
+	for _, forcedCompression := range []dagger.ImageLayerCompression{
+		dagger.ImageLayerCompressionUncompressed,
+		dagger.ImageLayerCompressionGzip,
+		dagger.ImageLayerCompressionZstd,
+	} {
+		t.Run(fmt.Sprintf("forcedCompression=%q", forcedCompression), func(ctx context.Context, t *testctx.T) {
+			manifestFile := ctr.Manifest(dagger.ContainerManifestOpts{
+				ForcedCompression: forcedCompression,
+			})
+			require.NotEmpty(t, manifestFile)
+
+			manifestContents, err := manifestFile.Contents(ctx)
+			require.NoError(t, err)
+			require.NotEmpty(t, manifestContents)
+
+			var manifest ocispecs.Manifest
+			require.NoError(t, json.Unmarshal([]byte(manifestContents), &manifest))
+			require.NotEmpty(t, manifest)
+
+			// Assert that the config layer can be exported.
+			require.NotEmpty(t, manifest.Config)
+			require.NotEmpty(t, manifest.Config.Digest)
+			configFile := ctr.Layer(manifest.Config.Digest.String())
+			require.NotEmpty(t, configFile)
+			configName, err := configFile.Name(ctx)
+			require.NoError(t, err)
+			require.Equal(t, manifest.Config.Digest.Encoded()+".json", configName)
+
+			// Assert that the config layer is valid and has some of the expected contents.
+			configContents, err := configFile.Contents(ctx)
+			require.NoError(t, err)
+			var image ocispecs.Image
+			require.NoError(t, json.Unmarshal([]byte(configContents), &image))
+			require.NotEmpty(t, image)
+			cmd, err := ctr.DefaultArgs(ctx)
+			require.NoError(t, err)
+			require.Equal(t, cmd, image.Config.Cmd)
+
+			// Assert that a layer with the digest indicated by the manifest can be exported.
+			// Alpine has one layer as of writing.
+			require.NotEmpty(t, manifest.Layers)
+			layer := manifest.Layers[0]
+			require.NotEmpty(t, layer.Digest)
+			layerFile := ctr.Layer(layer.Digest.String(), dagger.ContainerLayerOpts{
+				ForcedCompression: forcedCompression,
+			})
+			require.NotEmpty(t, layerFile)
+			layerName, err := layerFile.Name(ctx)
+			require.NoError(t, err)
+			switch forcedCompression {
+			case dagger.ImageLayerCompressionUncompressed:
+				require.Equal(t, layer.Digest.Encoded()+".tar", layerName)
+			case dagger.ImageLayerCompressionGzip:
+				require.Equal(t, layer.Digest.Encoded()+".tar.gz", layerName)
+			case dagger.ImageLayerCompressionZstd:
+				require.Equal(t, layer.Digest.Encoded()+".tar.zst", layerName)
+			}
+
+			// Assert that the layer has the expected size.
+			layerFileSize, err := layerFile.Size(ctx)
+			require.NoError(t, err)
+			require.Equal(t, layer.Size, int64(layerFileSize))
+
+			// Assert that the layer has some of the expected contents.
+			// Only do this for Uncompressed for compatibility with the existing [tarEntries] helper.
+			if forcedCompression == dagger.ImageLayerCompressionUncompressed {
+				base, err := layerFile.Name(ctx)
+				require.NoError(t, err)
+				layerFileDir, err := layerFile.Export(ctx, t.TempDir(), dagger.FileExportOpts{
+					AllowParentDirPath: true,
+				})
+				layerFilePath := filepath.Join(layerFileDir, base)
+				require.NoError(t, err)
+				entries := tarEntries(t, layerFilePath)
+				for _, entry := range []string{
+					"etc/os-release",
+					"bin/busybox",
+				} {
+					require.Contains(t, entries, entry)
+				}
+			}
+
+			// Assert that the layer also appears in the full export, indicating parity.
+			tarPath := filepath.Join(t.TempDir(), "export.tar")
+			_, err = ctr.Export(ctx, tarPath, dagger.ContainerExportOpts{
+				ForcedCompression: forcedCompression,
+			})
+			require.NoError(t, err)
+			exportedLayerBytes := readTarFile(t, tarPath, "blobs/sha256/"+layer.Digest.Encoded())
+			require.Len(t, exportedLayerBytes, layerFileSize)
+		})
+	}
+
+	defaultManifestContents, err := ctr.Manifest().Contents(ctx)
+	require.NoError(t, err)
+	var defaultManifest ocispecs.Manifest
+	require.NoError(t, json.Unmarshal([]byte(defaultManifestContents), &defaultManifest))
+	require.NotEmpty(t, defaultManifest.Layers)
+	defaultLayer := defaultManifest.Layers[0]
+	defaultLayerName, err := ctr.Layer(defaultLayer.Digest.String()).Name(ctx)
+	require.NoError(t, err)
+	switch defaultLayer.MediaType {
+	case ocispecs.MediaTypeImageLayer:
+		require.Equal(t, defaultLayer.Digest.Encoded()+".tar", defaultLayerName)
+	case ocispecs.MediaTypeImageLayerGzip:
+		require.Equal(t, defaultLayer.Digest.Encoded()+".tar.gz", defaultLayerName)
+	case ocispecs.MediaTypeImageLayerZstd:
+		require.Equal(t, defaultLayer.Digest.Encoded()+".tar.zst", defaultLayerName)
+	default:
+		require.Equal(t, defaultLayer.Digest.Encoded(), defaultLayerName)
+	}
+}
+
+func (ContainerSuite) TestLayerLargerThanFileContentsLimit(ctx context.Context, t *testctx.T) {
+	c := connect(ctx, t)
+
+	ctr := c.Container().
+		From(alpineImage).
+		WithExec([]string{
+			"sh",
+			"-c",
+			fmt.Sprintf("head -c %d /dev/zero > /large.bin", engineutil.MaxFileContentsSize+1),
+		})
+
+	manifestContents, err := ctr.Manifest(dagger.ContainerManifestOpts{
+		ForcedCompression: dagger.ImageLayerCompressionUncompressed,
+	}).Contents(ctx)
+	require.NoError(t, err)
+
+	var manifest ocispecs.Manifest
+	require.NoError(t, json.Unmarshal([]byte(manifestContents), &manifest))
+	require.NotEmpty(t, manifest.Layers)
+	layer := manifest.Layers[len(manifest.Layers)-1]
+	require.Greater(t, layer.Size, int64(engineutil.MaxFileContentsSize))
+
+	layerFile := ctr.Layer(layer.Digest.String(), dagger.ContainerLayerOpts{
+		ForcedCompression: dagger.ImageLayerCompressionUncompressed,
+	})
+	layerFileSize, err := layerFile.Size(ctx)
+	require.NoError(t, err)
+	require.Equal(t, layer.Size, int64(layerFileSize))
+
+	exportPath := filepath.Join(t.TempDir(), "layer.tar")
+	_, err = layerFile.Export(ctx, exportPath)
+	require.NoError(t, err)
+
+	exported, err := os.Open(exportPath)
+	require.NoError(t, err)
+	defer exported.Close()
+
+	hash := sha256.New()
+	_, err = io.Copy(hash, exported)
+	require.NoError(t, err)
+	require.Equal(t, layer.Digest.Encoded(), hex.EncodeToString(hash.Sum(nil)))
+}
+
+func (ContainerSuite) TestLayersConcurrent(ctx context.Context, t *testctx.T) {
+	c := connect(ctx, t)
+
+	ctr := c.Container().
+		From(alpineImage).
+		WithExec([]string{"sh", "-c", "echo one > /one"}).
+		WithExec([]string{"sh", "-c", "echo two > /two"})
+
+	manifestContents, err := ctr.Manifest(dagger.ContainerManifestOpts{
+		ForcedCompression: dagger.ImageLayerCompressionGzip,
+	}).Contents(ctx)
+	require.NoError(t, err)
+
+	var manifest ocispecs.Manifest
+	require.NoError(t, json.Unmarshal([]byte(manifestContents), &manifest))
+	descriptors := make([]ocispecs.Descriptor, 0, len(manifest.Layers)+1)
+	descriptors = append(descriptors, manifest.Layers...)
+	descriptors = append(descriptors, manifest.Config)
+	require.Greater(t, len(descriptors), 2)
+
+	sizes := make([]int, len(descriptors))
+	eg, egctx := errgroup.WithContext(ctx)
+	for i, desc := range descriptors {
+		i, desc := i, desc
+		eg.Go(func() error {
+			var err error
+			sizes[i], err = ctr.Layer(desc.Digest.String(), dagger.ContainerLayerOpts{
+				ForcedCompression: dagger.ImageLayerCompressionGzip,
+			}).Size(egctx)
+			return err
+		})
+	}
+	require.NoError(t, eg.Wait())
+
+	for i, desc := range descriptors {
+		require.Equal(t, desc.Size, int64(sizes[i]))
+	}
 }

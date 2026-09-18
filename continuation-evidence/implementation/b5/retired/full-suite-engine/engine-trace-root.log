@@ -1,0 +1,25 @@
+== TRACE ==  ✔ PASSED
+engine-dev test --pkg ./core/integration --run=^TestRemoteCacheTransferSuite$/^(TestSchemaRecovery|TestSchemaRecoveryCold|TestPartMixedExecOutputs|TestDefaultGCPruneDiagnostic)$ --timeout=10m --test-verbose --env-file=file:/tmp/b5-verify/diagnostic.env  13m38s
+
+✔ connect 0.3s
+✔ load workspace: . 37.8s
+✔ parsing command line arguments 0.0s
+
+✔ address(value: "file:/tmp/b5-verify/diagnostic.env"): Address! 0.0s
+✔ .secret: Secret! 0.0s
+
+✔ engineDev(
+  ┆ ws: no(digest: "xxh3:80a147cc9fa935d2"): Missing
+  ): EngineDev! 27.5s
+✔ .test(
+  ┆ run: "^TestRemoteCacheTransferSuite$/^(TestSchemaRecovery|TestSchemaRecoveryCold|TestPartMixedExecOutputs|TestDefaultGCPruneDiagnostic)$"
+  ┆ pkg: "./core/integration"
+  ┆ timeout: "10m"
+  ┆ envFile: Address.secret: Secret!
+  ┆ testVerbose: true
+  ): Void 12m32s
+
+== TESTS ==
+  ✔ github.com/dagger/dagger/core/integration  1 passed
+
+  ✔ 1 passed

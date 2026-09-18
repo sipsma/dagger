@@ -1,0 +1,23 @@
+=== RUN   TestContainerPersistedUnsupportedTargetPreservesConsumedExecMeta
+=== RUN   TestContainerPersistedUnsupportedTargetPreservesConsumedExecMeta/tmpfs
+2026/09/16 21:22:22 INFO start lazy group evaluation field=Container.withDirectory group=metadata
+2026/09/16 21:22:22 INFO end lazy group evaluation field=Container.withDirectory group=metadata duration=158.01µs
+    container_persistence_test.go:144: 
+        	Error Trace:	/tmp/dagger-lazy-values-base-018a0e69/core/container_persistence_test.go:144
+        	Error:      	Should be true
+        	Test:       	TestContainerPersistedUnsupportedTargetPreservesConsumedExecMeta/tmpfs
+2026/09/16 21:22:22 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestContainerPersistedUnsupportedTargetPreservesConsumedExecMeta/cache
+2026/09/16 21:22:22 INFO start lazy group evaluation field=Container.withDirectory group=metadata
+2026/09/16 21:22:22 INFO end lazy group evaluation field=Container.withDirectory group=metadata duration=38.09µs
+    container_persistence_test.go:144: 
+        	Error Trace:	/tmp/dagger-lazy-values-base-018a0e69/core/container_persistence_test.go:144
+        	Error:      	Should be true
+        	Test:       	TestContainerPersistedUnsupportedTargetPreservesConsumedExecMeta/cache
+2026/09/16 21:22:22 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- FAIL: TestContainerPersistedUnsupportedTargetPreservesConsumedExecMeta (0.02s)
+    --- FAIL: TestContainerPersistedUnsupportedTargetPreservesConsumedExecMeta/tmpfs (0.01s)
+    --- FAIL: TestContainerPersistedUnsupportedTargetPreservesConsumedExecMeta/cache (0.01s)
+FAIL
+FAIL	github.com/dagger/dagger/core	0.125s
+FAIL

@@ -1,0 +1,11 @@
+=== RUN   TestB4EagerContainerProducerProbe
+2026/09/16 16:48:42 INFO start call field=Query.container digest=xxh3:fdd47f4fdaea0158
+2026/09/16 16:48:42 INFO end call field=Query.container cached=false digest=xxh3:fdd47f4fdaea0158
+2026/09/16 16:48:42 INFO start call field=Container.withWorkdir digest=xxh3:4c59da78c3dd6ee7
+2026/09/16 16:48:42 INFO end call field=Container.withWorkdir cached=false digest=xxh3:4c59da78c3dd6ee7
+    b4_eager_container_probe_test.go:36: field=withWorkdir savedRecipe= payload={"metadata":{"consumed":true,"value":{"config":{"WorkingDir":"/src"},"platform":"linux/amd64","defaultTerminalCmd":{"Args":null,"ExperimentalPrivilegedNesting":null,"InsecureRootCapabilities":null}}},"parts":{"execMeta":{"kind":"absent"},"fs":{"kind":"absent"}}}
+    b4_eager_container_probe_test.go:42: foreign payload={"producerState":"none","metadata":{"consumed":true,"value":{"config":{"WorkingDir":"/src"},"platform":"linux/amd64","defaultTerminalCmd":{"Args":null,"ExperimentalPrivilegedNesting":null,"InsecureRootCapabilities":null}}},"parts":{"execMeta":{"kind":"absent"},"fs":{"kind":"absent"}}}
+2026/09/16 16:48:42 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestB4EagerContainerProducerProbe (0.44s)
+PASS
+ok      github.com/dagger/dagger/core/schema    0.536s

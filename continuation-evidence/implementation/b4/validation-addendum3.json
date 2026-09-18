@@ -1,0 +1,140 @@
+[
+  {
+    "name": "compile",
+    "command": "go test ./core -run ^$ -count=1 -timeout=90s",
+    "exit": 0,
+    "seconds": 18.085
+  },
+  {
+    "name": "object",
+    "command": "go test -race ./core -run '^Test(ModuleObject|PersistedModuleObjectPayloadRelocation|SavedPayloadRelocation)' -count=1 -timeout=90s",
+    "exit": 0,
+    "seconds": 40.629
+  },
+  {
+    "name": "fixture",
+    "command": "go test ./core/schema -run '^TestRemoteCacheFixture$' -count=1 -timeout=90s",
+    "exit": 0,
+    "seconds": 15.246
+  },
+  {
+    "name": "dagql-boundaries",
+    "command": "go test -race -exec 'sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./dagql -run '^TestPart(Decision|Decode|ReadyPreparation)' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 4.329
+  },
+  {
+    "name": "core-boundaries",
+    "command": "go test -race -exec 'sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -run '^Test(PartFilesystemPublicationRoles|PartAcquisitionRootRoutes|PartTypedPublicationRoles|CapturePersistedFilesystemDirectEvaluation|FilesystemPersistenceRetainsBodyLatch)$' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 8.469
+  },
+  {
+    "name": "whole-restart",
+    "command": "go test -race -exec 'sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -run '^TestPart(WholeProducerMixedRestart|NativePendingContainerRequiresRecipe)$' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 6.047
+  },
+  {
+    "name": "pending-metadata",
+    "command": "go test -race -exec 'sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -run '^TestPartPendingImageMetadataStaysSelective$' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 5.771
+  },
+  {
+    "name": "ready-backreference",
+    "command": "go test -race ./dagql -run '^TestReadyPartDonorBackreferenceReleasedBeforeSync$' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 3.241
+  },
+  {
+    "name": "dagql-full",
+    "command": "go test -race -exec 'sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./dagql -run '^Test(Part|Scoped|ReadyPartReceipt|VisitEncodedReferences|ValueTransferPersistenceDecodePublication|CacheEvaluate(RetiresFinishedAttemptBeforeWaitersDrain|OwnCancellationOnlyCancelsOwnWait|SettlesBookkeepingBeforeReportingComplete|PendingBookkeepingSkipsUnclearedCallback)|EvaluateParts(SyncFailureRetriesOnlyBookkeepingPerGroup|SiblingGroupsRunConcurrently|OneCallRunsGroupsConcurrently))' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 8.156
+  },
+  {
+    "name": "core-full",
+    "command": "go test -race -exec 'sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -run '^Test(Part|ValueTransferCapture|ValueTransferList|Container(DirectEvaluateRunsRefinedGroups|ConcurrentGroupCompletionClearsLazyOnce|RoutingReadsRaceRefinedClear|RoutingReadsRaceUnrefinedClear))' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 18.038
+  },
+  {
+    "name": "snapshots",
+    "command": "go test -race -exec 'sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./engine/snapshots -run '^Test(PinSnapshotIndependentOwner|ChainContentClassification|ImportChain(FailurePrefix|ConcurrentPrefix|CanceledWaiter|LocalStores)|ImportImageSharesChainReuse)$' -count=1 -timeout=90s",
+    "exit": 0,
+    "seconds": 5.422
+  },
+  {
+    "name": "declared-handle",
+    "command": "go test ./core -run '^TestModuleObjectAttachDependencyResultsRetainsSemanticInterfaceHandleField$' -count=1 -timeout=60s",
+    "exit": 0,
+    "seconds": 4.061
+  },
+  {
+    "name": "collector-costs",
+    "command": "go test ./dagql -run '^TestScopedCollectorConcurrentPublicationCost$' -bench '^(BenchmarkScopedSnapshotCollector|BenchmarkPartNativeHostEntry)$' -benchmem -benchtime=200ms -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 3.083
+  },
+  {
+    "name": "route-costs",
+    "command": "go test -exec 'sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -run '^TestPart(ScopeRootRekeyCost|AcquisitionRootRoutes)$' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 5.296
+  },
+  {
+    "name": "delegation-costs",
+    "command": "go test -exec 'sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -run '^TestPartDelegationRealStore/native-restart$' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 4.794
+  },
+  {
+    "name": "mount-recorders",
+    "command": "go test -race -exec 'sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -run '^TestRecordCompletedContainerMountProducer$' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 6.133
+  },
+  {
+    "name": "mount-schema",
+    "command": "go test ./core/schema -run '^(TestProducerResolver(Cleanup|OutputCleanup|Capture)|TestEagerContainerMountMetadataResolvers)$' -count=1 -v -timeout=180s",
+    "exit": 0,
+    "seconds": 31.721
+  },
+  {
+    "name": "scratch-codecs",
+    "command": "go test -race ./core -run '^(TestRecordCompletedProducer|TestEagerProducerCodecs|TestEagerProducerRelocation|TestEagerProducerSaveReopen)$' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 5.913
+  },
+  {
+    "name": "scratch-real",
+    "command": "go test -race -exec 'sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core/schema -run '^TestScratchDirectory(Producer|Acquisition|NativeReopen)$' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 34.292
+  },
+  {
+    "name": "scratch-costs",
+    "command": "go test -exec 'sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core/schema -run '^TestScratchDirectory(Producer|Acquisition|NativeReopen)$' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 5.517
+  },
+  {
+    "name": "scratch-recording-costs",
+    "command": "go test ./core -run '^$' -bench '^BenchmarkScratchCompletedRecording$' -benchmem -benchtime=300ms -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 4.932
+  },
+  {
+    "name": "delegation-focused",
+    "command": "go test -race -exec 'sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -run '^TestPartDelegation' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 9.771
+  },
+  {
+    "name": "delegation-path",
+    "command": "go test -race ./dagql -run '^TestPartDelegation' -count=1 -v -timeout=90s",
+    "exit": 0,
+    "seconds": 3.153
+  }
+]

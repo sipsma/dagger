@@ -106,7 +106,7 @@ func TestLegacyWorkspaceFieldHandling(t *testing.T) {
 	}, ext.Extensions())
 	require.EqualError(t,
 		local.NestedLegacyWorkspaceLoadError(),
-		"workspace module source \"/work/repo-b\" points at a legacy workspace, not a plain module: its dagger.json uses legacy workspace fields \"blueprint, toolchains\"\n\nrun `dagger migrate` in \"/work/repo-b\", then update this source to point at one of the migrated modules under \"/work/repo-b/.dagger/modules\"",
+		"workspace module source \"/work/repo-b\" points at a legacy workspace, not a plain module: its dagger.json uses legacy workspace fields \"blueprint, toolchains\"\n\nrun `dagger workspace migrate` in \"/work/repo-b\", then update this source to point at one of the migrated modules under \"/work/repo-b/.dagger/modules\"",
 	)
 
 	remote := &core.ModuleSource{
@@ -128,7 +128,7 @@ func TestLegacyWorkspaceFieldHandling(t *testing.T) {
 	)
 }
 
-func TestLoadCurrentModuleSourceConfigPreservesGitDependencyPin(t *testing.T) {
+func TestLoadCurrentModuleSourceConfigPreservesGitDependencySourceAndPin(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
@@ -139,11 +139,13 @@ func TestLoadCurrentModuleSourceConfigPreservesGitDependencyPin(t *testing.T) {
 	dep := &core.ModuleSource{
 		Kind:              core.ModuleSourceKindGit,
 		ModuleName:        "dep",
+		OriginalRefString: "https://github.com/acme/dep/sdk",
 		SourceRootSubpath: "sdk",
 		Git: &core.GitModuleSource{
-			CloneRef: "https://github.com/acme/dep",
-			Version:  "v1.2.3",
-			Commit:   "1234567890abcdef",
+			CloneRef:     "https://github.com/acme/dep",
+			Version:      "v1.2.3",
+			VersionQuery: "v1.2",
+			Commit:       "1234567890abcdef",
 		},
 	}
 	parent := &core.ModuleSource{
@@ -170,8 +172,9 @@ func TestLoadCurrentModuleSourceConfigPreservesGitDependencyPin(t *testing.T) {
 	require.Contains(t, string(out), `name = "parent"`)
 	require.Contains(t, string(out), `engineVersion = "`+engine.Version+`"`)
 	require.Contains(t, string(out), `name = "dep"`)
-	require.Contains(t, string(out), `source = "https://github.com/acme/dep/sdk@v1.2.3"`)
+	require.Contains(t, string(out), `source = "https://github.com/acme/dep/sdk@v1.2"`)
 	require.Contains(t, string(out), `pin = "1234567890abcdef"`)
+	require.NotContains(t, string(out), `version =`)
 }
 
 func moduleSourceObjectResult(t *testing.T, dag *dagql.Server, op string, self *core.ModuleSource) dagql.ObjectResult[*core.ModuleSource] {

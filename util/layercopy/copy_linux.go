@@ -4,6 +4,7 @@ package layercopy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -24,11 +25,14 @@ func NewCopier(dest Mount) (*Copier, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Copier{dest: d}, nil
+	return &Copier{
+		dest:         d,
+		sourceCaches: map[sourceCacheKey]*sourceCache{},
+	}, nil
 }
 
 func (c *Copier) Copy(ctx context.Context, src Mount, srcPath, destPath string, opts CopyOptions) error {
-	s, err := newSource(src)
+	s, err := c.sourceForCopy(src)
 	if err != nil {
 		return err
 	}
@@ -40,11 +44,30 @@ func (c *Copier) Copy(ctx context.Context, src Mount, srcPath, destPath string, 
 }
 
 func (c *Copier) CopyFile(ctx context.Context, src Mount, srcPath, destPath string, opts CopyOptions) error {
-	s, err := newSource(src)
+	s, err := c.sourceForCopy(src)
 	if err != nil {
 		return err
 	}
 	return c.copyFile(ctx, s, srcPath, destPath, opts)
+}
+
+func (c *Copier) sourceForCopy(m Mount) (*source, error) {
+	s, err := newSource(m)
+	if err != nil {
+		return nil, err
+	}
+	if !s.overlay {
+		return s, nil
+	}
+
+	key := sourceCacheKey{root: m.Root, mount: m.Mount}
+	cache := c.sourceCaches[key]
+	if cache == nil {
+		cache = &sourceCache{ancestorMinLayers: map[string]int{}}
+		c.sourceCaches[key] = cache
+	}
+	s.cache = cache
+	return s, nil
 }
 
 func (c *Copier) Mkdir(ctx context.Context, destPath string, opts CopyOptions) error {
@@ -85,6 +108,7 @@ func (c *Copier) copy(ctx context.Context, src *source, matcher *matcher, srcPat
 		ViewPath: src.baseView,
 		RealPath: src.baseReal,
 		Info:     src.baseInfo,
+		minLayer: src.baseMinLayer,
 	}
 
 	destPath = cleanContainerPath(destPath)
@@ -93,18 +117,20 @@ func (c *Copier) copy(ctx context.Context, src *source, matcher *matcher, srcPat
 		return err
 	}
 	if opts.CopyDirContents && root.Info.IsDir() {
-		if err := c.dest.removeForReplace(destPath, root.Info, opts); err != nil {
+		if _, err := c.dest.removeForReplace(destPath, resolvedParent{}, root.Info, opts); err != nil {
 			return err
 		}
-		if _, _, err := c.dest.ensureDir(destPath, &root, opts, false); err != nil {
-			return err
-		}
-		entries, err := src.readDir("")
+		rel, _, err := c.dest.ensureDir(destPath, &root, opts, false)
 		if err != nil {
 			return err
 		}
+		entries, err := src.readDir("", root.minLayer)
+		if err != nil {
+			return err
+		}
+		parent := resolvedParent{rel: rel, ok: true}
 		for _, ent := range entries {
-			if err := c.copyEntry(ctx, src, matcher, ent, filepath.Join(destPath, filepath.Base(ent.Rel)), opts, matchState{}, nil); err != nil {
+			if err := c.copyEntry(ctx, src, matcher, ent, filepath.Join(destPath, filepath.Base(ent.Rel)), opts, matchState{}, nil, parent); err != nil {
 				return err
 			}
 		}
@@ -123,7 +149,7 @@ func (c *Copier) copy(ctx context.Context, src *source, matcher *matcher, srcPat
 	} else if destExists && destInfo.IsDir() {
 		destPath = filepath.Join(destPath, filepath.Base(src.baseView))
 	}
-	return c.copyEntry(ctx, src, matcher, root, destPath, opts, matchState{}, nil)
+	return c.copyEntry(ctx, src, matcher, root, destPath, opts, matchState{}, nil, resolvedParent{})
 }
 
 func (c *Copier) copyFile(ctx context.Context, src *source, srcPath, destPath string, opts CopyOptions) error {
@@ -156,8 +182,9 @@ func (c *Copier) copyFile(ctx context.Context, src *source, srcPath, destPath st
 		ViewPath: src.baseView,
 		RealPath: src.baseReal,
 		Info:     src.baseInfo,
+		minLayer: src.baseMinLayer,
 	}
-	return c.copyNode(ent, destPath, opts)
+	return c.copyNode(ent, destPath, resolvedParent{}, opts)
 }
 
 func (c *Copier) copyEntry(
@@ -169,6 +196,7 @@ func (c *Copier) copyEntry(
 	opts CopyOptions,
 	parentState matchState,
 	pending []pendingDir,
+	parent resolvedParent,
 ) error {
 	select {
 	case <-ctx.Done():
@@ -193,18 +221,20 @@ func (c *Copier) copyEntry(
 
 	if ent.Info.IsDir() {
 		childPending := pending
+		childParent := resolvedParent{}
 		var realDirPath string
 		if include {
 			if err := c.ensurePending(pending, opts); err != nil {
 				return err
 			}
-			if err := c.dest.removeForReplace(destPath, ent.Info, opts); err != nil {
+			if _, err := c.dest.removeForReplace(destPath, parent, ent.Info, opts); err != nil {
 				return err
 			}
 			rel, _, err := c.dest.ensureDir(destPath, &ent, opts, true)
 			if err != nil {
 				return err
 			}
+			childParent = resolvedParent{rel: rel, ok: true}
 			realDirPath = filepath.Join(c.dest.writeRoot, rel)
 		} else {
 			childPending = append(childPending, pendingDir{entry: ent, destPath: destPath})
@@ -217,13 +247,13 @@ func (c *Copier) copyEntry(
 			return nil
 		}
 
-		children, err := src.readDir(ent.Rel)
+		children, err := src.readDir(ent.Rel, ent.minLayer)
 		if err != nil {
 			return err
 		}
 		for _, child := range children {
 			childDest := filepath.Join(destPath, filepath.Base(child.Rel))
-			if err := c.copyEntry(ctx, src, matcher, child, childDest, opts, state, childPending); err != nil {
+			if err := c.copyEntry(ctx, src, matcher, child, childDest, opts, state, childPending, childParent); err != nil {
 				return err
 			}
 		}
@@ -239,7 +269,7 @@ func (c *Copier) copyEntry(
 	if err := c.ensurePending(pending, opts); err != nil {
 		return err
 	}
-	return c.copyNode(ent, destPath, opts)
+	return c.copyNode(ent, destPath, parent, opts)
 }
 
 func (c *Copier) ensurePending(pending []pendingDir, opts CopyOptions) error {
@@ -251,13 +281,18 @@ func (c *Copier) ensurePending(pending []pendingDir, opts CopyOptions) error {
 	return nil
 }
 
-func (c *Copier) copyNode(ent sourceEntry, destPath string, opts CopyOptions) error {
-	if err := c.dest.removeForReplace(destPath, ent.Info, opts); err != nil {
-		return err
-	}
-	realPath, err := c.dest.realPath(destPath)
+func (c *Copier) copyNode(ent sourceEntry, destPath string, parent resolvedParent, opts CopyOptions) error {
+	// removeForReplace already resolves the write-root path when it removes
+	// something; reuse it rather than resolving the same path twice.
+	realPath, err := c.dest.removeForReplace(destPath, parent, ent.Info, opts)
 	if err != nil {
 		return err
+	}
+	if realPath == "" {
+		realPath, err = c.dest.realPathIn(destPath, parent)
+		if err != nil {
+			return err
+		}
 	}
 
 	mode := ent.Info.Mode()
@@ -269,14 +304,14 @@ func (c *Copier) copyNode(ent sourceEntry, destPath string, opts CopyOptions) er
 		if err != nil {
 			return err
 		}
-		if err := os.RemoveAll(realPath); err != nil {
+		if err := c.dest.removeAll(realPath, !opts.ReplaceExisting); err != nil {
 			return err
 		}
 		if err := os.Symlink(target, realPath); err != nil {
 			return err
 		}
 	case mode&os.ModeDevice != 0, mode&os.ModeNamedPipe != 0, mode&os.ModeSocket != 0:
-		if err := os.RemoveAll(realPath); err != nil {
+		if err := c.dest.removeAll(realPath, !opts.ReplaceExisting); err != nil {
 			return err
 		}
 		if err := mknod(realPath, ent.Info); err != nil {
@@ -297,7 +332,7 @@ func (c *Copier) copyRegular(ent sourceEntry, realPath string, opts CopyOptions)
 	if !opts.DisableHardlinks {
 		ino = statInode(st)
 		if linkSrc, ok := c.dest.sourceLinks[ino]; ok {
-			if err := os.RemoveAll(realPath); err != nil {
+			if err := c.dest.removeAll(realPath, !opts.ReplaceExisting); err != nil {
 				return err
 			}
 			if err := os.Link(linkSrc, realPath); err != nil && !isHardlinkFallback(err) {
@@ -309,7 +344,7 @@ func (c *Copier) copyRegular(ent sourceEntry, realPath string, opts CopyOptions)
 	}
 
 	if !opts.DisableHardlinks && !opts.DisableSourceHardlinks && opts.Chown == nil && opts.Mode == nil {
-		if err := os.RemoveAll(realPath); err != nil {
+		if err := c.dest.removeAll(realPath, !opts.ReplaceExisting); err != nil {
 			return err
 		}
 		if err := os.Link(ent.RealPath, realPath); err == nil {
@@ -331,7 +366,8 @@ func (c *Copier) copyRegular(ent sourceEntry, realPath string, opts CopyOptions)
 }
 
 func isHardlinkFallback(err error) bool {
-	return err != nil && (os.IsExist(err) || err == unix.EXDEV || err == unix.EMLINK || err == syscall.EXDEV || err == syscall.EMLINK)
+	// os.Link wraps the errno in *os.LinkError, so unwrap rather than compare.
+	return err != nil && (os.IsExist(err) || errors.Is(err, unix.EXDEV) || errors.Is(err, unix.EMLINK))
 }
 
 func copyFileContent(dstPath, srcPath string) error {

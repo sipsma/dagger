@@ -2,7 +2,6 @@ package dagql
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 )
@@ -12,18 +11,24 @@ type sharedResultLookupMode uint8
 const (
 	sharedResultLookupExact sharedResultLookupMode = iota
 	sharedResultLookupCanonicalEquivalent
+	// sharedResultLookupCanonicalEquivalentForSession additionally refuses to
+	// serve a result whose required session resources the session has not
+	// bound. Value loads use it: without the check, an exact-ID load served
+	// the result whenever no canonical candidate passed the session filter,
+	// omitting the resource checks that request and digest lookups enforce.
+	sharedResultLookupCanonicalEquivalentForSession
 )
 
 func (c *Cache) PersistedSnapshotLinksByResultID(ctx context.Context, resultID uint64) ([]PersistedSnapshotRefLink, error) {
 	// Startup/import paths intentionally inspect persisted entries without adding
 	// session ownership. These results are retained by persisted edges directly
 	// or by dependency closure from another persisted result.
-	res, _, _, err := c.sharedResultByResultID(ctx, "", sharedResultID(resultID), sharedResultLookupExact)
+	lookup, err := c.sharedResultByResultID(ctx, "", sharedResultID(resultID), sharedResultLookupExact)
 	if err != nil {
 		return nil, err
 	}
 
-	return res.loadSnapshotOwnerLinks(), nil
+	return lookup.res.loadSnapshotOwnerLinks(), nil
 }
 
 func (c *Cache) PersistedResultID(res AnyResult) (uint64, error) {
@@ -43,125 +48,194 @@ func (c *Cache) PersistedResultID(res AnyResult) (uint64, error) {
 	return uint64(shared.id), nil
 }
 
-func (c *Cache) sharedResultByResultID(ctx context.Context, sessionID string, resultID sharedResultID, mode sharedResultLookupMode) (*sharedResult, bool, int, error) {
+// sharedResultLookup is the outcome of sharedResultByResultID: the resolved
+// result plus the bookkeeping the serve paths need. requiredGenAtCheck is
+// the result's requirement generation, captured inside the same egraphMu
+// critical section that ran the session-resource pre-check for the
+// requirement-checked mode; serve paths compare it at serve time to detect
+// growth of the stored required set after the pre-check.
+type sharedResultLookup struct {
+	res                *sharedResult
+	requiredGenAtCheck uint64
+	alreadyTracked     bool
+	trackedCount       int
+}
+
+// sharedResultByResultID resolves resultID for sessionID under the given
+// lookup mode.
+func (c *Cache) sharedResultByResultID(ctx context.Context, sessionID string, resultID sharedResultID, mode sharedResultLookupMode) (sharedResultLookup, error) {
 	if c == nil {
-		return nil, false, 0, fmt.Errorf("resolve result %d: nil cache", resultID)
+		return sharedResultLookup{}, fmt.Errorf("resolve result %d: nil cache", resultID)
 	}
 	if resultID == 0 {
-		return nil, false, 0, fmt.Errorf("resolve result: zero result ID")
+		return sharedResultLookup{}, fmt.Errorf("resolve result: zero result ID")
 	}
-	if mode == sharedResultLookupCanonicalEquivalent && sessionID == "" {
-		return nil, false, 0, fmt.Errorf("resolve result %d: canonical equivalent lookup requires session ID", resultID)
+	if mode != sharedResultLookupExact && sessionID == "" {
+		return sharedResultLookup{}, fmt.Errorf("resolve result %d: canonical equivalent lookup requires session ID", resultID)
 	}
 	if sessionID == "" {
 		c.egraphMu.RLock()
 		res := c.resultsByID[resultID]
+		var requiredGenAtCheck uint64
+		if res != nil {
+			requiredGenAtCheck = res.requiredSessionResourcesGen.Load()
+		}
 		c.egraphMu.RUnlock()
 		if res == nil {
-			return nil, false, 0, fmt.Errorf("resolve result %d: missing shared result", resultID)
+			return sharedResultLookup{}, fmt.Errorf("resolve result %d: missing shared result", resultID)
 		}
-		return res, false, 0, nil
+		return sharedResultLookup{res: res, requiredGenAtCheck: requiredGenAtCheck}, nil
 	}
 
 	c.egraphMu.Lock()
 	res := c.resultsByID[resultID]
 	if res == nil {
 		c.egraphMu.Unlock()
-		return nil, false, 0, fmt.Errorf("resolve result %d: missing shared result", resultID)
+		return sharedResultLookup{}, fmt.Errorf("resolve result %d: missing shared result", resultID)
 	}
-	if mode == sharedResultLookupCanonicalEquivalent {
-		res = c.canonicalEquivalentSharedResultLocked(sessionID, res, time.Now().Unix())
-		if res == nil {
-			c.egraphMu.Unlock()
-			return nil, false, 0, fmt.Errorf("resolve result %d: canonical shared result missing", resultID)
-		}
+	if mode != sharedResultLookupExact {
+		// Require clean attachment, as publication adoption does: without it
+		// the canonicalization can redirect an ID load onto a sibling whose
+		// attachment is still open or has failed, and the load then inherits
+		// that sibling's barrier wait or attachment error even though the
+		// exact result it asked for is settled and healthy.
+		res = c.canonicalEquivalentSharedResultLocked(sessionID, res, time.Now().Unix(), true)
 	}
+	if mode == sharedResultLookupCanonicalEquivalentForSession &&
+		!c.sessionSatisfiesResourceRequirementsLocked(sessionID, res) {
+		c.egraphMu.Unlock()
+		return sharedResultLookup{}, fmt.Errorf("resolve result %d: session %q has not bound the session resources this result requires", resultID, sessionID)
+	}
+	// Captured inside the same critical section as the requirement pre-check
+	// above, for the same reason lookupCacheForRequest captures before its
+	// unlock.
+	requiredGenAtCheck := res.requiredSessionResourcesGen.Load()
 
-	trackedCount := 0
-	alreadyTracked := false
-	c.sessionMu.Lock()
-	if c.sessionResultIDsBySession == nil {
-		c.sessionResultIDsBySession = make(map[string]map[sharedResultID]struct{})
-	}
-	if c.sessionResultIDsBySession[sessionID] == nil {
-		c.sessionResultIDsBySession[sessionID] = make(map[sharedResultID]struct{})
-	}
-	if _, found := c.sessionResultIDsBySession[sessionID][res.id]; found {
-		alreadyTracked = true
-	} else {
-		c.sessionResultIDsBySession[sessionID][res.id] = struct{}{}
-		c.incrementIncomingOwnershipLocked(ctx, res)
-	}
-	trackedCount = len(c.sessionResultIDsBySession[sessionID])
-	c.sessionMu.Unlock()
+	alreadyTracked, trackedCount, err := c.acquireSessionResultLocked(ctx, sessionID, res)
 	c.egraphMu.Unlock()
+	if err != nil {
+		return sharedResultLookup{}, err
+	}
 
-	return res, alreadyTracked, trackedCount, nil
+	return sharedResultLookup{
+		res:                res,
+		requiredGenAtCheck: requiredGenAtCheck,
+		alreadyTracked:     alreadyTracked,
+		trackedCount:       trackedCount,
+	}, nil
 }
 
 func (c *Cache) loadResultByResultID(ctx context.Context, sessionID string, dag *Server, resultID uint64) (AnyResult, error) {
 	mode := sharedResultLookupExact
 	if sessionID != "" {
-		mode = sharedResultLookupCanonicalEquivalent
+		mode = sharedResultLookupCanonicalEquivalentForSession
 	}
 
-	res, alreadyTracked, trackedCount, err := c.sharedResultByResultID(ctx, sessionID, sharedResultID(resultID), mode)
+	lookup, err := c.sharedResultByResultID(ctx, sessionID, sharedResultID(resultID), mode)
 	if err != nil {
 		return nil, err
 	}
 
+	return c.loadSelectedResultByResultID(ctx, sessionID, dag, resultID, lookup)
+}
+
+// Both ordinary loads and schema selection retain the same decode, resource
+// generation and session-release checks after acquiring session ownership.
+func (c *Cache) loadSelectedResultByResultID(ctx context.Context, sessionID string, dag *Server, resultID uint64, lookup sharedResultLookup) (AnyResult, error) {
+
 	wrapped := Result[Typed]{
-		shared:   res,
+		shared:   lookup.res,
 		hitCache: true,
 	}
 	loaded, err := c.ensurePersistedHitValueLoaded(ctx, dag, wrapped)
 	if err != nil {
-		if sessionID != "" {
-			c.egraphMu.Lock()
-			c.sessionMu.Lock()
-			if resultIDs := c.sessionResultIDsBySession[sessionID]; resultIDs != nil {
-				delete(resultIDs, res.id)
-				if len(resultIDs) == 0 {
-					delete(c.sessionResultIDsBySession, sessionID)
-				}
-			}
-			c.sessionMu.Unlock()
-			queue := []*sharedResult(nil)
-			var decErr error
-			if !alreadyTracked {
-				queue, decErr = c.decrementIncomingOwnershipLocked(ctx, res, nil)
-			}
-			collectReleases, collectErr := c.collectUnownedResultsLocked(context.WithoutCancel(ctx), queue)
-			c.egraphMu.Unlock()
-			return nil, errors.Join(err, decErr, collectErr, runOnReleaseFuncs(context.WithoutCancel(ctx), collectReleases))
-		}
 		return nil, err
 	}
+	if sessionID != "" {
+		if c.testBeforeServeRequirementRecheck != nil {
+			c.testBeforeServeRequirementRecheck(lookup.res)
+		}
+		if !c.sessionStillSatisfiesResourceRequirements(sessionID, lookup.res, lookup.requiredGenAtCheck) {
+			// The required set grew after the requirement pre-check in
+			// sharedResultByResultID; refuse rather than serve. The session
+			// edge recorded there stays until session release.
+			return nil, fmt.Errorf("resolve result %d: session %q has not bound the session resources this result requires", resultID, sessionID)
+		}
+	}
 	if sessionID != "" && c.traceEnabled() {
-		c.traceSessionResultTracked(ctx, sessionID, loaded, alreadyTracked, trackedCount)
+		c.traceSessionResultTracked(ctx, sessionID, loaded, lookup.alreadyTracked, lookup.trackedCount)
 	}
 	return loaded, nil
 }
 
 func (c *Cache) LoadResultByResultID(ctx context.Context, sessionID string, dag *Server, resultID uint64) (AnyResult, error) {
-	return c.loadResultByResultID(ctx, sessionID, dag, resultID)
+	op, err := c.beginSessionOperation(sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("load result %d: %w", resultID, err)
+	}
+	res, loadErr := c.loadResultByResultID(ctx, sessionID, dag, resultID)
+	if op.finish(loadErr == nil && res != nil) {
+		return nil, fmt.Errorf("load result %d: %w: %q", resultID, ErrCacheSessionReleased, sessionID)
+	}
+	return res, loadErr
 }
 
 func (c *Cache) ResultCallByResultID(ctx context.Context, sessionID string, resultID uint64) (*ResultCall, error) {
+	op, err := c.beginSessionOperation(sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve result %d call frame: %w", resultID, err)
+	}
+	frame, callErr := c.loadResultCallByResultID(ctx, sessionID, resultID)
+	if op.finish(callErr == nil && frame != nil) {
+		return nil, fmt.Errorf("resolve result %d call frame: %w: %q", resultID, ErrCacheSessionReleased, sessionID)
+	}
+	return frame, callErr
+}
+
+func (c *Cache) loadResultCallByResultID(ctx context.Context, sessionID string, resultID uint64) (*ResultCall, error) {
 	mode := sharedResultLookupExact
 	if sessionID != "" {
 		mode = sharedResultLookupCanonicalEquivalent
 	}
 
-	shared, _, _, err := c.sharedResultByResultID(ctx, sessionID, sharedResultID(resultID), mode)
+	lookup, err := c.sharedResultByResultID(ctx, sessionID, sharedResultID(resultID), mode)
 	if err != nil {
 		return nil, err
 	}
-	frame := shared.loadResultCall()
+	frame := lookup.res.loadResultCall()
 	if frame == nil {
 		return nil, fmt.Errorf("resolve result %d call frame: missing result call frame", resultID)
 	}
 	return frame.clone(), nil
+}
+
+func (c *Cache) resultCallRefByResultID(ctx context.Context, sessionID string, resultID uint64) (*ResultCallRef, error) {
+	op, err := c.beginSessionOperation(sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve result %d call ref: %w", resultID, err)
+	}
+	lookup, lookupErr := c.sharedResultByResultID(
+		ctx,
+		sessionID,
+		sharedResultID(resultID),
+		sharedResultLookupCanonicalEquivalent,
+	)
+	var ref *ResultCallRef
+	if lookupErr == nil {
+		frame := lookup.res.loadResultCall()
+		if frame == nil {
+			lookupErr = fmt.Errorf("resolve result %d call ref: missing result call frame", resultID)
+		} else if frame.Type == nil || frame.Type.NamedType != "Query" {
+			ref = &ResultCallRef{ResultID: uint64(lookup.res.id), shared: lookup.res}
+		}
+	}
+	if op.finish(lookupErr == nil && ref != nil) {
+		return nil, fmt.Errorf("resolve result %d call ref: %w: %q", resultID, ErrCacheSessionReleased, sessionID)
+	}
+	if lookupErr != nil {
+		return nil, lookupErr
+	}
+	return ref, nil
 }
 
 func (c *Cache) WalkResultCall(rootCall *ResultCall, visit func(*ResultCallRef, *ResultCall) error) error {

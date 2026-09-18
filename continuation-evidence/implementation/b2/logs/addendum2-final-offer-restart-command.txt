@@ -1,0 +1,4 @@
+Command: env GOPATH=/home/exedev/go GOCACHE=/home/exedev/.cache/go-build go test -p=1 -exec='sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -run '^TestValueTransferPersistenceFinalOfferRestart$' -count=1 -timeout=120s -v
+Output: addendum2-final-offer-restart.log (complete, unchanged)
+Exit status: 0
+The test constructs a locally completed output with a redundant offer, closes cleanly, restores the snapshot owner, retires the offer, removes transfer pins, runs GC, and reads the durable bytes.

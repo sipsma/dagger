@@ -1,4 +1,4 @@
-# Releasing ![shields.io](https://img.shields.io/badge/Last%20updated%20on-June%2011,%202026-success?style=flat-square)
+# Releasing ![shields.io](https://img.shields.io/badge/Last%20updated%20on-June%2017,%202026-success?style=flat-square)
 
 This document describes the process for releasing Dagger.
 
@@ -87,7 +87,7 @@ ready, open a separate catch-up PR targeting `main`.
 - [ ] Start the catch-up PR from the latest `main`.
 - [ ] Bring over release prep outputs for every release cut from the release
       branch since the last main catch-up. This includes release note files,
-      changelogs, SDK/Helm version files, docs version files, `.changes/.next`,
+      changelogs, SDK/Helm version files, docs version files,
       and any generated release metadata.
 - [ ] Bring over post-release outputs for the latest release, including internal
       tooling `dagger.json`/generated updates and GitHub workflow/action version
@@ -147,20 +147,15 @@ to dagger.
   git pull $DAGGER_REPO_REMOTE "$RELEASE_BRANCH"
   ```
 
-- [ ] Determine the next release version (use `patch`/`minor`/`major` to set the release type):
+- [ ] Confirm the release version. It is decided at merge time and stored in
+      `internal/version/VERSION` as a plain `vX.Y.Z`. Verify it is the version
+      you intend to release before continuing.
 
   ```console
-  export ENGINE_VERSION="$(dagger call -m version next-release-version)"
+  export ENGINE_VERSION="$(tr -d '[:space:]' < internal/version/VERSION)"
 
   # this is required to interpolate $ENGINE_VERSION to the SDK release notes
   export CHANGIE_ENGINE_VERSION="$ENGINE_VERSION"
-  ```
-
-- [ ] Ensure that `.changes/.next` contains `$ENGINE_VERSION` - if it doesn't,
-      update it now!
-
-  ```console
-  grep -Fx "$ENGINE_VERSION" .changes/.next || { echo "ENGINE_VERSION env var does not match what is in .changes/.next"; false; }
   ```
 
 - [ ] Create the target release notes branch for a PR.
@@ -169,10 +164,13 @@ to dagger.
   git checkout -b prep-$ENGINE_VERSION
   ```
 
-- [ ] Bump internal versions (sdks + docs + helm chart) to the target version
+- [ ] Propagate the release version to the SDKs, docs, and Helm chart.
+
+  `internal/version/VERSION` is the single source of truth; `dagger generate`
+  reads it and regenerates every version-pinned file.
 
   ```console
-  dagger -y call release bump --engine-version="$ENGINE_VERSION"
+  dagger generate
   ```
 
 - [ ] Bump [Go SDK package commit](https://github.com/dagger/dagger/blob/becc3f0a6626cf6829ef96ded00d379d3126ecd4/core/sdk/go_sdk.go#L27) to the latest commit from the [dagger-go-sdk](https://github.com/dagger/dagger-go-sdk) repository.
@@ -196,7 +194,7 @@ to dagger.
 - [ ] Commit
 
   ```console
-  git add docs sdk helm lib/dagger/core core/sdk
+  git add internal/version/VERSION docs sdk helm lib/dagger/core core/sdk
   git commit -s -m "chore: bump dependencies to $ENGINE_VERSION"
   ```
 
@@ -238,12 +236,16 @@ find . -name CHANGELOG.md -type f -exec git add {} \;
 git commit -s -m "chore: add release notes for $ENGINE_VERSION"
 ```
 
-- [ ] Update `.changes/.next` with the next release number if known and commit it -
-      otherwise, make the file empty (but don't remove it).
+- [ ] Bump `internal/version/VERSION` to the next release version. This file is
+      the single source of truth for the engine/CLI version. Default to the next
+      patch; bump the minor/major instead if the next release is planned to be
+      larger.
 
   ```console
-  git add .changes/.next
-  git commit -s -m 'bump .next to next release version'
+  NEXT_VERSION="$(echo "$ENGINE_VERSION" | awk -F. -v OFS=. '{$3+=1; print}')"
+  echo "$NEXT_VERSION" > internal/version/VERSION
+  git add internal/version/VERSION
+  git commit -s -m 'bump version to next release version'
   ```
 
 - [ ] Push changes, and bring the prep PR out of draft:
@@ -333,7 +335,7 @@ This will also kick off [`.github/workflows/evals.yml`], which is currently brok
 
 - [ ] Ask @marcosnils @matipan @sipsma on the release thread to review and merge the newly opened dagger.io PR (this is created by the publish workflow). This PR updates both the Daggerverse and Dagger Cloud. If anything fails, cc @kpenfound @matipan.
 
-- [ ] Validate that the newly published version of the engine engine is available in Dagger Cloud by running `dagger --cloud core version` with the `$ENGINE_VERSION` binary. This upgrade occurs automatically once the OCI image is published.
+- [ ] Validate that the newly published version of the engine is available in Dagger Cloud by running `dagger --cloud core version` with the `$ENGINE_VERSION` binary. This upgrade occurs automatically once the OCI image is published.
 
 ## Post release steps
 
@@ -342,6 +344,20 @@ This will also kick off [`.github/workflows/evals.yml`], which is currently brok
   ```console
   git checkout -b post-release-$ENGINE_VERSION
   ```
+
+- [ ] Snapshot the released docs from the tag for the post-release PR:
+
+  ```console
+  dagger api call docs generate-version --source="https://github.com/dagger/dagger#$ENGINE_VERSION" -y
+  ```
+
+  By default, numbered prereleases and patch components are collapsed into
+  rolling docs channels (for example, `1.0.8-beta.10` becomes `1.0-beta`).
+  Released versions are kept in newest-to-oldest semantic order.
+  Review `/`, `/next/`, and older `/<version>/` routes before publishing.
+
+  After release, make normal docs changes in `/current_docs`. Patch
+  `/versioned_docs/version-<version>` only when that release line needs the fix.
 
 - [ ] Update non-autogenerated `.github` configs to `$ENGINE_VERSION`
   - The version numbers (of the form `<major>.<minor>.<patch>`) should be updated to the new version

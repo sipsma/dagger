@@ -1,34 +1,74 @@
 import type { Config } from "@docusaurus/types";
 import type * as Preset from "@docusaurus/preset-classic";
-import { themes as prismThemes } from "prism-react-renderer";
 import remarkCodeImport from "remark-code-import";
 import remarkTemplate from "./plugins/remark-template";
 import llmsTxtPlugin from "./plugins/llms-txt-plugin";
+import daggerApiReference from "./plugins/dagger-api-reference";
 import path from "path";
+import { daggerPrismTheme } from "./src/prism/theme";
 
 import { daggerVersion } from "./current_docs/partials/version";
+import versions from "./versions.json";
 
 const url = "https://docs.dagger.io";
 const docsPath = "./current_docs";
 const baseUrl = process.env.DOCUSAURUS_BASE_URL ?? "/";
-const latestVersion = "0.21.4";
-const versions = require("./versions.json") as string[];
-const versionLabels: Record<string, string> = {};
-const versionSelectOptions = [
-  ...versions.map((version) => ({
-    label: versionLabels[version] ?? version,
-    path: version === latestVersion ? baseUrl : `${baseUrl}${version}/`,
-  })),
-  { label: "Next", path: `${baseUrl}next/` },
-];
-const versionSelectHtml = `<select class="docs-version-select" aria-label="Docs version" onchange="window.location.href=this.value">
-  ${versionSelectOptions.map(({ label, path }) => `<option value="${path}">${label}</option>`).join("")}
-</select>`;
+// General Sans and Inter are self-hosted under static/fonts and declared with
+// @font-face in custom.scss; preloading the three faces used above the fold
+// keeps them from swapping in late. Source Code Pro comes from Google Fonts,
+// as it does on dagger.io.
+function daggerWebFontsPlugin() {
+  return {
+    name: "dagger-webfonts",
+    injectHtmlTags() {
+      const preload = (file: string) => ({
+        tagName: "link",
+        attributes: {
+          rel: "preload",
+          href: `${baseUrl}fonts/${file}`,
+          as: "font",
+          type: "font/woff2",
+          crossorigin: "anonymous",
+        },
+      });
+
+      return {
+        headTags: [
+          preload("general-sans-semibold.woff2"),
+          preload("general-sans-medium.woff2"),
+          preload("inter-400.woff2"),
+          {
+            tagName: "link",
+            attributes: {
+              rel: "preconnect",
+              href: "https://fonts.googleapis.com",
+            },
+          },
+          {
+            tagName: "link",
+            attributes: {
+              rel: "preconnect",
+              href: "https://fonts.gstatic.com",
+              crossorigin: "anonymous",
+            },
+          },
+          {
+            tagName: "link",
+            attributes: {
+              rel: "stylesheet",
+              href: "https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;500&display=swap",
+            },
+          },
+        ],
+      };
+    },
+  };
+}
 
 const config: Config = {
   title: "Dagger",
   tagline:
-    "Open-source runtime for composable workflows, powering AI agents and CI/CD with modular, repeatable, and observable pipelines.",
+    "Dagger is a CI orchestration engine. Define your pipelines once, in real code. Run them identically before and after push, locally or at scale.",
   favicon: "img/favicon.svg",
 
   // Set the production url of your site here
@@ -81,19 +121,21 @@ const config: Config = {
           breadcrumbs: false,
           path: docsPath,
           routeBasePath: "/",
-          lastVersion: latestVersion,
+          // No lastVersion: the default (served at /) is the newest snapshot,
+          // i.e. versions.json[0], which docs:version prepends on each cut.
           versions: {
-            "0.21.4": {
-              label: "0.21.4",
-              path: "/",
-              banner: "none",
-              badge: false,
-            },
+            // Only the default version (versions.json[0], served at /) should
+            // be indexed by search engines; archived snapshots and the
+            // unreleased docs otherwise compete with it in search results.
+            ...Object.fromEntries(
+              versions.slice(1).map((v) => [v, { noIndex: true }]),
+            ),
             current: {
               label: "Next",
               path: "next",
               banner: "unreleased",
               badge: false,
+              noIndex: true,
             },
           },
           sidebarPath: "./sidebars.ts",
@@ -117,8 +159,9 @@ const config: Config = {
     ],
   ],
   plugins: [
+    daggerWebFontsPlugin,
     // Custom webpack configuration for path aliases
-    function (context, options) {
+    function(context, options) {
       return {
         name: "custom-webpack-config",
         configureWebpack(config, isServer, utils) {
@@ -140,41 +183,22 @@ const config: Config = {
     "docusaurus-plugin-image-zoom",
     // Thanks to @jharrell and Prisma team. Apache-2.0 content
     [llmsTxtPlugin, { docsPath }],
+    // Parses docs-graphql/schema.graphqls into the model rendered by the
+    // API reference components on the type reference pages.
+    daggerApiReference,
+    // Builds a client-side search index over the current docs version. Pairs
+    // with the swizzled SearchBar (src/theme/SearchBar) for a local,
+    // command-palette search that needs no external service. Search covers the
+    // latest version (served at the root) and the unreleased /next docs; older
+    // snapshots live under a /<version>/ prefix and are skipped by the plugin.
+    // The generated SDK reference is excluded as noise.
+    ["./plugins/local-search", { exclude: ["/reference/typescript/"] }],
     [
       "posthog-docusaurus",
       {
         apiKey: "phc_rykA1oJnBnxTwavpgJKr4RAVXEgCkpyPVi21vQ7906d",
         appUrl: "https://us.i.posthog.com", // Changed to standard PostHog URL
         enableInDevelopment: true, // Enable tracking in development
-      },
-    ],
-    [
-      "docusaurus-plugin-typedoc",
-      {
-        id: "current-generation",
-        plugin: ["typedoc-plugin-markdown", "typedoc-plugin-frontmatter"],
-        entryPoints: [
-          "../sdk/typescript/src/connect.ts",
-          "../sdk/typescript/src/api/client.gen.ts",
-          "../sdk/typescript/src/common/errors/index.ts",
-        ],
-        tsconfig: "../sdk/typescript/tsconfig.json",
-        out: "current_docs/reference/typescript/",
-        excludeProtected: true,
-        exclude: "../sdk/typescript/node_modules/**",
-        skipErrorChecking: true,
-        disableSources: true,
-        sanitizeComments: true,
-        frontmatterGlobals: {
-          displayed_sidebar: "current",
-          sidebar_label: "TypeScript SDK Reference",
-          title: "TypeScript SDK Reference",
-        },
-        textContentMappings: {
-          "title.indexPage": "TypeScript SDK Reference",
-          "footer.text": "",
-        },
-        requiredToBeDocumented: ["Class"],
       },
     ],
   ],
@@ -220,23 +244,27 @@ const config: Config = {
         "powershell",
         "java",
       ],
-      theme: prismThemes.oneLight,
-      darkTheme: prismThemes.oneDark,
+      // One theme for both modes: its colours are CSS variables that flip
+      // with html[data-theme]. See src/prism/theme.ts.
+      theme: daggerPrismTheme,
+      darkTheme: daggerPrismTheme,
     },
     navbar: {
+      // The website's masthead sets DAGGER as type, not as an image. The
+      // logo entry stays so Docusaurus keeps the link target, but custom.scss
+      // hides the image and renders the wordmark from `title`.
+      title: "DAGGER",
       logo: {
-        alt: "Dagger Logo",
+        alt: "Dagger",
         src: "img/dagger-logo-black.png",
-        height: "40px",
         href: "https://dagger.io/",
         srcDark: "img/dagger-logo-white.png",
       },
       items: [
         {
-          type: "html",
+          type: "custom-docsVersionSelect",
           position: "right",
           className: "navbar-version-select-mobile",
-          value: versionSelectHtml,
         },
         {
           type: "docsVersionDropdown",
@@ -257,13 +285,18 @@ const config: Config = {
         //   html: '<div class="discord-icon"><img src="img/discord-icon.svg" alt="Join Discord" /></div>',
         //   className: "navbar-discord-link",
         // },
+        // The masthead's auth pair, copied from dagger.io/src/data/nav.ts.
+        // It reads as one bracketed item but each half is its own link. Both
+        // hrefs point at the app root on purpose: /login fires OAuth and
+        // /signup is post-authentication onboarding, so an anonymous visitor
+        // sent there bounces back to / anyway. Kept as two entries so each
+        // gets its own href once the cloud app grows a signup route.
         {
+          type: "html",
           position: "right",
-          label: "Try Dagger Cloud",
-          to: "https://dagger.io/cloud",
-          target: "_blank",
-          className: "navbar-blog-link dagger-cloud-button",
-          id: "dagger-cloud-link",
+          className: "navbar-auth",
+          value:
+            '<span class="navbar__auth">[ <a href="https://dagger.cloud">LOG IN</a> / <a href="https://dagger.cloud">SIGN UP</a> ]</span>',
         },
         {
           type: "search",
@@ -272,34 +305,38 @@ const config: Config = {
         },
       ],
     },
-    algolia: {
-      apiKey: "bffda1490c07dcce81a26a144115cc02",
-      indexName: "dagger",
-      appId: "XEIYPBWGOI",
-    },
+    // Follow the OS theme with no toggle, matching dagger.io. Docusaurus's
+    // inline script still sets html[data-theme] before paint, so there is no
+    // flash of the wrong theme.
     colorMode: {
       defaultMode: "light",
+      disableSwitch: true,
+      respectPrefersColorScheme: true,
     },
     zoom: {
       selector: ".markdown img:not(.not-zoom)",
       background: {
-        light: "rgb(255, 255, 255)",
-        dark: "rgb(50, 50, 50)",
+        light: "#f8f4ef",
+        dark: "#0d0c1b",
       },
       // medium-zoom configuration options
       // Refer to https://github.com/francoischalifour/medium-zoom#options
       config: {},
     },
+    // The website's colophon: a hairline rule, the wordmark and year on the
+    // left, mono links on the right. Rendered through `copyright` because it
+    // is a single row, not Docusaurus's multi-column link grid.
     footer: {
       copyright: `
-        <hr />
-        <div class="flex justify-between">
-          <small>© Dagger 2022-2025</small>
-          <div class="flex gap-8">
-              <a target="_blank" class="footer-discord-link" href="https://discord.gg/dagger-io">
-              </a>
-              <a target="_blank" class="footer-x-link" href="https://twitter.com/dagger_io">
-              </a>
+        <div class="colophon__inner">
+          <div>DAGGER &mdash; ${new Date().getFullYear()}</div>
+          <div class="colophon__links">
+            <a href="https://github.com/dagger/dagger">GITHUB</a>
+            <a href="https://discord.gg/dagger-io">DISCORD</a>
+            <a href="https://x.com/dagger_io">X</a>
+            <a href="https://www.youtube.com/@dagger-io">YOUTUBE</a>
+            <a href="https://dagger.io/legal_pages/privacy-policy">PRIVACY</a>
+            <a href="https://dagger.io/legal_pages/terms-of-service">TERMS</a>
           </div>
         </div>
       `,

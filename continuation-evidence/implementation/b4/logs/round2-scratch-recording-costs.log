@@ -1,0 +1,11 @@
+goos: linux
+goarch: amd64
+pkg: github.com/dagger/dagger/core
+cpu: AMD EPYC 9554P 64-Core Processor
+BenchmarkScratchCompletedRecording
+BenchmarkScratchCompletedRecording/eager-output
+BenchmarkScratchCompletedRecording/eager-output-16            970460           321.5 ns/op       432 B/op          4 allocs/op
+BenchmarkScratchCompletedRecording/eager-output-and-recipe
+BenchmarkScratchCompletedRecording/eager-output-and-recipe-16             940548           402.3 ns/op       472 B/op          6 allocs/op
+PASS
+ok      github.com/dagger/dagger/core   0.762s

@@ -1,0 +1,31 @@
+=== RUN   TestPartDelegationRealStore
+=== RUN   TestPartDelegationRealStore/native-restart
+=== RUN   TestPartDelegationRealStore/native-restart/1
+2026/09/16 16:24:24 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 16:24:24 INFO marking dagql cache clean shutdown
+2026/09/16 16:24:24 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 16:24:24 INFO completed dagql cache close successfully
+    part_delegation_test.go:273: native delegation depth=1 bookkeeping latency=11.384808ms pins=1 owner-syncs=1 independent-accessor-refs=1
+2026/09/16 16:24:24 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestPartDelegationRealStore/native-restart/8
+2026/09/16 16:24:24 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 16:24:24 INFO marking dagql cache clean shutdown
+2026/09/16 16:24:24 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 16:24:24 INFO completed dagql cache close successfully
+    part_delegation_test.go:273: native delegation depth=8 bookkeeping latency=74.232684ms pins=8 owner-syncs=8 independent-accessor-refs=8
+2026/09/16 16:24:24 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestPartDelegationRealStore/native-restart/32
+2026/09/16 16:24:24 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 16:24:24 INFO marking dagql cache clean shutdown
+2026/09/16 16:24:24 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 16:24:24 INFO completed dagql cache close successfully
+    part_delegation_test.go:273: native delegation depth=32 bookkeeping latency=315.510633ms pins=32 owner-syncs=32 independent-accessor-refs=32
+2026/09/16 16:24:25 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 16:24:25 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestPartDelegationRealStore (0.60s)
+    --- PASS: TestPartDelegationRealStore/native-restart (0.60s)
+        --- PASS: TestPartDelegationRealStore/native-restart/1 (0.03s)
+        --- PASS: TestPartDelegationRealStore/native-restart/8 (0.11s)
+        --- PASS: TestPartDelegationRealStore/native-restart/32 (0.36s)
+PASS
+ok      github.com/dagger/dagger/core   0.697s

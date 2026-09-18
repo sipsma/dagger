@@ -27,10 +27,54 @@ defmodule Dagger.Workspace do
   end
 
   @doc """
+  Return all agent middlewares from modules loaded in the workspace.
+
+  > #### Experimental {: .warning}
+  >
+  > "Agent APIs are likely to change."
+  """
+  @spec agents(t(), [{:include, [String.t()]}, {:exclude, [String.t()]}]) ::
+          Dagger.AgentMiddlewareGroup.t()
+  def agents(%__MODULE__{} = workspace, optional_args \\ []) do
+    query_builder =
+      workspace.query_builder
+      |> QB.select("agents")
+      |> QB.maybe_put_arg("include", optional_args[:include])
+      |> QB.maybe_put_arg("exclude", optional_args[:exclude])
+
+    %Dagger.AgentMiddlewareGroup{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace's changes, with paths relative to its working directory.
+
+  Pass from to compare against an earlier workspace state. Omitting it preserves the cumulative behavior used by clients from before this argument was added.
+  """
+  @spec changes(t(), [{:from, Dagger.Workspace.t() | nil}]) :: Dagger.Changeset.t()
+  def changes(%__MODULE__{} = workspace, optional_args \\ []) do
+    query_builder =
+      workspace.query_builder
+      |> QB.select("changes")
+      |> QB.maybe_put_arg(
+        "from",
+        if(optional_args[:from], do: Dagger.ID.id!(optional_args[:from]), else: nil)
+      )
+
+    %Dagger.Changeset{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
   Return all checks from modules loaded in the workspace.
   """
   @spec checks(t(), [
           {:include, [String.t()]},
+          {:skip, [String.t()]},
           {:no_generate, boolean() | nil},
           {:only_generate, boolean() | nil}
         ]) :: Dagger.CheckGroup.t()
@@ -39,6 +83,7 @@ defmodule Dagger.Workspace do
       workspace.query_builder
       |> QB.select("checks")
       |> QB.maybe_put_arg("include", optional_args[:include])
+      |> QB.maybe_put_arg("skip", optional_args[:skip])
       |> QB.maybe_put_arg("noGenerate", optional_args[:no_generate])
       |> QB.maybe_put_arg("onlyGenerate", optional_args[:only_generate])
 
@@ -49,18 +94,7 @@ defmodule Dagger.Workspace do
   end
 
   @doc """
-  The client ID that owns this workspace's host filesystem.
-  """
-  @spec client_id(t()) :: {:ok, String.t()} | {:error, term()}
-  def client_id(%__MODULE__{} = workspace) do
-    query_builder =
-      workspace.query_builder |> QB.select("clientId")
-
-    Client.execute(workspace.client, query_builder)
-  end
-
-  @doc """
-  Selected native workspace config file relative to the workspace root, if any.
+  Selected native workspace config file relative to the workspace cwd, if any.
   """
   @spec config_file(t()) :: {:ok, String.t()} | {:error, term()}
   def config_file(%__MODULE__{} = workspace) do
@@ -90,22 +124,6 @@ defmodule Dagger.Workspace do
   end
 
   @doc """
-  Write a configuration value to dagger.toml.
-  """
-  @spec config_write(t(), String.t(), String.t(), [{:here, boolean() | nil}]) ::
-          {:ok, String.t()} | {:error, term()}
-  def config_write(%__MODULE__{} = workspace, key, value, optional_args \\ []) do
-    query_builder =
-      workspace.query_builder
-      |> QB.select("configWrite")
-      |> QB.put_arg("key", key)
-      |> QB.put_arg("value", value)
-      |> QB.maybe_put_arg("here", optional_args[:here])
-
-    Client.execute(workspace.client, query_builder)
-  end
-
-  @doc """
   Current location within the workspace root.
 
   The workspace root is returned as "/".
@@ -116,6 +134,17 @@ defmodule Dagger.Workspace do
   def cwd(%__MODULE__{} = workspace) do
     query_builder =
       workspace.query_builder |> QB.select("cwd")
+
+    Client.execute(workspace.client, query_builder)
+  end
+
+  @doc """
+  Return the selected SDK module's current scope at this workspace location.
+  """
+  @spec detect_scope(t(), String.t()) :: {:ok, String.t()} | {:error, term()}
+  def detect_scope(%__MODULE__{} = workspace, sdk) do
+    query_builder =
+      workspace.query_builder |> QB.select("detectScope") |> QB.put_arg("sdk", sdk)
 
     Client.execute(workspace.client, query_builder)
   end
@@ -146,16 +175,14 @@ defmodule Dagger.Workspace do
   end
 
   @doc """
-  Create a named workspace environment if it does not already exist.
+  Installed name of the module selected as the workspace entrypoint, or an empty string when none is selected.
+
+  Reflects the selected env's effective view. Fails if several modules are selected.
   """
-  @spec env_create(t(), String.t(), [{:here, boolean() | nil}]) ::
-          {:ok, String.t()} | {:error, term()}
-  def env_create(%__MODULE__{} = workspace, name, optional_args \\ []) do
+  @spec entrypoint(t()) :: {:ok, String.t()} | {:error, term()}
+  def entrypoint(%__MODULE__{} = workspace) do
     query_builder =
-      workspace.query_builder
-      |> QB.select("envCreate")
-      |> QB.put_arg("name", name)
-      |> QB.maybe_put_arg("here", optional_args[:here])
+      workspace.query_builder |> QB.select("entrypoint")
 
     Client.execute(workspace.client, query_builder)
   end
@@ -172,18 +199,19 @@ defmodule Dagger.Workspace do
   end
 
   @doc """
-  Remove a named workspace environment.
-  """
-  @spec env_remove(t(), String.t(), [{:here, boolean() | nil}]) ::
-          {:ok, String.t()} | {:error, term()}
-  def env_remove(%__MODULE__{} = workspace, name, optional_args \\ []) do
-    query_builder =
-      workspace.query_builder
-      |> QB.select("envRemove")
-      |> QB.put_arg("name", name)
-      |> QB.maybe_put_arg("here", optional_args[:here])
+  Write this workspace's pending changes to its local Git workspace on the current client's host.
 
-    Client.execute(workspace.client, query_builder)
+  Like Directory.export, the write is a side effect on the client that makes the call — never on the client that created the workspace. Inside a module, this cannot reach the caller's host.
+  """
+  @spec export(t()) :: :ok | {:error, term()}
+  def export(%__MODULE__{} = workspace) do
+    query_builder =
+      workspace.query_builder |> QB.select("export")
+
+    case Client.execute(workspace.client, query_builder) do
+      {:ok, _} -> :ok
+      error -> error
+    end
   end
 
   @doc """
@@ -200,6 +228,26 @@ defmodule Dagger.Workspace do
       query_builder: query_builder,
       client: workspace.client
     }
+  end
+
+  @doc """
+  Find project roots marked by any of the given filenames, starting from a path relative to the workspace cwd.
+
+  Returns cwd-relative directory paths for every marked directory at or below start, plus the nearest marked ancestor when start itself is not marked.
+
+  Each returned path is usable as-is with other workspace APIs, e.g. directory(path).
+  """
+  @spec find_roots(t(), [String.t()], [{:start, String.t() | nil}, {:exclude, [String.t()]}]) ::
+          {:ok, [String.t()]} | {:error, term()}
+  def find_roots(%__MODULE__{} = workspace, markers, optional_args \\ []) do
+    query_builder =
+      workspace.query_builder
+      |> QB.select("findRoots")
+      |> QB.put_arg("markers", markers)
+      |> QB.maybe_put_arg("start", optional_args[:start])
+      |> QB.maybe_put_arg("exclude", optional_args[:exclude])
+
+    Client.execute(workspace.client, query_builder)
   end
 
   @doc """
@@ -254,6 +302,19 @@ defmodule Dagger.Workspace do
   end
 
   @doc """
+  Returns a list of files and directories that match the given pattern.
+
+  Patterns match paths relative to the workspace root.
+  """
+  @spec glob(t(), String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def glob(%__MODULE__{} = workspace, pattern) do
+    query_builder =
+      workspace.query_builder |> QB.select("glob") |> QB.put_arg("pattern", pattern)
+
+    Client.execute(workspace.client, query_builder)
+  end
+
+  @doc """
   A unique identifier for this Workspace.
   """
   @spec id(t()) :: {:ok, String.t()} | {:error, term()}
@@ -265,45 +326,18 @@ defmodule Dagger.Workspace do
   end
 
   @doc """
-  Initialize workspace config, creating dagger.toml.
-  """
-  @spec init(t(), [{:here, boolean() | nil}]) :: {:ok, String.t()} | {:error, term()}
-  def init(%__MODULE__{} = workspace, optional_args \\ []) do
-    query_builder =
-      workspace.query_builder
-      |> QB.select("init")
-      |> QB.maybe_put_arg("here", optional_args[:here])
-
-    Client.execute(workspace.client, query_builder)
-  end
-
-  @doc """
-  Install a module into the workspace, writing dagger.toml to the host.
-  """
-  @spec install(t(), String.t(), [{:name, String.t() | nil}, {:here, boolean() | nil}]) ::
-          {:ok, String.t()} | {:error, term()}
-  def install(%__MODULE__{} = workspace, ref, optional_args \\ []) do
-    query_builder =
-      workspace.query_builder
-      |> QB.select("install")
-      |> QB.put_arg("ref", ref)
-      |> QB.maybe_put_arg("name", optional_args[:name])
-      |> QB.maybe_put_arg("here", optional_args[:here])
-
-    Client.execute(workspace.client, query_builder)
-  end
-
-  @doc """
   Plan the explicit migration needed for the current workspace.
+
+  Include installed local modules and their local dependencies. Other module candidates remain unchanged unless selected.
 
   The returned plan has an empty changeset and no steps when no migration is needed.
   """
-  @spec migrate(t(), [{:force, boolean() | nil}]) :: Dagger.WorkspaceMigration.t()
+  @spec migrate(t(), [{:modules, [String.t()]}]) :: Dagger.WorkspaceMigration.t()
   def migrate(%__MODULE__{} = workspace, optional_args \\ []) do
     query_builder =
       workspace.query_builder
       |> QB.select("migrate")
-      |> QB.maybe_put_arg("force", optional_args[:force])
+      |> QB.maybe_put_arg("modules", optional_args[:modules])
 
     %Dagger.WorkspaceMigration{
       query_builder: query_builder,
@@ -312,40 +346,66 @@ defmodule Dagger.Workspace do
   end
 
   @doc """
-  Create a new module owned by the workspace and auto-install it in dagger.toml.
+  Plan migration of one local module without migrating its dependencies or creating a workspace configuration.
+
+  Include SDK registration when a workspace configuration exists and remove obsolete generated-file ignore rules.
   """
-  @spec module_init(t(), String.t(), [
-          {:sdk, String.t() | nil},
-          {:source, String.t() | nil},
-          {:include, [String.t()]},
-          {:self_calls, boolean() | nil},
-          {:here, boolean() | nil}
-        ]) :: {:ok, String.t()} | {:error, term()}
-  def module_init(%__MODULE__{} = workspace, name, optional_args \\ []) do
+  @spec migrate_module(t(), [{:path, String.t() | nil}]) :: Dagger.WorkspaceMigration.t()
+  def migrate_module(%__MODULE__{} = workspace, optional_args \\ []) do
     query_builder =
       workspace.query_builder
-      |> QB.select("moduleInit")
-      |> QB.put_arg("name", name)
-      |> QB.maybe_put_arg("sdk", optional_args[:sdk])
-      |> QB.maybe_put_arg("source", optional_args[:source])
-      |> QB.maybe_put_arg("include", optional_args[:include])
-      |> QB.maybe_put_arg("selfCalls", optional_args[:self_calls])
-      |> QB.maybe_put_arg("here", optional_args[:here])
+      |> QB.select("migrateModule")
+      |> QB.maybe_put_arg("path", optional_args[:path])
 
-    Client.execute(workspace.client, query_builder)
+    %Dagger.WorkspaceMigration{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return a module defined in the workspace configuration.
+
+  Reflects the selected env's effective view.
+  """
+  @spec module(t(), String.t()) :: Dagger.WorkspaceModule.t()
+  def module(%__MODULE__{} = workspace, name) do
+    query_builder =
+      workspace.query_builder |> QB.select("module") |> QB.put_arg("name", name)
+
+    %Dagger.WorkspaceModule{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Load a module source from a path within the workspace.
+
+  Relative paths (e.g., "foo") resolve from the workspace cwd; absolute paths (e.g., "/foo") resolve from the workspace root.
+
+  Fails if the path does not point to an initialized module.
+  """
+  @spec module_source(t(), String.t()) :: Dagger.ModuleSource.t()
+  def module_source(%__MODULE__{} = workspace, path) do
+    query_builder =
+      workspace.query_builder |> QB.select("moduleSource") |> QB.put_arg("path", path)
+
+    %Dagger.ModuleSource{
+      query_builder: query_builder,
+      client: workspace.client
+    }
   end
 
   @doc """
   List modules defined in the workspace configuration.
+
+  Reflects the selected env's effective view.
   """
-  @spec module_list(t(), [{:module, String.t() | nil}]) ::
-          {:ok, [Dagger.WorkspaceModule.t()]} | {:error, term()}
-  def module_list(%__MODULE__{} = workspace, optional_args \\ []) do
+  @spec modules(t()) :: {:ok, [Dagger.WorkspaceModule.t()]} | {:error, term()}
+  def modules(%__MODULE__{} = workspace) do
     query_builder =
-      workspace.query_builder
-      |> QB.select("moduleList")
-      |> QB.maybe_put_arg("module", optional_args[:module])
-      |> QB.select("id")
+      workspace.query_builder |> QB.select("modules") |> QB.select("id")
 
     with {:ok, items} <- Client.execute(workspace.client, query_builder) do
       {:ok,
@@ -356,6 +416,108 @@ defmodule Dagger.Workspace do
              |> QB.select("node")
              |> QB.put_arg("id", id)
              |> QB.inline_fragment("WorkspaceModule"),
+           client: workspace.client
+         }
+       end}
+    end
+  end
+
+  @doc """
+  Return this workspace with its cached host reads invalidated, so subsequent file and directory reads re-read the live host instead of a snapshot cached earlier in the session.
+  """
+  @spec reloaded(t()) :: Dagger.Workspace.t()
+  def reloaded(%__MODULE__{} = workspace) do
+    query_builder =
+      workspace.query_builder |> QB.select("reloaded")
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  An installed SDK, by name.
+  """
+  @spec sdk(t(), String.t()) :: Dagger.WorkspaceSDK.t()
+  def sdk(%__MODULE__{} = workspace, name) do
+    query_builder =
+      workspace.query_builder |> QB.select("sdk") |> QB.put_arg("name", name)
+
+    %Dagger.WorkspaceSDK{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Installed SDKs.
+  """
+  @spec sdks(t()) :: {:ok, [Dagger.WorkspaceSDK.t()]} | {:error, term()}
+  def sdks(%__MODULE__{} = workspace) do
+    query_builder =
+      workspace.query_builder |> QB.select("sdks") |> QB.select("id")
+
+    with {:ok, items} <- Client.execute(workspace.client, query_builder) do
+      {:ok,
+       for %{"id" => id} <- items do
+         %Dagger.WorkspaceSDK{
+           query_builder:
+             QB.query()
+             |> QB.select("node")
+             |> QB.put_arg("id", id)
+             |> QB.inline_fragment("WorkspaceSDK"),
+           client: workspace.client
+         }
+       end}
+    end
+  end
+
+  @doc """
+  Searches for content matching the given regular expression or literal string.
+
+  Uses Rust regex syntax; escape literal ., [, ], {, }, | with backslashes.
+
+  Runs ripgrep on the client host, falling back to grep if unavailable.
+  """
+  @spec search(t(), String.t(), [
+          {:paths, [String.t()]},
+          {:globs, [String.t()]},
+          {:literal, boolean() | nil},
+          {:multiline, boolean() | nil},
+          {:dotall, boolean() | nil},
+          {:insensitive, boolean() | nil},
+          {:skip_ignored, boolean() | nil},
+          {:skip_hidden, boolean() | nil},
+          {:files_only, boolean() | nil},
+          {:limit, integer() | nil}
+        ]) :: {:ok, [Dagger.SearchResult.t()]} | {:error, term()}
+  def search(%__MODULE__{} = workspace, pattern, optional_args \\ []) do
+    query_builder =
+      workspace.query_builder
+      |> QB.select("search")
+      |> QB.put_arg("pattern", pattern)
+      |> QB.maybe_put_arg("paths", optional_args[:paths])
+      |> QB.maybe_put_arg("globs", optional_args[:globs])
+      |> QB.maybe_put_arg("literal", optional_args[:literal])
+      |> QB.maybe_put_arg("multiline", optional_args[:multiline])
+      |> QB.maybe_put_arg("dotall", optional_args[:dotall])
+      |> QB.maybe_put_arg("insensitive", optional_args[:insensitive])
+      |> QB.maybe_put_arg("skipIgnored", optional_args[:skip_ignored])
+      |> QB.maybe_put_arg("skipHidden", optional_args[:skip_hidden])
+      |> QB.maybe_put_arg("filesOnly", optional_args[:files_only])
+      |> QB.maybe_put_arg("limit", optional_args[:limit])
+      |> QB.select("id")
+
+    with {:ok, items} <- Client.execute(workspace.client, query_builder) do
+      {:ok,
+       for %{"id" => id} <- items do
+         %Dagger.SearchResult{
+           query_builder:
+             QB.query()
+             |> QB.select("node")
+             |> QB.put_arg("id", id)
+             |> QB.inline_fragment("SearchResult"),
            client: workspace.client
          }
        end}
@@ -379,35 +541,546 @@ defmodule Dagger.Workspace do
   end
 
   @doc """
-  Uninstall a module from the workspace, writing dagger.toml to the host.
+  Return all terminal targets from modules loaded in the workspace.
   """
-  @spec uninstall(t(), String.t(), [{:here, boolean() | nil}]) ::
-          {:ok, String.t()} | {:error, term()}
-  def uninstall(%__MODULE__{} = workspace, name, optional_args \\ []) do
+  @spec terminals(t(), [{:include, [String.t()]}]) :: Dagger.TerminalGroup.t()
+  def terminals(%__MODULE__{} = workspace, optional_args \\ []) do
     query_builder =
       workspace.query_builder
-      |> QB.select("uninstall")
-      |> QB.put_arg("name", name)
-      |> QB.maybe_put_arg("here", optional_args[:here])
+      |> QB.select("terminals")
+      |> QB.maybe_put_arg("include", optional_args[:include])
 
-    Client.execute(workspace.client, query_builder)
+    %Dagger.TerminalGroup{
+      query_builder: query_builder,
+      client: workspace.client
+    }
   end
 
   @doc """
-  Refresh workspace-managed state and return the resulting changeset.
-
-  Currently this refreshes existing lockfile entries only.
-
-  > #### Experimental {: .warning}
-  >
-  > "Experimental workspace update API currently refreshes existing lockfile entries only."
+  Return this workspace with a changeset applied, without mutating the source.
   """
-  @spec update(t()) :: Dagger.Changeset.t()
-  def update(%__MODULE__{} = workspace) do
+  @spec with_changes(t(), Dagger.Changeset.t()) :: Dagger.Workspace.t()
+  def with_changes(%__MODULE__{} = workspace, changes) do
     query_builder =
-      workspace.query_builder |> QB.select("update")
+      workspace.query_builder
+      |> QB.select("withChanges")
+      |> QB.put_arg("changes", Dagger.ID.id!(changes))
 
-    %Dagger.Changeset{
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with a generated module client added to one SDK scope.
+
+  Select the deepest detected or registered scope. Fail if several SDKs have that deepest scope.
+  """
+  @spec with_client(t(), String.t(), [
+          {:sdk, String.t() | nil},
+          {:settings, Dagger.JSON.t() | nil}
+        ]) :: Dagger.Workspace.t()
+  def with_client(%__MODULE__{} = workspace, module, optional_args \\ []) do
+    query_builder =
+      workspace.query_builder
+      |> QB.select("withClient")
+      |> QB.put_arg("module", module)
+      |> QB.maybe_put_arg("sdk", optional_args[:sdk])
+      |> QB.maybe_put_arg("settings", optional_args[:settings])
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with a named config environment created.
+  """
+  @spec with_config_env(t(), String.t(), [{:here, boolean() | nil}]) :: Dagger.Workspace.t()
+  def with_config_env(%__MODULE__{} = workspace, name, optional_args \\ []) do
+    query_builder =
+      workspace.query_builder
+      |> QB.select("withConfigEnv")
+      |> QB.put_arg("name", name)
+      |> QB.maybe_put_arg("here", optional_args[:here])
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with a configuration value written.
+
+  When the session selects an env, the key is scoped to that env's overlay and the env is created if missing.
+  """
+  @spec with_config_value(t(), String.t(), String.t(), [
+          {:values, [String.t()]},
+          {:here, boolean() | nil}
+        ]) :: Dagger.Workspace.t()
+  def with_config_value(%__MODULE__{} = workspace, key, value, optional_args \\ []) do
+    query_builder =
+      workspace.query_builder
+      |> QB.select("withConfigValue")
+      |> QB.put_arg("key", key)
+      |> QB.put_arg("value", value)
+      |> QB.maybe_put_arg("values", optional_args[:values])
+      |> QB.maybe_put_arg("here", optional_args[:here])
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with a directory merged into the given path, without mutating the source.
+
+  Anything already at the path stays, and files the source carries win, as with Directory.withDirectory. Use withNewDirectory to replace the path instead.
+  """
+  @spec with_directory(t(), String.t(), Dagger.Directory.t()) :: Dagger.Workspace.t()
+  def with_directory(%__MODULE__{} = workspace, path, source) do
+    query_builder =
+      workspace.query_builder
+      |> QB.select("withDirectory")
+      |> QB.put_arg("path", path)
+      |> QB.put_arg("source", Dagger.ID.id!(source))
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with an installed module selected as its entrypoint.
+
+  Every other entrypoint selection is cleared. Entrypoints live in the base workspace config.
+  """
+  @spec with_entrypoint(t(), String.t()) :: Dagger.Workspace.t()
+  def with_entrypoint(%__MODULE__{} = workspace, name) do
+    query_builder =
+      workspace.query_builder |> QB.select("withEntrypoint") |> QB.put_arg("name", name)
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with a file added or replaced, without mutating the source.
+  """
+  @spec with_file(t(), String.t(), Dagger.File.t(), [{:permissions, integer() | nil}]) ::
+          Dagger.Workspace.t()
+  def with_file(%__MODULE__{} = workspace, path, source, optional_args \\ []) do
+    query_builder =
+      workspace.query_builder
+      |> QB.select("withFile")
+      |> QB.put_arg("path", path)
+      |> QB.put_arg("source", Dagger.ID.id!(source))
+      |> QB.maybe_put_arg("permissions", optional_args[:permissions])
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with a location initialized as a module scope.
+
+  The selected SDK module records the scope and generates the module source.
+  """
+  @spec with_init_module(t(), String.t(), [
+          {:name, String.t() | nil},
+          {:path, String.t() | nil},
+          {:install, boolean() | nil},
+          {:entrypoint, boolean() | nil},
+          {:settings, Dagger.JSON.t() | nil}
+        ]) :: Dagger.Workspace.t()
+  def with_init_module(%__MODULE__{} = workspace, sdk, optional_args \\ []) do
+    query_builder =
+      workspace.query_builder
+      |> QB.select("withInitModule")
+      |> QB.put_arg("sdk", sdk)
+      |> QB.maybe_put_arg("name", optional_args[:name])
+      |> QB.maybe_put_arg("path", optional_args[:path])
+      |> QB.maybe_put_arg("install", optional_args[:install])
+      |> QB.maybe_put_arg("entrypoint", optional_args[:entrypoint])
+      |> QB.maybe_put_arg("settings", optional_args[:settings])
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with a native configuration, without changing an existing configuration.
+
+  Fail if legacy configuration needs workspace migration.
+  """
+  @spec with_initialized(t()) :: Dagger.Workspace.t()
+  def with_initialized(%__MODULE__{} = workspace) do
+    query_builder =
+      workspace.query_builder |> QB.select("withInitialized")
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with a module installed in its config.
+
+  When the session selects an env, the module is recorded in that env's overlay and the env is created if missing.
+  """
+  @spec with_module(t(), String.t(), [{:name, String.t() | nil}, {:here, boolean() | nil}]) ::
+          Dagger.Workspace.t()
+  def with_module(%__MODULE__{} = workspace, ref, optional_args \\ []) do
+    query_builder =
+      workspace.query_builder
+      |> QB.select("withModule")
+      |> QB.put_arg("ref", ref)
+      |> QB.maybe_put_arg("name", optional_args[:name])
+      |> QB.maybe_put_arg("here", optional_args[:here])
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with a directory mounted read-only at the given path, without mutating the source.
+
+  Mounted content is readable through the normal workspace file tools but shadows the source at the mount path and stays out of the pending changeset: it never appears in changes, is never exported, and cannot be modified.
+  """
+  @spec with_mounted_directory(t(), String.t(), Dagger.Directory.t()) :: Dagger.Workspace.t()
+  def with_mounted_directory(%__MODULE__{} = workspace, path, source) do
+    query_builder =
+      workspace.query_builder
+      |> QB.select("withMountedDirectory")
+      |> QB.put_arg("path", path)
+      |> QB.put_arg("source", Dagger.ID.id!(source))
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with a file mounted read-only at the given path, without mutating the source.
+
+  Mounted content is readable through the normal workspace file tools but shadows the source at the mount path and stays out of the pending changeset: it never appears in changes, is never exported, and cannot be modified.
+  """
+  @spec with_mounted_file(t(), String.t(), Dagger.File.t()) :: Dagger.Workspace.t()
+  def with_mounted_file(%__MODULE__{} = workspace, path, source) do
+    query_builder =
+      workspace.query_builder
+      |> QB.select("withMountedFile")
+      |> QB.put_arg("path", path)
+      |> QB.put_arg("source", Dagger.ID.id!(source))
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with the given path replaced by a directory, without mutating the source.
+
+  The source becomes the entire contents of the path: anything already there that the source does not carry is removed. Use withDirectory to keep it instead.
+  """
+  @spec with_new_directory(t(), String.t(), Dagger.Directory.t()) :: Dagger.Workspace.t()
+  def with_new_directory(%__MODULE__{} = workspace, path, source) do
+    query_builder =
+      workspace.query_builder
+      |> QB.select("withNewDirectory")
+      |> QB.put_arg("path", path)
+      |> QB.put_arg("source", Dagger.ID.id!(source))
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with a new or replaced file, without mutating the source.
+  """
+  @spec with_new_file(t(), String.t(), String.t(), [{:permissions, integer() | nil}]) ::
+          Dagger.Workspace.t()
+  def with_new_file(%__MODULE__{} = workspace, path, contents, optional_args \\ []) do
+    query_builder =
+      workspace.query_builder
+      |> QB.select("withNewFile")
+      |> QB.put_arg("path", path)
+      |> QB.put_arg("contents", contents)
+      |> QB.maybe_put_arg("permissions", optional_args[:permissions])
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with an SDK installed in its config.
+  """
+  @spec with_sdk(t(), String.t(), [
+          {:name, String.t() | nil},
+          {:here, boolean() | nil},
+          {:as_sdk_name, String.t() | nil}
+        ]) :: Dagger.Workspace.t()
+  def with_sdk(%__MODULE__{} = workspace, ref, optional_args \\ []) do
+    query_builder =
+      workspace.query_builder
+      |> QB.select("withSDK")
+      |> QB.put_arg("ref", ref)
+      |> QB.maybe_put_arg("name", optional_args[:name])
+      |> QB.maybe_put_arg("here", optional_args[:here])
+      |> QB.maybe_put_arg("asSdkName", optional_args[:as_sdk_name])
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with the selected module clients updated.
+
+  The engine re-reads the source of each selected client target and writes the lock entries that those targets reach.
+
+  The selected SDK module then regenerates every scope that owns one of the targets.
+  """
+  @spec with_updated_clients(t(), [
+          {:modules, [String.t()]},
+          {:all, boolean() | nil},
+          {:sdk, String.t() | nil}
+        ]) :: Dagger.Workspace.t()
+  def with_updated_clients(%__MODULE__{} = workspace, optional_args \\ []) do
+    query_builder =
+      workspace.query_builder
+      |> QB.select("withUpdatedClients")
+      |> QB.maybe_put_arg("modules", optional_args[:modules])
+      |> QB.maybe_put_arg("all", optional_args[:all])
+      |> QB.maybe_put_arg("sdk", optional_args[:sdk])
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with refreshed lockfile state.
+
+  SDK client scopes are regenerated unless noGenerate is true.
+  """
+  @spec with_updated_lock(t(), [{:no_generate, boolean() | nil}]) :: Dagger.Workspace.t()
+  def with_updated_lock(%__MODULE__{} = workspace, optional_args \\ []) do
+    query_builder =
+      workspace.query_builder
+      |> QB.select("withUpdatedLock")
+      |> QB.maybe_put_arg("noGenerate", optional_args[:no_generate])
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with updated module versions and lockfile state.
+
+  An SDK client scope is regenerated when it targets an updated module.
+  """
+  @spec with_updated_modules(t(), [{:names, [String.t()]}, {:version, String.t() | nil}]) ::
+          Dagger.Workspace.t()
+  def with_updated_modules(%__MODULE__{} = workspace, optional_args \\ []) do
+    query_builder =
+      workspace.query_builder
+      |> QB.select("withUpdatedModules")
+      |> QB.maybe_put_arg("names", optional_args[:names])
+      |> QB.maybe_put_arg("version", optional_args[:version])
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with its working directory pointed at the given workspace-relative path.
+  """
+  @spec with_workdir(t(), String.t()) :: Dagger.Workspace.t()
+  def with_workdir(%__MODULE__{} = workspace, path) do
+    query_builder =
+      workspace.query_builder |> QB.select("withWorkdir") |> QB.put_arg("path", path)
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with a module client removed from the deepest matching recorded scope.
+
+  Fail if several SDKs have that deepest scope. The selected SDK module regenerates the complete scope.
+
+  If invalid client targets remain, save the removal and skip generation until those targets are corrected or removed.
+  """
+  @spec without_client(t(), String.t(), [{:sdk, String.t() | nil}]) :: Dagger.Workspace.t()
+  def without_client(%__MODULE__{} = workspace, module, optional_args \\ []) do
+    query_builder =
+      workspace.query_builder
+      |> QB.select("withoutClient")
+      |> QB.put_arg("module", module)
+      |> QB.maybe_put_arg("sdk", optional_args[:sdk])
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with a named config environment removed.
+  """
+  @spec without_config_env(t(), String.t(), [{:here, boolean() | nil}]) :: Dagger.Workspace.t()
+  def without_config_env(%__MODULE__{} = workspace, name, optional_args \\ []) do
+    query_builder =
+      workspace.query_builder
+      |> QB.select("withoutConfigEnv")
+      |> QB.put_arg("name", name)
+      |> QB.maybe_put_arg("here", optional_args[:here])
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with a configuration value removed.
+
+  Errors when the key is not currently set.
+
+  When the session selects an env, the key is scoped to that env's overlay.
+  """
+  @spec without_config_value(t(), String.t(), [{:here, boolean() | nil}]) :: Dagger.Workspace.t()
+  def without_config_value(%__MODULE__{} = workspace, key, optional_args \\ []) do
+    query_builder =
+      workspace.query_builder
+      |> QB.select("withoutConfigValue")
+      |> QB.put_arg("key", key)
+      |> QB.maybe_put_arg("here", optional_args[:here])
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with a directory removed, without mutating the source.
+  """
+  @spec without_directory(t(), String.t()) :: Dagger.Workspace.t()
+  def without_directory(%__MODULE__{} = workspace, path) do
+    query_builder =
+      workspace.query_builder |> QB.select("withoutDirectory") |> QB.put_arg("path", path)
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with no module selected as its entrypoint.
+  """
+  @spec without_entrypoint(t()) :: Dagger.Workspace.t()
+  def without_entrypoint(%__MODULE__{} = workspace) do
+    query_builder =
+      workspace.query_builder |> QB.select("withoutEntrypoint")
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with a file removed, without mutating the source.
+  """
+  @spec without_file(t(), String.t()) :: Dagger.Workspace.t()
+  def without_file(%__MODULE__{} = workspace, path) do
+    query_builder =
+      workspace.query_builder |> QB.select("withoutFile") |> QB.put_arg("path", path)
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with a module removed from its config.
+
+  When the session selects an env, only that env's overlay entry is removed.
+  """
+  @spec without_module(t(), String.t(), [{:here, boolean() | nil}]) :: Dagger.Workspace.t()
+  def without_module(%__MODULE__{} = workspace, name, optional_args \\ []) do
+    query_builder =
+      workspace.query_builder
+      |> QB.select("withoutModule")
+      |> QB.put_arg("name", name)
+      |> QB.maybe_put_arg("here", optional_args[:here])
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with the content mounted at the given path unmounted.
+
+  Removes directory and file mounts at or below the path, revealing the underlying workspace content. Other mounts and pending changes are preserved.
+  """
+  @spec without_mount(t(), String.t()) :: Dagger.Workspace.t()
+  def without_mount(%__MODULE__{} = workspace, path) do
+    query_builder =
+      workspace.query_builder |> QB.select("withoutMount") |> QB.put_arg("path", path)
+
+    %Dagger.Workspace{
+      query_builder: query_builder,
+      client: workspace.client
+    }
+  end
+
+  @doc """
+  Return this workspace with an SDK removed from its config.
+  """
+  @spec without_sdk(t(), String.t(), [{:here, boolean() | nil}]) :: Dagger.Workspace.t()
+  def without_sdk(%__MODULE__{} = workspace, name, optional_args \\ []) do
+    query_builder =
+      workspace.query_builder
+      |> QB.select("withoutSDK")
+      |> QB.put_arg("name", name)
+      |> QB.maybe_put_arg("here", optional_args[:here])
+
+    %Dagger.Workspace{
       query_builder: query_builder,
       client: workspace.client
     }

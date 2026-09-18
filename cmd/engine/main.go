@@ -45,8 +45,10 @@ import (
 	"github.com/dagger/dagger/engine/ebpf/filetracer"
 	"github.com/dagger/dagger/engine/ebpf/ovltracer"
 	"github.com/dagger/dagger/engine/engineutil/cacerts"
+	"github.com/dagger/dagger/engine/remotecache"
 	"github.com/dagger/dagger/engine/server"
 	"github.com/dagger/dagger/engine/slog"
+	"github.com/dagger/dagger/engine/wcprof"
 	"github.com/dagger/dagger/network"
 	"github.com/dagger/dagger/network/netinst"
 	telemetry "github.com/dagger/otel-go"
@@ -160,6 +162,11 @@ func addFlags(app *cli.App) {
 		cli.BoolFlag{
 			Name:  "extra-debug",
 			Usage: "enable extra debug output in logs",
+		},
+		cli.BoolFlag{
+			Name:   "wcprof",
+			Usage:  "enable experimental wall-clock profiling for all work on the engine (also enabled by the _DAGGER_WCPROF env var; toggleable at runtime via the /debug/wcprof/enabled debug endpoint)",
+			Hidden: true,
 		},
 		cli.BoolFlag{
 			Name:  "trace",
@@ -312,6 +319,10 @@ func main() { //nolint:gocyclo
 	app.Action = func(c *cli.Context) error {
 		bklog.G(ctx).Info("starting dagger engine version:", engineVersion)
 		defer cancel(errors.New("main done"))
+
+		if c.GlobalBool("wcprof") {
+			wcprof.EnableGlobal()
+		}
 		// TODO: On Windows this always returns -1. The actual "are you admin" check is very Windows-specific.
 		// See https://github.com/golang/go/issues/28804#issuecomment-505326268 for the "short" version.
 		if os.Geteuid() > 0 {
@@ -466,11 +477,17 @@ func main() { //nolint:gocyclo
 			os.RemoveAll(lockPath)
 		}()
 
+		remoteCache, err := remotecache.IntegrationFromEnv(os.Getenv, engineName, engine.Version)
+		if err != nil {
+			return err
+		}
+
 		bklog.G(ctx).Debug("creating engine server")
 		srv, err := server.NewServer(ctx, &server.NewServerOpts{
-			Name:           engineName,
-			Config:         &cfg,
-			BuildkitConfig: &bkcfg,
+			Name:                   engineName,
+			Config:                 &cfg,
+			BuildkitConfig:         &bkcfg,
+			RemoteCacheIntegration: remoteCache,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create engine: %w", err)
@@ -487,7 +504,11 @@ func main() { //nolint:gocyclo
 				}
 			}
 			grpcServer.GracefulStop()
-			if err := srv.GracefulStop(context.WithoutCancel(stopCtx)); err != nil {
+			// stopCtx carries the graceful stop deadline and nothing else, so
+			// it must reach session teardown intact: a session whose producer
+			// ignores cancellation is bounded by that deadline rather than
+			// holding the engine up forever.
+			if err := srv.GracefulStop(stopCtx); err != nil {
 				slog.Error("server graceful stop", "error", err)
 			}
 			srv = nil
@@ -516,6 +537,12 @@ func main() { //nolint:gocyclo
 			go logTraceMetrics(context.Background())
 		}
 
+		// With a remote cache integration, hold the listeners closed until
+		// its registration backlog's imports are in, or its bound has
+		// passed, so a client that connects the instant the port opens finds
+		// them. With no integration this returns at once.
+		srv.WaitRemoteCacheStartup(ctx)
+
 		// start serving on the listeners for actual clients
 		bklog.G(ctx).Debug("starting main engine api listeners")
 		srv.Register(grpcServer)
@@ -523,7 +550,15 @@ func main() { //nolint:gocyclo
 		protocols.SetHTTP1(true)
 		protocols.SetUnencryptedHTTP2(true)
 		httpServer = &http.Server{
-			ReadHeaderTimeout: 30 * time.Second,
+			// NOTE: do NOT set ReadHeaderTimeout here (gosec G112). As of Go
+			// 1.26.6, net/http arms a connection-level read deadline from
+			// ReadHeaderTimeout *before* handing an unencrypted HTTP/2
+			// connection off to the HTTP/2 server, and the HTTP/2 server only
+			// disarms that deadline when ReadTimeout > 0. The result is a hard
+			// cap on connection lifetime: every client connection dies after
+			// ReadHeaderTimeout no matter how active it is, and since all of a
+			// client's streams share one h2 connection, any query outliving it
+			// fails with `Post "http://dagger/query": unexpected EOF`.
 			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("content-type"), "application/grpc") {
 					// The docs on grpcServer.ServeHTTP warn that some features are missing vs. serving fully "native" gRPC,

@@ -9,9 +9,11 @@ import (
 	"strings"
 
 	"github.com/dagger/dagger/core"
+	"github.com/dagger/dagger/core/sdk/sdkmeta"
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/distconsts"
+	iversion "github.com/dagger/dagger/internal/version"
 	telemetry "github.com/dagger/otel-go"
 	"github.com/opencontainers/go-digest"
 )
@@ -67,11 +69,11 @@ func (l *Loader) SDKForModule(
 	fmt.Fprintf(stdio.Stderr, "Could not load SDK %q.\n", sdk.Source)
 	fmt.Fprintln(stdio.Stderr)
 	fmt.Fprintln(stdio.Stderr, "Errors:")
-	fmt.Fprintln(stdio.Stderr, "-", builtinErr)
-	fmt.Fprintln(stdio.Stderr, "-", extErr)
+	fmt.Fprintln(stdio.Stderr, "-", core.StripErrorOrigins(builtinErr.Error()))
+	fmt.Fprintln(stdio.Stderr, "-", core.StripErrorOrigins(extErr.Error()))
 	fmt.Fprintln(stdio.Stderr)
 	fmt.Fprintln(stdio.Stderr, "The available SDKs are:")
-	for _, sdk := range validInbuiltSDKs {
+	for _, sdk := range sdkmeta.Builtins {
 		fmt.Fprintln(stdio.Stderr, "-", sdk)
 	}
 	fmt.Fprintln(stdio.Stderr, "- any git module ref, e.g. github.com/dagger/dagger/sdk/elixir@main")
@@ -145,11 +147,46 @@ func (l *Loader) namedSDK(
 		if !ok {
 			return nil, errUnknownBuiltinSDK
 		}
-		return l.SDKForModule(ctx, root, &core.SDKConfig{
+		sdkConfig := &core.SDKConfig{
 			Source:       sdkMod.Source,
 			Config:       sdk.Config,
 			Experimental: sdk.Experimental,
-		}, nil)
+		}
+		loaded, tagErr := l.externalSDKForModule(ctx, root, sdkConfig, nil)
+		if tagErr == nil {
+			return loaded, nil
+		}
+
+		// A bare remote builtin normally resolves at engine.Tag. On main,
+		// VERSION already names the next release before its Git tag exists.
+		// Retry at the exact engine source commit, which is always available
+		// for provenance-stamped builds. Explicit user refs remain authoritative.
+		// TODO(https://github.com/dagger/dagger/issues/13755): Since these
+		// runtimes live in this repository, should bare refs always resolve from
+		// the engine commit instead of pulling by tag first?
+		_, _, hasExplicitVersion := strings.Cut(sdk.Source, "@")
+		if hasExplicitVersion ||
+			!errors.Is(tagErr, core.ErrModuleVersionNotFound) ||
+			iversion.Commit == "" {
+			return nil, tagErr
+		}
+		commitMod, ok := workspaceModuleForBuiltinSDK(sdkNamedParsed, "@"+iversion.Commit)
+		if !ok {
+			return nil, errUnknownBuiltinSDK
+		}
+		sdkConfig.Source = commitMod.Source
+		loaded, commitErr := l.externalSDKForModule(ctx, root, sdkConfig, nil)
+		if commitErr != nil {
+			return nil, fmt.Errorf(
+				"failed to load SDK %q from %q: %w; fallback to engine commit %q failed: %w",
+				sdk.Source,
+				sdkMod.Source,
+				tagErr,
+				iversion.Commit,
+				commitErr,
+			)
+		}
+		return loaded, nil
 	}
 
 	return nil, errUnknownBuiltinSDK
@@ -231,7 +268,7 @@ func parseSDKName(sdkName string) (sdk, string, error) {
 
 	// this validation may seem redundant, but it helps keep the list of
 	// builtin sdk between invalidSDKError message and builtinSDK function in sync.
-	if !slices.Contains(validInbuiltSDKs, sdk(sdkNameParsed)) {
+	if !sdkmeta.IsBuiltin(sdkNameParsed) {
 		return "", "", errUnknownBuiltinSDK
 	}
 
@@ -251,4 +288,14 @@ func parseSDKName(sdkName string) (sdk, string, error) {
 	}
 
 	return sdk(sdkNameParsed), sdkSuffix, nil
+}
+
+// IsBuiltinSDKName reports whether source names a built-in SDK/runtime bundled
+// in the engine (e.g. "go", "python", "dang"), optionally with an "@version"
+// suffix — as opposed to an external module ref or local path. Such names are
+// resolved in-engine when a module's runtime loads; they are not standalone
+// modules that can be loaded from a path or ref.
+func IsBuiltinSDKName(source string) bool {
+	name, _, _ := strings.Cut(source, "@")
+	return sdkmeta.IsBuiltin(name)
 }

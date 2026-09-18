@@ -114,6 +114,48 @@ defmodule Dagger.Binding do
   end
 
   @doc """
+  Retrieve the binding value, as type CurrentModuleAsSDK
+  """
+  @spec as_current_module_as_sdk(t()) :: Dagger.CurrentModuleAsSDK.t()
+  def as_current_module_as_sdk(%__MODULE__{} = binding) do
+    query_builder =
+      binding.query_builder |> QB.select("asCurrentModuleAsSDK")
+
+    %Dagger.CurrentModuleAsSDK{
+      query_builder: query_builder,
+      client: binding.client
+    }
+  end
+
+  @doc """
+  Retrieve the binding value, as type CurrentModuleAsSDKClient
+  """
+  @spec as_current_module_as_sdk_client(t()) :: Dagger.CurrentModuleAsSDKClient.t()
+  def as_current_module_as_sdk_client(%__MODULE__{} = binding) do
+    query_builder =
+      binding.query_builder |> QB.select("asCurrentModuleAsSDKClient")
+
+    %Dagger.CurrentModuleAsSDKClient{
+      query_builder: query_builder,
+      client: binding.client
+    }
+  end
+
+  @doc """
+  Retrieve the binding value, as type CurrentModuleAsSDKModule
+  """
+  @spec as_current_module_as_sdk_module(t()) :: Dagger.CurrentModuleAsSDKModule.t()
+  def as_current_module_as_sdk_module(%__MODULE__{} = binding) do
+    query_builder =
+      binding.query_builder |> QB.select("asCurrentModuleAsSDKModule")
+
+    %Dagger.CurrentModuleAsSDKModule{
+      query_builder: query_builder,
+      client: binding.client
+    }
+  end
+
+  @doc """
   Retrieve the binding value, as type DiffStat
   """
   @spec as_diff_stat(t()) :: Dagger.DiffStat.t()
@@ -268,6 +310,34 @@ defmodule Dagger.Binding do
   end
 
   @doc """
+  Retrieve the binding value, as type LLMContentBlock
+  """
+  @spec as_llm_content_block(t()) :: Dagger.LLMContentBlock.t()
+  def as_llm_content_block(%__MODULE__{} = binding) do
+    query_builder =
+      binding.query_builder |> QB.select("asLLMContentBlock")
+
+    %Dagger.LLMContentBlock{
+      query_builder: query_builder,
+      client: binding.client
+    }
+  end
+
+  @doc """
+  Retrieve the binding value, as type LLMMessage
+  """
+  @spec as_llm_message(t()) :: Dagger.LLMMessage.t()
+  def as_llm_message(%__MODULE__{} = binding) do
+    query_builder =
+      binding.query_builder |> QB.select("asLLMMessage")
+
+    %Dagger.LLMMessage{
+      query_builder: query_builder,
+      client: binding.client
+    }
+  end
+
+  @doc """
   Retrieve the binding value, as type Module
   """
   @spec as_module(t()) :: Dagger.Module.t()
@@ -304,6 +374,20 @@ defmodule Dagger.Binding do
       binding.query_builder |> QB.select("asModuleSource")
 
     %Dagger.ModuleSource{
+      query_builder: query_builder,
+      client: binding.client
+    }
+  end
+
+  @doc """
+  Retrieve the binding value, as type Schema
+  """
+  @spec as_schema(t()) :: Dagger.Schema.t()
+  def as_schema(%__MODULE__{} = binding) do
+    query_builder =
+      binding.query_builder |> QB.select("asSchema")
+
+    %Dagger.Schema{
       query_builder: query_builder,
       client: binding.client
     }
@@ -433,6 +517,20 @@ defmodule Dagger.Binding do
   end
 
   @doc """
+  Retrieve the binding value, as type Volume
+  """
+  @spec as_volume(t()) :: Dagger.Volume.t()
+  def as_volume(%__MODULE__{} = binding) do
+    query_builder =
+      binding.query_builder |> QB.select("asVolume")
+
+    %Dagger.Volume{
+      query_builder: query_builder,
+      client: binding.client
+    }
+  end
+
+  @doc """
   Retrieve the binding value, as type Workspace
   """
   @spec as_workspace(t()) :: Dagger.Workspace.t()
@@ -511,6 +609,20 @@ defmodule Dagger.Binding do
       binding.query_builder |> QB.select("asWorkspaceModuleSetting")
 
     %Dagger.WorkspaceModuleSetting{
+      query_builder: query_builder,
+      client: binding.client
+    }
+  end
+
+  @doc """
+  Retrieve the binding value, as type WorkspaceSDK
+  """
+  @spec as_workspace_sdk(t()) :: Dagger.WorkspaceSDK.t()
+  def as_workspace_sdk(%__MODULE__{} = binding) do
+    query_builder =
+      binding.query_builder |> QB.select("asWorkspaceSDK")
+
+    %Dagger.WorkspaceSDK{
       query_builder: query_builder,
       client: binding.client
     }

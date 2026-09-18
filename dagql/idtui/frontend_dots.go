@@ -82,6 +82,14 @@ func (fe *frontendDots) SetClient(client *dagger.Client) {}
 
 func (fe *frontendDots) SetSidebarContent(SidebarSection) {}
 
+func (fe *frontendDots) SetStatusLine(StatusLineData) {}
+
+func (fe *frontendDots) GetLLMTokenMetrics() *dagui.LLMTokenMetrics {
+	fe.mu.Lock()
+	defer fe.mu.Unlock()
+	return fe.db.LLMTokenMetrics
+}
+
 func (fe *frontendDots) Run(ctx context.Context, opts dagui.FrontendOpts, f func(context.Context) (cleanups.CleanupF, error)) error {
 	fe.opts = opts
 	fe.reporter.FrontendOpts = opts
@@ -146,6 +154,7 @@ func (fe *frontendDots) renderFinalTests() bool {
 	}
 	tv := &TestView{
 		Profile:         fe.profile,
+		AgentStyle:      agentStyle(fe.Opts()),
 		Logs:            fe.logs.testLogs,
 		SummaryLogLines: -1,
 	}
@@ -218,7 +227,7 @@ func (fe *frontendDots) HandlePrompt(ctx context.Context, _, prompt string, dest
 }
 
 func (fe *frontendDots) HandleForm(ctx context.Context, form *huh.Form) error {
-	return form.RunWithContext(ctx)
+	return form.WithTheme(huh.ThemeBase16()).RunWithContext(ctx)
 }
 
 // dotsSpanExporter implements trace.SpanExporter for the dots frontend

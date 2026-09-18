@@ -1,0 +1,35 @@
+2026/09/17 22:32:10 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/17 22:32:10 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/17 22:32:10 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/17 22:32:10 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/17 22:32:10 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/17 22:32:10 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- FAIL: TestImportedBackingSnapshotIsOwnedByItsRow (0.00s)
+    --- FAIL: TestImportedBackingSnapshotIsOwnedByItsRow/filesync_mirror (0.09s)
+        backing_snapshot_test.go:79: 
+            	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/verification-implementer-implementation-128fdcd9-2b7fea30/core/backing_snapshot_test.go:79
+            	            				/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/verification-implementer-implementation-128fdcd9-2b7fea30/core/backing_snapshot_test.go:104
+            	Error:      	Received unexpected error:
+            	            	open /tmp/TestImportedBackingSnapshotIsOwnedByItsRowfilesync_mirror2382752719/002/snapshots/snapshots/1/used: no such file or directory
+            	Test:       	TestImportedBackingSnapshotIsOwnedByItsRow/filesync_mirror
+    --- FAIL: TestImportedBackingSnapshotIsOwnedByItsRow/cache_volume (0.09s)
+        backing_snapshot_test.go:79: 
+            	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/verification-implementer-implementation-128fdcd9-2b7fea30/core/backing_snapshot_test.go:79
+            	            				/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/verification-implementer-implementation-128fdcd9-2b7fea30/core/backing_snapshot_test.go:104
+            	Error:      	Received unexpected error:
+            	            	open /tmp/TestImportedBackingSnapshotIsOwnedByItsRowcache_volume24055207/002/snapshots/snapshots/1/used: no such file or directory
+            	Test:       	TestImportedBackingSnapshotIsOwnedByItsRow/cache_volume
+    --- FAIL: TestImportedBackingSnapshotIsOwnedByItsRow/git_mirror (0.09s)
+        backing_snapshot_test.go:79: 
+            	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/verification-implementer-implementation-128fdcd9-2b7fea30/core/backing_snapshot_test.go:79
+            	            				/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/verification-implementer-implementation-128fdcd9-2b7fea30/core/backing_snapshot_test.go:104
+            	Error:      	Received unexpected error:
+            	            	open /tmp/TestImportedBackingSnapshotIsOwnedByItsRowgit_mirror426340771/002/snapshots/snapshots/1/used: no such file or directory
+            	Test:       	TestImportedBackingSnapshotIsOwnedByItsRow/git_mirror
+FAIL
+FAIL	github.com/dagger/dagger/core	0.176s
+FAIL
+
+real	0m21.544s
+user	0m56.216s
+sys	0m5.124s

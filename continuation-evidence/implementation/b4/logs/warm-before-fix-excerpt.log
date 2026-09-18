@@ -1,0 +1,16 @@
+Command: dagger api call engine-dev test --pkg ./core/integration --run='TestRemoteCacheTransferSuite/TestSchemaRecovery$' --timeout=5m
+Exit: 1
+Before the typed ModuleObject field fix; diagnostic excerpt only.
+
+                Error Trace:    /app/core/integration/remote_cache_transfer_test.go:186
+                Error:          Received unexpected error:
+                                stat payload.txt: no such file or directory [traceparent:6eccad043186898152d226547f885569-ef5ea2b618b127a1]
+                Test:           TestRemoteCacheTransferSuite/TestSchemaRecovery/before
+    testctx.go:198: 23  : ! stat payload.txt: no such file or directory
+--- FAIL: TestRemoteCacheTransferSuite/TestSchemaRecovery/before (48.92s)
+                Test:           TestRemoteCacheTransferSuite/TestSchemaRecovery/after
+--- FAIL: TestRemoteCacheTransferSuite/TestSchemaRecovery/after (43.25s)
+    testctx.go:198: 40  : [24.9s] | time=2026-09-16T13:14:30.613Z level=INFO msg="end lazy evaluation" client_id=n7ar6hhhykduaaei22provhbf client_hostname=dagger session_id=s9kdlw242qmgri38idzudfvdw trace=6eccad043186898152d226547f885569 span=6a42ba5b24e9954f field=File.file duration=751.158µs err="stat payload.txt: no such file or directory"
+--- FAIL: TestRemoteCacheTransferSuite/TestSchemaRecovery (197.46s)
+--- FAIL: TestRemoteCacheTransferSuite (197.46s)
+Full trace at https://dagger.cloud/dagger/traces/6eccad043186898152d226547f885569

@@ -36,14 +36,6 @@ func daggerExecRaw(args ...string) dagger.WithContainerFunc {
 	}
 }
 
-func daggerClientInstall(generator string) dagger.WithContainerFunc {
-	return daggerExecRaw("client", "install", generator)
-}
-
-func daggerClientInstallAt(generator string, outputDirPath string) dagger.WithContainerFunc {
-	return daggerExecRaw("client", "install", generator, outputDirPath)
-}
-
 func daggerQuery(query string, args ...any) dagger.WithContainerFunc {
 	return daggerQueryAt("", query, args...)
 }
@@ -79,9 +71,22 @@ func daggerCallAt(modPath string, args ...string) dagger.WithContainerFunc {
 	}
 }
 
+func daggerCallFail(args ...string) dagger.WithContainerFunc {
+	return func(c *dagger.Container) *dagger.Container {
+		return c.WithExec(
+			append([]string{"dagger", "--progress=report", "call"}, args...),
+			dagger.ContainerWithExecOpts{
+				UseEntrypoint:                 true,
+				ExperimentalPrivilegedNesting: true,
+				Expect:                        dagger.ReturnTypeFailure,
+			},
+		)
+	}
+}
+
 func daggerFunctions(args ...string) dagger.WithContainerFunc {
 	return func(c *dagger.Container) *dagger.Container {
-		return c.WithExec(append([]string{"dagger", "functions"}, args...), dagger.ContainerWithExecOpts{
+		return c.WithExec(append([]string{"dagger", "api", "functions"}, args...), dagger.ContainerWithExecOpts{
 			ExperimentalPrivilegedNesting: true,
 		})
 	}
@@ -195,7 +200,7 @@ func privateRepoSetup(c *dagger.Client, t *testctx.T, tc vcsTestCase) (dagger.Wi
 		}
 		if token := tc.token(); token != "" {
 			ctr = ctr.
-				WithNewFile("/tmp/git-config", makeGitCredentials("https://"+tc.expectedHost, "git", token)).
+				WithNewFile("/tmp/git-config", makeGitCredentials("https://"+tc.expectedHost, tc.httpAuthUsername, token)).
 				WithEnvVariable("GIT_CONFIG_GLOBAL", "/tmp/git-config")
 		}
 
@@ -299,22 +304,6 @@ func sdkSourceFile(sdk string) string {
 		return "main.dang"
 	case "java", "./sdk/java":
 		return "src/main/java/io/dagger/modules/test/Test.java"
-	default:
-		panic(fmt.Errorf("unknown sdk %q", sdk))
-	}
-}
-
-func sdkCodegenFile(t *testctx.T, sdk string) string {
-	t.Helper()
-	switch sdk {
-	case "go":
-		// FIXME: go codegen is split up into dagger/dagger.gen.go and
-		// dagger/internal/dagger/dagger.gen.go
-		return "internal/dagger/dagger.gen.go"
-	case "python":
-		return "sdk/src/dagger/client/gen.py"
-	case "typescript":
-		return "sdk/client.gen.ts"
 	default:
 		panic(fmt.Errorf("unknown sdk %q", sdk))
 	}

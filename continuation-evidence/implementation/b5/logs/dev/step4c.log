@@ -1,0 +1,6 @@
+=== RUN   TestOfferPendingRestartAndForward
+--- PASS: TestOfferPendingRestartAndForward (0.36s)
+=== RUN   TestRemoteCacheUnusedCost
+--- PASS: TestRemoteCacheUnusedCost (0.35s)
+PASS
+ok  	github.com/dagger/dagger/dagql	0.791s

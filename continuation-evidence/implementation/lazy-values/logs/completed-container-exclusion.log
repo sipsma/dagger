@@ -1,0 +1,6 @@
+=== RUN   TestLazyCompletedContainerPublicationExclusion
+2026/09/16 23:12:45 INFO start lazy evaluation field=builtin
+2026/09/16 23:12:45 INFO end lazy evaluation field=builtin duration=245.45µs
+--- PASS: TestLazyCompletedContainerPublicationExclusion (0.00s)
+PASS
+ok  	github.com/dagger/dagger/core	1.439s

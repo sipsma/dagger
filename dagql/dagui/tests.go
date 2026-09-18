@@ -130,25 +130,12 @@ func (c TestCounts) Total() int {
 	return c.Failing + c.Running + c.Passing + c.Skipped
 }
 
-func (c TestCounts) isZero() bool {
-	return c == TestCounts{}
-}
-
 func (c TestCounts) add(other TestCounts) TestCounts {
 	return TestCounts{
 		Failing: c.Failing + other.Failing,
 		Running: c.Running + other.Running,
 		Passing: c.Passing + other.Passing,
 		Skipped: c.Skipped + other.Skipped,
-	}
-}
-
-func (c TestCounts) sub(other TestCounts) TestCounts {
-	return TestCounts{
-		Failing: c.Failing - other.Failing,
-		Running: c.Running - other.Running,
-		Passing: c.Passing - other.Passing,
-		Skipped: c.Skipped - other.Skipped,
 	}
 }
 
@@ -211,6 +198,38 @@ type TestNode struct {
 	Counts       TestCounts
 
 	suiteName string
+}
+
+// SelfCounts returns the counts this node contributes for itself, before its
+// children are rolled up.
+//
+// Only leaf test cases count: the test producer emits a test.case.name span
+// for every `=== RUN`, so a parent test like TestDirectory is a real span even
+// though it is just a grouping around its subtests. Counting it alongside its
+// subtests inflates the totals (one subtest under one parent reported "2
+// passed"). Suites (real or virtual) never counted in the first place.
+//
+// A parent that itself failed is still counted when no descendant recorded a
+// failure -- e.g. a t.Fatal or panic in the parent after its subtests passed.
+// Otherwise its failure would vanish from the tallies entirely and the header
+// could claim everything passed while a FAIL entry is listed below it.
+func (n *TestNode) SelfCounts() TestCounts {
+	if n == nil || n.Kind != TestNodeCase {
+		return TestCounts{}
+	}
+	if len(n.Children) == 0 {
+		return countForCategory(n.SelfCategory)
+	}
+	if n.SelfCategory == TestCategoryFailing {
+		for _, child := range n.Children {
+			if child.Counts.Failing > 0 {
+				// A descendant already accounts for the failure.
+				return TestCounts{}
+			}
+		}
+		return TestCounts{Failing: 1}
+	}
+	return TestCounts{}
 }
 
 type TestView struct {
@@ -326,9 +345,30 @@ type TestIndex struct {
 
 	knownTestSpans map[SpanID]*Span
 
+	// globalIncluded and globalParentBySpan record the containment-sensitive
+	// structure of the nil-root/all-traces view. testsByAncestor indexes every
+	// known test by each real parent ID (including unreceived placeholders), and
+	// ancestorIDsByTest supports replacing that index after reparenting. Together
+	// they preserve the incremental cached view for unrelated updates while
+	// efficiently detecting ancestors that add/remove a Boundary or reconnect a
+	// severed chain.
+	globalIncluded     map[SpanID]bool
+	globalParentBySpan map[SpanID]SpanID
+	testsByAncestor    map[SpanID]map[SpanID]struct{}
+	ancestorIDsByTest  map[SpanID][]SpanID
+
 	cachedView   *TestView
 	version      uint64
 	builtVersion uint64
+
+	// perSpanViews memoizes ViewForSpan per root for the current index
+	// version and DB mutation count. Render passes read the same roots
+	// several times per frame (claims seeding, row predicates, rollups);
+	// without the memo each read rescans every known test span.
+	perSpanViews    map[SpanID]*TestView
+	perSpanVersion  uint64
+	perSpanDBEpoch  uint64
+	perSpanMemoInit bool
 
 	initialScanCount       int
 	structuralRebuildCount int
@@ -377,16 +417,29 @@ func (idx *TestIndex) ViewForSpan(root *Span) *TestView {
 	}
 	idx.View()
 
+	// Serve repeated same-frame reads from the memo; any index change or DB
+	// span add/update (which can extend an ancestor chain) invalidates it.
+	if !idx.perSpanMemoInit || idx.perSpanVersion != idx.version || idx.perSpanDBEpoch != idx.db.mutations {
+		idx.perSpanViews = make(map[SpanID]*TestView)
+		idx.perSpanVersion = idx.version
+		idx.perSpanDBEpoch = idx.db.mutations
+		idx.perSpanMemoInit = true
+	}
+	if view, ok := idx.perSpanViews[root.ID]; ok {
+		return view
+	}
+	view := idx.buildViewForSpan(root)
+	idx.perSpanViews[root.ID] = view
+	return view
+}
+
+func (idx *TestIndex) buildViewForSpan(root *Span) *TestView {
 	nodesBySpan := make(map[SpanID]*TestNode)
 	for id, span := range idx.knownTestSpans {
 		if span == nil {
 			continue
 		}
-		insideRoot := span.ID == root.ID
-		for parent := span.ParentSpan; !insideRoot && parent != nil; parent = parent.ParentSpan {
-			insideRoot = parent.ID == root.ID
-		}
-		if !insideRoot {
+		if !spanMayRollUp(span, root, nil) {
 			continue
 		}
 		kind, name, fullName, suiteName, ok := testNodeMetadata(span)
@@ -449,14 +502,28 @@ func (idx *TestIndex) spanUpdated(span *Span) {
 	if hasNodeMetadata {
 		idx.knownTestSpans[span.ID] = span
 	} else if known || node != nil {
+		wasIncluded := idx.globalIncluded[span.ID] || node != nil
+		idx.indexTestAncestors(span.ID, nil)
 		delete(idx.knownTestSpans, span.ID)
-		idx.markStructureDirty()
-		return
-	} else {
+		delete(idx.globalIncluded, span.ID)
+		delete(idx.globalParentBySpan, span.ID)
+		if wasIncluded {
+			idx.markStructureDirty()
+		}
 		return
 	}
 
 	if idx.structureDirty {
+		return
+	}
+	if idx.globalTestStructureChanged(span) {
+		idx.markStructureDirty()
+		return
+	}
+	if !hasNodeMetadata || !idx.globalIncluded[span.ID] {
+		// Non-test updates that do not affect a test's containment/parentage and
+		// updates to boundary-contained tests leave the global cached view alone.
+		// Scoped views still invalidate on the DB mutation epoch.
 		return
 	}
 
@@ -488,6 +555,88 @@ func (idx *TestIndex) spanUpdated(span *Span) {
 	idx.markAggregateDirty(span.ID)
 }
 
+// globalTestStructureChanged compares containment and nearest-parent signatures
+// only for tests affected by updated: the span itself when it is a test, plus
+// tests whose indexed real parent chain contains its ID. Unrelated span updates
+// are O(1), while placeholder fills and ancestor reparenting remain visible.
+func (idx *TestIndex) globalTestStructureChanged(updated *Span) bool {
+	if updated == nil {
+		return false
+	}
+	affected := idx.testsByAncestor[updated.ID]
+	_, updatedIsTest := idx.knownTestSpans[updated.ID]
+	if !updatedIsTest && len(affected) == 0 {
+		return false
+	}
+	targets := make(map[SpanID]struct{}, len(affected)+1)
+	if updatedIsTest {
+		targets[updated.ID] = struct{}{}
+	}
+	for id := range affected {
+		targets[id] = struct{}{}
+	}
+	for id := range targets {
+		span := idx.knownTestSpans[id]
+		if span == nil {
+			continue
+		}
+		included := spanMayRollUp(span, nil, nil)
+		previous, signed := idx.globalIncluded[id]
+		if !signed {
+			if span.ParentID.IsValid() && span.ParentSpan == nil {
+				// integrateSpan records the snapshot before wiring its parent. Defer
+				// the new test's signature to the post-integration notification.
+				continue
+			}
+			if !included {
+				// A newly discovered contained test changes only scoped views. Keep
+				// it indexed for its owning boundary without rebuilding the
+				// byte-identical global view.
+				idx.globalIncluded[id] = false
+				idx.indexTestAncestors(id, span)
+				continue
+			}
+			return true
+		}
+		if previous != included {
+			return true
+		}
+		var parentID SpanID
+		if included {
+			spanMayRollUp(span, nil, func(parent *Span) {
+				if !parentID.IsValid() && testSpanHasNode(parent) {
+					parentID = parent.ID
+				}
+			})
+		}
+		if idx.globalParentBySpan[id] != parentID {
+			return true
+		}
+		idx.indexTestAncestors(id, span)
+	}
+	return false
+}
+
+func (idx *TestIndex) indexTestAncestors(testID SpanID, span *Span) {
+	for _, ancestorID := range idx.ancestorIDsByTest[testID] {
+		delete(idx.testsByAncestor[ancestorID], testID)
+		if len(idx.testsByAncestor[ancestorID]) == 0 {
+			delete(idx.testsByAncestor, ancestorID)
+		}
+	}
+	delete(idx.ancestorIDsByTest, testID)
+	if span == nil {
+		return
+	}
+	for parent := span.ParentSpan; parent != nil; parent = parent.ParentSpan {
+		if idx.testsByAncestor[parent.ID] == nil {
+			idx.testsByAncestor[parent.ID] = make(map[SpanID]struct{})
+		}
+		idx.testsByAncestor[parent.ID][testID] = struct{}{}
+		idx.ancestorIDsByTest[testID] = append(idx.ancestorIDsByTest[testID], parent.ID)
+	}
+}
+
 func (idx *TestIndex) markStructureDirty() {
 	idx.structureDirty = true
 	idx.version++
@@ -506,10 +655,22 @@ func (idx *TestIndex) rebuildStructure() {
 	idx.structuralRebuildCount++
 
 	nodesBySpan := make(map[SpanID]*TestNode, len(idx.knownTestSpans))
+	idx.globalIncluded = make(map[SpanID]bool, len(idx.knownTestSpans))
+	idx.globalParentBySpan = make(map[SpanID]SpanID, len(idx.knownTestSpans))
+	idx.testsByAncestor = make(map[SpanID]map[SpanID]struct{})
+	idx.ancestorIDsByTest = make(map[SpanID][]SpanID, len(idx.knownTestSpans))
 	for id, span := range idx.knownTestSpans {
+		idx.indexTestAncestors(id, span)
+		included := spanMayRollUp(span, nil, nil)
+		idx.globalIncluded[id] = included
+		if !included {
+			continue
+		}
 		kind, name, fullName, suiteName, ok := testNodeMetadata(span)
 		if !ok {
+			idx.indexTestAncestors(id, nil)
 			delete(idx.knownTestSpans, id)
+			delete(idx.globalIncluded, id)
 			continue
 		}
 		node := &TestNode{
@@ -524,10 +685,11 @@ func (idx *TestIndex) rebuildStructure() {
 	}
 
 	var roots []*TestNode
-	for _, node := range nodesBySpan {
+	for id, node := range nodesBySpan {
 		if parent := nearestTestAncestor(node.Span, nodesBySpan); parent != nil {
 			node.Parent = parent
 			parent.Children = append(parent.Children, node)
+			idx.globalParentBySpan[id] = parent.Span.ID
 		} else {
 			roots = append(roots, node)
 		}
@@ -575,6 +737,67 @@ func buildTestView(roots []*TestNode, nodesBySpan map[SpanID]*TestNode) *TestVie
 	return view
 }
 
+// FilterCases returns a deep-cloned view containing only the case nodes for
+// which keep returns true. Suites (real or virtual) left without surviving
+// descendants are pruned, and aggregates/counts are recomputed. When keep
+// accepts every case the result is structurally equivalent to v. Spans are
+// shared (read-only); only the node tree is cloned.
+func (v *TestView) FilterCases(keep func(*TestNode) bool) *TestView {
+	if v == nil {
+		return nil
+	}
+	var cloneNode func(*TestNode) *TestNode
+	cloneNode = func(n *TestNode) *TestNode {
+		if n == nil {
+			return nil
+		}
+		var kids []*TestNode
+		for _, child := range n.Children {
+			if c := cloneNode(child); c != nil {
+				kids = append(kids, c)
+			}
+		}
+		keepSelf := n.Kind == TestNodeCase && keep(n)
+		// A FAILING suite with no cases of its own -- e.g. a test package that
+		// failed to compile -- has no case children to carry its status, so it
+		// must survive on its own or the failure vanishes from the view.
+		// Failing only: a skipped case-less suite (a package with no test
+		// files) is noise, and a running one shows up once its cases do.
+		caselessSuite := n.Kind != TestNodeCase && len(n.Children) == 0
+		if caselessSuite && n.Category == TestCategoryFailing && keep(n) {
+			keepSelf = true
+		}
+		if !keepSelf && len(kids) == 0 {
+			return nil
+		}
+		clone := *n
+		clone.Parent = nil
+		clone.Children = kids
+		if clone.Kind != TestNodeCase && !caselessSuite {
+			// Re-derive suite status from the retained cases rather than the
+			// backing span: a suite kept only for its surviving (e.g. passing)
+			// cases must not inherit the failing status contributed by sibling
+			// cases that were filtered out. A case-less suite (kept above) is
+			// exempt: its own span IS its status, and summaries need the span
+			// to render it.
+			clone.Kind = TestNodeVirtualSuite
+			clone.Span = nil
+			clone.RepresentativeSpan = nil
+		}
+		for _, child := range kids {
+			child.Parent = &clone
+		}
+		return &clone
+	}
+	var roots []*TestNode
+	for _, root := range v.Roots {
+		if c := cloneNode(root); c != nil {
+			roots = append(roots, c)
+		}
+	}
+	return buildTestView(roots, nil)
+}
+
 func addTestNameIndex(index map[string][]*TestNode, node *TestNode) {
 	if node.FullName != "" {
 		index[node.FullName] = append(index[node.FullName], node)
@@ -607,30 +830,18 @@ func (idx *TestIndex) applyAggregateUpdates() {
 }
 
 func (idx *TestIndex) updateNodeAggregate(node *TestNode) {
-	oldSelfCount := TestCounts{}
-	if node.Kind == TestNodeCase {
-		oldSelfCount = countForCategory(node.SelfCategory)
-	}
-
-	newSelfCategory := node.Span.TestCategory()
-	newSelfCount := TestCounts{}
-	if node.Kind == TestNodeCase {
-		newSelfCount = countForCategory(newSelfCategory)
-	}
-	countDelta := newSelfCount.sub(oldSelfCount)
-
-	node.SelfCategory = newSelfCategory
-	if !countDelta.isZero() {
-		node.Counts = node.Counts.add(countDelta)
-	}
-
-	node.Category = aggregateTestCategory(node.Kind, node.SelfCategory, node.Counts)
-
-	for parent := node.Parent; parent != nil; parent = parent.Parent {
-		if !countDelta.isZero() {
-			parent.Counts = parent.Counts.add(countDelta)
+	node.SelfCategory = node.Span.TestCategory()
+	// Recompute from the children upward rather than propagating a self-count
+	// delta: a node's self-count depends on its children (only leaves count,
+	// plus the failing-parent guard), so an ancestor's own contribution can
+	// change when a descendant's counts change.
+	for current := node; current != nil; current = current.Parent {
+		counts := TestCounts{}
+		for _, child := range current.Children {
+			counts = counts.add(child.Counts)
 		}
-		parent.Category = aggregateTestCategory(parent.Kind, parent.SelfCategory, parent.Counts)
+		current.Counts = counts.add(current.SelfCounts())
+		current.Category = aggregateTestCategory(current.Kind, current.SelfCategory, current.Counts)
 	}
 }
 
@@ -760,14 +971,13 @@ func computeTestAggregates(node *TestNode) {
 
 	node.Counts = TestCounts{}
 	node.SelfCategory = node.Span.TestCategory()
-	if node.Kind == TestNodeCase {
-		node.Counts = node.Counts.add(countForCategory(node.SelfCategory))
-	}
 
 	for _, child := range node.Children {
 		computeTestAggregates(child)
 		node.Counts = node.Counts.add(child.Counts)
 	}
+	// Self-count comes last: it depends on the children's aggregate.
+	node.Counts = node.Counts.add(node.SelfCounts())
 	if node.Kind == TestNodeVirtualSuite && node.RepresentativeSpan == nil {
 		node.RepresentativeSpan = representativeSpan(node)
 	}
@@ -775,6 +985,12 @@ func computeTestAggregates(node *TestNode) {
 }
 
 func aggregateTestCategory(kind TestNodeKind, self TestCategory, counts TestCounts) TestCategory {
+	if kind == TestNodeCase {
+		// A case's own outcome still shapes its category even when it doesn't
+		// contribute to the counts (see SelfCounts): a parent that passed with
+		// a single skipped subtest is mixed, not skipped.
+		counts = counts.add(countForCategory(self))
+	}
 	if self == TestCategoryFailing || counts.Failing > 0 {
 		return TestCategoryFailing
 	}

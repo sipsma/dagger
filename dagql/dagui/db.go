@@ -2,9 +2,11 @@ package dagui
 
 import (
 	"context"
+	"fmt"
 	"iter"
 	"slices"
 	"sort"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -17,10 +19,118 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/dagger/dagger/dagql/call"
 	"github.com/dagger/dagger/dagql/call/callpbv1"
 	"github.com/dagger/dagger/engine/slog"
+	"github.com/dagger/dagger/engine/telemetryattrs"
 	telemetry "github.com/dagger/otel-go"
 )
+
+// LLMTokenMetrics tracks token usage across all LLM calls.
+//
+// Aggregate runs on the UI goroutine (metric export is dispatched there), while
+// Snapshot is read from other goroutines (e.g. the CLI's LLM session driving
+// the status line), so access to ByModel is guarded by mu.
+type LLMTokenMetrics struct {
+	mu sync.Mutex
+	// ByModel maps a model name to its accumulated token metrics.
+	ByModel map[string]*LLMModelMetrics
+	// gaugeValues stores the last value seen for each metric series. LLM token
+	// instruments are gauges that providers record with cumulative per-call
+	// values while streaming; keeping deltas between last values prevents repeat
+	// metric exports from being counted as new spend.
+	gaugeValues map[string]int64
+}
+
+// Snapshot returns a copy of the per-model metrics safe to read from any
+// goroutine.
+func (m *LLMTokenMetrics) Snapshot() []LLMModelMetrics {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]LLMModelMetrics, 0, len(m.ByModel))
+	for _, v := range m.ByModel {
+		out = append(out, *v)
+	}
+	return out
+}
+
+// LLMModelMetrics tracks token usage for a specific model.
+type LLMModelMetrics struct {
+	Model             string
+	Provider          string
+	InputTokens       int64
+	OutputTokens      int64
+	CachedTokenReads  int64
+	CachedTokenWrites int64
+}
+
+// Aggregate adds the metrics from a data point to the running totals, keyed by
+// the point's "model" attribute. Points without a model attribute are ignored.
+func (m *LLMTokenMetrics) Aggregate(metricName string, point metricdata.DataPoint[int64]) {
+	var model, provider string
+	modelAttr, hasModel := point.Attributes.Value(attribute.Key("model"))
+	providerAttr, hasProvider := point.Attributes.Value(attribute.Key("provider"))
+
+	if !hasModel {
+		return // Skip if no model attribute.
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	model = modelAttr.AsString()
+	if hasProvider {
+		provider = providerAttr.AsString()
+	}
+
+	if m.ByModel == nil {
+		m.ByModel = make(map[string]*LLMModelMetrics)
+	}
+	if m.gaugeValues == nil {
+		m.gaugeValues = make(map[string]int64)
+	}
+
+	seriesKey := metricName + "|" + point.Attributes.Encoded(attribute.DefaultEncoder())
+	prev, seen := m.gaugeValues[seriesKey]
+	m.gaugeValues[seriesKey] = point.Value
+
+	delta := point.Value
+	if seen {
+		if point.Value >= prev {
+			delta = point.Value - prev
+		} else {
+			// Treat a lower value for the same series as a fresh baseline rather
+			// than subtracting from already-reported spend. This can happen if a
+			// provider retries within the same span or a gauge series is reset.
+			delta = point.Value
+		}
+	}
+	if delta == 0 {
+		return
+	}
+
+	metrics, ok := m.ByModel[model]
+	if !ok {
+		metrics = &LLMModelMetrics{
+			Model:    model,
+			Provider: provider,
+		}
+		m.ByModel[model] = metrics
+	} else if metrics.Provider == "" && provider != "" {
+		metrics.Provider = provider
+	}
+
+	switch metricName {
+	case telemetry.LLMInputTokens:
+		metrics.InputTokens += delta
+	case telemetry.LLMOutputTokens:
+		metrics.OutputTokens += delta
+	case telemetry.LLMInputTokensCacheReads:
+		metrics.CachedTokenReads += delta
+	case telemetry.LLMInputTokensCacheWrites:
+		metrics.CachedTokenWrites += delta
+	}
+}
 
 type DB struct {
 	PrimarySpan SpanID
@@ -33,8 +143,7 @@ type DB struct {
 
 	Resources map[attribute.Distinct]*resource.Resource
 
-	CallPayloads map[string]string
-	Calls        map[string]*callpbv1.Call
+	Calls map[string]*callpbv1.Call
 
 	Outputs   map[string]map[string]struct{}
 	OutputOf  map[string]map[string]struct{}
@@ -47,6 +156,10 @@ type DB struct {
 	// needs generalization as more metric types get added
 	MetricsByCall map[string]map[string][]metricdata.DataPoint[int64]
 	MetricsBySpan map[SpanID]map[string][]metricdata.DataPoint[int64]
+
+	// LLMTokenMetrics aggregates LLM token usage across all spans/models, used
+	// to drive the status line's cost/context display.
+	LLMTokenMetrics *LLMTokenMetrics
 
 	// updatedSpans is a set of spans that have been updated since the last
 	// sync, which includes any parent spans whose overall active time intervals
@@ -62,7 +175,65 @@ type DB struct {
 	pendingLogsByOutput  map[resumeOutputKey][]sdklog.Record
 	resolvedLogsBySpan   map[SpanID][]sdklog.Record
 
+	// mutations counts span adds and updates. Derived-view memos (e.g. the
+	// per-span test views and surfaced checks) key on it so a cached result is
+	// reused across the many reads of a single render frame but never survives
+	// new span data.
+	mutations uint64
+
+	// The surfacing memos below are single-entry and key on BOTH db.mutations
+	// and the root the walk was relative to (see surfaceRoot): a zoom change
+	// doesn't bump mutations, so without the root in the key a render zoomed
+	// to one span would be served the tree built for another.
+	surfacedChecks     []*CheckNode
+	surfacedChecksAt   uint64
+	surfacedChecksRoot SpanID
+	surfacedChecksInit bool
+
+	surfacedConversation     []*MessageNode
+	surfacedConversationAt   uint64
+	surfacedConversationRoot SpanID
+	surfacedConversationInit bool
+
+	// The agent-scoped conversation gets a memo slot of its own rather than
+	// sharing the one above: both are consulted on the same render (the
+	// roster scopes the live tree while the report stays zoom-scoped), and a
+	// single slot keyed by root would make them evict each other every frame.
+	agentConversation     []*MessageNode
+	agentConversationAt   uint64
+	agentConversationID   string
+	agentConversationInit bool
+
+	surfacedGenerators     []*GeneratorNode
+	surfacedGeneratorsAt   uint64
+	surfacedGeneratorsRoot SpanID
+	surfacedGeneratorsInit bool
+
+	surfacedServices     []*ServiceNode
+	surfacedServicesAt   uint64
+	surfacedServicesRoot SpanID
+	surfacedServicesInit bool
+
+	serviceDisplays     []*Span
+	serviceDisplaysAt   uint64
+	serviceDisplaysRoot SpanID
+	serviceDisplaysInit bool
+
+	// The agent roster is session-wide rather than zoom-relative (see
+	// DB.Agents: an agent born inside a module call is precisely what the
+	// roster exists to surface), so unlike the surfacing memos above it
+	// keys on db.mutations alone.
+	agents     []*AgentNode
+	agentsAt   uint64
+	agentsInit bool
+
 	testIndex *TestIndex
+}
+
+// MutationCount reports how many span adds/updates the DB has seen, for
+// callers memoizing views derived from span data (see the mutations field).
+func (db *DB) MutationCount() uint64 {
+	return db.mutations
 }
 
 type resumeOutputKey struct {
@@ -77,8 +248,7 @@ func NewDB() *DB {
 		Spans:     NewSpanSet(),
 		Resources: make(map[attribute.Distinct]*resource.Resource),
 
-		CallPayloads: make(map[string]string),
-		Calls:        make(map[string]*callpbv1.Call),
+		Calls: make(map[string]*callpbv1.Call),
 
 		OutputOf:  make(map[string]map[string]struct{}),
 		Outputs:   make(map[string]map[string]struct{}),
@@ -92,6 +262,8 @@ func NewDB() *DB {
 		pendingResumeOutputs: make(map[resumeOutputKey]SpanSet),
 		pendingLogsByOutput:  make(map[resumeOutputKey][]sdklog.Record),
 		resolvedLogsBySpan:   make(map[SpanID][]sdklog.Record),
+
+		LLMTokenMetrics: &LLMTokenMetrics{},
 	}
 }
 
@@ -110,8 +282,10 @@ func (db *DB) UpdatedSnapshots(filter map[SpanID]bool) []SpanSnapshot {
 			// don't send along any stubs; let the client-side create its own stubs
 			return false
 		}
-		if filter == nil || filter[span.ParentID] {
-			// include subscribed (or all) spans
+		if filter == nil || filter[span.ParentID] || filter[span.ID] {
+			// include subscribed (or all) spans, and updates to spans that
+			// were explicitly subscribed themselves (e.g. time-breakdown support
+			// spans whose parents aren't subscribed)
 			return true
 		}
 		if span.IsFailedOrCausedFailure() {
@@ -172,6 +346,17 @@ func (db *DB) ImportSnapshots(snapshots []SpanSnapshot) {
 			// predates it
 			snapshot.Progress = span.Progress
 		}
+		if span.hasNameFromLog && snapshot.EndTime.Before(snapshot.StartTime) {
+			// Live name updates arrive on logs because repeated in-flight span
+			// exports retain their start-time name. Do not let one roll the newer
+			// name back.
+			snapshot.Name = span.nameFromLog
+		} else if !snapshot.EndTime.Before(snapshot.StartTime) {
+			// A completed snapshot carries the span's actual ending name and
+			// becomes authoritative over the live-log bridge.
+			span.nameFromLog = ""
+			span.hasNameFromLog = false
+		}
 		span.SpanSnapshot = snapshot
 		db.integrateSpan(span)
 		spans[i] = span
@@ -182,6 +367,7 @@ func (db *DB) ImportSnapshots(snapshots []SpanSnapshot) {
 }
 
 func (db *DB) update(span *Span) {
+	db.mutations++
 	db.noteTestSpanUpdated(span)
 	if span.Final {
 		// don't bump versions for final spans; leave the remote as the
@@ -255,18 +441,155 @@ func (db *DB) LogExporter() sdklog.Exporter {
 	return DBLogExporter{db}
 }
 
+// LogValueString returns value as a string only when its OpenTelemetry kind
+// is string. Callers must not use AsString without first establishing this
+// invariant: the OTel API reports invalid-kind conversions as diagnostics.
+func LogValueString(value otellog.Value) (string, bool) {
+	if value.Kind() != otellog.KindString {
+		return "", false
+	}
+	return value.AsString(), true
+}
+
+// LogValueBool returns value as a bool only when its OpenTelemetry kind is
+// bool.
+func LogValueBool(value otellog.Value) (bool, bool) {
+	if value.Kind() != otellog.KindBool {
+		return false, false
+	}
+	return value.AsBool(), true
+}
+
+// LogValueInt64 returns value as an int64 only when its OpenTelemetry kind is
+// int64.
+func LogValueInt64(value otellog.Value) (int64, bool) {
+	if value.Kind() != otellog.KindInt64 {
+		return 0, false
+	}
+	return value.AsInt64(), true
+}
+
+// LogBodyString returns record's body only when it is text.
+func LogBodyString(record sdklog.Record) (string, bool) {
+	return LogValueString(record.Body())
+}
+
+// IsSpanNameRecord reports whether record's semantic role says its body is an
+// updated display name for the span it is attributed to. These records are
+// metadata and must not also be rendered as ordinary log output.
+func IsSpanNameRecord(record sdklog.Record) bool {
+	_, isSpanName := spanNameRecordReservation(record)
+	return isSpanName
+}
+
+// spanNameRecordReservation reports whether the semantic-role attribute
+// reserves a record as metadata and whether it contains the supported span-name
+// role. Unknown and malformed roles remain reserved so they cannot render as
+// ordinary output.
+func spanNameRecordReservation(record sdklog.Record) (reserved, isSpanName bool) {
+	record.WalkAttributes(func(kv otellog.KeyValue) bool {
+		if kv.Key == telemetryattrs.LogRoleAttr {
+			reserved = true
+			role, valid := LogValueString(kv.Value)
+			isSpanName = valid && role == telemetryattrs.LogRoleSpanName
+			return false
+		}
+		return true
+	})
+	return reserved, isSpanName
+}
+
+// ingestSpanName folds a span.name role record into the attributed span. A
+// name record may arrive before the span's first snapshot, so the override is
+// retained on the stub and reapplied when frozen live snapshots arrive later.
+func (db *DB) ingestSpanName(record sdklog.Record) bool {
+	reserved, isSpanName := spanNameRecordReservation(record)
+	if !reserved {
+		return false
+	}
+	if !isSpanName {
+		// An unknown or malformed role is still reserved semantic data.
+		return true
+	}
+	name, valid := LogBodyString(record)
+	if !valid {
+		// It is still a reserved metadata record; consume a malformed body rather
+		// than leaking it into command output.
+		return true
+	}
+
+	spanID := SpanID{SpanID: record.SpanID()}
+	if !spanID.IsValid() {
+		return true
+	}
+	span := db.initSpan(spanID)
+	span.nameFromLog = name
+	span.hasNameFromLog = true
+	if span.Name != name {
+		span.Name = name
+		db.update(span)
+	}
+	return true
+}
+
 type DBLogExporter struct {
 	*DB
 }
 
 func (db DBLogExporter) Export(ctx context.Context, logs []sdklog.Record) error {
+	db.ingestLogs(logs, false)
+	return nil
+}
+
+// IngestLogs classifies and ingests one SDK log batch, returning only ordinary
+// text records for frontend rendering. Semantic/control records are consumed
+// here even when malformed, and non-string bodies are not log text. Empty
+// string records remain renderable so frontends can observe stdio EOF markers.
+func (db *DB) IngestLogs(logs []sdklog.Record) []sdklog.Record {
+	return db.ingestLogs(logs, true)
+}
+
+func (db *DB) ingestLogs(logs []sdklog.Record, collectRenderable bool) []sdklog.Record {
+	var renderable []sdklog.Record
+	if collectRenderable {
+		renderable = make([]sdklog.Record, 0, len(logs))
+	}
 	for _, log := range logs {
+		if db.ingestSpanName(log) {
+			// live span metadata, not log text
+			continue
+		}
 		if db.ingestProgress(log) {
 			// streaming progress data, not log text
 			continue
 		}
-		if log.Body().AsString() == "" {
-			// eof; ignore
+		if db.ingestAgentState(log) {
+			// agent lifecycle state, not log text
+			continue
+		}
+		if db.ingestAgentSnapshot(log) {
+			// agent resume anchor, not log text
+			continue
+		}
+		if db.ingestCallPayload(log) {
+			// dagql call payload, not log text
+			continue
+		}
+		if log.Body().Kind() != otellog.KindString {
+			// Never log text, whatever produced it; checking the kind first
+			// also keeps AsString from reporting to the global error handler.
+			continue
+		}
+		body, isText := LogBodyString(log)
+		if !isText {
+			continue
+		}
+		if collectRenderable {
+			renderable = append(renderable, log)
+		}
+		if body == "" {
+			// Preserve explicit empty strings for frontend EOF handling, but do not
+			// route them or mark their spans as having logs.
 			continue
 		}
 		spanID, pendingKey := db.routeLog(log)
@@ -275,13 +598,13 @@ func (db DBLogExporter) Export(ctx context.Context, logs []sdklog.Record) error 
 			continue
 		}
 		if spanID == db.PrimarySpan {
-			// buffer raw logs so we can replay them later
+			// buffer raw logs so we can write them later
 			db.PrimaryLogs[spanID] = append(db.PrimaryLogs[spanID], log)
 		}
 		// flag that the span has received logs
 		db.initSpan(spanID).HasLogs = true
 	}
-	return nil
+	return renderable
 }
 
 func (db *DB) Shutdown(ctx context.Context) error {
@@ -357,6 +680,16 @@ func (db DBMetricExporter) exportDataPoints(metric metricdata.Metrics, dataPoint
 		}
 
 		metricsByName[metric.Name] = append(metricsByName[metric.Name], point)
+
+		// Aggregate LLM token metrics across all spans/models for the status
+		// line's cost/context display.
+		switch metric.Name {
+		case telemetry.LLMInputTokens, telemetry.LLMOutputTokens,
+			telemetry.LLMInputTokensCacheReads, telemetry.LLMInputTokensCacheWrites:
+			if db.LLMTokenMetrics != nil {
+				db.LLMTokenMetrics.Aggregate(metric.Name, point)
+			}
+		}
 	}
 }
 
@@ -366,6 +699,69 @@ func (db DBMetricExporter) exportDataPoints(metric metricdata.Metrics, dataPoint
 // to the span it created.
 func (db *DB) SetPrimarySpan(span SpanID) {
 	db.PrimarySpan = span
+}
+
+// surfaceRoot resolves the root a surfacing walk (SurfacedChecks and family)
+// is relative to: the span the caller gave, or the trace root when nil.
+//
+// Surfacing is a question about a subtree, not about the process: "what checks
+// / messages / services ran beneath THIS span". Every frontend asks it about
+// whatever it is zoomed to, and the whole-trace answer is just the zoom-to-the-
+// root case. Flags (Boundary/Encapsulate) on or above the root are outside the
+// question and never contain; flags strictly below it contain exactly as they
+// always have, so a fixture check wrapped in its own boundary stays hidden.
+//
+// The CONVERSATION deliberately does not use this. A resuming client holds a
+// second, imported trace in the same DB (hack/designs/resume-from-trace.md
+// §5.1.3), whose messages hang off a second parentless span and would be
+// dropped by resolving nil to db.RootSpan — so there, nil means every message
+// span in the DB. The fixture-containment rule this exists for is unchanged
+// for checks, generators and services, which have no second trace to miss.
+func (db *DB) surfaceRoot(root *Span) *Span {
+	if root != nil {
+		return root
+	}
+	return db.RootSpan
+}
+
+// surfaceRootID keys a surfacing memo on the root it was built for.
+func surfaceRootID(root *Span) SpanID {
+	if root == nil {
+		return SpanID{}
+	}
+	return root.ID
+}
+
+// spanMayRollUp walks span's real parent chain and reports whether span may
+// roll up to root. Boundary and Encapsulate are unilateral containment flags:
+// either one on an ancestor strictly below root stops the roll-up, while flags
+// on root itself are outside the question. An explicit root must be reached;
+// nil asks about all traces and accepts parentless or severed chains as long as
+// no loaded ancestor contains them.
+//
+// visit is called for each ancestor encountered, including a containing
+// boundary and root itself. Surfaced views use it to retain their nearest
+// semantic parent without reimplementing containment. The starting span is not
+// visited: a span's flags contain its descendants, not the span itself.
+func spanMayRollUp(span, root *Span, visit func(*Span)) bool {
+	if span == nil {
+		return false
+	}
+	if span == root {
+		return true
+	}
+	for parent := span.ParentSpan; parent != nil; parent = parent.ParentSpan {
+		if visit != nil {
+			visit(parent)
+		}
+		if parent == root {
+			return true
+		}
+		if parent.Boundary || parent.Encapsulate {
+			return false
+		}
+	}
+	return root == nil
 }
 
 func (db *DB) initSpan(spanID SpanID) *Span {
@@ -420,24 +816,24 @@ func (db *DB) recordOTelSpan(span sdktrace.ReadOnlySpan) *Span {
 	spanData.TraceID = TraceID{span.SpanContext().TraceID()}
 	spanData.ParentID.SpanID = span.Parent().SpanID()
 	spanData.Name = span.Name()
+	if spanData.hasNameFromLog && span.StartTime().After(span.EndTime()) {
+		spanData.Name = spanData.nameFromLog
+	} else if !span.StartTime().After(span.EndTime()) {
+		// The completed span's final export carries its actual ending name.
+		spanData.nameFromLog = ""
+		spanData.hasNameFromLog = false
+	}
 	spanData.StartTime = span.StartTime()
 	spanData.EndTime = span.EndTime()
 	spanData.Status = span.Status()
 	spanData.Links = make([]SpanLink, len(span.Links()))
 	for i, link := range span.Links() {
-		var purpose string
-		for _, linkAttr := range link.Attributes {
-			if linkAttr.Key == telemetry.LinkPurposeAttr {
-				purpose = linkAttr.Value.AsString()
-				break
-			}
+		spanData.Links[i].SpanContext = SpanContext{
+			TraceID: TraceID{link.SpanContext.TraceID()},
+			SpanID:  SpanID{link.SpanContext.SpanID()},
 		}
-		spanData.Links[i] = SpanLink{
-			SpanContext: SpanContext{
-				TraceID: TraceID{link.SpanContext.TraceID()},
-				SpanID:  SpanID{link.SpanContext.SpanID()},
-			},
-			Purpose: purpose,
+		for _, linkAttr := range link.Attributes {
+			spanData.Links[i].ProcessAttribute(string(linkAttr.Key), linkAttr.Value.AsString())
 		}
 	}
 
@@ -714,7 +1110,15 @@ func (db *DB) integrateSpan(span *Span) { //nolint: gocyclo
 	}
 
 	if span.CallDigest != "" && span.CallPayload != "" {
-		db.CallPayloads[span.CallDigest] = span.CallPayload
+		// Legacy channel: older engines carry a base64 payload on the span
+		// itself. Decode eagerly into the same store the log channel fills so
+		// nothing downstream has to know which channel carried a call.
+		var legacy callpbv1.Call
+		if err := legacy.Decode(span.CallPayload); err == nil {
+			db.addCall(span.CallDigest, &legacy)
+		} else {
+			slog.Warn("failed to decode legacy call payload", "digest", span.CallDigest, "err", err)
+		}
 	}
 
 	if !span.ParentID.IsValid() && span.Received {
@@ -774,6 +1178,10 @@ func (db *DB) integrateSpan(span *Span) { //nolint: gocyclo
 		db.resolvePendingLogs(span.Output, span.TraceID)
 	}
 
+	if span.Service {
+		db.resolvePendingServiceLogs(span)
+	}
+
 	db.maybeResumeOutput(span)
 
 	// finally, install the span if we don't already have it
@@ -785,6 +1193,7 @@ func (db *DB) integrateSpan(span *Span) { //nolint: gocyclo
 	// FIXME: refactor? can we keep some sort of flat map of spans an append
 	// children to them instead of having the single big ordered list?
 	db.Spans.Add(span)
+	db.mutations++
 	db.noteTestSpanUpdated(span)
 }
 
@@ -881,6 +1290,44 @@ func (db *DB) resolvePendingLogs(output string, traceID TraceID) {
 	}
 }
 
+// resolvePendingServiceLogs claims parked digest-routed log records whose own
+// span is this service's exec span. A service's stdio names the call that
+// created it (DagDigestAttr, see routeLog), but the records can arrive before
+// the exec span's snapshot does: routeLog then finds neither a creator span
+// nor a known Service span and parks the record under its digest. On a warm,
+// fully-cached trace the creator's span is never emitted, so nothing else
+// will ever claim them — do it here, when the exec span shows up. Records
+// from other spans sharing the digest stay parked for the creator path.
+func (db *DB) resolvePendingServiceLogs(span *Span) {
+	for key, records := range db.pendingLogsByOutput {
+		if key.TraceID != span.TraceID {
+			continue
+		}
+		var kept []sdklog.Record
+		var claimed bool
+		for _, record := range records {
+			if (SpanID{SpanID: record.SpanID()}) != span.ID {
+				kept = append(kept, record)
+				continue
+			}
+			claimed = true
+			if span.ID == db.PrimarySpan {
+				db.PrimaryLogs[span.ID] = append(db.PrimaryLogs[span.ID], record)
+			}
+			db.resolvedLogsBySpan[span.ID] = append(db.resolvedLogsBySpan[span.ID], record)
+		}
+		if !claimed {
+			continue
+		}
+		span.HasLogs = true
+		if len(kept) == 0 {
+			delete(db.pendingLogsByOutput, key)
+		} else {
+			db.pendingLogsByOutput[key] = kept
+		}
+	}
+}
+
 func (db *DB) DrainResolvedLogs(spanID SpanID) []sdklog.Record {
 	logs := db.resolvedLogsBySpan[spanID]
 	delete(db.resolvedLogsBySpan, spanID)
@@ -893,7 +1340,9 @@ func (db *DB) routeLog(record sdklog.Record) (SpanID, *resumeOutputKey) {
 	var targetDig string
 	record.WalkAttributes(func(kv otellog.KeyValue) bool {
 		if kv.Key == telemetry.DagDigestAttr {
-			targetDig = kv.Value.AsString()
+			if value, ok := LogValueString(kv.Value); ok {
+				targetDig = value
+			}
 			return false
 		}
 		return true
@@ -905,6 +1354,20 @@ func (db *DB) routeLog(record sdklog.Record) (SpanID, *resumeOutputKey) {
 
 	if creator := db.creatorSpanForDigestInTrace(targetDig, record.TraceID()); creator != nil {
 		return creator.ID, nil
+	}
+
+	// A service's stdio names the call that created the service (the engine
+	// stamps DagDigestAttr with e.g. the asService call digest) so the stream
+	// renders beneath the API call that installed it. On a warm, fully-cached
+	// trace that call's span is never emitted, so no creator will ever arrive
+	// to claim parked lines. The record's own span is the service's
+	// long-lived exec span: attach the stream there, keeping it beneath the
+	// service instance — and, via log roll-up, in whatever row displays it,
+	// e.g. `dagger up`'s per-service display span — instead of parking it
+	// forever. (On a cold trace a record can win a race against the creator
+	// span's arrival and land here too; it stays in the same subtree.)
+	if span, ok := db.Spans.Map[fallback]; ok && span.Service {
+		return fallback, nil
 	}
 
 	key := resumeOutputKey{
@@ -979,31 +1442,39 @@ func (*DB) Close() error {
 }
 
 func (db *DB) Call(dig string) *callpbv1.Call {
-	// First, check if we already have the call cached
-	if cached, ok := db.Calls[dig]; ok {
-		return cached
+	return db.call(dig, nil)
+}
+
+// call resolves a digest to its call, remembering which digests the creator
+// walk has already visited.
+//
+// The walk needs that memory because CreatorSpans is keyed on a span's OUTPUT
+// digest while it answers with the span's CALL digest, and the two are
+// routinely the same value — a span that is its own creator. As long as an
+// exact call is present that branch returns first and the question never
+// arises; when one is MISSING, which is exactly the case a resume has to
+// report (design §9's first row: "call <digest> never reached this client"),
+// the walk recurred on the digest it started from and blew the stack instead.
+// Found by the end-to-end restore test, feeding it a capture whose call
+// payloads were withheld.
+func (db *DB) call(dig string, seen map[string]bool) *callpbv1.Call {
+	// First, check if we have the exact call.
+	if decoded, ok := db.Calls[dig]; ok {
+		return decoded
 	}
 
-	// Next, try to decode from the call payload
-	if callPayload, ok := db.CallPayloads[dig]; ok {
-		var call callpbv1.Call
-		if err := call.Decode(callPayload); err != nil {
-			slog.Warn("failed to decode call", "err", err)
-			// Cache nil so we don't keep retrying and spamming warnings
-			// on every render cycle.
-			db.Calls[dig] = nil
-			return nil
-		}
-		// Cache the decoded call for future use
-		db.Calls[dig] = &call
-		return &call
-	}
-
-	// Finally, try to find the call through creator spans
+	// Otherwise, try to find the call through creator spans.
 	if creators, ok := db.CreatorSpans[dig]; ok {
+		if seen == nil {
+			seen = map[string]bool{}
+		}
+		seen[dig] = true
 		// Try each creator in order
 		for _, creator := range creators.Order {
-			if creatorCall := db.Call(creator.CallDigest); creatorCall != nil {
+			if seen[creator.CallDigest] {
+				continue
+			}
+			if creatorCall := db.call(creator.CallDigest, seen); creatorCall != nil {
 				return creatorCall
 			}
 		}
@@ -1011,6 +1482,60 @@ func (db *DB) Call(dig string) *callpbv1.Call {
 
 	// No call found
 	return nil
+}
+
+// CallIDForDigest rebuilds the ID of the dagql call with the given digest
+// from the call payloads this client has ingested.
+//
+// It resolves through DB.Call, so it needs no SPAN carrying the digest — only
+// the payload. That distinction is the whole reason it lives here: span
+// emission dedupes per session by call digest (core.ShouldEmitTelemetry), so
+// an identical chain suppresses the second span while the payload still rides
+// the log channel (hack/designs/resume-from-trace.md §3.2, failure mode 2).
+// A rebuild keyed on spans cannot serve that case at all, and it is exactly
+// the case a resume anchor lands in.
+//
+// A gap is reported rather than papered over: the ID is not rebuildable, and
+// the caller must degrade (a read-only roster entry, a refused restore)
+// rather than act on a truncated chain.
+func (db *DB) CallIDForDigest(digest string) (*call.ID, error) {
+	if digest == "" {
+		return nil, fmt.Errorf("no call digest")
+	}
+	rootCall := db.Call(digest)
+	if rootCall == nil {
+		return nil, fmt.Errorf("cannot rebuild ID: %s",
+			missingCall{digest: digest})
+	}
+
+	recipe := &callpbv1.RecipeDAG{
+		// Not `digest`: DB.Call can answer through a creator span, in which
+		// case the chain that rebuilds is the creator's.
+		RootDigest:    rootCall.Digest,
+		CallsByDigest: map[string]*callpbv1.Call{},
+	}
+	// Report the gap here rather than letting decode trip over it below: this
+	// is the only layer that knows which frame referenced the missing call,
+	// and a chain deep enough to matter turns the decode error into a stack of
+	// "failed to decode receiver Call" with a bare digest at the bottom.
+	//
+	// A gap means some frame's payload never reached this client -- no span
+	// carried it and no closure record did -- so the ID is not rebuildable.
+	if missing := extractIntoDAG(recipe, db, rootCall.Digest); len(missing) > 0 {
+		return nil, fmt.Errorf("cannot rebuild ID for %s: %s",
+			frameLabel(rootCall), missing[0])
+	}
+	dag := &callpbv1.DAG{
+		Value: &callpbv1.DAG_Recipe{
+			Recipe: recipe,
+		},
+	}
+
+	var id call.ID
+	if err := id.FromProto(dag); err != nil {
+		return nil, err
+	}
+	return &id, nil
 }
 
 func (db *DB) MustCall(dig string) *callpbv1.Call {

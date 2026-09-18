@@ -1,0 +1,87 @@
+=== RUN   TestGitLazyOperationsEvaluate
+2026/09/16 20:31:15 INFO start lazy evaluation field=GitRepository.__cleaned
+2026/09/16 20:31:15 INFO end lazy evaluation field=GitRepository.__cleaned duration=24.913666ms
+=== RUN   TestGitLazyOperationsEvaluate/false-false-false
+2026/09/16 20:31:15 INFO start lazy evaluation field=GitRef.tree
+2026/09/16 20:31:15 INFO end lazy evaluation field=GitRef.tree duration=80.261208ms
+=== RUN   TestGitLazyOperationsEvaluate/false-false-true
+2026/09/16 20:31:16 INFO start lazy evaluation field=GitCommit.tree
+2026/09/16 20:31:16 INFO end lazy evaluation field=GitCommit.tree duration=73.73285ms
+=== RUN   TestGitLazyOperationsEvaluate/false-true-false
+2026/09/16 20:31:16 INFO start lazy evaluation field=GitRef.tree
+2026/09/16 20:31:16 INFO end lazy evaluation field=GitRef.tree duration=91.323909ms
+=== RUN   TestGitLazyOperationsEvaluate/false-true-true
+2026/09/16 20:31:16 INFO start lazy evaluation field=GitCommit.tree
+2026/09/16 20:31:16 INFO end lazy evaluation field=GitCommit.tree duration=83.015373ms
+=== RUN   TestGitLazyOperationsEvaluate/true-false-false
+2026/09/16 20:31:16 INFO start lazy evaluation field=GitRef.tree
+2026/09/16 20:31:16 INFO end lazy evaluation field=GitRef.tree duration=94.635583ms
+=== RUN   TestGitLazyOperationsEvaluate/true-false-true
+2026/09/16 20:31:16 INFO start lazy evaluation field=GitCommit.tree
+2026/09/16 20:31:16 INFO end lazy evaluation field=GitCommit.tree duration=86.779077ms
+=== RUN   TestGitLazyOperationsEvaluate/true-true-false
+2026/09/16 20:31:17 INFO start lazy evaluation field=GitRef.tree
+2026/09/16 20:31:17 INFO end lazy evaluation field=GitRef.tree duration=86.141408ms
+=== RUN   TestGitLazyOperationsEvaluate/true-true-true
+2026/09/16 20:31:17 INFO start lazy evaluation field=GitCommit.tree
+2026/09/16 20:31:17 INFO end lazy evaluation field=GitCommit.tree duration=89.294682ms
+2026/09/16 20:31:17 INFO start lazy evaluation field=GitRepository.__cleaned
+2026/09/16 20:31:17 INFO end lazy evaluation field=GitRepository.__cleaned duration=8.858525ms err="git cleaned input has no worktree"
+2026/09/16 20:31:17 INFO start lazy evaluation field=GitRepository.__cleaned
+2026/09/16 20:31:17 INFO end lazy evaluation field=GitRepository.__cleaned duration=7.806046ms err="git cleaned input has no worktree"
+2026/09/16 20:31:17 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestGitLazyOperationsEvaluate (2.02s)
+    --- PASS: TestGitLazyOperationsEvaluate/false-false-false (0.22s)
+    --- PASS: TestGitLazyOperationsEvaluate/false-false-true (0.18s)
+    --- PASS: TestGitLazyOperationsEvaluate/false-true-false (0.21s)
+    --- PASS: TestGitLazyOperationsEvaluate/false-true-true (0.19s)
+    --- PASS: TestGitLazyOperationsEvaluate/true-false-false (0.22s)
+    --- PASS: TestGitLazyOperationsEvaluate/true-false-true (0.21s)
+    --- PASS: TestGitLazyOperationsEvaluate/true-true-false (0.20s)
+    --- PASS: TestGitLazyOperationsEvaluate/true-true-true (0.21s)
+=== RUN   TestGitLazyOperationsRemoteEvaluate
+2026/09/16 20:31:17 INFO start lazy evaluation field=GitRef.tree
+2026/09/16 20:31:17 INFO end lazy evaluation field=GitRef.tree duration=241.816884ms
+2026/09/16 20:31:17 INFO start lazy evaluation field=GitCommit.tree
+2026/09/16 20:31:18 INFO end lazy evaluation field=GitCommit.tree duration=197.83094ms
+2026/09/16 20:31:18 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestGitLazyOperationsRemoteEvaluate (0.71s)
+=== RUN   TestGitBundleLazyOperationEvaluate
+=== RUN   TestGitBundleLazyOperationEvaluate/false
+2026/09/16 20:31:18 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 20:31:18 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=62.881139ms
+2026/09/16 20:31:18 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 20:31:18 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=21.944982ms err="git bundle header changed after parsing"
+=== RUN   TestGitBundleLazyOperationEvaluate/false/ref_order
+2026/09/16 20:31:18 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 20:31:18 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=34.30347ms err="git bundle header changed after parsing"
+=== RUN   TestGitBundleLazyOperationEvaluate/false/object_format
+2026/09/16 20:31:18 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 20:31:18 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=34.802159ms err="import git bundle prerequisites : git bundle object format is sha1, repository object format is sha256"
+=== RUN   TestGitBundleLazyOperationEvaluate/false/malformed
+2026/09/16 20:31:18 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 20:31:18 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=26.915513ms err="invalid git bundle signature \"invalid bundle\""
+=== RUN   TestGitBundleLazyOperationEvaluate/false/oversize
+2026/09/16 20:31:18 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 20:31:18 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=9.466864ms err="git bundle size 134217729 exceeds limit 134217728"
+=== RUN   TestGitBundleLazyOperationEvaluate/true
+2026/09/16 20:31:18 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 20:31:18 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=88.860303ms
+=== RUN   TestGitBundleLazyOperationEvaluate/true/advanced_prerequisite_hint_on_decoded_repository
+2026/09/16 20:31:18 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 20:31:19 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=137.248538ms
+2026/09/16 20:31:19 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 20:31:19 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=40.999528ms err="import git bundle prerequisites 7519c51faa75f308b04eae1a444f087494c5052a: git bundle prerequisite 7519c51faa75f308b04eae1a444f087494c5052a is not available from the repository"
+2026/09/16 20:31:19 INFO start lazy evaluation field=GitRepository.__withBundleDirectory
+2026/09/16 20:31:19 INFO end lazy evaluation field=GitRepository.__withBundleDirectory duration=19.995484ms err="git bundle header changed after parsing"
+2026/09/16 20:31:19 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestGitBundleLazyOperationEvaluate (1.10s)
+    --- PASS: TestGitBundleLazyOperationEvaluate/false (0.47s)
+        --- PASS: TestGitBundleLazyOperationEvaluate/false/ref_order (0.07s)
+        --- PASS: TestGitBundleLazyOperationEvaluate/false/object_format (0.08s)
+        --- PASS: TestGitBundleLazyOperationEvaluate/false/malformed (0.06s)
+        --- PASS: TestGitBundleLazyOperationEvaluate/false/oversize (0.04s)
+    --- PASS: TestGitBundleLazyOperationEvaluate/true (0.56s)
+        --- PASS: TestGitBundleLazyOperationEvaluate/true/advanced_prerequisite_hint_on_decoded_repository (0.23s)
+PASS
+ok  	github.com/dagger/dagger/core	3.921s

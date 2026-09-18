@@ -1,0 +1,112 @@
+=== RUN   TestCacheEvaluateRetiresFinishedAttemptBeforeWaitersDrain
+--- PASS: TestCacheEvaluateRetiresFinishedAttemptBeforeWaitersDrain (0.00s)
+=== RUN   TestCacheEvaluateOwnCancellationOnlyCancelsOwnWait
+--- PASS: TestCacheEvaluateOwnCancellationOnlyCancelsOwnWait (0.00s)
+=== RUN   TestCacheEvaluateSettlesBookkeepingBeforeReportingComplete
+--- PASS: TestCacheEvaluateSettlesBookkeepingBeforeReportingComplete (0.00s)
+=== RUN   TestCacheEvaluatePendingBookkeepingSkipsUnclearedCallback
+--- PASS: TestCacheEvaluatePendingBookkeepingSkipsUnclearedCallback (0.00s)
+=== RUN   TestPartSourceSelectionLaterRoute
+--- PASS: TestPartSourceSelectionLaterRoute (0.08s)
+=== RUN   TestPartSessionlessOwnSubset
+=== RUN   TestPartSessionlessOwnSubset/offer-only
+=== RUN   TestPartSessionlessOwnSubset/own
+=== RUN   TestPartSessionlessOwnSubset/revoked-before-commit
+=== RUN   TestPartSessionlessOwnSubset/native-receiver
+--- PASS: TestPartSessionlessOwnSubset (0.13s)
+    --- PASS: TestPartSessionlessOwnSubset/offer-only (0.03s)
+    --- PASS: TestPartSessionlessOwnSubset/own (0.03s)
+    --- PASS: TestPartSessionlessOwnSubset/revoked-before-commit (0.03s)
+    --- PASS: TestPartSessionlessOwnSubset/native-receiver (0.03s)
+=== RUN   TestPartReadyRevalidationAndCanceledFinish
+=== RUN   TestPartReadyRevalidationAndCanceledFinish/stale-donor
+=== RUN   TestPartReadyRevalidationAndCanceledFinish/cancel-commit
+=== RUN   TestPartReadyRevalidationAndCanceledFinish/cancel-finish
+--- PASS: TestPartReadyRevalidationAndCanceledFinish (0.11s)
+    --- PASS: TestPartReadyRevalidationAndCanceledFinish/stale-donor (0.05s)
+    --- PASS: TestPartReadyRevalidationAndCanceledFinish/cancel-commit (0.03s)
+    --- PASS: TestPartReadyRevalidationAndCanceledFinish/cancel-finish (0.03s)
+=== RUN   TestPartProducerMissingOutputStopsOnce
+--- PASS: TestPartProducerMissingOutputStopsOnce (0.03s)
+=== RUN   TestPartAdmittedChainLifetime
+=== RUN   TestPartAdmittedChainLifetime/donor-collected
+=== RUN   TestPartAdmittedChainLifetime/slot-replaced
+=== RUN   TestPartAdmittedChainLifetime/owner-backref-sync-failure
+=== RUN   TestPartAdmittedChainLifetime/output-backref-rejected
+--- PASS: TestPartAdmittedChainLifetime (0.83s)
+    --- PASS: TestPartAdmittedChainLifetime/donor-collected (0.20s)
+    --- PASS: TestPartAdmittedChainLifetime/slot-replaced (0.20s)
+    --- PASS: TestPartAdmittedChainLifetime/owner-backref-sync-failure (0.20s)
+    --- PASS: TestPartAdmittedChainLifetime/output-backref-rejected (0.22s)
+=== RUN   TestPartDecodeBeforeExternalFinish
+--- PASS: TestPartDecodeBeforeExternalFinish (0.08s)
+=== RUN   TestPartUnusedHostAllocatesNoGate
+--- PASS: TestPartUnusedHostAllocatesNoGate (0.00s)
+=== RUN   TestPartFixedProviderAndContentExhaustion
+--- PASS: TestPartFixedProviderAndContentExhaustion (0.03s)
+=== RUN   TestPartSourceSelection
+--- PASS: TestPartSourceSelection (0.04s)
+=== RUN   TestPartOfferSessionAdmission
+--- PASS: TestPartOfferSessionAdmission (0.03s)
+=== RUN   TestReadyPartReceipt
+--- PASS: TestReadyPartReceipt (0.03s)
+=== RUN   TestPartSettlementRetiresReplacement
+--- PASS: TestPartSettlementRetiresReplacement (0.03s)
+=== RUN   TestPartDecisionFinalSource
+--- PASS: TestPartDecisionFinalSource (0.03s)
+=== RUN   TestPartTaskBodyIsolation
+--- PASS: TestPartTaskBodyIsolation (0.00s)
+=== RUN   TestPartTaskContinuation
+--- PASS: TestPartTaskContinuation (0.00s)
+=== RUN   TestPartTaskNoJoinBarrier
+--- PASS: TestPartTaskNoJoinBarrier (0.00s)
+=== RUN   TestPartGateFiniteDrain
+--- PASS: TestPartGateFiniteDrain (0.00s)
+=== RUN   TestEvaluatePartsSiblingGroupsRunConcurrently
+--- PASS: TestEvaluatePartsSiblingGroupsRunConcurrently (0.00s)
+=== RUN   TestEvaluatePartsOneCallRunsGroupsConcurrently
+--- PASS: TestEvaluatePartsOneCallRunsGroupsConcurrently (0.00s)
+=== RUN   TestEvaluatePartsSyncFailureRetriesOnlyBookkeepingPerGroup
+--- PASS: TestEvaluatePartsSyncFailureRetriesOnlyBookkeepingPerGroup (0.00s)
+=== RUN   TestVisitEncodedReferencesRelocatesDeclaredPositions
+=== RUN   TestVisitEncodedReferencesRelocatesDeclaredPositions/a_missing_mapping_fails_without_partial_writes
+=== RUN   TestVisitEncodedReferencesRelocatesDeclaredPositions/a_mismatched_envelope_identity_is_rejected
+=== RUN   TestVisitEncodedReferencesRelocatesDeclaredPositions/a_root_reference_envelope_is_rejected
+--- PASS: TestVisitEncodedReferencesRelocatesDeclaredPositions (0.00s)
+    --- PASS: TestVisitEncodedReferencesRelocatesDeclaredPositions/a_missing_mapping_fails_without_partial_writes (0.00s)
+    --- PASS: TestVisitEncodedReferencesRelocatesDeclaredPositions/a_mismatched_envelope_identity_is_rejected (0.00s)
+    --- PASS: TestVisitEncodedReferencesRelocatesDeclaredPositions/a_root_reference_envelope_is_rejected (0.00s)
+=== RUN   TestVisitEncodedReferencesClassifiesStorageRoles
+=== RUN   TestVisitEncodedReferencesClassifiesStorageRoles/a_family_declaring_no_references_rejects_storage_links
+--- PASS: TestVisitEncodedReferencesClassifiesStorageRoles (0.00s)
+    --- PASS: TestVisitEncodedReferencesClassifiesStorageRoles/a_family_declaring_no_references_rejects_storage_links (0.00s)
+=== RUN   TestVisitEncodedReferencesRequiresEveryRoleOnce
+=== RUN   TestVisitEncodedReferencesRequiresEveryRoleOnce/a_null_root_cannot_declare_storage_roles
+=== RUN   TestVisitEncodedReferencesRequiresEveryRoleOnce/a_scalar_json_root_cannot_declare_storage_roles
+=== RUN   TestVisitEncodedReferencesRequiresEveryRoleOnce/a_list_root_cannot_declare_storage_roles
+--- PASS: TestVisitEncodedReferencesRequiresEveryRoleOnce (0.00s)
+    --- PASS: TestVisitEncodedReferencesRequiresEveryRoleOnce/a_null_root_cannot_declare_storage_roles (0.00s)
+    --- PASS: TestVisitEncodedReferencesRequiresEveryRoleOnce/a_scalar_json_root_cannot_declare_storage_roles (0.00s)
+    --- PASS: TestVisitEncodedReferencesRequiresEveryRoleOnce/a_list_root_cannot_declare_storage_roles (0.00s)
+=== RUN   TestScopedCollectorConcurrentPublicationCost
+=== RUN   TestScopedCollectorConcurrentPublicationCost/width128_depth1
+    cache_snapshot_scope_bench_test.go:120: typed_collector outputs=128 depth=1 publications=8192 attempts=169 retries=41 accepted=128 elapsed=327.047091ms
+=== RUN   TestScopedCollectorConcurrentPublicationCost/width8_depth3
+    cache_snapshot_scope_bench_test.go:120: typed_collector outputs=512 depth=3 publications=8192 attempts=141 retries=13 accepted=128 elapsed=1.683850306s
+--- PASS: TestScopedCollectorConcurrentPublicationCost (2.02s)
+    --- PASS: TestScopedCollectorConcurrentPublicationCost/width128_depth1 (0.33s)
+    --- PASS: TestScopedCollectorConcurrentPublicationCost/width8_depth3 (1.69s)
+=== RUN   TestScopedSnapshotVisitor
+--- PASS: TestScopedSnapshotVisitor (0.00s)
+=== RUN   TestScopedSnapshotDecodeCarrier
+--- PASS: TestScopedSnapshotDecodeCarrier (0.00s)
+=== RUN   TestScopedSnapshotCanonicalKeys
+--- PASS: TestScopedSnapshotCanonicalKeys (0.00s)
+=== RUN   TestScopedSnapshotSQLConflict
+--- PASS: TestScopedSnapshotSQLConflict (0.03s)
+=== RUN   TestScopedDecodeRejectsMismatchedCarrierBeforeCodec
+--- PASS: TestScopedDecodeRejectsMismatchedCarrierBeforeCodec (0.00s)
+=== RUN   TestValueTransferPersistenceDecodePublication
+--- PASS: TestValueTransferPersistenceDecodePublication (0.06s)
+PASS
+ok  	github.com/dagger/dagger/dagql	4.663s

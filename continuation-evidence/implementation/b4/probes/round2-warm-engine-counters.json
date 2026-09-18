@@ -1,0 +1,60 @@
+{
+  "trace": "0a22a548c1ad35d8f605611e47fde4da",
+  "source": "f04a91577bd4ddc574f3bc527cdffe9fec2179a1",
+  "scratch": [
+    {
+      "cold": false,
+      "ordinal": 1,
+      "resultID": 4469,
+      "address": {
+        "part": "snapshot"
+      },
+      "group": "whole",
+      "platform": "linux/amd64",
+      "producerEntries": 0,
+      "providerReads": 0
+    },
+    {
+      "cold": false,
+      "ordinal": 1,
+      "resultID": 4469,
+      "address": {
+        "part": "snapshot"
+      },
+      "group": "whole",
+      "platform": "linux/amd64",
+      "producerEntries": 0,
+      "providerReads": 0
+    },
+    {
+      "cold": false,
+      "ordinal": 1,
+      "resultID": 4472,
+      "address": {
+        "part": "snapshot"
+      },
+      "group": "whole",
+      "platform": "linux/amd64",
+      "producerEntries": 0,
+      "providerReads": 0
+    },
+    {
+      "cold": false,
+      "ordinal": 1,
+      "resultID": 4472,
+      "address": {
+        "part": "snapshot"
+      },
+      "group": "whole",
+      "platform": "linux/amd64",
+      "producerEntries": 0,
+      "providerReads": 0
+    }
+  ],
+  "order": "before, repeated before; after, repeated after",
+  "before": "passed",
+  "after": "passed",
+  "cleanRestarts": 2,
+  "reportBodyCountAtEachRestart": 1,
+  "foreignContext": "passed"
+}

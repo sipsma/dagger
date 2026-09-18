@@ -14,6 +14,8 @@ type ServiceID = dagql.ID[*Service]
 
 type CacheVolumeID = dagql.ID[*CacheVolume]
 
+type VolumeID = dagql.ID[*Volume]
+
 type DirectoryID = dagql.ID[*Directory]
 
 type FileID = dagql.ID[*File]
@@ -50,15 +52,21 @@ type SourceMapID = dagql.ID[*SourceMap]
 
 type GeneratedCodeID = dagql.ID[*GeneratedCode]
 
+type GitBundleID = dagql.ID[*GitBundle]
+
 type GitRepositoryID = dagql.ID[*GitRepository]
 
 type GitRefID = dagql.ID[*GitRef]
+
+type GitCommitID = dagql.ID[*GitCommit]
 
 type SocketID = dagql.ID[*Socket]
 
 type LLMID = dagql.ID[*LLM]
 
-type EnvID = dagql.ID[*Env]
+type AgentID = dagql.ID[*Agent]
+
+type AgentMessageID = dagql.ID[*AgentMessage]
 
 type EnvFileID = dagql.ID[*EnvFile]
 

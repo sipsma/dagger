@@ -1,0 +1,4 @@
+=== RUN   TestPartFixtureReleaseObserverPrivateFS
+--- PASS: TestPartFixtureReleaseObserverPrivateFS (0.00s)
+PASS
+ok      github.com/dagger/dagger/core   1.411s

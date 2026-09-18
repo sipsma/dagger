@@ -1,0 +1,6 @@
+Implementation tip: 688bef3408e77da2313916907575bf628a0e9a67
+Working directory: repository root
+GOFLAGS: empty
+Command: env GOPATH=/home/exedev/go GOCACHE=/home/exedev/.cache/go-build go test -p=1 -exec='sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core ./core/schema ./dagql -count=1
+Output: round2-unfiltered.log (complete, unchanged)
+Exit status: 0

@@ -24,6 +24,7 @@ import (
 	runc "github.com/containerd/go-runc"
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/engine"
+	"github.com/dagger/dagger/engine/wcprof"
 	"github.com/dagger/dagger/internal/buildkit/executor"
 	"github.com/dagger/dagger/internal/buildkit/executor/oci"
 	gatewayapi "github.com/dagger/dagger/internal/buildkit/frontend/gateway/pb"
@@ -70,6 +71,60 @@ type ExecutionMetadata struct {
 
 	// If true, skip injecting dagger-init into the container.
 	NoInit bool
+
+	// ProfArgs is the fully-resolved user command (entrypoint + args), captured
+	// in core at exec-run time BEFORE any engine shim (the QEMU emulator, the
+	// executor's /.init) wraps it, so wall-clock profiling can headline the user's
+	// real program (e.g. "go build") instead of a shim. It is read at the executor
+	// emit site (executor_spec.go) by both the native recorder and the OTel source.
+	//
+	// json:"-" is load-bearing: ExecutionMetadata is JSON-serialized into exec
+	// cache keys (dagql.SerializedString/DigestedSerializedString), and ProfArgs
+	// must never perturb a cache key. It is excluded structurally here; it is also
+	// set only at run time (after every execMD digest is computed), and the
+	// core->executor hand-off is an in-process pointer (never re-serialized), so
+	// excluding it from JSON cannot drop it before the emit.
+	ProfArgs []string `json:"-"`
+
+	// UserFacingSpanCtx is the last user-facing (non-profiling) span of the API
+	// call this exec runs under, captured in core at exec-setup time (see
+	// dagql.UserFacingSpanContext). The executor injects IT as the container's
+	// traceparent — not its own current span: the exec runs on a detached
+	// execution context (shared/deduped, possibly lazily resumed) whose current
+	// span is a profiling span (the call_exec twin / a resume span) and which
+	// does not carry the caller's context mark, so only core still knows the
+	// user-facing span. Everything the container emits (nested SDK client
+	// spans, user process logs, returned Error origin extensions) parents to
+	// the injected id, and telemetry parented to an unrendered passthrough span
+	// vanishes from the row that should show it.
+	//
+	// json:"-" is load-bearing for the same reason as ProfArgs above: this
+	// run-time-only value must never perturb an exec cache key, and the
+	// core->executor hand-off is an in-process pointer, so excluding it from
+	// JSON cannot drop it before use.
+	UserFacingSpanCtx trace.SpanContext `json:"-"`
+
+	// HostAliasFQDNs maps a HostAliases key (a bound service's advertised
+	// hostname) to the fully qualified name the running service actually
+	// registered in DNS under. A service with a custom hostname is namespaced
+	// into the domain of whichever module started it (core.Service.startContainer),
+	// and that FQDN is the only name the dnsname CNI plugin registers. The
+	// consuming exec only searches its own module domain plus the session
+	// domain, so re-deriving the name from the bare hostname fails outright
+	// whenever the service was first started by a different module. Recording
+	// the FQDN keeps an explicit WithServiceBinding working across that
+	// boundary without installing the producer's domain as a search domain,
+	// which would expose every other service scoped to it.
+	//
+	// Only entries for names in the engine's DNS domain are set; tunnel
+	// services report a host-side dial address instead and must keep resolving
+	// through the search-domain sweep in setupNetwork.
+	//
+	// json:"-" is load-bearing for the same reason as ProfArgs above: this
+	// run-time-only value must never perturb an exec cache key, and the
+	// core->executor hand-off is an in-process pointer, so excluding it from
+	// JSON cannot drop it before use.
+	HostAliasFQDNs map[string]string `json:"-"`
 }
 
 func (c *Client) Run(
@@ -86,7 +141,6 @@ func (c *Client) Run(
 	nestedClientMetadata *engine.ClientMetadata,
 	nestedClientModule dagql.AnyObjectResult,
 	nestedClientFunctionCall dagql.Typed,
-	nestedClientEnv dagql.AnyObjectResult,
 ) (rerr error) {
 	if id == "" {
 		id = randid.NewID()
@@ -109,32 +163,66 @@ func (c *Client) Run(
 		nestedClientMetadata,
 		nestedClientModule,
 		nestedClientFunctionCall,
-		nestedClientEnv,
 	)
-	return c.run(ctx, state,
-		c.setupNetwork,
-		c.injectInit,
-		c.generateBaseSpec,
-		c.filterEnvs,
-		c.setupRootfs,
-		c.setUserGroup,
-		c.setExitCodePath,
-		c.setupStdio,
-		c.setupOTel,
-		c.setupSecretScrubbing,
-		c.setProxyEnvs,
-		c.enableGPU,
-		c.createCWD,
-		c.setupNestedClient,
-		c.installCACerts,
-		c.runContainer,
+
+	execIdent := state.id
+	if execMD != nil && execMD.CallDigest != "" {
+		execIdent = execMD.CallDigest.String()
+	}
+
+	var execOp *wcprof.Op
+	if wcprof.Enabled(ctx) {
+		ctx, execOp = wcprof.BeginOp(ctx, wcprof.OpKindExec, "exec.run", wcprof.OpOpts{
+			Ident:    execIdent,
+			ClientID: callerClientID,
+		})
+	}
+	// OTel analog of execOp: exec.run nests the container run under
+	// the withExec call_exec span (or the service exec span) via the propagated
+	// ctx, so the offline loader reconstructs the same exec shape from a Cloud
+	// trace. Gated only on telemetry being active, independent of wcprof. OTel
+	// gets nested-client parentage for free via traceparent, so unlike native it
+	// needs no nested-client link.
+	var execRunSpan trace.Span
+	if dagql.OTelProfActive(ctx) {
+		ctx, execRunSpan = beginOTelExecRun(ctx, execIdent)
+	}
+	err := c.run(ctx, state,
+		namedSetupFunc{"setupNetwork", c.setupNetwork},
+		namedSetupFunc{"injectInit", c.injectInit},
+		namedSetupFunc{"generateBaseSpec", c.generateBaseSpec},
+		namedSetupFunc{"filterEnvs", c.filterEnvs},
+		namedSetupFunc{"setupRootfs", c.setupRootfs},
+		namedSetupFunc{"setUserGroup", c.setUserGroup},
+		namedSetupFunc{"setExitCodePath", c.setExitCodePath},
+		namedSetupFunc{"setupStdio", c.setupStdio},
+		namedSetupFunc{"setupOTel", c.setupOTel},
+		namedSetupFunc{"setupSecretScrubbing", c.setupSecretScrubbing},
+		namedSetupFunc{"setProxyEnvs", c.setProxyEnvs},
+		namedSetupFunc{"enableGPU", c.enableGPU},
+		namedSetupFunc{"createCWD", c.createCWD},
+		namedSetupFunc{"setupNestedClient", c.setupNestedClient},
+		namedSetupFunc{"installCACerts", c.installCACerts},
+		namedSetupFunc{"runContainer", c.runContainer},
 	)
+	execOp.EndErr(err)
+	if execRunSpan != nil {
+		endOTelExecRun(execRunSpan, &err)
+	}
+	return err
+}
+
+// namedSetupFunc pairs an executor setup phase with a stable name used for
+// profiling and logging.
+type namedSetupFunc struct {
+	name string
+	fn   executorSetupFunc
 }
 
 func (c *Client) run(
 	ctx context.Context,
 	state *execState,
-	setupFuncs ...executorSetupFunc,
+	setupFuncs ...namedSetupFunc,
 ) (rerr error) {
 	c.runningMu.Lock()
 	c.running[state.id] = state
@@ -158,8 +246,18 @@ func (c *Client) run(
 		}
 	}()
 
+	profiling := wcprof.Enabled(ctx)
 	for _, f := range setupFuncs {
-		if err := f(ctx, state); err != nil {
+		phaseCtx := ctx
+		var phaseOp *wcprof.Op
+		if profiling {
+			phaseCtx, phaseOp = wcprof.BeginOp(ctx, wcprof.OpKindExecPhase, "exec."+f.name, wcprof.OpOpts{
+				Ident: state.id,
+			})
+		}
+		err := f.fn(phaseCtx, state)
+		phaseOp.EndErr(err)
+		if err != nil {
 			bklog.G(ctx).WithError(err).Error("executor run")
 			return err
 		}

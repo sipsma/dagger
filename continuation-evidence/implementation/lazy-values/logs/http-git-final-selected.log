@@ -1,0 +1,201 @@
+Trace fd96be142f4e43783f9ace5ea4d087c5; exit 0; invocation 158.117 seconds.
+=== RUN   TestGit
+=== PAUSE TestGit
+=== RUN   TestHTTP
+=== PAUSE TestHTTP
+=== CONT  TestGit
+=== CONT  TestHTTP
+=== RUN   TestHTTP/TestHTTPCachePerSessions
+=== PAUSE TestHTTP/TestHTTPCachePerSessions
+=== RUN   TestGit/TestDiscardGitDir
+=== PAUSE TestGit/TestDiscardGitDir
+=== RUN   TestHTTP/TestHTTPChecksum
+=== PAUSE TestHTTP/TestHTTPChecksum
+=== RUN   TestGit/TestGitBundleImportAfterPrerequisiteRefAdvances
+=== PAUSE TestGit/TestGitBundleImportAfterPrerequisiteRefAdvances
+=== RUN   TestGit/TestGitBundleRoundTripAndStockInterop
+=== PAUSE TestGit/TestGitBundleRoundTripAndStockInterop
+=== RUN   TestGit/TestGitCommit
+=== PAUSE TestGit/TestGitCommit
+=== RUN   TestHTTP/TestHTTPChecksumMismatch
+=== PAUSE TestHTTP/TestHTTPChecksumMismatch
+=== RUN   TestGit/TestGitCommitReleaseTagFreshness
+=== PAUSE TestGit/TestGitCommitReleaseTagFreshness
+=== RUN   TestHTTP/TestHTTPPermissions
+=== PAUSE TestHTTP/TestHTTPPermissions
+=== RUN   TestGit/TestGitCommitReleaseTags
+=== PAUSE TestGit/TestGitCommitReleaseTags
+=== RUN   TestHTTP/TestHTTPService
+=== PAUSE TestHTTP/TestHTTPService
+=== RUN   TestGit/TestGitDepth
+=== PAUSE TestGit/TestGitDepth
+=== RUN   TestGit/TestGitLatest
+=== PAUSE TestGit/TestGitLatest
+=== RUN   TestHTTP/TestHTTPTimestamp
+=== PAUSE TestHTTP/TestHTTPTimestamp
+=== CONT  TestHTTP/TestHTTPCachePerSessions
+=== CONT  TestHTTP/TestHTTPService
+=== CONT  TestHTTP/TestHTTPChecksumMismatch
+=== CONT  TestHTTP/TestHTTPChecksum
+=== CONT  TestHTTP/TestHTTPPermissions
+=== CONT  TestHTTP/TestHTTPTimestamp
+=== RUN   TestGit/TestGitLatestFallsBackToHead
+=== PAUSE TestGit/TestGitLatestFallsBackToHead
+=== RUN   TestGit/TestGitTags
+=== PAUSE TestGit/TestGitTags
+=== RUN   TestGit/TestGitUncommittedLocal
+=== PAUSE TestGit/TestGitUncommittedLocal
+=== RUN   TestGit/TestGitUncommittedRemote
+=== PAUSE TestGit/TestGitUncommittedRemote
+=== CONT  TestGit/TestDiscardGitDir
+=== CONT  TestGit/TestGitUncommittedRemote
+=== CONT  TestGit/TestGitDepth
+=== CONT  TestGit/TestGitTags
+=== CONT  TestGit/TestGitCommitReleaseTags
+=== CONT  TestGit/TestGitCommitReleaseTagFreshness
+=== CONT  TestGit/TestGitCommit
+=== CONT  TestGit/TestGitUncommittedLocal
+=== CONT  TestGit/TestGitBundleRoundTripAndStockInterop
+=== CONT  TestGit/TestGitBundleImportAfterPrerequisiteRefAdvances
+=== RUN   TestGit/TestDiscardGitDir/git_dir_is_present
+=== PAUSE TestGit/TestDiscardGitDir/git_dir_is_present
+=== RUN   TestGit/TestDiscardGitDir/git_dir_is_not_present
+=== PAUSE TestGit/TestDiscardGitDir/git_dir_is_not_present
+=== CONT  TestGit/TestGitLatestFallsBackToHead
+=== RUN   TestGit/TestGitTags/remote
+=== PAUSE TestGit/TestGitTags/remote
+=== RUN   TestGit/TestGitTags/remote_(short)
+=== PAUSE TestGit/TestGitTags/remote_(short)
+=== RUN   TestGit/TestGitTags/local_worktree
+=== PAUSE TestGit/TestGitTags/local_worktree
+=== RUN   TestGit/TestGitTags/local_git
+=== PAUSE TestGit/TestGitTags/local_git
+=== CONT  TestGit/TestGitLatest
+=== CONT  TestGit/TestDiscardGitDir/git_dir_is_present
+=== CONT  TestGit/TestDiscardGitDir/git_dir_is_not_present
+=== CONT  TestGit/TestGitTags/remote
+=== RUN   TestGit/TestGitTags/remote/all_tags
+=== PAUSE TestGit/TestGitTags/remote/all_tags
+=== RUN   TestGit/TestGitTags/remote/tag_pattern
+=== PAUSE TestGit/TestGitTags/remote/tag_pattern
+=== RUN   TestGit/TestGitTags/remote/ref-qualified_tag_pattern
+=== PAUSE TestGit/TestGitTags/remote/ref-qualified_tag_pattern
+=== RUN   TestGit/TestGitTags/remote/prefix-qualified_tag_pattern
+=== PAUSE TestGit/TestGitTags/remote/prefix-qualified_tag_pattern
+=== RUN   TestGit/TestGitTags/remote/all_branches
+=== PAUSE TestGit/TestGitTags/remote/all_branches
+=== RUN   TestGit/TestGitTags/remote/branches_pattern
+=== PAUSE TestGit/TestGitTags/remote/branches_pattern
+=== CONT  TestGit/TestGitTags/local_worktree
+=== RUN   TestGit/TestGitTags/local_worktree/all_tags
+=== PAUSE TestGit/TestGitTags/local_worktree/all_tags
+=== RUN   TestGit/TestGitTags/local_worktree/tag_pattern
+=== PAUSE TestGit/TestGitTags/local_worktree/tag_pattern
+=== RUN   TestGit/TestGitTags/local_worktree/ref-qualified_tag_pattern
+=== PAUSE TestGit/TestGitTags/local_worktree/ref-qualified_tag_pattern
+=== RUN   TestGit/TestGitTags/local_worktree/prefix-qualified_tag_pattern
+=== PAUSE TestGit/TestGitTags/local_worktree/prefix-qualified_tag_pattern
+=== RUN   TestGit/TestGitTags/local_worktree/all_branches
+=== PAUSE TestGit/TestGitTags/local_worktree/all_branches
+=== RUN   TestGit/TestGitTags/local_worktree/branches_pattern
+=== PAUSE TestGit/TestGitTags/local_worktree/branches_pattern
+=== CONT  TestGit/TestGitTags/remote_(short)
+=== RUN   TestGit/TestGitTags/remote_(short)/all_tags
+=== PAUSE TestGit/TestGitTags/remote_(short)/all_tags
+=== RUN   TestGit/TestGitTags/remote_(short)/tag_pattern
+=== PAUSE TestGit/TestGitTags/remote_(short)/tag_pattern
+=== RUN   TestGit/TestGitTags/remote_(short)/ref-qualified_tag_pattern
+=== PAUSE TestGit/TestGitTags/remote_(short)/ref-qualified_tag_pattern
+=== RUN   TestGit/TestGitTags/remote_(short)/prefix-qualified_tag_pattern
+=== PAUSE TestGit/TestGitTags/remote_(short)/prefix-qualified_tag_pattern
+=== RUN   TestGit/TestGitTags/remote_(short)/all_branches
+=== PAUSE TestGit/TestGitTags/remote_(short)/all_branches
+=== RUN   TestGit/TestGitTags/remote_(short)/branches_pattern
+=== PAUSE TestGit/TestGitTags/remote_(short)/branches_pattern
+=== CONT  TestGit/TestGitTags/local_git
+=== RUN   TestGit/TestGitTags/local_git/all_tags
+=== PAUSE TestGit/TestGitTags/local_git/all_tags
+=== RUN   TestGit/TestGitTags/local_git/tag_pattern
+=== PAUSE TestGit/TestGitTags/local_git/tag_pattern
+=== RUN   TestGit/TestGitTags/local_git/ref-qualified_tag_pattern
+=== PAUSE TestGit/TestGitTags/local_git/ref-qualified_tag_pattern
+=== RUN   TestGit/TestGitTags/local_git/prefix-qualified_tag_pattern
+=== PAUSE TestGit/TestGitTags/local_git/prefix-qualified_tag_pattern
+=== RUN   TestGit/TestGitTags/local_git/all_branches
+=== PAUSE TestGit/TestGitTags/local_git/all_branches
+=== RUN   TestGit/TestGitTags/local_git/branches_pattern
+=== PAUSE TestGit/TestGitTags/local_git/branches_pattern
+=== CONT  TestGit/TestGitTags/remote/all_tags
+=== CONT  TestGit/TestGitTags/remote/prefix-qualified_tag_pattern
+=== CONT  TestGit/TestGitTags/remote/branches_pattern
+=== CONT  TestGit/TestGitTags/remote/all_branches
+=== CONT  TestGit/TestGitTags/remote/ref-qualified_tag_pattern
+=== CONT  TestGit/TestGitTags/remote/tag_pattern
+=== CONT  TestGit/TestGitTags/local_worktree/all_tags
+=== CONT  TestGit/TestGitTags/local_worktree/prefix-qualified_tag_pattern
+=== CONT  TestGit/TestGitTags/local_worktree/branches_pattern
+=== CONT  TestGit/TestGitTags/local_worktree/all_branches
+=== CONT  TestGit/TestGitTags/local_worktree/ref-qualified_tag_pattern
+=== CONT  TestGit/TestGitTags/local_worktree/tag_pattern
+=== CONT  TestGit/TestGitTags/remote_(short)/all_tags
+=== CONT  TestGit/TestGitTags/remote_(short)/prefix-qualified_tag_pattern
+=== CONT  TestGit/TestGitTags/remote_(short)/branches_pattern
+=== CONT  TestGit/TestGitTags/remote_(short)/all_branches
+=== CONT  TestGit/TestGitTags/remote_(short)/ref-qualified_tag_pattern
+=== CONT  TestGit/TestGitTags/remote_(short)/tag_pattern
+=== CONT  TestGit/TestGitTags/local_git/all_tags
+=== CONT  TestGit/TestGitTags/local_git/prefix-qualified_tag_pattern
+=== CONT  TestGit/TestGitTags/local_git/all_branches
+=== CONT  TestGit/TestGitTags/local_git/ref-qualified_tag_pattern
+=== CONT  TestGit/TestGitTags/local_git/branches_pattern
+=== CONT  TestGit/TestGitTags/local_git/tag_pattern
+--- PASS: TestHTTP (0.01s)
+    --- PASS: TestHTTP/TestHTTPPermissions (13.02s)
+    --- PASS: TestHTTP/TestHTTPChecksumMismatch (13.31s)
+    --- PASS: TestHTTP/TestHTTPService (13.40s)
+    --- PASS: TestHTTP/TestHTTPChecksum (13.41s)
+    --- PASS: TestHTTP/TestHTTPTimestamp (13.95s)
+    --- PASS: TestHTTP/TestHTTPCachePerSessions (19.31s)
+--- PASS: TestGit (0.01s)
+    --- PASS: TestGit/TestGitUncommittedRemote (1.59s)
+    --- PASS: TestGit/TestDiscardGitDir (0.28s)
+        --- PASS: TestGit/TestDiscardGitDir/git_dir_is_present (6.72s)
+        --- PASS: TestGit/TestDiscardGitDir/git_dir_is_not_present (3.79s)
+    --- PASS: TestGit/TestGitCommit (13.95s)
+    --- PASS: TestGit/TestGitLatest (14.57s)
+    --- PASS: TestGit/TestGitLatestFallsBackToHead (14.76s)
+    --- PASS: TestGit/TestGitCommitReleaseTags (15.26s)
+    --- PASS: TestGit/TestGitUncommittedLocal (15.27s)
+    --- PASS: TestGit/TestGitBundleImportAfterPrerequisiteRefAdvances (15.61s)
+    --- PASS: TestGit/TestGitBundleRoundTripAndStockInterop (16.17s)
+    --- PASS: TestGit/TestGitCommitReleaseTagFreshness (16.59s)
+    --- PASS: TestGit/TestGitDepth (16.96s)
+    --- PASS: TestGit/TestGitTags (1.69s)
+        --- PASS: TestGit/TestGitTags/remote (0.01s)
+            --- PASS: TestGit/TestGitTags/remote/prefix-qualified_tag_pattern (0.03s)
+            --- PASS: TestGit/TestGitTags/remote/branches_pattern (0.01s)
+            --- PASS: TestGit/TestGitTags/remote/all_branches (0.02s)
+            --- PASS: TestGit/TestGitTags/remote/all_tags (1.01s)
+            --- PASS: TestGit/TestGitTags/remote/ref-qualified_tag_pattern (0.04s)
+            --- PASS: TestGit/TestGitTags/remote/tag_pattern (0.08s)
+        --- PASS: TestGit/TestGitTags/remote_(short) (0.00s)
+            --- PASS: TestGit/TestGitTags/remote_(short)/all_tags (0.61s)
+            --- PASS: TestGit/TestGitTags/remote_(short)/prefix-qualified_tag_pattern (0.02s)
+            --- PASS: TestGit/TestGitTags/remote_(short)/branches_pattern (0.01s)
+            --- PASS: TestGit/TestGitTags/remote_(short)/all_branches (0.01s)
+            --- PASS: TestGit/TestGitTags/remote_(short)/ref-qualified_tag_pattern (0.04s)
+            --- PASS: TestGit/TestGitTags/remote_(short)/tag_pattern (0.13s)
+        --- PASS: TestGit/TestGitTags/local_worktree (0.00s)
+            --- PASS: TestGit/TestGitTags/local_worktree/branches_pattern (14.70s)
+            --- PASS: TestGit/TestGitTags/local_worktree/all_branches (14.61s)
+            --- PASS: TestGit/TestGitTags/local_worktree/prefix-qualified_tag_pattern (14.86s)
+            --- PASS: TestGit/TestGitTags/local_worktree/ref-qualified_tag_pattern (14.70s)
+            --- PASS: TestGit/TestGitTags/local_worktree/all_tags (15.30s)
+            --- PASS: TestGit/TestGitTags/local_worktree/tag_pattern (14.50s)
+        --- PASS: TestGit/TestGitTags/local_git (0.00s)
+            --- PASS: TestGit/TestGitTags/local_git/all_branches (13.06s)
+            --- PASS: TestGit/TestGitTags/local_git/branches_pattern (12.76s)
+            --- PASS: TestGit/TestGitTags/local_git/prefix-qualified_tag_pattern (13.28s)
+            --- PASS: TestGit/TestGitTags/local_git/ref-qualified_tag_pattern (12.86s)
+            --- PASS: TestGit/TestGitTags/local_git/tag_pattern (12.83s)
+            --- PASS: TestGit/TestGitTags/local_git/all_tags (13.71s)

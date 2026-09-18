@@ -11,6 +11,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,17 +33,8 @@ func TestWorkspaceSelection(t *testing.T) {
 
 func workspaceSelectionDaggerExec(args ...string) dagger.WithContainerFunc {
 	return func(c *dagger.Container) *dagger.Container {
-		return c.WithExec(append([]string{"dagger", "--progress=report"}, args...), dagger.ContainerWithExecOpts{
+		return c.WithExec(append([]string{"dagger"}, args...), dagger.ContainerWithExecOpts{
 			ExperimentalPrivilegedNesting: true,
-		})
-	}
-}
-
-func workspaceSelectionDaggerExecFail(args ...string) dagger.WithContainerFunc {
-	return func(c *dagger.Container) *dagger.Container {
-		return c.WithExec(append([]string{"dagger", "--progress=report"}, args...), dagger.ContainerWithExecOpts{
-			ExperimentalPrivilegedNesting: true,
-			Expect:                        dagger.ReturnTypeFailure,
 		})
 	}
 }
@@ -169,8 +161,8 @@ func (m *Files) ReadWorkspaceArg(ctx context.Context, workspace *dagger.Workspac
 	return workspace.File("marker.txt").Contents(ctx)
 }
 
-func (m *Files) ReadCurrentWorkspace(ctx context.Context) (string, error) {
-	return dag.CurrentWorkspace().File("marker.txt").Contents(ctx)
+func (m *Files) ReadDeclaredWorkspace(ctx context.Context, workspace *dagger.Workspace) (string, error) {
+	return workspace.File("marker.txt").Contents(ctx)
 }
 
 func (m *Files) ChangeWorkspaceArg(workspace *dagger.Workspace) *dagger.Changeset {
@@ -179,9 +171,9 @@ func (m *Files) ChangeWorkspaceArg(workspace *dagger.Workspace) *dagger.Changese
 	return after.Changes(before)
 }
 
-func (m *Files) ChangeCurrentWorkspace() *dagger.Changeset {
-	before := dag.CurrentWorkspace().Directory(".")
-	after := before.WithNewFile("current-workspace.txt", "changed through current workspace")
+func (m *Files) ChangeDeclaredWorkspace(workspace *dagger.Workspace) *dagger.Changeset {
+	before := workspace.Directory(".")
+	after := before.WithNewFile("declared-workspace.txt", "changed through declared workspace")
 	return after.Changes(before)
 }
 
@@ -265,7 +257,7 @@ func (WorkspaceSelectionSuite) TestDeclaredWorkspaceSelection(ctx context.Contex
 
 		out, err = ctr.With(workspaceSelectionDaggerQuery(`{currentWorkspace{cwd configFile}}`, "-W", "../selected")).Stdout(ctx)
 		require.NoError(t, err)
-		require.JSONEq(t, `{"currentWorkspace":{"cwd":"/selected","configFile":"selected/dagger.toml"}}`, out)
+		require.JSONEq(t, `{"currentWorkspace":{"cwd":"/selected","configFile":"dagger.toml"}}`, out)
 	})
 
 	t.Run("remote -W selects a git workspace without relying on host cwd", func(ctx context.Context, t *testctx.T) {
@@ -283,6 +275,36 @@ func (WorkspaceSelectionSuite) TestDeclaredWorkspaceSelection(ctx context.Contex
 		out, err = ctr.With(workspaceSelectionDaggerQuery(`{currentWorkspace{address cwd configFile}}`, "-W", remoteRef)).Stdout(ctx)
 		require.NoError(t, err)
 		require.JSONEq(t, `{"currentWorkspace":{"address":"`+remoteRef+`","cwd":"/","configFile":"dagger.toml"}}`, out)
+
+		out, err = ctr.With(workspaceSelectionDaggerQuery(`{currentWorkspace{directory(path:"/"){entries}}}`, "-W", remoteRef)).Stdout(ctx)
+		require.NoError(t, err)
+		var got struct {
+			CurrentWorkspace struct {
+				Directory directoryEntries `json:"directory"`
+			} `json:"currentWorkspace"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(out), &got))
+		requireEntry(t, got.CurrentWorkspace.Directory.Entries, "dagger.toml")
+		requireNoEntry(t, got.CurrentWorkspace.Directory.Entries, ".git")
+	})
+
+	t.Run("remote -W loads SDK settings for module help", func(ctx context.Context, t *testctx.T) {
+		c := connect(ctx, t)
+		workspaceDir := c.Directory().WithNewFile("dagger.toml", `[modules.go-sdk]
+source = "github.com/dagger/go-sdk"
+
+[sdks.go]
+module = "go-sdk"
+`)
+		remoteRef := workspaceSelectionRemoteRef(ctx, t, c, workspaceDir)
+
+		ctr := c.Container().From(alpineImage).
+			WithMountedFile(testCLIBinPath, daggerCliFile(t, c)).
+			WithWorkdir("/empty")
+
+		out, err := ctr.With(workspaceSelectionDaggerExec("-W", remoteRef, "module", "init", "--help")).Stdout(ctx)
+		require.NoError(t, err)
+		require.Contains(t, out, "Initialize a new module for development with an SDK")
 	})
 
 	t.Run("relative -W is resolved after --workdir changes cwd", func(ctx context.Context, t *testctx.T) {
@@ -298,7 +320,7 @@ func (WorkspaceSelectionSuite) TestDeclaredWorkspaceSelection(ctx context.Contex
 
 		out, err = ctr.With(workspaceSelectionDaggerQuery(`{currentWorkspace{cwd configFile}}`, "--workdir", "/work/shell", "-W", "./ws")).Stdout(ctx)
 		require.NoError(t, err)
-		require.JSONEq(t, `{"currentWorkspace":{"cwd":"/shell/ws","configFile":"shell/ws/dagger.toml"}}`, out)
+		require.JSONEq(t, `{"currentWorkspace":{"cwd":"/shell/ws","configFile":"dagger.toml"}}`, out)
 	})
 
 	t.Run("declared workspace wins over ambient workspace and cwd dagger.json", func(ctx context.Context, t *testctx.T) {
@@ -316,28 +338,27 @@ func (WorkspaceSelectionSuite) TestDeclaredWorkspaceSelection(ctx context.Contex
 
 		out, err = ctr.With(workspaceSelectionDaggerQuery(`{currentWorkspace{cwd configFile}}`, "-W", "../../selected")).Stdout(ctx)
 		require.NoError(t, err)
-		require.JSONEq(t, `{"currentWorkspace":{"cwd":"/selected","configFile":"selected/dagger.toml"}}`, out)
+		require.JSONEq(t, `{"currentWorkspace":{"cwd":"/selected","configFile":"dagger.toml"}}`, out)
 	})
 }
 
 // TestWorkspaceSelectionCommandPolicy should pin down which commands accept
 // --workspace and where local-only restrictions are enforced.
 func (WorkspaceSelectionSuite) TestWorkspaceSelectionCommandPolicy(ctx context.Context, t *testctx.T) {
-	t.Run("migrate rejects -W in integration", func(ctx context.Context, t *testctx.T) {
-		c := connect(ctx, t)
-		ctr := workspaceBase(t, c)
-
-		out, err := ctr.With(workspaceSelectionDaggerExecFail("-W", ".", "migrate")).CombinedOutput(ctx)
-		require.NoError(t, err)
-		require.Contains(t, out, `--workspace is not supported for "dagger migrate"`)
-	})
+	// The `dagger migrate` command was removed in the CLI 1.0 redesign;
+	// migration is now part of `dagger setup`. The -W rejection test it
+	// used to anchor no longer applies.
 
 	t.Run("local-only workspace mutations accept a local selected workspace", func(ctx context.Context, t *testctx.T) {
 		c := connect(ctx, t)
+		// `dagger workspace init` was removed in CLI 1.0; a raw `workspace
+		// config` write (which creates dagger.toml when missing) is the modern
+		// local-only mutation that materializes a workspace config at the
+		// selected workspace's cwd.
 		ctr := workspaceBase(t, c).
 			WithExec([]string{"mkdir", "-p", "/work/caller", "/work/selected"}).
 			WithWorkdir("/work/caller").
-			With(workspaceSelectionDaggerExec("-W", "../selected", "workspace", "init", "--here"))
+			With(workspaceSelectionDaggerExec("-W", "../selected", "workspace", "config", "modules.example.source", "github.com/acme/example", "--here"))
 
 		_, err := ctr.WithExec([]string{"test", "-f", "/work/selected/dagger.toml"}).Sync(ctx)
 		require.NoError(t, err)
@@ -345,18 +366,47 @@ func (WorkspaceSelectionSuite) TestWorkspaceSelectionCommandPolicy(ctx context.C
 		require.NoError(t, err)
 	})
 
-	t.Run("local-only workspace mutations reject a remote selected workspace at execution time", func(ctx context.Context, t *testctx.T) {
+	t.Run("remote workspace builders only fail at the export boundary", func(ctx context.Context, t *testctx.T) {
 		c := connect(ctx, t)
 		remoteRef := workspaceSelectionRemoteRef(ctx, t, c, workspaceSelectionSimpleWorkspaceDir(c, "remote", "Remote", "remote workspace"))
 
-		out, err := c.Container().From(alpineImage).
-			WithMountedFile(testCLIBinPath, daggerCliFile(t, c)).
-			WithWorkdir("/empty").
-			With(workspaceSelectionDaggerQueryFail(`{currentWorkspace{init}}`, "-W", remoteRef)).
-			CombinedOutput(ctx)
-		require.NoError(t, err)
-		require.Contains(t, out, "workspace init is local-only")
-		require.NotContains(t, out, "--workspace must be a local path")
+		for _, tc := range []struct {
+			name    string
+			query   string
+			wantErr string
+		}{
+			{
+				name:    "config value",
+				query:   `{currentWorkspace{withConfigValue(key:"modules.demo.source", value:"demo"){export}}}`,
+				wantErr: "cannot export a remote Git workspace",
+			},
+			{
+				name:    "new file",
+				query:   `{currentWorkspace{withNewFile(path:"demo.txt", contents:"demo"){export}}}`,
+				wantErr: "cannot export a remote Git workspace",
+			},
+			{
+				name:    "lock update",
+				query:   `{currentWorkspace{withUpdatedLock{export}}}`,
+				wantErr: "cannot export a remote Git workspace",
+			},
+			{
+				name:    "migrate",
+				query:   `{currentWorkspace{migrate{steps{id}}}}`,
+				wantErr: "workspace migration is local-only",
+			},
+		} {
+			t.Run(tc.name, func(ctx context.Context, t *testctx.T) {
+				out, err := c.Container().From(alpineImage).
+					WithMountedFile(testCLIBinPath, daggerCliFile(t, c)).
+					WithWorkdir("/empty").
+					With(workspaceSelectionDaggerQueryFail(tc.query, "-W", remoteRef)).
+					CombinedOutput(ctx)
+				require.NoError(t, err)
+				require.Contains(t, out, tc.wantErr)
+				require.NotContains(t, out, "--workspace must be a local path")
+			})
+		}
 	})
 }
 
@@ -372,7 +422,7 @@ func (WorkspaceSelectionSuite) TestSelectedWorkspaceMetadataQueries(ctx context.
 
 		out, err := ctr.With(workspaceSelectionDaggerQuery(`{currentWorkspace{address cwd configFile}}`, "-W", "../selected")).Stdout(ctx)
 		require.NoError(t, err)
-		require.JSONEq(t, `{"currentWorkspace":{"address":"file:///work/selected","cwd":"/selected","configFile":"selected/dagger.toml"}}`, out)
+		require.JSONEq(t, `{"currentWorkspace":{"address":"file:///work/selected","cwd":"/selected","configFile":"dagger.toml"}}`, out)
 	})
 
 	t.Run("current workspace query reports the selected remote workspace", func(ctx context.Context, t *testctx.T) {
@@ -506,7 +556,7 @@ func (WorkspaceSelectionSuite) TestSelectedWorkspaceFileIO(ctx context.Context, 
 		require.NoError(t, err)
 		require.Equal(t, want, strings.TrimSpace(string(out)))
 
-		out, err = hostDaggerExec(ctx, t, workdir, daggerCallArgs(selection, false, "read-current-workspace")...)
+		out, err = hostDaggerExec(ctx, t, workdir, daggerCallArgs(selection, false, "read-declared-workspace")...)
 		require.NoError(t, err)
 		require.Equal(t, want, strings.TrimSpace(string(out)))
 	}
@@ -518,7 +568,7 @@ func (WorkspaceSelectionSuite) TestSelectedWorkspaceFileIO(ctx context.Context, 
 		require.Error(t, err)
 		require.Contains(t, strings.ToLower(string(out)+err.Error()), "workspace")
 
-		out, err = hostDaggerExec(ctx, t, workdir, daggerCallArgs(selection, false, "read-current-workspace")...)
+		out, err = hostDaggerExec(ctx, t, workdir, daggerCallArgs(selection, false, "read-declared-workspace")...)
 		require.Error(t, err)
 		require.Contains(t, strings.ToLower(string(out)+err.Error()), "workspace")
 	}
@@ -539,10 +589,10 @@ func (WorkspaceSelectionSuite) TestSelectedWorkspaceFileIO(ctx context.Context, 
 				want:     "changed through workspace arg",
 			},
 			{
-				name:     "Changeset from dag.CurrentWorkspace",
-				args:     []string{"change-current-workspace"},
-				hostFile: "current-workspace.txt",
-				want:     "changed through current workspace",
+				name:     "Changeset from declared Workspace",
+				args:     []string{"change-declared-workspace"},
+				hostFile: "declared-workspace.txt",
+				want:     "changed through declared workspace",
 			},
 		}
 
@@ -765,6 +815,8 @@ func (WorkspaceSelectionSuite) TestSelectedWorkspaceFileIO(ctx context.Context, 
 // TestSelectedWorkspaceEnvOverlay should cover the end-to-end interaction
 // between declared workspace selection and --env.
 func (WorkspaceSelectionSuite) TestSelectedWorkspaceEnvOverlay(ctx context.Context, t *testctx.T) {
+	t.Skip("--env is temporarily disabled in the CLI; re-enable this test when environment selection returns")
+
 	t.Run("env overlay applies to the explicitly selected workspace", func(ctx context.Context, t *testctx.T) {
 		c := connect(ctx, t)
 		ctr := workspaceBase(t, c).
@@ -816,7 +868,6 @@ func (WorkspaceSelectionSuite) TestDeclaredWorkspaceBindingPropagation(ctx conte
 			WithExec([]string{"mkdir", "-p", "/work/caller", "/work/selected"}).
 			With(workspaceSelectionEnvWorkspace("/work/ambient", "ambient-base", "ambient-ci")).
 			WithWorkdir("/work/selected").
-			With(workspaceSelectionDaggerExec("workspace", "init", "--here")).
 			With(withModuleFixture(t, c, "/work/selected/.dagger/modules/nester", "go/workspace-selection-nester")).
 			WithNewFile("/work/selected/dagger.toml", `[modules.nester]
 source = ".dagger/modules/nester"
@@ -832,7 +883,7 @@ greeting = "selected-ci"
 
 		out, err := ctr.With(workspaceSelectionDaggerCall("-W", "../selected", "nested-workspace", "--cli", testCLIBinPath)).Stdout(ctx)
 		require.NoError(t, err)
-		require.JSONEq(t, `{"currentWorkspace":{"cwd":"/selected","configFile":"selected/dagger.toml"}}`, out)
+		require.JSONEq(t, `{"currentWorkspace":{"cwd":"/selected","configFile":"dagger.toml"}}`, out)
 	})
 
 	t.Run("nested clients inherit the declared workspace env overlay", func(ctx context.Context, t *testctx.T) {
@@ -843,7 +894,6 @@ greeting = "selected-ci"
 			WithExec([]string{"mkdir", "-p", "/work/caller", "/work/selected"}).
 			With(workspaceSelectionEnvWorkspace("/work/ambient", "ambient-base", "ambient-ci")).
 			WithWorkdir("/work/selected").
-			With(workspaceSelectionDaggerExec("workspace", "init", "--here")).
 			With(withModuleFixture(t, c, "/work/selected/.dagger/modules/nester", "go/workspace-selection-nester")).
 			WithNewFile("/work/selected/dagger.toml", `[modules.nester]
 source = ".dagger/modules/nester"

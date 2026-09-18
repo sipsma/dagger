@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 	"path/filepath"
 	"testing"
 
@@ -27,9 +28,9 @@ func (*persistSnapshotValue) Type() *ast.Type {
 	}
 }
 
-func (v *persistSnapshotValue) EncodePersistedObject(ctx context.Context, cache PersistedObjectCache) (PersistedObjectEncoding, error) {
+func (v *persistSnapshotValue) EncodePersistedObject(ctx context.Context, enc *PersistEncodeContext) (PersistedObjectEncoding, error) {
 	_ = ctx
-	_ = cache
+	_ = enc
 	payload, err := json.Marshal(struct {
 		Name string `json:"name"`
 	}{
@@ -64,6 +65,11 @@ type fakeSnapshotManager struct {
 	removeCalls         []string
 	deleteStaleKeep     map[string]struct{}
 	deleteStaleCallSeen bool
+	attachStarted       chan struct{}
+	allowAttach         chan struct{}
+	// attachBlockDone makes the attachStarted/allowAttach block apply to the
+	// first AttachLease call only, so a retried sync proceeds unblocked.
+	attachBlockDone bool
 }
 
 func (*fakeSnapshotManager) Search(context.Context, string, bool) ([]bkcache.RefMetadata, error) {
@@ -116,6 +122,10 @@ func (*fakeSnapshotManager) GetMutableBySnapshotID(context.Context, string, ...b
 	panic("unexpected GetMutableBySnapshotID call")
 }
 
+func (*fakeSnapshotManager) ImportChain(context.Context, *bkcache.ExportChain) (bkcache.ImmutableRef, error) {
+	panic("unexpected ImportChain call")
+}
+
 func (*fakeSnapshotManager) ImportImage(context.Context, *bkcache.ImportedImage, bkcache.ImportImageOpts) (bkcache.ImmutableRef, error) {
 	panic("unexpected ImportImage call")
 }
@@ -133,12 +143,55 @@ func (*fakeSnapshotManager) IdentityMapping() *idtools.IdentityMapping {
 }
 
 func (m *fakeSnapshotManager) AttachLease(ctx context.Context, leaseID, snapshotID string) error {
-	_ = ctx
+	if m.attachStarted != nil && !m.attachBlockDone {
+		m.attachBlockDone = true
+		close(m.attachStarted)
+		select {
+		case <-m.allowAttach:
+		case <-ctx.Done():
+			return context.Cause(ctx)
+		}
+	}
 	m.attachCalls = append(m.attachCalls, struct{ LeaseID, SnapshotID string }{
 		LeaseID:    leaseID,
 		SnapshotID: snapshotID,
 	})
 	return nil
+}
+
+func TestCacheSnapshotOwnerLeaseSyncDefersSessionCleanup(t *testing.T) {
+	ctx := cacheTestContext(t.Context())
+	snapshotManager := &fakeSnapshotManager{}
+	c, err := NewCache(ctx, "", snapshotManager, nil)
+	assert.NilError(t, err)
+	sessionID := cacheTestSessionID(t, ctx)
+
+	call := &ResultCall{
+		Kind:  ResultCallKindField,
+		Type:  NewResultCallType((&persistSnapshotValue{}).Type()),
+		Field: "snapshot-owner-release",
+	}
+	value := &persistSnapshotValue{Name: "value", SnapshotID: "snapshot-a"}
+	_, err = c.GetOrInitCall(ctx, sessionID, noopTypeResolver{}, &CallRequest{ResultCall: call}, func(context.Context) (AnyResult, error) {
+		return cacheTestPlainResult(value), nil
+	})
+	assert.NilError(t, err)
+
+	value.SnapshotID = "snapshot-b"
+	res, err := c.GetOrInitCall(ctx, sessionID, noopTypeResolver{}, &CallRequest{ResultCall: call}, ValueFunc(nil))
+	assert.NilError(t, err)
+	snapshotManager.attachStarted = make(chan struct{})
+	snapshotManager.allowAttach = make(chan struct{})
+	syncDone := make(chan error, 1)
+	go func() { syncDone <- c.SyncResultSnapshotOwnerLeases(ctx, res) }()
+	<-snapshotManager.attachStarted
+
+	assert.NilError(t, c.ReleaseSession(ctx, sessionID))
+	assert.Assert(t, c.Size() > 0, "release collected a result during snapshot-owner lease synchronization")
+
+	close(snapshotManager.allowAttach)
+	assert.NilError(t, <-syncDone)
+	assert.Equal(t, c.Size(), 0)
 }
 
 func (m *fakeSnapshotManager) RemoveLease(ctx context.Context, leaseID string) error {
@@ -154,6 +207,10 @@ func (m *fakeSnapshotManager) LoadPersistentMetadata(rows bkcache.PersistentMeta
 
 func (m *fakeSnapshotManager) PersistentMetadataRows() bkcache.PersistentMetadataRows {
 	return m.persistentRows
+}
+
+func (m *fakeSnapshotManager) PinContent(context.Context, string, []ocispecs.Descriptor) error {
+	return nil
 }
 
 func (m *fakeSnapshotManager) DeleteStaleDaggerOwnerLeases(ctx context.Context, keep map[string]struct{}) error {
@@ -408,12 +465,17 @@ func TestCachePersistenceWorkerUsesEncodedSnapshotLinks(t *testing.T) {
 	rows, err := c.pdb.ListMirrorResultSnapshotLinks(ctx)
 	assert.NilError(t, err)
 	assert.DeepEqual(t, rows, []persistdb.MirrorResultSnapshotLink{{
-		ResultID: int64(resultID),
-		RefKey:   "snapshot-after",
-		Role:     "snapshot",
+		ResultID:   int64(resultID),
+		RefKey:     "snapshot-after",
+		OutputPath: "[]",
+		Role:       "snapshot",
 	}})
 }
 
 var _ bkcache.SnapshotManager = (*fakeSnapshotManager)(nil)
 var _ PersistedObject = (*persistSnapshotValue)(nil)
 var _ PersistedSnapshotRefLinkProvider = (*persistSnapshotValue)(nil)
+
+func (*fakeSnapshotManager) PinSnapshot(context.Context, string) (bkcache.ImmutableRef, error) {
+	panic("unexpected PinSnapshot")
+}

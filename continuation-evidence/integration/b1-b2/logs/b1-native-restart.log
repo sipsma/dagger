@@ -1,0 +1,27 @@
+[dagger] 30.0s elapsed · 3 steps running
+[dagger] 1m0s elapsed · 14 steps running
+[dagger] 1m30s elapsed · 13 steps running
+== TRACE ==  ✔ PASSED
+engine-dev test --pkg ./core/integration --run=TestCachePersistence/TestDiskPersistenceAcrossRestart/eager_producers_survive_restart$  1m37s
+
+✔ connect 0.3s
+✔ load workspace: . 2.2s
+✔ parsing command line arguments 0.0s
+
+✔ engineDev(
+  ┆ ws: currentWorkspace: Workspace!
+  ): EngineDev! 23.9s
+✔ .test(run: "TestCachePersistence/TestDiskPersistenceAcrossRestart/eager_producers_survive_restart$", pkg: "./core/integration"): Void 1m11s
+  ✔ 1 upload, 3 unpacks, 1 fetch, 1 pull 10.5s
+
+== SERVICES ==
+✔ h4avdn8nctrm4.vatn0uj3r05r8.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 1m5s EXITED span=94fcd138e7a64815
+✔ rogct0dgr0vls.vatn0uj3r05r8.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 1m5s EXITED span=147c6740bf173458
+✔ l05p9c8cn1424.vatn0uj3r05r8.dagger.local exec dagger-entrypoint.sh --addr unix:///run/dagger-engine.sock --addr tcp://0.0.0.0:1234 --network-name dagger-dev --network-cidr 10.88.0.0/16 --debugaddr 0.0.0.0:6060 1m4s EXITED span=72541e1ac9a994a4
+
+== TESTS ==
+  ✔ github.com/dagger/dagger/core/integration  1 passed
+
+  ✔ 1 passed
+
+Full trace at https://dagger.cloud/dagger/traces/43ddda54cb8478a1de31d06e0369e3f8

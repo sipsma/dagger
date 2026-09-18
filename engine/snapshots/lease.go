@@ -2,14 +2,132 @@ package snapshots
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/containerd/containerd/v2/core/leases"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
+	cerrdefs "github.com/containerd/errdefs"
+	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 )
+
+const snapshotTransferLeaseLabel = "dagger.io/snapshot-transfer"
+
+// resourcePin owns a transfer's resources until the returned ref or provider
+// is released. It is independent of a caller's ambient lease.
+type resourcePin struct {
+	cm       *snapshotManager
+	id       string
+	mu       sync.Mutex
+	released bool
+}
+
+func (cm *snapshotManager) newResourcePin(ctx context.Context) (*resourcePin, context.Context, error) {
+	l, err := cm.LeaseManager.Create(ctx, leases.WithRandomID(), MakeTemporary, func(l *leases.Lease) error {
+		l.Labels["containerd.io/gc.flat"] = time.Now().UTC().Format(time.RFC3339Nano)
+		l.Labels[snapshotTransferLeaseLabel] = "true"
+		return nil
+	})
+	if err != nil {
+		return nil, ctx, err
+	}
+	return &resourcePin{cm: cm, id: l.ID}, leases.WithLease(ctx, l.ID), nil
+}
+
+// ReleaseTransferLeasesAfterRestart must run only at startup, after durable
+// snapshot owners have been restored and before any transfers can start.
+// Retained typed refs are not released at clean shutdown. Their Go ownership
+// ends with that process, so only durable owners should survive its transfers.
+// IsTransferLease reports whether a lease is one of the temporary leases that
+// pin resources only while a transfer or a share is running.
+func IsTransferLease(lease leases.Lease) bool {
+	return lease.Labels[snapshotTransferLeaseLabel] == "true"
+}
+
+func ReleaseTransferLeasesAfterRestart(ctx context.Context, lm leases.Manager) error {
+	previous, err := lm.List(ctx)
+	if err != nil {
+		return fmt.Errorf("list snapshot transfer leases: %w", err)
+	}
+	var rerr error
+	for _, lease := range previous {
+		if lease.Labels[snapshotTransferLeaseLabel] != "true" {
+			continue
+		}
+		if err := lm.Delete(ctx, lease); err != nil && !cerrdefs.IsNotFound(err) {
+			rerr = stderrors.Join(rerr, fmt.Errorf("release previous snapshot transfer lease %s: %w", lease.ID, err))
+		}
+	}
+	return rerr
+}
+
+func (p *resourcePin) release(ctx context.Context) error {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.released {
+		return nil
+	}
+	if err := p.cm.RemoveLease(context.WithoutCancel(ctx), p.id); err != nil {
+		return err
+	}
+	p.released = true
+	return nil
+}
+
+// BuiltinImageLeaseLabel marks the persistent leases that hold the engine's
+// builtin images' blobs; the startup sweeps leave them alone.
+const BuiltinImageLeaseLabel = "dagger.io/builtin-image"
+
+// PinContent holds the given blobs under the persistent lease leaseID,
+// creating it without expiry when it does not exist. The engine ships its
+// builtin images, so their blobs are engine-lifetime resources: with them
+// always present, an export reuses a builtin layer's compressed blob under
+// the digest the builtin store already has, on every engine alike, instead
+// of diffing the snapshot into a fresh tar when the collector has taken
+// the blob between the image's import and the export. A missing blob is
+// still added as a resource; AddResource does not check its target.
+func (cm *snapshotManager) PinContent(ctx context.Context, leaseID string, descs []ocispecs.Descriptor) error {
+	if leaseID == "" {
+		return errors.New("pin content: empty lease ID")
+	}
+	_, err := cm.LeaseManager.Create(ctx, func(l *leases.Lease) error {
+		l.ID = leaseID
+		l.Labels = map[string]string{BuiltinImageLeaseLabel: "true"}
+		return nil
+	})
+	if err != nil && !cerrdefs.IsAlreadyExists(err) {
+		return errors.Wrapf(err, "create lease %s", leaseID)
+	}
+	for _, desc := range descs {
+		if desc.Digest == "" {
+			continue
+		}
+		err := cm.LeaseManager.AddResource(ctx, leases.Lease{ID: leaseID}, leases.Resource{ID: desc.Digest.String(), Type: "content"})
+		if err != nil && !cerrdefs.IsAlreadyExists(err) {
+			return errors.Wrapf(err, "attach content %s to lease %s", desc.Digest, leaseID)
+		}
+	}
+	return nil
+}
+
+// pinContent checks presence after attachment. AddResource itself accepts
+// absent targets; containerd serializes its writes with the GC mark/sweep.
+func (cm *snapshotManager) pinContent(ctx context.Context, desc ocispecs.Descriptor) (bool, error) {
+	if err := cm.linkContentToContextLease(ctx, desc); err != nil {
+		return false, err
+	}
+	_, err := cm.ContentStore.Info(ctx, desc.Digest)
+	if cerrdefs.IsNotFound(err) {
+		return false, nil
+	}
+	return err == nil, err
+}
 
 type lazyLeaseScopeKey struct{}
 type withoutLazyLeaseScope struct{}
@@ -222,4 +340,32 @@ func (l *LeaseManager) DeleteResource(ctx context.Context, lease leases.Lease, r
 func (l *LeaseManager) ListResources(ctx context.Context, lease leases.Lease) ([]leases.Resource, error) {
 	ctx = namespaces.WithNamespace(ctx, l.ns)
 	return l.manager.ListResources(ctx, lease)
+}
+
+// PinSnapshot protects an existing snapshot and its ancestry independently of
+// any donor or ambient operation lease. It never downloads content.
+func (cm *snapshotManager) PinSnapshot(ctx context.Context, snapshotID string) (_ ImmutableRef, rerr error) {
+	pin, pinnedCtx, err := cm.newResourcePin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var ref ImmutableRef
+	defer func() {
+		if rerr != nil {
+			cleanup := context.WithoutCancel(ctx)
+			if ref != nil {
+				rerr = stderrors.Join(rerr, ref.Release(cleanup))
+			}
+			rerr = stderrors.Join(rerr, pin.release(cleanup))
+		}
+	}()
+	if err := cm.AttachLease(pinnedCtx, pin.id, snapshotID); err != nil {
+		return nil, err
+	}
+	ref, err = cm.GetBySnapshotID(pinnedCtx, snapshotID, NoUpdateLastUsed)
+	if err != nil {
+		return nil, err
+	}
+	ref.(*immutableRef).pin = pin
+	return ref, nil
 }

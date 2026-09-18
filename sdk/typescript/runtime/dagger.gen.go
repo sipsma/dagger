@@ -268,34 +268,6 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*TypescriptSdk).ModuleRuntime(&parent, ctx, modSource, introspectionJson)
-		case "ModuleTypes":
-			var parent TypescriptSdk
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			var modSource *dagger.ModuleSource
-			if inputArgs["modSource"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["modSource"]), &modSource)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg modSource", err))
-				}
-			}
-			var introspectionJson *dagger.File
-			if inputArgs["introspectionJSON"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["introspectionJSON"]), &introspectionJson)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg introspectionJSON", err))
-				}
-			}
-			var outputFilePath string
-			if inputArgs["outputFilePath"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["outputFilePath"]), &outputFilePath)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg outputFilePath", err))
-				}
-			}
-			return (*TypescriptSdk).ModuleTypes(&parent, ctx, modSource, introspectionJson, outputFilePath)
 		case "RequiredClientGenerationFiles":
 			var parent TypescriptSdk
 			err = json.Unmarshal(parentJSON, &parent)
@@ -320,6 +292,43 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithObject(
+				dag.TypeDef().WithObject("TypescriptSdk", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 22, 6)}).
+					WithFunction(
+						dag.Function("Codegen",
+							dag.TypeDef().WithObject("GeneratedCode")).
+							WithDescription("Codegen implements the `Codegen` method from the SDK module interface.\n\nIt returns the generated API client based on user's module as well as\nignore directive regarding the generated content.").
+							WithSourceMap(dag.SourceMap("main.go", 77, 1)).
+							WithArg("modSource", dag.TypeDef().WithObject("ModuleSource"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 79, 2)}).
+							WithArg("introspectionJSON", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 80, 2)})).
+					WithFunction(
+						dag.Function("GenerateClient",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Returns a directory with a standalone generated client and any necessary configuration\nfiles that are required to work.").
+							WithSourceMap(dag.SourceMap("main.go", 164, 1)).
+							WithArg("modSource", dag.TypeDef().WithObject("ModuleSource"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 166, 2)}).
+							WithArg("introspectionJSON", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 167, 2)}).
+							WithArg("outputDir", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 168, 2)})).
+					WithFunction(
+						dag.Function("ModuleRuntime",
+							dag.TypeDef().WithObject("Container")).
+							WithDescription("ModuleRuntime implements the `ModuleRuntime` method from the SDK module interface.\n\nIt returns a ready to call container with the correct node, bun or deno runtime setup.\nOn call, this will trigger the entrypoint that will either intropect and register the\nmodule in the Dagger engine or execute a function of that module.\n\nThe returned container has the codegen freshly generated and any necessary dependency\ninstalled.").
+							WithSourceMap(dag.SourceMap("main.go", 47, 1)).
+							WithArg("modSource", dag.TypeDef().WithObject("ModuleSource"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 49, 2)}).
+							WithArg("introspectionJSON", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "introspectionJSON is omitted by the engine when the module opts out of\nruntime codegen (codegen.automaticGitignore=false). A nil value selects\nthe no-codegen path: the committed generated files are trusted as-is.", SourceMap: dag.SourceMap("main.go", 54, 2)})).
+					WithFunction(
+						dag.Function("RequiredClientGenerationFiles",
+							dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind))).
+							WithDescription("Returns the list of files that are copied from the host when generating the client.").
+							WithSourceMap(dag.SourceMap("main.go", 154, 1))).
+					WithField("SDKSourceDir", dag.TypeDef().WithObject("Directory"), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 23, 2)}).
+					WithConstructor(
+						dag.Function("New",
+							dag.TypeDef().WithObject("TypescriptSdk")).
+							WithSourceMap(dag.SourceMap("main.go", 13, 1)).
+							WithArg("sdkSourceDir", dag.TypeDef().WithObject("Directory").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 15, 2)}))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

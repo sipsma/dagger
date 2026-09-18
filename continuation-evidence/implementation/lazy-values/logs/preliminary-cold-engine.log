@@ -1,0 +1,39 @@
+[dagger] 30.0s elapsed · 1 steps running
+[dagger] 1m0s elapsed · 83 steps running
+[dagger] 1m30s elapsed · 63 steps running
+[dagger] 2m0s elapsed · 9 steps running
+[dagger] 2m30s elapsed · 6 steps running
+[dagger] 3m0s elapsed · 38 steps running
+[dagger] 3m30s elapsed · 5 steps running
+[dagger] 4m0s elapsed · 8 steps running
+[dagger] 4m30s elapsed · 23 steps running
+[dagger] 5m0s elapsed · 12 steps running
+[dagger] 5m30s elapsed · 12 steps running
+[dagger] 6m0s elapsed · 28 steps running
+[dagger] 6m30s elapsed · 13 steps running
+== TRACE ==  ✔ PASSED
+engine-dev test --pkg ./core/integration --run=TestRemoteCacheTransferSuite/TestSchemaRecoveryCold$ --timeout=5m --test-verbose  6m60s
+
+✔ connect 0.4s
+✔ load workspace: . 29.1s
+  ✔ 12 uploads 0.2s
+✔ parsing command line arguments 0.0s
+
+✔ engineDev(
+  ┆ ws: currentWorkspace: Workspace!
+  ): EngineDev! 26.2s ◆ CPU Pressure (some): 72.07ms ◆ CPU Pressure (full): 51.834ms ◆ Memory Bytes (current): 876 kB ◆ Memory Bytes (peak): 29 MB
+  ✔ uploading /home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b4-acquisition-implementer-a22b8169-585bbf9d 2.3s ████████████ 57 MB
+✔ .test(run: "TestRemoteCacheTransferSuite/TestSchemaRecoveryCold$", pkg: "./core/integration", timeout: "5m", testVerbose: true): Void 6m4s ◆ Disk Read: 26 MB ◆ Disk Write: 0 B ◆ IO Pressure: 5.35ms ◆ CPU Pressure (some): 1.29492s ◆ CPU Pressure (full): 1.131476s ◆ Memory Bytes (current): 25 MB ◆ Memory Bytes (peak): 59 MB ◆ Network Tx: 4.2 kB
+  ✔ 10 pulls, 13 unpacks, 146 fetches, 11 uploads, 1 transfer 36.4s
+
+== SERVICES ==
+✔ rogct0dgr0vls.ukhvmbru83eda.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 3m55s EXITED span=555e44f7688ae306
+✔ h4avdn8nctrm4.ukhvmbru83eda.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 3m55s EXITED span=a95c440602a4d94e
+✘ u4ioc85ennnps.ukhvmbru83eda.dagger.local exec dagger-entrypoint.sh --addr unix:///run/dagger-engine.sock --addr tcp://0.0.0.0:1234 --network-name dagger-dev --network-cidr 10.88.0.0/16 --debugaddr 0.0.0.0:6060 3m55s ERROR span=2e2b2e8bde3239c8
+
+== TESTS ==
+  ✔ github.com/dagger/dagger/core/integration  1 passed
+
+  ✔ 1 passed
+
+Full trace at trace 5fa2fc8fe8176a5295f5c36dfacb013a

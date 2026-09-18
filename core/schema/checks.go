@@ -2,6 +2,7 @@ package schema
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/dagger/dagger/core"
 	"github.com/dagger/dagger/dagql"
@@ -29,7 +30,7 @@ func (s checksSchema) Install(srv *dagql.Server) {
 	// Check methods
 	dagql.Fields[*core.Check]{
 		dagql.Func("name", s.name).
-			Doc("Return the fully qualified name of the check"),
+			Doc("Return the command name of the check. Entrypoint targets omit the module prefix."),
 		dagql.Func("description", s.description).
 			Doc("The description of the check"),
 		dagql.Func("path", s.path).
@@ -37,6 +38,7 @@ func (s checksSchema) Install(srv *dagql.Server) {
 		dagql.Func("originalModule", s.originalModule).
 			Doc("The original module in which the check has been defined"),
 		dagql.Func("checkType", s.checkType).
+			View(AfterVersion("v0.21.0")).
 			Doc("The type of check: 'check' for annotated checks, 'generate' for generate-as-checks"),
 
 		dagql.Func("resultEmoji", s.resultEmoji).
@@ -59,7 +61,11 @@ func (s checksSchema) path(_ context.Context, parent *core.Check, args struct{})
 }
 
 func (s checksSchema) originalModule(_ context.Context, parent *core.Check, args struct{}) (*core.Module, error) {
-	return parent.OriginalModule(), nil
+	module := parent.OriginalModule()
+	if module == nil {
+		return nil, fmt.Errorf("check %q is engine-injected and has no original module", parent.Name())
+	}
+	return module, nil
 }
 
 func (s checksSchema) checkType(_ context.Context, parent *core.Check, args struct{}) (string, error) {
@@ -77,7 +83,7 @@ func (s checksSchema) list(_ context.Context, parent *core.CheckGroup, args stru
 func (s checksSchema) run(ctx context.Context, parent *core.CheckGroup, args struct {
 	FailFast dagql.Optional[dagql.Boolean]
 }) (*core.CheckGroup, error) {
-	return parent.Run(ctx, args.FailFast.GetOr(false).Bool())
+	return parent.Run(ctx, args.FailFast.GetOr(false).Bool(), runSyntheticSDKGeneratorAsCheck)
 }
 
 func (s checksSchema) report(ctx context.Context, parent *core.CheckGroup, args struct{}) (dagql.ObjectResult[*core.File], error) {
@@ -85,5 +91,5 @@ func (s checksSchema) report(ctx context.Context, parent *core.CheckGroup, args 
 }
 
 func (s checksSchema) runSingleCheck(ctx context.Context, parent *core.Check, args struct{}) (*core.Check, error) {
-	return parent.Run(ctx)
+	return parent.Run(ctx, runSyntheticSDKGeneratorAsCheck)
 }

@@ -1,0 +1,4 @@
+engine/engineutil/executor.go:565:7: the cancel function returned by context.WithTimeoutCause should be called, not discarded, to avoid a context leak
+engine/engineutil/executor.go:649:14: the cancel function returned by context.WithTimeoutCause should be called, not discarded, to avoid a context leak
+engine/engineutil/executor.go:716:7: the cancel function returned by context.WithTimeoutCause should be called, not discarded, to avoid a context leak
+engine/server/session_attachables.go:211:14: the cancel function returned by context.WithTimeoutCause should be called, not discarded, to avoid a context leak

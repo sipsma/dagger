@@ -10,6 +10,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"dagger.io/dagger"
@@ -102,6 +103,37 @@ func (ModuleSuite) TestUseLocalDependencySchemaIsolation(ctx context.Context, t 
 
 func testModuleWithLocalDep(t *testctx.T, c *dagger.Client, fixture string) *dagger.Container {
 	return moduleFixture(t, c, fixture)
+}
+
+// TestRuntimeDependencyDoesNotInheritWorkspace covers the A -> B runtime
+// boundary: A receives the caller's contextual workspace, but dependency module
+// B only receives it when A passes it explicitly.
+func (ModuleSuite) TestRuntimeDependencyDoesNotInheritWorkspace(ctx context.Context, t *testctx.T) {
+	c := connect(ctx, t)
+	modGen := moduleFixture(t, c, "go/runtime-workspace-isolation").
+		WithNewFile("marker.txt", "workspace marker")
+
+	// A can still share its workspace with B when it passes the value explicitly.
+	//
+	// Driven through `dagger call` rather than a raw query: A's own Workspace!
+	// is required, and the CLI defaults it to the current workspace. A raw
+	// GraphQL document gets no such help — it fails validation before reaching
+	// the engine — so passing one there means naming the ID by hand.
+	t.Run("explicit workspace pass succeeds", func(ctx context.Context, t *testctx.T) {
+		out, err := modGen.With(daggerCallAt(".", "explicit-workspace-arg")).Stdout(ctx)
+		require.NoError(t, err)
+		require.Equal(t, "workspace marker", strings.TrimSpace(out))
+	})
+
+	// B must not receive A's contextual workspace through an omitted argument.
+	t.Run("workspace argument is not auto-injected into dependency", func(ctx context.Context, t *testctx.T) {
+		_, err := modGen.With(daggerQueryAt(".", `{implicitWorkspaceArg}`)).Stdout(ctx)
+		requireErrOut(t, err, "workspace arguments are not inherited by module runtime calls; pass a Workspace explicitly")
+	})
+
+	// The currentWorkspace vector is closed at the schema level: currentWorkspace
+	// is no longer exposed to module SDKs at all (#13659, covered by
+	// TestCurrentWorkspaceError), so a dependency cannot reach it to inherit one.
 }
 
 func (ModuleSuite) TestUseLocalMulti(ctx context.Context, t *testctx.T) {

@@ -3,6 +3,7 @@ package dagql
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -17,6 +18,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 		return nil
 	}
 	importRunID := c.nextImportRunID()
+	var finalOffers []restoredFinalOffer
 
 	resultRows, err := c.pdb.ListMirrorResults(ctx)
 	if err != nil {
@@ -68,7 +70,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 	}
 
 	if len(resultRows) == 0 && len(eqClassRows) == 0 && len(termRows) == 0 {
-		return nil
+		return c.reconcileEmptyOwnerLeases(ctx)
 	}
 
 	var eagerDecodeResultIDs []sharedResultID
@@ -144,13 +146,13 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 					return fmt.Errorf("import result %d self payload: %w", resultID, err)
 				}
 			} else {
-				env = PersistedResultEnvelope{
-					Version: 1,
-					Kind:    persistedResultKindNull,
-				}
+				return fmt.Errorf("import result %d: empty self payload", resultID)
 			}
 			if env.Kind == "" {
 				return fmt.Errorf("import result %d: empty self payload kind", resultID)
+			}
+			if env.Version != persistedResultEnvelopeVersion {
+				return fmt.Errorf("import result %d: unsupported self payload version %d", resultID, env.Version)
 			}
 
 			if row.CallFrameJSON == "" {
@@ -163,6 +165,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 
 			res := &sharedResult{
 				id:                    resultID,
+				imported:              env.Imported,
 				isObject:              env.Kind == persistedResultKindObject,
 				sessionResourceHandle: env.SessionResourceHandle,
 				expiresAtUnix:         row.ExpiresAtUnix,
@@ -176,8 +179,16 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			c.traceResultCallFrameUpdated(ctx, res, "import_persisted_result", nil, frame)
 
 			if env.Kind == persistedResultKindNull {
+				// An attached absent value keeps its row identity, recorded
+				// call, requirements and list position: its self is the
+				// invalid nullable wrapper of the declared type, never a
+				// missing value.
+				absent, err := persistedAbsentValue(frame)
+				if err != nil {
+					return fmt.Errorf("import result %d null self payload: %w", resultID, err)
+				}
+				res.self = absent
 				res.hasValue = true
-				res.persistedEnvelope = nil
 				c.tracePersistedPayloadImportedEager(ctx, importRunID, resultID, "", "nil")
 			} else {
 				eagerDecodeResultIDs = append(eagerDecodeResultIDs, resultID)
@@ -313,12 +324,7 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			if outputEqID == 0 {
 				return fmt.Errorf("import result_output_eq_class: missing eq_class %d", row.EqClassID)
 			}
-			outputEqClasses := c.resultOutputEqClasses[resultID]
-			if outputEqClasses == nil {
-				outputEqClasses = make(map[eqClassID]struct{})
-				c.resultOutputEqClasses[resultID] = outputEqClasses
-			}
-			outputEqClasses[outputEqID] = struct{}{}
+			c.addResultOutputEqClassLocked(resultID, outputEqID)
 		}
 
 		for _, row := range resultDepRows {
@@ -348,40 +354,98 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			if res == nil {
 				return fmt.Errorf("import result_snapshot_link: missing result %d", row.ResultID)
 			}
+			var outputPath PersistedRefPath
+			if err := json.Unmarshal([]byte(row.OutputPath), &outputPath); err != nil {
+				return fmt.Errorf("snapshot output path: %w", err)
+			}
+			pathKey, err := canonicalPath(outputPath)
+			if err != nil {
+				return err
+			}
 			res.payloadMu.Lock()
 			res.snapshotOwnerLinks = append(res.snapshotOwnerLinks, PersistedSnapshotRefLink{
-				RefKey: row.RefKey,
-				Role:   row.Role,
+				OutputPath: outputPath,
+				RefKey:     row.RefKey,
+				Role:       row.Role,
 			})
 			res.payloadMu.Unlock()
-			c.traceImportResultSnapshotLinkLoaded(ctx, importRunID, resultID, row.RefKey, row.Role)
+			c.traceImportResultSnapshotLinkLoaded(ctx, importRunID, resultID, row.RefKey, row.Role, pathKey)
 		}
 
+		if err := c.validateStoredOwnershipLocked(); err != nil {
+			return err
+		}
+		if err := c.restoreOfferOwnersLocked(ctx); err != nil {
+			return err
+		}
+		var finalErr error
+		finalOffers, finalErr = c.restoredFinalOffersLocked()
+		if finalErr != nil {
+			return finalErr
+		}
 		for _, res := range c.resultsByID {
+			if res.hasValue {
+				res.persistedEnvelope = nil
+			}
 			res.onRelease = joinOnRelease(c.resultSnapshotLeaseCleanup(res), res.onRelease)
 		}
 
-		for _, res := range c.resultsByID {
-			if err := c.recomputeRequiredSessionResourcesLocked(res); err != nil {
+		// recomputeRequiredSessionResourcesLocked reads each dep's STORED
+		// set, so a result must be recomputed after all of its deps or a
+		// parent visited first inherits nothing from them.
+		const (
+			requiredRecomputePending = iota + 1
+			requiredRecomputeDone
+		)
+		recomputeState := make(map[sharedResultID]int, len(c.resultsByID))
+		var recomputeDepsFirst func(res *sharedResult) error
+		recomputeDepsFirst = func(res *sharedResult) error {
+			switch recomputeState[res.id] {
+			case requiredRecomputeDone:
+				return nil
+			case requiredRecomputePending:
+				return fmt.Errorf("recompute imported required session resources: dependency cycle through result %d", res.id)
+			}
+			recomputeState[res.id] = requiredRecomputePending
+			for depID := range res.deps {
+				dep := c.resultsByID[depID]
+				if dep == nil {
+					return fmt.Errorf("recompute imported required session resources: missing dep result %d of result %d", depID, res.id)
+				}
+				if err := recomputeDepsFirst(dep); err != nil {
+					return err
+				}
+			}
+			if _, err := c.recomputeRequiredSessionResourcesLocked(res); err != nil {
 				return fmt.Errorf("recompute imported required session resources for result %d: %w", res.id, err)
+			}
+			recomputeState[res.id] = requiredRecomputeDone
+			return nil
+		}
+		for _, res := range c.resultsByID {
+			if err := recomputeDepsFirst(res); err != nil {
+				return err
 			}
 		}
 
 		for resultID := range c.resultsByID {
 			outputEqClasses := c.outputEqClassesForResultLocked(resultID)
+			if len(outputEqClasses) > 0 {
+				c.markResultBroadlyIndexedLocked(resultID)
+			}
 			for outputEqID := range outputEqClasses {
 				for dig := range c.eqClassToDigests[outputEqID] {
-					set := c.egraphResultsByDigest[dig]
-					if set == nil {
-						set = newSharedResultIDSet()
-						c.egraphResultsByDigest[dig] = set
-					}
-					set.Insert(resultID)
+					c.addResultDigestPostingLocked(resultID, dig, resultDigestPostingBroad)
 				}
 			}
 		}
 
-		c.nextSharedResultID = maxResultID + 1
+		// Only move the result-ID counter forward: numeric result IDs must be
+		// engine-lifetime unique, so importing must never re-expose an ID the
+		// running engine already allocated.
+		if c.nextSharedResultID <= maxResultID {
+			c.nextSharedResultID = maxResultID + 1
+		}
 		c.nextEgraphTermID = maxTermID + 1
 		c.nextEgraphClassID = maxEqClassID + 1
 		if c.nextSharedResultID == 0 {
@@ -412,29 +476,36 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			continue
 		}
 		decodeCtx := ContextWithCall(ctx, call)
+		decodeCtx = context.WithValue(decodeCtx, copiedDecodeRolesKey{}, &copiedDecodeRoles{ResultID: uint64(res.id), Links: cloneSnapshotRefLinks(state.snapshotOwnerLinks), Imported: state.imported, Host: c.partHostFor(res)})
 		if decoded, err := DefaultPersistedSelfCodec.DecodeResult(decodeCtx, nil, uint64(resultID), call, *state.persistedEnvelope); err == nil && decoded != nil {
 			res.payloadMu.Lock()
-			if !res.hasValue && res.persistedEnvelope != nil {
+			if res.hasValue || res.persistedEnvelope == nil || res.payloadRevision != state.payloadRevision {
+				res.payloadMu.Unlock()
+				if release := decoded.cacheSharedResult().onRelease; release != nil {
+					if err := release(context.WithoutCancel(ctx)); err != nil {
+						return err
+					}
+				}
+				continue
+			}
+			if !res.hasValue && res.persistedEnvelope != nil && res.payloadRevision == state.payloadRevision {
+				markRestoredPartDelegation(res, *state.persistedEnvelope, call, state.snapshotOwnerLinks)
+				c.bindPartHost(res, decoded)
 				res.self = decoded.Unwrap()
 				res.hasValue = true
 				if objDecoded, ok := decoded.(AnyObjectResult); ok && res.objClass == nil {
 					res.objClass = objDecoded.ObjectType()
 				}
-				decodedShared := decoded.cacheSharedResult()
-				if decodedShared != nil {
-					res.sessionResourceHandle = decodedShared.sessionResourceHandle
-					if decodedShared.requiredSessionResources != nil {
-						res.requiredSessionResources = decodedShared.requiredSessionResources.Copy()
-					} else if decodedShared.sessionResourceHandle == "" {
-						res.requiredSessionResources = nil
-					}
-				}
+				// The install must not touch the session-resource fields:
+				// the decoded shell only knows the row's own handle (the
+				// same envelope value the import row was built from), and
+				// requiredSessionResources belongs to import/publication
+				// and is read under egraphMu, not payloadMu.
 				res.persistedEnvelope = nil
+				res.payloadRevision++
+				res.onRelease = joinOnRelease(res.onRelease, decoded.cacheSharedResult().onRelease)
 			}
 			res.payloadMu.Unlock()
-			if onReleaser, ok := UnwrapAs[OnReleaser](decoded); ok {
-				res.onRelease = joinOnRelease(c.resultSnapshotLeaseCleanup(res), onReleaser.OnRelease)
-			}
 			if err := c.syncResultSnapshotLeases(ctx, res); err != nil {
 				return err
 			}
@@ -481,7 +552,10 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			return fmt.Errorf("hydrate snapshot metadata: %w", err)
 		}
 
-		desiredLeaseIDs := c.desiredImportedOwnerLeaseIDs()
+		desiredLeaseIDs, err := c.desiredImportedOwnerLeaseIDs()
+		if err != nil {
+			return err
+		}
 		c.egraphMu.RLock()
 		results := make([]*sharedResult, 0, len(c.resultsByID))
 		for _, res := range c.resultsByID {
@@ -491,17 +565,23 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 		}
 		c.egraphMu.RUnlock()
 		for _, res := range results {
-			links := desiredSnapshotLinksForResult(res)
+			links, err := desiredSnapshotLinksForResult(res, false)
+			if err != nil {
+				return err
+			}
 			seen := make(map[snapshotOwnerKey]struct{}, len(links))
 			for _, link := range links {
-				key := snapshotOwnerKey{Role: link.Role}
+				key, err := snapshotLinkKey(link)
+				if err != nil {
+					return err
+				}
 				if _, alreadySeen := seen[key]; alreadySeen {
 					continue
 				}
 				seen[key] = struct{}{}
 				if err := c.snapshotManager.AttachLease(
 					ctx,
-					resultSnapshotLeaseID(res.id, link.Role),
+					resultSnapshotLeaseIDForKey(res.id, key),
 					link.RefKey,
 				); err != nil {
 					return fmt.Errorf("attach imported result %d owner lease %q: %w", res.id, key.Role, err)
@@ -509,11 +589,11 @@ func (c *Cache) importPersistedState(ctx context.Context) error {
 			}
 		}
 		if err := c.snapshotManager.DeleteStaleDaggerOwnerLeases(ctx, desiredLeaseIDs); err != nil {
-			return fmt.Errorf("delete stale owner leases: %w", err)
+			return fmt.Errorf("%w: %w", errOwnerLeaseReconciliation, err)
 		}
 	}
 
-	return nil
+	return c.settleRestoredOffers(ctx, finalOffers)
 }
 
 func normalizeImportedDigest(raw string) digest.Digest {
@@ -534,15 +614,29 @@ func resolverServer(resolver TypeResolver) *Server {
 	return dag
 }
 
-func persistedEnvelopeObjectTypeNames(env PersistedResultEnvelope, names []string) []string {
+// persistedEnvelopeTypeName is one GraphQL type an envelope needs installed
+// before it can decode: an object class or a scalar/enum definition.
+type persistedEnvelopeTypeName struct {
+	name   string
+	object bool
+}
+
+// persistedEnvelopeTypeNames collects every object, scalar and enum type name
+// an envelope decodes through, including inline list items. Items naming
+// another row decode through that row's own envelope.
+func persistedEnvelopeTypeNames(env PersistedResultEnvelope, names []persistedEnvelopeTypeName) []persistedEnvelopeTypeName {
 	switch env.Kind {
 	case persistedResultKindObject:
 		if env.TypeName != "" {
-			names = append(names, env.TypeName)
+			names = append(names, persistedEnvelopeTypeName{name: env.TypeName, object: true})
+		}
+	case persistedResultKindScalar:
+		if env.TypeName != "" && !persistedBuiltinScalarName(env.TypeName) {
+			names = append(names, persistedEnvelopeTypeName{name: env.TypeName})
 		}
 	case persistedResultKindList:
 		for _, item := range env.Items {
-			names = persistedEnvelopeObjectTypeNames(item, names)
+			names = persistedEnvelopeTypeNames(item, names)
 		}
 	}
 	return names
@@ -583,22 +677,37 @@ func (c *Cache) ensurePersistedHitValueLoaded(ctx context.Context, resolver Type
 			return nil, fmt.Errorf("ensure persisted hit value loaded: invalid object payload state for result %d (hasValue=true, self=nil)", res.id)
 		}
 		if state.hasValue || state.persistedEnvelope == nil {
-			if !state.isObject {
-				c.registerLazyEvaluation(res, hit)
-				return hit, nil
+			res.persistDecodeMu.Lock()
+			leaseSyncPending := res.persistLeaseSyncPending
+			res.persistDecodeMu.Unlock()
+			if !leaseSyncPending {
+				if !state.isObject {
+					c.registerLazyEvaluation(res, hit, resolver)
+					return hit, nil
+				}
+				objRes, err := wrapSharedResultWithResolver(ctx, res, hit.HitCache(), resolver)
+				if err != nil {
+					return nil, fmt.Errorf("reconstruct object result from cache hit payload: %w", err)
+				}
+				c.registerLazyEvaluation(res, objRes, resolver)
+				return objRes, nil
 			}
-			objRes, err := wrapSharedResultWithResolver(ctx, res, hit.HitCache(), resolver)
-			if err != nil {
-				return nil, fmt.Errorf("reconstruct object result from cache hit payload: %w", err)
-			}
-			c.registerLazyEvaluation(res, objRes)
-			return objRes, nil
+			// The payload is installed but its owner-lease sync has not
+			// succeeded yet (a previous leader failed or was canceled
+			// between the install and finishPersistDecode). Join or lead a
+			// sync-only attempt below before serving the value.
 		}
 
+		if c.testPersistDecodePreLock != nil {
+			c.testPersistDecodePreLock(uint64(res.id))
+		}
 		res.persistDecodeMu.Lock()
 		if res.persistDecodeWaitCh != nil {
 			waitCh := res.persistDecodeWaitCh
 			res.persistDecodeMu.Unlock()
+			if err := c.reachDecodeJoined(ctx, res); err != nil {
+				return nil, err
+			}
 
 			select {
 			case <-waitCh:
@@ -608,96 +717,181 @@ func (c *Cache) ensurePersistedHitValueLoaded(ctx context.Context, resolver Type
 
 			res.persistDecodeMu.Lock()
 			decodeErr := res.persistDecodeErr
+			decodeRetry := res.persistDecodeRetry
 			res.persistDecodeMu.Unlock()
 			if decodeErr != nil {
+				if decodeRetry {
+					// The attempt failed only because its leader's own
+					// context was canceled; the entry itself is healthy.
+					// Mirror waitForLazyEvaluation: a canceled joiner
+					// returns its own cause, a healthy one retries.
+					if ownCause := context.Cause(ctx); ownCause != nil {
+						return nil, ownCause
+					}
+					continue
+				}
 				return nil, decodeErr
 			}
 			continue
 		}
 
+		// Decide leadership on state read under the mutex: a caller that
+		// paused between the loop-top read and this lock acquisition may
+		// find another leader already installed the payload and finished
+		// its lease sync. There is nothing left to lead then; loop back to
+		// the fast path instead of publishing a redundant attempt whose
+		// sync could fail or be canceled and re-latch an error.
+		state = res.loadPayloadState()
+		needDecode := !state.hasValue && state.persistedEnvelope != nil
+		if !needDecode && !res.persistLeaseSyncPending {
+			res.persistDecodeMu.Unlock()
+			continue
+		}
+
 		res.persistDecodeWaitCh = make(chan struct{})
 		res.persistDecodeErr = nil
+		res.persistDecodeRetry = false
 		res.persistDecodeMu.Unlock()
+		if c.testPersistDecodeLeadPublished != nil {
+			c.testPersistDecodeLeadPublished(uint64(res.id))
+		}
 
-		finishPersistDecode := func(err error) {
+		// finishPersistDecode latches the outcome, the retry
+		// classification, and the pending-sync flag, and clears the
+		// channel, all under persistDecodeMu; the cleared channel is then
+		// closed after unlocking. installed reports whether the decoded
+		// payload is in place: a failure after the install means only the
+		// lease sync is outstanding, and persistLeaseSyncPending makes the
+		// next demand retry just that instead of serving the value with
+		// the owner-lease set unsynchronized.
+		finishPersistDecode := func(err error, installed bool) {
 			res.persistDecodeMu.Lock()
 			res.persistDecodeErr = err
+			res.persistDecodeRetry = lazyEvalErrorCausedByContext(ctx, err)
+			res.persistLeaseSyncPending = installed && err != nil
 			waitCh := res.persistDecodeWaitCh
 			res.persistDecodeWaitCh = nil
 			res.persistDecodeMu.Unlock()
 			close(waitCh)
 		}
 
-		call := res.loadResultCall()
-		if call == nil {
-			err := fmt.Errorf("decode persisted hit payload: missing authoritative call for object result %d", res.id)
-			finishPersistDecode(err)
-			return nil, err
-		}
-		decodeResolver := resolver
-		seenTypeNames := map[string]struct{}{}
-		for _, typeName := range persistedEnvelopeObjectTypeNames(*state.persistedEnvelope, nil) {
-			if _, seen := seenTypeNames[typeName]; seen {
-				continue
-			}
-			seenTypeNames[typeName] = struct{}{}
-			var err error
-			decodeResolver, err = resolverForSharedResultObject(ctx, decodeResolver, res, typeName)
-			if err != nil {
-				err = fmt.Errorf("decode persisted hit payload: %w", err)
-				finishPersistDecode(err)
+		// A leader with an installed payload (persistLeaseSyncPending was
+		// set) runs a sync-only attempt: it skips the decode below and
+		// just reconciles the leases.
+		if needDecode {
+			call := res.loadResultCall()
+			if call == nil {
+				err := fmt.Errorf("decode persisted hit payload: missing authoritative call for object result %d", res.id)
+				finishPersistDecode(err, false)
 				return nil, err
 			}
-		}
-		dag := resolverServer(decodeResolver)
-		if dag == nil {
-			err := fmt.Errorf("decode persisted hit payload: type resolver %T does not provide dagql server", decodeResolver)
-			finishPersistDecode(err)
-			return nil, err
-		}
-		decodeCtx := ContextWithCall(ctx, call)
-		decoded, err := DefaultPersistedSelfCodec.DecodeResult(decodeCtx, dag, uint64(res.id), call, *state.persistedEnvelope)
-		if err != nil {
-			c.tracePersistedPayloadDecodeFailed(ctx, res, state.persistedEnvelope, err)
-			err = fmt.Errorf("decode persisted hit payload: %w", err)
-			finishPersistDecode(err)
-			return nil, err
-		}
-		if decoded == nil || decoded.Unwrap() == nil {
-			err := fmt.Errorf("decode persisted hit payload: decoded nil payload for object result %d", res.id)
-			finishPersistDecode(err)
-			return nil, err
-		}
-
-		res.payloadMu.Lock()
-		if !res.hasValue && res.persistedEnvelope != nil {
-			res.self = decoded.Unwrap()
-			res.hasValue = true
-			if objDecoded, ok := decoded.(AnyObjectResult); ok && res.objClass == nil {
-				res.objClass = objDecoded.ObjectType()
-			}
-			decodedShared := decoded.cacheSharedResult()
-			if decodedShared != nil {
-				res.sessionResourceHandle = decodedShared.sessionResourceHandle
-				if decodedShared.requiredSessionResources != nil {
-					res.requiredSessionResources = decodedShared.requiredSessionResources.Copy()
-				} else if decodedShared.sessionResourceHandle == "" {
-					res.requiredSessionResources = nil
+			decodeResolver := resolver
+			seenTypeNames := map[persistedEnvelopeTypeName]struct{}{}
+			for _, typeName := range persistedEnvelopeTypeNames(*state.persistedEnvelope, nil) {
+				if _, seen := seenTypeNames[typeName]; seen {
+					continue
+				}
+				seenTypeNames[typeName] = struct{}{}
+				var err error
+				decodeResolver, err = resolverForSharedResultType(ctx, decodeResolver, res, typeName)
+				if err != nil {
+					err = fmt.Errorf("decode persisted hit payload: %w", err)
+					finishPersistDecode(err, false)
+					return nil, err
 				}
 			}
-			res.persistedEnvelope = nil
-			c.tracePersistedPayloadDecoded(ctx, res, state.persistedEnvelope)
+			dag := resolverServer(decodeResolver)
+			if dag == nil {
+				err := fmt.Errorf("decode persisted hit payload: type resolver %T does not provide dagql server", decodeResolver)
+				finishPersistDecode(err, false)
+				return nil, err
+			}
+			decodeCtx := ContextWithCall(ctx, call)
+			roles := state.snapshotOwnerLinks
+			if state.snapshotLinkIntent != nil {
+				roles = state.snapshotLinkIntent.Links
+			}
+			decodeCtx = context.WithValue(decodeCtx, copiedDecodeRolesKey{}, &copiedDecodeRoles{ResultID: uint64(res.id), Links: cloneSnapshotRefLinks(roles), Imported: state.imported, Host: c.partHostFor(res)})
+			// The typed preparation has its copies and holds no payload lock:
+			// an encoded Commit or an independent sync can race it from here.
+			if err := c.fixtureReach(ctx, FixtureBarrierEvent{Point: FixtureDecodeCopied, ResultID: uint64(res.id)}); err != nil {
+				finishPersistDecode(err, false)
+				return nil, err
+			}
+			decoded, err := DefaultPersistedSelfCodec.DecodeResult(decodeCtx, dag, uint64(res.id), call, *state.persistedEnvelope)
+			if err != nil {
+				c.tracePersistedPayloadDecodeFailed(ctx, res, state.persistedEnvelope, err)
+				err = fmt.Errorf("decode persisted hit payload: %w", err)
+				finishPersistDecode(err, false)
+				return nil, err
+			}
+			if decoded == nil || decoded.Unwrap() == nil {
+				err := fmt.Errorf("decode persisted hit payload: decoded nil payload for object result %d", res.id)
+				finishPersistDecode(err, false)
+				return nil, err
+			}
+
+			// Immediately before the real compare-and-publish.
+			if err := c.fixtureReach(ctx, FixtureBarrierEvent{Point: FixtureDecodeBeforePublish, ResultID: uint64(res.id)}); err != nil {
+				if release := decoded.cacheSharedResult().onRelease; release != nil {
+					err = errors.Join(err, release(context.WithoutCancel(ctx)))
+				}
+				finishPersistDecode(err, false)
+				return nil, err
+			}
+			res.payloadMu.Lock()
+			if res.hasValue || res.persistedEnvelope == nil || res.payloadRevision != state.payloadRevision {
+				res.payloadMu.Unlock()
+				if release := decoded.cacheSharedResult().onRelease; release != nil {
+					if err := release(context.WithoutCancel(ctx)); err != nil {
+						finishPersistDecode(err, false)
+						return nil, err
+					}
+				}
+				finishPersistDecode(nil, false)
+				continue
+			}
+			if !res.hasValue && res.persistedEnvelope != nil && res.payloadRevision == state.payloadRevision {
+				markRestoredPartDelegation(res, *state.persistedEnvelope, call, roles)
+				c.bindPartHost(res, decoded)
+				res.self = decoded.Unwrap()
+				res.hasValue = true
+				if objDecoded, ok := decoded.(AnyObjectResult); ok && res.objClass == nil {
+					res.objClass = objDecoded.ObjectType()
+				}
+				// The install must not touch the session-resource fields:
+				// the decoded shell only knows the row's own handle, so
+				// copying its requiredSessionResources dropped a non-leaf's
+				// dependency-derived requirements, and the write raced the
+				// lookup filter, which reads the field under egraphMu.
+				res.persistedEnvelope = nil
+				res.payloadRevision++
+				res.onRelease = joinOnRelease(res.onRelease, decoded.cacheSharedResult().onRelease)
+				c.tracePersistedPayloadDecoded(ctx, res, state.persistedEnvelope)
+			}
+			res.payloadMu.Unlock()
+
+			resolver = decodeResolver
 		}
-		res.payloadMu.Unlock()
-		if onReleaser, ok := UnwrapAs[OnReleaser](decoded); ok {
-			res.onRelease = joinOnRelease(c.resultSnapshotLeaseCleanup(res), onReleaser.OnRelease)
-		}
-		resolver = decodeResolver
+		// The payload is installed. The sync must succeed before the value
+		// is served without the pending flag; on failure the flag makes the
+		// next demand retry just the sync (syncResultSnapshotLeases stores
+		// the reconciled link set only on full success, so a retry re-diffs
+		// from the previous stored state).
 		if err := c.syncResultSnapshotLeases(ctx, res); err != nil {
 			err = fmt.Errorf("sync persisted hit owner leases: %w", err)
-			finishPersistDecode(err)
+			finishPersistDecode(err, true)
 			return nil, err
 		}
-		finishPersistDecode(nil)
+		finishPersistDecode(nil, true)
 	}
+}
+
+// reachDecodeJoined is the joiner's one observation point: the in-process
+// hook, then the gated fixture's barrier. Both are nil off their gates.
+func (c *Cache) reachDecodeJoined(ctx context.Context, res *sharedResult) error {
+	if c.testPersistDecodeJoined != nil {
+		c.testPersistDecodeJoined(uint64(res.id))
+	}
+	return c.fixtureReach(ctx, FixtureBarrierEvent{Point: FixtureDecodeJoined, ResultID: uint64(res.id)})
 }

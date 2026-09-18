@@ -35,11 +35,20 @@ type Module struct {
 	// The module's SDKConfig, as set in the module config file
 	SDKConfig *SDKConfig `field:"true" name:"sdk" doc:"The SDK config used by this module."`
 
-	// Deps contains the module's dependency DAG.
+	// Deps contains the module's dependency DAG. Its SchemaBuilder may retain a
+	// query root and lazy schema, but never runtime authority; execution still
+	// requires the held ClientScope carried by the calling context.
 	Deps *SchemaBuilder
 
 	// Runtime is the container that runs the module's entrypoint. It will fail to execute if the module doesn't compile.
 	Runtime dagql.Nullable[dagql.ObjectResult[*Container]]
+
+	// Definition is the cached result of ModuleSource._moduleDefinition when
+	// the module's type definitions came from its container runtime: the
+	// definition-only module the runtime reported. Keeping the reference puts
+	// the definition row inside this module's closure, so a bundle that
+	// carries the module carries the definition too.
+	Definition dagql.Nullable[dagql.ObjectResult[*Module]]
 
 	// The following are populated while initializing the module
 
@@ -144,20 +153,143 @@ func (mod *Module) ObjectByName(name string) (*ObjectTypeDef, bool) {
 	return nil, false
 }
 
-func functionRequiresArgs(fn *Function) bool {
+// argRequired reports whether an argument must be supplied by the caller.
+// NOTE: we count on user defaults already merged in the schema at this point.
+func argRequired(arg *FunctionArg) bool {
+	// "regular optional" -> not required
+	if arg.TypeDef.Self().Optional {
+		return false
+	}
+	// "contextual optional" -> not required
+	if arg.DefaultPath != "" {
+		return false
+	}
+	// default value -> not required
+	if arg.DefaultValue != nil {
+		return false
+	}
+	// engine-supplied -> not required. A Workspace is declared required so the
+	// signature says so, but it resolves from the workspace in scope rather than
+	// from the caller — the same reason a contextual arg is exempt above.
+	if arg.IsWorkspace() {
+		return false
+	}
+	return true
+}
+
+// agentBaseArgName is the conventional name for an @agent middleware's base
+// argument, used only as a fallback when the actual LLM! argument can't be
+// resolved. The base is identified by *type* — a single required LLM! arg — not
+// by name, so authors may call it `base`, `llm`, etc. (hack/designs/workspace-agents.md §3). The
+// compose fold (AgentMiddlewareGroup.Compose) fills that argument with the running
+// accumulator explicitly.
+const agentBaseArgName = "base"
+
+// isCoreLLMArg reports whether an argument is of the core LLM type. Like
+// IsWorkspace, the SourceModuleName guard keeps it to the core LLM (functions
+// can't currently accept types from other modules, but be explicit anyway).
+func isCoreLLMArg(arg *FunctionArg) bool {
+	typeDef := arg.TypeDef.Self()
+	return typeDef.Kind == TypeDefKindObject &&
+		typeDef.AsObject.Value.Self().Name == "LLM" &&
+		typeDef.AsObject.Value.Self().SourceModuleName == ""
+}
+
+// returnsCoreObject reports whether the function returns the named core object
+// type, non-null. The SourceModuleName guard keeps it to the core type, not a
+// module-local type that happens to share its name.
+func returnsCoreObject(fn *Function, name string) bool {
+	ret := fn.ReturnType.Self()
+	return !ret.Optional &&
+		ret.Kind == TypeDefKindObject &&
+		ret.AsObject.Value.Self().Name == name &&
+		ret.AsObject.Value.Self().SourceModuleName == ""
+}
+
+// validateUpFunction enforces the @up contract: the function must return the
+// core Service! type and must be callable with no caller-supplied arguments,
+// since `dagger up` starts services without any.
+func validateUpFunction(obj *ObjectTypeDef, fn *Function) error {
+	if !returnsCoreObject(fn, "Service") {
+		return fmt.Errorf("object %q function %q is marked @up but returns %s; @up functions must return the core Service! type",
+			obj.OriginalName, fn.OriginalName, fn.ReturnType.Self().ToType().String())
+	}
 	for _, argRes := range fn.Args {
 		arg := argRes.Self()
-		// NOTE: we count on user defaults already merged in the schema at this point
-		// "regular optional" -> ok
-		if arg.TypeDef.Self().Optional {
+		if argRequired(arg) {
+			return fmt.Errorf("object %q function %q is marked @up but declares required argument %q; @up functions must be callable with no arguments",
+				obj.OriginalName, fn.OriginalName, arg.OriginalName)
+		}
+	}
+	return nil
+}
+
+// validateGeneratorFunction enforces the @generate contract: the function must
+// return the core Changeset! type and must be callable with no caller-supplied
+// arguments, since `dagger generate` runs generators without any.
+func validateGeneratorFunction(obj *ObjectTypeDef, fn *Function) error {
+	if !returnsCoreObject(fn, "Changeset") {
+		return fmt.Errorf("object %q function %q is marked @generate but returns %s; @generate functions must return the core Changeset! type",
+			obj.OriginalName, fn.OriginalName, fn.ReturnType.Self().ToType().String())
+	}
+	for _, argRes := range fn.Args {
+		arg := argRes.Self()
+		if argRequired(arg) {
+			return fmt.Errorf("object %q function %q is marked @generate but declares required argument %q; @generate functions must be callable with no arguments",
+				obj.OriginalName, fn.OriginalName, arg.OriginalName)
+		}
+	}
+	return nil
+}
+
+// validateAgentFunction enforces the @agent middleware contract (hack/designs/workspace-agents.md
+// §3): the function must return LLM! and must declare exactly one required
+// argument, an LLM! (the base the compose fold supplies, whatever it is
+// named). A non-LLM! return, a missing base, or any other required argument is
+// a hard error at module load.
+func validateAgentFunction(obj *ObjectTypeDef, fn *Function) error {
+	if !returnsCoreObject(fn, "LLM") {
+		return fmt.Errorf("object %q function %q is marked @agent but does not return LLM!; @agent functions must have the agent(base: LLM!): LLM! shape",
+			obj.OriginalName, fn.OriginalName)
+	}
+	baseExempted := false
+	for _, argRes := range fn.Args {
+		arg := argRes.Self()
+		if !argRequired(arg) {
 			continue
 		}
-		// "contextual optional" -> ok
-		if arg.DefaultPath != "" {
+		if !baseExempted && isCoreLLMArg(arg) {
+			baseExempted = true
 			continue
 		}
-		// default value -> ok
-		if arg.DefaultValue != nil {
+		return fmt.Errorf("object %q function %q is marked @agent but declares required argument %q; an @agent function may only require a single LLM! argument (the base the compose fold supplies)",
+			obj.OriginalName, fn.OriginalName, arg.OriginalName)
+	}
+	if !baseExempted {
+		return fmt.Errorf("object %q function %q is marked @agent but does not declare a required LLM! argument; @agent functions must have the agent(base: LLM!): LLM! shape (the base the compose fold supplies)",
+			obj.OriginalName, fn.OriginalName)
+	}
+	return nil
+}
+
+// functionRequiresCallerArgs reports whether a function has required arguments
+// the caller has to supply, which disqualifies it from no-arg enumeration.
+//
+// Engine-supplied arguments don't count, because nothing is asked of the
+// caller: an @agent function's single required LLM! is the base the compose
+// fold supplies explicitly (hack/designs/workspace-agents.md §3), and a
+// Workspace! — exempted in argRequired, alongside contextual args — resolves
+// from the workspace in scope. Both are declared required so the signature says
+// so, and both are filled in before the call.
+func functionRequiresCallerArgs(fn *Function) bool {
+	baseExempted := false
+	for _, argRes := range fn.Args {
+		arg := argRes.Self()
+		if !argRequired(arg) {
+			continue
+		}
+		if fn.IsAgent && !baseExempted && isCoreLLMArg(arg) {
+			baseExempted = true
 			continue
 		}
 		return true
@@ -326,6 +458,18 @@ func (mod *Module) ApplyWorkspaceDefaultsToTypeDefs(ctx context.Context, dag *da
 					b := userInput == "true"
 					marshaled, _ := json.Marshal(b)
 					jsonValue = JSON(marshaled)
+				case TypeDefKindList:
+					// Mirror UserDefaultPrimitive.Value: JSON arrays pass through,
+					// plain strings are comma-split.
+					if trimmed := strings.TrimSpace(userInput); strings.HasPrefix(trimmed, "[") && json.Valid([]byte(trimmed)) {
+						jsonValue = JSON(trimmed)
+					} else {
+						marshaled, err := json.Marshal(strings.Split(userInput, ","))
+						if err != nil {
+							continue
+						}
+						jsonValue = JSON(marshaled)
+					}
 				default:
 					if json.Valid([]byte(userInput)) {
 						jsonValue = JSON(userInput)
@@ -747,6 +891,18 @@ func (mod *Module) AttachDependencyResults(
 		mod.Runtime = dagql.NonNull(typed)
 		owned = append(owned, typed)
 	}
+	if mod.Definition.Valid && mod.Definition.Value.Self() != nil {
+		attached, err := attach(mod.Definition.Value)
+		if err != nil {
+			return nil, fmt.Errorf("attach module definition: %w", err)
+		}
+		typed, ok := attached.(dagql.ObjectResult[*Module])
+		if !ok {
+			return nil, fmt.Errorf("attach module definition: unexpected result %T", attached)
+		}
+		mod.Definition = dagql.NonNull(typed)
+		owned = append(owned, typed)
+	}
 	for i, def := range mod.ObjectDefs {
 		if def.Self() == nil {
 			continue
@@ -865,6 +1021,7 @@ type persistedModulePayload struct {
 	SourceResultID                uint64                          `json:"sourceResultID,omitempty"`
 	ContextSourceResultID         uint64                          `json:"contextSourceResultID,omitempty"`
 	RuntimeResultID               uint64                          `json:"runtimeResultID,omitempty"`
+	DefinitionResultID            uint64                          `json:"definitionResultID,omitempty"`
 	DepModuleResultIDs            []uint64                        `json:"depModuleResultIDs,omitempty"`
 	IncludeSelfInDeps             bool                            `json:"includeSelfInDeps,omitempty"`
 	NameField                     string                          `json:"nameField,omitempty"`
@@ -882,28 +1039,35 @@ type persistedModulePayload struct {
 	AsModuleVariantDigest         string                          `json:"asModuleVariantDigest,omitempty"`
 }
 
-func (mod *Module) EncodePersistedObject(ctx context.Context, cache dagql.PersistedObjectCache) (dagql.PersistedObjectEncoding, error) {
+func (mod *Module) EncodePersistedObject(ctx context.Context, enc *dagql.PersistEncodeContext) (dagql.PersistedObjectEncoding, error) {
 	var persisted persistedModulePayload
 	if mod.Source.Valid {
-		sourceID, err := encodePersistedObjectRef(cache, mod.Source.Value, "module source")
+		sourceID, err := encodePersistedObjectRef(enc, mod.Source.Value, "module source")
 		if err != nil {
 			return dagql.PersistedObjectEncoding{}, err
 		}
 		persisted.SourceResultID = sourceID
 	}
 	if mod.ContextSource.Valid {
-		contextSourceID, err := encodePersistedObjectRef(cache, mod.ContextSource.Value, "module context source")
+		contextSourceID, err := encodePersistedObjectRef(enc, mod.ContextSource.Value, "module context source")
 		if err != nil {
 			return dagql.PersistedObjectEncoding{}, err
 		}
 		persisted.ContextSourceResultID = contextSourceID
 	}
 	if mod.Runtime.Valid {
-		runtimeID, err := encodePersistedObjectRef(cache, mod.Runtime.Value, "module runtime")
+		runtimeID, err := encodePersistedObjectRef(enc, mod.Runtime.Value, "module runtime")
 		if err != nil {
 			return dagql.PersistedObjectEncoding{}, err
 		}
 		persisted.RuntimeResultID = runtimeID
+	}
+	if mod.Definition.Valid && mod.Definition.Value.Self() != nil {
+		definitionID, err := encodePersistedObjectRef(enc, mod.Definition.Value, "module definition")
+		if err != nil {
+			return dagql.PersistedObjectEncoding{}, err
+		}
+		persisted.DefinitionResultID = definitionID
 	}
 
 	persisted.IncludeSelfInDeps = mod.IncludeSelfInDeps
@@ -914,7 +1078,7 @@ func (mod *Module) EncodePersistedObject(ctx context.Context, cache dagql.Persis
 			if depInst.Self() == nil {
 				continue
 			}
-			depResultID, err := encodePersistedObjectRef(cache, depInst, fmt.Sprintf("module dependency %q", dep.Name()))
+			depResultID, err := encodePersistedObjectRef(enc, depInst, fmt.Sprintf("module dependency %q", dep.Name()))
 			if err != nil {
 				return dagql.PersistedObjectEncoding{}, err
 			}
@@ -931,7 +1095,7 @@ func (mod *Module) EncodePersistedObject(ctx context.Context, cache dagql.Persis
 	persisted.Description = mod.Description
 	persisted.ObjectDefResultIDs = make([]uint64, 0, len(mod.ObjectDefs))
 	for _, def := range mod.ObjectDefs {
-		defID, err := encodePersistedObjectRef(cache, def, "module object typedef")
+		defID, err := encodePersistedObjectRef(enc, def, "module object typedef")
 		if err != nil {
 			return dagql.PersistedObjectEncoding{}, err
 		}
@@ -939,7 +1103,7 @@ func (mod *Module) EncodePersistedObject(ctx context.Context, cache dagql.Persis
 	}
 	persisted.InterfaceDefResultIDs = make([]uint64, 0, len(mod.InterfaceDefs))
 	for _, def := range mod.InterfaceDefs {
-		defID, err := encodePersistedObjectRef(cache, def, "module interface typedef")
+		defID, err := encodePersistedObjectRef(enc, def, "module interface typedef")
 		if err != nil {
 			return dagql.PersistedObjectEncoding{}, err
 		}
@@ -947,7 +1111,7 @@ func (mod *Module) EncodePersistedObject(ctx context.Context, cache dagql.Persis
 	}
 	persisted.EnumDefResultIDs = make([]uint64, 0, len(mod.EnumDefs))
 	for _, def := range mod.EnumDefs {
-		defID, err := encodePersistedObjectRef(cache, def, "module enum typedef")
+		defID, err := encodePersistedObjectRef(enc, def, "module enum typedef")
 		if err != nil {
 			return dagql.PersistedObjectEncoding{}, err
 		}
@@ -967,36 +1131,43 @@ func (mod *Module) EncodePersistedObject(ctx context.Context, cache dagql.Persis
 	return encodePersistedObjectRawJSON(jsonBytes), nil
 }
 
-func (*Module) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*Module) DecodePersistedObject(ctx context.Context, dec *dagql.PersistDecodeContext, payload json.RawMessage) (dagql.Typed, error) {
 	var persisted persistedModulePayload
-	if err := json.Unmarshal(payload, &persisted); err != nil {
+	if err := unmarshalPersistedPayload(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted module payload: %w", err)
 	}
 
-	sourceRes, err := loadPersistedObjectResultByResultID[*ModuleSource](ctx, dag, persisted.SourceResultID, "module source")
+	sourceRes, err := loadPersistedObjectResultByResultID[*ModuleSource](ctx, dec, persisted.SourceResultID, "module source")
 	if err != nil {
 		return nil, err
 	}
-	contextSourceRes, err := loadPersistedObjectResultByResultID[*ModuleSource](ctx, dag, persisted.ContextSourceResultID, "module context source")
+	contextSourceRes, err := loadPersistedObjectResultByResultID[*ModuleSource](ctx, dec, persisted.ContextSourceResultID, "module context source")
 	if err != nil {
 		return nil, err
 	}
-	runtimeRes, err := loadPersistedObjectResultByResultID[*Container](ctx, dag, persisted.RuntimeResultID, "module runtime")
+	runtimeRes, err := loadPersistedObjectResultByResultID[*Container](ctx, dec, persisted.RuntimeResultID, "module runtime")
+	if err != nil {
+		return nil, err
+	}
+	definitionRes, err := loadPersistedObjectResultByResultID[*Module](ctx, dec, persisted.DefinitionResultID, "module definition")
 	if err != nil {
 		return nil, err
 	}
 
-	query, err := persistedDecodeQuery(dag)
+	query, err := persistedDecodeQuery(dec)
 	if err != nil {
 		return nil, fmt.Errorf("decode persisted module query: %w", err)
 	}
-	deps, err := query.DefaultDeps(ctx)
+	// Under a sharing preparation marker this returns a fresh builder from
+	// the registered core descriptors instead of asking the engine root for
+	// a client's defaults; every other caller keeps Query.DefaultDeps.
+	deps, err := persistedDecodeDefaultDeps(ctx, dec, query)
 	if err != nil {
 		return nil, fmt.Errorf("decode persisted module default deps: %w", err)
 	}
 
 	for _, depID := range persisted.DepModuleResultIDs {
-		depRes, err := loadPersistedObjectResultByResultID[*Module](ctx, dag, depID, "module dependency")
+		depRes, err := loadPersistedObjectResultByResultID[*Module](ctx, dec, depID, "module dependency")
 		if err != nil {
 			return nil, err
 		}
@@ -1005,7 +1176,7 @@ func (*Module) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ u
 
 	objectDefs := make(dagql.ObjectResultArray[*TypeDef], 0, len(persisted.ObjectDefResultIDs))
 	for _, defID := range persisted.ObjectDefResultIDs {
-		def, err := loadPersistedObjectResultByResultID[*TypeDef](ctx, dag, defID, "module object typedef")
+		def, err := loadPersistedObjectResultByResultID[*TypeDef](ctx, dec, defID, "module object typedef")
 		if err != nil {
 			return nil, err
 		}
@@ -1013,7 +1184,7 @@ func (*Module) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ u
 	}
 	interfaceDefs := make(dagql.ObjectResultArray[*TypeDef], 0, len(persisted.InterfaceDefResultIDs))
 	for _, defID := range persisted.InterfaceDefResultIDs {
-		def, err := loadPersistedObjectResultByResultID[*TypeDef](ctx, dag, defID, "module interface typedef")
+		def, err := loadPersistedObjectResultByResultID[*TypeDef](ctx, dec, defID, "module interface typedef")
 		if err != nil {
 			return nil, err
 		}
@@ -1021,7 +1192,7 @@ func (*Module) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ u
 	}
 	enumDefs := make(dagql.ObjectResultArray[*TypeDef], 0, len(persisted.EnumDefResultIDs))
 	for _, defID := range persisted.EnumDefResultIDs {
-		def, err := loadPersistedObjectResultByResultID[*TypeDef](ctx, dag, defID, "module enum typedef")
+		def, err := loadPersistedObjectResultByResultID[*TypeDef](ctx, dec, defID, "module enum typedef")
 		if err != nil {
 			return nil, err
 		}
@@ -1056,6 +1227,9 @@ func (*Module) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ u
 	}
 	if runtimeRes.Self() != nil {
 		mod.Runtime = dagql.NonNull(runtimeRes)
+	}
+	if definitionRes.Self() != nil {
+		mod.Definition = dagql.NonNull(definitionRes)
 	}
 
 	return mod, nil
@@ -1194,81 +1368,115 @@ func (mod *Module) validateObjectTypeDef(ctx context.Context, typeDef dagql.Obje
 	obj := typeDef.Self().AsObject.Value.Self()
 
 	for _, fieldRes := range obj.Fields {
-		field := fieldRes.Self()
-		if gqlFieldName(field.Name) == "id" {
-			return fmt.Errorf("cannot define field with reserved name %q on object %q", field.Name, obj.Name)
-		}
-		// Workspace cannot be stored as a field on a module object
-		if field.TypeDef.Self().Kind == TypeDefKindObject && field.TypeDef.Self().AsObject.Value.Self().Name == "Workspace" {
-			return fmt.Errorf("object %q field %q: Workspace cannot be stored as a field on a module object; declare it as a function argument instead",
-				obj.OriginalName,
-				field.OriginalName,
-			)
-		}
-		fieldType, ok, err := mod.lookupValidationModType(ctx, field.TypeDef, state)
-		if err != nil {
-			return fmt.Errorf("failed to get mod type for type def: %w", err)
-		}
-		if ok {
-			sourceMod := fieldType.SourceMod()
-			// fields can reference core types and local types, but not types from other modules
-			if sourceMod != nil && sourceMod.Name() != ModuleName && sourceMod.Name() != mod.Name() {
-				return fmt.Errorf("object %q field %q cannot reference external type from dependency module %q",
-					obj.OriginalName,
-					field.OriginalName,
-					sourceMod.Name(),
-				)
-			}
-		}
-		if err := mod.validateTypeDef(ctx, field.TypeDef, state); err != nil {
+		if err := mod.validateObjectField(ctx, obj, fieldRes.Self(), state); err != nil {
 			return err
 		}
 	}
 
 	for fn := range obj.functions() {
-		if gqlFieldName(fn.Name) == "id" {
-			return fmt.Errorf("cannot define function with reserved name %q on object %q", fn.Name, obj.Name)
-		}
-		// Check if this is a type from another (non-core) module
-		retType, ok, err := mod.lookupValidationModType(ctx, fn.ReturnType, state)
-		if err != nil {
-			return fmt.Errorf("failed to get mod type for type def: %w", err)
-		}
-		if ok {
-			if sourceMod := retType.SourceMod(); sourceMod != nil && sourceMod.Name() != ModuleName && sourceMod.Name() != mod.Name() {
-				return fmt.Errorf("object %q function %q cannot return external type from dependency module %q",
-					obj.OriginalName,
-					fn.OriginalName,
-					sourceMod.Name(),
-				)
-			}
-		}
-		if err := mod.validateTypeDef(ctx, fn.ReturnType, state); err != nil {
+		if err := mod.validateObjectFunction(ctx, obj, fn, state); err != nil {
 			return err
-		}
-
-		for _, argRes := range fn.Args {
-			arg := argRes.Self()
-			argType, ok, err := mod.lookupValidationModType(ctx, arg.TypeDef, state)
-			if err != nil {
-				return fmt.Errorf("failed to get mod type for type def: %w", err)
-			}
-			if ok {
-				if sourceMod := argType.SourceMod(); sourceMod != nil && sourceMod.Name() != ModuleName && sourceMod.Name() != mod.Name() {
-					return fmt.Errorf("object %q function %q arg %q cannot reference external type from dependency module %q",
-						obj.OriginalName,
-						fn.OriginalName,
-						arg.OriginalName,
-						sourceMod.Name(),
-					)
-				}
-			}
-			if err := mod.validateTypeDef(ctx, arg.TypeDef, state); err != nil {
-				return err
-			}
 		}
 	}
 	return nil
+}
+
+func (mod *Module) validateObjectField(ctx context.Context, obj *ObjectTypeDef, field *FieldTypeDef, state *moduleValidationState) error {
+	if gqlFieldName(field.Name) == "id" {
+		return fmt.Errorf("cannot define field with reserved name %q on object %q", field.Name, obj.Name)
+	}
+	// Workspace cannot be stored as a field on a module object
+	if field.TypeDef.Self().Kind == TypeDefKindObject && field.TypeDef.Self().AsObject.Value.Self().Name == "Workspace" {
+		return fmt.Errorf("object %q field %q: Workspace cannot be stored as a field on a module object; declare it as a function argument instead",
+			obj.OriginalName,
+			field.OriginalName,
+		)
+	}
+	// fields can reference core types and local types, but not types from other modules
+	depName, err := mod.externalTypeDep(ctx, field.TypeDef, state)
+	if err != nil {
+		return err
+	}
+	if depName != "" {
+		return fmt.Errorf("object %q field %q cannot reference external type from dependency module %q",
+			obj.OriginalName,
+			field.OriginalName,
+			depName,
+		)
+	}
+	return mod.validateTypeDef(ctx, field.TypeDef, state)
+}
+
+func (mod *Module) validateObjectFunction(ctx context.Context, obj *ObjectTypeDef, fn *Function, state *moduleValidationState) error {
+	if gqlFieldName(fn.Name) == "id" {
+		return fmt.Errorf("cannot define function with reserved name %q on object %q", fn.Name, obj.Name)
+	}
+	if fn.IsUp {
+		if err := validateUpFunction(obj, fn); err != nil {
+			return err
+		}
+	}
+	if fn.IsGenerator {
+		if err := validateGeneratorFunction(obj, fn); err != nil {
+			return err
+		}
+	}
+	if fn.IsAgent {
+		if err := validateAgentFunction(obj, fn); err != nil {
+			return err
+		}
+	}
+	depName, err := mod.externalTypeDep(ctx, fn.ReturnType, state)
+	if err != nil {
+		return err
+	}
+	if depName != "" {
+		return fmt.Errorf("object %q function %q cannot return external type from dependency module %q",
+			obj.OriginalName,
+			fn.OriginalName,
+			depName,
+		)
+	}
+	if err := mod.validateTypeDef(ctx, fn.ReturnType, state); err != nil {
+		return err
+	}
+
+	for _, argRes := range fn.Args {
+		arg := argRes.Self()
+		depName, err := mod.externalTypeDep(ctx, arg.TypeDef, state)
+		if err != nil {
+			return err
+		}
+		if depName != "" {
+			return fmt.Errorf("object %q function %q arg %q cannot reference external type from dependency module %q",
+				obj.OriginalName,
+				fn.OriginalName,
+				arg.OriginalName,
+				depName,
+			)
+		}
+		if err := mod.validateTypeDef(ctx, arg.TypeDef, state); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// externalTypeDep returns the name of the dependency module that owns the given
+// type def, or "" if it's a core type, a local type, or not resolvable yet.
+func (mod *Module) externalTypeDep(ctx context.Context, typeDef dagql.ObjectResult[*TypeDef], state *moduleValidationState) (string, error) {
+	modType, ok, err := mod.lookupValidationModType(ctx, typeDef, state)
+	if err != nil {
+		return "", fmt.Errorf("failed to get mod type for type def: %w", err)
+	}
+	if !ok {
+		return "", nil
+	}
+	sourceMod := modType.SourceMod()
+	if sourceMod == nil || sourceMod.Name() == ModuleName || sourceMod.Name() == mod.Name() {
+		return "", nil
+	}
+	return sourceMod.Name(), nil
 }
 
 func (mod *Module) validateInterfaceTypeDef(ctx context.Context, typeDef dagql.ObjectResult[*TypeDef], state *moduleValidationState) error {
@@ -2450,7 +2658,7 @@ func (mod *Module) WithObject(ctx context.Context, def dagql.ObjectResult[*TypeD
 
 	if mod.Deps != nil {
 		if err := mod.validateTypeDef(ctx, def, mod.newValidationState()); err != nil {
-			return nil, fmt.Errorf("failed to validate type def: %w", err)
+			return nil, err
 		}
 	}
 	if mod.NameField != "" {
@@ -2477,7 +2685,7 @@ func (mod *Module) WithInterface(ctx context.Context, def dagql.ObjectResult[*Ty
 
 	if mod.Deps != nil {
 		if err := mod.validateTypeDef(ctx, def, mod.newValidationState()); err != nil {
-			return nil, fmt.Errorf("failed to validate type def: %w", err)
+			return nil, err
 		}
 	}
 	if mod.NameField != "" {
@@ -2504,7 +2712,7 @@ func (mod *Module) WithEnum(ctx context.Context, def dagql.ObjectResult[*TypeDef
 
 	if mod.Deps != nil {
 		if err := mod.validateTypeDef(ctx, def, mod.newValidationState()); err != nil {
-			return nil, fmt.Errorf("failed to validate type def: %w", err)
+			return nil, err
 		}
 	}
 	if mod.NameField != "" {

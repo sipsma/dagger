@@ -1,0 +1,9 @@
+--- FAIL: TestPartLazyOperationPublishesOverObservedRepresentation (10.04s)
+    cache_part_admission_test.go:269: 
+        	Error Trace:	/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/sharing-implementer-fable-impl-07b90299-afea3c83/dagql/cache_part_admission_test.go:269
+        	Error:      	Received unexpected error:
+        	            	context deadline exceeded
+        	Test:       	TestPartLazyOperationPublishesOverObservedRepresentation
+FAIL
+FAIL	github.com/dagger/dagger/dagql	10.145s
+FAIL

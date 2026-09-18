@@ -2,9 +2,8 @@ package schema
 
 import (
 	"fmt"
-	"path/filepath"
-	"strings"
 
+	"github.com/dagger/dagger/core"
 	"github.com/dagger/dagger/core/modules"
 	"github.com/dagger/dagger/core/workspace"
 )
@@ -15,6 +14,7 @@ type workspaceMigrationModuleConfigConversion struct {
 }
 
 func workspaceMigrationModuleConfigConversions(
+	ws *core.Workspace,
 	compatWorkspaces []*workspace.CompatWorkspace,
 ) ([]workspaceMigrationModuleConfigConversion, error) {
 	// This is filename-format migration, not workspace compat projection:
@@ -26,12 +26,30 @@ func workspaceMigrationModuleConfigConversions(
 		if compatWorkspace == nil || compatWorkspace.Config == nil {
 			continue
 		}
-		if compatWorkspace.MustMigrateToWorkspaceConfig() {
-			continue
+		if compatWorkspace.DiscoveredLocalModule {
+			// A discovered local toolchain/dependency converts in place even
+			// when its source is a non-root subdir (a normal toolchain would
+			// otherwise be treated as workspace-shaped). Only a genuine nested
+			// workspace (its own toolchains/blueprint) is left as legacy.
+			if workspaceMigrationLeavesModuleLegacy(compatWorkspace) {
+				continue
+			}
+		} else {
+			routesThroughPlan, err := workspaceMigrationRoutesThroughPlan(ws, compatWorkspace)
+			if err != nil {
+				return nil, err
+			}
+			if routesThroughPlan {
+				// PlanMigration writes this config's dagger-module.toml
+				// itself (in place, at the module's own project root).
+				continue
+			}
 		}
-		if compatWorkspace.Config.SDK != nil && !workspaceMigrationProjectRootInDefaultModules(compatWorkspace.ProjectRoot) {
-			continue
-		}
+		// Reaching here non-discovered means the selected config is a plain
+		// SDK module — either the "repo is just a dagger module" shape (source
+		// at the workspace root, runtime pinned via the parent-plan flow) or a
+		// module in a subdirectory (module-only migration: converted in place
+		// with no workspace created).
 		if compatWorkspace.ProjectRoot == "" {
 			return nil, fmt.Errorf("legacy module config project root is required")
 		}
@@ -52,25 +70,31 @@ func workspaceMigrationModuleConfigConversions(
 	return conversions, nil
 }
 
+// workspaceMigrationLeavesModuleLegacy reports whether migration leaves this
+// module's config in legacy format: a discovered nested workspace (own
+// toolchains/blueprint) is neither converted in place nor routed through
+// PlanMigration.
+func workspaceMigrationLeavesModuleLegacy(compatWorkspace *workspace.CompatWorkspace) bool {
+	return compatWorkspace.DiscoveredLocalModule &&
+		workspace.HasOwnWorkspaceSemantics(compatWorkspace.Config)
+}
+
 func legacyModuleConfigAsCurrent(cfg *modules.ModuleConfig) ([]byte, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("module config is required")
 	}
-	cloned := *cfg
-	if cloned.Source == "." {
-		cloned.Source = ""
-	}
-	return modules.MarshalModuleConfigForFormat(&modules.ModuleConfigWithUserFields{
-		ModuleConfig: cloned,
-	}, modules.ConfigFormatCurrent)
-}
-
-func workspaceMigrationProjectRootInDefaultModules(projectRoot string) bool {
-	parts := strings.Split(filepath.ToSlash(filepath.Clean(projectRoot)), "/")
-	for i := 0; i+2 < len(parts); i++ {
-		if parts[i] == workspace.LockDirName && parts[i+1] == "modules" && parts[i+2] != "" {
-			return true
+	if cfg.SDK == nil || cfg.SDK.Source == "" {
+		cloned := *cfg
+		if cloned.Source == "." {
+			cloned.Source = ""
 		}
+		return modules.MarshalModuleConfigForFormat(&modules.ModuleConfigWithUserFields{
+			ModuleConfig: cloned,
+		}, modules.ConfigFormatCurrent)
 	}
-	return false
+	plan, err := workspace.PlanModuleMigration(cfg, false)
+	if err != nil {
+		return nil, err
+	}
+	return plan.ConfigData, nil
 }

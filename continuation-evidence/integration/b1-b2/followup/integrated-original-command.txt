@@ -1,0 +1,7 @@
+Head: 97ee3385fdfdb502638922d329e9775e0d040e67
+Working directory: /home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-integration-b1-b2-36d54e12-c4fb4f07
+Command: env GOPATH=/home/exedev/go GOCACHE=/home/exedev/.cache/go-build go test -p=1 -exec='sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core -count=1 -v
+Started: 2026-09-16T09:11:19.242976+00:00
+Finished: 2026-09-16T09:11:34.674486+00:00
+Exit status: 1
+Log: integrated-original.log

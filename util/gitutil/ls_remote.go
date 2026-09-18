@@ -191,9 +191,15 @@ func (remote *Remote) Lookup(target string) (result *Ref, _ error) {
 		switch ref.Name {
 		case headRef:
 			headMatch = ref
-		case tagRef, peeledTagRef:
-			tagMatch = ref
-			tagMatch.Name = tagRef
+		case tagRef:
+			if tagMatch == nil {
+				clone := *ref
+				tagMatch = &clone
+			}
+		case peeledTagRef:
+			clone := *ref
+			clone.Name = tagRef
+			tagMatch = &clone
 		case partialRef:
 			match = ref
 		case target:
@@ -221,6 +227,10 @@ func (remote *Remote) Lookup(target string) (result *Ref, _ error) {
 	// resolve symrefs to get the right ref result
 	if ref, ok := remote.Symrefs[match.Name]; ok {
 		match.Name = ref
+	} else if match.Name == "HEAD" {
+		// A detached HEAD has no ref name. Keeping "HEAD" would make a
+		// later checkout update its initial branch instead of detaching.
+		match.Name = ""
 	}
 
 	if isHead && remote.Head != nil && remote.Head.SHA != "" {

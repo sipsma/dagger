@@ -1,0 +1,4 @@
+# github.com/dagger/dagger/core/schema [github.com/dagger/dagger/core/schema.test]
+core/schema/http_lazy_test.go:4:2: "context" imported and not used
+FAIL	github.com/dagger/dagger/core/schema [build failed]
+FAIL

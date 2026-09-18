@@ -1,4 +1,4 @@
-use std::{ops::Deref, sync::Arc};
+use std::{collections::HashSet, ops::Deref, sync::Arc};
 
 use dagger_sdk::core::introspection::{
     DirectivesExt, FullType, FullTypeFields, InputValue, TypeRef, __TypeKind,
@@ -29,13 +29,31 @@ pub type DynFormatTypeFuncs = Arc<dyn FormatTypeFuncs + Send + Sync>;
 
 pub struct CommonFunctions {
     format_type_funcs: DynFormatTypeFuncs,
+    supports_nullable_objects: bool,
+    interface_names: HashSet<String>,
 }
 
 impl CommonFunctions {
-    pub fn new(funcs: DynFormatTypeFuncs) -> Self {
+    pub fn new(
+        funcs: DynFormatTypeFuncs,
+        schema_version: Option<&str>,
+        interface_names: HashSet<String>,
+    ) -> Self {
         Self {
             format_type_funcs: funcs,
+            supports_nullable_objects: supports_nullable_objects(schema_version),
+            interface_names,
         }
+    }
+
+    pub fn supports_nullable_objects(&self) -> bool {
+        self.supports_nullable_objects
+    }
+
+    /// Whether the named schema type is an interface, whose handles load
+    /// into its `FooClient` struct.
+    pub fn is_interface(&self, name: &str) -> bool {
+        self.interface_names.contains(name)
     }
 
     pub fn format_input_type(&self, t: &TypeRef) -> String {
@@ -50,36 +68,28 @@ impl CommonFunctions {
         self.format_type(t, true, true)
     }
 
-    /// Returns true if a field returns an ID that should be converted back
-    /// to its parent object (i.e. a sync-like field). This mirrors Go's
-    /// `ConvertID`.
-    pub fn convert_id(field: &FullTypeFields) -> bool {
+    /// Returns true if the field returns an ID that should be converted into
+    /// an object: see `id_handle_type`. This mirrors Go's `ConvertID`.
+    pub fn convert_id(&self, field: &FullTypeFields) -> bool {
+        self.id_handle_type(field).is_some()
+    }
+
+    /// The GraphQL type an ID-returning field loads in the SDK, or `None`
+    /// when the ID is returned as-is (including the `id` field itself).
+    ///
+    /// The `@expectedType` directive names the object: sync-likes return
+    /// their parent, and `LLM.spawn` returns an `Agent` rather than its ID.
+    pub fn id_handle_type(&self, field: &FullTypeFields) -> Option<String> {
         // Never convert the `id` field itself.
         if field.name.as_deref() == Some("id") {
-            return false;
+            return None;
         }
-        let type_ref = match field.type_.as_ref() {
-            Some(t) => &t.type_ref,
-            None => return false,
-        };
-        // Must be a scalar (after unwrapping NON_NULL).
-        if !type_ref.is_scalar() {
-            return false;
+        let type_ref = &field.type_.as_ref()?.type_ref;
+        // Must be the ID scalar (after unwrapping NON_NULL).
+        if !type_ref.is_scalar() || !type_ref.is_id() {
+            return None;
         }
-        // Must actually be the ID scalar.
-        if !type_ref.is_id() {
-            return false;
-        }
-        // Check @expectedType directive on the field.
-        if let Some(expected) = field.directives.expected_type() {
-            let parent_name = field
-                .parent_type
-                .as_ref()
-                .and_then(|p| p.name.as_deref())
-                .unwrap_or_default();
-            return expected == parent_name;
-        }
-        false
+        field.directives.expected_type()
     }
 
     fn format_type(&self, t: &TypeRef, input: bool, immutable: bool) -> String {
@@ -157,6 +167,61 @@ impl CommonFunctions {
         }
 
         representation
+    }
+}
+
+fn supports_nullable_objects(schema_version: Option<&str>) -> bool {
+    let Some(version) = schema_version.filter(|version| !version.is_empty()) else {
+        return true;
+    };
+    let version = version.trim_start_matches('v');
+    let Some((core, prerelease)) = version.split_once('-') else {
+        return version
+            .split('.')
+            .take(3)
+            .map(|part| part.parse::<u64>())
+            .collect::<Result<Vec<_>, _>>()
+            .map(|core| core.as_slice() >= &[1, 0, 0])
+            .unwrap_or(true);
+    };
+    let Ok(core) = core
+        .split('.')
+        .take(3)
+        .map(|part| part.parse::<u64>())
+        .collect::<Result<Vec<_>, _>>()
+    else {
+        return true;
+    };
+    if core.as_slice() != [1, 0, 0] {
+        return core.as_slice() > &[1, 0, 0];
+    }
+    prerelease
+        .strip_prefix("beta.")
+        .and_then(|number| number.split(|c: char| !c.is_ascii_digit()).next())
+        .and_then(|number| number.parse::<u64>().ok())
+        .map(|number| number >= 10)
+        .unwrap_or(prerelease > "beta")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::supports_nullable_objects;
+
+    #[test]
+    fn nullable_object_version_gate_handles_boundaries_and_development_versions() {
+        for (version, expected) in [
+            (None, true),
+            (Some(""), true),
+            (Some("development"), true),
+            (Some("v0.21.0-dev"), false),
+            (Some("v1.0.0-beta.9-dev"), false),
+            (Some("v1.0.0-beta.10"), true),
+            (Some("v1.0.0-beta.10-dev"), true),
+            (Some("v1.0.0-rc.1"), true),
+            (Some("v1.0.0"), true),
+        ] {
+            assert_eq!(supports_nullable_objects(version), expected, "{version:?}");
+        }
     }
 }
 

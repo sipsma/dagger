@@ -35,6 +35,13 @@ type CompatWorkspace struct {
 	Config      *modules.ModuleConfig
 	ConfigPath  string
 	ProjectRoot string
+
+	// DiscoveredLocalModule marks a compat workspace that was reached by
+	// following a local toolchain/dependency reference from another migrated
+	// config (rather than being the selected project). Such a module is
+	// converted in place regardless of a non-root source, and is never routed
+	// to PlanMigration or a parent plan.
+	DiscoveredLocalModule bool
 }
 
 // CompatWorkspaceModule is one workspace-owned module projected out of a
@@ -96,8 +103,9 @@ func ParseRuntimeCompatWorkspaceAt(data []byte, configPath string) (*CompatWorks
 
 // ParseMigrationCompatWorkspaceAt parses a legacy dagger.json for migration
 // planning. Unlike runtime loading, migration may need to plan a best-effort
-// diff for a module that requires a newer engine so `dagger migrate --force`
-// can still write reviewable workspace files.
+// diff for a module that requires a newer engine so `dagger setup` (with
+// the migration step's --force flow) can still write reviewable workspace
+// files.
 func ParseMigrationCompatWorkspaceAt(data []byte, configPath string) (*CompatWorkspace, error) {
 	cfg, err := parseLegacyConfig(data)
 	if err != nil {
@@ -166,17 +174,22 @@ func buildCompatWorkspace(cfg *modules.ModuleConfig, configPath string) *CompatW
 	}
 
 	if cfg.SDK != nil && cfg.Name != "" {
+		// The entry source points at the module config's directory: migration
+		// replaces dagger.json with dagger-module.toml at the same location
+		// (the project root, alongside dagger.toml) rather than synthesizing
+		// a config under .dagger/modules/<name> or moving it into the source
+		// directory — installs by path must keep resolving to the config.
 		compatWorkspace.MainModule = &CompatMainModule{
 			Name:       cfg.Name,
 			ConfigName: cfg.Name,
 			Entry: ModuleEntry{
-				Source:     filepath.Join(LockDirName, "modules", cfg.Name),
+				Source:     ".",
 				Entrypoint: cfg.Blueprint == nil,
 			},
 		}
 	}
 
-	if len(compatWorkspace.Modules) == 0 && compatWorkspace.MainModule == nil {
+	if len(compatWorkspace.Modules) == 0 && compatWorkspace.MainModule == nil && !mustMigrateToWorkspaceConfig(cfg) {
 		return nil
 	}
 	return compatWorkspace
@@ -284,10 +297,25 @@ func mustMigrateToWorkspaceConfig(cfg *modules.ModuleConfig) bool {
 	if cfg == nil {
 		return false
 	}
-	if cfg.Blueprint != nil || len(cfg.Toolchains) > 0 {
+	if cfg.SDK == nil || cfg.Blueprint != nil || len(cfg.Toolchains) > 0 {
 		return true
 	}
-	return cfg.SDK != nil && cfg.Source != "" && cfg.Source != "."
+	return !ModuleSourceAtRoot(cfg)
+}
+
+// RequiresWorkspaceMigration classifies the selected legacy project. It does
+// not select unrelated legacy module files discovered in the workspace.
+func RequiresWorkspaceMigration(cfg *modules.ModuleConfig) bool {
+	return mustMigrateToWorkspaceConfig(cfg)
+}
+
+// ModuleSourceAtRoot reports whether a legacy module config's source lives in
+// the config's own directory — the "repo is just a dagger module" shape, as
+// opposed to a module tucked into a subdirectory of a project repo. Migration
+// treats such a module as the repo itself: its config converts in place and it
+// is neither installed into the workspace nor given an entrypoint.
+func ModuleSourceAtRoot(cfg *modules.ModuleConfig) bool {
+	return cfg == nil || cfg.Source == "" || filepath.Clean(cfg.Source) == "."
 }
 
 // ParseLegacyBlueprint parses a legacy dagger.json and extracts its blueprint.

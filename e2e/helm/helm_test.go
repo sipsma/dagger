@@ -1,27 +1,29 @@
 // Package helm contains e2e contract tests for Dagger's Helm chart.
 //
-// workspace:include dagger.json
-// workspace:include k3s-entrypoint.sh
-// workspace:include ../../helm/dagger
-// workspace:include ../../.changes/.next
-// workspace:include ../../analytics
-// workspace:include ../../cmd/codegen
-// workspace:include ../../cmd/dagger
-// workspace:include ../../core/modules
-// workspace:include ../../core/openrouter
-// workspace:include ../../core/prompts
-// workspace:include ../../dagql
-// workspace:include ../../engine
-// workspace:include ../../go.mod
-// workspace:include ../../go.sum
-// workspace:include ../../internal
-// workspace:include ../../modules/alpine
-// workspace:include ../../modules/wolfi
-// workspace:include ../../sdk/go
-// workspace:include ../../toolchains/cli-dev
-// workspace:include ../../toolchains/go
-// workspace:include ../../util
-// workspace:include ../../version
+//go:test:include dagger.json
+//go:test:include k3s-entrypoint.sh
+//go:test:include ../../.git
+//go:test:include ../../helm/dagger
+//go:test:include ../../analytics
+//go:test:include ../../cmd/codegen
+//go:test:include ../../cmd/dagger
+//go:test:include ../../core/gitref
+//go:test:include ../../core/modules
+//go:test:include ../../core/modelcatalog
+//go:test:include ../../core/prompts
+//go:test:include ../../core/sdk/sdkmeta
+//go:test:include ../../core/workspace
+//go:test:include ../../dagql
+//go:test:include ../../engine
+//go:test:include ../../go.mod
+//go:test:include ../../go.sum
+//go:test:include ../../internal
+//go:test:include ../../modules/alpine
+//go:test:include ../../modules/wolfi
+//go:test:include ../../sdk/go
+//go:test:include ../../.dagger/modules/cli-dev
+//go:test:include ../../.dagger/modules/go
+//go:test:include ../../util
 package helm
 
 import (
@@ -115,10 +117,25 @@ func TestInstallK3S(t *testing.T) {
 		WithFile("/.kube/config", k3s.config).
 		WithEnvVariable("KUBECONFIG", "/.kube/config").
 		WithEnvVariable("CACHEBUSTER", time.Now().String()).
-		WithExec([]string{"kubectl", "get", "nodes", "--output=wide"}).
+		// Kubeconfig and the k3s service port can be available before API discovery is ready.
+		WithExec([]string{"sh", "-c", `
+set -eu
+
+for i in $(seq 1 90); do
+	if kubectl --request-timeout=5s get nodes --output=wide &&
+		kubectl wait --for=condition=Ready nodes --all --timeout=5s; then
+		exit 0
+	fi
+	sleep 1
+done
+
+kubectl get nodes --output=wide || true
+kubectl get pods -A || true
+exit 1
+`}).
 		Sync(ctx)
 	if err != nil {
-		t.Fatalf("initialize kubectl: %v", err)
+		t.Fatalf("wait for k3s readiness: %v", err)
 	}
 
 	tests := []struct {
@@ -203,12 +220,32 @@ func helmContainer(dag *dagger.Client) *dagger.Container {
 
 	return dag.Container().
 		From(helmImage).
-		WithExec([]string{"apk", "add", "--no-cache", "helm~3.18.4", "kubectl"}).
+		WithExec([]string{"apk", "add", "--no-cache", "helm-3~3.19.2", "kubectl"}).
 		WithDirectory("/dagger-helm", chart).
 		WithWorkdir("/dagger-helm")
 }
 
 func runInstallAssertions(ctx context.Context, engineName string, engineKind string, port int, kubectl *dagger.Container) error {
+	// Helm can report success before the controller creates its first pod.
+	for _, condition := range []string{"create", "condition=Ready"} {
+		_, err := kubectl.WithExec([]string{
+			"kubectl", "wait", "pod",
+			"--selector=name=" + engineName,
+			"--namespace=dagger",
+			"--for=" + condition,
+			"--timeout=5m",
+		}).Sync(ctx)
+		if err != nil {
+			status, _ := kubectl.WithExec([]string{
+				"kubectl", "get", "pod",
+				"--selector=name=" + engineName,
+				"--namespace=dagger",
+				"--output=wide",
+			}).Stdout(ctx)
+			return fmt.Errorf("wait for engine pod %s (%s): %w\n%s", engineName, condition, err, status)
+		}
+	}
+
 	podName, err := kubectl.WithExec([]string{
 		"kubectl", "get", "pod",
 		"--selector=name=" + engineName,

@@ -51,15 +51,29 @@ defmodule Dagger.Check do
   @doc """
   If the check failed, this is the error
   """
-  @spec error(t()) :: Dagger.Error.t() | nil
+  @spec error(t()) :: {:ok, Dagger.Error.t() | nil} | {:error, term()}
   def error(%__MODULE__{} = check) do
     query_builder =
-      check.query_builder |> QB.select("error")
+      check.query_builder |> QB.select("error") |> QB.select("id")
 
-    %Dagger.Error{
-      query_builder: query_builder,
-      client: check.client
-    }
+    case Client.execute(check.client, query_builder) do
+      {:ok, nil} ->
+        {:ok, nil}
+
+      {:ok, id} ->
+        {:ok,
+         %Dagger.Error{
+           query_builder:
+             QB.query()
+             |> QB.select("node")
+             |> QB.put_arg("id", id)
+             |> QB.inline_fragment("Error"),
+           client: check.client
+         }}
+
+      error ->
+        error
+    end
   end
 
   @doc """
@@ -74,7 +88,7 @@ defmodule Dagger.Check do
   end
 
   @doc """
-  Return the fully qualified name of the check
+  Return the command name of the check. Entrypoint targets omit the module prefix.
   """
   @spec name(t()) :: {:ok, String.t()} | {:error, term()}
   def name(%__MODULE__{} = check) do

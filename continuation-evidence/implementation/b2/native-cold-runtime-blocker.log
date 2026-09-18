@@ -1,0 +1,20 @@
+Command: dagger api call engine-dev test --pkg ./core/integration --run='RemoteCacheTransferSuite/TestSchemaRecovery' --timeout=20m
+Exit status: 1
+Full local log: /tmp/b2-step5-native-3.log
+Trace: https://dagger.cloud/dagger/traces/f42bba578c97fa48fa5bf692f3f8e6e4
+
+Exact failure window (schema dumps omitted):
+=== RUN   TestRemoteCacheTransferSuite/TestSchemaRecovery/before
+=== PAUSE TestRemoteCacheTransferSuite/TestSchemaRecovery/before
+=== CONT  TestRemoteCacheTransferSuite/TestSchemaRecovery/before
+    testctx.go:174:
+                Error Trace:    /app/core/integration/remote_cache_transfer_test.go:183
+                                                        /go/pkg/mod/github.com/dagger/testctx@v0.1.2/testctx.go:296
+                                                        /go/pkg/mod/github.com/dagger/otel-go@v1.43.1-0.20260810200237-752a39ce1610/oteltestctx/trace.go:74
+                                                        /go/pkg/mod/github.com/dagger/testctx@v0.1.2/middleware.go:25
+                                                        /go/pkg/mod/github.com/dagger/testctx@v0.1.2/testctx.go:150
+                                                        /usr/lib/go/src/runtime/asm_amd64.s:1771
+                Error:          Received unexpected error:
+                                failed to call module "cache-probe" to get functions: call constructor: imported filesystem part is unavailable: Container.fs [traceparent:f42bba578c97fa48fa5bf692f3f8e6e4-7fab1c5c71b68261]
+                Test:           TestRemoteCacheTransferSuite/TestSchemaRecovery/before
+--- FAIL: TestRemoteCacheTransferSuite/TestSchemaRecovery/before (26.97s)

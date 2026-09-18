@@ -143,8 +143,9 @@ func (repo *RemoteGitRepository) remoteCacheKey(ctx context.Context) (string, er
 	return hashutil.HashStrings(inputs...).String(), nil
 }
 
-// Pipelines could query the same remote with different creds (e.g. a pipeline checking that creds were properly rotated)
-// instead of being too smart, we just scope the cache key to the auth configuration: less chance of cache poisoning
+// Pipelines can query the same remote with different credentials (for example,
+// while checking a credential rotation), so scope the cache key by
+// authentication configuration rather than sharing entries across methods.
 func (repo *RemoteGitRepository) remoteCacheScope() []string {
 	scope := make([]string, 0, 4)
 	if token := repo.AuthToken; token.Self() != nil {
@@ -276,6 +277,9 @@ func (repo *RemoteGitRepository) setup(ctx context.Context) (_ *gitutil.GitCLI, 
 	opts = append(opts, gitutil.WithExec(func(ctx context.Context, cmd *exec.Cmd) error {
 		return runWithStandardUmaskAndNetOverride(ctx, cmd, "", resolvPath, query.CleanMountNS())
 	}))
+
+	// Nil unless the engine enabled the test fixture's Git mapping at startup.
+	opts = append(opts, remoteCacheFixtureGitOptions()...)
 
 	return gitutil.NewGitCLI(opts...), cleanups.Run, nil
 }
@@ -520,6 +524,9 @@ func (repo *RemoteGitRepository) initRemote(ctx context.Context, fn func(string)
 	if repo.Mirror.Self() == nil {
 		return fmt.Errorf("remote git mirror is nil for %s", repo.URL.Remote())
 	}
+	if err := EnsureBackingSnapshot(ctx, repo.Mirror); err != nil {
+		return err
+	}
 	remoteRef, releaseMirror, err := repo.Mirror.Self().acquire(ctx, query)
 	if err != nil {
 		return err
@@ -628,8 +635,8 @@ func (ref *RemoteGitRef) Tree(ctx context.Context, srv *dagql.Server, discardGit
 		Dir:      new(LazyAccessor[string, *Directory]),
 		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
 	}
-	dir.Dir.setValue("/")
-	dir.Snapshot.setValue(snap)
+	dir.SetPath("/")
+	dir.SetSnapshot(snap)
 	return dir, nil
 }
 

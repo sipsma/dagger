@@ -52,6 +52,12 @@ func Address(value string) *dagger.Address {
 	return client.Address(value)
 }
 
+// Creates a file from arbitrary binary contents.
+func Blob(name string, contents dagger.Bytes, opts ...dagger.BlobOpts) *dagger.File {
+	client := initClient()
+	return client.Blob(name, contents, opts...)
+}
+
 // Constructs a cache volume for a given cache key.
 func CacheVolume(key string, opts ...dagger.CacheVolumeOpts) *dagger.CacheVolume {
 	client := initClient()
@@ -78,18 +84,6 @@ func Container(opts ...dagger.ContainerOpts) *dagger.Container {
 	return client.Container(opts...)
 }
 
-// Returns the current environment
-//
-// When called from a function invoked via an LLM tool call, this will be the LLM's current environment, including any modifications made through calling tools. Env values returned by functions become the new environment for subsequent calls, and Changeset values returned by functions are applied to the environment's workspace.
-//
-// When called from a module function outside of an LLM, this returns an Env with the current module installed, and with the current module's source directory as its workspace.
-//
-// Experimental: Programmatic env access is speculative and might be replaced.
-func CurrentEnv() *dagger.Env {
-	client := initClient()
-	return client.CurrentEnv()
-}
-
 // The FunctionCall context that the SDK caller is currently executing in.
 //
 // If the caller is not currently executing in a function, this will return an error.
@@ -102,6 +96,12 @@ func CurrentFunctionCall() *dagger.FunctionCall {
 func CurrentModule() *dagger.CurrentModule {
 	client := initClient()
 	return client.CurrentModule()
+}
+
+// The object that received the current module function call, as a Node. Errors when there is no current call, or the call is top-level (e.g. a module constructor).
+func CurrentNode() dagger.Node {
+	client := initClient()
+	return client.CurrentNode()
 }
 
 // The TypeDef representations of the objects currently being served in the session.
@@ -136,12 +136,10 @@ func Engine() *dagger.Engine {
 	return client.Engine()
 }
 
-// Initializes a new environment
-//
-// Experimental: Environments are not yet stabilized
-func Env(opts ...dagger.EnvOpts) *dagger.Env {
+// Constructs an engine-managed volume backed by operator-provided storage beneath the configured engine state root.
+func EngineVolume(name string, opts ...dagger.EngineVolumeOpts) *dagger.Volume {
 	client := initClient()
-	return client.Env(opts...)
+	return client.EngineVolume(name, opts...)
 }
 
 // Initialize an environment file
@@ -204,438 +202,12 @@ func JSON() *dagger.JSONValue {
 	return client.JSON()
 }
 
-// Initialize a Large Language Model (LLM)
+// Initialize a new LLM conversation.
 //
 // Experimental: LLM support is not yet stabilized
 func LLM(opts ...dagger.LLMOpts) *dagger.LLM {
 	client := initClient()
 	return client.LLM(opts...)
-}
-
-// Load a Address from its ID.
-func LoadAddressFromID(id dagger.AddressID) *dagger.Address {
-	client := initClient()
-	return client.LoadAddressFromID(id)
-}
-
-// Load a Binding from its ID.
-func LoadBindingFromID(id dagger.BindingID) *dagger.Binding {
-	client := initClient()
-	return client.LoadBindingFromID(id)
-}
-
-// Load a CacheVolume from its ID.
-func LoadCacheVolumeFromID(id dagger.CacheVolumeID) *dagger.CacheVolume {
-	client := initClient()
-	return client.LoadCacheVolumeFromID(id)
-}
-
-// Load a Changeset from its ID.
-func LoadChangesetFromID(id dagger.ChangesetID) *dagger.Changeset {
-	client := initClient()
-	return client.LoadChangesetFromID(id)
-}
-
-// Load a Check from its ID.
-func LoadCheckFromID(id dagger.CheckID) *dagger.Check {
-	client := initClient()
-	return client.LoadCheckFromID(id)
-}
-
-// Load a CheckGroup from its ID.
-func LoadCheckGroupFromID(id dagger.CheckGroupID) *dagger.CheckGroup {
-	client := initClient()
-	return client.LoadCheckGroupFromID(id)
-}
-
-// Load a ClientFilesyncMirror from its ID.
-func LoadClientFilesyncMirrorFromID(id dagger.ClientFilesyncMirrorID) *dagger.ClientFilesyncMirror {
-	client := initClient()
-	return client.LoadClientFilesyncMirrorFromID(id)
-}
-
-// Load a Cloud from its ID.
-func LoadCloudFromID(id dagger.CloudID) *dagger.Cloud {
-	client := initClient()
-	return client.LoadCloudFromID(id)
-}
-
-// Load a Container from its ID.
-func LoadContainerFromID(id dagger.ContainerID) *dagger.Container {
-	client := initClient()
-	return client.LoadContainerFromID(id)
-}
-
-// Load a CurrentModule from its ID.
-func LoadCurrentModuleFromID(id dagger.CurrentModuleID) *dagger.CurrentModule {
-	client := initClient()
-	return client.LoadCurrentModuleFromID(id)
-}
-
-// Load a DiffStat from its ID.
-func LoadDiffStatFromID(id dagger.DiffStatID) *dagger.DiffStat {
-	client := initClient()
-	return client.LoadDiffStatFromID(id)
-}
-
-// Load a Directory from its ID.
-func LoadDirectoryFromID(id dagger.DirectoryID) *dagger.Directory {
-	client := initClient()
-	return client.LoadDirectoryFromID(id)
-}
-
-// Load a EngineCacheEntry from its ID.
-func LoadEngineCacheEntryFromID(id dagger.EngineCacheEntryID) *dagger.EngineCacheEntry {
-	client := initClient()
-	return client.LoadEngineCacheEntryFromID(id)
-}
-
-// Load a EngineCacheEntrySet from its ID.
-func LoadEngineCacheEntrySetFromID(id dagger.EngineCacheEntrySetID) *dagger.EngineCacheEntrySet {
-	client := initClient()
-	return client.LoadEngineCacheEntrySetFromID(id)
-}
-
-// Load a EngineCache from its ID.
-func LoadEngineCacheFromID(id dagger.EngineCacheID) *dagger.EngineCache {
-	client := initClient()
-	return client.LoadEngineCacheFromID(id)
-}
-
-// Load a Engine from its ID.
-func LoadEngineFromID(id dagger.EngineID) *dagger.Engine {
-	client := initClient()
-	return client.LoadEngineFromID(id)
-}
-
-// Load a EnumTypeDef from its ID.
-func LoadEnumTypeDefFromID(id dagger.EnumTypeDefID) *dagger.EnumTypeDef {
-	client := initClient()
-	return client.LoadEnumTypeDefFromID(id)
-}
-
-// Load a EnumValueTypeDef from its ID.
-func LoadEnumValueTypeDefFromID(id dagger.EnumValueTypeDefID) *dagger.EnumValueTypeDef {
-	client := initClient()
-	return client.LoadEnumValueTypeDefFromID(id)
-}
-
-// Load a EnvFile from its ID.
-func LoadEnvFileFromID(id dagger.EnvFileID) *dagger.EnvFile {
-	client := initClient()
-	return client.LoadEnvFileFromID(id)
-}
-
-// Load a Env from its ID.
-func LoadEnvFromID(id dagger.EnvID) *dagger.Env {
-	client := initClient()
-	return client.LoadEnvFromID(id)
-}
-
-// Load a EnvVariable from its ID.
-func LoadEnvVariableFromID(id dagger.EnvVariableID) *dagger.EnvVariable {
-	client := initClient()
-	return client.LoadEnvVariableFromID(id)
-}
-
-// Load a Error from its ID.
-func LoadErrorFromID(id dagger.ErrorID) *dagger.Error {
-	client := initClient()
-	return client.LoadErrorFromID(id)
-}
-
-// Load a ErrorValue from its ID.
-func LoadErrorValueFromID(id dagger.ErrorValueID) *dagger.ErrorValue {
-	client := initClient()
-	return client.LoadErrorValueFromID(id)
-}
-
-// Load a Exportable from its ID.
-func LoadExportableFromID(id dagger.ExportableID) dagger.Exportable {
-	client := initClient()
-	return client.LoadExportableFromID(id)
-}
-
-// Load a FieldTypeDef from its ID.
-func LoadFieldTypeDefFromID(id dagger.FieldTypeDefID) *dagger.FieldTypeDef {
-	client := initClient()
-	return client.LoadFieldTypeDefFromID(id)
-}
-
-// Load a File from its ID.
-func LoadFileFromID(id dagger.FileID) *dagger.File {
-	client := initClient()
-	return client.LoadFileFromID(id)
-}
-
-// Load a FunctionArg from its ID.
-func LoadFunctionArgFromID(id dagger.FunctionArgID) *dagger.FunctionArg {
-	client := initClient()
-	return client.LoadFunctionArgFromID(id)
-}
-
-// Load a FunctionCallArgValue from its ID.
-func LoadFunctionCallArgValueFromID(id dagger.FunctionCallArgValueID) *dagger.FunctionCallArgValue {
-	client := initClient()
-	return client.LoadFunctionCallArgValueFromID(id)
-}
-
-// Load a FunctionCall from its ID.
-func LoadFunctionCallFromID(id dagger.FunctionCallID) *dagger.FunctionCall {
-	client := initClient()
-	return client.LoadFunctionCallFromID(id)
-}
-
-// Load a Function from its ID.
-func LoadFunctionFromID(id dagger.FunctionID) *dagger.Function {
-	client := initClient()
-	return client.LoadFunctionFromID(id)
-}
-
-// Load a GeneratedCode from its ID.
-func LoadGeneratedCodeFromID(id dagger.GeneratedCodeID) *dagger.GeneratedCode {
-	client := initClient()
-	return client.LoadGeneratedCodeFromID(id)
-}
-
-// Load a Generator from its ID.
-func LoadGeneratorFromID(id dagger.GeneratorID) *dagger.Generator {
-	client := initClient()
-	return client.LoadGeneratorFromID(id)
-}
-
-// Load a GeneratorGroup from its ID.
-func LoadGeneratorGroupFromID(id dagger.GeneratorGroupID) *dagger.GeneratorGroup {
-	client := initClient()
-	return client.LoadGeneratorGroupFromID(id)
-}
-
-// Load a GitRef from its ID.
-func LoadGitRefFromID(id dagger.GitRefID) *dagger.GitRef {
-	client := initClient()
-	return client.LoadGitRefFromID(id)
-}
-
-// Load a GitRepository from its ID.
-func LoadGitRepositoryFromID(id dagger.GitRepositoryID) *dagger.GitRepository {
-	client := initClient()
-	return client.LoadGitRepositoryFromID(id)
-}
-
-// Load a HTTPState from its ID.
-func LoadHTTPStateFromID(id dagger.HTTPStateID) *dagger.HTTPState {
-	client := initClient()
-	return client.LoadHTTPStateFromID(id)
-}
-
-// Load a HealthcheckConfig from its ID.
-func LoadHealthcheckConfigFromID(id dagger.HealthcheckConfigID) *dagger.HealthcheckConfig {
-	client := initClient()
-	return client.LoadHealthcheckConfigFromID(id)
-}
-
-// Load a Host from its ID.
-func LoadHostFromID(id dagger.HostID) *dagger.Host {
-	client := initClient()
-	return client.LoadHostFromID(id)
-}
-
-// Load a InputTypeDef from its ID.
-func LoadInputTypeDefFromID(id dagger.InputTypeDefID) *dagger.InputTypeDef {
-	client := initClient()
-	return client.LoadInputTypeDefFromID(id)
-}
-
-// Load a InterfaceTypeDef from its ID.
-func LoadInterfaceTypeDefFromID(id dagger.InterfaceTypeDefID) *dagger.InterfaceTypeDef {
-	client := initClient()
-	return client.LoadInterfaceTypeDefFromID(id)
-}
-
-// Load a JSONValue from its ID.
-func LoadJSONValueFromID(id dagger.JSONValueID) *dagger.JSONValue {
-	client := initClient()
-	return client.LoadJSONValueFromID(id)
-}
-
-// Load a LLM from its ID.
-func LoadLLMFromID(id dagger.LLMID) *dagger.LLM {
-	client := initClient()
-	return client.LoadLLMFromID(id)
-}
-
-// Load a LLMTokenUsage from its ID.
-func LoadLLMTokenUsageFromID(id dagger.LLMTokenUsageID) *dagger.LLMTokenUsage {
-	client := initClient()
-	return client.LoadLLMTokenUsageFromID(id)
-}
-
-// Load a Label from its ID.
-func LoadLabelFromID(id dagger.LabelID) *dagger.Label {
-	client := initClient()
-	return client.LoadLabelFromID(id)
-}
-
-// Load a ListTypeDef from its ID.
-func LoadListTypeDefFromID(id dagger.ListTypeDefID) *dagger.ListTypeDef {
-	client := initClient()
-	return client.LoadListTypeDefFromID(id)
-}
-
-// Load a ModuleConfigClient from its ID.
-func LoadModuleConfigClientFromID(id dagger.ModuleConfigClientID) *dagger.ModuleConfigClient {
-	client := initClient()
-	return client.LoadModuleConfigClientFromID(id)
-}
-
-// Load a Module from its ID.
-func LoadModuleFromID(id dagger.ModuleID) *dagger.Module {
-	client := initClient()
-	return client.LoadModuleFromID(id)
-}
-
-// Load a ModuleSource from its ID.
-func LoadModuleSourceFromID(id dagger.ModuleSourceID) *dagger.ModuleSource {
-	client := initClient()
-	return client.LoadModuleSourceFromID(id)
-}
-
-// Load a ObjectTypeDef from its ID.
-func LoadObjectTypeDefFromID(id dagger.ObjectTypeDefID) *dagger.ObjectTypeDef {
-	client := initClient()
-	return client.LoadObjectTypeDefFromID(id)
-}
-
-// Load a Port from its ID.
-func LoadPortFromID(id dagger.PortID) *dagger.Port {
-	client := initClient()
-	return client.LoadPortFromID(id)
-}
-
-// Load a RemoteGitMirror from its ID.
-func LoadRemoteGitMirrorFromID(id dagger.RemoteGitMirrorID) *dagger.RemoteGitMirror {
-	client := initClient()
-	return client.LoadRemoteGitMirrorFromID(id)
-}
-
-// Load a SDKConfig from its ID.
-func LoadSDKConfigFromID(id dagger.SDKConfigID) *dagger.SDKConfig {
-	client := initClient()
-	return client.LoadSDKConfigFromID(id)
-}
-
-// Load a ScalarTypeDef from its ID.
-func LoadScalarTypeDefFromID(id dagger.ScalarTypeDefID) *dagger.ScalarTypeDef {
-	client := initClient()
-	return client.LoadScalarTypeDefFromID(id)
-}
-
-// Load a SearchResult from its ID.
-func LoadSearchResultFromID(id dagger.SearchResultID) *dagger.SearchResult {
-	client := initClient()
-	return client.LoadSearchResultFromID(id)
-}
-
-// Load a SearchSubmatch from its ID.
-func LoadSearchSubmatchFromID(id dagger.SearchSubmatchID) *dagger.SearchSubmatch {
-	client := initClient()
-	return client.LoadSearchSubmatchFromID(id)
-}
-
-// Load a Secret from its ID.
-func LoadSecretFromID(id dagger.SecretID) *dagger.Secret {
-	client := initClient()
-	return client.LoadSecretFromID(id)
-}
-
-// Load a Service from its ID.
-func LoadServiceFromID(id dagger.ServiceID) *dagger.Service {
-	client := initClient()
-	return client.LoadServiceFromID(id)
-}
-
-// Load a Socket from its ID.
-func LoadSocketFromID(id dagger.SocketID) *dagger.Socket {
-	client := initClient()
-	return client.LoadSocketFromID(id)
-}
-
-// Load a SourceMap from its ID.
-func LoadSourceMapFromID(id dagger.SourceMapID) *dagger.SourceMap {
-	client := initClient()
-	return client.LoadSourceMapFromID(id)
-}
-
-// Load a Stat from its ID.
-func LoadStatFromID(id dagger.StatID) *dagger.Stat {
-	client := initClient()
-	return client.LoadStatFromID(id)
-}
-
-// Load a Syncer from its ID.
-func LoadSyncerFromID(id dagger.SyncerID) dagger.Syncer {
-	client := initClient()
-	return client.LoadSyncerFromID(id)
-}
-
-// Load a Terminal from its ID.
-func LoadTerminalFromID(id dagger.TerminalID) *dagger.Terminal {
-	client := initClient()
-	return client.LoadTerminalFromID(id)
-}
-
-// Load a TypeDef from its ID.
-func LoadTypeDefFromID(id dagger.TypeDefID) *dagger.TypeDef {
-	client := initClient()
-	return client.LoadTypeDefFromID(id)
-}
-
-// Load a Up from its ID.
-func LoadUpFromID(id dagger.UpID) *dagger.Up {
-	client := initClient()
-	return client.LoadUpFromID(id)
-}
-
-// Load a UpGroup from its ID.
-func LoadUpGroupFromID(id dagger.UpGroupID) *dagger.UpGroup {
-	client := initClient()
-	return client.LoadUpGroupFromID(id)
-}
-
-// Load a Workspace from its ID.
-func LoadWorkspaceFromID(id dagger.WorkspaceID) *dagger.Workspace {
-	client := initClient()
-	return client.LoadWorkspaceFromID(id)
-}
-
-// Load a WorkspaceGit from its ID.
-func LoadWorkspaceGitFromID(id dagger.WorkspaceGitID) *dagger.WorkspaceGit {
-	client := initClient()
-	return client.LoadWorkspaceGitFromID(id)
-}
-
-// Load a WorkspaceMigration from its ID.
-func LoadWorkspaceMigrationFromID(id dagger.WorkspaceMigrationID) *dagger.WorkspaceMigration {
-	client := initClient()
-	return client.LoadWorkspaceMigrationFromID(id)
-}
-
-// Load a WorkspaceMigrationStep from its ID.
-func LoadWorkspaceMigrationStepFromID(id dagger.WorkspaceMigrationStepID) *dagger.WorkspaceMigrationStep {
-	client := initClient()
-	return client.LoadWorkspaceMigrationStepFromID(id)
-}
-
-// Load a WorkspaceModule from its ID.
-func LoadWorkspaceModuleFromID(id dagger.WorkspaceModuleID) *dagger.WorkspaceModule {
-	client := initClient()
-	return client.LoadWorkspaceModuleFromID(id)
-}
-
-// Load a WorkspaceModuleSetting from its ID.
-func LoadWorkspaceModuleSettingFromID(id dagger.WorkspaceModuleSettingID) *dagger.WorkspaceModuleSetting {
-	client := initClient()
-	return client.LoadWorkspaceModuleSettingFromID(id)
 }
 
 // Create a new module.
@@ -651,9 +223,15 @@ func ModuleSource(refString string, opts ...dagger.ModuleSourceOpts) *dagger.Mod
 }
 
 // Load any object by its ID.
-func Node(id dagger.ID) dagger.Node {
+func Node(ctx context.Context, id dagger.ID) (dagger.Node, error) {
 	client := initClient()
-	return client.Node(id)
+	return client.Node(ctx, id)
+}
+
+// Load a GraphQL introspection schema for merging.
+func Schema(json dagger.JSON) *dagger.Schema {
+	client := initClient()
+	return client.Schema(json)
 }
 
 // Creates a new secret.
@@ -674,6 +252,12 @@ func SetSecret(name string, plaintext string) *dagger.Secret {
 func SourceMap(filename string, line int, column int) *dagger.SourceMap {
 	client := initClient()
 	return client.SourceMap(filename, line, column)
+}
+
+// Constructs an SSHFS volume.
+func SshfsVolume(endpoint string, privateKey *dagger.Secret, opts ...dagger.SshfsVolumeOpts) *dagger.Volume {
+	client := initClient()
+	return client.SshfsVolume(endpoint, privateKey, opts...)
 }
 
 // Create a new TypeDef.

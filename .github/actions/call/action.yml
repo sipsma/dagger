@@ -6,6 +6,11 @@ inputs:
     description: "The Dagger function to call"
     required: true
 
+  workspace:
+    description: "The workspace to use in the call"
+    default: ""
+    required: false
+
   module:
     description: "The Dagger module to call"
     default: "."
@@ -13,7 +18,12 @@ inputs:
 
   version:
     description: "Dagger version to run against"
-    default: "v0.21.6"
+    default: ""
+    required: false
+
+  commit:
+    description: "Dagger commit to run against"
+    default: "352dd3d22652b02383ff655a7c20dc41821d3fe4"
     required: false
 
   dev-engine:
@@ -44,6 +54,7 @@ runs:
       shell: bash
       env:
         DAGGER_VERSION: "${{ inputs.version }}"
+        DAGGER_COMMIT: "${{ inputs.commit }}"
       run: |
         if [[ -x "$(command -v dagger)" ]]; then
           echo "::group::Checking dagger"
@@ -79,7 +90,15 @@ runs:
           # Apply GHA-specific .env
           [ -e .env.gha ] && mv .env.gha .env
         fi
-        redirect_logs dagger --cloud -m "${{ inputs.module }}" call ${{ inputs.function }}
+        module_args=()
+        if [[ -n "${{ inputs.module }}" ]]; then
+          module_args=(-m "${{ inputs.module }}")
+        fi
+        workspace_args=()
+        if [[ -n "${{ inputs.workspace }}" ]]; then
+          workspace_args=(-W "${{ inputs.workspace }}")
+        fi
+        redirect_logs dagger --cloud "${module_args[@]}" "${workspace_args[@]}" call ${{ inputs.function }}
       env:
         DAGGER_CLOUD_TOKEN: oidc
 

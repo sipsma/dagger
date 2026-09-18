@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
 	"slices"
@@ -29,18 +30,22 @@ import (
 	"github.com/dagger/dagger/internal/buildkit/util/contentutil"
 	"github.com/dagger/dagger/internal/buildkit/util/flightcontrol"
 	"github.com/dagger/dagger/internal/buildkit/util/imageutil"
-	buildkitpush "github.com/dagger/dagger/internal/buildkit/util/push"
 	"github.com/dagger/dagger/internal/buildkit/util/tracing"
 	telemetry "github.com/dagger/otel-go"
 	"github.com/distribution/reference"
 	digest "github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
+	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 var ErrCredentialsNotFound = errors.New("registry credentials not found")
+
+// Keep registry pushes bounded to avoid overwhelming registries with one
+// request per image layer at once.
+const maxConcurrentRegistryUploads = 4
 
 type Credentials struct {
 	Username string
@@ -68,6 +73,11 @@ type Opts struct {
 type ResolveImageConfigOpts struct {
 	Platform          *ocispecs.Platform
 	ResolveMode       ResolveMode
+	Network           NetworkConfig
+	RegistryTransport RegistryTransport
+}
+
+type ResolveImageDigestOpts struct {
 	Network           NetworkConfig
 	RegistryTransport RegistryTransport
 }
@@ -137,6 +147,7 @@ type Resolver struct {
 	auth         AuthSource
 	contentStore content.Store
 	leaseManager leases.Manager
+	pushLimiter  *semaphore.Weighted
 
 	resolveConfigG flightcontrol.Group[*resolveImageConfigResult]
 
@@ -151,6 +162,7 @@ func New(opts Opts) *Resolver {
 		auth:         opts.Auth,
 		contentStore: opts.ContentStore,
 		leaseManager: opts.LeaseManager,
+		pushLimiter:  semaphore.NewWeighted(maxConcurrentRegistryUploads),
 		hostCache:    map[string][]docker.RegistryHost{},
 	}
 }
@@ -256,6 +268,31 @@ func (r *Resolver) ResolveImageConfig(
 		return "", "", nil, err
 	}
 	return resolved.ref, resolved.digest, resolved.config, nil
+}
+
+// ResolveImageDigest resolves an image reference to its root descriptor
+// digest without selecting a platform-specific manifest.
+func (r *Resolver) ResolveImageDigest(
+	ctx context.Context,
+	ref string,
+	opts ResolveImageDigestOpts,
+) (_ string, _ digest.Digest, rerr error) {
+	span, ctx := tracing.StartSpan(ctx, "resolving "+ref,
+		telemetry.Encapsulated(), telemetry.Encapsulate())
+	defer func() {
+		tracing.FinishWithError(span, rerr)
+	}()
+
+	resolvedRef, rootDesc, _, err := r.resolveRemoteRootDescriptor(
+		ctx,
+		ref,
+		opts.Network,
+		opts.RegistryTransport,
+	)
+	if err != nil {
+		return "", "", err
+	}
+	return resolvedRef, rootDesc.Digest, nil
 }
 
 func (r *Resolver) Pull(ctx context.Context, ref string, opts PullOpts) (_ *PulledImage, rerr error) {
@@ -623,16 +660,13 @@ func (r *Resolver) PushImage(ctx context.Context, img *PushedImage, ref string, 
 	resolver := docker.NewResolver(docker.ResolverOptions{
 		Hosts: r.pushRegistryHosts(opts.RegistryTransport, opts.Network),
 	})
-	pusher, err := buildkitpush.Pusher(ctx, resolver, ref)
+	pusher, err := resolver.Pusher(ctx, ref)
 	if err != nil {
 		return err
 	}
 
-	pushHandler := buildkitpush.Pusher
-	_ = pushHandler
-
 	pushUpdateSourceHandler, err := updateDistributionSourceHandler(r.contentStore, images.HandlerFunc(func(ctx context.Context, desc ocispecs.Descriptor) ([]ocispecs.Descriptor, error) {
-		_, err := limitedPushHandler(pusher, img.Provider)(ctx, desc)
+		_, err := pushHandler(pusher, img.Provider)(ctx, desc)
 		return nil, err
 	}), ref)
 	if err != nil {
@@ -663,7 +697,7 @@ func (r *Resolver) PushImage(ctx context.Context, img *PushedImage, ref string, 
 	}
 	rootDesc.MediaType = mediaType
 
-	if err := images.Dispatch(ctx, skipNonDistributableBlobs(images.Handlers(handlers...)), nil, rootDesc); err != nil {
+	if err := images.Dispatch(ctx, skipNonDistributableBlobs(images.Handlers(handlers...)), r.pushLimiter, rootDesc); err != nil {
 		return err
 	}
 
@@ -671,7 +705,7 @@ func (r *Resolver) PushImage(ctx context.Context, img *PushedImage, ref string, 
 	if err != nil {
 		return err
 	}
-	pushLeaf := limitedPushHandler(pusher, img.Provider)
+	pushLeaf := pushHandler(pusher, img.Provider)
 	for i := len(manifestStack) - 1; i >= 0; i-- {
 		if _, err := pushLeaf(ctx, manifestStack[i]); err != nil {
 			return err
@@ -1174,7 +1208,7 @@ func collectManifestStack(ctx context.Context, provider content.Provider, rootDe
 	return stack, nil
 }
 
-func limitedPushHandler(pusher remotes.Pusher, provider content.Provider) images.HandlerFunc {
+func pushHandler(pusher remotes.Pusher, provider content.Provider) images.HandlerFunc {
 	return func(ctx context.Context, desc ocispecs.Descriptor) ([]ocispecs.Descriptor, error) {
 		cw, err := pusher.Push(ctx, desc)
 		if err != nil {
@@ -1192,11 +1226,11 @@ func limitedPushHandler(pusher remotes.Pusher, provider content.Provider) images
 		// stream upload progress per layer, attributed to the "pushing
 		// <ref>" span carried by ctx
 		w := wrapProgressWriter(ctx, cw, desc)
-		if err := content.Copy(ctx, w, content.NewReader(ra), desc.Size, desc.Digest); err != nil {
+		if err := content.Copy(ctx, w, io.NewSectionReader(ra, 0, desc.Size), desc.Size, desc.Digest); err != nil {
 			if errors.Is(err, cerrdefs.ErrAlreadyExists) {
 				return nil, nil
 			}
-			return nil, err
+			return nil, fmt.Errorf("push content %s (%d bytes): %w", desc.Digest, desc.Size, err)
 		}
 		return nil, nil
 	}

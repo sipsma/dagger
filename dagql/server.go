@@ -33,14 +33,15 @@ import (
 // Server represents a GraphQL server whose schema is dynamically modified at
 // runtime.
 type Server struct {
-	root          AnyObjectResult
-	telemetry     AroundFunc
-	objects       map[string]ObjectType
-	interfaces    map[string]*Interface
-	scalars       map[string]ScalarType
-	scalarFilters map[string]ViewFilter
-	typeDefs      map[string]TypeDef
-	directives    map[string]DirectiveSpec
+	root           AnyObjectResult
+	telemetry      AroundFunc
+	objects        map[string]ObjectType
+	interfaces     map[string]*Interface
+	scalars        map[string]ScalarType
+	scalarFilters  map[string]ViewFilter
+	typeDefs       map[string]TypeDef
+	typeDefFilters map[string]ViewFilter
+	directives     map[string]DirectiveSpec
 
 	schemas       map[call.View]*ast.Schema
 	schemaDigests map[call.View]digest.Digest
@@ -86,7 +87,8 @@ type Server struct {
 	// (sharedResult.objClass); this hook is the fallback when capture missed
 	// the path (e.g., persisted-envelope decode, or imports loaded by ID
 	// before any class-bearing wrap). Resolved classes are cached back onto
-	// the shared so subsequent reconstructions skip the hook.
+	// the shared so subsequent reconstructions skip the hook. Cold recipe loads
+	// also use this hook to select the defining module's schema before dispatch.
 	resultServerForCall func(ctx context.Context, resultCall *ResultCall) (*Server, error)
 }
 
@@ -108,10 +110,10 @@ func (s *Server) SetNodeLoader(loader func(ctx context.Context, id *call.ID) (An
 	s.nodeLoader = loader
 }
 
-// SetResultServerForCall installs the fallback resolver used when cache
-// reconstruction or persisted-envelope decoding encounters an object type the
-// current server's schema does not have installed. See the field doc on
-// Server.resultServerForCall for the full role.
+// SetResultServerForCall installs the resolver used for module-defined recipe
+// calls and when cache reconstruction or persisted-envelope decoding encounters
+// an object type the current server's schema does not have installed. See the
+// field doc on Server.resultServerForCall for the full role.
 func (s *Server) SetResultServerForCall(loader func(ctx context.Context, resultCall *ResultCall) (*Server, error)) {
 	s.resultServerForCall = loader
 }
@@ -215,17 +217,18 @@ func NewServer[T Typed](_ context.Context, root T) (*Server, error) {
 
 func newBlankServer() *Server {
 	return &Server{
-		objects:       map[string]ObjectType{},
-		interfaces:    map[string]*Interface{},
-		scalars:       map[string]ScalarType{},
-		scalarFilters: map[string]ViewFilter{},
-		typeDefs:      map[string]TypeDef{},
-		directives:    map[string]DirectiveSpec{},
-		installLock:   &sync.RWMutex{},
-		schemas:       make(map[call.View]*ast.Schema),
-		schemaDigests: make(map[call.View]digest.Digest),
-		schemaOnces:   make(map[call.View]*sync.Once),
-		schemaLock:    &sync.Mutex{},
+		objects:        map[string]ObjectType{},
+		interfaces:     map[string]*Interface{},
+		scalars:        map[string]ScalarType{},
+		scalarFilters:  map[string]ViewFilter{},
+		typeDefs:       map[string]TypeDef{},
+		typeDefFilters: map[string]ViewFilter{},
+		directives:     map[string]DirectiveSpec{},
+		installLock:    &sync.RWMutex{},
+		schemas:        make(map[call.View]*ast.Schema),
+		schemaDigests:  make(map[call.View]digest.Digest),
+		schemaOnces:    make(map[call.View]*sync.Once),
+		schemaLock:     &sync.Mutex{},
 	}
 }
 
@@ -254,6 +257,9 @@ func (s *Server) Fork(_ context.Context, root Typed) (*Server, error) {
 	}
 	for name, typeDef := range s.typeDefs {
 		out.typeDefs[name] = typeDef
+	}
+	for name, filter := range s.typeDefFilters {
+		out.typeDefFilters[name] = filter
 	}
 	for name, directive := range s.directives {
 		out.directives[name] = directive
@@ -834,7 +840,7 @@ func (s *Server) InterfaceType(name string) (*Interface, bool) {
 //
 // If a ViewFilter is supplied, the scalar is only emitted in the schema for
 // views that match the filter. The scalar is always available for input
-// decoding, regardless of view — this lets a view-gated field accept the
+// decoding, regardless of view — this lets a field with version-specific visibility accept the
 // scalar as an argument value at runtime.
 func (s *Server) InstallScalar(scalar ScalarType, filter ...ViewFilter) ScalarType {
 	s.installLock.Lock()
@@ -859,10 +865,13 @@ func (s *Server) InstallDirective(directive DirectiveSpec) {
 }
 
 // InstallTypeDef installs an arbitrary type definition into the schema.
-func (s *Server) InstallTypeDef(def TypeDef) {
+func (s *Server) InstallTypeDef(def TypeDef, filter ...ViewFilter) {
 	s.installLock.Lock()
 	defer s.installLock.Unlock()
 	s.typeDefs[def.TypeName()] = def
+	if len(filter) > 0 && filter[0] != nil {
+		s.typeDefFilters[def.TypeName()] = filter[0]
+	}
 	s.invalidateSchemaCache()
 }
 
@@ -932,6 +941,9 @@ func (s *Server) SchemaForView(view call.View) *ast.Schema {
 			PossibleTypes: make(map[string][]*ast.Definition),
 		}
 		sortutil.RangeSorted(s.objects, func(_ string, t ObjectType) {
+			if !typeVisibleInView(t, view) {
+				return
+			}
 			def := definition(ast.Object, t, view)
 			if def.Name == queryType {
 				schema.Query = def
@@ -947,6 +959,9 @@ func (s *Server) SchemaForView(view call.View) *ast.Schema {
 		})
 		// Emit interface definitions.
 		sortutil.RangeSorted(s.interfaces, func(_ string, iface *Interface) {
+			if !typeVisibleInView(iface, view) {
+				return
+			}
 			def := iface.Definition(view)
 			schema.AddTypes(def)
 		})
@@ -958,13 +973,22 @@ func (s *Server) SchemaForView(view call.View) *ast.Schema {
 			schema.AddTypes(def)
 			schema.AddPossibleType(def.Name, def)
 		})
-		sortutil.RangeSorted(s.typeDefs, func(_ string, t TypeDef) {
+		sortutil.RangeSorted(s.typeDefs, func(name string, t TypeDef) {
+			if !typeVisibleInView(t, view) {
+				return
+			}
+			if filter, ok := s.typeDefFilters[name]; ok && !filter.Contains(view) {
+				return
+			}
 			def := t.TypeDefinition(view)
 			schema.AddTypes(def)
 			schema.AddPossibleType(def.Name, def)
 		})
 		schema.Directives = map[string]*ast.DirectiveDefinition{}
 		sortutil.RangeSorted(s.directives, func(n string, d DirectiveSpec) {
+			if d.ViewFilter != nil && !d.ViewFilter.Contains(view) {
+				return
+			}
 			schema.Directives[n] = d.DirectiveDefinition(view)
 		})
 		h := xxh3.New()
@@ -974,6 +998,22 @@ func (s *Server) SchemaForView(view call.View) *ast.Schema {
 	})
 
 	return s.schemas[view]
+}
+
+type viewFilteredType interface {
+	ViewFilter() ViewFilter
+}
+
+func viewFilterForType(t Type) ViewFilter {
+	if viewFiltered, ok := t.(viewFilteredType); ok {
+		return viewFiltered.ViewFilter()
+	}
+	return nil
+}
+
+func typeVisibleInView(t Type, view call.View) bool {
+	viewFilter := viewFilterForType(t)
+	return viewFilter == nil || viewFilter.Contains(view)
 }
 
 // SchemaDigest returns the digest of the current schema.
@@ -1045,7 +1085,11 @@ func (s *Server) ExecOp(ctx context.Context, gqlOp *graphql.OperationContext) (r
 			return nil, gqlErrs(rerr)
 		}
 
-		//nolint:staticcheck // annoying, but we can't easily switch to this without inconsistencies
+		// nolintlint is included because staticcheck's verdict on this line
+		// differs between environments (stale/partial staticcheck results make
+		// nolintlint report the directive as unused in CI while local runs
+		// need it), so the bare directive flaps.
+		//nolint:staticcheck,nolintlint // annoying, but we can't easily switch to this without inconsistencies
 		listErr := validator.Validate(s.Schema(), gqlOp.Doc)
 		if len(listErr) != 0 {
 			for _, e := range listErr {
@@ -1081,6 +1125,14 @@ func (s *Server) ExecOp(ctx context.Context, gqlOp *graphql.OperationContext) (r
 	return results, nil
 }
 
+// maxConcurrentResolvers bounds parallel resolution within a single pool.
+// Each level of a query gets its own pool, so this caps fan-out width per
+// node (e.g. one goroutine per list element or sibling selection), not the
+// total goroutine count for a request. Without a bound, a single query
+// selecting into a large list can spawn tens of thousands of goroutines at
+// once, overwhelming downstream resources (telemetry, syscalls, memory).
+const maxConcurrentResolvers = 100
+
 // Resolve resolves the given selections on the given object.
 //
 // Each selection is resolved in parallel, and the results are returned in a
@@ -1107,7 +1159,7 @@ func (s *Server) Resolve(ctx context.Context, self AnyObjectResult, sels ...Sele
 
 	results := new(sync.Map)
 
-	pool := pool.New().WithErrors()
+	pool := pool.New().WithErrors().WithMaxGoroutines(maxConcurrentResolvers)
 	objectType := self.ObjectType()
 	for _, sel := range sels {
 		pool.Go(func() error {
@@ -1198,6 +1250,74 @@ func interfaceFieldsPresent(iface *Interface, objectType ObjectType, view call.V
 	return true
 }
 
+// ObjectTypeForID resolves the object type named by id without evaluating the
+// object itself. A recipe's module provenance is authoritative even when the
+// current schema carries another version of the same named type.
+func (s *Server) ObjectTypeForID(ctx context.Context, id *call.ID) (ObjectType, bool, error) {
+	objType, _, ok, err := s.ObjectTypeAndServerForID(ctx, id)
+	return objType, ok, err
+}
+
+// ObjectTypeAndServerForID resolves the object type named by id and the server
+// whose schema defines it, without evaluating the object itself. The defining
+// server matters to callers that must retain the type's schema after switching
+// to another schema which may not contain the type.
+func (s *Server) ObjectTypeAndServerForID(ctx context.Context, id *call.ID) (ObjectType, *Server, bool, error) {
+	if id == nil || id.Type() == nil {
+		return nil, nil, false, nil
+	}
+	typeName := id.Type().NamedType()
+	if id.IsHandle() || id.Module() == nil || id.Module().ID() == nil || s.resultServerForCall == nil {
+		if objType, ok := s.ObjectType(typeName); ok {
+			return objType, s, true, nil
+		}
+		return nil, nil, false, nil
+	}
+
+	// A same-named type in the caller's schema may belong to an older module
+	// revision. In particular, rebinding a state-returning tool after reload
+	// must not replace its new toolset with that older definition.
+	moduleResult, err := s.LoadType(ctx, id.Module().ID())
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("resolve object type %q module: %w", typeName, err)
+	}
+	resolved, err := s.serverForRecipeModule(ctx, id, moduleResult)
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("resolve object type %q schema: %w", typeName, err)
+	}
+	if resolved == nil {
+		return nil, nil, false, nil
+	}
+	objType, ok := resolved.ObjectType(typeName)
+	return objType, resolved, ok, nil
+}
+
+// serverForRecipeModule resolves the schema that defined a recipe vertex. The
+// module's own dependencies supply its schema; unrelated modules in receiver or
+// argument recipes are resolved independently when loading those vertices.
+func (s *Server) serverForRecipeModule(ctx context.Context, id *call.ID, moduleResult AnyResult) (*Server, error) {
+	if moduleResult == nil {
+		return nil, fmt.Errorf("module result is null")
+	}
+	shared := moduleResult.cacheSharedResult()
+	if shared == nil || shared.id == 0 {
+		return nil, fmt.Errorf("module result is not attached")
+	}
+	resultCall := &ResultCall{
+		Kind:  ResultCallKindField,
+		Type:  NewResultCallType(id.Type().ToAST()),
+		Field: id.Field(),
+		View:  id.View(),
+		Module: &ResultCallModule{
+			ResultRef: &ResultCallRef{ResultID: uint64(shared.id), shared: shared},
+			Name:      id.Module().Name(),
+			Ref:       id.Module().Ref(),
+			Pin:       id.Module().Pin(),
+		},
+	}
+	return s.resultServerForCall(ctx, resultCall)
+}
+
 // Load loads the object with the given ID.
 func (s *Server) Load(ctx context.Context, id *call.ID) (AnyObjectResult, error) {
 	ctx = srvToContext(ctx, s)
@@ -1250,7 +1370,26 @@ func (s *Server) loadNthValue(
 	return res, nil
 }
 
-func (s *Server) LoadType(ctx context.Context, id *call.ID) (_ AnyResult, rerr error) {
+func beginLoadTypeCacheOperation(ctx context.Context, id *call.ID) (*Cache, cacheOperation, string, error) {
+	clientMetadata, err := engine.ClientMetadataFromContext(ctx)
+	if err != nil {
+		return nil, cacheOperation{}, "", fmt.Errorf("load %s: current client metadata: %w", id.Display(), err)
+	}
+	if clientMetadata.SessionID == "" {
+		return nil, cacheOperation{}, "", fmt.Errorf("load %s: empty session ID", id.Display())
+	}
+	cache, err := EngineCache(ctx)
+	if err != nil {
+		return nil, cacheOperation{}, "", fmt.Errorf("load %s: current dagql cache: %w", id.Display(), err)
+	}
+	cacheOp, err := cache.beginSessionOperation(clientMetadata.SessionID)
+	if err != nil {
+		return nil, cacheOperation{}, "", fmt.Errorf("load %s: %w", id.Display(), err)
+	}
+	return cache, cacheOp, clientMetadata.SessionID, nil
+}
+
+func (s *Server) LoadType(ctx context.Context, id *call.ID) (ret AnyResult, rerr error) {
 	ctx = srvToContext(ctx, s)
 	if id == nil {
 		return nil, fmt.Errorf("load type: nil ID")
@@ -1273,19 +1412,18 @@ func (s *Server) LoadType(ctx context.Context, id *call.ID) (_ AnyResult, rerr e
 		}
 	}()
 
-	clientMetadata, err := engine.ClientMetadataFromContext(ctx)
+	cache, cacheOp, sessionID, err := beginLoadTypeCacheOperation(ctx, id)
 	if err != nil {
-		return nil, fmt.Errorf("load %s: current client metadata: %w", id.Display(), err)
+		return nil, err
 	}
-	if clientMetadata.SessionID == "" {
-		return nil, fmt.Errorf("load %s: empty session ID", id.Display())
-	}
-	cache, err := EngineCache(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("load %s: current dagql cache: %w", id.Display(), err)
-	}
+	defer func() {
+		if cacheOp.finish(rerr == nil && ret != nil) {
+			ret = nil
+			rerr = fmt.Errorf("load %s: %w: %q", id.Display(), ErrCacheSessionReleased, sessionID)
+		}
+	}()
 	if id.IsHandle() {
-		res, err := cache.LoadResultByResultID(ctx, clientMetadata.SessionID, s, id.EngineResultID())
+		res, err := cache.loadResultByResultID(ctx, sessionID, s, id.EngineResultID())
 		if err != nil {
 			return nil, err
 		}
@@ -1312,7 +1450,7 @@ func (s *Server) LoadType(ctx context.Context, id *call.ID) (_ AnyResult, rerr e
 		ctx:       ctx,
 		srv:       s,
 		cache:     cache,
-		sessionID: clientMetadata.SessionID,
+		sessionID: sessionID,
 		loads:     make(map[string]*recipeLoadFuture),
 	}
 	return state.load(id)
@@ -1381,7 +1519,31 @@ func (state *recipeLoadState) loadRecipeVertex(id *call.ID) (AnyResult, error) {
 		return state.srv.loadNthValue(callCtx, parent, nth, true)
 	}
 
-	inputIDs := directRecipeInputIDs(id)
+	// Resolve the defining module before inspecting the field's arguments: its
+	// schema may mark IDs as lazy references. Provenance is authoritative even
+	// when the bootstrap schema has a field or return type with the same name.
+	srv := state.srv
+	if mod := id.Module(); mod != nil && mod.ID() != nil && srv.resultServerForCall != nil {
+		moduleResult, err := state.load(mod.ID())
+		if err != nil {
+			return nil, fmt.Errorf("load %s: module: %w", idInputDebugString(id), err)
+		}
+		resolved, err := srv.serverForRecipeModule(callCtx, id, moduleResult)
+		if err != nil {
+			return nil, fmt.Errorf("load %s: module schema: %w", idInputDebugString(id), err)
+		}
+		if resolved != nil {
+			srv = resolved.Canonical()
+		}
+	}
+	callCtx = srvToContext(callCtx, srv)
+
+	// Lazy-ref args (e.g. LLM.withTools(object:)) are carried by reference:
+	// not evaluated here, and reconstructed into the frame/selector as
+	// unevaluated recipe IDs. Computed once and threaded through.
+	lazyRefs := srv.lazyRefArgNames(id)
+
+	inputIDs := state.directRecipeInputIDs(id, lazyRefs)
 	loadedInputs := make(map[string]AnyResult, len(inputIDs))
 	var loadedMu sync.Mutex
 	eg, _ := errgroup.WithContext(state.ctx)
@@ -1408,32 +1570,32 @@ func (state *recipeLoadState) loadRecipeVertex(id *call.ID) (AnyResult, error) {
 			return nil, fmt.Errorf("load %s: missing loaded receiver", idInputDebugString(id))
 		}
 	} else {
-		base = state.srv.root
+		base = srv.root
 	}
 
-	baseObj, err := state.srv.toSelectable(state.ctx, base)
+	baseObj, err := srv.toSelectable(callCtx, base)
 	if err != nil {
 		return nil, fmt.Errorf("load %s: instantiate base: %w", idInputDebugString(id), err)
 	}
-	frame, err := state.loadedResultCallFromRecipeID(id, loadedInputs)
+	frame, err := state.loadedResultCallFromRecipeID(id, loadedInputs, lazyRefs)
 	if err != nil {
 		return nil, fmt.Errorf("load %s: build result call: %w", idInputDebugString(id), err)
 	}
 	callCtx = ContextWithCall(callCtx, frame)
-	sel, err := selectorFromLoadedCall(callCtx, frame, baseObj)
+	sel, err := selectorFromLoadedCall(callCtx, frame, baseObj, id, lazyRefs)
 	if err != nil {
 		return nil, fmt.Errorf("load %s: %w", idInputDebugString(id), err)
 	}
 	req := &CallRequest{ResultCall: frame}
-	if hit, ok, err := state.cache.lookupCallRequest(callCtx, state.sessionID, state.srv, req); err != nil {
+	if hit, ok, err := state.cache.lookupCallRequest(callCtx, state.sessionID, srv, req); err != nil {
 		return nil, fmt.Errorf("load %s: structural cache lookup: %w", idInputDebugString(id), err)
 	} else if ok {
 		return hit, nil
 	}
-	return baseObj.Select(callCtx, state.srv, sel)
+	return baseObj.Select(callCtx, srv, sel)
 }
 
-func directRecipeInputIDs(id *call.ID) []*call.ID {
+func (state *recipeLoadState) directRecipeInputIDs(id *call.ID, lazyRefs map[string]bool) []*call.ID {
 	if id == nil || id.IsHandle() {
 		return nil
 	}
@@ -1449,6 +1611,13 @@ func directRecipeInputIDs(id *call.ID) []*call.ID {
 		if arg == nil {
 			continue
 		}
+		if lazyRefs[arg.Name()] {
+			// A lazy-ref argument is carried by reference, not evaluated:
+			// skip gathering the IDs it depends on so loading the
+			// receiver never re-runs the (possibly side-effecting, possibly
+			// now-unreproducible) call that produced it.
+			continue
+		}
 		gatherRecipeLiteralInputIDs(arg.Value(), &inputIDs)
 	}
 	for _, input := range id.ImplicitInputs() {
@@ -1458,6 +1627,46 @@ func directRecipeInputIDs(id *call.ID) []*call.ID {
 		gatherRecipeLiteralInputIDs(input.Value(), &inputIDs)
 	}
 	return inputIDs
+}
+
+// lazyRefArgNames returns the set of the call's argument names that are
+// marked LazyRef in the schema, resolved from the receiver's type
+// without evaluating anything. Best-effort: if the field or its type can't be
+// resolved from the schema (e.g. a module type not currently installed), the
+// arguments are treated as normal (evaluated), preserving prior behavior.
+func (s *Server) lazyRefArgNames(id *call.ID) map[string]bool {
+	if id == nil || id.IsHandle() || len(id.Args()) == 0 {
+		return nil
+	}
+	var parentType string
+	if receiver := id.Receiver(); receiver != nil {
+		if t := receiver.Type(); t != nil {
+			parentType = t.NamedType()
+		}
+	} else {
+		parentType = "Query"
+	}
+	if parentType == "" {
+		return nil
+	}
+	objType, ok := s.ObjectType(parentType)
+	if !ok {
+		return nil
+	}
+	fieldSpec, ok := objType.FieldSpec(id.Field(), id.View())
+	if !ok {
+		return nil
+	}
+	var lazyRefs map[string]bool
+	for _, argSpec := range fieldSpec.Args.Inputs(id.View()) {
+		if argSpec.LazyRef {
+			if lazyRefs == nil {
+				lazyRefs = make(map[string]bool)
+			}
+			lazyRefs[argSpec.Name] = true
+		}
+	}
+	return lazyRefs
 }
 
 func gatherRecipeLiteralInputIDs(lit call.Literal, inputIDs *[]*call.ID) {
@@ -1478,7 +1687,7 @@ func gatherRecipeLiteralInputIDs(lit call.Literal, inputIDs *[]*call.ID) {
 	}
 }
 
-func (state *recipeLoadState) loadedResultCallFromRecipeID(id *call.ID, loadedInputs map[string]AnyResult) (*ResultCall, error) {
+func (state *recipeLoadState) loadedResultCallFromRecipeID(id *call.ID, loadedInputs map[string]AnyResult, lazyRefs map[string]bool) (*ResultCall, error) {
 	if id == nil {
 		return nil, nil
 	}
@@ -1519,7 +1728,28 @@ func (state *recipeLoadState) loadedResultCallFromRecipeID(id *call.ID, loadedIn
 		}
 	}
 	for _, arg := range id.Args() {
-		converted, err := state.loadedResultCallArgFromRecipeArgument(arg, loadedInputs)
+		var (
+			converted *ResultCallArg
+			err       error
+		)
+		if lazyRefs[arg.Name()] {
+			// A lazy-ref argument was not evaluated, so it has no loaded
+			// result to reference. Carry it through in pure recipe form so the
+			// frame keeps the full argument structure (preserving call
+			// identity) without requiring — or triggering — evaluation.
+			value, litErr := resultCallLiteralFromRecipeLiteral(state.ctx, arg.Value(), nil)
+			if litErr != nil {
+				err = litErr
+			} else {
+				converted = &ResultCallArg{
+					Name:        arg.Name(),
+					IsSensitive: arg.IsSensitive(),
+					Value:       value,
+				}
+			}
+		} else {
+			converted, err = state.loadedResultCallArgFromRecipeArgument(arg, loadedInputs)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("arg %q: %w", arg.Name(), err)
 		}
@@ -1583,6 +1813,8 @@ func (state *recipeLoadState) loadedResultCallLiteralFromRecipeLiteral(lit call.
 		return &ResultCallLiteral{Kind: ResultCallLiteralKindFloat, FloatValue: v.Value()}, nil
 	case *call.LiteralString:
 		return &ResultCallLiteral{Kind: ResultCallLiteralKindString, StringValue: v.Value()}, nil
+	case *call.LiteralBytes:
+		return &ResultCallLiteral{Kind: ResultCallLiteralKindBytes, BytesValue: v.Value()}, nil
 	case *call.LiteralEnum:
 		return &ResultCallLiteral{Kind: ResultCallLiteralKindEnum, EnumValue: v.Value()}, nil
 	case *call.LiteralDigestedString:
@@ -1631,7 +1863,7 @@ func (state *recipeLoadState) loadedResultCallLiteralFromRecipeLiteral(lit call.
 	}
 }
 
-func selectorFromLoadedCall(ctx context.Context, frame *ResultCall, baseObj AnyObjectResult) (Selector, error) {
+func selectorFromLoadedCall(ctx context.Context, frame *ResultCall, baseObj AnyObjectResult, recipeID *call.ID, lazyRefs map[string]bool) (Selector, error) {
 	if frame == nil {
 		return Selector{}, fmt.Errorf("nil result call")
 	}
@@ -1640,8 +1872,36 @@ func selectorFromLoadedCall(ctx context.Context, frame *ResultCall, baseObj AnyO
 	if !ok {
 		return Selector{}, fmt.Errorf("field %q not found on %s", frame.Field, baseObj.Type().Name())
 	}
+	// Lazy-ref args are decoded straight from the recipe ID's literals
+	// (yielding unevaluated recipe IDs) instead of from the frame, since the
+	// frame's ref would resolve to an evaluated result that was intentionally
+	// never produced.
+	var recipeArgLiterals map[string]call.Literal
+	if recipeID != nil && len(lazyRefs) > 0 {
+		recipeArgLiterals = make(map[string]call.Literal, len(lazyRefs))
+		for _, arg := range recipeID.Args() {
+			if arg != nil && lazyRefs[arg.Name()] {
+				recipeArgLiterals[arg.Name()] = arg.Value()
+			}
+		}
+	}
 	args := make([]NamedInput, 0, len(frame.Args))
 	for _, argSpec := range fieldSpec.Args.Inputs(view) {
+		if lazyRefs[argSpec.Name] {
+			lit, ok := recipeArgLiterals[argSpec.Name]
+			if !ok {
+				continue
+			}
+			// ToInput keeps IDs in unevaluated recipe form, so the lazy-ref
+			// arg decodes to a recipe ID rather than resolving to an evaluated
+			// result that was intentionally never produced.
+			input, err := argSpec.Type.Decoder().DecodeInput(lit.ToInput())
+			if err != nil {
+				return Selector{}, fmt.Errorf("request lazy-ref arg %q value as %T (%s) using %T: %w", argSpec.Name, argSpec.Type, argSpec.Type.Type(), argSpec.Type.Decoder(), err)
+			}
+			args = append(args, NamedInput{Name: argSpec.Name, Value: input})
+			continue
+		}
 		var frameArg *ResultCallArg
 		for _, arg := range frame.Args {
 			if arg != nil && arg.Name == argSpec.Name {
@@ -2123,7 +2383,7 @@ func (s *Server) resolvePath(ctx context.Context, self AnyObjectResult, sel Sele
 			}
 		} else {
 			// Has subselections - resolve in parallel
-			p := pool.New().WithErrors()
+			p := pool.New().WithErrors().WithMaxGoroutines(maxConcurrentResolvers)
 			for nth := 1; nth <= length; nth++ {
 				p.Go(func() error {
 					elemVal, err := s.loadNthValue(ctx, val, nth, false)

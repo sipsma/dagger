@@ -23,13 +23,49 @@ class Workspace extends Client\AbstractObject implements Client\IdAble, Node
     }
 
     /**
+     * Return all agent middlewares from modules loaded in the workspace.
+     */
+    public function agents(?array $include = null, ?array $exclude = null): AgentMiddlewareGroup
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('agents');
+        if (null !== $include) {
+        $innerQueryBuilder->setArgument('include', $include);
+        }
+        if (null !== $exclude) {
+        $innerQueryBuilder->setArgument('exclude', $exclude);
+        }
+        return new \Dagger\AgentMiddlewareGroup($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace's changes, with paths relative to its working directory.
+     *
+     * Pass from to compare against an earlier workspace state. Omitting it preserves the cumulative behavior used by clients from before this argument was added.
+     */
+    public function changes(?Workspace $from = null): Changeset
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('changes');
+        if (null !== $from) {
+        $innerQueryBuilder->setArgument('from', $from);
+        }
+        return new \Dagger\Changeset($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
      * Return all checks from modules loaded in the workspace.
      */
-    public function checks(?array $include = null, ?bool $noGenerate = null, ?bool $onlyGenerate = null): CheckGroup
-    {
+    public function checks(
+        ?array $include = null,
+        ?array $skip = null,
+        ?bool $noGenerate = null,
+        ?bool $onlyGenerate = null,
+    ): CheckGroup {
         $innerQueryBuilder = new \Dagger\Client\QueryBuilder('checks');
         if (null !== $include) {
         $innerQueryBuilder->setArgument('include', $include);
+        }
+        if (null !== $skip) {
+        $innerQueryBuilder->setArgument('skip', $skip);
         }
         if (null !== $noGenerate) {
         $innerQueryBuilder->setArgument('noGenerate', $noGenerate);
@@ -41,16 +77,7 @@ class Workspace extends Client\AbstractObject implements Client\IdAble, Node
     }
 
     /**
-     * The client ID that owns this workspace's host filesystem.
-     */
-    public function clientId(): string
-    {
-        $leafQueryBuilder = new \Dagger\Client\QueryBuilder('clientId');
-        return (string)$this->queryLeaf($leafQueryBuilder, 'clientId');
-    }
-
-    /**
-     * Selected native workspace config file relative to the workspace root, if any.
+     * Selected native workspace config file relative to the workspace cwd, if any.
      */
     public function configFile(): string
     {
@@ -77,20 +104,6 @@ class Workspace extends Client\AbstractObject implements Client\IdAble, Node
     }
 
     /**
-     * Write a configuration value to dagger.toml.
-     */
-    public function configWrite(string $key, string $value, ?bool $here = false): string
-    {
-        $leafQueryBuilder = new \Dagger\Client\QueryBuilder('configWrite');
-        $leafQueryBuilder->setArgument('key', $key);
-        $leafQueryBuilder->setArgument('value', $value);
-        if (null !== $here) {
-        $leafQueryBuilder->setArgument('here', $here);
-        }
-        return (string)$this->queryLeaf($leafQueryBuilder, 'configWrite');
-    }
-
-    /**
      * Current location within the workspace root.
      *
      * The workspace root is returned as "/".
@@ -101,6 +114,16 @@ class Workspace extends Client\AbstractObject implements Client\IdAble, Node
     {
         $leafQueryBuilder = new \Dagger\Client\QueryBuilder('cwd');
         return (string)$this->queryLeaf($leafQueryBuilder, 'cwd');
+    }
+
+    /**
+     * Return the selected SDK module's current scope at this workspace location.
+     */
+    public function detectScope(string $sdk): string
+    {
+        $leafQueryBuilder = new \Dagger\Client\QueryBuilder('detectScope');
+        $leafQueryBuilder->setArgument('sdk', $sdk);
+        return (string)$this->queryLeaf($leafQueryBuilder, 'detectScope');
     }
 
     /**
@@ -129,16 +152,14 @@ class Workspace extends Client\AbstractObject implements Client\IdAble, Node
     }
 
     /**
-     * Create a named workspace environment if it does not already exist.
+     * Installed name of the module selected as the workspace entrypoint, or an empty string when none is selected.
+     *
+     * Reflects the selected env's effective view. Fails if several modules are selected.
      */
-    public function envCreate(string $name, ?bool $here = false): string
+    public function entrypoint(): string
     {
-        $leafQueryBuilder = new \Dagger\Client\QueryBuilder('envCreate');
-        $leafQueryBuilder->setArgument('name', $name);
-        if (null !== $here) {
-        $leafQueryBuilder->setArgument('here', $here);
-        }
-        return (string)$this->queryLeaf($leafQueryBuilder, 'envCreate');
+        $leafQueryBuilder = new \Dagger\Client\QueryBuilder('entrypoint');
+        return (string)$this->queryLeaf($leafQueryBuilder, 'entrypoint');
     }
 
     /**
@@ -151,16 +172,14 @@ class Workspace extends Client\AbstractObject implements Client\IdAble, Node
     }
 
     /**
-     * Remove a named workspace environment.
+     * Write this workspace's pending changes to its local Git workspace on the current client's host.
+     *
+     * Like Directory.export, the write is a side effect on the client that makes the call — never on the client that created the workspace. Inside a module, this cannot reach the caller's host.
      */
-    public function envRemove(string $name, ?bool $here = false): string
+    public function export(): void
     {
-        $leafQueryBuilder = new \Dagger\Client\QueryBuilder('envRemove');
-        $leafQueryBuilder->setArgument('name', $name);
-        if (null !== $here) {
-        $leafQueryBuilder->setArgument('here', $here);
-        }
-        return (string)$this->queryLeaf($leafQueryBuilder, 'envRemove');
+        $leafQueryBuilder = new \Dagger\Client\QueryBuilder('export');
+        $this->queryLeaf($leafQueryBuilder, 'export');
     }
 
     /**
@@ -173,6 +192,26 @@ class Workspace extends Client\AbstractObject implements Client\IdAble, Node
         $innerQueryBuilder = new \Dagger\Client\QueryBuilder('file');
         $innerQueryBuilder->setArgument('path', $path);
         return new \Dagger\File($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Find project roots marked by any of the given filenames, starting from a path relative to the workspace cwd.
+     *
+     * Returns cwd-relative directory paths for every marked directory at or below start, plus the nearest marked ancestor when start itself is not marked.
+     *
+     * Each returned path is usable as-is with other workspace APIs, e.g. directory(path).
+     */
+    public function findRoots(array $markers, ?string $start = '.', ?array $exclude = []): array
+    {
+        $leafQueryBuilder = new \Dagger\Client\QueryBuilder('findRoots');
+        $leafQueryBuilder->setArgument('markers', $markers);
+        if (null !== $start) {
+        $leafQueryBuilder->setArgument('start', $start);
+        }
+        if (null !== $exclude) {
+        $leafQueryBuilder->setArgument('exclude', $exclude);
+        }
+        return (array)$this->queryLeaf($leafQueryBuilder, 'findRoots');
     }
 
     /**
@@ -216,6 +255,18 @@ class Workspace extends Client\AbstractObject implements Client\IdAble, Node
     }
 
     /**
+     * Returns a list of files and directories that match the given pattern.
+     *
+     * Patterns match paths relative to the workspace root.
+     */
+    public function glob(string $pattern): array
+    {
+        $leafQueryBuilder = new \Dagger\Client\QueryBuilder('glob');
+        $leafQueryBuilder->setArgument('pattern', $pattern);
+        return (array)$this->queryLeaf($leafQueryBuilder, 'glob');
+    }
+
+    /**
      * A unique identifier for this Workspace.
      */
     public function id(): Id
@@ -225,88 +276,153 @@ class Workspace extends Client\AbstractObject implements Client\IdAble, Node
     }
 
     /**
-     * Initialize workspace config, creating dagger.toml.
-     */
-    public function init(?bool $here = false): string
-    {
-        $leafQueryBuilder = new \Dagger\Client\QueryBuilder('init');
-        if (null !== $here) {
-        $leafQueryBuilder->setArgument('here', $here);
-        }
-        return (string)$this->queryLeaf($leafQueryBuilder, 'init');
-    }
-
-    /**
-     * Install a module into the workspace, writing dagger.toml to the host.
-     */
-    public function install(string $ref, ?string $name = '', ?bool $here = false): string
-    {
-        $leafQueryBuilder = new \Dagger\Client\QueryBuilder('install');
-        $leafQueryBuilder->setArgument('ref', $ref);
-        if (null !== $name) {
-        $leafQueryBuilder->setArgument('name', $name);
-        }
-        if (null !== $here) {
-        $leafQueryBuilder->setArgument('here', $here);
-        }
-        return (string)$this->queryLeaf($leafQueryBuilder, 'install');
-    }
-
-    /**
      * Plan the explicit migration needed for the current workspace.
+     *
+     * Include installed local modules and their local dependencies. Other module candidates remain unchanged unless selected.
      *
      * The returned plan has an empty changeset and no steps when no migration is needed.
      */
-    public function migrate(?bool $force = false): WorkspaceMigration
+    public function migrate(?array $modules = []): WorkspaceMigration
     {
         $innerQueryBuilder = new \Dagger\Client\QueryBuilder('migrate');
-        if (null !== $force) {
-        $innerQueryBuilder->setArgument('force', $force);
+        if (null !== $modules) {
+        $innerQueryBuilder->setArgument('modules', $modules);
         }
         return new \Dagger\WorkspaceMigration($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
     }
 
     /**
-     * Create a new module owned by the workspace and auto-install it in dagger.toml.
+     * Plan migration of one local module without migrating its dependencies or creating a workspace configuration.
+     *
+     * Include SDK registration when a workspace configuration exists and remove obsolete generated-file ignore rules.
      */
-    public function moduleInit(
-        string $name,
-        ?string $sdk = '',
-        ?string $source = '',
-        ?array $include = [],
-        ?bool $selfCalls = false,
-        ?bool $here = false,
-    ): string {
-        $leafQueryBuilder = new \Dagger\Client\QueryBuilder('moduleInit');
-        $leafQueryBuilder->setArgument('name', $name);
-        if (null !== $sdk) {
-        $leafQueryBuilder->setArgument('sdk', $sdk);
+    public function migrateModule(?string $path = '.'): WorkspaceMigration
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('migrateModule');
+        if (null !== $path) {
+        $innerQueryBuilder->setArgument('path', $path);
         }
-        if (null !== $source) {
-        $leafQueryBuilder->setArgument('source', $source);
-        }
-        if (null !== $include) {
-        $leafQueryBuilder->setArgument('include', $include);
-        }
-        if (null !== $selfCalls) {
-        $leafQueryBuilder->setArgument('selfCalls', $selfCalls);
-        }
-        if (null !== $here) {
-        $leafQueryBuilder->setArgument('here', $here);
-        }
-        return (string)$this->queryLeaf($leafQueryBuilder, 'moduleInit');
+        return new \Dagger\WorkspaceMigration($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return a module defined in the workspace configuration.
+     *
+     * Reflects the selected env's effective view.
+     */
+    public function module(string $name): WorkspaceModule
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('module');
+        $innerQueryBuilder->setArgument('name', $name);
+        return new \Dagger\WorkspaceModule($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Load a module source from a path within the workspace.
+     *
+     * Relative paths (e.g., "foo") resolve from the workspace cwd; absolute paths (e.g., "/foo") resolve from the workspace root.
+     *
+     * Fails if the path does not point to an initialized module.
+     */
+    public function moduleSource(string $path): ModuleSource
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('moduleSource');
+        $innerQueryBuilder->setArgument('path', $path);
+        return new \Dagger\ModuleSource($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
     }
 
     /**
      * List modules defined in the workspace configuration.
+     *
+     * Reflects the selected env's effective view.
      */
-    public function moduleList(?string $module = ''): array
+    public function modules(): array
     {
-        $leafQueryBuilder = new \Dagger\Client\QueryBuilder('moduleList');
-        if (null !== $module) {
-        $leafQueryBuilder->setArgument('module', $module);
+        $leafQueryBuilder = new \Dagger\Client\QueryBuilder('modules');
+        return (array)$this->queryLeaf($leafQueryBuilder, 'modules');
+    }
+
+    /**
+     * Return this workspace with its cached host reads invalidated, so subsequent file and directory reads re-read the live host instead of a snapshot cached earlier in the session.
+     */
+    public function reloaded(): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('reloaded');
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * An installed SDK, by name.
+     */
+    public function sdk(string $name): WorkspaceSDK
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('sdk');
+        $innerQueryBuilder->setArgument('name', $name);
+        return new \Dagger\WorkspaceSDK($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Installed SDKs.
+     */
+    public function sdks(): array
+    {
+        $leafQueryBuilder = new \Dagger\Client\QueryBuilder('sdks');
+        return (array)$this->queryLeaf($leafQueryBuilder, 'sdks');
+    }
+
+    /**
+     * Searches for content matching the given regular expression or literal string.
+     *
+     * Uses Rust regex syntax; escape literal ., [, ], {, }, | with backslashes.
+     *
+     * Runs ripgrep on the client host, falling back to grep if unavailable.
+     */
+    public function search(
+        string $pattern,
+        ?array $paths = [],
+        ?array $globs = [],
+        ?bool $literal = false,
+        ?bool $multiline = false,
+        ?bool $dotall = false,
+        ?bool $insensitive = false,
+        ?bool $skipIgnored = false,
+        ?bool $skipHidden = false,
+        ?bool $filesOnly = false,
+        ?int $limit = null,
+    ): array {
+        $leafQueryBuilder = new \Dagger\Client\QueryBuilder('search');
+        $leafQueryBuilder->setArgument('pattern', $pattern);
+        if (null !== $paths) {
+        $leafQueryBuilder->setArgument('paths', $paths);
         }
-        return (array)$this->queryLeaf($leafQueryBuilder, 'moduleList');
+        if (null !== $globs) {
+        $leafQueryBuilder->setArgument('globs', $globs);
+        }
+        if (null !== $literal) {
+        $leafQueryBuilder->setArgument('literal', $literal);
+        }
+        if (null !== $multiline) {
+        $leafQueryBuilder->setArgument('multiline', $multiline);
+        }
+        if (null !== $dotall) {
+        $leafQueryBuilder->setArgument('dotall', $dotall);
+        }
+        if (null !== $insensitive) {
+        $leafQueryBuilder->setArgument('insensitive', $insensitive);
+        }
+        if (null !== $skipIgnored) {
+        $leafQueryBuilder->setArgument('skipIgnored', $skipIgnored);
+        }
+        if (null !== $skipHidden) {
+        $leafQueryBuilder->setArgument('skipHidden', $skipHidden);
+        }
+        if (null !== $filesOnly) {
+        $leafQueryBuilder->setArgument('filesOnly', $filesOnly);
+        }
+        if (null !== $limit) {
+        $leafQueryBuilder->setArgument('limit', $limit);
+        }
+        return (array)$this->queryLeaf($leafQueryBuilder, 'search');
     }
 
     /**
@@ -322,26 +438,426 @@ class Workspace extends Client\AbstractObject implements Client\IdAble, Node
     }
 
     /**
-     * Uninstall a module from the workspace, writing dagger.toml to the host.
+     * Return all terminal targets from modules loaded in the workspace.
      */
-    public function uninstall(string $name, ?bool $here = false): string
+    public function terminals(?array $include = null): TerminalGroup
     {
-        $leafQueryBuilder = new \Dagger\Client\QueryBuilder('uninstall');
-        $leafQueryBuilder->setArgument('name', $name);
-        if (null !== $here) {
-        $leafQueryBuilder->setArgument('here', $here);
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('terminals');
+        if (null !== $include) {
+        $innerQueryBuilder->setArgument('include', $include);
         }
-        return (string)$this->queryLeaf($leafQueryBuilder, 'uninstall');
+        return new \Dagger\TerminalGroup($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
     }
 
     /**
-     * Refresh workspace-managed state and return the resulting changeset.
-     *
-     * Currently this refreshes existing lockfile entries only.
+     * Return this workspace with a changeset applied, without mutating the source.
      */
-    public function update(): Changeset
+    public function withChanges(Changeset $changes): Workspace
     {
-        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('update');
-        return new \Dagger\Changeset($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withChanges');
+        $innerQueryBuilder->setArgument('changes', $changes);
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with a generated module client added to one SDK scope.
+     *
+     * Select the deepest detected or registered scope. Fail if several SDKs have that deepest scope.
+     */
+    public function withClient(string $module, ?string $sdk = '', ?Json $settings = null): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withClient');
+        $innerQueryBuilder->setArgument('module', $module);
+        if (null !== $sdk) {
+        $innerQueryBuilder->setArgument('sdk', $sdk);
+        }
+        if (null !== $settings) {
+        $innerQueryBuilder->setArgument('settings', $settings);
+        }
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with a named config environment created.
+     */
+    public function withConfigEnv(string $name, ?bool $here = false): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withConfigEnv');
+        $innerQueryBuilder->setArgument('name', $name);
+        if (null !== $here) {
+        $innerQueryBuilder->setArgument('here', $here);
+        }
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with a configuration value written.
+     *
+     * When the session selects an env, the key is scoped to that env's overlay and the env is created if missing.
+     */
+    public function withConfigValue(string $key, string $value, ?array $values = null, ?bool $here = false): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withConfigValue');
+        $innerQueryBuilder->setArgument('key', $key);
+        $innerQueryBuilder->setArgument('value', $value);
+        if (null !== $values) {
+        $innerQueryBuilder->setArgument('values', $values);
+        }
+        if (null !== $here) {
+        $innerQueryBuilder->setArgument('here', $here);
+        }
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with a directory merged into the given path, without mutating the source.
+     *
+     * Anything already at the path stays, and files the source carries win, as with Directory.withDirectory. Use withNewDirectory to replace the path instead.
+     */
+    public function withDirectory(string $path, Directory $source): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withDirectory');
+        $innerQueryBuilder->setArgument('path', $path);
+        $innerQueryBuilder->setArgument('source', $source);
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with an installed module selected as its entrypoint.
+     *
+     * Every other entrypoint selection is cleared. Entrypoints live in the base workspace config.
+     */
+    public function withEntrypoint(string $name): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withEntrypoint');
+        $innerQueryBuilder->setArgument('name', $name);
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with a file added or replaced, without mutating the source.
+     */
+    public function withFile(string $path, File $source, ?int $permissions = null): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withFile');
+        $innerQueryBuilder->setArgument('path', $path);
+        $innerQueryBuilder->setArgument('source', $source);
+        if (null !== $permissions) {
+        $innerQueryBuilder->setArgument('permissions', $permissions);
+        }
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with a location initialized as a module scope.
+     *
+     * The selected SDK module records the scope and generates the module source.
+     */
+    public function withInitModule(
+        string $sdk,
+        ?string $name = '',
+        ?string $path = '',
+        ?bool $install = null,
+        ?bool $entrypoint = null,
+        ?Json $settings = null,
+    ): Workspace {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withInitModule');
+        $innerQueryBuilder->setArgument('sdk', $sdk);
+        if (null !== $name) {
+        $innerQueryBuilder->setArgument('name', $name);
+        }
+        if (null !== $path) {
+        $innerQueryBuilder->setArgument('path', $path);
+        }
+        if (null !== $install) {
+        $innerQueryBuilder->setArgument('install', $install);
+        }
+        if (null !== $entrypoint) {
+        $innerQueryBuilder->setArgument('entrypoint', $entrypoint);
+        }
+        if (null !== $settings) {
+        $innerQueryBuilder->setArgument('settings', $settings);
+        }
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with a native configuration, without changing an existing configuration.
+     *
+     * Fail if legacy configuration needs workspace migration.
+     */
+    public function withInitialized(): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withInitialized');
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with a module installed in its config.
+     *
+     * When the session selects an env, the module is recorded in that env's overlay and the env is created if missing.
+     */
+    public function withModule(string $ref, ?string $name = '', ?bool $here = false): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withModule');
+        $innerQueryBuilder->setArgument('ref', $ref);
+        if (null !== $name) {
+        $innerQueryBuilder->setArgument('name', $name);
+        }
+        if (null !== $here) {
+        $innerQueryBuilder->setArgument('here', $here);
+        }
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with a directory mounted read-only at the given path, without mutating the source.
+     *
+     * Mounted content is readable through the normal workspace file tools but shadows the source at the mount path and stays out of the pending changeset: it never appears in changes, is never exported, and cannot be modified.
+     */
+    public function withMountedDirectory(string $path, Directory $source): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withMountedDirectory');
+        $innerQueryBuilder->setArgument('path', $path);
+        $innerQueryBuilder->setArgument('source', $source);
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with a file mounted read-only at the given path, without mutating the source.
+     *
+     * Mounted content is readable through the normal workspace file tools but shadows the source at the mount path and stays out of the pending changeset: it never appears in changes, is never exported, and cannot be modified.
+     */
+    public function withMountedFile(string $path, File $source): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withMountedFile');
+        $innerQueryBuilder->setArgument('path', $path);
+        $innerQueryBuilder->setArgument('source', $source);
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with the given path replaced by a directory, without mutating the source.
+     *
+     * The source becomes the entire contents of the path: anything already there that the source does not carry is removed. Use withDirectory to keep it instead.
+     */
+    public function withNewDirectory(string $path, Directory $source): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withNewDirectory');
+        $innerQueryBuilder->setArgument('path', $path);
+        $innerQueryBuilder->setArgument('source', $source);
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with a new or replaced file, without mutating the source.
+     */
+    public function withNewFile(string $path, string $contents, ?int $permissions = 420): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withNewFile');
+        $innerQueryBuilder->setArgument('path', $path);
+        $innerQueryBuilder->setArgument('contents', $contents);
+        if (null !== $permissions) {
+        $innerQueryBuilder->setArgument('permissions', $permissions);
+        }
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with an SDK installed in its config.
+     */
+    public function withSDK(string $ref, ?string $name = '', ?bool $here = false, ?string $asSdkName = ''): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withSDK');
+        $innerQueryBuilder->setArgument('ref', $ref);
+        if (null !== $name) {
+        $innerQueryBuilder->setArgument('name', $name);
+        }
+        if (null !== $here) {
+        $innerQueryBuilder->setArgument('here', $here);
+        }
+        if (null !== $asSdkName) {
+        $innerQueryBuilder->setArgument('asSdkName', $asSdkName);
+        }
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with the selected module clients updated.
+     *
+     * The engine re-reads the source of each selected client target and writes the lock entries that those targets reach.
+     *
+     * The selected SDK module then regenerates every scope that owns one of the targets.
+     */
+    public function withUpdatedClients(?array $modules = [], ?bool $all = false, ?string $sdk = ''): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withUpdatedClients');
+        if (null !== $modules) {
+        $innerQueryBuilder->setArgument('modules', $modules);
+        }
+        if (null !== $all) {
+        $innerQueryBuilder->setArgument('all', $all);
+        }
+        if (null !== $sdk) {
+        $innerQueryBuilder->setArgument('sdk', $sdk);
+        }
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with refreshed lockfile state.
+     *
+     * SDK client scopes are regenerated unless noGenerate is true.
+     */
+    public function withUpdatedLock(?bool $noGenerate = false): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withUpdatedLock');
+        if (null !== $noGenerate) {
+        $innerQueryBuilder->setArgument('noGenerate', $noGenerate);
+        }
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with updated module versions and lockfile state.
+     *
+     * An SDK client scope is regenerated when it targets an updated module.
+     */
+    public function withUpdatedModules(?array $names = [], ?string $version = ''): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withUpdatedModules');
+        if (null !== $names) {
+        $innerQueryBuilder->setArgument('names', $names);
+        }
+        if (null !== $version) {
+        $innerQueryBuilder->setArgument('version', $version);
+        }
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with its working directory pointed at the given workspace-relative path.
+     */
+    public function withWorkdir(string $path): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withWorkdir');
+        $innerQueryBuilder->setArgument('path', $path);
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with a module client removed from the deepest matching recorded scope.
+     *
+     * Fail if several SDKs have that deepest scope. The selected SDK module regenerates the complete scope.
+     *
+     * If invalid client targets remain, save the removal and skip generation until those targets are corrected or removed.
+     */
+    public function withoutClient(string $module, ?string $sdk = ''): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withoutClient');
+        $innerQueryBuilder->setArgument('module', $module);
+        if (null !== $sdk) {
+        $innerQueryBuilder->setArgument('sdk', $sdk);
+        }
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with a named config environment removed.
+     */
+    public function withoutConfigEnv(string $name, ?bool $here = false): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withoutConfigEnv');
+        $innerQueryBuilder->setArgument('name', $name);
+        if (null !== $here) {
+        $innerQueryBuilder->setArgument('here', $here);
+        }
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with a configuration value removed.
+     *
+     * Errors when the key is not currently set.
+     *
+     * When the session selects an env, the key is scoped to that env's overlay.
+     */
+    public function withoutConfigValue(string $key, ?bool $here = false): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withoutConfigValue');
+        $innerQueryBuilder->setArgument('key', $key);
+        if (null !== $here) {
+        $innerQueryBuilder->setArgument('here', $here);
+        }
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with a directory removed, without mutating the source.
+     */
+    public function withoutDirectory(string $path): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withoutDirectory');
+        $innerQueryBuilder->setArgument('path', $path);
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with no module selected as its entrypoint.
+     */
+    public function withoutEntrypoint(): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withoutEntrypoint');
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with a file removed, without mutating the source.
+     */
+    public function withoutFile(string $path): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withoutFile');
+        $innerQueryBuilder->setArgument('path', $path);
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with a module removed from its config.
+     *
+     * When the session selects an env, only that env's overlay entry is removed.
+     */
+    public function withoutModule(string $name, ?bool $here = false): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withoutModule');
+        $innerQueryBuilder->setArgument('name', $name);
+        if (null !== $here) {
+        $innerQueryBuilder->setArgument('here', $here);
+        }
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with the content mounted at the given path unmounted.
+     *
+     * Removes directory and file mounts at or below the path, revealing the underlying workspace content. Other mounts and pending changes are preserved.
+     */
+    public function withoutMount(string $path): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withoutMount');
+        $innerQueryBuilder->setArgument('path', $path);
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
+    }
+
+    /**
+     * Return this workspace with an SDK removed from its config.
+     */
+    public function withoutSDK(string $name, ?bool $here = false): Workspace
+    {
+        $innerQueryBuilder = new \Dagger\Client\QueryBuilder('withoutSDK');
+        $innerQueryBuilder->setArgument('name', $name);
+        if (null !== $here) {
+        $innerQueryBuilder->setArgument('here', $here);
+        }
+        return new \Dagger\Workspace($this->client, $this->queryBuilderChain->chain($innerQueryBuilder));
     }
 }

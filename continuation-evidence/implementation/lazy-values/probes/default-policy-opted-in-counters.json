@@ -1,0 +1,42 @@
+{
+  "trace": "dc96140b4cfc0fb165575e120014be50",
+  "scratch": [
+    {
+      "cold": false,
+      "ordinal": 224,
+      "resultID": 4695,
+      "address": {
+        "part": "snapshot"
+      },
+      "group": "whole",
+      "platform": "linux/amd64",
+      "lazyEntries": 0,
+      "providerReads": 0
+    },
+    {
+      "cold": false,
+      "ordinal": 224,
+      "resultID": 4695,
+      "address": {
+        "part": "snapshot"
+      },
+      "group": "whole",
+      "platform": "linux/amd64",
+      "lazyEntries": 0,
+      "providerReads": 0
+    }
+  ],
+  "minFreeBytes": 99000000000,
+  "availableBytes": 98762768384,
+  "requestedPressureBytes": 2147483648,
+  "allocationCapBytes": 8589934592,
+  "savedReportResultID": 4697,
+  "beforeRemovedPersistedRoots": 0,
+  "afterRemovedPersistedRoots": 17,
+  "savedReportInPruneDecisions": true,
+  "savedReportAbsentAfterRestart": true,
+  "persistenceResetReason": "",
+  "localCacheResetReason": "",
+  "runnerOverlay": "default-policy-runner.patch",
+  "runnerRestored": true
+}

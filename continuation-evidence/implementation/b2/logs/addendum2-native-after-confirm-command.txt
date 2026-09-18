@@ -1,0 +1,6 @@
+Implementation and fixture tip: 5316e2246885fc5e343c0a91df10fb9a2b712e80
+Command: dagger api call engine-dev test --pkg ./core/integration --run='RemoteCacheTransferSuite/TestSchemaRecovery$/after$' --timeout=20m --test-verbose
+Output: addendum2-native-after-confirm.log (complete, unchanged)
+Exit status: 0
+Trace: https://dagger.cloud/dagger/traces/a4741cff18beba5c83e0e32eeb4619d9
+This independent run repeats the previously failing import-after-schema order, clean restart, saved-row presence, and higher native recorded Module control under the final persistence-fixture bounds.

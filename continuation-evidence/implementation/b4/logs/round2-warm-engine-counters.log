@@ -1,0 +1,24 @@
+Source f04a91577bd4ddc574f3bc527cdffe9fec2179a1; trace 0a22a548c1ad35d8f605611e47fde4da; CLI exit 0; selected test 249.14 s; no skips.
+    testctx.go:206: acquisition imported closure rows=226 cold=false order=before
+    testctx.go:206: acquisition route counters cold=false builtin=0 counts=map[installed-chain:1 owner-sync:6 provider-read:1 selected-chain:1 settled:1]
+    testctx.go:206: acquisition changed-argument control cold=false report-body-count=1
+    testctx.go:206: acquisition scratch cold=false ordinal=1 row=4469 address={"part":"snapshot"} group=whole platform=linux/amd64 producer-enter=0 provider-reads=0
+    testctx.go:206: acquisition scratch cold=false ordinal=1 row=4469 address={"part":"snapshot"} group=whole platform=linux/amd64 producer-enter=0 provider-reads=0
+    testctx.go:206: acquisition later controls cold=false noteFile=passed bound-tool=passed saved-row=4694 persisted=true
+    testctx.go:206: restart persistence diagnostics: {PersistenceResetReason: LocalCacheResetReason: RemovedPersistedRootCount:0 DiskPrunedResults:[]}
+    testctx.go:206: acquisition clean-restart control cold=false saved-row=4694 noteDirectory=passed report-body-count=1
+    testctx.go:206: acquisition native-recorded-module control cold=false recorded-row=5152 lower-imported-equivalent=true passed
+    testctx.go:206: acquisition imported closure rows=226 cold=false order=after
+    testctx.go:206: acquisition route counters cold=false builtin=0 counts=map[installed-chain:1 owner-sync:6 provider-read:1 selected-chain:1 settled:1]
+    testctx.go:206: acquisition changed-argument control cold=false report-body-count=1
+    testctx.go:206: acquisition scratch cold=false ordinal=1 row=4472 address={"part":"snapshot"} group=whole platform=linux/amd64 producer-enter=0 provider-reads=0
+    testctx.go:206: acquisition scratch cold=false ordinal=1 row=4472 address={"part":"snapshot"} group=whole platform=linux/amd64 producer-enter=0 provider-reads=0
+    testctx.go:206: acquisition later controls cold=false noteFile=passed bound-tool=passed saved-row=4697 persisted=true
+    testctx.go:206: restart persistence diagnostics: {PersistenceResetReason: LocalCacheResetReason: RemovedPersistedRootCount:0 DiskPrunedResults:[]}
+    testctx.go:206: acquisition clean-restart control cold=false saved-row=4697 noteDirectory=passed report-body-count=1
+    testctx.go:206: acquisition native-recorded-module control cold=false recorded-row=5152 lower-imported-equivalent=true passed
+--- PASS: TestRemoteCacheTransferSuite (249.14s)
+    --- PASS: TestRemoteCacheTransferSuite/TestSchemaRecovery (249.14s)
+        --- PASS: TestRemoteCacheTransferSuite/TestSchemaRecovery/before (72.95s)
+        --- PASS: TestRemoteCacheTransferSuite/TestSchemaRecovery/after (69.38s)
+        --- PASS: TestRemoteCacheTransferSuite/TestSchemaRecovery/foreign_context (45.56s)

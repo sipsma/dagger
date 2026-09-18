@@ -1,0 +1,8 @@
+=== RUN   TestSnapshotOwnershipRetriesBusyOperation
+=== RUN   TestSnapshotOwnershipRetriesBusyOperation/cancel=false
+=== RUN   TestSnapshotOwnershipRetriesBusyOperation/cancel=true
+--- PASS: TestSnapshotOwnershipRetriesBusyOperation (0.01s)
+    --- PASS: TestSnapshotOwnershipRetriesBusyOperation/cancel=false (0.00s)
+    --- PASS: TestSnapshotOwnershipRetriesBusyOperation/cancel=true (0.00s)
+PASS
+ok  	github.com/dagger/dagger/dagql	1.497s

@@ -1,0 +1,41 @@
+5840:                Error Trace:    /app/core/integration/remote_cache_content_test.go:165
+5846:                Error:          Should be true
+5848:                Messages:       every response body is closed
+6041:                Error Trace:    /app/core/integration/remote_cache_content_test.go:165
+6047:                Error:          Should be true
+6049:                Messages:       every response body is closed
+6076:                Error Trace:    /app/core/integration/remote_cache_content_test.go:165
+6082:                Error:          Should be true
+6084:                Messages:       every response body is closed
+6114:                Error Trace:    /app/core/integration/remote_cache_content_test.go:165
+6120:                Error:          Should be true
+6122:                Messages:       every response body is closed
+6174:                Error Trace:    /app/core/integration/remote_cache_content_test.go:165
+6180:                Error:          Should be true
+6182:                Messages:       every response body is closed
+8337:                Error Trace:    /app/core/integration/remote_cache_pipeline_test.go:242
+8343:                Error:          Received unexpected error:
+8347:                Messages:       the retained exec restores the output
+8689:                Error Trace:    /app/core/integration/remote_cache_pipeline_test.go:161
+8695:                Error:          Should be zero, but was 2
+8697:                Messages:       saved metadata runs nothing
+8949:--- FAIL: TestRemoteCacheTransferSuite (0.00s)
+8950:    --- PASS: TestRemoteCacheTransferSuite/TestEncodedRestart (0.00s)
+8951:        --- PASS: TestRemoteCacheTransferSuite/TestEncodedRestart/RetryOnlyBookkeeping (80.97s)
+8952:    --- PASS: TestRemoteCacheTransferSuite/TestRenewal (0.00s)
+8953:        --- PASS: TestRemoteCacheTransferSuite/TestRenewal/ArmedReplySucceeds (80.97s)
+8954:    --- FAIL: TestRemoteCacheTransferSuite/TestPipeline (0.00s)
+8955:        --- FAIL: TestRemoteCacheTransferSuite/TestPipeline/FailedChain (0.00s)
+8956:            --- PASS: TestRemoteCacheTransferSuite/TestPipeline/FailedChain/Served (79.52s)
+8957:            --- FAIL: TestRemoteCacheTransferSuite/TestPipeline/FailedChain/Status500 (80.95s)
+8958:            --- PASS: TestRemoteCacheTransferSuite/TestPipeline/FailedChain/TransportFault (80.95s)
+8959:            --- PASS: TestRemoteCacheTransferSuite/TestPipeline/FailedChain/DigestMismatch (80.95s)
+8960:            --- PASS: TestRemoteCacheTransferSuite/TestPipeline/FailedChain/TruncatedBody (80.95s)
+8961:            --- FAIL: TestRemoteCacheTransferSuite/TestPipeline/FailedChain/Status410 (80.96s)
+8962:            --- FAIL: TestRemoteCacheTransferSuite/TestPipeline/FailedChain/Status404 (80.97s)
+8963:            --- FAIL: TestRemoteCacheTransferSuite/TestPipeline/FailedChain/Status401 (81.38s)
+8964:            --- FAIL: TestRemoteCacheTransferSuite/TestPipeline/FailedChain/Status403 (83.53s)
+8965:            --- FAIL: TestRemoteCacheTransferSuite/TestPipeline/FailedChain/RetainedExec (146.50s)
+8966:        --- PASS: TestRemoteCacheTransferSuite/TestPipeline/Warm (148.21s)
+8967:        --- FAIL: TestRemoteCacheTransferSuite/TestPipeline/Cold (148.92s)
+8983:exit=1 wall=370s

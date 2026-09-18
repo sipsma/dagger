@@ -1,0 +1,7 @@
+Head: 17384b793fe715006ffdbba4b1075354cd7733d8
+Command: env GOPATH=/home/exedev/go GOCACHE=/home/exedev/.cache/go-build go test -p=1 -exec='sudo -n --preserve-env=GOPATH,GOCACHE,PATH unshare --mount --propagation private' ./core ./core/schema ./dagql -count=1 -v
+Started: 2026-09-16T09:28:34.611835+00:00
+Finished: 2026-09-16T09:29:58.214054+00:00
+Elapsed seconds: 83.602
+Exit status: 0
+Log: logs/unfiltered.log

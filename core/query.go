@@ -51,8 +51,14 @@ type SpecificClientAttachableConnOpts struct {
 
 // APIs from the server+session+client that are needed by core APIs
 type Server interface {
-	// Handle an HTTP request from a nested Dagger client.
-	ServeHTTPToNestedClient(http.ResponseWriter, *http.Request, *engine.ClientMetadata, string, bool, dagql.AnyObjectResult, dagql.Typed, dagql.AnyObjectResult)
+	// Register a unique nested transport using the creating context's held
+	// client scope before the proxy begins serving.
+	RegisterNestedClientTransport(context.Context, *engine.ClientMetadata, string) (*engine.NestedClientTransport, error)
+
+	// Handle an HTTP request from a registered nested Dagger client. When
+	// inertAttachables is true, host session attachable access is denied rather
+	// than inherited from the parent or awaited on the synthetic client.
+	ServeHTTPToNestedClient(w http.ResponseWriter, r *http.Request, transport *engine.NestedClientTransport, metadata *engine.ClientMetadata, callerClientID string, inertAttachables bool, moduleContext dagql.AnyObjectResult, functionCall dagql.Typed)
 
 	// Stitch in the given module to the list being served to the current client
 	ServeModule(ctx context.Context, mod dagql.ObjectResult[*Module], includeDependencies bool, entrypoint bool) error
@@ -65,9 +71,6 @@ type Server interface {
 
 	// If the current client is coming from a function, return the function call metadata
 	CurrentFunctionCall(context.Context) (*FunctionCall, error)
-
-	// If the current client is bound to an environment, return that environment.
-	CurrentEnv(context.Context) (dagql.ObjectResult[*Env], error)
 
 	// Return the modules being served to the current client
 	CurrentServedDeps(context.Context) (*SchemaBuilder, error)
@@ -87,12 +90,20 @@ type Server interface {
 	// The cached workspace result from ensureWorkspaceLoaded.
 	CurrentWorkspace(context.Context) (*Workspace, error)
 
-	// A snapshot of the current workspace lockfile for ambient live locking.
-	// Returns ok=false when lock-backed workspace access is unavailable.
-	CurrentWorkspaceLock(context.Context) (*workspacepkg.Lock, bool, error)
+	// Load pending workspace modules on demand; include narrows to the modules
+	// its patterns name ("module" or "module:item"), empty or unrecognized
+	// loads all. With bestEffort, modules that fail to load are skipped with a
+	// warning instead of failing the operation, and their failure messages are
+	// returned for the caller to surface (e.g. GeneratorGroup.loadFailures) —
+	// for operations like generate that may be exactly what repairs the module.
+	EnsureWorkspaceModules(ctx context.Context, include []string, bestEffort bool) (loadFailures []ModuleLoadFailure, _ error)
 
-	// Stage a lockfile lookup result for the current workspace's live lock state.
-	SetCurrentWorkspaceLookup(context.Context, string, string, []any, workspacepkg.LookupResult) error
+	// A snapshot of the current workspace lockfile. When requireWritable is
+	// true, returns ok=false for read-only workspace lock sources.
+	CurrentWorkspaceLock(ctx context.Context, requireWritable bool) (*workspacepkg.Lock, bool, error)
+
+	// Stage a lockfile value for the current workspace's live lock state.
+	SetCurrentWorkspaceLookup(context.Context, string, string, []any, string) error
 
 	// The Client metadata of a specific client ID within the same session as the
 	// current client.
@@ -103,6 +114,12 @@ type Server interface {
 
 	// The telemetry seen-key store for the current client's session.
 	TelemetrySeenKeyStore(context.Context) (dagql.TelemetrySeenKeyStore, error)
+
+	// The claim store for call-payload telemetry, scoped to the current
+	// client's delivery domain — the client and its ancestors, the DBs its
+	// telemetry actually fans out to — rather than the whole session. See
+	// core/dag_call_telemetry.go for why the scopes must differ.
+	CallPayloadSeenKeyStore(context.Context) (dagql.TelemetrySeenKeyStore, error)
 
 	// The DagQL server for the current client's session
 	Server(context.Context) (*dagql.Server, error)
@@ -118,7 +135,8 @@ type Server interface {
 	// The auth provider for the current client
 	Auth(context.Context) (*auth.RegistryAuthProvider, error)
 
-	// The engine utility client for the current client
+	// The session-owned engine utility gateway for the current executable scope.
+	// Caller-facing operations route from immutable ClientMetadata in context.
 	Engine(context.Context) (*engineutil.Client, error)
 
 	// The session-owned registry resolver for the current client.
@@ -126,6 +144,9 @@ type Server interface {
 
 	// The services for the current client's session
 	Services(context.Context) (*Services, error)
+
+	// The agent runtimes for the current client's session
+	Agents(context.Context) (*AgentRuntimes, error)
 
 	// The default platform for the engine as a whole
 	Platform() Platform
@@ -145,9 +166,8 @@ type Server interface {
 	// Return all the cache entries in the local cache. No support for filtering yet.
 	EngineLocalCacheEntries(context.Context) (*EngineCacheEntrySet, error)
 
-	// Prune the local cache of releaseable entries. If UseDefaultPolicy is true,
-	// use the engine-wide default pruning policy, otherwise prune the whole cache
-	// of any releasable entries.
+	// Prune releaseable local-cache entries using explicit disk and/or structural
+	// controls, or the enabled engine-wide default policies when requested.
 	PruneEngineLocalCacheEntries(context.Context, EngineCachePruneOptions) (*EngineCacheEntrySet, error)
 
 	// The default local cache policy to use for automatic local cache GC.
@@ -163,8 +183,19 @@ type Server interface {
 	// A shared engine-wide salt used when creating cache keys for secrets based on their plaintext
 	SecretSalt() []byte
 
+	// EngineVolumeState returns the engine-local configuration needed to
+	// resolve operator-managed volumes at exec time.
+	EngineVolumeState() EngineVolumeState
+
 	// Flush telemetry for all clients in the current session.
 	FlushSessionTelemetry(ctx context.Context) error
+
+	// SessionScopedContext returns a context that lives for the remainder of
+	// the current client's session: it is detached from the given context's
+	// cancellation and is canceled when the session begins closing. Use it
+	// for background work that serves the session as a whole rather than a
+	// single call.
+	SessionScopedContext(ctx context.Context) (context.Context, error)
 
 	// Open a client's telemetry database.
 	ClientTelemetry(ctc context.Context, sessID, clientID string) (*clientdb.DB, error)
@@ -323,11 +354,19 @@ func (q *Query) ModDepsForCall(ctx context.Context, rootCall *dagql.ResultCall) 
 	if clientMetadata.SessionID == "" {
 		return nil, fmt.Errorf("empty session ID")
 	}
+	installed, err := q.installedSchemaModuleCandidates(ctx, cache)
+	if err != nil {
+		return nil, err
+	}
+	decisions := map[uint64]dagql.ObjectResult[*Module]{}
 	if err := cache.WalkResultCall(rootCall, func(ref *dagql.ResultCallRef, frame *dagql.ResultCall) error {
 		if ref == nil || ref.ResultID == 0 || frame == nil || frame.Type == nil || frame.Type.NamedType != "Module" {
 			return nil
 		}
-		res, err := cache.LoadResultByResultID(ctx, clientMetadata.SessionID, dag, ref.ResultID)
+		if inst, ok := decisions[ref.ResultID]; ok {
+			return appendModule(inst)
+		}
+		res, err := cache.LoadResultByResultIDForSchema(ctx, clientMetadata.SessionID, dag, ref.ResultID, installed)
 		if err != nil {
 			return fmt.Errorf("load module result %d: %w", ref.ResultID, err)
 		}
@@ -335,6 +374,7 @@ func (q *Query) ModDepsForCall(ctx context.Context, rootCall *dagql.ResultCall) 
 		if !ok {
 			return fmt.Errorf("result %d is %T, not module result", ref.ResultID, res)
 		}
+		decisions[ref.ResultID] = modInst
 		return appendModule(modInst)
 	}); err != nil {
 		return nil, err

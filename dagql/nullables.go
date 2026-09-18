@@ -218,6 +218,16 @@ func (o DynamicOptional) DecodeInput(val any) (Input, error) {
 	if err != nil {
 		return nil, err
 	}
+	if input == nil {
+		// The element decoder coerced the value to "nothing" (e.g. an empty
+		// string decodes to (nil, nil) for JSON). Treat that as an absent
+		// optional rather than a valid-but-nil value, which would otherwise
+		// nil-panic in assign (reflect.TypeOf(nil).AssignableTo).
+		return DynamicOptional{
+			Elem:  o.Elem,
+			Valid: false,
+		}, nil
+	}
 	return DynamicOptional{
 		Elem:  o.Elem,
 		Value: input,
@@ -297,6 +307,42 @@ func (o *DynamicOptional) UnmarshalJSON(p []byte) error {
 type Nullable[T Typed] struct {
 	Value T
 	Valid bool
+}
+
+// nullableDestination reports whether field is an addressable Nullable[T].
+//
+// Setter is source-side and only ever sees the bare selected value, so a
+// Nullable[T] destination has to be recognized here (dagger/dagger#13992).
+func nullableDestination(field reflect.Value) (nullableSetter, bool) {
+	if !field.CanAddr() {
+		return nil, false
+	}
+	dest, ok := field.Addr().Interface().(nullableSetter)
+	return dest, ok
+}
+
+type nullableSetter interface {
+	setFromValue(any) error
+}
+
+func (n *Nullable[T]) setFromValue(val any) error {
+	// A value carrying its own nullness decides it; anything else is present by
+	// virtue of having been returned at all.
+	if deref, ok := val.(Derefable); ok {
+		inner, valid := deref.Deref()
+		if !valid {
+			*n = Nullable[T]{}
+			return nil
+		}
+		val = inner
+	}
+	var elem T
+	if err := assign(reflect.ValueOf(&elem).Elem(), val); err != nil {
+		return err
+	}
+	n.Value = elem
+	n.Valid = true
+	return nil
 }
 
 func Null[T Typed]() Nullable[T] {

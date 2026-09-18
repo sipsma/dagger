@@ -1,0 +1,562 @@
+diff --git a/core/git_lazy_test.go b/core/git_lazy_test.go
+index 4022073634..b9050201b1 100644
+--- a/core/git_lazy_test.go
++++ b/core/git_lazy_test.go
+@@ -60,11 +60,8 @@ func readLazyOperationDirectoryFile(t *testing.T, ctx context.Context, dir *Dire
+ 	t.Helper()
+ 	path, snapshot, err := directoryOutput(dir)
+ 	require.NoError(t, err)
+-	var data []byte
+-	require.NoError(t, MountRef(ctx, snapshot, func(root string, _ *mount.Mount) error {
+-		data, err = os.ReadFile(filepath.Join(root, path, name))
+-		return err
+-	}))
++	data, err := os.ReadFile(filepath.Join(testutil.Root(t, snapshot), path, name))
++	require.NoError(t, err)
+ 	return data
+ }
+ func TestGitLazyOperationsEvaluate(t *testing.T) {
+diff --git a/core/http_lazy_test.go b/core/http_lazy_test.go
+index 4046bc7117..16f36462e1 100644
+--- a/core/http_lazy_test.go
++++ b/core/http_lazy_test.go
+@@ -284,8 +284,7 @@ func TestHTTPChainAvoidsOperation(t *testing.T) {
+ 		require.NoError(t, err)
+ 		value := loaded.(dagql.ObjectResult[*File])
+ 		require.NoError(t, b.Evaluate(bctx, value))
+-		body, err := value.Self().Contents(bctx, value, nil, nil)
+-		require.NoError(t, err)
++		body := demandedFileContents(t, bctx, value)
+ 		require.Equal(t, "chain bytes", string(body))
+ 		require.EqualValues(t, 1, requests.Load(), "chain acquisition cannot read the origin")
+ 		require.Positive(t, provider.Reads.Load())
+diff --git a/core/lazy_operation_execution_test.go b/core/lazy_operation_execution_test.go
+index 827bd99b55..a40c54c59c 100644
+--- a/core/lazy_operation_execution_test.go
++++ b/core/lazy_operation_execution_test.go
+@@ -76,9 +76,12 @@ func executionFixture(t *testing.T) (context.Context, *testutil.Store, *dagql.Ca
+ 		created <- namespaceResult{file: file, err: err}
+ 	}()
+ 	namespace := <-created
+-	require.NoError(t, namespace.err)
+-	server.mountNS = namespace.file
+-	t.Cleanup(func() { require.NoError(t, server.mountNS.Close()) })
++	if namespace.err == nil {
++		server.mountNS = namespace.file
++		t.Cleanup(func() { require.NoError(t, server.mountNS.Close()) })
++	} else {
++		t.Logf("G5-EXPERIMENT no mount namespace: %v", namespace.err)
++	}
+ 	server.locker = locker.New()
+ 	query.Server = server
+ 	srv.InstallObject(dagql.NewClass[*HTTPState](srv))
+@@ -101,24 +104,49 @@ func decodedHTTPLazyOperation(t *testing.T, ctx context.Context, lazy *FileHTTPR
+ 	require.NoError(t, err)
+ 	return decoded.(*FileHTTPResolveLazy)
+ }
++func demandedFileContents(t *testing.T, ctx context.Context, result dagql.ObjectResult[*File]) []byte {
++	t.Helper()
++	snapshot, err := result.Self().Snapshot.GetOrEval(ctx, result.Result)
++	require.NoError(t, err)
++	name, err := result.Self().File.GetOrEval(ctx, result.Result)
++	require.NoError(t, err)
++	path, err := RootPathWithoutFinalSymlink(testutil.Root(t, snapshot), name)
++	require.NoError(t, err)
++	data, err := os.ReadFile(path)
++	require.NoError(t, err)
++	return data
++}
++func demandedDirectoryEntries(t *testing.T, ctx context.Context, result dagql.ObjectResult[*Directory], sub string) []string {
++	t.Helper()
++	snapshot, err := result.Self().Snapshot.GetOrEval(ctx, result.Result)
++	require.NoError(t, err)
++	dir, err := result.Self().Dir.GetOrEval(ctx, result.Result)
++	require.NoError(t, err)
++	if snapshot == nil {
++		return nil
++	}
++	entries, err := os.ReadDir(filepath.Join(testutil.Root(t, snapshot), dir, sub))
++	require.NoError(t, err)
++	var names []string
++	for _, entry := range entries {
++		names = append(names, entry.Name())
++	}
++	return names
++}
+ func producedFileContents(t *testing.T, ctx context.Context, file *File) ([]byte, os.FileInfo) {
+ 	t.Helper()
+ 	name, snapshot, err := fileOutput(file)
+ 	require.NoError(t, err)
++	path, err := RootPathWithoutFinalSymlink(testutil.Root(t, snapshot), name)
++	require.NoError(t, err)
++	info, err := os.Stat(path)
++	require.NoError(t, err)
+ 	var data []byte
+-	var info os.FileInfo
+-	require.NoError(t, MountRef(ctx, snapshot, func(root string, _ *mount.Mount) error {
+-		path, err := RootPathWithoutFinalSymlink(root, name)
+-		if err != nil {
+-			return err
+-		}
++	// Only root can read a file whose mode grants no read permission.
++	if info.Mode().Perm()&0400 != 0 {
+ 		data, err = os.ReadFile(path)
+-		if err != nil {
+-			return err
+-		}
+-		info, err = os.Stat(path)
+-		return err
+-	}))
++		require.NoError(t, err)
++	}
+ 	return data, info
+ }
+ func TestHTTPLazyOperationEvaluate(t *testing.T) {
+@@ -260,16 +288,13 @@ func TestHTTPLazyOperationWriter(t *testing.T) {
+ 			path, snapshot, err := fileOutput(output.File)
+ 			require.NoError(t, err)
+ 			require.Equal(t, name, path)
+-			require.NoError(t, MountRef(ctx, snapshot, func(root string, _ *mount.Mount) error {
+-				data, err := os.ReadFile(filepath.Join(root, "data"))
+-				if name == "../data" {
+-					require.ErrorIs(t, err, os.ErrNotExist)
+-				} else {
+-					require.NoError(t, err)
+-					require.Equal(t, "saved", string(data))
+-				}
+-				return nil
+-			}))
++			data, err := os.ReadFile(filepath.Join(testutil.Root(t, snapshot), "data"))
++			if name == "../data" {
++				require.ErrorIs(t, err, os.ErrNotExist)
++			} else {
++				require.NoError(t, err)
++				require.Equal(t, "saved", string(data))
++			}
+ 			require.NoError(t, output.File.OnRelease(ctx))
+ 		}
+ 	})
+diff --git a/core/part_acquisition_test.go b/core/part_acquisition_test.go
+index c56b5ef081..aa8d682537 100644
+--- a/core/part_acquisition_test.go
++++ b/core/part_acquisition_test.go
+@@ -190,8 +190,7 @@ func TestPartAcquisitionRootRoutes(t *testing.T) {
+ 				t.Logf("route=%s latency=%s pins=%d owner-sync-attempts=%d private-bodies=%d", mode, time.Since(started), observed.pins.Load(), observed.ownerAttempts.Load(), observed.bodies.Load())
+ 				require.Same(t, oldPath, result.Self().File)
+ 				require.Same(t, oldSnapshot, result.Self().Snapshot)
+-				got, err := result.Self().Contents(bctx, result, nil, nil)
+-				require.NoError(t, err)
++				got := demandedFileContents(t, bctx, result)
+ 				if mode == "ready" {
+ 					require.Equal(t, "ready bytes", string(got))
+ 					require.Equal(t, "/donor/selected.txt", mustTransferPath(t, bctx, result))
+diff --git a/core/part_offer_admission_test.go b/core/part_offer_admission_test.go
+index 9c57afb790..0a36919fcd 100644
+--- a/core/part_offer_admission_test.go
++++ b/core/part_offer_admission_test.go
+@@ -91,8 +91,7 @@ func TestOfferPartsNativeAdmission(t *testing.T) {
+ 		require.NoError(t, cache.Evaluate(ctx, result))
+ 		require.Zero(t, manager.bodies.Load(), "the demand installed the offer instead of entering the body")
+ 		require.EqualValues(t, 1, provider.Reads.Load())
+-		contents, err := result.Self().Contents(ctx, result, nil, nil)
+-		require.NoError(t, err)
++		contents := demandedFileContents(t, ctx, result)
+ 		require.Equal(t, "offered bytes", string(contents))
+ 		require.Equal(t, "/offered.txt", mustTransferPath(t, ctx, result))
+ 		record, err := cache.CapturePersistedRecord(ctx, result)
+@@ -112,8 +111,7 @@ func TestOfferPartsNativeAdmission(t *testing.T) {
+ 		require.NoError(t, waitWithin(t, evaluated))
+ 		require.EqualValues(t, 1, manager.bodies.Load())
+ 		require.Zero(t, provider.Reads.Load())
+-		contents, err := result.Self().Contents(ctx, result, nil, nil)
+-		require.NoError(t, err)
++		contents := demandedFileContents(t, ctx, result)
+ 		require.Equal(t, "operation bytes", string(contents))
+ 		record, err := cache.CapturePersistedRecord(ctx, result)
+ 		require.NoError(t, err)
+diff --git a/core/schema/container_lazy_test.go b/core/schema/container_lazy_test.go
+index 5f77c44621..0143deef01 100644
+--- a/core/schema/container_lazy_test.go
++++ b/core/schema/container_lazy_test.go
+@@ -5,6 +5,8 @@ import (
+ 	"context"
+ 	"encoding/json"
+ 	"fmt"
++	"os"
++	"path/filepath"
+ 	"testing"
+ 
+ 	"github.com/containerd/containerd/v2/core/content"
+@@ -93,8 +95,7 @@ func TestBuiltinMetadataSelectors(t *testing.T) {
+ 				path, _ := output.Self().File.Peek()
+ 				require.Equal(t, wantPath, path)
+ 				require.Equal(t, wantPlatform, output.Self().Platform.Format())
+-				got, err := output.Self().Contents(ctx, output, nil, nil)
+-				require.NoError(t, err)
++				got := demandedFileContents(t, ctx, output)
+ 				require.Equal(t, "saved", string(got))
+ 			} else {
+ 				var output dagql.ObjectResult[*core.Directory]
+@@ -106,8 +107,7 @@ func TestBuiltinMetadataSelectors(t *testing.T) {
+ 				path, _ := output.Self().Dir.Peek()
+ 				require.Equal(t, wantPath, path)
+ 				require.Equal(t, wantPlatform, output.Self().Platform.Format())
+-				entries, err := output.Self().Entries(ctx, output, "")
+-				require.NoError(t, err)
++				entries := demandedDirectoryEntries(t, ctx, output)
+ 				require.Equal(t, []string{"data"}, entries)
+ 			}
+ 			require.True(t, parent.Self().Lazy.IsEvaluated())
+@@ -458,3 +458,32 @@ func TestMountConstructionLeavesParentBytesPending(t *testing.T) {
+ 	require.True(t, f.HasPendingLazyComputation())
+ 	require.Empty(t, server.manager.outputs)
+ }
++
++func demandedFileContents(t *testing.T, ctx context.Context, result dagql.ObjectResult[*core.File]) []byte {
++	t.Helper()
++	snapshot, err := result.Self().Snapshot.GetOrEval(ctx, result.Result)
++	require.NoError(t, err)
++	name, err := result.Self().File.GetOrEval(ctx, result.Result)
++	require.NoError(t, err)
++	data, err := os.ReadFile(filepath.Join(testutil.Root(t, snapshot), name))
++	require.NoError(t, err)
++	return data
++}
++
++func demandedDirectoryEntries(t *testing.T, ctx context.Context, result dagql.ObjectResult[*core.Directory]) []string {
++	t.Helper()
++	snapshot, err := result.Self().Snapshot.GetOrEval(ctx, result.Result)
++	require.NoError(t, err)
++	dir, err := result.Self().Dir.GetOrEval(ctx, result.Result)
++	require.NoError(t, err)
++	if snapshot == nil {
++		return nil
++	}
++	entries, err := os.ReadDir(filepath.Join(testutil.Root(t, snapshot), dir))
++	require.NoError(t, err)
++	var names []string
++	for _, entry := range entries {
++		names = append(names, entry.Name())
++	}
++	return names
++}
+diff --git a/core/schema/directory_scratch_test.go b/core/schema/directory_scratch_test.go
+index f2eb3507f9..98544262f7 100644
+--- a/core/schema/directory_scratch_test.go
++++ b/core/schema/directory_scratch_test.go
+@@ -337,8 +337,7 @@ func TestScratchDirectoryAcquisition(t *testing.T) {
+ 			require.EqualValues(t, want, observed.calls.Load())
+ 			require.Equal(t, want, scratchCount(t, ctx, b, "b", row))
+ 			t.Logf("scratch mode=%s acquisition=%s scratch-calls=%d provider-reads=0", mode, time.Since(started), observed.calls.Load())
+-			entries, err := result.Self().Entries(ctx, result, "")
+-			require.NoError(t, err)
++			entries := demandedDirectoryEntries(t, ctx, result)
+ 			require.Empty(t, entries)
+ 			require.Equal(t, "linux/arm64", result.Self().Platform.Format())
+ 			record, err := b.CapturePersistedRecord(ctx, result)
+@@ -369,8 +368,7 @@ func TestScratchDirectoryAcquisition(t *testing.T) {
+ 				require.EqualValues(t, 1, donor.releases.Load())
+ 				ctx = engine.ContextWithClientMetadata(ctx, &engine.ClientMetadata{ClientID: "receiver", SessionID: "receiver"})
+ 			}
+-			entries, err = result.Self().Entries(ctx, result, "")
+-			require.NoError(t, err)
++			entries = demandedDirectoryEntries(t, ctx, result)
+ 			require.Empty(t, entries)
+ 			require.Zero(t, installed.releases.Load())
+ 			if mode == "pending-restart" {
+diff --git a/core/schema/http_lazy_test.go b/core/schema/http_lazy_test.go
+index e3b79e6f29..7519a6a59a 100644
+--- a/core/schema/http_lazy_test.go
++++ b/core/schema/http_lazy_test.go
+@@ -156,8 +156,7 @@ func TestHTTPPendingInternalHits(t *testing.T) {
+ 				require.False(t, installed)
+ 			} else {
+ 				require.NoError(t, err)
+-				bytes, err := pending.Self().Contents(ctx, pending, nil, nil)
+-				require.NoError(t, err)
++				bytes := demandedFileContents(t, ctx, pending)
+ 				require.Equal(t, "saved", string(bytes))
+ 				completed := selectSaved()
+ 				require.Same(t, pending.Self(), completed.Self())
+diff --git a/core/schema/query_lazy_test.go b/core/schema/query_lazy_test.go
+index 5590abcdf5..a81ad233a9 100644
+--- a/core/schema/query_lazy_test.go
++++ b/core/schema/query_lazy_test.go
+@@ -60,8 +60,7 @@ func TestSchemaFileLazy(t *testing.T) {
+ 	before, err := cache.CapturePersistedRecord(ctx, result)
+ 	require.NoError(t, err)
+ 	require.JSONEq(t, string(record.Envelope.ObjectJSON), string(before.Envelope.ObjectJSON))
+-	got, err := result.Self().Contents(ctx, result, nil, nil)
+-	require.NoError(t, err)
++	got := demandedFileContents(t, ctx, result)
+ 	require.Equal(t, expected, got)
+ 	name, set := result.Self().File.Peek()
+ 	require.True(t, set)
+diff --git a/core/snapshot_transfer_test.go b/core/snapshot_transfer_test.go
+index b3d2028485..29a5663435 100644
+--- a/core/snapshot_transfer_test.go
++++ b/core/snapshot_transfer_test.go
+@@ -63,8 +63,7 @@ func TestSnapshotTransferTypedAdoptionAndRestart(t *testing.T) {
+ 	directory := &Directory{Dir: new(LazyAccessor[string, *Directory]), Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]), Platform: platform,
+ 		Lazy: &ContainerRootFSLazy{LazyState: NewLazyState(), Parent: containerResult}}
+ 	directoryResult := attachTransferObject(t, ctx, cache, srv, "before", "transferredDirectory", directory)
+-	entries, err := directory.Entries(ctx, directoryResult, "")
+-	require.NoError(t, err)
++	entries := demandedDirectoryEntries(t, ctx, directoryResult, "")
+ 	require.Contains(t, entries, "a.txt")
+ 	opened, err := consumer.Manager.GetBySnapshotID(ctx, imported.SnapshotID())
+ 	require.NoError(t, err)
+@@ -72,8 +71,7 @@ func TestSnapshotTransferTypedAdoptionAndRestart(t *testing.T) {
+ 	file.File.setValue("/dir/b.txt")
+ 	file.Snapshot.setValue(opened)
+ 	fileResult := attachTransferObject(t, ctx, cache, srv, "before", "transferredFile", file)
+-	contents, err := file.Contents(ctx, fileResult, nil, nil)
+-	require.NoError(t, err)
++	contents := demandedFileContents(t, ctx, fileResult)
+ 	require.Equal(t, "typed suffix", string(contents))
+ 	results := []dagql.AnyResult{containerResult, directoryResult, fileResult}
+ 	ids := make([]uint64, len(results))
+@@ -150,11 +148,9 @@ func TestSnapshotTransferTypedAdoptionAndRestart(t *testing.T) {
+ 	restoredSnapshot, ok := restoredRoot.Snapshot.Peek()
+ 	require.True(t, ok)
+ 	testutil.CheckFile(t, restoredSnapshot, "a.txt", "typed prefix")
+-	entries, err = loadedDirectory.Self().Entries(ctx, loadedDirectory, "dir")
+-	require.NoError(t, err)
++	entries = demandedDirectoryEntries(t, ctx, loadedDirectory, "dir")
+ 	require.Equal(t, []string{"b.txt"}, entries)
+-	contents, err = loadedFile.Self().Contents(ctx, loadedFile, nil, nil)
+-	require.NoError(t, err)
++	contents = demandedFileContents(t, ctx, loadedFile)
+ 	require.Equal(t, "typed suffix", string(contents))
+ 	assertTypedSnapshotOwners(t, consumer, imported.SnapshotID(), 3)
+ 	require.EqualValues(t, 2, provider.Reads.Load())
+diff --git a/core/value_transfer_chain_test.go b/core/value_transfer_chain_test.go
+index cb57e3a599..062145f329 100644
+--- a/core/value_transfer_chain_test.go
++++ b/core/value_transfer_chain_test.go
+@@ -176,8 +176,7 @@ func TestValueTransferPartsSelectedChain(t *testing.T) {
+ 	pending := loaded.(dagql.ObjectResult[*File])
+ 	require.Equal(t, "/visible/value.txt", mustTransferPath(t, bctx, pending))
+ 	require.NoError(t, b.Evaluate(bctx, pending))
+-	contents, err := pending.Self().Contents(bctx, pending, nil, nil)
+-	require.NoError(t, err)
++	contents := demandedFileContents(t, bctx, pending)
+ 	require.Equal(t, "selected bytes", string(contents))
+ 	require.NoError(t, b.WithExportedValues(bctx, dagql.ValueSelection{Roots: []dagql.AnyResult{pending}}, config.RefConfig{}, func(_ context.Context, forward *dagql.ExportedValues) error {
+ 		require.Empty(t, forward.Chains.Entries)
+diff --git a/core/value_transfer_restart_test.go b/core/value_transfer_restart_test.go
+index 4bed82b923..a400750d5e 100644
+--- a/core/value_transfer_restart_test.go
++++ b/core/value_transfer_restart_test.go
+@@ -69,7 +69,6 @@ func TestValueTransferPersistenceFinalOfferRestart(t *testing.T) {
+ 	loaded, err = b.LoadResultByResultID(bCtx, "restarted", bServer, values[0].ResultID)
+ 	require.NoError(t, err)
+ 	restored := loaded.(dagql.ObjectResult[*File])
+-	contents, err := restored.Self().Contents(bCtx, restored, nil, nil)
+-	require.NoError(t, err)
++	contents := demandedFileContents(t, bCtx, restored)
+ 	require.Equal(t, "durable bytes", string(contents))
+ }
+diff --git a/engine/snapshots/testutil/bind_experiment.go b/engine/snapshots/testutil/bind_experiment.go
+new file mode 100644
+index 0000000000..f961b9a93d
+--- /dev/null
++++ b/engine/snapshots/testutil/bind_experiment.go
+@@ -0,0 +1,128 @@
++package testutil
++
++import (
++	"context"
++	"fmt"
++	"io"
++	"os"
++
++	"github.com/containerd/containerd/v2/core/content"
++	"github.com/containerd/containerd/v2/core/diff"
++	"github.com/containerd/containerd/v2/core/mount"
++	"github.com/containerd/containerd/v2/pkg/archive"
++	"github.com/containerd/containerd/v2/pkg/archive/compression"
++	"github.com/containerd/containerd/v2/pkg/labels"
++	"github.com/containerd/errdefs"
++	digest "github.com/opencontainers/go-digest"
++	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
++)
++
++// bindSource returns the directory behind a native snapshot's single bind
++// mount, so a test can read or write it without a mount system call.
++func bindSource(mounts []mount.Mount) (string, func(), error) {
++	if len(mounts) == 0 {
++		dir, err := os.MkdirTemp("", "snapshot-test-empty")
++		return dir, func() { os.RemoveAll(dir) }, err
++	}
++	if len(mounts) != 1 || (mounts[0].Type != "bind" && mounts[0].Type != "rbind") {
++		return "", nil, fmt.Errorf("test store expects one native bind mount, got %+v", mounts)
++	}
++	return mounts[0].Source, func() {}, nil
++}
++
++type bindApplier struct{ store content.Store }
++
++func (a bindApplier) Apply(ctx context.Context, desc ocispecs.Descriptor, mounts []mount.Mount, opts ...diff.ApplyOpt) (ocispecs.Descriptor, error) {
++	var config diff.ApplyConfig
++	for _, opt := range opts {
++		if err := opt(ctx, desc, &config); err != nil {
++			return ocispecs.Descriptor{}, err
++		}
++	}
++	root, release, err := bindSource(mounts)
++	if err != nil {
++		return ocispecs.Descriptor{}, err
++	}
++	defer release()
++	ra, err := a.store.ReaderAt(ctx, desc)
++	if err != nil {
++		return ocispecs.Descriptor{}, err
++	}
++	defer ra.Close()
++	processor := diff.NewProcessorChain(desc.MediaType, content.NewReader(ra))
++	for processor.MediaType() != ocispecs.MediaTypeImageLayer {
++		if processor, err = diff.GetProcessor(ctx, processor, config.ProcessorPayloads); err != nil {
++			return ocispecs.Descriptor{}, err
++		}
++	}
++	defer processor.Close()
++	digester := digest.Canonical.Digester()
++	size, err := archive.Apply(ctx, root, io.TeeReader(processor, digester.Hash()))
++	if err != nil {
++		return ocispecs.Descriptor{}, err
++	}
++	extra, err := io.Copy(io.Discard, io.TeeReader(processor, digester.Hash()))
++	if err != nil {
++		return ocispecs.Descriptor{}, err
++	}
++	return ocispecs.Descriptor{MediaType: ocispecs.MediaTypeImageLayer, Size: size + extra, Digest: digester.Digest()}, nil
++}
++
++type bindDiffer struct{ store content.Store }
++
++func (d bindDiffer) Compare(ctx context.Context, lower, upper []mount.Mount, opts ...diff.Opt) (ocispecs.Descriptor, error) {
++	var config diff.Config
++	for _, opt := range opts {
++		if err := opt(&config); err != nil {
++			return ocispecs.Descriptor{}, err
++		}
++	}
++	lowerRoot, releaseLower, err := bindSource(lower)
++	if err != nil {
++		return ocispecs.Descriptor{}, err
++	}
++	defer releaseLower()
++	upperRoot, releaseUpper, err := bindSource(upper)
++	if err != nil {
++		return ocispecs.Descriptor{}, err
++	}
++	defer releaseUpper()
++	writer, err := d.store.Writer(ctx, content.WithRef(config.Reference), content.WithDescriptor(ocispecs.Descriptor{MediaType: config.MediaType}))
++	if err != nil {
++		return ocispecs.Descriptor{}, err
++	}
++	defer writer.Close()
++	if err := writer.Truncate(0); err != nil {
++		return ocispecs.Descriptor{}, err
++	}
++	stored := map[string]string{}
++	if config.MediaType == ocispecs.MediaTypeImageLayer {
++		err = archive.WriteDiff(ctx, writer, lowerRoot, upperRoot)
++	} else {
++		var compressed io.WriteCloser
++		if config.Compressor != nil {
++			compressed, err = config.Compressor(writer, config.MediaType)
++		} else {
++			compressed, err = compression.CompressStream(writer, compression.Gzip)
++		}
++		if err != nil {
++			return ocispecs.Descriptor{}, err
++		}
++		digester := digest.SHA256.Digester()
++		err = archive.WriteDiff(ctx, io.MultiWriter(compressed, digester.Hash()), lowerRoot, upperRoot)
++		compressed.Close()
++		stored[labels.LabelUncompressed] = digester.Digest().String()
++	}
++	if err != nil {
++		return ocispecs.Descriptor{}, err
++	}
++	dgst := writer.Digest()
++	if err := writer.Commit(ctx, 0, dgst, content.WithLabels(stored)); err != nil && !errdefs.IsAlreadyExists(err) {
++		return ocispecs.Descriptor{}, err
++	}
++	info, err := d.store.Info(ctx, dgst)
++	if err != nil {
++		return ocispecs.Descriptor{}, err
++	}
++	return ocispecs.Descriptor{MediaType: config.MediaType, Size: info.Size, Digest: info.Digest}, nil
++}
+diff --git a/engine/snapshots/testutil/store.go b/engine/snapshots/testutil/store.go
+index 84d6744fee..02a0e036ef 100644
+--- a/engine/snapshots/testutil/store.go
++++ b/engine/snapshots/testutil/store.go
+@@ -12,14 +12,12 @@ import (
+ 
+ 	"github.com/containerd/containerd/v2/core/content"
+ 	"github.com/containerd/containerd/v2/core/diff"
+-	"github.com/containerd/containerd/v2/core/diff/apply"
+ 	"github.com/containerd/containerd/v2/core/leases"
+ 	"github.com/containerd/containerd/v2/core/metadata"
+ 	"github.com/containerd/containerd/v2/core/mount"
+ 	ctdsnapshots "github.com/containerd/containerd/v2/core/snapshots"
+ 	"github.com/containerd/containerd/v2/pkg/namespaces"
+ 	"github.com/containerd/containerd/v2/plugins/content/local"
+-	"github.com/containerd/containerd/v2/plugins/diff/walking"
+ 	"github.com/containerd/containerd/v2/plugins/snapshots/native"
+ 	bkcache "github.com/dagger/dagger/engine/snapshots"
+ 	containerdsnapshot "github.com/dagger/dagger/engine/snapshots/containerd"
+@@ -86,7 +84,8 @@ func requireNativeMount(t testing.TB) {
+ 		if !errors.Is(unmountErr, os.ErrPermission) {
+ 			require.NoError(t, unmountErr)
+ 		}
+-		t.Skipf("real native snapshot transfer requires read-only bind mount privileges: %v", mountErr)
++		t.Logf("G5-PROBE-WOULD-SKIP: %v", mountErr)
++		return
+ 	}
+ 	require.NoError(t, mountErr)
+ 	require.NoError(t, unmountErr)
+@@ -98,8 +97,8 @@ func (s *Store) openManager(t testing.TB) {
+ 	s.Manager, err = bkcache.NewSnapshotManager(bkcache.SnapshotManagerOpt{
+ 		Snapshotter: s.Snapshots, ContentStore: observedContent{Store: s.Content, owner: s},
+ 		LeaseManager:  &observedLeases{Manager: s.Leases, store: s},
+-		Applier:       &observedApplier{Applier: apply.NewFileSystemApplier(s.Content), store: s},
+-		Differ:        &observedDiffer{Comparer: walking.NewWalkingDiff(s.Content), store: s},
++		Applier:       &observedApplier{Applier: bindApplier{store: s.Content}, store: s},
++		Differ:        &observedDiffer{Comparer: bindDiffer{store: s.Content}, store: s},
+ 		MountPoolRoot: filepath.Join(s.root, "mounts"),
+ 	})
+ 	require.NoError(t, err)
+@@ -160,14 +159,24 @@ func (s *Store) Build(t testing.TB, parent bkcache.ImmutableRef, name, value str
+ 
+ var FileTime = time.Unix(1700000000, 0).UTC()
+ 
+-func CheckFile(t testing.TB, ref bkcache.ImmutableRef, name, want string) {
++// Root returns the directory behind a committed snapshot of the test store.
++func Root(t testing.TB, ref bkcache.ImmutableRef) string {
+ 	t.Helper()
+ 	mounted, err := ref.Mount(context.Background(), true)
+ 	require.NoError(t, err)
+-	mounter := bkcache.LocalMounter(mounted)
+-	root, err := mounter.Mount()
++	mounts, release, err := mounted.Mount()
++	require.NoError(t, err)
++	if release != nil {
++		require.NoError(t, release())
++	}
++	root, _, err := bindSource(mounts)
+ 	require.NoError(t, err)
+-	defer func() { require.NoError(t, mounter.Unmount()) }()
++	return root
++}
++
++func CheckFile(t testing.TB, ref bkcache.ImmutableRef, name, want string) {
++	t.Helper()
++	root := Root(t, ref)
+ 	data, err := os.ReadFile(filepath.Join(root, name))
+ 	require.NoError(t, err)
+ 	require.Equal(t, want, string(data))

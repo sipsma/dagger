@@ -1,0 +1,28 @@
+=== RUN   TestB4InlineSnapshotRoleContract
+    b4_inline_contract_probe_test.go:28: owning list resultID=1
+    b4_inline_contract_probe_test.go:35: inline[0]: codec=core.Directory form=snapshot resultID=0
+    b4_inline_contract_probe_test.go:35: inline[1]: codec=core.Directory form=snapshot resultID=0
+=== RUN   TestB4InlineSnapshotRoleContract/root_control
+=== RUN   TestB4InlineSnapshotRoleContract/list_preserves_both_local_roles
+    b4_inline_contract_probe_test.go:46: list role map: []dagql.PersistedSnapshotRefLink(nil)
+    b4_inline_contract_probe_test.go:47:
+            Error Trace:    /tmp/dagger-b4-inline-probe-77f62795/core/b4_inline_contract_probe_test.go:47
+            Error:          "[]" should have 2 item(s), but has 0
+            Test:           TestB4InlineSnapshotRoleContract/list_preserves_both_local_roles
+            Messages:       two independently installed inline snapshots need two owner links
+=== RUN   TestB4InlineSnapshotRoleContract/inline_snapshot_decode
+    b4_inline_contract_probe_test.go:51: decode result: decode list item 1: decode object_id envelope load: load persisted directory snapshot link: zero result ID
+    b4_inline_contract_probe_test.go:52:
+            Error Trace:    /tmp/dagger-b4-inline-probe-77f62795/core/b4_inline_contract_probe_test.go:52
+            Error:          Received unexpected error:
+                            decode list item 1: decode object_id envelope load: load persisted directory snapshot link: zero result ID
+            Test:           TestB4InlineSnapshotRoleContract/inline_snapshot_decode
+            Messages:       inline local snapshot needs a scoped owning-row role source
+2026/09/16 10:51:10 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- FAIL: TestB4InlineSnapshotRoleContract (0.00s)
+    --- PASS: TestB4InlineSnapshotRoleContract/root_control (0.00s)
+    --- FAIL: TestB4InlineSnapshotRoleContract/list_preserves_both_local_roles (0.00s)
+    --- FAIL: TestB4InlineSnapshotRoleContract/inline_snapshot_decode (0.00s)
+FAIL
+FAIL    github.com/dagger/dagger/core   0.073s
+FAIL

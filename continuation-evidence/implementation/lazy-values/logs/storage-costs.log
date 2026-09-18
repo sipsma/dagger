@@ -1,0 +1,11 @@
+=== RUN   TestLazyStorageLayout
+    lazy_storage_cost_test.go:9: bytes LazyState=32 Directory=248 File=248 Container=720 scratch operation=32 mount Directory operation=248 mount File operation=248 builtin operation=136
+--- PASS: TestLazyStorageLayout (0.00s)
+goos: linux
+goarch: amd64
+pkg: github.com/dagger/dagger/core
+cpu: AMD EPYC 9554P 64-Core Processor               
+BenchmarkScratchLazyConstruction
+BenchmarkScratchLazyConstruction-16    	  815958	       459.1 ns/op	     392 B/op	       5 allocs/op
+PASS
+ok  	github.com/dagger/dagger/core	0.469s

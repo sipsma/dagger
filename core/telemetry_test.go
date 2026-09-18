@@ -8,6 +8,7 @@ import (
 
 	"github.com/containerd/containerd/v2/core/content"
 	"github.com/dagger/dagger/auth"
+	"github.com/dagger/dagger/core/gitref"
 	workspacepkg "github.com/dagger/dagger/core/workspace"
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/engine"
@@ -44,16 +45,25 @@ func testResultCall(field string, typ dagql.Typed, receiver *dagql.ResultCall) *
 type mockServer struct {
 	moduleSource   *ModuleSource
 	functionCall   *FunctionCall
-	env            dagql.ObjectResult[*Env]
 	clientMetadata *engine.ClientMetadata
 	attachables    map[string]*grpc.ClientConn
+	workspaceLock  *workspacepkg.Lock
+	lockWritable   bool
 }
 
-func (ms *mockServer) ServeHTTPToNestedClient(http.ResponseWriter, *http.Request, *engine.ClientMetadata, string, bool, dagql.AnyObjectResult, dagql.Typed, dagql.AnyObjectResult) {
+func (ms *mockServer) RegisterNestedClientTransport(context.Context, *engine.ClientMetadata, string) (*engine.NestedClientTransport, error) {
+	return engine.NewNestedClientTransport(nil), nil
+}
+
+func (ms *mockServer) ServeHTTPToNestedClient(http.ResponseWriter, *http.Request, *engine.NestedClientTransport, *engine.ClientMetadata, string, bool, dagql.AnyObjectResult, dagql.Typed) {
 }
 
 func (ms *mockServer) ServeModule(ctx context.Context, mod dagql.ObjectResult[*Module], includeDependencies bool, entrypoint bool) error {
 	return nil
+}
+
+func (ms *mockServer) EnsureWorkspaceModules(context.Context, []string, bool) ([]ModuleLoadFailure, error) {
+	return nil, nil
 }
 
 func (ms *mockServer) CurrentModule(_ context.Context) (dagql.ObjectResult[*Module], error) {
@@ -102,10 +112,6 @@ func (ms *mockServer) CurrentFunctionCall(context.Context) (*FunctionCall, error
 	return ms.functionCall, nil
 }
 
-func (ms *mockServer) CurrentEnv(context.Context) (dagql.ObjectResult[*Env], error) {
-	return ms.env, nil
-}
-
 func (ms *mockServer) CurrentServedDeps(context.Context) (*SchemaBuilder, error) {
 	return NewSchemaBuilder(nil, nil), nil
 }
@@ -133,12 +139,18 @@ func (ms *mockServer) SpecificClientAttachableConn(_ context.Context, clientID s
 	return conn, conn != nil, nil
 }
 
-func (ms *mockServer) CurrentWorkspaceLock(context.Context) (*workspacepkg.Lock, bool, error) {
-	return nil, false, nil
+func (ms *mockServer) CurrentWorkspaceLock(_ context.Context, requireWritable bool) (*workspacepkg.Lock, bool, error) {
+	if requireWritable && !ms.lockWritable {
+		return nil, false, nil
+	}
+	return ms.workspaceLock, ms.workspaceLock != nil, nil
 }
 
-func (ms *mockServer) SetCurrentWorkspaceLookup(context.Context, string, string, []any, workspacepkg.LookupResult) error {
-	return nil
+func (ms *mockServer) SetCurrentWorkspaceLookup(_ context.Context, namespace, operation string, inputs []any, value string) error {
+	if ms.workspaceLock == nil {
+		return nil
+	}
+	return ms.workspaceLock.SetLookup(namespace, operation, inputs, value)
 }
 
 func (ms *mockServer) NonModuleParentClientMetadata(context.Context) (*engine.ClientMetadata, error) {
@@ -147,6 +159,9 @@ func (ms *mockServer) NonModuleParentClientMetadata(context.Context) (*engine.Cl
 func (ms *mockServer) DefaultDeps(context.Context) (*SchemaBuilder, error) { return nil, nil }
 func (ms *mockServer) Cache(context.Context) (*dagql.Cache, error)         { return nil, nil }
 func (ms *mockServer) TelemetrySeenKeyStore(context.Context) (dagql.TelemetrySeenKeyStore, error) {
+	return nil, nil
+}
+func (ms *mockServer) CallPayloadSeenKeyStore(context.Context) (dagql.TelemetrySeenKeyStore, error) {
 	return nil, nil
 }
 func (ms *mockServer) Server(context.Context) (*dagql.Server, error)           { return nil, nil }
@@ -161,6 +176,8 @@ func (ms *mockServer) RegistryResolver(context.Context) (*serverresolver.Resolve
 }
 
 func (ms *mockServer) Services(context.Context) (*Services, error) { return nil, nil }
+
+func (ms *mockServer) Agents(context.Context) (*AgentRuntimes, error) { return nil, nil }
 
 func (ms *mockServer) Platform() Platform                  { return Platform{} }
 func (ms *mockServer) OCIStore() content.Store             { return nil }
@@ -178,7 +195,11 @@ func (ms *mockServer) EngineLocalCachePolicy() *dagql.CachePrunePolicy { return 
 func (ms *mockServer) SnapshotManager() bkcache.SnapshotManager        { return nil }
 func (ms *mockServer) Locker() *locker.Locker                          { return nil }
 func (ms *mockServer) SecretSalt() []byte                              { return nil }
+func (ms *mockServer) EngineVolumeState() EngineVolumeState            { return EngineVolumeState{} }
 func (ms *mockServer) FlushSessionTelemetry(context.Context) error     { return nil }
+func (ms *mockServer) SessionScopedContext(ctx context.Context) (context.Context, error) {
+	return context.WithoutCancel(ctx), nil
+}
 func (ms *mockServer) ClientTelemetry(ctc context.Context, sessID, clientID string) (*clientdb.DB, error) {
 	return nil, nil
 }
@@ -228,6 +249,18 @@ func TestParseCallerCalleeRefs(t *testing.T) {
 	require.Equal(t, "github.com/dagger/dagger-test-modules/versioned", calleeRef.ref)
 	require.Equal(t, "0cabe03cc0a9079e738c92b2c589d81fd560011f", calleeRef.version)
 	require.Equal(t, "VersionedGitSSH.hello", calleeRef.functionName)
+
+	// Literal Git URL selectors serialize with #ref:subpath rather than @ref.
+	// Telemetry reads the structured source fields so both forms are safe.
+	mockSrv.moduleSource.SourceRootSubpath = "ruff"
+	mockSrv.moduleSource.Git.CloneRef = "https://github.com/dagger/python"
+	mockSrv.moduleSource.Git.Selector = gitref.GitRefSelector
+	mockSrv.moduleSource.Git.Version = "v1.2"
+
+	callerRef, _ = parseCallerCalleeRefs(t.Context(), &Query{Server: mockSrv}, call)
+	require.NotNil(t, callerRef)
+	require.Equal(t, "https://github.com/dagger/python/ruff", callerRef.ref)
+	require.Equal(t, "v1.2", callerRef.version)
 }
 
 func TestAroundFuncMarksIntrospectionRootAsSkipped(t *testing.T) {

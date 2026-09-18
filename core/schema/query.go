@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"slices"
+	"strings"
 
 	codegenintrospection "github.com/dagger/dagger/cmd/codegen/introspection"
 	"github.com/dagger/dagger/core"
@@ -15,8 +17,7 @@ import (
 	bkcache "github.com/dagger/dagger/engine/snapshots"
 )
 
-type querySchema struct {
-}
+type querySchema struct{}
 
 var _ SchemaResolvers = &querySchema{}
 
@@ -34,17 +35,21 @@ func (s *querySchema) Install(srv *dagql.Server) {
 			View(AllVersion).
 			IsPersistable().
 			WithInput(dagql.CurrentSchemaInput).
+			WithInput(engineDefaultPlatformInput).
 			Doc("Get the current schema as a JSON file.").
 			Args(
 				dagql.Arg("hiddenTypes").Doc("Types to hide from the schema JSON file."),
+				dagql.Arg("hiddenFields").Doc("Fields to hide from the schema JSON file, formatted as Type.field."),
 			),
 		dagql.NodeFunc("_remoteGitMirror", s.remoteGitMirror).
+			View(AfterVersion("v0.21.0")).
 			IsPersistable().
 			Doc(`(Internal-only) Returns the persistent bare git mirror for a remote URL.`).
 			Args(
 				dagql.Arg("remoteURL").Doc("Normalized remote repository URL."),
 			),
 		dagql.NodeFunc("_clientFilesyncMirror", s.clientFilesyncMirror).
+			View(AfterVersion("v0.21.0")).
 			IsPersistable().
 			Doc(`(Internal-only) Returns the persistent filesync mirror for a stable client and drive.`).
 			Args(
@@ -56,11 +61,13 @@ func (s *querySchema) Install(srv *dagql.Server) {
 	srv.InstallScalar(core.JSON{})
 	srv.InstallScalar(core.Void{})
 
+	srv.InstallObject(dagql.NewClass[*core.RemoteGitMirror](srv).View(AfterVersion("v0.21.0")))
+	srv.InstallObject(dagql.NewClass[*core.ClientFilesyncMirror](srv).View(AfterVersion("v0.21.0")))
 	dagql.Fields[*core.RemoteGitMirror]{}.Install(srv)
 	dagql.Fields[*core.ClientFilesyncMirror]{}.Install(srv)
 
 	core.NetworkProtocols.Install(srv)
-	core.RegistryProtocols.Install(srv)
+	core.RegistryProtocols.Install(srv, AfterVersion("v1.0.0-0"))
 	core.ImageLayerCompressions.Install(srv)
 	core.ImageMediaTypesEnum.Install(srv)
 	core.CacheSharingModes.Install(srv)
@@ -117,7 +124,7 @@ func (s *querySchema) pipeline(ctx context.Context, parent *core.Query, args pip
 }
 
 func (s *querySchema) version(_ context.Context, _ *core.Query, args struct{}) (string, error) {
-	return engine.Version, nil
+	return engine.FullVersion(), nil
 }
 
 func (s *querySchema) remoteGitMirror(ctx context.Context, parent dagql.ObjectResult[*core.Query], args remoteGitMirrorArgs) (dagql.Result[*core.RemoteGitMirror], error) {
@@ -142,7 +149,7 @@ func (s *querySchema) clientFilesyncMirror(ctx context.Context, parent dagql.Obj
 	return dagql.NewResultForCurrentCall(ctx, mirror)
 }
 
-func getSchemaJSON(hiddenTypes []string, view call.View, srv *dagql.Server) ([]byte, error) {
+func getSchemaJSON(hiddenTypes, hiddenFields []string, view call.View, srv *dagql.Server) ([]byte, error) {
 	dagqlSchema := introspection.WrapSchema(srv.SchemaForView(view))
 
 	introspectionResponse := codegenintrospection.Response{
@@ -175,6 +182,13 @@ func getSchemaJSON(hiddenTypes []string, view call.View, srv *dagql.Server) ([]b
 		introspectionResponse.Schema.ScrubType(rawType)
 		introspectionResponse.Schema.ScrubType(dagql.IDTypeNameForRawType(rawType))
 	}
+	for _, rawField := range hiddenFields {
+		rawType, fieldName, ok := strings.Cut(rawField, ".")
+		if !ok || rawType == "" || fieldName == "" || strings.Contains(fieldName, ".") {
+			return nil, fmt.Errorf("invalid hidden field %q: expected Type.field", rawField)
+		}
+		introspectionResponse.Schema.ScrubField(rawType, fieldName)
+	}
 
 	moduleSchemaJSON, err := json.Marshal(introspectionResponse)
 	if err != nil {
@@ -184,7 +198,8 @@ func getSchemaJSON(hiddenTypes []string, view call.View, srv *dagql.Server) ([]b
 }
 
 type schemaJSONArgs struct {
-	HiddenTypes []string `default:"[]"`
+	HiddenTypes  []string `default:"[]"`
+	HiddenFields []string `default:"[]"`
 }
 
 func (s *querySchema) schemaJSONFile(
@@ -193,20 +208,15 @@ func (s *querySchema) schemaJSONFile(
 	args schemaJSONArgs,
 ) (inst dagql.ObjectResult[*core.File], rerr error) {
 	const schemaJSONFilename = "schema.json"
-	const perm fs.FileMode = 0644
+	const perm fs.FileMode = 0o644
 
 	dag, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
 		return inst, err
 	}
 
-	moduleSchemaJSON, err := getSchemaJSON(args.HiddenTypes, dag.View, dag)
+	moduleSchemaJSON, err := getSchemaJSON(args.HiddenTypes, args.HiddenFields, dag.View, dag)
 	if err != nil {
-		return inst, err
-	}
-
-	var dirInst dagql.ObjectResult[*core.Directory]
-	if err := dag.Select(ctx, dag.Root(), &dirInst, dagql.Selector{Field: "directory"}); err != nil {
 		return inst, err
 	}
 
@@ -214,11 +224,7 @@ func (s *querySchema) schemaJSONFile(
 		Platform: parent.Self().Platform(),
 		File:     new(core.LazyAccessor[string, *core.File]),
 		Snapshot: new(core.LazyAccessor[bkcache.ImmutableRef, *core.File]),
+		Lazy:     &core.FileBlobLazy{LazyState: core.NewLazyState(), Filename: schemaJSONFilename, Contents: slices.Clone(moduleSchemaJSON), Permissions: perm},
 	}
-
-	if err := file.WithContents(ctx, dirInst, schemaJSONFilename, moduleSchemaJSON, perm, nil); err != nil {
-		return inst, err
-	}
-
 	return dagql.NewObjectResultForCurrentCall(ctx, dag, file)
 }

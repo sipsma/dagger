@@ -4,116 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/dagger/dagger/core"
-	"github.com/dagger/dagger/core/workspace"
 	"github.com/dagger/dagger/dagql"
 )
 
-func (s *workspaceSchema) collectWorkspaceSettingsHints(
-	ctx context.Context,
-	ws *core.Workspace,
-	refs map[string]string,
-) map[string][]workspace.ConstructorArgHint {
-	if len(refs) == 0 {
-		return nil
-	}
-
-	ctx, srv, err := workspaceSettingsHintIntrospectionContext(ctx, ws)
-	if err != nil {
-		slog.Warn("could not prepare workspace settings hints", "error", err)
-		return nil
-	}
-
-	names := make([]string, 0, len(refs))
-	for name := range refs {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	hints := make(map[string][]workspace.ConstructorArgHint, len(refs))
-	for _, name := range names {
-		ref := refs[name]
-		if ref == "" {
-			continue
-		}
-
-		constructorHints, err := introspectConstructorArgs(ctx, srv, ref)
-		if err != nil {
-			slog.Warn("could not introspect constructor args for workspace settings hints",
-				"module", name,
-				"ref", ref,
-				"error", err,
-			)
-			continue
-		}
-		if len(constructorHints) > 0 {
-			hints[name] = constructorHints
-		}
-	}
-
-	if len(hints) == 0 {
-		return nil
-	}
-	return hints
-}
-
-func (s *workspaceSchema) collectWorkspaceSettingsHintsFromConfig(
-	ctx context.Context,
-	ws *core.Workspace,
-	cfg *workspace.Config,
-	configDir string,
-	projectRootPath string,
-	migratedDir dagql.ObjectResult[*core.Directory],
-) (map[string][]workspace.ConstructorArgHint, []string) {
-	if cfg == nil || len(cfg.Modules) == 0 {
-		return nil, nil
-	}
-
-	ctx, srv, err := workspaceSettingsHintIntrospectionContext(ctx, ws)
-	if err != nil {
-		slog.Warn("could not prepare workspace settings hints", "error", err)
-		return nil, []string{fmt.Sprintf("could not generate workspace settings hints: %v", err)}
-	}
-
-	names := make([]string, 0, len(cfg.Modules))
-	for name := range cfg.Modules {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	hints := make(map[string][]workspace.ConstructorArgHint, len(cfg.Modules))
-	warnings := make([]string, 0)
-	for _, name := range names {
-		entry, ok := cfg.Modules[name]
-		if !ok || entry.Source == "" {
-			continue
-		}
-
-		constructorHints, err := introspectConfiguredModuleArgs(ctx, srv, configDir, projectRootPath, migratedDir, entry.Source)
-		if err != nil {
-			slog.Warn("could not introspect constructor args for workspace settings hints",
-				"module", name,
-				"source", entry.Source,
-				"error", err,
-			)
-			warnings = append(warnings, fmt.Sprintf("could not generate workspace settings hints for module %q from source %q: %v", name, entry.Source, err))
-			continue
-		}
-		if len(constructorHints) > 0 {
-			hints[name] = constructorHints
-		}
-	}
-
-	if len(hints) == 0 {
-		return nil, warnings
-	}
-	return hints, warnings
+type constructorArgHint struct {
+	Name         string
+	TypeLabel    string
+	IsList       bool
+	IsObject     bool
+	Description  string
+	ExampleValue string
 }
 
 func workspaceSettingsHintIntrospectionContext(
@@ -133,11 +39,11 @@ func workspaceSettingsHintIntrospectionContext(
 	return ctx, srv, nil
 }
 
-func introspectConstructorArgs(
+func introspectModule(
 	ctx context.Context,
 	srv *dagql.Server,
 	ref string,
-) ([]workspace.ConstructorArgHint, error) {
+) (*core.Module, error) {
 	var mod dagql.ObjectResult[*core.Module]
 	if err := srv.Select(ctx, srv.Root(), &mod,
 		dagql.Selector{
@@ -151,54 +57,15 @@ func introspectConstructorArgs(
 	); err != nil {
 		return nil, fmt.Errorf("loading module: %w", err)
 	}
-
-	return constructorHintsFromModule(mod.Self()), nil
+	return mod.Self(), nil
 }
 
-func introspectConfiguredModuleArgs(
-	ctx context.Context,
-	srv *dagql.Server,
-	configDir string,
-	projectRootPath string,
-	migratedDir dagql.ObjectResult[*core.Directory],
-	source string,
-) ([]workspace.ConstructorArgHint, error) {
-	resolvedSource := workspace.ResolveModuleEntrySource(configDir, source)
-	switch {
-	case filepath.IsAbs(resolvedSource):
-		return introspectConstructorArgs(ctx, srv, resolvedSource)
-	case usesMigratedWorkspaceHintDirectory(resolvedSource):
-		migratedDirID, err := migratedDir.ID()
-		if err != nil {
-			return nil, err
-		}
-		if migratedDirID == nil {
-			return nil, fmt.Errorf("migrated module source %q requires prepared migrated workspace directory", source)
-		}
-		return introspectConstructorArgsFromDirectory(ctx, srv, migratedDir, resolvedSource)
-	case resolvedSource != source:
-		if projectRootPath == "" {
-			return nil, fmt.Errorf("workspace project root is required for local module source %q", source)
-		}
-		return introspectConstructorArgs(ctx, srv, filepath.Clean(filepath.Join(projectRootPath, resolvedSource)))
-	default:
-		return introspectConstructorArgs(ctx, srv, source)
-	}
-}
-
-func usesMigratedWorkspaceHintDirectory(resolvedSource string) bool {
-	migratedModulesDir := filepath.Clean(filepath.Join(workspace.LockDirName, "modules"))
-	resolvedSource = filepath.Clean(resolvedSource)
-	return resolvedSource == migratedModulesDir ||
-		strings.HasPrefix(resolvedSource, migratedModulesDir+string(filepath.Separator))
-}
-
-func introspectConstructorArgsFromDirectory(
+func introspectModuleFromDirectory(
 	ctx context.Context,
 	srv *dagql.Server,
 	dir dagql.ObjectResult[*core.Directory],
 	sourceRootPath string,
-) ([]workspace.ConstructorArgHint, error) {
+) (*core.Module, error) {
 	sourceRootPath = path.Clean(filepath.ToSlash(sourceRootPath))
 	if sourceRootPath == "" {
 		sourceRootPath = "."
@@ -213,11 +80,27 @@ func introspectConstructorArgsFromDirectory(
 	}); err != nil {
 		return nil, fmt.Errorf("loading module from directory: %w", err)
 	}
-
-	return constructorHintsFromModule(mod.Self()), nil
+	return mod.Self(), nil
 }
 
-func constructorHintsFromModule(mod *core.Module) []workspace.ConstructorArgHint {
+// mainObjectFunctionNames lists the main object's functions in GraphQL field form, sorted.
+func mainObjectFunctionNames(mod *core.Module) []string {
+	if mod == nil {
+		return nil
+	}
+	mainObj, ok := mod.MainObject()
+	if !ok {
+		return nil
+	}
+	names := make([]string, 0, len(mainObj.Functions))
+	for _, fn := range mainObj.Functions {
+		names = append(names, fn.Self().Name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func constructorHintsFromModule(mod *core.Module) []constructorArgHint {
 	if mod == nil {
 		return nil
 	}
@@ -232,7 +115,7 @@ func constructorHintsFromModule(mod *core.Module) []workspace.ConstructorArgHint
 		return nil
 	}
 
-	hints := make([]workspace.ConstructorArgHint, 0, len(constructor.Args))
+	hints := make([]constructorArgHint, 0, len(constructor.Args))
 	for _, argResult := range constructor.Args {
 		arg := argResult.Self()
 		if arg == nil {
@@ -249,6 +132,7 @@ func constructorHintsFromModule(mod *core.Module) []workspace.ConstructorArgHint
 
 var addressSupportedObjectSettingExamples = map[string]string{ //nolint:gosec
 	"Container":     `"alpine:latest"`,
+	"Volume":        `"engine-volume://data"`,
 	"Directory":     `"./path"`,
 	"File":          `"./file"`,
 	"Secret":        `"env://MY_SECRET"`,
@@ -258,19 +142,21 @@ var addressSupportedObjectSettingExamples = map[string]string{ //nolint:gosec
 	"Socket":        `"unix:///var/run/docker.sock"`,
 }
 
-func buildHintFromArg(arg *core.FunctionArg) (workspace.ConstructorArgHint, bool) {
+func buildHintFromArg(arg *core.FunctionArg) (constructorArgHint, bool) {
 	typeLabel, exampleValue, configurable := typeInfoFromTypeDef(arg.TypeDef.Self())
 	if !configurable {
-		return workspace.ConstructorArgHint{}, false
+		return constructorArgHint{}, false
 	}
 	if arg.DefaultValue != nil {
 		if formatted := formatDefaultAsToml(arg.DefaultValue); formatted != "" {
 			exampleValue = formatted
 		}
 	}
-	return workspace.ConstructorArgHint{
+	return constructorArgHint{
 		Name:         arg.Name,
 		TypeLabel:    typeLabel,
+		IsList:       arg.TypeDef.Self().Kind == core.TypeDefKindList,
+		IsObject:     arg.TypeDef.Self().Kind == core.TypeDefKindObject,
 		Description:  arg.Description,
 		ExampleValue: exampleValue,
 	}, true

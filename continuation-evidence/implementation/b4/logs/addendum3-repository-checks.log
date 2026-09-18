@@ -1,0 +1,8 @@
+All evidence JSON files parse.
+All local Markdown links in top-level evidence documents resolve.
+All 12 Go files changed by Addendum 3 are formatted.
+git diff --check passes.
+Tracked changes are evidence only; temporary runner source is restored.
+Integrated parent remains an ancestor; code HEAD is 78eab473803a5f5405bf0d315359bed4b0aa1270.
+All 25 existing commits above parent are signed off.
+Case-insensitive prohibited-wording scan of the complete evidence directory: no matches.

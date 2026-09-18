@@ -37,6 +37,7 @@ import (
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/engineutil"
+	"github.com/dagger/dagger/engine/telemetryattrs"
 	"github.com/dagger/dagger/network"
 	"github.com/dagger/dagger/util/cleanups"
 	telemetry "github.com/dagger/otel-go"
@@ -113,7 +114,7 @@ type persistedServiceBinding struct {
 	Aliases         AliasSet `json:"aliases,omitempty"`
 }
 
-func (svc *Service) EncodePersistedObject(ctx context.Context, cache dagql.PersistedObjectCache) (dagql.PersistedObjectEncoding, error) {
+func (svc *Service) EncodePersistedObject(ctx context.Context, enc *dagql.PersistEncodeContext) (dagql.PersistedObjectEncoding, error) {
 	_ = ctx
 	if svc == nil {
 		return dagql.PersistedObjectEncoding{}, fmt.Errorf("encode persisted service: nil service")
@@ -131,19 +132,19 @@ func (svc *Service) EncodePersistedObject(ctx context.Context, cache dagql.Persi
 	}
 	var err error
 	if svc.Container.Self() != nil {
-		payload.ContainerResultID, err = encodePersistedObjectRef(cache, svc.Container, "service container")
+		payload.ContainerResultID, err = encodePersistedObjectRef(enc, svc.Container, "service container")
 		if err != nil {
 			return dagql.PersistedObjectEncoding{}, err
 		}
 	}
 	if svc.ModuleContext.Self() != nil {
-		payload.ModuleContextResultID, err = encodePersistedObjectRef(cache, svc.ModuleContext, "service module context")
+		payload.ModuleContextResultID, err = encodePersistedObjectRef(enc, svc.ModuleContext, "service module context")
 		if err != nil {
 			return dagql.PersistedObjectEncoding{}, err
 		}
 	}
 	if svc.TunnelUpstream.Self() != nil {
-		payload.TunnelUpstreamResultID, err = encodePersistedObjectRef(cache, svc.TunnelUpstream, "service tunnel upstream")
+		payload.TunnelUpstreamResultID, err = encodePersistedObjectRef(enc, svc.TunnelUpstream, "service tunnel upstream")
 		if err != nil {
 			return dagql.PersistedObjectEncoding{}, err
 		}
@@ -160,27 +161,27 @@ func (svc *Service) EncodePersistedObject(ctx context.Context, cache dagql.Persi
 			SourceClientID: sock.SourceClientID,
 		})
 	}
-	enc, err := json.Marshal(payload)
+	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return dagql.PersistedObjectEncoding{}, fmt.Errorf("marshal persisted service payload: %w", err)
 	}
-	return encodePersistedObjectRawJSON(enc), nil
+	return encodePersistedObjectRawJSON(encoded), nil
 }
 
-func (*Service) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*Service) DecodePersistedObject(ctx context.Context, dec *dagql.PersistDecodeContext, payload json.RawMessage) (dagql.Typed, error) {
 	var persisted persistedServicePayload
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted service payload: %w", err)
 	}
-	container, err := loadPersistedObjectResultByResultID[*Container](ctx, dag, persisted.ContainerResultID, "service container")
+	container, err := loadPersistedObjectResultByResultID[*Container](ctx, dec, persisted.ContainerResultID, "service container")
 	if err != nil {
 		return nil, err
 	}
-	moduleContext, err := loadPersistedObjectResultByResultID[*Module](ctx, dag, persisted.ModuleContextResultID, "service module context")
+	moduleContext, err := loadPersistedObjectResultByResultID[*Module](ctx, dec, persisted.ModuleContextResultID, "service module context")
 	if err != nil {
 		return nil, err
 	}
-	tunnelUpstream, err := loadPersistedObjectResultByResultID[*Service](ctx, dag, persisted.TunnelUpstreamResultID, "service tunnel upstream")
+	tunnelUpstream, err := loadPersistedObjectResultByResultID[*Service](ctx, dec, persisted.TunnelUpstreamResultID, "service tunnel upstream")
 	if err != nil {
 		return nil, err
 	}
@@ -251,13 +252,13 @@ func (svc *Service) AttachDependencyResults(
 	return owned, nil
 }
 
-func encodePersistedServiceBindings(cache dagql.PersistedObjectCache, owner string, bindings ServiceBindings) ([]persistedServiceBinding, error) {
+func encodePersistedServiceBindings(enc *dagql.PersistEncodeContext, owner string, bindings ServiceBindings) ([]persistedServiceBinding, error) {
 	if len(bindings) == 0 {
 		return nil, nil
 	}
 	persisted := make([]persistedServiceBinding, 0, len(bindings))
 	for _, binding := range bindings {
-		serviceID, err := encodePersistedObjectRef(cache, binding.Service, fmt.Sprintf("%s service %q", owner, binding.Hostname))
+		serviceID, err := encodePersistedObjectRef(enc, binding.Service, fmt.Sprintf("%s service %q", owner, binding.Hostname))
 		if err != nil {
 			return nil, err
 		}
@@ -270,13 +271,13 @@ func encodePersistedServiceBindings(cache dagql.PersistedObjectCache, owner stri
 	return persisted, nil
 }
 
-func decodePersistedServiceBindings(ctx context.Context, dag *dagql.Server, owner string, persisted []persistedServiceBinding) (ServiceBindings, error) {
+func decodePersistedServiceBindings(ctx context.Context, dec *dagql.PersistDecodeContext, owner string, persisted []persistedServiceBinding) (ServiceBindings, error) {
 	if len(persisted) == 0 {
 		return nil, nil
 	}
 	bindings := make(ServiceBindings, 0, len(persisted))
 	for _, binding := range persisted {
-		service, err := loadPersistedObjectResultByResultID[*Service](ctx, dag, binding.ServiceResultID, fmt.Sprintf("%s service %q", owner, binding.Hostname))
+		service, err := loadPersistedObjectResultByResultID[*Service](ctx, dec, binding.ServiceResultID, fmt.Sprintf("%s service %q", owner, binding.Hostname))
 		if err != nil {
 			return nil, err
 		}
@@ -512,6 +513,9 @@ func (svc *Service) Start(
 	dig digest.Digest,
 	opts ServiceStartOpts,
 ) error {
+	if err := engine.CheckSnapshotSharePreparation(ctx, "start service"); err != nil {
+		return err
+	}
 	switch {
 	case svc.Container.Self() != nil:
 		return svc.startContainer(ctx, running, dig, opts)
@@ -606,6 +610,11 @@ func (svc *Service) startContainer(
 		return fmt.Errorf("start dependent services: %w", err)
 	}
 	cleanup.Add("detach deps", cleanups.Infallible(detachDeps))
+
+	// A service binding another module's custom-hostname service hits the same
+	// resolution problem its consumers do; see recordBoundServiceFQDNs. execMD
+	// is cloned above, so this never mutates shared state.
+	recordBoundServiceFQDNs(execMD, ctr.Services, runningDeps)
 
 	propagateDependencyExits := len(runningDeps) > 0 &&
 		running.Key.Kind != ServiceRuntimeInteractive &&
@@ -712,7 +721,7 @@ func (svc *Service) startContainer(
 			ExperimentalPrivilegedNesting: svc.ExperimentalPrivilegedNesting,
 			InsecureRootCapabilities:      svc.InsecureRootCapabilities,
 			NoInit:                        svc.NoInit,
-		}, false)
+		}, nil)
 		if err != nil {
 			return err
 		}
@@ -724,6 +733,12 @@ func (svc *Service) startContainer(
 	}
 
 	attrs := []attribute.KeyValue{
+		// Mark this as a running-service span so trace consumers (service
+		// surfacing in the TUI, log tooling) can discover service instances
+		// cheaply deep within a trace. The cause links below tie it back to
+		// the API spans that installed the Service value.
+		attribute.Bool(telemetryattrs.ServiceAttr, true),
+		attribute.String(telemetryattrs.ServiceNameAttr, fullHost),
 		// Hide the synthetic service exec span from the UI; its failure
 		// status propagates up to the installing API span (e.g. .asService)
 		// via the cause link below, and its stdio logs are routed there via
@@ -815,7 +830,6 @@ func (svc *Service) startContainer(
 			ClientVersion:     engine.Version,
 			SessionID:         clientMetadata.SessionID,
 			AllowedLLMModules: slices.Clone(clientMetadata.AllowedLLMModules),
-			LockMode:          clientMetadata.LockMode,
 		}
 	}
 
@@ -852,7 +866,6 @@ func (svc *Service) startContainer(
 			nestedClientMetadata,
 			svc.ModuleContext,
 			nil,
-			dagql.ObjectResult[*Env]{},
 		)
 		runErr <- err
 	}()
@@ -1555,8 +1568,8 @@ func (svc *Service) runAndSnapshotChanges(
 		Dir:      new(LazyAccessor[string, *Directory]),
 		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
 	}
-	snapshot.Dir.setValue(sourceDirPath)
-	snapshot.Snapshot.setValue(immutableRef)
+	snapshot.SetPath(sourceDirPath)
+	snapshot.SetSnapshot(immutableRef)
 
 	inst, err := dagql.NewObjectResultForCurrentCall(ctx, srv, snapshot)
 	if err != nil {
@@ -1605,6 +1618,53 @@ type ServiceBinding struct {
 	Service  dagql.ObjectResult[*Service]
 	Hostname string
 	Aliases  AliasSet
+}
+
+// recordBoundServiceFQDNs notes, for each freshly started binding, the fully
+// qualified name the running service registered in DNS under, so the executor
+// can resolve it directly instead of re-deriving the bare hostname against the
+// consuming exec's search domains.
+//
+// A service with a custom hostname is namespaced into the domain of whichever
+// module happened to start it (see startContainer), and the running instance is
+// then shared session-wide by content digest without the domain forming part of
+// its identity. A consumer in another module therefore holds a perfectly valid
+// handle to a running service whose only registered name it cannot resolve.
+// Binding a service explicitly is a capability the consumer already has, so it
+// keeps working here; bare-hostname DNS stays namespaced as before.
+//
+// running is index-aligned with bindings, per Services.StartBindings.
+func recordBoundServiceFQDNs(
+	execMD *engineutil.ExecutionMetadata,
+	bindings ServiceBindings,
+	running []*RunningService,
+) {
+	if execMD == nil {
+		return
+	}
+	// Built locally and assigned once: callers may hand us a shallow clone of an
+	// ExecutionMetadata whose maps are still shared with the original.
+	fqdns := map[string]string{}
+	for i, bnd := range bindings {
+		if i >= len(running) {
+			break
+		}
+		svc := running[i]
+		if svc == nil || svc.Host == "" || svc.Host == bnd.Hostname {
+			continue
+		}
+		// Only services on the engine network get a name in the engine's DNS
+		// domain. A tunnel service reports a host-side dial address instead,
+		// which is meaningless inside the container and must keep resolving
+		// through the existing search-domain sweep.
+		if !strings.HasSuffix(svc.Host, network.DomainSuffix) {
+			continue
+		}
+		fqdns[bnd.Hostname] = svc.Host
+	}
+	if len(fqdns) > 0 {
+		execMD.HostAliasFQDNs = fqdns
+	}
 }
 
 func (bndp ServiceBindings) AttachDependencyResults(

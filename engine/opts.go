@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"unicode"
 
 	controlapi "github.com/dagger/dagger/internal/buildkit/api/services/control"
@@ -34,6 +35,15 @@ const (
 
 	// socket session attachable keys
 	SocketURLEncodedKey = "X-Dagger-Socket-URLEncoded"
+
+	// SuppressTelemetryHeader opts a single /query request out of telemetry
+	// when set to "true": no per-request wrapper span, and no dagql call
+	// spans/logs for the request's whole selection. Intended for read-only
+	// "observer" queries (e.g. the CLI's context visualizer polling the LLM
+	// conversation) whose telemetry is pure noise and, worse, unbounded: an
+	// observer re-reading ever-growing state emits volume quadratic in that
+	// state's size, bloating the engine-side telemetry stores.
+	SuppressTelemetryHeader = "X-Dagger-Suppress-Telemetry"
 )
 
 // ExtraModule specifies a module to load at connect time in addition to
@@ -88,13 +98,16 @@ type ClientMetadata struct {
 	// Dagger Cloud Org
 	CloudOrg string `json:"cloud_org"`
 
+	// CloudEngine reports that this client is connected to a Dagger Cloud Engine.
+	CloudEngine bool `json:"cloud_engine,omitempty"`
+
 	// Disable analytics
 	DoNotTrack bool `json:"do_not_track"`
 
 	// SSH auth socket path
 	SSHAuthSocketPath string `json:"ssh_auth_socket_path"`
 
-	// Modules permitted to access LLM APIs or "all" to bypass restrictions for any loaded module.
+	// Modules permitted to access LLM APIs or "all" to allow every loaded module.
 	AllowedLLMModules []string `json:"allowed_llm_modules"`
 
 	// Disable lazy loading on module runtime.
@@ -134,11 +147,6 @@ type ClientMetadata struct {
 	// when a legacy dagger.json is projected into a compat workspace.
 	SuppressCompatWorkspaceWarning bool `json:"suppress_compat_workspace_warning,omitempty"`
 
-	// LockMode controls lockfile behavior for lookup resolution.
-	// Valid values: "live", "pinned", "frozen", "update".
-	// Legacy aliases "disabled", "auto", and "strict" are also accepted.
-	LockMode string `json:"lock_mode,omitempty"`
-
 	// Workspace explicitly declares the workspace binding for this client.
 	// When unset, the engine applies default workspace binding behavior.
 	Workspace *string `json:"workspace,omitempty"`
@@ -147,10 +155,48 @@ type ClientMetadata struct {
 	// this client. When unset, no environment overlay is applied.
 	WorkspaceEnv *string `json:"workspace_env,omitempty"`
 
+	// UserConfigPath is the caller-host path to the user-level Dagger config
+	// file (~/.config/dagger/config.toml). The engine reads it through the
+	// caller host session to apply user-level workspace overrides. When unset,
+	// no user-level config is consulted.
+	UserConfigPath string `json:"user_config_path,omitempty"`
+
+	// WorkspaceModuleScope hints at the workspace module this client's first
+	// schema introspection targets: the leading CLI command token, unresolved
+	// (it may name a module, an entrypoint-proxied function, or a typo). The
+	// engine may use it to defer loading unrelated workspace modules for the
+	// first request whose only full-schema demand is currentTypeDefs. An
+	// unrecognized token falls back to the entrypoint module when one is
+	// configured, else to loading everything; deferred modules load on demand
+	// from later requests.
+	WorkspaceModuleScope string `json:"workspace_module_scope,omitempty"`
+
 	// UseRecipeIDsByDefault asks id() to return recipe-form IDs unless the
 	// request explicitly passes a recipe argument. This is engine-internal
 	// nested-client state and must not be forwarded through client headers.
 	UseRecipeIDsByDefault bool `json:"-"`
+
+	// Profile enables engine wall-clock profiling (wcprof) for the duration
+	// of this client's work. Experimental; the recorded events are retrieved
+	// via the engine debug endpoints.
+	Profile bool `json:"profile,omitempty"`
+}
+
+type suppressTelemetryCtxKey struct{}
+
+// ContextWithTelemetrySuppression marks the context so that HTTP requests
+// made with it carry SuppressTelemetryHeader, opting the request out of
+// engine-side telemetry. See SuppressTelemetryHeader for when this is
+// appropriate.
+func ContextWithTelemetrySuppression(ctx context.Context) context.Context {
+	return context.WithValue(ctx, suppressTelemetryCtxKey{}, true)
+}
+
+// TelemetrySuppressedFromContext reports whether the context was marked with
+// ContextWithTelemetrySuppression.
+func TelemetrySuppressedFromContext(ctx context.Context) bool {
+	val, _ := ctx.Value(suppressTelemetryCtxKey{}).(bool)
+	return val
 }
 
 type clientMetadataCtxKey struct{}
@@ -232,17 +278,19 @@ func normalizeWorkspaceModuleLoading(loadWorkspaceModules, skipWorkspaceModules 
 }
 
 type LocalImportOpts struct {
-	Path               string   `json:"path"`
-	UseGitIgnore       bool     `json:"use_gitignore"`
-	IncludePatterns    []string `json:"include_patterns"`
-	ExcludePatterns    []string `json:"exclude_patterns"`
-	FollowPaths        []string `json:"follow_paths"`
-	ReadSingleFileOnly bool     `json:"read_single_file_only"`
-	MaxFileSize        int64    `json:"max_file_size"`
-	StatPathOnly       bool     `json:"stat_path_only"`
-	StatReturnAbsPath  bool     `json:"stat_return_abs_path"`
-	StatResolvePath    bool     `json:"stat_resolve_path"`
-	GetAbsPathOnly     bool     `json:"get_abs_path_only"`
+	Path               string           `json:"path"`
+	UseGitIgnore       bool             `json:"use_gitignore"`
+	IncludePatterns    []string         `json:"include_patterns"`
+	ExcludePatterns    []string         `json:"exclude_patterns"`
+	FollowPaths        []string         `json:"follow_paths"`
+	ReadSingleFileOnly bool             `json:"read_single_file_only"`
+	MaxFileSize        int64            `json:"max_file_size"`
+	StatPathOnly       bool             `json:"stat_path_only"`
+	StatReturnAbsPath  bool             `json:"stat_return_abs_path"`
+	StatResolvePath    bool             `json:"stat_resolve_path"`
+	GetAbsPathOnly     bool             `json:"get_abs_path_only"`
+	GlobPattern        string           `json:"glob_pattern"`
+	SearchOpts         *LocalSearchOpts `json:"search_opts,omitempty"`
 }
 
 func (o LocalImportOpts) ToGRPCMD() metadata.MD {
@@ -304,6 +352,51 @@ func LocalImportOptsFromContext(ctx context.Context) (*LocalImportOpts, error) {
 		return nil, err
 	}
 	return opts, nil
+}
+
+// LocalSearchResult is a search match returned from a client-side search.
+type LocalSearchResult struct {
+	FilePath       string                `json:"file_path"`
+	LineNumber     int                   `json:"line_number"`
+	AbsoluteOffset int                   `json:"absolute_offset"`
+	MatchedLines   string                `json:"matched_lines"`
+	Submatches     []LocalSearchSubmatch `json:"submatches,omitempty"`
+}
+
+// LocalSearchSubmatch is a sub-match within a search result.
+type LocalSearchSubmatch struct {
+	Text  string `json:"text"`
+	Start int    `json:"start"`
+	End   int    `json:"end"`
+}
+
+// LocalSearchOpts configures a client-side search (ripgrep/grep).
+type LocalSearchOpts struct {
+	Pattern     string   `json:"pattern"`
+	Literal     bool     `json:"literal,omitempty"`
+	Multiline   bool     `json:"multiline,omitempty"`
+	Dotall      bool     `json:"dotall,omitempty"`
+	Insensitive bool     `json:"insensitive,omitempty"`
+	SkipIgnored bool     `json:"skip_ignored,omitempty"`
+	SkipHidden  bool     `json:"skip_hidden,omitempty"`
+	FilesOnly   bool     `json:"files_only,omitempty"`
+	Limit       *int     `json:"limit,omitempty"`
+	Paths       []string `json:"paths,omitempty"`
+	Globs       []string `json:"globs,omitempty"`
+}
+
+// RipgrepNoFilesSearched reports whether ripgrep's stderr says it exited only
+// because every candidate file was excluded by a filter (globs, ignore rules,
+// hidden-file rules), rather than because something actually went wrong.
+//
+// ripgrep exits 2 with "No files were searched, which means ripgrep probably
+// applied a filter you didn't expect." even though "the filter matched nothing"
+// is a perfectly ordinary outcome of a search - e.g. a --glob naming a file
+// that doesn't exist in the tree being searched. Since search results from one
+// tree get merged with results from others (workspace overlays, cache mounts),
+// treating this as fatal loses matches that do exist in the other trees.
+func RipgrepNoFilesSearched(stderr string) bool {
+	return strings.Contains(stderr, "No files were searched")
 }
 
 type LocalExportOpts struct {

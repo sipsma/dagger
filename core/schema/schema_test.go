@@ -2,14 +2,283 @@ package schema
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"gotest.tools/v3/golden"
 
+	codegenintrospection "github.com/dagger/dagger/cmd/codegen/introspection"
+	"github.com/dagger/dagger/cmd/codegen/introspection/sdl"
 	"github.com/dagger/dagger/core"
 	"github.com/dagger/dagger/dagql"
+	"github.com/dagger/dagger/dagql/call"
 	"github.com/dagger/dagger/engine"
 )
+
+func TestBaseSchemaAllowlist(t *testing.T) {
+	// base_schema.json is the public API surface visible to the oldest supported
+	// module view. New APIs should not appear here unless they are intentionally
+	// available to historical module versions.
+	ctx := context.Background()
+	baseCache, err := dagql.NewCache(ctx, "", nil, nil)
+	require.NoError(t, err)
+	ctx = dagql.ContextWithCache(ctx, baseCache)
+	ctx = engine.ContextWithClientMetadata(ctx, &engine.ClientMetadata{
+		ClientID:  "base-schema-client",
+		SessionID: "base-schema-session",
+	})
+	srv := &currentTypeDefsTestServer{}
+	root := core.NewRoot(srv)
+	coreSchemaBase, err := NewCoreSchemaBase(ctx, srv)
+	require.NoError(t, err)
+	dag, err := coreSchemaBase.Fork(ctx, root, "")
+	require.NoError(t, err)
+
+	gotBytes, err := getSchemaJSON(nil, nil, baseSchemaView(), dag)
+	require.NoError(t, err)
+	var got strings.Builder
+	sdl.Format(&got, decodeSchemaResponse(t, gotBytes).Schema)
+
+	golden.Assert(t, got.String(), "base_schema.graphqls",
+		"base schema allowlist mismatch. New public APIs must specify version visibility with "+
+			"View(AfterVersion(<next release version from internal/version/VERSION>)). "+
+			"For intentional changes to the base view, regenerate with "+
+			"`go test ./core/schema -run TestBaseSchemaAllowlist -update`.")
+}
+
+func TestGitBundleSchema(t *testing.T) {
+	ctx := context.Background()
+	cache, err := dagql.NewCache(ctx, "", nil, nil)
+	require.NoError(t, err)
+	ctx = dagql.ContextWithCache(ctx, cache)
+	ctx = engine.ContextWithClientMetadata(ctx, &engine.ClientMetadata{
+		ClientID:  "git-bundle-schema-client",
+		SessionID: "git-bundle-schema-session",
+	})
+	srv := &currentTypeDefsTestServer{}
+	root := core.NewRoot(srv)
+	coreSchemaBase, err := NewCoreSchemaBase(ctx, srv)
+	require.NoError(t, err)
+	dag, err := coreSchemaBase.Fork(ctx, root, "v1.0.0")
+	require.NoError(t, err)
+	fullJSON, err := getSchemaJSON(nil, nil, dag.View, dag)
+	require.NoError(t, err)
+	schema := decodeSchemaResponse(t, fullJSON).Schema
+
+	bundleType := schema.Types.Get("GitBundle")
+	require.NotNil(t, bundleType)
+	for _, name := range []string{"version", "objectFormat", "refs", "prerequisiteSHAs", "validate", "asFile"} {
+		require.NotNil(t, schemaField(bundleType, name), name)
+	}
+	bundleRefType := schema.Types.Get("GitBundleRef")
+	require.NotNil(t, bundleRefType)
+	require.NotNil(t, schemaField(bundleRefType, "name"))
+	require.NotNil(t, schemaField(bundleRefType, "sha"))
+	require.NotNil(t, schemaField(schema.Types.Get("File"), "asGitBundle"))
+
+	repositoryType := schema.Types.Get("GitRepository")
+	bundleField := schemaField(repositoryType, "bundle")
+	require.NotNil(t, bundleField)
+	require.Equal(t, "GitRef", schemaArgument(t, bundleField, "base").Directives.ExpectedType())
+	withBundleField := schemaField(repositoryType, "withBundle")
+	require.NotNil(t, withBundleField)
+	require.Equal(t, "GitBundle", schemaArgument(t, withBundleField, "bundle").Directives.ExpectedType())
+}
+
+func schemaArgument(t *testing.T, field *codegenintrospection.Field, name string) *codegenintrospection.InputValue {
+	t.Helper()
+	for i := range field.Args {
+		if field.Args[i].Name == name {
+			return &field.Args[i]
+		}
+	}
+	require.Failf(t, "missing GraphQL argument", "expected argument %q on field %q", name, field.Name)
+	return nil
+}
+
+func TestWorkspaceClientSDKSchema(t *testing.T) {
+	ctx := context.Background()
+	cache, err := dagql.NewCache(ctx, "", nil, nil)
+	require.NoError(t, err)
+	ctx = dagql.ContextWithCache(ctx, cache)
+	ctx = engine.ContextWithClientMetadata(ctx, &engine.ClientMetadata{
+		ClientID: "client-sdk-schema-client", SessionID: "client-sdk-schema-session",
+	})
+	srv := &currentTypeDefsTestServer{}
+	root := core.NewRoot(srv)
+	base, err := NewCoreSchemaBase(ctx, srv)
+	require.NoError(t, err)
+	for _, view := range []call.View{baseSchemaView(), "v1.0.0"} {
+		dag, err := base.Fork(ctx, root, view)
+		require.NoError(t, err)
+		data, err := getSchemaJSON(nil, nil, view, dag)
+		require.NoError(t, err)
+		ws := decodeSchemaResponse(t, data).Schema.Types.Get("Workspace")
+		if view == baseSchemaView() {
+			if ws != nil {
+				require.Nil(t, schemaField(ws, "withClient"))
+				require.Nil(t, schemaField(ws, "withoutClient"))
+			}
+			continue
+		}
+		require.NotNil(t, ws)
+		for _, name := range []string{"withClient", "withoutClient"} {
+			field := schemaField(ws, name)
+			require.NotNil(t, field)
+			require.False(t, schemaArgument(t, field, "module").IsOptional())
+			sdk := schemaArgument(t, field, "sdk")
+			require.True(t, sdk.IsOptional())
+			require.NotNil(t, sdk.DefaultValue)
+			require.Equal(t, `""`, *sdk.DefaultValue)
+		}
+		require.True(t, schemaArgument(t, schemaField(ws, "withClient"), "settings").IsOptional())
+	}
+}
+
+func TestSchemaJSONScrubbing(t *testing.T) {
+	ctx := context.Background()
+	baseCache, err := dagql.NewCache(ctx, "", nil, nil)
+	require.NoError(t, err)
+	ctx = dagql.ContextWithCache(ctx, baseCache)
+	ctx = engine.ContextWithClientMetadata(ctx, &engine.ClientMetadata{
+		ClientID:  "schema-scrubbing-client",
+		SessionID: "schema-scrubbing-session",
+	})
+	srv := &currentTypeDefsTestServer{}
+	root := core.NewRoot(srv)
+	coreSchemaBase, err := NewCoreSchemaBase(ctx, srv)
+	require.NoError(t, err)
+	dag, err := coreSchemaBase.Fork(ctx, root, "v1.0.0")
+	require.NoError(t, err)
+
+	// Module object arguments are represented by their ID scalar in GraphQL.
+	// Install one here to verify field scrubbing keeps Workspace-typed module
+	// arguments and both of the schema types codegen needs for them.
+	dagql.Fields[*core.Query]{
+		dagql.Func("workspaceArgument", func(_ context.Context, _ *core.Query, _ struct {
+			Workspace dagql.ID[*core.Workspace]
+		}) (string, error) {
+			return "", nil
+		}).Args(dagql.Arg("workspace")),
+	}.Install(dag)
+
+	fullJSON, err := getSchemaJSON(nil, nil, dag.View, dag)
+	require.NoError(t, err)
+	full := decodeSchemaResponse(t, fullJSON)
+	require.NotNil(t, schemaField(full.Schema.Query(), "currentWorkspace"))
+	require.NotNil(t, full.Schema.Types.Get("Workspace"))
+	require.NotNil(t, full.Schema.Types.Get("ID"))
+	requireWorkspaceArgument(t, full.Schema)
+	require.NotNil(t, full.Schema.Types.Get("Host"))
+	require.NotNil(t, schemaField(full.Schema.Query(), "host"))
+
+	t.Run("module and client policies", func(t *testing.T) {
+		moduleHiddenTypes := append([]string{}, core.TypesToIgnoreForModuleIntrospection...)
+		for _, typed := range core.TypesHiddenFromModuleSDKs {
+			moduleHiddenTypes = append(moduleHiddenTypes, typed.Type().Name())
+		}
+		moduleJSON, err := getSchemaJSON(
+			moduleHiddenTypes,
+			core.FieldsToIgnoreForModuleIntrospection,
+			dag.View,
+			dag,
+		)
+		require.NoError(t, err)
+		require.NotEqual(t, fullJSON, moduleJSON)
+
+		moduleSchema := decodeSchemaResponse(t, moduleJSON)
+		require.Nil(t, schemaField(moduleSchema.Schema.Query(), "currentWorkspace"))
+		require.NotNil(t, moduleSchema.Schema.Types.Get("Workspace"))
+		require.NotNil(t, moduleSchema.Schema.Types.Get("ID"))
+		requireWorkspaceArgument(t, moduleSchema.Schema)
+		require.Nil(t, moduleSchema.Schema.Types.Get("Host"))
+		require.Nil(t, schemaField(moduleSchema.Schema.Query(), "host"))
+
+		clientSchema := decodeSchemaResponse(t, fullJSON)
+		require.NotNil(t, schemaField(clientSchema.Schema.Query(), "currentWorkspace"))
+		require.NotNil(t, clientSchema.Schema.Types.Get("Workspace"))
+		require.NotNil(t, clientSchema.Schema.Types.Get("Host"))
+		require.NotNil(t, schemaField(clientSchema.Schema.Query(), "host"))
+	})
+
+	t.Run("individual field", func(t *testing.T) {
+		scrubbedJSON, err := getSchemaJSON(nil, []string{"Query.currentWorkspace"}, dag.View, dag)
+		require.NoError(t, err)
+		require.NotEqual(t, fullJSON, scrubbedJSON)
+
+		scrubbed := decodeSchemaResponse(t, scrubbedJSON)
+		require.Nil(t, schemaField(scrubbed.Schema.Query(), "currentWorkspace"))
+		require.NotNil(t, scrubbed.Schema.Types.Get("Workspace"))
+		require.NotNil(t, scrubbed.Schema.Types.Get("ID"))
+		requireWorkspaceArgument(t, scrubbed.Schema)
+	})
+
+	t.Run("different fields", func(t *testing.T) {
+		currentWorkspaceJSON, err := getSchemaJSON(nil, []string{"Query.currentWorkspace"}, dag.View, dag)
+		require.NoError(t, err)
+		versionJSON, err := getSchemaJSON(nil, []string{"Query.version"}, dag.View, dag)
+		require.NoError(t, err)
+		require.NotEqual(t, currentWorkspaceJSON, versionJSON)
+
+		versionScrubbed := decodeSchemaResponse(t, versionJSON)
+		require.NotNil(t, schemaField(versionScrubbed.Schema.Query(), "currentWorkspace"))
+		require.Nil(t, schemaField(versionScrubbed.Schema.Query(), "version"))
+	})
+
+	t.Run("whole type", func(t *testing.T) {
+		scrubbedJSON, err := getSchemaJSON([]string{"Host"}, nil, dag.View, dag)
+		require.NoError(t, err)
+		scrubbed := decodeSchemaResponse(t, scrubbedJSON)
+
+		require.Nil(t, scrubbed.Schema.Types.Get("Host"))
+		require.Nil(t, schemaField(scrubbed.Schema.Query(), "host"))
+		require.NotNil(t, schemaField(scrubbed.Schema.Query(), "currentWorkspace"))
+	})
+
+	t.Run("invalid field", func(t *testing.T) {
+		_, err := getSchemaJSON(nil, []string{"currentWorkspace"}, dag.View, dag)
+		require.EqualError(t, err, `invalid hidden field "currentWorkspace": expected Type.field`)
+	})
+}
+
+func decodeSchemaResponse(t *testing.T, data []byte) *codegenintrospection.Response {
+	t.Helper()
+	var response codegenintrospection.Response
+	require.NoError(t, json.Unmarshal(data, &response))
+	require.NotNil(t, response.Schema)
+	return &response
+}
+
+func schemaField(typ *codegenintrospection.Type, name string) *codegenintrospection.Field {
+	if typ == nil {
+		return nil
+	}
+	for _, field := range typ.Fields {
+		if field.Name == name {
+			return field
+		}
+	}
+	return nil
+}
+
+func requireWorkspaceArgument(t *testing.T, schema *codegenintrospection.Schema) {
+	t.Helper()
+	field := schemaField(schema.Query(), "workspaceArgument")
+	require.NotNil(t, field)
+	require.Len(t, field.Args, 1)
+	require.Equal(t, "workspace", field.Args[0].Name)
+	require.True(t, field.Args[0].TypeRef.ReferencesType("ID"))
+	require.Equal(t, "Workspace", field.Args[0].Directives.ExpectedType())
+}
+
+func baseSchemaView() call.View {
+	if engine.MinimumModuleVersion == "" {
+		return "v0.9.9"
+	}
+	return call.View(engine.MinimumModuleVersion)
+}
 
 func TestCoreModTypeDefs(t *testing.T) {
 	ctx := context.Background()
@@ -138,6 +407,68 @@ func TestCoreModTypeDefs(t *testing.T) {
 	require.Equal(t, "allowParentDirPath", exportFnAllowParentDirPathArg.Name)
 	require.Equal(t, core.TypeDefKindBoolean, exportFnAllowParentDirPathArg.TypeDef.Self().Kind)
 	require.True(t, exportFnAllowParentDirPathArg.TypeDef.Self().Optional)
+}
+
+func TestVolumeConstructorsHiddenFromModuleSchema(t *testing.T) {
+	ctx := context.Background()
+	baseCache, err := dagql.NewCache(ctx, "", nil, nil)
+	require.NoError(t, err)
+	ctx = dagql.ContextWithCache(ctx, baseCache)
+	ctx = engine.ContextWithClientMetadata(ctx, &engine.ClientMetadata{
+		ClientID:  "volume-schema-client",
+		SessionID: "volume-schema-session",
+	})
+	srv := &currentTypeDefsTestServer{}
+	root := core.NewRoot(srv)
+	coreSchemaBase, err := NewCoreSchemaBase(ctx, srv)
+	require.NoError(t, err)
+	dag, err := coreSchemaBase.Fork(ctx, root, "")
+	require.NoError(t, err)
+
+	hiddenTypes := append([]string{}, core.TypesToIgnoreForModuleIntrospection...)
+	for _, typed := range core.TypesHiddenFromModuleSDKs {
+		hiddenTypes = append(hiddenTypes, typed.Type().Name())
+	}
+	moduleBytes, err := getSchemaJSON(hiddenTypes, core.FieldsToIgnoreForModuleIntrospection, "", dag)
+	require.NoError(t, err)
+	moduleSchema := decodeSchemaResponse(t, moduleBytes).Schema
+
+	require.NotNil(t, moduleSchema.Types.Get("Volume"))
+	require.NotNil(t, schemaField(moduleSchema.Types.Get("Container"), "withMountedVolume"))
+	require.Nil(t, schemaField(moduleSchema.Query(), "engineVolume"))
+	require.Nil(t, schemaField(moduleSchema.Query(), "sshfsVolume"))
+	require.Nil(t, schemaField(moduleSchema.Types.Get("Address"), "volume"))
+
+	clientBytes, err := getSchemaJSON(nil, nil, "", dag)
+	require.NoError(t, err)
+	clientSchema := decodeSchemaResponse(t, clientBytes).Schema
+	require.NotNil(t, clientSchema.Types.Get("Volume"))
+	require.NotNil(t, schemaField(clientSchema.Types.Get("Container"), "withMountedVolume"))
+	require.NotNil(t, schemaField(clientSchema.Query(), "engineVolume"))
+	require.NotNil(t, schemaField(clientSchema.Query(), "sshfsVolume"))
+	require.NotNil(t, schemaField(clientSchema.Types.Get("Address"), "volume"))
+}
+
+func TestSchemaJSONRejectsInvalidHiddenFields(t *testing.T) {
+	ctx := context.Background()
+	baseCache, err := dagql.NewCache(ctx, "", nil, nil)
+	require.NoError(t, err)
+	ctx = dagql.ContextWithCache(ctx, baseCache)
+	ctx = engine.ContextWithClientMetadata(ctx, &engine.ClientMetadata{
+		ClientID:  "hidden-field-client",
+		SessionID: "hidden-field-session",
+	})
+	srv := &currentTypeDefsTestServer{}
+	root := core.NewRoot(srv)
+	coreSchemaBase, err := NewCoreSchemaBase(ctx, srv)
+	require.NoError(t, err)
+	dag, err := coreSchemaBase.Fork(ctx, root, "")
+	require.NoError(t, err)
+
+	for _, hiddenField := range []string{"NoDot", "Query.", ".sshfsVolume"} {
+		_, err := getSchemaJSON(nil, []string{hiddenField}, "", dag)
+		require.Error(t, err, hiddenField)
+	}
 }
 
 func TestCurrentTypeDefsReturnAllTypes(t *testing.T) {

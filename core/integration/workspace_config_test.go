@@ -1,8 +1,15 @@
 package core
 
 // These tests cover current workspace config in `dagger.toml`. They verify
-// reads, writes, command aliases, workspace boundaries, and how
-// `[modules.<name>.settings]` affects loaded modules.
+// reads, writes, workspace boundaries, and how `[modules.<name>.settings]`
+// affects loaded modules.
+//
+// The CLI 1.0 redesign moved raw config to `dagger workspace config` (the
+// top-level `dagger config` alias was dropped) and removed the explicit
+// `dagger workspace init` command — workspace creation is now implicit on the
+// first `dagger module install` (covered in workspace_modules_test.go's "install
+// initializes empty workspace"). The old TestConfigAlias and
+// TestWorkspaceInitCommand tests were dropped accordingly.
 //
 // See also:
 // - workspace_env_management_test.go: config while an environment is selected.
@@ -83,7 +90,7 @@ source = "github.com/dagger/dagger/modules/wolfi"
 `)
 
 	t.Run("full config", func(ctx context.Context, t *testctx.T) {
-		out, err := hostDaggerExec(ctx, t, workdir, "--silent", "workspace", "config")
+		out, err := hostDaggerExec(ctx, t, workdir, "workspace", "config")
 		require.NoError(t, err)
 		require.Contains(t, string(out), `source = "modules/greeter"`)
 		require.Contains(t, string(out), "entrypoint = true")
@@ -91,20 +98,20 @@ source = "github.com/dagger/dagger/modules/wolfi"
 	})
 
 	t.Run("scalar value", func(ctx context.Context, t *testctx.T) {
-		out, err := hostDaggerExec(ctx, t, workdir, "--silent", "workspace", "config", "modules.greeter.source")
+		out, err := hostDaggerExec(ctx, t, workdir, "workspace", "config", "modules.greeter.source")
 		require.NoError(t, err)
 		require.Equal(t, "modules/greeter", strings.TrimSpace(string(out)))
 	})
 
 	t.Run("table value", func(ctx context.Context, t *testctx.T) {
-		out, err := hostDaggerExec(ctx, t, workdir, "--silent", "workspace", "config", "modules.greeter")
+		out, err := hostDaggerExec(ctx, t, workdir, "workspace", "config", "modules.greeter")
 		require.NoError(t, err)
 		require.Contains(t, string(out), `source = "modules/greeter"`)
 		require.Contains(t, string(out), "entrypoint = true")
 	})
 
 	t.Run("missing key", func(ctx context.Context, t *testctx.T) {
-		_, err := hostDaggerExec(ctx, t, workdir, "--silent", "workspace", "config", "modules.missing.source")
+		_, err := hostDaggerExec(ctx, t, workdir, "workspace", "config", "modules.missing.source")
 		require.Error(t, err)
 		requireErrOut(t, err, `key "modules.missing.source" is not set`)
 	})
@@ -117,16 +124,16 @@ source = "modules/greeter"
 entrypoint = true
 `)
 
-		_, err := hostDaggerExec(ctx, t, workdir, "--silent", "workspace", "config", "modules.greeter.source", "github.com/acme/greeter")
+		_, err := hostDaggerExec(ctx, t, workdir, "workspace", "config", "modules.greeter.source", "github.com/acme/greeter")
 		require.NoError(t, err)
-		_, err = hostDaggerExec(ctx, t, workdir, "--silent", "workspace", "config", "modules.greeter.entrypoint", "false")
+		_, err = hostDaggerExec(ctx, t, workdir, "workspace", "config", "modules.greeter.entrypoint", "false")
 		require.NoError(t, err)
 
-		out, err := hostDaggerExec(ctx, t, workdir, "--silent", "workspace", "config", "modules.greeter.source")
+		out, err := hostDaggerExec(ctx, t, workdir, "workspace", "config", "modules.greeter.source")
 		require.NoError(t, err)
 		require.Equal(t, "github.com/acme/greeter", strings.TrimSpace(string(out)))
 
-		out, err = hostDaggerExec(ctx, t, workdir, "--silent", "workspace", "config", "modules.greeter.entrypoint")
+		out, err = hostDaggerExec(ctx, t, workdir, "workspace", "config", "modules.greeter.entrypoint")
 		require.NoError(t, err)
 		require.Equal(t, "false", strings.TrimSpace(string(out)))
 	})
@@ -137,7 +144,7 @@ source = "modules/greeter"
 entrypoint = true
 `)
 
-		_, err := hostDaggerExec(ctx, t, workdir, "--silent", "workspace", "config", "modules.greeter.settings.tags", "main, develop")
+		_, err := hostDaggerExec(ctx, t, workdir, "workspace", "config", "modules.greeter.settings.tags", "main, develop")
 		require.NoError(t, err)
 
 		configContents, err := os.ReadFile(filepath.Join(workdir, workspace.ConfigFileName))
@@ -153,7 +160,7 @@ source = "modules/greeter"
 entrypoint = true
 `)
 
-		_, err := hostDaggerExec(ctx, t, workdir, "--silent", "workspace", "config", "modules.greeter.badfield", "value")
+		_, err := hostDaggerExec(ctx, t, workdir, "workspace", "config", "modules.greeter.badfield", "value")
 		require.Error(t, err)
 		requireErrOut(t, err, "unknown config key")
 	})
@@ -170,6 +177,28 @@ func newWorkspaceModuleSettingsCtr(t *testctx.T, c *dagger.Client, configTOML st
 
 func (WorkspaceSuite) TestWorkspaceModuleSettingsRuntime(ctx context.Context, t *testctx.T) {
 	c := connect(ctx, t)
+
+	t.Run("git refs accept at separators in sources and settings", func(ctx context.Context, t *testctx.T) {
+		ctr := newWorkspaceModuleSettingsCtr(t, c, `[modules.wolfi]
+source = "https://github.com/dagger/dagger/modules/wolfi@v0.20.2"
+
+[modules.superconstructor]
+source = "defaults/superconstructor"
+entrypoint = true
+
+[modules.superconstructor.settings]
+count = 7
+greeting = "hello"
+dir = "https://github.com/dagger/dagger@v0.18.3"
+file = "/foo/hello.txt"
+password = "env://PASSWORD"
+service = "tcp://www:80"
+`)
+
+		out, err := ctr.WithExec([]string{"dagger", "--progress=report", "call", "dir", "entries"}, nestedExec).Stdout(ctx)
+		require.NoError(t, err)
+		require.Contains(t, out, "README.md")
+	})
 
 	t.Run("workspace module settings drive constructor help and runtime", func(ctx context.Context, t *testctx.T) {
 		ctr := newWorkspaceModuleSettingsCtr(t, c, `[modules.superconstructor]
@@ -240,30 +269,12 @@ service = "tcp://www:80"
 	})
 }
 
-func (WorkspaceSuite) TestConfigAlias(ctx context.Context, t *testctx.T) {
-	workdir := newWorkspaceConfigWorkdir(ctx, t, `[modules.greeter]
-source = "modules/greeter"
-entrypoint = true
-`)
-
-	out, err := hostDaggerExec(ctx, t, workdir, "--silent", "config", "modules.greeter.source")
-	require.NoError(t, err)
-	require.Equal(t, "modules/greeter", strings.TrimSpace(string(out)))
-
-	_, err = hostDaggerExec(ctx, t, workdir, "--silent", "config", "modules.greeter.entrypoint", "false")
-	require.NoError(t, err)
-
-	out, err = hostDaggerExec(ctx, t, workdir, "--silent", "workspace", "config", "modules.greeter.entrypoint")
-	require.NoError(t, err)
-	require.Equal(t, "false", strings.TrimSpace(string(out)))
-}
-
 func (WorkspaceSuite) TestWorkspaceConfigReadWithoutNativeConfig(ctx context.Context, t *testctx.T) {
 	t.Run("full read is empty", func(ctx context.Context, t *testctx.T) {
 		workdir := t.TempDir()
 		initGitRepo(ctx, t, workdir)
 
-		out, err := hostDaggerExec(ctx, t, workdir, "--silent", "workspace", "config")
+		out, err := hostDaggerExec(ctx, t, workdir, "workspace", "config")
 		require.NoError(t, err)
 		require.Empty(t, string(out))
 	})
@@ -274,7 +285,7 @@ func (WorkspaceSuite) TestWorkspaceConfigReadWithoutNativeConfig(ctx context.Con
 		require.NoError(t, os.WriteFile(filepath.Join(workdir, workspace.ModuleConfigFileName), []byte(`name = "app"
 `), 0o644))
 
-		out, err := hostDaggerExec(ctx, t, workdir, "--silent", "config")
+		out, err := hostDaggerExec(ctx, t, workdir, "workspace", "config")
 		require.NoError(t, err)
 		require.Empty(t, string(out))
 	})
@@ -283,7 +294,7 @@ func (WorkspaceSuite) TestWorkspaceConfigReadWithoutNativeConfig(ctx context.Con
 		workdir := t.TempDir()
 		initGitRepo(ctx, t, workdir)
 
-		_, err := hostDaggerExec(ctx, t, workdir, "--silent", "workspace", "config", "modules.missing.source")
+		_, err := hostDaggerExec(ctx, t, workdir, "workspace", "config", "modules.missing.source")
 		require.Error(t, err)
 		requireErrOut(t, err, `key "modules.missing.source" is not set`)
 	})
@@ -315,86 +326,7 @@ func (WorkspaceSuite) TestCurrentWorkspaceConfigBoundary(ctx context.Context, t 
 			"cwd": "/app/sub",
 			"configFile": %q
 		}
-	}`, filepath.Join("app", workspace.ConfigFileName)), string(out))
-}
-
-func (WorkspaceSuite) TestWorkspaceInitCommand(ctx context.Context, t *testctx.T) {
-	t.Run("creates config at the workspace root by default", func(ctx context.Context, t *testctx.T) {
-		workdir := t.TempDir()
-		nestedDir := filepath.Join(workdir, "app", "sub")
-
-		require.NoError(t, os.MkdirAll(nestedDir, 0o755))
-		require.NoError(t, os.WriteFile(
-			filepath.Join(nestedDir, "query.graphql"),
-			[]byte(currentWorkspaceConfigQuery),
-			0o644,
-		))
-		initGitRepo(ctx, t, workdir)
-
-		out, err := hostDaggerExecRaw(ctx, t, nestedDir, "--silent", "workspace", "init")
-		require.NoError(t, err)
-		require.Equal(t, fmt.Sprintf("Created workspace config in %s", workdir), strings.TrimSpace(string(out)))
-
-		configHostPath := filepath.Join(workdir, workspace.ConfigFileName)
-		configContents, err := os.ReadFile(configHostPath)
-		require.NoError(t, err)
-		require.Contains(t, string(configContents), "[modules]")
-
-		out, err = hostDaggerExec(ctx, t, nestedDir, "--silent", "query", "--doc", "query.graphql")
-		require.NoError(t, err)
-		require.JSONEq(t, fmt.Sprintf(`{
-			"currentWorkspace": {
-				"cwd": "/app/sub",
-				"configFile": %q
-			}
-		}`, workspace.ConfigFileName), string(out))
-	})
-
-	t.Run("creates config at the workspace cwd with --here", func(ctx context.Context, t *testctx.T) {
-		workdir := t.TempDir()
-		nestedDir := filepath.Join(workdir, "app", "sub")
-
-		require.NoError(t, os.MkdirAll(nestedDir, 0o755))
-		require.NoError(t, os.WriteFile(
-			filepath.Join(nestedDir, "query.graphql"),
-			[]byte(currentWorkspaceConfigQuery),
-			0o644,
-		))
-		initGitRepo(ctx, t, workdir)
-
-		out, err := hostDaggerExecRaw(ctx, t, nestedDir, "--silent", "workspace", "init", "--here")
-		require.NoError(t, err)
-		require.Equal(t, fmt.Sprintf("Created workspace config in %s", nestedDir), strings.TrimSpace(string(out)))
-
-		configHostPath := filepath.Join(nestedDir, workspace.ConfigFileName)
-		configContents, err := os.ReadFile(configHostPath)
-		require.NoError(t, err)
-		require.Contains(t, string(configContents), "[modules]")
-
-		out, err = hostDaggerExec(ctx, t, nestedDir, "--silent", "query", "--doc", "query.graphql")
-		require.NoError(t, err)
-		require.JSONEq(t, fmt.Sprintf(`{
-			"currentWorkspace": {
-				"cwd": "/app/sub",
-				"configFile": %q
-			}
-		}`, filepath.Join("app", "sub", workspace.ConfigFileName)), string(out))
-	})
-
-	t.Run("rejects reinitialization", func(ctx context.Context, t *testctx.T) {
-		workdir := t.TempDir()
-		nestedDir := filepath.Join(workdir, "app")
-
-		require.NoError(t, os.MkdirAll(nestedDir, 0o755))
-		initGitRepo(ctx, t, workdir)
-
-		_, err := hostDaggerExec(ctx, t, nestedDir, "--silent", "workspace", "init")
-		require.NoError(t, err)
-
-		_, err = hostDaggerExec(ctx, t, nestedDir, "--silent", "workspace", "init")
-		require.Error(t, err)
-		requireErrOut(t, err, fmt.Sprintf("workspace config already exists at %s", workdir))
-	})
+	}`, filepath.Join("..", workspace.ConfigFileName)), string(out))
 }
 
 func (WorkspaceSuite) TestWorkspaceModuleSettingsPolicy(ctx context.Context, t *testctx.T) {
@@ -628,22 +560,26 @@ service = %s
 }
 
 func (WorkspaceSuite) TestWorkspaceConfigurationLifecycle(ctx context.Context, t *testctx.T) {
-	t.Run("CurrentWorkspace.Init creates config for the repo", func(ctx context.Context, t *testctx.T) {
+	t.Run("Workspace.WithConfigValue creates config for the repo", func(ctx context.Context, t *testctx.T) {
 		workdir := t.TempDir()
 		initGitRepo(ctx, t, workdir)
-		require.NoError(t, os.WriteFile(
-			filepath.Join(workdir, "query.graphql"),
-			[]byte(`{ currentWorkspace { init } }`),
-			0o644,
-		))
-
-		out, err := hostDaggerExec(ctx, t, workdir, "--silent", "query", "--doc", "query.graphql")
+		c := connect(ctx, t, dagger.WithWorkdir(workdir))
+		current := c.CurrentWorkspace()
+		updated := current.WithConfigValue(
+			"modules.example.source",
+			"github.com/dagger/example",
+		)
+		added, err := updated.Changes(dagger.WorkspaceChangesOpts{From: current}).AddedPaths(ctx)
 		require.NoError(t, err)
-		require.JSONEq(t, fmt.Sprintf(`{"currentWorkspace":{"init":%q}}`, workdir), string(out))
+		require.Equal(t, []string{workspace.ConfigFileName}, added)
+		require.NoError(t, updated.Export(ctx))
 
 		configContents, err := os.ReadFile(filepath.Join(workdir, workspace.ConfigFileName))
 		require.NoError(t, err)
-		require.Contains(t, string(configContents), "[modules]")
+		require.Contains(t, string(configContents), "[modules.example]")
+		// check-generated is not written by default; an absent setting already
+		// behaves as check-generated = true.
+		require.NotContains(t, string(configContents), "check-generated")
 	})
 
 	t.Run("workspace config detects the nearest config", func(ctx context.Context, t *testctx.T) {
@@ -659,11 +595,11 @@ source = "modules/inner"
 `)
 		require.NoError(t, os.MkdirAll(nestedDir, 0o755))
 
-		out, err := hostDaggerExec(ctx, t, nestedDir, "--silent", "workspace", "config", "modules.inner.source")
+		out, err := hostDaggerExec(ctx, t, nestedDir, "workspace", "config", "modules.inner.source")
 		require.NoError(t, err)
 		require.Equal(t, "modules/inner", strings.TrimSpace(string(out)))
 
-		_, err = hostDaggerExec(ctx, t, nestedDir, "--silent", "workspace", "config", "modules.outer.source")
+		_, err = hostDaggerExec(ctx, t, nestedDir, "workspace", "config", "modules.outer.source")
 		require.Error(t, err)
 		requireErrOut(t, err, `key "modules.outer.source" is not set`)
 	})

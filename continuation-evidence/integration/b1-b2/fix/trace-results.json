@@ -1,0 +1,22 @@
+[
+  {
+    "name": "b2-native-schema-trace",
+    "command": "dagger trace acdf3cd08ed0e4715b5c31582fdc65e8 --test TestRemoteCacheTransferSuite/TestSchemaRecovery",
+    "started": "2026-09-16T09:41:10.256177+00:00",
+    "head": "17384b793fe715006ffdbba4b1075354cd7733d8",
+    "log": "logs/b2-native-schema-trace.log",
+    "exit_status": 0,
+    "seconds": 5.086,
+    "finished": "2026-09-16T09:41:15.342631+00:00"
+  },
+  {
+    "name": "b2-native-cold-boundary",
+    "command": "dagger trace acdf3cd08ed0e4715b5c31582fdc65e8 --test TestRemoteCacheTransferSuite/TestSchemaRecoveryCold",
+    "started": "2026-09-16T09:41:15.343310+00:00",
+    "head": "17384b793fe715006ffdbba4b1075354cd7733d8",
+    "log": "logs/b2-native-cold-boundary.log",
+    "exit_status": 0,
+    "seconds": 2.368,
+    "finished": "2026-09-16T09:41:17.711140+00:00"
+  }
+]

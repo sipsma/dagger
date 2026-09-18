@@ -1,0 +1,23 @@
+# Excerpt of /tmp/b7/fc2.log (native run 2): verdicts and the one failure.
+2848:--- FAIL: TestRemoteCacheTransferSuite (0.00s)
+2849:    --- FAIL: TestRemoteCacheTransferSuite/TestFixtureControls (0.00s)
+2850:        --- PASS: TestRemoteCacheTransferSuite/TestFixtureControls/AbsentGate (34.73s)
+2851:        --- PASS: TestRemoteCacheTransferSuite/TestFixtureControls/MalformedRecords (43.10s)
+2852:        --- PASS: TestRemoteCacheTransferSuite/TestFixtureControls/TransportShape (47.56s)
+2853:        --- PASS: TestRemoteCacheTransferSuite/TestFixtureControls/NoStaleBarrierOrHoldAfterRestart (54.38s)
+2854:        --- PASS: TestRemoteCacheTransferSuite/TestFixtureControls/GitVisibility (55.28s)
+2855:        --- FAIL: TestRemoteCacheTransferSuite/TestFixtureControls/BarrierActions (66.36s)
+2856:        --- PASS: TestRemoteCacheTransferSuite/TestFixtureControls/ObserverOverflow (68.09s)
+2869:  ✘ 1 failed
+2872:exit=1 wall=306s
+    testctx.go:198: 25  : [12.0s] | time=2026-09-17T15:27:32.966Z level=INFO msg="starting dagql cache close" hasSQLDB=true hasPersistDB=true
+    testctx.go:174: 
+                Error Trace:    /app/core/integration/remote_cache_fixture_controls_test.go:101
+                                                        /go/pkg/mod/github.com/dagger/testctx@v0.1.2/testctx.go:296
+                                                        /go/pkg/mod/github.com/dagger/otel-go@v1.43.1-0.20260810200237-752a39ce1610/oteltestctx/trace.go:74
+                                                        /go/pkg/mod/github.com/dagger/testctx@v0.1.2/middleware.go:25
+                                                        /go/pkg/mod/github.com/dagger/testctx@v0.1.2/testctx.go:150
+                                                        /usr/lib/go/src/runtime/asm_amd64.s:1771
+                Error:          "[{1 4227 0xbf94328a160 Eg0IgyESCAoESG9zdBgB} {2 4229 0xbf94328a180 EhIIhSESDQoJRGlyZWN0b3J5GAE=} {3 4230 0xbf94328a1a0 EhIIhiESDQoJRGlyZWN0b3J5GAE=} {4 4231 0xbf94328a1c0 EhIIhyESDQoJRGlyZWN0b3J5GAE=} {5 4232 0xbf94328a1e0 EhIIiCESDQoJRGlyZWN0b3J5GAE=} {6 4233 0xbf94328a200 EhIIiSESDQoJRGlyZWN0b3J5GAE=}]" should have 5 item(s), but has 6
+                Test:           TestRemoteCacheTransferSuite/TestFixtureControls/BarrierActions
+    testctx.go:198: 

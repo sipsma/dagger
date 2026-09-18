@@ -25,6 +25,7 @@ const (
 )
 
 type EGraphDebugSnapshot struct {
+	OfferOwners        []CacheDebugOfferOwner     `json:"offer_owners,omitempty"`
 	TraceFormatVersion int                        `json:"trace_format_version"`
 	BootID             string                     `json:"boot_id"`
 	CapturedAtSeq      uint64                     `json:"captured_at_seq"`
@@ -37,6 +38,7 @@ type EGraphDebugSnapshot struct {
 }
 
 type CacheDebugSnapshot struct {
+	OfferOwners             []CacheDebugOfferOwner        `json:"offer_owners,omitempty"`
 	TraceFormatVersion      int                           `json:"trace_format_version"`
 	BootID                  string                        `json:"boot_id"`
 	CapturedAtSeq           uint64                        `json:"captured_at_seq"`
@@ -71,6 +73,7 @@ type EGraphDebugResult struct {
 
 type CacheDebugResult struct {
 	EGraphDebugResult
+	ValueState                            any              `json:"value_state,omitempty"`
 	ResultCall                            *ResultCall      `json:"result_call,omitempty"`
 	ResultCallRecipeDigest                string           `json:"result_call_recipe_digest,omitempty"`
 	ResultCallRecipeDigestError           string           `json:"result_call_recipe_digest_error,omitempty"`
@@ -148,6 +151,17 @@ type CacheDebugArbitraryCall struct {
 type CacheDebugSessionResults struct {
 	SessionID       string   `json:"session_id"`
 	SharedResultIDs []uint64 `json:"shared_result_ids"`
+}
+
+type metadataPruneContextKey struct{}
+
+func withMetadataPruneContext(ctx context.Context) context.Context {
+	return context.WithValue(ctx, metadataPruneContextKey{}, struct{}{})
+}
+
+func isMetadataPruneContext(ctx context.Context) bool {
+	_, ok := ctx.Value(metadataPruneContextKey{}).(struct{})
+	return ok
 }
 
 func newTraceBootID() string {
@@ -264,10 +278,48 @@ func (c *Cache) trace(ctx context.Context, event string, args ...any) {
 }
 
 func (c *Cache) traceLazy(ctx context.Context, event string, build func() []any) {
-	if !c.traceEnabled() {
+	if !c.traceEnabled() || isMetadataPruneContext(ctx) {
 		return
 	}
 	c.trace(ctx, event, build()...)
+}
+
+func (c *Cache) traceMetadataPruneStarted(ctx context.Context, maximumBytes, targetBytes int64) {
+	if !c.traceEnabled() {
+		return
+	}
+	c.trace(ctx, "metadata_prune_started",
+		"phase", "metadata_prune",
+		"maximum_estimated_bytes", maximumBytes,
+		"target_estimated_bytes", targetBytes,
+	)
+}
+
+func (c *Cache) traceMetadataPruneFinished(ctx context.Context, report CacheMetadataPruneReport, err error) {
+	if !c.traceEnabled() {
+		return
+	}
+	args := []any{
+		"phase", "metadata_prune",
+		"triggered", report.Triggered,
+		"maximum_estimated_bytes", report.MaximumEstimatedBytes,
+		"target_estimated_bytes", report.TargetEstimatedBytes,
+		"before_estimated_bytes", report.BeforeCompaction.EstimatedBytes,
+		"after_initial_compaction_estimated_bytes", report.AfterInitialCompaction.EstimatedBytes,
+		"after_prune_estimated_bytes", report.AfterPrune.EstimatedBytes,
+		"candidate_count", report.CandidateCount,
+		"planned_root_count", report.PlannedRootCount,
+		"simulated_collected_result_count", report.SimulatedCollectedResultCount,
+		"simulated_structural_bytes", report.SimulatedStructuralBytes,
+		"removed_persisted_root_count", report.RemovedPersistedRootCount,
+		"snapshot_gc_attempted", report.SnapshotGCAttempted,
+		"snapshot_gc_succeeded", report.SnapshotGCSucceeded,
+		"duration", report.Duration,
+	}
+	if err != nil {
+		args = append(args, "error", err.Error())
+	}
+	c.trace(ctx, "metadata_prune_finished", args...)
 }
 
 func (c *Cache) tracePersistStoreWipedSchemaMismatch(ctx context.Context, expected, actual string) {
@@ -717,9 +769,9 @@ func (c *Cache) traceImportResultLoaded(ctx context.Context, importRunID string,
 	})
 }
 
-func (c *Cache) traceImportResultSnapshotLinkLoaded(ctx context.Context, importRunID string, resID sharedResultID, refKey, role string) {
+func (c *Cache) traceImportResultSnapshotLinkLoaded(ctx context.Context, importRunID string, resID sharedResultID, refKey, role, outputPath string) {
 	c.traceLazy(ctx, "import_result_snapshot_link_loaded", func() []any {
-		return []any{"phase", "import", "import_run_id", importRunID, "shared_result_id", resID, "ref_key", refKey, "role", role}
+		return []any{"phase", "import", "import_run_id", importRunID, "shared_result_id", resID, "ref_key", refKey, "role", role, "output_path", outputPath}
 	})
 }
 
@@ -910,6 +962,7 @@ func (c *Cache) DebugEGraphSnapshot() *EGraphDebugSnapshot {
 	defer c.egraphMu.RUnlock()
 
 	snap := &EGraphDebugSnapshot{
+		OfferOwners:        c.debugOfferOwnersLocked(),
 		TraceFormatVersion: egraphTraceFormatV1,
 		BootID:             c.traceBootID,
 		CapturedAtSeq:      atomic.LoadUint64(&c.traceSeq),
@@ -1062,8 +1115,56 @@ func (c *Cache) DebugEGraphSnapshot() *EGraphDebugSnapshot {
 	return snap
 }
 
+type cacheDebugCallDigests struct {
+	recipeDigest              string
+	recipeDigestErr           string
+	contentPreferredDigest    string
+	contentPreferredDigestErr string
+	inputDigests              []string
+	inputDigestsErr           string
+}
+
+func (c *Cache) debugResultCallDigests() map[*ResultCall]cacheDebugCallDigests {
+	c.egraphMu.RLock()
+	frames := make(map[*ResultCall]cacheDebugCallDigests, len(c.resultsByID))
+	for _, res := range c.resultsByID {
+		if frame := res.loadResultCall(); frame != nil {
+			frames[frame] = cacheDebugCallDigests{}
+		}
+	}
+	c.egraphMu.RUnlock()
+
+	// Digest reconstruction can acquire egraphMu, so it must finish before
+	// the streamed snapshot holds that lock. These diagnostic observations
+	// precede the graph capture; the map is keyed by the exact immutable frame.
+	for frame := range frames {
+		var observed cacheDebugCallDigests
+		if dig, err := frame.deriveRecipeDigest(c); err == nil {
+			observed.recipeDigest = dig.String()
+		} else {
+			observed.recipeDigestErr = err.Error()
+		}
+		if dig, err := frame.deriveContentPreferredDigest(c); err == nil {
+			observed.contentPreferredDigest = dig.String()
+		} else {
+			observed.contentPreferredDigestErr = err.Error()
+		}
+		if digs, err := frame.inputs(c); err == nil {
+			observed.inputDigests = make([]string, 0, len(digs))
+			for _, dig := range digs {
+				observed.inputDigests = append(observed.inputDigests, dig.String())
+			}
+		} else {
+			observed.inputDigestsErr = err.Error()
+		}
+		frames[frame] = observed
+	}
+	return frames
+}
+
 //nolint:gocyclo // intrinsically long state machine; refactoring would hurt clarity
 func (c *Cache) WriteDebugCacheSnapshot(w io.Writer) error {
+	callDigests := c.debugResultCallDigests()
 	sessionResults := c.debugSessionResultsSnapshot()
 	c.callsMu.Lock()
 	c.egraphMu.RLock()
@@ -1120,6 +1221,12 @@ func (c *Cache) WriteDebugCacheSnapshot(w io.Writer) error {
 	}
 
 	if _, err := bw.WriteString("{"); err != nil {
+		return err
+	}
+	if err := writeField("offer_owners"); err != nil {
+		return err
+	}
+	if err := writeValue(c.debugOfferOwnersLocked()); err != nil {
 		return err
 	}
 	if err := writeField("trace_format_version"); err != nil {
@@ -1225,32 +1332,14 @@ func (c *Cache) WriteDebugCacheSnapshot(w io.Writer) error {
 				payloadState = "materialized"
 			}
 
-			var recipeDigest string
-			var recipeDigestErr string
-			var contentPreferredDigest string
-			var contentPreferredDigestErr string
-			var inputDigests []string
-			var inputDigestsErr string
 			frame := res.loadResultCall()
-			if frame != nil {
-				if dig, err := frame.deriveRecipeDigest(c); err == nil {
-					recipeDigest = dig.String()
-				} else {
-					recipeDigestErr = err.Error()
-				}
-				if dig, err := frame.deriveContentPreferredDigest(c); err == nil {
-					contentPreferredDigest = dig.String()
-				} else {
-					contentPreferredDigestErr = err.Error()
-				}
-				if digs, err := frame.inputs(c); err == nil {
-					inputDigests = make([]string, 0, len(digs))
-					for _, dig := range digs {
-						inputDigests = append(inputDigests, dig.String())
-					}
-				} else {
-					inputDigestsErr = err.Error()
-				}
+			observed, found := callDigests[frame]
+			if frame != nil && !found {
+				// Do not reconstruct a new frame while holding egraphMu.
+				const unavailable = "result call added or replaced during debug snapshot preparation"
+				observed.recipeDigestErr = unavailable
+				observed.contentPreferredDigestErr = unavailable
+				observed.inputDigestsErr = unavailable
 			}
 
 			assocTermIDs := make([]uint64, 0, len(c.termIDsForResultLocked(resultID)))
@@ -1267,6 +1356,12 @@ func (c *Cache) WriteDebugCacheSnapshot(w io.Writer) error {
 			}
 
 			if err := writeElem(CacheDebugResult{
+				ValueState: func() any {
+					if value, ok := UnwrapAs[interface{ CacheDebugValue() any }](state.self); ok {
+						return value.CacheDebugValue()
+					}
+					return nil
+				}(),
 				EGraphDebugResult: EGraphDebugResult{
 					SharedResultID:           uint64(res.id),
 					OutputEqClassIDs:         outputEqIDs,
@@ -1283,12 +1378,12 @@ func (c *Cache) WriteDebugCacheSnapshot(w io.Writer) error {
 					SnapshotLinks:            links,
 				},
 				ResultCall:                            frame,
-				ResultCallRecipeDigest:                recipeDigest,
-				ResultCallRecipeDigestError:           recipeDigestErr,
-				ResultCallContentPreferredDigest:      contentPreferredDigest,
-				ResultCallContentPreferredDigestError: contentPreferredDigestErr,
-				ResultCallInputDigests:                inputDigests,
-				ResultCallInputDigestsError:           inputDigestsErr,
+				ResultCallRecipeDigest:                observed.recipeDigest,
+				ResultCallRecipeDigestError:           observed.recipeDigestErr,
+				ResultCallContentPreferredDigest:      observed.contentPreferredDigest,
+				ResultCallContentPreferredDigestError: observed.contentPreferredDigestErr,
+				ResultCallInputDigests:                observed.inputDigests,
+				ResultCallInputDigestsError:           observed.inputDigestsErr,
 				AssociatedTermIDs:                     assocTermIDs,
 				IndexedDigests:                        append([]string(nil), indexedDigestsByResult[resultID]...),
 				ExpiresAtUnix:                         res.expiresAtUnix,
@@ -1475,7 +1570,7 @@ func (c *Cache) WriteDebugCacheSnapshot(w io.Writer) error {
 					CallKey:        key.callKey,
 					ConcurrencyKey: key.concurrencyKey,
 					Waiters:        call.waiters,
-					IsPersistable:  call.isPersistable,
+					IsPersistable:  call.isPersistable.Load(),
 					TTLSeconds:     call.ttlSeconds,
 					Completed:      completed,
 				}

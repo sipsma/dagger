@@ -1,0 +1,31 @@
+[dagger] 30.0s elapsed · 27 steps running
+[dagger] 1m0s elapsed · 6 steps running
+[dagger] 1m30s elapsed · 25 steps running
+[dagger] 2m0s elapsed · 12 steps running
+[dagger] 2m30s elapsed · 12 steps running
+[dagger] 3m0s elapsed · 10 steps running
+== TRACE ==  ✔ PASSED
+engine-dev test --pkg ./core/integration --run=RemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic --timeout=15m --test-verbose  3m12s
+
+✔ connect 0.4s
+✔ load workspace: . 2.4s
+✔ parsing command line arguments 0.0s
+
+✔ engineDev(
+  ┆ ws: currentWorkspace: Workspace!
+  ): EngineDev! 23.6s
+  ✔ uploading /home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-b2-transfer-implementer-26387947-ab517fbe 1.4s ████████████ 24 kB
+✔ .test(run: "RemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic", pkg: "./core/integration", timeout: "15m", testVerbose: true): Void 2m46s
+  ✔ 7 uploads, 4 unpacks, 1 pull 13.3s
+
+== SERVICES ==
+✔ rogct0dgr0vls.6nv4eels48rda.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 2m28s EXITED span=08729d5fe4a0301b
+✔ h4avdn8nctrm4.6nv4eels48rda.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 2m28s EXITED span=58d3fa29751bd902
+✘ dl7o781llp9hu.6nv4eels48rda.dagger.local exec dagger-entrypoint.sh --addr unix:///run/dagger-engine.sock --addr tcp://0.0.0.0:1234 --network-name dagger-dev --network-cidr 10.88.0.0/16 --debugaddr 0.0.0.0:6060 2m28s ERROR span=e5746291ccdf3583
+
+== TESTS ==
+  ✔ github.com/dagger/dagger/core/integration  1 passed
+
+  ✔ 1 passed
+
+Full trace at https://dagger.cloud/dagger/traces/a1363afb7a7c79639b0741cf7fbc4c05

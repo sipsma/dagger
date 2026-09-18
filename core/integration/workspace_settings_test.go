@@ -1,6 +1,6 @@
 package core
 
-// These tests cover `dagger settings`, the typed command for editing module
+// These tests cover `dagger module settings`, the typed command for editing module
 // settings declared by installed workspace modules. They verify discovery,
 // read/write behavior, env scoping, and how settings map to workspace config.
 //
@@ -27,7 +27,7 @@ import (
 // implementation details. The command is intentionally positional and requires
 // an explicit module alias at every depth so it stays unambiguous.
 func (WorkspaceSuite) TestWorkspaceSettingsCommandGrammar(ctx context.Context, t *testctx.T) {
-	t.Run("settings supports exactly zero, one, two, or three positional args", func(ctx context.Context, t *testctx.T) {
+	t.Run("settings supports zero, one, two, or trailing value positional args", func(ctx context.Context, t *testctx.T) {
 		workdir := newWorkspaceSettingsWorkdir(ctx, t, `[modules.aws]
 source = "modules/aws"
 entrypoint = true
@@ -36,13 +36,13 @@ entrypoint = true
 region = "us-west-2"
 `, workspaceSettingsAWSModule("modules/aws", "aws"))
 
-		out, err := hostDaggerExec(ctx, t, workdir, "--silent", "settings")
+		out, err := hostDaggerExec(ctx, t, workdir, "module", "settings")
 		require.NoError(t, err)
 		require.Contains(t, string(out), "aws")
 		require.Contains(t, string(out), "region")
 		require.Contains(t, string(out), "us-west-2")
 
-		out, err = hostDaggerExec(ctx, t, workdir, "--silent", "settings", "aws")
+		out, err = hostDaggerExec(ctx, t, workdir, "module", "settings", "aws")
 		require.NoError(t, err)
 		require.Contains(t, string(out), "MODULE")
 		require.Contains(t, string(out), "KEY")
@@ -50,20 +50,20 @@ region = "us-west-2"
 		require.Contains(t, string(out), "DESCRIPTION")
 		require.Contains(t, string(out), "region")
 
-		out, err = hostDaggerExec(ctx, t, workdir, "--silent", "settings", "aws", "region")
+		out, err = hostDaggerExec(ctx, t, workdir, "module", "settings", "aws", "region")
 		require.NoError(t, err)
 		require.Equal(t, "us-west-2", strings.TrimSpace(string(out)))
 
-		_, err = hostDaggerExec(ctx, t, workdir, "--silent", "settings", "aws", "region", "eu-central-1")
+		_, err = hostDaggerExec(ctx, t, workdir, "module", "settings", "aws", "region", "eu-central-1")
 		require.NoError(t, err)
 
-		out, err = hostDaggerExec(ctx, t, workdir, "--silent", "settings", "aws", "region")
+		out, err = hostDaggerExec(ctx, t, workdir, "module", "settings", "aws", "region")
 		require.NoError(t, err)
 		require.Equal(t, "eu-central-1", strings.TrimSpace(string(out)))
 
-		_, err = hostDaggerExec(ctx, t, workdir, "--silent", "settings", "aws", "region", "eu-central-1", "extra")
+		_, err = hostDaggerExec(ctx, t, workdir, "module", "settings", "aws", "region", "eu-central-1", "extra")
 		require.Error(t, err)
-		requireErrOut(t, err, "accepts at most 3 arg")
+		requireErrOut(t, err, `setting "region" of module "aws" is not a list and accepts a single value`)
 	})
 
 	t.Run("module omission is never supported, even for a single entrypoint module", func(ctx context.Context, t *testctx.T) {
@@ -75,7 +75,7 @@ entrypoint = true
 greeting = "hello"
 `, workspaceSettingsGreeterModule("modules/greeter", "greeter"))
 
-		_, err := hostDaggerExec(ctx, t, workdir, "--silent", "settings", "greeting")
+		_, err := hostDaggerExec(ctx, t, workdir, "module", "settings", "greeting")
 		require.Error(t, err)
 		requireErrOut(t, err, `module "greeting" is not installed in the workspace`)
 	})
@@ -88,18 +88,18 @@ source = "modules/aws"
 region = "us-west-2"
 `, workspaceSettingsAWSModule("modules/aws", "aws"))
 
-		out, err := hostDaggerExec(ctx, t, workdir, "--silent", "settings", "prod-aws", "region")
+		out, err := hostDaggerExec(ctx, t, workdir, "module", "settings", "prod-aws", "region")
 		require.NoError(t, err)
 		require.Equal(t, "us-west-2", strings.TrimSpace(string(out)))
 
-		_, err = hostDaggerExec(ctx, t, workdir, "--silent", "settings", "aws", "region")
+		_, err = hostDaggerExec(ctx, t, workdir, "module", "settings", "aws", "region")
 		require.Error(t, err)
 		requireErrOut(t, err, `module "aws" is not installed in the workspace`)
 	})
 }
 
 // TestWorkspaceSettingsDiscovery defines the high-level, compact settings UX
-// that `dagger settings` should provide on top of constructor introspection.
+// that `dagger module settings` should provide on top of constructor introspection.
 func (WorkspaceSuite) TestWorkspaceSettingsDiscovery(ctx context.Context, t *testctx.T) {
 	t.Run("settings with no module arg lists installed modules in deterministic order", func(ctx context.Context, t *testctx.T) {
 		workdir := newWorkspaceSettingsWorkdir(ctx, t, `[modules.vitest]
@@ -109,7 +109,7 @@ source = "modules/vitest"
 source = "modules/aws"
 `, workspaceSettingsAWSModule("modules/aws", "aws"), workspaceSettingsVitestModule("modules/vitest", "vitest"))
 
-		out, err := hostDaggerExec(ctx, t, workdir, "--silent", "settings")
+		out, err := hostDaggerExec(ctx, t, workdir, "module", "settings")
 		require.NoError(t, err)
 
 		output := string(out)
@@ -134,7 +134,7 @@ region = "us-west-2"
 secretKey = "op://vault/aws"
 `, workspaceSettingsAWSModule("modules/aws", "aws"))
 
-		out, err := hostDaggerExec(ctx, t, workdir, "--silent", "settings", "aws")
+		out, err := hostDaggerExec(ctx, t, workdir, "module", "settings", "aws")
 		require.NoError(t, err)
 
 		output := string(out)
@@ -162,7 +162,7 @@ name = "demo"
 secret = "env://TOKEN"
 `, workspaceSettingsResourcesModule("modules/resources", "resources"))
 
-		out, err := hostDaggerExec(ctx, t, workdir, "--silent", "settings", "resources")
+		out, err := hostDaggerExec(ctx, t, workdir, "module", "settings", "resources")
 		require.NoError(t, err)
 
 		output := string(out)
@@ -175,16 +175,18 @@ secret = "env://TOKEN"
 		require.NotContains(t, output, "workspace")
 		require.NotContains(t, output, "cache")
 
-		_, err = hostDaggerExec(ctx, t, workdir, "--silent", "settings", "resources", "workspace")
+		_, err = hostDaggerExec(ctx, t, workdir, "module", "settings", "resources", "workspace")
 		require.Error(t, err)
 		requireErrOut(t, err, `module "resources" has no setting "workspace"`)
 
-		_, err = hostDaggerExec(ctx, t, workdir, "--silent", "settings", "resources", "cache")
+		_, err = hostDaggerExec(ctx, t, workdir, "module", "settings", "resources", "cache")
 		require.Error(t, err)
 		requireErrOut(t, err, `module "resources" has no setting "cache"`)
 	})
 
 	t.Run("settings MODULE in env scope shows effective values after overlay", func(ctx context.Context, t *testctx.T) {
+		t.Skip("--env is temporarily disabled in the CLI; re-enable this test when environment selection returns")
+
 		workdir := newWorkspaceSettingsWorkdir(ctx, t, `[modules.aws]
 source = "modules/aws"
 
@@ -196,7 +198,7 @@ region = "us-west-2"
 region = "us-east-1"
 `, workspaceSettingsAWSModule("modules/aws", "aws"))
 
-		out, err := hostDaggerExec(ctx, t, workdir, "--silent", "--env=ci", "settings", "aws")
+		out, err := hostDaggerExec(ctx, t, workdir, "--env=ci", "module", "settings", "aws")
 		require.NoError(t, err)
 
 		output := string(out)
@@ -212,7 +214,7 @@ region = "us-east-1"
 source = "modules/aws"
 `, workspaceSettingsAWSModule("modules/aws", "aws"))
 
-		_, err := hostDaggerExec(ctx, t, workdir, "--silent", "settings", "missing")
+		_, err := hostDaggerExec(ctx, t, workdir, "module", "settings", "missing")
 		require.Error(t, err)
 		requireErrOut(t, err, `module "missing" is not installed in the workspace`)
 	})
@@ -230,12 +232,14 @@ source = "modules/aws"
 region = "us-west-2"
 `, workspaceSettingsAWSModule("modules/aws", "aws"))
 
-		out, err := hostDaggerExec(ctx, t, workdir, "--silent", "settings", "aws", "region")
+		out, err := hostDaggerExec(ctx, t, workdir, "module", "settings", "aws", "region")
 		require.NoError(t, err)
 		require.Equal(t, "us-west-2", strings.TrimSpace(string(out)))
 	})
 
 	t.Run("settings MODULE KEY with env reads the effective env value with base fallback", func(ctx context.Context, t *testctx.T) {
+		t.Skip("--env is temporarily disabled in the CLI; re-enable this test when environment selection returns")
+
 		workdir := newWorkspaceSettingsWorkdir(ctx, t, `[modules.aws]
 source = "modules/aws"
 
@@ -247,16 +251,18 @@ region = "us-west-2"
 region = "us-east-1"
 `, workspaceSettingsAWSModule("modules/aws", "aws"))
 
-		out, err := hostDaggerExec(ctx, t, workdir, "--silent", "--env=ci", "settings", "aws", "region")
+		out, err := hostDaggerExec(ctx, t, workdir, "--env=ci", "module", "settings", "aws", "region")
 		require.NoError(t, err)
 		require.Equal(t, "us-east-1", strings.TrimSpace(string(out)))
 
-		out, err = hostDaggerExec(ctx, t, workdir, "--silent", "--env=ci", "settings", "aws", "format")
+		out, err = hostDaggerExec(ctx, t, workdir, "--env=ci", "module", "settings", "aws", "format")
 		require.NoError(t, err)
 		require.Equal(t, "json", strings.TrimSpace(string(out)))
 	})
 
 	t.Run("missing env fails clearly instead of silently falling back to base", func(ctx context.Context, t *testctx.T) {
+		t.Skip("--env is temporarily disabled in the CLI; re-enable this test when environment selection returns")
+
 		workdir := newWorkspaceSettingsWorkdir(ctx, t, `[modules.aws]
 source = "modules/aws"
 
@@ -264,7 +270,7 @@ source = "modules/aws"
 region = "us-west-2"
 `, workspaceSettingsAWSModule("modules/aws", "aws"))
 
-		_, err := hostDaggerExec(ctx, t, workdir, "--silent", "--env=ci", "settings", "aws", "region")
+		_, err := hostDaggerExec(ctx, t, workdir, "--env=ci", "module", "settings", "aws", "region")
 		require.Error(t, err)
 		requireErrOut(t, err, `workspace env "ci" is not defined`)
 	})
@@ -277,11 +283,11 @@ source = "modules/aws"
 region = "us-west-2"
 `, workspaceSettingsAWSModule("modules/aws", "aws"))
 
-		_, err := hostDaggerExec(ctx, t, workdir, "--silent", "settings", "aws", "missing")
+		_, err := hostDaggerExec(ctx, t, workdir, "module", "settings", "aws", "missing")
 		require.Error(t, err)
 		requireErrOut(t, err, `module "aws" has no setting "missing"`)
 
-		_, err = hostDaggerExec(ctx, t, workdir, "--silent", "settings", "aws", "source")
+		_, err = hostDaggerExec(ctx, t, workdir, "module", "settings", "aws", "source")
 		require.Error(t, err)
 		requireErrOut(t, err, `module "aws" has no setting "source"`)
 	})
@@ -298,14 +304,14 @@ source = "modules/aws"
 region = "us-west-2"
 `, workspaceSettingsAWSModule("modules/aws", "aws"))
 
-		_, err := hostDaggerExec(ctx, t, workdir, "--silent", "settings", "aws", "region", "eu-central-1")
+		_, err := hostDaggerExec(ctx, t, workdir, "module", "settings", "aws", "region", "eu-central-1")
 		require.NoError(t, err)
 
-		out, err := hostDaggerExec(ctx, t, workdir, "--silent", "settings", "aws", "region")
+		out, err := hostDaggerExec(ctx, t, workdir, "module", "settings", "aws", "region")
 		require.NoError(t, err)
 		require.Equal(t, "eu-central-1", strings.TrimSpace(string(out)))
 
-		out, err = hostDaggerExec(ctx, t, workdir, "--silent", "config", "modules.aws.settings.region")
+		out, err = hostDaggerExec(ctx, t, workdir, "workspace", "config", "modules.aws.settings.region")
 		require.NoError(t, err)
 		require.Equal(t, "eu-central-1", strings.TrimSpace(string(out)))
 
@@ -314,6 +320,8 @@ region = "us-west-2"
 	})
 
 	t.Run("env-scoped writes update env.<name>.modules.<alias>.settings and leave base unchanged", func(ctx context.Context, t *testctx.T) {
+		t.Skip("--env is temporarily disabled in the CLI; re-enable this test when environment selection returns")
+
 		workdir := newWorkspaceSettingsWorkdir(ctx, t, `[modules.aws]
 source = "modules/aws"
 
@@ -323,20 +331,86 @@ region = "us-west-2"
 [env.ci]
 `, workspaceSettingsAWSModule("modules/aws", "aws"))
 
-		_, err := hostDaggerExec(ctx, t, workdir, "--silent", "--env=ci", "settings", "aws", "region", "us-east-1")
+		_, err := hostDaggerExec(ctx, t, workdir, "--env=ci", "module", "settings", "aws", "region", "us-east-1")
 		require.NoError(t, err)
 
 		cfg := readInstalledWorkspaceConfig(t, workdir)
 		require.Equal(t, "us-west-2", cfg.Modules["aws"].Settings["region"])
 		require.Equal(t, "us-east-1", cfg.Env["ci"].Modules["aws"].Settings["region"])
 
-		out, err := hostDaggerExec(ctx, t, workdir, "--silent", "settings", "aws", "region")
+		out, err := hostDaggerExec(ctx, t, workdir, "module", "settings", "aws", "region")
 		require.NoError(t, err)
 		require.Equal(t, "us-west-2", strings.TrimSpace(string(out)))
 
-		out, err = hostDaggerExec(ctx, t, workdir, "--silent", "--env=ci", "settings", "aws", "region")
+		out, err = hostDaggerExec(ctx, t, workdir, "--env=ci", "module", "settings", "aws", "region")
 		require.NoError(t, err)
 		require.Equal(t, "us-east-1", strings.TrimSpace(string(out)))
+	})
+
+	t.Run("typed settings work on a module the env itself installed", func(ctx context.Context, t *testctx.T) {
+		t.Skip("--env is temporarily disabled in the CLI; re-enable this test when environment selection returns")
+
+		// The module exists only in the env overlay, so discovery has to run
+		// with the env applied to see it at all.
+		workdir := newWorkspaceSettingsWorkdir(ctx, t, `[modules]
+`, workspaceSettingsAWSModule("modules/aws", "aws"))
+
+		_, err := hostDaggerExec(ctx, t, workdir, "--env=dev", "module", "install", "./modules/aws")
+		require.NoError(t, err)
+
+		_, err = hostDaggerExec(ctx, t, workdir, "--env=dev", "module", "settings", "aws", "region", "us-east-1")
+		require.NoError(t, err)
+
+		cfg := readInstalledWorkspaceConfig(t, workdir)
+		require.NotContains(t, cfg.Modules, "aws")
+		require.Equal(t, "us-east-1", cfg.Env["dev"].Modules["aws"].Settings["region"])
+
+		out, err := hostDaggerExec(ctx, t, workdir, "--env=dev", "module", "settings", "aws", "region")
+		require.NoError(t, err)
+		require.Equal(t, "us-east-1", strings.TrimSpace(string(out)))
+
+		_, err = hostDaggerExec(ctx, t, workdir, "--env=dev", "module", "settings", "--unset", "aws", "region")
+		require.NoError(t, err)
+
+		cfg = readInstalledWorkspaceConfig(t, workdir)
+		require.NotContains(t, cfg.Env["dev"].Modules["aws"].Settings, "region")
+		require.Equal(t, "modules/aws", cfg.Env["dev"].Modules["aws"].Source)
+	})
+
+	t.Run("env-scoped writes create a missing env with a notice", func(ctx context.Context, t *testctx.T) {
+		t.Skip("--env is temporarily disabled in the CLI; re-enable this test when environment selection returns")
+
+		workdir := newWorkspaceSettingsWorkdir(ctx, t, `[modules.aws]
+source = "modules/aws"
+
+[modules.aws.settings]
+region = "us-west-2"
+`, workspaceSettingsAWSModule("modules/aws", "aws"))
+
+		out, err := hostDaggerExec(ctx, t, workdir, "--env=staging", "module", "settings", "aws", "region", "us-east-1")
+		require.NoError(t, err)
+		require.Contains(t, string(out), `Created env "staging"`)
+
+		cfg := readInstalledWorkspaceConfig(t, workdir)
+		require.Equal(t, "us-west-2", cfg.Modules["aws"].Settings["region"])
+		require.Equal(t, "us-east-1", cfg.Env["staging"].Modules["aws"].Settings["region"])
+
+		out, err = hostDaggerExec(ctx, t, workdir, "--env=staging", "module", "settings", "aws", "region")
+		require.NoError(t, err)
+		require.Equal(t, "us-east-1", strings.TrimSpace(string(out)))
+
+		// Writing again into the now-existing env doesn't repeat the notice.
+		out, err = hostDaggerExec(ctx, t, workdir, "--env=staging", "module", "settings", "aws", "region", "eu-west-3")
+		require.NoError(t, err)
+		require.NotContains(t, string(out), "Created env")
+
+		// Typed writes still validate the setting exists, even for a new env,
+		// and a rejected write doesn't create the env as a side effect.
+		_, err = hostDaggerExec(ctx, t, workdir, "--env=another", "module", "settings", "aws", "nope", "x")
+		require.Error(t, err)
+		requireErrOut(t, err, `module "aws" has no setting "nope"`)
+		cfg = readInstalledWorkspaceConfig(t, workdir)
+		require.NotContains(t, cfg.Env, "another")
 	})
 
 	t.Run("typed writes use the same coercion rules as config writes", func(ctx context.Context, t *testctx.T) {
@@ -344,22 +418,22 @@ region = "us-west-2"
 source = "modules/vitest"
 `, workspaceSettingsVitestModule("modules/vitest", "vitest"))
 
-		_, err := hostDaggerExec(ctx, t, workdir, "--silent", "settings", "vitest", "failFast", "true")
+		_, err := hostDaggerExec(ctx, t, workdir, "module", "settings", "vitest", "failFast", "true")
 		require.NoError(t, err)
-		_, err = hostDaggerExec(ctx, t, workdir, "--silent", "settings", "vitest", "retries", "3")
+		_, err = hostDaggerExec(ctx, t, workdir, "module", "settings", "vitest", "retries", "3")
 		require.NoError(t, err)
-		_, err = hostDaggerExec(ctx, t, workdir, "--silent", "settings", "vitest", "tags", "smoke, regression")
+		_, err = hostDaggerExec(ctx, t, workdir, "module", "settings", "vitest", "tags", "smoke, regression")
 		require.NoError(t, err)
 
-		out, err := hostDaggerExec(ctx, t, workdir, "--silent", "config", "modules.vitest.settings.failFast")
+		out, err := hostDaggerExec(ctx, t, workdir, "workspace", "config", "modules.vitest.settings.failFast")
 		require.NoError(t, err)
 		require.Equal(t, "true", strings.TrimSpace(string(out)))
 
-		out, err = hostDaggerExec(ctx, t, workdir, "--silent", "config", "modules.vitest.settings.retries")
+		out, err = hostDaggerExec(ctx, t, workdir, "workspace", "config", "modules.vitest.settings.retries")
 		require.NoError(t, err)
 		require.Equal(t, "3", strings.TrimSpace(string(out)))
 
-		out, err = hostDaggerExec(ctx, t, workdir, "--silent", "config", "modules.vitest.settings.tags")
+		out, err = hostDaggerExec(ctx, t, workdir, "workspace", "config", "modules.vitest.settings.tags")
 		require.NoError(t, err)
 		require.Equal(t, "[smoke, regression]", strings.TrimSpace(string(out)))
 	})
@@ -383,14 +457,125 @@ region = "us-west-2"
 		}
 
 		for _, tt := range tests {
-			_, err := hostDaggerExec(ctx, t, workdir, append([]string{"--silent", "settings"}, tt.args...)...)
+			_, err := hostDaggerExec(ctx, t, workdir, append([]string{"module", "settings"}, tt.args...)...)
 			require.Error(t, err)
 			requireErrOut(t, err, tt.err)
 		}
 	})
 }
 
-// TestWorkspaceSettingsConfigProjection locks in that `dagger settings` is an
+// TestWorkspaceSettingsUnsetSemantics defines how settings are removed. Unset
+// mutates the selected scope's stored settings, mirroring writes: base scope
+// without --env, that environment's overlay with --env.
+func (WorkspaceSuite) TestWorkspaceSettingsUnsetSemantics(ctx context.Context, t *testctx.T) {
+	t.Run("base-scope unset removes the stored setting and keeps the rest", func(ctx context.Context, t *testctx.T) {
+		workdir := newWorkspaceSettingsWorkdir(ctx, t, `[modules.aws]
+source = "modules/aws"
+
+[modules.aws.settings]
+format = "json"
+region = "us-west-2"
+`, workspaceSettingsAWSModule("modules/aws", "aws"))
+
+		_, err := hostDaggerExec(ctx, t, workdir, "module", "settings", "aws", "region", "--unset")
+		require.NoError(t, err)
+
+		cfg := readInstalledWorkspaceConfig(t, workdir)
+		require.NotContains(t, cfg.Modules["aws"].Settings, "region")
+		require.Equal(t, "json", cfg.Modules["aws"].Settings["format"])
+
+		_, err = hostDaggerExec(ctx, t, workdir, "workspace", "config", "modules.aws.settings.region")
+		require.Error(t, err)
+		requireErrOut(t, err, `key "modules.aws.settings.region" is not set`)
+
+		out, err := hostDaggerExec(ctx, t, workdir, "module", "settings", "aws", "region")
+		require.NoError(t, err)
+		require.Empty(t, strings.TrimSpace(string(out)))
+	})
+
+	t.Run("env-scoped unset removes only the overlay value and leaves base intact", func(ctx context.Context, t *testctx.T) {
+		t.Skip("--env is temporarily disabled in the CLI; re-enable this test when environment selection returns")
+
+		workdir := newWorkspaceSettingsWorkdir(ctx, t, `[modules.aws]
+source = "modules/aws"
+
+[modules.aws.settings]
+region = "us-west-2"
+
+[env.ci.modules.aws.settings]
+region = "us-east-1"
+`, workspaceSettingsAWSModule("modules/aws", "aws"))
+
+		_, err := hostDaggerExec(ctx, t, workdir, "--env=ci", "module", "settings", "aws", "region", "--unset")
+		require.NoError(t, err)
+
+		cfg := readInstalledWorkspaceConfig(t, workdir)
+		require.Equal(t, "us-west-2", cfg.Modules["aws"].Settings["region"])
+		require.Contains(t, cfg.Env, "ci")
+		require.NotContains(t, cfg.Env["ci"].Modules, "aws")
+
+		out, err := hostDaggerExec(ctx, t, workdir, "--env=ci", "module", "settings", "aws", "region")
+		require.NoError(t, err)
+		require.Equal(t, "us-west-2", strings.TrimSpace(string(out)))
+	})
+
+	t.Run("unset requires exactly MODULE and KEY", func(ctx context.Context, t *testctx.T) {
+		workdir := newWorkspaceSettingsWorkdir(ctx, t, `[modules.aws]
+source = "modules/aws"
+
+[modules.aws.settings]
+region = "us-west-2"
+`, workspaceSettingsAWSModule("modules/aws", "aws"))
+
+		_, err := hostDaggerExec(ctx, t, workdir, "module", "settings", "aws", "--unset")
+		require.Error(t, err)
+		requireErrOut(t, err, "--unset requires MODULE and KEY arguments")
+
+		_, err = hostDaggerExec(ctx, t, workdir, "module", "settings", "aws", "region", "value", "--unset")
+		require.Error(t, err)
+		requireErrOut(t, err, "--unset requires MODULE and KEY arguments")
+	})
+
+	t.Run("unset rejects unknown settings and errors when the setting is not stored", func(ctx context.Context, t *testctx.T) {
+		workdir := newWorkspaceSettingsWorkdir(ctx, t, `[modules.aws]
+source = "modules/aws"
+
+[modules.aws.settings]
+region = "us-west-2"
+`, workspaceSettingsAWSModule("modules/aws", "aws"))
+
+		_, err := hostDaggerExec(ctx, t, workdir, "module", "settings", "aws", "missing", "--unset")
+		require.Error(t, err)
+		requireErrOut(t, err, `module "aws" has no setting "missing"`)
+
+		_, err = hostDaggerExec(ctx, t, workdir, "module", "settings", "aws", "format", "--unset")
+		require.Error(t, err)
+		requireErrOut(t, err, `key "modules.aws.settings.format" is not set`)
+	})
+
+	t.Run("raw config unset removes any settings key", func(ctx context.Context, t *testctx.T) {
+		workdir := newWorkspaceSettingsWorkdir(ctx, t, `[modules.aws]
+source = "modules/aws"
+
+[modules.aws.settings]
+region = "us-west-2"
+stale = "left over"
+`, workspaceSettingsAWSModule("modules/aws", "aws"))
+
+		_, err := hostDaggerExec(ctx, t, workdir, "workspace", "config", "modules.aws.settings.stale", "-u")
+		require.NoError(t, err)
+
+		cfg := readInstalledWorkspaceConfig(t, workdir)
+		require.NotContains(t, cfg.Modules["aws"].Settings, "stale")
+		require.Equal(t, "us-west-2", cfg.Modules["aws"].Settings["region"])
+
+		_, err = hostDaggerExec(ctx, t, workdir, "workspace", "config", "--unset")
+		require.Error(t, err)
+		requireErrOut(t, err, "--unset requires a KEY argument")
+	})
+}
+
+// TestWorkspaceSettingsConfigProjection locks in that `dagger module settings` is an
 // ergonomic, typed projection over workspace config rather than a second
 // storage system with independent semantics.
 func (WorkspaceSuite) TestWorkspaceSettingsConfigProjection(ctx context.Context, t *testctx.T) {
@@ -405,17 +590,21 @@ region = "us-west-2"
 region = "us-east-1"
 `, workspaceSettingsAWSModule("modules/aws", "aws"))
 
-		settingsBase, err := hostDaggerExec(ctx, t, workdir, "--silent", "settings", "aws", "region")
+		settingsBase, err := hostDaggerExec(ctx, t, workdir, "module", "settings", "aws", "region")
 		require.NoError(t, err)
-		configBase, err := hostDaggerExec(ctx, t, workdir, "--silent", "config", "modules.aws.settings.region")
+		configBase, err := hostDaggerExec(ctx, t, workdir, "workspace", "config", "modules.aws.settings.region")
 		require.NoError(t, err)
 		require.Equal(t, strings.TrimSpace(string(configBase)), strings.TrimSpace(string(settingsBase)))
 
-		settingsEnv, err := hostDaggerExec(ctx, t, workdir, "--silent", "--env=ci", "settings", "aws", "region")
-		require.NoError(t, err)
-		configEnv, err := hostDaggerExec(ctx, t, workdir, "--silent", "--env=ci", "config", "modules.aws.settings.region")
-		require.NoError(t, err)
-		require.Equal(t, strings.TrimSpace(string(configEnv)), strings.TrimSpace(string(settingsEnv)))
+		t.Run("selected environment", func(ctx context.Context, t *testctx.T) {
+			t.Skip("--env is temporarily disabled in the CLI; re-enable this test when environment selection returns")
+
+			settingsEnv, err := hostDaggerExec(ctx, t, workdir, "--env=ci", "module", "settings", "aws", "region")
+			require.NoError(t, err)
+			configEnv, err := hostDaggerExec(ctx, t, workdir, "--env=ci", "workspace", "config", "modules.aws.settings.region")
+			require.NoError(t, err)
+			require.Equal(t, strings.TrimSpace(string(configEnv)), strings.TrimSpace(string(settingsEnv)))
+		})
 	})
 
 	t.Run("writes through settings are visible immediately through config and runtime behavior", func(ctx context.Context, t *testctx.T) {
@@ -427,10 +616,10 @@ entrypoint = true
 region = "us-west-2"
 `, workspaceSettingsAWSModule("modules/aws", "aws"))
 
-		_, err := hostDaggerExec(ctx, t, workdir, "--silent", "settings", "aws", "region", "eu-central-1")
+		_, err := hostDaggerExec(ctx, t, workdir, "module", "settings", "aws", "region", "eu-central-1")
 		require.NoError(t, err)
 
-		out, err := hostDaggerExec(ctx, t, workdir, "--silent", "config", "modules.aws.settings.region")
+		out, err := hostDaggerExec(ctx, t, workdir, "workspace", "config", "modules.aws.settings.region")
 		require.NoError(t, err)
 		require.Equal(t, "eu-central-1", strings.TrimSpace(string(out)))
 
@@ -438,6 +627,121 @@ region = "us-west-2"
 		require.NoError(t, err)
 		require.Equal(t, "eu-central-1", strings.TrimSpace(string(out)))
 	})
+}
+
+// TestWorkspaceSettingsListValues locks in how list settings reach a module's
+// constructor: TOML arrays deliver their elements as-is, comma-separated
+// strings split into elements, and variadic writes through `dagger module settings`
+// store each trailing argument verbatim as one element.
+func (WorkspaceSuite) TestWorkspaceSettingsListValues(ctx context.Context, t *testctx.T) {
+	const vitestConfig = `[modules.vitest]
+source = "modules/vitest"
+entrypoint = true
+
+[modules.vitest.settings]
+failFast = false
+retries = 0
+`
+
+	t.Run("TOML array settings deliver their elements to the constructor", func(ctx context.Context, t *testctx.T) {
+		workdir := newWorkspaceSettingsWorkdir(ctx, t, vitestConfig+`tags = ["smoke", "regression"]
+`, workspaceSettingsVitestModule("modules/vitest", "vitest"))
+
+		out, err := hostDaggerExec(ctx, t, workdir, "--silent", "call", "tags", "--json")
+		require.NoError(t, err)
+		require.JSONEq(t, `["smoke", "regression"]`, strings.TrimSpace(string(out)))
+	})
+
+	t.Run("comma-separated string settings deliver the same list", func(ctx context.Context, t *testctx.T) {
+		workdir := newWorkspaceSettingsWorkdir(ctx, t, vitestConfig+`tags = "smoke,regression"
+`, workspaceSettingsVitestModule("modules/vitest", "vitest"))
+
+		out, err := hostDaggerExec(ctx, t, workdir, "--silent", "call", "tags", "--json")
+		require.NoError(t, err)
+		require.JSONEq(t, `["smoke", "regression"]`, strings.TrimSpace(string(out)))
+	})
+
+	t.Run("variadic writes round-trip through settings to the constructor", func(ctx context.Context, t *testctx.T) {
+		workdir := newWorkspaceSettingsWorkdir(ctx, t, vitestConfig, workspaceSettingsVitestModule("modules/vitest", "vitest"))
+
+		_, err := hostDaggerExec(ctx, t, workdir, "module", "settings", "vitest", "tags", "smoke", "regression")
+		require.NoError(t, err)
+
+		out, err := hostDaggerExec(ctx, t, workdir, "workspace", "config", "modules.vitest.settings.tags")
+		require.NoError(t, err)
+		require.Equal(t, "[smoke, regression]", strings.TrimSpace(string(out)))
+
+		out, err = hostDaggerExec(ctx, t, workdir, "--silent", "call", "tags", "--json")
+		require.NoError(t, err)
+		require.JSONEq(t, `["smoke", "regression"]`, strings.TrimSpace(string(out)))
+	})
+
+	t.Run("variadic values keep commas and JSON-looking elements verbatim", func(ctx context.Context, t *testctx.T) {
+		workdir := newWorkspaceSettingsWorkdir(ctx, t, vitestConfig, workspaceSettingsVitestModule("modules/vitest", "vitest"))
+
+		_, err := hostDaggerExec(ctx, t, workdir, "module", "settings", "vitest", "tags", "smoke,regression", `["docs"]`)
+		require.NoError(t, err)
+
+		out, err := hostDaggerExec(ctx, t, workdir, "--silent", "call", "tags", "--json")
+		require.NoError(t, err)
+		require.JSONEq(t, `["smoke,regression", "[\"docs\"]"]`, strings.TrimSpace(string(out)))
+	})
+
+	t.Run("a single trailing value for a list setting keeps comma-splitting behavior", func(ctx context.Context, t *testctx.T) {
+		workdir := newWorkspaceSettingsWorkdir(ctx, t, vitestConfig, workspaceSettingsVitestModule("modules/vitest", "vitest"))
+
+		_, err := hostDaggerExec(ctx, t, workdir, "module", "settings", "vitest", "tags", "smoke,regression")
+		require.NoError(t, err)
+
+		out, err := hostDaggerExec(ctx, t, workdir, "--silent", "call", "tags", "--json")
+		require.NoError(t, err)
+		require.JSONEq(t, `["smoke", "regression"]`, strings.TrimSpace(string(out)))
+	})
+
+	t.Run("multiple values for a scalar setting fail clearly", func(ctx context.Context, t *testctx.T) {
+		workdir := newWorkspaceSettingsWorkdir(ctx, t, vitestConfig, workspaceSettingsVitestModule("modules/vitest", "vitest"))
+
+		_, err := hostDaggerExec(ctx, t, workdir, "module", "settings", "vitest", "retries", "1", "2")
+		require.Error(t, err)
+		requireErrOut(t, err, `setting "retries" of module "vitest" is not a list and accepts a single value`)
+	})
+}
+
+// TestWorkspaceSettingsRemoteWorkspace covers settings discovery against a
+// remote workspace selected with -W: local module sources must resolve from
+// the cloned workspace tree instead of requiring a host path.
+func (WorkspaceSuite) TestWorkspaceSettingsRemoteWorkspace(ctx context.Context, t *testctx.T) {
+	c := connect(ctx, t)
+
+	content := c.Directory().
+		WithNewFile("dagger.toml", `[modules.greeter]
+source = ".dagger/modules/greeter"
+
+[modules.greeter.settings]
+greeting = "hola"
+`).
+		WithNewFile(".dagger/modules/greeter/dagger.json", `{"name":"greeter","sdk":{"source":"dang"}}`).
+		WithNewFile(".dagger/modules/greeter/main.dang", `
+type Greeter {
+  pub greeting: String!
+
+  new(greeting: String! = "default") {
+    self.greeting = greeting
+    self
+  }
+}
+`)
+	remoteRef := workspaceSelectionRemoteRef(ctx, t, c, content)
+
+	out, err := c.Container().From(alpineImage).
+		WithMountedFile(testCLIBinPath, daggerCliFile(t, c)).
+		WithWorkdir("/empty").
+		With(workspaceSelectionDaggerExec("-W", remoteRef, "module", "settings")).
+		Stdout(ctx)
+	require.NoError(t, err)
+	require.Contains(t, out, "greeter")
+	require.Contains(t, out, "greeting")
+	require.Contains(t, out, "hola")
 }
 
 type workspaceSettingsModuleFixture struct {

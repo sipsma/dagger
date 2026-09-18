@@ -1,0 +1,33 @@
+[dagger] 30.0s elapsed · 3 steps running
+== TRACE ==  ✔ PASSED
+engine-dev test --pkg ./core/integration --run=TestRemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic$ --timeout=5m --test-verbose --env-file=file:/tmp/b4-a3-default.env  41.2s
+
+✔ connect 0.3s
+✔ load workspace: . 2.1s
+✔ parsing command line arguments 0.0s
+
+✔ address(value: "file:/tmp/b4-a3-default.env"): Address! 0.0s
+✔ .secret: Secret! 0.0s
+
+✔ engineDev(
+  ┆ ws: currentWorkspace: Workspace!
+  ): EngineDev! 24.1s ◆ Disk Read: 3.2 MB ◆ Disk Write: 0 B ◆ IO Pressure: 94µs ◆ CPU Pressure (some): 64.968ms ◆ CPU Pressure (full): 51.026ms ◆ Memory Bytes (current): 4.2 MB ◆ Memory Bytes (peak): 33 MB
+✔ .test(
+  ┆ run: "TestRemoteCacheTransferSuite/TestDefaultGCPruneDiagnostic$"
+  ┆ pkg: "./core/integration"
+  ┆ timeout: "5m"
+  ┆ envFile: Address.secret: Secret!
+  ┆ testVerbose: true
+  ): Void 14.5s ◆ CPU Pressure (some): 39.652ms ◆ CPU Pressure (full): 30.069ms ◆ Memory Bytes (current): 991 kB ◆ Memory Bytes (peak): 33 MB ◆ Network Tx: 1.5 kB
+
+== SERVICES ==
+✔ h4avdn8nctrm4.aj1nqtu7o0cr6.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 8.7s EXITED span=690bc7e382d4d8da
+✔ rogct0dgr0vls.aj1nqtu7o0cr6.dagger.local exec /entrypoint.sh /etc/docker/registry/config.yml 8.7s EXITED span=f066e2466b049f93
+✘ 23k4pmeaosgj6.aj1nqtu7o0cr6.dagger.local exec dagger-entrypoint.sh --addr unix:///run/dagger-engine.sock --addr tcp://0.0.0.0:1234 --network-name dagger-dev --network-cidr 10.88.0.0/16 --debugaddr 0.0.0.0:6060 8.3s ERROR span=63471d0b250e6e50
+
+== TESTS ==
+  ✔ github.com/dagger/dagger/core/integration  1 passed
+
+  ✔ 1 passed
+
+Trace ID: bca5fc872f5762ffda79f87d0a601c10

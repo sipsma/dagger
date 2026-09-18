@@ -1,0 +1,316 @@
+Remote Cache — Guiding Requirements & Principles
+Remote Cache — Guiding Requirements & Principles
+Working draft · distilled from scoping interviews with Erik, 2026-08-14/15
+This is the first-cut guidance for the new remote-cache effort: what we're building, the rules that bound it,
+and the questions deliberately left open. Statuses: settled Erik has said this
+clearly · preliminary working direction, expected to be refined ·
+open deliberately undecided — do not fill in silently.
+Nothing here is gospel, including settled items; anything can be re-litigated with Erik. Every decision recorded
+in these documents is a working position, revisable on evidence; none is a commandment (G32).
+The two earlier remote-cache efforts (June and July 2026) are reference material only — none of their
+designs, lessons, or code carries authority here.
+Contents
+1. What we're building ·
+2. Requirements and principles ·
+3. Explicit non-goals ·
+4. Open questions ·
+5. Records and sources
+1. What we're building
+A CI run executes on some engine. The results it produces — cache metadata, and content when it's worth moving —
+become available to every other engine in the same Dagger Cloud organization. A later run on a fresh engine adopts
+equivalent results as ordinary cache hits and materializes their content only on demand: downloading it when
+available, re-executing when not. The payoff is warm CI on cold machines.
+The division of labor is deliberate and load-bearing. The open-source engine is the executor and the local cache: it
+runs builds, reports the state of its cache and what it's executing, and performs transfers it's asked to perform.
+The intelligence lives in the proprietary Cloud service (the dagger.io repo): deciding what's worth collecting from
+which engine, what an upcoming job will probably need and should be prepositioned, what to prune from the pool — and,
+ultimately, when remote caching would not help and should be skipped. Remote caching is a monetizable
+product capability, and that shapes the architecture on purpose.
+The lifecycle is loose rather than checkpointed. Instead of "import at boot, export at end of job," engines and the
+service share a communication channel, and the service can act at any point: "I'm pretty sure you have this result —
+upload it when you get a chance," or "here's metadata you'll probably want — import it." The old rigid lifecycle
+remains expressible as a special case of this; the looseness is the point, because it makes many more systems
+expressible without (we believe) many more corner cases than already exist at baseline.
+The immediate next work is not the service. It is the foundational engine work: making the engine cache able
+to hold results computed elsewhere and serve them as ordinary hits, pulling snapshot content only when a build
+actually needs it. That work is designed from scratch, blocks on no cloud-side work, and merges incrementally
+(G25). Its design, decisions, and proposed order live in the
+Engine Foundations doc. The working direction there: a result learned from
+another engine enters the cache as a lazy result — metadata filled, each snapshot pulled on demand,
+falling back to running the result's own recipe when a pull fails — and evaluation becomes fine-grained enough that
+reading a container's metadata never pulls its layers. A large share of that is improvement to the engine's existing
+laziness, valuable with no remote cache at all, and it lands first.
+2. Requirements and principles
+Product boundary
+G1settled
+The engine executes; the service thinks. The Cloud service owns the intelligent decisions: what is worth
+collecting, what an upcoming CI job will probably need, when to preposition it, what to prune. The engine tells the
+service about the general state of its cache and what it's executing, and carries out transfers. "Dumb engine" is
+not literal or extreme: the engine of course keeps whatever durable local bookkeeping it needs and participates in
+ordinary local decisions (what's exportable, source viability, fallback, dependency mechanics). What the engine never
+does is the product-level reasoning about value and prediction. There is also no concept of the engine rejecting a
+command as a matter of policy — "I can't do that" is simply a normal protocol outcome, and the service shouldn't be
+issuing nonsensical commands in the first place. The exact decision split beyond this is worked out per real
+behavior, expected to be mostly obvious — but it must be decided explicitly each time, never silently assumed.
+G2settled
+Everything remote is proprietary; the OSS engine keeps what it has. The service, its storage backends, and the
+integration/end-to-end tests for remote caching all live in the closed-source dagger.io repo (cross-repo test
+mechanics are a detail for later; plenty of options). The OSS repo keeps the current level of local cache
+persistence — persist on shutdown, restore on boot — plus whatever engine-side remote-cache mechanics this effort
+adds. Engine-side unit tests in OSS are fine; fake remote-cache servers or test services in OSS are not.
+G3settled
+The client protocol is ordinary, open code. No obfuscation, no binary blobs, no secrecy theater. Someone could
+read the engine-side protocol and build a compatible server; that's fine and not worth a single step to prevent. The
+proprietary value is the service's analysis and behavior, not the wire format.
+G4settled
+Supported environment: CI run by Dagger's proprietary backend. That is it. Not local developer engines, not
+self-hosted engines, not users' own infrastructure, not offline engines. This is a major simplifying constraint —
+lean on it.
+G5settled
+The sharing scope is the Cloud org, and the engine doesn't model it. Cache is shared within an org; no
+cross-org sharing, no finer-than-org scopes for now (tiers may come much later). Because engines only run under the
+managed CI backend (G4), the endpoint already knows which engine and which org it's talking to and derives the scope
+itself. The engine just talks to the endpoint; it has no remote-cache reason to understand organizations.
+Trust
+G6settled
+Everything inside the scope is trusted. There is no such thing as hostile input. Engines are assumed to work
+correctly; users are assumed to operate as desired; service metadata, manifests, and transfer inputs are trusted.
+No cache poisoning concept, no malicious-engine modeling, no defensive verification burden anywhere in the system.
+In Erik's words: hostile input "is a useless notion which plants a seed of outrageous complexity solving problems
+that do not exist." Any mechanism whose justification is distrust inside the scope is over-engineering by
+definition. Production hardening may revisit some of this much later; it is not a design input now.
+G7settled (stopgap)
+Secrets: today's rules, plus exactly one stopgap. Secret-, socket-, and host-state-dependent results already
+cross client and session boundaries today — engines serve multiple clients on different machines, and cache identity
+already accounts for these resources. Sharing across engines is the same problem and is treated as already solved;
+no new cross-engine rules are justified. (Erik holds this confidently and invites concrete counter-evidence.) The one
+sanctioned piece of work: make the engine's secret salt overridable, and run every engine in an org with the same
+salt — an explicitly temporary mitigation so secret-identity partitioning doesn't block cache work. The secret system
+itself is otherwise untouched; the real design is revisited after the core work settles.
+Status: the salt override landed on main (#13925).
+The cache model
+G8settled
+Interchangeability is absolute, and there is one cache model.
+"If two things are considered the same by the cache, they are interchangeable. Full stop, end of story."
+Remote and local hits use the same equivalence contract. "Cross-engine reuse" is not a category distinct from the
+cross-session reuse the cache does today, and no remote-only preference, ordering, gating, or consistency rule may
+exist. If we ever dislike an interchangeability outcome, that means changing the cache itself — a deliberate, named
+act — never a remote-cache specialization layered on top. This rule exists because past efforts demonstrably
+over-thought and over-complicated exactly this point. Across engines the rule rests on G6 and G7: a result carrying
+the same digests on another engine in the org is interchangeable here, and the engine's own e-graph derives that
+equivalence from the digests exactly as it does for local results — the service never asserts equivalence
+directly.
+G9settled (direction)
+Ambient inputs get fixed in the cache key, at the source. If engine-local state shapes a result — platform,
+configuration, anything read off the engine rather than the call — its concrete value belongs in the normal cache
+identity, so equivalent work matches and different work partitions. Never solve this with remote-only partitioning
+rules (that would violate G8). Known concrete lead: the default platform. Erik's recollection is that the
+cache key currently mixes in the concept "default" rather than the engine's actual platform, so two engines
+with different native platforms could derive equal identities for different results. The code shape supports this:
+container(platform:...) is optional and, when omitted, resolves parent.Platform() at
+execution time, after call identity is formed (core/schema/container.go:1004–1012). Before fixing:
+audit for compensating identity-mixing elsewhere, then audit for similar implicit ambient inputs. The fix is always
+the same — make the value explicit in the key.
+Status: the default-platform fix landed on main (#13911). An audit for other implicit ambient inputs was run
+by another agent: most of its findings were noise, and the one real finding was unrelated to this effort. Erik does
+not trust that audit, so the question stays open: everyone working in the cache keeps an eye out for
+identity that depends on engine-local state rather than on the call, and raises it when seen.
+G10settled (direction)
+Timing, not transactions. The cache is not a database. There is no global ordering, no preferred history, no
+consistency ceremony — everything that happens in the engine cache is timing-based. When equivalent work races,
+whoever wins, wins, and the rest is tossed. The only obligations: racing must not produce errors, must not leave
+broken internal state, and interchangeability (G8) is honored.
+G11settled semantics · open mechanism
+A miss is never an error, and the fall-through is fixed in meaning. Use the local snapshot if present; else,
+if content is known to be downloadable, try to download and use it — tolerating failure, because network errors are
+real; else it's a cache miss, which means run the thing — and running requires knowing the recipe. That
+semantic contract is settled. The mechanism now has a working direction (the
+Engine Foundations doc): the fall-through lives inside the result's own
+deferred work — evaluating a part of a learned result means pull that part's content, else run the result's recipe
+— so a failed pull is never an error, just the next step. What remains open inside that direction is recorded in
+OQ7 and OQ8. The old efforts' source models are evidence, not defaults.
+G12settled
+Remote caching is invisible to pipeline correctness. Service outages, stale availability, missing results,
+failed downloads, unusable imports — all degrade to normal execution and never change a pipeline's outcome. Erik puts
+this at ~99% strict: a reservation exists only for some unknown case where transparency would cost a massive universe
+of complexity. The fallback machinery itself must stay proportionate — "it's not conceptually that crazy to have a
+fallback; let's make sure the system isn't either."
+G13settled
+Session end does not mean gone, and the local cache lifecycle stays fundamentally as-is. Today, persistable
+results and their retained dependencies commonly survive the session that created them; that behavior is not
+changing in any deep way. Local pruning also stays local — driven by disk size and the engine's own settings — so a
+result can disappear before the service asks for it. That is a normal race to tolerate (G17), not a problem to
+prevent. Whether engines ever proactively resync deletion state to the service is open (OQ11).
+G14settled, careful zone
+Every layer is a cache; nothing is ever the only copy of something the user can't regenerate. Engine store,
+service metadata, blob storage: all prunable, all losable, all rebuildable from future runs. Builds never fail
+because of a cache miss or an ephemeral network error while fetching cache. The careful part: preciousness is
+decided per case, explicitly, because both extremes are real failure modes — protecting things that need no
+protection is over-engineering, and demanding a fallback for every conceivable error is over-engineering too. When
+one of these details surfaces, it gets written down and ruled on (G26, OQ15), not absorbed
+silently in either direction.
+G15settled
+Mutable state does not cross engines. Out of scope for remote caching: mutable cache volumes (crucial shared
+understanding), the full mutable filesync mirror of a client's directory, and the mutable git checkout stores.
+Genuinely open, not committed: frozen, snapshotted forms of client directories and git sources
+(OQ10). More items in this category will surface; each gets an explicit ruling.
+Architecture direction
+G16preliminary
+A loose lifecycle over a standing channel — and we build the channel. The service can act at any point:
+request uploads of results it believes an engine has, or offer metadata worth importing. No moment is special;
+import-at-boot / export-at-end survives only as one expressible policy among many. The channel is purpose-built by
+this effort (the first bidirectional service⇄engine channel we've needed); its transport form — persistent
+bidirectional connection, long-polling, plain requests, or a hybrid — is genuinely open with real trade-offs around
+stickiness and statefulness (OQ3). Adjacent trajectory to design with: engine telemetry is headed
+toward direct engine→cloud export (currently reverted on main; see #13811), which is how the service's awareness of
+engine activity keeps growing. The foundational engine batch blocks on none of this.
+G17preliminary
+Commands are hints; coordination is best-effort; availability leases are out. Distributed knowledge will be
+stale: the service may ask for something an engine has pruned, and "I no longer have that" is an expected, accepted
+answer — never grounds for reserving results on engines, forcing recomputation, or durable engine-side command
+queues. Erik on distributed leases: "hell no." The cloud-forces-rerun pattern is both horrifically complicated and
+technically impossible; it does not exist here.
+G18preliminary
+Foundations assume live import. Imported metadata can arrive while the engine is serving — the old
+startup-only-import assumption is not carried forward, and new foundations must not bake it in. How imports become
+visible (one by one, batched, or at coarse safe application points under the engine's own locking) is open: start
+with whatever is simplest while still effective, with a mild lean toward coarse safe points
+(OQ5). Fine-grained continuous merging stays on the table as a later generalization — nothing is
+built for it now, and nothing should foreclose it cheaply.
+G19settled
+No synchronous miss-path RPC. A local cache miss never blocks on a network question. Imports are pushed or
+prefetched metadata; content moves lazily; misses just execute.
+G20preliminary
+The service maintains a queryable metadata pool. Queryable enough to make upload and serve decisions
+server-side — that much is agreed. Everything past that sentence is open: the data model, merge and idempotence
+semantics, and whether any engine code runs server-side (OQ12).
+G21preliminary
+Uploads: the engine is told what to upload; bytes move via presigned URLs. The working sketch: the engine
+hits a service API that responds with an HTTP redirect to a presigned upload URL — which as a side effect tells the
+service the engine at least attempted the upload. The sketch could change in subtle or fundamental ways;
+acknowledgement, retry, and lifecycle semantics are open (OQ4). The load-bearing part is only the
+decision split: the service decides what's worth uploading, the engine executes.
+Development posture
+G22settled
+Zero compatibility work of any kind until production nears. We are developing; there is no such thing as
+compatibility yet. Hard protocol cuts; run known-compatible engines and services together; happily invalidate entire
+cache pools whenever a format change makes that simplest — until Erik explicitly says otherwise. No version
+migration, no persisted-format stability effort, no backwards compatibility with anything — especially not with code
+that never shipped anywhere. Named anti-pattern: an agent preserving "backwards compatibility" with its own
+uncommitted change from five minutes ago.
+G23settled
+This is a fresh rewrite; the past is reference, not input. Nothing from the earlier efforts — designs,
+lessons, code — carries default authority. The bar for importing a learning: the old work handled something we
+didn't, and it actually matters. Both conditions, verified against current reality — then we learned
+something valuable. Otherwise, no copying, in any form. Don't run into new designs carrying old assumptions.
+G24settled
+No code is off-limits — and no invented problems. The e-graph, the ownership model, the laziness system,
+any cache internals: all changeable when a real requirement demands it; nothing is frozen, and no agent may ever
+declare an area untouchable. The theoretical scope is whatever the effort needs; what actually changes is decided
+intentionally, per slice. Equally, never manufacture a problem as an excuse to change code, and never change
+behavior unrelated to the effort just because the machinery to change it is nearby. Ruled example: a persisted
+value that fails to decode keeps returning an error today, and stays that way — a decode failure means an engine bug
+or a hardware failure, which we do not design for.
+G25preliminary
+Foundations first, merged incrementally, with the end-to-end path plotted — not built — ahead. The bias is
+toward getting well-understood foundational slices and independent fixes merged sooner rather than later. Designing
+somewhat ahead of the foundations is necessary to know they're the right foundations — and can be overdone;
+the balance is worked out in practice. What the foundational batch must produce: an engine cache that fundamentally
+supports the model above — foreign results adopted as metadata, content materialized on demand from multiple
+possible sources, live import, all under G8's single cache model. Its precise boundary is
+OQ14.
+Working process
+G26preliminary seed
+Assumptions get written down; unconfirmed corner cases get denied; the default is stop-and-ask. Three parts,
+kept deliberately small: (1) load-bearing assumptions are recorded — a flat ledger, short per-slice lists, or both;
+the format is unresolved and must stay lightweight, never a registry bureaucracy. Asking Erik happens in normal
+conversation, not through forms. (2) Default-deny: complexity that exists to handle a case Erik hasn't confirmed
+real is deletable on sight, no debate owed. (3) When a newly discovered case would materially widen the design,
+agents stop and ask; the bias stays toward asking until Erik grants more autonomy in a specific area.
+Over-engineering this process itself is a named failure mode.
+G27settled
+Communication contract. Plain, direct technical English; claims tied to evidence; push back when something
+doesn't add up — no yes-manning in either direction. When raising a concern inherited from the old efforts, present
+it as a concrete example in current code, never as an old effort's label or abstraction (old jargon has already made
+real concerns unintelligible). Human-facing documents are readable HTML, never plain markdown. And there is never a
+rush: depth over speed, always.
+G28settled
+Evidence is slice-specific. There is no universal gate checklist. For every slice of work, ask what proof its
+actual risks and invariants require, and choose tests and review gates from that — a question to re-ask each time,
+not answer once.
+G29open, evolving
+Erik's review altitude is a constraint the process must fit. He can skim everything or read every line of
+nothing; the target is the middle — the ability to zoom into any detail without living at the microscopic level. His
+deep familiarity with the codebase (a ~95%-accurate smell for something being off) is an asset the process should
+feed, not bypass. The largest reliably-reviewable unit is not knowable in advance; it gets discovered by doing, and
+the process (including Tailcall itself, which evolves alongside) adapts at each real failure.
+G30settled
+The TLA+ model is part of the definition of done. The cache's concurrency kernel is modeled in
+dagql/tla and checked in CI; the model must stay an accurate reflection of the code. For deep changes
+the order is: extend the model first to see whether the design holds, write the code to match, then reconcile both
+until they agree and the model asserts the invariants and properties we care about. A PR that touches modeled
+behavior is production-ready only when model and code are aligned and every asserted property is green; a red
+property is a blocker, not a note. No cheating: a green check over states the model cannot reach is worthless, so
+new machinery enters with a re-break run (weaken the fix, watch the invariant trip) and a reachability probe.
+Baseline areas the effort touches that the model does not yet cover get modeled as part of the work. The model
+checks lifecycle and concurrency; tests keep carrying content correctness, performance, and type coverage — it is a
+significant tool, not the only one.
+G31settled
+The recipe-replay system is not an input to this effort. The engine recently gained a system for replaying
+recipe-form IDs that are persisted outside the engine, with a "not replayable" marking on certain calls. That was
+built by a different effort, for a different use case, with different goals. It is not what remote
+caching does, its rules do not apply here, and nothing in this effort may depend on it or be shaped by it unless it
+is proven, concretely, to be relevant — the strong expectation is that it is not. Our recipes are the result call
+frames and lazy recipes the cache already stores and persists; sharing those between engines is the same kind of
+thing persistence already does across restarts. Agents are expected to confuse the two; this item exists so they
+do not.
+G32settled
+Decisions are working positions, never commandments. Every decision recorded in these documents was made
+with the information available at the time and can be questioned by anyone at any time. Nothing is 100% set in
+stone. A later agent that finds a recorded decision straining against reality must raise it, not contort the
+system to preserve it. The record exists so decisions are visible and deliberate, not so they are permanent.
+3. Explicit non-goals
+Collected here for fast reference; each traces to a principle above. These are valuable precisely because past
+efforts sank time into some of them.
+Environments: local developer engines · self-hosted or arbitrary user infrastructure · offline engines (G4).
+Distribution: cross-org or public/global sharing · scopes finer than an org · multi-region replication (G5).
+Adversaries: cache poisoning · malicious engines · hostile input of any kind · defensive verification (G6).
+Compatibility: old engine or service versions · protocol version skew · preserving pools across format changes · migration paths (G22).
+Mutable state crossing engines: mutable cache volumes · full client filesync mirrors · mutable git checkout stores (G15).
+Machinery: distributed availability leases · forced recomputation · database-style ordering or consistency · durable command queues (G17, G10) · synchronous miss-path lookups (G19) · protocol obfuscation (G3) · engine command-rejection policy (G1) · remote-only equivalence or partitioning rules (G8, G9).
+Other efforts' machinery: the recipe-replay / "not replayable" system (G31) · behavior changes unrelated to the effort, such as reinterpreting persisted-value decode failures (G24).
+Eager content movement: pulling a result's layers because it was learned or hit, or pulling its dependencies' layers recursively — both are baseline requirements violated, not optimizations missed (Engine Foundations doc, F11 and F12).
+4. Open questions
+Deliberately unanswered. Keeping these open is preferable to importing answers from the old attempts; none may be
+resolved silently by implementation. Roughly ordered from product-level to mechanism-level.
+OQ1First proving workload. Dagger's own org CI (real value, but a hard first target — testing Dagger requires frequent intentional cache invalidation; its scale is substantial and must eventually work), another org's CI, Tailcall's CI (heavy Dagger use, much simpler), or a smaller constructed scenario; possibly several orgs. Don't turn "fresh engine reuses another engine's result" into a milestone requirement yet.
+OQ2How the service learns and names engine cache state. Is telemetry the inventory (service builds its picture from enriched spans), or a trigger with a dedicated authoritative query behind it? What identity does an upload request use? What state do engines emit continuously? Crucial and deliberately deferred until the overall shape settles; avoid stringent machinery — choose what proves straightforward and effective.
+OQ3Channel transport. Persistent bidirectional connection (stickiness/statefulness costs), long-polling, separate requests, or a hybrid. "A million options"; decided later.
+OQ4Upload command lifecycle. Acknowledgement and retry semantics; what the service learns from the redirect hit vs. object-store completion; engines disappearing mid-command; ephemeral CI engines vs. deferred uploads (linger and drain? overlap the run? something else); which lifecycle transitions get recorded.
+OQ5Import application mechanics. Given live import (G18): visibility per-result, batched, or at short safe application points; what "simplest while still effective" concretely is; what evidence would justify moving to fine-grained continuous merge. Working lean (Engine Foundations doc, D9): one result at a time, dependencies before dependents, each row one small locked insertion, rows referencing unknown dependencies rejected the way boot import already rejects dangling references.
+OQ6Transfer unit and dependency closure. One result, multiple roots, or a job's inventory; whether the engine, the service, or both compute the required closure. Partly shaped by OQ5's lean: whatever the unit, rows arrive dependencies-first.
+OQ7What a learned entry carries, and how content is identified. Working direction (Engine Foundations doc): a description carries the result's metadata, call frame and digests, dependency references, a content identity (ordered list of layer identities) for each snapshot the result links, and its recipe. Layer identities are computed at export, never eagerly during builds (the historical performance trap, re-verified against current code: identities do not exist before export). Still open: whether producers keep recipes after evaluation or consumers rebuild them from the call frame (D10), and exactly when chain identities are computed relative to upload (D17).
+OQ8Re-execution on the final fall-through arm. Resolved as a working direction (Engine Foundations doc): the fall-through lives inside the learned result's own deferred work. Evaluating a part of a learned result means pull that part's content, else run the result's recipe — the same lazy machinery a locally-persisted result uses after a restart, with a pull step in front. The earlier sub-question ("does every demand sit under a live call?") is moot under this direction, because the fallback never depends on the client's call. Open inside it: recipe availability (D10) and what a result remembers after a failed pull (D14).
+OQ9Failure classification. Which source failures are retryable vs. permanently exhausted vs. ordinary-miss grounds. No prior classifier is accepted by default.
+OQ10Result-type coverage. Which result types cross engines at all — a high-value whitelist with everything else recomputing, or broader; where frozen client-directory and frozen git-source snapshots land (G15's maybes). "A whole universe of its own to explore." Working answer (Engine Foundations doc, D16): anything the engine can persist today can be shared; plain values are filled at import; snapshot-bearing types (containers, directories, files) get per-part lazy pulls. Results that are not persistable today (containers holding secrets, sockets, or services; the exec that runs a module function) are not shared. The frozen client-directory and git-source questions stay open.
+OQ11Pruning and deletion sync. Does the service merely tolerate stale availability (the floor, per G17), or do engines sometimes resynchronize what actually remains locally?
+OQ12Service metadata pool internals. Data model; merge and idempotence semantics (re-announcing known state should probably be cheap and harmless, but even that is not yet a requirement); whether engine code is reused server-side.
+OQ13Performance objective. No thresholds yet — only "meaningful improvement in supported CI cases." The long-term system decides when remote caching helps and skips it when it wouldn't; what v1 must demonstrate is undecided.
+OQ14The foundational batch boundary. Which engine mechanics must land before any end-to-end path exists, and how much of that path must be designed (not built) to prove the foundations have a real consumer. Proposal under review: the staged order in the Engine Foundations doc, which splits the work into baseline laziness improvements (land first, no remote semantics) and remote-specific mechanics (land after). Stays open until Erik approves that order.
+OQ15Preciousness rulings. The running, case-by-case record of what may be dropped versus what must survive (feeds G14/G26). Expected to grow continuously; starts empty on purpose.
+OQ16Calibration examples of past over-engineering. Erik's memory of specific "case XYZ isn't real" jaw-droppers has faded; concrete, evidence-backed examples from the old branches are needed to jog it and to calibrate the default-deny rule (G26). One instance already confirmed: past over-complication of interchangeability itself (G8). Owner: Fable.
+OQ17Institutional memory and consolidation. Where durable truth lives long-term (in-repo docs, this page, agent memory), who owns continuity across the coming fan-out, and who merges future scoping input.
+OQ18The old lessons file (L1–L8). The July effort's process lessons await deliberate re-adjudication — an honest hour-plus each, deferred until it earns priority. They carry no authority meanwhile. One known collision to resolve then: L2's standing per-chunk integration gates vs. G28's slice-specific evidence.
+OQ19Near-term mergeable fixes. Resolved. The ongoingCall.isPersistable race fix (#13923), the salt override (#13925), and the default-platform identity fix (#13911) merged on main. The lost-cancel on the miss path was not independently reachable in practice and was fixed in passing by the cache-remediation stack (#13936). That stack (#13934, #13936, #13938, #13940) fixes everything the TLA+ model found at baseline; all 25 model configurations are green on it, and the foundational work is based on its head.
+5. Records and sources
+This page is the living document; the records below are its evidence and stay one click away.
+Engine Foundations — design and implementation plan — the design, the decision record, the model plan, and the proposed order of the engine work (G25).
+dagql/tla/ in the engine repo — the TLA+ cache model and its configurations (G30); .dagger/modules/tla-check/main.go holds the expected-outcome map.
+Interview record, 2026-08-14/15 — 23 questions, with Erik's answers verbatim.
+Interview record, 2026-08-15 — 42 questions, with condensed answers and expandable notes (checked against Erik's raw answer transcript during consolidation).
+The prior efforts' branches and design documents (reference only, per G23): principally
+remote-cache-take3-fork-0bdd5926 and cash-money-native-ci on sipsma/dagger,
+cash-money and the svc-chunk-* branches on sipsma/dagger.io, and the design pages under
+hack/designs/remote-cache/ on those branches. The archaeology report reconstructing them lives in
+the archaeology agent's session.
+Working draft · maintained by the scoping agent (Fable) · updated 2026-08-21 · says what we believe now, not what happened before — history lives in the records above.

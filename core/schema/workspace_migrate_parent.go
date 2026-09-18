@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/dagger/dagger/core"
-	coresdk "github.com/dagger/dagger/core/sdk"
 	"github.com/dagger/dagger/core/workspace"
 )
 
@@ -31,7 +30,7 @@ func workspaceMigrationParentPlansForPlainModules(
 	compatWorkspaces []*workspace.CompatWorkspace,
 	workspacePlans []*workspace.MigrationPlan,
 ) ([]workspaceMigrationParentPlan, error) {
-	assignments, err := workspaceMigrationParentAssignments(ws, compatWorkspaces, workspacePlans)
+	assignments, err := workspaceMigrationParentAssignments(ws, compatWorkspaces)
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +47,6 @@ func workspaceMigrationParentPlansForPlainModules(
 func workspaceMigrationParentAssignments(
 	ws *core.Workspace,
 	compatWorkspaces []*workspace.CompatWorkspace,
-	workspacePlans []*workspace.MigrationPlan,
 ) ([]workspaceMigrationParentAssignment, error) {
 	if ws == nil || ws.HostPath() == "" {
 		return nil, fmt.Errorf("workspace host path is required")
@@ -56,22 +54,59 @@ func workspaceMigrationParentAssignments(
 
 	assignments := make([]workspaceMigrationParentAssignment, 0, len(compatWorkspaces))
 	for _, compatWorkspace := range compatWorkspaces {
-		if compatWorkspace == nil || compatWorkspace.MustMigrateToWorkspaceConfig() {
+		if compatWorkspace == nil {
+			continue
+		}
+		// A discovered local dependency/toolchain target is loaded through its
+		// referrer, not explicitly; it must not create a parent workspace, hoist
+		// its runtime, or warn about explicit loading.
+		if compatWorkspace.DiscoveredLocalModule {
 			continue
 		}
 		if compatWorkspace.Config == nil || compatWorkspace.Config.SDK == nil {
 			continue
 		}
-		parentRoot, err := workspaceMigrationNearestPlannedParent(compatWorkspace.ProjectRoot, workspacePlans)
+		rel, err := workspaceMigrationProjectRootRelPath(ws, compatWorkspace.ProjectRoot)
 		if err != nil {
 			return nil, err
 		}
-		if parentRoot == "" {
-			parentRoot = ws.HostPath()
+		if rel != "." {
+			// The selected config sits below the workspace root ("setup from a
+			// module subdirectory"). Its module is never installed into a
+			// workspace, so nothing records an SDK claim on its behalf:
+			//   - with toolchains, those hoist into the workspace-root
+			//     dagger.toml, and the runtime pin plus explicit-loading
+			//     warning land on that hoisted plan;
+			//   - without toolchains, this is the module-only migration: the
+			//     config converts in place, no workspace is created, and there
+			//     is no runtime pin and no warning. The converted
+			//     dagger-module.toml still names its sdk, so the module stays
+			//     loadable on its own.
+			if len(compatWorkspace.Config.Toolchains) == 0 {
+				continue
+			}
+			assignments = append(assignments, workspaceMigrationParentAssignment{
+				CompatWorkspace:   compatWorkspace,
+				ParentProjectRoot: ws.HostPath(),
+			})
+			continue
 		}
+		// A project-style layout at the workspace root (source in a
+		// subdirectory) installs the module into its own migrated workspace
+		// config with its SDK recorded; there is no separate runtime
+		// pin to hoist and no explicit-loading warning. Only the "repo is just
+		// a dagger module" shape — source at the project root — flows through
+		// here, whether or not toolchains force a workspace plan of its own.
+		if compatWorkspace.MustMigrateToWorkspaceConfig() && !workspace.ModuleSourceAtRoot(compatWorkspace.Config) {
+			continue
+		}
+		// The runtime pin and warning land at the module's own project root:
+		// either its planned dagger.toml (toolchains case) or a minimal parent
+		// config synthesized there. Never above it — a module repo must not
+		// grow a workspace claiming sibling modules.
 		assignments = append(assignments, workspaceMigrationParentAssignment{
 			CompatWorkspace:   compatWorkspace,
-			ParentProjectRoot: parentRoot,
+			ParentProjectRoot: compatWorkspace.ProjectRoot,
 		})
 	}
 	return assignments, nil
@@ -115,29 +150,6 @@ func workspaceMigrationParentPlans(
 	return parentPlans, nil
 }
 
-func workspaceMigrationNearestPlannedParent(projectRoot string, plans []*workspace.MigrationPlan) (string, error) {
-	if projectRoot == "" {
-		return "", fmt.Errorf("module project root is required")
-	}
-	var nearest string
-	for _, plan := range plans {
-		if plan == nil || plan.ProjectRoot == "" {
-			continue
-		}
-		contains, err := workspaceMigrationPathContains(plan.ProjectRoot, projectRoot)
-		if err != nil {
-			return "", fmt.Errorf("planned parent path: %w", err)
-		}
-		if !contains {
-			continue
-		}
-		if nearest == "" || len(filepath.Clean(plan.ProjectRoot)) > len(filepath.Clean(nearest)) {
-			nearest = plan.ProjectRoot
-		}
-	}
-	return nearest, nil
-}
-
 func workspaceMigrationPlannedProjectRoots(plans []*workspace.MigrationPlan) map[string]struct{} {
 	roots := make(map[string]struct{}, len(plans))
 	for _, plan := range plans {
@@ -149,165 +161,203 @@ func workspaceMigrationPlannedProjectRoots(plans []*workspace.MigrationPlan) map
 	return roots
 }
 
+// workspaceMigrationConfigTargets indexes the migrated workspace configs (both
+// migration plans and synthesized parent plans) by project root, so an SDK
+// install can locate the config that owns a module and update it in place.
+type workspaceMigrationConfigTargets struct {
+	workspacePlansByRoot map[string]*workspace.MigrationPlan
+	parentPlanIndexes    map[string]int
+	parentPlans          []workspaceMigrationParentPlan
+}
+
+func newWorkspaceMigrationConfigTargets(
+	workspacePlans []*workspace.MigrationPlan,
+	parentPlans []workspaceMigrationParentPlan,
+) workspaceMigrationConfigTargets {
+	byRoot := make(map[string]*workspace.MigrationPlan, len(workspacePlans))
+	for _, plan := range workspacePlans {
+		if plan != nil && plan.ProjectRoot != "" {
+			byRoot[filepath.Clean(plan.ProjectRoot)] = plan
+		}
+	}
+	indexes := make(map[string]int, len(parentPlans))
+	for i, plan := range parentPlans {
+		indexes[filepath.Clean(plan.ProjectRoot)] = i
+	}
+	return workspaceMigrationConfigTargets{
+		workspacePlansByRoot: byRoot,
+		parentPlanIndexes:    indexes,
+		parentPlans:          parentPlans,
+	}
+}
+
+// owningRoot returns the project root of the nearest planned workspace that
+// contains moduleRoot, or "" if none does.
+func (t workspaceMigrationConfigTargets) owningRoot(moduleRoot string) (string, error) {
+	var owning string
+	consider := func(root string) error {
+		contains, err := workspaceMigrationPathContains(root, moduleRoot)
+		if err != nil {
+			return err
+		}
+		if contains && (owning == "" || len(root) > len(owning)) {
+			owning = root
+		}
+		return nil
+	}
+	for root := range t.workspacePlansByRoot {
+		if err := consider(root); err != nil {
+			return "", err
+		}
+	}
+	for root := range t.parentPlanIndexes {
+		if err := consider(root); err != nil {
+			return "", err
+		}
+	}
+	return owning, nil
+}
+
+// update applies transform to the workspace config identified by root, which
+// must be an exact planned root (e.g. from owningRoot or a parent assignment).
+func (t workspaceMigrationConfigTargets) update(root string, transform func([]byte) ([]byte, error)) error {
+	clean := filepath.Clean(root)
+	if plan, ok := t.workspacePlansByRoot[clean]; ok {
+		updated, err := transform(plan.WorkspaceConfigData)
+		if err != nil {
+			return err
+		}
+		plan.WorkspaceConfigData = updated
+		return nil
+	}
+	if idx, ok := t.parentPlanIndexes[clean]; ok {
+		updated, err := transform(t.parentPlans[idx].WorkspaceConfigData)
+		if err != nil {
+			return err
+		}
+		t.parentPlans[idx].WorkspaceConfigData = updated
+		return nil
+	}
+	return fmt.Errorf("workspace config for %q is not planned", root)
+}
+
 func workspaceMigrationInstallParentSDKModules(
 	workspacePlans []*workspace.MigrationPlan,
 	parentPlans []workspaceMigrationParentPlan,
 	assignments []workspaceMigrationParentAssignment,
 ) ([]workspaceMigrationParentPlan, error) {
-	// NOTE(workspace-migrate): These SDK modules are written to the parent
+	// NOTE(workspace-migrate): These SDK installs are written to the parent
 	// workspace configs without refreshing lock entries during migration. Future
 	// workspace commands can resolve them through the normal lock refresh path.
-	modulesByParent := map[string][]coresdk.WorkspaceModule{}
+	//
+	// The install is recorded through the same SDK registry as every other
+	// migrated runtime (short name, resolved to its real ref by the setup SDK
+	// fixup pass), so a discovered local module sharing the runtime reuses the
+	// same entry — one SDK install serves every module in the repo.
+	sdksByParent := map[string][]workspaceMigrationParentAssignment{}
 	for _, assignment := range assignments {
-		mod, ok, err := workspaceMigrationSDKModule(assignment.CompatWorkspace)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
+		cfg := assignment.CompatWorkspace.Config
+		if cfg == nil || cfg.SDK == nil || cfg.SDK.Source == "" {
 			continue
 		}
 		parentRoot := assignment.ParentProjectRoot
-		modulesByParent[parentRoot] = append(modulesByParent[parentRoot], mod)
+		sdksByParent[parentRoot] = append(sdksByParent[parentRoot], assignment)
 	}
-	if len(modulesByParent) == 0 {
+	if len(sdksByParent) == 0 {
 		return parentPlans, nil
 	}
 
-	workspacePlansByRoot := make(map[string]*workspace.MigrationPlan, len(workspacePlans))
-	for _, plan := range workspacePlans {
-		if plan == nil || plan.ProjectRoot == "" {
-			continue
-		}
-		workspacePlansByRoot[plan.ProjectRoot] = plan
-	}
-	parentPlanIndexes := make(map[string]int, len(parentPlans))
-	for i, plan := range parentPlans {
-		parentPlanIndexes[plan.ProjectRoot] = i
-	}
+	targets := newWorkspaceMigrationConfigTargets(workspacePlans, parentPlans)
 
-	parentRoots := make([]string, 0, len(modulesByParent))
-	for parentRoot := range modulesByParent {
+	parentRoots := make([]string, 0, len(sdksByParent))
+	for parentRoot := range sdksByParent {
 		parentRoots = append(parentRoots, parentRoot)
 	}
 	sort.Strings(parentRoots)
 
 	for _, parentRoot := range parentRoots {
-		mods := workspaceMigrationDedupSDKModules(modulesByParent[parentRoot])
-		if len(mods) == 0 {
-			continue
-		}
-
-		if plan, ok := workspacePlansByRoot[parentRoot]; ok {
-			updated, err := workspaceMigrationConfigWithSDKModules(plan.WorkspaceConfigData, mods)
+		sources := sdksByParent[parentRoot]
+		if err := targets.update(parentRoot, func(data []byte) ([]byte, error) {
+			cfg, err := workspace.ParseConfig(data)
 			if err != nil {
-				return nil, fmt.Errorf("install SDK modules in migrated workspace config at %s: %w", parentRoot, err)
+				return nil, err
 			}
-			plan.WorkspaceConfigData = updated
-			continue
+			for _, assignment := range sources {
+				module := assignment.CompatWorkspace
+				modulePath, err := filepath.Rel(parentRoot, module.ProjectRoot)
+				if err != nil {
+					return nil, err
+				}
+				modulePath = filepath.ToSlash(modulePath)
+				workspace.AddMigratedModuleSDK(cfg, workspace.MigratedModuleSDKSource(module.Config, modulePath), modulePath, module.Config.Name, workspace.MigratedModuleClients(module.Config, modulePath)...)
+			}
+			return workspace.UpdateConfigBytes(data, cfg)
+		}); err != nil {
+			return nil, fmt.Errorf("install SDK modules at %s: %w", parentRoot, err)
 		}
-
-		parentIndex, ok := parentPlanIndexes[parentRoot]
-		if !ok {
-			return nil, fmt.Errorf("parent workspace config for %s is not planned", parentRoot)
-		}
-		updated, err := workspaceMigrationConfigWithSDKModules(parentPlans[parentIndex].WorkspaceConfigData, mods)
-		if err != nil {
-			return nil, fmt.Errorf("install SDK modules in parent workspace config at %s: %w", parentRoot, err)
-		}
-		parentPlans[parentIndex].WorkspaceConfigData = updated
 	}
 
 	return parentPlans, nil
 }
 
-func workspaceMigrationSDKModule(compatWorkspace *workspace.CompatWorkspace) (coresdk.WorkspaceModule, bool, error) {
-	if compatWorkspace == nil || compatWorkspace.Config == nil || compatWorkspace.Config.SDK == nil {
-		return coresdk.WorkspaceModule{}, false, nil
-	}
-	return coresdk.WorkspaceModuleForRuntime(compatWorkspace.Config.SDK.Source)
-}
+// workspaceMigrationInstallDiscoveredModuleSDKs records the runtime of every
+// discovered, converted-in-place local module in the workspace config that owns
+// it, so a module loaded from a local ref inside the workspace has its SDK
+// installed and pinned, with the module recorded as an SDK scope.
+// Discovered modules are converted in place and deliberately skip the parent-plan
+// flow (no "requires explicit loading" warning), so their SDK install is handled
+// here instead.
+func workspaceMigrationInstallDiscoveredModuleSDKs(
+	workspacePlans []*workspace.MigrationPlan,
+	parentPlans []workspaceMigrationParentPlan,
+	compatWorkspaces []*workspace.CompatWorkspace,
+) ([]workspaceMigrationParentPlan, error) {
+	targets := newWorkspaceMigrationConfigTargets(workspacePlans, parentPlans)
 
-func workspaceMigrationDedupSDKModules(mods []coresdk.WorkspaceModule) []coresdk.WorkspaceModule {
-	if len(mods) == 0 {
-		return nil
-	}
-	seen := map[coresdk.WorkspaceModule]struct{}{}
-	deduped := make([]coresdk.WorkspaceModule, 0, len(mods))
-	for _, mod := range mods {
-		if mod.Name == "" || mod.Source == "" {
+	for _, compatWorkspace := range compatWorkspaces {
+		if compatWorkspace == nil || !compatWorkspace.DiscoveredLocalModule {
 			continue
 		}
-		if _, ok := seen[mod]; ok {
+		if compatWorkspace.Config == nil || compatWorkspace.Config.SDK == nil || compatWorkspace.Config.SDK.Source == "" {
 			continue
 		}
-		seen[mod] = struct{}{}
-		deduped = append(deduped, mod)
-	}
-	sort.Slice(deduped, func(i, j int) bool {
-		if deduped[i].Name == deduped[j].Name {
-			return deduped[i].Source < deduped[j].Source
+
+		owner, err := targets.owningRoot(compatWorkspace.ProjectRoot)
+		if err != nil {
+			return nil, err
 		}
-		return deduped[i].Name < deduped[j].Name
-	})
-	return deduped
+		if owner == "" {
+			// A module-only migration — setup run from a module subdirectory —
+			// plans no workspace config at all, so a discovered dependency has
+			// no config to record its SDK in. Its converted dagger-module.toml
+			// still names its sdk; the install happens when a workspace later
+			// claims these modules.
+			continue
+		}
+		modulePath, err := filepath.Rel(owner, compatWorkspace.ProjectRoot)
+		if err != nil {
+			return nil, fmt.Errorf("discovered module %q path: %w", compatWorkspace.ProjectRoot, err)
+		}
+		modulePath = filepath.ToSlash(filepath.Clean(modulePath))
+		sdkSource := workspace.MigratedModuleSDKSource(compatWorkspace.Config, modulePath)
+		moduleName := compatWorkspace.Config.Name
+
+		if err := targets.update(owner, func(data []byte) ([]byte, error) {
+			return workspaceMigrationConfigWithMigratedModuleSDK(data, sdkSource, modulePath, moduleName, workspace.MigratedModuleClients(compatWorkspace.Config, modulePath)...)
+		}); err != nil {
+			return nil, fmt.Errorf("install SDK for discovered module %q: %w", compatWorkspace.ProjectRoot, err)
+		}
+	}
+	return parentPlans, nil
 }
 
-func workspaceMigrationConfigWithSDKModules(
-	configData []byte,
-	mods []coresdk.WorkspaceModule,
-) ([]byte, error) {
+func workspaceMigrationConfigWithMigratedModuleSDK(configData []byte, sdkSource, modulePath, moduleName string, clients ...string) ([]byte, error) {
 	cfg, err := workspace.ParseConfig(configData)
 	if err != nil {
 		return nil, err
 	}
-
-	changed := false
-	if cfg.Modules == nil {
-		cfg.Modules = map[string]workspace.ModuleEntry{}
-	}
-	for _, mod := range mods {
-		if workspaceMigrationInstallSDKModule(cfg.Modules, mod) {
-			changed = true
-		}
-	}
-	if !changed {
-		return configData, nil
-	}
-
+	workspace.AddMigratedModuleSDK(cfg, sdkSource, modulePath, moduleName, clients...)
 	return workspace.UpdateConfigBytes(configData, cfg)
-}
-
-func workspaceMigrationInstallSDKModule(
-	modules map[string]workspace.ModuleEntry,
-	mod coresdk.WorkspaceModule,
-) bool {
-	for _, entry := range modules {
-		if entry.Source == mod.Source {
-			return false
-		}
-	}
-
-	name := mod.Name
-	if existing, ok := modules[name]; ok && existing.Source != mod.Source {
-		name = workspaceMigrationUniqueSDKModuleName(modules, name)
-	}
-	modules[name] = workspace.ModuleEntry{
-		Source: mod.Source,
-	}
-	return true
-}
-
-func workspaceMigrationUniqueSDKModuleName(modules map[string]workspace.ModuleEntry, base string) string {
-	candidate := base + "-runtime"
-	if _, exists := modules[candidate]; !exists {
-		return candidate
-	}
-	for i := 2; ; i++ {
-		candidate = fmt.Sprintf("%s-runtime-%d", base, i)
-		if _, exists := modules[candidate]; !exists {
-			return candidate
-		}
-	}
 }
 
 func workspaceMigrationWarnExplicitModuleLoading(

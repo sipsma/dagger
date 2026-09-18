@@ -1,0 +1,55 @@
+{
+  "trace": "47888a25c79c32647da1c39d700064ba",
+  "order": "before, repeated before; after, repeated after",
+  "scratch": [
+    {
+      "ordinal": 224,
+      "resultID": 4692,
+      "address": {
+        "part": "snapshot"
+      },
+      "group": "whole",
+      "platform": "linux/amd64",
+      "producerEntries": 0,
+      "providerReads": 0
+    },
+    {
+      "ordinal": 224,
+      "resultID": 4692,
+      "address": {
+        "part": "snapshot"
+      },
+      "group": "whole",
+      "platform": "linux/amd64",
+      "producerEntries": 0,
+      "providerReads": 0
+    },
+    {
+      "ordinal": 224,
+      "resultID": 4695,
+      "address": {
+        "part": "snapshot"
+      },
+      "group": "whole",
+      "platform": "linux/amd64",
+      "producerEntries": 0,
+      "providerReads": 0
+    },
+    {
+      "ordinal": 224,
+      "resultID": 4695,
+      "address": {
+        "part": "snapshot"
+      },
+      "group": "whole",
+      "platform": "linux/amd64",
+      "producerEntries": 0,
+      "providerReads": 0
+    }
+  ],
+  "before": "passed",
+  "after": "passed",
+  "cleanRestarts": 2,
+  "reportBodyCountAtEachRestart": 1,
+  "foreignContext": "passed"
+}

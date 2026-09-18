@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"go/token"
+	"go/types"
 	"regexp"
 	"slices"
 	"strings"
@@ -18,6 +19,12 @@ import (
 	"github.com/dagger/dagger/cmd/codegen/generator"
 	"github.com/dagger/dagger/cmd/codegen/introspection"
 )
+
+// ModuleIntrospectionEmitter produces the module's own types as
+// introspection JSON, for merging into the dependency schema.
+type ModuleIntrospectionEmitter interface {
+	ModuleIntrospectionJSON(moduleName string) ([]byte, error)
+}
 
 func GoTemplateFuncs(
 	ctx context.Context,
@@ -45,6 +52,30 @@ func GoTemplateFuncs(
 	}.FuncMap()
 }
 
+// NewModuleIntrospectionEmitter constructs a minimal emitter suitable for
+// calling ModuleIntrospectionJSON. The schema and schemaVersion are the current
+// (deps) schema; pkg and fset are from packages.Load on the module source.
+func NewModuleIntrospectionEmitter(
+	ctx context.Context,
+	schema *introspection.Schema,
+	schemaVersion string,
+	cfg generator.Config,
+	pkg *packages.Package,
+	fset *token.FileSet,
+) ModuleIntrospectionEmitter {
+	return goTemplateFuncs{
+		CommonFunctions: generator.NewCommonFunctions(schemaVersion, &FormatTypeFunc{}),
+		ctx:             ctx,
+		cfg:             cfg,
+		modulePkg:       pkg,
+		moduleFset:      fset,
+		schema:          schema,
+		fullSchema:      schema,
+		schemaVersion:   schemaVersion,
+		pass:            1,
+	}
+}
+
 type goTemplateFuncs struct {
 	*generator.CommonFunctions
 	ctx        context.Context
@@ -64,6 +95,8 @@ func (funcs goTemplateFuncs) FuncMap() template.FuncMap {
 	return template.FuncMap{
 		// common
 		"FormatReturnType":          funcs.FormatReturnType,
+		"IDHandleType":              funcs.IDHandleType,
+		"IDHandleClient":            funcs.idHandleClient,
 		"FormatInputType":           funcs.FormatInputType,
 		"FormatOutputType":          funcs.FormatOutputType,
 		"FormatFieldOutputType":     funcs.FormatFieldOutputType,
@@ -82,6 +115,7 @@ func (funcs goTemplateFuncs) FuncMap() template.FuncMap {
 		// interface support
 		"IsInterfaceType":          funcs.isInterfaceType,
 		"IsInterfaceRef":           funcs.isInterfaceRef,
+		"IsNullableObject":         funcs.isNullableObject,
 		"IsListOfInterface":        funcs.isListOfInterface,
 		"InterfaceClientName":      funcs.interfaceClientName,
 		"InterfaceReturnType":      funcs.interfaceReturnType,
@@ -96,6 +130,7 @@ func (funcs goTemplateFuncs) FuncMap() template.FuncMap {
 		"FormatDeprecation":       funcs.formatDeprecation,
 		"FormatExperimental":      funcs.formatExperimental,
 		"FormatName":              formatName,
+		"FormatParamName":         formatParamName,
 		"FormatEnum":              funcs.formatEnum,
 		"SortEnumFields":          funcs.sortEnumFields,
 		"GroupEnumByValue":        funcs.groupEnumByValue,
@@ -133,6 +168,10 @@ func (funcs goTemplateFuncs) legacyGoSDKCompat() bool {
 		return false
 	}
 	return !funcs.CheckVersionCompatibility(legacyGoSDKCompatCutoverVersion)
+}
+
+func (funcs goTemplateFuncs) supportsNullableObjects() bool {
+	return generator.SupportsNullableObjects(funcs.schemaVersion)
 }
 
 // fullSchemaTypes returns all types from the full schema, including dependency
@@ -228,6 +267,27 @@ func formatName(s string) string {
 		s = strings.ToUpper(string(s[0])) + s[1:]
 	}
 	return lintName(s)
+}
+
+// formatParamName formats a GraphQL argument or field name into a Go
+// identifier: keywords don't parse, and predeclared identifiers
+// (types.Universe) would shadow types referenced in the generated body —
+// an argument named "string" breaks `var response string`. Reserved names
+// get a trailing underscore; the GraphQL wire name (q.Arg) keeps the
+// original.
+//
+// "error" is exempt: generated bodies never reference the error type
+// (signature types resolve in the enclosing scope), and the core API
+// already ships a parameter named "error" (FunctionCall.returnError) —
+// escaping it would churn every generated client.
+func formatParamName(s string) string {
+	if s == "error" {
+		return s
+	}
+	if token.IsKeyword(s) || types.Universe.Lookup(s) != nil {
+		return s + "_"
+	}
+	return s
 }
 
 // formatEnum formats a GraphQL Enum value into a Go equivalent
@@ -352,7 +412,7 @@ func (funcs goTemplateFuncs) fieldFunction(f introspection.Field, topLevel bool,
 
 	// Generate arguments
 	args := []string{}
-	if f.TypeRef.IsScalar() || f.TypeRef.IsList() {
+	if f.TypeRef.IsScalar() || f.TypeRef.IsList() || funcs.isNullableObject(f.TypeRef) {
 		args = append(args, "ctx context.Context")
 	}
 	for _, arg := range f.Args {
@@ -366,13 +426,13 @@ func (funcs goTemplateFuncs) fieldFunction(f introspection.Field, topLevel bool,
 			if err != nil {
 				return "", err
 			}
-			args = append(args, fmt.Sprintf("%s %s", arg.Name, outType))
+			args = append(args, fmt.Sprintf("%s %s", formatParamName(arg.Name), outType))
 		} else {
 			inType, err := funcs.FormatInputType(arg, scopes...)
 			if err != nil {
 				return "", err
 			}
-			args = append(args, fmt.Sprintf("%s %s", arg.Name, inType))
+			args = append(args, fmt.Sprintf("%s %s", formatParamName(arg.Name), inType))
 		}
 	}
 
@@ -400,10 +460,18 @@ func (funcs goTemplateFuncs) fieldFunction(f introspection.Field, topLevel bool,
 	case supportsVoid && f.TypeRef.IsVoid():
 		retType = "error"
 	case convertID:
-		// ConvertID fields return the parent object type as a pointer.
-		retType = fmt.Sprintf("(*%s, error)", retType)
+		retType, err = funcs.idHandleReturnType(f, scopes...)
+		if err != nil {
+			return "", err
+		}
 	case f.TypeRef.IsScalar() || f.TypeRef.IsList():
 		retType = fmt.Sprintf("(%s, error)", retType)
+	case funcs.isNullableObject(f.TypeRef):
+		if funcs.isInterfaceRef(f.TypeRef) {
+			retType = fmt.Sprintf("(%s, error)", retType)
+		} else {
+			retType = fmt.Sprintf("(*%s, error)", retType)
+		}
 	case funcs.isInterfaceRef(f.TypeRef):
 		retType, err = funcs.interfaceReturnType(funcs.InnerType(f.TypeRef).Name, scopes...)
 		if err != nil {
@@ -439,6 +507,10 @@ func (funcs goTemplateFuncs) isInterfaceRef(t *introspection.TypeRef) bool {
 	return false
 }
 
+func (funcs goTemplateFuncs) isNullableObject(t *introspection.TypeRef) bool {
+	return funcs.supportsNullableObjects() && t != nil && t.IsOptional() && (t.IsObject() || funcs.isInterfaceRef(t))
+}
+
 // isListOfInterface returns true if the type ref is a list whose element is an interface.
 func (funcs goTemplateFuncs) isListOfInterface(t *introspection.TypeRef) bool {
 	// Unwrap NonNull -> List -> NonNull? -> Interface
@@ -464,6 +536,46 @@ func (funcs goTemplateFuncs) interfaceClientName(name string) string {
 		return formatName(name)
 	}
 	return formatName(name) + "Client"
+}
+
+// isInterfaceHandle reports whether an ID-handle field loads an interface
+// rather than an object. The parent is consulted first so interface methods
+// resolve even when the interface is not registered in the render schema.
+func (funcs goTemplateFuncs) isInterfaceHandle(f introspection.Field) bool {
+	handle := funcs.IDHandleType(f)
+	if f.ParentObject != nil && handle == f.ParentObject.Name {
+		return f.ParentObject.Kind == introspection.TypeKindInterface
+	}
+	t := funcs.fullSchema.Types.Get(handle)
+	return t != nil && t.Kind == introspection.TypeKindInterface
+}
+
+// idHandleClient is the Go type an ID-handle field instantiates: the loaded
+// object, or the interface's client struct for interface handles.
+func (funcs goTemplateFuncs) idHandleClient(f introspection.Field) string {
+	handle := funcs.IDHandleType(f)
+	if funcs.isInterfaceHandle(f) {
+		return funcs.interfaceClientName(handle)
+	}
+	return formatName(handle)
+}
+
+// idHandleReturnType formats the (result, error) return of an ID-handle
+// field: a pointer to the loaded object, or the interface type for
+// interface handles.
+func (funcs goTemplateFuncs) idHandleReturnType(f introspection.Field, scopes ...string) (string, error) {
+	if funcs.isInterfaceHandle(f) {
+		retType, err := funcs.interfaceReturnType(funcs.IDHandleType(f), scopes...)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("(%s, error)", retType), nil
+	}
+	retType, err := funcs.FormatReturnType(f, scopes...)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("(*%s, error)", retType), nil
 }
 
 func (funcs goTemplateFuncs) interfaceReturnType(name string, scopes ...string) (string, error) {
@@ -528,7 +640,7 @@ func (funcs goTemplateFuncs) interfaceMethodSignature(f introspection.Field) (st
 	sig := formatName(f.Name)
 
 	args := []string{}
-	if f.TypeRef.IsScalar() || f.TypeRef.IsList() {
+	if f.TypeRef.IsScalar() || f.TypeRef.IsList() || funcs.isNullableObject(f.TypeRef) {
 		args = append(args, "ctx context.Context")
 	}
 	for _, arg := range f.Args {
@@ -539,7 +651,7 @@ func (funcs goTemplateFuncs) interfaceMethodSignature(f introspection.Field) (st
 		if err != nil {
 			return "", err
 		}
-		args = append(args, fmt.Sprintf("%s %s", arg.Name, inType))
+		args = append(args, fmt.Sprintf("%s %s", formatParamName(arg.Name), inType))
 	}
 	if funcs.hasOptionals(f.Args) {
 		args = append(args, fmt.Sprintf("opts ...%s", funcs.fieldOptionsStructName(f)))
@@ -562,13 +674,19 @@ func (funcs goTemplateFuncs) interfaceMethodSignature(f introspection.Field) (st
 	case supportsVoid && f.TypeRef.IsVoid():
 		sig += " error"
 	case convertID:
-		retType, err = funcs.interfaceReturnType(f.ParentObject.Name)
+		retType, err = funcs.idHandleReturnType(f)
 		if err != nil {
 			return "", err
 		}
-		sig += fmt.Sprintf(" (%s, error)", retType)
+		sig += " " + retType
 	case f.TypeRef.IsScalar() || f.TypeRef.IsList():
 		sig += fmt.Sprintf(" (%s, error)", retType)
+	case funcs.isNullableObject(f.TypeRef):
+		if funcs.isInterfaceRef(f.TypeRef) {
+			sig += fmt.Sprintf(" (%s, error)", retType)
+		} else {
+			sig += fmt.Sprintf(" (*%s, error)", retType)
+		}
 	case funcs.isInterfaceRef(f.TypeRef):
 		retType, err = funcs.interfaceReturnType(funcs.InnerType(f.TypeRef).Name)
 		if err != nil {
@@ -590,7 +708,7 @@ func (funcs goTemplateFuncs) interfaceClientMethod(ifaceName string, f introspec
 	sig := "func (r *" + clientName + ") " + formatName(f.Name)
 
 	args := []string{}
-	if f.TypeRef.IsScalar() || f.TypeRef.IsList() {
+	if f.TypeRef.IsScalar() || f.TypeRef.IsList() || funcs.isNullableObject(f.TypeRef) {
 		args = append(args, "ctx context.Context")
 	}
 	for _, arg := range f.Args {
@@ -601,7 +719,7 @@ func (funcs goTemplateFuncs) interfaceClientMethod(ifaceName string, f introspec
 		if err != nil {
 			return "", err
 		}
-		args = append(args, fmt.Sprintf("%s %s", arg.Name, inType))
+		args = append(args, fmt.Sprintf("%s %s", formatParamName(arg.Name), inType))
 	}
 	if funcs.hasOptionals(f.Args) {
 		args = append(args, fmt.Sprintf("opts ...%s", funcs.fieldOptionsStructName(f)))
@@ -624,13 +742,19 @@ func (funcs goTemplateFuncs) interfaceClientMethod(ifaceName string, f introspec
 	case supportsVoid && f.TypeRef.IsVoid():
 		sig += " error"
 	case convertID:
-		retType, err = funcs.interfaceReturnType(f.ParentObject.Name)
+		retType, err = funcs.idHandleReturnType(f)
 		if err != nil {
 			return "", err
 		}
-		sig += fmt.Sprintf(" (%s, error)", retType)
+		sig += " " + retType
 	case f.TypeRef.IsScalar() || f.TypeRef.IsList():
 		sig += fmt.Sprintf(" (%s, error)", retType)
+	case funcs.isNullableObject(f.TypeRef):
+		if funcs.isInterfaceRef(f.TypeRef) {
+			sig += fmt.Sprintf(" (%s, error)", retType)
+		} else {
+			sig += fmt.Sprintf(" (*%s, error)", retType)
+		}
 	case funcs.isInterfaceRef(f.TypeRef):
 		retType, err = funcs.interfaceReturnType(funcs.InnerType(f.TypeRef).Name)
 		if err != nil {

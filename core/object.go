@@ -21,9 +21,6 @@ import (
 // ref: https://graphql.org/learn/execution/#trivial-resolvers
 const trivialFieldDirectiveName = "trivialResolveField"
 
-// indicates an ast field is deprecated
-const deprecatedDirectiveName = "deprecated"
-
 type ModuleObjectType struct {
 	typeDef *ObjectTypeDef
 	mod     dagql.ObjectResult[*Module]
@@ -51,6 +48,27 @@ func (t *ModuleObjectType) ConvertFromSDKResult(ctx context.Context, value any) 
 			return nil, fmt.Errorf("unexpected result value type %T for object %q", value, t.typeDef.Name)
 		}
 		return value, nil
+	case string:
+		// A self-call that returns one of the module's own object types
+		// serializes the result as the object's GraphQL ID (a string), since
+		// the object lives in the module's runtime schema. Decode the ID and
+		// load the concrete object, mirroring how InterfaceType handles IDs.
+		var id call.ID
+		if err := id.Decode(value); err != nil {
+			return nil, fmt.Errorf("decode object ID for %q: %w", t.typeDef.Name, err)
+		}
+		dag, err := CurrentDagqlServer(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("current dagql server: %w", err)
+		}
+		loaded, err := dag.Load(ctx, &id)
+		if err != nil {
+			return nil, fmt.Errorf("load object ID for %q: %w", t.typeDef.Name, err)
+		}
+		if loaded.Type() == nil || loaded.Type().Name() != t.typeDef.Name {
+			return nil, fmt.Errorf("loaded object type %q does not match expected type %q", loaded.Type().Name(), t.typeDef.Name)
+		}
+		return loaded, nil
 	case map[string]any:
 		res, err := dagql.NewResultForCurrentCall(ctx, &ModuleObject{
 			Module:  t.mod,
@@ -472,7 +490,7 @@ func (obj *ModuleObject) AttachDependencyResults(
 	if obj.Module.Self() == nil || obj.TypeDef == nil {
 		owned := make([]dagql.AnyResult, 0)
 		for _, name := range slices.Sorted(maps.Keys(obj.Fields)) {
-			updated, deps, err := attachModuleObjectValue(attach, obj.Fields[name])
+			updated, deps, err := attachModuleObjectValue(ctx, attach, obj.Fields[name])
 			if err != nil {
 				return nil, fmt.Errorf("attach module object field %q: %w", name, err)
 			}
@@ -496,7 +514,7 @@ func (obj *ModuleObject) AttachDependencyResults(
 	for _, name := range slices.Sorted(maps.Keys(obj.Fields)) {
 		fieldTypeDef, ok := obj.TypeDef.FieldByOriginalName(name)
 		if !ok {
-			updated, deps, err := attachModuleObjectValue(attach, obj.Fields[name])
+			updated, deps, err := attachModuleObjectValue(ctx, attach, obj.Fields[name])
 			if err != nil {
 				return nil, fmt.Errorf("attach module object field %q: %w", name, err)
 			}
@@ -590,19 +608,22 @@ func attachTypedModuleObjectValue(
 		if err != nil {
 			return nil, nil, err
 		}
-		if _, ok := val.(dagql.AnyResult); ok {
+		// Handles must retain the attached reference so persistence can relocate
+		// them. Inline object maps keep their SDK representation while the
+		// attached result still supplies the dependency edge.
+		switch val.(type) {
+		case dagql.AnyResult, dagql.IDable, string:
 			return attached, []dagql.AnyResult{attached}, nil
+		default:
+			return val, []dagql.AnyResult{attached}, nil
 		}
-		if _, ok := val.(dagql.IDable); ok {
-			return attached, []dagql.AnyResult{attached}, nil
-		}
-		return val, []dagql.AnyResult{attached}, nil
 	default:
 		return val, nil, nil
 	}
 }
 
 func attachModuleObjectValue(
+	ctx context.Context,
 	attach func(dagql.AnyResult) (dagql.AnyResult, error),
 	val any,
 ) (any, []dagql.AnyResult, error) {
@@ -615,11 +636,29 @@ func attachModuleObjectValue(
 			return nil, nil, err
 		}
 		return attached, []dagql.AnyResult{attached}, nil
+	case string:
+		var id call.ID
+		if err := id.Decode(x); err == nil {
+			return attachModuleObjectHandleValue(ctx, attach, val, &id)
+		} else {
+			// Not an encoded ID: an ordinary scalar string.
+			return val, nil, nil
+		}
+	case dagql.IDable:
+		id, err := x.ID()
+		if err != nil {
+			return nil, nil, err
+		}
+		return attachModuleObjectHandleValue(ctx, attach, val, id)
+	case *call.ID:
+		return attachModuleObjectHandleValue(ctx, attach, val, x)
+	case call.ID:
+		return attachModuleObjectHandleValue(ctx, attach, val, &x)
 	case []any:
 		items := make([]any, 0, len(x))
 		owned := make([]dagql.AnyResult, 0)
 		for i, item := range x {
-			updated, deps, err := attachModuleObjectValue(attach, item)
+			updated, deps, err := attachModuleObjectValue(ctx, attach, item)
 			if err != nil {
 				return nil, nil, fmt.Errorf("item %d: %w", i, err)
 			}
@@ -631,7 +670,7 @@ func attachModuleObjectValue(
 		fields := make(map[string]any, len(x))
 		owned := make([]dagql.AnyResult, 0)
 		for _, name := range slices.Sorted(maps.Keys(x)) {
-			updated, deps, err := attachModuleObjectValue(attach, x[name])
+			updated, deps, err := attachModuleObjectValue(ctx, attach, x[name])
 			if err != nil {
 				return nil, nil, fmt.Errorf("field %q: %w", name, err)
 			}
@@ -642,6 +681,47 @@ func attachModuleObjectValue(
 	default:
 		return val, nil, nil
 	}
+}
+
+// attachModuleObjectHandleValue attaches a module object field value that
+// stores a handle-form ID (as an encoded string, a *call.ID, or an IDable)
+// by loading its result so attachment can record a real dependency edge and
+// later serialization can mint a live handle. Private (undeclared) fields
+// are the main source of these values: SDKs serialize stored objects as ID
+// strings, and without a dependency edge the referenced result can be
+// released while the owning object's cached state is still reusable,
+// leaving later sessions to load a dangling handle that fails with
+// "missing shared result". Non-ID strings are ordinary scalars, and
+// recipe-form IDs are self-contained and loadable, so both are left
+// as-is.
+func attachModuleObjectHandleValue(
+	ctx context.Context,
+	attach func(dagql.AnyResult) (dagql.AnyResult, error),
+	orig any,
+	id *call.ID,
+) (any, []dagql.AnyResult, error) {
+	if id == nil || !id.IsHandle() {
+		return orig, nil, nil
+	}
+	dag, err := CurrentDagqlServer(ctx)
+	if err != nil {
+		if srv := dagql.AttachmentResolverServer(ctx); srv != nil {
+			dag = srv
+		} else {
+			// The value names a live engine result; silently keeping the raw
+			// handle would recreate the dangling-reference bug, so fail loudly.
+			return nil, nil, fmt.Errorf("attach stored handle %q: no dagql server: %w", id.Display(), err)
+		}
+	}
+	res, err := dag.LoadType(ctx, id)
+	if err != nil {
+		return nil, nil, fmt.Errorf("load stored handle %q: %w", id.Display(), err)
+	}
+	attached, err := attach(res)
+	if err != nil {
+		return nil, nil, err
+	}
+	return attached, []dagql.AnyResult{attached}, nil
 }
 
 func persistedModuleObjectValueHasCallID(val persistedModuleObjectValue) bool {
@@ -664,7 +744,7 @@ func persistedModuleObjectValueHasCallID(val persistedModuleObjectValue) bool {
 	return false
 }
 
-func (obj *ModuleObject) EncodePersistedObject(ctx context.Context, cache dagql.PersistedObjectCache) (dagql.PersistedObjectEncoding, error) {
+func (obj *ModuleObject) EncodePersistedObject(ctx context.Context, enc *dagql.PersistEncodeContext) (dagql.PersistedObjectEncoding, error) {
 	if obj == nil || len(obj.Fields) == 0 {
 		return encodePersistedObjectPayload(persistedModuleObjectPayload{})
 	}
@@ -674,7 +754,7 @@ func (obj *ModuleObject) EncodePersistedObject(ctx context.Context, cache dagql.
 	fieldNames := slices.Collect(maps.Keys(obj.Fields))
 	slices.Sort(fieldNames)
 	for _, name := range fieldNames {
-		encoded, err := encodePersistedModuleObjectValue(cache, obj.Fields[name])
+		encoded, err := encodePersistedModuleObjectValue(enc, obj.Fields[name])
 		if err != nil {
 			return dagql.PersistedObjectEncoding{}, fmt.Errorf("encode persisted module object field %q: %w", name, err)
 		}
@@ -686,13 +766,7 @@ func (obj *ModuleObject) EncodePersistedObject(ctx context.Context, cache dagql.
 	return encodePersistedObjectPayload(payload)
 }
 
-func (obj *ModuleObject) DecodePersistedObject(
-	ctx context.Context,
-	dag *dagql.Server,
-	_ uint64,
-	_ *dagql.ResultCall,
-	jsonBytes json.RawMessage,
-) (dagql.Typed, error) {
+func (obj *ModuleObject) DecodePersistedObject(ctx context.Context, dec *dagql.PersistDecodeContext, jsonBytes json.RawMessage) (dagql.Typed, error) {
 	if obj == nil || obj.Module.Self() == nil || obj.TypeDef == nil {
 		return nil, fmt.Errorf("decode persisted module object: missing module/type definition")
 	}
@@ -707,7 +781,7 @@ func (obj *ModuleObject) DecodePersistedObject(
 		if _, ok := obj.TypeDef.FieldByOriginalName(name); ok && persistedModuleObjectValueHasCallID(encoded) {
 			return nil, fmt.Errorf("decode persisted module object field %q: unexpected raw call ID in semantic field", name)
 		}
-		decoded, err := decodePersistedModuleObjectValue(ctx, dag, encoded)
+		decoded, err := decodePersistedModuleObjectValue(ctx, dec, encoded)
 		if err != nil {
 			return nil, fmt.Errorf("decode persisted module object field %q: %w", name, err)
 		}
@@ -721,14 +795,14 @@ func (obj *ModuleObject) DecodePersistedObject(
 }
 
 //nolint:gocyclo // intrinsically long state machine; refactoring would hurt clarity
-func encodePersistedModuleObjectValue(cache dagql.PersistedObjectCache, val any) (persistedModuleObjectValue, error) {
+func encodePersistedModuleObjectValue(enc *dagql.PersistEncodeContext, val any) (persistedModuleObjectValue, error) {
 	if val == nil {
 		return persistedModuleObjectValue{Kind: persistedModuleObjectValueKindNull}, nil
 	}
 
 	switch x := val.(type) {
 	case dagql.AnyResult:
-		resultID, err := encodePersistedObjectRef(cache, x, "module object value")
+		resultID, err := encodePersistedObjectRef(enc, x, "module object value")
 		if err != nil {
 			return persistedModuleObjectValue{}, err
 		}
@@ -744,7 +818,7 @@ func encodePersistedModuleObjectValue(cache dagql.PersistedObjectCache, val any)
 		if id == nil {
 			return persistedModuleObjectValue{Kind: persistedModuleObjectValueKindNull}, nil
 		}
-		encodedID, err := encodePersistedCallID(id)
+		encodedID, err := encodePersistedCallID(enc, id)
 		if err != nil {
 			return persistedModuleObjectValue{}, err
 		}
@@ -756,7 +830,7 @@ func encodePersistedModuleObjectValue(cache dagql.PersistedObjectCache, val any)
 		if x == nil {
 			return persistedModuleObjectValue{Kind: persistedModuleObjectValueKindNull}, nil
 		}
-		encodedID, err := encodePersistedCallID(x)
+		encodedID, err := encodePersistedCallID(enc, x)
 		if err != nil {
 			return persistedModuleObjectValue{}, err
 		}
@@ -765,7 +839,7 @@ func encodePersistedModuleObjectValue(cache dagql.PersistedObjectCache, val any)
 			CallID: encodedID,
 		}, nil
 	case call.ID:
-		encodedID, err := encodePersistedCallID(&x)
+		encodedID, err := encodePersistedCallID(enc, &x)
 		if err != nil {
 			return persistedModuleObjectValue{}, err
 		}
@@ -782,7 +856,7 @@ func encodePersistedModuleObjectValue(cache dagql.PersistedObjectCache, val any)
 		fieldNames := slices.Collect(maps.Keys(x))
 		slices.Sort(fieldNames)
 		for _, name := range fieldNames {
-			encoded, err := encodePersistedModuleObjectValue(cache, x[name])
+			encoded, err := encodePersistedModuleObjectValue(enc, x[name])
 			if err != nil {
 				return persistedModuleObjectValue{}, fmt.Errorf("field %q: %w", name, err)
 			}
@@ -795,7 +869,7 @@ func encodePersistedModuleObjectValue(cache dagql.PersistedObjectCache, val any)
 	case []any:
 		items := make([]persistedModuleObjectValue, 0, len(x))
 		for i, item := range x {
-			encoded, err := encodePersistedModuleObjectValue(cache, item)
+			encoded, err := encodePersistedModuleObjectValue(enc, item)
 			if err != nil {
 				return persistedModuleObjectValue{}, fmt.Errorf("item %d: %w", i, err)
 			}
@@ -816,14 +890,14 @@ func encodePersistedModuleObjectValue(cache dagql.PersistedObjectCache, val any)
 		if rv.IsNil() {
 			return persistedModuleObjectValue{Kind: persistedModuleObjectValueKindNull}, nil
 		}
-		return encodePersistedModuleObjectValue(cache, rv.Elem().Interface())
+		return encodePersistedModuleObjectValue(enc, rv.Elem().Interface())
 	case reflect.Slice, reflect.Array:
 		if rv.Type().Elem().Kind() == reflect.Uint8 {
 			return persistedModuleObjectScalarValue(val)
 		}
 		items := make([]persistedModuleObjectValue, 0, rv.Len())
 		for i := 0; i < rv.Len(); i++ {
-			encoded, err := encodePersistedModuleObjectValue(cache, rv.Index(i).Interface())
+			encoded, err := encodePersistedModuleObjectValue(enc, rv.Index(i).Interface())
 			if err != nil {
 				return persistedModuleObjectValue{}, fmt.Errorf("item %d: %w", i, err)
 			}
@@ -841,7 +915,7 @@ func encodePersistedModuleObjectValue(cache dagql.PersistedObjectCache, val any)
 		iter := rv.MapRange()
 		for iter.Next() {
 			name := iter.Key().String()
-			encoded, err := encodePersistedModuleObjectValue(cache, iter.Value().Interface())
+			encoded, err := encodePersistedModuleObjectValue(enc, iter.Value().Interface())
 			if err != nil {
 				return persistedModuleObjectValue{}, fmt.Errorf("field %q: %w", name, err)
 			}
@@ -860,7 +934,7 @@ func encodePersistedModuleObjectValue(cache dagql.PersistedObjectCache, val any)
 			if !ok {
 				continue
 			}
-			encoded, err := encodePersistedModuleObjectValue(cache, rv.Field(i).Interface())
+			encoded, err := encodePersistedModuleObjectValue(enc, rv.Field(i).Interface())
 			if err != nil {
 				return persistedModuleObjectValue{}, fmt.Errorf("field %q: %w", name, err)
 			}
@@ -886,27 +960,30 @@ func persistedModuleObjectScalarValue(val any) (persistedModuleObjectValue, erro
 	}, nil
 }
 
-func decodePersistedModuleObjectValue(ctx context.Context, dag *dagql.Server, val persistedModuleObjectValue) (any, error) {
+func decodePersistedModuleObjectValue(ctx context.Context, dec *dagql.PersistDecodeContext, val persistedModuleObjectValue) (any, error) {
 	switch val.Kind {
 	case "", persistedModuleObjectValueKindNull:
 		return nil, nil
 	case persistedModuleObjectValueKindResultRef:
-		return loadPersistedResultByResultID(ctx, dag, val.ResultID, "module object value")
+		return loadPersistedResultByResultID(ctx, dec, val.ResultID, "module object value")
 	case persistedModuleObjectValueKindCallID:
-		return decodePersistedCallID(val.CallID)
+		return decodePersistedCallID(dec, val.CallID)
 	case persistedModuleObjectValueKindScalar:
-		var decoded any
 		if len(val.ScalarJSON) == 0 {
 			return nil, nil
 		}
-		if err := json.Unmarshal(val.ScalarJSON, &decoded); err != nil {
+		// Untyped numbers stay exact: the SDK conversion path already decodes
+		// returned JSON with UseNumber, so a restored field must not round
+		// through float64.
+		decoded, err := dagql.DecodeLosslessJSON(val.ScalarJSON)
+		if err != nil {
 			return nil, err
 		}
 		return decoded, nil
 	case persistedModuleObjectValueKindArray:
 		items := make([]any, 0, len(val.Items))
 		for i, item := range val.Items {
-			decoded, err := decodePersistedModuleObjectValue(ctx, dag, item)
+			decoded, err := decodePersistedModuleObjectValue(ctx, dec, item)
 			if err != nil {
 				return nil, fmt.Errorf("item %d: %w", i, err)
 			}
@@ -918,7 +995,7 @@ func decodePersistedModuleObjectValue(ctx context.Context, dag *dagql.Server, va
 		fieldNames := slices.Collect(maps.Keys(val.Fields))
 		slices.Sort(fieldNames)
 		for _, name := range fieldNames {
-			decoded, err := decodePersistedModuleObjectValue(ctx, dag, val.Fields[name])
+			decoded, err := decodePersistedModuleObjectValue(ctx, dec, val.Fields[name])
 			if err != nil {
 				return nil, fmt.Errorf("field %q: %w", name, err)
 			}
@@ -1235,6 +1312,7 @@ func (obj *ModuleObject) installEntrypointMethods(ctx context.Context, dag *dagq
 				if query != nil && query.ConstructorArgs != nil {
 					ctorNamedArgs = orderedNamedInputs(constructorArgs, query.ConstructorArgs)
 				}
+				ctorNamedArgs = WithBoundWorkspaceArgs(ctx, canonical, constructorArgs, ctorNamedArgs)
 				var result dagql.AnyResult
 				if err := canonical.Select(ctx, canonical.Root(), &result,
 					dagql.Selector{
@@ -1279,6 +1357,7 @@ func (obj *ModuleObject) installEntrypointMethods(ctx context.Context, dag *dagq
 				if query != nil && query.ConstructorArgs != nil {
 					ctorNamedArgs = orderedNamedInputs(constructorArgs, query.ConstructorArgs)
 				}
+				ctorNamedArgs = WithBoundWorkspaceArgs(ctx, canonical, constructorArgs, ctorNamedArgs)
 				var result dagql.AnyResult
 				if err := canonical.Select(ctx, canonical.Root(), &result,
 					dagql.Selector{

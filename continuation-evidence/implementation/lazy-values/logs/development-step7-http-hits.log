@@ -1,0 +1,30 @@
+=== RUN   TestHTTPResolvedCall
+2026/09/16 21:09:55 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 21:09:55 INFO end lazy evaluation field=Query.__httpFile duration=13.650922ms
+2026/09/16 21:09:55 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 21:09:55 INFO end lazy evaluation field=Query.__httpFile duration=13.574122ms
+    http_lazy_test.go:95: HTTP requests: miss outer=1 operation=0; pending hit outer=1 operation=0; completed hit outer=1 operation=0
+2026/09/16 21:09:55 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestHTTPResolvedCall (0.14s)
+=== RUN   TestHTTPPendingInternalHits
+=== RUN   TestHTTPPendingInternalHits/absent
+2026/09/16 21:09:55 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 21:09:55 INFO end lazy evaluation field=Query.__httpFile duration=15.503639ms
+    http_lazy_test.go:168: HTTP pending hit absent: outer=0 operation=1; completed usable hit operation=0 when evaluation succeeds
+2026/09/16 21:09:55 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestHTTPPendingInternalHits/advanced
+2026/09/16 21:09:55 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 21:09:55 INFO end lazy evaluation field=Query.__httpFile duration=6.492891ms
+    http_lazy_test.go:168: HTTP pending hit advanced: outer=1 operation=1; completed usable hit operation=0 when evaluation succeeds
+2026/09/16 21:09:55 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+=== RUN   TestHTTPPendingInternalHits/changed-body
+2026/09/16 21:09:55 INFO start lazy evaluation field=Query.__httpFile
+2026/09/16 21:09:55 INFO end lazy evaluation field=Query.__httpFile duration=6.97614ms err="HTTP File operation body mismatch: recorded sha256:d81c55f49c5bb0d36bc11e3966ec4efab66f8dfefbbc1761161ca9d230e5466a, fetched sha256:d21f85ea38166303ce58e06134b5cc4a5c900c409ab2a500ff7c9225109a09bb"
+    http_lazy_test.go:168: HTTP pending hit changed-body: outer=1 operation=1; completed usable hit operation=0 when evaluation succeeds
+2026/09/16 21:09:55 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestHTTPPendingInternalHits (0.14s)
+    --- PASS: TestHTTPPendingInternalHits/absent (0.04s)
+    --- PASS: TestHTTPPendingInternalHits/advanced (0.06s)
+    --- PASS: TestHTTPPendingInternalHits/changed-body (0.04s)
+PASS
+ok  	github.com/dagger/dagger/core/schema	0.376s

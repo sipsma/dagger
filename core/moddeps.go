@@ -10,11 +10,19 @@ import (
 
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/dagql/call"
+	"github.com/dagger/dagger/engine"
 )
 
 const ModuleName = "daggercore"
 
 var TypesToIgnoreForModuleIntrospection = []string{"Host"}
+
+var FieldsToIgnoreForModuleIntrospection = []string{
+	"Query.currentWorkspace",
+	"Query.engineVolume",
+	"Query.sshfsVolume",
+	"Address.volume",
+}
 
 type coreSchemaForker interface {
 	ForkSchema(context.Context, *Query, call.View) (*dagql.Server, error)
@@ -29,6 +37,10 @@ type modDepEntry struct {
 // per-module install policy. It is used both for a module's own dependency
 // graph and for the set of modules served to a client session.
 type SchemaBuilder struct {
+	// root is the query value installed into derived schema servers. Query only
+	// carries the engine Server facade; runtime selection and authority come
+	// from the held ClientScope in each execution context, never from a pointer
+	// captured by the builder.
 	root    *Query
 	entries []modDepEntry
 
@@ -106,6 +118,9 @@ func (b *SchemaBuilder) With(mod Mod, opts InstallOpts) *SchemaBuilder {
 }
 
 func (b *SchemaBuilder) Lookup(name string) (Mod, bool) {
+	if b == nil {
+		return nil, false
+	}
 	for _, e := range b.entries {
 		if e.mod.Name() == name {
 			return e.mod, true
@@ -135,7 +150,21 @@ func (b *SchemaBuilder) PrimaryMods() []Mod {
 	return mods
 }
 
+// EntrypointMods returns the modules whose fields are exposed at the root.
+func (b *SchemaBuilder) EntrypointMods() []Mod {
+	var mods []Mod
+	for _, entry := range b.entries {
+		if entry.opts.Entrypoint {
+			mods = append(mods, entry.mod)
+		}
+	}
+	return mods
+}
+
 func (b *SchemaBuilder) Schema(ctx context.Context) (*dagql.Server, error) {
+	if err := engine.CheckSnapshotSharePreparation(ctx, "evaluate module schema"); err != nil {
+		return nil, err
+	}
 	srv, err := b.lazilyLoadSchema(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load schema: %w", err)
@@ -143,27 +172,35 @@ func (b *SchemaBuilder) Schema(ctx context.Context) (*dagql.Server, error) {
 	return srv, nil
 }
 
-func (b *SchemaBuilder) SchemaIntrospectionJSONFile(ctx context.Context, hiddenTypes []string) (dagql.Result[*File], error) {
+func (b *SchemaBuilder) SchemaIntrospectionJSONFile(ctx context.Context, hiddenTypes, hiddenFields []string) (dagql.Result[*File], error) {
 	dag, err := b.Schema(ctx)
 	if err != nil {
 		return dagql.Result[*File]{}, err
 	}
-	return schemaJSONFileFromServer(ctx, dag, hiddenTypes)
+	return schemaJSONFileFromServer(ctx, dag, hiddenTypes, hiddenFields)
 }
 
 func (b *SchemaBuilder) SchemaIntrospectionJSONFileForModule(ctx context.Context) (dagql.Result[*File], error) {
+	hiddenTypes, hiddenFields := moduleIntrospectionScrubConfig()
+	return b.SchemaIntrospectionJSONFile(ctx, hiddenTypes, hiddenFields)
+}
+
+func moduleIntrospectionScrubConfig() ([]string, []string) {
 	hiddenTypes := append([]string{}, TypesToIgnoreForModuleIntrospection...)
 	for _, typed := range TypesHiddenFromModuleSDKs {
 		hiddenTypes = append(hiddenTypes, typed.Type().Name())
 	}
-	return b.SchemaIntrospectionJSONFile(ctx, hiddenTypes)
+	return hiddenTypes, append([]string{}, FieldsToIgnoreForModuleIntrospection...)
 }
 
 func (b *SchemaBuilder) SchemaIntrospectionJSONFileForClient(ctx context.Context) (dagql.Result[*File], error) {
-	return b.SchemaIntrospectionJSONFile(ctx, []string{})
+	return b.SchemaIntrospectionJSONFile(ctx, nil, nil)
 }
 
 func (b *SchemaBuilder) TypeDefs(ctx context.Context, dag *dagql.Server) (dagql.ObjectResultArray[*TypeDef], error) {
+	if err := engine.CheckSnapshotSharePreparation(ctx, "build module type definitions"); err != nil {
+		return nil, err
+	}
 	var typeDefs dagql.ObjectResultArray[*TypeDef]
 	for _, e := range b.entries {
 		modTypeDefs, err := e.mod.TypeDefs(ctx, dag)

@@ -24,6 +24,8 @@ import (
 type currentTypeDefsTestServer struct {
 	deps             *core.SchemaBuilder
 	dag              *dagql.Server
+	mainClient       *engine.ClientMetadata
+	platform         core.Platform
 	workspaceLock    *workspace.Lock
 	workspaceLockOK  bool
 	workspaceLockErr error
@@ -45,11 +47,11 @@ func (s *currentTypeDefsTestServer) CurrentFunctionCall(context.Context) (*core.
 	return nil, nil
 }
 
-func (s *currentTypeDefsTestServer) CurrentEnv(context.Context) (dagql.ObjectResult[*core.Env], error) {
-	return dagql.ObjectResult[*core.Env]{}, nil
+func (s *currentTypeDefsTestServer) CurrentWorkspace(context.Context) (*core.Workspace, error) {
+	return nil, nil
 }
 
-func (s *currentTypeDefsTestServer) CurrentWorkspace(context.Context) (*core.Workspace, error) {
+func (s *currentTypeDefsTestServer) EnsureWorkspaceModules(context.Context, []string, bool) ([]core.ModuleLoadFailure, error) {
 	return nil, nil
 }
 
@@ -58,6 +60,9 @@ func (s *currentTypeDefsTestServer) CurrentServedDeps(context.Context) (*core.Sc
 }
 
 func (s *currentTypeDefsTestServer) MainClientCallerMetadata(context.Context) (*engine.ClientMetadata, error) {
+	if s.mainClient != nil {
+		return s.mainClient, nil
+	}
 	return &engine.ClientMetadata{}, nil
 }
 
@@ -81,6 +86,10 @@ func (s *currentTypeDefsTestServer) TelemetrySeenKeyStore(context.Context) (dagq
 	return nil, nil
 }
 
+func (s *currentTypeDefsTestServer) CallPayloadSeenKeyStore(context.Context) (dagql.TelemetrySeenKeyStore, error) {
+	return nil, nil
+}
+
 func (s *currentTypeDefsTestServer) Server(context.Context) (*dagql.Server, error) {
 	return s.dag, nil
 }
@@ -89,7 +98,11 @@ func (s *currentTypeDefsTestServer) MuxEndpoint(context.Context, string, http.Ha
 	return nil
 }
 
-func (s *currentTypeDefsTestServer) ServeHTTPToNestedClient(http.ResponseWriter, *http.Request, *engine.ClientMetadata, string, bool, dagql.AnyObjectResult, dagql.Typed, dagql.AnyObjectResult) {
+func (s *currentTypeDefsTestServer) RegisterNestedClientTransport(context.Context, *engine.ClientMetadata, string) (*engine.NestedClientTransport, error) {
+	return engine.NewNestedClientTransport(nil), nil
+}
+
+func (s *currentTypeDefsTestServer) ServeHTTPToNestedClient(http.ResponseWriter, *http.Request, *engine.NestedClientTransport, *engine.ClientMetadata, string, bool, dagql.AnyObjectResult, dagql.Typed) {
 }
 
 func (s *currentTypeDefsTestServer) Auth(context.Context) (*auth.RegistryAuthProvider, error) {
@@ -108,7 +121,11 @@ func (s *currentTypeDefsTestServer) Services(context.Context) (*core.Services, e
 	return nil, nil
 }
 
-func (s *currentTypeDefsTestServer) Platform() core.Platform { return core.Platform{} }
+func (s *currentTypeDefsTestServer) Platform() core.Platform { return s.platform }
+
+func (s *currentTypeDefsTestServer) Agents(context.Context) (*core.AgentRuntimes, error) {
+	return nil, nil
+}
 
 func (s *currentTypeDefsTestServer) OCIStore() content.Store { return nil }
 
@@ -134,8 +151,16 @@ func (s *currentTypeDefsTestServer) Locker() *locker.Locker { return nil }
 
 func (s *currentTypeDefsTestServer) SecretSalt() []byte { return nil }
 
+func (s *currentTypeDefsTestServer) EngineVolumeState() core.EngineVolumeState {
+	return core.EngineVolumeState{}
+}
+
 func (s *currentTypeDefsTestServer) FlushSessionTelemetry(context.Context) error {
 	return nil
+}
+
+func (s *currentTypeDefsTestServer) SessionScopedContext(ctx context.Context) (context.Context, error) {
+	return context.WithoutCancel(ctx), nil
 }
 
 func (s *currentTypeDefsTestServer) ClientTelemetry(context.Context, string, string) (*clientdb.DB, error) {
@@ -152,10 +177,10 @@ func (s *currentTypeDefsTestServer) CloudEngineClient(context.Context, string, s
 
 func (s *currentTypeDefsTestServer) CleanMountNS() *os.File { return nil }
 
-func (s *currentTypeDefsTestServer) CurrentWorkspaceLock(context.Context) (*workspace.Lock, bool, error) {
+func (s *currentTypeDefsTestServer) CurrentWorkspaceLock(context.Context, bool) (*workspace.Lock, bool, error) {
 	return s.workspaceLock, s.workspaceLockOK, s.workspaceLockErr
 }
 
-func (s *currentTypeDefsTestServer) SetCurrentWorkspaceLookup(context.Context, string, string, []any, workspace.LookupResult) error {
+func (s *currentTypeDefsTestServer) SetCurrentWorkspaceLookup(context.Context, string, string, []any, string) error {
 	return nil
 }

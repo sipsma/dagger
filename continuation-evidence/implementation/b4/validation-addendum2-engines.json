@@ -1,0 +1,53 @@
+[
+  {
+    "name": "warm-engine",
+    "command": [
+      "dagger",
+      "api",
+      "call",
+      "engine-dev",
+      "test",
+      "--pkg",
+      "./core/integration",
+      "--run=TestRemoteCacheTransferSuite/TestSchemaRecovery$",
+      "--timeout=5m",
+      "--test-verbose"
+    ],
+    "exit": 0,
+    "seconds": 377.405
+  },
+  {
+    "name": "mixed-engine",
+    "command": [
+      "dagger",
+      "api",
+      "call",
+      "engine-dev",
+      "test",
+      "--pkg",
+      "./core/integration",
+      "--run=TestRemoteCacheTransferSuite/TestPartMixedExecOutputs$",
+      "--timeout=5m",
+      "--test-verbose"
+    ],
+    "exit": 0,
+    "seconds": 111.4
+  },
+  {
+    "name": "cold-engine-final",
+    "command": [
+      "dagger",
+      "api",
+      "call",
+      "engine-dev",
+      "test",
+      "--pkg",
+      "./core/integration",
+      "--run=TestRemoteCacheTransferSuite/TestSchemaRecoveryCold$",
+      "--timeout=5m",
+      "--test-verbose"
+    ],
+    "exit": 1,
+    "seconds": 195.036
+  }
+]

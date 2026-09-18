@@ -1,0 +1,54 @@
+package core
+
+import (
+	"context"
+	"encoding/json"
+	"testing"
+
+	"github.com/dagger/dagger/dagql"
+	"github.com/stretchr/testify/require"
+)
+
+// This probe exercises only the representation. Stored descriptors are never
+// opened; the role loss and decode refusal happen before any storage access.
+func TestB4InlineSnapshotRoleContract(t *testing.T) {
+	ctx, cache, srv := containerPersistenceTestCache(t, "", newContainerPersistenceTestSnapshots(), "inline-role-probe")
+	makeDir := func(snapshot string) *Directory {
+		dir := &Directory{Platform: Platform{OS: "linux", Architecture: "amd64"}, stored: &storedSnapshot{SnapshotID: snapshot}, Dir: new(LazyAccessor[string, *Directory])}
+		dir.Dir.SetValue("/")
+		return dir
+	}
+	dirs := dagql.Array[*Directory]{makeDir("local-a"), makeDir("local-b")}
+	frame := &dagql.ResultCall{Kind: dagql.ResultCallKindField, Field: "inlineDirectories", Type: dagql.NewResultCallType(dirs.Type())}
+	result, err := cache.GetOrInitCall(ctx, "inline-role-probe", srv, &dagql.CallRequest{ResultCall: frame}, func(context.Context) (dagql.AnyResult, error) { return dagql.NewResultForCall(dirs, frame) })
+	require.NoError(t, err)
+	encoding, err := dagql.DefaultPersistedSelfCodec.EncodeResult(ctx, cache, result)
+	require.NoError(t, err)
+	require.NotZero(t, encoding.Envelope.ResultID)
+	t.Logf("owning list resultID=%d", encoding.Envelope.ResultID)
+	require.Len(t, encoding.Envelope.Items, 2)
+	for i, item := range encoding.Envelope.Items {
+		var payload persistedDirectoryPayload
+		require.NoError(t, json.Unmarshal(item.ObjectJSON, &payload))
+		require.Equal(t, persistedDirectoryFormSnapshot, payload.Form)
+		require.Zero(t, item.ResultID)
+		t.Logf("inline[%d]: codec=%s form=%s resultID=%d", i, item.ObjectCodec, payload.Form, item.ResultID)
+	}
+	t.Run("root_control", func(t *testing.T) {
+		childFrame := &dagql.ResultCall{Kind: dagql.ResultCallKindField, Field: "rootDirectory", Type: dagql.NewResultCallType(dirs[0].Type())}
+		child, err := dagql.NewResultForCall(dirs[0], childFrame)
+		require.NoError(t, err)
+		root, err := dagql.DefaultPersistedSelfCodec.EncodeResult(ctx, nil, child)
+		require.NoError(t, err)
+		require.Equal(t, []dagql.PersistedSnapshotRefLink{{Role: "snapshot", RefKey: "local-a"}}, root.SnapshotLinks)
+	})
+	t.Run("list_preserves_both_local_roles", func(t *testing.T) {
+		t.Logf("list role map: %#v", encoding.SnapshotLinks)
+		require.Len(t, encoding.SnapshotLinks, 2, "two independently installed inline snapshots need two owner links")
+	})
+	t.Run("inline_snapshot_decode", func(t *testing.T) {
+		_, err := dagql.DefaultPersistedSelfCodec.DecodeResult(ctx, srv, encoding.Envelope.ResultID, frame, encoding.Envelope)
+		t.Logf("decode result: %v", err)
+		require.NoError(t, err, "inline local snapshot needs a scoped owning-row role source")
+	})
+}

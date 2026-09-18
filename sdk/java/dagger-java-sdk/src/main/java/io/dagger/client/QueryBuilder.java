@@ -104,10 +104,12 @@ class QueryBuilder {
    * Create a QueryBuilder for node(id:) with an inline fragment for the given type.
    *
    * <p>This produces queries like: {@code node(id: "...") { ... on Container { field { ... } } }}
+   *
+   * <p>The node lookup starts a new query on the same client, whatever this builder's own chain is:
+   * an ID addresses an object from the root.
    */
   QueryBuilder chainNode(String typeName, Object id) {
     Deque<QueryPart> list = new LinkedList<>();
-    list.addAll(this.parts);
     // Unwrap Scalar (e.g. ID) to its inner value — Scalar doesn't override toString()
     String idStr =
         (id instanceof Scalar<?>) ? ((Scalar<?>) id).convert().toString() : id.toString();
@@ -233,6 +235,15 @@ class QueryBuilder {
     Jsonb jsonb = JsonbBuilder.newBuilder().withConfig(config).build();
     List<T> rv = jsonb.fromJson(array.toString(), TypeUtils.parameterize(List.class, klass));
     return rv;
+  }
+
+  QueryBuilder executeNullableObjectQuery(String graphqlTypeName)
+      throws ExecutionException, InterruptedException, DaggerQueryException {
+    String id = chain(List.of("id")).executeQuery(String.class);
+    if (id == null) {
+      return null;
+    }
+    return new QueryBuilder(this.client).chainNode(graphqlTypeName, id);
   }
 
   /**

@@ -32,6 +32,24 @@ class WorkspaceModuleSetting extends Client\AbstractObject implements Client\IdA
     }
 
     /**
+     * Whether the setting accepts a list of values.
+     */
+    public function isList(): bool
+    {
+        $leafQueryBuilder = new \Dagger\Client\QueryBuilder('isList');
+        return (bool)$this->queryLeaf($leafQueryBuilder, 'isList');
+    }
+
+    /**
+     * Whether the setting is an object type resolved from an address string (Container, Directory, File, Secret, Service, ...), which may be a module reference.
+     */
+    public function isObject(): bool
+    {
+        $leafQueryBuilder = new \Dagger\Client\QueryBuilder('isObject');
+        return (bool)$this->queryLeaf($leafQueryBuilder, 'isObject');
+    }
+
+    /**
      * The setting key.
      */
     public function key(): string

@@ -1,3 +1,10 @@
+"""
+EXPERIMENTAL: Agent APIs are likely to change.
+
+Indicates that this function is an agent middleware, composed by dagger agent.
+"""
+directive @agent on FIELD_DEFINITION
+
 """Controls the caching behavior of a function."""
 directive @cache(
   """The cache policy to use."""
@@ -86,131 +93,352 @@ type Address implements Node {
 
   """The address value"""
   value: String!
+
+  """Load a volume from the address."""
+  volume: Volume!
+
+  """Load a workspace from a module reference."""
+  workspace: Workspace!
 }
 
-type Binding implements Node {
-  """Retrieve the binding value, as type Address"""
-  asAddress: Address!
+"""
+EXPERIMENTAL: Agent APIs are likely to change.
 
-  """Retrieve the binding value, as type CacheVolume"""
-  asCacheVolume: CacheVolume!
+A conversation loop running as an addressable, long-lived entity within the
+session. The conversation itself remains observable at any time as an immutable
+LLM value.
+"""
+type Agent implements Node {
+  """
+  Why the loop failed, for a FAILED agent; empty otherwise.
 
-  """Retrieve the binding value, as type Changeset"""
-  asChangeset: Changeset!
+  The snapshot holds the completed prefix — send or resume retries from it.
+  """
+  error: String! @experimental(reason: "Agent APIs are likely to change.")
 
-  """Retrieve the binding value, as type Check"""
-  asCheck: Check!
+  """
+  The opaque runtime handle minted by the spawn that created this agent.
 
-  """Retrieve the binding value, as type CheckGroup"""
-  asCheckGroup: CheckGroup!
+  It is the same value the agent's loop span publishes as dagger.io/agent.id, so
+  a client can correlate the agent with what it discovers in the trace. Two
+  spawns of an identical composition have different handles; a display name is
+  shared freely.
+  """
+  handle: String! @experimental(reason: "Agent APIs are likely to change.")
 
-  """Retrieve the binding value, as type Cloud"""
-  asCloud: Cloud!
-
-  """Retrieve the binding value, as type Container"""
-  asContainer: Container!
-
-  """Retrieve the binding value, as type DiffStat"""
-  asDiffStat: DiffStat!
-
-  """Retrieve the binding value, as type Directory"""
-  asDirectory: Directory!
-
-  """Retrieve the binding value, as type Env"""
-  asEnv: Env!
-
-  """Retrieve the binding value, as type EnvFile"""
-  asEnvFile: EnvFile!
-
-  """Retrieve the binding value, as type File"""
-  asFile: File!
-
-  """Retrieve the binding value, as type Generator"""
-  asGenerator: Generator!
-
-  """Retrieve the binding value, as type GeneratorGroup"""
-  asGeneratorGroup: GeneratorGroup!
-
-  """Retrieve the binding value, as type GitRef"""
-  asGitRef: GitRef!
-
-  """Retrieve the binding value, as type GitRepository"""
-  asGitRepository: GitRepository!
-
-  """Retrieve the binding value, as type HTTPState"""
-  asHTTPState: HTTPState!
-
-  """Retrieve the binding value, as type JSONValue"""
-  asJSONValue: JSONValue!
-
-  """Retrieve the binding value, as type Module"""
-  asModule: Module!
-
-  """Retrieve the binding value, as type ModuleConfigClient"""
-  asModuleConfigClient: ModuleConfigClient!
-
-  """Retrieve the binding value, as type ModuleSource"""
-  asModuleSource: ModuleSource!
-
-  """Retrieve the binding value, as type SearchResult"""
-  asSearchResult: SearchResult!
-
-  """Retrieve the binding value, as type SearchSubmatch"""
-  asSearchSubmatch: SearchSubmatch!
-
-  """Retrieve the binding value, as type Secret"""
-  asSecret: Secret!
-
-  """Retrieve the binding value, as type Service"""
-  asService: Service!
-
-  """Retrieve the binding value, as type Socket"""
-  asSocket: Socket!
-
-  """Retrieve the binding value, as type Stat"""
-  asStat: Stat
-
-  """Returns the binding's string value"""
-  asString: String
-
-  """Retrieve the binding value, as type Up"""
-  asUp: Up!
-
-  """Retrieve the binding value, as type UpGroup"""
-  asUpGroup: UpGroup!
-
-  """Retrieve the binding value, as type Workspace"""
-  asWorkspace: Workspace!
-
-  """Retrieve the binding value, as type WorkspaceGit"""
-  asWorkspaceGit: WorkspaceGit!
-
-  """Retrieve the binding value, as type WorkspaceMigration"""
-  asWorkspaceMigration: WorkspaceMigration!
-
-  """Retrieve the binding value, as type WorkspaceMigrationStep"""
-  asWorkspaceMigrationStep: WorkspaceMigrationStep!
-
-  """Retrieve the binding value, as type WorkspaceModule"""
-  asWorkspaceModule: WorkspaceModule!
-
-  """Retrieve the binding value, as type WorkspaceModuleSetting"""
-  asWorkspaceModuleSetting: WorkspaceModuleSetting!
-
-  """Returns the digest of the binding value"""
-  digest: String!
-
-  """A unique identifier for this Binding."""
+  """A unique identifier for this Agent."""
   id: ID!
 
-  """Returns true if the binding is null"""
-  isNull: Boolean!
+  """
+  Look up a previously sent message by its ref.
 
-  """Returns the binding name"""
-  name: String!
+  This is the lookup send pins its result's identity through: the returned
+  handle's ID is an honest, replayable chain, addressable from any request in
+  the session (the cancel-and-request-again contract).
 
-  """Returns the binding type"""
-  typeName: String!
+  Fails if the agent has no runtime entry in this session, or no record of the given ref.
+  """
+  message(
+    """
+    The message's short ref within this agent's runtime, e.g. "#3": the token
+    its attribution header shows and a reply's replyTo names. A bare ordinal
+    ("3") is accepted too.
+    """
+    ref: String!
+  ): AgentMessage! @experimental(reason: "Agent APIs are likely to change.")
+
+  """Display label for the agent; carries no identity."""
+  name: String! @experimental(reason: "Agent APIs are likely to change.")
+
+  """
+  Subscribe another agent to this agent's lifecycle: each transition into one of
+  the given states enqueues an event message to the subscriber — steering its
+  open turn, or waking it if idle, like any other message.
+
+  This is how a supervisor hears every completion and failure without polling or
+  blocking: subscribe at spawn time, keep working, and events arrive as
+  attributed messages.
+
+  Events never relaunch a stopped subscriber, and an already-reached state fires
+  immediately at subscribe time, so a fast agent settling before the
+  subscription lands is not missed.
+
+  Idempotent per subscriber; re-subscribing replaces the state set.
+  """
+  notify(
+    """
+    The agent to deliver event messages to. You must hold its handle:
+    subscriptions are capability-based like everything else.
+    """
+    subscriber: ID! @expectedType(name: "Agent")
+
+    """
+    The lifecycle states that fire an event. IDLE events carry the turn's final reply; FAILED events carry the loop error.
+    """
+    on: [AgentState!] = [IDLE,FAILED]
+  ): ID! @expectedType(name: "Agent") @experimental(reason: "Agent APIs are likely to change.")
+
+  """
+  Stop draining the mailbox once the in-flight step completes, or immediately with interrupt.
+
+  Pause takes priority over pending work: a mid-turn pause suspends the turn,
+  which resume continues. Messages sent while paused enqueue with QUEUED
+  delivery until a resume.
+
+  Pausing a never-started agent leaves it paused for its eventual resume;
+  pausing a failed agent is allowed (resume decides the retry); pausing a
+  stopped agent fails.
+  """
+  pause(
+    """
+    Preempt the in-flight step instead of letting it finish. All completed steps
+    are kept and the interrupted turn stays open: messages it consumed remain
+    pending, while unconsumed mailbox messages are discarded. Resume continues
+    the turn from the last committed step. On an idle, never-started, or failed
+    agent there is nothing to preempt, so this is a plain pause.
+    """
+    interrupt: Boolean = false
+  ): ID! @expectedType(name: "Agent") @experimental(reason: "Agent APIs are likely to change.")
+
+  """
+  Replace this instance's committed conversation with the given one, keeping the
+  entry: identity, mailbox, and lifecycle state are untouched. A paused
+  suspended turn is abandoned and its consumed messages are resolved before
+  replacement.
+
+  This is the continuity verb. Compaction, a workspace rebind, a model change,
+  or rewinding an interrupted prompt produce a new conversation value for the
+  SAME agent; reseed swaps it in place, where a stop-and-respawn would mint a
+  successor instance and split the agent across two roster entries. It is the
+  client-facing form of what a continuation tool already does mid-turn: the
+  agent adopts a new conversation without changing who it is.
+
+  The next turn continues from the reseeded conversation, and queued messages
+  drain onto it. A FAILED agent keeps its error — resume retries from the new
+  conversation.
+
+  Fails if the instance has no runtime entry in this session (only a spawned or
+  re-hydrated instance holds a conversation to replace), if a step is in flight,
+  or if the agent is stopped.
+  """
+  reseed(
+    """
+    The conversation that becomes the agent's committed history, replacing the current one.
+    """
+    conversation: ID! @expectedType(name: "LLM")
+  ): ID! @expectedType(name: "Agent") @experimental(reason: "Agent APIs are likely to change.")
+
+  """
+  Resume draining the mailbox: a suspended turn continues from the last committed step, and queued messages drain.
+
+  Resuming a never-started agent starts its evaluation loop, detached from the
+  calling request: it steps the conversation while input is pending, then idles
+  awaiting further lifecycle operations. Resuming a FAILED agent retries its
+  pending step. Resuming a STOPPED agent relaunches the same instance from its
+  last committed snapshot.
+
+  No-op on a running or idle agent.
+  """
+  resume: ID! @expectedType(name: "Agent") @experimental(reason: "Agent APIs are likely to change.")
+
+  """
+  Enqueue a message, on the record: it is consumed at a step boundary, appends
+  to the agent's history, and steers the running turn or opens a new one.
+
+  Never blocks, never drops; concurrent sends queue in order.
+
+  The returned message is pinned through the message lookup field, so its handle
+  is re-addressable from any request in the session: cancel a response request
+  and request it again freely.
+
+  Sending to a never-started agent starts it (signal-with-start). Sending to a
+  stopped agent restarts the same instance from its last committed snapshot.
+  Sending to a paused or failed agent enqueues with QUEUED delivery, to be
+  drained by a resume.
+  """
+  send(
+    """
+    The message text, appended to the agent's history as a prompt when a turn consumes it.
+    """
+    message: String!
+
+    """
+    The ref of a message in the SENDER's own mailbox this send answers (e.g.
+    "#3", from its attribution header). The recipient sees the two paired, and
+    awaiters of the replied-to message resolve with this reply immediately
+    instead of at the sender's turn end.
+    """
+    replyTo: String = ""
+  ): ID! @expectedType(name: "AgentMessage") @experimental(reason: "Agent APIs are likely to change.")
+
+  """
+  The conversation as of the last committed step: immutable, branchable, persistable.
+
+  The seed conversation if the agent never stepped.
+
+  Branching from it does not affect the agent.
+  """
+  snapshot: LLM! @experimental(reason: "Agent APIs are likely to change.")
+
+  """
+  Computed lifecycle state; never stored.
+
+  An agent that was never started reports IDLE: its mailbox is empty and no turn is open.
+  """
+  state: AgentState! @experimental(reason: "Agent APIs are likely to change.")
+
+  """
+  Release the agent's runtime. The tombstone (state, snapshot) stays readable for the rest of the session.
+  """
+  stop(
+    """
+    Cancel the loop immediately instead of letting an in-flight step finish.
+    Either way the completed steps are preserved in the snapshot.
+    """
+    kill: Boolean = false
+  ): ID! @expectedType(name: "Agent") @experimental(reason: "Agent APIs are likely to change.")
+
+  """
+  Block until the agent settles: IDLE, FAILED, or STOPPED. Read which from state afterwards.
+
+  Unlike waiting for one exact state, this cannot hang merely because the agent settled in a different outcome.
+  """
+  wait: ID! @expectedType(name: "Agent") @experimental(reason: "Agent APIs are likely to change.")
+}
+
+"""
+EXPERIMENTAL: Agent APIs are likely to change.
+
+A message delivered to an agent's mailbox.
+"""
+type AgentMessage implements Node {
+  """
+  How the message conclusively landed: opened a new turn (STARTED), was absorbed
+  into the running turn at a step boundary (STEERED), or queued behind it
+  (QUEUED).
+
+  Blocks until provider or native lifecycle evidence is conclusive. Once
+  recorded, the result or cancellation error is immutable.
+  """
+  delivery: AgentMessageDelivery! @experimental(reason: "Agent APIs are likely to change.")
+
+  """A unique identifier for this AgentMessage."""
+  id: ID!
+
+  """
+  The message's short ref within the receiving agent's runtime, e.g. "#3".
+
+  This is the deterministic token the recipient's attribution header shows and a
+  reply's replyTo names — quote it when telling the recipient what to answer.
+  """
+  ref: String! @experimental(reason: "Agent APIs are likely to change.")
+
+  """
+  Block until this message is answered, and return the answer: an explicit reply
+  (a send whose replyTo names this message), or the final reply of the turn that
+  consumed it, whichever comes first.
+
+  Idempotent: cancel and request the response again freely; concurrent waiters share the result.
+
+  Fails if the agent stops before the message resolves. On a failed agent it
+  projects the failure — but the message stays pending, so after a resume
+  consumes it, requesting the response again returns the real reply.
+
+  Refused when called from inside an agent turn whose wait would deadlock: turns
+  should not block on other agents — send without awaiting, and the reply
+  arrives as a message.
+  """
+  response: String! @experimental(reason: "Agent APIs are likely to change.")
+}
+
+"""
+EXPERIMENTAL: Agent APIs are likely to change.
+
+How a message landed in an agent's evaluation.
+"""
+enum AgentMessageDelivery {
+  """The message opened a new turn: the agent was idle or newly started."""
+  STARTED
+
+  """
+  The message was absorbed into the in-flight turn at a step boundary, steering it.
+  """
+  STEERED
+
+  """
+  The message is queued: the agent is paused or failed, and a resume will drain it.
+  """
+  QUEUED
+}
+
+"""
+EXPERIMENTAL: Agent APIs are likely to change.
+
+An agent middleware contributed by a module.
+"""
+type AgentMiddleware implements Node {
+  """The description of the agent"""
+  description: String! @experimental(reason: "Agent APIs are likely to change.")
+
+  """A unique identifier for this AgentMiddleware."""
+  id: ID!
+
+  """
+  Return the command name of the agent. Entrypoint targets omit the module prefix.
+  """
+  name: String! @experimental(reason: "Agent APIs are likely to change.")
+
+  """The original module in which the agent has been defined"""
+  originalModule: Module! @experimental(reason: "Agent APIs are likely to change.")
+
+  """The path of the agent within its module"""
+  path: [String!]! @experimental(reason: "Agent APIs are likely to change.")
+}
+
+"""
+EXPERIMENTAL: Agent APIs are likely to change.
+
+A group of agent middlewares composable onto a base LLM.
+"""
+type AgentMiddlewareGroup implements Node {
+  """
+  Compose all selected agent middlewares onto a base LLM, in alphabetical module:fn order, and return the composed LLM.
+  """
+  compose(
+    """The base LLM to compose onto. Defaults to a fresh workspace-bound LLM."""
+    base: ID @expectedType(name: "LLM")
+  ): LLM! @experimental(reason: "Agent APIs are likely to change.")
+
+  """A unique identifier for this AgentMiddlewareGroup."""
+  id: ID!
+
+  """Return a list of individual agents and their details"""
+  list: [AgentMiddleware!]! @experimental(reason: "Agent APIs are likely to change.")
+}
+
+"""
+EXPERIMENTAL: Agent APIs are likely to change.
+
+Computed lifecycle state of an agent.
+"""
+enum AgentState {
+  """Mailbox empty, turn complete; blocked in receive."""
+  IDLE
+
+  """A model request or tool evaluation is in flight."""
+  RUNNING
+
+  """Blocked on input from the user (derived; see waitingOn)."""
+  WAITING_INPUT
+
+  """Mailbox accepting but not draining, until resume."""
+  PAUSED
+
+  """Runtime released; snapshot remains readable."""
+  STOPPED
+
+  """The loop failed; snapshot holds the completed prefix. Resume retries."""
+  FAILED
 }
 
 """Key value object that represents a build argument."""
@@ -221,6 +449,9 @@ input BuildArg {
   """The build argument value."""
   value: String!
 }
+
+"""Arbitrary binary data, represented as a base64-encoded string."""
+scalar Bytes
 
 """Sharing mode of the cache volume."""
 enum CacheSharingMode {
@@ -379,7 +610,9 @@ type Check implements Node {
   """A unique identifier for this Check."""
   id: ID!
 
-  """Return the fully qualified name of the check"""
+  """
+  Return the command name of the check. Entrypoint targets omit the module prefix.
+  """
   name: String!
 
   """The original module in which the check has been defined"""
@@ -704,9 +937,17 @@ type Container implements Exportable & Node & Syncer {
   """
   from(
     """
-    Address of the container image to download, in standard OCI ref format. Example:"registry.dagger.io/engine:latest"
+    Address of the container image to download, in standard OCI ref format. Example: "registry.dagger.io/engine:latest".
+
+    An address without a tag or digest selects the greatest stable release tag,
+    falling back to the literal "latest" tag when no eligible release exists.
     """
     address: String!
+
+    """
+    Version query used to select an image tag. The address must not contain a tag or digest.
+    """
+    version: String = ""
 
     """
     Service to use as the registry endpoint for the image address.
@@ -755,6 +996,45 @@ type Container implements Exportable & Node & Syncer {
 
   """Retrieves the list of labels passed to container."""
   labels: [Label!]!
+
+  """
+  Returns the image layer or configuration blob with the given digest as a File.
+  """
+  layer(
+    """Digest of the layer or configuration blob (e.g. "sha256:abc123...")."""
+    id: String!
+
+    """
+    Force each layer of the image to use the specified compression algorithm.
+
+    If this is unset, then if a layer already has a compressed blob in the
+    engine's cache, that will be used (this can result in a mix of compression
+    algorithms for different layers). If this is unset and a layer has no
+    compressed blob in the engine's cache, then it will be compressed using
+    Gzip.
+    """
+    forcedCompression: ImageLayerCompression
+
+    """Media types to use for image layers. Defaults to OCI."""
+    mediaTypes: ImageMediaTypes = OCIMediaTypes
+  ): File!
+
+  """Computes and returns the manifest for this container as a File."""
+  manifest(
+    """
+    Force each layer of the image to use the specified compression algorithm.
+
+    If this is unset, then if a layer already has a compressed blob in the
+    engine's cache, that will be used (this can result in a mix of compression
+    algorithms for different layers). If this is unset and a layer has no
+    compressed blob in the engine's cache, then it will be compressed using
+    Gzip.
+    """
+    forcedCompression: ImageLayerCompression
+
+    """Media types to use for image layers. Defaults to OCI."""
+    mediaTypes: ImageMediaTypes = OCIMediaTypes
+  ): File!
 
   """Retrieves the list of paths where a directory is mounted."""
   mounts: [String!]!
@@ -1007,6 +1287,9 @@ type Container implements Exportable & Node & Syncer {
     """
     owner: String = ""
 
+    """Set the owner to the container's current user."""
+    inheritOwner: Boolean = false
+
     """
     Replace "${VAR}" or "$VAR" in the value of path according to the current
     environment variables defined in the container (e.g. "/$VAR/foo").
@@ -1216,6 +1499,9 @@ type Container implements Exportable & Node & Syncer {
     """
     owner: String = ""
 
+    """Set the owner to the container's current user."""
+    inheritOwner: Boolean = false
+
     """
     Replace "${VAR}" or "$VAR" in the value of path according to the current
     environment variables defined in the container (e.g. "/$VAR/foo.txt").
@@ -1244,6 +1530,9 @@ type Container implements Exportable & Node & Syncer {
     If the group is omitted, it defaults to the same as the user.
     """
     owner: String = ""
+
+    """Set the owner to the container's current user."""
+    inheritOwner: Boolean = false
 
     """
     Replace "${VAR}" or "$VAR" in the value of path according to the current
@@ -1290,6 +1579,9 @@ type Container implements Exportable & Node & Syncer {
     """
     owner: String = ""
 
+    """Set the owner to the container's current user."""
+    inheritOwner: Boolean = false
+
     """
     Replace "${VAR}" or "$VAR" in the value of path according to the current
     environment variables defined in the container (e.g. "/$VAR/foo").
@@ -1313,6 +1605,9 @@ type Container implements Exportable & Node & Syncer {
     If the group is omitted, it defaults to the same as the user.
     """
     owner: String = ""
+
+    """Set the owner to the container's current user."""
+    inheritOwner: Boolean = false
 
     """Mount the directory read-only."""
     readOnly: Boolean = false
@@ -1341,6 +1636,9 @@ type Container implements Exportable & Node & Syncer {
     """
     owner: String = ""
 
+    """Set the owner to the container's current user."""
+    inheritOwner: Boolean = false
+
     """
     Replace "${VAR}" or "$VAR" in the value of path according to the current
     environment variables defined in the container (e.g. "/$VAR/foo.txt").
@@ -1366,6 +1664,9 @@ type Container implements Exportable & Node & Syncer {
     If the group is omitted, it defaults to the same as the user.
     """
     owner: String = ""
+
+    """Set the owner to the container's current user."""
+    inheritOwner: Boolean = false
 
     """
     Permission given to the mounted secret (e.g., 0600).
@@ -1400,6 +1701,24 @@ type Container implements Exportable & Node & Syncer {
     expand: Boolean = false
   ): Container!
 
+  """Retrieves this container plus a volume mounted at the given path."""
+  withMountedVolume(
+    """Location of the volume mount (e.g., "/mnt/volume")."""
+    path: String!
+
+    """Identifier of the volume to mount."""
+    volume: ID! @expectedType(name: "Volume")
+
+    """Mount the volume read-only."""
+    readOnly: Boolean = false
+
+    """
+    Replace "${VAR}" or "$VAR" in the value of path according to the current
+    environment variables defined in the container (e.g. "/$VAR/foo").
+    """
+    expand: Boolean = false
+  ): Container!
+
   """
   Return a new container snapshot, with a file added to its filesystem with text content
   """
@@ -1425,6 +1744,9 @@ type Container implements Exportable & Node & Syncer {
     If the group is omitted, it defaults to the same as the user.
     """
     owner: String = ""
+
+    """Set the owner to the container's current user."""
+    inheritOwner: Boolean = false
 
     """
     Replace "${VAR}" or "$VAR" in the value of path according to the current
@@ -1523,6 +1845,9 @@ type Container implements Exportable & Node & Syncer {
     If the group is omitted, it defaults to the same as the user.
     """
     owner: String = ""
+
+    """Set the owner to the container's current user."""
+    inheritOwner: Boolean = false
 
     """
     Replace "${VAR}" or "$VAR" in the value of path according to the current
@@ -1846,7 +2171,7 @@ type Directory implements Exportable & Node & Syncer {
     Current working directory inside the workspace root. Defaults to the workspace root.
     """
     cwd: String = "/"
-  ): Workspace! @experimental(reason: "Synthetic workspaces currently support filesystem APIs only.")
+  ): Workspace!
 
   """
   Return the difference between this directory and another directory, typically an older snapshot.
@@ -2221,6 +2546,13 @@ type Directory implements Exportable & Node & Syncer {
     @@\n-Hello\n+World\n").
     """
     patch: String!
+
+    """
+    How to handle hunks that no longer apply to the target content: fail
+    (default), or apply what fits and leave git-style conflict markers where it
+    doesn't.
+    """
+    onConflict: PatchConflict = FAIL
   ): Directory! @experimental(reason: "This API is highly experimental and may be removed or replaced entirely.")
 
   """
@@ -2229,6 +2561,13 @@ type Directory implements Exportable & Node & Syncer {
   withPatchFile(
     """File containing the patch to apply"""
     patch: ID! @expectedType(name: "File")
+
+    """
+    How to handle hunks that no longer apply to the target content: fail
+    (default), or apply what fits and leave git-style conflict markers where it
+    doesn't.
+    """
+    onConflict: PatchConflict = FAIL
   ): Directory! @experimental(reason: "This API is highly experimental and may be removed or replaced entirely.")
 
   """Return a snapshot with a symlink"""
@@ -2309,7 +2648,10 @@ type EngineCache implements Node {
   """Prune the cache of releaseable entries"""
   prune(
     """
-    Use the engine-wide default pruning policy if true, otherwise prune the whole cache of any releasable entries.
+    Use enabled engine-wide default disk and structural policies. If no default
+    disk policy is enabled, the disk stage falls back to pruning all releasable
+    disk-cache entries. If false, explicit options select stages; with no
+    options, all releasable disk-cache entries are pruned.
     """
     useDefaultPolicy: Boolean = false
 
@@ -2332,6 +2674,20 @@ type EngineCache implements Node {
     Override the target disk space to keep after pruning (e.g. "200GB" or "50%").
     """
     targetSpace: String = ""
+
+    """
+    Override the maximum structural metadata estimate in absolute bytes.
+    Explicit values must be positive; the configured/default value is used when
+    omitted.
+    """
+    maxEstimatedBytes: Int
+
+    """
+    Override the structural metadata estimate to target in absolute bytes.
+    Explicit values must be positive and lower than the resolved maximum; the
+    configured/default value is used when omitted.
+    """
+    targetEstimatedBytes: Int
   ): Void
 
   """The minimum amount of disk space this policy is guaranteed to retain."""
@@ -2433,866 +2789,6 @@ type EnumValueTypeDef implements Node {
 
   """The value of the enum member"""
   value: String!
-}
-
-type Env implements Node {
-  """
-  Return the check with the given name from the installed modules. Must match exactly one check.
-  """
-  check(
-    """The name of the check to retrieve"""
-    name: String!
-  ): Check! @experimental(reason: "Checks API is highly experimental and may be removed or replaced entirely.")
-
-  """Return all checks defined by the installed modules"""
-  checks(
-    """Only include checks matching the specified patterns"""
-    include: [String!]
-
-    """
-    When true, only return annotated check functions; exclude generate-as-checks
-    """
-    noGenerate: Boolean
-  ): CheckGroup! @experimental(reason: "Checks API is highly experimental and may be removed or replaced entirely.")
-
-  """A unique identifier for this Env."""
-  id: ID!
-
-  """Retrieves an input binding by name"""
-  input(name: String!): Binding!
-
-  """Returns all input bindings provided to the environment"""
-  inputs: [Binding!]!
-
-  """Retrieves an output binding by name"""
-  output(name: String!): Binding!
-
-  """Returns all declared output bindings for the environment"""
-  outputs: [Binding!]!
-
-  """Return all services defined by the installed modules"""
-  services(
-    """Only include services matching the specified patterns"""
-    include: [String!]
-  ): UpGroup! @experimental(reason: "Services API is highly experimental and may be removed or replaced entirely.")
-
-  """Create or update a binding of type Address in the environment"""
-  withAddressInput(
-    """The name of the binding"""
-    name: String!
-
-    """The Address value to assign to the binding"""
-    value: ID! @expectedType(name: "Address")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """Declare a desired Address output to be assigned in the environment"""
-  withAddressOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type CacheVolume in the environment"""
-  withCacheVolumeInput(
-    """The name of the binding"""
-    name: String!
-
-    """The CacheVolume value to assign to the binding"""
-    value: ID! @expectedType(name: "CacheVolume")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """Declare a desired CacheVolume output to be assigned in the environment"""
-  withCacheVolumeOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type Changeset in the environment"""
-  withChangesetInput(
-    """The name of the binding"""
-    name: String!
-
-    """The Changeset value to assign to the binding"""
-    value: ID! @expectedType(name: "Changeset")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """Declare a desired Changeset output to be assigned in the environment"""
-  withChangesetOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type CheckGroup in the environment"""
-  withCheckGroupInput(
-    """The name of the binding"""
-    name: String!
-
-    """The CheckGroup value to assign to the binding"""
-    value: ID! @expectedType(name: "CheckGroup")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """Declare a desired CheckGroup output to be assigned in the environment"""
-  withCheckGroupOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type Check in the environment"""
-  withCheckInput(
-    """The name of the binding"""
-    name: String!
-
-    """The Check value to assign to the binding"""
-    value: ID! @expectedType(name: "Check")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """Declare a desired Check output to be assigned in the environment"""
-  withCheckOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type Cloud in the environment"""
-  withCloudInput(
-    """The name of the binding"""
-    name: String!
-
-    """The Cloud value to assign to the binding"""
-    value: ID! @expectedType(name: "Cloud")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """Declare a desired Cloud output to be assigned in the environment"""
-  withCloudOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type Container in the environment"""
-  withContainerInput(
-    """The name of the binding"""
-    name: String!
-
-    """The Container value to assign to the binding"""
-    value: ID! @expectedType(name: "Container")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """Declare a desired Container output to be assigned in the environment"""
-  withContainerOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """
-  Installs the current module into the environment, exposing its functions to the model
-
-  Contextual path arguments will be populated using the environment's workspace.
-  """
-  withCurrentModule: Env!
-
-  """Create or update a binding of type DiffStat in the environment"""
-  withDiffStatInput(
-    """The name of the binding"""
-    name: String!
-
-    """The DiffStat value to assign to the binding"""
-    value: ID! @expectedType(name: "DiffStat")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """Declare a desired DiffStat output to be assigned in the environment"""
-  withDiffStatOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type Directory in the environment"""
-  withDirectoryInput(
-    """The name of the binding"""
-    name: String!
-
-    """The Directory value to assign to the binding"""
-    value: ID! @expectedType(name: "Directory")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """Declare a desired Directory output to be assigned in the environment"""
-  withDirectoryOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type EnvFile in the environment"""
-  withEnvFileInput(
-    """The name of the binding"""
-    name: String!
-
-    """The EnvFile value to assign to the binding"""
-    value: ID! @expectedType(name: "EnvFile")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """Declare a desired EnvFile output to be assigned in the environment"""
-  withEnvFileOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type Env in the environment"""
-  withEnvInput(
-    """The name of the binding"""
-    name: String!
-
-    """The Env value to assign to the binding"""
-    value: ID! @expectedType(name: "Env")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """Declare a desired Env output to be assigned in the environment"""
-  withEnvOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type File in the environment"""
-  withFileInput(
-    """The name of the binding"""
-    name: String!
-
-    """The File value to assign to the binding"""
-    value: ID! @expectedType(name: "File")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """Declare a desired File output to be assigned in the environment"""
-  withFileOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type GeneratorGroup in the environment"""
-  withGeneratorGroupInput(
-    """The name of the binding"""
-    name: String!
-
-    """The GeneratorGroup value to assign to the binding"""
-    value: ID! @expectedType(name: "GeneratorGroup")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """
-  Declare a desired GeneratorGroup output to be assigned in the environment
-  """
-  withGeneratorGroupOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type Generator in the environment"""
-  withGeneratorInput(
-    """The name of the binding"""
-    name: String!
-
-    """The Generator value to assign to the binding"""
-    value: ID! @expectedType(name: "Generator")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """Declare a desired Generator output to be assigned in the environment"""
-  withGeneratorOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type GitRef in the environment"""
-  withGitRefInput(
-    """The name of the binding"""
-    name: String!
-
-    """The GitRef value to assign to the binding"""
-    value: ID! @expectedType(name: "GitRef")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """Declare a desired GitRef output to be assigned in the environment"""
-  withGitRefOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type GitRepository in the environment"""
-  withGitRepositoryInput(
-    """The name of the binding"""
-    name: String!
-
-    """The GitRepository value to assign to the binding"""
-    value: ID! @expectedType(name: "GitRepository")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """
-  Declare a desired GitRepository output to be assigned in the environment
-  """
-  withGitRepositoryOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type HTTPState in the environment"""
-  withHTTPStateInput(
-    """The name of the binding"""
-    name: String!
-
-    """The HTTPState value to assign to the binding"""
-    value: ID! @expectedType(name: "HTTPState")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """Declare a desired HTTPState output to be assigned in the environment"""
-  withHTTPStateOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type JSONValue in the environment"""
-  withJSONValueInput(
-    """The name of the binding"""
-    name: String!
-
-    """The JSONValue value to assign to the binding"""
-    value: ID! @expectedType(name: "JSONValue")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """Declare a desired JSONValue output to be assigned in the environment"""
-  withJSONValueOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """
-  Sets the main module for this environment (the project being worked on)
-
-  Contextual path arguments will be populated using the environment's workspace.
-  """
-  withMainModule(module: ID! @expectedType(name: "Module")): Env!
-
-  """
-  Installs a module into the environment, exposing its functions to the model
-
-  Contextual path arguments will be populated using the environment's workspace.
-  """
-  withModule(module: ID! @expectedType(name: "Module")): Env! @deprecated(reason: "Use withMainModule instead")
-
-  """
-  Create or update a binding of type ModuleConfigClient in the environment
-  """
-  withModuleConfigClientInput(
-    """The name of the binding"""
-    name: String!
-
-    """The ModuleConfigClient value to assign to the binding"""
-    value: ID! @expectedType(name: "ModuleConfigClient")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """
-  Declare a desired ModuleConfigClient output to be assigned in the environment
-  """
-  withModuleConfigClientOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type Module in the environment"""
-  withModuleInput(
-    """The name of the binding"""
-    name: String!
-
-    """The Module value to assign to the binding"""
-    value: ID! @expectedType(name: "Module")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """Declare a desired Module output to be assigned in the environment"""
-  withModuleOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type ModuleSource in the environment"""
-  withModuleSourceInput(
-    """The name of the binding"""
-    name: String!
-
-    """The ModuleSource value to assign to the binding"""
-    value: ID! @expectedType(name: "ModuleSource")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """
-  Declare a desired ModuleSource output to be assigned in the environment
-  """
-  withModuleSourceOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type SearchResult in the environment"""
-  withSearchResultInput(
-    """The name of the binding"""
-    name: String!
-
-    """The SearchResult value to assign to the binding"""
-    value: ID! @expectedType(name: "SearchResult")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """
-  Declare a desired SearchResult output to be assigned in the environment
-  """
-  withSearchResultOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type SearchSubmatch in the environment"""
-  withSearchSubmatchInput(
-    """The name of the binding"""
-    name: String!
-
-    """The SearchSubmatch value to assign to the binding"""
-    value: ID! @expectedType(name: "SearchSubmatch")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """
-  Declare a desired SearchSubmatch output to be assigned in the environment
-  """
-  withSearchSubmatchOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type Secret in the environment"""
-  withSecretInput(
-    """The name of the binding"""
-    name: String!
-
-    """The Secret value to assign to the binding"""
-    value: ID! @expectedType(name: "Secret")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """Declare a desired Secret output to be assigned in the environment"""
-  withSecretOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type Service in the environment"""
-  withServiceInput(
-    """The name of the binding"""
-    name: String!
-
-    """The Service value to assign to the binding"""
-    value: ID! @expectedType(name: "Service")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """Declare a desired Service output to be assigned in the environment"""
-  withServiceOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type Socket in the environment"""
-  withSocketInput(
-    """The name of the binding"""
-    name: String!
-
-    """The Socket value to assign to the binding"""
-    value: ID! @expectedType(name: "Socket")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """Declare a desired Socket output to be assigned in the environment"""
-  withSocketOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type Stat in the environment"""
-  withStatInput(
-    """The name of the binding"""
-    name: String!
-
-    """The Stat value to assign to the binding"""
-    value: ID! @expectedType(name: "Stat")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """Declare a desired Stat output to be assigned in the environment"""
-  withStatOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Provides a string input binding to the environment"""
-  withStringInput(
-    """The name of the binding"""
-    name: String!
-
-    """The string value to assign to the binding"""
-    value: String!
-
-    """The description of the input"""
-    description: String!
-  ): Env!
-
-  """Declares a desired string output binding"""
-  withStringOutput(
-    """The name of the binding"""
-    name: String!
-
-    """The description of the output"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type UpGroup in the environment"""
-  withUpGroupInput(
-    """The name of the binding"""
-    name: String!
-
-    """The UpGroup value to assign to the binding"""
-    value: ID! @expectedType(name: "UpGroup")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """Declare a desired UpGroup output to be assigned in the environment"""
-  withUpGroupOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type Up in the environment"""
-  withUpInput(
-    """The name of the binding"""
-    name: String!
-
-    """The Up value to assign to the binding"""
-    value: ID! @expectedType(name: "Up")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """Declare a desired Up output to be assigned in the environment"""
-  withUpOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Returns a new environment with the provided workspace"""
-  withWorkspace(
-    """The directory to set as the host filesystem"""
-    workspace: ID! @expectedType(name: "Directory")
-  ): Env!
-
-  """Create or update a binding of type WorkspaceGit in the environment"""
-  withWorkspaceGitInput(
-    """The name of the binding"""
-    name: String!
-
-    """The WorkspaceGit value to assign to the binding"""
-    value: ID! @expectedType(name: "WorkspaceGit")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """
-  Declare a desired WorkspaceGit output to be assigned in the environment
-  """
-  withWorkspaceGitOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type Workspace in the environment"""
-  withWorkspaceInput(
-    """The name of the binding"""
-    name: String!
-
-    """The Workspace value to assign to the binding"""
-    value: ID! @expectedType(name: "Workspace")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """
-  Create or update a binding of type WorkspaceMigration in the environment
-  """
-  withWorkspaceMigrationInput(
-    """The name of the binding"""
-    name: String!
-
-    """The WorkspaceMigration value to assign to the binding"""
-    value: ID! @expectedType(name: "WorkspaceMigration")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """
-  Declare a desired WorkspaceMigration output to be assigned in the environment
-  """
-  withWorkspaceMigrationOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """
-  Create or update a binding of type WorkspaceMigrationStep in the environment
-  """
-  withWorkspaceMigrationStepInput(
-    """The name of the binding"""
-    name: String!
-
-    """The WorkspaceMigrationStep value to assign to the binding"""
-    value: ID! @expectedType(name: "WorkspaceMigrationStep")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """
-  Declare a desired WorkspaceMigrationStep output to be assigned in the environment
-  """
-  withWorkspaceMigrationStepOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Create or update a binding of type WorkspaceModule in the environment"""
-  withWorkspaceModuleInput(
-    """The name of the binding"""
-    name: String!
-
-    """The WorkspaceModule value to assign to the binding"""
-    value: ID! @expectedType(name: "WorkspaceModule")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """
-  Declare a desired WorkspaceModule output to be assigned in the environment
-  """
-  withWorkspaceModuleOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """
-  Create or update a binding of type WorkspaceModuleSetting in the environment
-  """
-  withWorkspaceModuleSettingInput(
-    """The name of the binding"""
-    name: String!
-
-    """The WorkspaceModuleSetting value to assign to the binding"""
-    value: ID! @expectedType(name: "WorkspaceModuleSetting")
-
-    """The purpose of the input"""
-    description: String!
-  ): Env!
-
-  """
-  Declare a desired WorkspaceModuleSetting output to be assigned in the environment
-  """
-  withWorkspaceModuleSettingOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Declare a desired Workspace output to be assigned in the environment"""
-  withWorkspaceOutput(
-    """The name of the binding"""
-    name: String!
-
-    """A description of the desired value of the binding"""
-    description: String!
-  ): Env!
-
-  """Returns a new environment without any outputs"""
-  withoutOutputs: Env!
-
-  workspace: Directory!
 }
 
 """A collection of environment variables."""
@@ -3455,6 +2951,9 @@ type File implements Exportable & Node & Syncer {
     """Replace "${VAR}" or "$VAR" with the value of other vars"""
     expand: Boolean @deprecated(reason: "Variable expansion is now enabled by default")
   ): EnvFile!
+
+  """Interpret this file as a Git bundle by lazily parsing its header."""
+  asGitBundle: GitBundle!
 
   """Parse the file contents as JSON."""
   asJSON: JSONValue!
@@ -3656,6 +3155,9 @@ type Function implements Node {
   If this function is provided by a module, the name of the module. Unset otherwise.
   """
   sourceModuleName: String!
+
+  """Returns the function with a flag indicating it is an agent middleware."""
+  withAgent: Function! @experimental(reason: "Agent APIs are likely to change.")
 
   """Returns the function with the provided argument"""
   withArg(
@@ -3874,11 +3376,15 @@ type Generator implements Node {
   """Whether changeset from the last generator run is empty or not"""
   isEmpty: Boolean!
 
-  """Return the fully qualified name of the generator"""
+  """
+  Return the command name of the generator. Entrypoint targets omit the module prefix.
+  """
   name: String!
 
-  """The original module in which the generator has been defined"""
-  originalModule: Module!
+  """
+  The module that defined the generator, or null for an engine-defined generator
+  """
+  originalModule: Module
 
   """The path of the generator within its module"""
   path: [String!]!
@@ -3911,14 +3417,148 @@ type GeneratorGroup implements Node {
   """Return a list of individual generators and their details"""
   list: [Generator!]!
 
+  """
+  Load failures tolerated while collecting the generators.
+
+  Empty unless a workspace module could not be loaded during an unscoped 'dagger
+  generate' (no selector), where load failures are tolerated so the modules that
+  do load still generate. Each entry is a human-readable error message. An
+  explicit selector keeps failing hard instead.
+  """
+  loadFailures: [String!]!
+
   """Execute all selected generators"""
   run: GeneratorGroup!
+
+  """The workspace with the combined output from the last generator run"""
+  workspace(
+    """Strategy to apply on conflicts between generators"""
+    onConflict: ChangesetsMergeConflict = FAIL_EARLY
+  ): Workspace!
+}
+
+"""
+A Git bundle: a self-describing container of refs and the objects needed to
+reconstruct them, optionally rooted at prerequisite commits.
+"""
+type GitBundle implements Node {
+  """Return the bundle bytes as a File."""
+  asFile: File!
+
+  """A unique identifier for this GitBundle."""
+  id: ID!
+
+  """Object format capability: sha1 or sha256."""
+  objectFormat: String!
+
+  """Commits that must already exist wherever this bundle is applied."""
+  prerequisiteSHAs: [String!]!
+
+  """Refs advertised by the bundle and the object IDs they resolve to."""
+  refs: [GitBundleRef!]!
+
+  """
+  Perform full structural verification of the bundle and error if it is malformed.
+  """
+  validate: GitBundle!
+
+  """Bundle format version (2 or 3)."""
+  version: Int!
+}
+
+"""A ref advertised by a Git bundle."""
+type GitBundleRef implements Node {
+  """A unique identifier for this GitBundleRef."""
+  id: ID!
+
+  """The advertised ref name."""
+  name: String!
+
+  """The object ID the advertised ref resolves to."""
+  sha: String!
+}
+
+"""An immutable git commit."""
+type GitCommit implements Node {
+  """The latest semver release tag reachable from this commit."""
+  ancestorReleaseTag(
+    """Include pre-release tags when choosing the latest tag."""
+    includePreRelease: Boolean = false
+  ): GitRef
+
+  """Git author email."""
+  authorEmail: String!
+
+  """Git author name."""
+  authorName: String!
+
+  """Git author date, in RFC3339 format."""
+  authoredDate: String!
+
+  """Git committer date, in RFC3339 format."""
+  committedDate: String!
+
+  """Git committer email."""
+  committerEmail: String!
+
+  """Git committer name."""
+  committerName: String!
+
+  """A unique identifier for this GitCommit."""
+  id: ID!
+
+  """Full commit message."""
+  message: String!
+
+  """Commit message body, excluding the headline."""
+  messageBody: String!
+
+  """First line of the commit message."""
+  messageHeadline: String!
+
+  """Parent commit SHAs."""
+  parentShas: [String!]!
+
+  """The latest semver release tag that points directly at this commit."""
+  releaseTag(
+    """Include pre-release tags when choosing the latest tag."""
+    includePreRelease: Boolean = false
+  ): GitRef
+
+  """The full commit SHA."""
+  sha: String!
+
+  """The abbreviated commit SHA."""
+  shortSha: String!
+
+  """The filesystem tree at this commit."""
+  tree(
+    """Set to true to discard .git directory."""
+    discardGitDir: Boolean = false
+
+    """The depth of the tree to fetch."""
+    depth: Int = 1
+
+    """Set to true to populate tag refs in the local checkout .git."""
+    includeTags: Boolean = false
+  ): Directory!
 }
 
 """A git ref (tag, branch, or commit)."""
 type GitRef implements Node {
+  """Creates a synthetic workspace from this git ref."""
+  asWorkspace(
+    """
+    Current working directory inside the workspace root. Defaults to the workspace root.
+    """
+    cwd: String = "/"
+  ): Workspace!
+
   """The resolved commit id at this ref."""
-  commit: String!
+  commit: String! @deprecated(reason: "Use \"commitSHA\" instead.")
+
+  """The resolved commit SHA at this ref."""
+  commitSHA: String!
 
   """Find the best common ancestor between this ref and another ref."""
   commonAncestor(
@@ -3929,8 +3569,32 @@ type GitRef implements Node {
   """A unique identifier for this GitRef."""
   id: ID!
 
+  """
+  Commits reachable from this ref, newest first, starting with the commit this ref resolves to.
+  """
+  log(
+    """Maximum number of commits to return."""
+    limit: Int = 10
+
+    """
+    Only include commits touching these paths, relative to the root of the repository.
+    """
+    paths: [String!]
+
+    """
+    Exclude commits reachable from this ref, i.e. only list commits added on top of it.
+    """
+    base: ID @expectedType(name: "GitRef")
+  ): [GitCommit!]!
+
+  """The resolved name of this ref."""
+  name: String!
+
   """The resolved ref name at this ref."""
-  ref: String!
+  ref: String! @deprecated(reason: "Use \"name\" instead.")
+
+  """The commit this ref resolves to."""
+  targetCommit: GitCommit!
 
   """The filesystem tree at this ref."""
   tree(
@@ -3953,7 +3617,7 @@ type GitRepository implements Node {
     Current working directory inside the workspace root. Defaults to the workspace root.
     """
     cwd: String = "/"
-  ): Workspace! @experimental(reason: "Synthetic workspaces currently support filesystem APIs only.")
+  ): Workspace!
 
   """Returns details of a branch."""
   branch(
@@ -3967,13 +3631,26 @@ type GitRepository implements Node {
     patterns: [String!]
   ): [String!]!
 
+  """
+  Pack the given refs and the objects needed to reconstruct them into a Git bundle.
+  """
+  bundle(
+    """Refs to advertise in the bundle. At least one named ref is required."""
+    refs: [String!]!
+
+    """
+    A Git ref whose reachable objects are omitted and recorded as a prerequisite.
+    """
+    base: ID @expectedType(name: "GitRef")
+  ): GitBundle!
+
   """Returns details of a commit."""
   commit(
     """
     Identifier of the commit (e.g., "b6315d8f2810962c601af73f86831f6866ea798b").
     """
     id: String!
-  ): GitRef!
+  ): GitCommit!
 
   """Returns details for HEAD."""
   head: GitRef!
@@ -3981,8 +3658,16 @@ type GitRepository implements Node {
   """A unique identifier for this GitRepository."""
   id: ID!
 
-  """Returns details for the latest semver tag."""
-  latestVersion: GitRef!
+  """
+  Return the latest stable release tag, falling back to HEAD when no release exists.
+
+  Release selection accepts an optional "v" prefix, incomplete versions, and
+  zero-padded numeric components. This operation is pinned.
+  """
+  latest(
+    """Version query used to select the greatest matching release ref."""
+    version: String = ""
+  ): GitRef!
 
   """Returns details of a ref."""
   ref(
@@ -4009,6 +3694,19 @@ type GitRepository implements Node {
 
   """The URL of the git repository."""
   url: String
+
+  """
+  Import a Git bundle after fetching and verifying all of its prerequisites.
+  """
+  withBundle(
+    """The Git bundle to import."""
+    bundle: ID! @expectedType(name: "GitBundle")
+
+    """
+    An optional remote ref hint for fetching a prerequisite when the remote does not allow fetches by object ID.
+    """
+    prerequisiteRef: String = ""
+  ): GitRepository!
 }
 
 """An internal persistent HTTP state."""
@@ -4285,75 +3983,199 @@ type JSONValue implements Node {
   ): JSONValue!
 }
 
+"""
+A conversation with a large language model (LLM): queue prompts, expose tools,
+and step the model until it completes its turn.
+"""
 type LLM implements Node & Syncer {
-  """create a branch in the LLM's history"""
-  attempt(number: Int!): LLM!
+  """
+  Reconstruct a spawned agent from its runtime handle.
 
-  """returns the type of the current state"""
-  bindResult(name: String!): Binding
+  This is the lookup spawn pins its result's identity through: the returned
+  handle's ID is an honest, replayable chain denoting the one instance the spawn
+  minted. It never creates an instance itself.
+  """
+  agent(
+    """The opaque runtime handle minted by the spawn that created the agent."""
+    handle: String!
 
-  """return the LLM's current environment"""
-  env: Env!
+    """The agent's display name, as recorded by the spawn."""
+    name: String!
+  ): Agent! @experimental(reason: "Agent APIs are likely to change.")
 
   """
-  Indicates whether there are any queued prompts or tool results to send to the model
+  estimated number of tokens currently occupying the context window; unlike
+  tokenUsage this is not cumulative over the session
   """
-  hasPrompt: Boolean!
+  contextTokens: Int!
 
-  """return the llm message history"""
-  history: [String!]!
+  """
+  The model's total context window in tokens, or null if unknown (e.g. a local or uncatalogued model).
+  """
+  contextWindow: Int
 
-  """return the raw llm message history as json"""
-  historyJSON: JSON!
+  """
+  Re-emit telemetry spans for the full message history, so a loaded conversation displays in the TUI.
+  """
+  emitHistory: ID! @expectedType(name: "LLM")
+
+  """
+  Fork the conversation, so that otherwise-identical follow-ups evaluate
+  independently instead of deduplicating to a single cached result.
+  """
+  fork(
+    """
+    A label distinguishing this fork from its siblings, e.g. "attempt-2" when retrying a flaky evaluation.
+    """
+    label: String!
+  ): LLM!
+
+  """
+  Report whether anything is queued to send to the model: an unsent prompt or
+  unevaluated tool results. When true, another step will do work; when false,
+  the turn is complete.
+  """
+  hasPending: Boolean!
 
   """A unique identifier for this LLM."""
   id: ID!
 
-  """return the last llm reply from the history"""
+  """The text of the model's most recent reply."""
   lastReply: String!
 
   """
-  Submit the queued prompt, evaluate any tool calls, queue their results, and keep going until the model ends its turn
+  Send the queued prompt and step the model against the available tools, until
+  it ends its turn: a reply with no tool calls and nothing left queued.
   """
-  loop: LLM!
+  loop(
+    """
+    Cap the number of steps. The loop fails if the cap is reached before the model ends its turn.
+    """
+    maxSteps: Int
 
-  """return the model used by the llm"""
+    """
+    Cap the model's output tokens on each step. Defaults to the model's maximum.
+    """
+    maxTokens: Int
+  ): LLM!
+
+  """The full message history, as structured messages."""
+  messages: [LLMMessage!]!
+
+  """
+  The model the conversation is running against, after resolving any configured default.
+  """
   model: String!
 
-  """return the provider used by the llm"""
+  """
+  A portable, self-contained ID for the conversation that node() can resolve in
+  any session. Unlike id, which may return an engine-local runtime handle valid
+  only within the current session, this returns the recipe form suitable for
+  persisting and later restoring the conversation. The recipe is flattened:
+  bindings superseded during the session (workspace overlays recorded by each
+  mutating tool call, and re-bound toolsets) are dropped, while the current
+  workspace binding — including any pending, un-exported edits — is
+  preserved.
+  """
+  portableID: ID!
+
+  """
+  The provider serving the model, e.g. "anthropic", "openai", "google", or "local".
+  """
   provider: String!
 
   """
-  Submit the queued prompt or tool call results, evaluate any tool calls, and queue their results
+  The reasoning effort in use, e.g. "low", "medium", or "high". Empty or "none" when reasoning is disabled.
   """
-  step: ID! @expectedType(name: "LLM")
+  reasoningEffort: String!
 
-  """synchronize LLM state"""
+  """
+  The skills visible to the model, exactly as the ListSkills tool serves them:
+  engine-embedded skills, skills installed with withSkills, and skills
+  discovered in the workspace.
+  """
+  skills: [LLMSkill!]!
+
+  """
+  Spawn the conversation as an agent: a startable, addressable evaluation loop
+  seeded with this conversation's state, tools, and workspace.
+
+  Every spawn mints a unique agent instance — two spawns of an identical
+  conversation are two distinct agents, like two calls to a process spawn. The
+  result is pinned to the instance (via the agent lookup field), so re-loading
+  its ID re-addresses the same agent from any request in the session.
+
+  The loop is not started: the agent spends nothing until it is prompted or
+  resumed, and any input pending on the conversation is stepped then.
+
+  With a handle, spawn restores an instance instead of minting one: this
+  conversation becomes the committed history of the agent that handle names, so
+  prompting it continues where it left off — rebuild a conversation's ID from
+  a trace, load it, and spawn it under the handle it belonged to. Fails if that
+  instance already has a runtime entry in this session: a restore must happen
+  before anything else addresses the instance, since by then it may have
+  stepped.
+  """
+  spawn(
+    """
+    Display label for the agent — telemetry and error messages; carries no
+    identity. Defaults to a short name derived from the conversation.
+    """
+    name: String
+
+    """
+    The runtime handle to restore the instance under, as published on its loop
+    span as dagger.io/agent.id. Omit to mint a fresh instance.
+    """
+    handle: String
+
+    """
+    The lifecycle state to create the agent in, as facts on the entry: IDLE is
+    ready to be prompted, PAUSED parks it, FAILED holds an error a resume
+    retries past, STOPPED preserves a dormant snapshot that send or resume can
+    relaunch.
+
+    RUNNING and WAITING_INPUT are refused: they describe a loop, and a restored
+    loop died with the session that published it — restore such an agent as
+    IDLE, its interrupted turn's input still pending on the conversation.
+    """
+    state: AgentState = IDLE
+
+    """
+    The loop error to create the agent with, for state FAILED. Refused with any other state.
+    """
+    error: String = ""
+  ): ID! @expectedType(name: "Agent") @experimental(reason: "Agent APIs are likely to change.")
+
+  """
+  Advance the conversation by a single step: send the queued prompt or tool
+  results to the model, evaluate any tool calls it makes, and queue their
+  results. Use loop to step until the model ends its turn.
+  """
+  step(
+    """
+    Cap the model's output tokens for this step. Defaults to the model's maximum.
+    """
+    maxTokens: Int
+  ): LLM!
+
+  """
+  Force evaluation of the conversation's pending operations (prompts, steps, loops) in the engine.
+  """
   sync: ID! @expectedType(name: "LLM")
 
-  """returns the token usage of the current state"""
+  """
+  The cumulative token usage, summed across every API call in the conversation.
+  """
   tokenUsage: LLMTokenUsage!
 
-  """print documentation for available tools"""
+  """Render documentation for the tools currently exposed to the model."""
   tools: String!
 
   """
-  Return a new LLM with the specified function no longer exposed as a tool
+  The message history rendered as a plain-text transcript, suitable for feeding back to an LLM (e.g. for summarization).
   """
-  withBlockedFunction(
-    """The type name whose function will be blocked"""
-    typeName: String!
-
-    """
-    The function to block
-
-    Will be converted to lowerCamelCase if necessary.
-    """
-    function: String!
-  ): LLM!
-
-  """allow the LLM to interact with an environment via MCP"""
-  withEnv(env: ID! @expectedType(name: "Env")): LLM!
+  transcript: String!
 
   """Add an external MCP server to the LLM"""
   withMCPServer(
@@ -4364,57 +4186,361 @@ type LLM implements Node & Syncer {
     service: ID! @expectedType(name: "Service")
   ): LLM!
 
-  """swap out the llm model"""
+  """
+  Change the model for the rest of the conversation. The message history is
+  preserved; the new model takes effect on the next step.
+  """
   withModel(
-    """The model to use"""
+    """The model to use, e.g. "claude-sonnet-4-5" or "gpt-5.4"."""
     model: String!
+
+    """
+    The provider serving the model, e.g. "openai". Overrides the provider
+    otherwise inferred from the model name — useful when the name matches no
+    known pattern (e.g. a fine-tune), or matches the wrong one.
+    """
+    provider: String
   ): LLM!
 
-  """append a prompt to the llm context"""
+  """Queue a user prompt, to be sent to the model on the next step or loop."""
   withPrompt(
     """The prompt to send"""
     prompt: String!
+
+    """
+    The message's recorded provenance, when it arrived through an agent mailbox
+    rather than from the user. Rendered to the model as an attribution header at
+    request-build time.
+    """
+    origin: LLMMessageOriginInput
   ): LLM!
 
-  """append the contents of a file to the llm context"""
+  """Queue a file's contents as a user prompt, like withPrompt."""
   withPromptFile(
     """The file to read the prompt from"""
     file: ID! @expectedType(name: "File")
   ): LLM!
 
   """
-  Use a static set of tools for method calls, e.g. for MCP clients that do not support dynamic tool registration
+  Change the reasoning effort for the rest of the conversation, overriding any
+  configured default. The message history is preserved; the new effort takes
+  effect on the next step.
   """
-  withStaticTools: LLM!
+  withReasoningEffort(
+    """
+    The reasoning effort, e.g. "low", "medium", or "high"; "none" disables
+    reasoning. Supported levels are model-specific — some models also accept
+    e.g. "minimal", "xhigh", or "max".
+    """
+    effort: String!
+  ): LLM!
 
-  """Add a system prompt to the LLM's environment"""
+  """
+  Append an assistant response to the message history without calling the model,
+  e.g. to reconstruct a conversation from another source.
+  """
+  withResponse(
+    """The response content"""
+    content: [LLMContentBlockInput!]!
+
+    """Uncached input tokens sent"""
+    inputTokens: Int = 0
+
+    """Tokens received from the model, including text and tool calls"""
+    outputTokens: Int = 0
+
+    """Cached input tokens read"""
+    cachedTokenReads: Int = 0
+
+    """Cached input tokens written"""
+    cachedTokenWrites: Int = 0
+
+    """Total tokens consumed by this response"""
+    totalTokens: Int = 0
+  ): LLM!
+
+  """
+  Install skills from a directory, adding them to the skills the model discovers
+  with ListSkills and reads with ReadSkill. Each skill is a directory containing
+  a SKILL.md with name and description frontmatter, discovered anywhere in the
+  tree. Installed skills take precedence over skills discovered in the
+  workspace, but cannot shadow the engine's built-in skills.
+  """
+  withSkills(
+    """A directory containing skills, each a subdirectory holding a SKILL.md."""
+    directory: ID! @expectedType(name: "Directory")
+  ): LLM!
+
+  """
+  Switch to the configured small model for the current provider, or that
+  provider's recommended default. The message history is preserved; unknown
+  providers without a small-model configuration keep their current model.
+  """
+  withSmallModel: LLM!
+
+  """
+  Add a system prompt, instructing the model across the whole conversation.
+  """
   withSystemPrompt(
     """The system prompt to send"""
     prompt: String!
   ): LLM!
 
+  """Append the result of a tool call to the message history."""
+  withToolResult(
+    """The ID of the tool call this result responds to"""
+    callId: String!
+
+    """The content returned by the tool"""
+    content: String!
+
+    """Whether the tool call resulted in an error"""
+    errored: Boolean!
+  ): LLM!
+
+  """
+  Expose an object's methods as tools. Every eligible method of the bound object
+  becomes a tool; a tool that returns this object's own type replaces it as the
+  new state. Repeatable to bind several objects.
+  """
+  withTools(
+    """The object whose methods become tools."""
+    object: ID! @expectedType(name: "Node")
+
+    """
+    Method names to exclude from the toolset (e.g. constructors, entrypoints).
+    """
+    except: [String!] = []
+  ): LLM!
+
+  """
+  Bind the LLM to a workspace, exposing its modules as tools exactly as the Dagger CLI would serve them for that workspace.
+  """
+  withWorkspace(
+    """The workspace to work in."""
+    workspace: ID! @expectedType(name: "Workspace")
+  ): LLM!
+
   """Disable the default system prompt"""
   withoutDefaultSystemPrompt: LLM!
 
-  """Clear the message history, leaving only the system prompts"""
+  """Clear the message history, keeping only the system prompts."""
   withoutMessageHistory: LLM!
 
-  """Clear the system prompts, leaving only the default system prompt"""
+  """
+  Clear the user-added system prompts, keeping only the default system prompt.
+  """
   withoutSystemPrompts: LLM!
+
+  """Return the workspace the LLM is bound to."""
+  workspace: Workspace!
 }
 
+"""A single piece of content within an LLM message."""
+type LLMContentBlock implements Node {
+  """The arguments passed to the tool, JSON-encoded (for TOOL_CALL kind)."""
+  arguments: JSON!
+
+  """The unique ID of a tool call (for TOOL_CALL or TOOL_RESULT kinds)."""
+  callId: String!
+
+  """Whether the tool call resulted in an error (for TOOL_RESULT kind)."""
+  errored: Boolean!
+
+  """A unique identifier for this LLMContentBlock."""
+  id: ID!
+
+  """
+  The kind of content block, which determines the other populated fields.
+  """
+  kind: LLMContentBlockKind!
+
+  """
+  Provider-specific opaque data (e.g. Anthropic thinking signature). Preserve it when reconstructing a conversation.
+  """
+  signature: String!
+
+  """Text content (for TEXT, THINKING, or TOOL_RESULT kinds)."""
+  text: String!
+
+  """The name of the tool called (for TOOL_CALL kind)."""
+  toolName: String!
+}
+
+"""A content block within an LLM message."""
+input LLMContentBlockInput {
+  """The kind of content block."""
+  kind: LLMContentBlockKind!
+
+  """Text content (for TEXT, THINKING, or TOOL_RESULT kinds)."""
+  text: String = ""
+
+  """The unique ID of a tool call (for TOOL_CALL or TOOL_RESULT kinds)."""
+  callId: String = ""
+
+  """The name of the tool to call (for TOOL_CALL kind)."""
+  toolName: String = ""
+
+  """The arguments to pass to the tool (for TOOL_CALL kind)."""
+  arguments: JSON
+
+  """Whether the tool call resulted in an error (for TOOL_RESULT kind)."""
+  errored: Boolean = false
+
+  """Provider-specific opaque data (e.g. Anthropic thinking signature)."""
+  signature: String = ""
+}
+
+"""The kind of content in a message block."""
+enum LLMContentBlockKind {
+  """Plain text content."""
+  TEXT
+
+  """Model thinking/reasoning content (e.g. Anthropic extended thinking)."""
+  THINKING
+
+  """A tool/function call from the model."""
+  TOOL_CALL
+
+  """A tool/function result."""
+  TOOL_RESULT
+}
+
+"""A single message in an LLM conversation."""
+type LLMMessage implements Node {
+  """The message's content blocks, in the order the model produced them."""
+  content: [LLMContentBlock!]!
+
+  """A unique identifier for this LLMMessage."""
+  id: ID!
+
+  """
+  Who put this message on the record, when it arrived through an agent mailbox.
+
+  Null for the user's own prompts and for everything the model or tools produced.
+  """
+  origin: LLMMessageOrigin @experimental(reason: "Agent APIs are likely to change.")
+
+  """The role that produced this message."""
+  role: LLMMessageRole!
+
+  """
+  Token usage reported by the provider for the API call that produced this message; all zeros except on assistant responses.
+  """
+  tokenUsage: LLMTokenUsage!
+}
+
+"""
+EXPERIMENTAL: Agent APIs are likely to change.
+
+The recorded provenance of a message that arrived through an agent mailbox.
+"""
+type LLMMessageOrigin implements Node {
+  """
+  The display name of the sending agent (for AGENT origins) or the observed agent (for EVENT origins).
+  """
+  agentName: String! @experimental(reason: "Agent APIs are likely to change.")
+
+  """A unique identifier for this LLMMessageOrigin."""
+  id: ID!
+
+  """Who put this message on the record."""
+  kind: LLMMessageOriginKind! @experimental(reason: "Agent APIs are likely to change.")
+
+  """
+  The message's short ref within the receiving agent's runtime, e.g. "#3": the
+  deterministic token replies name (send's replyTo) and the message lookup
+  takes.
+  """
+  ref: String! @experimental(reason: "Agent APIs are likely to change.")
+
+  """
+  The ref of the message this one answers, in the sender's own runtime, if any.
+  """
+  replyTo: String! @experimental(reason: "Agent APIs are likely to change.")
+}
+
+"""
+EXPERIMENTAL: Agent APIs are likely to change.
+
+The provenance of a message delivered through an agent mailbox.
+"""
+input LLMMessageOriginInput {
+  """Who put this message on the record."""
+  kind: LLMMessageOriginKind! @experimental(reason: "Agent APIs are likely to change.")
+
+  """The display name of the sending or observed agent."""
+  agentName: String = "" @experimental(reason: "Agent APIs are likely to change.")
+
+  """
+  The message's short ref within the receiving agent's runtime, e.g. "#3".
+  """
+  ref: String = "" @experimental(reason: "Agent APIs are likely to change.")
+
+  """The ref of the message this one answers, if any."""
+  replyTo: String = "" @experimental(reason: "Agent APIs are likely to change.")
+}
+
+"""
+EXPERIMENTAL: Agent APIs are likely to change.
+
+Who put a message on the conversation record.
+"""
+enum LLMMessageOriginKind {
+  """The user: a prompt submitted by a client rather than sent by an agent."""
+  USER
+
+  """Another agent: the message was sent from within that agent's turn."""
+  AGENT
+
+  """The engine, reporting a subscribed agent's lifecycle transition."""
+  EVENT
+}
+
+"""The role that generated a message."""
+enum LLMMessageRole {
+  """A user prompt or tool response."""
+  USER
+
+  """A reply from the model."""
+  ASSISTANT
+
+  """A system prompt."""
+  SYSTEM
+}
+
+"""
+A skill available to a model: task-specific guidance discovered with ListSkills and read with ReadSkill.
+"""
+type LLMSkill implements Node {
+  """The one-line description from the SKILL.md frontmatter."""
+  description: String!
+
+  """A unique identifier for this LLMSkill."""
+  id: ID!
+
+  """The skill name, as passed to ReadSkill."""
+  name: String!
+}
+
+"""A count of tokens consumed by LLM API calls."""
 type LLMTokenUsage implements Node {
+  """Input tokens served from the provider's prompt cache."""
   cachedTokenReads: Int!
 
+  """Input tokens written to the provider's prompt cache."""
   cachedTokenWrites: Int!
 
   """A unique identifier for this LLMTokenUsage."""
   id: ID!
 
+  """Uncached input tokens sent to the model."""
   inputTokens: Int!
 
+  """Tokens received from the model, including text and tool calls."""
   outputTokens: Int!
 
+  """Total tokens consumed, as reported by the provider."""
   totalTokens: Int!
 }
 
@@ -4596,6 +4722,17 @@ type ModuleSource implements Node & Syncer {
   blueprint: ModuleSource! @deprecated(reason: "Legacy dagger.json field. Generic module loading no longer honors it; use workspace modules in dagger.toml instead.")
 
   """
+  The client-facing introspection schema JSON file for this module source.
+
+  This is the schema consumed by client codegen: unlike introspectionSchemaJSON
+  (the module-facing schema), it hides no core types and installs this module
+  (reached via dag.<moduleName>) so a generated client can bind it. The module's
+  dependencies are excluded: a client is generated for a single module plus
+  core, not its dependency graph.
+  """
+  clientSchemaIntrospectionJSON: File!
+
+  """
   The ref to clone the root of the git repo from. Only valid for git sources.
   """
   cloneRef: String!
@@ -4633,6 +4770,17 @@ type ModuleSource implements Node & Syncer {
 
   """The engine version of the module."""
   engineVersion: String!
+
+  """
+  Return the supplied workspace with this module's generated context applied.
+
+  The workspace change baseline is preserved, so a later Workspace.changes call
+  includes this generation together with any other edits made by the caller.
+  """
+  generate(
+    """The workspace to apply generated files to."""
+    workspace: ID! @expectedType(name: "Workspace")
+  ): Workspace!
 
   """
   The generated files and directories made on top of the module source's context directory, returned as a Changeset.
@@ -4718,6 +4866,17 @@ type ModuleSource implements Node & Syncer {
 
   """The toolchains referenced by the module source."""
   toolchains: [ModuleSource!]! @deprecated(reason: "Legacy dagger.json field. Generic module loading no longer honors it; use workspace modules in dagger.toml instead.")
+
+  """
+  The module's dagger.json with any in-memory edits from with* APIs applied, as
+  a diff relative to the source's context directory.
+
+  Unlike generatedContextDirectory, this does not run codegen and does not
+  validate the engine version against the running engine, so it can be used to
+  declare an engine requirement newer than the running engine. Loading or
+  serving such a module still fails at moduleSource.asModule.
+  """
+  updatedConfigDirectory: Directory!
 
   """User-defined defaults read from local .env files"""
   userDefaults: EnvFile!
@@ -4905,6 +5064,17 @@ type ObjectTypeDef implements Node {
   sourceModuleName: String!
 }
 
+"""How to handle patch hunks that no longer apply to the target content."""
+enum PatchConflict {
+  """Fail the operation if any part of the patch does not apply."""
+  FAIL
+
+  """
+  Apply the hunks that fit and insert conflict markers where hunks no longer match, instead of failing.
+  """
+  LEAVE_CONFLICT_MARKERS
+}
+
 """Key value object that represents a pipeline label."""
 input PipelineLabel {
   """Label name."""
@@ -4958,6 +5128,22 @@ type Query implements Node {
   """
   address(value: String!): Address!
 
+  """Creates a file from arbitrary binary contents."""
+  blob(
+    """
+    Name of the new file. Example: "archive.tar"
+    """
+    name: String!
+
+    """
+    Binary contents of the new file, encoded as base64 at the GraphQL boundary.
+    """
+    contents: Bytes!
+
+    """Permissions of the new file. Example: 0600"""
+    permissions: Int = 420
+  ): File!
+
   """Constructs a cache volume for a given cache key."""
   cacheVolume(
     """
@@ -5000,21 +5186,6 @@ type Query implements Node {
   ): Container!
 
   """
-  Returns the current environment
-
-  When called from a function invoked via an LLM tool call, this will be the
-  LLM's current environment, including any modifications made through calling
-  tools. Env values returned by functions become the new environment for
-  subsequent calls, and Changeset values returned by functions are applied to
-  the environment's workspace.
-
-  When called from a module function outside of an LLM, this returns an Env with
-  the current module installed, and with the current module's source directory
-  as its workspace.
-  """
-  currentEnv: Env! @experimental(reason: "Programmatic env access is speculative and might be replaced.")
-
-  """
   The FunctionCall context that the SDK caller is currently executing in.
 
   If the caller is not currently executing in a function, this will return an error.
@@ -5023,6 +5194,13 @@ type Query implements Node {
 
   """The module currently being served in the session, if any."""
   currentModule: CurrentModule!
+
+  """
+  The object that received the current module function call, as a Node. Errors
+  when there is no current call, or the call is top-level (e.g. a module
+  constructor).
+  """
+  currentNode: Node!
 
   """
   The TypeDef representations of the objects currently being served in the session.
@@ -5054,16 +5232,18 @@ type Query implements Node {
   """The Dagger engine container configuration and state"""
   engine: Engine!
 
-  """Initializes a new environment"""
-  env(
+  """
+  Constructs an engine-managed volume backed by operator-provided storage beneath the configured engine state root.
+  """
+  engineVolume(
     """
-    Give the environment the same privileges as the caller: core API including host access, current module, and dependencies
+    Canonical slash-separated volume name beneath the engine volume namespace.
     """
-    privileged: Boolean = false
+    name: String!
 
-    """Allow new outputs to be declared and saved in the environment"""
-    writable: Boolean = false
-  ): Env! @experimental(reason: "Environments are not yet stabilized")
+    """Optional existing subdirectory within the volume payload to mount."""
+    subdir: String
+  ): Volume!
 
   """Initialize an environment file"""
   envFile(
@@ -5172,13 +5352,19 @@ type Query implements Node {
   """Initialize a JSON value"""
   json: JSONValue!
 
-  """Initialize a Large Language Model (LLM)"""
+  """Initialize a new LLM conversation."""
   llm(
-    """Model to use"""
+    """
+    The model to converse with, e.g. "claude-sonnet-4-5" or "gpt-5.4". Defaults to the configured default model.
+    """
     model: String
 
-    """Cap the number of API calls for this LLM"""
-    maxAPICalls: Int
+    """
+    The provider serving the model, e.g. "openai". Overrides the provider
+    otherwise inferred from the model name — useful when the name matches no
+    known pattern (e.g. a fine-tune), or matches the wrong one.
+    """
+    provider: String
   ): LLM! @experimental(reason: "LLM support is not yet stabilized")
 
   """Create a new module."""
@@ -5188,6 +5374,9 @@ type Query implements Node {
   moduleSource(
     """The string ref representation of the module source"""
     refString: String!
+
+    """Version query for a Git module source."""
+    version: String = ""
 
     """The pinned version of the module source"""
     refPin: String = ""
@@ -5213,6 +5402,12 @@ type Query implements Node {
 
   """Load any object by its ID."""
   node(id: ID!): Node
+
+  """Load a GraphQL introspection schema for merging."""
+  schema(
+    """The introspection schema JSON to load."""
+    json: JSON!
+  ): Schema!
 
   """Creates a new secret."""
   secret(
@@ -5259,6 +5454,37 @@ type Query implements Node {
     """The column number within the line."""
     column: Int!
   ): SourceMap!
+
+  """Constructs an SSHFS volume."""
+  sshfsVolume(
+    """SSHFS endpoint URL in the form sshfs://user@host[:port]/absolute/path."""
+    endpoint: String!
+
+    """Private key secret used to authenticate to the remote host."""
+    privateKey: ID! @expectedType(name: "Secret")
+
+    """
+    known_hosts material used to verify the remote host key. Required unless insecureSkipHostKeyCheck is true.
+    """
+    knownHosts: ID @expectedType(name: "Secret")
+
+    """
+    Optional cache equivalence key. If set, volumes with the same cacheKey may
+    be considered equivalent for cache lookups, still subject to their resource
+    dependencies.
+    """
+    cacheKey: String
+
+    """
+    Disable SSH host key verification. This is insecure and must be explicitly opted into.
+    """
+    insecureSkipHostKeyCheck: Boolean = false
+
+    """
+    Service to use as the SSHFS network endpoint while verifying the original host key.
+    """
+    experimentalServiceHost: ID @expectedType(name: "Service")
+  ): Volume!
 
   """Create a new TypeDef."""
   typeDef: TypeDef!
@@ -5322,6 +5548,33 @@ type ScalarTypeDef implements Node {
   If this ScalarTypeDef is associated with a Module, the name of the module. Unset otherwise.
   """
   sourceModuleName: String!
+}
+
+"""A GraphQL introspection schema that can be inspected and merged."""
+type Schema implements Node {
+  """Serialize the schema back to introspection JSON."""
+  contents: JSON!
+
+  """A unique identifier for this Schema."""
+  id: ID!
+
+  """
+  Merge a module's introspection-shaped type definitions into the schema, returning the combined schema.
+  """
+  merge(
+    """
+    Introspection JSON describing the types the module defines. Object,
+    interface and enum types are appended to the schema, and a constructor field
+    for the module is added to the Query type.
+    """
+    moduleTypes: JSON!
+
+    """
+    The name of the module whose types are being merged. Used to stamp the
+    @sourceMap directive and to derive the module's constructor field.
+    """
+    moduleName: String!
+  ): Schema!
 }
 
 type SearchResult implements Node {
@@ -5513,6 +5766,36 @@ type Terminal implements Node & Syncer {
   It doesn't run the default command if no exec has been set.
   """
   sync: ID! @expectedType(name: "Terminal")
+}
+
+type TerminalGroup implements Node {
+  """A unique identifier for this TerminalGroup."""
+  id: ID!
+
+  """Return the selected terminal targets and their details"""
+  list: [TerminalTarget!]!
+
+  """Open the selected terminal target"""
+  run: TerminalGroup!
+}
+
+type TerminalTarget implements Node {
+  """The description of the terminal target"""
+  description: String!
+
+  """A unique identifier for this TerminalTarget."""
+  id: ID!
+
+  """
+  Return the command name of the terminal target. Entrypoint targets omit the module prefix.
+  """
+  name: String!
+
+  """The module in which the terminal target is defined"""
+  originalModule: Module!
+
+  """The path of the terminal target within its module"""
+  path: [String!]!
 }
 
 """A definition of a parameter or return type in a Module."""
@@ -5795,7 +6078,9 @@ type Up implements Node {
   """A unique identifier for this Up."""
   id: ID!
 
-  """Return the fully qualified name of the service"""
+  """
+  Return the command name of the service. Entrypoint targets omit the module prefix.
+  """
   name: String!
 
   """The original module in which the service has been defined"""
@@ -5826,6 +6111,12 @@ A Null Void is used as a placeholder for resolvers that do not return anything.
 """
 scalar Void
 
+"""A filesystem volume that can be mounted into containers."""
+type Volume implements Node {
+  """A unique identifier for this Volume."""
+  id: ID!
+}
+
 """
 A Dagger workspace detected from the current working directory or constructed from a Directory.
 """
@@ -5835,10 +6126,33 @@ type Workspace implements Node {
   """
   address: String!
 
+  """Return all agent middlewares from modules loaded in the workspace."""
+  agents(
+    """Only include agents matching the specified patterns"""
+    include: [String!]
+
+    """Exclude agents matching the specified patterns"""
+    exclude: [String!]
+  ): AgentMiddlewareGroup! @experimental(reason: "Agent APIs are likely to change.")
+
+  """
+  Return this workspace's changes, with paths relative to its working directory.
+
+  Pass from to compare against an earlier workspace state. Omitting it preserves
+  the cumulative behavior used by clients from before this argument was added.
+  """
+  changes(
+    """An earlier workspace state to compare against."""
+    from: ID @expectedType(name: "Workspace")
+  ): Changeset!
+
   """Return all checks from modules loaded in the workspace."""
   checks(
     """Only include checks matching the specified patterns"""
     include: [String!]
+
+    """Skip checks matching the specified patterns"""
+    skip: [String!]
 
     """
     When true, only return annotated check functions; exclude generate-as-checks
@@ -5851,11 +6165,8 @@ type Workspace implements Node {
     onlyGenerate: Boolean
   ): CheckGroup!
 
-  """The client ID that owns this workspace's host filesystem."""
-  clientId: String!
-
   """
-  Selected native workspace config file relative to the workspace root, if any.
+  Selected native workspace config file relative to the workspace cwd, if any.
   """
   configFile: String!
 
@@ -5873,20 +6184,6 @@ type Workspace implements Node {
     key: String = ""
   ): String!
 
-  """Write a configuration value to dagger.toml."""
-  configWrite(
-    """Dotted key path (e.g. modules.greeter.source)."""
-    key: String!
-
-    """
-    Value to set. Bools, integers, and comma-separated arrays are auto-detected.
-    """
-    value: String!
-
-    """Write to the workspace config directory at the workspace cwd."""
-    here: Boolean = false
-  ): String!
-
   """
   Current location within the workspace root.
 
@@ -5895,6 +6192,14 @@ type Workspace implements Node {
   Relative paths in workspace APIs resolve from here.
   """
   cwd: String!
+
+  """
+  Return the selected SDK module's current scope at this workspace location.
+  """
+  detectScope(
+    """SDK name to probe. Required."""
+    sdk: String!
+  ): String!
 
   """
   Returns a Directory from the workspace.
@@ -5923,26 +6228,24 @@ type Workspace implements Node {
     gitignore: Boolean = false
   ): Directory!
 
-  """Create a named workspace environment if it does not already exist."""
-  envCreate(
-    """Environment name."""
-    name: String!
+  """
+  Installed name of the module selected as the workspace entrypoint, or an empty string when none is selected.
 
-    """Write to the workspace config directory at the workspace cwd."""
-    here: Boolean = false
-  ): String!
+  Reflects the selected env's effective view. Fails if several modules are selected.
+  """
+  entrypoint: String!
 
   """List named environments defined in the workspace configuration."""
   envList: [String!]!
 
-  """Remove a named workspace environment."""
-  envRemove(
-    """Environment name."""
-    name: String!
+  """
+  Write this workspace's pending changes to its local Git workspace on the current client's host.
 
-    """Write to the workspace config directory at the workspace cwd."""
-    here: Boolean = false
-  ): String!
+  Like Directory.export, the write is a side effect on the client that makes the
+  call — never on the client that created the workspace. Inside a module, this
+  cannot reach the caller's host.
+  """
+  export: Void!
 
   """
   Returns a File from the workspace.
@@ -5957,6 +6260,31 @@ type Workspace implements Node {
     """
     path: String!
   ): File!
+
+  """
+  Find project roots marked by any of the given filenames, starting from a path relative to the workspace cwd.
+
+  Returns cwd-relative directory paths for every marked directory at or below
+  start, plus the nearest marked ancestor when start itself is not marked.
+
+  Each returned path is usable as-is with other workspace APIs, e.g. directory(path).
+  """
+  findRoots(
+    """
+    Directory to start from. Relative paths resolve from the workspace cwd.
+    """
+    start: String = "."
+
+    """
+    File basenames that mark a project root (e.g. ["go.mod"] or ["deno.json", "deno.jsonc"]).
+    """
+    markers: [String!]!
+
+    """
+    Glob patterns pruning the walk below start (e.g. ["**/node_modules/**"]).
+    """
+    exclude: [String!] = []
+  ): [String!]!
 
   """
   Search for a file or directory by walking up from the start path within the workspace.
@@ -5989,19 +6317,297 @@ type Workspace implements Node {
   """
   git: WorkspaceGit!
 
+  """
+  Returns a list of files and directories that match the given pattern.
+
+  Patterns match paths relative to the workspace root.
+  """
+  glob(
+    """Pattern to match (e.g., "*.md")."""
+    pattern: String!
+  ): [String!]!
+
   """A unique identifier for this Workspace."""
   id: ID!
 
-  """Initialize workspace config, creating dagger.toml."""
-  init(
-    """
-    Create the workspace config directory at the workspace cwd instead of using the default write target.
-    """
-    here: Boolean = false
-  ): String!
+  """
+  Plan the explicit migration needed for the current workspace.
 
-  """Install a module into the workspace, writing dagger.toml to the host."""
-  install(
+  Include installed local modules and their local dependencies. Other module candidates remain unchanged unless selected.
+
+  The returned plan has an empty changeset and no steps when no migration is needed.
+  """
+  migrate(
+    """
+    Additional local modules to migrate. Relative paths start at the workspace
+    cwd; absolute paths start at the workspace root.
+    """
+    modules: [String!] = []
+  ): WorkspaceMigration!
+
+  """
+  Plan migration of one local module without migrating its dependencies or creating a workspace configuration.
+
+  Include SDK registration when a workspace configuration exists and remove obsolete generated-file ignore rules.
+  """
+  migrateModule(
+    """
+    Module directory. Relative paths start at the workspace cwd; absolute paths start at the workspace root.
+    """
+    path: String = "."
+  ): WorkspaceMigration!
+
+  """
+  Return a module defined in the workspace configuration.
+
+  Reflects the selected env's effective view.
+  """
+  module(
+    """Module name to inspect."""
+    name: String!
+  ): WorkspaceModule!
+
+  """
+  Load a module source from a path within the workspace.
+
+  Relative paths (e.g., "foo") resolve from the workspace cwd; absolute paths
+  (e.g., "/foo") resolve from the workspace root.
+
+  Fails if the path does not point to an initialized module.
+  """
+  moduleSource(
+    """
+    Location of the module source to load, relative to the workspace cwd or absolute from the workspace root.
+    """
+    path: String!
+  ): ModuleSource!
+
+  """
+  List modules defined in the workspace configuration.
+
+  Reflects the selected env's effective view.
+  """
+  modules: [WorkspaceModule!]!
+
+  """
+  Return this workspace with its cached host reads invalidated, so subsequent
+  file and directory reads re-read the live host instead of a snapshot cached
+  earlier in the session.
+  """
+  reloaded: Workspace!
+
+  """An installed SDK, by name."""
+  sdk(
+    """SDK name to look up."""
+    name: String!
+  ): WorkspaceSDK!
+
+  """Installed SDKs."""
+  sdks: [WorkspaceSDK!]!
+
+  """
+  Searches for content matching the given regular expression or literal string.
+
+  Uses Rust regex syntax; escape literal ., [, ], {, }, | with backslashes.
+
+  Runs ripgrep on the client host, falling back to grep if unavailable.
+  """
+  search(
+    """Directory or file paths to search"""
+    paths: [String!] = []
+
+    """Glob patterns to match (e.g., "*.md")"""
+    globs: [String!] = []
+
+    """The text to match."""
+    pattern: String!
+
+    """
+    Interpret the pattern as a literal string instead of a regular expression.
+    """
+    literal: Boolean = false
+
+    """Enable searching across multiple lines."""
+    multiline: Boolean = false
+
+    """Allow the . pattern to match newlines in multiline mode."""
+    dotall: Boolean = false
+
+    """Enable case-insensitive matching."""
+    insensitive: Boolean = false
+
+    """Honor .gitignore, .ignore, and .rgignore files."""
+    skipIgnored: Boolean = false
+
+    """Skip hidden files (files starting with .)."""
+    skipHidden: Boolean = false
+
+    """Only return matching files, not lines and content"""
+    filesOnly: Boolean = false
+
+    """Limit the number of results to return"""
+    limit: Int
+  ): [SearchResult!]!
+
+  """Return all services from modules loaded in the workspace."""
+  services(
+    """Only include services matching the specified patterns"""
+    include: [String!]
+  ): UpGroup!
+
+  """Return all terminal targets from modules loaded in the workspace."""
+  terminals(
+    """Only include terminal targets matching the specified patterns"""
+    include: [String!]
+  ): TerminalGroup!
+
+  """
+  Return this workspace with a changeset applied, without mutating the source.
+  """
+  withChanges(
+    """Changes to apply."""
+    changes: ID! @expectedType(name: "Changeset")
+  ): Workspace!
+
+  """
+  Return this workspace with a generated module client added to one SDK scope.
+
+  Select the deepest detected or registered scope. Fail if several SDKs have that deepest scope.
+  """
+  withClient(
+    """
+    Explicit local path or module address to generate a client for. Installed module names are not supported.
+    """
+    module: String!
+
+    """Optional SDK name. Inspect all installed SDKs when omitted."""
+    sdk: String = ""
+
+    """
+    Explicit SDK-module constructor setting overrides for this scope. Requires an explicit SDK name.
+    """
+    settings: JSON
+  ): Workspace!
+
+  """Return this workspace with a named config environment created."""
+  withConfigEnv(
+    """Environment name."""
+    name: String!
+
+    """Write to the workspace config directory at the workspace cwd."""
+    here: Boolean = false
+  ): Workspace!
+
+  """
+  Return this workspace with a configuration value written.
+
+  When the session selects an env, the key is scoped to that env's overlay and the env is created if missing.
+  """
+  withConfigValue(
+    """Dotted key path."""
+    key: String!
+
+    """
+    Value to set. Bools, integers, and comma-separated arrays are auto-detected.
+    """
+    value: String!
+
+    """
+    List value to set. Elements are stored verbatim, with no auto-detection. Mutually exclusive with value.
+    """
+    values: [String!]
+
+    """Write to the workspace config directory at the workspace cwd."""
+    here: Boolean = false
+  ): Workspace!
+
+  """
+  Return this workspace with a directory merged into the given path, without mutating the source.
+
+  Anything already at the path stays, and files the source carries win, as with
+  Directory.withDirectory. Use withNewDirectory to replace the path instead.
+  """
+  withDirectory(
+    """Path to merge into. Relative paths resolve from the workspace cwd."""
+    path: String!
+
+    """Directory to merge there."""
+    source: ID! @expectedType(name: "Directory")
+  ): Workspace!
+
+  """
+  Return this workspace with an installed module selected as its entrypoint.
+
+  Every other entrypoint selection is cleared. Entrypoints live in the base workspace config.
+  """
+  withEntrypoint(
+    """Exact installed module name."""
+    name: String!
+  ): Workspace!
+
+  """
+  Return this workspace with a file added or replaced, without mutating the source.
+  """
+  withFile(
+    """Destination path. Relative paths resolve from the workspace cwd."""
+    path: String!
+
+    """File to add."""
+    source: ID! @expectedType(name: "File")
+
+    """
+    Permissions of the added file. Defaults to the source file permissions.
+    """
+    permissions: Int
+  ): Workspace!
+
+  """
+  Return this workspace with a location initialized as a module scope.
+
+  The selected SDK module records the scope and generates the module source.
+  """
+  withInitModule(
+    """Workspace SDK name or module entry name to use. Required."""
+    sdk: String!
+
+    """
+    Module name. The engine infers it from path, the active config file, or the workspace root when omitted.
+    """
+    name: String = ""
+
+    """
+    Module path relative to the workspace cwd, or an absolute workspace path.
+    Defaults to .dagger/modules/<name> beside the active workspace config.
+    """
+    path: String = ""
+
+    """Install the module. When omitted, install only if path is omitted."""
+    install: Boolean
+
+    """
+    Select this module as the entrypoint and install it. False prevents
+    automatic selection. When omitted, select only if both path and name are
+    omitted and the module is installed.
+    """
+    entrypoint: Boolean
+
+    """Explicit SDK-module constructor setting overrides for this scope."""
+    settings: JSON
+  ): Workspace!
+
+  """
+  Return this workspace with a native configuration, without changing an existing configuration.
+
+  Fail if legacy configuration needs workspace migration.
+  """
+  withInitialized: Workspace!
+
+  """
+  Return this workspace with a module installed in its config.
+
+  When the session selects an env, the module is recorded in that env's overlay and the env is created if missing.
+  """
+  withModule(
     """Module reference to install."""
     ref: String!
 
@@ -6010,67 +6616,245 @@ type Workspace implements Node {
 
     """Write to the workspace config directory at the workspace cwd."""
     here: Boolean = false
-  ): String!
+  ): Workspace!
 
   """
-  Plan the explicit migration needed for the current workspace.
+  Return this workspace with a directory mounted read-only at the given path, without mutating the source.
 
-  The returned plan has an empty changeset and no steps when no migration is needed.
+  Mounted content is readable through the normal workspace file tools but
+  shadows the source at the mount path and stays out of the pending changeset:
+  it never appears in changes, is never exported, and cannot be modified.
   """
-  migrate(force: Boolean = false): WorkspaceMigration!
+  withMountedDirectory(
+    """
+    Location of the mounted directory. Relative paths resolve from the workspace cwd.
+    """
+    path: String!
+
+    """Directory to mount."""
+    source: ID! @expectedType(name: "Directory")
+  ): Workspace!
 
   """
-  Create a new module owned by the workspace and auto-install it in dagger.toml.
-  """
-  moduleInit(
-    """Name of the new module."""
-    name: String!
+  Return this workspace with a file mounted read-only at the given path, without mutating the source.
 
-    """SDK to use for the new module."""
+  Mounted content is readable through the normal workspace file tools but
+  shadows the source at the mount path and stays out of the pending changeset:
+  it never appears in changes, is never exported, and cannot be modified.
+  """
+  withMountedFile(
+    """
+    Location of the mounted file. Relative paths resolve from the workspace cwd.
+    """
+    path: String!
+
+    """File to mount."""
+    source: ID! @expectedType(name: "File")
+  ): Workspace!
+
+  """
+  Return this workspace with the given path replaced by a directory, without mutating the source.
+
+  The source becomes the entire contents of the path: anything already there
+  that the source does not carry is removed. Use withDirectory to keep it
+  instead.
+  """
+  withNewDirectory(
+    """Path to replace. Relative paths resolve from the workspace cwd."""
+    path: String!
+
+    """Directory to write there."""
+    source: ID! @expectedType(name: "Directory")
+  ): Workspace!
+
+  """
+  Return this workspace with a new or replaced file, without mutating the source.
+  """
+  withNewFile(
+    """Path of the new file. Relative paths resolve from the workspace cwd."""
+    path: String!
+
+    """Contents of the new file."""
+    contents: String!
+
+    """Permissions of the new file."""
+    permissions: Int = 420
+  ): Workspace!
+
+  """Return this workspace with an SDK installed in its config."""
+  withSDK(
+    """SDK module reference to install."""
+    ref: String!
+
+    """Override name for the installed SDK entry."""
+    name: String = ""
+
+    """Write to the workspace config directory at the workspace cwd."""
+    here: Boolean = false
+
+    """
+    Optional override for the SDK name conventionally derived from the installed module name.
+    """
+    asSdkName: String = ""
+  ): Workspace!
+
+  """
+  Return this workspace with the selected module clients updated.
+
+  The engine re-reads the source of each selected client target and writes the lock entries that those targets reach.
+
+  The selected SDK module then regenerates every scope that owns one of the targets.
+  """
+  withUpdatedClients(
+    """
+    Recorded client targets to update. All targets in the selected scopes are updated when omitted.
+    """
+    modules: [String!] = []
+
+    """
+    Select clients in every scope instead of only the scopes containing the workspace cwd.
+    """
+    all: Boolean = false
+
+    """
+    Optional SDK name. All installed SDK modules are selected when omitted.
+    """
     sdk: String = ""
-
-    """Source subpath within the new module."""
-    source: String = ""
-
-    """Additional include patterns for the module."""
-    include: [String!] = []
-
-    """Enable the self-calls experimental feature for the new module."""
-    selfCalls: Boolean = false
-
-    """Write to the workspace config directory at the workspace cwd."""
-    here: Boolean = false
-  ): String!
-
-  """List modules defined in the workspace configuration."""
-  moduleList(
-    """Optional module alias to inspect."""
-    module: String = ""
-  ): [WorkspaceModule!]!
-
-  """Return all services from modules loaded in the workspace."""
-  services(
-    """Only include services matching the specified patterns"""
-    include: [String!]
-  ): UpGroup!
+  ): Workspace!
 
   """
-  Uninstall a module from the workspace, writing dagger.toml to the host.
+  Return this workspace with refreshed lockfile state.
+
+  SDK client scopes are regenerated unless noGenerate is true.
   """
-  uninstall(
-    """Name of the installed module entry to remove."""
+  withUpdatedLock(
+    """Do not regenerate SDK client scopes."""
+    noGenerate: Boolean = false
+  ): Workspace!
+
+  """
+  Return this workspace with updated module versions and lockfile state.
+
+  An SDK client scope is regenerated when it targets an updated module.
+  """
+  withUpdatedModules(
+    """
+    Installed module names or sources. A version suffix sets a new request. An empty list refreshes all installed modules.
+    """
+    names: [String!] = []
+
+    """
+    New version request for exactly one selected module. Cannot be combined with a version suffix.
+    """
+    version: String = ""
+  ): Workspace!
+
+  """
+  Return this workspace with its working directory pointed at the given workspace-relative path.
+  """
+  withWorkdir(
+    """Workspace-relative path to use as the working directory."""
+    path: String!
+  ): Workspace!
+
+  """
+  Return this workspace with a module client removed from the deepest matching recorded scope.
+
+  Fail if several SDKs have that deepest scope. The selected SDK module regenerates the complete scope.
+
+  If invalid client targets remain, save the removal and skip generation until those targets are corrected or removed.
+  """
+  withoutClient(
+    """The recorded target to remove."""
+    module: String!
+
+    """Optional SDK name. Search all installed SDKs when omitted."""
+    sdk: String = ""
+  ): Workspace!
+
+  """Return this workspace with a named config environment removed."""
+  withoutConfigEnv(
+    """Environment name."""
     name: String!
 
     """Write to the workspace config directory at the workspace cwd."""
     here: Boolean = false
-  ): String!
+  ): Workspace!
 
   """
-  Refresh workspace-managed state and return the resulting changeset.
+  Return this workspace with a configuration value removed.
 
-  Currently this refreshes existing lockfile entries only.
+  Errors when the key is not currently set.
+
+  When the session selects an env, the key is scoped to that env's overlay.
   """
-  update: Changeset! @experimental(reason: "Experimental workspace update API currently refreshes existing lockfile entries only.")
+  withoutConfigValue(
+    """Dotted key path (e.g. modules.greeter.settings.greeting)."""
+    key: String!
+
+    """Write to the workspace config directory at the workspace cwd."""
+    here: Boolean = false
+  ): Workspace!
+
+  """
+  Return this workspace with a directory removed, without mutating the source.
+  """
+  withoutDirectory(
+    """
+    Path of the directory to remove. Relative paths resolve from the workspace cwd.
+    """
+    path: String!
+  ): Workspace!
+
+  """Return this workspace with no module selected as its entrypoint."""
+  withoutEntrypoint: Workspace!
+
+  """
+  Return this workspace with a file removed, without mutating the source.
+  """
+  withoutFile(
+    """
+    Path of the file to remove. Relative paths resolve from the workspace cwd.
+    """
+    path: String!
+  ): Workspace!
+
+  """
+  Return this workspace with a module removed from its config.
+
+  When the session selects an env, only that env's overlay entry is removed.
+  """
+  withoutModule(
+    """
+    Installed module name or source to remove. Version selectors are not accepted.
+    """
+    name: String!
+
+    """Write to the workspace config directory at the workspace cwd."""
+    here: Boolean = false
+  ): Workspace!
+
+  """
+  Return this workspace with the content mounted at the given path unmounted.
+
+  Removes directory and file mounts at or below the path, revealing the
+  underlying workspace content. Other mounts and pending changes are preserved.
+  """
+  withoutMount(
+    """
+    Location of the mount to remove. Relative paths resolve from the workspace cwd. Use / to remove all mounts.
+    """
+    path: String!
+  ): Workspace!
+
+  """Return this workspace with an SDK removed from its config."""
+  withoutSDK(
+    """Name of the installed SDK entry to remove."""
+    name: String!
+
+    """Write to the workspace config directory at the workspace cwd."""
+    here: Boolean = false
+  ): Workspace!
 }
 
 """Local git state for a workspace."""
@@ -6092,8 +6876,18 @@ type WorkspaceMigration implements Node {
   """Filesystem changes for the full migration plan."""
   changes: Changeset!
 
+  """
+  Native workspace config path after migration, relative to the workspace root. Empty if no workspace config exists.
+  """
+  configFile: String!
+
   """A unique identifier for this WorkspaceMigration."""
   id: ID!
+
+  """
+  Unselected legacy module directories relative to the workspace root. Candidates can include fixtures.
+  """
+  moduleCandidates: [String!]!
 
   """Logical migration steps, each identified by a stable code."""
   steps: [WorkspaceMigrationStep!]!
@@ -6124,6 +6918,11 @@ type WorkspaceModule implements Node {
   """
   entrypoint: Boolean!
 
+  """
+  List the functions of this module's main object, in GraphQL field form.
+  """
+  functions: [String!]!
+
   """A unique identifier for this WorkspaceModule."""
   id: ID!
 
@@ -6145,6 +6944,16 @@ type WorkspaceModuleSetting implements Node {
   """A unique identifier for this WorkspaceModuleSetting."""
   id: ID!
 
+  """Whether the setting accepts a list of values."""
+  isList: Boolean!
+
+  """
+  Whether the setting is an object type resolved from an address string
+  (Container, Directory, File, Secret, Service, ...), which may be a module
+  reference.
+  """
+  isObject: Boolean!
+
   """The setting key."""
   key: String!
 
@@ -6152,5 +6961,25 @@ type WorkspaceModuleSetting implements Node {
   The configured value after applying the selected workspace environment, or empty when unset.
   """
   value: String!
+}
+
+"""
+An installed SDK: a module marked for scaffolding other modules and clients.
+"""
+type WorkspaceSDK implements Node {
+  """Clients generated with this SDK."""
+  clients: [WorkspaceModule!]!
+
+  """A unique identifier for this WorkspaceSDK."""
+  id: ID!
+
+  """Modules authored with this SDK."""
+  modules: [WorkspaceModule!]!
+
+  """The user-facing SDK name."""
+  name: String!
+
+  """The module reference this SDK was installed from."""
+  ref: String!
 }
 

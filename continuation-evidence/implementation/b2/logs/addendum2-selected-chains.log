@@ -1,0 +1,23 @@
+=== RUN   TestValueTransferPartsGitTrees
+=== RUN   TestValueTransferPartsGitTrees/local
+2026/09/16 06:50:53 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+=== RUN   TestValueTransferPartsGitTrees/remote
+2026/09/16 06:50:54 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestValueTransferPartsGitTrees (0.53s)
+    --- PASS: TestValueTransferPartsGitTrees/local (0.29s)
+    --- PASS: TestValueTransferPartsGitTrees/remote (0.24s)
+=== RUN   TestValueTransferPartsSelectedChain
+2026/09/16 06:50:54 INFO start lazy evaluation field=Directory.directory
+2026/09/16 06:50:54 INFO end lazy evaluation field=Directory.directory duration=8.95405ms
+2026/09/16 06:50:54 INFO start lazy evaluation field=File.file
+2026/09/16 06:50:54 INFO end lazy evaluation field=File.file duration=8.75724ms
+2026/09/16 06:50:54 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 06:50:54 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestValueTransferPartsSelectedChain (0.26s)
+=== RUN   TestValueTransferPartsContainerMount
+2026/09/16 06:50:54 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+--- PASS: TestValueTransferPartsContainerMount (0.15s)
+=== RUN   TestValueTransferParts
+--- PASS: TestValueTransferParts (0.00s)
+PASS
+ok  	github.com/dagger/dagger/core	1.034s

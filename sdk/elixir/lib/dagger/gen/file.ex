@@ -32,6 +32,20 @@ defmodule Dagger.File do
   end
 
   @doc """
+  Interpret this file as a Git bundle by lazily parsing its header.
+  """
+  @spec as_git_bundle(t()) :: Dagger.GitBundle.t()
+  def as_git_bundle(%__MODULE__{} = file) do
+    query_builder =
+      file.query_builder |> QB.select("asGitBundle")
+
+    %Dagger.GitBundle{
+      query_builder: query_builder,
+      client: file.client
+    }
+  end
+
+  @doc """
   Parse the file contents as JSON.
   """
   @spec as_json(t()) :: Dagger.JSONValue.t()
@@ -188,15 +202,29 @@ defmodule Dagger.File do
   @doc """
   Return file status
   """
-  @spec stat(t()) :: Dagger.Stat.t() | nil
+  @spec stat(t()) :: {:ok, Dagger.Stat.t() | nil} | {:error, term()}
   def stat(%__MODULE__{} = file) do
     query_builder =
-      file.query_builder |> QB.select("stat")
+      file.query_builder |> QB.select("stat") |> QB.select("id")
 
-    %Dagger.Stat{
-      query_builder: query_builder,
-      client: file.client
-    }
+    case Client.execute(file.client, query_builder) do
+      {:ok, nil} ->
+        {:ok, nil}
+
+      {:ok, id} ->
+        {:ok,
+         %Dagger.Stat{
+           query_builder:
+             QB.query()
+             |> QB.select("node")
+             |> QB.put_arg("id", id)
+             |> QB.inline_fragment("Stat"),
+           client: file.client
+         }}
+
+      error ->
+        error
+    end
   end
 
   @doc """

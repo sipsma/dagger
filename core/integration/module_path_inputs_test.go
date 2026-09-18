@@ -12,6 +12,8 @@ import (
 	"cmp"
 	"context"
 	"crypto/rand"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1266,6 +1268,241 @@ public class Test {
 	}
 }
 
+func (ModuleSuite) TestContextGitUnusableRepo(ctx context.Context, t *testctx.T) {
+	// A context with no git checkout at all degrades contextual git args to
+	// null: absence is a legitimate environment (`dagger init` before `git
+	// init`, exported source trees). A .git that exists but is unusable — a
+	// dead submodule/worktree pointer — is a broken environment and fails
+	// loudly instead of silently stripping git info. (Resolvable pointer
+	// files are covered by TestContextGitSubmodule/TestContextGitWorktree.)
+
+	// A module in a plain directory: no git checkout anywhere.
+	noGit := func(c *dagger.Client) *dagger.Container {
+		return c.Container().From(golangImage).
+			WithMountedFile(testCLIBinPath, daggerCliFile(t, c)).
+			WithWorkdir("/work").
+			With(withModuleFixture(t, c, ".", "go/path-context-git-optional"))
+	}
+	// A submodule-shaped checkout whose real git dir is gone: worktree files
+	// present, .git is a pointer file at a dead path.
+	brokenGit := func(c *dagger.Client) *dagger.Container {
+		return moduleFixture(t, c, "go/path-context-git-optional").
+			WithExec([]string{"sh", "-c", "rm -rf .git && echo 'gitdir: ../../.git/modules/work' > .git"})
+	}
+
+	t.Run("no git: optional repo resolves to null", func(ctx context.Context, t *testctx.T) {
+		c := connect(ctx, t)
+		out, err := noGit(c).With(daggerCall("optional-repo")).Stdout(ctx)
+		require.NoError(t, err)
+		require.Equal(t, "no repo", out)
+	})
+
+	t.Run("no git: optional ref resolves to null", func(ctx context.Context, t *testctx.T) {
+		c := connect(ctx, t)
+		out, err := noGit(c).With(daggerCall("optional-ref")).Stdout(ctx)
+		require.NoError(t, err)
+		require.Equal(t, "no ref", out)
+	})
+
+	t.Run("no git: module-level required guard fires", func(ctx context.Context, t *testctx.T) {
+		// The SDK marks every +defaultPath arg optional in the schema, so
+		// there is no schema-level "required" contextual git arg: the arg
+		// degrades to null and the module's own guard reports the failure.
+		var logs safeBuffer
+		c := connect(ctx, t, dagger.WithLogOutput(&logs))
+		_, err := noGit(c).With(daggerCall("required-repo")).Sync(ctx)
+		require.Error(t, err)
+		require.NoError(t, c.Close())
+		require.Contains(t, logs.String(), "no usable git repository in context")
+	})
+
+	t.Run("dead git pointer fails loudly", func(ctx context.Context, t *testctx.T) {
+		// The .git pointer exists but its target is gone. The client's own
+		// git is the oracle: it fails to read the checkout as a repository, so
+		// the engine surfaces that hard failure rather than silently degrading
+		// (which is reserved for a checkout with no .git at all).
+		var logs safeBuffer
+		c := connect(ctx, t, dagger.WithLogOutput(&logs))
+		_, err := brokenGit(c).With(daggerCall("optional-repo")).Sync(ctx)
+		require.Error(t, err)
+		require.NoError(t, c.Close())
+		require.Contains(t, logs.String(), "not a git repository")
+	})
+
+	t.Run("optional repo resolves in a real repo", func(ctx context.Context, t *testctx.T) {
+		c := connect(ctx, t)
+		modGen := moduleFixture(t, c, "go/path-context-git-optional").
+			WithExec([]string{"sh", "-c", `git add . && git commit -m "initial commit"`})
+		headCommit, err := modGen.WithExec([]string{"git", "rev-parse", "HEAD"}).Stdout(ctx)
+		require.NoError(t, err)
+
+		out, err := modGen.With(daggerCall("optional-repo")).Stdout(ctx)
+		require.NoError(t, err)
+		require.Equal(t, "repo@"+strings.TrimSpace(headCommit), out)
+	})
+}
+
+func (ModuleSuite) TestContextGitSubmodule(ctx context.Context, t *testctx.T) {
+	// A submodule checkout's .git is a pointer file into the superproject's
+	// .git/modules. The engine resolves the pointer on the client host and
+	// reassembles a standalone repository, so contextual git args behave as
+	// in a plain clone.
+	c := connect(ctx, t)
+
+	ctr := goGitBase(t, c).
+		With(withModuleFixture(t, c, "/module-src", "go/path-context-git-optional")).
+		WithExec([]string{"sh", "-c", `git -C /module-src init && git -C /module-src add . && git -C /module-src commit -m "module fixture"`}).
+		WithExec([]string{"sh", "-c", `git -c protocol.file.allow=always submodule add /module-src sub && git commit -m "add submodule"`}).
+		WithWorkdir("/work/sub")
+
+	headCommit, err := ctr.WithExec([]string{"git", "rev-parse", "HEAD"}).Stdout(ctx)
+	require.NoError(t, err)
+	headCommit = strings.TrimSpace(headCommit)
+
+	t.Run("optional repo resolves", func(ctx context.Context, t *testctx.T) {
+		out, err := ctr.With(daggerCall("optional-repo")).Stdout(ctx)
+		require.NoError(t, err)
+		require.Equal(t, "repo@"+headCommit, out)
+	})
+
+	t.Run("required repo resolves", func(ctx context.Context, t *testctx.T) {
+		out, err := ctr.With(daggerCall("required-repo")).Stdout(ctx)
+		require.NoError(t, err)
+		require.Equal(t, headCommit, out)
+	})
+
+	t.Run("uncommitted changes detected", func(ctx context.Context, t *testctx.T) {
+		out, err := ctr.With(daggerCall("repo-state")).Stdout(ctx)
+		require.NoError(t, err)
+		require.Equal(t, "clean", out)
+
+		out, err = ctr.
+			WithNewFile("/work/sub/scratch.txt", "uncommitted").
+			With(daggerCall("repo-state")).Stdout(ctx)
+		require.NoError(t, err)
+		require.Equal(t, "dirty", out)
+	})
+}
+
+func (ModuleSuite) TestContextGitWorktree(ctx context.Context, t *testctx.T) {
+	// A linked worktree's .git is a pointer file into the main checkout's
+	// .git/worktrees/<name>, which holds only per-worktree state (HEAD,
+	// index) next to a commondir pointer at the shared git dir. The engine
+	// never interprets that raw layout: the client's own git packs the
+	// checkout's repository and the engine reconstructs a standalone one.
+	t.Run("linked worktree", func(ctx context.Context, t *testctx.T) {
+		c := connect(ctx, t)
+
+		ctr := moduleFixture(t, c, "go/path-context-git-optional").
+			WithExec([]string{"sh", "-c", `git add . && git commit -m "fixture"`}).
+			WithExec([]string{"git", "worktree", "add", "-b", "feature", "/wt"}).
+			WithWorkdir("/wt").
+			// Diverge from the main checkout to prove the per-worktree HEAD
+			// is honored, not the main checkout's.
+			WithNewFile("/wt/feature.txt", "feature work").
+			WithExec([]string{"sh", "-c", `git add feature.txt && git commit -m "feature commit"`})
+
+		wtHead, err := ctr.WithExec([]string{"git", "rev-parse", "HEAD"}).Stdout(ctx)
+		require.NoError(t, err)
+		wtHead = strings.TrimSpace(wtHead)
+		mainHead, err := ctr.WithExec([]string{"git", "-C", "/work", "rev-parse", "HEAD"}).Stdout(ctx)
+		require.NoError(t, err)
+		require.NotEqual(t, wtHead, strings.TrimSpace(mainHead))
+
+		out, err := ctr.With(daggerCall("optional-repo")).Stdout(ctx)
+		require.NoError(t, err)
+		require.Equal(t, "repo@"+wtHead, out)
+
+		out, err = ctr.With(daggerCall("repo-state")).Stdout(ctx)
+		require.NoError(t, err)
+		require.Equal(t, "clean", out)
+
+		out, err = ctr.
+			WithNewFile("/wt/scratch.txt", "uncommitted").
+			With(daggerCall("repo-state")).Stdout(ctx)
+		require.NoError(t, err)
+		require.Equal(t, "dirty", out)
+	})
+
+	t.Run("worktree of a bare repo", func(ctx context.Context, t *testctx.T) {
+		c := connect(ctx, t)
+
+		ctr := moduleFixture(t, c, "go/path-context-git-optional").
+			WithExec([]string{"sh", "-c", `git add . && git commit -m "fixture"`}).
+			WithExec([]string{"git", "clone", "--bare", "/work", "/repo.git"}).
+			WithExec([]string{"git", "-C", "/repo.git", "worktree", "add", "/wt", "master"}).
+			WithWorkdir("/wt")
+
+		headCommit, err := ctr.WithExec([]string{"git", "rev-parse", "HEAD"}).Stdout(ctx)
+		require.NoError(t, err)
+		headCommit = strings.TrimSpace(headCommit)
+
+		// The worktree points at a bare repo; the client's own git still
+		// packs the checkout's repository, so the reconstruction is a normal,
+		// usable (non-bare) repository regardless of the host layout.
+		out, err := ctr.With(daggerCall("optional-repo")).Stdout(ctx)
+		require.NoError(t, err)
+		require.Equal(t, "repo@"+headCommit, out)
+	})
+}
+
+// TestModuleWorktreeGoSDK locks in the fix for loading a Go SDK module from a
+// linked git worktree checkout.
+//
+// A linked worktree's .git is a POINTER FILE ("gitdir: .../.git/worktrees/<name>")
+// rather than a .git directory. The Go SDK's codegen container runs
+// `git config --global user.email <val>` (and user.name) with its workdir inside
+// the mounted module context whenever the client has a global git identity set.
+// Previously the dangling pointer was shipped into that context, so git could not
+// resolve the repository and every git invocation there died with
+// "fatal: not a git repository: (null)" — making module loading fail hard.
+//
+// The engine now drops a root .git regular file from the synced module-context
+// snapshot (git-ness is supplied canonically elsewhere), so codegen's git config
+// exec succeeds, the module loads, and the +defaultPath="/" context no longer
+// carries the .git pointer.
+func (ModuleSuite) TestModuleWorktreeGoSDK(ctx context.Context, t *testctx.T) {
+	c := connect(ctx, t)
+
+	// goGitBase sets user.email/user.name GLOBALLY. That is load-bearing here:
+	// a global git identity is exactly what makes the engine inject the
+	// `git config --global ...` execs into the Go SDK codegen container that
+	// historically tripped over the dangling worktree pointer.
+	ctr := goGitBase(t, c).
+		WithNewFile("/work/tracked.txt", "v1").
+		WithExec([]string{"git", "add", "."}).
+		WithExec([]string{"git", "commit", "-m", "initial"}).
+		// A linked worktree: its /linked/.git is a pointer file, not a dir.
+		WithExec([]string{"git", "worktree", "add", "-b", "feature", "/linked"}).
+		WithWorkdir("/linked").
+		// dagger.json sits AT the worktree root with source ".", so the module
+		// context root == worktree root and the include picks up the .git
+		// pointer file: the exact failing layout.
+		With(withModuleFixture(t, c, ".", "go/worktree-context-entries"))
+
+	t.Run("module loads and functions list", func(ctx context.Context, t *testctx.T) {
+		out, err := ctr.With(daggerFunctions()).Stdout(ctx)
+		require.NoError(t, err)
+		require.Contains(t, out, "entries")
+	})
+
+	t.Run("context directory drops the .git pointer", func(ctx context.Context, t *testctx.T) {
+		out, err := ctr.With(daggerQueryAt(".", `{ entries }`)).Stdout(ctx)
+		require.NoError(t, err)
+
+		var got struct {
+			Entries []string `json:"entries"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(out), &got))
+		t.Logf("worktree module context entries: %v", got.Entries)
+		// The committed worktree content is present...
+		require.Contains(t, got.Entries, "tracked.txt")
+		// ...but the dangling .git pointer file was dropped from the context.
+		require.NotContains(t, got.Entries, ".git")
+		require.NotContains(t, got.Entries, ".git/")
+	})
+}
+
 func (ModuleSuite) TestContextGitRemote(ctx context.Context, t *testctx.T) {
 	// pretty much exactly the same test as above, but calling a remote git repo instead
 
@@ -1276,9 +1513,9 @@ func (ModuleSuite) TestContextGitRemote(ctx context.Context, t *testctx.T) {
 	remoteModule := "github.com/dagger/dagger-test-modules"
 	remoteRef := "context-git"
 	g := c.Git(remoteModule).Ref(remoteRef)
-	commit, err := g.Commit(ctx)
+	commit, err := g.CommitSHA(ctx)
 	require.NoError(t, err)
-	fullref, err := g.Ref(ctx)
+	fullref, err := g.Name(ctx)
 	require.NoError(t, err)
 
 	modPath := "github.com/dagger/dagger-test-modules/context-git@" + remoteRef
@@ -1324,9 +1561,11 @@ func (ModuleSuite) TestContextGitRemoteDep(ctx context.Context, t *testctx.T) {
 	for _, version := range []string{"", "main", "context-git", "v1.2.3"} {
 		t.Run("version="+version, func(ctx context.Context, t *testctx.T) {
 			g := c.Git(remoteRepo).Ref(cmp.Or(version, "HEAD"))
-			fullref, err := g.Ref(ctx)
+			fullref, err := g.Name(ctx)
 			require.NoError(t, err)
 			require.Contains(t, fullref, version)
+			resolvedCommit, err := g.CommitSHA(ctx)
+			require.NoError(t, err)
 
 			fixture := map[string]string{
 				"":            "go/path-context-git-remote-dep-default",
@@ -1338,6 +1577,24 @@ func (ModuleSuite) TestContextGitRemoteDep(ctx context.Context, t *testctx.T) {
 				WithWorkdir("/work").
 				With(withModuleFixture(t, c, "/work", fixture)).
 				WithExec([]string{"sh", "-c", `git init && git add . && git commit -m "initial commit"`})
+
+			if version == "v1.2.3" {
+				out, err := modGen.
+					With(daggerCallFail("test-ref-local")).
+					CombinedOutput(ctx)
+				require.NoError(t, err)
+				require.Contains(t, out, fmt.Sprintf(
+					"version query %q resolved to Git ref %q at commit %q",
+					version,
+					fullref,
+					resolvedCommit,
+				))
+				require.Contains(t, out, fmt.Sprintf(
+					"but the requested pin is %q",
+					commit,
+				))
+				return
+			}
 
 			t.Run("repo local", func(ctx context.Context, t *testctx.T) {
 				out, err := modGen.With(daggerCall("test-repo-local")).Stdout(ctx)
@@ -1380,10 +1637,10 @@ func (ModuleSuite) TestContextGitRemoteDepNamedPin(ctx context.Context, t *testc
 	pin := "v1.2.3"
 
 	g := c.Git(remoteRepo).Ref(pin)
-	fullref, err := g.Ref(ctx)
+	fullref, err := g.Name(ctx)
 	require.NoError(t, err)
 
-	commit, err := g.Commit(ctx)
+	commit, err := g.CommitSHA(ctx)
 	require.NoError(t, err)
 
 	modGen := goGitBase(t, c).
@@ -1674,6 +1931,8 @@ func (ModuleSuite) TestContextParallel(ctx context.Context, t *testctx.T) {
 			WithWorkdir(workdir).
 			WithoutDirectory(filepath.Join(workdir, ".dagger")).
 			WithoutFile(filepath.Join(workdir, "dagger.json")).
+			WithoutFile(filepath.Join(workdir, "dagger.toml")).
+			WithoutFile(filepath.Join(workdir, "dagger.lock")).
 			With(withModuleFixture(t, c, workdir, "go/path-context-parallel"))
 	}
 

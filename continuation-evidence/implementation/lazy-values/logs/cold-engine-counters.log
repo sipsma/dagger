@@ -1,0 +1,27 @@
+Source lazy-values-step7-worktree; trace 2b27f7c4d377ce0352658e5f370d6f32; CLI exit 0; selected test 199.09 s; no skips.
+    testctx.go:206: acquisition imported closure rows=226 cold=true order=before
+    testctx.go:206: acquisition delegation target=4430 address={"part":"fs"} field=withMountedCache parent=4425 source={OutputPath: Part:fs}
+    testctx.go:206: acquisition delegation target=4431 address={"part":"fs"} field=withMountedCache parent=4430 source={OutputPath: Part:fs}
+    testctx.go:206: acquisition delegation target=4432 address={"part":"fs"} field=__withSystemEnvVariable parent=4431 source={OutputPath: Part:fs}
+    testctx.go:206: acquisition delegation target=4433 address={"part":"fs"} field=__withSystemEnvVariable parent=4432 source={OutputPath: Part:fs}
+    testctx.go:206: operation mount-route row=4435 address={"part":"fs"} field=withMountedFile parent=4433 entries=1
+    testctx.go:206: operation mount-route row=4437 address={"part":"mount:/src"} field=withMountedDirectory parent=4435 entries=1
+    testctx.go:206: operation mount-write row=4437 address={"part":"mount:/src"} field=withMountedDirectory entries=1
+    testctx.go:206: operation mount-route row=4437 address={"part":"mount:/schema.json"} field=withMountedDirectory parent=4435 entries=1
+    testctx.go:206: operation mount-route row=4435 address={"part":"mount:/schema.json"} field=withMountedFile parent=4433 entries=1
+    testctx.go:206: operation mount-write row=4435 address={"part":"mount:/schema.json"} field=withMountedFile entries=1
+    testctx.go:206: operation mount-route row=4437 address={"part":"fs"} field=withMountedDirectory parent=4435 entries=1
+    testctx.go:206: acquisition Host input imported=4423 address={OutputPath: Part:snapshot} local=4457 snapshot=[{iem4mj35whklae8lamid1pbaa snapshot }]
+    testctx.go:206: acquisition SDK inherited-fs hops=map[__withSystemEnvVariable:2 withMountedCache:2]; operation mount-writer rows=map[withMountedDirectory:1 withMountedFile:1]
+    testctx.go:206: acquisition route counters cold=true builtin=1 counts=map[installed-chain:1 installed-delegation:4 installed-lazy:33 installed-ready:1 lazy-enter:33 lazy-ref-released:20 owner-sync:169 provider-read:1 selected-chain:1 selected-delegation:4 selected-ready:1 settled:48]
+    testctx.go:206: acquisition changed-argument control cold=true report-body-count=1
+    testctx.go:206: acquisition scratch cold=true ordinal=224 row=4450 address={"part":"snapshot"} group=whole platform=linux/amd64 lazy-enter=1 provider-reads=0
+    testctx.go:206: acquisition scratch cold=true ordinal=224 row=4450 address={"part":"snapshot"} group=whole platform=linux/amd64 lazy-enter=1 provider-reads=0
+    testctx.go:206: acquisition later controls cold=true noteFile=passed bound-tool=passed saved-row=4452 persisted=true
+    testctx.go:206: restart persistence diagnostics: {PersistenceResetReason: LocalCacheResetReason: RemovedPersistedRootCount:0 DiskPrunedResults:[]}
+    testctx.go:206: acquisition clean-restart control cold=true saved-row=4452 noteDirectory=passed report-body-count=1
+    testctx.go:206: acquisition native-recorded-module control cold=true recorded-row=4942 lower-imported-equivalent=true passed
+--- PASS: TestRemoteCacheTransferSuite (199.10s)
+    --- PASS: TestRemoteCacheTransferSuite/TestSchemaRecoveryCold (199.09s)
+        --- PASS: TestRemoteCacheTransferSuite/TestSchemaRecoveryCold/before (84.06s)
+        --- PASS: TestRemoteCacheTransferSuite/TestSchemaRecoveryCold/foreign_context (45.09s)

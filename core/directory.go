@@ -12,7 +12,10 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -27,7 +30,6 @@ import (
 	"github.com/dagger/dagger/util/patternmatcher"
 	"github.com/dustin/go-humanize"
 	"github.com/vektah/gqlparser/v2/ast"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/dagql/call"
@@ -41,11 +43,20 @@ import (
 
 // Directory is a content-addressed directory.
 type Directory struct {
-	Platform Platform
+	filesystemOutput
+	transferPending *persistedDirectoryPayload
+	Platform        Platform
 	// Services necessary to provision the directory.
 	Services ServiceBindings
 
-	Lazy     Lazy[*Directory]
+	storedDiagnostics *storedSnapshotDiagnostics
+	stored            *storedSnapshot
+	Lazy              Lazy[*Directory]
+
+	// Retained operation bytes for snapshot restore and acquired values.
+	lazyKind string
+	lazyJSON json.RawMessage
+
 	Dir      *LazyAccessor[string, *Directory] // a selected subdir of the rootfs of the on-disk Result, if any
 	Snapshot *LazyAccessor[bkcache.ImmutableRef, *Directory]
 }
@@ -105,10 +116,11 @@ func (dir *Directory) AttachDependencyResultsKinds(
 	if err != nil {
 		return nil, err
 	}
-	if dir.Lazy == nil {
+	lazy := dir.Lazy
+	if lazy == nil {
 		return serviceDeps, nil
 	}
-	lazyDeps, err := dir.Lazy.AttachDependencies(ctx, attach)
+	lazyDeps, err := lazy.AttachDependencies(ctx, attach)
 	if err != nil {
 		return nil, err
 	}
@@ -124,70 +136,90 @@ func (dir *Directory) AttachDependencyResultsKinds(
 }
 
 func (dir *Directory) LazyEvalFunc() dagql.LazyEvalFunc {
-	if dir == nil || dir.Lazy == nil {
+	if dir != nil {
+		if host := dir.partHost.Load(); host != nil && host.Managed() {
+			return func(ctx context.Context) error { return host.Evaluate(ctx, "snapshot") }
+		}
+	}
+	if dir == nil {
 		return nil
 	}
-	return func(ctx context.Context) error {
-		// Successful lazy evaluation materializes the directory into a plain
-		// value. Clearing Lazy keeps Lazy != nil as a truthful signal that the
-		// directory still has deferred work.
-		lazy := dir.Lazy
-		if err := lazy.Evaluate(ctx, dir); err != nil {
-			return err
+	dir.outputMu.Lock()
+	pending, lazy := dir.transferPending != nil, dir.Lazy
+	dir.outputMu.Unlock()
+	if pending {
+		return func(ctx context.Context) error {
+			if host := dir.partHost.Load(); host != nil {
+				return host.Evaluate(ctx, "snapshot")
+			}
+			return fmt.Errorf("%w: Directory.snapshot", dagql.ErrUnavailablePart)
 		}
-		if dir.Lazy == lazy {
-			dir.Lazy = nil
-		}
+	}
+	if lazy == nil || lazy.IsEvaluated() {
 		return nil
+	}
+	raw := func(ctx context.Context) error { return lazy.Evaluate(ctx, dir) }
+	return func(ctx context.Context) error {
+		if host := dir.partHost.Load(); host != nil {
+			return host.RunNative(ctx, dagql.LazyGroupWhole, []dagql.PartKey{"snapshot"}, raw)
+		}
+		return raw(ctx)
 	}
 }
 
-func (dir *Directory) CacheUsageSize(ctx context.Context, _ dagql.CacheUsageSizeProvider, identity string) (int64, bool, error) {
+func (dir *Directory) snapshotIdentity() (string, bool) {
+	if dir == nil {
+		return "", false
+	}
+	dir.outputMu.Lock()
+	defer dir.outputMu.Unlock()
+	return dir.snapshotIdentityLocked()
+}
+
+func (dir *Directory) snapshotIdentityLocked() (string, bool) {
+	if dir == nil {
+		return "", false
+	}
+	if dir.Snapshot != nil {
+		if snapshot, ok := dir.Snapshot.Peek(); ok && snapshot != nil {
+			return snapshot.SnapshotID(), true
+		}
+	}
+	if dir.stored != nil {
+		return dir.stored.SnapshotID, true
+	}
+	return "", false
+}
+
+func (dir *Directory) CacheUsageSize(ctx context.Context, provider dagql.CacheUsageSizeProvider, identity string) (int64, bool, error) {
 	if dir == nil {
 		return 0, false, nil
 	}
-	if dir.Snapshot == nil {
-		return 0, false, nil
+	if dir.Snapshot != nil {
+		if snapshot, ok := dir.Snapshot.Peek(); ok && snapshot != nil && snapshot.SnapshotID() == identity {
+			size, err := snapshot.Size(ctx)
+			return size, err == nil, err
+		}
 	}
-	snapshot, ok := dir.Snapshot.Peek()
-	if !ok || snapshot == nil {
-		return 0, false, nil
+	if dir.stored != nil && dir.stored.SnapshotID == identity && provider != nil {
+		size, err := provider.SnapshotSize(ctx, identity)
+		return size, err == nil, err
 	}
-	if snapshot.SnapshotID() != identity {
-		return 0, false, nil
-	}
-	size, err := snapshot.Size(ctx)
-	if err != nil {
-		return 0, false, err
-	}
-	return size, true, nil
+	return 0, false, nil
 }
 
 func (dir *Directory) CacheUsageIdentities() []string {
-	if dir == nil || dir.Snapshot == nil {
-		return nil
+	if identity, ok := dir.snapshotIdentity(); ok {
+		return []string{identity}
 	}
-	snapshot, ok := dir.Snapshot.Peek()
-	if !ok || snapshot == nil {
-		return nil
-	}
-	return []string{snapshot.SnapshotID()}
+	return nil
 }
 
 func (dir *Directory) PersistedSnapshotRefLinks() []dagql.PersistedSnapshotRefLink {
-	if dir == nil || dir.Snapshot == nil {
-		return nil
+	if identity, ok := dir.snapshotIdentity(); ok {
+		return []dagql.PersistedSnapshotRefLink{{RefKey: identity, Role: "snapshot"}}
 	}
-	snapshot, ok := dir.Snapshot.Peek()
-	if !ok || snapshot == nil {
-		return nil
-	}
-	return []dagql.PersistedSnapshotRefLink{
-		{
-			RefKey: snapshot.SnapshotID(),
-			Role:   "snapshot",
-		},
-	}
+	return nil
 }
 
 const (
@@ -196,6 +228,7 @@ const (
 )
 
 const (
+	persistedDirectoryLazyKindScratch                       = "scratch"
 	persistedDirectoryLazyKindContainerRootFS               = "container.rootfs"
 	persistedDirectoryLazyKindContainerDirectory            = "container.directory"
 	persistedDirectoryLazyKindWithDirectory                 = "directory.withDirectory"
@@ -214,52 +247,77 @@ const (
 )
 
 type persistedDirectoryPayload struct {
-	Form     string                    `json:"form"`
-	Dir      string                    `json:"dir,omitempty"`
-	Platform Platform                  `json:"platform"`
-	Services []persistedServiceBinding `json:"services,omitempty"`
-	LazyKind string                    `json:"lazyKind,omitempty"`
-	LazyJSON json.RawMessage           `json:"lazyJSON,omitempty"`
+	ValueKnown     bool                      `json:"valueKnown,omitempty"`
+	OperationState string                    `json:"operationState,omitempty"`
+	Form           string                    `json:"form"`
+	Dir            string                    `json:"dir,omitempty"`
+	Platform       Platform                  `json:"platform"`
+	Services       []persistedServiceBinding `json:"services,omitempty"`
+	LazyKind       string                    `json:"lazyKind,omitempty"`
+	LazyJSON       json.RawMessage           `json:"lazyJSON,omitempty"`
 }
 
-func (dir *Directory) EncodePersistedObject(ctx context.Context, cache dagql.PersistedObjectCache) (dagql.PersistedObjectEncoding, error) {
+func (dir *Directory) EncodePersistedObject(ctx context.Context, enc *dagql.PersistEncodeContext) (dagql.PersistedObjectEncoding, error) {
 	if dir == nil {
 		return dagql.PersistedObjectEncoding{}, fmt.Errorf("encode persisted directory: nil directory")
 	}
+	unlock, err := dir.lockForPersistence()
+	if err != nil {
+		return dagql.PersistedObjectEncoding{}, err
+	}
+	defer unlock()
+	if dir.transferPending != nil {
+		return encodePersistedObjectPayload(dir.transferPending)
+	}
+	valueKnown := false
 	dirPath := ""
 	if dir.Dir != nil {
 		if peekedDir, ok := dir.Dir.Peek(); ok {
 			dirPath = peekedDir
+			valueKnown = true
 		}
 	}
-	services, err := encodePersistedServiceBindings(cache, "directory", dir.Services)
+	services, err := encodePersistedServiceBindings(enc, "directory", dir.Services)
 	if err != nil {
 		return dagql.PersistedObjectEncoding{}, err
 	}
 	payload := persistedDirectoryPayload{
-		Dir:      dirPath,
-		Platform: dir.Platform,
-		Services: services,
+		ValueKnown: valueKnown,
+		Dir:        dirPath,
+		Platform:   dir.Platform,
+		Services:   services,
 	}
-	if dir.Snapshot != nil {
-		if snapshot, ok := dir.Snapshot.Peek(); ok && snapshot != nil {
-			payload.Form = persistedDirectoryFormSnapshot
-			payloadJSON, err := json.Marshal(payload)
-			if err != nil {
-				return dagql.PersistedObjectEncoding{}, fmt.Errorf("marshal persisted directory payload: %w", err)
+	if identity, ok := dir.snapshotIdentityLocked(); ok {
+		payload.Form = persistedDirectoryFormSnapshot
+		payload.LazyKind = dir.lazyKind
+		payload.LazyJSON = dir.lazyJSON
+		var recipe Lazy[*Directory]
+		if dir.Lazy != nil {
+			if _, restored := dir.Lazy.(*DirectoryRestoreLazy); !restored {
+				recipe = dir.Lazy
 			}
-			return dagql.PersistedObjectEncoding{
-				JSON: payloadJSON,
-				SnapshotLinks: []dagql.PersistedSnapshotRefLink{{
-					RefKey: snapshot.SnapshotID(),
-					Role:   "snapshot",
-				}},
-			}, nil
 		}
+		if recipe != nil {
+			payload.LazyKind, payload.LazyJSON, err = encodePersistedDirectoryLazy(ctx, enc, recipe)
+			if err != nil {
+				return dagql.PersistedObjectEncoding{}, err
+			}
+		}
+		payloadJSON, err := json.Marshal(payload)
+		if err != nil {
+			return dagql.PersistedObjectEncoding{}, fmt.Errorf("marshal persisted directory payload: %w", err)
+		}
+		return dagql.PersistedObjectEncoding{
+			JSON: payloadJSON,
+			SnapshotLinks: []dagql.PersistedSnapshotRefLink{{
+				RefKey: identity,
+				Role:   "snapshot",
+			}},
+		}, nil
 	}
 	if dir.Lazy != nil {
 		payload.Form = persistedDirectoryFormLazy
-		lazyKind, lazyJSON, err := encodePersistedDirectoryLazy(ctx, cache, dir.Lazy)
+		lazyKind, lazyJSON, err := encodePersistedDirectoryLazy(ctx, enc, dir.Lazy)
 		if err != nil {
 			return dagql.PersistedObjectEncoding{}, err
 		}
@@ -281,12 +339,12 @@ func (dir *Directory) EncodePersistedObject(ctx context.Context, cache dagql.Per
 }
 
 //nolint:dupl // symmetric with decodePersistedFileWithSnapshotRole in file.go; sharing hides type specifics
-func decodePersistedDirectoryWithSnapshotRole(ctx context.Context, dag *dagql.Server, resultID uint64, payload json.RawMessage, snapshotRole string) (*Directory, error) {
+func decodePersistedDirectoryWithSnapshotRole(ctx context.Context, dec *dagql.PersistDecodeContext, payload json.RawMessage, snapshotRole string) (*Directory, error) {
 	var persisted persistedDirectoryPayload
 	if err := json.Unmarshal(payload, &persisted); err != nil {
 		return nil, fmt.Errorf("decode persisted directory payload: %w", err)
 	}
-	services, err := decodePersistedServiceBindings(ctx, dag, "directory", persisted.Services)
+	services, err := decodePersistedServiceBindings(ctx, dec, "directory", persisted.Services)
 	if err != nil {
 		return nil, err
 	}
@@ -297,22 +355,41 @@ func decodePersistedDirectoryWithSnapshotRole(ctx context.Context, dag *dagql.Se
 		Dir:      new(LazyAccessor[string, *Directory]),
 		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *Directory]),
 	}
-	if persisted.Dir != "" {
-		dir.Dir.setValue(persisted.Dir)
+	defer func() {
+		dir.outputMu.Lock()
+		dir.OutputRev++ // private decoded output, before publication
+		dir.outputMu.Unlock()
+	}()
+	if persisted.Dir != "" && persisted.Form != transferPending {
+		dir.SetPath(persisted.Dir)
 	}
 	switch persisted.Form {
+	case transferPending:
+		if err := foreignFamilyCodec("Directory").ValidateForeign(dagql.PersistedPayloadVisit{Payload: payload, Call: dec.Call()}); err != nil {
+			return nil, err
+		}
+		dir.transferPending = &persisted
+		if persisted.ValueKnown {
+			dir.SetPath(persisted.Dir)
+		}
+		return dir, nil
 	case persistedDirectoryFormSnapshot:
-		snapshot, err := loadPersistedImmutableSnapshotByResultID(ctx, dag, resultID, "directory", snapshotRole)
+		link, err := loadPersistedSnapshotLinkByResultID(ctx, dec, "directory", snapshotRole)
 		if err != nil {
 			return nil, err
 		}
-		dir.Snapshot.setValue(snapshot)
+		dir.stored = &storedSnapshot{SnapshotID: link.RefKey}
+		dir.lazyKind = persisted.LazyKind
+		dir.lazyJSON = slices.Clone(persisted.LazyJSON)
+		dir.storedDiagnostics = newStoredSnapshotDiagnostics()
+		dir.SetPath(persisted.Dir)
+		dir.Lazy = &DirectoryRestoreLazy{LazyState: NewLazyState()}
 		return dir, nil
 	case persistedDirectoryFormLazy:
 		if persisted.LazyKind == "" {
 			return nil, fmt.Errorf("decode persisted directory payload: missing lazy kind")
 		}
-		lazy, err := decodePersistedDirectoryLazy(ctx, dag, persisted.LazyKind, persisted.LazyJSON)
+		lazy, err := decodePersistedDirectoryLazy(ctx, dec, persisted.LazyKind, persisted.LazyJSON)
 		if err != nil {
 			return nil, err
 		}
@@ -323,8 +400,8 @@ func decodePersistedDirectoryWithSnapshotRole(ctx context.Context, dag *dagql.Se
 	}
 }
 
-func (*Directory) DecodePersistedObject(ctx context.Context, dag *dagql.Server, resultID uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
-	return decodePersistedDirectoryWithSnapshotRole(ctx, dag, resultID, payload, "snapshot")
+func (*Directory) DecodePersistedObject(ctx context.Context, dec *dagql.PersistDecodeContext, payload json.RawMessage) (dagql.Typed, error) {
+	return decodePersistedDirectoryWithSnapshotRole(ctx, dec, payload, "snapshot")
 }
 
 func loadCanonicalScratchDirectory(ctx context.Context) (string, bkcache.ImmutableRef, error) {
@@ -367,10 +444,43 @@ type DirectoryWithDirectoryDockerfileCompatLazy struct {
 	AlwaysReplaceExistingDestPaths   bool
 }
 
+// PatchConflict configures how withPatch handles hunks that no longer apply
+// to the target content.
+type PatchConflict string
+
+var PatchConflicts = dagql.NewEnum[PatchConflict]()
+
+var (
+	PatchConflictFail = PatchConflicts.Register("FAIL",
+		"Fail the operation if any part of the patch does not apply.")
+	PatchConflictLeaveMarkers = PatchConflicts.Register("LEAVE_CONFLICT_MARKERS",
+		"Apply the hunks that fit and insert conflict markers where hunks no longer match, instead of failing.")
+)
+
+func (PatchConflict) Type() *ast.Type {
+	return &ast.Type{
+		NamedType: "PatchConflict",
+		NonNull:   true,
+	}
+}
+
+func (t PatchConflict) TypeDescription() string {
+	return "How to handle patch hunks that no longer apply to the target content."
+}
+
+func (t PatchConflict) Decoder() dagql.InputDecoder {
+	return PatchConflicts
+}
+
+func (t PatchConflict) ToLiteral() call.Literal {
+	return PatchConflicts.Literal(t)
+}
+
 type DirectoryWithPatchFileLazy struct {
 	LazyState
-	Parent dagql.ObjectResult[*Directory]
-	Patch  dagql.ObjectResult[*File]
+	Parent     dagql.ObjectResult[*Directory]
+	Patch      dagql.ObjectResult[*File]
+	OnConflict PatchConflict
 }
 
 type DirectoryWithNewFileLazy struct {
@@ -471,8 +581,9 @@ type persistedDirectoryWithDirectoryDockerfileCompatLazy struct {
 }
 
 type persistedDirectoryWithPatchFileLazy struct {
-	ParentResultID uint64 `json:"parentResultID"`
-	PatchResultID  uint64 `json:"patchResultID"`
+	ParentResultID uint64        `json:"parentResultID"`
+	PatchResultID  uint64        `json:"patchResultID"`
+	OnConflict     PatchConflict `json:"onConflict,omitempty"`
 }
 
 type persistedDirectoryWithNewFileLazy struct {
@@ -560,52 +671,72 @@ func attachFileResult(attach func(dagql.AnyResult) (dagql.AnyResult, error), res
 	return typed, nil
 }
 
-func encodePersistedDirectoryLazy(ctx context.Context, cache dagql.PersistedObjectCache, lazy Lazy[*Directory]) (string, json.RawMessage, error) {
+func encodePersistedDirectoryLazy(ctx context.Context, enc *dagql.PersistEncodeContext, lazy Lazy[*Directory]) (string, json.RawMessage, error) {
 	switch lazy := lazy.(type) {
+	case *DirectoryScratchLazy:
+		payload, err := lazy.EncodePersisted(ctx, enc)
+		return persistedDirectoryLazyKindScratch, payload, err
+
+	case *DirectoryGitCommitTreeLazy:
+		payload, err := lazy.EncodePersisted(ctx, enc)
+		return persistedDirectoryLazyKindGitCommitTree, payload, err
+
+	case *DirectoryGitTreeLazy:
+		payload, err := lazy.EncodePersisted(ctx, enc)
+		return persistedDirectoryLazyKindGitTree, payload, err
+
+	case *DirectoryGitBundleImportLazy:
+		payload, err := lazy.EncodePersisted(ctx, enc)
+		return persistedDirectoryLazyKindGitBundleImport, payload, err
+
+	case *DirectoryGitCleanedLazy:
+		payload, err := lazy.EncodePersisted(ctx, enc)
+		return persistedDirectoryLazyKindGitCleaned, payload, err
+
 	case *ContainerRootFSLazy:
-		payload, err := lazy.EncodePersisted(ctx, cache)
+		payload, err := lazy.EncodePersisted(ctx, enc)
 		return persistedDirectoryLazyKindContainerRootFS, payload, err
 	case *ContainerDirectoryLazy:
-		payload, err := lazy.EncodePersisted(ctx, cache)
+		payload, err := lazy.EncodePersisted(ctx, enc)
 		return persistedDirectoryLazyKindContainerDirectory, payload, err
 	case *DirectoryWithDirectoryLazy:
-		payload, err := lazy.EncodePersisted(ctx, cache)
+		payload, err := lazy.EncodePersisted(ctx, enc)
 		return persistedDirectoryLazyKindWithDirectory, payload, err
 	case *DirectoryWithDirectoryDockerfileCompatLazy:
-		payload, err := lazy.EncodePersisted(ctx, cache)
+		payload, err := lazy.EncodePersisted(ctx, enc)
 		return persistedDirectoryLazyKindWithDirectoryDockerfileCompat, payload, err
 	case *DirectoryWithPatchFileLazy:
-		payload, err := lazy.EncodePersisted(ctx, cache)
+		payload, err := lazy.EncodePersisted(ctx, enc)
 		return persistedDirectoryLazyKindWithPatchFile, payload, err
 	case *DirectoryWithNewFileLazy:
-		payload, err := lazy.EncodePersisted(ctx, cache)
+		payload, err := lazy.EncodePersisted(ctx, enc)
 		return persistedDirectoryLazyKindWithNewFile, payload, err
 	case *DirectoryWithFileLazy:
-		payload, err := lazy.EncodePersisted(ctx, cache)
+		payload, err := lazy.EncodePersisted(ctx, enc)
 		return persistedDirectoryLazyKindWithFile, payload, err
 	case *DirectoryWithTimestampsLazy:
-		payload, err := lazy.EncodePersisted(ctx, cache)
+		payload, err := lazy.EncodePersisted(ctx, enc)
 		return persistedDirectoryLazyKindWithTimestamps, payload, err
 	case *DirectoryWithNewDirectoryLazy:
-		payload, err := lazy.EncodePersisted(ctx, cache)
+		payload, err := lazy.EncodePersisted(ctx, enc)
 		return persistedDirectoryLazyKindWithNewDirectory, payload, err
 	case *DirectorySubdirectoryLazy:
-		payload, err := lazy.EncodePersisted(ctx, cache)
+		payload, err := lazy.EncodePersisted(ctx, enc)
 		return persistedDirectoryLazyKindSubdirectory, payload, err
 	case *DirectoryDiffLazy:
-		payload, err := lazy.EncodePersisted(ctx, cache)
+		payload, err := lazy.EncodePersisted(ctx, enc)
 		return persistedDirectoryLazyKindDiff, payload, err
 	case *DirectoryWithChangesLazy:
-		payload, err := lazy.EncodePersisted(ctx, cache)
+		payload, err := lazy.EncodePersisted(ctx, enc)
 		return persistedDirectoryLazyKindWithChanges, payload, err
 	case *DirectoryWithoutLazy:
-		payload, err := lazy.EncodePersisted(ctx, cache)
+		payload, err := lazy.EncodePersisted(ctx, enc)
 		return persistedDirectoryLazyKindWithout, payload, err
 	case *DirectoryWithSymlinkLazy:
-		payload, err := lazy.EncodePersisted(ctx, cache)
+		payload, err := lazy.EncodePersisted(ctx, enc)
 		return persistedDirectoryLazyKindWithSymlink, payload, err
 	case *DirectoryChownLazy:
-		payload, err := lazy.EncodePersisted(ctx, cache)
+		payload, err := lazy.EncodePersisted(ctx, enc)
 		return persistedDirectoryLazyKindChown, payload, err
 	default:
 		return "", nil, fmt.Errorf("encode persisted directory lazy: unsupported lazy type %T", lazy)
@@ -613,14 +744,32 @@ func encodePersistedDirectoryLazy(ctx context.Context, cache dagql.PersistedObje
 }
 
 //nolint:gocyclo // intrinsically long state machine; refactoring would hurt clarity
-func decodePersistedDirectoryLazy(ctx context.Context, dag *dagql.Server, lazyKind string, payload json.RawMessage) (Lazy[*Directory], error) {
+func decodePersistedDirectoryLazy(ctx context.Context, dec *dagql.PersistDecodeContext, lazyKind string, payload json.RawMessage) (Lazy[*Directory], error) {
 	switch lazyKind {
+	case persistedDirectoryLazyKindScratch:
+		if err := validateDirectoryScratchPayload(payload); err != nil {
+			return nil, err
+		}
+		return &DirectoryScratchLazy{LazyState: NewLazyState()}, nil
+
+	case persistedDirectoryLazyKindGitCommitTree:
+		return decodeDirectoryGitCommitTreeLazy(ctx, dec, payload)
+
+	case persistedDirectoryLazyKindGitTree:
+		return decodeDirectoryGitTreeLazy(ctx, dec, payload)
+
+	case persistedDirectoryLazyKindGitBundleImport:
+		return decodeDirectoryGitBundleImportLazy(ctx, dec, payload)
+
+	case persistedDirectoryLazyKindGitCleaned:
+		return decodeDirectoryGitCleanedLazy(ctx, dec, payload)
+
 	case persistedDirectoryLazyKindContainerRootFS:
 		var persisted persistedContainerRootFSLazy
 		if err := json.Unmarshal(payload, &persisted); err != nil {
 			return nil, fmt.Errorf("decode persisted container rootfs lazy: %w", err)
 		}
-		parent, err := loadPersistedObjectResultByResultID[*Container](ctx, dag, persisted.ParentResultID, "container rootfs parent")
+		parent, err := loadPersistedObjectResultByResultID[*Container](ctx, dec, persisted.ParentResultID, "container rootfs parent")
 		if err != nil {
 			return nil, err
 		}
@@ -630,7 +779,7 @@ func decodePersistedDirectoryLazy(ctx context.Context, dag *dagql.Server, lazyKi
 		if err := json.Unmarshal(payload, &persisted); err != nil {
 			return nil, fmt.Errorf("decode persisted container directory lazy: %w", err)
 		}
-		parent, err := loadPersistedObjectResultByResultID[*Container](ctx, dag, persisted.ParentResultID, "container directory parent")
+		parent, err := loadPersistedObjectResultByResultID[*Container](ctx, dec, persisted.ParentResultID, "container directory parent")
 		if err != nil {
 			return nil, err
 		}
@@ -640,11 +789,11 @@ func decodePersistedDirectoryLazy(ctx context.Context, dag *dagql.Server, lazyKi
 		if err := json.Unmarshal(payload, &persisted); err != nil {
 			return nil, fmt.Errorf("decode persisted directory withDirectory lazy: %w", err)
 		}
-		parent, err := loadPersistedObjectResultByResultID[*Directory](ctx, dag, persisted.ParentResultID, "directory withDirectory parent")
+		parent, err := loadPersistedObjectResultByResultID[*Directory](ctx, dec, persisted.ParentResultID, "directory withDirectory parent")
 		if err != nil {
 			return nil, err
 		}
-		source, err := loadPersistedObjectResultByResultID[*Directory](ctx, dag, persisted.SourceResultID, "directory withDirectory source")
+		source, err := loadPersistedObjectResultByResultID[*Directory](ctx, dec, persisted.SourceResultID, "directory withDirectory source")
 		if err != nil {
 			return nil, err
 		}
@@ -662,11 +811,11 @@ func decodePersistedDirectoryLazy(ctx context.Context, dag *dagql.Server, lazyKi
 		if err := json.Unmarshal(payload, &persisted); err != nil {
 			return nil, fmt.Errorf("decode persisted directory __withDirectoryDockerfileCompat lazy: %w", err)
 		}
-		parent, err := loadPersistedObjectResultByResultID[*Directory](ctx, dag, persisted.ParentResultID, "directory __withDirectoryDockerfileCompat parent")
+		parent, err := loadPersistedObjectResultByResultID[*Directory](ctx, dec, persisted.ParentResultID, "directory __withDirectoryDockerfileCompat parent")
 		if err != nil {
 			return nil, err
 		}
-		source, err := loadPersistedObjectResultByResultID[*Directory](ctx, dag, persisted.SourceResultID, "directory __withDirectoryDockerfileCompat source")
+		source, err := loadPersistedObjectResultByResultID[*Directory](ctx, dec, persisted.SourceResultID, "directory __withDirectoryDockerfileCompat source")
 		if err != nil {
 			return nil, err
 		}
@@ -692,21 +841,21 @@ func decodePersistedDirectoryLazy(ctx context.Context, dag *dagql.Server, lazyKi
 		if err := json.Unmarshal(payload, &persisted); err != nil {
 			return nil, fmt.Errorf("decode persisted directory withPatchFile lazy: %w", err)
 		}
-		parent, err := loadPersistedObjectResultByResultID[*Directory](ctx, dag, persisted.ParentResultID, "directory withPatchFile parent")
+		parent, err := loadPersistedObjectResultByResultID[*Directory](ctx, dec, persisted.ParentResultID, "directory withPatchFile parent")
 		if err != nil {
 			return nil, err
 		}
-		patch, err := loadPersistedObjectResultByResultID[*File](ctx, dag, persisted.PatchResultID, "directory withPatchFile patch")
+		patch, err := loadPersistedObjectResultByResultID[*File](ctx, dec, persisted.PatchResultID, "directory withPatchFile patch")
 		if err != nil {
 			return nil, err
 		}
-		return &DirectoryWithPatchFileLazy{LazyState: NewLazyState(), Parent: parent, Patch: patch}, nil
+		return &DirectoryWithPatchFileLazy{LazyState: NewLazyState(), Parent: parent, Patch: patch, OnConflict: persisted.OnConflict}, nil
 	case persistedDirectoryLazyKindWithNewFile:
 		var persisted persistedDirectoryWithNewFileLazy
 		if err := json.Unmarshal(payload, &persisted); err != nil {
 			return nil, fmt.Errorf("decode persisted directory withNewFile lazy: %w", err)
 		}
-		parent, err := loadPersistedObjectResultByResultID[*Directory](ctx, dag, persisted.ParentResultID, "directory withNewFile parent")
+		parent, err := loadPersistedObjectResultByResultID[*Directory](ctx, dec, persisted.ParentResultID, "directory withNewFile parent")
 		if err != nil {
 			return nil, err
 		}
@@ -723,11 +872,11 @@ func decodePersistedDirectoryLazy(ctx context.Context, dag *dagql.Server, lazyKi
 		if err := json.Unmarshal(payload, &persisted); err != nil {
 			return nil, fmt.Errorf("decode persisted directory withFile lazy: %w", err)
 		}
-		parent, err := loadPersistedObjectResultByResultID[*Directory](ctx, dag, persisted.ParentResultID, "directory withFile parent")
+		parent, err := loadPersistedObjectResultByResultID[*Directory](ctx, dec, persisted.ParentResultID, "directory withFile parent")
 		if err != nil {
 			return nil, err
 		}
-		source, err := loadPersistedObjectResultByResultID[*File](ctx, dag, persisted.SourceResultID, "directory withFile source")
+		source, err := loadPersistedObjectResultByResultID[*File](ctx, dec, persisted.SourceResultID, "directory withFile source")
 		if err != nil {
 			return nil, err
 		}
@@ -746,7 +895,7 @@ func decodePersistedDirectoryLazy(ctx context.Context, dag *dagql.Server, lazyKi
 		if err := json.Unmarshal(payload, &persisted); err != nil {
 			return nil, fmt.Errorf("decode persisted directory withTimestamps lazy: %w", err)
 		}
-		parent, err := loadPersistedObjectResultByResultID[*Directory](ctx, dag, persisted.ParentResultID, "directory withTimestamps parent")
+		parent, err := loadPersistedObjectResultByResultID[*Directory](ctx, dec, persisted.ParentResultID, "directory withTimestamps parent")
 		if err != nil {
 			return nil, err
 		}
@@ -756,7 +905,7 @@ func decodePersistedDirectoryLazy(ctx context.Context, dag *dagql.Server, lazyKi
 		if err := json.Unmarshal(payload, &persisted); err != nil {
 			return nil, fmt.Errorf("decode persisted directory withNewDirectory lazy: %w", err)
 		}
-		parent, err := loadPersistedObjectResultByResultID[*Directory](ctx, dag, persisted.ParentResultID, "directory withNewDirectory parent")
+		parent, err := loadPersistedObjectResultByResultID[*Directory](ctx, dec, persisted.ParentResultID, "directory withNewDirectory parent")
 		if err != nil {
 			return nil, err
 		}
@@ -766,7 +915,7 @@ func decodePersistedDirectoryLazy(ctx context.Context, dag *dagql.Server, lazyKi
 		if err := json.Unmarshal(payload, &persisted); err != nil {
 			return nil, fmt.Errorf("decode persisted directory directory lazy: %w", err)
 		}
-		parent, err := loadPersistedObjectResultByResultID[*Directory](ctx, dag, persisted.ParentResultID, "directory subdirectory parent")
+		parent, err := loadPersistedObjectResultByResultID[*Directory](ctx, dec, persisted.ParentResultID, "directory subdirectory parent")
 		if err != nil {
 			return nil, err
 		}
@@ -776,11 +925,11 @@ func decodePersistedDirectoryLazy(ctx context.Context, dag *dagql.Server, lazyKi
 		if err := json.Unmarshal(payload, &persisted); err != nil {
 			return nil, fmt.Errorf("decode persisted directory diff lazy: %w", err)
 		}
-		parent, err := loadPersistedObjectResultByResultID[*Directory](ctx, dag, persisted.ParentResultID, "directory diff parent")
+		parent, err := loadPersistedObjectResultByResultID[*Directory](ctx, dec, persisted.ParentResultID, "directory diff parent")
 		if err != nil {
 			return nil, err
 		}
-		other, err := loadPersistedObjectResultByResultID[*Directory](ctx, dag, persisted.OtherResultID, "directory diff other")
+		other, err := loadPersistedObjectResultByResultID[*Directory](ctx, dec, persisted.OtherResultID, "directory diff other")
 		if err != nil {
 			return nil, err
 		}
@@ -790,11 +939,11 @@ func decodePersistedDirectoryLazy(ctx context.Context, dag *dagql.Server, lazyKi
 		if err := json.Unmarshal(payload, &persisted); err != nil {
 			return nil, fmt.Errorf("decode persisted directory withChanges lazy: %w", err)
 		}
-		parent, err := loadPersistedObjectResultByResultID[*Directory](ctx, dag, persisted.ParentResultID, "directory withChanges parent")
+		parent, err := loadPersistedObjectResultByResultID[*Directory](ctx, dec, persisted.ParentResultID, "directory withChanges parent")
 		if err != nil {
 			return nil, err
 		}
-		changes, err := loadPersistedObjectResultByResultID[*Changeset](ctx, dag, persisted.ChangesResultID, "directory withChanges changes")
+		changes, err := loadPersistedObjectResultByResultID[*Changeset](ctx, dec, persisted.ChangesResultID, "directory withChanges changes")
 		if err != nil {
 			return nil, err
 		}
@@ -804,7 +953,7 @@ func decodePersistedDirectoryLazy(ctx context.Context, dag *dagql.Server, lazyKi
 		if err := json.Unmarshal(payload, &persisted); err != nil {
 			return nil, fmt.Errorf("decode persisted directory without lazy: %w", err)
 		}
-		parent, err := loadPersistedObjectResultByResultID[*Directory](ctx, dag, persisted.ParentResultID, "directory without parent")
+		parent, err := loadPersistedObjectResultByResultID[*Directory](ctx, dec, persisted.ParentResultID, "directory without parent")
 		if err != nil {
 			return nil, err
 		}
@@ -814,7 +963,7 @@ func decodePersistedDirectoryLazy(ctx context.Context, dag *dagql.Server, lazyKi
 		if err := json.Unmarshal(payload, &persisted); err != nil {
 			return nil, fmt.Errorf("decode persisted directory withSymlink lazy: %w", err)
 		}
-		parent, err := loadPersistedObjectResultByResultID[*Directory](ctx, dag, persisted.ParentResultID, "directory withSymlink parent")
+		parent, err := loadPersistedObjectResultByResultID[*Directory](ctx, dec, persisted.ParentResultID, "directory withSymlink parent")
 		if err != nil {
 			return nil, err
 		}
@@ -824,7 +973,7 @@ func decodePersistedDirectoryLazy(ctx context.Context, dag *dagql.Server, lazyKi
 		if err := json.Unmarshal(payload, &persisted); err != nil {
 			return nil, fmt.Errorf("decode persisted directory chown lazy: %w", err)
 		}
-		parent, err := loadPersistedObjectResultByResultID[*Directory](ctx, dag, persisted.ParentResultID, "directory chown parent")
+		parent, err := loadPersistedObjectResultByResultID[*Directory](ctx, dec, persisted.ParentResultID, "directory chown parent")
 		if err != nil {
 			return nil, err
 		}
@@ -835,7 +984,7 @@ func decodePersistedDirectoryLazy(ctx context.Context, dag *dagql.Server, lazyKi
 }
 
 func (lazy *DirectoryWithDirectoryLazy) Evaluate(ctx context.Context, dir *Directory) error {
-	return lazy.LazyState.Evaluate(ctx, "Directory.withDirectory", func(ctx context.Context) error {
+	return dir.evaluateLazy(ctx, &lazy.LazyState, "Directory.withDirectory", func(ctx context.Context) error {
 		return dir.WithDirectory(ctx, lazy.Parent, lazy.DestDir, lazy.Source, lazy.Filter, lazy.Owner, lazy.Permissions)
 	})
 }
@@ -854,12 +1003,12 @@ func (lazy *DirectoryWithDirectoryLazy) AttachDependencies(ctx context.Context, 
 	return []dagql.AnyResult{parent, source}, nil
 }
 
-func (lazy *DirectoryWithDirectoryLazy) EncodePersisted(ctx context.Context, cache dagql.PersistedObjectCache) (json.RawMessage, error) {
-	parentID, err := encodePersistedObjectRef(cache, lazy.Parent, "directory withDirectory parent")
+func (lazy *DirectoryWithDirectoryLazy) EncodePersisted(ctx context.Context, enc *dagql.PersistEncodeContext) (json.RawMessage, error) {
+	parentID, err := encodePersistedObjectRef(enc, lazy.Parent, "directory withDirectory parent")
 	if err != nil {
 		return nil, err
 	}
-	sourceID, err := encodePersistedObjectRef(cache, lazy.Source, "directory withDirectory source")
+	sourceID, err := encodePersistedObjectRef(enc, lazy.Source, "directory withDirectory source")
 	if err != nil {
 		return nil, err
 	}
@@ -874,7 +1023,7 @@ func (lazy *DirectoryWithDirectoryLazy) EncodePersisted(ctx context.Context, cac
 }
 
 func (lazy *DirectoryWithDirectoryDockerfileCompatLazy) Evaluate(ctx context.Context, dir *Directory) error {
-	return lazy.LazyState.Evaluate(ctx, "Directory.withDirectoryDockerfileCompat", func(ctx context.Context) error {
+	return dir.evaluateLazy(ctx, &lazy.LazyState, "Directory.withDirectoryDockerfileCompat", func(ctx context.Context) error {
 		return dir.WithDirectoryDockerfileCompat(
 			ctx,
 			lazy.Parent,
@@ -909,12 +1058,12 @@ func (lazy *DirectoryWithDirectoryDockerfileCompatLazy) AttachDependencies(ctx c
 	return []dagql.AnyResult{parent, source}, nil
 }
 
-func (lazy *DirectoryWithDirectoryDockerfileCompatLazy) EncodePersisted(ctx context.Context, cache dagql.PersistedObjectCache) (json.RawMessage, error) {
-	parentID, err := encodePersistedObjectRef(cache, lazy.Parent, "directory withDirectoryDockerfileCompat parent")
+func (lazy *DirectoryWithDirectoryDockerfileCompatLazy) EncodePersisted(ctx context.Context, enc *dagql.PersistEncodeContext) (json.RawMessage, error) {
+	parentID, err := encodePersistedObjectRef(enc, lazy.Parent, "directory withDirectoryDockerfileCompat parent")
 	if err != nil {
 		return nil, err
 	}
-	sourceID, err := encodePersistedObjectRef(cache, lazy.Source, "directory withDirectoryDockerfileCompat source")
+	sourceID, err := encodePersistedObjectRef(enc, lazy.Source, "directory withDirectoryDockerfileCompat source")
 	if err != nil {
 		return nil, err
 	}
@@ -937,8 +1086,8 @@ func (lazy *DirectoryWithDirectoryDockerfileCompatLazy) EncodePersisted(ctx cont
 }
 
 func (lazy *DirectoryWithPatchFileLazy) Evaluate(ctx context.Context, dir *Directory) error {
-	return lazy.LazyState.Evaluate(ctx, "Directory.withPatchFile", func(ctx context.Context) error {
-		return dir.applyPatchFileResult(ctx, lazy.Parent, lazy.Patch)
+	return dir.evaluateLazy(ctx, &lazy.LazyState, "Directory.withPatchFile", func(ctx context.Context) error {
+		return dir.applyPatchFileResult(ctx, lazy.Parent, lazy.Patch, lazy.OnConflict)
 	})
 }
 
@@ -956,20 +1105,20 @@ func (lazy *DirectoryWithPatchFileLazy) AttachDependencies(ctx context.Context, 
 	return []dagql.AnyResult{parent, patch}, nil
 }
 
-func (lazy *DirectoryWithPatchFileLazy) EncodePersisted(ctx context.Context, cache dagql.PersistedObjectCache) (json.RawMessage, error) {
-	parentID, err := encodePersistedObjectRef(cache, lazy.Parent, "directory withPatchFile parent")
+func (lazy *DirectoryWithPatchFileLazy) EncodePersisted(ctx context.Context, enc *dagql.PersistEncodeContext) (json.RawMessage, error) {
+	parentID, err := encodePersistedObjectRef(enc, lazy.Parent, "directory withPatchFile parent")
 	if err != nil {
 		return nil, err
 	}
-	patchID, err := encodePersistedObjectRef(cache, lazy.Patch, "directory withPatchFile patch")
+	patchID, err := encodePersistedObjectRef(enc, lazy.Patch, "directory withPatchFile patch")
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(persistedDirectoryWithPatchFileLazy{ParentResultID: parentID, PatchResultID: patchID})
+	return json.Marshal(persistedDirectoryWithPatchFileLazy{ParentResultID: parentID, PatchResultID: patchID, OnConflict: lazy.OnConflict})
 }
 
 func (lazy *DirectoryWithNewFileLazy) Evaluate(ctx context.Context, dir *Directory) error {
-	return lazy.LazyState.Evaluate(ctx, "Directory.withNewFile", func(ctx context.Context) error {
+	return dir.evaluateLazy(ctx, &lazy.LazyState, "Directory.withNewFile", func(ctx context.Context) error {
 		return dir.WithNewFile(ctx, lazy.Parent, lazy.Dest, lazy.Content, lazy.Permissions, lazy.Ownership)
 	})
 }
@@ -983,8 +1132,8 @@ func (lazy *DirectoryWithNewFileLazy) AttachDependencies(ctx context.Context, at
 	return []dagql.AnyResult{parent}, nil
 }
 
-func (lazy *DirectoryWithNewFileLazy) EncodePersisted(ctx context.Context, cache dagql.PersistedObjectCache) (json.RawMessage, error) {
-	parentID, err := encodePersistedObjectRef(cache, lazy.Parent, "directory withNewFile parent")
+func (lazy *DirectoryWithNewFileLazy) EncodePersisted(ctx context.Context, enc *dagql.PersistEncodeContext) (json.RawMessage, error) {
+	parentID, err := encodePersistedObjectRef(enc, lazy.Parent, "directory withNewFile parent")
 	if err != nil {
 		return nil, err
 	}
@@ -998,7 +1147,7 @@ func (lazy *DirectoryWithNewFileLazy) EncodePersisted(ctx context.Context, cache
 }
 
 func (lazy *DirectoryWithFileLazy) Evaluate(ctx context.Context, dir *Directory) error {
-	return lazy.LazyState.Evaluate(ctx, "Directory.withFile", func(ctx context.Context) error {
+	return dir.evaluateLazy(ctx, &lazy.LazyState, "Directory.withFile", func(ctx context.Context) error {
 		return dir.WithFile(ctx, lazy.Parent, lazy.DestPath, lazy.Source, lazy.Permissions, lazy.Owner, lazy.DoNotCreateDestPath, lazy.AttemptUnpackDockerCompatibility)
 	})
 }
@@ -1017,12 +1166,12 @@ func (lazy *DirectoryWithFileLazy) AttachDependencies(ctx context.Context, attac
 	return []dagql.AnyResult{parent, source}, nil
 }
 
-func (lazy *DirectoryWithFileLazy) EncodePersisted(ctx context.Context, cache dagql.PersistedObjectCache) (json.RawMessage, error) {
-	parentID, err := encodePersistedObjectRef(cache, lazy.Parent, "directory withFile parent")
+func (lazy *DirectoryWithFileLazy) EncodePersisted(ctx context.Context, enc *dagql.PersistEncodeContext) (json.RawMessage, error) {
+	parentID, err := encodePersistedObjectRef(enc, lazy.Parent, "directory withFile parent")
 	if err != nil {
 		return nil, err
 	}
-	sourceID, err := encodePersistedObjectRef(cache, lazy.Source, "directory withFile source")
+	sourceID, err := encodePersistedObjectRef(enc, lazy.Source, "directory withFile source")
 	if err != nil {
 		return nil, err
 	}
@@ -1038,7 +1187,7 @@ func (lazy *DirectoryWithFileLazy) EncodePersisted(ctx context.Context, cache da
 }
 
 func (lazy *DirectoryWithTimestampsLazy) Evaluate(ctx context.Context, dir *Directory) error {
-	return lazy.LazyState.Evaluate(ctx, "Directory.withTimestamps", func(ctx context.Context) error {
+	return dir.evaluateLazy(ctx, &lazy.LazyState, "Directory.withTimestamps", func(ctx context.Context) error {
 		return dir.WithTimestamps(ctx, lazy.Parent, lazy.Timestamp)
 	})
 }
@@ -1052,8 +1201,8 @@ func (lazy *DirectoryWithTimestampsLazy) AttachDependencies(ctx context.Context,
 	return []dagql.AnyResult{parent}, nil
 }
 
-func (lazy *DirectoryWithTimestampsLazy) EncodePersisted(ctx context.Context, cache dagql.PersistedObjectCache) (json.RawMessage, error) {
-	parentID, err := encodePersistedObjectRef(cache, lazy.Parent, "directory withTimestamps parent")
+func (lazy *DirectoryWithTimestampsLazy) EncodePersisted(ctx context.Context, enc *dagql.PersistEncodeContext) (json.RawMessage, error) {
+	parentID, err := encodePersistedObjectRef(enc, lazy.Parent, "directory withTimestamps parent")
 	if err != nil {
 		return nil, err
 	}
@@ -1061,8 +1210,8 @@ func (lazy *DirectoryWithTimestampsLazy) EncodePersisted(ctx context.Context, ca
 }
 
 func (lazy *DirectoryWithNewDirectoryLazy) Evaluate(ctx context.Context, dir *Directory) error {
-	return lazy.LazyState.Evaluate(ctx, "Directory.withNewDirectory", func(ctx context.Context) error {
-		return dir.WithNewDirectory(ctx, lazy.Parent, lazy.Dest, lazy.Permissions)
+	return dir.evaluateLazy(ctx, &lazy.LazyState, "Directory.withNewDirectory", func(ctx context.Context) error {
+		return dir.WithNewDirectory(ctx, lazy.Parent, dagql.CurrentCall(ctx), lazy.Dest, lazy.Permissions)
 	})
 }
 
@@ -1075,8 +1224,8 @@ func (lazy *DirectoryWithNewDirectoryLazy) AttachDependencies(ctx context.Contex
 	return []dagql.AnyResult{parent}, nil
 }
 
-func (lazy *DirectoryWithNewDirectoryLazy) EncodePersisted(ctx context.Context, cache dagql.PersistedObjectCache) (json.RawMessage, error) {
-	parentID, err := encodePersistedObjectRef(cache, lazy.Parent, "directory withNewDirectory parent")
+func (lazy *DirectoryWithNewDirectoryLazy) EncodePersisted(ctx context.Context, enc *dagql.PersistEncodeContext) (json.RawMessage, error) {
+	parentID, err := encodePersistedObjectRef(enc, lazy.Parent, "directory withNewDirectory parent")
 	if err != nil {
 		return nil, err
 	}
@@ -1084,7 +1233,7 @@ func (lazy *DirectoryWithNewDirectoryLazy) EncodePersisted(ctx context.Context, 
 }
 
 func (lazy *DirectorySubdirectoryLazy) Evaluate(ctx context.Context, dir *Directory) error {
-	return lazy.LazyState.Evaluate(ctx, "Directory.directory", func(ctx context.Context) error {
+	return dir.evaluateLazy(ctx, &lazy.LazyState, "Directory.directory", func(ctx context.Context) error {
 		cache, err := dagql.EngineCache(ctx)
 		if err != nil {
 			return err
@@ -1132,11 +1281,11 @@ func (lazy *DirectorySubdirectoryLazy) Evaluate(ctx context.Context, dir *Direct
 			if err != nil {
 				return err
 			}
-			dir.Dir.setValue(scratchDir)
-			dir.Snapshot.setValue(scratchSnapshot)
+			dir.SetPath(scratchDir)
+			dir.SetSnapshot(scratchSnapshot)
 			return nil
 		}
-		dir.Dir.setValue(finalDir)
+		dir.SetPath(finalDir)
 
 		query, err := CurrentQuery(ctx)
 		if err != nil {
@@ -1146,7 +1295,7 @@ func (lazy *DirectorySubdirectoryLazy) Evaluate(ctx context.Context, dir *Direct
 		if err != nil {
 			return err
 		}
-		dir.Snapshot.setValue(reopened)
+		dir.SetSnapshot(reopened)
 		return nil
 	})
 }
@@ -1160,8 +1309,8 @@ func (lazy *DirectorySubdirectoryLazy) AttachDependencies(ctx context.Context, a
 	return []dagql.AnyResult{parent}, nil
 }
 
-func (lazy *DirectorySubdirectoryLazy) EncodePersisted(ctx context.Context, cache dagql.PersistedObjectCache) (json.RawMessage, error) {
-	parentID, err := encodePersistedObjectRef(cache, lazy.Parent, "directory directory parent")
+func (lazy *DirectorySubdirectoryLazy) EncodePersisted(ctx context.Context, enc *dagql.PersistEncodeContext) (json.RawMessage, error) {
+	parentID, err := encodePersistedObjectRef(enc, lazy.Parent, "directory directory parent")
 	if err != nil {
 		return nil, err
 	}
@@ -1169,7 +1318,7 @@ func (lazy *DirectorySubdirectoryLazy) EncodePersisted(ctx context.Context, cach
 }
 
 func (lazy *DirectoryDiffLazy) Evaluate(ctx context.Context, dir *Directory) error {
-	return lazy.LazyState.Evaluate(ctx, "Directory.diff", func(ctx context.Context) error {
+	return dir.evaluateLazy(ctx, &lazy.LazyState, "Directory.diff", func(ctx context.Context) error {
 		return dir.Diff(ctx, lazy.Parent, lazy.Other)
 	})
 }
@@ -1188,12 +1337,12 @@ func (lazy *DirectoryDiffLazy) AttachDependencies(ctx context.Context, attach fu
 	return []dagql.AnyResult{parent, other}, nil
 }
 
-func (lazy *DirectoryDiffLazy) EncodePersisted(ctx context.Context, cache dagql.PersistedObjectCache) (json.RawMessage, error) {
-	parentID, err := encodePersistedObjectRef(cache, lazy.Parent, "directory diff parent")
+func (lazy *DirectoryDiffLazy) EncodePersisted(ctx context.Context, enc *dagql.PersistEncodeContext) (json.RawMessage, error) {
+	parentID, err := encodePersistedObjectRef(enc, lazy.Parent, "directory diff parent")
 	if err != nil {
 		return nil, err
 	}
-	otherID, err := encodePersistedObjectRef(cache, lazy.Other, "directory diff other")
+	otherID, err := encodePersistedObjectRef(enc, lazy.Other, "directory diff other")
 	if err != nil {
 		return nil, err
 	}
@@ -1201,7 +1350,7 @@ func (lazy *DirectoryDiffLazy) EncodePersisted(ctx context.Context, cache dagql.
 }
 
 func (lazy *DirectoryWithChangesLazy) Evaluate(ctx context.Context, dir *Directory) error {
-	return lazy.LazyState.Evaluate(ctx, "Directory.withChanges", func(ctx context.Context) error {
+	return dir.evaluateLazy(ctx, &lazy.LazyState, "Directory.withChanges", func(ctx context.Context) error {
 		return dir.WithChanges(ctx, lazy.Parent, lazy.Changes)
 	})
 }
@@ -1224,12 +1373,12 @@ func (lazy *DirectoryWithChangesLazy) AttachDependencies(ctx context.Context, at
 	return []dagql.AnyResult{parent, changes}, nil
 }
 
-func (lazy *DirectoryWithChangesLazy) EncodePersisted(ctx context.Context, cache dagql.PersistedObjectCache) (json.RawMessage, error) {
-	parentID, err := encodePersistedObjectRef(cache, lazy.Parent, "directory withChanges parent")
+func (lazy *DirectoryWithChangesLazy) EncodePersisted(ctx context.Context, enc *dagql.PersistEncodeContext) (json.RawMessage, error) {
+	parentID, err := encodePersistedObjectRef(enc, lazy.Parent, "directory withChanges parent")
 	if err != nil {
 		return nil, err
 	}
-	changesID, err := encodePersistedObjectRef(cache, lazy.Changes, "directory withChanges changes")
+	changesID, err := encodePersistedObjectRef(enc, lazy.Changes, "directory withChanges changes")
 	if err != nil {
 		return nil, err
 	}
@@ -1237,7 +1386,7 @@ func (lazy *DirectoryWithChangesLazy) EncodePersisted(ctx context.Context, cache
 }
 
 func (lazy *DirectoryWithoutLazy) Evaluate(ctx context.Context, dir *Directory) error {
-	return lazy.LazyState.Evaluate(ctx, "Directory.without", func(ctx context.Context) error {
+	return dir.evaluateLazy(ctx, &lazy.LazyState, "Directory.without", func(ctx context.Context) error {
 		return dir.Without(ctx, lazy.Parent, dagql.CurrentCall(ctx), true, lazy.Paths...)
 	})
 }
@@ -1251,8 +1400,8 @@ func (lazy *DirectoryWithoutLazy) AttachDependencies(ctx context.Context, attach
 	return []dagql.AnyResult{parent}, nil
 }
 
-func (lazy *DirectoryWithoutLazy) EncodePersisted(ctx context.Context, cache dagql.PersistedObjectCache) (json.RawMessage, error) {
-	parentID, err := encodePersistedObjectRef(cache, lazy.Parent, "directory without parent")
+func (lazy *DirectoryWithoutLazy) EncodePersisted(ctx context.Context, enc *dagql.PersistEncodeContext) (json.RawMessage, error) {
+	parentID, err := encodePersistedObjectRef(enc, lazy.Parent, "directory without parent")
 	if err != nil {
 		return nil, err
 	}
@@ -1260,7 +1409,7 @@ func (lazy *DirectoryWithoutLazy) EncodePersisted(ctx context.Context, cache dag
 }
 
 func (lazy *DirectoryWithSymlinkLazy) Evaluate(ctx context.Context, dir *Directory) error {
-	return lazy.LazyState.Evaluate(ctx, "Directory.withSymlink", func(ctx context.Context) error {
+	return dir.evaluateLazy(ctx, &lazy.LazyState, "Directory.withSymlink", func(ctx context.Context) error {
 		return dir.WithSymlink(ctx, lazy.Parent, lazy.Target, lazy.LinkName)
 	})
 }
@@ -1274,8 +1423,8 @@ func (lazy *DirectoryWithSymlinkLazy) AttachDependencies(ctx context.Context, at
 	return []dagql.AnyResult{parent}, nil
 }
 
-func (lazy *DirectoryWithSymlinkLazy) EncodePersisted(ctx context.Context, cache dagql.PersistedObjectCache) (json.RawMessage, error) {
-	parentID, err := encodePersistedObjectRef(cache, lazy.Parent, "directory withSymlink parent")
+func (lazy *DirectoryWithSymlinkLazy) EncodePersisted(ctx context.Context, enc *dagql.PersistEncodeContext) (json.RawMessage, error) {
+	parentID, err := encodePersistedObjectRef(enc, lazy.Parent, "directory withSymlink parent")
 	if err != nil {
 		return nil, err
 	}
@@ -1283,7 +1432,7 @@ func (lazy *DirectoryWithSymlinkLazy) EncodePersisted(ctx context.Context, cache
 }
 
 func (lazy *DirectoryChownLazy) Evaluate(ctx context.Context, dir *Directory) error {
-	return lazy.LazyState.Evaluate(ctx, "Directory.chown", func(ctx context.Context) error {
+	return dir.evaluateLazy(ctx, &lazy.LazyState, "Directory.chown", func(ctx context.Context) error {
 		return dir.Chown(ctx, lazy.Parent, lazy.ChownPath, lazy.Owner)
 	})
 }
@@ -1297,8 +1446,8 @@ func (lazy *DirectoryChownLazy) AttachDependencies(ctx context.Context, attach f
 	return []dagql.AnyResult{parent}, nil
 }
 
-func (lazy *DirectoryChownLazy) EncodePersisted(ctx context.Context, cache dagql.PersistedObjectCache) (json.RawMessage, error) {
-	parentID, err := encodePersistedObjectRef(cache, lazy.Parent, "directory chown parent")
+func (lazy *DirectoryChownLazy) EncodePersisted(ctx context.Context, enc *dagql.PersistEncodeContext) (json.RawMessage, error) {
+	parentID, err := encodePersistedObjectRef(enc, lazy.Parent, "directory chown parent")
 	if err != nil {
 		return nil, err
 	}
@@ -1506,7 +1655,7 @@ func (dir *Directory) WithNewFile(ctx context.Context, parent dagql.ObjectResult
 	if err != nil {
 		return err
 	}
-	dir.Dir.setValue(parentDir)
+	dir.SetPath(parentDir)
 	parentSnapshot, err := parent.Self().Snapshot.GetOrEval(ctx, parent.Result)
 	if err != nil {
 		return err
@@ -1568,11 +1717,11 @@ func (dir *Directory) WithNewFile(ctx context.Context, parent dagql.ObjectResult
 	if err != nil {
 		return err
 	}
-	dir.Snapshot.setValue(snapshot)
+	dir.SetSnapshot(snapshot)
 	return nil
 }
 
-func (dir *Directory) applyPatchToSnapshot(ctx context.Context, parentRef bkcache.ImmutableRef, dirPath string, patch dagql.ObjectResult[*File]) (bkcache.ImmutableRef, error) {
+func (dir *Directory) applyPatchToSnapshot(ctx context.Context, parentRef bkcache.ImmutableRef, dirPath string, patch dagql.ObjectResult[*File], onConflict PatchConflict) (bkcache.ImmutableRef, error) {
 	reopenParent := func() (bkcache.ImmutableRef, error) {
 		if parentRef == nil {
 			return nil, nil
@@ -1621,7 +1770,6 @@ func (dir *Directory) applyPatchToSnapshot(ctx context.Context, parentRef bkcach
 		return nil, err
 	}
 
-	ctx = trace.ContextWithSpanContext(ctx, trace.SpanContextFromContext(ctx))
 	stdio := telemetry.SpanStdio(ctx, InstrumentationLibrary)
 	defer stdio.Close()
 
@@ -1645,7 +1793,7 @@ func (dir *Directory) applyPatchToSnapshot(ctx context.Context, parentRef bkcach
 				return fmt.Errorf("open patch file: %w", err)
 			}
 			defer patchFile.Close()
-			return applyGitPatch(ctx, resolvedDir, patchFile, stdio)
+			return applyGitPatch(ctx, resolvedDir, patchFile, stdio, onConflict)
 		}, mountRefAsReadOnly)
 	})
 	if err != nil {
@@ -1719,7 +1867,7 @@ func (dir *Directory) withoutPathsFromSnapshot(ctx context.Context, parentSnapsh
 	return snapshot, anyPathsRemoved, nil
 }
 
-func (dir *Directory) applyPatchFileResult(ctx context.Context, parent dagql.ObjectResult[*Directory], patch dagql.ObjectResult[*File]) error {
+func (dir *Directory) applyPatchFileResult(ctx context.Context, parent dagql.ObjectResult[*Directory], patch dagql.ObjectResult[*File], onConflict PatchConflict) error {
 	cache, err := dagql.EngineCache(ctx)
 	if err != nil {
 		return err
@@ -1731,12 +1879,12 @@ func (dir *Directory) applyPatchFileResult(ctx context.Context, parent dagql.Obj
 	if err != nil {
 		return err
 	}
-	dir.Dir.setValue(parentDir)
+	dir.SetPath(parentDir)
 	parentRef, err := parent.Self().Snapshot.GetOrEval(ctx, parent.Result)
 	if err != nil {
 		return err
 	}
-	snap, err := dir.applyPatchToSnapshot(ctx, parentRef, parentDir, patch)
+	snap, err := dir.applyPatchToSnapshot(ctx, parentRef, parentDir, patch, onConflict)
 	if err != nil {
 		return err
 	}
@@ -1745,31 +1893,230 @@ func (dir *Directory) applyPatchFileResult(ctx context.Context, parent dagql.Obj
 		if err != nil {
 			return err
 		}
-		dir.Dir.setValue(scratchDir)
-		dir.Snapshot.setValue(scratchSnapshot)
+		dir.SetPath(scratchDir)
+		dir.SetSnapshot(scratchSnapshot)
 		return nil
 	}
-	dir.Snapshot.setValue(snap)
+	dir.SetSnapshot(snap)
 	return nil
 }
 
-func applyGitPatch(ctx context.Context, dir string, patch io.Reader, stdio telemetry.SpanStreams) error {
-	apply := exec.CommandContext(ctx, "git", "apply", "--allow-empty", "-")
+func applyGitPatch(ctx context.Context, dir string, patch io.Reader, stdio telemetry.SpanStreams, onConflict PatchConflict) error {
+	leaveMarkers := onConflict == PatchConflictLeaveMarkers
+	args := []string{"apply", "--allow-empty"}
+	var preexisting map[string]bool
+	if leaveMarkers {
+		// --reject applies every hunk that fits and writes the rest to
+		// <file>.rej; the rejects are converted to conflict markers below.
+		args = append(args, "--reject")
+		var err error
+		preexisting, err = findRejectFiles(dir)
+		if err != nil {
+			return err
+		}
+	}
+	args = append(args, "-")
+	apply := exec.CommandContext(ctx, "git", args...)
 	apply.Dir = dir
+	// wholeFileApplyErrors reads git's messages, so pin their language.
+	apply.Env = append(os.Environ(), "LC_ALL=C")
 	apply.Stdin = patch
 	apply.Stdout = stdio.Stdout
 	apply.Stderr = stdio.Stderr
-	if err := apply.Run(); err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		return fmt.Errorf("git apply: %w", err)
+	var stderr strings.Builder
+	if leaveMarkers {
+		apply.Stderr = io.MultiWriter(stdio.Stderr, &stderr)
 	}
+	runErr := apply.Run()
+	if runErr != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if !leaveMarkers {
+		if runErr != nil {
+			return fmt.Errorf("git apply: %w", runErr)
+		}
+		return nil
+	}
+	rejects, err := findRejectFiles(dir)
+	if err != nil {
+		return err
+	}
+	conflicted := make([]string, 0, len(rejects))
+	for rej := range rejects {
+		if !preexisting[rej] {
+			conflicted = append(conflicted, rej)
+		}
+	}
+	if runErr != nil {
+		// --reject reports a hunk it could not place and a file it could not
+		// patch at all with the same exit status, but only the former leaves
+		// a .rej behind. The latter — creating a file that already exists,
+		// editing one that is gone, a binary diff without full index lines —
+		// is skipped outright, leaving nothing in the tree to show that the
+		// change was dropped. The markers below cannot express that, so it
+		// stays a failure rather than passing for a conflict whenever some
+		// other hunk happened to be rejected as well.
+		if failed := wholeFileApplyErrors(stderr.String()); len(failed) > 0 {
+			return fmt.Errorf("git apply: %d file(s) could not be patched at all, which conflict markers cannot express:\n%s",
+				len(failed), strings.Join(failed, "\n"))
+		}
+		if len(conflicted) == 0 {
+			// No rejects written: a hard failure (bad patch, not a content
+			// conflict).
+			return fmt.Errorf("git apply: %w", runErr)
+		}
+	}
+	if len(conflicted) == 0 {
+		return nil
+	}
+	sort.Strings(conflicted)
+	conflictedTargets := make([]string, 0, len(conflicted))
+	for _, rej := range conflicted {
+		target := strings.TrimSuffix(rej, ".rej")
+		if err := convertRejectToMarkers(filepath.Join(dir, target), filepath.Join(dir, rej)); err != nil {
+			return fmt.Errorf("convert %s to conflict markers: %w", rej, err)
+		}
+		if err := os.Remove(filepath.Join(dir, rej)); err != nil {
+			return err
+		}
+		conflictedTargets = append(conflictedTargets, target)
+	}
+	fmt.Fprintf(stdio.Stderr, "WARNING: %d file(s) no longer match the patch; conflict markers were left in: %s\n",
+		len(conflictedTargets), strings.Join(conflictedTargets, ", "))
 	return nil
 }
 
+// wholeFileApplyErrors picks out of git apply --reject's stderr the errors
+// that are not rejected hunks. A hunk that no longer matches is reported as
+// "patch failed", preceded by "while searching for:" and the context it looked
+// for, and lands in a .rej file; any other error line means git skipped a
+// whole file: it already exists, it is gone, a binary diff has no full index
+// lines. Only the "error:" lines are looked at, minus the context block, whose
+// lines are file content and may say anything.
+func wholeFileApplyErrors(stderr string) []string {
+	var failed []string
+	inContext := false
+	for line := range strings.SplitSeq(stderr, "\n") {
+		msg, ok := strings.CutPrefix(line, "error: ")
+		if inContext {
+			// The context block ends with the verdict on its hunk.
+			if ok && strings.HasPrefix(msg, "patch failed: ") {
+				inContext = false
+			}
+			continue
+		}
+		if !ok {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(msg, "while searching for:"):
+			inContext = true
+		case strings.HasPrefix(msg, "patch failed: "):
+		default:
+			failed = append(failed, msg)
+		}
+	}
+	return failed
+}
+
+// findRejectFiles returns the set of *.rej paths under dir, relative to dir.
+func findRejectFiles(dir string) (map[string]bool, error) {
+	rejects := map[string]bool{}
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(d.Name(), ".rej") {
+			rel, err := filepath.Rel(dir, path)
+			if err != nil {
+				return err
+			}
+			rejects[rel] = true
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return rejects, nil
+}
+
+// rejectHunk is one hunk from a git-apply reject file: the 1-based line in
+// the pre-image where it wanted to apply, and the post-image lines (context
+// plus additions) it wanted to produce.
+type rejectHunk struct {
+	oldStart int
+	theirs   []string
+}
+
+var rejectHunkHeader = regexp.MustCompile(`^@@ -(\d+)(?:,\d+)? \+\d+(?:,\d+)? @@`)
+
+// convertRejectToMarkers folds a git-apply .rej file into its target as
+// git-style conflict markers: the surrounding content is left in place (the
+// "workspace" side) and each rejected hunk's intended result is inserted at
+// its recorded pre-image position (the "patch" side). Best-effort placement:
+// the content has drifted from what the hunk expected — that is why it was
+// rejected — so the markers flag the intent for a human or agent to resolve
+// rather than reproduce the edit exactly.
+func convertRejectToMarkers(targetPath, rejPath string) error {
+	rejBytes, err := os.ReadFile(rejPath)
+	if err != nil {
+		return err
+	}
+	var hunks []rejectHunk
+	for _, line := range strings.Split(string(rejBytes), "\n") {
+		if m := rejectHunkHeader.FindStringSubmatch(line); m != nil {
+			oldStart, err := strconv.Atoi(m[1])
+			if err != nil {
+				return fmt.Errorf("parse hunk header %q: %w", line, err)
+			}
+			hunks = append(hunks, rejectHunk{oldStart: oldStart})
+			continue
+		}
+		if len(hunks) == 0 {
+			continue // file header
+		}
+		h := &hunks[len(hunks)-1]
+		if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "+") {
+			h.theirs = append(h.theirs, line[1:])
+		}
+	}
+	if len(hunks) == 0 {
+		return nil
+	}
+
+	var lines []string
+	trailingNewline := true
+	if targetBytes, err := os.ReadFile(targetPath); err == nil {
+		content := string(targetBytes)
+		trailingNewline = content == "" || strings.HasSuffix(content, "\n")
+		lines = strings.Split(strings.TrimSuffix(content, "\n"), "\n")
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	// Insert from the bottom up so earlier insertions don't shift later
+	// positions.
+	sort.Slice(hunks, func(i, j int) bool { return hunks[i].oldStart > hunks[j].oldStart })
+	for _, h := range hunks {
+		at := min(max(h.oldStart-1, 0), len(lines))
+		block := make([]string, 0, len(h.theirs)+3)
+		block = append(block, "<<<<<<< workspace")
+		block = append(block, "=======")
+		block = append(block, h.theirs...)
+		block = append(block, fmt.Sprintf(">>>>>>> patch (rejected hunk at line %d)", h.oldStart))
+		lines = append(lines[:at], append(block, lines[at:]...)...)
+	}
+
+	out := strings.Join(lines, "\n")
+	if trailingNewline {
+		out += "\n"
+	}
+	return os.WriteFile(targetPath, []byte(out), 0o644)
+}
+
 func (dir *Directory) Search(ctx context.Context, self dagql.ObjectResult[*Directory], opts SearchOpts, verbose bool, paths []string, globs []string) ([]*SearchResult, error) {
-	// Validate and normalize paths to prevent directory traversal attacks
+	// Validate and normalize paths so they cannot resolve outside the directory.
 	for i, p := range paths {
 		// If absolute, make it relative to the directory
 		if filepath.IsAbs(p) {
@@ -1797,8 +2144,6 @@ func (dir *Directory) Search(ctx context.Context, self dagql.ObjectResult[*Direc
 	if err != nil {
 		return nil, err
 	}
-
-	ctx = trace.ContextWithSpanContext(ctx, trace.SpanContextFromContext(ctx))
 
 	results := []*SearchResult{}
 	err = MountRef(ctx, ref, func(root string, _ *mount.Mount) error {
@@ -1891,7 +2236,7 @@ func (dir *Directory) Subfile(ctx context.Context, parent dagql.ObjectResult[*Di
 		Snapshot: new(LazyAccessor[bkcache.ImmutableRef, *File]),
 	}
 	if parentDir, ok := parent.Self().Dir.Peek(); ok {
-		subfile.File.setValue(filepath.Join(parentDir, file))
+		subfile.SetPath(filepath.Join(parentDir, file))
 	}
 	return subfile, nil
 }
@@ -1955,6 +2300,19 @@ func (dir *Directory) WithDirectory(
 	owner string,
 	permissions *int,
 ) error {
+	return dir.withDirectory(ctx, parent, destDir, src, filter, owner, permissions, nil)
+}
+
+func (dir *Directory) withDirectory(
+	ctx context.Context,
+	parent dagql.ObjectResult[*Directory],
+	destDir string,
+	src dagql.ObjectResult[*Directory],
+	filter CopyFilter,
+	owner string,
+	permissions *int,
+	onCommit func(),
+) error {
 	dagqlCache, err := dagql.EngineCache(ctx)
 	if err != nil {
 		return err
@@ -1976,7 +2334,7 @@ func (dir *Directory) WithDirectory(
 	if err != nil {
 		return err
 	}
-	dir.Dir.setValue(ourDir)
+	dir.SetPath(ourDir)
 
 	srcRef, err := srcDirObj.Snapshot.GetOrEval(ctx, src.Result)
 	if err != nil {
@@ -2052,7 +2410,10 @@ func (dir *Directory) WithDirectory(
 	if err != nil {
 		return fmt.Errorf("failed to commit copied directory: %w", err)
 	}
-	dir.Snapshot.setValue(ref)
+	if onCommit != nil {
+		onCommit()
+	}
+	dir.SetSnapshot(ref)
 	return nil
 }
 
@@ -2060,7 +2421,10 @@ func materializedDirectorySnapshotAndPath(dir *Directory) (bkcache.ImmutableRef,
 	if dir == nil {
 		return nil, "", fmt.Errorf("materialized directory: nil directory")
 	}
-	if dir.Lazy != nil {
+	// Pending computation, not the operation's evaluated flag: a value whose
+	// part was acquired has a stored descriptor and an opened snapshot, and
+	// its restore operation never runs.
+	if dir.HasPendingLazyComputation() {
 		return nil, "", fmt.Errorf("materialized directory: still lazy %T", dir.Lazy)
 	}
 	dirRef, ok := dir.Snapshot.Peek()
@@ -2112,7 +2476,7 @@ func (dir *Directory) WithDirectoryDockerfileCompat(
 	if err != nil {
 		return fmt.Errorf("failed to get directory path: %w", err)
 	}
-	dir.Dir.setValue(ourDir)
+	dir.SetPath(ourDir)
 	dirRef, err := parent.Self().Snapshot.GetOrEval(ctx, parent.Result)
 	if err != nil {
 		return fmt.Errorf("failed to get directory ref: %w", err)
@@ -2276,7 +2640,7 @@ func (dir *Directory) WithDirectoryDockerfileCompat(
 	if err != nil {
 		return fmt.Errorf("failed to commit copied directory: %w", err)
 	}
-	dir.Snapshot.setValue(ref)
+	dir.SetSnapshot(ref)
 	return nil
 }
 
@@ -2501,7 +2865,7 @@ func (dir *Directory) WithFile(
 	if err != nil {
 		return err
 	}
-	dir.Dir.setValue(ourDir)
+	dir.SetPath(ourDir)
 	srcPath, err := src.Self().File.GetOrEval(ctx, src.Result)
 	if err != nil {
 		return err
@@ -2594,7 +2958,7 @@ func (dir *Directory) WithFile(
 	if err != nil {
 		return err
 	}
-	dir.Snapshot.setValue(snap)
+	dir.SetSnapshot(snap)
 	return nil
 }
 
@@ -2614,7 +2978,7 @@ func (dir *Directory) WithTimestamps(ctx context.Context, parent dagql.ObjectRes
 	if err != nil {
 		return err
 	}
-	dir.Dir.setValue(parentDir)
+	dir.SetPath(parentDir)
 	parentSnapshot, err := parent.Self().Snapshot.GetOrEval(ctx, parent.Result)
 	if err != nil {
 		return err
@@ -2649,11 +3013,11 @@ func (dir *Directory) WithTimestamps(ctx context.Context, parent dagql.ObjectRes
 	if err != nil {
 		return err
 	}
-	dir.Snapshot.setValue(snapshot)
+	dir.SetSnapshot(snapshot)
 	return nil
 }
 
-func (dir *Directory) WithNewDirectory(ctx context.Context, parent dagql.ObjectResult[*Directory], dest string, permissions fs.FileMode) error {
+func (dir *Directory) WithNewDirectory(ctx context.Context, parent dagql.ObjectResult[*Directory], opCall *dagql.ResultCall, dest string, permissions fs.FileMode) error {
 	dest = path.Clean(dest)
 	if strings.HasPrefix(dest, "../") {
 		return fmt.Errorf("cannot create directory outside parent: %s", dest)
@@ -2678,10 +3042,63 @@ func (dir *Directory) WithNewDirectory(ctx context.Context, parent dagql.ObjectR
 	if err != nil {
 		return err
 	}
-	dir.Dir.setValue(parentDir)
+	dir.SetPath(parentDir)
 	parentSnapshot, err := parent.Self().Snapshot.GetOrEval(ctx, parent.Result)
 	if err != nil {
 		return err
+	}
+	// MkdirAll leaves existing directories (including their permissions) alone.
+	// Check before allocating a mutable snapshot so repeated calls cannot grow
+	// the overlay layer chain without changing any files.
+	var alreadyExists bool
+	err = MountRef(ctx, parentSnapshot, func(root string, _ *mount.Mount) error {
+		resolvedDir, err := containerdfs.RootPath(root, path.Join(parentDir, dest))
+		if err != nil {
+			return err
+		}
+		info, err := os.Stat(resolvedDir)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return TrimErrPathPrefix(err, root)
+		}
+		alreadyExists = info.IsDir()
+		return nil
+	}, mountRefAsReadOnly)
+	if err != nil {
+		return err
+	}
+	if alreadyExists {
+		if parentSnapshot == nil {
+			scratchDir, scratchSnapshot, err := loadCanonicalScratchDirectory(ctx)
+			if err != nil {
+				return err
+			}
+			dir.SetPath(scratchDir)
+			dir.SetSnapshot(scratchSnapshot)
+		} else {
+			// Each Directory owns its snapshot handle. Reopen it so collecting
+			// this result cannot release the parent's still-cached handle.
+			reopened, err := query.SnapshotManager().GetBySnapshotID(ctx, parentSnapshot.SnapshotID(), bkcache.NoUpdateLastUsed)
+			if err != nil {
+				return err
+			}
+			dir.SetSnapshot(reopened)
+		}
+		if opCall != nil {
+			clientMetadata, err := engine.ClientMetadataFromContext(ctx)
+			if err != nil {
+				return fmt.Errorf("directory no-op equivalence client metadata: %w", err)
+			}
+			if clientMetadata.SessionID == "" {
+				return fmt.Errorf("directory no-op equivalence: empty session ID")
+			}
+			if err := cache.TeachCallEquivalentToResult(ctx, clientMetadata.SessionID, opCall, parent); err != nil {
+				return fmt.Errorf("teach directory withNewDirectory no-op equivalence: %w", err)
+			}
+		}
+		return nil
 	}
 	newRef, err := query.SnapshotManager().New(
 		ctx,
@@ -2707,7 +3124,7 @@ func (dir *Directory) WithNewDirectory(ctx context.Context, parent dagql.ObjectR
 	if err != nil {
 		return err
 	}
-	dir.Snapshot.setValue(snapshot)
+	dir.SetSnapshot(snapshot)
 	return nil
 }
 
@@ -2782,12 +3199,12 @@ func (dir *Directory) Diff(ctx context.Context, parent dagql.ObjectResult[*Direc
 		if err != nil {
 			return err
 		}
-		dir.Dir.setValue(scratchDir)
-		dir.Snapshot.setValue(scratchSnapshot)
+		dir.SetPath(scratchDir)
+		dir.SetSnapshot(scratchSnapshot)
 		return nil
 	}
-	dir.Dir.setValue("/")
-	dir.Snapshot.setValue(ref)
+	dir.SetPath("/")
+	dir.SetSnapshot(ref)
 	return nil
 }
 
@@ -2803,7 +3220,7 @@ func (dir *Directory) WithChanges(ctx context.Context, parent dagql.ObjectResult
 	if err != nil {
 		return err
 	}
-	dir.Dir.setValue(ourDir)
+	dir.SetPath(ourDir)
 
 	srv, err := CurrentDagqlServer(ctx)
 	if err != nil {
@@ -2824,11 +3241,23 @@ func (dir *Directory) WithChanges(ctx context.Context, parent dagql.ObjectResult
 			if err != nil {
 				return err
 			}
-			dir.Dir.setValue(scratchDir)
-			dir.Snapshot.setValue(scratchSnapshot)
+			dir.SetPath(scratchDir)
+			dir.SetSnapshot(scratchSnapshot)
 			return nil
 		}
-		dir.Snapshot.setValue(currentSnapshot)
+		// Reopen rather than sharing the parent's ref instance: each cached
+		// Directory value owns its snapshot handle and releases it when its
+		// cache entry is collected, so sharing one instance would let this
+		// result's collection invalidate the parent's still-cached snapshot.
+		query, err := CurrentQuery(ctx)
+		if err != nil {
+			return err
+		}
+		reopened, err := query.SnapshotManager().GetBySnapshotID(ctx, currentSnapshot.SnapshotID(), bkcache.NoUpdateLastUsed)
+		if err != nil {
+			return err
+		}
+		dir.SetSnapshot(reopened)
 		return nil
 	}
 
@@ -2877,11 +3306,11 @@ func (dir *Directory) WithChanges(ctx context.Context, parent dagql.ObjectResult
 		if err != nil {
 			return err
 		}
-		dir.Dir.setValue(scratchDir)
-		dir.Snapshot.setValue(scratchSnapshot)
+		dir.SetPath(scratchDir)
+		dir.SetSnapshot(scratchSnapshot)
 		return nil
 	}
-	dir.Snapshot.setValue(currentSnapshot)
+	dir.SetSnapshot(currentSnapshot)
 	return nil
 }
 
@@ -3031,7 +3460,7 @@ func (dir *Directory) Without(ctx context.Context, parent dagql.ObjectResult[*Di
 	if err != nil {
 		return err
 	}
-	dir.Dir.setValue(parentDir)
+	dir.SetPath(parentDir)
 	parentSnapshot, err := parent.Self().Snapshot.GetOrEval(ctx, parent.Result)
 	if err != nil {
 		return err
@@ -3045,10 +3474,10 @@ func (dir *Directory) Without(ctx context.Context, parent dagql.ObjectResult[*Di
 		if err != nil {
 			return err
 		}
-		dir.Dir.setValue(scratchDir)
-		dir.Snapshot.setValue(scratchSnapshot)
+		dir.SetPath(scratchDir)
+		dir.SetSnapshot(scratchSnapshot)
 	} else {
-		dir.Snapshot.setValue(snapshot)
+		dir.SetSnapshot(snapshot)
 	}
 
 	if teachNoopEquivalence && !anyPathsRemoved && opCall != nil && parent.Self() != nil {
@@ -3111,18 +3540,18 @@ func (*Stat) TypeDescription() string {
 	return "A file or directory status object."
 }
 
-func (s *Stat) EncodePersistedObject(ctx context.Context, cache dagql.PersistedObjectCache) (dagql.PersistedObjectEncoding, error) {
+func (s *Stat) EncodePersistedObject(ctx context.Context, enc *dagql.PersistEncodeContext) (dagql.PersistedObjectEncoding, error) {
 	_ = ctx
-	_ = cache
+	_ = enc
 	if s == nil {
 		return dagql.PersistedObjectEncoding{}, fmt.Errorf("encode persisted stat: nil stat")
 	}
 	return encodePersistedObjectPayload(s)
 }
 
-func (*Stat) DecodePersistedObject(ctx context.Context, dag *dagql.Server, _ uint64, _ *dagql.ResultCall, payload json.RawMessage) (dagql.Typed, error) {
+func (*Stat) DecodePersistedObject(ctx context.Context, dec *dagql.PersistDecodeContext, payload json.RawMessage) (dagql.Typed, error) {
 	_ = ctx
-	_ = dag
+	_ = dec
 	var s Stat
 	if err := json.Unmarshal(payload, &s); err != nil {
 		return nil, fmt.Errorf("decode persisted stat payload: %w", err)
@@ -3274,7 +3703,7 @@ func (dir *Directory) WithSymlink(ctx context.Context, parent dagql.ObjectResult
 	if err != nil {
 		return err
 	}
-	dir.Dir.setValue(parentDir)
+	dir.SetPath(parentDir)
 	parentSnapshot, err := parent.Self().Snapshot.GetOrEval(ctx, parent.Result)
 	if err != nil {
 		return err
@@ -3310,7 +3739,7 @@ func (dir *Directory) WithSymlink(ctx context.Context, parent dagql.ObjectResult
 	if err != nil {
 		return err
 	}
-	dir.Snapshot.setValue(snapshot)
+	dir.SetSnapshot(snapshot)
 	return nil
 }
 
@@ -3403,7 +3832,7 @@ func (dir *Directory) Chown(ctx context.Context, parent dagql.ObjectResult[*Dire
 	if err != nil {
 		return err
 	}
-	dir.Dir.setValue(parentDir)
+	dir.SetPath(parentDir)
 	parentSnapshot, err := parent.Self().Snapshot.GetOrEval(ctx, parent.Result)
 	if err != nil {
 		return err
@@ -3451,7 +3880,7 @@ func (dir *Directory) Chown(ctx context.Context, parent dagql.ObjectResult[*Dire
 	if err != nil {
 		return err
 	}
-	dir.Snapshot.setValue(snapshot)
+	dir.SetSnapshot(snapshot)
 	return nil
 }
 

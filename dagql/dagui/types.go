@@ -2,6 +2,7 @@ package dagui
 
 import (
 	"iter"
+	"slices"
 	"time"
 
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -63,12 +64,52 @@ func (db *DB) AllSpans() iter.Seq[*Span] {
 }
 
 func (db *DB) HasChecks() bool {
+	return db.HasChecksForSpan(nil)
+}
+
+// HasChecksForSpan reports whether the root-relative surfaced check view is
+// non-empty. A nil root means the live trace root, matching SurfacedChecks.
+func (db *DB) HasChecksForSpan(root *Span) bool {
+	return len(db.SurfacedChecksForSpan(root)) > 0
+}
+
+func (db *DB) HasGenerateReport() bool {
 	for _, span := range db.Spans.Order {
-		if span.CheckName != "" {
+		if span.GenerateSkipped {
 			return true
 		}
 	}
 	return false
+}
+
+// SkippedModuleSpans returns the spans reporting workspace modules that
+// best-effort generate skipped because they could not be loaded, in encounter
+// order. The final report renders these as a persisted "SKIPPED MODULES"
+// section so they survive the live tree collapsing on a successful run.
+func (db *DB) SkippedModuleSpans() []*Span {
+	var out []*Span
+	for _, span := range db.Spans.Order {
+		if span.GenerateSkipped {
+			out = append(out, span)
+		}
+	}
+	return out
+}
+
+// RegeneratedModuleSpans returns the spans `dagger generate` emitted for
+// skipped modules whose directory its changes touched, keyed by the module
+// name they share with the skipped-module span. Each records the outcome of
+// loading the module again with the changes applied: OK (it loads) or failed
+// (the post-generation error). The report shows that outcome instead of the
+// pre-generation load error it supersedes.
+func (db *DB) RegeneratedModuleSpans() map[string]*Span {
+	out := map[string]*Span{}
+	for _, span := range db.Spans.Order {
+		if span.GenerateRegenerated {
+			out[span.Name] = span
+		}
+	}
+	return out
 }
 
 func (db *DB) RowsView(opts FrontendOpts) *RowsView {
@@ -106,6 +147,12 @@ func (db *DB) RowsView(opts FrontendOpts) *RowsView {
 	} else {
 		spans = db.AllSpans()
 	}
+	if opts.RootFilter != nil && (!opts.ZoomedSpan.IsValid() || opts.ZoomedSpan == db.PrimarySpan) {
+		if roots := opts.RootFilter(db, view.Zoomed); len(roots) > 0 {
+			spans = slices.Values(roots)
+		}
+	}
+
 	db.WalkSpans(opts, spans, func(tree *TraceTree) {
 		if tree.Parent != nil {
 			tree.Parent.Children = append(tree.Parent.Children, tree)
@@ -118,6 +165,24 @@ func (db *DB) RowsView(opts FrontendOpts) *RowsView {
 }
 
 func (db *DB) WalkSpans(opts FrontendOpts, spans iter.Seq[*Span], f func(*TraceTree)) { //nolint:gocyclo
+	// Strict scoping: the walk root a span must descend from by real
+	// parentage. See FrontendOpts.StrictSubtree -- this is what makes a scoped
+	// report render exactly the root span's own subtree.
+	var scopeRoot *Span
+	if opts.StrictSubtree && opts.ZoomedSpan.IsValid() {
+		scopeRoot = db.Spans.Map[opts.ZoomedSpan]
+	}
+	inScope := func(span *Span) bool {
+		if scopeRoot == nil {
+			return true
+		}
+		for p := span; p != nil; p = p.ParentSpan {
+			if p == scopeRoot {
+				return true
+			}
+		}
+		return false
+	}
 	var lastTree *TraceTree
 	var lastCall *TraceTree
 	seen := make(map[SpanID]bool)
@@ -128,6 +193,13 @@ func (db *DB) WalkSpans(opts FrontendOpts, spans iter.Seq[*Span], f func(*TraceT
 			return false
 		}
 		seen[spanID] = true
+
+		// Strictly-scoped walks never leave the root's own subtree: a span
+		// attached by a link (cause/effect) or reached via the inline-cause
+		// walk below can live anywhere in the trace.
+		if !inScope(span) {
+			return false
+		}
 
 		// If the span should be hidden, don't even collect it into the tree so we
 		// can track relationships between rows accurately (e.g. chaining pipeline
@@ -327,15 +399,28 @@ func (row *TraceTree) IsExpanded(opts FrontendOpts) bool {
 		return expanded
 	}
 
+	verbosity := opts.Verbosity
+	if v, ok := opts.SpanVerbosity[row.Span.ID]; ok {
+		verbosity = v
+	}
+
 	autoExpand := row.Depth() < 1 && row.IsRunningOrChildRunning
 
 	alwaysExpand := row.Span.IsCanceled() ||
-		opts.Verbosity >= ExpandCompletedVerbosity ||
+		(row.Span.LLMRole != "" && len(row.Span.RevealedSpans.Order) > 0) ||
+		verbosity >= ExpandCompletedVerbosity ||
 		opts.ExpandCompleted
 
-	// never expand tool calls by default, tends to show a bunch of guts that
-	// distracts from the overall history
-	neverExpand := row.Span.LLMTool != "" || row.Span.RollUpLogs || row.Span.RollUpSpans
+	// Tool calls and rolled-up spans hide their guts by default -- they tend to
+	// show a bunch of internals that distract from the overall history. But at a
+	// high enough verbosity (the same threshold that expands completed spans)
+	// the user is explicitly asking to see everything, so let it punch through
+	// the rollup boundary -- e.g. 'dagger trace --span <toolcall> -vvvvv' to
+	// inspect a slow tool call's full call tree. ExpandCompleted alone does not
+	// punch through: it keeps completed spans open but still respects rollup
+	// boundaries.
+	neverExpand := (row.Span.LLMTool != "" || row.Span.RollUpLogs || row.Span.RollUpSpans) &&
+		verbosity < ExpandCompletedVerbosity
 
 	return (autoExpand || alwaysExpand) && !neverExpand
 }

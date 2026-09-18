@@ -23,6 +23,7 @@ import (
 
 	"github.com/dagger/dagger/core"
 	"github.com/dagger/dagger/dagql"
+	"github.com/dagger/dagger/dagql/call"
 	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/filesync"
 	bkcache "github.com/dagger/dagger/engine/snapshots"
@@ -39,6 +40,7 @@ func (s *hostSchema) Install(srv *dagql.Server) {
 		}).Doc(`Queries the host environment.`),
 
 		dagql.NodeFunc("_builtinContainer", s.builtinContainer).
+			WithInput(engineDefaultPlatformInput).
 			IsPersistable().
 			Doc("Retrieves a container builtin to the engine."),
 	}.Install(srv)
@@ -121,6 +123,15 @@ func (s *hostSchema) Install(srv *dagql.Server) {
 			Args(
 				dagql.Arg("name").Doc(`Name of the image to access.`),
 			),
+
+		dagql.NodeFunc("__gitDir", s.gitDir).
+			WithInput(dagql.PerClientInput).
+			Doc(`(Internal-only) A canonical .git directory for the client checkout at path, reconstructed from the client's own git pack.`,
+				`The engine never interprets a host checkout's raw git layout (worktree/submodule pointer files, commondirs, separate git dirs): the client's own git packs the repository and the engine rebuilds a standalone .git from the pack.`).
+			Args(
+				dagql.Arg("path").Doc(`Absolute host path of the client checkout to reconstruct a .git directory for.`),
+				dagql.Arg("stateDigest").Doc(`Digest of the checkout's current ref state. It keys the cache to the checkout, so the reconstruction is reused until the checkout's refs move.`),
+			),
 	}.Install(srv)
 }
 
@@ -139,6 +150,11 @@ func (s *hostSchema) builtinContainer(ctx context.Context, parent dagql.ObjectRe
 		return inst, err
 	}
 
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, ctr.OnRelease(context.WithoutCancel(ctx)))
+		}
+	}()
 	return dagql.NewObjectResultForCurrentCall(ctx, srv, ctr)
 }
 
@@ -168,6 +184,11 @@ func (s *hostSchema) directory(ctx context.Context, host dagql.ObjectResult[*cor
 	bk, err := query.Engine(ctx)
 	if err != nil {
 		return inst, fmt.Errorf("failed to get engine client: %w", err)
+	}
+
+	clientMetadata, err := engine.ClientMetadataFromContext(ctx)
+	if err != nil {
+		return inst, fmt.Errorf("failed to get client metadata: %w", err)
 	}
 
 	copyPath := path.Clean(args.Path)
@@ -254,6 +275,21 @@ func (s *hostSchema) directory(ctx context.Context, host dagql.ObjectResult[*cor
 		excludePatterns = append(excludePatterns, exclude)
 	}
 
+	ws, err := query.CurrentWorkspace(ctx)
+	if err != nil && !errors.Is(err, core.ErrNoCurrentWorkspace) {
+		return inst, fmt.Errorf("failed to get current workspace: %w", err)
+	}
+	// Exclude the lockfile to avoid cache busts from automatic writes.
+	if lockExclude, ok := workspaceLockExcludePattern(ws, clientMetadata.ClientID, absRootCopyPath, initialAbsCopyPath); ok {
+		explicitlyIncluded := false
+		for _, include := range includePatterns {
+			explicitlyIncluded = explicitlyIncluded || include == lockExclude
+		}
+		if !explicitlyIncluded {
+			excludePatterns = append(excludePatterns, lockExclude)
+		}
+	}
+
 	followPaths := make([]string, 0, len(args.FollowPaths))
 	for _, followPath := range args.FollowPaths {
 		if !filepath.IsLocal(followPath) {
@@ -273,10 +309,6 @@ func (s *hostSchema) directory(ctx context.Context, host dagql.ObjectResult[*cor
 		snapshotOpts.CacheBuster = rand.Text()
 	}
 
-	clientMetadata, err := engine.ClientMetadataFromContext(ctx)
-	if err != nil {
-		return inst, fmt.Errorf("failed to get client metadata: %w", err)
-	}
 	callerConn, _, err := query.SpecificClientAttachableConn(ctx, clientMetadata.ClientID, core.SpecificClientAttachableConnOpts{})
 	if err != nil {
 		return inst, fmt.Errorf("failed to get caller attachable conn: %w", err)
@@ -295,6 +327,9 @@ func (s *hostSchema) directory(ctx context.Context, host dagql.ObjectResult[*cor
 			},
 		}); err != nil {
 			return inst, fmt.Errorf("failed to load client filesync mirror: %w", err)
+		}
+		if err := core.EnsureBackingSnapshot(ctx, persistedMirror); err != nil {
+			return inst, fmt.Errorf("failed to create client filesync mirror: %w", err)
 		}
 		mirror = persistedMirror.Self()
 	} else {
@@ -321,21 +356,47 @@ func (s *hostSchema) directory(ctx context.Context, host dagql.ObjectResult[*cor
 		Dir:      new(core.LazyAccessor[string, *core.Directory]),
 		Snapshot: new(core.LazyAccessor[bkcache.ImmutableRef, *core.Directory]),
 	}
-	dir.Dir.SetValue("/")
-	dir.Snapshot.SetValue(ref)
+	dir.SetPath("/")
+	dir.SetSnapshot(ref)
 
 	inst, err = dagql.NewObjectResultForCurrentCall(ctx, srv, dir)
 	if err != nil {
 		_ = dir.OnRelease(context.WithoutCancel(ctx))
 		return inst, fmt.Errorf("failed to create directory result: %w", err)
 	}
-	inst, err = inst.WithContentDigest(ctx, contentDgst)
+	inst, err = inst.WithContentDigest(ctx, contentDgst, call.ExtraDigestLabelRemoteCache)
 	if err != nil {
 		_ = dir.OnRelease(context.WithoutCancel(ctx))
 		return inst, err
 	}
 
 	return inst, nil
+}
+
+func workspaceLockExcludePattern(ws *core.Workspace, clientID, snapshotRoot, snapshotPath string) (string, bool) {
+	if ws == nil || ws.HostPath() == "" || ws.ClientID == "" || ws.ClientID != clientID {
+		return "", false
+	}
+	if ws.LockFile == "" {
+		return "", false
+	}
+
+	workspacePath := filepath.Clean(ws.HostPath())
+	relWorkspaceFromSnapshot, err := filepath.Rel(filepath.Clean(snapshotPath), workspacePath)
+	if err != nil || !filepath.IsLocal(relWorkspaceFromSnapshot) {
+		return "", false
+	}
+
+	lockPath, err := workspaceHostPath(ws, ws.LockFile)
+	if err != nil {
+		return "", false
+	}
+	relLockFromRoot, err := filepath.Rel(filepath.Clean(snapshotRoot), filepath.Clean(lockPath))
+	if err != nil || !filepath.IsLocal(relLockFromRoot) {
+		return "", false
+	}
+
+	return relLockFromRoot, true
 }
 
 type hostSocketArgs struct {
@@ -763,6 +824,52 @@ func (s *hostSchema) containerImage(ctx context.Context, parent dagql.ObjectResu
 	}
 
 	return inst, errors.New("invalid save config")
+}
+
+type hostGitDirArgs struct {
+	Path          string
+	StateDigest   string
+	ValidateState bool
+}
+
+// gitDir reconstructs a canonical .git directory for the client checkout at
+// Path from the client's own git pack (see core.MaterializeGitCheckoutPack).
+// The engine is never the interpreter of a host checkout's raw git layout;
+// the client's git is the oracle.
+func (s *hostSchema) gitDir(ctx context.Context, host dagql.ObjectResult[*core.Host], args hostGitDirArgs) (inst dagql.ObjectResult[*core.Directory], err error) {
+	query, err := core.CurrentQuery(ctx)
+	if err != nil {
+		return inst, err
+	}
+	bk, err := query.Engine(ctx)
+	if err != nil {
+		return inst, fmt.Errorf("failed to get engine client: %w", err)
+	}
+
+	// args.StateDigest is deliberately unused in the body: it is a pure dagql
+	// cache key, keying this reconstruction to the checkout's ref state so the
+	// result is reused until the checkout's refs move.
+
+	expectedStateDigest := ""
+	if args.ValidateState {
+		expectedStateDigest = args.StateDigest
+	}
+	pack, err := bk.PackGitCheckout(ctx, args.Path, expectedStateDigest)
+	if err != nil {
+		return inst, fmt.Errorf("failed to pack git checkout for %q: %w", args.Path, err)
+	}
+	defer func() { _ = pack.Close() }()
+
+	dir, err := core.MaterializeGitCheckoutPack(ctx, pack)
+	if err != nil {
+		return inst, fmt.Errorf("failed to materialize git checkout pack for %q: %w", args.Path, err)
+	}
+
+	srv, err := core.CurrentDagqlServer(ctx)
+	if err != nil {
+		return inst, fmt.Errorf("failed to get current dagql server: %w", err)
+	}
+	return dagql.NewObjectResultForCurrentCall(ctx, srv, dir)
 }
 
 type hostServiceArgs struct {

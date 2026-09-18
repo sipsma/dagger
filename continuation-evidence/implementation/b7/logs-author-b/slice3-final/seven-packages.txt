@@ -1,0 +1,8 @@
+pass github.com/dagger/dagger/engine/engineutil/imageexport 0s
+pass github.com/dagger/dagger/engine/snapshots 0.001s
+pass github.com/dagger/dagger/engine/engineutil 0.002s
+pass github.com/dagger/dagger/engine/server 6.25s
+pass github.com/dagger/dagger/core/schema 18.043s
+pass github.com/dagger/dagger/dagql 19.477s
+pass github.com/dagger/dagger/core 22.202s
+{'pass': 3068, 'skip': 1}

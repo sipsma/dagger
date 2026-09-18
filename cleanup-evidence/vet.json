@@ -1,0 +1,13 @@
+{
+  "command": "go vet -p 1 ./dagql ./core ./core/schema",
+  "cwd": "/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/remote-cache-cleanup-implementer-2f409eb3-1d445bb7",
+  "started_utc": "2026-09-13T19:56:48.727559+00:00",
+  "head": "1ba150a79b8a3f7568e27a22cee492f578ffa538",
+  "source_tree": "3813552225a0d3c020c8d6bb3e327acab5a5531f",
+  "free_bytes_before": 7228022784,
+  "patch_sha256": "e7c8645ac9bd64fb0e05eb7905e1adcca49a83f1f045ae77134949e41b866ac4",
+  "exit_code": 0,
+  "finished_utc": "2026-09-13T19:57:04.045044+00:00",
+  "free_bytes_after": 7226118144,
+  "log_sha256": "6cfe09583e7349d2b6393d4ce9c2707e6299136b8f66ec72d3b22783b2ccae9a"
+}

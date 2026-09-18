@@ -1,0 +1,13 @@
+1375:                Error Trace:    /app/core/integration/remote_cache_renewal_test.go:103
+1381:                Error:          Received unexpected error:
+1434:    testctx.go:198: 41  : [8.7s] | panic: assignment to entry in nil map
+1934:                Error Trace:    /app/core/integration/remote_cache_sharing_finish_test.go:197
+1940:                Error:          Should be zero, but was 1
+1942:                Messages:       the passes left no transient pin: [581373103-NLsH: content/sha256:9234e8fb04c47cfe0f49931e4ac7eb76fa904e33b7f8576aec0501c085f02516 content/sha256:9824c27679d3b27c5e1cb00a73adb6f4f8d556994111c12db3c5d61a0c843df8 content/sha256:eafc1edb577d2e9b458664a15f23ea1c370214193226069eb22921169fc7e43f snapshots/overlayfs/pct240j4jt7ncjb9gfowj0s2h]
+2034:--- FAIL: TestRemoteCacheTransferSuite (0.00s)
+2035:    --- FAIL: TestRemoteCacheTransferSuite/TestRenewal (0.00s)
+2036:        --- FAIL: TestRemoteCacheTransferSuite/TestRenewal/ArmedReplySucceeds (58.26s)
+2037:        --- PASS: TestRemoteCacheTransferSuite/TestRenewal/TimeoutThenFallback (87.82s)
+2038:    --- FAIL: TestRemoteCacheTransferSuite/TestSharingFinish (0.00s)
+2039:        --- FAIL: TestRemoteCacheTransferSuite/TestSharingFinish/OnePass (91.74s)
+2055:exit=1 wall=245s

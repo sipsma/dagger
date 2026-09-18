@@ -1,0 +1,16 @@
+=== RUN   TestPartWholeProducerMixedRestart
+2026/09/16 15:05:08 INFO starting dagql cache close hasSQLDB=true hasPersistDB=true
+2026/09/16 15:05:08 INFO marking dagql cache clean shutdown
+2026/09/16 15:05:08 WARN successfully marked clean shutdown in persistence metadata
+2026/09/16 15:05:08 INFO completed dagql cache close successfully
+2026/09/16 15:05:08 INFO start lazy evaluation field=Query._builtinContainer
+2026/09/16 15:05:08 INFO end lazy evaluation field=Query._builtinContainer duration=39.342625ms
+2026/09/16 15:05:08 INFO discarding dagql cache without persistence hasSQLDB=true hasPersistDB=true
+2026/09/16 15:05:08 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+2026/09/16 15:05:08 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestPartWholeProducerMixedRestart (0.41s)
+=== RUN   TestPartNativePendingContainerRequiresRecipe
+2026/09/16 15:05:08 INFO discarding dagql cache without persistence hasSQLDB=false hasPersistDB=false
+--- PASS: TestPartNativePendingContainerRequiresRecipe (0.01s)
+PASS
+ok  	github.com/dagger/dagger/core	1.895s
