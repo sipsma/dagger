@@ -2510,3 +2510,19 @@ notes the split. `bcd95269fd` dropped. Tip `731858e798` on `e8846990e9`
 (`pkg/a4-on-e884`), 20 commits; then moved onto #14229's new head
 `7b5d35903a`. Corrections table: `7893a8022a` → split (main PR +
 A4); `e81a03ae61` → main PR.
+
+Main shutdown PR results (head files `e2bda9adfa dirty=0` written before
+the runs): `go test -count=1 -timeout 60s -v ./engine/server/`
+(/tmp/pkg-main-gs-tests.log): `ok engine/server 4.094s`, 151 top-level
+PASS, 0 FAIL, 0 SKIP, `--- PASS: TestGracefulStopReturnsEarlierShutdownErrors
+(2.81s)`; lint-all (/tmp/pkg-main-gs-lint.log): `golangci-lint:lint-all
+DONE [1m39s]`, 0 findings; two commits, Erik's signoff, no attribution.
+Sent to the reviewer; the coordinator publishes. A4 moved onto
+`7b5d35903a`: tip `e121ed5aa7`, 20 commits; range-diff vs the reworked
+series on `e8846990e9` (`731858e798`): 20 `=`; map: 17 originals mapped,
+`e81a03ae61` (none) = moved to the main PR, 3 new. Touched packages and
+lint-all running (/tmp/pkg-a4-tests3.head, /tmp/pkg-a4-lint4.head).
+(c) finding for #14228's SSH GitLab failure reported: no SSH-specific
+difference in the follow-ups' diffs; the only new git path is the shared
+mirror's backing-snapshot ensure and owner-lease sync before auth setup,
+for every scheme (core/git_remote.go:599, core/backing_snapshot.go:45-67).
