@@ -2254,3 +2254,36 @@ inherited nested last-waiter case); `--- PASS:
 TestImportedBackingSnapshotIsOwnedByItsRow (0.00s)`. Lint-all:
 `golangci-lint:lint-all DONE [1m34s]`, 0 findings. Sent to the reviewer;
 coordinator copied with the proposed description sentence.
+
+#### #14228 follow-ups pushed; A4 cut started
+
+Reviewer approved `dca16de409` (no findings; the three production
+patches match their originals; the test file is cfa148371c's minus the
+two fixture tests and their unused imports). Move-rule check before the
+push: trial merge of `dca16de409` into #14229's head `e8846990e9`
+(scratch worktree): clean, 10 files, `go build ./...` and `go vet
+./core/` ok, so #14229 stays. Pushed with
+`--force-with-lease=sipsma/remote-cache-value-transfer:c7dc73fbf7`
+(fast-forward `c7dc73fbf7..dca16de409`); #14228 head `dca16de409`. The
+approved sentence appended to the "How it fits main" paragraph by REST
+PATCH (/tmp/pkg-a2-patch2.json); read back verbatim
+(/tmp/pkg-a2-pr-body.live.md).
+
+A4 (`pkg/a4`, worktree /tmp/pkg-a4): packaged `b5-offers`
+`a760512501..abb3ce9750` (18 commits) rebased onto A3's published tip
+`e8846990e9`. One conflict, in dagql/cache_value_transfer_test.go at
+"test: cover offer admission, settlement, resources and shutdown"
+(`eb2031eb09`): the revisionHook test hook the scan fix carried into A3
+(`279425d3d2`'s provenance line) is already present; kept once (one
+`revisionHook func()` declaration, the `unready` lines alongside), as
+foreseen. Reconciliations with A3's lint commit, folded into the A4
+commits that introduce the references: `lifetimeSyncFailure` →
+`errLifetimeSync` in dagql/cache_offer_matrix_test.go
+("test: cover offer admission…"), and a `partTestEquivalent` call without
+the removed context parameter (its introducing commit being located).
+Main-owned vet finding recorded, not fixed:
+engine/server/session_attachables.go:211 (main's `74c2889afc`, #13108)
+discards a WithTimeoutCause cancel. LLM files: none touched.
+Batch-5 correction `e844245c8b` corrects `cc0f894a11` ("dagql: fetch
+offered chains through one content source with renewal", which clones
+the offer's address map) and goes directly above its candidate.
