@@ -1181,3 +1181,20 @@ tree. Rerun once (`-W` form). #14043: all 85 checks pass after its
 reruns (test-base included: the codegen nested-init deadline did not
 recur), human approval (grouville), head `4a09602c18`; asynchronous
 merge enqueued (uuid `17be4ea4-b670-4e48-96ae-a36a889743d4`).
+
+### Merge of #14043
+
+Merged #14043 at main `1daceb3a34` (19:55:59 UTC) under the merge rule:
+85 pass, 1 skipping, 0 pending, 0 failed (after the single reruns of
+test-provision, golang:test-all and test-base); human approval by
+grouville; head `4a09602c18` equal to the reviewed candidate;
+asynchronous merge endpoint, sha pinned (uuid
+`17be4ea4-b670-4e48-96ae-a36a889743d4`, result "merged"). Automatic
+rebase of the PRs above, trees identical (range-diff all equal in every
+case): #14049 → `b910097a74` (8 commits, base now `main`), #14050 →
+`00eaf56c66` (15), #14051 → `31f7c8dc10` (17), #14093 → `21f73b7a33`
+(9). Fresh check runs watched. Fixes redirected to main because #14043
+is merged: E15 (`3587242fe7`, per-part evaluation) was to go into
+#14043 in step 4 and now becomes a small PR against main instead. The
+next merge candidate is #14049, which has no human approval on GitHub
+yet (REVIEW_REQUIRED).
