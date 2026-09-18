@@ -2,7 +2,7 @@
 
 Author B, 17 September 2026. Local refs only; **nothing pushed, no pull request, no tag**. `batch-7.json` beside this file has every original commit with its class and its packaged SHA (`null` when omitted). `package_b7.py` builds the branch.
 
-Integrated parent `c5b299142ca672cbd2ef0a389492f11de85ff08b` (batch 6 head). Integrated implementation tip `90e34e09a3f2bf8a22a00c73b5223fe4b3fb795f`, tree `85300db229b1bbd4c18574c2c2608c7fa975dd5b`. 124 commits: 118 non-merge and 6 merges of author A's branch into `b7-integration-author-b`. Of the 118: **90 kept, 25 evidence-only, 3 duplicates**, none mixed. Packaged production and test diff: `git diff c5b299142c 90e34e09a3 -- . ':!continuation-evidence' ':!cleanup-evidence' ':!cleanup-review-evidence' ':!CLEANUP-IMPLEMENTATION.md'`.
+Integrated parent `c5b299142ca672cbd2ef0a389492f11de85ff08b` (batch 6 head). Integrated implementation tip `90e34e09a3f2bf8a22a00c73b5223fe4b3fb795f`, tree `85300db229b1bbd4c18574c2c2608c7fa975dd5b`. 124 commits: 118 non-merge and 6 merges of author A's branch into `b7-integration-author-b`. Of the 118: **89 kept, 1 mixed, 25 evidence-only, 3 duplicates**. The mixed one is A's `9abe5072d5`, whose report addition is dropped and whose four `core/integration` files are kept. Packaged production and test diff: `git diff c5b299142c 90e34e09a3 -- . ':!continuation-evidence' ':!cleanup-evidence' ':!cleanup-review-evidence' ':!CLEANUP-IMPLEMENTATION.md'`.
 
 ## Packaged branch
 
