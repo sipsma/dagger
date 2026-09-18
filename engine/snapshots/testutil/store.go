@@ -39,10 +39,12 @@ type Store struct {
 	BeforeWrite func([]byte) error
 	BeforeApply func(context.Context, ocispecs.Descriptor) error
 	BeforeDiff  func(context.Context) error
-	BeforeAdd   func(context.Context, leases.Lease, leases.Resource) error
-	AfterAdd    func(context.Context, leases.Lease, leases.Resource)
-	AfterCreate func(leases.Lease)
-	root        string
+	// BeforeSnapshotUpdate runs before each snapshot label update.
+	BeforeSnapshotUpdate func(context.Context, ctdsnapshots.Info) error
+	BeforeAdd            func(context.Context, leases.Lease, leases.Resource) error
+	AfterAdd             func(context.Context, leases.Lease, leases.Resource)
+	AfterCreate          func(leases.Lease)
+	root                 string
 }
 
 func NewStore(t testing.TB) *Store {
@@ -72,7 +74,7 @@ func (s *Store) openManager(t testing.TB) {
 	t.Helper()
 	var err error
 	s.Manager, err = bkcache.NewSnapshotManager(bkcache.SnapshotManagerOpt{
-		Snapshotter: s.Snapshots, ContentStore: observedContent{Store: s.Content, owner: s},
+		Snapshotter: &observedSnapshotter{Snapshotter: s.Snapshots, store: s}, ContentStore: observedContent{Store: s.Content, owner: s},
 		LeaseManager:  &observedLeases{Manager: s.Leases, store: s},
 		Applier:       &observedApplier{Applier: inPlaceApplier{store: s.Content}, store: s},
 		Differ:        &observedDiffer{Comparer: inPlaceDiffer{store: s.Content}, store: s},
@@ -162,6 +164,20 @@ func (p *Provider) ReaderAt(ctx context.Context, desc ocispecs.Descriptor) (cont
 		}
 	}
 	return p.InfoReaderProvider.ReaderAt(ctx, desc)
+}
+
+type observedSnapshotter struct {
+	bkcache.Snapshotter
+	store *Store
+}
+
+func (s *observedSnapshotter) Update(ctx context.Context, info ctdsnapshots.Info, fieldpaths ...string) (ctdsnapshots.Info, error) {
+	if s.store.BeforeSnapshotUpdate != nil {
+		if err := s.store.BeforeSnapshotUpdate(ctx, info); err != nil {
+			return ctdsnapshots.Info{}, err
+		}
+	}
+	return s.Snapshotter.Update(ctx, info, fieldpaths...)
 }
 
 type observedApplier struct {

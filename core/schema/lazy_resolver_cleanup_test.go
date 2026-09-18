@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -202,6 +203,10 @@ func (m *resolverOutputManager) AttachLease(context.Context, string, string) err
 	return m.leaseFault
 }
 func (m *resolverOutputManager) RemoveLease(context.Context, string) error { return nil }
+func (m *resolverOutputManager) PinContent(context.Context, string, []ocispecs.Descriptor) error {
+	return nil
+}
+
 func (m *resolverOutputManager) DeleteStaleDaggerOwnerLeases(context.Context, map[string]struct{}) error {
 	return nil
 }
