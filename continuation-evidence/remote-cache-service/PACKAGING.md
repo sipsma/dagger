@@ -2068,3 +2068,43 @@ range-diff, no automatic rebase.
 
 CI watch re-armed with approvals: each cycle polls check state and the
 approving reviewers on #14050, #14051, #14093, #14220, #14224, #14228.
+
+### Corrections table: the predecessor's ten batch-7 corrections and their destinations
+
+Source: implementation/b7/manifest/BATCH-7.md "Corrections to earlier
+batches' code, kept as their own commits in batch 7" and batch-7.json.
+The predecessor kept all ten as their own commits in the packaged
+`b7-verification` branch and left the fold-back to the Human; none was
+in A2 (#14228) or A3. Ruling (coordinator, Erik's step-4 rule: the fix
+goes to the PR whose commit introduced the defect; hunks that need a
+later series' machinery go with that series):
+
+| Packaged | Original | Corrects | Destination |
+|---|---|---|---|
+| `51d24c1f09` | `e094252906` name every reselect refusal, watch all seven loops | batch 4 | split: naming part (new dagql/cache_part_refusal.go, every bare `ErrPartReselect` return named by site) → A3 as `565728162c`, directly above `c14313a18e`; the reselect-watch wiring (partReselectWatch is batch 6's) → A5 above its watch commit |
+| `777e484881` | `f9db98a420` progress rule (PartNoProgressError) | batch 4 | A5 above the watch commit (the rule is wired through the watch); Erik's earlier note had it in A6, coordinator is telling him |
+| `af0a3b200f` | `af2ddb4e36` one refusal is one progress record | batch 4 | A5, after f9db98a420 |
+| `dcd36f6c96` | `959054a2e0` scan does not select an uncaptured row | batch 4 | A3 as `279425d3d2`, above `565728162c` (needs partRefusedBy); carries the two `revisionHook` test-hook lines its test uses (from the offers series' test coverage commit, to be found present there) |
+| `6c6cdfd8ac` | `1bfece3b77` clone a part-acquired File or Directory | batch 4 + lazy values | code files → A3 as `49087746ad`; its test core/part_restored_clone_test.go (snapshot sharing + gated fixture) → A6 |
+| `3e0a06bca5` | `e844245c8b` key-only offer's first renewal writes its addresses | batch 5 | A4 when cut |
+| `f2c36a337f` | `87c099a615` WithExportedValues never waits (docs) | batch 2 | #14228 follow-up, last of four |
+| `fbd8ca8f17` | `16786b5fe3` own a backing snapshot created after import | batch 2 | #14228 follow-up 1 |
+| `2b34e9e3e7` | `5d3ee071c7` drop a backing snapshot whose owner lease failed | batch 2 | #14228 follow-up 2 |
+| `3238e5c94c` | `cfa148371c` creation, sync and discard one step per value | batch 2 | #14228 follow-up 3 |
+
+Placement in A3: every file the batch-4 corrections touch was last
+changed by the original `c14313a18e` "cache: name and persist Lazy
+operation acquisition" (#37 of 51), so all three sit directly above it,
+in dependency order. Naming part built mechanically: e094252906's
+old→new line pairs applied with up to four lines of the diff's preceding
+context to pin each site (42 sites applied; 12 name sharing-series code
+A3 lacks; 3 commit sites A3 has in a different shape carry the same
+names, one combined, "commit: donor unregistered or facts changed"; no
+bare `ErrPartReselect` return remains). Built and vetted at each point;
+core at the bare `c14313a18e` fails five tests (two mount-bound ones the
+probe commit later covers, TestPartAcquisitionRootRoutes's mount reads
+the demanded-bytes commits later cover, and two container-persistence
+tests later originals fix), and the same five, no others, fail at each of
+the three correction commits (/tmp/pkg-a3-cp-core.log,
+/tmp/pkg-a3-cp-core-chain.txt); dagql `ok` at each point. Messages kept
+with a provenance paragraph; author and signoff Erik.
