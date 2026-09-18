@@ -1625,3 +1625,22 @@ then `9db965f4e2` (`ff54e7c06c`, range-diff all equal). Tests on
 log /tmp/pkg-a2-tests5.log, exit 0, 1235 top-level PASS, 0 FAIL, 0
 top-level SKIP, one inherited nested SKIP. Local lint on `ff54e7c06c`:
 LINTA2.
+
+#### A1 published: #14224
+
+Reviewer approved `9db965f4e2` for publication (the two code follow-ups
+reviewed; the git extraction qualified as above). Published under the
+stack rule: pushed `sipsma/remote-cache-transfer-foundations` =
+`9db965f4e2` (new branch); `gh stack link 13937
+sipsma/remote-cache-transfer-foundations` created PR #14224 with base
+`sipsma/remote-cache-test-store` and registered it: stack 13937 (id
+487371) 13 members, #14224 at position 13 above #14220 (verbatim
+/tmp/pkg-a1-stack.txt). Title and body set with `gh pr edit`; the tool
+had created it as a draft, marked ready. Read-back
+(/tmp/pkg-a1-readback.txt): https://github.com/dagger/dagger/pull/14224,
+OPEN, draft false, base `sipsma/remote-cache-test-store`, head
+dagger/dagger:sipsma/remote-cache-transfer-foundations @ `9db965f4e2`,
+title "remote cache: transfer foundations and completed producers", 30
+commits, body per the conventions (A3-supersedes-producers sentence, the
+four dropped tests, commits and conflict resolutions, validation
+commands and counts, the two CI gaps), no attribution text. CI watched.
