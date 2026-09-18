@@ -1329,3 +1329,13 @@ nowhere. Stopped per the coordinator's rule; nothing added. Batch 7
 resolved the four by b4's rewrite and the later deletion of the four
 git tests (`76311056c7`), never by making them unprivileged. Side
 finding: A0 (#14220) is the first time the store tests execute in CI.
+
+### #14222 `sipsma/localcache-workload-close-wait` (main PR, under the same watch)
+
+The coordinator's local-cache wait-bound fix (`7e3c431108` on main,
++5/-1 in core/integration/localcache_test.go), reviewer-approved with
+one dev-engine run of the test passed (trace
+`8b5b41b77a0cd55f1aefb997a58567e5`). Same stewardship and merge rule as
+#14219; not a stack member. #14220's description now carries the side
+finding (the store tests executed nowhere before A0; CI's test-base
+runner denies bind mounts like this host).
