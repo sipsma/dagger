@@ -1968,3 +1968,17 @@ extracted helper and applying A3's body inside it, signature
 `(env, ownerCall, scopes, path, visit)`; `go build ./dagql/` ok. Tip in
 /tmp/pkg-a3-moved.head; build, vet and lint-all on it running
 (/tmp/pkg-a3-lint2.log).
+
+#### #14224 follow-up pushed; persistence entry closed
+
+Reviewer approved `c3f7dc33f6` (no findings). Pushed with
+`--force-with-lease=sipsma/remote-cache-transfer-foundations:0cd8b591af`
+(fast-forward `0cd8b591af..c3f7dc33f6`); #14224 head `c3f7dc33f6`.
+Persistence entry closed: test-order flake in the stack's own subtest,
+fixed in #14224; repro 3 PASS recorded above. The resolver's map
+iteration stays as on main (main observation).
+
+Rule (coordinator, Erik): a PR above is moved only if the commit below
+changes code it builds on or tests that run in its CI; a test-only
+follow-up in #14224 changes neither for #14228, and GitHub's stack
+rebase moves it at merge time anyway. #14228 stays on `0cd8b591af`.
