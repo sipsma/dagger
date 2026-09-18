@@ -2526,3 +2526,34 @@ lint-all running (/tmp/pkg-a4-tests3.head, /tmp/pkg-a4-lint4.head).
 difference in the follow-ups' diffs; the only new git path is the shared
 mirror's backing-snapshot ensure and owner-lease sync before auth setup,
 for every scheme (core/git_remote.go:599, core/backing_snapshot.go:45-67).
+
+### Main PR #14231 `sipsma/engine-server-graceful-stop-errors`
+
+Reviewer approved `e2bda9adfa` (approve; nonblocking provenance
+correction: the regression and its helper come from `eb2031eb09`, not
+`7893a8022a`); I applied it as a message-only amend (`859755962e`,
+`ddd065070d`, trees identical, tag `pkg/main-gs-reviewed` =
+`e2bda9adfa`). The coordinator re-messaged both commits for main's
+readers and published: #14231 at `dce5557471` on main `4056f4a8b2`
+(`04cce2201e` accumulator return + regression + doc, `dce5557471`
+buffered channel; trees identical to the approved pair,
+reviewer-confirmed). #14231 is under the CI watch and merge rule (plain
+merge, not a stack member). Rule for every future main PR prepared here:
+commit messages for main carry no workstream vocabulary (batch,
+predecessor, round, rule item numbers, decision IDs); say what changed
+and why, and name the originating remote-cache commit hash in one
+sentence at the end.
+
+#### A4: regression case moved with the accumulator
+
+On `e121ed5aa7` (moved onto `7b5d35903a`): lint-all `DONE [1m31s]`, 0
+findings; core, dagql, core/schema ok (1176 + 166 top-level PASS, 6 SKIP
+lines); engine/server FAIL: exactly
+`TestRemoteCacheGracefulStop/earlier_shutdown_errors_are_returned`, the
+case that moved to #14231. The coverage commit
+("test: cover offer admission, settlement, resources and shutdown")
+edited to drop that case and its failing network provider (message notes
+it; `pkg/a4-before-testtrim` = `e121ed5aa7`); tip `13dd5e3adf`, 20
+commits on `7b5d35903a`. engine/server once and lint-all running on it
+(/tmp/pkg-a4-tests4.head, /tmp/pkg-a4-lint5.head). Draft's "How it fits
+main" sentence names #14231.
