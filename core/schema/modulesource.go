@@ -3371,8 +3371,8 @@ func (s *moduleSourceSchema) moduleSourceModuleDefinition(
 	}
 	runtimeRecipe, _ := runtime.RecipeDigest(ctx)
 	schemaRecipe, _ := schema.RecipeDigest(ctx)
-	sourceImplementation, _ := src.Self().SourceImplementationDigest(ctx)
-	slog.Info("module definition computed", "module", args.ModuleName, "objects", len(def.ObjectDefs), "interfaces", len(def.InterfaceDefs), "enums", len(def.EnumDefs), "runtimeRecipe", runtimeRecipe, "schemaRecipe", schemaRecipe, "sourceImplementation", sourceImplementation)
+	scopedSourceDigest, _ := src.ContentPreferredDigest(ctx)
+	slog.Info("module definition computed", "module", args.ModuleName, "objects", len(def.ObjectDefs), "interfaces", len(def.InterfaceDefs), "enums", len(def.EnumDefs), "runtimeRecipe", runtimeRecipe, "schemaRecipe", schemaRecipe, "scopedSourceDigest", scopedSourceDigest)
 	return inst, nil
 }
 
@@ -3432,10 +3432,13 @@ func (s *moduleSourceSchema) moduleDefViaRuntime(
 	// One line per lookup naming the identity's inputs, so two engines'
 	// logs say whether a miss came from the runtime, the schema file or
 	// the source.
+	// The scoped source's recorded content digest is the identity the
+	// lookup used; it is read, not recomputed, so a debug-mode source's
+	// fresh randomness cannot make the two lines disagree.
 	runtimeRecipe, _ := ctr.RecipeDigest(ctx)
 	schemaRecipe, _ := schemaJSONFile.RecipeDigest(ctx)
-	sourceImplementation, _ := src.Self().SourceImplementationDigest(ctx)
-	slog.Info("module definition lookup", "module", mod.NameField, "hit", def.HitCache(), "runtimeRecipe", runtimeRecipe, "schemaRecipe", schemaRecipe, "sourceImplementation", sourceImplementation)
+	scopedSourceDigest, _ := scopedSrc.ContentPreferredDigest(ctx)
+	slog.Info("module definition lookup", "module", mod.NameField, "hit", def.HitCache(), "runtimeRecipe", runtimeRecipe, "schemaRecipe", schemaRecipe, "scopedSourceDigest", scopedSourceDigest)
 	return def.Self(), nil
 }
 
