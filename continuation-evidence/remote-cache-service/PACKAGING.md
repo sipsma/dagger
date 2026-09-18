@@ -2287,3 +2287,53 @@ discards a WithTimeoutCause cancel. LLM files: none touched.
 Batch-5 correction `e844245c8b` corrects `cc0f894a11` ("dagql: fetch
 offered chains through one content source with renewal", which clones
 the offer's address map) and goes directly above its candidate.
+
+#### CI triage after the #14228 push and the #14229 publication
+
+#14228 `dca16de409`: golang:test-all fail (trace
+`8fb241c41033f957a1ffa6b660ec51de`; /tmp/pkg-ci-14228-golang_test-all.log):
+e2e/helm `--- FAIL: TestPackageDryRun`, `--- FAIL: TestCustomProbes`, k3s
+etcd-client retry warnings throughout, the helm e2e infrastructure pattern
+seen on #14043/#14049/#14219; helm:assert-template fail (trace
+`10338d971d179895aac2b71734a6fd7b`): "list tags for
+cgr.dev/chainguard/wolfi-base: unexpected status 500 … Rate" (registry
+rate limit). Both at about 23:23Z; one rerun each after an hour (no
+approval on #14228, so not sooner). 9 checks pending, test-interface
+among them.
+
+#14229 `e8846990e9`: test-split:test-interface fail (trace
+`9c5d4f45cf6166c38b944d254de3a76f`; TestIface/returnCustomObj in the
+three SDKs, "could not find object or interface type for Impl"): with
+the investigator at Erik's request, under investigation, not rerun; the
+investigator's working hypothesis is main's `7e2bb23d32` (interface-field
+handles → attached objects) combined with the stack. test-split:test-base
+fail (trace `ce27389098a65b16a3f09da4f602b11b`;
+/tmp/pkg-ci-14229-test-split_test-base.log): core/integration
+`--- FAIL: TestGit/TestCrossSessionGitRepositoryIdentity`
+(cross_session_test.go:572, `Should not be: "EhAI8d8CEgoKBkdpdFJlZhgB"`)
+and `--- FAIL:
+TestSecret/TestCrossSessionGitAuthScoping/git_module_source/ssh_key`
+(cross_session_test.go:507, unexpected error). Both concern git ref
+identity across sessions, which A3's lazy git trees change; test-base is
+green on #14224. One dev-engine run of exactly those two tests on
+`e8846990e9` started (/tmp/pkg-14229-testbase-repro.head written first;
+/tmp/pkg-14229-testbase-repro.log); evidence to the coordinator before
+any change.
+
+#### A4 lint step
+
+Lint-all on the A4 tip (tree of `7ec3c85c87`; /tmp/pkg-a4-lint1.head,
+/tmp/pkg-a4-lint1.log): `golangci-lint:lint-all ERROR [1m43s]`, 18
+findings (/tmp/pkg-a4-lint1.findings), all in A4's own files: 14
+nakedret in `(*Cache).offerPart` (dagql/cache_offer.go), gocyclo 46 for
+the same function, 2 bodyclose in dagql/cache_part_content.go
+(`partHTTPReader.open` :458 and `request` :502), 1 unparam
+(`RemoteCacheBridge.finish` result unused). Applied in the working tree:
+explicit `return out` at the 14 sites; `finish` returns nothing
+(`finishLocked` keeps its bool, used at :251); `//nolint:gocyclo` on
+`offerPart` with the reason (offer admission validating and publishing
+under the graph and gate locks in one sequence). bodyclose: the reader
+hands `resp.Body` to its stream wrapper, closed by `stream.close` and a
+context AfterFunc; a same-function close would defeat the streaming
+reader; main carries the same situation with a directive
+(internal/cloud/otlp.go:454). Ruling asked.
