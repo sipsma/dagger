@@ -748,8 +748,22 @@ bindings, so the tested packages are unchanged): `go build ./...` and
 the tla-check module build ok; `go test -v -count=1 -timeout 60s ./core/
 ./dagql/` (the two packages the PR touches outside generated code and
 the engine suite), log /tmp/pkg-track9-tests.log, exit 0: ok core
-8.436 s, ok dagql 2.674 s; 805 top-level PASS, 0 FAIL, 0 SKIP. The one
-core/integration file the PR changes is CI-only.
+8.436 s, ok dagql 2.674 s; 805 top-level PASS, 0 FAIL, 0 top-level SKIP plus one inherited
+nested SKIP
+(`TestCacheContextCancel/last_waiter_canceled_fn_returns_value_still_releases`).
+The one core/integration file the PR changes is CI-only.
+
+Review round 1 (B1): the rebased `925578f9ea` (original `9375bbb985`,
+"test: place complexity notes with container persistence") adds
+`//nolint:gocyclo` to `evaluateGroup`; with #14043's `runLazyEvalBody`
+extraction in the base the function is at 27 (reviewer's count; local
+gocyclo agrees), under the limit of 30, so the directive is unused and
+`.golangci.yml`'s nolintlint rejects unused directives. Follow-up commit
+on the candidate drops that one directive (the integration fixture's
+directive in core/integration/engine_persistence_test.go stays; nothing
+moves to #14043, which has no directive). Comment-only, no unit rerun;
+the local lint check runs once on the result and its terminal line is
+sent with the candidate.
 
 Hash map (`18f0d54c86..9375bbb985`, 12 commits, to `46bbd9b9ff..91b4f6247e`, 14):
 
