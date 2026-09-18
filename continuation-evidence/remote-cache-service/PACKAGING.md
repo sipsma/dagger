@@ -1723,3 +1723,32 @@ allowed, every occurrence is logged here with PR, head and trace, and
 the third CI occurrence stops the work and becomes a named
 investigation. #14224 test-workspaces rerun once (this entry's second
 occurrence).
+
+A2 lint commit `c5338475d2` (on `594ab859d9`, the series rebased onto
+#14224's backport tip `b63ea739dc` with `b561d4e4c0` dropped): 16 files,
++96/-77; two one-block extractions (validateTransferEnvelopeKind,
+visitPersistedObjectEnvelope), eight justified gocyclo directives under
+the coordinator's rule, thirteen mechanical fixes (listed in the
+message). Tests on `c5338475d2`, clean (/tmp/pkg-a2-tests6.head): four
+packages at 60 s (/tmp/pkg-a2-tests6.log) and core/schema at 120 s
+(/tmp/pkg-a2-tests6-schema.log, 48.358 s), exit 0, 1235 top-level PASS,
+0 FAIL, 0 top-level SKIP, one inherited nested SKIP. Lint on
+`c5338475d2` (/tmp/pkg-a2-lint3.log, head /tmp/pkg-a2-lint3.head):
+findings 0, `golangci-lint:lint-all DONE [3m24s]`, exit 0. Publication
+held pending the #14224 cache-persistence investigation.
+
+#14224 test-split:test-cache-persistence on `b63ea739dc` (trace
+`d42773c5d81557f51f2f5b0371010cf4`, logs
+/tmp/ci-logs-14224-cache-persistence.log.gz):
+TestCachePersistence/TestDiskPersistenceAcrossRestart/module_core_metadata_returns_survive_restart,
+expected 8080, actual 9090; the same check passed on `9db965f4e2`, and
+the only difference is the backported `b63ea739dc`. Treated as stack
+evidence, not rerun; two dev-engine repros ordered by the coordinator
+(`b63ea739dc`, then `9db965f4e2`; then A2's `594ab859d9` if the first
+fails and the second passes), engine use coordinated with the
+workspace-export investigator.
+
+#14051 test-split:test-base on `a4f7b28366` (trace
+`6ffb62d07beb1e1c12a1e48c8ab76a8c`): "check cancelled: max execution
+time exceeded" with 2462 passed and none failed; the job limit again;
+rerun once.
