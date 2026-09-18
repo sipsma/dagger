@@ -1703,3 +1703,23 @@ the indexed `dec.item`, threaded into the extracted helpers);
 `8093fa8ec6` core/completed_producer_test.go (the new "scratch" subtest
 added as `testRecordCompletedProducerScratch`, consistent with the lint
 extraction).
+
+### Open intermittent CI failure: TestWorkspace/TestWorkspaceExportLocalWorkdirAndFrom/from_baseline
+
+Assertion at core/integration/workspace_export_test.go:760: expected
+"host prior", actual "earlier overlay": the export compared `after`
+against a `From` workspace that resolved to its pre-overlay state, an
+identity-shaped failure (a stale identity hit, not stale content).
+Occurrences: CI fail on #14051 (head `a4f7b28366`, trace
+`2276b0176a080b137b1b7e820581716b`); CI fail on #14224 (head
+`9db965f4e2`, trace `7e2a61f09d1df90a1aef8a1b93974ad5`); CI pass on
+#14051's rerun (trace `2312669ed6d65b690887d76d12e6473f`); not
+reproducible locally by the coordinator: 7/7 on #14224's head
+(/tmp/workspace-export-repro-14224.log) and 35/35 with `--count 5` on
+#14051's head (/tmp/workspace-export-repro-14051-x5.log). Other
+authors' red workspace suites fail different subtests. Seen only on
+stack trees so far; cause unknown. Rule: reruns on this assertion are
+allowed, every occurrence is logged here with PR, head and trace, and
+the third CI occurrence stops the work and becomes a named
+investigation. #14224 test-workspaces rerun once (this entry's second
+occurrence).
