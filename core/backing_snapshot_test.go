@@ -2,8 +2,10 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -98,9 +100,13 @@ func (ib *importedBacking) ensure(ctx context.Context, row dagql.AnyResult) (bkc
 		return row.Self().getSnapshot(), err
 	case dagql.ObjectResult[*RemoteGitMirror]:
 		err := EnsureBackingSnapshot(ctx, row)
+		row.Self().mu.Lock()
+		defer row.Self().mu.Unlock()
 		return row.Self().snapshot, err
 	case dagql.ObjectResult[*ClientFilesyncMirror]:
 		err := EnsureBackingSnapshot(ctx, row)
+		row.Self().mu.Lock()
+		defer row.Self().mu.Unlock()
 		return row.Self().snapshot, err
 	}
 	panic("unexpected row")
@@ -209,5 +215,90 @@ func TestImportedBackingSnapshotIsDroppedWhenItsOwnerAttachFails(t *testing.T) {
 				ib.use(t, ctx, restartedRow)
 			})
 		}
+	}
+}
+
+// Concurrent first uses of one row are one step each: with the first attach
+// failing, exactly that caller fails, every other caller gets a snapshot that
+// is still there to mount, and the row ends owning one snapshot.
+func TestImportedBackingSnapshotConcurrentFirstUses(t *testing.T) {
+	for _, kind := range backingKinds {
+		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
+			ib := newImportedBacking(t, kind)
+			ib.cache.EnableTransferFixtureParts()
+			_, err := ib.cache.ArmTransferFixtureBarrier(dagql.FixtureBarrierRequest{
+				Key:      "attach",
+				Point:    dagql.FixtureBeforeOwnerAttach,
+				Selector: dagql.FixtureBarrierSelector{ResultID: ib.rowID},
+				Action:   dagql.FixtureFailOwnerAttachBefore,
+			})
+			require.NoError(t, err)
+			const callers = 8
+			errs := make([]error, callers)
+			ids := make([]string, callers)
+			var wg sync.WaitGroup
+			for i := range callers {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					session := fmt.Sprintf("caller-%d", i)
+					ctx := ib.session(session)
+					row, err := ib.cache.LoadResultByResultID(ctx, session, ib.srv, ib.rowID)
+					if err != nil {
+						errs[i] = err
+						return
+					}
+					ref, err := ib.ensure(ctx, row)
+					if err != nil {
+						errs[i] = err
+						return
+					}
+					if ref == nil {
+						errs[i] = fmt.Errorf("a successful use has no snapshot")
+						return
+					}
+					mountable, err := ref.Mount(ctx, false)
+					if err != nil {
+						errs[i] = err
+						return
+					}
+					mounts, release, err := mountable.Mount()
+					if err != nil {
+						errs[i] = err
+						return
+					}
+					if _, err := os.Stat(mounts[0].Source); err != nil {
+						errs[i] = err
+					}
+					if release != nil {
+						_ = release()
+					}
+					ids[i] = ref.SnapshotID()
+				}()
+			}
+			wg.Wait()
+			failed := 0
+			for i, err := range errs {
+				if err != nil {
+					require.ErrorContains(t, err, "fault", "caller %d fails only with the injected fault", i)
+					failed++
+				}
+			}
+			require.Equal(t, 1, failed, "exactly the caller whose attach was faulted fails")
+			want := ""
+			for i, id := range ids {
+				if errs[i] != nil {
+					continue
+				}
+				if want == "" {
+					want = id
+				}
+				require.Equal(t, want, id, "every successful caller uses the one snapshot")
+			}
+			links := backingLinks(t, ib.load(t, ib.session("last"), "last"))
+			require.Len(t, links, 1)
+			require.Equal(t, want, links[0].RefKey)
+		})
 	}
 }
