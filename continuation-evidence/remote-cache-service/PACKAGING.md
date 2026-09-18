@@ -1264,3 +1264,56 @@ registry.dagger.io is intermittent (200 three times from this host at
 20:11 UTC); one rerun per red PR only when its last failure is older
 than an hour; cgr.dev's 401 from this host is the normal auth challenge.
 No reruns issued for these yet.
+
+## Step 3: A1 (`sipsma/remote-cache-transfer-foundations`... name per branch rule), in progress
+
+Source: packaged `transfer-foundations` (10 commits) + `b1-producers`
+(10), `a7d4bad229..42a57419de` (a7d4bad229 is the predecessor's copy of
+the original #14093 tip on the old base; the packaged branches contain
+no stack commits, merge-base `0d031c08ef`). Rebased onto A0's pushed
+`e4e18ce47d` in /tmp/pkg-a1 (`pkg/a1`). Twenty originals all paired
+(/tmp/pkg-map-a1.txt); adaptations so far, each an Erik-authored,
+signed-off commit placed above the commit it reconciles:
+
+- Conflicts: core/schema/git.go twice (`d54f0748ce`, `39136200f6`):
+  main restructured `tree` into a `__fullCheckout` Select for
+  default-argument trees and a `ref.Tree` branch otherwise; the release
+  defer and the producer recording were placed inside the branch that
+  builds the tree; `fullCheckout` untouched (Erik: faithful history, no
+  extension; A3 replaces producer recording with lazy outputs).
+- Test signatures (folded into `785bc6c524`/`d54f0748ce`'s successors):
+  `repo.EncodePersistedObject(ctx, dagql.NewPersistEncodeContext(cache,
+  0, nil))`, `DecodePersistedObject(ctx, dagql.NewPersistDecodeContext(srv,
+  0, nil), …)`, and the fake `GitRefBackend.Tree` gains main's
+  `[]core.GitRemote` parameter.
+- "core: run the eager producer tests without privileges": the
+  A1-context part of `397168d119` (`bbbe792279`), seven hunks by hand on
+  core/eager_producer_execution_test.go, which b4 renames to
+  lazy_operation_execution_test.go (`dfe2076ee4`, 75%); helpers not
+  duplicated (A0 has them). Split-table correction: that file's hunk is
+  A1's, not A3's; A3 carries git_lazy_test.go (see next), http_lazy_test.go,
+  part_acquisition_test.go only.
+- "core: read git producer directories in place in their test": the
+  git_lazy_test.go hunk of the same original, on A1's
+  git_completed_producers_test.go (renamed in b4, 57%). Split-table
+  correction: A3 carries http_lazy_test.go and part_acquisition_test.go.
+- "core/schema: list main's two new objects among the persisted-family
+  exceptions": GitPushResult, WorkspaceCommitPick.
+- "core/schema: give the workspace checkout stub's directories their
+  accessors": Dir "/" and a test snapshot; the alternative (tolerating
+  accessor-less directories in RecordCompletedProducer) rejected as a
+  contract change for a stub.
+- "core/schema: exercise the tree-building branch in the producer
+  resolver tests": depth 1 on the two `tree` calls (Erik's (3) decision).
+
+State: 25 commits; `go build ./...` ok; core/schema `go test -v -count=1
+-timeout 60s`: ok, 148 PASS, 0 FAIL (/tmp/pkg-a1-schema-tests4.log). core:
+six of the ten formerly privilege-blocked tests print PASS; four remain
+red for privileges batch 7 never removed from these tests (b4 rewrote or
+deleted them): TestGitCompletedProducersEvaluate,
+TestGitBundleCompletedProducerEvaluate (mutable ref built and bundles
+checked through core.MountRef), TestGitCompletedProducersRemoteEvaluate
+(remote fetch `setns` into the clean mount namespace the fixture no
+longer creates), TestAuditedEagerProducersEvaluate (bind mount inside
+the production compute-paths path). Proposal to the coordinator: a
+privilege probe skip at the top of each; awaiting the ruling.
