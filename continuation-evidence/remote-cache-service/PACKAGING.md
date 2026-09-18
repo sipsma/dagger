@@ -458,4 +458,178 @@ Tests on the fixed tree (`/tmp/pkg-track7-fix-tests.head`: `c979b2af31`
 plus the one dirty file, identical to `7b663cb1ad`): `go test -v
 -count=1 -timeout 60s ./dagql/`, log /tmp/pkg-track7-fix-tests.log, exit
 0, ok dagql 2.363 s, 349 top-level PASS, 0 FAIL, 0 top-level SKIP.
-`dagger check golangci-lint:lint-all` on the container engine: LINTRESULT
+`dagger check golangci-lint:lint-all` on the container engine, log
+/tmp/pkg-track7-fix-lint.log: exit 1, one finding, `dagql/cache.go:4173:4
+ineffassign ineffectual assignment to callbackCtx`, no gocyclo finding.
+I had pushed `0259a9c951` before this result (the coordinator's call,
+withdrawn: a CI-fix commit now waits for the same check to pass locally
+before review and push). CI lint-all on the new merge commit failed the
+same way. Follow-up `7b3a3d5bd1`: `runLazyEvalBody` returns only
+`(bool, error)`; the lease result is assigned straight to `callbackCtx`
+inside it; the caller no longer keeps a `callbackCtx` variable (the
+original closure never read it after `runEval()` either). Local
+`ineffassign ./dagql/` clean, gocyclo evaluateGroup 26. Tests
+(`/tmp/pkg-track7-fix2-tests.head`: `0259a9c951` + one dirty file,
+pre-commit, identical to the commit), `go test -v -count=1 -timeout 60s
+./dagql/`, log /tmp/pkg-track7-fix2-tests.log, exit 0, ok dagql 1.978 s,
+349 top-level PASS, 0 FAIL. Lint on `7b3a3d5bd1`, log
+/tmp/pkg-track7-fix2-lint.log: `golangci-lint:lint-all DONE [3m4s]`, exit
+0, no findings. Reviewer approved code, tests and lint line; pushed,
+`sipsma/remote-cache-track7-per-part-evaluation` = `7b3a3d5bd1`.
+
+### #14049 `sipsma/remote-cache-track8-terminology`
+
+Candidate head `90381213dd` (working branch `pkg/track8`), 8 commits on
+#14043's `7b3a3d5bd1` (rebased from `38e0bf8b32` through `c979b2af31`,
+`0259a9c951`, `7b3a3d5bd1` as #14043 moved; the seven commits applied
+cleanly each time and the trees differ only by #14043's own commits): the 7 originals plus one regeneration
+(`90381213dd`). The PR is a wording sweep: it renames the LLM history
+field and the recording model namespace, the attachment-error and
+resource-requirement names in the TLA model and its configurations, and
+the word "gate" across comments and prose. Main moved under all of it:
+newer LLM code (spawn/agent handles, `sessionAgent`, the replayed-results
+mechanism), main's rename of the shared-work lease to the operation
+lease, main's session barrier, and the PHP static reference removed on
+main (`bc9cd6ef98`).
+
+Conflicts and resolutions:
+
+1. `ad9706a2f6` (LLM rename), 14 files. core/llm.go: main's
+   `emitMessageSpan` signature (with `replayedResults`) and comment,
+   `Replay` renamed to `EmitHistory`; main's new identifiers
+   `replayedToolResult`/`replayedResults` keep main's names (they are
+   main's mechanism, not part of the original rename). core/schema/llm.go:
+   main's `spawn`/`agent` resolvers kept, `replay` resolver renamed.
+   core/llm_recording_test.go (renamed from llm_replay_test.go): main's
+   five newer tests kept, calling `recordingTestRecorder` and
+   `EmitHistory`; the shared test's name takes the commit's
+   `TestRecordedResponseProviderEmitsPerToolCallDisplaySpans`; main's
+   own test names (`TestReplay…`) unchanged. internal/cmd/dagger/llm.go
+   and shell_commands.go: main's `sessionAgent` receiver and
+   `llm.Target()` call sites with the commit's `historyCtx` parameter.
+   core/integration/llm_test.go header comment: main's "`dagger script`"
+   with the commit's "permission check". Generated clients (Go, TypeScript,
+   PHP): main's `spawn` bindings kept, `replay` dropped in favour of the
+   commit's `emitHistory`; then regenerated at the tip (below). The three
+   `docs/static/reference/php` files the commit edited were deleted on
+   main; deletion kept.
+   Adaptation inside the same commit: main's newer callers of the helper
+   the commit renames (`cannedReplayModel` → `cannedRecordingModel`, 32
+   call sites in core/integration/agent_*_test.go and
+   llm_object_tools_test.go, plus `recordingTestRecorder` in
+   core/mcp_test.go), and main's two literal uses of the old model prefix
+   (`"replay/"` in core/integration/agent_runtime_test.go and the
+   lazy-forcing dang testdata module) now use the renamed helper and the
+   `recording/` prefix, since the commit removes the `replay/` prefix from
+   the router. Without these the integration package does not compile
+   (`go vet` caught it) and the two tests would route to a model that no
+   longer exists.
+2. `dfe3e125f3` (wording), 4 files, all comment-only after main's
+   changes: core/agents.go main's `AgentMiddlewareGroup` receiver with the
+   commit's comment; dagql/cache.go main's lease field names
+   (`releaseOperationLeaseFn`, main's `450b88f330`) with the commit's
+   comment wording; engine/server/session.go one comment word taken
+   ("completeness check"), the other three hunks are blocks main rewrote
+   or removed (the synchronous carrier flush replaced by main's barrier;
+   the client-runtime construction) so main's text stands;
+   internal/cmd/dagger/cloud_rerun_query.go main's command name with the
+   commit's phrase.
+3. `3d648f9eb0` (model rename), 11 files: ten configurations where main's
+   added `DelegatedReleaseOnly = FALSE` line (and, in resources.cfg and
+   rollback.cfg, main's `SharedLeaseReleasedWhenRetired` invariant) sat on
+   the same lines as the renamed invariants; resolved by keeping every
+   constant line and main's extra invariant and taking the commit's
+   renamed invariant list. .dagger/modules/tla-check/main.go: the
+   configuration map takes the commit's renamed keys plus main's
+   `release_wait` and `orphaned_lease` (mutation) entries; the header
+   comment takes main's sentence about mutation configurations with the
+   commit's "check" wording.
+4. The other four commits applied cleanly.
+
+Checks on the tip: the corrected two-direction TLA audit (0 findings; 29
+constants, 10 variables, 40 configurations); every INVARIANTS name in
+every configuration is defined in the spec; the module's configuration
+map and the files on disk agree both ways (the six client names in the
+map are `engine/server/tla/ClientLifecycle_*.cfg`, main's, unchanged);
+no old name (`poisoned`, `drain_escape`, `release_steal`,
+`resources_gated_growth`, `ReturnedGated`, `NoLaunderedServe`,
+`NoRetainedPoisonedEntry`, `cannedReplayModel`, `"replay/"`) remains
+under dagql/tla, the module, core or internal. TLC not run (dev-only; CI
+does not run tla-check).
+
+Regeneration (`90381213dd`): `dagger generate -y docs:references go-client:generate
+typescript-client:client-library php-client:api python-client:client-library
+elixir-client:client-library rust-client:apiclient go-sdk:generate` on
+`remote-cache-engine` against the tree of the seven rebased commits (log
+/tmp/pkg-track8-gen.log, exit 0). It changed two files: the tla-check
+module bindings' description string (this branch's main.go wording) and
+the PHP client's `emitHistory`, which the current generator emits in the
+ID-returning form (`loadObjectFromId`) rather than the `return $this`
+form the original commit carried. Every other generated file (Go,
+TypeScript, Python, Rust, Elixir clients, docs/docs-graphql/schema.graphqls,
+the other module bindings) was already identical to the generator's
+output, so the hand resolution of the generated-client conflicts was
+exact. `dagger.lock` unchanged this time.
+
+Tests: on `90381213dd`, clean tree (/tmp/pkg-track8-tests.head), `go build
+./...` and the tla-check module build ok; `go test -v -count=1 -timeout
+60s` over the 13 packages the PR touches outside generated code and the
+engine suite (cmd/codegen/generator/typescript/templates, core,
+core/schema, dagql, dagql/dagui, dagql/idtui, engine,
+engine/client/pathutil, engine/clientdb, engine/server,
+engine/telemetryattrs [no test files], internal/cmd/dagger,
+internal/cmd/dagger/llmconfig), log /tmp/pkg-track8-tests.log, exit 1:
+twelve packages ok, `internal/cmd/dagger` FAIL on one test,
+`TestAgentDebugServerContextCancellation` (shell_test.go:183, "context
+cleanup must close the debug listener", the dial after cancel succeeds).
+Totals 1816 top-level PASS, 1 FAIL, 5 top-level SKIP. The same test
+fails identically on pristine `upstream/main` `8b129f76ce` in a clean
+worktree (`go test -count=1 -timeout 60s -run
+TestAgentDebugServerContextCancellation ./internal/cmd/dagger/`, log
+/tmp/pkg-main-debugserver.log, FAIL, same line and message); the test
+and the code are main's (Alex Suraci, `ec459b73fe`, `7e3570bd2b`) and no
+stack commit touches them. It is the test that failed in #13969's CI
+test-base on the previous head. Reported to the coordinator as a main
+defect; main's own test-base on `8b129f76ce` was still pending when
+checked. Engine-suite changes (26 files under core/integration, all
+renames per the check above) are CI-only.
+
+LLM-code rule check (main is the source of truth for LLM code; our
+commits apply only renames and plumbing there): `git diff upstream/main
+`90381213dd` -- core/llm* core/schema/llm* core/agents.go core/mcp*
+internal/cmd/dagger/llm* internal/cmd/dagger/shell*
+internal/cmd/dagger/llmconfig core/integration/llm_test.go
+core/integration/agent_* core/integration/testdata/modules/dang/lazy-forcing`
+touches 29 files, 130 hunks (diff saved as /tmp/pkg-track8-llm.diff). A
+classifier normalized every removed line through the commit's rename
+table (`replay`→`recording`/`emitHistory` identifiers and prefixes,
+`replayCtx`→`historyCtx`, `LLMReplayer`→`RecordedResponseProvider`,
+`cannedReplayModel`→`cannedRecordingModel`, `replayTestRecorder`→
+`recordingTestRecorder`, the renamed test function) and compared it with
+the added lines: 60 hunks are exactly the rename, 62 change only
+comment or docstring lines, and the remaining 8 (listed by the script)
+are the same rename applied to local variable names (`replay`→
+`recording`, `replayer`→`provider`) and to message strings ("is not
+replayable"→"is not a recording", "failed to replay session history"→
+"failed to emit session history", "must not replay"→"must not reapply").
+No hunk adds, removes or changes a type, field, function, argument or
+control flow beyond the rename; main's spawn/agent handles,
+`sessionAgent`, `llm.Target()`, `replayedResults`, `AgentMiddlewareGroup`
+and the operation-lease names stand as main has them. The files with
+non-LLM conflicts (dagql/cache.go, engine/server/session.go,
+internal/cmd/dagger/cloud_rerun_query.go, core/agents.go) were checked
+the same way in their #14049 hunks: comment-only. Reviewer: please check
+this explicitly.
+
+Hash map (`1d85bd34aa..18f0d54c86`, 7 commits, to `7b3a3d5bd1..90381213dd`, 8):
+
+```
+ad9706a2f6 -> 513042de80  llm: name history emission and recorded-response providers precisely
+dfe3e125f3 -> 26cc263af4  core: describe loading, telemetry, and patch operations precisely
+3d648f9eb0 -> b7fcd33673  dagql: name attachment errors and resource requirements directly
+3baa063814 -> 043e603f29  core: clarify session isolation and root-boundary checks
+b98ae8094b -> 836acceb58  dagql: clarify wait-link validation prose
+13953761d4 -> ae92face0e  build: sync generated module descriptions with source
+18f0d54c86 -> 28c6447442  changes: document experimental LLM naming updates
+(new) -> 90381213dd  chore: regenerate tla-check module bindings and the PHP client
+```
