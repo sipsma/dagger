@@ -78,3 +78,98 @@ the TestLive* golden tests. `go build ./...` ok. `e2e/helm` (the branch changes
 `dagger`; on this host they fail identically on pristine main ("module
 requires dagger v0.21.9, but you have v0.21.7", three tests), so they are
 not evidence here and are left to CI.
+
+#### #13962 follow-up
+
+`1867836d03` on top of `c6653c6d04`: "dagql/tla: declare DelegatedReleaseOnly
+in the decode_cancel configurations". main's model declares that constant
+(its orphaned-lease mutation) and every configuration on main sets it;
+the two configurations #13962 adds did not, so TLC would refuse them.
+Both set it to FALSE. Placed in #13962 because the files are #13962's
+(the Packaging reviewer's placement point). Approved and pushed
+(`c6653c6d04` to `1867836d03`). TLC execution stays unverified here.
+
+### #13969 `sipsma/remote-cache-track6-session-resources`
+
+Candidate head `9285c661d4` (working branch `pkg/track6`), 52 commits on
+#13962's `1867836d03`. Map: all 52 originals have a candidate by message;
+`4320ca55a2` and `a84c1aefc5` (two "chore: regenerate tla-check module
+bindings") map to one regeneration on the final line, a fresh `dagger
+generate -y go-sdk:generate` on `remote-cache-engine` (it also carries
+the Quick and Some runners' bindings); one candidate has no original:
+`9285c661d4` "dagql/tla: declare DelegatedReleaseOnly in the
+session-resource configurations" (the seven configurations this PR adds:
+attach_release_reader and the six resources ones, each
+`DelegatedReleaseOnly = FALSE`; `resources.cfg` also lists
+`SharedLeaseReleasedWhenRetired`, since it replaced `core.cfg`, which
+carried that invariant on main). Audit on the tip: all 35
+`CacheLifecycle_*.cfg` declare the constant; every `expectedOutcome`
+name has a file and every file is mapped. The generator also touched
+`dagger.lock` (one new `alpine:latest` pin from its own run); discarded,
+not part of the PR.
+
+Conflicts and resolutions, in order:
+
+1. `980d6aa39b`, CacheLifecycle.tla, the `sessionRelease` record in Init
+   and Restart: main added `releaseReturned`, `waitRequested`,
+   `waitReturned`; the commit adds `handles`. Union (TypeOK checks the
+   fields individually).
+2. `ddf65cf4a6`, tla-check main.go (four-JVM semaphore): main rewrote
+   `runOne` (spec name and prefix arguments, a failure struct) and added
+   `ClientLifecycle` with its own unbounded loop. Kept main's `runOne`
+   call with the semaphore acquire around it, and gave `ClientLifecycle`'s
+   `run` closure the same four-wide bound, since it fans out TLC JVMs the
+   same way.
+3. `8371bc5cba`, `2931e0bb4b`, `8851427778`, `d0e2a3cb73`, `94caf11d00`,
+   `5f4b170a0a`, `4b77af35b4`, `73234a8d12`, README: the same finding
+   paragraph each time. Resolved by one scripted rule: main's
+   orphaned-lease mutation sentence kept at the head of the paragraph,
+   the commit's finding text taken verbatim after it.
+4. `39ec3f8068` (-Xmx8g): added to main's `runOne` command; the `One`
+   command took it through the auto-merge.
+5. `ad4935b899` deletes `CacheLifecycle_core.cfg` as duplicate coverage
+   of `resources.cfg`; main had added `DelegatedReleaseOnly` and
+   `SharedLeaseReleasedWhenRetired` to core.cfg. Deletion accepted; the
+   invariant moved to resources.cfg in the fixup above.
+6. `1dd7fed592`, `flush_roundtrip.cfg` and `persist.cfg`: main inserted
+   the constant line above INVARIANTS; the commit extends INVARIANTS.
+   Both kept.
+7. `b6b3950278` and `83f4a74365`, CacheLifecycle.tla: main inserted the
+   `SharedLeaseReleasedWhenRetired` definition between the
+   `NoSpuriousErrors` comment and invariant; each commit rewrites that
+   comment. main's definition kept, the commit's comment placed directly
+   above the invariant.
+8. `21cfa9e02f`, `7d18b64bc6`, `60f3b80f0d`, `df563e9150`, `92a73f34e6`,
+   `4b77af35b4`, CacheLifecycle.tla, `FnComplete` and `FnWindDown`: main
+   added its lease bookkeeping (`LET keepLease`, `![o].sharedLease`
+   updates on every branch, `sharedLease |-> TRUE` in the record); the
+   commits restructure the same actions (per-branch UNCHANGED, the
+   acquiring reuse branch, `acq`, `acqPending`, `acqAdmitted`,
+   `loadRefused`, `fnErrRefusal`, the `deniedEdges` variable). Resolved
+   each time as the commit's structure with main's lease updates threaded
+   into every branch, `deniedEdges` kept in the UNCHANGED lists, and the
+   record literals as unions.
+9. `4de76a5033` (checks out of CI, Quick and Some runners): main.go, the
+   two generated files, dagger.toml. main.go: the commit's `runConfigs`
+   runner kept, calling main's `base(m.Source)` and `reportFailures`;
+   `ClientLifecycle` untouched. dagger.toml: the dev-environment entry
+   already existed from #13962's resolution; only its comment changes to
+   the commit's fuller one. Generated files: main's taken, regenerated at
+   the tip.
+10. `fd60355b08`, dagql/cache.go `initCompletedResult`: main wrapped the
+    attachment in `if !resWasCacheBacked` (its returned-result reuse fix);
+    the commit adds the barrier-error classification inside. Main's guard
+    around the commit's body. One slip corrected before staging: a
+    dropped closing brace, caught by the build.
+11. Generated files at `4320ca55a2`, `a84c1aefc5`, `92a73f34e6`,
+    `4b77af35b4`: main's taken each time; one regeneration at the tip.
+
+Tests on `9285c661d4`, clean tree, `go test -v -count=1 -timeout 60s
+./dagql/ ./core/integration/`, log /tmp/pkg-track6-9285.log: ok dagql
+2.228 s, 341 top-level PASS; core/integration FAIL at the bound, which is
+not evidence: that package is the engine suite (its tests connect to an
+engine) and the failures (`TestSchemaTools` subtests) are engine tests
+the branch does not touch. The branch's one change there is an
+error-message update in `TestModuleRuntimeBehavior`, an engine test,
+left to CI per the step's rule against running the engine suites now.
+`go build ./...` and vet ok; the tla-check module builds and vets.
