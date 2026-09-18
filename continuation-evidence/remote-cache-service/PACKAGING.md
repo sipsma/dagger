@@ -1036,3 +1036,9 @@ fixes, never in A0 with hand-invented context):
 Corrections table additions: `ed7a4a47f9` → A3 above `4e2515e704`
 (was: A0); `b073363f07`/`0513487968` → A1 or A2 above the lazy tests'
 introducing commit (was: A0 wiring).
+
+#14219 golang:test-all fail (trace `a910d36ea38fd05c73a0917e36209664`):
+e2e/helm TestInstallK3S/default_daemonset, engine pod ImagePullBackOff
+for five minutes, the registry outage window again (same as #14043 and
+#14049's golang:test-all). Rerun once. #14219 now has a human approval
+on GitHub (vito); merge when green.
