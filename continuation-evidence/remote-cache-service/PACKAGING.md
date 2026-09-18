@@ -2458,3 +2458,55 @@ buffering doneClosingCh fixes a goroutine leak present on both main refs
 → a standalone main shutdown fix, possibly the same main PR as B1.
 Everything else clear (18 mapped, 3 additions, revisionHook once, lint
 behavior-preserving, 21 signoffs). Ruling asked of the coordinator.
+
+#### #14229 follow-up pushed by the coordinator; #14228 test-modules; main shutdown PR; A4 rework
+
+#14229: the reviewer approved the interface fix `7b5d35903a`
+(fix/module-interface-field-dependencies, two files, 19 lines, unit
+regression FAIL-before/PASS-after, Go engine case PASS, trace
+`4403b7d49a094ecba9412ac0ee6d4168`); the coordinator pushed it
+(fast-forward from `e8846990e9`, lease held), head `7b5d35903a`, 56
+commits. Recorded as the A3 regression fix (cause `7e2bb23d32`). One
+sentence appended to #14229's "How it fits main" paragraph by REST PATCH
+(/tmp/pkg-a3-patch2.json), read back verbatim.
+
+#14228 `dca16de409` test-split:test-modules fail (trace
+`dfd7a9056c4c27b23ab3912ec7d3564e`; /tmp/pkg-ci-14228-test-modules.log):
+`--- FAIL: TestModuleConfig/TestDaggerGitRefs/SSH_Private_GitLab/root_module`
+(module_config_test.go:849, "exit code: 1" from the nested
+`dagger core module-source --ref-string ssh://gitlab.com/… as-string`;
+the CLI's own stderr is not in the engine log). Statuses by commit:
+test-modules success on `c3f7dc33f6` (22:24Z) and on #14228's previous
+head `c7dc73fbf7` (22:22Z); error on `dca16de409` (23:29Z), the first
+run with the follow-ups, which add `EnsureBackingSnapshot(ctx,
+repo.Mirror)` at core/git_remote.go:599 inside `initRemote` (used by
+`mount` for every scheme) and the mirror lock field. The SSH GitLab key
+is a CI secret (base64 private key), so no local repro. Coordinator's
+ruling: (c) read the follow-ups for an SSH-specific difference (in
+progress) and (b) one rerun of test-modules on `dca16de409` as a second
+data point, not a flake claim: issued
+(`dagger cloud -W github.com/dagger/dagger@dca16de409 rerun --check
+test-split:test-modules`).
+
+Main shutdown PR (coordinator's ruling on the reviewer's A4 findings B1
+and B2): branch `sipsma/engine-server-graceful-stop-errors` off
+upstream/main `4056f4a8b2`, worktree /tmp/pkg-main-gs, two commits:
+`a6d1d3637a` "server: return shutdown errors from GracefulStop" (main
+side of 7893a8022a: the two final returns join the accumulator, the
+FIXME and its nolint go; regression
+TestGracefulStopReturnsEarlierShutdownErrors with its helper in the new
+engine/server/graceful_stop_test.go; one doc sentence in
+internal-docs/cache_persistence.md) and `e2bda9adfa` "server: let the
+shutdown closing goroutine finish after a timeout" (e81a03ae61 whole);
+messages kept plus provenance. engine/server once and lint-all running
+(/tmp/pkg-main-gs-tests.head, -lint.head). The coordinator publishes it.
+
+A4 rework: `pkg/a4-before-mainsplit` = `86f23052e8`. Interactive rebase:
+`327c80123b` edited to keep the integration's stop error, its
+propagation into the final returns (`errors.Join(adapterStopErr,
+dbCloseErr)` / `(adapterStopErr, ctx.Err())`) and
+CloseWithShutdownError, restoring main's FIXME/nolint block; message
+notes the split. `bcd95269fd` dropped. Tip `731858e798` on `e8846990e9`
+(`pkg/a4-on-e884`), 20 commits; then moved onto #14229's new head
+`7b5d35903a`. Corrections table: `7893a8022a` → split (main PR +
+A4); `e81a03ae61` → main PR.
