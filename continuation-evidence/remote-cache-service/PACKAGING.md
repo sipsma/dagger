@@ -2125,3 +2125,17 @@ constants, 10 variables, 43 cfgs). Scratch worktrees /tmp/pkg-a3-cp and
 `go test -count=20 -run 'TestPartInlineAddress$' ./core/`
 (/tmp/pkg-a3-inline20.log), the full tip check (/tmp/pkg-a3-tests6.log,
 /tmp/pkg-a3-tests6-schema.log), lint-all (/tmp/pkg-a3-lint5.log).
+
+#### A3 candidate `c14909d8a4`: results
+
+Focused `go test -count=20 -run 'TestPartInlineAddress$' ./core/`:
+20/20 `--- PASS: TestPartInlineAddress`, `ok core 39.753s`
+(/tmp/pkg-a3-inline20.log). Tip check, one invocation per package, 60 s,
+core/schema 120 s: `ok core 20.250s`, `ok dagql 4.636s`, `ok
+engine/snapshots 9.265s`, `ok core/schema 14.844s`; 1184 top-level PASS
+(1018 + 166), 0 FAIL, 4 SKIP (the four probed tests)
+(/tmp/pkg-a3-tests6.log, /tmp/pkg-a3-tests6-schema.log). Lint-all:
+`golangci-lint:lint-all DONE [1m40s]`, 0 findings (/tmp/pkg-a3-lint5.log).
+54/54 DCO signoffs, no attribution trailers, author Erik on all. Sent to
+the reviewer (/tmp/pkg-a3-review-request.md); description draft
+/tmp/pkg-a3-pr-body.md to the coordinator.
