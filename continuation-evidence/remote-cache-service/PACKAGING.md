@@ -2139,3 +2139,38 @@ engine/snapshots 9.265s`, `ok core/schema 14.844s`; 1184 top-level PASS
 54/54 DCO signoffs, no attribution trailers, author Erik on all. Sent to
 the reviewer (/tmp/pkg-a3-review-request.md); description draft
 /tmp/pkg-a3-pr-body.md to the coordinator.
+
+#### Record corrections (reviewer) and the missing helper fix
+
+Corrections to the `c14909d8a4` record above: the focused command was
+`go test -count=20 -timeout 120s -run 'TestPartInlineAddress$' -v ./core/`;
+SKIP accounting is 5 SKIP lines, 4 top-level (the probed four) plus the
+inherited nested TestCacheContextCancel/last_waiter_canceled_fn_returns_value_still_releases,
+all unexecuted; head files /tmp/pkg-a3-tests6.head, -inline20.head,
+-lint5.head (= `c14909d8a4`) written after the fact from
+/tmp/pkg-a3-final.head, which was written right after the amend, with
+`git status --short` empty before the runs.
+
+Reviewer's preliminary blocking finding: the helper fix `ed7a4a47f9`
+(packaged `46ee7035b8`), placed by the coordinator's earlier ruling (c)
+into A3 above `4e2515e704`, was recorded but never applied: store.go
+still handed inPlaceApplier and inPlaceDiffer raw `s.Content`. Applied
+now per the coordinator: cherry-picked onto `8cc37d8e53` (candidate of
+`4e2515e704`) cleanly, regression `--- PASS: TestStoreObservesDifferWrites`
+at that point, message kept plus provenance line → `1b6d8f7e61`; the
+remaining 49 commits rebased on it with no conflicts
+(`pkg/a3-before-helperfix` = `c14909d8a4`). Tip `efaa347626`, 55
+commits; map refreshed (/tmp/pkg-map-a3.txt: 44 mapped, 0 unmapped, 11
+new).
+
+Corrections-table check against the series, every A3 entry: `0513487968`
+(demanded-read, ruling (b)) present as `e0eae359e6`; the batch-7
+privilege commit's http_lazy_test.go and part_acquisition_test.go hunks
+present as `273cacdfbe`; its lazy_operation_execution_test.go hunk
+present minus the two helpers, which A0's core/demanded_read_test.go
+carries (verified: all 43 added lines of that hunk are in A3 except the
+13 helper lines, found in core/demanded_read_test.go:18,32); the three
+batch-4 corrections present (`565728162c`, `279425d3d2`, `49087746ad`);
+`ed7a4a47f9` was the one gap, now `1b6d8f7e61`. Running on `efaa347626`:
+tip check (/tmp/pkg-a3-tests7.log, -schema.log) and lint-all
+(/tmp/pkg-a3-lint6.log).
