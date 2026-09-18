@@ -1042,3 +1042,18 @@ e2e/helm TestInstallK3S/default_daemonset, engine pod ImagePullBackOff
 for five minutes, the registry outage window again (same as #14043 and
 #14049's golang:test-all). Rerun once. #14219 now has a human approval
 on GitHub (vito); merge when green.
+
+#### #14051 placement note (reviewer's finding, coordinator's ruling)
+
+`6c727985e2` → `6fe4db0974` ("dagql: release abandoned arbitrary values
+after completion") fixes a defect present at the pre-stack base
+`0d031c08ef` (dagql/cache_arbitrary.go drops an entry when its final
+waiter cancels; an OnReleaser returned afterwards has no owner and no
+late cleanup; Close has no independent callback token; the file is
+untouched between `0d031c08ef` and `9375bbb985`). Kept as Erik's
+original placement: step 1 rebases Erik's PRs with contents preserved,
+and the main-defect rule governs step 4's backports, not Erik's own
+commits. Erik may have it split into a main PR if he wants it merged
+independently; unless he says so, nothing changes. The fixture-gated
+skips in #14051's run (27 SKIP lines, 12 top-level) are unexecuted
+tests, not physical-store evidence.
