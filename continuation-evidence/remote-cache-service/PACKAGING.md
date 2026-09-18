@@ -2174,3 +2174,24 @@ batch-4 corrections present (`565728162c`, `279425d3d2`, `49087746ad`);
 `ed7a4a47f9` was the one gap, now `1b6d8f7e61`. Running on `efaa347626`:
 tip check (/tmp/pkg-a3-tests7.log, -schema.log) and lint-all
 (/tmp/pkg-a3-lint6.log).
+
+#### A3 candidate `efaa347626`: results, follow-up review
+
+Reviewer's full verdict on `c14909d8a4`: changes required, B1 only (the
+helper fix); everything else clear; follow-up limited to B1, the map and
+range-diff, and validation. Rule from the reviewer's hygiene note: the
+head file (commit and dirty count) is written inside each run command,
+immediately before the run.
+
+Range-diff `c5338475d2..c14909d8a4` vs `c5338475d2..efaa347626`
+(/tmp/pkg-a3-rangediff-helperfix.txt): 54 `=`, 1 new (`1b6d8f7e61` at
+position 6). Tip check on `efaa347626` (/tmp/pkg-a3-tests7.head written
+in the run command; tree clean): `ok core 21.037s`, `ok dagql 5.009s`,
+`ok engine/snapshots 7.147s`, `ok core/schema 13.741s`; 1185 top-level
+PASS (1019 + 166), 0 FAIL, 5 SKIP lines (4 probed top-level + 1 inherited
+nested), `--- PASS: TestStoreObservesDifferWrites (0.15s)`
+(/tmp/pkg-a3-tests7.log, -schema.log). Lint-all (/tmp/pkg-a3-lint6.head):
+`golangci-lint:lint-all DONE [58.0s]`, 0 findings. Sent to the reviewer;
+description draft's PASS count updated to 1185 (coordinator told).
+Description approved by the coordinator as drafted; title "remote cache:
+lazy part acquisition"; publish at position 15 on the reviewer's approval.
