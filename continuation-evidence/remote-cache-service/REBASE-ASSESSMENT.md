@@ -2,7 +2,24 @@
 
 Rebase engine (a fork of the Engine seat), 18 September 2026.
 
-## Inputs
+## Final result, first
+
+- Input: the engine seat's branch `engine-seat-0bf270c0` at `0f05361f1c`
+  (E3 through E13 with their review follow-ups, the cached module
+  definition, the zstd default and the definition log lines).
+- Base: the successor workstream's integrated tip `bf509625e7` on
+  `b7-integration-author-b`.
+- Result: branch `rebase-engine-on-bf509625e7`; production tip
+  `c96012aad7` (the input cherry-picked with `-x`, plus one test-helper
+  commit); this note on top. Recommendation: switch base.
+- The branch `rebase-engine-on-92b8057912` from the initial pass below
+  is superseded and is not a tip to take.
+
+The sections follow the work in order: the initial pass onto their
+pre-fix tip `92b8057912` with the narrower input `eb71d1b54c`, then the
+re-rebase onto `bf509625e7`, then the follow-up picks to `0f05361f1c`.
+
+## Initial pass: inputs
 
 - Our input: branch `engine-seat-0bf270c0` at `eb71d1b54c`, 27 commits on
   base `c5b299142c` (E3 through E10, the cached module definition, and five
@@ -86,7 +103,7 @@ diffs:
   `EnsureBackingSnapshot` is a different lifetime defect (receiver-created
   backing snapshots of imported rows), not the builtin image's layer blobs.
 
-## Conflicts and resolutions
+## Initial pass: conflicts and resolutions
 
 One textual conflict in 27 cherry-picks.
 
