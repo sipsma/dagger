@@ -1015,3 +1015,24 @@ Throwaway worktree /tmp/pkg-a0-probe on #14093's original tip
   Erik's backport rule it belongs in A3 above `4e2515e704`; A0 (the
   commission's wording) has no observed wrapper. Placement asked, not
   guessed.
+
+Coordinator's placements (A0 is the unprivileged test store itself, so
+every store test from A0 upward executes in CI; a fix lives with what it
+fixes, never in A0 with hand-invented context):
+
+- (a) `2e43236077` is A0, alone: one commit on #14093's current head
+  (inplace.go, store.go; applies cleanly, builds).
+- (b) `0513487968` whole, unsplit, into the first A-batch PR that carries
+  the three lazy test files it edits (A1 or A2, whichever introduces
+  directory_scratch_test.go, http_lazy_test.go, query_lazy_test.go),
+  directly above the commit that introduces them; the demanded-read test
+  is coverage of those lazy paths and is worth nothing in A0 without
+  them.
+- (c) `46ee7035b8` (helper fix, original `ed7a4a47f9`) into A3, directly
+  above `4e2515e704`, which introduces the observed wrapper it fixes; the
+  commission's A0 wording predates knowing where the wrapper lands, and
+  "the fix goes where the defect was introduced" decides it.
+
+Corrections table additions: `ed7a4a47f9` → A3 above `4e2515e704`
+(was: A0); `b073363f07`/`0513487968` → A1 or A2 above the lazy tests'
+introducing commit (was: A0 wiring).
