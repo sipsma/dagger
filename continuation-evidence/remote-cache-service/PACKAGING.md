@@ -1450,3 +1450,12 @@ dogsled ×4; ineffassign ×2; whitespace ×4) and A0's Compare (fixed in
 `f97c446e23`). The batch-7 branch was never run through lint-all under
 main's configuration. Stopped under Erik's standing rule (several sit in
 producer code); options sent to the coordinator.
+
+#14049 (approved by vito, merge-blocking): the coordinator issued its
+three reruns at 20:36 UTC (test-base "Dagger Cloud Engine capacity did
+not become available within 15 minutes", trace
+`d5e54bee206cab45c982d058b356af59`; provision registry 500s; golang:test-all
+k3s image pull). Provision failed again on the registry (trace
+`426669edcb1f39a035a630af135d3a99`, 35 × 500); registry probe 200 at
+20:5x, rerun once more under the approved-PR tweak (rerun as soon as the
+cause is confirmed cleared).
