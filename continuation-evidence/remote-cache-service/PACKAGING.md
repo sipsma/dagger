@@ -2571,3 +2571,17 @@ message-only, tip `15dfcb81d7`, `git diff 13dd5e3adf 15dfcb81d7` empty,
 range-diff 19 `=` + 1 message-only `!`. Map: 17 mapped, `e81a03ae61` →
 #14231, 3 new. 20/20 signoffs, no attribution. Sent to the reviewer.
 Draft names #14231; its bullets no longer claim the two main-side fixes.
+
+Reviewer approved `15dfcb81d7` (B1/B2 resolved) with two nonblocking
+wording corrections, no rerun needed: (1) A4's doc sentence in
+internal-docs/cache_persistence.md claimed all collected shutdown errors
+are returned, which holds only once #14231 is in the base; the sentence
+in the docs commit now reads "`GracefulStop` joins the integration's stop
+error into what it returns, together with the final database close
+result." (`pkg/a4-approved-15df` = `15dfcb81d7`; the docs commit amended
+in place, doc file only). (2) The count in the `e121ed5aa7` entry above
+is corrected: tests3 has core 559 + dagql 463 = 1022 (its engine/server
+run, 154 passes, is superseded by the failing case's removal); the
+applicable evidence for the candidate is 1022 + core/schema 166 +
+engine/server 155 (tests4) = 1343 top-level PASS, 0 FAIL, 6 SKIP lines
+(unexecuted); the earlier engine/server failure stays recorded above.
