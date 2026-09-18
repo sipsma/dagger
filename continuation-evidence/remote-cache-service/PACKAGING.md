@@ -2436,3 +2436,25 @@ attribution, no LLM files. Sent to the reviewer; description draft
 /tmp/pkg-a4-pr-body.md to the coordinator with title proposal "remote
 cache: live part offers and renewal". Publication waits for the reviewer
 and for #14229's test-interface follow-up (A4 moves onto it first).
+
+Correction (reviewer): the "1226 top-level PASS otherwise" line for the
+`7f52999a3e` tip check is wrong; the raw tests1 log has 1177 (core 559,
+dagql 463, engine/server 155) and the schema log 166: 1343 across those
+logs. The final applicable evidence for the candidate is 1343 PASS, 0
+FAIL, 6 SKIP lines, all unexecuted (core's initial mount failure recorded
+separately above).
+
+Reviewer's A4 verdict on `86f23052e8`: changes required, two placement
+findings under Erik's main-defect rule: B1, candidate `327c80123b`
+(source 7893a8022a "server: return shutdown errors from GracefulStop"):
+returning the pre-existing error accumulator fixes main independently
+(both `0d031c08ef` and upstream/main `4056f4a8b2` discard it; the source
+message calls it pre-existing) → the accumulator return, its
+earlier-shutdown-errors regression and the general documentation to a
+small main PR; CloseWithShutdownError and the adapter stop/error
+propagation stay in A4. B2, candidate `bcd95269fd` (source e81a03ae61
+"server: let the shutdown closing goroutine finish after a timeout"):
+buffering doneClosingCh fixes a goroutine leak present on both main refs
+→ a standalone main shutdown fix, possibly the same main PR as B1.
+Everything else clear (18 mapped, 3 additions, revisionHook once, lint
+behavior-preserving, 21 signoffs). Ruling asked of the coordinator.
