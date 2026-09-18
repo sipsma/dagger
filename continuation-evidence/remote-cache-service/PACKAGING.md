@@ -769,3 +769,16 @@ b0f1bfe679 -> 26562832fe  core: clean up persisted container lint findings
 (new) -> af2c52cb15  dagql/tla: assign every declared constant in every configuration
 (new) -> 91b4f6247e  chore: regenerate tla-check module bindings
 ```
+
+### #14219 `sipsma/debug-server-close-listener` (main PR, under the same watch)
+
+The debug-listener race fix (known-failure entry above), head
+`577d0a04f5` on main `32d989e377`, Erik approved the change; a PR
+against main, not a stack member. Same stewardship: checks recorded,
+failures triaged, merge by the rule (all green, human approval on
+GitHub) with plain `gh pr merge --merge`. Once merged the known-failure
+entry becomes "fixed on main at <hash>" and PRs rebased onto a main that
+contains it no longer carry it. First look: 76 pass, 8 pending, 1
+skipping, 1 fail: test-split:test-provision, the same check failing on
+#14043 (`4a09602c18`) and #14049 (`46bbd9b9ff`) at the same time;
+triage below.
