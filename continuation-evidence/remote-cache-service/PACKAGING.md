@@ -549,7 +549,7 @@ Conflicts and resolutions:
 Checks on the tip: the corrected two-direction TLA audit (0 findings; 29
 constants, 10 variables, 40 configurations); every INVARIANTS name in
 every configuration is defined in the spec; the module's configuration
-map and the files on disk agree both ways (the six client names in the
+map and the files on disk agree both ways (the seven client names in the
 map are `engine/server/tla/ClientLifecycle_*.cfg`, main's, unchanged);
 no old name (`poisoned`, `drain_escape`, `release_steal`,
 `resources_gated_growth`, `ReturnedGated`, `NoLaunderedServe`,
@@ -579,7 +579,8 @@ core/schema, dagql, dagql/dagui, dagql/idtui, engine,
 engine/client/pathutil, engine/clientdb, engine/server,
 engine/telemetryattrs [no test files], internal/cmd/dagger,
 internal/cmd/dagger/llmconfig), log /tmp/pkg-track8-tests.log, exit 1:
-twelve packages ok, `internal/cmd/dagger` FAIL on one test,
+eleven packages passed, one (engine/telemetryattrs) has no test
+files, `internal/cmd/dagger` FAIL on one test,
 `TestAgentDebugServerContextCancellation` (shell_test.go:183, "context
 cleanup must close the debug listener", the dial after cancel succeeds).
 Totals 1816 top-level PASS, 1 FAIL, 5 top-level SKIP. The same test
