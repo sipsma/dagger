@@ -66,8 +66,14 @@ commits. Rewound to before that commit, redid it, re-applied the three
 above it; no candidate commit carries markers (checked per commit).
 
 Tests on `c6653c6d04`, clean tree, `go test -v -count=1 -timeout 60s
-./dagql/ ./dagql/idtui/`, log /tmp/pkg-track5-c6653.log: see the result
-lines recorded below once the run is in. `e2e/helm` (the branch changes
+./dagql/ ./dagql/idtui/`, log /tmp/pkg-track5-c6653.log, exit 0: ok dagql
+1.995 s, ok dagql/idtui 0.811 s; 547 top-level PASS, 0 FAIL, 2 SKIP (the
+two live-cloud tests that need credentials, which skip on main too). The
+branch's own tests all PASS: TestCacheCanonicalEquivalentSwapRacesSessionRelease
+0.81 s, TestReportHeartbeatStopWaitsForInFlightWrite 0.10 s,
+TestReportHeartbeatLine, TestReportHeartbeatLineNoChecks,
+TestReportHandleFormFailsFast, TestReportRenderOptsRerunSuggestion and
+the TestLive* golden tests. `go build ./...` ok. `e2e/helm` (the branch changes
 `k3s.go`) is its own Go module whose tests connect to the host's own
 `dagger`; on this host they fail identically on pristine main ("module
 requires dagger v0.21.9, but you have v0.21.7", three tests), so they are
