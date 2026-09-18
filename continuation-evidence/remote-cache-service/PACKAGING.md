@@ -1094,3 +1094,31 @@ with lease on the original tip `17f7dd89f4`:
 `sipsma/remote-cache-deferred-filesystem-restoration` = `1f5fc77117`;
 GitHub shows base `sipsma/remote-cache-snapshot-chains`, 9 commits. Step
 1 (the seven-PR rebase) is complete; fresh check runs watched.
+
+A0 probe, second round (worktree /tmp/pkg-a0, `a0dd492db0` =
+`2e43236077` on the pushed `1f5fc77117`):
+
+- engine/snapshots before A0 (from #14051's run): 10 PASS, 9 SKIP (the
+  chain import/export tests, skipped by `requireNativeMount`'s denied
+  bind mount); with A0: 19 PASS, 0 SKIP, 0 FAIL (`go test -v -count=1
+  -timeout 60s ./engine/snapshots/ ./engine/snapshots/testutil/`, log
+  /tmp/pkg-a0-tests.log, exit 0).
+- core before A0 (from #14093's run): `TestSnapshotTransferTypedAdoptionAndRestart`
+  skipped by the same probe at snapshot_transfer_test.go:45; with A0 the
+  store no longer probes, and the test FAILS at line 67:
+  `Directory.Entries` reads through core.MountRef, whose read-only bind
+  mount is denied ("operation not permitted"). Log
+  /tmp/pkg-a0-core-tests.log: 471 PASS, 1 FAIL, 0 SKIP.
+- Batch 7's core companion `bbbe792279` "core: run the real-store tests
+  without privileges" does not apply on A0: seven of its eight files do
+  not exist on the A-series tip (b2: value_transfer_chain_test.go,
+  value_transfer_restart_test.go; b4: git_lazy_test.go, http_lazy_test.go,
+  lazy_operation_execution_test.go, part_acquisition_test.go; b5:
+  part_offer_admission_test.go), and its snapshot_transfer_test.go hunk
+  (four call sites moved to `demandedDirectoryEntries`/`demandedFileContents`)
+  needs helpers the same commit adds to lazy_operation_execution_test.go
+  (b4), so core does not compile with that hunk alone
+  (/tmp/pkg-a0-core-tests3.log, build failed). Probe reverted; options
+  sent to the coordinator, recommendation: A0 = `2e43236077` plus the
+  helpers and four call-site changes at A0, `bbbe792279`'s other hunks
+  placed with their files (split by file).
