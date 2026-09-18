@@ -71,8 +71,8 @@ type RemoteCacheAdapter struct {
 	reportReady chan struct{}
 	stopCh      chan struct{}
 	stopChOnce  sync.Once
-	// startup is signaled by the client after the first poll's imports;
-	// startupWait is the server's bound on waiting for it.
+	// startup is signaled by the client after the registration backlog's
+	// imports; startupWait is the server's bound on waiting for it.
 	startup     *RemoteCacheStartupGate
 	startupWait time.Duration
 	// testBeforeReportWait runs in TakeSessionReport right before it waits

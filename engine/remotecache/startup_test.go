@@ -73,8 +73,8 @@ func TestStartupFailedImportCompletes(t *testing.T) {
 	require.Equal(t, protocol.CommandResult{OK: false, Error: "bundle refused"}, h.svc.storedResults()["c-1"], "answered before the signal")
 }
 
-// A first poll with no import command completes the gate at once, whatever
-// else it carried.
+// A startup phase with no import command completes the gate on its empty
+// page, whatever else its pages carried.
 func TestStartupEmptyFirstPoll(t *testing.T) {
 	t.Parallel()
 	h := startConfigured(t, func(h *harness) {
@@ -159,7 +159,8 @@ func TestStartupEmptyQueueReleasesAtOnce(t *testing.T) {
 // A registration backlog larger than one page is drained page by page
 // with no wait, and the gate releases only after the empty page and the
 // last of every page's imports: 40 imports over three pages release
-// imports-done with all 40 counted, and only then does a long poll open.
+// imports-done with all 40 counted. The long poll opens after the empty
+// page, whether or not imports remain; here they are all answered first.
 func TestStartupDrainsBacklogPages(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {

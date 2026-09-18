@@ -21,7 +21,7 @@ import (
 // has no remote cache integration and nothing changes. With EnvURL set,
 // EnvToken must be set too, or startup fails. EnvStartupWait, a Go
 // duration, bounds how long the engine delays opening its API listeners
-// for the first poll's imports; unset means DefaultStartupWait, "0" means
+// for the registration backlog's imports; unset means DefaultStartupWait, "0" means
 // no delay, and anything else unparseable or negative fails startup.
 const (
 	EnvURL         = "_EXPERIMENTAL_DAGGER_REMOTE_CACHE_URL"

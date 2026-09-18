@@ -61,7 +61,8 @@ type PollRequest struct {
 	// WaitSeconds is how long the service may hold the request open when it
 	// has no command queued. The service caps it at MaxPollWaitSeconds.
 	// Zero asks for an immediate answer with whatever is queued; the engine
-	// sends it for its first poll, which its startup waits on.
+	// sends it while starting up, page after page until one is empty, which
+	// its startup waits on.
 	WaitSeconds int `json:"waitSeconds"`
 }
 
