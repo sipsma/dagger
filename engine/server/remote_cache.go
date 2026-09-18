@@ -28,6 +28,10 @@ type RemoteCacheIntegrationConfig struct {
 	// listeners for the registration backlog's imports
 	// (WaitRemoteCacheStartup). Zero means no delay.
 	StartupWait time.Duration
+	// ExportCompression is the compression of the blobs an export writes for
+	// snapshots that have no blob yet; nil means uncompressed. Snapshots that
+	// already have a blob reuse it whatever its compression.
+	ExportCompression compression.Type
 }
 
 var ErrRemoteCacheAdapterClosed = errors.New("remote cache adapter closed")
@@ -75,13 +79,15 @@ type RemoteCacheAdapter struct {
 	// imports; startupWait is the server's bound on waiting for it.
 	startup     *RemoteCacheStartupGate
 	startupWait time.Duration
+	// exportCompression is the config's ExportCompression, never nil.
+	exportCompression compression.Type
 	// testBeforeReportWait runs in TakeSessionReport right before it waits
 	// with an empty list.
 	testBeforeReportWait func()
 }
 
 func newRemoteCacheAdapter(cache *dagql.Cache, bridge *dagql.RemoteCacheBridge) *RemoteCacheAdapter {
-	return &RemoteCacheAdapter{cache: cache, bridge: bridge, cancel: func(error) {}, runDone: make(chan struct{}), reportReady: make(chan struct{}, 1), stopCh: make(chan struct{}), startup: NewRemoteCacheStartupGate()}
+	return &RemoteCacheAdapter{cache: cache, bridge: bridge, cancel: func(error) {}, runDone: make(chan struct{}), reportReady: make(chan struct{}, 1), stopCh: make(chan struct{}), startup: NewRemoteCacheStartupGate(), exportCompression: compression.Uncompressed}
 }
 
 // queueSessionReport adds a report to the list, dropping the oldest when the
@@ -140,12 +146,20 @@ func (a *RemoteCacheAdapter) ImportValues(ctx context.Context, bundle dagql.Valu
 	return a.cache.ImportValues(ctx, bundle)
 }
 
+// exportRefConfig is the export's layer configuration: a snapshot that
+// already has a blob reuses it, and the others get a new blob in the
+// configured compression.
+func (a *RemoteCacheAdapter) exportRefConfig() config.RefConfig {
+	return config.RefConfig{Compression: compression.New(a.exportCompression)}
+}
+
 // ExportValues exports the result numbered root and every result it depends
 // on, and lends consume the chains of every completed part owned by the
 // results numbered in partsOf. A missing root is ErrRemoteCacheResultNotFound
 // and nothing else happens. A missing partsOf number only means fewer
-// uploads. Layers are exported uncompressed: a snapshot that already has a
-// blob reuses it, and the others get a new uncompressed blob.
+// uploads. Layers are written in the configured compression, uncompressed
+// by default: a snapshot that already has a blob reuses it, and the others
+// get a new blob.
 func (a *RemoteCacheAdapter) ExportValues(ctx context.Context, root uint64, partsOf []uint64, consume func(context.Context, *dagql.ExportedValues) error) error {
 	if a.stopped.Load() {
 		return ErrRemoteCacheAdapterClosed
@@ -161,8 +175,7 @@ func (a *RemoteCacheAdapter) ExportValues(ctx context.Context, root uint64, part
 				selection.OutputsOf = append(selection.OutputsOf, res)
 			}
 		}
-		cfg := config.RefConfig{Compression: compression.New(compression.Uncompressed)}
-		return a.cache.WithExportedValues(ctx, selection, cfg, consume)
+		return a.cache.WithExportedValues(ctx, selection, a.exportRefConfig(), consume)
 	})
 }
 
@@ -247,6 +260,9 @@ func (srv *Server) startRemoteCacheIntegration(cfg *RemoteCacheIntegrationConfig
 	}
 	adapter := newRemoteCacheAdapter(srv.engineCache, bridge)
 	adapter.startupWait = cfg.StartupWait
+	if cfg.ExportCompression != nil {
+		adapter.exportCompression = cfg.ExportCompression
+	}
 	ctx, cancel := context.WithCancelCause(srv.shutdownCtx)
 	adapter.cancel = cancel
 	srv.remoteCacheAdapter = adapter
@@ -298,6 +314,9 @@ func validateRemoteCacheIntegration(cfg *RemoteCacheIntegrationConfig) error {
 	}
 	if cfg != nil && cfg.StartupWait < 0 {
 		return fmt.Errorf("remote cache integration startup wait must not be negative, got %s", cfg.StartupWait)
+	}
+	if cfg != nil && cfg.ExportCompression != nil && cfg.ExportCompression != compression.Uncompressed && cfg.ExportCompression != compression.Zstd {
+		return fmt.Errorf("remote cache integration export compression must be uncompressed or zstd, got %s", cfg.ExportCompression)
 	}
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagger/dagger/internal/buildkit/util/compression"
 	"github.com/stretchr/testify/require"
 )
 
@@ -43,6 +44,30 @@ func TestIntegrationFromEnv(t *testing.T) {
 		require.NotNil(t, cfg)
 		require.NotNil(t, cfg.Run)
 		require.Equal(t, DefaultStartupWait, cfg.StartupWait)
+	})
+	t.Run("export compression", func(t *testing.T) {
+		t.Parallel()
+		env := func(value string) func(string) string {
+			return mapGetenv(map[string]string{EnvURL: "http://cache:8080", EnvToken: "secret", EnvCompression: value})
+		}
+		cfg, err := IntegrationFromEnv(env(""), "engine-a", "v1")
+		require.NoError(t, err)
+		require.Equal(t, compression.Uncompressed, cfg.ExportCompression, "unset means uncompressed")
+		cfg, err = IntegrationFromEnv(env("uncompressed"), "engine-a", "v1")
+		require.NoError(t, err)
+		require.Equal(t, compression.Uncompressed, cfg.ExportCompression)
+		cfg, err = IntegrationFromEnv(env("zstd"), "engine-a", "v1")
+		require.NoError(t, err)
+		require.Equal(t, compression.Zstd, cfg.ExportCompression)
+		for _, bad := range []string{"gzip", "ZSTD", "estargz", "yes"} {
+			_, err = IntegrationFromEnv(env(bad), "engine-a", "v1")
+			require.ErrorContains(t, err, EnvCompression, bad)
+		}
+		_, err = NewIntegration(Config{URL: "http://cache:8080", Token: "secret", ExportCompression: compression.Gzip})
+		require.ErrorContains(t, err, "export compression must be")
+		cfg, err = NewIntegration(Config{URL: "http://cache:8080", Token: "secret"})
+		require.NoError(t, err)
+		require.Equal(t, compression.Uncompressed, cfg.ExportCompression, "a nil type is uncompressed")
 	})
 	t.Run("startup wait", func(t *testing.T) {
 		t.Parallel()

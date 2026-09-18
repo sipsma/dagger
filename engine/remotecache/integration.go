@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/dagger/dagger/engine/server"
+	"github.com/dagger/dagger/internal/buildkit/util/compression"
 )
 
 // The environment variables cmd/engine reads. With EnvURL unset the engine
@@ -23,10 +24,15 @@ import (
 // duration, bounds how long the engine delays opening its API listeners
 // for the registration backlog's imports; unset means DefaultStartupWait, "0" means
 // no delay, and anything else unparseable or negative fails startup.
+// EnvCompression selects the compression of the blobs an export writes for
+// snapshots that have no blob yet: "uncompressed" (the default when unset)
+// or "zstd"; anything else fails startup. Blobs a snapshot already has are
+// reused as they are.
 const (
 	EnvURL         = "_EXPERIMENTAL_DAGGER_REMOTE_CACHE_URL"
 	EnvToken       = "_EXPERIMENTAL_DAGGER_REMOTE_CACHE_TOKEN"
 	EnvStartupWait = "_EXPERIMENTAL_DAGGER_REMOTE_CACHE_STARTUP_WAIT"
+	EnvCompression = "_EXPERIMENTAL_DAGGER_REMOTE_CACHE_COMPRESSION"
 )
 
 // DefaultStartupWait is the listener delay when EnvStartupWait is unset:
@@ -46,6 +52,9 @@ type Config struct {
 	// StartupWait bounds the engine's listener delay for the registration
 	// backlog's imports. Zero means no delay.
 	StartupWait time.Duration
+	// ExportCompression is the compression of newly written export blobs:
+	// compression.Uncompressed or compression.Zstd; nil means uncompressed.
+	ExportCompression compression.Type
 }
 
 // IntegrationFromEnv builds the server option from the environment, read
@@ -66,7 +75,23 @@ func IntegrationFromEnv(getenv func(string) string, engineName, engineVersion st
 		}
 		startupWait = parsed
 	}
-	return NewIntegration(Config{URL: base, Token: getenv(EnvToken), EngineName: engineName, EngineVersion: engineVersion, StartupWait: startupWait})
+	exportCompression, err := parseExportCompression(getenv(EnvCompression))
+	if err != nil {
+		return nil, err
+	}
+	return NewIntegration(Config{URL: base, Token: getenv(EnvToken), EngineName: engineName, EngineVersion: engineVersion, StartupWait: startupWait, ExportCompression: exportCompression})
+}
+
+// parseExportCompression reads EnvCompression's value.
+func parseExportCompression(raw string) (compression.Type, error) {
+	switch raw {
+	case "", compression.Uncompressed.String():
+		return compression.Uncompressed, nil
+	case compression.Zstd.String():
+		return compression.Zstd, nil
+	default:
+		return nil, fmt.Errorf("remote cache: %s must be %q or %q, got %q", EnvCompression, compression.Uncompressed, compression.Zstd, raw)
+	}
 }
 
 // NewIntegration validates cfg and returns the server option whose Run is
@@ -93,11 +118,18 @@ func NewIntegration(cfg Config) (*server.RemoteCacheIntegrationConfig, error) {
 	if cfg.StartupWait < 0 {
 		return nil, fmt.Errorf("remote cache: startup wait must not be negative, got %s", cfg.StartupWait)
 	}
+	if cfg.ExportCompression == nil {
+		cfg.ExportCompression = compression.Uncompressed
+	}
+	if cfg.ExportCompression != compression.Uncompressed && cfg.ExportCompression != compression.Zstd {
+		return nil, fmt.Errorf("remote cache: export compression must be %q or %q, got %q", compression.Uncompressed, compression.Zstd, cfg.ExportCompression)
+	}
 	return &server.RemoteCacheIntegrationConfig{
 		Run: func(ctx context.Context, adapter *server.RemoteCacheAdapter) error {
 			return run(ctx, cfg, instanceID, adapter)
 		},
-		StartupWait: cfg.StartupWait,
+		StartupWait:       cfg.StartupWait,
+		ExportCompression: cfg.ExportCompression,
 	}, nil
 }
 
@@ -113,6 +145,6 @@ func newEngineInstanceID() (string, error) {
 // lifetime context. It returns once that context ends and every loop and
 // upload has returned.
 func run(ctx context.Context, cfg Config, instanceID string, adapter *server.RemoteCacheAdapter) error {
-	slog.Info("remote cache integration starting", "url", cfg.URL, "engineInstance", instanceID, "engineName", cfg.EngineName, "engineVersion", cfg.EngineVersion, "startupWait", cfg.StartupWait)
+	slog.Info("remote cache integration starting", "url", cfg.URL, "engineInstance", instanceID, "engineName", cfg.EngineName, "engineVersion", cfg.EngineVersion, "startupWait", cfg.StartupWait, "exportCompression", cfg.ExportCompression)
 	return newClient(cfg, instanceID, nil, adapter).run(ctx)
 }
