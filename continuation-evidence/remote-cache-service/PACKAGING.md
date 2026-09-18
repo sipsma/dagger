@@ -1612,3 +1612,12 @@ rerun once as the known race.
 `2312669ed6d65b690887d76d12e6473f`, 8m11s), so the from_baseline
 assertion was a flake on this run; the coordinator's condition for a
 local repro (a second failure on the same assertion) did not arise.
+
+A2 moves: onto A1's `34cf231b26` (one conflict, the split completed-producer
+test, resolved as recorded above), then `25d92459b9` (`875d0d24bc`,
+range-diff all equal, tests once: 1235 PASS / 0 FAIL, /tmp/pkg-a2-tests4.log),
+then `9db965f4e2` (`ff54e7c06c`, range-diff all equal). Tests on
+`ff54e7c06c`, clean (/tmp/pkg-a2-tests5.head): the five packages once,
+log /tmp/pkg-a2-tests5.log, exit 0, 1235 top-level PASS, 0 FAIL, 0
+top-level SKIP, one inherited nested SKIP. Local lint on `ff54e7c06c`:
+LINTA2.
