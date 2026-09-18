@@ -1570,10 +1570,15 @@ the recipe's value type, for Directory/File; `evaluateGitTreeInto` with
 an input-checking closure for the two git tree recipes; no exclusion).
 Series moved onto A0's `f97c446e23` and then, after #14049's merge, onto
 A0's `e9372bccdb` (range-diff all equal both times; the second move
-changes no tree). Tip `25d92459b9`, 29 commits. Tests on `25d92459b9`,
+changes no tree). Then `9db965f4e2` "dagql: drop the scalar envelope decoder's unused
+decode context" (the final-tip lint on `25d92459b9`, /tmp/pkg-a1-lint5.log,
+ERROR exit 1, one finding: unparam on the decode context my previous
+follow-up left on the scalar decoder; dagql once on `9db965f4e2`,
+/tmp/pkg-a1-tests8.log, exit 0, 383 top-level PASS, 0 FAIL, one inherited
+nested SKIP). Tip `9db965f4e2`, 30 commits. Tests on `25d92459b9`,
 clean (/tmp/pkg-a1-tests7.head): the five packages once, log
 /tmp/pkg-a1-tests7.log, exit 0, 1070 top-level PASS, 0 FAIL, 0 top-level
-SKIP, one inherited nested SKIP. Final-tip lint: LINTA1FINAL.
+SKIP, one inherited nested SKIP. Final-tip lint on `9db965f4e2`: /tmp/pkg-a1-lint6.log, LINTA1FINAL.
 
 A2 conflict on the move onto A1's lint commit: `95382e5ac3` "test:
 snapshot completed producers without copying mutexes" edits the
