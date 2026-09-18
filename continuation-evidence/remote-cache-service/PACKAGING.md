@@ -1673,7 +1673,17 @@ the packaged hash, the series hash and the A1 commit). Tests on
 10.307 s, 510 top-level PASS, 0 FAIL, 0 SKIP, the regression PASS.
 Reviewer: same change as `b561d4e4c0` (patches identical, range-diff
 differs only by the provenance paragraph), approved conditional on the
-lint. Lint on `b63ea739dc`: /tmp/pkg-a1-lint7.log, LINT7. Corrections
+lint. Lint on `b63ea739dc`: /tmp/pkg-a1-lint7.log (head file
+/tmp/pkg-a1-lint7.head), findings 0, `golangci-lint:lint-all DONE [4m10s]`,
+exit 0. Pushed: `sipsma/remote-cache-transfer-foundations` = `b63ea739dc`
+(fast-forward, lease on `9db965f4e2`), #14224 at 31 commits; one
+"Follow-up" sentence appended to the coordinator's rewritten description
+through the REST API (`gh pr edit` fails on a GraphQL projects
+deprecation). Host note: the disk hit 99% (builds failed with ENOSPC)
+during this work; /home/exedev/.cache/go-build was 286 GB and was
+cleared with `go clean -cache` (regenerable), finished worktrees were
+removed and CI logs over 5 MB gzipped in place (their recorded paths
+gain a .gz suffix); 296 GB free afterwards. Corrections
 table: `7316dfcc9a`/`b561d4e4c0` → A1 (#14224), out of A2. A2 is rebased
 onto `b63ea739dc` so the commit drops out of its series. Reviewer's note
 taken: core/schema runs at `-timeout 120s` from now on.
