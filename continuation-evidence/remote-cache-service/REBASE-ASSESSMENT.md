@@ -130,7 +130,10 @@ None required a code change on our side. Differences to be aware of:
   transfer tests now run on this host against the real stores, with the
   in-place substitutions above for the mount paths (they passed).
 
-## Verification on the rebased tree
+## Verification on the first rebased tree, `b654716d10`
+
+Everything in this section was run on `b654716d10`, the cherry-pick onto
+`92b8057912`; the re-rebase onto the integrated tip has its own section.
 
 Unit packages, one run each at `-timeout 60s`, on a loaded host:
 
@@ -233,8 +236,10 @@ service runs would otherwise hit (a not-ready part-source candidate, a
 key-only renewal panic, cloning a part-acquired File into a Container, the
 imported cache volume's snapshot lifetime). Nothing of theirs supersedes
 E1 through E10, the cached module definition, E9's null-row dependencies
-or the pending E11 and E12. On the rebased tree our unit packages, both
-engine suites, the default loop set and the demo pass.
+or the pending E11 and E12. On `b654716d10` our five other unit packages,
+both engine suites, the default loop set and the demo pass; the dagql
+package's two inherited test defects are open until the re-rebase onto
+the tip that carries their deterministic fixes passes a full run.
 
 Differences to resolve with them, none blocking the switch:
 
