@@ -796,3 +796,35 @@ contains it no longer carry it. First look: 76 pass, 8 pending, 1
 skipping, 1 fail: test-split:test-provision, the same check failing on
 #14043 (`4a09602c18`) and #14049 (`46bbd9b9ff`) at the same time;
 triage below.
+
+### CI triage, 19:22 UTC window: registry.dagger.io outage
+
+Trace ids come from `gh pr checks <n>`'s description column ("Run
+`dagger trace <id>`"); traces in /tmp/ci-trace-<pr>-<check>.log, full
+check logs via `dagger cloud logs <id> --check <name> -o <file>`.
+
+- test-split:test-provision failed on #14043 (`4a09602c18`, trace
+  `84cc0212512994062b62c0d14674929c`), #14049 (`46bbd9b9ff`, trace
+  `c94c28f2a4d5fa864ccd6070585f08ec`) and #14219 (`577d0a04f5`, trace
+  `0d8a8d7c8d8ec26d2338a593398a8866`, coordinator's triage). Same
+  failure in all three: TestProvision's TestImageDriver and
+  TestImageDriverGarbageCollectEngines subtests fail resolving
+  `registry.dagger.io/engine:v0.16.1` (and v0.16.0, and blob GETs) with
+  "unexpected status from HEAD request ... 500 Internal Server Error"
+  (/tmp/ci-logs-14043-provision.log: 6+6 manifest HEAD 500s;
+  /tmp/ci-logs-14049-provision.log: 11 manifest HEAD and 21 blob GET
+  500s). Registry, not the trees; the coordinator confirmed the manifest
+  HEAD returns 200 from this host afterwards. Rerun once on each.
+- golang:test-all failed on #14043 (trace
+  `9ea1b714b2687e28e4b3871c58032725`) and #14049 (trace
+  `d8b1eb78980a85c61198e0d2fd63c6c1`): e2e/helm
+  `TestInstallK3S/default_daemonset`, the engine pod stuck in
+  ImagePullBackOff for 5 minutes ("wait for engine pod
+  dagger-dagger-helm-engine (condition=Ready)"), same window, the same
+  registry serving the engine image; every other e2e test passed.
+  Rerun once on each.
+- test-split:test-base failed on #14043 (trace
+  `f4dadcef70ca15a4fd3c200ccf2aadc7`): 2439 passed, 12 skipped, one
+  failure, core/integration `TestRuntimeCodegen/TestPythonTrustedFilesUsed`
+  (logs /tmp/ci-logs-14043-pytrusted.log); triage below before any rerun.
+  The known debug-listener race did not fire in this run.
