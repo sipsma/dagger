@@ -1459,3 +1459,18 @@ k3s image pull). Provision failed again on the registry (trace
 `426669edcb1f39a035a630af135d3a99`, 35 × 500); registry probe 200 at
 20:5x, rerun once more under the approved-PR tweak (rerun as soon as the
 cause is confirmed cleared).
+
+A1 lint adaptation (coordinator's option (a)): `943ca7e681` "lint: meet
+main's golangci-lint configuration" at the tip (26 commits), 14 files,
++315/-285, all 28 findings, no nolint added, behavior unchanged; the two
+gocyclo functions split by verbatim moves (three named subtest functions;
+three envelope-kind decoders with the caller applying the session
+resource handle); the unused directive on encodePersistedResultEnvelope
+removed (gocyclo 29). Tests on `943ca7e681`, clean
+(/tmp/pkg-a1-tests6.head): the same five packages once, log
+/tmp/pkg-a1-tests6.log, exit 0, 1070 top-level PASS, 0 FAIL, 0 top-level
+SKIP, one inherited nested SKIP. Second local lint: LINTA1B. Standing
+step from here: local lint-all on every candidate before review; findings
+in code main owns and the batch does not touch are recorded, not fixed
+in the stack (A2's vet shows main's own `session_attachables.go:211`
+lostcancel, `74c2889afc`, identical on main).
