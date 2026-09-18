@@ -991,3 +991,27 @@ ebb12475db -> f078e1e776  core: assert saved list row decoding after restart
 a471f99518 -> 13a217121d  changes: record deferred snapshot restoration
 17f7dd89f4 -> 1f5fc77117  docs: satisfy Markdown formatting rules
 ```
+
+## Step 2 preparation: A0 probe
+
+Throwaway worktree /tmp/pkg-a0-probe on #14093's original tip
+`17f7dd89f4`, cherry-picking batch 7's packaged test-store commits (from
+`manifest/batch-7.json`, branch `b7-packaging/remote-cache/b7-verification`):
+
+- `2e43236077` (original `e4b65210ea`) "engine/snapshots/testutil: run
+  the real test store without privileges", inplace.go (+253) and
+  store.go: applies cleanly, `go build` of engine/snapshots and core ok.
+  A0 proper.
+- `0513487968` (original `b073363f07`) "core/schema: read demanded bytes
+  in the test store's directory": adds demanded_read_test.go and edits
+  directory_scratch_test.go, http_lazy_test.go, query_lazy_test.go, which
+  do not exist on the A-series tip (delete/modify conflicts). Two
+  placements offered to the coordinator: A0 with only the new test file
+  (a split), or whole in the first packaged PR carrying those lazy tests.
+- `46ee7035b8` (original `ed7a4a47f9`, the helper fix): store.go hunk
+  swaps `ContentStore: s.Content` for the `observed` wrapper; that
+  wrapper (`BeforeWrite`) first appears in `4e2515e704` on b4-acquisition
+  (A3); the import_test.go hunk adds a test beside later-batch tests. By
+  Erik's backport rule it belongs in A3 above `4e2515e704`; A0 (the
+  commission's wording) has no observed wrapper. Placement asked, not
+  guessed.
