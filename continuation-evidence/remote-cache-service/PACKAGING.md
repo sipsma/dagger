@@ -2601,3 +2601,24 @@ pending. #14228 test-base: "Cancelled - max execution time exceeded"
 from 23:27:30Z / 23:30:52Z, then only metric-export lines until the
 30-minute cutoff (23:52Z); no test result lines; green on `c7dc73fbf7`
 and `c3f7dc33f6`. Rerun proposed as a second data point.
+
+### A4 published: #14233 `sipsma/remote-cache-live-part-offers`
+
+Reviewer acknowledged the doc-only follow-up `82f2e8487e` (approval
+stands). Pushed to upstream `sipsma/remote-cache-live-part-offers` (new
+branch); `gh stack link 13937 sipsma/remote-cache-live-part-offers`
+created #14233 (base `sipsma/remote-cache-lazy-part-acquisition`) as a
+draft; title and approved body (with the #14231 sentence) set by REST
+PATCH (/tmp/pkg-a4-patch.json); `gh pr ready`. Stack API: id 487371, 16
+members, #14233 at position 16 above #14229 (15). Read back: head
+`82f2e8487e`, base `sipsma/remote-cache-lazy-part-acquisition`, head
+repo dagger/dagger, draft false, body verbatim (trailing newline only;
+/tmp/pkg-a4-pr-body.live.md). The agreed test-base rerun on #14228's
+`dca16de409` issued (second data point; the nested engine's SIGKILL with
+no test output is runner behavior until shown otherwise). CI watch
+re-armed with #14233. Investigator's git evidence report for Erik:
+/tmp/git-scoping-evidence.md (named refs share `__resolvedRef` rows on
+`e8846990e9`; the SSH failing pair does not share one: c2 evaluates c1's
+socket-less lazy Directory published under the same content digest
+xxh3:ab061a4655b0a931; a per-client resolved ref alone cannot fix SSH;
+options without recommendation; trace `88d5735a0f6ce0c780ccfdddc9b901cc`).
