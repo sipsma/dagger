@@ -449,7 +449,10 @@ func parseRetryAfter(value string) time.Duration {
 	if err != nil || seconds <= 0 {
 		return 0
 	}
-	return min(time.Duration(seconds)*time.Second, retryAfterMax)
+	// Capped as seconds, before the conversion, so a huge value cannot
+	// overflow the duration.
+	seconds = min(seconds, int(retryAfterMax/time.Second))
+	return time.Duration(seconds) * time.Second
 }
 
 func (e *serviceError) Error() string {

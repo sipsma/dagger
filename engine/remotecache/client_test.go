@@ -65,6 +65,10 @@ type fakeService struct {
 	pollKick       chan struct{}
 	pollBusy       atomic.Int32
 	pollRetryAfter string
+	// pollBusyAnswered is signaled once per 503 answer, after the fake has
+	// classified the attempt, so a test can sequence what the next poll
+	// meets.
+	pollBusyAnswered chan struct{}
 	// claimAllBlobs makes the blob check answer that nothing needs
 	// uploading, whatever the store holds.
 	claimAllBlobs atomic.Bool
@@ -85,17 +89,18 @@ type fakeService struct {
 
 func newFakeService(t *testing.T) *fakeService {
 	return &fakeService{
-		t:               t,
-		results:         map[string]protocol.CommandResult{},
-		blobs:           map[digest.Digest][]byte{},
-		pollAnswers:     make(chan protocol.PollResponse),
-		pollAttempted:   make(chan struct{}, 100),
-		pollOpened:      make(chan struct{}, 100),
-		zeroWaitPages:   make(chan protocol.PollResponse, 16),
-		pollKick:        make(chan struct{}, 1),
-		reportAttempted: make(chan string, 100),
-		resultDelivered: make(chan string, 100),
-		uploadEntered:   make(chan struct{}, 100),
+		t:                t,
+		results:          map[string]protocol.CommandResult{},
+		blobs:            map[digest.Digest][]byte{},
+		pollAnswers:      make(chan protocol.PollResponse),
+		pollAttempted:    make(chan struct{}, 100),
+		pollOpened:       make(chan struct{}, 100),
+		zeroWaitPages:    make(chan protocol.PollResponse, 16),
+		pollBusyAnswered: make(chan struct{}, 100),
+		pollKick:         make(chan struct{}, 1),
+		reportAttempted:  make(chan string, 100),
+		resultDelivered:  make(chan string, 100),
+		uploadEntered:    make(chan struct{}, 100),
 	}
 }
 
@@ -267,6 +272,7 @@ func (s *fakeService) poll(req *http.Request) (*http.Response, error) {
 		if s.pollRetryAfter != "" {
 			resp.Header.Set("Retry-After", s.pollRetryAfter)
 		}
+		s.pollBusyAnswered <- struct{}{}
 		return resp, nil
 	}
 	if status := s.pollStatus.Load(); status != 0 {

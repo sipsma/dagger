@@ -310,8 +310,20 @@ func TestServiceBusyDoesNotMoveTheBackoff(t *testing.T) {
 			svc.pollRetryAfter = "1"
 		})
 		attempts := h.attempts(t, 4)
-		// The fourth attempt was the second busy answer; the fifth poll
-		// fails on the transport and waits the backoff as it stood.
+		// Only once the fake has answered the second busy poll (the fourth
+		// attempt, already classified) is the next transport failure armed,
+		// during the client's one-second wait; the fifth poll then fails on
+		// the transport and waits the backoff as it stood.
+		for range 2 {
+			select {
+			case <-h.svc.pollBusyAnswered:
+			case <-time.After(5 * time.Minute):
+				t.Fatal("no busy answer")
+			}
+		}
+		// And the client has reached its retry wait, so the counter cannot
+		// be read by an attempt still in flight.
+		synctest.Wait()
 		h.svc.pollFailures.Store(1)
 		attempts = append(attempts, h.attempts(t, 2)...)
 		require.Equal(t, []time.Duration{time.Second, 2 * time.Second, time.Second, time.Second, 4 * time.Second}, gaps(attempts))
@@ -325,6 +337,7 @@ func TestParseRetryAfter(t *testing.T) {
 	require.Equal(t, time.Second, parseRetryAfter("1"))
 	require.Equal(t, 7*time.Second, parseRetryAfter(" 7 "))
 	require.Equal(t, retryAfterMax, parseRetryAfter("600"))
+	require.Equal(t, retryAfterMax, parseRetryAfter("9223372036854775807"), "capped before the conversion, no overflow")
 	for _, bad := range []string{"", "0", "-1", "1.5", "Wed, 21 Oct 2015 07:28:00 GMT"} {
 		require.Zero(t, parseRetryAfter(bad), bad)
 	}
