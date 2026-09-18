@@ -1578,7 +1578,7 @@ follow-up left on the scalar decoder; dagql once on `9db965f4e2`,
 nested SKIP). Tip `9db965f4e2`, 30 commits. Tests on `25d92459b9`,
 clean (/tmp/pkg-a1-tests7.head): the five packages once, log
 /tmp/pkg-a1-tests7.log, exit 0, 1070 top-level PASS, 0 FAIL, 0 top-level
-SKIP, one inherited nested SKIP. Final-tip lint on `9db965f4e2`: /tmp/pkg-a1-lint6.log, LINTA1FINAL.
+SKIP, one inherited nested SKIP. Final-tip lint on `9db965f4e2`: /tmp/pkg-a1-lint6.log (head file /tmp/pkg-a1-lint6.head), findings 0, `golangci-lint:lint-all DONE [3m33s]`, exit 0.
 
 A2 conflict on the move onto A1's lint commit: `95382e5ac3` "test:
 snapshot completed producers without copying mutexes" edits the
