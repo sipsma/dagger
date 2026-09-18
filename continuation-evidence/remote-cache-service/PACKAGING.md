@@ -959,3 +959,35 @@ cd0dfe7e2c -> aa70bbefd7  test: probe read-only mounts before snapshot fixtures
 62d62bd0c3 -> 838abf5a32  snapshots: clarify import and lifetime lint intent
 (new) -> d709b706bd  chore: regenerate tla-check module bindings
 ```
+
+### #14093 `sipsma/remote-cache-deferred-filesystem-restoration`
+
+Candidate head `1f5fc77117` (working branch `pkg/track11`, worktree
+/tmp/pkg-track11), 9 commits on #14051's `d709b706bd`: the 9 originals
+(`62d62bd0c3..17f7dd89f4`), all paired, no new commits. No conflicts:
+every commit applied cleanly. No TLA, tla-check or generated file
+changes, so no regeneration. No trailers, no markers.
+
+LLM-code rule: no LLM file touched.
+
+Tests on `b35e57d3c1` (the same nine commits on `838abf5a32`, before #14051's regeneration commit was inserted below them; `git range-diff` all equal, and the regeneration touches only the nested module's bindings, so the tested packages are unchanged), clean tree (/tmp/pkg-track11-tests.head): `go build
+./...` ok; `go test -v -count=1 -timeout 60s ./core/ ./core/schema/
+./dagql/` (the packages the PR touches outside the engine suite), log
+/tmp/pkg-track11-tests.log, exit 0: ok core 6.958 s, ok core/schema
+8.950 s, ok dagql 2.092 s; 973 top-level PASS, 0 FAIL, 1 top-level SKIP (`TestSnapshotTransferTypedAdoptionAndRestart`, fixture-gated, fixture root unset) and no nested skips. The
+engine-suite changes (core/integration/engine_persistence_test.go and
+the persisted-directory-list testdata module) are CI-only.
+
+Hash map (`62d62bd0c3..17f7dd89f4`, 9 commits, to `d709b706bd..1f5fc77117`, 9):
+
+```
+09c7e3ca03 -> fcc31e1271  dagql: report stored whole-result opens as completed computation
+b10f8034c1 -> f76bd2acc4  dagql: restore persisted list children through their exact rows
+a0cef8d540 -> 5a932e6818  core: defer opening persisted directory and file snapshots
+90d9134a27 -> 0c45aab7f2  core: observe saved snapshot opens across engine restarts
+ebb12475db -> f078e1e776  core: assert saved list row decoding after restart
+50f75609b4 -> bd178fa2f1  docs: explain deferred snapshot restoration and list identity
+5f09dc400e -> ace9d09fb9  docs: clarify test revisions and fixture limits
+a471f99518 -> 13a217121d  changes: record deferred snapshot restoration
+17f7dd89f4 -> 1f5fc77117  docs: satisfy Markdown formatting rules
+```
