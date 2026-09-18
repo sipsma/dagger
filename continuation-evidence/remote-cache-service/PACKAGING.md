@@ -2108,3 +2108,20 @@ tests later originals fix), and the same five, no others, fail at each of
 the three correction commits (/tmp/pkg-a3-cp-core.log,
 /tmp/pkg-a3-cp-core-chain.txt); dagql `ok` at each point. Messages kept
 with a provenance paragraph; author and signoff Erik.
+
+#### A3 rebased onto the correction chain
+
+`git rebase --onto 49087746ad c14313a18e pkg/a3` (pre-corrections tip
+tagged `pkg/a3-before-corrections` = `d67442f45a`): 14 commits replayed,
+no conflicts. One compile fix folded into the unreviewed lint commit
+(amended → `c14909d8a4`): the scan fix's new test called
+`partTestEquivalent` with the context parameter the lint commit removes.
+Series now 54 commits on `c5338475d2`; map /tmp/pkg-map-a3.txt: 44
+originals mapped, 0 unmapped, 10 new (three corrections `565728162c`,
+`279425d3d2`, `49087746ad`; two demanded-bytes commits; four ruling
+commits; the lint commit). TLA audit on the tip: 0 findings (30
+constants, 10 variables, 43 cfgs). Scratch worktrees /tmp/pkg-a3-cp and
+/tmp/pkg-a3-base removed. Running on `c14909d8a4`: focused
+`go test -count=20 -run 'TestPartInlineAddress$' ./core/`
+(/tmp/pkg-a3-inline20.log), the full tip check (/tmp/pkg-a3-tests6.log,
+/tmp/pkg-a3-tests6-schema.log), lint-all (/tmp/pkg-a3-lint5.log).
