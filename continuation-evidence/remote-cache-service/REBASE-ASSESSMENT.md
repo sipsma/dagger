@@ -266,8 +266,9 @@ textual conflict and both sides' code is preserved.
 | engine/snapshots | FAIL: E12's `TestImportedLayerBlobIsBoundToItsSnapshot`, "without diffing the snapshot", expected 0 diffs, got 1 |
 
 The engine/snapshots failure is E12's, not the rebase's. On our base the
-store tests skip on this host and E12's test was run in the engine-dev
-container, where it passed. On their tip `testutil.NewStore` runs
+store tests skip on this host; E12's test was reported as passed in the
+engine-dev container, which was later shown to have been a skip (see the
+follow-up section below). On their tip `testutil.NewStore` runs
 unprivileged; the walking differ fails to mount and export falls back to
 the store's in-place differ, whose `Diffs` counter the test reads. The
 export after the reload produced the same digest as the imported blob
@@ -278,40 +279,156 @@ only (engine/snapshots/manager.go `rehydrateSnapshotMetadataLocked`), and
 the manager's metadata store is in memory and recreated on reload. The
 engine seat owns this and is changing the import path and the reuse
 assertion in an E12 round 3 on top of `95099e8a52`. Two E11/E12 review
-findings stay open on the engine seat's side and are not closed by this
-rebase: the forced-variant reuse path must label the recorded blob
-digest (E12), and the reuse test must count actual writes rather than
-differ calls (E11).
+findings were open at this point (the forced-variant reuse path labeling
+the recorded blob digest; the reuse test counting actual writes rather
+than differ calls); their fixes are among the follow-up picks below.
 
-Engine suites, loop and demo on `1e417aef41`: PENDING.
+Engine suites on `1e417aef41`, through `engine-dev test` on
+`remote-cache-engine`, once each: TestModuleDefinitionSuite 2 passed
+(01:43:17 to 01:49:22), TestRemoteCacheStartupSuite 2 passed (01:49:22 to
+01:54:26).
 
-## Recommendation (provisional, before the re-rebase)
+A loop and a demo were chained after the suites on `1e417aef41` and are
+not evidence: while the loop's CLI build was syncing the bind-mounted
+checkout I cherry-picked this note's commits into that checkout, the
+sync failed ("failed to select host directory ... not found", loop exit
+1), and the demo that followed with `--skip-build` ran the new engine
+tarball with the previous run's CLI binary. Recorded here because they
+happened; the loop and demo that count are on the final tip below.
 
-Switch base. Their delta and ours do not compete: the only file overlap
-is three dagql files, the one conflict is an import line, and their
-production changes fix acquisition and backing-snapshot defects that our
-service runs would otherwise hit (a not-ready part-source candidate, a
-key-only renewal panic, cloning a part-acquired File into a Container, the
-imported cache volume's snapshot lifetime). Nothing of theirs supersedes
-E1 through E10, the cached module definition, E9's null-row dependencies
-or the pending E11 and E12. On `b654716d10` our five other unit packages,
-both engine suites, the default loop set and the demo pass; the dagql
-package's two inherited test defects are open until the re-rebase onto
-the tip that carries their deterministic fixes passes a full run.
+## Follow-up: the engine seat's later commits and the final tip
 
-Differences to resolve with them, none blocking the switch:
+The engine seat's tip moved on while this rebase was verified. On top of
+`0c334e5f06`, cherry-picked with `-x` in order: `0c8ed12811` (E12 round
+2: the reuse path labels the recorded blob, not a forced variant),
+`9dfa451ecb` (E11 test fix: zstd reuse proven by content writes),
+`95099e8a52` (E13: a builtin image's layers taken from the builtin store
+on chain import), `108ab539fe` (E13 round 1: builtin store opened before
+the snapshot manager, unconditional size check), `b88096f0b8` (E12 round
+3: an export reuses a reopened snapshot's blob from its label, restoring
+the ref's blob metadata from the content store; the finding above),
+`c7cd722841` (E11 round 2: zstd is the export default), `4c85e161f4` and
+`0f05361f1c` (definition lookup log lines), `64eae4e230` (the size test's
+larger case expects the provider's short read). One textual conflict:
+E13's change to engine/snapshots/testutil/store.go against the
+successor's unprivileged store; resolved by keeping their in-place
+applier and differ and adding E13's `BuiltinContent: s.Builtin`, so the
+overlap with their delta is now six files (engine/server/server.go
+joined it, without conflict).
 
-1. The two inherited dagql tests are schedule-dependent (fixture test) and
-   read a count before a detached release (boundary test); their fixes
-   must not poll the clock, which their first boundary fix did.
-2. The fixture report requires a controller that a real integration
-   never creates; deferred on our side, fixed on theirs.
-3. `ErrPartNoProgress` is a new terminal outcome of a demand; our client
-   reports it as a failed export, which is correct, but the service side
+One adaptation of ours, `c96012aad7`, test helper only: the successor's
+store handed the raw content store to its in-place applier and differ,
+so a fallback diff's blob writes never reached `BeforeWrite`, and the
+three E11/E12 assertions that count content writes saw zero
+(TestLabelUpdateFailureIsRepairedByTheRetry,
+TestFlatLeaseNamingOnlyTheSnapshotLosesTheBlob,
+TestZstdExportChainImports, verbose log /tmp/rebase-engine-snapshots-v1.log
+on `b347418163`). Both now use the same observed wrapper the manager
+uses.
+
+A fact that surfaced here: the E11, E12 and E13 store tests never ran on
+our base. `testutil.NewStore` skipped without bind-mount privileges both
+on this host and in the engine-dev container, and the "N passed"
+summaries counted skips. The successor's unprivileged store is where they
+run for the first time, on this branch.
+
+### Verification on the final tip `c96012aad7`
+
+`go test -v -count=1 -timeout 60s ./engine/snapshots/ ./engine/server/
+./engine/remotecache/`, clean tree, unfiltered log
+/tmp/rebase-engine-snapshots-v2.log, exit 0. The thirteen store tests
+all `--- PASS`, none skipped: TestImportedLayerBlobIsBoundToItsSnapshot
+0.41 s, TestFlatLeaseNamingOnlyTheSnapshotLosesTheBlob 0.44 s,
+TestDiffedBlobIsBoundToItsSnapshot 0.27 s, TestBuiltinImageBlobsArePinned
+0.17 s, TestLabelUpdateFailureIsRepairedByTheRetry 0.32 s,
+TestForcedVariantKeepsTheRecordedBlob 0.49 s, TestZstdExportChainImports
+0.71 s, TestChainImportTakesBuiltinLayersFromTheBuiltinStore 0.64 s,
+TestChainImportReadsOnlyNonBuiltinLayersFromTheProvider 0.59 s,
+TestChainImportFallsThroughWhenTheBuiltinStoreFails 0.63 s,
+TestChainImportRefusesBuiltinLayersOfAnotherSize/zero 0.63 s and /larger
+0.47 s; TestLocalCacheStateTakesTheBuiltinStore/refused_without_the_store
+and /wired PASS. Packages: engine/snapshots ok 6.28 s, engine/server ok
+2.62 s, engine/remotecache ok 0.12 s.
+
+Unit packages at `-timeout 60s` on `3d7a492ae2`: dagql ok 20.7 s, core
+ok 16.2 s. The production files of both packages are unchanged between
+`3d7a492ae2` and `c96012aad7`; the later commits touch engine/snapshots,
+engine/server, engine/remotecache, one log line in
+core/schema/modulesource.go and the shared test helper
+engine/snapshots/testutil/store.go, which core's store-backed tests also
+use, so those two results are runs on `3d7a492ae2`, not on the final
+tip.
+core/schema rerun on `c96012aad7`: ok 12.2 s.
+
+The engine suites were not rerun on the final tip: the coordinator
+scoped them out because the later commits touch neither path and both
+passed on `1e417aef41`.
+
+Shared loop and demo, from the dagger.io worktree at the service seat's
+`2880b4268` (its import materialization under review), engine
+`c96012aad7` bind-mounted and built in full, host otherwise idle; the
+Service seat and the Service reviewer report from the same logs:
+
+| run | result |
+|---|---|
+| loop, full build, default set, 5 m bound | passed, exit 0, go test 79.1 s: the five tests that ran all PASS, TestBlobStore 10.58 s, TestCacheServiceStarts 11.81 s, TestColdEngineReusesResult 75.35 s, TestColdEngineStartsAfterExport 75.45 s, TestColdEngineDirectoryFunction 79.12 s; TestBaseline is not in this log (log /tmp/remote-cache-e2e-20260918-020854.log). The Rebase reviewer read the three B engines' own logs: `_moduleDefinition` cached=true on all three with zero "module definition computed" lines; reuse B downloaded 129 bytes, late B 128 bytes and released its startup after one answered import in 287 ms, directory B downloaded 6,258,815 bytes across four parts. |
+| demo, `--skip-build` | passed, exit 0: B hit the function call, no body run on B, same binary; A 30.709 s (module load 17.064 s, build 13.645 s), B 407 ms (module load 283 ms, read 125 ms); both engines report exportCompression=zstd (E11's default); A uploaded 155,058,581 bytes in 17 blobs, upload 0.998 s, against 385,822,791 bytes uncompressed in the earlier demo on `b654716d10`; B downloaded 3,499,087 bytes in 1 part (log /tmp/remote-cache-e2e-20260918-021135.log) |
+
+Host handed back to the Service seat after the demo.
+
+## Recommendation
+
+Switch base to the successor's integrated tip `bf509625e7`; the branch
+to take is `rebase-engine-on-bf509625e7` at the tip named in the final
+report, which is the engine seat's `0f05361f1c` on top of it plus the one
+test-helper commit and this note.
+
+Why. Their delta and ours do not compete: the file overlap is six files,
+the two textual conflicts are an import line and a test-store option
+block, and their production changes fix acquisition and backing-snapshot
+defects that our service runs would otherwise hit: a not-ready
+part-source candidate, a key-only renewal panic, cloning a part-acquired
+File into a Container (`1bfece3b77`'s `HasPendingLazyComputation` change
+in core/container.go, which is the run 3b "still lazy" guard our
+original branch lacks), and the imported cache volume's snapshot
+lifetime.
+Nothing of theirs supersedes E1 through E13, the cached module
+definition, or E9's null-row dependencies. On the rebased tree our unit
+packages, both engine suites and the demo pass, and their unprivileged
+test store runs our E11, E12 and E13 store tests for the first time
+anywhere, all passing.
+
+Differences resolved during this rebase:
+
+1. Their two inherited dagql test defects (schedule-dependent fixture
+   test, ownership count read before a detached release) were fixed on
+   their tip after my analysis; the fixes are in `bf509625e7`.
+2. Their fixture report required a controller that a real integration
+   never creates; fixed on their tip (`5272f3d454`).
+3. Their test store handed its raw content store to the in-place differ;
+   adapted on our branch (`c96012aad7`). The successor adopted the same
+   helper fix on its tip as `ed7a4a47f9` (test helper only); at the next
+   rebase `ed7a4a47f9` replaces `c96012aad7`. No re-rebase now: run 4
+   and the demo stay on `c96012aad7` over `bf509625e7`.
+
+Differences still to resolve with them, none blocking the switch:
+
+1. `ErrPartNoProgress` is a new terminal outcome of a demand; our client
+   reports it as a failed export, which is correct, and the service side
    should expect that outcome where it previously saw a retry.
-4. The boot-time whole-cache wipe on a dangling persisted snapshot link
-   stays their open policy item; E12's builtin-layer blob lifetime stays
-   ours; neither side's fix covers the other's case.
-5. Their `testutil.NewStore` now runs unprivileged with in-place
-   substitutions for mount paths; tests that relied on the skip now run
-   and take the core package from 3 s to 34 s at the 60 s bound.
+2. The boot-time whole-cache wipe on a dangling persisted snapshot link
+   stays their open policy item; E12's builtin-layer blob lifetime and
+   E13's builtin-store import are ours; neither side's fix covers the
+   other's case.
+3. Their store substitutes in-place applier and differ and direct
+   directory reads for the mount paths, so a test passing there proves
+   the store behavior under that backend, not a mounted engine; the
+   native cases in core/integration and the loop and demo cover the
+   mounted paths.
+The two E11/E12 review findings that were open during this rebase (the
+forced-variant reuse path labeling the recorded blob digest; the reuse
+test counting actual writes rather than differ calls) are closed: the
+fixes are `5193483904` and `c3139228cf` on this branch (picks of
+`0c8ed12811` and `9dfa451ecb`), the write instrumentation works after
+`c96012aad7`, and the Engine reviewer accepted the E11 store
+verification and closed E12 round 3 and E13 on the `c96012aad7` run.
