@@ -2585,3 +2585,19 @@ run, 154 passes, is superseded by the failing case's removal); the
 applicable evidence for the candidate is 1022 + core/schema 166 +
 engine/server 155 (tests4) = 1343 top-level PASS, 0 FAIL, 6 SKIP lines
 (unexecuted); the earlier engine/server failure stays recorded above.
+
+Correction to the entry above: the docs commit amend is undone (`pkg/a4`
+reset to the approved `15dfcb81d7`); the doc wording is a doc-only
+follow-up commit `82f2e8487e` "docs: claim only the integration's stop
+error for GracefulStop" at the tip (21 commits on `7b5d35903a`), sent to
+the reviewer for acknowledgement per the coordinator; no rerun.
+
+CI: #14228 test-modules rerun on `dca16de409`: pass (single occurrence,
+watched). #14229 `7b5d35903a`: test-interface pass (the A3 regression
+fix holds in CI), test-modules, golang:test-all, helm pass; test-base
+pending. #14228 test-base: "Cancelled - max execution time exceeded"
+(trace `c3131529a42b7fe96b102342a92d8f02`;
+/tmp/pkg-ci-14228-test-base.log): nested engine containers exited 137
+from 23:27:30Z / 23:30:52Z, then only metric-export lines until the
+30-minute cutoff (23:52Z); no test result lines; green on `c7dc73fbf7`
+and `c3f7dc33f6`. Rerun proposed as a second data point.
