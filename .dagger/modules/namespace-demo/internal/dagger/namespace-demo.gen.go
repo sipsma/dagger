@@ -14,6 +14,7 @@ type NamespaceDemo struct { // namespace-demo (../../../../../:0:0)
 
 	baseImageAddress *string
 	build            *Void
+	buildCli         *Void
 	id               *ID
 }
 
@@ -53,6 +54,26 @@ func (r *NamespaceDemo) Build(ctx context.Context) error {
 	q := r.query.Select("build")
 
 	return q.Execute(ctx)
+}
+
+// Build the dagger CLI for linux/amd64 and verify the binary is there.
+func (r *NamespaceDemo) BuildCli(ctx context.Context) error {
+	if r.buildCli != nil {
+		return nil
+	}
+	q := r.query.Select("buildCli")
+
+	return q.Execute(ctx)
+}
+
+// Build the dagger CLI for linux/amd64 with the cli module and write it into
+// an initially empty /out mount.
+func (r *NamespaceDemo) CliArtifact() *Directory {
+	q := r.query.Select("cliArtifact")
+
+	return &Directory{
+		query: q,
+	}
 }
 
 // A container with the source mounted, ready to build on.

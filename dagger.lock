@@ -31,6 +31,7 @@
 ["","oci-latest",["docker.io/library/busybox"],"1.38.0"]
 ["","oci-latest",["docker.io/tmknom/markdownlint"],"latest"]
 ["","oci-sha",["cgr.dev/chainguard/wolfi-base:latest"],"sha256:65e1acb87a2bf356b92c5f70f3980f03b4bb51dfd483c834e01557525f15c1d9"]
+["","oci-sha",["docker.io/library/alpine:3.21"],"sha256:f21d2abb8dcf8821f994c6bb13202f0f87efcbf9a74558913e4e4645f0f453da"]
 ["","oci-sha",["docker.io/library/busybox:1.38.0"],"sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616"]
 ["","oci-sha",["docker.io/library/docker:cli"],"sha256:eccaacfeed644c7de222ff047483568cb988dde95476fbaaf10ea2d04921bb66"]
 ["","oci-sha",["docker.io/library/eclipse-temurin:21-jre"],"sha256:7a65df4b22d2de92d4e04056e884f3b9122d70b21e2847fd66084278bd0ce037"]

@@ -3,3 +3,7 @@ engineVersion = "v1.0.0-beta.13"
 
 [runtime]
   source = "go"
+
+[[dependencies]]
+  name = "cli-dev"
+  source = "../cli-dev"

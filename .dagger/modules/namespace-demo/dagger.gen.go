@@ -63,9 +63,15 @@ func (r NamespaceDemo) MarshalJSON() ([]byte, error) {
 	var concrete struct {
 		BaseImageAddress string
 		Source           *dagger.Directory
+		Ws               *dagger.Workspace
+		VCSCommit        string
+		VCSDirty         bool
 	}
 	concrete.BaseImageAddress = r.BaseImageAddress
 	concrete.Source = r.Source
+	concrete.Ws = r.Ws
+	concrete.VCSCommit = r.VCSCommit
+	concrete.VCSDirty = r.VCSDirty
 	return json.Marshal(&concrete)
 }
 
@@ -73,6 +79,9 @@ func (r *NamespaceDemo) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
 		BaseImageAddress string
 		Source           *dagger.Directory
+		Ws               *dagger.Workspace
+		VCSCommit        string
+		VCSDirty         bool
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -80,6 +89,9 @@ func (r *NamespaceDemo) UnmarshalJSON(bs []byte) error {
 	}
 	r.BaseImageAddress = concrete.BaseImageAddress
 	r.Source = concrete.Source
+	r.Ws = concrete.Ws
+	r.VCSCommit = concrete.VCSCommit
+	r.VCSDirty = concrete.VCSDirty
 	return nil
 }
 
@@ -216,6 +228,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*NamespaceDemo).Build(&parent, ctx)
+		case "BuildCli":
+			var parent NamespaceDemo
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*NamespaceDemo).BuildCli(&parent, ctx)
+		case "CliArtifact":
+			var parent NamespaceDemo
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*NamespaceDemo).CliArtifact(&parent), nil
 		case "Container":
 			var parent NamespaceDemo
 			err = json.Unmarshal(parentJSON, &parent)
@@ -243,7 +269,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg baseImageAddress", err))
 				}
 			}
-			return New(ws, baseImageAddress), nil
+			return New(ctx, ws, baseImageAddress), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
@@ -256,25 +282,36 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 						dag.Function("Artifact",
 							dag.TypeDef().WithObject("Directory")).
 							WithDescription("Compile cmd/dnsname into an initially empty /out mount and return it.").
-							WithSourceMap(dag.SourceMap("main.go", 45, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 72, 1))).
 					WithFunction(
 						dag.Function("Build",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("Build the artifact and verify it is there.").
-							WithSourceMap(dag.SourceMap("main.go", 55, 1)).
+							WithSourceMap(dag.SourceMap("main.go", 110, 1)).
 							WithCheck()).
+					WithFunction(
+						dag.Function("BuildCli",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Build the dagger CLI for linux/amd64 and verify the binary is there.").
+							WithSourceMap(dag.SourceMap("main.go", 95, 1)).
+							WithCheck()).
+					WithFunction(
+						dag.Function("CliArtifact",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Build the dagger CLI for linux/amd64 with the cli module and write it into\nan initially empty /out mount.").
+							WithSourceMap(dag.SourceMap("main.go", 81, 1))).
 					WithFunction(
 						dag.Function("Container",
 							dag.TypeDef().WithObject("Container")).
 							WithDescription("A container with the source mounted, ready to build on.").
-							WithSourceMap(dag.SourceMap("main.go", 36, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 63, 1))).
 					WithField("BaseImageAddress", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{Description: "Image the build runs on.", SourceMap: dag.SourceMap("main.go", 16, 2)}).
 					WithConstructor(
 						dag.Function("New",
 							dag.TypeDef().WithObject("NamespaceDemo")).
-							WithSourceMap(dag.SourceMap("main.go", 22, 1)).
-							WithArg("ws", dag.TypeDef().WithObject("Workspace"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 23, 2)}).
-							WithArg("baseImageAddress", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 25, 2), DefaultValue: dagger.JSON("\"golang:1.26-alpine\"")}))), nil
+							WithSourceMap(dag.SourceMap("main.go", 29, 1)).
+							WithArg("ws", dag.TypeDef().WithObject("Workspace"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 31, 2)}).
+							WithArg("baseImageAddress", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 33, 2), DefaultValue: dagger.JSON("\"golang:1.26-alpine\"")}))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}
