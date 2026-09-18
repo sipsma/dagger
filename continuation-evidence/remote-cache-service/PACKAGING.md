@@ -1474,3 +1474,68 @@ step from here: local lint-all on every candidate before review; findings
 in code main owns and the batch does not touch are recorded, not fixed
 in the stack (A2's vet shows main's own `session_attachables.go:211`
 lostcancel, `74c2889afc`, identical on main).
+
+
+### A2 candidate (`pkg/a2`, worktree /tmp/pkg-a2), in progress
+
+Source: packaged `b2-transfer`, `42a57419de..d46b43fc0a` (19 commits),
+rebased onto A1's `90f6cd5039` (no conflicts; moves onto A1's final tip
+before review). 21 commits: the 19 originals all paired (map below) plus
+two adaptations, Erik-authored and signed off, no trailers, no evidence,
+TLA, generated or LLM files:
+
+- Folded into `fc866aedae`'s successor ("test: verify selected chains
+  from both Git backends"): main's `[]GitRemote` argument on the two
+  `LocalGitRef`/`RemoteGitRef.Tree` calls (nil).
+- `867f7ec5b3` "core: read the restored file's bytes in place in the
+  final-offer restart test" (above the file's introducing commit): the
+  value_transfer_restart_test.go hunk of `397168d119`; its
+  value_transfer_chain_test.go hunk does not apply (that version has no
+  Contents call and fails earlier).
+- `4a541e4e93` "core: drop the two value transfer tests that no
+  environment can run" (coordinator: privilege class, not a producer
+  cost): TestValueTransferPartsGitTrees (LocalGitRef.Tree's checkout
+  bind-mounts; absent from batch 7) with its transferGitServer, and
+  TestValueTransferPartsSelectedChain (subdirectory evaluation mounts in
+  this batch's code; survives in batch 7 only through A3's lazy-outputs
+  code) with mustTransferPath; transferObservedSnapshots stays (the
+  container mount test uses it); seven imports dropped.
+
+Corrections table: `397168d119` split, A2 part done (restart hunk; chain
+hunk void at A2). Two tests dropped from A2 for the privilege reason;
+A2's description says so next to the "A3 supersedes producer recording"
+sentence. Main's own `engine/server/session_attachables.go:211`
+lostcancel (`74c2889afc`, identical on main) is recorded, not fixed.
+
+Tests on `4a541e4e93`, clean (/tmp/pkg-a2-tests2.head): `go build ./...`
+ok; `go test -v -count=1 -timeout 60s ./core/ ./core/schema/ ./dagql/
+./dagql/call/ ./engine/server/`, log /tmp/pkg-a2-tests2.log, exit 0, all
+five ok; 1235 top-level PASS, 0 FAIL, 0 top-level SKIP, one inherited
+nested SKIP. Earlier: /tmp/pkg-a2-tests.log (3 FAIL, before the drop and
+the restart hunk). Local lint: after the move onto A1's final tip.
+
+Hash map (`42a57419de..d46b43fc0a`, 19 commits, to `90f6cd5039..4a541e4e93`, 21):
+
+```
+8e1be7d57d -> 80383007b1  dagql: retain transfer offers through independent owners
+cb58fe4c3b -> d88648381d  core: encode foreign values as validated pending shells
+9802fbe86b -> 7b09c39493  core: guard filesystem persistence and version output publication
+eadfe80a28 -> ff7f732c95  dagql: transfer held value graphs with atomic import publication
+57cb706470 -> a76bae3f77  core: recover schemas with installed modules and guard foreign host paths
+afd57f2f4c -> 6dd12c07ce  test: add gated transfer fixture and preserve cold runtime blocker
+786a687f9d -> a4dce3228a  test: verify selected chains from both Git backends
+15a1b1ab16 -> b34e6c3c92  test: retire redundant snapshot offers after local restart
+2b8ab74d16 -> 951a2f4757  test: accept standalone schema recovery with prepared runtimes
+969dbc214d -> 37ba0b8fb8  dagql: return not-ready when pending offer copies fail
+55d0464c64 -> 6269ac723b  dagql: verify inaccessible installed schema candidates fall through
+a3305edabf -> 7dad4df9de  core: preserve pending Container parts in derived values
+f33cd37259 -> b941a0c520  docs: leave value transfer design authority on the designer branch
+cef4324818 -> 6c342040f8  test: distinguish transfer root pruning from persistence resets
+5c95faa982 -> 6cb615a169  test: skip GC diagnostic outside its allocation bound
+6aabb5f879 -> e53e71e216  test: require opt-in for default GC pressure diagnostic
+769f80181f -> 95382e5ac3  test: snapshot completed producers without copying mutexes
+7316dfcc9a -> 77e4d73f24  core: attach the completed Container recipe's inputs at publication
+d46b43fc0a -> 945fa415ec  core: publish produced outputs through the versioned writers
+(new) -> 867f7ec5b3  core: read the restored file's bytes in place in the final-offer restart test
+(new) -> 4a541e4e93  core: drop the two value transfer tests that no environment can run
+```
