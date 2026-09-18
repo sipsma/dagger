@@ -44,6 +44,7 @@ func TestIntegrationFromEnv(t *testing.T) {
 		require.NotNil(t, cfg)
 		require.NotNil(t, cfg.Run)
 		require.Equal(t, DefaultStartupWait, cfg.StartupWait)
+		require.Equal(t, compression.Zstd, cfg.ExportCompression)
 	})
 	t.Run("export compression", func(t *testing.T) {
 		t.Parallel()
@@ -52,7 +53,7 @@ func TestIntegrationFromEnv(t *testing.T) {
 		}
 		cfg, err := IntegrationFromEnv(env(""), "engine-a", "v1")
 		require.NoError(t, err)
-		require.Equal(t, compression.Uncompressed, cfg.ExportCompression, "unset means uncompressed")
+		require.Equal(t, compression.Zstd, cfg.ExportCompression, "unset means zstd")
 		cfg, err = IntegrationFromEnv(env("uncompressed"), "engine-a", "v1")
 		require.NoError(t, err)
 		require.Equal(t, compression.Uncompressed, cfg.ExportCompression)
@@ -67,7 +68,7 @@ func TestIntegrationFromEnv(t *testing.T) {
 		require.ErrorContains(t, err, "export compression must be")
 		cfg, err = NewIntegration(Config{URL: "http://cache:8080", Token: "secret"})
 		require.NoError(t, err)
-		require.Equal(t, compression.Uncompressed, cfg.ExportCompression, "a nil type is uncompressed")
+		require.Equal(t, compression.Zstd, cfg.ExportCompression, "a nil type is zstd")
 	})
 	t.Run("startup wait", func(t *testing.T) {
 		t.Parallel()

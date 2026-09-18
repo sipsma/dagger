@@ -29,8 +29,9 @@ type RemoteCacheIntegrationConfig struct {
 	// (WaitRemoteCacheStartup). Zero means no delay.
 	StartupWait time.Duration
 	// ExportCompression is the compression of the blobs an export writes for
-	// snapshots that have no blob yet; nil means uncompressed. Snapshots that
-	// already have a blob reuse it whatever its compression.
+	// snapshots that have no blob yet; nil means uncompressed here, and the
+	// remotecache integration sets zstd unless its environment opts out.
+	// Snapshots that already have a blob reuse it whatever its compression.
 	ExportCompression compression.Type
 }
 
@@ -157,9 +158,9 @@ func (a *RemoteCacheAdapter) exportRefConfig() config.RefConfig {
 // on, and lends consume the chains of every completed part owned by the
 // results numbered in partsOf. A missing root is ErrRemoteCacheResultNotFound
 // and nothing else happens. A missing partsOf number only means fewer
-// uploads. Layers are written in the configured compression, uncompressed
-// by default: a snapshot that already has a blob reuses it, and the others
-// get a new blob.
+// uploads. Layers are written in the configured compression (zstd from the
+// integration's environment unless it opts out): a snapshot that already
+// has a blob reuses it, and the others get a new blob.
 func (a *RemoteCacheAdapter) ExportValues(ctx context.Context, root uint64, partsOf []uint64, consume func(context.Context, *dagql.ExportedValues) error) error {
 	if a.stopped.Load() {
 		return ErrRemoteCacheAdapterClosed

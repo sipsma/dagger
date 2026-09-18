@@ -25,9 +25,9 @@ import (
 // for the registration backlog's imports; unset means DefaultStartupWait, "0" means
 // no delay, and anything else unparseable or negative fails startup.
 // EnvCompression selects the compression of the blobs an export writes for
-// snapshots that have no blob yet: "uncompressed" (the default when unset)
-// or "zstd"; anything else fails startup. Blobs a snapshot already has are
-// reused as they are.
+// snapshots that have no blob yet: "zstd" (the default when unset) or
+// "uncompressed" as the opt-out; anything else fails startup. Blobs a
+// snapshot already has are reused as they are.
 const (
 	EnvURL         = "_EXPERIMENTAL_DAGGER_REMOTE_CACHE_URL"
 	EnvToken       = "_EXPERIMENTAL_DAGGER_REMOTE_CACHE_TOKEN"
@@ -53,7 +53,7 @@ type Config struct {
 	// backlog's imports. Zero means no delay.
 	StartupWait time.Duration
 	// ExportCompression is the compression of newly written export blobs:
-	// compression.Uncompressed or compression.Zstd; nil means uncompressed.
+	// compression.Zstd or compression.Uncompressed; nil means zstd.
 	ExportCompression compression.Type
 }
 
@@ -82,15 +82,15 @@ func IntegrationFromEnv(getenv func(string) string, engineName, engineVersion st
 	return NewIntegration(Config{URL: base, Token: getenv(EnvToken), EngineName: engineName, EngineVersion: engineVersion, StartupWait: startupWait, ExportCompression: exportCompression})
 }
 
-// parseExportCompression reads EnvCompression's value.
+// parseExportCompression reads EnvCompression's value; unset is zstd.
 func parseExportCompression(raw string) (compression.Type, error) {
 	switch raw {
-	case "", compression.Uncompressed.String():
-		return compression.Uncompressed, nil
-	case compression.Zstd.String():
+	case "", compression.Zstd.String():
 		return compression.Zstd, nil
+	case compression.Uncompressed.String():
+		return compression.Uncompressed, nil
 	default:
-		return nil, fmt.Errorf("remote cache: %s must be %q or %q, got %q", EnvCompression, compression.Uncompressed, compression.Zstd, raw)
+		return nil, fmt.Errorf("remote cache: %s must be %q or %q, got %q", EnvCompression, compression.Zstd, compression.Uncompressed, raw)
 	}
 }
 
@@ -119,7 +119,7 @@ func NewIntegration(cfg Config) (*server.RemoteCacheIntegrationConfig, error) {
 		return nil, fmt.Errorf("remote cache: startup wait must not be negative, got %s", cfg.StartupWait)
 	}
 	if cfg.ExportCompression == nil {
-		cfg.ExportCompression = compression.Uncompressed
+		cfg.ExportCompression = compression.Zstd
 	}
 	if cfg.ExportCompression != compression.Uncompressed && cfg.ExportCompression != compression.Zstd {
 		return nil, fmt.Errorf("remote cache: export compression must be %q or %q, got %q", compression.Uncompressed, compression.Zstd, cfg.ExportCompression)
