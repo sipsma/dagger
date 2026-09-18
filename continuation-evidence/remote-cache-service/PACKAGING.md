@@ -1568,6 +1568,10 @@ filesystem dependency attachment and the git tree evaluation" (the four
 dupl findings: `attachFilesystemDependencyResultsKinds`, generic over
 the recipe's value type, for Directory/File; `evaluateGitTreeInto` with
 an input-checking closure for the two git tree recipes; no exclusion).
+Reviewer's qualification: the git extraction is not literally
+behavior-identical for doubly invalid input, since CurrentDagqlServer now
+runs before the closure's missing-SHA check, so a missing server wins
+over a missing SHA; the successful path and the cleanup are unchanged.
 Series moved onto A0's `f97c446e23` and then, after #14049's merge, onto
 A0's `e9372bccdb` (range-diff all equal both times; the second move
 changes no tree). Then `9db965f4e2` "dagql: drop the scalar envelope decoder's unused
