@@ -1590,3 +1590,20 @@ workspace_export_test.go:760, expected "host prior", actual "earlier
 overlay"; the rest of the check passed. Main's test; the same #14051
 content passed this check on `31f7c8dc10`. Reported with a one-rerun
 proposal; not rerun.
+
+### Merge of #14222 (main PR)
+
+Merged #14222 at main `067d12ef0b` under the merge rule: 85 pass, 1
+skipping, 0 pending, 0 failed; human approval by grouville; head
+`7e3c431108`; plain `gh pr merge --merge`. The local-cache wait bound is
+therefore fixed on main; PRs rebased onto a main containing
+`067d12ef0b` no longer carry the TestDagqlMetadataGCProtectsActiveZeroDiskResults
+timing failure. #14050's post-#14049 run (base before that merge) hit
+exactly that failure once more (trace `eef8788c455af4621172e64af0b00bed`,
+"timed out waiting for metadata workload session to close", 78.87 s);
+rerun once as the known race.
+
+#14051 test-workspaces: passed on its rerun (trace
+`2312669ed6d65b690887d76d12e6473f`, 8m11s), so the from_baseline
+assertion was a flake on this run; the coordinator's condition for a
+local repro (a second failure on the same assertion) did not arise.
