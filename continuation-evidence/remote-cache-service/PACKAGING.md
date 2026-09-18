@@ -1729,7 +1729,12 @@ A2 lint commit `c5338475d2` (on `594ab859d9`, the series rebased onto
 +96/-77; two one-block extractions (validateTransferEnvelopeKind,
 visitPersistedObjectEnvelope), eight justified gocyclo directives under
 the coordinator's rule, thirteen mechanical fixes (listed in the
-message). Tests on `c5338475d2`, clean (/tmp/pkg-a2-tests6.head): four
+message). Reviewer's qualification: the errorlint `%w` changes preserve
+the message text and the ErrPersistStateNotReady matching and
+additionally expose the underlying JSON errors to errors.Is/As; the rest
+is behavior-equivalent. Reviewer approved `c5338475d2` (source,
+packaging, lint by terminal line); publication held by the coordinator
+on the #14224 cache-persistence question. Tests on `c5338475d2`, clean (/tmp/pkg-a2-tests6.head): four
 packages at 60 s (/tmp/pkg-a2-tests6.log) and core/schema at 120 s
 (/tmp/pkg-a2-tests6-schema.log, 48.358 s), exit 0, 1235 top-level PASS,
 0 FAIL, 0 top-level SKIP, one inherited nested SKIP. Lint on
@@ -1752,3 +1757,13 @@ workspace-export investigator.
 `6ffb62d07beb1e1c12a1e48c8ab76a8c`): "check cancelled: max execution
 time exceeded" with 2462 passed and none failed; the job limit again;
 rerun once.
+
+from_baseline occurrence log, continued: #14224's rerun on head
+`9db965f4e2` passed (trace `1ea9f69d191f1e3d2391c7299c818288`). The
+investigator found the same assertion outside the stack (vito's #14165,
+head `fdb299ef9f26`, trace `e0f542ce9b4d114a0ac1156d075e3263`) and is
+pursuing a phantom-diff hypothesis in Changeset.Export.
+
+#14224 test-split:test-base on `b63ea739dc` (trace
+`51c2f54bdfee7ae84f5f5ee95af89224`): core `TestHTTPProducerCleanup` FAIL
+(an A1 unit test that passes on this host); assertion below.
