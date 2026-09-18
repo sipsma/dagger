@@ -1656,3 +1656,40 @@ title "remote cache: transfer foundations and completed producers", 30
 commits, body per the conventions (A3-supersedes-producers sentence, the
 four dropped tests, commits and conflict resolutions, validation
 commands and counts, the two CI gaps), no attribution text. CI watched.
+
+#### #14224 follow-up: the completed-recipe attachment fix moved from A2
+
+Reviewer's blocking placement finding on A2, agreed by the coordinator:
+A2's `b561d4e4c0` (packaged `7316dfcc9a`, "core: attach the completed
+Container recipe's inputs at publication", core/container.go:1150-1156
+plus TestContainerCompletedProducerAttachesParentAtPublication) fixes
+the completedRecipe mechanism A1 introduced in `1643893edb` (packaged
+`dfed2f750e`, original c3491f00ad), as its own message says, and its
+regression uses only A1 APIs. Cherry-picked onto #14224's tip as
+`b63ea739dc` (clean pick; message kept, one paragraph appended naming
+the packaged hash, the series hash and the A1 commit). Tests on
+`b63ea739dc`, clean (/tmp/pkg-a1-tests9.head): `go test -v -count=1
+-timeout 60s ./core/`, log /tmp/pkg-a1-tests9.log, exit 0, ok core
+10.307 s, 510 top-level PASS, 0 FAIL, 0 SKIP, the regression PASS.
+Reviewer: same change as `b561d4e4c0` (patches identical, range-diff
+differs only by the provenance paragraph), approved conditional on the
+lint. Lint on `b63ea739dc`: /tmp/pkg-a1-lint7.log, LINT7. Corrections
+table: `7316dfcc9a`/`b561d4e4c0` → A1 (#14224), out of A2. A2 is rebased
+onto `b63ea739dc` so the commit drops out of its series. Reviewer's note
+taken: core/schema runs at `-timeout 120s` from now on.
+
+A3 (b4-acquisition, 44 packaged commits onto A2's `ff54e7c06c`; moves to
+A2's final tip later), conflicts so far: `c97461e27b` dagql/cache.go
+(evaluateGroup becomes a runLazyTask wrapper with part-task tokens; the
+extracted `runLazyEvalBody` takes the token and continuation and runs
+the commit's body verbatim: end the body phase, finish the continuation
+or sync leases; Erik's `//nolint:gocyclo` on the 48-complexity
+runLazyTask goes back in the lint step per the directive rule);
+`2ba0ef6c08` core/value_transfer_chain_test.go (the selected-chain test
+returns in its lazy-outputs form, taken whole with mustTransferPath);
+`4e2515e704` dagql/cache_persistence_self.go (the object and list
+decoders gain the cleanup join, part-host binding, inline borrow and
+the indexed `dec.item`, threaded into the extracted helpers);
+`8093fa8ec6` core/completed_producer_test.go (the new "scratch" subtest
+added as `testRecordCompletedProducerScratch`, consistent with the lint
+extraction).
