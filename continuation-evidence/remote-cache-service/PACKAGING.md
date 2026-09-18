@@ -1317,3 +1317,15 @@ checked through core.MountRef), TestGitCompletedProducersRemoteEvaluate
 longer creates), TestAuditedEagerProducersEvaluate (bind mount inside
 the production compute-paths path). Proposal to the coordinator: a
 privilege probe skip at the top of each; awaiting the ruling.
+
+Andon (A1, four privileged producer-era tests): CI's green test-base for
+#14093 (trace `22d7a6026715a5fd3d63a7d7d605eeb1`) skips
+TestSnapshotTransferTypedAdoptionAndRestart with the same denied
+bind-mount reason as this host, together with the nine engine/snapshots
+chain tests and two engine/engineutil prepared-image tests
+(/tmp/ci-trace-14093-base.log lines 7–26): CI's runner denies bind
+mounts too, so a probe-and-skip on the four A1 tests would run them
+nowhere. Stopped per the coordinator's rule; nothing added. Batch 7
+resolved the four by b4's rewrite and the later deletion of the four
+git tests (`76311056c7`), never by making them unprivileged. Side
+finding: A0 (#14220) is the first time the store tests execute in CI.
