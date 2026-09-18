@@ -1982,3 +1982,38 @@ Rule (coordinator, Erik): a PR above is moved only if the commit below
 changes code it builds on or tests that run in its CI; a test-only
 follow-up in #14224 changes neither for #14228, and GitHub's stack
 rebase moves it at merge time anyway. #14228 stays on `0cd8b591af`.
+
+#### A3 rulings applied after the move; tip check; lint commit
+
+Coordinator's ruling on TestWorkspaceGitCheckoutReuse: option (1), evaluate
+each lazy tree with `cache.Evaluate` right before main's assertion and
+compute `discarded` after; main's assertions verbatim. Committed as
+`db5d4fd1f3` (pre-move) → after the move onto `c5338475d2` the four ruling
+commits are `b4010ffd2b` (probe), `482bf2e4ba` (pinned ref), `c730965638`
+(query context), `b6738941a0` (evaluate lazy trees). The coordinator
+accepted the pinned-ref correction (its `__fullCheckout` premise was wrong).
+
+Tip check on the moved tip plus lint working tree (one invocation per
+package, 60 s, core/schema 120 s; /tmp/pkg-a3-tests4.log,
+/tmp/pkg-a3-tests4-schema.log): `ok core 19.222s`, `ok dagql 4.229s`,
+`ok engine/snapshots 5.742s`, `ok core/schema 13.701s`; dagql/persistdb and
+engine/snapshots/testutil have no test files. 1182 top-level PASS (1016 +
+166), 0 FAIL, 4 SKIP (the four probed tests).
+
+Lint-all on the moved tip before fixes (/tmp/pkg-a3-lint2.log): terminal
+line `golangci-lint:lint-all ERROR [1m37s]`, 52 findings
+(/tmp/pkg-a3-lint2.findings; the pre-move run /tmp/pkg-a3-lint-pre.log
+had 40, most of them A2's already-fixed ones). Lint commit `9958d1caba`
+"lint: meet main's golangci-lint configuration" (35 files, +692/−568),
+content per its message: mechanical fixes; three dupl pairs extracted into
+filesystemOutput helpers (lazyEvalFunc, evaluateLazy, openSnapshotPart);
+four SA2001 sites → `LazyState.awaitUnlocked` / `lazyGroupOnce.awaitUnlocked`
+(Lock + deferred Unlock, documented barrier) and a TryLock assertion in the
+test; gocyclo: real extractions for NewCache, NthValue,
+Container.DecodePersistedObject, PreparePartRecord, PrepareReadyPart,
+prepareEvaluatedParts, assertColdPartDelegation, TestPartDelegationRealStore;
+directives (main's form, one-line reason) for runLazyTask (Erik's line),
+CommitReadyPart, demandPart, scanPartSources, selectDemandPartSource.
+Local gocyclo tool after the commit lists none of the flagged functions
+under 30 except the five with directives. Lint-all on `9958d1caba` running
+(/tmp/pkg-a3-lint3.log).
