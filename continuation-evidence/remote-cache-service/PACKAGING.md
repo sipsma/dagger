@@ -2418,3 +2418,21 @@ placed below the lint commit (re-applied as `86f23052e8`; tree identical
 to probe-on-lint). A4 tip `86f23052e8`, 21 commits on `e8846990e9`.
 Running: core once (/tmp/pkg-a4-tests2.head) and lint-all
 (/tmp/pkg-a4-lint3.head) on it.
+
+#### A4 candidate `86f23052e8`: results, review, description draft
+
+Core once on `86f23052e8` (/tmp/pkg-a4-tests2.head `86f23052e8 dirty=0`):
+`ok core 21.305s`, 559 top-level PASS, 0 FAIL, 3 SKIP lines
+(TestLazyEvaluatedFilesystemClones, TestOfferPartsNativeAdmission,
+TestValueTransferPartsSelectedChain, all probed). Lint-all
+(/tmp/pkg-a4-lint3.head): `golangci-lint:lint-all DONE [48.4s]`, 0
+findings. Per-package counts from the `7f52999a3e` run (identical trees
+for those packages): dagql + engine/server 618 PASS, 0 FAIL, 1 inherited
+nested SKIP; core/schema 166 PASS, 0 FAIL, 2 SKIP. Candidate total: 1343
+top-level PASS, 0 FAIL, 5 probed top-level SKIP + 1 nested. Map
+/tmp/pkg-map-a4.txt: 18 mapped, 0 unmapped, 3 new (`d3f4571fbc`
+correction, `4bacf344d0` probe, `86f23052e8` lint). 21/21 signoffs, no
+attribution, no LLM files. Sent to the reviewer; description draft
+/tmp/pkg-a4-pr-body.md to the coordinator with title proposal "remote
+cache: live part offers and renewal". Publication waits for the reviewer
+and for #14229's test-interface follow-up (A4 moves onto it first).
