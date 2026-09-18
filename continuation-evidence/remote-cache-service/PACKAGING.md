@@ -1057,3 +1057,14 @@ commits. Erik may have it split into a main PR if he wants it merged
 independently; unless he says so, nothing changes. The fixture-gated
 skips in #14051's run (27 SKIP lines, 12 top-level) are unexecuted
 tests, not physical-store evidence.
+
+#### #14051 approval, skip accounting, push
+
+Reviewer approved `d709b706bd`. Skip accounting for its run
+(/tmp/pkg-track10-tests.log), to be repeated in the PR description: 27
+SKIP lines, 12 top-level and 15 nested; 26 are physical-fixture cases
+(`_DAGGER_TEST_REMOTE_CACHE_FIXTURE_ROOT` unset) and one is the inherited
+last-waiter skip; all unexecuted. Six PASS parents contain only skipped
+fixture children and so prove no physical behavior. This run supplies
+no physical-store proof; that proof stays with an in-place-store run (A0
+and above) or the top-PR CI job, per the coordinator's ruling.
