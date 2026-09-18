@@ -1582,3 +1582,11 @@ functions; its two hunks (a pointer snapshot of every field instead of a
 struct copy, and pointer comparison) were applied inside
 `testRecordCompletedProducerDirectory` and `testRecordCompletedProducerFile`
 one indentation level up, nothing else.
+
+#14051 test-split:test-workspaces fail on the post-#14049 run (head
+`a4f7b28366`, trace `2276b0176a080b137b1b7e820581716b`):
+TestWorkspace/TestWorkspaceExportLocalWorkdirAndFrom/from_baseline,
+workspace_export_test.go:760, expected "host prior", actual "earlier
+overlay"; the rest of the check passed. Main's test; the same #14051
+content passed this check on `31f7c8dc10`. Reported with a one-rerun
+proposal; not rerun.
