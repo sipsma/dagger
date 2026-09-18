@@ -848,3 +848,15 @@ dagger org (`dagger cloud org info`), so the org is not the cause; the
 workspace's `origin` remote is the sipsma fork, which may be how the
 command resolves the repository; tried with the upstream repository as
 the workspace (`-W`).
+
+Reruns issued (once each, 19:5x UTC), with the working form `dagger
+cloud -W github.com/dagger/dagger@<head sha> rerun --check <name>` (the
+checkout's `origin` is the sipsma fork, which is why the plain form
+found no checks; log /tmp/pkg-ci-reruns2.log): #14043 `4a09602c18`
+test-split:test-provision, golang:test-all, test-split:test-base (the
+nested-client init deadline in TestRuntimeCodegen/TestPythonTrustedFilesUsed,
+`Post "http://dagger/init": context deadline exceeded`, read as load in
+the outage window: the test and the python codegen path are untouched
+by the stack and the test passed in #13969's run); #14049 `46bbd9b9ff`
+test-split:test-provision, golang:test-all; #14219 `577d0a04f5`
+test-split:test-provision. Results recorded when they land.
