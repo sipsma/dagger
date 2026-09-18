@@ -2195,3 +2195,28 @@ nested), `--- PASS: TestStoreObservesDifferWrites (0.15s)`
 description draft's PASS count updated to 1185 (coordinator told).
 Description approved by the coordinator as drafted; title "remote cache:
 lazy part acquisition"; publish at position 15 on the reviewer's approval.
+
+### A3 published: #14229 `sipsma/remote-cache-lazy-part-acquisition`
+
+Reviewer approved `efaa347626` (B1 closed; range-diff, map, validation
+checked independently). Move onto #14228's head `c7dc73fbf7`
+(`git rebase --onto c7dc73fbf7 c5338475d2`, trial worktree
+/tmp/pkg-a3-move): 55 commits, no conflicts; range-diff reviewed vs
+moved (/tmp/pkg-a3-rangediff-move.txt): 54 `=`, 1 `!` by context only
+("cache: name and persist Lazy operation acquisition" edits the file
+A1's strace skip `0cd8b591af` also edits; the skip's six lines verified
+present in the moved tip's core/lazy_operation_execution_test.go). Build
+and vet ok; core once at the moved tip (/tmp/pkg-a3-move-core.head:
+`e8846990e9 dirty=0`, written before the run): `ok core 19.549s`, 559
+PASS, 0 FAIL, 2 SKIP lines (/tmp/pkg-a3-move-core.log). `pkg/a3` reset to
+`e8846990e9`; `pkg/a3-reviewed` = `efaa347626`.
+
+Pushed to upstream `sipsma/remote-cache-lazy-part-acquisition` (new
+branch); `gh stack link 13937 sipsma/remote-cache-lazy-part-acquisition`
+created #14229 (base `sipsma/remote-cache-value-transfer`) as a draft;
+title and approved body (1185 count) set by REST PATCH
+(/tmp/pkg-a3-patch.json); `gh pr ready`. Stack API: id 487371, 15
+members, #14229 at position 15 above #14228 (14). Read back: head
+`e8846990e9`, base `sipsma/remote-cache-value-transfer`, head repo
+dagger/dagger, draft false, body verbatim (trailing newline only;
+/tmp/pkg-a3-pr-body.live.md). CI watch re-armed with #14229.
