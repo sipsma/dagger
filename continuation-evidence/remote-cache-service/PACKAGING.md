@@ -1787,3 +1787,45 @@ Changeset.Export sends the whole stat-sensitive snapshot diff including
 mtime-only entries while the declared changed paths are content-based.
 Main defect, fix PR in progress; reruns on that assertion are free and
 it no longer counts toward the stop rule.
+
+### A3 candidate (`pkg/a3`, worktree /tmp/pkg-a3), in progress
+
+Source: packaged `b4-acquisition`, `d46b43fc0a..a760512501` (44 commits),
+rebased onto A2's `ff54e7c06c` (moves onto A2's final tip before
+review). 46 commits: the 44 originals plus `0513487968` (the demanded-read
+commit, whole, above `87b2aec8fd`, the last commit editing its three lazy
+test files; coordinator's placement (b)) and "core: read demanded file
+bytes in place in the HTTP chain and part acquisition tests" (the
+http_lazy_test.go and part_acquisition_test.go hunks of `397168d119`).
+Conflicts resolved (recorded above and here): the lazy attempt loop
+(`runLazyEvalBody` takes the part-task token and continuation and, after
+`dad18dc86f`, returns the leased context again for
+`completeNativePartTask`); the selected-chain test's lazy-outputs form;
+the envelope decoders' cleanup join, part-host binding, inline borrow and
+indexed `dec.item`; the split completed-producer test's new "scratch"
+subtest; `git.go`'s shared tree evaluation routed through
+`dir.evaluateLazy` and then `validateLazyDirectoryReceiver`; the git
+schema's `tree`/`commitTree` building lazy directories inside main's
+pinned and `__fullCheckout` branches; the lazy-on-every-path commit
+dropping `completedRecipe` (the shared attach helper loses that
+parameter; `completed_producer_test.go` and `producer_path_cleanup_test.go`
+take the commit's form; `producer_recording_fault_test.go` deleted with
+it); the rename commit (the fixture file keeps A1's struct fixture,
+`executionContext` and no mount namespace, with the commit's new type and
+test names; `git_lazy_test.go` and `builtin_lazy_test.go`, renames of the
+files A1 dropped, stay deleted); one stale `producedFileContents(t, ctx,
+…)` call in http_lazy_test.go folded into its commit. TLA audit on the
+tip: 0 findings (30 constants, 10 variables, 43 cfgs; one line changed in
+CacheLifecycle.tla). `runLazyTask` is at 48; Erik's original directive
+and justification return in the lint step per the directive rule.
+
+Tests on `54ea95dea1`'s successor tip (/tmp/pkg-a3-tests2.head): core,
+dagql, engine/snapshots at 60 s (/tmp/pkg-a3-tests2.log) and core/schema
+at 120 s (/tmp/pkg-a3-tests2-schema.log): dagql and engine/snapshots ok;
+1180 top-level PASS, 6 FAIL: four mount-bound tests (TestLazyEvaluatedFilesystemClones,
+TestValueTransferPartsSelectedChain, TestBuiltinMetadataSelectors,
+TestLazyStoredResultsWithoutBacking), TestGitResolvedFrames (expects 3
+resolved frames, sees 4: main's `__fullCheckout` frame), and main's
+TestWorkspaceGitCheckoutReuse ("no query in context": the lazy tree
+reads the current query). Sorted and sent to the coordinator; nothing
+adapted pending the ruling.
