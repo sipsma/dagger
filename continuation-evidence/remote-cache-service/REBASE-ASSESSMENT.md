@@ -220,12 +220,70 @@ agreement):
 | demo, `--skip-build` | passed: B hit the function call, no body run on B, same binary; A 32.291 s (module load 19.925 s, build 12.366 s), B 458 ms (module load 283 ms, read 175 ms); A uploaded 385,822,791 bytes in 18 blobs, B downloaded 6,340,096 bytes in 1 part (log /tmp/remote-cache-e2e-20260918-012500.log) |
 | loop, `--skip-build --timeout=6m`, default set | passed, exit 0, go test 79.527s: TestBlobStore 9.15s, TestCacheServiceStarts 10.91s, TestColdEngineReusesResult 76.04s, TestColdEngineStartsAfterExport 76.04s, TestColdEngineDirectoryFunction 79.51s (log /tmp/remote-cache-e2e-20260918-012720.log). The Service seat measured the default set at 74 to 172 s across fifteen runs and has committed 5 m as the loop default; 2 m was stale. |
 
-## Re-rebase onto the integrated tip
+## Re-rebase onto the integrated tip `bf509625e7`
 
-PENDING: the successor workstream is fixing the two inherited tests and
-the fixture-report limitation on its own tip and will name an integrated
-tip; our commits are then cherry-picked onto it again and the unit
-packages and one full dagql run repeated.
+Their integrated tip is `bf509625e7` on `b7-integration-author-b`, on top
+of `92b8057912`: `fe963009bf` and `1856d1ae92` (the boundary test counts
+ownership after the attempt's release, through a nil-checked hook, and
+returns assertion failures from the worker), `d168c733ac`, `e77b89c743`
+and `1b45911933` (the fixture test pinned to both schedules, bounded and
+parallel), `5272f3d454` (the fixture report without the storage group on
+an engine with no controller), plus evidence. The Rebase reviewer cleared
+each by source review. Their packaged branch is
+`b7-packaging/remote-cache/b7-verification` at `6b35df2863`.
+
+Our input widened to the engine seat's tip `0c334e5f06`: `eb71d1b54c`
+plus E12 `75b863fee9` (a layer's blob bound to its snapshot by a
+garbage-collection label), the E12 follow-up `849465c32d` (blobs held
+through leases, builtin image blobs for the engine's lifetime), E11
+`e6ce803102` (export compression, zstd or uncompressed) and `0c334e5f06`
+(a gofmt reorder). Their later E12 round 2, E11 test fix, E13 and the
+zstd default are not in this rebase and follow as cherry-picks.
+
+Result: branch `rebase-engine-on-bf509625e7`, 31 commits cherry-picked
+with `-x`, tip `1e417aef41` before this note. The same single textual
+conflict (the E6 import line), resolved the same way. The file overlap
+with their delta grew to five: dagql/cache.go, dagql/cache_part_content.go,
+dagql/cache_value_capture.go, engine/snapshots/lease.go (their
+`IsTransferLease` beside our `PinContent`) and
+engine/snapshots/testutil/store.go (their in-place applier and differ
+beside our `observedSnapshotter` wrapper); the last two merged without a
+textual conflict and both sides' code is preserved.
+
+### Verification on `1e417aef41`
+
+`go build ./...` and vet clean. Unit packages, one run each at
+`-timeout 60s`:
+
+| package | result |
+|---|---|
+| engine/remotecache | ok 0.13 s |
+| engine/remotecache/protocol | ok 0.03 s |
+| engine/server | ok 3.6 s |
+| dagql (full package) | ok 11.4 s; both inherited tests now pass |
+| core | ok 21.3 s |
+| core/schema | ok 13.3 s |
+| engine/snapshots | FAIL: E12's `TestImportedLayerBlobIsBoundToItsSnapshot`, "without diffing the snapshot", expected 0 diffs, got 1 |
+
+The engine/snapshots failure is E12's, not the rebase's. On our base the
+store tests skip on this host and E12's test was run in the engine-dev
+container, where it passed. On their tip `testutil.NewStore` runs
+unprivileged; the walking differ fails to mount and export falls back to
+the store's in-place differ, whose `Diffs` counter the test reads. The
+export after the reload produced the same digest as the imported blob
+but by diffing: the reopened ref carried no recorded blob although the
+blob was present and leased. `GetBySnapshotID` rehydrates a reopened
+ref's metadata with the snapshot ID, committed flag and a description
+only (engine/snapshots/manager.go `rehydrateSnapshotMetadataLocked`), and
+the manager's metadata store is in memory and recreated on reload. The
+engine seat owns this and is changing the import path and the reuse
+assertion in an E12 round 3 on top of `95099e8a52`. Two E11/E12 review
+findings stay open on the engine seat's side and are not closed by this
+rebase: the forced-variant reuse path must label the recorded blob
+digest (E12), and the reuse test must count actual writes rather than
+differ calls (E11).
+
+Engine suites, loop and demo on `1e417aef41`: PENDING.
 
 ## Recommendation (provisional, before the re-rebase)
 
