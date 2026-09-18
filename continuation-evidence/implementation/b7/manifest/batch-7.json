@@ -2,20 +2,22 @@
  "batch": "7",
  "title": "integrated verification",
  "integratedParent": "c5b299142ca672cbd2ef0a389492f11de85ff08b",
- "head": "5d3ee071c77fb930142c9a21809d575dd5154f4c",
- "headTree": "806f18d2454a0f7f163fea3086bb31dac316f432",
+ "head": "90e34e09a3f2bf8a22a00c73b5223fe4b3fb795f",
+ "headTree": "85300db229b1bbd4c18574c2c2608c7fa975dd5b",
  "packaged": {
   "branch": "b7-packaging/remote-cache/b7-verification",
   "onto": "38583498cff7f68147b701b16c5077732cf22b43",
-  "head": "2b34e9e3e7c6b62f8c6fb15f245a291c8a8989be",
-  "tree": "7195f8a7a9ec4d7da63ec0677e887301f66fcd2a"
+  "head": "bc905aed166e28d13fc0b3f2e380cb74bb3c0b96",
+  "tree": "6402661c41c90e362d35dbbbdde86342b23e6ebb"
  },
  "counts": {
-  "kept": 88,
-  "evidence-only": 24,
-  "duplicate": 3
+  "kept": 89,
+  "evidence-only": 25,
+  "duplicate": 3,
+  "mixed": 1
  },
  "merges": [
+  "90e34e09a3f2bf8a22a00c73b5223fe4b3fb795f",
   "0fca47daa774e64f05ca9aace55378ded38ea103",
   "ee7d756b855a986cfbedf401fca989a928cfb256",
   "931493df04b70ecae9bd9f39b75b936c8f39a861",
@@ -827,6 +829,27 @@
    "subject": "core: drop a backing snapshot whose owner lease could not be attached",
    "class": "kept",
    "paths": 2
+  },
+  {
+   "commit": "38b1f893899a42a8eb74c34705f70e3c89e63ae8",
+   "packaged": null,
+   "subject": "docs: record the slice 3 generic review fix, the rebuilt packaged branch and the ledger rows",
+   "class": "evidence-only",
+   "paths": 7
+  },
+  {
+   "commit": "cfa148371c93bae62a6c885c0ca9a0647ffa288c",
+   "packaged": "3238e5c94cbdf2a5857c1e4e053513d5ac762cf7",
+   "subject": "core: make a backing snapshot's creation, sync and discard one step per value",
+   "class": "kept",
+   "paths": 5
+  },
+  {
+   "commit": "9abe5072d5b31c5956e628921a85de81952d00d2",
+   "packaged": "bc905aed166e28d13fc0b3f2e380cb74bb3c0b96",
+   "subject": "core/integration: bound the inherited tests' engine cleanup too",
+   "class": "mixed",
+   "paths": 5
   }
  ]
 }

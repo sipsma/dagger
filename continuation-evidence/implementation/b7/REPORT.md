@@ -5,9 +5,9 @@
 | Identity | Commit |
 | --- | --- |
 | Batch 6 head (base) | `c5b299142ca672cbd2ef0a389492f11de85ff08b` |
-| Integrated implementation tip | `5d3ee071c77fb930142c9a21809d575dd5154f4c` (merge of A's `9c376138c1` / `3af661532a` into B's line as `0fca47daa7`, then the slice 3 review fix `5d3ee071c7`) |
+| Integrated implementation tip | `90e34e09a3f2bf8a22a00c73b5223fe4b3fb795f` (A's `3af661532a` merged as `0fca47daa7`; the slice 3 review fixes `5d3ee071c7` and `cfa148371c`; A's `9abe5072d5` merged as `90e34e09a3`) |
 | Integrated evidence tip | the commit that adds this index |
-| Packaged branch | `b7-packaging/remote-cache/b7-verification` at `2b34e9e3e7c6b62f8c6fb15f245a291c8a8989be`, on `b7-packaging/remote-cache/b6-sharing` |
+| Packaged branch | `b7-packaging/remote-cache/b7-verification` at `bc905aed166e28d13fc0b3f2e380cb74bb3c0b96`, on `b7-packaging/remote-cache/b6-sharing` |
 
 ## Reports
 
@@ -26,7 +26,7 @@
 | Export during an active pass | REPORT-AUTHOR-B | documented transient, `87c099a615` |
 | Workspace constructor identity | REPORT-AUTHOR-B, A's `TestWorkspaceCapture` | not a defect; the export choice was wrong |
 | A clean restart wiped the cache after ordinary operations | [boot-wipe/FINDING.md](boot-wipe/FINDING.md) | `16786b5fe3`; option (d) named for the Human |
-| Slice 3 generic review G1: a failed owner attach still left the snapshot unowned | [boot-wipe/FINDING.md](boot-wipe/FINDING.md), reviewer `d52af29d81` | `5d3ee071c7` |
+| Slice 3 generic review G1: a failed owner attach still left the snapshot unowned | [boot-wipe/FINDING.md](boot-wipe/FINDING.md), reviewer `d52af29d81` | `5d3ee071c7`; one step per value, `cfa148371c` |
 
 ## Test conversion
 
@@ -41,12 +41,14 @@
 - [manifest/BATCHES-1-6.md](manifest/BATCHES-1-6.md) and [manifest/PACKAGED-1-6.md](manifest/PACKAGED-1-6.md): completion records and the packaged local branches for the foundations and batches 1 to 6, SHA map in `packaged-1-6.json`.
 - [manifest/BATCH-7.md](manifest/BATCH-7.md): batch 7's record, its packaged branch, the corrections to earlier batches listed for the Human's fold-back decision, SHA map in `batch-7.json`.
 
-## Slice 3 verification (author B, ledger rows 26 to 32)
+## Slice 3 verification (author B, ledger rows 26 to 38)
 
 - At `0fca47daa7`: seven packages, `-timeout 90s`, unprivileged, default parallelism: 3057 pass, 1 base skip, 0 fail.
-- At `5d3ee071c7` (only `core` changed): `core` and `core/schema` pass; the six new failed-attach schedules fail without the fix.
+- At `5d3ee071c7` and `cfa148371c` (only `core` changed): `core` and `core/schema` pass; the six failed-attach schedules fail without the discard, the concurrent first uses fail without the lock.
+- At the final tip `90e34e09a3`: seven packages, 3068 pass, 1 base skip, 0 fail.
 - `-race` selection of the in-process concurrency tests in `dagql`: ok.
-- Native run of the sixteen tests on `remote-cache-b7-engine`, `--timeout=15m`, process bound 1260 s: **pass**, exit 0, `✔ PASSED`, 822 s wall (log `logs-author-b/slice3/native-sixteen-0fca47daa7.log`); host load average 10.4, 24.4, 37.3 at the start and 36.6, 53.8, 47.8 at the end, two other workstreams' engines running. The five `✘` steps in the CLI summary are the cases' own injected faults (fetches from `origin.remote-cache.invalid`, the negative `Host.directory` cases) and the nested engine service's span ending in ERROR when the run tears it down; the suite result is the pass. Per-test durations are not in the CLI output; the trace is `512d6ab9a6d99407a7fcfba486ff024f`.
+- Native run of the sixteen tests on `remote-cache-b7-engine`, `--timeout=15m`, process bound 1260 s, at `0fca47daa7`: **pass**, exit 0, `✔ PASSED`, 822 s wall (log `logs-author-b/slice3/native-sixteen-0fca47daa7.log`); host load average 10.4, 24.4, 37.3 at the start and 36.6, 53.8, 47.8 at the end, two other workstreams' engines running. The five `✘` steps in the CLI summary are the cases' own injected faults (fetches from `origin.remote-cache.invalid`, the negative `Host.directory` cases) and the nested engine service's span ending in ERROR when the run tears it down; the suite result is the pass. Per-test durations are not in the CLI output; the trace is `512d6ab9a6d99407a7fcfba486ff024f`.
+- The same run at the final tip `90e34e09a3`: **failed two bodies**, 885 s wall, load 11.4, 12.4, 20.4 at the start and 31.4, 63.5, 50.9 at the end: `TestSharingDonorRestart/DonorAfterImport` (its two-minute wait for the sharing pass's receipt expired; the pass reached `beforeCommit` after the wait) and `TestWorkspaceCapture` (the nested engine's restart exited with code 1 within 1.3 s of starting; its stderr is not in the log). 82 of 84 leaves pass, including every other restart. Reported, not rerun; see REPORT-AUTHOR-B.
 
 ## Open items for the Human
 
