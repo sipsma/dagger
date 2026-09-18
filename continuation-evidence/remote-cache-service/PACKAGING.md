@@ -633,3 +633,19 @@ b98ae8094b -> 836acceb58  dagql: clarify wait-link validation prose
 18f0d54c86 -> 28c6447442  changes: document experimental LLM naming updates
 (new) -> 90381213dd  chore: regenerate tla-check module bindings and the PHP client
 ```
+
+### Known main failure: TestAgentDebugServerContextCancellation
+
+Coordinator's ruling: not stack evidence, does not block. Later runs
+cite this entry instead of re-explaining. `internal/cmd/dagger`,
+shell_test.go:183, "context cleanup must close the debug listener" (the
+dial after cancel succeeds). Fails identically on pristine `upstream/main`
+`8b129f76ce` on this host (/tmp/pkg-main-debugserver.log) and in
+#14049's candidate run (/tmp/pkg-track8-tests.log); failed once in
+#13969's CI test-base on the previous head (trace
+`731073a1bb72040377314016ee6a6ccf`). No stack commit touches the debug
+server or the test (main's, Alex Suraci, `ec459b73fe`, `7e3570bd2b`).
+Not investigated here; the coordinator is looking at the cause. If
+main's own test-base at `8b129f76ce` or #13969's new run is green on
+this test, it is a flake rather than deterministic, and the coordinator
+is told.
