@@ -1904,3 +1904,67 @@ no holds or hand-offs; runs may overlap, timeouts sized 25–30 m.
 Stack check state at this point: #14050, #14051, #14093, #14220 all 86
 checks pass; #14224 (`0cd8b591af`) 85 pass, 1 pending, none failed;
 review decision REVIEW_REQUIRED (no human approval yet on any).
+
+#### Cache-persistence subtest: cause found, not persistence
+
+Repro 3 (`594ab859d9`, A2's old tip with `b561d4e4c0` inside A2): PASS
+`✔ github.com/dagger/dagger/core/integration 1 passed`
+(/tmp/pkg-14224-cachepersist-repro-594.log).
+
+Repro 1's log (/tmp/pkg-14224-cachepersist-repro-b63.log:416-420) shows
+the assertion at engine_persistence_test.go:571 failing from :611,
+`first := request(a)`: the first request, before any restart. Cause:
+`Container.exposedPorts` (core/schema/container.go:4590) iterates the
+container config's ExposedPorts Go map with no sort; main's resolver is
+identical (main observation, not a defect this stack fixes). Go map
+iteration order is random: 200 iterations over a two-entry map here put
+8080 first 175 times, 9090 first 25 (about 1 in 8). The subtest asserts a
+fixed order, so it fails about one time in eight on first evaluation
+regardless of `b561d4e4c0`. The subtest is the stack's (from
+`153fef89e6`, present only in #14224's head), so by Erik's rule the fix
+is a test-only follow-up in #14224.
+
+Coordinator's ruling: sort the returned ports by number before the
+assertions, with a comment; one dev-engine run of the subtest (deterministic
+by construction); reviewer; push. Follow-up commit on `pkg/a1`:
+`test: compare persisted core ports in sorted order` (hash in
+/tmp/pkg-14224-followup.head), 4 added lines in
+core/integration/engine_persistence_test.go (`sort` import, comment,
+`sort.Slice` by port). Dev-engine run: /tmp/pkg-14224-cachepersist-followup.log
+(in progress at the time of writing).
+
+#### A2 published: #14228 `sipsma/remote-cache-value-transfer`
+
+Persistence hold lifted by the coordinator. `pkg/a2` moved from
+`b63ea739dc` onto #14224's reviewed head `0cd8b591af`
+(`git rebase --onto`), tip `c7dc73fbf7`; `git range-diff` of the 21
+patches: all `=` (equal patch series); 21/21 DCO signoffs, no attribution
+trailers, author Erik. Pushed to upstream `sipsma/remote-cache-value-transfer`
+(new branch), `gh stack link 13937 sipsma/remote-cache-value-transfer`
+created #14228 (base `sipsma/remote-cache-transfer-foundations`) as a
+draft; title and approved body set via
+`gh api -X PATCH repos/dagger/dagger/pulls/14228 --input /tmp/pkg-a2-patch.json`
+(title "remote cache: value transfer between engines"; body
+/tmp/pkg-a2-pr-body.md with one sentence updated for the probe ruling:
+SelectedChain "lives on behind a mount-privilege probe"); marked ready
+with `gh pr ready`. Stack API `repos/dagger/dagger/stacks/13937`: id
+487371, #14228 at position 14 of 14, above #14224. Read back: head
+`c7dc73fbf7`, base `sipsma/remote-cache-transfer-foundations`, head repo
+dagger/dagger, draft false, body verbatim (saved
+/tmp/pkg-a2-pr-body.live.md, differs from the file by a trailing newline
+only). Pending: once the #14224 follow-up is pushed, move #14228 onto the
+new #14224 head (mechanical, range-diff) and push with
+`--force-with-lease`; that costs a second CI run on #14228.
+
+#### A3 moved onto A2's current tip
+
+`git rebase --onto c5338475d2 ff54e7c06c pkg/a3` (50 commits; pre-move tip
+tagged `pkg/a3-before-move` = `db5d4fd1f3`). One conflict, in
+dagql/cache_persistence_codec.go: A2's lint commit had extracted the
+object-envelope case into `visitPersistedObjectEnvelope`, and A3's
+`9aa3fd459a` rewrote that case (snapshot-link scopes: `scopes.project`,
+`ValidateSnapshotScope`, `scopes.rewrite`). Resolved by keeping the
+extracted helper and applying A3's body inside it, signature
+`(env, ownerCall, scopes, path, visit)`; `go build ./dagql/` ok. Tip in
+/tmp/pkg-a3-moved.head; build, vet and lint-all on it running
+(/tmp/pkg-a3-lint2.log).
