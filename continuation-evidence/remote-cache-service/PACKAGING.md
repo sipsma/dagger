@@ -407,11 +407,13 @@ failure is triaged before anything is pushed above it. The lowest
 unmerged PR is the triage priority, since Erik merges from the bottom as
 each turns green.
 
-### Merges and rebases done by Erik
+### Merge of #13962 and the automatic rebase above it
 
 `#13962` merged into main by Erik at 18:51:57 UTC (main `8b129f76ce`).
-Erik rebased #13969 and #14043 onto it himself: heads `ef14efc563` and
-`c979b2af31`. Check by the Stack integrator: `git range-diff
+GitHub's stacks feature then rebased #13969 and #14043 onto it
+automatically (stamped with Erik's identity): heads `ef14efc563` and
+`c979b2af31`. The same happens after every merge: heads move, trees stay
+identical, fresh check runs start on new merge commits. Check by the Stack integrator: `git range-diff
 bd79ad1b35..38e0bf8b32 ef14efc563..c979b2af31` shows every commit equal
 (no re-review needed); `c979b2af31` has 44 commits above `upstream/main`
 as before.
@@ -445,7 +447,7 @@ second run issued. Results below when they land.
 
 ### #14043 gocyclo follow-up
 
-Candidate `7b663cb1ad` on `pkg/track7-fix`, one commit on `c979b2af31`,
+Candidate `7b663cb1ad`, re-messaged without the agent attribution trailer as `0259a9c951` (same tree, Erik's signoff kept), on `pkg/track7-fix`, one commit on `c979b2af31`,
 dagql/cache.go only (+29/-25): the goroutine's `runEval` closure in
 `evaluateGroup` becomes the method `runLazyEvalBody(callbackCtx, shared,
 lazyEval) (context.Context, bool, error)`, returning the leased context
