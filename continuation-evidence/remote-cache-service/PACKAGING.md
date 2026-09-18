@@ -649,3 +649,17 @@ Not investigated here; the coordinator is looking at the cause. If
 main's own test-base at `8b129f76ce` or #13969's new run is green on
 this test, it is a flake rather than deterministic, and the coordinator
 is told.
+
+### CI results on the current heads (running record)
+
+- #13969 `ef14efc563` (merge commit `a7684c7257`): golangci-lint:lint-all
+  pass; test-split:test-base pending at last check; no failed check.
+  Human approval present (grouville, 18:51:24 UTC). Merge follows the
+  rule (all green, human approval, head equals reviewed tree) once the
+  pending checks settle.
+- #14043 `7b3a3d5bd1`: golangci-lint:lint-all pass on the new merge
+  commit (the fix holds in CI); other checks running.
+- main `8b129f76ce`: 30 statuses, all success; its push workflow does
+  not run test-split:test-base (only test-client-generator and
+  test-llm), so main gives no CI signal on the known debug-listener
+  failure; #13969's test-base run is the signal.
