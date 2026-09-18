@@ -1122,3 +1122,53 @@ A0 probe, second round (worktree /tmp/pkg-a0, `a0dd492db0` =
   sent to the coordinator, recommendation: A0 = `2e43236077` plus the
   helpers and four call-site changes at A0, `bbbe792279`'s other hunks
   placed with their files (split by file).
+
+## Step 2: A0, the unprivileged test store (`sipsma/remote-cache-test-store`)
+
+Candidate `13830a571b` on `pkg/a0` (worktree /tmp/pkg-a0), two commits on the pushed #14093 head `1f5fc77117`. First, `a0dd492db0`: packaged `2e43236077` (original `e4b65210ea`, batch 7,
+"engine/snapshots/testutil: run the real test store without
+privileges": inplace.go +253, store.go), cherry-picked cleanly. Second, `13830a571b` "core: read demanded snapshot bytes in place in the transfer test": the A0-context part of batch 7's `bbbe792279` (original `397168d119`, "core: run the real-store tests without privileges"), by the coordinator's option (1): the `demandedFileContents`/`demandedDirectoryEntries` helpers in a new core/demanded_read_test.go (Erik's code and comments, unchanged) and the four call sites in core/snapshot_transfer_test.go that move from `Directory.Entries`/`File.Contents` to them (the commit's own hunk, applied as a patch). `bbbe792279`'s other seven files do not exist on the A-series tip; their hunks go with the files (see the corrections table below). Erik's authorship and
+signoff, no trailer. `go build ./...` ok.
+
+Per-package before/after (before = the #14051 and #14093 runs on the
+A-series tip; the skips there are `requireNativeMount`'s denied
+read-only bind mount, "operation not permitted"):
+
+- engine/snapshots: before 10 PASS, 9 SKIP (TestImportChainLocalStores,
+  TestImportChainConcurrentPrefix, TestExportChainConcurrentCancellation,
+  TestImportChainCandidateLostBeforePin, TestExportChainExistingBlobPins,
+  TestImportChainSnapshotWithLostHistoricalBlob,
+  TestImportImageSharesChainReuse, TestExportChainCanceledWaiter,
+  TestImportChainCanceledWaiter). With A0: 19 PASS, 0 FAIL, 0 SKIP; all
+  nine print PASS. `go test -v -count=1 -timeout 60s ./engine/snapshots/
+  ./engine/snapshots/testutil/` on `13830a571b`, clean tree
+  (/tmp/pkg-a0-final-tests.head), log /tmp/pkg-a0-snapshots-final.log,
+  exit 0, ok engine/snapshots 8.833 s, testutil no test files.
+- core: before 1 SKIP, `TestSnapshotTransferTypedAdoptionAndRestart`
+  (plus the inherited nested last-waiter skip). With the store commit
+  alone it FAILS (bind mount in Directory.Entries, above). With both A0
+  commits: `go test -v -count=1 -timeout 60s ./core/` on `13830a571b`,
+  log /tmp/pkg-a0-core-final.log, exit 0, ok core 10.192 s; 472
+  top-level PASS, 0 FAIL, 0 top-level SKIP, 0 nested SKIP;
+  `--- PASS: TestSnapshotTransferTypedAdoptionAndRestart (0.35s)`.
+  (The inherited nested last-waiter skip is in the dagql package, not
+  core; unchanged.)
+- Still skipping with A0: nothing in these two packages. Physical-store
+  proof for the stack's fixture-backed tests now comes from these runs
+  on an unprivileged host; the remaining privilege-dependent tests
+  (mount-based paths in core.MountRef users) are those the later batches
+  adapt with `bbbe792279`'s other hunks.
+
+Corrections table, split of `bbbe792279` (original `397168d119`) by
+file, per the coordinator: core/snapshot_transfer_test.go and the two
+helpers → A0 (`13830a571b`); core/value_transfer_chain_test.go and
+core/value_transfer_restart_test.go → A2 (b2-transfer introduces them);
+core/git_lazy_test.go, core/http_lazy_test.go,
+core/part_acquisition_test.go → A3 (b4-acquisition); the
+lazy_operation_execution_test.go hunk → A3 minus the part that adds the
+two helpers (A0 has them; no move, no duplicate);
+core/part_offer_admission_test.go → A4 (b5-offers).
+
+Branch name for the PR: `sipsma/remote-cache-test-store`, on
+`sipsma/remote-cache-deferred-filesystem-restoration`. Sent to the
+reviewer; not pushed.
