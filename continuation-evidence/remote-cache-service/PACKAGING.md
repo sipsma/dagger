@@ -1441,3 +1441,12 @@ ca869972d8 -> 39281a4b35  test: cover recording rejection at every eager produce
 (new) -> 577900a239  core: run the eager producer tests without privileges
 (new) -> 90f6cd5039  core: drop the four producer-era tests that no environment can run
 ```
+
+A1 local lint on `90f6cd5039` (/tmp/pkg-a1-lint.log): ERROR, 29
+findings: 28 in A1's packaged code (gocyclo 36 `TestRecordCompletedProducer`,
+41 `decodePersistedResultEnvelope` plus its sibling's now-unused nolint
+directive; staticcheck S1016 ×6, ST1016 ×6; unused ×2; unparam ×1;
+dogsled ×4; ineffassign ×2; whitespace ×4) and A0's Compare (fixed in
+`f97c446e23`). The batch-7 branch was never run through lint-all under
+main's configuration. Stopped under Erik's standing rule (several sit in
+producer code); options sent to the coordinator.
