@@ -1404,7 +1404,12 @@ Earlier runs on the way (for provenance): /tmp/pkg-a1-tests.log (14 FAIL,
 before adaptation), /tmp/pkg-a1-tests2.log (8), /tmp/pkg-a1-tests3.log (6),
 /tmp/pkg-a1-schema-tests4.log (core/schema green). The engine-suite
 change (one core/integration file and the persisted-core-returns
-testdata module) is CI-only. LLM rule: no LLM file touched. Local lint:
+testdata module) is CI-only. LLM rule (reviewer's correction): A1 does
+touch core/llm.go, at lines 288/297 and 3150/3159 of `90f6cd5039`, where
+the LLMTokenUsage and LLMVariable persistence methods adopt main's
+PersistEncodeContext/PersistDecodeContext signatures; these are the
+source commit's required API adaptations with bodies otherwise
+unchanged, and nothing main removed is reintroduced. Local lint:
 LINTA1
 
 Hash map (`a7d4bad229..42a57419de`, 20 commits, to `e4e18ce47d..90f6cd5039`, 25):
