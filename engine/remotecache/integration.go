@@ -43,8 +43,8 @@ type Config struct {
 	// EngineName and EngineVersion are reported in every poll.
 	EngineName    string
 	EngineVersion string
-	// StartupWait bounds the engine's listener delay for the first poll's
-	// imports. Zero means no delay.
+	// StartupWait bounds the engine's listener delay for the registration
+	// backlog's imports. Zero means no delay.
 	StartupWait time.Duration
 }
 

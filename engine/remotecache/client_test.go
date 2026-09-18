@@ -47,13 +47,13 @@ type fakeService struct {
 	// pollAnswers feeds poll responses to waiting polls. pollAttempted is
 	// signaled once per poll request that reached the service, before the
 	// failure check; pollOpened once per waiting poll that passed it. A poll
-	// asking for no wait is answered at once from firstPoll when one is
-	// buffered there, and with no commands otherwise. pollWaits records the
-	// wait each poll asked for, in order.
+	// asking for no wait is answered at once with the next page buffered in
+	// zeroWaitPages, and with no commands once they are used up. pollWaits
+	// records the wait each poll asked for, in order.
 	pollAnswers   chan protocol.PollResponse
 	pollAttempted chan struct{}
 	pollOpened    chan struct{}
-	firstPoll     chan protocol.PollResponse
+	zeroWaitPages chan protocol.PollResponse
 	pollWaits     []int
 	// pollFailures is how many polls fail with a transport error before one
 	// succeeds; pollStatus, when set, answers every poll with that status.
@@ -87,7 +87,7 @@ func newFakeService(t *testing.T) *fakeService {
 		pollAnswers:     make(chan protocol.PollResponse),
 		pollAttempted:   make(chan struct{}, 100),
 		pollOpened:      make(chan struct{}, 100),
-		firstPoll:       make(chan protocol.PollResponse, 1),
+		zeroWaitPages:   make(chan protocol.PollResponse, 16),
 		pollKick:        make(chan struct{}, 1),
 		reportAttempted: make(chan string, 100),
 		resultDelivered: make(chan string, 100),
@@ -262,7 +262,7 @@ func (s *fakeService) poll(req *http.Request) (*http.Response, error) {
 	}
 	if body.WaitSeconds == 0 {
 		select {
-		case answer := <-s.firstPoll:
+		case answer := <-s.zeroWaitPages:
 			return jsonResponse(http.StatusOK, answer), nil
 		default:
 			return jsonResponse(http.StatusOK, protocol.PollResponse{}), nil
@@ -385,9 +385,12 @@ type fakeAdapter struct {
 	exportStarted chan uint64
 	exportGate    chan struct{}
 	// importEntered is signaled when an import enters the adapter;
-	// importGate, when set, holds the import there until closed.
-	importEntered chan struct{}
-	importGate    chan struct{}
+	// importGate, when set, holds the import there until closed, from the
+	// importGateFrom-th import on (every import when zero).
+	importEntered  chan struct{}
+	importGate     chan struct{}
+	importGateFrom int
+	importsEntered atomic.Int32
 	// startup is the real gate the engine's startup waits on; startupCalls
 	// counts the client's StartupComplete calls.
 	startup      *server.RemoteCacheStartupGate
@@ -414,7 +417,7 @@ func (a *fakeAdapter) TakeSessionReport(ctx context.Context) (*server.SessionRep
 
 func (a *fakeAdapter) ImportValues(ctx context.Context, bundle dagql.ValueBundle) ([]dagql.ImportedValue, error) {
 	a.importEntered <- struct{}{}
-	if a.importGate != nil {
+	if a.importGate != nil && int(a.importsEntered.Add(1)) >= a.importGateFrom {
 		select {
 		case <-a.importGate:
 		case <-ctx.Done():

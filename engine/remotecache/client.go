@@ -26,8 +26,8 @@ type engineAdapter interface {
 	TakeSessionReport(context.Context) (*server.SessionReport, error)
 	ImportValues(context.Context, dagql.ValueBundle) ([]dagql.ImportedValue, error)
 	ExportValues(context.Context, uint64, []uint64, func(context.Context, *dagql.ExportedValues) error) error
-	// StartupComplete is called once: when the first poll's import commands
-	// have all been answered, or at once when the first poll carried none.
+	// StartupComplete is called once: when the startup phase's import
+	// commands have all been answered, or when the phase carried none.
 	StartupComplete(imports int)
 }
 
@@ -71,11 +71,15 @@ type client struct {
 
 	imports, exports *commandQueue
 
-	// startupImports is how many import commands the first poll carried;
-	// startupPending counts those not yet answered. The import worker
-	// signals the adapter when the last one is answered.
-	startupImports int
+	// The startup phase: every poll asks for no wait and its imports are
+	// counted, until a response carries no command (startupDrained). The
+	// adapter is signaled once, by whichever of the poll loop and the
+	// import worker sees the phase drained with every counted import
+	// answered (startupPending zero).
+	startupImports atomic.Int32
 	startupPending atomic.Int32
+	startupDrained atomic.Bool
+	startupOnce    sync.Once
 
 	// testBeforeBodyWait runs in uploadBlob right before it waits for the
 	// transport to close the request body.
@@ -123,8 +127,8 @@ func (c *client) run(ctx context.Context) error {
 	return err
 }
 
-// queuedCommand is one command on a list. startup marks a command of the
-// first poll, whose completion the engine's startup waits for.
+// queuedCommand is one command on a list. startup marks an import of the
+// startup phase, whose completion the engine's startup waits for.
 type queuedCommand struct {
 	protocol.Command
 	startup bool
@@ -175,19 +179,24 @@ func (q *commandQueue) next(ctx context.Context) (queuedCommand, error) {
 // pollLoop keeps exactly one poll open. It executes nothing itself: each
 // command goes on the import or export list, and the next poll opens at
 // once. A failed poll is retried after a delay that starts at one second
-// and doubles up to thirty seconds. A refused token stops the client. The
-// first answered poll's import commands are the ones the engine's startup
-// waits for: with none, the adapter is told at once; otherwise the import
-// worker tells it after answering the last of them. Until a poll has been
-// answered the engine asks for no wait, so an empty queue answers at once
-// instead of holding the request, and the startup, open for the answer.
+// and doubles up to thirty seconds. A refused token stops the client.
+//
+// The engine's startup waits for the registration backlog: the service
+// answers a poll with at most a page of commands, so the startup phase
+// asks for no wait, page after page, until a response carries no command,
+// and every import command of those pages counts. Asking for no wait means
+// an empty queue answers at once instead of holding the request, and the
+// startup, open. With no import in the whole phase the adapter is told when
+// the empty page arrives; otherwise the import worker tells it after
+// answering the last counted import. Every later poll asks for the long
+// wait.
 func (c *client) pollLoop(ctx context.Context) error {
 	backoff := pollBackoffMin
 	registered := false
-	first := true
+	startup := true
 	for {
 		wait, timeout := pollWaitSeconds, time.Duration(pollTimeout)
-		if first {
+		if startup {
 			wait, timeout = 0, requestTimeout
 		}
 		var response protocol.PollResponse
@@ -212,19 +221,17 @@ func (c *client) pollLoop(ctx context.Context) error {
 			registered = true
 			c.log.Info("registered with the remote cache service", "url", c.cfg.URL, "engineName", c.cfg.EngineName)
 		}
-		startup := first
-		first = false
-		imports := 0
 		if startup {
+			imports := 0
 			for _, cmd := range response.Commands {
 				if cmd.Type == protocol.CommandTypeImport && cmd.Import != nil {
 					imports++
 				}
 			}
-			// Set before any of them is queued, so the worker's last
+			// Counted before any of them is queued, so the worker's last
 			// decrement sees the whole count.
-			c.startupImports = imports
-			c.startupPending.Store(int32(imports))
+			c.startupImports.Add(int32(imports))
+			c.startupPending.Add(int32(imports))
 		}
 		for _, cmd := range response.Commands {
 			switch cmd.Type {
@@ -244,11 +251,30 @@ func (c *client) pollLoop(ctx context.Context) error {
 				c.log.Warn("remote cache command of unknown type; ignored", "command", cmd.ID, "type", cmd.Type)
 			}
 		}
-		if startup && imports == 0 {
-			c.log.Info("remote cache first poll carried no imports")
-			c.adapter.StartupComplete(0)
+		if startup && len(response.Commands) == 0 {
+			// The backlog is drained. Every counted import may already be
+			// answered, in which case the worker will not signal.
+			startup = false
+			c.startupDrained.Store(true)
+			if c.startupPending.Load() == 0 {
+				c.completeStartup()
+			}
 		}
 	}
+}
+
+// completeStartup tells the adapter once that the startup phase's imports
+// are answered, or that it had none.
+func (c *client) completeStartup() {
+	c.startupOnce.Do(func() {
+		imports := int(c.startupImports.Load())
+		if imports == 0 {
+			c.log.Info("remote cache startup polls carried no imports")
+		} else {
+			c.log.Info("remote cache startup imports answered", "imports", imports)
+		}
+		c.adapter.StartupComplete(imports)
+	})
 }
 
 func sleepContext(ctx context.Context, d time.Duration) error {
@@ -263,8 +289,8 @@ func sleepContext(ctx context.Context, d time.Duration) error {
 }
 
 // importWorker takes import commands in order, one at a time. Answering
-// the last import of the first poll, whatever the answer, completes the
-// engine's startup wait.
+// the last counted import of a drained startup phase, whatever the answer,
+// completes the engine's startup wait.
 func (c *client) importWorker(ctx context.Context) error {
 	for {
 		cmd, err := c.imports.next(ctx)
@@ -276,9 +302,8 @@ func (c *client) importWorker(ctx context.Context) error {
 			return context.Cause(ctx)
 		}
 		c.sendResult(ctx, cmd.ID, result)
-		if cmd.startup && c.startupPending.Add(-1) == 0 {
-			c.log.Info("remote cache first poll's imports answered", "imports", c.startupImports)
-			c.adapter.StartupComplete(c.startupImports)
+		if cmd.startup && c.startupPending.Add(-1) == 0 && c.startupDrained.Load() {
+			c.completeStartup()
 		}
 	}
 }

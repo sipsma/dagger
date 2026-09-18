@@ -3,6 +3,7 @@ package remotecache
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -34,7 +35,7 @@ func TestStartupWaitsForFirstPollImports(t *testing.T) {
 	t.Parallel()
 	h := startConfigured(t, func(h *harness) {
 		h.adapter.importGate = make(chan struct{})
-		h.svc.firstPoll <- protocol.PollResponse{Commands: []protocol.Command{importCommand("c-1"), exportCommand("c-2", 7), importCommand("c-3")}}
+		h.svc.zeroWaitPages <- protocol.PollResponse{Commands: []protocol.Command{importCommand("c-1"), exportCommand("c-2", 7), importCommand("c-3")}}
 	})
 	within(t, h.adapter.importEntered)
 	// The first import is held inside the adapter: nothing has completed.
@@ -64,7 +65,7 @@ func TestStartupFailedImportCompletes(t *testing.T) {
 	t.Parallel()
 	h := startConfigured(t, func(h *harness) {
 		h.adapter.importErr = errors.New("bundle refused")
-		h.svc.firstPoll <- protocol.PollResponse{Commands: []protocol.Command{importCommand("c-1")}}
+		h.svc.zeroWaitPages <- protocol.PollResponse{Commands: []protocol.Command{importCommand("c-1")}}
 	})
 	outcome, imports := waitStartup(t, h, time.Minute)
 	require.Equal(t, server.RemoteCacheStartupImportsDone, outcome)
@@ -77,7 +78,7 @@ func TestStartupFailedImportCompletes(t *testing.T) {
 func TestStartupEmptyFirstPoll(t *testing.T) {
 	t.Parallel()
 	h := startConfigured(t, func(h *harness) {
-		h.svc.firstPoll <- protocol.PollResponse{Commands: []protocol.Command{exportCommand("c-1", 7)}}
+		h.svc.zeroWaitPages <- protocol.PollResponse{Commands: []protocol.Command{exportCommand("c-1", 7)}}
 	})
 	outcome, imports := waitStartup(t, h, time.Minute)
 	require.Equal(t, server.RemoteCacheStartupNoImports, outcome)
@@ -88,30 +89,26 @@ func TestStartupEmptyFirstPoll(t *testing.T) {
 	require.EqualValues(t, 1, h.adapter.startupCalls.Load())
 }
 
-// A first poll that finds nothing queued is answered at once, because the
-// engine asked for no wait, and releases the gate at once: in virtual time
-// the wait takes no time at all, well within a bound the ordinary 25 s
-// long poll would have outlasted. Later polls ask for the long wait.
-func TestStartupEmptyQueueReleasesAtOnce(t *testing.T) {
-	t.Parallel()
-	synctest.Test(t, func(t *testing.T) {
-		svc, adapter := newFakeService(t), newFakeAdapter()
-		c := newClient(Config{URL: testBaseURL, Token: testToken, EngineName: "engine-a", EngineVersion: "v1"}, testInstance, svc, adapter)
-		ctx, cancel := context.WithCancelCause(t.Context())
-		defer cancel(nil)
-		done := make(chan error, 1)
-		go func() { done <- c.run(ctx) }()
-		start := time.Now()
-		outcome, imports := adapter.startup.Wait(ctx, DefaultStartupWait, nil)
-		require.Equal(t, server.RemoteCacheStartupNoImports, outcome)
-		require.Zero(t, imports)
-		require.Equal(t, time.Duration(0), time.Since(start), "released without waiting for the bound")
-		select {
-		case <-svc.pollOpened:
-		case <-time.After(5 * time.Minute):
-			t.Fatal("no long poll opened after the first answer")
-		}
-		require.Equal(t, []int{0, pollWaitSeconds}, svc.recordedPollWaits())
+// virtualHarness runs the client under synctest with the fake service and
+// adapter, and stops it at the end of the test.
+type virtualHarness struct {
+	svc     *fakeService
+	adapter *fakeAdapter
+	client  *client
+	ctx     context.Context
+}
+
+func startVirtual(t *testing.T, configure func(*fakeService, *fakeAdapter)) *virtualHarness {
+	t.Helper()
+	svc, adapter := newFakeService(t), newFakeAdapter()
+	if configure != nil {
+		configure(svc, adapter)
+	}
+	c := newClient(Config{URL: testBaseURL, Token: testToken, EngineName: "engine-a", EngineVersion: "v1"}, testInstance, svc, adapter)
+	ctx, cancel := context.WithCancelCause(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- c.run(ctx) }()
+	t.Cleanup(func() {
 		cancel(nil)
 		select {
 		case err := <-done:
@@ -119,6 +116,107 @@ func TestStartupEmptyQueueReleasesAtOnce(t *testing.T) {
 		case <-time.After(5 * time.Minute):
 			t.Fatal("run did not return")
 		}
+	})
+	return &virtualHarness{svc: svc, adapter: adapter, client: c, ctx: ctx}
+}
+
+// awaitLongPoll waits, in virtual time, for a long poll to open.
+func (h *virtualHarness) awaitLongPoll(t *testing.T) {
+	t.Helper()
+	select {
+	case <-h.svc.pollOpened:
+	case <-time.After(5 * time.Minute):
+		t.Fatal("no long poll opened")
+	}
+}
+
+func importPage(prefix string, n int) protocol.PollResponse {
+	page := protocol.PollResponse{}
+	for i := range n {
+		page.Commands = append(page.Commands, importCommand(fmt.Sprintf("%s-%02d", prefix, i)))
+	}
+	return page
+}
+
+// A startup that finds nothing queued is answered at once, because the
+// engine asked for no wait, and releases the gate at once: in virtual time
+// the wait takes no time at all, well within a bound the ordinary 25 s
+// long poll would have outlasted. Later polls ask for the long wait.
+func TestStartupEmptyQueueReleasesAtOnce(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		h := startVirtual(t, nil)
+		start := time.Now()
+		outcome, imports := h.adapter.startup.Wait(h.ctx, DefaultStartupWait, nil)
+		require.Equal(t, server.RemoteCacheStartupNoImports, outcome)
+		require.Zero(t, imports)
+		require.Equal(t, time.Duration(0), time.Since(start), "released without waiting for the bound")
+		h.awaitLongPoll(t)
+		require.Equal(t, []int{0, pollWaitSeconds}, h.svc.recordedPollWaits())
+	})
+}
+
+// A registration backlog larger than one page is drained page by page
+// with no wait, and the gate releases only after the empty page and the
+// last of every page's imports: 40 imports over three pages release
+// imports-done with all 40 counted, and only then does a long poll open.
+func TestStartupDrainsBacklogPages(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		h := startVirtual(t, func(svc *fakeService, _ *fakeAdapter) {
+			svc.zeroWaitPages <- importPage("p1", 16)
+			svc.zeroWaitPages <- importPage("p2", 16)
+			svc.zeroWaitPages <- importPage("p3", 8)
+		})
+		start := time.Now()
+		outcome, imports := h.adapter.startup.Wait(h.ctx, DefaultStartupWait, nil)
+		require.Equal(t, server.RemoteCacheStartupImportsDone, outcome)
+		require.Equal(t, 40, imports)
+		require.Equal(t, time.Duration(0), time.Since(start), "released without waiting for the bound")
+		imported, _ := h.adapter.calls()
+		require.Len(t, imported, 40, "every page's imports were applied before the release")
+		results := h.svc.storedResults()
+		require.Len(t, results, 40)
+		for id, result := range results {
+			require.True(t, result.OK, id)
+		}
+		require.EqualValues(t, 1, h.adapter.startupCalls.Load())
+		h.awaitLongPoll(t)
+		require.Equal(t, []int{0, 0, 0, 0, pollWaitSeconds}, h.svc.recordedPollWaits(), "three pages, the empty page, then the long wait")
+	})
+}
+
+// The bound still cuts a backlog whose imports outlast it: with the 17th
+// import held in the adapter, the wait ends bound-expired with the 16
+// imports answered so far, the gate is not signaled, and the remaining
+// imports are still applied and answered afterwards.
+func TestStartupBoundCutsLongBacklog(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		h := startVirtual(t, func(svc *fakeService, adapter *fakeAdapter) {
+			svc.zeroWaitPages <- importPage("p1", 16)
+			svc.zeroWaitPages <- importPage("p2", 16)
+			svc.zeroWaitPages <- importPage("p3", 8)
+			adapter.importGate = make(chan struct{})
+			adapter.importGateFrom = 17
+		})
+		start := time.Now()
+		outcome, _ := h.adapter.startup.Wait(h.ctx, DefaultStartupWait, nil)
+		require.Equal(t, server.RemoteCacheStartupBoundExpired, outcome)
+		require.Equal(t, DefaultStartupWait, time.Since(start))
+		imported, _ := h.adapter.calls()
+		require.Len(t, imported, 16, "the imports applied before the bound")
+		require.Len(t, h.svc.storedResults(), 16, "and answered")
+		require.Zero(t, h.adapter.startupCalls.Load())
+		require.Equal(t, []int{0, 0, 0, 0, pollWaitSeconds}, h.svc.recordedPollWaits(), "the pages were all taken while the first held import blocked the worker")
+
+		close(h.adapter.importGate)
+		outcome, imports := h.adapter.startup.Wait(h.ctx, DefaultStartupWait, nil)
+		require.Equal(t, server.RemoteCacheStartupImportsDone, outcome, "the phase still completes for the record")
+		require.Equal(t, 40, imports)
+		imported, _ = h.adapter.calls()
+		require.Len(t, imported, 40)
+		require.EqualValues(t, 1, h.adapter.startupCalls.Load())
 	})
 }
 

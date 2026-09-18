@@ -25,8 +25,8 @@ type RemoteCacheIntegrationConfig struct {
 	// while waiting for future requests.
 	Run func(context.Context, *RemoteCacheAdapter) error
 	// StartupWait bounds how long the engine delays opening its API
-	// listeners for the first poll's imports (WaitRemoteCacheStartup).
-	// Zero means no delay.
+	// listeners for the registration backlog's imports
+	// (WaitRemoteCacheStartup). Zero means no delay.
 	StartupWait time.Duration
 }
 

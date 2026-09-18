@@ -11,10 +11,12 @@ import (
 type RemoteCacheStartupOutcome string
 
 const (
-	// RemoteCacheStartupImportsDone: the first poll's import commands have
-	// all been answered.
+	// RemoteCacheStartupImportsDone: the import commands of the startup
+	// phase's polls, taken until one carried no command, have all been
+	// answered.
 	RemoteCacheStartupImportsDone RemoteCacheStartupOutcome = "imports-done"
-	// RemoteCacheStartupNoImports: the first poll carried no import command.
+	// RemoteCacheStartupNoImports: the startup phase's polls carried no
+	// import command.
 	RemoteCacheStartupNoImports RemoteCacheStartupOutcome = "no-imports"
 	// RemoteCacheStartupBoundExpired: the bound passed first; the service
 	// was unreachable or its imports were still running.
@@ -29,9 +31,9 @@ const (
 )
 
 // RemoteCacheStartupGate is the one signal from the integration's channel
-// client to the engine's startup: the first poll's import commands are
-// done. Complete is called once by the client; Wait is called once by the
-// server before it opens the API listeners.
+// client to the engine's startup: the registration backlog's import
+// commands are done. Complete is called once by the client; Wait is called
+// once by the server before it opens the API listeners.
 type RemoteCacheStartupGate struct {
 	once    sync.Once
 	done    chan struct{}
@@ -42,9 +44,9 @@ func NewRemoteCacheStartupGate() *RemoteCacheStartupGate {
 	return &RemoteCacheStartupGate{done: make(chan struct{})}
 }
 
-// Complete records that the first poll's imports commands, imports of
-// them, have been answered (success or failure), or that the first poll
-// carried none. Later calls do nothing.
+// Complete records that the startup phase's import commands have been
+// answered (success or failure), or that it carried none. Later calls do
+// nothing.
 func (g *RemoteCacheStartupGate) Complete(imports int) {
 	g.once.Do(func() {
 		g.imports = imports
@@ -82,7 +84,7 @@ func (g *RemoteCacheStartupGate) Wait(ctx context.Context, bound time.Duration, 
 	return RemoteCacheStartupImportsDone, g.imports
 }
 
-// StartupComplete is the channel client's signal that the first poll's
+// StartupComplete is the channel client's signal that the startup phase's
 // import commands are done, or that there were none.
 func (a *RemoteCacheAdapter) StartupComplete(imports int) {
 	a.startup.Complete(imports)
@@ -90,7 +92,7 @@ func (a *RemoteCacheAdapter) StartupComplete(imports int) {
 
 // WaitRemoteCacheStartup delays the caller, meant to be the API listener
 // start, until the remote cache integration has applied the import
-// commands of its first poll, or the configured bound has elapsed,
+// commands of its registration backlog, or the configured bound has elapsed,
 // whichever comes first, and logs the outcome. With no integration it
 // returns at once and logs nothing. A service that cannot be reached, or
 // one still importing when the bound expires, never holds the engine
