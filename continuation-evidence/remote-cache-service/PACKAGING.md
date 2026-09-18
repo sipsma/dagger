@@ -1829,3 +1829,78 @@ resolved frames, sees 4: main's `__fullCheckout` frame), and main's
 TestWorkspaceGitCheckoutReuse ("no query in context": the lazy tree
 reads the current query). Sorted and sent to the coordinator; nothing
 adapted pending the ruling.
+
+Correction to the line above: TestGitResolvedFrames does not count
+frames. Its assertion (git_lazy_test.go:109) compares the persisted lazy
+tree's RefResultID with the captured resolved ref's ResultID; the extra
+result is main's pinned ref, not `__fullCheckout` (see below).
+
+#### Rulings applied (coordinator): probe helper, pinned ref, query context
+
+Three commits on `pkg/a3` above the previous tip:
+
+- `ca84e738e0` test: probe read-only bind mount privileges before native
+  snapshot reads. New exported `testutil.RequireNativeMount` in
+  engine/snapshots/testutil/privilege.go, ported from the store's old
+  `requireNativeMount` (`21f73b7a33:engine/snapshots/testutil/store.go`),
+  called first in the four mount-bound tests. Run alone here (60 s core,
+  120 s core/schema): core `ok` (both skip), core/schema
+  `--- SKIP: TestBuiltinMetadataSelectors`,
+  `--- SKIP: TestLazyStoredResultsWithoutBacking`.
+- `11462cc28a` test: expect main's pinned ref input for git trees without
+  .git. Main's `pinnedGitTree` (main `19d5eee488`) selects
+  `ref(name: <sha>)` on the repository before `tree` for trees without
+  .git, so the lazy input is that pinned ref, one result after the
+  resolved one. The ruling's literal 4 would have broken the `fixed` case
+  (name == SHA, no pinning); the commit expects `record.ResultID+1` when
+  the ref name differs from the SHA, `record.ResultID` otherwise. 10/10
+  subtests PASS. Correction reported to the coordinator.
+- `c8f61d7c76` test: give the workspace checkout reuse test a query
+  context (root query on `currentTypeDefsTestServer` with a platform, as
+  the other schema tests). "no query in context" is gone; the test still
+  fails, see next item.
+
+#### Presented, not adapted: TestWorkspaceGitCheckoutReuse under lazy trees
+
+Main's test (`ab34fdabac`, `61e4ab7ecf`) counts the fixture backend's
+Tree calls: retained checkout once (still holds, `__fullCheckout` is
+eager), then a discard=true request for the public tree with
+keepGitDir=false, a depth-1 request for the default tree, an includeTags
+request for the tagged tree. A3's lazy `GitRef.tree` calls the backend
+only on evaluation (core/git.go:927 applies the repository flag there),
+so none of the three is recorded at selection. Passes at A2's tip
+`c5338475d2`. Failures: discard=true cases at "public tree must still
+honor keepGitDir=false" (discarded 0); discard=false cases at the depth-1
+check. Two test-only shapes trialed and reverted:
+`/tmp/pkg-a3-workspace-reuse-option2.diff` (6 added lines: evaluate each
+lazy tree with `cache.Evaluate` before main's assertion, assertions
+verbatim; 6/6 PASS; recommended) and
+`/tmp/pkg-a3-workspace-reuse-option1.diff` (assert the lazy's args
+instead; fails for discard=true since the repository flag is applied at
+evaluation). Awaiting the coordinator's ruling; A3 tip `c8f61d7c76`.
+
+Lint pre-run on `c8f61d7c76` started (/tmp/pkg-a3-lint-pre.log) to
+prepare the lint commit; the final lint-all runs on the final tip.
+Already known: gofmt flags core/schema/foreign_module_context_test.go
+(A3's own `10e821d6d5`).
+
+#### #14224 cache-persistence repros (dev engine, one invocation each)
+
+`dagger --engine=container://remote-cache-engine api call engine-dev test
+--pkg ./core/integration --run
+TestCachePersistence/TestDiskPersistenceAcrossRestart/module_core_metadata_returns_survive_restart`
+
+| head | content | result |
+|---|---|---|
+| `b63ea739dc` | #14224's head with the moved backport `b561d4e4c0` | FAIL `--- FAIL: ...module_core_metadata_returns_survive_restart (73.85s)`, expected 8080 actual 9090 (engine_persistence_test.go:571); /tmp/pkg-14224-cachepersist-repro-b63.log |
+| `9db965f4e2` | the head right below the backport | PASS `✔ github.com/dagger/dagger/core/integration 1 passed`, trace `6eba55cfc228dfb8defdde1fb30fefda`; /tmp/pkg-14224-cachepersist-repro-9db.log |
+| `594ab859d9` | A2's old tip on `9db965f4e2`, `b561d4e4c0` inside A2 | running; /tmp/pkg-14224-cachepersist-repro-594.log |
+
+So far the failure appears with `b561d4e4c0` and not without it.
+
+Engine rule change (Erik, via the coordinator): the dev engine is shared,
+no holds or hand-offs; runs may overlap, timeouts sized 25–30 m.
+
+Stack check state at this point: #14050, #14051, #14093, #14220 all 86
+checks pass; #14224 (`0cd8b591af`) 85 pass, 1 pending, none failed;
+review decision REVIEW_REQUIRED (no human approval yet on any).
