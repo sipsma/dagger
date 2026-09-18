@@ -2557,3 +2557,17 @@ it; `pkg/a4-before-testtrim` = `e121ed5aa7`); tip `13dd5e3adf`, 20
 commits on `7b5d35903a`. engine/server once and lint-all running on it
 (/tmp/pkg-a4-tests4.head, /tmp/pkg-a4-lint5.head). Draft's "How it fits
 main" sentence names #14231.
+
+#### A4 candidate `15dfcb81d7`
+
+`ddd065070d` dropped; /tmp/pkg-main-gs reset to #14231's `dce5557471`.
+A4: engine/server once on `13dd5e3adf` (/tmp/pkg-a4-tests4.head
+`13dd5e3adf dirty=0`): `ok engine/server 3.795s`, 155 top-level PASS, 0
+FAIL, `--- PASS: TestRemoteCacheGracefulStop (2.49s)`; lint-all on it
+(/tmp/pkg-a4-lint5.head): `golangci-lint:lint-all DONE [24.3s]`, 0
+findings. Coverage commit's note reworded per the coordinator (the case
+lives in #14231 and passes on the stack once #14231 is in its base):
+message-only, tip `15dfcb81d7`, `git diff 13dd5e3adf 15dfcb81d7` empty,
+range-diff 19 `=` + 1 message-only `!`. Map: 17 mapped, `e81a03ae61` →
+#14231, 3 new. 20/20 signoffs, no attribution. Sent to the reviewer.
+Draft names #14231; its bullets no longer claim the two main-side fixes.
