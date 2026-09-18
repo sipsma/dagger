@@ -673,3 +673,20 @@ occurrence of the race.
   not run test-split:test-base (only test-client-generator and
   test-llm), so main gives no CI signal on the known debug-listener
   failure; #13969's test-base run is the signal.
+
+### Merge of #13969
+
+Merged #13969 at main `32d989e377` (19:15:28 UTC) by the Stack
+integrator under Erik's merge rule: 85 checks pass, 1 skipping
+(check-for-changelog), 0 pending, 0 failed; human approval by grouville;
+head `ef14efc563` equal to the reviewed candidate. `gh pr merge --merge`
+is refused for stack members ("must be merged using the asynchronous
+merge REST API"); used `PUT /repos/dagger/dagger/pulls/13969/merge-async`
+with `sha` pinned to the head and `merge_method=merge` (accepted 202,
+uuid `c68d8962-828f-4689-a61f-f6eecfa59609`, result "merged", sha
+`32d989e377`). Automatic rebase of #14043 to `4a09602c18`, tree
+identical: `git range-diff ef14efc563..7b3a3d5bd1
+upstream/main..4a09602c18` all equal (46 commits); base retargeted to
+`main`; grouville's approval carried. Fresh check runs on the new merge
+commit are being watched. Fixes redirected to main because #13969 is
+merged: none so far (nothing in the corrections table targets it).
