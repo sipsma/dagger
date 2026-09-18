@@ -2246,3 +2246,11 @@ attribution. Running on `dca16de409`: core, dagql (60 s) and core/schema
 (120 s) once (/tmp/pkg-a2-followups-tests.head written first;
 /tmp/pkg-a2-followups-tests.log, -schema.log) and lint-all
 (/tmp/pkg-a2-followups-lint.head, .log).
+
+Results on `dca16de409` (head files `dca16de409 dirty=0` written before
+the runs): `ok core 11.536s`, `ok dagql 2.535s`, `ok core/schema
+51.913s`; 1070 top-level PASS (917 + 153), 0 FAIL, 1 SKIP line (the
+inherited nested last-waiter case); `--- PASS:
+TestImportedBackingSnapshotIsOwnedByItsRow (0.00s)`. Lint-all:
+`golangci-lint:lint-all DONE [1m34s]`, 0 findings. Sent to the reviewer;
+coordinator copied with the proposed description sentence.
