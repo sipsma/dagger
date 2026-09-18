@@ -3369,7 +3369,10 @@ func (s *moduleSourceSchema) moduleSourceModuleDefinition(
 	if err != nil {
 		return inst, fmt.Errorf("failed to create module definition result for module %q: %w", args.ModuleName, err)
 	}
-	slog.Info("module definition computed", "module", args.ModuleName, "objects", len(def.ObjectDefs), "interfaces", len(def.InterfaceDefs), "enums", len(def.EnumDefs))
+	runtimeRecipe, _ := runtime.RecipeDigest(ctx)
+	schemaRecipe, _ := schema.RecipeDigest(ctx)
+	sourceImplementation, _ := src.Self().SourceImplementationDigest(ctx)
+	slog.Info("module definition computed", "module", args.ModuleName, "objects", len(def.ObjectDefs), "interfaces", len(def.InterfaceDefs), "enums", len(def.EnumDefs), "runtimeRecipe", runtimeRecipe, "schemaRecipe", schemaRecipe, "sourceImplementation", sourceImplementation)
 	return inst, nil
 }
 
@@ -3426,6 +3429,13 @@ func (s *moduleSourceSchema) moduleDefViaRuntime(
 		return nil, fmt.Errorf("failed to get module definition for module %q: %w", mod.NameField, err)
 	}
 	mod.Definition = dagql.NonNull(def)
+	// One line per lookup naming the identity's inputs, so two engines'
+	// logs say whether a miss came from the runtime, the schema file or
+	// the source.
+	runtimeRecipe, _ := ctr.RecipeDigest(ctx)
+	schemaRecipe, _ := schemaJSONFile.RecipeDigest(ctx)
+	sourceImplementation, _ := src.Self().SourceImplementationDigest(ctx)
+	slog.Info("module definition lookup", "module", mod.NameField, "hit", def.HitCache(), "runtimeRecipe", runtimeRecipe, "schemaRecipe", schemaRecipe, "sourceImplementation", sourceImplementation)
 	return def.Self(), nil
 }
 
