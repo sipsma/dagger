@@ -2052,3 +2052,19 @@ introduced the defect).
 
 Hash map for the series: /tmp/pkg-map-a3.txt (44 originals mapped, 7 new:
 two demanded-bytes commits, four ruling commits, the lint commit).
+
+### Merge of #14227 (main PR): from_baseline fixed on main
+
+#14227 `sipsma/changeset-export-declared-paths` (`9020dae33c`, the
+investigator's Changeset.Export fix): vito APPROVED 2026-09-18T22:37Z
+(human maintainer), 86/86 checks pass, merge state CLEAN. Merged with
+`gh pr merge 14227 --merge` at 22:40:53Z; merge commit `4056f4a8b2`
+(`upstream/main` head). The from_baseline entry
+(TestWorkspace/TestWorkspaceExportLocalWorkdirAndFrom/from_baseline) is
+now: fixed on main at `4056f4a8b2`. Stack PRs still base on the older
+main until they move; a from_baseline failure on them stays off the
+stack's books and free to rerun. #14227 was not a stack member: no
+range-diff, no automatic rebase.
+
+CI watch re-armed with approvals: each cycle polls check state and the
+approving reviewers on #14050, #14051, #14093, #14220, #14224, #14228.
