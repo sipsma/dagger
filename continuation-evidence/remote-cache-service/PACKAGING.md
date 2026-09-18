@@ -1339,3 +1339,12 @@ one dev-engine run of the test passed (trace
 #14219; not a stack member. #14220's description now carries the side
 finding (the store tests executed nowhere before A0; CI's test-base
 runner denies bind mounts like this host).
+
+#14050 test-split:test-base fail (trace `0ac823885591b7451d798612f1e2a55b`,
+started 20:28 UTC as the run's last check): ran 29m43s, ERROR with no
+failing test: logs carry every package's `ok` line except
+core/integration, whose summary never appears, no `--- FAIL`, no panic
+(/tmp/ci-logs-14050-test-base.log); the checks job has
+`timeout-minutes: 30` and #14093's same check took 23m49s. Job-timeout
+cut on a slow runner in the registry window; infrastructure; rerun
+under the one-hour rule with the others (earliest 21:10 UTC).
