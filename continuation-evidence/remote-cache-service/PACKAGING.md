@@ -1623,8 +1623,20 @@ range-diff all equal, tests once: 1235 PASS / 0 FAIL, /tmp/pkg-a2-tests4.log),
 then `9db965f4e2` (`ff54e7c06c`, range-diff all equal). Tests on
 `ff54e7c06c`, clean (/tmp/pkg-a2-tests5.head): the five packages once,
 log /tmp/pkg-a2-tests5.log, exit 0, 1235 top-level PASS, 0 FAIL, 0
-top-level SKIP, one inherited nested SKIP. Local lint on `ff54e7c06c`:
-LINTA2.
+top-level SKIP, one inherited nested SKIP. Local lint on `ff54e7c06c`
+(/tmp/pkg-a2-lint2.log, head file /tmp/pkg-a2-lint2.head): `golangci-lint:lint-all
+ERROR [3m11s]`, exit 1, 23 findings: 13 mechanical (two unused dupl
+directives in core/schema/directory.go, an unused gocyclo directive in
+dagql/cache_egraph.go, gofmt/goimports on two foreign_module_context
+tests, unparam innerEnvFile, errorlint ×2 and gocritic elseif in
+cache_offer_owner.go, S1023, QF1001, a leading newline) and 10 gocyclo
+overages (validateValueBundle 54, ValidateForeign 53, ImportValues 47,
+runRemoteCacheFixture 43, runTransferSchemaRecovery 42, WithExportedValues
+41, holdTransferClosure 37, validateTransferEnvelope 36,
+visitPersistedEnvelope 33, encodePersistedResultEnvelope 32). Policy
+question (extraction versus main-style justified directives) sent to
+the coordinator; the lint commit follows the ruling. Candidate sent to
+the reviewer for source and placement with this stated.
 
 #### A1 published: #14224
 
