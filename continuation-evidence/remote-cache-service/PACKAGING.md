@@ -691,3 +691,16 @@ upstream/main..4a09602c18` all equal (46 commits); base retargeted to
 `main`; grouville's approval carried. Fresh check runs on the new merge
 commit are being watched. Fixes redirected to main because #13969 is
 merged: none so far (nothing in the corrections table targets it).
+
+#### #14049 approval and push
+
+Reviewer approved `90381213dd` (record corrections above applied). The
+base had moved under it (#13969 merged, #14043 automatically rebased to
+`4a09602c18`, tree identical to `7b3a3d5bd1`): first force-push
+`90381213dd` (on `7b3a3d5bd1`, lease on the original tip `18f0d54c86`),
+then the eight commits rebased onto `4a09602c18` as `46bbd9b9ff`
+(`git range-diff 7b3a3d5bd1..90381213dd 4a09602c18..46bbd9b9ff` all
+equal, no conflicts) and force-pushed with lease on `90381213dd`.
+`sipsma/remote-cache-track8-terminology` = `46bbd9b9ff`; GitHub shows
+base `sipsma/remote-cache-track7-per-part-evaluation`, 8 commits. Fresh
+check runs watched.
