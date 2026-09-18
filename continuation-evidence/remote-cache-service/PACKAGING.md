@@ -2371,3 +2371,50 @@ TestSecret/TestCrossSessionGitAuthScoping/git_module_source/ssh_key` at
 SSH socket" while c2, the client with the socket, loads the ssh module
 dependency: `GitRef.tree` → `Directory.exists(path: "top-level")` ERROR).
 Analysis sent to the coordinator (below in this record's next entry).
+
+#### #14229 test-base: analysis and rulings
+
+Analysis sent to the coordinator (going to Erik as a design question):
+both failures trace to A3's "git: construct lazy outputs from resolved
+calls" (original `4d77b28df7`, candidate `0b9a8dbe0f` on #14229).
+`GitRepository.ref(name)` still resolves the name through the calling
+client's workspace lock but then selects the persistable
+`__resolvedRef(name, commit)`, identified by repository plus the resolved
+pair, so two sessions resolving "main" to the same SHA receive one
+handle; main's identity test (`57addd3ade`) asserts per-client handles
+for named refs. The SSH case fails inside the lazy `GitRef.tree` body
+(`Directory.exists` demand) at core/git_remote.go:237 because the
+GitRef's backend carries no SSH socket; the hypothesis consistent with
+the trace is that c1's socket-less `__resolvedRef` result is shared with
+c2 (Query.git results are shared across clients since `57addd3ade`), not
+yet established which client built it. Recorded in the #14229 entry as
+A3 regressions from `0b9a8dbe0f`, design decision pending with Erik; the
+investigator takes the evidence task (which client created the shared
+result). Erik's escalation rule: an A3 regression whose fix needs a
+design decision stops at evidence and analysis, sent to the coordinator
+for Erik; no design picked here or by the investigator.
+
+#14228 `dca16de409` test-interface control (investigator):
+TestInterface/TestIfaceBasic/go PASS including returnCustomObj
+(/tmp/iface-14228-dca-control-full.log:6225,6472, trace
+`581824780e3938277c46ee954aa9de31`); #14229 `e8846990e9` same case FAIL
+(trace `34049a5fdfbf70e812cece5e4245705d`). The test-interface failure
+starts at A3, cause `7e2bb23d32`, follow-up in preparation.
+
+#### A4: native admission probe, final tip
+
+Tip check on `7f52999a3e` (/tmp/pkg-a4-tests1.head; core, dagql,
+engine/server 60 s, core/schema 120 s; core/integration vet only):
+`ok dagql 14.343s`, `ok engine/server 4.958s`, `ok core/schema 13.948s`,
+`FAIL core 28.084s`: `--- FAIL: TestOfferPartsNativeAdmission` at
+part_offer_admission_test.go:95 and :116 ("failed to mount …
+Options:[rbind ro ro]"), a read-only bind-mount test introduced by A4's
+"test: cover offer admission, settlement, resources and shutdown"; 1226
+top-level PASS otherwise, `--- PASS: TestRenewalChainControls (4.11s)`.
+Coordinator's ruling: probe shape (surviving-design test kept behind
+`testutil.RequireNativeMount`). Adaptation commit `4bacf344d0` "test:
+probe read-only bind mount privileges before native offer admission"
+placed below the lint commit (re-applied as `86f23052e8`; tree identical
+to probe-on-lint). A4 tip `86f23052e8`, 21 commits on `e8846990e9`.
+Running: core once (/tmp/pkg-a4-tests2.head) and lint-all
+(/tmp/pkg-a4-lint3.head) on it.
