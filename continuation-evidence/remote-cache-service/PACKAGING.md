@@ -935,8 +935,8 @@ log /tmp/pkg-track10-tests.log, exit 0: six packages ok (core 6.498 s,
 dagql 1.994 s, engine/engineutil 0.153 s, imageexport 0.010 s,
 engine/server 1.258 s, engine/snapshots 1.016 s), snapshots/testutil has
 no test files; 1001 top-level PASS, 0 FAIL, 12 top-level SKIP (the
-fixture-gated snapshot tests, `_DAGGER_TEST_REMOTE_CACHE_FIXTURE_ROOT`
-unset, per ruling (e)). Engine-suite changes are CI-only.
+physical snapshot tests, skipped by the denied bind-mount probe in
+testutil.requireNativeMount; see the skip accounting below). Engine-suite changes are CI-only.
 
 Hash map (`9375bbb985..62d62bd0c3`, 16 commits, to `52ee0e172e..d709b706bd`, 17):
 
@@ -974,7 +974,7 @@ Tests on `b35e57d3c1` (the same nine commits on `838abf5a32`, before #14051's re
 ./...` ok; `go test -v -count=1 -timeout 60s ./core/ ./core/schema/
 ./dagql/` (the packages the PR touches outside the engine suite), log
 /tmp/pkg-track11-tests.log, exit 0: ok core 6.958 s, ok core/schema
-8.950 s, ok dagql 2.092 s; 973 top-level PASS, 0 FAIL, 1 top-level SKIP (`TestSnapshotTransferTypedAdoptionAndRestart`, fixture-gated, fixture root unset) and no nested skips. The
+8.950 s, ok dagql 2.092 s; 973 top-level PASS, 0 FAIL, two unexecuted tests: one top-level SKIP, `TestSnapshotTransferTypedAdoptionAndRestart` (read-only bind mount denied, "operation not permitted", core/snapshot_transfer_test.go:45), and one inherited nested SKIP, `TestCacheContextCancel/last_waiter_canceled_fn_returns_value_still_releases` (TODO skip, cache_test.go:2289). The
 engine-suite changes (core/integration/engine_persistence_test.go and
 the persisted-directory-list testdata module) are CI-only.
 
@@ -1062,9 +1062,11 @@ tests, not physical-store evidence.
 
 Reviewer approved `d709b706bd`. Skip accounting for its run
 (/tmp/pkg-track10-tests.log), to be repeated in the PR description: 27
-SKIP lines, 12 top-level and 15 nested; 26 are physical-fixture cases
-(`_DAGGER_TEST_REMOTE_CACHE_FIXTURE_ROOT` unset) and one is the inherited
-last-waiter skip; all unexecuted. Six PASS parents contain only skipped
+SKIP lines, 12 top-level and 15 nested; 26 are physical-fixture cases,
+all skipped by the same denied read-only bind-mount probe in
+testutil.requireNativeMount (not by the fixture-root variable being
+unset; corrected per review), and one is the inherited last-waiter skip;
+all unexecuted. Six PASS parents contain only skipped
 fixture children and so prove no physical behavior. This run supplies
 no physical-store proof; that proof stays with an in-place-store run (A0
 and above) or the top-PR CI job, per the coordinator's ruling.
@@ -1072,3 +1074,14 @@ Force-pushed with lease on the original tip `62d62bd0c3`:
 `sipsma/remote-cache-snapshot-chains` = `d709b706bd`; GitHub shows base
 `sipsma/remote-cache-container-part-persistence`, 17 commits. Fresh check
 runs watched.
+
+
+### Merge of #14219 (main PR)
+
+Merged #14219 at main `ba9d016800` by the Stack integrator under the
+merge rule: 85 pass, 1 skipping, 0 pending, 0 failed (the registry-window
+failures cleared on their single reruns), human approval by vito, head
+`577d0a04f5` unchanged; plain `gh pr merge --merge` (not a stack member).
+The known-failure entry for TestAgentDebugServerContextCancellation is
+therefore "fixed on main at `ba9d016800`"; PRs rebased onto a main that
+contains it no longer carry the known failure.
