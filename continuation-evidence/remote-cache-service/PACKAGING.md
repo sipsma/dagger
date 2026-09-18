@@ -704,3 +704,68 @@ equal, no conflicts) and force-pushed with lease on `90381213dd`.
 `sipsma/remote-cache-track8-terminology` = `46bbd9b9ff`; GitHub shows
 base `sipsma/remote-cache-track7-per-part-evaluation`, 8 commits. Fresh
 check runs watched.
+
+### #14050 `sipsma/remote-cache-container-part-persistence`
+
+Candidate head `91b4f6247e` (working branch `pkg/track9`, worktree
+/tmp/pkg-track9), 14 commits on #14049's pushed `46bbd9b9ff` (built on `90381213dd`, then moved onto `46bbd9b9ff` after #14049's re-base; `git range-diff 90381213dd..ef9a9bc2bf 46bbd9b9ff..91b4f6247e` all equal): the 12 originals
+(`18f0d54c86..9375bbb985`) plus `af2c52cb15` "dagql/tla: assign every
+declared constant in every configuration" and the bindings regeneration
+`91b4f6247e`.
+
+Conflicts: one, in `af8efcb81d` ("Model container part persistence and
+local snapshot opening"), dagql/tla/CacheLifecycle.tla, one hunk: main's
+`sessionRelease` record fields (`releaseReturned`, `waitRequested`,
+`waitReturned`) and the commit's `flushed'.done` reset under
+`ModelContainerPartPersistence` sat on adjacent lines; both kept. The
+other eleven commits applied cleanly.
+
+Adaptation (`af2c52cb15`): the corrected audit on the rebased tip found
+the three container configurations this PR adds
+(`container_joint_restore`, `container_part_restart`,
+`container_sweep_restart`) without main's `DelegatedReleaseOnly`, and
+main's two inherited configurations (`orphaned_lease`, `release_wait`)
+without this PR's `ModelContainerPartPersistence`; all five now assign
+FALSE (the value every other non-mutating configuration uses), inside
+the CONSTANTS block. Audit on the tip: 0 findings; 30 constants, 10
+variables, 43 configurations; every INVARIANTS name defined; module map
+and configuration files agree both ways; no assignment outside a
+CONSTANTS block. TLC not run (dev-only; CI does not run tla-check).
+
+Regeneration (`91b4f6247e`): `dagger generate -y go-sdk:generate` on `remote-cache-engine` (log
+/tmp/pkg-track9-gen.log, exit 0): the tla-check bindings only, 14
+source-map lines (the struct moved from 136 to 141, the functions by the
+same five lines: this PR's two map entries, the container comment and
+the snapshot lines above them). No `dagger.lock` change.
+
+LLM-code rule: the PR touches no LLM file (core/llm*, core/schema/llm*,
+core/agents.go, core/mcp*, internal/cmd/dagger/{llm*,shell*,llmconfig},
+the agent integration tests); nothing to check.
+
+Tests on `86fbb2af93` (the pre-move hash of `af2c52cb15`; tree identical), clean tree (/tmp/pkg-track9-tests.head; the
+regeneration above it changes only the nested module's generated
+bindings, so the tested packages are unchanged): `go build ./...` and
+the tla-check module build ok; `go test -v -count=1 -timeout 60s ./core/
+./dagql/` (the two packages the PR touches outside generated code and
+the engine suite), log /tmp/pkg-track9-tests.log, exit 0: ok core
+8.436 s, ok dagql 2.674 s; 805 top-level PASS, 0 FAIL, 0 SKIP. The one
+core/integration file the PR changes is CI-only.
+
+Hash map (`18f0d54c86..9375bbb985`, 12 commits, to `46bbd9b9ff..91b4f6247e`, 14):
+
+```
+e0e2845fab -> ecbf755e1b  docs: design container part persistence
+7804542907 -> 1044120e42  docs: refine container part persistence design
+e6e88bb40c -> be28cb9973  docs: record container part persistence review convergence
+af8efcb81d -> 226ae38b03  Model container part persistence and local snapshot opening
+41654b9887 -> b0ff42d1ef  Preserve independent completion evidence across model restart
+e3df77508b -> 53eab4dc2b  dagql: record bounded container persistence evidence
+fdf133696a -> 1fde67954b  core: preserve completed container parts across restart
+b1a9a7d714 -> 389c2728f7  core: verify restored container ownership and reporting
+11a7b0b24d -> 3eaf7fd291  docs: record container part persistence validation
+5484661e4f -> 34bb0d4607  changes: document container part persistence
+b0f1bfe679 -> 26562832fe  core: clean up persisted container lint findings
+9375bbb985 -> 925578f9ea  test: place complexity notes with container persistence
+(new) -> af2c52cb15  dagql/tla: assign every declared constant in every configuration
+(new) -> 91b4f6247e  chore: regenerate tla-check module bindings
+```
