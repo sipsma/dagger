@@ -1085,3 +1085,12 @@ failures cleared on their single reruns), human approval by vito, head
 The known-failure entry for TestAgentDebugServerContextCancellation is
 therefore "fixed on main at `ba9d016800`"; PRs rebased onto a main that
 contains it no longer carry the known failure.
+
+#### #14093 approval and push
+
+Reviewer approved `1f5fc77117` (record corrections above applied).
+#14051's head was still `d709b706bd`, the candidate's base. Force-pushed
+with lease on the original tip `17f7dd89f4`:
+`sipsma/remote-cache-deferred-filesystem-restoration` = `1f5fc77117`;
+GitHub shows base `sipsma/remote-cache-snapshot-chains`, 9 commits. Step
+1 (the seven-PR rebase) is complete; fresh check runs watched.
