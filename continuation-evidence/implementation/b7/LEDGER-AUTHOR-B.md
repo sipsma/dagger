@@ -176,3 +176,10 @@ Slice 3, one step per value, and the final integration.
 | 37 | `90e34e09a3` (A's `9abe5072d5` merged) | `go test -json -timeout 90s ./dagql ./core ./core/schema ./engine/server ./engine/snapshots ./engine/engineutil ./engine/engineutil/imageexport` | 90 / 210 s | 3068 pass, 1 skip (the base's TODO), 0 fail; `engine/snapshots`, `engine/engineutil` and `imageexport` were go's cached results, unchanged since row 26; `logs-author-b/slice3-final/seven-packages.txt` | 41.7 |
 | 38 | `90e34e09a3`, clean tree | the row 28 command, `_EXPERIMENTAL_DAGGER_RUNNER_HOST=container://remote-cache-b7-engine timeout 1260 dagger api call engine-dev test … --timeout=15m` | 15 m / 1260 s | **FAIL, two bodies**: `TestSharingDonorRestart/DonorAfterImport` (two-minute receipt wait expired) and `TestWorkspaceCapture` (nested engine restart exited 1 at start); 82 of 84 leaves pass; load 11.4, 12.4, 20.4 at start, 31.4, 63.5, 50.9 at end; `logs-author-b/slice3-final/` | 885 |
 | P7c | `b7-packaging/remote-cache/b7-verification` rebuilt at `90e34e09a3` | `package_b7.py` | – | 90 kept, 28 omitted, head `bc905aed16`, tree equal; earlier packaged SHAs unchanged | – |
+
+Final rerun, ordered by the Coordinator.
+
+| # | Tree | Command | Test / process | Result | Wall |
+| --- | --- | --- | --- | --- | --- |
+| 39 | `92b8057912` (`90e34e09a3` plus the test-only start probe `92b8057912`), clean tree | the row 28 command | 15 m / 1260 s | **pass**, exit 0, all sixteen; load 13.7, 11.5, 26.1 at start, 29.1, 69.8, 58.6 at end; the probe was not reached; `logs-author-b/slice3-final/native-sixteen-92b8057912.log` | 943 |
+| P7d | `b7-packaging/remote-cache/b7-verification` rebuilt at `92b8057912` | `package_b7.py` | – | 91 kept, 28 omitted, head `110ec17723`, tree equal; earlier packaged SHAs unchanged | – |

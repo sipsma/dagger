@@ -2,17 +2,17 @@
  "batch": "7",
  "title": "integrated verification",
  "integratedParent": "c5b299142ca672cbd2ef0a389492f11de85ff08b",
- "head": "90e34e09a3f2bf8a22a00c73b5223fe4b3fb795f",
- "headTree": "85300db229b1bbd4c18574c2c2608c7fa975dd5b",
+ "head": "92b805791261d720a547028799ee61cf3df16a5e",
+ "headTree": "a3386320693ba1c11f7dac8e08fb9304d1b77c4d",
  "packaged": {
   "branch": "b7-packaging/remote-cache/b7-verification",
   "onto": "38583498cff7f68147b701b16c5077732cf22b43",
-  "head": "bc905aed166e28d13fc0b3f2e380cb74bb3c0b96",
-  "tree": "6402661c41c90e362d35dbbbdde86342b23e6ebb"
+  "head": "110ec17723260fd4533aa779460c227f394d2095",
+  "tree": "bb7a42b28cda7cec0f35982e0a308b20421e9a25"
  },
  "counts": {
-  "kept": 89,
-  "evidence-only": 25,
+  "kept": 90,
+  "evidence-only": 27,
   "duplicate": 3,
   "mixed": 1
  },
@@ -850,6 +850,27 @@
    "subject": "core/integration: bound the inherited tests' engine cleanup too",
    "class": "mixed",
    "paths": 5
+  },
+  {
+   "commit": "71ae09d79b1f2e4e31d9d793a2613d10f94a1ea5",
+   "packaged": null,
+   "subject": "docs: record the one-step lock, the final merge, the seven packages and the failed native run",
+   "class": "evidence-only",
+   "paths": 12
+  },
+  {
+   "commit": "76a99de0d01275c21cbd3874c8d88491183022e2",
+   "packaged": null,
+   "subject": "docs: name the one mixed commit in the batch 7 record",
+   "class": "evidence-only",
+   "paths": 1
+  },
+  {
+   "commit": "92b805791261d720a547028799ee61cf3df16a5e",
+   "packaged": "110ec17723260fd4533aa779460c227f394d2095",
+   "subject": "core/integration: show what a nested engine wrote when its start fails",
+   "class": "kept",
+   "paths": 1
   }
  ]
 }
