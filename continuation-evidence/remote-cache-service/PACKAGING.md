@@ -398,3 +398,62 @@ dagql 2.063 s, ok dagql/dagui 0.010 s, ok core 7.094 s, ok core/schema
 8.383 s, telemetryattrs has no test files; 1057 top-level PASS, 0 FAIL.
 `go build ./...` ok. core/integration has no changes in this PR. TLC
 was not run (dev-only; CI does not run tla-check either).
+
+## CI stewardship (per push)
+
+Convention from the coordinator (18:52 UTC): after every push the
+PR's check results are recorded here (check, result, trace id) and every
+failure is triaged before anything is pushed above it. The lowest
+unmerged PR is the triage priority, since Erik merges from the bottom as
+each turns green.
+
+### Merges and rebases done by Erik
+
+`#13962` merged into main by Erik at 18:51:57 UTC (main `8b129f76ce`).
+Erik rebased #13969 and #14043 onto it himself: heads `ef14efc563` and
+`c979b2af31`. Check by the Stack integrator: `git range-diff
+bd79ad1b35..38e0bf8b32 ef14efc563..c979b2af31` shows every commit equal
+(no re-review needed); `c979b2af31` has 44 commits above `upstream/main`
+as before.
+
+Fixes redirected to main because their PR is merged: #13962: none so
+far (nothing in the corrections table targets it).
+
+### Results on the previous heads (`bd79ad1b35`, `38e0bf8b32`)
+
+Triaged by the coordinator, not by me (I had not watched the runs; the
+convention above is the correction):
+
+- #14043 golangci-lint:lint-all FAIL, real: gocyclo reports
+  `(*Cache).evaluateGroup` (dagql/cache.go) at 31, limit 30. It was 30
+  at the original tip `1d85bd34aa`; main's merged changes added a branch.
+  The function does not exist at #13969's tip, so the fix belongs in
+  #14043. Trace `dddc18e9df5ee38de1361dcee47bcbd1`.
+- #13969 test-split:test-base FAIL: `TestAgentDebugServerContextCancellation`
+  in internal/cmd/dagger (shell_test.go:183, "context cleanup must close
+  the debug listener"). #13969 does not touch internal/cmd/dagger; the
+  test is main's agent code. Trace `731073a1bb72040377314016ee6a6ccf`.
+  Other test-base packages passed (core 413, dagql 337, core/integration
+  42 and the rest).
+
+`dagger cloud rerun --commit ef14efc563 --check test-split:test-base`
+answered "no Cloud checks found for the target commit": Cloud keys the
+checks by the PR merge commit, and Erik's rebase had already triggered
+fresh runs on new merge commits (#13969 `a7684c7257`, #14043
+`d3718d6694`), so the pending run on the new head is the rerun; no
+second run issued. Results below when they land.
+
+### #14043 gocyclo follow-up
+
+Candidate `7b663cb1ad` on `pkg/track7-fix`, one commit on `c979b2af31`,
+dagql/cache.go only (+29/-25): the goroutine's `runEval` closure in
+`evaluateGroup` becomes the method `runLazyEvalBody(callbackCtx, shared,
+lazyEval) (context.Context, bool, error)`, returning the leased context
+(the input when the lease fails), bodyDone and the first error; the
+caller reads the three values where it called `runEval()`. No nolint.
+Local `gocyclo -over 25 dagql/cache.go`: evaluateGroup 26 (was 31).
+Tests on the fixed tree (`/tmp/pkg-track7-fix-tests.head`: `c979b2af31`
+plus the one dirty file, identical to `7b663cb1ad`): `go test -v
+-count=1 -timeout 60s ./dagql/`, log /tmp/pkg-track7-fix-tests.log, exit
+0, ok dagql 2.363 s, 349 top-level PASS, 0 FAIL, 0 top-level SKIP.
+`dagger check golangci-lint:lint-all` on the container engine: LINTRESULT
