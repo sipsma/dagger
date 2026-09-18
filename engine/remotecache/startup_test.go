@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/dagger/dagger/dagql"
@@ -27,14 +28,14 @@ func waitStartup(t *testing.T, h *harness, bound time.Duration) (server.RemoteCa
 	return h.adapter.startup.Wait(ctx, bound, nil)
 }
 
-// The first poll's imports complete the gate once they are all answered,
-// a failed one included, and before the bound; later polls never signal
-// again.
+// The first poll's imports complete the gate once they are all answered
+// and before the bound; later polls never signal again.
 func TestStartupWaitsForFirstPollImports(t *testing.T) {
 	t.Parallel()
-	h := start(t)
-	h.adapter.importGate = make(chan struct{})
-	h.answerPoll(t, importCommand("c-1"), exportCommand("c-2", 7), importCommand("c-3"))
+	h := startConfigured(t, func(h *harness) {
+		h.adapter.importGate = make(chan struct{})
+		h.svc.firstPoll <- protocol.PollResponse{Commands: []protocol.Command{importCommand("c-1"), exportCommand("c-2", 7), importCommand("c-3")}}
+	})
 	within(t, h.adapter.importEntered)
 	// The first import is held inside the adapter: nothing has completed.
 	require.Zero(t, h.adapter.startupCalls.Load())
@@ -61,11 +62,10 @@ func TestStartupWaitsForFirstPollImports(t *testing.T) {
 // A failed import is a completed one: the signal follows its answer.
 func TestStartupFailedImportCompletes(t *testing.T) {
 	t.Parallel()
-	h := start(t)
-	h.adapter.mu.Lock()
-	h.adapter.importErr = errors.New("bundle refused")
-	h.adapter.mu.Unlock()
-	h.answerPoll(t, importCommand("c-1"))
+	h := startConfigured(t, func(h *harness) {
+		h.adapter.importErr = errors.New("bundle refused")
+		h.svc.firstPoll <- protocol.PollResponse{Commands: []protocol.Command{importCommand("c-1")}}
+	})
 	outcome, imports := waitStartup(t, h, time.Minute)
 	require.Equal(t, server.RemoteCacheStartupImportsDone, outcome)
 	require.Equal(t, 1, imports)
@@ -76,8 +76,9 @@ func TestStartupFailedImportCompletes(t *testing.T) {
 // else it carried.
 func TestStartupEmptyFirstPoll(t *testing.T) {
 	t.Parallel()
-	h := start(t)
-	h.answerPoll(t, exportCommand("c-1", 7))
+	h := startConfigured(t, func(h *harness) {
+		h.svc.firstPoll <- protocol.PollResponse{Commands: []protocol.Command{exportCommand("c-1", 7)}}
+	})
 	outcome, imports := waitStartup(t, h, time.Minute)
 	require.Equal(t, server.RemoteCacheStartupNoImports, outcome)
 	require.Zero(t, imports)
@@ -85,6 +86,40 @@ func TestStartupEmptyFirstPoll(t *testing.T) {
 	h.answerPoll(t, importCommand("c-2"))
 	require.True(t, h.result(t, "c-2").OK)
 	require.EqualValues(t, 1, h.adapter.startupCalls.Load())
+}
+
+// A first poll that finds nothing queued is answered at once, because the
+// engine asked for no wait, and releases the gate at once: in virtual time
+// the wait takes no time at all, well within a bound the ordinary 25 s
+// long poll would have outlasted. Later polls ask for the long wait.
+func TestStartupEmptyQueueReleasesAtOnce(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		svc, adapter := newFakeService(t), newFakeAdapter()
+		c := newClient(Config{URL: testBaseURL, Token: testToken, EngineName: "engine-a", EngineVersion: "v1"}, testInstance, svc, adapter)
+		ctx, cancel := context.WithCancelCause(t.Context())
+		defer cancel(nil)
+		done := make(chan error, 1)
+		go func() { done <- c.run(ctx) }()
+		start := time.Now()
+		outcome, imports := adapter.startup.Wait(ctx, DefaultStartupWait, nil)
+		require.Equal(t, server.RemoteCacheStartupNoImports, outcome)
+		require.Zero(t, imports)
+		require.Equal(t, time.Duration(0), time.Since(start), "released without waiting for the bound")
+		select {
+		case <-svc.pollOpened:
+		case <-time.After(5 * time.Minute):
+			t.Fatal("no long poll opened after the first answer")
+		}
+		require.Equal(t, []int{0, pollWaitSeconds}, svc.recordedPollWaits())
+		cancel(nil)
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+		case <-time.After(5 * time.Minute):
+			t.Fatal("run did not return")
+		}
+	})
 }
 
 // With the service unreachable from the first request on, nothing

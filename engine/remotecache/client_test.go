@@ -44,12 +44,17 @@ type fakeService struct {
 	reports  []protocol.SessionReport
 	blobs    map[digest.Digest][]byte
 	bundles  []protocol.BundleUploadRequest
-	// pollAnswers feeds poll responses. pollAttempted is signaled once per
-	// poll request that reached the service, before the failure check;
-	// pollOpened once per poll that passed it and is waiting for its answer.
+	// pollAnswers feeds poll responses to waiting polls. pollAttempted is
+	// signaled once per poll request that reached the service, before the
+	// failure check; pollOpened once per waiting poll that passed it. A poll
+	// asking for no wait is answered at once from firstPoll when one is
+	// buffered there, and with no commands otherwise. pollWaits records the
+	// wait each poll asked for, in order.
 	pollAnswers   chan protocol.PollResponse
 	pollAttempted chan struct{}
 	pollOpened    chan struct{}
+	firstPoll     chan protocol.PollResponse
+	pollWaits     []int
 	// pollFailures is how many polls fail with a transport error before one
 	// succeeds; pollStatus, when set, answers every poll with that status.
 	// pollKick wakes an open poll so it re-reads pollStatus.
@@ -82,6 +87,7 @@ func newFakeService(t *testing.T) *fakeService {
 		pollAnswers:     make(chan protocol.PollResponse),
 		pollAttempted:   make(chan struct{}, 100),
 		pollOpened:      make(chan struct{}, 100),
+		firstPoll:       make(chan protocol.PollResponse, 1),
 		pollKick:        make(chan struct{}, 1),
 		reportAttempted: make(chan string, 100),
 		resultDelivered: make(chan string, 100),
@@ -133,6 +139,12 @@ func (s *fakeService) storedReports() []protocol.SessionReport {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]protocol.SessionReport(nil), s.reports...)
+}
+
+func (s *fakeService) recordedPollWaits() []int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]int(nil), s.pollWaits...)
 }
 
 func (s *fakeService) storedResults() map[string]protocol.CommandResult {
@@ -234,9 +246,12 @@ func (s *fakeService) poll(req *http.Request) (*http.Response, error) {
 	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 		return jsonResponse(http.StatusBadRequest, protocol.ErrorResponse{Error: err.Error()}), nil
 	}
-	if body.WaitSeconds <= 0 || body.WaitSeconds > protocol.MaxPollWaitSeconds || body.EngineName == "" {
+	if body.WaitSeconds < 0 || body.WaitSeconds > protocol.MaxPollWaitSeconds || body.EngineName == "" {
 		return jsonResponse(http.StatusBadRequest, protocol.ErrorResponse{Error: "bad poll body"}), nil
 	}
+	s.mu.Lock()
+	s.pollWaits = append(s.pollWaits, body.WaitSeconds)
+	s.mu.Unlock()
 	s.pollAttempted <- struct{}{}
 	if s.pollFailures.Load() > 0 {
 		s.pollFailures.Add(-1)
@@ -244,6 +259,14 @@ func (s *fakeService) poll(req *http.Request) (*http.Response, error) {
 	}
 	if status := s.pollStatus.Load(); status != 0 {
 		return jsonResponse(int(status), protocol.ErrorResponse{Error: "unknown token"}), nil
+	}
+	if body.WaitSeconds == 0 {
+		select {
+		case answer := <-s.firstPoll:
+			return jsonResponse(http.StatusOK, answer), nil
+		default:
+			return jsonResponse(http.StatusOK, protocol.PollResponse{}), nil
+		}
 	}
 	s.pollOpened <- struct{}{}
 	select {
@@ -650,8 +673,13 @@ func TestClientPollBackoff(t *testing.T) {
 			attempt()
 		}
 		// Five failures, five waits: 1s, 2s, 4s, 8s, 16s. The sixth poll
-		// passed the failure check and waits for its answer.
+		// passed the failure check; as the first answered poll it asked for
+		// no wait and was answered at once, so the seventh opened at once
+		// and waits for its answer.
 		require.Equal(t, []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second}, gaps(attempts))
+		attempt()
+		require.Equal(t, time.Duration(0), attempts[6].Sub(attempts[5]))
+		require.Equal(t, []int{0, 0, 0, 0, 0, 0, pollWaitSeconds}, svc.recordedPollWaits(), "no wait until a poll is answered")
 		send := func() {
 			t.Helper()
 			select {
@@ -666,7 +694,7 @@ func TestClientPollBackoff(t *testing.T) {
 		// is the counter changed, so the poll being answered stays a success
 		// and a new failure starts over at 1s.
 		attempt()
-		require.Equal(t, time.Duration(0), attempts[6].Sub(attempts[5]))
+		require.Equal(t, time.Duration(0), attempts[7].Sub(attempts[6]))
 		recv(svc.pollOpened)
 		svc.pollFailures.Store(7)
 		send()

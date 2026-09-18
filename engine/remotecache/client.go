@@ -178,14 +178,20 @@ func (q *commandQueue) next(ctx context.Context) (queuedCommand, error) {
 // and doubles up to thirty seconds. A refused token stops the client. The
 // first answered poll's import commands are the ones the engine's startup
 // waits for: with none, the adapter is told at once; otherwise the import
-// worker tells it after answering the last of them.
+// worker tells it after answering the last of them. Until a poll has been
+// answered the engine asks for no wait, so an empty queue answers at once
+// instead of holding the request, and the startup, open for the answer.
 func (c *client) pollLoop(ctx context.Context) error {
 	backoff := pollBackoffMin
 	registered := false
 	first := true
 	for {
+		wait, timeout := pollWaitSeconds, time.Duration(pollTimeout)
+		if first {
+			wait, timeout = 0, requestTimeout
+		}
 		var response protocol.PollResponse
-		status, err := c.do(ctx, pollTimeout, http.MethodPost, protocol.PathPoll, protocol.PollRequest{EngineName: c.cfg.EngineName, EngineVersion: c.cfg.EngineVersion, WaitSeconds: pollWaitSeconds}, &response)
+		status, err := c.do(ctx, timeout, http.MethodPost, protocol.PathPoll, protocol.PollRequest{EngineName: c.cfg.EngineName, EngineVersion: c.cfg.EngineVersion, WaitSeconds: wait}, &response)
 		if ctx.Err() != nil {
 			return context.Cause(ctx)
 		}
