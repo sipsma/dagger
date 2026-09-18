@@ -843,5 +843,8 @@ Rerun attempts for the registry-outage failures: `dagger cloud rerun
 --commit <sha> --check <name>` answers "no Cloud checks found for the
 target commit" for the head SHAs, the PR merge commits, `--pr <n>`, and
 from a checkout at the exact head (commands and answers in
-/tmp/pkg-ci-reruns.log). The CLI's current Cloud org on this host is not
-the dagger org; not switched without the coordinator's word.
+/tmp/pkg-ci-reruns.log). The CLI's current Cloud org on this host is the
+dagger org (`dagger cloud org info`), so the org is not the cause; the
+workspace's `origin` remote is the sipsma fork, which may be how the
+command resolves the repository; tried with the upstream repository as
+the workspace (`-W`).
