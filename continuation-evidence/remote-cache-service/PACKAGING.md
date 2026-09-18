@@ -1776,6 +1776,14 @@ absent" (a tool probe, not a privilege probe, per the coordinator):
 `t.Skipf` with the reason when LookPath fails. Tests on `0cd8b591af`,
 clean (/tmp/pkg-a1-tests10.head): core once at 60 s,
 /tmp/pkg-a1-tests10.log, exit 0, 510 top-level PASS, 0 FAIL, 0 SKIP (the
-case PASS here, strace present). Lint: /tmp/pkg-a1-lint8.log, LINT8.
+case PASS here, strace present). Lint on `0cd8b591af`: /tmp/pkg-a1-lint8.log (head /tmp/pkg-a1-lint8.head), findings 0, `golangci-lint:lint-all DONE [1m34s]`, exit 0. Reviewer approved; pushed, `sipsma/remote-cache-transfer-foundations` = `0cd8b591af` (fast-forward, lease on `b63ea739dc`), #14224 at 32 commits; one sentence added to the description's Validation paragraph (the case skips where strace is absent and is unexecuted in CI; any CI SKIP there counts as unexecuted, not as fault-injection proof).
 #14050 release:publish-with-mock-endpoints cancelled at the job limit
 (trace `15a51293f02c17b68136a2b783a608cb`); rerun once.
+
+from_baseline, closed for the stack: the workspace-export investigator
+reproduced it deterministically on main (trace
+`e787d1cef8f22aa5670c92d790f86ae3`, /tmp/ws-main-phantom-repro.log):
+Changeset.Export sends the whole stat-sensitive snapshot diff including
+mtime-only entries while the declared changed paths are content-based.
+Main defect, fix PR in progress; reruns on that assertion are free and
+it no longer counts toward the stop rule.
