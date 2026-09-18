@@ -2337,3 +2337,37 @@ hands `resp.Body` to its stream wrapper, closed by `stream.close` and a
 context AfterFunc; a same-function close would defeat the streaming
 reader; main carries the same situation with a directive
 (internal/cloud/otlp.go:454). Ruling asked.
+
+Rulings (coordinator): bodyclose directive in main's form with the reason
+(as internal/cloud/otlp.go:454); allowed-directive list is now: gocyclo
+(classifiers/validators/state machines, one-line reason, where main
+carries the same) and bodyclose for streaming readers that hand the body
+to a closer. A4 lint commit `7f52999a3e` (20 commits on `e8846990e9`):
+14 explicit returns in `offerPart`, its gocyclo directive, `finish`
+without the unused bool, two bodyclose directives. Lint-all
+(/tmp/pkg-a4-lint2.head) and tip check (/tmp/pkg-a4-tests1.head; core,
+dagql, engine/server 60 s, core/schema 120 s, core/integration vet)
+running on it.
+
+#14229 test-interface: cause localized by the investigator to A3's
+`7e2bb23d32` (interface fields retained as attached object results
+instead of ID strings), which activates a wrong-schema branch in
+`InterfaceType.ConvertFromSDKResult` so an implementation from the
+caller's module is looked up in the interface module's dependencies.
+Recorded as an A3 regression; fix pending as a follow-up commit on
+#14229 (investigator's branch off `e8846990e9`, unit regression, review
+first). A4 continues on `e8846990e9` and moves onto the follow-up when it
+is pushed (its code builds on A3's).
+
+#14229 test-base repro (dev engine, one invocation of exactly the two
+tests on `e8846990e9`; /tmp/pkg-14229-testbase-repro.head
+`e8846990e9 dirty=0`, log /tmp/pkg-14229-testbase-repro.log, trace
+`b0279bffe7ac574d64132ba12e6f4a22`): both reproduce, `✘ 2 failed`, `✔ 3
+passed` (the other subtests of the two parents), exit=1;
+`--- FAIL: TestGit/TestCrossSessionGitRepositoryIdentity` at :572
+(`Should not be: "Eg8I0iISCgoGR2l0UmVmGAE="`) and `--- FAIL:
+TestSecret/TestCrossSessionGitAuthScoping/git_module_source/ssh_key` at
+:507 ("git authentication failed: SSH URLs are not supported without an
+SSH socket" while c2, the client with the socket, loads the ssh module
+dependency: `GitRef.tree` → `Directory.exists(path: "top-level")` ERROR).
+Analysis sent to the coordinator (below in this record's next entry).
