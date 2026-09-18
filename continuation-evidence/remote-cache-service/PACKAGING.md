@@ -1198,3 +1198,24 @@ is merged: E15 (`3587242fe7`, per-part evaluation) was to go into
 #14043 in step 4 and now becomes a small PR against main instead. The
 next merge candidate is #14049, which has no human approval on GitHub
 yet (REVIEW_REQUIRED).
+
+#### A0 published: #14220
+
+Reviewer approved `13830a571b`; moved onto #14093's post-merge head
+`21f73b7a33` as `e4e18ce47d` (`git range-diff 1f5fc77117..13830a571b
+21f73b7a33..e4e18ce47d` all equal; commits now `f69225af99` store,
+`e4e18ce47d` core). Pushed as `sipsma/remote-cache-test-store` (new
+branch, no prior remote branch or PR). PR
+https://github.com/dagger/dagger/pull/14220, base
+`sipsma/remote-cache-deferred-filesystem-restoration`, head
+dagger/dagger:sipsma/remote-cache-test-store @ `e4e18ce47d`, ready for
+review, not draft, title "engine/snapshots/testutil: run the real-store
+tests without mount privileges", body per the coordinator's list (what
+A0 is, the two commits and originals with the per-file destinations of
+the rest, the measured before/after, the reviewer's scope statement, the
+two CI gaps). Stack registration was done after Erik noticed the PR as
+a cross-branch PR (a gap of a few minutes between `gh pr create` and
+`gh stack link`; next PRs link immediately after creation): `gh stack
+link 13937 14220` → "Added 1 PR to stack #13937"; server-side stack
+13937 (id 487371, base main) now has 12 members, #14220 at position 12
+above #14093 (verbatim in /tmp/pkg-14220-stack.txt). CI watched.
