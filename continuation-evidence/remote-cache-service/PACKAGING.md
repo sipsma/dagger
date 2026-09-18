@@ -656,7 +656,9 @@ handler, close it directly in both stop paths) passes 20 of 20; it is
 committed locally as `6d2b931998` on `sipsma/debug-server-close-listener`
 in /tmp/main-8b129f76ce, not pushed, pending Erik's decision. Main's
 push CI does not run test-base, so #13969's run is the only CI signal.
-No action for the stack beyond this record.
+No action for the stack beyond this record. #13969's test-base on its
+new merge commit `a7684c7257` passed, so the earlier CI failure was one
+occurrence of the race.
 
 ### CI results on the current heads (running record)
 
