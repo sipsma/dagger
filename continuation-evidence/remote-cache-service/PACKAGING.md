@@ -202,51 +202,40 @@ configurations.
 
 ### Hash maps, original to candidate
 
-Every original commit of each PR paired with its candidate, in order.
-"(none)" marks an original with no candidate; "(new)" a candidate with
-no original.
+Every original commit of each PR paired with its candidate, in order,
+generated from the immutable original ranges (the old base `0d031c08ef`
+and the original tips `a5c4b2570a`, `73234a8d12`, `1d85bd34aa`), not
+from the branch refs, which have since been force-pushed. Pairing is by
+subject in order within each PR's own range; many-to-one, adapted and
+dropped cases are annotated. "(new)" marks a candidate with no original.
+First version of this section was generated from the moving refs and
+was wrong (the reviewer caught it); this is the corrected one.
 
-#13962 (`upstream/main..a5c4b2570a` to `upstream/main..1867836d03`):
-
-```
-a3a8829369 -> a3a8829369  dagql: model reader cancellation in the persisted-decode singleflight
-f53f017c30 -> f53f017c30  dagql: add the decode_cancel configurations and accepted finding
-50ef32e0b1 -> 50ef32e0b1  dagql: model the post-install decode failure and scope the barrier cancel arm
-dc3d0ecdfc -> dc3d0ecdfc  dagql: split the decode install from the finish and model channels as generations
-e0de990aa3 -> e0de990aa3  dagql: tighten two decode comments
-a652713ca6 -> a652713ca6  dagql: retry persisted-decode joiners on leader cancellation, track pending lease sync
-5dc904eff6 -> 5dc904eff6  dagql: model the decode cancellation retry and pending lease sync, close the finding
-715681dbe8 -> 715681dbe8  dagql: decide decode leadership on state read under the mutex
-2ec7c3a9bb -> 2ec7c3a9bb  dagql: update the decode_cancel_liveness header for the retry
-998630bd54 -> 998630bd54  dagql: sharpen the decode_cancel_liveness post-install wording
-ce04303215 -> ce04303215  fix: isolate mutable state for concurrent K3S fixtures
-bf1ca7c143 -> bf1ca7c143  build: keep model checks in the dev environment
-3cf71b8367 -> 3cf71b8367  test: disable report heartbeats in telemetry goldens
-d73da1533d -> d73da1533d  fix: avoid recursive cache locks in debug snapshots
-328429c0c1 -> 328429c0c1  test: signal queued writer while holding its lock
-c6653c6d04 -> c6653c6d04  chore: regenerate tla-check module bindings
-1867836d03 -> 1867836d03  dagql/tla: declare DelegatedReleaseOnly in the decode_cancel configurations
-```
-
-#13969 (`a5c4b2570a..73234a8d12` to `1867836d03..bd79ad1b35`):
+#13962 (`0d031c08ef..a5c4b2570a`, 16 commits, to `upstream/main..1867836d03`, 17):
 
 ```
-4e993be3fb -> (none)  dagql: model reader cancellation in the persisted-decode singleflight
-e6b45caeac -> (none)  dagql: add the decode_cancel configurations and accepted finding
-86e0babb50 -> (none)  dagql: model the post-install decode failure and scope the barrier cancel arm
-ed0f6cf2f5 -> (none)  dagql: split the decode install from the finish and model channels as generations
-22605cb304 -> (none)  dagql: tighten two decode comments
-61c5790ca2 -> (none)  dagql: retry persisted-decode joiners on leader cancellation, track pending lease sync
-cb739d2b9c -> (none)  dagql: model the decode cancellation retry and pending lease sync, close the finding
-9180e61009 -> (none)  dagql: decide decode leadership on state read under the mutex
-2f59ec6361 -> (none)  dagql: update the decode_cancel_liveness header for the retry
-1042f8419b -> (none)  dagql: sharpen the decode_cancel_liveness post-install wording
-1ca59a2b59 -> 27703c4d5c  chore: regenerate tla-check module bindings
-ebad6b1c15 -> (none)  fix: isolate mutable state for concurrent K3S fixtures
-241af6a1a2 -> (none)  build: keep model checks in the dev environment
-410d7cb525 -> (none)  test: disable report heartbeats in telemetry goldens
-13e8677318 -> (none)  fix: avoid recursive cache locks in debug snapshots
-a5c4b2570a -> (none)  test: signal queued writer while holding its lock
+4e993be3fb -> a3a8829369  dagql: model reader cancellation in the persisted-decode singleflight
+e6b45caeac -> f53f017c30  dagql: add the decode_cancel configurations and accepted finding
+86e0babb50 -> 50ef32e0b1  dagql: model the post-install decode failure and scope the barrier cancel arm
+ed0f6cf2f5 -> dc3d0ecdfc  dagql: split the decode install from the finish and model channels as generations
+22605cb304 -> e0de990aa3  dagql: tighten two decode comments
+61c5790ca2 -> a652713ca6  dagql: retry persisted-decode joiners on leader cancellation, track pending lease sync
+cb739d2b9c -> 5dc904eff6  dagql: model the decode cancellation retry and pending lease sync, close the finding
+9180e61009 -> 715681dbe8  dagql: decide decode leadership on state read under the mutex
+2f59ec6361 -> 2ec7c3a9bb  dagql: update the decode_cancel_liveness header for the retry
+1042f8419b -> 998630bd54  dagql: sharpen the decode_cancel_liveness post-install wording
+1ca59a2b59 -> c6653c6d04  chore: regenerate tla-check module bindings  (adapted: fresh regeneration on main, message kept)
+ebad6b1c15 -> ce04303215  fix: isolate mutable state for concurrent K3S fixtures
+241af6a1a2 -> bf1ca7c143  build: keep model checks in the dev environment
+410d7cb525 -> 3cf71b8367  test: disable report heartbeats in telemetry goldens
+13e8677318 -> d73da1533d  fix: avoid recursive cache locks in debug snapshots
+a5c4b2570a -> 328429c0c1  test: signal queued writer while holding its lock
+(new) -> 1867836d03  dagql/tla: declare DelegatedReleaseOnly in the decode_cancel configurations
+```
+
+#13969 (`a5c4b2570a..73234a8d12`, 52 commits, to `1867836d03..bd79ad1b35`, 53):
+
+```
 4f9753ced5 -> 6ba0f39cc2  dagql/tla: refresh drifted Go citations in the cache model
 980d6aa39b -> e0317ec6cb  dagql/tla: model session-resource checks (inert until Handles is set)
 98b17fcb5a -> ee0b97ead6  dagql/tla: add the resources configurations and the drift finding
@@ -274,7 +263,7 @@ b6b3950278 -> 157e565b88  dagql/tla: refine NoSpuriousErrors for self-released s
 3b4bec40eb -> 2a27cb905f  dagql/tla: guard held-result choices by ownership, not current satisfaction
 1ad19046ed -> 32dd08bda6  dagql/tla: split selection-time checks from held-result ownership guards
 b0f27529d4 -> 4e13de2ce3  dagql/tla: CanonicalPick fallback is a held-result guard
-4320ca55a2 -> (none)  chore: regenerate tla-check module bindings
+4320ca55a2 -> 27703c4d5c  chore: regenerate tla-check module bindings  (combined with a84c1aefc5 into one regeneration)
 f67b1869f3 -> f022ea0fb7  test: expect the gated load refusal for cross-session secret ID replay
 eb04bbe83a -> 72e7f6c98c  dagql: refuse session-resource deps on explicit retention edges
 3b4894f09c -> 304df56930  dagql: re-check session resources after crossing the attach barrier
@@ -282,7 +271,7 @@ b069321d62 -> d41fc9e6a5  dagql: require clean attachment for result-ID load can
 5f4b170a0a -> 5b26de4ffd  dagql/tla: model the growth fixes, close the gated-growth finding
 c6f19394f9 -> 6d3cef4d33  dagql: freeze the session-resource handle of attached results
 21cfa9e02f -> ba00a70a00  dagql/tla: track denied hits, exclude them from possession guards
-a84c1aefc5 -> (none)  chore: regenerate tla-check module bindings
+a84c1aefc5 -> 27703c4d5c  chore: regenerate tla-check module bindings  (combined with 4320ca55a2 into one regeneration)
 0c3fb25ed0 -> fcf19b1045  dagql: keep the registration guard on attached handle re-stamps
 7d18b64bc6 -> 51731efac5  dagql/tla: model held-result choices as acquiring inner loads
 60f3b80f0d -> d32d173b35  dagql/tla: split inner-load acquisition from consumption
@@ -303,77 +292,9 @@ fd60355b08 -> ff238cd1d0  dagql: convert parked readers to a miss when a produce
 (new) -> bd79ad1b35  dagql/tla: assign this branch's constants in main's inherited configurations, drop two stale variable references
 ```
 
-#14043 (`73234a8d12..1d85bd34aa` to `bd79ad1b35..38e0bf8b32`):
+#14043 (`73234a8d12..1d85bd34aa`, 43 commits, to `bd79ad1b35..38e0bf8b32`, 44):
 
 ```
-4e993be3fb -> (none)  dagql: model reader cancellation in the persisted-decode singleflight
-e6b45caeac -> (none)  dagql: add the decode_cancel configurations and accepted finding
-86e0babb50 -> (none)  dagql: model the post-install decode failure and scope the barrier cancel arm
-ed0f6cf2f5 -> (none)  dagql: split the decode install from the finish and model channels as generations
-22605cb304 -> (none)  dagql: tighten two decode comments
-61c5790ca2 -> (none)  dagql: retry persisted-decode joiners on leader cancellation, track pending lease sync
-cb739d2b9c -> (none)  dagql: model the decode cancellation retry and pending lease sync, close the finding
-9180e61009 -> (none)  dagql: decide decode leadership on state read under the mutex
-2f59ec6361 -> (none)  dagql: update the decode_cancel_liveness header for the retry
-1042f8419b -> (none)  dagql: sharpen the decode_cancel_liveness post-install wording
-1ca59a2b59 -> 38e0bf8b32  chore: regenerate tla-check module bindings
-ebad6b1c15 -> (none)  fix: isolate mutable state for concurrent K3S fixtures
-241af6a1a2 -> (none)  build: keep model checks in the dev environment
-410d7cb525 -> (none)  test: disable report heartbeats in telemetry goldens
-13e8677318 -> (none)  fix: avoid recursive cache locks in debug snapshots
-a5c4b2570a -> (none)  test: signal queued writer while holding its lock
-4f9753ced5 -> (none)  dagql/tla: refresh drifted Go citations in the cache model
-980d6aa39b -> (none)  dagql/tla: model session-resource checks (inert until Handles is set)
-98b17fcb5a -> (none)  dagql/tla: add the resources configurations and the drift finding
-ddf65cf4a6 -> (none)  dagql: bound the TLA check's configuration fan-out to four at a time
-0c9dd2ecf8 -> (none)  dagql: recognize initial-state invariant violations in the TLA check
-8371bc5cba -> (none)  dagql/tla: correct the resources_restart attribution, README, and header comments
-1c3c8fd0e4 -> (none)  dagql/tla: check resources under SYMMETRY Symm
-7808ab5831 -> (none)  dagql/tla: add resources_restart_gated, the harm of the requirement drift
-39ec3f8068 -> (none)  dagql: cap each TLA check JVM at 8 GiB
-2931e0bb4b -> (none)  dagql/tla: README names both expected-red configurations
-f9ec8a1b26 -> (none)  dagql/tla: refresh Go citations drifted by the reader-cancel fix
-260b05bd8e -> (none)  dagql: recompute imported required session resources dependency-first
-9c4566586d -> (none)  dagql: stop overwriting required session resources at decode install
-0a0ae3ba57 -> (none)  dagql: validate result-ID value loads against bound session resources
-8851427778 -> (none)  dagql/tla: model the dependency-first import recompute, close the drift finding
-7c32e04f00 -> (none)  dagql: cascade required session resources to ancestors on late explicit deps
-0fac594b9f -> (none)  dagql/tla: model late explicit dependencies and pin the retroactive-validation finding
-09df2e64fb -> (none)  dagql/tla: state exclusions as open modeling work, and the resource-validation guarantee
-ad4935b899 -> (none)  dagql/tla: consolidate core into resources
-1dd7fed592 -> (none)  dagql/tla: enable session-resource checks in release_prune, flush_roundtrip, persist
-d0e2a3cb73 -> (none)  dagql/tla: refresh citations for the resource-validation fixes, README names the open finding
-94caf11d00 -> (none)  dagql/tla: restrict dep choices to code-reachable edges, re-attribute the resource-validation finding
-b6b3950278 -> (none)  dagql/tla: refine NoSpuriousErrors for self-released sessions, surface the joiner question
-83f4a74365 -> (none)  dagql/tla: reuse only session-owned results, complete the core absorption
-3b4bec40eb -> (none)  dagql/tla: guard held-result choices by ownership, not current satisfaction
-1ad19046ed -> (none)  dagql/tla: split selection-time checks from held-result ownership guards
-b0f27529d4 -> (none)  dagql/tla: CanonicalPick fallback is a held-result guard
-4320ca55a2 -> (none)  chore: regenerate tla-check module bindings
-f67b1869f3 -> (none)  test: expect the gated load refusal for cross-session secret ID replay
-eb04bbe83a -> (none)  dagql: refuse session-resource deps on explicit retention edges
-3b4894f09c -> (none)  dagql: re-check session resources after crossing the attach barrier
-b069321d62 -> (none)  dagql: require clean attachment for result-ID load canonicalization
-5f4b170a0a -> (none)  dagql/tla: model the growth fixes, close the gated-growth finding
-c6f19394f9 -> (none)  dagql: freeze the session-resource handle of attached results
-21cfa9e02f -> (none)  dagql/tla: track denied hits, exclude them from possession guards
-a84c1aefc5 -> (none)  chore: regenerate tla-check module bindings
-0c3fb25ed0 -> (none)  dagql: keep the registration guard on attached handle re-stamps
-7d18b64bc6 -> (none)  dagql/tla: model held-result choices as acquiring inner loads
-60f3b80f0d -> (none)  dagql/tla: split inner-load acquisition from consumption
-df563e9150 -> (none)  dagql/tla: give inner loads a pending phase between claim and delivery
-4de76a5033 -> (none)  dagql/tla: move the TLA checks out of CI, add quick and some runners
-92a73f34e6 -> (none)  dagql/tla: count pending inner operations, model attachment-time claims
-4b77af35b4 -> (none)  dagql/tla: separate admission from claim, pin the attach-release finding red
-85a8df723c -> (none)  dagql/tla: fail publication on any attachment claim error
-4ef7cefef9 -> (none)  dagql/tla: order and latch attachment claim errors
-804c4ae906 -> (none)  dagql/tla: record the round-nine counts
-347d4a6582 -> (none)  dagql: allow requirement-carrying retention edges, re-validate at serve time
-cc9fe6aaa4 -> (none)  dagql/tla: model requirement-carrying retention edges, re-validate serves by selection capture
-20a88f6ba1 -> (none)  dagql: return a struct from sharedResultByResultID
-fd60355b08 -> (none)  dagql: convert parked readers to a miss when a producer's release fails attachment
-1d7d1b1105 -> (none)  dagql: claim attachment targets before refresh, roll back failed publications
-73234a8d12 -> (none)  dagql/tla: pin attachment targets, close the attach-release finding family
 0c6e4528f7 -> 39bc139bb1  hack/designs: stage 2 per-part evaluation design
 cbadd77be9 -> 43301696a1  hack/designs: stage 2 revision 1 after review round 1
 3f21c5d2dc -> 773d69cab5  dagql/tla: scope attach_release_reader to its scenario, close the run-budget breach
@@ -407,7 +328,7 @@ cc92a028dc -> d2fde58acc  core: evaluate mounted snapshot sources by part
 af0569d88b -> 2909b966d3  core: preserve parallel image part evaluation
 172e613d26 -> eed0c3c4f5  hack/designs: cite the conversion commits by title, not by hash
 b9fbe32bee -> c4599f8677  ci: refresh generated clients and satisfy Go lint
-08133fe391 -> (none)  ci: align generated clients with the release schema
+08133fe391 -> (dropped)  ci: align generated clients with the release schema  (no-op once main's generated clients were taken)
 6d353bb8fc -> f4f7af176e  core: consume final container delegations
 7b908d2f06 -> 8d3a2c4483  dagql: evaluate resolved lazy groups concurrently
 5a441a2f72 -> 7a7a14b01d  dagql: keep partial resume spans pending
@@ -418,6 +339,7 @@ b9fbe32bee -> c4599f8677  ci: refresh generated clients and satisfy Go lint
 1da70051da -> 6eda99b0cc  hack/designs: record the fix round and the decisions behind it
 1d85bd34aa -> b16275d473  dagql/tla: model final parent copy sweeps
 (new) -> 9b54658e9d  dagql/tla: assign every declared constant in every configuration
+(new) -> 38e0bf8b32  chore: regenerate tla-check module bindings
 ```
 
 ### #14043 `sipsma/remote-cache-track7-per-part-evaluation`
@@ -466,11 +388,13 @@ regenerates them on `remote-cache-engine`, source-map lines only. Audit
 on `38e0bf8b32`: 0 findings over 29 constants, 10 variables, 40
 configurations.
 
-Tests on `b16275d473` (the tip before the two TLA-only and
-generated-only commits; the Go tree is identical), clean tree, `go test
+Tests on `b16275d473` (the tip before the two commits above it, which
+change only TLA configurations and the nested module's generated
+`dagger.gen.go` source-map literals; the tested packages are unchanged),
+clean tree, `go test
 -v -count=1 -timeout 60s ./dagql/ ./dagql/dagui/ ./core/ ./core/schema/
 ./engine/telemetryattrs/`, log /tmp/pkg-track7-tests.log, exit 0: ok
 dagql 2.063 s, ok dagql/dagui 0.010 s, ok core 7.094 s, ok core/schema
 8.383 s, telemetryattrs has no test files; 1057 top-level PASS, 0 FAIL.
-`go build ./...` ok. Engine-suite changes (none in core/integration for
-this PR) and TLC execution are left to CI.
+`go build ./...` ok. core/integration has no changes in this PR. TLC
+was not run (dev-only; CI does not run tla-check either).
