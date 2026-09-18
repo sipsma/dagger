@@ -1469,7 +1469,14 @@ resource handle); the unused directive on encodePersistedResultEnvelope
 removed (gocyclo 29). Tests on `943ca7e681`, clean
 (/tmp/pkg-a1-tests6.head): the same five packages once, log
 /tmp/pkg-a1-tests6.log, exit 0, 1070 top-level PASS, 0 FAIL, 0 top-level
-SKIP, one inherited nested SKIP. Second local lint: LINTA1B. Standing
+SKIP, one inherited nested SKIP. Second local lint on `943ca7e681` (/tmp/pkg-a1-lint2.log): ERROR, exit
+1, SEVEN findings (my first report said three; the dupl form
+`file.go:NNN` without a column escaped my pattern, corrected in
+/tmp/pkg-lint-findings.sh, which now prints the terminal line and every
+finding): A0's Compare (gone on `f97c446e23`); unparam on my two
+extraction signatures (fixed in `34cf231b26`); dupl core/directory.go:106-140
+vs core/file.go:97-129 (both directions) and core/git.go:1507-1528 vs
+:1596-1617 (both directions), pending the final-tip lint. Standing
 step from here: local lint-all on every candidate before review; findings
 in code main owns and the batch does not touch are recorded, not fixed
 in the stack (A2's vet shows main's own `session_attachables.go:211`
