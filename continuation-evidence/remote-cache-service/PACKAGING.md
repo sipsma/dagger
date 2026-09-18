@@ -1767,3 +1767,15 @@ pursuing a phantom-diff hypothesis in Changeset.Export.
 #14224 test-split:test-base on `b63ea739dc` (trace
 `51c2f54bdfee7ae84f5f5ee95af89224`): core `TestHTTPProducerCleanup` FAIL
 (an A1 unit test that passes on this host); assertion below.
+
+`TestHTTPProducerCleanup/timestamp` (the #14224 test-base failure above):
+the case re-executes the test binary under strace to inject a timestamp
+fault, unconditionally; CI's test image has no strace. Follow-up
+`0cd8b591af` "core: skip the HTTP producer timestamp fault when strace is
+absent" (a tool probe, not a privilege probe, per the coordinator):
+`t.Skipf` with the reason when LookPath fails. Tests on `0cd8b591af`,
+clean (/tmp/pkg-a1-tests10.head): core once at 60 s,
+/tmp/pkg-a1-tests10.log, exit 0, 510 top-level PASS, 0 FAIL, 0 SKIP (the
+case PASS here, strace present). Lint: /tmp/pkg-a1-lint8.log, LINT8.
+#14050 release:publish-with-mock-endpoints cancelled at the job limit
+(trace `15a51293f02c17b68136a2b783a608cb`); rerun once.
