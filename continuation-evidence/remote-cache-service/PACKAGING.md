@@ -1546,3 +1546,16 @@ d46b43fc0a -> 945fa415ec  core: publish produced outputs through the versioned w
 (new) -> 867f7ec5b3  core: read the restored file's bytes in place in the final-offer restart test
 (new) -> 4a541e4e93  core: drop the two value transfer tests that no environment can run
 ```
+
+### Merge of #14049
+
+Merged #14049 at main `601d12f424` (20:55:50 UTC) under the merge rule:
+85 pass, 1 skipping, 0 pending, 0 failed after the single reruns
+(test-base's engine-capacity error, provision's registry 500s twice,
+golang:test-all's k3s pull); human approval by vito; head `b910097a74`
+pinned; asynchronous endpoint (uuid `e2091d74-8590-4ccc-a58f-7bd2f2a7ab2f`,
+"merged"). Automatic rebase above, every series equal by range-diff:
+#14050 → `40b7df8381` (15, base main), #14051 → `a4f7b28366` (17), #14093
+→ `23f71a77d4` (9), #14220 → `e9372bccdb` (3). Fresh runs watched. Fixes
+redirected to main because #14049 is merged: none in the corrections
+table target it. A1 moves onto `e9372bccdb` before publication.
