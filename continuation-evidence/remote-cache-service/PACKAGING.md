@@ -1172,3 +1172,12 @@ core/part_offer_admission_test.go → A4 (b5-offers).
 Branch name for the PR: `sipsma/remote-cache-test-store`, on
 `sipsma/remote-cache-deferred-filesystem-restoration`. Sent to the
 reviewer; not pushed.
+
+#14051 `d709b706bd` test-split:test-provision fail (trace
+`b3b49c097548a774625634b6b1d9479d`, logs /tmp/ci-logs-14051-provision.log):
+registry.dagger.io 500s again (109 lines: blob GETs and the v0.16.1
+manifest HEAD), TestProvision's image-driver subtests; registry, not the
+tree. Rerun once (`-W` form). #14043: all 85 checks pass after its
+reruns (test-base included: the codegen nested-init deadline did not
+recur), human approval (grouville), head `4a09602c18`; asynchronous
+merge enqueued (uuid `17be4ea4-b670-4e48-96ae-a36a889743d4`).
