@@ -828,3 +828,20 @@ check logs via `dagger cloud logs <id> --check <name> -o <file>`.
   failure, core/integration `TestRuntimeCodegen/TestPythonTrustedFilesUsed`
   (logs /tmp/ci-logs-14043-pytrusted.log); triage below before any rerun.
   The known debug-listener race did not fire in this run.
+
+#### #14050 approval and push
+
+Reviewer approved `52ee0e172e` (directive removal only; local lint
+`golangci-lint:lint-all DONE [3m14s]`, exit 0). #14049's head was still
+`46bbd9b9ff`, the candidate's base, so no move. Force-pushed with lease
+on the original tip `9375bbb985`:
+`sipsma/remote-cache-container-part-persistence` = `52ee0e172e`; GitHub
+shows base `sipsma/remote-cache-track8-terminology`, 15 commits. Fresh
+check runs watched.
+
+Rerun attempts for the registry-outage failures: `dagger cloud rerun
+--commit <sha> --check <name>` answers "no Cloud checks found for the
+target commit" for the head SHAs, the PR merge commits, `--pr <n>`, and
+from a checkout at the exact head (commands and answers in
+/tmp/pkg-ci-reruns.log). The CLI's current Cloud org on this host is not
+the dagger org; not switched without the coordinator's word.
