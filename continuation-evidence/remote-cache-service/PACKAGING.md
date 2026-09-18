@@ -1254,3 +1254,13 @@ above #14093 (verbatim in /tmp/pkg-14220-stack.txt). CI watched.
   no nolint. engine/snapshots tests once on `f97c446e23`, clean
   (/tmp/pkg-a0-fix-tests.head), log /tmp/pkg-a0-fix-tests.log, exit 0, 19
   PASS, 0 FAIL, 0 SKIP. Local lint: LINTRESULT2
+
+golang:test-all red on #14049 (trace `af58d68fd62ed1723170893d535d450f`),
+#14050, #14093 and #14220 (`d5e2af53e69ea4d6142a1c626a7bf2a4`) in the
+same window: e2e/helm again, the engine pod in ImagePullBackOff
+(TestInstallK3S/default_daemonset on #14049; TestCustomProbes on
+#14220), the registry serving the engine image. Coordinator's policy:
+registry.dagger.io is intermittent (200 three times from this host at
+20:11 UTC); one rerun per red PR only when its last failure is older
+than an hour; cgr.dev's 401 from this host is the normal auth challenge.
+No reruns issued for these yet.
