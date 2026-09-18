@@ -860,3 +860,102 @@ the outage window: the test and the python codegen path are untouched
 by the stack and the test passed in #13969's run); #14049 `46bbd9b9ff`
 test-split:test-provision, golang:test-all; #14219 `577d0a04f5`
 test-split:test-provision. Results recorded when they land.
+
+### #14051 `sipsma/remote-cache-snapshot-chains`
+
+Candidate head `d709b706bd` (working branch `pkg/track10`, worktree
+/tmp/pkg-track10), 17 commits on #14050's `52ee0e172e`: the 16 originals
+(`9375bbb985..62d62bd0c3`), all paired, plus the bindings regeneration
+`d709b706bd` (`dagger generate -y go-sdk:generate` on
+`remote-cache-engine`, log /tmp/pkg-track10-gen.log, exit 0: 14
+source-map lines in .dagger/modules/tla-check/dagger.gen.go, no other
+file; the module's main.go gained the two snapshot map entries and the
+`modelFiles` helper). Built on the pre-move `86fbb2af93` (44fda394a0 tip),
+moved onto `52ee0e172e` as `838abf5a32` (range-diff all equal), then the
+regeneration on top.
+
+Conflicts:
+
+1. `308fe514f1` ("snapshots: model immutable chain transfer lifetime"),
+   .dagger/modules/tla-check/main.go. The commit adds a second spec,
+   `SnapshotChain.tla`, with two configurations (`snapshot_import`,
+   `snapshot_export`) run through the same expectation map, and a
+   `modelFiles(name)` switch giving the spec file and configuration path
+   for a name; it rewrote the old `runOne` to use it. Main had already
+   restructured the runner (`runOne(ctx, base, specName, configPrefix,
+   name, expect) *runFailure`, `reportFailures`, the ClientLifecycle
+   check). Resolution: main's runner kept unchanged; `modelFiles` kept as
+   the commit wrote it (the `One` function's hunks using it applied
+   cleanly); `runConfigs` derives `specName`, `configPrefix` and the
+   configuration's short name from `modelFiles(name)` before calling
+   main's `runOne`, and restores the map key as the failure name. The
+   two snapshot configurations therefore run as
+   `SnapshotChain_import.cfg`/`SnapshotChain_export.cfg` against
+   `SnapshotChain.tla` from the same source directory. Module builds and
+   vets.
+2. `6c727985e2` ("dagql: release abandoned arbitrary values after
+   completion"), dagql/cache_arbitrary.go, three hunks in
+   `getOrInitArbitrary`. Main had added the client-scope lease
+   (`engine.DetachClientScope`, released in a defer before `close(waitCh)`,
+   `res.cancel = nil` after the callback, `res.cancel != nil` guard in
+   `waitArbitrary`); the commit adds a cache operation token around the
+   callback (`beginCacheOperation`/`finish`) so a late release stays
+   visible to Close, and publishes completion under `callsMu` (set
+   err/value, close `waitCh`, `removeUnownedArbitraryLocked`, then run the
+   returned release outside the lock). Merged goroutine: `defer
+   callbackOp.finish(false)`; run the callback; release the client-scope
+   lease (main's order: before completion is published); then one locked
+   section that sets err/value, drops `res.cancel`, closes `waitCh` and
+   takes the unowned release; then `runArbitraryOnRelease` with the
+   callback context. The `beginCacheOperation` failure path releases the
+   lease and cancels, as main's own failure path does. `DetachClientScope`
+   returns a `WithoutCancel` context, so releasing the lease does not
+   cancel the release callback's context. The commit's `waitArbitrary`
+   and `removeUnownedArbitraryLocked` hunks applied cleanly. First
+   resolution attempt double-locked `callsMu` (the commit's lock line
+   merged cleanly above my hunk); caught by reading the result before
+   staging, fixed in the same resolution.
+3. The other 14 commits applied cleanly.
+
+Checks on the tip: TLA audit on both specs, CacheLifecycle 0 findings
+(30 constants, 10 variables, 43 cfgs) and SnapshotChain 0 findings (4
+constants, 10 variables, 2 cfgs); no assignment outside a CONSTANTS
+block; module map and files agree (43 cache + 2 snapshot + 7 client);
+no trailers; no markers. TLC not run (dev-only; CI does not run
+tla-check).
+
+LLM-code rule: no LLM file touched.
+
+Tests on `838abf5a32`, clean tree (/tmp/pkg-track10-tests.head; the regeneration above it changes only the nested module's bindings, so the tested packages are unchanged): `go build
+./...` and the tla-check module build ok; `go test -v -count=1 -timeout
+60s ./core/ ./dagql/ ./engine/engineutil/ ./engine/engineutil/imageexport/
+./engine/server/ ./engine/snapshots/ ./engine/snapshots/testutil/` (the
+packages the PR touches outside generated code and the engine suite),
+log /tmp/pkg-track10-tests.log, exit 0: six packages ok (core 6.498 s,
+dagql 1.994 s, engine/engineutil 0.153 s, imageexport 0.010 s,
+engine/server 1.258 s, engine/snapshots 1.016 s), snapshots/testutil has
+no test files; 1001 top-level PASS, 0 FAIL, 12 top-level SKIP (the
+fixture-gated snapshot tests, `_DAGGER_TEST_REMOTE_CACHE_FIXTURE_ROOT`
+unset, per ruling (e)). Engine-suite changes are CI-only.
+
+Hash map (`9375bbb985..62d62bd0c3`, 16 commits, to `52ee0e172e..d709b706bd`, 17):
+
+```
+f1c44a28f5 -> e87a80dc6e  docs: define reusable snapshot chain foundations
+308fe514f1 -> 5fd9d9fc5a  snapshots: model immutable chain transfer lifetime
+c61b5c6bb8 -> f34a55f030  snapshots: check reuse evidence at byte boundaries
+43e6181987 -> ac76bb00eb  snapshots: model new export content on existing owners
+90fcda4e93 -> 3d00418fc0  snapshots: import immutable chains with owned resource pins
+2a54926225 -> 96f15c0784  snapshots: cancel export waiters and verify local transfer ownership
+6c727985e2 -> 6fe4db0974  dagql: release abandoned arbitrary values after completion
+d13357dfe6 -> c58c765529  Allow canceled imports to leave shared layer waits
+2319955ad7 -> 8c9161552c  Prove snapshot reuse from persisted SQLite rows
+08f7fcabf6 -> 517692a4f6  Release previous snapshot transfers after restoring durable owners
+4fcd77f7e2 -> 00710a31a7  Record snapshot model and physical transfer evidence
+082defb040 -> 11e244645c  docs: explain snapshot transfer ownership and validation
+7535d7af87 -> 7bbc811bfe  changes: record snapshot chain reuse and ownership fixes
+cd0dfe7e2c -> aa70bbefd7  test: probe read-only mounts before snapshot fixtures
+5d34f6259e -> b6af951149  test: report early prepared image completion
+62d62bd0c3 -> 838abf5a32  snapshots: clarify import and lifetime lint intent
+(new) -> d709b706bd  chore: regenerate tla-check module bindings
+```
