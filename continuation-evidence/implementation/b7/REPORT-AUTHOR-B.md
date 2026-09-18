@@ -310,3 +310,7 @@ The native run at this tip failed two bodies (row 38) where the run at `0fca47da
 ## Final: the rerun passed
 
 `92b8057912` (test-only) makes a failed fixture-engine start run the same container once more as a bounded plain exec on the same state and print what the engine wrote, so a boot failure and a load casualty can be told apart next time. The rerun at that tip passed all sixteen (row 39, 943 s, five-minute load up to 70), so the two failures of row 38 did not repeat and the probe was not reached; they stay recorded as unexplained under load. Final tips: implementation `92b8057912`, packaged `110ec17723`.
+
+## After the rebase review
+
+The rebase reviewer's questions on `TestFixtureBarrierOwnerAttachFaults` were answered in review only: the pass's Finish opens the slot's owner sync before its `RunLazyTask` takes `lazyMu`, so Finish either joins the failing attempt or leads the bookkeeping retry; both are the kernel's design, and the test assumed the join. A pinned the schedule (`d168c733ac`) and added the Finish-led retry test (`e77b89c743`), and fixed the fixture report on an engine without a controller (`5272f3d454`). My `fe963009bf` fixes an inherited test defect the reviewer found: three tests read `incomingOwnershipCount` straight after `RunLazyTask` returned, before the attempt's deferred row release, and held `egraphMu` across the assertion. All merged as `aaef58c1e4`; seven packages pass (row 40); packaged branch `71188af8c6`.

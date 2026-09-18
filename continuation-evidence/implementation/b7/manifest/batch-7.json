@@ -2,21 +2,23 @@
  "batch": "7",
  "title": "integrated verification",
  "integratedParent": "c5b299142ca672cbd2ef0a389492f11de85ff08b",
- "head": "92b805791261d720a547028799ee61cf3df16a5e",
- "headTree": "a3386320693ba1c11f7dac8e08fb9304d1b77c4d",
+ "head": "aaef58c1e4f500e0fe2e5c09bf2fbdca2380ba83",
+ "headTree": "1eb458bed4a1507a0ad64d6bc491b34e07a48689",
  "packaged": {
   "branch": "b7-packaging/remote-cache/b7-verification",
   "onto": "38583498cff7f68147b701b16c5077732cf22b43",
-  "head": "110ec17723260fd4533aa779460c227f394d2095",
-  "tree": "bb7a42b28cda7cec0f35982e0a308b20421e9a25"
+  "head": "71188af8c6a647d02dc176ae7a0ab7435050ac85",
+  "tree": "368f151dfbc5c643e043169d82efe6cb5462b4c9"
  },
  "counts": {
-  "kept": 90,
-  "evidence-only": 27,
+  "kept": 94,
+  "evidence-only": 29,
   "duplicate": 3,
   "mixed": 1
  },
  "merges": [
+  "aaef58c1e4f500e0fe2e5c09bf2fbdca2380ba83",
+  "b2031428c36b71127d9a38ead5a0d26afd169ad3",
   "90e34e09a3f2bf8a22a00c73b5223fe4b3fb795f",
   "0fca47daa774e64f05ca9aace55378ded38ea103",
   "ee7d756b855a986cfbedf401fca989a928cfb256",
@@ -869,6 +871,48 @@
    "commit": "92b805791261d720a547028799ee61cf3df16a5e",
    "packaged": "110ec17723260fd4533aa779460c227f394d2095",
    "subject": "core/integration: show what a nested engine wrote when its start fails",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "e636ea054a65fd4b880a6b8c047e83c7544928ac",
+   "packaged": null,
+   "subject": "docs: record the passing rerun and the final tips",
+   "class": "evidence-only",
+   "paths": 7
+  },
+  {
+   "commit": "10d3288e32a4f11bcf488e718537403a89a1b8b1",
+   "packaged": null,
+   "subject": "docs: correct the batch 7 commit counts",
+   "class": "evidence-only",
+   "paths": 1
+  },
+  {
+   "commit": "fe963009bf32036a3623fda13a3a4d1b83bd6a91",
+   "packaged": "404936e21ce53020dd3e576953449eff49736727",
+   "subject": "dagql: count ownership after the attempt's release, and never hold the lock across an assertion",
+   "class": "kept",
+   "paths": 3
+  },
+  {
+   "commit": "d168c733ac26074246470938fd0ce00f17695c01",
+   "packaged": "95f81caac945ff7cf211fab3bd844c3b2f219e76",
+   "subject": "dagql: pin the schedule in TestFixtureBarrierOwnerAttachFaults",
+   "class": "kept",
+   "paths": 1
+  },
+  {
+   "commit": "5272f3d4543da205470654e0e96e450f3eaab3cc",
+   "packaged": "cbc3e8f9544e635d3ac255cab91798aaae224e5f",
+   "subject": "fixture: report without the storage group on an engine that has no controller",
+   "class": "kept",
+   "paths": 4
+  },
+  {
+   "commit": "e77b89c743f82c568d7147875886fdae5d71f022",
+   "packaged": "71188af8c6a647d02dc176ae7a0ab7435050ac85",
+   "subject": "dagql: test the Finish-led retry of a failed owner attachment",
    "class": "kept",
    "paths": 1
   }

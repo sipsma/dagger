@@ -183,3 +183,11 @@ Final rerun, ordered by the Coordinator.
 | --- | --- | --- | --- | --- | --- |
 | 39 | `92b8057912` (`90e34e09a3` plus the test-only start probe `92b8057912`), clean tree | the row 28 command | 15 m / 1260 s | **pass**, exit 0, all sixteen; load 13.7, 11.5, 26.1 at start, 29.1, 69.8, 58.6 at end; the probe was not reached; `logs-author-b/slice3-final/native-sixteen-92b8057912.log` | 943 |
 | P7d | `b7-packaging/remote-cache/b7-verification` rebuilt at `92b8057912` | `package_b7.py` | – | 91 kept, 28 omitted, head `110ec17723`, tree equal; earlier packaged SHAs unchanged | – |
+
+After the rebase review.
+
+| # | Tree | Command | Test / process | Result | Wall |
+| --- | --- | --- | --- | --- | --- |
+| 39a | working tree with the ownership-count fix (`fe963009bf`) | `go test ./dagql -run '^(TestPartSourceSelectionLaterRoute\|TestPartSessionlessOwnSubset\|TestPartReadyRevalidationAndCanceledFinish\|TestPartReadyPreparationBoundaries\|TestPartDecisionPreparationArrival\|TestPartDecisionInlineAdmissionAndPendingSync\|TestPartDecisionOfferAfterRunning)$' -timeout 60s -count=5 -v` | 60 / 210 s | ok, 95 passes | 10.2 (5.7 t) |
+| 40 | `aaef58c1e4` (A's `d168c733ac`, `5272f3d454`, `e77b89c743` merged) | `go test -json -timeout 90s -count=1 ./dagql ./core ./core/schema ./engine/server ./engine/snapshots ./engine/engineutil ./engine/engineutil/imageexport` | 90 / 210 s | 3072 pass, 1 skip (the base's TODO), 0 fail; `logs-author-b/slice3-final/seven-packages-aaef58c1e4.txt` | 43.6 |
+| P7e | `b7-packaging/remote-cache/b7-verification` rebuilt at `aaef58c1e4` | `package_b7.py` | – | 95 kept, head `71188af8c6`, tree equal; earlier packaged SHAs unchanged | – |

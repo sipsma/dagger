@@ -5,9 +5,9 @@
 | Identity | Commit |
 | --- | --- |
 | Batch 6 head (base) | `c5b299142ca672cbd2ef0a389492f11de85ff08b` |
-| Integrated implementation tip | `92b805791261d720a547028799ee61cf3df16a5e` (A's `3af661532a` merged as `0fca47daa7`; the slice 3 review fixes `5d3ee071c7` and `cfa148371c`; A's `9abe5072d5` merged as `90e34e09a3`; the harness start probe `92b8057912`, test-only) |
+| Integrated implementation tip | `aaef58c1e4f500e0fe2e5c09bf2fbdca2380ba83` (A's `3af661532a` merged as `0fca47daa7`; the slice 3 review fixes `5d3ee071c7` and `cfa148371c`; A's `9abe5072d5` merged as `90e34e09a3`; the harness start probe `92b8057912`; after the rebase review: B's `fe963009bf`, A's `d168c733ac`, `5272f3d454`, `e77b89c743`, merged as `aaef58c1e4`) |
 | Integrated evidence tip | the commit that adds this index |
-| Packaged branch | `b7-packaging/remote-cache/b7-verification` at `110ec17723260fd4533aa779460c227f394d2095`, on `b7-packaging/remote-cache/b6-sharing` |
+| Packaged branch | `b7-packaging/remote-cache/b7-verification` at `71188af8c6a647d02dc176ae7a0ab7435050ac85`, on `b7-packaging/remote-cache/b6-sharing` |
 
 ## Reports
 
@@ -41,7 +41,7 @@
 - [manifest/BATCHES-1-6.md](manifest/BATCHES-1-6.md) and [manifest/PACKAGED-1-6.md](manifest/PACKAGED-1-6.md): completion records and the packaged local branches for the foundations and batches 1 to 6, SHA map in `packaged-1-6.json`.
 - [manifest/BATCH-7.md](manifest/BATCH-7.md): batch 7's record, its packaged branch, the corrections to earlier batches listed for the Human's fold-back decision, SHA map in `batch-7.json`.
 
-## Slice 3 verification (author B, ledger rows 26 to 39)
+## Slice 3 verification (author B, ledger rows 26 to 40)
 
 - At `0fca47daa7`: seven packages, `-timeout 90s`, unprivileged, default parallelism: 3057 pass, 1 base skip, 0 fail.
 - At `5d3ee071c7` and `cfa148371c` (only `core` changed): `core` and `core/schema` pass; the six failed-attach schedules fail without the discard, the concurrent first uses fail without the lock.
@@ -50,6 +50,7 @@
 - Native run of the sixteen tests on `remote-cache-b7-engine`, `--timeout=15m`, process bound 1260 s, at `0fca47daa7`: **pass**, exit 0, `✔ PASSED`, 822 s wall (log `logs-author-b/slice3/native-sixteen-0fca47daa7.log`); host load average 10.4, 24.4, 37.3 at the start and 36.6, 53.8, 47.8 at the end, two other workstreams' engines running. The five `✘` steps in the CLI summary are the cases' own injected faults (fetches from `origin.remote-cache.invalid`, the negative `Host.directory` cases) and the nested engine service's span ending in ERROR when the run tears it down; the suite result is the pass. Per-test durations are not in the CLI output; the trace is `512d6ab9a6d99407a7fcfba486ff024f`.
 - The same run at the final tip `90e34e09a3`: **failed two bodies**, 885 s wall, load 11.4, 12.4, 20.4 at the start and 31.4, 63.5, 50.9 at the end: `TestSharingDonorRestart/DonorAfterImport` (its two-minute wait for the sharing pass's receipt expired; the pass reached `beforeCommit` after the wait) and `TestWorkspaceCapture` (the nested engine's restart exited with code 1 within 1.3 s of starting; its stderr is not in the log). 82 of 84 leaves pass, including every other restart. Reported; the Coordinator ordered one rerun.
 - The rerun at the final tip `92b8057912` (production tree unchanged; the harness now prints a nested engine's output when its start fails): **pass**, exit 0, all sixteen, 943 s wall, load 13.7, 11.5, 26.1 at the start and 29.1, 69.8, 58.6 at the end. The probe was not reached. Log `logs-author-b/slice3-final/native-sixteen-92b8057912.log`.
+- After the rebase review, at `aaef58c1e4` (test-only changes and A's fixture report fix): seven packages, 3072 pass, 1 base skip, 0 fail (row 40). No engine run.
 
 ## Open items for the Human
 
