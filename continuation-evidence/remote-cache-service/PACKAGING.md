@@ -1559,3 +1559,26 @@ pinned; asynchronous endpoint (uuid `e2091d74-8590-4ccc-a58f-7bd2f2a7ab2f`,
 → `23f71a77d4` (9), #14220 → `e9372bccdb` (3). Fresh runs watched. Fixes
 redirected to main because #14049 is merged: none in the corrections
 table target it. A1 moves onto `e9372bccdb` before publication.
+
+A1 follow-ups after the lint commit: `f143286c05` (the two TerminalTarget
+diagnostic literals restored; no other renamed receiver touched a
+literal), `34cf231b26` (the scalar decoder loses its unused ctx, the
+list decoder its unused server), `25d92459b9` "core: share the
+filesystem dependency attachment and the git tree evaluation" (the four
+dupl findings: `attachFilesystemDependencyResultsKinds`, generic over
+the recipe's value type, for Directory/File; `evaluateGitTreeInto` with
+an input-checking closure for the two git tree recipes; no exclusion).
+Series moved onto A0's `f97c446e23` and then, after #14049's merge, onto
+A0's `e9372bccdb` (range-diff all equal both times; the second move
+changes no tree). Tip `25d92459b9`, 29 commits. Tests on `25d92459b9`,
+clean (/tmp/pkg-a1-tests7.head): the five packages once, log
+/tmp/pkg-a1-tests7.log, exit 0, 1070 top-level PASS, 0 FAIL, 0 top-level
+SKIP, one inherited nested SKIP. Final-tip lint: LINTA1FINAL.
+
+A2 conflict on the move onto A1's lint commit: `95382e5ac3` "test:
+snapshot completed producers without copying mutexes" edits the
+Directory and File subtest bodies that A1's lint commit moved into named
+functions; its two hunks (a pointer snapshot of every field instead of a
+struct copy, and pointer comparison) were applied inside
+`testRecordCompletedProducerDirectory` and `testRecordCompletedProducerFile`
+one indentation level up, nothing else.
