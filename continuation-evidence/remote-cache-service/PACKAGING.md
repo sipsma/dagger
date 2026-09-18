@@ -645,10 +645,18 @@ dial after cancel succeeds). Fails identically on pristine `upstream/main`
 #13969's CI test-base on the previous head (trace
 `731073a1bb72040377314016ee6a6ccf`). No stack commit touches the debug
 server or the test (main's, Alex Suraci, `ec459b73fe`, `7e3570bd2b`).
-Not investigated here; the coordinator is looking at the cause. If
-main's own test-base at `8b129f76ce` or #13969's new run is green on
-this test, it is a flake rather than deterministic, and the coordinator
-is told.
+Coordinator's finding: a scheduling race, not deterministic. On pristine
+main `8b129f76ce` on this 16-CPU host it fails 8 of 20 runs at default
+GOMAXPROCS and 0 of 3 at GOMAXPROCS 1 or 8. Cause: `http.Server.Close`
+closes only listeners that `Serve` has already registered;
+`startDebugServer` starts `Serve` in a goroutine, so a stop that wins
+the race closes nothing and the listener is closed later by `Serve`'s
+deferred close, after the test's dial. A fix (keep the listener on the
+handler, close it directly in both stop paths) passes 20 of 20; it is
+committed locally as `6d2b931998` on `sipsma/debug-server-close-listener`
+in /tmp/main-8b129f76ce, not pushed, pending Erik's decision. Main's
+push CI does not run test-base, so #13969's run is the only CI signal.
+No action for the stack beyond this record.
 
 ### CI results on the current heads (running record)
 
