@@ -17,6 +17,7 @@ import (
 // referenced rows alive while the null row is retained, and an export of
 // the null row carries them.
 func TestNullResultRecordsFrameDependencies(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "cache.db")
 	ctx, cache, srv := persistedListTestCache(t, path)
 	receiver := persistedListTestResult(t, ctx, cache, srv, "receiver-int", Int(7))
