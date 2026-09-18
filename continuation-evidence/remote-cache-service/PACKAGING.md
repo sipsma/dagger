@@ -1222,3 +1222,35 @@ a cross-branch PR (a gap of a few minutes between `gh pr create` and
 link 13937 14220` → "Added 1 PR to stack #13937"; server-side stack
 13937 (id 487371, base main) now has 12 members, #14220 at position 12
 above #14093 (verbatim in /tmp/pkg-14220-stack.txt). CI watched.
+
+### CI round after the #14043 merge (heads moved, fresh runs)
+
+- registry.dagger.io still 500: test-provision failed on #14049 (trace
+  `8e61269776353f94bf925813e45b2271`), #14050 (`2400b3b351373ff2a8b4ce19900c9388`),
+  #14051 (`c19c2f0dff7fc4554a4f0d224ec5b533`), #14093
+  (`494fab3c2ccee78f5643e3208c210970`) and #14220
+  (`2e9f0b0a18bf3c2c8bf771f1ef730ed4`); 17–24 manifest-HEAD 500s each
+  (/tmp/ci-logs-<pr>-provision*.log). Reruns once for #14049, #14050,
+  #14051, #14093; #14049's came back green; the rest await the registry.
+  #14093 test-container (trace `a5b298d7dcced06eed8d125b9f5e371b`):
+  TestContainer/TestSystemCACerts/wolfi_basic, cgr.dev 500 listing
+  wolfi-base tags; rerun once.
+- #14051 golang:test-all (trace `cdf34bade8d6557ca6cf1ec9bb0b440c`):
+  e2e/installers TestBashScript/install_DAGGER_COMMIT_head, the installer
+  downloading dl.dagger.io/dagger/main/head/dagger_head_linux_amd64.tar.gz
+  exits 1 while the sibling release downloads pass; rerun once.
+- #14051 test-local-cache (trace `6caa4ce66f0efb71c9f6aebbd86bd9aa`):
+  TestLocalCache/TestDagqlMetadataGCProtectsActiveZeroDiskResults, "timed
+  out waiting for metadata workload session to close" after 72 s. NOT
+  rerun: #14051's dagql change is the arbitrary-value cache commit whose
+  conflict was merged with main's client-scope lease, and a session-close
+  timeout is what a held lease would look like; whether the test passed
+  on the pre-rebase identical tree could not be confirmed. Reported to the
+  coordinator for a ruling before any rerun.
+- #14220 golangci-lint:lint-all (trace `066a10f8917f237bb93c8bd20f69c9a9`):
+  gocyclo 33 on `(inPlaceDiffer).Compare` (inplace.go, the packaged
+  batch-7 code). Follow-up `f97c446e23` on `pkg/a0`: the media-type and
+  compressor selection moves verbatim to `diffCompression`; Compare 28;
+  no nolint. engine/snapshots tests once on `f97c446e23`, clean
+  (/tmp/pkg-a0-fix-tests.head), log /tmp/pkg-a0-fix-tests.log, exit 0, 19
+  PASS, 0 FAIL, 0 SKIP. Local lint: LINTRESULT2
