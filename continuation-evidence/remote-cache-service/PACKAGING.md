@@ -3618,3 +3618,5 @@ TestScratchDirectoryAcquisition/cold (core/schema/directory_scratch_test.go:395
 "final row release must release its own accessor", expected 1 actual 0).
 The analyst's 48476414db adds t.Parallel in dagql/cache_snapshot_sharing_test.go
 (same package as the decode test). Escalated; not rerun.
+#14248 test-base rerun passed; #14248 now has only the exempt registry
+pair failed and awaits a maintainer approval for its plain merge.
