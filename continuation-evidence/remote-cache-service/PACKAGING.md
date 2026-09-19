@@ -3602,3 +3602,11 @@ commits; lease held; no evidence files. The A6 shard flake fix
 (TestSharedHostDirectoryLifetime, trace be50f19793457ac431dc2cc43d99d7c6).
 Both stack flakes are now fixed in their PRs (#14229 5510ddada6, #14241
 48476414db). CI watch continues.
+#14248 first run: registry pair (golang:test-all 2309482b7036, K3S;
+test-provision 7805c317923710, both on 500s), exempt; plus
+test-split:test-base (1c5c02b2958b7a37, 14m12s):
+TestGenerators/TestSDKModuleClientUpdateRefreshesLockAndRegenerates,
+generators_test.go:659, a lockfile-contents assertion after a git-ref
+update (network-dependent), main's own test (#14248 changes only
+core/integration/localcache_test.go), passes on #14093 and #14224 in the
+same period: delegated class, one rerun issued.
