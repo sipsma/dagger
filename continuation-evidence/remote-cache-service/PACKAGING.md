@@ -3762,3 +3762,8 @@ PASS, 0 FAIL, 0 top-level SKIP plus one inherited nested SKIP;
 findings; /tmp/pkg-e9-without-fix.{head,log}: with the cache.go hunk
 reverted in the working tree the test FAILs (the null row depends on none
 of the three), proving the defect on main.
+#14229 pushed by the coordinator at fce10013ff (E15 on d42472a17e, 74
+commits, lease held). Move rule: no move; E15 changes only
+dagql/otelprof_lazy.go's span-ending branch and its test, with no caller
+outside the otelprof files above A3 and no A4–A6 test asserting a lazy op
+span's status. E9 candidate 62e596517f sent to the reviewer.
