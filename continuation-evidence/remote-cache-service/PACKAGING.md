@@ -2879,3 +2879,49 @@ is spent per documented infrastructure cause, not per check; the two
 registry-window reruns (#14228 golang:test-all, #14235 test-provision)
 are scheduled at 01:25Z behind a registry probe returning 200
 (/tmp/pkg-reruns-0125.sh, log /tmp/pkg-reruns-0125.log).
+
+## #14229 push line, pre-built (coordinator's instruction)
+
+Scratch branch pkg/a3-line (worktree /tmp/pkg-a3-line) from 26fc6aa5fe:
+cherry-picks of the investigator's 746fd6deb8, b1841e71fa, 0aaff55cd1
+(all approved), the analyst's 4fe1ca0624, c68886903b, 32eb3e17ec (approved;
+the evidence commits 93761358c5 and fb64697a8c omitted), then my six
+(c41f511906..c077d7dfdc). No conflicts. Tip d41463dfd4, 12 commits, 12 Erik
+signoffs, 0 attribution trailers. Range-diff per commit against its source
+(/tmp/pkg-a3-line-rangediff.txt): 12 of 12 `=`.
+
+Runs on d41463dfd4, head files written before each run:
+- /tmp/pkg-a3-line-tests.{head,log}: `go test -v -count=1 -timeout 60s
+  ./core/ ./dagql/` → `ok core 20.396s`, `ok dagql 4.997s`; 1003 PASS, 0
+  FAIL, 0 top-level SKIP, one inherited nested SKIP. PASS lines:
+  TestPartTaskContentIdentityWaitsForOperationLeaseRelease,
+  TestSnapshotOwnerPublicationUsesCoherentRead,
+  TestPartHostInlineAllPartsRetriesCapture, TestPartReadyPreparationBoundaries,
+  TestPartReadyRevalidationAndCanceledFinish, TestPartSessionlessOwnSubset,
+  TestLazyEvaluatedFilesystemClones, TestValueTransferPartsSelectedChain.
+- /tmp/pkg-a3-line-schema.{head,log}: `go test -v -count=1 -timeout 120s
+  ./core/schema/` → `ok core/schema 13.874s`; 170 PASS, 0 FAIL, 0 SKIP.
+  PASS lines: TestGitTreeContentIdentityAfterMaterialization,
+  TestBuiltinMetadataSelectors, TestLazyStoredResultsWithoutBacking.
+- /tmp/pkg-a3-line-lint.{head,log}: `golangci-lint:lint-all ERROR [1m34s]`,
+  findings: 4. core/integration/cross_session_test.go:575:18 and :578:18
+  staticcheck SA1019 (GitRef.Commit deprecated; from 746fd6deb8);
+  dagql/cache_part_task.go:48:28 staticcheck ST1016 (receiver `task` where
+  the type's other method uses `t`; from b1841e71fa);
+  dagql/cache_part_boundary_test.go:128:97 errorlint (%v for an error; from
+  my 77ebab112d).
+
+Miss recorded: the six-commit bundle (c41f511906..c077d7dfdc) went to the
+reviewer without a lint-all run. Rule restated by the coordinator: no
+candidate reaches the reviewer without a lint-all terminal line.
+
+Lint commit on top, per the coordinator: 380ab472de "lint: meet main's
+golangci-lint configuration on the identity and owner fixes" (three files,
+6 insertions, 6 deletions: CommitSHA at the two sites, the receiver renamed
+inside SetContentDigestAfterEvaluation only, %w). Erik signoff. Runs on
+380ab472de, head files first: /tmp/pkg-a3-line-lintfix-tests.{head,log}
+`go test -v -count=1 -timeout 60s ./dagql/` → `ok dagql 4.711s`, 442 PASS,
+0 FAIL, 0 SKIP; `go vet ./core/integration/` clean;
+/tmp/pkg-a3-line-lintfix-lint.{head,log} `golangci-lint:lint-all DONE
+[1m32s]`, findings: 0. Sent to the reviewer; the coordinator pushes the
+13-commit tip.
