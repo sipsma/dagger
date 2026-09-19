@@ -3695,3 +3695,13 @@ test-base on the three previous heads (612f0fcd6b 22m5s, ce8895c9e5
 14m35s, e982b148bf 19m10s). Delegated rerun spent; ruling requested.
 #14051 is NOT merge-ready; the earlier "fully green" lines above for
 #14051 are withdrawn.
+Ruling: one more rerun of #14051's test-base after the no-span pass
+completes (both cancellations fell in the loaded 06:00–07:00Z window; the
+same content finished in 14–22 minutes on three earlier heads and #14224's
+post-merge head passed test-base); if it cancels a third time, stop; the
+coordinator takes the -v question (core/integration's runtime near the
+30-minute limit is a CI-shape problem) to Erik. Script
+/tmp/pkg-14051-testbase-rerun.sh, log /tmp/pkg-14051-testbase-rerun.log.
+Report-writing rule from the correction: a check is reported by its
+terminal state read from the API at the moment of the report, never
+inferred from a script's "nothing to rerun".
