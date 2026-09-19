@@ -2768,3 +2768,34 @@ channel, and reads the counts only once both are back at their pre-task
 values, consuming one exit event per re-check, with a 10 s failure
 bound. `-count=20 -race` run in progress on `26fc6aa5fe` + the change
 (/tmp/pkg-14229-boundary-race.head).
+
+#### #14229 boundary follow-up: the predecessor's two commits
+
+The verification series carries this fix: `404936e21c` "dagql: count
+ownership after the attempt's release, and never hold the lock across an
+assertion" (three tests read incomingOwnershipCount straight after
+RunLazyTask; counts copied under egraphMu, released before asserting) and
+`2147ea5c09` "dagql: wait for the attempt's row release through a hook,
+not by polling" (nil-checked `testAfterLazyAttemptReleased` hook on the
+attempt's goroutine after releasePartRow; arm/wait helpers, ten-second
+bound; the boundary Body returns errors). Coordinator: go; my
+hand-written wait dropped. On pkg/a3 above `26fc6aa5fe`: `c41f511906`,
+`77ebab112d` (messages kept plus provenance; applied cleanly). Run (head
+file `77ebab112d dirty=0`): `go test -count=20 -race -timeout 120s -run
+'TestPartReadyPreparationBoundaries$|TestPartReadyRevalidationAndCanceledFinish$|TestPartSessionlessOwnSubset$'
+-v ./dagql/`: `ok dagql 13.678s`, 60/60 PASS, 0 FAIL, 0 races
+(/tmp/pkg-14229-boundary-race.log). With the reviewer; the coordinator
+sequences the push above the investigator's git pair. Corrections table:
+`404936e21c`, `2147ea5c09` → #14229 follow-ups (test determinism).
+
+Scan of b7-verification for corrections the rule sends to A0–A5 (method:
+each unplaced commit by the pre-b7 files it modifies; non-test code left
+is fixture, transport, reports, TLA registrations, plumbing → A6). Test
+files of earlier series, sent to the coordinator for rulings: A3
+`452ea00673`, `3636d8acb6`, `10279e7758`, `110a3db4e8` (the four probed
+tests rewritten to run unprivileged), `e8277963a5` mark / `76311056c7`
+delete of the four git tests (delete needs A6's TestGitTrees),
+`4927844037` (edits a file A3 keeps deleted); A1 `73a7917e05`,
+`c591ea43ac` (umask controls in a child process, lazy_operation_execution_test.go);
+A5 `4767b31208`, `cbea2f664f`; `c68022468c`/`2bf9621abf` cancel;
+`1af01b8dc7`, `bc905aed16`, `4c4a988ede`, `4a4ccd9f37` fixture-side → A6.
