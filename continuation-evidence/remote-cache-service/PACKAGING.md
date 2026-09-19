@@ -3510,3 +3510,16 @@ of the shard); tla-check:quick passed in 2m28s (719c4a907e6a76d4…). The
 generate pair is no longer scheduled. Every head fails test-provision on
 the registry, #14050 and #14051 also golang:test-all (K3S pull), all left
 alone per Erik; no other failure so far.
+
+## #14050 merge (Erik's call)
+
+Rule update from the coordinator: for the rest of the stack,
+registry-caused failures (test-split:test-provision, golang:test-all's K3S
+engine pull) do not block a merge while the registry fault persists;
+every other check must be green and a maintainer approval present.
+#14050 at b6b328b4ad, vito's approval, only those two failures:
+`PUT repos/dagger/dagger/pulls/14050/merge-async -f sha=b6b328b4ad… -f
+merge_method=merge` at 05:11Z → status pending, "Merge request
+enqueued", uuid a2a711b9-b7c4-4506-b17a-fe5c72823c65, expected head
+b6b328b4ad. Next: main hash, GitHub's automatic rebase of the nine above
+(heads and range-diffs against the third-rebase tips), watch re-armed.
