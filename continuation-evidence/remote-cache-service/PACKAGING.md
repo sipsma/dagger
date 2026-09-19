@@ -2799,3 +2799,27 @@ delete of the four git tests (delete needs A6's TestGitTrees),
 `c591ea43ac` (umask controls in a child process, lazy_operation_execution_test.go);
 A5 `4767b31208`, `cbea2f664f`; `c68022468c`/`2bf9621abf` cancel;
 `1af01b8dc7`, `bc905aed16`, `4c4a988ede`, `4a4ccd9f37` fixture-side → A6.
+
+#### Rulings on the verification scan; #14229 bundle
+
+Coordinator's rulings: the four unprivileged rewrites (`452ea00673`,
+`3636d8acb6`, `10279e7758`, `110a3db4e8`) → #14229 follow-ups replacing
+the probes in those four tests (probe helper stays for A4's admission
+test), done when each prints PASS unprivileged; git-test mark
+`e8277963a5` and delete `76311056c7` → A6 as one move with native
+TestGitTrees; `4927844037` nothing to apply; A1 umask pair `73a7917e05`,
+`c591ea43ac` → #14224 follow-ups; A5 pair `4767b31208`, `cbea2f664f` →
+#14235 follow-ups; `c68022468c`/`2bf9621abf` cancel; `1af01b8dc7`, the
+cleanup bounds `bc905aed16` and the engine_test.go debug commits → A6.
+Order: #14229 bundle (reviewer, coordinator pushes after the
+investigator's SSH commit), #14224 pair, #14235 pair, then A6.
+
+Reviewer approved the boundary pair `c41f511906` / `77ebab112d`. Bundle on
+pkg/a3 above them: the four rewrites cherry-picked cleanly, each amended
+to drop its `testutil.RequireNativeMount(t)` line (provenance paragraph
+says so). First run: three PASS unprivileged, TestValueTransferPartsSelectedChain
+FAIL at value_transfer_chain_test.go:81 (File.Contents mounts). Cause: the
+predecessor's `bbbe792279` hunk for this file (demandedFileContents in
+place of Contents) was never carried, the test having been dropped in A2
+and revived in A3 behind the probe; folded into the selected-chain
+rewrite commit with a provenance note.
