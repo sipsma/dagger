@@ -3708,3 +3708,10 @@ inferred from a script's "nothing to rerun".
 No-span pass: #14220's test-modules and test-module-runtimes passed on
 rerun; #14220 (67e9caf377) has no non-pass check (API read at the time of
 this line); awaits a maintainer approval.
+No-span pass complete 07:21Z (/tmp/pkg-staggered-nospan.log): #14093's
+three, #14220's two and #14233's module-runtimes all passed on rerun;
+#14235's and #14241's test-base left alone (failing tests, both fixed at
+their source in #14229); nothing to rerun elsewhere. API terminal states
+at 07:22Z: #14233 (3b65335dfb) no non-pass check; #14235 and #14241
+test-base=fail only. #14051's third test-base run starting next
+(/tmp/pkg-14051-testbase-rerun.log).
