@@ -3623,3 +3623,14 @@ pair failed and awaits a maintainer approval for its plain merge.
 #14229 at 5510ddada6: all 86 checks green, including golang:test-all and
 test-provision this time (the registry answered), and test-base with the
 A3 flake fix in it. Awaits a maintainer approval.
+
+## Staggered registry reruns (Erik: the registry error is clearing)
+
+One PR at a time, bottom-up (#14051, #14093, #14220, #14224, #14228,
+#14233, #14235, #14241, then #14231, #14248), rerunning only that PR's
+failed registry-class checks (test-split:test-provision, golang:test-all),
+next PR only after the previous PR's reruns finish; stop and report if a
+rerun fails on the registry again; no other checks touched. Script
+/tmp/pkg-staggered-reruns.sh, timestamped log /tmp/pkg-staggered-reruns.log.
+#14231 (dce5557471) currently has no failed check and is skipped by the
+script unless one appears.
