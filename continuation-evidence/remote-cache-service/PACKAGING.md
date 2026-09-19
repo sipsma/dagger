@@ -3737,3 +3737,28 @@ recorded for their PRs at the next move; the builtin-image persistent
 lease stays on #14051 (flagged to Erik). Worktrees: /tmp/pkg-e9
 (sipsma/dagql-null-row-dependency-edges off f283737ff7), /tmp/pkg-e15-a3
 (pkg/e15 on d42472a17e), /tmp/pkg-r-14051 (87a8043da4).
+
+E15: pkg/e15 fce10013ff on d42472a17e (#14229), 3587242fe7 cherry-picked
+-x, message rewritten (no workstream vocabulary, originating commit named,
+no attribution trailer, Erik signoff). Runs, head files first:
+/tmp/pkg-e15-tests.{head,log} `go test -v -count=1 -timeout 60s ./dagql/`
+→ `ok dagql 4.727s`, 443 PASS, 0 FAIL, 0 top-level SKIP plus one
+inherited nested SKIP (log line 729, reviewer's correction);
+/tmp/pkg-e15-lint.{head,log} `golangci-lint:lint-all DONE [1m39s]`, 0
+findings. Reviewer approved; coordinator pushes.
+
+E9: sipsma/dagql-null-row-dependency-edges 62e596517f on f283737ff7
+(main): 3d2cbd783c's dagql/cache.go fix (11 lines) with the test rewritten
+against main's helpers (NewCache, cacheTestIntCall, cacheTestIntResult,
+noopTypeResolver, the row's deps map), keeping the three dependency
+assertions, dropping the export-carrying assertion (needs A2). Mishap
+recorded: the first squash (9d97a810d8) took the original test from the
+index while the rewrite sat unstaged, and a cleanup discarded the rewrite;
+recreated and amended into 62e596517f (my own unreviewed commit). Runs on
+62e596517f, head files first, dirty=0: /tmp/pkg-e9-tests.{head,log}
+`go test -v -count=1 -timeout 60s ./dagql/` → `ok dagql 2.036s`, 350
+PASS, 0 FAIL, 0 top-level SKIP plus one inherited nested SKIP;
+/tmp/pkg-e9-lint.{head,log} `golangci-lint:lint-all DONE [40.3s]`, 0
+findings; /tmp/pkg-e9-without-fix.{head,log}: with the cache.go hunk
+reverted in the working tree the test FAILs (the null row depends on none
+of the three), proving the defect on main.
