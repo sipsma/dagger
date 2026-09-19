@@ -3216,3 +3216,26 @@ Range-diff table (/tmp/pkg-r-rangediff-table.txt, per-PR files
 /tmp/pkg-r-rangediff-<n>.txt): every pair `=` except #14229's 997e953f8c →
 a2d93ae2f5 (context only, the umask resolution) and A6's one new commit;
 no missing patches.
+
+Reviewer: B1/B4 (f5d75bfd2d, b5cb5faa85) approved, their phase-1 copies
+range-diff `=`. S2 (README: `dagger` prefix dropped with `--env dev`;
+introduction still said dev-env scoped and not in CI; the measured
+command at :254 to stay as measured) applied as dc07a67bf2 "dagql/tla:
+restore the dagger prefix in the README's examples" on A6's phase-1 tip;
+reviewer confirmed. A6 phase-1 tip dc07a67bf2, 79 commits (77 rebased + the
+two backing-snapshot cases + the README fix).
+
+Reruns of 01:50Z: #14224 test-workspaces pass (trace 0424bbecc6c4);
+#14224 golang:test-all (ed5f045bb7e4), #14228 golang:test-all
+(3b2420cd9327) and #14224 test-provision (9dfdb1df0de2) failed again at
+01:52Z on the same registry 500s (engine:main pull, engine:v0.16.1
+resolve); the tag-list probe was too weak (manifest HEAD with the OCI
+Accept headers is the request CI makes; it answered 200 at 02:08Z). No
+further rerun under the rule; the rebased heads' first CI run is next.
+
+Phase-1 per-tip runs: /tmp/pkg-r-runs.sh (head files /tmp/pkg-r-<n>.head
+and -lint.head written inside the script before each run; logs
+/tmp/pkg-r-<n>-{build,vet,tests,schema,lint}.log; summary
+/tmp/pkg-r-runs-summary.txt). Phase-2 push script prepared, not run:
+/tmp/pkg-r-push.sh (one PR at a time, lease on the exact current head,
+waits for GitHub to show the new head).
