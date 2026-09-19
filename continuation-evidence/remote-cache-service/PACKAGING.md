@@ -3682,3 +3682,16 @@ skipped. No-span pass started 06:56Z (/tmp/pkg-staggered-nospan.log);
 No-span pass: #14093's test-cache-persistence, test-modules and
 test-module-runtimes all passed on rerun; #14093 (115a6e911f) fully
 green, awaiting a maintainer approval.
+CORRECTION: #14051's test-base did not pass. The 06:35Z rerun was
+"Cancelled - max execution time exceeded" at 07:05Z (trace
+4d04c9f6c86202cf1392f34f1177fb4d), like the Cloud rerun of 06:18Z
+(f751b8db838e2410); the no-span script's "nothing to rerun" at 06:56Z
+reflected a pending check, which I recorded as a pass without checking.
+History on 87a8043da4: 05:29Z errored no-span, 06:18Z cancelled, 07:05Z
+cancelled. In both cancelled runs 64 packages (core, dagql, core/schema,
+engine/server among them) finished; only core/integration had no result
+at the 30-minute limit; no FAIL, no registry lines. Same content passed
+test-base on the three previous heads (612f0fcd6b 22m5s, ce8895c9e5
+14m35s, e982b148bf 19m10s). Delegated rerun spent; ruling requested.
+#14051 is NOT merge-ready; the earlier "fully green" lines above for
+#14051 are withdrawn.
