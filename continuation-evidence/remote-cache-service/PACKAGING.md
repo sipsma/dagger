@@ -3395,3 +3395,11 @@ Ruling: one rerun of #14220 test-split:test-container (own documented
 cause). Issued 03:53Z on 2d1369d172 (a first attempt with a mistyped
 commit was refused by the tool and did nothing). Registry-pattern and
 generate checks untouched.
+03:53Z: vito approved #14050 (ade30bcc1a) on GitHub (human maintainer
+approval; checks not green: golang:test-all 4dabe5376cd7 on registry 500s
+03:44–03:53Z, test-provision, the generate pair). test-provision now
+failed on all ten heads (registry). #14235 python-client:python-311:slow
+(063c7129f071): tests/provisioning/test_integration_connection.py::test_execute_timeout,
+ClientConnectionError after a one-second read timeout, 1 failed / 36
+passed; sdk/python untouched by #14235; passes on #14050, #14051, #14233,
+#14241: single-run flake of main's test, one rerun available on ruling.
