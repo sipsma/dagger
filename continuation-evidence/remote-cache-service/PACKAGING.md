@@ -2622,3 +2622,32 @@ re-armed with #14233. Investigator's git evidence report for Erik:
 socket-less lazy Directory published under the same content digest
 xxh3:ab061a4655b0a931; a per-client resolved ref alone cannot fix SSH;
 options without recommendation; trace `88d5735a0f6ce0c780ccfdddc9b901cc`).
+
+#### #14229 naming-site correction; A5 cut started
+
+A5's first rebase conflict (CommitReadyPart) exposed a mislabel in
+#14229's naming commit `1139dead6f`: dagql/cache_part_install.go:420, the
+refusal when a source's recorded dependency is not among the prepared
+ones, got e094252906's sessionless-share name "commit: donated facts
+changed" through the naming script's last fallback (bare-line match, no
+context); the original names it "commit: dependency not held". Site
+check: the other 41 applied sites match their conditions; this was the
+only fallback match. Coordinator: go. Follow-up `26fc6aa5fe` "dagql: name
+the missing-dependency refusal as the original does" on pkg/a3 above
+`7b5d35903a`; dagql once (head file `26fc6aa5fe dirty=0`): `ok dagql
+5.679s`, 438 top-level PASS, 0 FAIL, 1 inherited nested SKIP. With the
+reviewer; push with lease on approval; A5 then moves onto it.
+
+A5 (`pkg/a5`, worktree /tmp/pkg-a5): packaged `b6-sharing`
+`abb3ce9750..38583498cf` (25 commits) rebasing onto A4's published tip
+`82f2e8487e`. Conflicts so far, all in the sites A3's naming commit
+renamed: (1) "dagql: validate a sessionless share per donated address"
+splits the combined donor check into three; resolved with the
+original's names ("commit: donor unregistered", "commit: donated facts
+changed", "commit: donor facts changed"); (2) "dagql: add the snapshot
+sharing queue, triggers and close admission" inserts
+`beginShareNotificationsLocked` after `egraphMu.Lock()` where main's TTL
+merge block now sits; both kept, notification after the block; (3)
+"dagql: install a share through ordered preparation and a release
+barrier" rewrites the receiver-representation check; resolved with the
+original's name ("commit: receiver representation").
