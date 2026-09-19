@@ -3377,3 +3377,7 @@ ce8895c9e5, #14093 a3cafc3314, #14220 2d1369d172, #14224 ad1afd8701,
 #14228 6f7a49c5a3, #14229 6dc366ab82, #14233 72dd21f7f3, #14235
 70efe651b0, #14241 49f36c61f2. Stack API: bases follow, #14050 on
 main@cd3b79e66a. First CI run on these heads is the next evidence.
+Reviewer's confirmation of the second rebase: all 306 patches equal,
+every parent link correct from cd3b79e66a, all ten GitHub heads and base
+branches match; each of the ten heads approved as published (no tests or
+builds by the reviewer).
