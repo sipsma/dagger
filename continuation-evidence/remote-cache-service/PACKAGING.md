@@ -3471,3 +3471,7 @@ at 167 s, nested sessions' shutdown POST hitting its deadline, no registry
 lines; passes on #14093, #14224, #14228. Runner overload of the 04:00Z
 burst; covered by the armed stack-wide rerun (it reruns whatever is failed
 when the gate fires), nothing separate issued.
+#14051 test-base rerun passed (TestWorkspaceGitCheckoutReuse/discard=false/concurrent
+did not recur); #14051 now carries only the CI-side four. All four
+delegated reruns passed (#14220 container, #14235 python, #14093 lint,
+#14051 test-base).
