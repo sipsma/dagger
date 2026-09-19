@@ -3391,3 +3391,7 @@ fix did not change it); test-provision on #14050 (787ae21558f1) and
 117 s, nested call exit 1, no registry lines, main's own test untouched by
 the stack, passed on #14050, #14051 and unrelated #14242: single-run
 flake, one rerun available under the rule, awaiting the ruling.
+Ruling: one rerun of #14220 test-split:test-container (own documented
+cause). Issued 03:53Z on 2d1369d172 (a first attempt with a mistyped
+commit was refused by the tool and did nothing). Registry-pattern and
+generate checks untouched.
