@@ -3270,3 +3270,10 @@ grouping). Reviewer's note kept: the focused backing-snapshot run
 (fb80d86b7a plus one dirty file) is not a clean-tip or full-package run;
 CI is the execution gate under Erik's ruling. Watch re-armed on the ten
 heads (monitor b1h0ycdbk).
+
+Reviewer: #14241 publication confirmed by GitHub read-back
+(sipsma/remote-cache-verification at dc07a67bf2, 79 commits, non-draft,
+base sipsma/remote-cache-snapshot-sharing@0178ca416d, body matching
+/tmp/pkg-a6-pr-body.md apart from trailing newlines); all ten publication
+heads confirmed. Awaiting CI on the ten heads; #14241's first run supplies
+the shard's and tla-check:quick's runtimes for the record.
