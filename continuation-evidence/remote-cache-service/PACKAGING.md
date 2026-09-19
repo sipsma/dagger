@@ -3441,3 +3441,21 @@ at ~04:00Z: test-base #14093 (ec019c51386a) #14228 (661f6d73d456) #14229
 (1ff16d32bb50) #14241; test-module-runtimes #14233 #14241;
 test-cache-persistence #14220 #14229; K3S on #14220 #14229; test-provision
 everywhere. CI-side, untouched.
+
+CI state of the second-rebase heads at 04:14Z (dang/go = the synthetic
+generate pair, k3s = golang:test-all's registry pull, test-provision =
+registry; the rest are no-span errors of the 04:00Z burst; #14241
+test-remote-cache = the escalated TestSharedHostDirectoryLifetime):
+  14050 pending=0 failed=[dang go k3s test-provision ]
+  14051 pending=1 failed=[dang go k3s test-provision ]
+  14093 pending=0 failed=[dang go k3s test-base test-modules test-provision ]
+  14220 pending=1 failed=[dang go k3s test-cache-persistence test-modules test-provision ]
+  14224 pending=0 failed=[dang go k3s test-provision ]
+  14228 pending=0 failed=[dang go k3s test-base test-provision ]
+  14229 pending=0 failed=[dang go k3s test-base test-cache-persistence test-provision ]
+  14233 pending=0 failed=[dang go k3s release test-base test-module-runtimes test-provision ]
+  14235 pending=0 failed=[dang go k3s test-base test-modules test-provision ]
+  14241 pending=1 failed=[dang go k3s release test-module-runtimes test-provision test-remote-cache ]
+Delegated reruns passed: #14220 test-container, #14235
+python-client:python-311:slow, #14093 golangci-lint:lint-all. #14051
+test-base rerun pending.
