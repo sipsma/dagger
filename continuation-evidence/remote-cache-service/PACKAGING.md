@@ -2742,3 +2742,29 @@ after-evaluation content-digest hook on PartHost; the teach entry points
 take the result: WithContentDigest/WithContentDigestAny, TeachContentDigest,
 TeachCallEquivalentToResult). The #14229 capture-guard escape is the
 analyst's commission (tc-17201bd113f0e6698af2b36ffa07dd2d); no rerun.
+
+### A5 published: #14235 `sipsma/remote-cache-snapshot-sharing`
+
+Reviewer approved `b8bc41cfa0` (no blocking findings; should-fix: the map
+lacked the lint commit line, appended; note: on the eventual stack move
+dagql/cache_part_install.go:585 must carry #14229's `26fc6aa5fe` name
+"commit: dependency not held", not the inherited label). Coordinator
+approved the description as drafted, title "remote cache: snapshot
+sharing between rows". Pushed to upstream
+`sipsma/remote-cache-snapshot-sharing` (new branch); `gh stack link
+13937` created #14235 (base `sipsma/remote-cache-live-part-offers`) as a
+draft; title and body by REST PATCH (/tmp/pkg-a5-patch.json); `gh pr
+ready`. Stack API: id 487371, 17 members, #14235 at position 17 above
+#14233. Read back: head `b8bc41cfa0`, base
+`sipsma/remote-cache-live-part-offers`, head repo dagger/dagger, draft
+false, body verbatim (trailing newline only; /tmp/pkg-a5-pr-body.live.md).
+
+#14229 boundary-test follow-up (coordinator's ruling: the test, not
+RunLazyTask; deterministic wait, no polling): cache_part_boundary_test.go
+now sets the cache's existing `testBeforeSessionOperationExit` hook
+(dagql/cache.go:286, called in `cacheOperation.finish`, which the attempt
+goroutine reaches after its deferred `releasePartRow`) to signal a
+channel, and reads the counts only once both are back at their pre-task
+values, consuming one exit event per re-check, with a 10 s failure
+bound. `-count=20 -race` run in progress on `26fc6aa5fe` + the change
+(/tmp/pkg-14229-boundary-race.head).
