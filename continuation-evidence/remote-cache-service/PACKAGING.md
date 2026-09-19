@@ -3656,3 +3656,11 @@ A6 next moves onto A3's line (merge-time rebase or the next sweep).
 Staggered sequence: #14220's two registry reruns passed (06:29Z; only its
 no-span pair remains); #14224's passed too, and #14224 (6f9b926390) is
 now fully green, awaiting a maintainer approval. Sequence on #14228.
+Ruling: max-execution cancellation with no failing test is an
+infrastructure cause with one rerun, added to the delegation; #14051's
+test-base re-run 06:34Z. Appended to the staggered sequence, after the
+registry pass: one rerun each of the no-span errored (or cancelled,
+no-failing-test) checks per head, same one-PR-at-a-time pacing; checks
+whose log has a failing test are left alone. Script
+/tmp/pkg-staggered-nospan.sh (waits for the registry pass to end), log
+/tmp/pkg-staggered-nospan.log.
