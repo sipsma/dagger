@@ -2981,3 +2981,121 @@ The label at dagql/cache_part_install.go:585 reads "commit: dependency not
 held" in the moved tree: the rename commit 26fc6aa5fe is below A5 now and
 no A5 commit rewrote the line, so the rebase carried it; :545, the
 sessionless-share check, keeps "commit: donated facts changed" as intended.
+
+A5 push: `git push --force-with-lease=sipsma/remote-cache-snapshot-sharing:e787998fc4
+upstream pkg/a5:sipsma/remote-cache-snapshot-sharing` → forced update
+e787998fc4...4dad71ad4c; #14235 head 4dad71ad4c, 31 commits (gh). A6 moved:
+`git rebase --onto 4dad71ad4c e787998fc4 pkg/a6`, no conflicts, 72 commits,
+tip a9b7935b8f, range-diff 72/72 `=` (/tmp/pkg-a6-move-rangediff.txt).
+
+## CI premise change (top-PR job)
+
+Finding: the transfer suite is not gated in the test process. The only
+reads of _DAGGER_TEST_REMOTE_CACHE_FIXTURE_ROOT are in engine/server
+(remote_cache_fixture_controller.go:85,95; snapshot_sharing.go:27;
+remote_cache_fixture.go:16); core/integration's harness sets the variable
+on the nested dev engines it starts (remote_cache_harness_test.go:73) and
+nothing in the suite or testctx skips without it. test-base runs ./... with
+an explicit skip list that does not name the suite; #14228's passing
+test-base log (/tmp/pkg-ci-14228-test-base-pass.log, trace
+e517e4a42995894dd9ff1eebac30ac00) shows `ok core/integration 1014.573s`
+and carries no per-test lines (the shard runs without -v). So by the code
+the suite has been running inside test-base on every published PR. The
+sentence "skips in CI unless the root is set, and stays skipped until the
+top PR's job sets the root" in six descriptions was my error, inherited
+from a misreading of the engine-side gate.
+
+Coordinator's rulings: (1) the six descriptions corrected now; the shard
+stays in the top PR with no env parameter, run ^TestRemoteCacheTransferSuite$
+on ./core/integration, and the suite added to test-base's exact-name skip
+list so it runs once; the benefit is test-base's time budget. (2) tla-check
+registered in the default environment, matrix entry runs Quick only, with
+comments in checks.yml and dagger.toml; Erik is told, since a local
+`dagger check '**'` now includes the multi-hour runs; if he objects it comes
+out before merge. (3) the two backing-snapshot fixture cases become an A6
+follow-up once the stack sits on #14228's follow-up head; patch held at
+/tmp/pkg-backing-two-cases.go (+ the six comment lines at
+/tmp/pkg-backing-full.go:171-176), verified on a scratch tree
+(/tmp/pkg-a6-backing-scratch.{head,log}: A6's tip plus 2266f481a1,
+95a320301e, a4ea34dcec cherry-picked cleanly; the three
+TestImportedBackingSnapshot* tests PASS at 60 s). (4) #14229's
+"Tests kept behind a privilege probe" section and validation line rewritten.
+
+Descriptions patched by REST (bodies /tmp/pkg-body-<n>-new.md, readbacks
+/tmp/pkg-body-<n>-readback.md, all identical): #14220 and #14224 ("One
+standing CI gap applies to the whole stack: ... `TestRemoteCacheTransferSuite`
+runs inside CI's test-base shard, which starts its nested engines with the
+fixture root; the top PR gives it a shard of its own (this PR does not
+touch that suite)."), #14228, #14229, #14233, #14235 ("One CI gap applies
+to this stack." and the same sentence with each PR's own clause). #14229
+additionally: section renamed "Tests that read a native snapshot" and
+rewritten to the post-rewrite state (in-place reads through the
+unprivileged test store, run unprivileged and in CI; the probe helper stays
+for the offers PR's admission test), validation line now "1195 top-level
+PASS, 0 FAIL, zero top-level skips and one inherited nested skip" (core 561
+and core/schema 170 from the d41463dfd4 runs, packages the lint commit does
+not touch; dagql 442 and engine/snapshots 22 run at 380ab472de,
+/tmp/pkg-a3-line-snapshots.{head,log}: `ok engine/snapshots 5.444s`, 22
+PASS).
+
+## A6 candidate
+
+Base 4dad71ad4c (#14235 head). 75 commits: 71 from b7-verification (98
+above 38583498cf minus the 27 already placed), plus four new:
+- a9b7935b8f core: test the clone of a part-acquired File or Directory for
+  a Container — 1bfece3b77's test file, provenance paragraph; one
+  reconciliation, producedFileContents called with the parameter list A3's
+  lint commit left (the original passed a context the helper no longer
+  takes). PASS on A6 before the commit (/tmp/pkg-a6-clone-test.{head,log}).
+- d766655267 lint: meet main's golangci-lint configuration — lint-all on
+  a9b7935b8f (/tmp/pkg-a6-lint1.{head,log}): ERROR, findings: 10.
+  unparam: git trees test reader's unused client parameter (dropped);
+  seal's unread result (returns only the error; two callers). gocyclo:
+  runLazyOperationDecision 32 → 26 by moving the seal of the original with
+  its three fixture points into beginLazyOriginal; prepareReadyPartFromBase
+  32 → 29 by moving the locked dependency hold into holdSourceDependencies;
+  runFixtureControl 39, the control dispatcher (12 cases), keeps
+  `//nolint:gocyclo // one case per fixture control; splitting the
+  dispatcher would hurt clarity` (gofmt puts a `//` line between the doc
+  comment and the directive). bodyclose ×5 in engine/fixturetransport's
+  test: every response closed through closeResponse (tolerates a failed
+  round trip's nil response and http.NoBody); transport test PASS.
+- 8f702d4791 ci: run the remote cache transfer suite in its own shard —
+  test-split: `testRemoteCache` shard (testSpecific
+  ["^TestRemoteCacheTransferSuite$"], default pkg ./core/integration),
+  "^TestRemoteCacheTransferSuite$" added to test-base's exact-name skip list;
+  checks.yml matrix entry "test-split/test-remote-cache".
+- 6203a9a807 ci: run the bounded TLA+ configurations — dagger.toml:
+  [env.dev.modules.tla-check] → [modules.tla-check] with the comment;
+  checks.yml entry "tla-check/quick" with a two-line comment; tla-check
+  doc line "(CI runs Quick only)".
+Validation of the CI edits: checks.yml parses (28 matrix entries, the two
+new ones present); `dagger check --list` in the default environment lists
+test-split:test-remote-cache, tla-check:quick, tla-check:cache-lifecycle,
+tla-check:client-lifecycle. The shard itself was not run locally (the
+coordinator's ruling: the first CI run measures it).
+
+Map (/tmp/pkg-map-a6.txt, 38583498cf..b7-verification vs 4dad71ad4c..HEAD):
+75 mapped, 27 unmapped (the placed drops), 4 new (the above).
+
+Tip 6203a9a807 runs, head files first:
+- /tmp/pkg-a6-lint2.{head,log}: `golangci-lint:lint-all DONE [1m34s]`,
+  findings: 0.
+- /tmp/pkg-a6-tests1.{head,log}: `go test -v -count=1 -timeout 60s ./core/
+  ./dagql/ ./engine/server/ ./engine/snapshots/ ./engine/fixturetransport/`
+  → `ok core 24.084s`, `ok dagql 17.250s`, `ok engine/server 4.771s`,
+  `ok engine/snapshots 10.785s`, `ok engine/fixturetransport 0.008s`; 1283
+  PASS, 0 FAIL, 1 top-level SKIP (TestOfferPartsNativeAdmission, the probe)
+  plus one inherited nested SKIP. PASS lines:
+  TestPartAcquiredValuesCloneForContainers, TestFixtureTransport.
+- /tmp/pkg-a6-tests1-schema.log: `go test -v -count=1 -timeout 120s
+  ./core/schema/` → `ok core/schema 13.051s`, 173 PASS, 0 FAIL, 0 SKIP.
+- `go vet ./core/integration/` clean.
+- TLA audit at the tip (/tmp/pkg-a6-tla-audit.{head,log}): CacheLifecycle
+  0 findings, 30 constants, 10 variables, 43 cfgs; the four models A6 adds
+  and SnapshotChain (/tmp/pkg-a6-tla-audit-others.log): RemoteParts 0
+  findings (6/8/8 cfgs), RemoteOwners 0 (3/12/7), RemoteSharing 0
+  (4/15/12), RemoteCheckpoint 0 (2/18/9), SnapshotChain 0 (4/10/2).
+Recorded, not fixed (main's own code): go vet lostcancel at
+engine/engineutil/executor.go:565,649,716 and
+engine/server/session_attachables.go:211.
