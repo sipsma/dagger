@@ -2949,3 +2949,35 @@ all equal, one push each with lease; the A5 label at
 dagql/cache_part_install.go:585 takes the corrected name (26fc6aa5fe's
 "commit: dependency not held") during the move. A6 then goes onto A5's new
 head.
+
+#14229 description: one paragraph appended at the end of "How it fits main"
+(the four follow-up groups), REST PATCH, read back identical apart from
+GitHub's trailing newline (/tmp/pkg-14229-body-new.md vs
+/tmp/pkg-14229-body-readback.md). Not yet updated there, flagged to the
+coordinator: the "Tests kept behind a privilege probe" section and the
+validation line "4 SKIP (the four probed tests)" describe the pre-rewrite
+state.
+
+A4 move: `git rebase --onto 380ab472de 7b5d35903a pkg/a4` (A4's base was
+7b5d35903a, #14229's head before 26fc6aa5fe), no conflicts, 21 commits,
+range-diff 7b5d35903a..82f2e8487e vs 380ab472de..39bbd96e7c: 21 of 21 `=`
+(/tmp/pkg-a4-move-rangediff.txt). `go build ./...` and vet of core, dagql,
+engine/server, core/schema, core/integration clean apart from main's
+session_attachables.go:211 lostcancel. First push attempt went to origin
+(the fork) and was rejected on the lease; the PR branches live on upstream
+(dagger/dagger). Pushed:
+`git push --force-with-lease=sipsma/remote-cache-live-part-offers:82f2e8487e
+upstream pkg/a4:sipsma/remote-cache-live-part-offers` → forced update
+82f2e8487e...39bbd96e7c. #14233 head 39bbd96e7c.
+
+A5 move: `git rebase --onto 39bbd96e7c 82f2e8487e pkg/a5`, one conflict in
+ae474ab9a7's import block of dagql/cache_part_host.go (the line below adds
+go-digest, the commit adds engine): both kept, goimports grouping. 31
+commits, tip 4dad71ad4c. Range-diff 82f2e8487e..e787998fc4 vs
+39bbd96e7c..4dad71ad4c (/tmp/pkg-a5-move-rangediff.txt): 29 `=`, 2 `!`:
+commit 3 (the import placement) and commit 24, the reselect-watch commit,
+whose diff context now shows the analyst's managed-inline retry below it.
+The label at dagql/cache_part_install.go:585 reads "commit: dependency not
+held" in the moved tree: the rename commit 26fc6aa5fe is below A5 now and
+no A5 commit rewrote the line, so the rebase carried it; :545, the
+sessionless-share check, keeps "commit: donated facts changed" as intended.
