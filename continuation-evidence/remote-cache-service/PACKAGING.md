@@ -2921,7 +2921,12 @@ golangci-lint configuration on the identity and owner fixes" (three files,
 inside SetContentDigestAfterEvaluation only, %w). Erik signoff. Runs on
 380ab472de, head files first: /tmp/pkg-a3-line-lintfix-tests.{head,log}
 `go test -v -count=1 -timeout 60s ./dagql/` → `ok dagql 4.711s`, 442 PASS,
-0 FAIL, 0 SKIP; `go vet ./core/integration/` clean;
+0 FAIL, 0 top-level SKIP plus one inherited nested SKIP (log line 726,
+TestCacheContextCancel/last_waiter_canceled_fn_returns_value_still_releases;
+reviewer's correction); `go vet ./core/integration/` clean;
 /tmp/pkg-a3-line-lintfix-lint.{head,log} `golangci-lint:lint-all DONE
 [1m32s]`, findings: 0. Sent to the reviewer; the coordinator pushes the
 13-commit tip.
+
+Reviewer approved 380ab472de (12/12 range-diff equal checked independently;
+lint commit scope confirmed).
