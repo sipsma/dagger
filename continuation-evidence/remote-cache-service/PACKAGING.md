@@ -3492,3 +3492,8 @@ registration). Tips: 14050 b6b328b4ad, 14051 e982b148bf, 14093
 `go build ./...` at 7cba6796a7: exit 0. Pushes by /tmp/pkg-r3-push.sh
 (log /tmp/pkg-r3-push.log). Registry checks expected red on the new
 heads; left alone per Erik.
+Pushed 04:52–04:54Z, all ten, GitHub-confirmed: #14050 b6b328b4ad, #14051
+e982b148bf, #14093 5075c989a9, #14220 de872846a3, #14224 6a9bdbceff,
+#14228 76c0e46853, #14229 9c1823e8e0, #14233 f7856e2a61, #14235
+e0ce431522, #14241 7cba6796a7; stack chain verified (bottom base
+main@316147206d). #14050 now lists 86 checks (the generate pair skipped).
