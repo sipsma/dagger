@@ -3574,3 +3574,14 @@ tla-check:quick passed again, so the shard is two passes in three runs).
 The reviewer's note on be2ae11fac (sipsma/localcache-active-wait, someone
 else's main-placed fix for the local-cache flake) answered: not my commit
 or run; coordinator copied.
+
+## Main PR #14248 (localcache active wait) under the CI watch
+
+#14248, sipsma/localcache-active-wait at be2ae11fac on main 92c4619047:
+the 90 s active-observation wait for
+TestDagqlMetadataGCProtectsActiveZeroDiskResults; plain merge, not a stack
+member; merge rule: all checks green (registry pair excepted while the
+fault persists) and a maintainer approval. Its record cites the triage
+above (trace 2ca34ef77a9987ce313b3e5a37946ca7, passes on the other eight
+heads, delegated rerun passed). On merge the local-cache flake entry
+closes as "fixed on main at <hash>". Watch re-armed with #14248 included.
