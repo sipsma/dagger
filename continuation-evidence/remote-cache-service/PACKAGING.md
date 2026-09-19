@@ -3557,3 +3557,14 @@ out waiting for metrics; last=map[dagger_connected_clients:0 ...]"
 (testctx.go:193), the metrics wait that main's #14222 (7e3c431108, in the
 base) had just loosened; a timing flake of main's test under CI load.
 Rerun issued 05:30Z.
+#14229 local-cache rerun passed. Second no-span burst at 05:29Z ("Errored
+in 15m39–15m42s", zero log messages): test-base #14051 (ffb230b43b6e);
+test-modules and test-module-runtimes #14093 (d3d65b67fa74,
+cead80d43806) and #14220 (613110656316, ff0801fdbf4c); test-cache-persistence
+#14051, #14093, #14241; test-module-runtimes #14233, #14241. CI-side,
+untouched; two identical bursts now (04:00Z, 05:29Z). Stack code,
+escalated, not rerun: #14235 (ab27485983) test-split:test-base
+(73176f3018529bd2), TestPartHostInlineAllPartsRetriesCapture/before-metadata,
+dagql/cache_part_host_test.go:137 "each discovery attempt releases its
+row hold: expected 2, actual 3": the analyst's test from #14229's line
+(32eb3e17ec); test-base passed on #14093, #14224, #14229 this run.
