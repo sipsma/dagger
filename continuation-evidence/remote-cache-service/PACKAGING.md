@@ -2865,3 +2865,17 @@ head; its one rerun spent. #14235 test-split:test-provision (trace
 `6cc8c71cd78b8b6689a0565bec26d7cb`): TestImageDriverGarbageCollectEngines
 nerdctl/podman, `registry.dagger.io/engine:v0.16.1` HEAD 500, same
 registry window; one rerun when an hour old (about 01:25Z).
+
+Reviewer approved the #14224 umask pair; pushed with
+`--force-with-lease=sipsma/remote-cache-transfer-foundations:c3f7dc33f6`
+(fast-forward `c3f7dc33f6..e3e75aedb1`); #14224 head `e3e75aedb1`, 35
+commits; PRs above stay (test-only). Reviewer approved #14229's four-test
+bundle `c077d7dfdc` (no blocking findings; the builtin-selector run is
+not counted as selected-byte proof). #14229's line at push time
+(coordinator pushes): investigator's `746fd6deb8`, `b1841e71fa` →
+analyst's capture-guard owner-sync fix `4fe1ca0624` → my boundary pair
+and four rewrites rebased on top. Rule refinement (coordinator): a rerun
+is spent per documented infrastructure cause, not per check; the two
+registry-window reruns (#14228 golang:test-all, #14235 test-provision)
+are scheduled at 01:25Z behind a registry probe returning 200
+(/tmp/pkg-reruns-0125.sh, log /tmp/pkg-reruns-0125.log).
