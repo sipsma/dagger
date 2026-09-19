@@ -3666,3 +3666,5 @@ whose log has a failing test are left alone. Script
 /tmp/pkg-staggered-nospan.log.
 #14228 (dbd528117a): both registry reruns passed; fully green, awaiting a
 maintainer approval. Sequence on #14233.
+#14229 at d42472a17e: all 86 checks green (the two test fixes included);
+awaits a maintainer approval.
