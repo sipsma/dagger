@@ -3568,3 +3568,9 @@ escalated, not rerun: #14235 (ab27485983) test-split:test-base
 dagql/cache_part_host_test.go:137 "each discovery attempt releases its
 row hold: expected 2, actual 3": the analyst's test from #14229's line
 (32eb3e17ec); test-base passed on #14093, #14224, #14229 this run.
+Post-merge run complete on #14229 (only the registry pair) and #14241
+(registry pair plus two no-span; test-split:test-remote-cache and
+tla-check:quick passed again, so the shard is two passes in three runs).
+The reviewer's note on be2ae11fac (sipsma/localcache-active-wait, someone
+else's main-placed fix for the local-cache flake) answered: not my commit
+or run; coordinator copied.
