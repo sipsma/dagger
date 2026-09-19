@@ -3497,3 +3497,8 @@ e982b148bf, #14093 5075c989a9, #14220 de872846a3, #14224 6a9bdbceff,
 #14228 76c0e46853, #14229 9c1823e8e0, #14233 f7856e2a61, #14235
 e0ce431522, #14241 7cba6796a7; stack chain verified (bottom base
 main@316147206d). #14050 now lists 86 checks (the generate pair skipped).
+Reviewer's confirmation of the third rebase against 316147206d: every
+parent link and all ten GitHub head/base read-backs match; the only
+range-diff change is A6's dagger.toml context (main's two check.skip lines
+under dang-sdk and go-sdk, the TLA registration intact); all ten heads
+approved (no tests or builds by the reviewer).
