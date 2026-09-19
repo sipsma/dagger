@@ -3403,3 +3403,10 @@ failed on all ten heads (registry). #14235 python-client:python-311:slow
 ClientConnectionError after a one-second read timeout, 1 failed / 36
 passed; sdk/python untouched by #14235; passes on #14050, #14051, #14233,
 #14241: single-run flake of main's test, one rerun available on ruling.
+Ruling: one rerun of #14235 python-client:python-311:slow, issued on
+70efe651b0. Standing delegation from the coordinator: a single failure of a
+main-owned test the stack does not touch, passing on neighbouring heads in
+the same window, gets its one rerun on my own call, recorded here;
+anything else goes to the coordinator. #14050 approved by vito; merges
+when its checks are green, which waits on the registry and the generate
+pair (CI-side).
