@@ -3638,3 +3638,18 @@ script unless one appears.
 (f751b8db838e2410, no FAIL line, no registry lines); the only non-green
 check on #14051; not registry-class, not a single failing test; proposed
 to the coordinator as an infrastructure cause with one rerun.
+
+Staggered sequence: #14093's golang:test-all and test-provision both
+passed on rerun (06:25Z; the registry answered), sequence moved to
+#14220. #14093 now carries only the no-span trio (test-cache-persistence,
+test-modules, test-module-runtimes).
+
+#14229 pushed by the coordinator at d42472a17e (73 commits; lease held):
+the analyst's two approved test fixes on 5510ddada6: 3e2be0973e (scratch
+acquisition waits for session cleanup before Prune; TestScratchDirectoryAcquisition/cold)
+and d42472a17e (part-decode waits for session cleanup before removing the
+persisted edge; TestPartDecodeLosesToInstalledRevision), both against
+trace a63d407184e096123baa17b93aaef237; the reviewer placed the decode fix
+in A3 since A3 introduced that test. Test-only: PRs above stay. #14241's
+test-base failure at 48476414db is addressed at its source and clears when
+A6 next moves onto A3's line (merge-time rebase or the next sweep).
