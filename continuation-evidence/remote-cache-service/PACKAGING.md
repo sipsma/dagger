@@ -3668,3 +3668,8 @@ whose log has a failing test are left alone. Script
 maintainer approval. Sequence on #14233.
 #14229 at d42472a17e: all 86 checks green (the two test fixes included);
 awaits a maintainer approval.
+#14233's registry pair passed (only its no-span module-runtimes left);
+#14235's registry pair passed (only the escalated test-base left, fixed
+at its source in #14229 at d42472a17e). #14248 (be2ae11fac): both
+registry checks now pass (Cloud's own rerun of provision; K3S earlier),
+fully green, awaiting a maintainer approval for its plain merge.
