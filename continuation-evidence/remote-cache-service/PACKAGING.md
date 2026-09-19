@@ -3610,3 +3610,11 @@ generators_test.go:659, a lockfile-contents assertion after a git-ref
 update (network-dependent), main's own test (#14248 changes only
 core/integration/localcache_test.go), passes on #14093 and #14224 in the
 same period: delegated class, one rerun issued.
+#14241 at 48476414db, first run: test-split:test-remote-cache passed (the
+sharing fix held); test-split:test-base (a63d407184e09612, 16m1s) fails
+two stack tests not seen failing before: TestPartDecodeLosesToInstalledRevision
+(dagql/cache_part_decode_test.go:212, expected 1 actual 0) and
+TestScratchDirectoryAcquisition/cold (core/schema/directory_scratch_test.go:395
+"final row release must release its own accessor", expected 1 actual 0).
+The analyst's 48476414db adds t.Parallel in dagql/cache_snapshot_sharing_test.go
+(same package as the decode test). Escalated; not rerun.
