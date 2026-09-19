@@ -3653,3 +3653,6 @@ trace a63d407184e096123baa17b93aaef237; the reviewer placed the decode fix
 in A3 since A3 introduced that test. Test-only: PRs above stay. #14241's
 test-base failure at 48476414db is addressed at its source and clears when
 A6 next moves onto A3's line (merge-time rebase or the next sweep).
+Staggered sequence: #14220's two registry reruns passed (06:29Z; only its
+no-span pair remains); #14224's passed too, and #14224 (6f9b926390) is
+now fully green, awaiting a maintainer approval. Sequence on #14228.
