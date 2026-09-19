@@ -3502,3 +3502,11 @@ parent link and all ten GitHub head/base read-backs match; the only
 range-diff change is A6's dagger.toml context (main's two check.skip lines
 under dang-sdk and go-sdk, the TLA registration intact); all ten heads
 approved (no tests or builds by the reviewer).
+Third-rebase heads, first run: #14241 (7cba6796a7)
+test-split:test-remote-cache passed, Succeeded in 13m6s (trace
+fe484bd392a35a5f…), so TestSharedHostDirectoryLifetime did not recur on
+this run (the escalation stays with the analyst: one failure in two runs
+of the shard); tla-check:quick passed in 2m28s (719c4a907e6a76d4…). The
+generate pair is no longer scheduled. Every head fails test-provision on
+the registry, #14050 and #14051 also golang:test-all (K3S pull), all left
+alone per Erik; no other failure so far.
