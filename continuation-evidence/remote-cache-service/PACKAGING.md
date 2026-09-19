@@ -3673,3 +3673,9 @@ awaits a maintainer approval.
 at its source in #14229 at d42472a17e). #14248 (be2ae11fac): both
 registry checks now pass (Cloud's own rerun of provision; K3S earlier),
 fully green, awaiting a maintainer approval for its plain merge.
+Registry pass complete 06:56Z (/tmp/pkg-staggered-reruns.log): every
+rerun passed, none failed on the registry: #14093 06:25Z, #14220 06:29Z,
+#14224 06:34Z, #14228 06:39Z, #14233 06:44Z, #14235 06:49Z, #14248 06:56Z;
+#14051, #14241, #14231 had no failed registry-class check and were
+skipped. No-span pass started 06:56Z (/tmp/pkg-staggered-nospan.log);
+#14051 had nothing left to rerun (its test-base rerun passed).
