@@ -3585,3 +3585,12 @@ fault persists) and a maintainer approval. Its record cites the triage
 above (trace 2ca34ef77a9987ce313b3e5a37946ca7, passes on the other eight
 heads, delegated rerun passed). On merge the local-cache flake entry
 closes as "fixed on main at <hash>". Watch re-armed with #14248 included.
+
+#14229 pushed by the coordinator at 5510ddada6: the analyst's approved
+fix of the inline hold-count test (TestPartHostInlineAllPartsRetriesCapture/before-metadata,
+the A3 flake, trace 73176f3018529bd2fd4d7b7d39f84a2f) cherry-picked onto
+0bce94ee73; 71 commits; lease held. Test-only, so #14233 and above stay
+per the move rule (they pick it up at the next base move or GitHub's
+merge-time rebase). The A6 sharing-test fix (TestSharedHostDirectoryLifetime)
+follows once its t.Parallel follow-up is approved. #14051's checks going
+pending again without us: Dagger Cloud's own rerun.
