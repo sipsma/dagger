@@ -3705,3 +3705,6 @@ coordinator takes the -v question (core/integration's runtime near the
 Report-writing rule from the correction: a check is reported by its
 terminal state read from the API at the moment of the report, never
 inferred from a script's "nothing to rerun".
+No-span pass: #14220's test-modules and test-module-runtimes passed on
+rerun; #14220 (67e9caf377) has no non-pass check (API read at the time of
+this line); awaits a maintainer approval.
