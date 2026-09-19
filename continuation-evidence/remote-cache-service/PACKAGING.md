@@ -3277,3 +3277,31 @@ base sipsma/remote-cache-snapshot-sharing@0178ca416d, body matching
 /tmp/pkg-a6-pr-body.md apart from trailing newlines); all ten publication
 heads confirmed. Awaiting CI on the ten heads; #14241's first run supplies
 the shard's and tla-check:quick's runtimes for the record.
+
+## First CI run on the rebased heads (02:26–02:45Z): registry window
+
+Monitor defect: `gh pr checks` exits 8 when any check is pending or failed;
+the loop skipped a PR on non-zero exit, so only the three PRs with nothing
+but DCO and netlify reported. Fixed and re-armed (bwbgzjls3).
+
+#14050 60dbab39fb, six failures: golang:test-all (7e56a5bbd959,
+TestInstallK3S/default_daemonset, engine:main pull, 500s 02:36–02:43Z);
+test-split:test-provision (60239031f3ce, five TestImageDriver cases,
+engine:v0.16.1 resolve 500 at 02:28Z); dang-sdk:generate:up-to-date
+(1e3a451c1050) and go-sdk:generate:up-to-date (b16fec5551b7): zero log
+messages in the traces, local generators on 60dbab39fb change nothing
+except the dang generator's engine-version stamp in
+.dagger/modules/go-cli/dagger-module.toml (local engine artifact,
+reverted); the unrelated PR #14240 shows the same two checks errored the
+same way in the same window, with golang:test-all, test-provision and
+test-base; release:publish-with-mock-endpoints (be1a32073b74) and
+test-split:test-base (819c691d91f2): errored 02:41:35Z, zero log messages,
+same pattern. Conclusion: no stale bindings, nothing to regenerate or
+propagate; all six are the registry window. Every other head shows the
+same generate pair, golang:test-all and test-provision (plus test-base on
+#14228/#14235, release and test-cache-persistence on #14224, test-modules /
+test-module-runtimes on several), all first runs inside the window.
+Reruns: /tmp/pkg-reruns-14050.sh (log /tmp/pkg-reruns-14050.log) waits
+for ten consecutive 200 manifest probes a minute apart, then reruns
+#14050's six checks once; the other heads follow the same rule after
+#14050's rerun shows the registry holds.
