@@ -3260,3 +3260,13 @@ mergeable=true (blocked on checks). The from_baseline main defect is in
 the base now (4056f4a8b2): record entry closed. Pending for the record:
 the shard's and tla-check:quick's measured runtimes from #14241's first
 check run.
+
+Reviewer's post-rebase confirmation: all nine pushed heads and A6's
+dc07a67bf2 approved from the table (306 commits, every patch equal apart
+from #14229's one context-only rename adaptation; inUmaskChild byte-identical
+to the approved A1 helper; the two in-place reads and the removed probe in
+#14233; backing_snapshot_test.go matches cfa148371c apart from import
+grouping). Reviewer's note kept: the focused backing-snapshot run
+(fb80d86b7a plus one dirty file) is not a clean-tip or full-package run;
+CI is the execution gate under Erik's ruling. Watch re-armed on the ten
+heads (monitor b1h0ycdbk).
