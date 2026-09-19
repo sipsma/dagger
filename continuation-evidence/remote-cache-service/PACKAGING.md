@@ -2930,3 +2930,22 @@ reviewer's correction); `go vet ./core/integration/` clean;
 
 Reviewer approved 380ab472de (12/12 range-diff equal checked independently;
 lint commit scope confirmed).
+
+Pushed by the coordinator: #14229 at 380ab472de (fast-forward from
+26fc6aa5fe with lease, 70 commits, no evidence files in the tree). #14229
+now carries: the investigator's three (workspace-pin assertions in the
+cross-session test; git tree content identity published after authorized
+materialization; private identity teaching deferred to lease cleanup), the
+analyst's three (coherent snapshot-owner reads across publication; bounded
+handoffs in the owner regression test; managed inline discovery capture
+retries), my six (boundary pair, four unprivileged rewrites) and the lint
+commit. Record for the dagql run on 380ab472de: zero top-level skips, one
+unexecuted nested case.
+
+Coordinator's move ruling after this push: A4 (#14233) and A5 (#14235)
+build on the changed code (cache.go, cache_part_host.go, cache_part_task.go,
+git.go), so both move: A4 onto 380ab472de, A5 onto A4's new head, range-diff
+all equal, one push each with lease; the A5 label at
+dagql/cache_part_install.go:585 takes the corrected name (26fc6aa5fe's
+"commit: dependency not held") during the move. A6 then goes onto A5's new
+head.
