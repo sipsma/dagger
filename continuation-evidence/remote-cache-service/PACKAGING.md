@@ -3155,3 +3155,64 @@ mergeable=false, mergeable_state=dirty, base.sha c7dc73fbf7. The
 authorized recompute nudge, PATCH base to the same branch, was refused:
 HTTP 422 "Cannot change the base branch because the pull request is part
 of a stack." Sent to the coordinator; stopped there.
+
+## A6 B4 and B1, then Erik's stack-wide rebase (phase 1, local)
+
+Native check selection (core/schema/workspace.go:3935 `checks`; modules
+from the active configuration :3966; every +check per module :3984;
+include/skip :3947, :3993, :3997-4002; config skips
+`[modules.<name>.check] skip` :3971-3973/:4005-4010, core/workspace/config.go:112,136):
+the native PR runner passes no include, so every check of every
+default-environment module is scheduled; checks.yml's matrix decides only
+pushes to releases/** (pull_request commented at :7-13). Fix on A6:
+f5d75bfd2d "tla-check: make the hours-long runs plain functions, keep
+Quick the check" (CacheLifecycle and ClientLifecycle lose +check, docs,
+dagger.toml comment, README invocations without --env dev, checks.yml
+comment removed, plain entry kept); `dagger check --list` then shows only
+tla-check:quick for the module (and test-split:test-remote-cache). B1:
+b5cb5faa85 "chore: regenerate tla-check module bindings" (`dagger generate
+-y go-sdk:generate`; dagger.gen.go 36 lines: source maps +41/+40, the two
+WithCheck() registrations gone, descriptions; tla-check.gen.go 19 lines of
+doc text). A6 tip before the rebase: b5cb5faa85.
+
+A4 follow-up 5e0ddaaccb "core: read the offered bytes in place in the
+native admission test" (bbbe792279's two reads → demandedFileContents,
+probe removed; focused PASS both subtests; core once 562 PASS 0 FAIL 0 SKIP,
+/tmp/pkg-a4-admission-core.{head,log}; lint DONE 0,
+/tmp/pkg-a4-admission-lint.{head,log}): reviewer approved; coordinator:
+reviewed, pending push, rides in A4's series in the stack-wide rebase.
+
+Reruns issued 01:50Z after the tag-list probe returned 200
+(/tmp/pkg-reruns-0150.log): #14224 golang:test-all, test-provision,
+test-workspaces; #14228 golang:test-all.
+
+Stack recorded bases (gh api repos/dagger/dagger/stacks/13937): #14229
+base sha c7dc73fbf7 (branch at dca16de409), #14233 base 380ab472de, #14235
+base 39bbd96e7c: the stack records each member's base as the PR below's
+head at the member's last push, so #14229's test merge runs against a
+stale base. PATCH base refused (422, part of a stack). Superseded by
+Erik's call: stack-wide rebase onto upstream/main.
+
+Phase 1 (local, nothing pushed). upstream/main 4056f4a8b2 (four commits
+past the old base 601d12f424: #14222, #14227). Branches pkg/r-<n> in
+/tmp/pkg-r-<n>, chain script /tmp/pkg-r-chain.sh and -chain2.sh, tips in
+/tmp/pkg-r-tips.txt:
+  14050 40b7df8381 → 60dbab39fb (15), 14051 a4f7b28366 → 612f0fcd6b (17),
+  14093 23f71a77d4 → 84db69369f (9), 14220 e9372bccdb → 274a3b935c (3),
+  14224 e3e75aedb1 → 9fafecb977 (35), 14228 dca16de409 → 33d2c1e5d5 (25),
+  14229 380ab472de → 7121f77f66 (70), 14233 5e0ddaaccb → ae2e3c7302 (22,
+  includes the admission follow-up), 14235 4dad71ad4c → 0178ca416d (31),
+  A6 b5cb5faa85 → fb80d86b7a (77) + 25f778bcac (the two deferred
+  backing-snapshot fixture cases appended: TestImportedBackingSnapshotIsDroppedWhenItsOwnerAttachFails,
+  TestImportedBackingSnapshotConcurrentFirstUses; focused run 3/3 PASS,
+  /tmp/pkg-r-a6-backing-focused.{head,log}) = 78.
+One conflict: #14229's 997e953f8c (the rename of eager_producer_execution_test.go
+to lazy_operation_execution_test.go) against the umask pair now below:
+resolved keeping A3's renamed form with inUmaskChild (helper kept, both
+umask sites guarded, syscall.Umask only inside the helper). #14229's tip
+has the backing fixture in its base and the refusal label at :420 reads
+"commit: dependency not held".
+Range-diff table (/tmp/pkg-r-rangediff-table.txt, per-PR files
+/tmp/pkg-r-rangediff-<n>.txt): every pair `=` except #14229's 997e953f8c →
+a2d93ae2f5 (context only, the umask resolution) and A6's one new commit;
+no missing patches.
