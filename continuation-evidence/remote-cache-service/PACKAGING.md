@@ -3076,7 +3076,17 @@ tla-check:client-lifecycle. The shard itself was not run locally (the
 coordinator's ruling: the first CI run measures it).
 
 Map (/tmp/pkg-map-a6.txt, 38583498cf..b7-verification vs 4dad71ad4c..HEAD):
-75 mapped, 27 unmapped (the placed drops), 4 new (the above).
+71 mapped + 4 new (the above) = 75 commits; 27 unmapped, the drops, which
+split as: 25 whose content is already present lower in the stack or
+cancelled (the eight manifest corrections placed in A3, A4, A5 and #14228,
+the #14228 follow-ups 16786b5fe3 and 87c099a615, the boundary pair, the
+four rewrites, the umask pair, the A5 pair, 4927844037 which changed
+nothing, and the park/revert pair that cancels itself), plus 2 whose code
+is present lower (#14228's follow-ups 95a320301e and a4ea34dcec) and whose
+fixture test hunks, TestImportedBackingSnapshotIsDroppedWhenItsOwnerAttachFails
+and TestImportedBackingSnapshotConcurrentFirstUses, are deferred by the
+coordinator's ruling to an A6 follow-up (5d3ee071c7 and cfa148371c).
+Correction per the reviewer: an earlier line here said "75 mapped".
 
 Tip 6203a9a807 runs, head files first:
 - /tmp/pkg-a6-lint2.{head,log}: `golangci-lint:lint-all DONE [1m34s]`,
