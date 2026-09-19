@@ -2651,3 +2651,36 @@ merge block now sits; both kept, notification after the block; (3)
 "dagql: install a share through ordered preparation and a release
 barrier" rewrites the receiver-representation check; resolved with the
 original's name ("commit: receiver representation").
+
+#### A5: rebase finished; corrections above the watch commit
+
+`pkg/a5` rebased onto `82f2e8487e`: 25 commits, four conflicts (above).
+Reconciliations with A3's lint commit folded into the sharing commits
+that introduce the references, at rebase edit stops with `go vet
+./dagql/` at each: two `walkTransferPayloads` calls without the removed
+path parameter ("dagql, core, engine: probe, select and bound a sharing
+preparation"); `partTestEquivalent` calls without the removed context
+parameter in cache_snapshot_sharing_test.go (five commits: "verify
+snapshot sharing in process", "docs: record the batch 6 implementation",
+"core/integration: bound the restarted read", "give each sharing slot
+outcome one reporter", "keep the donor held between a decoded receiver's
+passes"). A first attempt's sed also stripped the cache argument from
+already-fixed calls; redone from `pkg/a5-rebased-raw` with the exact
+five-argument pattern; every stop vets clean. Tip before corrections
+`48cad9eab7` (`pkg/a5-before-corrections`).
+
+Corrections above the watch commit `a8143f01b1` (candidate of
+`ccdb016ed6` "dagql: warn when a part reselect loop stops making
+progress"), built in a scratch worktree: `d3731af842` = e094252906's
+watch part (watch wired into the loops, the watch's own changes and
+test, and the names of the sites this series adds:
+"sessionless source: row expired", "sessionless source: donor does not
+own the snapshot", "share: slot ended without installing"; the one
+conflict was the mislabeled site, kept as A3 has it since #14229's
+follow-up owns the rename); `bf8cee1b2b` = f9db98a420 whole;
+`e8d997530b` = af2ddb4e36 whole (its progress test's helper call folded
+to the current signature). Messages kept plus provenance; Erik's
+signoff. dagql once at the chain tip (head file `e8d997530b dirty=0`):
+`ok dagql 11.601s`, 509 top-level PASS, 0 FAIL, 1 inherited nested SKIP;
+`--- PASS: TestPartProgressRule`, `TestPartVersionRefusal`,
+`TestPartReselectWatch`, `TestPartRefusalNamesItsSite`.
