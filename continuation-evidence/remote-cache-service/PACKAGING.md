@@ -3422,3 +3422,22 @@ finding). Under the standing delegation (single failure, main-owned code
 the stack does not touch, neighbours pass) one rerun issued 03:58Z;
 noted to the coordinator that the delegation was read to cover a lint
 check of main-owned code, not only a test.
+
+Burst 03:56–04:00Z. (1) Stack code, escalated, not rerun: #14241
+test-split:test-remote-cache (be50f19793457ac4):
+TestRemoteCacheTransferSuite/TestSharedHostDirectoryLifetime (141.56s),
+remote_cache_sharing_test.go:167 expected event kind "owner-sync", actual
+"share-skipped", Detail "persist state not ready: row 4429 representation
+changed" (Sequence 8, Field directory); the shard passed in 13m14s on
+dc07a67bf2 and the rebase changed no patch: timing-dependent outcome in
+A5/A6 code. (2) #14051 test-base (07b546ec4257e744):
+TestWorkspaceGitCheckoutReuse/discard=false/concurrent,
+core/schema/workspace_test.go:148 "materialize the retained checkout only
+once: expected 1, actual 2"; core/schema untouched through #14051,
+test-base passed on #14050; one rerun under the delegation, 04:02Z,
+flagged because A3 adapts this test. (3) No-span "Errored in 15m25s"
+at ~04:00Z: test-base #14093 (ec019c51386a) #14228 (661f6d73d456) #14229
+#14235; test-modules #14093 (17fe055d488c) #14220 #14235; release #14233
+(1ff16d32bb50) #14241; test-module-runtimes #14233 #14241;
+test-cache-persistence #14220 #14229; K3S on #14220 #14229; test-provision
+everywhere. CI-side, untouched.
