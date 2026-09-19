@@ -3475,3 +3475,20 @@ when the gate fires), nothing separate issued.
 did not recur); #14051 now carries only the CI-side four. All four
 delegated reruns passed (#14220 container, #14235 python, #14093 lint,
 #14051 test-base).
+
+## Third stack-wide rebase (fast path), onto main 316147206d
+
+Erik: the generate-check fix merged (#14246 "ci: temporarily skip SDK
+generation freshness checks", dagger.toml +2). Gate script disarmed (never
+fired, gate=none through 04:46Z). Chain /tmp/pkg-r3-chain.sh, old heads
+/tmp/pkg-r3-oldheads.txt (= the second-rebase tips), tips
+/tmp/pkg-r3-tips.txt, range-diffs /tmp/pkg-r3-rangediff-<n>.txt, table
+/tmp/pkg-r3-table.txt: no conflicts; every pair `=` except A6's
+5f9bba85a7 → 822c14f946 "ci: run the bounded TLA+ configurations",
+context only (main's two dagger.toml lines beside A6's tla-check
+registration). Tips: 14050 b6b328b4ad, 14051 e982b148bf, 14093
+5075c989a9, 14220 de872846a3, 14224 6a9bdbceff, 14228 76c0e46853, 14229
+9c1823e8e0, 14233 f7856e2a61, 14235 e0ce431522, 14241 7cba6796a7.
+`go build ./...` at 7cba6796a7: exit 0. Pushes by /tmp/pkg-r3-push.sh
+(log /tmp/pkg-r3-push.log). Registry checks expected red on the new
+heads; left alone per Erik.
