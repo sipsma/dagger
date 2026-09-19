@@ -3552,3 +3552,8 @@ CI-side, untouched. #14229 (0bce94ee73) test-split:test-local-cache
 (75.02s); core/integration/localcache_test.go untouched by the stack
 through #14229 (main's #14222 last touched it), the check passes on the
 other eight heads: delegated class, one rerun issued.
+Cause of the #14229 local-cache failure: "active metadata workload: timed
+out waiting for metrics; last=map[dagger_connected_clients:0 ...]"
+(testctx.go:193), the metrics wait that main's #14222 (7e3c431108, in the
+base) had just loosened; a timing flake of main's test under CI load.
+Rerun issued 05:30Z.
