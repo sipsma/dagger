@@ -3381,3 +3381,13 @@ Reviewer's confirmation of the second rebase: all 306 patches equal,
 every parent link correct from cd3b79e66a, all ten GitHub heads and base
 branches match; each of the ten heads approved as published (no tests or
 builds by the reviewer).
+
+First CI run on the second-rebase heads (from 03:42Z): the synthetic
+generate pair errors pre-body (no check span) again on #14050, #14093,
+#14220, #14224, #14228, #14229, #14233, #14235, #14241 (the merged main
+fix did not change it); test-provision on #14050 (787ae21558f1) and
+#14051 on registry 500s at 03:45–03:48Z; #14220 test-container
+(9637de8a83731) TestContainer/TestPublishAndFromWithRegistryServiceBinding/plain_http_engine_config
+117 s, nested call exit 1, no registry lines, main's own test untouched by
+the stack, passed on #14050, #14051 and unrelated #14242: single-run
+flake, one rerun available under the rule, awaiting the ruling.
