@@ -2837,3 +2837,31 @@ reviewer; the coordinator pushes after the investigator's SSH commit.
 Corrections table: `452ea00673`, `3636d8acb6` (+ bbbe792279's
 value_transfer_chain_test.go hunk), `10279e7758`, `110a3db4e8` → #14229
 follow-ups replacing the probes.
+
+#### #14224 umask pair; #14235 pair; CI reads
+
+#14224: `c15cec7aa6` = 73a7917e05 (applied to A1's pre-rename
+core/eager_producer_execution_test.go by hand: fixture helpers and
+freshProducerFile/producer names kept, the umask child helper added,
+both umask sites converted; the trailing in-process umask call remains
+only inside the helper), `e3e75aedb1` = c591ea43ac; messages kept plus
+provenance. Core once (head file `e3e75aedb1 dirty=0`): `ok core 9.847s`,
+510 PASS, 0 FAIL, 0 SKIP; `--- PASS: TestHTTPProducerWriter/restrictive_umask
+(0.13s)`, `--- PASS: TestHTTPProducerWriter/public_eager_layout (0.22s)`.
+With the reviewer. #14235: `d491858b5b` = 4767b31208, `e787998fc4` =
+cbea2f664f on `b8bc41cfa0`, applied cleanly with provenance; dagql and
+engine/server once running (/tmp/pkg-14235-pair-tests.head).
+Corrections table: 73a7917e05, c591ea43ac → #14224 follow-ups;
+4767b31208, cbea2f664f → #14235 follow-ups.
+
+CI: #14228 golang:test-all second red on `dca16de409` (trace
+`bbfd359402c2a83d268766e1732ff06f`): e2e/helm
+`--- FAIL: TestInstallK3S/default_daemonset (302.55s)`, engine pod
+ErrImagePull, `registry.dagger.io/engine:main` HEAD 500 at 00:25:30Z; the
+first red (23:23Z) was the k3s etcd pattern (TestPackageDryRun,
+TestCustomProbes); golang:test-all green on 7b5d35903a, dce5557471,
+82f2e8487e, 26fc6aa5fe in the window: infrastructure, two windows on one
+head; its one rerun spent. #14235 test-split:test-provision (trace
+`6cc8c71cd78b8b6689a0565bec26d7cb`): TestImageDriverGarbageCollectEngines
+nerdctl/podman, `registry.dagger.io/engine:v0.16.1` HEAD 500, same
+registry window; one rerun when an hour old (about 01:25Z).
