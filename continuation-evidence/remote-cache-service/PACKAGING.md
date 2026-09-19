@@ -3325,3 +3325,19 @@ passes changie's and go-client's; locally the name does not even exist
 (`dagger check dang-sdk:generate:up-to-date` → no checks matched), since
 the synthetic SDK generate checks are produced by the CI runner's engine.
 A CI-side defect of those two checks on every PR; nothing to regenerate.
+
+#14050 rerun round (03:04Z): test-split:test-base and
+release:publish-with-mock-endpoints pass; golang:test-all (e72ca9dd955b)
+and test-split:test-provision (05818abaa74c) fail again on registry 500s
+from 03:06:56Z to 03:15:23Z as seen from CI, while manifest probes from
+this host answered 200 throughout (probe not representative of CI's
+path); the two synthetic generate checks fail again (CI-side). Rerun
+budget for the registry cause spent on #14050; no further reruns without
+a ruling. Other heads' first-run failures: registry pattern or "no check
+span" (#14228 test-base bdd519b17edc, #14235 test-base 0fad60577521,
+#14241 test-base 883bbe663825 "Errored in 0.1s" at 03:05:48Z with no
+pending entry before it, #14241 test-module-runtimes b94d737beb4a,
+#14224 release/test-cache-persistence/test-modules, several
+test-modules/test-module-runtimes). Proposed gate: an unrelated PR's
+golang:test-all and test-provision passing, then one stack-wide rerun on
+a ruling.
