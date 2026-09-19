@@ -3664,3 +3664,5 @@ no-failing-test) checks per head, same one-PR-at-a-time pacing; checks
 whose log has a failing test are left alone. Script
 /tmp/pkg-staggered-nospan.sh (waits for the registry pass to end), log
 /tmp/pkg-staggered-nospan.log.
+#14228 (dbd528117a): both registry reruns passed; fully green, awaiting a
+maintainer approval. Sequence on #14233.
