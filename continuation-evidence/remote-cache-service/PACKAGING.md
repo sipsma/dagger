@@ -3715,3 +3715,25 @@ their source in #14229); nothing to rerun elsewhere. API terminal states
 at 07:22Z: #14233 (3b65335dfb) no non-pass check; #14235 and #14241
 test-base=fail only. #14051's third test-base run starting next
 (/tmp/pkg-14051-testbase-rerun.log).
+
+## E-series (Erik): E9, E15, E12, E13
+
+Sources (outstanding-work.md §3.2 at 4504a3a4aa; branch engine-main): E9
+3d2cbd783c + 88304eb722; E15 3587242fe7; E12 535165c6a7, ab9db370a0,
+5193483904, 3c448d99d9; E13 fcf5245821, 54cf1fbd51, b347418163;
+c96012aad7 superseded by ed7a4a47f9 (#14228's line). Plan approved.
+Placement facts found at the first cherry-picks: E15's code needs
+partCanReselect and its test partRefused/partRefusedBy, A3's reselect
+class, absent on main (no ErrPartReselect there) → ruled: follow-up on
+#14229 (branch sipsma/part-reselect-span-status unused). E9's code fix
+compiles on main; its test used A1's persistedListTestCache/Result and
+A2's export API → ruled: main PR with the test rewritten against main's
+dagql helpers keeping the three dependency assertions; the export-carrying
+assertion reaches the stack when main carries the fix (to confirm on A2's
+line at the next stack move). E12/E13: hand port onto #14051's snapshot
+code, tests against its testutil; the A1/A3-only hunks of ab9db370a0
+(core/part_scope_boot_test.go, core/schema/lazy_resolver_cleanup_test.go)
+recorded for their PRs at the next move; the builtin-image persistent
+lease stays on #14051 (flagged to Erik). Worktrees: /tmp/pkg-e9
+(sipsma/dagql-null-row-dependency-edges off f283737ff7), /tmp/pkg-e15-a3
+(pkg/e15 on d42472a17e), /tmp/pkg-r-14051 (87a8043da4).
