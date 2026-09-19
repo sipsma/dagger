@@ -3410,3 +3410,15 @@ the same window, gets its one rerun on my own call, recorded here;
 anything else goes to the coordinator. #14050 approved by vito; merges
 when its checks are green, which waits on the registry and the generate
 pair (CI-side).
+#14093 (a3cafc3314) golangci-lint:lint-all errored (trace
+0261f21939e50ec0ad020176f5c8f003, 13m56s): seven nolintlint findings, all
+"directive //nolint:staticcheck is unused" in core/schema/modulesource.go
+:1101-1103, core/workspace/migrate.go:377, engine/clientdb/span.go:195,
+engine/contenthash/tarsum.go:40,43: main-owned files untouched by #14093
+and by the stack through it; the same check passed on #14050, #14051,
+#14220, #14224 in the same window, so the run's staticcheck did not report
+the deprecations it reports elsewhere (a non-deterministic lint run, not a
+finding). Under the standing delegation (single failure, main-owned code
+the stack does not touch, neighbours pass) one rerun issued 03:58Z;
+noted to the coordinator that the delegation was read to cover a lint
+check of main-owned code, not only a test.
