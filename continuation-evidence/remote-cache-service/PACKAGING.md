@@ -3523,3 +3523,20 @@ merge_method=merge` at 05:11Z → status pending, "Merge request
 enqueued", uuid a2a711b9-b7c4-4506-b17a-fe5c72823c65, expected head
 b6b328b4ad. Next: main hash, GitHub's automatic rebase of the nine above
 (heads and range-diffs against the third-rebase tips), watch re-armed.
+#14050 merged: main 92c4619047dd6649be08be7510e0d0f356ae7a14 "Merge pull
+request #14050 from dagger/sipsma/remote-cache-container-part-persistence"
+(merge commit, head b6b328b4ad). GitHub's automatic rebase of the nine
+above confirmed: #14051's base main@92c4619047, every base above equal to
+the head below (/tmp/pkg-m1-stack.txt); range-diffs against the
+third-rebase tips all equal (/tmp/pkg-m1-table.txt,
+/tmp/pkg-m1-rangediff-<n>.txt):
+  14051  e982b148bf 87a8043da4  17    17    0 0
+  14093  5075c989a9 115a6e911f   9     9    0 0
+  14220  de872846a3 67e9caf377   3     3    0 0
+  14224  6a9bdbceff 6f9b926390  35    35    0 0
+  14228  76c0e46853 dbd528117a  25    25    0 0
+  14229  9c1823e8e0 0bce94ee73  70    70    0 0
+  14233  f7856e2a61 3b65335dfb  22    22    0 0
+  14235  e0ce431522 ab27485983  31    31    0 0
+  14241  7cba6796a7 757d6e1fec  79    79    0 0
+Watch re-armed on the nine open PRs.
