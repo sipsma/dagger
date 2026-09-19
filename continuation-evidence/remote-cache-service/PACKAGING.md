@@ -3352,3 +3352,23 @@ stay untouched as a CI-side defect); #14050's second rerun for the
 registry cause is authorized under that gate. Script
 /tmp/pkg-gate-reruns.sh (polls every five minutes; log
 /tmp/pkg-gate-reruns.log).
+
+## Second stack-wide rebase (Erik's fast path), onto main cd3b79e66a
+
+Erik: a fix merged to main that may resolve the synthetic generate checks
+(main cd3b79e66a, #14226 post-release beta.14 bump, six commits past
+4056f4a8b2); fast path: rebase, range-diff, build at the top tip only, no
+per-tip test or lint runs, push bottom-up with lease; the gated rerun
+script cancelled (task stopped, nothing fired: gate=none at 03:24Z and
+03:29Z). Chain /tmp/pkg-r2-chain.sh on the pkg/r-<n> branches, old heads
+/tmp/pkg-r2-oldheads.txt, tips /tmp/pkg-r2-tips.txt, range-diffs
+/tmp/pkg-r2-rangediff-<n>.txt, table /tmp/pkg-r2-table.txt: no conflicts,
+every pair `=`:
+  14050 60dbab39fb → ade30bcc1a (15), 14051 612f0fcd6b → ce8895c9e5 (17),
+  14093 84db69369f → a3cafc3314 (9), 14220 274a3b935c → 2d1369d172 (3),
+  14224 9fafecb977 → ad1afd8701 (35), 14228 33d2c1e5d5 → 6f7a49c5a3 (25),
+  14229 7121f77f66 → 6dc366ab82 (70), 14233 ae2e3c7302 → 72dd21f7f3 (22),
+  14235 0178ca416d → 70efe651b0 (31), 14241 dc07a67bf2 → 49f36c61f2 (79).
+`go build ./...` at 49f36c61f2: exit 0. Pushes by /tmp/pkg-r2-push.sh
+(log /tmp/pkg-r2-push.log), lease on each current head, GitHub confirmed
+before the next.
