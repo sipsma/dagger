@@ -3634,3 +3634,7 @@ rerun fails on the registry again; no other checks touched. Script
 /tmp/pkg-staggered-reruns.sh, timestamped log /tmp/pkg-staggered-reruns.log.
 #14231 (dce5557471) currently has no failed check and is skipped by the
 script unless one appears.
+#14051's Cloud-issued test-base rerun: "Cancelled - max execution time"
+(f751b8db838e2410, no FAIL line, no registry lines); the only non-green
+check on #14051; not registry-class, not a single failing test; proposed
+to the coordinator as an infrastructure cause with one rerun.
