@@ -3540,3 +3540,15 @@ third-rebase tips all equal (/tmp/pkg-m1-table.txt,
   14235  e0ce431522 ab27485983  31    31    0 0
   14241  7cba6796a7 757d6e1fec  79    79    0 0
 Watch re-armed on the nine open PRs.
+
+First run after #14050's merge (heads 87a8043da4…757d6e1fec): registry
+class (test-provision everywhere; golang:test-all K3S on #14224, #14229,
+#14233, #14235, #14241) left alone under the merge rule. No-span "Errored
+in 15m3x–15m4xs" (zero log messages): test-cache-persistence on #14051
+(96f4d50983f2), #14093 (224add051886), #14241 (b0bf225ddb21);
+test-module-runtimes on #14233 (d57784d5f9f9), #14241 (2ae0436d133c):
+CI-side, untouched. #14229 (0bce94ee73) test-split:test-local-cache
+(2ca34ef77a99): TestLocalCache/TestDagqlMetadataGCProtectsActiveZeroDiskResults
+(75.02s); core/integration/localcache_test.go untouched by the stack
+through #14229 (main's #14222 last touched it), the check passes on the
+other eight heads: delegated class, one rerun issued.
