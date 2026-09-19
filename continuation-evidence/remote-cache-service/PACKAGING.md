@@ -3341,3 +3341,14 @@ pending entry before it, #14241 test-module-runtimes b94d737beb4a,
 test-modules/test-module-runtimes). Proposed gate: an unrelated PR's
 golang:test-all and test-provision passing, then one stack-wide rerun on
 a ruling.
+
+Gate change (coordinator's ruling on my proposal): host probes of the
+registry do not reflect CI's path, so the rerun gate is evidence from CI
+itself: an unrelated open PR whose golang:test-all and
+test-split:test-provision both passed after 03:15Z. Then one stack-wide
+rerun of every registry-pattern and no-span check (all failed checks
+except dang-sdk:generate:up-to-date and go-sdk:generate:up-to-date, which
+stay untouched as a CI-side defect); #14050's second rerun for the
+registry cause is authorized under that gate. Script
+/tmp/pkg-gate-reruns.sh (polls every five minutes; log
+/tmp/pkg-gate-reruns.log).
