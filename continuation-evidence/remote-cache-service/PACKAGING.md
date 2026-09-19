@@ -2823,3 +2823,17 @@ predecessor's `bbbe792279` hunk for this file (demandedFileContents in
 place of Contents) was never carried, the test having been dropped in A2
 and revived in A3 behind the probe; folded into the selected-chain
 rewrite commit with a provenance note.
+
+Bundle results (head file `c077d7dfdc dirty=0`): the four unprivileged:
+`--- PASS: TestLazyEvaluatedFilesystemClones (0.07s)`, `--- PASS:
+TestValueTransferPartsSelectedChain (0.24s)`, `--- PASS:
+TestBuiltinMetadataSelectors (0.47s)`, `--- PASS:
+TestLazyStoredResultsWithoutBacking (0.06s)`; core once `ok core
+23.304s`, 561 PASS, 0 FAIL, 0 SKIP; core/schema once (tree identical
+before the fold) `ok core/schema 15.370s`, 168 PASS, 0 SKIP. Bundle
+commits: `95e3360987`, `aacb2d2510` (with bbbe792279's hunk),
+`ff3126387c`, `c077d7dfdc`, above `c41f511906`, `77ebab112d`. With the
+reviewer; the coordinator pushes after the investigator's SSH commit.
+Corrections table: `452ea00673`, `3636d8acb6` (+ bbbe792279's
+value_transfer_chain_test.go hunk), `10279e7758`, `110a3db4e8` → #14229
+follow-ups replacing the probes.
