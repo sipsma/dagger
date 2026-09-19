@@ -3620,3 +3620,6 @@ The analyst's 48476414db adds t.Parallel in dagql/cache_snapshot_sharing_test.go
 (same package as the decode test). Escalated; not rerun.
 #14248 test-base rerun passed; #14248 now has only the exempt registry
 pair failed and awaits a maintainer approval for its plain merge.
+#14229 at 5510ddada6: all 86 checks green, including golang:test-all and
+test-provision this time (the registry answered), and test-base with the
+A3 flake fix in it. Awaits a maintainer approval.
