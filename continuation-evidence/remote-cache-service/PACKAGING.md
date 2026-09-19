@@ -2684,3 +2684,40 @@ signoff. dagql once at the chain tip (head file `e8d997530b dirty=0`):
 `ok dagql 11.601s`, 509 top-level PASS, 0 FAIL, 1 inherited nested SKIP;
 `--- PASS: TestPartProgressRule`, `TestPartVersionRefusal`,
 `TestPartReselectWatch`, `TestPartRefusalNamesItsSite`.
+
+#### A5 lint step; CI after the rename push
+
+Lint-all on `39c9916ac2` (/tmp/pkg-a5-lint1.head, .log):
+`golangci-lint:lint-all ERROR [1m45s]`, 5 findings
+(/tmp/pkg-a5-lint1.findings), all in A5's files: gocyclo 34
+`prepareReadyPartFromBase`, ST1016 receiver in
+`PartDemandState.refused` (from the progress-rule correction), dogsled ×2
+in the sharing test, QF1011 in engine/server's sharing test. Early test
+pass on `39c9916ac2` (/tmp/pkg-a5-tests0.head): core, dagql, engine,
+engine/server, core/schema all `ok`; 1403 top-level PASS, 0 FAIL, 6
+SKIP lines. Lint commit `b8bc41cfa0` (29 commits on `82f2e8487e`):
+`readyPartPreparationBase.recordFor` extracted (real fix), receiver
+rename, a `shareTestEnv` fixture struct for the two cache-only sites,
+the redundant view type dropped. Lint-all and tip check running on it
+(/tmp/pkg-a5-lint2.head, /tmp/pkg-a5-tests1.head).
+
+CI: #14228 `dca16de409`: test-base rerun pass (second data point;
+single occurrence stays recorded), test-modules rerun pass; golang:test-all
+and helm:assert-template reruns issued after the hour (00:23Z rule).
+#14229 `26fc6aa5fe`: test-split:test-call-and-shell fail (trace
+`18efa5ff6d5b601011e84a8df483485d`): `--- FAIL: TestCall/TestErrNoModule`
+(module_call_test.go:1600, "persist state not ready: typed output
+changed during capture"); the check passed on `7b5d35903a` and on
+#14233's `82f2e8487e`; intermittent; the capture guard escaping to a CLI
+call; reported, no rerun. #14233 `82f2e8487e` test-base fail (trace
+`443c74e245d70a05daa20fca69a5bbd5`): the two A3 git regressions
+inherited on A4's line (Erik ruled: behavioral assertions for the
+identity test, credential-scoped pending recipes for SSH lazy trees;
+investigator implements both as #14229 follow-ups; nothing for me), plus
+dagql `TestPartReadyPreparationBoundaries/missing-local-descriptor`
+(cache_part_boundary_test.go:134, receiver incomingOwnershipCount
+expected 2 actual 3), from A3's "cache: cover acquisition decision and
+publication boundaries" (introducing PR #14229); locally on A4's tip
+20/20 PASS without -race (/tmp/pkg-a4-boundary20.log); -count=20 -race
+run in progress (/tmp/pkg-a4-boundary-race.head). #14231 86/86 pass, no
+approval.
