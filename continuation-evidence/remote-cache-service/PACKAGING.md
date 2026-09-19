@@ -3459,3 +3459,9 @@ test-remote-cache = the escalated TestSharedHostDirectoryLifetime):
 Delegated reruns passed: #14220 test-container, #14235
 python-client:python-311:slow, #14093 golangci-lint:lint-all. #14051
 test-base rerun pending.
+Ruling "arm": gate timestamp 04:00Z; one rerun of every registry and
+no-span check across the ten heads when an unrelated PR passes
+golang:test-all and test-provision after that time; the generate pair and
+#14241 test-remote-cache (with the analyst) untouched. Script
+/tmp/pkg-gate-reruns.sh re-armed (log /tmp/pkg-gate-reruns-2.log), polling
+every five minutes; it reruns only checks failed at the moment it fires.
