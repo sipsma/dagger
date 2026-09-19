@@ -3309,3 +3309,19 @@ The four empty traces (both generate:up-to-date, test-base, release) have
 no check span at all (`dagger cloud logs <trace> --check <name>` answers
 "no check named ... in trace"): the check errored before its body started,
 at module and SDK loading, which pulls through the registry.
+
+#14241 first check run, the two numbers the CI section owed: 
+test-split:test-remote-cache passed, Succeeded in 13m14s (trace
+15277b262119ec0c9a7e47342dc71a53); tla-check:quick passed, Succeeded in
+5m32s (trace 8b59becc33a592320cd37419a5bfa7da). The shard sits well inside
+the thirty-minute job limit; no split by subtest.
+
+#14050 rerun of 03:04Z: dang-sdk:generate:up-to-date errored again in
+1m51s (trace 8d73449e00bf74ecd1d42a8d67ffe32c) with no check span while
+the registry was healthy. Not the stack: the unrelated main-based PR
+#14242 (regen-and-bump, run 02:52Z) errors the same two synthetic checks
+(dang-sdk:generate:up-to-date 2m48s, go-sdk:generate:up-to-date 3m5s) and
+passes changie's and go-client's; locally the name does not even exist
+(`dagger check dang-sdk:generate:up-to-date` → no checks matched), since
+the synthetic SDK generate checks are produced by the CI runner's engine.
+A CI-side defect of those two checks on every PR; nothing to regenerate.
