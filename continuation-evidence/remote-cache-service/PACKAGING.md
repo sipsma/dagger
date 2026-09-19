@@ -3679,3 +3679,6 @@ rerun passed, none failed on the registry: #14093 06:25Z, #14220 06:29Z,
 #14051, #14241, #14231 had no failed registry-class check and were
 skipped. No-span pass started 06:56Z (/tmp/pkg-staggered-nospan.log);
 #14051 had nothing left to rerun (its test-base rerun passed).
+No-span pass: #14093's test-cache-persistence, test-modules and
+test-module-runtimes all passed on rerun; #14093 (115a6e911f) fully
+green, awaiting a maintainer approval.
