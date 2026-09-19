@@ -2721,3 +2721,24 @@ publication boundaries" (introducing PR #14229); locally on A4's tip
 20/20 PASS without -race (/tmp/pkg-a4-boundary20.log); -count=20 -race
 run in progress (/tmp/pkg-a4-boundary-race.head). #14231 86/86 pass, no
 approval.
+
+#### Boundary count (#14233 test-base, dagql) reading
+
+`TestPartReadyPreparationBoundaries/missing-local-descriptor`
+(introducing PR #14229): locally on `82f2e8487e` (head files first, tree
+clean) 20/20 PASS plain (`ok dagql 2.736s`) and 20/20 PASS under `-race`
+with zero race reports (`ok dagql 7.433s`). The count is the receiver's
+incomingOwnershipCount read right after RunLazyTask returns; the
+preparation's own hold is released synchronously in PrepareReadyPart's
+deferred Release (cache_part_install.go:80-111), but the attempt runs in
+runLazyTask's goroutine (dagql/cache.go:185) whose deferred
+`releasePartRow` (:191-192) drops the attempt's row hold after the body
+completes, and RunLazyTask returns on the body's completion, so the read
+can precede that release by one hold under load. Timing-dependent test
+determinism problem, not a leak; follow-up on #14229; shape asked of the
+coordinator (wait for retirement in the test, or RunLazyTask returning
+after the holds drop). Answered the investigator's API question (no
+after-evaluation content-digest hook on PartHost; the teach entry points
+take the result: WithContentDigest/WithContentDigestAny, TeachContentDigest,
+TeachCallEquivalentToResult). The #14229 capture-guard escape is the
+analyst's commission (tc-17201bd113f0e6698af2b36ffa07dd2d); no rerun.
