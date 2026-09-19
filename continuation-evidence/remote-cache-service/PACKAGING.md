@@ -3305,3 +3305,7 @@ Reruns: /tmp/pkg-reruns-14050.sh (log /tmp/pkg-reruns-14050.log) waits
 for ten consecutive 200 manifest probes a minute apart, then reruns
 #14050's six checks once; the other heads follow the same rule after
 #14050's rerun shows the registry holds.
+The four empty traces (both generate:up-to-date, test-base, release) have
+no check span at all (`dagger cloud logs <trace> --check <name>` answers
+"no check named ... in trace"): the check errored before its body started,
+at module and SDK loading, which pulls through the registry.
