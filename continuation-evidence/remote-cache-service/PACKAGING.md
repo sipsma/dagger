@@ -3594,3 +3594,11 @@ per the move rule (they pick it up at the next base move or GitHub's
 merge-time rebase). The A6 sharing-test fix (TestSharedHostDirectoryLifetime)
 follows once its t.Parallel follow-up is approved. #14051's checks going
 pending again without us: Dagger Cloud's own rerun.
+
+#14241 pushed by the coordinator at 48476414db: the analyst's approved
+sharing-test pair cherry-picked onto 757d6e1fec (23a0b18c59 tolerance of
+a skipped pass plus its regression case; 48476414db t.Parallel); 81
+commits; lease held; no evidence files. The A6 shard flake fix
+(TestSharedHostDirectoryLifetime, trace be50f19793457ac431dc2cc43d99d7c6).
+Both stack flakes are now fixed in their PRs (#14229 5510ddada6, #14241
+48476414db). CI watch continues.
