@@ -3109,3 +3109,49 @@ Tip 6203a9a807 runs, head files first:
 Recorded, not fixed (main's own code): go vet lostcancel at
 engine/engineutil/executor.go:565,649,716 and
 engine/server/session_attachables.go:211.
+
+## Deferrals ruled by the coordinator (A6 entry and corrections table addendum)
+
+Ruled after the reviewer's A6 completeness point: "the A1 umask pair and
+the A2 backing-snapshot follow-ups reach the PRs above at the next base
+move; until then the copies of those files above A2 predate them."
+Corrections table rows affected: 73a7917e05 and c591ea43ac (destination
+#14224, published as c15cec7aa6 and e3e75aedb1; A3–A6's base 4dad71ad4c
+does not contain them, so core/lazy_operation_execution_test.go above A2
+still calls syscall.Umask in the shared test process); 16786b5fe3,
+5d3ee071c7, cfa148371c, 87c099a615 (destination #14228, published as
+2266f481a1, 95a320301e, a4ea34dcec and dca16de409's line; absent from
+A3–A6's base c7dc73fbf7); and the two fixture test hunks of 5d3ee071c7 and
+cfa148371c (destination A6, deferred until that base move). Planned by the
+coordinator: one coordinated move sweep after A6 is published: A2 onto
+#14224's head e3e75aedb1, then A3, A4, A5, A6 each onto the one below,
+range-diff all equal, the umask change's propagation into A3's renamed file
+resolved deliberately (inUmaskChild in lazy_operation_execution_test.go),
+the two deferred backing-snapshot fixture cases appended to A6 in the same
+sweep; one push per PR, one CI run each.
+
+Gap found by the reviewer (A6 B3): bbbe792279's core/part_offer_admission_test.go
+hunk (two File.Contents reads → demandedFileContents) is assigned to A4 in
+the split table but was never applied; TestOfferPartsNativeAdmission still
+probed and skipped. Coordinator: apply it as a follow-up on #14233, the
+probe removed if the test then runs unprivileged, core once at 60 s, lint
+once, reviewer, push with lease on 39bbd96e7c; A5/A6 pick it up in the
+coordinated move. Split table rows for bbbe792279/397168d119 to be
+re-checked against the actual series.
+
+CI reruns (coordinator: "Run"): scheduler /tmp/pkg-reruns-0150.sh started
+at 01:42Z (log /tmp/pkg-reruns-0150.log): waits for 01:50Z, probes
+registry.dagger.io/v2/engine/tags/list for 200, then reruns #14224
+golang:test-all, #14224 test-split:test-provision, #14228 golang:test-all
+(registry cause, ImagePullBackOff on registry.dagger.io/engine and 500s at
+00:24Z and 00:47–00:54Z) and #14224 test-split:test-workspaces
+(TestWorkspace/TestWorkspaceExportLocalWorkdirAndFrom/from_baseline: main
+defect, fixed on main by #14227 (4056f4a8b2), not in the stack's base
+601d12f424; rerun freely on that assertion until the base includes it).
+#14229 "load" failure ("PR has merge conflicts"): local merges of
+380ab472de onto the base branch head dca16de409 are clean (with and
+without rename detection, one merge base c7dc73fbf7); GitHub REST reports
+mergeable=false, mergeable_state=dirty, base.sha c7dc73fbf7. The
+authorized recompute nudge, PATCH base to the same branch, was refused:
+HTTP 422 "Cannot change the base branch because the pull request is part
+of a stack." Sent to the coordinator; stopped there.
