@@ -3239,3 +3239,24 @@ and -lint.head written inside the script before each run; logs
 /tmp/pkg-r-runs-summary.txt). Phase-2 push script prepared, not run:
 /tmp/pkg-r-push.sh (one PR at a time, lease on the exact current head,
 waits for GitHub to show the new head).
+
+## Phase 2: pushed; A6 published as #14241
+
+Erik: per-tip local runs stopped (done for #14050, #14051, #14093 only);
+range-diff equality suffices, CI runs every head. Pushes 02:24–02:26Z by
+/tmp/pkg-r-push.sh (log /tmp/pkg-r-push.log), lease on each previous head,
+GitHub confirmed before the next: #14050 60dbab39fb, #14051 612f0fcd6b,
+#14093 84db69369f, #14220 274a3b935c, #14224 9fafecb977, #14228 33d2c1e5d5,
+#14229 7121f77f66, #14233 ae2e3c7302 (with the admission follow-up), #14235
+0178ca416d. A6: branch sipsma/remote-cache-verification pushed at
+dc07a67bf2; `gh stack link 13937 sipsma/remote-cache-verification` created
+#14241 (base sipsma/remote-cache-snapshot-sharing); REST PATCH title
+"remote cache: verification fixture, integration suite and CI" and body
+from /tmp/pkg-a6-pr-body.md (/tmp/pkg-a6-patch.json; readback
+/tmp/pkg-a6-body-readback.md identical apart from the trailing newline);
+`gh pr ready`. Stack API: 18 members, #14241 at position 18, every
+member's recorded base is the PR below's new head; #14228–#14241
+mergeable=true (blocked on checks). The from_baseline main defect is in
+the base now (4056f4a8b2): record entry closed. Pending for the record:
+the shard's and tla-check:quick's measured runtimes from #14241's first
+check run.
