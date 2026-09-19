@@ -3465,3 +3465,9 @@ golang:test-all and test-provision after that time; the generate pair and
 #14241 test-remote-cache (with the analyst) untouched. Script
 /tmp/pkg-gate-reruns.sh re-armed (log /tmp/pkg-gate-reruns-2.log), polling
 every five minutes; it reruns only checks failed at the moment it fires.
+#14220 test-split:test-workspaces (2ac73ac72723d92b): "Cancelled - max
+execution"; five TestWorkspace cases at the 300 s bound and a compat case
+at 167 s, nested sessions' shutdown POST hitting its deadline, no registry
+lines; passes on #14093, #14224, #14228. Runner overload of the 04:00Z
+burst; covered by the armed stack-wide rerun (it reruns whatever is failed
+when the gate fires), nothing separate issued.
