@@ -4558,3 +4558,19 @@ approved (its other red is the exempt test-provision).
 waiting for #14271; a second small rebase reconciles the helper when it
 merges); conflicts and resolution to the coordinator before any push;
 otherwise range-diff, six packages once, push with lease, report.
+#14241 rebase onto d8a0336fdd (/tmp/pkg-r-a6, pre-rebase tag
+pkg-14241-pre-rebase-3 = 02ce73c6f5): `git rebase --onto d8a0336fdd
+b831de5b6a`; one conflict at commit 3 of 84 (6181772727) in
+core/schema/remote_cache_fixture.go: A6 replaced the inline validation
+switch with validateFixtureOperation(args) over the fixtureOperations
+table; #14270 added an "evaluate" case to main's inline switch.
+Resolution: the helper call stands and the table gains `"evaluate":
+{ids: true, needIDs: true}` (handles required, no path), the helper's
+generic messages replacing main's single "evaluate requires handles and
+no path"; #14270's execution case auto-merged. The remaining 83 commits
+applied cleanly; range-diff: only commit 3 changed (833a40cb21), by that
+table line. Head e4a00f93f5, 84 commits, dirty=0; build ok. Main moved
+to 48706c4275 (#14175) meanwhile; rebased onto d8a0336fdd as instructed.
+Six packages, vet and lint-all running (head files
+/tmp/pkg-14241-r4-{tests,lint}.head). Conflict and resolution reported
+to the coordinator before any push.
