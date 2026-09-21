@@ -4229,3 +4229,8 @@ first-parent 206eaa57c2 ("Merge pull request #14248 from
 dagger/sipsma/localcache-active-wait"), after #14263's merge completed
 (one at a time). Main is now b831de5b6a → 47413897b2 → 206eaa57c2; the
 monitor covers both new heads. #14264's test-base rerun still pending.
+Main watch: 206eaa57c2 (#14248's merge) fully green at 21:58Z (83 of 83
+contexts reported). 47413897b2 (#14263's merge) green on 82 contexts
+with test-base still pending at 21:59Z, as is #14264's authorized
+test-base rerun (issued 21:33Z); both are near the 30-minute limit that
+the dagql hang turns into a cancellation.
