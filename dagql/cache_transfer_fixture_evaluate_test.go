@@ -81,8 +81,8 @@ func TestTransferFixtureEvaluatesExactReceiver(t *testing.T) {
 	value.mu.RUnlock()
 	require.Equal(t, "local-snapshot", snapshot)
 
-	counts := func(report TransferFixtureReport) map[string]int {
-		out := map[string]int{}
+	counts := func(report TransferFixtureReport) map[TransferFixturePartKind]int {
+		out := map[TransferFixturePartKind]int{}
 		for _, event := range report.Parts {
 			if event.ResultID == uint64(receiver.cacheSharedResult().id) && event.Address.Part == "snapshot" {
 				out[event.Kind]++
