@@ -4002,3 +4002,14 @@ TestSnapshotSharingDonorReceivesSibling (traces 033057b5a4a9f6e2ba23825a55ad404e
 TestPartImportChainRefCleanupHandoff/collect (9ca0a7ba23b7eed4068117682bce68bc
 on #14241). #14231's spent test-base rerun stays red until #14266 merges
 and #14231 rebases.
+B1 follow-up 02ce73c6f5 "dagql: build a part observation's source and
+detail only past the gate": partObservation carries the proof and the
+cause; observePart builds source/detail after the gate; regression
+TestObservePartOffGateDoesNoWork (sequential: AllocsPerRun forbids
+parallel). Control on dbf28bec46's fields fails with "Should be zero, but
+was 2" (/tmp/pkg-gate-control.log). Runs on 02ce73c6f5, head files
+first: dagql once at 60 s ok 11.809s, 531 PASS, 0 FAIL, one inherited
+nested SKIP, the regression PASS (/tmp/pkg-a6-slop-b1-tests.{head,log});
+lint-all DONE [3m21s], 0 findings (/tmp/pkg-a6-slop-b1-lint.{head,log}).
+Candidate 2376a78c3d, dbf28bec46, 02ce73c6f5 to the reviewer. Watch
+re-armed with #14266.
