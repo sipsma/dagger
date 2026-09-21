@@ -3805,3 +3805,48 @@ again: one PR to main, branch sipsma/builtin-image-blob-lifetime
 hunks apply directly; the remaining differences from engine-main's base
 are engine/server/server.go (24 lines), engine/snapshots/lease.go (6) and
 testutil/store.go (10, the c96012aad7 vs ed7a4a47f9 helper).
+#14241 pushed at 40a0eee986 (19:27Z, lease on 48476414db; MERGEABLE
+against main). Runs on 40a0eee986, head files first
+(/tmp/pkg-a6-main-{tests,schema,lint}.*): six packages 60 s and
+core/schema 120 s → core 24.258s, dagql 15.809s, engine/server 3.609s,
+engine/snapshots 9.219s, engine/fixturetransport 0.005s, core/schema
+14.645s; 1340 + 173 top-level PASS, 0 FAIL, 0 top-level SKIP (the
+admission test runs unprivileged now) plus one inherited nested SKIP;
+lint-all DONE [5m45s], 0 findings.
+
+Main watch, terminal: 9282dfa127 failed python-client:python-312:slow
+(885bd8a3b10b8f51, test_container_build) and test-split:test-container
+(35d7f0c5f82aa630, TestSaveHostContainerd, TestLoadHostContainerd);
+b831de5b6a failed golang:test-all (417fd0fdb90fdeb5, TestInstallK3S) and
+test-split:test-provision (82b62a7ab190abb9, nerdctl cases). All four:
+`read "https://proxy.golang.org/.../@v/....zip": stream error: ...
+INTERNAL_ERROR; received from peer` in Go module downloads (dev-engine
+image dockerBuild on golang:1.24-bookworm, or the test binary's own
+downloads); no registry.dagger.io lines; provision_test.go,
+container_test.go, helm_test.go untouched by the stack: a Go module proxy
+outage, not ours. release:publish not yet reported on either head; no
+release-row failure.
+
+#14231 rebased onto b831de5b6a (pkg/main-gs-rebased in /tmp/pkg-main-gs):
+conflict in GracefulStop's tail (engine/server/server.go), 04cce2201e's
+join of the accumulator against A4's join of adapterStopErr, resolved to
+`errors.Join(err, adapterStopErr, dbCloseErr)` / `errors.Join(err,
+adapterStopErr, ctx.Err())`; two test-helper collisions with A4's
+engine/server/remote_cache_test.go now on main (boundedContext and
+newGracefulStopServer, both byte-identical): dropped from
+graceful_stop_test.go, folded into the first commit as rebase adaptations.
+
+E12/E13 → sipsma/builtin-image-blob-lifetime (/tmp/pkg-e12) on
+b831de5b6a: seven cherry-picks (535165c6a7, ab9db370a0, 5193483904,
+3c448d99d9, fcf5245821, 54cf1fbd51, b347418163), two resolutions both in
+engine/snapshots/testutil/store.go (main's ed7a4a47f9 helper keeps the
+shared `observed` content wrapper for the in-place applier and differ;
+the source's `observedSnapshotter` wrapper and `BuiltinContent: s.Builtin`
+added beside it); messages rewritten under the main-PR rules (no
+workstream vocabulary, originating commit named at the end, no attribution
+trailers, Erik signoff), trees unchanged by the rewrite (tree 0ee94185e35c
+before and after). Runs on the pre-rewrite tip 037dde8663 (same tree),
+head file first: `go test -v -count=1 -timeout 60s ./engine/snapshots/
+./engine/server/ ./core/ ./dagql/` → all ok, 1324 PASS, 0 FAIL, 0 SKIP
+(/tmp/pkg-e12-tests.{head,log}); build and vet clean; lint-all on the
+final tip cdb0aca2ec running (/tmp/pkg-e12-lint.{head,log}).
