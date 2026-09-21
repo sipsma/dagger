@@ -4234,3 +4234,22 @@ contexts reported). 47413897b2 (#14263's merge) green on 82 contexts
 with test-base still pending at 21:59Z, as is #14264's authorized
 test-base rerun (issued 21:33Z); both are near the 30-minute limit that
 the dagql hang turns into a cancellation.
+#14266 pushed by the coordinator at 35a493cac6 (four commits on
+b831de5b6a; approval stands per the API): 5edcaa5267 "test(dagql): join
+admitted chain cleanup before observing collection" (session barrier for
+both sessions; row-presence and owner-count snapshotted under egraphMu
+and asserted after unlocking) and 35a493cac6 "test(dagql): assert cache
+observations after releasing locks" (245 sites in 23 files, per-file
+counts in the message; locked validators return errors; no production
+change). Description appended by REST PATCH with a section "Why
+test-base cancelled with dagql reporting nothing" (the deadlock
+mechanism, the two commits, the reviewer's caveat naming the three
+remaining test-local observation-mutex sites dagql/cache_test.go:1524,
+:7455 and dagql/dagql_test.go:3263, none holding a cache lock, and the
+evidence: main reproduces on repetition 50 at GOMAXPROCS=2; fixed tree
+514 PASS once and ten times at GOMAXPROCS=2). Read back identical apart
+from GitHub's trailing newline. Instruction: merge when green under the
+rule, plain merge, head pinned; a test-base failure only on the :129
+lifetime flake (fix in progress as a separate PR) gets one delegated
+rerun, a recurrence goes to the coordinator; then #14231 and #14241
+rebase onto main. Run on 35a493cac6 started 22:00Z (83 pending).
