@@ -4340,3 +4340,9 @@ fault is ongoing (22:26Z on #14270, 22:31Z here). Gated rerun queued via
 /tmp/pkg-gated-rerun.sh (log /tmp/pkg-14266-py312-gate.log): after the
 run settles, once an unrelated head shows a python-312:slow success
 created after 22:31Z.
+Main 446aafb0dc's test-base errored at 17m2s (trace
+62ea46dab3d6e6fbe5bd31b9827931fe): one failing test,
+TestSnapshotSharingDonorReceivesSibling, the sibling flake whose fix is
+in #14266 (pending merge); 66 packages ok, core/integration 787 s. Main
+head at the time, so not superseded: one delegated rerun issued (the
+main-owned flake, fix pending) and recorded.
