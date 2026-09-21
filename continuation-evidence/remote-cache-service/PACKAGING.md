@@ -4268,3 +4268,19 @@ bf3ae1cef470acfd7d748dcc283cf12e (first cancel) and
 7eda3b98caaef466b19c3b748ee71904 (this run); the middle run
 ee23f81f00e5c96d9c266e7ce5b04e5b carried the TestSearch failure and did
 not qualify. Main: b831de5b6a → 47413897b2 → 206eaa57c2 → 446aafb0dc.
+#14266 at 35a493cac6, first run: golangci-lint:lint-all FAILED (trace
+23b7913b1eebcba050df89aee521aac2), one finding:
+dagql/cache_egraph_indexes_test.go:27:1 gocyclo, complexity 39 of
+cacheDerivedIndexesErrorLocked (> 30), the sweep's error-returning
+validator. Stack code, not rerun; reported. Fix candidate on a detached
+worktree /tmp/pkg-14266-lint: follow-up commit 50bc7c7988 "test(dagql):
+keep the derived-index validator whole under gocyclo", main's-form
+//nolint:gocyclo with the reason on the function line (as
+cmd/codegen/generator/go/templates/module_objects.go:14 carries it);
+lint-all and dagql at 60 s running with head files first
+(/tmp/pkg-14266-lint-fix-{lint,dagql}.{head,log}).
+Main 47413897b2's test-base: "Cancelled - max execution time exceeded"
+(trace 34d5feda9d60e6bc3df182a8e1be8103; 66 ok, no FAIL, dagql without a
+result line: the pre-fix hang). 206eaa57c2's test-base succeeded in
+21m5s (e229a0e15d9bbf8614e0654b145a572c), so 47413897b2 is superseded and
+stays red as 9282dfa127 did. 446aafb0dc's run underway.
