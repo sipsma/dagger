@@ -3850,3 +3850,21 @@ head file first: `go test -v -count=1 -timeout 60s ./engine/snapshots/
 ./engine/server/ ./core/ ./dagql/` → all ok, 1324 PASS, 0 FAIL, 0 SKIP
 (/tmp/pkg-e12-tests.{head,log}); build and vet clean; lint-all on the
 final tip cdb0aca2ec running (/tmp/pkg-e12-lint.{head,log}).
+#14231 pushed at aac0c40269 (19:38Z, lease on dce5557471; MERGEABLE):
+engine/server once → ok 3.250s, 161 PASS, 0 FAIL, 0 SKIP
+(/tmp/pkg-14231-main-tests.{head,log}); lint-all DONE [3m28s], 0
+findings (/tmp/pkg-14231-main-lint.{head,log}); range-diff
+/tmp/pkg-14231-main-rangediff.txt: 1 context-only, 1 equal.
+E12/E13: five lint findings (goimports ×4, duplicate image-spec import)
+folded into 435bbeb994; tip 381e345d02; runs
+/tmp/pkg-e12-tests2.{head,log} (1324 PASS, 0 FAIL, 0 top-level SKIP,
+one inherited nested), /tmp/pkg-e12-tests2-schema.log (170 PASS),
+/tmp/pkg-e12-lint2.{head,log} DONE [2m10s] 0 findings; sent to the
+reviewer.
+Main reruns (/tmp/pkg-main-reruns.log): 9282dfa127 python-312:slow
+success; test-container errored again on
+TestContainer/TestSystemProxies/git/GitLab_public (110 s, trace
+532e2dbec5d5914a, no proxy/registry lines; main's network-dependent test,
+untouched by the stack); its one rerun is spent. b831de5b6a's two reruns
+in flight. Slop-pass review sent to the coordinator; items 2 and 4 ruled
+as follow-ups on 40a0eee986 (items 1 and 3 to Erik).
