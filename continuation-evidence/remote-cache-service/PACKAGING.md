@@ -4470,3 +4470,14 @@ unproven. Once #14271 merges, #14241's rebase must reconcile e36109aac3
 ("core/integration: bound the inherited tests' engine cleanup too") with
 it: same helper; keep #14241's version with the dump callback and drop
 the duplicate.
+#14266 merged at 23:14Z under the merge rule: module-runtimes rerun
+passed in 7m38s (trace bd52272a2fe0f4dfdcb2034a6711b884), every check
+green, grouville's approval standing; plain merge, head pinned
+0b19a16fdaf1a0231702c3ab560a9c39dd53ab0d, main first-parent f094ab5580
+("Merge pull request #14266 from dagger/sipsma/sharing-and-import-cleanup-test-waits").
+Main: … 446aafb0dc → f094ab5580. On main now: the sibling and
+chain-cleanup fixes, the admitted-chain barrier and lock-boundary sweep
+(the dagql hang), the offers-settlement hold. Still pending merge:
+#14270 (the :129 lifetime fix; test-base rerun running) and #14271 (the
+shutdown bounds; run started). #14231 and #14241 rebase once after
+#14270 merges (and #14271 for #14241's e36109aac3 reconciliation).
