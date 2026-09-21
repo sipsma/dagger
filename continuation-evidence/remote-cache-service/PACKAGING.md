@@ -3956,3 +3956,14 @@ dagql/cache_snapshot_sharing_test.go:382 expected 2 actual 1; A5's test,
 now main's, untouched by #14231; first failure logged here; one delegated
 rerun 20:00Z; flagged to the coordinator for the analyst as the third
 timing-dependent outcome in the merged sharing/lifetime family.
+Shared-engine suite run at bfa1452ab0 (/tmp/pkg-a6-slop-suite.{head,log},
+19:56:37Z–20:07:52Z, trace 387e24d57142e4997a47b426580e3b4b, full logs
+/tmp/pkg-a6-slop-suite-full.log): `ok core/integration 424.107s`;
+TestRemoteCacheTransferSuite PASS with 16 top-level subtests PASS
+(EncodedRestart, FixtureControls, GitTrees, HTTPRestore, HostInputs,
+Offers, PartMixedExecOutputs 95.43s, PendingOffersRestart 167.28s,
+Pipeline, Renewal, SchemaRecovery 110.12s, SchemaRecoveryCold 110.10s,
+SharedHostDirectoryLifetime 95.36s, SharingDonorRestart, SharingFinish,
+WorkspaceCapture 215.74s), 80 nested PASS, 0 FAIL, 1 SKIP
+(TestDefaultGCPruneDiagnostic, opt-in). TestGitTrees at the final tip
+dbf28bec46 running (/tmp/pkg-a6-slop-gittrees.{head,log}).
