@@ -4503,3 +4503,9 @@ f094ab5580 (trace 1f0b275102182dbd1edc44b385c3007f, nine FAIL lines, 18
 500 lines), on #14271 (above) and on #14231 at b78f5048b1 (trace b6f5916b1d074463415bbb46a9b42314,
 32 500 lines). All exempt under the merge rule while the fault persists;
 none rerun.
+#14231 at b78f5048b1: golang:test-all errored (trace
+a8a44c5fa378164649cd10e9c33779e0) on the K3S engine pull's registry
+500s (115 lines), the registry-exempt pair with test-provision; not
+rerun. Main f094ab5580 settled at 80 green with test-provision the only
+red (registry, exempt) and no test-base context reported at all on that
+head (81 contexts against 83 on earlier heads); noted, watching for it.
