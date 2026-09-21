@@ -4456,3 +4456,8 @@ cross-PR fault, trace d66fc1719fdc79e21a7c74356567bf12), whose one rerun
 the cross-PR script issues on settle. The python-312:slow gate script
 ended without acting (head moved; the check passes on 0b19a16fda).
 Merge on the rerun's pass, head pinned 0b19a16fda.
+#14270: cache-persistence rerun (cross-PR cause) passed; test-base rerun
+for the cross-PR cause issued 23:10Z on 10d896a1a4. Its result decides
+the TestSchemaRecovery question: a finish proceeds as ruled; a
+cancellation with core/integration unfinished goes to the coordinator
+and the analyst with the open spans, no merge on the exemption.
