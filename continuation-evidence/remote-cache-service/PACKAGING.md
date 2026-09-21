@@ -4017,3 +4017,11 @@ Reviewer approved the slop-pass line 2376a78c3d → dbf28bec46 →
 02ce73c6f5 for #14241 (B1 closed; serial regression justified; prior
 engine evidence keeps its bfa1452ab0 / final-tip GitTrees provenance).
 Coordinator pushes with lease on 40a0eee986.
+#14241 pushed by the coordinator at 02ce73c6f5 (84 commits, lease on
+40a0eee986). Description updated by REST PATCH (read back identical): a
+"Follow-ups" section naming the two cleanups (barrier helpers; closed
+observation kinds with the gate-first entry point) with their runs, and
+the validation numbers refreshed to the post-rebase head (1513 top-level
+PASS, no top-level skip, one inherited nested). CI section unchanged (the
+shard's measured runs 13m14s, 13m6s, 9m26s are within its statement).
+Its test-base stays at risk until #14266 merges and #14241 rebases.
