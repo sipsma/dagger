@@ -4298,3 +4298,19 @@ dagql once at 60 s, 514 PASS, 0 FAIL, one inherited nested SKIP
 as the lint fix on the approved sweep; on approval I push with lease on
 35a493cac6 and merge when green. Main 206eaa57c2 fully green (83);
 446aafb0dc 79 green, 2 pending.
+Reviewer approved 302f29572b (six bodies preserve every check, message,
+order and first-error return; survivor time still sampled after the
+inverse check; lock ownership with the caller; one test file; Erik
+signoff; verified clean-head logs). Pushed by me at 22:17Z with lease on
+35a493cac6: #14266 head 302f29572b, five commits, approval stands per the
+API; its run starts. Merge when green under the rule, head pinned.
+#14270 (sipsma/sharing-exact-receiver-demand at 10d896a1a4 on
+b831de5b6a, "test: demand the exact receiver in snapshot sharing
+lifetime coverage"; files core/integration/remote_cache_sharing_test.go,
+core/schema/remote_cache_fixture{,_test}.go,
+dagql/cache_transfer_fixture.go, dagql/cache_transfer_fixture_evaluate_test.go)
+published by the coordinator: added to the watch and the merge rule. The
+:129 lifetime flake (TestSharedHostDirectoryLifetime, trace
+f7af35d5ab303806ef0e7a0421ec207a) is recorded as fixed on main pending
+its merge. When #14266 and #14270 are both merged, #14231 and #14241
+rebase once onto that main.
