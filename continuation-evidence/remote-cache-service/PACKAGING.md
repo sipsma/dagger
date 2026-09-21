@@ -4350,3 +4350,6 @@ Correction: the "22:26Z" and "22:31Z" fault times above were read from
 my clock estimate, not the statuses; the actual status times are at or
 before 22:25Z (the host clock read 22:25Z after main's rerun). The gates
 keep those later bounds, which only makes them stricter.
+#14270 APPROVED (per the API) while its run has three checks pending and
+the two queued infrastructure reruns outstanding; merges under the rule
+once those are green, after #14266.
