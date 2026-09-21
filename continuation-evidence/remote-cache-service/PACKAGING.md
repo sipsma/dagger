@@ -4353,3 +4353,17 @@ keep those later bounds, which only makes them stricter.
 #14270 APPROVED (per the API) while its run has three checks pending and
 the two queued infrastructure reruns outstanding; merges under the rule
 once those are green, after #14266.
+#14266 at 302f29572b, run settled: test-base errored at 17m59s (trace
+7b9e9bc9938dcb6fb33f880f5193bc6f), 66 ok, dagql finished in 38.9 s (the
+hang fix held) with one failing test:
+TestOfferSettlementReplacement/acceptance_after_commit_is_already_complete,
+cache_offer_matrix_test.go:304 "the older slot waits for settlement":
+expected 1, actual 0. Not the :129 flake, so no delegated rerun. The
+sweep touched that assertion, but as a pure hoist: the read of
+len(partOffers) stays under the same RLock at the same point after
+OfferParts returns OfferAlreadyComplete, and only the require moved past
+the RUnlock (old b831de5b6a lines 273-275 vs new 301-304). First
+sighting of this test in the record. Reported for the coordinator's
+call. python-312:slow still gated (run settled 22:35:53Z, no unrelated
+success yet). #14270: one pending, its script waits for settle. Main
+446aafb0dc's test-base rerun pending.
