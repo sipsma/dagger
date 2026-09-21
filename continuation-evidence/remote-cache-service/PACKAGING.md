@@ -4197,3 +4197,7 @@ max-execution cancellations, no failing test, dagql without a result
 line both times: the hang reproduced on main). Reruns spent; the merge
 rule does not admit it as written, since the red check is not
 registry-caused. Reported for the coordinator's call.
+#14264 (381e345d02) APPROVED as well; test-base red (two max-execution
+cancellations after the cross-PR error; the second carries the
+main-owned TestDirectory/TestSearch/binary_files_are_skipped failure).
+Same standing as #14263: reruns spent, awaiting the coordinator's call.
