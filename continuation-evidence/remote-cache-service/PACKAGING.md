@@ -4448,3 +4448,11 @@ suite view shows all six suite subtests passed: the dagql hang class
 pending. The check view's per-package counts do not indicate openness
 (the earlier #14270 run also showed "core/integration 43 passed" with
 TestSchemaRecovery open); only the --test view does.
+#14266 at 0b19a16fda, run settled 23:05Z: test-base passed in 16m56s
+(trace f2315e48d313f571ba1ea4df135dd49f), so the hang fix, the sibling
+and chain-cleanup fixes and the offers-settlement hold all held under
+-race in CI; every other check passes except test-module-runtimes (the
+cross-PR fault, trace d66fc1719fdc79e21a7c74356567bf12), whose one rerun
+the cross-PR script issues on settle. The python-312:slow gate script
+ended without acting (head moved; the check passes on 0b19a16fda).
+Merge on the rerun's pass, head pinned 0b19a16fda.
