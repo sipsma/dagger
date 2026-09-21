@@ -4509,3 +4509,10 @@ a8a44c5fa378164649cd10e9c33779e0) on the K3S engine pull's registry
 rerun. Main f094ab5580 settled at 80 green with test-provision the only
 red (registry, exempt) and no test-base context reported at all on that
 head (81 contexts against 83 on earlier heads); noted, watching for it.
+Main f094ab5580's test-base errored at 14m26s (trace
+ac7a9907c09524c5b553066d52a601b4): one failing test,
+TestNavToggleReturnsToLastAgent in dagql/idtui (5.00 s), a main-owned
+TUI test untouched by anything of ours; dagql ok, core/integration ok in
+681 s, 66 packages ok. Standing delegation: one rerun issued on the main
+head (23:3xZ). Its earlier "missing test-base context" was only late
+reporting.
