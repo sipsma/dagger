@@ -4497,3 +4497,9 @@ fail on "registry.dagger.io/engine:v0.16.1 … HEAD
 /v2/engine/manifests/v0.16.1: 500 Internal Server Error", the registry
 fault, exempt under the merge rule while it persists; not rerun.
 Everything else on #14271 is green or pending (7 pending).
+Registry fault burst around 23:15–23:25Z (registry.dagger.io
+engine:v0.16.1 manifests 500): test-provision errored on main
+f094ab5580 (trace 1f0b275102182dbd1edc44b385c3007f, nine FAIL lines, 18
+500 lines), on #14271 (above) and on #14231 at b78f5048b1 (trace b6f5916b1d074463415bbb46a9b42314,
+32 500 lines). All exempt under the merge rule while the fault persists;
+none rerun.
