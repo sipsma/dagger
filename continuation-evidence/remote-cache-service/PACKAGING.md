@@ -3868,3 +3868,12 @@ TestContainer/TestSystemProxies/git/GitLab_public (110 s, trace
 untouched by the stack); its one rerun is spent. b831de5b6a's two reruns
 in flight. Slop-pass review sent to the coordinator; items 2 and 4 ruled
 as follow-ups on 40a0eee986 (items 1 and 3 to Erik).
+E12/E13 381e345d02 approved by the reviewer (all seven sources accounted
+for; per-file lines match apart from the declared store-wrapper and
+import adaptations; 1,324 + 170 PASS, one inherited nested skip; lint
+DONE 2m10s). Record correction: the alias reconciliation in
+core/schema/lazy_resolver_cleanup_test.go also changes three `ocispec.`
+references to `ocispecs.`, not only the import block. Coordinator
+publishes. 9282dfa127 superseded by b831de5b6a; its test-container
+(TestSystemProxies/git/GitLab_public) stays red as a main-owned network
+flake, no further rerun (ruling).
