@@ -4253,3 +4253,18 @@ rule, plain merge, head pinned; a test-base failure only on the :129
 lifetime flake (fix in progress as a separate PR) gets one delegated
 rerun, a recurrence goes to the coordinator; then #14231 and #14241
 rebase onto main. Run on 35a493cac6 started 22:00Z (83 pending).
+#14264's authorized test-base rerun (trace 7eda3b98caaef466b19c3b748ee71904):
+"Cancelled - max execution time exceeded", 66 ok, no FAIL,
+core/integration ok in 889 s, dagql without a result line. The
+exemption's conditions hold: no failing test, dagql missing, and the
+PR's files (core/builtincontainer.go, engine/snapshots/*, engine/server/*,
+dagql/cache_snapshot_persistence_test.go and other tests) do not touch
+the admitted-chain test. Every other check passes; grouville's approval
+stands. Merged at 22:05Z under the exemption: plain merge, head pinned
+381e345d0240bfb8cbd0e61c510aac6cd51ecc81, main first-parent 446aafb0dc
+("Merge pull request #14264 from dagger/sipsma/builtin-image-blob-lifetime"),
+after #14248's merge had completed. Exemption uses on #14264: traces
+bf3ae1cef470acfd7d748dcc283cf12e (first cancel) and
+7eda3b98caaef466b19c3b748ee71904 (this run); the middle run
+ee23f81f00e5c96d9c266e7ce5b04e5b carried the TestSearch failure and did
+not qualify. Main: b831de5b6a → 47413897b2 → 206eaa57c2 → 446aafb0dc.
