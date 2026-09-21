@@ -3901,3 +3901,43 @@ b839822729150c3ef3b5384e1fb0f6fa, java-client:release-dry-run
 (/tmp/pkg-crosspr-reruns.sh, log /tmp/pkg-crosspr-reruns.log).
 b831de5b6a's delegated reruns of golang:test-all and test-provision
 passed (registry answered).
+
+## A6 slop-pass follow-ups (items 2 and 4), branch pkg/a6-slop on 40a0eee986
+
+8f7f715f9d "core/integration: arm, await and release fixture barriers
+through the harness": armedBarrier with armBarrier/await/release/
+releaseAtCleanup on the harness; the three `await` copies and the inline
+waits replaced; the two "walk every arrival" loops return the holding
+barrier; the controls test keeps its raw calls where the protocol itself is
+under test; 9 files, +118/−135; no barrier request, point, selector or
+occurrence changed; two one-minute wait bounds (the fault cases) now share
+the two-minute bound. A first application regrouped imports in ten
+untouched files (goimports -local); reverted and re-applied with plain
+goimports so only the touched files change.
+
+bfa1452ab0 "dagql: name part observations with a closed kind set and one
+observe entry point": TransferFixturePartKind with fourteen constants
+beside the event; observePart(row, address, partObservation{kind,
+snapshotID, source, detail}) replaces the six recording helpers; the
+selected/installed sites build their observation with one switch each;
+harness filters and two kind-keyed maps typed; every literal in the suite
+and in the dagql, core and core/schema unit tests replaced by the
+constant (the capture test's "settled" value is not a kind and stays);
+29 files, +236/−212; JSON unchanged.
+
+Runs on bfa1452ab0, head files first (dirty=0): `go test -v -count=1
+-timeout 60s ./core/ ./dagql/ ./engine/server/ ./engine/snapshots/
+./engine/fixturetransport/` → all ok (25.370s, 16.789s, 3.642s, 9.475s,
+0.005s), 1340 PASS, 0 FAIL, 0 top-level SKIP plus one inherited nested;
+core/schema at 120 s ok 13.569s, 173 PASS; `go vet ./core/integration/`
+clean (/tmp/pkg-a6-slop-{tests,schema}.*). lint-all and the
+shared-engine run of the whole suite (`dagger call engine-dev test --pkg
+./core/integration --run '^TestRemoteCacheTransferSuite$' --timeout 45m
+--test-verbose`, /tmp/pkg-a6-slop-suite.{head,log}) in progress.
+
+Other: #14241 at 40a0eee986 test-base failed TestPartImportChainRefCleanupHandoff/collect
+(cache_part_chain_lifetime_test.go:281, trace 9ca0a7ba23b7eed4068117682bce68bc),
+A3's test, escalated to the coordinator for the analyst, not rerun.
+#14263 (62e596517f) test-base "Cancelled - max execution time"
+(19b1e6d79e62f6a1, no FAIL line): one delegated rerun issued 19:56Z.
+main b831de5b6a: all 90 statuses success after the two delegated reruns.
