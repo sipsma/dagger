@@ -4432,3 +4432,19 @@ completed in under six minutes, so those were other tests. #14270
 changes the fixture files the suite uses (dagql/cache_transfer_fixture.go,
 core/schema/remote_cache_fixture.go), so this is reported now rather
 than only after the rerun.
+#14270's delegated test-base rerun (22:50Z) errored in 23.1 s (trace
+e42790b0622bdb77057e4be1992013e9) on the cross-PR go-git v6 build fault
+(two v6 lines); it ran no tests. The cross-PR cause is a separate
+documented cause, so test-base gets one rerun for it once the
+cache-persistence rerun (issued 22:58Z by the earlier script, cross-PR
+cause) is no longer pending (/tmp/pkg-14270-testbase-crosspr.{sh,log}).
+Its test-module-runtimes rerun passed.
+Main 446aafb0dc's delegated test-base rerun (trace
+ab2d9be0530f092289e30acca77d7190): "Cancelled - max execution time
+exceeded"; the check log fetch returned nothing, and the trace's check
+view counts dagql at 84 passed against 516 in a finished run while the
+suite view shows all six suite subtests passed: the dagql hang class
+(main has no fix until #14266 merges). Rerun spent; left red, the fix
+pending. The check view's per-package counts do not indicate openness
+(the earlier #14270 run also showed "core/integration 43 passed" with
+TestSchemaRecovery open); only the --test view does.
