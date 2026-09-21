@@ -3967,3 +3967,9 @@ SharedHostDirectoryLifetime 95.36s, SharingDonorRestart, SharingFinish,
 WorkspaceCapture 215.74s), 80 nested PASS, 0 FAIL, 1 SKIP
 (TestDefaultGCPruneDiagnostic, opt-in). TestGitTrees at the final tip
 dbf28bec46 running (/tmp/pkg-a6-slop-gittrees.{head,log}).
+TestGitTrees at dbf28bec46 through the shared engine
+(/tmp/pkg-a6-slop-gittrees.{head,log}, trace efadf358419f72ad02770e6c10204170,
+full logs /tmp/pkg-a6-slop-gittrees-full.log): PASS with Local 135.44s,
+LocalBundle 96.28s, LocalCleaned 87.64s, RemoteDownload 105.29s,
+RemoteFallback 107.46s; `ok core/integration 135.555s`. Both follow-ups
+(2376a78c3d, dbf28bec46) sent to the reviewer.
