@@ -4542,3 +4542,19 @@ TestUp/TestUpRunService and TestUp/TestWorkspaceUpPortMapping
 than a single failure, so outside the delegation; reported. With the
 registry pair (golang:test-all, test-provision) exempt, test-base is
 #14231's only blocking red.
+Ruling on #14231's test-base: one rerun, documented as three main-owned
+single-run failures in one shard (TestLiveTreeFollowsFocusedAgent,
+TestUp/TestUpRunService, TestUp/TestWorkspaceUpPortMapping); if either
+TestUp failure recurs it becomes an analyst item on whether #14231's
+graceful-stop changes affect `dagger up` service teardown, before any
+further rerun. Rerun issued on b78f5048b1.
+#14271 at ba233a0262: test-base "Cancelled - max execution time
+exceeded" (trace 5ec516d27d05ba0787970cb60eaa4e8e), 66 ok, no FAIL,
+core/integration ok in 622 s, dagql without a result line: the dagql
+hang class on its pre-fix base 446aafb0dc; #14271 touches only
+core/integration files, so the narrow exemption applies once it is
+approved (its other red is the exempt test-provision).
+#14241: coordinator's instruction, rebase now onto d8a0336fdd (not
+waiting for #14271; a second small rebase reconciles the helper when it
+merges); conflicts and resolution to the coordinator before any push;
+otherwise range-diff, six packages once, push with lease, report.
