@@ -4013,3 +4013,7 @@ nested SKIP, the regression PASS (/tmp/pkg-a6-slop-b1-tests.{head,log});
 lint-all DONE [3m21s], 0 findings (/tmp/pkg-a6-slop-b1-lint.{head,log}).
 Candidate 2376a78c3d, dbf28bec46, 02ce73c6f5 to the reviewer. Watch
 re-armed with #14266.
+Reviewer approved the slop-pass line 2376a78c3d → dbf28bec46 →
+02ce73c6f5 for #14241 (B1 closed; serial regression justified; prior
+engine evidence keeps its bfa1452ab0 / final-tip GitTrees provenance).
+Coordinator pushes with lease on 40a0eee986.
