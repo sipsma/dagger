@@ -4221,3 +4221,11 @@ authorized and issued at 21:33Z on 381e345d02. If it cancels with no
 failing test, the exemption applies and it merges after #14263, head
 pinned. #14266 waits for the hang commits and the :129 analysis. Merges
 one at a time.
+#14248 (localcache active wait, be2ae11fac) approved by grouville (MEMBER)
+at 21:35:31Z with every check passing (85 pass, one skipping, none
+registry-exempt), so the merge rule is met as written: merged at 21:37Z,
+plain merge, head pinned be2ae11fac13e5bc5eab09eec4fae6bd2cd604cc, main
+first-parent 206eaa57c2 ("Merge pull request #14248 from
+dagger/sipsma/localcache-active-wait"), after #14263's merge completed
+(one at a time). Main is now b831de5b6a → 47413897b2 → 206eaa57c2; the
+monitor covers both new heads. #14264's test-base rerun still pending.
