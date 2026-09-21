@@ -4461,3 +4461,12 @@ for the cross-PR cause issued 23:10Z on 10d896a1a4. Its result decides
 the TestSchemaRecovery question: a finish proceeds as ruled; a
 cancellation with core/integration unfinished goes to the coordinator
 and the analyst with the open spans, no merge on the exemption.
+#14271 (sipsma/remote-cache-harness-bounded-shutdown at ba233a0262 on
+446aafb0dc) published by the coordinator: the A6 shutdown-bounds port to
+main. Added to the watch and the merge rule. The TestSchemaRecovery
+stall (#14270's first test-base, trace 19c12bccae15ee25742800d7151d838a)
+is recorded as bounded on main pending #14271's merge, attribution
+unproven. Once #14271 merges, #14241's rebase must reconcile e36109aac3
+("core/integration: bound the inherited tests' engine cleanup too") with
+it: same helper; keep #14241's version with the dump callback and drop
+the duplicate.
