@@ -3882,3 +3882,22 @@ E12/E13 published by the coordinator as #14264
 main); under the watch and the merge rule with #14231, #14248, #14263.
 The E-series is fully placed: E9 #14263, E12/E13 #14264, E15 in #14229
 (merged with the stack). outstanding-work §3 updated below.
+
+Cloud-runner cross-PR source fault (ruling, coordinator to Erik): the
+19:39–19:42Z check runs on #14231 (aac0c40269) and #14264 (381e345d02)
+failed the engine build with `util/fsxutil/gitignore_matcher.go:13:2: no
+required module provides package github.com/go-git/go-git/v6/...`;
+neither tree, nor main b831de5b6a, has go-git v6 (all import v5 at that
+line, go.mod v5.19.0); the only source in the repo with that import is
+the open PR #14256 "chore: migrate go-git to v6" (fix/go-git-worktreeconfig),
+so those runs built another PR's source. Traces: #14231 test-modules
+a51b7f8adb8ed6e945ef0e86d60103db, test-call-and-shell
+bd1b19ab2a150cac49be948183151d9e, test-telemetry
+d8c9dfeb24743a8b0299d6ec41f2f077, java-client:test
+2a6efe6c363a7f856864b5c4a766b2a8, python-310:slow
+b839822729150c3ef3b5384e1fb0f6fa, java-client:release-dry-run
+7bd9cdad29f1511dd396a64a044b701c; #14264 test-base
+714ab6d7e778d952d07cab4c006ee143. Reruns once each, staggered
+(/tmp/pkg-crosspr-reruns.sh, log /tmp/pkg-crosspr-reruns.log).
+b831de5b6a's delegated reruns of golang:test-all and test-provision
+passed (registry answered).
