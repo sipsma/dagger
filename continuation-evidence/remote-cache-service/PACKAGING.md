@@ -4372,3 +4372,19 @@ offers-test race made visible by the sweep (previously it would have
 deadlocked under the RLock), analyst item nine open"; the analyst has it
 on a branch off 302f29572b, and if their fix lands before the rerun
 result it goes onto #14266 too. Rerun issued on 302f29572b.
+#14266 pushed by the coordinator at 0b19a16fda (six commits; lease on
+302f29572b; approval stands): "test: hold offer settlement at the
+acquisition body boundary" (the fixture's OwnerSyncReady signal is one of
+two the chain installer can open, so settlement was never actually held;
+the body is now held after commit with a bounded wait and released after
+the admission-closed/old-slot check; cleanup closes the channel and joins
+the acquisition even after a failed assertion; offer count and final
+assertions unchanged; one file, 32 insertions, 9 deletions). Description
+appended with one sentence on that hold (trace
+7b9e9bc9938dcb6fb33f880f5193bc6f) before the validation line of the new
+section. The test-base rerun issued on 302f29572b at 22:39Z stays
+pending on that superseded head; the CLI offers no cancel (checked
+`dagger cloud --help`), and the new head's run replaces it. The
+python-312:slow gate script was keyed on 302f29572b and will decline its
+rerun; if 0b19a16fda's run hits the proxy fault again, a new gate is
+armed. Merge when green under the rule, head pinned 0b19a16fda.
