@@ -3973,3 +3973,6 @@ full logs /tmp/pkg-a6-slop-gittrees-full.log): PASS with Local 135.44s,
 LocalBundle 96.28s, LocalCleaned 87.64s, RemoteDownload 105.29s,
 RemoteFallback 107.46s; `ok core/integration 135.555s`. Both follow-ups
 (2376a78c3d, dbf28bec46) sent to the reviewer.
+#14231 test-base rerun (82d214a08a8b3bfe): TestSnapshotSharingDonorReceivesSibling
+failed again identically (two of two on aac0c40269); delegated rerun
+spent; escalated as reproducible on main's merged sharing code.
