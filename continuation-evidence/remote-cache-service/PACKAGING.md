@@ -4201,3 +4201,23 @@ registry-caused. Reported for the coordinator's call.
 cancellations after the cross-PR error; the second carries the
 main-owned TestDirectory/TestSearch/binary_files_are_skipped failure).
 Same standing as #14263: reruns spent, awaiting the coordinator's call.
+Ruling: the dagql hang joins the merge exemption, narrowly: a test-base
+cancelled at max execution with no failing test and dagql without a
+result line, on a head whose diff does not touch the hanging test's
+path, does not block a merge; each use recorded with the trace ids.
+#14263 merged under it at 21:31Z: plain merge, head pinned
+62e596517fd3ce7cd070261352862ac4d51a02e2, main first-parent 47413897b2
+("Merge pull request #14263 from dagger/sipsma/dagql-null-row-dependency-edges").
+Exemption use: test-base traces 19b1e6d79e62f6a1c70867eaa6e93449 and
+06a534110692958585264cb98383ec4a (66 ok, no FAIL, dagql without a result
+line in both); the PR's files per the GitHub API are dagql/cache.go and
+dagql/cache_null_dependencies_test.go, not the admitted-chain test. (A
+local diff I ran against /tmp/pkg-e9 before the merge listed hundreds of
+files and was wrong; the API file list is the check that counts.)
+#14264: the coordinator ruled its second cancelled run's failing main test
+(TestDirectory/TestSearch/binary_files_are_skipped, untouched by #14264)
+keeps the exemption from applying as is; one more test-base rerun
+authorized and issued at 21:33Z on 381e345d02. If it cancels with no
+failing test, the exemption applies and it merges after #14263, head
+pinned. #14266 waits for the hang commits and the :129 analysis. Merges
+one at a time.
