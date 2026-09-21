@@ -4046,3 +4046,16 @@ passes on the neighbouring heads #14263 and #14264 in the same window.
 Standing delegation applied: one rerun issued at 20:44Z
 (dagger cloud -W github.com/dagger/dagger@2204b4069a rerun --check
 test-split:test-container). Reported to the coordinator.
+#14241 at 02ce73c6f5, same run: test-split:test-container failed on
+TestContainer/TestSystemGoProxy (trace 456101143124aa0a47a843cca8855480,
+container_test.go "Received unexpected error: exit code: 1";
+/tmp/pkg-ci-14241-test-container-02ce.log has no go-git v6 line, and its
+only registry.dagger.io lines are the engine:dev docker-tag steps, not
+errors). The test is main's Go module proxy test; #14241 does not touch
+container_test.go (no diff b831de5b6a..02ce73c6f5), and test-container
+passes on #14263 and #14264 in the same window (#14266's delegated rerun
+of the same check is pending). Standing delegation applied: one rerun
+issued (dagger cloud -W github.com/dagger/dagger@02ce73c6f5 rerun --check
+test-split:test-container). The cross-PR script leaves this check alone
+by design (no v6 line) and reruns the two cross-PR errors once the run
+settles.
