@@ -4181,3 +4181,7 @@ fixture report dump, since the test logs nothing before that assertion.
 The earlier failure of the same test (be50f19793457ac431dc2cc43d99d7c6,
 :167 share-skipped) was a different assertion. The dagql hang dump went
 to the analyst in the same message.
+Correction: the message to the analyst (hang dump plus the :129 item) has
+not been delivered; six attempts since 21:14Z were refused with
+"target_busy" (the analyst's turn is running). It is queued on my side;
+the coordinator has the same content and the file paths.
