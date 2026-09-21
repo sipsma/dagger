@@ -4331,3 +4331,12 @@ test-cache-persistence gated on an unrelated head's
 test-cache-persistence success created after 22:26Z (the gate style of
 the TestSystemGoProxy ruling; the jq now prints nothing on an empty
 match, the earlier script's error). Reported.
+#14266 at 302f29572b: python-client:python-312:slow errored at 4m3s
+(trace 7c23cb52aad16cc69cf7a0874a646ec5): the SDK test's container load
+fails on the Go module proxy ("proxy.golang.org/@v/v1.49.0.zip: stream
+error: stream ID 1; INTERNAL_ERROR; received from peer"); no python file
+in #14266; the check passes on #14270 and main 446aafb0dc. The proxy
+fault is ongoing (22:26Z on #14270, 22:31Z here). Gated rerun queued via
+/tmp/pkg-gated-rerun.sh (log /tmp/pkg-14266-py312-gate.log): after the
+run settles, once an unrelated head shows a python-312:slow success
+created after 22:31Z.
