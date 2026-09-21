@@ -4284,3 +4284,17 @@ Main 47413897b2's test-base: "Cancelled - max execution time exceeded"
 result line: the pre-fix hang). 206eaa57c2's test-base succeeded in
 21m5s (e229a0e15d9bbf8614e0654b145a572c), so 47413897b2 is superseded and
 stays red as 9282dfa127 did. 446aafb0dc's run underway.
+Coordinator: split, not nolint. The nolint candidate 50bc7c7988 was
+discarded (reset; its lint-all DONE 0 findings and dagql 514 PASS at
+/tmp/pkg-14266-lint-fix-* stand as a record of what was not used).
+Split candidate 302f29572b "test(dagql): split the derived-index
+validator by index family" on 35a493cac6: six helpers, one per index
+family, each returning the first inconsistency; the outer function calls
+them in the existing order; checks and messages unchanged; one file, 57
+insertions, 4 deletions. Runs on 302f29572b, head files first, dirty=0:
+lint-all DONE [50.2s], 0 findings (/tmp/pkg-14266-split-lint.{head,log});
+dagql once at 60 s, 514 PASS, 0 FAIL, one inherited nested SKIP
+(/tmp/pkg-14266-split-dagql.{head,log}); go vet ok. Sent to the reviewer
+as the lint fix on the approved sweep; on approval I push with lease on
+35a493cac6 and merge when green. Main 206eaa57c2 fully green (83);
+446aafb0dc 79 green, 2 pending.
