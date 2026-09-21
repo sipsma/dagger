@@ -4415,3 +4415,20 @@ if the rerun cancels again with core/integration unfinished it is not
 merged on the exemption: the open spans at cancellation (which
 integration tests were running) go to the coordinator and the analyst.
 If it finishes, proceed as ruled.
+Open spans at cancellation, method: `dagger trace <trace> --test
+TestRemoteCacheTransferSuite` renders the suite's subtests with ∅ for
+spans that never ended (script /tmp/pkg-open-spans.sh; the check-level
+rendering only shows per-package counts, and the logs carry no per-test
+lines). #14270's first cancelled test-base (19c12bccae15ee25742800d7151d838a):
+core/integration counted 43 passed; the suite (∅ 23m57s) had four
+subtests passed and TestSchemaRecovery open at 21m56s, with its outer
+`.dagger-cli session` span open 21m56s and its "before" (16m17s) and
+"after" (16m16s) spans open, while every rendered step under it had
+completed, the last being the two Service.stop calls (16.2 s, 16.1 s);
+TestSchemaRecoveryCold (2m60s) and TestSharedHostDirectoryLifetime
+(1m30s) passed. In the earlier core/integration cancellations
+(#14264's ee23f81f, #14266's f7af35d5, #14264's 7eda3b98) the suite had
+completed in under six minutes, so those were other tests. #14270
+changes the fixture files the suite uses (dagql/cache_transfer_fixture.go,
+core/schema/remote_cache_fixture.go), so this is reported now rather
+than only after the rerun.
