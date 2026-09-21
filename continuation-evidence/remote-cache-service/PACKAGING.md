@@ -4109,3 +4109,64 @@ dirty=0). A ten-iteration loop on main b831de5b6a (six plain, four at
 GOMAXPROCS=2, -timeout 60s each, detached worktree /tmp/pkg-main-b831,
 head file /tmp/pkg-main-dagql-loop.head) is running; log
 /tmp/pkg-main-dagql-loop.log.
+Three rulings from the coordinator (21:05Z): (1) the dagql no-result in
+test-base is the priority: keep the local loop, look for dagql's test
+spans in the cancelled traces, hand the analyst the dump or the
+last-running test; (2) cherry-pick 23a0b18c59 + 48476414db onto
+upstream/main as branch sipsma/sharing-probe-diagnostics-on-restored-reads
+(adapt if the files differ, dagql once at 60 s, reviewer, then the
+coordinator); (3) one more TestSystemGoProxy rerun on #14241, gated on an
+unrelated PR passing test-container after the proxy fault.
+Ruling (3), a mistake of mine: the gate script
+(/tmp/pkg-14241-goproxy-gate.sh) fired at 21:10:01Z and issued the
+test-container rerun on 02ce73c6f5 without the gate being met: its jq
+printed "#14266 null" for an empty match and the null check compared the
+wrong string. No unrelated test-container success had been created after
+the 20:54:23Z failure (the latest was #14266's at 20:50:05Z). Reported to
+the coordinator. The rerun passed; so did the delegated
+test-call-and-shell rerun and the two cross-PR reruns. #14241 at
+02ce73c6f5 now has only test-base red (the sibling flake, expected).
+Ruling (1): the cancelled traces carry no per-test record for dagql
+(test-base runs otelgotest without -v and dagql's tests do not use
+testctx, so only per-package result lines exist; the engine-dev runner's
+testVerbose option would add -v for the whole shard). The loop on main
+b831de5b6a (/tmp/pkg-main-dagql-loop.{head,log}, dirty=0): six plain
+iterations ok in 11.8–13.7 s; GOMAXPROCS=2 iteration 1 "panic: test
+timed out after 1m0s", iterations 2–4 ok. Dump extracted to
+/tmp/pkg-main-dagql-hang-dump.txt: running tests
+TestPartAdmittedChainLifetime (56s) / output-backref-rejected (55s); the
+subtest failed require.Nil(c.resultsByID[row.id]) at
+cache_part_chain_lifetime_test.go:169 under c.egraphMu.RLock() (:168),
+FailNow ran the cleanups on that goroutine, and CloseDiscardingPersistence
+→ closeSnapshotSharing (cache_snapshot_sharing.go:456) blocks on
+c.egraphMu.Lock() behind that read lock; the lazy task's worker
+(releasePartRow, cache_part_task.go:188, from runLazyTask cache.go:4471)
+also waits for the lock, so the row was still owned when the test
+looked, the worker-release race #14266 fixes for the chain-cleanup test,
+here in the admitted-chain test. Handed to the coordinator; the analyst's
+turn was busy on four attempts, delivery pending.
+Ruling (2): worktree /tmp/pkg-lifetime on branch
+sipsma/sharing-probe-diagnostics-on-restored-reads from b831de5b6a; both
+commits apply without conflict (cherry-pick -x, then messages rewritten
+in the main-PR form with "Originates from remote-cache commit <hash>.",
+no cherry-pick line). Adaptation: main's TransferFixturePartEvent has no
+Detail field and partFixtureEvents returns one value; the regression's
+two-value call and its Detail assertion were dropped (the cause is
+asserted through the barrier's skip causes). Head ebea2c4724, dirty=0:
+lint-all DONE [2m13s], 0 findings (/tmp/pkg-lifetime-lint.{head,log});
+go vet ./core/integration ok; dagql once at 60 s
+(/tmp/pkg-lifetime-dagql.{head,log}): 514 PASS, 1 FAIL, one inherited
+nested SKIP. The FAIL is the cherry-picked regression
+TestSnapshotSharingCompletedRowCaptureRefusal: it expects two part
+events (share-skipped, owner-sync) and main records one (owner-sync),
+because the share-skipped part event is A6's 37ddaee52c ("record a
+sharing pass's skipped slots in the fixture report"); main has only the
+testShareSkipped hook. Not sent to the reviewer.
+Also: the failure the ruling is based on is not the one these commits
+change. #14266's test-base (f7af35d5ab303806ef0e7a0421ec207a) fails
+TestSharedHostDirectoryLifetime at remote_cache_sharing_test.go:129,
+"the imported row takes its snapshot exactly once: map[]" (expected 1,
+actual 0: the report has no part event for the imported row's snapshot
+part at all), while 23a0b18c59 changes the restored-read assertion at
+:157–172 (passing over share-skipped). A6 does not change the :129
+assertion beyond the kind constants. Escalated for a design call.
