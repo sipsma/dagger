@@ -4026,3 +4026,23 @@ the validation numbers refreshed to the post-rebase head (1513 top-level
 PASS, no top-level skip, one inherited nested). CI section unchanged (the
 shard's measured runs 13m14s, 13m6s, 9m26s are within its statement).
 Its test-base stays at risk until #14266 merges and #14241 rebases.
+First CI run of #14241 at 02ce73c6f5: test-split:test-cache-persistence
+(trace 50470f8d7df035b3d663b028cd0a896b, errored at 1m3s) and
+test-split:test-module-runtimes (e5e58959ade0f7071c3f04aee66df893, 47 s)
+both carry the Cloud-runner cross-PR source fault (the go-git v6 import
+error from #14256's source, four "go-git/v6" lines in each log:
+/tmp/pkg-ci-14241-test-split-test-{cache-persistence,module-runtimes}.log).
+Per the coordinator's ruling on that fault, a script
+(/tmp/pkg-14241-crosspr.sh, log /tmp/pkg-14241-crosspr.log) waits for
+the run to settle, then reruns once each non-passing check whose log
+shows the v6 import and leaves any other failure alone. Reported.
+#14266 at 2204b4069a: test-split:test-container failed on
+TestContainer/TestSaveHostDocker/tcp_driver (trace
+5701a4067859b30e4bff3258c8e31a9f; container_test.go:6084 "Received
+unexpected error: exit code: 1"; no registry, proxy or go-git lines,
+/tmp/pkg-ci-14266-test-container.log). container_test.go is untouched by
+#14266's two commits (no diff against upstream/main); test-container
+passes on the neighbouring heads #14263 and #14264 in the same window.
+Standing delegation applied: one rerun issued at 20:44Z
+(dagger cloud -W github.com/dagger/dagger@2204b4069a rerun --check
+test-split:test-container). Reported to the coordinator.
