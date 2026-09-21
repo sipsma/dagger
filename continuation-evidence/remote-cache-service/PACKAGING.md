@@ -3951,3 +3951,8 @@ the only difference to dbf28bec46 is that closure's signature, so
 TestGitTrees is re-run at dbf28bec46 once the full run ends.
 Cross-PR reruns: #14231's six all passed (19:58Z); #14264's test-base
 rerun issued 19:58Z.
+#14231 test-base (033057b5a4a9f6e2): TestSnapshotSharingDonorReceivesSibling,
+dagql/cache_snapshot_sharing_test.go:382 expected 2 actual 1; A5's test,
+now main's, untouched by #14231; first failure logged here; one delegated
+rerun 20:00Z; flagged to the coordinator for the analyst as the third
+timing-dependent outcome in the merged sharing/lifetime family.
