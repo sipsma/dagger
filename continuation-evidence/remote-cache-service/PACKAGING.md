@@ -3767,3 +3767,41 @@ commits, lease held). Move rule: no move; E15 changes only
 dagql/otelprof_lazy.go's span-ending branch and its test, with no caller
 outside the otelprof files above A3 and no A4–A6 test asserting a lazy op
 span's status. E9 candidate 62e596517f sent to the reviewer.
+
+## Stack merged; main watch; #14241 rebase; E12/E13 to main
+
+Erik merged the stack (21 September): main first-parent 9282dfa127
+"Merge pull request #14229" (carrying #14051–#14228 below it) then
+b831de5b6a "Merge pull request #14235" (carrying #14233). Open: #14241
+(A6, CONFLICTING), #14231 (CONFLICTING now), #14248 (MERGEABLE), and E9
+published by the coordinator as #14263 (sipsma/dagql-null-row-dependency-edges
+at 62e596517f, base main); all four under the CI watch and the merge rule.
+Reviewer's provenance correction on E9 recorded: the negative-control run
+(/tmp/pkg-e9-without-fix.{head,log}) was the edited tree with
+dagql/cache.go's hunk reverted in the working tree, run as `go test -v
+-count=1 -timeout 60s -run TestNullResultRecordsFrameDependencies
+./dagql/`, not a clean 62e596517f run; its head file's dirty=0 was
+written before the revert.
+
+Main watch (monitor): 9282dfa127 and b831de5b6a push-triggered checks all
+pending or success so far, none failed; b831de5b6a's release row: the
+target-version up-to-date checks success, python-client release-dry-run
+success, the other release-dry-runs pending; release:publish not yet
+reported. Terminal states are read from the API at each report.
+
+#14241 rebase onto b831de5b6a (branch pkg/a6-main in /tmp/pkg-r-a6 from
+48476414db; 81 commits): one conflict, dagger.toml in "ci: run the
+bounded TLA+ configurations" (930fff806e): main's 8a9c4ac3e8 renamed
+`[env.dev.modules.engine-lab]` to `[modules.engine-lab]` at the line the
+commit used as context for removing the dev-only tla-check block;
+resolved by removing the tla-check dev block (this side's intent) and
+keeping main's `[modules.engine-lab]` header (dagger.toml:155); the
+commit's `[modules.tla-check]` registration lands at :140 as before.
+Tip 40a0eee986. Not pushed (coordinator's hold).
+
+E12/E13: target #14051 merged, so like E15 they follow the placement rule
+again: one PR to main, branch sipsma/builtin-image-blob-lifetime
+(/tmp/pkg-e12) off b831de5b6a; main now has A1–A5, so the A1/A3-only
+hunks apply directly; the remaining differences from engine-main's base
+are engine/server/server.go (24 lines), engine/snapshots/lease.go (6) and
+testutil/store.go (10, the c96012aad7 vs ed7a4a47f9 helper).
