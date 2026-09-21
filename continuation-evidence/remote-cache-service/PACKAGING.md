@@ -4367,3 +4367,8 @@ sighting of this test in the record. Reported for the coordinator's
 call. python-312:slow still gated (run settled 22:35:53Z, no unrelated
 success yet). #14270: one pending, its script waits for settle. Main
 446aafb0dc's test-base rerun pending.
+Ruling on #14266's test-base: one rerun now, documented cause "latent
+offers-test race made visible by the sweep (previously it would have
+deadlocked under the RLock), analyst item nine open"; the analyst has it
+on a branch off 302f29572b, and if their fix lands before the rerun
+result it goes onto #14266 too. Rerun issued on 302f29572b.
