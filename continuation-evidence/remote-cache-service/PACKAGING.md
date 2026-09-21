@@ -3980,3 +3980,16 @@ spent; escalated as reproducible on main's merged sharing code.
 exceeded" at 20:29Z (no failing test; core/integration had no result at
 the limit, as on #14051 earlier); one rerun under the max-execution
 delegation. #14263's test-base rerun still pending.
+Reviewer on the slop pair: 2376a78c3d correct in every checked respect;
+B1 on dbf28bec46: the delegation source (allocation, path clone) and the
+skip's cause.Error() were built before observePart's gate
+(cache_part_demand.go:238, cache_part_install.go:477,
+cache_snapshot_sharing.go:809), regressing the disabled path from one
+atomic load. Fix as a follow-up: partObservation carries the proof and
+the cause; observePart builds source/detail after the gate; regression
+TestObservePartOffGateDoesNoWork (AllocsPerRun 0 and no Error() call while
+disabled; source and detail present when enabled). Record corrections:
+the suite counts are 1 parent + 16 direct + 64 deeper (80 nested), and
+the controls test's discarded-generation release uses never.release()
+(the old generation, asserting "not armed"), the raw calls remaining for
+the malformed-record and illegal-action probes.
