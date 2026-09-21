@@ -4317,3 +4317,17 @@ rebase once onto that main.
 Main 446aafb0dc (#14264's merge) fully green at about 22:24Z (82 of 82
 contexts reported). #14266 at 302f29572b and #14270 at 10d896a1a4 both
 running with no failures yet.
+#14270 at 10d896a1a4, first run, two early errors:
+test-split:test-module-runtimes (trace 7882a7266b01aee65e9acdd3c8fa9429,
+49.8 s) carries the Cloud-runner cross-PR go-git v6 fault (two v6 lines);
+test-split:test-cache-persistence (7162a3b8135d29c37dc7735eab24eb93,
+1m54s) fails its build step on the Go module proxy: engine/telemetry/labels.go:21:2
+github.com/google/go-github/v59@v59.0.0: read
+".../@v/v59.0.0.zip": stream error: stream ID 107; INTERNAL_ERROR;
+received from peer. Script /tmp/pkg-14270-reruns.sh (log
+/tmp/pkg-14270-reruns.log): after the run settles, one rerun of
+test-module-runtimes under the cross-PR ruling; then one rerun of
+test-cache-persistence gated on an unrelated head's
+test-cache-persistence success created after 22:26Z (the gate style of
+the TestSystemGoProxy ruling; the jq now prints nothing on an empty
+match, the earlier script's error). Reported.
