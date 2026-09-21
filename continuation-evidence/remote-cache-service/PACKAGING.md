@@ -4574,3 +4574,24 @@ to 48706c4275 (#14175) meanwhile; rebased onto d8a0336fdd as instructed.
 Six packages, vet and lint-all running (head files
 /tmp/pkg-14241-r4-{tests,lint}.head). Conflict and resolution reported
 to the coordinator before any push.
+Coordinator accepted the evaluate resolution on condition that #14270's
+schema test passes with the generic messages and output IDs stay
+rejected. Six-package run on e4a00f93f5 (/tmp/pkg-14241-r4-tests.{head,log},
+dirty=0): build ok, vet core/integration ok; core ok 41.7 s,
+engine/server ok 3.9 s, engine/snapshots ok 7.6 s, engine/fixturetransport
+ok, core/schema ok 14.5 s at 120 s with TestRemoteCacheFixture PASS (its
+invalid-argument loop uses require.Error, no pinned message; output IDs
+are rejected by the helper's "selected outputs require export" for every
+non-export operation); 994 PASS, 0 FAIL across the five. dagql failed to
+build: #14270's dagql/cache_transfer_fixture_evaluate_test.go:88 indexes
+a map[string]int with event.Kind, which A6's dbf28bec46 typed as
+TransferFixturePartKind. Adaptation: the test's counts map keyed by
+TransferFixturePartKind, folded by fixup + autosquash into that commit's
+rebased counterpart (now d9d97d5989); range-diff shows commits 3 and 83
+changed, nothing else. Head 1426eb3e65, 84 commits, dirty=0: dagql once
+at 60 s, 533 PASS, 0 FAIL, one inherited nested SKIP
+(/tmp/pkg-14241-r4b-dagql.{head,log}); lint-all DONE [1m3s], 0 findings
+(/tmp/pkg-14241-r4b-lint.{head,log}); the superseded lint on e4a00f93f5
+had ended on that typecheck error. The five other packages' trees are
+identical between e4a00f93f5 and 1426eb3e65 (the fold touched one dagql
+test file). Reported; push awaits the coordinator's go.
