@@ -4185,3 +4185,10 @@ Correction: the message to the analyst (hang dump plus the :129 item) has
 not been delivered; six attempts since 21:14Z were refused with
 "target_busy" (the analyst's turn is running). It is queued on my side;
 the coordinator has the same content and the file paths.
+The coordinator relayed both artifacts to the analyst (steer delivery
+works while a turn is busy); my retries stopped at eight. Watch state at
+21:21Z from the API: #14248 fully green awaiting approval; #14241,
+#14231, #14263, #14264 red only on test-base (sibling flake / spent
+reruns after max-execution cancellations); #14266 now APPROVED with its
+test-base red (cancelled at max execution with the :129 failure), so the
+merge rule does not admit it yet.
