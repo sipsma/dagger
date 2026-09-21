@@ -4399,3 +4399,19 @@ test-cache-persistence with the gate genuinely met: #14243's
 test-cache-persistence success created 22:32:33Z, after the fault. (The
 script's log line printed the head sha instead of the matching PR; the
 gate check itself was verified afterwards by hand.)
+#14270's test-cache-persistence rerun (22:48:51Z, trace
+6022fb7967239b6e58d5063f018d730d) errored in 6.7 s on the cross-PR
+go-git v6 fault (four v6 lines; the first failure was the proxy). One
+rerun per documented cause: the proxy rerun is spent, the cross-PR cause
+gets its one rerun once the test-module-runtimes rerun (pending) is no
+longer running. #14266 at 0b19a16fda: test-module-runtimes errored at
+43.7 s (trace d66fc1719fdc79e21a7c74356567bf12, four v6 lines), the
+cross-PR fault; one rerun after its run settles. Both queued in
+/tmp/pkg-crosspr-2.sh (log /tmp/pkg-crosspr-2.log).
+Coordinator's instruction on #14270's test-base: the cancellation is the
+other hang class (core/integration not finishing, the engine-side stall
+the investigator characterised); #14270 changes an integration test, so
+if the rerun cancels again with core/integration unfinished it is not
+merged on the exemption: the open spans at cancellation (which
+integration tests were running) go to the coordinator and the analyst.
+If it finishes, proceed as ruled.
