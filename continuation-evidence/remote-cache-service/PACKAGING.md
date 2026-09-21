@@ -4491,3 +4491,9 @@ at 60 s on b78f5048b1, head file first, dirty=0: 162 PASS, 0 FAIL, no
 SKIP, ok 4.713s (/tmp/pkg-14231-r4-engine-server.{head,log}). Pushed
 with lease on aac0c40269 to upstream sipsma/engine-server-graceful-stop-errors;
 #14231 head b78f5048b1, two commits.
+#14271 at ba233a0262: test-split:test-provision errored (trace
+29f78055da765ac2bbd351d939d8da1f): the nerdctl image-driver subtests
+fail on "registry.dagger.io/engine:v0.16.1 … HEAD
+/v2/engine/manifests/v0.16.1: 500 Internal Server Error", the registry
+fault, exempt under the merge rule while it persists; not rerun.
+Everything else on #14271 is green or pending (7 pending).
