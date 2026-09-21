@@ -3941,3 +3941,13 @@ A3's test, escalated to the coordinator for the analyst, not rerun.
 #14263 (62e596517f) test-base "Cancelled - max execution time"
 (19b1e6d79e62f6a1, no FAIL line): one delegated rerun issued 19:56Z.
 main b831de5b6a: all 90 statuses success after the two delegated reruns.
+Slop-pass lint on bfa1452ab0: one finding, unparam on the failTreeChain
+closure's unused `t` (git_trees_test.go:230, unused since armBarrier
+requires on the engine's t); parameter dropped, folded into the barrier
+commit; tips now 2376a78c3d (barriers) and dbf28bec46 (kinds); lint-all
+on dbf28bec46 DONE [38.8s], 0 findings (/tmp/pkg-a6-slop-lint2.{head,log}).
+The suite run in progress started at bfa1452ab0 (/tmp/pkg-a6-slop-suite.head);
+the only difference to dbf28bec46 is that closure's signature, so
+TestGitTrees is re-run at dbf28bec46 once the full run ends.
+Cross-PR reruns: #14231's six all passed (19:58Z); #14264's test-base
+rerun issued 19:58Z.
