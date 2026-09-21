@@ -4388,3 +4388,14 @@ pending on that superseded head; the CLI offers no cancel (checked
 python-312:slow gate script was keyed on 302f29572b and will decline its
 rerun; if 0b19a16fda's run hits the proxy fault again, a new gate is
 armed. Merge when green under the rule, head pinned 0b19a16fda.
+#14270 at 10d896a1a4, run settled 22:48Z: test-base "Cancelled - max
+execution time exceeded" (trace 19c12bccae15ee25742800d7151d838a), 66
+ok, no FAIL, dagql ok, core/integration without a result line (the suite
+runs inside test-base on main-based heads, near the limit). Standing
+delegation (max-execution cancellation with no failing test): one rerun
+issued. The script's two reruns went out at 22:48Z:
+test-module-runtimes under the cross-PR ruling, and
+test-cache-persistence with the gate genuinely met: #14243's
+test-cache-persistence success created 22:32:33Z, after the fault. (The
+script's log line printed the head sha instead of the matching PR; the
+gate check itself was verified afterwards by hand.)
