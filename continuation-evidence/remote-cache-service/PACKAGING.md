@@ -4346,3 +4346,7 @@ TestSnapshotSharingDonorReceivesSibling, the sibling flake whose fix is
 in #14266 (pending merge); 66 packages ok, core/integration 787 s. Main
 head at the time, so not superseded: one delegated rerun issued (the
 main-owned flake, fix pending) and recorded.
+Correction: the "22:26Z" and "22:31Z" fault times above were read from
+my clock estimate, not the statuses; the actual status times are at or
+before 22:25Z (the host clock read 22:25Z after main's rerun). The gates
+keep those later bounds, which only makes them stricter.
