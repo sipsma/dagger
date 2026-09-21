@@ -4516,3 +4516,29 @@ TUI test untouched by anything of ours; dagql ok, core/integration ok in
 681 s, 66 packages ok. Standing delegation: one rerun issued on the main
 head (23:3xZ). Its earlier "missing test-base context" was only late
 reporting.
+#14270's third test-base run (trace 42f07d9e4936fb8fb2e10f8fe627e20b):
+"Cancelled - max execution time exceeded", 66 ok, no FAIL,
+core/integration ok in 946 s, the suite complete (six subtests passed,
+no open span: the TestSchemaRecovery stall did not recur), dagql without
+a result line: the dagql hang class on a b831de5b6a-based head. The
+coordinator's branch for a repeat core/integration stall did not apply
+(core/integration finished); the narrow exemption's conditions hold (no
+failing test, dagql missing, files not touching the admitted-chain
+test); grouville's approval standing; every other check green. Merged
+at 23:46Z: plain merge, head pinned
+10d896a1a437a28b43b6882233c7e434f0932876, main first-parent d8a0336fdd
+("Merge pull request #14270 from dagger/sipsma/sharing-exact-receiver-demand").
+Exemption use: trace 42f07d9e4936fb8fb2e10f8fe627e20b (the first
+cancellation 19c12bcc had core/integration open and does not count; the
+second, e42790b0, was the cross-PR build fault). The :129 lifetime fix
+is on main. Main: … f094ab5580 → d8a0336fdd.
+#14231 at b78f5048b1, test-base errored at 22m34s (trace
+1f52fa2fb01e6eed553563f60202a4b7): three main-owned failures in one run,
+TestLiveTreeFollowsFocusedAgent (dagql/idtui, agent_focus_test.go:158
+"waiting for focus [agent-scout agent-chief], got [agent-scout]", the
+same TUI family as main's TestNavToggleReturnsToLastAgent),
+TestUp/TestUpRunService and TestUp/TestWorkspaceUpPortMapping
+(core/integration/up_test.go:709); dagql ok, the suite complete. More
+than a single failure, so outside the delegation; reported. With the
+registry pair (golang:test-all, test-provision) exempt, test-base is
+#14231's only blocking red.
