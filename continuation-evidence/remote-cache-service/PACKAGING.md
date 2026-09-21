@@ -4170,3 +4170,14 @@ actual 0: the report has no part event for the imported row's snapshot
 part at all), while 23a0b18c59 changes the restored-read assertion at
 :157–172 (passing over share-skipped). A6 does not change the :129
 assertion beyond the kind constants. Escalated for a design call.
+Coordinator's ruling on (2): option (a), the branch is dropped; the
+tolerance reaches main with #14241. Worktree /tmp/pkg-lifetime removed and
+the local branch deleted (never pushed; upstream has no such head). The
+:129 failure is the analyst's next item after the seventh: sent with the
+trace (f7af35d5ab303806ef0e7a0421ec207a), the check log and the excerpt
+from the test's RUN line to its FAIL line with engine log lines removed
+(/tmp/pkg-14266-lifetime-129-excerpt.txt, 312 lines); the log has no
+fixture report dump, since the test logs nothing before that assertion.
+The earlier failure of the same test (be50f19793457ac431dc2cc43d99d7c6,
+:167 share-skipped) was a different assertion. The dagql hang dump went
+to the analyst in the same message.
