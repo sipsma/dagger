@@ -3877,3 +3877,8 @@ references to `ocispecs.`, not only the import block. Coordinator
 publishes. 9282dfa127 superseded by b831de5b6a; its test-container
 (TestSystemProxies/git/GitLab_public) stays red as a main-owned network
 flake, no further rerun (ruling).
+E12/E13 published by the coordinator as #14264
+(sipsma/builtin-image-blob-lifetime at 381e345d02, seven commits, base
+main); under the watch and the merge rule with #14231, #14248, #14263.
+The E-series is fully placed: E9 #14263, E12/E13 #14264, E15 in #14229
+(merged with the stack). outstanding-work §3 updated below.
