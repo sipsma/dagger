@@ -3993,3 +3993,12 @@ the suite counts are 1 parent + 16 direct + 64 deeper (80 nested), and
 the controls test's discarded-generation release uses never.release()
 (the old generation, asserting "not armed"), the raw calls remaining for
 the malformed-record and illegal-action probes.
+#14266 (sipsma/sharing-and-import-cleanup-test-waits at 2204b4069a, two
+test commits on main) published by the coordinator: the sibling-cohort
+and chain-cleanup test fixes; under the watch and the merge rule. The two
+flakes are recorded as fixed on main pending merge:
+TestSnapshotSharingDonorReceivesSibling (traces 033057b5a4a9f6e2ba23825a55ad404e,
+82d214a08a8b3bfe76797f8e02c6f918 on #14231) and
+TestPartImportChainRefCleanupHandoff/collect (9ca0a7ba23b7eed4068117682bce68bc
+on #14241). #14231's spent test-base rerun stays red until #14266 merges
+and #14231 rebases.
