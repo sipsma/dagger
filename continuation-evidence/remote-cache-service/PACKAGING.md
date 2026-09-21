@@ -4059,3 +4059,53 @@ issued (dagger cloud -W github.com/dagger/dagger@02ce73c6f5 rerun --check
 test-split:test-container). The cross-PR script leaves this check alone
 by design (no v6 line) and reruns the two cross-PR errors once the run
 settles.
+#14241 at 02ce73c6f5, first run settled 21:01:16Z. Outcomes read from the
+API and the logs:
+- test-split:test-container: the first failure (trace
+  456101143124aa0a47a843cca8855480) and the delegated rerun
+  (b5e18d0b1d3496ad19a03a341489e85d) both fail in
+  TestContainer/TestSystemGoProxy at its `go test -c -o ./test
+  ./core/integration` step with a Go module proxy read error
+  ("read https://proxy.golang.org/golang.org/x/text/@v/v0.40.0.zip:
+  stream error: stream ID 247; INTERNAL_ERROR; received from peer", then
+  x/sys v0.47.0 in the rerun; whole-trace logs
+  /tmp/pkg-ci-14241-test-container-{4561,b5e1}-trace.log). The Go module
+  proxy fault seen on main earlier; the delegated rerun is spent, so a
+  further rerun is the coordinator's call.
+- test-split:test-call-and-shell (60894cd4da4691d63f69e062984cbd89):
+  TestDaggerCMD/TestShellAutocomplete fails loading ./wolfi's dependency
+  "alpine": its runtime build `go build -ldflags -s -w -o /runtime .`
+  exited 1 while `go: downloading` lines were still being emitted; the
+  compiler's output is in neither the check log nor the whole trace.
+  modules/, sdk/go/ and internal/cmd/dagger/ are untouched by #14241;
+  the check passed on main's last five first-parent heads and on #14263,
+  #14264 and #14266. Delegated rerun issued 20:56Z.
+- test-split:test-base (2b4f5359bcad00b452da3c061f1f16b0): one failure,
+  TestSnapshotSharingDonorReceivesSibling, the flake #14266 fixes; left
+  red as expected until #14266 merges and #14241 rebases.
+- cross-PR script: reran test-cache-persistence (21:01:49Z) and
+  test-module-runtimes (21:02:27Z); left test-base alone.
+Test-base cancellations on the main PRs (all "Cancelled - max execution
+time exceeded"; ok counts are per-package result lines; #14248's passing
+run ecea4012b521687106651b4bef236860 has 64):
+- #14263 (62e596517f): 19b1e6d79e62f6a1c70867eaa6e93449 (19:51Z) and the
+  rerun 06a534110692958585264cb98383ec4a (20:54Z): 66 ok, no FAIL,
+  core/integration ok in 754 s and 949 s; the dagql package has no
+  result line in either. Rerun spent.
+- #14264 (381e345d02): 714ab6d7e778d952d07cab4c006ee143 was the cross-PR
+  fault (40.9 s); bf3ae1cef470acfd7d748dcc283cf12e cancelled with 66 ok,
+  no FAIL, dagql missing; ee23f81f00e5c96d9c266e7ce5b04e5b cancelled with
+  66 ok, dagql ok, core/integration unfinished and one FAIL,
+  TestDirectory/TestSearch/binary_files_are_skipped. Reruns spent.
+- #14266 (2204b4069a): f7af35d5ab303806ef0e7a0421ec207a cancelled with
+  65 ok, dagql and core/integration unfinished, and one FAIL,
+  TestRemoteCacheTransferSuite/TestSharedHostDirectoryLifetime (61 s).
+  Not rerun by me: a failing test, and the suite is stack code.
+dagql never finishing in four of the five cancelled runs: the package's
+waits on main are bounded (10 s selects with t.Fatal), so a hang would
+be inside the cache under test; locally on 62e596517f the package is ok
+in 2.736 s at -timeout 60s (/tmp/pkg-e9-dagql-hangcheck.{head,log},
+dirty=0). A ten-iteration loop on main b831de5b6a (six plain, four at
+GOMAXPROCS=2, -timeout 60s each, detached worktree /tmp/pkg-main-b831,
+head file /tmp/pkg-main-dagql-loop.head) is running; log
+/tmp/pkg-main-dagql-loop.log.
