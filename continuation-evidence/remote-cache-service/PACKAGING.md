@@ -4192,3 +4192,8 @@ works while a turn is busy); my retries stopped at eight. Watch state at
 reruns after max-execution cancellations); #14266 now APPROVED with its
 test-base red (cancelled at max execution with the :129 failure), so the
 merge rule does not admit it yet.
+#14263 (62e596517f) APPROVED at about 21:25Z; test-base red (two
+max-execution cancellations, no failing test, dagql without a result
+line both times: the hang reproduced on main). Reruns spent; the merge
+rule does not admit it as written, since the red check is not
+registry-caused. Reported for the coordinator's call.
