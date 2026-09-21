@@ -4018,7 +4018,8 @@ Reviewer approved the slop-pass line 2376a78c3d → dbf28bec46 →
 engine evidence keeps its bfa1452ab0 / final-tip GitTrees provenance).
 Coordinator pushes with lease on 40a0eee986.
 #14241 pushed by the coordinator at 02ce73c6f5 (84 commits, lease on
-40a0eee986). Description updated by REST PATCH (read back identical): a
+40a0eee986). Description updated by REST PATCH (read back identical apart from
+GitHub's trailing newline): a
 "Follow-ups" section naming the two cleanups (barrier helpers; closed
 observation kinds with the gate-first entry point) with their runs, and
 the validation numbers refreshed to the post-rebase head (1513 top-level
