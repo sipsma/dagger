@@ -4481,3 +4481,13 @@ chain-cleanup fixes, the admitted-chain barrier and lock-boundary sweep
 #14270 (the :129 lifetime fix; test-base rerun running) and #14271 (the
 shutdown bounds; run started). #14231 and #14241 rebase once after
 #14270 merges (and #14271 for #14241's e36109aac3 reconciliation).
+#14231 rebased onto main f094ab5580 (coordinator: its only red check was
+the sibling flake fixed in #14266): `git rebase --onto upstream/main
+b831de5b6a` in /tmp/pkg-main-gs, no conflict; range-diff shows both
+commits unchanged (90bf485b11 = b9bfbcd28c "server: return shutdown
+errors from GracefulStop", aac0c40269 = b78f5048b1 "server: let the
+shutdown closing goroutine finish after a timeout"). engine/server once
+at 60 s on b78f5048b1, head file first, dirty=0: 162 PASS, 0 FAIL, no
+SKIP, ok 4.713s (/tmp/pkg-14231-r4-engine-server.{head,log}). Pushed
+with lease on aac0c40269 to upstream sipsma/engine-server-graceful-stop-errors;
+#14231 head b78f5048b1, two commits.
