@@ -3976,3 +3976,7 @@ RemoteFallback 107.46s; `ok core/integration 135.555s`. Both follow-ups
 #14231 test-base rerun (82d214a08a8b3bfe): TestSnapshotSharingDonorReceivesSibling
 failed again identically (two of two on aac0c40269); delegated rerun
 spent; escalated as reproducible on main's merged sharing code.
+#14264 test-base cross-PR rerun ended "Cancelled - max execution time
+exceeded" at 20:29Z (no failing test; core/integration had no result at
+the limit, as on #14051 earlier); one rerun under the max-execution
+delegation. #14263's test-base rerun still pending.
