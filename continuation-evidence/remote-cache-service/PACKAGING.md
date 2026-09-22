@@ -5533,3 +5533,23 @@ shykes; 7 files, +73 −98, including TestTelemetry golden testdata), not
 one of ours. #14280 and #14293 stay mergeable; both still need only an
 approval. The watches cover 0a5111b96b's CI; any non-network failure
 there goes to the coordinator, not rerun.
+Merged under the rule, one at a time, heads pinned, plain merges:
+- #14280 (sipsma/ci-diagnostics-2, head ad41b6afdd) after vito (MEMBER)
+  approved at 20:38:01Z: 84 of 84 statuses success, check-runs success
+  or skipped, merge state CLEAN; merge commit a49ff49e2a on top of
+  0a5111b96b.
+- #14293 (sipsma/main-test-stability-4, head 228f9ac710) after vito
+  (MEMBER) approved at 20:38:14Z: 84 of 84 success, check-runs success
+  or skipped; mergeability recomputed after #14280's merge and read
+  MERGEABLE/CLEAN before merging; merge commit cf26061a6c.
+Main first-parent: 232a80cbd3 → 0a5111b96b (#14288) → a49ff49e2a
+(#14280) → cf26061a6c (#14293). The fifteenth item's fix is on main.
+With #14280 merged, the cross-PR source fault item closes fully
+("mechanism proven, mitigated; six seeding routes unproven"; goindex=0
+on main): any new `util/fsxutil/gitignore_matcher.go` "no required
+module provides package github.com/go-git/go-git/v6/..." build error
+from here on is a real finding, not network class. Verbose runner and
+shard dumps are on main, opt-in behind the shards' `diagnostics`
+switch, off by default; the twenty-minute stall alert stays the
+live-dump trigger. No open PRs of ours remain; the watches continue on
+main heads.
