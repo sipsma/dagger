@@ -6077,3 +6077,4 @@ no E cohort, all candidate waits gone). The earlier true
 package-timeout cases (4aa8ecde15 test-workspaces, f8d83) stay
 separate. Report /tmp/stall-d9f02-report.md and
 continuation-evidence/ci-stall-d9f02/report.md.
+Capacity freeze OFF at ~22:52Z (no capacity failure since 22:21:40Z). Current head fc414b021c is 84 of 84 green, so no gate to restart; gated single reruns resume only on the current head, and the gate scripts re-check the freeze before issuing.
