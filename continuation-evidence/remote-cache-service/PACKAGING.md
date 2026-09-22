@@ -5996,3 +5996,19 @@ runnable goroutines; the investigator is analyzing and taking a second
 capture; the analyst asked to scan the dev section for an E lock holder
 and contenders (forwarded 22:3xZ). Cloud log for the trace still 0
 bytes. Timeline: steer 22:29:52Z, dev dump 22:30:17Z.
+d9f02 second sample at 22:31:24Z succeeded: dev goroutines 3902 -> 3344
+over 67 s; all six first-sample candidate goroutines gone (both
+snapshot-owner Mutex waits, the git lock, schema reconcile, the
+bbolt/archive bodies); no E repair in either sample. Clear progress,
+no frozen E. Host /proc/stat during the second capture (22:31:23-25):
+steal 297/2788 = 10.65% (short window only); PSI cpu avg60 63.63%;
+load 78.8. Cloud span fetch works despite the empty logs: the dev
+service exec (span 3517c495e1c53f1a) started 22:20:14.633Z, 13m56s
+after the 22:06:18Z check start; the test package from 22:20:45Z.
+Dumps /tmp/stall-d9f02-live-dump.log and -dump2.log. Full timing being
+parsed by the investigator.
+Note for the alert timing: on this run the dev engine started ~14 min
+after check start, so a 15-minute alert from check start lands about a
+minute into the package; the package's own 20-minute timeout would run
+to ~22:40:45Z. Check start is a poor proxy for package start when the
+build is slow.
