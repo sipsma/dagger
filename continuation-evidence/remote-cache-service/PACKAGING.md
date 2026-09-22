@@ -5328,3 +5328,15 @@ github.com/dagger/dagger@232a80cbd3… rerun --check
 test-split:test-cache-persistence`); trace render saved at
 /tmp/pkg-ci-main-232a-cache-persistence-trace.txt. No further rerun
 for this cause on this head.
+Plan change on #14280 (Erik, relayed by the coordinator): the verbose
+otelgotest runner and the shard goroutine dumps become opt-in, default
+off everywhere, including test-base's 15m/25m dump watchdog from
+#14275; the goindex=0 commit stays. The investigator adds a follow-up
+commit; the coordinator pushes it and re-requests review. #14280's
+head moves, so its checks start over on the new head; the merge rule
+applies to that head (every check green except the registry-exempt
+pair while the fault persists, plus a maintainer approval), pinned to
+the new sha. The twenty-minute stall alert on test-base and
+test-workspaces stays armed as the live-dump trigger, since CI-side
+dumps will be off by default. The cross-PR item still closes fully on
+#14280's merge.
