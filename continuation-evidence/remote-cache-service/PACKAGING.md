@@ -5960,3 +5960,28 @@ instance 4cgan459pcfq2: host PID 1875 goroutine dump succeeded (status
 22:22:32Z, 28 s before the capture, consistent with the dev engine
 having exited with the check; the investigator is confirming
 trace→instance and terminal state. Auth/keychain refresh succeeded.
+CLOSED: f8d83 (main 57a1eadc93 test-base, trace
+f8d83fec34f492e164723dca4c7792fc): "integration package timeout, no
+attribution (quiet runner dropped the panic; dev engine gone before
+capture), steal 9–28%". Investigator's final: correct instance by
+direct trace lookup (e531dbf6…, 4cgan459pcfq2, created 21:45:54Z);
+22:23:00Z host PID 1875 dump, 353 goroutines, no dev engine; capture 28 s
+after the 22:22:32Z terminal status; steal 22:07-22:21 9.1-28.3%, lower
+than 53db, which does not carry over; the host sample shows no
+equivalence-class lock waiters; report /tmp/stall-f8d83-capture-report.md,
+dump /tmp/stall-f8d83-live-dump.log (.err). No sudo, remote writes,
+lifecycle actions or reruns.
+STALL ALERT CHANGE (coordinator): the alert reached the investigator at
+22:22Z for a check started 21:55Z and the package timeout ended it at
+22:22:32Z. The alert now fires at 15 minutes from check start (was 20)
+with the resolved fields, polling every 60 s (was 120), and logs its own
+latency: each ALERT line carries check_start, alert_at and latency, and
+/tmp/pkg-stall-alerts.log collects the alerts plus STEER lines
+(/tmp/pkg-steer-log.sh) giving check start -> steer sent. Alerted
+checks persist in /tmp/pkg-stall-alerted.txt. Script
+/tmp/pkg-watch-stall2.sh. Order on an alert: steer the investigator
+first with the resolved fields, steal reading afterwards.
+Live now: main fc414b021c (current head) test-base, check start
+22:06:18Z; old alert fired at ~21 min; steered 22:29:52Z (latency
+23m34s, about 2 min of it spent fetching the log before steering; the
+Cloud log was empty, no steal reading).
