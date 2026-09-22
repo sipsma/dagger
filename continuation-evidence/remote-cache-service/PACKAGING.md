@@ -4695,3 +4695,25 @@ run (/tmp/pkg-testbase-expected-packages.txt), and steer the
 investigator with the trace id. The resolver's --pr form did not match
 "test-base" by name (it filters on a different check listing); the
 cloud_url form is what the watch uses.
+Erik's rule: no worktrees under /tmp; managed Tailcall worktrees only.
+Inventory: every /tmp checkout was a worktree of the Tailcall bare repo
+(shared objects), none a separate clone. Removed this turn (branches
+kept in the repo): pkg-14224-{594,9db,b63}, pkg-14266-lint, pkg-14271,
+pkg-a0, pkg-a1, pkg-a2, pkg-a3-line, pkg-a4, pkg-a5, pkg-a6,
+pkg-a6-scratch, pkg-e-main, pkg-e12, pkg-e15, pkg-e15-a3, pkg-e9,
+pkg-main-b831, pkg-main-gs, pkg-r-14050, pkg-r-14051, pkg-r-14093,
+pkg-r-14220, pkg-r-14224, pkg-r-14228, pkg-r-14229, pkg-r-14233,
+pkg-r-14235, and pkg-a3 (the fetch worktree; its role moves to the
+primary session worktree, which has the upstream remote; both monitors
+re-armed on it). Leftovers saved before removal:
+/tmp/pkg-r-14051-leftover.{status,patch} (an abandoned E12 cherry-pick
+with conflicts, superseded by #14264) and
+/tmp/pkg-a6-scratch-leftover.patch (one test file). Still under /tmp,
+pending managed replacements that the coordinator creates once this
+turn ends (update_agent_worktrees refuses placement changes during my
+own turn): pkg-evidence (stack-integrator-evidence), pkg-stab
+(sipsma/main-test-stability d331827ebc), pkg-ci-diag
+(sipsma/ci-hang-diagnostics 1dc356b033), pkg-r-a6 (pkg/a6-slop
+1426eb3e65, frozen); each is removed after its managed tip is verified.
+Not mine, left alone: /tmp/pr14229-capture-guard, /tmp/pr14229-inline-hold,
+/tmp/pr14229-scratch-release, /tmp/pr14231-sibling-lineage.
