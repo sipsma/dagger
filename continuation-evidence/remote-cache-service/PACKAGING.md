@@ -4968,3 +4968,12 @@ held until an unrelated head shows the check passing again. Its
 test-base was not yet reported at 03:08Z (late reporting, as on
 f094ab5580). Main 0a2d84a8ba fully green (test-base 17m23s);
 6e6a60b4a2's test-base passed in 12m33s.
+#14271 approved by shykes (MEMBER) at 03:08:06Z with every check green;
+merged at 03:09Z under the merge rule, plain merge, head pinned
+949d3ea685 (three commits: the bounded shutdown steps and the two
+graceful-stop commits folded from #14231), main first-parent 5832caf8fe
+("Merge pull request #14271 from dagger/sipsma/remote-cache-harness-bounded-shutdown").
+Main: … 50164dc9db → 5832caf8fe. No open watched PR remains; the
+last stack PR #14241 stays frozen. The golang:test-all gate on
+50164dc9db now sees main moved and will stand down. 21b15a1db5's
+test-base passed in 13m9s.
