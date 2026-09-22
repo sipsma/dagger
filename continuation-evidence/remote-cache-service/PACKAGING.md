@@ -5018,3 +5018,8 @@ fast-forwarded to a895ad02d6; go vet ./dagql ok there. Analyst's
 correction recorded: line 1127 is the receiver ownership assertion
 (the donor assertion at 1126 passed); my hand-off had named the donor
 line.
+Main 5832caf8fe (#14271's merge) fully green (82 of 82 reported),
+test-base included. Main heads since the hang fix, all green at their
+final read except the registry-exempt provision/K3S pair on the
+superseded 21b15a1db5, 6e6a60b4a2 and 50164dc9db, and 50164dc9db's
+one-off TestSnapshotSharingCancelDuringPreparation (fix on #14278).
