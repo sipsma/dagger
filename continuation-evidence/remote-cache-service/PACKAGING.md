@@ -5200,3 +5200,17 @@ twenty-minute watch re-armed with it); the investigator and the analyst
 were told by steer. Skill fix candidate for the dagger.io follow-up:
 the setup script should write its config atomically (write to a temp
 file, rename).
+#14279's third module-runtimes rerun (ruling) passed; its only red is
+test-workspaces (the shard stall, non-network), so the merge rule does
+not admit it as written; the coordinator's call. Investigator's
+narrowed candidate with the analyst: the outer Go build shares a Go
+import-index cache keyed on stat, not contents; normalized git mtimes
+plus a v5→v6 edit of the same file size can yield a stale import
+without wrong bytes on disk. They asked for a live victim engine to
+inspect GOCACHE/snapshot files read-only: none is live (b3daa210…, a
+proven victim via a51b7f8a…, was running at 06:03Z and suspended by
+06:12Z); a victim-engine start watch was offered. Workspace timeout
+dump: root cause reproduced by the investigator, otelgotest's quiet
+mode buffers per test and drops the buffer on a package-only failure
+without flushing (the JSON carries the dump; quiet drops it, verbose
+preserves it); -v mitigation suggested to the coordinator.
