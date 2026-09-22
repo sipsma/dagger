@@ -4794,3 +4794,8 @@ and does not cover that path; finding sent to the investigator). The
 fast-forward above is undone: sipsma/ci-hang-diagnostics is back at
 1dc356b033 in the managed worktree (origin unchanged at 1dc356b033); the
 watchdog commit rejoins after its follow-up is approved.
+CI-stall continuation (tc-44f37aada8d1765ad218accd564decb7): dump script
+committed 56db5d903 in their managed dagger.io secondary; live proof
+waits only on a target; the next test-base start goes to this agent
+id, not the earlier investigator id. Start watch (all open PR heads
+plus main, one-minute poll) is the source; no rerun.
