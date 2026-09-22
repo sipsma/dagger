@@ -5269,3 +5269,9 @@ check 47c93094-f08f-4f53-9ecc-0b8873a622fd; steered to the investigator
 at once with the note that #14280 carries the goindex=0 mitigation.
 #14280's test-workspaces passed in 3m26s under the every-shard
 watchdog wiring.
+Second victim-engine hit at 06:21:33Z, running: #14280's
+test-cache-persistence on engine 86571086… (one of the six engines with
+no #14256 run; carried #14241's two faults on 09-21 20:42Z): instance
+7hafma6m9as3i created 06:21:25Z, trace 84a9a7c57847f24148eb222a9e8648b2,
+check a7e04b61-325b-4d34-8939-42f7131b2b01; steered to the investigator
+as a live unmatched-engine target.
