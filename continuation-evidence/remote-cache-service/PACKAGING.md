@@ -5907,3 +5907,8 @@ main fc414b021c (current): golang:test-all errored 10m40s at 22:17:04Z
 default_daemonset, registry.dagger.io engine:main manifest 500s (105
 lines); one rerun gated on recovery evidence (log
 /tmp/pkg-main-fc41-golang-gate.log).
+main fc414b021c (current): test-split:test-module-runtimes errored at
+22:21:40Z after 15m18s (trace 3370ac7332e1ea89d7495281c7ef9033), empty
+check log: "Dagger Cloud Engine capacity did not become available
+within 15 minutes"; no code ran. Capacity class is not covered by the
+rerun rulings; not rerun; ruling asked of the coordinator.
