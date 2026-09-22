@@ -5291,3 +5291,7 @@ would not establish the original source bytes anyway. Note for the
 watch: the instances live only for the check's duration (a
 cache-persistence run's instance was gone within about nine minutes),
 so a capture needs to start within minutes of the HIT.
+Coordinator: victim-engine start watch disarmed (low yield: instances
+are gone within minutes); the general watch and the twenty-minute
+stall alert on test-base and test-workspaces stay. The cross-PR item
+closes on #14280's merge as recorded.
