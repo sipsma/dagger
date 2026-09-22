@@ -6112,3 +6112,14 @@ examining the second sample's long waits. The dev-span alert gave the
 first capture 13 minutes into the dev engine's life and ~9.75 minutes
 before the package timeout.
 c3dec (2a78967d5d test-base) SUCCEEDED at 23:29:20Z, 16m32s, about a minute after the second live dump: a slow run that finished, not a hang. 2a78967d5d now 83 of 84, test-interface (proxy) the only red, its rerun gated.
+CLOSED: c3dec (main 2a78967d5d test-base) SUCCESS, Cloud-verified:
+started 23:12:35.409532Z, ended 23:29:07.709349Z (16m32.300s); GitHub
+posted 23:29:20Z. Two exact-trace dev dumps (23:27:14Z, 23:28:19Z):
+goroutines 1120 -> 1921, mutex waiters 1 -> 0, all 50 old Cache
+goroutines gone and 122 new; no E repair or cohort. Host 64 s steal
+0.1329%, busy 89%, high PSI but low per-minute steal. The analyst's
+source-only resize-forwarder hazard is recorded separately (the
+persistent two sends are not linked to test completion; no fix). No
+engine-global stall established; the earlier true package timeouts stay
+separate. Reports /tmp/stall-c3dec-report.md and
+continuation-evidence/ci-stall-c3dec/report.md.
