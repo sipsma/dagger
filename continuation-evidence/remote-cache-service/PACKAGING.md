@@ -5234,3 +5234,14 @@ investigator at 06:15Z: same engine as the stalled run
 2d96b3c616afe1c45f41bdbeeb9a1c9a (stall) and instances hpltpimmljecc
 (05:40Z, the stall's) and v3o0o8cte2c6i (newer); steered with the note
 that the shard normally ends by about four minutes.
+Investigator (06:16Z): captured #14279's workspaces rerun live at
+06:16:16Z (both dumps HTTP 0, trace-matched dev engine). Correction to
+my resolution: the exact trace 0a6b3bb94855d00c4176db06304473b7
+resolves to engine 7665a73c-4ca8-4716-aeac-29f9e2ba791c (instance
+v3o0o8cte2c6i), not the stalled run's 3ae460e1; the check-URL lookup
+mixes the old and new runs' engines, so a direct trace_id lookup is
+necessary for reruns. Dumps at /tmp/workspace-rerun-0a6b-live-dumps.log
+(host PID 2379, lines 6–3677; dev PID 17916, lines 3679–22568); they
+are inspecting cache-wait frames, not yet claiming a stall. Noted:
+7665a73c ran three #14256 checks on 09-20 09:40–09:41Z (from the
+mapping), so this rerun sits on a #14256-touched engine.
