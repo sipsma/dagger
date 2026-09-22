@@ -4905,3 +4905,6 @@ after review (rolling PR).
 test-base passed on the first run of this head, the run that carried
 the investigator's live dump target). Awaiting a maintainer approval
 under the merge rule (dev-module files only).
+#14276 at a9dc609694 fully green on its first run (test-base trace
+f7a360591f791ed5808f6a589803ab69, the investigator's second live
+target). Awaiting a maintainer approval under the merge rule.
