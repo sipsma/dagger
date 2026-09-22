@@ -4681,3 +4681,17 @@ New watch trigger (highest priority): when any test-base run on main or
 #14271 passes twenty minutes with a package still unfinished, steer the
 investigator immediately with the trace id; in-progress runs polled at
 two-minute intervals for package completion.
+Twenty-minute watch armed (Monitor, two-minute poll over main's heads
+from ee26234869 and #14271's head): for the latest test-base status of
+each head, a pending state at twenty minutes or more resolves the
+check's Cloud URL through the Namespace skill
+(dagger-namespace-resolve.sh --lookup-type cloud_url), which returns
+tenant_id, instance_id, engine_id, engine_status, check_ids and
+trace_ids (proven here on #14271's test-base: trace
+31542169118d685650f4c6425996cf95, tenant_2qf1mch9ubs72, engine running),
+and emits an ALERT; on it I fetch the run's logs so far by trace, list
+the packages without a result line against the 67 of the latest passing
+run (/tmp/pkg-testbase-expected-packages.txt), and steer the
+investigator with the trace id. The resolver's --pr form did not match
+"test-base" by name (it filters on a different check listing); the
+cloud_url form is what the watch uses.
