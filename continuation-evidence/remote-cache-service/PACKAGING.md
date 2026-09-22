@@ -4895,3 +4895,9 @@ publishes now. PR body drafted at
 continuation-evidence/remote-cache-service/pr-bodies/main-test-stability.md
 (one section per fix with the mechanism and evidence, and the standing
 sentence where the fix does not prove the original trace's cause).
+#14277 published by the coordinator (sipsma/main-test-stability at
+b1668ee5af on ee26234869, three test commits; body from the draft with
+the checkout-reuse trace expanded to 07b546ec4257e74448d37914dd9013ef
+and the "prefix" wording dropped, mirrored in the draft here). Added to
+the watch and the merge rule; items 5–7 land on it as follow-up commits
+after review (rolling PR).

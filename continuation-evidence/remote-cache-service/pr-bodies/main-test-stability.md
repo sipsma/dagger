@@ -6,7 +6,7 @@ Three test-only fixes for tests that failed once each in CI on main or on PRs th
 
 `TestWorkspaceGitCheckoutReuse/discard=false/concurrent` expects exactly one retained materialization, but the cache deliberately permits a redundant execution when another call finishes between the lookup and the singleflight check. The test now holds the fixture backend until every selector has reached synctest quiescence and releases it only then, so the callers overlap by construction; each cache and its result channels stay in one synctest scope, the backend gate and worker joins are bounded, and callers are released and cancelled before cleanup joins them. The exact-one and object-identity assertions are unchanged.
 
-Evidence: focused `core/schema` `-race -count=50 -timeout 120s` passes before and after the change, 50 parents and 300 subcases each. The recorded failure (test-base on #14051, trace prefix `07b546ec4257e744`, `workspace_test.go:148` "materialize the retained checkout only once: expected 1, actual 2") did not reproduce on the baseline; the diagnosis follows the source contract, so this does not prove the original trace's exact cause.
+Evidence: focused `core/schema` `-race -count=50 -timeout 120s` passes before and after the change, 50 parents and 300 subcases each. The recorded failure (test-base on #14051, trace `07b546ec4257e74448d37914dd9013ef`, `workspace_test.go:148` "materialize the retained checkout only once: expected 1, actual 2") did not reproduce on the baseline; the diagnosis follows the source contract, so this does not prove the original trace's exact cause.
 
 ## dagger up: name the module-loading stage and bound it
 
