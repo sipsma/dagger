@@ -6060,3 +6060,11 @@ enforced at :494; the 12-minute queue is outside it. At 22:39Z the
 trace is ~21 min old and core/integration ~15m45s. (Consistent with
 0a5111b96b's test-base "max execution time" at 30m12s of trace time.)
 I report d9f02's terminal outcome to the investigator when it lands.
+CLOSED: d9f02 (main fc414b021c test-base) SUCCEEDED at 22:43:14Z,
+"Succeeded in 36m47s" from the GitHub pending time; ~25 min of trace
+time from the 22:18:16.5Z root span, of which ~12 min before it was
+capacity queueing. core/integration finished within its 20 m package
+timeout. The two live dumps (22:30:17Z, 22:31:24Z) caught a slow,
+progressing run on a loaded host (PSI cpu avg60 63.6%, load 78.8), not
+a stall. Reported to the investigator. The externally issued reruns of
+golang:test-all and test-provision (22:33:40Z) also passed.
