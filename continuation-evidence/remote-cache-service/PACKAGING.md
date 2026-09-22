@@ -5316,3 +5316,15 @@ with the head pinned; main is now 232a80cbd3 (fourteenth item's fix,
 main). The general watch and the twenty-minute stall alert now cover
 232a80cbd3. #14280 (29a6ff115a) still awaits an approval; red only on
 the exempt registry pair.
+main 232a80cbd3: test-split:test-cache-persistence errored in 55.8s
+(trace d4bd410706048160ca55b367383b2afe) before any test ran: the
+test-split module load failed while building its "notify" dependency,
+Go module proxy `golang.org/x/text@v0.35.0.zip` "stream error: stream
+ID 117; INTERNAL_ERROR; received from peer" (three lines from
+x/net idna; the rest are go downloads). Network class (Go module
+proxy INTERNAL_ERROR); the only red status on the head at 17:4xZ. One
+rerun issued at ~17:45Z (`dagger cloud -W
+github.com/dagger/dagger@232a80cbd3… rerun --check
+test-split:test-cache-persistence`); trace render saved at
+/tmp/pkg-ci-main-232a-cache-persistence-trace.txt. No further rerun
+for this cause on this head.
