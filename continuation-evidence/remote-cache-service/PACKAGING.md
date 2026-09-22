@@ -5119,3 +5119,7 @@ cb0082f1aa097829451b13a08e4ce8b9). The coordinator publishes it now.
 #14279 published by the coordinator (sipsma/main-test-stability-3 at
 0aa68a3c9c on 34ad873d78, the fourteenth-item sweep): added to the watch
 and the merge rule; run started.
+#14279 at 0aa68a3c9c, first run: test-split:test-module-runtimes errored
+at 40.7 s (trace 293806d7cad47bd0b953d6d652742997) on the cross-PR
+go-git v6 build fault (four v6 lines): network class, one rerun issued
+05:42Z; the rest of the run in progress, nothing else red.
