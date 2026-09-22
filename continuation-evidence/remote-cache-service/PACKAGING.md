@@ -5572,3 +5572,21 @@ stream error. Network class; no rerun, same reason as the docs check
 Log /tmp/pkg-ci-main-0a51-cache-persistence.log. test-workspaces
 succeeded on 0a5111b96b (9m54s), a49ff49e2a (7m56s) and cf26061a6c
 (9m45s).
+main cf26061a6c (current head): test-split:test-provision errored in
+11m15s at 20:51:35Z (trace 7fe73ed7f852c9b2e31b7ee1d755e8f7). Six leaf
+failures, docker and podman image-driver subtests. Four are the
+registry: `registry.dagger.io/v2/engine/manifests/v0.16.1` (and
+v0.16.0) HEAD "429 Too Many Requests" (16 such lines; provision_test.go
+:82, :210, :218, :248): TestImageDriver/docker/specified_image,
+TestImageDriverGarbageCollectEngines/podman/cleanup and docker/
+{cleanup,no_cleanup}. Two, TestImageDriver/docker/{default_image,
+current_image} (:69 via :260, :92), failed one second after
+specified_image with "failed to get snapshot … failed to receive
+message: rpc error: code = Canceled desc = context canceled" during the
+host-directory upload; a cascade from the sibling's failure is likely
+but not proven. No proxy errors, no 500s. Registry rate limit, network
+class; one rerun, gated on recovery evidence (an open-PR head or newer
+main head green on test-provision after 20:51:35Z; skip if main moves),
+log /tmp/pkg-main-cf26-provision-gate.log. If the two canceled
+subtests fail again without a 429, they come to the coordinator as a
+finding. Log /tmp/pkg-ci-main-cf26-provision.log.
