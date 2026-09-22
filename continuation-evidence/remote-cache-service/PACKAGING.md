@@ -5140,3 +5140,32 @@ continuation-evidence/remote-cache-service/cross-pr-source-fault-traces.md
 (19 traces: 13 verified by the v6 marker in their fetched logs, 6 from
 the first burst listed on the coordinator's ruling since their logs now
 fetch empty).
+Erik's correction: the cross-PR source fault is ours to root-cause (a
+cache-correctness question in our engines); the investigator has the
+traces/machines, the analyst the code. My part: engine id and Namespace
+instance for each of the 19 faulting traces and for every check run of
+#14256 in the same windows, and whether faulting runs share an engine
+or instance with a #14256 run shortly before them. Facts so far: #14256
+(fix/go-git-worktreeconfig, single commit fe5dadece4) is CLOSED and its
+183 statuses (91 with trace ids) all ran 2026-09-20 09:36–09:46Z, about
+34 hours before the first faulting run (09-21 19:39Z); its branch no
+longer exists on upstream; no other open PR adds go-git/v6 to go.mod;
+the only other PRs matching "go-git v6" are closed dependabot bumps
+from March–July. So any shared-engine explanation is a long-lived
+engine or instance cache, not a run just before.
+Resolver outage: the trace_id lookups first came back unresolved
+because ~/.aws/config had been corrupted by concurrent writes (a
+truncated profile block "gion = us-east-1" and a duplicated
+[sso-session dagger] section, mtime 06:02:38Z); backed up to
+/tmp/pkg-aws-config.bak.* and rewritten to one profile and one session
+block (parses; same values). The resolution now runs sequentially
+(/tmp/pkg-resolve-crosspr.sh → /tmp/pkg-crosspr-resolved.jsonl,
+/tmp/pkg-14256-resolved.jsonl).
+#14279 at 0aa68a3c9c: test-split:test-workspaces errored at 23m4s
+(trace 2d96b3c616afe1c45f41bdbeeb9a1c9a): "FAIL core/integration
+1200.132s", the 20-minute package timeout from #14275 (now on main)
+firing, where the shard normally takes 3m44s–4m30s on recent main
+heads; the log carries no "--- FAIL", no go-test timeout panic text and
+no dump (the dump wiring covers test-base only); #14279 touches no
+workspace test. Non-network: reported. The third module-runtimes rerun
+was issued at 06:03Z under the ruling.
