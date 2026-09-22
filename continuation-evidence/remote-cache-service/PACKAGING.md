@@ -5912,3 +5912,22 @@ main fc414b021c (current): test-split:test-module-runtimes errored at
 check log: "Dagger Cloud Engine capacity did not become available
 within 15 minutes"; no code ran. Capacity class is not covered by the
 rerun rulings; not rerun; ruling asked of the coordinator.
+Coordinator rulings: (1) Dagger Cloud capacity failures ("capacity did
+not become available") are network class with the proxy-style gated
+rerun (one rerun per recovery window, on recovery evidence; skip if
+main moves): gate started for fc414b021c test-split:test-module-runtimes
+(since 22:21:40Z), log /tmp/pkg-main-fc41-module-runtimes-gate.log. (2)
+4aa8ecde15 test-workspaces 20m timeout: the runner's quiet mode dropped
+the panic; the opt-in diagnostics switch is off by design and the
+runner-side flush fix is the drafted otelgotest patch
+(/tmp/otelgotest-package-failure-draft.patch); no action on a
+superseded head. (3) the investigator is capturing 57a1eadc93 test-base
+live: AWS refresh works, the Namespace keychain is renewed, instance
+4cgan459pcfq2 describe succeeded, capture started ~22:22Z under flock -o
+with the approved script's remote portion (checks the actual
+traceparent), log /tmp/stall-f8d83-live-dump.log.
+main 57a1eadc93 test-base terminal: errored 22:22:32Z after 27m15s
+(trace f8d83fec34f492e164723dca4c7792fc): 66 of 67 packages ok;
+core/integration FAIL 1200.978s (20m Go test timeout); no panic text
+(quiet runner); no network signature; steal 9.1-19.9% per minute to the
+end. Superseded; not rerun; capture outcome from the investigator.
