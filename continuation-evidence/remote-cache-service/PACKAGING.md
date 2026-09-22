@@ -6111,3 +6111,4 @@ children: no CPU-starvation claim. The investigator and the analyst are
 examining the second sample's long waits. The dev-span alert gave the
 first capture 13 minutes into the dev engine's life and ~9.75 minutes
 before the package timeout.
+c3dec (2a78967d5d test-base) SUCCEEDED at 23:29:20Z, 16m32s, about a minute after the second live dump: a slow run that finished, not a hang. 2a78967d5d now 83 of 84, test-interface (proxy) the only red, its rerun gated.
