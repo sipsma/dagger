@@ -5116,3 +5116,6 @@ fourteenth-sharing-release.md: 200/200 and 50/200 before and after
 under -race, full dagql 527 PASS, no local reproduction; traces
 2d04e43aac9231230ffc91bce24ef41c, 7913f1583003bef7970ee6fe46d4f136,
 cb0082f1aa097829451b13a08e4ce8b9). The coordinator publishes it now.
+#14279 published by the coordinator (sipsma/main-test-stability-3 at
+0aa68a3c9c on 34ad873d78, the fourteenth-item sweep): added to the watch
+and the merge rule; run started.
