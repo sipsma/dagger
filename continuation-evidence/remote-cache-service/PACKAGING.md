@@ -4741,3 +4741,7 @@ script: sent by steer at 01:47Z, trace 9dbd98a2dc2981adae67ea7741990189
 instance a1u9ftghbrem0 created 01:36:02Z, engine
 e531dbf6-914e-4d55-9fcc-35fbc88a93b5 running), copied to the
 coordinator; no rerun.
+Main d6d005c55c fully green (83 of 83); its test-base (trace
+9dbd98a2dc2981adae67ea7741990189) finished before the twenty-minute
+mark. Main heads since the fix, all green: f094ab5580, d8a0336fdd,
+48706c4275, ee26234869, d6d005c55c.
