@@ -4657,3 +4657,8 @@ Main ee26234869 (#14265's merge) fully green at about 00:2xZ (83 of
 network-class rerun. Main heads since the fix: f094ab5580 (green after
 one idtui rerun; test-provision registry-exempt), d8a0336fdd green,
 48706c4275 green, ee26234869 green.
+#14271 at 949d3ea685 (the fold): every check green (test-base passed on
+the first run of this head, so the graceful-stop commits and the
+bounded shutdown steps ran clean together under -race; module-runtimes
+on its network-class rerun). Awaiting a maintainer approval under the
+merge rule.
