@@ -5250,3 +5250,14 @@ mapping), so this rerun sits on a #14256-touched engine.
 recur; #14279 at 0aa68a3c9c is fully green (module-runtimes on its
 third rerun, workspaces on the ruled rerun). Merges on a maintainer
 approval, head pinned.
+Investigator (06:2xZ): #14279's workspaces rerun confirmed PASS; the
+first dump at 06:16:16Z showed one runnable e-graph repair, one blocked
+mutex waiter and one runnable lock path, the second capture found the
+instance destroyed: no stall or livelock evidence. #14280 published by
+the coordinator (sipsma/ci-diagnostics-2 at 29a6ff115a on 34ad873d78:
+0f2069f850 verbose runner and watchdog on every shard, 29a6ff115a the
+goindex=0 mitigation in Go.Env from the analyst's import-index
+finding): added to the watch and the merge rule. Once it merges, the
+cross-PR fault entries close as "mechanism proven, mitigated" and any
+new occurrence of that error string is a real finding again, not
+network class. Stall and victim-engine watches kept as requested.
