@@ -5808,3 +5808,27 @@ ending "Error: exit status 1" at 27.5s; the log does not print the
 subtest name beside it, but it is the only failing subtest and the only
 proxy block. Proxy fault; no rerun (superseded). Log
 /tmp/pkg-ci-main-2e30-cli-engine.log.
+Classified with /tmp/pkg-classify.sh <sha> <context> (terminal status,
+failing leaf tests, network-signature counts, assertion errors):
+- main 4aa8ecde15 test-split:test-container errored 6m42s at 22:01:08Z
+  (trace be7296c37e9da4234737ee8a9eda4182): only
+  TestContainer/TestSystemGoProxy (proxy_test.go:575), in-test build on
+  `github.com/vito/midterm@v0.2.5.zip` proxy stream error. Proxy
+  fault; superseded; no rerun.
+- main 2e306f44ae test-split:test-provision errored 7m27s at 22:01:44Z
+  (trace a8fbe58dd224b98edf83491709e39ba6): eight docker/podman/nerdctl
+  subtests, each "failed to resolve image registry.dagger.io/engine:
+  v0.16.1 … 500 Internal Server Error" (32 lines). Registry fault;
+  superseded; no rerun.
+- main 2e306f44ae test-split:test-call-and-shell errored 7m30s at
+  22:01:51Z (trace 18b1ff4d8753032ac6497d1041c42a94): only
+  TestDaggerCMD/TestShellAutocomplete (shell_completion_test.go:106):
+  loading the extra module "./wolfi" failed because the "alpine"
+  dependency's constructor failed; the engine log shows the alpine
+  runtime build `go build -ldflags -s -w -o /runtime .` exited 1 at
+  22:01:30Z. The build's stderr is not in the check log, the span
+  render or the test's Cloud logs; no proxy/429/500 lines anywhere in
+  the log. UNATTRIBUTED (a proxy fault is plausible today but
+  unproven); not rerun; to the coordinator. The check succeeded on
+  cf26061a6c, 4aa8ecde15 and 57a1eadc93 (the latter two include
+  #14208), so it does not persist on later heads.
