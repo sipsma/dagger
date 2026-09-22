@@ -5431,3 +5431,9 @@ main 232a80cbd3 fully green, 84 of 84: the gated test-container rerun
 succeeded (in 4m35s trace 1a3eec563408b3e812c52b71246dfa62 ). First fully green main head in this record since the
 fourteenth item; both proxy-caused failures on it cleared on one rerun
 each.
+Correction to two guessed times above (read from the status API and the
+shell clock): the #14280 test-provision rerun was issued at about
+17:59:57Z (its pending status), not "~18:3xZ"; the three #14280 gates
+started at about 18:08Z, not "~18:1xZ". At 18:10:51Z #14280's test-base
+has been pending since 17:53:38Z (17 minutes); the stall alert fires at
+20 minutes if it is still pending.
