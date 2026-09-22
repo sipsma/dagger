@@ -5849,3 +5849,9 @@ TestSystemGoProxy (proxy_test.go:575) and TestSystemProxies/auth
 1ac7c68153a8056a; one proxy stream error on
 `github.com/docker/docker@v28.5.2+incompatible.zip`. Proxy fault; no
 rerun.
+Main moved to fc414b021c (#14174, grouville/perf-prod-5, not ours;
+3 files, +62 −11). The 57a1eadc93 test-container gate skipped at
+22:05:34Z ("main moved"). General watch reworked
+(/tmp/pkg-watch-general3.sh): the newest main head reports every change
+in totals; superseded heads report only when their failed set changes;
+merged PRs drop out.
