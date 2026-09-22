@@ -5521,3 +5521,8 @@ from peer" (building engine/telemetry). Proxy fault, network class;
 under the ruling one rerun, gated on recovery evidence after 19:35:46Z
 (log /tmp/pkg-14293-golang-gate.log); exempt with traces if the proxy
 keeps failing. Log /tmp/pkg-ci-14293-golang-test-all.log.
+#14293 at 228f9ac710: test-base succeeded in 13m29s at 19:46:19Z (trace
+3bbcafae809a8a4b75314…), the first test-base with the fifteenth item's
+fix; the run settled at 83 of 84 with golang:test-all the only red. The
+golang:test-all gate met at 19:48:09Z (#14291 green at 19:37:39Z); the
+one rerun was issued at 19:48:11Z (merge-ref ea22361568).
