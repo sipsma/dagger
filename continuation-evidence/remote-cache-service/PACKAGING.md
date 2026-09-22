@@ -4901,3 +4901,7 @@ the checkout-reuse trace expanded to 07b546ec4257e74448d37914dd9013ef
 and the "prefix" wording dropped, mirrored in the draft here). Added to
 the watch and the merge rule; items 5–7 land on it as follow-up commits
 after review (rolling PR).
+#14275 at 067dd6cb56 fully green (the gosec follow-up cleared lint-all;
+test-base passed on the first run of this head, the run that carried
+the investigator's live dump target). Awaiting a maintainer approval
+under the merge rule (dev-module files only).
