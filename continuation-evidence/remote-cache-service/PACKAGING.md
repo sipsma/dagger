@@ -5340,3 +5340,16 @@ the new sha. The twenty-minute stall alert on test-base and
 test-workspaces stays armed as the live-dump trigger, since CI-side
 dumps will be off by default. The cross-PR item still closes fully on
 #14280's merge.
+main 232a80cbd3: test-split:test-container errored in 6m16s (trace
+10c8fd00df53b7b170716f6205bb00c7). One failing subtest,
+TestContainer/TestSystemGoProxy (proxy_test.go:575): the in-test `go
+test -c ./core/integration` failed on the Go module proxy,
+`github.com/vito/midterm@v0.2.5.zip` "stream error: stream ID 283;
+INTERNAL_ERROR; received from peer" ([setup failed]). Same proxy fault
+as the cache-persistence load failure on this head. Network class; the
+TestSystemGoProxy gate applies (rerun once when an unrelated open-PR
+head or newer main head shows test-split:test-container green after
+17:43:38Z; skip if main moves): started at ~17:5xZ, log
+/tmp/pkg-main-232a-container-gate.log; full log
+/tmp/pkg-ci-main-232a-test-container.log. The cache-persistence rerun
+is still pending (since 17:39:17Z).
