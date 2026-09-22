@@ -5460,3 +5460,15 @@ expected outcome), #14280's test-base gets one documented rerun and
 the PR merges on approval, with the fix landing on the next stability
 branch; if it is a production defect, #14280 stays held. No rerun
 issued yet.
+#14280 at ad41b6afdd: the gated test-container rerun errored again in
+5m50s at 18:21:20Z (trace d2b7536e613aef92fcc3d783c7d4d144), the same
+two containerd tests on the shared nerdctl build, this time
+`github.com/xrash/smetrics@v0.0.0-20240521201337-686a1a2994c1.zip`
+INTERNAL_ERROR from the proxy. Under the ruling a second gate was
+started on recovery evidence after 18:21:20Z (log
+/tmp/pkg-14280-ad41-container-gate2.log); if the proxy keeps failing,
+test-container is exempt for this merge as a documented proxy-caused
+check (traces 13257a8b771b5e56223bd7b79c00b5b4 and
+d2b7536e613aef92fcc3d783c7d4d144). One of the other two proxy reruns is
+green; the third is pending. Log
+/tmp/pkg-ci-14280-ad41-container-rerun.log.
