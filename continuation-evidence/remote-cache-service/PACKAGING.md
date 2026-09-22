@@ -5764,3 +5764,8 @@ means runner starvation, not a code stall.
 RESOLVER CAVEAT (restated): the resolver returns an engine's latest
 instance, so for a historical run use the instance-at-time lookup the
 investigator used; engine_id is the durable key.
+Main moved: 2e306f44ae (#14208, grouville/perf/reuse-pull-metadata)
+then 4aa8ecde15 (#14185, grouville/perf-prod-9), both merged by
+grouville, not ours; 7 files, +550 −19 over cf26061a6c. Both heads
+under the watches; any non-network failure goes to the coordinator,
+not rerun; on a stall alert, steal ratio first.
