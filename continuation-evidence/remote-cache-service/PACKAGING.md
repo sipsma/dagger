@@ -4717,3 +4717,18 @@ own turn): pkg-evidence (stack-integrator-evidence), pkg-stab
 1426eb3e65, frozen); each is removed after its managed tip is verified.
 Not mine, left alone: /tmp/pr14229-capture-guard, /tmp/pr14229-inline-hold,
 /tmp/pr14229-scratch-release, /tmp/pr14231-sibling-lineage.
+Migration complete. The coordinator pushed the four branches to origin
+(sipsma/dagger; the managed ref source resolves remote branches only)
+and attached four managed worktrees to this agent under
+/home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/cl-8d471225ee1ea01a46a7aca93f114513-{evidence,stability,diagnostics,a6-frozen}-*.
+Tips verified equal to the /tmp ones (be8bf2b7ee, d331827ebc,
+1dc356b033, 1426eb3e65); the original branch names are checked out in
+each (stack-integrator-evidence now tracking
+origin/stack-integrator-evidence; sipsma/main-test-stability and
+sipsma/ci-hang-diagnostics track upstream/main from their creation and
+are published by the coordinator; pkg/a6-slop frozen). The four /tmp
+worktrees removed; no /tmp checkout of mine remains (the four
+/tmp/pr14229-*, /tmp/pr14231-* paths belong to other agents). New
+checkouts are requested from the coordinator as add operations at the
+end of a turn. Evidence commits continue on this branch from the managed
+worktree.
