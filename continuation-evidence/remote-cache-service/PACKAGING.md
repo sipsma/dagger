@@ -4809,3 +4809,13 @@ tc-44f37aada8d1765ad218accd564decb7, reviewer
 tc-6157f0c1af9a6b7b21415bfe9821da40; the previous three are trashed;
 the start-watch steer for live test-base targets goes to the new
 investigator.
+Item 2 approved: the analyst's f4eeefa48a ("test: bound dagger up
+preparation and cleanup stages", fix/up-test-stage-bounds on ee26234869;
+core/integration/up_test.go, new up_harness_test.go and
+up_harness_script_test.go) cherry-picked (-x) onto
+sipsma/main-test-stability above d331827ebc as 05443bc3b1 in the managed
+stability worktree; go vet ./core/integration ok; branch pushed to
+origin (sipsma/dagger) at 05443bc3b1 so it is findable. Reviewer's
+correction recorded: the four other daggerUpVerify call sites were
+source-reviewed, not executed. Two fixes on the branch now; it
+publishes as a PR after item 3 or at the day mark, whichever first.
