@@ -5699,3 +5699,20 @@ Erik signoff, no AI attribution; tip byte-identical to the tested
 drafts; bash -n passes (ShellCheck not installed here). Sent to the
 reviewer before pushing (standing rule: reviewed before push); push to
 dagger/dagger.io follows approval.
+Reviewer approved dagger.io a85a44a73 → 50ac54c04 on 9298ba6ca, no
+blocking or should-fix findings: fd close only in the background
+subshell (parent keeps its lock), subshell exec → nohup exec →
+tailscaled keeps $! the daemon pid; macOS compatibility
+source-reviewed against Apple's xnu devfd, bash-3.2 redir.c and
+shell_cmds nohup (not runtime-tested); realpath + same-dir mkstemp +
+replace keeps a symlink and replaces its target, keeps existing mode,
+new file gets mkstemp's private mode, temp removed on error; notes:
+atomic replacement prevents partial/interleaved files, not lost
+concurrent edits (keep one shared lock), and flock -o needs an installed
+flock (not on macOS by default). ShellCheck 0.9.0 (reviewer's run): no
+diagnostics. The reviewer matched the saved drafts to the trees and
+read the stress fixtures; the Linux fd/PID result is my session
+transcript (collected in /tmp/pkg-skill-fix/results.txt), not a
+reviewer rerun. Pushed to dagger/dagger.io as
+sipsma/namespace-skill-lock-and-config at 50ac54c04 (new branch). PR
+body draft at pr-bodies/namespace-skill-lock-and-config.md.
