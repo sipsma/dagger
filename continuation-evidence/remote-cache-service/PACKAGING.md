@@ -4780,3 +4780,17 @@ parent is 1dc356b033, so sipsma/ci-hang-diagnostics is fast-forwarded to
 c0baacce1c in the managed worktree (origin still at 1dc356b033; the
 coordinator publishes the pair as one PR). Draft description note at
 /tmp/pkg-ci-diag-pr-body.md.
+Correction: a second review message arrived after the "approve" and
+supersedes it: 1dc356b033 approved; c0baacce1c "changes required" on
+blocking B1 (test.go:277–285: watch_dump spawns sleep/curl in the
+background and stores child=$! in a separate command, so a TERM between
+spawn and assignment exits through the TERM trap with child empty and
+the EXIT trap leaves the process un-killed and un-reaped; the 25-minute
+sleep can outlive a completed runner and retain its stderr; record the
+PID before honoring an exit request, or use process ownership that
+closes the window, and verify cancellation with a timer/request
+pending; the successful run occurred after both short timers had fired
+and does not cover that path; finding sent to the investigator). The
+fast-forward above is undone: sipsma/ci-hang-diagnostics is back at
+1dc356b033 in the managed worktree (origin unchanged at 1dc356b033); the
+watchdog commit rejoins after its follow-up is approved.
