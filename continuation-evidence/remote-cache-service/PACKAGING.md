@@ -5071,3 +5071,13 @@ ok, no network, timeout or dump lines. This is the twelfth item exactly
 second sighting; its fix a895ad02d6 is in flight on #14278. Not a new
 item; #14273's files (workspace export, sdl-diff, generated SDKs) do
 not touch the test. Log /tmp/pkg-ci-14273-test-base-cb0082f1aa097829451b13a08e4ce8b9.log.
+#14278 merged at 05:09Z under the merge rule: test-base passed in 14m19s
+on 883954c1f7 (trace 43a1322a47960d4c2163be2c34d8e436), every check
+green, vito's approval standing; plain merge, head pinned
+883954c1f7, main first-parent 34ad873d78 ("Merge pull request #14278
+from dagger/sipsma/main-test-stability-2"). On main now: items 6, 7,
+12 and 13 (the SDK lockfile fixture branch, the headless focus
+settlement, the sharing-cancellation attempt-release wait, the
+ready-receiver session barrier and the shared ReleaseSessionAndWait
+helper). Main: … 5832caf8fe → 34ad873d78. No open watched PR remains;
+the next rolling branch is created when the next approved item lands.
