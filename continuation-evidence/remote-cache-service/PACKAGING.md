@@ -5214,3 +5214,16 @@ dump: root cause reproduced by the investigator, otelgotest's quiet
 mode buffers per test and drops the buffer on a package-only failure
 without flushing (the JSON carries the dump; quiet drops it, verbose
 preserves it); -v mitigation suggested to the coordinator.
+Ruling on #14279's test-workspaces: one rerun, documented as
+"engine-side shard stall, unattributed (runner dropped the timeout
+dump; fix in flight), PR cannot have caused it" (trace
+2d96b3c616afe1c45f41bdbeeb9a1c9a). Rerun issued. If it passes, the PR
+merges on approval; if it stalls again, hold and steer the investigator
+the trace while the run is alive. The twenty-minute alert covered
+test-base only until now; re-armed to cover test-workspaces as well on
+main's heads and #14279. Investigator: passive victim-engine start watch
+armed (every new pending check on main's head, #14279 and
+sipsma/ci-diagnostics-2 resolved under flock; HIT with live instance
+fields when it lands on one of the ten victim engines; no reruns); they
+are editing test-split main.dang on sipsma/ci-diagnostics-2 (main
+34ad873d78) and forcing one small-package timeout for runner dump proof.
