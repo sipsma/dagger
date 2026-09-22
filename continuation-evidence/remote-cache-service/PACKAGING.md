@@ -6086,3 +6086,13 @@ on `go.opentelemetry.io/otel@v1.44.0.zip` proxy stream errors (69).
 Proxy fault; capacity freeze OFF; one rerun gated on recovery evidence
 after 23:16:40Z (the gate re-checks the freeze), log
 /tmp/pkg-main-2a78-interface-gate.log.
+First primary (dev-span keyed) stall alert: main 2a78967d5d (current,
+#14291) test-base, check start 23:12:43Z, dev engine start
+23:14:15.92Z, alert at 23:26:44Z (dev engine up 12m10s; 14m01s from
+check start), steered 23:26:53Z (14m10s). Resolved: engine
+b3daa210-4166-461a-b6f6-0bbd5ffcc923, instance qblo57p33rn3k, check
+eccc3e8a-000a-4c36-bfb3-eec4e72ef2fc, trace
+c3dec3e582daeb963df45f0009d44349. Steal (read after steering): 1.9-2.4%
+per minute 23:21-23:23Z, 0.1-0.2% 23:24-23:28Z, i.e. not starvation; 66
+of 67 packages ok, core/integration running. Package timeout expected
+~23:35Z. Investigator steered with fields and steal.
