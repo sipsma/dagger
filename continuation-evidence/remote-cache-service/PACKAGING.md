@@ -5650,3 +5650,15 @@ rounds on a config holding an unrelated profile: main's version lost
 files left. Not included, candidate: setup check's login test right
 after a fresh daemon start races the daemon loading its state.
 Awaiting a dagger.io managed worktree to commit.
+main 0a5111b96b (superseded): test-split:test-module-runtimes errored in
+28m5s at 21:06:21Z (trace 24cf1f7bf0da47d6518433c29f42ea83) and
+test-split:test-modules in 27m59s at 21:06:19Z (trace
+cbd79809f6fb52e7f475d580e6ef4576). No failing test, no proxy/429/500,
+no Go timeout panic; both logs end at ~21:06:04-10Z with sessions torn
+down ("call constructor: exit code: 137: session is closing", snapshotter
+"context canceled"), traces "internal error: exit code: 1". The same
+head's test-base is still pending since 20:38:10Z (stall alert, stood
+down). Reads as the head's CI run cut off at ~21:06Z; cause
+unattributed; not network class, not rerun; to the coordinator. Both
+checks succeeded on a49ff49e2a and cf26061a6c. Logs
+/tmp/pkg-ci-main-0a51-test-module{-runtimes,s}.log.
