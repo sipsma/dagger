@@ -4832,3 +4832,16 @@ Namespace resolver's Godmode lookup answered HTTP 500 for the
 in-progress check on repeated attempts (it had resolved main's
 in-progress run at 01:47Z), so the trace/instance fields follow from a
 retry loop (/tmp/pkg-14275-resolve-retry.sh) when it answers.
+Resolver lesson: Cloud keys a PR check on the commit it ran (the sha in
+the status's own target_url, e.g. a2c0962fa4 for #14275's run), not the
+PR head; resolving the head-keyed URL answers HTTP 500. Using the
+target_url as given: #14275 test-base trace 63df09d446ad07bb0d11b1503b6ac5ca,
+check da1f45d7-9d4c-4e55-be9d-2101bfa9a0ab, tenant_2qf1mch9ubs72,
+instance jjha325se5icm (created 02:02:10Z), engine
+cd8a9414-1ceb-4083-8ac2-5cf87b119478 running; steered to the
+investigator at 02:08Z with the run six minutes in. The head-keyed retry
+loop was stopped (my pkill pattern also matched its own shell, exit
+144; nothing else affected). The watches are re-armed to resolve from
+target_url. The investigator confirms the G101 is on a credential-free
+shell constant and prepares a narrow suppression follow-up (the
+coordinator allows a targeted //nolint:gosec with reason there).
