@@ -5437,3 +5437,20 @@ shell clock): the #14280 test-provision rerun was issued at about
 started at about 18:08Z, not "~18:1xZ". At 18:10:51Z #14280's test-base
 has been pending since 17:53:38Z (17 minutes); the stall alert fires at
 20 minutes if it is still pending.
+#14280 at ad41b6afdd: test-split:test-base errored in 20m45s at
+18:14:23Z (trace 09a9beca8e95a89647ea25dfd8a95980). Not network and
+not a hang: 66 packages ok plus core FAIL (67, the full set; slowest
+core/integration 896s, core/schema 170s). One failing test, package
+core, TestPartDelegationRealStore/sync-retry (0.11s),
+part_delegation_test.go:163 via :115: "temporary parent hold survived
+failed child sync", expected 2, actual 1 — the exact parent's
+IncomingOwnershipCount read after the injected child-sync failure is
+one below the count read before it. First occurrence in any captured
+log (fifteenth item). #14280 touches only CI and Go module env, not
+this test. Excerpt /tmp/pkg-analyst-items/09a9beca8e95a89647ea25dfd8a95980.txt;
+full log /tmp/pkg-ci-14280-ad41-test-base.log. Sent to the coordinator
+and the analyst; not rerun. Resolver returned nothing for the trace
+(run finished; no live engine). The three proxy gates met at 18:15Z on
+#14288's greens (test-container 18:04:31Z, test-modules 18:09:36Z,
+test-provision 18:05:12Z) and issued one rerun each; those shards are
+pending.
