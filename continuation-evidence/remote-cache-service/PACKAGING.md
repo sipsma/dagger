@@ -4913,3 +4913,13 @@ target). Awaiting a maintainer approval under the merge rule.
 three fixed tests; every other check green at the last read. Awaiting a
 maintainer approval under the merge rule. Four green PRs now wait on
 approvals: #14271, #14275, #14276, #14277.
+Main moved to 0a2d84a8ba (#14189, dagger/extract/telemetry-delivery, 20
+engine files); its run green so far. Approvals by vito (MEMBER) at
+02:52Z on #14275, #14276 and #14277. Merged one at a time under the
+merge rule, plain merge, head pinned: #14275 at 02:53Z (head
+067dd6cb56, main first-parent 21b15a1db5 "Merge pull request #14275
+from dagger/sipsma/ci-hang-diagnostics": the 20m package timeout and the
+dev-engine dump watchdog are on main); #14276 at 02:54Z (head
+a9dc609694, main 6e6a60b4a2 "Merge pull request #14276 from
+dagger/sipsma/export-image-loader-ack": the item-3 production fix).
+#14277 next on the same rule; #14271 still awaiting approval.
