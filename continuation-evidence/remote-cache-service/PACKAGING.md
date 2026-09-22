@@ -5778,3 +5778,14 @@ engine capacity, before any code ran. Not rerun: a publish job is
 outward-facing and outside the check rerun rule; to the coordinator.
 release publish is still pending on 4aa8ecde15 and 2e306f44ae (may be
 waiting on the same capacity); cf26061a6c's publish succeeded.
+main 2e306f44ae (#14208, superseded): golang:test-all errored in 2m35s
+at 21:56:49Z (trace 41a13a30f885dca420d1ec098eb5c55d). One failing
+test, e2e/helm TestInstallK3S, helm_test.go:138 "wait for k3s
+readiness: exit code: 1"; the build before it hit the Go module proxy,
+`golang.org/x/text@v0.40.0.zip` INTERNAL_ERROR (stream ID 709). Same
+pattern as #14293's proxy case; network class; no rerun on the
+superseded head (4aa8ecde15 and 57a1eadc93 run the same check). Watch
+item: #14208 changes the engine's pull-metadata resolver
+(engine/server/resolver); a TestInstallK3S failure on the newer heads
+without a proxy or registry error goes to the coordinator as a finding.
+Log /tmp/pkg-ci-main-2e30-golang.log.
