@@ -4923,3 +4923,10 @@ dev-engine dump watchdog are on main); #14276 at 02:54Z (head
 a9dc609694, main 6e6a60b4a2 "Merge pull request #14276 from
 dagger/sipsma/export-image-loader-ack": the item-3 production fix).
 #14277 next on the same rule; #14271 still awaiting approval.
+#14277 merged at 02:54Z after #14276's merge completed (vito's approval
+at 02:53Z; head b1668ee5af pinned; main first-parent 50164dc9db "Merge
+pull request #14277 from dagger/sipsma/main-test-stability": the three
+test fixes are on main; items 5–7 will need a new rolling branch since
+this one is merged). Main: … d6d005c55c → 0a2d84a8ba → 21b15a1db5 →
+6e6a60b4a2 → 50164dc9db. #14271 (949d3ea685) remains the one open
+watched PR, green and unapproved. Watches to re-arm on the new heads.
