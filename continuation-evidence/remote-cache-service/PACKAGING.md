@@ -4886,3 +4886,12 @@ watch is stopped; the twenty-minute unfinished-package alert stays
 armed across main, #14271, #14275 and #14276 (resolving from
 target_url) and is steered to the investigator immediately for stall
 capture.
+Item 4 approved: the analyst's 04e3fe46de ("test: make the binary search
+fixture deterministic", on d6d005c55c, core/integration/directory_test.go)
+cherry-picked (-x) onto sipsma/main-test-stability above 05443bc3b1 as
+b1668ee5af; go vet ./core/integration ok; pushed to origin at b1668ee5af.
+Three fixes on the branch (d331827ebc, 05443bc3b1, b1668ee5af); it
+publishes now. PR body drafted at
+continuation-evidence/remote-cache-service/pr-bodies/main-test-stability.md
+(one section per fix with the mechanism and evidence, and the standing
+sentence where the fix does not prove the original trace's cause).
