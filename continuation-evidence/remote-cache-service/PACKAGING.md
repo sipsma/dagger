@@ -5353,3 +5353,8 @@ head or newer main head shows test-split:test-container green after
 /tmp/pkg-main-232a-container-gate.log; full log
 /tmp/pkg-ci-main-232a-test-container.log. The cache-persistence rerun
 is still pending (since 17:39:17Z).
+main 232a80cbd3: the test-cache-persistence rerun succeeded in 7m16s at
+17:46:33Z (trace 995a54285bb8085c1ac77d…); the proxy fault cleared for
+that path. test-workspaces passed in 7m49s. At 18:0xZ: 82 green,
+test-base pending (started 17:37:18Z, under the stall alert),
+test-container red under the TestSystemGoProxy gate.
