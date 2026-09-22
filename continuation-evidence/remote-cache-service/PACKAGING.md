@@ -5860,3 +5860,14 @@ at 22:06:30Z (trace 2e65c427aa1d2b9bfc9f449c7c208484): eight
 docker/podman/nerdctl subtests, each "failed to resolve image
 registry.dagger.io/engine:v0.16.1 … 500 Internal Server Error" (31
 lines). Registry fault; no rerun.
+main 57a1eadc93 (superseded), two more reds:
+- golang:test-all errored 14m26s at 22:09:45Z (trace
+  8e43dd39592ddb6188aada26ce774b44): only TestInstallK3S/
+  default_daemonset (303s), registry.dagger.io `engine:main` manifest
+  "500 Internal Server Error" (79 lines; 99 500s total). The known K3S
+  registry case; no rerun.
+- release:publish-with-mock-endpoints errored 15m15s at 22:10:26Z
+  (trace 90ce28033d3c3922afe92856a6db6b6f), empty check log: "Dagger
+  Cloud Engine capacity did not become available within 15 minutes".
+  Same Cloud capacity shortage as that head's release publish; no code
+  ran; no rerun.
