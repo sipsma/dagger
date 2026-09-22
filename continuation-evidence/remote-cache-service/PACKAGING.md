@@ -5985,3 +5985,14 @@ Live now: main fc414b021c (current head) test-base, check start
 22:06:18Z; old alert fired at ~21 min; steered 22:29:52Z (latency
 23m34s, about 2 min of it spent fetching the log before steering; the
 Cloud log was empty, no steal reading).
+FIRST LIVE DEV-ENGINE DUMP of a main stall: fc414b021c (current head)
+test-base, trace d9f02a05df62da11c1c084d90fd4ca78, check start
+22:06:18Z. Investigator captured host PID 1889 at 22:30:16Z and dev
+engine PID 11038 at 22:30:17Z, both status 0, dev traceparent matched
+exactly; /tmp/stall-d9f02-live-dump.log. Dev engine age 600 s at capture
+against a 24-minute check age (the investigator reads this as
+substantial pre-engine startup/build time, not yet proven). Many
+runnable goroutines; the investigator is analyzing and taking a second
+capture; the analyst asked to scan the dev section for an E lock holder
+and contenders (forwarded 22:3xZ). Cloud log for the trace still 0
+bytes. Timeline: steer 22:29:52Z, dev dump 22:30:17Z.
