@@ -6123,3 +6123,10 @@ persistent two sends are not linked to test completion; no fix). No
 engine-global stall established; the earlier true package timeouts stay
 separate. Reports /tmp/stall-c3dec-report.md and
 continuation-evidence/ci-stall-c3dec/report.md.
+#14296 published by the coordinator: sipsma/service-resize-forwarder-
+cancellation at bb0e263584 on 2a78967d5d, the resize-forwarder leak fix
+(core/service.go and its test). Added to the watch (/tmp/pkg-watch-prs.sh,
+read each loop by the general and stall watches) and the merge rule:
+every check green, or red only on documented network faults (registry,
+proxy, Cloud capacity) while they persist, plus a maintainer approval,
+head pinned. Reruns remain subject to the capacity freeze.
