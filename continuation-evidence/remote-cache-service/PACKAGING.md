@@ -5553,3 +5553,12 @@ shard dumps are on main, opt-in behind the shards' `diagnostics`
 switch, off by default; the twenty-minute stall alert stays the
 live-dump trigger. No open PRs of ours remain; the watches continue on
 main heads.
+main 0a5111b96b (#14288): docs:references:up-to-date errored in 5m44s
+at 20:44:01Z (trace 5ebdb16089cd5b81848943e5d514d611). No reference
+drift: the tool build failed on the Go module proxy,
+`github.com/sergi/go-diff@v1.3.2-0.20230802210424-5b0b94c5c0d3.zip`
+stream error (imported by go-git/v5's utils/diff; not the v6 source
+fault). Network class. No rerun: main has moved on to a49ff49e2a and
+cf26061a6c, which run the same check (same rule as the main gate
+script's "main moved; no rerun"). Trace render
+/tmp/pkg-ci-main-0a51-docs-refs.txt.
