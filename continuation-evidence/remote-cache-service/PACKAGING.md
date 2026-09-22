@@ -5086,3 +5086,17 @@ created only when the next approved item exists. Their comment on
 #14273 (issuecomment-5771408771) edited in place, one edit, no new
 comment: the fix (#14278, a895ad02d6) is merged on main at 34ad873d78
 and a rebase onto main clears it; read back identical.
+Main 34ad873d78 (#14278's merge): test-base errored at 10m17s (trace
+2d04e43aac9231230ffc91bce24ef41c) on one test,
+TestSnapshotSharingCancelAfterPublicationDeliversReceipt,
+dagql/cache_snapshot_sharing_test.go:1228 `require.Equal(t,
+receiverHolds, shareTestHolds(c, receiver), "the receipt's and the
+task's receiver holds ended")`: expected 2, actual 3; dagql otherwise
+finished in 20.8 s, core/integration ok in 540 s, 66 packages ok, no
+network, timeout or dump lines. First sighting; the sibling of the
+twelfth item in the cancel-after-publication test, untouched by
+a895ad02d6. Non-network: not rerun; reported to the coordinator and
+handed to the analyst as the fourteenth item with the excerpt
+/tmp/pkg-analyst-items/2d04e43aac9231230ffc91bce24ef41c.txt; a fix
+lands on sipsma/main-test-stability-3. Every other check on the head
+is green (82 of 83).
