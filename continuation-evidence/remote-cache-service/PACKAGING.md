@@ -5684,3 +5684,18 @@ in the log. Saved at
 full log /tmp/pkg-ci-main-0a51-test-base.log. core/integration passed
 in the same shard on a49ff49e2a and cf26061a6c. main cf26061a6c is 84
 of 84 green.
+First captured main stall dump: 0a5111b96b test-base (trace
+53db7a0118c9edef57d98622852d3faa), the 15-minute engine goroutine dump
+from #14275's watchdog, the first dump captured from a main
+core/integration hang since the dagql hang fixed by #14266; the
+coordinator sends it to the investigator and the analyst.
+Skill fix committed in the dagger.io managed worktree
+(cl-8d471225ee1ea01a46a7aca93f114513-namespace-skill-fix-…), branch
+sipsma/namespace-skill-lock-and-config on dagger.io main 9298ba6ca:
+a85a44a73 "dagger-namespace-access: start tailscaled without the
+caller's descriptors" (setup.sh + SKILL.md) and 50ac54c04
+"dagger-namespace-access: write the AWS config atomically"; +43 −11;
+Erik signoff, no AI attribution; tip byte-identical to the tested
+drafts; bash -n passes (ShellCheck not installed here). Sent to the
+reviewer before pushing (standing rule: reviewed before push); push to
+dagger/dagger.io follows approval.
