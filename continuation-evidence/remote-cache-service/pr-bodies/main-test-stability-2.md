@@ -20,7 +20,14 @@ Evidence: the baseline pair reproduced one live-tree failure in 50 race repetiti
 
 Evidence: the focused test passed 50 repetitions before and after the change under `-race` with a 120-second timeout, and the full `dagql` package passed once with a 60-second timeout, on the saved pre-commit patch byte-identical to this change; the CI failure (main 50164dc9db's test-base, trace `7913f1583003bef7970ee6fe46d4f136`, `cache_snapshot_sharing_test.go:1127`, expected 2 actual 3) did not reproduce locally, so the diagnosis follows the source contract rather than a replay of that run.
 
+## Ready-receiver collection: wait for session cleanup to finish
+
+`TestReadyPartDonorBackreferenceReleasedBeforeSync` released its demand session, removed the receiver's persisted edge, and immediately checked that the receiver row was gone; `ReleaseSession` may delegate the session's cleanup to its last active operation, so the row could still be present when the test looked. That is a collection observation before delegated cleanup, not a leaked receiver. The test now waits on the existing five-second session-release barrier before removing the edge, and the same pattern is shared as `cachetest.ReleaseSessionAndWait` (a test helper package without a dagql dependency, with separate release and wait failures naming the session), replacing the five manual release-then-wait pairs in the ready-backreference, losing-decode, admitted-chain, import-cleanup and scratch-directory tests. Non-blocking release tests and unpaired release sites are unchanged.
+
+Evidence: the focused test passed 50 repetitions before and after the targeted barrier under `-race` with a 120-second timeout; the full `dagql` package passed once with a 60-second timeout after each commit (527 top-level PASS, one inherited nested SKIP), and `TestScratchDirectoryAcquisition` passed with all eight modes after the helper conversion; all on the saved pre-commit patches byte-identical to these changes. The CI failure (#14278's own test-base rerun, trace `d243ae85e55936c059872568b8f28de2`, `cache_part_decode_test.go:158`) did not reproduce locally, so the diagnosis follows the source contract rather than a replay of that run.
+
 ## Validation
 
-Each commit was reviewed on its own before joining this branch; `go vet ./core/integration/`, `go vet ./dagql/idtui/` and `go vet ./dagql/` pass on the tip. CI runs every package on the pushed head.
+Each commit was reviewed on its own before joining this branch; `go vet ./core/integration/`, `go vet ./dagql/idtui/`, `go vet ./dagql/`, `go vet ./core/schema/` and `go vet ./internal/testutil/cachetest/` pass on the tip. CI runs every package on the pushed head.
+
 

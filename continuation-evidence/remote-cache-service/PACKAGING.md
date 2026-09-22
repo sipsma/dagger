@@ -5041,3 +5041,21 @@ shape as the chain-cleanup and twelfth-item races (a delegated release
 observed before it completes). Non-network: not rerun; #14278 stays
 unmerged under the rule despite vito's approval until the coordinator
 rules. Excerpt /tmp/pkg-analyst-items/d243ae85e55936c059872568b8f28de2.txt.
+#14278 pushed by the coordinator at 883954c1f7 (five commits; the
+thirteenth-item pair d8cd5a33e2 "test: wait for ready receiver session
+cleanup before collection" and 883954c1f7 "test: share the session
+cleanup completion barrier", from the analyst's
+fix/ready-part-backref-release-observation; lease held; origin
+mirrored; vito's approval still shows). Description appended with a
+fourth section (the ready-receiver barrier and the shared
+cachetest.ReleaseSessionAndWait helper replacing the five manual
+release-then-wait pairs; evidence from
+/tmp/dagql-thirteenth-ready-backref/thirteenth-ready-backref.md: 50/50
+before and after, full dagql 527 PASS after each commit, scratch test
+all eight modes; no local reproduction; trace
+d243ae85e55936c059872568b8f28de2); Validation line extended with
+core/schema and cachetest vets; read back identical apart from the
+trailing newline; the draft mirrors it. Managed stability worktree
+fast-forwarded to 883954c1f7; go vet on dagql, core/schema and
+internal/testutil/cachetest ok there. Merge on green under the rule,
+head pinned; new non-network failures go to the coordinator.
