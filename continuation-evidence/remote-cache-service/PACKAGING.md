@@ -5454,3 +5454,9 @@ and the analyst; not rerun. Resolver returned nothing for the trace
 #14288's greens (test-container 18:04:31Z, test-modules 18:09:36Z,
 test-provision 18:05:12Z) and issued one rerun each; those shards are
 pending.
+Coordinator ruling on #14280's test-base (fifteenth item): hold until
+the analyst classifies it. If it is a test-side observation race (the
+expected outcome), #14280's test-base gets one documented rerun and
+the PR merges on approval, with the fix landing on the next stability
+branch; if it is a production defect, #14280 stays held. No rerun
+issued yet.
