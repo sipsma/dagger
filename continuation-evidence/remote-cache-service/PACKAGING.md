@@ -5123,3 +5123,10 @@ and the merge rule; run started.
 at 40.7 s (trace 293806d7cad47bd0b953d6d652742997) on the cross-PR
 go-git v6 build fault (four v6 lines): network class, one rerun issued
 05:42Z; the rest of the run in progress, nothing else red.
+#14279's module-runtimes rerun errored again at 21.1 s (trace
+f6920da3dadf2d14480d80af26e50e5f) on the same cross-PR go-git v6 build
+fault (two v6 lines, no test ran); the one rerun for that cause is
+spent. Main 34ad873d78's module-runtimes passed at 05:17Z, so the fault
+is specific to this PR's runs. Reported for the coordinator's call; no
+further rerun from me. Everything else on #14279 green or pending
+(5 pending).
