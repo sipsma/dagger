@@ -6013,3 +6013,25 @@ minute into the package; the package's own 20-minute timeout would run
 to ~22:40:45Z. Check start is a poor proxy for package start when the
 build is slow.
 main fc414b021c: the test-module-runtimes rerun (issued 22:23:59Z) succeeded (2026-09-22T22:33:11Z Succeeded in 8m43s. Run `dagger trace 1d4e346849bdcd379ddc2e).
+STALL ALERT CHANGE (coordinator): keyed off the dev engine's service
+span start (the `exec dagger-entrypoint.sh …` span with
+dagger.io/service, under EngineDev.test), read from the Cloud span
+stream (/tmp/pkg-devspan.py: moduleChecks for the check's traceId, then
+GetSpanUpdates until that span; 2.7 s on d9f02). Fires 12 minutes after
+the dev engine starts (the package timeout runs 20 min from about a
+minute later, so ~8 min of capture margin); fallback at 20 minutes
+after the GitHub status went pending if no dev-engine span is found.
+Script /tmp/pkg-watch-stall3.sh; alerts carry check_start, dev_start,
+alert_at and latency; log /tmp/pkg-stall-alerts.log.
+Investigator correction (d9f02): the trace's root span began 22:18:16Z,
+not at the 22:06:18Z GitHub pending time; the dev exec at 22:20:14Z is
+1m58s after the root (green 5b251fa5: 2m21s); MainGo.binary 74.85 s vs
+73.45 s green. The 12-minute gap precedes all recorded trace work
+(queueing before the trace, consistent with the capacity shortage), not
+a slow engine build; the investigator is checking Cloud startedAt vs
+the pending time.
+main fc414b021c: golang:test-all and test-split:test-provision went back
+to pending at 22:33:40Z (dagger-cloud[bot] statuses), i.e. both were
+rerun during the capacity freeze. Not by me: no gate process running,
+the fc414b021c gates were killed at 22:24:20Z, and no "rerun issued"
+after 22:23:59Z in my gate logs. Reported to the coordinator.
