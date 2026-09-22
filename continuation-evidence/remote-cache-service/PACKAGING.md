@@ -5308,3 +5308,11 @@ item as a whole.
 (101 lines, TestInstallK3S/default_daemonset), the exempt pair with
 test-provision; not rerun. One check pending, nothing else red; merges
 on a maintainer approval under the rule (registry pair exempt).
+#14279 (sipsma/main-test-stability-3, head 0aa68a3c9c) merged at
+2026-09-22 after vito (MEMBER) approved at 17:35:56Z: all 83 statuses
+success, check-runs success or skipped, merge state CLEAN; plain merge
+with the head pinned; main is now 232a80cbd3 (fourteenth item's fix,
+"test: await attempt releases before post-task ownership checks", is on
+main). The general watch and the twenty-minute stall alert now cover
+232a80cbd3. #14280 (29a6ff115a) still awaits an approval; red only on
+the exempt registry pair.
