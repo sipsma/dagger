@@ -4646,3 +4646,9 @@ build fault: network class, one rerun issued 00:04Z.
 Main ee26234869's test-module-runtimes (cross-PR build fault, trace
 2b50dbfa88a19858566fb1f62a20c058): network class, one rerun issued on
 the main head; its test-base still pending.
+Correction (Erik): a busy Codex target is steered with steerMidTurn, not
+retried; my "refused delivery"/"delivery pending" notes above (the
+analyst's four attempts on 21:1xZ, the reviewer's and the investigator's)
+were my omission of that flag, not a block. The investigator's answer
+(/tmp/pkg-investigator-reply.md) is delivered by steer; the coordinator
+told so.
