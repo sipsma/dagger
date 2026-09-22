@@ -4852,3 +4852,19 @@ status 0, script exit 0; /tmp/ci-14275-live-dumps.log (host lines
 13–6936, dev 6938–48677); coordinator notified by them. The
 twenty-minute trigger (main, #14271, #14275) and the start watch across
 all open PR heads stay armed.
+Hand-off to the analyst (tc-aaaaef374e5781d8c38bc19ce4cd1be5) by steer,
+items 4–7, excerpts in /tmp/pkg-analyst-items/<trace>.txt: item 4
+TestDirectory/TestSearch/binary_files_are_skipped (#14264 second
+test-base, ee23f81f00e5c96d9c266e7ce5b04e5b, directory_test.go:2379,
+expected [text.txt] got [binary.bin text.txt]); item 5 trace
+9637de8a8373133b6ceec96ccaba019e (test-container, 2026-09-19 03:49Z,
+head not found in my status descriptions:
+TestContainer/TestPublishAndFromWithRegistryServiceBinding/plain_http_engine_config,
+container_test.go:4241 exit code 1); item 6 trace
+1c5c02b2958b7a372b5a189ce4c186cc (#14248's test-base on be2ae11fac,
+2026-09-19 05:56Z: TestGenerators/TestSDKModuleClientUpdateRefreshesLockAndRegenerates,
+generators_test.go:659 lock-file content); item 7 traces
+ac7a9907c09524c5b553066d52a601b4 (main f094ab5580,
+TestNavToggleReturnsToLastAgent) and 1f52fa2fb01e6eed553563f60202a4b7
+(#14231 b78f5048b1, TestLiveTreeFollowsFocusedAgent plus the two TestUp
+failures at up_test.go:709/:748).
