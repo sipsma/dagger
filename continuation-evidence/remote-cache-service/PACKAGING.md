@@ -5789,3 +5789,22 @@ item: #14208 changes the engine's pull-metadata resolver
 (engine/server/resolver); a TestInstallK3S failure on the newer heads
 without a proxy or registry error goes to the coordinator as a finding.
 Log /tmp/pkg-ci-main-2e30-golang.log.
+main 4aa8ecde15 (#14185, superseded by 57a1eadc93): test-split:
+test-provision errored in 4m20s at 21:58:42Z (trace
+189680d5475be11f126666e845a08edf). Twelve leaf failures, each tied to a
+network cause: five docker/podman subtests on registry.dagger.io 500s
+for the engine v0.16.1 manifest HEAD / layer read (116 "500 Internal"
+lines); seven nerdctl subtests on the nerdctl build's Go proxy failure
+(`golang.org/x/net@v0.40.0.zip` stream error). No rerun (superseded).
+Log /tmp/pkg-ci-main-4aa8-provision.log.
+main 2e306f44ae (#14208, superseded): test-split:test-cli-engine
+errored in 4m35s at 21:58:57Z (trace 1b662db1418acf37e8db98ddd92c379b).
+One failing subtest, TestCLI/TestModuleFunctions/
+top-level_from_subdir_with_explicit_module (31.47s,
+module_introspection_cli_test.go:39, "exit code: 1"). The log's only
+proxy block (57 lines, `google.golang.org/protobuf@v1.36.11.zip`
+INTERNAL_ERROR) is test trace output of the `dagger/test` module build
+ending "Error: exit status 1" at 27.5s; the log does not print the
+subtest name beside it, but it is the only failing subtest and the only
+proxy block. Proxy fault; no rerun (superseded). Log
+/tmp/pkg-ci-main-2e30-cli-engine.log.
