@@ -5169,3 +5169,13 @@ heads; the log carries no "--- FAIL", no go-test timeout panic text and
 no dump (the dump wiring covers test-base only); #14279 touches no
 workspace test. Non-network: reported. The third module-runtimes rerun
 was issued at 06:03Z under the ruling.
+#14279 test-workspaces (trace 2d96b3c616afe1c45f41bdbeeb9a1c9a) via the
+--test view: TestWorkspace open at 20m3s with 61 subtests open and 81
+passed; the open ones all started 19m22s–19m55s before the end, so
+almost the whole shard stalled about a minute into the run (an
+engine-side stall of the shard, not one test). The 20-minute package
+timeout ended the binary at 1200 s ("FAIL core/integration 1200.132s",
+job errored at 23m rather than cancelled at 30m), but the log has no
+timeout panic or goroutine dump text, and the dump watchdog is wired
+for test-base only. Listing at /tmp/pkg-14279-workspaces-open-spans.txt.
+Reported to the coordinator and the investigator.
