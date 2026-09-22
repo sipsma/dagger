@@ -5504,3 +5504,10 @@ published.
 sipsma/main-test-stability-4 published by the coordinator as #14293 at
 228f9ac710 (the pushed tip). Under both watches; merges under the rule
 on a maintainer approval, head pinned.
+Coordinator: #14293 (sipsma/main-test-stability-4 at 228f9ac710 on
+232a80cbd3, the fifteenth item) added to the watch and the merge rule.
+Title "test: wait for parent preparation cleanup before delegation hold
+baselines"; published body equals the draft apart from one trailing
+blank line. Both monitors find it by head branch. #14280 at ad41b6afdd
+is 84 of 84 green and needs only a maintainer approval to merge (head
+pinned).
