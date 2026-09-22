@@ -6096,3 +6096,18 @@ c3dec3e582daeb963df45f0009d44349. Steal (read after steering): 1.9-2.4%
 per minute 23:21-23:23Z, 0.1-0.2% 23:24-23:28Z, i.e. not starvation; 66
 of 67 packages ok, core/integration running. Package timeout expected
 ~23:35Z. Investigator steered with fields and steal.
+c3dec (2a78967d5d test-base) captured twice by the investigator:
+23:27:14Z and 23:28:19Z, dev PID 32462, exact trace match;
+/tmp/stall-c3dec-live-dump{,2}.log. First dump 1120 goroutines; the only
+mutex wait is telemetry logStream.Since; no E repair or cohort.
+core/integration actually started 23:16:59.678Z (span
+f18509c5010b4222), so its 20-minute clock ends ~23:36:59Z (my 23:35Z
+estimate was early). Span snapshot shows new test activity after the
+alert: TypeSDK cases at 23:27:22Z, auth_token 23:27:40Z, ssh_key
+23:27:42Z, generator cases starting 23:27:46-53Z; the earlier Recovery
+cases are not open. Host PSI/load high, but 64 s aggregate CPU steal
+only 136 ticks (~0.13%), and the second sample shows many fresh java
+children: no CPU-starvation claim. The investigator and the analyst are
+examining the second sample's long waits. The dev-span alert gave the
+first capture 13 minutes into the dev engine's life and ~9.75 minutes
+before the package timeout.
