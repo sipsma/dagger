@@ -6012,3 +6012,4 @@ after check start, so a 15-minute alert from check start lands about a
 minute into the package; the package's own 20-minute timeout would run
 to ~22:40:45Z. Check start is a poor proxy for package start when the
 build is slow.
+main fc414b021c: the test-module-runtimes rerun (issued 22:23:59Z) succeeded (2026-09-22T22:33:11Z Succeeded in 8m43s. Run `dagger trace 1d4e346849bdcd379ddc2e).
