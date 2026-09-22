@@ -5876,3 +5876,11 @@ main 4aa8ecde15 (superseded): golang:test-all errored 18m26s at
 TestInstallK3S/default_daemonset (305s), registry.dagger.io
 `engine:main` manifest 500s (90 lines). Known K3S registry case; no
 rerun.
+main fc414b021c (current head, #14174): test-split:test-provision
+errored 7m54s at 22:14:22Z (trace 12c91f0c2cfb6db8d7e8e3a3515eef2a):
+six docker/podman/nerdctl subtests, each "failed to resolve image
+registry.dagger.io/engine:v0.16.1 … 500 Internal Server Error" (25
+lines). Registry fault, persisting across every head since ~21:55Z;
+one rerun gated on recovery evidence after 22:14:22Z (skip if main
+moves), log /tmp/pkg-main-fc41-provision-gate.log. test-workspaces
+succeeded (6m18s).
