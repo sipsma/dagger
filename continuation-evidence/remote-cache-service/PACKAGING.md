@@ -5952,3 +5952,11 @@ test-split:test-provision 21:03:21Z; main fc414b021c
 test-split:test-module-runtimes 22:23:59Z (after capacity failures had
 been seen, including on that check at 22:21:40Z; the rule arrived about
 the same time).
+Investigator capture of f8d83 (57a1eadc93 test-base) at 22:23:00Z on
+instance 4cgan459pcfq2: host PID 1875 goroutine dump succeeded (status
+0); no live dagger-dev engine process, so no dev-engine dump. Evidence
+/tmp/stall-f8d83-live-dump.log and .err. Steal 22:08/22:09 25.4/24.4%,
+22:10-22:21 9.1-19.9%. The check's terminal status (error, 27m15s) is
+22:22:32Z, 28 s before the capture, consistent with the dev engine
+having exited with the check; the investigator is confirming
+trace→instance and terminal state. Auth/keychain refresh succeeded.
