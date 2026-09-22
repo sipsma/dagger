@@ -4630,3 +4630,16 @@ change .dagger/modules/engine-dev/test.go:187 "30m" → "20m" (dump
 between minutes 21 and 25 of the job; "25m" as the roomier alternative).
 Main ee26234869 (#14265): test-module-runtimes on the cross-PR build
 fault (2b50dbfa88a19858566fb1f62a20c058, four v6 lines), network class.
+Coordinator: rolling diagnostics branch sipsma/ci-hang-diagnostics off
+upstream/main (ee26234869) in /tmp/pkg-ci-diag, one commit "ci: let a
+hung test package time out before the job limit" (engine-dev Test
+default timeout 30m → 20m, comment updated; message states the
+thirty-minute job limit, the longest measured package 946 s, and that a
+hung package now panics with a goroutine dump before cancellation; Erik
+signoff). Not pushed: the coordinator publishes it with the
+investigator's dev-engine dump watchdog commit once both are reviewed.
+Draft description note in /tmp/pkg-ci-diag-pr-body.md: every
+dagql-missing cancellation stopped after f094ab5580, with the trace list.
+#14271 at 949d3ea685: test-module-runtimes errored at 40.4 s (trace
+4d2d02b0f77d6b7281b32dc6d559ab00, four go-git v6 lines), the cross-PR
+build fault: network class, one rerun issued 00:04Z.
