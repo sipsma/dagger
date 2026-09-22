@@ -5598,3 +5598,21 @@ registry.dagger.io engine v0.16.0 manifest HEAD "429 Too Many Requests"
 cf26061a6c; no rerun on the superseded head (cf26061a6c's gate covers
 the check). Otherwise 82 green, one pending. Log
 /tmp/pkg-ci-main-a49f-provision.log.
+Stall alert: test-split:test-base on main 0a5111b96b (superseded) still
+pending at 21 min at 20:59Z (started 20:38:10Z); pre-#14280 head (dump
+watchdog on, quiet runner). Steered to the investigator without
+resolved fields. test-base succeeded on a49ff49e2a (13m30s, trace
+5d5689fc7dc56f98871e3…) and cf26061a6c (15m47s, trace
+5b251fa50c493cf7862d1…).
+My error, resolver lock: the restart killed tailscaled; the stall
+alert's resolver call at 20:59Z ran the skill's setup, which starts
+tailscaled with `nohup … &`, and under my plain `flock <lock> cmd`
+wrapper the daemon (pid 364104, started 20:59:11Z) inherited the lock
+fd (fd 3). ~/.config/dagger-namespace-access/.lock stays held for the
+daemon's life, so every flock-wrapped skill call blocks; my 20:59:19Z
+resolver retry timed out at 170 s. Fixed my wrapper to `flock -o`
+(command does not inherit the fd). Releasing the lock needs a restart
+of tailscaled 364104, which would drop live SOCKS connections on
+127.0.0.1:1055: not done; asked the coordinator and told the
+investigator. Skill fix candidate: setup should start tailscaled with
+the inherited fds closed (or callers use flock -o).
