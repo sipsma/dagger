@@ -5665,3 +5665,22 @@ checks succeeded on a49ff49e2a and cf26061a6c. Logs
 main cf26061a6c fully green, 84 of 84: the gated test-provision rerun
 succeeded (2026-09-22T21:08:06Z Succeeded in 4m30s. Run `dagger trace 3dbc261319814105e96e4e6dd876b489` to ); the two docker subtests that failed with "context
 canceled" beside the 429 passed with it.
+Coordinator: push the skill-fix branch to dagger/dagger.io origin as
+sipsma/namespace-skill-lock-and-config (no fork; #5336 went the same
+way); the dagger.io worktree is applied after this turn. AWS SSO
+renewal: the coordinator started the auth flow; Erik approves the
+device code. 0a5111b96b's modules shards: superseded head, unattributed
+cut-off at ~21:06Z; recorded as such, no action.
+main 0a5111b96b test-split:test-base: cancelled at 21:08:26Z, "max
+execution time exceeded" (trace 53db7a0118c9edef57d98622852d3faa, the
+investigator's id). 66 of 67 packages ok, no FAIL; core/integration
+never reported. #14275's watchdog captured the 15-minute engine dump
+(curl exit 0; 3751 goroutines): 458 in sync.Mutex.Lock under
+dagql.(*Cache) methods on one cache (all waits under a minute), 104 in
+Cache.waitForLazyEvaluation, 41 in Cache.wait; 107 goroutines blocked
+9-15 minutes are session/shutdown/log-spiller waits. No 25-minute dump
+in the log. Saved at
+/tmp/pkg-analyst-items/53db7a0118c9edef57d98622852d3faa-dump15m.txt;
+full log /tmp/pkg-ci-main-0a51-test-base.log. core/integration passed
+in the same shard on a49ff49e2a and cf26061a6c. main cf26061a6c is 84
+of 84 green.
