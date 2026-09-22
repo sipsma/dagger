@@ -4754,3 +4754,13 @@ one-minute start watch is armed on main's head and #14271: on a new
 pending test-base it resolves the check URL and emits the trace, tenant,
 instance and engine fields, which I steer to them at once. The
 twenty-minute watch stays armed alongside.
+CI-stall agent (01:50Z): preflight and SSH proven on #14272's trace
+ac17025b3ef2bbd8717f627c99bd92ac (instance kg85kjc2orvuk, host 1877 /
+dev 21835) but that check completed before the dump proof; they need a
+live test-base target and an alert if core/integration or dagql is
+unfinished past twenty minutes. At 01:51Z no test-base run was in
+progress on main, #14271 or any open PR updated since midnight. The
+start watch is widened to every open PR head plus main (one-minute
+poll): START line with the resolved trace, check, tenant, instance and
+engine on a new pending run, ALERT at twenty minutes; the earlier
+twenty-minute watch on main/#14271 stays. No rerun.
