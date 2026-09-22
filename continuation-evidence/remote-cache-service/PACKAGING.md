@@ -5227,3 +5227,10 @@ sipsma/ci-diagnostics-2 resolved under flock; HIT with live instance
 fields when it lands on one of the ten victim engines; no reruns); they
 are editing test-split main.dang on sipsma/ci-diagnostics-2 (main
 34ad873d78) and forcing one small-package timeout for runner dump proof.
+#14279 test-workspaces rerun (started 06:13:48Z) resolved live for the
+investigator at 06:15Z: same engine as the stalled run
+(3ae460e1-8a06-4454-94b8-0d1a98cc7437); the check URL maps to traces
+0a6b3bb94855d00c4176db06304473b7 (rerun) and
+2d96b3c616afe1c45f41bdbeeb9a1c9a (stall) and instances hpltpimmljecc
+(05:40Z, the stall's) and v3o0o8cte2c6i (newer); steered with the note
+that the shard normally ends by about four minutes.
