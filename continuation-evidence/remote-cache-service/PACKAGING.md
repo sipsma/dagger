@@ -5769,3 +5769,12 @@ then 4aa8ecde15 (#14185, grouville/perf-prod-9), both merged by
 grouville, not ours; 7 files, +550 −19 over cf26061a6c. Both heads
 under the watches; any non-network failure goes to the coordinator,
 not rerun; on a stall alert, steal ratio first.
+Main moved to 57a1eadc93 (#14177, grouville/perf-prod-12, not ours).
+Its `release publish --tag=main …` status (the main engine image publish
+to ghcr.io) errored at 21:54:45Z, one second after starting (trace
+41128c0be80ea41af860b5079cac425c): "start engine: failed to provision a
+remote Engine: fallback route has no available capacity". Dagger Cloud
+engine capacity, before any code ran. Not rerun: a publish job is
+outward-facing and outside the check rerun rule; to the coordinator.
+release publish is still pending on 4aa8ecde15 and 2e306f44ae (may be
+waiting on the same capacity); cf26061a6c's publish succeeded.
