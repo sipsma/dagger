@@ -4652,3 +4652,8 @@ analyst's four attempts on 21:1xZ, the reviewer's and the investigator's)
 were my omission of that flag, not a block. The investigator's answer
 (/tmp/pkg-investigator-reply.md) is delivered by steer; the coordinator
 told so.
+Main ee26234869 (#14265's merge) fully green at about 00:2xZ (83 of
+83): test-base passed on the first run, module-runtimes on its
+network-class rerun. Main heads since the fix: f094ab5580 (green after
+one idtui rerun; test-provision registry-exempt), d8a0336fdd green,
+48706c4275 green, ee26234869 green.
