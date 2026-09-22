@@ -4662,3 +4662,22 @@ the first run of this head, so the graceful-stop commits and the
 bounded shutdown steps ran clean together under -race; module-runtimes
 on its network-class rerun). Awaiting a maintainer approval under the
 merge rule.
+Coordinator: rolling stability branch sipsma/main-test-stability off
+upstream/main ee26234869 in /tmp/pkg-stab, with the analyst's approved
+28c52281a9 ("test: force checkout reuse callers to overlap",
+core/schema/workspace_test.go, from their worktree branch
+fix/workspace-checkout-reuse) cherry-picked (-x) as d331827ebc; go vet
+./core/schema ok; unpushed, the coordinator publishes once two or three
+approved eleventh-item fixes are on it or a day passes.
+Namespace access setup (as reported by the coordinator, and preflight
+re-run here): skill /home/exedev/apidev/remote-cache-svc/skills/dagger-namespace-access
+(scripts dagger-namespace-setup.sh, -resolve.sh, -connect.sh, -logs.sh);
+`dagger-namespace-setup.sh check` passed on this host at 00:3xZ (Godmode
+reachable through userspace Tailscale, Namespace Cognito access valid);
+resolve/describe/ssh proven by the investigator on trace
+42f07d9e4936fb8fb2e10f8fe627e20b → tenant_2qf1mch9ubs72 / instance
+a4cpcfa42tbh0.
+New watch trigger (highest priority): when any test-base run on main or
+#14271 passes twenty minutes with a package still unfinished, steer the
+investigator immediately with the trace id; in-progress runs polled at
+two-minute intervals for package completion.
