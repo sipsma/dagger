@@ -4799,3 +4799,13 @@ committed 56db5d903 in their managed dagger.io secondary; live proof
 waits only on a target; the next test-base start goes to this agent
 id, not the earlier investigator id. Start watch (all open PR heads
 plus main, one-minute poll) is the source; no rerun.
+#14275 published by the coordinator (sipsma/ci-hang-diagnostics at
+c2aae9490c: 1dc356b033 timeout 20m, c0baacce1c dump watchdog,
+c2aae9490c its cancellation fix for B1). Added to the watch and the
+merge rule (dev-module files only); the managed diagnostics worktree
+fast-forwarded to c2aae9490c. Roster: analyst now
+tc-aaaaef374e5781d8c38bc19ce4cd1be5, investigator
+tc-44f37aada8d1765ad218accd564decb7, reviewer
+tc-6157f0c1af9a6b7b21415bfe9821da40; the previous three are trashed;
+the start-watch steer for live test-base targets goes to the new
+investigator.
