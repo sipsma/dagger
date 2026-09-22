@@ -5303,3 +5303,8 @@ test-workspaces remain (with trace and instance fields for immediate
 dump capture), plus the general watch. The trace-list file's entries
 keep their per-trace verification; the closure note applies to the
 item as a whole.
+#14280 at 29a6ff115a: golang:test-all errored (trace
+1bb4dccef43ca73a889925ac7b78bf3c) on the K3S engine pull's registry 500s
+(101 lines, TestInstallK3S/default_daemonset), the exempt pair with
+test-provision; not rerun. One check pending, nothing else red; merges
+on a maintainer approval under the rule (registry pair exempt).
