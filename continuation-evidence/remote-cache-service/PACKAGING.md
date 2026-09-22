@@ -5511,3 +5511,13 @@ baselines"; published body equals the draft apart from one trailing
 blank line. Both monitors find it by head branch. #14280 at ad41b6afdd
 is 84 of 84 green and needs only a maintainer approval to merge (head
 pinned).
+#14293 at 228f9ac710: golang:test-all errored in 3m8s at 19:35:46Z
+(trace f7927f6b8542dd108e161cceada6308c). One failing test,
+e2e/helm TestInstallK3S, helm_test.go:138 "wait for k3s readiness: exit
+code: 1". No registry 500s in this run; the one error line before the
+k3s teardown is the Go module proxy, `github.com/google/go-github/v59
+@v59.0.0.zip` "stream error: stream ID 269; INTERNAL_ERROR; received
+from peer" (building engine/telemetry). Proxy fault, network class;
+under the ruling one rerun, gated on recovery evidence after 19:35:46Z
+(log /tmp/pkg-14293-golang-gate.log); exempt with traces if the proxy
+keeps failing. Log /tmp/pkg-ci-14293-golang-test-all.log.
