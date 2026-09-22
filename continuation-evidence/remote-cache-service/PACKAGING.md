@@ -6053,3 +6053,10 @@ overstate run time during a shortage; the dev-span stall alert avoids
 this, its 20-minute fallback does not. (b) Each rerun of a test-split
 check occupies the single-slot pool for its full run, which is the
 mechanism behind Erik's concern about reruns adding to the shortage.
+Investigator: d9f02 still RUNNING at 22:39:01Z, so not cancelled 30 min
+from enqueue. dagger.io source (local 9ae10…, api/checks/run.go:380)
+starts the 30-minute check timer after engine admission/readiness,
+enforced at :494; the 12-minute queue is outside it. At 22:39Z the
+trace is ~21 min old and core/integration ~15m45s. (Consistent with
+0a5111b96b's test-base "max execution time" at 30m12s of trace time.)
+I report d9f02's terminal outcome to the investigator when it lands.
