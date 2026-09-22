@@ -4868,3 +4868,11 @@ ac7a9907c09524c5b553066d52a601b4 (main f094ab5580,
 TestNavToggleReturnsToLastAgent) and 1f52fa2fb01e6eed553563f60202a4b7
 (#14231 b78f5048b1, TestLiveTreeFollowsFocusedAgent plus the two TestUp
 failures at up_test.go:709/:748).
+#14276 (sipsma/export-image-loader-ack at a9dc609694 on d6d005c55c, the
+item-3 production fix, two engine/engineutil files) published by the
+coordinator: added to the watch and the merge rule. #14275 pushed by
+the coordinator at 067dd6cb56 (the gosec follow-up on the watchdog;
+four commits; lease held); managed diagnostics worktree fast-forwarded.
+Item 4 classification (analyst): a 1.8 % fixture defect, 1024 random
+bytes may contain no NUL so rg treats binary.bin as text; test-only fix
+in progress.
