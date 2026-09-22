@@ -4845,3 +4845,10 @@ loop was stopped (my pkill pattern also matched its own shell, exit
 target_url. The investigator confirms the G101 is on a credential-free
 shell constant and prepares a narrow suppression follow-up (the
 coordinator allows a targeted //nolint:gosec with reason there).
+Investigator: live dump proof complete at 02:09:05Z on #14275's
+test-base (trace 63df09d446ad07bb0d11b1503b6ac5ca): host PID 1876 and
+the traceparent-matching dev-engine PID 2268 both captured, HTTP/curl
+status 0, script exit 0; /tmp/ci-14275-live-dumps.log (host lines
+13–6936, dev 6938–48677); coordinator notified by them. The
+twenty-minute trigger (main, #14271, #14275) and the start watch across
+all open PR heads stay armed.
