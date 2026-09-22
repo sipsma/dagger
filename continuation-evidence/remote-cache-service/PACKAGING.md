@@ -4930,3 +4930,9 @@ test fixes are on main; items 5–7 will need a new rolling branch since
 this one is merged). Main: … d6d005c55c → 0a2d84a8ba → 21b15a1db5 →
 6e6a60b4a2 → 50164dc9db. #14271 (949d3ea685) remains the one open
 watched PR, green and unapproved. Watches to re-arm on the new heads.
+Next rolling branch sipsma/main-test-stability-2 created in the managed
+stability worktree with `checkout -B` from upstream/main (50164dc9db);
+unpushed until the first approved item (6 or 7) lands, then pushed to
+origin. Main's new heads under the usual watch; #14275's watchdog is now
+live on main's test-base, so a real 15-minute dump, if any, goes to the
+investigator. #14271 remains the one open watched PR.
