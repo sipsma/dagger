@@ -5616,3 +5616,37 @@ of tailscaled 364104, which would drop live SOCKS connections on
 127.0.0.1:1055: not done; asked the coordinator and told the
 investigator. Skill fix candidate: setup should start tailscaled with
 the inherited fds closed (or callers use flock -o).
+Resolver lock recovery (coordinator's OK): killed tailscaled 364104 at
+~21:03Z; a resolver call already waiting under the old plain-flock
+wrapper took the freed lock and its setup started tailscaled 421930
+(21:03:26Z), which again inherited the lock fd; killed it too. No flock
+caller was waiting afterwards; the lock read free. `setup check` under
+`flock -o`: first run started tailscaled 424850 (does not hold the
+lock) and failed "Tailscale auth is not ready" because it tested login
+right after the socket appeared (the daemon then reported BackendState
+Running, Godmode 200); second run passed Tailscale and Godmode and
+failed "AWS SSO is not ready for profile on-call-permissions": the SSO
+token has expired ("Token has expired and refresh failed"); ~/.aws/config
+is intact (one profile, one sso-session). Renewal needs `setup auth`
+(device-code login by a human). Investigator: stood down on the
+0a5111b96b stall per the coordinator; no capture; their calls use
+flock -o; they report Cloud's moduleChecks exposed the trace while
+running (trace 53db7a0118c9edef57d98622852d3faa, check
+5f99cd6e-368b-4f54-818f-2b64a23e8271, started 20:38:05Z), which
+corrects my note that no trace id was available before the terminal
+status. Analyst told to use flock -o.
+main cf26061a6c: test-provision gate met at 21:03:21Z (PR head
+82c8036a0b green at 20:58:05Z); one rerun issued.
+Skill fix drafted against dagger.io main 9298ba6ca (drafts in
+/tmp/pkg-skill-fix/): (1) setup closes descriptors above stderr in a
+subshell before `exec nohup tailscaled`, so $! is still the daemon's pid;
+temp-lock test: old pattern leaves the lock held by the daemon, new
+pattern leaves the daemon with fds 0-2 and the lock free; SKILL.md adds
+the `flock -o` rule and notes both behaviors. (2) configure_aws_profile
+writes to a temp file in the same directory and os.replace()s it
+(mode preserved, symlink target resolved); 40 concurrent writers x 5
+rounds on a config holding an unrelated profile: main's version lost
+`[profile other]` in 5/5 rounds, the atomic one 0/5, no errors, no temp
+files left. Not included, candidate: setup check's login test right
+after a fresh daemon start races the daemon loading its state.
+Awaiting a dagger.io managed worktree to commit.
