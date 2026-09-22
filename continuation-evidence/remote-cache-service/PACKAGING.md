@@ -5130,3 +5130,13 @@ spent. Main 34ad873d78's module-runtimes passed at 05:17Z, so the fault
 is specific to this PR's runs. Reported for the coordinator's call; no
 further rerun from me. Everything else on #14279 green or pending
 (5 pending).
+Ruling on #14279: one more module-runtimes rerun once its other checks
+settle (script /tmp/pkg-14279-mr-rerun.sh); if it errors again with the
+v6 build fault and no test ran, the check joins the network-class
+exemption for this PR (documented with trace ids) and the PR merges on
+approval with everything else green. The cross-PR source fault's trace
+list across our PRs is compiled at
+continuation-evidence/remote-cache-service/cross-pr-source-fault-traces.md
+(19 traces: 13 verified by the v6 marker in their fetched logs, 6 from
+the first burst listed on the coordinator's ruling since their logs now
+fetch empty).
