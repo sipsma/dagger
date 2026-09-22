@@ -5855,3 +5855,8 @@ Main moved to fc414b021c (#14174, grouville/perf-prod-5, not ours;
 (/tmp/pkg-watch-general3.sh): the newest main head reports every change
 in totals; superseded heads report only when their failed set changes;
 merged PRs drop out.
+main 57a1eadc93 (superseded): test-split:test-provision errored 11m17s
+at 22:06:30Z (trace 2e65c427aa1d2b9bfc9f449c7c208484): eight
+docker/podman/nerdctl subtests, each "failed to resolve image
+registry.dagger.io/engine:v0.16.1 … 500 Internal Server Error" (31
+lines). Registry fault; no rerun.
