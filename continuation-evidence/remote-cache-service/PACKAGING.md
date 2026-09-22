@@ -5662,3 +5662,6 @@ down). Reads as the head's CI run cut off at ~21:06Z; cause
 unattributed; not network class, not rerun; to the coordinator. Both
 checks succeeded on a49ff49e2a and cf26061a6c. Logs
 /tmp/pkg-ci-main-0a51-test-module{-runtimes,s}.log.
+main cf26061a6c fully green, 84 of 84: the gated test-provision rerun
+succeeded (2026-09-22T21:08:06Z Succeeded in 4m30s. Run `dagger trace 3dbc261319814105e96e4e6dd876b489` to ); the two docker subtests that failed with "context
+canceled" beside the 429 passed with it.
