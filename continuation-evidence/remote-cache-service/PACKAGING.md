@@ -5472,3 +5472,32 @@ check (traces 13257a8b771b5e56223bd7b79c00b5b4 and
 d2b7536e613aef92fcc3d783c7d4d144). One of the other two proxy reruns is
 green; the third is pending. Log
 /tmp/pkg-ci-14280-ad41-container-rerun.log.
+Coordinator: fifteenth item approved as a test-side observation race.
+Per the hold ruling, #14280's one documented test-base rerun was issued
+at 18:23:28Z on ad41b6afdd.
+Watcher gap: a server restart (reported by Erik) stopped every monitor
+and gate process after about 18:4xZ; nothing ran until 19:29Z, when
+the state was read back from the status API. What happened in the gap,
+all on #14280 at ad41b6afdd: test-base rerun succeeded in 14m19s at
+18:38:07Z (trace 02fabd9dd7d0dfe373ccded5b67d4f0c); test-provision's
+gated rerun succeeded in 3m47s at 18:19:08Z (trace
+1e4ba38fb62437f0ae153579e3353ec1); test-modules' gated rerun succeeded
+in 8m53s at 18:24:31Z (trace 3c55eece4384199eb0d24f8db086e8b6); the
+second test-container gate met at 18:38:58Z on #14288's green at
+18:38:26Z, and its rerun succeeded in 5m4s at 18:44:25Z (trace
+ecd2dcb29b6eaf61dfc093ebaab68022). #14280 is 84 of 84 green, no proxy
+exemption needed; it merges on a maintainer approval, pinned to
+ad41b6afdd. Main unchanged at 232a80cbd3 (fully green).
+sipsma/main-test-stability-4 created in the stability worktree off
+upstream/main 232a80cbd3: one commit 228f9ac710, `git cherry-pick -x`
+of the analyst's 5b5b92d0be ("test: wait for parent preparation before
+checking delegation holds", core/part_delegation_test.go, +12 −1; Erik
+signoff; no AI attribution); patch identical to 5b5b92d0be apart from
+index lines, and the file byte-identical to the analyst's evidence
+copy. `go vet ./core/` passes on 228f9ac710 (head file
+/tmp/pkg-stability-4-vet.head, dirty 0); gofmt clean. Pushed to origin.
+Body at pr-bodies/main-test-stability-4.md (f2036e3b66); evidence from
+/tmp/fifteenth-delegation-parent-holds/ (50/50 under -race, 120 s,
+before and after, on 232a80cbd3; no local reproduction). Monitors
+re-armed after the restart, now also covering the stability-4 PR once
+published.
