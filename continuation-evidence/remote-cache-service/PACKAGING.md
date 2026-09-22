@@ -5562,3 +5562,13 @@ fault). Network class. No rerun: main has moved on to a49ff49e2a and
 cf26061a6c, which run the same check (same rule as the main gate
 script's "main moved; no rerun"). Trace render
 /tmp/pkg-ci-main-0a51-docs-refs.txt.
+main 0a5111b96b: test-split:test-cache-persistence errored in 11m15s at
+20:49:38Z (trace 901852689c8cde654cbb9c861c119809). One failing
+subtest, TestCachePersistence/TestDiskPersistenceAcrossRestart/
+module_function_directory_list_survives_repeated_restarts: its module
+build failed on the Go module proxy, `golang.org/x/text@v0.34.0.zip`
+stream error. Network class; no rerun, same reason as the docs check
+(superseded by a49ff49e2a and cf26061a6c, which run the same check).
+Log /tmp/pkg-ci-main-0a51-cache-persistence.log. test-workspaces
+succeeded on 0a5111b96b (9m54s), a49ff49e2a (7m56s) and cf26061a6c
+(9m45s).
