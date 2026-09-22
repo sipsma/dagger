@@ -5528,3 +5528,8 @@ golang:test-all gate met at 19:48:09Z (#14291 green at 19:37:39Z); the
 one rerun was issued at 19:48:11Z (merge-ref ea22361568).
 #14293 at 228f9ac710: golang:test-all rerun succeeded (2026-09-22T19:52:08Z Succeeded in 3m36s. Run `dagger trace a15c0fc49b10dd688f03fc3197d572a7` to ). #14293 is
 84 of 84 green and needs only a maintainer approval (head pinned).
+Main moved to 0a5111b96b: #14288 (fix-lazy-file-asservice, merged by
+shykes; 7 files, +73 −98, including TestTelemetry golden testdata), not
+one of ours. #14280 and #14293 stay mergeable; both still need only an
+approval. The watches cover 0a5111b96b's CI; any non-network failure
+there goes to the coordinator, not rerun.
