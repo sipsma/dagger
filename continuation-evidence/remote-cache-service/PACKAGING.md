@@ -5023,3 +5023,8 @@ test-base included. Main heads since the hang fix, all green at their
 final read except the registry-exempt provision/K3S pair on the
 superseded 21b15a1db5, 6e6a60b4a2 and 50164dc9db, and 50164dc9db's
 one-off TestSnapshotSharingCancelDuringPreparation (fix on #14278).
+#14278 at a895ad02d6: approved by vito (MEMBER) at 03:21:55Z. Its
+test-base errored at 35.4 s (trace 7e9b01c240dfdf703d08ff771880c8a1) on
+the cross-PR go-git v6 build fault (four v6 lines, no test ran): network
+class, one rerun issued; the rest of the run in progress. Merge on
+green under the rule, head pinned.
