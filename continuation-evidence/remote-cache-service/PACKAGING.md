@@ -4643,3 +4643,6 @@ dagql-missing cancellation stopped after f094ab5580, with the trace list.
 #14271 at 949d3ea685: test-module-runtimes errored at 40.4 s (trace
 4d2d02b0f77d6b7281b32dc6d559ab00, four go-git v6 lines), the cross-PR
 build fault: network class, one rerun issued 00:04Z.
+Main ee26234869's test-module-runtimes (cross-PR build fault, trace
+2b50dbfa88a19858566fb1f62a20c058): network class, one rerun issued on
+the main head; its test-base still pending.
