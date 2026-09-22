@@ -5358,3 +5358,22 @@ main 232a80cbd3: the test-cache-persistence rerun succeeded in 7m16s at
 that path. test-workspaces passed in 7m49s. At 18:0xZ: 82 green,
 test-base pending (started 17:37:18Z, under the stall alert),
 test-container red under the TestSystemGoProxy gate.
+main 232a80cbd3: test-base succeeded in 14m42s at 17:52:05Z (trace
+0da40c31845e87b952aca…), the first green test-base on a main head
+since the fourteenth item appeared; the head is 83 of 84 green with
+only test-container red (TestSystemGoProxy proxy fault, gated).
+#14280 pushed by the coordinator at ad41b6afdd (three commits:
+0f2069f850 "ci: retain timeout output and dump every test shard
+engine", 29a6ff115a "fix(ci): disable Go module index in shared build
+environments", ad41b6afdd "ci: make verbose test output and engine
+dumps opt-in"; lease held, origin mirrored). Title and body updated:
+the goindex fix first; the verbose runner and the dumps sit behind the
+shards' `diagnostics` switch, off by default including test-base;
+validation traces 76cd3815c8369b5ff6de50ed068dc4b2 and
+0106df346d41226c50940e5052230349. The watches follow the new head; it
+merges on a maintainer approval under the rule, pinned to ad41b6afdd,
+with the registry pair exempt only while that fault persists.
+Not part of #14280: an uncommitted otelgotest draft at
+/tmp/otelgotest-package-failure-draft.patch, a proposed fix to the
+upstream runner (package-failure output retention), kept as a
+proposal.
