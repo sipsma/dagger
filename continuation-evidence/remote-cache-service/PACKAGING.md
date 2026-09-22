@@ -4942,3 +4942,10 @@ manifests 500, twelve lines, the nerdctl image-driver subtests);
 network class, exempt; the head is superseded by 6e6a60b4a2 and
 50164dc9db, so it is left red as with 9282dfa127. Nothing else red on
 main's four new heads at the last read.
+Registry fault burst on main's new heads around 02:55–03:00Z:
+test-provision errored on 21b15a1db5 (above), on 6e6a60b4a2 (superseded,
+left red) and on the current head 50164dc9db (trace
+8a8dd2c7a976df97d2591a8b29cdef6a, 24 lines of engine:v0.16.1 manifests
+500, the podman/nerdctl image-driver subtests). Network class: one
+rerun issued on 50164dc9db at 03:01Z as the current main head; the
+superseded heads stay red per precedent.
