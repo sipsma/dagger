@@ -5191,3 +5191,12 @@ window is pgh1gdqds3j00, 02:02:10–02:03:46Z); their raw files
 v1.0.0-beta.14 (dagger.namespace-images.com/engine:v1.0.0-beta.14);
 they are checking the source path. My mapping continues (19/19 faults
 resolved; #14256's 91 in progress) keyed on engine id.
+Coordinator's rule for the Namespace skill: every setup/resolve
+invocation is wrapped in `flock ~/.config/dagger-namespace-access/.lock
+<cmd>` (the setup step rewrites ~/.aws/config non-atomically; three
+agents share it). Mine now go through /tmp/pkg-ns-resolve.sh (the
+mapping job restarted under it, skipping traces already resolved; the
+twenty-minute watch re-armed with it); the investigator and the analyst
+were told by steer. Skill fix candidate for the dagger.io follow-up:
+the setup script should write its config atomically (write to a temp
+file, rename).
