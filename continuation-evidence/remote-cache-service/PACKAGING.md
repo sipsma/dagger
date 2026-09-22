@@ -6079,3 +6079,10 @@ separate. Report /tmp/stall-d9f02-report.md and
 continuation-evidence/ci-stall-d9f02/report.md.
 Capacity freeze OFF at ~22:52Z (no capacity failure since 22:21:40Z). Current head fc414b021c is 84 of 84 green, so no gate to restart; gated single reruns resume only on the current head, and the gate scripts re-check the freeze before issuing.
 Main moved: 2a78967d5d (Merge pull request #14291 from dagger/shell-exec-command, by Solomon Hykes); over fc414b021c (fully green, 84 of 84). Under the watches; capacity freeze OFF.
+main 2a78967d5d (current, #14291): test-split:test-interface errored
+3m53s at 23:16:40Z (trace 0ee0bdd19f4c2daf79678a172cd084c0): only
+TestInterface/TestIfaceBasic/go (module_iface_test.go:48), module build
+on `go.opentelemetry.io/otel@v1.44.0.zip` proxy stream errors (69).
+Proxy fault; capacity freeze OFF; one rerun gated on recovery evidence
+after 23:16:40Z (the gate re-checks the freeze), log
+/tmp/pkg-main-2a78-interface-gate.log.
