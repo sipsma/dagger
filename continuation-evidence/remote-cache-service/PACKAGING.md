@@ -4764,3 +4764,19 @@ start watch is widened to every open PR head plus main (one-minute
 poll): START line with the resolved trace, check, tenant, instance and
 engine on a new pending run, ALERT at twenty minutes; the earlier
 twenty-minute watch on main/#14271 stays. No rerun.
+Reviewer approved the diagnostics pair 1dc356b033 → c0baacce1c ("ci:
+capture dev engine goroutines during long base tests", the
+investigator's dump watchdog: engine-dev Test gains a dumpAfter
+parameter, with it unset the original argv runs unchanged; enabled, a
+wrapper forwards "$@" and returns the runner's status, curl bounded 5 s
+connect / 30 s total and diagnostic only, watchers reaped on exit and
+signal; test-base wiring enables 15m/25m dumps; generated files match;
+Erik signoff, no attribution; validated by the reviewer against
+/tmp/dev-engine-dump-watchdog-stderr.log with two BEGIN/END dump pairs,
+curl exit 0, 35 passes and package ok in 70.6 s, trace
+07a6d735d926fc4d6799f02030519fbd; the clean-tip provenance question
+stays with the investigator; no runs by the reviewer). The commit's
+parent is 1dc356b033, so sipsma/ci-hang-diagnostics is fast-forwarded to
+c0baacce1c in the managed worktree (origin still at 1dc356b033; the
+coordinator publishes the pair as one PR). Draft description note at
+/tmp/pkg-ci-diag-pr-body.md.
