@@ -5871,3 +5871,8 @@ main 57a1eadc93 (superseded), two more reds:
   Cloud Engine capacity did not become available within 15 minutes".
   Same Cloud capacity shortage as that head's release publish; no code
   ran; no rerun.
+main 4aa8ecde15 (superseded): golang:test-all errored 18m26s at
+22:12:48Z (trace 38e16cf3fc2b241517ef050814077082): only
+TestInstallK3S/default_daemonset (305s), registry.dagger.io
+`engine:main` manifest 500s (90 lines). Known K3S registry case; no
+rerun.
