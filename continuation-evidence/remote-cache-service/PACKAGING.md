@@ -4995,3 +4995,10 @@ actual 3; dagql otherwise finished (27.6 s), core/integration ok in
 755 s, no registry or timeout lines; the test file is untouched by
 today's merges; first sighting in the record. Non-network: not rerun,
 reported for an analyst item. The head is superseded by 5832caf8fe.
+#14278 published by the coordinator (sipsma/main-test-stability-2 at
+089be08659 on 50164dc9db, items 6 and 7, "test: pin the SDK lockfile
+fixture branch and settle headless agent focus"): added to the watch
+and the merge rule; run started. The twelfth item
+(TestSnapshotSharingCancelDuringPreparation, trace
+7913f1583003bef7970ee6fe46d4f136) handed to the analyst by steer with the
+excerpt /tmp/pkg-analyst-items/7913f1583003bef7970ee6fe46d4f136.txt.
