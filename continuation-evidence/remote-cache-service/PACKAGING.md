@@ -5931,3 +5931,24 @@ main 57a1eadc93 test-base terminal: errored 22:22:32Z after 27m15s
 core/integration FAIL 1200.978s (20m Go test timeout); no panic text
 (quiet runner); no network signature; steal 9.1-19.9% per minute to the
 end. Superseded; not rerun; capture outcome from the investigator.
+RULE CHANGE (coordinator, for Erik, 22:24Z): our reruns must not add to
+the Cloud capacity shortage. While any capacity failure ("capacity did
+not become available" / "no available capacity") has been seen in the
+last 30 minutes, no reruns at all; after 30 minutes without one, resume
+the gated single reruns, only on the current head.
+Applied: at 22:24:20Z cancelled the queued fc414b021c gates for
+golang:test-all and test-split:test-provision. The test-module-runtimes
+gate had already fired at 22:23:59Z (its rerun is issued and cannot be
+cancelled; there is no Cloud cancel command). Both gate scripts now
+refuse to rerun while /tmp/pkg-capacity-last.sh reports a capacity
+failure under 30 minutes old (it reads status descriptions, and for
+~15-minute errors the trace text, cached per trace); a freeze monitor
+reports ON/OFF transitions. Latest capacity failure 22:21:40Z
+(fc414b021c test-module-runtimes); freeze until at least 22:51:40Z.
+Reruns issued in the last three hours (19:24-22:24Z), counted from the
+gate logs and this record (entries dated by commit): 3 checks, all by
+gates: #14293 golang:test-all 19:48:11Z; main cf26061a6c
+test-split:test-provision 21:03:21Z; main fc414b021c
+test-split:test-module-runtimes 22:23:59Z (after capacity failures had
+been seen, including on that check at 22:21:40Z; the rule arrived about
+the same time).
