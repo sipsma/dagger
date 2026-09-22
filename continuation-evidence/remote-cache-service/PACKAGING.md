@@ -4977,3 +4977,21 @@ Main: … 50164dc9db → 5832caf8fe. No open watched PR remains; the
 last stack PR #14241 stays frozen. The golang:test-all gate on
 50164dc9db now sees main moved and will stand down. 21b15a1db5's
 test-base passed in 13m9s.
+Item 7 approved: the analyst's 841a302831 ("test: settle headless agent
+focus before the next key", investigate/idtui-agent-focus; two
+dagql/idtui test files) cherry-picked (-x) onto
+sipsma/main-test-stability-2 above 2daeac0cbb as 089be08659; go vet
+./dagql/idtui ok; pushed to origin at 089be08659 (two commits on
+50164dc9db). Provenance correction recorded: both items' bases are
+50164dc9db (841a302831's parent is 50164dc9db; 0c6aa5616d's recorded
+parent 0a2d84a8ba is the analyst's branch base, the cherry-picks sit
+on 50164dc9db). PR body drafted at
+continuation-evidence/remote-cache-service/pr-bodies/main-test-stability-2.md.
+Main 50164dc9db's test-base (reported late, trace
+7913f1583003bef7970ee6fe46d4f136, errored 16m6s): one failing test,
+TestSnapshotSharingCancelDuringPreparation, cache_snapshot_sharing_test.go:1127
+`require.Equal(t, donorHolds, shareTestHolds(c, donor))` expected 2,
+actual 3; dagql otherwise finished (27.6 s), core/integration ok in
+755 s, no registry or timeout lines; the test file is untouched by
+today's merges; first sighting in the record. Non-network: not rerun,
+reported for an analyst item. The head is superseded by 5832caf8fe.
