@@ -6132,3 +6132,20 @@ proxy, Cloud capacity) while they persist, plus a maintainer approval,
 head pinned. Reruns remain subject to the capacity freeze.
 main 2a78967d5d: test-interface gate met at 23:45:07Z (#14296 head bb0e263584 green on test-interface at 23:41:58Z); capacity freeze OFF (last capacity failure 22:21:40Z); one rerun issued. Rerun count since the 22:24Z freeze rule: 1 (this one).
 main 2a78967d5d fully green, 84 of 84: the test-interface rerun succeeded (2026-09-22T23:46:47Z Succeeded in 1m32s. Run `dagger trace 60).
+dagger/otel-go #25 published by the coordinator:
+sipsma/flush-unfinished-output-on-package-failure at 7fc419c783 on
+2bca4f5622cf, "gotest: flush unfinished test output when a package
+fails" (the runner-side flush fix for the quiet mode that dropped the
+timeout panics in 4aa8ecde15 test-workspaces and f8d83). The general
+watch notes its merge.
+FOLLOW-UP when #25 merges: one small dagger PR bumping the otelgotest
+pin to the merge commit, validated by the forced-timeout probe in quiet
+mode showing the panic. Where it is pinned on main: engine-dev/test.go
+:415 runs `go install github.com/dagger/otel-go/cmd/otelgotest` with no
+version, so the effective pin is .dagger/modules/engine-dev/go.mod:17
+(github.com/dagger/otel-go v1.43.1-0.20260917165636-2bca4f5622cf, the
+PR's base) plus its go.sum; test.go:180 invokes it. Only engine-dev runs
+otelgotest. cli-dev/go.mod:14 and go/go.mod:12 pin the same
+pseudo-version for the otel library (bump together for consistency);
+other modules pin v1.41.0/v1.43.0/af7cd0684887 and do not use
+otelgotest.
