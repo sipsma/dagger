@@ -5719,3 +5719,15 @@ body draft at pr-bodies/namespace-skill-lock-and-config.md.
 dagger.io #5343 published by the coordinator
 (sipsma/namespace-skill-lock-and-config at 50ac54c04). No CI watch;
 its merge gets noted when it happens.
+For the investigator's attribution of the 53db dump (quiet runner: the
+log has no RUN/PASS/FAIL markers): open-test listing built from Dagger
+Cloud only, probing each of core/integration's 73 top-level tests at
+0a5111b96b with `dagger trace <id> --test <Name>` (nine Cloud 502/stream
+errors, retried): 27 passed, 18 open, 28 absent (the summary's "44
+passed" is unexplained). All 18 open top-level tests render ~17m50s;
+TestRemoteCacheTransferSuite/TestSchemaRecovery and
+/TestSchemaRecoveryCold are open 17m50s, from about the start of the
+run; every other open subtest is 12m35s or less. Durations only, no
+start times; the end reference (log end 21:08:19Z vs cancel 21:08:26Z)
+is unconfirmed. Files /tmp/pkg-0a51-coreint-open.txt and
+/tmp/pkg-0a51-probe/.
