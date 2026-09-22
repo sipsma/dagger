@@ -5417,3 +5417,13 @@ after the failure time; skip if the head moves): gates started ~18:1xZ,
 logs /tmp/pkg-14280-ad41-{container,modules}-gate.log. The PR gate
 script's stale /tmp/pkg-a3 path was pointed at the session worktree.
 Head state: 79 green, 2 pending, the three above red; no approval.
+Coordinator ruling on #14280's proxy-caused checks: the Go module proxy
+fault is network class like the registry; reruns for it are gated on
+recovery evidence (an unrelated head green on the same check after the
+failure time), one rerun per recovery window rather than one per head,
+so test-provision gets another once its gate is met. If the proxy keeps
+failing, the proxy-caused checks are exempt for the merge the same way
+the registry pair is, documented with traces. Gate for
+test-split:test-provision on ad41b6afdd started (since 18:01:33Z), log
+/tmp/pkg-14280-ad41-provision-gate.log; the test-container and
+test-modules gates continue.
