@@ -4876,3 +4876,13 @@ four commits; lease held); managed diagnostics worktree fast-forwarded.
 Item 4 classification (analyst): a 1.8 % fixture defect, 1024 random
 bytes may contain no NUL so rg treats binary.bin as text; test-only fix
 in progress.
+Investigator: both live targets captured with the approved script
+9ae10efa516: #14275 (trace ea076300c6c6299d6aaf30711bade031) at
+02:18:33Z host 1878 / dev 317, #14276 (f7a360591f791ed5808f6a589803ab69)
+at 02:19:17Z host 1893 / dev 31824; dev traceparents matched, dumps
+status 0, scripts exit 0; logs /tmp/ci-14275-ea0763-live-dumps.log and
+/tmp/ci-14276-f7a360-live-dumps.log. Live proof complete: the START
+watch is stopped; the twenty-minute unfinished-package alert stays
+armed across main, #14271, #14275 and #14276 (resolving from
+target_url) and is steered to the investigator immediately for stall
+capture.
