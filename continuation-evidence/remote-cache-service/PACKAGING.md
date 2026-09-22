@@ -5744,3 +5744,23 @@ at /tmp/stall-53db/green-test-timings.json (runner start
 investigator's caution: parent elapsed/span-end timings may exclude
 parallel children; compare leaf cases. My listing stands only as the
 set of open spans; use the investigator's file for timing.
+CLOSED: main 0a5111b96b test-base stall (trace
+53db7a0118c9edef57d98622852d3faa), attribution "CPU-starved Cloud
+runner" (coordinator, on the investigator's analysis). CPU steal 33-50%
+for 20:51-21:05Z on the failed run vs 0.1-2.3% on the passing run;
+broad 3.3x median slowdown across 391 common leaf tests; no lock holder,
+no frozen graph in the 15-minute dump; the 30-minute job limit beat the
+package timeout because the build took 7 minutes. Engine
+cfd3d414-03b1-417e-8391-15270736e189, instance kku1vcocbghca (iad4),
+20:38-21:09Z. The same head's modules shards cut off at ~21:06Z ran in
+the same window (recorded above as an unattributed cut-off). My own
+check with /tmp/pkg-steal.sh on the test-base log reproduces 32.8-50.3%
+per minute for 20:51-21:05Z, then 16.0% and 2.7%.
+STANDING RULE (stall alerts): read the steal ratio from the engine's
+metrics lines first. The engine logs a cumulative `msg="engine
+metrics"` line every minute with cpu-steal and cpu-total; the per-minute
+steal is Δcpu-steal/Δcpu-total (/tmp/pkg-steal.sh <log>). High steal
+means runner starvation, not a code stall.
+RESOLVER CAVEAT (restated): the resolver returns an engine's latest
+instance, so for a historical run use the instance-at-time lookup the
+investigator used; engine_id is the durable key.
