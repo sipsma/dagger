@@ -4936,3 +4936,9 @@ unpushed until the first approved item (6 or 7) lands, then pushed to
 origin. Main's new heads under the usual watch; #14275's watchdog is now
 live on main's test-base, so a real 15-minute dump, if any, goes to the
 investigator. #14271 remains the one open watched PR.
+Main 21b15a1db5 (#14275's merge): test-provision errored (trace
+c95f5dd1f2a1b10ba84fd41e052f0e01) on the registry fault (engine:v0.16.1
+manifests 500, twelve lines, the nerdctl image-driver subtests);
+network class, exempt; the head is superseded by 6e6a60b4a2 and
+50164dc9db, so it is left red as with 9282dfa127. Nothing else red on
+main's four new heads at the last read.
