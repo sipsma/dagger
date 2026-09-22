@@ -4958,3 +4958,13 @@ exact-commit and regenerated-client assertions unchanged) cherry-picked
 (-x) onto sipsma/main-test-stability-2 at 50164dc9db as 2daeac0cbb; go
 vet ./core/integration ok; pushed to origin at 2daeac0cbb. It publishes
 with item 7 or at the day mark.
+Main 50164dc9db: the test-provision rerun errored again at 03:06Z on
+the same registry fault (trace 3bf4fb4f16a6803081a5815e1a3bf7da; rerun
+spent), and golang:test-all errored on the K3S engine pull's registry
+500s (trace e94023fce804ba05b8079ff45fa07d20, 94 lines,
+TestInstallK3S/default_daemonset). Both are the registry-exempt pair
+while the fault persists; golang:test-all's one network-class rerun is
+held until an unrelated head shows the check passing again. Its
+test-base was not yet reported at 03:08Z (late reporting, as on
+f094ab5580). Main 0a2d84a8ba fully green (test-base 17m23s);
+6e6a60b4a2's test-base passed in 12m33s.
