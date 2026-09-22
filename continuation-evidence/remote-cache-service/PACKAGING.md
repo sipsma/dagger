@@ -5389,3 +5389,31 @@ proxy fault as the two on main 232a80cbd3. Network class; one rerun
 issued at ~18:3xZ (merge-ref a5b4daad67). Log
 /tmp/pkg-ci-14280-ad41-provision.log. No further rerun for this cause
 on this head.
+main 232a80cbd3: the TestSystemGoProxy gate met at 18:01:52Z (PR head
+7b4e934814 showed test-split:test-container green at 18:00:25Z); the
+one rerun of test-container was issued; pending since 18:01Z.
+#14280 at ad41b6afdd, the Go module proxy fault continues (four hits on
+this head):
+- test-split:test-provision rerun errored in 1m35s at 18:01:33Z (trace
+  cd9993eedfe4638fcee1d91f6d349071): the same nerdctl subtests, nerdctl
+  build on `google.golang.org/protobuf@v1.35.2.zip` INTERNAL_ERROR
+  (stream ID 27). The one rerun for this cause is spent; no further
+  rerun without a ruling. Log /tmp/pkg-ci-14280-ad41-provision-rerun.log.
+- test-split:test-container errored in 6m32s at 18:02:13Z (trace
+  13257a8b771b5e56223bd7b79c00b5b4): TestContainer/TestSaveHostContainerd
+  and TestLoadHostContainerd, the shared nerdctl build (provision_test.go
+  :498, "failed to content hash dockerfile copy: exit code: 2"), proxy
+  lines under the Load test's span: `google.golang.org/grpc@v1.72.0.zip`
+  INTERNAL_ERROR (stream ID 203). Log /tmp/pkg-ci-14280-ad41-container.log.
+- test-split:test-modules errored in 8m29s at 18:02:09Z (trace
+  c53809347839ad886d90427d571cff51): one subtest,
+  TestModuleConfig/TestContextDefaultsToSourceRoot, module build on
+  `golang.org/x/text@v0.34.0.zip` INTERNAL_ERROR (stream ID 25). Log
+  /tmp/pkg-ci-14280-ad41-modules.log.
+Because the proxy was still failing at 18:01Z, the one rerun each for
+test-container and test-modules is gated on recovery evidence (an
+unrelated open-PR head or a recent main head showing that check green
+after the failure time; skip if the head moves): gates started ~18:1xZ,
+logs /tmp/pkg-14280-ad41-{container,modules}-gate.log. The PR gate
+script's stale /tmp/pkg-a3 path was pointed at the session worktree.
+Head state: 79 green, 2 pending, the three above red; no approval.
