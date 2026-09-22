@@ -6035,3 +6035,21 @@ to pending at 22:33:40Z (dagger-cloud[bot] statuses), i.e. both were
 rerun during the capacity freeze. Not by me: no gate process running,
 the fc414b021c gates were killed at 22:24:20Z, and no "rerun issued"
 after 22:23:59Z in my gate logs. Reported to the coordinator.
+d9f02 12-minute gap ATTRIBUTED (investigator, raw resolver habitat
+task 01a0cb27-a3ab-7150-a54b-8d339de872fa): compute capacity queueing
+before the trace ran, not an engine build. The task shows
+compute-capacity-retry-wait sleep-1..12 from 22:06:22.322Z to a final
+sleep deadline 22:18:13.866Z; enqueued_at 22:06:07.285Z = Cloud
+startedAt; trace root 22:18:16.508Z. The same outer engine served a
+previous module-runtimes client (2f8f5f…) from 22:03:31Z to
+22:18:12.123Z at slot weight 16000; d9f02 claimed at 22:18:16.575Z in
+pool testsplit-16c-single, capacity 16000 (one check at a time), ~4.45 s
+after the prior client's release. Raw data
+/tmp/stall-d9f02-resolve-raw.json; no cold-cache attribution; step
+comparison being finished.
+Consequences for this record: (a) a check's GitHub "pending" time and
+Cloud startedAt include capacity queueing, so durations from them
+overstate run time during a shortage; the dev-span stall alert avoids
+this, its 20-minute fallback does not. (b) Each rerun of a test-split
+check occupies the single-slot pool for its full run, which is the
+mechanism behind Erik's concern about reruns adding to the shortage.
