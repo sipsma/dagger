@@ -6149,3 +6149,4 @@ otelgotest. cli-dev/go.mod:14 and go/go.mod:12 pin the same
 pseudo-version for the otel library (bump together for consistency);
 other modules pin v1.41.0/v1.43.0/af7cd0684887 and do not use
 otelgotest.
+#14296 at bb0e263584 fully green, 84 of 84 (no reruns); needs only a maintainer approval to merge, head pinned.
