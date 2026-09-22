@@ -5501,3 +5501,6 @@ Body at pr-bodies/main-test-stability-4.md (f2036e3b66); evidence from
 before and after, on 232a80cbd3; no local reproduction). Monitors
 re-armed after the restart, now also covering the stability-4 PR once
 published.
+sipsma/main-test-stability-4 published by the coordinator as #14293 at
+228f9ac710 (the pushed tip). Under both watches; merges under the rule
+on a maintainer approval, head pinned.
