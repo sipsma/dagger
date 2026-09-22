@@ -5279,3 +5279,15 @@ as a live unmatched-engine target.
 93e334f601635002a96ce01cf18d2512) on the registry fault (engine:v0.16.1
 manifests 500, 32 lines): exempt under the merge rule while the fault
 persists; not rerun. Seven checks pending, nothing else red.
+Investigator (06:3xZ): both #14280 live targets were gone by
+inspection: trace d43b1769… → engine f26f8952…, instance si5att94uuk0k
+destroyed 06:25:24Z (describe FailedPrecondition); trace 84a9a7c5… →
+engine 86571086…, instance 7hafma6m9as3i, describe and SSH at 06:30Z
+FailedPrecondition (destroyed). No cache files read, no forensic
+extension of the stale-Go-index mechanism, no remote writes or reruns;
+files /tmp/source-fault-live-{d43,84a}-{target.jsonl,raw.json,describe.err}.
+The passive next-victim alert stays useful; a mitigated build (#14280)
+would not establish the original source bytes anyway. Note for the
+watch: the instances live only for the check's duration (a
+cache-persistence run's instance was gone within about nine minutes),
+so a capture needs to start within minutes of the HIT.
