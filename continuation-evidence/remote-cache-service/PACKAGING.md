@@ -6068,3 +6068,12 @@ timeout. The two live dumps (22:30:17Z, 22:31:24Z) caught a slow,
 progressing run on a loaded host (PSI cpu avg60 63.6%, load 78.8), not
 a stall. Reported to the investigator. The externally issued reruns of
 golang:test-all and test-provision (22:33:40Z) also passed.
+d9f02 final (investigator, Cloud query): check endTime
+22:42:54.308892Z (GitHub success published 22:43:14Z); enqueue to end
+36m47.023s; root 22:18:16.508Z to end 24m37.801s; no cancellation;
+succeeded within the post-admission 30-minute budget. Attribution:
+12m09s capacity queue plus slow, progressing execution (two samples,
+no E cohort, all candidate waits gone). The earlier true
+package-timeout cases (4aa8ecde15 test-workspaces, f8d83) stay
+separate. Report /tmp/stall-d9f02-report.md and
+continuation-evidence/ci-stall-d9f02/report.md.
