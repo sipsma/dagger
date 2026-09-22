@@ -4949,3 +4949,12 @@ left red) and on the current head 50164dc9db (trace
 500, the podman/nerdctl image-driver subtests). Network class: one
 rerun issued on 50164dc9db at 03:01Z as the current main head; the
 superseded heads stay red per precedent.
+Item 6 approved: the analyst's 0c6aa5616d ("test: keep client update
+fixture branch stable", fix/client-update-stable-git on 0a2d84a8ba,
+core/integration/generators_test.go: the test served a test-owned Git
+repository instead of resolving public main twice, service IP resolved
+for the non-nested session, forced cleanup bounded; stale-pin,
+exact-commit and regenerated-client assertions unchanged) cherry-picked
+(-x) onto sipsma/main-test-stability-2 at 50164dc9db as 2daeac0cbb; go
+vet ./core/integration ok; pushed to origin at 2daeac0cbb. It publishes
+with item 7 or at the day mark.
