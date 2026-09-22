@@ -5427,3 +5427,7 @@ the registry pair is, documented with traces. Gate for
 test-split:test-provision on ad41b6afdd started (since 18:01:33Z), log
 /tmp/pkg-14280-ad41-provision-gate.log; the test-container and
 test-modules gates continue.
+main 232a80cbd3 fully green, 84 of 84: the gated test-container rerun
+succeeded (in 4m35s trace 1a3eec563408b3e812c52b71246dfa62 ). First fully green main head in this record since the
+fourteenth item; both proxy-caused failures on it cleared on one rerun
+each.
