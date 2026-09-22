@@ -5377,3 +5377,15 @@ Not part of #14280: an uncommitted otelgotest draft at
 /tmp/otelgotest-package-failure-draft.patch, a proposed fix to the
 upstream runner (package-failure output retention), kept as a
 proposal.
+#14280 at ad41b6afdd: test-split:test-provision errored in 5m16s (trace
+8dbab4a254ab5d1a394ba1f38b2c3ece). Every leaf failure is a nerdctl
+subtest (TestImageDriver/nerdctl/{current_image,specified_image},
+TestImageDriverGarbageCollectEngines/nerdctl/{cleanup,no_cleanup},
+TestImageDriverConfig/nerdctl, and the CACerts nerdctl case): the
+nerdctl build inside them failed on the Go module proxy,
+`golang.org/x/text@v0.25.0.zip` "stream error: stream ID 103;
+INTERNAL_ERROR; received from peer"; no registry 500s in this run. Same
+proxy fault as the two on main 232a80cbd3. Network class; one rerun
+issued at ~18:3xZ (merge-ref a5b4daad67). Log
+/tmp/pkg-ci-14280-ad41-provision.log. No further rerun for this cause
+on this head.
