@@ -5275,3 +5275,7 @@ no #14256 run; carried #14241's two faults on 09-21 20:42Z): instance
 7hafma6m9as3i created 06:21:25Z, trace 84a9a7c57847f24148eb222a9e8648b2,
 check a7e04b61-325b-4d34-8939-42f7131b2b01; steered to the investigator
 as a live unmatched-engine target.
+#14280 at 29a6ff115a: test-provision errored (trace
+93e334f601635002a96ce01cf18d2512) on the registry fault (engine:v0.16.1
+manifests 500, 32 lines): exempt under the merge rule while the fault
+persists; not rerun. Seven checks pending, nothing else red.
