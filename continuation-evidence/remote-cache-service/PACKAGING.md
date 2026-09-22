@@ -5179,3 +5179,15 @@ job errored at 23m rather than cancelled at 30m), but the log has no
 timeout panic or goroutine dump text, and the dump watchdog is wired
 for test-base only. Listing at /tmp/pkg-14279-workspaces-open-spans.txt.
 Reported to the coordinator and the investigator.
+Investigator (06:0xZ): already established via raw Godmode that fault
+f6920da3… ran on engine e531dbf6… which also ran #14256's
+module-runtimes (trace 7df618…), and fault 632488901857… on engine
+cfd3d414… which ran #14256's cache-persistence (db6214…); resolver
+pitfall confirmed: the emitted instance_id is the engine's latest
+instance, not the instance at trace time (e.g. 632488… resolves to
+5lbkutgri73bo created 05:36Z while the raw namespace_instances for its
+window is pgh1gdqds3j00, 02:02:10–02:03:46Z); their raw files
+/tmp/source-fault-*-raw.json and -target.jsonl; all three engines run
+v1.0.0-beta.14 (dagger.namespace-images.com/engine:v1.0.0-beta.14);
+they are checking the source path. My mapping continues (19/19 faults
+resolved; #14256's 91 in progress) keyed on engine id.
