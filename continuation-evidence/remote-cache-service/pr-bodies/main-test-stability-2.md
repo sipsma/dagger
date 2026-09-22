@@ -14,6 +14,13 @@ Evidence: the focused shared-engine integration subtest passed with the saved pr
 
 Evidence: the baseline pair reproduced one live-tree failure in 50 race repetitions; all seven corrected tests passed 50 race repetitions, and the full `dagql/idtui` package passed once with a 60-second timeout; the evidence is for the saved pre-commit patch, byte-identical to these test changes. The recorded failures (main f094ab5580's test-base, trace `ac7a9907c09524c5b553066d52a601b4`, `TestNavToggleReturnsToLastAgent`; #14231's test-base, trace `1f52fa2fb01e6eed553563f60202a4b7`, `TestLiveTreeFollowsFocusedAgent`; both `agent_focus_test.go:158` "waiting for focus [agent-scout agent-chief], got [agent-scout]") match the reproduced mechanism.
 
+## Sharing cancellation: wait for the attempt's receiver release
+
+`TestSnapshotSharingCancelDuringPreparation` cancels sharing while a preparation is parked in `PinSnapshot`, unblocks it, waits for the one-slot pass, and then compares exact ownership counts. The pass joins its `RunLazyTask` caller, which can return before the attempt worker has dropped its own separate receiver hold, so the receiver comparison could see three holds where the test's original two were expected; that is an observation before a delegated release, not leaked ownership on cancellation. The test now arms the existing bounded attempt-release hook after pair setup and waits on it once after the pass returns, before the ownership comparisons. The no-install, pin-balance, cancellation and donor/receiver assertions are unchanged.
+
+Evidence: the focused test passed 50 repetitions before and after the change under `-race` with a 120-second timeout, and the full `dagql` package passed once with a 60-second timeout, on the saved pre-commit patch byte-identical to this change; the CI failure (main 50164dc9db's test-base, trace `7913f1583003bef7970ee6fe46d4f136`, `cache_snapshot_sharing_test.go:1127`, expected 2 actual 3) did not reproduce locally, so the diagnosis follows the source contract rather than a replay of that run.
+
 ## Validation
 
-Each commit was reviewed on its own before joining this branch; `go vet ./core/integration/` and `go vet ./dagql/idtui/` pass on the tip. CI runs every package on the pushed head.
+Each commit was reviewed on its own before joining this branch; `go vet ./core/integration/`, `go vet ./dagql/idtui/` and `go vet ./dagql/` pass on the tip. CI runs every package on the pushed head.
+

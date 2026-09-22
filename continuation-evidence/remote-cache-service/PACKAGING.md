@@ -5002,3 +5002,19 @@ and the merge rule; run started. The twelfth item
 (TestSnapshotSharingCancelDuringPreparation, trace
 7913f1583003bef7970ee6fe46d4f136) handed to the analyst by steer with the
 excerpt /tmp/pkg-analyst-items/7913f1583003bef7970ee6fe46d4f136.txt.
+#14278 pushed by the coordinator at a895ad02d6 ("test: wait for canceled
+sharing attempt ownership release", the twelfth-item fix; three
+commits; lease held; origin mirrored). Description appended with a
+third section from the analyst's report
+(/tmp/dagql-twelfth-sharing-cancel/twelfth-sharing-cancel.md): the pass
+joins its RunLazyTask caller, which can return before the attempt
+worker drops its separate receiver hold; the test now arms the existing
+attempt-release hook and waits on it once after the pass; evidence 50/50
+before and after under -race, no local reproduction, trace
+7913f1583003bef7970ee6fe46d4f136; the Validation line gains `go vet
+./dagql/`. Read back identical apart from GitHub's trailing newline;
+the draft in pr-bodies/ mirrors it. Managed stability worktree
+fast-forwarded to a895ad02d6; go vet ./dagql ok there. Analyst's
+correction recorded: line 1127 is the receiver ownership assertion
+(the donor assertion at 1126 passed); my hand-off had named the donor
+line.
