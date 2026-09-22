@@ -5884,3 +5884,26 @@ lines). Registry fault, persisting across every head since ~21:55Z;
 one rerun gated on recovery evidence after 22:14:22Z (skip if main
 moves), log /tmp/pkg-main-fc41-provision-gate.log. test-workspaces
 succeeded (6m18s).
+Stall alerts after the resolver came back (AWS SSO renewed), steal read
+first per the standing rule:
+- 2e306f44ae test-base (trace 8e235826e3ff1e5d4e14fec57dd13b8e, engine
+  7fa49502-3a09-4b56-825c-bb7f337aa10e): alert at 21 min; all 67
+  packages already ok in the live log; steal 0.2-21.6% (peak 22:14Z);
+  succeeded 22:16:07Z in 21m40s. No action.
+- 4aa8ecde15 test-workspaces (trace f3f870be46711f1abcb50ba09fbb1c21,
+  engine c50248f5-c31f-4bba-a1b1-1edf8a274d68, instance r3cfv1lht4i46):
+  alert at 21 min; errored 22:17:02Z (22m40s): core/integration hit the
+  20m Go test timeout (FAIL 1200.142s); no panic text kept (quiet
+  runner, verbose opt-in off); only one engine-metrics line in the log,
+  so no steal series. Superseded head; not network; not rerun; to the
+  coordinator.
+- 57a1eadc93 test-base (trace f8d83fec34f492e164723dca4c7792fc, engine
+  e531dbf6-914e-4d55-9fcc-35fbc88a93b5, instance 4cgan459pcfq2, check
+  90daf117-43ca-4b99-8b52-b51645c36205): pending since 21:55:05Z; 66 of
+  67 packages ok, core/integration running; steal 9.1-19.9% per minute
+  22:10-22:21Z (moderate). Steered live to the investigator at 22:22Z.
+main fc414b021c (current): golang:test-all errored 10m40s at 22:17:04Z
+(trace 10f9de597958f1fd20bbb22dd91f2962), TestInstallK3S/
+default_daemonset, registry.dagger.io engine:main manifest 500s (105
+lines); one rerun gated on recovery evidence (log
+/tmp/pkg-main-fc41-golang-gate.log).
