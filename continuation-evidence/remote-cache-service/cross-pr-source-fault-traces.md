@@ -94,3 +94,7 @@ Summary: 13 of 19 faulting runs ran on an engine that had run a #14256 check abo
 - f4f846cd-8341-4032-80ac-4999b9ae5fd3 1 checks; first 2026-09-20T09:46:45Z last 2026-09-20T09:46:45Z
 - a973f65d-85c1-4157-b4ea-01c0f523d1d3 1 checks; first 2026-09-20T09:43:53Z last 2026-09-20T09:43:53Z
 - cfd3d414-03b1-417e-8391-15270736e189 1 checks; first 2026-09-20T09:44:22Z last 2026-09-20T09:44:22Z
+
+## Closure (2026-09-22 06:4xZ)
+
+Closed by the coordinator as "mechanism proven, mitigated; six seeding routes unproven": the analyst reproduced the stale Go module import-index path (stat-keyed, so a v5→v6 edit of equal size with normalized mtimes can yield a stale import without wrong bytes on disk); the mitigation is #14280's `GOFLAGS=-modcacherw`-style index disable (`goindex=0` in the Go module's environment) together with the every-shard verbose runner and watchdog. The thirteen engine matches above support a long-lived per-engine cache for those runs; the six faulting runs on engines with no #14256 run remain unexplained and are not pursued further. After #14280 merges, any new occurrence of the `go-git/go-git/v6` import error is a real finding, not network class.

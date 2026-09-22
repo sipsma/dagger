@@ -5295,3 +5295,11 @@ Coordinator: victim-engine start watch disarmed (low yield: instances
 are gone within minutes); the general watch and the twenty-minute
 stall alert on test-base and test-workspaces stay. The cross-PR item
 closes on #14280's merge as recorded.
+Coordinator ruling (relayed by the investigator): victim-engine chasing
+and alerts stopped; the cross-PR item is closed as "mechanism proven,
+mitigated; six seeding routes unproven"; no further victim-cache
+inspection. Only the twenty-minute live-stall alerts on test-base and
+test-workspaces remain (with trace and instance fields for immediate
+dump capture), plus the general watch. The trace-list file's entries
+keep their per-trace verification; the closure note applies to the
+item as a whole.
