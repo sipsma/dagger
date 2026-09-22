@@ -5028,3 +5028,16 @@ test-base errored at 35.4 s (trace 7e9b01c240dfdf703d08ff771880c8a1) on
 the cross-PR go-git v6 build fault (four v6 lines, no test ran): network
 class, one rerun issued; the rest of the run in progress. Merge on
 green under the rule, head pinned.
+#14278 at a895ad02d6, test-base rerun (trace
+d243ae85e55936c059872568b8f28de2, errored 11m27s): one failing test,
+TestReadyPartDonorBackreferenceReleasedBeforeSync,
+dagql/cache_part_decode_test.go:158 `require.True(t, receiverCollected)`
+"Should be true" (the receiver row still present in resultsByID after
+ReleaseSession and removePersistedEdge; the read is under RLock and the
+assertion after RUnlock, so no deadlock); dagql otherwise finished in
+21.2 s, core/integration ok in 577 s, 66 packages ok, no network lines.
+The file is untouched by #14278; first sighting in the record; the same
+shape as the chain-cleanup and twelfth-item races (a delegated release
+observed before it completes). Non-network: not rerun; #14278 stays
+unmerged under the rule despite vito's approval until the coordinator
+rules. Excerpt /tmp/pkg-analyst-items/d243ae85e55936c059872568b8f28de2.txt.
