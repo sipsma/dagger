@@ -6130,3 +6130,4 @@ read each loop by the general and stall watches) and the merge rule:
 every check green, or red only on documented network faults (registry,
 proxy, Cloud capacity) while they persist, plus a maintainer approval,
 head pinned. Reruns remain subject to the capacity freeze.
+main 2a78967d5d: test-interface gate met at 23:45:07Z (#14296 head bb0e263584 green on test-interface at 23:41:58Z); capacity freeze OFF (last capacity failure 22:21:40Z); one rerun issued. Rerun count since the 22:24Z freeze rule: 1 (this one).
