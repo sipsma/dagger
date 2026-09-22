@@ -5081,3 +5081,8 @@ settlement, the sharing-cancellation attempt-release wait, the
 ready-receiver session barrier and the shared ReleaseSessionAndWait
 helper). Main: … 5832caf8fe → 34ad873d78. No open watched PR remains;
 the next rolling branch is created when the next approved item lands.
+Coordinator: sipsma/main-test-stability-3 is the next rolling branch,
+created only when the next approved item exists. Their comment on
+#14273 (issuecomment-5771408771) edited in place, one edit, no new
+comment: the fix (#14278, a895ad02d6) is merged on main at 34ad873d78
+and a rebase onto main clears it; read back identical.
