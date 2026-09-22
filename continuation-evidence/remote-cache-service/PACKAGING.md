@@ -4908,3 +4908,8 @@ under the merge rule (dev-module files only).
 #14276 at a9dc609694 fully green on its first run (test-base trace
 f7a360591f791ed5808f6a589803ab69, the investigator's second live
 target). Awaiting a maintainer approval under the merge rule.
+#14277 at b1668ee5af: test-base passed in 14m3s (trace
+9fcd50b7aeb35b411ec62e…), the run whose core/integration carried the
+three fixed tests; every other check green at the last read. Awaiting a
+maintainer approval under the merge rule. Four green PRs now wait on
+approvals: #14271, #14275, #14276, #14277.
