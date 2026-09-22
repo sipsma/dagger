@@ -5731,3 +5731,16 @@ run; every other open subtest is 12m35s or less. Durations only, no
 start times; the end reference (log end 21:08:19Z vs cancel 21:08:26Z)
 is unconfirmed. Files /tmp/pkg-0a51-coreint-open.txt and
 /tmp/pkg-0a51-probe/.
+Correction (investigator's exact GraphQL span starts, including continue
+records, /tmp/stall-53db/failed-test-timings.json): the 53db dump was
+taken at 21:00:05.5Z with 63 test scopes active. Every open case in my
+listing started 20:53-20:59Z, so my duration-based split ("open less
+than ~8m14s started after 21:00:05") was wrong: the rendered open-span
+durations do not run to 21:08:19Z. Exact starts: core/integration
+package 20:50:21.063646Z; TestSchemaRecovery 20:50:28.884927931Z,
+TestSchemaRecoveryCold 20:50:28.935537418Z. Passing cf26061a6c timings
+at /tmp/stall-53db/green-test-timings.json (runner start
+20:42:44.229697753Z vs failed run 20:45:04.951400841Z). The
+investigator's caution: parent elapsed/span-end timings may exclude
+parallel children; compare leaf cases. My listing stands only as the
+set of open spans; use the investigator's file for timing.
