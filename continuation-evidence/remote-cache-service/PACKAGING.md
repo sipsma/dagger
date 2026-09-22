@@ -5716,3 +5716,6 @@ transcript (collected in /tmp/pkg-skill-fix/results.txt), not a
 reviewer rerun. Pushed to dagger/dagger.io as
 sipsma/namespace-skill-lock-and-config at 50ac54c04 (new branch). PR
 body draft at pr-bodies/namespace-skill-lock-and-config.md.
+dagger.io #5343 published by the coordinator
+(sipsma/namespace-skill-lock-and-config at 50ac54c04). No CI watch;
+its merge gets noted when it happens.
