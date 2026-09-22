@@ -6150,3 +6150,10 @@ pseudo-version for the otel library (bump together for consistency);
 other modules pin v1.41.0/v1.43.0/af7cd0684887 and do not use
 otelgotest.
 #14296 at bb0e263584 fully green, 84 of 84 (no reruns); needs only a maintainer approval to merge, head pinned.
+False stall alert (race), not steered: #14296 test-base (trace
+9c8cb1a2c58eecbabfe9a7e752993461) alerted at 23:52:42Z (dev engine up
+12m42s) but had succeeded at 23:52:26Z in 14m4s; the script read the
+status before the ~15 s resolver lookup. Fixed: /tmp/pkg-watch-stall5.sh
+re-reads the check's latest status before resolving and again before
+emitting, and logs a suppression line instead of alerting when the check
+has finished. #14296 is 84 of 84 green (recorded above).
