@@ -5590,3 +5590,11 @@ main head green on test-provision after 20:51:35Z; skip if main moves),
 log /tmp/pkg-main-cf26-provision-gate.log. If the two canceled
 subtests fail again without a 429, they come to the coordinator as a
 finding. Log /tmp/pkg-ci-main-cf26-provision.log.
+main a49ff49e2a (#14280's merge, superseded): test-split:test-provision
+errored in 11m45s at 20:52:05Z (trace 18251c5e1e71251d059a01d09720ed38).
+One leaf failure, TestImageDriverGarbageCollectEngines/podman/cleanup,
+registry.dagger.io engine v0.16.0 manifest HEAD "429 Too Many Requests"
+(4 lines; no proxy errors, no 500s). Same registry rate limit as on
+cf26061a6c; no rerun on the superseded head (cf26061a6c's gate covers
+the check). Otherwise 82 green, one pending. Log
+/tmp/pkg-ci-main-a49f-provision.log.
