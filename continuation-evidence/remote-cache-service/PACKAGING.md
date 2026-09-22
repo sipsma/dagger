@@ -4745,3 +4745,12 @@ Main d6d005c55c fully green (83 of 83); its test-base (trace
 9dbd98a2dc2981adae67ea7741990189) finished before the twenty-minute
 mark. Main heads since the fix, all green: f094ab5580, d8a0336fdd,
 48706c4275, ee26234869, d6d005c55c.
+CI-stall agent: send the next test-base trace immediately after its
+start (their dump script
+.../ci-stall-investigator-worktree-1-.../skills/dagger-namespace-access/scripts/dagger-ci-engine-dump.sh
+resolves, then captures host and shard-engine pprof via nsenter; no
+remote writes, kills or engine operations; needs a live target). A
+one-minute start watch is armed on main's head and #14271: on a new
+pending test-base it resolves the check URL and emits the trace, tenant,
+instance and engine fields, which I steer to them at once. The
+twenty-minute watch stays armed alongside.
