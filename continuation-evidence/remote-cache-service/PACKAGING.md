@@ -5100,3 +5100,19 @@ handed to the analyst as the fourteenth item with the excerpt
 /tmp/pkg-analyst-items/2d04e43aac9231230ffc91bce24ef41c.txt; a fix
 lands on sipsma/main-test-stability-3. Every other check on the head
 is green (82 of 83).
+Fourteenth item approved: sipsma/main-test-stability-3 created in the
+managed stability worktree with `checkout -B` from upstream/main
+(34ad873d78); the analyst's cac987beb3 ("test: await attempt releases
+before post-task ownership checks", fix/sharing-attempt-release-observations
+on 34ad873d78; two dagql test files, 16 additions: four sharing tests
+and TestOfferSettlementReplacement arm the existing attempt-release hook
+and wait before post-pass/post-acquisition ownership checks, the
+failed-sync subcases also waiting for the bookkeeping retry)
+cherry-picked (-x) as 0aa68a3c9c; go vet ./dagql ok; pushed to origin at
+0aa68a3c9c. PR body drafted at
+continuation-evidence/remote-cache-service/pr-bodies/main-test-stability-3.md
+from the analyst's report (/tmp/dagql-fourteenth-sharing-release/
+fourteenth-sharing-release.md: 200/200 and 50/200 before and after
+under -race, full dagql 527 PASS, no local reproduction; traces
+2d04e43aac9231230ffc91bce24ef41c, 7913f1583003bef7970ee6fe46d4f136,
+cb0082f1aa097829451b13a08e4ce8b9). The coordinator publishes it now.
