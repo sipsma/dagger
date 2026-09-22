@@ -4595,3 +4595,38 @@ at 60 s, 533 PASS, 0 FAIL, one inherited nested SKIP
 had ended on that typecheck error. The five other packages' trees are
 identical between e4a00f93f5 and 1426eb3e65 (the fold touched one dagql
 test file). Reported; push awaits the coordinator's go.
+Erik: fold #14231 into #14271 and close #14231. Done: /tmp/pkg-14271
+(detached from upstream sipsma/remote-cache-harness-bounded-shutdown),
+rebased ba233a0262 onto current main (first 48706c4275, then ee26234869
+after main moved during the work; range-diff unchanged), #14231's
+b9bfbcd28c and b78f5048b1 cherry-picked (-x) on top → 29159b5c96,
+949d3ea685. engine/server once at 60 s on 949d3ea685, dirty=0: 162 PASS,
+0 FAIL (TestGracefulStopReturnsEarlierShutdownErrors PASS)
+(/tmp/pkg-14271-fold2-engine-server.{head,log}; the earlier run on the
+48706c4275 base, bfb844ed60, also 162 PASS); go vet ./core/integration
+ok. Pushed with lease on ba233a0262 at 23:59Z; #14271 head 949d3ea685,
+three commits; title "engine, test: bounded engine shutdown and remote
+cache test shutdown steps"; description extended with "Engine shutdown
+errors and the closing goroutine" from #14231's summary and validation
+(read back identical apart from the trailing newline). #14231 closed
+with "folded into #14271"; its in-flight rerun (f4ab77ce…, died on the
+cross-PR build fault at 36 s) is moot.
+Erik's redirect (recorded verbatim in substance): #14241 frozen, no
+rebase, push, description edit or CI action; the authorized push had not
+gone out (held for the go), so 1426eb3e65 stays local and unpushed. The
+rerun-and-ignore rule is withdrawn except for network faults (registry,
+Go proxy, cross-PR build fault); every other failure on main or #14271
+is investigated, not rerun. Main-stability tasks (a) and (b) reported to
+the coordinator in one message; the investigator's request (newer
+cancelled traces with a publishResult/stopped-engine signature; #14241's
+dump watcher status) answered: none of the ten cancelled logs carries
+those strings; the watcher is 0ecf38b6b1 on 02ce73c6f5, never enabled in
+CI.
+(b) numbers: test-split passes no timeout; engine-dev defaults
+-timeout=30m per test binary; the Cloud job limit is thirty minutes
+(cancellations at 29m16s–29m28s); passing shard runs 12m7s / 16m56s /
+21m5s; longest package core/integration 547–946 s; proposed one-line
+change .dagger/modules/engine-dev/test.go:187 "30m" → "20m" (dump
+between minutes 21 and 25 of the job; "25m" as the roomier alternative).
+Main ee26234869 (#14265): test-module-runtimes on the cross-PR build
+fault (2b50dbfa88a19858566fb1f62a20c058, four v6 lines), network class.
