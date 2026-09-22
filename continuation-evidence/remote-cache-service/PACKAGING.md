@@ -5245,3 +5245,8 @@ necessary for reruns. Dumps at /tmp/workspace-rerun-0a6b-live-dumps.log
 are inspecting cache-wait frames, not yet claiming a stall. Noted:
 7665a73c ran three #14256 checks on 09-20 09:40–09:41Z (from the
 mapping), so this rerun sits on a #14256-touched engine.
+#14279's test-workspaces rerun passed in 2m43s (trace
+0a6b3bb94855d00c4176db06304473b7, engine 7665a73c), so the stall did not
+recur; #14279 at 0aa68a3c9c is fully green (module-runtimes on its
+third rerun, workspaces on the ruled rerun). Merges on a maintainer
+approval, head pinned.
