@@ -5832,3 +5832,20 @@ failing leaf tests, network-signature counts, assertion errors):
   unproven); not rerun; to the coordinator. The check succeeded on
   cf26061a6c, 4aa8ecde15 and 57a1eadc93 (the latter two include
   #14208), so it does not persist on later heads.
+main 57a1eadc93 (current head): test-split:test-container errored
+8m38s at 22:03:49Z (trace 18e28341e75478f28006466e54a2b01b):
+TestContainer/TestLoadHostContainerd and TestSaveHostContainerd
+(provision_test.go:498, shared nerdctl build), proxy stream errors on
+`github.com/docker/cli@v28.1.1+incompatible.zip` (5) and
+`github.com/docker/docker@v28.1.1+incompatible.zip` (6). Proxy fault on
+the current head: one rerun gated on recovery evidence after
+22:03:49Z (skip if main moves), log
+/tmp/pkg-main-57a1-container-gate.log. test-workspaces succeeded
+(8m18s).
+main 2e306f44ae (superseded): test-split:test-container errored 8m35s
+at 22:02:53Z (trace 72e4fd1ff0af2a9958b5c14098886cd4):
+TestSystemGoProxy (proxy_test.go:575) and TestSystemProxies/auth
+(proxy_test.go:264), both reporting the same failing span
+1ac7c68153a8056a; one proxy stream error on
+`github.com/docker/docker@v28.5.2+incompatible.zip`. Proxy fault; no
+rerun.
