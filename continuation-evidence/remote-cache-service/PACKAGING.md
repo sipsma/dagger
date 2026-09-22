@@ -5261,3 +5261,11 @@ finding): added to the watch and the merge rule. Once it merges, the
 cross-PR fault entries close as "mechanism proven, mitigated" and any
 new occurrence of that error string is a real finding again, not
 network class. Stall and victim-engine watches kept as requested.
+Victim-engine start watch, first hit at 06:21:33Z: #14280's
+python-client:python-314:slow landed on victim engine f26f8952… (three
+#14231 faults on 09-21, six #14256 checks on 09-20): instance
+si5att94uuk0k created 06:19:01Z, trace d43b1769f5d5f91b1bd691db85e5b77d,
+check 47c93094-f08f-4f53-9ecc-0b8873a622fd; steered to the investigator
+at once with the note that #14280 carries the goindex=0 mitigation.
+#14280's test-workspaces passed in 3m26s under the every-shard
+watchdog wiring.
