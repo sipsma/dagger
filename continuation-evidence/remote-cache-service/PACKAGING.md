@@ -5059,3 +5059,15 @@ trailing newline; the draft mirrors it. Managed stability worktree
 fast-forwarded to 883954c1f7; go vet on dagql, core/schema and
 internal/testutil/cachetest ok there. Merge on green under the rule,
 head pinned; new non-network failures go to the coordinator.
+Erik's flag: vito's #14273 (head 7ce1f043c7, merge ref 4cfe33eaa4; not
+ours, no pushes) test-base errored at 11m48s (trace
+cb0082f1aa097829451b13a08e4ce8b9, from the status description; the
+check URL's merge-ref form resolves the same way). One failing test:
+TestSnapshotSharingCancelDuringPreparation,
+dagql/cache_snapshot_sharing_test.go:1127 expected 2 actual 3; dagql
+otherwise finished (19.1 s), core/integration ok in 554 s, 66 packages
+ok, no network, timeout or dump lines. This is the twelfth item exactly
+(first seen on main 50164dc9db, trace 7913f1583003bef7970ee6fe46d4f136),
+second sighting; its fix a895ad02d6 is in flight on #14278. Not a new
+item; #14273's files (workspace export, sdl-diff, generated SDKs) do
+not touch the test. Log /tmp/pkg-ci-14273-test-base-cb0082f1aa097829451b13a08e4ce8b9.log.
