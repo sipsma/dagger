@@ -4819,3 +4819,16 @@ origin (sipsma/dagger) at 05443bc3b1 so it is findable. Reviewer's
 correction recorded: the four other daggerUpVerify call sites were
 source-reviewed, not executed. Two fixes on the branch now; it
 publishes as a PR after item 3 or at the day mark, whichever first.
+#14275 at c2aae9490c, first run: golangci-lint:lint-all FAILED (trace
+95addad8fa055b29f9373e9b0abe388a), one finding in the watchdog commit,
+.dagger/modules/engine-dev/test.go:256:7 gosec G101 "Potential
+hardcoded credentials"; stack code, not rerun, sent to the investigator
+as owner and to the coordinator. test-split:test-module-runtimes errored
+at 42.4 s on the cross-PR build fault (632488901857ec2b710192b7e64cec08,
+four v6 lines): network class, one rerun issued 02:07Z. Its test-base
+started 02:02:19Z (the start watch fired at 02:03Z): steered to the
+investigator at once as the live target with the check URL; the
+Namespace resolver's Godmode lookup answered HTTP 500 for the
+in-progress check on repeated attempts (it had resolved main's
+in-progress run at 01:47Z), so the trace/instance fields follow from a
+retry loop (/tmp/pkg-14275-resolve-retry.sh) when it answers.
