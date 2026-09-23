@@ -6531,3 +6531,4 @@ main 3f0299a03a red checks: main build break (all of them).
 at 88398de668 on 3f0299a03a, the main build fix. Top-priority watch: its
 CI is the first run that compiles on the new main, so each failure is
 classified individually; anything not network is a finding. Erik told.
+Coordinator: #14312 merges under the usual rule as soon as CI finishes (green, or red only on documented network faults), head pinned to 88398de668; it is the fix for the hold. After its merge, report the main hash; the hold on our other merges then lifts.
