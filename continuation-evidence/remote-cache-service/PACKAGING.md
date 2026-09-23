@@ -6195,3 +6195,11 @@ no steal (0.1-0.2%), no timeout. First occurrence in any captured log
 to the coordinator and the analyst. Excerpt
 /tmp/pkg-analyst-items/68dcde54eda8c83f24f00709eeefe531-race.txt; log
 /tmp/pkg-ci-main-4360-test-base.log.
+#14307 published by the coordinator: sipsma/schema-recovery-artifact-
+race at 747b13b421 on 2c33ec4588, the sixteenth item's fix (one test
+file). Reviewer's note: the validation run exercised the SchemaRecovery
+selector (the parallel before/after orders), not the cold or default-GC
+variants of the same helper. Added to the watch and the merge rule
+(every check green, or red only on documented network faults while
+they persist, plus a maintainer approval, head pinned; reruns subject
+to the capacity freeze).
