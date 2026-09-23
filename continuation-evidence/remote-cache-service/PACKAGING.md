@@ -6492,3 +6492,4 @@ f7d4d29dceb5fef31480aa2e60d4647e. At 19:58:09Z the live log (374328
 lines) already shows all 67 packages ok; steal 4.2-6.4% 19:51-19:53Z,
 then 0.5-0.7%; the metrics tick continued (last 19:56:34Z). Finishing,
 not frozen; investigator told.
+f7d4 (ab8f7f90b1 test-base) SUCCEEDED 19:57:42Z in 17m10s (2 s after the steer); main ab8f7f90b1 (#14309) fully green, 84 of 84, first run, no reruns.
