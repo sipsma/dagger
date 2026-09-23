@@ -6174,3 +6174,24 @@ main eef8fb203c (#14296) fully green, 84 of 84, first run, no reruns (test-base:
 Main moved: 2c33ec4588 (Merge pull request #14297 from vito/fix-cli-restore-render-freeze, by Alex Suraci);4360ca5d5d (Merge pull request #14305 from vito/bump-catwalk-v0.52.51, by Alex Suraci); over eef8fb203c (fully green). Under the watches.
 Correction to the previous entry (order): 4360ca5d5d (#14305, bump catwalk) merged first, then 2c33ec4588 (#14297, fix-cli-restore-render-freeze) is the current main head; the list above was newest-first.
 main 2c33ec4588 (#14297) fully green, 84 of 84, first run, no reruns (test-base: success Succeeded in 14m36s. Run `da; test-workspaces 5m43s).
+SIXTEENTH ITEM (test-side data race, our suite): main 4360ca5d5d
+(#14305, superseded by 2c33ec4588) test-split:test-base errored in
+17m41s at 14:59:49Z (trace 68dcde54eda8c83f24f00709eeefe531). 66 of 67
+packages ok; core/integration FAIL 706.858s with ~50 failing tests, most
+parents failing in 0.1-0.2 s. Cause: one "WARNING: DATA RACE" and 62
+"race detected during execution of test" lines. The race: in
+runTransferSchemaRecovery (core/integration/remote_cache_transfer_test.go)
+the closure callReport writes the shared variable lastArtifactID
+(:181); the "before" and "after" subtests (t.Run at :217, called from
+TestSchemaRecovery :114) run in parallel via the suite's WithParallel
+middleware (commit 36856dc267 "test: run the remote cache transfer
+suite in parallel"), and both call callReport, so two goroutines write
+lastArtifactID concurrently. Under -race, Go fails every test running
+at detection, which explains the broad unrelated failures (the git
+auth errors in the log are expected by those auth tests). Not network,
+no steal (0.1-0.2%), no timeout. First occurrence in any captured log
+(only this log contains a DATA RACE). test-base passed on 2c33ec4588
+(14m36s): the race needs an interleaving. Superseded head, not rerun;
+to the coordinator and the analyst. Excerpt
+/tmp/pkg-analyst-items/68dcde54eda8c83f24f00709eeefe531-race.txt; log
+/tmp/pkg-ci-main-4360-test-base.log.
