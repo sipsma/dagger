@@ -6483,3 +6483,12 @@ capture, relayed to the coordinator for Erik at ~19:52Z.
 dbd3 (#14310 test-base) span snapshot (investigator, 369129 spans): package started 19:39:15.692Z (span 7cbdd6896605cd61), deadline ~19:59:15.692Z; GraphQL calls completing through 19:51:24.903Z; zero unfinished dagql.publishResult, so no publication plateau at snapshot time. AWS code FJHQ-ZVVQ waiting.
 dbd3 (#14310 test-base) SUCCEEDED 19:52:38Z in 16m53s: 67 packages ok, steal 0.2-0.4% per minute 19:47-19:52Z, engine-metrics tick continued (last 19:52:17Z); slow run, no freeze. Investigator stood down. #14310 now 84 of 84 green, needs only a maintainer approval.
 CLOSED: dbd3 (#14310 test-base) success; the investigator's independent full Cloud log (372117 lines) matches mine; no queued capture. Report /home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/ci-stall-investigator-worktree-0-388f4df6-87b878cd/continuation-evidence/ci-stall-dbd3/report.md. AWS FJHQ-ZVVQ still pending (no new code). The investigator's four historical freeze reports went to the coordinator and the analyst.
+Stall alert (primary): main ab8f7f90b1 (#14309, current) test-base,
+check start 19:40:29Z, dev engine 19:41:33.48Z, alert 19:57:26Z (dev up
+13m22s: 82 s past the 12-minute mark, poll lag from the narrowed 90 s
+watch plus lookups), steered 19:57:40Z (17m11s); check
+1d45c2cf-90f7-4695-8e1f-5c2c4b497b9a, trace
+f7d4d29dceb5fef31480aa2e60d4647e. At 19:58:09Z the live log (374328
+lines) already shows all 67 packages ok; steal 4.2-6.4% 19:51-19:53Z,
+then 0.5-0.7%; the metrics tick continued (last 19:56:34Z). Finishing,
+not frozen; investigator told.
