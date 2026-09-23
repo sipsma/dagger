@@ -6471,3 +6471,12 @@ collection with E released at all three call sites. The production fix
 is being prepared, unpushed, awaiting Erik's yes. TWENTIETH ITEM is the
 same mechanism on test-base (#14302 rerun, nested engine not answering
 after the freeze).
+Stall alert (primary): #14310 test-base (merge-ref ed7c237cce), check
+start 19:35:44Z, dev engine 19:37:16.78Z, alert 19:50:11Z (dev up
+12m52s), steered 19:50:26Z (14m42s); check
+373cc755-17ec-485b-80cb-28076d7c34fd, trace
+dbd3d53af7b0e8b1f5c156a6c9421717. Cloud log 0 lines at 19:52Z (no steal
+reading yet). AWS: the earlier device code NFKG-PDTL ended with
+InvalidGrantException ("Invalid device code provided"), never
+approved; the investigator issued a fresh code FJHQ-ZVVQ for this live
+capture, relayed to the coordinator for Erik at ~19:52Z.
