@@ -6378,3 +6378,16 @@ upstream/main 48c0b957910e; the source points to pass-queue observation
 the receiver ownership count itself; assessing synctest queue
 quiescence.
 Main moved (oldest first): acf912732e (Merge pull request #14082 from grouville/grouville/default-nesting, by Guillaume de Rouville); over 48c0b95791. Under the watches.
+Eighteenth item approved (test-only pass-queue observation).
+sipsma/main-test-stability-5 created in the stability worktree off
+upstream/main acf912732e: one commit 772b6178e2, `cherry-pick -x` of
+the analyst's 4459808816 (on 48c0b957910e; "test: drain sharing setup
+before restoring a call frame", dagql/cache_snapshot_sharing_test.go,
++29 −17; Erik signoff; no AI attribution); patch identical apart from
+index lines. `go vet ./dagql/` passes on the tip (head file
+/tmp/pkg-stability-5-vet.head, dirty 0); gofmt clean. Pushed to origin.
+Body at pr-bodies/main-test-stability-5.md (evidence from
+/tmp/eighteenth-restored-frame/report.md: 50/50 under -race before and
+after on 48c0b95791, dagql package once, no local reproduction). The
+coordinator publishes when item 17's harness half joins it or at the
+day mark.
