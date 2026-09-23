@@ -6318,3 +6318,16 @@ every 180 s (/tmp/pkg-watch-general6.sh), stall every 90 s
 (/tmp/pkg-watch-stall6.sh), capacity freeze every 300 s
 (/tmp/pkg-watch-freeze3.sh; /tmp/pkg-capacity-last.sh also narrowed).
 Estimated ~700 requests/hr for all three together.
+EIGHTEENTH ITEM lookup (coordinator request, read-only; #14302 is not
+one of this stack's PRs; no reruns): #14302 "dagql: remote entries
+built from other engines' cache facts" (sipsma, head 9e6c31dc3d),
+failed test-base on CI merge commit 340eaab78a3d, trace
+69d0bf6f18941396d543e1d1cc680adf (Cloud check
+437ef56f-d2da-4b14-9efd-794e3329263e, FAILURE 18:36:47Z-18:53:49Z; a
+newer run ca6e4e302e97b4cc13ee66c8138994ed was RUNNING). Only failure:
+dagql TestSnapshotSharingSelectsRestoredFrame at 18:42:18Z,
+cache_snapshot_sharing_test.go:1037 "Should be zero, but was 1" ("the
+graph lock is free again": the queue depth after the restored-frame
+pass). Excerpt with test source sent to the analyst:
+/tmp/pkg-analyst-items/69d0bf6f18941396d543e1d1cc680adf.txt; log
+/tmp/pkg-ci-14302-test-base.log.
