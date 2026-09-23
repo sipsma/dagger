@@ -6295,3 +6295,14 @@ Two primary stall alerts on main 8a134a731c (current), both steered at
 Resolver fields were empty (AWS SSO pending); the investigator resolved
 both without AWS preflight. AWS and nsc expired; device code TWBF-CDJF
 waiting for approval (coordinator notified). No SSH or dump yet.
+main 8a134a731c (current) test-split:test-workspaces errored at
+16:15:56Z after 22m14s (trace 72da4ed6a3cf446e27e78eac1a8031aa):
+core/integration FAIL 1200.188s, the 20-minute Go test timeout; no
+failing test printed and no panic text (quiet runner; the otel-go #25
+flush fix is pending); no network signature. Steal range per minute
+% (from the check log's engine metrics). True package timeout on
+the current head, same class as 4aa8ecde15's; not rerun; to the
+coordinator; the investigator was alerted at 16:08:03Z but capture was
+blocked on AWS device approval (TWBF-CDJF). 8a134a731c now 81 of 84:
+golang:test-all (install checksum/publish race), test-cache-persistence
+(seventeenth item), test-workspaces (package timeout).
