@@ -6211,3 +6211,15 @@ rhel_{basic,non-root_user,empty_diff} (cacert_test.go:308/330/337),
 unrelated to the test file the PR changes. Capacity freeze OFF; one
 rerun gated on recovery evidence after 15:24:18Z, log
 /tmp/pkg-14307-container-gate.log.
+Stall alert (primary): #14307 test-base (merge-ref 504ece09b3), check
+start 15:20:08Z, dev engine 15:20:58Z, alert 15:33:49Z (dev up 12m47s),
+steered 15:34:04Z (13m56s from check start). Cloud: check
+aebb393c-0fc1-42a8-8224-c52faf8f5b93, trace
+a9252f70ca1d18e9d476f1529c7a06e0. My resolver returned nothing: AWS
+SSO for on-call-permissions has expired again (setup check: "AWS SSO is
+not ready"); reported to the coordinator. The investigator resolved it
+independently (outer f4f846cd-8341-4032-80ac-4999b9ae5fd3, instance
+t795h0sapfic4 created 15:20:04Z, tenant 2qf1mch9ubs72) and started a
+read-only capture (/tmp/stall-a925-live-dump.log). Cloud log still 0
+lines at 15:34Z, so no steal reading yet. The run exercises #14307's
+changed TestSchemaRecovery.
