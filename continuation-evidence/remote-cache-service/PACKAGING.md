@@ -6265,3 +6265,19 @@ overwritten on each main publish; a mismatched tarball/checksum pair
 indicates the test read them mid-update. Artifact-publish race, not
 code and not network; not rerun (outside the rerun rulings); to the
 coordinator. Log /tmp/pkg-ci-8a13-test-all.log.
+SEVENTEENTH ITEM (engine restart over persisted state): main 8a134a731c
+(#14284, current) test-split:test-cache-persistence errored 7m58s at
+16:01:45Z (trace 66644c90b931cfef15e2ab964f0f8ed3). One failing
+subtest, TestCachePersistence/TestDiskPersistenceAcrossRestart/
+changeset_merge_operation_survives_restart (engine_persistence_test.go
+:71, "start upstream: exit code: 1"). Sequence from the subtest's Cloud
+log: the first engine on the state key logged "server context
+canceled" 15:56:07Z, "cni pool is closed" 15:56:13Z and "got 3
+SIGTERM/SIGINTs, forcing shutdown" 15:56:16Z; the restarted engine
+(dagger-entrypoint.sh --network-name dagger18) started 15:56:28Z and
+exited code 1 after 1.6 s, its last lines "creating engine GRPC server"
+then "creating engine lockfile". Most likely the engine lockfile on the
+persisted state was not released by the force-shutdown predecessor;
+the exact error is not logged. Not network, no steal issue noted, not
+rerun; to the coordinator and the analyst. Log excerpt
+/tmp/pkg-analyst-items/66644c90b931cfef15e2ab964f0f8ed3-changeset-restart.log.
