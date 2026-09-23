@@ -6240,3 +6240,14 @@ pending for the next alert). The Cloud log for the trace is empty even
 after completion (as with d9f02), so no steal reading or race count
 from the log. #14307 now 83 of 84: only test-container (Red Hat registry
 502) red, its gated rerun waiting for recovery evidence.
+CLOSED: a925 (#14307 test-base) SUCCESS, Cloud end 15:38:13.969586Z,
+18m18.218s (GitHub posted 15:38:36Z). No dump or SSH (AWS device login
+pending); capture stood down, no queued remote action. core/integration
+telemetry span 606a1aa2abf08ff5 passed, 15:23:11.640Z-15:38:12.020Z
+(900.38 s). Warm and cold SchemaRecovery and all five children report
+pass in telemetry (raw PASS lines not recovered); children ended
+15:34:14-49Z; the parent continuation end uses Go elapsed and is not
+physical completion. No steal series. No hang attribution. Reports
+/tmp/stall-a925-report.md and continuation-evidence/ci-stall-a925/report.md.
+AWS bounded device flow code CVMN-GMRT still pending at 15:42Z (local
+auth only; needs a human approval).
