@@ -6434,3 +6434,28 @@ names (the per-step stop deadline reports it instead of hanging). With
 the investigator alongside the nineteenth.
 c897 (48c0b95791 test-base) SUCCEEDED at 19:38:08Z in 17m33s: a slow run that finished, not a hang; investigator told to stand down (AWS approval NFKG-PDTL still useful for the next alert).
 Main moved (oldest first): ab8f7f90b1 (Merge pull request #14309 from vito/fix-agent-compact-loop, by Alex Suraci); over acf912732e. Under the watches.
+NINETEENTH/TWENTIETH, lock-order cycle (coordinator, source-confirmed,
+main-owned, predates the stack: aa719a10d52 #11856, 87c7e97dbbe #13203,
+3755efceba3 #13846). Usage/GC measurement holds E.RLock (cache.go
+:4945-4987 -> :6410 CacheUsageIdentities) and takes RemoteGitMirror.mu /
+HTTPState.mu; RemoteGitMirror.acquire holds mirror.mu
+(git_remote_mirror.go:191-196) across initRemote (git_remote.go
+:606-641) -> fetch -> StartBindings -> Service.startContainer
+AttachResult -> trackSessionResult -> E.Lock (cache.go:2910 -> :588).
+GC runs at boot, at session completion and from the pressure monitor
+(5 s / 30 s throttle), so the cycle can fire whenever a git remote with
+service bindings initialises during a GC pass. Mechanism confirmed from
+source; deterministic reproduction in progress; production fix awaiting
+Erik.
+Freeze-window log grep (coordinator request, read-only) on the four
+full logs (2d96, f3f8, 72da test-workspaces; ca6e4e #14302 test-base):
+the outer dev engine's per-minute metrics line stops at every freeze
+(last before: 2d96 05:43:18Z, f3f8 21:56:56Z, 72da 15:56:11Z, ca6e4e
+19:19:34Z; none after). The three workspaces logs hold exactly one
+metrics line each (38-58 s before the freeze). A GC measurement pass
+("dagql prune skip policy: no reclaim target") precedes each freeze:
+64.4 s, 0.068 s, 60.000 s and ~72 s before. No
+mirror/ls-remote/remote-git/http-fetch lines in any window (only
+"fetching layer" matched "fetch"). Consistent with the E/mirror cycle;
+excerpts sent to the analyst and the coordinator:
+/tmp/pkg-analyst-items/freeze-window-grep-4logs.txt.
