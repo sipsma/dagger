@@ -6392,3 +6392,17 @@ after on 48c0b95791, dagql package once, no local reproduction). The
 coordinator publishes when item 17's harness half joins it or at the
 day mark.
 main acf912732e (#14082, current): test-split:test-container errored 4m26s at 19:28:47Z (trace e6453b3e7a9a1f8360cb75e5ba41a019): TestLoadHostContainerd and TestSaveHostContainerd (provision_test.go:498, shared nerdctl build), proxy stream errors on github.com/docker/docker@v28.1.1+incompatible.zip (10). Proxy fault; capacity freeze OFF; one rerun gated, log /tmp/pkg-main-acf9-container-gate.log.
+Item 17's harness half approved: cherry-pick -x of the analyst's
+091c687ad3 (on 48c0b957910e; "test: name nested engine shutdown
+failures before restart", core/integration/engine_persistence_test.go,
+three assertion messages, +3 −3; Erik signoff; no AI attribution) onto
+sipsma/main-test-stability-5 above 772b6178e2: tip dee09074d8, patch
+identical; `go vet ./core/integration/` and `go vet ./dagql/` pass on
+the tip (dirty 0); pushed (fast-forward). The analyst's own validation
+for it is source review and git diff --check only (harness.head: "no
+runtime/test outcome claim"); the body says so. Trace
+539e083dd4f7f8a851faf2764eb786fa is a second failure of the same
+subtest (test-cache-persistence, changeset_merge_operation_survives_
+restart). Body gains a second section; the production cause (executor
+cleanup failure swallowed by Service.Stop) is noted as a separate
+change pending Erik.

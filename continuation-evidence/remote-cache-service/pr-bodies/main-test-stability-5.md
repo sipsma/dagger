@@ -1,6 +1,6 @@
 ## Summary
 
-One test-only fix for a failure seen once, on an unrelated PR's CI run. It makes one test wait for the sharing queue to be quiet before it checks the queue, instead of treating a pass signal as proof that the queue has drained. No production code changes and no assertion is relaxed. The fix does not reproduce the failed CI run itself; the section says so.
+Two test-only changes. The first fixes a failure seen once, on an unrelated PR's CI run: one test now waits for the sharing queue to be quiet before it checks the queue, instead of treating a pass signal as proof that the queue has drained. The second names the shutdown stage in a persistence restart test, so a failed nested engine stop is reported as such rather than as a lockfile error at restart. No production code changes and no assertion is relaxed. Neither change reproduces the failed CI runs themselves; the sections say so.
 
 ## Restored-frame sharing: drain setup passes before checking the queue
 
@@ -8,6 +8,12 @@ One test-only fix for a failure seen once, on an unrelated PR's CI run. It makes
 
 Evidence: the test passed 50 of 50 repetitions under `-race` with a 120-second timeout on 48c0b95791, both before and after the change (no local reproduction in the baseline), on a saved file byte-identical to this change. The full `dagql` package passed once with a 60-second timeout (527 top-level PASS, one inherited nested SKIP). The recorded failure (#14302's test-base, trace `69d0bf6f18941396d543e1d1cc680adf`, `cache_snapshot_sharing_test.go:1037`, "Should be zero, but was 1") did not reproduce locally, so the diagnosis follows the source contract rather than a replay of that run.
 
+## Persistence restart: name the shutdown stage that failed
+
+`TestDiskPersistenceAcrossRestart/changeset_merge_operation_survives_restart` failed on main twice (traces `66644c90b931cfef15e2ab964f0f8ed3` and `539e083dd4f7f8a851faf2764eb786fa`). In the first, the nested engine was forced down after three stop signals, and the restarted engine then exited with "could not lock /var/lib/dagger/dagger-engine.lock, another instance running?", so the failure surfaced as an unexplained restart error. The test already stops the nested engine client, the engine service and its tunnel before restarting, and fails on any error from them; each of those three assertions now names its stage ("close nested engine client", "stop nested engine before restart", "stop nested engine tunnel"). A failed stop is then attributed to the stop rather than to the lockfile at restart. The production cause, an executor cleanup failure that `Service.Stop` does not return, is a separate change and is not part of this PR. The change is limited to the three assertion messages in `core/integration/engine_persistence_test.go`.
+
+Evidence: source review and `git diff --check` only; the change adds messages to existing assertions and does not alter behavior, so no runtime claim is made for it.
+
 ## Validation
 
-Reviewed on its own before joining this branch; `go vet ./dagql/` passes on the tip. CI runs every package on the pushed head.
+Each change was reviewed on its own before joining this branch; `go vet ./dagql/` and `go vet ./core/integration/` pass on the tip. CI runs every package on the pushed head.
