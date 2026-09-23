@@ -6364,3 +6364,16 @@ one engine-metrics line (no steal series); preliminary open direct
 TestWorkspace children 60 / 24 / 68; precise continuation timestamps and
 fixture overlap in progress. Test-workspaces package timeouts are now a
 recurring class (three occurrences) under investigation.
+Correction to the seventeenth item (analyst tc-2e4d318c…): the subtest
+log DOES contain the exact error, after "creating engine lockfile":
+"dagger-engine: could not lock /var/lib/dagger/dagger-engine.lock,
+another instance running?". My note that the error was not logged was
+wrong (my grep missed it). So the restarted engine could not take the
+engine lock on the persisted state while the force-killed predecessor
+still held it. The analyst is auditing cleanup error propagation and
+all callers (no production edits pending Erik).
+Eighteenth item (analyst): baseline race50 running pinned to
+upstream/main 48c0b957910e; the source points to pass-queue observation
+(anonymous buffered pass signals, a late completion notification), not
+the receiver ownership count itself; assessing synctest queue
+quiescence.
