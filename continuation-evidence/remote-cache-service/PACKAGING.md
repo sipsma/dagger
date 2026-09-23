@@ -6417,3 +6417,18 @@ c897802a26639a083e7b12e2fcd73597. Steal 0.2-3.6% per minute
 19:26-19:31Z (low); 66 of 67 packages ok. The investigator is
 prioritizing a live capture, blocked on a fresh AWS device approval
 (code NFKG-PDTL, relayed to the coordinator for Erik).
+NINETEENTH ITEM (workspaces publication stall), in-flight finding from
+the investigator: the three test-workspaces package timeouts (2d96
+#14279, f3f8 4aa8ecde15, 72da 8a134a731c) all have open
+dagql.publishResult spans at the timeout, with no shared fixture among
+them. Investigation continues.
+TWENTIETH ITEM (from the other workstream, recorded at the
+coordinator's request): #14302's test-base rerun, trace
+ca6e4e302e97b4cc13ee66c8138994ed. TestSchemaRecovery before/after and
+TestSchemaRecoveryCold/before fail at remote_cache_transfer_test.go:140
+"nested tunnel stop: Post http://dagger/query: context deadline
+exceeded", followed by the 20-minute package timeout; zero race lines
+(so not the sixteenth item's data race). Classified as the
+nested-engine-not-answering stall that #14271's bounded shutdown now
+names (the per-step stop deadline reports it instead of hanging). With
+the investigator alongside the nineteenth.
