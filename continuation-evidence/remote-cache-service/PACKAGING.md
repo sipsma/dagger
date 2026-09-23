@@ -6432,3 +6432,4 @@ exceeded", followed by the 20-minute package timeout; zero race lines
 nested-engine-not-answering stall that #14271's bounded shutdown now
 names (the per-step stop deadline reports it instead of hanging). With
 the investigator alongside the nineteenth.
+c897 (48c0b95791 test-base) SUCCEEDED at 19:38:08Z in 17m33s: a slow run that finished, not a hang; investigator told to stand down (AWS approval NFKG-PDTL still useful for the next alert).
