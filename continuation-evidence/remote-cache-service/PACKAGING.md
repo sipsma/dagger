@@ -6391,3 +6391,4 @@ Body at pr-bodies/main-test-stability-5.md (evidence from
 after on 48c0b95791, dagql package once, no local reproduction). The
 coordinator publishes when item 17's harness half joins it or at the
 day mark.
+main acf912732e (#14082, current): test-split:test-container errored 4m26s at 19:28:47Z (trace e6453b3e7a9a1f8360cb75e5ba41a019): TestLoadHostContainerd and TestSaveHostContainerd (provision_test.go:498, shared nerdctl build), proxy stream errors on github.com/docker/docker@v28.1.1+incompatible.zip (10). Proxy fault; capacity freeze OFF; one rerun gated, log /tmp/pkg-main-acf9-container-gate.log.
