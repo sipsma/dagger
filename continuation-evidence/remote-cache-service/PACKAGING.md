@@ -6406,3 +6406,14 @@ subtest (test-cache-persistence, changeset_merge_operation_survives_
 restart). Body gains a second section; the production cause (executor
 cleanup failure swallowed by Service.Stop) is noted as a separate
 change pending Erik.
+#14310 published by the coordinator: sipsma/main-test-stability-5 at
+dee09074d8 on acf912732e (item 18 + item 17's harness half). Added to
+the watch (/tmp/pkg-watch-prs.sh) and the merge rule.
+Stall alert (primary): main 48c0b95791 (#14307, one behind the top)
+test-base, check start 19:20:19Z, dev engine 19:22:06.97Z, alert
+19:34:13Z (dev up 12m05s), steered 19:34:43Z (14m24s); check
+0bebecf4-51a8-440a-9c51-7e6050d88e09, trace
+c897802a26639a083e7b12e2fcd73597. Steal 0.2-3.6% per minute
+19:26-19:31Z (low); 66 of 67 packages ok. The investigator is
+prioritizing a live capture, blocked on a fresh AWS device approval
+(code NFKG-PDTL, relayed to the coordinator for Erik).
