@@ -6306,3 +6306,4 @@ coordinator; the investigator was alerted at 16:08:03Z but capture was
 blocked on AWS device approval (TWBF-CDJF). 8a134a731c now 81 of 84:
 golang:test-all (install checksum/publish race), test-cache-persistence
 (seventeenth item), test-workspaces (package timeout).
+Correction to the entry above: the test-workspaces check log has only one engine-metrics line, so no per-minute steal series is available (the empty 'Steal range per minute %' means none, not zero).
