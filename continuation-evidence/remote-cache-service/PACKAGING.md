@@ -6339,3 +6339,17 @@ registry 502), check-runs success or skipped, merge state CLEAN; plain
 merge with the head pinned; main is now 48c0b95791 on top of
 8a134a731c. The sixteenth item's fix is on main. No open dagger PRs of
 ours remain.
+Roster change (coordinator; the "extra" Codex account ran out again;
+replacements on the Default account, same model/effort): analyst
+tc-2e4d318c2ddcfb8c4ca26c1b374e9357, investigator
+tc-4037f193271bbd79379fd3aaaf02378e, reviewer
+tc-af30b9989220106add62b990853158f4. Stall alerts and excerpts go to the
+new ids; the old three (tc-aaaaef37…, tc-44f37aad…, tc-6157f0c1…) are
+trashed once the new ones report their homework. Re-sent (steered, both
+were mid-homework): the eighteenth excerpt, plus the seventeenth item
+(pending with no result from the previous analyst), to the new analyst;
+the stall-alert procedure, the pending 72da package-timeout context and
+the AWS SSO device-approval state to the new investigator.
+Coordinator: #14307 merge recorded on their side. Install checksum race
+(8a134a731c golang:test-all): ruling stands, no rerun; recorded as a
+candidate to pin the artifact if it recurs.
