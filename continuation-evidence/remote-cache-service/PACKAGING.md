@@ -6253,3 +6253,4 @@ AWS bounded device flow code CVMN-GMRT still pending at 15:42Z (local
 auth only; needs a human approval).
 #14307: test-container gate met at 15:45:39Z (#14308 green on test-container at 15:42:23Z); capacity freeze OFF; one rerun issued 15:45:40Z.
 #14307 at 747b13b421 fully green, 84 of 84 (test-container rerun passed); needs only a maintainer approval, head pinned.
+Main moved (oldest first): 8a134a731c (core: let serveModule pins win over version queries (#14284), by Yves Brissaud); over 2c33ec4588 (fully green). Under the watches.
