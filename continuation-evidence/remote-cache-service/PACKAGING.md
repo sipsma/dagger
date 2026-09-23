@@ -6157,3 +6157,4 @@ status before the ~15 s resolver lookup. Fixed: /tmp/pkg-watch-stall5.sh
 re-reads the check's latest status before resolving and again before
 emitting, and logs a suppression line instead of alerting when the check
 has finished. #14296 is 84 of 84 green (recorded above).
+Main moved to 0ceaef62fb: #14273 (vito/fix-workspace-export-live-inputs, merged by vito; 18 files, +971 −282) over 2a78967d5d (fully green). #14273 is the PR whose TestSnapshotSharingCancelDuringPreparation run was an earlier twelfth-item trace (cb0082f1aa…). Under the watches; #14296 mergeability recomputing.
