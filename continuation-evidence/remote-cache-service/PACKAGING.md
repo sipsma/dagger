@@ -6480,3 +6480,4 @@ reading yet). AWS: the earlier device code NFKG-PDTL ended with
 InvalidGrantException ("Invalid device code provided"), never
 approved; the investigator issued a fresh code FJHQ-ZVVQ for this live
 capture, relayed to the coordinator for Erik at ~19:52Z.
+dbd3 (#14310 test-base) span snapshot (investigator, 369129 spans): package started 19:39:15.692Z (span 7cbdd6896605cd61), deadline ~19:59:15.692Z; GraphQL calls completing through 19:51:24.903Z; zero unfinished dagql.publishResult, so no publication plateau at snapshot time. AWS code FJHQ-ZVVQ waiting.
