@@ -6493,3 +6493,4 @@ lines) already shows all 67 packages ok; steal 4.2-6.4% 19:51-19:53Z,
 then 0.5-0.7%; the metrics tick continued (last 19:56:34Z). Finishing,
 not frozen; investigator told.
 f7d4 (ab8f7f90b1 test-base) SUCCEEDED 19:57:42Z in 17m10s (2 s after the steer); main ab8f7f90b1 (#14309) fully green, 84 of 84, first run, no reruns.
+CLOSED: f7d4 (ab8f7f90b1 test-base) PASS, independently confirmed by the investigator: package span 3ab0d204dbaed397 19:43:30.36Z-19:57:26.60Z (836.237 s; true 20-minute deadline 20:03:30.36Z); terminal span set (392512) has zero open publishResult; 67 packages ok; 15 metrics ticks through 19:56:34Z; last call Container.exists 19:57:25.381Z; steal 4.2/5.6/6.4% 19:51-53Z then 3.2/0.5/0.7%. No sustained freeze; stood down, no SSH/dump, no queued capture; AWS FJHQ-ZVVQ pending. Report /home/exedev/.tailcall/worktrees/dagger-a7378ed8352b/ci-stall-investigator-worktree-0-388f4df6-87b878cd/continuation-evidence/ci-stall-f7d4/report.md.
