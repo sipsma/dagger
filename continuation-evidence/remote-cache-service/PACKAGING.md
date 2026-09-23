@@ -6281,3 +6281,17 @@ persisted state was not released by the force-shutdown predecessor;
 the exact error is not logged. Not network, no steal issue noted, not
 rerun; to the coordinator and the analyst. Log excerpt
 /tmp/pkg-analyst-items/66644c90b931cfef15e2ab964f0f8ed3-changeset-restart.log.
+Two primary stall alerts on main 8a134a731c (current), both steered at
+16:08:03Z (~14m15s from check start, dev engines up 12m30s):
+- test-workspaces: check 95400390-2865-4201-bc57-3e0f380264b6, trace
+  72da4ed6a3cf446e27e78eac1a8031aa, dev start 15:55:10.95Z; engine
+  7d81bd41-8a66-4d3f-9e59-3428f291bc51, instance f8upscjabg2tq (created
+  15:53:44Z) per the investigator. Normally ~5 min; still running. Cloud
+  log 0 lines.
+- test-base: check 7c507644-c410-4d6f-a67d-ba9c2c73efdf, trace
+  e557b17ada0e2af94cfef3d6a985cc3c, engine cfd3d414-03b1-417e-8391-
+  15270736e189, instance sev620t37g5jc; SUCCEEDED at 16:09:07Z in
+  15m18s, 67 packages ok, steal 0.1-0.4%. Investigator stood down on it.
+Resolver fields were empty (AWS SSO pending); the investigator resolved
+both without AWS preflight. AWS and nsc expired; device code TWBF-CDJF
+waiting for approval (coordinator notified). No SSH or dump yet.
