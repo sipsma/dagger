@@ -6459,3 +6459,15 @@ mirror/ls-remote/remote-git/http-fetch lines in any window (only
 "fetching layer" matched "fetch"). Consistent with the E/mirror cycle;
 excerpts sent to the analyst and the coordinator:
 /tmp/pkg-analyst-items/freeze-window-grep-4logs.txt.
+NINETEENTH ITEM, deterministic reproduction (coordinator): RED on main
+acf912732e6a under -race: 50/50 measurement cases and 50/50 disk-prune
+cases fail "stalled: identity collection pins E while operational mutex
+holder needs E" (evidence /tmp/nineteenth-publication-freeze/; report
+in the analyst's continuation-evidence/analysis/nineteenth-publication-
+freeze.md). A third instance of the cycle: CacheVolume.
+CacheUsageIdentities takes cache.mu, which InitializeSnapshot holds
+across Select/Evaluate. Fix direction ruled: central two-phase provider
+collection with E released at all three call sites. The production fix
+is being prepared, unpushed, awaiting Erik's yes. TWENTIETH ITEM is the
+same mechanism on test-base (#14302 rerun, nested engine not answering
+after the freeze).
