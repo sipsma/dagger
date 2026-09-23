@@ -6170,3 +6170,4 @@ main is now eef8fb203c on top of baffaefbc5. The resize-forwarder leak
 fix found in the c3dec analysis is on main. No open dagger PRs of ours
 remain; open elsewhere: dagger.io #5343, dagger/otel-go #25 (its merge
 triggers the otelgotest pin follow-up).
+main eef8fb203c (#14296) fully green, 84 of 84, first run, no reruns (test-base: success Succeeded in 12m21s. Run `da; test-workspaces 5m32s).
