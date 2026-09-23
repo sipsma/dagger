@@ -6171,3 +6171,4 @@ fix found in the c3dec analysis is on main. No open dagger PRs of ours
 remain; open elsewhere: dagger.io #5343, dagger/otel-go #25 (its merge
 triggers the otelgotest pin follow-up).
 main eef8fb203c (#14296) fully green, 84 of 84, first run, no reruns (test-base: success Succeeded in 12m21s. Run `da; test-workspaces 5m32s).
+Main moved: 2c33ec4588 (Merge pull request #14297 from vito/fix-cli-restore-render-freeze, by Alex Suraci);4360ca5d5d (Merge pull request #14305 from vito/bump-catwalk-v0.52.51, by Alex Suraci); over eef8fb203c (fully green). Under the watches.
