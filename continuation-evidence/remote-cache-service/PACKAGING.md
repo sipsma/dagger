@@ -6353,3 +6353,14 @@ the AWS SSO device-approval state to the new investigator.
 Coordinator: #14307 merge recorded on their side. Install checksum race
 (8a134a731c golang:test-all): ruling stands, no rerun; recorded as a
 candidate to pin the artifact if it recurs.
+New investigator tc-4037f193271bbd79379fd3aaaf02378e: homework done,
+taking alerts. Fresh flock-wrapped setup check: Godmode reachable, AWS
+SSO still NOT ready for on-call-permissions (no new device code, since
+no live capture is imminent). Now comparing TestWorkspace spans across
+the three test-workspaces package timeouts, 2d96 (#14279), f3f8
+(4aa8ecde15) and 72da (8a134a731c), against the passing 2c33 run
+(d9a001584dedba3348b87498e33da525): all three failed logs have exactly
+one engine-metrics line (no steal series); preliminary open direct
+TestWorkspace children 60 / 24 / 68; precise continuation timestamps and
+fixture overlap in progress. Test-workspaces package timeouts are now a
+recurring class (three occurrences) under investigation.
