@@ -6254,3 +6254,14 @@ auth only; needs a human approval).
 #14307: test-container gate met at 15:45:39Z (#14308 green on test-container at 15:42:23Z); capacity freeze OFF; one rerun issued 15:45:40Z.
 #14307 at 747b13b421 fully green, 84 of 84 (test-container rerun passed); needs only a maintainer approval, head pinned.
 Main moved (oldest first): 8a134a731c (core: let serveModule pins win over version queries (#14284), by Yves Brissaud); over 2c33ec4588 (fully green). Under the watches.
+main 8a134a731c (current, #14284): golang:test-all errored 2m43s at
+15:56:31Z (trace a268e9262dd3330986ce15eee42b54f4): only
+e2e/installers TestBashScript/install_DAGGER_COMMIT_head
+(installers_test.go:110). install.sh downloaded
+https://dl.dagger.io/dagger/main/head/dagger_head_linux_amd64.tar.gz and
+.../main/head/checksums.txt, then "hash_sha256_verify checksum ... did
+not verify 42966b98… vs f8dbfa08…". The main/head artifacts are
+overwritten on each main publish; a mismatched tarball/checksum pair
+indicates the test read them mid-update. Artifact-publish race, not
+code and not network; not rerun (outside the rerun rulings); to the
+coordinator. Log /tmp/pkg-ci-8a13-test-all.log.
