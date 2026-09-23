@@ -6532,3 +6532,19 @@ at 88398de668 on 3f0299a03a, the main build fix. Top-priority watch: its
 CI is the first run that compiles on the new main, so each failure is
 classified individually; anything not network is a finding. Erik told.
 Coordinator: #14312 merges under the usual rule as soon as CI finishes (green, or red only on documented network faults), head pinned to 88398de668; it is the fix for the hold. After its merge, report the main hash; the hold on our other merges then lifts.
+#14312 (main build fix, first run that compiles on the new main): smoke
+errored 2m7s at 20:47:04Z (trace a3e154774635d12eca557632a9aa9f83).
+Two of three smoke modules fail to load remote git sources:
+editor:load "resolve remote module github.com/vito/editor: failed to
+load git dir: failed to fetch remote https://github.com/vito/editor:
+git error: exit status 128", and dang-sdk:load "resolve remote module
+dagger.io/sdk/dang@main: ... failed to load git dep: resolve remote
+module dagger.io/sdk/helpers@v1: failed to resolve git src: git error:
+exit status 128". No git stderr detail (no "could not resolve", HTTP
+code or rate-limit text) in the log or trace. Another open PR's smoke
+(head 55ba4b21e8) succeeded at 20:47:01Z, 3 s earlier, so GitHub was
+reachable; that PR necessarily built on pre-3f0299a03a main, so it does
+not clear #14243/#14312's module-resolution changes. Smoke passed on
+ab8f7f90b1. NOT proven network: a finding; blocks #14312's merge under
+the rule; not rerun; to the coordinator. Rest of #14312 at 20:48Z: 47
+green, 36 pending.
