@@ -6233,3 +6233,10 @@ Span state: SchemaRecovery and SchemaRecoveryCold continuations open
 from 15:23:15Z; both foreign_context children PASS at 15:34:14Z;
 before/after open from 15:32:32-34Z. core/integration started 15:23:11Z,
 its 20-minute budget ends ~15:43:11Z.
+a925 (#14307 test-base) SUCCEEDED at 15:38:36Z in 18m18s, including the
+changed TestSchemaRecovery: a slow run that finished, not a hang; the
+investigator stood down (no capture was made; AWS approval still
+pending for the next alert). The Cloud log for the trace is empty even
+after completion (as with d9f02), so no steal reading or race count
+from the log. #14307 now 83 of 84: only test-container (Red Hat registry
+502) red, its gated rerun waiting for recovery evidence.
