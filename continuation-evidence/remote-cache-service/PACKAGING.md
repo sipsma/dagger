@@ -6519,3 +6519,11 @@ baffaefbc5) added the call at object_reload.go:107; #14243 removed
 ResultCallModule from the Mod interface (present on 3f0299a03a^1
 core/module.go:2251-2253; replaced by FieldModule() at :2255/:2336).
 Not network; nothing to rerun; to the coordinator (fix is Erik's).
+Coordinator ruling while main does not compile (from 3f0299a03a): no
+rebases or merges of ours (#14310 sits on acf912732e, before the break,
+so its CI stands); every red check on 3f0299a03a is recorded as "main
+build break" rather than classified individually; report the first
+main head that compiles again (watch /tmp/pkg-watch-compile.sh: each
+new head BROKEN or COMPILES by its test-base engine build). Erik is
+being told; the analyst is preparing the one-line fix for his decision.
+main 3f0299a03a red checks: main build break (all of them).
