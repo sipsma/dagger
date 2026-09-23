@@ -6506,3 +6506,4 @@ the "publishResult open / metrics stopped" stalls of the #14051 era
 (traces f751b8db838e2410500407e22dd73a9a and
 4d04c9f6c86202cf1392f34f1177fb4d) are explained by the same E /
 provider-lock cycle.
+Main moved (oldest first): 3f0299a03a (Merge pull request #14243 from sipsma/module-owned-dispatch-scope, by Erik Sipsma); over ab8f7f90b1 (fully green). Under the watches.
