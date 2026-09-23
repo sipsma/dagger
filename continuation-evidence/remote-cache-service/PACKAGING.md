@@ -6251,3 +6251,4 @@ physical completion. No steal series. No hang attribution. Reports
 /tmp/stall-a925-report.md and continuation-evidence/ci-stall-a925/report.md.
 AWS bounded device flow code CVMN-GMRT still pending at 15:42Z (local
 auth only; needs a human approval).
+#14307: test-container gate met at 15:45:39Z (#14308 green on test-container at 15:42:23Z); capacity freeze OFF; one rerun issued 15:45:40Z.
