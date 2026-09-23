@@ -6377,3 +6377,4 @@ upstream/main 48c0b957910e; the source points to pass-queue observation
 (anonymous buffered pass signals, a late completion notification), not
 the receiver ownership count itself; assessing synctest queue
 quiescence.
+Main moved (oldest first): acf912732e (Merge pull request #14082 from grouville/grouville/default-nesting, by Guillaume de Rouville); over 48c0b95791. Under the watches.
