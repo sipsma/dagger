@@ -6433,3 +6433,4 @@ nested-engine-not-answering stall that #14271's bounded shutdown now
 names (the per-step stop deadline reports it instead of hanging). With
 the investigator alongside the nineteenth.
 c897 (48c0b95791 test-base) SUCCEEDED at 19:38:08Z in 17m33s: a slow run that finished, not a hang; investigator told to stand down (AWS approval NFKG-PDTL still useful for the next alert).
+Main moved (oldest first): ab8f7f90b1 (Merge pull request #14309 from vito/fix-agent-compact-loop, by Alex Suraci); over acf912732e. Under the watches.
