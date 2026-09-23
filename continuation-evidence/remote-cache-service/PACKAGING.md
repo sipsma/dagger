@@ -6527,3 +6527,7 @@ main head that compiles again (watch /tmp/pkg-watch-compile.sh: each
 new head BROKEN or COMPILES by its test-base engine build). Erik is
 being told; the analyst is preparing the one-line fix for his decision.
 main 3f0299a03a red checks: main build break (all of them).
+#14312 published by the coordinator: sipsma/object-reload-field-module
+at 88398de668 on 3f0299a03a, the main build fix. Top-priority watch: its
+CI is the first run that compiles on the new main, so each failure is
+classified individually; anything not network is a finding. Erik told.
