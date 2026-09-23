@@ -6203,3 +6203,11 @@ variants of the same helper. Added to the watch and the merge rule
 (every check green, or red only on documented network faults while
 they persist, plus a maintainer approval, head pinned; reruns subject
 to the capacity freeze).
+#14307 at 747b13b421: test-split:test-container errored 4m12s at
+15:24:18Z (trace 0f028816e3b9b6787aad91018d91541b): TestSystemCACerts/
+rhel_{basic,non-root_user,empty_diff} (cacert_test.go:308/330/337),
+"failed to resolve image registry.access.redhat.com/ubi9/ubi:…:
+502 Bad Gateway" (5 lines). Registry network fault (Red Hat registry),
+unrelated to the test file the PR changes. Capacity freeze OFF; one
+rerun gated on recovery evidence after 15:24:18Z, log
+/tmp/pkg-14307-container-gate.log.
