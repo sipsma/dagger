@@ -6331,3 +6331,11 @@ graph lock is free again": the queue depth after the restored-frame
 pass). Excerpt with test source sent to the analyst:
 /tmp/pkg-analyst-items/69d0bf6f18941396d543e1d1cc680adf.txt; log
 /tmp/pkg-ci-14302-test-base.log.
+#14307 (sipsma/schema-recovery-artifact-race, head 747b13b421, "test:
+return schema recovery artifact IDs without shared state") merged under
+the rule after grouville (MEMBER) approved at 19:17:33Z: 84 of 84
+statuses success (one gated network rerun, test-container Red Hat
+registry 502), check-runs success or skipped, merge state CLEAN; plain
+merge with the head pinned; main is now 48c0b95791 on top of
+8a134a731c. The sixteenth item's fix is on main. No open dagger PRs of
+ours remain.
