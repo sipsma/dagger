@@ -6161,3 +6161,12 @@ Main moved to 0ceaef62fb: #14273 (vito/fix-workspace-export-live-inputs, merged 
 main 0ceaef62fb (#14273) fully green, 84 of 84, first run, no reruns: test-base 12m27s, test-workspaces 5m25s. #14296 still 84 of 84 green, mergeable, awaiting approval.
 Main moved: baffaefbc5 (Merge pull request #14254 from dagger/agent-recompose-state, by Alex Suraci); over 0ceaef62fb (fully green). Under the watches.
 main baffaefbc5 (#14254) fully green, 84 of 84, first run, no reruns (test-base: success Succeeded in 13m14s. Run `da; test-workspaces 4m48s).
+#14296 (sipsma/service-resize-forwarder-cancellation, head bb0e263584,
+"core: stop service resize forwarding on cancellation or input
+closure") merged under the rule after grouville (MEMBER) approved at
+2026-09-23T07:34:12Z: 84 of 84 statuses success (no reruns), check-runs
+success or skipped, merge state CLEAN; plain merge with the head pinned;
+main is now eef8fb203c on top of baffaefbc5. The resize-forwarder leak
+fix found in the c3dec analysis is on main. No open dagger PRs of ours
+remain; open elsewhere: dagger.io #5343, dagger/otel-go #25 (its merge
+triggers the otelgotest pin follow-up).
