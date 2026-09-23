@@ -6507,3 +6507,15 @@ the "publishResult open / metrics stopped" stalls of the #14051 era
 4d04c9f6c86202cf1392f34f1177fb4d) are explained by the same E /
 provider-lock cycle.
 Main moved (oldest first): 3f0299a03a (Merge pull request #14243 from sipsma/module-owned-dispatch-scope, by Erik Sipsma); over ab8f7f90b1 (fully green). Under the watches.
+MAIN BROKEN at 3f0299a03a (#14243, module-owned-dispatch-scope): the
+engine does not compile, `core/object_reload.go:107:40:
+NewUserMod(obj.Module).ResultCallModule undefined (type Mod has no
+field or method ResultCallModule)` (test-base trace
+3b925c1a2100beaade49b4338fa65d23, errored 45.6 s; test-workspaces trace
+53e5115440d497f3aaafd144e8d43c6f the same). 53 checks red: all client
+SDKs, smoke, all test-split shards. Semantic merge conflict: #14254
+(67a053dab9 "agents: preserve owned state on recomposition", merged as
+baffaefbc5) added the call at object_reload.go:107; #14243 removed
+ResultCallModule from the Mod interface (present on 3f0299a03a^1
+core/module.go:2251-2253; replaced by FieldModule() at :2255/:2336).
+Not network; nothing to rerun; to the coordinator (fix is Erik's).
