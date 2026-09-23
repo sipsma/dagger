@@ -6223,3 +6223,13 @@ t795h0sapfic4 created 15:20:04Z, tenant 2qf1mch9ubs72) and started a
 read-only capture (/tmp/stall-a925-live-dump.log). Cloud log still 0
 lines at 15:34Z, so no steal reading yet. The run exercises #14307's
 changed TestSchemaRecovery.
+Correction (investigator): the connect path's AWS auto-refresh is NOT
+working; the expired SSO needs a device approval. Only the Godmode
+no-preflight lookup worked (hence the resolved instance). The helper
+awaits the device flow but sends AWS stdout to /dev/null, hiding the
+code; after its 120 s bound the investigator will produce a visible
+device code for the coordinator. No SSH, steal or dump for a925 yet.
+Span state: SchemaRecovery and SchemaRecoveryCold continuations open
+from 15:23:15Z; both foreign_context children PASS at 15:34:14Z;
+before/after open from 15:32:32-34Z. core/integration started 15:23:11Z,
+its 20-minute budget ends ~15:43:11Z.
