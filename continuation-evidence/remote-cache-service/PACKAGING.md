@@ -6160,3 +6160,4 @@ has finished. #14296 is 84 of 84 green (recorded above).
 Main moved to 0ceaef62fb: #14273 (vito/fix-workspace-export-live-inputs, merged by vito; 18 files, +971 −282) over 2a78967d5d (fully green). #14273 is the PR whose TestSnapshotSharingCancelDuringPreparation run was an earlier twelfth-item trace (cb0082f1aa…). Under the watches; #14296 mergeability recomputing.
 main 0ceaef62fb (#14273) fully green, 84 of 84, first run, no reruns: test-base 12m27s, test-workspaces 5m25s. #14296 still 84 of 84 green, mergeable, awaiting approval.
 Main moved: baffaefbc5 (Merge pull request #14254 from dagger/agent-recompose-state, by Alex Suraci); over 0ceaef62fb (fully green). Under the watches.
+main baffaefbc5 (#14254) fully green, 84 of 84, first run, no reruns (test-base: success Succeeded in 13m14s. Run `da; test-workspaces 4m48s).
