@@ -6307,3 +6307,14 @@ blocked on AWS device approval (TWBF-CDJF). 8a134a731c now 81 of 84:
 golang:test-all (install checksum/publish race), test-cache-persistence
 (seventeenth item), test-workspaces (package timeout).
 Correction to the entry above: the test-workspaces check log has only one engine-metrics line, so no per-minute steal series is available (the empty 'Steal range per minute %' means none, not zero).
+GitHub API rate limit hit at 16:26:42Z (HTTP 403, "API rate limit
+exceeded"; the 5,000/hr core budget is shared by all agents; rate_limit
+read 4999/5000 right after, so likely the secondary/burst limit). My
+watches were a large share: the general and stall watches read every
+main head since 232a80cbd3 (~12 heads, 2 pages each) every 60 s, and
+the capacity scanner the same every 120 s. Narrowed: all three now
+read only the newest 3 main heads plus open watched PRs; general polls
+every 180 s (/tmp/pkg-watch-general6.sh), stall every 90 s
+(/tmp/pkg-watch-stall6.sh), capacity freeze every 300 s
+(/tmp/pkg-watch-freeze3.sh; /tmp/pkg-capacity-last.sh also narrowed).
+Estimated ~700 requests/hr for all three together.
