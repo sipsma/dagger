@@ -152,6 +152,7 @@ var expectedOutcome = map[string]string{
 	// claims, release marking and lock-free steps interleave between selection and
 	// claim, and write-locked steps wait for the claim.
 	"shared_claims":           "",
+	"shared_claims_prune":     "",
 	"shared_claims_resources": "",
 	// mutation: the claim trusts the session edge read at selection, so
 	// two overlapping hits of one session both add an ownership unit.
