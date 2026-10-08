@@ -213,6 +213,11 @@ type {{ $field | FieldOptionsStructName }} struct {
 	}
 
 	return convert(response), nil
+	    {{- else if and (eq $field.Name "id") (ne $field.ParentObject.Name "Query") }}
+	return memoizedID(ctx, r.query, func() ({{ FormatFieldOutputType $field }}, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 	    {{- else }}
 	return response, q.Execute(ctx)
 	    {{- end }}

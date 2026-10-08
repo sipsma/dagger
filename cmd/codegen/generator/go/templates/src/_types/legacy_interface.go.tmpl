@@ -166,7 +166,14 @@ type {{ $field | FieldOptionsStructName }} struct {
 		{{- else }}
 	var response {{ FormatFieldOutputType $field }}
 	q = q.Bind(&response)
+		{{- if eq $field.Name "id" }}
+	return memoizedID(ctx, r.query, func() ({{ FormatFieldOutputType $field }}, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
+		{{- else }}
 	return response, q.Execute(ctx)
+		{{- end }}
 		{{- end }}
 	{{- end }}
 }

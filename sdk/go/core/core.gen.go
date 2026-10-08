@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"runtime"
+	"sync"
+	"weak"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
@@ -320,7 +323,10 @@ func (r *Address) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -486,7 +492,10 @@ func (r *Agent) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -843,7 +852,10 @@ func (r *AgentMessage) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -1035,7 +1047,10 @@ func (r *Artifact) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -1213,7 +1228,10 @@ func (r *ArtifactDimension) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -1379,7 +1397,10 @@ func (r *ArtifactDimensionKey) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -1480,7 +1501,10 @@ func (r *ArtifactPath) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -1605,7 +1629,10 @@ func (r *ArtifactResult) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -2086,7 +2113,10 @@ func (r *Artifacts) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -2405,7 +2435,10 @@ func (r *CacheVolume) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -2590,7 +2623,10 @@ func (r *Changeset) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -2817,7 +2853,10 @@ func (r *Check) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -2917,7 +2956,10 @@ func (r *ClientFilesyncMirror) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -2979,7 +3021,10 @@ func (r *Cloud) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -3062,7 +3107,10 @@ func (r *CollectionDelta) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -3149,7 +3197,10 @@ func (r *CollectionTypeDef) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -3274,7 +3325,10 @@ func (r *Command) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -3922,7 +3976,10 @@ func (r *Container) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -5831,7 +5888,10 @@ func (r *CurrentModule) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -5975,7 +6035,10 @@ func (r *DiffStat) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -6458,7 +6521,10 @@ func (r *Directory) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -7033,7 +7099,10 @@ func (r *Engine) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -7141,7 +7210,10 @@ func (r *EngineCache) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -7384,7 +7456,10 @@ func (r *EngineCacheEntry) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -7542,7 +7617,10 @@ func (r *EngineCacheEntrySet) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -7619,7 +7697,10 @@ func (r *EnumTypeDef) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -7821,7 +7902,10 @@ func (r *EnumValueTypeDef) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -7984,7 +8068,10 @@ func (r *EnvFile) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -8123,7 +8210,10 @@ func (r *EnvVariable) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -8218,7 +8308,10 @@ func (r *Error) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -8337,7 +8430,10 @@ func (r *ErrorValue) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -8439,7 +8535,10 @@ func (r *Expertise) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -8563,7 +8662,10 @@ func (r *FieldTypeDef) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -8809,7 +8911,10 @@ func (r *File) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -9174,7 +9279,10 @@ func (r *Function) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -9522,7 +9630,10 @@ func (r *FunctionArg) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -9637,7 +9748,10 @@ func (r *FunctionCall) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -9795,7 +9909,10 @@ func (r *FunctionCallArgValue) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -9899,7 +10016,10 @@ func (r *GeneratedCode) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -10017,7 +10137,10 @@ func (r *Generator) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -10115,7 +10238,10 @@ func (r *GitBundle) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -10256,7 +10382,10 @@ func (r *GitBundleRef) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -10484,7 +10613,10 @@ func (r *GitCommit) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -10701,7 +10833,10 @@ func (r *GitPushResult) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -10904,7 +11039,10 @@ func (r *GitRef) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -11195,7 +11333,10 @@ func (r *GitRemote) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -11430,7 +11571,10 @@ func (r *GitRepository) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -11718,7 +11862,10 @@ func (r *HTTPState) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -11795,7 +11942,10 @@ func (r *HealthcheckConfig) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -12032,7 +12182,10 @@ func (r *Host) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -12201,7 +12354,10 @@ func (r *InputTypeDef) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -12324,7 +12480,10 @@ func (r *InterfaceTypeDef) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -12564,7 +12723,10 @@ func (r *JSONValue) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -12799,7 +12961,10 @@ func (r *LLM) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -13495,7 +13660,10 @@ func (r *LLMContent) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -13696,7 +13864,10 @@ func (r *LLMContentBlock) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -13856,7 +14027,10 @@ func (r *LLMMessage) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -13981,7 +14155,10 @@ func (r *LLMMessageOrigin) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -14102,7 +14279,10 @@ func (r *LLMSkill) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -14207,7 +14387,10 @@ func (r *LLMTokenUsage) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -14309,7 +14492,10 @@ func (r *Label) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -14405,7 +14591,10 @@ func (r *ListTypeDef) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -14583,7 +14772,10 @@ func (r *Module) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -14918,7 +15110,10 @@ func (r *ModuleConfigClient) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -15257,7 +15452,10 @@ func (r *ModuleSource) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -15869,7 +16067,10 @@ func (r *ObjectTypeDef) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -16003,7 +16204,10 @@ func (r *Port) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -16897,7 +17101,10 @@ func (r *RemoteGitMirror) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -16973,7 +17180,10 @@ func (r *SDKConfig) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -17063,7 +17273,10 @@ func (r *ScalarTypeDef) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -17172,7 +17385,10 @@ func (r *Schema) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -17273,7 +17489,10 @@ func (r *SearchResult) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -17408,7 +17627,10 @@ func (r *SearchSubmatch) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -17498,7 +17720,10 @@ func (r *Secret) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -17660,7 +17885,10 @@ func (r *Service) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -17886,7 +18114,10 @@ func (r *Socket) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -17978,7 +18209,10 @@ func (r *SourceMap) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -18095,7 +18329,10 @@ func (r *Stat) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -18196,7 +18433,10 @@ func (r *Terminal) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -18410,7 +18650,10 @@ func (r *TypeDef) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -18827,7 +19070,10 @@ func (r *Volume) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -19299,7 +19545,10 @@ func (r *Workspace) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -20455,7 +20704,10 @@ func (r *WorkspaceCommitPick) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -20564,7 +20816,10 @@ func (r *WorkspaceGit) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -20657,7 +20912,10 @@ func (r *WorkspaceMigration) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -20798,7 +21056,10 @@ func (r *WorkspaceMigrationStep) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -20895,7 +21156,10 @@ func (r *WorkspaceModule) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -21048,7 +21312,10 @@ func (r *WorkspaceModuleSetting) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -21218,7 +21485,10 @@ func (r *WorkspaceSDK) ID(ctx context.Context) (ID, error) {
 	var response ID
 
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -21364,7 +21634,10 @@ func (r *ExportableClient) ID(ctx context.Context) (ID, error) {
 
 	var response ID
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -21451,7 +21724,10 @@ func (r *NodeClient) ID(ctx context.Context) (ID, error) {
 
 	var response ID
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -21518,7 +21794,10 @@ func (r *SyncerClient) ID(ctx context.Context) (ID, error) {
 
 	var response ID
 	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return memoizedID(ctx, r.query, func() (ID, error) {
+		err := q.Execute(ctx)
+		return response, err
+	})
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
@@ -23388,6 +23667,65 @@ const (
 // given type via an inline fragment.
 func selectNode(q *querybuilder.Selection, id any, typeName string) *querybuilder.Selection {
 	return q.Select("node").Arg("id", id).InlineFragment(typeName)
+}
+
+// idMemo holds the ID fetched for one object query.
+type idMemo struct {
+	mu       sync.Mutex
+	id       string
+	ok       bool
+	fetching chan struct{} // closed when the fetch in flight ends
+}
+
+// idMemos maps an object's query to its idMemo. Keys are weak pointers, and an
+// entry is deleted once its query is garbage collected.
+var idMemos sync.Map // weak.Pointer[querybuilder.Selection] -> *idMemo
+
+// memoizedID returns the ID of the object built by query q, calling fetch at
+// most once per q, so an object that is passed as an argument many times
+// fetches its ID once. Concurrent callers wait for the fetch in flight, or
+// until their own ctx is done. A failed fetch is not remembered: the next
+// caller fetches again.
+func memoizedID[T ~string](ctx context.Context, q *querybuilder.Selection, fetch func() (T, error)) (T, error) {
+	key := weak.Make(q)
+	v, loaded := idMemos.LoadOrStore(key, &idMemo{})
+	if !loaded {
+		runtime.AddCleanup(q, func(key weak.Pointer[querybuilder.Selection]) {
+			idMemos.Delete(key)
+		}, key)
+	}
+	m := v.(*idMemo)
+	for {
+		m.mu.Lock()
+		if m.ok {
+			m.mu.Unlock()
+			return T(m.id), nil
+		}
+		if m.fetching == nil {
+			break
+		}
+		fetching := m.fetching
+		m.mu.Unlock()
+		select {
+		case <-fetching:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+	fetching := make(chan struct{})
+	m.fetching = fetching
+	m.mu.Unlock()
+
+	id, err := fetch()
+
+	m.mu.Lock()
+	if err == nil {
+		m.id, m.ok = string(id), true
+	}
+	m.fetching = nil
+	m.mu.Unlock()
+	close(fetching)
+	return id, err
 }
 
 // Loadable is the constraint for types that can be loaded from an ID.
