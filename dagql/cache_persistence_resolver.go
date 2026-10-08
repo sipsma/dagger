@@ -96,7 +96,7 @@ func (c *Cache) sharedResultByResultID(ctx context.Context, sessionID string, re
 
 	// The canonical pick and the session claim only read the e-graph, so
 	// concurrent ID loads share the lock (see acquireSessionResultLocked).
-	c.egraphMu.RLock()
+	c.rlockEgraphForProfile(ctx, "egraphMu:sharedResultByResultID:R")
 	res := c.resultsByID[resultID]
 	if res == nil {
 		c.egraphMu.RUnlock()

@@ -1051,7 +1051,7 @@ func (c *Cache) lookupCacheForRequest(
 	// the e-graph, and the hit's session claim changes only state with its
 	// own synchronization, so they run under the read lock and concurrent
 	// lookups do not queue behind each other.
-	c.egraphMu.RLock()
+	c.rlockEgraphForProfile(ctx, "egraphMu:lookupCacheForRequest:R")
 	retRes, hit, persistedEdgeExpiresAtUnix, needsWrite, err := c.lookupCacheForRequestLocked(ctx, sessionID, req, requestDigest, requestSelf, requestInputs, requestInputRefs, true)
 	if err != nil || (!hit && !needsWrite) {
 		c.egraphMu.RUnlock()
@@ -1068,7 +1068,7 @@ func (c *Cache) lookupCacheForRequest(
 	} else {
 		// The hit teaches the e-graph: look it up again under the write lock.
 		c.egraphMu.RUnlock()
-		c.egraphMu.Lock()
+		c.lockEgraphForProfile(ctx, "egraphMu:lookupCacheForRequest:W")
 		// One collector for this E interval: identity teaching can union
 		// classes or insert a new membership, and both are flushed before
 		// the unlock.
@@ -1117,7 +1117,7 @@ func (c *Cache) lookupCacheForRequest(
 		// Only persistable hits pay this second graph-lock acquisition. Keep
 		// the expiry captured at hit selection even if the barrier wait took
 		// long enough to cross a wall-clock second.
-		c.egraphMu.Lock()
+		c.lockEgraphForProfile(ctx, "egraphMu:lookupCacheForRequest:persist")
 		c.upsertPersistedEdgeLocked(ctx, hitShared, persistedEdgeExpiresAtUnix, false)
 		c.egraphMu.Unlock()
 	}

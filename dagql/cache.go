@@ -792,7 +792,7 @@ func (c *Cache) acquireSessionResultLocked(ctx context.Context, sessionID string
 		return false, 0, nil
 	}
 
-	c.sessionMu.Lock()
+	c.lockSessionMuForProfile(ctx, "sessionMu:acquireSessionResult")
 	defer c.sessionMu.Unlock()
 	if c.sessionLifecycle(sessionID).lifecycle.Load()&cacheSessionReleasedBit != 0 {
 		return false, 0, fmt.Errorf("%w: %q", ErrCacheSessionReleased, sessionID)
@@ -826,7 +826,7 @@ func (c *Cache) trackSessionResult(ctx context.Context, sessionID string, res An
 		return nil
 	}
 
-	c.egraphMu.RLock()
+	c.rlockEgraphForProfile(ctx, "egraphMu:trackSessionResult:R")
 	_, trackedCount, err := c.acquireSessionResultLocked(ctx, sessionID, shared)
 	c.egraphMu.RUnlock()
 	if err != nil {
@@ -3510,7 +3510,7 @@ func (c *Cache) addExplicitDependency(ctx context.Context, parent AnyResult, dep
 	if depShared == nil || depShared.id == 0 {
 		return fmt.Errorf("add explicit dependency: dep %T is not an attached result in this cache", dep)
 	}
-	c.egraphMu.Lock()
+	c.lockEgraphForProfile(ctx, "egraphMu:addExplicitDependency")
 	defer c.egraphMu.Unlock()
 
 	// Numeric result IDs are engine-lifetime unique, so registration under
@@ -6342,7 +6342,7 @@ func (c *Cache) releaseOngoingCallHandoff(ctx context.Context, oc *ongoingCall) 
 		return nil
 	}
 
-	c.egraphMu.Lock()
+	c.lockEgraphForProfile(ctx, "egraphMu:releaseOngoingCallHandoff")
 	if oc.needsPersistedEdge {
 		c.upsertPersistedEdgeLocked(ctx, oc.res, oc.persistedEdgeExpiresAtUnix, false)
 		oc.pendingEdge.created = true
@@ -6431,7 +6431,7 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 	oc.res = &sharedResult{}
 	if oc.val != nil {
 		if existingRes := oc.val.cacheSharedResult(); existingRes != nil && existingRes.id != 0 {
-			c.egraphMu.Lock()
+			c.lockEgraphForProfile(ctx, "egraphMu:initCompletedResult")
 			oc.res = c.canonicalEquivalentSharedResultLocked(sessionID, existingRes, time.Now().Unix(), true)
 			// Take the publication handoff hold inside the same critical
 			// section as the canonical pick: the adopted result may be owned
@@ -6684,7 +6684,7 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 	if c.testBeforePublicationIndex != nil {
 		c.testBeforePublicationIndex(oc)
 	}
-	c.egraphMu.Lock()
+	c.lockEgraphForProfile(ctx, "egraphMu:initCompletedResult")
 	// One current entry per recipe (cache_current_entry.go). A fresh value is
 	// indexed under the recipe of its stored frame, unless that recipe
 	// already has a current entry: then it adopts a live one (D1), waits for
@@ -6745,7 +6745,7 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 				}
 				select {
 				case <-waitCh:
-					c.egraphMu.Lock()
+					c.lockEgraphForProfile(ctx, "egraphMu:initCompletedResult")
 					continue
 				case <-released:
 				case <-ctx.Done():
@@ -6756,7 +6756,7 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 				// attachment lasts, so the value registers beside the entry,
 				// not indexed, as for a session that does not cover the
 				// entry's requirements.
-				c.egraphMu.Lock()
+				c.lockEgraphForProfile(ctx, "egraphMu:initCompletedResult")
 				unindexed = true
 				break
 			}
@@ -6938,7 +6938,7 @@ func (c *Cache) initCompletedResult(ctx context.Context, resolver TypeResolver, 
 	// attachment-time claim.
 	failAttachment := func(err error, refusedByRelease bool) error {
 		cleanupCtx := context.WithoutCancel(ctx)
-		c.egraphMu.Lock()
+		c.lockEgraphForProfile(ctx, "egraphMu:initCompletedResult")
 		if !resWasCacheBacked {
 			c.unindexRecipesLocked(oc.res)
 		}
@@ -7233,4 +7233,34 @@ func cacheUsageSizeMayChangeFromSelf(self Typed) bool {
 		return false
 	}
 	return mutableSizer.CacheUsageMayChange()
+}
+
+// Scratch profiling only: records egraphMu waits as wcprof lock waits.
+func (c *Cache) lockEgraphForProfile(ctx context.Context, ident string) {
+	if c.egraphMu.TryLock() {
+		return
+	}
+	w := wcprof.BeginWaitIdent(ctx, ident, wcprof.WaitReasonLock)
+	c.egraphMu.Lock()
+	w.End()
+}
+
+// Scratch profiling only: records egraphMu read-lock waits as wcprof lock waits.
+func (c *Cache) rlockEgraphForProfile(ctx context.Context, ident string) {
+	if c.egraphMu.TryRLock() {
+		return
+	}
+	w := wcprof.BeginWaitIdent(ctx, ident, wcprof.WaitReasonLock)
+	c.egraphMu.RLock()
+	w.End()
+}
+
+// Scratch profiling only: records sessionMu waits as wcprof lock waits.
+func (c *Cache) lockSessionMuForProfile(ctx context.Context, ident string) {
+	if c.sessionMu.TryLock() {
+		return
+	}
+	w := wcprof.BeginWaitIdent(ctx, ident, wcprof.WaitReasonLock)
+	c.sessionMu.Lock()
+	w.End()
 }
