@@ -149,7 +149,7 @@ var expectedOutcome = map[string]string{
 
 	// green: the egraphMu read sections split where they nest sessionMu
 	// (SharedSections = "split"), so overlapping lookup hits, ID-load
-	// claims, release marking and prune interleave between selection and
+	// claims, release marking and lock-free steps interleave between selection and
 	// claim, and write-locked steps wait for the claim.
 	"shared_claims":           "",
 	"shared_claims_resources": "",
