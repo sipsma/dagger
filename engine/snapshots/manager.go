@@ -136,6 +136,13 @@ type snapshotManager struct {
 	exportLayerLocker      keyedLocker
 	ownerLeaseLocker       *locker.Locker
 
+	// ownerSnapshots is snapshotOwnerLeases by lease. borrowedOwners maps
+	// a dagql owner lease that has no containerd lease of its own to the
+	// snapshot it owns; snapshotBorrowers is the reverse. See borrowOwner.
+	ownerSnapshots    map[string]map[string]struct{}
+	borrowedOwners    map[string]string
+	snapshotBorrowers map[string]map[string]struct{}
+
 	mountPool sharableMountPool
 }
 

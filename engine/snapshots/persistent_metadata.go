@@ -140,11 +140,20 @@ func (cm *snapshotManager) AttachLease(ctx context.Context, leaseID, snapshotID 
 	}
 
 	// ownerLeaseLocker serializes AttachLease and RemoveLease for one lease.
-	// The containerd calls below run outside cm.mu: holding the manager lock
-	// across them stalls every unrelated Get and GetBySnapshotID.
 	cm.ownerLeaseLocker.Lock(leaseID)
 	defer cm.ownerLeaseLocker.Unlock(leaseID)
 
+	if borrowed, err := cm.borrowOwner(ctx, leaseID, snapshotID); err != nil || borrowed {
+		return err
+	}
+	return cm.attachLease(ctx, leaseID, snapshotID)
+}
+
+// attachLease attaches snapshotID's chain and blobs to leaseID in containerd.
+// The caller holds ownerLeaseLocker for leaseID. The containerd calls run
+// outside cm.mu: holding the manager lock across them stalls every unrelated
+// Get and GetBySnapshotID.
+func (cm *snapshotManager) attachLease(ctx context.Context, leaseID, snapshotID string) error {
 	snapshotIDs := []string{}
 	labeledBlobs := map[string]digest.Digest{}
 	for currentSnapshotID := snapshotID; currentSnapshotID != ""; {
@@ -353,10 +362,7 @@ func (cm *snapshotManager) addSnapshotOwner(snapshotID, leaseID string, attached
 		return pending
 	}
 
-	if cm.snapshotOwnerLeases[snapshotID] == nil {
-		cm.snapshotOwnerLeases[snapshotID] = make(map[string]struct{})
-	}
-	cm.snapshotOwnerLeases[snapshotID][leaseID] = struct{}{}
+	cm.addOwnerLocked(snapshotID, leaseID)
 	return nil
 }
 
@@ -368,21 +374,162 @@ func (cm *snapshotManager) RemoveLease(ctx context.Context, leaseID string) erro
 	cm.ownerLeaseLocker.Lock(leaseID)
 	defer cm.ownerLeaseLocker.Unlock(leaseID)
 
-	err := cm.LeaseManager.Delete(ctx, leases.Lease{ID: leaseID})
-	if err != nil && !cerrdefs.IsNotFound(err) {
-		return pkgerrors.Wrapf(err, "delete owner lease %s", leaseID)
-	}
-
+	// The lease stops being an owner, and so a lender, before it is deleted:
+	// a borrower left with no lender gets its own lease while this one still
+	// holds the snapshot.
 	cm.mu.Lock()
-	for snapshotID, leaseIDs := range cm.snapshotOwnerLeases {
-		delete(leaseIDs, leaseID)
-		if len(leaseIDs) == 0 {
+	if snapshotID, ok := cm.borrowedOwners[leaseID]; ok {
+		cm.dropBorrowerLocked(leaseID, snapshotID)
+	}
+	owned := cm.ownerSnapshots[leaseID]
+	delete(cm.ownerSnapshots, leaseID)
+	for snapshotID := range owned {
+		delete(cm.snapshotOwnerLeases[snapshotID], leaseID)
+		if len(cm.snapshotOwnerLeases[snapshotID]) == 0 {
 			delete(cm.snapshotOwnerLeases, snapshotID)
+		}
+	}
+	type borrower struct{ leaseID, snapshotID string }
+	var orphans []borrower
+	for snapshotID := range owned {
+		if cm.hasLenderLocked(snapshotID, "") {
+			continue
+		}
+		for borrowerID := range cm.snapshotBorrowers[snapshotID] {
+			orphans = append(orphans, borrower{borrowerID, snapshotID})
 		}
 	}
 	cm.mu.Unlock()
 
+	restore := func() {
+		cm.mu.Lock()
+		for snapshotID := range owned {
+			cm.addOwnerLocked(snapshotID, leaseID)
+		}
+		cm.mu.Unlock()
+	}
+	for _, orphan := range orphans {
+		if err := cm.promoteBorrower(ctx, orphan.leaseID, orphan.snapshotID); err != nil {
+			restore()
+			return pkgerrors.Wrapf(err, "promote borrower %s of owner lease %s", orphan.leaseID, leaseID)
+		}
+	}
+
+	err := cm.LeaseManager.Delete(ctx, leases.Lease{ID: leaseID})
+	if err != nil && !cerrdefs.IsNotFound(err) {
+		restore()
+		return pkgerrors.Wrapf(err, "delete owner lease %s", leaseID)
+	}
 	return nil
+}
+
+// borrowOwner records a dagql owner lease as an owner of snapshotID without
+// writing it to containerd, when another dagql owner lease already holds the
+// snapshot. Retention is unchanged: a borrower is promoted to a lease of its
+// own before its snapshot's last lender is deleted (RemoveLease). Only dagql
+// owner leases lend or borrow: they have no expiry, are removed only through
+// RemoveLease, and are never used as an operation's lease. The caller holds
+// ownerLeaseLocker for leaseID.
+func (cm *snapshotManager) borrowOwner(ctx context.Context, leaseID, snapshotID string) (bool, error) {
+	if !strings.HasPrefix(leaseID, dagqlResultLeasePrefix) {
+		return false, nil
+	}
+	cm.mu.Lock()
+	if borrowed, ok := cm.borrowedOwners[leaseID]; ok {
+		if borrowed == snapshotID {
+			cm.mu.Unlock()
+			return true, nil
+		}
+		// A lease owning a second snapshot gets a lease of its own, for the
+		// first snapshot too.
+		cm.dropBorrowerLocked(leaseID, borrowed)
+		cm.mu.Unlock()
+		if err := cm.attachLease(ctx, leaseID, borrowed); err != nil {
+			cm.mu.Lock()
+			cm.addBorrowerLocked(leaseID, borrowed)
+			cm.mu.Unlock()
+			return false, err
+		}
+		return false, nil
+	}
+	if cm.isOwnerLocked(leaseID) || !cm.hasLenderLocked(snapshotID, leaseID) {
+		cm.mu.Unlock()
+		return false, nil
+	}
+	cm.addBorrowerLocked(leaseID, snapshotID)
+	cm.mu.Unlock()
+	return true, nil
+}
+
+// promoteBorrower attaches a borrower's snapshot to a lease of its own, unless
+// it was removed or another lender appeared meanwhile.
+func (cm *snapshotManager) promoteBorrower(ctx context.Context, leaseID, snapshotID string) error {
+	cm.ownerLeaseLocker.Lock(leaseID)
+	defer cm.ownerLeaseLocker.Unlock(leaseID)
+
+	cm.mu.Lock()
+	if cm.borrowedOwners[leaseID] != snapshotID || cm.hasLenderLocked(snapshotID, "") {
+		cm.mu.Unlock()
+		return nil
+	}
+	cm.dropBorrowerLocked(leaseID, snapshotID)
+	cm.mu.Unlock()
+	if err := cm.attachLease(ctx, leaseID, snapshotID); err != nil {
+		cm.mu.Lock()
+		cm.addBorrowerLocked(leaseID, snapshotID)
+		cm.mu.Unlock()
+		return err
+	}
+	return nil
+}
+
+// hasLenderLocked reports whether a dagql owner lease other than except holds
+// snapshotID in containerd.
+func (cm *snapshotManager) hasLenderLocked(snapshotID, except string) bool {
+	for leaseID := range cm.snapshotOwnerLeases[snapshotID] {
+		if leaseID != except && strings.HasPrefix(leaseID, dagqlResultLeasePrefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func (cm *snapshotManager) isOwnerLocked(leaseID string) bool {
+	return len(cm.ownerSnapshots[leaseID]) > 0
+}
+
+func (cm *snapshotManager) addOwnerLocked(snapshotID, leaseID string) {
+	if cm.snapshotOwnerLeases[snapshotID] == nil {
+		cm.snapshotOwnerLeases[snapshotID] = make(map[string]struct{})
+	}
+	cm.snapshotOwnerLeases[snapshotID][leaseID] = struct{}{}
+	if cm.ownerSnapshots == nil {
+		cm.ownerSnapshots = make(map[string]map[string]struct{})
+	}
+	if cm.ownerSnapshots[leaseID] == nil {
+		cm.ownerSnapshots[leaseID] = make(map[string]struct{})
+	}
+	cm.ownerSnapshots[leaseID][snapshotID] = struct{}{}
+}
+
+func (cm *snapshotManager) addBorrowerLocked(leaseID, snapshotID string) {
+	if cm.borrowedOwners == nil {
+		cm.borrowedOwners = make(map[string]string)
+		cm.snapshotBorrowers = make(map[string]map[string]struct{})
+	}
+	cm.borrowedOwners[leaseID] = snapshotID
+	if cm.snapshotBorrowers[snapshotID] == nil {
+		cm.snapshotBorrowers[snapshotID] = make(map[string]struct{})
+	}
+	cm.snapshotBorrowers[snapshotID][leaseID] = struct{}{}
+}
+
+func (cm *snapshotManager) dropBorrowerLocked(leaseID, snapshotID string) {
+	delete(cm.borrowedOwners, leaseID)
+	delete(cm.snapshotBorrowers[snapshotID], leaseID)
+	if len(cm.snapshotBorrowers[snapshotID]) == 0 {
+		delete(cm.snapshotBorrowers, snapshotID)
+	}
 }
 
 func (cm *snapshotManager) DeleteStaleDaggerOwnerLeases(ctx context.Context, keep map[string]struct{}) error {
