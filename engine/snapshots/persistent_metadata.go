@@ -538,7 +538,20 @@ func (cm *snapshotManager) DeleteStaleDaggerOwnerLeases(ctx context.Context, kee
 		return pkgerrors.Wrap(err, "list leases")
 	}
 
+	// Stale borrowers go first: they have no containerd lease to list, and
+	// removing their lender first would promote them.
+	cm.mu.Lock()
+	var staleBorrowers []string
+	for leaseID := range cm.borrowedOwners {
+		if _, ok := keep[leaseID]; !ok {
+			staleBorrowers = append(staleBorrowers, leaseID)
+		}
+	}
+	cm.mu.Unlock()
 	var rerr error
+	for _, leaseID := range staleBorrowers {
+		rerr = stderrors.Join(rerr, cm.RemoveLease(ctx, leaseID))
+	}
 	for _, lease := range leasesList {
 		if !strings.HasPrefix(lease.ID, dagqlResultLeasePrefix) {
 			continue
