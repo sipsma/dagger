@@ -47,7 +47,7 @@ func setupDebugHandlers(addr string, eng *server.Server) error {
 	// m.Handle("/debug/fgtrace", fgtrace.Config{})
 
 	// uncomment these to get data from /mutex and /block
-	// runtime.SetMutexProfileFraction(1)
+	runtime.SetMutexProfileFraction(10)
 	// runtime.SetBlockProfileRate(1)
 
 	m.Handle("/debug/gc", http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {

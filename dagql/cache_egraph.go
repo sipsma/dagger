@@ -1015,7 +1015,7 @@ func (c *Cache) lookupCacheForRequest(
 		return nil, false, nil
 	}
 
-	c.egraphMu.Lock()
+	c.lockEgraphForProfile(ctx, "egraphMu:lookupCacheForRequest")
 	// One collector for this E interval: identity teaching can union classes
 	// or insert a new membership, and both are flushed before the unlock.
 	notify, notifyOwner := c.beginShareNotificationsLocked()
@@ -1076,7 +1076,7 @@ func (c *Cache) lookupCacheForRequest(
 		// Only persistable hits pay this second graph-lock acquisition. Keep
 		// the expiry captured at hit selection even if the barrier wait took
 		// long enough to cross a wall-clock second.
-		c.egraphMu.Lock()
+		c.lockEgraphForProfile(ctx, "egraphMu:lookupCacheForRequest")
 		c.upsertPersistedEdgeLocked(ctx, hitShared, persistedEdgeExpiresAtUnix, false)
 		c.egraphMu.Unlock()
 	}

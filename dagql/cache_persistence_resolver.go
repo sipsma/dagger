@@ -94,7 +94,7 @@ func (c *Cache) sharedResultByResultID(ctx context.Context, sessionID string, re
 		return sharedResultLookup{res: res, requiredGenAtCheck: requiredGenAtCheck}, nil
 	}
 
-	c.egraphMu.Lock()
+	c.lockEgraphForProfile(ctx, "egraphMu:sharedResultByResultID")
 	res := c.resultsByID[resultID]
 	if res == nil {
 		c.egraphMu.Unlock()
