@@ -94,16 +94,18 @@ func (c *Cache) sharedResultByResultID(ctx context.Context, sessionID string, re
 		return sharedResultLookup{res: res, requiredGenAtCheck: requiredGenAtCheck}, nil
 	}
 
-	c.egraphMu.Lock()
+	// The canonical pick and the session claim only read the e-graph, so
+	// concurrent ID loads share the lock (see acquireSessionResultLocked).
+	c.egraphMu.RLock()
 	res := c.resultsByID[resultID]
 	if res == nil {
-		c.egraphMu.Unlock()
+		c.egraphMu.RUnlock()
 		return sharedResultLookup{}, fmt.Errorf("resolve result %d: missing shared result", resultID)
 	}
 	if res.noValueLocked() {
 		// Not even as a starting point for an equivalent: an entry known only
 		// through holdings has no value of this engine.
-		c.egraphMu.Unlock()
+		c.egraphMu.RUnlock()
 		return sharedResultLookup{}, fmt.Errorf("resolve result %d: %w", resultID, errEntryHasNoValue)
 	}
 	if mode != sharedResultLookupExact {
@@ -116,7 +118,7 @@ func (c *Cache) sharedResultByResultID(ctx context.Context, sessionID string, re
 	}
 	if mode == sharedResultLookupCanonicalEquivalentForSession &&
 		!c.sessionSatisfiesResourceRequirementsLocked(sessionID, res) {
-		c.egraphMu.Unlock()
+		c.egraphMu.RUnlock()
 		return sharedResultLookup{}, fmt.Errorf("resolve result %d: session %q has not bound the session resources this result requires", resultID, sessionID)
 	}
 	// Captured inside the same critical section as the requirement pre-check
@@ -125,7 +127,7 @@ func (c *Cache) sharedResultByResultID(ctx context.Context, sessionID string, re
 	requiredGenAtCheck := res.requiredSessionResourcesGen.Load()
 
 	alreadyTracked, trackedCount, err := c.acquireSessionResultLocked(ctx, sessionID, res)
-	c.egraphMu.Unlock()
+	c.egraphMu.RUnlock()
 	if err != nil {
 		return sharedResultLookup{}, err
 	}
