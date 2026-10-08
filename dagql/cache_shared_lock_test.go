@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashicorp/go-set/v3"
 	"gotest.tools/v3/assert"
 )
 
@@ -187,6 +188,40 @@ func TestCacheConcurrentSharedClaimsKeepOwnershipExact(t *testing.T) {
 	remaining := len(c.resultsByID)
 	c.egraphMu.RUnlock()
 	assert.Equal(t, remaining, 0)
+}
+
+// The lookup resource filter reads the session's handle set after dropping
+// sessionMu, so binding a handle must not modify a set the filter may be
+// reading: with lookups sharing egraphMu, many filters overlap a bind.
+func TestCacheResourceFilterRacesHandleBinding(t *testing.T) {
+	ctx := cacheTestContext(t.Context())
+	c, err := NewCache(ctx, "", nil, nil)
+	assert.NilError(t, err)
+	assert.NilError(t, c.BindSessionResource(ctx, "s", "client", "h0", "v"))
+	res := &sharedResult{requiredSessionResources: set.NewTreeSet(compareSessionResourceHandles)}
+	res.requiredSessionResources.Insert("h0")
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := range 2000 {
+			assert.Check(t, c.BindSessionResource(ctx, "s", "client", SessionResourceHandle(fmt.Sprintf("h%d", i+1)), "v"))
+		}
+	}()
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 2000 {
+				c.egraphMu.RLock()
+				ok := c.sessionSatisfiesResourceRequirementsLocked("s", res)
+				c.egraphMu.RUnlock()
+				assert.Check(t, ok)
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 // BenchmarkCacheParallelHits measures concurrent cache hits from many
