@@ -33,6 +33,23 @@
 (* One atomic model action represents one Go critical section or one       *)
 (* lock-free atomic transition. Races live between those actions.          *)
 (*                                                                         *)
+(* egraphMu is a read-write lock. A section held for writing excludes      *)
+(* every other section, so it is one action. Three kinds of section hold   *)
+(* it only for reading: the lookup of a miss or a plain recipe-digest hit  *)
+(* with its session claim (LookupHit), session result tracking             *)
+(* (WaiterClaim) and ID loads (FnInnerLoadClaim). Read sections can        *)
+(* overlap each other, so modeling each as one action is sound only        *)
+(* because they commute: each writes nothing but its own invocation, a     *)
+(* session edge recorded under sessionMu, and an atomic increment of one   *)
+(* result's ownership count, and no read section reads what another       *)
+(* writes in a way that changes its outcome. Any interleaving of           *)
+(* overlapping read sections therefore equals some serial order of them,   *)
+(* and every action that does not commute with them - release, collection, *)
+(* publication, prune - holds the write lock and cannot overlap them. A     *)
+(* section that must change the e-graph (a hit that teaches an identity)   *)
+(* leaves the read lock having changed nothing and repeats the lookup      *)
+(* under the write lock; that first pass is a stutter step.                *)
+(*                                                                         *)
 (* ABSTRACTIONS                                                            *)
 (*   - Equivalence is a static partition of call identities (ClassOf).     *)
 (*     The e-graph's runtime class merging (the Teach* helpers) is not     *)
@@ -1028,9 +1045,11 @@ SpawnNested ==
 (* has not failed. The egraphMu section selects the result, then nests      *)
 (* sessionMu to claim the session edge. A released-session tombstone       *)
 (* refuses the claim without adding an edge. Persistable hits commit their *)
-(* edge only after the read barrier and payload load succeed.               *)
+(* edge only after the read barrier and payload load succeed. The section  *)
+(* holds egraphMu for reading when the hit teaches the e-graph nothing,    *)
+(* and for writing otherwise (see GRANULARITY).                             *)
 (*                                                                         *)
-(* Go: lookupCacheForRequest, cache_egraph.go:977-1038. Inside the one     *)
+(* Go: lookupCacheForRequest, cache_egraph.go. Inside the one              *)
 (* lock hold:                                                              *)
 (*   - a candidate in the request's equivalence class is selected          *)
 (*   - the session record and ownership unit are added together             *)
@@ -1243,7 +1262,8 @@ FnInnerLoadAdmit(o) ==
                    evals, epoch, flushed>>
 
 \* the admitted load's claim: selection and the edge claim under the
-\* graph locks (lookupCacheForRequest / acquireSessionResultLocked)
+\* graph locks (lookupCacheForRequest / sharedResultByResultID /
+\* acquireSessionResultLocked), egraphMu held for reading (see GRANULARITY)
 FnInnerLoadClaim(o) ==
     /\ ongoingCalls[o].fnState \in {"running", "canceled"}
     /\ ongoingCalls[o].acqAdmitted
@@ -2125,8 +2145,9 @@ WaiterDropHoldPubErr(i) ==
 (*   3. the last waiter releases the handoff hold                          *)
 (*   4. the read barrier (ensurePersistedHitValueLoaded)                   *)
 (*                                                                         *)
-(* The claim is one egraphMu critical section with sessionMu nested inside *)
-(* it. A released tombstone refuses the claim. The waiter still departs,   *)
+(* The claim is one egraphMu read section with sessionMu nested inside    *)
+(* it (trackSessionResult; see GRANULARITY). A released tombstone refuses  *)
+(* the claim. The waiter still departs,                                    *)
 (* and the final waiter still commits persistence before dropping the hold. *)
 (***************************************************************************)
 
