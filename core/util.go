@@ -23,6 +23,7 @@ import (
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/dagql/call"
 	"github.com/dagger/dagger/engine/slog"
+	"github.com/dagger/dagger/engine/wcprof"
 )
 
 var (
@@ -263,7 +264,9 @@ func MountRefCloser(ctx context.Context, ref bkcache.Ref, optFns ...mountRefOptF
 			return os.RemoveAll(dir)
 		}, nil
 	}
+	_, refMountOp := wcprof.BeginOp(ctx, wcprof.OpKindIO, "mountRef.refMount", wcprof.OpOpts{})
 	mountable, err := ref.Mount(ctx, opt.readOnly)
+	refMountOp.EndErr(err)
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -282,13 +285,20 @@ func MountRefCloser(ctx context.Context, ref bkcache.Ref, optFns ...mountRefOptF
 	m := ms[0]
 
 	lm := bkcache.LocalMounterWithMounts(ms)
+	_, sysMountOp := wcprof.BeginOp(ctx, wcprof.OpKindIO, "mountRef.syscallMount", wcprof.OpOpts{})
 	dir, err := lm.Mount()
+	sysMountOp.EndErr(err)
 	if err != nil {
 		return "", nil, nil, err
 	}
 	return dir, &m, func() error {
+		_, unmountOp := wcprof.BeginOp(ctx, wcprof.OpKindIO, "mountRef.syscallUnmount", wcprof.OpOpts{})
 		err := lm.Unmount()
-		err = errors.Join(err, unmount())
+		unmountOp.EndErr(err)
+		_, releaseOp := wcprof.BeginOp(ctx, wcprof.OpKindIO, "mountRef.release", wcprof.OpOpts{})
+		relErr := unmount()
+		releaseOp.EndErr(relErr)
+		err = errors.Join(err, relErr)
 		return err
 	}, nil
 }
