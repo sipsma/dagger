@@ -6,7 +6,8 @@
 # One dev engine (engine-dev, built from this checkout) runs as a service with wcprof and a fresh
 # state volume; one warm-up replay, then one cold replay (fresh salt) per CONCS entry, each with a wcprof
 # dump. Outputs land in <outdir>/run/; afterwards a text report per run is written next to each dump
-# (cold*.reports.txt). DRY=1 prints the generated dagger script and exits.
+# (cold*.reports.txt). INNER=inner-noop.sh instead counts re-executions in no-change replays
+# (run/reexec.txt: one exec.processRun means no package exec re-ran). DRY=1 prints the generated dagger script and exits.
 # INNER=inner-plain.sh runs plain cold `go build` vs cold replay instead (ORDER, default
 # "plain replay replay plain").
 set -euo pipefail
@@ -17,17 +18,12 @@ expmod=$HOME/gocache-bench/expmod; yq=$HOME/gocache-bench/yq
 [ -d "$expmod/.git" ] && [ -d "$yq" ] || { echo "missing $expmod (with .git) or $yq" >&2; exit 2; }
 id=$(date +%s%N)
 mkdir -p "$out"
-# GC_OFF=1 (default here) replaces engine-dev's engine.json with the same content plus
-# "gc":{"enabled":false}, so the engine's automatic GC (which prunes whenever the disk has
-# under 20% free) cannot evict cached results mid-series. GC_OFF=0 keeps engine-dev's config.
-gcfile=""
-if [ "${GC_OFF:-1}" = 1 ]; then gcfile='{"registries":{"docker.io":{"mirrors":["mirror.gcr.io"]}},"gc":{"enabled":false}}'; fi
-{ echo "commit $(git rev-parse HEAD)"; dagger version 2>&1 | tail -1; uptime; df -h "$HOME" | tail -1; echo "gc_off=${GC_OFF:-1}"; } > "$out/meta.txt"
+{ echo "commit $(git rev-parse HEAD)"; dagger version 2>&1 | tail -1; uptime; df -h "$HOME" | tail -1; } > "$out/meta.txt"
 inner=$(cat "$here/${INNER:-inner.sh}"); inner=${inner//\'/\'\"\'\"\'}
 script=$(cat <<DSH
 dev=\$(engine-dev | increment-subnet)
 cidr=\$(\$dev | network-cidr)
-svc=\$(\$dev | container |${gcfile:+ with-new-file /etc/dagger/engine.json '$gcfile' |} with-exposed-port 1234 | with-env-variable _DAGGER_WCPROF 1 | with-mounted-cache /var/lib/dagger \$(cache-volume gocache-cold-$id) | as-service --args="--addr","tcp://0.0.0.0:1234","--network-name","dagger-lab","--network-cidr","\$cidr","--debugaddr","0.0.0.0:6060" --use-entrypoint --insecure-root-capabilities)
+svc=\$(\$dev | container | with-exposed-port 1234 | with-env-variable _DAGGER_WCPROF 1 | with-mounted-cache /var/lib/dagger \$(cache-volume gocache-cold-$id) | as-service --args="--addr","tcp://0.0.0.0:1234","--network-name","dagger-lab","--network-cidr","\$cidr","--debugaddr","0.0.0.0:6060" --use-entrypoint --insecure-root-capabilities)
 engine-dev | install-client --client \$(container | from alpine:3.20 | with-exec -- apk add --no-cache curl) --service \$svc | with-mounted-directory /w \$(host | directory $expmod) | with-mounted-directory /y \$(host | directory $yq --exclude .git) | with-env-variable NONCE $id | with-env-variable CONCS "$concs" | with-env-variable ORDER "${ORDER:-plain replay replay plain}" | with-exec -- sh -c 'set -e; unset DAGGER_SESSION_PORT DAGGER_SESSION_TOKEN; mkdir -p /out; cp -r /w /work; cp -r /y /work/yq; cd /work; $inner' | directory /out | export $out/run
 container | from golang:1.26 | with-env-variable CGO_ENABLED 0 | with-directory /src \$(directory | with-file go.mod \$(host | file go.mod) | with-file go.sum \$(host | file go.sum) | with-directory engine/wcprof \$(host | directory engine/wcprof) | with-directory internal/enginelab/wcprofreport \$(host | directory .dagger/modules/engine-lab/wcprof-report)) | with-workdir /src | with-exec -- go build -o /out/wcprof-report ./internal/enginelab/wcprofreport | file /out/wcprof-report | export $out/wcprof-report
 DSH
@@ -36,6 +32,10 @@ if [ -n "${DRY:-}" ]; then echo "$script"; exit 0; fi
 dagger -c "$script"
 uptime >> "$out/meta.txt"
 W=$out/wcprof-report
+for d in "$out"/run/noop*.dump; do
+  [ -f "$d" ] || continue
+  echo "$(basename "$d") $($W -view classes -kind exec_phase -top 1 "$d" | grep 'exec.processRun' | awk '{print "processRun_count=" $1}')" >> "$out/run/reexec.txt"
+done
 for d in "$out"/run/cold*.dump; do
   r=${d%.dump}.reports.txt
   {
