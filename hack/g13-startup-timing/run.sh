@@ -3,7 +3,8 @@
 #
 # Usage, from a checkout of this branch:
 #   hack/g13-startup-timing/run.sh <gcexp-workspace-dir> <out-dir>
-# Env: A, B (commits; default below), SERIES (default "A1 B1 B2 A2"),
+# Env: A, B, C (commits; A and B default below), SERIES (default "A1 B1 B2 A2"; a label's first
+#      letter names its commit),
 #      LARGE=1 to time the large workspace instead (inner-large.sh): a shallow clone of this repo
 #      at A, with .git, minus the dagger.toml settings that read host files under ~/.config/dagger.
 #
@@ -18,7 +19,7 @@ small=$(cd "$1" && pwd)
 mkdir -p "$2"; out=$(cd "$2" && pwd)
 A=${A:-18504114ce9008963885f57a3d98176a08112849}
 B=${B:-$(git -C "$here" rev-parse HEAD~1)}
-for side in A B; do
+for side in $(for l in ${SERIES:-A1 B1 B2 A2}; do echo "${l:0:1}"; done | sort -u); do
   [ -d "$out/wt/$side" ] || git -C "$repo" worktree add -q --detach "$out/wt/$side" "${!side}"
 done
 innerf=$here/inner.sh; wb=""
@@ -32,7 +33,7 @@ if [ "${LARGE:-}" = 1 ]; then
 fi
 inner=$(cat "$innerf"); inner=${inner//\'/\'\"\'\"\'}
 report=$out/report.txt
-echo "A=$A B=$B series=${SERIES:-A1 B1 B2 A2}" | tee -a "$report"
+echo "A=$A B=$B C=${C:-} series=${SERIES:-A1 B1 B2 A2}" | tee -a "$report"
 for l in ${SERIES:-A1 B1 B2 A2}; do
   side=${l:0:1}; id=$(date +%s%N)
   echo "== $l $(git -C "$out/wt/$side" rev-parse --short HEAD) start $(date -u +%T) | $(uptime)" | tee -a "$report"
