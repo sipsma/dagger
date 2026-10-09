@@ -13,6 +13,7 @@
 # (cold, no change and edit A with a warm GOCACHE volume) around the same three profiled replays.
 # INNER=inner-cw.sh is the compile-work gap capture (needs the gcexp compile-work options).
 # INNER=inner-attr.sh is the g18 per-exec lifecycle attribution (needs the g18 attribution experiment).
+# INNER=inner-cpuprof.sh measures the engine's CPU and takes a CPU profile (WCPROF=0 turns wcprof off).
 # EXPMOD overrides the gcexp checkout.
 # DRY=1 prints the generated dagger script and exits.
 # INNER=inner-plain.sh runs plain cold `go build` vs cold replay instead (ORDER, default
@@ -27,12 +28,14 @@ id=$(date +%s%N)
 mkdir -p "$out"
 steal() { awk '/^cpu /{print $9}' /proc/stat; }
 steal0=$(steal)
-{ echo "commit $(git rev-parse HEAD)"; echo "expmod $(git -C "$expmod" rev-parse HEAD)"; dagger version 2>&1 | tail -1; uptime; df -h "$HOME" | tail -1; echo "loadavg-start $(cat /proc/loadavg)"; } > "$out/meta.txt"
+{ echo "commit $(git rev-parse HEAD)"; echo "wcprof ${WCPROF:-1}"; echo "expmod $(git -C "$expmod" rev-parse HEAD)"; dagger version 2>&1 | tail -1; uptime; df -h "$HOME" | tail -1; echo "loadavg-start $(cat /proc/loadavg)"; } > "$out/meta.txt"
+# wcprof is on whenever _DAGGER_WCPROF is set; WCPROF=0 leaves it unset.
+wcprofenv="with-env-variable _DAGGER_WCPROF 1 |"; [ "${WCPROF:-1}" = 0 ] && wcprofenv=""
 inner=$(cat "$here/${INNER:-inner.sh}"); inner=${inner//\'/\'\"\'\"\'}
 script=$(cat <<DSH
 dev=\$(engine-dev | increment-subnet)
 cidr=\$(\$dev | network-cidr)
-svc=\$(\$dev | container | with-exposed-port 1234 | with-env-variable _DAGGER_WCPROF 1 | with-mounted-cache /var/lib/dagger \$(cache-volume gocache-cold-$id) | as-service --args="--addr","tcp://0.0.0.0:1234","--network-name","dagger-lab","--network-cidr","\$cidr","--debugaddr","0.0.0.0:6060" --use-entrypoint --insecure-root-capabilities)
+svc=\$(\$dev | container | with-exposed-port 1234 | $wcprofenv with-mounted-cache /var/lib/dagger \$(cache-volume gocache-cold-$id) | as-service --args="--addr","tcp://0.0.0.0:1234","--network-name","dagger-lab","--network-cidr","\$cidr","--debugaddr","0.0.0.0:6060" --use-entrypoint --insecure-root-capabilities)
 engine-dev | install-client --client \$(container | from alpine:3.20 | with-exec -- apk add --no-cache curl) --service \$svc | with-mounted-directory /w \$(host | directory $expmod) | with-mounted-directory /y \$(host | directory $yq --exclude .git) | with-env-variable NONCE $id | with-env-variable CONCS "$concs" | with-env-variable ORDER "${ORDER:-plain replay replay plain}" | with-exec -- sh -c 'set -e; unset DAGGER_SESSION_PORT DAGGER_SESSION_TOKEN; mkdir -p /out; cp -r /w /work; cp -r /y /work/yq; cd /work; $inner' | directory /out | export $out/run
 container | from golang:1.26 | with-env-variable CGO_ENABLED 0 | with-directory /src \$(directory | with-file go.mod \$(host | file go.mod) | with-file go.sum \$(host | file go.sum) | with-directory engine/wcprof \$(host | directory engine/wcprof) | with-directory internal/enginelab/wcprofreport \$(host | directory .dagger/modules/engine-lab/wcprof-report)) | with-workdir /src | with-exec -- go build -o /out/wcprof-report ./internal/enginelab/wcprofreport | file /out/wcprof-report | export $out/wcprof-report
 DSH
