@@ -266,7 +266,6 @@ cd /src
 PKG_CONFIG_PATH=/usr/local/lib/pkgconfig ./configure --disable-systemd --disable-criu LIBS=-largp
 make -j"$(nproc)" LDFLAGS=-all-static
 strip crun
-./crun --version
 `}).
 		File("/src/crun")
 }
