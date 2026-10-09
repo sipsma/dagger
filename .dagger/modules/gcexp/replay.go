@@ -28,6 +28,10 @@ const goImage = "golang:1.26"
 // session for them.
 var noNest = dagger.ContainerWithExecOpts{DisableDaggerInDagger: true}
 
+// noInit is noNest without the injected /.init (g18 NoInit variant): the
+// per-package exec's shell runs as the container's PID 1.
+var noInit = dagger.ContainerWithExecOpts{DisableDaggerInDagger: true, NoInit: true}
+
 func goBase(salt string) *dagger.Container {
 	return dag.Container().From(goImage).
 		WithEnvVariable("SALT", salt).
@@ -293,7 +297,7 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			r.started = time.Since(start)
-			ran := ctr.WithExec([]string{"sh", "-c", "t0=$(date +%s%N)\n" + b.script(blocks) + "head -c6 /dev/urandom | od -An -tx1 | tr -d ' \\n' > /stamp\necho \" $(( ($(date +%s%N)-t0)/1000000 ))ms\" >> /stamp\n"}, noNest)
+			ran := ctr.WithExec([]string{"sh", "-c", "t0=$(date +%s%N)\n" + b.script(blocks) + "head -c6 /dev/urandom | od -An -tx1 | tr -d ' \\n' > /stamp\necho \" $(( ($(date +%s%N)-t0)/1000000 ))ms\" >> /stamp\n"}, noInit)
 			out, err := ran.Directory("/work/" + b.name).Sync(ctx)
 			if err != nil {
 				r.err = fmt.Errorf("%s: %w", b.importPath, err)
