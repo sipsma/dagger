@@ -184,7 +184,7 @@ func TestValueTransferCapture(t *testing.T) {
 			object := &transferTestValue{Text: "pending"}
 			root := persistedListTestResult(t, ctx, c, srv, "root", object)
 			res := root.cacheSharedResult()
-			owners := res.incomingOwnershipCount
+			owners := res.incomingOwnershipCount.Load()
 			c.testTransferCopied = func(uint64) {
 				switch kind {
 				case "output":
@@ -219,7 +219,7 @@ func TestValueTransferCapture(t *testing.T) {
 				close(res.attachDepsWaitCh)
 			}
 			require.ErrorIs(t, err, ErrPersistStateNotReady)
-			require.Equal(t, owners, res.incomingOwnershipCount)
+			require.Equal(t, owners, res.incomingOwnershipCount.Load())
 			require.Zero(t, c.activeGlobalOperations.Load())
 		})
 	}
