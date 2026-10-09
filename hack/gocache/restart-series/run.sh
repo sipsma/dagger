@@ -3,7 +3,7 @@
 # for two engine commits. Run from the root of a dagger/dagger checkout of this branch:
 #   hack/gocache/restart-series/run.sh [outdir]
 # Needs: dagger CLI on PATH; ~/gocache-bench/expmod (with .git) and ~/gocache-bench/yq (yq v4.49.2).
-# Env: GC_OFF (default 0), BENCH (default ~/gocache-bench), A, B (engine commits; default main dbfaa800cf and PR 14592 head a4f803ec51), ORDER (default "A B B A"), DRY=1.
+# Env: BENCH (default ~/gocache-bench), A, B (engine commits; default main dbfaa800cf and PR 14592 head a4f803ec51), ORDER (default "A B B A"), DRY=1.
 # Per run: a dev engine built from that commit runs as a service with wcprof, a debug address and a fresh
 # cache volume. Session 1 (prime) and session 2 (restart) share the volume; each session ends with
 # `$svc | stop` (SIGTERM, waits), so the engine closes its store cleanly and session 2 restores it.
@@ -17,18 +17,13 @@ order=${ORDER:-A B B A}
 bench=${BENCH:-$HOME/gocache-bench}; expmod=$bench/expmod; yq=$bench/yq
 [ -d "$expmod/.git" ] && [ -d "$yq" ] || { echo "missing $expmod (with .git) or $yq" >&2; exit 2; }
 if [ -z "${DRY:-}" ]; then mkdir -p "$out"; fi; log=$out/series.log
-# GC_OFF=1 replaces engine-dev's engine.json with the same content plus "gc":{"enabled":false}, so the
-# engine's automatic GC (which prunes whenever the disk has under 20% free) cannot evict cached results
-# mid-series. Default 0 keeps engine-dev's config, as in the first two series.
-gcfile=""
-if [ "${GC_OFF:-0}" = 1 ]; then gcfile='{"registries":{"docker.io":{"mirrors":["mirror.gcr.io"]}},"gc":{"enabled":false}}'; fi
-[ -n "${DRY:-}" ] || { echo "harness $(git rev-parse HEAD)"; echo "A ${sha[A]}"; echo "B ${sha[B]}"; echo "order $order"; dagger version 2>&1 | tail -1; uptime; df -h "$HOME" | tail -1; echo "gc_off=${GC_OFF:-0}"; } > "$out/meta.txt"
+[ -n "${DRY:-}" ] || { echo "harness $(git rev-parse HEAD)"; echo "A ${sha[A]}"; echo "B ${sha[B]}"; echo "order $order"; dagger version 2>&1 | tail -1; uptime; } > "$out/meta.txt"
 dsh() { # dsh <inner> <outdir> <volume> <nonce>
   local inner; inner=$(cat "$1"); inner=${inner//\'/\'\"\'\"\'}
   cat <<DSH
 dev=\$(engine-dev | increment-subnet)
 cidr=\$(\$dev | network-cidr)
-svc=\$(\$dev | container |${gcfile:+ with-new-file /etc/dagger/engine.json '$gcfile' |} with-exposed-port 1234 | with-env-variable _DAGGER_WCPROF 1 | with-mounted-cache /var/lib/dagger \$(cache-volume $3) | as-service --args="--addr","tcp://0.0.0.0:1234","--network-name","dagger-lab","--network-cidr","\$cidr","--debugaddr","0.0.0.0:6060" --use-entrypoint --insecure-root-capabilities)
+svc=\$(\$dev | container | with-exposed-port 1234 | with-env-variable _DAGGER_WCPROF 1 | with-mounted-cache /var/lib/dagger \$(cache-volume $3) | as-service --args="--addr","tcp://0.0.0.0:1234","--network-name","dagger-lab","--network-cidr","\$cidr","--debugaddr","0.0.0.0:6060" --use-entrypoint --insecure-root-capabilities)
 engine-dev | install-client --client \$(container | from alpine:3.20 | with-exec -- apk add --no-cache curl) --service \$svc | with-mounted-directory /w \$(host | directory $expmod) | with-mounted-directory /y \$(host | directory $yq --exclude .git) | with-env-variable NONCE $4 | with-exec -- sh -c 'set -e; unset DAGGER_SESSION_PORT DAGGER_SESSION_TOKEN; mkdir -p /out; cp -r /w /work; cp -r /y /work/yq; cd /work; $inner' | directory /out | export $2
 \$svc | stop
 DSH
