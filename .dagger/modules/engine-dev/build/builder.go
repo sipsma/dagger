@@ -147,7 +147,7 @@ func (build *Builder) Engine(ctx context.Context) (*dagger.Container, error) {
 		{path: "/usr/bin/sshfs", file: build.sshfsBin()},
 		{path: "/usr/bin/dial-stdio", file: build.dialstdioBinary()},
 		{path: "/opt/cni/bin/dnsname", file: build.dnsnameBinary()},
-		{path: consts.RuncPath, file: build.runcBin()},
+		{path: consts.RuncPath, file: build.runcBin(), fileOpts: []dagger.ContainerWithFileOpts{{Permissions: 0o755}}},
 		{path: consts.DaggerInitPath, file: build.daggerInit()},
 		{path: consts.TiniPath, file: build.Init(), fileOpts: []dagger.ContainerWithFileOpts{{Permissions: 0o755}}},
 	}
@@ -237,6 +237,12 @@ func (build *Builder) goWithSource(source *dagger.Directory, race bool) *dagger.
 }
 
 func (build *Builder) runcBin() *dagger.File {
+	// PROTOTYPE (g18): crun's static release binary in place of runc, to time
+	// container start. Not for merging.
+	return dag.HTTP("https://github.com/containers/crun/releases/download/1.30.1/crun-1.30.1-linux-" + build.platformSpec.Architecture + "-disable-systemd")
+}
+
+func (build *Builder) runcFromSource() *dagger.File {
 	// We build runc from source to enable upgrades to go and other dependencies that
 	// can contain CVEs in the builds on github releases
 	buildCtr := dag.Container().
