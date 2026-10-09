@@ -197,7 +197,12 @@ func (cm *snapshotManager) AttachLease(ctx context.Context, leaseID, snapshotID 
 			}
 			attachedSnapshots++
 		}
-		return nil
+		// AddResource does not check whether a target still exists, and GC can
+		// finish between the walk and this transaction. The collector cannot
+		// run during the transaction, and containerd removes no snapshot that
+		// has a child, so the top snapshot existing here means the whole chain
+		// does, and stays held once the transaction commits.
+		return cm.statOwnerSnapshot(ctx, leaseID, snapshotID)
 	})
 	if !committed {
 		attachedSnapshots = 0
@@ -244,18 +249,28 @@ func (cm *snapshotManager) AttachLease(ctx context.Context, leaseID, snapshotID 
 		return err
 	}
 
-	// AddResource does not check whether a target still exists. GC can finish
-	// between the ancestry walk and attachment. Once attached, surviving
-	// resources cannot be reclaimed by a later GC while this lease exists.
-	for _, currentSnapshotID := range snapshotIDs {
-		if _, err := cm.Snapshotter.Stat(ctx, currentSnapshotID); err != nil {
-			if cerrdefs.IsNotFound(err) {
-				return pkgerrors.Wrap(errNotFound, currentSnapshotID)
+	// Without the metadata database the writes are not one transaction, so
+	// the check above does not cover the chain: check each snapshot after
+	// the writes. Once attached, surviving resources cannot be reclaimed by a
+	// later GC while this lease exists.
+	if cm.metadataDB == nil {
+		for _, currentSnapshotID := range snapshotIDs {
+			if err := cm.statOwnerSnapshot(ctx, leaseID, currentSnapshotID); err != nil {
+				return err
 			}
-			return pkgerrors.Wrapf(err, "validate snapshot %s for owner lease %s", currentSnapshotID, leaseID)
 		}
 	}
 
+	return nil
+}
+
+func (cm *snapshotManager) statOwnerSnapshot(ctx context.Context, leaseID, snapshotID string) error {
+	if _, err := cm.Snapshotter.Stat(ctx, snapshotID); err != nil {
+		if cerrdefs.IsNotFound(err) {
+			return pkgerrors.Wrap(errNotFound, snapshotID)
+		}
+		return pkgerrors.Wrapf(err, "validate snapshot %s for owner lease %s", snapshotID, leaseID)
+	}
 	return nil
 }
 
@@ -369,6 +384,13 @@ func (cm *snapshotManager) addSnapshotOwner(snapshotID, leaseID string, attached
 		cm.snapshotOwnerLeases[snapshotID] = make(map[string]struct{})
 	}
 	cm.snapshotOwnerLeases[snapshotID][leaseID] = struct{}{}
+	if cm.ownerLeaseSnapshots == nil {
+		cm.ownerLeaseSnapshots = make(map[string]map[string]struct{})
+	}
+	if cm.ownerLeaseSnapshots[leaseID] == nil {
+		cm.ownerLeaseSnapshots[leaseID] = make(map[string]struct{})
+	}
+	cm.ownerLeaseSnapshots[leaseID][snapshotID] = struct{}{}
 	return nil
 }
 
@@ -386,12 +408,13 @@ func (cm *snapshotManager) RemoveLease(ctx context.Context, leaseID string) erro
 	}
 
 	cm.mu.Lock()
-	for snapshotID, leaseIDs := range cm.snapshotOwnerLeases {
-		delete(leaseIDs, leaseID)
-		if len(leaseIDs) == 0 {
+	for snapshotID := range cm.ownerLeaseSnapshots[leaseID] {
+		delete(cm.snapshotOwnerLeases[snapshotID], leaseID)
+		if len(cm.snapshotOwnerLeases[snapshotID]) == 0 {
 			delete(cm.snapshotOwnerLeases, snapshotID)
 		}
 	}
+	delete(cm.ownerLeaseSnapshots, leaseID)
 	cm.mu.Unlock()
 
 	return nil

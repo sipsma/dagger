@@ -524,3 +524,76 @@ func TestAttachLeaseWalkMissAndCreateFailure(t *testing.T) {
 	require.ErrorIs(t, err, injected)
 	require.False(t, bkcache.IsNotFound(err), "a failed create is not a missing snapshot")
 }
+
+// AttachLease stats each snapshot of the chain once, to walk it, and the top
+// snapshot once more inside its transaction: the transaction excludes the
+// collector, so the chain is not stat'ed again after the commit.
+func TestAttachLeaseStatsChainOnce(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := testutil.NewStore(t)
+	base, baseOwner := buildSnapshot(t, store, nil, "g.txt", "base")
+	top, topOwner := buildSnapshot(t, store, base, "c.txt", "top")
+
+	var stats []string
+	var mu sync.Mutex
+	store.BeforeStat = func(_ context.Context, key string) {
+		mu.Lock()
+		stats = append(stats, key)
+		mu.Unlock()
+	}
+	const owner = "dagql/result/stats"
+	require.NoError(t, store.Manager.AttachLease(ctx, owner, top.SnapshotID()))
+	store.BeforeStat = nil
+	require.Equal(t, []string{top.SnapshotID(), base.SnapshotID(), top.SnapshotID()}, stats)
+
+	for _, ref := range []bkcache.ImmutableRef{top, base} {
+		require.NoError(t, ref.Release(ctx))
+	}
+	for _, id := range []string{topOwner, baseOwner, owner} {
+		require.NoError(t, store.Manager.RemoveLease(ctx, id))
+	}
+}
+
+// A top snapshot collected after the walk is reported missing by the check
+// inside the transaction, as the check after the commit did: the lease is
+// left as before, holding what was written, and its parent stays held.
+func TestAttachLeaseSnapshotCollectedAfterWalk(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := testutil.NewStore(t)
+	base, baseOwner := buildSnapshot(t, store, nil, "g.txt", "base")
+	top, topOwner := buildSnapshot(t, store, base, "c.txt", "top")
+	topID := top.SnapshotID()
+	require.NoError(t, top.Release(ctx))
+
+	// The walk stats top, then base; collect top once the walk has seen it.
+	var walked, collected atomic.Bool
+	store.BeforeStat = func(_ context.Context, key string) {
+		if key == topID {
+			walked.Store(true)
+			return
+		}
+		if key != base.SnapshotID() || !walked.Load() || !collected.CompareAndSwap(false, true) {
+			return
+		}
+		require.NoError(t, store.Manager.RemoveLease(ctx, topOwner))
+		store.GC(t)
+		require.False(t, snapshotPresent(t, store, topID))
+	}
+	const owner = "dagql/result/collected"
+	err := store.Manager.AttachLease(ctx, owner, topID)
+	store.BeforeStat = nil
+	require.True(t, collected.Load())
+	require.True(t, bkcache.IsNotFound(err), "got %v", err)
+	_, snapshots, _ := leaseResources(t, store, owner)
+	require.ElementsMatch(t, []string{topID, base.SnapshotID()}, snapshots, "the writes before the check are committed")
+
+	require.NoError(t, base.Release(ctx))
+	require.NoError(t, store.Manager.RemoveLease(ctx, baseOwner))
+	store.GC(t)
+	require.True(t, snapshotPresent(t, store, base.SnapshotID()), "the lease holds the parent")
+	require.NoError(t, store.Manager.RemoveLease(ctx, owner))
+	store.GC(t)
+	require.False(t, snapshotPresent(t, store, base.SnapshotID()))
+}

@@ -135,6 +135,10 @@ type snapshotManager struct {
 	importLayerLocker      keyedLocker
 	exportLayerLocker      keyedLocker
 	ownerLeaseLocker       *locker.Locker
+
+	// ownerLeaseSnapshots is snapshotOwnerLeases by lease, so RemoveLease
+	// visits only the lease's own snapshots.
+	ownerLeaseSnapshots map[string]map[string]struct{}
 	// backgroundReleases releases read-only mounts off their callers' paths.
 	backgroundReleases *backgroundReleases
 
@@ -156,6 +160,7 @@ func NewSnapshotManager(opt SnapshotManagerOpt) (SnapshotManager, error) {
 		importedLayerByBlob:    make(map[ImportedLayerBlobKey]string),
 		importedLayerByDiff:    make(map[ImportedLayerDiffKey]string),
 		snapshotOwnerLeases:    make(map[string]map[string]struct{}),
+		ownerLeaseSnapshots:    make(map[string]map[string]struct{}),
 		ownerLeaseLocker:       locker.New(),
 		backgroundReleases:     newBackgroundReleases(maxPendingReleases),
 	}
