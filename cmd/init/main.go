@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os"
@@ -15,13 +14,13 @@ import (
 	"path/filepath"
 	"strconv"
 	"syscall"
-	"time"
 
 	"golang.org/x/sys/unix"
 
 	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/client"
 	"github.com/dagger/dagger/engine/client/secretprovider"
+	"github.com/dagger/dagger/engine/distconsts"
 	"github.com/dagger/dagger/engine/session/git"
 	"github.com/dagger/dagger/engine/session/h2c"
 )
@@ -42,7 +41,8 @@ func main() {
 
 func mainInit() error {
 	startedNS := monotonicNS()
-	timing := timingFile()
+	timing := engineFile(engine.InitTimingFDEnv, "init-timing")
+	helperStatus := engineFile(distconsts.SessionHelperStatusFDEnv, "session-helper-status")
 
 	sigCh := make(chan os.Signal, 16)
 	// Handle every signal other than a few exceptions noted at the end.
@@ -112,8 +112,16 @@ func mainInit() error {
 		}
 	}
 
+	// The session helper starts alongside the command: the engine waits for
+	// its attachables when the command first calls Dagger, and this process
+	// reports on helperStatus if the helper fails.
+	var helperPid int
 	if _, ok := os.LookupEnv("DAGGER_SESSION_TOKEN"); ok {
-		if err := startSessionSubprocess(); err != nil {
+		helperPid, err = startSessionSubprocess()
+		if err != nil {
+			if helperStatus != nil {
+				fmt.Fprintf(helperStatus, "start-failed %s\n", err)
+			}
 			return err
 		}
 	}
@@ -178,6 +186,13 @@ func mainInit() error {
 				if err != nil || deadPid == 0 {
 					break
 				}
+				if deadPid == helperPid && helperStatus != nil {
+					status := ws.ExitStatus()
+					if status == -1 {
+						status = 128 + int(ws.Signal())
+					}
+					fmt.Fprintf(helperStatus, "exited %d\n", status)
+				}
 				if deadPid == child.Pid {
 					exitedNS := monotonicNS()
 					// our child died, so we should too
@@ -212,22 +227,22 @@ func mainInit() error {
 	return nil
 }
 
-// timingFile returns the fd the engine passed for reporting this process's
-// timing when profiling (see engine.InitTimingFDEnv), or nil. It removes the
-// variable so the command doesn't inherit it, and keeps the fd from leaking
-// into the command too.
-func timingFile() *os.File {
-	v, ok := os.LookupEnv(engine.InitTimingFDEnv)
+// engineFile returns the fd the engine passed for reporting to it, named in
+// envName (see engine.InitTimingFDEnv and distconsts.SessionHelperStatusFDEnv),
+// or nil. It removes the variable so the command doesn't inherit it, and
+// keeps the fd from leaking into the command too.
+func engineFile(envName, name string) *os.File {
+	v, ok := os.LookupEnv(envName)
 	if !ok {
 		return nil
 	}
-	os.Unsetenv(engine.InitTimingFDEnv)
+	os.Unsetenv(envName)
 	fd, err := strconv.Atoi(v)
 	if err != nil || fd < 3 {
 		return nil
 	}
 	unix.CloseOnExec(fd)
-	return os.NewFile(uintptr(fd), "init-timing")
+	return os.NewFile(uintptr(fd), name)
 }
 
 func monotonicNS() int64 {
@@ -238,58 +253,26 @@ func monotonicNS() int64 {
 	return ts.Nano()
 }
 
-func startSessionSubprocess() error {
-	// create a pipe to synchronize with the child process on when the session has started
-	// when the child closes the write end of the pipe, we know it has started (or died, which
-	// will result in errors for the nested exec process on any use of a session attachable)
-	r, w, err := os.Pipe()
-	if err != nil {
-		return err
-	}
-
-	// start the session subprocess
+// startSessionSubprocess starts the session helper, which connects this
+// container's session attachables to the engine, and returns its pid.
+func startSessionSubprocess() (int, error) {
 	cmd := exec.Command("/proc/self/exe")
 
 	// forwarding our stdio ensures that a panic in the child process won't get hidden and any other logging works too
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	cmd.ExtraFiles = []*os.File{w}
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setsid: true,
 	}
-	err = cmd.Start()
-	if err != nil {
-		return fmt.Errorf("failed to start session subprocess: %w", err)
+	if err := cmd.Start(); err != nil {
+		return 0, fmt.Errorf("failed to start session subprocess: %w", err)
 	}
-
-	// wait for the session attachables to be ready (or the child to die)
-
-	// need to close our dup of the write end of the pipe
-	if err := w.Close(); err != nil {
-		return fmt.Errorf("failed to close pipe: %w", err)
-	}
-
-	doneCh := make(chan struct{})
-	go func() {
-		defer close(doneCh)
-		io.Copy(io.Discard, r)
-	}()
-	// something really really wrong would have to happen for this to block indefinitely, but be
-	// cautious anyways w/ an overly generous timeout
-	select {
-	case <-doneCh:
-		return nil
-	case <-time.After(5 * time.Minute):
-		return fmt.Errorf("timed out waiting for session subprocess to start")
-	}
+	return cmd.Process.Pid, nil
 }
 
 func mainSession() error {
 	ctx := context.Background()
-
-	// this is closed when the session server is about to run, letting the parent process know that
-	pipeW := os.NewFile(3, "session-pipe-w")
 
 	portStr, ok := os.LookupEnv("DAGGER_SESSION_PORT")
 	if !ok {
@@ -333,9 +316,6 @@ func mainSession() error {
 	}
 	defer sessionSrv.Stop()
 
-	if err := pipeW.Close(); err != nil {
-		return err
-	}
 	sessionSrv.Run(ctx)
 
 	return nil

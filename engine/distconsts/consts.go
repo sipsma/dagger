@@ -14,8 +14,12 @@ const (
 const (
 	RuncPath       = "/usr/local/bin/runc"
 	DaggerInitPath = "/usr/local/bin/dagger-init"
-	DaggerCLIPath  = "/usr/local/bin/dagger"
-	TiniPath       = "/usr/local/bin/tini"
+	// SessionHelperStatusFDEnv names the fd on which the injected /.init
+	// reports that a nested exec's session helper failed to start or exited
+	// ("start-failed <error>\n" or "exited <status>\n").
+	SessionHelperStatusFDEnv = "_DAGGER_SESSION_HELPER_STATUS_FD"
+	DaggerCLIPath            = "/usr/local/bin/dagger"
+	TiniPath                 = "/usr/local/bin/tini"
 
 	EngineDefaultStateDir = "/var/lib/dagger"
 
