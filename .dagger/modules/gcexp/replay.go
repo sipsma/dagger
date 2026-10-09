@@ -270,7 +270,7 @@ func (m *Gcexp) Replay(ctx context.Context, src *dagger.Directory, nonce string,
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			r.started = time.Since(start)
-			ran := ctr.WithExec([]string{"sh", "-c", "t0=$(date +%s%N)\n" + b.script(blocks) + "head -c6 /dev/urandom | od -An -tx1 | tr -d ' \\n' > /stamp\necho \" $(( ($(date +%s%N)-t0)/1000000 ))ms\" >> /stamp\n"})
+			ran := ctr.WithExec([]string{"sh", "-c", "t0=$(date +%s%N)\n" + b.script(blocks) + "head -c6 /dev/urandom | od -An -tx1 | tr -d ' \\n' > /stamp\necho \" $(( ($(date +%s%N)-t0)/1000000 ))ms\" >> /stamp\n"}, dagger.ContainerWithExecOpts{DisableDaggerInDagger: true})
 			out, err := ran.Directory("/work/" + b.name).Sync(ctx)
 			if err != nil {
 				r.err = fmt.Errorf("%s: %w", b.importPath, err)
