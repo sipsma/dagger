@@ -2,6 +2,7 @@ package build
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -236,6 +237,9 @@ func (build *Builder) goWithSource(source *dagger.Directory, race bool) *dagger.
 	})
 }
 
+//go:embed runc-seccomp-cache.patch
+var runcSeccompCachePatch string
+
 func (build *Builder) runcBin() *dagger.File {
 	// We build runc from source to enable upgrades to go and other dependencies that
 	// can contain CVEs in the builds on github releases
@@ -251,8 +255,11 @@ func (build *Builder) runcBin() *dagger.File {
 		WithExec([]string{"xx-apk", "add", "build-base", "pkgconf", "libseccomp-dev", "libseccomp-static"}).
 		WithMountedCache("/go/pkg/mod", dag.CacheVolume("go-mod")).
 		WithMountedCache("/root/.cache/go-build", dag.CacheVolume("go-build")).
-		WithMountedDirectory("/src", dag.Git("github.com/opencontainers/runc").Tag(consts.RuncVersion).Tree()).
-		WithWorkdir("/src")
+		WithDirectory("/src", dag.Git("github.com/opencontainers/runc").Tag(consts.RuncVersion).Tree()).
+		WithWorkdir("/src").
+		// PROTOTYPE (g18): cache compiled seccomp filters across container starts.
+		WithNewFile("/runc-seccomp-cache.patch", runcSeccompCachePatch).
+		WithExec([]string{"git", "apply", "/runc-seccomp-cache.patch"})
 
 	return buildCtr.
 		WithExec([]string{"xx-go", "build", "-trimpath", "-buildmode=pie", "-tags", "seccomp netgo osusergo", "-ldflags", "-X main.version=" + consts.RuncVersion + " -linkmode external -extldflags -static-pie", "-o", "runc", "."}).

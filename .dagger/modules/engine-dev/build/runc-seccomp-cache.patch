@@ -1,0 +1,307 @@
+diff --git a/libcontainer/seccomp/patchbpf/enosys_linux.go b/libcontainer/seccomp/patchbpf/enosys_linux.go
+index 035d0c0..54c9fcd 100644
+--- a/libcontainer/seccomp/patchbpf/enosys_linux.go
++++ b/libcontainer/seccomp/patchbpf/enosys_linux.go
+@@ -714,6 +714,35 @@ func sysSeccompSetFilter(flags uint, filter []unix.SockFilter) (fd int, err erro
+ // patches said filter to handle -ENOSYS in a much nicer manner than the
+ // default libseccomp default action behaviour, and loads the patched filter
+ // into the kernel for the current process.
++// Compile returns the patched filter program for filter, and the flags and
++// no_new_privs setting to load it with (see Load).
++func Compile(config *configs.Seccomp, filter *libseccomp.ScmpFilter) ([]unix.SockFilter, uint, bool, error) {
++	fprog, err := enosysPatchFilter(config, filter)
++	if err != nil {
++		return nil, 0, false, fmt.Errorf("error patching filter: %w", err)
++	}
++	seccompFlags, noNewPrivs, err := filterFlags(config, filter)
++	if err != nil {
++		return nil, 0, false, fmt.Errorf("unable to fetch seccomp filter flags: %w", err)
++	}
++	return fprog, seccompFlags, noNewPrivs, nil
++}
++
++// Load loads a program Compile returned.
++func Load(fprog []unix.SockFilter, seccompFlags uint, noNewPrivs bool) (int, error) {
++	if noNewPrivs {
++		logrus.Warnf("potentially misconfigured filter -- setting no_new_privs in seccomp path")
++		if err := unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); err != nil {
++			return -1, fmt.Errorf("error enabling no_new_privs bit: %w", err)
++		}
++	}
++	fd, err := sysSeccompSetFilter(seccompFlags, fprog)
++	if err != nil {
++		return -1, fmt.Errorf("error loading seccomp filter: %w", err)
++	}
++	return fd, nil
++}
++
+ func PatchAndLoad(config *configs.Seccomp, filter *libseccomp.ScmpFilter) (int, error) {
+ 	// Generate a patched filter.
+ 	fprog, err := enosysPatchFilter(config, filter)
+diff --git a/libcontainer/seccomp/seccomp_linux.go b/libcontainer/seccomp/seccomp_linux.go
+index e399972..4eabf60 100644
+--- a/libcontainer/seccomp/seccomp_linux.go
++++ b/libcontainer/seccomp/seccomp_linux.go
+@@ -3,8 +3,14 @@
+ package seccomp
+ 
+ import (
++	"crypto/sha256"
++	"encoding/binary"
++	"encoding/hex"
++	"encoding/json"
+ 	"errors"
+ 	"fmt"
++	"os"
++	"path/filepath"
+ 
+ 	libseccomp "github.com/seccomp/libseccomp-golang"
+ 	"github.com/sirupsen/logrus"
+@@ -33,10 +39,26 @@ func InitSeccomp(config *configs.Seccomp) (int, error) {
+ 	if config == nil {
+ 		return -1, errors.New("cannot initialize Seccomp - nil config passed")
+ 	}
++	if c := precompiled; c != nil && c.config == config {
++		return patchbpf.Load(c.prog, c.flags, c.noNewPrivs)
++	}
++	filter, err := buildFilter(config)
++	if err != nil {
++		return -1, err
++	}
++	seccompFd, err := patchbpf.PatchAndLoad(config, filter)
++	if err != nil {
++		return -1, fmt.Errorf("error loading seccomp filter into kernel: %w", err)
++	}
++	return seccompFd, nil
++}
++
++// buildFilter builds the libseccomp filter for config.
++func buildFilter(config *configs.Seccomp) (*libseccomp.ScmpFilter, error) {
+ 
+ 	defaultAction, err := getAction(config.DefaultAction, config.DefaultErrnoRet)
+ 	if err != nil {
+-		return -1, errors.New("error initializing seccomp - invalid default action")
++		return nil, errors.New("error initializing seccomp - invalid default action")
+ 	}
+ 
+ 	// Ignore the error since pre-2.4 libseccomp is treated as API level 0.
+@@ -44,7 +66,7 @@ func InitSeccomp(config *configs.Seccomp) (int, error) {
+ 	for _, call := range config.Syscalls {
+ 		if call.Action == configs.Notify {
+ 			if apiLevel < 6 {
+-				return -1, fmt.Errorf("seccomp notify unsupported: API level: got %d, want at least 6. Please try with libseccomp >= 2.5.0 and Linux >= 5.7", apiLevel)
++				return nil, fmt.Errorf("seccomp notify unsupported: API level: got %d, want at least 6. Please try with libseccomp >= 2.5.0 and Linux >= 5.7", apiLevel)
+ 			}
+ 
+ 			// We can't allow the write syscall to notify to the seccomp agent.
+@@ -60,36 +82,36 @@ func InitSeccomp(config *configs.Seccomp) (int, error) {
+ 			// agent allows those syscalls to proceed, initialization works just fine and the agent can
+ 			// handle future read()/close() syscalls as it wanted.
+ 			if call.Name == "write" {
+-				return -1, errors.New("SCMP_ACT_NOTIFY cannot be used for the write syscall")
++				return nil, errors.New("SCMP_ACT_NOTIFY cannot be used for the write syscall")
+ 			}
+ 		}
+ 	}
+ 
+ 	// See comment on why write is not allowed. The same reason applies, as this can mean handling write too.
+ 	if defaultAction == libseccomp.ActNotify {
+-		return -1, errors.New("SCMP_ACT_NOTIFY cannot be used as default action")
++		return nil, errors.New("SCMP_ACT_NOTIFY cannot be used as default action")
+ 	}
+ 
+ 	filter, err := libseccomp.NewFilter(defaultAction)
+ 	if err != nil {
+-		return -1, fmt.Errorf("error creating filter: %w", err)
++		return nil, fmt.Errorf("error creating filter: %w", err)
+ 	}
+ 
+ 	// Add extra architectures
+ 	for _, arch := range config.Architectures {
+ 		scmpArch, err := libseccomp.GetArchFromString(arch)
+ 		if err != nil {
+-			return -1, fmt.Errorf("error validating Seccomp architecture: %w", err)
++			return nil, fmt.Errorf("error validating Seccomp architecture: %w", err)
+ 		}
+ 		if err := filter.AddArch(scmpArch); err != nil {
+-			return -1, fmt.Errorf("error adding architecture to seccomp filter: %w", err)
++			return nil, fmt.Errorf("error adding architecture to seccomp filter: %w", err)
+ 		}
+ 	}
+ 
+ 	// Add extra flags.
+ 	for _, flag := range config.Flags {
+ 		if err := setFlag(filter, flag); err != nil {
+-			return -1, err
++			return nil, err
+ 		}
+ 	}
+ 
+@@ -109,26 +131,21 @@ func InitSeccomp(config *configs.Seccomp) (int, error) {
+ 
+ 	// Unset no new privs bit
+ 	if err := filter.SetNoNewPrivsBit(false); err != nil {
+-		return -1, fmt.Errorf("error setting no new privileges: %w", err)
++		return nil, fmt.Errorf("error setting no new privileges: %w", err)
+ 	}
+ 
+ 	// Add a rule for each syscall
+ 	for _, call := range config.Syscalls {
+ 		if call == nil {
+-			return -1, errors.New("encountered nil syscall while initializing Seccomp")
++			return nil, errors.New("encountered nil syscall while initializing Seccomp")
+ 		}
+ 
+ 		if err := matchCall(filter, call, defaultAction); err != nil {
+-			return -1, err
++			return nil, err
+ 		}
+ 	}
+ 
+-	seccompFd, err := patchbpf.PatchAndLoad(config, filter)
+-	if err != nil {
+-		return -1, fmt.Errorf("error loading seccomp filter into kernel: %w", err)
+-	}
+-
+-	return seccompFd, nil
++	return filter, nil
+ }
+ 
+ type unknownFlagError struct {
+@@ -348,3 +365,96 @@ func Version() (uint, uint, uint) {
+ 
+ // Enabled is true if seccomp support is compiled in.
+ const Enabled = true
++
++// precompiled is the filter Precompile prepared for InitSeccomp.
++var precompiled *compiledFilter
++
++type compiledFilter struct {
++	config     *configs.Seccomp
++	prog       []unix.SockFilter
++	flags      uint
++	noNewPrivs bool
++}
++
++// Precompile prepares the filter for config, from cacheDir if a previous
++// container compiled the same one, so that InitSeccomp only has to load it.
++// It must run before the container's rootfs is set up, while cacheDir is
++// still reachable. On error, InitSeccomp compiles the filter as usual.
++func Precompile(config *configs.Seccomp, cacheDir string) error {
++	key, err := cacheKey(config)
++	if err != nil {
++		return err
++	}
++	path := filepath.Join(cacheDir, key)
++	if b, err := os.ReadFile(path); err == nil {
++		if c, ok := decodeFilter(b); ok {
++			c.config = config
++			precompiled = c
++			return nil
++		}
++	}
++	filter, err := buildFilter(config)
++	if err != nil {
++		return err
++	}
++	prog, flags, noNewPrivs, err := patchbpf.Compile(config, filter)
++	if err != nil {
++		return err
++	}
++	precompiled = &compiledFilter{config: config, prog: prog, flags: flags, noNewPrivs: noNewPrivs}
++	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
++		return nil
++	}
++	tmp := fmt.Sprintf("%s.%d.tmp", path, os.Getpid())
++	if err := os.WriteFile(tmp, encodeFilter(precompiled), 0o600); err != nil {
++		return nil
++	}
++	_ = os.Rename(tmp, path)
++	return nil
++}
++
++// cacheKey identifies a compiled filter: the config, the libseccomp it was
++// compiled with, and this format.
++func cacheKey(config *configs.Seccomp) (string, error) {
++	b, err := json.Marshal(config)
++	if err != nil {
++		return "", err
++	}
++	major, minor, micro := libseccomp.GetLibraryVersion()
++	api, _ := libseccomp.GetAPI()
++	h := sha256.New()
++	fmt.Fprintf(h, "runc-seccomp-cache-v1 libseccomp %d.%d.%d api %d\n", major, minor, micro, api)
++	h.Write(b)
++	return hex.EncodeToString(h.Sum(nil)), nil
++}
++
++func encodeFilter(c *compiledFilter) []byte {
++	b := binary.LittleEndian.AppendUint64(nil, uint64(c.flags))
++	if c.noNewPrivs {
++		b = append(b, 1)
++	} else {
++		b = append(b, 0)
++	}
++	for _, ins := range c.prog {
++		b = binary.LittleEndian.AppendUint16(b, ins.Code)
++		b = append(b, ins.Jt, ins.Jf)
++		b = binary.LittleEndian.AppendUint32(b, ins.K)
++	}
++	return b
++}
++
++func decodeFilter(b []byte) (*compiledFilter, bool) {
++	if len(b) < 9 || (len(b)-9)%8 != 0 || len(b) == 9 {
++		return nil, false
++	}
++	c := &compiledFilter{flags: uint(binary.LittleEndian.Uint64(b)), noNewPrivs: b[8] == 1}
++	for p := b[9:]; len(p) > 0; p = p[8:] {
++		c.prog = append(c.prog, unix.SockFilter{
++			Code: binary.LittleEndian.Uint16(p),
++			Jt:   p[2],
++			Jf:   p[3],
++			K:    binary.LittleEndian.Uint32(p[4:]),
++		})
++	}
++	return c, true
++}
+diff --git a/libcontainer/seccomp/seccomp_unsupported.go b/libcontainer/seccomp/seccomp_unsupported.go
+index 25713f2..a90bb6e 100644
+--- a/libcontainer/seccomp/seccomp_unsupported.go
++++ b/libcontainer/seccomp/seccomp_unsupported.go
+@@ -31,3 +31,6 @@ func Version() (uint, uint, uint) {
+ 
+ // Enabled is true if seccomp support is compiled in.
+ const Enabled = false
++
++// Precompile does nothing without seccomp support.
++func Precompile(*configs.Seccomp, string) error { return nil }
+diff --git a/libcontainer/standard_init_linux.go b/libcontainer/standard_init_linux.go
+index 570472b..7320f0d 100644
+--- a/libcontainer/standard_init_linux.go
++++ b/libcontainer/standard_init_linux.go
+@@ -22,6 +22,9 @@ import (
+ 	"github.com/opencontainers/runc/libcontainer/utils"
+ )
+ 
++// seccompCacheDir holds compiled seccomp filters, keyed by config (prototype).
++const seccompCacheDir = "/run/runc-seccomp-cache"
++
+ type linuxStandardInit struct {
+ 	pipe          *syncSocket
+ 	consoleSocket *os.File
+@@ -89,6 +92,14 @@ func (l *linuxStandardInit) Init() error {
+ 	// initialises the labeling system
+ 	selinux.GetEnabled()
+ 
++	// Compile the seccomp filter (or read it from the cache) while the cache
++	// directory is still reachable, before the rootfs is set up.
++	if l.config.Config.Seccomp != nil {
++		if err := seccomp.Precompile(l.config.Config.Seccomp, seccompCacheDir); err != nil {
++			logrus.Debugf("seccomp: no precompiled filter: %v", err)
++		}
++	}
++
+ 	err := prepareRootfs(l.pipe, l.config)
+ 	if err != nil {
+ 		return err
