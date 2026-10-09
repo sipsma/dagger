@@ -2007,8 +2007,8 @@ func (c *Client) runContainer(ctx context.Context, state *execState) (rerr error
 				processStartNS = releasedNS
 			}
 			runID := wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "exec.processRun", wcprof.OpOpts{Ident: state.id, WorkType: wcprof.WorkTypeUser, Argv: profArgv}, processStartNS, endNS, outcome)
-			if initStartedNS, spawnedNS, exitedNS, ok := initTiming.read(); ok {
-				recordProcessRunSplit(ctx, runID, state.id, profArgv, processStartNS, endNS, initStartedNS, spawnedNS, exitedNS, outcome)
+			if initStartedNS, spawnedNS, exitedNS, initExitNS, ok := initTiming.read4(); ok {
+				recordProcessRunSplit(ctx, runID, state.id, profArgv, processStartNS, endNS, initStartedNS, spawnedNS, exitedNS, initExitNS, outcome)
 			}
 		} else {
 			wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "exec.containerStart", wcprof.OpOpts{Ident: state.id}, profStartNS, endNS, outcome)

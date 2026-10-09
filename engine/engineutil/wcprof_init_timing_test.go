@@ -124,7 +124,7 @@ func TestRecordProcessRunSplit(t *testing.T) {
 	ctx := wcprof.ContextWithProfiling(t.Context())
 	ms := int64(time.Millisecond)
 	runID := wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "exec.processRun", wcprof.OpOpts{WorkType: wcprof.WorkTypeUser}, 10*ms, 100*ms, wcprof.OutcomeOK)
-	recordProcessRunSplit(ctx, runID, "exec-id", []string{"go", "build"}, 10*ms, 100*ms, 12*ms, 15*ms, 90*ms, wcprof.OutcomeOK)
+	recordProcessRunSplit(ctx, runID, "exec-id", []string{"go", "build"}, 10*ms, 100*ms, 12*ms, 15*ms, 90*ms, 0, wcprof.OutcomeOK)
 
 	got := phases(t, runID)
 	require.Len(t, got, 4)
@@ -147,13 +147,13 @@ func TestRecordProcessRunSplitClamped(t *testing.T) {
 
 	// /.init started before the coarse release time: the phases stay ordered.
 	runID := wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "exec.processRun", wcprof.OpOpts{}, 10*ms, 100*ms, wcprof.OutcomeOK)
-	recordProcessRunSplit(ctx, runID, "exec-id", nil, 10*ms, 100*ms, 8*ms, 15*ms, 90*ms, wcprof.OutcomeOK)
+	recordProcessRunSplit(ctx, runID, "exec-id", nil, 10*ms, 100*ms, 8*ms, 15*ms, 90*ms, 0, wcprof.OutcomeOK)
 	got := phases(t, runID)
 	require.Equal(t, [2]int64{10 * ms, 10 * ms}, [2]int64{got["exec.initStart"].StartNS, got["exec.initStart"].EndNS})
 	require.Equal(t, [2]int64{10 * ms, 15 * ms}, [2]int64{got["exec.processSpawn"].StartNS, got["exec.processSpawn"].EndNS})
 
 	// A report that ends after the run is not recorded.
 	runID = wcprof.RecordOp(ctx, wcprof.OpKindExecPhase, "exec.processRun", wcprof.OpOpts{}, 10*ms, 100*ms, wcprof.OutcomeOK)
-	recordProcessRunSplit(ctx, runID, "exec-id", nil, 10*ms, 100*ms, 12*ms, 15*ms, 101*ms, wcprof.OutcomeOK)
+	recordProcessRunSplit(ctx, runID, "exec-id", nil, 10*ms, 100*ms, 12*ms, 15*ms, 101*ms, 0, wcprof.OutcomeOK)
 	require.Empty(t, phases(t, runID))
 }

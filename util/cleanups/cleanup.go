@@ -13,6 +13,9 @@ type CleanupF = func() error
 
 type Cleanups struct {
 	funcs []CleanupF
+	// Wrap, if set, runs each cleanup in place of calling it directly, e.g. to
+	// time it. EXPERIMENT (g18 attribution).
+	Wrap func(msg string, f CleanupF) error
 }
 
 type CleanupFunc struct {
@@ -23,7 +26,12 @@ func (c *Cleanups) Add(msg string, f CleanupF) CleanupFunc {
 	fOnce := sync.OnceValue(func() error {
 		slog.ExtraDebug("running cleanup", "msg", msg)
 		start := time.Now()
-		err := f()
+		var err error
+		if c.Wrap != nil {
+			err = c.Wrap(msg, f)
+		} else {
+			err = f()
+		}
 		if err != nil {
 			slog.Error("cleanup failed", "msg", msg, "err", err, "duration", time.Since(start))
 			err = fmt.Errorf("cleanup failed: %q: %w", msg, err)
